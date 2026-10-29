@@ -54,6 +54,8 @@ set(QIQIIME_SOURCES
     tsf/qiqiime.def
     ui/candidate_ui.h
     ui/candidate_ui.cpp
+    ui/langbar_button.h
+    ui/langbar_button.cpp
 )
 add_library(qiqiime SHARED
     ${QIQIIME_SOURCES}
@@ -69,6 +71,7 @@ target_link_libraries(qiqiime PRIVATE
     qiqi_engine
     user32
     gdi32
+    shell32
     ole32
     oleaut32
     advapi32

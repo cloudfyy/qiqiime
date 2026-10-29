@@ -1,6 +1,7 @@
 #include "common.h"
 #include "common/guids.h"
 #include "ui/candidate_ui.h"
+#include "ui/langbar_button.h"
 
 #include <windows.h>
 #include <oleauto.h>
@@ -13,6 +14,129 @@ namespace qiqi::test {
 using Microsoft::WRL::ComPtr;
 
 namespace {
+
+class MockTfMenu final : public ITfMenu {
+public:
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+        if (!ppvObj) return E_INVALIDARG;
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfMenu)) {
+            *ppvObj = static_cast<ITfMenu*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppvObj = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef() override { return 1; }
+    STDMETHODIMP_(ULONG) Release() override { return 1; }
+    STDMETHODIMP AddMenuItem(UINT uId, DWORD dwFlags, HBITMAP, HBITMAP, const WCHAR*, ULONG, ITfMenu**) override {
+        if (dwFlags & TF_LBMENUF_SEPARATOR) {
+            ++separators_;
+        } else {
+            item_ids_.push_back(uId);
+        }
+        return S_OK;
+    }
+
+    std::vector<UINT> item_ids_;
+    size_t separators_ = 0;
+};
+
+class MockLangBarItemSink final : public ITfLangBarItemSink {
+public:
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+        if (!ppvObj) return E_INVALIDARG;
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfLangBarItemSink)) {
+            *ppvObj = static_cast<ITfLangBarItemSink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppvObj = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef() override { return 1; }
+    STDMETHODIMP_(ULONG) Release() override { return 1; }
+    STDMETHODIMP OnUpdate(DWORD dwFlags) override {
+        last_update_flags_ = dwFlags;
+        return S_OK;
+    }
+
+    DWORD last_update_flags_ = 0;
+};
+
+void TestLangBarButton() {
+    LangBarMenuId last_action = static_cast<LangBarMenuId>(0);
+    auto* btn = new LangBarButton([&last_action](LangBarMenuId id) { last_action = id; });
+
+    QIQI_TEST_CHECK(btn->QueryInterface(IID_IUnknown, nullptr) == E_INVALIDARG);
+    void* out = nullptr;
+    QIQI_TEST_CHECK(btn->QueryInterface(IID_IClassFactory, &out) == E_NOINTERFACE);
+
+    ComPtr<ITfLangBarItemButton> lb_btn;
+    ComPtr<ITfSource> lb_src;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->QueryInterface(IID_PPV_ARGS(&lb_btn))));
+    QIQI_TEST_CHECK(SUCCEEDED(btn->QueryInterface(IID_PPV_ARGS(&lb_src))));
+
+    // Info, Status, Show, Tooltip, Text, Icon
+    QIQI_TEST_CHECK(btn->GetInfo(nullptr) == E_INVALIDARG);
+    TF_LANGBARITEMINFO info{};
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetInfo(&info)));
+    QIQI_TEST_CHECK(IsEqualCLSID(info.clsidService, kClsidQiQiTextService));
+
+    QIQI_TEST_CHECK(btn->GetStatus(nullptr) == E_INVALIDARG);
+    DWORD status = 99;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetStatus(&status)) && status == 0);
+    QIQI_TEST_CHECK(SUCCEEDED(btn->Show(TRUE)));
+
+    QIQI_TEST_CHECK(btn->GetTooltipString(nullptr) == E_INVALIDARG);
+    BSTR tooltip = nullptr;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetTooltipString(&tooltip)) && tooltip != nullptr);
+    ::SysFreeString(tooltip);
+
+    QIQI_TEST_CHECK(btn->GetText(nullptr) == E_INVALIDARG);
+    BSTR text = nullptr;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetText(&text)) && std::wstring(text) == L"中");
+    ::SysFreeString(text);
+
+    QIQI_TEST_CHECK(btn->GetIcon(nullptr) == E_INVALIDARG);
+    HICON icon = nullptr;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetIcon(&icon)) && icon != nullptr);
+    ::DestroyIcon(icon);
+
+    // AdviseSink / UpdateState / UnadviseSink
+    MockLangBarItemSink sink;
+    DWORD cookie = 0;
+    QIQI_TEST_CHECK(lb_src->AdviseSink(IID_ITfLangBarItemSink, nullptr, &cookie) == E_INVALIDARG);
+    QIQI_TEST_CHECK(lb_src->AdviseSink(IID_IUnknown, &sink, &cookie) == CONNECT_E_CANNOTCONNECT);
+    QIQI_TEST_CHECK(SUCCEEDED(lb_src->AdviseSink(IID_ITfLangBarItemSink, &sink, &cookie)) && cookie != 0);
+    QIQI_TEST_CHECK(lb_src->AdviseSink(IID_ITfLangBarItemSink, &sink, &cookie) == CONNECT_E_ADVISELIMIT);
+
+    LangBarState st{};
+    st.chinese_mode = false;
+    btn->UpdateState(st);
+    QIQI_TEST_CHECK(sink.last_update_flags_ != 0);
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetText(&text)) && std::wstring(text) == L"英");
+    ::SysFreeString(text);
+
+    QIQI_TEST_CHECK(lb_src->UnadviseSink(9999) == CONNECT_E_NOCONNECTION);
+    QIQI_TEST_CHECK(SUCCEEDED(lb_src->UnadviseSink(cookie)));
+
+    // Menu & Click
+    QIQI_TEST_CHECK(btn->InitMenu(nullptr) == E_INVALIDARG);
+    MockTfMenu menu;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu)));
+    QIQI_TEST_CHECK(menu.item_ids_.size() == 9 && menu.separators_ == 2);
+
+    POINT pt{0, 0};
+    QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_LEFT, pt, nullptr)));
+    QIQI_TEST_CHECK(last_action == LangBarMenuId::ToggleChinese);
+    QIQI_TEST_CHECK(SUCCEEDED(btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::DictHaifeng))));
+    QIQI_TEST_CHECK(last_action == LangBarMenuId::DictHaifeng);
+
+    lb_src.Reset();
+    lb_btn.Reset();
+    QIQI_TEST_CHECK(btn->Release() == 0);
+}
 
 void TestCandidateUI() {
     auto* ui = new CandidateUI(::GetModuleHandleW(nullptr));
@@ -135,6 +259,7 @@ void TestCandidateUI() {
 
 void RunCandidateUITests() {
     TestCandidateUI();
+    TestLangBarButton();
 }
 
 } // namespace qiqi::test

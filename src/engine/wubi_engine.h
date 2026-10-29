@@ -43,6 +43,7 @@ public:
 
     // Load additional UTF-8 table file (format: code word1 word2 ...)
     bool LoadDictionaryFile(const std::filesystem::path& file_path);
+    void ClearExternalDictionaries() noexcept { mapped_dicts_.clear(); }
 
     // Add a single entry
     void AddEntry(std::wstring_view code, std::wstring_view word);

@@ -163,6 +163,8 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
                 cfg.default_chinese_punct = ParseBool(val, cfg.default_chinese_punct);
             } else if (key == "shift_toggle_mode") {
                 cfg.shift_toggle_mode = ParseBool(val, cfg.shift_toggle_mode);
+            } else if (key == "show_status_bar") {
+                cfg.show_status_bar = ParseBool(val, cfg.show_status_bar);
             }
         } else if (current_section == "log") {
             if (key == "level") {
@@ -199,7 +201,9 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         "# 默认是否启用中文全角标点 (运行期可通过 Ctrl+. 切换)\n"
         "default_chinese_punct = {}\n"
         "# 是否允许单按 Shift 键切换中英文模式\n"
-        "shift_toggle_mode = {}\n\n"
+        "shift_toggle_mode = {}\n"
+        "# 是否显示桌面浮动状态条 (默认关闭)\n"
+        "show_status_bar = {}\n\n"
         "[log]\n"
         "# 日志级别: trace | debug | info | warn | error | off\n"
         "level = {}\n",
@@ -213,6 +217,7 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         config.default_full_width ? "true" : "false",
         config.default_chinese_punct ? "true" : "false",
         config.shift_toggle_mode ? "true" : "false",
+        config.show_status_bar ? "true" : "false",
         LogLevelToString(config.log_level));
 }
 

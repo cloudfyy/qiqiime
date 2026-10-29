@@ -26,6 +26,7 @@ struct QiQiConfig {
     bool default_full_width = false;
     bool default_chinese_punct = true;
     bool shift_toggle_mode = true;
+    bool show_status_bar = false;
 
     // [log]
     spdlog::level::level_enum log_level = spdlog::level::info;

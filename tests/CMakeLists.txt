@@ -28,6 +28,7 @@ set(QIQI_TSF_UI_IMPL_SOURCES
     "${PROJECT_SOURCE_DIR}/src/tsf/register.cpp"
     "${PROJECT_SOURCE_DIR}/src/tsf/tip_service.cpp"
     "${PROJECT_SOURCE_DIR}/src/ui/candidate_ui.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ui/langbar_button.cpp"
 )
 add_executable(qiqi_tsf_ui_test
     ${QIQI_TSF_UI_TEST_SOURCES}
@@ -39,6 +40,7 @@ target_link_libraries(qiqi_tsf_ui_test PRIVATE
     qiqi_engine
     user32
     gdi32
+    shell32
     ole32
     oleaut32
     advapi32

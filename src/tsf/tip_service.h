@@ -8,6 +8,7 @@
 #include "common/config.h"
 #include "engine/wubi_engine.h"
 #include "ui/candidate_ui.h"
+#include "ui/langbar_button.h"
 
 namespace qiqi {
 
@@ -62,6 +63,9 @@ private:
     void UninitThreadMgrEventSink();
     bool InitKeyEventSink();
     void UninitKeyEventSink();
+    void InitLangBarItem();
+    void UninitLangBarItem();
+    void HandleLangBarMenuAction(LangBarMenuId action_id);
     void LoadExternalDictionaryNextToDll();
 
     void ResetCompositionAndUI();
@@ -89,6 +93,7 @@ private:
     ComPtr<ITfComposition> composition_;
     ComPtr<ITfContext> active_context_;
     ComPtr<CandidateUI> candidate_ui_;
+    ComPtr<LangBarButton> langbar_btn_;
     QiQiConfig config_{};
     std::filesystem::file_time_type config_last_write_time_{};
     WubiEngine engine_;

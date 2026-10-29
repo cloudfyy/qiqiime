@@ -4,6 +4,7 @@
 #include "common/logger.h"
 #include "common/version.h"
 
+#include <shellapi.h>
 #include <array>
 #include <filesystem>
 
@@ -50,6 +51,9 @@ QiQiTextService::QiQiTextService() {
             }
         }
     });
+    langbar_btn_.Attach(new LangBarButton([this](LangBarMenuId action_id) {
+        HandleLangBarMenuAction(action_id);
+    }));
     LoadExternalDictionaryNextToDll();
 }
 
@@ -58,10 +62,12 @@ QiQiTextService::~QiQiTextService() noexcept {
         candidate_ui_->DestroyPopupWindow();
         candidate_ui_.Reset();
     }
+    langbar_btn_.Reset();
     --g_com_object_count;
 }
 
 void QiQiTextService::LoadExternalDictionaryNextToDll() {
+    engine_.ClearExternalDictionaries();
     const std::filesystem::path module_path = log::GetModuleFilePath(g_dll_instance);
     if (module_path.empty()) {
         QIQI_LOG_WARN("GetModuleFileNameW failed when locating external dictionaries");
@@ -159,6 +165,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
         Deactivate();
         return E_FAIL;
     }
+    InitLangBarItem();
     SyncTsfCompartments();
     return S_OK;
 }
@@ -167,6 +174,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     QIQI_LOG_INFO("QiQiTextService::Deactivate(client_id={})", client_id_);
     ResetCompositionAndUI();
 
+    UninitLangBarItem();
     UninitKeyEventSink();
     UninitThreadMgrEventSink();
 
@@ -227,6 +235,76 @@ void QiQiTextService::UninitKeyEventSink() {
             key_mgr->UnpreserveKey(*def.guid, &pk);
         }
         key_mgr->UnadviseKeyEventSink(client_id_);
+    }
+}
+
+void QiQiTextService::InitLangBarItem() {
+    if (!thread_mgr_ || !langbar_btn_) {
+        return;
+    }
+    ComPtr<ITfLangBarItemMgr> lb_mgr;
+    if (SUCCEEDED(thread_mgr_.As(&lb_mgr)) && lb_mgr) {
+        lb_mgr->AddItem(langbar_btn_.Get());
+    }
+}
+
+void QiQiTextService::UninitLangBarItem() {
+    if (!thread_mgr_ || !langbar_btn_) {
+        return;
+    }
+    ComPtr<ITfLangBarItemMgr> lb_mgr;
+    if (SUCCEEDED(thread_mgr_.As(&lb_mgr)) && lb_mgr) {
+        lb_mgr->RemoveItem(langbar_btn_.Get());
+    }
+}
+
+void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
+    switch (action_id) {
+        case LangBarMenuId::ToggleChinese:
+            ToggleModeAndCancelComposition(active_context_.Get());
+            break;
+        case LangBarMenuId::ToggleFullWidth:
+            engine_.ToggleFullWidthMode();
+            SyncTsfCompartments();
+            break;
+        case LangBarMenuId::TogglePunctuation:
+            engine_.ToggleChinesePunctuation();
+            SyncTsfCompartments();
+            break;
+        case LangBarMenuId::DictJidian:
+            if (config_.primary_dict != PrimaryDict::Jidian) {
+                config_.primary_dict = PrimaryDict::Jidian;
+                SaveConfigFile(GetDefaultUserConfigPath(), config_);
+                LoadExternalDictionaryNextToDll();
+                SyncTsfCompartments();
+            }
+            break;
+        case LangBarMenuId::DictHaifeng:
+            if (config_.primary_dict != PrimaryDict::Haifeng) {
+                config_.primary_dict = PrimaryDict::Haifeng;
+                SaveConfigFile(GetDefaultUserConfigPath(), config_);
+                LoadExternalDictionaryNextToDll();
+                SyncTsfCompartments();
+            }
+            break;
+        case LangBarMenuId::ToggleExtraDict:
+            config_.enable_jidian_extra = !config_.enable_jidian_extra;
+            SaveConfigFile(GetDefaultUserConfigPath(), config_);
+            LoadExternalDictionaryNextToDll();
+            SyncTsfCompartments();
+            break;
+        case LangBarMenuId::ToggleStatusBar:
+            config_.show_status_bar = !config_.show_status_bar;
+            SaveConfigFile(GetDefaultUserConfigPath(), config_);
+            SyncTsfCompartments();
+            break;
+        case LangBarMenuId::OpenSettings:
+        case LangBarMenuId::OpenConfigFile: {
+            const auto cfg_path = GetDefaultUserConfigPath();
+            EnsureDefaultConfigFile(cfg_path);
+            ::ShellExecuteW(nullptr, L"open", L"notepad.exe", cfg_path.c_str(), nullptr, SW_SHOWNORMAL);
+            break;
+        }
     }
 }
 
@@ -379,6 +457,17 @@ void QiQiTextService::ToggleModeAndCancelComposition(ITfContext* context) {
 }
 
 void QiQiTextService::SyncTsfCompartments() {
+    if (langbar_btn_) {
+        LangBarState lb_state{};
+        lb_state.chinese_mode = engine_.IsChineseMode();
+        lb_state.full_width = engine_.IsFullWidthMode();
+        lb_state.chinese_punct = engine_.IsChinesePunctuation();
+        lb_state.show_status_bar = config_.show_status_bar;
+        lb_state.primary_dict = config_.primary_dict;
+        lb_state.enable_jidian_extra = config_.enable_jidian_extra;
+        langbar_btn_->UpdateState(lb_state);
+    }
+
     if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL) {
         return;
     }
