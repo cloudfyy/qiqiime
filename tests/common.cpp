@@ -105,6 +105,8 @@ void TestIniConfiguration() {
         "auto_commit_4code = 0\n"
         "push_commit_5th = no\n"
         "default_chinese_mode = off\n"
+        "default_full_width = true\n"
+        "default_chinese_punct = false\n"
         "shift_toggle_mode = false\n"
         "\n"
         "[log]\n"
@@ -118,16 +120,56 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(!cfg.auto_commit_4code);
     QIQI_TEST_CHECK(!cfg.push_commit_5th);
     QIQI_TEST_CHECK(!cfg.default_chinese_mode);
+    QIQI_TEST_CHECK(cfg.default_full_width);
+    QIQI_TEST_CHECK(!cfg.default_chinese_punct);
     QIQI_TEST_CHECK(!cfg.shift_toggle_mode);
     QIQI_TEST_CHECK(cfg.log_level == spdlog::level::debug);
 
-    // 2. Test alternative enum/boolean values
+    // Test SaveConfigFile & SerializeConfigToUtf8 round-trip
+    const auto roundtrip_path = std::filesystem::temp_directory_path() / L"qiqiime_roundtrip.ini";
+    std::error_code rt_ec;
+    QIQI_TEST_CHECK(SaveConfigFile(roundtrip_path, cfg));
+    QiQiConfig roundtrip_cfg{};
+    QIQI_TEST_CHECK(LoadConfigFile(roundtrip_path, roundtrip_cfg));
+    QIQI_TEST_CHECK(roundtrip_cfg.primary_dict == PrimaryDict::Haifeng);
+    QIQI_TEST_CHECK(roundtrip_cfg.default_full_width);
+    QIQI_TEST_CHECK(!roundtrip_cfg.default_chinese_punct);
+    std::filesystem::remove(roundtrip_path, rt_ec);
+
+    // 2. Test alternative enum/boolean values, uppercase keys, malformed lines, and all log levels
     const QiQiConfig cfg2 = ParseConfigFromUtf8(
-        "[dictionary]\nprimary = builtin\nenable_jidian_extra = yes\n"
-        "[log]\nlevel = trace\n");
+        "[DICTIONARY]\n"
+        "PRIMARY = builtin\n"
+        "ENABLE_JIDIAN_EXTRA = yes\n"
+        "malformed_line_without_equals\n"
+        "[ENGINE]\n"
+        "AUTO_COMMIT_4CODE = on\n"
+        "PUSH_COMMIT_5TH = invalid_bool\n"
+        "[LOG]\n"
+        "LEVEL = trace\n");
     QIQI_TEST_CHECK(cfg2.primary_dict == PrimaryDict::BuiltinOnly);
     QIQI_TEST_CHECK(cfg2.enable_jidian_extra);
+    QIQI_TEST_CHECK(cfg2.auto_commit_4code);
+    QIQI_TEST_CHECK(cfg2.push_commit_5th);
     QIQI_TEST_CHECK(cfg2.log_level == spdlog::level::trace);
+
+    for (const auto& [lvl_str, lvl_enum] : {
+             std::pair{"info", spdlog::level::info},
+             std::pair{"warn", spdlog::level::warn},
+             std::pair{"error", spdlog::level::err},
+             std::pair{"critical", spdlog::level::critical},
+             std::pair{"off", spdlog::level::off},
+             std::pair{"unknown_lvl", spdlog::level::info}}) {
+        QiQiConfig lcfg = ParseConfigFromUtf8(std::string("[log]\nlevel = ") + lvl_str + "\n[dictionary]\nprimary = unknown_dict\n");
+        QIQI_TEST_CHECK(lcfg.log_level == lvl_enum);
+        QIQI_TEST_CHECK(lcfg.primary_dict == PrimaryDict::Jidian);
+        const std::string serialized = SerializeConfigToUtf8(lcfg);
+        QIQI_TEST_CHECK(!serialized.empty());
+    }
+    QIQI_TEST_CHECK(!SerializeConfigToUtf8(cfg2).empty());
+
+    // SaveConfigFile failure when target is a directory
+    QIQI_TEST_CHECK(!SaveConfigFile(std::filesystem::temp_directory_path(), cfg));
 
     // 3. Test EnsureDefaultConfigFile and LoadConfigFile
     const auto temp_cfg_path = std::filesystem::temp_directory_path() / L"qiqiime_test_config.ini";
@@ -152,9 +194,23 @@ void TestIniConfiguration() {
 
     std::filesystem::remove(temp_cfg_path, ec);
 
-    // 4. Test LoadConfig discovery
+    // 4. Test LoadConfig discovery when user config does not exist yet (using temporary LOCALAPPDATA)
+    wchar_t* orig_localappdata = nullptr;
+    size_t orig_len = 0;
+    _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
+    const auto temp_appdata = std::filesystem::temp_directory_path() / L"QiQiIME_TestAppData";
+    std::filesystem::remove_all(temp_appdata, ec);
+    _wputenv_s(L"LOCALAPPDATA", temp_appdata.wstring().c_str());
+
     const QiQiConfig discovered = LoadConfig(nullptr);
     QIQI_TEST_CHECK(discovered.page_size >= 1 && discovered.page_size <= 9);
+    QIQI_TEST_CHECK(std::filesystem::exists(GetDefaultUserConfigPath()));
+
+    if (orig_localappdata) {
+        _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
+        free(orig_localappdata);
+    }
+    std::filesystem::remove_all(temp_appdata, ec);
 }
 
 } // namespace

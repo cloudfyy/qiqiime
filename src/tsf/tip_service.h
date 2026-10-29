@@ -65,6 +65,8 @@ private:
 
     void ResetCompositionAndUI();
     void ToggleModeAndCancelComposition(ITfContext* context);
+    void SyncTsfCompartments();
+    void ReloadConfigIfModified();
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
     void SyncCompositionUIInSession(TfEditCookie ec, ITfContext* context, const std::wstring& text);
     void StartOrUpdateCompositionInSession(TfEditCookie ec, ITfContext* context, const std::wstring& text);
@@ -86,6 +88,7 @@ private:
     ComPtr<ITfComposition> composition_;
     ComPtr<CandidateUI> candidate_ui_;
     QiQiConfig config_{};
+    std::filesystem::file_time_type config_last_write_time_{};
     WubiEngine engine_;
     bool shift_tap_candidate_ = false;
 };

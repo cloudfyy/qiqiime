@@ -23,6 +23,8 @@ struct QiQiConfig {
     bool auto_commit_4code = true;
     bool push_commit_5th = true;
     bool default_chinese_mode = true;
+    bool default_full_width = false;
+    bool default_chinese_punct = true;
     bool shift_toggle_mode = true;
 
     // [log]
@@ -35,8 +37,14 @@ std::filesystem::path GetDefaultUserConfigPath();
 // Parse UTF-8 INI content into QiQiConfig (starting from defaults).
 QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content);
 
+// Serialize QiQiConfig to UTF-8 INI text.
+std::string SerializeConfigToUtf8(const QiQiConfig& config);
+
 // Load configuration from a specific INI file path. Returns false if file cannot be opened.
 bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_config);
+
+// Save QiQiConfig to a specific INI file path.
+bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& config);
 
 // Write a default commented UTF-8 config.ini file if it does not already exist.
 bool EnsureDefaultConfigFile(const std::filesystem::path& file_path);

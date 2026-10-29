@@ -349,6 +349,68 @@ void TestChinesePunctuation() {
     QIQI_TEST_CHECK(raw_punct.action == KeyActionType::Commit);
     QIQI_TEST_CHECK(raw_punct.committed_text == L"yyy，");
     QIQI_TEST_CHECK(!engine.IsComposing());
+
+    // Toggle Chinese punctuation off (Ctrl+. behavior): punctuation keys should PassThrough in half-width mode
+    QIQI_TEST_CHECK(engine.IsChinesePunctuation());
+    engine.ToggleChinesePunctuation();
+    QIQI_TEST_CHECK(!engine.IsChinesePunctuation());
+    QIQI_TEST_CHECK(!engine.ShouldEatKey(VK_OEM_PERIOD, false, false, false));
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_PERIOD, false).action == KeyActionType::PassThrough);
+    engine.ToggleChinesePunctuation();
+    QIQI_TEST_CHECK(engine.IsChinesePunctuation());
+}
+
+void TestFullWidthMode() {
+    static_assert(AsciiToFullWidth(' ') == L'\u3000');
+    static_assert(AsciiToFullWidth('\n') == L'\n');
+    static_assert(MapFullWidthChar(VK_SPACE, false) == L'\u3000');
+    static_assert(MapFullWidthChar('A', true) == L'Ａ');
+    static_assert(MapFullWidthChar('1', false) == L'１');
+    static_assert(MapFullWidthChar('2', true) == L'＠');
+
+    // Runtime verification of AsciiToFullWidth and all OEM keys in MapFullWidthChar
+    QIQI_TEST_CHECK(AsciiToFullWidth(' ') == L'\u3000');
+    QIQI_TEST_CHECK(AsciiToFullWidth('\n') == L'\n');
+    for (uint32_t vk : {VK_OEM_1, VK_OEM_PLUS, VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD,
+                        VK_OEM_2, VK_OEM_3, VK_OEM_4, VK_OEM_5, VK_OEM_6, VK_OEM_7}) {
+        QIQI_TEST_CHECK(MapFullWidthChar(vk, false).has_value());
+        QIQI_TEST_CHECK(MapFullWidthChar(vk, true).has_value());
+    }
+    QIQI_TEST_CHECK(!MapFullWidthChar(VK_F1, false).has_value());
+
+    WubiEngine engine;
+    engine.SetFullWidthMode(true);
+    QIQI_TEST_CHECK(engine.IsFullWidthMode());
+    engine.SetChinesePunctuation(false);
+    QIQI_TEST_CHECK(!engine.IsChinesePunctuation());
+    engine.SetChinesePunctuation(true);
+    engine.SetAutoCommit4Code(true);
+    engine.SetPushCommit5th(true);
+
+    // In Chinese Idle + FullWidth mode, Space, digits, and Shift+A produce full-width characters
+    auto fw_space = engine.ProcessKey(VK_SPACE, false);
+    QIQI_TEST_CHECK(fw_space.action == KeyActionType::Commit && fw_space.committed_text == L"　");
+
+    auto fw_digit = engine.ProcessKey('1', false);
+    QIQI_TEST_CHECK(fw_digit.action == KeyActionType::Commit && fw_digit.committed_text == L"１");
+
+    auto fw_upper = engine.ProcessKey('A', true);
+    QIQI_TEST_CHECK(fw_upper.action == KeyActionType::Commit && fw_upper.committed_text == L"Ａ");
+
+    // While composing 'a' ("工"), typing Shift+2 ('@', which is not a Chinese punctuation key)
+    // in FullWidth mode commits current candidate + full-width '＠'
+    engine.ProcessKey('A', false);
+    auto fw_comp_sym = engine.ProcessKey('2', true);
+    QIQI_TEST_CHECK(fw_comp_sym.action == KeyActionType::Commit && fw_comp_sym.committed_text == L"工＠");
+
+    // In English + FullWidth mode, lowercase 'a' also produces full-width 'ａ'
+    engine.SetChineseMode(false);
+    QIQI_TEST_CHECK(engine.ShouldEatKey('A', false, false, false));
+    auto fw_lower = engine.ProcessKey('A', false);
+    QIQI_TEST_CHECK(fw_lower.action == KeyActionType::Commit && fw_lower.committed_text == L"ａ");
+
+    engine.ToggleFullWidthMode();
+    QIQI_TEST_CHECK(!engine.IsFullWidthMode());
 }
 
 } // namespace
@@ -362,6 +424,7 @@ void RunEngineInputTests() {
     TestNavigationSelectionAndReturnCommit();
     TestModeSwitchingAndShouldEatKey();
     TestChinesePunctuation();
+    TestFullWidthMode();
 }
 
 } // namespace qiqi::test

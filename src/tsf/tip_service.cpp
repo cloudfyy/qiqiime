@@ -11,6 +11,19 @@ namespace qiqi {
 
 namespace {
 
+struct PreservedKeyDef {
+    const GUID* guid;
+    UINT vkey;
+    UINT modifiers;
+    const wchar_t* desc;
+};
+
+constexpr std::array<PreservedKeyDef, 3> kPreservedKeys = {{
+    {&kGuidPreservedKeyToggleMode,        VK_SPACE,      TF_MOD_CONTROL, L"切换中英文"},
+    {&kGuidPreservedKeyToggleFullWidth,   VK_SPACE,      TF_MOD_SHIFT,   L"切换全半角"},
+    {&kGuidPreservedKeyTogglePunctuation, VK_OEM_PERIOD, TF_MOD_CONTROL, L"切换中英文标点"},
+}};
+
 bool IsKeyDown(int vk) noexcept {
     return (::GetKeyState(vk) & 0x8000) != 0;
 }
@@ -20,6 +33,11 @@ bool IsKeyDown(int vk) noexcept {
 QiQiTextService::QiQiTextService() {
     ++g_com_object_count;
     config_ = LoadConfig(g_dll_instance);
+    std::error_code ec;
+    const auto user_cfg = GetDefaultUserConfigPath();
+    if (std::filesystem::exists(user_cfg, ec)) {
+        config_last_write_time_ = std::filesystem::last_write_time(user_cfg, ec);
+    }
     log::SetLevel(config_.log_level);
     engine_.ApplyConfig(config_);
     candidate_ui_.Attach(new CandidateUI(g_dll_instance));
@@ -132,6 +150,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
         Deactivate();
         return E_FAIL;
     }
+    SyncTsfCompartments();
     return S_OK;
 }
 
@@ -180,11 +199,11 @@ bool QiQiTextService::InitKeyEventSink() {
         return false;
     }
 
-    // Register Ctrl+Space as a preserved key to toggle Chinese/English mode
-    TF_PRESERVEDKEY pk{};
-    pk.uVKey = VK_SPACE;
-    pk.uModifiers = TF_MOD_CONTROL;
-    key_mgr->PreserveKey(client_id_, kGuidPreservedKeyToggleMode, &pk, L"切换中英文", 5);
+    for (const auto& def : kPreservedKeys) {
+        TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
+        key_mgr->PreserveKey(
+            client_id_, *def.guid, &pk, def.desc, static_cast<ULONG>(wcslen(def.desc)));
+    }
     return true;
 }
 
@@ -194,10 +213,10 @@ void QiQiTextService::UninitKeyEventSink() {
     }
     ComPtr<ITfKeystrokeMgr> key_mgr;
     if (SUCCEEDED(thread_mgr_.As(&key_mgr)) && key_mgr) {
-        TF_PRESERVEDKEY pk{};
-        pk.uVKey = VK_SPACE;
-        pk.uModifiers = TF_MOD_CONTROL;
-        key_mgr->UnpreserveKey(kGuidPreservedKeyToggleMode, &pk);
+        for (const auto& def : kPreservedKeys) {
+            TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
+            key_mgr->UnpreserveKey(*def.guid, &pk);
+        }
         key_mgr->UnadviseKeyEventSink(client_id_);
     }
 }
@@ -214,6 +233,8 @@ STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* /*pdim*/) noex
 STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* /*pdimPrevFocus*/) {
     if (!pdimFocus) {
         ResetCompositionAndUI();
+    } else {
+        ReloadConfigIfModified();
     }
     return S_OK;
 }
@@ -305,6 +326,20 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
         ToggleModeAndCancelComposition(pic);
         return S_OK;
     }
+    if (IsEqualGUID(rguid, kGuidPreservedKeyToggleFullWidth)) {
+        *pfEaten = TRUE;
+        engine_.ToggleFullWidthMode();
+        SyncTsfCompartments();
+        QIQI_LOG_INFO("Full-width mode toggled: {}", engine_.IsFullWidthMode() ? "FullWidth" : "HalfWidth");
+        return S_OK;
+    }
+    if (IsEqualGUID(rguid, kGuidPreservedKeyTogglePunctuation)) {
+        *pfEaten = TRUE;
+        engine_.ToggleChinesePunctuation();
+        SyncTsfCompartments();
+        QIQI_LOG_INFO("Punctuation mode toggled: {}", engine_.IsChinesePunctuation() ? "Chinese" : "English");
+        return S_OK;
+    }
     *pfEaten = FALSE;
     return S_OK;
 }
@@ -330,6 +365,65 @@ void QiQiTextService::ToggleModeAndCancelComposition(ITfContext* context) {
         ApplyEngineResult(context, cancel_res);
     }
     engine_.ToggleChineseMode();
+    SyncTsfCompartments();
+}
+
+void QiQiTextService::SyncTsfCompartments() {
+    if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL) {
+        return;
+    }
+    ComPtr<ITfCompartmentMgr> comp_mgr;
+    if (FAILED(thread_mgr_.As(&comp_mgr)) || !comp_mgr) {
+        return;
+    }
+
+    auto set_dword = [&](REFGUID guid, LONG val) {
+        ComPtr<ITfCompartment> comp;
+        if (SUCCEEDED(comp_mgr->GetCompartment(guid, &comp)) && comp) {
+            VARIANT var{};
+            var.vt = VT_I4;
+            var.lVal = val;
+            comp->SetValue(client_id_, &var);
+        }
+    };
+
+    set_dword(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, engine_.IsChineseMode() ? 1 : 0);
+
+    LONG conv_mode = 0;
+    if (engine_.IsChineseMode()) {
+        conv_mode |= TF_CONVERSIONMODE_NATIVE;
+    }
+    if (engine_.IsFullWidthMode()) {
+        conv_mode |= TF_CONVERSIONMODE_FULLSHAPE;
+    }
+    if (engine_.IsChinesePunctuation()) {
+        conv_mode |= TF_CONVERSIONMODE_SYMBOL;
+    }
+    set_dword(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION, conv_mode);
+}
+
+void QiQiTextService::ReloadConfigIfModified() {
+    std::error_code ec;
+    const std::filesystem::path user_cfg = GetDefaultUserConfigPath();
+    if (!std::filesystem::exists(user_cfg, ec)) {
+        return;
+    }
+    const auto write_time = std::filesystem::last_write_time(user_cfg, ec);
+    if (ec || write_time == config_last_write_time_) {
+        return;
+    }
+
+    QiQiConfig updated{};
+    if (LoadConfigFile(user_cfg, updated)) {
+        config_last_write_time_ = write_time;
+        config_ = std::move(updated);
+        log::SetLevel(config_.log_level);
+        engine_.SetPageSize(config_.page_size);
+        engine_.SetAutoCommit4Code(config_.auto_commit_4code);
+        engine_.SetPushCommit5th(config_.push_commit_5th);
+        QIQI_LOG_INFO("Hot-reloaded modified user configuration from '{}'",
+                      log::WideToUtf8(user_cfg.wstring()));
+    }
 }
 
 void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessResult& result) {

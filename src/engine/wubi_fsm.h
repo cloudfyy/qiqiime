@@ -102,8 +102,50 @@ constexpr std::optional<std::wstring_view> MapChinesePunctuation(uint32_t vk, bo
     }
 }
 
+constexpr wchar_t AsciiToFullWidth(char ch) noexcept {
+    if (ch == ' ') {
+        return L'\u3000';
+    }
+    if (ch >= 0x21 && ch <= 0x7E) {
+        return static_cast<wchar_t>(ch - 0x21 + 0xFF01);
+    }
+    return static_cast<wchar_t>(ch);
+}
+
+// Map a virtual key + Shift state to its Unicode Full-Width (全角) character.
+constexpr std::optional<wchar_t> MapFullWidthChar(uint32_t vk, bool shift_down) noexcept {
+    if (vk == VK_SPACE) {
+        return L'\u3000';
+    }
+    if (vk >= 'A' && vk <= 'Z') {
+        const char ascii = static_cast<char>(shift_down ? vk : (vk - 'A' + 'a'));
+        return AsciiToFullWidth(ascii);
+    }
+    if (vk >= '0' && vk <= '9') {
+        if (!shift_down) {
+            return AsciiToFullWidth(static_cast<char>(vk));
+        }
+        constexpr std::array<char, 10> kShiftedDigits = {')', '!', '@', '#', '$', '%', '^', '&', '*', '('};
+        return AsciiToFullWidth(kShiftedDigits[vk - '0']);
+    }
+    switch (vk) {
+        case VK_OEM_1:      return AsciiToFullWidth(shift_down ? ':' : ';');
+        case VK_OEM_PLUS:   return AsciiToFullWidth(shift_down ? '+' : '=');
+        case VK_OEM_COMMA:  return AsciiToFullWidth(shift_down ? '<' : ',');
+        case VK_OEM_MINUS:  return AsciiToFullWidth(shift_down ? '_' : '-');
+        case VK_OEM_PERIOD: return AsciiToFullWidth(shift_down ? '>' : '.');
+        case VK_OEM_2:      return AsciiToFullWidth(shift_down ? '?' : '/');
+        case VK_OEM_3:      return AsciiToFullWidth(shift_down ? '~' : '`');
+        case VK_OEM_4:      return AsciiToFullWidth(shift_down ? '{' : '[');
+        case VK_OEM_5:      return AsciiToFullWidth(shift_down ? '|' : '\\');
+        case VK_OEM_6:      return AsciiToFullWidth(shift_down ? '}' : ']');
+        case VK_OEM_7:      return AsciiToFullWidth(shift_down ? '"' : '\'');
+        default:            return std::nullopt;
+    }
+}
+
 constexpr KeyEventKind ClassifyKeyEvent(
-    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) noexcept {
+    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool chinese_punct = true) noexcept {
     if (ctrl_down || alt_down) {
         return KeyEventKind::None;
     }
@@ -137,7 +179,7 @@ constexpr KeyEventKind ClassifyKeyEvent(
     if (!shift_down && vk >= '1' && vk <= '9') {
         return KeyEventKind::DigitSelect;
     }
-    if (MapChinesePunctuation(vk, shift_down).has_value()) {
+    if (chinese_punct && MapChinesePunctuation(vk, shift_down).has_value()) {
         return KeyEventKind::ChinesePunct;
     }
     return KeyEventKind::None;

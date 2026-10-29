@@ -73,7 +73,11 @@ C:\sample\qiqiime
    - **第五码顶字上屏**：四码有重码时继续输入第 5 个字母，自动将当前首选词顶上屏，并用第 5 码开启新一轮输入。
    - **`z` 万能学习键**：支持含 `z` 的通配查询（如 `wqz`）。
    - **选词与翻页**：空格首选上屏、`1-5` 数字选词、`Enter` 编码原文上屏、`Backspace` 退格、`Esc` 取消、`-`/`=` 或 `PageUp`/`PageDown` 翻页、`↑`/`↓` 切换候选。
-   - **中英文切换与中文标点**：支持单按 `Shift` 或 `Ctrl+Space`（Preserved Key）切换中英文模式，支持中文模式下常用全角标点直接上屏。
+   - **动态状态切换（中英 / 全半角 / 中英标点）**：
+     - **中/英文模式切换**：单按 `Shift` 或 `Ctrl+Space`（Preserved Key）
+     - **全/半角字符切换**：`Shift+Space`（Preserved Key，全角模式下英文字母、数字、空格与符号自动转为全角 `Ａ`~`Ｚ`、`０`~`９`、`　`）
+     - **中/英文标点切换**：`Ctrl+.`（Preserved Key，动态开关中文全角标点映射）
+     - 所有动态状态实时同步至 Windows TSF Compartments（`GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` 与 `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION`）。
 
 2. **标准 Windows TSF 接入（`QiQiTextService`）**
    - 实现 `ITfTextInputProcessorEx`、`ITfThreadMgrEventSink`、`ITfKeyEventSink`、`ITfCompositionSink`。
@@ -91,9 +95,10 @@ C:\sample\qiqiime
    - 支持同时构建 64 位（`build\x64`）与 32 位（`build\x86`）`qiqiime.dll`。
    - `RegisterServer` / `UnregisterServer` 自动识别 WOW64 环境（`IsRunningUnderWow64()`）：在 64 位系统上通过 `SysWOW64\regsvr32.exe` 注册 32 位 DLL 时，精确写入 `HKCR\WOW6432Node\CLSID` 而不覆盖 64 位共享 TSF Language Profile，兼顾 64 位桌面应用与 32 位老应用/游戏。
 
-6. **INI 配置文件系统（`config.ini`）**
+6. **INI 配置文件系统与动态热更新（`config.ini`）**
    - 默认读取 `%LOCALAPPDATA%\QiQiIME\config.ini`（首次运行时若不存在会自动生成带中文注释的默认配置文件），并支持回退读取 `qiqiime.dll` 同目录的 `config.ini`。
-   - 支持配置主词库选择（`primary = jidian | haifeng | builtin`）、是否启用现代扩展词库（`enable_jidian_extra`）、自定义词表路径（`user_dict`）、每页候选数（`page_size`）、四码唯一自动上屏（`auto_commit_4code`）、第五码顶字（`push_commit_5th`）、默认中英文模式（`default_chinese_mode`）、Shift 切换开关（`shift_toggle_mode`）及日志级别（`level`）。
+   - 支持配置主词库选择（`primary = jidian | haifeng | builtin`）、是否启用现代扩展词库（`enable_jidian_extra`）、自定义词表路径（`user_dict`）、每页候选数（`page_size`）、四码唯一自动上屏（`auto_commit_4code`）、第五码顶字（`push_commit_5th`）、默认中英文模式（`default_chinese_mode`）、默认全半角模式（`default_full_width`）、默认中英文标点（`default_chinese_punct`）、Shift 切换开关（`shift_toggle_mode`）及日志级别（`level`）。
+   - **动态热重载**：焦点切换（`OnSetFocus`）时自动检测 `%LOCALAPPDATA%\QiQiIME\config.ini` 的修改时间戳，修改保存后无需重启宿主程序即可生效。
 
 ---
 

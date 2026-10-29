@@ -153,6 +153,8 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     SetPageSize(cfg.page_size);
     auto_commit_4code_ = cfg.auto_commit_4code;
     push_commit_5th_ = cfg.push_commit_5th;
+    full_width_mode_ = cfg.default_full_width;
+    chinese_punctuation_ = cfg.default_chinese_punct;
     SetChineseMode(cfg.default_chinese_mode);
 }
 
@@ -316,16 +318,32 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
 }
 
 bool WubiEngine::ShouldEatKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept {
-    const KeyEventKind event = ClassifyKeyEvent(vk, shift_down, ctrl_down, alt_down);
-    return LookupTransition(state_, event).eat_key;
+    const KeyEventKind event = ClassifyKeyEvent(vk, shift_down, ctrl_down, alt_down, chinese_punctuation_);
+    if (LookupTransition(state_, event).eat_key) {
+        return true;
+    }
+    if (full_width_mode_ && !ctrl_down && !alt_down) {
+        return MapFullWidthChar(vk, shift_down).has_value();
+    }
+    return false;
 }
 
 KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) {
-    const KeyEventKind event = ClassifyKeyEvent(vk, shift_down, ctrl_down, alt_down);
+    const KeyEventKind event = ClassifyKeyEvent(vk, shift_down, ctrl_down, alt_down, chinese_punctuation_);
     const TransitionRule rule = LookupTransition(state_, event);
 
     switch (rule.op) {
         case TransitionOp::PassThrough:
+            if (full_width_mode_ && !ctrl_down && !alt_down) {
+                if (const auto fw = MapFullWidthChar(vk, shift_down); fw.has_value()) {
+                    std::wstring committed;
+                    if (IsComposing()) {
+                        committed = CurrentSelectedCandidateOrRaw();
+                    }
+                    committed.push_back(*fw);
+                    return CommitAndReset(std::move(committed));
+                }
+            }
             return {};
 
         case TransitionOp::AppendCode:

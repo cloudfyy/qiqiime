@@ -51,11 +51,12 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     // Activate success
     QIQI_TEST_CHECK(SUCCEEDED(service->Activate(mock_tm.Get(), 1)));
 
-    // ThreadMgrEventSink notifications
+    // ThreadMgrEventSink notifications (including non-null OnSetFocus to test config hot-reload check)
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnInitDocumentMgr(nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnUninitDocumentMgr(nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnPushContext(nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnPopContext(nullptr)));
+    QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnSetFocus(reinterpret_cast<ITfDocumentMgr*>(1), nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnSetFocus(nullptr, nullptr)));
 
     // KeyEventSink error checks
@@ -108,6 +109,16 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     // Toggle back to Chinese mode via PreservedKey (Ctrl+Space)
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyToggleMode, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidProfileWubi86, &eaten)) && eaten == FALSE);
+
+    // Test FullWidth toggle (Shift+Space) and Chinese Punctuation toggle (Ctrl+.) PreservedKeys
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyToggleFullWidth, &eaten)) && eaten == TRUE);
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), '1', 0, &eaten)) && eaten == TRUE);
+    QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"１");
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyToggleFullWidth, &eaten)) && eaten == TRUE);
+
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyTogglePunctuation, &eaten)) && eaten == TRUE);
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_PERIOD, 0, &eaten)) && eaten == FALSE);
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyTogglePunctuation, &eaten)) && eaten == TRUE);
 
     // Start composing again, then test PreservedKey while composing
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
@@ -176,8 +187,44 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     tip_base.Reset();
     QIQI_TEST_CHECK(service->Release() == 0);
 
+    // Also test QiQiTextService with custom Haifeng + user_dict config and hot-reload on OnSetFocus
+    wchar_t* orig_localappdata = nullptr;
+    size_t orig_len = 0;
+    _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
+    std::error_code ec;
+    const auto temp_appdata = std::filesystem::temp_directory_path() / L"QiQiIME_TsfTestAppData";
+    std::filesystem::remove_all(temp_appdata, ec);
+    _wputenv_s(L"LOCALAPPDATA", temp_appdata.wstring().c_str());
+
+    QiQiConfig haifeng_cfg{};
+    haifeng_cfg.primary_dict = PrimaryDict::Haifeng;
+    haifeng_cfg.enable_jidian_extra = true;
+    haifeng_cfg.user_dict_path = L"wubi86_jidian_extra.txt";
+    SaveConfigFile(GetDefaultUserConfigPath(), haifeng_cfg);
+
+    auto* service_haifeng = new QiQiTextService();
+    ComPtr<ITfThreadMgrEventSink> hf_tm_sink;
+    QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&hf_tm_sink))));
+
+    // Modify config file timestamp and trigger hot-reload via OnSetFocus
+    haifeng_cfg.page_size = 6;
+    SaveConfigFile(GetDefaultUserConfigPath(), haifeng_cfg);
+    std::filesystem::last_write_time(
+        GetDefaultUserConfigPath(),
+        std::filesystem::file_time_type::clock::now() + std::chrono::seconds(10),
+        ec);
+    QIQI_TEST_CHECK(SUCCEEDED(hf_tm_sink->OnSetFocus(reinterpret_cast<ITfDocumentMgr*>(1), nullptr)));
+    hf_tm_sink.Reset();
+    QIQI_TEST_CHECK(service_haifeng->Release() == 0);
+
+    if (orig_localappdata) {
+        _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
+        free(orig_localappdata);
+    }
+    std::filesystem::remove_all(temp_appdata, ec);
+
     // Also test QiQiTextService construction when:
-    // 1) g_dll_instance points to kernel32.dll (where wubi86.txt does not exist next to DLL)
+    // 1) g_dll_instance points to kernel32.dll (where dictionaries do not exist next to DLL)
     // 2) g_dll_instance is invalid (GetModuleFileNameW failure branch)
     HINSTANCE saved_instance = g_dll_instance;
     g_dll_instance = ::GetModuleHandleW(L"kernel32.dll");

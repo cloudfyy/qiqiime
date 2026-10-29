@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <format>
 #include <fstream>
 #include <string>
 
@@ -12,30 +13,27 @@ namespace qiqi {
 
 namespace {
 
-constexpr std::string_view kDefaultConfigTemplate =
-    "# QiQi 五笔输入法配置文件 (UTF-8 INI 格式)\n"
-    "# 默认用户配置路径: %LOCALAPPDATA%\\QiQiIME\\config.ini\n\n"
-    "[dictionary]\n"
-    "# 主词库选择: jidian (极点86主词库) | haifeng (海峰86超大字符集) | builtin (仅内置)\n"
-    "primary = jidian\n"
-    "# 是否叠加加载极点五笔现代扩展词库 (wubi86_jidian_extra.txt)\n"
-    "enable_jidian_extra = true\n"
-    "# 用户自定义扩展码表路径 (可选)\n"
-    "user_dict =\n\n"
-    "[engine]\n"
-    "# 候选窗口每页显示的候选词数量 (1 - 9)\n"
-    "page_size = 5\n"
-    "# 四码唯一时是否自动上屏\n"
-    "auto_commit_4code = true\n"
-    "# 第五码是否顶字上屏\n"
-    "push_commit_5th = true\n"
-    "# 默认初始模式是否中文\n"
-    "default_chinese_mode = true\n"
-    "# 是否允许单按 Shift 键切换中英文模式\n"
-    "shift_toggle_mode = true\n\n"
-    "[log]\n"
-    "# 日志级别: trace | debug | info | warn | error | off\n"
-    "level = info\n";
+std::string_view PrimaryDictToString(PrimaryDict dict) noexcept {
+    switch (dict) {
+        case PrimaryDict::Haifeng:     return "haifeng";
+        case PrimaryDict::BuiltinOnly: return "builtin";
+        case PrimaryDict::Jidian:
+        default:                       return "jidian";
+    }
+}
+
+std::string_view LogLevelToString(spdlog::level::level_enum lvl) noexcept {
+    switch (lvl) {
+        case spdlog::level::trace:    return "trace";
+        case spdlog::level::debug:    return "debug";
+        case spdlog::level::warn:     return "warn";
+        case spdlog::level::err:      return "error";
+        case spdlog::level::critical: return "critical";
+        case spdlog::level::off:      return "off";
+        case spdlog::level::info:
+        default:                      return "info";
+    }
+}
 
 constexpr std::string_view TrimAscii(std::string_view sv) noexcept {
     while (!sv.empty() && (sv.front() == ' ' || sv.front() == '\t' || sv.front() == '\r')) {
@@ -159,6 +157,10 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
                 cfg.push_commit_5th = ParseBool(val, cfg.push_commit_5th);
             } else if (key == "default_chinese_mode") {
                 cfg.default_chinese_mode = ParseBool(val, cfg.default_chinese_mode);
+            } else if (key == "default_full_width") {
+                cfg.default_full_width = ParseBool(val, cfg.default_full_width);
+            } else if (key == "default_chinese_punct") {
+                cfg.default_chinese_punct = ParseBool(val, cfg.default_chinese_punct);
             } else if (key == "shift_toggle_mode") {
                 cfg.shift_toggle_mode = ParseBool(val, cfg.shift_toggle_mode);
             }
@@ -170,6 +172,48 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
     }
 
     return cfg;
+}
+
+std::string SerializeConfigToUtf8(const QiQiConfig& config) {
+    return std::format(
+        "# QiQi 五笔输入法配置文件 (UTF-8 INI 格式)\n"
+        "# 默认用户配置路径: %LOCALAPPDATA%\\QiQiIME\\config.ini\n\n"
+        "[dictionary]\n"
+        "# 主词库选择: jidian (极点86主词库) | haifeng (海峰86超大字符集) | builtin (仅内置)\n"
+        "primary = {}\n"
+        "# 是否叠加加载极点五笔现代扩展词库 (wubi86_jidian_extra.txt)\n"
+        "enable_jidian_extra = {}\n"
+        "# 用户自定义扩展码表路径 (可选)\n"
+        "user_dict = {}\n\n"
+        "[engine]\n"
+        "# 候选窗口每页显示的候选词数量 (1 - 9)\n"
+        "page_size = {}\n"
+        "# 四码唯一时是否自动上屏\n"
+        "auto_commit_4code = {}\n"
+        "# 第五码是否顶字上屏\n"
+        "push_commit_5th = {}\n"
+        "# 默认初始模式是否中文\n"
+        "default_chinese_mode = {}\n"
+        "# 默认是否启用全角字符模式 (运行期可通过 Shift+Space 切换)\n"
+        "default_full_width = {}\n"
+        "# 默认是否启用中文全角标点 (运行期可通过 Ctrl+. 切换)\n"
+        "default_chinese_punct = {}\n"
+        "# 是否允许单按 Shift 键切换中英文模式\n"
+        "shift_toggle_mode = {}\n\n"
+        "[log]\n"
+        "# 日志级别: trace | debug | info | warn | error | off\n"
+        "level = {}\n",
+        PrimaryDictToString(config.primary_dict),
+        config.enable_jidian_extra ? "true" : "false",
+        log::WideToUtf8(config.user_dict_path),
+        std::clamp<size_t>(config.page_size, 1, 9),
+        config.auto_commit_4code ? "true" : "false",
+        config.push_commit_5th ? "true" : "false",
+        config.default_chinese_mode ? "true" : "false",
+        config.default_full_width ? "true" : "false",
+        config.default_chinese_punct ? "true" : "false",
+        config.shift_toggle_mode ? "true" : "false",
+        LogLevelToString(config.log_level));
 }
 
 bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_config) {
@@ -188,21 +232,30 @@ bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_conf
     return true;
 }
 
+bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& config) {
+    try {
+        if (file_path.has_parent_path()) {
+            std::error_code ec;
+            std::filesystem::create_directories(file_path.parent_path(), ec);
+        }
+        std::ofstream ofs(file_path, std::ios::binary | std::ios::trunc);
+        if (!ofs.is_open()) {
+            return false;
+        }
+        const std::string text = SerializeConfigToUtf8(config);
+        ofs.write(text.data(), static_cast<std::streamsize>(text.size()));
+        return ofs.good();
+    } catch (...) {
+        return false;
+    }
+}
+
 bool EnsureDefaultConfigFile(const std::filesystem::path& file_path) {
     try {
         if (std::filesystem::exists(file_path)) {
             return true;
         }
-        if (file_path.has_parent_path()) {
-            std::error_code ec;
-            std::filesystem::create_directories(file_path.parent_path(), ec);
-        }
-        std::ofstream ofs(file_path, std::ios::binary);
-        if (!ofs.is_open()) {
-            return false;
-        }
-        ofs.write(kDefaultConfigTemplate.data(), static_cast<std::streamsize>(kDefaultConfigTemplate.size()));
-        return ofs.good();
+        return SaveConfigFile(file_path, QiQiConfig{});
     } catch (...) {
         return false;
     }

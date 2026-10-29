@@ -242,13 +242,53 @@ private:
     ULONG ref_ = 1;
 };
 
-// Minimal mock ITfThreadMgr + ITfSource + ITfKeystrokeMgr + ITfUIElementMgr
+// Minimal mock ITfCompartment
+class MockTfCompartment final : public ITfCompartment {
+public:
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+        if (!ppvObj) return E_INVALIDARG;
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfCompartment)) {
+            *ppvObj = static_cast<ITfCompartment*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppvObj = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() override {
+        ULONG c = --ref_;
+        if (c == 0) delete this;
+        return c;
+    }
+    STDMETHODIMP SetValue(TfClientId, const VARIANT* pvarValue) override {
+        if (pvarValue && pvarValue->vt == VT_I4) {
+            last_val_ = pvarValue->lVal;
+        }
+        return S_OK;
+    }
+    STDMETHODIMP GetValue(VARIANT* pvarValue) override {
+        if (!pvarValue) return E_INVALIDARG;
+        pvarValue->vt = VT_I4;
+        pvarValue->lVal = last_val_;
+        return S_OK;
+    }
+
+    LONG last_val_ = 0;
+private:
+    ULONG ref_ = 1;
+};
+
+// Minimal mock ITfThreadMgr + ITfSource + ITfKeystrokeMgr + ITfUIElementMgr + ITfCompartmentMgr
 class MockTfThreadMgr final
     : public ITfThreadMgr,
       public ITfSource,
       public ITfKeystrokeMgr,
-      public ITfUIElementMgr {
+      public ITfUIElementMgr,
+      public ITfCompartmentMgr {
 public:
+    MockTfThreadMgr() : compartment_(new MockTfCompartment()) {}
+
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfThreadMgr)) {
@@ -259,6 +299,8 @@ public:
             *ppvObj = static_cast<ITfKeystrokeMgr*>(this);
         } else if (IsEqualIID(riid, IID_ITfUIElementMgr) && !fail_query_ui_mgr_) {
             *ppvObj = static_cast<ITfUIElementMgr*>(this);
+        } else if (IsEqualIID(riid, IID_ITfCompartmentMgr)) {
+            *ppvObj = static_cast<ITfCompartmentMgr*>(this);
         } else {
             *ppvObj = nullptr;
             return E_NOINTERFACE;
@@ -324,6 +366,17 @@ public:
     STDMETHODIMP GetUIElement(DWORD, ITfUIElement**) override { return E_NOTIMPL; }
     STDMETHODIMP EnumUIElements(IEnumTfUIElements**) override { return E_NOTIMPL; }
 
+    // ITfCompartmentMgr
+    STDMETHODIMP GetCompartment(REFGUID, ITfCompartment** ppcomp) override {
+        if (!ppcomp) return E_INVALIDARG;
+        *ppcomp = compartment_.Get();
+        (*ppcomp)->AddRef();
+        return S_OK;
+    }
+    STDMETHODIMP ClearCompartment(TfClientId, REFGUID) override { return S_OK; }
+    STDMETHODIMP EnumCompartments(IEnumGUID**) override { return E_NOTIMPL; }
+
+    ComPtr<MockTfCompartment> compartment_;
     bool fail_query_source_ = false;
     bool fail_query_key_mgr_ = false;
     bool fail_query_ui_mgr_ = false;

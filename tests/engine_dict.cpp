@@ -81,7 +81,8 @@ void TestExternalDictFile() {
             << "   \n"
             << "# Another comment\n"
             << "zzzz 测一 测二\n"
-            << "瑞梅词\tzzzy\t100\n";
+            << "瑞梅词\tzzzy\t100\n"
+            << "超长码词\tabcde\t50\n";
     }
     QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
     auto zzzz = engine.LookupExact(L"zzzz");

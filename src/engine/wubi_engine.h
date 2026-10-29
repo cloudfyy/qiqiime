@@ -50,6 +50,12 @@ public:
     bool IsChineseMode() const noexcept { return state_ != EngineState::English; }
     void SetChineseMode(bool enabled) noexcept;
     void ToggleChineseMode() noexcept;
+    bool IsFullWidthMode() const noexcept { return full_width_mode_; }
+    void SetFullWidthMode(bool enabled) noexcept { full_width_mode_ = enabled; }
+    void ToggleFullWidthMode() noexcept { full_width_mode_ = !full_width_mode_; }
+    bool IsChinesePunctuation() const noexcept { return chinese_punctuation_; }
+    void SetChinesePunctuation(bool enabled) noexcept { chinese_punctuation_ = enabled; }
+    void ToggleChinesePunctuation() noexcept { chinese_punctuation_ = !chinese_punctuation_; }
     void SetPageSize(size_t page_size) noexcept;
     bool AutoCommit4Code() const noexcept { return auto_commit_4code_; }
     void SetAutoCommit4Code(bool enabled) noexcept { auto_commit_4code_ = enabled; }
@@ -95,6 +101,8 @@ private:
     size_t selected_in_page_ = 0;
     bool auto_commit_4code_ = true;
     bool push_commit_5th_ = true;
+    bool full_width_mode_ = false;
+    bool chinese_punctuation_ = true;
     EngineState state_ = EngineState::Idle;
 };
 
