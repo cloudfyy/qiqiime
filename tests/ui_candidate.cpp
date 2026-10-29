@@ -3,6 +3,7 @@
 #include "ui/candidate_ui.h"
 #include "ui/langbar_button.h"
 #include "ui/settings_dialog.h"
+#include "ui/status_bar.h"
 
 #include <windows.h>
 #include <oleauto.h>
@@ -284,12 +285,51 @@ void TestSettingsDialogControls() {
     ::DestroyWindow(hwnd);
 }
 
+void TestStatusBarUI() {
+    LangBarMenuId clicked_action = static_cast<LangBarMenuId>(0);
+    StatusBarUI bar(::GetModuleHandleW(nullptr), [&clicked_action](LangBarMenuId id) {
+        clicked_action = id;
+    });
+
+    // Disabled by default
+    QIQI_TEST_CHECK(!bar.IsVisible());
+
+    LangBarState st{};
+    st.show_status_bar = true;
+    bar.UpdateState(st);
+    QIQI_TEST_CHECK(bar.IsVisible());
+    QIQI_TEST_CHECK(bar.WindowHandle() != nullptr);
+
+    // Pump WM_PAINT and test cell clicks: [Logo:0..48] [Cell0:48..80] [Cell1:80..112] [Cell2:112..144] [Cell3:144..176]
+    MSG msg{};
+    while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        ::TranslateMessage(&msg);
+        ::DispatchMessageW(&msg);
+    }
+
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSEACTIVATE, 0, 0);
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(55, 16));
+    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleChinese);
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(90, 16));
+    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleFullWidth);
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(120, 16));
+    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::TogglePunctuation);
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(155, 16));
+    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::OpenSettings);
+
+    st.show_status_bar = false;
+    bar.UpdateState(st);
+    QIQI_TEST_CHECK(!bar.IsVisible());
+    bar.DestroyBarWindow();
+}
+
 } // namespace
 
 void RunCandidateUITests() {
     TestCandidateUI();
     TestLangBarButton();
     TestSettingsDialogControls();
+    TestStatusBarUI();
 }
 
 } // namespace qiqi::test

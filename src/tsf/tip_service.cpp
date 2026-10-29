@@ -56,10 +56,17 @@ QiQiTextService::QiQiTextService() {
     langbar_btn_.Attach(new LangBarButton([this](LangBarMenuId action_id) {
         HandleLangBarMenuAction(action_id);
     }));
+    status_bar_ = std::make_unique<StatusBarUI>(g_dll_instance, [this](LangBarMenuId action_id) {
+        HandleLangBarMenuAction(action_id);
+    });
     LoadExternalDictionaryNextToDll();
 }
 
 QiQiTextService::~QiQiTextService() noexcept {
+    if (status_bar_) {
+        status_bar_->DestroyBarWindow();
+        status_bar_.reset();
+    }
     if (candidate_ui_) {
         candidate_ui_->DestroyPopupWindow();
         candidate_ui_.Reset();
@@ -180,6 +187,9 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
 STDMETHODIMP QiQiTextService::Deactivate() {
     QIQI_LOG_INFO("QiQiTextService::Deactivate(client_id={})", client_id_);
     ResetCompositionAndUI();
+    if (status_bar_) {
+        status_bar_->Show(false);
+    }
 
     UninitLangBarItem();
     UninitFunctionProvider();
@@ -538,15 +548,19 @@ void QiQiTextService::ToggleModeAndCancelComposition(ITfContext* context) {
 }
 
 void QiQiTextService::SyncTsfCompartments() {
+    LangBarState lb_state{};
+    lb_state.chinese_mode = engine_.IsChineseMode();
+    lb_state.full_width = engine_.IsFullWidthMode();
+    lb_state.chinese_punct = engine_.IsChinesePunctuation();
+    lb_state.show_status_bar = config_.show_status_bar;
+    lb_state.primary_dict = config_.primary_dict;
+    lb_state.enable_jidian_extra = config_.enable_jidian_extra;
+
     if (langbar_btn_) {
-        LangBarState lb_state{};
-        lb_state.chinese_mode = engine_.IsChineseMode();
-        lb_state.full_width = engine_.IsFullWidthMode();
-        lb_state.chinese_punct = engine_.IsChinesePunctuation();
-        lb_state.show_status_bar = config_.show_status_bar;
-        lb_state.primary_dict = config_.primary_dict;
-        lb_state.enable_jidian_extra = config_.enable_jidian_extra;
         langbar_btn_->UpdateState(lb_state);
+    }
+    if (status_bar_ && thread_mgr_) {
+        status_bar_->UpdateState(lb_state);
     }
 
     if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL) {

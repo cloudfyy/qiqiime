@@ -58,6 +58,8 @@ set(QIQIIME_SOURCES
     ui/langbar_button.cpp
     ui/settings_dialog.h
     ui/settings_dialog.cpp
+    ui/status_bar.h
+    ui/status_bar.cpp
 )
 add_library(qiqiime SHARED
     ${QIQIIME_SOURCES}

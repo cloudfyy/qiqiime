@@ -30,6 +30,7 @@ set(QIQI_TSF_UI_IMPL_SOURCES
     "${PROJECT_SOURCE_DIR}/src/ui/candidate_ui.cpp"
     "${PROJECT_SOURCE_DIR}/src/ui/langbar_button.cpp"
     "${PROJECT_SOURCE_DIR}/src/ui/settings_dialog.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ui/status_bar.cpp"
 )
 add_executable(qiqi_tsf_ui_test
     ${QIQI_TSF_UI_TEST_SOURCES}

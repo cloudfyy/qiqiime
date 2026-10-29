@@ -10,6 +10,8 @@
 #include "engine/wubi_engine.h"
 #include "ui/candidate_ui.h"
 #include "ui/langbar_button.h"
+#include "ui/status_bar.h"
+#include <memory>
 
 namespace qiqi {
 
@@ -108,6 +110,7 @@ private:
     ComPtr<ITfContext> active_context_;
     ComPtr<CandidateUI> candidate_ui_;
     ComPtr<LangBarButton> langbar_btn_;
+    std::unique_ptr<StatusBarUI> status_bar_;
     QiQiConfig config_{};
     std::filesystem::file_time_type config_last_write_time_{};
     WubiEngine engine_;

@@ -81,7 +81,7 @@ TSF 的按键处理分为两步：
 
 ### P1：可视化配置与桌面状态条
 - [x] **4. 系统设置接入与可视化配置窗口（`system-settings-config-ui`）**：实现 TSF 标准接口 `ITfFunctionProvider` + `ITfFnConfigure::Show`（`<ctffunc.h>`）及内置 Win32 设置对话框，支持从 Windows 系统语言设置、任务栏托盘右键菜单直接打开图形化设置窗口并保存到 `config.ini`。
-- [ ] **5. 浮动输入法状态条（`status-bar-ui`，默认关闭）**：实现桌面浮动状态条窗口（显示“中/英”、“全/半角”、“中/英标点”、“设置”按钮，支持拖拽移动与点击切换），在 `config.ini` 中通过 `show_status_bar = false` 默认关闭，支持通过托盘右键菜单或设置窗口开启。
+- [x] **5. 浮动输入法状态条（`status-bar-ui`，默认关闭）**：实现桌面浮动状态条窗口（显示“中/英”、“全/半角”、“中/英标点”、“设置”按钮，支持拖拽移动与点击切换），在 `config.ini` 中通过 `show_status_bar = false` 默认关闭，支持通过托盘右键菜单或设置窗口开启。
 
 ### P2：进阶视觉与学习辅助
 - [ ] **6. 组合串显示属性（`tsf-display-attributes`）**：实现 `ITfDisplayAttributeProvider`，为未上屏的五笔编码组合串设置虚线下划线与高亮样式。

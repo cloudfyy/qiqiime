@@ -25,6 +25,15 @@ endif()
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" QIQIIME_VERSION_RAW LIMIT_COUNT 1)
 string(STRIP "${QIQIIME_VERSION_RAW}" QIQIIME_VERSION_STRING)
 
+# Skip redundant vcpkg manifest install on incremental CMake re-runs when packages are already installed
+if(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/share/spdlog" AND
+   EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/share/Microsoft.GSL")
+    set(VCPKG_MANIFEST_INSTALL OFF)
+elseif(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows/share/spdlog" AND
+       EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows/share/Microsoft.GSL")
+    set(VCPKG_MANIFEST_INSTALL OFF)
+endif()
+
 project(QiQiIME VERSION ${QIQIIME_VERSION_STRING} LANGUAGES CXX)
 
 if(DEFINED PROJECT_VERSION_TWEAK AND NOT "${PROJECT_VERSION_TWEAK}" STREQUAL "")
