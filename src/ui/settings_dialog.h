@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include "common/config.h"
+#include "common/scoped_handle.h"
 
 namespace qiqi {
 
@@ -11,7 +12,7 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept;
 void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept;
 
 // Create a modeless settings window (used by both ShowSettingsDialog and unit tests).
-HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_config) noexcept;
+ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_config) noexcept;
 
 // Show modal settings dialog to edit QiQiConfig. Returns true if user clicked Save (OK).
 bool ShowSettingsDialog(HINSTANCE instance, HWND parent, QiQiConfig& in_out_config) noexcept;

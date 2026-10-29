@@ -134,19 +134,13 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
     ::CheckDlgButton(hwnd, kIdChkClearEmpty4, config.clear_on_empty_4code ? BST_CHECKED : BST_UNCHECKED);
     ::CheckDlgButton(hwnd, kIdChkKeySound, config.enable_key_sound ? BST_CHECKED : BST_UNCHECKED);
 
-    const HWND combo = ::GetDlgItem(hwnd, kIdComboPageSize);
-    if (combo) {
-        const int idx = gsl::narrow_cast<int>(std::clamp<size_t>(config.page_size, 1, 9) - 1);
-        ::SendMessageW(combo, CB_SETCURSEL, static_cast<WPARAM>(idx), 0);
-    }
+    const int idx = gsl::narrow_cast<int>(std::clamp<size_t>(config.page_size, 1, 9) - 1);
+    ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETCURSEL, static_cast<WPARAM>(idx), 0);
 
-    const HWND lang_combo = ::GetDlgItem(hwnd, kIdComboUiLang);
-    if (lang_combo) {
-        const int lang_idx = (config.ui_language == UiLanguage::ZhCn)
-            ? 1
-            : (config.ui_language == UiLanguage::EnUs ? 2 : 0);
-        ::SendMessageW(lang_combo, CB_SETCURSEL, static_cast<WPARAM>(lang_idx), 0);
-    }
+    const int lang_idx = (config.ui_language == UiLanguage::ZhCn)
+        ? 1
+        : (config.ui_language == UiLanguage::EnUs ? 2 : 0);
+    ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_SETCURSEL, static_cast<WPARAM>(lang_idx), 0);
 }
 
 void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
@@ -167,28 +161,22 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     config.clear_on_empty_4code = (::IsDlgButtonChecked(hwnd, kIdChkClearEmpty4) == BST_CHECKED);
     config.enable_key_sound = (::IsDlgButtonChecked(hwnd, kIdChkKeySound) == BST_CHECKED);
 
-    const HWND combo = ::GetDlgItem(hwnd, kIdComboPageSize);
-    if (combo) {
-        const LRESULT sel = ::SendMessageW(combo, CB_GETCURSEL, 0, 0);
-        if (sel >= 0 && sel < 9) {
-            config.page_size = gsl::narrow_cast<size_t>(sel + 1);
-        }
+    const LRESULT sel = ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_GETCURSEL, 0, 0);
+    if (sel >= 0 && sel < 9) {
+        config.page_size = gsl::narrow_cast<size_t>(sel + 1);
     }
 
-    const HWND lang_combo = ::GetDlgItem(hwnd, kIdComboUiLang);
-    if (lang_combo) {
-        const LRESULT lang_sel = ::SendMessageW(lang_combo, CB_GETCURSEL, 0, 0);
-        if (lang_sel == 1) {
-            config.ui_language = UiLanguage::ZhCn;
-        } else if (lang_sel == 2) {
-            config.ui_language = UiLanguage::EnUs;
-        } else if (lang_sel == 0) {
-            config.ui_language = UiLanguage::Auto;
-        }
+    const LRESULT lang_sel = ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_GETCURSEL, 0, 0);
+    if (lang_sel == 1) {
+        config.ui_language = UiLanguage::ZhCn;
+    } else if (lang_sel == 2) {
+        config.ui_language = UiLanguage::EnUs;
+    } else if (lang_sel == 0) {
+        config.ui_language = UiLanguage::Auto;
     }
 }
 
-HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_config) noexcept {
+ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_config) noexcept {
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = &SettingsWndProc;
@@ -202,7 +190,7 @@ HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_con
     try {
         ctx = std::make_unique<DialogContext>();
     } catch (...) {
-        return nullptr;
+        return {};
     }
     ctx->config = bound_config;
 
@@ -227,52 +215,50 @@ HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_con
     const POINT dlg_pos = ClampPointToWorkArea(centered, dlg_w, dlg_h, mon.work_area);
 
     const HFONT f = ctx->font.Get();
-    const HWND hwnd = ::CreateWindowExW(
+    ScopedWindow hwnd(::CreateWindowExW(
         WS_EX_DLGMODALFRAME,
         kSettingsWndClass,
         str.dlg_title,
         WS_POPUP | WS_CAPTION | WS_SYSMENU,
         dlg_pos.x, dlg_pos.y, dlg_w, dlg_h,
-        parent, nullptr, instance, ctx.get());
+        parent, nullptr, instance, ctx.get()));
     if (!hwnd) {
-        return nullptr;
+        return {};
     }
     std::ignore = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
 
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_radio_jidian, BS_AUTORADIOBUTTON | WS_GROUP, S(24), S(20), S(360), S(24), kIdRadioJidian);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_radio_haifeng, BS_AUTORADIOBUTTON, S(24), S(48), S(360), S(24), kIdRadioHaifeng);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_radio_builtin, BS_AUTORADIOBUTTON, S(24), S(76), S(360), S(24), kIdRadioBuiltin);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_jidian, BS_AUTORADIOBUTTON | WS_GROUP, S(24), S(20), S(360), S(24), kIdRadioJidian);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_haifeng, BS_AUTORADIOBUTTON, S(24), S(48), S(360), S(24), kIdRadioHaifeng);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_builtin, BS_AUTORADIOBUTTON, S(24), S(76), S(360), S(24), kIdRadioBuiltin);
 
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_extra, BS_AUTOCHECKBOX, S(24), S(112), S(360), S(24), kIdChkExtraDict);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_auto_commit4, BS_AUTOCHECKBOX, S(24), S(140), S(360), S(24), kIdChkAutoCommit4);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_push_commit5, BS_AUTOCHECKBOX, S(24), S(168), S(360), S(24), kIdChkPushCommit5);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_shift_toggle, BS_AUTOCHECKBOX, S(24), S(196), S(360), S(24), kIdChkShiftToggle);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_status_bar, BS_AUTOCHECKBOX, S(24), S(224), S(360), S(24), kIdChkStatusBar);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_beep_empty4, BS_AUTOCHECKBOX, S(24), S(252), S(360), S(24), kIdChkBeepEmpty4);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_clear_empty4, BS_AUTOCHECKBOX, S(24), S(280), S(360), S(24), kIdChkClearEmpty4);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_key_sound, BS_AUTOCHECKBOX, S(24), S(308), S(360), S(24), kIdChkKeySound);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_extra, BS_AUTOCHECKBOX, S(24), S(112), S(360), S(24), kIdChkExtraDict);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_auto_commit4, BS_AUTOCHECKBOX, S(24), S(140), S(360), S(24), kIdChkAutoCommit4);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_push_commit5, BS_AUTOCHECKBOX, S(24), S(168), S(360), S(24), kIdChkPushCommit5);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_shift_toggle, BS_AUTOCHECKBOX, S(24), S(196), S(360), S(24), kIdChkShiftToggle);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_status_bar, BS_AUTOCHECKBOX, S(24), S(224), S(360), S(24), kIdChkStatusBar);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_beep_empty4, BS_AUTOCHECKBOX, S(24), S(252), S(360), S(24), kIdChkBeepEmpty4);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_clear_empty4, BS_AUTOCHECKBOX, S(24), S(280), S(360), S(24), kIdChkClearEmpty4);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_key_sound, BS_AUTOCHECKBOX, S(24), S(308), S(360), S(24), kIdChkKeySound);
 
-    CreateChildControl(hwnd, instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(24), S(344), S(150), S(24), 0);
-    CreateChildControl(hwnd, instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(340), S(70), S(200), kIdComboPageSize);
-    const HWND combo = ::GetDlgItem(hwnd, kIdComboPageSize);
+    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(24), S(344), S(150), S(24), 0);
+    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(340), S(70), S(200), kIdComboPageSize);
     for (const wchar_t* label : kPageSizeLabels) {
-        ::SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
+        ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     }
 
-    CreateChildControl(hwnd, instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(24), S(378), S(150), S(24), 0);
-    CreateChildControl(hwnd, instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(374), S(200), S(160), kIdComboUiLang);
-    const HWND lang_combo = ::GetDlgItem(hwnd, kIdComboUiLang);
+    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(24), S(378), S(150), S(24), 0);
+    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(374), S(200), S(160), kIdComboUiLang);
     const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
     for (const wchar_t* item : lang_items) {
-        ::SendMessageW(lang_combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
+        ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
     }
 
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_open_ini, BS_PUSHBUTTON, S(24), S(414), S(110), S(28), kIdBtnOpenIni);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(210), S(414), S(80), S(28), kIdBtnOk);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(300), S(414), S(80), S(28), kIdBtnCancel);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_open_ini, BS_PUSHBUTTON, S(24), S(414), S(110), S(28), kIdBtnOpenIni);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(210), S(414), S(80), S(28), kIdBtnOk);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(300), S(414), S(80), S(28), kIdBtnCancel);
 
     if (bound_config) {
-        WriteSettingsToWindowControls(hwnd, *bound_config);
+        WriteSettingsToWindowControls(hwnd.Get(), *bound_config);
     }
     return hwnd;
 }
