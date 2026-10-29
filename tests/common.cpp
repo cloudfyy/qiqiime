@@ -112,6 +112,7 @@ void TestIniConfiguration() {
         "default_full_width = true\n"
         "default_chinese_punct = false\n"
         "shift_toggle_mode = false\n"
+        "semicolon_quote_quick_select = false\n"
         "clear_on_empty_4code = true\n"
         "\n"
         "[log]\n"
@@ -124,6 +125,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(cfg.page_size == 7);
     QIQI_TEST_CHECK(!cfg.auto_commit_4code);
     QIQI_TEST_CHECK(!cfg.push_commit_5th);
+    QIQI_TEST_CHECK(!cfg.semicolon_quote_quick_select);
     QIQI_TEST_CHECK(!cfg.default_chinese_mode);
     QIQI_TEST_CHECK(cfg.default_full_width);
     QIQI_TEST_CHECK(!cfg.default_chinese_punct);
@@ -140,6 +142,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(roundtrip_cfg.primary_dict == PrimaryDict::Haifeng);
     QIQI_TEST_CHECK(roundtrip_cfg.default_full_width);
     QIQI_TEST_CHECK(!roundtrip_cfg.default_chinese_punct);
+    QIQI_TEST_CHECK(!roundtrip_cfg.semicolon_quote_quick_select);
     QIQI_TEST_CHECK(roundtrip_cfg.clear_on_empty_4code);
     std::filesystem::remove(roundtrip_path, rt_ec);
 

@@ -236,6 +236,51 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(num_commit.committed_text == L"候7");
     QIQI_TEST_CHECK(!engine.IsComposing());
 
+    // Test ';' (VK_OEM_1 -> 2nd candidate) and ''' (VK_OEM_7 -> 3rd candidate) quick-select
+    QIQI_TEST_CHECK(engine.SemicolonQuoteQuickSelect());
+    engine.ProcessKey('M');
+    engine.ProcessKey('N');
+    engine.ProcessKey('O');
+    engine.ProcessKey('P');
+    QIQI_TEST_CHECK(engine.ShouldEatKey(VK_OEM_1, false, false, false));
+    auto semi_commit = engine.ProcessKey(VK_OEM_1, false);
+    QIQI_TEST_CHECK(semi_commit.action == KeyActionType::Commit && semi_commit.committed_text == L"候2");
+    QIQI_TEST_CHECK(!engine.IsComposing());
+
+    // Even when Chinese punctuation is disabled, ';' and ''' still quick-select while composing
+    engine.SetChinesePunctuation(false);
+    engine.ProcessKey('M');
+    engine.ProcessKey('N');
+    engine.ProcessKey('O');
+    engine.ProcessKey('P');
+    QIQI_TEST_CHECK(engine.ShouldEatKey(VK_OEM_7, false, false, false));
+    auto quote_commit = engine.ProcessKey(VK_OEM_7, false);
+    QIQI_TEST_CHECK(quote_commit.action == KeyActionType::Commit && quote_commit.committed_text == L"候3");
+    engine.SetChinesePunctuation(true);
+
+    // When page has only 2 candidates (page 2 of "mnop"), pressing ''' (3rd candidate) stays in Composing4 without committing
+    engine.ProcessKey('M');
+    engine.ProcessKey('N');
+    engine.ProcessKey('O');
+    engine.ProcessKey('P');
+    engine.ProcessKey(VK_NEXT);
+    auto quote_out_of_range = engine.ProcessKey(VK_OEM_7, false);
+    QIQI_TEST_CHECK(quote_out_of_range.action == KeyActionType::UpdateState && engine.IsComposing());
+    // Shift + ';' (':') while composing still commits selected candidate + '：'
+    auto colon_commit = engine.ProcessKey(VK_OEM_1, true);
+    QIQI_TEST_CHECK(colon_commit.action == KeyActionType::Commit && colon_commit.committed_text == L"候6：");
+
+    // When semicolon_quote_quick_select is disabled, ';' while composing commits 1st candidate + '；'
+    engine.SetSemicolonQuoteQuickSelect(false);
+    QIQI_TEST_CHECK(!engine.SemicolonQuoteQuickSelect());
+    engine.ProcessKey('M');
+    engine.ProcessKey('N');
+    engine.ProcessKey('O');
+    engine.ProcessKey('P');
+    auto semi_punct_commit = engine.ProcessKey(VK_OEM_1, false);
+    QIQI_TEST_CHECK(semi_punct_commit.action == KeyActionType::Commit && semi_punct_commit.committed_text == L"候1；");
+    engine.SetSemicolonQuoteQuickSelect(true);
+
     // Test VK_RETURN committing raw ASCII code
     engine.ProcessKey('A');
     engine.ProcessKey('B');

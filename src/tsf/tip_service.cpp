@@ -590,6 +590,7 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
         engine_.SetPageSize(config_.page_size);
         engine_.SetAutoCommit4Code(config_.auto_commit_4code);
         engine_.SetPushCommit5th(config_.push_commit_5th);
+        engine_.SetSemicolonQuoteQuickSelect(config_.semicolon_quote_quick_select);
         engine_.SetBeepOnEmpty4Code(config_.beep_on_empty_4code);
         engine_.SetClearOnEmpty4Code(config_.clear_on_empty_4code);
         engine_.SetEnableKeySound(config_.enable_key_sound);
@@ -712,6 +713,7 @@ void QiQiTextService::ReloadConfigIfModified() {
         engine_.SetPageSize(config_.page_size);
         engine_.SetAutoCommit4Code(config_.auto_commit_4code);
         engine_.SetPushCommit5th(config_.push_commit_5th);
+        engine_.SetSemicolonQuoteQuickSelect(config_.semicolon_quote_quick_select);
         engine_.SetBeepOnEmpty4Code(config_.beep_on_empty_4code);
         engine_.SetClearOnEmpty4Code(config_.clear_on_empty_4code);
         engine_.SetEnableKeySound(config_.enable_key_sound);

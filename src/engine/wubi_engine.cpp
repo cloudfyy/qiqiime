@@ -52,6 +52,7 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     SetPageSize(cfg.page_size);
     auto_commit_4code_ = cfg.auto_commit_4code;
     push_commit_5th_ = cfg.push_commit_5th;
+    semicolon_quote_quick_select_ = cfg.semicolon_quote_quick_select;
     beep_on_empty_4code_ = cfg.beep_on_empty_4code;
     clear_on_empty_4code_ = cfg.clear_on_empty_4code;
     enable_key_sound_ = cfg.enable_key_sound;
@@ -286,7 +287,9 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
 }
 
 bool WubiEngine::ShouldEatKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept {
-    const KeyEventKind event = ClassifyKeyEvent(vk, shift_down, ctrl_down, alt_down, chinese_punctuation_);
+    const bool quick_sel = semicolon_quote_quick_select_ && IsComposing();
+    const KeyEventKind event = ClassifyKeyEvent(
+        vk, shift_down, ctrl_down, alt_down, chinese_punctuation_, quick_sel);
     if (LookupTransition(state_, event).eat_key) {
         return true;
     }
@@ -297,7 +300,9 @@ bool WubiEngine::ShouldEatKey(uint32_t vk, bool shift_down, bool ctrl_down, bool
 }
 
 KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) {
-    const KeyEventKind event = ClassifyKeyEvent(vk, shift_down, ctrl_down, alt_down, chinese_punctuation_);
+    const bool quick_sel = semicolon_quote_quick_select_ && IsComposing();
+    const KeyEventKind event = ClassifyKeyEvent(
+        vk, shift_down, ctrl_down, alt_down, chinese_punctuation_, quick_sel);
     const TransitionRule rule = LookupTransition(state_, event);
 
     switch (rule.op) {
@@ -377,10 +382,10 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             return CommitAndReset(raw_code_);
 
         case TransitionOp::CommitDigitIndex: {
-            const size_t idx = static_cast<size_t>(vk - '1');
+            const auto idx_opt = ResolveCandidateSelectIndex(vk, shift_down, semicolon_quote_quick_select_);
             const auto page = CurrentPageCandidates();
-            if (idx < page.size()) {
-                return CommitAndReset(gsl::at(page, idx));
+            if (idx_opt.has_value() && *idx_opt < page.size()) {
+                return CommitAndReset(gsl::at(page, *idx_opt));
             }
             return MakeCurrentStateResult(KeyActionType::UpdateState);
         }

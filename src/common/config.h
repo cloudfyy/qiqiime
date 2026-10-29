@@ -28,6 +28,7 @@ struct QiQiConfig {
     size_t page_size = 5;
     bool auto_commit_4code = true;
     bool push_commit_5th = true;
+    bool semicolon_quote_quick_select = true;
     bool default_chinese_mode = true;
     bool default_full_width = false;
     bool default_chinese_punct = true;

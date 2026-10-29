@@ -66,6 +66,8 @@ public:
     void SetAutoCommit4Code(bool enabled) noexcept { auto_commit_4code_ = enabled; }
     bool PushCommit5th() const noexcept { return push_commit_5th_; }
     void SetPushCommit5th(bool enabled) noexcept { push_commit_5th_ = enabled; }
+    bool SemicolonQuoteQuickSelect() const noexcept { return semicolon_quote_quick_select_; }
+    void SetSemicolonQuoteQuickSelect(bool enabled) noexcept { semicolon_quote_quick_select_ = enabled; }
     bool BeepOnEmpty4Code() const noexcept { return beep_on_empty_4code_; }
     void SetBeepOnEmpty4Code(bool enabled) noexcept { beep_on_empty_4code_ = enabled; }
     bool ClearOnEmpty4Code() const noexcept { return clear_on_empty_4code_; }
@@ -117,6 +119,7 @@ private:
     size_t selected_in_page_ = 0;
     bool auto_commit_4code_ = true;
     bool push_commit_5th_ = true;
+    bool semicolon_quote_quick_select_ = true;
     bool beep_on_empty_4code_ = true;
     bool clear_on_empty_4code_ = false;
     bool enable_key_sound_ = false;

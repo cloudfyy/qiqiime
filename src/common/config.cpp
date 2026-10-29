@@ -176,6 +176,8 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
                 cfg.auto_commit_4code = ParseBool(val, cfg.auto_commit_4code);
             } else if (key == "push_commit_5th") {
                 cfg.push_commit_5th = ParseBool(val, cfg.push_commit_5th);
+            } else if (key == "semicolon_quote_quick_select") {
+                cfg.semicolon_quote_quick_select = ParseBool(val, cfg.semicolon_quote_quick_select);
             } else if (key == "default_chinese_mode") {
                 cfg.default_chinese_mode = ParseBool(val, cfg.default_chinese_mode);
             } else if (key == "default_full_width") {
@@ -223,6 +225,8 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         "auto_commit_4code = {}\n"
         "# 第五码是否顶字上屏\n"
         "push_commit_5th = {}\n"
+        "# 是否启用分号(;)与单引号(')快捷选择第 2、3 候选词\n"
+        "semicolon_quote_quick_select = {}\n"
         "# 默认初始模式是否中文\n"
         "default_chinese_mode = {}\n"
         "# 默认是否启用全角字符模式 (运行期可通过 Shift+Space 切换)\n"
@@ -250,6 +254,7 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         std::clamp<size_t>(config.page_size, 1, 9),
         config.auto_commit_4code ? "true" : "false",
         config.push_commit_5th ? "true" : "false",
+        config.semicolon_quote_quick_select ? "true" : "false",
         config.default_chinese_mode ? "true" : "false",
         config.default_full_width ? "true" : "false",
         config.default_chinese_punct ? "true" : "false",

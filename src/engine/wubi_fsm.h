@@ -153,8 +153,34 @@ constexpr std::optional<wchar_t> MapFullWidthChar(uint32_t vk, bool shift_down) 
     }
 }
 
+// Resolve 0-based page candidate index for digit keys ('1'..'9' -> 0..8)
+// and optional ';' (VK_OEM_1 -> 1) / ''' (VK_OEM_7 -> 2) quick-select keys.
+constexpr std::optional<size_t> ResolveCandidateSelectIndex(
+    uint32_t vk, bool shift_down, bool quick_select_enabled = false) noexcept {
+    if (shift_down) {
+        return std::nullopt;
+    }
+    if (vk >= '1' && vk <= '9') {
+        return static_cast<size_t>(vk - '1');
+    }
+    if (quick_select_enabled) {
+        if (vk == VK_OEM_1) {
+            return 1u; // ';' selects 2nd candidate
+        }
+        if (vk == VK_OEM_7) {
+            return 2u; // ''' selects 3rd candidate
+        }
+    }
+    return std::nullopt;
+}
+
 constexpr KeyEventKind ClassifyKeyEvent(
-    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool chinese_punct = true) noexcept {
+    uint32_t vk,
+    bool shift_down,
+    bool ctrl_down,
+    bool alt_down,
+    bool chinese_punct = true,
+    bool composing_quick_select = false) noexcept {
     if (ctrl_down || alt_down) {
         return KeyEventKind::None;
     }
@@ -185,7 +211,7 @@ constexpr KeyEventKind ClassifyKeyEvent(
     if (vk == VK_NEXT || (!shift_down && vk == VK_OEM_PLUS)) {
         return KeyEventKind::PageDown;
     }
-    if (!shift_down && vk >= '1' && vk <= '9') {
+    if (ResolveCandidateSelectIndex(vk, shift_down, composing_quick_select).has_value()) {
         return KeyEventKind::DigitSelect;
     }
     if (chinese_punct && MapChinesePunctuation(vk, shift_down).has_value()) {
