@@ -81,6 +81,7 @@ endif()
 
 # Dependencies managed via vcpkg (vcpkg.json)
 find_package(spdlog CONFIG REQUIRED)
+find_package(Microsoft.GSL CONFIG REQUIRED)
 
 # Build source and test subdirectories
 enable_testing()

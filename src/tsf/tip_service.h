@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <gsl/gsl>
 #include <msctf.h>
 #include <wrl/client.h>
 #include <atomic>
@@ -68,13 +69,13 @@ private:
     void SyncTsfCompartments();
     void ReloadConfigIfModified();
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
-    void SyncCompositionUIInSession(TfEditCookie ec, ITfContext* context, const std::wstring& text);
-    void StartOrUpdateCompositionInSession(TfEditCookie ec, ITfContext* context, const std::wstring& text);
-    void CommitAndEndCompositionInSession(TfEditCookie ec, ITfContext* context, const std::wstring& committed_text);
+    void SyncCompositionUIInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text);
+    void StartOrUpdateCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text);
+    void CommitAndEndCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text);
     void CancelCompositionInSession(TfEditCookie ec, ITfContext* context);
-    void UpdateCandidateWindowPositionInSession(TfEditCookie ec, ITfContext* context);
+    void UpdateCandidateWindowPositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context);
     static void SetRangeTextAndCollapseCaret(
-        TfEditCookie ec, ITfContext* context, ITfRange* range, std::wstring_view text);
+        TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range, std::wstring_view text);
 
     void BeginOrUpdateCandidateUI();
     void EndCandidateUI();

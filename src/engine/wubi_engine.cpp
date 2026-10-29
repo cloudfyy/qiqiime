@@ -7,16 +7,6 @@
 
 namespace qiqi {
 
-namespace {
-
-void AppendUnique(std::vector<std::wstring>& results, const std::wstring& word) {
-    if (std::find(results.begin(), results.end(), word) == results.end()) {
-        results.push_back(word);
-    }
-}
-
-} // namespace
-
 WubiEngine::WubiEngine() {
     LoadBuiltinDictionary();
 }
@@ -37,10 +27,7 @@ void WubiEngine::AddEntry(std::wstring_view code, std::wstring_view word) {
         return;
     }
 
-    auto& list = dict_[packed];
-    if (std::find(list.begin(), list.end(), word) == list.end()) {
-        list.emplace_back(word);
-    }
+    AppendUniqueWord(dict_[packed], word);
 }
 
 bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
@@ -109,8 +96,9 @@ std::vector<std::wstring> WubiEngine::CurrentPageCandidates() const {
     if (start >= end) {
         return {};
     }
-    return std::vector<std::wstring>(all_candidates_.begin() + static_cast<ptrdiff_t>(start),
-                                     all_candidates_.begin() + static_cast<ptrdiff_t>(end));
+    const std::span<const std::wstring> page_span(all_candidates_);
+    const auto sub = page_span.subspan(start, end - start);
+    return std::vector<std::wstring>(sub.begin(), sub.end());
 }
 
 std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const {
@@ -122,7 +110,7 @@ std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const 
     std::vector<std::wstring> results;
     if (const auto it = dict_.find(packed); it != dict_.end()) {
         for (const auto& w : it->second) {
-            AppendUnique(results, w);
+            AppendUniqueWord(results, w);
         }
     }
     for (const auto& mapped : mapped_dicts_) {
@@ -147,7 +135,7 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) c
         for (const auto& [k, words] : dict_) {
             if (MatchesWildcardPattern(k, code)) {
                 for (const auto& w : words) {
-                    AppendUnique(results, w);
+                    AppendUniqueWord(results, w);
                     if (results.size() >= kMaxCandidateResults) {
                         return results;
                     }
@@ -174,7 +162,7 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) c
     const uint32_t prefix_hi = PackWubiPrefixUpperBound(code);
     for (auto it = dict_.upper_bound(exact_code); it != dict_.end() && it->first <= prefix_hi; ++it) {
         for (const auto& w : it->second) {
-            AppendUnique(results, w);
+            AppendUniqueWord(results, w);
             if (results.size() >= kMaxCandidateResults) {
                 return results;
             }
@@ -193,13 +181,13 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) c
 std::wstring WubiEngine::CurrentSelectedCandidateOrRaw() const {
     const auto page = CurrentPageCandidates();
     if (!page.empty()) {
-        return page[std::min(selected_in_page_, page.size() - 1)];
+        return gsl::at(page, std::min(selected_in_page_, page.size() - 1));
     }
     return raw_code_;
 }
 
 void WubiEngine::AppendCodeAndRefresh(uint32_t vk, EngineState next_state) {
-    const wchar_t ch = static_cast<wchar_t>(vk - 'A' + L'a');
+    const wchar_t ch = gsl::narrow_cast<wchar_t>(vk - 'A' + L'a');
     raw_code_.push_back(ch);
     state_ = next_state;
     RefreshCandidates();
@@ -303,7 +291,7 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             const size_t idx = static_cast<size_t>(vk - '1');
             const auto page = CurrentPageCandidates();
             if (idx < page.size()) {
-                return CommitAndReset(page[idx]);
+                return CommitAndReset(gsl::at(page, idx));
             }
             return MakeCurrentStateResult(KeyActionType::UpdateState);
         }

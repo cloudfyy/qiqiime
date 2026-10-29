@@ -1,12 +1,14 @@
 #include "common/logger.h"
 
 #include <windows.h>
+#include <gsl/gsl>
 #include <spdlog/sinks/msvc_sink.h>
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 
 #include <array>
 #include <cstdlib>
+#include <fstream>
 #include <mutex>
 #include <vector>
 
@@ -89,13 +91,13 @@ std::string WideToUtf8(std::wstring_view wide) {
         return {};
     }
     const int len = ::WideCharToMultiByte(
-        CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+        CP_UTF8, 0, wide.data(), gsl::narrow_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
     if (len <= 0) {
         return {};
     }
-    std::string result(static_cast<size_t>(len), '\0');
+    std::string result(gsl::narrow_cast<size_t>(len), '\0');
     ::WideCharToMultiByte(
-        CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), result.data(), len, nullptr, nullptr);
+        CP_UTF8, 0, wide.data(), gsl::narrow_cast<int>(wide.size()), result.data(), len, nullptr, nullptr);
     return result;
 }
 
@@ -104,13 +106,13 @@ std::wstring Utf8ToWide(std::string_view utf8) {
         return {};
     }
     const int len = ::MultiByteToWideChar(
-        CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+        CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), nullptr, 0);
     if (len <= 0) {
         return {};
     }
-    std::wstring result(static_cast<size_t>(len), L'\0');
+    std::wstring result(gsl::narrow_cast<size_t>(len), L'\0');
     ::MultiByteToWideChar(
-        CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), result.data(), len);
+        CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), result.data(), len);
     return result;
 }
 
@@ -120,7 +122,7 @@ std::filesystem::path GetModuleFilePath(void* module_handle) noexcept {
         if (::GetModuleFileNameW(
                 static_cast<HMODULE>(module_handle),
                 module_path.data(),
-                static_cast<DWORD>(module_path.size())) == 0) {
+                gsl::narrow_cast<DWORD>(module_path.size())) == 0) {
             return {};
         }
         return std::filesystem::path(module_path.data());
@@ -132,13 +134,13 @@ std::filesystem::path GetModuleFilePath(void* module_handle) noexcept {
 std::filesystem::path GetAppDataDirectory() {
     std::array<wchar_t, MAX_PATH> env_buf{};
     const DWORD env_len = ::GetEnvironmentVariableW(
-        L"LOCALAPPDATA", env_buf.data(), static_cast<DWORD>(env_buf.size()));
+        L"LOCALAPPDATA", env_buf.data(), gsl::narrow_cast<DWORD>(env_buf.size()));
     std::filesystem::path base_dir;
     if (env_len > 0 && env_len < env_buf.size()) {
         base_dir = env_buf.data();
     } else {
         std::array<wchar_t, MAX_PATH> temp_path{};
-        if (::GetTempPathW(static_cast<DWORD>(temp_path.size()), temp_path.data()) > 0) {
+        if (::GetTempPathW(gsl::narrow_cast<DWORD>(temp_path.size()), temp_path.data()) > 0) {
             base_dir = temp_path.data();
         }
     }
@@ -146,6 +148,21 @@ std::filesystem::path GetAppDataDirectory() {
         return {};
     }
     return base_dir / L"QiQiIME";
+}
+
+bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& out_content) {
+    std::ifstream file(file_path, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        return false;
+    }
+    const auto file_size = file.tellg();
+    out_content.clear();
+    if (file_size > 0) {
+        out_content.resize(gsl::narrow_cast<size_t>(file_size));
+        file.seekg(0, std::ios::beg);
+        file.read(out_content.data(), file_size);
+    }
+    return true;
 }
 
 } // namespace qiqi::log

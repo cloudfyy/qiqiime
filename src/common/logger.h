@@ -33,6 +33,17 @@ std::filesystem::path GetModuleFilePath(void* module_handle) noexcept;
 // Return the base user data directory: %LOCALAPPDATA%\QiQiIME (or %TEMP%\QiQiIME fallback).
 std::filesystem::path GetAppDataDirectory();
 
+// Strip leading UTF-8 BOM (\xEF\xBB\xBF) if present.
+constexpr std::string_view StripUtf8Bom(std::string_view sv) noexcept {
+    if (sv.starts_with("\xEF\xBB\xBF")) {
+        sv.remove_prefix(3);
+    }
+    return sv;
+}
+
+// Read an entire file into a std::string in one pass. Returns false if file cannot be opened.
+bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& out_content);
+
 } // namespace qiqi::log
 
 #define QIQI_LOG_TRACE(...) ::qiqi::log::GetLogger()->trace(__VA_ARGS__)

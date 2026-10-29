@@ -5,6 +5,8 @@
 #include <vector>
 #include <atomic>
 
+#include "common/scoped_handle.h"
+
 namespace qiqi {
 
 // Implements ITfCandidateListUIElement so both regular desktop apps (popup window)
@@ -48,7 +50,7 @@ public:
                        std::vector<std::wstring> all_candidates,
                        size_t page_size,
                        size_t current_page,
-                       size_t selected_in_page);
+                       size_t selected_in_page) noexcept;
 
     void MoveWindowTo(const RECT& text_rect) noexcept;
     void DestroyPopupWindow() noexcept;
@@ -64,7 +66,7 @@ private:
     std::atomic<ULONG> ref_count_{1};
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;
-    HFONT font_ = nullptr;
+    ScopedGdiHandle<HFONT> font_;
     BOOL is_shown_ = FALSE;
     DWORD ui_element_id_ = TF_INVALID_UIELEMENTID;
     DWORD updated_flags_ = TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION |

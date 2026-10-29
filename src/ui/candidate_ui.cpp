@@ -2,6 +2,7 @@
 #include "common/guids.h"
 #include "common/logger.h"
 #include "engine/wubi_fsm.h"
+#include <gsl/gsl>
 #include <oleauto.h>
 #include <algorithm>
 #include <span>
@@ -19,15 +20,11 @@ CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
     lf.lfCharSet = DEFAULT_CHARSET;
     lf.lfQuality = CLEARTYPE_QUALITY;
     wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
-    font_ = ::CreateFontIndirectW(&lf);
+    font_.Reset(::CreateFontIndirectW(&lf));
 }
 
 CandidateUI::~CandidateUI() noexcept {
     DestroyPopupWindow();
-    if (font_) {
-        ::DeleteObject(font_);
-        font_ = nullptr;
-    }
 }
 
 STDMETHODIMP CandidateUI::QueryInterface(REFIID riid, void** ppvObj) noexcept {
@@ -114,7 +111,7 @@ STDMETHODIMP CandidateUI::GetCount(UINT* puCount) noexcept {
     if (!puCount) {
         return E_INVALIDARG;
     }
-    *puCount = static_cast<UINT>(all_candidates_.size());
+    *puCount = gsl::narrow_cast<UINT>(all_candidates_.size());
     return S_OK;
 }
 
@@ -123,7 +120,7 @@ STDMETHODIMP CandidateUI::GetSelection(UINT* puIndex) noexcept {
         return E_INVALIDARG;
     }
     const size_t global_idx = current_page_ * page_size_ + selected_in_page_;
-    *puIndex = static_cast<UINT>(std::min(global_idx, all_candidates_.empty() ? 0 : all_candidates_.size() - 1));
+    *puIndex = gsl::narrow_cast<UINT>(std::min(global_idx, all_candidates_.empty() ? 0 : all_candidates_.size() - 1));
     return S_OK;
 }
 
@@ -134,7 +131,7 @@ STDMETHODIMP CandidateUI::GetString(UINT uIndex, BSTR* pstr) noexcept {
     if (uIndex >= all_candidates_.size()) {
         return E_INVALIDARG;
     }
-    *pstr = ::SysAllocString(all_candidates_[uIndex].c_str());
+    *pstr = ::SysAllocString(gsl::at(all_candidates_, uIndex).c_str());
     return *pstr ? S_OK : E_OUTOFMEMORY;
 }
 
@@ -143,14 +140,14 @@ STDMETHODIMP CandidateUI::GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt
         return E_INVALIDARG;
     }
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    *puPageCnt = static_cast<UINT>(total_pages);
+    *puPageCnt = gsl::narrow_cast<UINT>(total_pages);
     if (!pIndex) {
         return S_OK;
     }
-    std::span<UINT> out_indices(pIndex, uSize);
+    const std::span<UINT> out_indices(pIndex, uSize);
     const size_t count_to_copy = std::min<size_t>(out_indices.size(), total_pages);
     for (size_t i = 0; i < count_to_copy; ++i) {
-        out_indices[i] = static_cast<UINT>(i * page_size_);
+        gsl::at(out_indices, i) = gsl::narrow_cast<UINT>(i * page_size_);
     }
     return S_OK;
 }
@@ -163,7 +160,7 @@ STDMETHODIMP CandidateUI::GetCurrentPage(UINT* puPage) noexcept {
     if (!puPage) {
         return E_INVALIDARG;
     }
-    *puPage = static_cast<UINT>(current_page_);
+    *puPage = gsl::narrow_cast<UINT>(current_page_);
     return S_OK;
 }
 
@@ -171,7 +168,7 @@ void CandidateUI::SetCandidates(std::wstring code,
                                 std::vector<std::wstring> all_candidates,
                                 size_t page_size,
                                 size_t current_page,
-                                size_t selected_in_page) {
+                                size_t selected_in_page) noexcept {
     raw_code_ = std::move(code);
     all_candidates_ = std::move(all_candidates);
     page_size_ = page_size > 0 ? page_size : 5;
@@ -249,11 +246,15 @@ void CandidateUI::DestroyPopupWindow() noexcept {
 }
 
 void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
-    HBRUSH bg_brush = ::CreateSolidBrush(RGB(250, 251, 253));
-    ::FillRect(hdc, &client_rect, bg_brush);
-    ::DeleteObject(bg_brush);
+    const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(RGB(250, 251, 253)));
+    ::FillRect(hdc, &client_rect, bg_brush.Get());
 
-    HGDIOBJ old_font = font_ ? ::SelectObject(hdc, font_) : nullptr;
+    const HGDIOBJ old_font = font_ ? ::SelectObject(hdc, font_.Get()) : nullptr;
+    const auto font_guard = gsl::finally([hdc, old_font]() noexcept {
+        if (old_font) {
+            ::SelectObject(hdc, old_font);
+        }
+    });
     ::SetBkMode(hdc, TRANSPARENT);
 
     // Line 1: Wubi code + page indicator
@@ -274,10 +275,11 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
         if (!line.empty()) {
             line += L"   ";
         }
+        const auto& cand_str = gsl::at(all_candidates_, i);
         if (idx_in_page == selected_in_page_) {
-            line += L"[" + std::to_wstring(idx_in_page + 1) + L"." + all_candidates_[i] + L"]";
+            line += L"[" + std::to_wstring(idx_in_page + 1) + L"." + cand_str + L"]";
         } else {
-            line += std::to_wstring(idx_in_page + 1) + L"." + all_candidates_[i];
+            line += std::to_wstring(idx_in_page + 1) + L"." + cand_str;
         }
     }
     if (line.empty()) {
@@ -287,10 +289,6 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
     RECT bottom_rect = {10, 32, client_rect.right - 10, client_rect.bottom - 4};
     ::SetTextColor(hdc, RGB(30, 30, 30));
     ::DrawTextW(hdc, line.c_str(), -1, &bottom_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-
-    if (old_font) {
-        ::SelectObject(hdc, old_font);
-    }
 }
 
 LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -303,11 +301,13 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     const auto* self = reinterpret_cast<const CandidateUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (msg == WM_PAINT && self) {
         PAINTSTRUCT ps{};
-        HDC hdc = ::BeginPaint(hwnd, &ps);
+        const HDC hdc = ::BeginPaint(hwnd, &ps);
+        const auto paint_guard = gsl::finally([hwnd, &ps]() noexcept {
+            ::EndPaint(hwnd, &ps);
+        });
         RECT rc{};
         ::GetClientRect(hwnd, &rc);
         self->PaintPopup(hdc, rc);
-        ::EndPaint(hwnd, &ps);
         return 0;
     }
 

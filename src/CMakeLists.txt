@@ -17,6 +17,7 @@ set(QIQI_ENGINE_SOURCES
     common/config.h
     common/logger.cpp
     common/logger.h
+    common/scoped_handle.h
     engine/wubi_binary_dict.cpp
     engine/wubi_binary_dict.h
     engine/wubi_fsm.h
@@ -34,7 +35,10 @@ target_include_directories(qiqi_engine PUBLIC
     ${QIQIIME_GENERATED_DIR}
 )
 target_compile_definitions(qiqi_engine PUBLIC SPDLOG_USE_STD_FORMAT SPDLOG_WCHAR_FILENAMES)
-target_link_libraries(qiqi_engine PUBLIC spdlog::spdlog_header_only)
+target_link_libraries(qiqi_engine PUBLIC
+    spdlog::spdlog_header_only
+    Microsoft.GSL::GSL
+)
 
 # TSF Text Input Processor COM DLL
 set(QIQIIME_SOURCES

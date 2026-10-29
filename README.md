@@ -26,10 +26,11 @@ C:\sample\qiqiime
 │   └── unregister_ime.ps1      # 管理员权限卸载输入法脚本（同时卸载 x86 与 x64）
 ├── src/
 │   ├── CMakeLists.txt          # 源码目标构建配置（qiqi_engine 静态库 + qiqiime.dll）
-│   ├── common/                 # 公共基础模块（GUID 常量、INI 配置、spdlog 日志、版本信息与资源模板）
+│   ├── common/                 # 公共基础模块（GUID 常量、INI 配置、泛型 RAII 句柄、spdlog 日志、版本信息）
 │   │   ├── config.h/.cpp       # UTF-8 INI 配置解析与用户目录 (%LOCALAPPDATA%\QiQiIME\config.ini) 自动初始化
 │   │   ├── guids.h             # CLSID / Profile GUID / UIElement GUID 定义
-│   │   ├── logger.h/.cpp       # 基于 spdlog 的日志模块（Rotating File + MSVC Debug 输出）
+│   │   ├── logger.h/.cpp       # 基于 spdlog 的日志模块与文件/编码公共函数
+│   │   ├── scoped_handle.h     # 泛型零开销 RAII 句柄模板 ScopedHandle<Traits>（管理文件、映射、注册表、GDI 句柄）
 │   │   ├── version.h.in        # C++ 编译期版本号与 Git Commit 元信息头文件模板
 │   │   └── version.rc.in       # Windows DLL 版本资源 (VERSIONINFO) 模板
 │   ├── engine/                 # 五笔核心引擎模块（无 COM 依赖，可独立单测）
@@ -185,3 +186,4 @@ powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\unregister_im
 
 ### 5.3 第三方 C++ 依赖库
 - **[gabime/spdlog](https://github.com/gabime/spdlog)**：高性能 C++ 日志库，遵循 [MIT License](https://github.com/gabime/spdlog/blob/v1.x/LICENSE)。
+- **[microsoft/GSL](https://github.com/microsoft/GSL)**：C++ Core Guidelines Support Library（`gsl::span` / `gsl::not_null` / `gsl::narrow_cast` / `gsl::at` / `gsl::finally`），遵循 [MIT License](https://github.com/microsoft/GSL/blob/main/LICENSE)。

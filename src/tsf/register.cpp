@@ -1,13 +1,16 @@
 #include "tsf/register.h"
 #include "common/guids.h"
 #include "common/logger.h"
+#include "common/scoped_handle.h"
 #include "common/version.h"
 
+#include <gsl/gsl>
 #include <msctf.h>
 #include <olectl.h>
 #include <wrl/client.h>
 #include <array>
 #include <string>
+#include <utility>
 
 namespace qiqi {
 
@@ -15,24 +18,16 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
-struct ScopedRegKey {
-    HKEY key = nullptr;
-    ScopedRegKey() noexcept = default;
-    ~ScopedRegKey() noexcept {
-        if (key) {
-            ::RegCloseKey(key);
-        }
-    }
-    ScopedRegKey(const ScopedRegKey&) = delete;
-    ScopedRegKey& operator=(const ScopedRegKey&) = delete;
-    ScopedRegKey(ScopedRegKey&&) = delete;
-    ScopedRegKey& operator=(ScopedRegKey&&) = delete;
-};
-
 std::wstring GuidToString(REFGUID guid) {
     std::array<wchar_t, 64> buf{};
-    ::StringFromGUID2(guid, buf.data(), static_cast<int>(buf.size()));
+    ::StringFromGUID2(guid, buf.data(), gsl::narrow_cast<int>(buf.size()));
     return buf.data();
+}
+
+std::pair<std::wstring, std::wstring> GetClsidRegistryPaths() {
+    std::wstring clsid_key = L"CLSID\\" + GuidToString(kClsidQiQiTextService);
+    std::wstring inproc_key = clsid_key + L"\\InProcServer32";
+    return {std::move(clsid_key), std::move(inproc_key)};
 }
 
 void SetRegSzValue(HKEY key, const wchar_t* value_name, std::wstring_view value) noexcept {
@@ -42,7 +37,7 @@ void SetRegSzValue(HKEY key, const wchar_t* value_name, std::wstring_view value)
         0,
         REG_SZ,
         reinterpret_cast<const BYTE*>(value.data()),
-        static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+        gsl::narrow_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
 }
 
 bool RegisterComClsid(HINSTANCE instance) {
@@ -51,33 +46,31 @@ bool RegisterComClsid(HINSTANCE instance) {
         return false;
     }
 
-    const std::wstring clsid_key = L"CLSID\\" + GuidToString(kClsidQiQiTextService);
-    const std::wstring inproc_key = clsid_key + L"\\InProcServer32";
+    const auto [clsid_key, inproc_key] = GetClsidRegistryPaths();
 
     {
         ScopedRegKey hkey;
         if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, clsid_key.c_str(), 0, nullptr,
-                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hkey.key, nullptr) != ERROR_SUCCESS) {
+                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, hkey.Put(), nullptr) != ERROR_SUCCESS) {
             return false;
         }
-        SetRegSzValue(hkey.key, nullptr, kTextServiceDesc);
+        SetRegSzValue(hkey.Get(), nullptr, kTextServiceDesc);
     }
 
     {
         ScopedRegKey hkey;
         if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, inproc_key.c_str(), 0, nullptr,
-                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hkey.key, nullptr) != ERROR_SUCCESS) {
+                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, hkey.Put(), nullptr) != ERROR_SUCCESS) {
             return false;
         }
-        SetRegSzValue(hkey.key, nullptr, module_path.native());
-        SetRegSzValue(hkey.key, L"ThreadingModel", L"Apartment");
+        SetRegSzValue(hkey.Get(), nullptr, module_path.native());
+        SetRegSzValue(hkey.Get(), L"ThreadingModel", L"Apartment");
     }
     return true;
 }
 
 void UnregisterComClsid() {
-    const std::wstring clsid_key = L"CLSID\\" + GuidToString(kClsidQiQiTextService);
-    const std::wstring inproc_key = clsid_key + L"\\InProcServer32";
+    const auto [clsid_key, inproc_key] = GetClsidRegistryPaths();
     ::RegDeleteKeyW(HKEY_CLASSES_ROOT, inproc_key.c_str());
     ::RegDeleteKeyW(HKEY_CLASSES_ROOT, clsid_key.c_str());
 }
@@ -96,7 +89,7 @@ const std::array<GUID, 6> kSupportedCategories = {
 
 bool IsNative64BitClsidRegistered() noexcept {
     std::array<wchar_t, 64> guid_buf{};
-    if (::StringFromGUID2(kClsidQiQiTextService, guid_buf.data(), static_cast<int>(guid_buf.size())) <= 0) {
+    if (::StringFromGUID2(kClsidQiQiTextService, guid_buf.data(), gsl::narrow_cast<int>(guid_buf.size())) <= 0) {
         return false;
     }
     std::array<wchar_t, 128> inproc_key{};
@@ -106,7 +99,7 @@ bool IsNative64BitClsidRegistered() noexcept {
 
     ScopedRegKey hkey;
     return ::RegOpenKeyExW(HKEY_CLASSES_ROOT, inproc_key.data(), 0,
-                           KEY_READ | KEY_WOW64_64KEY, &hkey.key) == ERROR_SUCCESS;
+                           KEY_READ | KEY_WOW64_64KEY, hkey.Put()) == ERROR_SUCCESS;
 }
 
 bool IsRunningUnderWow64() noexcept {
@@ -140,9 +133,6 @@ HRESULT RegisterServerWithManagers(
         return S_OK;
     }
 
-    const HRESULT co_hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    const bool need_uninit = SUCCEEDED(co_hr);
-
     HRESULT hr = E_FAIL;
     do {
         ComPtr<ITfInputProcessorProfiles> profiles = custom_profiles;
@@ -166,9 +156,9 @@ HRESULT RegisterServerWithManagers(
             kChineseSimplifiedLangId,
             kGuidProfileWubi86,
             kProfileDesc,
-            static_cast<ULONG>(wcslen(kProfileDesc)),
+            gsl::narrow_cast<ULONG>(wcslen(kProfileDesc)),
             module_path.c_str(),
-            static_cast<ULONG>(module_path.size()),
+            gsl::narrow_cast<ULONG>(module_path.size()),
             0);
         if (FAILED(hr)) {
             break;
@@ -188,13 +178,10 @@ HRESULT RegisterServerWithManagers(
         }
     } while (false);
 
-    if (need_uninit) {
-        ::CoUninitialize();
-    }
     if (SUCCEEDED(hr)) {
         QIQI_LOG_INFO("RegisterServer succeeded");
     } else {
-        QIQI_LOG_ERROR("RegisterServer failed with HRESULT 0x{:08x}", static_cast<unsigned int>(hr));
+        QIQI_LOG_ERROR("RegisterServer failed with HRESULT 0x{:08x}", gsl::narrow_cast<unsigned int>(hr));
     }
     log::Flush();
     return hr;
@@ -217,9 +204,6 @@ HRESULT UnregisterServerWithManagers(
         return S_OK;
     }
 
-    const HRESULT co_hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    const bool need_uninit = SUCCEEDED(co_hr);
-
     ComPtr<ITfCategoryMgr> cat_mgr = custom_cat_mgr;
     if (!cat_mgr) {
         ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
@@ -238,10 +222,6 @@ HRESULT UnregisterServerWithManagers(
     }
     if (profiles) {
         profiles->Unregister(kClsidQiQiTextService);
-    }
-
-    if (need_uninit) {
-        ::CoUninitialize();
     }
 
     QIQI_LOG_INFO("UnregisterServer completed");

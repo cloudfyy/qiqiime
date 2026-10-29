@@ -31,7 +31,7 @@ constexpr bool IsWubiCodeToken(std::wstring_view token) noexcept {
     if (token.empty() || token.size() > 4) {
         return false;
     }
-    for (wchar_t ch : token) {
+    for (const wchar_t ch : token) {
         if (!IsWubiCodeChar(ch)) {
             return false;
         }
@@ -47,18 +47,16 @@ constexpr std::wstring_view NextToken(std::wstring_view& line) noexcept {
         return {};
     }
     size_t pos = 0;
-    while (pos < line.size() && line[pos] != L' ' && line[pos] != L'\t' && line[pos] != L'\r') {
+    while (pos < line.size()) {
+        const wchar_t ch = gsl::at(line, pos);
+        if (ch == L' ' || ch == L'\t' || ch == L'\r') {
+            break;
+        }
         ++pos;
     }
     const std::wstring_view token = line.substr(0, pos);
     line.remove_prefix(pos);
     return token;
-}
-
-void AppendUniqueWord(std::vector<std::wstring>& list, std::wstring_view word) {
-    if (std::find(list.begin(), list.end(), word) == list.end()) {
-        list.emplace_back(word);
-    }
 }
 
 std::filesystem::path GetCacheFilePath(const std::filesystem::path& txt_path) {
@@ -87,25 +85,12 @@ bool ParseTextDictIntoBinaryBuffer(
     uint64_t src_size,
     uint64_t src_mtime,
     std::vector<uint8_t>& out_buffer) {
-    std::ifstream file(txt_path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
+    std::string raw_utf8;
+    if (!log::ReadFileToUtf8String(txt_path, raw_utf8)) {
         return false;
     }
 
-    const auto file_size = file.tellg();
-    std::string raw_utf8;
-    if (file_size > 0) {
-        raw_utf8.resize(static_cast<size_t>(file_size));
-        file.seekg(0, std::ios::beg);
-        file.read(raw_utf8.data(), file_size);
-    }
-
-    std::string_view utf8_view(raw_utf8);
-    if (utf8_view.starts_with("\xEF\xBB\xBF")) {
-        utf8_view.remove_prefix(3);
-    }
-
-    const std::wstring wide_content = log::Utf8ToWide(utf8_view);
+    const std::wstring wide_content = log::Utf8ToWide(log::StripUtf8Bom(raw_utf8));
     std::wstring_view content_view(wide_content);
 
     std::map<uint32_t, std::vector<std::wstring_view>> grouped;
@@ -168,14 +153,14 @@ bool ParseTextDictIntoBinaryBuffer(
         }
         DictCodeIndex ci{};
         ci.packed_code = packed_code;
-        ci.first_word_idx = static_cast<uint32_t>(word_slices.size());
-        ci.word_count = static_cast<uint32_t>(words.size());
+        ci.first_word_idx = gsl::narrow_cast<uint32_t>(word_slices.size());
+        ci.word_count = gsl::narrow_cast<uint32_t>(words.size());
         code_indices.push_back(ci);
 
         for (const auto word_sv : words) {
             DictWordSlice ws{};
-            ws.char_offset = static_cast<uint32_t>(char_pool.size());
-            ws.char_length = static_cast<uint32_t>(word_sv.size());
+            ws.char_offset = gsl::narrow_cast<uint32_t>(char_pool.size());
+            ws.char_length = gsl::narrow_cast<uint32_t>(word_sv.size());
             word_slices.push_back(ws);
             char_pool.append(word_sv);
         }
@@ -186,9 +171,9 @@ bool ParseTextDictIntoBinaryBuffer(
     hdr.version = kDictFormatVersion;
     hdr.source_size = src_size;
     hdr.source_mtime = src_mtime;
-    hdr.code_count = static_cast<uint32_t>(code_indices.size());
-    hdr.word_count = static_cast<uint32_t>(word_slices.size());
-    hdr.char_count = static_cast<uint32_t>(char_pool.size());
+    hdr.code_count = gsl::narrow_cast<uint32_t>(code_indices.size());
+    hdr.word_count = gsl::narrow_cast<uint32_t>(word_slices.size());
+    hdr.char_count = gsl::narrow_cast<uint32_t>(char_pool.size());
 
     const size_t codes_bytes = code_indices.size() * sizeof(DictCodeIndex);
     const size_t words_bytes = word_slices.size() * sizeof(DictWordSlice);
@@ -196,57 +181,42 @@ bool ParseTextDictIntoBinaryBuffer(
     const size_t total_bytes = sizeof(DictBinaryHeader) + codes_bytes + words_bytes + chars_bytes;
 
     out_buffer.resize(total_bytes);
-    uint8_t* ptr = out_buffer.data();
-    std::memcpy(ptr, &hdr, sizeof(hdr));
-    ptr += sizeof(hdr);
+    std::span<uint8_t> out_span(out_buffer);
+    std::memcpy(out_span.data(), &hdr, sizeof(hdr));
+    out_span = out_span.subspan(sizeof(hdr));
     if (codes_bytes > 0) {
-        std::memcpy(ptr, code_indices.data(), codes_bytes);
-        ptr += codes_bytes;
+        std::memcpy(out_span.data(), code_indices.data(), codes_bytes);
+        out_span = out_span.subspan(codes_bytes);
     }
     if (words_bytes > 0) {
-        std::memcpy(ptr, word_slices.data(), words_bytes);
-        ptr += words_bytes;
+        std::memcpy(out_span.data(), word_slices.data(), words_bytes);
+        out_span = out_span.subspan(words_bytes);
     }
     if (chars_bytes > 0) {
-        std::memcpy(ptr, char_pool.data(), chars_bytes);
+        std::memcpy(out_span.data(), char_pool.data(), chars_bytes);
     }
     return true;
 }
 
 } // namespace
 
-WubiMappedDict::~WubiMappedDict() noexcept {
-    CloseMapping();
-}
-
-void WubiMappedDict::CloseMapping() noexcept {
+void WubiMappedDict::ResetViews() noexcept {
     code_index_ = {};
     word_slices_ = {};
     char_pool_ = {};
-
-    if (mapped_view_) {
-        ::UnmapViewOfFile(mapped_view_);
-        mapped_view_ = nullptr;
-    }
-    if (mapping_handle_) {
-        ::CloseHandle(mapping_handle_);
-        mapping_handle_ = nullptr;
-    }
-    if (file_handle_ != INVALID_HANDLE_VALUE) {
-        ::CloseHandle(file_handle_);
-        file_handle_ = INVALID_HANDLE_VALUE;
-    }
+    mapped_view_.Reset();
+    mapping_handle_.Reset();
+    file_handle_.Reset();
 }
 
 bool WubiMappedDict::BindBufferView(
-    const uint8_t* base,
-    size_t total_bytes,
+    std::span<const uint8_t> buffer,
     uint64_t expected_src_size,
     uint64_t expected_src_mtime) noexcept {
-    if (!base || total_bytes < sizeof(DictBinaryHeader)) {
+    if (buffer.size() < sizeof(DictBinaryHeader)) {
         return false;
     }
-    const auto* hdr = reinterpret_cast<const DictBinaryHeader*>(base);
+    const auto* hdr = reinterpret_cast<const DictBinaryHeader*>(buffer.data());
     if (hdr->magic != kDictMagic || hdr->version != kDictFormatVersion) {
         return false;
     }
@@ -259,20 +229,20 @@ bool WubiMappedDict::BindBufferView(
     const size_t words_bytes = static_cast<size_t>(hdr->word_count) * sizeof(DictWordSlice);
     const size_t chars_bytes = static_cast<size_t>(hdr->char_count) * sizeof(wchar_t);
     const size_t required_bytes = sizeof(DictBinaryHeader) + codes_bytes + words_bytes + chars_bytes;
-    if (total_bytes < required_bytes) {
+    if (buffer.size() < required_bytes) {
         return false;
     }
 
-    const uint8_t* codes_ptr = base + sizeof(DictBinaryHeader);
-    const uint8_t* words_ptr = codes_ptr + codes_bytes;
-    const uint8_t* chars_ptr = words_ptr + words_bytes;
+    const auto codes_span = buffer.subspan(sizeof(DictBinaryHeader), codes_bytes);
+    const auto words_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes, words_bytes);
+    const auto chars_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes + words_bytes, chars_bytes);
 
     code_index_ = std::span<const DictCodeIndex>(
-        reinterpret_cast<const DictCodeIndex*>(codes_ptr), hdr->code_count);
+        reinterpret_cast<const DictCodeIndex*>(codes_span.data()), hdr->code_count);
     word_slices_ = std::span<const DictWordSlice>(
-        reinterpret_cast<const DictWordSlice*>(words_ptr), hdr->word_count);
+        reinterpret_cast<const DictWordSlice*>(words_span.data()), hdr->word_count);
     char_pool_ = std::span<const wchar_t>(
-        reinterpret_cast<const wchar_t*>(chars_ptr), hdr->char_count);
+        reinterpret_cast<const wchar_t*>(chars_span.data()), hdr->char_count);
     return true;
 }
 
@@ -280,48 +250,47 @@ bool WubiMappedDict::OpenMappedFile(
     const std::filesystem::path& bin_path,
     uint64_t expected_src_size,
     uint64_t expected_src_mtime) noexcept {
-    CloseMapping();
+    ResetViews();
 
-    file_handle_ = ::CreateFileW(
+    ScopedFileHandle file(::CreateFileW(
         bin_path.c_str(),
         GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr,
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL,
-        nullptr);
-    if (file_handle_ == INVALID_HANDLE_VALUE) {
+        nullptr));
+    if (!file.IsValid()) {
         return false;
     }
 
     LARGE_INTEGER file_size{};
-    if (!::GetFileSizeEx(file_handle_, &file_size) ||
-        file_size.QuadPart < static_cast<LONGLONG>(sizeof(DictBinaryHeader))) {
-        CloseMapping();
+    if (!::GetFileSizeEx(file.Get(), &file_size) ||
+        file_size.QuadPart < gsl::narrow_cast<LONGLONG>(sizeof(DictBinaryHeader))) {
         return false;
     }
 
-    mapping_handle_ = ::CreateFileMappingW(
-        file_handle_, nullptr, PAGE_READONLY, 0, 0, nullptr);
-    if (!mapping_handle_) {
-        CloseMapping();
+    ScopedKernelHandle mapping(::CreateFileMappingW(
+        file.Get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
+    if (!mapping.IsValid()) {
         return false;
     }
 
-    mapped_view_ = ::MapViewOfFile(mapping_handle_, FILE_MAP_READ, 0, 0, 0);
-    if (!mapped_view_) {
-        CloseMapping();
+    ScopedMappedView view(::MapViewOfFile(mapping.Get(), FILE_MAP_READ, 0, 0, 0));
+    if (!view.IsValid()) {
         return false;
     }
 
-    if (!BindBufferView(
-            static_cast<const uint8_t*>(mapped_view_),
-            static_cast<size_t>(file_size.QuadPart),
-            expected_src_size,
-            expected_src_mtime)) {
-        CloseMapping();
+    const std::span<const uint8_t> mapped_span(
+        static_cast<const uint8_t*>(view.Get()),
+        gsl::narrow_cast<size_t>(file_size.QuadPart));
+    if (!BindBufferView(mapped_span, expected_src_size, expected_src_mtime)) {
         return false;
     }
+
+    file_handle_ = std::move(file);
+    mapping_handle_ = std::move(mapping);
+    mapped_view_ = std::move(view);
     return true;
 }
 
@@ -334,7 +303,7 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
 
     const uint64_t src_size = std::filesystem::file_size(txt_path, ec);
     const auto mtime_tp = std::filesystem::last_write_time(txt_path, ec);
-    const uint64_t src_mtime = static_cast<uint64_t>(mtime_tp.time_since_epoch().count());
+    const uint64_t src_mtime = gsl::narrow_cast<uint64_t>(mtime_tp.time_since_epoch().count());
     const std::wstring canonical_key = std::filesystem::weakly_canonical(txt_path, ec).wstring();
 
     {
@@ -373,7 +342,7 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
         std::ofstream ofs(cache_bin_path, std::ios::binary | std::ios::trunc);
         if (ofs.is_open()) {
             ofs.write(reinterpret_cast<const char*>(bin_buffer.data()),
-                      static_cast<std::streamsize>(bin_buffer.size()));
+                      gsl::narrow_cast<std::streamsize>(bin_buffer.size()));
             ofs.close();
         }
     }
@@ -381,11 +350,7 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
     if (!dict->OpenMappedFile(cache_bin_path, src_size, src_mtime)) {
         // Fallback to flat in-memory buffer if file mapping is unavailable in sandbox
         dict->fallback_buffer_ = std::move(bin_buffer);
-        if (!dict->BindBufferView(
-                dict->fallback_buffer_.data(),
-                dict->fallback_buffer_.size(),
-                src_size,
-                src_mtime)) {
+        if (!dict->BindBufferView(dict->fallback_buffer_, src_size, src_mtime)) {
             return nullptr;
         }
     }
@@ -407,7 +372,26 @@ std::wstring_view WubiMappedDict::GetWordView(const DictWordSlice& slice) const 
     if (static_cast<size_t>(slice.char_offset) + slice.char_length > char_pool_.size()) {
         return {};
     }
-    return std::wstring_view(char_pool_.data() + slice.char_offset, slice.char_length);
+    const auto sub = char_pool_.subspan(slice.char_offset, slice.char_length);
+    return std::wstring_view(sub.data(), sub.size());
+}
+
+bool WubiMappedDict::AppendWordsForCodeEntry(
+    const DictCodeIndex& entry,
+    std::vector<std::wstring>& out_words,
+    size_t max_results) const {
+    const size_t end_idx = std::min<size_t>(
+        static_cast<size_t>(entry.first_word_idx) + entry.word_count, word_slices_.size());
+    for (size_t i = entry.first_word_idx; i < end_idx; ++i) {
+        const std::wstring_view w = GetWordView(gsl::at(word_slices_, i));
+        if (!w.empty()) {
+            AppendUniqueWord(out_words, w);
+            if (out_words.size() >= max_results) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 void WubiMappedDict::LookupExact(
@@ -425,14 +409,7 @@ void WubiMappedDict::LookupExact(
     if (it == code_index_.end() || it->packed_code != packed_code) {
         return;
     }
-    const size_t end_idx = std::min<size_t>(
-        static_cast<size_t>(it->first_word_idx) + it->word_count, word_slices_.size());
-    for (size_t i = it->first_word_idx; i < end_idx; ++i) {
-        const std::wstring_view w = GetWordView(word_slices_[i]);
-        if (!w.empty()) {
-            AppendUniqueWord(out_words, w);
-        }
-    }
+    AppendWordsForCodeEntry(*it, out_words, SIZE_MAX);
 }
 
 void WubiMappedDict::LookupPrefix(
@@ -456,16 +433,8 @@ void WubiMappedDict::LookupPrefix(
         if (it->packed_code == exact_code) {
             continue;
         }
-        const size_t end_idx = std::min<size_t>(
-            static_cast<size_t>(it->first_word_idx) + it->word_count, word_slices_.size());
-        for (size_t i = it->first_word_idx; i < end_idx; ++i) {
-            const std::wstring_view w = GetWordView(word_slices_[i]);
-            if (!w.empty()) {
-                AppendUniqueWord(out_words, w);
-                if (out_words.size() >= max_results) {
-                    return;
-                }
-            }
+        if (AppendWordsForCodeEntry(*it, out_words, max_results)) {
+            return;
         }
     }
 }
@@ -481,7 +450,7 @@ void WubiMappedDict::LookupWildcard(
     // Narrow scan range if the first character is not 'z'
     uint32_t lo = 0;
     uint32_t hi = 0xFFFFFFFFu;
-    if (pattern[0] != L'z' && pattern[0] != L'Z') {
+    if (pattern.front() != L'z' && pattern.front() != L'Z') {
         const std::wstring_view first_char = pattern.substr(0, 1);
         lo = PackWubiCode(first_char);
         hi = PackWubiPrefixUpperBound(first_char);
@@ -499,16 +468,8 @@ void WubiMappedDict::LookupWildcard(
         if (!MatchesWildcardPattern(it->packed_code, pattern)) {
             continue;
         }
-        const size_t end_idx = std::min<size_t>(
-            static_cast<size_t>(it->first_word_idx) + it->word_count, word_slices_.size());
-        for (size_t i = it->first_word_idx; i < end_idx; ++i) {
-            const std::wstring_view w = GetWordView(word_slices_[i]);
-            if (!w.empty()) {
-                AppendUniqueWord(out_words, w);
-                if (out_words.size() >= max_results) {
-                    return;
-                }
-            }
+        if (AppendWordsForCodeEntry(*it, out_words, max_results)) {
+            return;
         }
     }
 }

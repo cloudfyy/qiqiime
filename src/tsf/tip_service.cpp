@@ -200,9 +200,9 @@ bool QiQiTextService::InitKeyEventSink() {
     }
 
     for (const auto& def : kPreservedKeys) {
-        TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
+        const TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
         key_mgr->PreserveKey(
-            client_id_, *def.guid, &pk, def.desc, static_cast<ULONG>(wcslen(def.desc)));
+            client_id_, *def.guid, &pk, def.desc, gsl::narrow_cast<ULONG>(wcslen(def.desc)));
     }
     return true;
 }
@@ -214,7 +214,7 @@ void QiQiTextService::UninitKeyEventSink() {
     ComPtr<ITfKeystrokeMgr> key_mgr;
     if (SUCCEEDED(thread_mgr_.As(&key_mgr)) && key_mgr) {
         for (const auto& def : kPreservedKeys) {
-            TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
+            const TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
             key_mgr->UnpreserveKey(*def.guid, &pk);
         }
         key_mgr->UnadviseKeyEventSink(client_id_);
@@ -259,7 +259,7 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* /*pic*/, WPARAM wParam, 
     if (!pfEaten) {
         return E_INVALIDARG;
     }
-    const uint32_t vk = static_cast<uint32_t>(wParam);
+    const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
     if (vk == VK_SHIFT) {
         shift_tap_candidate_ = config_.shift_toggle_mode && !IsKeyDown(VK_CONTROL) && !IsKeyDown(VK_MENU);
         *pfEaten = FALSE;
@@ -277,7 +277,7 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
     if (!pfEaten) {
         return E_INVALIDARG;
     }
-    const uint32_t vk = static_cast<uint32_t>(wParam);
+    const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
     const bool shift = IsKeyDown(VK_SHIFT);
     const bool ctrl = IsKeyDown(VK_CONTROL);
     const bool alt = IsKeyDown(VK_MENU);
@@ -436,17 +436,18 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
 
     ComPtr<LambdaEditSession> session;
     session.Attach(new LambdaEditSession([self_holder, ctx_holder, result](TfEditCookie ec) -> HRESULT {
+        const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
         if (result.action == KeyActionType::Cancel) {
-            self_holder->CancelCompositionInSession(ec, ctx_holder.Get());
+            self_holder->CancelCompositionInSession(ec, non_null_ctx.get());
             self_holder->EndCandidateUI();
             return S_OK;
         }
 
         if (result.action == KeyActionType::Commit) {
-            self_holder->CommitAndEndCompositionInSession(ec, ctx_holder.Get(), result.committed_text);
+            self_holder->CommitAndEndCompositionInSession(ec, non_null_ctx, result.committed_text);
             if (!result.composition_text.empty()) {
                 // e.g. 5th key auto-committed previous 4-code word and started a new 1-code composition
-                self_holder->SyncCompositionUIInSession(ec, ctx_holder.Get(), result.composition_text);
+                self_holder->SyncCompositionUIInSession(ec, non_null_ctx, result.composition_text);
             } else {
                 self_holder->EndCandidateUI();
             }
@@ -454,7 +455,7 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
         }
 
         if (result.action == KeyActionType::UpdateState) {
-            self_holder->SyncCompositionUIInSession(ec, ctx_holder.Get(), result.composition_text);
+            self_holder->SyncCompositionUIInSession(ec, non_null_ctx, result.composition_text);
             return S_OK;
         }
 
@@ -470,15 +471,15 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
 }
 
 void QiQiTextService::SyncCompositionUIInSession(
-    TfEditCookie ec, ITfContext* context, const std::wstring& text) {
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text) {
     StartOrUpdateCompositionInSession(ec, context, text);
     UpdateCandidateWindowPositionInSession(ec, context);
     BeginOrUpdateCandidateUI();
 }
 
 void QiQiTextService::SetRangeTextAndCollapseCaret(
-    TfEditCookie ec, ITfContext* context, ITfRange* range, std::wstring_view text) {
-    range->SetText(ec, 0, text.data(), static_cast<LONG>(text.size()));
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range, std::wstring_view text) {
+    range->SetText(ec, 0, text.data(), gsl::narrow_cast<LONG>(text.size()));
 
     ComPtr<ITfRange> caret_range;
     if (SUCCEEDED(range->Clone(&caret_range)) && caret_range) {
@@ -492,7 +493,7 @@ void QiQiTextService::SetRangeTextAndCollapseCaret(
 }
 
 void QiQiTextService::StartOrUpdateCompositionInSession(
-    TfEditCookie ec, ITfContext* context, const std::wstring& text) {
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text) {
     if (!composition_) {
         ComPtr<ITfInsertAtSelection> insert_at_sel;
         if (FAILED(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel))) || !insert_at_sel) {
@@ -519,15 +520,15 @@ void QiQiTextService::StartOrUpdateCompositionInSession(
     if (FAILED(composition_->GetRange(&comp_range)) || !comp_range) {
         return;
     }
-    SetRangeTextAndCollapseCaret(ec, context, comp_range.Get(), text);
+    SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), text);
 }
 
 void QiQiTextService::CommitAndEndCompositionInSession(
-    TfEditCookie ec, ITfContext* context, const std::wstring& committed_text) {
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text) {
     if (composition_) {
         ComPtr<ITfRange> comp_range;
         if (SUCCEEDED(composition_->GetRange(&comp_range)) && comp_range) {
-            SetRangeTextAndCollapseCaret(ec, context, comp_range.Get(), committed_text);
+            SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), committed_text);
         }
         composition_->EndComposition(ec);
         composition_.Reset();
@@ -537,7 +538,7 @@ void QiQiTextService::CommitAndEndCompositionInSession(
         if (SUCCEEDED(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel))) && insert_at_sel) {
             ComPtr<ITfRange> inserted_range;
             insert_at_sel->InsertTextAtSelection(
-                ec, 0, committed_text.c_str(), static_cast<LONG>(committed_text.size()), &inserted_range);
+                ec, 0, committed_text.c_str(), gsl::narrow_cast<LONG>(committed_text.size()), &inserted_range);
         }
     }
 }
@@ -554,7 +555,8 @@ void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, ITfContext* /*
     composition_.Reset();
 }
 
-void QiQiTextService::UpdateCandidateWindowPositionInSession(TfEditCookie ec, ITfContext* context) {
+void QiQiTextService::UpdateCandidateWindowPositionInSession(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context) {
     if (!composition_ || !candidate_ui_) {
         return;
     }

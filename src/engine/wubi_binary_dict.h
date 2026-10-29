@@ -1,5 +1,7 @@
 #pragma once
 #include <windows.h>
+#include <gsl/gsl>
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -7,9 +9,18 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
+#include "common/scoped_handle.h"
+
 namespace qiqi {
+
+inline void AppendUniqueWord(std::vector<std::wstring>& list, std::wstring_view word) {
+    if (std::find(list.begin(), list.end(), word) == list.end()) {
+        list.emplace_back(word);
+    }
+}
 
 // Pack 1..4 lowercase Wubi letters ('a'..'z') into a big-endian uint32_t.
 // Numeric comparison on the returned uint32_t is identical to lexicographical order.
@@ -20,14 +31,14 @@ constexpr uint32_t PackWubiCode(std::wstring_view code) noexcept {
     }
     uint32_t packed = 0;
     for (size_t i = 0; i < code.size(); ++i) {
-        wchar_t ch = code[i];
+        wchar_t ch = gsl::at(code, i);
         if (ch >= L'A' && ch <= L'Z') {
-            ch = static_cast<wchar_t>(ch - L'A' + L'a');
+            ch = gsl::narrow_cast<wchar_t>(ch - L'A' + L'a');
         }
         if (ch < L'a' || ch > L'z') {
             return 0;
         }
-        const uint32_t byte_val = static_cast<uint32_t>(ch - L'a' + 1);
+        const uint32_t byte_val = gsl::narrow_cast<uint32_t>(ch - L'a' + 1);
         packed |= (byte_val << ((3 - i) * 8));
     }
     return packed;
@@ -53,12 +64,12 @@ constexpr bool MatchesWildcardPattern(uint32_t packed_code, std::wstring_view pa
         if (code_byte == 0) {
             return false; // Code is shorter than pattern
         }
-        wchar_t pat_ch = pattern[i];
+        wchar_t pat_ch = gsl::at(pattern, i);
         if (pat_ch >= L'A' && pat_ch <= L'Z') {
-            pat_ch = static_cast<wchar_t>(pat_ch - L'A' + L'a');
+            pat_ch = gsl::narrow_cast<wchar_t>(pat_ch - L'A' + L'a');
         }
         if (pat_ch != L'z') {
-            const uint32_t pat_byte = static_cast<uint32_t>(pat_ch - L'a' + 1);
+            const uint32_t pat_byte = gsl::narrow_cast<uint32_t>(pat_ch - L'a' + 1);
             if (code_byte != pat_byte) {
                 return false;
             }
@@ -100,7 +111,7 @@ static_assert(sizeof(DictWordSlice) == 8);
 class WubiMappedDict final {
 public:
     WubiMappedDict() noexcept = default;
-    ~WubiMappedDict() noexcept;
+    ~WubiMappedDict() noexcept = default;
 
     WubiMappedDict(const WubiMappedDict&) = delete;
     WubiMappedDict& operator=(const WubiMappedDict&) = delete;
@@ -112,7 +123,7 @@ public:
         const std::filesystem::path& txt_path);
 
     bool IsValid() const noexcept { return !code_index_.empty(); }
-    bool IsMemoryMapped() const noexcept { return mapped_view_ != nullptr; }
+    bool IsMemoryMapped() const noexcept { return mapped_view_.IsValid(); }
     size_t CodeCount() const noexcept { return code_index_.size(); }
     size_t WordCount() const noexcept { return word_slices_.size(); }
 
@@ -135,16 +146,18 @@ private:
     bool OpenMappedFile(const std::filesystem::path& bin_path,
                         uint64_t expected_src_size,
                         uint64_t expected_src_mtime) noexcept;
-    bool BindBufferView(const uint8_t* base,
-                        size_t total_bytes,
+    bool BindBufferView(std::span<const uint8_t> buffer,
                         uint64_t expected_src_size,
                         uint64_t expected_src_mtime) noexcept;
-    void CloseMapping() noexcept;
+    void ResetViews() noexcept;
     std::wstring_view GetWordView(const DictWordSlice& slice) const noexcept;
+    bool AppendWordsForCodeEntry(const DictCodeIndex& entry,
+                                 std::vector<std::wstring>& out_words,
+                                 size_t max_results) const;
 
-    HANDLE file_handle_ = INVALID_HANDLE_VALUE;
-    HANDLE mapping_handle_ = nullptr;
-    const void* mapped_view_ = nullptr;
+    ScopedFileHandle file_handle_;
+    ScopedKernelHandle mapping_handle_;
+    ScopedMappedView mapped_view_;
     std::vector<uint8_t> fallback_buffer_;
 
     std::span<const DictCodeIndex> code_index_;

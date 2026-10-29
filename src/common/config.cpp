@@ -2,6 +2,7 @@
 #include "common/logger.h"
 
 #include <windows.h>
+#include <gsl/gsl>
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -49,7 +50,7 @@ std::string ToLowerAscii(std::string_view sv) {
     std::string out(sv);
     for (char& ch : out) {
         if (ch >= 'A' && ch <= 'Z') {
-            ch = static_cast<char>(ch - 'A' + 'a');
+            ch = gsl::narrow_cast<char>(ch - 'A' + 'a');
         }
     }
     return out;
@@ -57,8 +58,9 @@ std::string ToLowerAscii(std::string_view sv) {
 
 std::string_view StripInlineComment(std::string_view value) noexcept {
     for (size_t i = 0; i < value.size(); ++i) {
-        if ((value[i] == '#' || value[i] == ';') &&
-            (i == 0 || value[i - 1] == ' ' || value[i - 1] == '\t')) {
+        const char ch = gsl::at(value, i);
+        if ((ch == '#' || ch == ';') &&
+            (i == 0 || gsl::at(value, i - 1) == ' ' || gsl::at(value, i - 1) == '\t')) {
             return TrimAscii(value.substr(0, i));
         }
     }
@@ -108,9 +110,7 @@ std::filesystem::path GetDefaultUserConfigPath() {
 
 QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
     QiQiConfig cfg{};
-    if (utf8_content.starts_with("\xEF\xBB\xBF")) {
-        utf8_content.remove_prefix(3);
-    }
+    utf8_content = log::StripUtf8Bom(utf8_content);
 
     std::string current_section;
     while (!utf8_content.empty()) {
@@ -148,8 +148,8 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
             }
         } else if (current_section == "engine") {
             if (key == "page_size") {
-                if (val.size() == 1 && val[0] >= '1' && val[0] <= '9') {
-                    cfg.page_size = static_cast<size_t>(val[0] - '0');
+                if (val.size() == 1 && val.front() >= '1' && val.front() <= '9') {
+                    cfg.page_size = static_cast<size_t>(val.front()) - static_cast<size_t>('0');
                 }
             } else if (key == "auto_commit_4code") {
                 cfg.auto_commit_4code = ParseBool(val, cfg.auto_commit_4code);
@@ -217,16 +217,9 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
 }
 
 bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_config) {
-    std::ifstream file(file_path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        return false;
-    }
-    const auto file_size = file.tellg();
     std::string content;
-    if (file_size > 0) {
-        content.resize(static_cast<size_t>(file_size));
-        file.seekg(0, std::ios::beg);
-        file.read(content.data(), file_size);
+    if (!log::ReadFileToUtf8String(file_path, content)) {
+        return false;
     }
     out_config = ParseConfigFromUtf8(content);
     return true;
@@ -243,7 +236,7 @@ bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& co
             return false;
         }
         const std::string text = SerializeConfigToUtf8(config);
-        ofs.write(text.data(), static_cast<std::streamsize>(text.size()));
+        ofs.write(text.data(), gsl::narrow_cast<std::streamsize>(text.size()));
         return ofs.good();
     } catch (...) {
         return false;

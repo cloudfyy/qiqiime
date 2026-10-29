@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <gsl/gsl>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -107,9 +108,9 @@ constexpr wchar_t AsciiToFullWidth(char ch) noexcept {
         return L'\u3000';
     }
     if (ch >= 0x21 && ch <= 0x7E) {
-        return static_cast<wchar_t>(ch - 0x21 + 0xFF01);
+        return gsl::narrow_cast<wchar_t>(ch - 0x21 + 0xFF01);
     }
-    return static_cast<wchar_t>(ch);
+    return gsl::narrow_cast<wchar_t>(ch);
 }
 
 // Map a virtual key + Shift state to its Unicode Full-Width (全角) character.
@@ -118,15 +119,15 @@ constexpr std::optional<wchar_t> MapFullWidthChar(uint32_t vk, bool shift_down) 
         return L'\u3000';
     }
     if (vk >= 'A' && vk <= 'Z') {
-        const char ascii = static_cast<char>(shift_down ? vk : (vk - 'A' + 'a'));
+        const char ascii = gsl::narrow_cast<char>(shift_down ? vk : (vk - 'A' + 'a'));
         return AsciiToFullWidth(ascii);
     }
     if (vk >= '0' && vk <= '9') {
         if (!shift_down) {
-            return AsciiToFullWidth(static_cast<char>(vk));
+            return AsciiToFullWidth(gsl::narrow_cast<char>(vk));
         }
         constexpr std::array<char, 10> kShiftedDigits = {')', '!', '@', '#', '$', '%', '^', '&', '*', '('};
-        return AsciiToFullWidth(kShiftedDigits[vk - '0']);
+        return AsciiToFullWidth(gsl::at(kShiftedDigits, vk - '0'));
     }
     switch (vk) {
         case VK_OEM_1:      return AsciiToFullWidth(shift_down ? ':' : ';');
@@ -258,7 +259,7 @@ constexpr FsmTable BuildWubiFsmTable() noexcept {
     FsmTable table{};
     for (size_t s = 0; s < static_cast<size_t>(EngineState::Count); ++s) {
         for (size_t e = 0; e < static_cast<size_t>(KeyEventKind::Count); ++e) {
-            table[s][e] = ComputeTransitionRule(
+            gsl::at(gsl::at(table, s), e) = ComputeTransitionRule(
                 static_cast<EngineState>(s), static_cast<KeyEventKind>(e));
         }
     }
@@ -275,7 +276,7 @@ constexpr TransitionRule LookupTransition(EngineState state, KeyEventKind event)
         e >= static_cast<size_t>(KeyEventKind::Count)) {
         return {TransitionOp::PassThrough, state, false};
     }
-    return kWubiFsmTable[s][e];
+    return gsl::at(gsl::at(kWubiFsmTable, s), e);
 }
 
 // Compile-time invariants verification on kWubiFsmTable

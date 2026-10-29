@@ -1,6 +1,7 @@
 #include "common.h"
 #include "common/config.h"
 #include "common/logger.h"
+#include "common/scoped_handle.h"
 #include "common/version.h"
 
 #include <filesystem>
@@ -213,12 +214,33 @@ void TestIniConfiguration() {
     std::filesystem::remove_all(temp_appdata, ec);
 }
 
+void TestScopedHandleTemplate() {
+    ScopedKernelHandle h1(::CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    QIQI_TEST_CHECK(h1.IsValid());
+    QIQI_TEST_CHECK(static_cast<bool>(h1));
+
+    // Move construction
+    ScopedKernelHandle h2(std::move(h1));
+    QIQI_TEST_CHECK(!h1.IsValid());
+    QIQI_TEST_CHECK(h2.IsValid());
+
+    // Move assignment
+    ScopedKernelHandle h3;
+    h3 = std::move(h2);
+    QIQI_TEST_CHECK(!h2.IsValid());
+    QIQI_TEST_CHECK(h3.IsValid());
+
+    h3.Reset();
+    QIQI_TEST_CHECK(!h3.IsValid());
+}
+
 } // namespace
 
 void RunCommonTests() {
     TestSpdlogLogger();
     TestVersionMechanism();
     TestIniConfiguration();
+    TestScopedHandleTemplate();
 }
 
 } // namespace qiqi::test
