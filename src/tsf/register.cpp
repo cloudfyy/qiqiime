@@ -76,13 +76,14 @@ void UnregisterComClsid() {
 }
 
 // Categories declared for modern Windows, UWP/AppContainer, and fullscreen UILess games
-const std::array<GUID, 6> kSupportedCategories = {
+const std::array<GUID, 7> kSupportedCategories = {
     GUID_TFCAT_TIP_KEYBOARD,
     GUID_TFCAT_TIPCAP_SECUREMODE,
     GUID_TFCAT_TIPCAP_UIELEMENTENABLED,
     GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT,
     GUID_TFCAT_TIPCAP_COMLESS,
-    GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT
+    GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT,
+    GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER
 };
 
 } // namespace

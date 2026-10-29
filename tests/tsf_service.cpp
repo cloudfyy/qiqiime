@@ -23,11 +23,44 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     ComPtr<ITfThreadMgrEventSink> tm_sink;
     ComPtr<ITfKeyEventSink> key_sink;
     ComPtr<ITfCompositionSink> comp_sink;
+    ComPtr<ITfDisplayAttributeProvider> disp_attr_prov;
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&tip_base))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&tip_ex))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&tm_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&key_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&comp_sink))));
+    QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&disp_attr_prov))));
+
+    // Test ITfDisplayAttributeProvider & IEnumTfDisplayAttributeInfo & ITfDisplayAttributeInfo
+    ComPtr<ITfDisplayAttributeInfo> attr_info;
+    QIQI_TEST_CHECK(disp_attr_prov->GetDisplayAttributeInfo(kGuidProfileWubi86, &attr_info) == E_INVALIDARG);
+    QIQI_TEST_CHECK(SUCCEEDED(disp_attr_prov->GetDisplayAttributeInfo(kGuidDisplayAttributeInput, &attr_info)) && attr_info);
+    GUID attr_guid{};
+    QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetGUID(&attr_guid)) && IsEqualGUID(attr_guid, kGuidDisplayAttributeInput));
+    BSTR attr_desc = nullptr;
+    QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetDescription(&attr_desc)) && attr_desc != nullptr);
+    ::SysFreeString(attr_desc);
+    TF_DISPLAYATTRIBUTE da{};
+    QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetAttributeInfo(&da)) && da.lsStyle == TF_LS_DOT);
+    da.fBoldLine = TRUE;
+    QIQI_TEST_CHECK(SUCCEEDED(attr_info->SetAttributeInfo(&da)));
+    QIQI_TEST_CHECK(SUCCEEDED(attr_info->Reset()));
+
+    ComPtr<IEnumTfDisplayAttributeInfo> enum_attr;
+    QIQI_TEST_CHECK(SUCCEEDED(disp_attr_prov->EnumDisplayAttributeInfo(&enum_attr)) && enum_attr);
+    ComPtr<ITfDisplayAttributeInfo> fetched_info;
+    ULONG fetched = 0;
+    QIQI_TEST_CHECK(enum_attr->Next(1, &fetched_info, &fetched) == S_OK && fetched == 1 && fetched_info);
+    fetched_info.Reset();
+    QIQI_TEST_CHECK(enum_attr->Next(1, &fetched_info, &fetched) == S_FALSE && fetched == 0);
+    QIQI_TEST_CHECK(SUCCEEDED(enum_attr->Reset()));
+    QIQI_TEST_CHECK(SUCCEEDED(enum_attr->Skip(1)));
+    ComPtr<IEnumTfDisplayAttributeInfo> cloned_enum;
+    QIQI_TEST_CHECK(SUCCEEDED(enum_attr->Clone(&cloned_enum)) && cloned_enum);
+    cloned_enum.Reset();
+    enum_attr.Reset();
+    attr_info.Reset();
+    disp_attr_prov.Reset();
 
     // Deactivate before Activate (exercises UninitKeyEventSink / UninitThreadMgrEventSink early-return)
     QIQI_TEST_CHECK(SUCCEEDED(service->Deactivate()));

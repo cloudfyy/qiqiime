@@ -50,6 +50,8 @@ set(QIQIIME_SOURCES
     tsf/register.cpp
     tsf/tip_service.h
     tsf/tip_service.cpp
+    tsf/display_attribute.h
+    tsf/display_attribute.cpp
     tsf/edit_session.h
     tsf/qiqiime.def
     ui/candidate_ui.h

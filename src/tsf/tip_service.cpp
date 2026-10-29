@@ -1,4 +1,5 @@
 #include "tsf/tip_service.h"
+#include "tsf/display_attribute.h"
 #include "tsf/edit_session.h"
 #include "ui/settings_dialog.h"
 #include "common/guids.h"
@@ -138,6 +139,8 @@ STDMETHODIMP QiQiTextService::QueryInterface(REFIID riid, void** ppvObj) noexcep
         *ppvObj = static_cast<ITfFunctionProvider*>(this);
     } else if (IsEqualIID(riid, IID_ITfFunction) || IsEqualIID(riid, IID_ITfFnConfigure)) {
         *ppvObj = static_cast<ITfFnConfigure*>(this);
+    } else if (IsEqualIID(riid, IID_ITfDisplayAttributeProvider)) {
+        *ppvObj = static_cast<ITfDisplayAttributeProvider*>(this);
     } else {
         *ppvObj = nullptr;
         return E_NOINTERFACE;
@@ -178,6 +181,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
         Deactivate();
         return E_FAIL;
     }
+    InitDisplayAttributeGuidAtom();
     InitFunctionProvider();
     InitLangBarItem();
     SyncTsfCompartments();
@@ -253,6 +257,15 @@ void QiQiTextService::UninitKeyEventSink() {
             key_mgr->UnpreserveKey(*def.guid, &pk);
         }
         key_mgr->UnadviseKeyEventSink(client_id_);
+    }
+}
+
+void QiQiTextService::InitDisplayAttributeGuidAtom() {
+    display_attribute_atom_ = TF_INVALID_GUIDATOM;
+    ComPtr<ITfCategoryMgr> cat_mgr;
+    if (SUCCEEDED(::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
+                                     IID_PPV_ARGS(&cat_mgr))) && cat_mgr) {
+        cat_mgr->RegisterGUID(kGuidDisplayAttributeInput, &display_attribute_atom_);
     }
 }
 
@@ -530,6 +543,27 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
     return S_OK;
 }
 
+// ITfDisplayAttributeProvider
+STDMETHODIMP QiQiTextService::EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** ppEnum) noexcept {
+    if (!ppEnum) {
+        return E_INVALIDARG;
+    }
+    *ppEnum = new (std::nothrow) QiQiEnumDisplayAttributeInfo();
+    return *ppEnum ? S_OK : E_OUTOFMEMORY;
+}
+
+STDMETHODIMP QiQiTextService::GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** ppInfo) noexcept {
+    if (!ppInfo) {
+        return E_INVALIDARG;
+    }
+    if (!IsEqualGUID(guid, kGuidDisplayAttributeInput)) {
+        *ppInfo = nullptr;
+        return E_INVALIDARG;
+    }
+    *ppInfo = new (std::nothrow) QiQiDisplayAttributeInfo();
+    return *ppInfo ? S_OK : E_OUTOFMEMORY;
+}
+
 void QiQiTextService::ResetCompositionAndUI() {
     composition_.Reset();
     active_context_.Reset();
@@ -716,6 +750,17 @@ void QiQiTextService::StartOrUpdateCompositionInSession(
         return;
     }
     SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), text);
+
+    // Apply dotted underline display attribute to the composition range
+    if (display_attribute_atom_ != TF_INVALID_GUIDATOM) {
+        ComPtr<ITfProperty> disp_prop;
+        if (SUCCEEDED(context->GetProperty(GUID_PROP_ATTRIBUTE, &disp_prop)) && disp_prop) {
+            VARIANT var{};
+            var.vt = VT_I4;
+            var.lVal = gsl::narrow_cast<LONG>(display_attribute_atom_);
+            disp_prop->SetValue(ec, comp_range.Get(), &var);
+        }
+    }
 }
 
 void QiQiTextService::CommitAndEndCompositionInSession(
@@ -723,6 +768,10 @@ void QiQiTextService::CommitAndEndCompositionInSession(
     if (composition_) {
         ComPtr<ITfRange> comp_range;
         if (SUCCEEDED(composition_->GetRange(&comp_range)) && comp_range) {
+            ComPtr<ITfProperty> disp_prop;
+            if (SUCCEEDED(context->GetProperty(GUID_PROP_ATTRIBUTE, &disp_prop)) && disp_prop) {
+                disp_prop->Clear(ec, comp_range.Get());
+            }
             SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), committed_text);
         }
         composition_->EndComposition(ec);

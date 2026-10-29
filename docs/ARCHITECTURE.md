@@ -84,7 +84,7 @@ TSF 的按键处理分为两步：
 - [x] **5. 浮动输入法状态条（`status-bar-ui`，默认关闭）**：实现桌面浮动状态条窗口（显示“中/英”、“全/半角”、“中/英标点”、“设置”按钮，支持拖拽移动与点击切换），在 `config.ini` 中通过 `show_status_bar = false` 默认关闭，支持通过托盘右键菜单或设置窗口开启。
 
 ### P2：进阶视觉与学习辅助
-- [ ] **6. 组合串显示属性（`tsf-display-attributes`）**：实现 `ITfDisplayAttributeProvider`，为未上屏的五笔编码组合串设置虚线下划线与高亮样式。
+- [x] **6. 组合串显示属性（`tsf-display-attributes`）**：实现 `ITfDisplayAttributeProvider`，为未上屏的五笔编码组合串设置虚线下划线与高亮样式。
 - [ ] **7. `z` 万能键编码反查提示（`wildcard-code-hint`）**：当使用 `z` 通配查询候选字词时，在候选框中附带显示该字词的完整五笔编码提示（如 `1.你(wqiy)`）。
 - [ ] **8. 组合态大写字母处理与临时英文模式（`upper-case-temp-english`）**：完善组合态下按 `Shift + 字母` 的顶字上屏或临时英文输入体验。
 

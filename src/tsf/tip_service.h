@@ -23,7 +23,8 @@ class QiQiTextService final
       public ITfKeyEventSink,
       public ITfCompositionSink,
       public ITfFunctionProvider,
-      public ITfFnConfigure {
+      public ITfFnConfigure,
+      public ITfDisplayAttributeProvider {
 public:
     QiQiTextService();
     ~QiQiTextService() noexcept;
@@ -72,11 +73,16 @@ public:
     STDMETHODIMP GetDisplayName(BSTR* pbstrName) noexcept override;
     STDMETHODIMP Show(HWND hwndParent, LANGID langid, REFGUID rguidProfile) override;
 
+    // ITfDisplayAttributeProvider
+    STDMETHODIMP EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** ppEnum) noexcept override;
+    STDMETHODIMP GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** ppInfo) noexcept override;
+
 private:
     bool InitThreadMgrEventSink();
     void UninitThreadMgrEventSink();
     bool InitKeyEventSink();
     void UninitKeyEventSink();
+    void InitDisplayAttributeGuidAtom();
     void InitFunctionProvider();
     void UninitFunctionProvider();
     void InitLangBarItem();
@@ -105,6 +111,7 @@ private:
     TfClientId client_id_ = TF_CLIENTID_NULL;
     DWORD activate_flags_ = 0;
     DWORD thread_mgr_event_cookie_ = TF_INVALID_COOKIE;
+    TfGuidAtom display_attribute_atom_ = TF_INVALID_GUIDATOM;
 
     ComPtr<ITfComposition> composition_;
     ComPtr<ITfContext> active_context_;
