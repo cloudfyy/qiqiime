@@ -14,7 +14,7 @@ C:\sample\qiqiime
 ├── vcpkg.json                  # vcpkg 依赖清单 (Manifest 模式管理 spdlog 等依赖)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/
-│   └── wubi86.txt              # 外部可扩展 UTF-8 86 五笔码表（构建后自动复制到 DLL 同目录）
+│   └── wubi86.txt              # 完整 86 五笔词库（Apache-2.0，78,219 编码 / 91,455 词条，构建后自动复制到 DLL 同目录）
 ├── docs/
 │   └── ARCHITECTURE.md         # 详细架构设计、TSF 接口说明与游戏/宿主兼容指南
 ├── scripts/
@@ -58,7 +58,7 @@ C:\sample\qiqiime
 ## 2. 已实现的核心功能
 
 1. **86 五笔核心输入法规则（`WubiEngine`）**
-   - **一级简码 / 词组 / 全码检索**：内置 25 个一级简码（`a` 工、`q` 我、`w` 人等）及常用字词，并支持启动时自动合并 DLL 同目录下的 `wubi86.txt` UTF-8 码表。
+   - **完整 86 五笔词库 + 双格式加载**：内置 25 个一级简码及高频字词保底，并附带基于 `KyleBing/rime-wubi86-jidian`（**Apache-2.0 开源许可**）整理的完整 `data/wubi86.txt` 码表（涵盖 **78,219 个五笔编码、91,455 条字词**，按词频权重排序）。`LoadDictionaryFile` 同时支持 `编码 词1 词2` 格式与 Rime `.dict.yaml`（`词<TAB>编码<TAB>权重`）格式直接加载。
    - **四码唯一自动上屏**：输入第 4 码且无重码时立即自动上屏（如 `wqvb` -> `你好`、`ggtt` -> `五笔`）。
    - **第五码顶字上屏**：四码有重码时继续输入第 5 个字母，自动将当前首选词顶上屏，并用第 5 码开启新一轮输入。
    - **`z` 万能学习键**：支持含 `z` 的通配查询（如 `wqz`）。

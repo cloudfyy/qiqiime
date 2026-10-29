@@ -68,29 +68,38 @@ void TestExternalDictFile() {
     // 1. Non-existent file returns false
     QIQI_TEST_CHECK(!engine.LoadDictionaryFile("non_existent_wubi_table_12345.txt"));
 
-    // 2. Temporary UTF-8 dictionary file with BOM, comments, blank lines, and multiple words
+    // 2. Temporary UTF-8 dictionary file with BOM, comments, blank lines, QiQi format, and Rime YAML format
     const auto temp_dict = std::filesystem::temp_directory_path() / L"qiqiime_test_dict.txt";
     {
         std::ofstream ofs(temp_dict, std::ios::binary);
         ofs << "\xEF\xBB\xBF# Comment line with BOM\n"
+            << "---\n"
+            << "name: test_rime_dict\n"
+            << "...\n"
             << "\n"
             << "   \n"
             << "# Another comment\n"
-            << "zzzz 测一 测二\n";
+            << "zzzz 测一 测二\n"
+            << "瑞梅词\tzzzy\t100\n";
     }
     QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
     auto zzzz = engine.LookupExact(L"zzzz");
     QIQI_TEST_CHECK(zzzz.size() == 2 && zzzz[0] == L"测一" && zzzz[1] == L"测二");
+    auto zzzy = engine.LookupExact(L"zzzy");
+    QIQI_TEST_CHECK(zzzy.size() == 1 && zzzy[0] == L"瑞梅词");
 
     std::error_code ec;
     std::filesystem::remove(temp_dict, ec);
 
-    // 3. Load bundled wubi86.txt next to executable or in current directory
+    // 3. Load bundled wubi86.txt next to executable or in current directory (78,000+ codes)
     std::filesystem::path dict_next_to_exe = log::GetModuleFilePath(nullptr);
     if (!dict_next_to_exe.empty()) {
         dict_next_to_exe.replace_filename(L"wubi86.txt");
         if (std::filesystem::exists(dict_next_to_exe)) {
             QIQI_TEST_CHECK(engine.LoadDictionaryFile(dict_next_to_exe));
+            // Verify entries from the full Jidian Wubi 86 dictionary
+            auto ke1 = engine.LookupExact(L"tugg");
+            QIQI_TEST_CHECK(!ke1.empty() && ke1[0] == L"科一");
         }
     }
     if (std::filesystem::exists("wubi86.txt")) {

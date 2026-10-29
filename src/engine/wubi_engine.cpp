@@ -16,6 +16,34 @@ constexpr bool IsWubiCodeChar(wchar_t ch) noexcept {
     return ch >= L'a' && ch <= L'z';
 }
 
+constexpr bool IsWubiCodeToken(std::wstring_view token) noexcept {
+    if (token.empty() || token.size() > WubiEngine::kMaxCodeLength) {
+        return false;
+    }
+    for (wchar_t ch : token) {
+        if (!IsWubiCodeChar(ch) && !(ch >= L'A' && ch <= L'Z')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+constexpr std::wstring_view NextToken(std::wstring_view& line) noexcept {
+    while (!line.empty() && (line.front() == L' ' || line.front() == L'\t' || line.front() == L'\r')) {
+        line.remove_prefix(1);
+    }
+    if (line.empty()) {
+        return {};
+    }
+    size_t pos = 0;
+    while (pos < line.size() && line[pos] != L' ' && line[pos] != L'\t' && line[pos] != L'\r') {
+        ++pos;
+    }
+    const std::wstring_view token = line.substr(0, pos);
+    line.remove_prefix(pos);
+    return token;
+}
+
 } // namespace
 
 WubiEngine::WubiEngine() {
@@ -50,36 +78,72 @@ void WubiEngine::AddEntry(std::wstring_view code, std::wstring_view word) {
 }
 
 bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
-    std::ifstream file(file_path, std::ios::binary);
+    std::ifstream file(file_path, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
         QIQI_LOG_WARN("Failed to open external dictionary file: {}",
                       log::WideToUtf8(file_path.wstring()));
         return false;
     }
 
+    const auto file_size = file.tellg();
+    std::string raw_utf8;
+    if (file_size > 0) {
+        raw_utf8.resize(static_cast<size_t>(file_size));
+        file.seekg(0, std::ios::beg);
+        file.read(raw_utf8.data(), file_size);
+    }
+
+    std::string_view utf8_view(raw_utf8);
+    if (utf8_view.starts_with("\xEF\xBB\xBF")) {
+        utf8_view.remove_prefix(3);
+    }
+
+    const std::wstring wide_content = log::Utf8ToWide(utf8_view);
+    std::wstring_view content_view(wide_content);
+
     size_t loaded_words = 0;
-    std::string line;
-    while (std::getline(file, line)) {
-        // Strip UTF-8 BOM on first line if present
-        if (line.starts_with("\xEF\xBB\xBF")) {
-            line.erase(0, 3);
+    bool in_yaml_header = false;
+
+    while (!content_view.empty()) {
+        const size_t nl = content_view.find(L'\n');
+        std::wstring_view line = (nl == std::wstring_view::npos)
+            ? content_view
+            : content_view.substr(0, nl);
+        content_view.remove_prefix(nl == std::wstring_view::npos ? content_view.size() : nl + 1);
+
+        const std::wstring_view first = NextToken(line);
+        if (first.empty() || first.starts_with(L'#')) {
+            continue;
         }
 
-        std::wstring wline = log::Utf8ToWide(line);
-        if (wline.empty()) {
+        // Support Rime .dict.yaml frontmatter (--- ... ...)
+        if (first == L"---") {
+            in_yaml_header = true;
             continue;
         }
-        std::wistringstream iss(wline);
-        std::wstring code;
-        if (!(iss >> code) || code.empty() || code.starts_with(L'#')) {
+        if (in_yaml_header) {
+            if (first == L"...") {
+                in_yaml_header = false;
+            }
             continue;
         }
-        std::wstring word;
-        while (iss >> word) {
-            AddEntry(code, word);
-            ++loaded_words;
+
+        if (IsWubiCodeToken(first)) {
+            // Standard QiQi format: code word1 [word2 ...]
+            for (std::wstring_view word = NextToken(line); !word.empty(); word = NextToken(line)) {
+                AddEntry(first, word);
+                ++loaded_words;
+            }
+        } else {
+            // Rime .dict.yaml format: word<TAB>code[<TAB>weight...]
+            const std::wstring_view second = NextToken(line);
+            if (IsWubiCodeToken(second)) {
+                AddEntry(second, first);
+                ++loaded_words;
+            }
         }
     }
+
     QIQI_LOG_INFO("Loaded external dictionary file '{}' ({} words, total {} code keys)",
                   log::WideToUtf8(file_path.wstring()), loaded_words, dict_.size());
     return true;
