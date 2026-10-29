@@ -1,6 +1,8 @@
 #include "wubi_engine.h"
+#include "logger.h"
 #include <windows.h>
 #include <cassert>
+#include <fstream>
 #include <iostream>
 
 using namespace qiqi;
@@ -82,9 +84,29 @@ void TestExternalDictFile() {
     }
 }
 
+void TestSpdlogLogger() {
+    const auto temp_log = std::filesystem::temp_directory_path() / L"qiqiime_unit_test.log";
+    std::error_code ec;
+    std::filesystem::remove(temp_log, ec);
+
+    log::InitLogger(temp_log, spdlog::level::debug);
+    QIQI_LOG_INFO("Unit test log entry: {}", log::WideToUtf8(L"五笔日志测试"));
+    log::Flush();
+
+    assert(std::filesystem::exists(temp_log));
+    {
+        std::ifstream ifs(temp_log);
+        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+        assert(content.find("Unit test log entry:") != std::string::npos);
+    }
+    log::InitLogger();
+    std::filesystem::remove(temp_log, ec);
+}
+
 } // namespace
 
 int main() {
+    TestSpdlogLogger();
     TestFirstLevelShortCodes();
     TestFourCodeUniqueAutoCommit();
     TestFifthKeyPushAutoCommit();

@@ -1,5 +1,6 @@
 #include "wubi_engine.h"
 #include "wubi_default_dict.h"
+#include "logger.h"
 
 #include <windows.h>
 #include <algorithm>
@@ -38,6 +39,7 @@ void WubiEngine::LoadBuiltinDictionary() {
     for (const auto& entry : kBuiltinWubi86Dict) {
         AddEntry(entry.code, entry.word);
     }
+    QIQI_LOG_DEBUG("Loaded builtin Wubi86 dictionary: {} code keys", dict_.size());
 }
 
 void WubiEngine::AddEntry(std::wstring_view code, std::wstring_view word) {
@@ -63,9 +65,12 @@ void WubiEngine::AddEntry(std::wstring_view code, std::wstring_view word) {
 bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
     std::ifstream file(file_path, std::ios::binary);
     if (!file.is_open()) {
+        QIQI_LOG_WARN("Failed to open external dictionary file: {}",
+                      log::WideToUtf8(file_path.wstring()));
         return false;
     }
 
+    size_t loaded_words = 0;
     std::string line;
     while (std::getline(file, line)) {
         // Strip UTF-8 BOM on first line if present
@@ -88,8 +93,11 @@ bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
         std::wstring word;
         while (iss >> word) {
             AddEntry(code, word);
+            ++loaded_words;
         }
     }
+    QIQI_LOG_INFO("Loaded external dictionary file '{}' ({} words, total {} code keys)",
+                  log::WideToUtf8(file_path.wstring()), loaded_words, dict_.size());
     return true;
 }
 
@@ -98,6 +106,7 @@ void WubiEngine::SetChineseMode(bool enabled) noexcept {
     if (!chinese_mode_) {
         Reset();
     }
+    QIQI_LOG_DEBUG("WubiEngine mode switched to {}", chinese_mode_ ? "Chinese" : "English");
 }
 
 void WubiEngine::ToggleChineseMode() noexcept {

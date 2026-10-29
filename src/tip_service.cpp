@@ -1,6 +1,7 @@
 #include "tip_service.h"
 #include "edit_session.h"
 #include "guids.h"
+#include "logger.h"
 
 #include <filesystem>
 
@@ -32,12 +33,16 @@ QiQiTextService::~QiQiTextService() {
 void QiQiTextService::LoadExternalDictionaryNextToDll() {
     wchar_t module_path[MAX_PATH]{};
     if (::GetModuleFileNameW(g_dll_instance, module_path, MAX_PATH) == 0) {
+        QIQI_LOG_WARN("GetModuleFileNameW failed when locating external dictionary");
         return;
     }
     std::filesystem::path dict_path(module_path);
     dict_path.replace_filename(L"wubi86.txt");
     if (std::filesystem::exists(dict_path)) {
         engine_.LoadDictionaryFile(dict_path);
+    } else {
+        QIQI_LOG_DEBUG("External dictionary not found at '{}', using builtin dictionary only",
+                       log::WideToUtf8(dict_path.wstring()));
     }
 }
 
@@ -87,7 +92,10 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     client_id_ = tid;
     activate_flags_ = dwFlags;
 
+    QIQI_LOG_INFO("QiQiTextService::ActivateEx(client_id={}, flags=0x{:x})", tid, dwFlags);
+
     if (!InitThreadMgrEventSink() || !InitKeyEventSink()) {
+        QIQI_LOG_ERROR("QiQiTextService::ActivateEx failed to initialize TSF event sinks");
         Deactivate();
         return E_FAIL;
     }
@@ -95,6 +103,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
 }
 
 STDMETHODIMP QiQiTextService::Deactivate() {
+    QIQI_LOG_INFO("QiQiTextService::Deactivate(client_id={})", client_id_);
     EndCandidateUI();
     composition_.Reset();
     engine_.Reset();
@@ -105,6 +114,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     thread_mgr_.Reset();
     client_id_ = TF_CLIENTID_NULL;
     activate_flags_ = 0;
+    log::Flush();
     return S_OK;
 }
 
@@ -287,6 +297,7 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
 // ITfCompositionSink: called when the host application forcefully terminates composition
 // (e.g. user clicked elsewhere, switched Excel cell, or DOM re-rendered)
 STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie /*ecWrite*/, ITfComposition* /*pComposition*/) {
+    QIQI_LOG_DEBUG("Host terminated active TSF composition");
     composition_.Reset();
     engine_.Reset();
     EndCandidateUI();

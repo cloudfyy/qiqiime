@@ -1,5 +1,6 @@
 #include "register.h"
 #include "guids.h"
+#include "logger.h"
 
 #include <msctf.h>
 #include <olectl.h>
@@ -73,7 +74,10 @@ const std::array<GUID, 6> kSupportedCategories = {
 } // namespace
 
 HRESULT RegisterServer(HINSTANCE instance) {
+    QIQI_LOG_INFO("RegisterServer starting");
     if (!RegisterComClsid(instance)) {
+        QIQI_LOG_ERROR("RegisterComClsid failed (administrator privileges required)");
+        log::Flush();
         return SELFREG_E_CLASS;
     }
 
@@ -123,10 +127,17 @@ HRESULT RegisterServer(HINSTANCE instance) {
     if (need_uninit) {
         ::CoUninitialize();
     }
+    if (SUCCEEDED(hr)) {
+        QIQI_LOG_INFO("RegisterServer succeeded");
+    } else {
+        QIQI_LOG_ERROR("RegisterServer failed with HRESULT 0x{:08x}", static_cast<unsigned int>(hr));
+    }
+    log::Flush();
     return hr;
 }
 
 HRESULT UnregisterServer() {
+    QIQI_LOG_INFO("UnregisterServer starting");
     const HRESULT co_hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     const bool need_uninit = SUCCEEDED(co_hr);
 
@@ -149,6 +160,8 @@ HRESULT UnregisterServer() {
     }
 
     UnregisterComClsid();
+    QIQI_LOG_INFO("UnregisterServer completed");
+    log::Flush();
     return S_OK;
 }
 

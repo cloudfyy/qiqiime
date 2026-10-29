@@ -1,5 +1,6 @@
 #include "candidate_ui.h"
 #include "guids.h"
+#include "logger.h"
 #include <oleauto.h>
 #include <algorithm>
 
@@ -231,6 +232,9 @@ bool CandidateUI::EnsurePopupWindow() {
         popup_pos_.x, popup_pos_.y, 360, 64,
         nullptr, nullptr, instance_, this);
 
+    if (!hwnd_) {
+        QIQI_LOG_ERROR("CandidateUI::EnsurePopupWindow CreateWindowExW failed (error={})", ::GetLastError());
+    }
     return hwnd_ != nullptr;
 }
 

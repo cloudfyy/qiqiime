@@ -1,0 +1,14 @@
+{
+  "name": "qiqiime",
+  "version-string": "0.1.0",
+  "dependencies": [
+    {
+      "name": "spdlog",
+      "default-features": false,
+      "features": [
+        "tz-offset",
+        "wchar"
+      ]
+    }
+  ]
+}

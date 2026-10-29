@@ -1,6 +1,6 @@
-# QiQi 五笔输入法 (TSF / C++20 / CMake)
+# QiQi 五笔输入法 (TSF / C++26 / CMake)
 
-`QiQiIME` 是一个基于 Windows **TSF（Text Services Framework）** 编写的 86 五笔输入法基础工程，采用现代 **C++20** 与 **CMake** 构建，将“Windows TSF 前端（COM TIP）”与“五笔输入引擎”解耦。
+`QiQiIME` 是一个基于 Windows **TSF（Text Services Framework）** 编写的 86 五笔输入法基础工程，采用现代 **C++26** 与 **CMake** 构建，将“Windows TSF 前端（COM TIP）”与“五笔输入引擎”解耦。
 
 ---
 
@@ -9,6 +9,8 @@
 ```text
 C:\sample\qiqiime
 ├── CMakeLists.txt              # CMake 构建配置 (qiqi_engine + qiqiime.dll + qiqi_engine_test)
+├── vcpkg.json                  # vcpkg 依赖清单 (Manifest 模式管理 spdlog 等依赖)
+├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/
 │   └── wubi86.txt              # 外部可扩展 UTF-8 86 五笔码表（构建后自动复制到 DLL 同目录）
 ├── docs/
@@ -18,6 +20,7 @@ C:\sample\qiqiime
 │   └── unregister_ime.ps1      # 管理员权限卸载输入法脚本
 ├── src/
 │   ├── guids.h                 # CLSID / Profile GUID / UIElement GUID 定义
+│   ├── logger.h/.cpp           # 基于 spdlog 的日志模块（Rotating File + MSVC Debug 输出）
 │   ├── wubi_default_dict.h     # 内置核心 86 五笔码表（一级简码、常用字词）
 │   ├── wubi_engine.h/.cpp      # 独立 86 五笔状态机与查词引擎（无 COM 依赖，可独立单测）
 │   ├── edit_session.h          # 现代 C++ Lambda 封装的 ITfEditSession
@@ -49,9 +52,16 @@ C:\sample\qiqiime
    - 处理宿主主动终止组合（`OnCompositionTerminated`）与焦点切换（`OnSetFocus`），兼容 Win32、Chromium/Electron 与 Office。
    - 实现 `ITfCandidateListUIElement` 并注册 `GUID_TFCAT_TIPCAP_UIELEMENTENABLED`，同时支持**桌面无焦点弹出候选窗**与**全屏游戏 UILess 模式**。
 
+3. **日志系统（`spdlog`）**
+   - 集成 `spdlog`（启用 C++ 标准库 `<format>` 与宽字符文件名支持），同时输出到 `OutputDebugString`（`msvc_sink_mt`）与滚动日志文件（默认路径 `%LOCALAPPDATA%\QiQiIME\logs\qiqiime.log`，单文件上限 5MB，保留 3 个备份）。
+
 ---
 
-## 3. 编译与测试（CMake + Visual Studio 2026）
+## 3. 编译与测试（CMake + vcpkg + Visual Studio 2026）
+
+需要 CMake 3.25 或更高版本、vcpkg（Visual Studio 2026/2022 内置或通过 `VCPKG_ROOT` 指定），以及支持 C++26 草案模式的编译器。Visual Studio 2026 的 MSVC 使用 `/std:c++latest`，可用的 C++26 特性取决于编译器版本，并不代表完整实现 C++26。
+
+项目使用 **vcpkg Manifest 模式**（`vcpkg.json`）管理依赖，CMake 配置时会自动检测 `VCPKG_ROOT` 或 Visual Studio 内置 vcpkg 工具链并安装依赖。
 
 打开 **x64 Native Tools Command Prompt for VS 2026**（或 PowerShell），执行：
 
