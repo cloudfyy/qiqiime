@@ -11,6 +11,8 @@
 #include <windows.h>
 #include <oleauto.h>
 #include <wrl/client.h>
+#include <gsl/gsl>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -480,6 +482,8 @@ void TestStatusBarUI() {
     ScopedMenu popup_menu = bar.BuildContextMenu(menu_brush);
     QIQI_TEST_CHECK(popup_menu.IsValid() && menu_brush.IsValid());
     QIQI_TEST_CHECK(::GetMenuItemCount(popup_menu.Get()) == 12); // 10 items + 2 separators
+    QIQI_TEST_CHECK((::GetMenuState(popup_menu.Get(),
+        static_cast<UINT>(LangBarMenuId::ToggleStatusBar), MF_BYCOMMAND) & MF_CHECKED) != 0);
 
     ::SetTimer(nullptr, 3, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
@@ -521,6 +525,173 @@ void TestStatusBarUI() {
     bar.UpdateState(st);
     QIQI_TEST_CHECK(!bar.IsVisible());
     bar.DestroyBarWindow();
+}
+
+void TestStatusBarBoundariesAtDifferentDpis() {
+    const auto original_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto restore_monitor = gsl::finally([original_monitor]() noexcept {
+        SetMonitorMetricsOverrideForTest(original_monitor);
+    });
+    const std::array<LangBarMenuId, 4> actions{
+        LangBarMenuId::ToggleChinese, LangBarMenuId::ToggleFullWidth,
+        LangBarMenuId::TogglePunctuation, LangBarMenuId::OpenSettings
+    };
+
+    for (const UINT dpi : {96u, 120u, 144u, 192u}) {
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1920, 1080}, dpi});
+        std::vector<LangBarMenuId> clicked;
+        StatusBarUI bar(::GetModuleHandleW(nullptr), [&clicked](LangBarMenuId action) {
+            clicked.push_back(action);
+        });
+        LangBarState state{};
+        state.show_status_bar = true;
+        for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+            state.ui_language = language;
+            bar.UpdateState(state);
+            QIQI_TEST_CHECK(bar.WindowHandle() != nullptr);
+            QIQI_TEST_CHECK(bar.CurrentDpi() == dpi);
+            QIQI_TEST_CHECK(bar.CurrentWidth() == ScalePxByDpi(StatusBarUI::kBarWidth, dpi));
+            QIQI_TEST_CHECK(bar.CurrentHeight() == ScalePxByDpi(StatusBarUI::kBarHeight, dpi));
+
+            const auto& strings = GetUiStrings(language);
+            const std::array<const wchar_t*, 5> tips{
+                strings.tip_grip, strings.tip_mode, strings.tip_width,
+                strings.tip_punct, strings.tip_settings
+            };
+            const int offset = ScalePxByDpi(StatusBarUI::kButtonsOffset, dpi);
+            const int cell_width = ScalePxByDpi(StatusBarUI::kCellWidth, dpi);
+            for (size_t zone = 0; zone < tips.size(); ++zone) {
+                const int left = zone == 0 ? 0 : offset + (static_cast<int>(zone) - 1) * cell_width;
+                const int right = zone == 0 ? offset : left + cell_width;
+                for (const int x : {left, right - 1}) {
+                    QIQI_TEST_CHECK(std::wstring(bar.GetTooltipTextForX(x)) == tips[zone]);
+                    const size_t previous_clicks = clicked.size();
+                    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, 1));
+                    QIQI_TEST_CHECK(clicked.size() == previous_clicks + (zone == 0 ? 0 : 1));
+                    if (zone != 0) {
+                        QIQI_TEST_CHECK(clicked.back() == actions[zone - 1]);
+                    }
+                }
+            }
+            for (const int x : {-1, bar.CurrentWidth(), bar.CurrentWidth() + cell_width}) {
+                QIQI_TEST_CHECK(std::wstring(bar.GetTooltipTextForX(x)).empty());
+                const size_t previous_clicks = clicked.size();
+                ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, 1));
+                QIQI_TEST_CHECK(clicked.size() == previous_clicks);
+            }
+        }
+    }
+}
+
+void TestStatusBarContextMenuState() {
+    StatusBarUI bar(::GetModuleHandleW(nullptr));
+    for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        for (const PrimaryDict dict : {PrimaryDict::Jidian, PrimaryDict::Haifeng, PrimaryDict::BuiltinOnly}) {
+            for (const bool enabled : {false, true}) {
+                LangBarState state{};
+                state.ui_language = language;
+                state.primary_dict = dict;
+                state.chinese_mode = enabled;
+                state.full_width = enabled;
+                state.chinese_punct = enabled;
+                state.enable_jidian_extra = enabled;
+                // Menu construction must also work without creating a status bar window.
+                bar.UpdateState(state);
+                const auto& strings = GetUiStrings(language);
+                struct ExpectedItem {
+                    LangBarMenuId id;
+                    const wchar_t* text;
+                    bool checked;
+                };
+                const std::array<ExpectedItem, 10> expected{{
+                    {LangBarMenuId::ToggleChinese, strings.menu_toggle_chinese, enabled},
+                    {LangBarMenuId::ToggleFullWidth, strings.menu_toggle_full_width, enabled},
+                    {LangBarMenuId::TogglePunctuation, strings.menu_toggle_punct, enabled},
+                    {LangBarMenuId::DictJidian, strings.menu_dict_jidian, dict == PrimaryDict::Jidian},
+                    {LangBarMenuId::DictHaifeng, strings.menu_dict_haifeng, dict == PrimaryDict::Haifeng},
+                    {LangBarMenuId::ToggleExtraDict, strings.menu_toggle_extra_dict, enabled},
+                    {LangBarMenuId::ToggleStatusBar, strings.menu_toggle_status_bar, false},
+                    {LangBarMenuId::ToggleUiLanguage, strings.menu_toggle_ui_lang, false},
+                    {LangBarMenuId::OpenSettings, strings.menu_open_settings, false},
+                    {LangBarMenuId::OpenConfigFile, strings.menu_open_config_file, false}
+                }};
+                ScopedGdiHandle<HBRUSH> brush;
+                const ScopedMenu menu = bar.BuildContextMenu(brush);
+                QIQI_TEST_CHECK(menu.IsValid() && brush.IsValid());
+                QIQI_TEST_CHECK(::GetMenuItemCount(menu.Get()) == 12);
+                for (const UINT position : {3u, 7u}) {
+                    QIQI_TEST_CHECK((::GetMenuState(menu.Get(), position, MF_BYPOSITION) & MF_SEPARATOR) != 0);
+                }
+                for (size_t i = 0; i < expected.size(); ++i) {
+                    const auto& item = expected[i];
+                    const int position = static_cast<int>(i + (i >= 3 ? 1 : 0) + (i >= 6 ? 1 : 0));
+                    QIQI_TEST_CHECK(::GetMenuItemID(menu.Get(), position) == static_cast<UINT>(item.id));
+                    const UINT flags = ::GetMenuState(menu.Get(), static_cast<UINT>(item.id), MF_BYCOMMAND);
+                    QIQI_TEST_CHECK(flags != static_cast<UINT>(-1));
+                    QIQI_TEST_CHECK(((flags & MF_CHECKED) != 0) == item.checked);
+                    wchar_t text[256]{};
+                    QIQI_TEST_CHECK(::GetMenuStringW(menu.Get(), static_cast<UINT>(item.id), text, 256, MF_BYCOMMAND) > 0);
+                    QIQI_TEST_CHECK(std::wstring(text) == item.text);
+                }
+                MENUINFO info{};
+                info.cbSize = sizeof(info);
+                info.fMask = MIM_BACKGROUND;
+                QIQI_TEST_CHECK(::GetMenuInfo(menu.Get(), &info));
+                QIQI_TEST_CHECK(info.hbrBack == brush.Get());
+                QIQI_TEST_CHECK(bar.WindowHandle() == nullptr);
+            }
+        }
+    }
+}
+
+void TestStatusBarTooltipLifecycle() {
+    StatusBarUI bar(::GetModuleHandleW(nullptr));
+    bar.Show(true);
+    QIQI_TEST_CHECK(bar.WindowHandle() != nullptr);
+    QIQI_TEST_CHECK(::IsWindowVisible(bar.WindowHandle()));
+    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_MOUSEACTIVATE, 0, 0) == MA_NOACTIVATE);
+    const int x = ScalePxByDpi(StatusBarUI::kButtonsOffset + 1, bar.CurrentDpi());
+    const auto show_tooltip = [&bar, x]() {
+        ::SendMessageW(bar.WindowHandle(), WM_MOUSELEAVE, 0, 0);
+        ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(x, 1));
+        QIQI_TEST_CHECK(bar.HoveredZone() == 1);
+        QIQI_TEST_CHECK(!bar.ActiveTooltipText().empty());
+        QIQI_TEST_CHECK(bar.TooltipWindowHandle() != nullptr);
+        QIQI_TEST_CHECK(::IsWindowVisible(bar.TooltipWindowHandle()));
+        QIQI_TEST_CHECK(::SendMessageW(bar.TooltipWindowHandle(), WM_MOUSEACTIVATE, 0, 0) == MA_NOACTIVATE);
+    };
+    const auto check_tooltip_hidden = [&bar]() {
+        QIQI_TEST_CHECK(bar.ActiveTooltipText().empty());
+        QIQI_TEST_CHECK(!::IsWindowVisible(bar.TooltipWindowHandle()));
+    };
+
+    show_tooltip();
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, 1));
+    check_tooltip_hidden();
+    show_tooltip();
+    ::SendMessageW(bar.WindowHandle(), WM_MOVE, 0, MAKELPARAM(100, 100));
+    check_tooltip_hidden();
+    show_tooltip();
+    ::SendMessageW(bar.WindowHandle(), WM_NCMOUSELEAVE, 0, 0);
+    QIQI_TEST_CHECK(bar.HoveredZone() == -1);
+    check_tooltip_hidden();
+    show_tooltip();
+    bar.Show(false);
+    QIQI_TEST_CHECK(!bar.IsVisible() && !::IsWindowVisible(bar.WindowHandle()));
+    check_tooltip_hidden();
+
+    bar.Show(true);
+    show_tooltip();
+    const HWND old_window = bar.WindowHandle();
+    const HWND old_tooltip = bar.TooltipWindowHandle();
+    bar.DestroyBarWindow();
+    QIQI_TEST_CHECK(!::IsWindow(old_window) && !::IsWindow(old_tooltip));
+    QIQI_TEST_CHECK(bar.WindowHandle() == nullptr && bar.TooltipWindowHandle() == nullptr);
+    QIQI_TEST_CHECK(!bar.IsVisible() && bar.HoveredZone() == -1);
+    QIQI_TEST_CHECK(bar.ActiveTooltipText().empty());
+    bar.DestroyBarWindow();
+    bar.Show(true);
+    show_tooltip();
 }
 
 void TestMultiMonitorAndPerMonitorDpi() {
@@ -612,6 +783,9 @@ void RunCandidateUITests() {
     TestLangBarButton();
     TestSettingsDialogControls();
     TestStatusBarUI();
+    TestStatusBarBoundariesAtDifferentDpis();
+    TestStatusBarContextMenuState();
+    TestStatusBarTooltipLifecycle();
     TestMultiMonitorAndPerMonitorDpi();
 }
 

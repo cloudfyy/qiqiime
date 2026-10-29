@@ -733,7 +733,7 @@ LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-LRESULT CALLBACK StatusBarUI::TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+LRESULT CALLBACK StatusBarUI::TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept {
     if (msg == WM_NCCREATE) {
         const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
         ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));

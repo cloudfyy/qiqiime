@@ -67,7 +67,7 @@ private:
     void OnLeftButtonDown(POINT pt) const;
     void OnRightButtonUp(POINT client_pt) const;
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
-    static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+    static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept;
 
     HINSTANCE instance_ = nullptr;
     ScopedWindow hwnd_;
@@ -80,7 +80,7 @@ private:
     ScopedGdiHandle<HBITMAP> bmp_en_punct_;
     ScopedGdiHandle<HBITMAP> bmp_settings_;
     int icon_px_ = 0;
-    COLORREF icon_fg_color_ = static_cast<COLORREF>(-1);
+    COLORREF icon_fg_color_ = CLR_INVALID;
     UINT dpi_ = 96;
     bool visible_ = false;
     POINT pos_{0, 0};
