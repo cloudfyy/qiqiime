@@ -34,6 +34,7 @@ struct QiQiConfig {
     bool shift_toggle_mode = true;
     bool show_status_bar = false;
     bool beep_on_empty_4code = true;
+    bool clear_on_empty_4code = false;
     bool enable_key_sound = false;
     UiLanguage ui_language = UiLanguage::Auto;
 

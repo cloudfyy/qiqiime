@@ -100,7 +100,7 @@ C:\sample\qiqiime
 
 6. **INI 配置文件系统与动态热更新（`config.ini`）**
    - 默认读取 `%LOCALAPPDATA%\QiQiIME\config.ini`（首次运行时若不存在会自动生成带中文注释的默认配置文件），并支持回退读取 `qiqiime.dll` 同目录的 `config.ini`。
-   - 支持配置主词库选择（`primary = jidian | haifeng | builtin`）、是否启用现代扩展词库（`enable_jidian_extra`）、自定义词表路径（`user_dict`）、每页候选数（`page_size`）、四码唯一自动上屏（`auto_commit_4code`）、第五码顶字（`push_commit_5th`）、默认中英文模式（`default_chinese_mode`）、默认全半角模式（`default_full_width`）、默认中英文标点（`default_chinese_punct`）、Shift 切换开关（`shift_toggle_mode`）及日志级别（`level`）。
+   - 支持配置主词库选择（`primary = jidian | haifeng | builtin`）、是否启用现代扩展词库（`enable_jidian_extra`）、自定义词表路径（`user_dict`）、每页候选数（`page_size`）、四码唯一自动上屏（`auto_commit_4code`）、第五码顶字（`push_commit_5th`）、四码空码提示音（`beep_on_empty_4code`）、空码自动清空输入（`clear_on_empty_4code`）、打字按键音效（`enable_key_sound`）、默认中英文模式（`default_chinese_mode`）、默认全半角模式（`default_full_width`）、默认中英文标点（`default_chinese_punct`）、Shift 切换开关（`shift_toggle_mode`）及日志级别（`level`）。
    - **动态热重载**：焦点切换（`OnSetFocus`）时自动检测 `%LOCALAPPDATA%\QiQiIME\config.ini` 的修改时间戳，修改保存后无需重启宿主程序即可生效。
 
 ---

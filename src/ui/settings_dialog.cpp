@@ -27,6 +27,7 @@ constexpr int kIdBtnOpenIni = 110;
 constexpr int kIdComboUiLang = 111;
 constexpr int kIdChkBeepEmpty4 = 112;
 constexpr int kIdChkKeySound = 113;
+constexpr int kIdChkClearEmpty4 = 114;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 
@@ -130,6 +131,7 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
     ::CheckDlgButton(hwnd, kIdChkShiftToggle, config.shift_toggle_mode ? BST_CHECKED : BST_UNCHECKED);
     ::CheckDlgButton(hwnd, kIdChkStatusBar, config.show_status_bar ? BST_CHECKED : BST_UNCHECKED);
     ::CheckDlgButton(hwnd, kIdChkBeepEmpty4, config.beep_on_empty_4code ? BST_CHECKED : BST_UNCHECKED);
+    ::CheckDlgButton(hwnd, kIdChkClearEmpty4, config.clear_on_empty_4code ? BST_CHECKED : BST_UNCHECKED);
     ::CheckDlgButton(hwnd, kIdChkKeySound, config.enable_key_sound ? BST_CHECKED : BST_UNCHECKED);
 
     const HWND combo = ::GetDlgItem(hwnd, kIdComboPageSize);
@@ -162,6 +164,7 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     config.shift_toggle_mode = (::IsDlgButtonChecked(hwnd, kIdChkShiftToggle) == BST_CHECKED);
     config.show_status_bar = (::IsDlgButtonChecked(hwnd, kIdChkStatusBar) == BST_CHECKED);
     config.beep_on_empty_4code = (::IsDlgButtonChecked(hwnd, kIdChkBeepEmpty4) == BST_CHECKED);
+    config.clear_on_empty_4code = (::IsDlgButtonChecked(hwnd, kIdChkClearEmpty4) == BST_CHECKED);
     config.enable_key_sound = (::IsDlgButtonChecked(hwnd, kIdChkKeySound) == BST_CHECKED);
 
     const HWND combo = ::GetDlgItem(hwnd, kIdComboPageSize);
@@ -216,7 +219,7 @@ HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_con
     const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
 
     const int dlg_w = S(420);
-    const int dlg_h = S(456);
+    const int dlg_h = S(484);
     const POINT centered{
         (mon.work_area.left + mon.work_area.right - dlg_w) / 2,
         (mon.work_area.top + mon.work_area.bottom - dlg_h) / 2
@@ -246,26 +249,27 @@ HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_con
     CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_shift_toggle, BS_AUTOCHECKBOX, S(24), S(196), S(360), S(24), kIdChkShiftToggle);
     CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_status_bar, BS_AUTOCHECKBOX, S(24), S(224), S(360), S(24), kIdChkStatusBar);
     CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_beep_empty4, BS_AUTOCHECKBOX, S(24), S(252), S(360), S(24), kIdChkBeepEmpty4);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_key_sound, BS_AUTOCHECKBOX, S(24), S(280), S(360), S(24), kIdChkKeySound);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_clear_empty4, BS_AUTOCHECKBOX, S(24), S(280), S(360), S(24), kIdChkClearEmpty4);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_key_sound, BS_AUTOCHECKBOX, S(24), S(308), S(360), S(24), kIdChkKeySound);
 
-    CreateChildControl(hwnd, instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(24), S(316), S(150), S(24), 0);
-    CreateChildControl(hwnd, instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(312), S(70), S(200), kIdComboPageSize);
+    CreateChildControl(hwnd, instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(24), S(344), S(150), S(24), 0);
+    CreateChildControl(hwnd, instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(340), S(70), S(200), kIdComboPageSize);
     const HWND combo = ::GetDlgItem(hwnd, kIdComboPageSize);
     for (const wchar_t* label : kPageSizeLabels) {
         ::SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     }
 
-    CreateChildControl(hwnd, instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(24), S(350), S(150), S(24), 0);
-    CreateChildControl(hwnd, instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(346), S(200), S(160), kIdComboUiLang);
+    CreateChildControl(hwnd, instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(24), S(378), S(150), S(24), 0);
+    CreateChildControl(hwnd, instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(374), S(200), S(160), kIdComboUiLang);
     const HWND lang_combo = ::GetDlgItem(hwnd, kIdComboUiLang);
     const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
     for (const wchar_t* item : lang_items) {
         ::SendMessageW(lang_combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
     }
 
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_open_ini, BS_PUSHBUTTON, S(24), S(386), S(110), S(28), kIdBtnOpenIni);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(210), S(386), S(80), S(28), kIdBtnOk);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(300), S(386), S(80), S(28), kIdBtnCancel);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_open_ini, BS_PUSHBUTTON, S(24), S(414), S(110), S(28), kIdBtnOpenIni);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(210), S(414), S(80), S(28), kIdBtnOk);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(300), S(414), S(80), S(28), kIdBtnCancel);
 
     if (bound_config) {
         WriteSettingsToWindowControls(hwnd, *bound_config);

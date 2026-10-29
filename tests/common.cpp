@@ -149,6 +149,7 @@ void TestIniConfiguration() {
         "AUTO_COMMIT_4CODE = on\n"
         "PUSH_COMMIT_5TH = invalid_bool\n"
         "BEEP_ON_EMPTY_4CODE = false\n"
+        "CLEAR_ON_EMPTY_4CODE = true\n"
         "ENABLE_KEY_SOUND = true\n"
         "UI_LANGUAGE = en-US\n"
         "[LOG]\n"
@@ -158,6 +159,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(cfg2.auto_commit_4code);
     QIQI_TEST_CHECK(cfg2.push_commit_5th);
     QIQI_TEST_CHECK(!cfg2.beep_on_empty_4code);
+    QIQI_TEST_CHECK(cfg2.clear_on_empty_4code);
     QIQI_TEST_CHECK(cfg2.enable_key_sound);
     QIQI_TEST_CHECK(cfg2.ui_language == UiLanguage::EnUs);
     QIQI_TEST_CHECK(cfg2.log_level == spdlog::level::trace);
@@ -203,6 +205,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(loaded_default.page_size == 5);
     QIQI_TEST_CHECK(loaded_default.auto_commit_4code);
     QIQI_TEST_CHECK(loaded_default.push_commit_5th);
+    QIQI_TEST_CHECK(!loaded_default.clear_on_empty_4code);
     QIQI_TEST_CHECK(loaded_default.default_chinese_mode);
     QIQI_TEST_CHECK(loaded_default.shift_toggle_mode);
     QIQI_TEST_CHECK(loaded_default.log_level == spdlog::level::info);

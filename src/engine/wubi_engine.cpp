@@ -48,6 +48,7 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     auto_commit_4code_ = cfg.auto_commit_4code;
     push_commit_5th_ = cfg.push_commit_5th;
     beep_on_empty_4code_ = cfg.beep_on_empty_4code;
+    clear_on_empty_4code_ = cfg.clear_on_empty_4code;
     enable_key_sound_ = cfg.enable_key_sound;
     full_width_mode_ = cfg.default_full_width;
     chinese_punctuation_ = cfg.default_chinese_punct;
@@ -310,8 +311,17 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
                     return CommitAndReset(exact.front());
                 }
             }
+            const bool is_empty_4code = all_candidates_.empty();
+            if (is_empty_4code && clear_on_empty_4code_) {
+                Reset();
+                KeyProcessResult res = MakeCurrentStateResult(KeyActionType::Cancel);
+                if (beep_on_empty_4code_) {
+                    res.empty_4code_warning = true;
+                }
+                return res;
+            }
             KeyProcessResult res = MakeCurrentStateResult(KeyActionType::UpdateState);
-            if (beep_on_empty_4code_ && all_candidates_.empty()) {
+            if (beep_on_empty_4code_ && is_empty_4code) {
                 res.empty_4code_warning = true;
             }
             return res;
@@ -338,6 +348,10 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             return MakeCurrentStateResult(KeyActionType::UpdateState);
 
         case TransitionOp::CommitSelected:
+            if (clear_on_empty_4code_ && all_candidates_.empty()) {
+                Reset();
+                return MakeCurrentStateResult(KeyActionType::Cancel);
+            }
             return CommitAndReset(CurrentSelectedCandidateOrRaw());
 
         case TransitionOp::CommitRawCode:

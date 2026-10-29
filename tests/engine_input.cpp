@@ -246,6 +246,7 @@ void TestNavigationSelectionAndReturnCommit() {
 
     // Test VK_SPACE when no candidate exists (commits raw code) and 4-code empty beep / typing sound flags
     QIQI_TEST_CHECK(engine.BeepOnEmpty4Code());
+    QIQI_TEST_CHECK(!engine.ClearOnEmpty4Code());
     QIQI_TEST_CHECK(!engine.EnableKeySound());
     engine.SetEnableKeySound(true);
     QIQI_TEST_CHECK(engine.EnableKeySound());
@@ -262,6 +263,8 @@ void TestNavigationSelectionAndReturnCommit() {
     auto k4_xx = engine.ProcessKey('Y'); // "xxxy" has no match
     QIQI_TEST_CHECK(k4_xx.empty_4code_warning);
     QIQI_TEST_CHECK(k4_xx.trigger_key_sound);
+    QIQI_TEST_CHECK(k4_xx.action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.IsComposing() && engine.RawCode() == L"xxxy");
 
     // Disable beep_on_empty_4code and enable_key_sound
     engine.SetBeepOnEmpty4Code(false);
@@ -276,6 +279,29 @@ void TestNavigationSelectionAndReturnCommit() {
     auto sp_raw = engine.ProcessKey(VK_SPACE);
     QIQI_TEST_CHECK(sp_raw.action == KeyActionType::Commit);
     QIQI_TEST_CHECK(sp_raw.committed_text == L"xxxy");
+
+    // Enable clear_on_empty_4code: 4th code with no match auto-clears composition (Cancel) and still respects beep_on_empty_4code
+    engine.SetClearOnEmpty4Code(true);
+    engine.SetBeepOnEmpty4Code(true);
+    QIQI_TEST_CHECK(engine.ClearOnEmpty4Code());
+    engine.ProcessKey('X');
+    engine.ProcessKey('X');
+    engine.ProcessKey('X');
+    auto k4_clear = engine.ProcessKey('Y');
+    QIQI_TEST_CHECK(k4_clear.action == KeyActionType::Cancel);
+    QIQI_TEST_CHECK(k4_clear.empty_4code_warning);
+    QIQI_TEST_CHECK(!engine.IsComposing() && engine.RawCode().empty());
+
+    // Also verify Space on 1..3-code empty composition cancels instead of committing raw code when clear_on_empty_4code is true
+    engine.ProcessKey('X');
+    engine.ProcessKey('X');
+    engine.ProcessKey('Y'); // "xxy" has no match
+    QIQI_TEST_CHECK(engine.IsComposing() && engine.AllCandidates().empty());
+    auto sp_clear = engine.ProcessKey(VK_SPACE);
+    QIQI_TEST_CHECK(sp_clear.action == KeyActionType::Cancel);
+    QIQI_TEST_CHECK(sp_clear.committed_text.empty());
+    QIQI_TEST_CHECK(!engine.IsComposing() && engine.RawCode().empty());
+    engine.SetClearOnEmpty4Code(false);
 }
 
 void TestModeSwitchingAndShouldEatKey() {

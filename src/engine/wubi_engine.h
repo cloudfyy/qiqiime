@@ -68,6 +68,8 @@ public:
     void SetPushCommit5th(bool enabled) noexcept { push_commit_5th_ = enabled; }
     bool BeepOnEmpty4Code() const noexcept { return beep_on_empty_4code_; }
     void SetBeepOnEmpty4Code(bool enabled) noexcept { beep_on_empty_4code_ = enabled; }
+    bool ClearOnEmpty4Code() const noexcept { return clear_on_empty_4code_; }
+    void SetClearOnEmpty4Code(bool enabled) noexcept { clear_on_empty_4code_ = enabled; }
     bool EnableKeySound() const noexcept { return enable_key_sound_; }
     void SetEnableKeySound(bool enabled) noexcept { enable_key_sound_ = enabled; }
 
@@ -116,6 +118,7 @@ private:
     bool auto_commit_4code_ = true;
     bool push_commit_5th_ = true;
     bool beep_on_empty_4code_ = true;
+    bool clear_on_empty_4code_ = false;
     bool enable_key_sound_ = false;
     bool full_width_mode_ = false;
     bool chinese_punctuation_ = true;
