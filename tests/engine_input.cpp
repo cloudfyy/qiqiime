@@ -301,7 +301,50 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(sp_clear.action == KeyActionType::Cancel);
     QIQI_TEST_CHECK(sp_clear.committed_text.empty());
     QIQI_TEST_CHECK(!engine.IsComposing() && engine.RawCode().empty());
+
+    // Verify clear_on_empty_4code with beep_on_empty_4code disabled clears silently
+    engine.SetBeepOnEmpty4Code(false);
+    engine.ProcessKey('X');
+    engine.ProcessKey('X');
+    engine.ProcessKey('X');
+    auto k4_clear_silent = engine.ProcessKey('Y');
+    QIQI_TEST_CHECK(k4_clear_silent.action == KeyActionType::Cancel);
+    QIQI_TEST_CHECK(!k4_clear_silent.empty_4code_warning);
+    QIQI_TEST_CHECK(!engine.IsComposing() && engine.RawCode().empty());
+
+    // Verify Enter (VK_RETURN) still commits raw code even when candidates are empty and clear_on_empty_4code is true
+    engine.ProcessKey('X');
+    engine.ProcessKey('X');
+    engine.ProcessKey('Y');
+    auto enter_raw = engine.ProcessKey(VK_RETURN);
+    QIQI_TEST_CHECK(enter_raw.action == KeyActionType::Commit && enter_raw.committed_text == L"xxy");
+
+    // Verify non-empty 4-code still commits or stays composing normally when clear_on_empty_4code is true
+    engine.ProcessKey('W');
+    engine.ProcessKey('Q');
+    engine.ProcessKey('V');
+    auto k4_valid = engine.ProcessKey('B'); // "wqvb" -> "你好"
+    QIQI_TEST_CHECK(k4_valid.action == KeyActionType::Commit && k4_valid.committed_text == L"你好");
+
+    // Verify ApplyConfig propagates clear_on_empty_4code and all other engine fields
+    QiQiConfig custom_cfg{};
+    custom_cfg.page_size = 8;
+    custom_cfg.auto_commit_4code = false;
+    custom_cfg.push_commit_5th = false;
+    custom_cfg.beep_on_empty_4code = false;
+    custom_cfg.clear_on_empty_4code = true;
+    custom_cfg.enable_key_sound = true;
+    engine.ApplyConfig(custom_cfg);
+    QIQI_TEST_CHECK(engine.PageSize() == 8);
+    QIQI_TEST_CHECK(!engine.AutoCommit4Code());
+    QIQI_TEST_CHECK(!engine.PushCommit5th());
+    QIQI_TEST_CHECK(!engine.BeepOnEmpty4Code());
+    QIQI_TEST_CHECK(engine.ClearOnEmpty4Code());
+    QIQI_TEST_CHECK(engine.EnableKeySound());
     engine.SetClearOnEmpty4Code(false);
+    engine.SetAutoCommit4Code(true);
+    engine.SetPushCommit5th(true);
+    engine.SetEnableKeySound(false);
 }
 
 void TestModeSwitchingAndShouldEatKey() {

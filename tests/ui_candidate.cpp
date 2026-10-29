@@ -353,22 +353,51 @@ void TestSettingsDialogControls() {
     ::SendMessageW(hwnd.Get(), WM_CLOSE, 0, 0);
     ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
 
-    // Verify English settings dialog title when created with UiLanguage::EnUs
-    cfg.ui_language = UiLanguage::EnUs;
-    const ScopedWindow hwnd_en(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
-    QIQI_TEST_CHECK(hwnd_en.IsValid());
     wchar_t title_buf[128]{};
-    ::GetWindowTextW(hwnd_en.Get(), title_buf, 128);
-    QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi Wubi IME - Settings");
+    {
+        // Verify English settings dialog title when created with UiLanguage::EnUs
+        cfg.ui_language = UiLanguage::EnUs;
+        const ScopedWindow hwnd_en(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
+        QIQI_TEST_CHECK(hwnd_en.IsValid());
+        ::GetWindowTextW(hwnd_en.Get(), title_buf, 128);
+        QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi Wubi IME - Settings");
 
-    // Verify Chinese settings dialog title when created with UiLanguage::ZhCn
-    cfg.ui_language = UiLanguage::ZhCn;
-    const ScopedWindow hwnd_zh(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
-    QIQI_TEST_CHECK(hwnd_zh.IsValid());
-    ::GetWindowTextW(hwnd_zh.Get(), title_buf, 128);
-    QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi 五笔输入法 - 属性设置");
+        // Verify Chinese settings dialog title when created with UiLanguage::ZhCn
+        cfg.ui_language = UiLanguage::ZhCn;
+        const ScopedWindow hwnd_zh(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
+        QIQI_TEST_CHECK(hwnd_zh.IsValid());
+        ::GetWindowTextW(hwnd_zh.Get(), title_buf, 128);
+        QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi 五笔输入法 - 属性设置");
 
-    // Test modal ShowSettingsDialog with auto-closing timer (IDOK -> returns true)
+        // Test clicking the "About..." button (id=115) inside SettingsDialog (both with bound_config and nullptr)
+        ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+            ::KillTimer(nullptr, id);
+            const HWND about_dlg = ::FindWindowW(kAboutWndClass, nullptr);
+            if (about_dlg) {
+                ::SendMessageW(about_dlg, WM_CLOSE, 0, 0);
+            }
+        });
+        ::SendMessageW(hwnd_zh.Get(), WM_COMMAND, MAKEWPARAM(115, BN_CLICKED), 0);
+
+        const ScopedWindow hwnd_null_cfg(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, nullptr));
+        QIQI_TEST_CHECK(hwnd_null_cfg.IsValid());
+        QIQI_TEST_CHECK(::SendMessageW(hwnd_null_cfg.Get(), WM_GETICON, ICON_SMALL, 0) != 0);
+        ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+            ::KillTimer(nullptr, id);
+            const HWND about_dlg = ::FindWindowW(kAboutWndClass, nullptr);
+            if (about_dlg) {
+                ::SendMessageW(about_dlg, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
+            }
+        });
+        ::SendMessageW(hwnd_null_cfg.Get(), WM_COMMAND, MAKEWPARAM(115, BN_CLICKED), 0);
+    }
+
+    // Destroy `hwnd` before testing modal ShowSettingsDialog so FindWindowW finds the active modal window
+    {
+        const ScopedWindow destroy_first = std::move(const_cast<ScopedWindow&>(hwnd));
+    }
+
+    // Test modal ShowSettingsDialog with auto-closing timer (IDOK -> returns true, IDCANCEL -> returns false)
     ::SetTimer(nullptr, 1, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
         const HWND dlg = ::FindWindowW(L"QiQiIMESettingsDialogClass", nullptr);
@@ -378,29 +407,54 @@ void TestSettingsDialogControls() {
     });
     QIQI_TEST_CHECK(ShowSettingsDialog(::GetModuleHandleW(nullptr), nullptr, cfg));
 
-    // Verify About dialog creation, painting, title localization, and modal ShowAboutDialog
+    ::SetTimer(nullptr, 1, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+        ::KillTimer(nullptr, id);
+        const HWND dlg = ::FindWindowW(L"QiQiIMESettingsDialogClass", nullptr);
+        if (dlg) {
+            ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
+        }
+    });
+    QIQI_TEST_CHECK(!ShowSettingsDialog(::GetModuleHandleW(nullptr), nullptr, cfg));
+
+    // Verify About dialog creation, painting, title localization, child controls, icon, and modal ShowAboutDialog
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_app_name).find(L"奇奇五笔") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_app_name).find(L"奇奇五笔") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kGitHubRepoUrl) == L"https://github.com/cloudfyy/qiqiime");
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"cloudfyy") != std::wstring::npos);
+    QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_license_info).find(L"cloudfyy") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"MIT License") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"Apache License 2.0") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"BSD 3-Clause License") != std::wstring::npos);
 
-    const ScopedWindow about_zh(CreateAboutWindow(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
-    QIQI_TEST_CHECK(about_zh.IsValid());
-    ::GetWindowTextW(about_zh.Get(), title_buf, 128);
-    QIQI_TEST_CHECK(std::wstring(title_buf) == L"关于 奇奇五笔");
-    ::ShowWindow(about_zh.Get(), SW_SHOWNOACTIVATE);
-    ::InvalidateRect(about_zh.Get(), nullptr, TRUE);
-    ::UpdateWindow(about_zh.Get());
-    ::SendMessageW(about_zh.Get(), WM_CLOSE, 0, 0);
+    {
+        const ScopedWindow about_zh(CreateAboutWindow(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
+        QIQI_TEST_CHECK(about_zh.IsValid());
+        QIQI_TEST_CHECK(::SendMessageW(about_zh.Get(), WM_GETICON, ICON_SMALL, 0) != 0);
+        ::GetWindowTextW(about_zh.Get(), title_buf, 128);
+        QIQI_TEST_CHECK(std::wstring(title_buf) == L"关于 奇奇五笔");
+        wchar_t btn_buf[64]{};
+        ::GetDlgItemTextW(about_zh.Get(), 201, btn_buf, 64);
+        QIQI_TEST_CHECK(std::wstring(btn_buf) == L"访问 GitHub");
+        ::GetDlgItemTextW(about_zh.Get(), IDOK, btn_buf, 64);
+        QIQI_TEST_CHECK(std::wstring(btn_buf) == L"确定");
+        ::ShowWindow(about_zh.Get(), SW_SHOWNOACTIVATE);
+        ::InvalidateRect(about_zh.Get(), nullptr, TRUE);
+        ::UpdateWindow(about_zh.Get());
+        ::SendMessageW(about_zh.Get(), WM_CLOSE, 0, 0);
 
-    const ScopedWindow about_en(CreateAboutWindow(::GetModuleHandleW(nullptr), nullptr, UiLanguage::EnUs));
-    QIQI_TEST_CHECK(about_en.IsValid());
-    ::GetWindowTextW(about_en.Get(), title_buf, 128);
-    QIQI_TEST_CHECK(std::wstring(title_buf) == L"About 奇奇五笔 (QiQi Wubi)");
-    ::SendMessageW(about_en.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+        const ScopedWindow about_en(CreateAboutWindow(::GetModuleHandleW(nullptr), about_zh.Get(), UiLanguage::EnUs));
+        QIQI_TEST_CHECK(about_en.IsValid());
+        ::GetWindowTextW(about_en.Get(), title_buf, 128);
+        QIQI_TEST_CHECK(std::wstring(title_buf) == L"About 奇奇五笔 (QiQi Wubi)");
+        ::GetDlgItemTextW(about_en.Get(), 201, btn_buf, 64);
+        QIQI_TEST_CHECK(std::wstring(btn_buf) == L"Visit GitHub");
+        ::GetDlgItemTextW(about_en.Get(), IDOK, btn_buf, 64);
+        QIQI_TEST_CHECK(std::wstring(btn_buf) == L"OK");
+        ::ShowWindow(about_en.Get(), SW_SHOWNOACTIVATE);
+        ::InvalidateRect(about_en.Get(), nullptr, TRUE);
+        ::UpdateWindow(about_en.Get());
+        ::SendMessageW(about_en.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+    }
 
     ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
@@ -789,7 +843,7 @@ void TestMultiMonitorAndPerMonitorDpi() {
     }
     bar.DestroyBarWindow();
 
-    // 3. SettingsDialog centered & DPI-scaled on secondary monitor
+    // 3. SettingsDialog & AboutDialog centered & DPI-scaled on secondary monitor
     QiQiConfig cfg{};
     {
         const ScopedWindow dlg(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
@@ -798,6 +852,13 @@ void TestMultiMonitorAndPerMonitorDpi() {
         ::GetWindowRect(dlg.Get(), &dlg_rc);
         QIQI_TEST_CHECK(dlg_rc.left >= secondary_mon.work_area.left &&
                         dlg_rc.right <= secondary_mon.work_area.right);
+
+        const ScopedWindow about_dlg(CreateAboutWindow(::GetModuleHandleW(nullptr), dlg.Get(), UiLanguage::ZhCn));
+        QIQI_TEST_CHECK(about_dlg.IsValid());
+        RECT about_rc{};
+        ::GetWindowRect(about_dlg.Get(), &about_rc);
+        QIQI_TEST_CHECK(about_rc.left >= secondary_mon.work_area.left &&
+                        about_rc.right <= secondary_mon.work_area.right);
     }
 
     SetMonitorMetricsOverrideForTest(std::nullopt);

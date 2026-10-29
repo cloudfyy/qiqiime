@@ -111,6 +111,7 @@ void TestIniConfiguration() {
         "default_full_width = true\n"
         "default_chinese_punct = false\n"
         "shift_toggle_mode = false\n"
+        "clear_on_empty_4code = true\n"
         "\n"
         "[log]\n"
         "level = debug\n";
@@ -126,6 +127,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(cfg.default_full_width);
     QIQI_TEST_CHECK(!cfg.default_chinese_punct);
     QIQI_TEST_CHECK(!cfg.shift_toggle_mode);
+    QIQI_TEST_CHECK(cfg.clear_on_empty_4code);
     QIQI_TEST_CHECK(cfg.log_level == spdlog::level::debug);
 
     // Test SaveConfigFile & SerializeConfigToUtf8 round-trip
@@ -137,6 +139,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(roundtrip_cfg.primary_dict == PrimaryDict::Haifeng);
     QIQI_TEST_CHECK(roundtrip_cfg.default_full_width);
     QIQI_TEST_CHECK(!roundtrip_cfg.default_chinese_punct);
+    QIQI_TEST_CHECK(roundtrip_cfg.clear_on_empty_4code);
     std::filesystem::remove(roundtrip_path, rt_ec);
 
     // 2. Test alternative enum/boolean values, uppercase keys, malformed lines, and all log levels

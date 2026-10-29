@@ -337,12 +337,22 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
                 }
             });
             QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::OpenSettings))));
+
+            ::SetTimer(nullptr, 5, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+                ::KillTimer(nullptr, id);
+                const HWND dlg = ::FindWindowW(kAboutWndClass, nullptr);
+                if (dlg) {
+                    ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+                }
+            });
+            QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::OpenAbout))));
         }
     }
 
-    // Modify config file timestamp and trigger hot-reload via OnSetFocus (also enabling key sound)
+    // Modify config file timestamp and trigger hot-reload via OnSetFocus (also enabling key sound & clear_on_empty_4code)
     haifeng_cfg.page_size = 6;
     haifeng_cfg.enable_key_sound = true;
+    haifeng_cfg.clear_on_empty_4code = true;
     SaveConfigFile(GetDefaultUserConfigPath(), haifeng_cfg);
     std::filesystem::last_write_time(
         GetDefaultUserConfigPath(),
@@ -354,6 +364,16 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         ResetLastPlayedSoundForTest();
         QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
         QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::KeyClick);
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
+
+        // Type 4 unmatched keys ("xvwq"): verifies clear_on_empty_4code cancels TSF composition & plays EmptyCodeBeep
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'X', 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'V', 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'W', 0, &eaten)));
+        ResetLastPlayedSoundForTest();
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'Q', 0, &eaten)));
+        QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::EmptyCodeBeep);
+        QIQI_TEST_CHECK(mock_ctx->range_->text_.empty());
         hf_key_sink.Reset();
     }
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->Deactivate()));

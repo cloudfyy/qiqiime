@@ -144,11 +144,13 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             }
             ctx->accepted = true;
             ctx->done = true;
+            ::PostMessageW(hwnd, WM_NULL, 0, 0);
             return 0;
         }
         if (id == kIdBtnCancel) {
             ctx->accepted = false;
             ctx->done = true;
+            ::PostMessageW(hwnd, WM_NULL, 0, 0);
             return 0;
         }
         if (id == kIdBtnOpenIni) {
@@ -166,6 +168,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     if (msg == WM_CLOSE && ctx) {
         ctx->accepted = false;
         ctx->done = true;
+        ::PostMessageW(hwnd, WM_NULL, 0, 0);
         return 0;
     }
     if (msg == WM_NCDESTROY && ctx) {
@@ -249,6 +252,7 @@ LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         const int id = LOWORD(wparam);
         if (id == kIdBtnOk || id == kIdBtnCancel) {
             ctx->done = true;
+            ::PostMessageW(hwnd, WM_NULL, 0, 0);
             return 0;
         }
         if (id == kIdBtnOpenGitHub) {
@@ -258,6 +262,7 @@ LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     }
     if (msg == WM_CLOSE && ctx) {
         ctx->done = true;
+        ::PostMessageW(hwnd, WM_NULL, 0, 0);
         return 0;
     }
     if (msg == WM_NCDESTROY && ctx) {
