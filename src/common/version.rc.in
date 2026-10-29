@@ -19,18 +19,33 @@ BEGIN
     BEGIN
         BLOCK "080404b0"
         BEGIN
-            VALUE "CompanyName", "QiQiIME"
-            VALUE "FileDescription", "QiQi 五笔输入法 (TSF @QIQIIME_ARCH_NAME@)"
+            VALUE "Comments", "奇奇五笔 (QiQi Wubi 86 TSF IME) - https://github.com/cloudfyy/qiqiime"
+            VALUE "CompanyName", "cloudfyy (https://github.com/cloudfyy/qiqiime)"
+            VALUE "FileDescription", "奇奇五笔输入法 (QiQi Wubi 86 TSF IME - @QIQIIME_ARCH_NAME@)"
             VALUE "FileVersion", "@QIQIIME_FULL_VERSION@"
             VALUE "InternalName", "qiqiime.dll"
-            VALUE "LegalCopyright", "Copyright (C) 2026 QiQiIME Contributors"
+            VALUE "LegalCopyright", "Copyright (C) 2026 cloudfyy. Released under the MIT License."
+            VALUE "LegalTrademarks", "奇奇五笔 (QiQiIME)"
             VALUE "OriginalFilename", "qiqiime.dll"
-            VALUE "ProductName", "QiQi 五笔输入法 (86版)"
+            VALUE "ProductName", "奇奇五笔 (QiQi Wubi IME)"
+            VALUE "ProductVersion", "@QIQIIME_FULL_VERSION@"
+        END
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "Comments", "奇奇五笔 (QiQi Wubi 86 TSF IME) - https://github.com/cloudfyy/qiqiime"
+            VALUE "CompanyName", "cloudfyy (https://github.com/cloudfyy/qiqiime)"
+            VALUE "FileDescription", "奇奇五笔输入法 (QiQi Wubi 86 TSF IME - @QIQIIME_ARCH_NAME@)"
+            VALUE "FileVersion", "@QIQIIME_FULL_VERSION@"
+            VALUE "InternalName", "qiqiime.dll"
+            VALUE "LegalCopyright", "Copyright (C) 2026 cloudfyy. Released under the MIT License."
+            VALUE "LegalTrademarks", "奇奇五笔 (QiQiIME)"
+            VALUE "OriginalFilename", "qiqiime.dll"
+            VALUE "ProductName", "奇奇五笔 (QiQi Wubi IME)"
             VALUE "ProductVersion", "@QIQIIME_FULL_VERSION@"
         END
     END
     BLOCK "VarFileInfo"
     BEGIN
-        VALUE "Translation", 0x0804, 1200
+        VALUE "Translation", 0x0804, 1200, 0x0409, 1200
     END
 END
