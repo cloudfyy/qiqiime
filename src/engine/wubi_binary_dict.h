@@ -44,6 +44,21 @@ constexpr uint32_t PackWubiCode(std::wstring_view code) noexcept {
     return packed;
 }
 
+// Unpack a 4-byte big-endian packed Wubi code back into its lowercase ASCII string (1..4 chars).
+inline std::wstring UnpackWubiCode(uint32_t packed_code) {
+    std::wstring out;
+    out.reserve(4);
+    for (int i = 0; i < 4; ++i) {
+        const uint32_t byte_val = (packed_code >> ((3 - i) * 8)) & 0xFFu;
+        if (byte_val >= 1 && byte_val <= 26) {
+            out.push_back(gsl::narrow_cast<wchar_t>(L'a' + byte_val - 1));
+        } else {
+            break;
+        }
+    }
+    return out;
+}
+
 // Compute the inclusive upper bound of packed codes that share the given prefix (1..4 chars).
 constexpr uint32_t PackWubiPrefixUpperBound(std::wstring_view prefix) noexcept {
     const uint32_t lo = PackWubiCode(prefix);
@@ -137,10 +152,11 @@ public:
                       std::vector<std::wstring>& out_words,
                       size_t max_results) const;
 
-    // Append wildcard ('z') matches up to max_results.
+    // Append wildcard ('z') matches up to max_results, optionally recording "word(code)" display labels.
     void LookupWildcard(std::wstring_view pattern,
                         std::vector<std::wstring>& out_words,
-                        size_t max_results) const;
+                        size_t max_results,
+                        std::vector<std::wstring>* out_display_labels = nullptr) const;
 
 private:
     bool OpenMappedFile(const std::filesystem::path& bin_path,

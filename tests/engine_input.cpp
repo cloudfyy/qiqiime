@@ -153,12 +153,14 @@ void TestFifthKeyPushAutoCommit() {
 
 void TestWildcardAndBackspaceAndCancel() {
     WubiEngine engine;
-    // "wqz" wildcard query should match "你" (wqi / wqiy)
+    // "wqz" wildcard query should match "你" (wqi / wqiy) and show code hints in AllDisplayCandidates()
     engine.ProcessKey('W');
     engine.ProcessKey('Q');
     auto rz = engine.ProcessKey('Z');
     QIQI_TEST_CHECK(rz.action == KeyActionType::UpdateState);
     QIQI_TEST_CHECK(!rz.page_candidates.empty());
+    QIQI_TEST_CHECK(!engine.AllDisplayCandidates().empty());
+    QIQI_TEST_CHECK(engine.AllDisplayCandidates().front().find(L'(') != std::wstring::npos);
 
     // Backspace removes 'z' -> "wq"
     auto rb = engine.ProcessKey(VK_BACK);

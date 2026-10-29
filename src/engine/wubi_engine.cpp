@@ -80,6 +80,7 @@ void WubiEngine::ToggleChineseMode() noexcept {
 void WubiEngine::Reset() noexcept {
     raw_code_.clear();
     all_candidates_.clear();
+    all_display_candidates_.clear();
     current_page_ = 0;
     selected_in_page_ = 0;
     if (state_ != EngineState::English) {
@@ -213,9 +214,42 @@ KeyProcessResult WubiEngine::CommitAndReset(std::wstring committed_text) {
 }
 
 void WubiEngine::RefreshCandidates() {
-    all_candidates_ = LookupCandidates(raw_code_);
+    all_candidates_.clear();
+    all_display_candidates_.clear();
     current_page_ = 0;
     selected_in_page_ = 0;
+
+    const bool has_wildcard = (raw_code_.find(L'z') != std::wstring::npos) ||
+                              (raw_code_.find(L'Z') != std::wstring::npos);
+    if (!has_wildcard) {
+        all_candidates_ = LookupCandidates(raw_code_);
+        all_display_candidates_ = all_candidates_;
+        return;
+    }
+
+    constexpr size_t kMaxCandidateResults = 50;
+    for (const auto& [k, words] : dict_) {
+        if (MatchesWildcardPattern(k, raw_code_)) {
+            const std::wstring code_str = UnpackWubiCode(k);
+            for (const auto& w : words) {
+                const size_t prev_sz = all_candidates_.size();
+                AppendUniqueWord(all_candidates_, w);
+                if (all_candidates_.size() > prev_sz) {
+                    all_display_candidates_.push_back(w + L"(" + code_str + L")");
+                }
+                if (all_candidates_.size() >= kMaxCandidateResults) {
+                    return;
+                }
+            }
+        }
+    }
+    for (const auto& mapped : mapped_dicts_) {
+        mapped->LookupWildcard(
+            raw_code_, all_candidates_, kMaxCandidateResults, &all_display_candidates_);
+        if (all_candidates_.size() >= kMaxCandidateResults) {
+            return;
+        }
+    }
 }
 
 KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::wstring committed) const {

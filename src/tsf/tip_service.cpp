@@ -826,7 +826,7 @@ void QiQiTextService::BeginOrUpdateCandidateUI() {
 
     candidate_ui_->SetCandidates(
         engine_.RawCode(),
-        engine_.AllCandidates(),
+        engine_.AllDisplayCandidates(),
         engine_.PageSize(),
         engine_.CurrentPage(),
         engine_.SelectedInPage());

@@ -70,6 +70,7 @@ public:
     bool IsComposing() const noexcept { return IsComposingState(state_); }
     const std::wstring& RawCode() const noexcept { return raw_code_; }
     const std::vector<std::wstring>& AllCandidates() const noexcept { return all_candidates_; }
+    const std::vector<std::wstring>& AllDisplayCandidates() const noexcept { return all_display_candidates_; }
     std::vector<std::wstring> CurrentPageCandidates() const;
     size_t SelectedInPage() const noexcept { return selected_in_page_; }
     size_t CurrentPage() const noexcept { return current_page_; }
@@ -102,6 +103,7 @@ private:
     std::vector<std::shared_ptr<const WubiMappedDict>> mapped_dicts_;
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;
+    std::vector<std::wstring> all_display_candidates_;
     size_t page_size_ = kDefaultPageSize;
     size_t current_page_ = 0;
     size_t selected_in_page_ = 0;

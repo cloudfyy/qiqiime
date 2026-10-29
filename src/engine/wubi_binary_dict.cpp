@@ -442,7 +442,8 @@ void WubiMappedDict::LookupPrefix(
 void WubiMappedDict::LookupWildcard(
     std::wstring_view pattern,
     std::vector<std::wstring>& out_words,
-    size_t max_results) const {
+    size_t max_results,
+    std::vector<std::wstring>* out_display_labels) const {
     if (pattern.empty() || code_index_.empty() || out_words.size() >= max_results) {
         return;
     }
@@ -468,7 +469,15 @@ void WubiMappedDict::LookupWildcard(
         if (!MatchesWildcardPattern(it->packed_code, pattern)) {
             continue;
         }
-        if (AppendWordsForCodeEntry(*it, out_words, max_results)) {
+        const size_t prev_count = out_words.size();
+        const bool reached_cap = AppendWordsForCodeEntry(*it, out_words, max_results);
+        if (out_display_labels && out_words.size() > prev_count) {
+            const std::wstring code_str = UnpackWubiCode(it->packed_code);
+            for (size_t idx = prev_count; idx < out_words.size(); ++idx) {
+                out_display_labels->push_back(gsl::at(out_words, idx) + L"(" + code_str + L")");
+            }
+        }
+        if (reached_cap) {
             return;
         }
     }
