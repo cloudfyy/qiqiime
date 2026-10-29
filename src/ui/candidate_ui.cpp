@@ -14,8 +14,23 @@ constexpr const wchar_t* kCandidateWndClass = L"QiQiIMECandidatePopupClass";
 } // namespace
 
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
+    UpdateDpiAndFont(96);
+}
+
+CandidateUI::~CandidateUI() noexcept {
+    DestroyPopupWindow();
+}
+
+void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
+    const UINT effective_dpi = new_dpi > 0 ? new_dpi : 96u;
+    if (font_.IsValid() && dpi_ == effective_dpi) {
+        return;
+    }
+    dpi_ = effective_dpi;
+    popup_height_ = ScaleByDpi(kPopupHeight);
+
     LOGFONTW lf{};
-    lf.lfHeight = -18;
+    lf.lfHeight = -ScaleByDpi(18);
     lf.lfWeight = FW_NORMAL;
     lf.lfCharSet = DEFAULT_CHARSET;
     lf.lfQuality = CLEARTYPE_QUALITY;
@@ -23,8 +38,74 @@ CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
     font_.Reset(::CreateFontIndirectW(&lf));
 }
 
-CandidateUI::~CandidateUI() noexcept {
-    DestroyPopupWindow();
+void CandidateUI::RecalculatePopupLayout() noexcept {
+    try {
+        candidate_hit_rects_.clear();
+        const HDC screen_dc = ::GetDC(hwnd_);
+        if (!screen_dc) {
+            popup_width_ = ScaleByDpi(kPopupWidth);
+            popup_height_ = ScaleByDpi(kPopupHeight);
+            return;
+        }
+        const auto dc_guard = gsl::finally([hwnd = hwnd_, screen_dc]() noexcept {
+            ::ReleaseDC(hwnd, screen_dc);
+        });
+
+        const HGDIOBJ old_font = font_ ? ::SelectObject(screen_dc, font_.Get()) : nullptr;
+        const auto font_guard = gsl::finally([screen_dc, old_font]() noexcept {
+            if (old_font) {
+                ::SelectObject(screen_dc, old_font);
+            }
+        });
+
+        const int margin_x = ScaleByDpi(10);
+        const int item_gap = ScaleByDpi(16);
+        const int row2_top = ScaleByDpi(32);
+        const int row2_bottom = ScaleByDpi(kPopupHeight - 4);
+
+        const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
+        std::wstring header = L"五笔 [" + raw_code_ + L"]";
+        if (total_pages > 1) {
+            header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
+        }
+        SIZE header_sz{};
+        ::GetTextExtentPoint32W(screen_dc, header.c_str(), gsl::narrow_cast<int>(header.size()), &header_sz);
+
+        int cursor_x = margin_x;
+        const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
+        for (size_t i = start; i < end; ++i) {
+            const size_t idx_in_page = i - start;
+            const auto& cand_str = gsl::at(all_candidates_, i);
+            const std::wstring label = (idx_in_page == selected_in_page_)
+                ? (L"[" + std::to_wstring(idx_in_page + 1) + L"." + cand_str + L"]")
+                : (std::to_wstring(idx_in_page + 1) + L"." + cand_str);
+
+            SIZE item_sz{};
+            ::GetTextExtentPoint32W(screen_dc, label.c_str(), gsl::narrow_cast<int>(label.size()), &item_sz);
+            const RECT hit_rc{cursor_x, row2_top, cursor_x + item_sz.cx, row2_bottom};
+            candidate_hit_rects_.push_back(hit_rc);
+            cursor_x += item_sz.cx + item_gap;
+        }
+
+        const int content_width = std::max<int>(header_sz.cx + margin_x * 2, cursor_x + margin_x);
+        popup_width_ = std::max(ScaleByDpi(kPopupWidth), content_width);
+        popup_height_ = ScaleByDpi(kPopupHeight);
+    } catch (...) {
+        popup_width_ = ScaleByDpi(kPopupWidth);
+        popup_height_ = ScaleByDpi(kPopupHeight);
+    }
+}
+
+void CandidateUI::OnLeftButtonDown(POINT pt) const {
+    if (!select_callback_) {
+        return;
+    }
+    for (size_t i = 0; i < candidate_hit_rects_.size(); ++i) {
+        if (::PtInRect(&gsl::at(candidate_hit_rects_, i), pt)) {
+            select_callback_(i);
+            return;
+        }
+    }
 }
 
 STDMETHODIMP CandidateUI::QueryInterface(REFIID riid, void** ppvObj) noexcept {
@@ -177,7 +258,10 @@ void CandidateUI::SetCandidates(std::wstring code,
     updated_flags_ = TF_CLUIE_COUNT | TF_CLUIE_SELECTION | TF_CLUIE_STRING |
                      TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
 
+    RecalculatePopupLayout();
     if (is_shown_ && EnsurePopupWindow()) {
+        ::SetWindowPos(hwnd_, HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
+                       SWP_NOACTIVATE | SWP_SHOWWINDOW);
         ::InvalidateRect(hwnd_, nullptr, TRUE);
     }
 }
@@ -186,21 +270,29 @@ void CandidateUI::MoveWindowTo(const RECT& text_rect) noexcept {
     popup_pos_.x = text_rect.left;
     popup_pos_.y = text_rect.bottom + 4;
 
+    if (hwnd_) {
+        const UINT wnd_dpi = ::GetDpiForWindow(hwnd_);
+        if (wnd_dpi > 0 && wnd_dpi != dpi_) {
+            UpdateDpiAndFont(wnd_dpi);
+            RecalculatePopupLayout();
+        }
+    }
+
     // Clamp to monitor work area so popup doesn't go off-screen
     HMONITOR mon = ::MonitorFromPoint(popup_pos_, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi{};
     mi.cbSize = sizeof(mi);
     if (::GetMonitorInfoW(mon, &mi)) {
-        if (popup_pos_.x + kPopupWidth > mi.rcWork.right) {
-            popup_pos_.x = std::max(mi.rcWork.left, mi.rcWork.right - kPopupWidth);
+        if (popup_pos_.x + popup_width_ > mi.rcWork.right) {
+            popup_pos_.x = std::max(mi.rcWork.left, mi.rcWork.right - popup_width_);
         }
-        if (popup_pos_.y + kPopupHeight > mi.rcWork.bottom) {
-            popup_pos_.y = std::max(mi.rcWork.top, text_rect.top - kPopupHeight - 4);
+        if (popup_pos_.y + popup_height_ > mi.rcWork.bottom) {
+            popup_pos_.y = std::max(mi.rcWork.top, text_rect.top - popup_height_ - 4);
         }
     }
 
     if (hwnd_) {
-        ::SetWindowPos(hwnd_, HWND_TOPMOST, popup_pos_.x, popup_pos_.y, kPopupWidth, kPopupHeight,
+        ::SetWindowPos(hwnd_, HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
                        SWP_NOACTIVATE | (is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
     }
 }
@@ -225,7 +317,7 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
         kCandidateWndClass,
         L"",
         WS_POPUP | WS_BORDER,
-        popup_pos_.x, popup_pos_.y, kPopupWidth, kPopupHeight,
+        popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
         nullptr, nullptr, instance_, this);
 
     if (!hwnd_) {
@@ -263,32 +355,32 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
     if (total_pages > 1) {
         header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
     }
-    RECT top_rect = {10, 6, client_rect.right - 10, 30};
+    RECT top_rect = {ScaleByDpi(10), ScaleByDpi(6), client_rect.right - ScaleByDpi(10), ScaleByDpi(30)};
     ::SetTextColor(hdc, RGB(35, 105, 200));
     ::DrawTextW(hdc, header.c_str(), -1, &top_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-    // Line 2: Horizontal candidates
-    std::wstring line;
+    // Line 2: Horizontal candidates positioned using pre-measured hit rects
     const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
-    for (size_t i = start; i < end; ++i) {
-        const size_t idx_in_page = i - start;
-        if (!line.empty()) {
-            line += L"   ";
-        }
-        const auto& cand_str = gsl::at(all_candidates_, i);
-        if (idx_in_page == selected_in_page_) {
-            line += L"[" + std::to_wstring(idx_in_page + 1) + L"." + cand_str + L"]";
-        } else {
-            line += std::to_wstring(idx_in_page + 1) + L"." + cand_str;
-        }
-    }
-    if (line.empty()) {
-        line = L"(无候选)";
+    if (start >= end) {
+        RECT bottom_rect = {ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
+        ::SetTextColor(hdc, RGB(30, 30, 30));
+        ::DrawTextW(hdc, L"(无候选)", -1, &bottom_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        return;
     }
 
-    RECT bottom_rect = {10, 32, client_rect.right - 10, client_rect.bottom - 4};
-    ::SetTextColor(hdc, RGB(30, 30, 30));
-    ::DrawTextW(hdc, line.c_str(), -1, &bottom_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    for (size_t i = start; i < end; ++i) {
+        const size_t idx_in_page = i - start;
+        const auto& cand_str = gsl::at(all_candidates_, i);
+        const std::wstring label = (idx_in_page == selected_in_page_)
+            ? (L"[" + std::to_wstring(idx_in_page + 1) + L"." + cand_str + L"]")
+            : (std::to_wstring(idx_in_page + 1) + L"." + cand_str);
+
+        RECT item_rc = (idx_in_page < candidate_hit_rects_.size())
+            ? gsl::at(candidate_hit_rects_, idx_in_page)
+            : RECT{ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
+        ::SetTextColor(hdc, idx_in_page == selected_in_page_ ? RGB(20, 90, 190) : RGB(30, 30, 30));
+        ::DrawTextW(hdc, label.c_str(), -1, &item_rc, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOCLIP);
+    }
 }
 
 LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -298,8 +390,25 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         return TRUE;
     }
 
-    const auto* self = reinterpret_cast<const CandidateUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (msg == WM_PAINT && self) {
+    auto* self = reinterpret_cast<CandidateUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (!self) {
+        return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+
+    if (msg == WM_MOUSEACTIVATE) {
+        return MA_NOACTIVATE;
+    }
+    if (msg == WM_LBUTTONDOWN) {
+        const POINT pt{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+        self->OnLeftButtonDown(pt);
+        return 0;
+    }
+    if (msg == WM_DPICHANGED) {
+        self->UpdateDpiAndFont(HIWORD(wparam));
+        self->RecalculatePopupLayout();
+        return 0;
+    }
+    if (msg == WM_PAINT) {
         PAINTSTRUCT ps{};
         const HDC hdc = ::BeginPaint(hwnd, &ps);
         const auto paint_guard = gsl::finally([hwnd, &ps]() noexcept {

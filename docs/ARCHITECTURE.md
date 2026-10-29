@@ -76,7 +76,7 @@ TSF 的按键处理分为两步：
 
 ### P0：核心日常打字体验与系统状态反馈
 - [x] **1. 完整中文标点与智能配对引号（`paired-quotes-punct`）**：在 `MapChinesePunctuation` 及引擎状态中补充成对双引号 `“”`、成对单引号 `‘’`、中括号 `【】`、破折号 `——`、间隔号 `·` 等高频中文标点。
-- [ ] **2. 候选框自适应宽度、高分屏 DPI 缩放与鼠标点击选词（`candidate-dpi-autosize`）**：根据当前页候选词文本长度与显示器 DPI（`GetDpiForMonitor` / `GetDpiForWindow`）动态调整候选窗口宽高与字号，防止长词/成语截断，并支持鼠标左键点击候选词上屏。
+- [x] **2. 候选框自适应宽度、高分屏 DPI 缩放与鼠标点击选词（`candidate-dpi-autosize`）**：根据当前页候选词文本长度与显示器 DPI（`GetDpiForMonitor` / `GetDpiForWindow`）动态调整候选窗口宽高与字号，防止长词/成语截断，并支持鼠标左键点击候选词上屏。
 - [ ] **3. 语言栏托盘按钮与右键菜单（`langbar-tray-menu`）**：实现 `ITfLangBarItemButton` + `ITfSource`（挂载 `GUID_LBI_INPUTMODE`），在 Windows 任务栏托盘动态显示“中/英”状态图标，支持左键切换中英文、右键弹出快捷菜单（切换中英/全半角/中英标点、显示/隐藏状态条、切换极点/海峰词库、打开设置对话框或 `config.ini`）。
 
 ### P1：可视化配置与桌面状态条

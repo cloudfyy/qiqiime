@@ -97,7 +97,22 @@ void TestCandidateUI() {
     ::SysFreeString(str);
     QIQI_TEST_CHECK(ui->GetString(7, &str) == E_INVALIDARG);
 
-    // Test off-screen work area clamping & WM_PAINT dispatch
+    // Test off-screen work area clamping, long candidate auto-sizing, DPI change, & mouse click selection
+    std::vector<std::wstring> long_cands = {
+        L"恭恭敬敬一二三四", L"花花世界五六七八", L"劳苦功高九十", L"草草了事", L"芙蓉出水"};
+    ui->SetCandidates(L"aaaa", long_cands, 5, 0, 0);
+    QIQI_TEST_CHECK(ui->CurrentWidth() > CandidateUI::kPopupWidth);
+
+    size_t clicked_idx = 99;
+    ui->SetSelectCallback([&clicked_idx](size_t idx) { clicked_idx = idx; });
+    if (ui->WindowHandle()) {
+        ::SendMessageW(ui->WindowHandle(), WM_MOUSEACTIVATE, 0, 0);
+        ::SendMessageW(ui->WindowHandle(), WM_DPICHANGED, MAKEWPARAM(144, 144), 0);
+        ::SendMessageW(ui->WindowHandle(), WM_DPICHANGED, MAKEWPARAM(96, 96), 0);
+        ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 42));
+        QIQI_TEST_CHECK(clicked_idx == 0);
+    }
+
     RECT far_rc{99999, 99999, 100050, 100025};
     ui->MoveWindowTo(far_rc);
     while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {

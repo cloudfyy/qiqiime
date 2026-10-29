@@ -87,6 +87,7 @@ private:
     DWORD thread_mgr_event_cookie_ = TF_INVALID_COOKIE;
 
     ComPtr<ITfComposition> composition_;
+    ComPtr<ITfContext> active_context_;
     ComPtr<CandidateUI> candidate_ui_;
     QiQiConfig config_{};
     std::filesystem::file_time_type config_last_write_time_{};

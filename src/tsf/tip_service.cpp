@@ -41,6 +41,15 @@ QiQiTextService::QiQiTextService() {
     log::SetLevel(config_.log_level);
     engine_.ApplyConfig(config_);
     candidate_ui_.Attach(new CandidateUI(g_dll_instance));
+    candidate_ui_->SetSelectCallback([this](size_t index_in_page) {
+        if (index_in_page < 9 && active_context_ && engine_.IsComposing()) {
+            const KeyProcessResult res = engine_.ProcessKey(
+                gsl::narrow_cast<uint32_t>('1' + index_in_page), false, false, false);
+            if (res.action != KeyActionType::PassThrough) {
+                ApplyEngineResult(active_context_.Get(), res);
+            }
+        }
+    });
     LoadExternalDictionaryNextToDll();
 }
 
@@ -354,6 +363,7 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie /*ecWrite*/, 
 
 void QiQiTextService::ResetCompositionAndUI() {
     composition_.Reset();
+    active_context_.Reset();
     engine_.Reset();
     EndCandidateUI();
 }
@@ -430,6 +440,7 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
     if (!context) {
         return;
     }
+    active_context_ = context;
 
     ComPtr<ITfContext> ctx_holder(context);
     ComPtr<QiQiTextService> self_holder(this);
