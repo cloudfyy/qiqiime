@@ -8,7 +8,7 @@
 
 ```text
 C:\sample\qiqiime
-├── CMakeLists.txt              # CMake 构建配置 (qiqi_engine + qiqiime.dll + 单元测试)
+├── CMakeLists.txt              # 根 CMake 构建配置（工具链、版本、C++26 标准与子目录调度）
 ├── CMakePresets.json           # CMake Presets (支持 x64 与 x86/Win32 双架构配置与构建)
 ├── VERSION                     # 项目版本号单一事实源 (SemVer, 如 0.1.0)
 ├── vcpkg.json                  # vcpkg 依赖清单 (Manifest 模式管理 spdlog 等依赖)
@@ -22,6 +22,7 @@ C:\sample\qiqiime
 │   ├── register_ime.ps1        # 管理员权限注册输入法脚本（同时注册 x64 与 x86 WOW64）
 │   └── unregister_ime.ps1      # 管理员权限卸载输入法脚本（同时卸载 x86 与 x64）
 ├── src/
+│   ├── CMakeLists.txt          # 源码目标构建配置（qiqi_engine 静态库 + qiqiime.dll）
 │   ├── common/                 # 公共基础模块（GUID 常量、spdlog 日志、版本信息与资源模板）
 │   │   ├── guids.h             # CLSID / Profile GUID / UIElement GUID 定义
 │   │   ├── logger.h/.cpp       # 基于 spdlog 的日志模块（Rotating File + MSVC Debug 输出）
@@ -41,6 +42,7 @@ C:\sample\qiqiime
 │   └── ui/                     # 候选窗口与界面交互模块
 │       └── candidate_ui.h/.cpp # 候选窗绘制 + ITfCandidateListUIElement（支持游戏 UILess 模式）
 └── tests/
+    ├── CMakeLists.txt          # 测试目标构建配置（qiqi_engine_test + qiqi_tsf_ui_test）
     ├── common.h                # 公共测试断言宏 (QIQI_TEST_CHECK) 与测试套件声明
     ├── common.cpp              # 公共模块测试（spdlog 日志系统、版本号与架构元信息）
     ├── engine_dict.cpp         # 五笔引擎词库测试（词条增删、通配/前缀查询上限、外部码表加载）

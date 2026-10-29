@@ -55,17 +55,10 @@ else()
 endif()
 message(STATUS "QiQiIME target architecture: ${QIQIIME_ARCH_NAME} (${CMAKE_VS_PLATFORM_NAME})")
 
-set(QIQIIME_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/common/version.h.in"
-    "${QIQIIME_GENERATED_DIR}/common/version.h"
-    @ONLY
-)
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/common/version.rc.in"
-    "${QIQIIME_GENERATED_DIR}/common/version.rc"
-    @ONLY
-)
+# Unify build artifact output directory across subdirectories
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -89,110 +82,7 @@ endif()
 # Dependencies managed via vcpkg (vcpkg.json)
 find_package(spdlog CONFIG REQUIRED)
 
-# Core Wubi 86 Engine (Static library, pure C++26 + Win32 UTF conversion, testable independently)
-set(QIQI_ENGINE_SOURCES
-    src/common/logger.cpp
-    src/common/logger.h
-    src/engine/wubi_fsm.h
-    src/engine/wubi_engine.cpp
-    src/engine/wubi_engine.h
-    src/engine/wubi_default_dict.h
-)
-add_library(qiqi_engine STATIC
-    ${QIQI_ENGINE_SOURCES}
-    "${QIQIIME_GENERATED_DIR}/common/version.h"
-)
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" FILES ${QIQI_ENGINE_SOURCES})
-target_include_directories(qiqi_engine PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${QIQIIME_GENERATED_DIR}
-)
-target_compile_definitions(qiqi_engine PUBLIC SPDLOG_USE_STD_FORMAT SPDLOG_WCHAR_FILENAMES)
-target_link_libraries(qiqi_engine PUBLIC spdlog::spdlog_header_only)
-
-# TSF Text Input Processor COM DLL
-set(QIQIIME_SOURCES
-    src/common/guids.h
-    src/tsf/dllmain.cpp
-    src/tsf/class_factory.h
-    src/tsf/class_factory.cpp
-    src/tsf/register.h
-    src/tsf/register.cpp
-    src/tsf/tip_service.h
-    src/tsf/tip_service.cpp
-    src/tsf/edit_session.h
-    src/tsf/qiqiime.def
-    src/ui/candidate_ui.h
-    src/ui/candidate_ui.cpp
-)
-add_library(qiqiime SHARED
-    ${QIQIIME_SOURCES}
-    "${QIQIIME_GENERATED_DIR}/common/version.rc"
-)
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" FILES ${QIQIIME_SOURCES})
-set_target_properties(qiqiime PROPERTIES
-    VERSION ${PROJECT_VERSION}
-    SOVERSION ${PROJECT_VERSION_MAJOR}
-)
-
-target_link_libraries(qiqiime PRIVATE
-    qiqi_engine
-    user32
-    gdi32
-    ole32
-    oleaut32
-    advapi32
-    uuid
-)
-
-# Copy default dictionary table next to build outputs
-add_custom_command(TARGET qiqiime POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/data/wubi86.txt"
-        "$<TARGET_FILE_DIR:qiqiime>/wubi86.txt"
-)
-
-# Engine & State Machine Unit Tests
+# Build source and test subdirectories
 enable_testing()
-set(QIQI_ENGINE_TEST_SOURCES
-    tests/common.h
-    tests/common.cpp
-    tests/engine_dict.cpp
-    tests/engine_input.cpp
-    tests/engine_main.cpp
-)
-add_executable(qiqi_engine_test
-    ${QIQI_ENGINE_TEST_SOURCES}
-)
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/tests" FILES ${QIQI_ENGINE_TEST_SOURCES})
-target_link_libraries(qiqi_engine_test PRIVATE qiqi_engine)
-add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
-
-# TSF COM Service & Candidate UI Unit Tests
-set(QIQI_TSF_UI_TEST_SOURCES
-    tests/common.h
-    tests/tsf_mocks.h
-    tests/ui_candidate.cpp
-    tests/tsf_com.cpp
-    tests/tsf_service.cpp
-    tests/tsf_ui_main.cpp
-)
-add_executable(qiqi_tsf_ui_test
-    ${QIQI_TSF_UI_TEST_SOURCES}
-    src/tsf/dllmain.cpp
-    src/tsf/class_factory.cpp
-    src/tsf/register.cpp
-    src/tsf/tip_service.cpp
-    src/ui/candidate_ui.cpp
-)
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/tests" FILES ${QIQI_TSF_UI_TEST_SOURCES})
-target_link_libraries(qiqi_tsf_ui_test PRIVATE
-    qiqi_engine
-    user32
-    gdi32
-    ole32
-    oleaut32
-    advapi32
-    uuid
-)
-add_test(NAME QiQiTsfUiTest COMMAND qiqi_tsf_ui_test)
+add_subdirectory(src)
+add_subdirectory(tests)
