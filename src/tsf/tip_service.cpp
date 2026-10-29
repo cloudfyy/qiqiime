@@ -266,8 +266,19 @@ void QiQiTextService::UninitKeyEventSink() {
 void QiQiTextService::InitDisplayAttributeGuidAtom() {
     display_attribute_atom_ = TF_INVALID_GUIDATOM;
     ComPtr<ITfCategoryMgr> cat_mgr;
-    if (SUCCEEDED(::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
-                                     IID_PPV_ARGS(&cat_mgr))) && cat_mgr) {
+    if (const HMODULE msctf = ::GetModuleHandleW(L"msctf.dll")) {
+        using TfCreateCategoryMgrFn = HRESULT(WINAPI*)(ITfCategoryMgr**);
+        const auto fn = reinterpret_cast<TfCreateCategoryMgrFn>(
+            ::GetProcAddress(msctf, "TF_CreateCategoryMgr"));
+        if (fn) {
+            std::ignore = fn(&cat_mgr);
+        }
+    }
+    if (!cat_mgr) {
+        std::ignore = ::CoCreateInstance(
+            CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&cat_mgr));
+    }
+    if (cat_mgr) {
         cat_mgr->RegisterGUID(kGuidDisplayAttributeInput, &display_attribute_atom_);
     }
 }
@@ -506,11 +517,7 @@ STDMETHODIMP QiQiTextService::GetType(GUID* pguid) noexcept {
 }
 
 STDMETHODIMP QiQiTextService::GetDescription(BSTR* pbstrDesc) noexcept {
-    if (!pbstrDesc) {
-        return E_INVALIDARG;
-    }
-    *pbstrDesc = ::SysAllocString(kTextServiceDesc);
-    return *pbstrDesc ? S_OK : E_OUTOFMEMORY;
+    return CopyToBstr(kTextServiceDesc, pbstrDesc);
 }
 
 STDMETHODIMP QiQiTextService::GetFunction(REFGUID rguid, REFIID riid, IUnknown** ppunk) noexcept {
@@ -526,11 +533,7 @@ STDMETHODIMP QiQiTextService::GetFunction(REFGUID rguid, REFIID riid, IUnknown**
 
 // ITfFnConfigure
 STDMETHODIMP QiQiTextService::GetDisplayName(BSTR* pbstrName) noexcept {
-    if (!pbstrName) {
-        return E_INVALIDARG;
-    }
-    *pbstrName = ::SysAllocString(L"QiQi 五笔属性设置");
-    return *pbstrName ? S_OK : E_OUTOFMEMORY;
+    return CopyToBstr(L"QiQi 五笔属性设置", pbstrName);
 }
 
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {

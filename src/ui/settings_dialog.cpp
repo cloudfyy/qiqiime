@@ -1,4 +1,5 @@
 #include "ui/settings_dialog.h"
+#include "common/guids.h"
 #include "common/scoped_handle.h"
 
 #include <gsl/gsl>
@@ -10,8 +11,6 @@
 namespace qiqi {
 
 namespace {
-
-constexpr const wchar_t* kSettingsWndClass = L"QiQiIMESettingsDialogClass";
 
 constexpr int kIdRadioJidian = 101;
 constexpr int kIdRadioHaifeng = 102;

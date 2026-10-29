@@ -42,7 +42,13 @@ void AddMenuSeparator(ITfMenu* menu) {
 } // namespace
 
 LangBarButton::LangBarButton(ActionCallback cb) noexcept
-    : action_callback_(std::move(cb)) {}
+    : action_callback_(std::move(cb)) {
+    ++g_com_object_count;
+}
+
+LangBarButton::~LangBarButton() noexcept {
+    --g_com_object_count;
+}
 
 STDMETHODIMP LangBarButton::QueryInterface(REFIID riid, void** ppvObj) noexcept {
     if (!ppvObj) {
@@ -99,11 +105,7 @@ STDMETHODIMP LangBarButton::Show(BOOL /*fShow*/) noexcept {
 }
 
 STDMETHODIMP LangBarButton::GetTooltipString(BSTR* pbstrToolTip) noexcept {
-    if (!pbstrToolTip) {
-        return E_INVALIDARG;
-    }
-    *pbstrToolTip = ::SysAllocString(L"QiQi 五笔 (左键切换中英，右键打开菜单)");
-    return *pbstrToolTip ? S_OK : E_OUTOFMEMORY;
+    return CopyToBstr(L"QiQi 五笔 (左键切换中英，右键打开菜单)", pbstrToolTip);
 }
 
 STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT /*pt*/, const RECT* /*prcArea*/) {
@@ -148,11 +150,7 @@ STDMETHODIMP LangBarButton::GetIcon(HICON* phIcon) noexcept {
 }
 
 STDMETHODIMP LangBarButton::GetText(BSTR* pbstrText) noexcept {
-    if (!pbstrText) {
-        return E_INVALIDARG;
-    }
-    *pbstrText = ::SysAllocString(state_.chinese_mode ? L"中" : L"英");
-    return *pbstrText ? S_OK : E_OUTOFMEMORY;
+    return CopyToBstr(state_.chinese_mode ? L"中" : L"英", pbstrText);
 }
 
 STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) {

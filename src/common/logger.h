@@ -21,6 +21,9 @@ void SetLevel(spdlog::level::level_enum level);
 // Flush buffered log messages.
 void Flush();
 
+// Safely flush and release logger resources on dynamic DLL unload (when not in process termination).
+void Shutdown() noexcept;
+
 // Convert wide string (UTF-16 on Windows) to UTF-8 for spdlog formatting.
 std::string WideToUtf8(std::wstring_view wide);
 

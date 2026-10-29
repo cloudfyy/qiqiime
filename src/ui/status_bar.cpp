@@ -1,4 +1,5 @@
 #include "ui/status_bar.h"
+#include "common/guids.h"
 
 #include <gsl/gsl>
 #include <algorithm>
@@ -7,7 +8,6 @@
 namespace qiqi {
 
 namespace {
-constexpr const wchar_t* kStatusBarWndClass = L"QiQiIMEStatusBarPopupClass";
 constexpr int kLogoWidth = 48;
 constexpr int kCellWidth = 32;
 } // namespace

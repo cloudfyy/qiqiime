@@ -223,12 +223,22 @@ void TestCandidateUI() {
     ui->SetCandidates(L"aaaa", long_cands, 5, 0, 0);
     QIQI_TEST_CHECK(ui->CurrentWidth() > CandidateUI::kPopupWidth);
 
+    if (ui->WindowHandle()) {
+        // Click before callback is set (exercises early return when !select_callback_)
+        ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 42));
+    }
+
     size_t clicked_idx = 99;
     ui->SetSelectCallback([&clicked_idx](size_t idx) { clicked_idx = idx; });
     if (ui->WindowHandle()) {
         ::SendMessageW(ui->WindowHandle(), WM_MOUSEACTIVATE, 0, 0);
         ::SendMessageW(ui->WindowHandle(), WM_DPICHANGED, MAKEWPARAM(144, 144), 0);
+        // MoveWindowTo while dpi_ is 144 and window DPI is 96 (exercises wnd_dpi != dpi_ rescaling)
+        ui->MoveWindowTo(normal_rc);
         ::SendMessageW(ui->WindowHandle(), WM_DPICHANGED, MAKEWPARAM(96, 96), 0);
+        // Click outside candidate rects (miss) then inside candidate 0 (hit)
+        ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(2, 2));
+        QIQI_TEST_CHECK(clicked_idx == 99);
         ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 42));
         QIQI_TEST_CHECK(clicked_idx == 0);
     }
@@ -274,9 +284,31 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(read_back.show_status_bar);
     QIQI_TEST_CHECK(read_back.page_size == 7);
 
-    // Simulate clicking OK (IDOK)
+    // Also test BuiltinOnly and Jidian radio states + Cancel / WM_CLOSE
+    cfg.primary_dict = PrimaryDict::BuiltinOnly;
+    WriteSettingsToWindowControls(hwnd, cfg);
+    ReadSettingsFromWindowControls(hwnd, read_back);
+    QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::BuiltinOnly);
+
+    cfg.primary_dict = PrimaryDict::Jidian;
+    WriteSettingsToWindowControls(hwnd, cfg);
+    ReadSettingsFromWindowControls(hwnd, read_back);
+    QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Jidian);
+
+    ::SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
+    ::SendMessageW(hwnd, WM_CLOSE, 0, 0);
     ::SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
     ::DestroyWindow(hwnd);
+
+    // Test modal ShowSettingsDialog with auto-closing timer (IDOK -> returns true)
+    ::SetTimer(nullptr, 1, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+        ::KillTimer(nullptr, id);
+        const HWND dlg = ::FindWindowW(L"QiQiIMESettingsDialogClass", nullptr);
+        if (dlg) {
+            ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+        }
+    });
+    QIQI_TEST_CHECK(ShowSettingsDialog(::GetModuleHandleW(nullptr), nullptr, cfg));
 }
 
 void TestStatusBarUI() {
@@ -291,6 +323,8 @@ void TestStatusBarUI() {
     LangBarState st{};
     st.show_status_bar = true;
     bar.UpdateState(st);
+    // Call Show(true) again when window already exists
+    bar.Show(true);
     QIQI_TEST_CHECK(bar.IsVisible());
     QIQI_TEST_CHECK(bar.WindowHandle() != nullptr);
 
@@ -302,6 +336,19 @@ void TestStatusBarUI() {
     }
 
     ::SendMessageW(bar.WindowHandle(), WM_MOUSEACTIVATE, 0, 0);
+    // Test WM_NCHITTEST on logo area (HTCAPTION) and button area (HTCLIENT)
+    POINT logo_screen{10, 10};
+    ::ClientToScreen(bar.WindowHandle(), &logo_screen);
+    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_NCHITTEST, 0, MAKELPARAM(logo_screen.x, logo_screen.y)) == HTCAPTION);
+    POINT btn_screen{60, 10};
+    ::ClientToScreen(bar.WindowHandle(), &btn_screen);
+    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_NCHITTEST, 0, MAKELPARAM(btn_screen.x, btn_screen.y)) == HTCLIENT);
+
+    // Click on logo area (ignored) and out-of-range cell (ignored)
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 16));
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(300, 16));
+    QIQI_TEST_CHECK(clicked_action == static_cast<LangBarMenuId>(0));
+
     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(55, 16));
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleChinese);
     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(90, 16));

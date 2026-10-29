@@ -23,37 +23,83 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     ComPtr<ITfThreadMgrEventSink> tm_sink;
     ComPtr<ITfKeyEventSink> key_sink;
     ComPtr<ITfCompositionSink> comp_sink;
+    ComPtr<ITfFunctionProvider> func_prov;
+    ComPtr<ITfFnConfigure> fn_cfg;
     ComPtr<ITfDisplayAttributeProvider> disp_attr_prov;
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&tip_base))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&tip_ex))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&tm_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&key_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&comp_sink))));
+    QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&func_prov))));
+    QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&fn_cfg))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&disp_attr_prov))));
 
+    // Test ITfFunctionProvider & ITfFnConfigure
+    QIQI_TEST_CHECK(func_prov->GetType(nullptr) == E_INVALIDARG);
+    GUID fp_guid{};
+    QIQI_TEST_CHECK(SUCCEEDED(func_prov->GetType(&fp_guid)) && IsEqualGUID(fp_guid, kClsidQiQiTextService));
+    QIQI_TEST_CHECK(func_prov->GetDescription(nullptr) == E_INVALIDARG);
+    ScopedBstr fp_desc;
+    QIQI_TEST_CHECK(SUCCEEDED(func_prov->GetDescription(fp_desc.Put())) && fp_desc.IsValid());
+    QIQI_TEST_CHECK(func_prov->GetFunction(GUID_NULL, IID_ITfFnConfigure, nullptr) == E_INVALIDARG);
+    ComPtr<IUnknown> fn_unk;
+    QIQI_TEST_CHECK(func_prov->GetFunction(kGuidProfileWubi86, IID_ITfFnConfigure, &fn_unk) == E_NOINTERFACE);
+    QIQI_TEST_CHECK(SUCCEEDED(func_prov->GetFunction(GUID_NULL, IID_ITfFnConfigure, &fn_unk)) && fn_unk);
+    fn_unk.Reset();
+
+    QIQI_TEST_CHECK(fn_cfg->GetDisplayName(nullptr) == E_INVALIDARG);
+    ScopedBstr fn_name;
+    QIQI_TEST_CHECK(SUCCEEDED(fn_cfg->GetDisplayName(fn_name.Put())) && fn_name.IsValid());
+    func_prov.Reset();
+    fn_cfg.Reset();
+
     // Test ITfDisplayAttributeProvider & IEnumTfDisplayAttributeInfo & ITfDisplayAttributeInfo
+    QIQI_TEST_CHECK(disp_attr_prov->EnumDisplayAttributeInfo(nullptr) == E_INVALIDARG);
+    QIQI_TEST_CHECK(disp_attr_prov->GetDisplayAttributeInfo(kGuidDisplayAttributeInput, nullptr) == E_INVALIDARG);
     ComPtr<ITfDisplayAttributeInfo> attr_info;
     QIQI_TEST_CHECK(disp_attr_prov->GetDisplayAttributeInfo(kGuidProfileWubi86, &attr_info) == E_INVALIDARG);
     QIQI_TEST_CHECK(SUCCEEDED(disp_attr_prov->GetDisplayAttributeInfo(kGuidDisplayAttributeInput, &attr_info)) && attr_info);
+    QIQI_TEST_CHECK(attr_info->QueryInterface(IID_IUnknown, nullptr) == E_INVALIDARG);
+    QIQI_TEST_CHECK(attr_info->QueryInterface(IID_IClassFactory, &out) == E_NOINTERFACE);
+    ComPtr<ITfDisplayAttributeInfo> attr_qi;
+    QIQI_TEST_CHECK(SUCCEEDED(attr_info->QueryInterface(IID_PPV_ARGS(&attr_qi))) && attr_qi);
+    attr_qi.Reset();
+    QIQI_TEST_CHECK(attr_info->GetGUID(nullptr) == E_INVALIDARG);
     GUID attr_guid{};
     QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetGUID(&attr_guid)) && IsEqualGUID(attr_guid, kGuidDisplayAttributeInput));
+    QIQI_TEST_CHECK(attr_info->GetDescription(nullptr) == E_INVALIDARG);
     ScopedBstr attr_desc;
     QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetDescription(attr_desc.Put())) && attr_desc.IsValid());
+    QIQI_TEST_CHECK(attr_info->GetAttributeInfo(nullptr) == E_INVALIDARG);
     TF_DISPLAYATTRIBUTE da{};
     QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetAttributeInfo(&da)) && da.lsStyle == TF_LS_DOT);
+    QIQI_TEST_CHECK(attr_info->SetAttributeInfo(nullptr) == E_INVALIDARG);
     da.fBoldLine = TRUE;
     QIQI_TEST_CHECK(SUCCEEDED(attr_info->SetAttributeInfo(&da)));
     QIQI_TEST_CHECK(SUCCEEDED(attr_info->Reset()));
 
     ComPtr<IEnumTfDisplayAttributeInfo> enum_attr;
     QIQI_TEST_CHECK(SUCCEEDED(disp_attr_prov->EnumDisplayAttributeInfo(&enum_attr)) && enum_attr);
+    QIQI_TEST_CHECK(enum_attr->QueryInterface(IID_IUnknown, nullptr) == E_INVALIDARG);
+    QIQI_TEST_CHECK(enum_attr->QueryInterface(IID_IClassFactory, &out) == E_NOINTERFACE);
+    ComPtr<IEnumTfDisplayAttributeInfo> enum_qi;
+    QIQI_TEST_CHECK(SUCCEEDED(enum_attr->QueryInterface(IID_PPV_ARGS(&enum_qi))) && enum_qi);
+    enum_qi.Reset();
+    QIQI_TEST_CHECK(enum_attr->Clone(nullptr) == E_INVALIDARG);
+    QIQI_TEST_CHECK(enum_attr->Next(1, nullptr, nullptr) == E_INVALIDARG);
     ComPtr<ITfDisplayAttributeInfo> fetched_info;
-    ULONG fetched = 0;
+    ULONG fetched = 99;
+    QIQI_TEST_CHECK(enum_attr->Next(0, &fetched_info, &fetched) == S_OK && fetched == 0);
     QIQI_TEST_CHECK(enum_attr->Next(1, &fetched_info, &fetched) == S_OK && fetched == 1 && fetched_info);
     fetched_info.Reset();
     QIQI_TEST_CHECK(enum_attr->Next(1, &fetched_info, &fetched) == S_FALSE && fetched == 0);
     QIQI_TEST_CHECK(SUCCEEDED(enum_attr->Reset()));
+    QIQI_TEST_CHECK(enum_attr->Next(2, &fetched_info, &fetched) == S_FALSE && fetched == 1 && fetched_info);
+    fetched_info.Reset();
+    QIQI_TEST_CHECK(SUCCEEDED(enum_attr->Reset()));
     QIQI_TEST_CHECK(SUCCEEDED(enum_attr->Skip(1)));
+    QIQI_TEST_CHECK(enum_attr->Skip(1) == S_FALSE);
     ComPtr<IEnumTfDisplayAttributeInfo> cloned_enum;
     QIQI_TEST_CHECK(SUCCEEDED(enum_attr->Clone(&cloned_enum)) && cloned_enum);
     cloned_enum.Reset();
@@ -152,6 +198,31 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_PERIOD, 0, &eaten)) && eaten == FALSE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyTogglePunctuation, &eaten)) && eaten == TRUE);
 
+    // Start composing again, then test mouse click selection on CandidateUI and LangBar menu actions
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
+    if (mock_tm->last_ui_element_) {
+        auto* cand_ui = static_cast<CandidateUI*>(mock_tm->last_ui_element_.Get());
+        if (cand_ui->WindowHandle()) {
+            ::SendMessageW(cand_ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 42));
+            QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"工");
+        }
+    }
+
+    if (mock_tm->langbar_item_) {
+        ComPtr<ITfLangBarItemButton> lb_btn;
+        if (SUCCEEDED(mock_tm->langbar_item_.As(&lb_btn)) && lb_btn) {
+            POINT pt{0, 0};
+            QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnClick(TF_LBI_CLK_LEFT, pt, nullptr)));
+            QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleChinese))));
+            QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleFullWidth))));
+            QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleFullWidth))));
+            QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::TogglePunctuation))));
+            QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::TogglePunctuation))));
+            QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleStatusBar))));
+            QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleStatusBar))));
+        }
+    }
+
     // Start composing again, then test PreservedKey while composing
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyToggleMode, &eaten)) && eaten == TRUE);
@@ -237,6 +308,23 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     auto* service_haifeng = new QiQiTextService();
     ComPtr<ITfThreadMgrEventSink> hf_tm_sink;
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&hf_tm_sink))));
+    QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->Activate(mock_tm.Get(), 1)));
+    if (mock_tm->langbar_item_) {
+        ComPtr<ITfLangBarItemButton> hf_lb;
+        if (SUCCEEDED(mock_tm->langbar_item_.As(&hf_lb)) && hf_lb) {
+            QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::DictJidian))));
+            QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::DictHaifeng))));
+            QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleExtraDict))));
+            ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+                ::KillTimer(nullptr, id);
+                const HWND dlg = ::FindWindowW(L"QiQiIMESettingsDialogClass", nullptr);
+                if (dlg) {
+                    ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+                }
+            });
+            QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::OpenSettings))));
+        }
+    }
 
     // Modify config file timestamp and trigger hot-reload via OnSetFocus
     haifeng_cfg.page_size = 6;
@@ -246,6 +334,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         std::filesystem::file_time_type::clock::now() + std::chrono::seconds(10),
         ec);
     QIQI_TEST_CHECK(SUCCEEDED(hf_tm_sink->OnSetFocus(reinterpret_cast<ITfDocumentMgr*>(1), nullptr)));
+    QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->Deactivate()));
     hf_tm_sink.Reset();
     QIQI_TEST_CHECK(service_haifeng->Release() == 0);
 

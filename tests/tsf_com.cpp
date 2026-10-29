@@ -24,6 +24,7 @@ void TestLambdaEditSession() {
         called = (ec == 99);
         return S_OK;
     });
+    QIQI_TEST_CHECK(DllCanUnloadNow() == S_FALSE);
 
     QIQI_TEST_CHECK(session->QueryInterface(IID_IUnknown, nullptr) == E_INVALIDARG);
     void* obj = nullptr;
@@ -36,6 +37,7 @@ void TestLambdaEditSession() {
 
     edit_session.Reset();
     QIQI_TEST_CHECK(session->Release() == 0);
+    QIQI_TEST_CHECK(DllCanUnloadNow() == S_OK);
 
     // Empty callback returns E_FAIL
     auto* empty_session = new LambdaEditSession({});
@@ -48,6 +50,8 @@ void TestClassFactoryAndDllExports() {
         QIQI_TEST_CHECK(!IsRunningUnderWow64());
     }
     HMODULE hmod = ::GetModuleHandleW(nullptr);
+    QIQI_TEST_CHECK(DllMain(hmod, DLL_PROCESS_ATTACH, nullptr) == TRUE);
+    QIQI_TEST_CHECK(DllMain(hmod, DLL_PROCESS_DETACH, nullptr) == TRUE);
     QIQI_TEST_CHECK(DllMain(hmod, DLL_PROCESS_ATTACH, nullptr) == TRUE);
     QIQI_TEST_CHECK(DllCanUnloadNow() == S_OK);
 

@@ -1,5 +1,6 @@
 #include <windows.h>
 #include "common/guids.h"
+#include "common/logger.h"
 #include "tsf/class_factory.h"
 #include "tsf/register.h"
 #include "tsf/tip_service.h"
@@ -10,10 +11,17 @@ std::atomic<long> g_com_object_count{0};
 static QiQiClassFactory g_class_factory;
 } // namespace qiqi
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID /*lpReserved*/) noexcept {
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) noexcept {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         qiqi::g_dll_instance = hModule;
         ::DisableThreadLibraryCalls(hModule);
+    } else if (ul_reason_for_call == DLL_PROCESS_DETACH && lpReserved == nullptr) {
+        // Dynamic unload via FreeLibrary (not process termination):
+        // unregister window classes and flush/release logger resources safely.
+        ::UnregisterClassW(qiqi::kCandidateWndClass, hModule);
+        ::UnregisterClassW(qiqi::kStatusBarWndClass, hModule);
+        ::UnregisterClassW(qiqi::kSettingsWndClass, hModule);
+        qiqi::log::Shutdown();
     }
     return TRUE;
 }

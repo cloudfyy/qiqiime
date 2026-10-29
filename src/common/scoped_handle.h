@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <oleauto.h>
 #include <gsl/gsl>
+#include <string_view>
 #include <utility>
 
 namespace qiqi {
@@ -38,6 +39,11 @@ public:
     }
 
     HandleType Get() const noexcept { return handle_; }
+
+    // Release ownership of the underlying handle and return it to caller (e.g. COM [out] parameters).
+    HandleType Detach() noexcept {
+        return std::exchange(handle_, Traits::Invalid());
+    }
 
     // Reset and return address of underlying handle for Win32 out-parameters (e.g. RegOpenKeyExW).
     HandleType* Put() noexcept {
@@ -198,6 +204,21 @@ constexpr POINT PointFromLParam(LPARAM lparam) noexcept {
         gsl::narrow_cast<short>(LOWORD(lparam)),
         gsl::narrow_cast<short>(HIWORD(lparam))
     };
+}
+
+// Allocate a BSTR of known length via ::SysAllocStringLen using ScopedBstr RAII and detach to [out] BSTR*.
+// Always initializes *pbstr = nullptr first per COM [out] parameter rules.
+inline HRESULT CopyToBstr(std::wstring_view sv, BSTR* pbstr) noexcept {
+    if (!pbstr) {
+        return E_INVALIDARG;
+    }
+    *pbstr = nullptr;
+    ScopedBstr bstr(::SysAllocStringLen(sv.data(), gsl::narrow_cast<UINT>(sv.size())));
+    if (!bstr) {
+        return E_OUTOFMEMORY;
+    }
+    *pbstr = bstr.Detach();
+    return S_OK;
 }
 
 } // namespace qiqi

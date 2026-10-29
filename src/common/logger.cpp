@@ -16,8 +16,17 @@ namespace qiqi::log {
 
 namespace {
 
-std::mutex g_logger_mutex;
-std::shared_ptr<spdlog::logger> g_logger;
+// Intentionally heap-allocated singleton state that is never destroyed during CRT process-exit
+// under the Windows Loader Lock (preventing mutex/file-flush deadlocks on ExitProcess).
+struct LoggerState {
+    std::mutex mutex;
+    std::shared_ptr<spdlog::logger> logger;
+};
+
+LoggerState& GetState() {
+    static LoggerState* const state = new LoggerState();
+    return *state;
+}
 
 std::filesystem::path GetDefaultLogFilePath() {
     const std::filesystem::path app_dir = GetAppDataDirectory();
@@ -66,16 +75,18 @@ std::shared_ptr<spdlog::logger> CreateLoggerInternal(
 } // namespace
 
 void InitLogger(const std::filesystem::path& log_file_path, spdlog::level::level_enum level) {
-    std::lock_guard<std::mutex> lock(g_logger_mutex);
-    g_logger = CreateLoggerInternal(log_file_path, level);
+    auto& state = GetState();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    state.logger = CreateLoggerInternal(log_file_path, level);
 }
 
 const std::shared_ptr<spdlog::logger>& GetLogger() {
-    std::lock_guard<std::mutex> lock(g_logger_mutex);
-    if (!g_logger) {
-        g_logger = CreateLoggerInternal({}, spdlog::level::info);
+    auto& state = GetState();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    if (!state.logger) {
+        state.logger = CreateLoggerInternal({}, spdlog::level::info);
     }
-    return g_logger;
+    return state.logger;
 }
 
 void SetLevel(spdlog::level::level_enum level) {
@@ -84,6 +95,18 @@ void SetLevel(spdlog::level::level_enum level) {
 
 void Flush() {
     GetLogger()->flush();
+}
+
+void Shutdown() noexcept {
+    try {
+        auto& state = GetState();
+        std::lock_guard<std::mutex> lock(state.mutex);
+        if (state.logger) {
+            state.logger->flush();
+            state.logger.reset();
+        }
+    } catch (...) {
+    }
 }
 
 std::string WideToUtf8(std::wstring_view wide) {

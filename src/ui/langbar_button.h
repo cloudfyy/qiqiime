@@ -43,7 +43,7 @@ public:
     using ActionCallback = std::function<void(LangBarMenuId action_id)>;
 
     explicit LangBarButton(ActionCallback cb = {}) noexcept;
-    ~LangBarButton() noexcept = default;
+    ~LangBarButton() noexcept;
 
     LangBarButton(const LangBarButton&) = delete;
     LangBarButton& operator=(const LangBarButton&) = delete;

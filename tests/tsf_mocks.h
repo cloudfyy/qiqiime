@@ -148,10 +148,50 @@ private:
     ULONG ref_ = 1;
 };
 
+// Minimal mock ITfProperty
+class MockTfProperty final : public ITfProperty {
+public:
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+        if (!ppvObj) return E_INVALIDARG;
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfReadOnlyProperty) || IsEqualIID(riid, IID_ITfProperty)) {
+            *ppvObj = static_cast<ITfProperty*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppvObj = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() override {
+        ULONG c = --ref_;
+        if (c == 0) delete this;
+        return c;
+    }
+    STDMETHODIMP GetType(GUID*) override { return E_NOTIMPL; }
+    STDMETHODIMP EnumRanges(TfEditCookie, IEnumTfRanges**, ITfRange*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetValue(TfEditCookie, ITfRange*, VARIANT*) override { return S_OK; }
+    STDMETHODIMP GetContext(ITfContext**) override { return E_NOTIMPL; }
+    STDMETHODIMP FindRange(TfEditCookie, ITfRange*, ITfRange**, TfAnchor) override { return E_NOTIMPL; }
+    STDMETHODIMP SetValueStore(TfEditCookie, ITfRange*, ITfPropertyStore*) override { return E_NOTIMPL; }
+    STDMETHODIMP SetValue(TfEditCookie, ITfRange*, const VARIANT*) override {
+        set_called_ = true;
+        return S_OK;
+    }
+    STDMETHODIMP Clear(TfEditCookie, ITfRange*) override {
+        clear_called_ = true;
+        return S_OK;
+    }
+
+    bool set_called_ = false;
+    bool clear_called_ = false;
+private:
+    ULONG ref_ = 1;
+};
+
 // Minimal mock ITfContext + ITfInsertAtSelection + ITfContextComposition
 class MockTfContext final : public ITfContext, public ITfInsertAtSelection, public ITfContextComposition {
 public:
-    MockTfContext() : range_(new MockTfRange()), view_(new MockTfContextView()) {}
+    MockTfContext() : range_(new MockTfRange()), view_(new MockTfContextView()), prop_(new MockTfProperty()) {}
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
@@ -197,7 +237,12 @@ public:
     }
     STDMETHODIMP EnumViews(IEnumTfContextViews**) override { return E_NOTIMPL; }
     STDMETHODIMP GetStatus(TF_STATUS*) override { return S_OK; }
-    STDMETHODIMP GetProperty(REFGUID, ITfProperty**) override { return E_NOTIMPL; }
+    STDMETHODIMP GetProperty(REFGUID, ITfProperty** ppv) override {
+        if (!ppv) return E_INVALIDARG;
+        *ppv = prop_.Get();
+        (*ppv)->AddRef();
+        return S_OK;
+    }
     STDMETHODIMP GetAppProperty(REFGUID, ITfReadOnlyProperty**) override { return E_NOTIMPL; }
     STDMETHODIMP TrackProperties(const GUID**, ULONG, const GUID**, ULONG, ITfReadOnlyProperty**) override { return E_NOTIMPL; }
     STDMETHODIMP EnumProperties(IEnumTfProperties**) override { return E_NOTIMPL; }
@@ -232,6 +277,7 @@ public:
 
     ComPtr<MockTfRange> range_;
     ComPtr<MockTfContextView> view_;
+    ComPtr<MockTfProperty> prop_;
     bool fail_qi_insert_ = false;
     bool fail_insert_at_sel_ = false;
     bool fail_qi_comp_ = false;
@@ -279,13 +325,15 @@ private:
     ULONG ref_ = 1;
 };
 
-// Minimal mock ITfThreadMgr + ITfSource + ITfKeystrokeMgr + ITfUIElementMgr + ITfCompartmentMgr
+// Minimal mock ITfThreadMgr + ITfSource + ITfSourceSingle + ITfKeystrokeMgr + ITfUIElementMgr + ITfCompartmentMgr + ITfLangBarItemMgr
 class MockTfThreadMgr final
     : public ITfThreadMgr,
       public ITfSource,
+      public ITfSourceSingle,
       public ITfKeystrokeMgr,
       public ITfUIElementMgr,
-      public ITfCompartmentMgr {
+      public ITfCompartmentMgr,
+      public ITfLangBarItemMgr {
 public:
     MockTfThreadMgr() : compartment_(new MockTfCompartment()) {}
 
@@ -295,12 +343,16 @@ public:
             *ppvObj = static_cast<ITfThreadMgr*>(this);
         } else if (IsEqualIID(riid, IID_ITfSource) && !fail_query_source_) {
             *ppvObj = static_cast<ITfSource*>(this);
+        } else if (IsEqualIID(riid, IID_ITfSourceSingle)) {
+            *ppvObj = static_cast<ITfSourceSingle*>(this);
         } else if (IsEqualIID(riid, IID_ITfKeystrokeMgr) && !fail_query_key_mgr_) {
             *ppvObj = static_cast<ITfKeystrokeMgr*>(this);
         } else if (IsEqualIID(riid, IID_ITfUIElementMgr) && !fail_query_ui_mgr_) {
             *ppvObj = static_cast<ITfUIElementMgr*>(this);
         } else if (IsEqualIID(riid, IID_ITfCompartmentMgr)) {
             *ppvObj = static_cast<ITfCompartmentMgr*>(this);
+        } else if (IsEqualIID(riid, IID_ITfLangBarItemMgr)) {
+            *ppvObj = static_cast<ITfLangBarItemMgr*>(this);
         } else {
             *ppvObj = nullptr;
             return E_NOINTERFACE;
@@ -336,6 +388,16 @@ public:
     }
     STDMETHODIMP UnadviseSink(DWORD) override { return S_OK; }
 
+    // ITfSourceSingle
+    STDMETHODIMP AdviseSingleSink(TfClientId, REFIID, IUnknown* punk) override {
+        single_sink_ = punk;
+        return S_OK;
+    }
+    STDMETHODIMP UnadviseSingleSink(TfClientId, REFIID) override {
+        single_sink_.Reset();
+        return S_OK;
+    }
+
     // ITfKeystrokeMgr
     STDMETHODIMP AdviseKeyEventSink(TfClientId, ITfKeyEventSink*, BOOL) override {
         return fail_key_sink_ ? E_FAIL : S_OK;
@@ -355,8 +417,9 @@ public:
     STDMETHODIMP SimulatePreservedKey(ITfContext*, REFGUID, BOOL*) override { return E_NOTIMPL; }
 
     // ITfUIElementMgr
-    STDMETHODIMP BeginUIElement(ITfUIElement*, BOOL* pbShow, DWORD* pdwUIElementId) override {
+    STDMETHODIMP BeginUIElement(ITfUIElement* elem, BOOL* pbShow, DWORD* pdwUIElementId) override {
         if (fail_begin_ui_) return E_FAIL;
+        last_ui_element_ = elem;
         if (pbShow) *pbShow = show_own_ui_;
         if (pdwUIElementId) *pdwUIElementId = 7;
         return S_OK;
@@ -376,7 +439,30 @@ public:
     STDMETHODIMP ClearCompartment(TfClientId, REFGUID) override { return S_OK; }
     STDMETHODIMP EnumCompartments(IEnumGUID**) override { return E_NOTIMPL; }
 
+    // ITfLangBarItemMgr
+    STDMETHODIMP EnumItems(IEnumTfLangBarItems**) override { return E_NOTIMPL; }
+    STDMETHODIMP GetItem(REFGUID, ITfLangBarItem**) override { return E_NOTIMPL; }
+    STDMETHODIMP AdviseItemSink(ITfLangBarItemSink*, DWORD*, REFGUID) override { return E_NOTIMPL; }
+    STDMETHODIMP UnadviseItemSink(DWORD) override { return E_NOTIMPL; }
+    STDMETHODIMP GetItemFloatingRect(DWORD, REFGUID, RECT*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetItemsStatus(ULONG, const GUID*, DWORD*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetItemNum(ULONG*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetItems(ULONG, ITfLangBarItem**, TF_LANGBARITEMINFO*, DWORD*, ULONG*) override { return E_NOTIMPL; }
+    STDMETHODIMP AdviseItemsSink(ULONG, ITfLangBarItemSink**, const GUID*, DWORD*) override { return E_NOTIMPL; }
+    STDMETHODIMP UnadviseItemsSink(ULONG, DWORD*) override { return E_NOTIMPL; }
+    STDMETHODIMP AddItem(ITfLangBarItem* punk) override {
+        langbar_item_ = punk;
+        return S_OK;
+    }
+    STDMETHODIMP RemoveItem(ITfLangBarItem*) override {
+        langbar_item_.Reset();
+        return S_OK;
+    }
+
     ComPtr<MockTfCompartment> compartment_;
+    ComPtr<IUnknown> single_sink_;
+    ComPtr<ITfUIElement> last_ui_element_;
+    ComPtr<ITfLangBarItem> langbar_item_;
     bool fail_query_source_ = false;
     bool fail_query_key_mgr_ = false;
     bool fail_query_ui_mgr_ = false;

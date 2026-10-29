@@ -4,6 +4,8 @@
 #include <functional>
 #include <atomic>
 
+#include "common/guids.h"
+
 namespace qiqi {
 
 // Generic modern C++ wrapper for ITfEditSession
@@ -12,7 +14,9 @@ class LambdaEditSession final : public ITfEditSession {
 public:
     using Callback = std::function<HRESULT(TfEditCookie)>;
 
-    explicit LambdaEditSession(Callback cb) noexcept : callback_(std::move(cb)) {}
+    explicit LambdaEditSession(Callback cb) noexcept : callback_(std::move(cb)) {
+        ++g_com_object_count;
+    }
 
     LambdaEditSession(const LambdaEditSession&) = delete;
     LambdaEditSession& operator=(const LambdaEditSession&) = delete;
@@ -51,7 +55,9 @@ public:
     }
 
 private:
-    ~LambdaEditSession() noexcept = default;
+    ~LambdaEditSession() noexcept {
+        --g_com_object_count;
+    }
 
     std::atomic<ULONG> ref_count_{1};
     Callback callback_;

@@ -1,8 +1,18 @@
 #pragma once
 #include <windows.h>
 #include <msctf.h>
+#include <atomic>
 
 namespace qiqi {
+
+// Global DLL instance and active COM object counter for DllCanUnloadNow
+extern HINSTANCE g_dll_instance;
+extern std::atomic<long> g_com_object_count;
+
+// Shared Win32 window class names (unregistered on dynamic DLL unload)
+inline constexpr const wchar_t* kCandidateWndClass = L"QiQiIMECandidatePopupClass";
+inline constexpr const wchar_t* kStatusBarWndClass = L"QiQiIMEStatusBarPopupClass";
+inline constexpr const wchar_t* kSettingsWndClass = L"QiQiIMESettingsDialogClass";
 
 // {8E7B9D31-5A42-4C81-9F11-202610290001}
 inline constexpr CLSID kClsidQiQiTextService = {

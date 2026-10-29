@@ -9,16 +9,14 @@
 
 namespace qiqi {
 
-namespace {
-constexpr const wchar_t* kCandidateWndClass = L"QiQiIMECandidatePopupClass";
-} // namespace
-
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
+    ++g_com_object_count;
     UpdateDpiAndFont(96);
 }
 
 CandidateUI::~CandidateUI() noexcept {
     DestroyPopupWindow();
+    --g_com_object_count;
 }
 
 void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
@@ -123,11 +121,7 @@ STDMETHODIMP_(ULONG) CandidateUI::Release() noexcept {
 }
 
 STDMETHODIMP CandidateUI::GetDescription(BSTR* pbstrDescription) noexcept {
-    if (!pbstrDescription) {
-        return E_INVALIDARG;
-    }
-    *pbstrDescription = ::SysAllocString(L"QiQi Wubi Candidate List");
-    return *pbstrDescription ? S_OK : E_OUTOFMEMORY;
+    return CopyToBstr(L"QiQi Wubi Candidate List", pbstrDescription);
 }
 
 STDMETHODIMP CandidateUI::GetGUID(GUID* pguid) noexcept {
@@ -196,11 +190,11 @@ STDMETHODIMP CandidateUI::GetString(UINT uIndex, BSTR* pstr) noexcept {
     if (!pstr) {
         return E_INVALIDARG;
     }
+    *pstr = nullptr;
     if (uIndex >= all_candidates_.size()) {
         return E_INVALIDARG;
     }
-    *pstr = ::SysAllocString(gsl::at(all_candidates_, uIndex).c_str());
-    return *pstr ? S_OK : E_OUTOFMEMORY;
+    return CopyToBstr(gsl::at(all_candidates_, uIndex), pstr);
 }
 
 STDMETHODIMP CandidateUI::GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt) noexcept {

@@ -9,7 +9,7 @@ namespace qiqi {
 class QiQiDisplayAttributeInfo final : public ITfDisplayAttributeInfo {
 public:
     QiQiDisplayAttributeInfo() noexcept;
-    ~QiQiDisplayAttributeInfo() noexcept = default;
+    ~QiQiDisplayAttributeInfo() noexcept;
 
     QiQiDisplayAttributeInfo(const QiQiDisplayAttributeInfo&) = delete;
     QiQiDisplayAttributeInfo& operator=(const QiQiDisplayAttributeInfo&) = delete;
@@ -37,8 +37,8 @@ private:
 
 class QiQiEnumDisplayAttributeInfo final : public IEnumTfDisplayAttributeInfo {
 public:
-    explicit QiQiEnumDisplayAttributeInfo(ULONG index = 0) noexcept : index_(index) {}
-    ~QiQiEnumDisplayAttributeInfo() noexcept = default;
+    explicit QiQiEnumDisplayAttributeInfo(ULONG index = 0) noexcept;
+    ~QiQiEnumDisplayAttributeInfo() noexcept;
 
     QiQiEnumDisplayAttributeInfo(const QiQiEnumDisplayAttributeInfo&) = delete;
     QiQiEnumDisplayAttributeInfo& operator=(const QiQiEnumDisplayAttributeInfo&) = delete;

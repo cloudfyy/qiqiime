@@ -1,5 +1,6 @@
 #include "tsf/display_attribute.h"
 #include "common/guids.h"
+#include "common/scoped_handle.h"
 
 #include <oleauto.h>
 #include <wrl/client.h>
@@ -22,7 +23,13 @@ constexpr TF_DISPLAYATTRIBUTE QiQiDisplayAttributeInfo::DefaultAttribute() noexc
 }
 
 QiQiDisplayAttributeInfo::QiQiDisplayAttributeInfo() noexcept
-    : attr_(DefaultAttribute()) {}
+    : attr_(DefaultAttribute()) {
+    ++g_com_object_count;
+}
+
+QiQiDisplayAttributeInfo::~QiQiDisplayAttributeInfo() noexcept {
+    --g_com_object_count;
+}
 
 STDMETHODIMP QiQiDisplayAttributeInfo::QueryInterface(REFIID riid, void** ppvObj) noexcept {
     if (!ppvObj) {
@@ -58,11 +65,7 @@ STDMETHODIMP QiQiDisplayAttributeInfo::GetGUID(GUID* pguid) noexcept {
 }
 
 STDMETHODIMP QiQiDisplayAttributeInfo::GetDescription(BSTR* pbstrDesc) noexcept {
-    if (!pbstrDesc) {
-        return E_INVALIDARG;
-    }
-    *pbstrDesc = ::SysAllocString(L"QiQi Wubi Composition Underline");
-    return *pbstrDesc ? S_OK : E_OUTOFMEMORY;
+    return CopyToBstr(L"QiQi Wubi Composition Underline", pbstrDesc);
 }
 
 STDMETHODIMP QiQiDisplayAttributeInfo::GetAttributeInfo(TF_DISPLAYATTRIBUTE* pda) noexcept {
@@ -87,6 +90,15 @@ STDMETHODIMP QiQiDisplayAttributeInfo::Reset() noexcept {
 }
 
 // QiQiEnumDisplayAttributeInfo
+QiQiEnumDisplayAttributeInfo::QiQiEnumDisplayAttributeInfo(ULONG index) noexcept
+    : index_(index) {
+    ++g_com_object_count;
+}
+
+QiQiEnumDisplayAttributeInfo::~QiQiEnumDisplayAttributeInfo() noexcept {
+    --g_com_object_count;
+}
+
 STDMETHODIMP QiQiEnumDisplayAttributeInfo::QueryInterface(REFIID riid, void** ppvObj) noexcept {
     if (!ppvObj) {
         return E_INVALIDARG;
@@ -125,6 +137,7 @@ STDMETHODIMP QiQiEnumDisplayAttributeInfo::Next(
     if (!rgInfo) {
         return E_INVALIDARG;
     }
+    *rgInfo = nullptr;
     if (ulCount == 0) {
         if (pcFetched) *pcFetched = 0;
         return S_OK;
