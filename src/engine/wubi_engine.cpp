@@ -237,8 +237,6 @@ void WubiEngine::ToggleChineseMode() noexcept {
 
 void WubiEngine::Reset() noexcept {
     raw_code_.clear();
-    temp_english_text_.clear();
-    temp_english_mode_ = false;
     all_candidates_.clear();
     all_display_candidates_.clear();
     current_page_ = 0;
@@ -533,93 +531,79 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
     return res;
 }
 
-bool WubiEngine::ShouldEatKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept {
-    if (temp_english_mode_) {
-        if (ctrl_down || alt_down) {
-            return false;
-        }
-        if (vk == VK_BACK || vk == VK_ESCAPE || vk == VK_RETURN || vk == VK_SPACE) {
-            return true;
-        }
-        return MapPrintableAsciiChar(vk, shift_down).has_value();
-    }
-    const bool quick_sel = semicolon_quote_quick_select_ && IsComposing();
+TransitionRule WubiEngine::EvaluateKeyTransition(
+    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept {
     const KeyEventKind event = ClassifyKeyEvent(
-        vk, shift_down, ctrl_down, alt_down, chinese_punctuation_, quick_sel);
-    if (LookupTransition(state_, event).eat_key) {
-        return true;
-    }
-    if (full_width_mode_ && !ctrl_down && !alt_down) {
-        return MapFullWidthChar(vk, shift_down).has_value();
-    }
-    return false;
+        vk,
+        shift_down,
+        ctrl_down,
+        alt_down,
+        chinese_punctuation_,
+        semicolon_quote_quick_select_ && IsComposing(),
+        enable_z_temp_english_,
+        full_width_mode_,
+        state_);
+    return LookupTransition(state_, event);
+}
+
+bool WubiEngine::ShouldEatKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept {
+    return EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down).eat_key;
 }
 
 KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) {
-    if (temp_english_mode_) {
-        if (ctrl_down || alt_down) {
-            return {};
-        }
-        if (vk == VK_ESCAPE) {
-            Reset();
-            return MakeCurrentStateResult(KeyActionType::Cancel);
-        }
-        if (vk == VK_BACK) {
-            if (temp_english_text_.empty()) {
-                Reset();
-                return MakeCurrentStateResult(KeyActionType::Cancel);
-            }
-            temp_english_text_.pop_back();
-            raw_code_ = L"z" + temp_english_text_;
-            all_candidates_ = {temp_english_text_.empty() ? L"z" : temp_english_text_};
-            all_display_candidates_ = {temp_english_text_.empty() ? L"(英文模式)" : temp_english_text_};
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-        }
-        if (vk == VK_SPACE || vk == VK_RETURN) {
-            std::wstring committed = temp_english_text_.empty() ? L"z" : temp_english_text_;
-            return CommitAndReset(std::move(committed));
-        }
-        if (const auto ascii = MapPrintableAsciiChar(vk, shift_down); ascii.has_value()) {
-            temp_english_text_.push_back(gsl::narrow_cast<wchar_t>(*ascii));
-            raw_code_ = L"z" + temp_english_text_;
-            all_candidates_ = {temp_english_text_};
-            all_display_candidates_ = {temp_english_text_};
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-        }
-        return {};
-    }
-
-    if (state_ == EngineState::Idle && enable_z_temp_english_ &&
-        vk == 'Z' && !shift_down && !ctrl_down && !alt_down) {
-        temp_english_mode_ = true;
-        temp_english_text_.clear();
-        raw_code_ = L"z";
-        state_ = EngineState::Composing1;
-        all_candidates_ = {L"z"};
-        all_display_candidates_ = {L"(英文模式)"};
-        current_page_ = 0;
-        selected_in_page_ = 0;
-        return MakeCurrentStateResult(KeyActionType::UpdateState);
-    }
-
-    const bool quick_sel = semicolon_quote_quick_select_ && IsComposing();
-    const KeyEventKind event = ClassifyKeyEvent(
-        vk, shift_down, ctrl_down, alt_down, chinese_punctuation_, quick_sel);
-    const TransitionRule rule = LookupTransition(state_, event);
+    const TransitionRule rule = EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down);
 
     switch (rule.op) {
         case TransitionOp::PassThrough:
-            if (full_width_mode_ && !ctrl_down && !alt_down) {
-                if (const auto fw = MapFullWidthChar(vk, shift_down); fw.has_value()) {
-                    std::wstring committed;
-                    if (IsComposing()) {
-                        committed = CurrentSelectedCandidateOrRaw();
-                    }
-                    committed.push_back(*fw);
-                    return CommitAndReset(std::move(committed));
+            return {};
+
+        case TransitionOp::CommitFullWidth:
+            if (const auto fw = MapFullWidthChar(vk, shift_down); fw.has_value()) {
+                std::wstring committed;
+                if (IsComposing()) {
+                    committed = CurrentSelectedCandidateOrRaw();
                 }
+                committed.push_back(*fw);
+                return CommitAndReset(std::move(committed));
             }
             return {};
+
+        case TransitionOp::StartTempEnglish:
+            raw_code_ = L"z";
+            state_ = rule.next_state;
+            all_candidates_ = {L"z"};
+            all_display_candidates_ = {L"(英文模式)"};
+            current_page_ = 0;
+            selected_in_page_ = 0;
+            return MakeCurrentStateResult(KeyActionType::UpdateState);
+
+        case TransitionOp::AppendTempEnglish:
+            if (const auto ascii = MapPrintableAsciiChar(vk, shift_down); ascii.has_value()) {
+                raw_code_.push_back(gsl::narrow_cast<wchar_t>(*ascii));
+                const std::wstring payload(raw_code_.substr(1));
+                all_candidates_ = {payload};
+                all_display_candidates_ = {payload};
+                return MakeCurrentStateResult(KeyActionType::UpdateState);
+            }
+            return {};
+
+        case TransitionOp::PopTempEnglish:
+            if (raw_code_.size() <= 1) {
+                Reset();
+                return MakeCurrentStateResult(KeyActionType::Cancel);
+            }
+            raw_code_.pop_back();
+            {
+                const std::wstring payload = (raw_code_.size() > 1) ? raw_code_.substr(1) : L"z";
+                all_candidates_ = {payload};
+                all_display_candidates_ = {(raw_code_.size() > 1) ? payload : L"(英文模式)"};
+            }
+            return MakeCurrentStateResult(KeyActionType::UpdateState);
+
+        case TransitionOp::CommitTempEnglish: {
+            std::wstring committed = (raw_code_.size() > 1) ? raw_code_.substr(1) : L"z";
+            return CommitAndReset(std::move(committed));
+        }
 
         case TransitionOp::AppendCode:
             AppendCodeAndRefresh(vk, rule.next_state);

@@ -639,6 +639,7 @@ void TestFullWidthMode() {
 
     auto z_start = engine.ProcessKey('Z');
     QIQI_TEST_CHECK(z_start.action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.State() == EngineState::TempEnglish);
     QIQI_TEST_CHECK(engine.IsTempEnglishMode() && engine.IsComposing());
     QIQI_TEST_CHECK(engine.RawCode() == L"z");
     QIQI_TEST_CHECK(engine.ShouldEatKey('G', true, false, false));
