@@ -432,7 +432,8 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(std::wstring(kGitHubRepoUrl) == L"https://github.com/cloudfyy/qiqiime");
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"cloudfyy") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_license_info).find(L"cloudfyy") != std::wstring::npos);
-    QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"MIT License") != std::wstring::npos);
+    QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"GPL License") != std::wstring::npos);
+    QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_license_info).find(L"GPL License") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"Apache License 2.0") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"BSD 3-Clause License") != std::wstring::npos);
 

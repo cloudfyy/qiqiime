@@ -10,6 +10,7 @@
 C:\sample\qiqiime
 ├── CMakeLists.txt              # 根 CMake 构建配置（工具链、版本、C++26 标准与子目录调度）
 ├── CMakePresets.json           # CMake Presets (支持 x64 与 x86/Win32 双架构配置与构建)
+├── LICENSE                     # GNU General Public License v3.0 (GPL-3.0) 开源许可证全文
 ├── VERSION                     # 项目版本号单一事实源 (SemVer, 当前 0.7.0)
 ├── vcpkg.json                  # vcpkg 依赖清单 (Manifest 模式管理 spdlog 与 ms-gsl)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
@@ -179,7 +180,9 @@ powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\unregister_im
 
 ---
 
-## 5. 开源词库致谢与许可证声明（Attribution & Third-Party Notices）
+## 5. 开源许可协议与词库致谢（License & Third-Party Notices）
+
+本项目（**奇奇五笔 / QiQiIME**，作者：`cloudfyy`）采用 **GPL License** 开源发布。
 
 本项目在 `data/` 目录下收录并转换了以下合法开源的 86 五笔词库码表，特此向原作者及维护社区致谢，并严格遵循各自的开源许可协议：
 
