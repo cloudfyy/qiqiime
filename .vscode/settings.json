@@ -1,0 +1,26 @@
+{
+  "C_Cpp.default.cppStandard": "c++23",
+  "C_Cpp.default.compilerArgs": [
+    "/std:c++latest",
+    "/utf-8",
+    "/permissive-",
+    "/EHsc"
+  ],
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/src",
+    "${workspaceFolder}/tests",
+    "${workspaceFolder}/build/x64/generated",
+    "${workspaceFolder}/build/x64/vcpkg_installed/x64-windows/include",
+    "${workspaceFolder}/build/generated"
+  ],
+  "C_Cpp.default.defines": [
+    "UNICODE",
+    "_UNICODE",
+    "WIN32_LEAN_AND_MEAN",
+    "NOMINMAX",
+    "SPDLOG_USE_STD_FORMAT",
+    "SPDLOG_WCHAR_FILENAMES"
+  ],
+  "C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
+  "cmake.buildDirectory": "${workspaceFolder}/build/x64"
+}

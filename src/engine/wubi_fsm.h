@@ -254,7 +254,7 @@ using FsmTable = std::array<
     std::array<TransitionRule, static_cast<size_t>(KeyEventKind::Count)>,
     static_cast<size_t>(EngineState::Count)>;
 
-consteval FsmTable BuildWubiFsmTable() noexcept {
+constexpr FsmTable BuildWubiFsmTable() noexcept {
     FsmTable table{};
     for (size_t s = 0; s < static_cast<size_t>(EngineState::Count); ++s) {
         for (size_t e = 0; e < static_cast<size_t>(KeyEventKind::Count); ++e) {
