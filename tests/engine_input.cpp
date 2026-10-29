@@ -244,13 +244,38 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(ret_commit.committed_text == L"ab");
     QIQI_TEST_CHECK(!engine.IsComposing());
 
-    // Test VK_SPACE when no candidate exists (commits raw code)
+    // Test VK_SPACE when no candidate exists (commits raw code) and 4-code empty beep / typing sound flags
+    QIQI_TEST_CHECK(engine.BeepOnEmpty4Code());
+    QIQI_TEST_CHECK(!engine.EnableKeySound());
+    engine.SetEnableKeySound(true);
+    QIQI_TEST_CHECK(engine.EnableKeySound());
+
+    auto k1 = engine.ProcessKey('Y');
+    QIQI_TEST_CHECK(k1.trigger_key_sound && !k1.empty_4code_warning);
     engine.ProcessKey('Y');
     engine.ProcessKey('Y');
-    engine.ProcessKey('Y');
+    auto k4_empty = engine.ProcessKey('Y'); // "yyyy" is an empty 4-code in builtin dict (only "yyyy" if not added; use "xxxx")
+    engine.Reset();
+    engine.ProcessKey('X');
+    engine.ProcessKey('X');
+    engine.ProcessKey('X');
+    auto k4_xx = engine.ProcessKey('Y'); // "xxxy" has no match
+    QIQI_TEST_CHECK(k4_xx.empty_4code_warning);
+    QIQI_TEST_CHECK(k4_xx.trigger_key_sound);
+
+    // Disable beep_on_empty_4code and enable_key_sound
+    engine.SetBeepOnEmpty4Code(false);
+    engine.SetEnableKeySound(false);
+    engine.Reset();
+    engine.ProcessKey('X');
+    engine.ProcessKey('X');
+    engine.ProcessKey('X');
+    auto k4_silent = engine.ProcessKey('Y');
+    QIQI_TEST_CHECK(!k4_silent.empty_4code_warning);
+    QIQI_TEST_CHECK(!k4_silent.trigger_key_sound);
     auto sp_raw = engine.ProcessKey(VK_SPACE);
     QIQI_TEST_CHECK(sp_raw.action == KeyActionType::Commit);
-    QIQI_TEST_CHECK(sp_raw.committed_text == L"yyy");
+    QIQI_TEST_CHECK(sp_raw.committed_text == L"xxxy");
 }
 
 void TestModeSwitchingAndShouldEatKey() {

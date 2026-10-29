@@ -186,6 +186,10 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
                 cfg.shift_toggle_mode = ParseBool(val, cfg.shift_toggle_mode);
             } else if (key == "show_status_bar") {
                 cfg.show_status_bar = ParseBool(val, cfg.show_status_bar);
+            } else if (key == "beep_on_empty_4code") {
+                cfg.beep_on_empty_4code = ParseBool(val, cfg.beep_on_empty_4code);
+            } else if (key == "enable_key_sound") {
+                cfg.enable_key_sound = ParseBool(val, cfg.enable_key_sound);
             } else if (key == "ui_language" || key == "language") {
                 cfg.ui_language = ParseUiLanguage(val, cfg.ui_language);
             }
@@ -227,6 +231,10 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         "shift_toggle_mode = {}\n"
         "# 是否显示桌面浮动状态条 (默认关闭)\n"
         "show_status_bar = {}\n"
+        "# 四码空码（无匹配词）时是否发出提示音\n"
+        "beep_on_empty_4code = {}\n"
+        "# 是否启用打字按键音效 (默认关闭)\n"
+        "enable_key_sound = {}\n"
         "# 界面语言: auto (跟随系统) | zh-CN (简体中文) | en-US (English)\n"
         "ui_language = {}\n\n"
         "[log]\n"
@@ -243,6 +251,8 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         config.default_chinese_punct ? "true" : "false",
         config.shift_toggle_mode ? "true" : "false",
         config.show_status_bar ? "true" : "false",
+        config.beep_on_empty_4code ? "true" : "false",
+        config.enable_key_sound ? "true" : "false",
         UiLanguageToString(config.ui_language),
         LogLevelToString(config.log_level));
 }

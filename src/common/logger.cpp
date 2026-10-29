@@ -25,11 +25,16 @@ struct LoggerState {
 
 union NoDestroyLoggerState {
     LoggerState value;
-    NoDestroyLoggerState() : value{} {}
-    ~NoDestroyLoggerState() {}
+    NoDestroyLoggerState() noexcept : value{} {}
+    ~NoDestroyLoggerState() noexcept {}
+
+    NoDestroyLoggerState(const NoDestroyLoggerState&) = delete;
+    NoDestroyLoggerState& operator=(const NoDestroyLoggerState&) = delete;
+    NoDestroyLoggerState(NoDestroyLoggerState&&) = delete;
+    NoDestroyLoggerState& operator=(NoDestroyLoggerState&&) = delete;
 };
 
-LoggerState& GetState() {
+LoggerState& GetState() noexcept {
     static NoDestroyLoggerState holder;
     return holder.value;
 }

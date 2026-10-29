@@ -1,6 +1,7 @@
 #include "common.h"
 #include "tsf_mocks.h"
 #include "common/guids.h"
+#include "common/sound.h"
 #include "tsf/tip_service.h"
 
 namespace qiqi::test {
@@ -10,6 +11,8 @@ namespace {
 void TestQiQiTextServiceLifecycleAndKeyFlow() {
     BYTE clean_kb_state[256]{};
     ::SetKeyboardState(clean_kb_state);
+    SetMuteAudioOutputForTest(true);
+    ResetLastPlayedSoundForTest();
 
     auto* service = new QiQiTextService();
 
@@ -168,11 +171,13 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(mock_ctx->range_->text_.empty());
 
-    // 5th key push auto-commit flow (triggers Commit with non-empty composition_text)
+    // 5th key push auto-commit flow (triggers Commit with non-empty composition_text and EmptyCodeBeep on 4th code "yyyx")
+    ResetLastPlayedSoundForTest();
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'Y', 0, &eaten)));
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'Y', 0, &eaten)));
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'Y', 0, &eaten)));
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'X', 0, &eaten)));
+    QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::EmptyCodeBeep);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
     QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"a");
 
@@ -335,17 +340,26 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         }
     }
 
-    // Modify config file timestamp and trigger hot-reload via OnSetFocus
+    // Modify config file timestamp and trigger hot-reload via OnSetFocus (also enabling key sound)
     haifeng_cfg.page_size = 6;
+    haifeng_cfg.enable_key_sound = true;
     SaveConfigFile(GetDefaultUserConfigPath(), haifeng_cfg);
     std::filesystem::last_write_time(
         GetDefaultUserConfigPath(),
         std::filesystem::file_time_type::clock::now() + std::chrono::seconds(10),
         ec);
     QIQI_TEST_CHECK(SUCCEEDED(hf_tm_sink->OnSetFocus(reinterpret_cast<ITfDocumentMgr*>(1), nullptr)));
+    ComPtr<ITfKeyEventSink> hf_key_sink;
+    if (SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&hf_key_sink))) && hf_key_sink) {
+        ResetLastPlayedSoundForTest();
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+        QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::KeyClick);
+        hf_key_sink.Reset();
+    }
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->Deactivate()));
     hf_tm_sink.Reset();
     QIQI_TEST_CHECK(service_haifeng->Release() == 0);
+    SetMuteAudioOutputForTest(false);
 
     if (orig_localappdata) {
         _wputenv_s(L"LOCALAPPDATA", orig_localappdata);

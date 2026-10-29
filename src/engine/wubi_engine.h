@@ -29,6 +29,8 @@ struct KeyProcessResult {
     size_t selected_index = 0; // Index within page_candidates
     size_t current_page = 0;
     size_t total_pages = 0;
+    bool empty_4code_warning = false;
+    bool trigger_key_sound = false;
 };
 
 class WubiEngine {
@@ -64,6 +66,10 @@ public:
     void SetAutoCommit4Code(bool enabled) noexcept { auto_commit_4code_ = enabled; }
     bool PushCommit5th() const noexcept { return push_commit_5th_; }
     void SetPushCommit5th(bool enabled) noexcept { push_commit_5th_ = enabled; }
+    bool BeepOnEmpty4Code() const noexcept { return beep_on_empty_4code_; }
+    void SetBeepOnEmpty4Code(bool enabled) noexcept { beep_on_empty_4code_ = enabled; }
+    bool EnableKeySound() const noexcept { return enable_key_sound_; }
+    void SetEnableKeySound(bool enabled) noexcept { enable_key_sound_ = enabled; }
 
     // State queries
     EngineState State() const noexcept { return state_; }
@@ -109,6 +115,8 @@ private:
     size_t selected_in_page_ = 0;
     bool auto_commit_4code_ = true;
     bool push_commit_5th_ = true;
+    bool beep_on_empty_4code_ = true;
+    bool enable_key_sound_ = false;
     bool full_width_mode_ = false;
     bool chinese_punctuation_ = true;
     bool double_quote_open_ = false;

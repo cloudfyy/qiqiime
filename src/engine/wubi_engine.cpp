@@ -47,6 +47,8 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     SetPageSize(cfg.page_size);
     auto_commit_4code_ = cfg.auto_commit_4code;
     push_commit_5th_ = cfg.push_commit_5th;
+    beep_on_empty_4code_ = cfg.beep_on_empty_4code;
+    enable_key_sound_ = cfg.enable_key_sound;
     full_width_mode_ = cfg.default_full_width;
     chinese_punctuation_ = cfg.default_chinese_punct;
     SetChineseMode(cfg.default_chinese_mode);
@@ -261,6 +263,7 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
     res.selected_index = selected_in_page_;
     res.current_page = current_page_;
     res.total_pages = TotalPages();
+    res.trigger_key_sound = enable_key_sound_ && (action != KeyActionType::PassThrough);
     return res;
 }
 
@@ -297,7 +300,7 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             AppendCodeAndRefresh(vk, rule.next_state);
             return MakeCurrentStateResult(KeyActionType::UpdateState);
 
-        case TransitionOp::Append4thCode:
+        case TransitionOp::Append4thCode: {
             AppendCodeAndRefresh(vk, rule.next_state);
             // Standard Wubi 86 4-code auto-commit:
             // When reaching 4 codes without wildcard 'z' and there is a unique exact match, commit immediately!
@@ -307,7 +310,12 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
                     return CommitAndReset(exact.front());
                 }
             }
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
+            KeyProcessResult res = MakeCurrentStateResult(KeyActionType::UpdateState);
+            if (beep_on_empty_4code_ && all_candidates_.empty()) {
+                res.empty_4code_warning = true;
+            }
+            return res;
+        }
 
         case TransitionOp::PushCommitAndRestart: {
             if (!push_commit_5th_) {

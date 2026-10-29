@@ -3,6 +3,7 @@
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/scoped_handle.h"
+#include "common/sound.h"
 #include "common/version.h"
 
 #include <filesystem>
@@ -147,6 +148,8 @@ void TestIniConfiguration() {
         "[ENGINE]\n"
         "AUTO_COMMIT_4CODE = on\n"
         "PUSH_COMMIT_5TH = invalid_bool\n"
+        "BEEP_ON_EMPTY_4CODE = false\n"
+        "ENABLE_KEY_SOUND = true\n"
         "UI_LANGUAGE = en-US\n"
         "[LOG]\n"
         "LEVEL = trace\n");
@@ -154,6 +157,8 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(cfg2.enable_jidian_extra);
     QIQI_TEST_CHECK(cfg2.auto_commit_4code);
     QIQI_TEST_CHECK(cfg2.push_commit_5th);
+    QIQI_TEST_CHECK(!cfg2.beep_on_empty_4code);
+    QIQI_TEST_CHECK(cfg2.enable_key_sound);
     QIQI_TEST_CHECK(cfg2.ui_language == UiLanguage::EnUs);
     QIQI_TEST_CHECK(cfg2.log_level == spdlog::level::trace);
 
@@ -284,6 +289,20 @@ void TestI18nLocalization() {
         const QiQiConfig roundtrip = ParseConfigFromUtf8(serialized);
         QIQI_TEST_CHECK(roundtrip.ui_language == expected);
     }
+
+    // 4. Test sound synthesizer and PlayImeSound (both live WAV synthesis and muted test mode)
+    ResetLastPlayedSoundForTest();
+    PlayImeSound(SoundEffectKind::None);
+    QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::None);
+    PlayImeSound(SoundEffectKind::KeyClick);
+    QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::KeyClick);
+    PlayImeSound(SoundEffectKind::EmptyCodeBeep);
+    QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::EmptyCodeBeep);
+
+    SetMuteAudioOutputForTest(true);
+    PlayImeSound(SoundEffectKind::KeyClick);
+    QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::KeyClick);
+    SetMuteAudioOutputForTest(false);
 }
 
 } // namespace

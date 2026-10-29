@@ -306,6 +306,8 @@ void TestSettingsDialogControls() {
     cfg.push_commit_5th = false;
     cfg.shift_toggle_mode = false;
     cfg.show_status_bar = true;
+    cfg.beep_on_empty_4code = false;
+    cfg.enable_key_sound = true;
     cfg.page_size = 7;
 
     const ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
@@ -319,6 +321,8 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(!read_back.push_commit_5th);
     QIQI_TEST_CHECK(!read_back.shift_toggle_mode);
     QIQI_TEST_CHECK(read_back.show_status_bar);
+    QIQI_TEST_CHECK(!read_back.beep_on_empty_4code);
+    QIQI_TEST_CHECK(read_back.enable_key_sound);
     QIQI_TEST_CHECK(read_back.page_size == 7);
 
     // Also test BuiltinOnly and Jidian radio states + UiLanguage combobox + Cancel / WM_CLOSE

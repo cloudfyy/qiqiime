@@ -5,6 +5,7 @@
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
+#include "common/sound.h"
 #include "common/version.h"
 
 #include <oleauto.h>
@@ -452,6 +453,11 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
 
     *pfEaten = TRUE;
     const KeyProcessResult result = engine_.ProcessKey(vk, shift, ctrl, alt);
+    if (result.empty_4code_warning) {
+        PlayImeSound(SoundEffectKind::EmptyCodeBeep);
+    } else if (result.trigger_key_sound) {
+        PlayImeSound(SoundEffectKind::KeyClick);
+    }
     if (pic && result.action != KeyActionType::PassThrough) {
         ApplyEngineResult(pic, result);
     }
@@ -552,6 +558,8 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
         engine_.SetPageSize(config_.page_size);
         engine_.SetAutoCommit4Code(config_.auto_commit_4code);
         engine_.SetPushCommit5th(config_.push_commit_5th);
+        engine_.SetBeepOnEmpty4Code(config_.beep_on_empty_4code);
+        engine_.SetEnableKeySound(config_.enable_key_sound);
         LoadExternalDictionaryNextToDll();
         SyncTsfCompartments();
     }
@@ -668,6 +676,8 @@ void QiQiTextService::ReloadConfigIfModified() {
         engine_.SetPageSize(config_.page_size);
         engine_.SetAutoCommit4Code(config_.auto_commit_4code);
         engine_.SetPushCommit5th(config_.push_commit_5th);
+        engine_.SetBeepOnEmpty4Code(config_.beep_on_empty_4code);
+        engine_.SetEnableKeySound(config_.enable_key_sound);
         QIQI_LOG_INFO("Hot-reloaded modified user configuration from '{}'",
                       log::WideToUtf8(user_cfg.wstring()));
     }

@@ -33,6 +33,8 @@ struct QiQiConfig {
     bool default_chinese_punct = true;
     bool shift_toggle_mode = true;
     bool show_status_bar = false;
+    bool beep_on_empty_4code = true;
+    bool enable_key_sound = false;
     UiLanguage ui_language = UiLanguage::Auto;
 
     // [log]
