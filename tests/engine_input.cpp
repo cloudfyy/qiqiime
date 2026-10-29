@@ -24,9 +24,22 @@ void TestCompileTimeFsmTransitions() {
     static_assert(ClassifyKeyEvent(VK_OEM_MINUS, false, false, false) == KeyEventKind::PageUp);
     static_assert(ClassifyKeyEvent(VK_OEM_PLUS, false, false, false) == KeyEventKind::PageDown);
 
-    // Out-of-bounds state/event safety fallback
+    // Out-of-bounds state/event safety fallback (compile-time and runtime)
     static_assert(!LookupTransition(EngineState::Count, KeyEventKind::CodeChar).eat_key);
     static_assert(!LookupTransition(EngineState::Idle, KeyEventKind::Count).eat_key);
+    QIQI_TEST_CHECK(!LookupTransition(EngineState::Count, KeyEventKind::CodeChar).eat_key);
+    QIQI_TEST_CHECK(!LookupTransition(EngineState::Idle, KeyEventKind::Count).eat_key);
+    for (size_t s = 0; s < static_cast<size_t>(EngineState::Count); ++s) {
+        for (size_t e = 0; e < static_cast<size_t>(KeyEventKind::Count); ++e) {
+            const auto st = static_cast<EngineState>(s);
+            const auto ev = static_cast<KeyEventKind>(e);
+            const auto expected = ComputeTransitionRule(st, ev);
+            const auto actual = LookupTransition(st, ev);
+            QIQI_TEST_CHECK(actual.op == expected.op);
+            QIQI_TEST_CHECK(actual.next_state == expected.next_state);
+            QIQI_TEST_CHECK(actual.eat_key == expected.eat_key);
+        }
+    }
 
     // Runtime verification of explicit EngineState transitions
     WubiEngine engine;

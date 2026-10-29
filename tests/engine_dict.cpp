@@ -46,6 +46,11 @@ void TestAddEntryAndLookupEdgeCases() {
     auto short_prefix_cands = engine.LookupCandidates(L"xyz");
     QIQI_TEST_CHECK(short_prefix_cands.size() >= 2 && short_prefix_cands[0] == L"三码词");
 
+    // Prefix lookup at the lexicographical tail of the dictionary (reaches dict_.end() without break)
+    engine.AddEntry(L"yyyx", L"尾词");
+    auto tail_cands = engine.LookupCandidates(L"yyy");
+    QIQI_TEST_CHECK(!tail_cands.empty() && tail_cands[0] == L"尾词");
+
     // Prefix and wildcard 50-candidate cap
     for (int i = 0; i < 60; ++i) {
         std::wstring word = L"词" + std::to_wstring(i);
