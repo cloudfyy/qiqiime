@@ -1,6 +1,7 @@
 # Build directories
 vcpkg_installed/
 build/
+dist/
 out/
 cmake-build-*/
 

@@ -26,7 +26,8 @@ qiqiime/
 │   ├── build_all.ps1           # 一键构建并测试 x64 与 x86 双架构脚本
 │   ├── register_ime.ps1        # 管理员权限注册输入法脚本（同时注册 x64 与 x86 WOW64）
 │   ├── unregister_ime.ps1      # 管理员权限卸载输入法脚本（同时卸载 x86 与 x64）
-│   └── test_install.ps1        # 一键安装、注册表/TSF Profile 校验与卸载回环测试脚本
+│   ├── test_install.ps1        # 一键安装、注册表/TSF Profile 校验与卸载回环测试脚本
+│   └── package_release.ps1     # 一键生成独立双架构发行目录与 ZIP 压缩包 (dist/)
 ├── src/
 │   ├── CMakeLists.txt          # 源码目标构建配置（qiqi_engine 静态库 + qiqiime.dll）
 │   ├── common/                 # 公共基础模块（配置、GUID、多语言、日志、DPI、RAII 句柄、音效、主题、版本）
