@@ -8,7 +8,8 @@
 
 ```text
 C:\sample\qiqiime
-├── CMakeLists.txt              # CMake 构建配置 (qiqi_engine + qiqiime.dll + qiqi_engine_test)
+├── CMakeLists.txt              # CMake 构建配置 (qiqi_engine + qiqiime.dll + 单元测试)
+├── CMakePresets.json           # CMake Presets (支持 x64 与 x86/Win32 双架构配置与构建)
 ├── VERSION                     # 项目版本号单一事实源 (SemVer, 如 0.1.0)
 ├── vcpkg.json                  # vcpkg 依赖清单 (Manifest 模式管理 spdlog 等依赖)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
@@ -17,8 +18,9 @@ C:\sample\qiqiime
 ├── docs/
 │   └── ARCHITECTURE.md         # 详细架构设计、TSF 接口说明与游戏/宿主兼容指南
 ├── scripts/
-│   ├── register_ime.ps1        # 管理员权限注册输入法脚本
-│   └── unregister_ime.ps1      # 管理员权限卸载输入法脚本
+│   ├── build_all.ps1           # 一键构建并测试 x64 与 x86 双架构脚本
+│   ├── register_ime.ps1        # 管理员权限注册输入法脚本（同时注册 x64 与 x86 WOW64）
+│   └── unregister_ime.ps1      # 管理员权限卸载输入法脚本（同时卸载 x86 与 x64）
 ├── src/
 │   ├── common/                 # 公共基础模块（GUID 常量、spdlog 日志、版本信息与资源模板）
 │   │   ├── guids.h             # CLSID / Profile GUID / UIElement GUID 定义
@@ -64,7 +66,11 @@ C:\sample\qiqiime
    - 集成 `spdlog`（启用 C++ 标准库 `<format>` 与宽字符文件名支持），同时输出到 `OutputDebugString`（`msvc_sink_mt`）与滚动日志文件（默认路径 `%LOCALAPPDATA%\QiQiIME\logs\qiqiime.log`，单文件上限 5MB，保留 3 个备份）。
 
 4. **版本号机制（`VERSION` + `version.h` + `version.rc`）**
-   - 以根目录 `VERSION` 文件作为单一事实源，CMake 配置期自动提取当前 Git 短提交哈希（`git rev-parse --short=7 HEAD`），生成 `version.h`（提供 `qiqi::version::kCurrentVersion`、`kVersion`、`kFullVersion`、`kGitCommit` 及三路比较 `SemanticVersion`）和 Windows PE 资源 `version.rc`（为 `qiqiime.dll` 嵌入文件属性版本信息）。
+   - 以根目录 `VERSION` 文件作为单一事实源，CMake 配置期自动提取当前 Git 短提交哈希（`git rev-parse --short=7 HEAD`）及目标架构（`x64` / `x86`），生成 `version.h`（提供 `qiqi::version::kCurrentVersion`、`kVersion`、`kFullVersion`、`kGitCommit`、`kArch` 及三路比较 `SemanticVersion`）和 Windows PE 资源 `version.rc`（为 `qiqiime.dll` 嵌入文件属性版本信息）。
+
+5. **双架构（`x64` + `x86` / WOW64）完整支持**
+   - 支持同时构建 64 位（`build\x64`）与 32 位（`build\x86`）`qiqiime.dll`。
+   - `RegisterServer` / `UnregisterServer` 自动识别 WOW64 环境（`IsRunningUnderWow64()`）：在 64 位系统上通过 `SysWOW64\regsvr32.exe` 注册 32 位 DLL 时，精确写入 `HKCR\WOW6432Node\CLSID` 而不覆盖 64 位共享 TSF Language Profile，兼顾 64 位桌面应用与 32 位老应用/游戏。
 
 ---
 
@@ -74,20 +80,33 @@ C:\sample\qiqiime
 
 项目使用 **vcpkg Manifest 模式**（`vcpkg.json`）管理依赖，CMake 配置时会自动检测 `VCPKG_ROOT` 或 Visual Studio 内置 vcpkg 工具链并安装依赖。
 
-打开 **x64 Native Tools Command Prompt for VS 2026**（或 PowerShell），执行：
+### 方式一：一键编译并测试 `x64` + `x86` 双架构（推荐）
 
 ```powershell
 cd C:\sample\qiqiime
-cmake -B build -G "Visual Studio 18 2026" -A x64
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
+powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
 ```
 
-构建产物位于：
-- `C:\sample\qiqiime\build\Release\qiqiime.dll`（TSF 输入法组件）
-- `C:\sample\qiqiime\build\Release\wubi86.txt`（五笔码表）
-- `C:\sample\qiqiime\build\Release\qiqi_engine_test.exe`（引擎与基础组件单元测试）
-- `C:\sample\qiqiime\build\Release\qiqi_tsf_ui_test.exe`（TSF 服务与候选窗 UI 单元测试）
+### 方式二：使用 CMake Presets 或手动指定架构
+
+```powershell
+# 编译并测试 x64
+cmake --preset x64
+cmake --build --preset x64-release
+ctest --preset x64-release
+
+# 编译并测试 x86 (Win32)
+cmake --preset x86
+cmake --build --preset x86-release
+ctest --preset x86-release
+```
+
+双架构构建产物位于：
+- `C:\sample\qiqiime\build\x64\Release\qiqiime.dll`（64 位 TSF 输入法组件）
+- `C:\sample\qiqiime\build\x86\Release\qiqiime.dll`（32 位 TSF 输入法组件，供 32 位/WOW64 进程加载）
+- `C:\sample\qiqiime\build\<x64|x86>\Release\wubi86.txt`（五笔码表）
+- `C:\sample\qiqiime\build\<x64|x86>\Release\qiqi_engine_test.exe`（引擎与基础组件单元测试）
+- `C:\sample\qiqiime\build\<x64|x86>\Release\qiqi_tsf_ui_test.exe`（TSF 服务与候选窗 UI 单元测试）
 
 ---
 

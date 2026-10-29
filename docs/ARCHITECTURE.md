@@ -37,7 +37,7 @@
 ## 2. TSF 关键生命周期与接口职责
 
 ### 2.1 注册阶段（`src/tsf/register.cpp`）
-- **COM InProcServer32**：注册 `kClsidQiQiTextService`，线程模型为 `Apartment`（STA）。
+- **COM InProcServer32（支持 `x64` + `x86` WOW64 双视图）**：注册 `kClsidQiQiTextService`，线程模型为 `Apartment`（STA）。在 64 位 Windows 上分别通过 `System32\regsvr32.exe` 与 `SysWOW64\regsvr32.exe` 注册 `x64` 与 `x86` DLL，其中 WOW64 进程自动检测已存在的 64 位注册项并避免覆盖全局共享的 TSF Language Profile。
 - **Language Profile**：通过 `ITfInputProcessorProfiles::AddLanguageProfile` 注册到 `zh-CN` (`0x0804`)。
 - **Categories（`ITfCategoryMgr`）**：
   - `GUID_TFCAT_TIP_KEYBOARD`：声明为键盘输入法。
@@ -77,4 +77,3 @@ TSF 的按键处理分为两步：
 1. **完整词库与二进制索引**：将 `data/wubi86.txt` 扩充至完整 86 五笔八万词库，并在编译期或首次加载时生成内存映射（`CreateFileMapping`）前缀数组或 Double-Array Trie，多进程共享只读内存页。
 2. **显示属性（Display Attributes）**：实现 `ITfDisplayAttributeProvider`，为组合串设置虚线下划线与配色。
 3. **语言栏按钮（Language Bar）**：实现 `ITfLangBarItemButton`，在系统托盘显示“中/英”、“全/半角”状态图标。
-4. **双架构编译**：同时编译 `x64` 与 `Win32 (x86)` 版本 DLL，以便在 32 位老游戏/老应用中也能原生加载。

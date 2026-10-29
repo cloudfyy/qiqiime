@@ -93,8 +93,8 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     client_id_ = tid;
     activate_flags_ = dwFlags;
 
-    QIQI_LOG_INFO("QiQiTextService::ActivateEx(version={}, client_id={}, flags=0x{:x})",
-                  version::kFullVersion, tid, dwFlags);
+    QIQI_LOG_INFO("QiQiTextService::ActivateEx(version={}, arch={}, client_id={}, flags=0x{:x})",
+                  version::kFullVersion, version::kArch, tid, dwFlags);
 
     if (!InitThreadMgrEventSink() || !InitKeyEventSink()) {
         QIQI_LOG_ERROR("QiQiTextService::ActivateEx failed to initialize TSF event sinks");

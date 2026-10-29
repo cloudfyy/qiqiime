@@ -28,6 +28,8 @@ void TestVersionMechanism() {
     QIQI_TEST_CHECK(!version::kFullVersionW.empty());
     QIQI_TEST_CHECK(!version::kGitCommit.empty());
     QIQI_TEST_CHECK(!version::kGitCommitW.empty());
+    QIQI_TEST_CHECK(version::kArch == (sizeof(void*) == 8 ? "x64" : "x86"));
+    QIQI_TEST_CHECK(version::kArchW == (sizeof(void*) == 8 ? L"x64" : L"x86"));
     QIQI_TEST_CHECK(version::kFullVersion.starts_with(version::kVersion));
 }
 

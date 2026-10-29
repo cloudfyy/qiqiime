@@ -20,7 +20,7 @@ BEGIN
         BLOCK "080404b0"
         BEGIN
             VALUE "CompanyName", "QiQiIME"
-            VALUE "FileDescription", "QiQi 五笔输入法 (TSF Text Input Processor)"
+            VALUE "FileDescription", "QiQi 五笔输入法 (TSF @QIQIIME_ARCH_NAME@)"
             VALUE "FileVersion", "@QIQIIME_FULL_VERSION@"
             VALUE "InternalName", "qiqiime.dll"
             VALUE "LegalCopyright", "Copyright (C) 2026 QiQiIME Contributors"

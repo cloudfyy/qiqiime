@@ -30,4 +30,7 @@ inline constexpr std::wstring_view kGitCommitW = L"@QIQIIME_GIT_COMMIT_HASH@";
 inline constexpr std::string_view kFullVersion = "@QIQIIME_FULL_VERSION@";
 inline constexpr std::wstring_view kFullVersionW = L"@QIQIIME_FULL_VERSION@";
 
+inline constexpr std::string_view kArch = "@QIQIIME_ARCH_NAME@";
+inline constexpr std::wstring_view kArchW = L"@QIQIIME_ARCH_NAME@";
+
 } // namespace qiqi::version

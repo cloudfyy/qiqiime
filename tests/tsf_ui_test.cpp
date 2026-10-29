@@ -463,6 +463,9 @@ void TestCandidateUI() {
 }
 
 void TestClassFactoryAndDllExports() {
+    if constexpr (sizeof(void*) == 8) {
+        QIQI_TEST_CHECK(!IsRunningUnderWow64());
+    }
     HMODULE hmod = ::GetModuleHandleW(nullptr);
     QIQI_TEST_CHECK(DllMain(hmod, DLL_PROCESS_ATTACH, nullptr) == TRUE);
     QIQI_TEST_CHECK(DllCanUnloadNow() == S_OK);
