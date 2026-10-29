@@ -258,6 +258,7 @@ void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
         tip_h,
         SWP_NOACTIVATE | SWP_SHOWWINDOW);
     ::InvalidateRect(tooltip_hwnd_, nullptr, TRUE);
+    ::UpdateWindow(tooltip_hwnd_);
 }
 
 void StatusBarUI::HideTooltip() noexcept {

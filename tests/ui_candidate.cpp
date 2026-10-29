@@ -375,6 +375,11 @@ void TestSettingsDialogControls() {
 }
 
 void TestStatusBarUI() {
+    // Load uxtheme.dll, dwmapi.dll, and shcore.dll in the test process so GetModuleHandleW paths are exercised
+    std::ignore = ::LoadLibraryW(L"uxtheme.dll");
+    std::ignore = ::LoadLibraryW(L"dwmapi.dll");
+    std::ignore = ::LoadLibraryW(L"shcore.dll");
+
     // 1. Test theme detection & palette switching (OS default, forced Light, forced Dark)
     SetThemeDarkOverrideForTest(std::nullopt);
     (void)IsSystemDarkTheme();
@@ -442,6 +447,10 @@ void TestStatusBarUI() {
     QIQI_TEST_CHECK(bar.HoveredZone() == 3 && bar.ActiveTooltipText() == kZhCnStrings.tip_punct);
     ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(145, 18));
     QIQI_TEST_CHECK(bar.HoveredZone() == 4 && bar.ActiveTooltipText() == kZhCnStrings.tip_settings);
+    // Move to out-of-range X coordinate while hovered_zone_ >= 0 (exercises UpdateTooltipForZone(-1) branch)
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(300, 18));
+    QIQI_TEST_CHECK(bar.HoveredZone() == -1 && bar.ActiveTooltipText().empty());
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(145, 18));
 
     while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
         ::TranslateMessage(&msg);
@@ -465,14 +474,31 @@ void TestStatusBarUI() {
     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(145, 18));
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::OpenSettings);
 
-    // 5. Test themed right-click context menu & WM_COMMAND / WM_SETTINGCHANGE in Light & Dark modes
+    // 5. Test themed right-click context menu & WM_RBUTTONUP / WM_NCRBUTTONUP / WM_COMMAND / WM_SETTINGCHANGE
     ScopedGdiHandle<HBRUSH> menu_brush;
     ScopedMenu popup_menu = bar.BuildContextMenu(menu_brush);
     QIQI_TEST_CHECK(popup_menu.IsValid() && menu_brush.IsValid());
     QIQI_TEST_CHECK(::GetMenuItemCount(popup_menu.Get()) == 12); // 10 items + 2 separators
 
+    ::SetTimer(nullptr, 3, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+        ::KillTimer(nullptr, id);
+        ::EndMenu();
+    });
+    ::SendMessageW(bar.WindowHandle(), WM_RBUTTONUP, 0, MAKELPARAM(35, 18));
+
+    ::SetTimer(nullptr, 4, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+        ::KillTimer(nullptr, id);
+        ::EndMenu();
+    });
+    ::SendMessageW(bar.WindowHandle(), WM_NCRBUTTONUP, HTCAPTION, MAKELPARAM(grip_screen.x, grip_screen.y));
+
     ::SendMessageW(bar.WindowHandle(), WM_COMMAND, MAKEWPARAM(static_cast<UINT>(LangBarMenuId::ToggleUiLanguage), 0), 0);
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleUiLanguage);
+
+    // Test DestroyBarWindow followed by re-Show(true) when pos_initialized_ is already true
+    bar.DestroyBarWindow();
+    bar.Show(true);
+    QIQI_TEST_CHECK(bar.WindowHandle() != nullptr);
 
     // Test Light theme + English UI rendering and tooltips
     SetThemeDarkOverrideForTest(false);
@@ -566,6 +592,14 @@ void TestMultiMonitorAndPerMonitorDpi() {
     ::DestroyWindow(dlg);
 
     SetMonitorMetricsOverrideForTest(std::nullopt);
+
+    // Also test QueryActiveMonitor with a non-null parent window and fallback_hwnd DPI query
+    HWND parent_dlg = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg);
+    QIQI_TEST_CHECK(parent_dlg != nullptr);
+    const MonitorMetrics parent_mon = QueryActiveMonitor(parent_dlg);
+    QIQI_TEST_CHECK(parent_mon.dpi > 0);
+    QIQI_TEST_CHECK(GetDpiForMonitorHandle(nullptr, parent_dlg) > 0);
+    ::DestroyWindow(parent_dlg);
 }
 
 } // namespace
