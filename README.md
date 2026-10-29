@@ -40,8 +40,16 @@ C:\sample\qiqiime
 │   └── ui/                     # 候选窗口与界面交互模块
 │       └── candidate_ui.h/.cpp # 候选窗绘制 + ITfCandidateListUIElement（支持游戏 UILess 模式）
 └── tests/
-    ├── engine_test.cpp         # 五笔核心引擎、日志与版本号自动化单元测试
-    └── tsf_ui_test.cpp         # TSF 文本服务、编辑会话、COM 工厂与候选窗 UI 单元测试
+    ├── common.h                # 公共测试断言宏 (QIQI_TEST_CHECK) 与测试套件声明
+    ├── common.cpp              # 公共模块测试（spdlog 日志系统、版本号与架构元信息）
+    ├── engine_dict.cpp         # 五笔引擎词库测试（词条增删、通配/前缀查询上限、外部码表加载）
+    ├── engine_input.cpp        # 五笔引擎输入状态机测试（简码、四码上屏、第五码顶字、翻页、标点）
+    ├── engine_main.cpp         # qiqi_engine_test 测试入口
+    ├── tsf_mocks.h             # TSF COM 接口 Mock 实现（ITfThreadMgr / ITfContext / ITfRange 等）
+    ├── ui_candidate.cpp        # 候选窗口 UI 测试（ITfCandidateListUIElement、弹窗绘制与边界裁剪）
+    ├── tsf_com.cpp             # TSF COM 基础测试（LambdaEditSession、ClassFactory、DLL 导出）
+    ├── tsf_service.cpp         # TSF 核心服务测试（激活/停用、按键处理、组合串与模式切换）
+    └── tsf_ui_main.cpp         # qiqi_tsf_ui_test 测试入口
 ```
 
 ---

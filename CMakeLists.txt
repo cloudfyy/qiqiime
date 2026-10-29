@@ -153,21 +153,38 @@ add_custom_command(TARGET qiqiime POST_BUILD
 
 # Engine & State Machine Unit Tests
 enable_testing()
-add_executable(qiqi_engine_test
-    tests/engine_test.cpp
+set(QIQI_ENGINE_TEST_SOURCES
+    tests/common.h
+    tests/common.cpp
+    tests/engine_dict.cpp
+    tests/engine_input.cpp
+    tests/engine_main.cpp
 )
+add_executable(qiqi_engine_test
+    ${QIQI_ENGINE_TEST_SOURCES}
+)
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/tests" FILES ${QIQI_ENGINE_TEST_SOURCES})
 target_link_libraries(qiqi_engine_test PRIVATE qiqi_engine)
 add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
 
 # TSF COM Service & Candidate UI Unit Tests
+set(QIQI_TSF_UI_TEST_SOURCES
+    tests/common.h
+    tests/tsf_mocks.h
+    tests/ui_candidate.cpp
+    tests/tsf_com.cpp
+    tests/tsf_service.cpp
+    tests/tsf_ui_main.cpp
+)
 add_executable(qiqi_tsf_ui_test
-    tests/tsf_ui_test.cpp
+    ${QIQI_TSF_UI_TEST_SOURCES}
     src/tsf/dllmain.cpp
     src/tsf/class_factory.cpp
     src/tsf/register.cpp
     src/tsf/tip_service.cpp
     src/ui/candidate_ui.cpp
 )
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/tests" FILES ${QIQI_TSF_UI_TEST_SOURCES})
 target_link_libraries(qiqi_tsf_ui_test PRIVATE
     qiqi_engine
     user32

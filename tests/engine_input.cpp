@@ -1,116 +1,12 @@
+#include "common.h"
 #include "engine/wubi_engine.h"
-#include "common/logger.h"
-#include "common/version.h"
+
 #include <windows.h>
-#include <cstdlib>
-#include <fstream>
-#include <iostream>
 #include <string>
 
-#define QIQI_TEST_CHECK(expr)                                                                   \
-    do {                                                                                        \
-        if (!(expr)) {                                                                          \
-            std::cerr << "[FAIL] " << __FILE__ << ":" << __LINE__ << ": " << #expr << "\n";     \
-            std::abort();                                                                       \
-        }                                                                                       \
-    } while (false)
-
-using namespace qiqi;
+namespace qiqi::test {
 
 namespace {
-
-void TestVersionMechanism() {
-    static_assert(version::kCurrentVersion >= version::SemanticVersion{0, 1, 0});
-    static_assert(version::SemanticVersion{1, 0, 0} > version::kCurrentVersion);
-    QIQI_TEST_CHECK(!version::kVersion.empty());
-    QIQI_TEST_CHECK(!version::kVersionW.empty());
-    QIQI_TEST_CHECK(!version::kFullVersion.empty());
-    QIQI_TEST_CHECK(!version::kFullVersionW.empty());
-    QIQI_TEST_CHECK(!version::kGitCommit.empty());
-    QIQI_TEST_CHECK(!version::kGitCommitW.empty());
-    QIQI_TEST_CHECK(version::kArch == (sizeof(void*) == 8 ? "x64" : "x86"));
-    QIQI_TEST_CHECK(version::kArchW == (sizeof(void*) == 8 ? L"x64" : L"x86"));
-    QIQI_TEST_CHECK(version::kFullVersion.starts_with(version::kVersion));
-}
-
-void TestSpdlogLogger() {
-    // 1. Test lazy initialization of GetLogger() before InitLogger() is ever called
-    auto default_logger = log::GetLogger();
-    QIQI_TEST_CHECK(default_logger != nullptr);
-    QIQI_LOG_DEBUG("Lazy default logger test");
-
-    // 2. Test WideToUtf8 with empty and non-empty strings
-    QIQI_TEST_CHECK(log::WideToUtf8(L"").empty());
-    QIQI_TEST_CHECK(log::WideToUtf8(L"五笔ABC") == "五笔ABC");
-
-    // 3. Test custom file logger, SetLevel, and Flush
-    const auto temp_log = std::filesystem::temp_directory_path() / L"qiqiime_unit_test.log";
-    std::error_code ec;
-    std::filesystem::remove(temp_log, ec);
-
-    log::InitLogger(temp_log, spdlog::level::info);
-    log::SetLevel(spdlog::level::trace);
-    QIQI_LOG_TRACE("Trace message");
-    QIQI_LOG_DEBUG("Debug message");
-    QIQI_LOG_INFO("Unit test log entry: {}", log::WideToUtf8(L"五笔日志测试"));
-    QIQI_LOG_WARN("Warn message");
-    QIQI_LOG_ERROR("Error message");
-    log::Flush();
-
-    QIQI_TEST_CHECK(std::filesystem::exists(temp_log));
-    {
-        std::ifstream ifs(temp_log);
-        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        QIQI_TEST_CHECK(content.find("Unit test log entry:") != std::string::npos);
-        QIQI_TEST_CHECK(content.find("Trace message") != std::string::npos);
-    }
-
-    // Re-initialize default logger to release temp_log handle
-    log::InitLogger();
-    std::filesystem::remove(temp_log, ec);
-}
-
-void TestAddEntryAndLookupEdgeCases() {
-    WubiEngine engine;
-    QIQI_TEST_CHECK(!engine.IsComposing());
-    QIQI_TEST_CHECK(engine.RawCode().empty());
-    QIQI_TEST_CHECK(engine.AllCandidates().empty());
-    QIQI_TEST_CHECK(engine.CurrentPageCandidates().empty());
-    QIQI_TEST_CHECK(engine.TotalPages() == 0);
-    QIQI_TEST_CHECK(engine.CurrentPage() == 0);
-    QIQI_TEST_CHECK(engine.SelectedInPage() == 0);
-    QIQI_TEST_CHECK(engine.PageSize() == WubiEngine::kDefaultPageSize);
-
-    // Empty lookup
-    QIQI_TEST_CHECK(engine.LookupCandidates(L"").empty());
-    QIQI_TEST_CHECK(engine.LookupExact(L"zzzz").empty());
-
-    // Invalid AddEntry arguments should be ignored safely
-    engine.AddEntry(L"", L"空码");
-    engine.AddEntry(L"a", L"");
-    engine.AddEntry(L"abcde", L"超长码");
-    engine.AddEntry(L"ab1", L"含数字");
-    engine.AddEntry(L"ab@", L"含符号1");
-    engine.AddEntry(L"ab{", L"含符号2");
-    QIQI_TEST_CHECK(engine.LookupExact(L"abcde").empty());
-    QIQI_TEST_CHECK(engine.LookupExact(L"ab1").empty());
-
-    // Uppercase normalization & duplicate suppression
-    engine.AddEntry(L"XYZW", L"测试词");
-    engine.AddEntry(L"xyzw", L"测试词");
-    auto exact = engine.LookupExact(L"xyzw");
-    QIQI_TEST_CHECK(exact.size() == 1 && exact[0] == L"测试词");
-
-    // Prefix and wildcard 50-candidate cap
-    for (int i = 0; i < 60; ++i) {
-        std::wstring word = L"词" + std::to_wstring(i);
-        engine.AddEntry(L"xyza", word);
-    }
-    auto prefix_cands = engine.LookupCandidates(L"xyz");
-    QIQI_TEST_CHECK(prefix_cands.size() == 50);
-    auto wildcard_cands = engine.LookupCandidates(L"xzz");
-    QIQI_TEST_CHECK(wildcard_cands.size() == 50);
-}
 
 void TestFirstLevelShortCodes() {
     WubiEngine engine;
@@ -373,41 +269,9 @@ void TestChinesePunctuation() {
     QIQI_TEST_CHECK(!engine.IsComposing());
 }
 
-void TestExternalDictFile() {
-    WubiEngine engine;
-
-    // 1. Non-existent file returns false
-    QIQI_TEST_CHECK(!engine.LoadDictionaryFile("non_existent_wubi_table_12345.txt"));
-
-    // 2. Temporary UTF-8 dictionary file with BOM, comments, blank lines, and multiple words
-    const auto temp_dict = std::filesystem::temp_directory_path() / L"qiqiime_test_dict.txt";
-    {
-        std::ofstream ofs(temp_dict, std::ios::binary);
-        ofs << "\xEF\xBB\xBF# Comment line with BOM\n"
-            << "\n"
-            << "   \n"
-            << "# Another comment\n"
-            << "zzzz 测一 测二\n";
-    }
-    QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
-    auto zzzz = engine.LookupExact(L"zzzz");
-    QIQI_TEST_CHECK(zzzz.size() == 2 && zzzz[0] == L"测一" && zzzz[1] == L"测二");
-
-    std::error_code ec;
-    std::filesystem::remove(temp_dict, ec);
-
-    // 3. Load bundled wubi86.txt if present in current or executable directory
-    if (std::filesystem::exists("wubi86.txt")) {
-        QIQI_TEST_CHECK(engine.LoadDictionaryFile("wubi86.txt"));
-    }
-}
-
 } // namespace
 
-int main() {
-    TestSpdlogLogger();
-    TestVersionMechanism();
-    TestAddEntryAndLookupEdgeCases();
+void RunEngineInputTests() {
     TestFirstLevelShortCodes();
     TestFourCodeUniqueAutoCommit();
     TestFifthKeyPushAutoCommit();
@@ -415,7 +279,6 @@ int main() {
     TestNavigationSelectionAndReturnCommit();
     TestModeSwitchingAndShouldEatKey();
     TestChinesePunctuation();
-    TestExternalDictFile();
-    std::cout << "[PASS] All QiQi Wubi 86 engine tests succeeded.\n";
-    return 0;
 }
+
+} // namespace qiqi::test
