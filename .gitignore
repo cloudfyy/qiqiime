@@ -1,0 +1,24 @@
+# Build directories
+build/
+out/
+cmake-build-*/
+
+# Visual Studio / CMake artifacts
+.vs/
+*.VC.db
+*.VC.opendb
+*.sdf
+*.opensdf
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Compiled binaries
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.obj
+*.exe
