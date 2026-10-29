@@ -39,10 +39,10 @@ public:
     static constexpr size_t kMaxCodeLength = 4;
     static constexpr size_t kDefaultPageSize = 5;
 
-    WubiEngine();
+    WubiEngine() noexcept = default;
 
-    // Load内置码表 (called automatically by constructor)
-    void LoadBuiltinDictionary();
+    // Built-in dictionary is pre-compiled into constexpr kSortedBuiltinWubi86Dict (.rdata); kept as no-op for API compatibility.
+    void LoadBuiltinDictionary() noexcept {}
 
     // Load additional UTF-8 table file (format: code word1 word2 ...)
     bool LoadDictionaryFile(const std::filesystem::path& file_path);

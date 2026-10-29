@@ -7,6 +7,7 @@
 #include <atomic>
 
 #include "common/config.h"
+#include "common/guids.h"
 #include "engine/wubi_engine.h"
 #include "ui/candidate_ui.h"
 #include "ui/langbar_button.h"
@@ -26,13 +27,16 @@ class QiQiTextService final
       public ITfFnConfigure,
       public ITfDisplayAttributeProvider {
 public:
-    QiQiTextService();
+    explicit QiQiTextService(HINSTANCE instance);
     ~QiQiTextService() noexcept;
 
+#pragma warning(push)
+#pragma warning(disable : 26456)
     QiQiTextService(const QiQiTextService&) = delete;
     QiQiTextService& operator=(const QiQiTextService&) = delete;
     QiQiTextService(QiQiTextService&&) = delete;
     QiQiTextService& operator=(QiQiTextService&&) = delete;
+#pragma warning(pop)
 
     // IUnknown
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;

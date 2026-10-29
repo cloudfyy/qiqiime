@@ -41,11 +41,7 @@ STDMETHODIMP QiQiClassFactory::CreateInstance(IUnknown* pUnkOuter, REFIID riid, 
     }
 
     try {
-        ComPtr<QiQiTextService> service;
-        service.Attach(new (std::nothrow) QiQiTextService());
-        if (!service) {
-            return E_OUTOFMEMORY;
-        }
+        const ComPtr<QiQiTextService> service = MakeComObject<QiQiTextService>(g_dll_instance);
         return service->QueryInterface(riid, ppvObj);
     } catch (...) {
         return E_OUTOFMEMORY;

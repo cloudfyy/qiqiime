@@ -18,10 +18,13 @@ public:
         ++g_com_object_count;
     }
 
+#pragma warning(push)
+#pragma warning(disable : 26456)
     LambdaEditSession(const LambdaEditSession&) = delete;
     LambdaEditSession& operator=(const LambdaEditSession&) = delete;
     LambdaEditSession(LambdaEditSession&&) = delete;
     LambdaEditSession& operator=(LambdaEditSession&&) = delete;
+#pragma warning(pop)
 
     // IUnknown
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {

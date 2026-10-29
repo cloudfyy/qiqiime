@@ -1,12 +1,22 @@
 #pragma once
 #include <array>
+#include <cstdint>
+#include <string_view>
 #include <utility>
+#include <gsl/gsl>
+
+#include "engine/wubi_binary_dict.h"
 
 namespace qiqi {
 
 struct WubiEntry {
     const wchar_t* code;
     const wchar_t* word;
+};
+
+struct PackedBuiltinWubiEntry {
+    uint32_t packed_code = 0;
+    std::wstring_view word;
 };
 
 // Built-in core Wubi 86 dictionary (一级简码, 高频二级/三级/四级简码及常用词组)
@@ -59,5 +69,29 @@ inline constexpr WubiEntry kBuiltinWubi86Dict[] = {
     {L"ip", L"学"}, {L"ipb", L"学"}, {L"ipvf", L"学习"},
     {L"jg", L"日"}, {L"jgj", L"晶"}, {L"jjj", L"晶"}, {L"jjjj", L"日"}
 };
+
+consteval auto BuildSortedBuiltinWubi86Dict() noexcept {
+    constexpr size_t kCount = std::size(kBuiltinWubi86Dict);
+    std::array<PackedBuiltinWubiEntry, kCount> arr{};
+    for (size_t i = 0; i < kCount; ++i) {
+        gsl::at(arr, i) = PackedBuiltinWubiEntry{
+            PackWubiCode(gsl::at(kBuiltinWubi86Dict, i).code),
+            gsl::at(kBuiltinWubi86Dict, i).word
+        };
+    }
+    for (size_t i = 1; i < kCount; ++i) {
+        const PackedBuiltinWubiEntry key = gsl::at(arr, i);
+        size_t j = i;
+        while (j > 0 && gsl::at(arr, j - 1).packed_code > key.packed_code) {
+            gsl::at(arr, j) = gsl::at(arr, j - 1);
+            --j;
+        }
+        gsl::at(arr, j) = key;
+    }
+    return arr;
+}
+
+// Compile-time sorted builtin Wubi 86 table residing in read-only .rdata (zero runtime heap allocation).
+inline constexpr auto kSortedBuiltinWubi86Dict = BuildSortedBuiltinWubi86Dict();
 
 } // namespace qiqi

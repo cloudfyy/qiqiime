@@ -14,7 +14,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     SetMuteAudioOutputForTest(true);
     ResetLastPlayedSoundForTest();
 
-    auto* service = new QiQiTextService();
+    auto* service = new QiQiTextService(g_dll_instance);
 
     // QueryInterface coverage for all supported interfaces
     QIQI_TEST_CHECK(service->QueryInterface(IID_IUnknown, nullptr) == E_INVALIDARG);
@@ -320,7 +320,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     haifeng_cfg.user_dict_path = L"wubi86_jidian_extra.txt";
     SaveConfigFile(GetDefaultUserConfigPath(), haifeng_cfg);
 
-    auto* service_haifeng = new QiQiTextService();
+    auto* service_haifeng = new QiQiTextService(g_dll_instance);
     ComPtr<ITfThreadMgrEventSink> hf_tm_sink;
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&hf_tm_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->Activate(mock_tm.Get(), 1)));
@@ -403,11 +403,11 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     // 2) g_dll_instance is invalid (GetModuleFileNameW failure branch)
     HINSTANCE saved_instance = g_dll_instance;
     g_dll_instance = ::GetModuleHandleW(L"kernel32.dll");
-    auto* service_no_dict = new QiQiTextService();
+    auto* service_no_dict = new QiQiTextService(g_dll_instance);
     QIQI_TEST_CHECK(service_no_dict->Release() == 0);
 
     g_dll_instance = reinterpret_cast<HINSTANCE>(0x12345678);
-    auto* service_bad_inst = new QiQiTextService();
+    auto* service_bad_inst = new QiQiTextService(g_dll_instance);
     QIQI_TEST_CHECK(service_bad_inst->Release() == 0);
     g_dll_instance = saved_instance;
 }

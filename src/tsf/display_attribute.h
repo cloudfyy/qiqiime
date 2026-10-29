@@ -11,10 +11,13 @@ public:
     QiQiDisplayAttributeInfo() noexcept;
     ~QiQiDisplayAttributeInfo() noexcept;
 
+#pragma warning(push)
+#pragma warning(disable : 26456)
     QiQiDisplayAttributeInfo(const QiQiDisplayAttributeInfo&) = delete;
     QiQiDisplayAttributeInfo& operator=(const QiQiDisplayAttributeInfo&) = delete;
     QiQiDisplayAttributeInfo(QiQiDisplayAttributeInfo&&) = delete;
     QiQiDisplayAttributeInfo& operator=(QiQiDisplayAttributeInfo&&) = delete;
+#pragma warning(pop)
 
     // IUnknown
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;
@@ -40,10 +43,13 @@ public:
     explicit QiQiEnumDisplayAttributeInfo(ULONG index = 0) noexcept;
     ~QiQiEnumDisplayAttributeInfo() noexcept;
 
+#pragma warning(push)
+#pragma warning(disable : 26456)
     QiQiEnumDisplayAttributeInfo(const QiQiEnumDisplayAttributeInfo&) = delete;
     QiQiEnumDisplayAttributeInfo& operator=(const QiQiEnumDisplayAttributeInfo&) = delete;
     QiQiEnumDisplayAttributeInfo(QiQiEnumDisplayAttributeInfo&&) = delete;
     QiQiEnumDisplayAttributeInfo& operator=(QiQiEnumDisplayAttributeInfo&&) = delete;
+#pragma warning(pop)
 
     // IUnknown
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;

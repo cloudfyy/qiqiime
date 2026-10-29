@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <oleauto.h>
+#include <wrl/client.h>
 #include <gsl/gsl>
 #include <string_view>
 #include <utility>
@@ -247,6 +248,25 @@ inline HRESULT CopyToBstr(std::wstring_view sv, BSTR* pbstr) noexcept {
     }
     *pbstr = bstr.Detach();
     return S_OK;
+}
+
+// Construct a reference-counted COM object (whose initial ref_count is 1) and attach it to a ComPtr<T>.
+template <typename T, typename... Args>
+Microsoft::WRL::ComPtr<T> MakeComObject(Args&&... args) {
+    Microsoft::WRL::ComPtr<T> ptr;
+#pragma warning(suppress : 26409)
+    ptr.Attach(new T(std::forward<Args>(args)...));
+    return ptr;
+}
+
+// Construct a VT_I4 Win32 VARIANT for TSF compartment / property calls.
+constexpr VARIANT MakeInt4Variant(LONG val) noexcept {
+#pragma warning(suppress : 26476)
+    VARIANT var{};
+    var.vt = VT_I4;
+#pragma warning(suppress : 26476)
+    var.lVal = val;
+    return var;
 }
 
 } // namespace qiqi

@@ -48,10 +48,13 @@ public:
     explicit LangBarButton(ActionCallback cb = {}) noexcept;
     ~LangBarButton() noexcept;
 
+#pragma warning(push)
+#pragma warning(disable : 26456)
     LangBarButton(const LangBarButton&) = delete;
     LangBarButton& operator=(const LangBarButton&) = delete;
     LangBarButton(LangBarButton&&) = delete;
     LangBarButton& operator=(LangBarButton&&) = delete;
+#pragma warning(pop)
 
     // IUnknown
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;

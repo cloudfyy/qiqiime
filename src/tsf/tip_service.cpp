@@ -54,9 +54,8 @@ constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
 
 } // namespace
 
-QiQiTextService::QiQiTextService() {
-    ++g_com_object_count;
-    config_ = LoadConfig(g_dll_instance);
+QiQiTextService::QiQiTextService(HINSTANCE instance) {
+    config_ = LoadConfig(instance);
     std::error_code ec;
     const auto user_cfg = GetDefaultUserConfigPath();
     if (std::filesystem::exists(user_cfg, ec)) {
@@ -64,7 +63,7 @@ QiQiTextService::QiQiTextService() {
     }
     log::SetLevel(config_.log_level);
     engine_.ApplyConfig(config_);
-    candidate_ui_.Attach(new CandidateUI(g_dll_instance));
+    candidate_ui_ = MakeComObject<CandidateUI>(instance);
     candidate_ui_->SetSelectCallback([this](size_t index_in_page) {
         if (index_in_page < 9 && active_context_ && engine_.IsComposing()) {
             const KeyProcessResult res = engine_.ProcessKey(
@@ -74,13 +73,14 @@ QiQiTextService::QiQiTextService() {
             }
         }
     });
-    langbar_btn_.Attach(new LangBarButton([this](LangBarMenuId action_id) {
+    langbar_btn_ = MakeComObject<LangBarButton>([this](LangBarMenuId action_id) {
         HandleLangBarMenuAction(action_id);
-    }));
-    status_bar_ = std::make_unique<StatusBarUI>(g_dll_instance, [this](LangBarMenuId action_id) {
+    });
+    status_bar_ = std::make_unique<StatusBarUI>(instance, [this](LangBarMenuId action_id) {
         HandleLangBarMenuAction(action_id);
     });
     LoadExternalDictionaryNextToDll();
+    ++g_com_object_count;
 }
 
 QiQiTextService::~QiQiTextService() noexcept {
@@ -700,9 +700,7 @@ void QiQiTextService::SyncTsfCompartments() {
     auto set_dword = [&](REFGUID guid, LONG val) {
         ComPtr<ITfCompartment> comp;
         if (SUCCEEDED(comp_mgr->GetCompartment(guid, &comp)) && comp) {
-            VARIANT var{};
-            var.vt = VT_I4;
-            var.lVal = val;
+            const VARIANT var = MakeInt4Variant(val);
             comp->SetValue(client_id_, &var);
         }
     };
@@ -762,8 +760,8 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
     ComPtr<ITfContext> ctx_holder(context);
     ComPtr<QiQiTextService> self_holder(this);
 
-    ComPtr<LambdaEditSession> session;
-    session.Attach(new LambdaEditSession([self_holder, ctx_holder, result](TfEditCookie ec) -> HRESULT {
+    const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
+        [self_holder, ctx_holder, result](TfEditCookie ec) -> HRESULT {
         const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
         if (result.action == KeyActionType::Cancel) {
             self_holder->CancelCompositionInSession(ec, non_null_ctx.get());
@@ -788,7 +786,7 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
         }
 
         return S_OK;
-    }));
+    });
 
     HRESULT session_hr = S_OK;
     const HRESULT req_hr = context->RequestEditSession(
@@ -864,9 +862,7 @@ void QiQiTextService::StartOrUpdateCompositionInSession(
     if (display_attribute_atom_ != TF_INVALID_GUIDATOM) {
         ComPtr<ITfProperty> disp_prop;
         if (SUCCEEDED(context->GetProperty(GUID_PROP_ATTRIBUTE, &disp_prop)) && disp_prop) {
-            VARIANT var{};
-            var.vt = VT_I4;
-            var.lVal = gsl::narrow_cast<LONG>(display_attribute_atom_);
+            const VARIANT var = MakeInt4Variant(gsl::narrow_cast<LONG>(display_attribute_atom_));
             disp_prop->SetValue(ec, comp_range.Get(), &var);
         }
     }
