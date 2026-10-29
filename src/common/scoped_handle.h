@@ -114,6 +114,24 @@ struct MenuTraits {
     static void Close(HandleType menu) noexcept { ::DestroyMenu(menu); }
 };
 
+struct WindowTraits {
+    using HandleType = HWND;
+    static constexpr HandleType Invalid() noexcept { return nullptr; }
+    static constexpr bool IsValid(const HandleType& hwnd) noexcept { return hwnd != nullptr; }
+    static void Close(HandleType hwnd) noexcept {
+        if (::IsWindow(hwnd)) {
+            ::DestroyWindow(hwnd);
+        }
+    }
+};
+
+struct ModuleTraits {
+    using HandleType = HMODULE;
+    static constexpr HandleType Invalid() noexcept { return nullptr; }
+    static constexpr bool IsValid(const HandleType& mod) noexcept { return mod != nullptr; }
+    static void Close(HandleType mod) noexcept { ::FreeLibrary(mod); }
+};
+
 template <typename GdiHandleT>
 struct GdiObjectTraits {
     using HandleType = GdiHandleT;
@@ -130,6 +148,8 @@ using ScopedMemoryDC = ScopedHandle<CreatedDcTraits>;
 using ScopedIcon = ScopedHandle<IconTraits>;
 using ScopedBstr = ScopedHandle<BstrTraits>;
 using ScopedMenu = ScopedHandle<MenuTraits>;
+using ScopedWindow = ScopedHandle<WindowTraits>;
+using ScopedModule = ScopedHandle<ModuleTraits>;
 
 template <typename GdiHandleT>
 using ScopedGdiHandle = ScopedHandle<GdiObjectTraits<GdiHandleT>>;

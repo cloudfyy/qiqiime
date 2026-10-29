@@ -57,14 +57,14 @@ void StatusBarUI::UpdateDpiAndFonts(UINT new_dpi) noexcept {
 }
 
 void StatusBarUI::ClampToCurrentMonitor() noexcept {
-    const MonitorMetrics mon = QueryMonitorForPoint(pos_, hwnd_);
+    const MonitorMetrics mon = QueryMonitorForPoint(pos_, hwnd_.Get());
     if (mon.dpi != dpi_) {
         UpdateDpiAndFonts(mon.dpi);
     }
     pos_ = ClampPointToWorkArea(pos_, CurrentWidth(), CurrentHeight(), mon.work_area);
-    if (hwnd_ && ::IsWindow(hwnd_)) {
+    if (hwnd_ && ::IsWindow(hwnd_.Get())) {
         ::SetWindowPos(
-            hwnd_,
+            hwnd_.Get(),
             HWND_TOPMOST,
             pos_.x,
             pos_.y,
@@ -78,14 +78,14 @@ void StatusBarUI::Show(bool visible) noexcept {
     visible_ = visible;
     if (visible) {
         if (EnsureBarWindow()) {
-            ApplySystemThemeToMenuAndWindow(hwnd_, IsSystemDarkTheme());
-            ::ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-            ::InvalidateRect(hwnd_, nullptr, TRUE);
+            ApplySystemThemeToMenuAndWindow(hwnd_.Get(), IsSystemDarkTheme());
+            ::ShowWindow(hwnd_.Get(), SW_SHOWNOACTIVATE);
+            ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
         }
     } else {
         HideTooltip();
         if (hwnd_) {
-            ::ShowWindow(hwnd_, SW_HIDE);
+            ::ShowWindow(hwnd_.Get(), SW_HIDE);
         }
     }
 }
@@ -94,12 +94,12 @@ void StatusBarUI::UpdateState(const LangBarState& state) noexcept {
     state_ = state;
     Show(state.show_status_bar);
     if (visible_ && hwnd_) {
-        ::InvalidateRect(hwnd_, nullptr, TRUE);
+        ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
     }
 }
 
 bool StatusBarUI::EnsureBarWindow() noexcept {
-    if (hwnd_ && ::IsWindow(hwnd_)) {
+    if (hwnd_ && ::IsWindow(hwnd_.Get())) {
         return true;
     }
 
@@ -126,21 +126,21 @@ bool StatusBarUI::EnsureBarWindow() noexcept {
     wc.lpszClassName = kStatusBarWndClass;
     ::RegisterClassExW(&wc);
 
-    hwnd_ = ::CreateWindowExW(
+    hwnd_.Reset(::CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         kStatusBarWndClass,
         L"",
         WS_POPUP,
         pos_.x, pos_.y, CurrentWidth(), CurrentHeight(),
-        nullptr, nullptr, instance_, this);
+        nullptr, nullptr, instance_, this));
     if (hwnd_) {
-        ApplySystemThemeToMenuAndWindow(hwnd_, IsSystemDarkTheme());
+        ApplySystemThemeToMenuAndWindow(hwnd_.Get(), IsSystemDarkTheme());
     }
-    return hwnd_ != nullptr;
+    return hwnd_.IsValid();
 }
 
 bool StatusBarUI::EnsureTooltipWindow() noexcept {
-    if (tooltip_hwnd_ && ::IsWindow(tooltip_hwnd_)) {
+    if (tooltip_hwnd_ && ::IsWindow(tooltip_hwnd_.Get())) {
         return true;
     }
 
@@ -154,27 +154,20 @@ bool StatusBarUI::EnsureTooltipWindow() noexcept {
     wc.lpszClassName = kStatusBarTooltipWndClass;
     ::RegisterClassExW(&wc);
 
-    tooltip_hwnd_ = ::CreateWindowExW(
+    tooltip_hwnd_.Reset(::CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         kStatusBarTooltipWndClass,
         L"",
         WS_POPUP | WS_BORDER,
         pos_.x, pos_.y - 28, 160, 24,
-        hwnd_, nullptr, instance_, this);
-    return tooltip_hwnd_ != nullptr;
+        hwnd_.Get(), nullptr, instance_, this));
+    return tooltip_hwnd_.IsValid();
 }
 
 void StatusBarUI::DestroyBarWindow() noexcept {
     HideTooltip();
-    if (tooltip_hwnd_ && ::IsWindow(tooltip_hwnd_)) {
-        ::DestroyWindow(tooltip_hwnd_);
-    }
-    tooltip_hwnd_ = nullptr;
-
-    if (hwnd_ && ::IsWindow(hwnd_)) {
-        ::DestroyWindow(hwnd_);
-    }
-    hwnd_ = nullptr;
+    tooltip_hwnd_.Reset();
+    hwnd_.Reset();
     visible_ = false;
     hovered_zone_ = -1;
     tracking_mouse_ = false;
@@ -221,7 +214,7 @@ void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
     }
 
     int tip_w = ScaleByDpi(180);
-    const ScopedWindowDC dc(tooltip_hwnd_);
+    const ScopedWindowDC dc(tooltip_hwnd_.Get());
     if (dc) {
         const ScopedSelectObject sel_font(dc.Get(), tooltip_font_.Get());
         SIZE sz{};
@@ -236,11 +229,11 @@ void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
 
     RECT bar_rc{};
     if (hwnd_) {
-        ::GetWindowRect(hwnd_, &bar_rc);
+        ::GetWindowRect(hwnd_.Get(), &bar_rc);
     } else {
         bar_rc = {pos_.x, pos_.y, pos_.x + CurrentWidth(), pos_.y + CurrentHeight()};
     }
-    const MonitorMetrics mon = QueryMonitorForPoint(POINT{bar_rc.left, bar_rc.top}, hwnd_);
+    const MonitorMetrics mon = QueryMonitorForPoint(POINT{bar_rc.left, bar_rc.top}, hwnd_.Get());
     const int tip_h = ScaleByDpi(24);
     const int gap = ScaleByDpi(4);
     POINT tip_pos{
@@ -250,25 +243,25 @@ void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
     tip_pos = ClampPointToWorkArea(tip_pos, tip_w, tip_h, mon.work_area);
 
     ::SetWindowPos(
-        tooltip_hwnd_,
+        tooltip_hwnd_.Get(),
         HWND_TOPMOST,
         tip_pos.x,
         tip_pos.y,
         tip_w,
         tip_h,
         SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    ::InvalidateRect(tooltip_hwnd_, nullptr, TRUE);
-    ::UpdateWindow(tooltip_hwnd_);
+    ::InvalidateRect(tooltip_hwnd_.Get(), nullptr, TRUE);
+    ::UpdateWindow(tooltip_hwnd_.Get());
 }
 
 void StatusBarUI::HideTooltip() noexcept {
     active_tooltip_text_.clear();
-    if (tooltip_hwnd_ && ::IsWindow(tooltip_hwnd_)) {
-        ::ShowWindow(tooltip_hwnd_, SW_HIDE);
+    if (tooltip_hwnd_ && ::IsWindow(tooltip_hwnd_.Get())) {
+        ::ShowWindow(tooltip_hwnd_.Get(), SW_HIDE);
     }
 }
 
-void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) const {
+void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) const noexcept {
     const auto& palette = GetCurrentThemePalette();
     const int grip_w = ScaleByDpi(kGripWidth);
     const int buttons_offset = ScaleByDpi(kButtonsOffset);
@@ -330,7 +323,7 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) const {
     }
 }
 
-void StatusBarUI::PaintTooltip(HDC hdc, const RECT& client_rect) const {
+void StatusBarUI::PaintTooltip(HDC hdc, const RECT& client_rect) const noexcept {
     const auto& palette = GetCurrentThemePalette();
     const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.tooltip_bg));
     ::FillRect(hdc, &client_rect, bg_brush.Get());
@@ -354,14 +347,14 @@ void StatusBarUI::OnMouseMove(POINT pt) {
         TRACKMOUSEEVENT tme{};
         tme.cbSize = sizeof(tme);
         tme.dwFlags = TME_LEAVE;
-        tme.hwndTrack = hwnd_;
+        tme.hwndTrack = hwnd_.Get();
         tracking_mouse_ = (::TrackMouseEvent(&tme) != FALSE);
     }
     const int zone = HitTestZone(pt.x);
     if (zone != hovered_zone_) {
         hovered_zone_ = zone;
         if (hwnd_) {
-            ::InvalidateRect(hwnd_, nullptr, TRUE);
+            ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
         }
         UpdateTooltipForZone(zone, pt.x);
     }
@@ -372,7 +365,7 @@ void StatusBarUI::OnMouseLeave() noexcept {
     if (hovered_zone_ != -1) {
         hovered_zone_ = -1;
         if (hwnd_) {
-            ::InvalidateRect(hwnd_, nullptr, TRUE);
+            ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
         }
     }
     HideTooltip();
@@ -396,7 +389,7 @@ void StatusBarUI::OnLeftButtonDown(POINT pt) const {
 
 ScopedMenu StatusBarUI::BuildContextMenu(ScopedGdiHandle<HBRUSH>& out_bg_brush) const noexcept {
     const auto& palette = GetCurrentThemePalette();
-    ApplySystemThemeToMenuAndWindow(hwnd_, palette.is_dark);
+    ApplySystemThemeToMenuAndWindow(hwnd_.Get(), palette.is_dark);
 
     ScopedMenu menu(::CreatePopupMenu());
     if (!menu) {
@@ -438,14 +431,14 @@ void StatusBarUI::OnRightButtonUp(POINT client_pt) const {
         return;
     }
     POINT screen_pt = client_pt;
-    ::ClientToScreen(hwnd_, &screen_pt);
+    ::ClientToScreen(hwnd_.Get(), &screen_pt);
     const BOOL cmd = ::TrackPopupMenu(
         menu.Get(),
         TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
         screen_pt.x,
         screen_pt.y,
         0,
-        hwnd_,
+        hwnd_.Get(),
         nullptr);
     if (cmd > 0 && action_callback_) {
         action_callback_(static_cast<LangBarMenuId>(cmd));

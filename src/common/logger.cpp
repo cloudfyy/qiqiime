@@ -16,16 +16,22 @@ namespace qiqi::log {
 
 namespace {
 
-// Intentionally heap-allocated singleton state that is never destroyed during CRT process-exit
-// under the Windows Loader Lock (preventing mutex/file-flush deadlocks on ExitProcess).
+// Static union wrapper whose destructor is a no-op so CRT process-exit under the Windows Loader Lock
+// never destroys the mutex or flushes file handles on ExitProcess, without calling raw new/delete.
 struct LoggerState {
     std::mutex mutex;
     std::shared_ptr<spdlog::logger> logger;
 };
 
+union NoDestroyLoggerState {
+    LoggerState value;
+    NoDestroyLoggerState() : value{} {}
+    ~NoDestroyLoggerState() {}
+};
+
 LoggerState& GetState() {
-    static LoggerState* const state = new LoggerState();
-    return *state;
+    static NoDestroyLoggerState holder;
+    return holder.value;
 }
 
 std::filesystem::path GetDefaultLogFilePath() {

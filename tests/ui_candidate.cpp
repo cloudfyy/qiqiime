@@ -308,11 +308,11 @@ void TestSettingsDialogControls() {
     cfg.show_status_bar = true;
     cfg.page_size = 7;
 
-    HWND hwnd = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg);
-    QIQI_TEST_CHECK(hwnd != nullptr);
+    const ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
+    QIQI_TEST_CHECK(hwnd.IsValid());
 
     QiQiConfig read_back{};
-    ReadSettingsFromWindowControls(hwnd, read_back);
+    ReadSettingsFromWindowControls(hwnd.Get(), read_back);
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Haifeng);
     QIQI_TEST_CHECK(!read_back.enable_jidian_extra);
     QIQI_TEST_CHECK(!read_back.auto_commit_4code);
@@ -324,44 +324,41 @@ void TestSettingsDialogControls() {
     // Also test BuiltinOnly and Jidian radio states + UiLanguage combobox + Cancel / WM_CLOSE
     cfg.primary_dict = PrimaryDict::BuiltinOnly;
     cfg.ui_language = UiLanguage::EnUs;
-    WriteSettingsToWindowControls(hwnd, cfg);
-    ReadSettingsFromWindowControls(hwnd, read_back);
+    WriteSettingsToWindowControls(hwnd.Get(), cfg);
+    ReadSettingsFromWindowControls(hwnd.Get(), read_back);
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::BuiltinOnly);
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::EnUs);
 
     cfg.primary_dict = PrimaryDict::Jidian;
     cfg.ui_language = UiLanguage::ZhCn;
-    WriteSettingsToWindowControls(hwnd, cfg);
-    ReadSettingsFromWindowControls(hwnd, read_back);
+    WriteSettingsToWindowControls(hwnd.Get(), cfg);
+    ReadSettingsFromWindowControls(hwnd.Get(), read_back);
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Jidian);
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::ZhCn);
 
     cfg.ui_language = UiLanguage::Auto;
-    WriteSettingsToWindowControls(hwnd, cfg);
-    ReadSettingsFromWindowControls(hwnd, read_back);
+    WriteSettingsToWindowControls(hwnd.Get(), cfg);
+    ReadSettingsFromWindowControls(hwnd.Get(), read_back);
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::Auto);
 
-    ::SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
-    ::SendMessageW(hwnd, WM_CLOSE, 0, 0);
-    ::SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
-    ::DestroyWindow(hwnd);
+    ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
+    ::SendMessageW(hwnd.Get(), WM_CLOSE, 0, 0);
+    ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
 
     // Verify English settings dialog title when created with UiLanguage::EnUs
     cfg.ui_language = UiLanguage::EnUs;
-    HWND hwnd_en = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg);
-    QIQI_TEST_CHECK(hwnd_en != nullptr);
+    const ScopedWindow hwnd_en(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
+    QIQI_TEST_CHECK(hwnd_en.IsValid());
     wchar_t title_buf[128]{};
-    ::GetWindowTextW(hwnd_en, title_buf, 128);
+    ::GetWindowTextW(hwnd_en.Get(), title_buf, 128);
     QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi Wubi IME - Settings");
-    ::DestroyWindow(hwnd_en);
 
     // Verify Chinese settings dialog title when created with UiLanguage::ZhCn
     cfg.ui_language = UiLanguage::ZhCn;
-    HWND hwnd_zh = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg);
-    QIQI_TEST_CHECK(hwnd_zh != nullptr);
-    ::GetWindowTextW(hwnd_zh, title_buf, 128);
+    const ScopedWindow hwnd_zh(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
+    QIQI_TEST_CHECK(hwnd_zh.IsValid());
+    ::GetWindowTextW(hwnd_zh.Get(), title_buf, 128);
     QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi 五笔输入法 - 属性设置");
-    ::DestroyWindow(hwnd_zh);
 
     // Test modal ShowSettingsDialog with auto-closing timer (IDOK -> returns true)
     ::SetTimer(nullptr, 1, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
@@ -375,10 +372,10 @@ void TestSettingsDialogControls() {
 }
 
 void TestStatusBarUI() {
-    // Load uxtheme.dll, dwmapi.dll, and shcore.dll in the test process so GetModuleHandleW paths are exercised
-    std::ignore = ::LoadLibraryW(L"uxtheme.dll");
-    std::ignore = ::LoadLibraryW(L"dwmapi.dll");
-    std::ignore = ::LoadLibraryW(L"shcore.dll");
+    // Load uxtheme.dll, dwmapi.dll, and shcore.dll via ScopedModule RAII in the test process
+    const ScopedModule uxtheme_mod(::LoadLibraryW(L"uxtheme.dll"));
+    const ScopedModule dwmapi_mod(::LoadLibraryW(L"dwmapi.dll"));
+    const ScopedModule shcore_mod(::LoadLibraryW(L"shcore.dll"));
 
     // 1. Test theme detection & palette switching (OS default, forced Light, forced Dark)
     SetThemeDarkOverrideForTest(std::nullopt);
@@ -583,23 +580,25 @@ void TestMultiMonitorAndPerMonitorDpi() {
 
     // 3. SettingsDialog centered & DPI-scaled on secondary monitor
     QiQiConfig cfg{};
-    HWND dlg = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg);
-    QIQI_TEST_CHECK(dlg != nullptr);
-    RECT dlg_rc{};
-    ::GetWindowRect(dlg, &dlg_rc);
-    QIQI_TEST_CHECK(dlg_rc.left >= secondary_mon.work_area.left &&
-                    dlg_rc.right <= secondary_mon.work_area.right);
-    ::DestroyWindow(dlg);
+    {
+        const ScopedWindow dlg(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
+        QIQI_TEST_CHECK(dlg.IsValid());
+        RECT dlg_rc{};
+        ::GetWindowRect(dlg.Get(), &dlg_rc);
+        QIQI_TEST_CHECK(dlg_rc.left >= secondary_mon.work_area.left &&
+                        dlg_rc.right <= secondary_mon.work_area.right);
+    }
 
     SetMonitorMetricsOverrideForTest(std::nullopt);
 
     // Also test QueryActiveMonitor with a non-null parent window and fallback_hwnd DPI query
-    HWND parent_dlg = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg);
-    QIQI_TEST_CHECK(parent_dlg != nullptr);
-    const MonitorMetrics parent_mon = QueryActiveMonitor(parent_dlg);
-    QIQI_TEST_CHECK(parent_mon.dpi > 0);
-    QIQI_TEST_CHECK(GetDpiForMonitorHandle(nullptr, parent_dlg) > 0);
-    ::DestroyWindow(parent_dlg);
+    {
+        const ScopedWindow parent_dlg(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
+        QIQI_TEST_CHECK(parent_dlg.IsValid());
+        const MonitorMetrics parent_mon = QueryActiveMonitor(parent_dlg.Get());
+        QIQI_TEST_CHECK(parent_mon.dpi > 0);
+        QIQI_TEST_CHECK(GetDpiForMonitorHandle(nullptr, parent_dlg.Get()) > 0);
+    }
 }
 
 } // namespace

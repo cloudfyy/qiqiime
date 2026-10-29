@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <gsl/gsl>
 #include <algorithm>
 #include <optional>
 
@@ -22,8 +23,8 @@ inline void SetMonitorMetricsOverrideForTest(std::optional<MonitorMetrics> metri
     detail::MonitorMetricsOverrideStorage() = metrics;
 }
 
-inline constexpr int ScalePxByDpi(int px, UINT dpi) noexcept {
-    return ::MulDiv(px, static_cast<int>(dpi > 0 ? dpi : 96u), 96);
+inline int ScalePxByDpi(int px, UINT dpi) noexcept {
+    return ::MulDiv(px, gsl::narrow_cast<int>(dpi > 0 ? dpi : 96u), 96);
 }
 
 inline UINT GetDpiForMonitorHandle(HMONITOR mon, HWND fallback_hwnd = nullptr) noexcept {

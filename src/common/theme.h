@@ -128,7 +128,7 @@ inline void ApplySystemThemeToMenuAndWindow(HWND hwnd, bool is_dark) noexcept {
 
                 // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2
                 constexpr DWORD kDwmwaWindowCornerPreference = 33;
-                const DWORD round_pref = 2;
+                constexpr DWORD round_pref = 2;
                 set_attr(hwnd, kDwmwaWindowCornerPreference, &round_pref, sizeof(round_pref));
             }
         }

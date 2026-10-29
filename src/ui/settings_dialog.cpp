@@ -266,14 +266,14 @@ HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_con
 }
 
 bool ShowSettingsDialog(HINSTANCE instance, HWND parent, QiQiConfig& in_out_config) noexcept {
-    const HWND hwnd = CreateSettingsWindow(instance, parent, &in_out_config);
+    const ScopedWindow hwnd(CreateSettingsWindow(instance, parent, &in_out_config));
     if (!hwnd) {
         return false;
     }
 
-    const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    ::ShowWindow(hwnd, SW_SHOWNORMAL);
-    ::UpdateWindow(hwnd);
+    const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd.Get(), GWLP_USERDATA));
+    ::ShowWindow(hwnd.Get(), SW_SHOWNORMAL);
+    ::UpdateWindow(hwnd.Get());
 
     MSG msg{};
     while (ctx && !ctx->done && ::GetMessageW(&msg, nullptr, 0, 0) > 0) {
@@ -281,9 +281,7 @@ bool ShowSettingsDialog(HINSTANCE instance, HWND parent, QiQiConfig& in_out_conf
         ::DispatchMessageW(&msg);
     }
 
-    const bool accepted = ctx ? ctx->accepted : false;
-    ::DestroyWindow(hwnd);
-    return accepted;
+    return ctx ? ctx->accepted : false;
 }
 
 } // namespace qiqi

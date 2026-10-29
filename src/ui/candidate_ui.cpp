@@ -41,7 +41,7 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
 
 void CandidateUI::RecalculatePopupLayout() {
     candidate_hit_rects_.clear();
-    const ScopedWindowDC screen_dc(hwnd_);
+    const ScopedWindowDC screen_dc(hwnd_.Get());
     if (!screen_dc) {
         popup_width_ = ScaleByDpi(kPopupWidth);
         popup_height_ = ScaleByDpi(kPopupHeight);
@@ -140,11 +140,11 @@ STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
     is_shown_ = bShow;
     if (bShow) {
         if (EnsurePopupWindow()) {
-            ::ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-            ::InvalidateRect(hwnd_, nullptr, TRUE);
+            ::ShowWindow(hwnd_.Get(), SW_SHOWNOACTIVATE);
+            ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
         }
     } else if (hwnd_) {
-        ::ShowWindow(hwnd_, SW_HIDE);
+        ::ShowWindow(hwnd_.Get(), SW_HIDE);
     }
     return S_OK;
 }
@@ -245,9 +245,9 @@ void CandidateUI::SetCandidates(std::wstring code,
 
     RecalculatePopupLayout();
     if (is_shown_ && EnsurePopupWindow()) {
-        ::SetWindowPos(hwnd_, HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
+        ::SetWindowPos(hwnd_.Get(), HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
                        SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        ::InvalidateRect(hwnd_, nullptr, TRUE);
+        ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
     }
 }
 
@@ -255,7 +255,7 @@ void CandidateUI::MoveWindowTo(const RECT& text_rect) {
     popup_pos_.x = text_rect.left;
     popup_pos_.y = text_rect.bottom + 4;
 
-    const MonitorMetrics mon = QueryMonitorForPoint(popup_pos_, hwnd_);
+    const MonitorMetrics mon = QueryMonitorForPoint(popup_pos_, hwnd_.Get());
     if (mon.dpi != dpi_) {
         UpdateDpiAndFont(mon.dpi);
         RecalculatePopupLayout();
@@ -269,13 +269,13 @@ void CandidateUI::MoveWindowTo(const RECT& text_rect) {
     popup_pos_ = ClampPointToWorkArea(popup_pos_, popup_width_, popup_height_, mon.work_area);
 
     if (hwnd_) {
-        ::SetWindowPos(hwnd_, HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
+        ::SetWindowPos(hwnd_.Get(), HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
                        SWP_NOACTIVATE | (is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
     }
 }
 
 bool CandidateUI::EnsurePopupWindow() noexcept {
-    if (hwnd_ && ::IsWindow(hwnd_)) {
+    if (hwnd_ && ::IsWindow(hwnd_.Get())) {
         return true;
     }
 
@@ -289,13 +289,13 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
     wc.lpszClassName = kCandidateWndClass;
     ::RegisterClassExW(&wc);
 
-    hwnd_ = ::CreateWindowExW(
+    hwnd_.Reset(::CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         kCandidateWndClass,
         L"",
         WS_POPUP | WS_BORDER,
         popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
-        nullptr, nullptr, instance_, this);
+        nullptr, nullptr, instance_, this));
 
     if (!hwnd_) {
         try {
@@ -303,14 +303,11 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
         } catch (...) {
         }
     }
-    return hwnd_ != nullptr;
+    return hwnd_.IsValid();
 }
 
 void CandidateUI::DestroyPopupWindow() noexcept {
-    if (hwnd_ && ::IsWindow(hwnd_)) {
-        ::DestroyWindow(hwnd_);
-    }
-    hwnd_ = nullptr;
+    hwnd_.Reset();
     is_shown_ = FALSE;
 }
 

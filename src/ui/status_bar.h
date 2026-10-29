@@ -35,8 +35,8 @@ public:
     void UpdateState(const LangBarState& state) noexcept;
     void DestroyBarWindow() noexcept;
 
-    HWND WindowHandle() const noexcept { return hwnd_; }
-    HWND TooltipWindowHandle() const noexcept { return tooltip_hwnd_; }
+    HWND WindowHandle() const noexcept { return hwnd_.Get(); }
+    HWND TooltipWindowHandle() const noexcept { return tooltip_hwnd_.Get(); }
     POINT Position() const noexcept { return pos_; }
     UINT CurrentDpi() const noexcept { return dpi_; }
     int CurrentWidth() const noexcept { return ScaleByDpi(kBarWidth); }
@@ -59,8 +59,8 @@ private:
     bool EnsureTooltipWindow() noexcept;
     void UpdateTooltipForZone(int zone, int client_x);
     void HideTooltip() noexcept;
-    void PaintBar(HDC hdc, const RECT& client_rect) const;
-    void PaintTooltip(HDC hdc, const RECT& client_rect) const;
+    void PaintBar(HDC hdc, const RECT& client_rect) const noexcept;
+    void PaintTooltip(HDC hdc, const RECT& client_rect) const noexcept;
     void OnMouseMove(POINT pt);
     void OnMouseLeave() noexcept;
     void OnLeftButtonDown(POINT pt) const;
@@ -69,8 +69,8 @@ private:
     static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
     HINSTANCE instance_ = nullptr;
-    HWND hwnd_ = nullptr;
-    HWND tooltip_hwnd_ = nullptr;
+    ScopedWindow hwnd_;
+    ScopedWindow tooltip_hwnd_;
     ScopedGdiHandle<HFONT> font_;
     ScopedGdiHandle<HFONT> tooltip_font_;
     UINT dpi_ = 96;

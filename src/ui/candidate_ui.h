@@ -63,7 +63,7 @@ public:
     void SetUiLanguage(UiLanguage lang) noexcept { ui_language_ = lang; }
     int CurrentWidth() const noexcept { return popup_width_; }
     int CurrentHeight() const noexcept { return popup_height_; }
-    HWND WindowHandle() const noexcept { return hwnd_; }
+    HWND WindowHandle() const noexcept { return hwnd_.Get(); }
 
     DWORD UiElementId() const noexcept { return ui_element_id_; }
     void SetUiElementId(DWORD id) noexcept { ui_element_id_ = id; }
@@ -79,7 +79,7 @@ private:
 
     std::atomic<ULONG> ref_count_{1};
     HINSTANCE instance_ = nullptr;
-    HWND hwnd_ = nullptr;
+    ScopedWindow hwnd_;
     ScopedGdiHandle<HFONT> font_;
     UINT dpi_ = 96;
     int popup_width_ = kPopupWidth;
