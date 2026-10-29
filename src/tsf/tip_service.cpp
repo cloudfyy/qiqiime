@@ -19,6 +19,9 @@ bool IsKeyDown(int vk) noexcept {
 
 QiQiTextService::QiQiTextService() {
     ++g_com_object_count;
+    config_ = LoadConfig(g_dll_instance);
+    log::SetLevel(config_.log_level);
+    engine_.ApplyConfig(config_);
     candidate_ui_.Attach(new CandidateUI(g_dll_instance));
     LoadExternalDictionaryNextToDll();
 }
@@ -38,19 +41,38 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
         return;
     }
     const std::filesystem::path dll_dir = module_path.parent_path();
-    constexpr std::wstring_view kDictFiles[] = {
-        L"wubi86_jidian.txt",
-        L"wubi86_jidian_extra.txt",
-    };
 
     bool loaded_any = false;
-    for (const auto dict_name : kDictFiles) {
-        const std::filesystem::path dict_path = dll_dir / dict_name;
-        if (std::filesystem::exists(dict_path)) {
-            loaded_any |= engine_.LoadDictionaryFile(dict_path);
+    if (config_.primary_dict == PrimaryDict::Jidian) {
+        const std::filesystem::path jidian_path = dll_dir / L"wubi86_jidian.txt";
+        if (std::filesystem::exists(jidian_path)) {
+            loaded_any |= engine_.LoadDictionaryFile(jidian_path);
+        }
+    } else if (config_.primary_dict == PrimaryDict::Haifeng) {
+        const std::filesystem::path haifeng_path = dll_dir / L"wubi86_haifeng.txt";
+        if (std::filesystem::exists(haifeng_path)) {
+            loaded_any |= engine_.LoadDictionaryFile(haifeng_path);
         }
     }
-    if (!loaded_any) {
+
+    if (config_.enable_jidian_extra) {
+        const std::filesystem::path extra_path = dll_dir / L"wubi86_jidian_extra.txt";
+        if (std::filesystem::exists(extra_path)) {
+            loaded_any |= engine_.LoadDictionaryFile(extra_path);
+        }
+    }
+
+    if (!config_.user_dict_path.empty()) {
+        std::filesystem::path user_path(config_.user_dict_path);
+        if (user_path.is_relative()) {
+            user_path = dll_dir / user_path;
+        }
+        if (std::filesystem::exists(user_path)) {
+            loaded_any |= engine_.LoadDictionaryFile(user_path);
+        }
+    }
+
+    if (!loaded_any && config_.primary_dict != PrimaryDict::BuiltinOnly) {
         QIQI_LOG_DEBUG("External dictionaries not found in '{}', using builtin dictionary only",
                        log::WideToUtf8(dll_dir.wstring()));
     }
@@ -218,7 +240,7 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* /*pic*/, WPARAM wParam, 
     }
     const uint32_t vk = static_cast<uint32_t>(wParam);
     if (vk == VK_SHIFT) {
-        shift_tap_candidate_ = !IsKeyDown(VK_CONTROL) && !IsKeyDown(VK_MENU);
+        shift_tap_candidate_ = config_.shift_toggle_mode && !IsKeyDown(VK_CONTROL) && !IsKeyDown(VK_MENU);
         *pfEaten = FALSE;
         return S_OK;
     }

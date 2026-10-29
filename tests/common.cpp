@@ -1,4 +1,5 @@
 #include "common.h"
+#include "common/config.h"
 #include "common/logger.h"
 #include "common/version.h"
 
@@ -89,11 +90,79 @@ void TestSpdlogLogger() {
     log::InitLogger();
 }
 
+void TestIniConfiguration() {
+    // 1. Test ParseConfigFromUtf8 with BOM, comments, inline comments, and all sections
+    constexpr std::string_view kIniContent =
+        "\xEF\xBB\xBF# Header comment\n"
+        "; Semicolon comment\n"
+        "[dictionary]\n"
+        "primary = haifeng # inline comment\n"
+        "enable_jidian_extra = false\n"
+        "user_dict = custom_words.txt\n"
+        "\n"
+        "[engine]\n"
+        "page_size = 7\n"
+        "auto_commit_4code = 0\n"
+        "push_commit_5th = no\n"
+        "default_chinese_mode = off\n"
+        "shift_toggle_mode = false\n"
+        "\n"
+        "[log]\n"
+        "level = debug\n";
+
+    const QiQiConfig cfg = ParseConfigFromUtf8(kIniContent);
+    QIQI_TEST_CHECK(cfg.primary_dict == PrimaryDict::Haifeng);
+    QIQI_TEST_CHECK(!cfg.enable_jidian_extra);
+    QIQI_TEST_CHECK(cfg.user_dict_path == L"custom_words.txt");
+    QIQI_TEST_CHECK(cfg.page_size == 7);
+    QIQI_TEST_CHECK(!cfg.auto_commit_4code);
+    QIQI_TEST_CHECK(!cfg.push_commit_5th);
+    QIQI_TEST_CHECK(!cfg.default_chinese_mode);
+    QIQI_TEST_CHECK(!cfg.shift_toggle_mode);
+    QIQI_TEST_CHECK(cfg.log_level == spdlog::level::debug);
+
+    // 2. Test alternative enum/boolean values
+    const QiQiConfig cfg2 = ParseConfigFromUtf8(
+        "[dictionary]\nprimary = builtin\nenable_jidian_extra = yes\n"
+        "[log]\nlevel = trace\n");
+    QIQI_TEST_CHECK(cfg2.primary_dict == PrimaryDict::BuiltinOnly);
+    QIQI_TEST_CHECK(cfg2.enable_jidian_extra);
+    QIQI_TEST_CHECK(cfg2.log_level == spdlog::level::trace);
+
+    // 3. Test EnsureDefaultConfigFile and LoadConfigFile
+    const auto temp_cfg_path = std::filesystem::temp_directory_path() / L"qiqiime_test_config.ini";
+    std::error_code ec;
+    std::filesystem::remove(temp_cfg_path, ec);
+
+    QIQI_TEST_CHECK(!LoadConfigFile("non_existent_config_99999.ini", const_cast<QiQiConfig&>(cfg)));
+    QIQI_TEST_CHECK(EnsureDefaultConfigFile(temp_cfg_path));
+    // Calling EnsureDefaultConfigFile again when file exists returns true without overwriting
+    QIQI_TEST_CHECK(EnsureDefaultConfigFile(temp_cfg_path));
+
+    QiQiConfig loaded_default{};
+    QIQI_TEST_CHECK(LoadConfigFile(temp_cfg_path, loaded_default));
+    QIQI_TEST_CHECK(loaded_default.primary_dict == PrimaryDict::Jidian);
+    QIQI_TEST_CHECK(loaded_default.enable_jidian_extra);
+    QIQI_TEST_CHECK(loaded_default.page_size == 5);
+    QIQI_TEST_CHECK(loaded_default.auto_commit_4code);
+    QIQI_TEST_CHECK(loaded_default.push_commit_5th);
+    QIQI_TEST_CHECK(loaded_default.default_chinese_mode);
+    QIQI_TEST_CHECK(loaded_default.shift_toggle_mode);
+    QIQI_TEST_CHECK(loaded_default.log_level == spdlog::level::info);
+
+    std::filesystem::remove(temp_cfg_path, ec);
+
+    // 4. Test LoadConfig discovery
+    const QiQiConfig discovered = LoadConfig(nullptr);
+    QIQI_TEST_CHECK(discovered.page_size >= 1 && discovered.page_size <= 9);
+}
+
 } // namespace
 
 void RunCommonTests() {
     TestSpdlogLogger();
     TestVersionMechanism();
+    TestIniConfiguration();
 }
 
 } // namespace qiqi::test

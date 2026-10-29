@@ -7,6 +7,7 @@
 #include <optional>
 #include <cstdint>
 
+#include "common/config.h"
 #include "engine/wubi_fsm.h"
 
 namespace qiqi {
@@ -44,10 +45,16 @@ public:
     // Add a single entry
     void AddEntry(std::wstring_view code, std::wstring_view word);
 
-    // Mode management
+    // Mode & configuration management
+    void ApplyConfig(const QiQiConfig& cfg) noexcept;
     bool IsChineseMode() const noexcept { return state_ != EngineState::English; }
     void SetChineseMode(bool enabled) noexcept;
     void ToggleChineseMode() noexcept;
+    void SetPageSize(size_t page_size) noexcept;
+    bool AutoCommit4Code() const noexcept { return auto_commit_4code_; }
+    void SetAutoCommit4Code(bool enabled) noexcept { auto_commit_4code_ = enabled; }
+    bool PushCommit5th() const noexcept { return push_commit_5th_; }
+    void SetPushCommit5th(bool enabled) noexcept { push_commit_5th_ = enabled; }
 
     // State queries
     EngineState State() const noexcept { return state_; }
@@ -86,6 +93,8 @@ private:
     size_t page_size_ = kDefaultPageSize;
     size_t current_page_ = 0;
     size_t selected_in_page_ = 0;
+    bool auto_commit_4code_ = true;
+    bool push_commit_5th_ = true;
     EngineState state_ = EngineState::Idle;
 };
 

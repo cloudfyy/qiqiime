@@ -18,23 +18,11 @@ std::mutex g_logger_mutex;
 std::shared_ptr<spdlog::logger> g_logger;
 
 std::filesystem::path GetDefaultLogFilePath() {
-    std::array<wchar_t, MAX_PATH> env_buf{};
-    const DWORD env_len = ::GetEnvironmentVariableW(
-        L"LOCALAPPDATA", env_buf.data(), static_cast<DWORD>(env_buf.size()));
-    std::filesystem::path base_dir;
-    if (env_len > 0 && env_len < env_buf.size()) {
-        base_dir = env_buf.data();
-    } else {
-        std::array<wchar_t, MAX_PATH> temp_path{};
-        if (::GetTempPathW(static_cast<DWORD>(temp_path.size()), temp_path.data()) > 0) {
-            base_dir = temp_path.data();
-        }
-    }
-
-    if (base_dir.empty()) {
+    const std::filesystem::path app_dir = GetAppDataDirectory();
+    if (app_dir.empty()) {
         return L"qiqiime.log";
     }
-    return base_dir / L"QiQiIME" / L"logs" / L"qiqiime.log";
+    return app_dir / L"logs" / L"qiqiime.log";
 }
 
 std::shared_ptr<spdlog::logger> CreateLoggerInternal(
@@ -139,6 +127,25 @@ std::filesystem::path GetModuleFilePath(void* module_handle) noexcept {
     } catch (...) {
         return {};
     }
+}
+
+std::filesystem::path GetAppDataDirectory() {
+    std::array<wchar_t, MAX_PATH> env_buf{};
+    const DWORD env_len = ::GetEnvironmentVariableW(
+        L"LOCALAPPDATA", env_buf.data(), static_cast<DWORD>(env_buf.size()));
+    std::filesystem::path base_dir;
+    if (env_len > 0 && env_len < env_buf.size()) {
+        base_dir = env_buf.data();
+    } else {
+        std::array<wchar_t, MAX_PATH> temp_path{};
+        if (::GetTempPathW(static_cast<DWORD>(temp_path.size()), temp_path.data()) > 0) {
+            base_dir = temp_path.data();
+        }
+    }
+    if (base_dir.empty()) {
+        return {};
+    }
+    return base_dir / L"QiQiIME";
 }
 
 } // namespace qiqi::log

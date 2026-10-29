@@ -13,6 +13,8 @@ configure_file(
 
 # Core Wubi 86 Engine (Static library, pure C++26 + Win32 UTF conversion, testable independently)
 set(QIQI_ENGINE_SOURCES
+    common/config.cpp
+    common/config.h
     common/logger.cpp
     common/logger.h
     engine/wubi_fsm.h
@@ -67,8 +69,11 @@ target_link_libraries(qiqiime PRIVATE
     uuid
 )
 
-# Copy Wubi 86 dictionaries (Jidian, Jidian Extra, and Haifeng) next to build outputs
+# Copy Wubi 86 dictionaries (Jidian, Jidian Extra, and Haifeng) and default config.ini next to build outputs
 add_custom_command(TARGET qiqiime POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${PROJECT_SOURCE_DIR}/data/config.ini"
+        "$<TARGET_FILE_DIR:qiqiime>/config.ini"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${PROJECT_SOURCE_DIR}/data/wubi86_jidian.txt"
         "$<TARGET_FILE_DIR:qiqiime>/wubi86_jidian.txt"

@@ -14,6 +14,7 @@ C:\sample\qiqiime
 ├── vcpkg.json                  # vcpkg 依赖清单 (Manifest 模式管理 spdlog 等依赖)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/
+│   ├── config.ini              # 默认 UTF-8 INI 配置文件模板（支持切换词库、分页大小、自动上屏等）
 │   ├── wubi86_jidian.txt       # 极点 86 五笔核心主词库（Apache-2.0，77,169 编码 / 89,254 词条）
 │   ├── wubi86_jidian_extra.txt # 极点 86 五笔现代扩展词库（Apache-2.0，2,100 编码 / 2,216 词条）
 │   └── wubi86_haifeng.txt      # 海峰 86 五笔超大字符集词库（BSD-3-Clause，100,051 编码 / 144,374 词条，含 CJK 扩展 A/B 区生僻字）
@@ -25,7 +26,8 @@ C:\sample\qiqiime
 │   └── unregister_ime.ps1      # 管理员权限卸载输入法脚本（同时卸载 x86 与 x64）
 ├── src/
 │   ├── CMakeLists.txt          # 源码目标构建配置（qiqi_engine 静态库 + qiqiime.dll）
-│   ├── common/                 # 公共基础模块（GUID 常量、spdlog 日志、版本信息与资源模板）
+│   ├── common/                 # 公共基础模块（GUID 常量、INI 配置、spdlog 日志、版本信息与资源模板）
+│   │   ├── config.h/.cpp       # UTF-8 INI 配置解析与用户目录 (%LOCALAPPDATA%\QiQiIME\config.ini) 自动初始化
 │   │   ├── guids.h             # CLSID / Profile GUID / UIElement GUID 定义
 │   │   ├── logger.h/.cpp       # 基于 spdlog 的日志模块（Rotating File + MSVC Debug 输出）
 │   │   ├── version.h.in        # C++ 编译期版本号与 Git Commit 元信息头文件模板
@@ -88,6 +90,10 @@ C:\sample\qiqiime
 5. **双架构（`x64` + `x86` / WOW64）完整支持**
    - 支持同时构建 64 位（`build\x64`）与 32 位（`build\x86`）`qiqiime.dll`。
    - `RegisterServer` / `UnregisterServer` 自动识别 WOW64 环境（`IsRunningUnderWow64()`）：在 64 位系统上通过 `SysWOW64\regsvr32.exe` 注册 32 位 DLL 时，精确写入 `HKCR\WOW6432Node\CLSID` 而不覆盖 64 位共享 TSF Language Profile，兼顾 64 位桌面应用与 32 位老应用/游戏。
+
+6. **INI 配置文件系统（`config.ini`）**
+   - 默认读取 `%LOCALAPPDATA%\QiQiIME\config.ini`（首次运行时若不存在会自动生成带中文注释的默认配置文件），并支持回退读取 `qiqiime.dll` 同目录的 `config.ini`。
+   - 支持配置主词库选择（`primary = jidian | haifeng | builtin`）、是否启用现代扩展词库（`enable_jidian_extra`）、自定义词表路径（`user_dict`）、每页候选数（`page_size`）、四码唯一自动上屏（`auto_commit_4code`）、第五码顶字（`push_commit_5th`）、默认中英文模式（`default_chinese_mode`）、Shift 切换开关（`shift_toggle_mode`）及日志级别（`level`）。
 
 ---
 

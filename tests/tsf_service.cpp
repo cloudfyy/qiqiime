@@ -8,6 +8,9 @@ namespace qiqi::test {
 namespace {
 
 void TestQiQiTextServiceLifecycleAndKeyFlow() {
+    BYTE clean_kb_state[256]{};
+    ::SetKeyboardState(clean_kb_state);
+
     auto* service = new QiQiTextService();
 
     // QueryInterface coverage for all supported interfaces

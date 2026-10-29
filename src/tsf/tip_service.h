@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <atomic>
 
+#include "common/config.h"
 #include "engine/wubi_engine.h"
 #include "ui/candidate_ui.h"
 
@@ -84,6 +85,7 @@ private:
 
     ComPtr<ITfComposition> composition_;
     ComPtr<CandidateUI> candidate_ui_;
+    QiQiConfig config_{};
     WubiEngine engine_;
     bool shift_tap_candidate_ = false;
 };

@@ -149,6 +149,19 @@ bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
     return true;
 }
 
+void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
+    SetPageSize(cfg.page_size);
+    auto_commit_4code_ = cfg.auto_commit_4code;
+    push_commit_5th_ = cfg.push_commit_5th;
+    SetChineseMode(cfg.default_chinese_mode);
+}
+
+void WubiEngine::SetPageSize(size_t page_size) noexcept {
+    page_size_ = std::clamp<size_t>(page_size, 1, 9);
+    current_page_ = 0;
+    selected_in_page_ = 0;
+}
+
 void WubiEngine::SetChineseMode(bool enabled) noexcept {
     if (enabled) {
         if (state_ == EngineState::English) {
@@ -323,7 +336,7 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             AppendCodeAndRefresh(vk, rule.next_state);
             // Standard Wubi 86 4-code auto-commit:
             // When reaching 4 codes without wildcard 'z' and there is a unique exact match, commit immediately!
-            if (raw_code_.find(L'z') == std::wstring::npos) {
+            if (auto_commit_4code_ && raw_code_.find(L'z') == std::wstring::npos) {
                 const auto exact = LookupExact(raw_code_);
                 if (exact.size() == 1) {
                     return CommitAndReset(exact.front());
@@ -332,6 +345,9 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             return MakeCurrentStateResult(KeyActionType::UpdateState);
 
         case TransitionOp::PushCommitAndRestart: {
+            if (!push_commit_5th_) {
+                return MakeCurrentStateResult(KeyActionType::UpdateState);
+            }
             std::wstring auto_committed = CurrentSelectedCandidateOrRaw();
             Reset();
             AppendCodeAndRefresh(vk, rule.next_state);

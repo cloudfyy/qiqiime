@@ -28,7 +28,10 @@ std::string WideToUtf8(std::wstring_view wide);
 std::wstring Utf8ToWide(std::string_view utf8);
 
 // Query the full filesystem path of a loaded module (exe or dll). Returns empty path on failure.
-std::filesystem::path GetModuleFilePath( void* module_handle) noexcept;
+std::filesystem::path GetModuleFilePath(void* module_handle) noexcept;
+
+// Return the base user data directory: %LOCALAPPDATA%\QiQiIME (or %TEMP%\QiQiIME fallback).
+std::filesystem::path GetAppDataDirectory();
 
 } // namespace qiqi::log
 

@@ -125,6 +125,30 @@ void TestFifthKeyPushAutoCommit() {
     QIQI_TEST_CHECK(r5_raw.action == KeyActionType::Commit);
     QIQI_TEST_CHECK(r5_raw.committed_text == L"yyyx");
     QIQI_TEST_CHECK(r5_raw.composition_text == L"a");
+
+    // Test disabling auto_commit_4code and push_commit_5th via ApplyConfig
+    QiQiConfig custom_cfg{};
+    custom_cfg.page_size = 7;
+    custom_cfg.auto_commit_4code = false;
+    custom_cfg.push_commit_5th = false;
+    engine.ApplyConfig(custom_cfg);
+    QIQI_TEST_CHECK(engine.PageSize() == 7);
+    QIQI_TEST_CHECK(!engine.AutoCommit4Code());
+    QIQI_TEST_CHECK(!engine.PushCommit5th());
+
+    // With auto_commit_4code=false, "wqvb" ("你好") stays in Composing4 instead of auto-committing
+    engine.Reset();
+    engine.ProcessKey('W');
+    engine.ProcessKey('Q');
+    engine.ProcessKey('V');
+    auto r4_no_auto = engine.ProcessKey('B');
+    QIQI_TEST_CHECK(r4_no_auto.action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.State() == EngineState::Composing4);
+
+    // With push_commit_5th=false, 5th key does not push-commit
+    auto r5_no_push = engine.ProcessKey('A');
+    QIQI_TEST_CHECK(r5_no_push.action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.RawCode() == L"wqvb");
 }
 
 void TestWildcardAndBackspaceAndCancel() {
