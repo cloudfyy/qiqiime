@@ -20,11 +20,13 @@ C:\sample\qiqiime
 │   ├── wubi86_jidian_extra.txt # 极点 86 五笔现代扩展词库（Apache-2.0，2,100 编码 / 2,216 词条）
 │   └── wubi86_haifeng.txt      # 海峰 86 五笔超大字符集词库（BSD-3-Clause，100,051 编码 / 144,374 词条，含 CJK 扩展 A/B 区生僻字）
 ├── docs/
-│   └── ARCHITECTURE.md         # 详细架构设计、TSF 接口说明、安全模型与宿主兼容指南
+│   ├── ARCHITECTURE.md         # 详细架构设计、TSF 接口说明、安全模型与宿主兼容指南
+│   └── INSTALLATION.md         # 安装（注册）、配置、升级与排障详细指南
 ├── scripts/
 │   ├── build_all.ps1           # 一键构建并测试 x64 与 x86 双架构脚本
 │   ├── register_ime.ps1        # 管理员权限注册输入法脚本（同时注册 x64 与 x86 WOW64）
-│   └── unregister_ime.ps1      # 管理员权限卸载输入法脚本（同时卸载 x86 与 x64）
+│   ├── unregister_ime.ps1      # 管理员权限卸载输入法脚本（同时卸载 x86 与 x64）
+│   └── test_install.ps1        # 一键安装、注册表/TSF Profile 校验与卸载回环测试脚本
 ├── src/
 │   ├── CMakeLists.txt          # 源码目标构建配置（qiqi_engine 静态库 + qiqiime.dll）
 │   ├── common/                 # 公共基础模块（配置、GUID、多语言、日志、DPI、RAII 句柄、音效、主题、版本）
@@ -164,15 +166,19 @@ ctest --preset x86-release
 
 ---
 
-## 4. 注册与卸载（需管理员权限）
+## 4. 安装（注册）、验证与卸载（需管理员权限）
 
 以**管理员身份**运行 PowerShell：
 
 ```powershell
-# 注册输入法
-powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\register_ime.ps1
+# 方式一：运行安装与注册表校验脚本（推荐，自动检查产物、注册 x64+x86 并校验注册表与 TSF Profile）
+powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\test_install.ps1
 
-# 卸载输入法
+# 若当前不是管理员窗口，可加 -AutoElevate 自动弹出 UAC 提权执行：
+powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\test_install.ps1 -AutoElevate
+
+# 方式二：直接注册 / 卸载输入法
+powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\register_ime.ps1
 powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\unregister_ime.ps1
 ```
 
