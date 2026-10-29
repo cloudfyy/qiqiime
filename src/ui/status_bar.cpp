@@ -608,6 +608,7 @@ ScopedMenu StatusBarUI::BuildContextMenu(ScopedGdiHandle<HBRUSH>& out_bg_brush) 
     AppendPopupItem(menu.Get(), LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang);
     AppendPopupItem(menu.Get(), LangBarMenuId::OpenSettings, str.menu_open_settings);
     AppendPopupItem(menu.Get(), LangBarMenuId::OpenConfigFile, str.menu_open_config_file);
+    AppendPopupItem(menu.Get(), LangBarMenuId::OpenAbout, str.menu_open_about);
     return menu;
 }
 

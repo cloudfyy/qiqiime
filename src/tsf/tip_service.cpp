@@ -382,6 +382,9 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
             ::ShellExecuteW(nullptr, L"open", L"notepad.exe", cfg_path.c_str(), nullptr, SW_SHOWNORMAL);
             break;
         }
+        case LangBarMenuId::OpenAbout:
+            ShowAboutDialog(g_dll_instance, nullptr, config_.ui_language);
+            break;
     }
 }
 

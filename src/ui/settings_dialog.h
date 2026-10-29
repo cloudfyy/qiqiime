@@ -17,4 +17,10 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
 // Show modal settings dialog to edit QiQiConfig. Returns true if user clicked Save (OK).
 bool ShowSettingsDialog(HINSTANCE instance, HWND parent, QiQiConfig& in_out_config) noexcept;
 
+// Create a modeless About window (used by both ShowAboutDialog and unit tests).
+ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto) noexcept;
+
+// Show modal About dialog displaying IME name ("奇奇五笔"), icon, version, GitHub URL, and licenses.
+bool ShowAboutDialog(HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto) noexcept;
+
 } // namespace qiqi

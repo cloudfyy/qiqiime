@@ -136,7 +136,7 @@ void TestLangBarButton() {
     QIQI_TEST_CHECK(btn->InitMenu(nullptr) == E_INVALIDARG);
     MockTfMenu menu_zh;
     QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_zh)));
-    QIQI_TEST_CHECK(menu_zh.item_ids_.size() == 10 && menu_zh.separators_ == 2);
+    QIQI_TEST_CHECK(menu_zh.item_ids_.size() == 11 && menu_zh.separators_ == 2);
     QIQI_TEST_CHECK(!menu_zh.item_texts_.empty() &&
                     menu_zh.item_texts_.front().find(L"中文输入模式") != std::wstring::npos);
 
@@ -149,7 +149,7 @@ void TestLangBarButton() {
                     std::wstring(tooltip.Get()).find(L"Left-click") != std::wstring::npos);
     MockTfMenu menu_en;
     QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_en)));
-    QIQI_TEST_CHECK(menu_en.item_ids_.size() == 10 && menu_en.separators_ == 2);
+    QIQI_TEST_CHECK(menu_en.item_ids_.size() == 11 && menu_en.separators_ == 2);
     QIQI_TEST_CHECK(!menu_en.item_texts_.empty() &&
                     menu_en.item_texts_.front().find(L"Chinese Input Mode") != std::wstring::npos);
 
@@ -377,6 +377,39 @@ void TestSettingsDialogControls() {
         }
     });
     QIQI_TEST_CHECK(ShowSettingsDialog(::GetModuleHandleW(nullptr), nullptr, cfg));
+
+    // Verify About dialog creation, painting, title localization, and modal ShowAboutDialog
+    QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_app_name).find(L"奇奇五笔") != std::wstring::npos);
+    QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_app_name).find(L"奇奇五笔") != std::wstring::npos);
+    QIQI_TEST_CHECK(std::wstring(kGitHubRepoUrl) == L"https://github.com/cloudfyy/qiqiime");
+    QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"cloudfyy") != std::wstring::npos);
+    QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"MIT License") != std::wstring::npos);
+    QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"Apache License 2.0") != std::wstring::npos);
+    QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"BSD 3-Clause License") != std::wstring::npos);
+
+    const ScopedWindow about_zh(CreateAboutWindow(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
+    QIQI_TEST_CHECK(about_zh.IsValid());
+    ::GetWindowTextW(about_zh.Get(), title_buf, 128);
+    QIQI_TEST_CHECK(std::wstring(title_buf) == L"关于 奇奇五笔");
+    ::ShowWindow(about_zh.Get(), SW_SHOWNOACTIVATE);
+    ::InvalidateRect(about_zh.Get(), nullptr, TRUE);
+    ::UpdateWindow(about_zh.Get());
+    ::SendMessageW(about_zh.Get(), WM_CLOSE, 0, 0);
+
+    const ScopedWindow about_en(CreateAboutWindow(::GetModuleHandleW(nullptr), nullptr, UiLanguage::EnUs));
+    QIQI_TEST_CHECK(about_en.IsValid());
+    ::GetWindowTextW(about_en.Get(), title_buf, 128);
+    QIQI_TEST_CHECK(std::wstring(title_buf) == L"About 奇奇五笔 (QiQi Wubi)");
+    ::SendMessageW(about_en.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+
+    ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+        ::KillTimer(nullptr, id);
+        const HWND dlg = ::FindWindowW(kAboutWndClass, nullptr);
+        if (dlg) {
+            ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+        }
+    });
+    QIQI_TEST_CHECK(ShowAboutDialog(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
 }
 
 void TestStatusBarUI() {
@@ -483,7 +516,7 @@ void TestStatusBarUI() {
     ScopedGdiHandle<HBRUSH> menu_brush;
     ScopedMenu popup_menu = bar.BuildContextMenu(menu_brush);
     QIQI_TEST_CHECK(popup_menu.IsValid() && menu_brush.IsValid());
-    QIQI_TEST_CHECK(::GetMenuItemCount(popup_menu.Get()) == 12); // 10 items + 2 separators
+    QIQI_TEST_CHECK(::GetMenuItemCount(popup_menu.Get()) == 13); // 11 items + 2 separators
     QIQI_TEST_CHECK((::GetMenuState(popup_menu.Get(),
         static_cast<UINT>(LangBarMenuId::ToggleStatusBar), MF_BYCOMMAND) & MF_CHECKED) != 0);
 
@@ -605,7 +638,7 @@ void TestStatusBarContextMenuState() {
                     const wchar_t* text;
                     bool checked;
                 };
-                const std::array<ExpectedItem, 10> expected{{
+                const std::array<ExpectedItem, 11> expected{{
                     {LangBarMenuId::ToggleChinese, strings.menu_toggle_chinese, enabled},
                     {LangBarMenuId::ToggleFullWidth, strings.menu_toggle_full_width, enabled},
                     {LangBarMenuId::TogglePunctuation, strings.menu_toggle_punct, enabled},
@@ -615,12 +648,13 @@ void TestStatusBarContextMenuState() {
                     {LangBarMenuId::ToggleStatusBar, strings.menu_toggle_status_bar, false},
                     {LangBarMenuId::ToggleUiLanguage, strings.menu_toggle_ui_lang, false},
                     {LangBarMenuId::OpenSettings, strings.menu_open_settings, false},
-                    {LangBarMenuId::OpenConfigFile, strings.menu_open_config_file, false}
+                    {LangBarMenuId::OpenConfigFile, strings.menu_open_config_file, false},
+                    {LangBarMenuId::OpenAbout, strings.menu_open_about, false}
                 }};
                 ScopedGdiHandle<HBRUSH> brush;
                 const ScopedMenu menu = bar.BuildContextMenu(brush);
                 QIQI_TEST_CHECK(menu.IsValid() && brush.IsValid());
-                QIQI_TEST_CHECK(::GetMenuItemCount(menu.Get()) == 12);
+                QIQI_TEST_CHECK(::GetMenuItemCount(menu.Get()) == 13);
                 for (const UINT position : {3u, 7u}) {
                     QIQI_TEST_CHECK((::GetMenuState(menu.Get(), position, MF_BYPOSITION) & MF_SEPARATOR) != 0);
                 }

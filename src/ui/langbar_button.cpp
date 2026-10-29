@@ -138,6 +138,7 @@ STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
     AddMenuEntry(pMenu, LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang);
     AddMenuEntry(pMenu, LangBarMenuId::OpenSettings, str.menu_open_settings);
     AddMenuEntry(pMenu, LangBarMenuId::OpenConfigFile, str.menu_open_config_file);
+    AddMenuEntry(pMenu, LangBarMenuId::OpenAbout, str.menu_open_about);
     return S_OK;
 }
 

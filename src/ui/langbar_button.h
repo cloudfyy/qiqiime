@@ -23,7 +23,8 @@ enum class LangBarMenuId : UINT {
     ToggleStatusBar = 7,
     OpenSettings = 8,
     OpenConfigFile = 9,
-    ToggleUiLanguage = 10
+    ToggleUiLanguage = 10,
+    OpenAbout = 11
 };
 
 struct LangBarState {

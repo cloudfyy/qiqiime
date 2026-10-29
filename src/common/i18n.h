@@ -22,6 +22,7 @@ struct UiStrings {
     const wchar_t* menu_toggle_ui_lang;
     const wchar_t* menu_open_settings;
     const wchar_t* menu_open_config_file;
+    const wchar_t* menu_open_about;
 
     // Floating desktop status bar
     const wchar_t* status_logo;
@@ -56,8 +57,16 @@ struct UiStrings {
     const wchar_t* dlg_lang_zh;
     const wchar_t* dlg_lang_en;
     const wchar_t* dlg_btn_open_ini;
+    const wchar_t* dlg_btn_about;
     const wchar_t* dlg_btn_ok;
     const wchar_t* dlg_btn_cancel;
+
+    // About dialog
+    const wchar_t* about_title;
+    const wchar_t* about_app_name;
+    const wchar_t* about_version_prefix;
+    const wchar_t* about_license_info;
+    const wchar_t* about_btn_github;
 };
 
 inline constexpr UiStrings kZhCnStrings = {
@@ -76,6 +85,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"Switch to English UI (英文界面)",
     L"输入法属性设置...",
     L"编辑配置文件 (config.ini)",
+    L"关于奇奇五笔...",
 
     L"五笔",
     L"中",
@@ -108,8 +118,18 @@ inline constexpr UiStrings kZhCnStrings = {
     L"简体中文 (zh-CN)",
     L"English (en-US)",
     L"编辑 config.ini",
+    L"关于...",
     L"确定",
-    L"取消"
+    L"取消",
+
+    L"关于 奇奇五笔",
+    L"奇奇五笔 (QiQi Wubi IME)",
+    L"版本: v",
+    L"开源许可协议 (Licenses):\n"
+    L"• 奇奇五笔 (QiQiIME) 主程序 (cloudfyy): MIT License\n"
+    L"• 极点五笔 86 词库 (KyleBing): Apache License 2.0\n"
+    L"• 海峰五笔 86 词库 (孙海峰): BSD 3-Clause License",
+    L"访问 GitHub"
 };
 
 inline constexpr UiStrings kEnUsStrings = {
@@ -128,6 +148,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"切换中文界面 (Chinese UI)",
     L"IME Settings...",
     L"Edit Config File (config.ini)",
+    L"About QiQi Wubi...",
 
     L"Wubi",
     L"CN",
@@ -160,8 +181,18 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Simplified Chinese (zh-CN)",
     L"English (en-US)",
     L"Edit config.ini",
+    L"About...",
     L"OK",
-    L"Cancel"
+    L"Cancel",
+
+    L"About 奇奇五笔 (QiQi Wubi)",
+    L"奇奇五笔 (QiQi Wubi IME)",
+    L"Version: v",
+    L"Open Source Licenses:\n"
+    L"• 奇奇五笔 (QiQiIME) Core (cloudfyy): MIT License\n"
+    L"• Jidian Wubi 86 Dict (KyleBing): Apache License 2.0\n"
+    L"• Haifeng Wubi 86 Dict (SUN Haifeng): BSD 3-Clause License",
+    L"Visit GitHub"
 };
 
 inline UiLanguage ResolveUiLanguage(UiLanguage configured) noexcept {
