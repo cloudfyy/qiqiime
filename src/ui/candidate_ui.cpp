@@ -8,12 +8,26 @@
 #include <gsl/gsl>
 #include <oleauto.h>
 #include <algorithm>
+#include <cmath>
 #include <span>
 
 namespace qiqi {
 
+namespace {
+
+constexpr D2D1_COLOR_F ColorRefToD2DColor(COLORREF c) noexcept {
+    return D2D1::ColorF(
+        static_cast<float>(GetRValue(c)) / 255.0f,
+        static_cast<float>(GetGValue(c)) / 255.0f,
+        static_cast<float>(GetBValue(c)) / 255.0f,
+        1.0f);
+}
+
+} // namespace
+
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
     ++g_com_object_count;
+    InitDirect2DAndDirectWrite();
     UpdateDpiAndFont(96);
 }
 
@@ -22,9 +36,31 @@ CandidateUI::~CandidateUI() noexcept {
     --g_com_object_count;
 }
 
+void CandidateUI::InitDirect2DAndDirectWrite() noexcept {
+    std::ignore = ::D2D1CreateFactory(
+        D2D1_FACTORY_TYPE_SINGLE_THREADED,
+        __uuidof(ID2D1Factory),
+        nullptr,
+        reinterpret_cast<void**>(d2d_factory_.ReleaseAndGetAddressOf()));
+
+    std::ignore = ::DWriteCreateFactory(
+        DWRITE_FACTORY_TYPE_SHARED,
+        __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown**>(dwrite_factory_.ReleaseAndGetAddressOf()));
+
+    if (d2d_factory_) {
+        const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+            D2D1_RENDER_TARGET_TYPE_DEFAULT,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
+            96.0f,
+            96.0f);
+        std::ignore = d2d_factory_->CreateDCRenderTarget(&props, &d2d_dc_target_);
+    }
+}
+
 void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
     const UINT effective_dpi = new_dpi > 0 ? new_dpi : 96u;
-    if (font_.IsValid() && dpi_ == effective_dpi) {
+    if (font_.IsValid() && dpi_ == effective_dpi && dwrite_text_format_) {
         return;
     }
     dpi_ = effective_dpi;
@@ -37,12 +73,59 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
     lf.lfQuality = CLEARTYPE_QUALITY;
     wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
     font_.Reset(::CreateFontIndirectW(&lf));
+
+    if (dwrite_factory_) {
+        dwrite_text_format_.Reset();
+        if (SUCCEEDED(dwrite_factory_->CreateTextFormat(
+                L"Microsoft YaHei UI",
+                nullptr,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                static_cast<float>(ScaleByDpi(16)),
+                L"zh-CN",
+                &dwrite_text_format_)) &&
+            dwrite_text_format_) {
+            dwrite_text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            dwrite_text_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        }
+    }
+}
+
+int CandidateUI::MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const noexcept {
+    if (text.empty()) {
+        return 0;
+    }
+    if (dwrite_factory_ && dwrite_text_format_) {
+        ComPtr<IDWriteTextLayout> layout;
+        if (SUCCEEDED(dwrite_factory_->CreateTextLayout(
+                text.data(),
+                gsl::narrow_cast<UINT32>(text.size()),
+                dwrite_text_format_.Get(),
+                4096.0f,
+                static_cast<float>(popup_height_),
+                &layout)) &&
+            layout) {
+            DWRITE_TEXT_METRICS metrics{};
+            if (SUCCEEDED(layout->GetMetrics(&metrics))) {
+                return gsl::narrow_cast<int>(std::ceil(metrics.widthIncludingTrailingWhitespace));
+            }
+        }
+    }
+    if (fallback_dc) {
+        SIZE sz{};
+        if (::GetTextExtentPoint32W(
+                fallback_dc, text.data(), gsl::narrow_cast<int>(text.size()), &sz)) {
+            return sz.cx;
+        }
+    }
+    return gsl::narrow_cast<int>(text.size()) * ScaleByDpi(12);
 }
 
 void CandidateUI::RecalculatePopupLayout() {
     candidate_hit_rects_.clear();
     const ScopedWindowDC screen_dc(hwnd_.Get());
-    if (!screen_dc) {
+    if (!screen_dc && !dwrite_text_format_) {
         popup_width_ = ScaleByDpi(kPopupWidth);
         popup_height_ = ScaleByDpi(kPopupHeight);
         return;
@@ -61,8 +144,7 @@ void CandidateUI::RecalculatePopupLayout() {
     if (total_pages > 1) {
         header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
     }
-    SIZE header_sz{};
-    ::GetTextExtentPoint32W(screen_dc.Get(), header.c_str(), gsl::narrow_cast<int>(header.size()), &header_sz);
+    const int header_cx = MeasureTextWidth(screen_dc.Get(), header);
 
     int cursor_x = margin_x;
     const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
@@ -73,14 +155,13 @@ void CandidateUI::RecalculatePopupLayout() {
             ? (L"[" + std::to_wstring(idx_in_page + 1) + L"." + cand_str + L"]")
             : (std::to_wstring(idx_in_page + 1) + L"." + cand_str);
 
-        SIZE item_sz{};
-        ::GetTextExtentPoint32W(screen_dc.Get(), label.c_str(), gsl::narrow_cast<int>(label.size()), &item_sz);
-        const RECT hit_rc{cursor_x, row2_top, cursor_x + item_sz.cx, row2_bottom};
+        const int item_cx = MeasureTextWidth(screen_dc.Get(), label);
+        const RECT hit_rc{cursor_x, row2_top, cursor_x + item_cx, row2_bottom};
         candidate_hit_rects_.push_back(hit_rc);
-        cursor_x += item_sz.cx + item_gap;
+        cursor_x += item_cx + item_gap;
     }
 
-    const int content_width = std::max<int>(header_sz.cx + margin_x * 2, cursor_x + margin_x);
+    const int content_width = std::max<int>(header_cx + margin_x * 2, cursor_x + margin_x);
     popup_width_ = std::max(ScaleByDpi(kPopupWidth), content_width);
     popup_height_ = ScaleByDpi(kPopupHeight);
 }
@@ -311,7 +392,96 @@ void CandidateUI::DestroyPopupWindow() noexcept {
     is_shown_ = FALSE;
 }
 
+bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const noexcept {
+    if (!hdc || !d2d_dc_target_ || !dwrite_text_format_) {
+        return false;
+    }
+    if (FAILED(d2d_dc_target_->BindDC(hdc, &client_rect))) {
+        return false;
+    }
+
+    const auto& palette = GetCurrentThemePalette();
+    ComPtr<ID2D1SolidColorBrush> accent_brush;
+    ComPtr<ID2D1SolidColorBrush> primary_brush;
+    if (FAILED(d2d_dc_target_->CreateSolidColorBrush(ColorRefToD2DColor(palette.text_accent), &accent_brush)) ||
+        FAILED(d2d_dc_target_->CreateSolidColorBrush(ColorRefToD2DColor(palette.text_primary), &primary_brush)) ||
+        !accent_brush || !primary_brush) {
+        return false;
+    }
+
+    d2d_dc_target_->BeginDraw();
+    d2d_dc_target_->Clear(ColorRefToD2DColor(palette.window_bg));
+
+    const auto& str = GetUiStrings(ui_language_);
+    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
+    std::wstring header = std::wstring(str.candidate_header_prefix) + raw_code_ + L"]";
+    if (total_pages > 1) {
+        header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
+    }
+    const D2D1_RECT_F top_rc = D2D1::RectF(
+        static_cast<float>(ScaleByDpi(10)),
+        static_cast<float>(ScaleByDpi(6)),
+        static_cast<float>(client_rect.right - ScaleByDpi(10)),
+        static_cast<float>(ScaleByDpi(30)));
+    d2d_dc_target_->DrawTextW(
+        header.c_str(),
+        gsl::narrow_cast<UINT32>(header.size()),
+        dwrite_text_format_.Get(),
+        top_rc,
+        accent_brush.Get(),
+        D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+
+    const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
+    if (start >= end) {
+        const D2D1_RECT_F empty_rc = D2D1::RectF(
+            static_cast<float>(ScaleByDpi(10)),
+            static_cast<float>(ScaleByDpi(32)),
+            static_cast<float>(client_rect.right - ScaleByDpi(10)),
+            static_cast<float>(client_rect.bottom - ScaleByDpi(4)));
+        d2d_dc_target_->DrawTextW(
+            str.candidate_empty,
+            gsl::narrow_cast<UINT32>(wcslen(str.candidate_empty)),
+            dwrite_text_format_.Get(),
+            empty_rc,
+            primary_brush.Get(),
+            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            const size_t idx_in_page = i - start;
+            const auto& cand_str = gsl::at(all_candidates_, i);
+            const std::wstring label = (idx_in_page == selected_in_page_)
+                ? (L"[" + std::to_wstring(idx_in_page + 1) + L"." + cand_str + L"]")
+                : (std::to_wstring(idx_in_page + 1) + L"." + cand_str);
+
+            const RECT item_rc = (idx_in_page < candidate_hit_rects_.size())
+                ? gsl::at(candidate_hit_rects_, idx_in_page)
+                : RECT{ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
+            const D2D1_RECT_F d2d_rc = D2D1::RectF(
+                static_cast<float>(item_rc.left),
+                static_cast<float>(item_rc.top),
+                static_cast<float>(item_rc.right + ScaleByDpi(8)),
+                static_cast<float>(item_rc.bottom));
+            d2d_dc_target_->DrawTextW(
+                label.c_str(),
+                gsl::narrow_cast<UINT32>(label.size()),
+                dwrite_text_format_.Get(),
+                d2d_rc,
+                (idx_in_page == selected_in_page_) ? accent_brush.Get() : primary_brush.Get(),
+                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+        }
+    }
+
+    if (FAILED(d2d_dc_target_->EndDraw())) {
+        d2d_dc_target_.Reset();
+        return false;
+    }
+    return true;
+}
+
 void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
+    if (PaintPopupDirect2D(hdc, client_rect)) {
+        return;
+    }
     const auto& palette = GetCurrentThemePalette();
     const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.window_bg));
     ::FillRect(hdc, &client_rect, bg_brush.Get());

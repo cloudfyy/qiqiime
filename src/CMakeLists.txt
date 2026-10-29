@@ -77,6 +77,8 @@ target_link_libraries(qiqiime PRIVATE
     qiqi_engine
     user32
     gdi32
+    d2d1
+    dwrite
     shell32
     ole32
     oleaut32

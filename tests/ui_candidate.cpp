@@ -255,10 +255,11 @@ void TestCandidateUI() {
     QIQI_TEST_CHECK(std::wstring(str.Get()) == L"七");
     QIQI_TEST_CHECK(ui->GetString(7, str.Put()) == E_INVALIDARG);
 
-    // Test off-screen work area clamping, long candidate auto-sizing, DPI change, & mouse click selection
+    // Test off-screen work area clamping, long candidate auto-sizing, Direct2D/DirectWrite CJK Ext-B & Emoji rendering, DPI change, & mouse click selection
+    QIQI_TEST_CHECK(ui->IsDirectWriteActive());
     ui->SetUiLanguage(UiLanguage::EnUs);
     std::vector<std::wstring> long_cands = {
-        L"恭恭敬敬一二三四", L"花花世界五六七八", L"劳苦功高九十", L"草草了事", L"芙蓉出水"};
+        L"恭恭敬敬一二三四", L"𠀀𠀁生僻字🚀", L"花花世界五六七八", L"劳苦功高九十", L"芙蓉出水"};
     ui->SetCandidates(L"aaaa", long_cands, 5, 0, 0);
     QIQI_TEST_CHECK(ui->CurrentWidth() > CandidateUI::kPopupWidth);
 

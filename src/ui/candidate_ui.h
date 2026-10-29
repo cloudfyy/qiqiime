@@ -1,6 +1,9 @@
 #pragma once
 #include <windows.h>
+#include <d2d1.h>
+#include <dwrite.h>
 #include <msctf.h>
+#include <wrl/client.h>
 #include <atomic>
 #include <functional>
 #include <string>
@@ -10,6 +13,8 @@
 #include "common/scoped_handle.h"
 
 namespace qiqi {
+
+using Microsoft::WRL::ComPtr;
 
 // Implements ITfCandidateListUIElement so both regular desktop apps (popup window)
 // and fullscreen games in UILess mode (ITfUIElementSink) can render candidates.
@@ -70,13 +75,17 @@ public:
 
     DWORD UiElementId() const noexcept { return ui_element_id_; }
     void SetUiElementId(DWORD id) noexcept { ui_element_id_ = id; }
+    bool IsDirectWriteActive() const noexcept { return dwrite_text_format_ != nullptr && d2d_dc_target_ != nullptr; }
 
 private:
     int ScaleByDpi(int px) const noexcept { return ::MulDiv(px, dpi_, 96); }
+    void InitDirect2DAndDirectWrite() noexcept;
     void UpdateDpiAndFont(UINT new_dpi) noexcept;
+    int MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const noexcept;
     void RecalculatePopupLayout();
     void OnLeftButtonDown(POINT pt) const;
     bool EnsurePopupWindow() noexcept;
+    bool PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const noexcept;
     void PaintPopup(HDC hdc, const RECT& client_rect) const;
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
@@ -84,6 +93,10 @@ private:
     HINSTANCE instance_ = nullptr;
     ScopedWindow hwnd_;
     ScopedGdiHandle<HFONT> font_;
+    ComPtr<ID2D1Factory> d2d_factory_;
+    mutable ComPtr<ID2D1DCRenderTarget> d2d_dc_target_;
+    ComPtr<IDWriteFactory> dwrite_factory_;
+    ComPtr<IDWriteTextFormat> dwrite_text_format_;
     UINT dpi_ = 96;
     int popup_width_ = kPopupWidth;
     int popup_height_ = kPopupHeight;
