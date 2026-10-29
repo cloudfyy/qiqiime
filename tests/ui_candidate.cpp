@@ -1,6 +1,7 @@
 #include "common.h"
 #include "common/guids.h"
 #include "common/i18n.h"
+#include "common/monitor_dpi.h"
 #include "common/theme.h"
 #include "ui/candidate_ui.h"
 #include "ui/langbar_button.h"
@@ -495,6 +496,78 @@ void TestStatusBarUI() {
     bar.DestroyBarWindow();
 }
 
+void TestMultiMonitorAndPerMonitorDpi() {
+    // Simulate a secondary monitor located to the left/top of primary monitor (negative coordinates) at 144 DPI (150%)
+    MonitorMetrics secondary_mon{};
+    secondary_mon.work_area = RECT{-1920, -1080, 0, 0};
+    secondary_mon.dpi = 144;
+    SetMonitorMetricsOverrideForTest(secondary_mon);
+
+    // 1. CandidateUI on negative-coordinate high-DPI secondary monitor
+    auto* cand_ui = new CandidateUI(::GetModuleHandleW(nullptr));
+    QIQI_TEST_CHECK(SUCCEEDED(cand_ui->Show(TRUE)));
+    cand_ui->SetCandidates(L"abcd", {L"一", L"二", L"三"}, 5, 0, 0);
+
+    // Move near bottom-right of secondary monitor -> should flip above and clamp within [-1920..0, -1080..0]
+    RECT near_bottom_right{-50, -20, -10, -2};
+    cand_ui->MoveWindowTo(near_bottom_right);
+    QIQI_TEST_CHECK(cand_ui->CurrentHeight() == ScalePxByDpi(CandidateUI::kPopupHeight, 144));
+
+    // Also test WM_DPICHANGED with suggested RECT* on CandidateUI
+    RECT suggested_cand{-1500, -800, -1000, -700};
+    if (cand_ui->WindowHandle()) {
+        ::SendMessageW(
+            cand_ui->WindowHandle(),
+            WM_DPICHANGED,
+            MAKEWPARAM(192, 192),
+            reinterpret_cast<LPARAM>(&suggested_cand));
+        QIQI_TEST_CHECK(cand_ui->CurrentHeight() == ScalePxByDpi(CandidateUI::kPopupHeight, 192));
+    }
+    cand_ui->DestroyPopupWindow();
+    QIQI_TEST_CHECK(cand_ui->Release() == 0);
+
+    // 2. StatusBarUI on negative-coordinate high-DPI secondary monitor
+    StatusBarUI bar(::GetModuleHandleW(nullptr));
+    LangBarState st{};
+    st.show_status_bar = true;
+    bar.UpdateState(st);
+    QIQI_TEST_CHECK(bar.CurrentDpi() == 144);
+    QIQI_TEST_CHECK(bar.CurrentWidth() == ScalePxByDpi(StatusBarUI::kBarWidth, 144));
+    QIQI_TEST_CHECK(bar.Position().x >= secondary_mon.work_area.left &&
+                    bar.Position().x + bar.CurrentWidth() <= secondary_mon.work_area.right);
+    QIQI_TEST_CHECK(bar.Position().y >= secondary_mon.work_area.top &&
+                    bar.Position().y + bar.CurrentHeight() <= secondary_mon.work_area.bottom);
+
+    // Drag status bar near top of secondary monitor and trigger tooltip (flips below bar and clamps to work_area)
+    if (bar.WindowHandle()) {
+        ::SendMessageW(bar.WindowHandle(), WM_MOVE, 0, MAKELPARAM(-1910, -1075));
+        ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(45, 18));
+        QIQI_TEST_CHECK(!bar.ActiveTooltipText().empty());
+
+        // Simulate cross-monitor WM_DPICHANGED with suggested rect and WM_DISPLAYCHANGE re-clamping
+        RECT suggested_bar{-1200, -600, -900, -550};
+        ::SendMessageW(
+            bar.WindowHandle(),
+            WM_DPICHANGED,
+            MAKEWPARAM(192, 192),
+            reinterpret_cast<LPARAM>(&suggested_bar));
+        ::SendMessageW(bar.WindowHandle(), WM_DISPLAYCHANGE, 32, MAKELPARAM(1920, 1080));
+    }
+    bar.DestroyBarWindow();
+
+    // 3. SettingsDialog centered & DPI-scaled on secondary monitor
+    QiQiConfig cfg{};
+    HWND dlg = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg);
+    QIQI_TEST_CHECK(dlg != nullptr);
+    RECT dlg_rc{};
+    ::GetWindowRect(dlg, &dlg_rc);
+    QIQI_TEST_CHECK(dlg_rc.left >= secondary_mon.work_area.left &&
+                    dlg_rc.right <= secondary_mon.work_area.right);
+    ::DestroyWindow(dlg);
+
+    SetMonitorMetricsOverrideForTest(std::nullopt);
+}
+
 } // namespace
 
 void RunCandidateUITests() {
@@ -502,6 +575,7 @@ void RunCandidateUITests() {
     TestLangBarButton();
     TestSettingsDialogControls();
     TestStatusBarUI();
+    TestMultiMonitorAndPerMonitorDpi();
 }
 
 } // namespace qiqi::test

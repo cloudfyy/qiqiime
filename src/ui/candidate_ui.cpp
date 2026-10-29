@@ -2,6 +2,7 @@
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
+#include "common/monitor_dpi.h"
 #include "common/theme.h"
 #include "engine/wubi_fsm.h"
 #include <gsl/gsl>
@@ -254,26 +255,18 @@ void CandidateUI::MoveWindowTo(const RECT& text_rect) {
     popup_pos_.x = text_rect.left;
     popup_pos_.y = text_rect.bottom + 4;
 
-    if (hwnd_) {
-        const UINT wnd_dpi = ::GetDpiForWindow(hwnd_);
-        if (wnd_dpi > 0 && wnd_dpi != dpi_) {
-            UpdateDpiAndFont(wnd_dpi);
-            RecalculatePopupLayout();
-        }
+    const MonitorMetrics mon = QueryMonitorForPoint(popup_pos_, hwnd_);
+    if (mon.dpi != dpi_) {
+        UpdateDpiAndFont(mon.dpi);
+        RecalculatePopupLayout();
     }
 
-    // Clamp to monitor work area so popup doesn't go off-screen
-    HMONITOR mon = ::MonitorFromPoint(popup_pos_, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO mi{};
-    mi.cbSize = sizeof(mi);
-    if (::GetMonitorInfoW(mon, &mi)) {
-        if (popup_pos_.x + popup_width_ > mi.rcWork.right) {
-            popup_pos_.x = std::max(mi.rcWork.left, mi.rcWork.right - popup_width_);
-        }
-        if (popup_pos_.y + popup_height_ > mi.rcWork.bottom) {
-            popup_pos_.y = std::max(mi.rcWork.top, text_rect.top - popup_height_ - 4);
-        }
+    // Flip above composition text if popup would overflow bottom of target monitor's work area
+    if (popup_pos_.y + popup_height_ > mon.work_area.bottom) {
+        popup_pos_.y = text_rect.top - popup_height_ - 4;
     }
+    // Clamp all 4 edges (left/top/right/bottom, including negative multi-monitor coordinates)
+    popup_pos_ = ClampPointToWorkArea(popup_pos_, popup_width_, popup_height_, mon.work_area);
 
     if (hwnd_) {
         ::SetWindowPos(hwnd_, HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
@@ -386,6 +379,19 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     if (msg == WM_DPICHANGED) {
         self->UpdateDpiAndFont(HIWORD(wparam));
         self->RecalculatePopupLayout();
+        if (lparam != 0) {
+            const auto* suggested = reinterpret_cast<const RECT*>(lparam);
+            self->popup_pos_.x = suggested->left;
+            self->popup_pos_.y = suggested->top;
+            ::SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                self->popup_pos_.x,
+                self->popup_pos_.y,
+                self->popup_width_,
+                self->popup_height_,
+                SWP_NOACTIVATE | (self->is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+        }
         return 0;
     }
     if (msg == WM_PAINT) {

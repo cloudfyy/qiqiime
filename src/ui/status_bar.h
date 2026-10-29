@@ -38,6 +38,9 @@ public:
     HWND WindowHandle() const noexcept { return hwnd_; }
     HWND TooltipWindowHandle() const noexcept { return tooltip_hwnd_; }
     POINT Position() const noexcept { return pos_; }
+    UINT CurrentDpi() const noexcept { return dpi_; }
+    int CurrentWidth() const noexcept { return ScaleByDpi(kBarWidth); }
+    int CurrentHeight() const noexcept { return ScaleByDpi(kBarHeight); }
     int HoveredZone() const noexcept { return hovered_zone_; }
     const std::wstring& ActiveTooltipText() const noexcept { return active_tooltip_text_; }
 
@@ -48,6 +51,9 @@ public:
     ScopedMenu BuildContextMenu(ScopedGdiHandle<HBRUSH>& out_bg_brush) const noexcept;
 
 private:
+    int ScaleByDpi(int px) const noexcept;
+    void UpdateDpiAndFonts(UINT new_dpi) noexcept;
+    void ClampToCurrentMonitor() noexcept;
     int HitTestZone(int client_x) const noexcept;
     bool EnsureBarWindow() noexcept;
     bool EnsureTooltipWindow() noexcept;
@@ -67,6 +73,7 @@ private:
     HWND tooltip_hwnd_ = nullptr;
     ScopedGdiHandle<HFONT> font_;
     ScopedGdiHandle<HFONT> tooltip_font_;
+    UINT dpi_ = 96;
     bool visible_ = false;
     POINT pos_{0, 0};
     bool pos_initialized_ = false;

@@ -1,6 +1,7 @@
 #include "ui/status_bar.h"
 #include "common/guids.h"
 #include "common/i18n.h"
+#include "common/monitor_dpi.h"
 #include "common/theme.h"
 
 #include <gsl/gsl>
@@ -23,22 +24,54 @@ void AppendPopupItem(HMENU menu, LangBarMenuId id, const wchar_t* text, bool che
 
 StatusBarUI::StatusBarUI(HINSTANCE instance, ActionCallback cb) noexcept
     : instance_(instance), action_callback_(std::move(cb)) {
+    UpdateDpiAndFonts(96);
+}
+
+StatusBarUI::~StatusBarUI() noexcept {
+    DestroyBarWindow();
+}
+
+int StatusBarUI::ScaleByDpi(int px) const noexcept {
+    return ScalePxByDpi(px, dpi_);
+}
+
+void StatusBarUI::UpdateDpiAndFonts(UINT new_dpi) noexcept {
+    const UINT effective_dpi = new_dpi > 0 ? new_dpi : 96u;
+    if (font_.IsValid() && tooltip_font_.IsValid() && dpi_ == effective_dpi) {
+        return;
+    }
+    dpi_ = effective_dpi;
+
     LOGFONTW lf{};
-    lf.lfHeight = -18;
+    lf.lfHeight = -ScaleByDpi(18);
     lf.lfWeight = FW_NORMAL;
     lf.lfCharSet = DEFAULT_CHARSET;
     lf.lfQuality = CLEARTYPE_QUALITY;
     wcscpy_s(lf.lfFaceName, L"Segoe UI Symbol");
     font_.Reset(::CreateFontIndirectW(&lf));
 
-    lf.lfHeight = -13;
+    lf.lfHeight = -ScaleByDpi(13);
     lf.lfWeight = FW_NORMAL;
     wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
     tooltip_font_.Reset(::CreateFontIndirectW(&lf));
 }
 
-StatusBarUI::~StatusBarUI() noexcept {
-    DestroyBarWindow();
+void StatusBarUI::ClampToCurrentMonitor() noexcept {
+    const MonitorMetrics mon = QueryMonitorForPoint(pos_, hwnd_);
+    if (mon.dpi != dpi_) {
+        UpdateDpiAndFonts(mon.dpi);
+    }
+    pos_ = ClampPointToWorkArea(pos_, CurrentWidth(), CurrentHeight(), mon.work_area);
+    if (hwnd_ && ::IsWindow(hwnd_)) {
+        ::SetWindowPos(
+            hwnd_,
+            HWND_TOPMOST,
+            pos_.x,
+            pos_.y,
+            CurrentWidth(),
+            CurrentHeight(),
+            SWP_NOACTIVATE | (visible_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+    }
 }
 
 void StatusBarUI::Show(bool visible) noexcept {
@@ -71,11 +104,16 @@ bool StatusBarUI::EnsureBarWindow() noexcept {
     }
 
     if (!pos_initialized_) {
-        RECT work_rc{0, 0, 1280, 720};
-        ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_rc, 0);
-        pos_.x = std::max<LONG>(work_rc.left, work_rc.right - kBarWidth - 24);
-        pos_.y = std::max<LONG>(work_rc.top, work_rc.bottom - kBarHeight - 24);
+        const MonitorMetrics active_mon = QueryActiveMonitor();
+        UpdateDpiAndFonts(active_mon.dpi);
+        pos_.x = active_mon.work_area.right - CurrentWidth() - ScaleByDpi(24);
+        pos_.y = active_mon.work_area.bottom - CurrentHeight() - ScaleByDpi(24);
+        pos_ = ClampPointToWorkArea(pos_, CurrentWidth(), CurrentHeight(), active_mon.work_area);
         pos_initialized_ = true;
+    } else {
+        const MonitorMetrics mon = QueryMonitorForPoint(pos_);
+        UpdateDpiAndFonts(mon.dpi);
+        pos_ = ClampPointToWorkArea(pos_, CurrentWidth(), CurrentHeight(), mon.work_area);
     }
 
     WNDCLASSEXW wc{};
@@ -93,7 +131,7 @@ bool StatusBarUI::EnsureBarWindow() noexcept {
         kStatusBarWndClass,
         L"",
         WS_POPUP,
-        pos_.x, pos_.y, kBarWidth, kBarHeight,
+        pos_.x, pos_.y, CurrentWidth(), CurrentHeight(),
         nullptr, nullptr, instance_, this);
     if (hwnd_) {
         ApplySystemThemeToMenuAndWindow(hwnd_, IsSystemDarkTheme());
@@ -143,13 +181,16 @@ void StatusBarUI::DestroyBarWindow() noexcept {
 }
 
 int StatusBarUI::HitTestZone(int client_x) const noexcept {
-    if (client_x < 0 || client_x >= kBarWidth) {
+    const int bar_w = CurrentWidth();
+    const int buttons_offset = ScaleByDpi(kButtonsOffset);
+    const int cell_w = ScaleByDpi(kCellWidth);
+    if (client_x < 0 || client_x >= bar_w) {
         return -1;
     }
-    if (client_x < kButtonsOffset) {
-        return 0; // Gripper + Logo drag zone
+    if (client_x < buttons_offset) {
+        return 0; // Gripper drag zone
     }
-    const int cell_idx = (client_x - kButtonsOffset) / kCellWidth;
+    const int cell_idx = (client_x - buttons_offset) / std::max(1, cell_w);
     if (cell_idx >= 0 && cell_idx < kCellCount) {
         return cell_idx + 1; // 1..4
     }
@@ -179,7 +220,7 @@ void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
         return;
     }
 
-    int tip_w = 180;
+    int tip_w = ScaleByDpi(180);
     const ScopedWindowDC dc(tooltip_hwnd_);
     if (dc) {
         const ScopedSelectObject sel_font(dc.Get(), tooltip_font_.Get());
@@ -189,7 +230,7 @@ void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
                 active_tooltip_text_.c_str(),
                 gsl::narrow_cast<int>(active_tooltip_text_.size()),
                 &sz)) {
-            tip_w = std::max<int>(80, sz.cx + 16);
+            tip_w = std::max<int>(ScaleByDpi(80), sz.cx + ScaleByDpi(16));
         }
     }
 
@@ -197,17 +238,22 @@ void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
     if (hwnd_) {
         ::GetWindowRect(hwnd_, &bar_rc);
     } else {
-        bar_rc = {pos_.x, pos_.y, pos_.x + kBarWidth, pos_.y + kBarHeight};
+        bar_rc = {pos_.x, pos_.y, pos_.x + CurrentWidth(), pos_.y + CurrentHeight()};
     }
-    const int tip_h = 24;
-    const int tip_x = bar_rc.left;
-    const int tip_y = (bar_rc.top >= tip_h + 4) ? (bar_rc.top - tip_h - 4) : (bar_rc.bottom + 4);
+    const MonitorMetrics mon = QueryMonitorForPoint(POINT{bar_rc.left, bar_rc.top}, hwnd_);
+    const int tip_h = ScaleByDpi(24);
+    const int gap = ScaleByDpi(4);
+    POINT tip_pos{
+        bar_rc.left,
+        (bar_rc.top - tip_h - gap >= mon.work_area.top) ? (bar_rc.top - tip_h - gap) : (bar_rc.bottom + gap)
+    };
+    tip_pos = ClampPointToWorkArea(tip_pos, tip_w, tip_h, mon.work_area);
 
     ::SetWindowPos(
         tooltip_hwnd_,
         HWND_TOPMOST,
-        tip_x,
-        tip_y,
+        tip_pos.x,
+        tip_pos.y,
         tip_w,
         tip_h,
         SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -223,6 +269,10 @@ void StatusBarUI::HideTooltip() noexcept {
 
 void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) const {
     const auto& palette = GetCurrentThemePalette();
+    const int grip_w = ScaleByDpi(kGripWidth);
+    const int buttons_offset = ScaleByDpi(kButtonsOffset);
+    const int cell_w = ScaleByDpi(kCellWidth);
+    const int corner_r = ScaleByDpi(10);
 
     const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.window_bg));
     const ScopedGdiHandle<HPEN> border_pen(::CreatePen(PS_SOLID, 1, palette.border_color));
@@ -230,24 +280,26 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) const {
     {
         const ScopedSelectObject sel_pen(hdc, border_pen.Get());
         const ScopedSelectObject sel_brush(hdc, bg_brush.Get());
-        ::RoundRect(hdc, client_rect.left, client_rect.top, client_rect.right, client_rect.bottom, 10, 10);
+        ::RoundRect(hdc, client_rect.left, client_rect.top, client_rect.right, client_rect.bottom, corner_r, corner_r);
     }
 
-    // 1. Leftmost drag gripper area [0, kGripWidth):
+    // 1. Leftmost drag gripper area [0, grip_w):
     //    Draw centered vertical rounded pill bar (|) + 1px vertical divider line on its right edge
     {
         const ScopedGdiHandle<HBRUSH> pill_brush(::CreateSolidBrush(palette.grip_dot));
         const ScopedGdiHandle<HPEN> pill_pen(::CreatePen(PS_SOLID, 1, palette.grip_dot));
         const ScopedSelectObject sel_pill_pen(hdc, pill_pen.Get());
         const ScopedSelectObject sel_pill_brush(hdc, pill_brush.Get());
-        const int pill_left = (kGripWidth - 4) / 2;
-        const int pill_top = (client_rect.bottom - 16) / 2;
-        ::RoundRect(hdc, pill_left, pill_top, pill_left + 4, pill_top + 16, 4, 4);
+        const int pill_w = std::max(3, ScaleByDpi(4));
+        const int pill_h = std::max(12, ScaleByDpi(16));
+        const int pill_left = (grip_w - pill_w) / 2;
+        const int pill_top = (client_rect.bottom - pill_h) / 2;
+        ::RoundRect(hdc, pill_left, pill_top, pill_left + pill_w, pill_top + pill_h, pill_w, pill_w);
     }
     {
         const ScopedSelectObject sel_div_pen(hdc, border_pen.Get());
-        ::MoveToEx(hdc, kGripWidth - 1, 2, nullptr);
-        ::LineTo(hdc, kGripWidth - 1, client_rect.bottom - 2);
+        ::MoveToEx(hdc, grip_w - 1, 2, nullptr);
+        ::LineTo(hdc, grip_w - 1, client_rect.bottom - 2);
     }
 
     const ScopedSelectObject sel_font(hdc, font_.Get());
@@ -255,8 +307,8 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) const {
 
     // 2. 4 interactive icon cells matching the modern Windows IME toolbar style:
     //    Cell 0: 中 / 英
-    //    Cell 1: ☾ (half-width) / ● (full-width)
-    //    Cell 2: °， (Chinese punct) / ., (English punct)
+    //    Cell 1: 🌙 (half-width) / ● (full-width)
+    //    Cell 2: °, (Chinese punct) / ., (English punct)
     //    Cell 3: ⚙ (Settings gear)
     const std::array<const wchar_t*, kCellCount> labels = {
         state_.chinese_mode ? L"中" : L"英",
@@ -268,8 +320,8 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) const {
     const ScopedGdiHandle<HBRUSH> hover_brush(::CreateSolidBrush(palette.hover_bg));
     ::SetTextColor(hdc, palette.text_primary);
     for (size_t i = 0; i < labels.size(); ++i) {
-        const int left = kButtonsOffset + gsl::narrow_cast<int>(i) * kCellWidth;
-        RECT cell_rc{left, 2, left + kCellWidth - 1, client_rect.bottom - 2};
+        const int left = buttons_offset + gsl::narrow_cast<int>(i) * cell_w;
+        RECT cell_rc{left, 2, left + cell_w - 1, client_rect.bottom - 2};
         if (hovered_zone_ == gsl::narrow_cast<int>(i) + 1) {
             ::FillRect(hdc, &cell_rc, hover_brush.Get());
         }
@@ -326,10 +378,12 @@ void StatusBarUI::OnMouseLeave() noexcept {
 }
 
 void StatusBarUI::OnLeftButtonDown(POINT pt) const {
-    if (!action_callback_ || pt.x < kButtonsOffset) {
+    const int buttons_offset = ScaleByDpi(kButtonsOffset);
+    const int cell_w = ScaleByDpi(kCellWidth);
+    if (!action_callback_ || pt.x < buttons_offset) {
         return;
     }
-    const int cell_idx = (pt.x - kButtonsOffset) / kCellWidth;
+    const int cell_idx = (pt.x - buttons_offset) / std::max(1, cell_w);
     switch (cell_idx) {
         case 0: action_callback_(LangBarMenuId::ToggleChinese); break;
         case 1: action_callback_(LangBarMenuId::ToggleFullWidth); break;
@@ -415,8 +469,8 @@ LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     if (msg == WM_NCHITTEST) {
         POINT pt = PointFromLParam(lparam);
         ::ScreenToClient(hwnd, &pt);
-        if (pt.x >= 0 && pt.x < kButtonsOffset) {
-            return HTCAPTION; // Dragging by the edge gripper [0, 16) or logo [16, 64) moves the bar
+        if (pt.x >= 0 && pt.x < self->ScaleByDpi(kButtonsOffset)) {
+            return HTCAPTION; // Dragging by the leftmost gripper moves the bar
         }
         return HTCLIENT;
     }
@@ -428,6 +482,21 @@ LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     if (msg == WM_MOVE) {
         self->pos_ = PointFromLParam(lparam);
         self->HideTooltip();
+        return 0;
+    }
+    if (msg == WM_EXITSIZEMOVE || msg == WM_DISPLAYCHANGE) {
+        self->ClampToCurrentMonitor();
+        return 0;
+    }
+    if (msg == WM_DPICHANGED) {
+        self->UpdateDpiAndFonts(HIWORD(wparam));
+        if (lparam != 0) {
+            const auto* suggested = reinterpret_cast<const RECT*>(lparam);
+            self->pos_.x = suggested->left;
+            self->pos_.y = suggested->top;
+        }
+        self->ClampToCurrentMonitor();
+        ::InvalidateRect(hwnd, nullptr, TRUE);
         return 0;
     }
     if (msg == WM_NCMOUSEMOVE) {
