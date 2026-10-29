@@ -32,12 +32,11 @@ QiQiTextService::~QiQiTextService() noexcept {
 }
 
 void QiQiTextService::LoadExternalDictionaryNextToDll() {
-    std::array<wchar_t, MAX_PATH> module_path{};
-    if (::GetModuleFileNameW(g_dll_instance, module_path.data(), static_cast<DWORD>(module_path.size())) == 0) {
+    std::filesystem::path dict_path = log::GetModuleFilePath(g_dll_instance);
+    if (dict_path.empty()) {
         QIQI_LOG_WARN("GetModuleFileNameW failed when locating external dictionary");
         return;
     }
-    std::filesystem::path dict_path(module_path.data());
     dict_path.replace_filename(L"wubi86.txt");
     if (std::filesystem::exists(dict_path)) {
         engine_.LoadDictionaryFile(dict_path);
@@ -106,9 +105,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
 
 STDMETHODIMP QiQiTextService::Deactivate() {
     QIQI_LOG_INFO("QiQiTextService::Deactivate(client_id={})", client_id_);
-    EndCandidateUI();
-    composition_.Reset();
-    engine_.Reset();
+    ResetCompositionAndUI();
 
     UninitKeyEventSink();
     UninitThreadMgrEventSink();
@@ -184,10 +181,7 @@ STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* /*pdim*/) noex
 
 STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* /*pdimPrevFocus*/) {
     if (!pdimFocus) {
-        // Focus left our document: clean up composition UI
-        engine_.Reset();
-        composition_.Reset();
-        EndCandidateUI();
+        ResetCompositionAndUI();
     }
     return S_OK;
 }
@@ -203,9 +197,7 @@ STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* /*pic*/) noexcept {
 // ITfKeyEventSink
 STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
     if (!fForeground) {
-        engine_.Reset();
-        composition_.Reset();
-        EndCandidateUI();
+        ResetCompositionAndUI();
     }
     return S_OK;
 }
@@ -265,13 +257,7 @@ STDMETHODIMP QiQiTextService::OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM /*l
     if (wParam == VK_SHIFT && shift_tap_candidate_) {
         shift_tap_candidate_ = false;
         *pfEaten = TRUE;
-        // If composing when Shift is tapped, cancel composition and switch mode
-        if (engine_.IsComposing() && pic) {
-            KeyProcessResult cancel_res{};
-            cancel_res.action = KeyActionType::Cancel;
-            ApplyEngineResult(pic, cancel_res);
-        }
-        engine_.ToggleChineseMode();
+        ToggleModeAndCancelComposition(pic);
         return S_OK;
     }
     *pfEaten = FALSE;
@@ -284,12 +270,7 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
     }
     if (IsEqualGUID(rguid, kGuidPreservedKeyToggleMode)) {
         *pfEaten = TRUE;
-        if (engine_.IsComposing() && pic) {
-            KeyProcessResult cancel_res{};
-            cancel_res.action = KeyActionType::Cancel;
-            ApplyEngineResult(pic, cancel_res);
-        }
-        engine_.ToggleChineseMode();
+        ToggleModeAndCancelComposition(pic);
         return S_OK;
     }
     *pfEaten = FALSE;
@@ -300,10 +281,23 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
 // (e.g. user clicked elsewhere, switched Excel cell, or DOM re-rendered)
 STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie /*ecWrite*/, ITfComposition* /*pComposition*/) {
     QIQI_LOG_DEBUG("Host terminated active TSF composition");
+    ResetCompositionAndUI();
+    return S_OK;
+}
+
+void QiQiTextService::ResetCompositionAndUI() {
     composition_.Reset();
     engine_.Reset();
     EndCandidateUI();
-    return S_OK;
+}
+
+void QiQiTextService::ToggleModeAndCancelComposition(ITfContext* context) {
+    if (engine_.IsComposing() && context) {
+        KeyProcessResult cancel_res{};
+        cancel_res.action = KeyActionType::Cancel;
+        ApplyEngineResult(context, cancel_res);
+    }
+    engine_.ToggleChineseMode();
 }
 
 void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessResult& result) {
@@ -326,9 +320,7 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
             self_holder->CommitAndEndCompositionInSession(ec, ctx_holder.Get(), result.committed_text);
             if (!result.composition_text.empty()) {
                 // e.g. 5th key auto-committed previous 4-code word and started a new 1-code composition
-                self_holder->StartOrUpdateCompositionInSession(ec, ctx_holder.Get(), result.composition_text);
-                self_holder->UpdateCandidateWindowPositionInSession(ec, ctx_holder.Get());
-                self_holder->BeginOrUpdateCandidateUI();
+                self_holder->SyncCompositionUIInSession(ec, ctx_holder.Get(), result.composition_text);
             } else {
                 self_holder->EndCandidateUI();
             }
@@ -336,9 +328,7 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
         }
 
         if (result.action == KeyActionType::UpdateState) {
-            self_holder->StartOrUpdateCompositionInSession(ec, ctx_holder.Get(), result.composition_text);
-            self_holder->UpdateCandidateWindowPositionInSession(ec, ctx_holder.Get());
-            self_holder->BeginOrUpdateCandidateUI();
+            self_holder->SyncCompositionUIInSession(ec, ctx_holder.Get(), result.composition_text);
             return S_OK;
         }
 
@@ -351,6 +341,28 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
         session.Get(),
         TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
         &session_hr);
+}
+
+void QiQiTextService::SyncCompositionUIInSession(
+    TfEditCookie ec, ITfContext* context, const std::wstring& text) {
+    StartOrUpdateCompositionInSession(ec, context, text);
+    UpdateCandidateWindowPositionInSession(ec, context);
+    BeginOrUpdateCandidateUI();
+}
+
+void QiQiTextService::SetRangeTextAndCollapseCaret(
+    TfEditCookie ec, ITfContext* context, ITfRange* range, std::wstring_view text) {
+    range->SetText(ec, 0, text.data(), static_cast<LONG>(text.size()));
+
+    ComPtr<ITfRange> caret_range;
+    if (SUCCEEDED(range->Clone(&caret_range)) && caret_range) {
+        caret_range->Collapse(ec, TF_ANCHOR_END);
+        TF_SELECTION sel{};
+        sel.range = caret_range.Get();
+        sel.style.ase = TF_AE_NONE;
+        sel.style.fInterimChar = FALSE;
+        context->SetSelection(ec, 1, &sel);
+    }
 }
 
 void QiQiTextService::StartOrUpdateCompositionInSession(
@@ -381,18 +393,7 @@ void QiQiTextService::StartOrUpdateCompositionInSession(
     if (FAILED(composition_->GetRange(&comp_range)) || !comp_range) {
         return;
     }
-    comp_range->SetText(ec, 0, text.c_str(), static_cast<LONG>(text.size()));
-
-    // Move caret to the end of the composition range
-    ComPtr<ITfRange> caret_range;
-    if (SUCCEEDED(comp_range->Clone(&caret_range)) && caret_range) {
-        caret_range->Collapse(ec, TF_ANCHOR_END);
-        TF_SELECTION sel{};
-        sel.range = caret_range.Get();
-        sel.style.ase = TF_AE_NONE;
-        sel.style.fInterimChar = FALSE;
-        context->SetSelection(ec, 1, &sel);
-    }
+    SetRangeTextAndCollapseCaret(ec, context, comp_range.Get(), text);
 }
 
 void QiQiTextService::CommitAndEndCompositionInSession(
@@ -400,17 +401,7 @@ void QiQiTextService::CommitAndEndCompositionInSession(
     if (composition_) {
         ComPtr<ITfRange> comp_range;
         if (SUCCEEDED(composition_->GetRange(&comp_range)) && comp_range) {
-            comp_range->SetText(ec, 0, committed_text.c_str(), static_cast<LONG>(committed_text.size()));
-
-            ComPtr<ITfRange> caret_range;
-            if (SUCCEEDED(comp_range->Clone(&caret_range)) && caret_range) {
-                caret_range->Collapse(ec, TF_ANCHOR_END);
-                TF_SELECTION sel{};
-                sel.range = caret_range.Get();
-                sel.style.ase = TF_AE_NONE;
-                sel.style.fInterimChar = FALSE;
-                context->SetSelection(ec, 1, &sel);
-            }
+            SetRangeTextAndCollapseCaret(ec, context, comp_range.Get(), committed_text);
         }
         composition_->EndComposition(ec);
         composition_.Reset();

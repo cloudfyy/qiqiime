@@ -75,6 +75,8 @@ public:
 
 private:
     std::wstring CurrentSelectedCandidateOrRaw() const;
+    void AppendCodeAndRefresh(uint32_t vk, EngineState next_state);
+    KeyProcessResult CommitAndReset(std::wstring committed_text);
     void RefreshCandidates();
     KeyProcessResult MakeCurrentStateResult(KeyActionType action, std::wstring committed = L"") const;
 

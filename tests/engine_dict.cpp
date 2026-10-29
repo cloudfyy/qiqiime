@@ -1,7 +1,7 @@
 #include "common.h"
+#include "common/logger.h"
 #include "engine/wubi_engine.h"
 
-#include <windows.h>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -86,9 +86,8 @@ void TestExternalDictFile() {
     std::filesystem::remove(temp_dict, ec);
 
     // 3. Load bundled wubi86.txt next to executable or in current directory
-    wchar_t exe_path[MAX_PATH]{};
-    if (::GetModuleFileNameW(nullptr, exe_path, MAX_PATH) > 0) {
-        std::filesystem::path dict_next_to_exe(exe_path);
+    std::filesystem::path dict_next_to_exe = log::GetModuleFilePath(nullptr);
+    if (!dict_next_to_exe.empty()) {
         dict_next_to_exe.replace_filename(L"wubi86.txt");
         if (std::filesystem::exists(dict_next_to_exe)) {
             QIQI_TEST_CHECK(engine.LoadDictionaryFile(dict_next_to_exe));

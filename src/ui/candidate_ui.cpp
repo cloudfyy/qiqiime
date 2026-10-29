@@ -1,6 +1,7 @@
 #include "ui/candidate_ui.h"
 #include "common/guids.h"
 #include "common/logger.h"
+#include "engine/wubi_fsm.h"
 #include <oleauto.h>
 #include <algorithm>
 #include <span>
@@ -141,9 +142,7 @@ STDMETHODIMP CandidateUI::GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt
     if (!puPageCnt) {
         return E_INVALIDARG;
     }
-    const size_t total_pages = all_candidates_.empty()
-        ? 0
-        : (all_candidates_.size() + page_size_ - 1) / page_size_;
+    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
     *puPageCnt = static_cast<UINT>(total_pages);
     if (!pIndex) {
         return S_OK;
@@ -195,18 +194,16 @@ void CandidateUI::MoveWindowTo(const RECT& text_rect) noexcept {
     MONITORINFO mi{};
     mi.cbSize = sizeof(mi);
     if (::GetMonitorInfoW(mon, &mi)) {
-        constexpr int width = 360;
-        constexpr int height = 64;
-        if (popup_pos_.x + width > mi.rcWork.right) {
-            popup_pos_.x = std::max(mi.rcWork.left, mi.rcWork.right - width);
+        if (popup_pos_.x + kPopupWidth > mi.rcWork.right) {
+            popup_pos_.x = std::max(mi.rcWork.left, mi.rcWork.right - kPopupWidth);
         }
-        if (popup_pos_.y + height > mi.rcWork.bottom) {
-            popup_pos_.y = std::max(mi.rcWork.top, text_rect.top - height - 4);
+        if (popup_pos_.y + kPopupHeight > mi.rcWork.bottom) {
+            popup_pos_.y = std::max(mi.rcWork.top, text_rect.top - kPopupHeight - 4);
         }
     }
 
     if (hwnd_) {
-        ::SetWindowPos(hwnd_, HWND_TOPMOST, popup_pos_.x, popup_pos_.y, 360, 64,
+        ::SetWindowPos(hwnd_, HWND_TOPMOST, popup_pos_.x, popup_pos_.y, kPopupWidth, kPopupHeight,
                        SWP_NOACTIVATE | (is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
     }
 }
@@ -231,7 +228,7 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
         kCandidateWndClass,
         L"",
         WS_POPUP | WS_BORDER,
-        popup_pos_.x, popup_pos_.y, 360, 64,
+        popup_pos_.x, popup_pos_.y, kPopupWidth, kPopupHeight,
         nullptr, nullptr, instance_, this);
 
     if (!hwnd_) {
@@ -260,9 +257,7 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
     ::SetBkMode(hdc, TRANSPARENT);
 
     // Line 1: Wubi code + page indicator
-    const size_t total_pages = all_candidates_.empty()
-        ? 0
-        : (all_candidates_.size() + page_size_ - 1) / page_size_;
+    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
     std::wstring header = L"五笔 [" + raw_code_ + L"]";
     if (total_pages > 1) {
         header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
@@ -273,8 +268,7 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
 
     // Line 2: Horizontal candidates
     std::wstring line;
-    const size_t start = current_page_ * page_size_;
-    const size_t end = std::min(start + page_size_, all_candidates_.size());
+    const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
     for (size_t i = start; i < end; ++i) {
         const size_t idx_in_page = i - start;
         if (!line.empty()) {

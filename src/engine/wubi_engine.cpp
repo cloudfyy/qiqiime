@@ -11,19 +11,6 @@ namespace qiqi {
 
 namespace {
 
-std::wstring Utf8ToWide(std::string_view utf8) {
-    if (utf8.empty()) {
-        return {};
-    }
-    const int len = ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
-    if (len <= 0) {
-        return {};
-    }
-    std::wstring result(static_cast<size_t>(len), L'\0');
-    ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), result.data(), len);
-    return result;
-}
-
 constexpr bool IsWubiCodeChar(wchar_t ch) noexcept {
     // Standard 86 Wubi uses 'a'-'y' for radicals and 'z' as wildcard/query key
     return ch >= L'a' && ch <= L'z';
@@ -78,7 +65,7 @@ bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
             line.erase(0, 3);
         }
 
-        std::wstring wline = Utf8ToWide(line);
+        std::wstring wline = log::Utf8ToWide(line);
         if (wline.empty()) {
             continue;
         }
@@ -128,21 +115,14 @@ void WubiEngine::Reset() noexcept {
 }
 
 size_t WubiEngine::TotalPages() const noexcept {
-    if (all_candidates_.empty()) {
-        return 0;
-    }
-    return (all_candidates_.size() + page_size_ - 1) / page_size_;
+    return ComputeTotalPages(all_candidates_.size(), page_size_);
 }
 
 std::vector<std::wstring> WubiEngine::CurrentPageCandidates() const {
-    if (all_candidates_.empty()) {
+    const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
+    if (start >= end) {
         return {};
     }
-    const size_t start = current_page_ * page_size_;
-    if (start >= all_candidates_.size()) {
-        return {};
-    }
-    const size_t end = std::min(start + page_size_, all_candidates_.size());
     return std::vector<std::wstring>(all_candidates_.begin() + static_cast<ptrdiff_t>(start),
                                      all_candidates_.begin() + static_cast<ptrdiff_t>(end));
 }
@@ -228,6 +208,18 @@ std::wstring WubiEngine::CurrentSelectedCandidateOrRaw() const {
     return raw_code_;
 }
 
+void WubiEngine::AppendCodeAndRefresh(uint32_t vk, EngineState next_state) {
+    const wchar_t ch = static_cast<wchar_t>(vk - 'A' + L'a');
+    raw_code_.push_back(ch);
+    state_ = next_state;
+    RefreshCandidates();
+}
+
+KeyProcessResult WubiEngine::CommitAndReset(std::wstring committed_text) {
+    Reset();
+    return MakeCurrentStateResult(KeyActionType::Commit, std::move(committed_text));
+}
+
 void WubiEngine::RefreshCandidates() {
     all_candidates_ = LookupCandidates(raw_code_);
     current_page_ = 0;
@@ -259,40 +251,26 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
         case TransitionOp::PassThrough:
             return {};
 
-        case TransitionOp::AppendCode: {
-            const wchar_t ch = static_cast<wchar_t>(vk - 'A' + L'a');
-            raw_code_.push_back(ch);
-            state_ = rule.next_state;
-            RefreshCandidates();
+        case TransitionOp::AppendCode:
+            AppendCodeAndRefresh(vk, rule.next_state);
             return MakeCurrentStateResult(KeyActionType::UpdateState);
-        }
 
-        case TransitionOp::Append4thCode: {
-            const wchar_t ch = static_cast<wchar_t>(vk - 'A' + L'a');
-            raw_code_.push_back(ch);
-            state_ = rule.next_state;
-            RefreshCandidates();
-
+        case TransitionOp::Append4thCode:
+            AppendCodeAndRefresh(vk, rule.next_state);
             // Standard Wubi 86 4-code auto-commit:
             // When reaching 4 codes without wildcard 'z' and there is a unique exact match, commit immediately!
             if (raw_code_.find(L'z') == std::wstring::npos) {
                 const auto exact = LookupExact(raw_code_);
                 if (exact.size() == 1) {
-                    std::wstring committed = exact.front();
-                    Reset();
-                    return MakeCurrentStateResult(KeyActionType::Commit, std::move(committed));
+                    return CommitAndReset(exact.front());
                 }
             }
             return MakeCurrentStateResult(KeyActionType::UpdateState);
-        }
 
         case TransitionOp::PushCommitAndRestart: {
             std::wstring auto_committed = CurrentSelectedCandidateOrRaw();
             Reset();
-            const wchar_t ch = static_cast<wchar_t>(vk - 'A' + L'a');
-            raw_code_.push_back(ch);
-            state_ = rule.next_state;
-            RefreshCandidates();
+            AppendCodeAndRefresh(vk, rule.next_state);
             return MakeCurrentStateResult(KeyActionType::Commit, std::move(auto_committed));
         }
 
@@ -306,25 +284,17 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             RefreshCandidates();
             return MakeCurrentStateResult(KeyActionType::UpdateState);
 
-        case TransitionOp::CommitSelected: {
-            std::wstring text = CurrentSelectedCandidateOrRaw();
-            Reset();
-            return MakeCurrentStateResult(KeyActionType::Commit, std::move(text));
-        }
+        case TransitionOp::CommitSelected:
+            return CommitAndReset(CurrentSelectedCandidateOrRaw());
 
-        case TransitionOp::CommitRawCode: {
-            std::wstring text = raw_code_;
-            Reset();
-            return MakeCurrentStateResult(KeyActionType::Commit, std::move(text));
-        }
+        case TransitionOp::CommitRawCode:
+            return CommitAndReset(raw_code_);
 
         case TransitionOp::CommitDigitIndex: {
             const size_t idx = static_cast<size_t>(vk - '1');
             const auto page = CurrentPageCandidates();
             if (idx < page.size()) {
-                std::wstring text = page[idx];
-                Reset();
-                return MakeCurrentStateResult(KeyActionType::Commit, std::move(text));
+                return CommitAndReset(page[idx]);
             }
             return MakeCurrentStateResult(KeyActionType::UpdateState);
         }
@@ -357,16 +327,15 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             }
             return MakeCurrentStateResult(KeyActionType::UpdateState);
 
-        case TransitionOp::CommitPunctOnly: {
-            std::wstring committed(MapChinesePunctuation(vk, shift_down).value_or(L""));
-            return MakeCurrentStateResult(KeyActionType::Commit, std::move(committed));
-        }
+        case TransitionOp::CommitPunctOnly:
+            return MakeCurrentStateResult(
+                KeyActionType::Commit,
+                std::wstring(MapChinesePunctuation(vk, shift_down).value_or(L"")));
 
         case TransitionOp::CommitSelectedAndPunct: {
             std::wstring committed = CurrentSelectedCandidateOrRaw();
-            Reset();
             committed += MapChinesePunctuation(vk, shift_down).value_or(L"");
-            return MakeCurrentStateResult(KeyActionType::Commit, std::move(committed));
+            return CommitAndReset(std::move(committed));
         }
     }
 

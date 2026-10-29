@@ -24,6 +24,12 @@ void Flush();
 // Convert wide string (UTF-16 on Windows) to UTF-8 for spdlog formatting.
 std::string WideToUtf8(std::wstring_view wide);
 
+// Convert UTF-8 string to Windows wide string (UTF-16).
+std::wstring Utf8ToWide(std::string_view utf8);
+
+// Query the full filesystem path of a loaded module (exe or dll). Returns empty path on failure.
+std::filesystem::path GetModuleFilePath( void* module_handle) noexcept;
+
 } // namespace qiqi::log
 
 #define QIQI_LOG_TRACE(...) ::qiqi::log::GetLogger()->trace(__VA_ARGS__)

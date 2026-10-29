@@ -11,7 +11,7 @@ namespace qiqi::test {
 namespace {
 
 void TestVersionMechanism() {
-    static_assert(version::kCurrentVersion >= version::SemanticVersion{0, 3, 0});
+    static_assert(version::kCurrentVersion >= version::SemanticVersion{0, 4, 0});
     static_assert(version::SemanticVersion{1, 0, 0} > version::kCurrentVersion);
     QIQI_TEST_CHECK(!version::kVersion.empty());
     QIQI_TEST_CHECK(!version::kVersionW.empty());
@@ -30,9 +30,13 @@ void TestSpdlogLogger() {
     QIQI_TEST_CHECK(default_logger != nullptr);
     QIQI_LOG_DEBUG("Lazy default logger test");
 
-    // 2. Test WideToUtf8 with empty and non-empty strings
+    // 2. Test WideToUtf8, Utf8ToWide, and GetModuleFilePath
     QIQI_TEST_CHECK(log::WideToUtf8(L"").empty());
     QIQI_TEST_CHECK(log::WideToUtf8(L"五笔ABC") == "五笔ABC");
+    QIQI_TEST_CHECK(log::Utf8ToWide("").empty());
+    QIQI_TEST_CHECK(log::Utf8ToWide("五笔ABC") == L"五笔ABC");
+    QIQI_TEST_CHECK(!log::GetModuleFilePath(nullptr).empty());
+    QIQI_TEST_CHECK(log::GetModuleFilePath(reinterpret_cast<void*>(0x12345678)).empty());
 
     // 3. Test custom file logger, SetLevel, and Flush
     const auto temp_log = std::filesystem::temp_directory_path() / L"qiqiime_unit_test.log";

@@ -111,4 +111,34 @@ std::string WideToUtf8(std::wstring_view wide) {
     return result;
 }
 
+std::wstring Utf8ToWide(std::string_view utf8) {
+    if (utf8.empty()) {
+        return {};
+    }
+    const int len = ::MultiByteToWideChar(
+        CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    if (len <= 0) {
+        return {};
+    }
+    std::wstring result(static_cast<size_t>(len), L'\0');
+    ::MultiByteToWideChar(
+        CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), result.data(), len);
+    return result;
+}
+
+std::filesystem::path GetModuleFilePath(void* module_handle) noexcept {
+    try {
+        std::array<wchar_t, MAX_PATH> module_path{};
+        if (::GetModuleFileNameW(
+                static_cast<HMODULE>(module_handle),
+                module_path.data(),
+                static_cast<DWORD>(module_path.size())) == 0) {
+            return {};
+        }
+        return std::filesystem::path(module_path.data());
+    } catch (...) {
+        return {};
+    }
+}
+
 } // namespace qiqi::log

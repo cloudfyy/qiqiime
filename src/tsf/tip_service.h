@@ -62,11 +62,16 @@ private:
     void UninitKeyEventSink();
     void LoadExternalDictionaryNextToDll();
 
+    void ResetCompositionAndUI();
+    void ToggleModeAndCancelComposition(ITfContext* context);
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
+    void SyncCompositionUIInSession(TfEditCookie ec, ITfContext* context, const std::wstring& text);
     void StartOrUpdateCompositionInSession(TfEditCookie ec, ITfContext* context, const std::wstring& text);
     void CommitAndEndCompositionInSession(TfEditCookie ec, ITfContext* context, const std::wstring& committed_text);
     void CancelCompositionInSession(TfEditCookie ec, ITfContext* context);
     void UpdateCandidateWindowPositionInSession(TfEditCookie ec, ITfContext* context);
+    static void SetRangeTextAndCollapseCaret(
+        TfEditCookie ec, ITfContext* context, ITfRange* range, std::wstring_view text);
 
     void BeginOrUpdateCandidateUI();
     void EndCandidateUI();

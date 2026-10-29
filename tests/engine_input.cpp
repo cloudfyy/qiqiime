@@ -24,7 +24,13 @@ void TestCompileTimeFsmTransitions() {
     static_assert(ClassifyKeyEvent(VK_OEM_MINUS, false, false, false) == KeyEventKind::PageUp);
     static_assert(ClassifyKeyEvent(VK_OEM_PLUS, false, false, false) == KeyEventKind::PageDown);
 
-    // Out-of-bounds state/event safety fallback (compile-time and runtime)
+    // Compile-time checks for shared pagination helpers
+    static_assert(ComputeTotalPages(0, 5) == 0);
+    static_assert(ComputeTotalPages(5, 0) == 0);
+    static_assert(ComputeTotalPages(7, 5) == 2);
+    static_assert(ComputePageRange(7, 5, 0) == std::pair<size_t, size_t>{0, 5});
+    static_assert(ComputePageRange(7, 5, 1) == std::pair<size_t, size_t>{5, 7});
+    static_assert(ComputePageRange(7, 5, 2) == std::pair<size_t, size_t>{0, 0});
     static_assert(!LookupTransition(EngineState::Count, KeyEventKind::CodeChar).eat_key);
     static_assert(!LookupTransition(EngineState::Idle, KeyEventKind::Count).eat_key);
     QIQI_TEST_CHECK(!LookupTransition(EngineState::Count, KeyEventKind::CodeChar).eat_key);

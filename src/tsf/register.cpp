@@ -35,9 +35,19 @@ std::wstring GuidToString(REFGUID guid) {
     return buf.data();
 }
 
+void SetRegSzValue(HKEY key, const wchar_t* value_name, std::wstring_view value) noexcept {
+    ::RegSetValueExW(
+        key,
+        value_name,
+        0,
+        REG_SZ,
+        reinterpret_cast<const BYTE*>(value.data()),
+        static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+}
+
 bool RegisterComClsid(HINSTANCE instance) {
-    std::array<wchar_t, MAX_PATH> module_path{};
-    if (::GetModuleFileNameW(instance, module_path.data(), static_cast<DWORD>(module_path.size())) == 0) {
+    const std::filesystem::path module_path = log::GetModuleFilePath(instance);
+    if (module_path.empty()) {
         return false;
     }
 
@@ -50,9 +60,7 @@ bool RegisterComClsid(HINSTANCE instance) {
                               REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hkey.key, nullptr) != ERROR_SUCCESS) {
             return false;
         }
-        ::RegSetValueExW(hkey.key, nullptr, 0, REG_SZ,
-                         reinterpret_cast<const BYTE*>(kTextServiceDesc),
-                         static_cast<DWORD>((wcslen(kTextServiceDesc) + 1) * sizeof(wchar_t)));
+        SetRegSzValue(hkey.key, nullptr, kTextServiceDesc);
     }
 
     {
@@ -61,13 +69,8 @@ bool RegisterComClsid(HINSTANCE instance) {
                               REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hkey.key, nullptr) != ERROR_SUCCESS) {
             return false;
         }
-        ::RegSetValueExW(hkey.key, nullptr, 0, REG_SZ,
-                         reinterpret_cast<const BYTE*>(module_path.data()),
-                         static_cast<DWORD>((wcslen(module_path.data()) + 1) * sizeof(wchar_t)));
-        constexpr const wchar_t* kModel = L"Apartment";
-        ::RegSetValueExW(hkey.key, L"ThreadingModel", 0, REG_SZ,
-                         reinterpret_cast<const BYTE*>(kModel),
-                         static_cast<DWORD>((wcslen(kModel) + 1) * sizeof(wchar_t)));
+        SetRegSzValue(hkey.key, nullptr, module_path.native());
+        SetRegSzValue(hkey.key, L"ThreadingModel", L"Apartment");
     }
     return true;
 }
@@ -149,8 +152,7 @@ HRESULT RegisterServer(HINSTANCE instance) {
             break;
         }
 
-        std::array<wchar_t, MAX_PATH> module_path{};
-        ::GetModuleFileNameW(instance, module_path.data(), static_cast<DWORD>(module_path.size()));
+        const std::wstring module_path = log::GetModuleFilePath(instance).wstring();
 
         hr = profiles->AddLanguageProfile(
             kClsidQiQiTextService,
@@ -158,8 +160,8 @@ HRESULT RegisterServer(HINSTANCE instance) {
             kGuidProfileWubi86,
             kProfileDesc,
             static_cast<ULONG>(wcslen(kProfileDesc)),
-            module_path.data(),
-            static_cast<ULONG>(wcslen(module_path.data())),
+            module_path.c_str(),
+            static_cast<ULONG>(module_path.size()),
             0);
         if (FAILED(hr)) {
             break;

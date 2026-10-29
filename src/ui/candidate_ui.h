@@ -11,6 +11,9 @@ namespace qiqi {
 // and fullscreen games in UILess mode (ITfUIElementSink) can render candidates.
 class CandidateUI final : public ITfCandidateListUIElement {
 public:
+    static constexpr int kPopupWidth = 360;
+    static constexpr int kPopupHeight = 64;
+
     explicit CandidateUI(HINSTANCE instance) noexcept;
     ~CandidateUI() noexcept;
 

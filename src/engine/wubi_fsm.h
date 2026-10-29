@@ -1,12 +1,31 @@
 #pragma once
 #include <windows.h>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string_view>
+#include <utility>
 
 namespace qiqi {
+
+// Shared pagination helpers used by both WubiEngine and CandidateUI
+constexpr size_t ComputeTotalPages(size_t total_items, size_t page_size) noexcept {
+    if (total_items == 0 || page_size == 0) {
+        return 0;
+    }
+    return (total_items + page_size - 1) / page_size;
+}
+
+constexpr std::pair<size_t, size_t> ComputePageRange(
+    size_t total_items, size_t page_size, size_t current_page) noexcept {
+    const size_t start = current_page * page_size;
+    if (start >= total_items || page_size == 0) {
+        return {0, 0};
+    }
+    return {start, std::min(start + page_size, total_items)};
+}
 
 // Explicit finite states of the Wubi 86 input engine
 enum class EngineState : uint8_t {
