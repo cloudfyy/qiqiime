@@ -12,10 +12,15 @@ class LambdaEditSession final : public ITfEditSession {
 public:
     using Callback = std::function<HRESULT(TfEditCookie)>;
 
-    explicit LambdaEditSession(Callback cb) : callback_(std::move(cb)) {}
+    explicit LambdaEditSession(Callback cb) noexcept : callback_(std::move(cb)) {}
+
+    LambdaEditSession(const LambdaEditSession&) = delete;
+    LambdaEditSession& operator=(const LambdaEditSession&) = delete;
+    LambdaEditSession(LambdaEditSession&&) = delete;
+    LambdaEditSession& operator=(LambdaEditSession&&) = delete;
 
     // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) {
             return E_INVALIDARG;
         }
@@ -28,11 +33,11 @@ public:
         return E_NOINTERFACE;
     }
 
-    STDMETHODIMP_(ULONG) AddRef() override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override {
         return ++ref_count_;
     }
 
-    STDMETHODIMP_(ULONG) Release() override {
+    STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG count = --ref_count_;
         if (count == 0) {
             delete this;
@@ -46,7 +51,7 @@ public:
     }
 
 private:
-    ~LambdaEditSession() = default;
+    ~LambdaEditSession() noexcept = default;
 
     std::atomic<ULONG> ref_count_{1};
     Callback callback_;

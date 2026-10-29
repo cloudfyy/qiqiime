@@ -9,7 +9,7 @@
 #include <olectl.h>
 #include <wrl/client.h>
 
-extern "C" BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved);
+extern "C" BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) noexcept;
 
 namespace qiqi::test {
 
@@ -85,9 +85,14 @@ void TestClassFactoryAndDllExports() {
     if (::RegCreateKeyExW(HKEY_CURRENT_USER, kTempRegPath, 0, nullptr,
                           REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, nullptr, &temp_hkcr, nullptr) == ERROR_SUCCESS) {
         if (::RegOverridePredefKey(HKEY_CLASSES_ROOT, temp_hkcr) == ERROR_SUCCESS) {
+            QIQI_TEST_CHECK(!IsNative64BitClsidRegistered());
             // 1. Standard register & unregister in current architecture view
             (void)DllRegisterServer();
+            if constexpr (sizeof(void*) == 8) {
+                QIQI_TEST_CHECK(IsNative64BitClsidRegistered());
+            }
             QIQI_TEST_CHECK(SUCCEEDED(DllUnregisterServer()));
+            QIQI_TEST_CHECK(!IsNative64BitClsidRegistered());
 
             // 2. When running as 32-bit (x86) under WOW64, also verify coexistence when
             // the 64-bit CLSID is already registered in the 64-bit registry view (KEY_WOW64_64KEY)

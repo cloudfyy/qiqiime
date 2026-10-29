@@ -15,43 +15,60 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
+struct ScopedRegKey {
+    HKEY key = nullptr;
+    ScopedRegKey() noexcept = default;
+    ~ScopedRegKey() noexcept {
+        if (key) {
+            ::RegCloseKey(key);
+        }
+    }
+    ScopedRegKey(const ScopedRegKey&) = delete;
+    ScopedRegKey& operator=(const ScopedRegKey&) = delete;
+    ScopedRegKey(ScopedRegKey&&) = delete;
+    ScopedRegKey& operator=(ScopedRegKey&&) = delete;
+};
+
 std::wstring GuidToString(REFGUID guid) {
-    wchar_t buf[64]{};
-    ::StringFromGUID2(guid, buf, 64);
-    return buf;
+    std::array<wchar_t, 64> buf{};
+    ::StringFromGUID2(guid, buf.data(), static_cast<int>(buf.size()));
+    return buf.data();
 }
 
 bool RegisterComClsid(HINSTANCE instance) {
-    wchar_t module_path[MAX_PATH]{};
-    if (::GetModuleFileNameW(instance, module_path, MAX_PATH) == 0) {
+    std::array<wchar_t, MAX_PATH> module_path{};
+    if (::GetModuleFileNameW(instance, module_path.data(), static_cast<DWORD>(module_path.size())) == 0) {
         return false;
     }
 
     const std::wstring clsid_key = L"CLSID\\" + GuidToString(kClsidQiQiTextService);
     const std::wstring inproc_key = clsid_key + L"\\InProcServer32";
 
-    HKEY hkey = nullptr;
-    if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, clsid_key.c_str(), 0, nullptr,
-                          REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hkey, nullptr) != ERROR_SUCCESS) {
-        return false;
+    {
+        ScopedRegKey hkey;
+        if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, clsid_key.c_str(), 0, nullptr,
+                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hkey.key, nullptr) != ERROR_SUCCESS) {
+            return false;
+        }
+        ::RegSetValueExW(hkey.key, nullptr, 0, REG_SZ,
+                         reinterpret_cast<const BYTE*>(kTextServiceDesc),
+                         static_cast<DWORD>((wcslen(kTextServiceDesc) + 1) * sizeof(wchar_t)));
     }
-    ::RegSetValueExW(hkey, nullptr, 0, REG_SZ,
-                     reinterpret_cast<const BYTE*>(kTextServiceDesc),
-                     static_cast<DWORD>((wcslen(kTextServiceDesc) + 1) * sizeof(wchar_t)));
-    ::RegCloseKey(hkey);
 
-    if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, inproc_key.c_str(), 0, nullptr,
-                          REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hkey, nullptr) != ERROR_SUCCESS) {
-        return false;
+    {
+        ScopedRegKey hkey;
+        if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, inproc_key.c_str(), 0, nullptr,
+                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hkey.key, nullptr) != ERROR_SUCCESS) {
+            return false;
+        }
+        ::RegSetValueExW(hkey.key, nullptr, 0, REG_SZ,
+                         reinterpret_cast<const BYTE*>(module_path.data()),
+                         static_cast<DWORD>((wcslen(module_path.data()) + 1) * sizeof(wchar_t)));
+        constexpr const wchar_t* kModel = L"Apartment";
+        ::RegSetValueExW(hkey.key, L"ThreadingModel", 0, REG_SZ,
+                         reinterpret_cast<const BYTE*>(kModel),
+                         static_cast<DWORD>((wcslen(kModel) + 1) * sizeof(wchar_t)));
     }
-    ::RegSetValueExW(hkey, nullptr, 0, REG_SZ,
-                     reinterpret_cast<const BYTE*>(module_path),
-                     static_cast<DWORD>((wcslen(module_path) + 1) * sizeof(wchar_t)));
-    constexpr const wchar_t* kModel = L"Apartment";
-    ::RegSetValueExW(hkey, L"ThreadingModel", 0, REG_SZ,
-                     reinterpret_cast<const BYTE*>(kModel),
-                     static_cast<DWORD>((wcslen(kModel) + 1) * sizeof(wchar_t)));
-    ::RegCloseKey(hkey);
     return true;
 }
 
@@ -60,18 +77,6 @@ void UnregisterComClsid() {
     const std::wstring inproc_key = clsid_key + L"\\InProcServer32";
     ::RegDeleteKeyW(HKEY_CLASSES_ROOT, inproc_key.c_str());
     ::RegDeleteKeyW(HKEY_CLASSES_ROOT, clsid_key.c_str());
-}
-
-bool IsNative64BitClsidRegistered() noexcept {
-    const std::wstring inproc_key =
-        L"CLSID\\" + GuidToString(kClsidQiQiTextService) + L"\\InProcServer32";
-    HKEY hkey = nullptr;
-    if (::RegOpenKeyExW(HKEY_CLASSES_ROOT, inproc_key.c_str(), 0,
-                        KEY_READ | KEY_WOW64_64KEY, &hkey) == ERROR_SUCCESS) {
-        ::RegCloseKey(hkey);
-        return true;
-    }
-    return false;
 }
 
 // Categories declared for modern Windows, UWP/AppContainer, and fullscreen UILess games
@@ -85,6 +90,21 @@ const std::array<GUID, 6> kSupportedCategories = {
 };
 
 } // namespace
+
+bool IsNative64BitClsidRegistered() noexcept {
+    std::array<wchar_t, 64> guid_buf{};
+    if (::StringFromGUID2(kClsidQiQiTextService, guid_buf.data(), static_cast<int>(guid_buf.size())) <= 0) {
+        return false;
+    }
+    std::array<wchar_t, 128> inproc_key{};
+    wcscpy_s(inproc_key.data(), inproc_key.size(), L"CLSID\\");
+    wcscat_s(inproc_key.data(), inproc_key.size(), guid_buf.data());
+    wcscat_s(inproc_key.data(), inproc_key.size(), L"\\InProcServer32");
+
+    ScopedRegKey hkey;
+    return ::RegOpenKeyExW(HKEY_CLASSES_ROOT, inproc_key.data(), 0,
+                           KEY_READ | KEY_WOW64_64KEY, &hkey.key) == ERROR_SUCCESS;
+}
 
 bool IsRunningUnderWow64() noexcept {
     BOOL is_wow64 = FALSE;
@@ -129,8 +149,8 @@ HRESULT RegisterServer(HINSTANCE instance) {
             break;
         }
 
-        wchar_t module_path[MAX_PATH]{};
-        ::GetModuleFileNameW(instance, module_path, MAX_PATH);
+        std::array<wchar_t, MAX_PATH> module_path{};
+        ::GetModuleFileNameW(instance, module_path.data(), static_cast<DWORD>(module_path.size()));
 
         hr = profiles->AddLanguageProfile(
             kClsidQiQiTextService,
@@ -138,8 +158,8 @@ HRESULT RegisterServer(HINSTANCE instance) {
             kGuidProfileWubi86,
             kProfileDesc,
             static_cast<ULONG>(wcslen(kProfileDesc)),
-            module_path,
-            static_cast<ULONG>(wcslen(module_path)),
+            module_path.data(),
+            static_cast<ULONG>(wcslen(module_path.data())),
             0);
         if (FAILED(hr)) {
             break;

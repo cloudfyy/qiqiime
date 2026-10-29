@@ -18,12 +18,17 @@ class QiQiTextService final
       public ITfCompositionSink {
 public:
     QiQiTextService();
-    ~QiQiTextService();
+    ~QiQiTextService() noexcept;
+
+    QiQiTextService(const QiQiTextService&) = delete;
+    QiQiTextService& operator=(const QiQiTextService&) = delete;
+    QiQiTextService(QiQiTextService&&) = delete;
+    QiQiTextService& operator=(QiQiTextService&&) = delete;
 
     // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
-    STDMETHODIMP_(ULONG) AddRef() override;
-    STDMETHODIMP_(ULONG) Release() override;
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;
+    STDMETHODIMP_(ULONG) AddRef() noexcept override;
+    STDMETHODIMP_(ULONG) Release() noexcept override;
 
     // ITfTextInputProcessor
     STDMETHODIMP Activate(ITfThreadMgr* ptim, TfClientId tid) override;
@@ -33,17 +38,17 @@ public:
     STDMETHODIMP ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWORD dwFlags) override;
 
     // ITfThreadMgrEventSink
-    STDMETHODIMP OnInitDocumentMgr(ITfDocumentMgr* pdim) override;
-    STDMETHODIMP OnUninitDocumentMgr(ITfDocumentMgr* pdim) override;
+    STDMETHODIMP OnInitDocumentMgr(ITfDocumentMgr* pdim) noexcept override;
+    STDMETHODIMP OnUninitDocumentMgr(ITfDocumentMgr* pdim) noexcept override;
     STDMETHODIMP OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* pdimPrevFocus) override;
-    STDMETHODIMP OnPushContext(ITfContext* pic) override;
-    STDMETHODIMP OnPopContext(ITfContext* pic) override;
+    STDMETHODIMP OnPushContext(ITfContext* pic) noexcept override;
+    STDMETHODIMP OnPopContext(ITfContext* pic) noexcept override;
 
     // ITfKeyEventSink
     STDMETHODIMP OnSetFocus(BOOL fForeground) override;
-    STDMETHODIMP OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* pfEaten) override;
+    STDMETHODIMP OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* pfEaten) noexcept override;
     STDMETHODIMP OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* pfEaten) override;
-    STDMETHODIMP OnTestKeyUp(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* pfEaten) override;
+    STDMETHODIMP OnTestKeyUp(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* pfEaten) noexcept override;
     STDMETHODIMP OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* pfEaten) override;
     STDMETHODIMP OnPreservedKey(ITfContext* pic, REFGUID rguid, BOOL* pfEaten) override;
 
@@ -73,7 +78,7 @@ private:
     DWORD thread_mgr_event_cookie_ = TF_INVALID_COOKIE;
 
     ComPtr<ITfComposition> composition_;
-    CandidateUI* candidate_ui_ = nullptr; // Ref-counted COM object
+    ComPtr<CandidateUI> candidate_ui_;
     WubiEngine engine_;
     bool shift_tap_candidate_ = false;
 };

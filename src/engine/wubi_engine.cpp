@@ -15,7 +15,7 @@ std::wstring Utf8ToWide(std::string_view utf8) {
     if (utf8.empty()) {
         return {};
     }
-    int len = ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    const int len = ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
     if (len <= 0) {
         return {};
     }
@@ -24,7 +24,7 @@ std::wstring Utf8ToWide(std::string_view utf8) {
     return result;
 }
 
-bool IsWubiCodeChar(wchar_t ch) noexcept {
+constexpr bool IsWubiCodeChar(wchar_t ch) noexcept {
     // Standard 86 Wubi uses 'a'-'y' for radicals and 'z' as wildcard/query key
     return ch >= L'a' && ch <= L'z';
 }
@@ -74,10 +74,7 @@ bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
     std::string line;
     while (std::getline(file, line)) {
         // Strip UTF-8 BOM on first line if present
-        if (line.size() >= 3 &&
-            static_cast<unsigned char>(line[0]) == 0xEF &&
-            static_cast<unsigned char>(line[1]) == 0xBB &&
-            static_cast<unsigned char>(line[2]) == 0xBF) {
+        if (line.starts_with("\xEF\xBB\xBF")) {
             line.erase(0, 3);
         }
 
@@ -87,7 +84,7 @@ bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
         }
         std::wistringstream iss(wline);
         std::wstring code;
-        if (!(iss >> code) || code.empty() || code[0] == L'#') {
+        if (!(iss >> code) || code.empty() || code.starts_with(L'#')) {
             continue;
         }
         std::wstring word;
@@ -106,7 +103,10 @@ void WubiEngine::SetChineseMode(bool enabled) noexcept {
     if (!chinese_mode_) {
         Reset();
     }
-    QIQI_LOG_DEBUG("WubiEngine mode switched to {}", chinese_mode_ ? "Chinese" : "English");
+    try {
+        QIQI_LOG_DEBUG("WubiEngine mode switched to {}", chinese_mode_ ? "Chinese" : "English");
+    } catch (...) {
+    }
 }
 
 void WubiEngine::ToggleChineseMode() noexcept {
@@ -141,7 +141,7 @@ std::vector<std::wstring> WubiEngine::CurrentPageCandidates() const {
 }
 
 std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const {
-    auto it = dict_.find(std::wstring(code));
+    const auto it = dict_.find(std::wstring(code));
     if (it == dict_.end()) {
         return {};
     }
@@ -187,7 +187,7 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) c
     }
 
     // 1. Exact matches first
-    if (auto exact = dict_.find(std::wstring(code)); exact != dict_.end()) {
+    if (const auto exact = dict_.find(std::wstring(code)); exact != dict_.end()) {
         for (const auto& w : exact->second) {
             append_unique(w);
         }
@@ -231,17 +231,17 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
     return res;
 }
 
-std::optional<std::wstring> WubiEngine::MapChinesePunctuation(uint32_t vk, bool shift_down) {
+constexpr std::optional<std::wstring_view> WubiEngine::MapChinesePunctuation(uint32_t vk, bool shift_down) noexcept {
     switch (vk) {
-        case VK_OEM_COMMA:  return shift_down ? std::optional<std::wstring>(L"《") : std::optional<std::wstring>(L"，");
-        case VK_OEM_PERIOD: return shift_down ? std::optional<std::wstring>(L"》") : std::optional<std::wstring>(L"。");
-        case VK_OEM_1:      return shift_down ? std::optional<std::wstring>(L"：") : std::optional<std::wstring>(L"；");
-        case VK_OEM_2:      return shift_down ? std::optional<std::wstring>(L"？") : std::optional<std::wstring>(L"、");
-        case '1':           return shift_down ? std::optional<std::wstring>(L"！") : std::nullopt;
-        case '4':           return shift_down ? std::optional<std::wstring>(L"￥") : std::nullopt;
-        case '6':           return shift_down ? std::optional<std::wstring>(L"……") : std::nullopt;
-        case '9':           return shift_down ? std::optional<std::wstring>(L"（") : std::nullopt;
-        case '0':           return shift_down ? std::optional<std::wstring>(L"）") : std::nullopt;
+        case VK_OEM_COMMA:  return shift_down ? std::optional<std::wstring_view>(L"《") : std::optional<std::wstring_view>(L"，");
+        case VK_OEM_PERIOD: return shift_down ? std::optional<std::wstring_view>(L"》") : std::optional<std::wstring_view>(L"。");
+        case VK_OEM_1:      return shift_down ? std::optional<std::wstring_view>(L"：") : std::optional<std::wstring_view>(L"；");
+        case VK_OEM_2:      return shift_down ? std::optional<std::wstring_view>(L"？") : std::optional<std::wstring_view>(L"、");
+        case '1':           return shift_down ? std::optional<std::wstring_view>(L"！") : std::nullopt;
+        case '4':           return shift_down ? std::optional<std::wstring_view>(L"￥") : std::nullopt;
+        case '6':           return shift_down ? std::optional<std::wstring_view>(L"……") : std::nullopt;
+        case '9':           return shift_down ? std::optional<std::wstring_view>(L"（") : std::nullopt;
+        case '0':           return shift_down ? std::optional<std::wstring_view>(L"）") : std::nullopt;
         default:            return std::nullopt;
     }
 }

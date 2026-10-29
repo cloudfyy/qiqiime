@@ -7,13 +7,13 @@ namespace qiqi {
 class QiQiClassFactory final : public IClassFactory {
 public:
     // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
-    STDMETHODIMP_(ULONG) AddRef() override;
-    STDMETHODIMP_(ULONG) Release() override;
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;
+    STDMETHODIMP_(ULONG) AddRef() noexcept override;
+    STDMETHODIMP_(ULONG) Release() noexcept override;
 
     // IClassFactory
-    STDMETHODIMP CreateInstance(IUnknown* pUnkOuter, REFIID riid, void** ppvObj) override;
-    STDMETHODIMP LockServer(BOOL fLock) override;
+    STDMETHODIMP CreateInstance(IUnknown* pUnkOuter, REFIID riid, void** ppvObj) noexcept override;
+    STDMETHODIMP LockServer(BOOL fLock) noexcept override;
 };
 
 } // namespace qiqi

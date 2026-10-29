@@ -11,29 +11,34 @@ namespace qiqi {
 // and fullscreen games in UILess mode (ITfUIElementSink) can render candidates.
 class CandidateUI final : public ITfCandidateListUIElement {
 public:
-    explicit CandidateUI(HINSTANCE instance);
-    ~CandidateUI();
+    explicit CandidateUI(HINSTANCE instance) noexcept;
+    ~CandidateUI() noexcept;
+
+    CandidateUI(const CandidateUI&) = delete;
+    CandidateUI& operator=(const CandidateUI&) = delete;
+    CandidateUI(CandidateUI&&) = delete;
+    CandidateUI& operator=(CandidateUI&&) = delete;
 
     // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
-    STDMETHODIMP_(ULONG) AddRef() override;
-    STDMETHODIMP_(ULONG) Release() override;
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;
+    STDMETHODIMP_(ULONG) AddRef() noexcept override;
+    STDMETHODIMP_(ULONG) Release() noexcept override;
 
     // ITfUIElement
-    STDMETHODIMP GetDescription(BSTR* pbstrDescription) override;
-    STDMETHODIMP GetGUID(GUID* pguid) override;
-    STDMETHODIMP Show(BOOL bShow) override;
-    STDMETHODIMP IsShown(BOOL* pbShow) override;
+    STDMETHODIMP GetDescription(BSTR* pbstrDescription) noexcept override;
+    STDMETHODIMP GetGUID(GUID* pguid) noexcept override;
+    STDMETHODIMP Show(BOOL bShow) noexcept override;
+    STDMETHODIMP IsShown(BOOL* pbShow) noexcept override;
 
     // ITfCandidateListUIElement
-    STDMETHODIMP GetUpdatedFlags(DWORD* pdwFlags) override;
-    STDMETHODIMP GetDocumentMgr(ITfDocumentMgr** ppdim) override;
-    STDMETHODIMP GetCount(UINT* puCount) override;
-    STDMETHODIMP GetSelection(UINT* puIndex) override;
-    STDMETHODIMP GetString(UINT uIndex, BSTR* pstr) override;
-    STDMETHODIMP GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt) override;
-    STDMETHODIMP SetPageIndex(UINT* pIndex, UINT uPageCnt) override;
-    STDMETHODIMP GetCurrentPage(UINT* puPage) override;
+    STDMETHODIMP GetUpdatedFlags(DWORD* pdwFlags) noexcept override;
+    STDMETHODIMP GetDocumentMgr(ITfDocumentMgr** ppdim) noexcept override;
+    STDMETHODIMP GetCount(UINT* puCount) noexcept override;
+    STDMETHODIMP GetSelection(UINT* puIndex) noexcept override;
+    STDMETHODIMP GetString(UINT uIndex, BSTR* pstr) noexcept override;
+    STDMETHODIMP GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt) noexcept override;
+    STDMETHODIMP SetPageIndex(UINT* pIndex, UINT uPageCnt) noexcept override;
+    STDMETHODIMP GetCurrentPage(UINT* puPage) noexcept override;
 
     // State update from TIP
     void SetCandidates(std::wstring code,
@@ -42,14 +47,14 @@ public:
                        size_t current_page,
                        size_t selected_in_page);
 
-    void MoveWindowTo(const RECT& text_rect);
-    void DestroyPopupWindow();
+    void MoveWindowTo(const RECT& text_rect) noexcept;
+    void DestroyPopupWindow() noexcept;
 
     DWORD UiElementId() const noexcept { return ui_element_id_; }
     void SetUiElementId(DWORD id) noexcept { ui_element_id_ = id; }
 
 private:
-    bool EnsurePopupWindow();
+    bool EnsurePopupWindow() noexcept;
     void PaintPopup(HDC hdc, const RECT& client_rect) const;
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 

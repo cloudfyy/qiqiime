@@ -4,6 +4,7 @@
 #include "common/logger.h"
 #include "common/version.h"
 
+#include <array>
 #include <filesystem>
 
 namespace qiqi {
@@ -18,26 +19,25 @@ bool IsKeyDown(int vk) noexcept {
 
 QiQiTextService::QiQiTextService() {
     ++g_com_object_count;
-    candidate_ui_ = new CandidateUI(g_dll_instance);
+    candidate_ui_.Attach(new CandidateUI(g_dll_instance));
     LoadExternalDictionaryNextToDll();
 }
 
-QiQiTextService::~QiQiTextService() {
+QiQiTextService::~QiQiTextService() noexcept {
     if (candidate_ui_) {
         candidate_ui_->DestroyPopupWindow();
-        candidate_ui_->Release();
-        candidate_ui_ = nullptr;
+        candidate_ui_.Reset();
     }
     --g_com_object_count;
 }
 
 void QiQiTextService::LoadExternalDictionaryNextToDll() {
-    wchar_t module_path[MAX_PATH]{};
-    if (::GetModuleFileNameW(g_dll_instance, module_path, MAX_PATH) == 0) {
+    std::array<wchar_t, MAX_PATH> module_path{};
+    if (::GetModuleFileNameW(g_dll_instance, module_path.data(), static_cast<DWORD>(module_path.size())) == 0) {
         QIQI_LOG_WARN("GetModuleFileNameW failed when locating external dictionary");
         return;
     }
-    std::filesystem::path dict_path(module_path);
+    std::filesystem::path dict_path(module_path.data());
     dict_path.replace_filename(L"wubi86.txt");
     if (std::filesystem::exists(dict_path)) {
         engine_.LoadDictionaryFile(dict_path);
@@ -47,7 +47,7 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
     }
 }
 
-STDMETHODIMP QiQiTextService::QueryInterface(REFIID riid, void** ppvObj) {
+STDMETHODIMP QiQiTextService::QueryInterface(REFIID riid, void** ppvObj) noexcept {
     if (!ppvObj) {
         return E_INVALIDARG;
     }
@@ -69,11 +69,11 @@ STDMETHODIMP QiQiTextService::QueryInterface(REFIID riid, void** ppvObj) {
     return S_OK;
 }
 
-STDMETHODIMP_(ULONG) QiQiTextService::AddRef() {
+STDMETHODIMP_(ULONG) QiQiTextService::AddRef() noexcept {
     return ++ref_count_;
 }
 
-STDMETHODIMP_(ULONG) QiQiTextService::Release() {
+STDMETHODIMP_(ULONG) QiQiTextService::Release() noexcept {
     const ULONG count = --ref_count_;
     if (count == 0) {
         delete this;
@@ -174,11 +174,11 @@ void QiQiTextService::UninitKeyEventSink() {
 }
 
 // ITfThreadMgrEventSink
-STDMETHODIMP QiQiTextService::OnInitDocumentMgr(ITfDocumentMgr* /*pdim*/) {
+STDMETHODIMP QiQiTextService::OnInitDocumentMgr(ITfDocumentMgr* /*pdim*/) noexcept {
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* /*pdim*/) {
+STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* /*pdim*/) noexcept {
     return S_OK;
 }
 
@@ -192,11 +192,11 @@ STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentM
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* /*pic*/) {
+STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* /*pic*/) noexcept {
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* /*pic*/) {
+STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* /*pic*/) noexcept {
     return S_OK;
 }
 
@@ -210,7 +210,7 @@ STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* /*pic*/, WPARAM wParam, LPARAM /*lParam*/, BOOL* pfEaten) {
+STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* /*pic*/, WPARAM wParam, LPARAM /*lParam*/, BOOL* pfEaten) noexcept {
     if (!pfEaten) {
         return E_INVALIDARG;
     }
@@ -250,7 +250,7 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnTestKeyUp(ITfContext* /*pic*/, WPARAM wParam, LPARAM /*lParam*/, BOOL* pfEaten) {
+STDMETHODIMP QiQiTextService::OnTestKeyUp(ITfContext* /*pic*/, WPARAM wParam, LPARAM /*lParam*/, BOOL* pfEaten) noexcept {
     if (!pfEaten) {
         return E_INVALIDARG;
     }
@@ -314,7 +314,8 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
     ComPtr<ITfContext> ctx_holder(context);
     ComPtr<QiQiTextService> self_holder(this);
 
-    auto* session = new LambdaEditSession([self_holder, ctx_holder, result](TfEditCookie ec) -> HRESULT {
+    ComPtr<LambdaEditSession> session;
+    session.Attach(new LambdaEditSession([self_holder, ctx_holder, result](TfEditCookie ec) -> HRESULT {
         if (result.action == KeyActionType::Cancel) {
             self_holder->CancelCompositionInSession(ec, ctx_holder.Get());
             self_holder->EndCandidateUI();
@@ -342,15 +343,14 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
         }
 
         return S_OK;
-    });
+    }));
 
     HRESULT session_hr = S_OK;
     context->RequestEditSession(
         client_id_,
-        session,
+        session.Get(),
         TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
         &session_hr);
-    session->Release();
 }
 
 void QiQiTextService::StartOrUpdateCompositionInSession(
@@ -478,7 +478,7 @@ void QiQiTextService::BeginOrUpdateCandidateUI() {
     if (candidate_ui_->UiElementId() == TF_INVALID_UIELEMENTID) {
         BOOL show_own_ui = TRUE;
         DWORD element_id = TF_INVALID_UIELEMENTID;
-        if (SUCCEEDED(ui_mgr->BeginUIElement(candidate_ui_, &show_own_ui, &element_id))) {
+        if (SUCCEEDED(ui_mgr->BeginUIElement(candidate_ui_.Get(), &show_own_ui, &element_id))) {
             candidate_ui_->SetUiElementId(element_id);
             // If host game/app returned FALSE in show_own_ui (UILess mode), do not show popup window
             const bool force_uiless = (activate_flags_ & TF_TMAE_UIELEMENTENABLEDONLY) != 0 && !show_own_ui;

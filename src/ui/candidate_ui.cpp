@@ -3,6 +3,7 @@
 #include "common/logger.h"
 #include <oleauto.h>
 #include <algorithm>
+#include <span>
 
 namespace qiqi {
 
@@ -10,7 +11,7 @@ namespace {
 constexpr const wchar_t* kCandidateWndClass = L"QiQiIMECandidatePopupClass";
 } // namespace
 
-CandidateUI::CandidateUI(HINSTANCE instance) : instance_(instance) {
+CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
     LOGFONTW lf{};
     lf.lfHeight = -18;
     lf.lfWeight = FW_NORMAL;
@@ -20,7 +21,7 @@ CandidateUI::CandidateUI(HINSTANCE instance) : instance_(instance) {
     font_ = ::CreateFontIndirectW(&lf);
 }
 
-CandidateUI::~CandidateUI() {
+CandidateUI::~CandidateUI() noexcept {
     DestroyPopupWindow();
     if (font_) {
         ::DeleteObject(font_);
@@ -28,7 +29,7 @@ CandidateUI::~CandidateUI() {
     }
 }
 
-STDMETHODIMP CandidateUI::QueryInterface(REFIID riid, void** ppvObj) {
+STDMETHODIMP CandidateUI::QueryInterface(REFIID riid, void** ppvObj) noexcept {
     if (!ppvObj) {
         return E_INVALIDARG;
     }
@@ -43,11 +44,11 @@ STDMETHODIMP CandidateUI::QueryInterface(REFIID riid, void** ppvObj) {
     return E_NOINTERFACE;
 }
 
-STDMETHODIMP_(ULONG) CandidateUI::AddRef() {
+STDMETHODIMP_(ULONG) CandidateUI::AddRef() noexcept {
     return ++ref_count_;
 }
 
-STDMETHODIMP_(ULONG) CandidateUI::Release() {
+STDMETHODIMP_(ULONG) CandidateUI::Release() noexcept {
     const ULONG count = --ref_count_;
     if (count == 0) {
         delete this;
@@ -55,7 +56,7 @@ STDMETHODIMP_(ULONG) CandidateUI::Release() {
     return count;
 }
 
-STDMETHODIMP CandidateUI::GetDescription(BSTR* pbstrDescription) {
+STDMETHODIMP CandidateUI::GetDescription(BSTR* pbstrDescription) noexcept {
     if (!pbstrDescription) {
         return E_INVALIDARG;
     }
@@ -63,7 +64,7 @@ STDMETHODIMP CandidateUI::GetDescription(BSTR* pbstrDescription) {
     return *pbstrDescription ? S_OK : E_OUTOFMEMORY;
 }
 
-STDMETHODIMP CandidateUI::GetGUID(GUID* pguid) {
+STDMETHODIMP CandidateUI::GetGUID(GUID* pguid) noexcept {
     if (!pguid) {
         return E_INVALIDARG;
     }
@@ -71,7 +72,7 @@ STDMETHODIMP CandidateUI::GetGUID(GUID* pguid) {
     return S_OK;
 }
 
-STDMETHODIMP CandidateUI::Show(BOOL bShow) {
+STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
     is_shown_ = bShow;
     if (bShow) {
         if (EnsurePopupWindow()) {
@@ -84,7 +85,7 @@ STDMETHODIMP CandidateUI::Show(BOOL bShow) {
     return S_OK;
 }
 
-STDMETHODIMP CandidateUI::IsShown(BOOL* pbShow) {
+STDMETHODIMP CandidateUI::IsShown(BOOL* pbShow) noexcept {
     if (!pbShow) {
         return E_INVALIDARG;
     }
@@ -92,7 +93,7 @@ STDMETHODIMP CandidateUI::IsShown(BOOL* pbShow) {
     return S_OK;
 }
 
-STDMETHODIMP CandidateUI::GetUpdatedFlags(DWORD* pdwFlags) {
+STDMETHODIMP CandidateUI::GetUpdatedFlags(DWORD* pdwFlags) noexcept {
     if (!pdwFlags) {
         return E_INVALIDARG;
     }
@@ -100,7 +101,7 @@ STDMETHODIMP CandidateUI::GetUpdatedFlags(DWORD* pdwFlags) {
     return S_OK;
 }
 
-STDMETHODIMP CandidateUI::GetDocumentMgr(ITfDocumentMgr** ppdim) {
+STDMETHODIMP CandidateUI::GetDocumentMgr(ITfDocumentMgr** ppdim) noexcept {
     if (!ppdim) {
         return E_INVALIDARG;
     }
@@ -108,7 +109,7 @@ STDMETHODIMP CandidateUI::GetDocumentMgr(ITfDocumentMgr** ppdim) {
     return S_OK;
 }
 
-STDMETHODIMP CandidateUI::GetCount(UINT* puCount) {
+STDMETHODIMP CandidateUI::GetCount(UINT* puCount) noexcept {
     if (!puCount) {
         return E_INVALIDARG;
     }
@@ -116,7 +117,7 @@ STDMETHODIMP CandidateUI::GetCount(UINT* puCount) {
     return S_OK;
 }
 
-STDMETHODIMP CandidateUI::GetSelection(UINT* puIndex) {
+STDMETHODIMP CandidateUI::GetSelection(UINT* puIndex) noexcept {
     if (!puIndex) {
         return E_INVALIDARG;
     }
@@ -125,7 +126,7 @@ STDMETHODIMP CandidateUI::GetSelection(UINT* puIndex) {
     return S_OK;
 }
 
-STDMETHODIMP CandidateUI::GetString(UINT uIndex, BSTR* pstr) {
+STDMETHODIMP CandidateUI::GetString(UINT uIndex, BSTR* pstr) noexcept {
     if (!pstr) {
         return E_INVALIDARG;
     }
@@ -136,7 +137,7 @@ STDMETHODIMP CandidateUI::GetString(UINT uIndex, BSTR* pstr) {
     return *pstr ? S_OK : E_OUTOFMEMORY;
 }
 
-STDMETHODIMP CandidateUI::GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt) {
+STDMETHODIMP CandidateUI::GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt) noexcept {
     if (!puPageCnt) {
         return E_INVALIDARG;
     }
@@ -147,18 +148,19 @@ STDMETHODIMP CandidateUI::GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt
     if (!pIndex) {
         return S_OK;
     }
-    const UINT count_to_copy = std::min(uSize, static_cast<UINT>(total_pages));
-    for (UINT i = 0; i < count_to_copy; ++i) {
-        pIndex[i] = static_cast<UINT>(i * page_size_);
+    std::span<UINT> out_indices(pIndex, uSize);
+    const size_t count_to_copy = std::min<size_t>(out_indices.size(), total_pages);
+    for (size_t i = 0; i < count_to_copy; ++i) {
+        out_indices[i] = static_cast<UINT>(i * page_size_);
     }
     return S_OK;
 }
 
-STDMETHODIMP CandidateUI::SetPageIndex(UINT* /*pIndex*/, UINT /*uPageCnt*/) {
+STDMETHODIMP CandidateUI::SetPageIndex(UINT* /*pIndex*/, UINT /*uPageCnt*/) noexcept {
     return S_OK;
 }
 
-STDMETHODIMP CandidateUI::GetCurrentPage(UINT* puPage) {
+STDMETHODIMP CandidateUI::GetCurrentPage(UINT* puPage) noexcept {
     if (!puPage) {
         return E_INVALIDARG;
     }
@@ -184,7 +186,7 @@ void CandidateUI::SetCandidates(std::wstring code,
     }
 }
 
-void CandidateUI::MoveWindowTo(const RECT& text_rect) {
+void CandidateUI::MoveWindowTo(const RECT& text_rect) noexcept {
     popup_pos_.x = text_rect.left;
     popup_pos_.y = text_rect.bottom + 4;
 
@@ -193,8 +195,8 @@ void CandidateUI::MoveWindowTo(const RECT& text_rect) {
     MONITORINFO mi{};
     mi.cbSize = sizeof(mi);
     if (::GetMonitorInfoW(mon, &mi)) {
-        const int width = 360;
-        const int height = 64;
+        constexpr int width = 360;
+        constexpr int height = 64;
         if (popup_pos_.x + width > mi.rcWork.right) {
             popup_pos_.x = std::max(mi.rcWork.left, mi.rcWork.right - width);
         }
@@ -209,7 +211,7 @@ void CandidateUI::MoveWindowTo(const RECT& text_rect) {
     }
 }
 
-bool CandidateUI::EnsurePopupWindow() {
+bool CandidateUI::EnsurePopupWindow() noexcept {
     if (hwnd_ && ::IsWindow(hwnd_)) {
         return true;
     }
@@ -233,12 +235,15 @@ bool CandidateUI::EnsurePopupWindow() {
         nullptr, nullptr, instance_, this);
 
     if (!hwnd_) {
-        QIQI_LOG_ERROR("CandidateUI::EnsurePopupWindow CreateWindowExW failed (error={})", ::GetLastError());
+        try {
+            QIQI_LOG_ERROR("CandidateUI::EnsurePopupWindow CreateWindowExW failed (error={})", ::GetLastError());
+        } catch (...) {
+        }
     }
     return hwnd_ != nullptr;
 }
 
-void CandidateUI::DestroyPopupWindow() {
+void CandidateUI::DestroyPopupWindow() noexcept {
     if (hwnd_ && ::IsWindow(hwnd_)) {
         ::DestroyWindow(hwnd_);
     }
@@ -296,12 +301,12 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
 
 LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     if (msg == WM_NCCREATE) {
-        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
+        const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
         ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
         return TRUE;
     }
 
-    auto* self = reinterpret_cast<CandidateUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    const auto* self = reinterpret_cast<const CandidateUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (msg == WM_PAINT && self) {
         PAINTSTRUCT ps{};
         HDC hdc = ::BeginPaint(hwnd, &ps);

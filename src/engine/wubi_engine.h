@@ -73,7 +73,7 @@ public:
 private:
     void RefreshCandidates();
     KeyProcessResult MakeCurrentStateResult(KeyActionType action, std::wstring committed = L"") const;
-    static std::optional<std::wstring> MapChinesePunctuation(uint32_t vk, bool shift_down);
+    static constexpr std::optional<std::wstring_view> MapChinesePunctuation(uint32_t vk, bool shift_down) noexcept;
 
     std::map<std::wstring, std::vector<std::wstring>> dict_;
     std::wstring raw_code_;

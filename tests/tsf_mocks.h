@@ -92,7 +92,7 @@ public:
         return c;
     }
     STDMETHODIMP GetRange(ITfRange** ppRange) override {
-        if (!ppRange) return E_INVALIDARG;
+        if (!ppRange || fail_get_range_) return E_FAIL;
         *ppRange = range_.Get();
         (*ppRange)->AddRef();
         return S_OK;
@@ -106,6 +106,7 @@ public:
 
     ComPtr<MockTfRange> range_;
     bool ended_ = false;
+    bool fail_get_range_ = false;
 private:
     ULONG ref_ = 1;
 };
@@ -221,6 +222,7 @@ public:
     STDMETHODIMP StartComposition(TfEditCookie, ITfRange*, ITfCompositionSink*, ITfComposition** ppComposition) override {
         if (!ppComposition || fail_start_comp_) return E_FAIL;
         auto* comp = new MockTfComposition(range_);
+        comp->fail_get_range_ = fail_comp_get_range_;
         *ppComposition = comp;
         return S_OK;
     }
@@ -234,6 +236,7 @@ public:
     bool fail_insert_at_sel_ = false;
     bool fail_qi_comp_ = false;
     bool fail_start_comp_ = false;
+    bool fail_comp_get_range_ = false;
     bool fail_get_view_ = false;
 private:
     ULONG ref_ = 1;

@@ -1,11 +1,14 @@
 #include "tsf/class_factory.h"
 #include "tsf/tip_service.h"
 
+#include <wrl/client.h>
 #include <new>
 
 namespace qiqi {
 
-STDMETHODIMP QiQiClassFactory::QueryInterface(REFIID riid, void** ppvObj) {
+using Microsoft::WRL::ComPtr;
+
+STDMETHODIMP QiQiClassFactory::QueryInterface(REFIID riid, void** ppvObj) noexcept {
     if (!ppvObj) {
         return E_INVALIDARG;
     }
@@ -18,17 +21,17 @@ STDMETHODIMP QiQiClassFactory::QueryInterface(REFIID riid, void** ppvObj) {
     return E_NOINTERFACE;
 }
 
-STDMETHODIMP_(ULONG) QiQiClassFactory::AddRef() {
+STDMETHODIMP_(ULONG) QiQiClassFactory::AddRef() noexcept {
     ++g_com_object_count;
     return 2;
 }
 
-STDMETHODIMP_(ULONG) QiQiClassFactory::Release() {
+STDMETHODIMP_(ULONG) QiQiClassFactory::Release() noexcept {
     --g_com_object_count;
     return 1;
 }
 
-STDMETHODIMP QiQiClassFactory::CreateInstance(IUnknown* pUnkOuter, REFIID riid, void** ppvObj) {
+STDMETHODIMP QiQiClassFactory::CreateInstance(IUnknown* pUnkOuter, REFIID riid, void** ppvObj) noexcept {
     if (!ppvObj) {
         return E_INVALIDARG;
     }
@@ -37,17 +40,19 @@ STDMETHODIMP QiQiClassFactory::CreateInstance(IUnknown* pUnkOuter, REFIID riid, 
         return CLASS_E_NOAGGREGATION;
     }
 
-    auto* service = new (std::nothrow) QiQiTextService();
-    if (!service) {
+    try {
+        ComPtr<QiQiTextService> service;
+        service.Attach(new (std::nothrow) QiQiTextService());
+        if (!service) {
+            return E_OUTOFMEMORY;
+        }
+        return service->QueryInterface(riid, ppvObj);
+    } catch (...) {
         return E_OUTOFMEMORY;
     }
-
-    const HRESULT hr = service->QueryInterface(riid, ppvObj);
-    service->Release();
-    return hr;
 }
 
-STDMETHODIMP QiQiClassFactory::LockServer(BOOL fLock) {
+STDMETHODIMP QiQiClassFactory::LockServer(BOOL fLock) noexcept {
     if (fLock) {
         ++g_com_object_count;
     } else {

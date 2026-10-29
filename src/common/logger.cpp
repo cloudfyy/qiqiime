@@ -5,6 +5,7 @@
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 
+#include <array>
 #include <cstdlib>
 #include <mutex>
 #include <vector>
@@ -17,16 +18,16 @@ std::mutex g_logger_mutex;
 std::shared_ptr<spdlog::logger> g_logger;
 
 std::filesystem::path GetDefaultLogFilePath() {
-    wchar_t* local_app_data = nullptr;
-    size_t len = 0;
+    std::array<wchar_t, MAX_PATH> env_buf{};
+    const DWORD env_len = ::GetEnvironmentVariableW(
+        L"LOCALAPPDATA", env_buf.data(), static_cast<DWORD>(env_buf.size()));
     std::filesystem::path base_dir;
-    if (_wdupenv_s(&local_app_data, &len, L"LOCALAPPDATA") == 0 && local_app_data) {
-        base_dir = local_app_data;
-        free(local_app_data);
+    if (env_len > 0 && env_len < env_buf.size()) {
+        base_dir = env_buf.data();
     } else {
-        wchar_t temp_path[MAX_PATH]{};
-        if (::GetTempPathW(MAX_PATH, temp_path) > 0) {
-            base_dir = temp_path;
+        std::array<wchar_t, MAX_PATH> temp_path{};
+        if (::GetTempPathW(static_cast<DWORD>(temp_path.size()), temp_path.data()) > 0) {
+            base_dir = temp_path.data();
         }
     }
 

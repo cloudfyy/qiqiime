@@ -26,6 +26,9 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&key_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&comp_sink))));
 
+    // Deactivate before Activate (exercises UninitKeyEventSink / UninitThreadMgrEventSink early-return)
+    QIQI_TEST_CHECK(SUCCEEDED(service->Deactivate()));
+
     // Activate failure paths
     QIQI_TEST_CHECK(service->ActivateEx(nullptr, 1, 0) == E_INVALIDARG);
     ComPtr<MockTfThreadMgr> mock_tm(new MockTfThreadMgr());
@@ -137,6 +140,11 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
     mock_ctx->fail_start_comp_ = false;
 
+    mock_ctx->fail_comp_get_range_ = true;
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
+    mock_ctx->fail_comp_get_range_ = false;
+
     mock_ctx->fail_get_view_ = true;
     mock_tm->fail_query_ui_mgr_ = true;
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
@@ -165,8 +173,14 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     tip_base.Reset();
     QIQI_TEST_CHECK(service->Release() == 0);
 
-    // Also test QiQiTextService construction when g_dll_instance is invalid (GetModuleFileNameW failure branch)
+    // Also test QiQiTextService construction when:
+    // 1) g_dll_instance points to kernel32.dll (where wubi86.txt does not exist next to DLL)
+    // 2) g_dll_instance is invalid (GetModuleFileNameW failure branch)
     HINSTANCE saved_instance = g_dll_instance;
+    g_dll_instance = ::GetModuleHandleW(L"kernel32.dll");
+    auto* service_no_dict = new QiQiTextService();
+    QIQI_TEST_CHECK(service_no_dict->Release() == 0);
+
     g_dll_instance = reinterpret_cast<HINSTANCE>(0x12345678);
     auto* service_bad_inst = new QiQiTextService();
     QIQI_TEST_CHECK(service_bad_inst->Release() == 0);

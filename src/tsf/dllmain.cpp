@@ -10,7 +10,7 @@ std::atomic<long> g_com_object_count{0};
 static QiQiClassFactory g_class_factory;
 } // namespace qiqi
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID /*lpReserved*/) {
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID /*lpReserved*/) noexcept {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         qiqi::g_dll_instance = hModule;
         ::DisableThreadLibraryCalls(hModule);
