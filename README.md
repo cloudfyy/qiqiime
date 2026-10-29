@@ -7,7 +7,7 @@
 ## 1. 目录结构
 
 ```text
-C:\sample\qiqiime
+qiqiime/
 ├── CMakeLists.txt              # 根 CMake 构建配置（工具链、版本、C++26 标准与子目录调度）
 ├── CMakePresets.json           # CMake Presets (支持 x64 与 x86/Win32 双架构配置与构建)
 ├── LICENSE                     # GNU General Public License v3.0 (GPL-3.0) 开源许可证全文
@@ -137,7 +137,6 @@ C:\sample\qiqiime
 ### 方式一：一键编译并测试 `x64` + `x86` 双架构（推荐）
 
 ```powershell
-cd C:\sample\qiqiime
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
 ```
 
@@ -156,30 +155,30 @@ ctest --preset x86-release
 ```
 
 双架构构建产物位于：
-- `C:\sample\qiqiime\build\x64\Release\qiqiime.dll`（64 位 TSF 输入法组件）
-- `C:\sample\qiqiime\build\x86\Release\qiqiime.dll`（32 位 TSF 输入法组件，供 32 位/WOW64 进程加载）
-- `C:\sample\qiqiime\build\<x64|x86>\Release\wubi86_jidian.txt`（极点 86 五笔核心主词库）
-- `C:\sample\qiqiime\build\<x64|x86>\Release\wubi86_jidian_extra.txt`（极点 86 五笔现代扩展词库）
-- `C:\sample\qiqiime\build\<x64|x86>\Release\wubi86_haifeng.txt`（海峰 86 五笔超大字符集词库）
-- `C:\sample\qiqiime\build\<x64|x86>\Release\qiqi_engine_test.exe`（引擎与基础组件单元测试）
-- `C:\sample\qiqiime\build\<x64|x86>\Release\qiqi_tsf_ui_test.exe`（TSF 服务与候选窗 UI 单元测试）
+- `build\x64\Release\qiqiime.dll`（64 位 TSF 输入法组件）
+- `build\x86\Release\qiqiime.dll`（32 位 TSF 输入法组件，供 32 位/WOW64 进程加载）
+- `build\<x64|x86>\Release\wubi86_jidian.txt`（极点 86 五笔核心主词库）
+- `build\<x64|x86>\Release\wubi86_jidian_extra.txt`（极点 86 五笔现代扩展词库）
+- `build\<x64|x86>\Release\wubi86_haifeng.txt`（海峰 86 五笔超大字符集词库）
+- `build\<x64|x86>\Release\qiqi_engine_test.exe`（引擎与基础组件单元测试）
+- `build\<x64|x86>\Release\qiqi_tsf_ui_test.exe`（TSF 服务与候选窗 UI 单元测试）
 
 ---
 
 ## 4. 安装（注册）、验证与卸载（需管理员权限）
 
-以**管理员身份**运行 PowerShell：
+在项目根目录下以**管理员身份**运行 PowerShell：
 
 ```powershell
 # 方式一：运行安装与注册表校验脚本（推荐，自动检查产物、注册 x64+x86 并校验注册表与 TSF Profile）
-powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\test_install.ps1
+powershell -ExecutionPolicy Bypass -File scripts\test_install.ps1
 
 # 若当前不是管理员窗口，可加 -AutoElevate 自动弹出 UAC 提权执行：
-powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\test_install.ps1 -AutoElevate
+powershell -ExecutionPolicy Bypass -File scripts\test_install.ps1 -AutoElevate
 
 # 方式二：直接注册 / 卸载输入法
-powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\register_ime.ps1
-powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\unregister_ime.ps1
+powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1
+powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1
 ```
 
 > **提示**：由于 TSF DLL 会被加载进当前焦点宿主进程，重新编译覆盖 `qiqiime.dll` 前，请先切换到其他输入法并执行卸载脚本（或关闭正在使用该输入法的程序）。

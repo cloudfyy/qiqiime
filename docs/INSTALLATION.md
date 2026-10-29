@@ -19,7 +19,6 @@
 如果尚未编译生成 `qiqiime.dll`，在项目根目录执行一键双架构编译脚本：
 
 ```powershell
-cd C:\sample\qiqiime
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
 ```
 
@@ -46,25 +45,25 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
 
 - **在普通 PowerShell 窗口执行（自动弹出 UAC 提权并打开记事本测试）**：
   ```powershell
-  powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\test_install.ps1 -AutoElevate -LaunchNotepad
+  powershell -ExecutionPolicy Bypass -File scripts\test_install.ps1 -AutoElevate -LaunchNotepad
   ```
 
 - **在管理员 PowerShell 窗口直接执行**：
   ```powershell
-  powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\test_install.ps1
+  powershell -ExecutionPolicy Bypass -File scripts\test_install.ps1
   ```
 
 - **如果尚未编译，可加 `-BuildIfMissing` 自动先编译再安装**：
   ```powershell
-  powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\test_install.ps1 -BuildIfMissing -AutoElevate
+  powershell -ExecutionPolicy Bypass -File scripts\test_install.ps1 -BuildIfMissing -AutoElevate
   ```
 
 ### 方式二：仅执行注册脚本
 
-以**管理员身份**打开 PowerShell，运行：
+在项目根目录下以**管理员身份**打开 PowerShell，运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\register_ime.ps1
+powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1
 ```
 
 该脚本会依次调用：
@@ -146,13 +145,13 @@ level = info                  # 日志级别: trace | debug | info | warn | erro
 ### 6.1 卸载输入法
 
 1. 按 `Win + Space` 切换到系统自带的其他输入法；
-2. 以**管理员身份**运行卸载脚本：
+2. 在项目根目录下以**管理员身份**运行卸载脚本：
    ```powershell
-   powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\unregister_ime.ps1
+   powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1
    ```
 3. 也可使用带卸载回环验证的测试脚本确认注册表项已彻底清除：
    ```powershell
-   powershell -ExecutionPolicy Bypass -File C:\sample\qiqiime\scripts\test_install.ps1 -AutoElevate -UnregisterAfterTest
+   powershell -ExecutionPolicy Bypass -File scripts\test_install.ps1 -AutoElevate -UnregisterAfterTest
    ```
 
 ### 6.2 重新编译或升级时的文件占用处理
