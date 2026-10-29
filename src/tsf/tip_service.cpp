@@ -34,6 +34,23 @@ bool IsKeyDown(int vk) noexcept {
     return (::GetKeyState(vk) & 0x8000) != 0;
 }
 
+constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
+    switch (id) {
+        case LangBarMenuId::ToggleChinese:     return "ToggleChinese";
+        case LangBarMenuId::ToggleFullWidth:   return "ToggleFullWidth";
+        case LangBarMenuId::TogglePunctuation: return "TogglePunctuation";
+        case LangBarMenuId::DictJidian:        return "DictJidian";
+        case LangBarMenuId::DictHaifeng:       return "DictHaifeng";
+        case LangBarMenuId::ToggleExtraDict:   return "ToggleExtraDict";
+        case LangBarMenuId::ToggleStatusBar:   return "ToggleStatusBar";
+        case LangBarMenuId::OpenSettings:      return "OpenSettings";
+        case LangBarMenuId::OpenConfigFile:    return "OpenConfigFile";
+        case LangBarMenuId::ToggleUiLanguage:  return "ToggleUiLanguage";
+        case LangBarMenuId::OpenAbout:         return "OpenAbout";
+        default:                               return "Unknown";
+    }
+}
+
 } // namespace
 
 QiQiTextService::QiQiTextService() {
@@ -103,7 +120,7 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
         }
     }
 
-    if (config_.enable_jidian_extra) {
+    if (config_.primary_dict == PrimaryDict::Jidian && config_.enable_jidian_extra) {
         const std::filesystem::path extra_path = dll_dir / L"wubi86_jidian_extra.txt";
         if (std::filesystem::exists(extra_path)) {
             loaded_any |= engine_.LoadDictionaryFile(extra_path);
@@ -117,12 +134,18 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
         }
         if (std::filesystem::exists(user_path)) {
             loaded_any |= engine_.LoadDictionaryFile(user_path);
+        } else {
+            QIQI_LOG_WARN("Configured user dictionary '{}' does not exist",
+                          log::WideToUtf8(user_path.wstring()));
         }
     }
 
     if (!loaded_any && config_.primary_dict != PrimaryDict::BuiltinOnly) {
         QIQI_LOG_DEBUG("External dictionaries not found in '{}', using builtin dictionary only",
                        log::WideToUtf8(dll_dir.wstring()));
+    } else {
+        QIQI_LOG_INFO("Dictionary initialization complete: {} external dictionary file(s) active",
+                      engine_.MappedDictionaryCount());
     }
 }
 
@@ -178,8 +201,9 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     client_id_ = tid;
     activate_flags_ = dwFlags;
 
-    QIQI_LOG_INFO("QiQiTextService::ActivateEx(version={}, arch={}, client_id={}, flags=0x{:x})",
-                  version::kFullVersion, version::kArch, tid, dwFlags);
+    const std::string host_exe = log::WideToUtf8(log::GetModuleFilePath(nullptr).filename().wstring());
+    QIQI_LOG_INFO("QiQiTextService::ActivateEx(version={}, arch={}, host='{}', client_id={}, flags=0x{:x})",
+                  version::kFullVersion, version::kArch, host_exe, tid, dwFlags);
 
     if (!InitThreadMgrEventSink() || !InitKeyEventSink()) {
         QIQI_LOG_ERROR("QiQiTextService::ActivateEx failed to initialize TSF event sinks");
@@ -327,6 +351,8 @@ void QiQiTextService::UninitLangBarItem() {
 }
 
 void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
+    QIQI_LOG_INFO("HandleLangBarMenuAction invoked (action={} [{}])",
+                  LangBarMenuIdToString(action_id), static_cast<unsigned int>(action_id));
     switch (action_id) {
         case LangBarMenuId::ToggleChinese:
             ToggleModeAndCancelComposition(active_context_.Get());
@@ -356,10 +382,12 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
             }
             break;
         case LangBarMenuId::ToggleExtraDict:
-            config_.enable_jidian_extra = !config_.enable_jidian_extra;
-            SaveConfigFile(GetDefaultUserConfigPath(), config_);
-            LoadExternalDictionaryNextToDll();
-            SyncTsfCompartments();
+            if (config_.primary_dict == PrimaryDict::Jidian) {
+                config_.enable_jidian_extra = !config_.enable_jidian_extra;
+                SaveConfigFile(GetDefaultUserConfigPath(), config_);
+                LoadExternalDictionaryNextToDll();
+                SyncTsfCompartments();
+            }
             break;
         case LangBarMenuId::ToggleStatusBar:
             config_.show_status_bar = !config_.show_status_bar;
@@ -555,6 +583,7 @@ STDMETHODIMP QiQiTextService::GetDisplayName(BSTR* pbstrName) noexcept {
 }
 
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
+    QIQI_LOG_INFO("Opening Settings dialog");
     if (ShowSettingsDialog(g_dll_instance, hwndParent, config_)) {
         SaveConfigFile(GetDefaultUserConfigPath(), config_);
         log::SetLevel(config_.log_level);
@@ -566,6 +595,9 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
         engine_.SetEnableKeySound(config_.enable_key_sound);
         LoadExternalDictionaryNextToDll();
         SyncTsfCompartments();
+        QIQI_LOG_INFO("Settings dialog saved and applied");
+    } else {
+        QIQI_LOG_DEBUG("Settings dialog cancelled");
     }
     return S_OK;
 }
@@ -726,11 +758,16 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
     }));
 
     HRESULT session_hr = S_OK;
-    context->RequestEditSession(
+    const HRESULT req_hr = context->RequestEditSession(
         client_id_,
         session.Get(),
         TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
         &session_hr);
+    if (FAILED(req_hr) || FAILED(session_hr)) {
+        QIQI_LOG_WARN("RequestEditSession failed (req_hr=0x{:08x}, session_hr=0x{:08x})",
+                      gsl::narrow_cast<unsigned int>(req_hr),
+                      gsl::narrow_cast<unsigned int>(session_hr));
+    }
 }
 
 void QiQiTextService::SyncCompositionUIInSession(
@@ -760,27 +797,32 @@ void QiQiTextService::StartOrUpdateCompositionInSession(
     if (!composition_) {
         ComPtr<ITfInsertAtSelection> insert_at_sel;
         if (FAILED(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel))) || !insert_at_sel) {
+            QIQI_LOG_WARN("StartOrUpdateCompositionInSession: QueryInterface(ITfInsertAtSelection) failed");
             return;
         }
         ComPtr<ITfRange> insert_range;
         if (FAILED(insert_at_sel->InsertTextAtSelection(
                 ec, TF_IAS_QUERYONLY, nullptr, 0, &insert_range)) || !insert_range) {
+            QIQI_LOG_WARN("StartOrUpdateCompositionInSession: InsertTextAtSelection(TF_IAS_QUERYONLY) failed");
             return;
         }
 
         ComPtr<ITfContextComposition> ctx_comp;
         if (FAILED(context->QueryInterface(IID_PPV_ARGS(&ctx_comp))) || !ctx_comp) {
+            QIQI_LOG_WARN("StartOrUpdateCompositionInSession: QueryInterface(ITfContextComposition) failed");
             return;
         }
         if (FAILED(ctx_comp->StartComposition(
                 ec, insert_range.Get(), static_cast<ITfCompositionSink*>(this), &composition_)) ||
             !composition_) {
+            QIQI_LOG_WARN("StartOrUpdateCompositionInSession: StartComposition failed");
             return;
         }
     }
 
     ComPtr<ITfRange> comp_range;
     if (FAILED(composition_->GetRange(&comp_range)) || !comp_range) {
+        QIQI_LOG_WARN("StartOrUpdateCompositionInSession: composition_->GetRange failed");
         return;
     }
     SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), text);

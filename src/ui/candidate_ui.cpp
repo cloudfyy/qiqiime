@@ -298,10 +298,10 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
         nullptr, nullptr, instance_, this));
 
     if (!hwnd_) {
-        try {
-            QIQI_LOG_ERROR("CandidateUI::EnsurePopupWindow CreateWindowExW failed (error={})", ::GetLastError());
-        } catch (...) {
-        }
+        QIQI_LOG_ERROR("CandidateUI::EnsurePopupWindow CreateWindowExW failed (error={})", ::GetLastError());
+    } else {
+        QIQI_LOG_DEBUG("CandidateUI popup window created (pos=({}, {}), size={}x{}, dpi={})",
+                       popup_pos_.x, popup_pos_.y, popup_width_, popup_height_, dpi_);
     }
     return hwnd_.IsValid();
 }

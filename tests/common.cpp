@@ -62,6 +62,7 @@ void TestSpdlogLogger() {
         std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
         QIQI_TEST_CHECK(content.find("Unit test log entry:") != std::string::npos);
         QIQI_TEST_CHECK(content.find("Trace message") != std::string::npos);
+        QIQI_TEST_CHECK(content.find("[qiqi_engine_test.exe]") != std::string::npos);
     }
 
     // Re-initialize default logger to release temp_log handle

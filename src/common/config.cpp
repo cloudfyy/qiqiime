@@ -265,9 +265,25 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
 bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_config) {
     std::string content;
     if (!log::ReadFileToUtf8String(file_path, content)) {
+        QIQI_LOG_DEBUG("LoadConfigFile: could not open or read '{}'", log::WideToUtf8(file_path.wstring()));
         return false;
     }
     out_config = ParseConfigFromUtf8(content);
+    QIQI_LOG_DEBUG(
+        "Loaded config from '{}': dict={}, extra={}, page_size={}, auto4={}, push5={}, "
+        "beep_empty4={}, clear_empty4={}, key_sound={}, status_bar={}, lang={}, log_level={}",
+        log::WideToUtf8(file_path.wstring()),
+        PrimaryDictToString(out_config.primary_dict),
+        out_config.enable_jidian_extra,
+        out_config.page_size,
+        out_config.auto_commit_4code,
+        out_config.push_commit_5th,
+        out_config.beep_on_empty_4code,
+        out_config.clear_on_empty_4code,
+        out_config.enable_key_sound,
+        out_config.show_status_bar,
+        UiLanguageToString(out_config.ui_language),
+        LogLevelToString(out_config.log_level));
     return true;
 }
 
@@ -275,6 +291,7 @@ bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& co
     try {
         std::error_code ec;
         if (std::filesystem::is_directory(file_path, ec)) {
+            QIQI_LOG_WARN("SaveConfigFile: target path '{}' is a directory", log::WideToUtf8(file_path.wstring()));
             return false;
         }
         if (file_path.has_parent_path()) {
@@ -297,6 +314,8 @@ bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& co
                 FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
                 nullptr));
             if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+                QIQI_LOG_WARN("SaveConfigFile: failed to create temp file '{}' (error={})",
+                              log::WideToUtf8(tmp_path.wstring()), ::GetLastError());
                 return false;
             }
 
@@ -304,14 +323,21 @@ bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& co
             const DWORD to_write = gsl::narrow_cast<DWORD>(text.size());
             if (to_write > 0 &&
                 (!::WriteFile(file.Get(), text.data(), to_write, &written, nullptr) || written != to_write)) {
+                QIQI_LOG_WARN("SaveConfigFile: failed to write temp file '{}' (error={})",
+                              log::WideToUtf8(tmp_path.wstring()), ::GetLastError());
                 return false;
             }
         }
 
         if (!::MoveFileExW(tmp_path.c_str(), file_path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+            QIQI_LOG_WARN("SaveConfigFile: MoveFileExW '{}' -> '{}' failed (error={})",
+                          log::WideToUtf8(tmp_path.wstring()),
+                          log::WideToUtf8(file_path.wstring()),
+                          ::GetLastError());
             std::filesystem::remove(tmp_path, ec);
             return false;
         }
+        QIQI_LOG_INFO("Saved configuration to '{}'", log::WideToUtf8(file_path.wstring()));
         return true;
     } catch (...) {
         return false;
@@ -323,6 +349,7 @@ bool EnsureDefaultConfigFile(const std::filesystem::path& file_path) {
         if (std::filesystem::exists(file_path)) {
             return true;
         }
+        QIQI_LOG_INFO("Creating default user config file at '{}'", log::WideToUtf8(file_path.wstring()));
         return SaveConfigFile(file_path, QiQiConfig{});
     } catch (...) {
         return false;
@@ -335,6 +362,7 @@ QiQiConfig LoadConfig(void* module_handle) {
     // 1. Check user config path: %LOCALAPPDATA%\QiQiIME\config.ini
     const std::filesystem::path user_cfg_path = GetDefaultUserConfigPath();
     if (std::filesystem::exists(user_cfg_path) && LoadConfigFile(user_cfg_path, cfg)) {
+        QIQI_LOG_INFO("Loaded user configuration from '{}'", log::WideToUtf8(user_cfg_path.wstring()));
         return cfg;
     }
 
@@ -342,8 +370,8 @@ QiQiConfig LoadConfig(void* module_handle) {
     const std::filesystem::path module_path = log::GetModuleFilePath(module_handle);
     if (!module_path.empty()) {
         const std::filesystem::path dll_cfg_path = module_path.parent_path() / L"config.ini";
-        if (std::filesystem::exists(dll_cfg_path)) {
-            LoadConfigFile(dll_cfg_path, cfg);
+        if (std::filesystem::exists(dll_cfg_path) && LoadConfigFile(dll_cfg_path, cfg)) {
+            QIQI_LOG_INFO("Loaded fallback configuration from '{}'", log::WideToUtf8(dll_cfg_path.wstring()));
         }
     }
 

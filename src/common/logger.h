@@ -49,8 +49,8 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
 
 } // namespace qiqi::log
 
-#define QIQI_LOG_TRACE(...) ::qiqi::log::GetLogger()->trace(__VA_ARGS__)
-#define QIQI_LOG_DEBUG(...) ::qiqi::log::GetLogger()->debug(__VA_ARGS__)
-#define QIQI_LOG_INFO(...)  ::qiqi::log::GetLogger()->info(__VA_ARGS__)
-#define QIQI_LOG_WARN(...)  ::qiqi::log::GetLogger()->warn(__VA_ARGS__)
-#define QIQI_LOG_ERROR(...) ::qiqi::log::GetLogger()->error(__VA_ARGS__)
+#define QIQI_LOG_TRACE(...) do { try { ::qiqi::log::GetLogger()->trace(__VA_ARGS__); } catch (...) {} } while (false)
+#define QIQI_LOG_DEBUG(...) do { try { ::qiqi::log::GetLogger()->debug(__VA_ARGS__); } catch (...) {} } while (false)
+#define QIQI_LOG_INFO(...)  do { try { ::qiqi::log::GetLogger()->info(__VA_ARGS__); } catch (...) {} } while (false)
+#define QIQI_LOG_WARN(...)  do { try { ::qiqi::log::GetLogger()->warn(__VA_ARGS__); } catch (...) {} } while (false)
+#define QIQI_LOG_ERROR(...) do { try { ::qiqi::log::GetLogger()->error(__VA_ARGS__); } catch (...) {} } while (false)

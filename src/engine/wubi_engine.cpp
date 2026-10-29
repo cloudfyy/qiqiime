@@ -38,6 +38,11 @@ bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
         return false;
     }
     if (std::find(mapped_dicts_.begin(), mapped_dicts_.end(), mapped) == mapped_dicts_.end()) {
+        QIQI_LOG_INFO("Attached external dictionary '{}' ({} codes, {} words, mapped={})",
+                      log::WideToUtf8(file_path.wstring()),
+                      mapped->CodeCount(),
+                      mapped->WordCount(),
+                      mapped->IsMemoryMapped());
         mapped_dicts_.push_back(std::move(mapped));
     }
     return true;
@@ -53,6 +58,18 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     full_width_mode_ = cfg.default_full_width;
     chinese_punctuation_ = cfg.default_chinese_punct;
     SetChineseMode(cfg.default_chinese_mode);
+    QIQI_LOG_DEBUG(
+        "WubiEngine::ApplyConfig: page_size={}, auto4={}, push5={}, beep_empty4={}, "
+        "clear_empty4={}, key_sound={}, full_width={}, cn_punct={}, cn_mode={}",
+        page_size_,
+        auto_commit_4code_,
+        push_commit_5th_,
+        beep_on_empty_4code_,
+        clear_on_empty_4code_,
+        enable_key_sound_,
+        full_width_mode_,
+        chinese_punctuation_,
+        IsChineseMode());
 }
 
 void WubiEngine::SetPageSize(size_t page_size) noexcept {
@@ -313,6 +330,7 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             }
             const bool is_empty_4code = all_candidates_.empty();
             if (is_empty_4code && clear_on_empty_4code_) {
+                QIQI_LOG_DEBUG("4-code lookup empty: auto-clearing composition (beep={})", beep_on_empty_4code_);
                 Reset();
                 KeyProcessResult res = MakeCurrentStateResult(KeyActionType::Cancel);
                 if (beep_on_empty_4code_) {
@@ -322,6 +340,7 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             }
             KeyProcessResult res = MakeCurrentStateResult(KeyActionType::UpdateState);
             if (beep_on_empty_4code_ && is_empty_4code) {
+                QIQI_LOG_DEBUG("4-code lookup empty: triggering empty-code warning beep");
                 res.empty_4code_warning = true;
             }
             return res;

@@ -319,6 +319,7 @@ void TestSettingsDialogControls() {
     QiQiConfig read_back{};
     ReadSettingsFromWindowControls(hwnd.Get(), read_back);
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Haifeng);
+    QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), 104)));
     QIQI_TEST_CHECK(!read_back.enable_jidian_extra);
     QIQI_TEST_CHECK(!read_back.auto_commit_4code);
     QIQI_TEST_CHECK(!read_back.push_commit_5th);
@@ -333,6 +334,7 @@ void TestSettingsDialogControls() {
     cfg.primary_dict = PrimaryDict::BuiltinOnly;
     cfg.ui_language = UiLanguage::EnUs;
     WriteSettingsToWindowControls(hwnd.Get(), cfg);
+    QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), 104)));
     ReadSettingsFromWindowControls(hwnd.Get(), read_back);
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::BuiltinOnly);
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::EnUs);
@@ -340,6 +342,14 @@ void TestSettingsDialogControls() {
     cfg.primary_dict = PrimaryDict::Jidian;
     cfg.ui_language = UiLanguage::ZhCn;
     WriteSettingsToWindowControls(hwnd.Get(), cfg);
+    QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(hwnd.Get(), 104)));
+    // Simulate clicking Haifeng radio (102) -> disables Extra checkbox; clicking Jidian radio (101) -> enables it
+    ::CheckRadioButton(hwnd.Get(), 101, 103, 102);
+    ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(102, BN_CLICKED), 0);
+    QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), 104)));
+    ::CheckRadioButton(hwnd.Get(), 101, 103, 101);
+    ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(101, BN_CLICKED), 0);
+    QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(hwnd.Get(), 104)));
     ReadSettingsFromWindowControls(hwnd.Get(), read_back);
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Jidian);
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::ZhCn);
@@ -698,7 +708,7 @@ void TestStatusBarContextMenuState() {
                     {LangBarMenuId::TogglePunctuation, strings.menu_toggle_punct, enabled},
                     {LangBarMenuId::DictJidian, strings.menu_dict_jidian, dict == PrimaryDict::Jidian},
                     {LangBarMenuId::DictHaifeng, strings.menu_dict_haifeng, dict == PrimaryDict::Haifeng},
-                    {LangBarMenuId::ToggleExtraDict, strings.menu_toggle_extra_dict, enabled},
+                    {LangBarMenuId::ToggleExtraDict, strings.menu_toggle_extra_dict, dict == PrimaryDict::Jidian && enabled},
                     {LangBarMenuId::ToggleStatusBar, strings.menu_toggle_status_bar, false},
                     {LangBarMenuId::ToggleUiLanguage, strings.menu_toggle_ui_lang, false},
                     {LangBarMenuId::OpenSettings, strings.menu_open_settings, false},
@@ -719,6 +729,9 @@ void TestStatusBarContextMenuState() {
                     const UINT flags = ::GetMenuState(menu.Get(), static_cast<UINT>(item.id), MF_BYCOMMAND);
                     QIQI_TEST_CHECK(flags != static_cast<UINT>(-1));
                     QIQI_TEST_CHECK(((flags & MF_CHECKED) != 0) == item.checked);
+                    if (item.id == LangBarMenuId::ToggleExtraDict) {
+                        QIQI_TEST_CHECK(((flags & MF_GRAYED) != 0) == (dict != PrimaryDict::Jidian));
+                    }
                     wchar_t text[256]{};
                     QIQI_TEST_CHECK(::GetMenuStringW(menu.Get(), static_cast<UINT>(item.id), text, 256, MF_BYCOMMAND) > 0);
                     QIQI_TEST_CHECK(std::wstring(text) == item.text);

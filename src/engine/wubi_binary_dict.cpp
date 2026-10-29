@@ -272,6 +272,8 @@ bool WubiMappedDict::OpenMappedFile(
     if (!::GetFileSizeEx(file.Get(), &file_size) ||
         file_size.QuadPart < gsl::narrow_cast<LONGLONG>(sizeof(DictBinaryHeader)) ||
         file_size.QuadPart > kMaxDictBytes) {
+        QIQI_LOG_WARN("OpenMappedFile: invalid cache file size ({} bytes) for '{}'",
+                      file_size.QuadPart, log::WideToUtf8(bin_path.wstring()));
         return false;
     }
 
@@ -279,12 +281,16 @@ bool WubiMappedDict::OpenMappedFile(
     ScopedKernelHandle mapping(::CreateFileMappingW(
         file.Get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
     if (!mapping.IsValid()) {
+        QIQI_LOG_WARN("OpenMappedFile: CreateFileMappingW failed for '{}' (error={})",
+                      log::WideToUtf8(bin_path.wstring()), ::GetLastError());
         return false;
     }
 
     // Map with FILE_MAP_READ only
     ScopedMappedView view(::MapViewOfFile(mapping.Get(), FILE_MAP_READ, 0, 0, 0));
     if (!view.IsValid()) {
+        QIQI_LOG_WARN("OpenMappedFile: MapViewOfFile failed for '{}' (error={})",
+                      log::WideToUtf8(bin_path.wstring()), ::GetLastError());
         return false;
     }
 
@@ -292,6 +298,8 @@ bool WubiMappedDict::OpenMappedFile(
         static_cast<const uint8_t*>(view.Get()),
         gsl::narrow_cast<size_t>(file_size.QuadPart));
     if (!BindBufferView(mapped_span, expected_src_size, expected_src_mtime)) {
+        QIQI_LOG_DEBUG("OpenMappedFile: cache header/timestamp mismatch for '{}', will rebuild",
+                       log::WideToUtf8(bin_path.wstring()));
         return false;
     }
 
@@ -322,6 +330,7 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
             it->second.src_size == src_size &&
             it->second.src_mtime == src_mtime &&
             it->second.dict) {
+            QIQI_LOG_DEBUG("In-process dictionary cache hit for '{}'", log::WideToUtf8(canonical_key));
             return it->second.dict;
         }
     }
@@ -380,6 +389,8 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
 
     if (!dict->OpenMappedFile(cache_bin_path, src_size, src_mtime)) {
         // Fallback to flat in-memory buffer if file mapping is unavailable in sandbox
+        QIQI_LOG_WARN("Falling back to in-memory dictionary buffer for '{}'",
+                      log::WideToUtf8(txt_path.wstring()));
         dict->fallback_buffer_ = std::move(bin_buffer);
         if (!dict->BindBufferView(dict->fallback_buffer_, src_size, src_mtime)) {
             return nullptr;

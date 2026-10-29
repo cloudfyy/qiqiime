@@ -76,9 +76,14 @@ std::shared_ptr<spdlog::logger> CreateLoggerInternal(
         sinks.push_back(std::make_shared<spdlog::sinks::null_sink_mt>());
     }
 
-    auto logger = std::make_shared<spdlog::logger>("qiqiime", sinks.begin(), sinks.end());
+    std::string proc_name = WideToUtf8(GetModuleFilePath(nullptr).filename().wstring());
+    if (proc_name.empty()) {
+        proc_name = "qiqiime";
+    }
+
+    auto logger = std::make_shared<spdlog::logger>(proc_name, sinks.begin(), sinks.end());
     logger->set_level(level);
-    logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [pid:%P] [tid:%t] [%l] %v");
+    logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [pid:%P] [tid:%t] [%l] %v");
     logger->flush_on(spdlog::level::warn);
     return logger;
 }

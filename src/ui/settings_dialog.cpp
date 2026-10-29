@@ -1,6 +1,7 @@
 #include "ui/settings_dialog.h"
 #include "common/guids.h"
 #include "common/i18n.h"
+#include "common/logger.h"
 #include "common/monitor_dpi.h"
 #include "common/scoped_handle.h"
 #include "common/version.h"
@@ -128,6 +129,13 @@ void CreateChildControl(
     }
 }
 
+void UpdateExtraDictCheckboxState(HWND hwnd) noexcept {
+    const bool is_jidian = (::IsDlgButtonChecked(hwnd, kIdRadioJidian) == BST_CHECKED);
+    if (const HWND chk = ::GetDlgItem(hwnd, kIdChkExtraDict)) {
+        ::EnableWindow(chk, is_jidian ? TRUE : FALSE);
+    }
+}
+
 LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     if (msg == WM_NCCREATE) {
         const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
@@ -138,6 +146,10 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (msg == WM_COMMAND && ctx) {
         const int id = LOWORD(wparam);
+        if (id == kIdRadioJidian || id == kIdRadioHaifeng || id == kIdRadioBuiltin) {
+            UpdateExtraDictCheckboxState(hwnd);
+            return 0;
+        }
         if (id == kIdBtnOk) {
             if (ctx->config) {
                 ReadSettingsFromWindowControls(hwnd, *ctx->config);
@@ -299,6 +311,7 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
         ? 1
         : (config.ui_language == UiLanguage::EnUs ? 2 : 0);
     ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_SETCURSEL, static_cast<WPARAM>(lang_idx), 0);
+    UpdateExtraDictCheckboxState(hwnd);
 }
 
 void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
@@ -383,8 +396,11 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
         dlg_pos.x, dlg_pos.y, dlg_w, dlg_h,
         parent, nullptr, instance, ctx.get()));
     if (!hwnd) {
+        QIQI_LOG_ERROR("CreateSettingsWindow CreateWindowExW failed (error={})", ::GetLastError());
         return {};
     }
+    QIQI_LOG_DEBUG("SettingsWindow created (pos=({}, {}), size={}x{}, dpi={})",
+                   dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
     std::ignore = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
     if (ic) {
         ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(ic));
@@ -508,8 +524,11 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
         dlg_pos.x, dlg_pos.y, dlg_w, dlg_h,
         parent, nullptr, instance, ctx.get()));
     if (!hwnd) {
+        QIQI_LOG_ERROR("CreateAboutWindow CreateWindowExW failed (error={})", ::GetLastError());
         return {};
     }
+    QIQI_LOG_DEBUG("AboutWindow created (pos=({}, {}), size={}x{}, dpi={})",
+                   dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
     std::ignore = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
     if (ic) {
         ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(ic));

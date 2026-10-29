@@ -1,6 +1,7 @@
 #include "ui/status_bar.h"
 #include "common/guids.h"
 #include "common/i18n.h"
+#include "common/logger.h"
 #include "common/monitor_dpi.h"
 #include "common/theme.h"
 
@@ -23,11 +24,13 @@ enum class StatusBarIconKind {
     SettingsGear
 };
 
-void AppendPopupItem(HMENU menu, LangBarMenuId id, const wchar_t* text, bool checked = false) noexcept {
+void AppendPopupItem(HMENU menu, LangBarMenuId id, const wchar_t* text, bool checked = false, bool enabled = true) noexcept {
     if (!menu || !text) {
         return;
     }
-    const UINT flags = MF_STRING | (checked ? MF_CHECKED : MF_UNCHECKED);
+    const UINT flags = MF_STRING |
+        (checked ? MF_CHECKED : MF_UNCHECKED) |
+        (enabled ? MF_ENABLED : (MF_GRAYED | MF_DISABLED));
     ::AppendMenuW(menu, flags, static_cast<UINT_PTR>(id), text);
 }
 
@@ -318,6 +321,10 @@ bool StatusBarUI::EnsureBarWindow() noexcept {
         nullptr, nullptr, instance_, this));
     if (hwnd_) {
         ApplySystemThemeToMenuAndWindow(hwnd_.Get(), IsSystemDarkTheme());
+        QIQI_LOG_DEBUG("StatusBarUI window created (pos=({}, {}), size={}x{}, dpi={})",
+                       pos_.x, pos_.y, CurrentWidth(), CurrentHeight(), dpi_);
+    } else {
+        QIQI_LOG_ERROR("StatusBarUI::EnsureBarWindow CreateWindowExW failed (error={})", ::GetLastError());
     }
     return hwnd_.IsValid();
 }
@@ -600,9 +607,10 @@ ScopedMenu StatusBarUI::BuildContextMenu(ScopedGdiHandle<HBRUSH>& out_bg_brush) 
     AppendPopupItem(menu.Get(), LangBarMenuId::ToggleFullWidth, str.menu_toggle_full_width, state_.full_width);
     AppendPopupItem(menu.Get(), LangBarMenuId::TogglePunctuation, str.menu_toggle_punct, state_.chinese_punct);
     ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
-    AppendPopupItem(menu.Get(), LangBarMenuId::DictJidian, str.menu_dict_jidian, state_.primary_dict == PrimaryDict::Jidian);
+    const bool is_jidian = (state_.primary_dict == PrimaryDict::Jidian);
+    AppendPopupItem(menu.Get(), LangBarMenuId::DictJidian, str.menu_dict_jidian, is_jidian);
     AppendPopupItem(menu.Get(), LangBarMenuId::DictHaifeng, str.menu_dict_haifeng, state_.primary_dict == PrimaryDict::Haifeng);
-    AppendPopupItem(menu.Get(), LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, state_.enable_jidian_extra);
+    AppendPopupItem(menu.Get(), LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, is_jidian && state_.enable_jidian_extra, is_jidian);
     ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
     AppendPopupItem(menu.Get(), LangBarMenuId::ToggleStatusBar, str.menu_toggle_status_bar, state_.show_status_bar);
     AppendPopupItem(menu.Get(), LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang);

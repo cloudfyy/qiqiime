@@ -20,11 +20,14 @@ constexpr GUID kGuidLbiInputMode = {
 
 constexpr DWORD kLangBarSinkCookie = 1;
 
-void AddMenuEntry(ITfMenu* menu, LangBarMenuId id, const wchar_t* text, bool checked = false) {
+void AddMenuEntry(ITfMenu* menu, LangBarMenuId id, const wchar_t* text, bool checked = false, bool enabled = true) {
     if (!menu || !text) {
         return;
     }
-    const DWORD flags = checked ? TF_LBMENUF_CHECKED : 0;
+    DWORD flags = checked ? TF_LBMENUF_CHECKED : 0;
+    if (!enabled) {
+        flags |= TF_LBMENUF_GRAYED;
+    }
     menu->AddMenuItem(
         static_cast<UINT>(id),
         flags,
@@ -130,9 +133,10 @@ STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
     AddMenuEntry(pMenu, LangBarMenuId::ToggleFullWidth, str.menu_toggle_full_width, state_.full_width);
     AddMenuEntry(pMenu, LangBarMenuId::TogglePunctuation, str.menu_toggle_punct, state_.chinese_punct);
     AddMenuSeparator(pMenu);
-    AddMenuEntry(pMenu, LangBarMenuId::DictJidian, str.menu_dict_jidian, state_.primary_dict == PrimaryDict::Jidian);
+    const bool is_jidian = (state_.primary_dict == PrimaryDict::Jidian);
+    AddMenuEntry(pMenu, LangBarMenuId::DictJidian, str.menu_dict_jidian, is_jidian);
     AddMenuEntry(pMenu, LangBarMenuId::DictHaifeng, str.menu_dict_haifeng, state_.primary_dict == PrimaryDict::Haifeng);
-    AddMenuEntry(pMenu, LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, state_.enable_jidian_extra);
+    AddMenuEntry(pMenu, LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, is_jidian && state_.enable_jidian_extra, is_jidian);
     AddMenuSeparator(pMenu);
     AddMenuEntry(pMenu, LangBarMenuId::ToggleStatusBar, str.menu_toggle_status_bar, state_.show_status_bar);
     AddMenuEntry(pMenu, LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang);
