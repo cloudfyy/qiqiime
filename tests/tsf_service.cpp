@@ -29,9 +29,15 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     // Activate failure paths
     QIQI_TEST_CHECK(service->ActivateEx(nullptr, 1, 0) == E_INVALIDARG);
     ComPtr<MockTfThreadMgr> mock_tm(new MockTfThreadMgr());
+    mock_tm->fail_query_source_ = true;
+    QIQI_TEST_CHECK(service->ActivateEx(mock_tm.Get(), 1, 0) == E_FAIL);
+    mock_tm->fail_query_source_ = false;
     mock_tm->fail_advise_ = true;
     QIQI_TEST_CHECK(service->ActivateEx(mock_tm.Get(), 1, 0) == E_FAIL);
     mock_tm->fail_advise_ = false;
+    mock_tm->fail_query_key_mgr_ = true;
+    QIQI_TEST_CHECK(service->ActivateEx(mock_tm.Get(), 1, 0) == E_FAIL);
+    mock_tm->fail_query_key_mgr_ = false;
     mock_tm->fail_key_sink_ = true;
     QIQI_TEST_CHECK(service->ActivateEx(mock_tm.Get(), 1, 0) == E_FAIL);
     mock_tm->fail_key_sink_ = false;
@@ -102,13 +108,54 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyToggleMode, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyToggleMode, &eaten)) && eaten == TRUE);
 
-    // Non-shift KeyUp
+    // Non-shift TestKeyUp and KeyUp
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyUp(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyUp(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
 
     // Host composition termination & focus loss
     QIQI_TEST_CHECK(SUCCEEDED(comp_sink->OnCompositionTerminated(1, nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnSetFocus(FALSE)));
 
+    // Test defensive failure branches in StartOrUpdateCompositionInSession, UpdateCandidateWindowPositionInSession, and BeginOrUpdateCandidateUI
+    mock_ctx->fail_qi_insert_ = true;
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
+    mock_ctx->fail_qi_insert_ = false;
+
+    mock_ctx->fail_insert_at_sel_ = true;
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
+    mock_ctx->fail_insert_at_sel_ = false;
+
+    mock_ctx->fail_qi_comp_ = true;
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
+    mock_ctx->fail_qi_comp_ = false;
+
+    mock_ctx->fail_start_comp_ = true;
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
+    mock_ctx->fail_start_comp_ = false;
+
+    mock_ctx->fail_get_view_ = true;
+    mock_tm->fail_query_ui_mgr_ = true;
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
+    mock_ctx->fail_get_view_ = false;
+    mock_tm->fail_query_ui_mgr_ = false;
+
+    mock_tm->fail_begin_ui_ = true;
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
+    mock_tm->fail_begin_ui_ = false;
+
+    QIQI_TEST_CHECK(SUCCEEDED(service->Deactivate()));
+
+    // Test UILess game mode activation (TF_TMAE_UIELEMENTENABLEDONLY with show_own_ui_ = FALSE)
+    mock_tm->show_own_ui_ = FALSE;
+    QIQI_TEST_CHECK(SUCCEEDED(service->ActivateEx(mock_tm.Get(), 1, TF_TMAE_UIELEMENTENABLEDONLY)));
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_SPACE, 0, &eaten)));
     QIQI_TEST_CHECK(SUCCEEDED(service->Deactivate()));
 
     comp_sink.Reset();
@@ -117,6 +164,13 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     tip_ex.Reset();
     tip_base.Reset();
     QIQI_TEST_CHECK(service->Release() == 0);
+
+    // Also test QiQiTextService construction when g_dll_instance is invalid (GetModuleFileNameW failure branch)
+    HINSTANCE saved_instance = g_dll_instance;
+    g_dll_instance = reinterpret_cast<HINSTANCE>(0x12345678);
+    auto* service_bad_inst = new QiQiTextService();
+    QIQI_TEST_CHECK(service_bad_inst->Release() == 0);
+    g_dll_instance = saved_instance;
 }
 
 } // namespace

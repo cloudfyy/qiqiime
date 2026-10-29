@@ -11,7 +11,7 @@ namespace qiqi::test {
 namespace {
 
 void TestVersionMechanism() {
-    static_assert(version::kCurrentVersion >= version::SemanticVersion{0, 1, 0});
+    static_assert(version::kCurrentVersion >= version::SemanticVersion{0, 2, 0});
     static_assert(version::SemanticVersion{1, 0, 0} > version::kCurrentVersion);
     QIQI_TEST_CHECK(!version::kVersion.empty());
     QIQI_TEST_CHECK(!version::kVersionW.empty());
@@ -59,6 +59,30 @@ void TestSpdlogLogger() {
     // Re-initialize default logger to release temp_log handle
     log::InitLogger();
     std::filesystem::remove(temp_log, ec);
+
+    // 4. Test logger with relative filename (no parent_path)
+    const std::filesystem::path rel_log = L"qiqiime_rel_test.log";
+    std::filesystem::remove(rel_log, ec);
+    log::InitLogger(rel_log, spdlog::level::info);
+    QIQI_LOG_INFO("Relative path log test");
+    log::Flush();
+
+    // 5. Test fallback when file sink fails to open (passing a directory path as file path)
+    log::InitLogger(std::filesystem::temp_directory_path(), spdlog::level::info);
+    QIQI_LOG_INFO("Fallback msvc sink only test");
+    std::filesystem::remove(rel_log, ec);
+
+    // 6. Test GetDefaultLogFilePath fallback when LOCALAPPDATA is unset
+    wchar_t* orig_localappdata = nullptr;
+    size_t orig_len = 0;
+    _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
+    _wputenv_s(L"LOCALAPPDATA", L"");
+    log::InitLogger({}, spdlog::level::info);
+    if (orig_localappdata) {
+        _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
+        free(orig_localappdata);
+    }
+    log::InitLogger();
 }
 
 } // namespace

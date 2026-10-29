@@ -76,6 +76,12 @@ void TestCandidateUI() {
     std::vector<std::wstring> cands = {L"一", L"二", L"三", L"四", L"五", L"六", L"七"};
     ui->SetCandidates(L"abcd", cands, 5, 1, 1);
 
+    // Also test page_size=0 fallback while hidden
+    QIQI_TEST_CHECK(SUCCEEDED(ui->Show(FALSE)));
+    ui->MoveWindowTo(normal_rc);
+    ui->SetCandidates(L"abcd", cands, 0, 1, 1);
+    QIQI_TEST_CHECK(SUCCEEDED(ui->Show(TRUE)));
+
     QIQI_TEST_CHECK(SUCCEEDED(ui->GetCount(&count)) && count == 7);
     QIQI_TEST_CHECK(SUCCEEDED(ui->GetSelection(&sel)) && sel == 6);
     UINT cur_page = 0;

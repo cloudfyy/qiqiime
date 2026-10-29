@@ -1,6 +1,7 @@
 #include "common.h"
 #include "engine/wubi_engine.h"
 
+#include <windows.h>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -40,6 +41,11 @@ void TestAddEntryAndLookupEdgeCases() {
     auto exact = engine.LookupExact(L"xyzw");
     QIQI_TEST_CHECK(exact.size() == 1 && exact[0] == L"测试词");
 
+    // Prefix lookup where prefix itself also has an exact match (covers exact-skip in prefix loop)
+    engine.AddEntry(L"xyz", L"三码词");
+    auto short_prefix_cands = engine.LookupCandidates(L"xyz");
+    QIQI_TEST_CHECK(short_prefix_cands.size() >= 2 && short_prefix_cands[0] == L"三码词");
+
     // Prefix and wildcard 50-candidate cap
     for (int i = 0; i < 60; ++i) {
         std::wstring word = L"词" + std::to_wstring(i);
@@ -74,7 +80,15 @@ void TestExternalDictFile() {
     std::error_code ec;
     std::filesystem::remove(temp_dict, ec);
 
-    // 3. Load bundled wubi86.txt if present in current or executable directory
+    // 3. Load bundled wubi86.txt next to executable or in current directory
+    wchar_t exe_path[MAX_PATH]{};
+    if (::GetModuleFileNameW(nullptr, exe_path, MAX_PATH) > 0) {
+        std::filesystem::path dict_next_to_exe(exe_path);
+        dict_next_to_exe.replace_filename(L"wubi86.txt");
+        if (std::filesystem::exists(dict_next_to_exe)) {
+            QIQI_TEST_CHECK(engine.LoadDictionaryFile(dict_next_to_exe));
+        }
+    }
     if (std::filesystem::exists("wubi86.txt")) {
         QIQI_TEST_CHECK(engine.LoadDictionaryFile("wubi86.txt"));
     }

@@ -156,9 +156,9 @@ public:
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfContext)) {
             *ppvObj = static_cast<ITfContext*>(this);
-        } else if (IsEqualIID(riid, IID_ITfInsertAtSelection)) {
+        } else if (IsEqualIID(riid, IID_ITfInsertAtSelection) && !fail_qi_insert_) {
             *ppvObj = static_cast<ITfInsertAtSelection*>(this);
-        } else if (IsEqualIID(riid, IID_ITfContextComposition)) {
+        } else if (IsEqualIID(riid, IID_ITfContextComposition) && !fail_qi_comp_) {
             *ppvObj = static_cast<ITfContextComposition*>(this);
         } else {
             *ppvObj = nullptr;
@@ -189,7 +189,7 @@ public:
     STDMETHODIMP GetStart(TfEditCookie, ITfRange**) override { return E_NOTIMPL; }
     STDMETHODIMP GetEnd(TfEditCookie, ITfRange**) override { return E_NOTIMPL; }
     STDMETHODIMP GetActiveView(ITfContextView** ppView) override {
-        if (!ppView) return E_INVALIDARG;
+        if (!ppView || fail_get_view_) return E_FAIL;
         *ppView = view_.Get();
         (*ppView)->AddRef();
         return S_OK;
@@ -205,6 +205,7 @@ public:
 
     // ITfInsertAtSelection
     STDMETHODIMP InsertTextAtSelection(TfEditCookie, DWORD, const WCHAR* pchText, LONG cch, ITfRange** ppRange) override {
+        if (fail_insert_at_sel_) return E_FAIL;
         if (pchText && cch > 0) {
             range_->text_.assign(pchText, static_cast<size_t>(cch));
         }
@@ -218,7 +219,7 @@ public:
 
     // ITfContextComposition
     STDMETHODIMP StartComposition(TfEditCookie, ITfRange*, ITfCompositionSink*, ITfComposition** ppComposition) override {
-        if (!ppComposition) return E_INVALIDARG;
+        if (!ppComposition || fail_start_comp_) return E_FAIL;
         auto* comp = new MockTfComposition(range_);
         *ppComposition = comp;
         return S_OK;
@@ -229,6 +230,11 @@ public:
 
     ComPtr<MockTfRange> range_;
     ComPtr<MockTfContextView> view_;
+    bool fail_qi_insert_ = false;
+    bool fail_insert_at_sel_ = false;
+    bool fail_qi_comp_ = false;
+    bool fail_start_comp_ = false;
+    bool fail_get_view_ = false;
 private:
     ULONG ref_ = 1;
 };
@@ -244,11 +250,11 @@ public:
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfThreadMgr)) {
             *ppvObj = static_cast<ITfThreadMgr*>(this);
-        } else if (IsEqualIID(riid, IID_ITfSource)) {
+        } else if (IsEqualIID(riid, IID_ITfSource) && !fail_query_source_) {
             *ppvObj = static_cast<ITfSource*>(this);
-        } else if (IsEqualIID(riid, IID_ITfKeystrokeMgr)) {
+        } else if (IsEqualIID(riid, IID_ITfKeystrokeMgr) && !fail_query_key_mgr_) {
             *ppvObj = static_cast<ITfKeystrokeMgr*>(this);
-        } else if (IsEqualIID(riid, IID_ITfUIElementMgr)) {
+        } else if (IsEqualIID(riid, IID_ITfUIElementMgr) && !fail_query_ui_mgr_) {
             *ppvObj = static_cast<ITfUIElementMgr*>(this);
         } else {
             *ppvObj = nullptr;
@@ -305,6 +311,7 @@ public:
 
     // ITfUIElementMgr
     STDMETHODIMP BeginUIElement(ITfUIElement*, BOOL* pbShow, DWORD* pdwUIElementId) override {
+        if (fail_begin_ui_) return E_FAIL;
         if (pbShow) *pbShow = show_own_ui_;
         if (pdwUIElementId) *pdwUIElementId = 7;
         return S_OK;
@@ -314,8 +321,12 @@ public:
     STDMETHODIMP GetUIElement(DWORD, ITfUIElement**) override { return E_NOTIMPL; }
     STDMETHODIMP EnumUIElements(IEnumTfUIElements**) override { return E_NOTIMPL; }
 
+    bool fail_query_source_ = false;
+    bool fail_query_key_mgr_ = false;
+    bool fail_query_ui_mgr_ = false;
     bool fail_advise_ = false;
     bool fail_key_sink_ = false;
+    bool fail_begin_ui_ = false;
     BOOL show_own_ui_ = TRUE;
 private:
     ULONG ref_ = 1;
