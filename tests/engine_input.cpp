@@ -11,7 +11,7 @@ namespace {
 void TestCompileTimeFsmTransitions() {
     // Exhaustive compile-time checks across all states and key events
     static_assert(ClassifyKeyEvent('A', false, false, false) == KeyEventKind::CodeChar);
-    static_assert(ClassifyKeyEvent('A', true, false, false) == KeyEventKind::None);
+    static_assert(ClassifyKeyEvent('A', true, false, false) == KeyEventKind::UpperChar);
     static_assert(ClassifyKeyEvent('A', false, true, false) == KeyEventKind::None);
     static_assert(ClassifyKeyEvent(VK_SPACE, false, false, false) == KeyEventKind::Space);
     static_assert(ClassifyKeyEvent(VK_RETURN, false, false, false) == KeyEventKind::Enter);
@@ -283,7 +283,18 @@ void TestModeSwitchingAndShouldEatKey() {
     QIQI_TEST_CHECK(engine.ShouldEatKey(VK_OEM_MINUS, false, false, false));
     QIQI_TEST_CHECK(engine.ShouldEatKey(VK_OEM_PLUS, false, false, false));
     QIQI_TEST_CHECK(engine.ShouldEatKey('1', false, false, false));
+    QIQI_TEST_CHECK(engine.ShouldEatKey('B', true, false, false));  // Shift+B while composing commits candidate + 'B'
     QIQI_TEST_CHECK(!engine.ShouldEatKey('2', true, false, false)); // Shift+2 has no punctuation mapping
+
+    // Verify Shift+B while composing 'a' ("工") commits "工B" and returns to Idle
+    auto shift_b_res = engine.ProcessKey('B', true);
+    QIQI_TEST_CHECK(shift_b_res.action == KeyActionType::Commit);
+    QIQI_TEST_CHECK(shift_b_res.committed_text == L"工B");
+    QIQI_TEST_CHECK(!engine.IsComposing());
+
+    // Start composing again to test ToggleChineseMode reset
+    engine.ProcessKey('A');
+    QIQI_TEST_CHECK(engine.IsComposing());
 
     // Toggle to English mode while composing -> resets composition and stops eating keys
     engine.ToggleChineseMode();

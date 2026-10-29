@@ -86,7 +86,5 @@ TSF 的按键处理分为两步：
 ### P2：进阶视觉与学习辅助
 - [x] **6. 组合串显示属性（`tsf-display-attributes`）**：实现 `ITfDisplayAttributeProvider`，为未上屏的五笔编码组合串设置虚线下划线与高亮样式。
 - [x] **7. `z` 万能键编码反查提示（`wildcard-code-hint`）**：当使用 `z` 通配查询候选字词时，在候选框中附带显示该字词的完整五笔编码提示（如 `1.你(wqiy)`）。
-- [ ] **8. 组合态大写字母处理与临时英文模式（`upper-case-temp-english`）**：完善组合态下按 `Shift + 字母` 的顶字上屏或临时英文输入体验。
-
-### P3：打包与分发
-- [ ] **9. 独立发行包打包脚本（`release-packaging-script`）**：将 `x64`/`x86` 双架构 DLL、三套词库、`config.ini` 与安装/卸载脚本一键打包到独立 `dist/` 发行目录。
+- [x] **8. 组合态大写字母处理与临时英文模式（`upper-case-temp-english`）**：完善组合态下按 `Shift + 字母` 的顶字上屏或临时英文输入体验。
+- [ ] **9. 独立发行包打包脚本（`release-packaging-script`，暂缓）**：将 `x64`/`x86` 双架构 DLL、三套词库、`config.ini` 与安装/卸载脚本一键打包到独立 `dist/` 发行目录。

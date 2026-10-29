@@ -43,17 +43,18 @@ enum class EngineState : uint8_t {
 enum class KeyEventKind : uint8_t {
     None = 0,
     CodeChar = 1,      // Lowercase 'a'-'z'
-    Space = 2,         // VK_SPACE
-    Enter = 3,         // VK_RETURN
-    Backspace = 4,     // VK_BACK
-    Escape = 5,        // VK_ESCAPE
-    DigitSelect = 6,   // '1'-'9' without Shift
-    CandidateUp = 7,   // VK_UP
-    CandidateDown = 8, // VK_DOWN
-    PageUp = 9,        // VK_PRIOR or '-'
-    PageDown = 10,     // VK_NEXT or '='
-    ChinesePunct = 11, // Mapped Chinese full-width punctuation
-    Count = 12
+    UpperChar = 2,     // Uppercase 'A'-'Z' (Shift + letter)
+    Space = 3,         // VK_SPACE
+    Enter = 4,         // VK_RETURN
+    Backspace = 5,     // VK_BACK
+    Escape = 6,        // VK_ESCAPE
+    DigitSelect = 7,   // '1'-'9' without Shift
+    CandidateUp = 8,   // VK_UP
+    CandidateDown = 9, // VK_DOWN
+    PageUp = 10,       // VK_PRIOR or '-'
+    PageDown = 11,     // VK_NEXT or '='
+    ChinesePunct = 12, // Mapped Chinese full-width punctuation
+    Count = 13
 };
 
 // State machine transition actions executed by the engine
@@ -72,7 +73,8 @@ enum class TransitionOp : uint8_t {
     TurnPagePrev = 11,          // PageUp / '-': previous page
     TurnPageNext = 12,          // PageDown / '=': next page
     CommitPunctOnly = 13,       // Idle punctuation: directly commit Chinese punctuation
-    CommitSelectedAndPunct = 14 // Composing punctuation: commit current candidate + punctuation -> Idle
+    CommitSelectedAndPunct = 14,// Composing punctuation: commit current candidate + punctuation -> Idle
+    CommitSelectedAndUpper = 15 // Composing Shift+Letter: commit current candidate + uppercase letter -> Idle
 };
 
 struct TransitionRule {
@@ -156,8 +158,8 @@ constexpr KeyEventKind ClassifyKeyEvent(
     if (ctrl_down || alt_down) {
         return KeyEventKind::None;
     }
-    if (!shift_down && vk >= 'A' && vk <= 'Z') {
-        return KeyEventKind::CodeChar;
+    if (vk >= 'A' && vk <= 'Z') {
+        return shift_down ? KeyEventKind::UpperChar : KeyEventKind::CodeChar;
     }
     if (vk == VK_SPACE) {
         return KeyEventKind::Space;
@@ -252,6 +254,8 @@ constexpr TransitionRule ComputeTransitionRule(EngineState state, KeyEventKind e
             return {TransitionOp::TurnPageNext, state, true};
         case KeyEventKind::ChinesePunct:
             return {TransitionOp::CommitSelectedAndPunct, EngineState::Idle, true};
+        case KeyEventKind::UpperChar:
+            return {TransitionOp::CommitSelectedAndUpper, EngineState::Idle, true};
         default:
             return {TransitionOp::PassThrough, state, false};
     }

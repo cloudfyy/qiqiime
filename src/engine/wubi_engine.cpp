@@ -382,6 +382,15 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             committed += ResolveChinesePunctuation(vk, shift_down);
             return CommitAndReset(std::move(committed));
         }
+
+        case TransitionOp::CommitSelectedAndUpper: {
+            std::wstring committed = CurrentSelectedCandidateOrRaw();
+            const wchar_t upper_ch = full_width_mode_
+                ? MapFullWidthChar(vk, true).value_or(gsl::narrow_cast<wchar_t>(vk))
+                : gsl::narrow_cast<wchar_t>(vk);
+            committed.push_back(upper_ch);
+            return CommitAndReset(std::move(committed));
+        }
     }
 
     return {};
