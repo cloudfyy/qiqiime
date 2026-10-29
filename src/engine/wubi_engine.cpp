@@ -191,6 +191,7 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     push_commit_5th_ = cfg.push_commit_5th;
     semicolon_quote_quick_select_ = cfg.semicolon_quote_quick_select;
     show_code_hint_ = cfg.show_code_hint;
+    enable_z_temp_english_ = cfg.enable_z_temp_english;
     beep_on_empty_4code_ = cfg.beep_on_empty_4code;
     beep_on_dup_4code_ = cfg.beep_on_dup_4code;
     clear_on_empty_4code_ = cfg.clear_on_empty_4code;
@@ -239,6 +240,8 @@ void WubiEngine::ToggleChineseMode() noexcept {
 
 void WubiEngine::Reset() noexcept {
     raw_code_.clear();
+    temp_english_text_.clear();
+    temp_english_mode_ = false;
     all_candidates_.clear();
     all_display_candidates_.clear();
     current_page_ = 0;
@@ -473,6 +476,15 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
 }
 
 bool WubiEngine::ShouldEatKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept {
+    if (temp_english_mode_) {
+        if (ctrl_down || alt_down) {
+            return false;
+        }
+        if (vk == VK_BACK || vk == VK_ESCAPE || vk == VK_RETURN || vk == VK_SPACE) {
+            return true;
+        }
+        return MapPrintableAsciiChar(vk, shift_down).has_value();
+    }
     const bool quick_sel = semicolon_quote_quick_select_ && IsComposing();
     const KeyEventKind event = ClassifyKeyEvent(
         vk, shift_down, ctrl_down, alt_down, chinese_punctuation_, quick_sel);
@@ -486,6 +498,52 @@ bool WubiEngine::ShouldEatKey(uint32_t vk, bool shift_down, bool ctrl_down, bool
 }
 
 KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) {
+    if (temp_english_mode_) {
+        if (ctrl_down || alt_down) {
+            return {};
+        }
+        if (vk == VK_ESCAPE) {
+            Reset();
+            return MakeCurrentStateResult(KeyActionType::Cancel);
+        }
+        if (vk == VK_BACK) {
+            if (temp_english_text_.empty()) {
+                Reset();
+                return MakeCurrentStateResult(KeyActionType::Cancel);
+            }
+            temp_english_text_.pop_back();
+            raw_code_ = L"z" + temp_english_text_;
+            all_candidates_ = {temp_english_text_.empty() ? L"z" : temp_english_text_};
+            all_display_candidates_ = {temp_english_text_.empty() ? L"(英文模式)" : temp_english_text_};
+            return MakeCurrentStateResult(KeyActionType::UpdateState);
+        }
+        if (vk == VK_SPACE || vk == VK_RETURN) {
+            std::wstring committed = temp_english_text_.empty() ? L"z" : temp_english_text_;
+            return CommitAndReset(std::move(committed));
+        }
+        if (const auto ascii = MapPrintableAsciiChar(vk, shift_down); ascii.has_value()) {
+            temp_english_text_.push_back(gsl::narrow_cast<wchar_t>(*ascii));
+            raw_code_ = L"z" + temp_english_text_;
+            all_candidates_ = {temp_english_text_};
+            all_display_candidates_ = {temp_english_text_};
+            return MakeCurrentStateResult(KeyActionType::UpdateState);
+        }
+        return {};
+    }
+
+    if (state_ == EngineState::Idle && enable_z_temp_english_ &&
+        vk == 'Z' && !shift_down && !ctrl_down && !alt_down) {
+        temp_english_mode_ = true;
+        temp_english_text_.clear();
+        raw_code_ = L"z";
+        state_ = EngineState::Composing1;
+        all_candidates_ = {L"z"};
+        all_display_candidates_ = {L"(英文模式)"};
+        current_page_ = 0;
+        selected_in_page_ = 0;
+        return MakeCurrentStateResult(KeyActionType::UpdateState);
+    }
+
     const bool quick_sel = semicolon_quote_quick_select_ && IsComposing();
     const KeyEventKind event = ClassifyKeyEvent(
         vk, shift_down, ctrl_down, alt_down, chinese_punctuation_, quick_sel);

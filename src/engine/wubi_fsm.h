@@ -121,36 +121,43 @@ constexpr wchar_t AsciiToFullWidth(char ch) noexcept {
     return gsl::narrow_cast<wchar_t>(ch);
 }
 
-// Map a virtual key + Shift state to its Unicode Full-Width (全角) character.
-constexpr std::optional<wchar_t> MapFullWidthChar(uint32_t vk, bool shift_down) noexcept {
+// Map a virtual key + Shift state to its printable ASCII character (0x20..0x7E).
+constexpr std::optional<char> MapPrintableAsciiChar(uint32_t vk, bool shift_down) noexcept {
     if (vk == VK_SPACE) {
-        return L'\u3000';
+        return ' ';
     }
     if (vk >= 'A' && vk <= 'Z') {
-        const char ascii = gsl::narrow_cast<char>(shift_down ? vk : (vk - 'A' + 'a'));
-        return AsciiToFullWidth(ascii);
+        return gsl::narrow_cast<char>(shift_down ? vk : (vk - 'A' + 'a'));
     }
     if (vk >= '0' && vk <= '9') {
         if (!shift_down) {
-            return AsciiToFullWidth(gsl::narrow_cast<char>(vk));
+            return gsl::narrow_cast<char>(vk);
         }
         constexpr std::array<char, 10> kShiftedDigits = {')', '!', '@', '#', '$', '%', '^', '&', '*', '('};
-        return AsciiToFullWidth(gsl::at(kShiftedDigits, vk - '0'));
+        return gsl::at(kShiftedDigits, vk - '0');
     }
     switch (vk) {
-        case VK_OEM_1:      return AsciiToFullWidth(shift_down ? ':' : ';');
-        case VK_OEM_PLUS:   return AsciiToFullWidth(shift_down ? '+' : '=');
-        case VK_OEM_COMMA:  return AsciiToFullWidth(shift_down ? '<' : ',');
-        case VK_OEM_MINUS:  return AsciiToFullWidth(shift_down ? '_' : '-');
-        case VK_OEM_PERIOD: return AsciiToFullWidth(shift_down ? '>' : '.');
-        case VK_OEM_2:      return AsciiToFullWidth(shift_down ? '?' : '/');
-        case VK_OEM_3:      return AsciiToFullWidth(shift_down ? '~' : '`');
-        case VK_OEM_4:      return AsciiToFullWidth(shift_down ? '{' : '[');
-        case VK_OEM_5:      return AsciiToFullWidth(shift_down ? '|' : '\\');
-        case VK_OEM_6:      return AsciiToFullWidth(shift_down ? '}' : ']');
-        case VK_OEM_7:      return AsciiToFullWidth(shift_down ? '"' : '\'');
+        case VK_OEM_1:      return shift_down ? ':' : ';';
+        case VK_OEM_PLUS:   return shift_down ? '+' : '=';
+        case VK_OEM_COMMA:  return shift_down ? '<' : ',';
+        case VK_OEM_MINUS:  return shift_down ? '_' : '-';
+        case VK_OEM_PERIOD: return shift_down ? '>' : '.';
+        case VK_OEM_2:      return shift_down ? '?' : '/';
+        case VK_OEM_3:      return shift_down ? '~' : '`';
+        case VK_OEM_4:      return shift_down ? '{' : '[';
+        case VK_OEM_5:      return shift_down ? '|' : '\\';
+        case VK_OEM_6:      return shift_down ? '}' : ']';
+        case VK_OEM_7:      return shift_down ? '"' : '\'';
         default:            return std::nullopt;
     }
+}
+
+// Map a virtual key + Shift state to its Unicode Full-Width (全角) character.
+constexpr std::optional<wchar_t> MapFullWidthChar(uint32_t vk, bool shift_down) noexcept {
+    if (const auto ascii = MapPrintableAsciiChar(vk, shift_down); ascii.has_value()) {
+        return AsciiToFullWidth(*ascii);
+    }
+    return std::nullopt;
 }
 
 // Resolve 0-based page candidate index for digit keys ('1'..'9' -> 0..8)

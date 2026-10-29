@@ -80,6 +80,9 @@ public:
     void SetSemicolonQuoteQuickSelect(bool enabled) noexcept { semicolon_quote_quick_select_ = enabled; }
     bool ShowCodeHint() const noexcept { return show_code_hint_; }
     void SetShowCodeHint(bool enabled) noexcept { show_code_hint_ = enabled; }
+    bool EnableZTempEnglish() const noexcept { return enable_z_temp_english_; }
+    void SetEnableZTempEnglish(bool enabled) noexcept { enable_z_temp_english_ = enabled; }
+    bool IsTempEnglishMode() const noexcept { return temp_english_mode_; }
     bool BeepOnEmpty4Code() const noexcept { return beep_on_empty_4code_; }
     void SetBeepOnEmpty4Code(bool enabled) noexcept { beep_on_empty_4code_ = enabled; }
     bool BeepOnDup4Code() const noexcept { return beep_on_dup_4code_; }
@@ -126,6 +129,7 @@ private:
     std::map<uint32_t, std::vector<std::wstring>> dict_;
     std::vector<std::shared_ptr<const WubiMappedDict>> mapped_dicts_;
     std::wstring raw_code_;
+    std::wstring temp_english_text_;
     std::vector<std::wstring> all_candidates_;
     std::vector<std::wstring> all_display_candidates_;
     size_t page_size_ = kDefaultPageSize;
@@ -135,6 +139,8 @@ private:
     bool push_commit_5th_ = true;
     bool semicolon_quote_quick_select_ = true;
     bool show_code_hint_ = true;
+    bool enable_z_temp_english_ = true;
+    bool temp_english_mode_ = false;
     bool beep_on_empty_4code_ = true;
     bool beep_on_dup_4code_ = false;
     bool clear_on_empty_4code_ = false;

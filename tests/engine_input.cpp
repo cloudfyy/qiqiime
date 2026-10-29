@@ -631,6 +631,54 @@ void TestFullWidthMode() {
 
     engine.ToggleFullWidthMode();
     QIQI_TEST_CHECK(!engine.IsFullWidthMode());
+
+    // Test 'z'-guided temporary English / URL / identifier input mode in Chinese Idle state
+    engine.SetChineseMode(true);
+    QIQI_TEST_CHECK(engine.EnableZTempEnglish());
+    QIQI_TEST_CHECK(!engine.IsTempEnglishMode());
+
+    auto z_start = engine.ProcessKey('Z');
+    QIQI_TEST_CHECK(z_start.action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.IsTempEnglishMode() && engine.IsComposing());
+    QIQI_TEST_CHECK(engine.RawCode() == L"z");
+    QIQI_TEST_CHECK(engine.ShouldEatKey('G', true, false, false));
+    QIQI_TEST_CHECK(engine.ShouldEatKey(VK_OEM_PERIOD, false, false, false));
+    QIQI_TEST_CHECK(!engine.ShouldEatKey('C', false, true, false)); // Ctrl+C not eaten
+    QIQI_TEST_CHECK(!engine.ShouldEatKey(VK_F1, false, false, false));
+    QIQI_TEST_CHECK(engine.ProcessKey('C', false, true, false).action == KeyActionType::PassThrough);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_F1).action == KeyActionType::PassThrough);
+
+    // Type "Git.1" inside temporary English mode, test Backspace, then commit with Space
+    engine.ProcessKey('G', true);
+    engine.ProcessKey('I', false);
+    engine.ProcessKey('T', false);
+    engine.ProcessKey(VK_OEM_PERIOD, false);
+    engine.ProcessKey('1', false);
+    QIQI_TEST_CHECK(engine.RawCode() == L"zGit.1");
+    engine.ProcessKey(VK_BACK);
+    QIQI_TEST_CHECK(engine.RawCode() == L"zGit.");
+    engine.ProcessKey('C', false);
+    auto z_commit = engine.ProcessKey(VK_SPACE);
+    QIQI_TEST_CHECK(z_commit.action == KeyActionType::Commit && z_commit.committed_text == L"Git.c");
+    QIQI_TEST_CHECK(!engine.IsTempEnglishMode() && !engine.IsComposing());
+
+    // Test Backspace on empty temp_english_text_ cancels composition, and Escape cancels composition
+    engine.ProcessKey('Z');
+    auto z_back_cancel = engine.ProcessKey(VK_BACK);
+    QIQI_TEST_CHECK(z_back_cancel.action == KeyActionType::Cancel && !engine.IsTempEnglishMode());
+
+    engine.ProcessKey('Z');
+    engine.ProcessKey('A');
+    auto z_esc_cancel = engine.ProcessKey(VK_ESCAPE);
+    QIQI_TEST_CHECK(z_esc_cancel.action == KeyActionType::Cancel && !engine.IsTempEnglishMode());
+
+    // When enable_z_temp_english is disabled, 'Z' in Idle enters normal wildcard composition
+    engine.SetEnableZTempEnglish(false);
+    QIQI_TEST_CHECK(!engine.EnableZTempEnglish());
+    engine.ProcessKey('Z');
+    QIQI_TEST_CHECK(!engine.IsTempEnglishMode() && engine.IsComposing());
+    engine.Reset();
+    engine.SetEnableZTempEnglish(true);
 }
 
 } // namespace

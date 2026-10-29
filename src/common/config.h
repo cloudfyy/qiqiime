@@ -30,6 +30,7 @@ struct QiQiConfig {
     bool push_commit_5th = true;
     bool semicolon_quote_quick_select = true;
     bool show_code_hint = true;
+    bool enable_z_temp_english = true;
     bool default_chinese_mode = true;
     bool default_full_width = false;
     bool default_chinese_punct = true;

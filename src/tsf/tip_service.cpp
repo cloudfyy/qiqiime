@@ -617,6 +617,7 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
         engine_.SetPushCommit5th(config_.push_commit_5th);
         engine_.SetSemicolonQuoteQuickSelect(config_.semicolon_quote_quick_select);
         engine_.SetShowCodeHint(config_.show_code_hint);
+        engine_.SetEnableZTempEnglish(config_.enable_z_temp_english);
         engine_.SetBeepOnEmpty4Code(config_.beep_on_empty_4code);
         engine_.SetBeepOnDup4Code(config_.beep_on_dup_4code);
         engine_.SetClearOnEmpty4Code(config_.clear_on_empty_4code);
@@ -742,6 +743,7 @@ void QiQiTextService::ReloadConfigIfModified() {
         engine_.SetPushCommit5th(config_.push_commit_5th);
         engine_.SetSemicolonQuoteQuickSelect(config_.semicolon_quote_quick_select);
         engine_.SetShowCodeHint(config_.show_code_hint);
+        engine_.SetEnableZTempEnglish(config_.enable_z_temp_english);
         engine_.SetBeepOnEmpty4Code(config_.beep_on_empty_4code);
         engine_.SetBeepOnDup4Code(config_.beep_on_dup_4code);
         engine_.SetClearOnEmpty4Code(config_.clear_on_empty_4code);
