@@ -91,6 +91,7 @@ public:
 
 private:
     std::wstring CurrentSelectedCandidateOrRaw() const;
+    std::wstring_view ResolveChinesePunctuation(uint32_t vk, bool shift_down) noexcept;
     void AppendCodeAndRefresh(uint32_t vk, EngineState next_state);
     KeyProcessResult CommitAndReset(std::wstring committed_text);
     void RefreshCandidates();
@@ -107,6 +108,8 @@ private:
     bool push_commit_5th_ = true;
     bool full_width_mode_ = false;
     bool chinese_punctuation_ = true;
+    bool double_quote_open_ = false;
+    bool single_quote_open_ = false;
     EngineState state_ = EngineState::Idle;
 };
 

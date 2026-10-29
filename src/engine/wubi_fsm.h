@@ -94,6 +94,12 @@ constexpr std::optional<std::wstring_view> MapChinesePunctuation(uint32_t vk, bo
         case VK_OEM_PERIOD: return shift_down ? std::optional<std::wstring_view>(L"》") : std::optional<std::wstring_view>(L"。");
         case VK_OEM_1:      return shift_down ? std::optional<std::wstring_view>(L"：") : std::optional<std::wstring_view>(L"；");
         case VK_OEM_2:      return shift_down ? std::optional<std::wstring_view>(L"？") : std::optional<std::wstring_view>(L"、");
+        case VK_OEM_3:      return shift_down ? std::optional<std::wstring_view>(L"～") : std::optional<std::wstring_view>(L"·");
+        case VK_OEM_4:      return shift_down ? std::optional<std::wstring_view>(L"｛") : std::optional<std::wstring_view>(L"【");
+        case VK_OEM_5:      return shift_down ? std::nullopt : std::optional<std::wstring_view>(L"、");
+        case VK_OEM_6:      return shift_down ? std::optional<std::wstring_view>(L"｝") : std::optional<std::wstring_view>(L"】");
+        case VK_OEM_7:      return shift_down ? std::optional<std::wstring_view>(L"“") : std::optional<std::wstring_view>(L"‘");
+        case VK_OEM_MINUS:  return shift_down ? std::optional<std::wstring_view>(L"——") : std::nullopt;
         case '1':           return shift_down ? std::optional<std::wstring_view>(L"！") : std::nullopt;
         case '4':           return shift_down ? std::optional<std::wstring_view>(L"￥") : std::nullopt;
         case '6':           return shift_down ? std::optional<std::wstring_view>(L"……") : std::nullopt;

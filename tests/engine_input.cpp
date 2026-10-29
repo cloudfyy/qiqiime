@@ -314,6 +314,14 @@ void TestChinesePunctuation() {
         {VK_OEM_1, true, L"："},
         {VK_OEM_2, false, L"、"},
         {VK_OEM_2, true, L"？"},
+        {VK_OEM_3, false, L"·"},
+        {VK_OEM_3, true, L"～"},
+        {VK_OEM_4, false, L"【"},
+        {VK_OEM_4, true, L"｛"},
+        {VK_OEM_5, false, L"、"},
+        {VK_OEM_6, false, L"】"},
+        {VK_OEM_6, true, L"｝"},
+        {VK_OEM_MINUS, true, L"——"},
         {'1', true, L"！"},
         {'4', true, L"￥"},
         {'6', true, L"……"},
@@ -326,6 +334,17 @@ void TestChinesePunctuation() {
         QIQI_TEST_CHECK(res.action == KeyActionType::Commit);
         QIQI_TEST_CHECK(res.committed_text == c.expected);
     }
+
+    // Smart paired double quotes (“ ... ”) and single quotes (‘ ... ’)
+    auto dq1 = engine.ProcessKey(VK_OEM_7, true);
+    auto dq2 = engine.ProcessKey(VK_OEM_7, true);
+    QIQI_TEST_CHECK(dq1.action == KeyActionType::Commit && dq1.committed_text == L"“");
+    QIQI_TEST_CHECK(dq2.action == KeyActionType::Commit && dq2.committed_text == L"”");
+
+    auto sq1 = engine.ProcessKey(VK_OEM_7, false);
+    auto sq2 = engine.ProcessKey(VK_OEM_7, false);
+    QIQI_TEST_CHECK(sq1.action == KeyActionType::Commit && sq1.committed_text == L"‘");
+    QIQI_TEST_CHECK(sq2.action == KeyActionType::Commit && sq2.committed_text == L"’");
 
     // Unshifted number keys when idle should PassThrough
     QIQI_TEST_CHECK(engine.ProcessKey('1', false).action == KeyActionType::PassThrough);

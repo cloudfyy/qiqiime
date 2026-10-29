@@ -186,6 +186,20 @@ std::wstring WubiEngine::CurrentSelectedCandidateOrRaw() const {
     return raw_code_;
 }
 
+std::wstring_view WubiEngine::ResolveChinesePunctuation(uint32_t vk, bool shift_down) noexcept {
+    if (vk == VK_OEM_7) {
+        if (shift_down) {
+            const std::wstring_view quote = double_quote_open_ ? L"”" : L"“";
+            double_quote_open_ = !double_quote_open_;
+            return quote;
+        }
+        const std::wstring_view quote = single_quote_open_ ? L"’" : L"‘";
+        single_quote_open_ = !single_quote_open_;
+        return quote;
+    }
+    return MapChinesePunctuation(vk, shift_down).value_or(L"");
+}
+
 void WubiEngine::AppendCodeAndRefresh(uint32_t vk, EngineState next_state) {
     const wchar_t ch = gsl::narrow_cast<wchar_t>(vk - 'A' + L'a');
     raw_code_.push_back(ch);
@@ -327,11 +341,11 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
         case TransitionOp::CommitPunctOnly:
             return MakeCurrentStateResult(
                 KeyActionType::Commit,
-                std::wstring(MapChinesePunctuation(vk, shift_down).value_or(L"")));
+                std::wstring(ResolveChinesePunctuation(vk, shift_down)));
 
         case TransitionOp::CommitSelectedAndPunct: {
             std::wstring committed = CurrentSelectedCandidateOrRaw();
-            committed += MapChinesePunctuation(vk, shift_down).value_or(L"");
+            committed += ResolveChinesePunctuation(vk, shift_down);
             return CommitAndReset(std::move(committed));
         }
     }
