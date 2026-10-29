@@ -303,6 +303,55 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(semi_punct_commit.action == KeyActionType::Commit && semi_punct_commit.committed_text == L"候1；");
     engine.SetSemicolonQuoteQuickSelect(true);
 
+    // Test optional dynamic phrase frequency adjustment (single characters fixed, phrases promoted)
+    QIQI_TEST_CHECK(!engine.DynamicPhraseFreq());
+    engine.AddEntry(L"qrst", L"单");
+    engine.AddEntry(L"qrst", L"词组甲");
+    engine.AddEntry(L"qrst", L"词组乙");
+    engine.AddEntry(L"qrst", L"字");
+
+    // With dynamic_phrase_freq = false, selecting "词组乙" (3rd candidate via ''') does not reorder
+    engine.ProcessKey('Q');
+    engine.ProcessKey('R');
+    engine.ProcessKey('S');
+    engine.ProcessKey('T');
+    auto commit_fixed = engine.ProcessKey(VK_OEM_7, false);
+    QIQI_TEST_CHECK(commit_fixed.action == KeyActionType::Commit && commit_fixed.committed_text == L"词组乙");
+    auto cands_before = engine.LookupExact(L"qrst");
+    QIQI_TEST_CHECK(cands_before.size() == 4 &&
+                    cands_before[0] == L"单" &&
+                    cands_before[1] == L"词组甲" &&
+                    cands_before[2] == L"词组乙" &&
+                    cands_before[3] == L"字");
+
+    // Enable dynamic_phrase_freq: selecting "词组乙" promotes it to the 1st phrase slot (index 1),
+    // while single characters "单" (index 0) and "字" (index 3) remain fixed!
+    engine.SetDynamicPhraseFreq(true);
+    QIQI_TEST_CHECK(engine.DynamicPhraseFreq());
+    engine.ProcessKey('Q');
+    engine.ProcessKey('R');
+    engine.ProcessKey('S');
+    engine.ProcessKey('T');
+    auto commit_prom = engine.ProcessKey(VK_OEM_7, false);
+    QIQI_TEST_CHECK(commit_prom.action == KeyActionType::Commit && commit_prom.committed_text == L"词组乙");
+    auto cands_after = engine.LookupExact(L"qrst");
+    QIQI_TEST_CHECK(cands_after.size() == 4 &&
+                    cands_after[0] == L"单" &&
+                    cands_after[1] == L"词组乙" &&
+                    cands_after[2] == L"词组甲" &&
+                    cands_after[3] == L"字");
+
+    // Selecting single character "字" (4th candidate via '4') does NOT move single characters
+    engine.ProcessKey('Q');
+    engine.ProcessKey('R');
+    engine.ProcessKey('S');
+    engine.ProcessKey('T');
+    auto commit_single = engine.ProcessKey('4', false);
+    QIQI_TEST_CHECK(commit_single.action == KeyActionType::Commit && commit_single.committed_text == L"字");
+    auto cands_single_fixed = engine.LookupExact(L"qrst");
+    QIQI_TEST_CHECK(cands_single_fixed[0] == L"单" && cands_single_fixed[3] == L"字");
+    engine.SetDynamicPhraseFreq(false);
+
     // Test VK_RETURN committing raw ASCII code
     engine.ProcessKey('A');
     engine.ProcessKey('B');

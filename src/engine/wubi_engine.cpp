@@ -189,6 +189,7 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     semicolon_quote_quick_select_ = cfg.semicolon_quote_quick_select;
     show_code_hint_ = cfg.show_code_hint;
     enable_z_temp_english_ = cfg.enable_z_temp_english;
+    dynamic_phrase_freq_ = cfg.dynamic_phrase_freq;
     beep_on_empty_4code_ = cfg.beep_on_empty_4code;
     beep_on_dup_4code_ = cfg.beep_on_dup_4code;
     clear_on_empty_4code_ = cfg.clear_on_empty_4code;
@@ -260,6 +261,19 @@ std::vector<std::wstring> WubiEngine::CurrentPageCandidates() const {
     return std::vector<std::wstring>(sub.begin(), sub.end());
 }
 
+void WubiEngine::PromotePhraseForCode(std::wstring_view code, std::wstring_view word) {
+    if (!dynamic_phrase_freq_ || SplitUtf16Codepoints(word).size() < 2) {
+        return;
+    }
+    const uint32_t packed = PackWubiCode(code);
+    if (packed == 0) {
+        return;
+    }
+    auto& list = promoted_phrases_[packed];
+    std::erase(list, word);
+    list.insert(list.begin(), std::wstring(word));
+}
+
 std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const {
     const uint32_t packed = PackWubiCode(code);
     if (packed == 0) {
@@ -281,6 +295,38 @@ std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const 
     }
     for (const auto& mapped : mapped_dicts_) {
         mapped->LookupExact(packed, results);
+    }
+
+    if (dynamic_phrase_freq_ && results.size() > 1) {
+        if (const auto pit = promoted_phrases_.find(packed); pit != promoted_phrases_.end()) {
+            // Keep all single-character entries in their fixed positions;
+            // reorder only multi-character phrase slots so promoted phrases appear first.
+            std::vector<size_t> phrase_slots;
+            std::vector<std::wstring> phrases;
+            for (size_t i = 0; i < results.size(); ++i) {
+                if (SplitUtf16Codepoints(gsl::at(results, i)).size() >= 2) {
+                    phrase_slots.push_back(i);
+                    phrases.push_back(gsl::at(results, i));
+                }
+            }
+            if (phrases.size() > 1) {
+                std::vector<std::wstring> ordered;
+                ordered.reserve(phrases.size());
+                for (const auto& fav : pit->second) {
+                    if (std::find(phrases.begin(), phrases.end(), fav) != phrases.end()) {
+                        ordered.push_back(fav);
+                    }
+                }
+                for (auto& ph : phrases) {
+                    if (std::find(ordered.begin(), ordered.end(), ph) == ordered.end()) {
+                        ordered.push_back(std::move(ph));
+                    }
+                }
+                for (size_t i = 0; i < phrase_slots.size(); ++i) {
+                    gsl::at(results, gsl::at(phrase_slots, i)) = std::move(gsl::at(ordered, i));
+                }
+            }
+        }
     }
     return results;
 }
@@ -663,12 +709,15 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             RefreshCandidates();
             return MakeCurrentStateResult(KeyActionType::UpdateState);
 
-        case TransitionOp::CommitSelected:
+        case TransitionOp::CommitSelected: {
             if (clear_on_empty_4code_ && all_candidates_.empty()) {
                 Reset();
                 return MakeCurrentStateResult(KeyActionType::Cancel);
             }
-            return CommitAndReset(CurrentSelectedCandidateOrRaw());
+            std::wstring selected = CurrentSelectedCandidateOrRaw();
+            PromotePhraseForCode(raw_code_, selected);
+            return CommitAndReset(std::move(selected));
+        }
 
         case TransitionOp::CommitRawCode:
             return CommitAndReset(raw_code_);
@@ -677,7 +726,9 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             const auto idx_opt = ResolveCandidateSelectIndex(vk, shift_down, semicolon_quote_quick_select_);
             const auto page = CurrentPageCandidates();
             if (idx_opt.has_value() && *idx_opt < page.size()) {
-                return CommitAndReset(gsl::at(page, *idx_opt));
+                std::wstring selected = gsl::at(page, *idx_opt);
+                PromotePhraseForCode(raw_code_, selected);
+                return CommitAndReset(std::move(selected));
             }
             return MakeCurrentStateResult(KeyActionType::UpdateState);
         }

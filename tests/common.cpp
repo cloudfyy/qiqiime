@@ -115,6 +115,7 @@ void TestIniConfiguration() {
         "semicolon_quote_quick_select = false\n"
         "show_code_hint = false\n"
         "enable_z_temp_english = false\n"
+        "dynamic_phrase_freq = true\n"
         "clear_on_empty_4code = true\n"
         "\n"
         "[log]\n"
@@ -130,6 +131,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(!cfg.semicolon_quote_quick_select);
     QIQI_TEST_CHECK(!cfg.show_code_hint);
     QIQI_TEST_CHECK(!cfg.enable_z_temp_english);
+    QIQI_TEST_CHECK(cfg.dynamic_phrase_freq);
     QIQI_TEST_CHECK(!cfg.default_chinese_mode);
     QIQI_TEST_CHECK(cfg.default_full_width);
     QIQI_TEST_CHECK(!cfg.default_chinese_punct);

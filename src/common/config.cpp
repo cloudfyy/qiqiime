@@ -190,6 +190,8 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
                 cfg.show_code_hint = ParseBool(val, cfg.show_code_hint);
             } else if (key == "enable_z_temp_english") {
                 cfg.enable_z_temp_english = ParseBool(val, cfg.enable_z_temp_english);
+            } else if (key == "dynamic_phrase_freq") {
+                cfg.dynamic_phrase_freq = ParseBool(val, cfg.dynamic_phrase_freq);
             } else if (key == "default_chinese_mode") {
                 cfg.default_chinese_mode = ParseBool(val, cfg.default_chinese_mode);
             } else if (key == "default_full_width") {
@@ -245,6 +247,8 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         "show_code_hint = {}\n"
         "# 中文模式下是否允许首码按 z 引导进入临时英文串输入模式\n"
         "enable_z_temp_english = {}\n"
+        "# 是否启用重码词组动态调频 (单字始终保持固定词序，默认关闭)\n"
+        "dynamic_phrase_freq = {}\n"
         "# 默认初始模式是否中文\n"
         "default_chinese_mode = {}\n"
         "# 默认是否启用全角字符模式 (运行期可通过 Shift+Space 切换)\n"
@@ -277,6 +281,7 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         config.semicolon_quote_quick_select ? "true" : "false",
         config.show_code_hint ? "true" : "false",
         config.enable_z_temp_english ? "true" : "false",
+        config.dynamic_phrase_freq ? "true" : "false",
         config.default_chinese_mode ? "true" : "false",
         config.default_full_width ? "true" : "false",
         config.default_chinese_punct ? "true" : "false",

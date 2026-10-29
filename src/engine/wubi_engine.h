@@ -82,6 +82,8 @@ public:
     void SetShowCodeHint(bool enabled) noexcept { show_code_hint_ = enabled; }
     bool EnableZTempEnglish() const noexcept { return enable_z_temp_english_; }
     void SetEnableZTempEnglish(bool enabled) noexcept { enable_z_temp_english_ = enabled; }
+    bool DynamicPhraseFreq() const noexcept { return dynamic_phrase_freq_; }
+    void SetDynamicPhraseFreq(bool enabled) noexcept { dynamic_phrase_freq_ = enabled; }
     bool IsTempEnglishMode() const noexcept { return state_ == EngineState::TempEnglish; }
     bool BeepOnEmpty4Code() const noexcept { return beep_on_empty_4code_; }
     void SetBeepOnEmpty4Code(bool enabled) noexcept { beep_on_empty_4code_ = enabled; }
@@ -121,6 +123,7 @@ public:
 private:
     TransitionRule EvaluateKeyTransition(
         uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept;
+    void PromotePhraseForCode(std::wstring_view code, std::wstring_view word);
     std::wstring CurrentSelectedCandidateOrRaw() const;
     std::wstring_view ResolveChinesePunctuation(uint32_t vk, bool shift_down) noexcept;
     void AppendCodeAndRefresh(uint32_t vk, EngineState next_state);
@@ -129,6 +132,7 @@ private:
     KeyProcessResult MakeCurrentStateResult(KeyActionType action, std::wstring committed = L"") const;
 
     std::map<uint32_t, std::vector<std::wstring>> dict_;
+    std::map<uint32_t, std::vector<std::wstring>> promoted_phrases_;
     std::vector<std::shared_ptr<const WubiMappedDict>> mapped_dicts_;
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;
@@ -141,6 +145,7 @@ private:
     bool semicolon_quote_quick_select_ = true;
     bool show_code_hint_ = true;
     bool enable_z_temp_english_ = true;
+    bool dynamic_phrase_freq_ = false;
     bool beep_on_empty_4code_ = true;
     bool beep_on_dup_4code_ = false;
     bool clear_on_empty_4code_ = false;
