@@ -98,6 +98,27 @@ PrimaryDict ParsePrimaryDict(std::string_view val, PrimaryDict default_dict) {
     return default_dict;
 }
 
+std::string_view UiLanguageToString(UiLanguage lang) noexcept {
+    switch (lang) {
+        case UiLanguage::ZhCn: return "zh-CN";
+        case UiLanguage::EnUs: return "en-US";
+        case UiLanguage::Auto:
+        default:               return "auto";
+    }
+}
+
+UiLanguage ParseUiLanguage(std::string_view val, UiLanguage default_lang) {
+    const std::string lower = ToLowerAscii(val);
+    if (lower == "auto" || lower == "system" || lower == "default") return UiLanguage::Auto;
+    if (lower == "zh-cn" || lower == "zh_cn" || lower == "zh" || lower == "cn" || lower == "chinese") {
+        return UiLanguage::ZhCn;
+    }
+    if (lower == "en-us" || lower == "en_us" || lower == "en" || lower == "english") {
+        return UiLanguage::EnUs;
+    }
+    return default_lang;
+}
+
 } // namespace
 
 std::filesystem::path GetDefaultUserConfigPath() {
@@ -165,6 +186,8 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
                 cfg.shift_toggle_mode = ParseBool(val, cfg.shift_toggle_mode);
             } else if (key == "show_status_bar") {
                 cfg.show_status_bar = ParseBool(val, cfg.show_status_bar);
+            } else if (key == "ui_language" || key == "language") {
+                cfg.ui_language = ParseUiLanguage(val, cfg.ui_language);
             }
         } else if (current_section == "log") {
             if (key == "level") {
@@ -203,7 +226,9 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         "# 是否允许单按 Shift 键切换中英文模式\n"
         "shift_toggle_mode = {}\n"
         "# 是否显示桌面浮动状态条 (默认关闭)\n"
-        "show_status_bar = {}\n\n"
+        "show_status_bar = {}\n"
+        "# 界面语言: auto (跟随系统) | zh-CN (简体中文) | en-US (English)\n"
+        "ui_language = {}\n\n"
         "[log]\n"
         "# 日志级别: trace | debug | info | warn | error | off\n"
         "level = {}\n",
@@ -218,6 +243,7 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         config.default_chinese_punct ? "true" : "false",
         config.shift_toggle_mode ? "true" : "false",
         config.show_status_bar ? "true" : "false",
+        UiLanguageToString(config.ui_language),
         LogLevelToString(config.log_level));
 }
 

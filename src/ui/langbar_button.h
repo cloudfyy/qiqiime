@@ -22,7 +22,8 @@ enum class LangBarMenuId : UINT {
     ToggleExtraDict = 6,
     ToggleStatusBar = 7,
     OpenSettings = 8,
-    OpenConfigFile = 9
+    OpenConfigFile = 9,
+    ToggleUiLanguage = 10
 };
 
 struct LangBarState {
@@ -32,6 +33,7 @@ struct LangBarState {
     bool show_status_bar = false;
     PrimaryDict primary_dict = PrimaryDict::Jidian;
     bool enable_jidian_extra = true;
+    UiLanguage ui_language = UiLanguage::Auto;
 };
 
 // Implements ITfLangBarItemButton + ITfSource registered with GUID_LBI_INPUTMODE

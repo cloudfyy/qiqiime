@@ -1,5 +1,6 @@
 #include "ui/langbar_button.h"
 #include "common/guids.h"
+#include "common/i18n.h"
 #include "common/scoped_handle.h"
 
 #include <gsl/gsl>
@@ -84,11 +85,12 @@ STDMETHODIMP LangBarButton::GetInfo(TF_LANGBARITEMINFO* pInfo) noexcept {
     if (!pInfo) {
         return E_INVALIDARG;
     }
+    const auto& str = GetUiStrings(state_.ui_language);
     pInfo->clsidService = kClsidQiQiTextService;
     pInfo->guidItem = kGuidLbiInputMode;
     pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_BTN_MENU | TF_LBI_STYLE_SHOWNINTRAY;
     pInfo->ulSort = 0;
-    wcscpy_s(pInfo->szDescription, L"QiQi 五笔状态与菜单");
+    wcscpy_s(pInfo->szDescription, str.langbar_desc);
     return S_OK;
 }
 
@@ -105,7 +107,8 @@ STDMETHODIMP LangBarButton::Show(BOOL /*fShow*/) noexcept {
 }
 
 STDMETHODIMP LangBarButton::GetTooltipString(BSTR* pbstrToolTip) noexcept {
-    return CopyToBstr(L"QiQi 五笔 (左键切换中英，右键打开菜单)", pbstrToolTip);
+    const auto& str = GetUiStrings(state_.ui_language);
+    return CopyToBstr(str.langbar_tooltip, pbstrToolTip);
 }
 
 STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT /*pt*/, const RECT* /*prcArea*/) {
@@ -119,18 +122,20 @@ STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
     if (!pMenu) {
         return E_INVALIDARG;
     }
+    const auto& str = GetUiStrings(state_.ui_language);
 
-    AddMenuEntry(pMenu, LangBarMenuId::ToggleChinese, L"中文输入模式 (Shift / Ctrl+Space)", state_.chinese_mode);
-    AddMenuEntry(pMenu, LangBarMenuId::ToggleFullWidth, L"全角字符模式 (Shift+Space)", state_.full_width);
-    AddMenuEntry(pMenu, LangBarMenuId::TogglePunctuation, L"中文标点符号 (Ctrl+.)", state_.chinese_punct);
+    AddMenuEntry(pMenu, LangBarMenuId::ToggleChinese, str.menu_toggle_chinese, state_.chinese_mode);
+    AddMenuEntry(pMenu, LangBarMenuId::ToggleFullWidth, str.menu_toggle_full_width, state_.full_width);
+    AddMenuEntry(pMenu, LangBarMenuId::TogglePunctuation, str.menu_toggle_punct, state_.chinese_punct);
     AddMenuSeparator(pMenu);
-    AddMenuEntry(pMenu, LangBarMenuId::DictJidian, L"词库：极点五笔 86", state_.primary_dict == PrimaryDict::Jidian);
-    AddMenuEntry(pMenu, LangBarMenuId::DictHaifeng, L"词库：海峰五笔 86 (超大字符集)", state_.primary_dict == PrimaryDict::Haifeng);
-    AddMenuEntry(pMenu, LangBarMenuId::ToggleExtraDict, L"启用极点现代扩展词库", state_.enable_jidian_extra);
+    AddMenuEntry(pMenu, LangBarMenuId::DictJidian, str.menu_dict_jidian, state_.primary_dict == PrimaryDict::Jidian);
+    AddMenuEntry(pMenu, LangBarMenuId::DictHaifeng, str.menu_dict_haifeng, state_.primary_dict == PrimaryDict::Haifeng);
+    AddMenuEntry(pMenu, LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, state_.enable_jidian_extra);
     AddMenuSeparator(pMenu);
-    AddMenuEntry(pMenu, LangBarMenuId::ToggleStatusBar, L"显示桌面浮动状态条", state_.show_status_bar);
-    AddMenuEntry(pMenu, LangBarMenuId::OpenSettings, L"输入法属性设置...");
-    AddMenuEntry(pMenu, LangBarMenuId::OpenConfigFile, L"编辑配置文件 (config.ini)");
+    AddMenuEntry(pMenu, LangBarMenuId::ToggleStatusBar, str.menu_toggle_status_bar, state_.show_status_bar);
+    AddMenuEntry(pMenu, LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang);
+    AddMenuEntry(pMenu, LangBarMenuId::OpenSettings, str.menu_open_settings);
+    AddMenuEntry(pMenu, LangBarMenuId::OpenConfigFile, str.menu_open_config_file);
     return S_OK;
 }
 

@@ -12,6 +12,12 @@ enum class PrimaryDict {
     BuiltinOnly  // Built-in core dictionary only
 };
 
+enum class UiLanguage {
+    Auto,  // Follow Windows user default UI language (default)
+    ZhCn,  // Simplified Chinese (zh-CN)
+    EnUs   // English (en-US)
+};
+
 struct QiQiConfig {
     // [dictionary]
     PrimaryDict primary_dict = PrimaryDict::Jidian;
@@ -27,6 +33,7 @@ struct QiQiConfig {
     bool default_chinese_punct = true;
     bool shift_toggle_mode = true;
     bool show_status_bar = false;
+    UiLanguage ui_language = UiLanguage::Auto;
 
     // [log]
     spdlog::level::level_enum log_level = spdlog::level::info;

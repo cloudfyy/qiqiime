@@ -3,6 +3,7 @@
 #include "tsf/edit_session.h"
 #include "ui/settings_dialog.h"
 #include "common/guids.h"
+#include "common/i18n.h"
 #include "common/logger.h"
 #include "common/version.h"
 
@@ -364,6 +365,13 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
             SaveConfigFile(GetDefaultUserConfigPath(), config_);
             SyncTsfCompartments();
             break;
+        case LangBarMenuId::ToggleUiLanguage:
+            config_.ui_language = (ResolveUiLanguage(config_.ui_language) == UiLanguage::EnUs)
+                ? UiLanguage::ZhCn
+                : UiLanguage::EnUs;
+            SaveConfigFile(GetDefaultUserConfigPath(), config_);
+            SyncTsfCompartments();
+            break;
         case LangBarMenuId::OpenSettings:
             Show(nullptr, kChineseSimplifiedLangId, kGuidProfileWubi86);
             break;
@@ -533,7 +541,8 @@ STDMETHODIMP QiQiTextService::GetFunction(REFGUID rguid, REFIID riid, IUnknown**
 
 // ITfFnConfigure
 STDMETHODIMP QiQiTextService::GetDisplayName(BSTR* pbstrName) noexcept {
-    return CopyToBstr(L"QiQi 五笔属性设置", pbstrName);
+    const auto& str = GetUiStrings(config_.ui_language);
+    return CopyToBstr(str.configure_display_name, pbstrName);
 }
 
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
@@ -595,7 +604,11 @@ void QiQiTextService::SyncTsfCompartments() {
     lb_state.show_status_bar = config_.show_status_bar;
     lb_state.primary_dict = config_.primary_dict;
     lb_state.enable_jidian_extra = config_.enable_jidian_extra;
+    lb_state.ui_language = config_.ui_language;
 
+    if (candidate_ui_) {
+        candidate_ui_->SetUiLanguage(config_.ui_language);
+    }
     if (langbar_btn_) {
         langbar_btn_->UpdateState(lb_state);
     }

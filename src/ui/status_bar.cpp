@@ -1,5 +1,6 @@
 #include "ui/status_bar.h"
 #include "common/guids.h"
+#include "common/i18n.h"
 
 #include <gsl/gsl>
 #include <algorithm>
@@ -95,19 +96,21 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) const {
     const ScopedSelectObject sel_font(hdc, font_.Get());
     ::SetBkMode(hdc, TRANSPARENT);
 
+    const auto& str = GetUiStrings(state_.ui_language);
+
     // Logo area [0, kLogoWidth)
     RECT logo_rc{0, 0, kLogoWidth, client_rect.bottom};
     const ScopedGdiHandle<HBRUSH> logo_brush(::CreateSolidBrush(RGB(35, 105, 200)));
     ::FillRect(hdc, &logo_rc, logo_brush.Get());
     ::SetTextColor(hdc, RGB(255, 255, 255));
-    ::DrawTextW(hdc, L"五笔", -1, &logo_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    ::DrawTextW(hdc, str.status_logo, -1, &logo_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // 4 interactive cells: [中/英] [半/全] [。/.] [设]
     const std::array<const wchar_t*, 4> labels = {
-        state_.chinese_mode ? L"中" : L"英",
-        state_.full_width ? L"全" : L"半",
+        state_.chinese_mode ? str.status_mode_cn : str.status_mode_en,
+        state_.full_width ? str.status_width_full : str.status_width_half,
         state_.chinese_punct ? L"。" : L".",
-        L"设"
+        str.status_settings
     };
 
     ::SetTextColor(hdc, RGB(30, 35, 45));
@@ -136,7 +139,7 @@ LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     if (msg == WM_NCCREATE) {
         const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
         ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-        return TRUE;
+        return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 
     const auto* self = reinterpret_cast<const StatusBarUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));

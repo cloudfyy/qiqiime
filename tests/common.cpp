@@ -1,5 +1,6 @@
 #include "common.h"
 #include "common/config.h"
+#include "common/i18n.h"
 #include "common/logger.h"
 #include "common/scoped_handle.h"
 #include "common/version.h"
@@ -146,13 +147,21 @@ void TestIniConfiguration() {
         "[ENGINE]\n"
         "AUTO_COMMIT_4CODE = on\n"
         "PUSH_COMMIT_5TH = invalid_bool\n"
+        "UI_LANGUAGE = en-US\n"
         "[LOG]\n"
         "LEVEL = trace\n");
     QIQI_TEST_CHECK(cfg2.primary_dict == PrimaryDict::BuiltinOnly);
     QIQI_TEST_CHECK(cfg2.enable_jidian_extra);
     QIQI_TEST_CHECK(cfg2.auto_commit_4code);
     QIQI_TEST_CHECK(cfg2.push_commit_5th);
+    QIQI_TEST_CHECK(cfg2.ui_language == UiLanguage::EnUs);
     QIQI_TEST_CHECK(cfg2.log_level == spdlog::level::trace);
+
+    const QiQiConfig cfg_zh = ParseConfigFromUtf8("[engine]\nlanguage = zh-CN\n");
+    QIQI_TEST_CHECK(cfg_zh.ui_language == UiLanguage::ZhCn);
+    QIQI_TEST_CHECK(!SerializeConfigToUtf8(cfg_zh).empty());
+    const QiQiConfig cfg_auto = ParseConfigFromUtf8("[engine]\nui_language = unknown_lang\n");
+    QIQI_TEST_CHECK(cfg_auto.ui_language == UiLanguage::Auto);
 
     for (const auto& [lvl_str, lvl_enum] : {
              std::pair{"info", spdlog::level::info},
@@ -234,6 +243,49 @@ void TestScopedHandleTemplate() {
     QIQI_TEST_CHECK(!h3.IsValid());
 }
 
+void TestI18nLocalization() {
+    // 1. Direct language resolution
+    QIQI_TEST_CHECK(ResolveUiLanguage(UiLanguage::ZhCn) == UiLanguage::ZhCn);
+    QIQI_TEST_CHECK(ResolveUiLanguage(UiLanguage::EnUs) == UiLanguage::EnUs);
+    const UiLanguage auto_resolved = ResolveUiLanguage(UiLanguage::Auto);
+    QIQI_TEST_CHECK(auto_resolved == UiLanguage::ZhCn || auto_resolved == UiLanguage::EnUs);
+
+    // 2. Bilingual string tables verification
+    const UiStrings& zh = GetUiStrings(UiLanguage::ZhCn);
+    const UiStrings& en = GetUiStrings(UiLanguage::EnUs);
+    QIQI_TEST_CHECK(std::wstring_view(zh.candidate_header_prefix) == L"五笔 [");
+    QIQI_TEST_CHECK(std::wstring_view(en.candidate_header_prefix) == L"Wubi [");
+    QIQI_TEST_CHECK(std::wstring_view(zh.candidate_empty) == L"(无候选)");
+    QIQI_TEST_CHECK(std::wstring_view(en.candidate_empty) == L"(No candidates)");
+    QIQI_TEST_CHECK(std::wstring_view(zh.status_logo) == L"五笔");
+    QIQI_TEST_CHECK(std::wstring_view(en.status_logo) == L"Wubi");
+    QIQI_TEST_CHECK(std::wstring_view(zh.status_mode_cn) == L"中");
+    QIQI_TEST_CHECK(std::wstring_view(en.status_mode_cn) == L"CN");
+    QIQI_TEST_CHECK(std::wstring_view(zh.dlg_btn_ok) == L"确定");
+    QIQI_TEST_CHECK(std::wstring_view(en.dlg_btn_ok) == L"OK");
+
+    // 3. Config INI aliases & round-trip serialization for all UiLanguage values
+    for (const auto& [alias, expected] : {
+             std::pair{"auto", UiLanguage::Auto},
+             std::pair{"system", UiLanguage::Auto},
+             std::pair{"default", UiLanguage::Auto},
+             std::pair{"zh-CN", UiLanguage::ZhCn},
+             std::pair{"zh_cn", UiLanguage::ZhCn},
+             std::pair{"zh", UiLanguage::ZhCn},
+             std::pair{"cn", UiLanguage::ZhCn},
+             std::pair{"chinese", UiLanguage::ZhCn},
+             std::pair{"en-US", UiLanguage::EnUs},
+             std::pair{"en_us", UiLanguage::EnUs},
+             std::pair{"en", UiLanguage::EnUs},
+             std::pair{"english", UiLanguage::EnUs}}) {
+        const QiQiConfig parsed = ParseConfigFromUtf8(std::string("[engine]\nui_language = ") + alias + "\n");
+        QIQI_TEST_CHECK(parsed.ui_language == expected);
+        const std::string serialized = SerializeConfigToUtf8(parsed);
+        const QiQiConfig roundtrip = ParseConfigFromUtf8(serialized);
+        QIQI_TEST_CHECK(roundtrip.ui_language == expected);
+    }
+}
+
 } // namespace
 
 void RunCommonTests() {
@@ -241,6 +293,7 @@ void RunCommonTests() {
     TestVersionMechanism();
     TestIniConfiguration();
     TestScopedHandleTemplate();
+    TestI18nLocalization();
 }
 
 } // namespace qiqi::test

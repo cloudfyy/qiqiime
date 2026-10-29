@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/scoped_handle.h"
 
 namespace qiqi {
@@ -59,6 +60,7 @@ public:
     void DestroyPopupWindow() noexcept;
 
     void SetSelectCallback(SelectCallback cb) noexcept { select_callback_ = std::move(cb); }
+    void SetUiLanguage(UiLanguage lang) noexcept { ui_language_ = lang; }
     int CurrentWidth() const noexcept { return popup_width_; }
     int CurrentHeight() const noexcept { return popup_height_; }
     HWND WindowHandle() const noexcept { return hwnd_; }
@@ -94,6 +96,7 @@ private:
     size_t current_page_ = 0;
     size_t selected_in_page_ = 0;
     POINT popup_pos_{100, 100};
+    UiLanguage ui_language_ = UiLanguage::Auto;
     SelectCallback select_callback_;
 };
 

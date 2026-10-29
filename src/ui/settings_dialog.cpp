@@ -1,5 +1,6 @@
 #include "ui/settings_dialog.h"
 #include "common/guids.h"
+#include "common/i18n.h"
 #include "common/scoped_handle.h"
 
 #include <gsl/gsl>
@@ -22,6 +23,7 @@ constexpr int kIdChkShiftToggle = 107;
 constexpr int kIdChkStatusBar = 108;
 constexpr int kIdComboPageSize = 109;
 constexpr int kIdBtnOpenIni = 110;
+constexpr int kIdComboUiLang = 111;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 
@@ -70,7 +72,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     if (msg == WM_NCCREATE) {
         const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
         ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-        return TRUE;
+        return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 
     auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -130,6 +132,14 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
         const int idx = gsl::narrow_cast<int>(std::clamp<size_t>(config.page_size, 1, 9) - 1);
         ::SendMessageW(combo, CB_SETCURSEL, static_cast<WPARAM>(idx), 0);
     }
+
+    const HWND lang_combo = ::GetDlgItem(hwnd, kIdComboUiLang);
+    if (lang_combo) {
+        const int lang_idx = (config.ui_language == UiLanguage::ZhCn)
+            ? 1
+            : (config.ui_language == UiLanguage::EnUs ? 2 : 0);
+        ::SendMessageW(lang_combo, CB_SETCURSEL, static_cast<WPARAM>(lang_idx), 0);
+    }
 }
 
 void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
@@ -152,6 +162,18 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
         const LRESULT sel = ::SendMessageW(combo, CB_GETCURSEL, 0, 0);
         if (sel >= 0 && sel < 9) {
             config.page_size = gsl::narrow_cast<size_t>(sel + 1);
+        }
+    }
+
+    const HWND lang_combo = ::GetDlgItem(hwnd, kIdComboUiLang);
+    if (lang_combo) {
+        const LRESULT lang_sel = ::SendMessageW(lang_combo, CB_GETCURSEL, 0, 0);
+        if (lang_sel == 1) {
+            config.ui_language = UiLanguage::ZhCn;
+        } else if (lang_sel == 2) {
+            config.ui_language = UiLanguage::EnUs;
+        } else if (lang_sel == 0) {
+            config.ui_language = UiLanguage::Auto;
         }
     }
 }
@@ -181,39 +203,49 @@ HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_con
     wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
     ctx->font.Reset(::CreateFontIndirectW(&lf));
 
+    const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
+
     const HFONT f = ctx->font.Get();
     const HWND hwnd = ::CreateWindowExW(
         WS_EX_DLGMODALFRAME,
         kSettingsWndClass,
-        L"QiQi 五笔输入法 - 属性设置",
+        str.dlg_title,
         WS_POPUP | WS_CAPTION | WS_SYSMENU,
-        240, 200, 400, 360,
+        240, 200, 420, 400,
         parent, nullptr, instance, ctx.get());
     if (!hwnd) {
         return nullptr;
     }
     std::ignore = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
 
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"极点五笔 86 核心词库 (推荐)", BS_AUTORADIOBUTTON | WS_GROUP, 24, 20, 340, 24, kIdRadioJidian);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"海峰五笔 86 超大字符集词库 (含生僻字)", BS_AUTORADIOBUTTON, 24, 48, 340, 24, kIdRadioHaifeng);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"仅使用内置精简保底词库", BS_AUTORADIOBUTTON, 24, 76, 340, 24, kIdRadioBuiltin);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_radio_jidian, BS_AUTORADIOBUTTON | WS_GROUP, 24, 20, 360, 24, kIdRadioJidian);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_radio_haifeng, BS_AUTORADIOBUTTON, 24, 48, 360, 24, kIdRadioHaifeng);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_radio_builtin, BS_AUTORADIOBUTTON, 24, 76, 360, 24, kIdRadioBuiltin);
 
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"启用极点现代扩展词库 (Extra)", BS_AUTOCHECKBOX, 24, 112, 340, 24, kIdChkExtraDict);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"四码唯一自动上屏", BS_AUTOCHECKBOX, 24, 140, 340, 24, kIdChkAutoCommit4);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"第五码自动顶字上屏", BS_AUTOCHECKBOX, 24, 168, 340, 24, kIdChkPushCommit5);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"允许单按 Shift 键切换中英文", BS_AUTOCHECKBOX, 24, 196, 340, 24, kIdChkShiftToggle);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"显示桌面浮动状态条", BS_AUTOCHECKBOX, 24, 224, 340, 24, kIdChkStatusBar);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_extra, BS_AUTOCHECKBOX, 24, 112, 360, 24, kIdChkExtraDict);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_auto_commit4, BS_AUTOCHECKBOX, 24, 140, 360, 24, kIdChkAutoCommit4);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_push_commit5, BS_AUTOCHECKBOX, 24, 168, 360, 24, kIdChkPushCommit5);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_shift_toggle, BS_AUTOCHECKBOX, 24, 196, 360, 24, kIdChkShiftToggle);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_chk_status_bar, BS_AUTOCHECKBOX, 24, 224, 360, 24, kIdChkStatusBar);
 
-    CreateChildControl(hwnd, instance, f, L"STATIC", L"每页候选词数量:", 0, 24, 260, 120, 24, 0);
-    CreateChildControl(hwnd, instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, 150, 256, 70, 200, kIdComboPageSize);
+    CreateChildControl(hwnd, instance, f, L"STATIC", str.dlg_lbl_page_size, 0, 24, 260, 150, 24, 0);
+    CreateChildControl(hwnd, instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, 180, 256, 70, 200, kIdComboPageSize);
     const HWND combo = ::GetDlgItem(hwnd, kIdComboPageSize);
     for (const wchar_t* label : kPageSizeLabels) {
         ::SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     }
 
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"编辑 config.ini", BS_PUSHBUTTON, 24, 294, 110, 28, kIdBtnOpenIni);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"确定", BS_DEFPUSHBUTTON, 200, 294, 80, 28, kIdBtnOk);
-    CreateChildControl(hwnd, instance, f, L"BUTTON", L"取消", BS_PUSHBUTTON, 290, 294, 80, 28, kIdBtnCancel);
+    CreateChildControl(hwnd, instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, 24, 294, 150, 24, 0);
+    CreateChildControl(hwnd, instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, 180, 290, 200, 160, kIdComboUiLang);
+    const HWND lang_combo = ::GetDlgItem(hwnd, kIdComboUiLang);
+    const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
+    for (const wchar_t* item : lang_items) {
+        ::SendMessageW(lang_combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
+    }
+
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_open_ini, BS_PUSHBUTTON, 24, 330, 110, 28, kIdBtnOpenIni);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, 210, 330, 80, 28, kIdBtnOk);
+    CreateChildControl(hwnd, instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, 300, 330, 80, 28, kIdBtnCancel);
 
     if (bound_config) {
         WriteSettingsToWindowControls(hwnd, *bound_config);

@@ -31,16 +31,20 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() override { return 1; }
     STDMETHODIMP_(ULONG) Release() override { return 1; }
-    STDMETHODIMP AddMenuItem(UINT uId, DWORD dwFlags, HBITMAP, HBITMAP, const WCHAR*, ULONG, ITfMenu**) override {
+    STDMETHODIMP AddMenuItem(UINT uId, DWORD dwFlags, HBITMAP, HBITMAP, const WCHAR* pch, ULONG cch, ITfMenu**) override {
         if (dwFlags & TF_LBMENUF_SEPARATOR) {
             ++separators_;
         } else {
             item_ids_.push_back(uId);
+            if (pch && cch > 0) {
+                item_texts_.emplace_back(pch, cch);
+            }
         }
         return S_OK;
     }
 
     std::vector<UINT> item_ids_;
+    std::vector<std::wstring> item_texts_;
     size_t separators_ = 0;
 };
 
@@ -119,11 +123,30 @@ void TestLangBarButton() {
     QIQI_TEST_CHECK(lb_src->UnadviseSink(9999) == CONNECT_E_NOCONNECTION);
     QIQI_TEST_CHECK(SUCCEEDED(lb_src->UnadviseSink(cookie)));
 
-    // Menu & Click
+    // Menu & Click (Chinese UI)
+    st.ui_language = UiLanguage::ZhCn;
+    btn->UpdateState(st);
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetInfo(&info)));
+    QIQI_TEST_CHECK(std::wstring(info.szDescription) == L"QiQi 五笔状态与菜单");
     QIQI_TEST_CHECK(btn->InitMenu(nullptr) == E_INVALIDARG);
-    MockTfMenu menu;
-    QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu)));
-    QIQI_TEST_CHECK(menu.item_ids_.size() == 9 && menu.separators_ == 2);
+    MockTfMenu menu_zh;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_zh)));
+    QIQI_TEST_CHECK(menu_zh.item_ids_.size() == 10 && menu_zh.separators_ == 2);
+    QIQI_TEST_CHECK(!menu_zh.item_texts_.empty() &&
+                    menu_zh.item_texts_.front().find(L"中文输入模式") != std::wstring::npos);
+
+    // Test English UI language on LangBarButton (GetInfo, GetTooltipString, InitMenu)
+    st.ui_language = UiLanguage::EnUs;
+    btn->UpdateState(st);
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetInfo(&info)));
+    QIQI_TEST_CHECK(std::wstring(info.szDescription) == L"QiQi Wubi Status & Menu");
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetTooltipString(tooltip.Put())) &&
+                    std::wstring(tooltip.Get()).find(L"Left-click") != std::wstring::npos);
+    MockTfMenu menu_en;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_en)));
+    QIQI_TEST_CHECK(menu_en.item_ids_.size() == 10 && menu_en.separators_ == 2);
+    QIQI_TEST_CHECK(!menu_en.item_texts_.empty() &&
+                    menu_en.item_texts_.front().find(L"Chinese Input Mode") != std::wstring::npos);
 
     POINT pt{0, 0};
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_LEFT, pt, nullptr)));
@@ -181,13 +204,23 @@ void TestCandidateUI() {
     ScopedBstr str;
     QIQI_TEST_CHECK(ui->GetString(0, str.Put()) == E_INVALIDARG);
 
-    // Show empty window and trigger WM_PAINT
+    // Show empty window in Chinese and English UI modes and trigger WM_PAINT
+    ui->SetUiLanguage(UiLanguage::ZhCn);
     QIQI_TEST_CHECK(SUCCEEDED(ui->Show(TRUE)));
     BOOL shown = FALSE;
     QIQI_TEST_CHECK(SUCCEEDED(ui->IsShown(&shown)) && shown == TRUE);
     RECT normal_rc{100, 100, 150, 125};
     ui->MoveWindowTo(normal_rc);
     MSG msg{};
+    while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        ::TranslateMessage(&msg);
+        ::DispatchMessageW(&msg);
+    }
+
+    ui->SetUiLanguage(UiLanguage::EnUs);
+    if (ui->WindowHandle()) {
+        ::InvalidateRect(ui->WindowHandle(), nullptr, TRUE);
+    }
     while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
         ::TranslateMessage(&msg);
         ::DispatchMessageW(&msg);
@@ -218,6 +251,7 @@ void TestCandidateUI() {
     QIQI_TEST_CHECK(ui->GetString(7, str.Put()) == E_INVALIDARG);
 
     // Test off-screen work area clamping, long candidate auto-sizing, DPI change, & mouse click selection
+    ui->SetUiLanguage(UiLanguage::EnUs);
     std::vector<std::wstring> long_cands = {
         L"恭恭敬敬一二三四", L"花花世界五六七八", L"劳苦功高九十", L"草草了事", L"芙蓉出水"};
     ui->SetCandidates(L"aaaa", long_cands, 5, 0, 0);
@@ -284,21 +318,47 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(read_back.show_status_bar);
     QIQI_TEST_CHECK(read_back.page_size == 7);
 
-    // Also test BuiltinOnly and Jidian radio states + Cancel / WM_CLOSE
+    // Also test BuiltinOnly and Jidian radio states + UiLanguage combobox + Cancel / WM_CLOSE
     cfg.primary_dict = PrimaryDict::BuiltinOnly;
+    cfg.ui_language = UiLanguage::EnUs;
     WriteSettingsToWindowControls(hwnd, cfg);
     ReadSettingsFromWindowControls(hwnd, read_back);
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::BuiltinOnly);
+    QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::EnUs);
 
     cfg.primary_dict = PrimaryDict::Jidian;
+    cfg.ui_language = UiLanguage::ZhCn;
     WriteSettingsToWindowControls(hwnd, cfg);
     ReadSettingsFromWindowControls(hwnd, read_back);
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Jidian);
+    QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::ZhCn);
+
+    cfg.ui_language = UiLanguage::Auto;
+    WriteSettingsToWindowControls(hwnd, cfg);
+    ReadSettingsFromWindowControls(hwnd, read_back);
+    QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::Auto);
 
     ::SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
     ::SendMessageW(hwnd, WM_CLOSE, 0, 0);
     ::SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
     ::DestroyWindow(hwnd);
+
+    // Verify English settings dialog title when created with UiLanguage::EnUs
+    cfg.ui_language = UiLanguage::EnUs;
+    HWND hwnd_en = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg);
+    QIQI_TEST_CHECK(hwnd_en != nullptr);
+    wchar_t title_buf[128]{};
+    ::GetWindowTextW(hwnd_en, title_buf, 128);
+    QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi Wubi IME - Settings");
+    ::DestroyWindow(hwnd_en);
+
+    // Verify Chinese settings dialog title when created with UiLanguage::ZhCn
+    cfg.ui_language = UiLanguage::ZhCn;
+    HWND hwnd_zh = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg);
+    QIQI_TEST_CHECK(hwnd_zh != nullptr);
+    ::GetWindowTextW(hwnd_zh, title_buf, 128);
+    QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi 五笔输入法 - 属性设置");
+    ::DestroyWindow(hwnd_zh);
 
     // Test modal ShowSettingsDialog with auto-closing timer (IDOK -> returns true)
     ::SetTimer(nullptr, 1, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
@@ -357,6 +417,17 @@ void TestStatusBarUI() {
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::TogglePunctuation);
     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(155, 16));
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::OpenSettings);
+
+    // Test StatusBar rendering in English UI mode & English input/full-width states
+    st.ui_language = UiLanguage::EnUs;
+    st.chinese_mode = false;
+    st.full_width = true;
+    st.chinese_punct = false;
+    bar.UpdateState(st);
+    while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        ::TranslateMessage(&msg);
+        ::DispatchMessageW(&msg);
+    }
 
     st.show_status_bar = false;
     bar.UpdateState(st);

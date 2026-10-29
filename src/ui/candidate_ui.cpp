@@ -1,5 +1,6 @@
 #include "ui/candidate_ui.h"
 #include "common/guids.h"
+#include "common/i18n.h"
 #include "common/logger.h"
 #include "engine/wubi_fsm.h"
 #include <gsl/gsl>
@@ -52,8 +53,9 @@ void CandidateUI::RecalculatePopupLayout() {
     const int row2_top = ScaleByDpi(32);
     const int row2_bottom = ScaleByDpi(kPopupHeight - 4);
 
+    const auto& str = GetUiStrings(ui_language_);
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    std::wstring header = L"五笔 [" + raw_code_ + L"]";
+    std::wstring header = std::wstring(str.candidate_header_prefix) + raw_code_ + L"]";
     if (total_pages > 1) {
         header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
     }
@@ -326,8 +328,9 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
     ::SetBkMode(hdc, TRANSPARENT);
 
     // Line 1: Wubi code + page indicator
+    const auto& str = GetUiStrings(ui_language_);
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    std::wstring header = L"五笔 [" + raw_code_ + L"]";
+    std::wstring header = std::wstring(str.candidate_header_prefix) + raw_code_ + L"]";
     if (total_pages > 1) {
         header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
     }
@@ -340,7 +343,7 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
     if (start >= end) {
         RECT bottom_rect = {ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
         ::SetTextColor(hdc, RGB(30, 30, 30));
-        ::DrawTextW(hdc, L"(无候选)", -1, &bottom_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        ::DrawTextW(hdc, str.candidate_empty, -1, &bottom_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
         return;
     }
 
@@ -363,7 +366,7 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     if (msg == WM_NCCREATE) {
         const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
         ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-        return TRUE;
+        return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 
     auto* self = reinterpret_cast<CandidateUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));

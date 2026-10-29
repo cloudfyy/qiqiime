@@ -220,6 +220,15 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
             QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::TogglePunctuation))));
             QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleStatusBar))));
             QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleStatusBar))));
+            ComPtr<ITfFnConfigure> cfg_check;
+            QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&cfg_check))) && cfg_check);
+            ScopedBstr disp_name1;
+            ScopedBstr disp_name2;
+            QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleUiLanguage))));
+            QIQI_TEST_CHECK(SUCCEEDED(cfg_check->GetDisplayName(disp_name1.Put())) && disp_name1.IsValid());
+            QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleUiLanguage))));
+            QIQI_TEST_CHECK(SUCCEEDED(cfg_check->GetDisplayName(disp_name2.Put())) && disp_name2.IsValid());
+            QIQI_TEST_CHECK(std::wstring(disp_name1.Get()) != std::wstring(disp_name2.Get()));
         }
     }
 
