@@ -72,8 +72,21 @@ TSF 的按键处理分为两步：
 
 ---
 
-## 3. 后续扩展建议
+## 3. 待办事项与后续扩展（TODO，按优先级排序）
 
-1. **完整词库与二进制索引**：将 `data/wubi86.txt` 扩充至完整 86 五笔八万词库，并在编译期或首次加载时生成内存映射（`CreateFileMapping`）前缀数组或 Double-Array Trie，多进程共享只读内存页。
-2. **显示属性（Display Attributes）**：实现 `ITfDisplayAttributeProvider`，为组合串设置虚线下划线与配色。
-3. **语言栏按钮（Language Bar）**：实现 `ITfLangBarItemButton`，在系统托盘显示“中/英”、“全/半角”状态图标。
+### P0：核心日常打字体验与系统状态反馈
+- [ ] **1. 完整中文标点与智能配对引号（`paired-quotes-punct`）**：在 `MapChinesePunctuation` 及引擎状态中补充成对双引号 `“”`、成对单引号 `‘’`、中括号 `【】`、破折号 `——`、间隔号 `·` 等高频中文标点。
+- [ ] **2. 候选框自适应宽度、高分屏 DPI 缩放与鼠标点击选词（`candidate-dpi-autosize`）**：根据当前页候选词文本长度与显示器 DPI（`GetDpiForMonitor` / `GetDpiForWindow`）动态调整候选窗口宽高与字号，防止长词/成语截断，并支持鼠标左键点击候选词上屏。
+- [ ] **3. 语言栏托盘按钮与右键菜单（`langbar-tray-menu`）**：实现 `ITfLangBarItemButton` + `ITfSource`（挂载 `GUID_LBI_INPUTMODE`），在 Windows 任务栏托盘动态显示“中/英”状态图标，支持左键切换中英文、右键弹出快捷菜单（切换中英/全半角/中英标点、显示/隐藏状态条、切换极点/海峰词库、打开设置对话框或 `config.ini`）。
+
+### P1：可视化配置与桌面状态条
+- [ ] **4. 系统设置接入与可视化配置窗口（`system-settings-config-ui`）**：实现 TSF 标准接口 `ITfFunctionProvider` + `ITfFnConfigure::Show`（`<ctffunc.h>`）及内置 Win32 设置对话框，支持从 Windows 系统语言设置、任务栏托盘右键菜单直接打开图形化设置窗口并保存到 `config.ini`。
+- [ ] **5. 浮动输入法状态条（`status-bar-ui`，默认关闭）**：实现桌面浮动状态条窗口（显示“中/英”、“全/半角”、“中/英标点”、“设置”按钮，支持拖拽移动与点击切换），在 `config.ini` 中通过 `show_status_bar = false` 默认关闭，支持通过托盘右键菜单或设置窗口开启。
+
+### P2：进阶视觉与学习辅助
+- [ ] **6. 组合串显示属性（`tsf-display-attributes`）**：实现 `ITfDisplayAttributeProvider`，为未上屏的五笔编码组合串设置虚线下划线与高亮样式。
+- [ ] **7. `z` 万能键编码反查提示（`wildcard-code-hint`）**：当使用 `z` 通配查询候选字词时，在候选框中附带显示该字词的完整五笔编码提示（如 `1.你(wqiy)`）。
+- [ ] **8. 组合态大写字母处理与临时英文模式（`upper-case-temp-english`）**：完善组合态下按 `Shift + 字母` 的顶字上屏或临时英文输入体验。
+
+### P3：打包与分发
+- [ ] **9. 独立发行包打包脚本（`release-packaging-script`）**：将 `x64`/`x86` 双架构 DLL、三套词库、`config.ini` 与安装/卸载脚本一键打包到独立 `dist/` 发行目录。
