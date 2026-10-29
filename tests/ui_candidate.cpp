@@ -2,6 +2,7 @@
 #include "common/guids.h"
 #include "ui/candidate_ui.h"
 #include "ui/langbar_button.h"
+#include "ui/settings_dialog.h"
 
 #include <windows.h>
 #include <oleauto.h>
@@ -255,11 +256,40 @@ void TestCandidateUI() {
     QIQI_TEST_CHECK(ui->Release() == 0);
 }
 
+void TestSettingsDialogControls() {
+    QiQiConfig cfg{};
+    cfg.primary_dict = PrimaryDict::Haifeng;
+    cfg.enable_jidian_extra = false;
+    cfg.auto_commit_4code = false;
+    cfg.push_commit_5th = false;
+    cfg.shift_toggle_mode = false;
+    cfg.show_status_bar = true;
+    cfg.page_size = 7;
+
+    HWND hwnd = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg);
+    QIQI_TEST_CHECK(hwnd != nullptr);
+
+    QiQiConfig read_back{};
+    ReadSettingsFromWindowControls(hwnd, read_back);
+    QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Haifeng);
+    QIQI_TEST_CHECK(!read_back.enable_jidian_extra);
+    QIQI_TEST_CHECK(!read_back.auto_commit_4code);
+    QIQI_TEST_CHECK(!read_back.push_commit_5th);
+    QIQI_TEST_CHECK(!read_back.shift_toggle_mode);
+    QIQI_TEST_CHECK(read_back.show_status_bar);
+    QIQI_TEST_CHECK(read_back.page_size == 7);
+
+    // Simulate clicking OK (IDOK)
+    ::SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+    ::DestroyWindow(hwnd);
+}
+
 } // namespace
 
 void RunCandidateUITests() {
     TestCandidateUI();
     TestLangBarButton();
+    TestSettingsDialogControls();
 }
 
 } // namespace qiqi::test

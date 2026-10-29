@@ -80,7 +80,7 @@ TSF 的按键处理分为两步：
 - [x] **3. 语言栏托盘按钮与右键菜单（`langbar-tray-menu`）**：实现 `ITfLangBarItemButton` + `ITfSource`（挂载 `GUID_LBI_INPUTMODE`），在 Windows 任务栏托盘动态显示“中/英”状态图标，支持左键切换中英文、右键弹出快捷菜单（切换中英/全半角/中英标点、显示/隐藏状态条、切换极点/海峰词库、打开设置对话框或 `config.ini`）。
 
 ### P1：可视化配置与桌面状态条
-- [ ] **4. 系统设置接入与可视化配置窗口（`system-settings-config-ui`）**：实现 TSF 标准接口 `ITfFunctionProvider` + `ITfFnConfigure::Show`（`<ctffunc.h>`）及内置 Win32 设置对话框，支持从 Windows 系统语言设置、任务栏托盘右键菜单直接打开图形化设置窗口并保存到 `config.ini`。
+- [x] **4. 系统设置接入与可视化配置窗口（`system-settings-config-ui`）**：实现 TSF 标准接口 `ITfFunctionProvider` + `ITfFnConfigure::Show`（`<ctffunc.h>`）及内置 Win32 设置对话框，支持从 Windows 系统语言设置、任务栏托盘右键菜单直接打开图形化设置窗口并保存到 `config.ini`。
 - [ ] **5. 浮动输入法状态条（`status-bar-ui`，默认关闭）**：实现桌面浮动状态条窗口（显示“中/英”、“全/半角”、“中/英标点”、“设置”按钮，支持拖拽移动与点击切换），在 `config.ini` 中通过 `show_status_bar = false` 默认关闭，支持通过托盘右键菜单或设置窗口开启。
 
 ### P2：进阶视觉与学习辅助

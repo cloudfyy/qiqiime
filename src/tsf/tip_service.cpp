@@ -1,9 +1,11 @@
 #include "tsf/tip_service.h"
 #include "tsf/edit_session.h"
+#include "ui/settings_dialog.h"
 #include "common/guids.h"
 #include "common/logger.h"
 #include "common/version.h"
 
+#include <oleauto.h>
 #include <shellapi.h>
 #include <array>
 #include <filesystem>
@@ -125,6 +127,10 @@ STDMETHODIMP QiQiTextService::QueryInterface(REFIID riid, void** ppvObj) noexcep
         *ppvObj = static_cast<ITfKeyEventSink*>(this);
     } else if (IsEqualIID(riid, IID_ITfCompositionSink)) {
         *ppvObj = static_cast<ITfCompositionSink*>(this);
+    } else if (IsEqualIID(riid, IID_ITfFunctionProvider)) {
+        *ppvObj = static_cast<ITfFunctionProvider*>(this);
+    } else if (IsEqualIID(riid, IID_ITfFunction) || IsEqualIID(riid, IID_ITfFnConfigure)) {
+        *ppvObj = static_cast<ITfFnConfigure*>(this);
     } else {
         *ppvObj = nullptr;
         return E_NOINTERFACE;
@@ -165,6 +171,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
         Deactivate();
         return E_FAIL;
     }
+    InitFunctionProvider();
     InitLangBarItem();
     SyncTsfCompartments();
     return S_OK;
@@ -175,6 +182,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     ResetCompositionAndUI();
 
     UninitLangBarItem();
+    UninitFunctionProvider();
     UninitKeyEventSink();
     UninitThreadMgrEventSink();
 
@@ -235,6 +243,27 @@ void QiQiTextService::UninitKeyEventSink() {
             key_mgr->UnpreserveKey(*def.guid, &pk);
         }
         key_mgr->UnadviseKeyEventSink(client_id_);
+    }
+}
+
+void QiQiTextService::InitFunctionProvider() {
+    if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL) {
+        return;
+    }
+    ComPtr<ITfSourceSingle> source_single;
+    if (SUCCEEDED(thread_mgr_.As(&source_single)) && source_single) {
+        source_single->AdviseSingleSink(
+            client_id_, IID_ITfFunctionProvider, static_cast<ITfFunctionProvider*>(this));
+    }
+}
+
+void QiQiTextService::UninitFunctionProvider() {
+    if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL) {
+        return;
+    }
+    ComPtr<ITfSourceSingle> source_single;
+    if (SUCCEEDED(thread_mgr_.As(&source_single)) && source_single) {
+        source_single->UnadviseSingleSink(client_id_, IID_ITfFunctionProvider);
     }
 }
 
@@ -299,6 +328,8 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
             SyncTsfCompartments();
             break;
         case LangBarMenuId::OpenSettings:
+            Show(nullptr, kChineseSimplifiedLangId, kGuidProfileWubi86);
+            break;
         case LangBarMenuId::OpenConfigFile: {
             const auto cfg_path = GetDefaultUserConfigPath();
             EnsureDefaultConfigFile(cfg_path);
@@ -436,6 +467,56 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
 STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie /*ecWrite*/, ITfComposition* /*pComposition*/) {
     QIQI_LOG_DEBUG("Host terminated active TSF composition");
     ResetCompositionAndUI();
+    return S_OK;
+}
+
+// ITfFunctionProvider
+STDMETHODIMP QiQiTextService::GetType(GUID* pguid) noexcept {
+    if (!pguid) {
+        return E_INVALIDARG;
+    }
+    *pguid = kClsidQiQiTextService;
+    return S_OK;
+}
+
+STDMETHODIMP QiQiTextService::GetDescription(BSTR* pbstrDesc) noexcept {
+    if (!pbstrDesc) {
+        return E_INVALIDARG;
+    }
+    *pbstrDesc = ::SysAllocString(kTextServiceDesc);
+    return *pbstrDesc ? S_OK : E_OUTOFMEMORY;
+}
+
+STDMETHODIMP QiQiTextService::GetFunction(REFGUID rguid, REFIID riid, IUnknown** ppunk) noexcept {
+    if (!ppunk) {
+        return E_INVALIDARG;
+    }
+    *ppunk = nullptr;
+    if (!IsEqualGUID(rguid, GUID_NULL) && !IsEqualGUID(rguid, kClsidQiQiTextService)) {
+        return E_NOINTERFACE;
+    }
+    return QueryInterface(riid, reinterpret_cast<void**>(ppunk));
+}
+
+// ITfFnConfigure
+STDMETHODIMP QiQiTextService::GetDisplayName(BSTR* pbstrName) noexcept {
+    if (!pbstrName) {
+        return E_INVALIDARG;
+    }
+    *pbstrName = ::SysAllocString(L"QiQi 五笔属性设置");
+    return *pbstrName ? S_OK : E_OUTOFMEMORY;
+}
+
+STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
+    if (ShowSettingsDialog(g_dll_instance, hwndParent, config_)) {
+        SaveConfigFile(GetDefaultUserConfigPath(), config_);
+        log::SetLevel(config_.log_level);
+        engine_.SetPageSize(config_.page_size);
+        engine_.SetAutoCommit4Code(config_.auto_commit_4code);
+        engine_.SetPushCommit5th(config_.push_commit_5th);
+        LoadExternalDictionaryNextToDll();
+        SyncTsfCompartments();
+    }
     return S_OK;
 }
 

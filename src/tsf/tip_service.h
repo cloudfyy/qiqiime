@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <ctffunc.h>
 #include <gsl/gsl>
 #include <msctf.h>
 #include <wrl/client.h>
@@ -18,7 +19,9 @@ class QiQiTextService final
     : public ITfTextInputProcessorEx,
       public ITfThreadMgrEventSink,
       public ITfKeyEventSink,
-      public ITfCompositionSink {
+      public ITfCompositionSink,
+      public ITfFunctionProvider,
+      public ITfFnConfigure {
 public:
     QiQiTextService();
     ~QiQiTextService() noexcept;
@@ -58,11 +61,22 @@ public:
     // ITfCompositionSink
     STDMETHODIMP OnCompositionTerminated(TfEditCookie ecWrite, ITfComposition* pComposition) override;
 
+    // ITfFunctionProvider
+    STDMETHODIMP GetType(GUID* pguid) noexcept override;
+    STDMETHODIMP GetDescription(BSTR* pbstrDesc) noexcept override;
+    STDMETHODIMP GetFunction(REFGUID rguid, REFIID riid, IUnknown** ppunk) noexcept override;
+
+    // ITfFnConfigure (also inherits ITfFunction::GetDisplayName)
+    STDMETHODIMP GetDisplayName(BSTR* pbstrName) noexcept override;
+    STDMETHODIMP Show(HWND hwndParent, LANGID langid, REFGUID rguidProfile) override;
+
 private:
     bool InitThreadMgrEventSink();
     void UninitThreadMgrEventSink();
     bool InitKeyEventSink();
     void UninitKeyEventSink();
+    void InitFunctionProvider();
+    void UninitFunctionProvider();
     void InitLangBarItem();
     void UninitLangBarItem();
     void HandleLangBarMenuAction(LangBarMenuId action_id);

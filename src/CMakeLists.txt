@@ -56,6 +56,8 @@ set(QIQIIME_SOURCES
     ui/candidate_ui.cpp
     ui/langbar_button.h
     ui/langbar_button.cpp
+    ui/settings_dialog.h
+    ui/settings_dialog.cpp
 )
 add_library(qiqiime SHARED
     ${QIQIIME_SOURCES}
