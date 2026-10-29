@@ -33,6 +33,7 @@ C:\sample\qiqiime
 │   │   ├── version.h.in        # C++ 编译期版本号与 Git Commit 元信息头文件模板
 │   │   └── version.rc.in       # Windows DLL 版本资源 (VERSIONINFO) 模板
 │   ├── engine/                 # 五笔核心引擎模块（无 COM 依赖，可独立单测）
+│   │   ├── wubi_binary_dict.h/.cpp # 4 字节紧凑编码索引 + CreateFileMappingW 内存映射词库缓存 (.qdict)
 │   │   ├── wubi_fsm.h          # 编译期 (consteval/constexpr) 五笔有限状态机与转移表
 │   │   ├── wubi_default_dict.h # 内置核心 86 五笔码表（一级简码、常用字词）
 │   │   └── wubi_engine.h/.cpp  # 独立 86 五笔状态机与查词引擎
@@ -68,6 +69,7 @@ C:\sample\qiqiime
      - `data/wubi86_jidian.txt`：极点 86 五笔核心主词库（Apache-2.0，77,169 编码 / 89,254 词条）
      - `data/wubi86_jidian_extra.txt`：极点 86 五笔现代扩展词库（Apache-2.0，2,100 编码 / 2,216 词条）
      - `data/wubi86_haifeng.txt`：孙海峰 86 五笔超大字符集词库（BSD-3-Clause，100,051 编码 / 144,374 词条，涵盖 GBK 及 Unicode CJK 扩展 A/B 区全部汉字）
+   - **内存映射按需加载（Demand-Paged Memory Mapping）**：外部大词库首次加载时自动编译为 4 字节大端紧凑编码索引二进制缓存（`%LOCALAPPDATA%\QiQiIME\cache\*.qdict`），通过 Windows `CreateFileMappingW` / `MapViewOfFile` 以只读视图映射，由操作系统按需分页调入且跨所有进程共享同一份物理内存，进程私有堆占用接近 0 KB。
    - `LoadDictionaryFile` 同时支持 `编码 词1 词2` 格式与 Rime `.dict.yaml`（`词<TAB>编码<TAB>权重`）格式直接加载。
    - **四码唯一自动上屏**：输入第 4 码且无重码时立即自动上屏（如 `wqvb` -> `你好`、`ggtt` -> `五笔`）。
    - **第五码顶字上屏**：四码有重码时继续输入第 5 个字母，自动将当前首选词顶上屏，并用第 5 码开启新一轮输入。

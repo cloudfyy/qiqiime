@@ -22,6 +22,21 @@ void TestAddEntryAndLookupEdgeCases() {
     QIQI_TEST_CHECK(engine.SelectedInPage() == 0);
     QIQI_TEST_CHECK(engine.PageSize() == WubiEngine::kDefaultPageSize);
 
+    // Compile-time checks for 4-byte packed Wubi code and prefix bounds
+    static_assert(PackWubiCode(L"") == 0);
+    static_assert(PackWubiCode(L"abcde") == 0);
+    static_assert(PackWubiCode(L"a") < PackWubiCode(L"aa"));
+    static_assert(PackWubiCode(L"aa") < PackWubiCode(L"ab"));
+    static_assert(PackWubiCode(L"ab") < PackWubiCode(L"b"));
+    static_assert(PackWubiCode(L"WQVB") == PackWubiCode(L"wqvb"));
+    static_assert(PackWubiCode(L"wqvb") > PackWubiCode(L"wq"));
+    static_assert(PackWubiCode(L"wqvb") <= PackWubiPrefixUpperBound(L"wq"));
+    static_assert(MatchesWildcardPattern(PackWubiCode(L"wqvb"), L"wqz"));
+    static_assert(!MatchesWildcardPattern(PackWubiCode(L"wq"), L"wqz"));
+    QIQI_TEST_CHECK(!MatchesWildcardPattern(PackWubiCode(L"wqvb"), L""));
+    QIQI_TEST_CHECK(!MatchesWildcardPattern(PackWubiCode(L"wqvb"), L"abcde"));
+    QIQI_TEST_CHECK(MatchesWildcardPattern(PackWubiCode(L"wqvb"), L"WQZ"));
+
     // Empty lookup
     QIQI_TEST_CHECK(engine.LookupCandidates(L"").empty());
     QIQI_TEST_CHECK(engine.LookupExact(L"zzzz").empty());
@@ -52,11 +67,13 @@ void TestAddEntryAndLookupEdgeCases() {
     auto tail_cands = engine.LookupCandidates(L"yyy");
     QIQI_TEST_CHECK(!tail_cands.empty() && tail_cands[0] == L"尾词");
 
-    // Prefix and wildcard 50-candidate cap
+    // Prefix and wildcard 50-candidate cap, plus 50+ exact match cap
     for (int i = 0; i < 60; ++i) {
         std::wstring word = L"词" + std::to_wstring(i);
         engine.AddEntry(L"xyza", word);
     }
+    auto exact_cap = engine.LookupCandidates(L"xyza");
+    QIQI_TEST_CHECK(exact_cap.size() == 50);
     auto prefix_cands = engine.LookupCandidates(L"xyz");
     QIQI_TEST_CHECK(prefix_cands.size() == 50);
     auto wildcard_cands = engine.LookupCandidates(L"xzz");
@@ -71,6 +88,8 @@ void TestExternalDictFile() {
 
     // 2. Temporary UTF-8 dictionary file with BOM, comments, blank lines, QiQi format, and Rime YAML format
     const auto temp_dict = std::filesystem::temp_directory_path() / L"qiqiime_test_dict.txt";
+    std::filesystem::path adjacent_qdict = temp_dict;
+    adjacent_qdict.replace_extension(L".qdict");
     {
         std::ofstream ofs(temp_dict, std::ios::binary);
         ofs << "\xEF\xBB\xBF# Comment line with BOM\n"
@@ -84,14 +103,28 @@ void TestExternalDictFile() {
             << "瑞梅词\tzzzy\t100\n"
             << "超长码词\tabcde\t50\n";
     }
+    // Pre-create a corrupted adjacent .qdict file (<40 bytes) to test corruption recovery and rebuild
+    {
+        std::ofstream bad_qdict(adjacent_qdict, std::ios::binary);
+        bad_qdict << "corrupt";
+    }
     QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
+    // Loading the same file a second time hits the in-process & disk .qdict cache
+    QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
+    QIQI_TEST_CHECK(engine.MappedDictionaryCount() >= 1);
     auto zzzz = engine.LookupExact(L"zzzz");
     QIQI_TEST_CHECK(zzzz.size() == 2 && zzzz[0] == L"测一" && zzzz[1] == L"测二");
     auto zzzy = engine.LookupExact(L"zzzy");
     QIQI_TEST_CHECK(zzzy.size() == 1 && zzzy[0] == L"瑞梅词");
 
+    // Prefix & wildcard lookup on mapped dictionary
+    auto zz_prefix = engine.LookupCandidates(L"zzz");
+    QIQI_TEST_CHECK(zz_prefix.size() >= 3);
+
     std::error_code ec;
     std::filesystem::remove(temp_dict, ec);
+    std::filesystem::remove(adjacent_qdict, ec);
+    std::filesystem::remove(log::GetAppDataDirectory() / L"cache" / L"qiqiime_test_dict.qdict", ec);
 
     // 3. Load bundled dictionaries (wubi86_jidian.txt, wubi86_jidian_extra.txt, wubi86_haifeng.txt)
     const std::filesystem::path exe_path = log::GetModuleFilePath(nullptr);
@@ -101,9 +134,15 @@ void TestExternalDictFile() {
         const std::filesystem::path extra_dict = exe_dir / L"wubi86_jidian_extra.txt";
         const std::filesystem::path haifeng_dict = exe_dir / L"wubi86_haifeng.txt";
         if (std::filesystem::exists(main_dict)) {
-            QIQI_TEST_CHECK(engine.LoadDictionaryFile(main_dict));
-            auto gong = engine.LookupExact(L"aaaa");
+            WubiEngine jidian_engine;
+            QIQI_TEST_CHECK(jidian_engine.LoadDictionaryFile(main_dict));
+            auto gong = jidian_engine.LookupExact(L"aaaa");
             QIQI_TEST_CHECK(gong.size() >= 2 && gong[0] == L"工");
+            // Exercise mapped prefix and wildcard 50-result cap on full dictionary
+            auto wq_prefix = jidian_engine.LookupCandidates(L"w");
+            QIQI_TEST_CHECK(wq_prefix.size() == 50);
+            auto w_wild = jidian_engine.LookupCandidates(L"wzz");
+            QIQI_TEST_CHECK(w_wild.size() == 50);
         }
         if (std::filesystem::exists(extra_dict)) {
             QIQI_TEST_CHECK(engine.LoadDictionaryFile(extra_dict));

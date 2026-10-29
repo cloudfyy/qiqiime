@@ -14,9 +14,12 @@ $targets = @(
 )
 
 foreach ($t in $targets) {
-    Write-Host "=== Configuring $($t.Name) ($($t.Arch)) ===" -ForegroundColor Cyan
-    & cmake -S $repoRoot -B $t.BuildDir -G $Generator -A $t.Arch
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $cacheFile = Join-Path $t.BuildDir "CMakeCache.txt"
+    if (-not (Test-Path $cacheFile)) {
+        Write-Host "=== Configuring $($t.Name) ($($t.Arch)) ===" -ForegroundColor Cyan
+        & cmake -S $repoRoot -B $t.BuildDir -G $Generator -A $t.Arch
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
 
     Write-Host "=== Building $($t.Name) ($Config) ===" -ForegroundColor Cyan
     & cmake --build $t.BuildDir --config $Config

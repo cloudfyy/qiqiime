@@ -3,11 +3,13 @@
 #include <string_view>
 #include <vector>
 #include <map>
+#include <memory>
 #include <filesystem>
 #include <optional>
 #include <cstdint>
 
 #include "common/config.h"
+#include "engine/wubi_binary_dict.h"
 #include "engine/wubi_fsm.h"
 
 namespace qiqi {
@@ -85,6 +87,7 @@ public:
     // Exact + prefix lookup for a Wubi code
     std::vector<std::wstring> LookupCandidates(std::wstring_view code) const;
     std::vector<std::wstring> LookupExact(std::wstring_view code) const;
+    size_t MappedDictionaryCount() const noexcept { return mapped_dicts_.size(); }
 
 private:
     std::wstring CurrentSelectedCandidateOrRaw() const;
@@ -93,7 +96,8 @@ private:
     void RefreshCandidates();
     KeyProcessResult MakeCurrentStateResult(KeyActionType action, std::wstring committed = L"") const;
 
-    std::map<std::wstring, std::vector<std::wstring>> dict_;
+    std::map<uint32_t, std::vector<std::wstring>> dict_;
+    std::vector<std::shared_ptr<const WubiMappedDict>> mapped_dicts_;
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;
     size_t page_size_ = kDefaultPageSize;

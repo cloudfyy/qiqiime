@@ -4,44 +4,15 @@
 
 #include <windows.h>
 #include <algorithm>
-#include <fstream>
-#include <sstream>
 
 namespace qiqi {
 
 namespace {
 
-constexpr bool IsWubiCodeChar(wchar_t ch) noexcept {
-    // Standard 86 Wubi uses 'a'-'y' for radicals and 'z' as wildcard/query key
-    return ch >= L'a' && ch <= L'z';
-}
-
-constexpr bool IsWubiCodeToken(std::wstring_view token) noexcept {
-    if (token.empty() || token.size() > WubiEngine::kMaxCodeLength) {
-        return false;
+void AppendUnique(std::vector<std::wstring>& results, const std::wstring& word) {
+    if (std::find(results.begin(), results.end(), word) == results.end()) {
+        results.push_back(word);
     }
-    for (wchar_t ch : token) {
-        if (!IsWubiCodeChar(ch) && !(ch >= L'A' && ch <= L'Z')) {
-            return false;
-        }
-    }
-    return true;
-}
-
-constexpr std::wstring_view NextToken(std::wstring_view& line) noexcept {
-    while (!line.empty() && (line.front() == L' ' || line.front() == L'\t' || line.front() == L'\r')) {
-        line.remove_prefix(1);
-    }
-    if (line.empty()) {
-        return {};
-    }
-    size_t pos = 0;
-    while (pos < line.size() && line[pos] != L' ' && line[pos] != L'\t' && line[pos] != L'\r') {
-        ++pos;
-    }
-    const std::wstring_view token = line.substr(0, pos);
-    line.remove_prefix(pos);
-    return token;
 }
 
 } // namespace
@@ -58,94 +29,30 @@ void WubiEngine::LoadBuiltinDictionary() {
 }
 
 void WubiEngine::AddEntry(std::wstring_view code, std::wstring_view word) {
-    if (code.empty() || word.empty() || code.size() > kMaxCodeLength) {
+    if (word.empty()) {
         return;
     }
-    std::wstring norm_code(code);
-    for (auto& ch : norm_code) {
-        if (ch >= L'A' && ch <= L'Z') {
-            ch = static_cast<wchar_t>(ch - L'A' + L'a');
-        }
-        if (!IsWubiCodeChar(ch)) {
-            return;
-        }
+    const uint32_t packed = PackWubiCode(code);
+    if (packed == 0) {
+        return;
     }
 
-    auto& list = dict_[norm_code];
+    auto& list = dict_[packed];
     if (std::find(list.begin(), list.end(), word) == list.end()) {
         list.emplace_back(word);
     }
 }
 
 bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
-    std::ifstream file(file_path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        QIQI_LOG_WARN("Failed to open external dictionary file: {}",
+    auto mapped = WubiMappedDict::LoadFromTextOrCache(file_path);
+    if (!mapped) {
+        QIQI_LOG_WARN("Failed to load or map external dictionary file: {}",
                       log::WideToUtf8(file_path.wstring()));
         return false;
     }
-
-    const auto file_size = file.tellg();
-    std::string raw_utf8;
-    if (file_size > 0) {
-        raw_utf8.resize(static_cast<size_t>(file_size));
-        file.seekg(0, std::ios::beg);
-        file.read(raw_utf8.data(), file_size);
+    if (std::find(mapped_dicts_.begin(), mapped_dicts_.end(), mapped) == mapped_dicts_.end()) {
+        mapped_dicts_.push_back(std::move(mapped));
     }
-
-    std::string_view utf8_view(raw_utf8);
-    if (utf8_view.starts_with("\xEF\xBB\xBF")) {
-        utf8_view.remove_prefix(3);
-    }
-
-    const std::wstring wide_content = log::Utf8ToWide(utf8_view);
-    std::wstring_view content_view(wide_content);
-
-    size_t loaded_words = 0;
-    bool in_yaml_header = false;
-
-    while (!content_view.empty()) {
-        const size_t nl = content_view.find(L'\n');
-        std::wstring_view line = (nl == std::wstring_view::npos)
-            ? content_view
-            : content_view.substr(0, nl);
-        content_view.remove_prefix(nl == std::wstring_view::npos ? content_view.size() : nl + 1);
-
-        const std::wstring_view first = NextToken(line);
-        if (first.empty() || first.starts_with(L'#')) {
-            continue;
-        }
-
-        // Support Rime .dict.yaml frontmatter (--- ... ...)
-        if (first == L"---") {
-            in_yaml_header = true;
-            continue;
-        }
-        if (in_yaml_header) {
-            if (first == L"...") {
-                in_yaml_header = false;
-            }
-            continue;
-        }
-
-        if (IsWubiCodeToken(first)) {
-            // Standard QiQi format: code word1 [word2 ...]
-            for (std::wstring_view word = NextToken(line); !word.empty(); word = NextToken(line)) {
-                AddEntry(first, word);
-                ++loaded_words;
-            }
-        } else {
-            // Rime .dict.yaml format: word<TAB>code[<TAB>weight...]
-            const std::wstring_view second = NextToken(line);
-            if (IsWubiCodeToken(second)) {
-                AddEntry(second, first);
-                ++loaded_words;
-            }
-        }
-    }
-
-    QIQI_LOG_INFO("Loaded external dictionary file '{}' ({} words, total {} code keys)",
-                  log::WideToUtf8(file_path.wstring()), loaded_words, dict_.size());
     return true;
 }
 
@@ -207,72 +114,76 @@ std::vector<std::wstring> WubiEngine::CurrentPageCandidates() const {
 }
 
 std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const {
-    const auto it = dict_.find(std::wstring(code));
-    if (it == dict_.end()) {
-        return {};
-    }
-    return it->second;
-}
-
-std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) const {
-    if (code.empty()) {
+    const uint32_t packed = PackWubiCode(code);
+    if (packed == 0) {
         return {};
     }
 
     std::vector<std::wstring> results;
-    auto append_unique = [&results](const std::wstring& w) {
-        if (std::find(results.begin(), results.end(), w) == results.end()) {
-            results.push_back(w);
+    if (const auto it = dict_.find(packed); it != dict_.end()) {
+        for (const auto& w : it->second) {
+            AppendUnique(results, w);
         }
-    };
+    }
+    for (const auto& mapped : mapped_dicts_) {
+        mapped->LookupExact(packed, results);
+    }
+    return results;
+}
+
+std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) const {
+    const uint32_t exact_code = PackWubiCode(code);
+    if (exact_code == 0) {
+        return {};
+    }
+
+    constexpr size_t kMaxCandidateResults = 50;
+    std::vector<std::wstring> results;
 
     // Wildcard query if 'z' is present
-    const bool has_wildcard = code.find(L'z') != std::wstring_view::npos;
+    const bool has_wildcard = (code.find(L'z') != std::wstring_view::npos) ||
+                              (code.find(L'Z') != std::wstring_view::npos);
     if (has_wildcard) {
         for (const auto& [k, words] : dict_) {
-            if (k.size() < code.size()) {
-                continue;
-            }
-            bool match = true;
-            for (size_t i = 0; i < code.size(); ++i) {
-                if (code[i] != L'z' && code[i] != k[i]) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
+            if (MatchesWildcardPattern(k, code)) {
                 for (const auto& w : words) {
-                    append_unique(w);
-                    if (results.size() >= 50) {
+                    AppendUnique(results, w);
+                    if (results.size() >= kMaxCandidateResults) {
                         return results;
                     }
                 }
+            }
+        }
+        for (const auto& mapped : mapped_dicts_) {
+            mapped->LookupWildcard(code, results, kMaxCandidateResults);
+            if (results.size() >= kMaxCandidateResults) {
+                return results;
             }
         }
         return results;
     }
 
     // 1. Exact matches first
-    if (const auto exact = dict_.find(std::wstring(code)); exact != dict_.end()) {
-        for (const auto& w : exact->second) {
-            append_unique(w);
-        }
+    results = LookupExact(code);
+    if (results.size() >= kMaxCandidateResults) {
+        results.resize(kMaxCandidateResults);
+        return results;
     }
 
-    // 2. Prefix matches (sorted by code length then lexicographically)
-    std::wstring prefix(code);
-    for (auto it = dict_.lower_bound(prefix); it != dict_.end(); ++it) {
-        if (it->first.compare(0, prefix.size(), prefix) != 0) {
-            break;
-        }
-        if (it->first == prefix) {
-            continue;
-        }
+    // 2. Prefix matches in (exact_code, prefix_hi]
+    const uint32_t prefix_hi = PackWubiPrefixUpperBound(code);
+    for (auto it = dict_.upper_bound(exact_code); it != dict_.end() && it->first <= prefix_hi; ++it) {
         for (const auto& w : it->second) {
-            append_unique(w);
-            if (results.size() >= 50) {
+            AppendUnique(results, w);
+            if (results.size() >= kMaxCandidateResults) {
                 return results;
             }
+        }
+    }
+    for (const auto& mapped : mapped_dicts_) {
+        mapped->LookupPrefix(exact_code, exact_code, prefix_hi, results, kMaxCandidateResults);
+        if (results.size() >= kMaxCandidateResults) {
+            return results;
         }
     }
 

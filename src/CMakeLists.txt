@@ -17,6 +17,8 @@ set(QIQI_ENGINE_SOURCES
     common/config.h
     common/logger.cpp
     common/logger.h
+    engine/wubi_binary_dict.cpp
+    engine/wubi_binary_dict.h
     engine/wubi_fsm.h
     engine/wubi_engine.cpp
     engine/wubi_engine.h
