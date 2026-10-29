@@ -2,6 +2,7 @@
 #include "edit_session.h"
 #include "guids.h"
 #include "logger.h"
+#include "version.h"
 
 #include <filesystem>
 
@@ -92,7 +93,8 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     client_id_ = tid;
     activate_flags_ = dwFlags;
 
-    QIQI_LOG_INFO("QiQiTextService::ActivateEx(client_id={}, flags=0x{:x})", tid, dwFlags);
+    QIQI_LOG_INFO("QiQiTextService::ActivateEx(version={}, client_id={}, flags=0x{:x})",
+                  version::kFullVersion, tid, dwFlags);
 
     if (!InitThreadMgrEventSink() || !InitKeyEventSink()) {
         QIQI_LOG_ERROR("QiQiTextService::ActivateEx failed to initialize TSF event sinks");

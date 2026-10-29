@@ -1,5 +1,6 @@
 #include "wubi_engine.h"
 #include "logger.h"
+#include "version.h"
 #include <windows.h>
 #include <cassert>
 #include <fstream>
@@ -103,9 +104,19 @@ void TestSpdlogLogger() {
     std::filesystem::remove(temp_log, ec);
 }
 
+void TestVersionMechanism() {
+    static_assert(version::kCurrentVersion >= version::SemanticVersion{0, 1, 0});
+    static_assert(version::SemanticVersion{1, 0, 0} > version::kCurrentVersion);
+    assert(!version::kVersion.empty());
+    assert(!version::kFullVersion.empty());
+    assert(!version::kGitCommit.empty());
+    assert(version::kFullVersion.starts_with(version::kVersion));
+}
+
 } // namespace
 
 int main() {
+    TestVersionMechanism();
     TestSpdlogLogger();
     TestFirstLevelShortCodes();
     TestFourCodeUniqueAutoCommit();

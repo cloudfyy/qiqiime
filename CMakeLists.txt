@@ -21,7 +21,42 @@ if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     endif()
 endif()
 
-project(QiQiIME VERSION 0.1.0 LANGUAGES CXX)
+# Read version from VERSION file (single source of truth)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" QIQIIME_VERSION_RAW LIMIT_COUNT 1)
+string(STRIP "${QIQIIME_VERSION_RAW}" QIQIIME_VERSION_STRING)
+
+project(QiQiIME VERSION ${QIQIIME_VERSION_STRING} LANGUAGES CXX)
+
+if(DEFINED PROJECT_VERSION_TWEAK AND NOT "${PROJECT_VERSION_TWEAK}" STREQUAL "")
+    set(QIQIIME_VERSION_TWEAK ${PROJECT_VERSION_TWEAK})
+else()
+    set(QIQIIME_VERSION_TWEAK 0)
+endif()
+
+# Query short Git commit hash for build metadata
+execute_process(
+    COMMAND git rev-parse --short=7 HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE QIQIIME_GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT QIQIIME_GIT_COMMIT_HASH)
+    set(QIQIIME_GIT_COMMIT_HASH "unknown")
+endif()
+set(QIQIIME_FULL_VERSION "${PROJECT_VERSION}+${QIQIIME_GIT_COMMIT_HASH}")
+
+set(QIQIIME_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/version.h.in"
+    "${QIQIIME_GENERATED_DIR}/version.h"
+    @ONLY
+)
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/version.rc.in"
+    "${QIQIIME_GENERATED_DIR}/version.rc"
+    @ONLY
+)
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,8 +87,12 @@ add_library(qiqi_engine STATIC
     src/wubi_engine.cpp
     src/wubi_engine.h
     src/wubi_default_dict.h
+    "${QIQIIME_GENERATED_DIR}/version.h"
 )
-target_include_directories(qiqi_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(qiqi_engine PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${QIQIIME_GENERATED_DIR}
+)
 target_compile_definitions(qiqi_engine PUBLIC SPDLOG_USE_STD_FORMAT SPDLOG_WCHAR_FILENAMES)
 target_link_libraries(qiqi_engine PUBLIC spdlog::spdlog_header_only)
 
@@ -71,6 +110,11 @@ add_library(qiqiime SHARED
     src/candidate_ui.h
     src/candidate_ui.cpp
     src/qiqiime.def
+    "${QIQIIME_GENERATED_DIR}/version.rc"
+)
+set_target_properties(qiqiime PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 
 target_link_libraries(qiqiime PRIVATE

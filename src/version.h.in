@@ -1,0 +1,33 @@
+#pragma once
+#include <compare>
+#include <cstdint>
+#include <string_view>
+
+namespace qiqi::version {
+
+struct SemanticVersion {
+    uint32_t major = 0;
+    uint32_t minor = 0;
+    uint32_t patch = 0;
+    uint32_t tweak = 0;
+
+    constexpr auto operator<=>(const SemanticVersion&) const noexcept = default;
+};
+
+inline constexpr uint32_t kMajor = @PROJECT_VERSION_MAJOR@;
+inline constexpr uint32_t kMinor = @PROJECT_VERSION_MINOR@;
+inline constexpr uint32_t kPatch = @PROJECT_VERSION_PATCH@;
+inline constexpr uint32_t kTweak = @QIQIIME_VERSION_TWEAK@;
+
+inline constexpr SemanticVersion kCurrentVersion{kMajor, kMinor, kPatch, kTweak};
+
+inline constexpr std::string_view kVersion = "@PROJECT_VERSION@";
+inline constexpr std::wstring_view kVersionW = L"@PROJECT_VERSION@";
+
+inline constexpr std::string_view kGitCommit = "@QIQIIME_GIT_COMMIT_HASH@";
+inline constexpr std::wstring_view kGitCommitW = L"@QIQIIME_GIT_COMMIT_HASH@";
+
+inline constexpr std::string_view kFullVersion = "@QIQIIME_FULL_VERSION@";
+inline constexpr std::wstring_view kFullVersionW = L"@QIQIIME_FULL_VERSION@";
+
+} // namespace qiqi::version

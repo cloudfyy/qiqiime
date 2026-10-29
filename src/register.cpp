@@ -1,6 +1,7 @@
 #include "register.h"
 #include "guids.h"
 #include "logger.h"
+#include "version.h"
 
 #include <msctf.h>
 #include <olectl.h>
@@ -74,7 +75,7 @@ const std::array<GUID, 6> kSupportedCategories = {
 } // namespace
 
 HRESULT RegisterServer(HINSTANCE instance) {
-    QIQI_LOG_INFO("RegisterServer starting");
+    QIQI_LOG_INFO("RegisterServer starting (version={})", version::kFullVersion);
     if (!RegisterComClsid(instance)) {
         QIQI_LOG_ERROR("RegisterComClsid failed (administrator privileges required)");
         log::Flush();

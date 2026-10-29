@@ -1,0 +1,36 @@
+#include <winresrc.h>
+
+#pragma code_page(65001)
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,@QIQIIME_VERSION_TWEAK@
+ PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,@QIQIIME_VERSION_TWEAK@
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS VS_FF_DEBUG
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_DLL
+ FILESUBTYPE VFT2_DRV_INPUTMETHOD
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName", "QiQiIME"
+            VALUE "FileDescription", "QiQi 五笔输入法 (TSF Text Input Processor)"
+            VALUE "FileVersion", "@QIQIIME_FULL_VERSION@"
+            VALUE "InternalName", "qiqiime.dll"
+            VALUE "LegalCopyright", "Copyright (C) 2026 QiQiIME Contributors"
+            VALUE "OriginalFilename", "qiqiime.dll"
+            VALUE "ProductName", "QiQi 五笔输入法 (86版)"
+            VALUE "ProductVersion", "@QIQIIME_FULL_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0804, 1200
+    END
+END

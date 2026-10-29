@@ -9,6 +9,7 @@
 ```text
 C:\sample\qiqiime
 ├── CMakeLists.txt              # CMake 构建配置 (qiqi_engine + qiqiime.dll + qiqi_engine_test)
+├── VERSION                     # 项目版本号单一事实源 (SemVer, 如 0.1.0)
 ├── vcpkg.json                  # vcpkg 依赖清单 (Manifest 模式管理 spdlog 等依赖)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/
@@ -20,6 +21,8 @@ C:\sample\qiqiime
 │   └── unregister_ime.ps1      # 管理员权限卸载输入法脚本
 ├── src/
 │   ├── guids.h                 # CLSID / Profile GUID / UIElement GUID 定义
+│   ├── version.h.in            # C++ 编译期版本号与 Git Commit 元信息头文件模板
+│   ├── version.rc.in           # Windows DLL 版本资源 (VERSIONINFO) 模板
 │   ├── logger.h/.cpp           # 基于 spdlog 的日志模块（Rotating File + MSVC Debug 输出）
 │   ├── wubi_default_dict.h     # 内置核心 86 五笔码表（一级简码、常用字词）
 │   ├── wubi_engine.h/.cpp      # 独立 86 五笔状态机与查词引擎（无 COM 依赖，可独立单测）
@@ -54,6 +57,9 @@ C:\sample\qiqiime
 
 3. **日志系统（`spdlog`）**
    - 集成 `spdlog`（启用 C++ 标准库 `<format>` 与宽字符文件名支持），同时输出到 `OutputDebugString`（`msvc_sink_mt`）与滚动日志文件（默认路径 `%LOCALAPPDATA%\QiQiIME\logs\qiqiime.log`，单文件上限 5MB，保留 3 个备份）。
+
+4. **版本号机制（`VERSION` + `version.h` + `version.rc`）**
+   - 以根目录 `VERSION` 文件作为单一事实源，CMake 配置期自动提取当前 Git 短提交哈希（`git rev-parse --short=7 HEAD`），生成 `version.h`（提供 `qiqi::version::kCurrentVersion`、`kVersion`、`kFullVersion`、`kGitCommit` 及三路比较 `SemanticVersion`）和 Windows PE 资源 `version.rc`（为 `qiqiime.dll` 嵌入文件属性版本信息）。
 
 ---
 
