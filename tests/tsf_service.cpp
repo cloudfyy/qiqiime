@@ -352,6 +352,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     // Modify config file timestamp and trigger hot-reload via OnSetFocus (also enabling key sound & clear_on_empty_4code)
     haifeng_cfg.page_size = 6;
     haifeng_cfg.enable_key_sound = true;
+    haifeng_cfg.beep_on_dup_4code = true;
     haifeng_cfg.clear_on_empty_4code = true;
     SaveConfigFile(GetDefaultUserConfigPath(), haifeng_cfg);
     std::filesystem::last_write_time(
@@ -364,6 +365,15 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         ResetLastPlayedSoundForTest();
         QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
         QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::KeyClick);
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
+
+        // Type 4 duplicate-match keys ("aaaa" -> "工", "恭恭敬敬"): verifies beep_on_dup_4code plays DupCodeBeep
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+        ResetLastPlayedSoundForTest();
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
+        QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::DupCodeBeep);
         QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_ESCAPE, 0, &eaten)));
 
         // Type 4 unmatched keys ("xvwq"): verifies clear_on_empty_4code cancels TSF composition & plays EmptyCodeBeep

@@ -15,7 +15,8 @@ namespace qiqi {
 enum class SoundEffectKind {
     None,
     KeyClick,
-    EmptyCodeBeep
+    EmptyCodeBeep,
+    DupCodeBeep
 };
 
 namespace detail {
@@ -90,6 +91,12 @@ inline std::span<const uint8_t> GetEmptyCodeBeepWav() noexcept {
     return wav;
 }
 
+inline std::span<const uint8_t> GetDupCodeBeepWav() noexcept {
+    // 45 ms @ 44.1 kHz = 1,984 samples (4,012 bytes in static storage, gentle upward chime)
+    static const auto wav = BuildStaticMonoWav<1984>(660.0, 880.0, 0.40);
+    return wav;
+}
+
 // Keep winmm.dll loaded in a static ScopedModule RAII instance so that:
 // 1. It is managed by RAII rather than a raw HMODULE;
 // 2. It stays alive across asynchronous SND_ASYNC playback without premature FreeLibrary.
@@ -124,7 +131,9 @@ inline void PlayImeSound(SoundEffectKind kind) noexcept {
     }
 
     const std::span<const uint8_t> wav =
-        (kind == SoundEffectKind::EmptyCodeBeep) ? detail::GetEmptyCodeBeepWav() : detail::GetKeyClickWav();
+        (kind == SoundEffectKind::EmptyCodeBeep)
+            ? detail::GetEmptyCodeBeepWav()
+            : ((kind == SoundEffectKind::DupCodeBeep) ? detail::GetDupCodeBeepWav() : detail::GetKeyClickWav());
 
     if (const HMODULE winmm = detail::GetWinmmModule()) {
         using PlaySoundWFn = BOOL(WINAPI*)(LPCWSTR, HMODULE, DWORD);

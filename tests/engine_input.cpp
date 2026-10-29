@@ -371,22 +371,49 @@ void TestNavigationSelectionAndReturnCommit() {
     auto k4_valid = engine.ProcessKey('B'); // "wqvb" -> "你好"
     QIQI_TEST_CHECK(k4_valid.action == KeyActionType::Commit && k4_valid.committed_text == L"你好");
 
+    // Test beep_on_dup_4code: when 4-code has multiple exact matches ("mnop"), dup_4code_warning is set only when enabled
+    QIQI_TEST_CHECK(!engine.BeepOnDup4Code());
+    engine.ProcessKey('M');
+    engine.ProcessKey('N');
+    engine.ProcessKey('O');
+    auto r4_no_dup_beep = engine.ProcessKey('P');
+    QIQI_TEST_CHECK(!r4_no_dup_beep.dup_4code_warning);
+    engine.Reset();
+
+    engine.SetBeepOnDup4Code(true);
+    QIQI_TEST_CHECK(engine.BeepOnDup4Code());
+    engine.ProcessKey('M');
+    engine.ProcessKey('N');
+    engine.ProcessKey('O');
+    auto r4_dup_beep = engine.ProcessKey('P');
+    QIQI_TEST_CHECK(r4_dup_beep.action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(r4_dup_beep.dup_4code_warning);
+    QIQI_TEST_CHECK(!r4_dup_beep.empty_4code_warning);
+    engine.SetBeepOnDup4Code(false);
+    engine.Reset();
+
     // Verify ApplyConfig propagates clear_on_empty_4code and all other engine fields
     QiQiConfig custom_cfg{};
     custom_cfg.page_size = 8;
     custom_cfg.auto_commit_4code = false;
     custom_cfg.push_commit_5th = false;
+    custom_cfg.semicolon_quote_quick_select = false;
     custom_cfg.beep_on_empty_4code = false;
+    custom_cfg.beep_on_dup_4code = true;
     custom_cfg.clear_on_empty_4code = true;
     custom_cfg.enable_key_sound = true;
     engine.ApplyConfig(custom_cfg);
     QIQI_TEST_CHECK(engine.PageSize() == 8);
     QIQI_TEST_CHECK(!engine.AutoCommit4Code());
     QIQI_TEST_CHECK(!engine.PushCommit5th());
+    QIQI_TEST_CHECK(!engine.SemicolonQuoteQuickSelect());
     QIQI_TEST_CHECK(!engine.BeepOnEmpty4Code());
+    QIQI_TEST_CHECK(engine.BeepOnDup4Code());
     QIQI_TEST_CHECK(engine.ClearOnEmpty4Code());
     QIQI_TEST_CHECK(engine.EnableKeySound());
     engine.SetClearOnEmpty4Code(false);
+    engine.SetBeepOnDup4Code(false);
+    engine.SetSemicolonQuoteQuickSelect(true);
     engine.SetAutoCommit4Code(true);
     engine.SetPushCommit5th(true);
     engine.SetEnableKeySound(false);

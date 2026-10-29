@@ -30,6 +30,7 @@ struct KeyProcessResult {
     size_t current_page = 0;
     size_t total_pages = 0;
     bool empty_4code_warning = false;
+    bool dup_4code_warning = false;
     bool trigger_key_sound = false;
 };
 
@@ -70,6 +71,8 @@ public:
     void SetSemicolonQuoteQuickSelect(bool enabled) noexcept { semicolon_quote_quick_select_ = enabled; }
     bool BeepOnEmpty4Code() const noexcept { return beep_on_empty_4code_; }
     void SetBeepOnEmpty4Code(bool enabled) noexcept { beep_on_empty_4code_ = enabled; }
+    bool BeepOnDup4Code() const noexcept { return beep_on_dup_4code_; }
+    void SetBeepOnDup4Code(bool enabled) noexcept { beep_on_dup_4code_ = enabled; }
     bool ClearOnEmpty4Code() const noexcept { return clear_on_empty_4code_; }
     void SetClearOnEmpty4Code(bool enabled) noexcept { clear_on_empty_4code_ = enabled; }
     bool EnableKeySound() const noexcept { return enable_key_sound_; }
@@ -121,6 +124,7 @@ private:
     bool push_commit_5th_ = true;
     bool semicolon_quote_quick_select_ = true;
     bool beep_on_empty_4code_ = true;
+    bool beep_on_dup_4code_ = false;
     bool clear_on_empty_4code_ = false;
     bool enable_key_sound_ = false;
     bool full_width_mode_ = false;

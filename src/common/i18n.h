@@ -50,6 +50,7 @@ struct UiStrings {
     const wchar_t* dlg_chk_shift_toggle;
     const wchar_t* dlg_chk_status_bar;
     const wchar_t* dlg_chk_beep_empty4;
+    const wchar_t* dlg_chk_beep_dup4;
     const wchar_t* dlg_chk_clear_empty4;
     const wchar_t* dlg_chk_key_sound;
     const wchar_t* dlg_lbl_page_size;
@@ -112,6 +113,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"允许单按 Shift 键切换中英文",
     L"显示桌面浮动状态条",
     L"四码空码时发出提示音",
+    L"四码重码时发出提示音",
     L"空码时自动清空输入",
     L"启用打字按键音效",
     L"每页候选词数量:",
@@ -176,6 +178,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Toggle CN/EN mode with Shift key",
     L"Show desktop floating status bar",
     L"Beep on empty 4-letter code",
+    L"Chime on duplicate 4-letter code",
     L"Auto-clear input when no code matches",
     L"Enable typing key sound effects",
     L"Candidates per page:",

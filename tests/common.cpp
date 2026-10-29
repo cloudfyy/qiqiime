@@ -156,6 +156,7 @@ void TestIniConfiguration() {
         "AUTO_COMMIT_4CODE = on\n"
         "PUSH_COMMIT_5TH = invalid_bool\n"
         "BEEP_ON_EMPTY_4CODE = false\n"
+        "BEEP_ON_DUP_4CODE = true\n"
         "CLEAR_ON_EMPTY_4CODE = true\n"
         "ENABLE_KEY_SOUND = true\n"
         "UI_LANGUAGE = en-US\n"
@@ -166,6 +167,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(cfg2.auto_commit_4code);
     QIQI_TEST_CHECK(cfg2.push_commit_5th);
     QIQI_TEST_CHECK(!cfg2.beep_on_empty_4code);
+    QIQI_TEST_CHECK(cfg2.beep_on_dup_4code);
     QIQI_TEST_CHECK(cfg2.clear_on_empty_4code);
     QIQI_TEST_CHECK(cfg2.enable_key_sound);
     QIQI_TEST_CHECK(cfg2.ui_language == UiLanguage::EnUs);
@@ -308,6 +310,8 @@ void TestI18nLocalization() {
     QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::KeyClick);
     PlayImeSound(SoundEffectKind::EmptyCodeBeep);
     QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::EmptyCodeBeep);
+    PlayImeSound(SoundEffectKind::DupCodeBeep);
+    QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::DupCodeBeep);
 
     SetMuteAudioOutputForTest(true);
     PlayImeSound(SoundEffectKind::KeyClick);

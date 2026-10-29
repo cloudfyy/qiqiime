@@ -54,6 +54,7 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     push_commit_5th_ = cfg.push_commit_5th;
     semicolon_quote_quick_select_ = cfg.semicolon_quote_quick_select;
     beep_on_empty_4code_ = cfg.beep_on_empty_4code;
+    beep_on_dup_4code_ = cfg.beep_on_dup_4code;
     clear_on_empty_4code_ = cfg.clear_on_empty_4code;
     enable_key_sound_ = cfg.enable_key_sound;
     full_width_mode_ = cfg.default_full_width;
@@ -327,10 +328,16 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             AppendCodeAndRefresh(vk, rule.next_state);
             // Standard Wubi 86 4-code auto-commit:
             // When reaching 4 codes without wildcard 'z' and there is a unique exact match, commit immediately!
-            if (auto_commit_4code_ && raw_code_.find(L'z') == std::wstring::npos) {
+            if (raw_code_.find(L'z') == std::wstring::npos) {
                 const auto exact = LookupExact(raw_code_);
-                if (exact.size() == 1) {
+                if (auto_commit_4code_ && exact.size() == 1) {
                     return CommitAndReset(exact.front());
+                }
+                if (beep_on_dup_4code_ && exact.size() > 1) {
+                    QIQI_LOG_DEBUG("4-code lookup has {} exact matches: triggering dup-code chime", exact.size());
+                    KeyProcessResult res = MakeCurrentStateResult(KeyActionType::UpdateState);
+                    res.dup_4code_warning = true;
+                    return res;
                 }
             }
             const bool is_empty_4code = all_candidates_.empty();

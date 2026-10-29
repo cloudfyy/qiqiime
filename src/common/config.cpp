@@ -190,6 +190,8 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
                 cfg.show_status_bar = ParseBool(val, cfg.show_status_bar);
             } else if (key == "beep_on_empty_4code") {
                 cfg.beep_on_empty_4code = ParseBool(val, cfg.beep_on_empty_4code);
+            } else if (key == "beep_on_dup_4code") {
+                cfg.beep_on_dup_4code = ParseBool(val, cfg.beep_on_dup_4code);
             } else if (key == "clear_on_empty_4code") {
                 cfg.clear_on_empty_4code = ParseBool(val, cfg.clear_on_empty_4code);
             } else if (key == "enable_key_sound") {
@@ -239,6 +241,8 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         "show_status_bar = {}\n"
         "# 四码空码（无匹配词）时是否发出提示音\n"
         "beep_on_empty_4code = {}\n"
+        "# 四码重码（有多个候选词）时是否发出提示音 (默认关闭)\n"
+        "beep_on_dup_4code = {}\n"
         "# 空码（无匹配词）时是否自动清空已输入编码 (默认关闭)\n"
         "clear_on_empty_4code = {}\n"
         "# 是否启用打字按键音效 (默认关闭)\n"
@@ -261,6 +265,7 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         config.shift_toggle_mode ? "true" : "false",
         config.show_status_bar ? "true" : "false",
         config.beep_on_empty_4code ? "true" : "false",
+        config.beep_on_dup_4code ? "true" : "false",
         config.clear_on_empty_4code ? "true" : "false",
         config.enable_key_sound ? "true" : "false",
         UiLanguageToString(config.ui_language),
