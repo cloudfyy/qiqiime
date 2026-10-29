@@ -1,4 +1,5 @@
 #include "common.h"
+#include "tsf_mocks.h"
 #include "common/guids.h"
 #include "tsf/class_factory.h"
 #include "tsf/edit_session.h"
@@ -94,24 +95,48 @@ void TestClassFactoryAndDllExports() {
             QIQI_TEST_CHECK(SUCCEEDED(DllUnregisterServer()));
             QIQI_TEST_CHECK(!IsNative64BitClsidRegistered());
 
-            // 2. When running as 32-bit (x86) under WOW64, also verify coexistence when
-            // the 64-bit CLSID is already registered in the 64-bit registry view (KEY_WOW64_64KEY)
-            if constexpr (sizeof(void*) == 4) {
-                if (IsRunningUnderWow64()) {
-                    HKEY native64_key = nullptr;
-                    const wchar_t* kInproc64 =
-                        L"CLSID\\{8E7B9D31-5A42-4C81-9F11-202610290001}\\InProcServer32";
-                    if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, kInproc64, 0, nullptr,
-                                          REG_OPTION_NON_VOLATILE, KEY_WRITE | KEY_WOW64_64KEY,
-                                          nullptr, &native64_key, nullptr) == ERROR_SUCCESS) {
-                        ::RegCloseKey(native64_key);
-                        // With native 64-bit CLSID present, 32-bit WOW64 RegisterServer/UnregisterServer
-                        // should succeed immediately (S_OK) without touching 64-bit TSF profiles
-                        QIQI_TEST_CHECK(DllRegisterServer() == S_OK);
-                        QIQI_TEST_CHECK(DllUnregisterServer() == S_OK);
-                    }
-                }
+            // 2. Test full RegisterServerWithManagers / UnregisterServerWithManagers flow using mocks
+            ComPtr<MockTfInputProcessorProfiles> mock_profiles(new MockTfInputProcessorProfiles());
+            ComPtr<MockTfCategoryMgr> mock_cat_mgr(new MockTfCategoryMgr());
+
+            // 2a. Failure on profiles->Register
+            mock_profiles->fail_register_ = true;
+            QIQI_TEST_CHECK(FAILED(RegisterServerWithManagers(
+                hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false)));
+            mock_profiles->fail_register_ = false;
+
+            // 2b. Failure on profiles->AddLanguageProfile
+            mock_profiles->fail_add_profile_ = true;
+            QIQI_TEST_CHECK(FAILED(RegisterServerWithManagers(
+                hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false)));
+            mock_profiles->fail_add_profile_ = false;
+
+            // 2c. Full success of RegisterServerWithManagers (AddLanguageProfile + 6 Categories)
+            QIQI_TEST_CHECK(SUCCEEDED(RegisterServerWithManagers(
+                hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false)));
+            QIQI_TEST_CHECK(mock_profiles->registered_);
+            QIQI_TEST_CHECK(mock_profiles->profile_added_);
+            QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_ == 6);
+
+            // 2d. WOW64 coexistence path (override_wow64 = true while native 64-bit CLSID is present)
+            HKEY native64_key = nullptr;
+            const wchar_t* kInproc64 =
+                L"CLSID\\{8E7B9D31-5A42-4C81-9F11-202610290001}\\InProcServer32";
+            if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, kInproc64, 0, nullptr,
+                                  REG_OPTION_NON_VOLATILE, KEY_WRITE | KEY_WOW64_64KEY,
+                                  nullptr, &native64_key, nullptr) == ERROR_SUCCESS) {
+                ::RegCloseKey(native64_key);
+                QIQI_TEST_CHECK(RegisterServerWithManagers(
+                    hmod, mock_profiles.Get(), mock_cat_mgr.Get(), true) == S_OK);
+                QIQI_TEST_CHECK(UnregisterServerWithManagers(
+                    mock_profiles.Get(), mock_cat_mgr.Get(), true) == S_OK);
             }
+
+            // 2e. Full UnregisterServerWithManagers
+            QIQI_TEST_CHECK(SUCCEEDED(UnregisterServerWithManagers(
+                mock_profiles.Get(), mock_cat_mgr.Get(), false)));
+            QIQI_TEST_CHECK(!mock_profiles->registered_);
+            QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_ == 0);
 
             ::RegOverridePredefKey(HKEY_CLASSES_ROOT, nullptr);
         }

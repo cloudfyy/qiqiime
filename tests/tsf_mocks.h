@@ -388,4 +388,106 @@ private:
     ULONG ref_ = 1;
 };
 
+// Minimal mock ITfInputProcessorProfiles for non-admin unit testing of RegisterServer
+class MockTfInputProcessorProfiles final : public ITfInputProcessorProfiles {
+public:
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+        if (!ppvObj) return E_INVALIDARG;
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfInputProcessorProfiles)) {
+            *ppvObj = static_cast<ITfInputProcessorProfiles*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppvObj = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() override {
+        ULONG c = --ref_;
+        if (c == 0) delete this;
+        return c;
+    }
+    STDMETHODIMP Register(REFCLSID) override {
+        if (fail_register_) return E_FAIL;
+        registered_ = true;
+        return S_OK;
+    }
+    STDMETHODIMP Unregister(REFCLSID) override {
+        registered_ = false;
+        return S_OK;
+    }
+    STDMETHODIMP AddLanguageProfile(REFCLSID, LANGID, REFGUID, const WCHAR*, ULONG, const WCHAR*, ULONG, ULONG) override {
+        if (fail_add_profile_) return E_FAIL;
+        profile_added_ = true;
+        return S_OK;
+    }
+    STDMETHODIMP RemoveLanguageProfile(REFCLSID, LANGID, REFGUID) override { return S_OK; }
+    STDMETHODIMP EnumInputProcessorInfo(IEnumGUID**) override { return E_NOTIMPL; }
+    STDMETHODIMP GetDefaultLanguageProfile(LANGID, REFGUID, CLSID*, GUID*) override { return E_NOTIMPL; }
+    STDMETHODIMP SetDefaultLanguageProfile(LANGID, REFCLSID, REFGUID) override { return E_NOTIMPL; }
+    STDMETHODIMP ActivateLanguageProfile(REFCLSID, LANGID, REFGUID) override { return E_NOTIMPL; }
+    STDMETHODIMP GetActiveLanguageProfile(REFCLSID, LANGID*, GUID*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetLanguageProfileDescription(REFCLSID, LANGID, REFGUID, BSTR*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetCurrentLanguage(LANGID*) override { return E_NOTIMPL; }
+    STDMETHODIMP ChangeCurrentLanguage(LANGID) override { return E_NOTIMPL; }
+    STDMETHODIMP GetLanguageList(LANGID**, ULONG*) override { return E_NOTIMPL; }
+    STDMETHODIMP EnumLanguageProfiles(LANGID, IEnumTfLanguageProfiles**) override { return E_NOTIMPL; }
+    STDMETHODIMP EnableLanguageProfile(REFCLSID, LANGID, REFGUID, BOOL) override { return E_NOTIMPL; }
+    STDMETHODIMP IsEnabledLanguageProfile(REFCLSID, LANGID, REFGUID, BOOL*) override { return E_NOTIMPL; }
+    STDMETHODIMP EnableLanguageProfileByDefault(REFCLSID, LANGID, REFGUID, BOOL) override { return E_NOTIMPL; }
+    STDMETHODIMP SubstituteKeyboardLayout(REFCLSID, LANGID, REFGUID, HKL) override { return E_NOTIMPL; }
+
+    bool fail_register_ = false;
+    bool fail_add_profile_ = false;
+    bool registered_ = false;
+    bool profile_added_ = false;
+private:
+    ULONG ref_ = 1;
+};
+
+// Minimal mock ITfCategoryMgr for non-admin unit testing of RegisterServer
+class MockTfCategoryMgr final : public ITfCategoryMgr {
+public:
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+        if (!ppvObj) return E_INVALIDARG;
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfCategoryMgr)) {
+            *ppvObj = static_cast<ITfCategoryMgr*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppvObj = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() override {
+        ULONG c = --ref_;
+        if (c == 0) delete this;
+        return c;
+    }
+    STDMETHODIMP RegisterCategory(REFCLSID, REFGUID, REFGUID) override {
+        ++registered_categories_;
+        return S_OK;
+    }
+    STDMETHODIMP UnregisterCategory(REFCLSID, REFGUID, REFGUID) override {
+        if (registered_categories_ > 0) --registered_categories_;
+        return S_OK;
+    }
+    STDMETHODIMP EnumCategoriesInItem(REFGUID, IEnumGUID**) override { return E_NOTIMPL; }
+    STDMETHODIMP EnumItemsInCategory(REFGUID, IEnumGUID**) override { return E_NOTIMPL; }
+    STDMETHODIMP FindClosestCategory(REFGUID, GUID*, const GUID**, ULONG) override { return E_NOTIMPL; }
+    STDMETHODIMP RegisterGUIDDescription(REFCLSID, REFGUID, const WCHAR*, ULONG) override { return E_NOTIMPL; }
+    STDMETHODIMP UnregisterGUIDDescription(REFCLSID, REFGUID) override { return E_NOTIMPL; }
+    STDMETHODIMP GetGUIDDescription(REFGUID, BSTR*) override { return E_NOTIMPL; }
+    STDMETHODIMP RegisterGUIDDWORD(REFCLSID, REFGUID, DWORD) override { return E_NOTIMPL; }
+    STDMETHODIMP UnregisterGUIDDWORD(REFCLSID, REFGUID) override { return E_NOTIMPL; }
+    STDMETHODIMP GetGUIDDWORD(REFGUID, DWORD*) override { return E_NOTIMPL; }
+    STDMETHODIMP RegisterGUID(REFGUID, TfGuidAtom*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetGUID(TfGuidAtom, GUID*) override { return E_NOTIMPL; }
+    STDMETHODIMP IsEqualTfGuidAtom(TfGuidAtom, REFGUID, BOOL*) override { return E_NOTIMPL; }
+
+    size_t registered_categories_ = 0;
+private:
+    ULONG ref_ = 1;
+};
+
 } // namespace qiqi::test

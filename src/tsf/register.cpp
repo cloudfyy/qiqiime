@@ -117,9 +117,14 @@ bool IsRunningUnderWow64() noexcept {
     return false;
 }
 
-HRESULT RegisterServer(HINSTANCE instance) {
+HRESULT RegisterServerWithManagers(
+    HINSTANCE instance,
+    ITfInputProcessorProfiles* custom_profiles,
+    ITfCategoryMgr* custom_cat_mgr,
+    std::optional<bool> override_wow64) {
+    const bool is_wow64 = override_wow64.value_or(IsRunningUnderWow64());
     QIQI_LOG_INFO("RegisterServer starting (version={}, arch={}, wow64={})",
-                  version::kFullVersion, version::kArch, IsRunningUnderWow64());
+                  version::kFullVersion, version::kArch, is_wow64);
     if (!RegisterComClsid(instance)) {
         QIQI_LOG_ERROR("RegisterComClsid failed (administrator privileges required)");
         log::Flush();
@@ -129,7 +134,7 @@ HRESULT RegisterServer(HINSTANCE instance) {
     // On 64-bit Windows, when registering the 32-bit (WOW64) DLL after the 64-bit DLL is already
     // registered, only the 32-bit HKCR\WOW6432Node\CLSID\InProcServer32 entry is needed; skip
     // overwriting the shared 64-bit TSF Language Profile icon/module path.
-    if (IsRunningUnderWow64() && IsNative64BitClsidRegistered()) {
+    if (is_wow64 && IsNative64BitClsidRegistered()) {
         QIQI_LOG_INFO("RegisterServer (WOW64): 32-bit COM CLSID registered; native 64-bit TSF profile already active");
         log::Flush();
         return S_OK;
@@ -140,11 +145,13 @@ HRESULT RegisterServer(HINSTANCE instance) {
 
     HRESULT hr = E_FAIL;
     do {
-        ComPtr<ITfInputProcessorProfiles> profiles;
-        hr = ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
-                                IID_PPV_ARGS(&profiles));
-        if (FAILED(hr) || !profiles) {
-            break;
+        ComPtr<ITfInputProcessorProfiles> profiles = custom_profiles;
+        if (!profiles) {
+            hr = ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
+                                    IID_PPV_ARGS(&profiles));
+            if (FAILED(hr) || !profiles) {
+                break;
+            }
         }
 
         hr = profiles->Register(kClsidQiQiTextService);
@@ -167,9 +174,13 @@ HRESULT RegisterServer(HINSTANCE instance) {
             break;
         }
 
-        ComPtr<ITfCategoryMgr> cat_mgr;
-        hr = ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
-                                IID_PPV_ARGS(&cat_mgr));
+        ComPtr<ITfCategoryMgr> cat_mgr = custom_cat_mgr;
+        if (!cat_mgr) {
+            hr = ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
+                                    IID_PPV_ARGS(&cat_mgr));
+        } else {
+            hr = S_OK;
+        }
         if (SUCCEEDED(hr) && cat_mgr) {
             for (const auto& cat : kSupportedCategories) {
                 cat_mgr->RegisterCategory(kClsidQiQiTextService, cat, kClsidQiQiTextService);
@@ -189,14 +200,18 @@ HRESULT RegisterServer(HINSTANCE instance) {
     return hr;
 }
 
-HRESULT UnregisterServer() {
+HRESULT UnregisterServerWithManagers(
+    ITfInputProcessorProfiles* custom_profiles,
+    ITfCategoryMgr* custom_cat_mgr,
+    std::optional<bool> override_wow64) {
+    const bool is_wow64 = override_wow64.value_or(IsRunningUnderWow64());
     QIQI_LOG_INFO("UnregisterServer starting (arch={}, wow64={})",
-                  version::kArch, IsRunningUnderWow64());
+                  version::kArch, is_wow64);
     UnregisterComClsid();
 
     // If unregistering the 32-bit WOW64 DLL while the 64-bit DLL is still registered,
     // keep the shared TSF Language Profile intact until the 64-bit DLL is also unregistered.
-    if (IsRunningUnderWow64() && IsNative64BitClsidRegistered()) {
+    if (is_wow64 && IsNative64BitClsidRegistered()) {
         QIQI_LOG_INFO("UnregisterServer (WOW64): removed 32-bit COM CLSID; keeping active 64-bit TSF profile");
         log::Flush();
         return S_OK;
@@ -205,17 +220,23 @@ HRESULT UnregisterServer() {
     const HRESULT co_hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     const bool need_uninit = SUCCEEDED(co_hr);
 
-    ComPtr<ITfCategoryMgr> cat_mgr;
-    if (SUCCEEDED(::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
-                                     IID_PPV_ARGS(&cat_mgr))) && cat_mgr) {
+    ComPtr<ITfCategoryMgr> cat_mgr = custom_cat_mgr;
+    if (!cat_mgr) {
+        ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
+                           IID_PPV_ARGS(&cat_mgr));
+    }
+    if (cat_mgr) {
         for (const auto& cat : kSupportedCategories) {
             cat_mgr->UnregisterCategory(kClsidQiQiTextService, cat, kClsidQiQiTextService);
         }
     }
 
-    ComPtr<ITfInputProcessorProfiles> profiles;
-    if (SUCCEEDED(::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
-                                     IID_PPV_ARGS(&profiles))) && profiles) {
+    ComPtr<ITfInputProcessorProfiles> profiles = custom_profiles;
+    if (!profiles) {
+        ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
+                           IID_PPV_ARGS(&profiles));
+    }
+    if (profiles) {
         profiles->Unregister(kClsidQiQiTextService);
     }
 
@@ -226,6 +247,14 @@ HRESULT UnregisterServer() {
     QIQI_LOG_INFO("UnregisterServer completed");
     log::Flush();
     return S_OK;
+}
+
+HRESULT RegisterServer(HINSTANCE instance) {
+    return RegisterServerWithManagers(instance);
+}
+
+HRESULT UnregisterServer() {
+    return UnregisterServerWithManagers();
 }
 
 } // namespace qiqi
