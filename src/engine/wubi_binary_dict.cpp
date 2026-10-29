@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <fstream>
 #include <map>
 #include <mutex>
 
@@ -252,30 +251,38 @@ bool WubiMappedDict::OpenMappedFile(
     uint64_t expected_src_mtime) noexcept {
     ResetViews();
 
+    // Open with least privilege:
+    // - GENERIC_READ only (no write/execute)
+    // - FILE_SHARE_READ only (disallow concurrent write/truncate/delete while mapped to prevent STATUS_IN_PAGE_ERROR)
+    // - SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS to prevent named-pipe token impersonation
     ScopedFileHandle file(::CreateFileW(
         bin_path.c_str(),
         GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_SHARE_READ,
         nullptr,
         OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
+        FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
         nullptr));
-    if (!file.IsValid()) {
+    if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
         return false;
     }
 
     LARGE_INTEGER file_size{};
+    constexpr LONGLONG kMaxDictBytes = 128LL * 1024LL * 1024LL; // 128 MB upper bound
     if (!::GetFileSizeEx(file.Get(), &file_size) ||
-        file_size.QuadPart < gsl::narrow_cast<LONGLONG>(sizeof(DictBinaryHeader))) {
+        file_size.QuadPart < gsl::narrow_cast<LONGLONG>(sizeof(DictBinaryHeader)) ||
+        file_size.QuadPart > kMaxDictBytes) {
         return false;
     }
 
+    // Unnamed (anonymous) read-only file mapping (lpName == nullptr, PAGE_READONLY)
     ScopedKernelHandle mapping(::CreateFileMappingW(
         file.Get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
     if (!mapping.IsValid()) {
         return false;
     }
 
+    // Map with FILE_MAP_READ only
     ScopedMappedView view(::MapViewOfFile(mapping.Get(), FILE_MAP_READ, 0, 0, 0));
     if (!view.IsValid()) {
         return false;
@@ -288,6 +295,8 @@ bool WubiMappedDict::OpenMappedFile(
         return false;
     }
 
+    // Keep `file_handle_` open with FILE_SHARE_READ to lock the backing file against concurrent
+    // write/truncation while mapped; `mapping_handle_` can be released immediately or retained.
     file_handle_ = std::move(file);
     mapping_handle_ = std::move(mapping);
     mapped_view_ = std::move(view);
@@ -337,13 +346,35 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
         return nullptr;
     }
 
-    // Write binary cache to disk so this and all other processes can memory-map it
+    // Write binary cache to disk atomically via an exclusive-write temporary file + MoveFileExW
+    // so concurrent processes never observe a partially written .qdict file.
     {
-        std::ofstream ofs(cache_bin_path, std::ios::binary | std::ios::trunc);
-        if (ofs.is_open()) {
-            ofs.write(reinterpret_cast<const char*>(bin_buffer.data()),
-                      gsl::narrow_cast<std::streamsize>(bin_buffer.size()));
-            ofs.close();
+        const std::filesystem::path tmp_cache_path =
+            cache_bin_path.wstring() + L".tmp." + std::to_wstring(::GetCurrentProcessId());
+        bool wrote_ok = false;
+        {
+            const ScopedFileHandle out_file(::CreateFileW(
+                tmp_cache_path.c_str(),
+                GENERIC_WRITE,
+                0,
+                nullptr,
+                CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+                nullptr));
+            if (out_file.IsValid() && ::GetFileType(out_file.Get()) == FILE_TYPE_DISK) {
+                DWORD written = 0;
+                const DWORD to_write = gsl::narrow_cast<DWORD>(bin_buffer.size());
+                wrote_ok = (to_write > 0) &&
+                    (::WriteFile(out_file.Get(), bin_buffer.data(), to_write, &written, nullptr) != FALSE) &&
+                    (written == to_write);
+            }
+        }
+        if (wrote_ok) {
+            if (!::MoveFileExW(tmp_cache_path.c_str(), cache_bin_path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+                std::filesystem::remove(tmp_cache_path, ec);
+            }
+        } else {
+            std::filesystem::remove(tmp_cache_path, ec);
         }
     }
 

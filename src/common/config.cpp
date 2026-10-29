@@ -1,5 +1,6 @@
 #include "common/config.h"
 #include "common/logger.h"
+#include "common/scoped_handle.h"
 
 #include <windows.h>
 #include <gsl/gsl>
@@ -7,7 +8,6 @@
 #include <array>
 #include <cctype>
 #include <format>
-#include <fstream>
 #include <string>
 
 namespace qiqi {
@@ -273,17 +273,46 @@ bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_conf
 
 bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& config) {
     try {
-        if (file_path.has_parent_path()) {
-            std::error_code ec;
-            std::filesystem::create_directories(file_path.parent_path(), ec);
-        }
-        std::ofstream ofs(file_path, std::ios::binary | std::ios::trunc);
-        if (!ofs.is_open()) {
+        std::error_code ec;
+        if (std::filesystem::is_directory(file_path, ec)) {
             return false;
         }
+        if (file_path.has_parent_path()) {
+            std::filesystem::create_directories(file_path.parent_path(), ec);
+        }
+
         const std::string text = SerializeConfigToUtf8(config);
-        ofs.write(text.data(), gsl::narrow_cast<std::streamsize>(text.size()));
-        return ofs.good();
+        const std::filesystem::path tmp_path =
+            file_path.wstring() + L".tmp." + std::to_wstring(::GetCurrentProcessId());
+
+        {
+            // Exclusive write access (dwShareMode = 0), write-only permission (GENERIC_WRITE),
+            // and anonymous SQOS to prevent named-pipe impersonation.
+            const ScopedFileHandle file(::CreateFileW(
+                tmp_path.c_str(),
+                GENERIC_WRITE,
+                0,
+                nullptr,
+                CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+                nullptr));
+            if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+                return false;
+            }
+
+            DWORD written = 0;
+            const DWORD to_write = gsl::narrow_cast<DWORD>(text.size());
+            if (to_write > 0 &&
+                (!::WriteFile(file.Get(), text.data(), to_write, &written, nullptr) || written != to_write)) {
+                return false;
+            }
+        }
+
+        if (!::MoveFileExW(tmp_path.c_str(), file_path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+            std::filesystem::remove(tmp_path, ec);
+            return false;
+        }
+        return true;
     } catch (...) {
         return false;
     }

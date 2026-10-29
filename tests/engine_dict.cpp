@@ -121,6 +121,30 @@ void TestExternalDictFile() {
     auto zz_prefix = engine.LookupCandidates(L"zzz");
     QIQI_TEST_CHECK(zz_prefix.size() >= 3);
 
+    // Verify least-privilege sharing on mapped .qdict:
+    // Read-only sharing (GENERIC_READ | FILE_SHARE_READ) is allowed, while write access (GENERIC_WRITE) is denied.
+    {
+        const ScopedFileHandle ro_check(::CreateFileW(
+            adjacent_qdict.c_str(),
+            GENERIC_READ,
+            FILE_SHARE_READ,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr));
+        QIQI_TEST_CHECK(ro_check.IsValid());
+
+        const ScopedFileHandle rw_check(::CreateFileW(
+            adjacent_qdict.c_str(),
+            GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr));
+        QIQI_TEST_CHECK(!rw_check.IsValid());
+    }
+
     std::error_code ec;
     std::filesystem::remove(temp_dict, ec);
     std::filesystem::remove(adjacent_qdict, ec);

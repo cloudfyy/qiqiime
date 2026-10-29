@@ -1,4 +1,5 @@
 #include "common/logger.h"
+#include "common/scoped_handle.h"
 
 #include <windows.h>
 #include <gsl/gsl>
@@ -8,7 +9,6 @@
 
 #include <array>
 #include <cstdlib>
-#include <fstream>
 #include <mutex>
 #include <vector>
 
@@ -185,16 +185,40 @@ std::filesystem::path GetAppDataDirectory() {
 }
 
 bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& out_content) {
-    std::ifstream file(file_path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
+    // Open with least privilege: read-only access, read-only sharing, anonymous SQOS to prevent pipe impersonation,
+    // and verify the target is a regular disk file.
+    const ScopedFileHandle file(::CreateFileW(
+        file_path.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+        nullptr));
+    if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
         return false;
     }
-    const auto file_size = file.tellg();
+
+    LARGE_INTEGER file_size{};
+    constexpr LONGLONG kMaxAllowedReadBytes = 64LL * 1024LL * 1024LL; // 64 MB safety ceiling
+    if (!::GetFileSizeEx(file.Get(), &file_size) ||
+        file_size.QuadPart < 0 ||
+        file_size.QuadPart > kMaxAllowedReadBytes) {
+        return false;
+    }
+
     out_content.clear();
-    if (file_size > 0) {
-        out_content.resize(gsl::narrow_cast<size_t>(file_size));
-        file.seekg(0, std::ios::beg);
-        file.read(out_content.data(), file_size);
+    if (file_size.QuadPart == 0) {
+        return true;
+    }
+
+    out_content.resize(gsl::narrow_cast<size_t>(file_size.QuadPart));
+    DWORD total_read = 0;
+    const DWORD to_read = gsl::narrow_cast<DWORD>(file_size.QuadPart);
+    if (!::ReadFile(file.Get(), out_content.data(), to_read, &total_read, nullptr) ||
+        total_read != to_read) {
+        out_content.clear();
+        return false;
     }
     return true;
 }
