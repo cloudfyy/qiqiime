@@ -67,9 +67,15 @@ target_link_libraries(qiqiime PRIVATE
     uuid
 )
 
-# Copy default dictionary table next to build outputs
+# Copy Wubi 86 dictionaries (Jidian, Jidian Extra, and Haifeng) next to build outputs
 add_custom_command(TARGET qiqiime POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${PROJECT_SOURCE_DIR}/data/wubi86.txt"
-        "$<TARGET_FILE_DIR:qiqiime>/wubi86.txt"
+        "${PROJECT_SOURCE_DIR}/data/wubi86_jidian.txt"
+        "$<TARGET_FILE_DIR:qiqiime>/wubi86_jidian.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${PROJECT_SOURCE_DIR}/data/wubi86_jidian_extra.txt"
+        "$<TARGET_FILE_DIR:qiqiime>/wubi86_jidian_extra.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${PROJECT_SOURCE_DIR}/data/wubi86_haifeng.txt"
+        "$<TARGET_FILE_DIR:qiqiime>/wubi86_haifeng.txt"
 )

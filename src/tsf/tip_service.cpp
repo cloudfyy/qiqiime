@@ -32,17 +32,27 @@ QiQiTextService::~QiQiTextService() noexcept {
 }
 
 void QiQiTextService::LoadExternalDictionaryNextToDll() {
-    std::filesystem::path dict_path = log::GetModuleFilePath(g_dll_instance);
-    if (dict_path.empty()) {
-        QIQI_LOG_WARN("GetModuleFileNameW failed when locating external dictionary");
+    const std::filesystem::path module_path = log::GetModuleFilePath(g_dll_instance);
+    if (module_path.empty()) {
+        QIQI_LOG_WARN("GetModuleFileNameW failed when locating external dictionaries");
         return;
     }
-    dict_path.replace_filename(L"wubi86.txt");
-    if (std::filesystem::exists(dict_path)) {
-        engine_.LoadDictionaryFile(dict_path);
-    } else {
-        QIQI_LOG_DEBUG("External dictionary not found at '{}', using builtin dictionary only",
-                       log::WideToUtf8(dict_path.wstring()));
+    const std::filesystem::path dll_dir = module_path.parent_path();
+    constexpr std::wstring_view kDictFiles[] = {
+        L"wubi86_jidian.txt",
+        L"wubi86_jidian_extra.txt",
+    };
+
+    bool loaded_any = false;
+    for (const auto dict_name : kDictFiles) {
+        const std::filesystem::path dict_path = dll_dir / dict_name;
+        if (std::filesystem::exists(dict_path)) {
+            loaded_any |= engine_.LoadDictionaryFile(dict_path);
+        }
+    }
+    if (!loaded_any) {
+        QIQI_LOG_DEBUG("External dictionaries not found in '{}', using builtin dictionary only",
+                       log::WideToUtf8(dll_dir.wstring()));
     }
 }
 

@@ -2,6 +2,7 @@
 #include "common/logger.h"
 #include "engine/wubi_engine.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -91,19 +92,30 @@ void TestExternalDictFile() {
     std::error_code ec;
     std::filesystem::remove(temp_dict, ec);
 
-    // 3. Load bundled wubi86.txt next to executable or in current directory (78,000+ codes)
-    std::filesystem::path dict_next_to_exe = log::GetModuleFilePath(nullptr);
-    if (!dict_next_to_exe.empty()) {
-        dict_next_to_exe.replace_filename(L"wubi86.txt");
-        if (std::filesystem::exists(dict_next_to_exe)) {
-            QIQI_TEST_CHECK(engine.LoadDictionaryFile(dict_next_to_exe));
-            // Verify entries from the full Jidian Wubi 86 dictionary
-            auto ke1 = engine.LookupExact(L"tugg");
-            QIQI_TEST_CHECK(!ke1.empty() && ke1[0] == L"科一");
+    // 3. Load bundled dictionaries (wubi86_jidian.txt, wubi86_jidian_extra.txt, wubi86_haifeng.txt)
+    const std::filesystem::path exe_path = log::GetModuleFilePath(nullptr);
+    if (!exe_path.empty()) {
+        const std::filesystem::path exe_dir = exe_path.parent_path();
+        const std::filesystem::path main_dict = exe_dir / L"wubi86_jidian.txt";
+        const std::filesystem::path extra_dict = exe_dir / L"wubi86_jidian_extra.txt";
+        const std::filesystem::path haifeng_dict = exe_dir / L"wubi86_haifeng.txt";
+        if (std::filesystem::exists(main_dict)) {
+            QIQI_TEST_CHECK(engine.LoadDictionaryFile(main_dict));
+            auto gong = engine.LookupExact(L"aaaa");
+            QIQI_TEST_CHECK(gong.size() >= 2 && gong[0] == L"工");
         }
-    }
-    if (std::filesystem::exists("wubi86.txt")) {
-        QIQI_TEST_CHECK(engine.LoadDictionaryFile("wubi86.txt"));
+        if (std::filesystem::exists(extra_dict)) {
+            QIQI_TEST_CHECK(engine.LoadDictionaryFile(extra_dict));
+            auto ke1 = engine.LookupExact(L"tugg");
+            QIQI_TEST_CHECK(std::find(ke1.begin(), ke1.end(), L"科一") != ke1.end());
+        }
+        if (std::filesystem::exists(haifeng_dict)) {
+            WubiEngine haifeng_engine;
+            QIQI_TEST_CHECK(haifeng_engine.LoadDictionaryFile(haifeng_dict));
+            // Verify Unicode CJK Extension B character (U+20000 '𠀀' -> ghab) in Haifeng Wubi
+            auto cjkb = haifeng_engine.LookupExact(L"ghab");
+            QIQI_TEST_CHECK(!cjkb.empty() && cjkb[0] == L"𠀀");
+        }
     }
 }
 
