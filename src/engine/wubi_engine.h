@@ -7,6 +7,8 @@
 #include <optional>
 #include <cstdint>
 
+#include "engine/wubi_fsm.h"
+
 namespace qiqi {
 
 enum class KeyActionType {
@@ -43,12 +45,13 @@ public:
     void AddEntry(std::wstring_view code, std::wstring_view word);
 
     // Mode management
-    bool IsChineseMode() const noexcept { return chinese_mode_; }
+    bool IsChineseMode() const noexcept { return state_ != EngineState::English; }
     void SetChineseMode(bool enabled) noexcept;
     void ToggleChineseMode() noexcept;
 
     // State queries
-    bool IsComposing() const noexcept { return !raw_code_.empty(); }
+    EngineState State() const noexcept { return state_; }
+    bool IsComposing() const noexcept { return IsComposingState(state_); }
     const std::wstring& RawCode() const noexcept { return raw_code_; }
     const std::vector<std::wstring>& AllCandidates() const noexcept { return all_candidates_; }
     std::vector<std::wstring> CurrentPageCandidates() const;
@@ -71,9 +74,9 @@ public:
     std::vector<std::wstring> LookupExact(std::wstring_view code) const;
 
 private:
+    std::wstring CurrentSelectedCandidateOrRaw() const;
     void RefreshCandidates();
     KeyProcessResult MakeCurrentStateResult(KeyActionType action, std::wstring committed = L"") const;
-    static constexpr std::optional<std::wstring_view> MapChinesePunctuation(uint32_t vk, bool shift_down) noexcept;
 
     std::map<std::wstring, std::vector<std::wstring>> dict_;
     std::wstring raw_code_;
@@ -81,7 +84,7 @@ private:
     size_t page_size_ = kDefaultPageSize;
     size_t current_page_ = 0;
     size_t selected_in_page_ = 0;
-    bool chinese_mode_ = true;
+    EngineState state_ = EngineState::Idle;
 };
 
 } // namespace qiqi

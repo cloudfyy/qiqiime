@@ -28,6 +28,7 @@ C:\sample\qiqiime
 │   │   ├── version.h.in        # C++ 编译期版本号与 Git Commit 元信息头文件模板
 │   │   └── version.rc.in       # Windows DLL 版本资源 (VERSIONINFO) 模板
 │   ├── engine/                 # 五笔核心引擎模块（无 COM 依赖，可独立单测）
+│   │   ├── wubi_fsm.h          # 编译期 (consteval/constexpr) 五笔有限状态机与转移表
 │   │   ├── wubi_default_dict.h # 内置核心 86 五笔码表（一级简码、常用字词）
 │   │   └── wubi_engine.h/.cpp  # 独立 86 五笔状态机与查词引擎
 │   ├── tsf/                    # Windows TSF 框架接入与 COM 服务模块

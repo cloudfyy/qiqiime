@@ -93,6 +93,7 @@ find_package(spdlog CONFIG REQUIRED)
 set(QIQI_ENGINE_SOURCES
     src/common/logger.cpp
     src/common/logger.h
+    src/engine/wubi_fsm.h
     src/engine/wubi_engine.cpp
     src/engine/wubi_engine.h
     src/engine/wubi_default_dict.h

@@ -8,6 +8,45 @@ namespace qiqi::test {
 
 namespace {
 
+void TestCompileTimeFsmTransitions() {
+    // Exhaustive compile-time checks across all states and key events
+    static_assert(ClassifyKeyEvent('A', false, false, false) == KeyEventKind::CodeChar);
+    static_assert(ClassifyKeyEvent('A', true, false, false) == KeyEventKind::None);
+    static_assert(ClassifyKeyEvent('A', false, true, false) == KeyEventKind::None);
+    static_assert(ClassifyKeyEvent(VK_SPACE, false, false, false) == KeyEventKind::Space);
+    static_assert(ClassifyKeyEvent(VK_RETURN, false, false, false) == KeyEventKind::Enter);
+    static_assert(ClassifyKeyEvent(VK_BACK, false, false, false) == KeyEventKind::Backspace);
+    static_assert(ClassifyKeyEvent(VK_ESCAPE, false, false, false) == KeyEventKind::Escape);
+    static_assert(ClassifyKeyEvent('1', false, false, false) == KeyEventKind::DigitSelect);
+    static_assert(ClassifyKeyEvent('1', true, false, false) == KeyEventKind::ChinesePunct);
+    static_assert(ClassifyKeyEvent(VK_UP, false, false, false) == KeyEventKind::CandidateUp);
+    static_assert(ClassifyKeyEvent(VK_DOWN, false, false, false) == KeyEventKind::CandidateDown);
+    static_assert(ClassifyKeyEvent(VK_OEM_MINUS, false, false, false) == KeyEventKind::PageUp);
+    static_assert(ClassifyKeyEvent(VK_OEM_PLUS, false, false, false) == KeyEventKind::PageDown);
+
+    // Out-of-bounds state/event safety fallback
+    static_assert(!LookupTransition(EngineState::Count, KeyEventKind::CodeChar).eat_key);
+    static_assert(!LookupTransition(EngineState::Idle, KeyEventKind::Count).eat_key);
+
+    // Runtime verification of explicit EngineState transitions
+    WubiEngine engine;
+    QIQI_TEST_CHECK(engine.State() == EngineState::Idle);
+    engine.ProcessKey('A');
+    QIQI_TEST_CHECK(engine.State() == EngineState::Composing1);
+    engine.ProcessKey('B');
+    QIQI_TEST_CHECK(engine.State() == EngineState::Composing2);
+    engine.ProcessKey('C');
+    QIQI_TEST_CHECK(engine.State() == EngineState::Composing3);
+    engine.ProcessKey('Z');
+    QIQI_TEST_CHECK(engine.State() == EngineState::Composing4);
+    engine.ProcessKey(VK_BACK);
+    QIQI_TEST_CHECK(engine.State() == EngineState::Composing3);
+    engine.SetChineseMode(false);
+    QIQI_TEST_CHECK(engine.State() == EngineState::English);
+    engine.SetChineseMode(true);
+    QIQI_TEST_CHECK(engine.State() == EngineState::Idle);
+}
+
 void TestFirstLevelShortCodes() {
     WubiEngine engine;
     // 'a' -> 工, Space commits
@@ -272,6 +311,7 @@ void TestChinesePunctuation() {
 } // namespace
 
 void RunEngineInputTests() {
+    TestCompileTimeFsmTransitions();
     TestFirstLevelShortCodes();
     TestFourCodeUniqueAutoCommit();
     TestFifthKeyPushAutoCommit();

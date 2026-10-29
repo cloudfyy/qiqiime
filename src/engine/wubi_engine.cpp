@@ -99,18 +99,22 @@ bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
 }
 
 void WubiEngine::SetChineseMode(bool enabled) noexcept {
-    chinese_mode_ = enabled;
-    if (!chinese_mode_) {
+    if (enabled) {
+        if (state_ == EngineState::English) {
+            state_ = EngineState::Idle;
+        }
+    } else {
         Reset();
+        state_ = EngineState::English;
     }
     try {
-        QIQI_LOG_DEBUG("WubiEngine mode switched to {}", chinese_mode_ ? "Chinese" : "English");
+        QIQI_LOG_DEBUG("WubiEngine mode switched to {}", enabled ? "Chinese" : "English");
     } catch (...) {
     }
 }
 
 void WubiEngine::ToggleChineseMode() noexcept {
-    SetChineseMode(!chinese_mode_);
+    SetChineseMode(!IsChineseMode());
 }
 
 void WubiEngine::Reset() noexcept {
@@ -118,6 +122,9 @@ void WubiEngine::Reset() noexcept {
     all_candidates_.clear();
     current_page_ = 0;
     selected_in_page_ = 0;
+    if (state_ != EngineState::English) {
+        state_ = EngineState::Idle;
+    }
 }
 
 size_t WubiEngine::TotalPages() const noexcept {
@@ -213,6 +220,14 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) c
     return results;
 }
 
+std::wstring WubiEngine::CurrentSelectedCandidateOrRaw() const {
+    const auto page = CurrentPageCandidates();
+    if (!page.empty()) {
+        return page[std::min(selected_in_page_, page.size() - 1)];
+    }
+    return raw_code_;
+}
+
 void WubiEngine::RefreshCandidates() {
     all_candidates_ = LookupCandidates(raw_code_);
     current_page_ = 0;
@@ -231,126 +246,79 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
     return res;
 }
 
-constexpr std::optional<std::wstring_view> WubiEngine::MapChinesePunctuation(uint32_t vk, bool shift_down) noexcept {
-    switch (vk) {
-        case VK_OEM_COMMA:  return shift_down ? std::optional<std::wstring_view>(L"《") : std::optional<std::wstring_view>(L"，");
-        case VK_OEM_PERIOD: return shift_down ? std::optional<std::wstring_view>(L"》") : std::optional<std::wstring_view>(L"。");
-        case VK_OEM_1:      return shift_down ? std::optional<std::wstring_view>(L"：") : std::optional<std::wstring_view>(L"；");
-        case VK_OEM_2:      return shift_down ? std::optional<std::wstring_view>(L"？") : std::optional<std::wstring_view>(L"、");
-        case '1':           return shift_down ? std::optional<std::wstring_view>(L"！") : std::nullopt;
-        case '4':           return shift_down ? std::optional<std::wstring_view>(L"￥") : std::nullopt;
-        case '6':           return shift_down ? std::optional<std::wstring_view>(L"……") : std::nullopt;
-        case '9':           return shift_down ? std::optional<std::wstring_view>(L"（") : std::nullopt;
-        case '0':           return shift_down ? std::optional<std::wstring_view>(L"）") : std::nullopt;
-        default:            return std::nullopt;
-    }
-}
-
 bool WubiEngine::ShouldEatKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept {
-    if (!chinese_mode_ || ctrl_down || alt_down) {
-        return false;
-    }
-
-    // Lowercase a-z starts or continues Wubi code
-    if (!shift_down && vk >= 'A' && vk <= 'Z') {
-        return true;
-    }
-
-    if (IsComposing()) {
-        // While composing, IME owns navigation, commit, cancel, backspace, and number selection
-        if (vk == VK_SPACE || vk == VK_RETURN || vk == VK_ESCAPE || vk == VK_BACK ||
-            vk == VK_UP || vk == VK_DOWN || vk == VK_PRIOR || vk == VK_NEXT ||
-            vk == VK_OEM_MINUS || vk == VK_OEM_PLUS) {
-            return true;
-        }
-        if (!shift_down && vk >= '1' && vk <= '9') {
-            return true;
-        }
-    }
-
-    if (MapChinesePunctuation(vk, shift_down).has_value()) {
-        return true;
-    }
-
-    return false;
+    const KeyEventKind event = ClassifyKeyEvent(vk, shift_down, ctrl_down, alt_down);
+    return LookupTransition(state_, event).eat_key;
 }
 
 KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) {
-    if (!chinese_mode_ || ctrl_down || alt_down) {
-        return {};
-    }
+    const KeyEventKind event = ClassifyKeyEvent(vk, shift_down, ctrl_down, alt_down);
+    const TransitionRule rule = LookupTransition(state_, event);
 
-    // 1. Handle Wubi letter input ('a' - 'z')
-    if (!shift_down && vk >= 'A' && vk <= 'Z') {
-        const wchar_t ch = static_cast<wchar_t>(vk - 'A' + L'a');
-        std::wstring auto_committed;
+    switch (rule.op) {
+        case TransitionOp::PassThrough:
+            return {};
 
-        // Wubi 4-code rule: if already at 4 chars and user types 5th char,
-        // commit current selected candidate first, then start new composition with 5th char.
-        if (raw_code_.size() == kMaxCodeLength) {
-            const auto page = CurrentPageCandidates();
-            if (!page.empty()) {
-                auto_committed = page[std::min(selected_in_page_, page.size() - 1)];
-            } else {
-                auto_committed = raw_code_;
-            }
-            Reset();
-        }
-
-        raw_code_.push_back(ch);
-        RefreshCandidates();
-
-        // Standard Wubi 86 4-code auto-commit:
-        // When reaching 4 codes without wildcard 'z' and there is a unique exact match, commit immediately!
-        if (raw_code_.size() == kMaxCodeLength && raw_code_.find(L'z') == std::wstring::npos) {
-            const auto exact = LookupExact(raw_code_);
-            if (exact.size() == 1) {
-                std::wstring final_commit = auto_committed + exact.front();
-                Reset();
-                return MakeCurrentStateResult(KeyActionType::Commit, std::move(final_commit));
-            }
-        }
-
-        if (!auto_committed.empty()) {
-            return MakeCurrentStateResult(KeyActionType::Commit, std::move(auto_committed));
-        }
-        return MakeCurrentStateResult(KeyActionType::UpdateState);
-    }
-
-    // 2. Keys valid only while composing
-    if (IsComposing()) {
-        if (vk == VK_ESCAPE) {
-            Reset();
-            return MakeCurrentStateResult(KeyActionType::Cancel);
-        }
-
-        if (vk == VK_BACK) {
-            raw_code_.pop_back();
-            if (raw_code_.empty()) {
-                Reset();
-                return MakeCurrentStateResult(KeyActionType::Cancel);
-            }
+        case TransitionOp::AppendCode: {
+            const wchar_t ch = static_cast<wchar_t>(vk - 'A' + L'a');
+            raw_code_.push_back(ch);
+            state_ = rule.next_state;
             RefreshCandidates();
             return MakeCurrentStateResult(KeyActionType::UpdateState);
         }
 
-        if (vk == VK_SPACE) {
-            const auto page = CurrentPageCandidates();
-            std::wstring text = !page.empty()
-                ? page[std::min(selected_in_page_, page.size() - 1)]
-                : raw_code_;
+        case TransitionOp::Append4thCode: {
+            const wchar_t ch = static_cast<wchar_t>(vk - 'A' + L'a');
+            raw_code_.push_back(ch);
+            state_ = rule.next_state;
+            RefreshCandidates();
+
+            // Standard Wubi 86 4-code auto-commit:
+            // When reaching 4 codes without wildcard 'z' and there is a unique exact match, commit immediately!
+            if (raw_code_.find(L'z') == std::wstring::npos) {
+                const auto exact = LookupExact(raw_code_);
+                if (exact.size() == 1) {
+                    std::wstring committed = exact.front();
+                    Reset();
+                    return MakeCurrentStateResult(KeyActionType::Commit, std::move(committed));
+                }
+            }
+            return MakeCurrentStateResult(KeyActionType::UpdateState);
+        }
+
+        case TransitionOp::PushCommitAndRestart: {
+            std::wstring auto_committed = CurrentSelectedCandidateOrRaw();
+            Reset();
+            const wchar_t ch = static_cast<wchar_t>(vk - 'A' + L'a');
+            raw_code_.push_back(ch);
+            state_ = rule.next_state;
+            RefreshCandidates();
+            return MakeCurrentStateResult(KeyActionType::Commit, std::move(auto_committed));
+        }
+
+        case TransitionOp::CancelComposition:
+            Reset();
+            return MakeCurrentStateResult(KeyActionType::Cancel);
+
+        case TransitionOp::PopCode:
+            raw_code_.pop_back();
+            state_ = rule.next_state;
+            RefreshCandidates();
+            return MakeCurrentStateResult(KeyActionType::UpdateState);
+
+        case TransitionOp::CommitSelected: {
+            std::wstring text = CurrentSelectedCandidateOrRaw();
             Reset();
             return MakeCurrentStateResult(KeyActionType::Commit, std::move(text));
         }
 
-        if (vk == VK_RETURN) {
-            // Enter commits raw ASCII code
+        case TransitionOp::CommitRawCode: {
             std::wstring text = raw_code_;
             Reset();
             return MakeCurrentStateResult(KeyActionType::Commit, std::move(text));
         }
 
-        if (!shift_down && vk >= '1' && vk <= '9') {
+        case TransitionOp::CommitDigitIndex: {
             const size_t idx = static_cast<size_t>(vk - '1');
             const auto page = CurrentPageCandidates();
             if (idx < page.size()) {
@@ -361,50 +329,45 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             return MakeCurrentStateResult(KeyActionType::UpdateState);
         }
 
-        // Candidate navigation
-        if (vk == VK_DOWN) {
+        case TransitionOp::SelectPrevCandidate:
+            if (selected_in_page_ > 0) {
+                --selected_in_page_;
+            }
+            return MakeCurrentStateResult(KeyActionType::UpdateState);
+
+        case TransitionOp::SelectNextCandidate: {
             const auto page = CurrentPageCandidates();
             if (!page.empty() && selected_in_page_ + 1 < page.size()) {
                 ++selected_in_page_;
             }
             return MakeCurrentStateResult(KeyActionType::UpdateState);
         }
-        if (vk == VK_UP) {
-            if (selected_in_page_ > 0) {
-                --selected_in_page_;
-            }
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-        }
 
-        // Page navigation (- / + or PageUp / PageDown)
-        if (vk == VK_NEXT || (!shift_down && vk == VK_OEM_PLUS)) {
-            if (current_page_ + 1 < TotalPages()) {
-                ++current_page_;
-                selected_in_page_ = 0;
-            }
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-        }
-        if (vk == VK_PRIOR || (!shift_down && vk == VK_OEM_MINUS)) {
+        case TransitionOp::TurnPagePrev:
             if (current_page_ > 0) {
                 --current_page_;
                 selected_in_page_ = 0;
             }
             return MakeCurrentStateResult(KeyActionType::UpdateState);
-        }
-    }
 
-    // 3. Chinese punctuation (if composing, commits current candidate + punctuation)
-    if (auto punct = MapChinesePunctuation(vk, shift_down); punct.has_value()) {
-        std::wstring committed;
-        if (IsComposing()) {
-            const auto page = CurrentPageCandidates();
-            committed = !page.empty()
-                ? page[std::min(selected_in_page_, page.size() - 1)]
-                : raw_code_;
-            Reset();
+        case TransitionOp::TurnPageNext:
+            if (current_page_ + 1 < TotalPages()) {
+                ++current_page_;
+                selected_in_page_ = 0;
+            }
+            return MakeCurrentStateResult(KeyActionType::UpdateState);
+
+        case TransitionOp::CommitPunctOnly: {
+            std::wstring committed(MapChinesePunctuation(vk, shift_down).value_or(L""));
+            return MakeCurrentStateResult(KeyActionType::Commit, std::move(committed));
         }
-        committed += *punct;
-        return MakeCurrentStateResult(KeyActionType::Commit, std::move(committed));
+
+        case TransitionOp::CommitSelectedAndPunct: {
+            std::wstring committed = CurrentSelectedCandidateOrRaw();
+            Reset();
+            committed += MapChinesePunctuation(vk, shift_down).value_or(L"");
+            return MakeCurrentStateResult(KeyActionType::Commit, std::move(committed));
+        }
     }
 
     return {};
