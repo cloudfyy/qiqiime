@@ -1,6 +1,6 @@
-#include "wubi_engine.h"
-#include "wubi_default_dict.h"
-#include "logger.h"
+#include "engine/wubi_engine.h"
+#include "engine/wubi_default_dict.h"
+#include "common/logger.h"
 
 #include <windows.h>
 #include <algorithm>

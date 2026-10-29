@@ -20,19 +20,23 @@ C:\sample\qiqiime
 │   ├── register_ime.ps1        # 管理员权限注册输入法脚本
 │   └── unregister_ime.ps1      # 管理员权限卸载输入法脚本
 ├── src/
-│   ├── guids.h                 # CLSID / Profile GUID / UIElement GUID 定义
-│   ├── version.h.in            # C++ 编译期版本号与 Git Commit 元信息头文件模板
-│   ├── version.rc.in           # Windows DLL 版本资源 (VERSIONINFO) 模板
-│   ├── logger.h/.cpp           # 基于 spdlog 的日志模块（Rotating File + MSVC Debug 输出）
-│   ├── wubi_default_dict.h     # 内置核心 86 五笔码表（一级简码、常用字词）
-│   ├── wubi_engine.h/.cpp      # 独立 86 五笔状态机与查词引擎（无 COM 依赖，可独立单测）
-│   ├── edit_session.h          # 现代 C++ Lambda 封装的 ITfEditSession
-│   ├── candidate_ui.h/.cpp     # 候选窗绘制 + ITfCandidateListUIElement（支持游戏 UILess 模式）
-│   ├── tip_service.h/.cpp      # TSF 核心服务（ITfTextInputProcessorEx / KeyEvent / Composition）
-│   ├── class_factory.h/.cpp    # COM IClassFactory 实现
-│   ├── register.h/.cpp         # COM 注册表、TSF Language Profile 与 Category 注册
-│   ├── dllmain.cpp             # DLL 入口与导出函数
-│   └── qiqiime.def             # COM DLL 模块定义文件
+│   ├── common/                 # 公共基础模块（GUID 常量、spdlog 日志、版本信息与资源模板）
+│   │   ├── guids.h             # CLSID / Profile GUID / UIElement GUID 定义
+│   │   ├── logger.h/.cpp       # 基于 spdlog 的日志模块（Rotating File + MSVC Debug 输出）
+│   │   ├── version.h.in        # C++ 编译期版本号与 Git Commit 元信息头文件模板
+│   │   └── version.rc.in       # Windows DLL 版本资源 (VERSIONINFO) 模板
+│   ├── engine/                 # 五笔核心引擎模块（无 COM 依赖，可独立单测）
+│   │   ├── wubi_default_dict.h # 内置核心 86 五笔码表（一级简码、常用字词）
+│   │   └── wubi_engine.h/.cpp  # 独立 86 五笔状态机与查词引擎
+│   ├── tsf/                    # Windows TSF 框架接入与 COM 服务模块
+│   │   ├── tip_service.h/.cpp  # TSF 核心服务（ITfTextInputProcessorEx / KeyEvent / Composition）
+│   │   ├── edit_session.h      # 现代 C++ Lambda 封装的 ITfEditSession
+│   │   ├── class_factory.h/.cpp# COM IClassFactory 实现
+│   │   ├── register.h/.cpp     # COM 注册表、TSF Language Profile 与 Category 注册
+│   │   ├── dllmain.cpp         # DLL 入口与导出函数
+│   │   └── qiqiime.def         # COM DLL 模块定义文件
+│   └── ui/                     # 候选窗口与界面交互模块
+│       └── candidate_ui.h/.cpp # 候选窗绘制 + ITfCandidateListUIElement（支持游戏 UILess 模式）
 └── tests/
     └── engine_test.cpp         # 五笔引擎自动化单元测试
 ```

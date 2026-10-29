@@ -36,7 +36,7 @@
 
 ## 2. TSF 关键生命周期与接口职责
 
-### 2.1 注册阶段（`src/register.cpp`）
+### 2.1 注册阶段（`src/tsf/register.cpp`）
 - **COM InProcServer32**：注册 `kClsidQiQiTextService`，线程模型为 `Apartment`（STA）。
 - **Language Profile**：通过 `ITfInputProcessorProfiles::AddLanguageProfile` 注册到 `zh-CN` (`0x0804`)。
 - **Categories（`ITfCategoryMgr`）**：
@@ -65,7 +65,7 @@ TSF 的按键处理分为两步：
 
 `QiQiTextService` 会立即清空 `WubiEngine` 缓冲、释放 `ITfComposition` 并关闭 `CandidateUI`，防止状态残留。
 
-### 2.5 桌面弹窗与游戏 UILess 双模式（`src/candidate_ui.cpp`）
+### 2.5 桌面弹窗与游戏 UILess 双模式（`src/ui/candidate_ui.cpp`）
 每次需要显示候选词时，先调用 `ITfUIElementMgr::BeginUIElement(candidate_ui_, &show_own_ui, &id)`：
 - 若宿主应用返回 `show_own_ui == TRUE`（绝大多数桌面应用）：显示自带的 `WS_EX_TOPMOST | WS_EX_NOACTIVATE` 候选窗口。
 - 若宿主应用返回 `show_own_ui == FALSE`（全屏游戏 UILess 模式）：隐藏自带弹窗，仅通过 `UpdateUIElement` 通知游戏，由游戏调用 `ITfCandidateListUIElement::GetCount` / `GetString` / `GetSelection` 自行绘制。

@@ -1,7 +1,7 @@
-#include "register.h"
-#include "guids.h"
-#include "logger.h"
-#include "version.h"
+#include "tsf/register.h"
+#include "common/guids.h"
+#include "common/logger.h"
+#include "common/version.h"
 
 #include <msctf.h>
 #include <olectl.h>

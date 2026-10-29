@@ -1,8 +1,8 @@
 #include <windows.h>
-#include "guids.h"
-#include "class_factory.h"
-#include "register.h"
-#include "tip_service.h"
+#include "common/guids.h"
+#include "tsf/class_factory.h"
+#include "tsf/register.h"
+#include "tsf/tip_service.h"
 
 namespace qiqi {
 HINSTANCE g_dll_instance = nullptr;

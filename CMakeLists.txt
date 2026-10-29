@@ -48,13 +48,13 @@ set(QIQIIME_FULL_VERSION "${PROJECT_VERSION}+${QIQIIME_GIT_COMMIT_HASH}")
 
 set(QIQIIME_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/version.h.in"
-    "${QIQIIME_GENERATED_DIR}/version.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/common/version.h.in"
+    "${QIQIIME_GENERATED_DIR}/common/version.h"
     @ONLY
 )
 configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/version.rc.in"
-    "${QIQIIME_GENERATED_DIR}/version.rc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/common/version.rc.in"
+    "${QIQIIME_GENERATED_DIR}/common/version.rc"
     @ONLY
 )
 
@@ -81,14 +81,18 @@ endif()
 find_package(spdlog CONFIG REQUIRED)
 
 # Core Wubi 86 Engine (Static library, pure C++26 + Win32 UTF conversion, testable independently)
-add_library(qiqi_engine STATIC
-    src/logger.cpp
-    src/logger.h
-    src/wubi_engine.cpp
-    src/wubi_engine.h
-    src/wubi_default_dict.h
-    "${QIQIIME_GENERATED_DIR}/version.h"
+set(QIQI_ENGINE_SOURCES
+    src/common/logger.cpp
+    src/common/logger.h
+    src/engine/wubi_engine.cpp
+    src/engine/wubi_engine.h
+    src/engine/wubi_default_dict.h
 )
+add_library(qiqi_engine STATIC
+    ${QIQI_ENGINE_SOURCES}
+    "${QIQIIME_GENERATED_DIR}/common/version.h"
+)
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" FILES ${QIQI_ENGINE_SOURCES})
 target_include_directories(qiqi_engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${QIQIIME_GENERATED_DIR}
@@ -97,21 +101,25 @@ target_compile_definitions(qiqi_engine PUBLIC SPDLOG_USE_STD_FORMAT SPDLOG_WCHAR
 target_link_libraries(qiqi_engine PUBLIC spdlog::spdlog_header_only)
 
 # TSF Text Input Processor COM DLL
-add_library(qiqiime SHARED
-    src/guids.h
-    src/dllmain.cpp
-    src/class_factory.h
-    src/class_factory.cpp
-    src/register.h
-    src/register.cpp
-    src/tip_service.h
-    src/tip_service.cpp
-    src/edit_session.h
-    src/candidate_ui.h
-    src/candidate_ui.cpp
-    src/qiqiime.def
-    "${QIQIIME_GENERATED_DIR}/version.rc"
+set(QIQIIME_SOURCES
+    src/common/guids.h
+    src/tsf/dllmain.cpp
+    src/tsf/class_factory.h
+    src/tsf/class_factory.cpp
+    src/tsf/register.h
+    src/tsf/register.cpp
+    src/tsf/tip_service.h
+    src/tsf/tip_service.cpp
+    src/tsf/edit_session.h
+    src/tsf/qiqiime.def
+    src/ui/candidate_ui.h
+    src/ui/candidate_ui.cpp
 )
+add_library(qiqiime SHARED
+    ${QIQIIME_SOURCES}
+    "${QIQIIME_GENERATED_DIR}/common/version.rc"
+)
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" FILES ${QIQIIME_SOURCES})
 set_target_properties(qiqiime PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}

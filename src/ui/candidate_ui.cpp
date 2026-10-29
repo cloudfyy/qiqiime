@@ -1,6 +1,6 @@
-#include "candidate_ui.h"
-#include "guids.h"
-#include "logger.h"
+#include "ui/candidate_ui.h"
+#include "common/guids.h"
+#include "common/logger.h"
 #include <oleauto.h>
 #include <algorithm>
 

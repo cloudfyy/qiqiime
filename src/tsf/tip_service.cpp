@@ -1,8 +1,8 @@
-#include "tip_service.h"
-#include "edit_session.h"
-#include "guids.h"
-#include "logger.h"
-#include "version.h"
+#include "tsf/tip_service.h"
+#include "tsf/edit_session.h"
+#include "common/guids.h"
+#include "common/logger.h"
+#include "common/version.h"
 
 #include <filesystem>
 

@@ -1,6 +1,6 @@
-#include "wubi_engine.h"
-#include "logger.h"
-#include "version.h"
+#include "engine/wubi_engine.h"
+#include "common/logger.h"
+#include "common/version.h"
 #include <windows.h>
 #include <cassert>
 #include <fstream>

@@ -4,8 +4,8 @@
 #include <wrl/client.h>
 #include <atomic>
 
-#include "wubi_engine.h"
-#include "candidate_ui.h"
+#include "engine/wubi_engine.h"
+#include "ui/candidate_ui.h"
 
 namespace qiqi {
 
