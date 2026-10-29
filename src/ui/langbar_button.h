@@ -63,16 +63,16 @@ public:
 
     // ITfLangBarItemButton
     STDMETHODIMP OnClick(TfLBIClick click, POINT pt, const RECT* prcArea) override;
-    STDMETHODIMP InitMenu(ITfMenu* pMenu) noexcept override;
+    STDMETHODIMP InitMenu(ITfMenu* pMenu) override;
     STDMETHODIMP OnMenuSelect(UINT wID) override;
     STDMETHODIMP GetIcon(HICON* phIcon) noexcept override;
     STDMETHODIMP GetText(BSTR* pbstrText) noexcept override;
 
     // ITfSource
-    STDMETHODIMP AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) noexcept override;
-    STDMETHODIMP UnadviseSink(DWORD dwCookie) noexcept override;
+    STDMETHODIMP AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) override;
+    STDMETHODIMP UnadviseSink(DWORD dwCookie) override;
 
-    void UpdateState(const LangBarState& state) noexcept;
+    void UpdateState(const LangBarState& state);
     const LangBarState& State() const noexcept { return state_; }
 
 private:

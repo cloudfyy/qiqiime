@@ -2,11 +2,14 @@
 #include "common/guids.h"
 
 #include <oleauto.h>
+#include <wrl/client.h>
 #include <new>
 
 namespace qiqi {
 
-TF_DISPLAYATTRIBUTE QiQiDisplayAttributeInfo::DefaultAttribute() noexcept {
+using Microsoft::WRL::ComPtr;
+
+constexpr TF_DISPLAYATTRIBUTE QiQiDisplayAttributeInfo::DefaultAttribute() noexcept {
     TF_DISPLAYATTRIBUTE da{};
     da.crText.type = TF_CT_NONE;
     da.crBk.type = TF_CT_NONE;
@@ -130,12 +133,13 @@ STDMETHODIMP QiQiEnumDisplayAttributeInfo::Next(
         if (pcFetched) *pcFetched = 0;
         return S_FALSE;
     }
-    auto* info = new (std::nothrow) QiQiDisplayAttributeInfo();
+    ComPtr<ITfDisplayAttributeInfo> info;
+    info.Attach(new (std::nothrow) QiQiDisplayAttributeInfo());
     if (!info) {
         if (pcFetched) *pcFetched = 0;
         return E_OUTOFMEMORY;
     }
-    *rgInfo = info;
+    *rgInfo = info.Detach();
     ++index_;
     if (pcFetched) {
         *pcFetched = 1;

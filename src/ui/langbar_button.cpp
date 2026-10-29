@@ -4,6 +4,7 @@
 
 #include <gsl/gsl>
 #include <oleauto.h>
+#include <array>
 #include <cwchar>
 
 namespace qiqi {
@@ -17,7 +18,7 @@ constexpr GUID kGuidLbiInputMode = {
 
 constexpr DWORD kLangBarSinkCookie = 1;
 
-void AddMenuEntry(ITfMenu* menu, LangBarMenuId id, const wchar_t* text, bool checked = false) noexcept {
+void AddMenuEntry(ITfMenu* menu, LangBarMenuId id, const wchar_t* text, bool checked = false) {
     if (!menu || !text) {
         return;
     }
@@ -32,7 +33,7 @@ void AddMenuEntry(ITfMenu* menu, LangBarMenuId id, const wchar_t* text, bool che
         nullptr);
 }
 
-void AddMenuSeparator(ITfMenu* menu) noexcept {
+void AddMenuSeparator(ITfMenu* menu) {
     if (menu) {
         menu->AddMenuItem(0, TF_LBMENUF_SEPARATOR, nullptr, nullptr, nullptr, 0, nullptr);
     }
@@ -112,7 +113,7 @@ STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT /*pt*/, const RECT* 
     return S_OK;
 }
 
-STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) noexcept {
+STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
     if (!pMenu) {
         return E_INVALIDARG;
     }
@@ -154,7 +155,7 @@ STDMETHODIMP LangBarButton::GetText(BSTR* pbstrText) noexcept {
     return *pbstrText ? S_OK : E_OUTOFMEMORY;
 }
 
-STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) noexcept {
+STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) {
     if (!punk || !pdwCookie) {
         return E_INVALIDARG;
     }
@@ -172,7 +173,7 @@ STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCo
     return S_OK;
 }
 
-STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) noexcept {
+STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) {
     if (!sink_ || dwCookie != sink_cookie_) {
         return CONNECT_E_NOCONNECTION;
     }
@@ -181,7 +182,7 @@ STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) noexcept {
     return S_OK;
 }
 
-void LangBarButton::UpdateState(const LangBarState& state) noexcept {
+void LangBarButton::UpdateState(const LangBarState& state) {
     state_ = state;
     if (sink_) {
         sink_->OnUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP);
@@ -190,38 +191,27 @@ void LangBarButton::UpdateState(const LangBarState& state) noexcept {
 
 HICON LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
     const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
-    const HDC screen_dc = ::GetDC(nullptr);
+    const ScopedWindowDC screen_dc(nullptr);
     if (!screen_dc) {
         return nullptr;
     }
-    const auto screen_dc_guard = gsl::finally([screen_dc]() noexcept {
-        ::ReleaseDC(nullptr, screen_dc);
-    });
 
-    const HDC mem_dc = ::CreateCompatibleDC(screen_dc);
+    const ScopedMemoryDC mem_dc(::CreateCompatibleDC(screen_dc.Get()));
     if (!mem_dc) {
         return nullptr;
     }
-    const auto mem_dc_guard = gsl::finally([mem_dc]() noexcept {
-        ::DeleteDC(mem_dc);
-    });
 
-    const ScopedGdiHandle<HBITMAP> color_bmp(::CreateCompatibleBitmap(screen_dc, size, size));
+    const ScopedGdiHandle<HBITMAP> color_bmp(::CreateCompatibleBitmap(screen_dc.Get(), size, size));
     const ScopedGdiHandle<HBITMAP> mask_bmp(::CreateBitmap(size, size, 1, 1, nullptr));
     if (!color_bmp || !mask_bmp) {
         return nullptr;
     }
 
-    const HGDIOBJ old_bmp = ::SelectObject(mem_dc, color_bmp.Get());
-    const auto bmp_guard = gsl::finally([mem_dc, old_bmp]() noexcept {
-        if (old_bmp) {
-            ::SelectObject(mem_dc, old_bmp);
-        }
-    });
+    const ScopedSelectObject sel_bmp(mem_dc.Get(), color_bmp.Get());
 
     RECT rc{0, 0, size, size};
     const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(RGB(35, 105, 200)));
-    ::FillRect(mem_dc, &rc, bg_brush.Get());
+    ::FillRect(mem_dc.Get(), &rc, bg_brush.Get());
 
     LOGFONTW lf{};
     lf.lfHeight = -size + 2;
@@ -230,17 +220,12 @@ HICON LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
     lf.lfQuality = CLEARTYPE_QUALITY;
     wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
     const ScopedGdiHandle<HFONT> font(::CreateFontIndirectW(&lf));
-    const HGDIOBJ old_font = font ? ::SelectObject(mem_dc, font.Get()) : nullptr;
-    const auto font_guard = gsl::finally([mem_dc, old_font]() noexcept {
-        if (old_font) {
-            ::SelectObject(mem_dc, old_font);
-        }
-    });
+    const ScopedSelectObject sel_font(mem_dc.Get(), font.Get());
 
-    ::SetBkMode(mem_dc, TRANSPARENT);
-    ::SetTextColor(mem_dc, RGB(255, 255, 255));
-    const wchar_t text[2] = {ch, L'\0'};
-    ::DrawTextW(mem_dc, text, 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    ::SetBkMode(mem_dc.Get(), TRANSPARENT);
+    ::SetTextColor(mem_dc.Get(), RGB(255, 255, 255));
+    const std::array<wchar_t, 2> text = {ch, L'\0'};
+    ::DrawTextW(mem_dc.Get(), text.data(), 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     ICONINFO ii{};
     ii.fIcon = TRUE;

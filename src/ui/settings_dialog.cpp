@@ -3,7 +3,9 @@
 
 #include <gsl/gsl>
 #include <shellapi.h>
-#include <string>
+#include <array>
+#include <memory>
+#include <tuple>
 
 namespace qiqi {
 
@@ -11,19 +13,21 @@ namespace {
 
 constexpr const wchar_t* kSettingsWndClass = L"QiQiIMESettingsDialogClass";
 
-enum ControlId : int {
-    kIdRadioJidian = 101,
-    kIdRadioHaifeng = 102,
-    kIdRadioBuiltin = 103,
-    kIdChkExtraDict = 104,
-    kIdChkAutoCommit4 = 105,
-    kIdChkPushCommit5 = 106,
-    kIdChkShiftToggle = 107,
-    kIdChkStatusBar = 108,
-    kIdComboPageSize = 109,
-    kIdBtnOpenIni = 110,
-    kIdBtnOk = IDOK,
-    kIdBtnCancel = IDCANCEL
+constexpr int kIdRadioJidian = 101;
+constexpr int kIdRadioHaifeng = 102;
+constexpr int kIdRadioBuiltin = 103;
+constexpr int kIdChkExtraDict = 104;
+constexpr int kIdChkAutoCommit4 = 105;
+constexpr int kIdChkPushCommit5 = 106;
+constexpr int kIdChkShiftToggle = 107;
+constexpr int kIdChkStatusBar = 108;
+constexpr int kIdComboPageSize = 109;
+constexpr int kIdBtnOpenIni = 110;
+constexpr int kIdBtnOk = IDOK;
+constexpr int kIdBtnCancel = IDCANCEL;
+
+constexpr std::array<const wchar_t*, 9> kPageSizeLabels = {
+    L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9"
 };
 
 struct DialogContext {
@@ -100,7 +104,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     }
     if (msg == WM_NCDESTROY && ctx) {
         ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-        delete ctx;
+        const std::unique_ptr<DialogContext> owned_ctx(ctx);
     }
     return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
@@ -148,7 +152,7 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     if (combo) {
         const LRESULT sel = ::SendMessageW(combo, CB_GETCURSEL, 0, 0);
         if (sel >= 0 && sel < 9) {
-            config.page_size = static_cast<size_t>(sel + 1);
+            config.page_size = gsl::narrow_cast<size_t>(sel + 1);
         }
     }
 }
@@ -163,8 +167,10 @@ HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_con
     wc.lpszClassName = kSettingsWndClass;
     ::RegisterClassExW(&wc);
 
-    auto* ctx = new (std::nothrow) DialogContext{};
-    if (!ctx) {
+    std::unique_ptr<DialogContext> ctx;
+    try {
+        ctx = std::make_unique<DialogContext>();
+    } catch (...) {
         return nullptr;
     }
     ctx->config = bound_config;
@@ -176,19 +182,19 @@ HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_con
     wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
     ctx->font.Reset(::CreateFontIndirectW(&lf));
 
+    const HFONT f = ctx->font.Get();
     const HWND hwnd = ::CreateWindowExW(
         WS_EX_DLGMODALFRAME,
         kSettingsWndClass,
         L"QiQi 五笔输入法 - 属性设置",
         WS_POPUP | WS_CAPTION | WS_SYSMENU,
         240, 200, 400, 360,
-        parent, nullptr, instance, ctx);
+        parent, nullptr, instance, ctx.get());
     if (!hwnd) {
-        delete ctx;
         return nullptr;
     }
+    std::ignore = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
 
-    const HFONT f = ctx->font.Get();
     CreateChildControl(hwnd, instance, f, L"BUTTON", L"极点五笔 86 核心词库 (推荐)", BS_AUTORADIOBUTTON | WS_GROUP, 24, 20, 340, 24, kIdRadioJidian);
     CreateChildControl(hwnd, instance, f, L"BUTTON", L"海峰五笔 86 超大字符集词库 (含生僻字)", BS_AUTORADIOBUTTON, 24, 48, 340, 24, kIdRadioHaifeng);
     CreateChildControl(hwnd, instance, f, L"BUTTON", L"仅使用内置精简保底词库", BS_AUTORADIOBUTTON, 24, 76, 340, 24, kIdRadioBuiltin);
@@ -202,9 +208,8 @@ HWND CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_con
     CreateChildControl(hwnd, instance, f, L"STATIC", L"每页候选词数量:", 0, 24, 260, 120, 24, 0);
     CreateChildControl(hwnd, instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, 150, 256, 70, 200, kIdComboPageSize);
     const HWND combo = ::GetDlgItem(hwnd, kIdComboPageSize);
-    for (int i = 1; i <= 9; ++i) {
-        const std::wstring item = std::to_wstring(i);
-        ::SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
+    for (const wchar_t* label : kPageSizeLabels) {
+        ::SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     }
 
     CreateChildControl(hwnd, instance, f, L"BUTTON", L"编辑 config.ini", BS_PUSHBUTTON, 24, 294, 110, 28, kIdBtnOpenIni);
@@ -223,7 +228,7 @@ bool ShowSettingsDialog(HINSTANCE instance, HWND parent, QiQiConfig& in_out_conf
         return false;
     }
 
-    auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     ::ShowWindow(hwnd, SW_SHOWNORMAL);
     ::UpdateWindow(hwnd);
 

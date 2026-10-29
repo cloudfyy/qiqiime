@@ -91,19 +91,16 @@ void TestLangBarButton() {
     QIQI_TEST_CHECK(SUCCEEDED(btn->Show(TRUE)));
 
     QIQI_TEST_CHECK(btn->GetTooltipString(nullptr) == E_INVALIDARG);
-    BSTR tooltip = nullptr;
-    QIQI_TEST_CHECK(SUCCEEDED(btn->GetTooltipString(&tooltip)) && tooltip != nullptr);
-    ::SysFreeString(tooltip);
+    ScopedBstr tooltip;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetTooltipString(tooltip.Put())) && tooltip.IsValid());
 
     QIQI_TEST_CHECK(btn->GetText(nullptr) == E_INVALIDARG);
-    BSTR text = nullptr;
-    QIQI_TEST_CHECK(SUCCEEDED(btn->GetText(&text)) && std::wstring(text) == L"中");
-    ::SysFreeString(text);
+    ScopedBstr text;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetText(text.Put())) && std::wstring(text.Get()) == L"中");
 
     QIQI_TEST_CHECK(btn->GetIcon(nullptr) == E_INVALIDARG);
-    HICON icon = nullptr;
-    QIQI_TEST_CHECK(SUCCEEDED(btn->GetIcon(&icon)) && icon != nullptr);
-    ::DestroyIcon(icon);
+    ScopedIcon icon;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetIcon(icon.Put())) && icon.IsValid());
 
     // AdviseSink / UpdateState / UnadviseSink
     MockLangBarItemSink sink;
@@ -117,8 +114,7 @@ void TestLangBarButton() {
     st.chinese_mode = false;
     btn->UpdateState(st);
     QIQI_TEST_CHECK(sink.last_update_flags_ != 0);
-    QIQI_TEST_CHECK(SUCCEEDED(btn->GetText(&text)) && std::wstring(text) == L"英");
-    ::SysFreeString(text);
+    QIQI_TEST_CHECK(SUCCEEDED(btn->GetText(text.Put())) && std::wstring(text.Get()) == L"英");
 
     QIQI_TEST_CHECK(lb_src->UnadviseSink(9999) == CONNECT_E_NOCONNECTION);
     QIQI_TEST_CHECK(SUCCEEDED(lb_src->UnadviseSink(cookie)));
@@ -153,9 +149,8 @@ void TestCandidateUI() {
 
     // Metadata & invalid arg checks
     QIQI_TEST_CHECK(ui->GetDescription(nullptr) == E_INVALIDARG);
-    BSTR desc = nullptr;
-    QIQI_TEST_CHECK(SUCCEEDED(ui->GetDescription(&desc)) && desc != nullptr);
-    ::SysFreeString(desc);
+    ScopedBstr desc;
+    QIQI_TEST_CHECK(SUCCEEDED(ui->GetDescription(desc.Put())) && desc.IsValid());
 
     QIQI_TEST_CHECK(ui->GetGUID(nullptr) == E_INVALIDARG);
     GUID guid{};
@@ -183,8 +178,8 @@ void TestCandidateUI() {
     QIQI_TEST_CHECK(SUCCEEDED(ui->GetSelection(&sel)) && sel == 0);
     UINT page_cnt = 99;
     QIQI_TEST_CHECK(SUCCEEDED(ui->GetPageIndex(nullptr, 0, &page_cnt)) && page_cnt == 0);
-    BSTR str = nullptr;
-    QIQI_TEST_CHECK(ui->GetString(0, &str) == E_INVALIDARG);
+    ScopedBstr str;
+    QIQI_TEST_CHECK(ui->GetString(0, str.Put()) == E_INVALIDARG);
 
     // Show empty window and trigger WM_PAINT
     QIQI_TEST_CHECK(SUCCEEDED(ui->Show(TRUE)));
@@ -218,10 +213,9 @@ void TestCandidateUI() {
     QIQI_TEST_CHECK(SUCCEEDED(ui->GetPageIndex(page_indices, 4, &page_cnt)) && page_cnt == 2);
     QIQI_TEST_CHECK(page_indices[0] == 0 && page_indices[1] == 5);
 
-    QIQI_TEST_CHECK(SUCCEEDED(ui->GetString(6, &str)) && str != nullptr);
-    QIQI_TEST_CHECK(std::wstring(str) == L"七");
-    ::SysFreeString(str);
-    QIQI_TEST_CHECK(ui->GetString(7, &str) == E_INVALIDARG);
+    QIQI_TEST_CHECK(SUCCEEDED(ui->GetString(6, str.Put())) && str.IsValid());
+    QIQI_TEST_CHECK(std::wstring(str.Get()) == L"七");
+    QIQI_TEST_CHECK(ui->GetString(7, str.Put()) == E_INVALIDARG);
 
     // Test off-screen work area clamping, long candidate auto-sizing, DPI change, & mouse click selection
     std::vector<std::wstring> long_cands = {

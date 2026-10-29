@@ -64,15 +64,18 @@ QiQiTextService::QiQiTextService() {
 }
 
 QiQiTextService::~QiQiTextService() noexcept {
-    if (status_bar_) {
-        status_bar_->DestroyBarWindow();
-        status_bar_.reset();
+    try {
+        if (status_bar_) {
+            status_bar_->DestroyBarWindow();
+            status_bar_.reset();
+        }
+        if (candidate_ui_) {
+            candidate_ui_->DestroyPopupWindow();
+            candidate_ui_.Reset();
+        }
+        langbar_btn_.Reset();
+    } catch (...) {
     }
-    if (candidate_ui_) {
-        candidate_ui_->DestroyPopupWindow();
-        candidate_ui_.Reset();
-    }
-    langbar_btn_.Reset();
     --g_com_object_count;
 }
 
@@ -275,8 +278,8 @@ void QiQiTextService::InitFunctionProvider() {
     }
     ComPtr<ITfSourceSingle> source_single;
     if (SUCCEEDED(thread_mgr_.As(&source_single)) && source_single) {
-        source_single->AdviseSingleSink(
-            client_id_, IID_ITfFunctionProvider, static_cast<ITfFunctionProvider*>(this));
+        ITfFunctionProvider* const provider = this;
+        source_single->AdviseSingleSink(client_id_, IID_ITfFunctionProvider, provider);
     }
 }
 

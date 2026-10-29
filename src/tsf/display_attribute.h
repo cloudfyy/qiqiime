@@ -29,7 +29,7 @@ public:
     STDMETHODIMP Reset() noexcept override;
 
 private:
-    static TF_DISPLAYATTRIBUTE DefaultAttribute() noexcept;
+    static constexpr TF_DISPLAYATTRIBUTE DefaultAttribute() noexcept;
 
     std::atomic<ULONG> ref_count_{1};
     TF_DISPLAYATTRIBUTE attr_{};

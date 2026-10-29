@@ -37,9 +37,8 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(disp_attr_prov->GetDisplayAttributeInfo(kGuidDisplayAttributeInput, &attr_info)) && attr_info);
     GUID attr_guid{};
     QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetGUID(&attr_guid)) && IsEqualGUID(attr_guid, kGuidDisplayAttributeInput));
-    BSTR attr_desc = nullptr;
-    QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetDescription(&attr_desc)) && attr_desc != nullptr);
-    ::SysFreeString(attr_desc);
+    ScopedBstr attr_desc;
+    QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetDescription(attr_desc.Put())) && attr_desc.IsValid());
     TF_DISPLAYATTRIBUTE da{};
     QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetAttributeInfo(&da)) && da.lsStyle == TF_LS_DOT);
     da.fBoldLine = TRUE;

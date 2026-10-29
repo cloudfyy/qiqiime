@@ -92,12 +92,7 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) const {
     const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(RGB(246, 248, 252)));
     ::FillRect(hdc, &client_rect, bg_brush.Get());
 
-    const HGDIOBJ old_font = font_ ? ::SelectObject(hdc, font_.Get()) : nullptr;
-    const auto font_guard = gsl::finally([hdc, old_font]() noexcept {
-        if (old_font) {
-            ::SelectObject(hdc, old_font);
-        }
-    });
+    const ScopedSelectObject sel_font(hdc, font_.Get());
     ::SetBkMode(hdc, TRANSPARENT);
 
     // Logo area [0, kLogoWidth)
@@ -144,7 +139,7 @@ LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         return TRUE;
     }
 
-    auto* self = reinterpret_cast<StatusBarUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    const auto* self = reinterpret_cast<const StatusBarUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (!self) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
@@ -153,7 +148,7 @@ LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         return MA_NOACTIVATE;
     }
     if (msg == WM_NCHITTEST) {
-        POINT pt{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+        POINT pt = PointFromLParam(lparam);
         ::ScreenToClient(hwnd, &pt);
         if (pt.x >= 0 && pt.x < kLogoWidth) {
             return HTCAPTION; // Allow dragging by the "五笔" logo area
@@ -161,19 +156,14 @@ LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         return HTCLIENT;
     }
     if (msg == WM_LBUTTONDOWN) {
-        const POINT pt{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        self->OnLeftButtonDown(pt);
+        self->OnLeftButtonDown(PointFromLParam(lparam));
         return 0;
     }
     if (msg == WM_PAINT) {
-        PAINTSTRUCT ps{};
-        const HDC hdc = ::BeginPaint(hwnd, &ps);
-        const auto paint_guard = gsl::finally([hwnd, &ps]() noexcept {
-            ::EndPaint(hwnd, &ps);
-        });
+        const ScopedPaintDC paint_dc(hwnd);
         RECT rc{};
         ::GetClientRect(hwnd, &rc);
-        self->PaintBar(hdc, rc);
+        self->PaintBar(paint_dc.Get(), rc);
         return 0;
     }
 

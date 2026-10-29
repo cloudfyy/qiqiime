@@ -53,9 +53,9 @@ public:
                        std::vector<std::wstring> all_candidates,
                        size_t page_size,
                        size_t current_page,
-                       size_t selected_in_page) noexcept;
+                       size_t selected_in_page);
 
-    void MoveWindowTo(const RECT& text_rect) noexcept;
+    void MoveWindowTo(const RECT& text_rect);
     void DestroyPopupWindow() noexcept;
 
     void SetSelectCallback(SelectCallback cb) noexcept { select_callback_ = std::move(cb); }
@@ -69,7 +69,7 @@ public:
 private:
     int ScaleByDpi(int px) const noexcept { return ::MulDiv(px, dpi_, 96); }
     void UpdateDpiAndFont(UINT new_dpi) noexcept;
-    void RecalculatePopupLayout() noexcept;
+    void RecalculatePopupLayout();
     void OnLeftButtonDown(POINT pt) const;
     bool EnsurePopupWindow() noexcept;
     void PaintPopup(HDC hdc, const RECT& client_rect) const;
