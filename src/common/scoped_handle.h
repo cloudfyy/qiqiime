@@ -107,6 +107,13 @@ struct BstrTraits {
     static void Close(HandleType bstr) noexcept { ::SysFreeString(bstr); }
 };
 
+struct MenuTraits {
+    using HandleType = HMENU;
+    static constexpr HandleType Invalid() noexcept { return nullptr; }
+    static constexpr bool IsValid(const HandleType& menu) noexcept { return menu != nullptr; }
+    static void Close(HandleType menu) noexcept { ::DestroyMenu(menu); }
+};
+
 template <typename GdiHandleT>
 struct GdiObjectTraits {
     using HandleType = GdiHandleT;
@@ -122,6 +129,7 @@ using ScopedRegKey = ScopedHandle<RegKeyTraits>;
 using ScopedMemoryDC = ScopedHandle<CreatedDcTraits>;
 using ScopedIcon = ScopedHandle<IconTraits>;
 using ScopedBstr = ScopedHandle<BstrTraits>;
+using ScopedMenu = ScopedHandle<MenuTraits>;
 
 template <typename GdiHandleT>
 using ScopedGdiHandle = ScopedHandle<GdiObjectTraits<GdiHandleT>>;

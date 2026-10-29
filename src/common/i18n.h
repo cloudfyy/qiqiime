@@ -30,6 +30,11 @@ struct UiStrings {
     const wchar_t* status_width_full;
     const wchar_t* status_width_half;
     const wchar_t* status_settings;
+    const wchar_t* tip_grip;
+    const wchar_t* tip_mode;
+    const wchar_t* tip_width;
+    const wchar_t* tip_punct;
+    const wchar_t* tip_settings;
 
     // Settings dialog & ITfFnConfigure
     const wchar_t* configure_display_name;
@@ -75,6 +80,11 @@ inline constexpr UiStrings kZhCnStrings = {
     L"全",
     L"半",
     L"设",
+    L"按住拖动状态栏，右键打开菜单",
+    L"切换中/英文模式 (Shift / Ctrl+Space)",
+    L"切换全/半角模式 (Shift+Space)",
+    L"切换中/英文标点 (Ctrl+.)",
+    L"打开输入法属性设置",
 
     L"QiQi 五笔属性设置",
     L"QiQi 五笔输入法 - 属性设置",
@@ -119,6 +129,11 @@ inline constexpr UiStrings kEnUsStrings = {
     L"FW",
     L"HW",
     L"Cfg",
+    L"Drag to move status bar, right-click for menu",
+    L"Toggle Chinese/English Mode (Shift / Ctrl+Space)",
+    L"Toggle Full/Half Width (Shift+Space)",
+    L"Toggle Chinese/English Punctuation (Ctrl+.)",
+    L"Open IME Settings",
 
     L"QiQi Wubi Settings",
     L"QiQi Wubi IME - Settings",

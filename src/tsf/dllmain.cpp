@@ -20,6 +20,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         // unregister window classes and flush/release logger resources safely.
         ::UnregisterClassW(qiqi::kCandidateWndClass, hModule);
         ::UnregisterClassW(qiqi::kStatusBarWndClass, hModule);
+        ::UnregisterClassW(qiqi::kStatusBarTooltipWndClass, hModule);
         ::UnregisterClassW(qiqi::kSettingsWndClass, hModule);
         qiqi::log::Shutdown();
     }

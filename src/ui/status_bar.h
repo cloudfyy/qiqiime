@@ -1,20 +1,26 @@
 #pragma once
 #include <windows.h>
 #include <functional>
+#include <string>
 
 #include "common/scoped_handle.h"
 #include "ui/langbar_button.h"
 
 namespace qiqi {
 
-// Compact floating desktop IME status bar (disabled by default via config.show_status_bar = false).
-// Displays [QiQi | 中/英 | 半/全 | 。/. | 设] and allows clicking buttons or dragging.
+// Compact floating desktop IME status/language bar (disabled by default via config.show_status_bar = false).
+// Layout: [ | Grip(22) | 中/英(36) | ☾/●(36) | °，/.,(36) | ⚙(36) ]
+// Supports leftmost vertical pill gripper dragging, per-button tooltips, right-click context menu, and system Light/Dark theme.
 class StatusBarUI final {
 public:
     using ActionCallback = std::function<void(LangBarMenuId action_id)>;
 
-    static constexpr int kBarWidth = 176;
-    static constexpr int kBarHeight = 32;
+    static constexpr int kGripWidth = 22;
+    static constexpr int kButtonsOffset = kGripWidth; // 22
+    static constexpr int kCellWidth = 36;
+    static constexpr int kCellCount = 4;
+    static constexpr int kBarWidth = kButtonsOffset + kCellWidth * kCellCount; // 166
+    static constexpr int kBarHeight = 36;
 
     explicit StatusBarUI(HINSTANCE instance, ActionCallback cb = {}) noexcept;
     ~StatusBarUI() noexcept;
@@ -28,20 +34,45 @@ public:
     bool IsVisible() const noexcept { return visible_; }
     void UpdateState(const LangBarState& state) noexcept;
     void DestroyBarWindow() noexcept;
+
     HWND WindowHandle() const noexcept { return hwnd_; }
+    HWND TooltipWindowHandle() const noexcept { return tooltip_hwnd_; }
+    POINT Position() const noexcept { return pos_; }
+    int HoveredZone() const noexcept { return hovered_zone_; }
+    const std::wstring& ActiveTooltipText() const noexcept { return active_tooltip_text_; }
+
+    // Return localized tooltip text for a client X coordinate on the status bar.
+    const wchar_t* GetTooltipTextForX(int client_x) const noexcept;
+
+    // Build a themed Win32 popup context menu matching the current state and UI language.
+    ScopedMenu BuildContextMenu(ScopedGdiHandle<HBRUSH>& out_bg_brush) const noexcept;
 
 private:
+    int HitTestZone(int client_x) const noexcept;
     bool EnsureBarWindow() noexcept;
+    bool EnsureTooltipWindow() noexcept;
+    void UpdateTooltipForZone(int zone, int client_x);
+    void HideTooltip() noexcept;
     void PaintBar(HDC hdc, const RECT& client_rect) const;
+    void PaintTooltip(HDC hdc, const RECT& client_rect) const;
+    void OnMouseMove(POINT pt);
+    void OnMouseLeave() noexcept;
     void OnLeftButtonDown(POINT pt) const;
+    void OnRightButtonUp(POINT client_pt) const;
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+    static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;
+    HWND tooltip_hwnd_ = nullptr;
     ScopedGdiHandle<HFONT> font_;
+    ScopedGdiHandle<HFONT> tooltip_font_;
     bool visible_ = false;
     POINT pos_{0, 0};
     bool pos_initialized_ = false;
+    int hovered_zone_ = -1; // -1 = none, 0 = grip/logo, 1..4 = cells 0..3
+    bool tracking_mouse_ = false;
+    std::wstring active_tooltip_text_;
     LangBarState state_{};
     ActionCallback action_callback_;
 };

@@ -2,6 +2,7 @@
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
+#include "common/theme.h"
 #include "engine/wubi_fsm.h"
 #include <gsl/gsl>
 #include <oleauto.h>
@@ -321,7 +322,8 @@ void CandidateUI::DestroyPopupWindow() noexcept {
 }
 
 void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
-    const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(RGB(250, 251, 253)));
+    const auto& palette = GetCurrentThemePalette();
+    const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.window_bg));
     ::FillRect(hdc, &client_rect, bg_brush.Get());
 
     const ScopedSelectObject sel_font(hdc, font_.Get());
@@ -335,14 +337,14 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
         header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
     }
     RECT top_rect = {ScaleByDpi(10), ScaleByDpi(6), client_rect.right - ScaleByDpi(10), ScaleByDpi(30)};
-    ::SetTextColor(hdc, RGB(35, 105, 200));
+    ::SetTextColor(hdc, palette.text_accent);
     ::DrawTextW(hdc, header.c_str(), -1, &top_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
     // Line 2: Horizontal candidates positioned using pre-measured hit rects
     const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
     if (start >= end) {
         RECT bottom_rect = {ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
-        ::SetTextColor(hdc, RGB(30, 30, 30));
+        ::SetTextColor(hdc, palette.text_primary);
         ::DrawTextW(hdc, str.candidate_empty, -1, &bottom_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
         return;
     }
@@ -357,7 +359,7 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
         RECT item_rc = (idx_in_page < candidate_hit_rects_.size())
             ? gsl::at(candidate_hit_rects_, idx_in_page)
             : RECT{ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
-        ::SetTextColor(hdc, idx_in_page == selected_in_page_ ? RGB(20, 90, 190) : RGB(30, 30, 30));
+        ::SetTextColor(hdc, idx_in_page == selected_in_page_ ? palette.text_accent : palette.text_primary);
         ::DrawTextW(hdc, label.c_str(), -1, &item_rc, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOCLIP);
     }
 }

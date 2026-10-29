@@ -2,6 +2,7 @@
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/scoped_handle.h"
+#include "common/theme.h"
 
 #include <gsl/gsl>
 #include <oleauto.h>
@@ -122,6 +123,7 @@ STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
     if (!pMenu) {
         return E_INVALIDARG;
     }
+    ApplySystemThemeToMenuAndWindow(nullptr, IsSystemDarkTheme());
     const auto& str = GetUiStrings(state_.ui_language);
 
     AddMenuEntry(pMenu, LangBarMenuId::ToggleChinese, str.menu_toggle_chinese, state_.chinese_mode);
@@ -212,8 +214,9 @@ HICON LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
 
     const ScopedSelectObject sel_bmp(mem_dc.Get(), color_bmp.Get());
 
+    const auto& palette = GetCurrentThemePalette();
     RECT rc{0, 0, size, size};
-    const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(RGB(35, 105, 200)));
+    const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.logo_bg));
     ::FillRect(mem_dc.Get(), &rc, bg_brush.Get());
 
     LOGFONTW lf{};

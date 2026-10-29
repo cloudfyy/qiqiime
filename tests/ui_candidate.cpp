@@ -1,5 +1,7 @@
 #include "common.h"
 #include "common/guids.h"
+#include "common/i18n.h"
+#include "common/theme.h"
 #include "ui/candidate_ui.h"
 #include "ui/langbar_button.h"
 #include "ui/settings_dialog.h"
@@ -372,6 +374,16 @@ void TestSettingsDialogControls() {
 }
 
 void TestStatusBarUI() {
+    // 1. Test theme detection & palette switching (OS default, forced Light, forced Dark)
+    SetThemeDarkOverrideForTest(std::nullopt);
+    (void)IsSystemDarkTheme();
+    SetThemeDarkOverrideForTest(false);
+    QIQI_TEST_CHECK(!IsSystemDarkTheme());
+    QIQI_TEST_CHECK(!GetCurrentThemePalette().is_dark);
+    SetThemeDarkOverrideForTest(true);
+    QIQI_TEST_CHECK(IsSystemDarkTheme());
+    QIQI_TEST_CHECK(GetCurrentThemePalette().is_dark);
+
     LangBarMenuId clicked_action = static_cast<LangBarMenuId>(0);
     StatusBarUI bar(::GetModuleHandleW(nullptr), [&clicked_action](LangBarMenuId id) {
         clicked_action = id;
@@ -382,13 +394,13 @@ void TestStatusBarUI() {
 
     LangBarState st{};
     st.show_status_bar = true;
+    st.ui_language = UiLanguage::ZhCn;
     bar.UpdateState(st);
     // Call Show(true) again when window already exists
     bar.Show(true);
     QIQI_TEST_CHECK(bar.IsVisible());
     QIQI_TEST_CHECK(bar.WindowHandle() != nullptr);
 
-    // Pump WM_PAINT and test cell clicks: [Logo:0..48] [Cell0:48..80] [Cell1:80..112] [Cell2:112..144] [Cell3:144..176]
     MSG msg{};
     while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
         ::TranslateMessage(&msg);
@@ -396,39 +408,87 @@ void TestStatusBarUI() {
     }
 
     ::SendMessageW(bar.WindowHandle(), WM_MOUSEACTIVATE, 0, 0);
-    // Test WM_NCHITTEST on logo area (HTCAPTION) and button area (HTCLIENT)
-    POINT logo_screen{10, 10};
-    ::ClientToScreen(bar.WindowHandle(), &logo_screen);
-    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_NCHITTEST, 0, MAKELPARAM(logo_screen.x, logo_screen.y)) == HTCAPTION);
-    POINT btn_screen{60, 10};
+
+    // 2. Test leftmost vertical pill gripper [0..22) hit-test (HTCAPTION), cursor, and window moving (WM_MOVE)
+    POINT grip_screen{10, 18};
+    ::ClientToScreen(bar.WindowHandle(), &grip_screen);
+    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_NCHITTEST, 0, MAKELPARAM(grip_screen.x, grip_screen.y)) == HTCAPTION);
+    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_SETCURSOR, reinterpret_cast<WPARAM>(bar.WindowHandle()), MAKELPARAM(HTCAPTION, WM_MOUSEMOVE)) == TRUE);
+
+    POINT btn_screen{40, 18};
     ::ClientToScreen(bar.WindowHandle(), &btn_screen);
     QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_NCHITTEST, 0, MAKELPARAM(btn_screen.x, btn_screen.y)) == HTCLIENT);
+    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_SETCURSOR, reinterpret_cast<WPARAM>(bar.WindowHandle()), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE)) == TRUE);
 
-    // Click on logo area (ignored) and out-of-range cell (ignored)
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 16));
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(300, 16));
-    QIQI_TEST_CHECK(clicked_action == static_cast<LangBarMenuId>(0));
+    ::SendMessageW(bar.WindowHandle(), WM_MOVE, 0, MAKELPARAM(320, 480));
+    QIQI_TEST_CHECK(bar.Position().x == 320 && bar.Position().y == 480);
 
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(55, 16));
-    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleChinese);
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(90, 16));
-    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleFullWidth);
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(120, 16));
-    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::TogglePunctuation);
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(155, 16));
-    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::OpenSettings);
+    // 3. Test hover tooltips across Grip [0..22) and all 4 buttons [22..58, 58..94, 94..130, 130..166)
+    QIQI_TEST_CHECK(std::wstring(bar.GetTooltipTextForX(-5)).empty());
+    QIQI_TEST_CHECK(std::wstring(bar.GetTooltipTextForX(999)).empty());
 
-    // Test StatusBar rendering in English UI mode & English input/full-width states
-    st.ui_language = UiLanguage::EnUs;
-    st.chinese_mode = false;
-    st.full_width = true;
-    st.chinese_punct = false;
-    bar.UpdateState(st);
+    ::SendMessageW(bar.WindowHandle(), WM_NCMOUSEMOVE, HTCAPTION, MAKELPARAM(grip_screen.x, grip_screen.y));
+    QIQI_TEST_CHECK(bar.HoveredZone() == 0);
+    QIQI_TEST_CHECK(bar.ActiveTooltipText() == kZhCnStrings.tip_grip);
+    QIQI_TEST_CHECK(bar.TooltipWindowHandle() != nullptr);
+    ::SendMessageW(bar.TooltipWindowHandle(), WM_MOUSEACTIVATE, 0, 0);
+
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(35, 18));
+    QIQI_TEST_CHECK(bar.HoveredZone() == 1 && bar.ActiveTooltipText() == kZhCnStrings.tip_mode);
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(70, 18));
+    QIQI_TEST_CHECK(bar.HoveredZone() == 2 && bar.ActiveTooltipText() == kZhCnStrings.tip_width);
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(105, 18));
+    QIQI_TEST_CHECK(bar.HoveredZone() == 3 && bar.ActiveTooltipText() == kZhCnStrings.tip_punct);
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(145, 18));
+    QIQI_TEST_CHECK(bar.HoveredZone() == 4 && bar.ActiveTooltipText() == kZhCnStrings.tip_settings);
+
     while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
         ::TranslateMessage(&msg);
         ::DispatchMessageW(&msg);
     }
 
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSELEAVE, 0, 0);
+    QIQI_TEST_CHECK(bar.HoveredZone() == -1 && bar.ActiveTooltipText().empty());
+
+    // 4. Test button clicks: [Grip:0..22] [Cell0:22..58] [Cell1:58..94] [Cell2:94..130] [Cell3:130..166]
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 18));
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(300, 18));
+    QIQI_TEST_CHECK(clicked_action == static_cast<LangBarMenuId>(0));
+
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(35, 18));
+    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleChinese);
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(70, 18));
+    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleFullWidth);
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(105, 18));
+    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::TogglePunctuation);
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(145, 18));
+    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::OpenSettings);
+
+    // 5. Test themed right-click context menu & WM_COMMAND / WM_SETTINGCHANGE in Light & Dark modes
+    ScopedGdiHandle<HBRUSH> menu_brush;
+    ScopedMenu popup_menu = bar.BuildContextMenu(menu_brush);
+    QIQI_TEST_CHECK(popup_menu.IsValid() && menu_brush.IsValid());
+    QIQI_TEST_CHECK(::GetMenuItemCount(popup_menu.Get()) == 12); // 10 items + 2 separators
+
+    ::SendMessageW(bar.WindowHandle(), WM_COMMAND, MAKEWPARAM(static_cast<UINT>(LangBarMenuId::ToggleUiLanguage), 0), 0);
+    QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleUiLanguage);
+
+    // Test Light theme + English UI rendering and tooltips
+    SetThemeDarkOverrideForTest(false);
+    ::SendMessageW(bar.WindowHandle(), WM_SETTINGCHANGE, 0, 0);
+    st.ui_language = UiLanguage::EnUs;
+    st.chinese_mode = false;
+    st.full_width = true;
+    st.chinese_punct = false;
+    bar.UpdateState(st);
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(35, 18));
+    QIQI_TEST_CHECK(bar.ActiveTooltipText() == kEnUsStrings.tip_mode);
+    while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        ::TranslateMessage(&msg);
+        ::DispatchMessageW(&msg);
+    }
+
+    SetThemeDarkOverrideForTest(std::nullopt);
     st.show_status_bar = false;
     bar.UpdateState(st);
     QIQI_TEST_CHECK(!bar.IsVisible());
