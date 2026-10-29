@@ -48,6 +48,9 @@ struct QiQiConfig {
 // Return default user configuration path: %LOCALAPPDATA%\QiQiIME\config.ini
 std::filesystem::path GetDefaultUserConfigPath();
 
+// Return default user custom dictionary path: %LOCALAPPDATA%\QiQiIME\user_dict.txt
+std::filesystem::path GetDefaultUserDictPath();
+
 // Parse UTF-8 INI content into QiQiConfig (starting from defaults).
 QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content);
 

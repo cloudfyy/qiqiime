@@ -539,4 +539,28 @@ void WubiMappedDict::LookupWildcard(
     }
 }
 
+std::wstring WubiMappedDict::FindLongestCodeForWord(std::wstring_view word) const {
+    if (word.empty() || code_index_.empty()) {
+        return {};
+    }
+    std::wstring best_code;
+    for (const auto& entry : code_index_) {
+        const size_t end_idx = std::min<size_t>(
+            static_cast<size_t>(entry.first_word_idx) + entry.word_count, word_slices_.size());
+        for (size_t i = entry.first_word_idx; i < end_idx; ++i) {
+            if (GetWordView(gsl::at(word_slices_, i)) == word) {
+                std::wstring candidate = UnpackWubiCode(entry.packed_code);
+                if (candidate.size() > best_code.size()) {
+                    best_code = std::move(candidate);
+                    if (best_code.size() >= 4) {
+                        return best_code;
+                    }
+                }
+                break;
+            }
+        }
+    }
+    return best_code;
+}
+
 } // namespace qiqi

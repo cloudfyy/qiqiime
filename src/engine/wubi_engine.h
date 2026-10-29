@@ -51,6 +51,15 @@ public:
     // Add a single entry
     void AddEntry(std::wstring_view code, std::wstring_view word);
 
+    // Find the longest Wubi 86 code registered for a single character/word across active dictionaries.
+    std::wstring LookupCharacterCode(std::wstring_view ch) const;
+
+    // Compute the 4-letter Wubi 86 phrase code (2+2 for 2 chars, 1+1+2 for 3 chars, 1+1+1+last for >=4 chars).
+    std::wstring EncodePhraseWubi86(std::wstring_view phrase) const;
+
+    // Auto-encode a multi-character phrase, add it to the active in-memory dictionary, and optionally append to user_dict_path.
+    bool AddUserPhrase(std::wstring_view phrase, const std::filesystem::path& user_dict_path = {});
+
     // Mode & configuration management
     void ApplyConfig(const QiQiConfig& cfg) noexcept;
     bool IsChineseMode() const noexcept { return state_ != EngineState::English; }

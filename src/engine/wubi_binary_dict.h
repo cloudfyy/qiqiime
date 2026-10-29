@@ -161,6 +161,9 @@ public:
                         size_t max_results,
                         std::vector<std::wstring>* out_display_labels = nullptr) const;
 
+    // Find the longest Wubi code (up to 4 letters) associated with a single character or word.
+    std::wstring FindLongestCodeForWord(std::wstring_view word) const;
+
 private:
     bool OpenMappedFile(const std::filesystem::path& bin_path,
                         uint64_t expected_src_size,

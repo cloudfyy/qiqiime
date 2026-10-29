@@ -129,6 +129,14 @@ std::filesystem::path GetDefaultUserConfigPath() {
     return app_dir / L"config.ini";
 }
 
+std::filesystem::path GetDefaultUserDictPath() {
+    const std::filesystem::path app_dir = log::GetAppDataDirectory();
+    if (app_dir.empty()) {
+        return L"user_dict.txt";
+    }
+    return app_dir / L"user_dict.txt";
+}
+
 QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
     QiQiConfig cfg{};
     utf8_content = log::StripUtf8Bom(utf8_content);

@@ -1,11 +1,35 @@
 #include "engine/wubi_engine.h"
 #include "engine/wubi_default_dict.h"
 #include "common/logger.h"
+#include "common/scoped_handle.h"
 
 #include <windows.h>
 #include <algorithm>
 
 namespace qiqi {
+
+namespace {
+
+std::vector<std::wstring_view> SplitUtf16Codepoints(std::wstring_view text) {
+    std::vector<std::wstring_view> chars;
+    size_t i = 0;
+    while (i < text.size()) {
+        const wchar_t ch = gsl::at(text, i);
+        if (ch >= 0xD800 && ch <= 0xDBFF && i + 1 < text.size()) {
+            const wchar_t low = gsl::at(text, i + 1);
+            if (low >= 0xDC00 && low <= 0xDFFF) {
+                chars.push_back(text.substr(i, 2));
+                i += 2;
+                continue;
+            }
+        }
+        chars.push_back(text.substr(i, 1));
+        ++i;
+    }
+    return chars;
+}
+
+} // namespace
 
 WubiEngine::WubiEngine() {
     LoadBuiltinDictionary();
@@ -28,6 +52,119 @@ void WubiEngine::AddEntry(std::wstring_view code, std::wstring_view word) {
     }
 
     AppendUniqueWord(dict_[packed], word);
+}
+
+std::wstring WubiEngine::LookupCharacterCode(std::wstring_view ch) const {
+    if (ch.empty()) {
+        return {};
+    }
+    std::wstring best;
+    for (const auto& mapped : mapped_dicts_) {
+        std::wstring code = mapped->FindLongestCodeForWord(ch);
+        if (code.size() > best.size()) {
+            best = std::move(code);
+            if (best.size() >= kMaxCodeLength) {
+                return best;
+            }
+        }
+    }
+    for (const auto& [packed, words] : dict_) {
+        if (std::find(words.begin(), words.end(), ch) != words.end()) {
+            std::wstring code = UnpackWubiCode(packed);
+            if (code.size() > best.size()) {
+                best = std::move(code);
+            }
+        }
+    }
+    return best;
+}
+
+std::wstring WubiEngine::EncodePhraseWubi86(std::wstring_view phrase) const {
+    const auto chars = SplitUtf16Codepoints(phrase);
+    if (chars.size() < 2) {
+        return {};
+    }
+
+    auto resolve_char_code = [this](std::wstring_view ch) -> std::wstring {
+        std::wstring c = LookupCharacterCode(ch);
+        if (c.size() == 1) {
+            c.push_back(c.front());
+        }
+        return c;
+    };
+
+    if (chars.size() == 2) {
+        const std::wstring c1 = resolve_char_code(gsl::at(chars, 0));
+        const std::wstring c2 = resolve_char_code(gsl::at(chars, 1));
+        if (c1.size() < 2 || c2.size() < 2) {
+            return {};
+        }
+        return std::wstring(c1.substr(0, 2)) + std::wstring(c2.substr(0, 2));
+    }
+
+    if (chars.size() == 3) {
+        const std::wstring c1 = resolve_char_code(gsl::at(chars, 0));
+        const std::wstring c2 = resolve_char_code(gsl::at(chars, 1));
+        const std::wstring c3 = resolve_char_code(gsl::at(chars, 2));
+        if (c1.empty() || c2.empty() || c3.size() < 2) {
+            return {};
+        }
+        std::wstring res;
+        res.push_back(c1.front());
+        res.push_back(c2.front());
+        res.append(c3.substr(0, 2));
+        return res;
+    }
+
+    const std::wstring c1 = resolve_char_code(gsl::at(chars, 0));
+    const std::wstring c2 = resolve_char_code(gsl::at(chars, 1));
+    const std::wstring c3 = resolve_char_code(gsl::at(chars, 2));
+    const std::wstring c_last = resolve_char_code(chars.back());
+    if (c1.empty() || c2.empty() || c3.empty() || c_last.empty()) {
+        return {};
+    }
+    return {c1.front(), c2.front(), c3.front(), c_last.front()};
+}
+
+bool WubiEngine::AddUserPhrase(std::wstring_view phrase, const std::filesystem::path& user_dict_path) {
+    const std::wstring code = EncodePhraseWubi86(phrase);
+    if (code.empty()) {
+        return false;
+    }
+    AddEntry(code, phrase);
+    QIQI_LOG_INFO("Added user phrase (code='{}', length={})",
+                  log::WideToUtf8(code), SplitUtf16Codepoints(phrase).size());
+
+    if (user_dict_path.empty()) {
+        return true;
+    }
+
+    try {
+        std::error_code ec;
+        if (user_dict_path.has_parent_path()) {
+            std::filesystem::create_directories(user_dict_path.parent_path(), ec);
+        }
+        const ScopedFileHandle file(::CreateFileW(
+            user_dict_path.c_str(),
+            FILE_APPEND_DATA,
+            FILE_SHARE_READ,
+            nullptr,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+            nullptr));
+        if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+            QIQI_LOG_WARN("AddUserPhrase: failed to open user dict '{}' for append (error={})",
+                          log::WideToUtf8(user_dict_path.wstring()), ::GetLastError());
+            return false;
+        }
+        const std::string line = log::WideToUtf8(code) + " " + log::WideToUtf8(phrase) + "\n";
+        DWORD written = 0;
+        const DWORD to_write = gsl::narrow_cast<DWORD>(line.size());
+        return (::WriteFile(file.Get(), line.data(), to_write, &written, nullptr) != FALSE) &&
+               (written == to_write);
+    } catch (...) {
+        return false;
+    }
 }
 
 bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {

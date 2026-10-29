@@ -24,10 +24,11 @@ struct PreservedKeyDef {
     const wchar_t* desc;
 };
 
-constexpr std::array<PreservedKeyDef, 3> kPreservedKeys = {{
+constexpr std::array<PreservedKeyDef, 4> kPreservedKeys = {{
     {&kGuidPreservedKeyToggleMode,        VK_SPACE,      TF_MOD_CONTROL, L"切换中英文"},
     {&kGuidPreservedKeyToggleFullWidth,   VK_SPACE,      TF_MOD_SHIFT,   L"切换全半角"},
     {&kGuidPreservedKeyTogglePunctuation, VK_OEM_PERIOD, TF_MOD_CONTROL, L"切换中英文标点"},
+    {&kGuidPreservedKeyAddUserWord,       VK_OEM_PLUS,   TF_MOD_CONTROL, L"剪贴板快捷造词"},
 }};
 
 bool IsKeyDown(int vk) noexcept {
@@ -137,6 +138,11 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
         } else {
             QIQI_LOG_WARN("Configured user dictionary '{}' does not exist",
                           log::WideToUtf8(user_path.wstring()));
+        }
+    } else {
+        const std::filesystem::path default_user_dict = GetDefaultUserDictPath();
+        if (std::filesystem::exists(default_user_dict)) {
+            loaded_any |= engine_.LoadDictionaryFile(default_user_dict);
         }
     }
 
@@ -540,6 +546,23 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
         engine_.ToggleChinesePunctuation();
         SyncTsfCompartments();
         QIQI_LOG_INFO("Punctuation mode toggled: {}", engine_.IsChinesePunctuation() ? "Chinese" : "English");
+        return S_OK;
+    }
+    if (IsEqualGUID(rguid, kGuidPreservedKeyAddUserWord)) {
+        *pfEaten = TRUE;
+        if (::OpenClipboard(nullptr)) {
+            const auto close_guard = gsl::finally([]() noexcept { ::CloseClipboard(); });
+            if (const HANDLE hdata = ::GetClipboardData(CF_UNICODETEXT)) {
+                if (const auto* wtext = static_cast<const wchar_t*>(::GlobalLock(hdata))) {
+                    const std::wstring phrase(wtext);
+                    ::GlobalUnlock(hdata);
+                    if (phrase.size() >= 2 && phrase.size() <= 16 &&
+                        engine_.AddUserPhrase(phrase, GetDefaultUserDictPath())) {
+                        PlayImeSound(SoundEffectKind::KeyClick);
+                    }
+                }
+            }
+        }
         return S_OK;
     }
     *pfEaten = FALSE;

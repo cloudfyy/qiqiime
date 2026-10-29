@@ -196,8 +196,41 @@ void TestExternalDictFile() {
             // Verify Unicode CJK Extension B character (U+20000 '𠀀' -> ghab) in Haifeng Wubi
             auto cjkb = haifeng_engine.LookupExact(L"ghab");
             QIQI_TEST_CHECK(!cjkb.empty() && cjkb[0] == L"𠀀");
+            // Verify FindLongestCodeForWord and EncodePhraseWubi86 on UTF-16 surrogate pair CJK Ext-B char
+            QIQI_TEST_CHECK(haifeng_engine.LookupCharacterCode(L"𠀀") == L"ghab");
+            QIQI_TEST_CHECK(haifeng_engine.EncodePhraseWubi86(L"𠀀好") == L"ghvb");
         }
     }
+
+    // 4. Test Wubi 86 automatic phrase encoding (2+2, 1+1+2, 1+1+1+last) and persistent AddUserPhrase
+    WubiEngine phrase_engine;
+    QIQI_TEST_CHECK(!GetDefaultUserDictPath().empty());
+    QIQI_TEST_CHECK(phrase_engine.LookupCharacterCode(L"").empty());
+    QIQI_TEST_CHECK(phrase_engine.LookupCharacterCode(L"国") == L"lgyi");
+    QIQI_TEST_CHECK(phrase_engine.EncodePhraseWubi86(L"国").empty());        // < 2 chars -> empty
+    QIQI_TEST_CHECK(phrase_engine.EncodePhraseWubi86(L"国?").empty());       // unknown char -> empty
+    QIQI_TEST_CHECK(phrase_engine.EncodePhraseWubi86(L"中国") == L"khlg");   // 2 chars (2+2): khl + lgyi -> khlg
+    QIQI_TEST_CHECK(phrase_engine.EncodePhraseWubi86(L"中国好") == L"klvb"); // 3 chars (1+1+2): k + l + vb -> klvb
+    QIQI_TEST_CHECK(phrase_engine.EncodePhraseWubi86(L"中国你好") == L"klwv"); // 4 chars (1+1+1+last)
+    QIQI_TEST_CHECK(phrase_engine.EncodePhraseWubi86(L"五笔中国好") == L"gtkv"); // 5 chars (1+1+1+last)
+
+    const auto temp_user_dict = std::filesystem::temp_directory_path() / L"qiqiime_user_phrases_test.txt";
+    std::filesystem::remove(temp_user_dict, ec);
+    QIQI_TEST_CHECK(!phrase_engine.AddUserPhrase(L"单"));
+    QIQI_TEST_CHECK(phrase_engine.AddUserPhrase(L"中国好")); // in-memory only
+    auto mem_lookup = phrase_engine.LookupExact(L"klvb");
+    QIQI_TEST_CHECK(!mem_lookup.empty() && mem_lookup.front() == L"中国好");
+
+    QIQI_TEST_CHECK(phrase_engine.AddUserPhrase(L"五笔中国好", temp_user_dict));
+    WubiEngine reloaded_engine;
+    QIQI_TEST_CHECK(reloaded_engine.LoadDictionaryFile(temp_user_dict));
+    auto persisted_lookup = reloaded_engine.LookupExact(L"gtkv");
+    QIQI_TEST_CHECK(!persisted_lookup.empty() && persisted_lookup.front() == L"五笔中国好");
+
+    std::filesystem::path temp_user_qdict = temp_user_dict;
+    temp_user_qdict.replace_extension(L".qdict");
+    std::filesystem::remove(temp_user_dict, ec);
+    std::filesystem::remove(temp_user_qdict, ec);
 }
 
 } // namespace
