@@ -53,13 +53,14 @@ public:
 private:
     int ScaleByDpi(int px) const noexcept;
     void UpdateDpiAndFonts(UINT new_dpi) noexcept;
+    void RebuildIconBitmaps(COLORREF fg_color) noexcept;
     void ClampToCurrentMonitor() noexcept;
     int HitTestZone(int client_x) const noexcept;
     bool EnsureBarWindow() noexcept;
     bool EnsureTooltipWindow() noexcept;
     void UpdateTooltipForZone(int zone, int client_x);
     void HideTooltip() noexcept;
-    void PaintBar(HDC hdc, const RECT& client_rect) const noexcept;
+    void PaintBar(HDC hdc, const RECT& client_rect) noexcept;
     void PaintTooltip(HDC hdc, const RECT& client_rect) const noexcept;
     void OnMouseMove(POINT pt);
     void OnMouseLeave() noexcept;
@@ -73,6 +74,13 @@ private:
     ScopedWindow tooltip_hwnd_;
     ScopedGdiHandle<HFONT> font_;
     ScopedGdiHandle<HFONT> tooltip_font_;
+    ScopedGdiHandle<HBITMAP> bmp_half_width_;
+    ScopedGdiHandle<HBITMAP> bmp_full_width_;
+    ScopedGdiHandle<HBITMAP> bmp_cn_punct_;
+    ScopedGdiHandle<HBITMAP> bmp_en_punct_;
+    ScopedGdiHandle<HBITMAP> bmp_settings_;
+    int icon_px_ = 0;
+    COLORREF icon_fg_color_ = static_cast<COLORREF>(-1);
     UINT dpi_ = 96;
     bool visible_ = false;
     POINT pos_{0, 0};
