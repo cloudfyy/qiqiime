@@ -149,3 +149,23 @@ add_executable(qiqi_engine_test
 )
 target_link_libraries(qiqi_engine_test PRIVATE qiqi_engine)
 add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
+
+# TSF COM Service & Candidate UI Unit Tests
+add_executable(qiqi_tsf_ui_test
+    tests/tsf_ui_test.cpp
+    src/tsf/dllmain.cpp
+    src/tsf/class_factory.cpp
+    src/tsf/register.cpp
+    src/tsf/tip_service.cpp
+    src/ui/candidate_ui.cpp
+)
+target_link_libraries(qiqi_tsf_ui_test PRIVATE
+    qiqi_engine
+    user32
+    gdi32
+    ole32
+    oleaut32
+    advapi32
+    uuid
+)
+add_test(NAME QiQiTsfUiTest COMMAND qiqi_tsf_ui_test)

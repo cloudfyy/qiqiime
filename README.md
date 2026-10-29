@@ -38,7 +38,8 @@ C:\sample\qiqiime
 │   └── ui/                     # 候选窗口与界面交互模块
 │       └── candidate_ui.h/.cpp # 候选窗绘制 + ITfCandidateListUIElement（支持游戏 UILess 模式）
 └── tests/
-    └── engine_test.cpp         # 五笔引擎自动化单元测试
+    ├── engine_test.cpp         # 五笔核心引擎、日志与版本号自动化单元测试
+    └── tsf_ui_test.cpp         # TSF 文本服务、编辑会话、COM 工厂与候选窗 UI 单元测试
 ```
 
 ---
@@ -85,7 +86,8 @@ ctest --test-dir build -C Release --output-on-failure
 构建产物位于：
 - `C:\sample\qiqiime\build\Release\qiqiime.dll`（TSF 输入法组件）
 - `C:\sample\qiqiime\build\Release\wubi86.txt`（五笔码表）
-- `C:\sample\qiqiime\build\Release\qiqi_engine_test.exe`（引擎单元测试）
+- `C:\sample\qiqiime\build\Release\qiqi_engine_test.exe`（引擎与基础组件单元测试）
+- `C:\sample\qiqiime\build\Release\qiqi_tsf_ui_test.exe`（TSF 服务与候选窗 UI 单元测试）
 
 ---
 
