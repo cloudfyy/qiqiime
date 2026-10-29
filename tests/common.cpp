@@ -113,6 +113,7 @@ void TestIniConfiguration() {
         "default_chinese_punct = false\n"
         "shift_toggle_mode = false\n"
         "semicolon_quote_quick_select = false\n"
+        "show_code_hint = false\n"
         "clear_on_empty_4code = true\n"
         "\n"
         "[log]\n"
@@ -126,6 +127,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(!cfg.auto_commit_4code);
     QIQI_TEST_CHECK(!cfg.push_commit_5th);
     QIQI_TEST_CHECK(!cfg.semicolon_quote_quick_select);
+    QIQI_TEST_CHECK(!cfg.show_code_hint);
     QIQI_TEST_CHECK(!cfg.default_chinese_mode);
     QIQI_TEST_CHECK(cfg.default_full_width);
     QIQI_TEST_CHECK(!cfg.default_chinese_punct);

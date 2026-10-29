@@ -145,12 +145,15 @@ public:
     // Append exact matches for packed_code into out_words (deduplicated).
     void LookupExact(uint32_t packed_code, std::vector<std::wstring>& out_words) const;
 
-    // Append prefix matches in [prefix_lo, prefix_hi] (excluding exact_code) up to max_results.
+    // Append prefix matches in [prefix_lo, prefix_hi] (excluding exact_code) up to max_results,
+    // optionally recording "word(~suffix)" progressive code hints in out_display_labels.
     void LookupPrefix(uint32_t exact_code,
                       uint32_t prefix_lo,
                       uint32_t prefix_hi,
                       std::vector<std::wstring>& out_words,
-                      size_t max_results) const;
+                      size_t max_results,
+                      std::wstring_view typed_prefix = {},
+                      std::vector<std::wstring>* out_display_labels = nullptr) const;
 
     // Append wildcard ('z') matches up to max_results, optionally recording "word(code)" display labels.
     void LookupWildcard(std::wstring_view pattern,

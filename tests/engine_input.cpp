@@ -156,6 +156,28 @@ void TestWildcardAndBackspaceAndCancel() {
     // "wqz" wildcard query should match "你" (wqi / wqiy) and show code hints in AllDisplayCandidates()
     engine.ProcessKey('W');
     engine.ProcessKey('Q');
+    // Verify progressive suffix code hints (~code) during 1..3-code input (before 'z')
+    QIQI_TEST_CHECK(engine.ShowCodeHint());
+    const auto& disp_wq = engine.AllDisplayCandidates();
+    QIQI_TEST_CHECK(!disp_wq.empty());
+    bool found_suffix_hint = false;
+    for (const auto& label : disp_wq) {
+        if (label.find(L"(~vb)") != std::wstring::npos || label.find(L"(~") != std::wstring::npos) {
+            found_suffix_hint = true;
+            break;
+        }
+    }
+    QIQI_TEST_CHECK(found_suffix_hint);
+
+    // When show_code_hint is disabled, AllDisplayCandidates() matches AllCandidates() without (~suffix)
+    engine.SetShowCodeHint(false);
+    QIQI_TEST_CHECK(!engine.ShowCodeHint());
+    engine.Reset();
+    engine.ProcessKey('W');
+    engine.ProcessKey('Q');
+    QIQI_TEST_CHECK(engine.AllDisplayCandidates() == engine.AllCandidates());
+    engine.SetShowCodeHint(true);
+
     auto rz = engine.ProcessKey('Z');
     QIQI_TEST_CHECK(rz.action == KeyActionType::UpdateState);
     QIQI_TEST_CHECK(!rz.page_candidates.empty());

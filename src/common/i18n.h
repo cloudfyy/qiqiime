@@ -47,6 +47,7 @@ struct UiStrings {
     const wchar_t* dlg_chk_auto_commit4;
     const wchar_t* dlg_chk_push_commit5;
     const wchar_t* dlg_chk_quick_select;
+    const wchar_t* dlg_chk_code_hint;
     const wchar_t* dlg_chk_shift_toggle;
     const wchar_t* dlg_chk_status_bar;
     const wchar_t* dlg_chk_beep_empty4;
@@ -110,6 +111,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"四码唯一自动上屏",
     L"第五码自动顶字上屏",
     L"分号(;)与单引号(')选二、三重码",
+    L"显示后续编码提示 (~code)",
     L"允许单按 Shift 键切换中英文",
     L"显示桌面浮动状态条",
     L"四码空码时发出提示音",
@@ -175,6 +177,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Auto-commit unique 4-code word",
     L"Push-commit on 5th code key",
     L"Select 2nd/3rd candidate with ; and '",
+    L"Show progressive code hints (~code)",
     L"Toggle CN/EN mode with Shift key",
     L"Show desktop floating status bar",
     L"Beep on empty 4-letter code",

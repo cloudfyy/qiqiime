@@ -53,6 +53,7 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     auto_commit_4code_ = cfg.auto_commit_4code;
     push_commit_5th_ = cfg.push_commit_5th;
     semicolon_quote_quick_select_ = cfg.semicolon_quote_quick_select;
+    show_code_hint_ = cfg.show_code_hint;
     beep_on_empty_4code_ = cfg.beep_on_empty_4code;
     beep_on_dup_4code_ = cfg.beep_on_dup_4code;
     clear_on_empty_4code_ = cfg.clear_on_empty_4code;
@@ -241,15 +242,62 @@ void WubiEngine::RefreshCandidates() {
     current_page_ = 0;
     selected_in_page_ = 0;
 
+    constexpr size_t kMaxCandidateResults = 50;
     const bool has_wildcard = (raw_code_.find(L'z') != std::wstring::npos) ||
                               (raw_code_.find(L'Z') != std::wstring::npos);
     if (!has_wildcard) {
-        all_candidates_ = LookupCandidates(raw_code_);
+        if (!show_code_hint_ || raw_code_.size() >= kMaxCodeLength) {
+            all_candidates_ = LookupCandidates(raw_code_);
+            all_display_candidates_ = all_candidates_;
+            return;
+        }
+
+        const uint32_t exact_code = PackWubiCode(raw_code_);
+        if (exact_code == 0) {
+            return;
+        }
+        all_candidates_ = LookupExact(raw_code_);
+        if (all_candidates_.size() > kMaxCandidateResults) {
+            all_candidates_.resize(kMaxCandidateResults);
+        }
         all_display_candidates_ = all_candidates_;
+        if (all_candidates_.size() >= kMaxCandidateResults) {
+            return;
+        }
+
+        const uint32_t prefix_hi = PackWubiPrefixUpperBound(raw_code_);
+        for (auto it = dict_.upper_bound(exact_code); it != dict_.end() && it->first <= prefix_hi; ++it) {
+            const std::wstring code_str = UnpackWubiCode(it->first);
+            const std::wstring_view suffix = (code_str.size() > raw_code_.size())
+                ? std::wstring_view(code_str).substr(raw_code_.size())
+                : std::wstring_view(code_str);
+            for (const auto& w : it->second) {
+                const size_t prev_sz = all_candidates_.size();
+                AppendUniqueWord(all_candidates_, w);
+                if (all_candidates_.size() > prev_sz) {
+                    all_display_candidates_.push_back(w + L"(~" + std::wstring(suffix) + L")");
+                }
+                if (all_candidates_.size() >= kMaxCandidateResults) {
+                    return;
+                }
+            }
+        }
+        for (const auto& mapped : mapped_dicts_) {
+            mapped->LookupPrefix(
+                exact_code,
+                exact_code,
+                prefix_hi,
+                all_candidates_,
+                kMaxCandidateResults,
+                raw_code_,
+                &all_display_candidates_);
+            if (all_candidates_.size() >= kMaxCandidateResults) {
+                return;
+            }
+        }
         return;
     }
 
-    constexpr size_t kMaxCandidateResults = 50;
     for (const auto& [k, words] : dict_) {
         if (MatchesWildcardPattern(k, raw_code_)) {
             const std::wstring code_str = UnpackWubiCode(k);

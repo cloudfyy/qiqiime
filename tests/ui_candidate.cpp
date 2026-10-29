@@ -307,6 +307,7 @@ void TestSettingsDialogControls() {
     cfg.auto_commit_4code = false;
     cfg.push_commit_5th = false;
     cfg.semicolon_quote_quick_select = false;
+    cfg.show_code_hint = false;
     cfg.shift_toggle_mode = false;
     cfg.show_status_bar = true;
     cfg.beep_on_empty_4code = false;
@@ -326,6 +327,7 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(!read_back.auto_commit_4code);
     QIQI_TEST_CHECK(!read_back.push_commit_5th);
     QIQI_TEST_CHECK(!read_back.semicolon_quote_quick_select);
+    QIQI_TEST_CHECK(!read_back.show_code_hint);
     QIQI_TEST_CHECK(!read_back.shift_toggle_mode);
     QIQI_TEST_CHECK(read_back.show_status_bar);
     QIQI_TEST_CHECK(!read_back.beep_on_empty_4code);

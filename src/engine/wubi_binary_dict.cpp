@@ -459,7 +459,9 @@ void WubiMappedDict::LookupPrefix(
     uint32_t prefix_lo,
     uint32_t prefix_hi,
     std::vector<std::wstring>& out_words,
-    size_t max_results) const {
+    size_t max_results,
+    std::wstring_view typed_prefix,
+    std::vector<std::wstring>* out_display_labels) const {
     if (prefix_lo == 0 || code_index_.empty() || out_words.size() >= max_results) {
         return;
     }
@@ -475,7 +477,19 @@ void WubiMappedDict::LookupPrefix(
         if (it->packed_code == exact_code) {
             continue;
         }
-        if (AppendWordsForCodeEntry(*it, out_words, max_results)) {
+        const size_t prev_count = out_words.size();
+        const bool reached_cap = AppendWordsForCodeEntry(*it, out_words, max_results);
+        if (out_display_labels && out_words.size() > prev_count) {
+            const std::wstring code_str = UnpackWubiCode(it->packed_code);
+            const std::wstring_view suffix = (code_str.size() > typed_prefix.size())
+                ? std::wstring_view(code_str).substr(typed_prefix.size())
+                : std::wstring_view(code_str);
+            for (size_t idx = prev_count; idx < out_words.size(); ++idx) {
+                out_display_labels->push_back(
+                    gsl::at(out_words, idx) + L"(~" + std::wstring(suffix) + L")");
+            }
+        }
+        if (reached_cap) {
             return;
         }
     }

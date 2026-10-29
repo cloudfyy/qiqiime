@@ -117,9 +117,13 @@ void TestExternalDictFile() {
     auto zzzy = engine.LookupExact(L"zzzy");
     QIQI_TEST_CHECK(zzzy.size() == 1 && zzzy[0] == L"瑞梅词");
 
-    // Prefix & wildcard lookup on mapped dictionary
+    // Prefix & wildcard lookup on mapped dictionary (including progressive suffix hints via ProcessKey)
     auto zz_prefix = engine.LookupCandidates(L"zzz");
     QIQI_TEST_CHECK(zz_prefix.size() >= 3);
+    engine.ProcessKey('T');
+    engine.ProcessKey('U');
+    engine.ProcessKey('G');
+    engine.Reset();
 
     // Verify least-privilege sharing on mapped .qdict:
     // Read-only sharing (GENERIC_READ | FILE_SHARE_READ) is allowed, while write access (GENERIC_WRITE) is denied.
@@ -172,6 +176,19 @@ void TestExternalDictFile() {
             QIQI_TEST_CHECK(engine.LoadDictionaryFile(extra_dict));
             auto ke1 = engine.LookupExact(L"tugg");
             QIQI_TEST_CHECK(std::find(ke1.begin(), ke1.end(), L"科一") != ke1.end());
+            // Exercise mapped LookupPrefix with progressive suffix hint (~g) on "tug"
+            engine.ProcessKey('T');
+            engine.ProcessKey('U');
+            engine.ProcessKey('G');
+            bool found_mapped_hint = false;
+            for (const auto& lbl : engine.AllDisplayCandidates()) {
+                if (lbl == L"科一(~g)") {
+                    found_mapped_hint = true;
+                    break;
+                }
+            }
+            QIQI_TEST_CHECK(found_mapped_hint);
+            engine.Reset();
         }
         if (std::filesystem::exists(haifeng_dict)) {
             WubiEngine haifeng_engine;

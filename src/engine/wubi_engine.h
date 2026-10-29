@@ -69,6 +69,8 @@ public:
     void SetPushCommit5th(bool enabled) noexcept { push_commit_5th_ = enabled; }
     bool SemicolonQuoteQuickSelect() const noexcept { return semicolon_quote_quick_select_; }
     void SetSemicolonQuoteQuickSelect(bool enabled) noexcept { semicolon_quote_quick_select_ = enabled; }
+    bool ShowCodeHint() const noexcept { return show_code_hint_; }
+    void SetShowCodeHint(bool enabled) noexcept { show_code_hint_ = enabled; }
     bool BeepOnEmpty4Code() const noexcept { return beep_on_empty_4code_; }
     void SetBeepOnEmpty4Code(bool enabled) noexcept { beep_on_empty_4code_ = enabled; }
     bool BeepOnDup4Code() const noexcept { return beep_on_dup_4code_; }
@@ -123,6 +125,7 @@ private:
     bool auto_commit_4code_ = true;
     bool push_commit_5th_ = true;
     bool semicolon_quote_quick_select_ = true;
+    bool show_code_hint_ = true;
     bool beep_on_empty_4code_ = true;
     bool beep_on_dup_4code_ = false;
     bool clear_on_empty_4code_ = false;
