@@ -24,16 +24,6 @@ enum class StatusBarIconKind {
     SettingsGear
 };
 
-void AppendPopupItem(HMENU menu, LangBarMenuId id, const wchar_t* text, bool checked = false, bool enabled = true) noexcept {
-    if (!menu || !text) {
-        return;
-    }
-    const UINT flags = MF_STRING |
-        (checked ? MF_CHECKED : MF_UNCHECKED) |
-        (enabled ? MF_ENABLED : (MF_GRAYED | MF_DISABLED));
-    ::AppendMenuW(menu, flags, static_cast<UINT_PTR>(id), text);
-}
-
 // Signed distance to a line segment [a, b] in normalized [-1, 1] icon coordinates.
 double DistToSegment(double px, double py, double ax, double ay, double bx, double by) noexcept {
     const double vx = bx - ax;
@@ -585,39 +575,7 @@ void StatusBarUI::OnLeftButtonDown(POINT pt) const {
 }
 
 ScopedMenu StatusBarUI::BuildContextMenu(ScopedGdiHandle<HBRUSH>& out_bg_brush) const noexcept {
-    const auto& palette = GetCurrentThemePalette();
-    ApplySystemThemeToMenuAndWindow(hwnd_.Get(), palette.is_dark);
-
-    ScopedMenu menu(::CreatePopupMenu());
-    if (!menu) {
-        return menu;
-    }
-
-    out_bg_brush.Reset(::CreateSolidBrush(palette.window_bg));
-    if (out_bg_brush) {
-        MENUINFO mi{};
-        mi.cbSize = sizeof(mi);
-        mi.fMask = MIM_BACKGROUND;
-        mi.hbrBack = out_bg_brush.Get();
-        ::SetMenuInfo(menu.Get(), &mi);
-    }
-
-    const auto& str = GetUiStrings(state_.ui_language);
-    AppendPopupItem(menu.Get(), LangBarMenuId::ToggleChinese, str.menu_toggle_chinese, state_.chinese_mode);
-    AppendPopupItem(menu.Get(), LangBarMenuId::ToggleFullWidth, str.menu_toggle_full_width, state_.full_width);
-    AppendPopupItem(menu.Get(), LangBarMenuId::TogglePunctuation, str.menu_toggle_punct, state_.chinese_punct);
-    ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
-    const bool is_jidian = (state_.primary_dict == PrimaryDict::Jidian);
-    AppendPopupItem(menu.Get(), LangBarMenuId::DictJidian, str.menu_dict_jidian, is_jidian);
-    AppendPopupItem(menu.Get(), LangBarMenuId::DictHaifeng, str.menu_dict_haifeng, state_.primary_dict == PrimaryDict::Haifeng);
-    AppendPopupItem(menu.Get(), LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, is_jidian && state_.enable_jidian_extra, is_jidian);
-    ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
-    AppendPopupItem(menu.Get(), LangBarMenuId::ToggleStatusBar, str.menu_toggle_status_bar, state_.show_status_bar);
-    AppendPopupItem(menu.Get(), LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang);
-    AppendPopupItem(menu.Get(), LangBarMenuId::OpenSettings, str.menu_open_settings);
-    AppendPopupItem(menu.Get(), LangBarMenuId::OpenConfigFile, str.menu_open_config_file);
-    AppendPopupItem(menu.Get(), LangBarMenuId::OpenAbout, str.menu_open_about);
-    return menu;
+    return LangBarButton::BuildSharedPopupMenu(state_, hwnd_.Get(), out_bg_brush);
 }
 
 void StatusBarUI::OnRightButtonUp(POINT client_pt) const {

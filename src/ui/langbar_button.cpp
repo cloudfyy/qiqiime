@@ -44,7 +44,55 @@ void AddMenuSeparator(ITfMenu* menu) {
     }
 }
 
+void AppendWin32PopupItem(
+    HMENU menu, LangBarMenuId id, const wchar_t* text, bool checked = false, bool enabled = true) noexcept {
+    if (!menu || !text) {
+        return;
+    }
+    const UINT flags = MF_STRING |
+        (checked ? MF_CHECKED : MF_UNCHECKED) |
+        (enabled ? MF_ENABLED : (MF_GRAYED | MF_DISABLED));
+    ::AppendMenuW(menu, flags, static_cast<UINT_PTR>(id), text);
+}
+
 } // namespace
+
+ScopedMenu LangBarButton::BuildSharedPopupMenu(
+    const LangBarState& state, HWND owner_hwnd, ScopedGdiHandle<HBRUSH>& out_bg_brush) noexcept {
+    const auto& palette = GetCurrentThemePalette();
+    ApplySystemThemeToMenuAndWindow(owner_hwnd, palette.is_dark);
+
+    ScopedMenu menu(::CreatePopupMenu());
+    if (!menu) {
+        return menu;
+    }
+
+    out_bg_brush.Reset(::CreateSolidBrush(palette.window_bg));
+    if (out_bg_brush) {
+        MENUINFO mi{};
+        mi.cbSize = sizeof(mi);
+        mi.fMask = MIM_BACKGROUND;
+        mi.hbrBack = out_bg_brush.Get();
+        ::SetMenuInfo(menu.Get(), &mi);
+    }
+
+    const auto& str = GetUiStrings(state.ui_language);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::ToggleChinese, str.menu_toggle_chinese, state.chinese_mode);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::ToggleFullWidth, str.menu_toggle_full_width, state.full_width);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::TogglePunctuation, str.menu_toggle_punct, state.chinese_punct);
+    ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
+    const bool is_jidian = (state.primary_dict == PrimaryDict::Jidian);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::DictJidian, str.menu_dict_jidian, is_jidian);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::DictHaifeng, str.menu_dict_haifeng, state.primary_dict == PrimaryDict::Haifeng);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, is_jidian && state.enable_jidian_extra, is_jidian);
+    ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::ToggleStatusBar, str.menu_toggle_status_bar, state.show_status_bar);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::OpenSettings, str.menu_open_settings);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::OpenConfigFile, str.menu_open_config_file);
+    AppendWin32PopupItem(menu.Get(), LangBarMenuId::OpenAbout, str.menu_open_about);
+    return menu;
+}
 
 LangBarButton::LangBarButton(ActionCallback cb) noexcept
     : action_callback_(std::move(cb)) {
@@ -115,9 +163,49 @@ STDMETHODIMP LangBarButton::GetTooltipString(BSTR* pbstrToolTip) noexcept {
     return CopyToBstr(str.langbar_tooltip, pbstrToolTip);
 }
 
-STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT /*pt*/, const RECT* /*prcArea*/) {
-    if (click == TF_LBI_CLK_LEFT && action_callback_) {
+STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT* /*prcArea*/) {
+    if (!action_callback_) {
+        return S_OK;
+    }
+    if (click == TF_LBI_CLK_LEFT) {
         action_callback_(LangBarMenuId::ToggleChinese);
+        return S_OK;
+    }
+    if (click == TF_LBI_CLK_RIGHT) {
+        ScopedGdiHandle<HBRUSH> menu_bg;
+        const ScopedMenu menu = BuildSharedPopupMenu(state_, nullptr, menu_bg);
+        if (!menu) {
+            return S_OK;
+        }
+        if (pt.x == 0 && pt.y == 0) {
+            ::GetCursorPos(&pt);
+        }
+        // Create a temporary message-only / popup host window so TrackPopupMenu works reliably from taskbar tray
+        const ScopedWindow host_hwnd(::CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            L"STATIC",
+            L"",
+            WS_POPUP,
+            pt.x, pt.y, 1, 1,
+            nullptr, nullptr, g_dll_instance, nullptr));
+        const HWND menu_owner = host_hwnd ? host_hwnd.Get() : ::GetForegroundWindow();
+        if (menu_owner) {
+            ::SetForegroundWindow(menu_owner);
+        }
+        const BOOL cmd = ::TrackPopupMenu(
+            menu.Get(),
+            TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
+            pt.x,
+            pt.y,
+            0,
+            menu_owner,
+            nullptr);
+        if (menu_owner) {
+            ::PostMessageW(menu_owner, WM_NULL, 0, 0);
+        }
+        if (cmd > 0) {
+            action_callback_(static_cast<LangBarMenuId>(cmd));
+        }
     }
     return S_OK;
 }

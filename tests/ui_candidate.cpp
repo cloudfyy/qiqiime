@@ -156,6 +156,14 @@ void TestLangBarButton() {
     POINT pt{0, 0};
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_LEFT, pt, nullptr)));
     QIQI_TEST_CHECK(last_action == LangBarMenuId::ToggleChinese);
+
+    // Test right-click on taskbar tray button (TF_LBI_CLK_RIGHT) popping up context menu
+    ::SetTimer(nullptr, 6, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+        ::KillTimer(nullptr, id);
+        ::EndMenu();
+    });
+    QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_RIGHT, pt, nullptr)));
+
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::DictHaifeng))));
     QIQI_TEST_CHECK(last_action == LangBarMenuId::DictHaifeng);
 

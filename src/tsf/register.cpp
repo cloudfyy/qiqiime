@@ -1,5 +1,6 @@
 #include "tsf/register.h"
 #include "common/guids.h"
+#include "common/i18n.h"
 #include "common/logger.h"
 #include "common/scoped_handle.h"
 #include "common/version.h"
@@ -151,18 +152,38 @@ HRESULT RegisterServerWithManagers(
         }
 
         const std::wstring module_path = log::GetModuleFilePath(instance).wstring();
+        const wchar_t* const profile_desc =
+            (ResolveUiLanguage(UiLanguage::Auto) == UiLanguage::EnUs) ? kProfileDescEn : kProfileDescZh;
 
         hr = profiles->AddLanguageProfile(
             kClsidQiQiTextService,
             kChineseSimplifiedLangId,
             kGuidProfileWubi86,
-            kProfileDesc,
-            gsl::narrow_cast<ULONG>(wcslen(kProfileDesc)),
+            profile_desc,
+            gsl::narrow_cast<ULONG>(wcslen(profile_desc)),
             module_path.c_str(),
             gsl::narrow_cast<ULONG>(module_path.size()),
             0);
         if (FAILED(hr)) {
             break;
+        }
+
+        // Also register MUI display name resource (ID 100) and icon index 0 via ITfInputProcessorProfileMgr
+        ComPtr<ITfInputProcessorProfileMgr> profile_mgr;
+        if (SUCCEEDED(profiles.As(&profile_mgr)) && profile_mgr) {
+            profile_mgr->RegisterProfile(
+                kClsidQiQiTextService,
+                kChineseSimplifiedLangId,
+                kGuidProfileWubi86,
+                profile_desc,
+                gsl::narrow_cast<ULONG>(wcslen(profile_desc)),
+                module_path.c_str(),
+                gsl::narrow_cast<ULONG>(module_path.size()),
+                0,
+                nullptr,
+                0,
+                TRUE,
+                0);
         }
 
         ComPtr<ITfCategoryMgr> cat_mgr = custom_cat_mgr;

@@ -82,6 +82,10 @@ public:
     void UpdateState(const LangBarState& state);
     const LangBarState& State() const noexcept { return state_; }
 
+    // Build a themed Win32 HMENU matching the current LangBarState (shared by tray right-click and StatusBarUI).
+    static ScopedMenu BuildSharedPopupMenu(
+        const LangBarState& state, HWND owner_hwnd, ScopedGdiHandle<HBRUSH>& out_bg_brush) noexcept;
+
 private:
     static ScopedIcon CreateTextIcon(wchar_t ch) noexcept;
 
