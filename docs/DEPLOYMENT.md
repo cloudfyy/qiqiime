@@ -51,12 +51,19 @@
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
-生成的发行包位于 `dist\QiQiIME-v<version>-win-x64-x86.zip`，解压后结构如下：
+生成的发行包位于 `dist\QiQiIME-v<version>-win-x64-x86.zip`，解压后结构如下（`x64` 与 `x86` 共用同一份 `data/` 词库与配置）：
 
 ```text
 QiQiIME-v0.7.0-win-x64-x86/
-├── x64/                        # 64 位 qiqiime.dll + config.ini + 3 套词库
-├── x86/                        # 32 位 qiqiime.dll + config.ini + 3 套词库
+├── x64/
+│   └── qiqiime.dll             # 64 位 TSF 输入法组件
+├── x86/
+│   └── qiqiime.dll             # 32 位 (WOW64) TSF 输入法组件
+├── data/                       # x64 与 x86 共用的配置与 3 套五笔词库
+│   ├── config.ini
+│   ├── wubi86_jidian.txt
+│   ├── wubi86_jidian_extra.txt
+│   └── wubi86_haifeng.txt
 ├── scripts/
 │   ├── common.ps1              # 公共脚本模块
 │   ├── register_ime.ps1        # 安装注册脚本

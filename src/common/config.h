@@ -53,6 +53,11 @@ std::filesystem::path GetDefaultUserConfigPath();
 // Return default user custom dictionary path: %LOCALAPPDATA%\QiQiIME\user_dict.txt
 std::filesystem::path GetDefaultUserDictPath();
 
+// Resolve a bundled data file (e.g. wubi86_jidian.txt or config.ini) relative to the DLL directory,
+// checking <dll_dir>/<name>, <dll_dir>/../data/<name>, and <dll_dir>/../<name> so x64 and x86 can share one data/ folder.
+std::filesystem::path ResolveBundledDataFile(
+    const std::filesystem::path& dll_dir, std::wstring_view file_name);
+
 // Parse UTF-8 INI content into QiQiConfig (starting from defaults).
 QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content);
 

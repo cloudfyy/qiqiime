@@ -94,10 +94,15 @@ function Test-QiQiRuntimeFiles([hashtable]$Dlls) {
         $item = Get-Item $archInfo.Dll
         $ver = $item.VersionInfo
         Write-QiQiPass "$($archInfo.Name) DLL ($([math]::Round($item.Length / 1KB, 1)) KB): $($item.FullName) [v$($ver.FileVersion)]"
+        $parentDir = if ($item.Directory.Parent) { $item.Directory.Parent.FullName } else { $item.DirectoryName }
         foreach ($reqFile in $script:QiQiDataFileNames) {
-            $reqPath = Join-Path $item.DirectoryName $reqFile
-            if (-not (Test-Path $reqPath)) {
-                throw "Missing required data file next to $($archInfo.Name) DLL: $reqPath"
+            $candidates = @(
+                (Join-Path $item.DirectoryName $reqFile),
+                (Join-Path $parentDir "data\$reqFile"),
+                (Join-Path $parentDir $reqFile)
+            )
+            if (-not ($candidates | Where-Object { Test-Path $_ } | Select-Object -First 1)) {
+                throw "Missing required data file ($reqFile) for $($archInfo.Name) DLL in $($item.DirectoryName) or ..\data"
             }
         }
     }

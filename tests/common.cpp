@@ -203,6 +203,35 @@ void TestIniConfiguration() {
     // SaveConfigFile failure when target is a directory
     QIQI_TEST_CHECK(!SaveConfigFile(std::filesystem::temp_directory_path(), cfg));
 
+    // Test ResolveBundledDataFile fallback across <dll_dir>/<name>, <dll_dir>/../data/<name>, and <dll_dir>/../<name>
+    {
+        const auto base_dir = std::filesystem::temp_directory_path() / L"QiQiIME_BundledLayoutTest";
+        const auto x64_dir = base_dir / L"x64";
+        const auto shared_data_dir = base_dir / L"data";
+        std::error_code layout_ec;
+        std::filesystem::remove_all(base_dir, layout_ec);
+        std::filesystem::create_directories(x64_dir, layout_ec);
+        std::filesystem::create_directories(shared_data_dir, layout_ec);
+
+        QIQI_TEST_CHECK(ResolveBundledDataFile({}, L"config.ini") == std::filesystem::path(L"config.ini"));
+        // When file exists in ../data/, ResolveBundledDataFile(x64_dir, ...) resolves to ../data/
+        const auto shared_dict = shared_data_dir / L"wubi86_jidian.txt";
+        SaveConfigFile(shared_dict, cfg);
+        QIQI_TEST_CHECK(ResolveBundledDataFile(x64_dir, L"wubi86_jidian.txt") == shared_dict);
+
+        // When file exists in ../, ResolveBundledDataFile(x64_dir, ...) resolves to ../
+        const auto parent_cfg = base_dir / L"config.ini";
+        SaveConfigFile(parent_cfg, cfg);
+        QIQI_TEST_CHECK(ResolveBundledDataFile(x64_dir, L"config.ini") == parent_cfg);
+
+        // When file exists directly in dll_dir, direct path takes precedence
+        const auto local_dict = x64_dir / L"wubi86_jidian.txt";
+        SaveConfigFile(local_dict, cfg);
+        QIQI_TEST_CHECK(ResolveBundledDataFile(x64_dir, L"wubi86_jidian.txt") == local_dict);
+
+        std::filesystem::remove_all(base_dir, layout_ec);
+    }
+
     // 3. Test EnsureDefaultConfigFile and LoadConfigFile
     const auto temp_cfg_path = std::filesystem::temp_directory_path() / L"qiqiime_test_config.ini";
     std::error_code ec;

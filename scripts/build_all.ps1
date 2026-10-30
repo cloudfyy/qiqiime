@@ -44,6 +44,7 @@ if ($Package) {
 
     New-Item -ItemType Directory -Path (Join-Path $pkgDir "x64") -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $pkgDir "x86") -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $pkgDir "data") -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $pkgDir "scripts") -Force | Out-Null
 
     Copy-Item $dlls.X64 -Destination (Join-Path $pkgDir "x64\qiqiime.dll")
@@ -51,8 +52,7 @@ if ($Package) {
 
     foreach ($fileName in $QiQiDataFileNames) {
         $srcFile = Join-Path $QiQiRepoRoot "data\$fileName"
-        Copy-Item $srcFile -Destination (Join-Path $pkgDir "x64")
-        Copy-Item $srcFile -Destination (Join-Path $pkgDir "x86")
+        Copy-Item $srcFile -Destination (Join-Path $pkgDir "data")
     }
 
     Copy-Item (Join-Path $PSScriptRoot "common.ps1") -Destination (Join-Path $pkgDir "scripts\common.ps1")

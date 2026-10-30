@@ -137,6 +137,30 @@ std::filesystem::path GetDefaultUserDictPath() {
     return app_dir / L"user_dict.txt";
 }
 
+std::filesystem::path ResolveBundledDataFile(
+    const std::filesystem::path& dll_dir, std::wstring_view file_name) {
+    if (dll_dir.empty() || file_name.empty()) {
+        return std::filesystem::path(file_name);
+    }
+    std::error_code ec;
+    const std::filesystem::path direct = dll_dir / file_name;
+    if (std::filesystem::exists(direct, ec)) {
+        return direct;
+    }
+    if (dll_dir.has_parent_path()) {
+        const std::filesystem::path parent_dir = dll_dir.parent_path();
+        const std::filesystem::path shared_data = parent_dir / L"data" / file_name;
+        if (std::filesystem::exists(shared_data, ec)) {
+            return shared_data;
+        }
+        const std::filesystem::path shared_parent = parent_dir / file_name;
+        if (std::filesystem::exists(shared_parent, ec)) {
+            return shared_parent;
+        }
+    }
+    return direct;
+}
+
 QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
     QiQiConfig cfg{};
     utf8_content = log::StripUtf8Bom(utf8_content);
@@ -399,10 +423,11 @@ QiQiConfig LoadConfig(void* module_handle) {
         return cfg;
     }
 
-    // 2. Check config.ini next to the DLL / executable
+    // 2. Check config.ini next to the DLL / executable or shared ../data/ directory
     const std::filesystem::path module_path = log::GetModuleFilePath(module_handle);
     if (!module_path.empty()) {
-        const std::filesystem::path dll_cfg_path = module_path.parent_path() / L"config.ini";
+        const std::filesystem::path dll_cfg_path =
+            ResolveBundledDataFile(module_path.parent_path(), L"config.ini");
         if (std::filesystem::exists(dll_cfg_path) && LoadConfigFile(dll_cfg_path, cfg)) {
             QIQI_LOG_INFO("Loaded fallback configuration from '{}'", log::WideToUtf8(dll_cfg_path.wstring()));
         }
