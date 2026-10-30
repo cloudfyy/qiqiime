@@ -12,7 +12,10 @@ int main() {
         }
     });
 
+    qiqi::test::RunLangBarMenuTests();
     qiqi::test::RunCandidateUITests();
+    qiqi::test::RunSettingsDialogTests();
+    qiqi::test::RunStatusBarUITests();
     qiqi::test::RunTsfComTests();
     qiqi::test::RunTsfServiceTests();
     std::cout << "[PASS] All QiQi TSF & UI unit tests succeeded.\n";

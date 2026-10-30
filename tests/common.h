@@ -16,9 +16,13 @@ namespace qiqi::test {
 void RunCommonTests();
 void RunEngineDictTests();
 void RunEngineInputTests();
+void RunEngineModesPunctTests();
 
 // UI & TSF test suites
+void RunLangBarMenuTests();
 void RunCandidateUITests();
+void RunSettingsDialogTests();
+void RunStatusBarUITests();
 void RunTsfComTests();
 void RunTsfServiceTests();
 

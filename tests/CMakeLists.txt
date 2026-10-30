@@ -1,14 +1,16 @@
 # Engine & State Machine Unit Tests
 set(QIQI_ENGINE_TEST_SOURCES
     common.h
-    common.cpp
-    engine_dict.cpp
-    engine_input.cpp
+    common/common.cpp
+    engine/engine_dict.cpp
+    engine/engine_input.cpp
+    engine/engine_modes_punct.cpp
     engine_main.cpp
 )
 add_executable(qiqi_engine_test
     ${QIQI_ENGINE_TEST_SOURCES}
 )
+target_include_directories(qiqi_engine_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_ENGINE_TEST_SOURCES})
 target_link_libraries(qiqi_engine_test PRIVATE qiqi_engine)
 add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
@@ -16,10 +18,13 @@ add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
 # TSF COM Service & Candidate UI Unit Tests
 set(QIQI_TSF_UI_TEST_SOURCES
     common.h
-    tsf_mocks.h
-    ui_candidate.cpp
-    tsf_com.cpp
-    tsf_service.cpp
+    tsf/tsf_mocks.h
+    tsf/tsf_com.cpp
+    tsf/tsf_service.cpp
+    ui/ui_candidate.cpp
+    ui/ui_langbar_menu.cpp
+    ui/ui_settings_dialog.cpp
+    ui/ui_status_bar.cpp
     tsf_ui_main.cpp
 )
 set(QIQI_TSF_UI_IMPL_SOURCES
@@ -38,6 +43,7 @@ add_executable(qiqi_tsf_ui_test
     ${QIQI_TSF_UI_TEST_SOURCES}
     ${QIQI_TSF_UI_IMPL_SOURCES}
 )
+target_include_directories(qiqi_tsf_ui_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_TSF_UI_TEST_SOURCES})
 source_group(TREE "${PROJECT_SOURCE_DIR}/src" PREFIX "src" FILES ${QIQI_TSF_UI_IMPL_SOURCES})
 target_link_libraries(qiqi_tsf_ui_test PRIVATE
