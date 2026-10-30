@@ -264,6 +264,37 @@ void TestScopedHandleTemplate() {
 
     h3.Reset();
     QIQI_TEST_CHECK(!h3.IsValid());
+
+    // Test ScopedGlobalLock<wchar_t>, ScopedClipboard, MakeInt4Variant, and CopyToBstr
+    const ScopedGlobalLock<wchar_t> null_lock(nullptr);
+    QIQI_TEST_CHECK(!null_lock && null_lock.Get() == nullptr);
+
+    const HGLOBAL hmem = ::GlobalAlloc(GMEM_MOVEABLE, 16 * sizeof(wchar_t));
+    QIQI_TEST_CHECK(hmem != nullptr);
+    if (auto* raw_ptr = static_cast<wchar_t*>(::GlobalLock(hmem))) {
+        wcscpy_s(raw_ptr, 16, L"奇奇五笔");
+        ::GlobalUnlock(hmem);
+    }
+    {
+        const ScopedGlobalLock<wchar_t> lock(hmem);
+        QIQI_TEST_CHECK(lock && std::wstring(lock.Get()) == L"奇奇五笔");
+    }
+    ::GlobalFree(hmem);
+
+    {
+        const ScopedClipboard clip{};
+        (void)clip.IsOpen();
+        (void)static_cast<bool>(clip);
+    }
+
+    const VARIANT v42 = MakeInt4Variant(42);
+    QIQI_TEST_CHECK(v42.vt == VT_I4 && v42.lVal == 42);
+
+    QIQI_TEST_CHECK(CopyToBstr(L"test", nullptr) == E_INVALIDARG);
+    ScopedBstr bstr_out;
+    QIQI_TEST_CHECK(SUCCEEDED(CopyToBstr(L"奇奇", bstr_out.Put())) &&
+                    bstr_out.IsValid() &&
+                    std::wstring(bstr_out.Get()) == L"奇奇");
 }
 
 void TestI18nLocalization() {

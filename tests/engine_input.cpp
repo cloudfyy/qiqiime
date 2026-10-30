@@ -350,6 +350,22 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(commit_single.action == KeyActionType::Commit && commit_single.committed_text == L"字");
     auto cands_single_fixed = engine.LookupExact(L"qrst");
     QIQI_TEST_CHECK(cands_single_fixed[0] == L"单" && cands_single_fixed[3] == L"字");
+
+    // Selecting "词组甲" via VK_DOWN + VK_SPACE (CommitSelected) promotes "词组甲" back ahead of "词组乙" without duplication
+    engine.ProcessKey('Q');
+    engine.ProcessKey('R');
+    engine.ProcessKey('S');
+    engine.ProcessKey('T');
+    engine.ProcessKey(VK_DOWN);
+    engine.ProcessKey(VK_DOWN); // index 2 is now "词组甲"
+    auto commit_via_space = engine.ProcessKey(VK_SPACE);
+    QIQI_TEST_CHECK(commit_via_space.action == KeyActionType::Commit && commit_via_space.committed_text == L"词组甲");
+    auto cands_repromoted = engine.LookupExact(L"qrst");
+    QIQI_TEST_CHECK(cands_repromoted.size() == 4 &&
+                    cands_repromoted[0] == L"单" &&
+                    cands_repromoted[1] == L"词组甲" &&
+                    cands_repromoted[2] == L"词组乙" &&
+                    cands_repromoted[3] == L"字");
     engine.SetDynamicPhraseFreq(false);
 
     // Test VK_RETURN committing raw ASCII code
@@ -712,10 +728,28 @@ void TestFullWidthMode() {
     QIQI_TEST_CHECK(z_commit.action == KeyActionType::Commit && z_commit.committed_text == L"Git.c");
     QIQI_TEST_CHECK(!engine.IsTempEnglishMode() && !engine.IsComposing());
 
-    // Test Backspace on empty temp_english_text_ cancels composition, and Escape cancels composition
+    // Test Backspace on 1-char temp English returns to "z" ("(英文模式)"), and 2nd Backspace cancels composition
     engine.ProcessKey('Z');
+    engine.ProcessKey('A');
+    auto z_back_to_root = engine.ProcessKey(VK_BACK);
+    QIQI_TEST_CHECK(z_back_to_root.action == KeyActionType::UpdateState &&
+                    engine.IsTempEnglishMode() &&
+                    engine.RawCode() == L"z" &&
+                    !engine.AllDisplayCandidates().empty() &&
+                    engine.AllDisplayCandidates().front() == L"(英文模式)");
     auto z_back_cancel = engine.ProcessKey(VK_BACK);
     QIQI_TEST_CHECK(z_back_cancel.action == KeyActionType::Cancel && !engine.IsTempEnglishMode());
+
+    // Pressing Enter immediately after 'Z' commits literal "z"; pressing Enter after typing commits payload
+    engine.ProcessKey('Z');
+    auto z_only_enter = engine.ProcessKey(VK_RETURN);
+    QIQI_TEST_CHECK(z_only_enter.action == KeyActionType::Commit && z_only_enter.committed_text == L"z");
+
+    engine.ProcessKey('Z');
+    engine.ProcessKey('O', true);
+    engine.ProcessKey('K', false);
+    auto z_enter_commit = engine.ProcessKey(VK_RETURN);
+    QIQI_TEST_CHECK(z_enter_commit.action == KeyActionType::Commit && z_enter_commit.committed_text == L"Ok");
 
     engine.ProcessKey('Z');
     engine.ProcessKey('A');

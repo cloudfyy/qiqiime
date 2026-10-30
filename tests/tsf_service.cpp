@@ -202,6 +202,21 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyTogglePunctuation, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_PERIOD, 0, &eaten)) && eaten == FALSE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyTogglePunctuation, &eaten)) && eaten == TRUE);
+
+    // Populate clipboard with a 2-character phrase ("中国") and test Ctrl+= (kGuidPreservedKeyAddUserWord)
+    if (const ScopedClipboard clip{}; clip.IsOpen()) {
+        ::EmptyClipboard();
+        if (const HGLOBAL hclip = ::GlobalAlloc(GMEM_MOVEABLE, 4 * sizeof(wchar_t))) {
+            if (auto* p = static_cast<wchar_t*>(::GlobalLock(hclip))) {
+                wcscpy_s(p, 4, L"中国");
+                ::GlobalUnlock(hclip);
+                ::SetClipboardData(CF_UNICODETEXT, hclip);
+            } else {
+                ::GlobalFree(hclip);
+            }
+        }
+    }
+    ResetLastPlayedSoundForTest();
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyAddUserWord, &eaten)) && eaten == TRUE);
 
     // Start composing again, then test mouse click selection on CandidateUI and LangBar menu actions
