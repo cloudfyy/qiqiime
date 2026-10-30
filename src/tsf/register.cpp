@@ -210,6 +210,19 @@ HRESULT RegisterServerWithManagers(
             }
         }
 
+        // Set localized MUI resource string ID 100 on the language profile so Windows displays
+        // "QiQi Wubi" on English UI and "奇奇五笔" on Chinese UI.
+        ComPtr<ITfInputProcessorProfilesEx> profiles_ex;
+        if (SUCCEEDED(profiles.As(&profiles_ex)) && profiles_ex) {
+            profiles_ex->SetLanguageProfileDisplayName(
+                kClsidQiQiTextService,
+                kChineseSimplifiedLangId,
+                kGuidProfileWubi86,
+                module_path.c_str(),
+                gsl::narrow_cast<ULONG>(module_path.size()),
+                100);
+        }
+
         hr = profiles->EnableLanguageProfileByDefault(
             kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86, TRUE);
         if (FAILED(hr)) {

@@ -477,13 +477,14 @@ private:
 
 // Minimal mock ITfInputProcessorProfiles for non-admin unit testing of RegisterServer
 class MockTfInputProcessorProfiles final
-    : public ITfInputProcessorProfiles,
+    : public ITfInputProcessorProfilesEx,
       public ITfInputProcessorProfileMgr {
 public:
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
-        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfInputProcessorProfiles)) {
-            *ppvObj = static_cast<ITfInputProcessorProfiles*>(this);
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfInputProcessorProfiles) ||
+            IsEqualIID(riid, IID_ITfInputProcessorProfilesEx)) {
+            *ppvObj = static_cast<ITfInputProcessorProfilesEx*>(this);
             AddRef();
             return S_OK;
         }
@@ -547,6 +548,10 @@ public:
         return S_OK;
     }
     STDMETHODIMP SubstituteKeyboardLayout(REFCLSID, LANGID, REFGUID, HKL) override { return E_NOTIMPL; }
+    STDMETHODIMP SetLanguageProfileDisplayName(REFCLSID, LANGID, REFGUID, const WCHAR*, ULONG, ULONG res_id) override {
+        display_name_res_id_ = res_id;
+        return S_OK;
+    }
 
     // ITfInputProcessorProfileMgr
     STDMETHODIMP ActivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD) override {
@@ -578,6 +583,7 @@ public:
     bool enabled_by_default_ = false;
     int enable_calls_ = 0;
     int enable_default_calls_ = 0;
+    ULONG display_name_res_id_ = 0;
     int activate_calls_ = 0;
     int deactivate_calls_ = 0;
     DWORD deactivate_flags_ = 0;

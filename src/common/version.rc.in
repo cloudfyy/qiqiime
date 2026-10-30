@@ -8,12 +8,12 @@
 // Localized string table for ITfInputProcessorProfileMgr::RegisterProfile
 STRINGTABLE LANGUAGE 0x04, 0x02
 BEGIN
-    100 "奇奇五笔 (QiQi Wubi)"
+    100 "奇奇五笔"
 END
 
 STRINGTABLE LANGUAGE 0x09, 0x01
 BEGIN
-    100 "QiQi Wubi (奇奇五笔)"
+    100 "QiQi Wubi"
 END
 
 VS_VERSION_INFO VERSIONINFO

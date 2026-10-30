@@ -139,6 +139,7 @@ void TestClassFactoryAndDllExports() {
             }
             QIQI_TEST_CHECK(mock_profiles->last_profile_desc_ == kProfileDescZh ||
                             mock_profiles->last_profile_desc_ == kProfileDescEn);
+            QIQI_TEST_CHECK(mock_profiles->display_name_res_id_ == 100);
             QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_ == 7);
 
             // 2d. WOW64 coexistence path (override_wow64 = true while native 64-bit CLSID is present)
