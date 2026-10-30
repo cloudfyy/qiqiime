@@ -21,7 +21,6 @@ struct UiStrings {
     const wchar_t* menu_toggle_status_bar;
     const wchar_t* menu_toggle_ui_lang;
     const wchar_t* menu_open_settings;
-    const wchar_t* menu_open_config_file;
     const wchar_t* menu_open_about;
 
     // Floating desktop status bar
@@ -65,7 +64,6 @@ struct UiStrings {
     const wchar_t* dlg_lang_auto;
     const wchar_t* dlg_lang_zh;
     const wchar_t* dlg_lang_en;
-    const wchar_t* dlg_btn_open_ini;
     const wchar_t* dlg_btn_about;
     const wchar_t* dlg_btn_ok;
     const wchar_t* dlg_btn_cancel;
@@ -93,7 +91,6 @@ inline constexpr UiStrings kZhCnStrings = {
     L"显示桌面浮动状态条",
     L"Switch to English UI (英文界面)",
     L"输入法属性设置...",
-    L"编辑配置文件 (config.ini)",
     L"关于奇奇五笔...",
 
     L"五笔",
@@ -135,7 +132,6 @@ inline constexpr UiStrings kZhCnStrings = {
     L"跟随系统 (Auto)",
     L"简体中文 (zh-CN)",
     L"English (en-US)",
-    L"编辑 config.ini",
     L"关于...",
     L"确定",
     L"取消",
@@ -165,7 +161,6 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Show Floating Status Bar",
     L"切换中文界面 (Chinese UI)",
     L"IME Settings...",
-    L"Edit Config File (config.ini)",
     L"About QiQi Wubi...",
 
     L"Wubi",
@@ -207,7 +202,6 @@ inline constexpr UiStrings kEnUsStrings = {
     L"System Default (Auto)",
     L"Simplified Chinese (zh-CN)",
     L"English (en-US)",
-    L"Edit config.ini",
     L"About...",
     L"OK",
     L"Cancel",

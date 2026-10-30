@@ -75,7 +75,8 @@ inline constexpr const wchar_t* kDefaultConfigRegSubKey = L"Software\\QiQiIME";
 void SetConfigRegistrySubKeyOverrideForTest(const wchar_t* subkey_or_null) noexcept;
 const wchar_t* GetActiveConfigRegistrySubKey() noexcept;
 
-// Mirror or load QiQiConfig in HKCU\<subkey> (grants S-1-15-2-1 / S-1-15-2-2 KEY_READ for UWP AppContainer).
+// Save or load QiQiConfig as native REG_DWORD / REG_SZ values in HKCU\<subkey>
+// (grants S-1-15-2-1 / S-1-15-2-2 KEY_READ for UWP AppContainer).
 bool SaveConfigToRegistry(
     const QiQiConfig& config,
     const wchar_t* subkey = nullptr) noexcept;
@@ -86,7 +87,7 @@ bool LoadConfigFromRegistry(
 uint64_t QueryRegistryConfigSequence(
     const wchar_t* subkey = nullptr) noexcept;
 
-// Mirror or load compiled .qdict binary image for user_dict in HKCU\<subkey> so UWP AppContainer processes
+// Save or load compiled .qdict binary image for user_dict in HKCU\<subkey> so UWP AppContainer processes
 // can load user custom words without accessing %LOCALAPPDATA%.
 bool SaveUserDictBinaryToRegistry(
     std::span<const uint8_t> qdict_bytes,
@@ -95,39 +96,19 @@ bool LoadUserDictBinaryFromRegistry(
     std::vector<uint8_t>& out_qdict_bytes,
     const wchar_t* subkey = nullptr);
 
-// Return default user configuration path: %LOCALAPPDATA%\QiQiIME\config.ini
-std::filesystem::path GetDefaultUserConfigPath();
-
 // Return default user custom dictionary path: %LOCALAPPDATA%\QiQiIME\user_dict.txt
 std::filesystem::path GetDefaultUserDictPath();
 
 // Return default user dynamic phrase frequency table path: %LOCALAPPDATA%\QiQiIME\phrase_freq.txt
 std::filesystem::path GetDefaultPhraseFreqPath();
 
-// Resolve a bundled data file (e.g. wubi86_jidian.txt or config.ini) relative to the DLL directory,
+// Resolve a bundled data file (e.g. wubi86_jidian.txt) relative to the DLL directory,
 // checking <dll_dir>/<name>, <dll_dir>/../data/<name>, and <dll_dir>/../<name> so x64 and x86 can share one data/ folder.
 std::filesystem::path ResolveBundledDataFile(
     const std::filesystem::path& dll_dir, std::wstring_view file_name);
 
-// Parse UTF-8 INI content into QiQiConfig (starting from defaults).
-QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content);
-
-// Serialize QiQiConfig to UTF-8 INI text.
-std::string SerializeConfigToUtf8(const QiQiConfig& config);
-
-// Load configuration from a specific INI file path. Returns false if file cannot be opened.
-bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_config);
-
-// Save QiQiConfig to a specific INI file path.
-bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& config);
-
-// Write a default commented UTF-8 config.ini file if it does not already exist.
-bool EnsureDefaultConfigFile(const std::filesystem::path& file_path);
-
-// Discover and load configuration:
-// 1. %LOCALAPPDATA%\QiQiIME\config.ini (auto-created with defaults if writable)
-// 2. <DLL directory>\config.ini fallback
-// 3. Built-in defaults
-QiQiConfig LoadConfig(void* module_handle = nullptr);
+// Load configuration from HKCU\Software\QiQiIME (auto-creating default values on first run).
+QiQiConfig LoadConfig(void* module_handle = nullptr) noexcept;
+bool SaveConfig(const QiQiConfig& config) noexcept;
 
 } // namespace qiqi

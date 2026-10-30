@@ -430,7 +430,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     haifeng_cfg.enable_jidian_extra = true;
     haifeng_cfg.log_keystrokes = true;
     haifeng_cfg.user_dict_path = L"wubi86_jidian_extra.txt";
-    SaveConfigFile(GetDefaultUserConfigPath(), haifeng_cfg);
+    QIQI_TEST_CHECK(SaveConfig(haifeng_cfg));
 
     auto* service_haifeng = new QiQiTextService(g_dll_instance);
     ComPtr<ITfThreadMgrEventSink> hf_tm_sink;
@@ -462,26 +462,16 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         }
     }
 
-    // Modify config file timestamp and trigger zero-latency hot-reload via ITfCompartmentEventSink::OnChange
+    // Modify config in HKCU registry and trigger zero-latency hot-reload via ITfCompartmentEventSink::OnChange
     haifeng_cfg.page_size = 6;
     haifeng_cfg.show_status_bar = true;
     haifeng_cfg.enable_key_sound = true;
     haifeng_cfg.beep_on_dup_4code = true;
     haifeng_cfg.clear_on_empty_4code = true;
-    SaveConfigFile(GetDefaultUserConfigPath(), haifeng_cfg);
-    std::filesystem::last_write_time(
-        GetDefaultUserConfigPath(),
-        std::filesystem::file_time_type::clock::now() + std::chrono::seconds(10),
-        ec);
+    QIQI_TEST_CHECK(SaveConfig(haifeng_cfg));
     ComPtr<ITfCompartmentEventSink> comp_event_sink;
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&comp_event_sink))) && comp_event_sink);
     QIQI_TEST_CHECK(SUCCEEDED(comp_event_sink->OnChange(GUID_NULL)));
-    QIQI_TEST_CHECK(SUCCEEDED(comp_event_sink->OnChange(kGuidCompartmentConfigVersion)));
-
-    // Test UWP registry-only hot-reload branch (when %LOCALAPPDATA%\QiQiIME\config.ini is inaccessible/absent)
-    std::filesystem::remove_all(temp_appdata, ec);
-    haifeng_cfg.page_size = 7;
-    QIQI_TEST_CHECK(SaveConfigToRegistry(haifeng_cfg));
     QIQI_TEST_CHECK(SUCCEEDED(comp_event_sink->OnChange(kGuidCompartmentConfigVersion)));
     comp_event_sink.Reset();
 

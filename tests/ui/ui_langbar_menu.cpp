@@ -194,7 +194,7 @@ void TestLangBarButton() {
     QIQI_TEST_CHECK(btn->InitMenu(nullptr) == E_INVALIDARG);
     MockTfMenu menu_zh;
     QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_zh)));
-    QIQI_TEST_CHECK(menu_zh.item_ids_.size() == 11 && menu_zh.separators_ == 2);
+    QIQI_TEST_CHECK(menu_zh.item_ids_.size() == 10 && menu_zh.separators_ == 2);
     QIQI_TEST_CHECK(!menu_zh.item_texts_.empty() &&
                     menu_zh.item_texts_.front().find(L"中文输入模式") != std::wstring::npos);
 
@@ -207,7 +207,7 @@ void TestLangBarButton() {
                     std::wstring(tooltip.Get()).find(L"Left-click") != std::wstring::npos);
     MockTfMenu menu_en;
     QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_en)));
-    QIQI_TEST_CHECK(menu_en.item_ids_.size() == 11 && menu_en.separators_ == 2);
+    QIQI_TEST_CHECK(menu_en.item_ids_.size() == 10 && menu_en.separators_ == 2);
     QIQI_TEST_CHECK(!menu_en.item_texts_.empty() &&
                     menu_en.item_texts_.front().find(L"Chinese Input Mode") != std::wstring::npos);
 
@@ -466,7 +466,7 @@ void TestQuickSettingsMenu() {
     }
     SetThemeDarkOverrideForTest(std::nullopt);
     QIQI_TEST_CHECK(!LangBarButton::KeepsMenuOpen(LangBarMenuId::OpenAbout));
-    QIQI_TEST_CHECK(!LangBarButton::KeepsMenuOpen(LangBarMenuId::OpenConfigFile));
+    QIQI_TEST_CHECK(!LangBarButton::KeepsMenuOpen(LangBarMenuId::OpenSettings));
 }
 
 LRESULT CALLBACK CheckMenuButtonFontLifetime(
@@ -634,7 +634,7 @@ void TestQuickSettingsMenuWorkArea() {
 void TestQuickSettingsMenuCommandValidation() {
     LangBarButton::ShowSharedPopupMenu(LangBarState{}, POINT{200, 200}, {});
     QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
-    for (const auto action : {LangBarMenuId::OpenSettings, LangBarMenuId::OpenConfigFile, LangBarMenuId::OpenAbout}) {
+    for (const auto action : {LangBarMenuId::OpenSettings, LangBarMenuId::OpenAbout}) {
         static LangBarMenuId closing_action{};
         closing_action = action;
         const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
@@ -688,7 +688,7 @@ void TestQuickSettingsMenuDisabledNavigation() {
             default:
                 QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == static_cast<int>(LangBarMenuId::ToggleStatusBar));
                 ::KillTimer(nullptr, id);
-                ::SetFocus(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::OpenConfigFile)));
+                ::SetFocus(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::OpenSettings)));
                 ::PostMessageW(::GetFocus(), WM_KEYDOWN, VK_RETURN, 0);
                 break;
         }
@@ -699,7 +699,7 @@ void TestQuickSettingsMenuDisabledNavigation() {
     state.primary_dict = PrimaryDict::Haifeng;
     int callbacks = 0;
     LangBarButton::ShowSharedPopupMenu(state, POINT{200, 200}, [&](LangBarMenuId action) {
-        QIQI_TEST_CHECK(action == LangBarMenuId::OpenConfigFile);
+        QIQI_TEST_CHECK(action == LangBarMenuId::OpenSettings);
         QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
         ++callbacks;
     });

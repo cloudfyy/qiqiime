@@ -9,108 +9,72 @@
 #include <gsl/gsl>
 #include <algorithm>
 #include <array>
-#include <cctype>
-#include <format>
 #include <string>
 
 namespace qiqi {
 
 namespace {
 
-std::string_view LogLevelToString(log::Level lvl) noexcept {
-    switch (lvl) {
-        case log::Level::trace:    return "trace";
-        case log::Level::debug:    return "debug";
-        case log::Level::warn:     return "warn";
-        case log::Level::err:      return "error";
-        case log::Level::critical: return "critical";
-        case log::Level::off:      return "off";
-        case log::Level::info:
-        default:                   return "info";
-    }
+struct BoolRegBinding {
+    const wchar_t* value_name;
+    bool QiQiConfig::* field;
+};
+
+constexpr std::array<BoolRegBinding, 15> kBoolRegBindings = {{
+    {L"EnableJidianExtra",         &QiQiConfig::enable_jidian_extra},
+    {L"AutoCommit4Code",           &QiQiConfig::auto_commit_4code},
+    {L"PushCommit5th",             &QiQiConfig::push_commit_5th},
+    {L"SemicolonQuoteQuickSelect", &QiQiConfig::semicolon_quote_quick_select},
+    {L"ShowCodeHint",              &QiQiConfig::show_code_hint},
+    {L"EnableZTempEnglish",        &QiQiConfig::enable_z_temp_english},
+    {L"DynamicPhraseFreq",         &QiQiConfig::dynamic_phrase_freq},
+    {L"DefaultChineseMode",        &QiQiConfig::default_chinese_mode},
+    {L"DefaultFullWidth",          &QiQiConfig::default_full_width},
+    {L"DefaultChinesePunct",       &QiQiConfig::default_chinese_punct},
+    {L"ShiftToggleMode",           &QiQiConfig::shift_toggle_mode},
+    {L"ShowStatusBar",             &QiQiConfig::show_status_bar},
+    {L"BeepOnEmpty4Code",          &QiQiConfig::beep_on_empty_4code},
+    {L"BeepOnDup4Code",            &QiQiConfig::beep_on_dup_4code},
+    {L"ClearOnEmpty4Code",         &QiQiConfig::clear_on_empty_4code},
+}};
+
+bool WriteRegDword(HKEY key, const wchar_t* name, DWORD val) noexcept {
+    return ::RegSetValueExW(
+               key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&val), sizeof(val)) == ERROR_SUCCESS;
 }
 
-constexpr std::string_view TrimAscii(std::string_view sv) noexcept {
-    while (!sv.empty() && (sv.front() == ' ' || sv.front() == '\t' || sv.front() == '\r')) {
-        sv.remove_prefix(1);
-    }
-    while (!sv.empty() && (sv.back() == ' ' || sv.back() == '\t' || sv.back() == '\r')) {
-        sv.remove_suffix(1);
-    }
-    return sv;
+bool ReadRegDword(HKEY key, const wchar_t* name, DWORD& out_val) noexcept {
+    DWORD type = 0;
+    DWORD cb = sizeof(out_val);
+    return ::RegQueryValueExW(
+               key, name, nullptr, &type, reinterpret_cast<LPBYTE>(&out_val), &cb) == ERROR_SUCCESS &&
+           type == REG_DWORD;
 }
 
-std::string ToLowerAscii(std::string_view sv) {
-    std::string out(sv);
-    for (char& ch : out) {
-        if (ch >= 'A' && ch <= 'Z') {
-            ch = gsl::narrow_cast<char>(ch - 'A' + 'a');
-        }
-    }
-    return out;
+bool WriteRegString(HKEY key, const wchar_t* name, std::wstring_view val) noexcept {
+    const DWORD cb = gsl::narrow_cast<DWORD>((val.size() + 1) * sizeof(wchar_t));
+    return ::RegSetValueExW(
+               key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(val.data()), cb) == ERROR_SUCCESS;
 }
 
-std::string_view StripInlineComment(std::string_view value) noexcept {
-    for (size_t i = 0; i < value.size(); ++i) {
-        const char ch = gsl::at(value, i);
-        if ((ch == '#' || ch == ';') &&
-            (i == 0 || gsl::at(value, i - 1) == ' ' || gsl::at(value, i - 1) == '\t')) {
-            return TrimAscii(value.substr(0, i));
-        }
-    }
-    return TrimAscii(value);
-}
-
-bool ParseBool(std::string_view val, bool default_val) {
-    const std::string lower = ToLowerAscii(val);
-    if (lower == "true" || lower == "1" || lower == "yes" || lower == "on") {
-        return true;
-    }
-    if (lower == "false" || lower == "0" || lower == "no" || lower == "off") {
+bool ReadRegString(HKEY key, const wchar_t* name, std::wstring& out_val) {
+    DWORD type = 0;
+    DWORD cb = 0;
+    constexpr DWORD kMaxStringBytes = 4096;
+    if (::RegQueryValueExW(key, name, nullptr, &type, nullptr, &cb) != ERROR_SUCCESS ||
+        type != REG_SZ || cb < sizeof(wchar_t) || cb > kMaxStringBytes) {
         return false;
     }
-    return default_val;
-}
-
-log::Level ParseLogLevel(std::string_view val, log::Level default_lvl) {
-    const std::string lower = ToLowerAscii(val);
-    if (lower == "trace") return log::Level::trace;
-    if (lower == "debug") return log::Level::debug;
-    if (lower == "info") return log::Level::info;
-    if (lower == "warn" || lower == "warning") return log::Level::warn;
-    if (lower == "error" || lower == "err") return log::Level::err;
-    if (lower == "critical") return log::Level::critical;
-    if (lower == "off" || lower == "none") return log::Level::off;
-    return default_lvl;
-}
-
-PrimaryDict ParsePrimaryDict(std::string_view val, PrimaryDict default_dict) {
-    const std::string lower = ToLowerAscii(val);
-    if (lower == "jidian" || lower == "wubi86_jidian") return PrimaryDict::Jidian;
-    if (lower == "haifeng" || lower == "wubi86_haifeng") return PrimaryDict::Haifeng;
-    if (lower == "builtin" || lower == "none") return PrimaryDict::BuiltinOnly;
-    return default_dict;
-}
-
-std::string_view UiLanguageToString(UiLanguage lang) noexcept {
-    switch (lang) {
-        case UiLanguage::ZhCn: return "zh-CN";
-        case UiLanguage::EnUs: return "en-US";
-        case UiLanguage::Auto:
-        default:               return "auto";
+    std::wstring buf(cb / sizeof(wchar_t), L'\0');
+    if (::RegQueryValueExW(
+            key, name, nullptr, &type, reinterpret_cast<LPBYTE>(buf.data()), &cb) != ERROR_SUCCESS) {
+        return false;
     }
-}
-
-UiLanguage ParseUiLanguage(std::string_view val, UiLanguage default_lang) {
-    const std::string lower = ToLowerAscii(val);
-    if (lower == "auto" || lower == "system" || lower == "default") return UiLanguage::Auto;
-    if (lower == "zh-cn" || lower == "zh_cn" || lower == "zh" || lower == "cn" || lower == "chinese") {
-        return UiLanguage::ZhCn;
+    while (!buf.empty() && buf.back() == L'\0') {
+        buf.pop_back();
     }
-    if (lower == "en-us" || lower == "en_us" || lower == "en" || lower == "english") {
-        return UiLanguage::EnUs;
-    }
-    return default_lang;
+    out_val = std::move(buf);
+    return true;
 }
 
 std::filesystem::path ResolveDefaultUserFilePath(std::wstring_view file_name) {
@@ -231,10 +195,6 @@ const wchar_t* GetActiveConfigRegistrySubKey() noexcept {
     return g_config_reg_subkey_override ? g_config_reg_subkey_override : kDefaultConfigRegSubKey;
 }
 
-std::filesystem::path GetDefaultUserConfigPath() {
-    return ResolveDefaultUserFilePath(L"config.ini");
-}
-
 std::filesystem::path GetDefaultUserDictPath() {
     return ResolveDefaultUserFilePath(L"user_dict.txt");
 }
@@ -267,213 +227,25 @@ std::filesystem::path ResolveBundledDataFile(
     return direct;
 }
 
-QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
-    QiQiConfig cfg{};
-    utf8_content = StripUtf8Bom(utf8_content);
-
-    std::string current_section;
-    while (!utf8_content.empty()) {
-        const size_t nl = utf8_content.find('\n');
-        std::string_view line = (nl == std::string_view::npos)
-            ? utf8_content
-            : utf8_content.substr(0, nl);
-        utf8_content.remove_prefix(nl == std::string_view::npos ? utf8_content.size() : nl + 1);
-
-        line = TrimAscii(line);
-        if (line.empty() || line.starts_with('#') || line.starts_with(';')) {
-            continue;
-        }
-
-        if (line.starts_with('[') && line.ends_with(']')) {
-            current_section = ToLowerAscii(TrimAscii(line.substr(1, line.size() - 2)));
-            continue;
-        }
-
-        const size_t eq = line.find('=');
-        if (eq == std::string_view::npos) {
-            continue;
-        }
-
-        const std::string key = ToLowerAscii(TrimAscii(line.substr(0, eq)));
-        const std::string_view val = StripInlineComment(line.substr(eq + 1));
-
-        if (current_section == "dictionary") {
-            if (key == "primary") {
-                cfg.primary_dict = ParsePrimaryDict(val, cfg.primary_dict);
-            } else if (key == "enable_jidian_extra") {
-                cfg.enable_jidian_extra = ParseBool(val, cfg.enable_jidian_extra);
-            } else if (key == "user_dict") {
-                cfg.user_dict_path = Utf8ToWide(val);
-            }
-        } else if (current_section == "engine") {
-            if (key == "page_size") {
-                if (val.size() == 1 && val.front() >= '1' && val.front() <= '9') {
-                    cfg.page_size = static_cast<size_t>(val.front()) - static_cast<size_t>('0');
-                }
-            } else if (key == "auto_commit_4code") {
-                cfg.auto_commit_4code = ParseBool(val, cfg.auto_commit_4code);
-            } else if (key == "push_commit_5th") {
-                cfg.push_commit_5th = ParseBool(val, cfg.push_commit_5th);
-            } else if (key == "semicolon_quote_quick_select") {
-                cfg.semicolon_quote_quick_select = ParseBool(val, cfg.semicolon_quote_quick_select);
-            } else if (key == "show_code_hint") {
-                cfg.show_code_hint = ParseBool(val, cfg.show_code_hint);
-            } else if (key == "enable_z_temp_english") {
-                cfg.enable_z_temp_english = ParseBool(val, cfg.enable_z_temp_english);
-            } else if (key == "dynamic_phrase_freq") {
-                cfg.dynamic_phrase_freq = ParseBool(val, cfg.dynamic_phrase_freq);
-            } else if (key == "default_chinese_mode") {
-                cfg.default_chinese_mode = ParseBool(val, cfg.default_chinese_mode);
-            } else if (key == "default_full_width") {
-                cfg.default_full_width = ParseBool(val, cfg.default_full_width);
-            } else if (key == "default_chinese_punct") {
-                cfg.default_chinese_punct = ParseBool(val, cfg.default_chinese_punct);
-            } else if (key == "shift_toggle_mode") {
-                cfg.shift_toggle_mode = ParseBool(val, cfg.shift_toggle_mode);
-            } else if (key == "show_status_bar") {
-                cfg.show_status_bar = ParseBool(val, cfg.show_status_bar);
-            } else if (key == "beep_on_empty_4code") {
-                cfg.beep_on_empty_4code = ParseBool(val, cfg.beep_on_empty_4code);
-            } else if (key == "beep_on_dup_4code") {
-                cfg.beep_on_dup_4code = ParseBool(val, cfg.beep_on_dup_4code);
-            } else if (key == "clear_on_empty_4code") {
-                cfg.clear_on_empty_4code = ParseBool(val, cfg.clear_on_empty_4code);
-            } else if (key == "enable_key_sound") {
-                cfg.enable_key_sound = ParseBool(val, cfg.enable_key_sound);
-            } else if (key == "ui_language" || key == "language") {
-                cfg.ui_language = ParseUiLanguage(val, cfg.ui_language);
-            } else if (key == "log_keystrokes" || key == "collect_keystrokes") {
-                cfg.log_keystrokes = ParseBool(val, cfg.log_keystrokes);
-            }
-        } else if (current_section == "log") {
-            if (key == "level") {
-                cfg.log_level = ParseLogLevel(val, cfg.log_level);
-            } else if (key == "log_keystrokes" || key == "collect_keystrokes") {
-                cfg.log_keystrokes = ParseBool(val, cfg.log_keystrokes);
-            }
-        }
-    }
-
-    return cfg;
-}
-
-std::string SerializeConfigToUtf8(const QiQiConfig& config) {
-    return std::format(
-        "# QiQi 五笔输入法配置文件 (UTF-8 INI 格式)\n"
-        "# 默认用户配置路径: %LOCALAPPDATA%\\QiQiIME\\config.ini\n\n"
-        "[dictionary]\n"
-        "# 主词库选择: jidian (极点86主词库) | haifeng (海峰86超大字符集) | builtin (仅内置)\n"
-        "primary = {}\n"
-        "# 是否叠加加载极点五笔现代扩展词库 (wubi86_jidian_extra.txt)\n"
-        "enable_jidian_extra = {}\n"
-        "# 用户自定义扩展码表路径 (可选)\n"
-        "user_dict = {}\n\n"
-        "[engine]\n"
-        "# 候选窗口每页显示的候选词数量 (1 - 9)\n"
-        "page_size = {}\n"
-        "# 四码唯一时是否自动上屏\n"
-        "auto_commit_4code = {}\n"
-        "# 第五码是否顶字上屏\n"
-        "push_commit_5th = {}\n"
-        "# 是否启用分号(;)与单引号(')快捷选择第 2、3 候选词\n"
-        "semicolon_quote_quick_select = {}\n"
-        "# 输入 1~3 码时是否在候选词旁显示后续编码提示 (~code)\n"
-        "show_code_hint = {}\n"
-        "# 中文模式下是否允许首码按 z 引导进入临时英文串输入模式\n"
-        "enable_z_temp_english = {}\n"
-        "# 是否启用重码词组动态调频 (单字始终保持固定词序，默认关闭)\n"
-        "dynamic_phrase_freq = {}\n"
-        "# 默认初始模式是否中文\n"
-        "default_chinese_mode = {}\n"
-        "# 默认是否启用全角字符模式 (运行期可通过 Shift+Space 切换)\n"
-        "default_full_width = {}\n"
-        "# 默认是否启用中文全角标点 (运行期可通过 Ctrl+. 切换)\n"
-        "default_chinese_punct = {}\n"
-        "# 是否允许单按 Shift 键切换中英文模式\n"
-        "shift_toggle_mode = {}\n"
-        "# 是否显示桌面浮动状态条 (默认关闭)\n"
-        "show_status_bar = {}\n"
-        "# 四码空码（无匹配词）时是否发出提示音\n"
-        "beep_on_empty_4code = {}\n"
-        "# 四码重码（有多个候选词）时是否发出提示音 (默认关闭)\n"
-        "beep_on_dup_4code = {}\n"
-        "# 空码（无匹配词）时是否自动清空已输入编码 (默认关闭)\n"
-        "clear_on_empty_4code = {}\n"
-        "# 是否启用打字按键音效 (默认关闭)\n"
-        "enable_key_sound = {}\n"
-        "# 界面语言: auto (跟随系统) | zh-CN (简体中文) | en-US (English)\n"
-        "ui_language = {}\n\n"
-        "[log]\n"
-        "# 日志级别: trace | debug | info | warn | error | off\n"
-        "level = {}\n"
-        "# 是否记录按键与候选词诊断日志 (默认关闭；注意：开启后将记录您的按键与上屏文本等隐私信息，仅用于问题排查)\n"
-        "log_keystrokes = {}\n",
-        PrimaryDictToString(config.primary_dict),
-        config.enable_jidian_extra ? "true" : "false",
-        WideToUtf8(config.user_dict_path),
-        std::clamp<size_t>(config.page_size, 1, 9),
-        config.auto_commit_4code ? "true" : "false",
-        config.push_commit_5th ? "true" : "false",
-        config.semicolon_quote_quick_select ? "true" : "false",
-        config.show_code_hint ? "true" : "false",
-        config.enable_z_temp_english ? "true" : "false",
-        config.dynamic_phrase_freq ? "true" : "false",
-        config.default_chinese_mode ? "true" : "false",
-        config.default_full_width ? "true" : "false",
-        config.default_chinese_punct ? "true" : "false",
-        config.shift_toggle_mode ? "true" : "false",
-        config.show_status_bar ? "true" : "false",
-        config.beep_on_empty_4code ? "true" : "false",
-        config.beep_on_dup_4code ? "true" : "false",
-        config.clear_on_empty_4code ? "true" : "false",
-        config.enable_key_sound ? "true" : "false",
-        UiLanguageToString(config.ui_language),
-        LogLevelToString(config.log_level),
-        config.log_keystrokes ? "true" : "false");
-}
-
-bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_config) {
-    std::string content;
-    if (!ReadFileToUtf8String(file_path, content)) {
-        QIQI_LOG_DEBUG("LoadConfigFile: could not open or read '{}'", WideToUtf8(file_path.wstring()));
-        return false;
-    }
-    out_config = ParseConfigFromUtf8(content);
-    QIQI_LOG_DEBUG(
-        "Loaded config from '{}': dict={}, extra={}, page_size={}, auto4={}, push5={}, "
-        "beep_empty4={}, clear_empty4={}, key_sound={}, status_bar={}, lang={}, log_level={}",
-        WideToUtf8(file_path.wstring()),
-        PrimaryDictToString(out_config.primary_dict),
-        out_config.enable_jidian_extra,
-        out_config.page_size,
-        out_config.auto_commit_4code,
-        out_config.push_commit_5th,
-        out_config.beep_on_empty_4code,
-        out_config.clear_on_empty_4code,
-        out_config.enable_key_sound,
-        out_config.show_status_bar,
-        UiLanguageToString(out_config.ui_language),
-        LogLevelToString(out_config.log_level));
-    return true;
-}
-
 bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexcept {
     try {
         const ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE);
         if (!key) {
             return false;
         }
-        const std::string utf8_ini = SerializeConfigToUtf8(config);
-        const LSTATUS st = ::RegSetValueExW(
-            key.Get(),
-            L"ConfigIniUtf8",
-            0,
-            REG_BINARY,
-            reinterpret_cast<const BYTE*>(utf8_ini.data()),
-            gsl::narrow_cast<DWORD>(utf8_ini.size()));
-        if (st != ERROR_SUCCESS) {
-            QIQI_LOG_WARN("SaveConfigToRegistry: RegSetValueExW(ConfigIniUtf8) failed (status={})", st);
+        if (!WriteRegDword(key.Get(), L"PrimaryDict", static_cast<DWORD>(config.primary_dict)) ||
+            !WriteRegDword(key.Get(), L"PageSize", gsl::narrow_cast<DWORD>(std::clamp<size_t>(config.page_size, 1, 9))) ||
+            !WriteRegDword(key.Get(), L"UiLanguage", static_cast<DWORD>(config.ui_language)) ||
+            !WriteRegDword(key.Get(), L"LogLevel", static_cast<DWORD>(config.log_level)) ||
+            !WriteRegDword(key.Get(), L"EnableKeySound", config.enable_key_sound ? 1u : 0u) ||
+            !WriteRegDword(key.Get(), L"LogKeystrokes", config.log_keystrokes ? 1u : 0u) ||
+            !WriteRegString(key.Get(), L"UserDictPath", config.user_dict_path)) {
             return false;
+        }
+        for (const auto& binding : kBoolRegBindings) {
+            if (!WriteRegDword(key.Get(), binding.value_name, (config.*(binding.field)) ? 1u : 0u)) {
+                return false;
+            }
         }
         BumpRegistrySequenceLocked(key.Get());
         return true;
@@ -491,39 +263,50 @@ bool LoadConfigFromRegistry(
         if (!key) {
             return false;
         }
-        if (out_sequence) {
-            uint64_t seq = 0;
-            DWORD cb_seq = sizeof(seq);
-            DWORD type_seq = 0;
-            if (::RegQueryValueExW(
-                    key.Get(),
-                    L"ConfigSequence",
-                    nullptr,
-                    &type_seq,
-                    reinterpret_cast<LPBYTE>(&seq),
-                    &cb_seq) == ERROR_SUCCESS &&
-                type_seq == REG_QWORD) {
-                *out_sequence = seq;
-            }
-        }
-        DWORD type = 0;
-        DWORD cb = 0;
-        constexpr DWORD kMaxRegConfigBytes = 64 * 1024;
-        if (::RegQueryValueExW(key.Get(), L"ConfigIniUtf8", nullptr, &type, nullptr, &cb) != ERROR_SUCCESS ||
-            type != REG_BINARY || cb == 0 || cb > kMaxRegConfigBytes) {
-            return false;
-        }
-        std::string utf8_ini(cb, '\0');
+        uint64_t seq = 0;
+        DWORD cb_seq = sizeof(seq);
+        DWORD type_seq = 0;
         if (::RegQueryValueExW(
                 key.Get(),
-                L"ConfigIniUtf8",
+                L"ConfigSequence",
                 nullptr,
-                &type,
-                reinterpret_cast<LPBYTE>(utf8_ini.data()),
-                &cb) != ERROR_SUCCESS) {
+                &type_seq,
+                reinterpret_cast<LPBYTE>(&seq),
+                &cb_seq) != ERROR_SUCCESS ||
+            type_seq != REG_QWORD || seq == 0) {
             return false;
         }
-        out_config = ParseConfigFromUtf8(utf8_ini);
+        if (out_sequence) {
+            *out_sequence = seq;
+        }
+
+        QiQiConfig cfg{};
+        DWORD dw = 0;
+        if (ReadRegDword(key.Get(), L"PrimaryDict", dw) && dw <= static_cast<DWORD>(PrimaryDict::BuiltinOnly)) {
+            cfg.primary_dict = static_cast<PrimaryDict>(dw);
+        }
+        if (ReadRegDword(key.Get(), L"PageSize", dw) && dw >= 1 && dw <= 9) {
+            cfg.page_size = static_cast<size_t>(dw);
+        }
+        if (ReadRegDword(key.Get(), L"UiLanguage", dw) && dw <= static_cast<DWORD>(UiLanguage::EnUs)) {
+            cfg.ui_language = static_cast<UiLanguage>(dw);
+        }
+        if (ReadRegDword(key.Get(), L"LogLevel", dw) && dw <= static_cast<DWORD>(log::Level::off)) {
+            cfg.log_level = static_cast<log::Level>(dw);
+        }
+        if (ReadRegDword(key.Get(), L"EnableKeySound", dw)) {
+            cfg.enable_key_sound = (dw != 0);
+        }
+        if (ReadRegDword(key.Get(), L"LogKeystrokes", dw)) {
+            cfg.log_keystrokes = (dw != 0);
+        }
+        std::ignore = ReadRegString(key.Get(), L"UserDictPath", cfg.user_dict_path);
+        for (const auto& binding : kBoolRegBindings) {
+            if (ReadRegDword(key.Get(), binding.value_name, dw)) {
+                cfg.*(binding.field) = (dw != 0);
+            }
+        }
+        out_config = std::move(cfg);
         return true;
     } catch (...) {
         return false;
@@ -555,7 +338,7 @@ bool SaveUserDictBinaryToRegistry(
     std::span<const uint8_t> qdict_bytes,
     const wchar_t* subkey) noexcept {
     try {
-        constexpr size_t kMaxRegDictBytes = 512 * 1024; // 512 KB ceiling for registry mirror
+        constexpr size_t kMaxRegDictBytes = 512 * 1024;
         if (qdict_bytes.empty() || qdict_bytes.size() > kMaxRegDictBytes) {
             return false;
         }
@@ -603,67 +386,18 @@ bool LoadUserDictBinaryFromRegistry(
                &cb) == ERROR_SUCCESS;
 }
 
-bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& config) {
-    try {
-        const std::string text = SerializeConfigToUtf8(config);
-        const std::span<const uint8_t> bytes(
-            reinterpret_cast<const uint8_t*>(text.data()), text.size());
-        if (!WriteFileAtomically(file_path, bytes)) {
-            QIQI_LOG_WARN("SaveConfigFile: failed to write configuration atomically to '{}'",
-                          WideToUtf8(file_path.wstring()));
-            return false;
-        }
-        if (file_path == GetDefaultUserConfigPath()) {
-            SaveConfigToRegistry(config);
-        }
-        QIQI_LOG_INFO("Saved configuration to '{}'", WideToUtf8(file_path.wstring()));
-        return true;
-    } catch (...) {
-        return false;
-    }
+bool SaveConfig(const QiQiConfig& config) noexcept {
+    return SaveConfigToRegistry(config);
 }
 
-bool EnsureDefaultConfigFile(const std::filesystem::path& file_path) {
-    try {
-        if (std::filesystem::exists(file_path)) {
-            return true;
-        }
-        QIQI_LOG_INFO("Creating default user config file at '{}'", WideToUtf8(file_path.wstring()));
-        return SaveConfigFile(file_path, QiQiConfig{});
-    } catch (...) {
-        return false;
-    }
-}
-
-QiQiConfig LoadConfig(void* module_handle) {
+QiQiConfig LoadConfig(void* /*module_handle*/) noexcept {
     QiQiConfig cfg{};
-
-    // 1. Check user config path: %LOCALAPPDATA%\QiQiIME\config.ini
-    const std::filesystem::path user_cfg_path = GetDefaultUserConfigPath();
-    if (std::filesystem::exists(user_cfg_path) && LoadConfigFile(user_cfg_path, cfg)) {
-        SaveConfigToRegistry(cfg);
-        QIQI_LOG_INFO("Loaded user configuration from '{}'", WideToUtf8(user_cfg_path.wstring()));
-        return cfg;
-    }
-
-    // 2. Check HKCU\Software\QiQiIME registry mirror (used by UWP AppContainer sandboxes where %LOCALAPPDATA% is isolated)
     if (LoadConfigFromRegistry(cfg)) {
-        QIQI_LOG_INFO("Loaded user configuration from HKCU registry mirror");
+        QIQI_LOG_INFO("Loaded user configuration from HKCU\\Software\\QiQiIME (dict={}, page_size={})",
+                      PrimaryDictToString(cfg.primary_dict), cfg.page_size);
         return cfg;
     }
-
-    // 3. Check config.ini next to the DLL / executable or shared ../data/ directory
-    const std::filesystem::path module_path = GetModuleFilePath(module_handle);
-    if (!module_path.empty()) {
-        const std::filesystem::path dll_cfg_path =
-            ResolveBundledDataFile(module_path.parent_path(), L"config.ini");
-        if (std::filesystem::exists(dll_cfg_path) && LoadConfigFile(dll_cfg_path, cfg)) {
-            QIQI_LOG_INFO("Loaded fallback configuration from '{}'", WideToUtf8(dll_cfg_path.wstring()));
-        }
-    }
-
-    // 4. Create default user config file and registry mirror for easy future customization
-    EnsureDefaultConfigFile(user_cfg_path);
+    SaveConfigToRegistry(cfg);
     return cfg;
 }
 

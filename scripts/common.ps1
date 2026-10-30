@@ -6,7 +6,6 @@ $script:QiQiRepoRoot = Split-Path -Parent $PSScriptRoot
 $script:QiQiClsid = "{8E7B9D31-5A42-4C81-9F11-202610290001}"
 $script:QiQiProfileGuid = "{8E7B9D31-5A42-4C81-9F11-202610290002}"
 $script:QiQiDataFileNames = @(
-    "config.ini",
     "wubi86_jidian.txt",
     "wubi86_jidian_extra.txt",
     "wubi86_haifeng.txt"

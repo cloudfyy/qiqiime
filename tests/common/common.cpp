@@ -92,117 +92,7 @@ void TestEtwLogger() {
 }
 
 void TestIniConfiguration() {
-    // 1. Test ParseConfigFromUtf8 with BOM, comments, inline comments, and all sections
-    constexpr std::string_view kIniContent =
-        "\xEF\xBB\xBF# Header comment\n"
-        "; Semicolon comment\n"
-        "[dictionary]\n"
-        "primary = haifeng # inline comment\n"
-        "enable_jidian_extra = false\n"
-        "user_dict = custom_words.txt\n"
-        "\n"
-        "[engine]\n"
-        "page_size = 7\n"
-        "auto_commit_4code = 0\n"
-        "push_commit_5th = no\n"
-        "default_chinese_mode = off\n"
-        "default_full_width = true\n"
-        "default_chinese_punct = false\n"
-        "shift_toggle_mode = false\n"
-        "semicolon_quote_quick_select = false\n"
-        "show_code_hint = false\n"
-        "enable_z_temp_english = false\n"
-        "dynamic_phrase_freq = true\n"
-        "clear_on_empty_4code = true\n"
-        "\n"
-        "[log]\n"
-        "level = debug\n";
-
-    const QiQiConfig cfg = ParseConfigFromUtf8(kIniContent);
-    QIQI_TEST_CHECK(cfg.primary_dict == PrimaryDict::Haifeng);
-    QIQI_TEST_CHECK(!cfg.enable_jidian_extra);
-    QIQI_TEST_CHECK(cfg.user_dict_path == L"custom_words.txt");
-    QIQI_TEST_CHECK(cfg.page_size == 7);
-    QIQI_TEST_CHECK(!cfg.auto_commit_4code);
-    QIQI_TEST_CHECK(!cfg.push_commit_5th);
-    QIQI_TEST_CHECK(!cfg.semicolon_quote_quick_select);
-    QIQI_TEST_CHECK(!cfg.show_code_hint);
-    QIQI_TEST_CHECK(!cfg.enable_z_temp_english);
-    QIQI_TEST_CHECK(cfg.dynamic_phrase_freq);
-    QIQI_TEST_CHECK(!cfg.default_chinese_mode);
-    QIQI_TEST_CHECK(cfg.default_full_width);
-    QIQI_TEST_CHECK(!cfg.default_chinese_punct);
-    QIQI_TEST_CHECK(!cfg.shift_toggle_mode);
-    QIQI_TEST_CHECK(cfg.clear_on_empty_4code);
-    QIQI_TEST_CHECK(cfg.log_level == log::Level::debug);
-
-    // Test SaveConfigFile & SerializeConfigToUtf8 round-trip
-    const auto roundtrip_path = std::filesystem::temp_directory_path() / L"qiqiime_roundtrip.ini";
-    std::error_code rt_ec;
-    QIQI_TEST_CHECK(SaveConfigFile(roundtrip_path, cfg));
-    QiQiConfig roundtrip_cfg{};
-    QIQI_TEST_CHECK(LoadConfigFile(roundtrip_path, roundtrip_cfg));
-    QIQI_TEST_CHECK(roundtrip_cfg.primary_dict == PrimaryDict::Haifeng);
-    QIQI_TEST_CHECK(roundtrip_cfg.default_full_width);
-    QIQI_TEST_CHECK(!roundtrip_cfg.default_chinese_punct);
-    QIQI_TEST_CHECK(!roundtrip_cfg.semicolon_quote_quick_select);
-    QIQI_TEST_CHECK(roundtrip_cfg.clear_on_empty_4code);
-    std::filesystem::remove(roundtrip_path, rt_ec);
-
-    // 2. Test alternative enum/boolean values, uppercase keys, malformed lines, and all log levels
-    const QiQiConfig cfg2 = ParseConfigFromUtf8(
-        "[DICTIONARY]\n"
-        "PRIMARY = builtin\n"
-        "ENABLE_JIDIAN_EXTRA = yes\n"
-        "malformed_line_without_equals\n"
-        "[ENGINE]\n"
-        "AUTO_COMMIT_4CODE = on\n"
-        "PUSH_COMMIT_5TH = invalid_bool\n"
-        "BEEP_ON_EMPTY_4CODE = false\n"
-        "BEEP_ON_DUP_4CODE = true\n"
-        "CLEAR_ON_EMPTY_4CODE = true\n"
-        "ENABLE_KEY_SOUND = true\n"
-        "UI_LANGUAGE = en-US\n"
-        "[LOG]\n"
-        "LEVEL = trace\n"
-        "LOG_KEYSTROKES = true\n");
-    QIQI_TEST_CHECK(cfg2.primary_dict == PrimaryDict::BuiltinOnly);
-    QIQI_TEST_CHECK(cfg2.enable_jidian_extra);
-    QIQI_TEST_CHECK(cfg2.auto_commit_4code);
-    QIQI_TEST_CHECK(cfg2.push_commit_5th);
-    QIQI_TEST_CHECK(!cfg2.beep_on_empty_4code);
-    QIQI_TEST_CHECK(cfg2.beep_on_dup_4code);
-    QIQI_TEST_CHECK(cfg2.clear_on_empty_4code);
-    QIQI_TEST_CHECK(cfg2.enable_key_sound);
-    QIQI_TEST_CHECK(cfg2.ui_language == UiLanguage::EnUs);
-    QIQI_TEST_CHECK(cfg2.log_level == log::Level::trace);
-    QIQI_TEST_CHECK(cfg2.log_keystrokes);
-
-    const QiQiConfig cfg_zh = ParseConfigFromUtf8("[engine]\nlanguage = zh-CN\n");
-    QIQI_TEST_CHECK(cfg_zh.ui_language == UiLanguage::ZhCn);
-    QIQI_TEST_CHECK(!SerializeConfigToUtf8(cfg_zh).empty());
-    const QiQiConfig cfg_auto = ParseConfigFromUtf8("[engine]\nui_language = unknown_lang\n");
-    QIQI_TEST_CHECK(cfg_auto.ui_language == UiLanguage::Auto);
-
-    for (const auto& [lvl_str, lvl_enum] : {
-             std::pair{"info", log::Level::info},
-             std::pair{"warn", log::Level::warn},
-             std::pair{"error", log::Level::err},
-             std::pair{"critical", log::Level::critical},
-             std::pair{"off", log::Level::off},
-             std::pair{"unknown_lvl", log::Level::info}}) {
-        QiQiConfig lcfg = ParseConfigFromUtf8(std::string("[log]\nlevel = ") + lvl_str + "\n[dictionary]\nprimary = unknown_dict\n");
-        QIQI_TEST_CHECK(lcfg.log_level == lvl_enum);
-        QIQI_TEST_CHECK(lcfg.primary_dict == PrimaryDict::Jidian);
-        const std::string serialized = SerializeConfigToUtf8(lcfg);
-        QIQI_TEST_CHECK(!serialized.empty());
-    }
-    QIQI_TEST_CHECK(!SerializeConfigToUtf8(cfg2).empty());
-
-    // SaveConfigFile failure when target is a directory
-    QIQI_TEST_CHECK(!SaveConfigFile(std::filesystem::temp_directory_path(), cfg));
-
-    // Test ResolveBundledDataFile fallback across <dll_dir>/<name>, <dll_dir>/../data/<name>, and <dll_dir>/../<name>
+    // 1. Test ResolveBundledDataFile fallback across <dll_dir>/<name>, <dll_dir>/../data/<name>, and <dll_dir>/../<name>
     {
         const auto base_dir = std::filesystem::temp_directory_path() / L"QiQiIME_BundledLayoutTest";
         const auto x64_dir = base_dir / L"x64";
@@ -212,100 +102,104 @@ void TestIniConfiguration() {
         std::filesystem::create_directories(x64_dir, layout_ec);
         std::filesystem::create_directories(shared_data_dir, layout_ec);
 
-        QIQI_TEST_CHECK(ResolveBundledDataFile({}, L"config.ini") == std::filesystem::path(L"config.ini"));
+        QIQI_TEST_CHECK(ResolveBundledDataFile({}, L"wubi86_jidian.txt") == std::filesystem::path(L"wubi86_jidian.txt"));
+        const std::array<uint8_t, 4> dummy_bytes{'a', ' ', 'x', '\n'};
         // When file exists in ../data/, ResolveBundledDataFile(x64_dir, ...) resolves to ../data/
         const auto shared_dict = shared_data_dir / L"wubi86_jidian.txt";
-        SaveConfigFile(shared_dict, cfg);
+        QIQI_TEST_CHECK(WriteFileAtomically(shared_dict, dummy_bytes));
         QIQI_TEST_CHECK(ResolveBundledDataFile(x64_dir, L"wubi86_jidian.txt") == shared_dict);
 
         // When file exists in ../, ResolveBundledDataFile(x64_dir, ...) resolves to ../
-        const auto parent_cfg = base_dir / L"config.ini";
-        SaveConfigFile(parent_cfg, cfg);
-        QIQI_TEST_CHECK(ResolveBundledDataFile(x64_dir, L"config.ini") == parent_cfg);
+        const auto parent_dict = base_dir / L"wubi86_haifeng.txt";
+        QIQI_TEST_CHECK(WriteFileAtomically(parent_dict, dummy_bytes));
+        QIQI_TEST_CHECK(ResolveBundledDataFile(x64_dir, L"wubi86_haifeng.txt") == parent_dict);
 
         // When file exists directly in dll_dir, direct path takes precedence
         const auto local_dict = x64_dir / L"wubi86_jidian.txt";
-        SaveConfigFile(local_dict, cfg);
+        QIQI_TEST_CHECK(WriteFileAtomically(local_dict, dummy_bytes));
         QIQI_TEST_CHECK(ResolveBundledDataFile(x64_dir, L"wubi86_jidian.txt") == local_dict);
 
         std::filesystem::remove_all(base_dir, layout_ec);
     }
 
-    // 3. Test EnsureDefaultConfigFile and LoadConfigFile
-    const auto temp_cfg_path = std::filesystem::temp_directory_path() / L"qiqiime_test_config.ini";
-    std::error_code ec;
-    std::filesystem::remove(temp_cfg_path, ec);
-
-    QIQI_TEST_CHECK(!LoadConfigFile("non_existent_config_99999.ini", const_cast<QiQiConfig&>(cfg)));
-    QIQI_TEST_CHECK(EnsureDefaultConfigFile(temp_cfg_path));
-    // Calling EnsureDefaultConfigFile again when file exists returns true without overwriting
-    QIQI_TEST_CHECK(EnsureDefaultConfigFile(temp_cfg_path));
-
-    QiQiConfig loaded_default{};
-    QIQI_TEST_CHECK(LoadConfigFile(temp_cfg_path, loaded_default));
-    QIQI_TEST_CHECK(loaded_default.primary_dict == PrimaryDict::Jidian);
-    QIQI_TEST_CHECK(loaded_default.enable_jidian_extra);
-    QIQI_TEST_CHECK(loaded_default.page_size == 5);
-    QIQI_TEST_CHECK(loaded_default.auto_commit_4code);
-    QIQI_TEST_CHECK(loaded_default.push_commit_5th);
-    QIQI_TEST_CHECK(!loaded_default.clear_on_empty_4code);
-    QIQI_TEST_CHECK(loaded_default.default_chinese_mode);
-    QIQI_TEST_CHECK(loaded_default.shift_toggle_mode);
-    QIQI_TEST_CHECK(loaded_default.log_level == log::Level::info);
-
-    std::filesystem::remove(temp_cfg_path, ec);
-
-    // 4. Test LoadConfig discovery and HKCU registry config/user-dict mirroring (using isolated test subkey)
+    // 2. Test pure HKCU registry configuration & user_dict binary mirroring (using isolated test subkey)
     constexpr const wchar_t* kTestRegSubKey = L"Software\\QiQiIME_UnitTest";
     ::RegDeleteTreeW(HKEY_CURRENT_USER, kTestRegSubKey);
     SetConfigRegistrySubKeyOverrideForTest(kTestRegSubKey);
-
-    wchar_t* orig_localappdata = nullptr;
-    size_t orig_len = 0;
-    _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
-    const auto temp_appdata = std::filesystem::temp_directory_path() / L"QiQiIME_TestAppData";
-    std::filesystem::remove_all(temp_appdata, ec);
-    const auto restore_appdata = gsl::finally([&]() noexcept {
+    const auto restore_reg = gsl::finally([]() noexcept {
         SetConfigRegistrySubKeyOverrideForTest(nullptr);
         ::RegDeleteTreeW(HKEY_CURRENT_USER, kTestRegSubKey);
-        if (orig_localappdata) {
-            _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
-            free(orig_localappdata);
-        }
-        std::error_code clean_ec;
-        std::filesystem::remove_all(temp_appdata, clean_ec);
     });
-    _wputenv_s(L"LOCALAPPDATA", temp_appdata.wstring().c_str());
 
     QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) == kTestRegSubKey);
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() == 0);
     QiQiConfig reg_out{};
     QIQI_TEST_CHECK(!LoadConfigFromRegistry(reg_out));
-    QIQI_TEST_CHECK(!SaveConfigToRegistry(cfg, L""));
+    QIQI_TEST_CHECK(!SaveConfigToRegistry(reg_out, L""));
     QIQI_TEST_CHECK(!LoadConfigFromRegistry(reg_out, nullptr, L""));
     QIQI_TEST_CHECK(QueryRegistryConfigSequence(L"") == 0);
 
+    // First LoadConfig initializes default values in HKCU\<subkey>
     const QiQiConfig discovered = LoadConfig(nullptr);
-    QIQI_TEST_CHECK(discovered.page_size >= 1 && discovered.page_size <= 9);
-    QIQI_TEST_CHECK(std::filesystem::exists(GetDefaultUserConfigPath()));
+    QIQI_TEST_CHECK(discovered.primary_dict == PrimaryDict::Jidian);
+    QIQI_TEST_CHECK(discovered.enable_jidian_extra);
+    QIQI_TEST_CHECK(discovered.page_size == 5);
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() >= 1);
 
-    // Verify LoadConfig falls back to HKCU registry mirror when %LOCALAPPDATA%\QiQiIME\config.ini is absent (UWP scenario)
+    // Save custom config with all fields modified and verify round-trip via LoadConfigFromRegistry & LoadConfig
     QiQiConfig custom_reg_cfg{};
-    custom_reg_cfg.page_size = 8;
     custom_reg_cfg.primary_dict = PrimaryDict::Haifeng;
+    custom_reg_cfg.enable_jidian_extra = false;
+    custom_reg_cfg.user_dict_path = L"custom_words.txt";
+    custom_reg_cfg.page_size = 8;
+    custom_reg_cfg.auto_commit_4code = false;
+    custom_reg_cfg.push_commit_5th = false;
+    custom_reg_cfg.semicolon_quote_quick_select = false;
+    custom_reg_cfg.show_code_hint = false;
+    custom_reg_cfg.enable_z_temp_english = false;
+    custom_reg_cfg.dynamic_phrase_freq = true;
+    custom_reg_cfg.default_chinese_mode = false;
+    custom_reg_cfg.default_full_width = true;
+    custom_reg_cfg.default_chinese_punct = false;
+    custom_reg_cfg.shift_toggle_mode = false;
+    custom_reg_cfg.show_status_bar = true;
+    custom_reg_cfg.beep_on_empty_4code = false;
+    custom_reg_cfg.beep_on_dup_4code = true;
+    custom_reg_cfg.clear_on_empty_4code = true;
+    custom_reg_cfg.enable_key_sound = true;
     custom_reg_cfg.ui_language = UiLanguage::EnUs;
-    QIQI_TEST_CHECK(SaveConfigToRegistry(custom_reg_cfg));
+    custom_reg_cfg.log_level = log::Level::debug;
+    custom_reg_cfg.log_keystrokes = true;
+
+    QIQI_TEST_CHECK(SaveConfig(custom_reg_cfg));
     uint64_t seq_after_save = 0;
     QIQI_TEST_CHECK(LoadConfigFromRegistry(reg_out, &seq_after_save));
     QIQI_TEST_CHECK(seq_after_save >= 2);
-    QIQI_TEST_CHECK(reg_out.page_size == 8 &&
-                    reg_out.primary_dict == PrimaryDict::Haifeng &&
-                    reg_out.ui_language == UiLanguage::EnUs);
+    QIQI_TEST_CHECK(reg_out.primary_dict == PrimaryDict::Haifeng);
+    QIQI_TEST_CHECK(!reg_out.enable_jidian_extra);
+    QIQI_TEST_CHECK(reg_out.user_dict_path == L"custom_words.txt");
+    QIQI_TEST_CHECK(reg_out.page_size == 8);
+    QIQI_TEST_CHECK(!reg_out.auto_commit_4code);
+    QIQI_TEST_CHECK(!reg_out.push_commit_5th);
+    QIQI_TEST_CHECK(!reg_out.semicolon_quote_quick_select);
+    QIQI_TEST_CHECK(!reg_out.show_code_hint);
+    QIQI_TEST_CHECK(!reg_out.enable_z_temp_english);
+    QIQI_TEST_CHECK(reg_out.dynamic_phrase_freq);
+    QIQI_TEST_CHECK(!reg_out.default_chinese_mode);
+    QIQI_TEST_CHECK(reg_out.default_full_width);
+    QIQI_TEST_CHECK(!reg_out.default_chinese_punct);
+    QIQI_TEST_CHECK(!reg_out.shift_toggle_mode);
+    QIQI_TEST_CHECK(reg_out.show_status_bar);
+    QIQI_TEST_CHECK(!reg_out.beep_on_empty_4code);
+    QIQI_TEST_CHECK(reg_out.beep_on_dup_4code);
+    QIQI_TEST_CHECK(reg_out.clear_on_empty_4code);
+    QIQI_TEST_CHECK(reg_out.enable_key_sound);
+    QIQI_TEST_CHECK(reg_out.ui_language == UiLanguage::EnUs);
+    QIQI_TEST_CHECK(reg_out.log_level == log::Level::debug);
+    QIQI_TEST_CHECK(reg_out.log_keystrokes);
 
-    std::filesystem::remove_all(temp_appdata, ec);
-    const QiQiConfig uwp_loaded = LoadConfig(nullptr);
-    QIQI_TEST_CHECK(uwp_loaded.page_size == 8 && uwp_loaded.primary_dict == PrimaryDict::Haifeng);
+    const QiQiConfig reloaded = LoadConfig(nullptr);
+    QIQI_TEST_CHECK(reloaded.page_size == 8 && reloaded.primary_dict == PrimaryDict::Haifeng);
 
     // Verify user_dict binary registry mirror round-trip and edge cases
     std::vector<uint8_t> loaded_dict_bytes;
@@ -458,28 +352,7 @@ void TestI18nLocalization() {
     QIQI_TEST_CHECK(std::wstring_view(zh.dlg_btn_ok) == L"确定");
     QIQI_TEST_CHECK(std::wstring_view(en.dlg_btn_ok) == L"OK");
 
-    // 3. Config INI aliases & round-trip serialization for all UiLanguage values
-    for (const auto& [alias, expected] : {
-             std::pair{"auto", UiLanguage::Auto},
-             std::pair{"system", UiLanguage::Auto},
-             std::pair{"default", UiLanguage::Auto},
-             std::pair{"zh-CN", UiLanguage::ZhCn},
-             std::pair{"zh_cn", UiLanguage::ZhCn},
-             std::pair{"zh", UiLanguage::ZhCn},
-             std::pair{"cn", UiLanguage::ZhCn},
-             std::pair{"chinese", UiLanguage::ZhCn},
-             std::pair{"en-US", UiLanguage::EnUs},
-             std::pair{"en_us", UiLanguage::EnUs},
-             std::pair{"en", UiLanguage::EnUs},
-             std::pair{"english", UiLanguage::EnUs}}) {
-        const QiQiConfig parsed = ParseConfigFromUtf8(std::string("[engine]\nui_language = ") + alias + "\n");
-        QIQI_TEST_CHECK(parsed.ui_language == expected);
-        const std::string serialized = SerializeConfigToUtf8(parsed);
-        const QiQiConfig roundtrip = ParseConfigFromUtf8(serialized);
-        QIQI_TEST_CHECK(roundtrip.ui_language == expected);
-    }
-
-    // 4. Test sound synthesizer and PlayImeSound (both live WAV synthesis and muted test mode)
+    // 3. Test sound synthesizer and PlayImeSound (both live WAV synthesis and muted test mode)
     ResetLastPlayedSoundForTest();
     PlayImeSound(SoundEffectKind::None);
     QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::None);

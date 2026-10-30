@@ -27,7 +27,6 @@ enum class LangBarMenuId : UINT {
     ToggleExtraDict = 6,
     ToggleStatusBar = 7,
     OpenSettings = 8,
-    OpenConfigFile = 9,
     ToggleUiLanguage = 10,
     OpenAbout = 11
 };
@@ -57,7 +56,7 @@ class LangBarButton final
     : public ComObjectBase<LangBarButton, ITfLangBarItemButton, ITfSource> {
 public:
     using ActionCallback = std::function<void(LangBarMenuId action_id)>;
-    using MenuItems = std::array<LangBarMenuItem, 13>;
+    using MenuItems = std::array<LangBarMenuItem, 12>;
 
     explicit LangBarButton(ActionCallback cb = {}) noexcept;
     ~LangBarButton() noexcept = default;

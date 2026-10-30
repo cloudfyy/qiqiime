@@ -105,12 +105,11 @@ constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
         case LangBarMenuId::DictJidian:        return "DictJidian";
         case LangBarMenuId::DictHaifeng:       return "DictHaifeng";
         case LangBarMenuId::ToggleExtraDict:   return "ToggleExtraDict";
-        case LangBarMenuId::ToggleStatusBar:   return "ToggleStatusBar";
-        case LangBarMenuId::OpenSettings:      return "OpenSettings";
-        case LangBarMenuId::OpenConfigFile:    return "OpenConfigFile";
-        case LangBarMenuId::ToggleUiLanguage:  return "ToggleUiLanguage";
-        case LangBarMenuId::OpenAbout:         return "OpenAbout";
-        default:                               return "Unknown";
+        case LangBarMenuId::ToggleStatusBar:    return "ToggleStatusBar";
+        case LangBarMenuId::OpenSettings:       return "OpenSettings";
+        case LangBarMenuId::ToggleUiLanguage:   return "ToggleUiLanguage";
+        case LangBarMenuId::OpenAbout:          return "OpenAbout";
+        default:                                return "Unknown";
     }
 }
 
@@ -189,11 +188,6 @@ void LogKeyTraceIfEnabled(
 
 QiQiTextService::QiQiTextService(HINSTANCE instance) {
     config_ = LoadConfig(instance);
-    std::error_code ec;
-    const auto user_cfg = GetDefaultUserConfigPath();
-    if (std::filesystem::exists(user_cfg, ec)) {
-        config_last_write_time_ = std::filesystem::last_write_time(user_cfg, ec);
-    }
     config_registry_sequence_ = QueryRegistryConfigSequence();
     log::SetLevel(config_.log_level);
     engine_.ApplyConfig(config_);
@@ -664,12 +658,6 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
         case LangBarMenuId::OpenSettings:
             Show(nullptr, kChineseSimplifiedLangId, kGuidProfileWubi86);
             break;
-        case LangBarMenuId::OpenConfigFile: {
-            const auto cfg_path = GetDefaultUserConfigPath();
-            EnsureDefaultConfigFile(cfg_path);
-            ::ShellExecuteW(nullptr, L"open", L"notepad.exe", cfg_path.c_str(), nullptr, SW_SHOWNORMAL);
-            break;
-        }
         case LangBarMenuId::OpenAbout:
             ShowAboutDialog(g_dll_instance, nullptr, config_.ui_language);
             break;
@@ -992,9 +980,7 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
 }
 
 void QiQiTextService::PersistAndSyncQuickConfigChange(bool reload_dicts) {
-    SaveConfigFile(GetDefaultUserConfigPath(), config_);
-    std::error_code ec;
-    config_last_write_time_ = std::filesystem::last_write_time(GetDefaultUserConfigPath(), ec);
+    SaveConfig(config_);
     config_registry_sequence_ = QueryRegistryConfigSequence();
     if (reload_dicts) {
         LoadExternalDictionaryNextToDll();
@@ -1110,48 +1096,21 @@ void QiQiTextService::ReloadConfigIfModified() {
         LoadExternalDictionaryNextToDll();
     }
 
-    std::error_code ec;
-    const std::filesystem::path user_cfg = GetDefaultUserConfigPath();
-    const bool file_exists = std::filesystem::exists(user_cfg, ec);
-    const auto write_time = file_exists
-        ? std::filesystem::last_write_time(user_cfg, ec)
-        : std::filesystem::file_time_type{};
-    const bool file_modified = file_exists && !ec && (write_time != config_last_write_time_);
-
     const uint64_t reg_seq = QueryRegistryConfigSequence();
-    const bool reg_modified = (reg_seq != 0 && reg_seq != config_registry_sequence_);
-
-    if (!file_modified && !reg_modified) {
+    if (reg_seq == 0 || reg_seq == config_registry_sequence_) {
         return;
     }
 
     QiQiConfig updated{};
-    bool loaded_ok = false;
-    if (file_modified && LoadConfigFile(user_cfg, updated)) {
-        config_last_write_time_ = write_time;
-        SaveConfigToRegistry(updated);
-        config_registry_sequence_ = QueryRegistryConfigSequence();
-        loaded_ok = true;
-    } else if (reg_modified && LoadConfigFromRegistry(updated, &config_registry_sequence_)) {
-        loaded_ok = true;
-    }
-
-    if (loaded_ok) {
-        const bool dict_changed =
-            (updated.primary_dict != config_.primary_dict) ||
-            (updated.enable_jidian_extra != config_.enable_jidian_extra) ||
-            (updated.user_dict_path != config_.user_dict_path) ||
-            reg_modified;
+    if (LoadConfigFromRegistry(updated, &config_registry_sequence_)) {
         config_ = std::move(updated);
         ApplyDynamicEngineSettings();
         if (config_.dynamic_phrase_freq && !engine_.PhraseFreqPath().empty()) {
             std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
         }
-        if (dict_changed || (config_.primary_dict != PrimaryDict::BuiltinOnly && engine_.MappedDictionaryCount() == 0)) {
-            LoadExternalDictionaryNextToDll();
-        }
+        LoadExternalDictionaryNextToDll();
         SyncTsfCompartments();
-        QIQI_LOG_INFO("Hot-reloaded modified user configuration (dict={}, mapped_dicts={}, log_keystrokes={})",
+        QIQI_LOG_INFO("Hot-reloaded modified user configuration from HKCU\\Software\\QiQiIME (dict={}, mapped_dicts={}, log_keystrokes={})",
                       PrimaryDictToString(config_.primary_dict),
                       engine_.MappedDictionaryCount(),
                       config_.log_keystrokes);

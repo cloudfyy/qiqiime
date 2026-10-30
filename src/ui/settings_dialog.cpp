@@ -27,7 +27,6 @@ constexpr int kIdChkPushCommit5 = 106;
 constexpr int kIdChkShiftToggle = 107;
 constexpr int kIdChkStatusBar = 108;
 constexpr int kIdComboPageSize = 109;
-constexpr int kIdBtnOpenIni = 110;
 constexpr int kIdComboUiLang = 111;
 constexpr int kIdChkBeepEmpty4 = 112;
 constexpr int kIdChkKeySound = 113;
@@ -165,12 +164,6 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             ctx.done = true;
             ::PostMessageW(hwnd, WM_NULL, 0, 0);
             return;
-        case kIdBtnOpenIni: {
-            const auto cfg_path = GetDefaultUserConfigPath();
-            EnsureDefaultConfigFile(cfg_path);
-            ::ShellExecuteW(hwnd, L"open", L"notepad.exe", cfg_path.c_str(), nullptr, SW_SHOWNORMAL);
-            return;
-        }
         case kIdBtnAbout: {
             const UiLanguage lang = ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
             ShowAboutDialog(g_dll_instance, hwnd, lang);
@@ -462,10 +455,9 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
         ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
     }
 
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_open_ini, BS_PUSHBUTTON, S(24), S(606), S(104), S(28), kIdBtnOpenIni);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_about, BS_PUSHBUTTON, S(136), S(606), S(72), S(28), kIdBtnAbout);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(218), S(606), S(78), S(28), kIdBtnOk);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(304), S(606), S(78), S(28), kIdBtnCancel);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_about, BS_PUSHBUTTON, S(24), S(606), S(88), S(28), kIdBtnAbout);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(240), S(606), S(86), S(28), kIdBtnOk);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(334), S(606), S(86), S(28), kIdBtnCancel);
 
     if (bound_config) {
         WriteSettingsToWindowControls(hwnd.Get(), *bound_config);

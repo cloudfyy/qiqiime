@@ -217,7 +217,7 @@ void TestStatusBarUI() {
     ScopedGdiHandle<HBRUSH> menu_brush;
     ScopedMenu popup_menu = bar.BuildContextMenu(menu_brush);
     QIQI_TEST_CHECK(popup_menu.IsValid() && menu_brush.IsValid());
-    QIQI_TEST_CHECK(::GetMenuItemCount(popup_menu.Get()) == 13); // 11 items + 2 separators
+    QIQI_TEST_CHECK(::GetMenuItemCount(popup_menu.Get()) == 12); // 10 items + 2 separators
     QIQI_TEST_CHECK((::GetMenuState(popup_menu.Get(),
         static_cast<UINT>(LangBarMenuId::ToggleStatusBar), MF_BYCOMMAND) & MF_CHECKED) != 0);
 
@@ -343,7 +343,7 @@ void TestStatusBarContextMenuState() {
                     bool enabled;
                 };
                 const bool is_jidian = dict == PrimaryDict::Jidian;
-                const std::array<ExpectedItem, 11> items{{
+                const std::array<ExpectedItem, 10> items{{
                     {LangBarMenuId::ToggleChinese, strings.menu_toggle_chinese, enabled, true},
                     {LangBarMenuId::ToggleFullWidth, strings.menu_toggle_full_width, enabled, true},
                     {LangBarMenuId::TogglePunctuation, strings.menu_toggle_punct, enabled, true},
@@ -353,14 +353,13 @@ void TestStatusBarContextMenuState() {
                     {LangBarMenuId::ToggleStatusBar, strings.menu_toggle_status_bar, false, true},
                     {LangBarMenuId::ToggleUiLanguage, strings.menu_toggle_ui_lang, false, true},
                     {LangBarMenuId::OpenSettings, strings.menu_open_settings, false, true},
-                    {LangBarMenuId::OpenConfigFile, strings.menu_open_config_file, false, true},
                     {LangBarMenuId::OpenAbout, strings.menu_open_about, false, true}
                 }};
 
                 ScopedGdiHandle<HBRUSH> brush;
                 ScopedMenu menu = bar.BuildContextMenu(brush);
                 QIQI_TEST_CHECK(menu.IsValid() && brush.IsValid());
-                QIQI_TEST_CHECK(::GetMenuItemCount(menu.Get()) == 13);
+                QIQI_TEST_CHECK(::GetMenuItemCount(menu.Get()) == 12);
                 QIQI_TEST_CHECK((::GetMenuState(menu.Get(), 3, MF_BYPOSITION) & MF_SEPARATOR) != 0);
                 QIQI_TEST_CHECK((::GetMenuState(menu.Get(), 7, MF_BYPOSITION) & MF_SEPARATOR) != 0);
                 for (const auto& item : items) {
