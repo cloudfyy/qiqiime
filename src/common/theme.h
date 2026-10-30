@@ -130,6 +130,10 @@ inline const ThemePalette& GetCurrentThemePalette() noexcept {
     return GetThemePalette(IsSystemDarkTheme());
 }
 
+inline const ThemePalette& GetTaskbarThemePalette() noexcept {
+    return GetThemePalette(IsTaskbarDarkTheme());
+}
+
 // Sync Win32 popup menus (uxtheme ordinal 135/136) and window border with Windows 10/11 dark/light theme.
 inline void ApplySystemThemeToMenuAndWindow(HWND hwnd, bool is_dark) noexcept {
     if (const HMODULE uxtheme = ::GetModuleHandleW(L"uxtheme.dll")) {

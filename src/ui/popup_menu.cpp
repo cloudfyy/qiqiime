@@ -46,6 +46,8 @@ public:
                     ::SetForegroundWindow(previous_focus);
                 }
             });
+            const auto palette = Palette();
+            ApplySystemThemeToMenuAndWindow(hwnd_.Get(), palette.is_dark);
             ::ShowWindow(hwnd_.Get(), SW_SHOW);
             ::SetForegroundWindow(hwnd_.Get());
             ::SetFocus(hwnd_.Get());
@@ -250,7 +252,8 @@ private:
     }
 
     static ThemePalette Palette() noexcept {
-        ThemePalette palette = GetCurrentThemePalette();
+        ThemePalette palette = GetTaskbarThemePalette();
+        palette.text_accent = palette.text_primary;
         HIGHCONTRASTW contrast{};
         contrast.cbSize = sizeof(contrast);
         if (::SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
@@ -328,6 +331,7 @@ private:
                 return 0;
             case WM_SETTINGCHANGE:
             case WM_THEMECHANGED:
+                ApplySystemThemeToMenuAndWindow(hwnd, Palette().is_dark);
                 ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
                 return 0;
             case WM_ERASEBKGND:

@@ -738,21 +738,31 @@ int CountQuickSettingsCheckPixels(HWND menu) {
 
 void TestQuickSettingsMenuLivePainting() {
     const auto original_theme = detail::ThemeDarkOverrideStorage();
-    const auto restore_theme = gsl::finally([&]() { SetThemeDarkOverrideForTest(original_theme); });
+    const auto original_taskbar = detail::TaskbarDarkOverrideStorage();
+    const auto restore_theme = gsl::finally([&]() {
+        SetThemeDarkOverrideForTest(original_theme);
+        SetTaskbarDarkOverrideForTest(original_taskbar);
+    });
     for (const bool dark : {false, true}) {
-        SetThemeDarkOverrideForTest(dark);
+        // Verify quick settings menu follows taskbar theme even when app theme differs.
+        SetThemeDarkOverrideForTest(!dark);
+        SetTaskbarDarkOverrideForTest(dark);
         static bool updated_dark = false;
         updated_dark = !dark;
         const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
             ::KillTimer(nullptr, id);
             const HWND menu = FindQuickSettingsMenu();
             QIQI_TEST_CHECK(menu && ::IsWindowVisible(menu));
+            {
+                const ScopedWindowDC dc(menu);
+                QIQI_TEST_CHECK(::GetPixel(dc.Get(), 1, 1) == GetThemePalette(!updated_dark).window_bg);
+            }
             QIQI_TEST_CHECK(CountQuickSettingsCheckPixels(menu) > 0);
             ::SendMessageW(menu, WM_COMMAND,
                            MAKEWPARAM(static_cast<UINT>(LangBarMenuId::ToggleChinese), BN_CLICKED), 0);
             QIQI_TEST_CHECK(::IsWindowVisible(menu));
             QIQI_TEST_CHECK(CountQuickSettingsCheckPixels(menu) == 0);
-            SetThemeDarkOverrideForTest(updated_dark);
+            SetTaskbarDarkOverrideForTest(updated_dark);
             for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
                 ::SendMessageW(menu, message, 0, 0);
                 ::RedrawWindow(menu, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);

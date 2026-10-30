@@ -78,8 +78,9 @@ LangBarButton::MenuItems LangBarButton::BuildSharedMenuItems(const LangBarState&
 }
 
 ScopedMenu LangBarButton::BuildSharedPopupMenu(
-    const LangBarState& state, HWND /*owner_hwnd*/, ScopedGdiHandle<HBRUSH>& out_bg_brush) noexcept {
-    const auto& palette = GetCurrentThemePalette();
+    const LangBarState& state, HWND owner_hwnd, ScopedGdiHandle<HBRUSH>& out_bg_brush) noexcept {
+    const auto& palette = GetTaskbarThemePalette();
+    ApplySystemThemeToMenuAndWindow(owner_hwnd, palette.is_dark);
 
     ScopedMenu menu(::CreatePopupMenu());
     if (!menu) {
