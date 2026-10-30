@@ -442,12 +442,7 @@ void StatusBarUI::HideTooltip() noexcept {
 }
 
 void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) noexcept {
-    const int saved_dc = ::SaveDC(hdc);
-    const auto restore_dc = gsl::finally([hdc, saved_dc]() noexcept {
-        if (saved_dc != 0) {
-            ::RestoreDC(hdc, saved_dc);
-        }
-    });
+    const ScopedSaveDC save_dc(hdc);
     const auto& palette = GetCurrentThemePalette();
     const int grip_w = ScaleByDpi(kGripWidth);
     const int buttons_offset = ScaleByDpi(kButtonsOffset);
@@ -517,12 +512,7 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) noexcept {
 }
 
 void StatusBarUI::PaintTooltip(HDC hdc, const RECT& client_rect) const noexcept {
-    const int saved_dc = ::SaveDC(hdc);
-    const auto restore_dc = gsl::finally([hdc, saved_dc]() noexcept {
-        if (saved_dc != 0) {
-            ::RestoreDC(hdc, saved_dc);
-        }
-    });
+    const ScopedSaveDC save_dc(hdc);
     const auto& palette = GetCurrentThemePalette();
     const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.tooltip_bg));
     ::FillRect(hdc, &client_rect, bg_brush.Get());
@@ -600,14 +590,8 @@ void StatusBarUI::OnRightButtonUp(POINT client_pt) const {
 }
 
 LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-    if (msg == WM_NCCREATE) {
-        const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
-        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-        return ::DefWindowProcW(hwnd, msg, wparam, lparam);
-    }
-
-    auto* self = reinterpret_cast<StatusBarUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (!self) {
+    auto* self = BindOrGetWindowUserData<StatusBarUI>(hwnd, msg, lparam);
+    if (!self || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 
@@ -698,14 +682,8 @@ LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
 }
 
 LRESULT CALLBACK StatusBarUI::TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept {
-    if (msg == WM_NCCREATE) {
-        const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
-        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-        return ::DefWindowProcW(hwnd, msg, wparam, lparam);
-    }
-
-    const auto* self = reinterpret_cast<const StatusBarUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (!self) {
+    const auto* self = BindOrGetWindowUserData<const StatusBarUI>(hwnd, msg, lparam);
+    if (!self || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 

@@ -1,28 +1,17 @@
 #pragma once
 #include <windows.h>
 #include <msctf.h>
-#include <atomic>
+
+#include "common/com_object.h"
 
 namespace qiqi {
 
 // Provides dashed/dotted underline styling for active TSF composition text.
-class QiQiDisplayAttributeInfo final : public ITfDisplayAttributeInfo {
+class QiQiDisplayAttributeInfo final
+    : public ComObjectBase<QiQiDisplayAttributeInfo, ITfDisplayAttributeInfo> {
 public:
     QiQiDisplayAttributeInfo() noexcept;
-    ~QiQiDisplayAttributeInfo() noexcept;
-
-#pragma warning(push)
-#pragma warning(disable : 26456)
-    QiQiDisplayAttributeInfo(const QiQiDisplayAttributeInfo&) = delete;
-    QiQiDisplayAttributeInfo& operator=(const QiQiDisplayAttributeInfo&) = delete;
-    QiQiDisplayAttributeInfo(QiQiDisplayAttributeInfo&&) = delete;
-    QiQiDisplayAttributeInfo& operator=(QiQiDisplayAttributeInfo&&) = delete;
-#pragma warning(pop)
-
-    // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;
-    STDMETHODIMP_(ULONG) AddRef() noexcept override;
-    STDMETHODIMP_(ULONG) Release() noexcept override;
+    ~QiQiDisplayAttributeInfo() noexcept = default;
 
     // ITfDisplayAttributeInfo
     STDMETHODIMP GetGUID(GUID* pguid) noexcept override;
@@ -34,27 +23,14 @@ public:
 private:
     static constexpr TF_DISPLAYATTRIBUTE DefaultAttribute() noexcept;
 
-    std::atomic<ULONG> ref_count_{1};
     TF_DISPLAYATTRIBUTE attr_{};
 };
 
-class QiQiEnumDisplayAttributeInfo final : public IEnumTfDisplayAttributeInfo {
+class QiQiEnumDisplayAttributeInfo final
+    : public ComObjectBase<QiQiEnumDisplayAttributeInfo, IEnumTfDisplayAttributeInfo> {
 public:
     explicit QiQiEnumDisplayAttributeInfo(ULONG index = 0) noexcept;
-    ~QiQiEnumDisplayAttributeInfo() noexcept;
-
-#pragma warning(push)
-#pragma warning(disable : 26456)
-    QiQiEnumDisplayAttributeInfo(const QiQiEnumDisplayAttributeInfo&) = delete;
-    QiQiEnumDisplayAttributeInfo& operator=(const QiQiEnumDisplayAttributeInfo&) = delete;
-    QiQiEnumDisplayAttributeInfo(QiQiEnumDisplayAttributeInfo&&) = delete;
-    QiQiEnumDisplayAttributeInfo& operator=(QiQiEnumDisplayAttributeInfo&&) = delete;
-#pragma warning(pop)
-
-    // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;
-    STDMETHODIMP_(ULONG) AddRef() noexcept override;
-    STDMETHODIMP_(ULONG) Release() noexcept override;
+    ~QiQiEnumDisplayAttributeInfo() noexcept = default;
 
     // IEnumTfDisplayAttributeInfo
     STDMETHODIMP Clone(IEnumTfDisplayAttributeInfo** ppEnum) noexcept override;
@@ -63,7 +39,6 @@ public:
     STDMETHODIMP Skip(ULONG ulCount) noexcept override;
 
 private:
-    std::atomic<ULONG> ref_count_{1};
     ULONG index_ = 0;
 };
 

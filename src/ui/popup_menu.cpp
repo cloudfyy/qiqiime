@@ -268,12 +268,11 @@ private:
     }
 
     void DrawItem(const DRAWITEMSTRUCT& item) const {
-        const int saved_dc = ::SaveDC(item.hDC);
-        if (!saved_dc) {
+        const ScopedSaveDC save_dc(item.hDC);
+        if (!save_dc) {
             QIQI_LOG_ERROR("Saving quick settings drawing context failed: {}", ::GetLastError());
             return;
         }
-        const auto restore_dc = gsl::finally([&]() { ::RestoreDC(item.hDC, saved_dc); });
         const auto palette = Palette();
         const bool selected = (item.itemState & (ODS_SELECTED | ODS_FOCUS)) || item.hwndItem == hovered_;
         const bool disabled = (item.itemState & ODS_DISABLED) != 0;
@@ -302,11 +301,7 @@ private:
     }
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-        if (msg == WM_NCCREATE) {
-            const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lparam);
-            ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
-        }
-        auto* self = reinterpret_cast<QuickSettingsMenu*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        auto* self = BindOrGetWindowUserData<QuickSettingsMenu>(hwnd, msg, lparam);
         if (!self) {
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         }

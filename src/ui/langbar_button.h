@@ -8,6 +8,7 @@
 #include <array>
 #include <functional>
 
+#include "common/com_object.h"
 #include "common/config.h"
 #include "common/scoped_handle.h"
 
@@ -51,27 +52,17 @@ struct LangBarMenuItem {
 // Implements ITfLangBarItemButton + ITfSource registered with GUID_LBI_INPUTMODE
 // to render the Windows taskbar tray "中/英" icon and right-click context menu.
 class LangBarButton final
-    : public ITfLangBarItemButton,
-      public ITfSource {
+    : public ComObjectBase<LangBarButton, ITfLangBarItemButton, ITfSource> {
 public:
     using ActionCallback = std::function<void(LangBarMenuId action_id)>;
     using MenuItems = std::array<LangBarMenuItem, 13>;
 
     explicit LangBarButton(ActionCallback cb = {}) noexcept;
-    ~LangBarButton() noexcept;
+    ~LangBarButton() noexcept = default;
 
-#pragma warning(push)
-#pragma warning(disable : 26456)
-    LangBarButton(const LangBarButton&) = delete;
-    LangBarButton& operator=(const LangBarButton&) = delete;
-    LangBarButton(LangBarButton&&) = delete;
-    LangBarButton& operator=(LangBarButton&&) = delete;
-#pragma warning(pop)
-
-    // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;
-    STDMETHODIMP_(ULONG) AddRef() noexcept override;
-    STDMETHODIMP_(ULONG) Release() noexcept override;
+    bool QueryAdditionalInterfaces(REFIID riid, void** ppvObj) noexcept {
+        return MatchBaseInterfaces<ITfLangBarItemButton, ITfLangBarItem>(riid, ppvObj);
+    }
 
     // ITfLangBarItem
     STDMETHODIMP GetInfo(TF_LANGBARITEMINFO* pInfo) noexcept override;
@@ -119,7 +110,6 @@ public:
 private:
     static ScopedIcon CreateTextIcon(wchar_t ch) noexcept;
 
-    std::atomic<ULONG> ref_count_{1};
     ComPtr<ITfLangBarItemSink> sink_;
     DWORD sink_cookie_ = 0;
     LangBarState state_{};

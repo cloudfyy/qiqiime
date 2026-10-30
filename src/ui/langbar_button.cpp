@@ -107,43 +107,7 @@ ScopedMenu LangBarButton::BuildSharedPopupMenu(
 }
 
 LangBarButton::LangBarButton(ActionCallback cb) noexcept
-    : action_callback_(std::move(cb)) {
-    ++g_com_object_count;
-}
-
-LangBarButton::~LangBarButton() noexcept {
-    --g_com_object_count;
-}
-
-STDMETHODIMP LangBarButton::QueryInterface(REFIID riid, void** ppvObj) noexcept {
-    if (!ppvObj) {
-        return E_INVALIDARG;
-    }
-    if (IsEqualIID(riid, IID_IUnknown) ||
-        IsEqualIID(riid, IID_ITfLangBarItem) ||
-        IsEqualIID(riid, IID_ITfLangBarItemButton)) {
-        *ppvObj = static_cast<ITfLangBarItemButton*>(this);
-    } else if (IsEqualIID(riid, IID_ITfSource)) {
-        *ppvObj = static_cast<ITfSource*>(this);
-    } else {
-        *ppvObj = nullptr;
-        return E_NOINTERFACE;
-    }
-    AddRef();
-    return S_OK;
-}
-
-STDMETHODIMP_(ULONG) LangBarButton::AddRef() noexcept {
-    return ++ref_count_;
-}
-
-STDMETHODIMP_(ULONG) LangBarButton::Release() noexcept {
-    const ULONG count = --ref_count_;
-    if (count == 0) {
-        delete this;
-    }
-    return count;
-}
+    : action_callback_(std::move(cb)) {}
 
 STDMETHODIMP LangBarButton::GetInfo(TF_LANGBARITEMINFO* pInfo) noexcept {
     if (!pInfo) {

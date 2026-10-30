@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "common/com_object.h"
 #include "common/config.h"
 #include "common/scoped_handle.h"
 
@@ -18,7 +19,7 @@ using Microsoft::WRL::ComPtr;
 
 // Implements ITfCandidateListUIElement so both regular desktop apps (popup window)
 // and fullscreen games in UILess mode (ITfUIElementSink) can render candidates.
-class CandidateUI final : public ITfCandidateListUIElement {
+class CandidateUI final : public ComObjectBase<CandidateUI, ITfCandidateListUIElement> {
 public:
     using SelectCallback = std::function<void(size_t index_in_page)>;
 
@@ -28,18 +29,9 @@ public:
     explicit CandidateUI(HINSTANCE instance) noexcept;
     ~CandidateUI() noexcept;
 
-#pragma warning(push)
-#pragma warning(disable : 26456)
-    CandidateUI(const CandidateUI&) = delete;
-    CandidateUI& operator=(const CandidateUI&) = delete;
-    CandidateUI(CandidateUI&&) = delete;
-    CandidateUI& operator=(CandidateUI&&) = delete;
-#pragma warning(pop)
-
-    // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;
-    STDMETHODIMP_(ULONG) AddRef() noexcept override;
-    STDMETHODIMP_(ULONG) Release() noexcept override;
+    bool QueryAdditionalInterfaces(REFIID riid, void** ppvObj) noexcept {
+        return MatchBaseInterfaces<ITfCandidateListUIElement, ITfUIElement>(riid, ppvObj);
+    }
 
     // ITfUIElement
     STDMETHODIMP GetDescription(BSTR* pbstrDescription) noexcept override;
@@ -83,6 +75,8 @@ private:
     void InitDirect2DAndDirectWrite() noexcept;
     void UpdateDpiAndFont(UINT new_dpi) noexcept;
     int MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const noexcept;
+    std::wstring FormatHeaderText() const;
+    std::wstring FormatCandidateLabel(size_t index_in_page, std::wstring_view candidate_text) const;
     void RecalculatePopupLayout();
     void OnLeftButtonDown(POINT pt) const;
     bool EnsurePopupWindow() noexcept;
@@ -90,7 +84,6 @@ private:
     void PaintPopup(HDC hdc, const RECT& client_rect) const;
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
-    std::atomic<ULONG> ref_count_{1};
     HINSTANCE instance_ = nullptr;
     ScopedGdiHandle<HFONT> font_;
     ComPtr<ID2D1Factory> d2d_factory_;

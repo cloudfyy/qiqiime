@@ -42,6 +42,7 @@ target_link_libraries(qiqi_engine PUBLIC
 
 # TSF Text Input Processor COM DLL
 set(QIQIIME_SOURCES
+    common/com_object.h
     common/guids.h
     tsf/dllmain.cpp
     tsf/class_factory.h

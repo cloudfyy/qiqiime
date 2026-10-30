@@ -106,10 +106,13 @@ void TestLangBarButton() {
     void* out = nullptr;
     QIQI_TEST_CHECK(btn->QueryInterface(IID_IClassFactory, &out) == E_NOINTERFACE);
 
+    ComPtr<ITfLangBarItem> lb_item;
     ComPtr<ITfLangBarItemButton> lb_btn;
     ComPtr<ITfSource> lb_src;
+    QIQI_TEST_CHECK(SUCCEEDED(btn->QueryInterface(IID_PPV_ARGS(&lb_item))) && lb_item);
     QIQI_TEST_CHECK(SUCCEEDED(btn->QueryInterface(IID_PPV_ARGS(&lb_btn))));
     QIQI_TEST_CHECK(SUCCEEDED(btn->QueryInterface(IID_PPV_ARGS(&lb_src))));
+    lb_item.Reset();
 
     // Info, Status, Show, Tooltip, Text, Icon
     QIQI_TEST_CHECK(btn->GetInfo(nullptr) == E_INVALIDARG);
@@ -845,8 +848,11 @@ void TestCandidateUI() {
     void *dummy = nullptr;
     QIQI_TEST_CHECK(ui->QueryInterface(IID_IClassFactory, &dummy) == E_NOINTERFACE && dummy == nullptr);
 
+    ComPtr<ITfUIElement> ui_elem;
     ComPtr<ITfCandidateListUIElement> cand_elem;
+    QIQI_TEST_CHECK(SUCCEEDED(ui->QueryInterface(IID_ITfUIElement, &ui_elem)) && ui_elem);
     QIQI_TEST_CHECK(SUCCEEDED(ui->QueryInterface(IID_ITfCandidateListUIElement, &cand_elem)) && cand_elem);
+    ui_elem.Reset();
 
     // Metadata & invalid arg checks
     QIQI_TEST_CHECK(ui->GetDescription(nullptr) == E_INVALIDARG);

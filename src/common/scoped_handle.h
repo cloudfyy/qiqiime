@@ -209,6 +209,30 @@ private:
     HDC hdc_ = nullptr;
 };
 
+// RAII wrapper for ::SaveDC(hdc) / ::RestoreDC(hdc, saved_state).
+class ScopedSaveDC final {
+public:
+    explicit ScopedSaveDC(HDC hdc) noexcept
+        : hdc_(hdc), saved_(hdc ? ::SaveDC(hdc) : 0) {}
+
+    ~ScopedSaveDC() noexcept {
+        if (hdc_ && saved_ != 0) {
+            ::RestoreDC(hdc_, saved_);
+        }
+    }
+
+    ScopedSaveDC(const ScopedSaveDC&) = delete;
+    ScopedSaveDC& operator=(const ScopedSaveDC&) = delete;
+    ScopedSaveDC(ScopedSaveDC&&) = delete;
+    ScopedSaveDC& operator=(ScopedSaveDC&&) = delete;
+
+    explicit operator bool() const noexcept { return saved_ != 0; }
+
+private:
+    HDC hdc_ = nullptr;
+    int saved_ = 0;
+};
+
 // RAII wrapper for ::SelectObject(hdc, new_obj) that restores the previous GDI object on scope exit.
 class ScopedSelectObject final {
 public:
@@ -291,8 +315,18 @@ constexpr POINT PointFromLParam(LPARAM lparam) noexcept {
     };
 }
 
+// Bind CREATESTRUCTW::lpCreateParams to GWLP_USERDATA on WM_NCCREATE and retrieve the typed window context pointer.
+template <typename T>
+T* BindOrGetWindowUserData(HWND hwnd, UINT msg, LPARAM lparam) noexcept {
+    if (msg == WM_NCCREATE && lparam != 0) {
+        const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
+        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+    }
+    return reinterpret_cast<T*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+}
+
 // Allocate a BSTR of known length via ::SysAllocStringLen using ScopedBstr RAII and detach to [out] BSTR*.
-// Always initializes *pbstr = nullptr first per COM [out] parameter rules.
+// Always initializes *pbstr = nullptr per COM [out] parameter rules.
 inline HRESULT CopyToBstr(std::wstring_view sv, BSTR* pbstr) noexcept {
     if (!pbstr) {
         return E_INVALIDARG;
@@ -304,15 +338,6 @@ inline HRESULT CopyToBstr(std::wstring_view sv, BSTR* pbstr) noexcept {
     }
     *pbstr = bstr.Detach();
     return S_OK;
-}
-
-// Construct a reference-counted COM object (whose initial ref_count is 1) and attach it to a ComPtr<T>.
-template <typename T, typename... Args>
-Microsoft::WRL::ComPtr<T> MakeComObject(Args&&... args) {
-    Microsoft::WRL::ComPtr<T> ptr;
-#pragma warning(suppress : 26409)
-    ptr.Attach(new T(std::forward<Args>(args)...));
-    return ptr;
 }
 
 // Construct a VT_I4 Win32 VARIANT for TSF compartment / property calls.

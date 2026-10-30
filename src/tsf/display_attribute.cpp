@@ -23,38 +23,7 @@ constexpr TF_DISPLAYATTRIBUTE QiQiDisplayAttributeInfo::DefaultAttribute() noexc
 }
 
 QiQiDisplayAttributeInfo::QiQiDisplayAttributeInfo() noexcept
-    : attr_(DefaultAttribute()) {
-    ++g_com_object_count;
-}
-
-QiQiDisplayAttributeInfo::~QiQiDisplayAttributeInfo() noexcept {
-    --g_com_object_count;
-}
-
-STDMETHODIMP QiQiDisplayAttributeInfo::QueryInterface(REFIID riid, void** ppvObj) noexcept {
-    if (!ppvObj) {
-        return E_INVALIDARG;
-    }
-    if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfDisplayAttributeInfo)) {
-        *ppvObj = static_cast<ITfDisplayAttributeInfo*>(this);
-        AddRef();
-        return S_OK;
-    }
-    *ppvObj = nullptr;
-    return E_NOINTERFACE;
-}
-
-STDMETHODIMP_(ULONG) QiQiDisplayAttributeInfo::AddRef() noexcept {
-    return ++ref_count_;
-}
-
-STDMETHODIMP_(ULONG) QiQiDisplayAttributeInfo::Release() noexcept {
-    const ULONG count = --ref_count_;
-    if (count == 0) {
-        delete this;
-    }
-    return count;
-}
+    : attr_(DefaultAttribute()) {}
 
 STDMETHODIMP QiQiDisplayAttributeInfo::GetGUID(GUID* pguid) noexcept {
     if (!pguid) {
@@ -91,38 +60,7 @@ STDMETHODIMP QiQiDisplayAttributeInfo::Reset() noexcept {
 
 // QiQiEnumDisplayAttributeInfo
 QiQiEnumDisplayAttributeInfo::QiQiEnumDisplayAttributeInfo(ULONG index) noexcept
-    : index_(index) {
-    ++g_com_object_count;
-}
-
-QiQiEnumDisplayAttributeInfo::~QiQiEnumDisplayAttributeInfo() noexcept {
-    --g_com_object_count;
-}
-
-STDMETHODIMP QiQiEnumDisplayAttributeInfo::QueryInterface(REFIID riid, void** ppvObj) noexcept {
-    if (!ppvObj) {
-        return E_INVALIDARG;
-    }
-    if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IEnumTfDisplayAttributeInfo)) {
-        *ppvObj = static_cast<IEnumTfDisplayAttributeInfo*>(this);
-        AddRef();
-        return S_OK;
-    }
-    *ppvObj = nullptr;
-    return E_NOINTERFACE;
-}
-
-STDMETHODIMP_(ULONG) QiQiEnumDisplayAttributeInfo::AddRef() noexcept {
-    return ++ref_count_;
-}
-
-STDMETHODIMP_(ULONG) QiQiEnumDisplayAttributeInfo::Release() noexcept {
-    const ULONG count = --ref_count_;
-    if (count == 0) {
-        delete this;
-    }
-    return count;
-}
+    : index_(index) {}
 
 STDMETHODIMP QiQiEnumDisplayAttributeInfo::Clone(IEnumTfDisplayAttributeInfo** ppEnum) noexcept {
     if (!ppEnum) {

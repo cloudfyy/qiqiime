@@ -43,6 +43,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     ComPtr<ITfKeyEventSink> key_sink;
     ComPtr<ITfCompositionSink> comp_sink;
     ComPtr<ITfFunctionProvider> func_prov;
+    ComPtr<ITfFunction> fn_base;
     ComPtr<ITfFnConfigure> fn_cfg;
     ComPtr<ITfDisplayAttributeProvider> disp_attr_prov;
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&tip_base))));
@@ -51,8 +52,10 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&key_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&comp_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&func_prov))));
+    QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&fn_base))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&fn_cfg))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&disp_attr_prov))));
+    fn_base.Reset();
 
     // Test ITfFunctionProvider & ITfFnConfigure
     QIQI_TEST_CHECK(func_prov->GetType(nullptr) == E_INVALIDARG);

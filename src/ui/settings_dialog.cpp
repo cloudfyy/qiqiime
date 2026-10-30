@@ -45,6 +45,30 @@ constexpr std::array<const wchar_t*, 9> kPageSizeLabels = {
     L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9"
 };
 
+struct SettingsCheckboxBinding {
+    int control_id;
+    bool QiQiConfig::* config_field;
+    const wchar_t* UiStrings::* label_field;
+    int y_offset_px;
+    int width_px;
+};
+
+constexpr std::array<SettingsCheckboxBinding, 13> kSettingsCheckboxes = {{
+    {kIdChkExtraDict,     &QiQiConfig::enable_jidian_extra,          &UiStrings::dlg_chk_extra,          112, 400},
+    {kIdChkAutoCommit4,   &QiQiConfig::auto_commit_4code,            &UiStrings::dlg_chk_auto_commit4,   140, 400},
+    {kIdChkPushCommit5,   &QiQiConfig::push_commit_5th,              &UiStrings::dlg_chk_push_commit5,   168, 400},
+    {kIdChkQuickSelect,   &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select,   196, 400},
+    {kIdChkCodeHint,      &QiQiConfig::show_code_hint,               &UiStrings::dlg_chk_code_hint,      224, 400},
+    {kIdChkDynamicFreq,   &QiQiConfig::dynamic_phrase_freq,          &UiStrings::dlg_chk_dynamic_freq,   252, 400},
+    {kIdChkShiftToggle,   &QiQiConfig::shift_toggle_mode,            &UiStrings::dlg_chk_shift_toggle,   280, 400},
+    {kIdChkStatusBar,     &QiQiConfig::show_status_bar,              &UiStrings::dlg_chk_status_bar,     308, 400},
+    {kIdChkBeepEmpty4,    &QiQiConfig::beep_on_empty_4code,          &UiStrings::dlg_chk_beep_empty4,    336, 400},
+    {kIdChkBeepDup4,      &QiQiConfig::beep_on_dup_4code,            &UiStrings::dlg_chk_beep_dup4,      364, 400},
+    {kIdChkClearEmpty4,   &QiQiConfig::clear_on_empty_4code,         &UiStrings::dlg_chk_clear_empty4,   392, 400},
+    {kIdChkKeySound,      &QiQiConfig::enable_key_sound,             &UiStrings::dlg_chk_key_sound,      420, 400},
+    {kIdChkLogKeystrokes, &QiQiConfig::log_keystrokes,               &UiStrings::dlg_chk_log_keystrokes, 448, 412},
+}};
+
 ScopedIcon CreateBrandIcon(int size_px) noexcept {
     return CreateTransparentGlyphIcon(L'奇', size_px, RGB(35, 105, 200));
 }
@@ -104,13 +128,10 @@ void UpdateExtraDictCheckboxState(HWND hwnd) noexcept {
 }
 
 LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    auto* ctx = BindOrGetWindowUserData<DialogContext>(hwnd, msg, lparam);
     if (msg == WM_NCCREATE) {
-        const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
-        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-
-    auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (msg == WM_COMMAND && ctx) {
         const int id = LOWORD(wparam);
         if (id == kIdRadioJidian || id == kIdRadioHaifeng || id == kIdRadioBuiltin) {
@@ -158,12 +179,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 }
 
 void PaintAboutDialog(HDC hdc, const RECT& client_rc, const AboutDialogContext& ctx) {
-    const int saved_dc = ::SaveDC(hdc);
-    const auto restore_dc = gsl::finally([hdc, saved_dc]() noexcept {
-        if (saved_dc != 0) {
-            ::RestoreDC(hdc, saved_dc);
-        }
-    });
+    const ScopedSaveDC save_dc(hdc);
     const auto S = [dpi = ctx.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
     const auto& str = GetUiStrings(ctx.ui_language);
 
@@ -210,13 +226,10 @@ void PaintAboutDialog(HDC hdc, const RECT& client_rc, const AboutDialogContext& 
 }
 
 LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    auto* ctx = BindOrGetWindowUserData<AboutDialogContext>(hwnd, msg, lparam);
     if (msg == WM_NCCREATE) {
-        const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
-        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-
-    auto* ctx = reinterpret_cast<AboutDialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (msg == WM_PAINT && ctx) {
         const ScopedPaintDC paint_dc(hwnd);
         RECT rc{};
@@ -259,19 +272,12 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
             ? kIdRadioHaifeng
             : (config.primary_dict == PrimaryDict::BuiltinOnly ? kIdRadioBuiltin : kIdRadioJidian));
 
-    ::CheckDlgButton(hwnd, kIdChkExtraDict, config.enable_jidian_extra ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkAutoCommit4, config.auto_commit_4code ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkPushCommit5, config.push_commit_5th ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkQuickSelect, config.semicolon_quote_quick_select ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkCodeHint, config.show_code_hint ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkDynamicFreq, config.dynamic_phrase_freq ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkShiftToggle, config.shift_toggle_mode ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkStatusBar, config.show_status_bar ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkBeepEmpty4, config.beep_on_empty_4code ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkBeepDup4, config.beep_on_dup_4code ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkClearEmpty4, config.clear_on_empty_4code ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkKeySound, config.enable_key_sound ? BST_CHECKED : BST_UNCHECKED);
-    ::CheckDlgButton(hwnd, kIdChkLogKeystrokes, config.log_keystrokes ? BST_CHECKED : BST_UNCHECKED);
+    for (const auto& binding : kSettingsCheckboxes) {
+        ::CheckDlgButton(
+            hwnd,
+            binding.control_id,
+            (config.*(binding.config_field)) ? BST_CHECKED : BST_UNCHECKED);
+    }
 
     const int idx = gsl::narrow_cast<int>(std::clamp<size_t>(config.page_size, 1, 9) - 1);
     ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETCURSEL, static_cast<WPARAM>(idx), 0);
@@ -292,19 +298,9 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
         config.primary_dict = PrimaryDict::Jidian;
     }
 
-    config.enable_jidian_extra = (::IsDlgButtonChecked(hwnd, kIdChkExtraDict) == BST_CHECKED);
-    config.auto_commit_4code = (::IsDlgButtonChecked(hwnd, kIdChkAutoCommit4) == BST_CHECKED);
-    config.push_commit_5th = (::IsDlgButtonChecked(hwnd, kIdChkPushCommit5) == BST_CHECKED);
-    config.semicolon_quote_quick_select = (::IsDlgButtonChecked(hwnd, kIdChkQuickSelect) == BST_CHECKED);
-    config.show_code_hint = (::IsDlgButtonChecked(hwnd, kIdChkCodeHint) == BST_CHECKED);
-    config.dynamic_phrase_freq = (::IsDlgButtonChecked(hwnd, kIdChkDynamicFreq) == BST_CHECKED);
-    config.shift_toggle_mode = (::IsDlgButtonChecked(hwnd, kIdChkShiftToggle) == BST_CHECKED);
-    config.show_status_bar = (::IsDlgButtonChecked(hwnd, kIdChkStatusBar) == BST_CHECKED);
-    config.beep_on_empty_4code = (::IsDlgButtonChecked(hwnd, kIdChkBeepEmpty4) == BST_CHECKED);
-    config.beep_on_dup_4code = (::IsDlgButtonChecked(hwnd, kIdChkBeepDup4) == BST_CHECKED);
-    config.clear_on_empty_4code = (::IsDlgButtonChecked(hwnd, kIdChkClearEmpty4) == BST_CHECKED);
-    config.enable_key_sound = (::IsDlgButtonChecked(hwnd, kIdChkKeySound) == BST_CHECKED);
-    config.log_keystrokes = (::IsDlgButtonChecked(hwnd, kIdChkLogKeystrokes) == BST_CHECKED);
+    for (const auto& binding : kSettingsCheckboxes) {
+        config.*(binding.config_field) = (::IsDlgButtonChecked(hwnd, binding.control_id) == BST_CHECKED);
+    }
 
     const LRESULT sel = ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_GETCURSEL, 0, 0);
     if (sel >= 0 && sel < 9) {
@@ -383,19 +379,20 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_haifeng, BS_AUTORADIOBUTTON, S(24), S(48), S(400), S(24), kIdRadioHaifeng);
     CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_builtin, BS_AUTORADIOBUTTON, S(24), S(76), S(400), S(24), kIdRadioBuiltin);
 
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_extra, BS_AUTOCHECKBOX, S(24), S(112), S(400), S(24), kIdChkExtraDict);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_auto_commit4, BS_AUTOCHECKBOX, S(24), S(140), S(400), S(24), kIdChkAutoCommit4);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_push_commit5, BS_AUTOCHECKBOX, S(24), S(168), S(400), S(24), kIdChkPushCommit5);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_quick_select, BS_AUTOCHECKBOX, S(24), S(196), S(400), S(24), kIdChkQuickSelect);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_code_hint, BS_AUTOCHECKBOX, S(24), S(224), S(400), S(24), kIdChkCodeHint);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_dynamic_freq, BS_AUTOCHECKBOX, S(24), S(252), S(400), S(24), kIdChkDynamicFreq);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_shift_toggle, BS_AUTOCHECKBOX, S(24), S(280), S(400), S(24), kIdChkShiftToggle);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_status_bar, BS_AUTOCHECKBOX, S(24), S(308), S(400), S(24), kIdChkStatusBar);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_beep_empty4, BS_AUTOCHECKBOX, S(24), S(336), S(400), S(24), kIdChkBeepEmpty4);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_beep_dup4, BS_AUTOCHECKBOX, S(24), S(364), S(400), S(24), kIdChkBeepDup4);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_clear_empty4, BS_AUTOCHECKBOX, S(24), S(392), S(400), S(24), kIdChkClearEmpty4);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_key_sound, BS_AUTOCHECKBOX, S(24), S(420), S(400), S(24), kIdChkKeySound);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_log_keystrokes, BS_AUTOCHECKBOX, S(24), S(448), S(412), S(24), kIdChkLogKeystrokes);
+    for (const auto& binding : kSettingsCheckboxes) {
+        CreateChildControl(
+            hwnd.Get(),
+            instance,
+            f,
+            L"BUTTON",
+            str.*(binding.label_field),
+            BS_AUTOCHECKBOX,
+            S(24),
+            S(binding.y_offset_px),
+            S(binding.width_px),
+            S(24),
+            binding.control_id);
+    }
 
     CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(24), S(484), S(150), S(24), 0);
     CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(480), S(70), S(200), kIdComboPageSize);

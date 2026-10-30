@@ -6,6 +6,7 @@
 #include <wrl/client.h>
 #include <atomic>
 
+#include "common/com_object.h"
 #include "common/config.h"
 #include "common/guids.h"
 #include "engine/wubi_engine.h"
@@ -19,29 +20,23 @@ namespace qiqi {
 using Microsoft::WRL::ComPtr;
 
 class QiQiTextService final
-    : public ITfTextInputProcessorEx,
-      public ITfThreadMgrEventSink,
-      public ITfKeyEventSink,
-      public ITfCompositionSink,
-      public ITfFunctionProvider,
-      public ITfFnConfigure,
-      public ITfDisplayAttributeProvider {
+    : public ComObjectBase<
+          QiQiTextService,
+          ITfTextInputProcessorEx,
+          ITfThreadMgrEventSink,
+          ITfKeyEventSink,
+          ITfCompositionSink,
+          ITfFunctionProvider,
+          ITfFnConfigure,
+          ITfDisplayAttributeProvider> {
 public:
     explicit QiQiTextService(HINSTANCE instance);
     ~QiQiTextService() noexcept;
 
-#pragma warning(push)
-#pragma warning(disable : 26456)
-    QiQiTextService(const QiQiTextService&) = delete;
-    QiQiTextService& operator=(const QiQiTextService&) = delete;
-    QiQiTextService(QiQiTextService&&) = delete;
-    QiQiTextService& operator=(QiQiTextService&&) = delete;
-#pragma warning(pop)
-
-    // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override;
-    STDMETHODIMP_(ULONG) AddRef() noexcept override;
-    STDMETHODIMP_(ULONG) Release() noexcept override;
+    bool QueryAdditionalInterfaces(REFIID riid, void** ppvObj) noexcept {
+        return MatchBaseInterfaces<ITfTextInputProcessorEx, ITfTextInputProcessor>(riid, ppvObj) ||
+               MatchBaseInterfaces<ITfFnConfigure, ITfFunction>(riid, ppvObj);
+    }
 
     // ITfTextInputProcessor
     STDMETHODIMP Activate(ITfThreadMgr* ptim, TfClientId tid) override;
@@ -97,6 +92,7 @@ private:
     void ResetCompositionAndUI();
     void ToggleModeAndCancelComposition(ITfContext* context);
     void SyncTsfCompartments();
+    void ApplyDynamicEngineSettings() noexcept;
     void ReloadConfigIfModified();
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
     void SyncCompositionUIInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text);
@@ -110,7 +106,6 @@ private:
     void BeginOrUpdateCandidateUI();
     void EndCandidateUI();
 
-    std::atomic<ULONG> ref_count_{1};
     ComPtr<ITfThreadMgr> thread_mgr_;
     TfClientId client_id_ = TF_CLIENTID_NULL;
     DWORD activate_flags_ = 0;

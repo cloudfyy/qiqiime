@@ -332,6 +332,42 @@ void TestScopedHandleTemplate() {
     QIQI_TEST_CHECK(SUCCEEDED(CopyToBstr(L"奇奇", bstr_out.Put())) &&
                     bstr_out.IsValid() &&
                     std::wstring(bstr_out.Get()) == L"奇奇");
+
+    // Test ScopedSaveDC (both null HDC and valid memory HDC state restoration)
+    {
+        const ScopedSaveDC null_save(nullptr);
+        QIQI_TEST_CHECK(!null_save);
+    }
+    {
+        const ScopedMemoryDC mem_dc(::CreateCompatibleDC(nullptr));
+        QIQI_TEST_CHECK(mem_dc.IsValid());
+        ::SetTextColor(mem_dc.Get(), RGB(12, 34, 56));
+        ::SetBkMode(mem_dc.Get(), OPAQUE);
+        {
+            const ScopedSaveDC save_dc(mem_dc.Get());
+            QIQI_TEST_CHECK(static_cast<bool>(save_dc));
+            ::SetTextColor(mem_dc.Get(), RGB(200, 100, 50));
+            ::SetBkMode(mem_dc.Get(), TRANSPARENT);
+            QIQI_TEST_CHECK(::GetTextColor(mem_dc.Get()) == RGB(200, 100, 50));
+            QIQI_TEST_CHECK(::GetBkMode(mem_dc.Get()) == TRANSPARENT);
+        }
+        QIQI_TEST_CHECK(::GetTextColor(mem_dc.Get()) == RGB(12, 34, 56));
+        QIQI_TEST_CHECK(::GetBkMode(mem_dc.Get()) == OPAQUE);
+    }
+
+    // Test BindOrGetWindowUserData on a temporary window
+    {
+        const ScopedWindow test_wnd(::CreateWindowExW(
+            0, L"STATIC", L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+        QIQI_TEST_CHECK(test_wnd.IsValid());
+        int payload = 12345;
+        CREATESTRUCTW cs{};
+        cs.lpCreateParams = &payload;
+        QIQI_TEST_CHECK(BindOrGetWindowUserData<int>(test_wnd.Get(), WM_NCCREATE, 0) == nullptr);
+        QIQI_TEST_CHECK(BindOrGetWindowUserData<int>(
+                            test_wnd.Get(), WM_NCCREATE, reinterpret_cast<LPARAM>(&cs)) == &payload);
+        QIQI_TEST_CHECK(BindOrGetWindowUserData<int>(test_wnd.Get(), WM_PAINT, 0) == &payload);
+    }
 }
 
 void TestI18nLocalization() {

@@ -26,14 +26,12 @@ constexpr D2D1_COLOR_F ColorRefToD2DColor(COLORREF c) noexcept {
 } // namespace
 
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
-    ++g_com_object_count;
     InitDirect2DAndDirectWrite();
     UpdateDpiAndFont(96);
 }
 
 CandidateUI::~CandidateUI() noexcept {
     DestroyPopupWindow();
-    --g_com_object_count;
 }
 
 void CandidateUI::InitDirect2DAndDirectWrite() noexcept {
@@ -121,6 +119,21 @@ int CandidateUI::MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const
     return gsl::narrow_cast<int>(text.size()) * ScaleByDpi(12);
 }
 
+std::wstring CandidateUI::FormatHeaderText() const {
+    const auto& str = GetUiStrings(ui_language_);
+    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
+    std::wstring header = std::wstring(str.candidate_header_prefix) + raw_code_ + L"]";
+    if (total_pages > 1) {
+        header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
+    }
+    return header;
+}
+
+std::wstring CandidateUI::FormatCandidateLabel(size_t index_in_page, std::wstring_view candidate_text) const {
+    const std::wstring prefix = std::to_wstring(index_in_page + 1) + L"." + std::wstring(candidate_text);
+    return (index_in_page == selected_in_page_) ? (L"[" + prefix + L"]") : prefix;
+}
+
 void CandidateUI::RecalculatePopupLayout() {
     candidate_hit_rects_.clear();
     const ScopedWindowDC screen_dc(hwnd_.Get());
@@ -137,22 +150,13 @@ void CandidateUI::RecalculatePopupLayout() {
     const int row2_top = ScaleByDpi(32);
     const int row2_bottom = ScaleByDpi(kPopupHeight - 4);
 
-    const auto& str = GetUiStrings(ui_language_);
-    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    std::wstring header = std::wstring(str.candidate_header_prefix) + raw_code_ + L"]";
-    if (total_pages > 1) {
-        header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
-    }
-    const int header_cx = MeasureTextWidth(screen_dc.Get(), header);
+    const int header_cx = MeasureTextWidth(screen_dc.Get(), FormatHeaderText());
 
     int cursor_x = margin_x;
     const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
     for (size_t i = start; i < end; ++i) {
         const size_t idx_in_page = i - start;
-        const auto& cand_str = gsl::at(all_candidates_, i);
-        const std::wstring label = (idx_in_page == selected_in_page_)
-            ? (L"[" + std::to_wstring(idx_in_page + 1) + L"." + cand_str + L"]")
-            : (std::to_wstring(idx_in_page + 1) + L"." + cand_str);
+        const std::wstring label = FormatCandidateLabel(idx_in_page, gsl::at(all_candidates_, i));
 
         const int item_cx = MeasureTextWidth(screen_dc.Get(), label);
         const RECT hit_rc{cursor_x, row2_top, cursor_x + item_cx, row2_bottom};
@@ -175,33 +179,6 @@ void CandidateUI::OnLeftButtonDown(POINT pt) const {
             return;
         }
     }
-}
-
-STDMETHODIMP CandidateUI::QueryInterface(REFIID riid, void** ppvObj) noexcept {
-    if (!ppvObj) {
-        return E_INVALIDARG;
-    }
-    if (IsEqualIID(riid, IID_IUnknown) ||
-        IsEqualIID(riid, IID_ITfUIElement) ||
-        IsEqualIID(riid, IID_ITfCandidateListUIElement)) {
-        *ppvObj = static_cast<ITfCandidateListUIElement*>(this);
-        AddRef();
-        return S_OK;
-    }
-    *ppvObj = nullptr;
-    return E_NOINTERFACE;
-}
-
-STDMETHODIMP_(ULONG) CandidateUI::AddRef() noexcept {
-    return ++ref_count_;
-}
-
-STDMETHODIMP_(ULONG) CandidateUI::Release() noexcept {
-    const ULONG count = --ref_count_;
-    if (count == 0) {
-        delete this;
-    }
-    return count;
 }
 
 STDMETHODIMP CandidateUI::GetDescription(BSTR* pbstrDescription) noexcept {
@@ -412,11 +389,7 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
     d2d_dc_target_->Clear(ColorRefToD2DColor(palette.window_bg));
 
     const auto& str = GetUiStrings(ui_language_);
-    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    std::wstring header = std::wstring(str.candidate_header_prefix) + raw_code_ + L"]";
-    if (total_pages > 1) {
-        header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
-    }
+    const std::wstring header = FormatHeaderText();
     const D2D1_RECT_F top_rc = D2D1::RectF(
         static_cast<float>(ScaleByDpi(10)),
         static_cast<float>(ScaleByDpi(6)),
@@ -447,10 +420,7 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
     } else {
         for (size_t i = start; i < end; ++i) {
             const size_t idx_in_page = i - start;
-            const auto& cand_str = gsl::at(all_candidates_, i);
-            const std::wstring label = (idx_in_page == selected_in_page_)
-                ? (L"[" + std::to_wstring(idx_in_page + 1) + L"." + cand_str + L"]")
-                : (std::to_wstring(idx_in_page + 1) + L"." + cand_str);
+            const std::wstring label = FormatCandidateLabel(idx_in_page, gsl::at(all_candidates_, i));
 
             const RECT item_rc = (idx_in_page < candidate_hit_rects_.size())
                 ? gsl::at(candidate_hit_rects_, idx_in_page)
@@ -481,12 +451,7 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
     if (PaintPopupDirect2D(hdc, client_rect)) {
         return;
     }
-    const int saved_dc = ::SaveDC(hdc);
-    const auto restore_dc = gsl::finally([hdc, saved_dc]() noexcept {
-        if (saved_dc != 0) {
-            ::RestoreDC(hdc, saved_dc);
-        }
-    });
+    const ScopedSaveDC save_dc(hdc);
     const auto& palette = GetCurrentThemePalette();
     const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.window_bg));
     ::FillRect(hdc, &client_rect, bg_brush.Get());
@@ -496,11 +461,7 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
 
     // Line 1: Wubi code + page indicator
     const auto& str = GetUiStrings(ui_language_);
-    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    std::wstring header = std::wstring(str.candidate_header_prefix) + raw_code_ + L"]";
-    if (total_pages > 1) {
-        header += L"  (" + std::to_wstring(current_page_ + 1) + L"/" + std::to_wstring(total_pages) + L")";
-    }
+    const std::wstring header = FormatHeaderText();
     RECT top_rect = {ScaleByDpi(10), ScaleByDpi(6), client_rect.right - ScaleByDpi(10), ScaleByDpi(30)};
     ::SetTextColor(hdc, palette.text_accent);
     ::DrawTextW(hdc, header.c_str(), -1, &top_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
@@ -516,10 +477,7 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
 
     for (size_t i = start; i < end; ++i) {
         const size_t idx_in_page = i - start;
-        const auto& cand_str = gsl::at(all_candidates_, i);
-        const std::wstring label = (idx_in_page == selected_in_page_)
-            ? (L"[" + std::to_wstring(idx_in_page + 1) + L"." + cand_str + L"]")
-            : (std::to_wstring(idx_in_page + 1) + L"." + cand_str);
+        const std::wstring label = FormatCandidateLabel(idx_in_page, gsl::at(all_candidates_, i));
 
         RECT item_rc = (idx_in_page < candidate_hit_rects_.size())
             ? gsl::at(candidate_hit_rects_, idx_in_page)
@@ -530,14 +488,8 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
 }
 
 LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-    if (msg == WM_NCCREATE) {
-        const auto* cs = reinterpret_cast<const CREATESTRUCTW*>(lparam);
-        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-        return ::DefWindowProcW(hwnd, msg, wparam, lparam);
-    }
-
-    auto* self = reinterpret_cast<CandidateUI*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    if (!self) {
+    auto* self = BindOrGetWindowUserData<CandidateUI>(hwnd, msg, lparam);
+    if (!self || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 

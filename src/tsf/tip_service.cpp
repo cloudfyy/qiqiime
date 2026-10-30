@@ -164,7 +164,6 @@ QiQiTextService::QiQiTextService(HINSTANCE instance) {
         HandleLangBarMenuAction(action_id);
     });
     LoadExternalDictionaryNextToDll();
-    ++g_com_object_count;
 }
 
 QiQiTextService::~QiQiTextService() noexcept {
@@ -180,7 +179,6 @@ QiQiTextService::~QiQiTextService() noexcept {
         langbar_btn_.Reset();
     } catch (...) {
     }
-    --g_com_object_count;
 }
 
 void QiQiTextService::LoadExternalDictionaryNextToDll() {
@@ -237,46 +235,6 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
         QIQI_LOG_INFO("Dictionary initialization complete: {} external dictionary file(s) active",
                       engine_.MappedDictionaryCount());
     }
-}
-
-STDMETHODIMP QiQiTextService::QueryInterface(REFIID riid, void** ppvObj) noexcept {
-    if (!ppvObj) {
-        return E_INVALIDARG;
-    }
-    if (IsEqualIID(riid, IID_IUnknown) ||
-        IsEqualIID(riid, IID_ITfTextInputProcessor) ||
-        IsEqualIID(riid, IID_ITfTextInputProcessorEx)) {
-        *ppvObj = static_cast<ITfTextInputProcessorEx*>(this);
-    } else if (IsEqualIID(riid, IID_ITfThreadMgrEventSink)) {
-        *ppvObj = static_cast<ITfThreadMgrEventSink*>(this);
-    } else if (IsEqualIID(riid, IID_ITfKeyEventSink)) {
-        *ppvObj = static_cast<ITfKeyEventSink*>(this);
-    } else if (IsEqualIID(riid, IID_ITfCompositionSink)) {
-        *ppvObj = static_cast<ITfCompositionSink*>(this);
-    } else if (IsEqualIID(riid, IID_ITfFunctionProvider)) {
-        *ppvObj = static_cast<ITfFunctionProvider*>(this);
-    } else if (IsEqualIID(riid, IID_ITfFunction) || IsEqualIID(riid, IID_ITfFnConfigure)) {
-        *ppvObj = static_cast<ITfFnConfigure*>(this);
-    } else if (IsEqualIID(riid, IID_ITfDisplayAttributeProvider)) {
-        *ppvObj = static_cast<ITfDisplayAttributeProvider*>(this);
-    } else {
-        *ppvObj = nullptr;
-        return E_NOINTERFACE;
-    }
-    AddRef();
-    return S_OK;
-}
-
-STDMETHODIMP_(ULONG) QiQiTextService::AddRef() noexcept {
-    return ++ref_count_;
-}
-
-STDMETHODIMP_(ULONG) QiQiTextService::Release() noexcept {
-    const ULONG count = --ref_count_;
-    if (count == 0) {
-        delete this;
-    }
-    return count;
 }
 
 STDMETHODIMP QiQiTextService::Activate(ITfThreadMgr* ptim, TfClientId tid) {
@@ -742,22 +700,26 @@ STDMETHODIMP QiQiTextService::GetDisplayName(BSTR* pbstrName) noexcept {
     return CopyToBstr(str.configure_display_name, pbstrName);
 }
 
+void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
+    log::SetLevel(config_.log_level);
+    engine_.SetPageSize(config_.page_size);
+    engine_.SetAutoCommit4Code(config_.auto_commit_4code);
+    engine_.SetPushCommit5th(config_.push_commit_5th);
+    engine_.SetSemicolonQuoteQuickSelect(config_.semicolon_quote_quick_select);
+    engine_.SetShowCodeHint(config_.show_code_hint);
+    engine_.SetEnableZTempEnglish(config_.enable_z_temp_english);
+    engine_.SetDynamicPhraseFreq(config_.dynamic_phrase_freq);
+    engine_.SetBeepOnEmpty4Code(config_.beep_on_empty_4code);
+    engine_.SetBeepOnDup4Code(config_.beep_on_dup_4code);
+    engine_.SetClearOnEmpty4Code(config_.clear_on_empty_4code);
+    engine_.SetEnableKeySound(config_.enable_key_sound);
+}
+
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
     QIQI_LOG_INFO("Opening Settings dialog");
     if (ShowSettingsDialog(g_dll_instance, hwndParent, config_)) {
         SaveConfigFile(GetDefaultUserConfigPath(), config_);
-        log::SetLevel(config_.log_level);
-        engine_.SetPageSize(config_.page_size);
-        engine_.SetAutoCommit4Code(config_.auto_commit_4code);
-        engine_.SetPushCommit5th(config_.push_commit_5th);
-        engine_.SetSemicolonQuoteQuickSelect(config_.semicolon_quote_quick_select);
-        engine_.SetShowCodeHint(config_.show_code_hint);
-        engine_.SetEnableZTempEnglish(config_.enable_z_temp_english);
-        engine_.SetDynamicPhraseFreq(config_.dynamic_phrase_freq);
-        engine_.SetBeepOnEmpty4Code(config_.beep_on_empty_4code);
-        engine_.SetBeepOnDup4Code(config_.beep_on_dup_4code);
-        engine_.SetClearOnEmpty4Code(config_.clear_on_empty_4code);
-        engine_.SetEnableKeySound(config_.enable_key_sound);
+        ApplyDynamicEngineSettings();
         LoadExternalDictionaryNextToDll();
         SyncTsfCompartments();
         QIQI_LOG_INFO("Settings dialog saved and applied");
@@ -875,18 +837,7 @@ void QiQiTextService::ReloadConfigIfModified() {
             (updated.user_dict_path != config_.user_dict_path);
         config_last_write_time_ = write_time;
         config_ = std::move(updated);
-        log::SetLevel(config_.log_level);
-        engine_.SetPageSize(config_.page_size);
-        engine_.SetAutoCommit4Code(config_.auto_commit_4code);
-        engine_.SetPushCommit5th(config_.push_commit_5th);
-        engine_.SetSemicolonQuoteQuickSelect(config_.semicolon_quote_quick_select);
-        engine_.SetShowCodeHint(config_.show_code_hint);
-        engine_.SetEnableZTempEnglish(config_.enable_z_temp_english);
-        engine_.SetDynamicPhraseFreq(config_.dynamic_phrase_freq);
-        engine_.SetBeepOnEmpty4Code(config_.beep_on_empty_4code);
-        engine_.SetBeepOnDup4Code(config_.beep_on_dup_4code);
-        engine_.SetClearOnEmpty4Code(config_.clear_on_empty_4code);
-        engine_.SetEnableKeySound(config_.enable_key_sound);
+        ApplyDynamicEngineSettings();
         if (dict_changed || (config_.primary_dict != PrimaryDict::BuiltinOnly && engine_.MappedDictionaryCount() == 0)) {
             LoadExternalDictionaryNextToDll();
         }

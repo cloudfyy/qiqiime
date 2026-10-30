@@ -2,55 +2,19 @@
 #include <windows.h>
 #include <msctf.h>
 #include <functional>
-#include <atomic>
 
-#include "common/guids.h"
+#include "common/com_object.h"
 
 namespace qiqi {
 
 // Generic modern C++ wrapper for ITfEditSession
 // TSF requires all document reads/writes and GetTextExt calls to happen inside DoEditSession.
-class LambdaEditSession final : public ITfEditSession {
+class LambdaEditSession final : public ComObjectBase<LambdaEditSession, ITfEditSession> {
 public:
     using Callback = std::function<HRESULT(TfEditCookie)>;
 
-    explicit LambdaEditSession(Callback cb) noexcept : callback_(std::move(cb)) {
-        ++g_com_object_count;
-    }
-
-#pragma warning(push)
-#pragma warning(disable : 26456)
-    LambdaEditSession(const LambdaEditSession&) = delete;
-    LambdaEditSession& operator=(const LambdaEditSession&) = delete;
-    LambdaEditSession(LambdaEditSession&&) = delete;
-    LambdaEditSession& operator=(LambdaEditSession&&) = delete;
-#pragma warning(pop)
-
-    // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
-        if (!ppvObj) {
-            return E_INVALIDARG;
-        }
-        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
-            *ppvObj = static_cast<ITfEditSession*>(this);
-            AddRef();
-            return S_OK;
-        }
-        *ppvObj = nullptr;
-        return E_NOINTERFACE;
-    }
-
-    STDMETHODIMP_(ULONG) AddRef() noexcept override {
-        return ++ref_count_;
-    }
-
-    STDMETHODIMP_(ULONG) Release() noexcept override {
-        const ULONG count = --ref_count_;
-        if (count == 0) {
-            delete this;
-        }
-        return count;
-    }
+    explicit LambdaEditSession(Callback cb) noexcept : callback_(std::move(cb)) {}
+    ~LambdaEditSession() noexcept = default;
 
     // ITfEditSession
     STDMETHODIMP DoEditSession(TfEditCookie ec) override {
@@ -58,11 +22,6 @@ public:
     }
 
 private:
-    ~LambdaEditSession() noexcept {
-        --g_com_object_count;
-    }
-
-    std::atomic<ULONG> ref_count_{1};
     Callback callback_;
 };
 
