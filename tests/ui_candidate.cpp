@@ -989,6 +989,7 @@ void TestSettingsDialogControls() {
     cfg.beep_on_dup_4code = true;
     cfg.clear_on_empty_4code = true;
     cfg.enable_key_sound = true;
+    cfg.log_keystrokes = true;
     cfg.page_size = 7;
 
     const ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
@@ -1010,6 +1011,7 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(read_back.beep_on_dup_4code);
     QIQI_TEST_CHECK(read_back.clear_on_empty_4code);
     QIQI_TEST_CHECK(read_back.enable_key_sound);
+    QIQI_TEST_CHECK(read_back.log_keystrokes);
     QIQI_TEST_CHECK(read_back.page_size == 7);
 
     // Also test BuiltinOnly and Jidian radio states + UiLanguage combobox + Cancel / WM_CLOSE

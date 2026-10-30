@@ -36,6 +36,7 @@ constexpr int kIdChkQuickSelect = 116;
 constexpr int kIdChkBeepDup4 = 117;
 constexpr int kIdChkCodeHint = 118;
 constexpr int kIdChkDynamicFreq = 119;
+constexpr int kIdChkLogKeystrokes = 120;
 constexpr int kIdBtnOpenGitHub = 201;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
@@ -264,6 +265,7 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
     ::CheckDlgButton(hwnd, kIdChkBeepDup4, config.beep_on_dup_4code ? BST_CHECKED : BST_UNCHECKED);
     ::CheckDlgButton(hwnd, kIdChkClearEmpty4, config.clear_on_empty_4code ? BST_CHECKED : BST_UNCHECKED);
     ::CheckDlgButton(hwnd, kIdChkKeySound, config.enable_key_sound ? BST_CHECKED : BST_UNCHECKED);
+    ::CheckDlgButton(hwnd, kIdChkLogKeystrokes, config.log_keystrokes ? BST_CHECKED : BST_UNCHECKED);
 
     const int idx = gsl::narrow_cast<int>(std::clamp<size_t>(config.page_size, 1, 9) - 1);
     ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETCURSEL, static_cast<WPARAM>(idx), 0);
@@ -296,6 +298,7 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     config.beep_on_dup_4code = (::IsDlgButtonChecked(hwnd, kIdChkBeepDup4) == BST_CHECKED);
     config.clear_on_empty_4code = (::IsDlgButtonChecked(hwnd, kIdChkClearEmpty4) == BST_CHECKED);
     config.enable_key_sound = (::IsDlgButtonChecked(hwnd, kIdChkKeySound) == BST_CHECKED);
+    config.log_keystrokes = (::IsDlgButtonChecked(hwnd, kIdChkLogKeystrokes) == BST_CHECKED);
 
     const LRESULT sel = ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_GETCURSEL, 0, 0);
     if (sel >= 0 && sel < 9) {
@@ -343,8 +346,8 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
 
     const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
 
-    const int dlg_w = S(420);
-    const int dlg_h = S(596);
+    const int dlg_w = S(460);
+    const int dlg_h = S(624);
     const POINT centered{
         (mon.work_area.left + mon.work_area.right - dlg_w) / 2,
         (mon.work_area.top + mon.work_area.bottom - dlg_h) / 2
@@ -370,40 +373,41 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
         ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
     }
 
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_jidian, BS_AUTORADIOBUTTON | WS_GROUP, S(24), S(20), S(360), S(24), kIdRadioJidian);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_haifeng, BS_AUTORADIOBUTTON, S(24), S(48), S(360), S(24), kIdRadioHaifeng);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_builtin, BS_AUTORADIOBUTTON, S(24), S(76), S(360), S(24), kIdRadioBuiltin);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_jidian, BS_AUTORADIOBUTTON | WS_GROUP, S(24), S(20), S(400), S(24), kIdRadioJidian);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_haifeng, BS_AUTORADIOBUTTON, S(24), S(48), S(400), S(24), kIdRadioHaifeng);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_builtin, BS_AUTORADIOBUTTON, S(24), S(76), S(400), S(24), kIdRadioBuiltin);
 
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_extra, BS_AUTOCHECKBOX, S(24), S(112), S(360), S(24), kIdChkExtraDict);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_auto_commit4, BS_AUTOCHECKBOX, S(24), S(140), S(360), S(24), kIdChkAutoCommit4);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_push_commit5, BS_AUTOCHECKBOX, S(24), S(168), S(360), S(24), kIdChkPushCommit5);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_quick_select, BS_AUTOCHECKBOX, S(24), S(196), S(360), S(24), kIdChkQuickSelect);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_code_hint, BS_AUTOCHECKBOX, S(24), S(224), S(360), S(24), kIdChkCodeHint);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_dynamic_freq, BS_AUTOCHECKBOX, S(24), S(252), S(360), S(24), kIdChkDynamicFreq);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_shift_toggle, BS_AUTOCHECKBOX, S(24), S(280), S(360), S(24), kIdChkShiftToggle);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_status_bar, BS_AUTOCHECKBOX, S(24), S(308), S(360), S(24), kIdChkStatusBar);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_beep_empty4, BS_AUTOCHECKBOX, S(24), S(336), S(360), S(24), kIdChkBeepEmpty4);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_beep_dup4, BS_AUTOCHECKBOX, S(24), S(364), S(360), S(24), kIdChkBeepDup4);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_clear_empty4, BS_AUTOCHECKBOX, S(24), S(392), S(360), S(24), kIdChkClearEmpty4);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_key_sound, BS_AUTOCHECKBOX, S(24), S(420), S(360), S(24), kIdChkKeySound);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_extra, BS_AUTOCHECKBOX, S(24), S(112), S(400), S(24), kIdChkExtraDict);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_auto_commit4, BS_AUTOCHECKBOX, S(24), S(140), S(400), S(24), kIdChkAutoCommit4);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_push_commit5, BS_AUTOCHECKBOX, S(24), S(168), S(400), S(24), kIdChkPushCommit5);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_quick_select, BS_AUTOCHECKBOX, S(24), S(196), S(400), S(24), kIdChkQuickSelect);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_code_hint, BS_AUTOCHECKBOX, S(24), S(224), S(400), S(24), kIdChkCodeHint);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_dynamic_freq, BS_AUTOCHECKBOX, S(24), S(252), S(400), S(24), kIdChkDynamicFreq);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_shift_toggle, BS_AUTOCHECKBOX, S(24), S(280), S(400), S(24), kIdChkShiftToggle);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_status_bar, BS_AUTOCHECKBOX, S(24), S(308), S(400), S(24), kIdChkStatusBar);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_beep_empty4, BS_AUTOCHECKBOX, S(24), S(336), S(400), S(24), kIdChkBeepEmpty4);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_beep_dup4, BS_AUTOCHECKBOX, S(24), S(364), S(400), S(24), kIdChkBeepDup4);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_clear_empty4, BS_AUTOCHECKBOX, S(24), S(392), S(400), S(24), kIdChkClearEmpty4);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_key_sound, BS_AUTOCHECKBOX, S(24), S(420), S(400), S(24), kIdChkKeySound);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_chk_log_keystrokes, BS_AUTOCHECKBOX, S(24), S(448), S(412), S(24), kIdChkLogKeystrokes);
 
-    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(24), S(456), S(150), S(24), 0);
-    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(452), S(70), S(200), kIdComboPageSize);
+    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(24), S(484), S(150), S(24), 0);
+    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(480), S(70), S(200), kIdComboPageSize);
     for (const wchar_t* label : kPageSizeLabels) {
         ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     }
 
-    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(24), S(490), S(150), S(24), 0);
-    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(486), S(200), S(160), kIdComboUiLang);
+    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(24), S(518), S(150), S(24), 0);
+    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(514), S(200), S(160), kIdComboUiLang);
     const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
     for (const wchar_t* item : lang_items) {
         ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
     }
 
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_open_ini, BS_PUSHBUTTON, S(24), S(526), S(104), S(28), kIdBtnOpenIni);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_about, BS_PUSHBUTTON, S(136), S(526), S(72), S(28), kIdBtnAbout);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(218), S(526), S(78), S(28), kIdBtnOk);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(304), S(526), S(78), S(28), kIdBtnCancel);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_open_ini, BS_PUSHBUTTON, S(24), S(554), S(104), S(28), kIdBtnOpenIni);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_about, BS_PUSHBUTTON, S(136), S(554), S(72), S(28), kIdBtnAbout);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(218), S(554), S(78), S(28), kIdBtnOk);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(304), S(554), S(78), S(28), kIdBtnCancel);
 
     if (bound_config) {
         WriteSettingsToWindowControls(hwnd.Get(), *bound_config);

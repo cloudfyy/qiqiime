@@ -167,7 +167,8 @@ void TestIniConfiguration() {
         "ENABLE_KEY_SOUND = true\n"
         "UI_LANGUAGE = en-US\n"
         "[LOG]\n"
-        "LEVEL = trace\n");
+        "LEVEL = trace\n"
+        "LOG_KEYSTROKES = true\n");
     QIQI_TEST_CHECK(cfg2.primary_dict == PrimaryDict::BuiltinOnly);
     QIQI_TEST_CHECK(cfg2.enable_jidian_extra);
     QIQI_TEST_CHECK(cfg2.auto_commit_4code);
@@ -178,6 +179,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(cfg2.enable_key_sound);
     QIQI_TEST_CHECK(cfg2.ui_language == UiLanguage::EnUs);
     QIQI_TEST_CHECK(cfg2.log_level == spdlog::level::trace);
+    QIQI_TEST_CHECK(cfg2.log_keystrokes);
 
     const QiQiConfig cfg_zh = ParseConfigFromUtf8("[engine]\nlanguage = zh-CN\n");
     QIQI_TEST_CHECK(cfg_zh.ui_language == UiLanguage::ZhCn);

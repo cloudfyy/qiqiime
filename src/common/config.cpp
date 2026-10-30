@@ -236,10 +236,14 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
                 cfg.enable_key_sound = ParseBool(val, cfg.enable_key_sound);
             } else if (key == "ui_language" || key == "language") {
                 cfg.ui_language = ParseUiLanguage(val, cfg.ui_language);
+            } else if (key == "log_keystrokes" || key == "collect_keystrokes") {
+                cfg.log_keystrokes = ParseBool(val, cfg.log_keystrokes);
             }
         } else if (current_section == "log") {
             if (key == "level") {
                 cfg.log_level = ParseLogLevel(val, cfg.log_level);
+            } else if (key == "log_keystrokes" || key == "collect_keystrokes") {
+                cfg.log_keystrokes = ParseBool(val, cfg.log_keystrokes);
             }
         }
     }
@@ -295,7 +299,9 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         "ui_language = {}\n\n"
         "[log]\n"
         "# 日志级别: trace | debug | info | warn | error | off\n"
-        "level = {}\n",
+        "level = {}\n"
+        "# 是否记录按键与候选词诊断日志 (默认关闭；注意：开启后将记录您的按键与上屏文本等隐私信息，仅用于问题排查)\n"
+        "log_keystrokes = {}\n",
         PrimaryDictToString(config.primary_dict),
         config.enable_jidian_extra ? "true" : "false",
         log::WideToUtf8(config.user_dict_path),
@@ -316,7 +322,8 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         config.clear_on_empty_4code ? "true" : "false",
         config.enable_key_sound ? "true" : "false",
         UiLanguageToString(config.ui_language),
-        LogLevelToString(config.log_level));
+        LogLevelToString(config.log_level),
+        config.log_keystrokes ? "true" : "false");
 }
 
 bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_config) {

@@ -52,6 +52,45 @@ constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
     }
 }
 
+constexpr const char* KeyActionTypeToString(KeyActionType action) noexcept {
+    switch (action) {
+        case KeyActionType::PassThrough: return "PassThrough";
+        case KeyActionType::UpdateState: return "UpdateState";
+        case KeyActionType::Commit:      return "Commit";
+        case KeyActionType::Cancel:      return "Cancel";
+        default:                         return "Unknown";
+    }
+}
+
+constexpr const char* PrimaryDictToDiagName(PrimaryDict dict) noexcept {
+    switch (dict) {
+        case PrimaryDict::Haifeng:     return "haifeng";
+        case PrimaryDict::BuiltinOnly: return "builtin";
+        case PrimaryDict::Jidian:
+        default:                       return "jidian";
+    }
+}
+
+std::string FormatVirtualKey(uint32_t vk) {
+    if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) {
+        return std::format("'{}'(0x{:02X})", static_cast<char>(vk), vk);
+    }
+    switch (vk) {
+        case VK_SPACE:      return "VK_SPACE(0x20)";
+        case VK_RETURN:     return "VK_RETURN(0x0D)";
+        case VK_BACK:       return "VK_BACK(0x08)";
+        case VK_ESCAPE:     return "VK_ESCAPE(0x1B)";
+        case VK_SHIFT:      return "VK_SHIFT(0x10)";
+        case VK_OEM_1:      return "VK_OEM_1(;/:)";
+        case VK_OEM_7:      return "VK_OEM_7('/\")";
+        case VK_OEM_MINUS:  return "VK_OEM_MINUS(-/_)";
+        case VK_OEM_PLUS:   return "VK_OEM_PLUS(=/+)";
+        case VK_OEM_COMMA:  return "VK_OEM_COMMA(,/<)";
+        case VK_OEM_PERIOD: return "VK_OEM_PERIOD(./>)";
+        default:            return std::format("0x{:02X}", vk);
+    }
+}
+
 } // namespace
 
 QiQiTextService::QiQiTextService(HINSTANCE instance) {
@@ -219,6 +258,9 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     InitDisplayAttributeGuidAtom();
     InitFunctionProvider();
     InitLangBarItem();
+    if (config_.primary_dict != PrimaryDict::BuiltinOnly && engine_.MappedDictionaryCount() == 0) {
+        LoadExternalDictionaryNextToDll();
+    }
     SyncTsfCompartments();
     return S_OK;
 }
@@ -492,6 +534,32 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
 
     *pfEaten = TRUE;
     const KeyProcessResult result = engine_.ProcessKey(vk, shift, ctrl, alt);
+    if (config_.log_keystrokes) {
+        std::string cand_preview;
+        for (size_t i = 0; i < result.page_candidates.size(); ++i) {
+            if (i > 0) {
+                cand_preview += ", ";
+            }
+            cand_preview += std::format("{}:{}", i + 1, log::WideToUtf8(gsl::at(result.page_candidates, i)));
+        }
+        QIQI_LOG_INFO(
+            "[KeyTrace] vk={} shift={} ctrl={} alt={} -> action={} raw='{}' commit='{}' "
+            "total_cands={} page={}/{} page_cands=[{}] dict={} mapped_dicts={}",
+            FormatVirtualKey(vk),
+            shift,
+            ctrl,
+            alt,
+            KeyActionTypeToString(result.action),
+            log::WideToUtf8(result.composition_text),
+            log::WideToUtf8(result.committed_text),
+            engine_.AllCandidates().size(),
+            result.current_page + (result.total_pages > 0 ? 1 : 0),
+            result.total_pages,
+            cand_preview,
+            PrimaryDictToDiagName(config_.primary_dict),
+            engine_.MappedDictionaryCount());
+        log::Flush();
+    }
     if (result.empty_4code_warning) {
         PlayImeSound(SoundEffectKind::EmptyCodeBeep);
     } else if (result.dup_4code_warning) {
@@ -734,6 +802,10 @@ void QiQiTextService::ReloadConfigIfModified() {
 
     QiQiConfig updated{};
     if (LoadConfigFile(user_cfg, updated)) {
+        const bool dict_changed =
+            (updated.primary_dict != config_.primary_dict) ||
+            (updated.enable_jidian_extra != config_.enable_jidian_extra) ||
+            (updated.user_dict_path != config_.user_dict_path);
         config_last_write_time_ = write_time;
         config_ = std::move(updated);
         log::SetLevel(config_.log_level);
@@ -748,8 +820,15 @@ void QiQiTextService::ReloadConfigIfModified() {
         engine_.SetBeepOnDup4Code(config_.beep_on_dup_4code);
         engine_.SetClearOnEmpty4Code(config_.clear_on_empty_4code);
         engine_.SetEnableKeySound(config_.enable_key_sound);
-        QIQI_LOG_INFO("Hot-reloaded modified user configuration from '{}'",
-                      log::WideToUtf8(user_cfg.wstring()));
+        if (dict_changed || (config_.primary_dict != PrimaryDict::BuiltinOnly && engine_.MappedDictionaryCount() == 0)) {
+            LoadExternalDictionaryNextToDll();
+        }
+        SyncTsfCompartments();
+        QIQI_LOG_INFO("Hot-reloaded modified user configuration from '{}' (dict={}, mapped_dicts={}, log_keystrokes={})",
+                      log::WideToUtf8(user_cfg.wstring()),
+                      PrimaryDictToDiagName(config_.primary_dict),
+                      engine_.MappedDictionaryCount(),
+                      config_.log_keystrokes);
     }
 }
 

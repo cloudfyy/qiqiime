@@ -45,6 +45,8 @@ struct QiQiConfig {
 
     // [log]
     spdlog::level::level_enum log_level = spdlog::level::info;
+    // Collect detailed keystroke/candidate trace into log file for troubleshooting (disabled by default for privacy)
+    bool log_keystrokes = false;
 };
 
 // Return default user configuration path: %LOCALAPPDATA%\QiQiIME\config.ini

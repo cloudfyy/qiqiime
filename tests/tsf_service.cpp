@@ -9,6 +9,22 @@ namespace qiqi::test {
 namespace {
 
 void TestQiQiTextServiceLifecycleAndKeyFlow() {
+    wchar_t* orig_localappdata = nullptr;
+    size_t orig_len = 0;
+    _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
+    std::error_code appdata_ec;
+    const auto temp_appdata = std::filesystem::temp_directory_path() / L"QiQiIME_TsfTestAppData";
+    std::filesystem::remove_all(temp_appdata, appdata_ec);
+    _wputenv_s(L"LOCALAPPDATA", temp_appdata.wstring().c_str());
+    const auto restore_appdata = gsl::finally([&]() noexcept {
+        if (orig_localappdata) {
+            _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
+            free(orig_localappdata);
+        }
+        std::error_code clean_ec;
+        std::filesystem::remove_all(temp_appdata, clean_ec);
+    });
+
     BYTE clean_kb_state[256]{};
     ::SetKeyboardState(clean_kb_state);
     SetMuteAudioOutputForTest(true);
@@ -321,17 +337,13 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(service->Release() == 0);
 
     // Also test QiQiTextService with custom Haifeng + user_dict config and hot-reload on OnSetFocus
-    wchar_t* orig_localappdata = nullptr;
-    size_t orig_len = 0;
-    _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
     std::error_code ec;
-    const auto temp_appdata = std::filesystem::temp_directory_path() / L"QiQiIME_TsfTestAppData";
     std::filesystem::remove_all(temp_appdata, ec);
-    _wputenv_s(L"LOCALAPPDATA", temp_appdata.wstring().c_str());
 
     QiQiConfig haifeng_cfg{};
     haifeng_cfg.primary_dict = PrimaryDict::Haifeng;
     haifeng_cfg.enable_jidian_extra = true;
+    haifeng_cfg.log_keystrokes = true;
     haifeng_cfg.user_dict_path = L"wubi86_jidian_extra.txt";
     SaveConfigFile(GetDefaultUserConfigPath(), haifeng_cfg);
 
@@ -406,12 +418,6 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     hf_tm_sink.Reset();
     QIQI_TEST_CHECK(service_haifeng->Release() == 0);
     SetMuteAudioOutputForTest(false);
-
-    if (orig_localappdata) {
-        _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
-        free(orig_localappdata);
-    }
-    std::filesystem::remove_all(temp_appdata, ec);
 
     // Also test QiQiTextService construction when:
     // 1) g_dll_instance points to kernel32.dll (where dictionaries do not exist next to DLL)
