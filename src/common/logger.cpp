@@ -2,129 +2,192 @@
 #include "common/scoped_handle.h"
 
 #include <windows.h>
+#include <TraceLoggingProvider.h>
+#include <winmeta.h>
 #include <gsl/gsl>
-#include <spdlog/sinks/msvc_sink.h>
-#include <spdlog/sinks/null_sink.h>
-#include <spdlog/sinks/rotating_file_sink.h>
 
 #include <array>
+#include <atomic>
 #include <cstdlib>
+#include <format>
 #include <mutex>
-#include <vector>
+
+// Windows ETW TraceLogging Provider for QiQiIME: {8E7B9D31-5A42-4C81-9F11-202610290099}
+// Works inside UWP/AppContainer/Low-Integrity sandboxes without filesystem permissions and has zero cost when not enabled.
+#pragma warning(push)
+#pragma warning(disable : 26447 26477 26812)
+TRACELOGGING_DEFINE_PROVIDER(
+    g_qiqi_etw_provider,
+    "QiQiIME.TraceLogging",
+    (0x8e7b9d31, 0x5a42, 0x4c81, 0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x99));
+#pragma warning(pop)
 
 namespace qiqi::log {
 
 namespace {
 
-// Static union wrapper whose destructor is a no-op so CRT process-exit under the Windows Loader Lock
-// never destroys the mutex or flushes file handles on ExitProcess, without calling raw new/delete.
-struct LoggerState {
-    std::mutex mutex;
-    std::shared_ptr<spdlog::logger> logger;
-};
+std::atomic<Level> g_log_level{Level::info};
 
-union NoDestroyLoggerState {
-    LoggerState value;
-    NoDestroyLoggerState() noexcept : value{} {}
-    ~NoDestroyLoggerState() noexcept {}
+// RAII guard for the Windows ETW TraceLogging provider registration.
+class ScopedEtwProvider final {
+public:
+    ScopedEtwProvider() noexcept { EnsureRegistered(); }
+    ~ScopedEtwProvider() noexcept { Unregister(); }
 
-    NoDestroyLoggerState(const NoDestroyLoggerState&) = delete;
-    NoDestroyLoggerState& operator=(const NoDestroyLoggerState&) = delete;
-    NoDestroyLoggerState(NoDestroyLoggerState&&) = delete;
-    NoDestroyLoggerState& operator=(NoDestroyLoggerState&&) = delete;
-};
+    ScopedEtwProvider(const ScopedEtwProvider&) = delete;
+    ScopedEtwProvider& operator=(const ScopedEtwProvider&) = delete;
+    ScopedEtwProvider(ScopedEtwProvider&&) = delete;
+    ScopedEtwProvider& operator=(ScopedEtwProvider&&) = delete;
 
-LoggerState& GetState() noexcept {
-    static NoDestroyLoggerState holder;
-    return holder.value;
-}
-
-std::filesystem::path GetDefaultLogFilePath() {
-    const std::filesystem::path app_dir = GetAppDataDirectory();
-    if (app_dir.empty()) {
-        return L"qiqiime.log";
-    }
-    return app_dir / L"logs" / L"qiqiime.log";
-}
-
-std::shared_ptr<spdlog::logger> CreateLoggerInternal(
-    const std::filesystem::path& custom_path,
-    spdlog::level::level_enum level) {
-    std::vector<spdlog::sink_ptr> sinks;
-
-    try {
-        // check_debugger_present = true avoids expensive OutputDebugStringW kernel exceptions
-        // during normal typing when no debugger is attached to the host application.
-        sinks.push_back(std::make_shared<spdlog::sinks::msvc_sink_mt>(true));
-    } catch (...) {
-    }
-
-    try {
-        const std::filesystem::path log_path =
-            custom_path.empty() ? GetDefaultLogFilePath() : custom_path;
-        if (log_path.has_parent_path()) {
-            std::error_code ec;
-            std::filesystem::create_directories(log_path.parent_path(), ec);
+    void EnsureRegistered() noexcept {
+        if (!registered_.exchange(true)) {
+            if (FAILED(::TraceLoggingRegister(g_qiqi_etw_provider))) {
+                registered_ = false;
+            }
         }
-        constexpr size_t kMaxFileSize = 5 * 1024 * 1024; // 5 MB
-        constexpr size_t kMaxFiles = 3;
-        sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-            log_path.wstring(), kMaxFileSize, kMaxFiles));
-    } catch (...) {
-        // Ignore file sink failure (e.g. restricted sandbox/AppContainer process)
     }
 
-    if (sinks.empty()) {
-        sinks.push_back(std::make_shared<spdlog::sinks::null_sink_mt>());
+    void Unregister() noexcept {
+        if (registered_.exchange(false)) {
+            ::TraceLoggingUnregister(g_qiqi_etw_provider);
+        }
     }
 
-    std::string proc_name = WideToUtf8(GetModuleFilePath(nullptr).filename().wstring());
-    if (proc_name.empty()) {
-        proc_name = "qiqiime";
-    }
+    bool IsRegistered() const noexcept { return registered_.load(); }
 
-    auto logger = std::make_shared<spdlog::logger>(proc_name, sinks.begin(), sinks.end());
-    logger->set_level(level);
-    logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [pid:%P] [tid:%t] [%l] %v");
-    logger->flush_on(spdlog::level::warn);
-    return logger;
+private:
+    std::atomic<bool> registered_{false};
+};
+
+ScopedEtwProvider& GetEtwProvider() noexcept {
+    static ScopedEtwProvider provider;
+    return provider;
 }
+
+std::string_view GetProcessName() noexcept {
+    static const std::string kProcName = []() noexcept -> std::string {
+        try {
+            std::string name = WideToUtf8(GetModuleFilePath(nullptr).filename().wstring());
+            if (!name.empty()) {
+                return name;
+            }
+        } catch (...) {
+        }
+        return "qiqiime";
+    }();
+    return kProcName;
+}
+
+constexpr std::string_view LevelTag(Level level) noexcept {
+    switch (level) {
+        case Level::trace:    return "trace";
+        case Level::debug:    return "debug";
+        case Level::info:     return "info";
+        case Level::warn:     return "warning";
+        case Level::err:      return "error";
+        case Level::critical: return "critical";
+        case Level::off:
+        default:              return "off";
+    }
+}
+
+#pragma warning(push)
+#pragma warning(disable : 26447 26812)
+void EmitEtwTraceEvent(Level level, std::string_view proc_name, std::string_view message) noexcept {
+    const int msg_len = gsl::narrow_cast<int>(message.size());
+    const int proc_len = gsl::narrow_cast<int>(proc_name.size());
+    switch (level) {
+        case Level::trace:
+        case Level::debug:
+            TraceLoggingWrite(
+                g_qiqi_etw_provider,
+                "QiQiLogVerbose",
+                TraceLoggingLevel(WINEVENT_LEVEL_VERBOSE),
+                TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
+                TraceLoggingCountedString(message.data(), msg_len, "message"));
+            break;
+        case Level::info:
+            TraceLoggingWrite(
+                g_qiqi_etw_provider,
+                "QiQiLogInfo",
+                TraceLoggingLevel(WINEVENT_LEVEL_INFO),
+                TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
+                TraceLoggingCountedString(message.data(), msg_len, "message"));
+            break;
+        case Level::warn:
+            TraceLoggingWrite(
+                g_qiqi_etw_provider,
+                "QiQiLogWarning",
+                TraceLoggingLevel(WINEVENT_LEVEL_WARNING),
+                TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
+                TraceLoggingCountedString(message.data(), msg_len, "message"));
+            break;
+        case Level::err:
+        case Level::critical:
+            TraceLoggingWrite(
+                g_qiqi_etw_provider,
+                "QiQiLogError",
+                TraceLoggingLevel(WINEVENT_LEVEL_ERROR),
+                TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
+                TraceLoggingCountedString(message.data(), msg_len, "message"));
+            break;
+        case Level::off:
+        default:
+            break;
+    }
+}
+#pragma warning(pop)
 
 } // namespace
 
-void InitLogger(const std::filesystem::path& log_file_path, spdlog::level::level_enum level) {
-    auto& state = GetState();
-    std::lock_guard<std::mutex> lock(state.mutex);
-    state.logger = CreateLoggerInternal(log_file_path, level);
+void InitLogger(Level level) noexcept {
+    g_log_level = level;
+    GetEtwProvider().EnsureRegistered();
 }
 
-const std::shared_ptr<spdlog::logger>& GetLogger() {
-    auto& state = GetState();
-    std::lock_guard<std::mutex> lock(state.mutex);
-    if (!state.logger) {
-        state.logger = CreateLoggerInternal({}, spdlog::level::info);
+Level GetLevel() noexcept {
+    return g_log_level.load();
+}
+
+void SetLevel(Level level) noexcept {
+    g_log_level = level;
+}
+
+bool IsEtwProviderRegistered() noexcept {
+    auto& provider = GetEtwProvider();
+    provider.EnsureRegistered();
+    return provider.IsRegistered();
+}
+
+bool IsLogSinkActive() noexcept {
+    return (::TraceLoggingProviderEnabled(g_qiqi_etw_provider, 0, 0) != FALSE) ||
+           (::IsDebuggerPresent() != FALSE);
+}
+
+void WriteLogMessage(Level level, std::string_view message) noexcept {
+    if (level < GetLevel() || level == Level::off) {
+        return;
     }
-    return state.logger;
-}
+    auto& provider = GetEtwProvider();
+    provider.EnsureRegistered();
+    const std::string_view proc_name = GetProcessName();
 
-void SetLevel(spdlog::level::level_enum level) {
-    GetLogger()->set_level(level);
-}
+    // 1. Emit to Windows ETW TraceLogging (100% lock-free kernel write, zero heap allocation)
+    EmitEtwTraceEvent(level, proc_name, message);
 
-void Flush() {
-    GetLogger()->flush();
+    // 2. Output to debugger only when attached (avoids kernel exception overhead in normal typing)
+    if (::IsDebuggerPresent() != FALSE) {
+        try {
+            const std::string line = std::format("[{}] [{}] {}\r\n", proc_name, LevelTag(level), message);
+            const std::wstring wide_line = Utf8ToWide(line);
+            ::OutputDebugStringW(wide_line.c_str());
+        } catch (...) {
+        }
+    }
 }
 
 void Shutdown() noexcept {
-    try {
-        auto& state = GetState();
-        std::lock_guard<std::mutex> lock(state.mutex);
-        if (state.logger) {
-            state.logger->flush();
-            state.logger.reset();
-        }
-    } catch (...) {
-    }
+    GetEtwProvider().Unregister();
 }
 
 std::string WideToUtf8(std::wstring_view wide) {

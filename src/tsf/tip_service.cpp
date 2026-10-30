@@ -457,18 +457,15 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
             PersistAndSyncQuickConfigChange(false);
             break;
         case LangBarMenuId::OpenSettings:
-            log::Flush();
             Show(nullptr, kChineseSimplifiedLangId, kGuidProfileWubi86);
             break;
         case LangBarMenuId::OpenConfigFile: {
-            log::Flush();
             const auto cfg_path = GetDefaultUserConfigPath();
             EnsureDefaultConfigFile(cfg_path);
             ::ShellExecuteW(nullptr, L"open", L"notepad.exe", cfg_path.c_str(), nullptr, SW_SHOWNORMAL);
             break;
         }
         case LangBarMenuId::OpenAbout:
-            log::Flush();
             ShowAboutDialog(g_dll_instance, nullptr, config_.ui_language);
             break;
     }
@@ -488,9 +485,6 @@ void QiQiTextService::HandleFocusChanged(bool has_focus) {
         ResetCompositionAndUI();
         if (status_bar_) {
             status_bar_->Show(false);
-        }
-        if (config_.log_keystrokes) {
-            log::Flush();
         }
     } else {
         ReloadConfigIfModified();

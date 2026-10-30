@@ -56,33 +56,35 @@ Windows 10 / 11 中的现代应用（UWP 应用、部分 MSIX 打包应用、Win
 
 ---
 
-## 3. 完整解决方案设计（对应 Todo：`uwp-appcontainer-compatibility`）
+## 3. 完整解决方案设计（Windows 官方正统架构）
 
-为了在不引入任何额外后台服务的前提下，让 **Win32 传统应用、UWP 沙箱应用、以及独立配置程序 `QiQiIMESettings.exe`** 100% 共享同一份配置与内存映射词库，采用以下四步方案：
+遵循微软官方 TSF 输入法（如 Microsoft Wubi / Pinyin）在 Windows 10/11 下的安全最佳实践，**绝不使用“字符串截取路径硬穿 AppContainer 沙箱目录”或“放宽用户 `%LOCALAPPDATA%` 文件夹 ACL”的非标做法**，而是采用以下 4 个正统、零解耦依赖的子任务：
 
-### 3.1 穿透 AppContainer 定位真实用户的 `%LOCALAPPDATA%\QiQiIME`
-在 [`src/common/logger.cpp`](../src/common/logger.cpp) 的 `GetAppDataDirectory()` 中：
-1. 若 `LOCALAPPDATA` 路径包含 `\AppData\Local\Packages\`（典型 AppContainer 虚拟化路径），截取 `\AppData\Local\Packages\` 之前的前缀，还原出真实用户的 `C:\Users\<User>\AppData\Local\QiQiIME`。
-2. 备选兜底：若环境变量被清空，通过当前进程 Token 的用户 SID 或 `userenv.dll!GetBasicProfileFolderPath` 拼接 `AppData\Local\QiQiIME`。
+### 3.1 子任务 1 (`uwp-etw-tracelogging`)：基于 Windows ETW (`TraceLoggingProvider.h`) 的跨沙箱内核级诊断
+- **原理**：使用 Windows SDK 原生无清单 ETW（`<TraceLoggingProvider.h>`）注册 `QiQiIME.TraceLogging` Provider。
+- **优势**：
+  1. **全沙箱免权限**：ETW 直接通过内核态句柄写入事件缓冲，在任何 UWP AppContainer、浏览器低完整性进程（Low Integrity）中 100% 正常工作，无需任何文件写入权限。
+  2. **未开启时零开销**：`TraceLoggingWrite` 先检查内核共享页中的 `TraceLoggingProviderEnabled` 位，未开启收集时仅有一条 `cmp` 指令（0 纳秒开销，不执行格式化）。
+  3. **统一汇总**：所有 Win32 与 UWP 进程的日志与 `[KeyTrace]` 按键诊断可通过 `wpr` / `PerfView` 或 `QiQiIMESettings.exe` 统一实时捕获。
 
-### 3.2 为 `%LOCALAPPDATA%\QiQiIME` 授予 `ALL APPLICATION PACKAGES` 继承权限
-当非沙箱进程（如 `regsvr32 /i:user`、`QiQiIMESettings.exe` 或任意普通桌面宿主进程）创建或打开 `%LOCALAPPDATA%\QiQiIME` 目录时，设置目录 DACL：
-- 保留当前用户完全控制权限（`Full Control`）；
-- 显式添加两条允许继承（`OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE`）的 ACE：
-  - **`S-1-15-2-1` (`ALL APPLICATION PACKAGES`)**：授予读取/写入权限（允许读取 `config.ini`、映射 `cache\*.qdict`、追加 `user_dict.txt`）；
-  - **`S-1-15-2-2` (`ALL RESTRICTED APPLICATION PACKAGES`)**：授予只读权限（`GENERIC_READ | GENERIC_EXECUTE`）。
-- 也可通过 SDDL / `SetNamedSecurityInfoW` 在目录创建时一次性完成，幂等且开销极小。
+### 3.2 子任务 2 (`uwp-prebuild-qdict-mmap`)：构建期预编译 `data\*.qdict` 实现零写入只读内存映射
+- **原理**：在编译/打包阶段直接将 `data\wubi86_jidian.txt`、`wubi86_jidian_extra.txt`、`wubi86_haifeng.txt` 预编译为同目录下的 `.qdict` 二进制映像，并随 MSI 安装至 `C:\Program Files\QiQiIME\data\`。
+- **优势**：
+  1. `GetCacheFilePath()` 第一优先级即命中 `data\*.qdict`；
+  2. `C:\Program Files` 天然具备 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 的只读映射权限；
+  3. Win32 与 UWP 进程通过 `GetModuleFileNameW(g_dll_instance)` 直接 `MapViewOfFile` 只读映射 `data\*.qdict`，既彻底消除了首次激活时的词库编译延迟，又无需向 `%LOCALAPPDATA%` 写任何缓存文件。
 
-### 3.3 在构建/安装阶段预编译或共享 `.qdict` 二进制词库
-1. **方案 A（共享缓存目录）**：完成 3.1 + 3.2 后，所有 UWP 进程均可直接以只读方式 `OpenMappedFile` 映射 `%LOCALAPPDATA%\QiQiIME\cache\*.qdict`，全系统所有进程（Win32 + UWP）在内核物理内存中共享唯一一份词库页缓存。
-2. **方案 B（构建期预编译 `.qdict` 进 `data/`，可选优化）**：在打包阶段直接生成 `data\wubi86_jidian.qdict`、`wubi86_jidian_extra.qdict`、`wubi86_haifeng.qdict` 随 MSI 安装到 `C:\Program Files\QiQiIME\data\`。这样连首次启动编译 `.qdict` 的 ~20ms 开销都彻底消除，且天然具备 `Program Files` 的只读安全属性。
+### 3.3 子任务 3 (`uwp-hkcu-registry-config`)：通过 `HKCU\Software\QiQiIME` 注册表同步配置（保留 `config.ini` 兼容）
+- **原理**：
+  - 将 `QiQiConfig` 镜像存储在 `HKCU\Software\QiQiIME` 注册表项下，并为该注册表项设置 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 的只读（`KEY_READ`）DACL。
+  - 普通桌面进程或 `QiQiIMESettings.exe` 保存配置时，同时更新 `config.ini`（供高级用户备份/编辑）与 `HKCU\Software\QiQiIME`（含递增版本号/时间戳）。
+- **优势**：
+  - UWP AppContainer 进程无需探测任何磁盘文件路径，直接通过 `RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\QiQiIME", 0, KEY_READ, ...)` 在微秒级（~5 μs）内读取最新配置并感知配置变更。
 
-### 3.4 开发注册脚本与消息过滤增强
-1. **开发脚本赋权**：在 [`scripts/register_ime.ps1`](../scripts/register_ime.ps1) 中，自动对构建产物目录及 `data\` 目录执行：
+### 3.4 子任务 4 (`uwp-uipi-and-dev-acl`)：UIPI 广播消息放行与开发注册脚本赋权
+1. **UIPI 消息放行**：在 `StatusBarUI::EnsureBarWindow()` 中调用 `ChangeWindowMessageFilterEx(hwnd, kConfigChangedBroadcastMsg, MSGFLT_ALLOW, nullptr)`，允许低完整性进程发送配置同步广播；同时保留 `OnSetFocus` 主动检查配置版本号的双重保障。
+2. **开发脚本赋权**：在 [`scripts/register_ime.ps1`](../scripts/register_ime.ps1) 中自动对构建产物目录及 `data\` 目录执行：
    ```powershell
    icacls $targetDir /grant "*S-1-15-2-1:(OI)(CI)(RX)" /Q
    ```
    使开发者无需打包安装 MSI 即可直接在 Windows 11 便笺、设置、UWP 应用中调试奇奇五笔。
-2. **UIPI 消息放行 + `OnSetFocus` 双重保障**：
-   - 在创建 `StatusBarUI` 窗口后调用 `ChangeWindowMessageFilterEx(hwnd, kConfigChangedBroadcastMsg, MSGFLT_ALLOW, nullptr)`，允许低完整性进程发送配置同步广播；
-   - 继续保留 `QiQiTextService::OnSetFocus` 中的 `ReloadConfigIfModified()` 时间戳检查——一旦切换焦点进入或离开 UWP 应用，毫秒级 `stat` 检查会立即同步最新配置。

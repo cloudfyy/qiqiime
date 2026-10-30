@@ -34,10 +34,9 @@ target_include_directories(qiqi_engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${QIQIIME_GENERATED_DIR}
 )
-target_compile_definitions(qiqi_engine PUBLIC SPDLOG_USE_STD_FORMAT SPDLOG_WCHAR_FILENAMES)
 target_link_libraries(qiqi_engine PUBLIC
-    spdlog::spdlog_header_only
     Microsoft.GSL::GSL
+    advapi32
 )
 
 # TSF Text Input Processor COM DLL

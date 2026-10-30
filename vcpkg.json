@@ -1,15 +1,7 @@
 {
   "name": "qiqiime",
-  "version-string": "0.8.4",
+  "version-string": "0.9.1",
   "dependencies": [
-    {
-      "name": "spdlog",
-      "default-features": false,
-      "features": [
-        "tz-offset",
-        "wchar"
-      ]
-    },
     "ms-gsl"
   ]
 }

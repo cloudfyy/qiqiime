@@ -28,10 +28,9 @@ void TestVersionMechanism() {
     QIQI_TEST_CHECK(version::kFullVersion.starts_with(version::kVersion));
 }
 
-void TestSpdlogLogger() {
-    // 1. Test lazy initialization of GetLogger() before InitLogger() is ever called
-    auto default_logger = log::GetLogger();
-    QIQI_TEST_CHECK(default_logger != nullptr);
+void TestEtwLogger() {
+    // 1. Test lazy initialization & Windows ETW TraceLogging provider registration before InitLogger() is ever called
+    QIQI_TEST_CHECK(log::IsEtwProviderRegistered());
     QIQI_LOG_DEBUG("Lazy default logger test");
 
     // 2. Test WideToUtf8, Utf8ToWide, and GetModuleFilePath
@@ -42,46 +41,31 @@ void TestSpdlogLogger() {
     QIQI_TEST_CHECK(!log::GetModuleFilePath(nullptr).empty());
     QIQI_TEST_CHECK(log::GetModuleFilePath(reinterpret_cast<void*>(0x12345678)).empty());
 
-    // 3. Test custom file logger, SetLevel, and Flush
-    const auto temp_log = std::filesystem::temp_directory_path() / L"qiqiime_unit_test.log";
-    std::error_code ec;
-    std::filesystem::remove(temp_log, ec);
+    // 3. Test Pure Lock-Free ETW Logger (InitLogger, SetLevel, GetLevel, IsLogSinkActive, WriteLogMessage)
+    log::InitLogger(log::Level::info);
+    QIQI_TEST_CHECK(log::GetLevel() == log::Level::info);
+    (void)log::IsLogSinkActive();
+    log::SetLevel(log::Level::trace);
+    QIQI_TEST_CHECK(log::GetLevel() == log::Level::trace);
 
-    log::InitLogger(temp_log, spdlog::level::info);
-    log::SetLevel(spdlog::level::trace);
     QIQI_LOG_TRACE("Trace message");
     QIQI_LOG_DEBUG("Debug message");
     QIQI_LOG_INFO("Unit test log entry: {}", log::WideToUtf8(L"五笔日志测试"));
     QIQI_LOG_WARN("Warn message");
     QIQI_LOG_ERROR("Error message");
-    log::Flush();
+    log::WriteLogMessage(log::Level::trace, "Direct trace");
+    log::WriteLogMessage(log::Level::debug, "Direct debug");
+    log::WriteLogMessage(log::Level::info, "Direct info");
+    log::WriteLogMessage(log::Level::warn, "Direct warn");
+    log::WriteLogMessage(log::Level::err, "Direct err");
+    log::WriteLogMessage(log::Level::critical, "Critical message");
 
-    QIQI_TEST_CHECK(std::filesystem::exists(temp_log));
-    {
-        std::ifstream ifs(temp_log);
-        std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        QIQI_TEST_CHECK(content.find("Unit test log entry:") != std::string::npos);
-        QIQI_TEST_CHECK(content.find("Trace message") != std::string::npos);
-        QIQI_TEST_CHECK(content.find("[qiqi_engine_test.exe]") != std::string::npos);
-    }
+    log::SetLevel(log::Level::off);
+    QIQI_LOG_INFO("Suppressed when level is off");
+    log::WriteLogMessage(log::Level::off, "Suppressed off write");
+    log::SetLevel(log::Level::info);
 
-    // Re-initialize default logger to release temp_log handle
-    log::InitLogger();
-    std::filesystem::remove(temp_log, ec);
-
-    // 4. Test logger with relative filename (no parent_path)
-    const std::filesystem::path rel_log = L"qiqiime_rel_test.log";
-    std::filesystem::remove(rel_log, ec);
-    log::InitLogger(rel_log, spdlog::level::info);
-    QIQI_LOG_INFO("Relative path log test");
-    log::Flush();
-
-    // 5. Test fallback when file sink fails to open (passing a directory path as file path)
-    log::InitLogger(std::filesystem::temp_directory_path(), spdlog::level::info);
-    QIQI_LOG_INFO("Fallback msvc sink only test");
-    std::filesystem::remove(rel_log, ec);
-
-    // 6. Test GetDefaultLogFilePath fallback when LOCALAPPDATA is unset
+    // 4. Test GetAppDataDirectory fallback when LOCALAPPDATA is unset, plus Shutdown & lazy re-Init
     {
         wchar_t* orig_localappdata = nullptr;
         size_t orig_len = 0;
@@ -93,8 +77,13 @@ void TestSpdlogLogger() {
             }
         });
         _wputenv_s(L"LOCALAPPDATA", L"");
-        log::InitLogger({}, spdlog::level::info);
+        QIQI_TEST_CHECK(!log::GetAppDataDirectory().empty());
     }
+    log::Shutdown();
+    // WriteLogMessage after Shutdown exercises lazy EnsureRegistered inside WriteLogMessage
+    log::WriteLogMessage(log::Level::info, "Lazy re-init after Shutdown");
+    log::Shutdown();
+    QIQI_TEST_CHECK(log::IsEtwProviderRegistered());
     log::InitLogger();
 }
 
@@ -141,7 +130,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(!cfg.default_chinese_punct);
     QIQI_TEST_CHECK(!cfg.shift_toggle_mode);
     QIQI_TEST_CHECK(cfg.clear_on_empty_4code);
-    QIQI_TEST_CHECK(cfg.log_level == spdlog::level::debug);
+    QIQI_TEST_CHECK(cfg.log_level == log::Level::debug);
 
     // Test SaveConfigFile & SerializeConfigToUtf8 round-trip
     const auto roundtrip_path = std::filesystem::temp_directory_path() / L"qiqiime_roundtrip.ini";
@@ -182,7 +171,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(cfg2.clear_on_empty_4code);
     QIQI_TEST_CHECK(cfg2.enable_key_sound);
     QIQI_TEST_CHECK(cfg2.ui_language == UiLanguage::EnUs);
-    QIQI_TEST_CHECK(cfg2.log_level == spdlog::level::trace);
+    QIQI_TEST_CHECK(cfg2.log_level == log::Level::trace);
     QIQI_TEST_CHECK(cfg2.log_keystrokes);
 
     const QiQiConfig cfg_zh = ParseConfigFromUtf8("[engine]\nlanguage = zh-CN\n");
@@ -192,12 +181,12 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(cfg_auto.ui_language == UiLanguage::Auto);
 
     for (const auto& [lvl_str, lvl_enum] : {
-             std::pair{"info", spdlog::level::info},
-             std::pair{"warn", spdlog::level::warn},
-             std::pair{"error", spdlog::level::err},
-             std::pair{"critical", spdlog::level::critical},
-             std::pair{"off", spdlog::level::off},
-             std::pair{"unknown_lvl", spdlog::level::info}}) {
+             std::pair{"info", log::Level::info},
+             std::pair{"warn", log::Level::warn},
+             std::pair{"error", log::Level::err},
+             std::pair{"critical", log::Level::critical},
+             std::pair{"off", log::Level::off},
+             std::pair{"unknown_lvl", log::Level::info}}) {
         QiQiConfig lcfg = ParseConfigFromUtf8(std::string("[log]\nlevel = ") + lvl_str + "\n[dictionary]\nprimary = unknown_dict\n");
         QIQI_TEST_CHECK(lcfg.log_level == lvl_enum);
         QIQI_TEST_CHECK(lcfg.primary_dict == PrimaryDict::Jidian);
@@ -258,7 +247,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(!loaded_default.clear_on_empty_4code);
     QIQI_TEST_CHECK(loaded_default.default_chinese_mode);
     QIQI_TEST_CHECK(loaded_default.shift_toggle_mode);
-    QIQI_TEST_CHECK(loaded_default.log_level == spdlog::level::info);
+    QIQI_TEST_CHECK(loaded_default.log_level == log::Level::info);
 
     std::filesystem::remove(temp_cfg_path, ec);
 
@@ -463,7 +452,7 @@ void TestI18nLocalization() {
 } // namespace
 
 void RunCommonTests() {
-    TestSpdlogLogger();
+    TestEtwLogger();
     TestVersionMechanism();
     TestIniConfiguration();
     TestScopedHandleTemplate();

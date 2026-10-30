@@ -97,6 +97,9 @@ protected:
 
     template <typename CastInterface, typename... BaseAliases>
     bool MatchBaseInterfaces(REFIID riid, void** ppvObj) noexcept {
+        if (!ppvObj) {
+            return false;
+        }
         if ((IsEqualIID(riid, __uuidof(BaseAliases)) || ...)) {
             *ppvObj = static_cast<CastInterface*>(static_cast<Derived*>(this));
             return true;
@@ -107,12 +110,19 @@ protected:
 private:
     template <typename... Ifaces>
     bool TryMatchInterfaces(REFIID riid, void** ppvObj) noexcept {
-        bool matched = false;
-        ((!matched && IsEqualIID(riid, __uuidof(Ifaces))
-              ? (*ppvObj = static_cast<Ifaces*>(static_cast<Derived*>(this)), matched = true)
-              : false),
-         ...);
-        return matched;
+        if (!ppvObj) {
+            return false;
+        }
+        if constexpr (sizeof...(Ifaces) == 0) {
+            return false;
+        } else {
+            bool matched = false;
+            ((!matched && IsEqualIID(riid, __uuidof(Ifaces))
+                  ? (*ppvObj = static_cast<Ifaces*>(static_cast<Derived*>(this)), matched = true)
+                  : false),
+             ...);
+            return matched;
+        }
     }
 
     std::atomic<ULONG> ref_count_{1};

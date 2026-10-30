@@ -2,7 +2,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
-#include <spdlog/spdlog.h>
+#include "common/logger.h"
 
 namespace qiqi {
 
@@ -44,7 +44,7 @@ struct QiQiConfig {
     UiLanguage ui_language = UiLanguage::Auto;
 
     // [log]
-    spdlog::level::level_enum log_level = spdlog::level::info;
+    log::Level log_level = log::Level::info;
     // Collect detailed keystroke/candidate trace into log file for troubleshooting (disabled by default for privacy)
     bool log_keystrokes = false;
 };

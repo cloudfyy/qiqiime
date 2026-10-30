@@ -12,7 +12,7 @@
 | **Visual Studio / MSVC** | Visual Studio 2026 或 Visual Studio 2022（17.10+），安装 **“使用 C++ 的桌面开发”** 工作负载，包含 MSVC `x64` 与 `x86` 编译器及 C++ 核心功能检查工具（`CppCoreCheck`，开启 `/std:c++latest` C++26 草案模式） |
 | **Windows SDK** | Windows 10 / 11 SDK（`10.0.22621.0` 或 `10.0.26100.0` 及以上，提供 `<msctf.h>`、`<ctffunc.h>`、`<d2d1.h>`、`<dwrite.h>`） |
 | **CMake** | CMake `3.25` 或更高版本 |
-| **vcpkg** | Visual Studio 内置 vcpkg 或通过 `VCPKG_ROOT` 环境变量指定（Manifest 模式自动安装 `spdlog` 与 `ms-gsl`） |
+| **vcpkg** | Visual Studio 内置 vcpkg 或通过 `VCPKG_ROOT` 环境变量指定（Manifest 模式自动安装 `ms-gsl`） |
 | **PowerShell** | Windows PowerShell 5.1 或 PowerShell 7+（用于运行构建、注册与打包脚本） |
 | **WiX Toolset（可选）** | .NET SDK 8.0+ 与 WiX CLI v4/v7+（`dotnet tool install --global wix`，用于生成 `.msi` 安装包） |
 
@@ -26,7 +26,7 @@ qiqiime/
 ├── CMakePresets.json           # CMake Presets (支持 x64 与 x86/Win32 双架构配置、构建与测试)
 ├── LICENSE                     # GNU General Public License v3.0 (GPL-3.0)
 ├── VERSION                     # 项目版本号单一事实源 (SemVer, 当前 0.8.4)
-├── vcpkg.json                  # vcpkg 依赖清单 (spdlog, ms-gsl)
+├── vcpkg.json                  # vcpkg 依赖清单 (ms-gsl)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/
 │   ├── config.ini              # 默认 UTF-8 INI 配置文件模板
@@ -52,7 +52,7 @@ qiqiime/
 │   │   ├── config.h/.cpp       # UTF-8 INI 配置解析与原子写持久化
 │   │   ├── guids.h             # CLSID / Profile GUID / PreservedKey GUID / 窗口类名常量
 │   │   ├── i18n.h              # 简体中文 (zh-CN) / 英文 (en-US) / 跟随系统 (Auto) 界面文案表
-│   │   ├── logger.h/.cpp       # 基于 spdlog 的 noexcept 安全日志模块与最小权限文件读取
+│   │   ├── logger.h/.cpp       # 基于 Windows ETW TraceLogging + C++26 std::format 的 noexcept 安全日志模块与最小权限文件读取
 │   │   ├── monitor_dpi.h       # 多显示器工作区查询与 Per-Monitor DPI 缩放
 │   │   ├── scoped_handle.h     # 泛型零开销 RAII 句柄模板 ScopedHandle<Traits> 与 COM/GDI/剪贴板包装器
 │   │   ├── sound.h             # 零堆分配栈/静态数组 PCM WAV 音效合成器

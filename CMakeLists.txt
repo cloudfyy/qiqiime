@@ -27,11 +27,9 @@ file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" QIQIIME_VERSION_RAW LIMIT_COU
 string(STRIP "${QIQIIME_VERSION_RAW}" QIQIIME_VERSION_STRING)
 
 # Skip redundant vcpkg manifest install on incremental CMake re-runs when packages are already installed
-if(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/share/spdlog" AND
-   EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/share/Microsoft.GSL")
+if(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/share/Microsoft.GSL")
     set(VCPKG_MANIFEST_INSTALL OFF)
-elseif(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows/share/spdlog" AND
-       EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows/share/Microsoft.GSL")
+elseif(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows/share/Microsoft.GSL")
     set(VCPKG_MANIFEST_INSTALL OFF)
 endif()
 
@@ -93,7 +91,6 @@ if(MSVC)
 endif()
 
 # Dependencies managed via vcpkg (vcpkg.json)
-find_package(spdlog CONFIG REQUIRED)
 find_package(Microsoft.GSL CONFIG REQUIRED)
 
 # Build source and test subdirectories

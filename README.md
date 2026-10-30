@@ -73,7 +73,7 @@
 | **C++ 编译器** | Visual Studio 2026 或 Visual Studio 2022（17.10+），需勾选 **“使用 C++ 的桌面开发”** 工作负载及 MSVC `x64/x86` 生成工具（开启 `/std:c++latest` C++26 草案模式） |
 | **Windows SDK** | Windows 10 / 11 SDK（`10.0.22621.0` 或 `10.0.26100.0` 及以上） |
 | **CMake** | CMake `3.25` 或更高版本 |
-| **依赖包管理器** | `vcpkg`（Visual Studio 内置 vcpkg 或通过环境变量 `VCPKG_ROOT` 指定，Manifest 模式自动安装 `spdlog` 与 `ms-gsl`） |
+| **依赖包管理器** | `vcpkg`（Visual Studio 内置 vcpkg 或通过环境变量 `VCPKG_ROOT` 指定，Manifest 模式自动安装 `ms-gsl`） |
 | **MSI 打包工具（可选）** | .NET SDK 8.0+ 与 **WiX Toolset CLI v4/v7+**（通过 `dotnet tool install --global wix` 安装，用于构建 `.msi` 安装包） |
 
 ---
@@ -132,5 +132,4 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
   > 3. Neither the name of the "SunHaifeng.NET(海峰别墅)" nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
 
 ### 5.3 第三方 C++ 依赖库
-- **[gabime/spdlog](https://github.com/gabime/spdlog)**：高性能 C++ 日志库，遵循 [MIT License](https://github.com/gabime/spdlog/blob/v1.x/LICENSE)。
 - **[microsoft/GSL](https://github.com/microsoft/GSL)**：C++ Core Guidelines Support Library（`gsl::span` / `gsl::not_null` / `gsl::narrow_cast` / `gsl::at` / `gsl::finally`），遵循 [MIT License](https://github.com/microsoft/GSL/blob/main/LICENSE)。

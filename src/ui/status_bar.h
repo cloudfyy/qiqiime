@@ -94,7 +94,7 @@ private:
     HINSTANCE instance_ = nullptr;
     ScopedGdiHandle<HFONT> font_;
     ScopedGdiHandle<HFONT> tooltip_font_;
-    std::array<ScopedGdiHandle<HBITMAP>, kIconCount> icon_bitmaps_{};
+    std::array<ScopedGdiHandle<HBITMAP>, kIconCount> icon_bitmaps_;
     int icon_px_ = 0;
     COLORREF icon_fg_color_ = CLR_INVALID;
     UINT dpi_ = 96;

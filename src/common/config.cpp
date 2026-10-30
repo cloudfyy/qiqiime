@@ -14,16 +14,16 @@ namespace qiqi {
 
 namespace {
 
-std::string_view LogLevelToString(spdlog::level::level_enum lvl) noexcept {
+std::string_view LogLevelToString(log::Level lvl) noexcept {
     switch (lvl) {
-        case spdlog::level::trace:    return "trace";
-        case spdlog::level::debug:    return "debug";
-        case spdlog::level::warn:     return "warn";
-        case spdlog::level::err:      return "error";
-        case spdlog::level::critical: return "critical";
-        case spdlog::level::off:      return "off";
-        case spdlog::level::info:
-        default:                      return "info";
+        case log::Level::trace:    return "trace";
+        case log::Level::debug:    return "debug";
+        case log::Level::warn:     return "warn";
+        case log::Level::err:      return "error";
+        case log::Level::critical: return "critical";
+        case log::Level::off:      return "off";
+        case log::Level::info:
+        default:                   return "info";
     }
 }
 
@@ -69,15 +69,15 @@ bool ParseBool(std::string_view val, bool default_val) {
     return default_val;
 }
 
-spdlog::level::level_enum ParseLogLevel(std::string_view val, spdlog::level::level_enum default_lvl) {
+log::Level ParseLogLevel(std::string_view val, log::Level default_lvl) {
     const std::string lower = ToLowerAscii(val);
-    if (lower == "trace") return spdlog::level::trace;
-    if (lower == "debug") return spdlog::level::debug;
-    if (lower == "info") return spdlog::level::info;
-    if (lower == "warn" || lower == "warning") return spdlog::level::warn;
-    if (lower == "error" || lower == "err") return spdlog::level::err;
-    if (lower == "critical") return spdlog::level::critical;
-    if (lower == "off" || lower == "none") return spdlog::level::off;
+    if (lower == "trace") return log::Level::trace;
+    if (lower == "debug") return log::Level::debug;
+    if (lower == "info") return log::Level::info;
+    if (lower == "warn" || lower == "warning") return log::Level::warn;
+    if (lower == "error" || lower == "err") return log::Level::err;
+    if (lower == "critical") return log::Level::critical;
+    if (lower == "off" || lower == "none") return log::Level::off;
     return default_lvl;
 }
 

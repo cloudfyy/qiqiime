@@ -669,7 +669,9 @@ KeyProcessResult WubiEngine::HandlePopCode(const KeyInputContext& ctx) {
 
 KeyProcessResult WubiEngine::HandleCancelComposition(const KeyInputContext& /*ctx*/) noexcept {
     Reset();
-    return MakeCurrentStateResult(KeyActionType::Cancel);
+    KeyProcessResult res{};
+    res.action = KeyActionType::Cancel;
+    return res;
 }
 
 KeyProcessResult WubiEngine::HandleCommitSelected(const KeyInputContext& /*ctx*/) {
@@ -792,6 +794,17 @@ KeyProcessResult WubiEngine::HandleCommitFullWidth(const KeyInputContext& ctx) {
     return {};
 }
 
+template <typename Fn>
+consteval bool AllActionHandlersBound(std::span<const Fn> handlers) noexcept {
+    for (const auto fn : handlers) {
+#pragma warning(suppress : 26477)
+        if (!fn) {
+            return false;
+        }
+    }
+    return true;
+}
+
 KeyProcessResult WubiEngine::ProcessKey(
     uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) {
     // Compile-time Command dispatch table indexed directly by TransitionOp
@@ -818,12 +831,11 @@ KeyProcessResult WubiEngine::ProcessKey(
         &WubiEngine::HandleCommitTempEnglish,     // 19: CommitTempEnglish
         &WubiEngine::HandleCommitFullWidth        // 20: CommitFullWidth
     };
-    static_assert(std::ranges::all_of(kActionHandlers, [](ActionHandler fn) { return fn != nullptr; }));
+    static_assert(AllActionHandlersBound(std::span<const ActionHandler>(kActionHandlers)));
 
     const TransitionRule rule = EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down, caps_lock_on);
     const KeyInputContext ctx{vk, shift_down, caps_lock_on, rule.next_state};
-    const auto handler = gsl::at(kActionHandlers, static_cast<size_t>(rule.op));
-    return (this->*handler)(ctx);
+    return (this->*gsl::at(kActionHandlers, static_cast<size_t>(rule.op)))(ctx);
 }
 
 } // namespace qiqi

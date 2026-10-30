@@ -1,31 +1,56 @@
 #pragma once
+#include <cstdint>
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
-#include <spdlog/spdlog.h>
 
 namespace qiqi::log {
 
-// Initialize the global QiQiIME logger.
-// If log_file_path is empty, defaults to %LOCALAPPDATA%\QiQiIME\logs\qiqiime.log.
-void InitLogger(const std::filesystem::path& log_file_path = {},
-                spdlog::level::level_enum level = spdlog::level::info);
+enum class Level : uint8_t {
+    trace = 0,
+    debug = 1,
+    info = 2,
+    warn = 3,
+    err = 4,
+    critical = 5,
+    off = 6
+};
 
-// Retrieve the global logger instance (lazily initialized if InitLogger was not called yet).
-const std::shared_ptr<spdlog::logger>& GetLogger();
+// Initialize the global QiQiIME ETW TraceLogging provider and set the active log level.
+void InitLogger(Level level = Level::info) noexcept;
 
-// Dynamically change log level.
-void SetLevel(spdlog::level::level_enum level);
+// Query or dynamically change the active log level.
+Level GetLevel() noexcept;
+void SetLevel(Level level) noexcept;
 
-// Flush buffered log messages.
-void Flush();
+// Query whether the Windows ETW TraceLogging provider is registered.
+bool IsEtwProviderRegistered() noexcept;
 
-// Safely flush and release logger resources on dynamic DLL unload (when not in process termination).
+// Return whether any log consumer (active ETW session or attached debugger) is currently listening.
+bool IsLogSinkActive() noexcept;
+
+// Emit a pre-formatted UTF-8 log entry to Windows ETW TraceLogging (and debugger when attached).
+void WriteLogMessage(Level level, std::string_view message) noexcept;
+
+template <typename... Args>
+void Log(Level level, std::format_string<Args...> fmt, Args&&... args) noexcept {
+    if (level < GetLevel() || level == Level::off || !IsLogSinkActive()) {
+        return;
+    }
+    try {
+        const std::string msg = std::format(fmt, std::forward<Args>(args)...);
+        WriteLogMessage(level, msg);
+    } catch (...) {
+    }
+}
+
+// Safely unregister the Windows ETW TraceLogging provider on dynamic DLL unload (when not in process termination).
 void Shutdown() noexcept;
 
-// Convert wide string (UTF-16 on Windows) to UTF-8 for spdlog formatting.
+// Convert wide string (UTF-16 on Windows) to UTF-8 for log formatting.
 std::string WideToUtf8(std::wstring_view wide);
 
 // Convert UTF-8 string to Windows wide string (UTF-16).
@@ -54,8 +79,9 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
 
 } // namespace qiqi::log
 
-#define QIQI_LOG_TRACE(...) do { try { ::qiqi::log::GetLogger()->trace(__VA_ARGS__); } catch (...) {} } while (false)
-#define QIQI_LOG_DEBUG(...) do { try { ::qiqi::log::GetLogger()->debug(__VA_ARGS__); } catch (...) {} } while (false)
-#define QIQI_LOG_INFO(...)  do { try { ::qiqi::log::GetLogger()->info(__VA_ARGS__); } catch (...) {} } while (false)
-#define QIQI_LOG_WARN(...)  do { try { ::qiqi::log::GetLogger()->warn(__VA_ARGS__); } catch (...) {} } while (false)
-#define QIQI_LOG_ERROR(...) do { try { ::qiqi::log::GetLogger()->error(__VA_ARGS__); } catch (...) {} } while (false)
+#define QIQI_LOG_TRACE(...) do { try { ::qiqi::log::Log(::qiqi::log::Level::trace, __VA_ARGS__); } catch (...) {} } while (false)
+#define QIQI_LOG_DEBUG(...) do { try { ::qiqi::log::Log(::qiqi::log::Level::debug, __VA_ARGS__); } catch (...) {} } while (false)
+#define QIQI_LOG_INFO(...)  do { try { ::qiqi::log::Log(::qiqi::log::Level::info,  __VA_ARGS__); } catch (...) {} } while (false)
+#define QIQI_LOG_WARN(...)  do { try { ::qiqi::log::Log(::qiqi::log::Level::warn,  __VA_ARGS__); } catch (...) {} } while (false)
+#define QIQI_LOG_ERROR(...) do { try { ::qiqi::log::Log(::qiqi::log::Level::err,   __VA_ARGS__); } catch (...) {} } while (false)
+

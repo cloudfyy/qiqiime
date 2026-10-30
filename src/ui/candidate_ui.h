@@ -11,6 +11,7 @@
 
 #include "common/com_object.h"
 #include "common/config.h"
+#include "common/monitor_dpi.h"
 #include "common/scoped_handle.h"
 
 namespace qiqi {
@@ -28,6 +29,11 @@ public:
 
     explicit CandidateUI(HINSTANCE instance) noexcept;
     ~CandidateUI() noexcept;
+
+    CandidateUI(const CandidateUI&) = delete;
+    CandidateUI& operator=(const CandidateUI&) = delete;
+    CandidateUI(CandidateUI&&) = delete;
+    CandidateUI& operator=(CandidateUI&&) = delete;
 
     bool QueryAdditionalInterfaces(REFIID riid, void** ppvObj) noexcept {
         return MatchBaseInterfaces<ITfCandidateListUIElement, ITfUIElement>(riid, ppvObj);
@@ -68,10 +74,10 @@ public:
     DWORD UiElementId() const noexcept { return ui_element_id_; }
     void SetUiElementId(DWORD id) noexcept { ui_element_id_ = id; }
     bool IsDirectWriteActive() const noexcept { return dwrite_text_format_ != nullptr && d2d_dc_target_ != nullptr; }
-    void DisableDirect2DForTest() noexcept { d2d_dc_target_.Reset(); }
+    void DisableDirect2DForTest() { d2d_dc_target_.Reset(); }
 
 private:
-    int ScaleByDpi(int px) const noexcept { return ::MulDiv(px, dpi_, 96); }
+    int ScaleByDpi(int px) const noexcept { return ScalePxByDpi(px, dpi_); }
     void InitDirect2DAndDirectWrite() noexcept;
     void UpdateDpiAndFont(UINT new_dpi) noexcept;
     int MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const noexcept;

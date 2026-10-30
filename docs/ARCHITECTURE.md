@@ -28,7 +28,7 @@
 | 五笔核心引擎与基础层 (qiqi_engine.lib)                                |
 |  - WubiEngine       : 编译期 FSM、四码唯一上屏、空码清屏/提示音、顶字 |
 |  - WubiMappedDict   : 4 字节紧凑编码索引 + 只读按需分页内存映射 (.qdict)|
-|  - Common           : INI 原子配置、spdlog 日志、ScopedHandle RAII    |
+|  - Common           : INI 原子配置、ETW TraceLogging 日志、ScopedHandle RAII |
 +-----------------------------------------------------------------------+
 ```
 

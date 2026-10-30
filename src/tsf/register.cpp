@@ -125,7 +125,6 @@ HRESULT EnableCurrentUserProfile(ITfInputProcessorProfiles* custom_profiles) {
     } else {
         QIQI_LOG_INFO("QiQi Wubi profile enabled for the current user");
     }
-    log::Flush();
     return hr;
 }
 
@@ -139,7 +138,6 @@ HRESULT RegisterServerWithManagers(
                   version::kFullVersion, version::kArch, is_wow64);
     if (!RegisterComClsid(instance)) {
         QIQI_LOG_ERROR("RegisterComClsid failed (administrator privileges required)");
-        log::Flush();
         return SELFREG_E_CLASS;
     }
 
@@ -148,7 +146,6 @@ HRESULT RegisterServerWithManagers(
     // overwriting the shared 64-bit TSF Language Profile icon/module path.
     if (is_wow64 && IsNative64BitClsidRegistered()) {
         QIQI_LOG_INFO("RegisterServer (WOW64): 32-bit COM CLSID registered; native 64-bit TSF profile already active");
-        log::Flush();
         return S_OK;
     }
 
@@ -248,7 +245,6 @@ HRESULT RegisterServerWithManagers(
     } else {
         QIQI_LOG_ERROR("RegisterServer failed with HRESULT 0x{:08x}", gsl::narrow_cast<unsigned int>(hr));
     }
-    log::Flush();
     return hr;
 }
 
@@ -266,7 +262,6 @@ HRESULT UnregisterServerWithManagers(
     // keep the shared TSF Language Profile intact until the 64-bit DLL is also unregistered.
     if (keep_native_profile) {
         QIQI_LOG_INFO("UnregisterServer (WOW64): removed 32-bit COM CLSID; keeping active 64-bit TSF profile");
-        log::Flush();
         return S_OK;
     }
 
@@ -315,7 +310,6 @@ HRESULT UnregisterServerWithManagers(
     ::CoFreeUnusedLibraries();
 
     QIQI_LOG_INFO("UnregisterServer completed");
-    log::Flush();
     return S_OK;
 }
 
