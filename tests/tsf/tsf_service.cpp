@@ -457,6 +457,35 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
                 ReadCompartmentInt4(mock_tm->global_pos_compartment_.Get(), 0));
             QIQI_TEST_CHECK(saved_pt.x == 240 && saved_pt.y == 320);
         }
+
+        // Test bidirectional system compartment sync (GUID_COMPARTMENT_KEYBOARD_OPENCLOSE & INPUTMODE_CONVERSION):
+        // 1) Start composing 'W', then externally set OPENCLOSE = 0 -> cancels active composition and switches to English
+        QIQI_TEST_CHECK(mock_tm->openclose_compartment_ != nullptr);
+        QIQI_TEST_CHECK(mock_tm->convmode_compartment_ != nullptr);
+        ComPtr<ITfKeyEventSink> check_key_sink;
+        QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&check_key_sink))) && check_key_sink);
+        QIQI_TEST_CHECK(SUCCEEDED(check_key_sink->OnKeyDown(mock_ctx.Get(), 'W', 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(mock_tm->openclose_compartment_.Get(), 1, 0)));
+        QIQI_TEST_CHECK(SUCCEEDED(check_key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
+        // Restore Chinese mode via OPENCLOSE = 1
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(mock_tm->openclose_compartment_.Get(), 1, 1)));
+        QIQI_TEST_CHECK(SUCCEEDED(check_key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
+
+        // 2) Start composing 'W', then externally set INPUTMODE_CONVERSION = 0 (English, HalfWidth, English punct)
+        QIQI_TEST_CHECK(SUCCEEDED(check_key_sink->OnKeyDown(mock_ctx.Get(), 'W', 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(mock_tm->convmode_compartment_.Get(), 1, 0)));
+        QIQI_TEST_CHECK(SUCCEEDED(check_key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
+        // Restore Chinese + FullWidth + ChinesePunct via INPUTMODE_CONVERSION, then back to Chinese + HalfWidth + ChinesePunct
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(
+            mock_tm->convmode_compartment_.Get(),
+            1,
+            TF_CONVERSIONMODE_NATIVE | TF_CONVERSIONMODE_FULLSHAPE | TF_CONVERSIONMODE_SYMBOL)));
+        QIQI_TEST_CHECK(SUCCEEDED(check_key_sink->OnKeyDown(mock_ctx.Get(), '1', 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"１");
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(
+            mock_tm->convmode_compartment_.Get(),
+            1,
+            TF_CONVERSIONMODE_NATIVE | TF_CONVERSIONMODE_SYMBOL)));
     }
 
     QIQI_TEST_CHECK(SUCCEEDED(hf_tm_sink->OnSetFocus(reinterpret_cast<ITfDocumentMgr*>(1), nullptr)));

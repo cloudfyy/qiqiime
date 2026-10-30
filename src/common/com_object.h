@@ -237,6 +237,53 @@ private:
     Microsoft::WRL::ComPtr<ITfSource> source_;
     DWORD cookie_ = TF_INVALID_COOKIE;
 };
+
+// RAII wrapper for ITfCompartment + optional ITfCompartmentEventSink subscription.
+class ScopedTfCompartment final {
+public:
+    ScopedTfCompartment() noexcept = default;
+    ~ScopedTfCompartment() noexcept = default;
+
+    ScopedTfCompartment(const ScopedTfCompartment&) = delete;
+    ScopedTfCompartment& operator=(const ScopedTfCompartment&) = delete;
+    ScopedTfCompartment(ScopedTfCompartment&&) = default;
+    ScopedTfCompartment& operator=(ScopedTfCompartment&&) = default;
+
+    bool Bind(ITfCompartmentMgr* mgr, REFGUID guid, ITfCompartmentEventSink* sink = nullptr) noexcept {
+        Reset();
+        if (!mgr) {
+            return false;
+        }
+        if (FAILED(mgr->GetCompartment(guid, &comp_)) || !comp_) {
+            return false;
+        }
+        if (sink) {
+            return sink_conn_.Advise(comp_.Get(), IID_ITfCompartmentEventSink, sink);
+        }
+        return true;
+    }
+
+    void Reset() noexcept {
+        sink_conn_.Reset();
+        comp_.Reset();
+    }
+
+    LONG ReadInt4(LONG default_val = 0) const noexcept {
+        return ReadCompartmentInt4(comp_.Get(), default_val);
+    }
+
+    HRESULT WriteInt4(TfClientId tid, LONG val) const noexcept {
+        return WriteCompartmentInt4(comp_.Get(), tid, val);
+    }
+
+    ITfCompartment* Get() const noexcept { return comp_.Get(); }
+    bool IsValid() const noexcept { return comp_ != nullptr; }
+    explicit operator bool() const noexcept { return IsValid(); }
+
+private:
+    Microsoft::WRL::ComPtr<ITfCompartment> comp_;
+    ScopedTfSinkConnection sink_conn_;
+};
 #pragma warning(pop)
 
 } // namespace qiqi

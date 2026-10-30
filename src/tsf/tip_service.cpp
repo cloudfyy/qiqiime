@@ -257,7 +257,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     InitDisplayAttributeGuidAtom();
     InitFunctionProvider();
     InitLangBarItem();
-    InitGlobalCompartmentSink();
+    InitCompartmentSinks();
     if (config_.primary_dict != PrimaryDict::BuiltinOnly && engine_.MappedDictionaryCount() == 0) {
         LoadExternalDictionaryNextToDll();
     }
@@ -272,7 +272,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
         status_bar_->Show(false);
     }
 
-    UninitGlobalCompartmentSink();
+    UninitCompartmentSinks();
     UninitLangBarItem();
     UninitFunctionProvider();
     UninitKeyEventSink();
@@ -406,56 +406,43 @@ void QiQiTextService::UninitLangBarItem() {
     }
 }
 
-bool QiQiTextService::BindCompartmentSink(
-    ITfCompartmentMgr* mgr,
-    REFGUID guid,
-    ITfCompartmentEventSink* sink,
-    ComPtr<ITfCompartment>& out_comp,
-    ScopedTfSinkConnection& out_conn) {
-    out_conn.Reset();
-    out_comp.Reset();
-    if (!mgr) {
-        return false;
-    }
-    if (FAILED(mgr->GetCompartment(guid, &out_comp)) || !out_comp) {
-        return false;
-    }
-    return out_conn.Advise(out_comp.Get(), IID_ITfCompartmentEventSink, sink);
-}
-
-void QiQiTextService::InitGlobalCompartmentSink() {
+void QiQiTextService::InitCompartmentSinks() {
     if (!thread_mgr_) {
         return;
     }
+    ITfCompartmentEventSink* const sink = this;
+
+    // 1. Bind thread-scoped system compartments for bidirectional mode sync
+    ComPtr<ITfCompartmentMgr> thread_comp_mgr;
+    if (SUCCEEDED(thread_mgr_.As(&thread_comp_mgr)) && thread_comp_mgr) {
+        if (!openclose_comp_.Bind(thread_comp_mgr.Get(), GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, sink)) {
+            QIQI_LOG_WARN("InitCompartmentSinks: failed to bind GUID_COMPARTMENT_KEYBOARD_OPENCLOSE");
+        }
+        if (!convmode_comp_.Bind(thread_comp_mgr.Get(), GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION, sink)) {
+            QIQI_LOG_WARN("InitCompartmentSinks: failed to bind GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION");
+        }
+    }
+
+    // 2. Bind process-wide TSF Global Compartments for config/dict broadcast & status bar position
     ComPtr<ITfCompartmentMgr> global_mgr;
     if (FAILED(thread_mgr_->GetGlobalCompartment(&global_mgr)) || !global_mgr) {
-        QIQI_LOG_DEBUG("InitGlobalCompartmentSink: GetGlobalCompartment unavailable");
+        QIQI_LOG_DEBUG("InitCompartmentSinks: GetGlobalCompartment unavailable");
         return;
     }
-    if (!BindCompartmentSink(
-            global_mgr.Get(),
-            kGuidCompartmentConfigVersion,
-            static_cast<ITfCompartmentEventSink*>(this),
-            global_config_comp_,
-            global_config_sink_)) {
-        QIQI_LOG_WARN("InitGlobalCompartmentSink: failed to bind kGuidCompartmentConfigVersion");
+    if (!global_config_comp_.Bind(global_mgr.Get(), kGuidCompartmentConfigVersion, sink)) {
+        QIQI_LOG_WARN("InitCompartmentSinks: failed to bind kGuidCompartmentConfigVersion");
     }
-    if (BindCompartmentSink(
-            global_mgr.Get(),
-            kGuidCompartmentStatusBarPos,
-            static_cast<ITfCompartmentEventSink*>(this),
-            global_pos_comp_,
-            global_pos_sink_)) {
+    if (global_pos_comp_.Bind(global_mgr.Get(), kGuidCompartmentStatusBarPos, sink)) {
         SyncStatusBarPositionFromGlobalCompartment();
     } else {
-        QIQI_LOG_WARN("InitGlobalCompartmentSink: failed to bind kGuidCompartmentStatusBarPos");
+        QIQI_LOG_WARN("InitCompartmentSinks: failed to bind kGuidCompartmentStatusBarPos");
     }
 }
 
-void QiQiTextService::UninitGlobalCompartmentSink() {
-    global_pos_sink_.Reset();
+void QiQiTextService::UninitCompartmentSinks() {
+    convmode_comp_.Reset();
+    openclose_comp_.Reset();
     global_pos_comp_.Reset();
-    global_config_sink_.Reset();
     global_config_comp_.Reset();
 }
 
@@ -463,8 +450,8 @@ void QiQiTextService::NotifyGlobalConfigChanged() {
     if (!global_config_comp_ || client_id_ == TF_CLIENTID_NULL) {
         return;
     }
-    const LONG next_version = ReadCompartmentInt4(global_config_comp_.Get(), 0) + 1;
-    if (FAILED(WriteCompartmentInt4(global_config_comp_.Get(), client_id_, next_version))) {
+    const LONG next_version = global_config_comp_.ReadInt4(0) + 1;
+    if (FAILED(global_config_comp_.WriteInt4(client_id_, next_version))) {
         QIQI_LOG_WARN("NotifyGlobalConfigChanged: SetValue(version={}) failed", next_version);
     } else {
         QIQI_LOG_DEBUG("NotifyGlobalConfigChanged: broadcast Global Compartment config version={}", next_version);
@@ -476,7 +463,7 @@ void QiQiTextService::SaveGlobalStatusBarPosition(POINT pos) {
         return;
     }
     const LONG packed = PackScreenPointToLong(pos);
-    if (FAILED(WriteCompartmentInt4(global_pos_comp_.Get(), client_id_, packed))) {
+    if (FAILED(global_pos_comp_.WriteInt4(client_id_, packed))) {
         QIQI_LOG_WARN("SaveGlobalStatusBarPosition: SetValue(pos=({}, {})) failed", pos.x, pos.y);
     } else {
         QIQI_LOG_DEBUG("SaveGlobalStatusBarPosition: broadcast Global Compartment pos=({}, {})", pos.x, pos.y);
@@ -488,7 +475,7 @@ void QiQiTextService::SyncStatusBarPositionFromGlobalCompartment() {
         return;
     }
     constexpr LONG kUnsetSentinel = INT32_MIN;
-    const LONG packed = ReadCompartmentInt4(global_pos_comp_.Get(), kUnsetSentinel);
+    const LONG packed = global_pos_comp_.ReadInt4(kUnsetSentinel);
     if (packed == kUnsetSentinel || packed == 0) {
         return;
     }
@@ -500,6 +487,54 @@ void QiQiTextService::SyncStatusBarPositionFromGlobalCompartment() {
     }
 }
 
+void QiQiTextService::SyncEngineFromSystemCompartments(REFGUID changed_guid) {
+    if (syncing_compartments_) {
+        return;
+    }
+    bool changed = false;
+    if (IsEqualGUID(changed_guid, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE) && openclose_comp_) {
+        const bool want_chinese = (openclose_comp_.ReadInt4(1) != 0);
+        if (want_chinese != engine_.IsChineseMode()) {
+            if (!want_chinese && engine_.IsComposing() && active_context_) {
+                KeyProcessResult cancel_res{};
+                cancel_res.action = KeyActionType::Cancel;
+                ApplyEngineResult(active_context_.Get(), cancel_res);
+            }
+            engine_.SetChineseMode(want_chinese);
+            changed = true;
+        }
+    } else if (IsEqualGUID(changed_guid, GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION) && convmode_comp_) {
+        const LONG conv = convmode_comp_.ReadInt4(0);
+        const bool want_chinese = (conv & TF_CONVERSIONMODE_NATIVE) != 0;
+        const bool want_full_width = (conv & TF_CONVERSIONMODE_FULLSHAPE) != 0;
+        const bool want_cn_punct = (conv & TF_CONVERSIONMODE_SYMBOL) != 0;
+
+        if (want_chinese != engine_.IsChineseMode()) {
+            if (!want_chinese && engine_.IsComposing() && active_context_) {
+                KeyProcessResult cancel_res{};
+                cancel_res.action = KeyActionType::Cancel;
+                ApplyEngineResult(active_context_.Get(), cancel_res);
+            }
+            engine_.SetChineseMode(want_chinese);
+            changed = true;
+        }
+        if (want_full_width != engine_.IsFullWidthMode()) {
+            engine_.SetFullWidthMode(want_full_width);
+            changed = true;
+        }
+        if (want_cn_punct != engine_.IsChinesePunctuation()) {
+            engine_.SetChinesePunctuation(want_cn_punct);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        QIQI_LOG_INFO("Synchronized external TSF compartment change (cn={}, full_width={}, cn_punct={})",
+                      engine_.IsChineseMode(), engine_.IsFullWidthMode(), engine_.IsChinesePunctuation());
+        SyncTsfCompartments();
+    }
+}
+
 STDMETHODIMP QiQiTextService::OnChange(REFGUID rguid) {
     if (IsEqualGUID(rguid, kGuidCompartmentConfigVersion)) {
         QIQI_LOG_DEBUG("ITfCompartmentEventSink::OnChange(kGuidCompartmentConfigVersion) received");
@@ -507,6 +542,9 @@ STDMETHODIMP QiQiTextService::OnChange(REFGUID rguid) {
     } else if (IsEqualGUID(rguid, kGuidCompartmentStatusBarPos)) {
         QIQI_LOG_DEBUG("ITfCompartmentEventSink::OnChange(kGuidCompartmentStatusBarPos) received");
         SyncStatusBarPositionFromGlobalCompartment();
+    } else if (IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE) ||
+               IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION)) {
+        SyncEngineFromSystemCompartments(rguid);
     }
     return S_OK;
 }
@@ -885,7 +923,7 @@ void QiQiTextService::ToggleModeAndCancelComposition(ITfContext* context) {
     SyncTsfCompartments();
 }
 
-void QiQiTextService::SyncTsfCompartments() {
+void QiQiTextService::UpdateUiIndicators() {
     LangBarState lb_state{};
     lb_state.chinese_mode = engine_.IsChineseMode();
     lb_state.full_width = engine_.IsFullWidthMode();
@@ -904,23 +942,22 @@ void QiQiTextService::SyncTsfCompartments() {
     if (status_bar_ && thread_mgr_) {
         status_bar_->UpdateState(lb_state);
     }
+}
 
-    if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL) {
+void QiQiTextService::SyncTsfCompartments() {
+    UpdateUiIndicators();
+
+    if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL || syncing_compartments_) {
         return;
     }
-    ComPtr<ITfCompartmentMgr> comp_mgr;
-    if (FAILED(thread_mgr_.As(&comp_mgr)) || !comp_mgr) {
-        return;
+    syncing_compartments_ = true;
+    const auto reset_guard = gsl::finally([this]() noexcept {
+        syncing_compartments_ = false;
+    });
+
+    if (openclose_comp_) {
+        openclose_comp_.WriteInt4(client_id_, engine_.IsChineseMode() ? 1 : 0);
     }
-
-    auto set_dword = [&](REFGUID guid, LONG val) {
-        ComPtr<ITfCompartment> comp;
-        if (SUCCEEDED(comp_mgr->GetCompartment(guid, &comp)) && comp) {
-            WriteCompartmentInt4(comp.Get(), client_id_, val);
-        }
-    };
-
-    set_dword(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, engine_.IsChineseMode() ? 1 : 0);
 
     LONG conv_mode = 0;
     if (engine_.IsChineseMode()) {
@@ -932,7 +969,9 @@ void QiQiTextService::SyncTsfCompartments() {
     if (engine_.IsChinesePunctuation()) {
         conv_mode |= TF_CONVERSIONMODE_SYMBOL;
     }
-    set_dword(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION, conv_mode);
+    if (convmode_comp_) {
+        convmode_comp_.WriteInt4(client_id_, conv_mode);
+    }
 }
 
 void QiQiTextService::ReloadConfigIfModified() {

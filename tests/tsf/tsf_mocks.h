@@ -480,6 +480,22 @@ public:
             (*ppcomp)->AddRef();
             return S_OK;
         }
+        if (IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE)) {
+            if (!openclose_compartment_) {
+                openclose_compartment_ = new MockTfCompartment(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE);
+            }
+            *ppcomp = openclose_compartment_.Get();
+            (*ppcomp)->AddRef();
+            return S_OK;
+        }
+        if (IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION)) {
+            if (!convmode_compartment_) {
+                convmode_compartment_ = new MockTfCompartment(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION);
+            }
+            *ppcomp = convmode_compartment_.Get();
+            (*ppcomp)->AddRef();
+            return S_OK;
+        }
         *ppcomp = compartment_.Get();
         (*ppcomp)->AddRef();
         return S_OK;
@@ -508,6 +524,8 @@ public:
     }
 
     ComPtr<MockTfCompartment> compartment_;
+    ComPtr<MockTfCompartment> openclose_compartment_;
+    ComPtr<MockTfCompartment> convmode_compartment_;
     ComPtr<MockTfCompartment> global_config_compartment_;
     ComPtr<MockTfCompartment> global_pos_compartment_;
     ComPtr<IUnknown> single_sink_;
