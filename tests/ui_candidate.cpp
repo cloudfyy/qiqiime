@@ -592,6 +592,202 @@ void TestQuickSettingsMenuWorkArea() {
     }
 }
 
+void TestQuickSettingsMenuCommandValidation() {
+    LangBarButton::ShowSharedPopupMenu(LangBarState{}, POINT{200, 200}, {});
+    QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
+    for (const auto action : {LangBarMenuId::OpenSettings, LangBarMenuId::OpenConfigFile, LangBarMenuId::OpenAbout}) {
+        static LangBarMenuId closing_action{};
+        closing_action = action;
+        const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
+            ::KillTimer(nullptr, id);
+            const HWND menu = FindQuickSettingsMenu();
+            QIQI_TEST_CHECK(menu && ::IsWindowVisible(menu));
+            for (const UINT command : {0u, 0xffffu, static_cast<UINT>(LangBarMenuId::ToggleExtraDict)}) {
+                ::SendMessageW(menu, WM_COMMAND, MAKEWPARAM(command, BN_CLICKED), 0);
+                QIQI_TEST_CHECK(FindQuickSettingsMenu() == menu && ::IsWindowVisible(menu));
+            }
+            ::SendMessageW(menu, WM_COMMAND,
+                           MAKEWPARAM(static_cast<UINT>(LangBarMenuId::ToggleChinese), BN_DOUBLECLICKED), 0);
+            QIQI_TEST_CHECK(::IsWindowVisible(menu));
+            ::SendMessageW(menu, WM_COMMAND, MAKEWPARAM(static_cast<UINT>(closing_action), BN_CLICKED), 0);
+            QIQI_TEST_CHECK(!::IsWindowVisible(menu));
+        });
+        QIQI_TEST_CHECK(timer != 0);
+        const auto cancel_timer = gsl::finally([&]() { ::KillTimer(nullptr, timer); });
+        LangBarState state{};
+        state.primary_dict = PrimaryDict::Haifeng;
+        int callbacks = 0;
+        LangBarButton::ShowSharedPopupMenu(state, POINT{200, 200}, [&](LangBarMenuId selected) {
+            QIQI_TEST_CHECK(selected == action);
+            QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
+            ++callbacks;
+        });
+        QIQI_TEST_CHECK(callbacks == 1 && state.chinese_mode);
+    }
+}
+
+void TestQuickSettingsMenuDisabledNavigation() {
+    static int step = 0;
+    step = 0;
+    const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
+        const HWND menu = FindQuickSettingsMenu();
+        QIQI_TEST_CHECK(menu && ::IsWindowVisible(menu));
+        switch (step++) {
+            case 0:
+                QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::ToggleExtraDict))));
+                ::SetFocus(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::DictHaifeng)));
+                ::PostMessageW(::GetFocus(), WM_KEYDOWN, VK_DOWN, 0);
+                break;
+            case 1:
+                QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == static_cast<int>(LangBarMenuId::ToggleStatusBar));
+                ::PostMessageW(::GetFocus(), WM_KEYDOWN, VK_UP, 0);
+                break;
+            case 2:
+                QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == static_cast<int>(LangBarMenuId::DictHaifeng));
+                ::PostMessageW(::GetFocus(), WM_KEYDOWN, VK_TAB, 0);
+                break;
+            default:
+                QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == static_cast<int>(LangBarMenuId::ToggleStatusBar));
+                ::KillTimer(nullptr, id);
+                ::SetFocus(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::OpenConfigFile)));
+                ::PostMessageW(::GetFocus(), WM_KEYDOWN, VK_RETURN, 0);
+                break;
+        }
+    });
+    QIQI_TEST_CHECK(timer != 0);
+    const auto cancel_timer = gsl::finally([&]() { ::KillTimer(nullptr, timer); });
+    LangBarState state{};
+    state.primary_dict = PrimaryDict::Haifeng;
+    int callbacks = 0;
+    LangBarButton::ShowSharedPopupMenu(state, POINT{200, 200}, [&](LangBarMenuId action) {
+        QIQI_TEST_CHECK(action == LangBarMenuId::OpenConfigFile);
+        QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
+        ++callbacks;
+    });
+    QIQI_TEST_CHECK(callbacks == 1 && step == 4);
+}
+
+int CountQuickSettingsCheckPixels(HWND menu) {
+    const HWND button = ::GetDlgItem(menu, static_cast<int>(LangBarMenuId::ToggleChinese));
+    RECT rect{};
+    QIQI_TEST_CHECK(::GetClientRect(button, &rect));
+    QIQI_TEST_CHECK(rect.right > rect.bottom && rect.bottom > 0);
+    const ScopedWindowDC screen;
+    const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+    const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), rect.right, rect.bottom));
+    QIQI_TEST_CHECK(screen && dc && bitmap);
+    const ScopedSelectObject select_bitmap(dc.Get(), bitmap.Get());
+    DRAWITEMSTRUCT draw{};
+    draw.CtlType = ODT_BUTTON;
+    draw.CtlID = static_cast<UINT>(LangBarMenuId::ToggleChinese);
+    draw.hwndItem = button;
+    draw.hDC = dc.Get();
+    draw.rcItem = rect;
+    ::SendMessageW(menu, WM_DRAWITEM, draw.CtlID, reinterpret_cast<LPARAM>(&draw));
+    const COLORREF background = ::GetPixel(dc.Get(), 0, 0);
+    QIQI_TEST_CHECK(background != CLR_INVALID);
+    int pixels = 0;
+    for (int y = 0; y < rect.bottom; ++y) {
+        for (int x = 0; x < rect.bottom; ++x) {
+            if (::GetPixel(dc.Get(), x, y) != background) {
+                ++pixels;
+            }
+        }
+    }
+    return pixels;
+}
+
+void TestQuickSettingsMenuLivePainting() {
+    const auto original_theme = detail::ThemeDarkOverrideStorage();
+    const auto restore_theme = gsl::finally([&]() { SetThemeDarkOverrideForTest(original_theme); });
+    for (const bool dark : {false, true}) {
+        SetThemeDarkOverrideForTest(dark);
+        static bool updated_dark = false;
+        updated_dark = !dark;
+        const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
+            ::KillTimer(nullptr, id);
+            const HWND menu = FindQuickSettingsMenu();
+            QIQI_TEST_CHECK(menu && ::IsWindowVisible(menu));
+            QIQI_TEST_CHECK(CountQuickSettingsCheckPixels(menu) > 0);
+            ::SendMessageW(menu, WM_COMMAND,
+                           MAKEWPARAM(static_cast<UINT>(LangBarMenuId::ToggleChinese), BN_CLICKED), 0);
+            QIQI_TEST_CHECK(::IsWindowVisible(menu));
+            QIQI_TEST_CHECK(CountQuickSettingsCheckPixels(menu) == 0);
+            SetThemeDarkOverrideForTest(updated_dark);
+            for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
+                ::SendMessageW(menu, message, 0, 0);
+                ::RedrawWindow(menu, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+                const ScopedWindowDC dc(menu);
+                QIQI_TEST_CHECK(::GetPixel(dc.Get(), 1, 1) == GetThemePalette(updated_dark).window_bg);
+            }
+            ::SendMessageW(menu, WM_CLOSE, 0, 0);
+        });
+        QIQI_TEST_CHECK(timer != 0);
+        const auto cancel_timer = gsl::finally([&]() { ::KillTimer(nullptr, timer); });
+        LangBarState state{};
+        int callbacks = 0;
+        LangBarButton::ShowSharedPopupMenu(state, POINT{200, 200}, [&](LangBarMenuId action) {
+            QIQI_TEST_CHECK(action == LangBarMenuId::ToggleChinese);
+            state.chinese_mode = !state.chinese_mode;
+            ++callbacks;
+        });
+        QIQI_TEST_CHECK(callbacks == 1 && !state.chinese_mode);
+        QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
+    }
+}
+
+void TestQuickSettingsMenuQuitMessage() {
+    const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
+        ::KillTimer(nullptr, id);
+        QIQI_TEST_CHECK(FindQuickSettingsMenu() != nullptr);
+        ::PostQuitMessage(42);
+    });
+    QIQI_TEST_CHECK(timer != 0);
+    const auto cancel_timer = gsl::finally([&]() { ::KillTimer(nullptr, timer); });
+    LangBarButton::ShowSharedPopupMenu(LangBarState{}, POINT{200, 200}, [](LangBarMenuId) {
+        QIQI_TEST_CHECK(false);
+    });
+    QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
+    MSG message{};
+    QIQI_TEST_CHECK(::PeekMessageW(&message, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE));
+    QIQI_TEST_CHECK(message.message == WM_QUIT && message.wParam == 42);
+    QIQI_TEST_CHECK(!::PeekMessageW(&message, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE));
+}
+
+void TestQuickSettingsMenuFocusRestoration() {
+    for (const bool activate_other : {false, true}) {
+        const ScopedWindow previous(::CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPEDWINDOW,
+            20, 20, 160, 100, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+        const ScopedWindow other(::CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPEDWINDOW,
+            40, 40, 160, 100, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+        QIQI_TEST_CHECK(previous && other);
+        ::ShowWindow(previous.Get(), SW_SHOW);
+        ::SetForegroundWindow(previous.Get());
+        QIQI_TEST_CHECK(::GetForegroundWindow() == previous.Get());
+        static HWND next_foreground = nullptr;
+        next_foreground = activate_other ? other.Get() : nullptr;
+        const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
+            ::KillTimer(nullptr, id);
+            const HWND menu = FindQuickSettingsMenu();
+            QIQI_TEST_CHECK(menu && ::GetForegroundWindow() == menu);
+            if (next_foreground) {
+                ::ShowWindow(next_foreground, SW_SHOW);
+                ::SetForegroundWindow(next_foreground);
+                QIQI_TEST_CHECK(::GetForegroundWindow() == next_foreground);
+            } else {
+                ::PostMessageW(::GetFocus(), WM_KEYDOWN, VK_ESCAPE, 0);
+            }
+        });
+        QIQI_TEST_CHECK(timer != 0);
+        const auto cancel_timer = gsl::finally([&]() { ::KillTimer(nullptr, timer); });
+        LangBarButton::ShowSharedPopupMenu(LangBarState{}, POINT{200, 200}, [](LangBarMenuId) {
+            QIQI_TEST_CHECK(false);
+        });
+        QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
+        QIQI_TEST_CHECK(::GetForegroundWindow() == (activate_other ? other.Get() : previous.Get()));
+    }
+}
+
 void TestCandidateUI() {
     auto *ui = new CandidateUI(::GetModuleHandleW(nullptr));
 
@@ -1333,6 +1529,11 @@ void RunCandidateUITests() {
     TestQuickSettingsMenuResourceLifetime();
     TestQuickSettingsMenuKeyboardAndDismissal();
     TestQuickSettingsMenuWorkArea();
+    TestQuickSettingsMenuCommandValidation();
+    TestQuickSettingsMenuDisabledNavigation();
+    TestQuickSettingsMenuLivePainting();
+    TestQuickSettingsMenuQuitMessage();
+    TestQuickSettingsMenuFocusRestoration();
     TestCandidateUI();
     TestLangBarButton();
     TestSettingsDialogControls();
