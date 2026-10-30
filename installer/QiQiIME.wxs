@@ -9,7 +9,8 @@
            Codepage="65001">
 
     <SummaryInformation Description="!(loc.SummaryDescription)"
-                        Manufacturer="cloudfyy (https://github.com/cloudfyy/qiqiime)" />
+                        Manufacturer="cloudfyy (https://github.com/cloudfyy/qiqiime)"
+                        Codepage="$(var.SummaryCodepage)" />
 
     <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeErrorMessage)" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />

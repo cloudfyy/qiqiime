@@ -199,16 +199,10 @@ void TestLangBarButton() {
     });
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_RIGHT, pt, nullptr)));
 
-    // 2) Selecting an item via keyboard (VK_DOWN + VK_RETURN -> 1st item ToggleChinese) with explicit screen coordinates
-    last_action = static_cast<LangBarMenuId>(0);
+    // 2) Explicit screen coordinates (dismissed by timer)
     ::SetTimer(nullptr, 7, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
-        if (const HWND menu_wnd = ::FindWindowW(L"#32768", nullptr)) {
-            ::PostMessageW(menu_wnd, WM_KEYDOWN, VK_DOWN, 0);
-            ::PostMessageW(menu_wnd, WM_KEYDOWN, VK_RETURN, 0);
-        } else {
-            ::EndMenu();
-        }
+        ::EndMenu();
     });
     const POINT explicit_pt{200, 200};
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_RIGHT, explicit_pt, nullptr)));

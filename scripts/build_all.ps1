@@ -83,13 +83,13 @@ if ($Package) {
         $global:LASTEXITCODE = 0
 
         foreach ($loc in @(
-            @{ Culture = "zh-CN"; Lcid = "2052";Wxl = Join-Path $QiQiRepoRoot "installer\zh-CN.wxl" },
-            @{ Culture = "en-US"; Lcid = "1033";Wxl = Join-Path $QiQiRepoRoot "installer\en-US.wxl" }
+            @{ Culture = "zh-CN"; Lcid = "2052"; SummaryCp = "936";  Wxl = Join-Path $QiQiRepoRoot "installer\zh-CN.wxl" },
+            @{ Culture = "en-US"; Lcid = "1033"; SummaryCp = "1252"; Wxl = Join-Path $QiQiRepoRoot "installer\en-US.wxl" }
         )) {
             $msiPath = Join-Path $distRoot "$pkgName-$($loc.Culture).msi"
             if (Test-Path $msiPath) { Remove-Item -Force $msiPath }
             & $wixExe build $wxsPath -loc $loc.Wxl -culture $loc.Culture -arch x64 `
-                -d "ProductVersion=$version" -d "ProductLcid=$($loc.Lcid)" -d "StageDir=$pkgDir" -o $msiPath
+                -d "ProductVersion=$version" -d "ProductLcid=$($loc.Lcid)" -d "SummaryCodepage=$($loc.SummaryCp)" -d "StageDir=$pkgDir" -o $msiPath
             if ($LASTEXITCODE -ne 0) {
                 throw "WiX MSI build ($($loc.Culture)) failed with exit code $LASTEXITCODE"
             }
