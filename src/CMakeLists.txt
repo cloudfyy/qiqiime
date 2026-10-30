@@ -17,6 +17,7 @@ set(QIQI_ENGINE_SOURCES
     common/config.h
     common/file_util.cpp
     common/file_util.h
+    common/d2d_util.h
     common/logger.cpp
     common/logger.h
     common/scoped_handle.h

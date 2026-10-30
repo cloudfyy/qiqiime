@@ -49,6 +49,9 @@ public:
         return &handle_;
     }
 
+    // Pointer-like access when HandleType is an interface/struct pointer (e.g. ScopedD2DObject<T>).
+    HandleType operator->() const noexcept { return handle_; }
+
     bool IsValid() const noexcept { return Traits::IsValid(handle_); }
     explicit operator bool() const noexcept { return IsValid(); }
 

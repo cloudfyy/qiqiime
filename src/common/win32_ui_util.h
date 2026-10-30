@@ -1,8 +1,5 @@
 #pragma once
 #include <windows.h>
-#include <d2d1.h>
-#include <dwrite.h>
-#include <wrl/client.h>
 #include <gsl/gsl>
 #include <algorithm>
 #include <array>
@@ -14,42 +11,6 @@
 #include "common/scoped_handle.h"
 
 namespace qiqi {
-
-// Convert a Win32 COLORREF (0x00bbggrr) or RGB components to a D2D1_COLOR_F.
-constexpr D2D1_COLOR_F ColorRefToD2DColor(COLORREF c, float alpha = 1.0f) noexcept {
-    return D2D1::ColorF(
-        static_cast<float>(GetRValue(c)) / 255.0f,
-        static_cast<float>(GetGValue(c)) / 255.0f,
-        static_cast<float>(GetBValue(c)) / 255.0f,
-        alpha);
-}
-
-// Create a single-threaded ID2D1Factory, shared IDWriteFactory, and B8G8R8A8_UNORM ID2D1DCRenderTarget.
-inline bool CreateD2DDcTargetAndDWrite(
-    Microsoft::WRL::ComPtr<ID2D1Factory>& out_d2d_factory,
-    Microsoft::WRL::ComPtr<IDWriteFactory>& out_dwrite_factory,
-    Microsoft::WRL::ComPtr<ID2D1DCRenderTarget>& out_dc_target) noexcept {
-    std::ignore = ::D2D1CreateFactory(
-        D2D1_FACTORY_TYPE_SINGLE_THREADED,
-        __uuidof(ID2D1Factory),
-        nullptr,
-        reinterpret_cast<void**>(out_d2d_factory.ReleaseAndGetAddressOf()));
-
-    std::ignore = ::DWriteCreateFactory(
-        DWRITE_FACTORY_TYPE_SHARED,
-        __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(out_dwrite_factory.ReleaseAndGetAddressOf()));
-
-    if (out_d2d_factory) {
-        const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_DEFAULT,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
-            96.0f,
-            96.0f);
-        std::ignore = out_d2d_factory->CreateDCRenderTarget(&props, &out_dc_target);
-    }
-    return out_d2d_factory != nullptr && out_dwrite_factory != nullptr && out_dc_target != nullptr;
-}
 
 struct WindowDcGuardTraits {
     using ContextType  = HWND;

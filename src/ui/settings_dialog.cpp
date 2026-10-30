@@ -1,4 +1,5 @@
 #include "ui/settings_dialog.h"
+#include "common/d2d_util.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
@@ -8,11 +9,8 @@
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
-#include <d2d1.h>
-#include <dwrite.h>
 #include <gsl/gsl>
 #include <shellapi.h>
-#include <wrl/client.h>
 #include <algorithm>
 #include <array>
 #include <memory>
@@ -48,10 +46,6 @@ constexpr int kIdLblPrivacyNotice = 121;
 constexpr int kIdBtnOpenGitHub = 201;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
-
-constexpr D2D1_COLOR_F MakeD2DColor(uint8_t r, uint8_t g, uint8_t b, float a = 1.0f) noexcept {
-    return ColorRefToD2DColor(RGB(r, g, b), a);
-}
 
 constexpr std::array<const wchar_t*, 9> kPageSizeLabels = {
     L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9"
@@ -122,12 +116,12 @@ struct DialogContext {
     ScopedGdiHandle<HFONT> bold_font;
     ScopedGdiHandle<HBRUSH> surface_brush;
     ScopedIcon icon;
-    ComPtr<ID2D1Factory> d2d_factory;
-    ComPtr<IDWriteFactory> dwrite_factory;
-    ComPtr<ID2D1DCRenderTarget> d2d_target;
-    ComPtr<IDWriteTextFormat> fmt_title;
-    ComPtr<IDWriteTextFormat> fmt_body;
-    ComPtr<IDWriteTextFormat> fmt_caption;
+    ScopedD2DFactory d2d_factory;
+    ScopedDWriteFactory dwrite_factory;
+    ScopedD2DDcTarget d2d_target;
+    ScopedDWriteTextFormat fmt_title;
+    ScopedDWriteTextFormat fmt_body;
+    ScopedDWriteTextFormat fmt_caption;
     std::array<RECT, kFluentRows.size()> row_rects{};
     std::array<RECT, 3> footer_btn_rects{};
     std::array<int, 3> footer_btn_ids{{kIdBtnAbout, kIdBtnOk, kIdBtnCancel}};
@@ -142,13 +136,13 @@ void InitDialogD2D(DialogContext& ctx, UINT dpi) noexcept {
     if (ctx.dwrite_factory) {
         std::ignore = ctx.dwrite_factory->CreateTextFormat(
             L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, S(16), L"zh-CN", &ctx.fmt_title);
+            DWRITE_FONT_STRETCH_NORMAL, S(16), L"zh-CN", ctx.fmt_title.Put());
         std::ignore = ctx.dwrite_factory->CreateTextFormat(
             L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, S(14), L"zh-CN", &ctx.fmt_body);
+            DWRITE_FONT_STRETCH_NORMAL, S(14), L"zh-CN", ctx.fmt_body.Put());
         std::ignore = ctx.dwrite_factory->CreateTextFormat(
             L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, S(12), L"zh-CN", &ctx.fmt_caption);
+            DWRITE_FONT_STRETCH_NORMAL, S(12), L"zh-CN", ctx.fmt_caption.Put());
         if (ctx.fmt_body) {
             ctx.fmt_body->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             ctx.fmt_body->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
@@ -162,28 +156,22 @@ void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const 
     }
     const bool is_dark = IsSystemDarkTheme();
     const auto S = [d = ctx.dpi](int px) noexcept { return static_cast<float>(ScalePxByDpi(px, d)); };
-    const UiLanguage lang = ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
-    const auto& str = GetUiStrings(lang);
 
-    if (FAILED(ctx.d2d_target->BindDC(hdc, &client_rc))) {
+    const ScopedD2DDcDraw draw_guard(ctx.d2d_target.Get(), hdc, client_rc);
+    if (!draw_guard) {
         return;
     }
 
-    ctx.d2d_target->BeginDraw();
     ctx.d2d_target->Clear(is_dark ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
 
-    ComPtr<ID2D1SolidColorBrush> card_brush;
-    ComPtr<ID2D1SolidColorBrush> border_brush;
-    ComPtr<ID2D1SolidColorBrush> accent_brush;
-    ComPtr<ID2D1SolidColorBrush> text_brush;
-    ctx.d2d_target->CreateSolidColorBrush(
-        is_dark ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255), &card_brush);
-    ctx.d2d_target->CreateSolidColorBrush(
-        is_dark ? MakeD2DColor(64, 68, 78) : MakeD2DColor(222, 227, 236), &border_brush);
-    ctx.d2d_target->CreateSolidColorBrush(
-        is_dark ? MakeD2DColor(76, 160, 255) : MakeD2DColor(0, 103, 192), &accent_brush);
-    ctx.d2d_target->CreateSolidColorBrush(
-        is_dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40), &text_brush);
+    const auto card_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255));
+    const auto border_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(64, 68, 78) : MakeD2DColor(222, 227, 236));
+    const auto accent_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(76, 160, 255) : MakeD2DColor(0, 103, 192));
+    const auto text_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40));
 
     const float left_pad = S(12);
     const float right_edge = static_cast<float>(client_rc.right) - S(12);
@@ -237,9 +225,6 @@ void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const 
             ctx.d2d_target->FillEllipse(knob, text_brush.Get());
         }
     }
-
-    std::ignore = ctx.d2d_target->EndDraw();
-    (void)str;
 }
 
 struct AboutDialogContext {

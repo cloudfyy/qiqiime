@@ -1,7 +1,5 @@
 #pragma once
 #include <windows.h>
-#include <d2d1.h>
-#include <dwrite.h>
 #include <msctf.h>
 #include <wrl/client.h>
 #include <atomic>
@@ -11,6 +9,7 @@
 
 #include "common/com_object.h"
 #include "common/config.h"
+#include "common/d2d_util.h"
 #include "common/monitor_dpi.h"
 #include "common/scoped_handle.h"
 #include "common/win32_ui_util.h"
@@ -77,7 +76,7 @@ public:
 
     DWORD UiElementId() const noexcept { return ui_element_id_; }
     void SetUiElementId(DWORD id) noexcept { ui_element_id_ = id; }
-    bool IsDirectWriteActive() const noexcept { return dwrite_text_format_ != nullptr && d2d_dc_target_ != nullptr; }
+    bool IsDirectWriteActive() const noexcept { return dwrite_text_format_.IsValid() && d2d_dc_target_.IsValid(); }
     void DisableDirect2DForTest() { d2d_dc_target_.Reset(); }
 
 private:
@@ -96,10 +95,10 @@ private:
 
     HINSTANCE instance_ = nullptr;
     ScopedGdiHandle<HFONT> font_;
-    ComPtr<ID2D1Factory> d2d_factory_;
-    mutable ComPtr<ID2D1DCRenderTarget> d2d_dc_target_;
-    ComPtr<IDWriteFactory> dwrite_factory_;
-    ComPtr<IDWriteTextFormat> dwrite_text_format_;
+    ScopedD2DFactory d2d_factory_;
+    mutable ScopedD2DDcTarget d2d_dc_target_;
+    ScopedDWriteFactory dwrite_factory_;
+    ScopedDWriteTextFormat dwrite_text_format_;
     UINT dpi_ = 96;
     int popup_width_ = kPopupWidth;
     int popup_height_ = kPopupHeight;
