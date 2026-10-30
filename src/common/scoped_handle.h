@@ -369,6 +369,18 @@ constexpr VARIANT MakeInt4Variant(LONG val) noexcept {
     return var;
 }
 
+// Create a Microsoft YaHei UI font scaled to the specified pixel height and weight.
+inline ScopedGdiHandle<HFONT> CreateUiFont(
+    int height_px, LONG weight = FW_NORMAL, BYTE quality = CLEARTYPE_QUALITY) noexcept {
+    LOGFONTW lf{};
+    lf.lfHeight = -std::max(1, height_px);
+    lf.lfWeight = weight;
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfQuality = quality;
+    wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
+    return ScopedGdiHandle<HFONT>(::CreateFontIndirectW(&lf));
+}
+
 // Create a 32-bit ARGB transparent HICON containing a single centered glyph (no solid background fill).
 inline ScopedIcon CreateTransparentGlyphIcon(wchar_t ch, int size_px, COLORREF text_color) noexcept {
     const int sz = std::max(16, size_px);
@@ -402,13 +414,7 @@ inline ScopedIcon CreateTransparentGlyphIcon(wchar_t ch, int size_px, COLORREF t
 
     {
         const ScopedSelectObject sel_bmp(mem_dc.Get(), color_bmp.Get());
-        LOGFONTW lf{};
-        lf.lfHeight = -(sz - 2);
-        lf.lfWeight = FW_SEMIBOLD;
-        lf.lfCharSet = DEFAULT_CHARSET;
-        lf.lfQuality = ANTIALIASED_QUALITY;
-        wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
-        const ScopedGdiHandle<HFONT> font(::CreateFontIndirectW(&lf));
+        const ScopedGdiHandle<HFONT> font = CreateUiFont(sz - 2, FW_SEMIBOLD, ANTIALIASED_QUALITY);
         const ScopedSelectObject sel_font(mem_dc.Get(), font.Get());
 
         RECT rc{0, 0, sz, sz};

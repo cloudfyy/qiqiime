@@ -64,13 +64,7 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
     dpi_ = effective_dpi;
     popup_height_ = ScaleByDpi(kPopupHeight);
 
-    LOGFONTW lf{};
-    lf.lfHeight = -ScaleByDpi(18);
-    lf.lfWeight = FW_NORMAL;
-    lf.lfCharSet = DEFAULT_CHARSET;
-    lf.lfQuality = CLEARTYPE_QUALITY;
-    wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
-    font_.Reset(::CreateFontIndirectW(&lf));
+    font_ = CreateUiFont(ScaleByDpi(18), FW_NORMAL);
 
     if (dwrite_factory_) {
         if (SUCCEEDED(dwrite_factory_->CreateTextFormat(

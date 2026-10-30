@@ -230,4 +230,52 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
     return true;
 }
 
+bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<const uint8_t> bytes) {
+    try {
+        std::error_code ec;
+        if (std::filesystem::is_directory(target_path, ec)) {
+            return false;
+        }
+        if (target_path.has_parent_path()) {
+            std::filesystem::create_directories(target_path.parent_path(), ec);
+        }
+
+        const std::filesystem::path tmp_path =
+            target_path.wstring() + L".tmp." + std::to_wstring(::GetCurrentProcessId());
+        bool moved_ok = false;
+        const auto cleanup_tmp = gsl::finally([&tmp_path, &moved_ok]() noexcept {
+            if (!moved_ok) {
+                std::error_code rm_ec;
+                std::filesystem::remove(tmp_path, rm_ec);
+            }
+        });
+
+        {
+            const ScopedFileHandle file(::CreateFileW(
+                tmp_path.c_str(),
+                GENERIC_WRITE,
+                0,
+                nullptr,
+                CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+                nullptr));
+            if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+                return false;
+            }
+
+            DWORD written = 0;
+            const DWORD to_write = gsl::narrow_cast<DWORD>(bytes.size());
+            if (to_write > 0 &&
+                (!::WriteFile(file.Get(), bytes.data(), to_write, &written, nullptr) || written != to_write)) {
+                return false;
+            }
+        }
+
+        moved_ok = (::MoveFileExW(tmp_path.c_str(), target_path.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE);
+        return moved_ok;
+    } catch (...) {
+        return false;
+    }
+}
+
 } // namespace qiqi::log

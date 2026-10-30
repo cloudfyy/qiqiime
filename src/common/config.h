@@ -49,6 +49,16 @@ struct QiQiConfig {
     bool log_keystrokes = false;
 };
 
+// Return canonical string name of PrimaryDict ("jidian" | "haifeng" | "builtin").
+constexpr std::string_view PrimaryDictToString(PrimaryDict dict) noexcept {
+    switch (dict) {
+        case PrimaryDict::Haifeng:     return "haifeng";
+        case PrimaryDict::BuiltinOnly: return "builtin";
+        case PrimaryDict::Jidian:
+        default:                       return "jidian";
+    }
+}
+
 // Return default user configuration path: %LOCALAPPDATA%\QiQiIME\config.ini
 std::filesystem::path GetDefaultUserConfigPath();
 

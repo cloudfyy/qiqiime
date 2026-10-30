@@ -298,6 +298,21 @@ LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     }
 }
 
+bool RunModalDialogLoop(HWND hwnd, const bool& done_flag) noexcept {
+    if (!hwnd) {
+        return false;
+    }
+    ::ShowWindow(hwnd, SW_SHOWNORMAL);
+    ::UpdateWindow(hwnd);
+
+    MSG msg{};
+    while (!done_flag && ::GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        ::TranslateMessage(&msg);
+        ::DispatchMessageW(&msg);
+    }
+    return true;
+}
+
 } // namespace
 
 void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept {
@@ -375,17 +390,8 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     const MonitorMetrics mon = QueryActiveMonitor(parent);
     const auto S = [dpi = mon.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
 
-    LOGFONTW lf{};
-    lf.lfHeight = -S(15);
-    lf.lfWeight = FW_NORMAL;
-    lf.lfCharSet = DEFAULT_CHARSET;
-    wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
-    ctx->font.Reset(::CreateFontIndirectW(&lf));
-
-    LOGFONTW bold_lf = lf;
-    bold_lf.lfHeight = -S(13);
-    bold_lf.lfWeight = FW_SEMIBOLD;
-    ctx->bold_font.Reset(::CreateFontIndirectW(&bold_lf));
+    ctx->font = CreateUiFont(S(15), FW_NORMAL, DEFAULT_QUALITY);
+    ctx->bold_font = CreateUiFont(S(13), FW_SEMIBOLD, DEFAULT_QUALITY);
     ctx->icon = CreateBrandIcon(S(16));
 
     const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
@@ -468,21 +474,12 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
 
 bool ShowSettingsDialog(HINSTANCE instance, HWND parent, QiQiConfig& in_out_config) noexcept {
     const ScopedWindow hwnd(CreateSettingsWindow(instance, parent, &in_out_config));
-    if (!hwnd) {
+    const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd.Get(), GWLP_USERDATA));
+    if (!hwnd || !ctx) {
         return false;
     }
-
-    const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd.Get(), GWLP_USERDATA));
-    ::ShowWindow(hwnd.Get(), SW_SHOWNORMAL);
-    ::UpdateWindow(hwnd.Get());
-
-    MSG msg{};
-    while (ctx && !ctx->done && ::GetMessageW(&msg, nullptr, 0, 0) > 0) {
-        ::TranslateMessage(&msg);
-        ::DispatchMessageW(&msg);
-    }
-
-    return ctx ? ctx->accepted : false;
+    RunModalDialogLoop(hwnd.Get(), ctx->done);
+    return ctx->accepted;
 }
 
 ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language) noexcept {
@@ -508,19 +505,8 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     ctx->dpi = mon.dpi;
     const auto S = [dpi = mon.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
 
-    LOGFONTW body_lf{};
-    body_lf.lfHeight = -S(14);
-    body_lf.lfWeight = FW_NORMAL;
-    body_lf.lfCharSet = DEFAULT_CHARSET;
-    body_lf.lfQuality = CLEARTYPE_QUALITY;
-    wcscpy_s(body_lf.lfFaceName, L"Microsoft YaHei UI");
-    ctx->body_font.Reset(::CreateFontIndirectW(&body_lf));
-
-    LOGFONTW title_lf = body_lf;
-    title_lf.lfHeight = -S(19);
-    title_lf.lfWeight = FW_BOLD;
-    ctx->title_font.Reset(::CreateFontIndirectW(&title_lf));
-
+    ctx->body_font = CreateUiFont(S(14), FW_NORMAL);
+    ctx->title_font = CreateUiFont(S(19), FW_BOLD);
     ctx->icon = CreateBrandIcon(S(56));
 
     const auto& str = GetUiStrings(ui_language);
@@ -558,20 +544,8 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
 
 bool ShowAboutDialog(HINSTANCE instance, HWND parent, UiLanguage ui_language) noexcept {
     const ScopedWindow hwnd(CreateAboutWindow(instance, parent, ui_language));
-    if (!hwnd) {
-        return false;
-    }
-
     const auto* ctx = reinterpret_cast<const AboutDialogContext*>(::GetWindowLongPtrW(hwnd.Get(), GWLP_USERDATA));
-    ::ShowWindow(hwnd.Get(), SW_SHOWNORMAL);
-    ::UpdateWindow(hwnd.Get());
-
-    MSG msg{};
-    while (ctx && !ctx->done && ::GetMessageW(&msg, nullptr, 0, 0) > 0) {
-        ::TranslateMessage(&msg);
-        ::DispatchMessageW(&msg);
-    }
-    return true;
+    return (hwnd && ctx) ? RunModalDialogLoop(hwnd.Get(), ctx->done) : false;
 }
 
 } // namespace qiqi

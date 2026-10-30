@@ -264,18 +264,8 @@ void StatusBarUI::UpdateDpiAndFonts(UINT new_dpi) noexcept {
     }
     dpi_ = effective_dpi;
 
-    LOGFONTW lf{};
-    lf.lfHeight = -ScaleByDpi(18);
-    lf.lfWeight = FW_MEDIUM;
-    lf.lfCharSet = DEFAULT_CHARSET;
-    lf.lfQuality = CLEARTYPE_QUALITY;
-    wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
-    font_.Reset(::CreateFontIndirectW(&lf));
-
-    lf.lfHeight = -ScaleByDpi(13);
-    lf.lfWeight = FW_NORMAL;
-    wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
-    tooltip_font_.Reset(::CreateFontIndirectW(&lf));
+    font_ = CreateUiFont(ScaleByDpi(18), FW_MEDIUM);
+    tooltip_font_ = CreateUiFont(ScaleByDpi(13), FW_NORMAL);
 
     RebuildIconBitmaps(GetCurrentThemePalette().text_primary);
 }

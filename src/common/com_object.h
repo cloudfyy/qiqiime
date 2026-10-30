@@ -17,6 +17,23 @@ Microsoft::WRL::ComPtr<T> MakeComObject(Args&&... args) {
     return ptr;
 }
 
+// Allocate a reference-counted COM object via std::nothrow + ComPtr RAII and detach it into a COM [out] parameter.
+template <typename T, typename OutInterface, typename... Args>
+HRESULT CreateComObjectToOut(OutInterface** ppOut, Args&&... args) noexcept {
+    if (!ppOut) {
+        return E_INVALIDARG;
+    }
+    *ppOut = nullptr;
+    Microsoft::WRL::ComPtr<T> obj;
+#pragma warning(suppress : 26409)
+    obj.Attach(new (std::nothrow) T(std::forward<Args>(args)...));
+    if (!obj) {
+        return E_OUTOFMEMORY;
+    }
+    *ppOut = static_cast<OutInterface*>(obj.Detach());
+    return S_OK;
+}
+
 // CRTP base template for in-proc COM objects:
 // Provides thread-safe reference counting (AddRef/Release), automatic g_com_object_count tracking
 // for DllCanUnloadNow, and variadic fold-expression QueryInterface across all supported COM interfaces.

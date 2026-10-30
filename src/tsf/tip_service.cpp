@@ -67,15 +67,6 @@ constexpr const char* KeyActionTypeToString(KeyActionType action) noexcept {
     }
 }
 
-constexpr const char* PrimaryDictToDiagName(PrimaryDict dict) noexcept {
-    switch (dict) {
-        case PrimaryDict::Haifeng:     return "haifeng";
-        case PrimaryDict::BuiltinOnly: return "builtin";
-        case PrimaryDict::Jidian:
-        default:                       return "jidian";
-    }
-}
-
 std::string FormatVirtualKey(uint32_t vk) {
     if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) {
         return std::format("'{}'(0x{:02X})", static_cast<char>(vk), vk);
@@ -146,7 +137,7 @@ void LogKeyTraceIfEnabled(
         result.current_page + (result.total_pages > 0 ? 1 : 0),
         result.total_pages,
         cand_preview,
-        PrimaryDictToDiagName(primary_dict),
+        PrimaryDictToString(primary_dict),
         mapped_dicts);
 }
 
@@ -440,43 +431,30 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
         case LangBarMenuId::DictJidian:
             if (config_.primary_dict != PrimaryDict::Jidian) {
                 config_.primary_dict = PrimaryDict::Jidian;
-                SaveConfigFile(GetDefaultUserConfigPath(), config_);
-                LoadExternalDictionaryNextToDll();
-                SyncTsfCompartments();
-                NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
+                PersistAndSyncQuickConfigChange(true);
             }
             break;
         case LangBarMenuId::DictHaifeng:
             if (config_.primary_dict != PrimaryDict::Haifeng) {
                 config_.primary_dict = PrimaryDict::Haifeng;
-                SaveConfigFile(GetDefaultUserConfigPath(), config_);
-                LoadExternalDictionaryNextToDll();
-                SyncTsfCompartments();
-                NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
+                PersistAndSyncQuickConfigChange(true);
             }
             break;
         case LangBarMenuId::ToggleExtraDict:
             if (config_.primary_dict == PrimaryDict::Jidian) {
                 config_.enable_jidian_extra = !config_.enable_jidian_extra;
-                SaveConfigFile(GetDefaultUserConfigPath(), config_);
-                LoadExternalDictionaryNextToDll();
-                SyncTsfCompartments();
-                NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
+                PersistAndSyncQuickConfigChange(true);
             }
             break;
         case LangBarMenuId::ToggleStatusBar:
             config_.show_status_bar = !config_.show_status_bar;
-            SaveConfigFile(GetDefaultUserConfigPath(), config_);
-            SyncTsfCompartments();
-            NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
+            PersistAndSyncQuickConfigChange(false);
             break;
         case LangBarMenuId::ToggleUiLanguage:
             config_.ui_language = (ResolveUiLanguage(config_.ui_language) == UiLanguage::EnUs)
                 ? UiLanguage::ZhCn
                 : UiLanguage::EnUs;
-            SaveConfigFile(GetDefaultUserConfigPath(), config_);
-            SyncTsfCompartments();
-            NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
+            PersistAndSyncQuickConfigChange(false);
             break;
         case LangBarMenuId::OpenSettings:
             log::Flush();
@@ -505,8 +483,8 @@ STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* /*pdim*/) noex
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* /*pdimPrevFocus*/) {
-    if (!pdimFocus) {
+void QiQiTextService::HandleFocusChanged(bool has_focus) {
+    if (!has_focus) {
         ResetCompositionAndUI();
         if (status_bar_) {
             status_bar_->Show(false);
@@ -520,6 +498,10 @@ STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentM
             status_bar_->Show(config_.show_status_bar);
         }
     }
+}
+
+STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* /*pdimPrevFocus*/) {
+    HandleFocusChanged(pdimFocus != nullptr);
     return S_OK;
 }
 
@@ -533,20 +515,7 @@ STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* /*pic*/) noexcept {
 
 // ITfKeyEventSink
 STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
-    if (!fForeground) {
-        ResetCompositionAndUI();
-        if (status_bar_) {
-            status_bar_->Show(false);
-        }
-        if (config_.log_keystrokes) {
-            log::Flush();
-        }
-    } else {
-        ReloadConfigIfModified();
-        if (status_bar_) {
-            status_bar_->Show(config_.show_status_bar);
-        }
-    }
+    HandleFocusChanged(fForeground != FALSE);
     return S_OK;
 }
 
@@ -753,15 +722,21 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
     engine_.SetEnableKeySound(config_.enable_key_sound);
 }
 
+void QiQiTextService::PersistAndSyncQuickConfigChange(bool reload_dicts) {
+    SaveConfigFile(GetDefaultUserConfigPath(), config_);
+    if (reload_dicts) {
+        LoadExternalDictionaryNextToDll();
+    }
+    SyncTsfCompartments();
+    NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
+}
+
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
     QIQI_LOG_INFO("Opening Settings dialog");
     ReloadConfigIfModified();
     if (ShowSettingsDialog(g_dll_instance, hwndParent, config_)) {
-        SaveConfigFile(GetDefaultUserConfigPath(), config_);
         ApplyDynamicEngineSettings();
-        LoadExternalDictionaryNextToDll();
-        SyncTsfCompartments();
-        NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
+        PersistAndSyncQuickConfigChange(true);
         QIQI_LOG_INFO("Settings dialog saved and applied");
     } else {
         QIQI_LOG_DEBUG("Settings dialog cancelled");
@@ -771,11 +746,7 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
 
 // ITfDisplayAttributeProvider
 STDMETHODIMP QiQiTextService::EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** ppEnum) noexcept {
-    if (!ppEnum) {
-        return E_INVALIDARG;
-    }
-    *ppEnum = new (std::nothrow) QiQiEnumDisplayAttributeInfo();
-    return *ppEnum ? S_OK : E_OUTOFMEMORY;
+    return CreateComObjectToOut<QiQiEnumDisplayAttributeInfo>(ppEnum);
 }
 
 STDMETHODIMP QiQiTextService::GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** ppInfo) noexcept {
@@ -786,8 +757,7 @@ STDMETHODIMP QiQiTextService::GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAt
         *ppInfo = nullptr;
         return E_INVALIDARG;
     }
-    *ppInfo = new (std::nothrow) QiQiDisplayAttributeInfo();
-    return *ppInfo ? S_OK : E_OUTOFMEMORY;
+    return CreateComObjectToOut<QiQiDisplayAttributeInfo>(ppInfo);
 }
 
 void QiQiTextService::ResetCompositionAndUI() {
@@ -884,7 +854,7 @@ void QiQiTextService::ReloadConfigIfModified() {
         SyncTsfCompartments();
         QIQI_LOG_INFO("Hot-reloaded modified user configuration from '{}' (dict={}, mapped_dicts={}, log_keystrokes={})",
                       log::WideToUtf8(user_cfg.wstring()),
-                      PrimaryDictToDiagName(config_.primary_dict),
+                      PrimaryDictToString(config_.primary_dict),
                       engine_.MappedDictionaryCount(),
                       config_.log_keystrokes);
     }

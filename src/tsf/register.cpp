@@ -90,18 +90,14 @@ const std::array<GUID, 7> kSupportedCategories = {
 } // namespace
 
 bool IsNative64BitClsidRegistered() noexcept {
-    std::array<wchar_t, 64> guid_buf{};
-    if (::StringFromGUID2(kClsidQiQiTextService, guid_buf.data(), gsl::narrow_cast<int>(guid_buf.size())) <= 0) {
+    try {
+        const auto [clsid_key, inproc_key] = GetClsidRegistryPaths();
+        ScopedRegKey hkey;
+        return ::RegOpenKeyExW(HKEY_CLASSES_ROOT, inproc_key.c_str(), 0,
+                               KEY_READ | KEY_WOW64_64KEY, hkey.Put()) == ERROR_SUCCESS;
+    } catch (...) {
         return false;
     }
-    std::array<wchar_t, 128> inproc_key{};
-    wcscpy_s(inproc_key.data(), inproc_key.size(), L"CLSID\\");
-    wcscat_s(inproc_key.data(), inproc_key.size(), guid_buf.data());
-    wcscat_s(inproc_key.data(), inproc_key.size(), L"\\InProcServer32");
-
-    ScopedRegKey hkey;
-    return ::RegOpenKeyExW(HKEY_CLASSES_ROOT, inproc_key.data(), 0,
-                           KEY_READ | KEY_WOW64_64KEY, hkey.Put()) == ERROR_SUCCESS;
 }
 
 bool IsRunningUnderWow64() noexcept {

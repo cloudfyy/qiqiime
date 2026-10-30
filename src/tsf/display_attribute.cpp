@@ -1,10 +1,10 @@
 #include "tsf/display_attribute.h"
+#include "common/com_object.h"
 #include "common/guids.h"
 #include "common/scoped_handle.h"
 
 #include <oleauto.h>
 #include <wrl/client.h>
-#include <new>
 
 namespace qiqi {
 
@@ -63,11 +63,7 @@ QiQiEnumDisplayAttributeInfo::QiQiEnumDisplayAttributeInfo(ULONG index) noexcept
     : index_(index) {}
 
 STDMETHODIMP QiQiEnumDisplayAttributeInfo::Clone(IEnumTfDisplayAttributeInfo** ppEnum) noexcept {
-    if (!ppEnum) {
-        return E_INVALIDARG;
-    }
-    *ppEnum = new (std::nothrow) QiQiEnumDisplayAttributeInfo(index_);
-    return *ppEnum ? S_OK : E_OUTOFMEMORY;
+    return CreateComObjectToOut<QiQiEnumDisplayAttributeInfo>(ppEnum, index_);
 }
 
 STDMETHODIMP QiQiEnumDisplayAttributeInfo::Next(
@@ -84,13 +80,10 @@ STDMETHODIMP QiQiEnumDisplayAttributeInfo::Next(
         if (pcFetched) *pcFetched = 0;
         return S_FALSE;
     }
-    ComPtr<ITfDisplayAttributeInfo> info;
-    info.Attach(new (std::nothrow) QiQiDisplayAttributeInfo());
-    if (!info) {
+    if (FAILED(CreateComObjectToOut<QiQiDisplayAttributeInfo>(rgInfo))) {
         if (pcFetched) *pcFetched = 0;
         return E_OUTOFMEMORY;
     }
-    *rgInfo = info.Detach();
     ++index_;
     if (pcFetched) {
         *pcFetched = 1;

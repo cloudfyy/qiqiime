@@ -87,6 +87,8 @@ private:
     void InitLangBarItem();
     void UninitLangBarItem();
     void HandleLangBarMenuAction(LangBarMenuId action_id);
+    void HandleFocusChanged(bool has_focus);
+    void PersistAndSyncQuickConfigChange(bool reload_dicts);
     void LoadExternalDictionaryNextToDll();
 
     void ResetCompositionAndUI();

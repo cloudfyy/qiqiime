@@ -365,35 +365,7 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
 
     // Write binary cache to disk atomically via an exclusive-write temporary file + MoveFileExW
     // so concurrent processes never observe a partially written .qdict file.
-    {
-        const std::filesystem::path tmp_cache_path =
-            cache_bin_path.wstring() + L".tmp." + std::to_wstring(::GetCurrentProcessId());
-        bool wrote_ok = false;
-        {
-            const ScopedFileHandle out_file(::CreateFileW(
-                tmp_cache_path.c_str(),
-                GENERIC_WRITE,
-                0,
-                nullptr,
-                CREATE_ALWAYS,
-                FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
-                nullptr));
-            if (out_file.IsValid() && ::GetFileType(out_file.Get()) == FILE_TYPE_DISK) {
-                DWORD written = 0;
-                const DWORD to_write = gsl::narrow_cast<DWORD>(bin_buffer.size());
-                wrote_ok = (to_write > 0) &&
-                    (::WriteFile(out_file.Get(), bin_buffer.data(), to_write, &written, nullptr) != FALSE) &&
-                    (written == to_write);
-            }
-        }
-        if (wrote_ok) {
-            if (!::MoveFileExW(tmp_cache_path.c_str(), cache_bin_path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-                std::filesystem::remove(tmp_cache_path, ec);
-            }
-        } else {
-            std::filesystem::remove(tmp_cache_path, ec);
-        }
-    }
+    std::ignore = log::WriteFileAtomically(cache_bin_path, bin_buffer);
 
     if (!dict->OpenMappedFile(cache_bin_path, src_size, src_mtime)) {
         // Fallback to flat in-memory buffer if file mapping is unavailable in sandbox

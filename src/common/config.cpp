@@ -14,15 +14,6 @@ namespace qiqi {
 
 namespace {
 
-std::string_view PrimaryDictToString(PrimaryDict dict) noexcept {
-    switch (dict) {
-        case PrimaryDict::Haifeng:     return "haifeng";
-        case PrimaryDict::BuiltinOnly: return "builtin";
-        case PrimaryDict::Jidian:
-        default:                       return "jidian";
-    }
-}
-
 std::string_view LogLevelToString(spdlog::level::level_enum lvl) noexcept {
     switch (lvl) {
         case spdlog::level::trace:    return "trace";
@@ -353,52 +344,12 @@ bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_conf
 
 bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& config) {
     try {
-        std::error_code ec;
-        if (std::filesystem::is_directory(file_path, ec)) {
-            QIQI_LOG_WARN("SaveConfigFile: target path '{}' is a directory", log::WideToUtf8(file_path.wstring()));
-            return false;
-        }
-        if (file_path.has_parent_path()) {
-            std::filesystem::create_directories(file_path.parent_path(), ec);
-        }
-
         const std::string text = SerializeConfigToUtf8(config);
-        const std::filesystem::path tmp_path =
-            file_path.wstring() + L".tmp." + std::to_wstring(::GetCurrentProcessId());
-
-        {
-            // Exclusive write access (dwShareMode = 0), write-only permission (GENERIC_WRITE),
-            // and anonymous SQOS to prevent named-pipe impersonation.
-            const ScopedFileHandle file(::CreateFileW(
-                tmp_path.c_str(),
-                GENERIC_WRITE,
-                0,
-                nullptr,
-                CREATE_ALWAYS,
-                FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
-                nullptr));
-            if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
-                QIQI_LOG_WARN("SaveConfigFile: failed to create temp file '{}' (error={})",
-                              log::WideToUtf8(tmp_path.wstring()), ::GetLastError());
-                return false;
-            }
-
-            DWORD written = 0;
-            const DWORD to_write = gsl::narrow_cast<DWORD>(text.size());
-            if (to_write > 0 &&
-                (!::WriteFile(file.Get(), text.data(), to_write, &written, nullptr) || written != to_write)) {
-                QIQI_LOG_WARN("SaveConfigFile: failed to write temp file '{}' (error={})",
-                              log::WideToUtf8(tmp_path.wstring()), ::GetLastError());
-                return false;
-            }
-        }
-
-        if (!::MoveFileExW(tmp_path.c_str(), file_path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-            QIQI_LOG_WARN("SaveConfigFile: MoveFileExW '{}' -> '{}' failed (error={})",
-                          log::WideToUtf8(tmp_path.wstring()),
-                          log::WideToUtf8(file_path.wstring()),
-                          ::GetLastError());
-            std::filesystem::remove(tmp_path, ec);
+        const std::span<const uint8_t> bytes(
+            reinterpret_cast<const uint8_t*>(text.data()), text.size());
+        if (!log::WriteFileAtomically(file_path, bytes)) {
+            QIQI_LOG_WARN("SaveConfigFile: failed to write configuration atomically to '{}'",
+                          log::WideToUtf8(file_path.wstring()));
             return false;
         }
         QIQI_LOG_INFO("Saved configuration to '{}'", log::WideToUtf8(file_path.wstring()));
