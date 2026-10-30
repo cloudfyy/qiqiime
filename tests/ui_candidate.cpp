@@ -1280,11 +1280,20 @@ void TestStatusBarUI() {
 
     ::SendMessageW(bar.WindowHandle(), WM_MOUSEACTIVATE, 0, 0);
 
-    // 2. Test leftmost vertical pill gripper [0..22) hit-test (HTCAPTION), cursor, and window moving (WM_MOVE)
+    // 2. Test leftmost vertical pill gripper [0..22) and blank margins/gaps hit-test (HTCAPTION), cursor, and window moving (WM_MOVE)
     POINT grip_screen{10, 18};
     ::ClientToScreen(bar.WindowHandle(), &grip_screen);
     QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_NCHITTEST, 0, MAKELPARAM(grip_screen.x, grip_screen.y)) == HTCAPTION);
     QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_SETCURSOR, reinterpret_cast<WPARAM>(bar.WindowHandle()), MAKELPARAM(HTCAPTION, WM_MOUSEMOVE)) == TRUE);
+
+    // Top/bottom blank border and inter-button gap also return HTCAPTION for blank-area dragging
+    POINT top_margin_screen{40, 1};
+    ::ClientToScreen(bar.WindowHandle(), &top_margin_screen);
+    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_NCHITTEST, 0, MAKELPARAM(top_margin_screen.x, top_margin_screen.y)) == HTCAPTION);
+
+    POINT gap_screen{58, 18};
+    ::ClientToScreen(bar.WindowHandle(), &gap_screen);
+    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_NCHITTEST, 0, MAKELPARAM(gap_screen.x, gap_screen.y)) == HTCAPTION);
 
     POINT btn_screen{40, 18};
     ::ClientToScreen(bar.WindowHandle(), &btn_screen);
@@ -1326,18 +1335,47 @@ void TestStatusBarUI() {
     QIQI_TEST_CHECK(bar.HoveredZone() == -1 && bar.ActiveTooltipText().empty());
 
     // 4. Test button clicks: [Grip:0..22] [Cell0:22..58] [Cell1:58..94] [Cell2:94..130] [Cell3:130..166]
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 18));
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(300, 18));
+    auto send_left_click = [](HWND hwnd, int x, int y) noexcept {
+        ::SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
+        ::SendMessageW(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(x, y));
+    };
+    send_left_click(bar.WindowHandle(), 10, 18);
+    send_left_click(bar.WindowHandle(), 300, 18);
     QIQI_TEST_CHECK(clicked_action == static_cast<LangBarMenuId>(0));
 
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(35, 18));
+    send_left_click(bar.WindowHandle(), 35, 18);
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleChinese);
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(70, 18));
+    send_left_click(bar.WindowHandle(), 70, 18);
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleFullWidth);
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(105, 18));
+    send_left_click(bar.WindowHandle(), 105, 18);
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::TogglePunctuation);
-    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(145, 18));
+    send_left_click(bar.WindowHandle(), 145, 18);
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::OpenSettings);
+
+    // 4b. Test press-and-drag on a button cell: dragging beyond threshold moves the bar without firing click_action
+    clicked_action = static_cast<LangBarMenuId>(0);
+    const POINT before_drag = bar.Position();
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(40, 18));
+    // Sub-threshold movement (< 4px) does not start dragging
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(42, 18));
+    QIQI_TEST_CHECK(bar.Position().x == before_drag.x && bar.Position().y == before_drag.y);
+    // Movement beyond threshold (>= 4px) drags the window and sets IDC_SIZEALL cursor
+    ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(70, 38));
+    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_SETCURSOR, reinterpret_cast<WPARAM>(bar.WindowHandle()), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE)) == TRUE);
+    QIQI_TEST_CHECK(bar.Position().x != before_drag.x || bar.Position().y != before_drag.y);
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONUP, 0, MAKELPARAM(70, 38));
+    QIQI_TEST_CHECK(clicked_action == static_cast<LangBarMenuId>(0));
+
+    // 4c. Test WM_CAPTURECHANGED and orphan WM_LBUTTONUP (without prior WM_LBUTTONDOWN)
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(40, 18));
+    ::SendMessageW(bar.WindowHandle(), WM_CAPTURECHANGED, 0, 0);
+    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONUP, 0, MAKELPARAM(40, 18));
+    QIQI_TEST_CHECK(clicked_action == static_cast<LangBarMenuId>(0));
+
+    // Also test out-of-bounds WM_NCHITTEST (negative coordinates return HTCLIENT)
+    POINT neg_screen{-10, -10};
+    ::ClientToScreen(bar.WindowHandle(), &neg_screen);
+    QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_NCHITTEST, 0, MAKELPARAM(neg_screen.x, neg_screen.y)) == HTCLIENT);
 
     // 5. Test themed right-click context menu & WM_RBUTTONUP / WM_NCRBUTTONUP / WM_COMMAND / WM_SETTINGCHANGE
     ScopedGdiHandle<HBRUSH> menu_brush;
@@ -1446,6 +1484,7 @@ void TestStatusBarBoundariesAtDifferentDpis() {
                     QIQI_TEST_CHECK(std::wstring(bar.GetTooltipTextForX(x)) == tips[zone]);
                     const size_t previous_clicks = clicked.size();
                     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, 1));
+                    ::SendMessageW(bar.WindowHandle(), WM_LBUTTONUP, 0, MAKELPARAM(x, 1));
                     QIQI_TEST_CHECK(clicked.size() == previous_clicks + (zone == 0 ? 0 : 1));
                     if (zone != 0) {
                         QIQI_TEST_CHECK(clicked.back() == actions[zone - 1]);
@@ -1456,6 +1495,7 @@ void TestStatusBarBoundariesAtDifferentDpis() {
                 QIQI_TEST_CHECK(std::wstring(bar.GetTooltipTextForX(x)).empty());
                 const size_t previous_clicks = clicked.size();
                 ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, 1));
+                ::SendMessageW(bar.WindowHandle(), WM_LBUTTONUP, 0, MAKELPARAM(x, 1));
                 QIQI_TEST_CHECK(clicked.size() == previous_clicks);
             }
         }

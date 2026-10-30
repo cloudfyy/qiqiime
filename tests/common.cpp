@@ -333,6 +333,21 @@ void TestScopedHandleTemplate() {
                     bstr_out.IsValid() &&
                     std::wstring(bstr_out.Get()) == L"奇奇");
 
+    // Test CreateUiFont and log::WriteFileAtomically (including directory error branch)
+    {
+        const ScopedGdiHandle<HFONT> ui_font = CreateUiFont(16, FW_MEDIUM);
+        QIQI_TEST_CHECK(ui_font.IsValid());
+
+        const auto atomic_path = std::filesystem::temp_directory_path() / L"qiqiime_atomic_test.bin";
+        const std::array<uint8_t, 4> payload{1, 2, 3, 4};
+        QIQI_TEST_CHECK(log::WriteFileAtomically(atomic_path, payload));
+        std::string read_back;
+        QIQI_TEST_CHECK(log::ReadFileToUtf8String(atomic_path, read_back) && read_back.size() == 4);
+        std::error_code rm_ec;
+        std::filesystem::remove(atomic_path, rm_ec);
+        QIQI_TEST_CHECK(!log::WriteFileAtomically(std::filesystem::temp_directory_path(), payload));
+    }
+
     // Test ScopedSaveDC (both null HDC and valid memory HDC state restoration)
     {
         const ScopedSaveDC null_save(nullptr);

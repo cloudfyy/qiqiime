@@ -405,11 +405,34 @@ bool StatusBarUI::EnsureTooltipWindow() noexcept {
 
 void StatusBarUI::DestroyBarWindow() noexcept {
     HideTooltip();
+    EndDragTracking(false);
     tooltip_hwnd_.Reset();
     hwnd_.Reset();
     visible_ = false;
     hovered_zone_ = -1;
     tracking_mouse_ = false;
+}
+
+bool StatusBarUI::IsDraggableBlankPoint(POINT client_pt) const noexcept {
+    const int bar_w = CurrentWidth();
+    const int bar_h = CurrentHeight();
+    if (client_pt.x < 0 || client_pt.x >= bar_w || client_pt.y < 0 || client_pt.y >= bar_h) {
+        return false;
+    }
+    const int buttons_offset = ScaleByDpi(kButtonsOffset);
+    const int v_margin = std::max(2, ScaleByDpi(3));
+    if (client_pt.x < buttons_offset || client_pt.y < v_margin || client_pt.y >= bar_h - v_margin) {
+        return true;
+    }
+    const int cell_w = std::max(1, ScaleByDpi(kCellWidth));
+    const int rel_x = client_pt.x - buttons_offset;
+    const int cell_idx = rel_x / cell_w;
+    if (cell_idx < 0 || cell_idx >= kCellCount) {
+        return true;
+    }
+    const int in_cell_x = rel_x % cell_w;
+    const int pad_x = std::max(2, ScaleByDpi(3));
+    return in_cell_x < pad_x || in_cell_x >= (cell_w - pad_x);
 }
 
 int StatusBarUI::HitTestZone(int client_x) const noexcept {
@@ -587,6 +610,33 @@ void StatusBarUI::PaintTooltip(HDC hdc, const RECT& client_rect) const noexcept 
 }
 
 void StatusBarUI::OnMouseMove(POINT pt) {
+    if (left_button_down_ && hwnd_) {
+        POINT screen_pt = pt;
+        ::ClientToScreen(hwnd_.Get(), &screen_pt);
+        const int dx = screen_pt.x - drag_start_screen_.x;
+        const int dy = screen_pt.y - drag_start_screen_.y;
+        const int drag_threshold = std::max(3, ScaleByDpi(4));
+        if (!is_dragging_ && (std::abs(dx) >= drag_threshold || std::abs(dy) >= drag_threshold)) {
+            is_dragging_ = true;
+            hovered_zone_ = -1;
+            HideTooltip();
+            ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
+        }
+        if (is_dragging_) {
+            pos_.x = drag_start_pos_.x + dx;
+            pos_.y = drag_start_pos_.y + dy;
+            ::SetWindowPos(
+                hwnd_.Get(),
+                HWND_TOPMOST,
+                pos_.x,
+                pos_.y,
+                CurrentWidth(),
+                CurrentHeight(),
+                SWP_NOACTIVATE | SWP_NOSIZE);
+            return;
+        }
+    }
+
     if (!tracking_mouse_ && hwnd_) {
         TRACKMOUSEEVENT tme{};
         tme.cbSize = sizeof(tme);
@@ -615,8 +665,34 @@ void StatusBarUI::OnMouseLeave() noexcept {
     HideTooltip();
 }
 
-void StatusBarUI::OnLeftButtonDown(POINT pt) const {
-    if (!action_callback_) {
+void StatusBarUI::EndDragTracking(bool clamp_position) noexcept {
+    const bool was_dragging = is_dragging_;
+    left_button_down_ = false;
+    is_dragging_ = false;
+    if (hwnd_ && ::GetCapture() == hwnd_.Get()) {
+        ::ReleaseCapture();
+    }
+    if (was_dragging && clamp_position) {
+        ClampToCurrentMonitor();
+    }
+}
+
+void StatusBarUI::OnLeftButtonDown(POINT pt) noexcept {
+    left_button_down_ = true;
+    is_dragging_ = false;
+    drag_start_pos_ = pos_;
+    drag_start_screen_ = pt;
+    if (hwnd_) {
+        ::ClientToScreen(hwnd_.Get(), &drag_start_screen_);
+        ::SetCapture(hwnd_.Get());
+    }
+}
+
+void StatusBarUI::OnLeftButtonUp(POINT pt) {
+    const bool was_down = left_button_down_;
+    const bool was_dragging = is_dragging_;
+    EndDragTracking(true);
+    if (!was_down || was_dragging || !action_callback_) {
         return;
     }
     const int zone = HitTestZone(pt.x);
@@ -660,10 +736,12 @@ LRESULT StatusBarUI::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             return MA_NOACTIVATE;
         case WM_NCHITTEST: {
             const POINT pt = ClientPointFromLParam(hwnd, lparam, true);
-            return (pt.x >= 0 && pt.x < ScaleByDpi(kButtonsOffset)) ? HTCAPTION : HTCLIENT;
+            return IsDraggableBlankPoint(pt) ? HTCAPTION : HTCLIENT;
         }
         case WM_SETCURSOR:
-            ::SetCursor(::LoadCursorW(nullptr, LOWORD(lparam) == HTCAPTION ? IDC_SIZEALL : IDC_HAND));
+            ::SetCursor(::LoadCursorW(
+                nullptr,
+                (LOWORD(lparam) == HTCAPTION || is_dragging_) ? IDC_SIZEALL : IDC_HAND));
             return TRUE;
         case WM_MOVE:
             pos_ = PointFromLParam(lparam);
@@ -687,6 +765,13 @@ LRESULT StatusBarUI::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         case WM_LBUTTONDOWN:
             HideTooltip();
             OnLeftButtonDown(PointFromLParam(lparam));
+            return 0;
+        case WM_LBUTTONUP:
+            OnLeftButtonUp(PointFromLParam(lparam));
+            return 0;
+        case WM_CAPTURECHANGED:
+            left_button_down_ = false;
+            is_dragging_ = false;
             return 0;
         case WM_RBUTTONUP:
         case WM_NCRBUTTONUP:

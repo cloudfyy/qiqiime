@@ -75,13 +75,16 @@ private:
     int HitTestZone(int client_x) const noexcept;
     bool EnsureBarWindow() noexcept;
     bool EnsureTooltipWindow() noexcept;
+    bool IsDraggableBlankPoint(POINT client_pt) const noexcept;
     void UpdateTooltipForZone(int zone, int client_x);
     void HideTooltip() noexcept;
     void PaintBar(HDC hdc, const RECT& client_rect) noexcept;
     void PaintTooltip(HDC hdc, const RECT& client_rect) const noexcept;
     void OnMouseMove(POINT pt);
     void OnMouseLeave() noexcept;
-    void OnLeftButtonDown(POINT pt) const;
+    void OnLeftButtonDown(POINT pt) noexcept;
+    void OnLeftButtonUp(POINT pt);
+    void EndDragTracking(bool clamp_position) noexcept;
     void OnRightButtonUp(POINT client_pt) const;
     void OnDpiChanged(UINT new_dpi, const RECT* suggested_rect) noexcept;
     LRESULT HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
@@ -100,6 +103,10 @@ private:
     bool pos_initialized_ = false;
     int hovered_zone_ = -1; // -1 = none, 0 = grip/logo, 1..kCellCount = cells 0..kCellCount-1
     bool tracking_mouse_ = false;
+    bool left_button_down_ = false;
+    bool is_dragging_ = false;
+    POINT drag_start_screen_{0, 0};
+    POINT drag_start_pos_{0, 0};
     std::wstring active_tooltip_text_;
     LangBarState state_{};
     ActionCallback action_callback_;

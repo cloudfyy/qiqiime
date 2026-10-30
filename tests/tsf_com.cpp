@@ -22,6 +22,8 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 void TestLambdaEditSession() {
+    ITfEditSession** null_out = nullptr;
+    QIQI_TEST_CHECK(CreateComObjectToOut<LambdaEditSession>(null_out, LambdaEditSession::Callback{}) == E_INVALIDARG);
     bool called = false;
     auto* session = new LambdaEditSession([&called](TfEditCookie ec) -> HRESULT {
         called = (ec == 99);
