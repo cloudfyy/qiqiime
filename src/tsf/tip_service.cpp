@@ -238,7 +238,9 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     thread_mgr_.Reset();
     client_id_ = TF_CLIENTID_NULL;
     activate_flags_ = 0;
-    log::Flush();
+    engine_.ClearExternalDictionaries();
+    WubiMappedDict::ClearProcessCache();
+    log::Shutdown();
     return S_OK;
 }
 

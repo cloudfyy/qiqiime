@@ -137,6 +137,9 @@ public:
     static std::shared_ptr<const WubiMappedDict> LoadFromTextOrCache(
         const std::filesystem::path& txt_path);
 
+    // Static in-memory cache of loaded dictionaries inside the current process
+    static void ClearProcessCache() noexcept;
+
     bool IsValid() const noexcept { return !code_index_.empty(); }
     bool IsMemoryMapped() const noexcept { return mapped_view_.IsValid(); }
     size_t CodeCount() const noexcept { return code_index_.size(); }

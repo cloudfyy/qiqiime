@@ -243,8 +243,33 @@ HRESULT UnregisterServerWithManagers(
                            IID_PPV_ARGS(&profiles));
     }
     if (profiles) {
+        // Deactivate and disable the QiQi Wubi profile first so Windows TSF immediately switches
+        // active processes (including explorer.exe) away from qiqiime.dll and calls Deactivate().
+        ComPtr<ITfInputProcessorProfileMgr> profile_mgr;
+        if (SUCCEEDED(profiles.As(&profile_mgr)) && profile_mgr) {
+            profile_mgr->DeactivateProfile(
+                TF_PROFILETYPE_INPUTPROCESSOR,
+                kChineseSimplifiedLangId,
+                kClsidQiQiTextService,
+                kGuidProfileWubi86,
+                nullptr,
+                TF_IPPMF_FORPROCESS | TF_IPPMF_FORSESSION | TF_IPPMF_DISABLEPROFILE);
+            profile_mgr->UnregisterProfile(
+                kClsidQiQiTextService,
+                kChineseSimplifiedLangId,
+                kGuidProfileWubi86,
+                0);
+            profile_mgr->ReleaseInputProcessor(kClsidQiQiTextService, 0);
+        }
+        profiles->EnableLanguageProfile(
+            kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86, FALSE);
+        profiles->EnableLanguageProfileByDefault(
+            kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86, FALSE);
+        profiles->RemoveLanguageProfile(
+            kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86);
         profiles->Unregister(kClsidQiQiTextService);
     }
+    ::CoFreeUnusedLibraries();
 
     QIQI_LOG_INFO("UnregisterServer completed");
     log::Flush();

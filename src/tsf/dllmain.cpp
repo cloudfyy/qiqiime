@@ -17,7 +17,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         ::DisableThreadLibraryCalls(hModule);
     } else if (ul_reason_for_call == DLL_PROCESS_DETACH && lpReserved == nullptr) {
         // Dynamic unload via FreeLibrary (not process termination):
-        // unregister window classes and flush/release logger resources safely.
+        // release cached mapped dictionary handles, unregister window classes, and flush/release logger resources safely.
+        qiqi::WubiMappedDict::ClearProcessCache();
         ::UnregisterClassW(qiqi::kCandidateWndClass, hModule);
         ::UnregisterClassW(qiqi::kStatusBarWndClass, hModule);
         ::UnregisterClassW(qiqi::kStatusBarTooltipWndClass, hModule);

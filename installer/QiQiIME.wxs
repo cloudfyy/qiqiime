@@ -12,6 +12,10 @@
                         Manufacturer="cloudfyy (https://github.com/cloudfyy/qiqiime)"
                         Codepage="$(var.SummaryCodepage)" />
 
+    <!-- Suppress "Files in Use" dialog and prevent Windows Installer from forcing a reboot when explorer.exe holds qiqiime.dll -->
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <Property Id="REBOOT" Value="ReallySuppress" />
+
     <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeErrorMessage)" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
@@ -91,10 +95,12 @@
                   ExeCommand="[System64Folder]regsvr32.exe /u /s &quot;[DirX64]qiqiime.dll&quot;"
                   Return="ignore" />
 
+    <!-- Run UnregX86 / UnregX64 during InstallInitialize .. InstallValidate cannot host deferred actions;
+         Instead, run immediate elevated/custom or run deferred right after InstallInitialize, while MSIRESTARTMANAGERCONTROL=Disable skips InstallValidate's RestartManager lock dialog -->
     <InstallExecuteSequence>
       <Custom Action="RegX64" After="InstallFiles" Condition="NOT Installed OR REINSTALL" />
       <Custom Action="RegX86" After="RegX64" Condition="NOT Installed OR REINSTALL" />
-      <Custom Action="UnregX86" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
+      <Custom Action="UnregX86" After="InstallInitialize" Condition="REMOVE=&quot;ALL&quot;" />
       <Custom Action="UnregX64" After="UnregX86" Condition="REMOVE=&quot;ALL&quot;" />
     </InstallExecuteSequence>
   </Package>

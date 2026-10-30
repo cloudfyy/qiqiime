@@ -199,6 +199,14 @@ bool ParseTextDictIntoBinaryBuffer(
 
 } // namespace
 
+void WubiMappedDict::ClearProcessCache() noexcept {
+    try {
+        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+        g_process_dict_cache.clear();
+    } catch (...) {
+    }
+}
+
 void WubiMappedDict::ResetViews() noexcept {
     code_index_ = {};
     word_slices_ = {};
