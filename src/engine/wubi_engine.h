@@ -64,6 +64,12 @@ public:
     // Auto-encode a multi-character phrase, add it to the active in-memory dictionary, and optionally append to user_dict_path.
     bool AddUserPhrase(std::wstring_view phrase, const std::filesystem::path& user_dict_path = {});
 
+    // Persist and restore dynamic phrase frequency promotions (code word1 word2 ...)
+    void SetPhraseFreqPath(std::filesystem::path path) { phrase_freq_path_ = std::move(path); }
+    const std::filesystem::path& PhraseFreqPath() const noexcept { return phrase_freq_path_; }
+    bool LoadPhraseFrequencies(const std::filesystem::path& file_path);
+    bool SavePhraseFrequencies(const std::filesystem::path& file_path) const;
+
     // Mode & configuration management
     void ApplyConfig(const QiQiConfig& cfg) noexcept;
     bool IsChineseMode() const noexcept { return state_ != EngineState::English; }
@@ -172,6 +178,7 @@ private:
 
     std::map<uint32_t, std::vector<std::wstring>> dict_;
     std::map<uint32_t, std::vector<std::wstring>> promoted_phrases_;
+    std::filesystem::path phrase_freq_path_;
     std::vector<std::shared_ptr<const WubiMappedDict>> mapped_dicts_;
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;

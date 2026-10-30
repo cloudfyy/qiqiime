@@ -307,6 +307,79 @@ void WubiEngine::PromotePhraseForCode(std::wstring_view code, std::wstring_view 
     auto& list = promoted_phrases_[packed];
     std::erase(list, word);
     list.insert(list.begin(), std::wstring(word));
+    if (!phrase_freq_path_.empty()) {
+        std::ignore = SavePhraseFrequencies(phrase_freq_path_);
+    }
+}
+
+bool WubiEngine::LoadPhraseFrequencies(const std::filesystem::path& file_path) {
+    std::string utf8;
+    if (!ReadFileToUtf8String(file_path, utf8)) {
+        return false;
+    }
+    promoted_phrases_.clear();
+    std::string_view sv(utf8);
+    while (!sv.empty()) {
+        const size_t nl = sv.find('\n');
+        std::string_view line = (nl == std::string_view::npos) ? sv : sv.substr(0, nl);
+        sv.remove_prefix(nl == std::string_view::npos ? sv.size() : nl + 1);
+        if (!line.empty() && line.back() == '\r') {
+            line.remove_suffix(1);
+        }
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        const size_t sp = line.find(' ');
+        if (sp == std::string_view::npos || sp == 0) {
+            continue;
+        }
+        const uint32_t packed = PackWubiCode(Utf8ToWide(line.substr(0, sp)));
+        if (packed == 0) {
+            continue;
+        }
+        std::string_view rest = line.substr(sp + 1);
+        auto& list = promoted_phrases_[packed];
+        while (!rest.empty()) {
+            const size_t first = rest.find_first_not_of(' ');
+            if (first == std::string_view::npos) {
+                break;
+            }
+            rest.remove_prefix(first);
+            const size_t next_sp = rest.find(' ');
+            const std::wstring word = Utf8ToWide(
+                next_sp == std::string_view::npos ? rest : rest.substr(0, next_sp));
+            if (SplitUtf16Codepoints(word).size() >= 2) {
+                AppendUniqueWord(list, word);
+            }
+            if (next_sp == std::string_view::npos) {
+                break;
+            }
+            rest.remove_prefix(next_sp + 1);
+        }
+    }
+    return true;
+}
+
+bool WubiEngine::SavePhraseFrequencies(const std::filesystem::path& file_path) const {
+    try {
+        std::string out;
+        for (const auto& [packed, words] : promoted_phrases_) {
+            if (words.empty()) {
+                continue;
+            }
+            out += WideToUtf8(UnpackWubiCode(packed));
+            for (const auto& w : words) {
+                out.push_back(' ');
+                out += WideToUtf8(w);
+            }
+            out.push_back('\n');
+        }
+        return WriteFileAtomically(
+            file_path,
+            std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(out.data()), out.size()));
+    } catch (...) {
+        return false;
+    }
 }
 
 std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const {

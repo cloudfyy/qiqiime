@@ -405,6 +405,13 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(cands_single_fixed[0] == L"单" && cands_single_fixed[3] == L"字");
 
     // Selecting "词组甲" via VK_DOWN + VK_SPACE (CommitSelected) promotes "词组甲" back ahead of "词组乙" without duplication
+    const auto temp_freq_path = std::filesystem::temp_directory_path() / L"qiqiime_test_phrase_freq.txt";
+    std::error_code freq_ec;
+    std::filesystem::remove(temp_freq_path, freq_ec);
+    engine.SetPhraseFreqPath(temp_freq_path);
+    QIQI_TEST_CHECK(engine.PhraseFreqPath() == temp_freq_path);
+    QIQI_TEST_CHECK(!engine.LoadPhraseFrequencies(temp_freq_path));
+
     engine.ProcessKey('Q');
     engine.ProcessKey('R');
     engine.ProcessKey('S');
@@ -419,6 +426,24 @@ void TestNavigationSelectionAndReturnCommit() {
                     cands_repromoted[1] == L"词组甲" &&
                     cands_repromoted[2] == L"词组乙" &&
                     cands_repromoted[3] == L"字");
+
+    // Verify dynamic phrase promotions were persisted to temp_freq_path and can be restored into a fresh WubiEngine
+    QIQI_TEST_CHECK(std::filesystem::exists(temp_freq_path));
+    WubiEngine restored_freq_engine;
+    restored_freq_engine.AddEntry(L"qrst", L"单");
+    restored_freq_engine.AddEntry(L"qrst", L"词组甲");
+    restored_freq_engine.AddEntry(L"qrst", L"词组乙");
+    restored_freq_engine.AddEntry(L"qrst", L"字");
+    restored_freq_engine.SetDynamicPhraseFreq(true);
+    QIQI_TEST_CHECK(restored_freq_engine.LoadPhraseFrequencies(temp_freq_path));
+    auto restored_cands = restored_freq_engine.LookupExact(L"qrst");
+    QIQI_TEST_CHECK(restored_cands.size() == 4 &&
+                    restored_cands[0] == L"单" &&
+                    restored_cands[1] == L"词组甲" &&
+                    restored_cands[2] == L"词组乙" &&
+                    restored_cands[3] == L"字");
+    engine.SetPhraseFreqPath({});
+    std::filesystem::remove(temp_freq_path, freq_ec);
     engine.SetDynamicPhraseFreq(false);
 
     // Test VK_RETURN committing raw ASCII code

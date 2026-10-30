@@ -239,6 +239,10 @@ std::filesystem::path GetDefaultUserDictPath() {
     return ResolveDefaultUserFilePath(L"user_dict.txt");
 }
 
+std::filesystem::path GetDefaultPhraseFreqPath() {
+    return ResolveDefaultUserFilePath(L"phrase_freq.txt");
+}
+
 std::filesystem::path ResolveBundledDataFile(
     const std::filesystem::path& dll_dir, std::wstring_view file_name) {
     if (dll_dir.empty() || file_name.empty()) {

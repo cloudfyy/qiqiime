@@ -101,6 +101,9 @@ std::filesystem::path GetDefaultUserConfigPath();
 // Return default user custom dictionary path: %LOCALAPPDATA%\QiQiIME\user_dict.txt
 std::filesystem::path GetDefaultUserDictPath();
 
+// Return default user dynamic phrase frequency table path: %LOCALAPPDATA%\QiQiIME\phrase_freq.txt
+std::filesystem::path GetDefaultPhraseFreqPath();
+
 // Resolve a bundled data file (e.g. wubi86_jidian.txt or config.ini) relative to the DLL directory,
 // checking <dll_dir>/<name>, <dll_dir>/../data/<name>, and <dll_dir>/../<name> so x64 and x86 can share one data/ folder.
 std::filesystem::path ResolveBundledDataFile(

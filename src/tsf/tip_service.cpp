@@ -197,6 +197,8 @@ QiQiTextService::QiQiTextService(HINSTANCE instance) {
     config_registry_sequence_ = QueryRegistryConfigSequence();
     log::SetLevel(config_.log_level);
     engine_.ApplyConfig(config_);
+    engine_.SetPhraseFreqPath(GetDefaultPhraseFreqPath());
+    std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
     candidate_ui_ = MakeComObject<CandidateUI>(instance);
     candidate_ui_->SetSelectCallback([this](size_t index_in_page) {
         if (index_in_page < 9 && active_context_ && engine_.IsComposing()) {
@@ -1142,6 +1144,9 @@ void QiQiTextService::ReloadConfigIfModified() {
             reg_modified;
         config_ = std::move(updated);
         ApplyDynamicEngineSettings();
+        if (config_.dynamic_phrase_freq && !engine_.PhraseFreqPath().empty()) {
+            std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
+        }
         if (dict_changed || (config_.primary_dict != PrimaryDict::BuiltinOnly && engine_.MappedDictionaryCount() == 0)) {
             LoadExternalDictionaryNextToDll();
         }
