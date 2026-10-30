@@ -11,8 +11,8 @@ configure_file(
     @ONLY
 )
 
-# Core Wubi 86 Engine (Static library, pure C++26 + Win32 UTF conversion, testable independently)
-set(QIQI_ENGINE_SOURCES
+# Common infrastructure library (config, file/UTF helpers, lock-free ETW logging, RAII wrappers)
+set(QIQI_COMMON_SOURCES
     common/config.cpp
     common/config.h
     common/file_util.cpp
@@ -22,6 +22,23 @@ set(QIQI_ENGINE_SOURCES
     common/logger.h
     common/scoped_handle.h
     common/win32_ui_util.h
+)
+add_library(qiqi_common STATIC
+    ${QIQI_COMMON_SOURCES}
+    "${QIQIIME_GENERATED_DIR}/common/version.h"
+)
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_COMMON_SOURCES})
+target_include_directories(qiqi_common PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${QIQIIME_GENERATED_DIR}
+)
+target_link_libraries(qiqi_common PUBLIC
+    Microsoft.GSL::GSL
+    advapi32
+)
+
+# Core Wubi 86 Engine (Static library, pure C++26 + Win32 UTF conversion, testable independently)
+set(QIQI_ENGINE_SOURCES
     engine/wubi_binary_dict.cpp
     engine/wubi_binary_dict.h
     engine/wubi_fsm.h
@@ -31,16 +48,10 @@ set(QIQI_ENGINE_SOURCES
 )
 add_library(qiqi_engine STATIC
     ${QIQI_ENGINE_SOURCES}
-    "${QIQIIME_GENERATED_DIR}/common/version.h"
 )
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_ENGINE_SOURCES})
-target_include_directories(qiqi_engine PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${QIQIIME_GENERATED_DIR}
-)
 target_link_libraries(qiqi_engine PUBLIC
-    Microsoft.GSL::GSL
-    advapi32
+    qiqi_common
 )
 
 # TSF Text Input Processor COM DLL
@@ -116,7 +127,7 @@ add_executable(QiQiIMESettings WIN32
     "${QIQIIME_GENERATED_DIR}/common/version.rc"
 )
 target_link_libraries(QiQiIMESettings PRIVATE
-    qiqi_engine
+    qiqi_common
     user32
     gdi32
     d2d1

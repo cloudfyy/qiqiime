@@ -87,7 +87,16 @@ if(MSVC)
             CMAKE_CXX26_EXTENSION_COMPILE_OPTION
         )
     endif()
-    add_compile_options(/W4 /utf-8 /permissive- /EHsc)
+    add_compile_options(
+        /W4 /utf-8 /permissive- /EHsc /Gy /Gw
+        "$<$<NOT:$<CONFIG:Debug>>:/O1>"
+        "$<$<NOT:$<CONFIG:Debug>>:/GL>"
+    )
+    add_link_options(
+        "$<$<NOT:$<CONFIG:Debug>>:/OPT:REF>"
+        "$<$<NOT:$<CONFIG:Debug>>:/OPT:ICF>"
+        "$<$<NOT:$<CONFIG:Debug>>:/LTCG>"
+    )
 endif()
 
 # Dependencies managed via vcpkg (vcpkg.json)
