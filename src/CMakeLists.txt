@@ -68,6 +68,9 @@ add_library(qiqiime SHARED
     ${QIQIIME_SOURCES}
     "${QIQIIME_GENERATED_DIR}/common/version.rc"
 )
+set_source_files_properties("${QIQIIME_GENERATED_DIR}/common/version.rc" PROPERTIES
+    OBJECT_DEPENDS "${PROJECT_SOURCE_DIR}/data/qiqiime.ico"
+)
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQIIME_SOURCES})
 set_target_properties(qiqiime PROPERTIES
     VERSION ${PROJECT_VERSION}
