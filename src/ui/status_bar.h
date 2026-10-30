@@ -6,6 +6,7 @@
 #include <string>
 
 #include "common/scoped_handle.h"
+#include "common/win32_ui_util.h"
 #include "ui/langbar_button.h"
 
 namespace qiqi {

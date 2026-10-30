@@ -5,6 +5,7 @@
 #include "common/monitor_dpi.h"
 #include "common/scoped_handle.h"
 #include "common/version.h"
+#include "common/win32_ui_util.h"
 
 #include <gsl/gsl>
 #include <shellapi.h>

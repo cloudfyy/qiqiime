@@ -1,4 +1,5 @@
 #include "common.h"
+#include "common/com_object.h"
 #include "common/config.h"
 #include "common/file_util.h"
 #include "common/i18n.h"
@@ -6,6 +7,7 @@
 #include "common/scoped_handle.h"
 #include "common/sound.h"
 #include "common/version.h"
+#include "common/win32_ui_util.h"
 
 #include <filesystem>
 #include <fstream>

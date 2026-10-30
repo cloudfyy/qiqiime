@@ -1,11 +1,16 @@
 #pragma once
 #include <windows.h>
+#include <msctf.h>
+#include <oleauto.h>
 #include <wrl/client.h>
+#include <gsl/gsl>
 #include <atomic>
 #include <concepts>
+#include <string_view>
 #include <utility>
 
 #include "common/guids.h"
+#include "common/scoped_handle.h"
 
 namespace qiqi {
 
@@ -138,6 +143,99 @@ private:
     }
 
     std::atomic<ULONG> ref_count_{1};
+};
+#pragma warning(pop)
+
+// Allocate a BSTR of known length via ::SysAllocStringLen using ScopedBstr RAII and detach to [out] BSTR*.
+// Always initializes *pbstr = nullptr per COM [out] parameter rules.
+inline HRESULT CopyToBstr(std::wstring_view sv, BSTR* pbstr) noexcept {
+    if (!pbstr) {
+        return E_INVALIDARG;
+    }
+    *pbstr = nullptr;
+    ScopedBstr bstr(::SysAllocStringLen(sv.data(), gsl::narrow_cast<UINT>(sv.size())));
+    if (!bstr) {
+        return E_OUTOFMEMORY;
+    }
+    *pbstr = bstr.Detach();
+    return S_OK;
+}
+
+// Construct a VT_I4 Win32 VARIANT for TSF compartment / property calls.
+constexpr VARIANT MakeInt4Variant(LONG val) noexcept {
+#pragma warning(suppress : 26476)
+    VARIANT var{};
+    var.vt = VT_I4;
+#pragma warning(suppress : 26476)
+    var.lVal = val;
+    return var;
+}
+
+#pragma warning(push)
+#pragma warning(disable : 26447 26476)
+// Read a VT_I4 LONG value from a TSF ITfCompartment, returning default_val if unset or failed.
+inline LONG ReadCompartmentInt4(ITfCompartment* comp, LONG default_val = 0) noexcept {
+    if (!comp) {
+        return default_val;
+    }
+    VARIANT var{};
+    if (SUCCEEDED(comp->GetValue(&var)) && var.vt == VT_I4) {
+        return var.lVal;
+    }
+    return default_val;
+}
+
+// Write a VT_I4 LONG value into a TSF ITfCompartment.
+inline HRESULT WriteCompartmentInt4(ITfCompartment* comp, TfClientId tid, LONG val) noexcept {
+    if (!comp) {
+        return E_INVALIDARG;
+    }
+    const VARIANT var = MakeInt4Variant(val);
+    return comp->SetValue(tid, &var);
+}
+
+// RAII wrapper for ITfSource::AdviseSink / UnadviseSink cookie lifetime management.
+class ScopedTfSinkConnection final {
+public:
+    ScopedTfSinkConnection() noexcept = default;
+    ~ScopedTfSinkConnection() noexcept { Reset(); }
+
+    ScopedTfSinkConnection(const ScopedTfSinkConnection&) = delete;
+    ScopedTfSinkConnection& operator=(const ScopedTfSinkConnection&) = delete;
+    ScopedTfSinkConnection(ScopedTfSinkConnection&&) = delete;
+    ScopedTfSinkConnection& operator=(ScopedTfSinkConnection&&) = delete;
+
+    bool Advise(IUnknown* source_owner, REFIID riid, IUnknown* sink) noexcept {
+        Reset();
+        if (!source_owner || !sink) {
+            return false;
+        }
+        Microsoft::WRL::ComPtr<ITfSource> src;
+        if (FAILED(source_owner->QueryInterface(IID_PPV_ARGS(&src))) || !src) {
+            return false;
+        }
+        DWORD cookie = TF_INVALID_COOKIE;
+        if (FAILED(src->AdviseSink(riid, sink, &cookie)) || cookie == TF_INVALID_COOKIE) {
+            return false;
+        }
+        source_ = std::move(src);
+        cookie_ = cookie;
+        return true;
+    }
+
+    void Reset() noexcept {
+        if (source_ && cookie_ != TF_INVALID_COOKIE) {
+            source_->UnadviseSink(cookie_);
+        }
+        source_.Reset();
+        cookie_ = TF_INVALID_COOKIE;
+    }
+
+    bool IsConnected() const noexcept { return source_ != nullptr && cookie_ != TF_INVALID_COOKIE; }
+
+private:
+    Microsoft::WRL::ComPtr<ITfSource> source_;
+    DWORD cookie_ = TF_INVALID_COOKIE;
 };
 #pragma warning(pop)
 

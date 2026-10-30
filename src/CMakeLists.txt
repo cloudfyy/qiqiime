@@ -20,6 +20,7 @@ set(QIQI_ENGINE_SOURCES
     common/logger.cpp
     common/logger.h
     common/scoped_handle.h
+    common/win32_ui_util.h
     engine/wubi_binary_dict.cpp
     engine/wubi_binary_dict.h
     engine/wubi_fsm.h

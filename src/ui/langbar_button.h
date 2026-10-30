@@ -11,6 +11,7 @@
 #include "common/com_object.h"
 #include "common/config.h"
 #include "common/scoped_handle.h"
+#include "common/win32_ui_util.h"
 
 namespace qiqi {
 

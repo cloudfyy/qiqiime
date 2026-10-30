@@ -1,6 +1,7 @@
 #include "common.h"
 #include "common/guids.h"
 #include "common/i18n.h"
+#include "common/win32_ui_util.h"
 #include "ui/settings_dialog.h"
 
 #include <windows.h>

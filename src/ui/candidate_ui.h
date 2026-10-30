@@ -13,6 +13,7 @@
 #include "common/config.h"
 #include "common/monitor_dpi.h"
 #include "common/scoped_handle.h"
+#include "common/win32_ui_util.h"
 
 namespace qiqi {
 
