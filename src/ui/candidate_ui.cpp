@@ -12,18 +12,6 @@
 
 namespace qiqi {
 
-namespace {
-
-constexpr D2D1_COLOR_F ColorRefToD2DColor(COLORREF c) noexcept {
-    return D2D1::ColorF(
-        static_cast<float>(GetRValue(c)) / 255.0f,
-        static_cast<float>(GetGValue(c)) / 255.0f,
-        static_cast<float>(GetBValue(c)) / 255.0f,
-        1.0f);
-}
-
-} // namespace
-
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
     InitDirect2DAndDirectWrite();
     UpdateDpiAndFont(96);
@@ -34,26 +22,7 @@ CandidateUI::~CandidateUI() noexcept {
 }
 
 void CandidateUI::InitDirect2DAndDirectWrite() noexcept {
-    std::ignore = ::D2D1CreateFactory(
-        D2D1_FACTORY_TYPE_SINGLE_THREADED,
-        __uuidof(ID2D1Factory),
-        nullptr,
-        reinterpret_cast<void**>(d2d_factory_.ReleaseAndGetAddressOf()));
-
-    std::ignore = ::DWriteCreateFactory(
-        DWRITE_FACTORY_TYPE_SHARED,
-        __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(dwrite_factory_.ReleaseAndGetAddressOf()));
-
-    if (d2d_factory_) {
-        const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_DEFAULT,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
-            96.0f,
-            96.0f);
-        std::ignore = d2d_factory_->CreateDCRenderTarget(&props, &d2d_dc_target_);
-    }
-    if (!d2d_factory_ || !dwrite_factory_ || !d2d_dc_target_) {
+    if (!CreateD2DDcTargetAndDWrite(d2d_factory_, dwrite_factory_, d2d_dc_target_)) {
         QIQI_LOG_WARN("CandidateUI::InitDirect2DAndDirectWrite incomplete (d2d={}, dwrite={}, target={}); GDI fallback active",
                       d2d_factory_ != nullptr, dwrite_factory_ != nullptr, d2d_dc_target_ != nullptr);
     }

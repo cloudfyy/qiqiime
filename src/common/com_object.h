@@ -280,10 +280,47 @@ public:
     bool IsValid() const noexcept { return comp_ != nullptr; }
     explicit operator bool() const noexcept { return IsValid(); }
 
+    HRESULT IncrementInt4(TfClientId tid) const noexcept {
+        return WriteInt4(tid, ReadInt4(0) + 1);
+    }
+
 private:
     Microsoft::WRL::ComPtr<ITfCompartment> comp_;
     ScopedTfSinkConnection sink_conn_;
 };
+
+// Broadcast a global TSF compartment increment (e.g. kGuidCompartmentConfigVersion) from a standalone process
+// by temporarily activating an ITfThreadMgr instance.
+inline bool BroadcastStandaloneGlobalCompartmentIncrement(REFGUID compartment_guid) noexcept {
+    Microsoft::WRL::ComPtr<ITfThreadMgr> thread_mgr;
+    if (FAILED(::CoCreateInstance(
+            CLSID_TF_ThreadMgr,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&thread_mgr))) ||
+        !thread_mgr) {
+        return false;
+    }
+
+    TfClientId client_id = TF_CLIENTID_NULL;
+    if (FAILED(thread_mgr->Activate(&client_id)) || client_id == TF_CLIENTID_NULL) {
+        return false;
+    }
+    const auto deactivate_guard = gsl::finally([&]() noexcept {
+        thread_mgr->Deactivate();
+    });
+
+    Microsoft::WRL::ComPtr<ITfCompartmentMgr> global_mgr;
+    if (FAILED(thread_mgr->GetGlobalCompartment(&global_mgr)) || !global_mgr) {
+        return false;
+    }
+
+    ScopedTfCompartment comp;
+    if (!comp.Bind(global_mgr.Get(), compartment_guid)) {
+        return false;
+    }
+    return SUCCEEDED(comp.IncrementInt4(client_id));
+}
 #pragma warning(pop)
 
 } // namespace qiqi

@@ -50,11 +50,7 @@ constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 
 constexpr D2D1_COLOR_F MakeD2DColor(uint8_t r, uint8_t g, uint8_t b, float a = 1.0f) noexcept {
-    return D2D1::ColorF(
-        static_cast<float>(r) / 255.0f,
-        static_cast<float>(g) / 255.0f,
-        static_cast<float>(b) / 255.0f,
-        a);
+    return ColorRefToD2DColor(RGB(r, g, b), a);
 }
 
 constexpr std::array<const wchar_t*, 9> kPageSizeLabels = {
@@ -141,25 +137,7 @@ void InitDialogD2D(DialogContext& ctx, UINT dpi) noexcept {
     ctx.dpi = dpi > 0 ? dpi : 96u;
     const auto S = [d = ctx.dpi](int px) noexcept { return static_cast<float>(ScalePxByDpi(px, d)); };
 
-    std::ignore = ::D2D1CreateFactory(
-        D2D1_FACTORY_TYPE_SINGLE_THREADED,
-        __uuidof(ID2D1Factory),
-        nullptr,
-        reinterpret_cast<void**>(ctx.d2d_factory.ReleaseAndGetAddressOf()));
-
-    std::ignore = ::DWriteCreateFactory(
-        DWRITE_FACTORY_TYPE_SHARED,
-        __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(ctx.dwrite_factory.ReleaseAndGetAddressOf()));
-
-    if (ctx.d2d_factory) {
-        const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_DEFAULT,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
-            96.0f,
-            96.0f);
-        std::ignore = ctx.d2d_factory->CreateDCRenderTarget(&props, &ctx.d2d_target);
-    }
+    CreateD2DDcTargetAndDWrite(ctx.d2d_factory, ctx.dwrite_factory, ctx.d2d_target);
 
     if (ctx.dwrite_factory) {
         std::ignore = ctx.dwrite_factory->CreateTextFormat(

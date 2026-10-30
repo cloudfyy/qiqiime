@@ -14,45 +14,6 @@ namespace qiqi {
 HINSTANCE g_dll_instance = nullptr;
 std::atomic<long> g_com_object_count{0};
 
-namespace {
-
-using Microsoft::WRL::ComPtr;
-
-// Broadcast updated configuration sequence via TSF Global Compartment (kGuidCompartmentConfigVersion)
-// so all active Win32 and UWP processes reload their configuration immediately.
-void BroadcastGlobalCompartmentConfigChange() noexcept {
-    ComPtr<ITfThreadMgr> thread_mgr;
-    if (FAILED(::CoCreateInstance(
-            CLSID_TF_ThreadMgr,
-            nullptr,
-            CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&thread_mgr))) ||
-        !thread_mgr) {
-        return;
-    }
-
-    TfClientId client_id = TF_CLIENTID_NULL;
-    if (FAILED(thread_mgr->Activate(&client_id)) || client_id == TF_CLIENTID_NULL) {
-        return;
-    }
-    const auto deactivate_guard = gsl::finally([&]() noexcept {
-        thread_mgr->Deactivate();
-    });
-
-    ComPtr<ITfCompartmentMgr> global_mgr;
-    if (FAILED(thread_mgr->GetGlobalCompartment(&global_mgr)) || !global_mgr) {
-        return;
-    }
-
-    ComPtr<ITfCompartment> comp;
-    if (SUCCEEDED(global_mgr->GetCompartment(kGuidCompartmentConfigVersion, &comp)) && comp) {
-        const LONG next_ver = ReadCompartmentInt4(comp.Get(), 0) + 1;
-        std::ignore = WriteCompartmentInt4(comp.Get(), client_id, next_ver);
-    }
-}
-
-} // namespace
-
 } // namespace qiqi
 
 int WINAPI wWinMain(
@@ -86,7 +47,7 @@ int WINAPI wWinMain(
     qiqi::QiQiConfig cfg = qiqi::LoadConfig(instance);
     if (qiqi::ShowSettingsDialog(instance, nullptr, cfg)) {
         qiqi::SaveConfig(cfg);
-        qiqi::BroadcastGlobalCompartmentConfigChange();
+        qiqi::BroadcastStandaloneGlobalCompartmentIncrement(qiqi::kGuidCompartmentConfigVersion);
     }
     qiqi::log::Shutdown();
     return 0;

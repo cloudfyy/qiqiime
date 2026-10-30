@@ -526,11 +526,11 @@ void QiQiTextService::NotifyGlobalConfigChanged() {
     if (!global_config_comp_ || client_id_ == TF_CLIENTID_NULL) {
         return;
     }
-    const LONG next_version = global_config_comp_.ReadInt4(0) + 1;
-    if (FAILED(global_config_comp_.WriteInt4(client_id_, next_version))) {
-        QIQI_LOG_WARN("NotifyGlobalConfigChanged: SetValue(version={}) failed", next_version);
+    if (FAILED(global_config_comp_.IncrementInt4(client_id_))) {
+        QIQI_LOG_WARN("NotifyGlobalConfigChanged: IncrementInt4 failed");
     } else {
-        QIQI_LOG_DEBUG("NotifyGlobalConfigChanged: broadcast Global Compartment config version={}", next_version);
+        QIQI_LOG_DEBUG("NotifyGlobalConfigChanged: broadcast Global Compartment config version={}",
+                       global_config_comp_.ReadInt4(0));
     }
 }
 

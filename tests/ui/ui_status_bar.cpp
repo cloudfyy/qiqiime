@@ -19,17 +19,7 @@ namespace qiqi::test {
 namespace {
 
 HWND FindQuickSettingsMenu() {
-    HWND found = nullptr;
-    ::EnumThreadWindows(::GetCurrentThreadId(), [](HWND hwnd, LPARAM param) -> BOOL {
-        std::array<wchar_t, 128> name{};
-        ::GetClassNameW(hwnd, name.data(), gsl::narrow_cast<int>(name.size()));
-        if (std::wstring_view(name.data()) == kMenuWndClass) {
-            *reinterpret_cast<HWND*>(param) = hwnd;
-            return FALSE;
-        }
-        return TRUE;
-    }, reinterpret_cast<LPARAM>(&found));
-    return found;
+    return FindThreadWindowByClass(kMenuWndClass);
 }
 
 void CloseQuickSettingsMenu() {
