@@ -35,6 +35,10 @@ bool IsKeyDown(int vk) noexcept {
     return (::GetKeyState(vk) & 0x8000) != 0;
 }
 
+bool IsCapsLockOn() noexcept {
+    return (::GetKeyState(VK_CAPITAL) & 0x0001) != 0;
+}
+
 constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
     switch (id) {
         case LangBarMenuId::ToggleChinese:     return "ToggleChinese";
@@ -81,6 +85,7 @@ std::string FormatVirtualKey(uint32_t vk) {
         case VK_BACK:       return "VK_BACK(0x08)";
         case VK_ESCAPE:     return "VK_ESCAPE(0x1B)";
         case VK_SHIFT:      return "VK_SHIFT(0x10)";
+        case VK_CAPITAL:    return "VK_CAPITAL(0x14)";
         case VK_OEM_1:      return "VK_OEM_1(;/:)";
         case VK_OEM_7:      return "VK_OEM_7('/\")";
         case VK_OEM_MINUS:  return "VK_OEM_MINUS(-/_)";
@@ -89,6 +94,46 @@ std::string FormatVirtualKey(uint32_t vk) {
         case VK_OEM_PERIOD: return "VK_OEM_PERIOD(./>)";
         default:            return std::format("0x{:02X}", vk);
     }
+}
+
+void LogKeyTraceIfEnabled(
+    bool enabled,
+    uint32_t vk,
+    bool shift,
+    bool caps,
+    bool ctrl,
+    bool alt,
+    const KeyProcessResult& result,
+    size_t total_candidates,
+    PrimaryDict primary_dict,
+    size_t mapped_dicts) {
+    if (!enabled) {
+        return;
+    }
+    std::string cand_preview;
+    for (size_t i = 0; i < result.page_candidates.size(); ++i) {
+        if (i > 0) {
+            cand_preview += ", ";
+        }
+        cand_preview += std::format("{}:{}", i + 1, log::WideToUtf8(gsl::at(result.page_candidates, i)));
+    }
+    QIQI_LOG_INFO(
+        "[KeyTrace] vk={} shift={} caps={} ctrl={} alt={} -> action={} raw='{}' commit='{}' "
+        "total_cands={} page={}/{} page_cands=[{}] dict={} mapped_dicts={}",
+        FormatVirtualKey(vk),
+        shift,
+        caps,
+        ctrl,
+        alt,
+        KeyActionTypeToString(result.action),
+        log::WideToUtf8(result.composition_text),
+        log::WideToUtf8(result.committed_text),
+        total_candidates,
+        result.current_page + (result.total_pages > 0 ? 1 : 0),
+        result.total_pages,
+        cand_preview,
+        PrimaryDictToDiagName(primary_dict),
+        mapped_dicts);
 }
 
 } // namespace
@@ -521,7 +566,12 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* /*pic*/, WPARAM wParam, 
     }
     shift_tap_candidate_ = false;
 
-    *pfEaten = engine_.ShouldEatKey(vk, IsKeyDown(VK_SHIFT), IsKeyDown(VK_CONTROL), IsKeyDown(VK_MENU))
+    *pfEaten = engine_.ShouldEatKey(
+                   vk,
+                   IsKeyDown(VK_SHIFT),
+                   IsKeyDown(VK_CONTROL),
+                   IsKeyDown(VK_MENU),
+                   IsCapsLockOn())
                    ? TRUE
                    : FALSE;
     return S_OK;
@@ -533,41 +583,50 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
     }
     const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
     const bool shift = IsKeyDown(VK_SHIFT);
+    const bool caps = IsCapsLockOn();
     const bool ctrl = IsKeyDown(VK_CONTROL);
     const bool alt = IsKeyDown(VK_MENU);
 
-    if (!engine_.ShouldEatKey(vk, shift, ctrl, alt)) {
+    if (vk == VK_CAPITAL && engine_.IsComposing()) {
+        // Industry standard: pressing CapsLock mid-composition commits the raw English code
+        // while letting VK_CAPITAL pass through (*pfEaten = FALSE) so Windows toggles CapsLock state.
+        *pfEaten = FALSE;
+        const KeyProcessResult result = engine_.ProcessKey(vk, shift, ctrl, alt, caps);
+        LogKeyTraceIfEnabled(
+            config_.log_keystrokes,
+            vk,
+            shift,
+            caps,
+            ctrl,
+            alt,
+            result,
+            engine_.AllCandidates().size(),
+            config_.primary_dict,
+            engine_.MappedDictionaryCount());
+        if (pic && result.action != KeyActionType::PassThrough) {
+            ApplyEngineResult(pic, result);
+        }
+        return S_OK;
+    }
+
+    if (!engine_.ShouldEatKey(vk, shift, ctrl, alt, caps)) {
         *pfEaten = FALSE;
         return S_OK;
     }
 
     *pfEaten = TRUE;
-    const KeyProcessResult result = engine_.ProcessKey(vk, shift, ctrl, alt);
-    if (config_.log_keystrokes) {
-        std::string cand_preview;
-        for (size_t i = 0; i < result.page_candidates.size(); ++i) {
-            if (i > 0) {
-                cand_preview += ", ";
-            }
-            cand_preview += std::format("{}:{}", i + 1, log::WideToUtf8(gsl::at(result.page_candidates, i)));
-        }
-        QIQI_LOG_INFO(
-            "[KeyTrace] vk={} shift={} ctrl={} alt={} -> action={} raw='{}' commit='{}' "
-            "total_cands={} page={}/{} page_cands=[{}] dict={} mapped_dicts={}",
-            FormatVirtualKey(vk),
-            shift,
-            ctrl,
-            alt,
-            KeyActionTypeToString(result.action),
-            log::WideToUtf8(result.composition_text),
-            log::WideToUtf8(result.committed_text),
-            engine_.AllCandidates().size(),
-            result.current_page + (result.total_pages > 0 ? 1 : 0),
-            result.total_pages,
-            cand_preview,
-            PrimaryDictToDiagName(config_.primary_dict),
-            engine_.MappedDictionaryCount());
-    }
+    const KeyProcessResult result = engine_.ProcessKey(vk, shift, ctrl, alt, caps);
+    LogKeyTraceIfEnabled(
+        config_.log_keystrokes,
+        vk,
+        shift,
+        caps,
+        ctrl,
+        alt,
+        result,
+        engine_.AllCandidates().size(),
+        config_.primary_dict,
+        engine_.MappedDictionaryCount());
     if (result.empty_4code_warning) {
         PlayImeSound(SoundEffectKind::EmptyCodeBeep);
     } else if (result.dup_4code_warning) {

@@ -44,7 +44,7 @@ enum class EngineState : uint8_t {
 enum class KeyEventKind : uint8_t {
     None = 0,
     CodeChar = 1,         // Lowercase 'a'-'z'
-    UpperChar = 2,        // Uppercase 'A'-'Z' (Shift + letter)
+    UpperChar = 2,        // Uppercase 'A'-'Z' (Shift + letter or CapsLock + letter)
     Space = 3,            // VK_SPACE
     Enter = 4,            // VK_RETURN
     Backspace = 5,        // VK_BACK
@@ -57,7 +57,8 @@ enum class KeyEventKind : uint8_t {
     ChinesePunct = 12,    // Mapped Chinese full-width punctuation
     TempEnglishGuide = 13,// 'z' key in Idle when enable_z_temp_english is active
     PrintableAscii = 14,  // Printable ASCII key in TempEnglish or FullWidth mode
-    Count = 15
+    CapsLockToggle = 15,  // VK_CAPITAL pressed mid-composition: commit raw code without eating OS toggle
+    Count = 16
 };
 
 // State machine transition actions executed by the engine
@@ -130,13 +131,15 @@ constexpr wchar_t AsciiToFullWidth(char ch) noexcept {
     return gsl::narrow_cast<wchar_t>(ch);
 }
 
-// Map a virtual key + Shift state to its printable ASCII character (0x20..0x7E).
-constexpr std::optional<char> MapPrintableAsciiChar(uint32_t vk, bool shift_down) noexcept {
+// Map a virtual key + Shift + CapsLock state to its printable ASCII character (0x20..0x7E).
+constexpr std::optional<char> MapPrintableAsciiChar(
+    uint32_t vk, bool shift_down, bool caps_lock_on = false) noexcept {
     if (vk == VK_SPACE) {
         return ' ';
     }
     if (vk >= 'A' && vk <= 'Z') {
-        return gsl::narrow_cast<char>(shift_down ? vk : (vk - 'A' + 'a'));
+        const bool is_upper = (shift_down != caps_lock_on);
+        return gsl::narrow_cast<char>(is_upper ? vk : (vk - 'A' + 'a'));
     }
     if (vk >= '0' && vk <= '9') {
         if (!shift_down) {
@@ -161,9 +164,10 @@ constexpr std::optional<char> MapPrintableAsciiChar(uint32_t vk, bool shift_down
     }
 }
 
-// Map a virtual key + Shift state to its Unicode Full-Width (全角) character.
-constexpr std::optional<wchar_t> MapFullWidthChar(uint32_t vk, bool shift_down) noexcept {
-    if (const auto ascii = MapPrintableAsciiChar(vk, shift_down); ascii.has_value()) {
+// Map a virtual key + Shift + CapsLock state to its Unicode Full-Width (全角) character.
+constexpr std::optional<wchar_t> MapFullWidthChar(
+    uint32_t vk, bool shift_down, bool caps_lock_on = false) noexcept {
+    if (const auto ascii = MapPrintableAsciiChar(vk, shift_down, caps_lock_on); ascii.has_value()) {
         return AsciiToFullWidth(*ascii);
     }
     return std::nullopt;
@@ -207,8 +211,24 @@ constexpr KeyEventKind ClassifyKeyEvent(
     bool composing_quick_select = false,
     bool z_temp_english = false,
     bool full_width = false,
-    EngineState state = EngineState::Idle) noexcept {
+    EngineState state = EngineState::Idle,
+    bool caps_lock_on = false) noexcept {
     if (ctrl_down || alt_down) {
+        return KeyEventKind::None;
+    }
+
+    if (vk == VK_CAPITAL) {
+        return IsComposingState(state) ? KeyEventKind::CapsLockToggle : KeyEventKind::None;
+    }
+
+    // Industry-standard CapsLock English pass-through:
+    // When CapsLock is ON in Idle state, all keys (uppercase letters, digits, space, ASCII punctuation)
+    // bypass Wubi composition and Chinese punctuation conversion, passing through directly as English
+    // (or converting to Full-Width if Full-Width mode is active).
+    if (caps_lock_on && state == EngineState::Idle) {
+        if (full_width && MapFullWidthChar(vk, shift_down, true).has_value()) {
+            return KeyEventKind::PrintableAscii;
+        }
         return KeyEventKind::None;
     }
 
@@ -227,20 +247,21 @@ constexpr KeyEventKind ClassifyKeyEvent(
         if (vk == VK_ESCAPE) {
             return KeyEventKind::Escape;
         }
-        if (MapPrintableAsciiChar(vk, shift_down).has_value()) {
+        if (MapPrintableAsciiChar(vk, shift_down, caps_lock_on).has_value()) {
             return KeyEventKind::PrintableAscii;
         }
         return KeyEventKind::None;
     }
 
-    if (state == EngineState::Idle && z_temp_english && vk == 'Z' && !shift_down) {
+    const bool letter_upper = (shift_down != caps_lock_on);
+    if (state == EngineState::Idle && z_temp_english && vk == 'Z' && !letter_upper) {
         return KeyEventKind::TempEnglishGuide;
     }
     if (vk >= 'A' && vk <= 'Z') {
-        if ((state == EngineState::English || (state == EngineState::Idle && shift_down)) && full_width) {
+        if ((state == EngineState::English || (state == EngineState::Idle && letter_upper)) && full_width) {
             return KeyEventKind::PrintableAscii;
         }
-        return shift_down ? KeyEventKind::UpperChar : KeyEventKind::CodeChar;
+        return letter_upper ? KeyEventKind::UpperChar : KeyEventKind::CodeChar;
     }
     if (vk == VK_SPACE) {
         if ((state == EngineState::Idle || state == EngineState::English) && full_width) {
@@ -276,7 +297,7 @@ constexpr KeyEventKind ClassifyKeyEvent(
     if (state != EngineState::English && chinese_punct && MapChinesePunctuation(vk, shift_down).has_value()) {
         return KeyEventKind::ChinesePunct;
     }
-    if (full_width && MapFullWidthChar(vk, shift_down).has_value()) {
+    if (full_width && MapFullWidthChar(vk, shift_down, caps_lock_on).has_value()) {
         return KeyEventKind::PrintableAscii;
     }
     // Keep stateless backward-compatible classification when called with default state == Idle (e.g. in static_asserts)
@@ -330,6 +351,8 @@ constexpr TransitionRule ComputeTransitionRule(EngineState state, KeyEventKind e
             case KeyEventKind::Space:
             case KeyEventKind::Enter:
                 return {TransitionOp::CommitTempEnglish, EngineState::Idle, true};
+            case KeyEventKind::CapsLockToggle:
+                return {TransitionOp::CommitTempEnglish, EngineState::Idle, false};
             case KeyEventKind::PrintableAscii:
             case KeyEventKind::CodeChar:
             case KeyEventKind::UpperChar:
@@ -371,6 +394,8 @@ constexpr TransitionRule ComputeTransitionRule(EngineState state, KeyEventKind e
             return {TransitionOp::CommitSelected, EngineState::Idle, true};
         case KeyEventKind::Enter:
             return {TransitionOp::CommitRawCode, EngineState::Idle, true};
+        case KeyEventKind::CapsLockToggle:
+            return {TransitionOp::CommitRawCode, EngineState::Idle, false};
         case KeyEventKind::DigitSelect:
             return {TransitionOp::CommitDigitIndex, EngineState::Idle, true};
         case KeyEventKind::CandidateUp:
@@ -407,7 +432,7 @@ constexpr FsmTable BuildWubiFsmTable() noexcept {
     return table;
 }
 
-// Compile-time generated state transition lookup table (6 states x 12 events)
+// Compile-time generated state transition lookup table (7 states x 16 events)
 inline constexpr FsmTable kWubiFsmTable = BuildWubiFsmTable();
 
 constexpr TransitionRule LookupTransition(EngineState state, KeyEventKind event) noexcept {

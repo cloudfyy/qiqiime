@@ -578,7 +578,7 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
 }
 
 TransitionRule WubiEngine::EvaluateKeyTransition(
-    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept {
+    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept {
     const KeyEventKind event = ClassifyKeyEvent(
         vk,
         shift_down,
@@ -588,23 +588,26 @@ TransitionRule WubiEngine::EvaluateKeyTransition(
         semicolon_quote_quick_select_ && IsComposing(),
         enable_z_temp_english_,
         full_width_mode_,
-        state_);
+        state_,
+        caps_lock_on);
     return LookupTransition(state_, event);
 }
 
-bool WubiEngine::ShouldEatKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept {
-    return EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down).eat_key;
+bool WubiEngine::ShouldEatKey(
+    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept {
+    return EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down, caps_lock_on).eat_key;
 }
 
-KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) {
-    const TransitionRule rule = EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down);
+KeyProcessResult WubiEngine::ProcessKey(
+    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) {
+    const TransitionRule rule = EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down, caps_lock_on);
 
     switch (rule.op) {
         case TransitionOp::PassThrough:
             return {};
 
         case TransitionOp::CommitFullWidth:
-            if (const auto fw = MapFullWidthChar(vk, shift_down); fw.has_value()) {
+            if (const auto fw = MapFullWidthChar(vk, shift_down, caps_lock_on); fw.has_value()) {
                 std::wstring committed;
                 if (IsComposing()) {
                     committed = CurrentSelectedCandidateOrRaw();
@@ -624,7 +627,7 @@ KeyProcessResult WubiEngine::ProcessKey(uint32_t vk, bool shift_down, bool ctrl_
             return MakeCurrentStateResult(KeyActionType::UpdateState);
 
         case TransitionOp::AppendTempEnglish:
-            if (const auto ascii = MapPrintableAsciiChar(vk, shift_down); ascii.has_value()) {
+            if (const auto ascii = MapPrintableAsciiChar(vk, shift_down, caps_lock_on); ascii.has_value()) {
                 raw_code_.push_back(gsl::narrow_cast<wchar_t>(*ascii));
                 const std::wstring payload(raw_code_.substr(1));
                 all_candidates_ = {payload};

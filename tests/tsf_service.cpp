@@ -209,6 +209,37 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyToggleMode, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidProfileWubi86, &eaten)) && eaten == FALSE);
 
+    // Test Caps Lock (VK_CAPITAL low-order bit = 1):
+    // 1) In Idle Chinese mode, letter and punctuation keys pass through as English (not eaten by Wubi composition)
+    // 2) Pressing VK_CAPITAL mid-composition commits the raw English code ("ab") while letting VK_CAPITAL pass through (*pfEaten = FALSE)
+    // 3) While composing, pressing a letter with Caps Lock ON commits the current candidate + uppercase letter
+    {
+        BYTE caps_kb_state[256]{};
+        caps_kb_state[VK_CAPITAL] = 0x01;
+        ::SetKeyboardState(caps_kb_state);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_OEM_PERIOD, 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_PERIOD, 0, &eaten)) && eaten == FALSE);
+
+        ::SetKeyboardState(clean_kb_state);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'B', 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"ab");
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_CAPITAL, 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_CAPITAL, 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"ab");
+
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"a");
+
+        ::SetKeyboardState(caps_kb_state);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), 'B', 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'B', 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"工B");
+        ::SetKeyboardState(clean_kb_state);
+    }
+
     // Test FullWidth toggle (Shift+Space) and Chinese Punctuation toggle (Ctrl+.) PreservedKeys
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyToggleFullWidth, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), '1', 0, &eaten)) && eaten == TRUE);
@@ -412,6 +443,23 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'Q', 0, &eaten)));
         QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::EmptyCodeBeep);
         QIQI_TEST_CHECK(mock_ctx->range_->text_.empty());
+
+        // Exercise FormatVirtualKey branches and VK_CAPITAL trace logging when log_keystrokes is enabled
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'W', 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_MINUS, 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_PLUS, 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_DOWN, 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_BACK, 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'W', 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_1, 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'W', 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_7, 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'W', 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_RETURN, 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_COMMA, 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_PERIOD, 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), 'W', 0, &eaten)));
+        QIQI_TEST_CHECK(SUCCEEDED(hf_key_sink->OnKeyDown(mock_ctx.Get(), VK_CAPITAL, 0, &eaten)) && eaten == FALSE);
         hf_key_sink.Reset();
     }
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->Deactivate()));

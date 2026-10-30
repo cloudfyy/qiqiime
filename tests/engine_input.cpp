@@ -24,6 +24,18 @@ void TestCompileTimeFsmTransitions() {
     static_assert(ClassifyKeyEvent(VK_OEM_MINUS, false, false, false) == KeyEventKind::PageUp);
     static_assert(ClassifyKeyEvent(VK_OEM_PLUS, false, false, false) == KeyEventKind::PageDown);
 
+    // CapsLock compile-time FSM checks
+    static_assert(ClassifyKeyEvent('A', false, false, false, true, false, true, false, EngineState::Idle, true) == KeyEventKind::None);
+    static_assert(ClassifyKeyEvent('Z', false, false, false, true, false, true, false, EngineState::Idle, true) == KeyEventKind::None);
+    static_assert(ClassifyKeyEvent(VK_OEM_PERIOD, false, false, false, true, false, true, false, EngineState::Idle, true) == KeyEventKind::None);
+    static_assert(ClassifyKeyEvent('A', false, false, false, true, false, true, true, EngineState::Idle, true) == KeyEventKind::PrintableAscii);
+    static_assert(ClassifyKeyEvent('A', false, false, false, true, false, true, false, EngineState::Composing1, true) == KeyEventKind::UpperChar);
+    static_assert(ClassifyKeyEvent('A', true, false, false, true, false, true, false, EngineState::Composing1, true) == KeyEventKind::CodeChar);
+    static_assert(ClassifyKeyEvent(VK_CAPITAL, false, false, false, true, false, true, false, EngineState::Idle, false) == KeyEventKind::None);
+    static_assert(ClassifyKeyEvent(VK_CAPITAL, false, false, false, true, false, true, false, EngineState::Composing2, false) == KeyEventKind::CapsLockToggle);
+    static_assert(LookupTransition(EngineState::Composing2, KeyEventKind::CapsLockToggle).op == TransitionOp::CommitRawCode);
+    static_assert(!LookupTransition(EngineState::Composing2, KeyEventKind::CapsLockToggle).eat_key);
+
     // Compile-time checks for shared pagination helpers
     static_assert(ComputeTotalPages(0, 5) == 0);
     static_assert(ComputeTotalPages(5, 0) == 0);
@@ -64,6 +76,47 @@ void TestCompileTimeFsmTransitions() {
     QIQI_TEST_CHECK(engine.State() == EngineState::English);
     engine.SetChineseMode(true);
     QIQI_TEST_CHECK(engine.State() == EngineState::Idle);
+
+    // Runtime CapsLock behavior in WubiEngine:
+    // 1) In Idle state with CapsLock ON, letters and punctuation pass through (or commit FullWidth if enabled)
+    QIQI_TEST_CHECK(!engine.ShouldEatKey('A', false, false, false, true));
+    QIQI_TEST_CHECK(!engine.ShouldEatKey('Z', false, false, false, true));
+    QIQI_TEST_CHECK(!engine.ShouldEatKey(VK_OEM_PERIOD, false, false, false, true));
+    engine.SetFullWidthMode(true);
+    QIQI_TEST_CHECK(engine.ShouldEatKey('A', false, false, false, true));
+    const auto fw_caps = engine.ProcessKey('A', false, false, false, true);
+    QIQI_TEST_CHECK(fw_caps.action == KeyActionType::Commit && fw_caps.committed_text == L"Ａ");
+    engine.SetFullWidthMode(false);
+
+    // 2) Pressing VK_CAPITAL mid-composition commits raw code and returns to Idle without eating the OS key
+    engine.ProcessKey('W');
+    engine.ProcessKey('Q');
+    QIQI_TEST_CHECK(engine.IsComposing() && engine.RawCode() == L"wq");
+    QIQI_TEST_CHECK(!engine.ShouldEatKey(VK_CAPITAL, false, false, false, false));
+    const auto caps_commit = engine.ProcessKey(VK_CAPITAL, false, false, false, false);
+    QIQI_TEST_CHECK(caps_commit.action == KeyActionType::Commit && caps_commit.committed_text == L"wq");
+    QIQI_TEST_CHECK(!engine.IsComposing() && engine.State() == EngineState::Idle);
+
+    // 3) Pressing VK_CAPITAL in TempEnglish mode commits the temporary English string; Shift+Letter with CapsLock ON appends lowercase
+    engine.ProcessKey('Z');
+    engine.ProcessKey('A', false, false, false, true);
+    engine.ProcessKey('B', true, false, false, true);
+    QIQI_TEST_CHECK(engine.IsTempEnglishMode() && engine.RawCode() == L"zAb");
+    const auto temp_caps_commit = engine.ProcessKey(VK_CAPITAL, false, false, false, true);
+    QIQI_TEST_CHECK(temp_caps_commit.action == KeyActionType::Commit && temp_caps_commit.committed_text == L"Ab");
+    QIQI_TEST_CHECK(!engine.IsComposing());
+
+    // 4) While composing in Full-Width mode, pressing a letter with CapsLock ON commits selected candidate + full-width uppercase letter
+    engine.SetFullWidthMode(true);
+    engine.ProcessKey('A');
+    const auto comp_fw_caps = engine.ProcessKey('B', false, false, false, true);
+    QIQI_TEST_CHECK(comp_fw_caps.action == KeyActionType::Commit && comp_fw_caps.committed_text == L"工Ｂ");
+    // Shift+Letter while composing with CapsLock ON acts as lowercase Wubi code ('b'), not uppercase
+    engine.SetFullWidthMode(false);
+    engine.ProcessKey('A');
+    const auto comp_shift_caps = engine.ProcessKey('B', true, false, false, true);
+    QIQI_TEST_CHECK(comp_shift_caps.action == KeyActionType::UpdateState && comp_shift_caps.composition_text == L"ab");
+    engine.Reset();
 }
 
 void TestFirstLevelShortCodes() {

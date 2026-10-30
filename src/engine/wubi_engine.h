@@ -110,10 +110,12 @@ public:
     void Reset() noexcept;
 
     // Test whether a virtual key would be eaten by the engine in its current state
-    bool ShouldEatKey(uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept;
+    bool ShouldEatKey(
+        uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on = false) const noexcept;
 
     // Process a key press and return the state transition
-    KeyProcessResult ProcessKey(uint32_t vk, bool shift_down = false, bool ctrl_down = false, bool alt_down = false);
+    KeyProcessResult ProcessKey(
+        uint32_t vk, bool shift_down = false, bool ctrl_down = false, bool alt_down = false, bool caps_lock_on = false);
 
     // Exact + prefix lookup for a Wubi code
     std::vector<std::wstring> LookupCandidates(std::wstring_view code) const;
@@ -122,7 +124,7 @@ public:
 
 private:
     TransitionRule EvaluateKeyTransition(
-        uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down) const noexcept;
+        uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on = false) const noexcept;
     void PromotePhraseForCode(std::wstring_view code, std::wstring_view word);
     std::wstring CurrentSelectedCandidateOrRaw() const;
     std::wstring_view ResolveChinesePunctuation(uint32_t vk, bool shift_down) noexcept;
