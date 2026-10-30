@@ -442,6 +442,12 @@ void StatusBarUI::HideTooltip() noexcept {
 }
 
 void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) noexcept {
+    const int saved_dc = ::SaveDC(hdc);
+    const auto restore_dc = gsl::finally([hdc, saved_dc]() noexcept {
+        if (saved_dc != 0) {
+            ::RestoreDC(hdc, saved_dc);
+        }
+    });
     const auto& palette = GetCurrentThemePalette();
     const int grip_w = ScaleByDpi(kGripWidth);
     const int buttons_offset = ScaleByDpi(kButtonsOffset);
@@ -511,6 +517,12 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) noexcept {
 }
 
 void StatusBarUI::PaintTooltip(HDC hdc, const RECT& client_rect) const noexcept {
+    const int saved_dc = ::SaveDC(hdc);
+    const auto restore_dc = gsl::finally([hdc, saved_dc]() noexcept {
+        if (saved_dc != 0) {
+            ::RestoreDC(hdc, saved_dc);
+        }
+    });
     const auto& palette = GetCurrentThemePalette();
     const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.tooltip_bg));
     ::FillRect(hdc, &client_rect, bg_brush.Get());

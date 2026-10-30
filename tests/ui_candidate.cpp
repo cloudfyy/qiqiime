@@ -966,6 +966,19 @@ void TestCandidateUI() {
     ui->SetUiElementId(42);
     QIQI_TEST_CHECK(ui->UiElementId() == 42);
 
+    // Verify GDI fallback PaintPopup path when Direct2D target is unavailable (both with candidates and empty)
+    ui->DisableDirect2DForTest();
+    QIQI_TEST_CHECK(!ui->IsDirectWriteActive());
+    if (ui->WindowHandle()) {
+        ::InvalidateRect(ui->WindowHandle(), nullptr, TRUE);
+        ::UpdateWindow(ui->WindowHandle());
+    }
+    ui->SetCandidates(L"xy", {}, 5, 0, 0);
+    if (ui->WindowHandle()) {
+        ::InvalidateRect(ui->WindowHandle(), nullptr, TRUE);
+        ::UpdateWindow(ui->WindowHandle());
+    }
+
     QIQI_TEST_CHECK(SUCCEEDED(ui->Show(FALSE)));
     QIQI_TEST_CHECK(SUCCEEDED(ui->IsShown(&shown)) && shown == FALSE);
     ui->DestroyPopupWindow();

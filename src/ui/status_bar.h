@@ -70,8 +70,6 @@ private:
     static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept;
 
     HINSTANCE instance_ = nullptr;
-    ScopedWindow hwnd_;
-    ScopedWindow tooltip_hwnd_;
     ScopedGdiHandle<HFONT> font_;
     ScopedGdiHandle<HFONT> tooltip_font_;
     ScopedGdiHandle<HBITMAP> bmp_half_width_;
@@ -90,6 +88,9 @@ private:
     std::wstring active_tooltip_text_;
     LangBarState state_{};
     ActionCallback action_callback_;
+    // Destroy tooltip and bar windows first before releasing fonts, bitmaps, and state.
+    ScopedWindow hwnd_;
+    ScopedWindow tooltip_hwnd_;
 };
 
 } // namespace qiqi

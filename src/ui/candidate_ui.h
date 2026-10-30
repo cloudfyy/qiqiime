@@ -76,6 +76,7 @@ public:
     DWORD UiElementId() const noexcept { return ui_element_id_; }
     void SetUiElementId(DWORD id) noexcept { ui_element_id_ = id; }
     bool IsDirectWriteActive() const noexcept { return dwrite_text_format_ != nullptr && d2d_dc_target_ != nullptr; }
+    void DisableDirect2DForTest() noexcept { d2d_dc_target_.Reset(); }
 
 private:
     int ScaleByDpi(int px) const noexcept { return ::MulDiv(px, dpi_, 96); }
@@ -91,7 +92,6 @@ private:
 
     std::atomic<ULONG> ref_count_{1};
     HINSTANCE instance_ = nullptr;
-    ScopedWindow hwnd_;
     ScopedGdiHandle<HFONT> font_;
     ComPtr<ID2D1Factory> d2d_factory_;
     mutable ComPtr<ID2D1DCRenderTarget> d2d_dc_target_;
@@ -114,6 +114,8 @@ private:
     POINT popup_pos_{100, 100};
     UiLanguage ui_language_ = UiLanguage::Auto;
     SelectCallback select_callback_;
+    // Destroy the popup window first before releasing fonts, D2D/DWrite targets, and candidate state.
+    ScopedWindow hwnd_;
 };
 
 } // namespace qiqi

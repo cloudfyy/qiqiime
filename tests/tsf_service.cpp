@@ -254,12 +254,16 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     if (const ScopedClipboard clip{}; clip.IsOpen()) {
         ::EmptyClipboard();
         if (const HGLOBAL hclip = ::GlobalAlloc(GMEM_MOVEABLE, 4 * sizeof(wchar_t))) {
+            bool handed_to_clipboard = false;
+            const auto free_hclip = gsl::finally([&]() noexcept {
+                if (!handed_to_clipboard) {
+                    ::GlobalFree(hclip);
+                }
+            });
             if (auto* p = static_cast<wchar_t*>(::GlobalLock(hclip))) {
                 wcscpy_s(p, 4, L"中国");
                 ::GlobalUnlock(hclip);
-                ::SetClipboardData(CF_UNICODETEXT, hclip);
-            } else {
-                ::GlobalFree(hclip);
+                handed_to_clipboard = (::SetClipboardData(CF_UNICODETEXT, hclip) != nullptr);
             }
         }
     }

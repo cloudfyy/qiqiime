@@ -481,6 +481,12 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
     if (PaintPopupDirect2D(hdc, client_rect)) {
         return;
     }
+    const int saved_dc = ::SaveDC(hdc);
+    const auto restore_dc = gsl::finally([hdc, saved_dc]() noexcept {
+        if (saved_dc != 0) {
+            ::RestoreDC(hdc, saved_dc);
+        }
+    });
     const auto& palette = GetCurrentThemePalette();
     const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.window_bg));
     ::FillRect(hdc, &client_rect, bg_brush.Get());

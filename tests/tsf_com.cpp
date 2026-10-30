@@ -1,11 +1,13 @@
 #include "common.h"
 #include "tsf_mocks.h"
 #include "common/guids.h"
+#include "common/scoped_handle.h"
 #include "tsf/class_factory.h"
 #include "tsf/edit_session.h"
 #include "tsf/register.h"
 
 #include <windows.h>
+#include <gsl/gsl>
 #include <msctf.h>
 #include <olectl.h>
 #include <wrl/client.h>
@@ -89,10 +91,17 @@ void TestClassFactoryAndDllExports() {
 
     // Redirect COM writes and mock TSF so tests never change the real user's profiles.
     const wchar_t* kTempRegPath = L"Software\\QiQiIME_UnitTest_TempHKCR";
-    HKEY temp_hkcr = nullptr;
+    ScopedRegKey temp_hkcr;
     if (::RegCreateKeyExW(HKEY_CURRENT_USER, kTempRegPath, 0, nullptr,
-                          REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, nullptr, &temp_hkcr, nullptr) == ERROR_SUCCESS) {
-        if (::RegOverridePredefKey(HKEY_CLASSES_ROOT, temp_hkcr) == ERROR_SUCCESS) {
+                          REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, nullptr, temp_hkcr.Put(), nullptr) == ERROR_SUCCESS) {
+        const auto cleanup_temp_reg = gsl::finally([&]() noexcept {
+            temp_hkcr.Reset();
+            ::RegDeleteTreeW(HKEY_CURRENT_USER, kTempRegPath);
+        });
+        if (::RegOverridePredefKey(HKEY_CLASSES_ROOT, temp_hkcr.Get()) == ERROR_SUCCESS) {
+            const auto restore_hkcr = gsl::finally([]() noexcept {
+                ::RegOverridePredefKey(HKEY_CLASSES_ROOT, nullptr);
+            });
             QIQI_TEST_CHECK(!IsNative64BitClsidRegistered());
             // 2. Test full RegisterServerWithManagers / UnregisterServerWithManagers flow using mocks
             ComPtr<MockTfInputProcessorProfiles> mock_profiles(new MockTfInputProcessorProfiles());
@@ -143,13 +152,13 @@ void TestClassFactoryAndDllExports() {
             QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_ == 7);
 
             // 2d. WOW64 coexistence path (override_wow64 = true while native 64-bit CLSID is present)
-            HKEY native64_key = nullptr;
+            ScopedRegKey native64_key;
             const wchar_t* kInproc64 =
                 L"CLSID\\{8E7B9D31-5A42-4C81-9F11-202610290001}\\InProcServer32";
             if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, kInproc64, 0, nullptr,
                                   REG_OPTION_NON_VOLATILE, KEY_WRITE | KEY_WOW64_64KEY,
-                                  nullptr, &native64_key, nullptr) == ERROR_SUCCESS) {
-                ::RegCloseKey(native64_key);
+                                  nullptr, native64_key.Put(), nullptr) == ERROR_SUCCESS) {
+                native64_key.Reset();
                 const int enable_calls = mock_profiles->enable_calls_;
                 const int enable_default_calls = mock_profiles->enable_default_calls_;
                 QIQI_TEST_CHECK(RegisterServerWithManagers(
@@ -182,11 +191,7 @@ void TestClassFactoryAndDllExports() {
             QIQI_TEST_CHECK(mock_profiles->enabled_);
             QIQI_TEST_CHECK(SUCCEEDED(UnregisterServerWithManagers(
                 mock_profiles.Get(), mock_cat_mgr.Get(), false)));
-
-            ::RegOverridePredefKey(HKEY_CLASSES_ROOT, nullptr);
         }
-        ::RegCloseKey(temp_hkcr);
-        ::RegDeleteTreeW(HKEY_CURRENT_USER, kTempRegPath);
     }
 }
 

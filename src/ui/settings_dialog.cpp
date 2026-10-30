@@ -158,6 +158,12 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 }
 
 void PaintAboutDialog(HDC hdc, const RECT& client_rc, const AboutDialogContext& ctx) {
+    const int saved_dc = ::SaveDC(hdc);
+    const auto restore_dc = gsl::finally([hdc, saved_dc]() noexcept {
+        if (saved_dc != 0) {
+            ::RestoreDC(hdc, saved_dc);
+        }
+    });
     const auto S = [dpi = ctx.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
     const auto& str = GetUiStrings(ctx.ui_language);
 

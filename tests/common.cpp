@@ -82,14 +82,18 @@ void TestSpdlogLogger() {
     std::filesystem::remove(rel_log, ec);
 
     // 6. Test GetDefaultLogFilePath fallback when LOCALAPPDATA is unset
-    wchar_t* orig_localappdata = nullptr;
-    size_t orig_len = 0;
-    _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
-    _wputenv_s(L"LOCALAPPDATA", L"");
-    log::InitLogger({}, spdlog::level::info);
-    if (orig_localappdata) {
-        _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
-        free(orig_localappdata);
+    {
+        wchar_t* orig_localappdata = nullptr;
+        size_t orig_len = 0;
+        _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
+        const auto restore_env = gsl::finally([orig_localappdata]() noexcept {
+            if (orig_localappdata) {
+                _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
+                free(orig_localappdata);
+            }
+        });
+        _wputenv_s(L"LOCALAPPDATA", L"");
+        log::InitLogger({}, spdlog::level::info);
     }
     log::InitLogger();
 }
@@ -264,17 +268,19 @@ void TestIniConfiguration() {
     _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
     const auto temp_appdata = std::filesystem::temp_directory_path() / L"QiQiIME_TestAppData";
     std::filesystem::remove_all(temp_appdata, ec);
+    const auto restore_appdata = gsl::finally([&]() noexcept {
+        if (orig_localappdata) {
+            _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
+            free(orig_localappdata);
+        }
+        std::error_code clean_ec;
+        std::filesystem::remove_all(temp_appdata, clean_ec);
+    });
     _wputenv_s(L"LOCALAPPDATA", temp_appdata.wstring().c_str());
 
     const QiQiConfig discovered = LoadConfig(nullptr);
     QIQI_TEST_CHECK(discovered.page_size >= 1 && discovered.page_size <= 9);
     QIQI_TEST_CHECK(std::filesystem::exists(GetDefaultUserConfigPath()));
-
-    if (orig_localappdata) {
-        _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
-        free(orig_localappdata);
-    }
-    std::filesystem::remove_all(temp_appdata, ec);
 }
 
 void TestScopedHandleTemplate() {
