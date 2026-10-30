@@ -475,12 +475,19 @@ private:
 };
 
 // Minimal mock ITfInputProcessorProfiles for non-admin unit testing of RegisterServer
-class MockTfInputProcessorProfiles final : public ITfInputProcessorProfiles {
+class MockTfInputProcessorProfiles final
+    : public ITfInputProcessorProfiles,
+      public ITfInputProcessorProfileMgr {
 public:
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfInputProcessorProfiles)) {
             *ppvObj = static_cast<ITfInputProcessorProfiles*>(this);
+            AddRef();
+            return S_OK;
+        }
+        if (IsEqualIID(riid, IID_ITfInputProcessorProfileMgr)) {
+            *ppvObj = static_cast<ITfInputProcessorProfileMgr*>(this);
             AddRef();
             return S_OK;
         }
@@ -502,9 +509,12 @@ public:
         registered_ = false;
         return S_OK;
     }
-    STDMETHODIMP AddLanguageProfile(REFCLSID, LANGID, REFGUID, const WCHAR*, ULONG, const WCHAR*, ULONG, ULONG) override {
+    STDMETHODIMP AddLanguageProfile(REFCLSID, LANGID, REFGUID, const WCHAR* desc, ULONG cch, const WCHAR*, ULONG, ULONG) override {
         if (fail_add_profile_) return E_FAIL;
         profile_added_ = true;
+        if (desc && cch > 0) {
+            last_profile_desc_.assign(desc, cch);
+        }
         return S_OK;
     }
     STDMETHODIMP RemoveLanguageProfile(REFCLSID, LANGID, REFGUID) override { return S_OK; }
@@ -523,10 +533,25 @@ public:
     STDMETHODIMP EnableLanguageProfileByDefault(REFCLSID, LANGID, REFGUID, BOOL) override { return E_NOTIMPL; }
     STDMETHODIMP SubstituteKeyboardLayout(REFCLSID, LANGID, REFGUID, HKL) override { return E_NOTIMPL; }
 
+    // ITfInputProcessorProfileMgr
+    STDMETHODIMP ActivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD) override { return E_NOTIMPL; }
+    STDMETHODIMP DeactivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD) override { return E_NOTIMPL; }
+    STDMETHODIMP RegisterProfile(REFCLSID, LANGID, REFGUID, const WCHAR*, ULONG, const WCHAR*, ULONG, ULONG, HKL, DWORD, BOOL, DWORD) override {
+        profile_mgr_registered_ = true;
+        return S_OK;
+    }
+    STDMETHODIMP UnregisterProfile(REFCLSID, LANGID, REFGUID, DWORD) override { return S_OK; }
+    STDMETHODIMP GetProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, TF_INPUTPROCESSORPROFILE*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetActiveProfile(REFGUID, TF_INPUTPROCESSORPROFILE*) override { return E_NOTIMPL; }
+    STDMETHODIMP EnumProfiles(LANGID, IEnumTfInputProcessorProfiles**) override { return E_NOTIMPL; }
+    STDMETHODIMP ReleaseInputProcessor(REFCLSID, DWORD) override { return E_NOTIMPL; }
+
     bool fail_register_ = false;
     bool fail_add_profile_ = false;
     bool registered_ = false;
     bool profile_added_ = false;
+    bool profile_mgr_registered_ = false;
+    std::wstring last_profile_desc_;
 private:
     ULONG ref_ = 1;
 };

@@ -111,6 +111,40 @@ void TestLangBarButton() {
     ScopedIcon icon;
     QIQI_TEST_CHECK(SUCCEEDED(btn->GetIcon(icon.Put())) && icon.IsValid());
 
+    // Verify CreateTransparentGlyphIcon creates a 32-bit ARGB icon with transparent corner pixels
+    {
+        const ScopedIcon glyph_icon = CreateTransparentGlyphIcon(L'奇', 32, RGB(35, 105, 200));
+        QIQI_TEST_CHECK(glyph_icon.IsValid());
+        ICONINFO ii{};
+        QIQI_TEST_CHECK(::GetIconInfo(glyph_icon.Get(), &ii) != FALSE);
+        const ScopedGdiHandle<HBITMAP> hbm_color(ii.hbmColor);
+        const ScopedGdiHandle<HBITMAP> hbm_mask(ii.hbmMask);
+        BITMAP bm{};
+        QIQI_TEST_CHECK(::GetObjectW(hbm_color.Get(), sizeof(bm), &bm) == sizeof(bm));
+        QIQI_TEST_CHECK(bm.bmWidth == 32 && bm.bmHeight == 32 && bm.bmBitsPixel == 32);
+
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = 32;
+        bmi.bmiHeader.biHeight = -32;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        std::vector<uint32_t> pixels(32 * 32, 0xFFFFFFFFu);
+        const ScopedWindowDC sdc(nullptr);
+        QIQI_TEST_CHECK(::GetDIBits(sdc.Get(), hbm_color.Get(), 0, 32, pixels.data(), &bmi, DIB_RGB_COLORS) == 32);
+        // Top-left corner (0,0) must be completely transparent (alpha == 0), while center area has non-zero alpha
+        QIQI_TEST_CHECK(pixels.front() == 0u);
+        bool has_opaque_glyph_pixel = false;
+        for (const uint32_t px : pixels) {
+            if ((px >> 24u) > 0u) {
+                has_opaque_glyph_pixel = true;
+                break;
+            }
+        }
+        QIQI_TEST_CHECK(has_opaque_glyph_pixel);
+    }
+
     // AdviseSink / UpdateState / UnadviseSink
     MockLangBarItemSink sink;
     DWORD cookie = 0;
@@ -157,12 +191,34 @@ void TestLangBarButton() {
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_LEFT, pt, nullptr)));
     QIQI_TEST_CHECK(last_action == LangBarMenuId::ToggleChinese);
 
-    // Test right-click on taskbar tray button (TF_LBI_CLK_RIGHT) popping up context menu
+    // Test right-click on taskbar tray button (TF_LBI_CLK_RIGHT) popping up context menu:
+    // 1) Dismissed without selection
     ::SetTimer(nullptr, 6, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
         ::EndMenu();
     });
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_RIGHT, pt, nullptr)));
+
+    // 2) Selecting an item via keyboard (VK_DOWN + VK_RETURN -> 1st item ToggleChinese) with explicit screen coordinates
+    last_action = static_cast<LangBarMenuId>(0);
+    ::SetTimer(nullptr, 7, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+        ::KillTimer(nullptr, id);
+        if (const HWND menu_wnd = ::FindWindowW(L"#32768", nullptr)) {
+            ::PostMessageW(menu_wnd, WM_KEYDOWN, VK_DOWN, 0);
+            ::PostMessageW(menu_wnd, WM_KEYDOWN, VK_RETURN, 0);
+        } else {
+            ::EndMenu();
+        }
+    });
+    const POINT explicit_pt{200, 200};
+    QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_RIGHT, explicit_pt, nullptr)));
+
+    // 3) LangBarButton with empty callback safely ignores OnClick
+    {
+        const ComPtr<LangBarButton> no_cb_btn = MakeComObject<LangBarButton>();
+        QIQI_TEST_CHECK(SUCCEEDED(no_cb_btn->OnClick(TF_LBI_CLK_LEFT, pt, nullptr)));
+        QIQI_TEST_CHECK(SUCCEEDED(no_cb_btn->OnClick(TF_LBI_CLK_RIGHT, pt, nullptr)));
+    }
 
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::DictHaifeng))));
     QIQI_TEST_CHECK(last_action == LangBarMenuId::DictHaifeng);

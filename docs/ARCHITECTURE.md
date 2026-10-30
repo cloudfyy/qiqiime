@@ -90,7 +90,7 @@ TSF 的按键处理分为两步：
 
 ## 3. 已完成特性清单与后续扩展
 
-### 已完成（v0.8.0）
+### 已完成（v0.8.1）
 - [x] **1. 完整中文标点与智能配对引号（`paired-quotes-punct`）**
 - [x] **2. 候选框自适应宽度、多显示器 Per-Monitor DPI 缩放与鼠标点击选词（`candidate-dpi-autosize`）**
 - [x] **3. 语言栏托盘按钮与右键菜单（`langbar-tray-menu`）**

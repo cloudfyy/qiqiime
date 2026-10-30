@@ -115,11 +115,14 @@ void TestClassFactoryAndDllExports() {
                 hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false)));
             mock_profiles->fail_add_profile_ = false;
 
-            // 2c. Full success of RegisterServerWithManagers (AddLanguageProfile + 7 Categories)
+            // 2c. Full success of RegisterServerWithManagers (AddLanguageProfile + RegisterProfile + 7 Categories)
             QIQI_TEST_CHECK(SUCCEEDED(RegisterServerWithManagers(
                 hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false)));
             QIQI_TEST_CHECK(mock_profiles->registered_);
             QIQI_TEST_CHECK(mock_profiles->profile_added_);
+            QIQI_TEST_CHECK(mock_profiles->profile_mgr_registered_);
+            QIQI_TEST_CHECK(mock_profiles->last_profile_desc_ == kProfileDescZh ||
+                            mock_profiles->last_profile_desc_ == kProfileDescEn);
             QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_ == 7);
 
             // 2d. WOW64 coexistence path (override_wow64 = true while native 64-bit CLSID is present)

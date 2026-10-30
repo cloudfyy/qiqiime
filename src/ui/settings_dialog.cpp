@@ -45,44 +45,7 @@ constexpr std::array<const wchar_t*, 9> kPageSizeLabels = {
 };
 
 ScopedIcon CreateBrandIcon(int size_px) noexcept {
-    const int sz = std::max(16, size_px);
-    const ScopedWindowDC screen_dc(nullptr);
-    if (!screen_dc) {
-        return {};
-    }
-    const ScopedMemoryDC mem_dc(::CreateCompatibleDC(screen_dc.Get()));
-    if (!mem_dc) {
-        return {};
-    }
-    const ScopedGdiHandle<HBITMAP> color_bmp(::CreateCompatibleBitmap(screen_dc.Get(), sz, sz));
-    const ScopedGdiHandle<HBITMAP> mask_bmp(::CreateBitmap(sz, sz, 1, 1, nullptr));
-    if (!color_bmp || !mask_bmp) {
-        return {};
-    }
-
-    const ScopedSelectObject sel_bmp(mem_dc.Get(), color_bmp.Get());
-    RECT rc{0, 0, sz, sz};
-    const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(RGB(35, 105, 200)));
-    ::FillRect(mem_dc.Get(), &rc, bg_brush.Get());
-
-    LOGFONTW lf{};
-    lf.lfHeight = -(sz - 4);
-    lf.lfWeight = FW_BOLD;
-    lf.lfCharSet = DEFAULT_CHARSET;
-    lf.lfQuality = CLEARTYPE_QUALITY;
-    wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
-    const ScopedGdiHandle<HFONT> font(::CreateFontIndirectW(&lf));
-    const ScopedSelectObject sel_font(mem_dc.Get(), font.Get());
-
-    ::SetBkMode(mem_dc.Get(), TRANSPARENT);
-    ::SetTextColor(mem_dc.Get(), RGB(255, 255, 255));
-    ::DrawTextW(mem_dc.Get(), L"奇", 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    ICONINFO ii{};
-    ii.fIcon = TRUE;
-    ii.hbmMask = mask_bmp.Get();
-    ii.hbmColor = color_bmp.Get();
-    return ScopedIcon(::CreateIconIndirect(&ii));
+    return CreateTransparentGlyphIcon(L'奇', size_px, RGB(35, 105, 200));
 }
 
 struct DialogContext {
@@ -99,7 +62,6 @@ struct AboutDialogContext {
     bool done = false;
     ScopedGdiHandle<HFONT> body_font;
     ScopedGdiHandle<HFONT> title_font;
-    ScopedGdiHandle<HFONT> badge_font;
     ScopedIcon icon;
 };
 
@@ -202,18 +164,9 @@ void PaintAboutDialog(HDC hdc, const RECT& client_rc, const AboutDialogContext& 
     ::FillRect(hdc, &client_rc, bg_brush.Get());
     ::SetBkMode(hdc, TRANSPARENT);
 
-    // 1. Draw rounded blue brand icon badge on top-left [24, 20, 80, 76] with "奇"
-    RECT badge_rc{S(24), S(20), S(80), S(76)};
-    {
-        const ScopedGdiHandle<HBRUSH> badge_brush(::CreateSolidBrush(RGB(35, 105, 200)));
-        const ScopedGdiHandle<HPEN> badge_pen(::CreatePen(PS_SOLID, 1, RGB(25, 85, 170)));
-        const ScopedSelectObject sel_brush(hdc, badge_brush.Get());
-        const ScopedSelectObject sel_pen(hdc, badge_pen.Get());
-        ::RoundRect(hdc, badge_rc.left, badge_rc.top, badge_rc.right, badge_rc.bottom, S(14), S(14));
-
-        const ScopedSelectObject sel_badge_font(hdc, ctx.badge_font.Get());
-        ::SetTextColor(hdc, RGB(255, 255, 255));
-        ::DrawTextW(hdc, L"奇", -1, &badge_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    // 1. Draw transparent brand icon on top-left [24, 20, 80, 76] using the shared ScopedIcon
+    if (ctx.icon) {
+        ::DrawIconEx(hdc, S(24), S(20), ctx.icon.Get(), S(56), S(56), 0, nullptr, DI_NORMAL);
     }
 
     // 2. Draw IME Name ("奇奇五笔 (QiQi Wubi IME)") and Version
@@ -399,7 +352,6 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     const POINT dlg_pos = ClampPointToWorkArea(centered, dlg_w, dlg_h, mon.work_area);
 
     const HFONT f = ctx->font.Get();
-    const HICON ic = ctx->icon.Get();
     ScopedWindow hwnd(::CreateWindowExW(
         WS_EX_DLGMODALFRAME,
         kSettingsWndClass,
@@ -413,9 +365,9 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     }
     QIQI_LOG_DEBUG("SettingsWindow created (pos=({}, {}), size={}x{}, dpi={})",
                    dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
-    std::ignore = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
-    if (ic) {
-        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(ic));
+    const auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
+    if (owned_ctx->icon) {
+        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
     }
 
     CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_jidian, BS_AUTORADIOBUTTON | WS_GROUP, S(24), S(20), S(360), S(24), kIdRadioJidian);
@@ -514,12 +466,7 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     title_lf.lfWeight = FW_BOLD;
     ctx->title_font.Reset(::CreateFontIndirectW(&title_lf));
 
-    LOGFONTW badge_lf = body_lf;
-    badge_lf.lfHeight = -S(30);
-    badge_lf.lfWeight = FW_BOLD;
-    ctx->badge_font.Reset(::CreateFontIndirectW(&badge_lf));
-
-    ctx->icon = CreateBrandIcon(S(16));
+    ctx->icon = CreateBrandIcon(S(56));
 
     const auto& str = GetUiStrings(ui_language);
     const int dlg_w = S(440);
@@ -531,7 +478,6 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     const POINT dlg_pos = ClampPointToWorkArea(centered, dlg_w, dlg_h, mon.work_area);
 
     const HFONT f = ctx->body_font.Get();
-    const HICON ic = ctx->icon.Get();
     ScopedWindow hwnd(::CreateWindowExW(
         WS_EX_DLGMODALFRAME,
         kAboutWndClass,
@@ -545,9 +491,9 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     }
     QIQI_LOG_DEBUG("AboutWindow created (pos=({}, {}), size={}x{}, dpi={})",
                    dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
-    std::ignore = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
-    if (ic) {
-        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(ic));
+    const auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
+    if (owned_ctx->icon) {
+        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
     }
 
     CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.about_btn_github, BS_PUSHBUTTON, S(24), S(236), S(120), S(28), kIdBtnOpenGitHub);

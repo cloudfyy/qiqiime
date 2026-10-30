@@ -3,6 +3,11 @@
 #include <oleauto.h>
 #include <wrl/client.h>
 #include <gsl/gsl>
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <span>
 #include <string_view>
 #include <utility>
 
@@ -318,6 +323,81 @@ constexpr VARIANT MakeInt4Variant(LONG val) noexcept {
 #pragma warning(suppress : 26476)
     var.lVal = val;
     return var;
+}
+
+// Create a 32-bit ARGB transparent HICON containing a single centered glyph (no solid background fill).
+inline ScopedIcon CreateTransparentGlyphIcon(wchar_t ch, int size_px, COLORREF text_color) noexcept {
+    const int sz = std::max(16, size_px);
+    const ScopedWindowDC screen_dc(nullptr);
+    if (!screen_dc) {
+        return {};
+    }
+    const ScopedMemoryDC mem_dc(::CreateCompatibleDC(screen_dc.Get()));
+    if (!mem_dc) {
+        return {};
+    }
+
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = sz;
+    bmi.bmiHeader.biHeight = -sz; // Top-down 32-bit ARGB DIB
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    const ScopedGdiHandle<HBITMAP> color_bmp(
+        ::CreateDIBSection(screen_dc.Get(), &bmi, DIB_RGB_COLORS, &bits, nullptr, 0));
+    const ScopedGdiHandle<HBITMAP> mask_bmp(::CreateBitmap(sz, sz, 1, 1, nullptr));
+    if (!color_bmp || !bits || !mask_bmp) {
+        return {};
+    }
+
+    const size_t pixel_count = gsl::narrow_cast<size_t>(sz) * gsl::narrow_cast<size_t>(sz);
+    std::memset(bits, 0, pixel_count * sizeof(uint32_t));
+
+    {
+        const ScopedSelectObject sel_bmp(mem_dc.Get(), color_bmp.Get());
+        LOGFONTW lf{};
+        lf.lfHeight = -(sz - 2);
+        lf.lfWeight = FW_SEMIBOLD;
+        lf.lfCharSet = DEFAULT_CHARSET;
+        lf.lfQuality = ANTIALIASED_QUALITY;
+        wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
+        const ScopedGdiHandle<HFONT> font(::CreateFontIndirectW(&lf));
+        const ScopedSelectObject sel_font(mem_dc.Get(), font.Get());
+
+        RECT rc{0, 0, sz, sz};
+        ::SetBkMode(mem_dc.Get(), TRANSPARENT);
+        ::SetTextColor(mem_dc.Get(), RGB(255, 255, 255));
+        const std::array<wchar_t, 2> text = {ch, L'\0'};
+        ::DrawTextW(mem_dc.Get(), text.data(), 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+    ::GdiFlush();
+
+    // Convert grayscale glyph intensity into 32-bit premultiplied ARGB with transparent background
+    const uint32_t r_fg = GetRValue(text_color);
+    const uint32_t g_fg = GetGValue(text_color);
+    const uint32_t b_fg = GetBValue(text_color);
+#pragma warning(suppress : 26490)
+    const std::span<uint32_t> pixels(static_cast<uint32_t*>(bits), pixel_count);
+    for (uint32_t& px : pixels) {
+        const uint32_t lum = px & 0xFFu;
+        if (lum == 0) {
+            px = 0;
+        } else {
+            const uint32_t pr = (r_fg * lum) / 255u;
+            const uint32_t pg = (g_fg * lum) / 255u;
+            const uint32_t pb = (b_fg * lum) / 255u;
+            px = (lum << 24u) | (pr << 16u) | (pg << 8u) | pb;
+        }
+    }
+
+    ICONINFO ii{};
+    ii.fIcon = TRUE;
+    ii.hbmMask = mask_bmp.Get();
+    ii.hbmColor = color_bmp.Get();
+    return ScopedIcon(::CreateIconIndirect(&ii));
 }
 
 } // namespace qiqi

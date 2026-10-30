@@ -290,48 +290,8 @@ void LangBarButton::UpdateState(const LangBarState& state) {
 
 ScopedIcon LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
     const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
-    const ScopedWindowDC screen_dc(nullptr);
-    if (!screen_dc) {
-        return {};
-    }
-
-    const ScopedMemoryDC mem_dc(::CreateCompatibleDC(screen_dc.Get()));
-    if (!mem_dc) {
-        return {};
-    }
-
-    const ScopedGdiHandle<HBITMAP> color_bmp(::CreateCompatibleBitmap(screen_dc.Get(), size, size));
-    const ScopedGdiHandle<HBITMAP> mask_bmp(::CreateBitmap(size, size, 1, 1, nullptr));
-    if (!color_bmp || !mask_bmp) {
-        return {};
-    }
-
-    const ScopedSelectObject sel_bmp(mem_dc.Get(), color_bmp.Get());
-
     const auto& palette = GetCurrentThemePalette();
-    RECT rc{0, 0, size, size};
-    const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.logo_bg));
-    ::FillRect(mem_dc.Get(), &rc, bg_brush.Get());
-
-    LOGFONTW lf{};
-    lf.lfHeight = -size + 2;
-    lf.lfWeight = FW_BOLD;
-    lf.lfCharSet = DEFAULT_CHARSET;
-    lf.lfQuality = CLEARTYPE_QUALITY;
-    wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
-    const ScopedGdiHandle<HFONT> font(::CreateFontIndirectW(&lf));
-    const ScopedSelectObject sel_font(mem_dc.Get(), font.Get());
-
-    ::SetBkMode(mem_dc.Get(), TRANSPARENT);
-    ::SetTextColor(mem_dc.Get(), RGB(255, 255, 255));
-    const std::array<wchar_t, 2> text = {ch, L'\0'};
-    ::DrawTextW(mem_dc.Get(), text.data(), 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    ICONINFO ii{};
-    ii.fIcon = TRUE;
-    ii.hbmMask = mask_bmp.Get();
-    ii.hbmColor = color_bmp.Get();
-    return ScopedIcon(::CreateIconIndirect(&ii));
+    return CreateTransparentGlyphIcon(ch, size, palette.text_primary);
 }
 
 } // namespace qiqi
