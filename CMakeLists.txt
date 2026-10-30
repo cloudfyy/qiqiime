@@ -100,3 +100,12 @@ find_package(Microsoft.GSL CONFIG REQUIRED)
 enable_testing()
 add_subdirectory(src)
 add_subdirectory(tests)
+
+# Optional helper target to build the secondary x86 (Win32) tree on demand when packaging dual-arch installers
+if(QIQIIME_ARCH_NAME STREQUAL "x64" AND EXISTS "${CMAKE_SOURCE_DIR}/build/x86/CMakeCache.txt")
+    add_custom_target(qiqi_build_x86
+        COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_SOURCE_DIR}/build/x86" --config $<CONFIG>
+        VERBATIM USES_TERMINAL
+    )
+endif()
+

@@ -123,15 +123,47 @@ public:
     size_t MappedDictionaryCount() const noexcept { return mapped_dicts_.size(); }
 
 private:
+    struct KeyInputContext {
+        uint32_t vk = 0;
+        bool shift_down = false;
+        bool caps_lock_on = false;
+        EngineState next_state = EngineState::Idle;
+    };
+    using ActionHandler = KeyProcessResult (WubiEngine::*)(const KeyInputContext&);
+
     TransitionRule EvaluateKeyTransition(
         uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on = false) const noexcept;
     void PromotePhraseForCode(std::wstring_view code, std::wstring_view word);
     std::wstring CurrentSelectedCandidateOrRaw() const;
     std::wstring_view ResolveChinesePunctuation(uint32_t vk, bool shift_down) noexcept;
     void AppendCodeAndRefresh(uint32_t vk, EngineState next_state);
+    void UpdateTempEnglishCandidates();
     KeyProcessResult CommitAndReset(std::wstring committed_text);
     void RefreshCandidates();
     KeyProcessResult MakeCurrentStateResult(KeyActionType action, std::wstring committed = L"") const;
+
+    // Table-driven Command handlers corresponding 1:1 to TransitionOp
+    KeyProcessResult HandlePassThrough(const KeyInputContext& ctx) noexcept;
+    KeyProcessResult HandleAppendCode(const KeyInputContext& ctx);
+    KeyProcessResult HandleAppend4thCode(const KeyInputContext& ctx);
+    KeyProcessResult HandlePushCommitAndRestart(const KeyInputContext& ctx);
+    KeyProcessResult HandlePopCode(const KeyInputContext& ctx);
+    KeyProcessResult HandleCancelComposition(const KeyInputContext& ctx) noexcept;
+    KeyProcessResult HandleCommitSelected(const KeyInputContext& ctx);
+    KeyProcessResult HandleCommitRawCode(const KeyInputContext& ctx);
+    KeyProcessResult HandleCommitDigitIndex(const KeyInputContext& ctx);
+    KeyProcessResult HandleSelectPrevCandidate(const KeyInputContext& ctx);
+    KeyProcessResult HandleSelectNextCandidate(const KeyInputContext& ctx);
+    KeyProcessResult HandleTurnPagePrev(const KeyInputContext& ctx);
+    KeyProcessResult HandleTurnPageNext(const KeyInputContext& ctx);
+    KeyProcessResult HandleCommitPunctOnly(const KeyInputContext& ctx);
+    KeyProcessResult HandleCommitSelectedAndPunct(const KeyInputContext& ctx);
+    KeyProcessResult HandleCommitSelectedAndUpper(const KeyInputContext& ctx);
+    KeyProcessResult HandleStartTempEnglish(const KeyInputContext& ctx);
+    KeyProcessResult HandleAppendTempEnglish(const KeyInputContext& ctx);
+    KeyProcessResult HandlePopTempEnglish(const KeyInputContext& ctx);
+    KeyProcessResult HandleCommitTempEnglish(const KeyInputContext& ctx);
+    KeyProcessResult HandleCommitFullWidth(const KeyInputContext& ctx);
 
     std::map<uint32_t, std::vector<std::wstring>> dict_;
     std::map<uint32_t, std::vector<std::wstring>> promoted_phrases_;

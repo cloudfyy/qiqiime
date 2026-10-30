@@ -83,7 +83,8 @@ enum class TransitionOp : uint8_t {
     AppendTempEnglish = 17,     // TempEnglish printable ASCII: append char to temporary English buffer
     PopTempEnglish = 18,        // TempEnglish Backspace: pop last char or cancel if only 'z' remains
     CommitTempEnglish = 19,     // TempEnglish Space/Enter: commit temporary English string -> Idle
-    CommitFullWidth = 20        // FullWidth mode fallback: commit (optional candidate +) full-width char -> Idle
+    CommitFullWidth = 20,       // FullWidth mode fallback: commit (optional candidate +) full-width char -> Idle
+    Count = 21
 };
 
 struct TransitionRule {

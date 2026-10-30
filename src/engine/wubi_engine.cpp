@@ -598,194 +598,232 @@ bool WubiEngine::ShouldEatKey(
     return EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down, caps_lock_on).eat_key;
 }
 
-KeyProcessResult WubiEngine::ProcessKey(
-    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) {
-    const TransitionRule rule = EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down, caps_lock_on);
+void WubiEngine::UpdateTempEnglishCandidates() {
+    const bool has_payload = raw_code_.size() > 1;
+    const std::wstring payload = has_payload ? raw_code_.substr(1) : L"z";
+    all_candidates_ = {payload};
+    all_display_candidates_ = {has_payload ? payload : L"(英文模式)"};
+    current_page_ = 0;
+    selected_in_page_ = 0;
+}
 
-    switch (rule.op) {
-        case TransitionOp::PassThrough:
-            return {};
+KeyProcessResult WubiEngine::HandlePassThrough(const KeyInputContext& /*ctx*/) noexcept {
+    return {};
+}
 
-        case TransitionOp::CommitFullWidth:
-            if (const auto fw = MapFullWidthChar(vk, shift_down, caps_lock_on); fw.has_value()) {
-                std::wstring committed;
-                if (IsComposing()) {
-                    committed = CurrentSelectedCandidateOrRaw();
-                }
-                committed.push_back(*fw);
-                return CommitAndReset(std::move(committed));
-            }
-            return {};
+KeyProcessResult WubiEngine::HandleAppendCode(const KeyInputContext& ctx) {
+    AppendCodeAndRefresh(ctx.vk, ctx.next_state);
+    return MakeCurrentStateResult(KeyActionType::UpdateState);
+}
 
-        case TransitionOp::StartTempEnglish:
-            raw_code_ = L"z";
-            state_ = rule.next_state;
-            all_candidates_ = {L"z"};
-            all_display_candidates_ = {L"(英文模式)"};
-            current_page_ = 0;
-            selected_in_page_ = 0;
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-
-        case TransitionOp::AppendTempEnglish:
-            if (const auto ascii = MapPrintableAsciiChar(vk, shift_down, caps_lock_on); ascii.has_value()) {
-                raw_code_.push_back(gsl::narrow_cast<wchar_t>(*ascii));
-                const std::wstring payload(raw_code_.substr(1));
-                all_candidates_ = {payload};
-                all_display_candidates_ = {payload};
-                return MakeCurrentStateResult(KeyActionType::UpdateState);
-            }
-            return {};
-
-        case TransitionOp::PopTempEnglish:
-            if (raw_code_.size() <= 1) {
-                Reset();
-                return MakeCurrentStateResult(KeyActionType::Cancel);
-            }
-            raw_code_.pop_back();
-            {
-                const std::wstring payload = (raw_code_.size() > 1) ? raw_code_.substr(1) : L"z";
-                all_candidates_ = {payload};
-                all_display_candidates_ = {(raw_code_.size() > 1) ? payload : L"(英文模式)"};
-            }
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-
-        case TransitionOp::CommitTempEnglish: {
-            std::wstring committed = (raw_code_.size() > 1) ? raw_code_.substr(1) : L"z";
-            return CommitAndReset(std::move(committed));
+KeyProcessResult WubiEngine::HandleAppend4thCode(const KeyInputContext& ctx) {
+    AppendCodeAndRefresh(ctx.vk, ctx.next_state);
+    // Standard Wubi 86 4-code auto-commit:
+    // When reaching 4 codes without wildcard 'z' and there is a unique exact match, commit immediately!
+    if (raw_code_.find(L'z') == std::wstring::npos) {
+        const auto exact = LookupExact(raw_code_);
+        if (auto_commit_4code_ && exact.size() == 1) {
+            return CommitAndReset(exact.front());
         }
-
-        case TransitionOp::AppendCode:
-            AppendCodeAndRefresh(vk, rule.next_state);
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-
-        case TransitionOp::Append4thCode: {
-            AppendCodeAndRefresh(vk, rule.next_state);
-            // Standard Wubi 86 4-code auto-commit:
-            // When reaching 4 codes without wildcard 'z' and there is a unique exact match, commit immediately!
-            if (raw_code_.find(L'z') == std::wstring::npos) {
-                const auto exact = LookupExact(raw_code_);
-                if (auto_commit_4code_ && exact.size() == 1) {
-                    return CommitAndReset(exact.front());
-                }
-                if (beep_on_dup_4code_ && exact.size() > 1) {
-                    QIQI_LOG_DEBUG("4-code lookup has {} exact matches: triggering dup-code chime", exact.size());
-                    KeyProcessResult res = MakeCurrentStateResult(KeyActionType::UpdateState);
-                    res.dup_4code_warning = true;
-                    return res;
-                }
-            }
-            const bool is_empty_4code = all_candidates_.empty();
-            if (is_empty_4code && clear_on_empty_4code_) {
-                QIQI_LOG_DEBUG("4-code lookup empty: auto-clearing composition (beep={})", beep_on_empty_4code_);
-                Reset();
-                KeyProcessResult res = MakeCurrentStateResult(KeyActionType::Cancel);
-                if (beep_on_empty_4code_) {
-                    res.empty_4code_warning = true;
-                }
-                return res;
-            }
+        if (beep_on_dup_4code_ && exact.size() > 1) {
+            QIQI_LOG_DEBUG("4-code lookup has {} exact matches: triggering dup-code chime", exact.size());
             KeyProcessResult res = MakeCurrentStateResult(KeyActionType::UpdateState);
-            if (beep_on_empty_4code_ && is_empty_4code) {
-                QIQI_LOG_DEBUG("4-code lookup empty: triggering empty-code warning beep");
-                res.empty_4code_warning = true;
-            }
+            res.dup_4code_warning = true;
             return res;
         }
-
-        case TransitionOp::PushCommitAndRestart: {
-            if (!push_commit_5th_) {
-                return MakeCurrentStateResult(KeyActionType::UpdateState);
-            }
-            std::wstring auto_committed = CurrentSelectedCandidateOrRaw();
-            Reset();
-            AppendCodeAndRefresh(vk, rule.next_state);
-            return MakeCurrentStateResult(KeyActionType::Commit, std::move(auto_committed));
-        }
-
-        case TransitionOp::CancelComposition:
-            Reset();
-            return MakeCurrentStateResult(KeyActionType::Cancel);
-
-        case TransitionOp::PopCode:
-            raw_code_.pop_back();
-            state_ = rule.next_state;
-            RefreshCandidates();
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-
-        case TransitionOp::CommitSelected: {
-            if (clear_on_empty_4code_ && all_candidates_.empty()) {
-                Reset();
-                return MakeCurrentStateResult(KeyActionType::Cancel);
-            }
-            std::wstring selected = CurrentSelectedCandidateOrRaw();
-            PromotePhraseForCode(raw_code_, selected);
-            return CommitAndReset(std::move(selected));
-        }
-
-        case TransitionOp::CommitRawCode:
-            return CommitAndReset(raw_code_);
-
-        case TransitionOp::CommitDigitIndex: {
-            const auto idx_opt = ResolveCandidateSelectIndex(vk, shift_down, semicolon_quote_quick_select_);
-            const auto page = CurrentPageCandidates();
-            if (idx_opt.has_value() && *idx_opt < page.size()) {
-                std::wstring selected = gsl::at(page, *idx_opt);
-                PromotePhraseForCode(raw_code_, selected);
-                return CommitAndReset(std::move(selected));
-            }
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-        }
-
-        case TransitionOp::SelectPrevCandidate:
-            if (selected_in_page_ > 0) {
-                --selected_in_page_;
-            }
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-
-        case TransitionOp::SelectNextCandidate: {
-            const auto page = CurrentPageCandidates();
-            if (!page.empty() && selected_in_page_ + 1 < page.size()) {
-                ++selected_in_page_;
-            }
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-        }
-
-        case TransitionOp::TurnPagePrev:
-            if (current_page_ > 0) {
-                --current_page_;
-                selected_in_page_ = 0;
-            }
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-
-        case TransitionOp::TurnPageNext:
-            if (current_page_ + 1 < TotalPages()) {
-                ++current_page_;
-                selected_in_page_ = 0;
-            }
-            return MakeCurrentStateResult(KeyActionType::UpdateState);
-
-        case TransitionOp::CommitPunctOnly:
-            return MakeCurrentStateResult(
-                KeyActionType::Commit,
-                std::wstring(ResolveChinesePunctuation(vk, shift_down)));
-
-        case TransitionOp::CommitSelectedAndPunct: {
-            std::wstring committed = CurrentSelectedCandidateOrRaw();
-            committed += ResolveChinesePunctuation(vk, shift_down);
-            return CommitAndReset(std::move(committed));
-        }
-
-        case TransitionOp::CommitSelectedAndUpper: {
-            std::wstring committed = CurrentSelectedCandidateOrRaw();
-            const wchar_t upper_ch = full_width_mode_
-                ? MapFullWidthChar(vk, true).value_or(gsl::narrow_cast<wchar_t>(vk))
-                : gsl::narrow_cast<wchar_t>(vk);
-            committed.push_back(upper_ch);
-            return CommitAndReset(std::move(committed));
-        }
     }
+    const bool is_empty_4code = all_candidates_.empty();
+    if (is_empty_4code && clear_on_empty_4code_) {
+        QIQI_LOG_DEBUG("4-code lookup empty: auto-clearing composition (beep={})", beep_on_empty_4code_);
+        Reset();
+        KeyProcessResult res = MakeCurrentStateResult(KeyActionType::Cancel);
+        if (beep_on_empty_4code_) {
+            res.empty_4code_warning = true;
+        }
+        return res;
+    }
+    KeyProcessResult res = MakeCurrentStateResult(KeyActionType::UpdateState);
+    if (beep_on_empty_4code_ && is_empty_4code) {
+        QIQI_LOG_DEBUG("4-code lookup empty: triggering empty-code warning beep");
+        res.empty_4code_warning = true;
+    }
+    return res;
+}
 
+KeyProcessResult WubiEngine::HandlePushCommitAndRestart(const KeyInputContext& ctx) {
+    if (!push_commit_5th_) {
+        return MakeCurrentStateResult(KeyActionType::UpdateState);
+    }
+    std::wstring auto_committed = CurrentSelectedCandidateOrRaw();
+    Reset();
+    AppendCodeAndRefresh(ctx.vk, ctx.next_state);
+    return MakeCurrentStateResult(KeyActionType::Commit, std::move(auto_committed));
+}
+
+KeyProcessResult WubiEngine::HandlePopCode(const KeyInputContext& ctx) {
+    raw_code_.pop_back();
+    state_ = ctx.next_state;
+    RefreshCandidates();
+    return MakeCurrentStateResult(KeyActionType::UpdateState);
+}
+
+KeyProcessResult WubiEngine::HandleCancelComposition(const KeyInputContext& /*ctx*/) noexcept {
+    Reset();
+    return MakeCurrentStateResult(KeyActionType::Cancel);
+}
+
+KeyProcessResult WubiEngine::HandleCommitSelected(const KeyInputContext& /*ctx*/) {
+    if (clear_on_empty_4code_ && all_candidates_.empty()) {
+        Reset();
+        return MakeCurrentStateResult(KeyActionType::Cancel);
+    }
+    std::wstring selected = CurrentSelectedCandidateOrRaw();
+    PromotePhraseForCode(raw_code_, selected);
+    return CommitAndReset(std::move(selected));
+}
+
+KeyProcessResult WubiEngine::HandleCommitRawCode(const KeyInputContext& /*ctx*/) {
+    return CommitAndReset(raw_code_);
+}
+
+KeyProcessResult WubiEngine::HandleCommitDigitIndex(const KeyInputContext& ctx) {
+    const auto idx_opt = ResolveCandidateSelectIndex(ctx.vk, ctx.shift_down, semicolon_quote_quick_select_);
+    const auto page = CurrentPageCandidates();
+    if (idx_opt.has_value() && *idx_opt < page.size()) {
+        std::wstring selected = gsl::at(page, *idx_opt);
+        PromotePhraseForCode(raw_code_, selected);
+        return CommitAndReset(std::move(selected));
+    }
+    return MakeCurrentStateResult(KeyActionType::UpdateState);
+}
+
+KeyProcessResult WubiEngine::HandleSelectPrevCandidate(const KeyInputContext& /*ctx*/) {
+    if (selected_in_page_ > 0) {
+        --selected_in_page_;
+    }
+    return MakeCurrentStateResult(KeyActionType::UpdateState);
+}
+
+KeyProcessResult WubiEngine::HandleSelectNextCandidate(const KeyInputContext& /*ctx*/) {
+    const auto page = CurrentPageCandidates();
+    if (!page.empty() && selected_in_page_ + 1 < page.size()) {
+        ++selected_in_page_;
+    }
+    return MakeCurrentStateResult(KeyActionType::UpdateState);
+}
+
+KeyProcessResult WubiEngine::HandleTurnPagePrev(const KeyInputContext& /*ctx*/) {
+    if (current_page_ > 0) {
+        --current_page_;
+        selected_in_page_ = 0;
+    }
+    return MakeCurrentStateResult(KeyActionType::UpdateState);
+}
+
+KeyProcessResult WubiEngine::HandleTurnPageNext(const KeyInputContext& /*ctx*/) {
+    if (current_page_ + 1 < TotalPages()) {
+        ++current_page_;
+        selected_in_page_ = 0;
+    }
+    return MakeCurrentStateResult(KeyActionType::UpdateState);
+}
+
+KeyProcessResult WubiEngine::HandleCommitPunctOnly(const KeyInputContext& ctx) {
+    return MakeCurrentStateResult(
+        KeyActionType::Commit,
+        std::wstring(ResolveChinesePunctuation(ctx.vk, ctx.shift_down)));
+}
+
+KeyProcessResult WubiEngine::HandleCommitSelectedAndPunct(const KeyInputContext& ctx) {
+    std::wstring committed = CurrentSelectedCandidateOrRaw();
+    committed += ResolveChinesePunctuation(ctx.vk, ctx.shift_down);
+    return CommitAndReset(std::move(committed));
+}
+
+KeyProcessResult WubiEngine::HandleCommitSelectedAndUpper(const KeyInputContext& ctx) {
+    std::wstring committed = CurrentSelectedCandidateOrRaw();
+    const wchar_t upper_ch = full_width_mode_
+        ? MapFullWidthChar(ctx.vk, true).value_or(gsl::narrow_cast<wchar_t>(ctx.vk))
+        : gsl::narrow_cast<wchar_t>(ctx.vk);
+    committed.push_back(upper_ch);
+    return CommitAndReset(std::move(committed));
+}
+
+KeyProcessResult WubiEngine::HandleStartTempEnglish(const KeyInputContext& ctx) {
+    raw_code_ = L"z";
+    state_ = ctx.next_state;
+    UpdateTempEnglishCandidates();
+    return MakeCurrentStateResult(KeyActionType::UpdateState);
+}
+
+KeyProcessResult WubiEngine::HandleAppendTempEnglish(const KeyInputContext& ctx) {
+    if (const auto ascii = MapPrintableAsciiChar(ctx.vk, ctx.shift_down, ctx.caps_lock_on); ascii.has_value()) {
+        raw_code_.push_back(gsl::narrow_cast<wchar_t>(*ascii));
+        UpdateTempEnglishCandidates();
+        return MakeCurrentStateResult(KeyActionType::UpdateState);
+    }
     return {};
+}
+
+KeyProcessResult WubiEngine::HandlePopTempEnglish(const KeyInputContext& /*ctx*/) {
+    if (raw_code_.size() <= 1) {
+        Reset();
+        return MakeCurrentStateResult(KeyActionType::Cancel);
+    }
+    raw_code_.pop_back();
+    UpdateTempEnglishCandidates();
+    return MakeCurrentStateResult(KeyActionType::UpdateState);
+}
+
+KeyProcessResult WubiEngine::HandleCommitTempEnglish(const KeyInputContext& /*ctx*/) {
+    std::wstring committed = (raw_code_.size() > 1) ? raw_code_.substr(1) : L"z";
+    return CommitAndReset(std::move(committed));
+}
+
+KeyProcessResult WubiEngine::HandleCommitFullWidth(const KeyInputContext& ctx) {
+    if (const auto fw = MapFullWidthChar(ctx.vk, ctx.shift_down, ctx.caps_lock_on); fw.has_value()) {
+        std::wstring committed;
+        if (IsComposing()) {
+            committed = CurrentSelectedCandidateOrRaw();
+        }
+        committed.push_back(*fw);
+        return CommitAndReset(std::move(committed));
+    }
+    return {};
+}
+
+KeyProcessResult WubiEngine::ProcessKey(
+    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) {
+    // Compile-time Command dispatch table indexed directly by TransitionOp
+    static constexpr std::array<ActionHandler, static_cast<size_t>(TransitionOp::Count)> kActionHandlers = {
+        &WubiEngine::HandlePassThrough,           // 0: PassThrough
+        &WubiEngine::HandleAppendCode,            // 1: AppendCode
+        &WubiEngine::HandleAppend4thCode,         // 2: Append4thCode
+        &WubiEngine::HandlePushCommitAndRestart,  // 3: PushCommitAndRestart
+        &WubiEngine::HandlePopCode,               // 4: PopCode
+        &WubiEngine::HandleCancelComposition,     // 5: CancelComposition
+        &WubiEngine::HandleCommitSelected,        // 6: CommitSelected
+        &WubiEngine::HandleCommitRawCode,         // 7: CommitRawCode
+        &WubiEngine::HandleCommitDigitIndex,      // 8: CommitDigitIndex
+        &WubiEngine::HandleSelectPrevCandidate,   // 9: SelectPrevCandidate
+        &WubiEngine::HandleSelectNextCandidate,   // 10: SelectNextCandidate
+        &WubiEngine::HandleTurnPagePrev,          // 11: TurnPagePrev
+        &WubiEngine::HandleTurnPageNext,          // 12: TurnPageNext
+        &WubiEngine::HandleCommitPunctOnly,       // 13: CommitPunctOnly
+        &WubiEngine::HandleCommitSelectedAndPunct,// 14: CommitSelectedAndPunct
+        &WubiEngine::HandleCommitSelectedAndUpper,// 15: CommitSelectedAndUpper
+        &WubiEngine::HandleStartTempEnglish,      // 16: StartTempEnglish
+        &WubiEngine::HandleAppendTempEnglish,     // 17: AppendTempEnglish
+        &WubiEngine::HandlePopTempEnglish,        // 18: PopTempEnglish
+        &WubiEngine::HandleCommitTempEnglish,     // 19: CommitTempEnglish
+        &WubiEngine::HandleCommitFullWidth        // 20: CommitFullWidth
+    };
+    static_assert(std::ranges::all_of(kActionHandlers, [](ActionHandler fn) { return fn != nullptr; }));
+
+    const TransitionRule rule = EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down, caps_lock_on);
+    const KeyInputContext ctx{vk, shift_down, caps_lock_on, rule.next_state};
+    const auto handler = gsl::at(kActionHandlers, static_cast<size_t>(rule.op));
+    return (this->*handler)(ctx);
 }
 
 } // namespace qiqi
