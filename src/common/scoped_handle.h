@@ -87,6 +87,7 @@ using ScopedFileHandle   = ScopedHandle<FileHandleTraits>;
 using ScopedKernelHandle = ScopedHandle<NullHandleTraits<HANDLE, &::CloseHandle>>;
 using ScopedMappedView   = ScopedHandle<NullHandleTraits<const void*, &::UnmapViewOfFile>>;
 using ScopedRegKey       = ScopedHandle<NullHandleTraits<HKEY, &::RegCloseKey>>;
+using ScopedLocalAlloc   = ScopedHandle<NullHandleTraits<HLOCAL, &::LocalFree>>;
 using ScopedMemoryDC     = ScopedHandle<NullHandleTraits<HDC, &::DeleteDC>>;
 using ScopedIcon         = ScopedHandle<NullHandleTraits<HICON, &::DestroyIcon>>;
 using ScopedBstr         = ScopedHandle<NullHandleTraits<BSTR, &::SysFreeString>>;

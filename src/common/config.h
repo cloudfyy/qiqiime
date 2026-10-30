@@ -1,8 +1,11 @@
 #pragma once
 #include <array>
+#include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 #include "common/logger.h"
 
 namespace qiqi {
@@ -66,6 +69,31 @@ inline constexpr std::array<std::wstring_view, 3> kBundledDictFileNames = {
     L"wubi86_jidian_extra.txt",
     L"wubi86_haifeng.txt"
 };
+
+// Default HKCU registry subkey for cross-process & UWP AppContainer configuration/user-dict synchronization.
+inline constexpr const wchar_t* kDefaultConfigRegSubKey = L"Software\\QiQiIME";
+void SetConfigRegistrySubKeyOverrideForTest(const wchar_t* subkey_or_null) noexcept;
+const wchar_t* GetActiveConfigRegistrySubKey() noexcept;
+
+// Mirror or load QiQiConfig in HKCU\<subkey> (grants S-1-15-2-1 / S-1-15-2-2 KEY_READ for UWP AppContainer).
+bool SaveConfigToRegistry(
+    const QiQiConfig& config,
+    const wchar_t* subkey = nullptr) noexcept;
+bool LoadConfigFromRegistry(
+    QiQiConfig& out_config,
+    uint64_t* out_sequence = nullptr,
+    const wchar_t* subkey = nullptr) noexcept;
+uint64_t QueryRegistryConfigSequence(
+    const wchar_t* subkey = nullptr) noexcept;
+
+// Mirror or load compiled .qdict binary image for user_dict in HKCU\<subkey> so UWP AppContainer processes
+// can load user custom words without accessing %LOCALAPPDATA%.
+bool SaveUserDictBinaryToRegistry(
+    std::span<const uint8_t> qdict_bytes,
+    const wchar_t* subkey = nullptr) noexcept;
+bool LoadUserDictBinaryFromRegistry(
+    std::vector<uint8_t>& out_qdict_bytes,
+    const wchar_t* subkey = nullptr);
 
 // Return default user configuration path: %LOCALAPPDATA%\QiQiIME\config.ini
 std::filesystem::path GetDefaultUserConfigPath();

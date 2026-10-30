@@ -138,6 +138,7 @@ QiQiTextService::QiQiTextService(HINSTANCE instance) {
     if (std::filesystem::exists(user_cfg, ec)) {
         config_last_write_time_ = std::filesystem::last_write_time(user_cfg, ec);
     }
+    config_registry_sequence_ = QueryRegistryConfigSequence();
     log::SetLevel(config_.log_level);
     engine_.ApplyConfig(config_);
     candidate_ui_ = MakeComObject<CandidateUI>(instance);
@@ -221,6 +222,11 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
         const std::filesystem::path default_user_dict = GetDefaultUserDictPath();
         if (std::filesystem::exists(default_user_dict)) {
             loaded_any |= engine_.LoadDictionaryFile(default_user_dict);
+        } else {
+            std::vector<uint8_t> reg_user_dict;
+            if (LoadUserDictBinaryFromRegistry(reg_user_dict)) {
+                loaded_any |= engine_.LoadDictionaryFromBinaryBuffer(std::move(reg_user_dict));
+            }
         }
     }
 
@@ -794,6 +800,7 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
                     const std::wstring phrase(locked.Get());
                     if (phrase.size() >= 2 && phrase.size() <= 16 &&
                         engine_.AddUserPhrase(phrase, GetDefaultUserDictPath())) {
+                        config_registry_sequence_ = QueryRegistryConfigSequence();
                         PlayImeSound(SoundEffectKind::KeyClick);
                         NotifyGlobalConfigChanged();
                     } else {
@@ -870,6 +877,7 @@ void QiQiTextService::PersistAndSyncQuickConfigChange(bool reload_dicts) {
     SaveConfigFile(GetDefaultUserConfigPath(), config_);
     std::error_code ec;
     config_last_write_time_ = std::filesystem::last_write_time(GetDefaultUserConfigPath(), ec);
+    config_registry_sequence_ = QueryRegistryConfigSequence();
     if (reload_dicts) {
         LoadExternalDictionaryNextToDll();
     }
@@ -982,29 +990,43 @@ void QiQiTextService::ReloadConfigIfModified() {
 
     std::error_code ec;
     const std::filesystem::path user_cfg = GetDefaultUserConfigPath();
-    if (!std::filesystem::exists(user_cfg, ec)) {
-        return;
-    }
-    const auto write_time = std::filesystem::last_write_time(user_cfg, ec);
-    if (ec || write_time == config_last_write_time_) {
+    const bool file_exists = std::filesystem::exists(user_cfg, ec);
+    const auto write_time = file_exists
+        ? std::filesystem::last_write_time(user_cfg, ec)
+        : std::filesystem::file_time_type{};
+    const bool file_modified = file_exists && !ec && (write_time != config_last_write_time_);
+
+    const uint64_t reg_seq = QueryRegistryConfigSequence();
+    const bool reg_modified = (reg_seq != 0 && reg_seq != config_registry_sequence_);
+
+    if (!file_modified && !reg_modified) {
         return;
     }
 
     QiQiConfig updated{};
-    if (LoadConfigFile(user_cfg, updated)) {
+    bool loaded_ok = false;
+    if (file_modified && LoadConfigFile(user_cfg, updated)) {
+        config_last_write_time_ = write_time;
+        SaveConfigToRegistry(updated);
+        config_registry_sequence_ = QueryRegistryConfigSequence();
+        loaded_ok = true;
+    } else if (reg_modified && LoadConfigFromRegistry(updated, &config_registry_sequence_)) {
+        loaded_ok = true;
+    }
+
+    if (loaded_ok) {
         const bool dict_changed =
             (updated.primary_dict != config_.primary_dict) ||
             (updated.enable_jidian_extra != config_.enable_jidian_extra) ||
-            (updated.user_dict_path != config_.user_dict_path);
-        config_last_write_time_ = write_time;
+            (updated.user_dict_path != config_.user_dict_path) ||
+            reg_modified;
         config_ = std::move(updated);
         ApplyDynamicEngineSettings();
         if (dict_changed || (config_.primary_dict != PrimaryDict::BuiltinOnly && engine_.MappedDictionaryCount() == 0)) {
             LoadExternalDictionaryNextToDll();
         }
         SyncTsfCompartments();
-        QIQI_LOG_INFO("Hot-reloaded modified user configuration from '{}' (dict={}, mapped_dicts={}, log_keystrokes={})",
-                      WideToUtf8(user_cfg.wstring()),
+        QIQI_LOG_INFO("Hot-reloaded modified user configuration (dict={}, mapped_dicts={}, log_keystrokes={})",
                       PrimaryDictToString(config_.primary_dict),
                       engine_.MappedDictionaryCount(),
                       config_.log_keystrokes);

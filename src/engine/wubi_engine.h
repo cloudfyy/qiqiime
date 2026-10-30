@@ -46,6 +46,8 @@ public:
 
     // Load additional UTF-8 table file (format: code word1 word2 ...)
     bool LoadDictionaryFile(const std::filesystem::path& file_path);
+    // Load additional dictionary from an in-memory .qdict binary buffer (e.g. UWP registry mirror)
+    bool LoadDictionaryFromBinaryBuffer(std::vector<uint8_t> qdict_bytes);
     void ClearExternalDictionaries() noexcept { mapped_dicts_.clear(); }
 
     // Add a single entry

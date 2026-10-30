@@ -255,13 +255,19 @@ void TestIniConfiguration() {
 
     std::filesystem::remove(temp_cfg_path, ec);
 
-    // 4. Test LoadConfig discovery when user config does not exist yet (using temporary LOCALAPPDATA)
+    // 4. Test LoadConfig discovery and HKCU registry config/user-dict mirroring (using isolated test subkey)
+    constexpr const wchar_t* kTestRegSubKey = L"Software\\QiQiIME_UnitTest";
+    ::RegDeleteTreeW(HKEY_CURRENT_USER, kTestRegSubKey);
+    SetConfigRegistrySubKeyOverrideForTest(kTestRegSubKey);
+
     wchar_t* orig_localappdata = nullptr;
     size_t orig_len = 0;
     _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
     const auto temp_appdata = std::filesystem::temp_directory_path() / L"QiQiIME_TestAppData";
     std::filesystem::remove_all(temp_appdata, ec);
     const auto restore_appdata = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(nullptr);
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, kTestRegSubKey);
         if (orig_localappdata) {
             _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
             free(orig_localappdata);
@@ -271,9 +277,46 @@ void TestIniConfiguration() {
     });
     _wputenv_s(L"LOCALAPPDATA", temp_appdata.wstring().c_str());
 
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) == kTestRegSubKey);
+    QIQI_TEST_CHECK(QueryRegistryConfigSequence() == 0);
+    QiQiConfig reg_out{};
+    QIQI_TEST_CHECK(!LoadConfigFromRegistry(reg_out));
+    QIQI_TEST_CHECK(!SaveConfigToRegistry(cfg, L""));
+    QIQI_TEST_CHECK(!LoadConfigFromRegistry(reg_out, nullptr, L""));
+    QIQI_TEST_CHECK(QueryRegistryConfigSequence(L"") == 0);
+
     const QiQiConfig discovered = LoadConfig(nullptr);
     QIQI_TEST_CHECK(discovered.page_size >= 1 && discovered.page_size <= 9);
     QIQI_TEST_CHECK(std::filesystem::exists(GetDefaultUserConfigPath()));
+    QIQI_TEST_CHECK(QueryRegistryConfigSequence() >= 1);
+
+    // Verify LoadConfig falls back to HKCU registry mirror when %LOCALAPPDATA%\QiQiIME\config.ini is absent (UWP scenario)
+    QiQiConfig custom_reg_cfg{};
+    custom_reg_cfg.page_size = 8;
+    custom_reg_cfg.primary_dict = PrimaryDict::Haifeng;
+    custom_reg_cfg.ui_language = UiLanguage::EnUs;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(custom_reg_cfg));
+    uint64_t seq_after_save = 0;
+    QIQI_TEST_CHECK(LoadConfigFromRegistry(reg_out, &seq_after_save));
+    QIQI_TEST_CHECK(seq_after_save >= 2);
+    QIQI_TEST_CHECK(reg_out.page_size == 8 &&
+                    reg_out.primary_dict == PrimaryDict::Haifeng &&
+                    reg_out.ui_language == UiLanguage::EnUs);
+
+    std::filesystem::remove_all(temp_appdata, ec);
+    const QiQiConfig uwp_loaded = LoadConfig(nullptr);
+    QIQI_TEST_CHECK(uwp_loaded.page_size == 8 && uwp_loaded.primary_dict == PrimaryDict::Haifeng);
+
+    // Verify user_dict binary registry mirror round-trip and edge cases
+    std::vector<uint8_t> loaded_dict_bytes;
+    QIQI_TEST_CHECK(!LoadUserDictBinaryFromRegistry(loaded_dict_bytes));
+    QIQI_TEST_CHECK(!SaveUserDictBinaryToRegistry({}));
+    QIQI_TEST_CHECK(!SaveUserDictBinaryToRegistry(std::array<uint8_t, 4>{1, 2, 3, 4}, L""));
+    QIQI_TEST_CHECK(!LoadUserDictBinaryFromRegistry(loaded_dict_bytes, L""));
+    const std::array<uint8_t, 8> sample_qdict{0x51, 0x44, 0x43, 0x54, 1, 2, 3, 4};
+    QIQI_TEST_CHECK(SaveUserDictBinaryToRegistry(sample_qdict));
+    QIQI_TEST_CHECK(LoadUserDictBinaryFromRegistry(loaded_dict_bytes));
+    QIQI_TEST_CHECK(loaded_dict_bytes.size() == sample_qdict.size());
 }
 
 void TestScopedHandleTemplate() {

@@ -301,6 +301,20 @@ void TestExternalDictFile() {
 
     std::filesystem::path temp_user_qdict = temp_user_dict;
     temp_user_qdict.replace_extension(L".qdict");
+    QIQI_TEST_CHECK(std::filesystem::exists(temp_user_qdict));
+
+    // Verify LoadDictionaryFromBinaryBuffer with valid and invalid .qdict bytes
+    std::string qdict_raw;
+    QIQI_TEST_CHECK(ReadFileToUtf8String(temp_user_qdict, qdict_raw));
+    std::vector<uint8_t> qdict_vec(
+        reinterpret_cast<const uint8_t*>(qdict_raw.data()),
+        reinterpret_cast<const uint8_t*>(qdict_raw.data()) + qdict_raw.size());
+    WubiEngine mem_buf_engine;
+    QIQI_TEST_CHECK(!mem_buf_engine.LoadDictionaryFromBinaryBuffer({1, 2, 3}));
+    QIQI_TEST_CHECK(mem_buf_engine.LoadDictionaryFromBinaryBuffer(std::move(qdict_vec)));
+    auto buf_lookup = mem_buf_engine.LookupExact(L"gtkv");
+    QIQI_TEST_CHECK(!buf_lookup.empty() && buf_lookup.front() == L"五笔中国好");
+
     std::filesystem::remove(temp_user_dict, ec);
     std::filesystem::remove(temp_user_qdict, ec);
 }

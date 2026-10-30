@@ -142,27 +142,52 @@ bool WubiEngine::AddUserPhrase(std::wstring_view phrase, const std::filesystem::
         if (user_dict_path.has_parent_path()) {
             std::filesystem::create_directories(user_dict_path.parent_path(), ec);
         }
-        const ScopedFileHandle file(::CreateFileW(
-            user_dict_path.c_str(),
-            FILE_APPEND_DATA,
-            FILE_SHARE_READ,
-            nullptr,
-            OPEN_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
-            nullptr));
-        if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
-            QIQI_LOG_WARN("AddUserPhrase: failed to open user dict '{}' for append (error={})",
-                          WideToUtf8(user_dict_path.wstring()), ::GetLastError());
-            return false;
+        bool wrote_ok = false;
+        {
+            const ScopedFileHandle file(::CreateFileW(
+                user_dict_path.c_str(),
+                FILE_APPEND_DATA,
+                FILE_SHARE_READ,
+                nullptr,
+                OPEN_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+                nullptr));
+            if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+                QIQI_LOG_WARN("AddUserPhrase: failed to open user dict '{}' for append (error={})",
+                              WideToUtf8(user_dict_path.wstring()), ::GetLastError());
+                return false;
+            }
+            const std::string line = WideToUtf8(code) + " " + WideToUtf8(phrase) + "\n";
+            DWORD written = 0;
+            const DWORD to_write = gsl::narrow_cast<DWORD>(line.size());
+            wrote_ok = (::WriteFile(file.Get(), line.data(), to_write, &written, nullptr) != FALSE) &&
+                       (written == to_write);
         }
-        const std::string line = WideToUtf8(code) + " " + WideToUtf8(phrase) + "\n";
-        DWORD written = 0;
-        const DWORD to_write = gsl::narrow_cast<DWORD>(line.size());
-        return (::WriteFile(file.Get(), line.data(), to_write, &written, nullptr) != FALSE) &&
-               (written == to_write);
+        if (wrote_ok) {
+            std::filesystem::path user_qdict_path = user_dict_path;
+            user_qdict_path.replace_extension(L".qdict");
+            if (WubiMappedDict::CompileTextFileToQdict(user_dict_path, user_qdict_path) &&
+                user_dict_path == GetDefaultUserDictPath()) {
+                std::string qdict_raw;
+                if (ReadFileToUtf8String(user_qdict_path, qdict_raw)) {
+                    SaveUserDictBinaryToRegistry(std::span<const uint8_t>(
+                        reinterpret_cast<const uint8_t*>(qdict_raw.data()), qdict_raw.size()));
+                }
+            }
+        }
+        return wrote_ok;
     } catch (...) {
         return false;
     }
+}
+
+bool WubiEngine::LoadDictionaryFromBinaryBuffer(std::vector<uint8_t> qdict_bytes) {
+    auto mapped = WubiMappedDict::LoadFromBinaryBuffer(std::move(qdict_bytes));
+    if (!mapped) {
+        return false;
+    }
+    mapped_dicts_.push_back(std::move(mapped));
+    return true;
 }
 
 bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {

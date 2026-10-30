@@ -9,6 +9,10 @@ namespace qiqi::test {
 namespace {
 
 void TestQiQiTextServiceLifecycleAndKeyFlow() {
+    constexpr const wchar_t* kTsfTestRegSubKey = L"Software\\QiQiIME_TsfUnitTest";
+    ::RegDeleteTreeW(HKEY_CURRENT_USER, kTsfTestRegSubKey);
+    SetConfigRegistrySubKeyOverrideForTest(kTsfTestRegSubKey);
+
     wchar_t* orig_localappdata = nullptr;
     size_t orig_len = 0;
     _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
@@ -17,6 +21,8 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     std::filesystem::remove_all(temp_appdata, appdata_ec);
     _wputenv_s(L"LOCALAPPDATA", temp_appdata.wstring().c_str());
     const auto restore_appdata = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(nullptr);
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, kTsfTestRegSubKey);
         if (orig_localappdata) {
             _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
             free(orig_localappdata);
@@ -429,6 +435,12 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     ComPtr<ITfCompartmentEventSink> comp_event_sink;
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&comp_event_sink))) && comp_event_sink);
     QIQI_TEST_CHECK(SUCCEEDED(comp_event_sink->OnChange(GUID_NULL)));
+    QIQI_TEST_CHECK(SUCCEEDED(comp_event_sink->OnChange(kGuidCompartmentConfigVersion)));
+
+    // Test UWP registry-only hot-reload branch (when %LOCALAPPDATA%\QiQiIME\config.ini is inaccessible/absent)
+    std::filesystem::remove_all(temp_appdata, ec);
+    haifeng_cfg.page_size = 7;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(haifeng_cfg));
     QIQI_TEST_CHECK(SUCCEEDED(comp_event_sink->OnChange(kGuidCompartmentConfigVersion)));
     comp_event_sink.Reset();
 

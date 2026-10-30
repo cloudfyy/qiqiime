@@ -142,6 +142,10 @@ public:
         const std::filesystem::path& txt_path,
         const std::filesystem::path& out_qdict_path);
 
+    // Construct a WubiMappedDict directly from an in-memory .qdict binary image (e.g. loaded from HKCU registry in UWP).
+    static std::shared_ptr<const WubiMappedDict> LoadFromBinaryBuffer(
+        std::vector<uint8_t> bin_buffer);
+
     // Static in-memory cache of loaded dictionaries inside the current process
     static void ClearProcessCache() noexcept;
 

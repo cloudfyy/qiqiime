@@ -333,6 +333,16 @@ bool WubiMappedDict::IsSourceModified() const noexcept {
     }
 }
 
+std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromBinaryBuffer(
+    std::vector<uint8_t> bin_buffer) {
+    auto dict = std::make_shared<WubiMappedDict>();
+    dict->fallback_buffer_ = std::move(bin_buffer);
+    if (!dict->BindBufferView(dict->fallback_buffer_, 0, 0)) {
+        return nullptr;
+    }
+    return dict;
+}
+
 bool WubiMappedDict::CompileTextFileToQdict(
     const std::filesystem::path& txt_path,
     const std::filesystem::path& out_qdict_path) {

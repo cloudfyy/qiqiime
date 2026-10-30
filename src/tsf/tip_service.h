@@ -144,6 +144,7 @@ private:
     std::unique_ptr<StatusBarUI> status_bar_;
     QiQiConfig config_{};
     std::filesystem::file_time_type config_last_write_time_{};
+    uint64_t config_registry_sequence_ = 0;
     WubiEngine engine_;
     bool shift_tap_candidate_ = false;
 };
