@@ -112,15 +112,6 @@ consteval bool AllIconHitTestersBound() noexcept {
 }
 static_assert(AllIconHitTestersBound(), "Every StatusBarIconKind must have a non-null hit-tester");
 
-// Evaluate whether normalized point (nx, ny) in [-1, 1]^2 lies inside the target icon shape.
-bool HitTestStatusBarIcon(StatusBarIconKind kind, double nx, double ny) noexcept {
-    const auto idx = static_cast<size_t>(kind);
-    if (idx >= kIconHitTesters.size()) {
-        return false;
-    }
-    return gsl::at(kIconHitTesters, idx)(nx, ny);
-}
-
 using SelectTextFn = const wchar_t*(*)(const LangBarState& st, const UiStrings& str) noexcept;
 using SelectIconFn = StatusBarIconKind(*)(const LangBarState& st) noexcept;
 
@@ -203,7 +194,7 @@ ScopedGdiHandle<HBITMAP> CreateAntialiasedIconBitmap(
                 const double ny = ((static_cast<double>(y) + (static_cast<double>(sy) + 0.5) / kSubSamples) * inv_sz) - 1.0;
                 for (int sx = 0; sx < kSubSamples; ++sx) {
                     const double nx = ((static_cast<double>(x) + (static_cast<double>(sx) + 0.5) / kSubSamples) * inv_sz) - 1.0;
-                    if (HitTestStatusBarIcon(kind, nx, ny)) {
+                    if (StatusBarUI::HitTestStatusBarIcon(kind, nx, ny)) {
                         ++hits;
                     }
                 }
@@ -244,6 +235,14 @@ void DrawAlphaBitmapCentered(HDC hdc, HBITMAP bmp, int bmp_size, const RECT& cel
 }
 
 } // namespace
+
+bool StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind kind, double nx, double ny) noexcept {
+    const auto idx = static_cast<size_t>(kind);
+    if (idx >= kIconHitTesters.size()) {
+        return false;
+    }
+    return gsl::at(kIconHitTesters, idx)(nx, ny);
+}
 
 StatusBarUI::StatusBarUI(HINSTANCE instance, ActionCallback cb) noexcept
     : instance_(instance), action_callback_(std::move(cb)) {

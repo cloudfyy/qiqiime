@@ -34,6 +34,9 @@ public:
     static constexpr int kBarHeight = 36;
     static constexpr size_t kIconCount = static_cast<size_t>(StatusBarIconKind::Count);
 
+    // Evaluate whether normalized point (nx, ny) in [-1, 1]^2 lies inside the target icon shape.
+    static bool HitTestStatusBarIcon(StatusBarIconKind kind, double nx, double ny) noexcept;
+
     explicit StatusBarUI(HINSTANCE instance, ActionCallback cb = {}) noexcept;
     ~StatusBarUI() noexcept;
 
@@ -62,11 +65,12 @@ public:
     // Build a themed Win32 popup context menu matching the current state and UI language.
     ScopedMenu BuildContextMenu(ScopedGdiHandle<HBRUSH>& out_bg_brush) const noexcept;
 
+    HBITMAP GetIconBitmap(StatusBarIconKind kind) const noexcept;
+
 private:
     int ScaleByDpi(int px) const noexcept;
     void UpdateDpiAndFonts(UINT new_dpi) noexcept;
     void RebuildIconBitmaps(COLORREF fg_color) noexcept;
-    HBITMAP GetIconBitmap(StatusBarIconKind kind) const noexcept;
     void ClampToCurrentMonitor() noexcept;
     int HitTestZone(int client_x) const noexcept;
     bool EnsureBarWindow() noexcept;

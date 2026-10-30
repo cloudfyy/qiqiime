@@ -1239,8 +1239,29 @@ void TestStatusBarUI() {
         clicked_action = id;
     });
 
-    // Disabled by default
+    // Disabled by default, but all table-driven icon bitmaps are initialized
     QIQI_TEST_CHECK(!bar.IsVisible());
+    for (size_t i = 0; i < StatusBarUI::kIconCount; ++i) {
+        const auto kind = static_cast<StatusBarIconKind>(i);
+        QIQI_TEST_CHECK(bar.GetIconBitmap(kind) != nullptr);
+    }
+    QIQI_TEST_CHECK(bar.GetIconBitmap(StatusBarIconKind::Count) == nullptr);
+    QIQI_TEST_CHECK(bar.GetIconBitmap(static_cast<StatusBarIconKind>(99)) == nullptr);
+
+    // Verify table-driven HitTestStatusBarIcon geometry and out-of-range bounds guard
+    QIQI_TEST_CHECK(StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::HalfWidthMoon, 0.73, 0.0));
+    QIQI_TEST_CHECK(!StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::HalfWidthMoon, 0.0, 0.0));
+    QIQI_TEST_CHECK(StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::FullWidthSun, 0.0, 0.0));
+    QIQI_TEST_CHECK(StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::FullWidthSun, 0.64, 0.0));
+    QIQI_TEST_CHECK(!StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::FullWidthSun, 0.48, 0.0));
+    QIQI_TEST_CHECK(StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::ChinesePunct, 0.20, 0.08));
+    QIQI_TEST_CHECK(!StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::ChinesePunct, -0.34, -0.28));
+    QIQI_TEST_CHECK(StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::EnglishPunct, -0.34, 0.22));
+    QIQI_TEST_CHECK(StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::EnglishPunct, 0.22, 0.06));
+    QIQI_TEST_CHECK(StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::SettingsGear, 0.24, 0.0));
+    QIQI_TEST_CHECK(!StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::SettingsGear, 0.0, 0.0));
+    QIQI_TEST_CHECK(!StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind::Count, 0.0, 0.0));
+    QIQI_TEST_CHECK(!StatusBarUI::HitTestStatusBarIcon(static_cast<StatusBarIconKind>(99), 0.0, 0.0));
 
     LangBarState st{};
     st.show_status_bar = true;
