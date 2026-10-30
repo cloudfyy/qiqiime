@@ -53,6 +53,10 @@ void CandidateUI::InitDirect2DAndDirectWrite() noexcept {
             96.0f);
         std::ignore = d2d_factory_->CreateDCRenderTarget(&props, &d2d_dc_target_);
     }
+    if (!d2d_factory_ || !dwrite_factory_ || !d2d_dc_target_) {
+        QIQI_LOG_WARN("CandidateUI::InitDirect2DAndDirectWrite incomplete (d2d={}, dwrite={}, target={}); GDI fallback active",
+                      d2d_factory_ != nullptr, dwrite_factory_ != nullptr, d2d_dc_target_ != nullptr);
+    }
 }
 
 void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
@@ -434,6 +438,7 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
     }
 
     if (FAILED(d2d_dc_target_->EndDraw())) {
+        QIQI_LOG_WARN("CandidateUI::PaintPopupDirect2D EndDraw failed; falling back to GDI rendering");
         d2d_dc_target_.Reset();
         return false;
     }

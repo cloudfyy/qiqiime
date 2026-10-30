@@ -1,6 +1,7 @@
 #include "ui/langbar_button.h"
 #include "common/guids.h"
 #include "common/i18n.h"
+#include "common/logger.h"
 #include "common/scoped_handle.h"
 #include "common/theme.h"
 
@@ -187,7 +188,11 @@ STDMETHODIMP LangBarButton::GetIcon(HICON* phIcon) noexcept {
     }
     ScopedIcon icon = CreateTextIcon(state_.chinese_mode ? L'中' : L'英');
     *phIcon = icon.Detach();
-    return *phIcon ? S_OK : E_FAIL;
+    if (!*phIcon) {
+        QIQI_LOG_WARN("LangBarButton::GetIcon failed to create taskbar glyph icon");
+        return E_FAIL;
+    }
+    return S_OK;
 }
 
 STDMETHODIMP LangBarButton::GetText(BSTR* pbstrText) noexcept {

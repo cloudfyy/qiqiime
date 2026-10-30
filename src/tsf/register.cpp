@@ -47,6 +47,7 @@ void SetRegSzValue(HKEY key, const wchar_t* value_name, std::wstring_view value)
 bool RegisterComClsid(HINSTANCE instance) {
     const std::filesystem::path module_path = GetModuleFilePath(instance);
     if (module_path.empty()) {
+        QIQI_LOG_ERROR("RegisterComClsid: GetModuleFilePath returned empty path");
         return false;
     }
 
@@ -54,8 +55,12 @@ bool RegisterComClsid(HINSTANCE instance) {
 
     {
         ScopedRegKey hkey;
-        if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, clsid_key.c_str(), 0, nullptr,
-                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, hkey.Put(), nullptr) != ERROR_SUCCESS) {
+        const LSTATUS st = ::RegCreateKeyExW(
+            HKEY_CLASSES_ROOT, clsid_key.c_str(), 0, nullptr,
+            REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, hkey.Put(), nullptr);
+        if (st != ERROR_SUCCESS) {
+            QIQI_LOG_ERROR("RegisterComClsid: RegCreateKeyExW('{}') failed (status={})",
+                           WideToUtf8(clsid_key), st);
             return false;
         }
         SetRegSzValue(hkey.Get(), nullptr, kTextServiceDesc);
@@ -63,13 +68,18 @@ bool RegisterComClsid(HINSTANCE instance) {
 
     {
         ScopedRegKey hkey;
-        if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, inproc_key.c_str(), 0, nullptr,
-                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, hkey.Put(), nullptr) != ERROR_SUCCESS) {
+        const LSTATUS st = ::RegCreateKeyExW(
+            HKEY_CLASSES_ROOT, inproc_key.c_str(), 0, nullptr,
+            REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, hkey.Put(), nullptr);
+        if (st != ERROR_SUCCESS) {
+            QIQI_LOG_ERROR("RegisterComClsid: RegCreateKeyExW('{}') failed (status={})",
+                           WideToUtf8(inproc_key), st);
             return false;
         }
         SetRegSzValue(hkey.Get(), nullptr, module_path.native());
         SetRegSzValue(hkey.Get(), L"ThreadingModel", L"Apartment");
     }
+    QIQI_LOG_DEBUG("RegisterComClsid succeeded for '{}'", WideToUtf8(module_path.wstring()));
     return true;
 }
 
@@ -101,7 +111,12 @@ void PrebuildBundledDictionaries(HINSTANCE instance) noexcept {
             const std::filesystem::path txt_path = ResolveBundledDataFile(dll_dir, dict_name);
             std::filesystem::path qdict_path = txt_path;
             qdict_path.replace_extension(L".qdict");
-            std::ignore = WubiMappedDict::CompileTextFileToQdict(txt_path, qdict_path);
+            if (WubiMappedDict::CompileTextFileToQdict(txt_path, qdict_path)) {
+                QIQI_LOG_INFO("Prebuilt binary dictionary cache '{}'", WideToUtf8(qdict_path.wstring()));
+            } else {
+                QIQI_LOG_DEBUG("Skipped prebuilding '{}' (source '{}' not present or read-only)",
+                               WideToUtf8(qdict_path.wstring()), WideToUtf8(txt_path.wstring()));
+            }
         }
     } catch (...) {
     }
@@ -118,7 +133,9 @@ void RemovePrebuiltBundledDictionaries(HINSTANCE instance) noexcept {
         for (const auto dict_name : kBundledDictFileNames) {
             std::filesystem::path qdict_path = ResolveBundledDataFile(dll_dir, dict_name);
             qdict_path.replace_extension(L".qdict");
-            std::filesystem::remove(qdict_path, ec);
+            if (std::filesystem::remove(qdict_path, ec)) {
+                QIQI_LOG_DEBUG("Removed prebuilt dictionary cache '{}'", WideToUtf8(qdict_path.wstring()));
+            }
         }
     } catch (...) {
     }
@@ -193,12 +210,16 @@ HRESULT RegisterServerWithManagers(
             hr = ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
                                     IID_PPV_ARGS(&profiles));
             if (FAILED(hr) || !profiles) {
+                QIQI_LOG_ERROR("RegisterServer: CoCreateInstance(CLSID_TF_InputProcessorProfiles) failed (hr=0x{:08x})",
+                               gsl::narrow_cast<unsigned int>(hr));
                 break;
             }
         }
 
         hr = profiles->Register(kClsidQiQiTextService);
         if (FAILED(hr)) {
+            QIQI_LOG_ERROR("RegisterServer: ITfInputProcessorProfiles::Register failed (hr=0x{:08x})",
+                           gsl::narrow_cast<unsigned int>(hr));
             break;
         }
 
@@ -216,6 +237,8 @@ HRESULT RegisterServerWithManagers(
             gsl::narrow_cast<ULONG>(module_path.size()),
             0);
         if (FAILED(hr)) {
+            QIQI_LOG_ERROR("RegisterServer: AddLanguageProfile failed (hr=0x{:08x})",
+                           gsl::narrow_cast<unsigned int>(hr));
             break;
         }
 
@@ -236,6 +259,8 @@ HRESULT RegisterServerWithManagers(
                 TRUE,
                 0);
             if (FAILED(hr)) {
+                QIQI_LOG_ERROR("RegisterServer: ITfInputProcessorProfileMgr::RegisterProfile failed (hr=0x{:08x})",
+                               gsl::narrow_cast<unsigned int>(hr));
                 break;
             }
         }
@@ -244,18 +269,24 @@ HRESULT RegisterServerWithManagers(
         // "QiQi Wubi" on English UI and "奇奇五笔" on Chinese UI.
         ComPtr<ITfInputProcessorProfilesEx> profiles_ex;
         if (SUCCEEDED(profiles.As(&profiles_ex)) && profiles_ex) {
-            profiles_ex->SetLanguageProfileDisplayName(
+            const HRESULT disp_hr = profiles_ex->SetLanguageProfileDisplayName(
                 kClsidQiQiTextService,
                 kChineseSimplifiedLangId,
                 kGuidProfileWubi86,
                 module_path.c_str(),
                 gsl::narrow_cast<ULONG>(module_path.size()),
                 100);
+            if (FAILED(disp_hr)) {
+                QIQI_LOG_WARN("RegisterServer: SetLanguageProfileDisplayName failed (hr=0x{:08x})",
+                              gsl::narrow_cast<unsigned int>(disp_hr));
+            }
         }
 
         hr = profiles->EnableLanguageProfileByDefault(
             kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86, TRUE);
         if (FAILED(hr)) {
+            QIQI_LOG_ERROR("RegisterServer: EnableLanguageProfileByDefault failed (hr=0x{:08x})",
+                           gsl::narrow_cast<unsigned int>(hr));
             break;
         }
         hr = EnableCurrentUserProfile(profiles.Get());
@@ -272,8 +303,15 @@ HRESULT RegisterServerWithManagers(
         }
         if (SUCCEEDED(hr) && cat_mgr) {
             for (const auto& cat : kSupportedCategories) {
-                cat_mgr->RegisterCategory(kClsidQiQiTextService, cat, kClsidQiQiTextService);
+                const HRESULT cat_hr = cat_mgr->RegisterCategory(kClsidQiQiTextService, cat, kClsidQiQiTextService);
+                if (FAILED(cat_hr)) {
+                    QIQI_LOG_WARN("RegisterServer: RegisterCategory failed (hr=0x{:08x})",
+                                  gsl::narrow_cast<unsigned int>(cat_hr));
+                }
             }
+        } else {
+            QIQI_LOG_WARN("RegisterServer: ITfCategoryMgr unavailable (hr=0x{:08x})",
+                          gsl::narrow_cast<unsigned int>(hr));
         }
         PrebuildBundledDictionaries(instance);
     } while (false);

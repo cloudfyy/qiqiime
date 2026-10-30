@@ -1,4 +1,5 @@
 #include "tsf/class_factory.h"
+#include "common/logger.h"
 #include "tsf/tip_service.h"
 
 #include <wrl/client.h>
@@ -44,6 +45,7 @@ STDMETHODIMP QiQiClassFactory::CreateInstance(IUnknown* pUnkOuter, REFIID riid, 
         const ComPtr<QiQiTextService> service = MakeComObject<QiQiTextService>(g_dll_instance);
         return service->QueryInterface(riid, ppvObj);
     } catch (...) {
+        QIQI_LOG_CRITICAL("QiQiClassFactory::CreateInstance failed due to unhandled exception / OOM");
         return E_OUTOFMEMORY;
     }
 }

@@ -201,16 +201,23 @@ bool WubiMappedDict::BindBufferView(
     uint64_t expected_src_size,
     uint64_t expected_src_mtime) noexcept {
     if (buffer.size() < sizeof(DictBinaryHeader)) {
+        QIQI_LOG_WARN("BindBufferView: buffer size ({} bytes) smaller than DictBinaryHeader", buffer.size());
         return false;
     }
     const auto* hdr = reinterpret_cast<const DictBinaryHeader*>(buffer.data());
     if (hdr->magic != kDictMagic || hdr->version != kDictFormatVersion) {
+        QIQI_LOG_WARN("BindBufferView: invalid .qdict header (magic=0x{:08X}, version={})",
+                      hdr->magic, hdr->version);
         return false;
     }
     if (expected_src_size != 0 && hdr->source_size != expected_src_size) {
+        QIQI_LOG_DEBUG("BindBufferView: source_size mismatch (cached={}, current={})",
+                       hdr->source_size, expected_src_size);
         return false;
     }
     if (expected_src_mtime != 0 && hdr->source_mtime != 0 && hdr->source_mtime != expected_src_mtime) {
+        QIQI_LOG_DEBUG("BindBufferView: source_mtime mismatch (cached={}, current={})",
+                       hdr->source_mtime, expected_src_mtime);
         return false;
     }
 
@@ -219,6 +226,8 @@ bool WubiMappedDict::BindBufferView(
     const size_t chars_bytes = static_cast<size_t>(hdr->char_count) * sizeof(wchar_t);
     const size_t required_bytes = sizeof(DictBinaryHeader) + codes_bytes + words_bytes + chars_bytes;
     if (buffer.size() < required_bytes) {
+        QIQI_LOG_WARN("BindBufferView: truncated .qdict buffer (actual={} bytes, required={} bytes)",
+                      buffer.size(), required_bytes);
         return false;
     }
 

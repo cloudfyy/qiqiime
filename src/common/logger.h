@@ -33,12 +33,12 @@ bool IsLogSinkActive() noexcept;
 void WriteLogMessage(Level level, std::string_view message) noexcept;
 
 template <typename... Args>
-void Log(Level level, std::format_string<Args...> fmt, Args&&... args) noexcept {
+void Log(Level level, std::string_view fmt, Args&&... args) noexcept {
     if (level < GetLevel() || level == Level::off || !IsLogSinkActive()) {
         return;
     }
     try {
-        const std::string msg = std::format(fmt, std::forward<Args>(args)...);
+        const std::string msg = std::vformat(fmt, std::make_format_args(args...));
         WriteLogMessage(level, msg);
     } catch (...) {
     }
@@ -49,9 +49,10 @@ void Shutdown() noexcept;
 
 } // namespace qiqi::log
 
-#define QIQI_LOG_TRACE(...) do { try { ::qiqi::log::Log(::qiqi::log::Level::trace, __VA_ARGS__); } catch (...) {} } while (false)
-#define QIQI_LOG_DEBUG(...) do { try { ::qiqi::log::Log(::qiqi::log::Level::debug, __VA_ARGS__); } catch (...) {} } while (false)
-#define QIQI_LOG_INFO(...)  do { try { ::qiqi::log::Log(::qiqi::log::Level::info,  __VA_ARGS__); } catch (...) {} } while (false)
-#define QIQI_LOG_WARN(...)  do { try { ::qiqi::log::Log(::qiqi::log::Level::warn,  __VA_ARGS__); } catch (...) {} } while (false)
-#define QIQI_LOG_ERROR(...) do { try { ::qiqi::log::Log(::qiqi::log::Level::err,   __VA_ARGS__); } catch (...) {} } while (false)
+#define QIQI_LOG_TRACE(...)    ::qiqi::log::Log(::qiqi::log::Level::trace,    __VA_ARGS__)
+#define QIQI_LOG_DEBUG(...)    ::qiqi::log::Log(::qiqi::log::Level::debug,    __VA_ARGS__)
+#define QIQI_LOG_INFO(...)     ::qiqi::log::Log(::qiqi::log::Level::info,     __VA_ARGS__)
+#define QIQI_LOG_WARN(...)     ::qiqi::log::Log(::qiqi::log::Level::warn,     __VA_ARGS__)
+#define QIQI_LOG_ERROR(...)    ::qiqi::log::Log(::qiqi::log::Level::err,      __VA_ARGS__)
+#define QIQI_LOG_CRITICAL(...) ::qiqi::log::Log(::qiqi::log::Level::critical, __VA_ARGS__)
 

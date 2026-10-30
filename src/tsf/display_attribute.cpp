@@ -1,6 +1,7 @@
 #include "tsf/display_attribute.h"
 #include "common/com_object.h"
 #include "common/guids.h"
+#include "common/logger.h"
 #include "common/scoped_handle.h"
 
 #include <oleauto.h>
@@ -50,11 +51,14 @@ STDMETHODIMP QiQiDisplayAttributeInfo::SetAttributeInfo(const TF_DISPLAYATTRIBUT
         return E_INVALIDARG;
     }
     attr_ = *pda;
+    QIQI_LOG_DEBUG("QiQiDisplayAttributeInfo::SetAttributeInfo updated (lsStyle={}, fBoldLine={})",
+                   static_cast<unsigned int>(attr_.lsStyle), attr_.fBoldLine != FALSE);
     return S_OK;
 }
 
 STDMETHODIMP QiQiDisplayAttributeInfo::Reset() noexcept {
     attr_ = DefaultAttribute();
+    QIQI_LOG_DEBUG("QiQiDisplayAttributeInfo::Reset restored default underline attribute");
     return S_OK;
 }
 
@@ -63,7 +67,11 @@ QiQiEnumDisplayAttributeInfo::QiQiEnumDisplayAttributeInfo(ULONG index) noexcept
     : index_(index) {}
 
 STDMETHODIMP QiQiEnumDisplayAttributeInfo::Clone(IEnumTfDisplayAttributeInfo** ppEnum) noexcept {
-    return CreateComObjectToOut<QiQiEnumDisplayAttributeInfo>(ppEnum, index_);
+    const HRESULT hr = CreateComObjectToOut<QiQiEnumDisplayAttributeInfo>(ppEnum, index_);
+    if (FAILED(hr) && ppEnum != nullptr) {
+        QIQI_LOG_ERROR("QiQiEnumDisplayAttributeInfo::Clone failed with E_OUTOFMEMORY");
+    }
+    return hr;
 }
 
 STDMETHODIMP QiQiEnumDisplayAttributeInfo::Next(
@@ -81,10 +89,12 @@ STDMETHODIMP QiQiEnumDisplayAttributeInfo::Next(
         return S_FALSE;
     }
     if (FAILED(CreateComObjectToOut<QiQiDisplayAttributeInfo>(rgInfo))) {
+        QIQI_LOG_ERROR("QiQiEnumDisplayAttributeInfo::Next failed to allocate QiQiDisplayAttributeInfo");
         if (pcFetched) *pcFetched = 0;
         return E_OUTOFMEMORY;
     }
     ++index_;
+    QIQI_LOG_TRACE("QiQiEnumDisplayAttributeInfo::Next fetched display attribute (ulCount={})", ulCount);
     if (pcFetched) {
         *pcFetched = 1;
     }
@@ -93,11 +103,13 @@ STDMETHODIMP QiQiEnumDisplayAttributeInfo::Next(
 
 STDMETHODIMP QiQiEnumDisplayAttributeInfo::Reset() noexcept {
     index_ = 0;
+    QIQI_LOG_TRACE("QiQiEnumDisplayAttributeInfo::Reset");
     return S_OK;
 }
 
 STDMETHODIMP QiQiEnumDisplayAttributeInfo::Skip(ULONG ulCount) noexcept {
     index_ += ulCount;
+    QIQI_LOG_TRACE("QiQiEnumDisplayAttributeInfo::Skip(ulCount={}, new_index={})", ulCount, index_);
     return (index_ <= 1) ? S_OK : S_FALSE;
 }
 

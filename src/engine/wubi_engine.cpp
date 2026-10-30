@@ -844,6 +844,15 @@ KeyProcessResult WubiEngine::ProcessKey(
     static_assert(AllActionHandlersBound(std::span<const ActionHandler>(kActionHandlers)));
 
     const TransitionRule rule = EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down, caps_lock_on);
+    if (rule.op != TransitionOp::PassThrough) {
+        QIQI_LOG_TRACE("FSM transition: state={} vk=0x{:02X} shift={} caps={} -> op={} next_state={}",
+                       static_cast<unsigned int>(state_),
+                       vk,
+                       shift_down,
+                       caps_lock_on,
+                       static_cast<unsigned int>(rule.op),
+                       static_cast<unsigned int>(rule.next_state));
+    }
     const KeyInputContext ctx{vk, shift_down, caps_lock_on, rule.next_state};
     return (this->*gsl::at(kActionHandlers, static_cast<size_t>(rule.op)))(ctx);
 }

@@ -400,6 +400,9 @@ bool StatusBarUI::EnsureTooltipWindow() noexcept {
         WS_POPUP | WS_BORDER,
         pos_.x, pos_.y - 28, 160, 24,
         hwnd_.Get(), nullptr, instance_, this));
+    if (!tooltip_hwnd_) {
+        QIQI_LOG_ERROR("StatusBarUI::EnsureTooltipWindow CreateWindowExW failed (error={})", ::GetLastError());
+    }
     return tooltip_hwnd_.IsValid();
 }
 

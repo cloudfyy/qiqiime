@@ -1,4 +1,5 @@
 #include "common/file_util.h"
+#include "common/logger.h"
 #include "common/scoped_handle.h"
 
 #include <windows.h>
@@ -84,6 +85,8 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
         nullptr));
     if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+        QIQI_LOG_DEBUG("ReadFileToUtf8String: could not open disk file '{}' (error={})",
+                       WideToUtf8(file_path.wstring()), ::GetLastError());
         return false;
     }
 
@@ -92,6 +95,8 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
     if (!::GetFileSizeEx(file.Get(), &file_size) ||
         file_size.QuadPart < 0 ||
         file_size.QuadPart > kMaxAllowedReadBytes) {
+        QIQI_LOG_WARN("ReadFileToUtf8String: invalid or oversize file ({} bytes) for '{}'",
+                      file_size.QuadPart, WideToUtf8(file_path.wstring()));
         return false;
     }
 
@@ -105,6 +110,8 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
     const DWORD to_read = gsl::narrow_cast<DWORD>(file_size.QuadPart);
     if (!::ReadFile(file.Get(), out_content.data(), to_read, &total_read, nullptr) ||
         total_read != to_read) {
+        QIQI_LOG_WARN("ReadFileToUtf8String: ReadFile failed for '{}' (expected={}, read={}, error={})",
+                      WideToUtf8(file_path.wstring()), to_read, total_read, ::GetLastError());
         out_content.clear();
         return false;
     }
@@ -115,6 +122,8 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
     try {
         std::error_code ec;
         if (std::filesystem::is_directory(target_path, ec)) {
+            QIQI_LOG_WARN("WriteFileAtomically: target path '{}' is a directory",
+                          WideToUtf8(target_path.wstring()));
             return false;
         }
         if (target_path.has_parent_path()) {
@@ -141,6 +150,8 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
                 FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
                 nullptr));
             if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+                QIQI_LOG_WARN("WriteFileAtomically: CreateFileW failed for '{}' (error={})",
+                              WideToUtf8(tmp_path.wstring()), ::GetLastError());
                 return false;
             }
 
@@ -148,11 +159,17 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
             const DWORD to_write = gsl::narrow_cast<DWORD>(bytes.size());
             if (to_write > 0 &&
                 (!::WriteFile(file.Get(), bytes.data(), to_write, &written, nullptr) || written != to_write)) {
+                QIQI_LOG_ERROR("WriteFileAtomically: WriteFile failed for '{}' (expected={}, written={}, error={})",
+                               WideToUtf8(tmp_path.wstring()), to_write, written, ::GetLastError());
                 return false;
             }
         }
 
         moved_ok = (::MoveFileExW(tmp_path.c_str(), target_path.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE);
+        if (!moved_ok) {
+            QIQI_LOG_WARN("WriteFileAtomically: MoveFileExW '{}' -> '{}' failed (error={})",
+                          WideToUtf8(tmp_path.wstring()), WideToUtf8(target_path.wstring()), ::GetLastError());
+        }
         return moved_ok;
     } catch (...) {
         return false;

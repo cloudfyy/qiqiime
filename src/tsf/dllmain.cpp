@@ -16,9 +16,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
         qiqi::g_dll_instance = hModule;
         ::DisableThreadLibraryCalls(hModule);
+        QIQI_LOG_TRACE("DllMain(DLL_PROCESS_ATTACH)");
     } else if (ul_reason_for_call == DLL_PROCESS_DETACH && lpReserved == nullptr) {
         // Dynamic unload via FreeLibrary (not process termination):
-        // release cached mapped dictionary handles, unregister window classes, and flush/release logger resources safely.
+        // release cached mapped dictionary handles, unregister window classes, and unregister ETW provider safely.
+        QIQI_LOG_TRACE("DllMain(DLL_PROCESS_DETACH, dynamic FreeLibrary)");
         qiqi::WubiMappedDict::ClearProcessCache();
         ::UnregisterClassW(qiqi::kCandidateWndClass, hModule);
         ::UnregisterClassW(qiqi::kStatusBarWndClass, hModule);

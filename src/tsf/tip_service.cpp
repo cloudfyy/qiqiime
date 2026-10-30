@@ -298,12 +298,19 @@ STDMETHODIMP QiQiTextService::Deactivate() {
 bool QiQiTextService::InitThreadMgrEventSink() {
     ComPtr<ITfSource> source;
     if (FAILED(thread_mgr_.As(&source)) || !source) {
+        QIQI_LOG_ERROR("InitThreadMgrEventSink: QueryInterface(ITfSource) failed");
         return false;
     }
-    return SUCCEEDED(source->AdviseSink(
+    const HRESULT hr = source->AdviseSink(
         IID_ITfThreadMgrEventSink,
         static_cast<ITfThreadMgrEventSink*>(this),
-        &thread_mgr_event_cookie_));
+        &thread_mgr_event_cookie_);
+    if (FAILED(hr)) {
+        QIQI_LOG_ERROR("InitThreadMgrEventSink: AdviseSink failed (hr=0x{:08x})",
+                       gsl::narrow_cast<unsigned int>(hr));
+        return false;
+    }
+    return true;
 }
 
 void QiQiTextService::UninitThreadMgrEventSink() {
@@ -320,16 +327,24 @@ void QiQiTextService::UninitThreadMgrEventSink() {
 bool QiQiTextService::InitKeyEventSink() {
     ComPtr<ITfKeystrokeMgr> key_mgr;
     if (FAILED(thread_mgr_.As(&key_mgr)) || !key_mgr) {
+        QIQI_LOG_ERROR("InitKeyEventSink: QueryInterface(ITfKeystrokeMgr) failed");
         return false;
     }
-    if (FAILED(key_mgr->AdviseKeyEventSink(client_id_, static_cast<ITfKeyEventSink*>(this), TRUE))) {
+    const HRESULT hr = key_mgr->AdviseKeyEventSink(client_id_, static_cast<ITfKeyEventSink*>(this), TRUE);
+    if (FAILED(hr)) {
+        QIQI_LOG_ERROR("InitKeyEventSink: AdviseKeyEventSink failed (hr=0x{:08x})",
+                       gsl::narrow_cast<unsigned int>(hr));
         return false;
     }
 
     for (const auto& def : kPreservedKeys) {
         const TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
-        key_mgr->PreserveKey(
+        const HRESULT pk_hr = key_mgr->PreserveKey(
             client_id_, *def.guid, &pk, def.desc, gsl::narrow_cast<ULONG>(wcslen(def.desc)));
+        if (FAILED(pk_hr)) {
+            QIQI_LOG_WARN("InitKeyEventSink: PreserveKey(vkey=0x{:02X}, mod=0x{:X}) failed (hr=0x{:08x})",
+                          def.vkey, def.modifiers, gsl::narrow_cast<unsigned int>(pk_hr));
+        }
     }
     return true;
 }
@@ -364,7 +379,11 @@ void QiQiTextService::InitDisplayAttributeGuidAtom() {
             CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&cat_mgr));
     }
     if (cat_mgr) {
-        cat_mgr->RegisterGUID(kGuidDisplayAttributeInput, &display_attribute_atom_);
+        if (FAILED(cat_mgr->RegisterGUID(kGuidDisplayAttributeInput, &display_attribute_atom_))) {
+            QIQI_LOG_WARN("InitDisplayAttributeGuidAtom: RegisterGUID failed");
+        }
+    } else {
+        QIQI_LOG_WARN("InitDisplayAttributeGuidAtom: ITfCategoryMgr unavailable");
     }
 }
 
@@ -375,7 +394,9 @@ void QiQiTextService::InitFunctionProvider() {
     ComPtr<ITfSourceSingle> source_single;
     if (SUCCEEDED(thread_mgr_.As(&source_single)) && source_single) {
         ITfFunctionProvider* const provider = this;
-        source_single->AdviseSingleSink(client_id_, IID_ITfFunctionProvider, provider);
+        if (FAILED(source_single->AdviseSingleSink(client_id_, IID_ITfFunctionProvider, provider))) {
+            QIQI_LOG_WARN("InitFunctionProvider: AdviseSingleSink(IID_ITfFunctionProvider) failed");
+        }
     }
 }
 
@@ -395,7 +416,9 @@ void QiQiTextService::InitLangBarItem() {
     }
     ComPtr<ITfLangBarItemMgr> lb_mgr;
     if (SUCCEEDED(thread_mgr_.As(&lb_mgr)) && lb_mgr) {
-        lb_mgr->AddItem(langbar_btn_.Get());
+        if (FAILED(lb_mgr->AddItem(langbar_btn_.Get()))) {
+            QIQI_LOG_WARN("InitLangBarItem: ITfLangBarItemMgr::AddItem failed");
+        }
     }
 }
 
@@ -654,9 +677,16 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
                     if (phrase.size() >= 2 && phrase.size() <= 16 &&
                         engine_.AddUserPhrase(phrase, GetDefaultUserDictPath())) {
                         PlayImeSound(SoundEffectKind::KeyClick);
+                    } else {
+                        QIQI_LOG_DEBUG("Clipboard phrase skipped (length={} outside [2..16] or encoding failed)",
+                                       phrase.size());
                     }
                 }
+            } else {
+                QIQI_LOG_DEBUG("OnPreservedKey(AddUserWord): clipboard does not contain CF_UNICODETEXT");
             }
+        } else {
+            QIQI_LOG_WARN("OnPreservedKey(AddUserWord): OpenClipboard failed (error={})", ::GetLastError());
         }
         return S_OK;
     }
@@ -825,6 +855,7 @@ void QiQiTextService::SyncTsfCompartments() {
 
 void QiQiTextService::ReloadConfigIfModified() {
     if (engine_.HasModifiedMappedDictionary()) {
+        QIQI_LOG_INFO("Detected modified dictionary file on disk; hot-reloading external dictionaries");
         LoadExternalDictionaryNextToDll();
     }
 
@@ -994,8 +1025,12 @@ void QiQiTextService::CommitAndEndCompositionInSession(
         ComPtr<ITfInsertAtSelection> insert_at_sel;
         if (SUCCEEDED(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel))) && insert_at_sel) {
             ComPtr<ITfRange> inserted_range;
-            insert_at_sel->InsertTextAtSelection(
-                ec, 0, committed_text.c_str(), gsl::narrow_cast<LONG>(committed_text.size()), &inserted_range);
+            if (FAILED(insert_at_sel->InsertTextAtSelection(
+                    ec, 0, committed_text.c_str(), gsl::narrow_cast<LONG>(committed_text.size()), &inserted_range))) {
+                QIQI_LOG_WARN("CommitAndEndCompositionInSession: InsertTextAtSelection failed");
+            }
+        } else {
+            QIQI_LOG_WARN("CommitAndEndCompositionInSession: QueryInterface(ITfInsertAtSelection) failed");
         }
     }
 }
@@ -1019,16 +1054,20 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
     }
     ComPtr<ITfContextView> view;
     if (FAILED(context->GetActiveView(&view)) || !view) {
+        QIQI_LOG_DEBUG("UpdateCandidateWindowPositionInSession: GetActiveView failed");
         return;
     }
     ComPtr<ITfRange> comp_range;
     if (FAILED(composition_->GetRange(&comp_range)) || !comp_range) {
+        QIQI_LOG_DEBUG("UpdateCandidateWindowPositionInSession: composition_->GetRange failed");
         return;
     }
     RECT rc{};
     BOOL clipped = FALSE;
     if (SUCCEEDED(view->GetTextExt(ec, comp_range.Get(), &rc, &clipped))) {
         candidate_ui_->MoveWindowTo(rc);
+    } else {
+        QIQI_LOG_DEBUG("UpdateCandidateWindowPositionInSession: GetTextExt failed (using previous candidate position)");
     }
 }
 
@@ -1047,6 +1086,7 @@ void QiQiTextService::BeginOrUpdateCandidateUI() {
     ComPtr<ITfUIElementMgr> ui_mgr;
     if (FAILED(thread_mgr_.As(&ui_mgr)) || !ui_mgr) {
         // Fallback if UIElementMgr unavailable
+        QIQI_LOG_DEBUG("BeginOrUpdateCandidateUI: ITfUIElementMgr unavailable; showing popup directly");
         candidate_ui_->Show(TRUE);
         return;
     }
@@ -1058,9 +1098,13 @@ void QiQiTextService::BeginOrUpdateCandidateUI() {
             candidate_ui_->SetUiElementId(element_id);
             // If host game/app returned FALSE in show_own_ui (UILess mode), do not show popup window
             const bool force_uiless = (activate_flags_ & TF_TMAE_UIELEMENTENABLEDONLY) != 0 && !show_own_ui;
-            candidate_ui_->Show((show_own_ui && !force_uiless) ? TRUE : FALSE);
+            const bool show_popup = (show_own_ui && !force_uiless);
+            QIQI_LOG_DEBUG("BeginOrUpdateCandidateUI: BeginUIElement(id={}, show_own_ui={}, show_popup={})",
+                           element_id, show_own_ui != FALSE, show_popup);
+            candidate_ui_->Show(show_popup ? TRUE : FALSE);
             ui_mgr->UpdateUIElement(element_id);
         } else {
+            QIQI_LOG_WARN("BeginOrUpdateCandidateUI: BeginUIElement failed; falling back to popup window");
             candidate_ui_->Show(TRUE);
         }
     } else {

@@ -54,6 +54,7 @@ void TestEtwLogger() {
     QIQI_LOG_INFO("Unit test log entry: {}", WideToUtf8(L"五笔日志测试"));
     QIQI_LOG_WARN("Warn message");
     QIQI_LOG_ERROR("Error message");
+    QIQI_LOG_CRITICAL("Critical macro message");
     log::WriteLogMessage(log::Level::trace, "Direct trace");
     log::WriteLogMessage(log::Level::debug, "Direct debug");
     log::WriteLogMessage(log::Level::info, "Direct info");

@@ -67,12 +67,14 @@ Windows 10 / 11 中的现代应用（UWP 应用、部分 MSIX 打包应用、Win
   2. **未开启时零开销**：`TraceLoggingWrite` 先检查内核共享页中的 `TraceLoggingProviderEnabled` 位，未开启收集时仅有一条 `cmp` 指令（0 纳秒开销，不执行格式化）。
   3. **统一汇总**：所有 Win32 与 UWP 进程的日志与 `[KeyTrace]` 按键诊断可通过 `wpr` / `PerfView` 或 `QiQiIMESettings.exe` 统一实时捕获。
 
-### 3.2 子任务 2 (`uwp-prebuild-qdict-mmap`)：构建期预编译 `data\*.qdict` 实现零写入只读内存映射
-- **原理**：在编译/打包阶段直接将 `data\wubi86_jidian.txt`、`wubi86_jidian_extra.txt`、`wubi86_haifeng.txt` 预编译为同目录下的 `.qdict` 二进制映像，并随 MSI 安装至 `C:\Program Files\QiQiIME\data\`。
-- **优势**：
-  1. `GetCacheFilePath()` 第一优先级即命中 `data\*.qdict`；
-  2. `C:\Program Files` 天然具备 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 的只读映射权限；
-  3. Win32 与 UWP 进程通过 `GetModuleFileNameW(g_dll_instance)` 直接 `MapViewOfFile` 只读映射 `data\*.qdict`，既彻底消除了首次激活时的词库编译延迟，又无需向 `%LOCALAPPDATA%` 写任何缓存文件。
+### 3.2 子任务 2 (`uwp-prebuild-qdict-mmap`)：预编译 `data\*.qdict` 与并发无锁热替换机制
+- **原理**：
+  1. **注册阶段自动预编译**：`RegisterServerWithManagers` 自动将 `data\wubi86_jidian.txt`、`wubi86_jidian_extra.txt`、`wubi86_haifeng.txt` 编译为同目录下的 `.qdict` 二进制映像（`UnregisterServerWithManagers` 卸载时自动清理）。
+  2. **POSIX Unlink 语义热替换（`FILE_SHARE_READ | FILE_SHARE_DELETE`）**：
+     - `WubiMappedDict::OpenMappedFile` 打开 `.qdict` 时使用 `GENERIC_READ` 与 `FILE_SHARE_READ | FILE_SHARE_DELETE`。
+     - **防原地篡改**：由于未开放 `FILE_SHARE_WRITE`，任何进程都无法原地覆盖或截断正在被映射的 `.qdict` 文件页，100% 杜绝 `STATUS_IN_PAGE_ERROR` 崩溃。
+     - **跨进程热更新不锁文件**：当底层 `.txt` 词库更新时，任意有写权限的进程可通过 `WriteFileAtomically`（先独占写 `.tmp.<pid>`，再调用 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)`）原子替换 `.qdict` 目录项，即使此时已有 UWP 或其他 Win32 进程正在映射旧的 `.qdict` 也不会报 `ERROR_SHARING_VIOLATION`！
+     - **跨进程实时感知**：已映射旧视图的进程继续安全访问内核保留的旧文件流；当 UWP 或 Win32 进程在 `OnSetFocus` / 菜单同步调用 `ReloadConfigIfModified()` 时，`WubiEngine::HasModifiedMappedDictionary()` 检测到磁盘词库大小或时间戳变化，立即重新映射新 `.qdict` 视图，旧文件流在最后一个旧句柄关闭后由 NTFS 自动回收。
 
 ### 3.3 子任务 3 (`uwp-hkcu-registry-config`)：通过 `HKCU\Software\QiQiIME` 注册表同步配置（保留 `config.ini` 兼容）
 - **原理**：
