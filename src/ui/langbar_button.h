@@ -5,6 +5,7 @@
 #include <olectl.h>
 #include <wrl/client.h>
 #include <atomic>
+#include <array>
 #include <functional>
 
 #include "common/config.h"
@@ -38,6 +39,15 @@ struct LangBarState {
     UiLanguage ui_language = UiLanguage::Auto;
 };
 
+struct LangBarMenuItem {
+    LangBarMenuId id{};
+    const wchar_t* text = nullptr;
+    bool checked = false;
+    bool enabled = true;
+
+    constexpr bool IsSeparator() const noexcept { return text == nullptr; }
+};
+
 // Implements ITfLangBarItemButton + ITfSource registered with GUID_LBI_INPUTMODE
 // to render the Windows taskbar tray "中/英" icon and right-click context menu.
 class LangBarButton final
@@ -45,6 +55,7 @@ class LangBarButton final
       public ITfSource {
 public:
     using ActionCallback = std::function<void(LangBarMenuId action_id)>;
+    using MenuItems = std::array<LangBarMenuItem, 13>;
 
     explicit LangBarButton(ActionCallback cb = {}) noexcept;
     ~LangBarButton() noexcept;
@@ -82,7 +93,8 @@ public:
     void UpdateState(const LangBarState& state);
     const LangBarState& State() const noexcept { return state_; }
 
-    // Build a themed Win32 HMENU matching the current LangBarState (shared by tray right-click and StatusBarUI).
+    static MenuItems BuildSharedMenuItems(const LangBarState& state) noexcept;
+    // The returned menu must be destroyed before out_bg_brush.
     static ScopedMenu BuildSharedPopupMenu(
         const LangBarState& state, HWND owner_hwnd, ScopedGdiHandle<HBRUSH>& out_bg_brush) noexcept;
     static void ShowSharedPopupMenu(

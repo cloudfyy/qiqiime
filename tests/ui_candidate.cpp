@@ -9,6 +9,7 @@
 #include "ui/status_bar.h"
 
 #include <windows.h>
+#include <commctrl.h>
 #include <oleauto.h>
 #include <wrl/client.h>
 #include <gsl/gsl>
@@ -41,6 +42,7 @@ public:
             ++separators_;
         } else {
             item_ids_.push_back(uId);
+            item_flags_.push_back(dwFlags);
             if (pch && cch > 0) {
                 item_texts_.emplace_back(pch, cch);
             }
@@ -49,6 +51,7 @@ public:
     }
 
     std::vector<UINT> item_ids_;
+    std::vector<DWORD> item_flags_;
     std::vector<std::wstring> item_texts_;
     size_t separators_ = 0;
 };
@@ -282,6 +285,55 @@ void TestTaskbarThemeIcons() {
     SetThemeDarkOverrideForTest(std::nullopt);
 }
 
+void TestSharedMenuItems() {
+    for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        for (const PrimaryDict dictionary : {PrimaryDict::Jidian, PrimaryDict::Haifeng}) {
+            for (const bool enabled : {false, true}) {
+                LangBarState state{};
+                state.ui_language = language;
+                state.primary_dict = dictionary;
+                state.chinese_mode = enabled;
+                state.full_width = enabled;
+                state.chinese_punct = enabled;
+                state.show_status_bar = enabled;
+                state.enable_jidian_extra = enabled;
+                const auto items = LangBarButton::BuildSharedMenuItems(state);
+                ScopedGdiHandle<HBRUSH> brush;
+                const ScopedMenu menu = LangBarButton::BuildSharedPopupMenu(state, nullptr, brush);
+                QIQI_TEST_CHECK(menu && ::GetMenuItemCount(menu.Get()) == gsl::narrow_cast<int>(items.size()));
+                const auto button = MakeComObject<LangBarButton>();
+                button->UpdateState(state);
+                MockTfMenu tsf_menu;
+                QIQI_TEST_CHECK(button->InitMenu(&tsf_menu) == S_OK);
+                QIQI_TEST_CHECK(tsf_menu.separators_ == 2);
+                size_t command_index = 0;
+                for (size_t i = 0; i < items.size(); ++i) {
+                    const auto& item = items.at(i);
+                    const UINT flags = ::GetMenuState(menu.Get(), gsl::narrow_cast<UINT>(i), MF_BYPOSITION);
+                    QIQI_TEST_CHECK(((flags & MF_SEPARATOR) != 0) == item.IsSeparator());
+                    if (item.IsSeparator()) {
+                        continue;
+                    }
+                    QIQI_TEST_CHECK(::GetMenuItemID(menu.Get(), gsl::narrow_cast<int>(i)) == static_cast<UINT>(item.id));
+                    QIQI_TEST_CHECK(((flags & MF_CHECKED) != 0) == item.checked);
+                    QIQI_TEST_CHECK(((flags & (MF_DISABLED | MF_GRAYED)) == 0) == item.enabled);
+                    std::array<wchar_t, 256> text{};
+                    ::GetMenuStringW(menu.Get(), static_cast<UINT>(item.id), text.data(),
+                                     gsl::narrow_cast<int>(text.size()), MF_BYCOMMAND);
+                    QIQI_TEST_CHECK(std::wstring_view(text.data()) == item.text);
+                    QIQI_TEST_CHECK(tsf_menu.item_ids_.at(command_index) == static_cast<UINT>(item.id));
+                    QIQI_TEST_CHECK(tsf_menu.item_texts_.at(command_index) == item.text);
+                    const DWORD tsf_flags = tsf_menu.item_flags_.at(command_index);
+                    QIQI_TEST_CHECK(((tsf_flags & TF_LBMENUF_CHECKED) != 0) == item.checked);
+                    QIQI_TEST_CHECK(((tsf_flags & TF_LBMENUF_GRAYED) == 0) == item.enabled);
+                    ++command_index;
+                }
+                QIQI_TEST_CHECK(command_index == tsf_menu.item_ids_.size());
+            }
+        }
+    }
+}
+
 void TestQuickSettingsMenu() {
     for (const bool dark : {false, true}) {
         SetThemeDarkOverrideForTest(dark);
@@ -376,6 +428,91 @@ void TestQuickSettingsMenu() {
     SetThemeDarkOverrideForTest(std::nullopt);
     QIQI_TEST_CHECK(!LangBarButton::KeepsMenuOpen(LangBarMenuId::OpenAbout));
     QIQI_TEST_CHECK(!LangBarButton::KeepsMenuOpen(LangBarMenuId::OpenConfigFile));
+}
+
+LRESULT CALLBACK CheckMenuButtonFontLifetime(
+    HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data) {
+    if (message == WM_NCDESTROY) {
+        const auto font = reinterpret_cast<HFONT>(::SendMessageW(hwnd, WM_GETFONT, 0, 0));
+        QIQI_TEST_CHECK(::GetObjectType(font) == OBJ_FONT);
+        ++*reinterpret_cast<int*>(data);
+        ::RemoveWindowSubclass(hwnd, CheckMenuButtonFontLifetime, id);
+    }
+    return ::DefSubclassProc(hwnd, message, wparam, lparam);
+}
+
+void TestQuickSettingsMenuResourceLifetime() {
+    const auto original_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto restore_monitor = gsl::finally([&]() { SetMonitorMetricsOverrideForTest(original_monitor); });
+    auto monitor = QueryMonitorForPoint(POINT{200, 200});
+    monitor.dpi = 96;
+    SetMonitorMetricsOverrideForTest(monitor);
+    LangBarState state{};
+    int actions = 0;
+    static int destroyed_buttons = 0;
+    destroyed_buttons = 0;
+    LangBarButton::ActionCallback callback = [&](LangBarMenuId action) {
+        QIQI_TEST_CHECK(action == LangBarMenuId::ToggleFullWidth);
+        state.full_width = !state.full_width;
+        ++actions;
+        callback = {};
+    };
+    const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
+        ::KillTimer(nullptr, id);
+        const HWND menu = FindQuickSettingsMenu();
+        QIQI_TEST_CHECK(menu && ::IsWindowVisible(menu));
+        const HWND button = ::GetDlgItem(menu, static_cast<int>(LangBarMenuId::ToggleChinese));
+        QIQI_TEST_CHECK(::SetWindowSubclass(button, CheckMenuButtonFontLifetime, 1,
+                                           reinterpret_cast<DWORD_PTR>(&destroyed_buttons)));
+        ::RedrawWindow(menu, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+        const DWORD gdi_before = ::GetGuiResources(::GetCurrentProcess(), GR_GDIOBJECTS);
+        QIQI_TEST_CHECK(gdi_before > 0);
+        for (int i = 0; i < 16; ++i) {
+            const auto old_font = reinterpret_cast<HFONT>(::SendMessageW(button, WM_GETFONT, 0, 0));
+            QIQI_TEST_CHECK(::GetObjectType(old_font) == OBJ_FONT);
+            ::SendMessageW(menu, WM_COMMAND,
+                           MAKEWPARAM(static_cast<UINT>(LangBarMenuId::ToggleFullWidth), BN_CLICKED), 0);
+            const auto new_font = reinterpret_cast<HFONT>(::SendMessageW(button, WM_GETFONT, 0, 0));
+            QIQI_TEST_CHECK(::GetObjectType(new_font) == OBJ_FONT);
+            ::GdiFlush();
+            QIQI_TEST_CHECK(new_font == old_font);
+            ::RedrawWindow(menu, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+        }
+        ::GdiFlush();
+        QIQI_TEST_CHECK(::GetGuiResources(::GetCurrentProcess(), GR_GDIOBJECTS) <= gdi_before);
+
+        const auto old_font = reinterpret_cast<HFONT>(::SendMessageW(button, WM_GETFONT, 0, 0));
+        auto monitor = QueryMonitorForPoint(POINT{200, 200});
+        monitor.dpi = 144;
+        SetMonitorMetricsOverrideForTest(monitor);
+        ::SendMessageW(menu, WM_COMMAND,
+                       MAKEWPARAM(static_cast<UINT>(LangBarMenuId::ToggleFullWidth), BN_CLICKED), 0);
+        const auto new_font = reinterpret_cast<HFONT>(::SendMessageW(button, WM_GETFONT, 0, 0));
+        QIQI_TEST_CHECK(new_font != old_font && ::GetObjectType(new_font) == OBJ_FONT);
+
+        const ScopedMemoryDC dc(::CreateCompatibleDC(nullptr));
+        QIQI_TEST_CHECK(dc);
+        const COLORREF text_color = RGB(17, 33, 65);
+        ::SetTextColor(dc.Get(), text_color);
+        ::SetBkMode(dc.Get(), OPAQUE);
+        const HGDIOBJ original_font = ::GetCurrentObject(dc.Get(), OBJ_FONT);
+        DRAWITEMSTRUCT draw{};
+        draw.CtlType = ODT_BUTTON;
+        draw.CtlID = static_cast<UINT>(LangBarMenuId::ToggleChinese);
+        draw.hwndItem = button;
+        draw.hDC = dc.Get();
+        ::GetClientRect(button, &draw.rcItem);
+        ::SendMessageW(menu, WM_DRAWITEM, draw.CtlID, reinterpret_cast<LPARAM>(&draw));
+        QIQI_TEST_CHECK(::GetTextColor(dc.Get()) == text_color);
+        QIQI_TEST_CHECK(::GetBkMode(dc.Get()) == OPAQUE);
+        QIQI_TEST_CHECK(::GetCurrentObject(dc.Get(), OBJ_FONT) == original_font);
+        ::SendMessageW(menu, WM_CLOSE, 0, 0);
+    });
+    QIQI_TEST_CHECK(timer != 0);
+    const auto cancel_timer = gsl::finally([&]() { ::KillTimer(nullptr, timer); });
+    LangBarButton::ShowSharedPopupMenu(state, POINT{200, 200}, callback);
+    QIQI_TEST_CHECK(actions == 17 && state.full_width && !callback);
+    QIQI_TEST_CHECK(destroyed_buttons == 1 && FindQuickSettingsMenu() == nullptr);
 }
 
 void TestQuickSettingsMenuKeyboardAndDismissal() {
@@ -1191,7 +1328,9 @@ void TestMultiMonitorAndPerMonitorDpi() {
 
 void RunCandidateUITests() {
     TestTaskbarThemeIcons();
+    TestSharedMenuItems();
     TestQuickSettingsMenu();
+    TestQuickSettingsMenuResourceLifetime();
     TestQuickSettingsMenuKeyboardAndDismissal();
     TestQuickSettingsMenuWorkArea();
     TestCandidateUI();

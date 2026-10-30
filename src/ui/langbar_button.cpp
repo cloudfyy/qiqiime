@@ -57,6 +57,26 @@ void AppendWin32PopupItem(
 
 } // namespace
 
+LangBarButton::MenuItems LangBarButton::BuildSharedMenuItems(const LangBarState& state) noexcept {
+    const auto& str = GetUiStrings(state.ui_language);
+    const bool is_jidian = state.primary_dict == PrimaryDict::Jidian;
+    return {{
+        {LangBarMenuId::ToggleChinese, str.menu_toggle_chinese, state.chinese_mode},
+        {LangBarMenuId::ToggleFullWidth, str.menu_toggle_full_width, state.full_width},
+        {LangBarMenuId::TogglePunctuation, str.menu_toggle_punct, state.chinese_punct},
+        {},
+        {LangBarMenuId::DictJidian, str.menu_dict_jidian, is_jidian},
+        {LangBarMenuId::DictHaifeng, str.menu_dict_haifeng, state.primary_dict == PrimaryDict::Haifeng},
+        {LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, is_jidian && state.enable_jidian_extra, is_jidian},
+        {},
+        {LangBarMenuId::ToggleStatusBar, str.menu_toggle_status_bar, state.show_status_bar},
+        {LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang},
+        {LangBarMenuId::OpenSettings, str.menu_open_settings},
+        {LangBarMenuId::OpenConfigFile, str.menu_open_config_file},
+        {LangBarMenuId::OpenAbout, str.menu_open_about}
+    }};
+}
+
 ScopedMenu LangBarButton::BuildSharedPopupMenu(
     const LangBarState& state, HWND /*owner_hwnd*/, ScopedGdiHandle<HBRUSH>& out_bg_brush) noexcept {
     const auto& palette = GetCurrentThemePalette();
@@ -75,21 +95,13 @@ ScopedMenu LangBarButton::BuildSharedPopupMenu(
         ::SetMenuInfo(menu.Get(), &mi);
     }
 
-    const auto& str = GetUiStrings(state.ui_language);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::ToggleChinese, str.menu_toggle_chinese, state.chinese_mode);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::ToggleFullWidth, str.menu_toggle_full_width, state.full_width);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::TogglePunctuation, str.menu_toggle_punct, state.chinese_punct);
-    ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
-    const bool is_jidian = (state.primary_dict == PrimaryDict::Jidian);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::DictJidian, str.menu_dict_jidian, is_jidian);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::DictHaifeng, str.menu_dict_haifeng, state.primary_dict == PrimaryDict::Haifeng);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, is_jidian && state.enable_jidian_extra, is_jidian);
-    ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::ToggleStatusBar, str.menu_toggle_status_bar, state.show_status_bar);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::OpenSettings, str.menu_open_settings);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::OpenConfigFile, str.menu_open_config_file);
-    AppendWin32PopupItem(menu.Get(), LangBarMenuId::OpenAbout, str.menu_open_about);
+    for (const auto& item : BuildSharedMenuItems(state)) {
+        if (item.IsSeparator()) {
+            ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
+        } else {
+            AppendWin32PopupItem(menu.Get(), item.id, item.text, item.checked, item.enabled);
+        }
+    }
     return menu;
 }
 
@@ -184,22 +196,13 @@ STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
     if (!pMenu) {
         return E_INVALIDARG;
     }
-    const auto& str = GetUiStrings(state_.ui_language);
-
-    AddMenuEntry(pMenu, LangBarMenuId::ToggleChinese, str.menu_toggle_chinese, state_.chinese_mode);
-    AddMenuEntry(pMenu, LangBarMenuId::ToggleFullWidth, str.menu_toggle_full_width, state_.full_width);
-    AddMenuEntry(pMenu, LangBarMenuId::TogglePunctuation, str.menu_toggle_punct, state_.chinese_punct);
-    AddMenuSeparator(pMenu);
-    const bool is_jidian = (state_.primary_dict == PrimaryDict::Jidian);
-    AddMenuEntry(pMenu, LangBarMenuId::DictJidian, str.menu_dict_jidian, is_jidian);
-    AddMenuEntry(pMenu, LangBarMenuId::DictHaifeng, str.menu_dict_haifeng, state_.primary_dict == PrimaryDict::Haifeng);
-    AddMenuEntry(pMenu, LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, is_jidian && state_.enable_jidian_extra, is_jidian);
-    AddMenuSeparator(pMenu);
-    AddMenuEntry(pMenu, LangBarMenuId::ToggleStatusBar, str.menu_toggle_status_bar, state_.show_status_bar);
-    AddMenuEntry(pMenu, LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang);
-    AddMenuEntry(pMenu, LangBarMenuId::OpenSettings, str.menu_open_settings);
-    AddMenuEntry(pMenu, LangBarMenuId::OpenConfigFile, str.menu_open_config_file);
-    AddMenuEntry(pMenu, LangBarMenuId::OpenAbout, str.menu_open_about);
+    for (const auto& item : BuildSharedMenuItems(state_)) {
+        if (item.IsSeparator()) {
+            AddMenuSeparator(pMenu);
+        } else {
+            AddMenuEntry(pMenu, item.id, item.text, item.checked, item.enabled);
+        }
+    }
     return S_OK;
 }
 
