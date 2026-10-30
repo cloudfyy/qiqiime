@@ -1,5 +1,7 @@
 #pragma once
 #include <windows.h>
+#include <array>
+#include <cstddef>
 #include <functional>
 #include <string>
 
@@ -7,6 +9,15 @@
 #include "ui/langbar_button.h"
 
 namespace qiqi {
+
+enum class StatusBarIconKind : size_t {
+    HalfWidthMoon = 0,
+    FullWidthSun,
+    ChinesePunct,
+    EnglishPunct,
+    SettingsGear,
+    Count
+};
 
 // Compact floating desktop IME status/language bar (disabled by default via config.show_status_bar = false).
 // Layout: [ | Grip(22) | 中/英(36) | ☾/●(36) | °，/.,(36) | ⚙(36) ]
@@ -21,6 +32,7 @@ public:
     static constexpr int kCellCount = 4;
     static constexpr int kBarWidth = kButtonsOffset + kCellWidth * kCellCount; // 166
     static constexpr int kBarHeight = 36;
+    static constexpr size_t kIconCount = static_cast<size_t>(StatusBarIconKind::Count);
 
     explicit StatusBarUI(HINSTANCE instance, ActionCallback cb = {}) noexcept;
     ~StatusBarUI() noexcept;
@@ -54,6 +66,7 @@ private:
     int ScaleByDpi(int px) const noexcept;
     void UpdateDpiAndFonts(UINT new_dpi) noexcept;
     void RebuildIconBitmaps(COLORREF fg_color) noexcept;
+    HBITMAP GetIconBitmap(StatusBarIconKind kind) const noexcept;
     void ClampToCurrentMonitor() noexcept;
     int HitTestZone(int client_x) const noexcept;
     bool EnsureBarWindow() noexcept;
@@ -74,18 +87,14 @@ private:
     HINSTANCE instance_ = nullptr;
     ScopedGdiHandle<HFONT> font_;
     ScopedGdiHandle<HFONT> tooltip_font_;
-    ScopedGdiHandle<HBITMAP> bmp_half_width_;
-    ScopedGdiHandle<HBITMAP> bmp_full_width_;
-    ScopedGdiHandle<HBITMAP> bmp_cn_punct_;
-    ScopedGdiHandle<HBITMAP> bmp_en_punct_;
-    ScopedGdiHandle<HBITMAP> bmp_settings_;
+    std::array<ScopedGdiHandle<HBITMAP>, kIconCount> icon_bitmaps_{};
     int icon_px_ = 0;
     COLORREF icon_fg_color_ = CLR_INVALID;
     UINT dpi_ = 96;
     bool visible_ = false;
     POINT pos_{0, 0};
     bool pos_initialized_ = false;
-    int hovered_zone_ = -1; // -1 = none, 0 = grip/logo, 1..4 = cells 0..3
+    int hovered_zone_ = -1; // -1 = none, 0 = grip/logo, 1..kCellCount = cells 0..kCellCount-1
     bool tracking_mouse_ = false;
     std::wstring active_tooltip_text_;
     LangBarState state_{};

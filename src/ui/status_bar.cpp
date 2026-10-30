@@ -16,13 +16,7 @@ namespace qiqi {
 
 namespace {
 
-enum class StatusBarIconKind {
-    HalfWidthMoon,
-    FullWidthSun,
-    ChinesePunct,
-    EnglishPunct,
-    SettingsGear
-};
+constexpr double kIconStroke = 0.135;
 
 // Signed distance to a line segment [a, b] in normalized [-1, 1] icon coordinates.
 double DistToSegment(double px, double py, double ax, double ay, double bx, double by) noexcept {
@@ -42,68 +36,137 @@ double DistToSegment(double px, double py, double ax, double ay, double bx, doub
     return std::hypot(px - (ax + t * vx), py - (ay + t * vy));
 }
 
-// Evaluate whether normalized point (nx, ny) in [-1, 1]^2 lies inside the target icon shape.
-bool SampleStatusBarIcon(StatusBarIconKind kind, double nx, double ny) noexcept {
-    constexpr double kStroke = 0.135;
-    switch (kind) {
-        case StatusBarIconKind::HalfWidthMoon: {
-            // Outline crescent moon matching the reference screenshot:
-            // outer circle C1(0.05, 0.0, R1=0.68) minus inner circle C2(-0.28, -0.14, R2=0.56)
-            const double d1 = std::hypot(nx - 0.05, ny) - 0.68;
-            const double d2 = std::hypot(nx + 0.28, ny + 0.14) - 0.56;
-            const double d_crescent = std::max(d1, -d2);
-            return std::abs(d_crescent) <= (kStroke * 0.52);
-        }
+bool HitTestHalfWidthMoon(double nx, double ny) noexcept {
+    // Outline crescent moon matching the reference screenshot:
+    // outer circle C1(0.05, 0.0, R1=0.68) minus inner circle C2(-0.28, -0.14, R2=0.56)
+    const double d1 = std::hypot(nx - 0.05, ny) - 0.68;
+    const double d2 = std::hypot(nx + 0.28, ny + 0.14) - 0.56;
+    const double d_crescent = std::max(d1, -d2);
+    return std::abs(d_crescent) <= (kIconStroke * 0.52);
+}
 
-        case StatusBarIconKind::FullWidthSun: {
-            // Full-width circle icon: crisp hollow ring + solid inner core
-            const double r = std::hypot(nx, ny);
-            return (std::abs(r - 0.64) <= (kStroke * 0.55)) || (r <= 0.34);
-        }
+bool HitTestFullWidthSun(double nx, double ny) noexcept {
+    // Full-width circle icon: crisp hollow ring + solid inner core
+    const double r = std::hypot(nx, ny);
+    return (std::abs(r - 0.64) <= (kIconStroke * 0.55)) || (r <= 0.34);
+}
 
-        case StatusBarIconKind::ChinesePunct: {
-            // Top-left hollow ring '。' + bottom-right solid comma '，' matching the reference screenshot
-            const double d_ring = std::abs(std::hypot(nx + 0.34, ny + 0.28) - 0.23);
-            if (d_ring <= (kStroke * 0.50)) {
-                return true;
-            }
-            // Comma head at (0.20, 0.08) + curved tail sweeping to (0.04, 0.56)
-            const double d_head = std::hypot(nx - 0.20, ny - 0.08);
-            if (d_head <= 0.19) {
-                return true;
-            }
-            const double d_tail = DistToSegment(nx, ny, 0.24, 0.12, 0.05, 0.56);
-            return d_tail <= 0.105;
-        }
+bool HitTestChinesePunct(double nx, double ny) noexcept {
+    // Top-left hollow ring '。' + bottom-right solid comma '，' matching the reference screenshot
+    const double d_ring = std::abs(std::hypot(nx + 0.34, ny + 0.28) - 0.23);
+    if (d_ring <= (kIconStroke * 0.50)) {
+        return true;
+    }
+    // Comma head at (0.20, 0.08) + curved tail sweeping to (0.04, 0.56)
+    const double d_head = std::hypot(nx - 0.20, ny - 0.08);
+    if (d_head <= 0.19) {
+        return true;
+    }
+    const double d_tail = DistToSegment(nx, ny, 0.24, 0.12, 0.05, 0.56);
+    return d_tail <= 0.105;
+}
 
-        case StatusBarIconKind::EnglishPunct: {
-            // Solid period '.' at bottom-left + comma ',' at bottom-right
-            const double d_dot = std::hypot(nx + 0.34, ny - 0.22);
-            if (d_dot <= 0.16) {
-                return true;
-            }
-            const double d_head = std::hypot(nx - 0.22, ny - 0.06);
-            if (d_head <= 0.16) {
-                return true;
-            }
-            const double d_tail = DistToSegment(nx, ny, 0.25, -0.02, 0.08, 0.44);
-            return d_tail <= 0.095;
-        }
+bool HitTestEnglishPunct(double nx, double ny) noexcept {
+    // Solid period '.' at bottom-left + comma ',' at bottom-right
+    const double d_dot = std::hypot(nx + 0.34, ny - 0.22);
+    if (d_dot <= 0.16) {
+        return true;
+    }
+    const double d_head = std::hypot(nx - 0.22, ny - 0.06);
+    if (d_head <= 0.16) {
+        return true;
+    }
+    const double d_tail = DistToSegment(nx, ny, 0.25, -0.02, 0.08, 0.44);
+    return d_tail <= 0.095;
+}
 
-        case StatusBarIconKind::SettingsGear: {
-            // 8-tooth outline gear with center circular hole matching the reference screenshot
-            const double r = std::hypot(nx, ny);
-            const double angle = std::atan2(ny, nx);
-            // Smooth 8-tooth modulation around base radius 0.58
-            const double tooth_wave = std::clamp(std::cos(8.0 * angle) * 2.2, -1.0, 1.0);
-            const double outer_r = 0.58 + 0.13 * (tooth_wave * 0.5 + 0.5);
-            const double d_outer = std::abs(r - outer_r);
-            const double d_inner = std::abs(r - 0.24);
-            return (d_outer <= (kStroke * 0.52)) || (d_inner <= (kStroke * 0.50));
+bool HitTestSettingsGear(double nx, double ny) noexcept {
+    // 8-tooth outline gear with center circular hole matching the reference screenshot
+    const double r = std::hypot(nx, ny);
+    const double angle = std::atan2(ny, nx);
+    // Smooth 8-tooth modulation around base radius 0.58
+    const double tooth_wave = std::clamp(std::cos(8.0 * angle) * 2.2, -1.0, 1.0);
+    const double outer_r = 0.58 + 0.13 * (tooth_wave * 0.5 + 0.5);
+    const double d_outer = std::abs(r - outer_r);
+    const double d_inner = std::abs(r - 0.24);
+    return (d_outer <= (kIconStroke * 0.52)) || (d_inner <= (kIconStroke * 0.50));
+}
+
+using IconHitTestFn = bool(*)(double nx, double ny) noexcept;
+
+constexpr std::array<IconHitTestFn, StatusBarUI::kIconCount> kIconHitTesters = {
+    &HitTestHalfWidthMoon, // StatusBarIconKind::HalfWidthMoon
+    &HitTestFullWidthSun,  // StatusBarIconKind::FullWidthSun
+    &HitTestChinesePunct,  // StatusBarIconKind::ChinesePunct
+    &HitTestEnglishPunct,  // StatusBarIconKind::EnglishPunct
+    &HitTestSettingsGear   // StatusBarIconKind::SettingsGear
+};
+
+consteval bool AllIconHitTestersBound() noexcept {
+    for (const auto fn : kIconHitTesters) {
+        if (fn == nullptr) {
+            return false;
         }
     }
-    return false;
+    return true;
 }
+static_assert(AllIconHitTestersBound(), "Every StatusBarIconKind must have a non-null hit-tester");
+
+// Evaluate whether normalized point (nx, ny) in [-1, 1]^2 lies inside the target icon shape.
+bool HitTestStatusBarIcon(StatusBarIconKind kind, double nx, double ny) noexcept {
+    const auto idx = static_cast<size_t>(kind);
+    if (idx >= kIconHitTesters.size()) {
+        return false;
+    }
+    return gsl::at(kIconHitTesters, idx)(nx, ny);
+}
+
+using SelectTextFn = const wchar_t*(*)(const LangBarState& st, const UiStrings& str) noexcept;
+using SelectIconFn = StatusBarIconKind(*)(const LangBarState& st) noexcept;
+
+struct StatusBarCellDescriptor {
+    LangBarMenuId click_action;
+    const wchar_t* UiStrings::* tooltip_field;
+    SelectTextFn select_text;
+    SelectIconFn select_icon;
+};
+
+constexpr const wchar_t* SelectModeCellText(const LangBarState& st, const UiStrings& str) noexcept {
+    return st.chinese_mode ? str.status_mode_cn : str.status_mode_en;
+}
+
+constexpr StatusBarIconKind SelectWidthCellIcon(const LangBarState& st) noexcept {
+    return st.full_width ? StatusBarIconKind::FullWidthSun : StatusBarIconKind::HalfWidthMoon;
+}
+
+constexpr StatusBarIconKind SelectPunctCellIcon(const LangBarState& st) noexcept {
+    return st.chinese_punct ? StatusBarIconKind::ChinesePunct : StatusBarIconKind::EnglishPunct;
+}
+
+constexpr StatusBarIconKind SelectSettingsCellIcon(const LangBarState&) noexcept {
+    return StatusBarIconKind::SettingsGear;
+}
+
+// Table-driven descriptor table for all interactive toolbar cells.
+constexpr std::array<StatusBarCellDescriptor, StatusBarUI::kCellCount> kStatusBarCells = {{
+    {LangBarMenuId::ToggleChinese,     &UiStrings::tip_mode,     &SelectModeCellText, nullptr},
+    {LangBarMenuId::ToggleFullWidth,   &UiStrings::tip_width,    nullptr,             &SelectWidthCellIcon},
+    {LangBarMenuId::TogglePunctuation, &UiStrings::tip_punct,    nullptr,             &SelectPunctCellIcon},
+    {LangBarMenuId::OpenSettings,      &UiStrings::tip_settings, nullptr,             &SelectSettingsCellIcon},
+}};
+
+consteval bool AllStatusBarCellsValid() noexcept {
+    for (const auto& cell : kStatusBarCells) {
+        if (cell.tooltip_field == nullptr) {
+            return false;
+        }
+        if ((cell.select_text == nullptr) == (cell.select_icon == nullptr)) {
+            return false;
+        }
+    }
+    return true;
+}
+static_assert(AllStatusBarCellsValid(), "Every StatusBarCellDescriptor must bind a tooltip and either text or icon");
 
 // Create a 32-bit premultiplied ARGB DIB section rendered with 4x4 supersampled anti-aliasing.
 ScopedGdiHandle<HBITMAP> CreateAntialiasedIconBitmap(
@@ -140,7 +203,7 @@ ScopedGdiHandle<HBITMAP> CreateAntialiasedIconBitmap(
                 const double ny = ((static_cast<double>(y) + (static_cast<double>(sy) + 0.5) / kSubSamples) * inv_sz) - 1.0;
                 for (int sx = 0; sx < kSubSamples; ++sx) {
                     const double nx = ((static_cast<double>(x) + (static_cast<double>(sx) + 0.5) / kSubSamples) * inv_sz) - 1.0;
-                    if (SampleStatusBarIcon(kind, nx, ny)) {
+                    if (HitTestStatusBarIcon(kind, nx, ny)) {
                         ++hits;
                     }
                 }
@@ -220,16 +283,23 @@ void StatusBarUI::UpdateDpiAndFonts(UINT new_dpi) noexcept {
 
 void StatusBarUI::RebuildIconBitmaps(COLORREF fg_color) noexcept {
     const int target_px = ScaleByDpi(20);
-    if (bmp_half_width_.IsValid() && icon_px_ == target_px && icon_fg_color_ == fg_color) {
+    if (gsl::at(icon_bitmaps_, 0).IsValid() && icon_px_ == target_px && icon_fg_color_ == fg_color) {
         return;
     }
     icon_px_ = target_px;
     icon_fg_color_ = fg_color;
-    bmp_half_width_ = CreateAntialiasedIconBitmap(StatusBarIconKind::HalfWidthMoon, target_px, fg_color);
-    bmp_full_width_ = CreateAntialiasedIconBitmap(StatusBarIconKind::FullWidthSun, target_px, fg_color);
-    bmp_cn_punct_ = CreateAntialiasedIconBitmap(StatusBarIconKind::ChinesePunct, target_px, fg_color);
-    bmp_en_punct_ = CreateAntialiasedIconBitmap(StatusBarIconKind::EnglishPunct, target_px, fg_color);
-    bmp_settings_ = CreateAntialiasedIconBitmap(StatusBarIconKind::SettingsGear, target_px, fg_color);
+    for (size_t i = 0; i < kIconCount; ++i) {
+        gsl::at(icon_bitmaps_, i) = CreateAntialiasedIconBitmap(
+            static_cast<StatusBarIconKind>(i), target_px, fg_color);
+    }
+}
+
+HBITMAP StatusBarUI::GetIconBitmap(StatusBarIconKind kind) const noexcept {
+    const auto idx = static_cast<size_t>(kind);
+    if (idx >= icon_bitmaps_.size()) {
+        return nullptr;
+    }
+    return gsl::at(icon_bitmaps_, idx).Get();
 }
 
 void StatusBarUI::ClampToCurrentMonitor() noexcept {
@@ -373,14 +443,14 @@ int StatusBarUI::HitTestZone(int client_x) const noexcept {
 const wchar_t* StatusBarUI::GetTooltipTextForX(int client_x) const noexcept {
     const auto& str = GetUiStrings(state_.ui_language);
     const int zone = HitTestZone(client_x);
-    switch (zone) {
-        case 0: return str.tip_grip;
-        case 1: return str.tip_mode;
-        case 2: return str.tip_width;
-        case 3: return str.tip_punct;
-        case 4: return str.tip_settings;
-        default: return L"";
+    if (zone == 0) {
+        return str.tip_grip;
     }
+    if (zone >= 1 && zone <= kCellCount) {
+        const auto& cell = gsl::at(kStatusBarCells, gsl::narrow_cast<size_t>(zone - 1));
+        return str.*(cell.tooltip_field);
+    }
+    return L"";
 }
 
 void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
@@ -480,13 +550,14 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) noexcept {
     const ScopedSelectObject sel_font(hdc, font_.Get());
     ::SetBkMode(hdc, TRANSPARENT);
 
-    // 2. 4 interactive cells matching the modern Windows IME toolbar style:
+    // 2. Interactive cells driven by kStatusBarCells descriptor table:
     //    Cell 0: ClearType "中" / "英" (or "CN" / "EN")
     //    Cell 1: Antialiased bitmap for Half-width Crescent Moon / Full-width Circle
     //    Cell 2: Antialiased bitmap for Chinese Punctuation (。，) / English Punctuation (.,)
     //    Cell 3: Antialiased bitmap for Settings Gear
     RebuildIconBitmaps(palette.text_primary);
 
+    const auto& str = GetUiStrings(state_.ui_language);
     const ScopedGdiHandle<HBRUSH> hover_brush(::CreateSolidBrush(palette.hover_bg));
     ::SetTextColor(hdc, palette.text_primary);
     for (int i = 0; i < kCellCount; ++i) {
@@ -495,18 +566,13 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) noexcept {
         if (hovered_zone_ == i + 1) {
             ::FillRect(hdc, &cell_rc, hover_brush.Get());
         }
-        if (i == 0) {
-            const auto& str = GetUiStrings(state_.ui_language);
-            const wchar_t* mode_label = state_.chinese_mode ? str.status_mode_cn : str.status_mode_en;
-            ::DrawTextW(hdc, mode_label, -1, &cell_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        } else if (i == 1) {
-            const HBITMAP bmp = state_.full_width ? bmp_full_width_.Get() : bmp_half_width_.Get();
+        const auto& cell = gsl::at(kStatusBarCells, gsl::narrow_cast<size_t>(i));
+        if (cell.select_text != nullptr) {
+            const wchar_t* label = cell.select_text(state_, str);
+            ::DrawTextW(hdc, label, -1, &cell_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        } else {
+            const HBITMAP bmp = GetIconBitmap(cell.select_icon(state_));
             DrawAlphaBitmapCentered(hdc, bmp, icon_px_, cell_rc);
-        } else if (i == 2) {
-            const HBITMAP bmp = state_.chinese_punct ? bmp_cn_punct_.Get() : bmp_en_punct_.Get();
-            DrawAlphaBitmapCentered(hdc, bmp, icon_px_, cell_rc);
-        } else if (i == 3) {
-            DrawAlphaBitmapCentered(hdc, bmp_settings_.Get(), icon_px_, cell_rc);
         }
     }
 }
@@ -561,18 +627,13 @@ void StatusBarUI::OnMouseLeave() noexcept {
 }
 
 void StatusBarUI::OnLeftButtonDown(POINT pt) const {
-    const int buttons_offset = ScaleByDpi(kButtonsOffset);
-    const int cell_w = ScaleByDpi(kCellWidth);
-    if (!action_callback_ || pt.x < buttons_offset) {
+    if (!action_callback_) {
         return;
     }
-    const int cell_idx = (pt.x - buttons_offset) / std::max(1, cell_w);
-    switch (cell_idx) {
-        case 0: action_callback_(LangBarMenuId::ToggleChinese); break;
-        case 1: action_callback_(LangBarMenuId::ToggleFullWidth); break;
-        case 2: action_callback_(LangBarMenuId::TogglePunctuation); break;
-        case 3: action_callback_(LangBarMenuId::OpenSettings); break;
-        default: break;
+    const int zone = HitTestZone(pt.x);
+    if (zone >= 1 && zone <= kCellCount) {
+        const auto& cell = gsl::at(kStatusBarCells, gsl::narrow_cast<size_t>(zone - 1));
+        action_callback_(cell.click_action);
     }
 }
 
