@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -58,6 +59,13 @@ constexpr std::string_view PrimaryDictToString(PrimaryDict dict) noexcept {
         default:                       return "jidian";
     }
 }
+
+// Bundled dictionary file names shared between RegisterServer prebuild, UnregisterServer cleanup, and runtime loading.
+inline constexpr std::array<std::wstring_view, 3> kBundledDictFileNames = {
+    L"wubi86_jidian.txt",
+    L"wubi86_jidian_extra.txt",
+    L"wubi86_haifeng.txt"
+};
 
 // Return default user configuration path: %LOCALAPPDATA%\QiQiIME\config.ini
 std::filesystem::path GetDefaultUserConfigPath();

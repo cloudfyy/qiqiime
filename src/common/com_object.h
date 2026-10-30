@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <wrl/client.h>
 #include <atomic>
+#include <concepts>
 #include <utility>
 
 #include "common/guids.h"
@@ -30,15 +31,24 @@ HRESULT CreateComObjectToOut(OutInterface** ppOut, Args&&... args) noexcept {
     if (!obj) {
         return E_OUTOFMEMORY;
     }
-    *ppOut = static_cast<OutInterface*>(obj.Detach());
+    *ppOut = obj.Detach();
     return S_OK;
 }
+
+namespace detail {
+template <typename T>
+concept HasQueryAdditionalInterfaces = requires(T& obj, REFIID riid, void** ppvObj) {
+    { obj.QueryAdditionalInterfaces(riid, ppvObj) } -> std::same_as<bool>;
+};
+} // namespace detail
 
 // CRTP base template for in-proc COM objects:
 // Provides thread-safe reference counting (AddRef/Release), automatic g_com_object_count tracking
 // for DllCanUnloadNow, and variadic fold-expression QueryInterface across all supported COM interfaces.
 // Note: If an ExtraInterface is a base class of PrimaryInterface (e.g. ITfUIElement is a base of
 // ITfCandidateListUIElement), it is not inherited a second time to avoid diamond base ambiguity.
+#pragma warning(push)
+#pragma warning(disable : 26456 26466)
 template <typename Derived, typename PrimaryInterface, typename... ExtraInterfaces>
 class ComObjectBase : public PrimaryInterface, public ExtraInterfaces... {
 public:
@@ -46,13 +56,10 @@ public:
         ++g_com_object_count;
     }
 
-#pragma warning(push)
-#pragma warning(disable : 26456)
     ComObjectBase(const ComObjectBase&) = delete;
     ComObjectBase& operator=(const ComObjectBase&) = delete;
     ComObjectBase(ComObjectBase&&) = delete;
     ComObjectBase& operator=(ComObjectBase&&) = delete;
-#pragma warning(pop)
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) {
@@ -64,7 +71,7 @@ public:
             return S_OK;
         }
         if (TryMatchInterfaces<ExtraInterfaces...>(riid, ppvObj) ||
-            static_cast<Derived*>(this)->QueryAdditionalInterfaces(riid, ppvObj)) {
+            TryDerivedAdditionalInterfaces(riid, ppvObj)) {
             AddRef();
             return S_OK;
         }
@@ -89,12 +96,6 @@ protected:
         --g_com_object_count;
     }
 
-    // Derived classes can optionally expose base interfaces of PrimaryInterface (such as ITfUIElement,
-    // ITfLangBarItem, ITfTextInputProcessor, ITfFunction) without duplicate inheritance.
-    bool QueryAdditionalInterfaces(REFIID /*riid*/, void** /*ppvObj*/) noexcept {
-        return false;
-    }
-
     template <typename CastInterface, typename... BaseAliases>
     bool MatchBaseInterfaces(REFIID riid, void** ppvObj) noexcept {
         if (!ppvObj) {
@@ -108,14 +109,25 @@ protected:
     }
 
 private:
-    template <typename... Ifaces>
-    bool TryMatchInterfaces(REFIID riid, void** ppvObj) noexcept {
-        if (!ppvObj) {
+    bool TryDerivedAdditionalInterfaces(REFIID riid, void** ppvObj) noexcept {
+        if constexpr (detail::HasQueryAdditionalInterfaces<Derived>) {
+            return static_cast<Derived*>(this)->QueryAdditionalInterfaces(riid, ppvObj);
+        } else {
+            (void)riid;
+            (void)ppvObj;
             return false;
         }
+    }
+
+    template <typename... Ifaces>
+    bool TryMatchInterfaces(REFIID riid, void** ppvObj) noexcept {
         if constexpr (sizeof...(Ifaces) == 0) {
+            (void)riid;
             return false;
         } else {
+            if (!ppvObj) {
+                return false;
+            }
             bool matched = false;
             ((!matched && IsEqualIID(riid, __uuidof(Ifaces))
                   ? (*ppvObj = static_cast<Ifaces*>(static_cast<Derived*>(this)), matched = true)
@@ -127,5 +139,6 @@ private:
 
     std::atomic<ULONG> ref_count_{1};
 };
+#pragma warning(pop)
 
 } // namespace qiqi

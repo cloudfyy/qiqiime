@@ -2,6 +2,7 @@
 #include "tsf/display_attribute.h"
 #include "tsf/edit_session.h"
 #include "ui/settings_dialog.h"
+#include "common/file_util.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
@@ -120,7 +121,7 @@ void LogKeyTraceIfEnabled(
         if (i > 0) {
             cand_preview += ", ";
         }
-        cand_preview += std::format("{}:{}", i + 1, log::WideToUtf8(gsl::at(result.page_candidates, i)));
+        cand_preview += std::format("{}:{}", i + 1, WideToUtf8(gsl::at(result.page_candidates, i)));
     }
     QIQI_LOG_INFO(
         "[KeyTrace] vk={} shift={} caps={} ctrl={} alt={} -> action={} raw='{}' commit='{}' "
@@ -131,8 +132,8 @@ void LogKeyTraceIfEnabled(
         ctrl,
         alt,
         KeyActionTypeToString(result.action),
-        log::WideToUtf8(result.composition_text),
-        log::WideToUtf8(result.committed_text),
+        WideToUtf8(result.composition_text),
+        WideToUtf8(result.committed_text),
         total_candidates,
         result.current_page + (result.total_pages > 0 ? 1 : 0),
         result.total_pages,
@@ -188,7 +189,7 @@ QiQiTextService::~QiQiTextService() noexcept {
 
 void QiQiTextService::LoadExternalDictionaryNextToDll() {
     engine_.ClearExternalDictionaries();
-    const std::filesystem::path module_path = log::GetModuleFilePath(g_dll_instance);
+    const std::filesystem::path module_path = GetModuleFilePath(g_dll_instance);
     if (module_path.empty()) {
         QIQI_LOG_WARN("GetModuleFileNameW failed when locating external dictionaries");
         return;
@@ -224,7 +225,7 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
             loaded_any |= engine_.LoadDictionaryFile(user_path);
         } else {
             QIQI_LOG_WARN("Configured user dictionary '{}' does not exist",
-                          log::WideToUtf8(user_path.wstring()));
+                          WideToUtf8(user_path.wstring()));
         }
     } else {
         const std::filesystem::path default_user_dict = GetDefaultUserDictPath();
@@ -235,7 +236,7 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
 
     if (!loaded_any && config_.primary_dict != PrimaryDict::BuiltinOnly) {
         QIQI_LOG_DEBUG("External dictionaries not found in '{}', using builtin dictionary only",
-                       log::WideToUtf8(dll_dir.wstring()));
+                       WideToUtf8(dll_dir.wstring()));
     } else {
         QIQI_LOG_INFO("Dictionary initialization complete: {} external dictionary file(s) active",
                       engine_.MappedDictionaryCount());
@@ -254,7 +255,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     client_id_ = tid;
     activate_flags_ = dwFlags;
 
-    const std::string host_exe = log::WideToUtf8(log::GetModuleFilePath(nullptr).filename().wstring());
+    const std::string host_exe = WideToUtf8(GetModuleFilePath(nullptr).filename().wstring());
     QIQI_LOG_INFO("QiQiTextService::ActivateEx(version={}, arch={}, host='{}', client_id={}, flags=0x{:x})",
                   version::kFullVersion, version::kArch, host_exe, tid, dwFlags);
 
@@ -823,6 +824,10 @@ void QiQiTextService::SyncTsfCompartments() {
 }
 
 void QiQiTextService::ReloadConfigIfModified() {
+    if (engine_.HasModifiedMappedDictionary()) {
+        LoadExternalDictionaryNextToDll();
+    }
+
     std::error_code ec;
     const std::filesystem::path user_cfg = GetDefaultUserConfigPath();
     if (!std::filesystem::exists(user_cfg, ec)) {
@@ -847,7 +852,7 @@ void QiQiTextService::ReloadConfigIfModified() {
         }
         SyncTsfCompartments();
         QIQI_LOG_INFO("Hot-reloaded modified user configuration from '{}' (dict={}, mapped_dicts={}, log_keystrokes={})",
-                      log::WideToUtf8(user_cfg.wstring()),
+                      WideToUtf8(user_cfg.wstring()),
                       PrimaryDictToString(config_.primary_dict),
                       engine_.MappedDictionaryCount(),
                       config_.log_keystrokes);

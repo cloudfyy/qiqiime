@@ -1,4 +1,5 @@
 #include "engine/wubi_binary_dict.h"
+#include "common/file_util.h"
 #include "common/logger.h"
 
 #include <algorithm>
@@ -58,38 +59,17 @@ constexpr std::wstring_view NextToken(std::wstring_view& line) noexcept {
     return token;
 }
 
-std::filesystem::path GetCacheFilePath(const std::filesystem::path& txt_path) {
-    // 1. Prefer adjacent .qdict file if it already exists or its directory is writable
-    std::filesystem::path local_cache = txt_path;
-    local_cache.replace_extension(L".qdict");
-    std::error_code ec;
-    if (std::filesystem::exists(local_cache, ec)) {
-        return local_cache;
-    }
-
-    // 2. Otherwise use %LOCALAPPDATA%\QiQiIME\cache\<stem>.qdict
-    const std::filesystem::path app_dir = log::GetAppDataDirectory();
-    if (!app_dir.empty()) {
-        const std::filesystem::path cache_dir = app_dir / L"cache";
-        std::filesystem::create_directories(cache_dir, ec);
-        if (!ec) {
-            return cache_dir / (txt_path.stem().wstring() + L".qdict");
-        }
-    }
-    return local_cache;
-}
-
 bool ParseTextDictIntoBinaryBuffer(
     const std::filesystem::path& txt_path,
     uint64_t src_size,
     uint64_t src_mtime,
     std::vector<uint8_t>& out_buffer) {
     std::string raw_utf8;
-    if (!log::ReadFileToUtf8String(txt_path, raw_utf8)) {
+    if (!ReadFileToUtf8String(txt_path, raw_utf8)) {
         return false;
     }
 
-    const std::wstring wide_content = log::Utf8ToWide(log::StripUtf8Bom(raw_utf8));
+    const std::wstring wide_content = Utf8ToWide(StripUtf8Bom(raw_utf8));
     std::wstring_view content_view(wide_content);
 
     std::map<uint32_t, std::vector<std::wstring_view>> grouped;
@@ -227,8 +207,10 @@ bool WubiMappedDict::BindBufferView(
     if (hdr->magic != kDictMagic || hdr->version != kDictFormatVersion) {
         return false;
     }
-    if (expected_src_size != 0 &&
-        (hdr->source_size != expected_src_size || hdr->source_mtime != expected_src_mtime)) {
+    if (expected_src_size != 0 && hdr->source_size != expected_src_size) {
+        return false;
+    }
+    if (expected_src_mtime != 0 && hdr->source_mtime != 0 && hdr->source_mtime != expected_src_mtime) {
         return false;
     }
 
@@ -261,12 +243,14 @@ bool WubiMappedDict::OpenMappedFile(
 
     // Open with least privilege:
     // - GENERIC_READ only (no write/execute)
-    // - FILE_SHARE_READ only (disallow concurrent write/truncate/delete while mapped to prevent STATUS_IN_PAGE_ERROR)
+    // - FILE_SHARE_READ | FILE_SHARE_DELETE: disallows concurrent in-place write/truncation while mapped
+    //   (preventing STATUS_IN_PAGE_ERROR), while allowing another process to atomically replace the cache
+    //   directory entry via WriteFileAtomically (MoveFileExW MOVEFILE_REPLACE_EXISTING) when .txt is updated.
     // - SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS to prevent named-pipe token impersonation
     ScopedFileHandle file(::CreateFileW(
         bin_path.c_str(),
         GENERIC_READ,
-        FILE_SHARE_READ,
+        FILE_SHARE_READ | FILE_SHARE_DELETE,
         nullptr,
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
@@ -281,7 +265,7 @@ bool WubiMappedDict::OpenMappedFile(
         file_size.QuadPart < gsl::narrow_cast<LONGLONG>(sizeof(DictBinaryHeader)) ||
         file_size.QuadPart > kMaxDictBytes) {
         QIQI_LOG_WARN("OpenMappedFile: invalid cache file size ({} bytes) for '{}'",
-                      file_size.QuadPart, log::WideToUtf8(bin_path.wstring()));
+                      file_size.QuadPart, WideToUtf8(bin_path.wstring()));
         return false;
     }
 
@@ -290,7 +274,7 @@ bool WubiMappedDict::OpenMappedFile(
         file.Get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
     if (!mapping.IsValid()) {
         QIQI_LOG_WARN("OpenMappedFile: CreateFileMappingW failed for '{}' (error={})",
-                      log::WideToUtf8(bin_path.wstring()), ::GetLastError());
+                      WideToUtf8(bin_path.wstring()), ::GetLastError());
         return false;
     }
 
@@ -298,7 +282,7 @@ bool WubiMappedDict::OpenMappedFile(
     ScopedMappedView view(::MapViewOfFile(mapping.Get(), FILE_MAP_READ, 0, 0, 0));
     if (!view.IsValid()) {
         QIQI_LOG_WARN("OpenMappedFile: MapViewOfFile failed for '{}' (error={})",
-                      log::WideToUtf8(bin_path.wstring()), ::GetLastError());
+                      WideToUtf8(bin_path.wstring()), ::GetLastError());
         return false;
     }
 
@@ -307,7 +291,7 @@ bool WubiMappedDict::OpenMappedFile(
         gsl::narrow_cast<size_t>(file_size.QuadPart));
     if (!BindBufferView(mapped_span, expected_src_size, expected_src_mtime)) {
         QIQI_LOG_DEBUG("OpenMappedFile: cache header/timestamp mismatch for '{}', will rebuild",
-                       log::WideToUtf8(bin_path.wstring()));
+                       WideToUtf8(bin_path.wstring()));
         return false;
     }
 
@@ -319,17 +303,65 @@ bool WubiMappedDict::OpenMappedFile(
     return true;
 }
 
+bool WubiMappedDict::IsSourceModified() const noexcept {
+    try {
+        if (source_path_.empty()) {
+            return false;
+        }
+        std::error_code ec;
+        if (!std::filesystem::exists(source_path_, ec)) {
+            return false;
+        }
+        const uint64_t cur_size = std::filesystem::file_size(source_path_, ec);
+        const uint64_t cur_mtime = gsl::narrow_cast<uint64_t>(
+            std::filesystem::last_write_time(source_path_, ec).time_since_epoch().count());
+        if (ec) {
+            return false;
+        }
+        return (cur_size != loaded_src_size_) || (cur_mtime != loaded_src_mtime_);
+    } catch (...) {
+        return false;
+    }
+}
+
+bool WubiMappedDict::CompileTextFileToQdict(
+    const std::filesystem::path& txt_path,
+    const std::filesystem::path& out_qdict_path) {
+    std::error_code ec;
+    if (!std::filesystem::exists(txt_path, ec)) {
+        return false;
+    }
+    const uint64_t src_size = std::filesystem::file_size(txt_path, ec);
+    const uint64_t src_mtime = gsl::narrow_cast<uint64_t>(
+        std::filesystem::last_write_time(txt_path, ec).time_since_epoch().count());
+    if (ec) {
+        return false;
+    }
+    std::vector<uint8_t> bin_buffer;
+    if (!ParseTextDictIntoBinaryBuffer(txt_path, src_size, src_mtime, bin_buffer)) {
+        return false;
+    }
+    return WriteFileAtomically(out_qdict_path, bin_buffer);
+}
+
 std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
     const std::filesystem::path& txt_path) {
     std::error_code ec;
-    if (!std::filesystem::exists(txt_path, ec)) {
+    std::filesystem::path adjacent_qdict = txt_path;
+    adjacent_qdict.replace_extension(L".qdict");
+
+    const bool txt_exists = std::filesystem::exists(txt_path, ec);
+    const bool qdict_exists = std::filesystem::exists(adjacent_qdict, ec);
+    if (!txt_exists && !qdict_exists) {
         return nullptr;
     }
 
-    const uint64_t src_size = std::filesystem::file_size(txt_path, ec);
-    const auto mtime_tp = std::filesystem::last_write_time(txt_path, ec);
-    const uint64_t src_mtime = gsl::narrow_cast<uint64_t>(mtime_tp.time_since_epoch().count());
-    const std::wstring canonical_key = std::filesystem::weakly_canonical(txt_path, ec).wstring();
+    const uint64_t src_size = txt_exists ? std::filesystem::file_size(txt_path, ec) : 0;
+    const uint64_t src_mtime = txt_exists
+        ? gsl::narrow_cast<uint64_t>(std::filesystem::last_write_time(txt_path, ec).time_since_epoch().count())
+        : gsl::narrow_cast<uint64_t>(std::filesystem::last_write_time(adjacent_qdict, ec).time_since_epoch().count());
+    const std::wstring canonical_key =
+        std::filesystem::weakly_canonical(txt_exists ? txt_path : adjacent_qdict, ec).wstring();
 
     {
         std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
@@ -338,23 +370,41 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
             it->second.src_size == src_size &&
             it->second.src_mtime == src_mtime &&
             it->second.dict) {
-            QIQI_LOG_DEBUG("In-process dictionary cache hit for '{}'", log::WideToUtf8(canonical_key));
+            QIQI_LOG_DEBUG("In-process dictionary cache hit for '{}'", WideToUtf8(canonical_key));
             return it->second.dict;
         }
     }
 
     auto dict = std::make_shared<WubiMappedDict>();
-    const std::filesystem::path cache_bin_path = GetCacheFilePath(txt_path);
+    dict->source_path_ = txt_exists ? txt_path : adjacent_qdict;
+    dict->loaded_src_size_ = src_size;
+    dict->loaded_src_mtime_ = src_mtime;
 
-    // 1. Try mapping existing binary cache directly (zero parse, zero heap copy, demand-paged)
-    if (dict->OpenMappedFile(cache_bin_path, src_size, src_mtime)) {
-        QIQI_LOG_INFO("Mapped binary dictionary cache '{}' ({} codes, {} words)",
-                      log::WideToUtf8(cache_bin_path.wstring()),
-                      dict->CodeCount(),
-                      dict->WordCount());
-        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
-        g_process_dict_cache[canonical_key] = {src_size, src_mtime, dict};
-        return dict;
+    std::filesystem::path fallback_cache;
+    if (const std::filesystem::path app_dir = GetAppDataDirectory(); !app_dir.empty()) {
+        const std::filesystem::path cache_dir = app_dir / L"cache";
+        std::filesystem::create_directories(cache_dir, ec);
+        if (!ec) {
+            fallback_cache = cache_dir / (txt_path.stem().wstring() + L".qdict");
+        }
+    }
+
+    // 1. Try mapping existing binary cache directly (prefer adjacent .qdict, then fallback %LOCALAPPDATA%\cache\.qdict)
+    for (const auto& candidate : {adjacent_qdict, fallback_cache}) {
+        if (!candidate.empty() && std::filesystem::exists(candidate, ec) &&
+            dict->OpenMappedFile(candidate, src_size, txt_exists ? src_mtime : 0)) {
+            QIQI_LOG_INFO("Mapped binary dictionary cache '{}' ({} codes, {} words)",
+                          WideToUtf8(candidate.wstring()),
+                          dict->CodeCount(),
+                          dict->WordCount());
+            std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+            g_process_dict_cache[canonical_key] = {src_size, src_mtime, dict};
+            return dict;
+        }
+    }
+
+    if (!txt_exists) {
+        return nullptr;
     }
 
     // 2. Parse text dictionary and compile binary image
@@ -364,13 +414,17 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
     }
 
     // Write binary cache to disk atomically via an exclusive-write temporary file + MoveFileExW
-    // so concurrent processes never observe a partially written .qdict file.
-    std::ignore = log::WriteFileAtomically(cache_bin_path, bin_buffer);
+    // (try adjacent .qdict first; if read-only such as Program Files, write to fallback %LOCALAPPDATA%\cache\.qdict).
+    std::filesystem::path written_cache = adjacent_qdict;
+    if (!WriteFileAtomically(written_cache, bin_buffer) && !fallback_cache.empty()) {
+        written_cache = fallback_cache;
+        std::ignore = WriteFileAtomically(written_cache, bin_buffer);
+    }
 
-    if (!dict->OpenMappedFile(cache_bin_path, src_size, src_mtime)) {
+    if (!dict->OpenMappedFile(written_cache, src_size, src_mtime)) {
         // Fallback to flat in-memory buffer if file mapping is unavailable in sandbox
         QIQI_LOG_WARN("Falling back to in-memory dictionary buffer for '{}'",
-                      log::WideToUtf8(txt_path.wstring()));
+                      WideToUtf8(txt_path.wstring()));
         dict->fallback_buffer_ = std::move(bin_buffer);
         if (!dict->BindBufferView(dict->fallback_buffer_, src_size, src_mtime)) {
             return nullptr;
@@ -378,8 +432,8 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
     }
 
     QIQI_LOG_INFO("Compiled & mapped dictionary '{}' -> '{}' ({} codes, {} words)",
-                  log::WideToUtf8(txt_path.wstring()),
-                  log::WideToUtf8(cache_bin_path.wstring()),
+                  WideToUtf8(txt_path.wstring()),
+                  WideToUtf8(written_cache.wstring()),
                   dict->CodeCount(),
                   dict->WordCount());
 

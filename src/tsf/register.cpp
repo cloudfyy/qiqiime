@@ -1,9 +1,12 @@
 #include "tsf/register.h"
+#include "common/config.h"
+#include "common/file_util.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/scoped_handle.h"
 #include "common/version.h"
+#include "engine/wubi_binary_dict.h"
 
 #include <gsl/gsl>
 #include <msctf.h>
@@ -42,7 +45,7 @@ void SetRegSzValue(HKEY key, const wchar_t* value_name, std::wstring_view value)
 }
 
 bool RegisterComClsid(HINSTANCE instance) {
-    const std::filesystem::path module_path = log::GetModuleFilePath(instance);
+    const std::filesystem::path module_path = GetModuleFilePath(instance);
     if (module_path.empty()) {
         return false;
     }
@@ -86,6 +89,40 @@ const std::array<GUID, 7> kSupportedCategories = {
     GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT,
     GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER
 };
+
+void PrebuildBundledDictionaries(HINSTANCE instance) noexcept {
+    try {
+        const std::filesystem::path module_path = GetModuleFilePath(instance);
+        if (module_path.empty()) {
+            return;
+        }
+        const std::filesystem::path dll_dir = module_path.parent_path();
+        for (const auto dict_name : kBundledDictFileNames) {
+            const std::filesystem::path txt_path = ResolveBundledDataFile(dll_dir, dict_name);
+            std::filesystem::path qdict_path = txt_path;
+            qdict_path.replace_extension(L".qdict");
+            std::ignore = WubiMappedDict::CompileTextFileToQdict(txt_path, qdict_path);
+        }
+    } catch (...) {
+    }
+}
+
+void RemovePrebuiltBundledDictionaries(HINSTANCE instance) noexcept {
+    try {
+        const std::filesystem::path module_path = GetModuleFilePath(instance);
+        if (module_path.empty()) {
+            return;
+        }
+        const std::filesystem::path dll_dir = module_path.parent_path();
+        std::error_code ec;
+        for (const auto dict_name : kBundledDictFileNames) {
+            std::filesystem::path qdict_path = ResolveBundledDataFile(dll_dir, dict_name);
+            qdict_path.replace_extension(L".qdict");
+            std::filesystem::remove(qdict_path, ec);
+        }
+    } catch (...) {
+    }
+}
 
 } // namespace
 
@@ -165,7 +202,7 @@ HRESULT RegisterServerWithManagers(
             break;
         }
 
-        const std::wstring module_path = log::GetModuleFilePath(instance).wstring();
+        const std::wstring module_path = GetModuleFilePath(instance).wstring();
         const wchar_t* const profile_desc =
             (ResolveUiLanguage(UiLanguage::Auto) == UiLanguage::EnUs) ? kProfileDescEn : kProfileDescZh;
 
@@ -238,6 +275,7 @@ HRESULT RegisterServerWithManagers(
                 cat_mgr->RegisterCategory(kClsidQiQiTextService, cat, kClsidQiQiTextService);
             }
         }
+        PrebuildBundledDictionaries(instance);
     } while (false);
 
     if (SUCCEEDED(hr)) {
@@ -308,6 +346,7 @@ HRESULT UnregisterServerWithManagers(
         profiles->Unregister(kClsidQiQiTextService);
     }
     ::CoFreeUnusedLibraries();
+    RemovePrebuiltBundledDictionaries(g_dll_instance);
 
     QIQI_LOG_INFO("UnregisterServer completed");
     return S_OK;

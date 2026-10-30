@@ -133,15 +133,21 @@ public:
     WubiMappedDict(WubiMappedDict&&) = delete;
     WubiMappedDict& operator=(WubiMappedDict&&) = delete;
 
-    // Load from a .txt / .yaml dictionary file, using or generating a memory-mapped .qdict cache.
+    // Load from a .txt / .yaml / .qdict dictionary file, using or generating a memory-mapped .qdict cache.
     static std::shared_ptr<const WubiMappedDict> LoadFromTextOrCache(
         const std::filesystem::path& txt_path);
+
+    // Precompile a .txt / .yaml dictionary file directly to a .qdict binary image on disk.
+    static bool CompileTextFileToQdict(
+        const std::filesystem::path& txt_path,
+        const std::filesystem::path& out_qdict_path);
 
     // Static in-memory cache of loaded dictionaries inside the current process
     static void ClearProcessCache() noexcept;
 
     bool IsValid() const noexcept { return !code_index_.empty(); }
     bool IsMemoryMapped() const noexcept { return mapped_view_.IsValid(); }
+    bool IsSourceModified() const noexcept;
     size_t CodeCount() const noexcept { return code_index_.size(); }
     size_t WordCount() const noexcept { return word_slices_.size(); }
 
@@ -184,7 +190,9 @@ private:
     ScopedKernelHandle mapping_handle_;
     ScopedMappedView mapped_view_;
     std::vector<uint8_t> fallback_buffer_;
-
+    std::filesystem::path source_path_;
+    uint64_t loaded_src_size_ = 0;
+    uint64_t loaded_src_mtime_ = 0;
     std::span<const DictCodeIndex> code_index_;
     std::span<const DictWordSlice> word_slices_;
     std::span<const wchar_t> char_pool_;

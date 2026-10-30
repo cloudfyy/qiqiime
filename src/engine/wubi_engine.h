@@ -121,6 +121,7 @@ public:
     std::vector<std::wstring> LookupCandidates(std::wstring_view code) const;
     std::vector<std::wstring> LookupExact(std::wstring_view code) const;
     size_t MappedDictionaryCount() const noexcept { return mapped_dicts_.size(); }
+    bool HasModifiedMappedDictionary() const noexcept;
 
 private:
     struct KeyInputContext {

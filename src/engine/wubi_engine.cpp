@@ -1,5 +1,6 @@
 #include "engine/wubi_engine.h"
 #include "engine/wubi_default_dict.h"
+#include "common/file_util.h"
 #include "common/logger.h"
 #include "common/scoped_handle.h"
 
@@ -130,7 +131,7 @@ bool WubiEngine::AddUserPhrase(std::wstring_view phrase, const std::filesystem::
     }
     AddEntry(code, phrase);
     QIQI_LOG_INFO("Added user phrase (code='{}', length={})",
-                  log::WideToUtf8(code), SplitUtf16Codepoints(phrase).size());
+                  WideToUtf8(code), SplitUtf16Codepoints(phrase).size());
 
     if (user_dict_path.empty()) {
         return true;
@@ -151,10 +152,10 @@ bool WubiEngine::AddUserPhrase(std::wstring_view phrase, const std::filesystem::
             nullptr));
         if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
             QIQI_LOG_WARN("AddUserPhrase: failed to open user dict '{}' for append (error={})",
-                          log::WideToUtf8(user_dict_path.wstring()), ::GetLastError());
+                          WideToUtf8(user_dict_path.wstring()), ::GetLastError());
             return false;
         }
-        const std::string line = log::WideToUtf8(code) + " " + log::WideToUtf8(phrase) + "\n";
+        const std::string line = WideToUtf8(code) + " " + WideToUtf8(phrase) + "\n";
         DWORD written = 0;
         const DWORD to_write = gsl::narrow_cast<DWORD>(line.size());
         return (::WriteFile(file.Get(), line.data(), to_write, &written, nullptr) != FALSE) &&
@@ -168,18 +169,27 @@ bool WubiEngine::LoadDictionaryFile(const std::filesystem::path& file_path) {
     auto mapped = WubiMappedDict::LoadFromTextOrCache(file_path);
     if (!mapped) {
         QIQI_LOG_WARN("Failed to load or map external dictionary file: {}",
-                      log::WideToUtf8(file_path.wstring()));
+                      WideToUtf8(file_path.wstring()));
         return false;
     }
     if (std::find(mapped_dicts_.begin(), mapped_dicts_.end(), mapped) == mapped_dicts_.end()) {
         QIQI_LOG_INFO("Attached external dictionary '{}' ({} codes, {} words, mapped={})",
-                      log::WideToUtf8(file_path.wstring()),
+                      WideToUtf8(file_path.wstring()),
                       mapped->CodeCount(),
                       mapped->WordCount(),
                       mapped->IsMemoryMapped());
         mapped_dicts_.push_back(std::move(mapped));
     }
     return true;
+}
+
+bool WubiEngine::HasModifiedMappedDictionary() const noexcept {
+    for (const auto& dict : mapped_dicts_) {
+        if (dict && dict->IsSourceModified()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {

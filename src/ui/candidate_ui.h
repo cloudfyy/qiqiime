@@ -30,10 +30,13 @@ public:
     explicit CandidateUI(HINSTANCE instance) noexcept;
     ~CandidateUI() noexcept;
 
+#pragma warning(push)
+#pragma warning(disable : 26456)
     CandidateUI(const CandidateUI&) = delete;
     CandidateUI& operator=(const CandidateUI&) = delete;
     CandidateUI(CandidateUI&&) = delete;
     CandidateUI& operator=(CandidateUI&&) = delete;
+#pragma warning(pop)
 
     bool QueryAdditionalInterfaces(REFIID riid, void** ppvObj) noexcept {
         return MatchBaseInterfaces<ITfCandidateListUIElement, ITfUIElement>(riid, ppvObj);

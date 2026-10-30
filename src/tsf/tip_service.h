@@ -33,10 +33,13 @@ public:
     explicit QiQiTextService(HINSTANCE instance);
     ~QiQiTextService() noexcept;
 
+#pragma warning(push)
+#pragma warning(disable : 26456)
     QiQiTextService(const QiQiTextService&) = delete;
     QiQiTextService& operator=(const QiQiTextService&) = delete;
     QiQiTextService(QiQiTextService&&) = delete;
     QiQiTextService& operator=(QiQiTextService&&) = delete;
+#pragma warning(pop)
 
     bool QueryAdditionalInterfaces(REFIID riid, void** ppvObj) noexcept {
         return MatchBaseInterfaces<ITfTextInputProcessorEx, ITfTextInputProcessor>(riid, ppvObj) ||

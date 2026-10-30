@@ -1,5 +1,6 @@
 #include "common.h"
 #include "common/config.h"
+#include "common/file_util.h"
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/scoped_handle.h"
@@ -34,12 +35,12 @@ void TestEtwLogger() {
     QIQI_LOG_DEBUG("Lazy default logger test");
 
     // 2. Test WideToUtf8, Utf8ToWide, and GetModuleFilePath
-    QIQI_TEST_CHECK(log::WideToUtf8(L"").empty());
-    QIQI_TEST_CHECK(log::WideToUtf8(L"五笔ABC") == "五笔ABC");
-    QIQI_TEST_CHECK(log::Utf8ToWide("").empty());
-    QIQI_TEST_CHECK(log::Utf8ToWide("五笔ABC") == L"五笔ABC");
-    QIQI_TEST_CHECK(!log::GetModuleFilePath(nullptr).empty());
-    QIQI_TEST_CHECK(log::GetModuleFilePath(reinterpret_cast<void*>(0x12345678)).empty());
+    QIQI_TEST_CHECK(WideToUtf8(L"").empty());
+    QIQI_TEST_CHECK(WideToUtf8(L"五笔ABC") == "五笔ABC");
+    QIQI_TEST_CHECK(Utf8ToWide("").empty());
+    QIQI_TEST_CHECK(Utf8ToWide("五笔ABC") == L"五笔ABC");
+    QIQI_TEST_CHECK(!GetModuleFilePath(nullptr).empty());
+    QIQI_TEST_CHECK(GetModuleFilePath(reinterpret_cast<void*>(0x12345678)).empty());
 
     // 3. Test Pure Lock-Free ETW Logger (InitLogger, SetLevel, GetLevel, IsLogSinkActive, WriteLogMessage)
     log::InitLogger(log::Level::info);
@@ -50,7 +51,7 @@ void TestEtwLogger() {
 
     QIQI_LOG_TRACE("Trace message");
     QIQI_LOG_DEBUG("Debug message");
-    QIQI_LOG_INFO("Unit test log entry: {}", log::WideToUtf8(L"五笔日志测试"));
+    QIQI_LOG_INFO("Unit test log entry: {}", WideToUtf8(L"五笔日志测试"));
     QIQI_LOG_WARN("Warn message");
     QIQI_LOG_ERROR("Error message");
     log::WriteLogMessage(log::Level::trace, "Direct trace");
@@ -77,7 +78,7 @@ void TestEtwLogger() {
             }
         });
         _wputenv_s(L"LOCALAPPDATA", L"");
-        QIQI_TEST_CHECK(!log::GetAppDataDirectory().empty());
+        QIQI_TEST_CHECK(!GetAppDataDirectory().empty());
     }
     log::Shutdown();
     // WriteLogMessage after Shutdown exercises lazy EnsureRegistered inside WriteLogMessage
@@ -322,19 +323,19 @@ void TestScopedHandleTemplate() {
                     bstr_out.IsValid() &&
                     std::wstring(bstr_out.Get()) == L"奇奇");
 
-    // Test CreateUiFont and log::WriteFileAtomically (including directory error branch)
+    // Test CreateUiFont and WriteFileAtomically (including directory error branch)
     {
         const ScopedGdiHandle<HFONT> ui_font = CreateUiFont(16, FW_MEDIUM);
         QIQI_TEST_CHECK(ui_font.IsValid());
 
         const auto atomic_path = std::filesystem::temp_directory_path() / L"qiqiime_atomic_test.bin";
         const std::array<uint8_t, 4> payload{1, 2, 3, 4};
-        QIQI_TEST_CHECK(log::WriteFileAtomically(atomic_path, payload));
+        QIQI_TEST_CHECK(WriteFileAtomically(atomic_path, payload));
         std::string read_back;
-        QIQI_TEST_CHECK(log::ReadFileToUtf8String(atomic_path, read_back) && read_back.size() == 4);
+        QIQI_TEST_CHECK(ReadFileToUtf8String(atomic_path, read_back) && read_back.size() == 4);
         std::error_code rm_ec;
         std::filesystem::remove(atomic_path, rm_ec);
-        QIQI_TEST_CHECK(!log::WriteFileAtomically(std::filesystem::temp_directory_path(), payload));
+        QIQI_TEST_CHECK(!WriteFileAtomically(std::filesystem::temp_directory_path(), payload));
     }
 
     // Test ScopedSaveDC (both null HDC and valid memory HDC state restoration)

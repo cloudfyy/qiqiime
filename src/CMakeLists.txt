@@ -15,6 +15,8 @@ configure_file(
 set(QIQI_ENGINE_SOURCES
     common/config.cpp
     common/config.h
+    common/file_util.cpp
+    common/file_util.h
     common/logger.cpp
     common/logger.h
     common/scoped_handle.h

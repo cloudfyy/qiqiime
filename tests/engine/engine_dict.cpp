@@ -1,4 +1,5 @@
 #include "common.h"
+#include "common/file_util.h"
 #include "common/logger.h"
 #include "engine/wubi_engine.h"
 
@@ -149,13 +150,84 @@ void TestExternalDictFile() {
         QIQI_TEST_CHECK(!rw_check.IsValid());
     }
 
+    // Verify concurrent hot-replacement while another engine/UWP instance holds the old .qdict mapped:
+    // 1) `engine` keeps `adjacent_qdict` mapped via FILE_SHARE_READ | FILE_SHARE_DELETE
+    // 2) `.txt` is modified on disk with a new entry ("zzzz 新词一 新词二 新词三")
+    // 3) `engine.HasModifiedMappedDictionary()` detects the source change
+    // 4) A second `updater_engine` atomically replaces `adjacent_qdict` via MoveFileExW while `engine` is still mapped!
+    // 5) `engine` continues reading its old view safely until it reloads and switches to the new view.
+    {
+        QIQI_TEST_CHECK(!engine.HasModifiedMappedDictionary());
+        {
+            std::ofstream ofs(temp_dict, std::ios::binary | std::ios::trunc);
+            ofs << "zzzz 新词一 新词二 新词三\n"
+                << "瑞梅词\tzzzy\t100\n";
+        }
+        std::error_code time_ec;
+        std::filesystem::last_write_time(
+            temp_dict,
+            std::filesystem::file_time_type::clock::now() + std::chrono::seconds(10),
+            time_ec);
+        QIQI_TEST_CHECK(engine.HasModifiedMappedDictionary());
+
+        WubiEngine updater_engine;
+        QIQI_TEST_CHECK(updater_engine.LoadDictionaryFile(temp_dict));
+        auto updated_zzzz = updater_engine.LookupExact(L"zzzz");
+        QIQI_TEST_CHECK(updated_zzzz.size() == 3 && updated_zzzz[0] == L"新词一");
+
+        // Old engine still safely reads its existing mapped view ("测一", "测二") without STATUS_IN_PAGE_ERROR
+        auto old_zzzz = engine.LookupExact(L"zzzz");
+        QIQI_TEST_CHECK(old_zzzz.size() == 2 && old_zzzz[0] == L"测一");
+
+        // Once old engine reloads, it picks up the newly mapped .qdict ("新词一", "新词二", "新词三")
+        engine.ClearExternalDictionaries();
+        QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
+        QIQI_TEST_CHECK(!engine.HasModifiedMappedDictionary());
+        auto reloaded_zzzz = engine.LookupExact(L"zzzz");
+        QIQI_TEST_CHECK(reloaded_zzzz.size() == 3 && reloaded_zzzz[0] == L"新词一");
+    }
+
+    // Test CompileTextFileToQdict prebuilding .qdict and loading when .txt is absent or read-only
+    {
+        const auto prebuilt_qdict = std::filesystem::temp_directory_path() / L"qiqiime_prebuilt_only.qdict";
+        const auto missing_txt = std::filesystem::temp_directory_path() / L"qiqiime_prebuilt_only.txt";
+        std::error_code pre_ec;
+        std::filesystem::remove(prebuilt_qdict, pre_ec);
+        std::filesystem::remove(missing_txt, pre_ec);
+
+        QIQI_TEST_CHECK(!WubiMappedDict::CompileTextFileToQdict(missing_txt, prebuilt_qdict));
+        QIQI_TEST_CHECK(WubiMappedDict::CompileTextFileToQdict(temp_dict, prebuilt_qdict));
+        QIQI_TEST_CHECK(std::filesystem::exists(prebuilt_qdict));
+
+        WubiEngine prebuilt_engine;
+        QIQI_TEST_CHECK(prebuilt_engine.LoadDictionaryFile(missing_txt));
+        // Second LoadDictionaryFile with missing_txt hits the in-process cache for qdict-only path
+        QIQI_TEST_CHECK(prebuilt_engine.LoadDictionaryFile(missing_txt));
+        auto pre_zzzz = prebuilt_engine.LookupExact(L"zzzz");
+        QIQI_TEST_CHECK(pre_zzzz.size() == 3 && pre_zzzz[0] == L"新词一");
+        prebuilt_engine.ClearExternalDictionaries();
+        WubiMappedDict::ClearProcessCache();
+        std::filesystem::remove(prebuilt_qdict, pre_ec);
+
+        // Corrupted .qdict when .txt does not exist returns false
+        const auto corrupt_only_qdict = std::filesystem::temp_directory_path() / L"qiqiime_corrupt_only.qdict";
+        const auto corrupt_only_txt = std::filesystem::temp_directory_path() / L"qiqiime_corrupt_only.txt";
+        {
+            std::ofstream bad_ofs(corrupt_only_qdict, std::ios::binary);
+            bad_ofs << "bad";
+        }
+        WubiEngine corrupt_engine;
+        QIQI_TEST_CHECK(!corrupt_engine.LoadDictionaryFile(corrupt_only_txt));
+        std::filesystem::remove(corrupt_only_qdict, pre_ec);
+    }
+
     std::error_code ec;
     std::filesystem::remove(temp_dict, ec);
     std::filesystem::remove(adjacent_qdict, ec);
-    std::filesystem::remove(log::GetAppDataDirectory() / L"cache" / L"qiqiime_test_dict.qdict", ec);
+    std::filesystem::remove(GetAppDataDirectory() / L"cache" / L"qiqiime_test_dict.qdict", ec);
 
     // 3. Load bundled dictionaries (wubi86_jidian.txt, wubi86_jidian_extra.txt, wubi86_haifeng.txt)
-    const std::filesystem::path exe_path = log::GetModuleFilePath(nullptr);
+    const std::filesystem::path exe_path = GetModuleFilePath(nullptr);
     if (!exe_path.empty()) {
         const std::filesystem::path exe_dir = exe_path.parent_path();
         const std::filesystem::path main_dict = exe_dir / L"wubi86_jidian.txt";

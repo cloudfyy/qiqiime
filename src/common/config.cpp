@@ -1,4 +1,5 @@
 #include "common/config.h"
+#include "common/file_util.h"
 #include "common/logger.h"
 #include "common/scoped_handle.h"
 
@@ -110,22 +111,22 @@ UiLanguage ParseUiLanguage(std::string_view val, UiLanguage default_lang) {
     return default_lang;
 }
 
+std::filesystem::path ResolveDefaultUserFilePath(std::wstring_view file_name) {
+    const std::filesystem::path app_dir = GetAppDataDirectory();
+    if (app_dir.empty()) {
+        return std::filesystem::path(file_name);
+    }
+    return app_dir / file_name;
+}
+
 } // namespace
 
 std::filesystem::path GetDefaultUserConfigPath() {
-    const std::filesystem::path app_dir = log::GetAppDataDirectory();
-    if (app_dir.empty()) {
-        return L"config.ini";
-    }
-    return app_dir / L"config.ini";
+    return ResolveDefaultUserFilePath(L"config.ini");
 }
 
 std::filesystem::path GetDefaultUserDictPath() {
-    const std::filesystem::path app_dir = log::GetAppDataDirectory();
-    if (app_dir.empty()) {
-        return L"user_dict.txt";
-    }
-    return app_dir / L"user_dict.txt";
+    return ResolveDefaultUserFilePath(L"user_dict.txt");
 }
 
 std::filesystem::path ResolveBundledDataFile(
@@ -154,7 +155,7 @@ std::filesystem::path ResolveBundledDataFile(
 
 QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
     QiQiConfig cfg{};
-    utf8_content = log::StripUtf8Bom(utf8_content);
+    utf8_content = StripUtf8Bom(utf8_content);
 
     std::string current_section;
     while (!utf8_content.empty()) {
@@ -188,7 +189,7 @@ QiQiConfig ParseConfigFromUtf8(std::string_view utf8_content) {
             } else if (key == "enable_jidian_extra") {
                 cfg.enable_jidian_extra = ParseBool(val, cfg.enable_jidian_extra);
             } else if (key == "user_dict") {
-                cfg.user_dict_path = log::Utf8ToWide(val);
+                cfg.user_dict_path = Utf8ToWide(val);
             }
         } else if (current_section == "engine") {
             if (key == "page_size") {
@@ -295,7 +296,7 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
         "log_keystrokes = {}\n",
         PrimaryDictToString(config.primary_dict),
         config.enable_jidian_extra ? "true" : "false",
-        log::WideToUtf8(config.user_dict_path),
+        WideToUtf8(config.user_dict_path),
         std::clamp<size_t>(config.page_size, 1, 9),
         config.auto_commit_4code ? "true" : "false",
         config.push_commit_5th ? "true" : "false",
@@ -319,15 +320,15 @@ std::string SerializeConfigToUtf8(const QiQiConfig& config) {
 
 bool LoadConfigFile(const std::filesystem::path& file_path, QiQiConfig& out_config) {
     std::string content;
-    if (!log::ReadFileToUtf8String(file_path, content)) {
-        QIQI_LOG_DEBUG("LoadConfigFile: could not open or read '{}'", log::WideToUtf8(file_path.wstring()));
+    if (!ReadFileToUtf8String(file_path, content)) {
+        QIQI_LOG_DEBUG("LoadConfigFile: could not open or read '{}'", WideToUtf8(file_path.wstring()));
         return false;
     }
     out_config = ParseConfigFromUtf8(content);
     QIQI_LOG_DEBUG(
         "Loaded config from '{}': dict={}, extra={}, page_size={}, auto4={}, push5={}, "
         "beep_empty4={}, clear_empty4={}, key_sound={}, status_bar={}, lang={}, log_level={}",
-        log::WideToUtf8(file_path.wstring()),
+        WideToUtf8(file_path.wstring()),
         PrimaryDictToString(out_config.primary_dict),
         out_config.enable_jidian_extra,
         out_config.page_size,
@@ -347,12 +348,12 @@ bool SaveConfigFile(const std::filesystem::path& file_path, const QiQiConfig& co
         const std::string text = SerializeConfigToUtf8(config);
         const std::span<const uint8_t> bytes(
             reinterpret_cast<const uint8_t*>(text.data()), text.size());
-        if (!log::WriteFileAtomically(file_path, bytes)) {
+        if (!WriteFileAtomically(file_path, bytes)) {
             QIQI_LOG_WARN("SaveConfigFile: failed to write configuration atomically to '{}'",
-                          log::WideToUtf8(file_path.wstring()));
+                          WideToUtf8(file_path.wstring()));
             return false;
         }
-        QIQI_LOG_INFO("Saved configuration to '{}'", log::WideToUtf8(file_path.wstring()));
+        QIQI_LOG_INFO("Saved configuration to '{}'", WideToUtf8(file_path.wstring()));
         return true;
     } catch (...) {
         return false;
@@ -364,7 +365,7 @@ bool EnsureDefaultConfigFile(const std::filesystem::path& file_path) {
         if (std::filesystem::exists(file_path)) {
             return true;
         }
-        QIQI_LOG_INFO("Creating default user config file at '{}'", log::WideToUtf8(file_path.wstring()));
+        QIQI_LOG_INFO("Creating default user config file at '{}'", WideToUtf8(file_path.wstring()));
         return SaveConfigFile(file_path, QiQiConfig{});
     } catch (...) {
         return false;
@@ -377,17 +378,17 @@ QiQiConfig LoadConfig(void* module_handle) {
     // 1. Check user config path: %LOCALAPPDATA%\QiQiIME\config.ini
     const std::filesystem::path user_cfg_path = GetDefaultUserConfigPath();
     if (std::filesystem::exists(user_cfg_path) && LoadConfigFile(user_cfg_path, cfg)) {
-        QIQI_LOG_INFO("Loaded user configuration from '{}'", log::WideToUtf8(user_cfg_path.wstring()));
+        QIQI_LOG_INFO("Loaded user configuration from '{}'", WideToUtf8(user_cfg_path.wstring()));
         return cfg;
     }
 
     // 2. Check config.ini next to the DLL / executable or shared ../data/ directory
-    const std::filesystem::path module_path = log::GetModuleFilePath(module_handle);
+    const std::filesystem::path module_path = GetModuleFilePath(module_handle);
     if (!module_path.empty()) {
         const std::filesystem::path dll_cfg_path =
             ResolveBundledDataFile(module_path.parent_path(), L"config.ini");
         if (std::filesystem::exists(dll_cfg_path) && LoadConfigFile(dll_cfg_path, cfg)) {
-            QIQI_LOG_INFO("Loaded fallback configuration from '{}'", log::WideToUtf8(dll_cfg_path.wstring()));
+            QIQI_LOG_INFO("Loaded fallback configuration from '{}'", WideToUtf8(dll_cfg_path.wstring()));
         }
     }
 
