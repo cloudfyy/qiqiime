@@ -52,19 +52,13 @@ inline std::optional<bool>& ThemeDarkOverrideStorage() noexcept {
     static std::optional<bool> override_val;
     return override_val;
 }
-} // namespace detail
 
-// Allow unit tests to deterministically force Light (false) or Dark (true) theme, or std::nullopt for OS setting.
-inline void SetThemeDarkOverrideForTest(std::optional<bool> is_dark) noexcept {
-    detail::ThemeDarkOverrideStorage() = is_dark;
+inline std::optional<bool>& TaskbarDarkOverrideStorage() noexcept {
+    static std::optional<bool> override_val;
+    return override_val;
 }
 
-// Query Windows 10/11 Personalize registry for Light vs Dark mode.
-inline bool IsSystemDarkTheme() noexcept {
-    if (const auto& ov = detail::ThemeDarkOverrideStorage(); ov.has_value()) {
-        return *ov;
-    }
-
+inline bool QueryPersonalizeLightThemeValue(const wchar_t* value_name, bool default_is_light) noexcept {
     ScopedRegKey key;
     if (::RegOpenKeyExW(
             HKEY_CURRENT_USER,
@@ -72,21 +66,60 @@ inline bool IsSystemDarkTheme() noexcept {
             0,
             KEY_READ,
             key.Put()) != ERROR_SUCCESS) {
-        return false;
+        return default_is_light;
     }
 
-    DWORD use_light = 1;
+    DWORD use_light = default_is_light ? 1 : 0;
     DWORD cb_data = sizeof(use_light);
     if (::RegQueryValueExW(
             key.Get(),
-            L"AppsUseLightTheme",
+            value_name,
             nullptr,
             nullptr,
             reinterpret_cast<LPBYTE>(&use_light),
             &cb_data) == ERROR_SUCCESS) {
-        return use_light == 0;
+        return use_light != 0;
     }
-    return false;
+    return default_is_light;
+}
+} // namespace detail
+
+// Allow unit tests to deterministically force Light (false) or Dark (true) theme, or std::nullopt for OS setting.
+inline void SetThemeDarkOverrideForTest(std::optional<bool> is_dark) noexcept {
+    detail::ThemeDarkOverrideStorage() = is_dark;
+}
+
+inline void SetTaskbarDarkOverrideForTest(std::optional<bool> is_dark) noexcept {
+    detail::TaskbarDarkOverrideStorage() = is_dark;
+}
+
+// Query Windows 10/11 Personalize registry for application Light vs Dark mode.
+inline bool IsSystemDarkTheme() noexcept {
+    if (const auto& ov = detail::ThemeDarkOverrideStorage(); ov.has_value()) {
+        return *ov;
+    }
+    return !detail::QueryPersonalizeLightThemeValue(L"AppsUseLightTheme", true);
+}
+
+// Query Windows 10/11 Personalize registry for system shell / taskbar Light vs Dark mode.
+inline bool IsTaskbarDarkTheme() noexcept {
+    if (const auto& ov = detail::TaskbarDarkOverrideStorage(); ov.has_value()) {
+        return *ov;
+    }
+    if (const auto& ov = detail::ThemeDarkOverrideStorage(); ov.has_value()) {
+        return *ov;
+    }
+    return !detail::QueryPersonalizeLightThemeValue(L"SystemUsesLightTheme", false);
+}
+
+inline COLORREF GetTaskbarIconColor() noexcept {
+    HIGHCONTRASTW hc{};
+    hc.cbSize = sizeof(hc);
+    if (::SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0) &&
+        (hc.dwFlags & HCF_HIGHCONTRASTON) != 0) {
+        return ::GetSysColor(COLOR_BTNTEXT);
+    }
+    return IsTaskbarDarkTheme() ? RGB(255, 255, 255) : RGB(0, 0, 0);
 }
 
 constexpr const ThemePalette& GetThemePalette(bool is_dark) noexcept {
