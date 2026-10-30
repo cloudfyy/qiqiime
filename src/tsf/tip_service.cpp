@@ -85,6 +85,24 @@ bool QueryCompartmentNonZero(IUnknown* unk, REFGUID guid) noexcept {
     return ReadCompartmentInt4(comp.Get(), 0) != 0;
 }
 
+bool IsCurrentProcessAppContainer() noexcept {
+    ScopedKernelHandle token;
+    if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, token.Put())) {
+        return false;
+    }
+    DWORD is_app_container = 0;
+    DWORD ret_len = 0;
+    if (::GetTokenInformation(
+            token.Get(),
+            TokenIsAppContainer,
+            &is_app_container,
+            sizeof(is_app_container),
+            &ret_len)) {
+        return is_app_container != 0;
+    }
+    return false;
+}
+
 bool IsValidShiftTapRelease(ULONGLONG press_tick) noexcept {
     return (::GetTickCount64() - press_tick <= kMaxShiftTapDurationMs) &&
            !IsAnyMouseButtonDown() &&
@@ -993,6 +1011,14 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
     QIQI_LOG_INFO("Opening Settings dialog");
     ReloadConfigIfModified();
     if (!hwndParent) {
+        if (IsCurrentProcessAppContainer()) {
+            const HINSTANCE sh_res = ::ShellExecuteW(
+                nullptr, L"open", L"qiqiime-settings:", nullptr, nullptr, SW_SHOWNORMAL);
+            if (reinterpret_cast<INT_PTR>(sh_res) > 32) {
+                QIQI_LOG_INFO("Launched QiQiIMESettings.exe out-of-sandbox via qiqiime-settings: URI protocol");
+                return S_OK;
+            }
+        }
         const std::filesystem::path module_path = GetModuleFilePath(g_dll_instance);
         const std::wstring mod_filename = module_path.filename().wstring();
         const bool is_ime_dll = (_wcsicmp(mod_filename.c_str(), L"qiqiime.dll") == 0);
@@ -1022,6 +1048,12 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
                                   WideToUtf8(exe_path.wstring()));
                     return S_OK;
                 }
+            }
+            const HINSTANCE sh_res = ::ShellExecuteW(
+                nullptr, L"open", L"qiqiime-settings:", nullptr, nullptr, SW_SHOWNORMAL);
+            if (reinterpret_cast<INT_PTR>(sh_res) > 32) {
+                QIQI_LOG_INFO("Launched QiQiIMESettings.exe via qiqiime-settings: URI fallback");
+                return S_OK;
             }
         }
     }

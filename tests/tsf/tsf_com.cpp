@@ -153,6 +153,17 @@ void TestClassFactoryAndDllExports() {
             QIQI_TEST_CHECK(mock_profiles->display_name_res_id_ == 100);
             QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_ == 7);
 
+            // Verify qiqiime-settings: URI protocol was registered in HKCR
+            {
+                ScopedRegKey proto_cmd;
+                QIQI_TEST_CHECK(::RegOpenKeyExW(
+                                    HKEY_CLASSES_ROOT,
+                                    L"qiqiime-settings\\shell\\open\\command",
+                                    0,
+                                    KEY_READ,
+                                    proto_cmd.Put()) == ERROR_SUCCESS);
+            }
+
             // 2d. WOW64 coexistence path (override_wow64 = true while native 64-bit CLSID is present)
             ScopedRegKey native64_key;
             const wchar_t* kInproc64 =
@@ -185,6 +196,15 @@ void TestClassFactoryAndDllExports() {
             QIQI_TEST_CHECK(mock_profiles->deactivate_calls_ == 1);
             QIQI_TEST_CHECK(mock_profiles->deactivate_flags_ == TF_IPPMF_FORSESSION);
             QIQI_TEST_CHECK(!IsNative64BitClsidRegistered());
+            {
+                ScopedRegKey proto_cmd;
+                QIQI_TEST_CHECK(::RegOpenKeyExW(
+                                    HKEY_CLASSES_ROOT,
+                                    L"qiqiime-settings\\shell\\open\\command",
+                                    0,
+                                    KEY_READ,
+                                    proto_cmd.Put()) != ERROR_SUCCESS);
+            }
 
             // Reinstall must override an old per-user disabled state.
             mock_profiles->enabled_ = false;

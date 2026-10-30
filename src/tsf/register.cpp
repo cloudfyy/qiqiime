@@ -100,6 +100,62 @@ const std::array<GUID, 7> kSupportedCategories = {
     GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER
 };
 
+constexpr const wchar_t* kSettingsUriScheme = L"qiqiime-settings";
+constexpr const wchar_t* kSettingsUriCommandKey = L"qiqiime-settings\\shell\\open\\command";
+
+void RegisterSettingsUriProtocol(HINSTANCE instance) noexcept {
+    try {
+        const std::filesystem::path module_path = GetModuleFilePath(instance);
+        if (module_path.empty()) {
+            return;
+        }
+        const std::filesystem::path exe_path =
+            ResolveBundledDataFile(module_path.parent_path(), L"QiQiIMESettings.exe");
+
+        {
+            ScopedRegKey proto_key;
+            if (::RegCreateKeyExW(
+                    HKEY_CLASSES_ROOT,
+                    kSettingsUriScheme,
+                    0,
+                    nullptr,
+                    REG_OPTION_NON_VOLATILE,
+                    KEY_WRITE,
+                    nullptr,
+                    proto_key.Put(),
+                    nullptr) != ERROR_SUCCESS) {
+                return;
+            }
+            SetRegSzValue(proto_key.Get(), nullptr, L"URL:QiQiIME Settings Protocol");
+            SetRegSzValue(proto_key.Get(), L"URL Protocol", L"");
+        }
+
+        {
+            ScopedRegKey cmd_key;
+            if (::RegCreateKeyExW(
+                    HKEY_CLASSES_ROOT,
+                    kSettingsUriCommandKey,
+                    0,
+                    nullptr,
+                    REG_OPTION_NON_VOLATILE,
+                    KEY_WRITE,
+                    nullptr,
+                    cmd_key.Put(),
+                    nullptr) == ERROR_SUCCESS) {
+                const std::wstring cmd_str = L"\"" + exe_path.wstring() + L"\"";
+                SetRegSzValue(cmd_key.Get(), nullptr, cmd_str);
+            }
+        }
+        QIQI_LOG_DEBUG("Registered qiqiime-settings: URI protocol -> '{}'",
+                       WideToUtf8(exe_path.wstring()));
+    } catch (...) {
+    }
+}
+
+void UnregisterSettingsUriProtocol() noexcept {
+    ::RegDeleteTreeW(HKEY_CLASSES_ROOT, kSettingsUriScheme);
+}
+
 void PrebuildBundledDictionaries(HINSTANCE instance) noexcept {
     try {
         const std::filesystem::path module_path = GetModuleFilePath(instance);
@@ -313,6 +369,7 @@ HRESULT RegisterServerWithManagers(
             QIQI_LOG_WARN("RegisterServer: ITfCategoryMgr unavailable (hr=0x{:08x})",
                           gsl::narrow_cast<unsigned int>(hr));
         }
+        RegisterSettingsUriProtocol(instance);
         PrebuildBundledDictionaries(instance);
     } while (false);
 
@@ -384,6 +441,7 @@ HRESULT UnregisterServerWithManagers(
         profiles->Unregister(kClsidQiQiTextService);
     }
     ::CoFreeUnusedLibraries();
+    UnregisterSettingsUriProtocol();
     RemovePrebuiltBundledDictionaries(g_dll_instance);
 
     QIQI_LOG_INFO("UnregisterServer completed");
