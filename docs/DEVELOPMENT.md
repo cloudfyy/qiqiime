@@ -21,7 +21,7 @@ qiqiime/
 ├── CMakeLists.txt              # 根 CMake 构建配置（工具链探测、版本生成、C++26 标准与子目录调度）
 ├── CMakePresets.json           # CMake Presets (支持 x64 与 x86/Win32 双架构配置、构建与测试)
 ├── LICENSE                     # GNU General Public License v3.0 (GPL-3.0)
-├── VERSION                     # 项目版本号单一事实源 (SemVer, 当前 0.8.2)
+├── VERSION                     # 项目版本号单一事实源 (SemVer, 当前 0.8.3)
 ├── vcpkg.json                  # vcpkg 依赖清单 (spdlog, ms-gsl)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/
