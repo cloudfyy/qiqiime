@@ -4,17 +4,24 @@
 #include "common/logger.h"
 #include "common/monitor_dpi.h"
 #include "common/scoped_handle.h"
+#include "common/theme.h"
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
+#include <d2d1.h>
+#include <dwrite.h>
 #include <gsl/gsl>
 #include <shellapi.h>
+#include <wrl/client.h>
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <string>
 #include <tuple>
 
 namespace qiqi {
+
+using Microsoft::WRL::ComPtr;
 
 namespace {
 
@@ -41,6 +48,14 @@ constexpr int kIdLblPrivacyNotice = 121;
 constexpr int kIdBtnOpenGitHub = 201;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
+
+constexpr D2D1_COLOR_F MakeD2DColor(uint8_t r, uint8_t g, uint8_t b, float a = 1.0f) noexcept {
+    return D2D1::ColorF(
+        static_cast<float>(r) / 255.0f,
+        static_cast<float>(g) / 255.0f,
+        static_cast<float>(b) / 255.0f,
+        a);
+}
 
 constexpr std::array<const wchar_t*, 9> kPageSizeLabels = {
     L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9"
@@ -71,6 +86,32 @@ constexpr std::array<SettingsCheckboxBinding, 13> kSettingsCheckboxes = {{
     {kIdChkLogKeystrokes, &QiQiConfig::log_keystrokes,               &UiStrings::dlg_chk_log_keystrokes, 24, 474, 400},
 }};
 
+struct FluentRowDef {
+    int id;
+    bool is_radio;
+    const wchar_t* UiStrings::* label_field;
+    int card_idx;
+};
+
+constexpr std::array<FluentRowDef, 16> kFluentRows = {{
+    {kIdRadioJidian,      true,  &UiStrings::dlg_radio_jidian,     0},
+    {kIdChkExtraDict,     false, &UiStrings::dlg_chk_extra,        0},
+    {kIdRadioHaifeng,     true,  &UiStrings::dlg_radio_haifeng,    0},
+    {kIdRadioBuiltin,     true,  &UiStrings::dlg_radio_builtin,    0},
+    {kIdChkAutoCommit4,   false, &UiStrings::dlg_chk_auto_commit4, 1},
+    {kIdChkPushCommit5,   false, &UiStrings::dlg_chk_push_commit5, 1},
+    {kIdChkQuickSelect,   false, &UiStrings::dlg_chk_quick_select, 1},
+    {kIdChkCodeHint,      false, &UiStrings::dlg_chk_code_hint,    1},
+    {kIdChkDynamicFreq,   false, &UiStrings::dlg_chk_dynamic_freq, 1},
+    {kIdChkShiftToggle,   false, &UiStrings::dlg_chk_shift_toggle, 1},
+    {kIdChkStatusBar,     false, &UiStrings::dlg_chk_status_bar,   2},
+    {kIdChkBeepEmpty4,    false, &UiStrings::dlg_chk_beep_empty4,  2},
+    {kIdChkBeepDup4,      false, &UiStrings::dlg_chk_beep_dup4,    2},
+    {kIdChkClearEmpty4,   false, &UiStrings::dlg_chk_clear_empty4, 2},
+    {kIdChkKeySound,      false, &UiStrings::dlg_chk_key_sound,    2},
+    {kIdChkLogKeystrokes, false, &UiStrings::dlg_chk_log_keystrokes, 2},
+}};
+
 ScopedIcon CreateBrandIcon(int size_px) noexcept {
     return CreateTransparentGlyphIcon(L'奇', size_px, RGB(35, 105, 200));
 }
@@ -79,10 +120,149 @@ struct DialogContext {
     QiQiConfig* config = nullptr;
     bool accepted = false;
     bool done = false;
+    UINT dpi = 96;
+    int hovered_id = 0;
     ScopedGdiHandle<HFONT> font;
     ScopedGdiHandle<HFONT> bold_font;
+    ScopedGdiHandle<HBRUSH> surface_brush;
     ScopedIcon icon;
+    ComPtr<ID2D1Factory> d2d_factory;
+    ComPtr<IDWriteFactory> dwrite_factory;
+    ComPtr<ID2D1DCRenderTarget> d2d_target;
+    ComPtr<IDWriteTextFormat> fmt_title;
+    ComPtr<IDWriteTextFormat> fmt_body;
+    ComPtr<IDWriteTextFormat> fmt_caption;
+    std::array<RECT, kFluentRows.size()> row_rects{};
+    std::array<RECT, 3> footer_btn_rects{};
+    std::array<int, 3> footer_btn_ids{{kIdBtnAbout, kIdBtnOk, kIdBtnCancel}};
 };
+
+void InitDialogD2D(DialogContext& ctx, UINT dpi) noexcept {
+    ctx.dpi = dpi > 0 ? dpi : 96u;
+    const auto S = [d = ctx.dpi](int px) noexcept { return static_cast<float>(ScalePxByDpi(px, d)); };
+
+    std::ignore = ::D2D1CreateFactory(
+        D2D1_FACTORY_TYPE_SINGLE_THREADED,
+        __uuidof(ID2D1Factory),
+        nullptr,
+        reinterpret_cast<void**>(ctx.d2d_factory.ReleaseAndGetAddressOf()));
+
+    std::ignore = ::DWriteCreateFactory(
+        DWRITE_FACTORY_TYPE_SHARED,
+        __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown**>(ctx.dwrite_factory.ReleaseAndGetAddressOf()));
+
+    if (ctx.d2d_factory) {
+        const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+            D2D1_RENDER_TARGET_TYPE_DEFAULT,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
+            96.0f,
+            96.0f);
+        std::ignore = ctx.d2d_factory->CreateDCRenderTarget(&props, &ctx.d2d_target);
+    }
+
+    if (ctx.dwrite_factory) {
+        std::ignore = ctx.dwrite_factory->CreateTextFormat(
+            L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, S(16), L"zh-CN", &ctx.fmt_title);
+        std::ignore = ctx.dwrite_factory->CreateTextFormat(
+            L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, S(14), L"zh-CN", &ctx.fmt_body);
+        std::ignore = ctx.dwrite_factory->CreateTextFormat(
+            L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, S(12), L"zh-CN", &ctx.fmt_caption);
+        if (ctx.fmt_body) {
+            ctx.fmt_body->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            ctx.fmt_body->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        }
+    }
+}
+
+void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept {
+    if (!ctx.d2d_target) {
+        return;
+    }
+    const bool is_dark = IsSystemDarkTheme();
+    const auto S = [d = ctx.dpi](int px) noexcept { return static_cast<float>(ScalePxByDpi(px, d)); };
+    const UiLanguage lang = ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
+    const auto& str = GetUiStrings(lang);
+
+    if (FAILED(ctx.d2d_target->BindDC(hdc, &client_rc))) {
+        return;
+    }
+
+    ctx.d2d_target->BeginDraw();
+    ctx.d2d_target->Clear(is_dark ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
+
+    ComPtr<ID2D1SolidColorBrush> card_brush;
+    ComPtr<ID2D1SolidColorBrush> border_brush;
+    ComPtr<ID2D1SolidColorBrush> accent_brush;
+    ComPtr<ID2D1SolidColorBrush> text_brush;
+    ctx.d2d_target->CreateSolidColorBrush(
+        is_dark ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255), &card_brush);
+    ctx.d2d_target->CreateSolidColorBrush(
+        is_dark ? MakeD2DColor(64, 68, 78) : MakeD2DColor(222, 227, 236), &border_brush);
+    ctx.d2d_target->CreateSolidColorBrush(
+        is_dark ? MakeD2DColor(76, 160, 255) : MakeD2DColor(0, 103, 192), &accent_brush);
+    ctx.d2d_target->CreateSolidColorBrush(
+        is_dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40), &text_brush);
+
+    const float left_pad = S(12);
+    const float right_edge = static_cast<float>(client_rc.right) - S(12);
+    const float radius = S(8);
+
+    // Draw 3 Fluent rounded cards:
+    // Card 0: Dictionary [10..158]
+    // Card 1: Input Behavior & Feedback [162..528]
+    // Card 2: Appearance & Language [530..598]
+    const std::array<D2D1_RECT_F, 3> cards = {{
+        D2D1::RectF(left_pad, S(10),  right_edge, S(158)),
+        D2D1::RectF(left_pad, S(162), right_edge, S(528)),
+        D2D1::RectF(left_pad, S(530), right_edge, S(598)),
+    }};
+
+    for (const auto& card_rc : cards) {
+        const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(card_rc, radius, radius);
+        if (card_brush) {
+            ctx.d2d_target->FillRoundedRectangle(rr, card_brush.Get());
+        }
+        if (border_brush) {
+            ctx.d2d_target->DrawRoundedRectangle(rr, border_brush.Get(), 1.0f);
+        }
+    }
+
+    // Draw Fluent vertical accent indicator bar next to active radio/toggle groups
+    if (accent_brush) {
+        const D2D1_ROUNDED_RECT pill = D2D1::RoundedRect(
+            D2D1::RectF(left_pad + S(4), S(20), left_pad + S(8), S(54)), S(2), S(2));
+        ctx.d2d_target->FillRoundedRectangle(pill, accent_brush.Get());
+    }
+
+    // Draw Fluent Toggle Pill Switches on the right edge of each checkbox row
+    for (const auto& binding : kSettingsCheckboxes) {
+        const bool checked = (::IsDlgButtonChecked(hwnd, binding.control_id) == BST_CHECKED);
+        const float cy = S(binding.y_offset_px + 12);
+        const float sw_right = right_edge - S(14);
+        const float sw_left = sw_right - S(36);
+        const D2D1_ROUNDED_RECT track = D2D1::RoundedRect(
+            D2D1::RectF(sw_left, cy - S(9), sw_right, cy + S(9)), S(9), S(9));
+        if (checked && accent_brush) {
+            ctx.d2d_target->FillRoundedRectangle(track, accent_brush.Get());
+        } else if (border_brush) {
+            ctx.d2d_target->DrawRoundedRectangle(track, border_brush.Get(), 1.2f);
+        }
+        const float knob_x = checked ? (sw_right - S(9)) : (sw_left + S(9));
+        const D2D1_ELLIPSE knob = D2D1::Ellipse(D2D1::Point2F(knob_x, cy), S(6), S(6));
+        if (checked && card_brush) {
+            ctx.d2d_target->FillEllipse(knob, card_brush.Get());
+        } else if (text_brush) {
+            ctx.d2d_target->FillEllipse(knob, text_brush.Get());
+        }
+    }
+
+    std::ignore = ctx.d2d_target->EndDraw();
+    (void)str;
+}
 
 struct AboutDialogContext {
     UiLanguage ui_language = UiLanguage::Auto;
@@ -136,6 +316,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
         case kIdRadioHaifeng:
         case kIdRadioBuiltin:
             UpdateExtraDictCheckboxState(hwnd);
+            ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
         case kIdChkLogKeystrokes:
             if (HIWORD(wparam) == BN_CLICKED && ::IsDlgButtonChecked(hwnd, kIdChkLogKeystrokes) == BST_CHECKED) {
@@ -150,6 +331,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                     ::CheckDlgButton(hwnd, kIdChkLogKeystrokes, BST_UNCHECKED);
                 }
             }
+            ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
         case kIdBtnOk:
             if (ctx.config) {
@@ -170,6 +352,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             return;
         }
         default:
+            ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
     }
 }
@@ -180,15 +363,25 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
     switch (msg) {
-        case WM_CTLCOLORSTATIC: {
+        case WM_PAINT:
+            return PaintWindowClient(hwnd, [hwnd, ctx](HDC hdc, const RECT& rc) {
+                PaintFluentSettingsWindow(hwnd, hdc, rc, *ctx);
+            });
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORBTN: {
             const HWND ctrl = reinterpret_cast<HWND>(lparam);
+            const HDC hdc = reinterpret_cast<HDC>(wparam);
+            const bool is_dark = IsSystemDarkTheme();
             if (ctrl && ::GetDlgCtrlID(ctrl) == kIdLblPrivacyNotice) {
-                const HDC hdc = reinterpret_cast<HDC>(wparam);
                 ::SetTextColor(hdc, RGB(196, 43, 28));
-                ::SetBkMode(hdc, TRANSPARENT);
-                return reinterpret_cast<LRESULT>(::GetSysColorBrush(COLOR_BTNFACE));
+            } else {
+                ::SetTextColor(hdc, is_dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
             }
-            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+            ::SetBkMode(hdc, TRANSPARENT);
+            if (ctx->surface_brush) {
+                return reinterpret_cast<LRESULT>(ctx->surface_brush.Get());
+            }
+            return reinterpret_cast<LRESULT>(::GetSysColorBrush(COLOR_BTNFACE));
         }
         case WM_COMMAND:
             HandleSettingsCommand(hwnd, wparam, *ctx);
@@ -384,6 +577,9 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     const MonitorMetrics mon = QueryActiveMonitor(parent);
     const auto S = [dpi = mon.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
 
+    InitDialogD2D(*ctx, mon.dpi);
+    const bool is_dark = IsSystemDarkTheme();
+    ctx->surface_brush.Reset(::CreateSolidBrush(is_dark ? RGB(43, 46, 52) : RGB(255, 255, 255)));
     ctx->font = CreateUiFont(S(15), FW_NORMAL, DEFAULT_QUALITY);
     ctx->bold_font = CreateUiFont(S(13), FW_SEMIBOLD, DEFAULT_QUALITY);
     ctx->icon = CreateBrandIcon(S(16));
@@ -404,13 +600,14 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
         WS_EX_DLGMODALFRAME,
         kSettingsWndClass,
         str.dlg_title,
-        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
         dlg_pos.x, dlg_pos.y, dlg_w, dlg_h,
         parent, nullptr, instance, ctx.get()));
     if (!hwnd) {
         QIQI_LOG_ERROR("CreateSettingsWindow CreateWindowExW failed (error={})", ::GetLastError());
         return {};
     }
+    ApplySystemThemeToMenuAndWindow(hwnd.Get(), is_dark);
     QIQI_LOG_DEBUG("SettingsWindow created (pos=({}, {}), size={}x{}, dpi={})",
                    dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
     const auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)

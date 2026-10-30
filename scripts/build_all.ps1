@@ -51,6 +51,10 @@ if ($Package) {
     New-Item -ItemType Directory -Path (Join-Path $pkgDir "scripts") -Force | Out-Null
 
     Copy-Item $dlls.X64 -Destination (Join-Path $pkgDir "x64\qiqiime.dll")
+    $settingsExe = Join-Path (Split-Path -Parent $dlls.X64) "QiQiIMESettings.exe"
+    if (Test-Path $settingsExe) {
+        Copy-Item $settingsExe -Destination (Join-Path $pkgDir "x64\QiQiIMESettings.exe")
+    }
     Copy-Item $dlls.X86 -Destination (Join-Path $pkgDir "x86\qiqiime.dll")
 
     foreach ($fileName in $QiQiDataFileNames) {

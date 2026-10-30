@@ -1,6 +1,7 @@
 #include "common.h"
 #include "common/guids.h"
 #include "common/i18n.h"
+#include "common/theme.h"
 #include "common/win32_ui_util.h"
 #include "ui/settings_dialog.h"
 
@@ -134,6 +135,15 @@ void TestSettingsDialogControls() {
         QIQI_TEST_CHECK(hwnd_zh.IsValid());
         ::GetWindowTextW(hwnd_zh.Get(), title_buf, 128);
         QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi 五笔输入法 - 属性设置");
+
+        // Exercise Direct2D Fluent UI card and toggle-switch painting in both Light and Dark themes
+        for (const bool dark : {false, true}) {
+            SetThemeDarkOverrideForTest(dark);
+            ::ShowWindow(hwnd_zh.Get(), SW_SHOWNOACTIVATE);
+            ::InvalidateRect(hwnd_zh.Get(), nullptr, TRUE);
+            ::UpdateWindow(hwnd_zh.Get());
+        }
+        SetThemeDarkOverrideForTest(std::nullopt);
 
         // Test clicking the "About..." button (id=115) inside SettingsDialog (both with bound_config and nullptr)
         ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {

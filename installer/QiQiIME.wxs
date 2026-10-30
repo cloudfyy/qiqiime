@@ -29,9 +29,10 @@
     </StandardDirectory>
 
     <ComponentGroup Id="ProductComponents">
-      <!-- 64-bit TSF DLL -->
+      <!-- 64-bit TSF DLL and standalone Settings executable -->
       <Component Id="CmpDllX64" Directory="DirX64" Guid="8E7B9D31-5A42-4C81-9F11-202610290101">
         <File Id="FileDllX64" Source="$(var.StageDir)\x64\qiqiime.dll" KeyPath="yes" />
+        <File Id="FileSettingsExeX64" Source="$(var.StageDir)\x64\QiQiIMESettings.exe" />
       </Component>
 
       <!-- 32-bit WOW64 TSF DLL -->

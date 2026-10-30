@@ -105,3 +105,27 @@ add_custom_command(TARGET qiqiime POST_BUILD
         "${PROJECT_SOURCE_DIR}/data/wubi86_haifeng.txt"
         "$<TARGET_FILE_DIR:qiqiime>/wubi86_haifeng.txt"
 )
+
+# Standalone Direct2D Fluent UI Settings executable (QiQiIMESettings.exe)
+add_executable(QiQiIMESettings WIN32
+    ui/settings_main.cpp
+    ui/settings_dialog.cpp
+    ui/settings_dialog.h
+    common/guids.h
+    "${QIQIIME_GENERATED_DIR}/common/version.rc"
+)
+target_link_libraries(QiQiIMESettings PRIVATE
+    qiqi_engine
+    user32
+    gdi32
+    d2d1
+    dwrite
+    shell32
+    ole32
+    oleaut32
+    advapi32
+    uuid
+)
+set_target_properties(QiQiIMESettings PROPERTIES
+    OUTPUT_NAME "QiQiIMESettings"
+)

@@ -992,6 +992,39 @@ void QiQiTextService::PersistAndSyncQuickConfigChange(bool reload_dicts) {
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
     QIQI_LOG_INFO("Opening Settings dialog");
     ReloadConfigIfModified();
+    if (!hwndParent) {
+        const std::filesystem::path module_path = GetModuleFilePath(g_dll_instance);
+        const std::wstring mod_filename = module_path.filename().wstring();
+        const bool is_ime_dll = (_wcsicmp(mod_filename.c_str(), L"qiqiime.dll") == 0);
+        if (is_ime_dll) {
+            const std::filesystem::path exe_path =
+                ResolveBundledDataFile(module_path.parent_path(), L"QiQiIMESettings.exe");
+            std::error_code ec;
+            if (std::filesystem::exists(exe_path, ec)) {
+                STARTUPINFOW si{};
+                si.cb = sizeof(si);
+                PROCESS_INFORMATION pi{};
+                std::wstring cmd = L"\"" + exe_path.wstring() + L"\"";
+                if (::CreateProcessW(
+                        exe_path.c_str(),
+                        cmd.data(),
+                        nullptr,
+                        nullptr,
+                        FALSE,
+                        0,
+                        nullptr,
+                        nullptr,
+                        &si,
+                        &pi) != FALSE) {
+                    const ScopedKernelHandle proc(pi.hProcess);
+                    const ScopedKernelHandle thread(pi.hThread);
+                    QIQI_LOG_INFO("Launched standalone QiQiIMESettings.exe from '{}'",
+                                  WideToUtf8(exe_path.wstring()));
+                    return S_OK;
+                }
+            }
+        }
+    }
     if (ShowSettingsDialog(g_dll_instance, hwndParent, config_)) {
         ApplyDynamicEngineSettings();
         PersistAndSyncQuickConfigChange(true);
