@@ -11,6 +11,7 @@
 #include <wrl/client.h>
 
 extern "C" BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) noexcept;
+extern "C" HRESULT STDAPICALLTYPE DllInstall(BOOL install, LPCWSTR command_line);
 
 namespace qiqi::test {
 
@@ -82,23 +83,17 @@ void TestClassFactoryAndDllExports() {
 
     // Test RegisterServer with invalid HINSTANCE (GetModuleFileNameW failure branch -> SELFREG_E_CLASS)
     QIQI_TEST_CHECK(RegisterServer(reinterpret_cast<HINSTANCE>(0x12345678)) == SELFREG_E_CLASS);
+    QIQI_TEST_CHECK(DllInstall(TRUE, nullptr) == E_INVALIDARG);
+    QIQI_TEST_CHECK(DllInstall(TRUE, L"machine") == E_INVALIDARG);
+    QIQI_TEST_CHECK(DllInstall(FALSE, L"user") == E_INVALIDARG);
 
-    // Test DllRegisterServer and DllUnregisterServer using RegOverridePredefKey
-    // so registry writes go to a temporary HKCU subkey without requiring Administrator privileges
+    // Redirect COM writes and mock TSF so tests never change the real user's profiles.
     const wchar_t* kTempRegPath = L"Software\\QiQiIME_UnitTest_TempHKCR";
     HKEY temp_hkcr = nullptr;
     if (::RegCreateKeyExW(HKEY_CURRENT_USER, kTempRegPath, 0, nullptr,
                           REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, nullptr, &temp_hkcr, nullptr) == ERROR_SUCCESS) {
         if (::RegOverridePredefKey(HKEY_CLASSES_ROOT, temp_hkcr) == ERROR_SUCCESS) {
             QIQI_TEST_CHECK(!IsNative64BitClsidRegistered());
-            // 1. Standard register & unregister in current architecture view
-            (void)DllRegisterServer();
-            if constexpr (sizeof(void*) == 8) {
-                QIQI_TEST_CHECK(IsNative64BitClsidRegistered());
-            }
-            QIQI_TEST_CHECK(SUCCEEDED(DllUnregisterServer()));
-            QIQI_TEST_CHECK(!IsNative64BitClsidRegistered());
-
             // 2. Test full RegisterServerWithManagers / UnregisterServerWithManagers flow using mocks
             ComPtr<MockTfInputProcessorProfiles> mock_profiles(new MockTfInputProcessorProfiles());
             ComPtr<MockTfCategoryMgr> mock_cat_mgr(new MockTfCategoryMgr());
@@ -115,12 +110,33 @@ void TestClassFactoryAndDllExports() {
                 hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false)));
             mock_profiles->fail_add_profile_ = false;
 
+            mock_profiles->fail_register_profile_ = true;
+            QIQI_TEST_CHECK(RegisterServerWithManagers(
+                hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false) == E_FAIL);
+            mock_profiles->fail_register_profile_ = false;
+
+            mock_profiles->fail_enable_default_ = true;
+            QIQI_TEST_CHECK(RegisterServerWithManagers(
+                hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false) == E_ACCESSDENIED);
+            mock_profiles->fail_enable_default_ = false;
+
+            mock_profiles->fail_enable_ = true;
+            QIQI_TEST_CHECK(RegisterServerWithManagers(
+                hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false) == E_ACCESSDENIED);
+            mock_profiles->fail_enable_ = false;
+
             // 2c. Full success of RegisterServerWithManagers (AddLanguageProfile + RegisterProfile + 7 Categories)
             QIQI_TEST_CHECK(SUCCEEDED(RegisterServerWithManagers(
                 hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false)));
             QIQI_TEST_CHECK(mock_profiles->registered_);
             QIQI_TEST_CHECK(mock_profiles->profile_added_);
             QIQI_TEST_CHECK(mock_profiles->profile_mgr_registered_);
+            QIQI_TEST_CHECK(mock_profiles->enabled_);
+            QIQI_TEST_CHECK(mock_profiles->enabled_by_default_);
+            QIQI_TEST_CHECK(mock_profiles->activate_calls_ == 0);
+            if constexpr (sizeof(void*) == 8) {
+                QIQI_TEST_CHECK(IsNative64BitClsidRegistered());
+            }
             QIQI_TEST_CHECK(mock_profiles->last_profile_desc_ == kProfileDescZh ||
                             mock_profiles->last_profile_desc_ == kProfileDescEn);
             QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_ == 7);
@@ -133,17 +149,38 @@ void TestClassFactoryAndDllExports() {
                                   REG_OPTION_NON_VOLATILE, KEY_WRITE | KEY_WOW64_64KEY,
                                   nullptr, &native64_key, nullptr) == ERROR_SUCCESS) {
                 ::RegCloseKey(native64_key);
+                const int enable_calls = mock_profiles->enable_calls_;
+                const int enable_default_calls = mock_profiles->enable_default_calls_;
                 QIQI_TEST_CHECK(RegisterServerWithManagers(
                     hmod, mock_profiles.Get(), mock_cat_mgr.Get(), true) == S_OK);
                 QIQI_TEST_CHECK(UnregisterServerWithManagers(
                     mock_profiles.Get(), mock_cat_mgr.Get(), true) == S_OK);
+                QIQI_TEST_CHECK(mock_profiles->enable_calls_ == enable_calls);
+                QIQI_TEST_CHECK(mock_profiles->enable_default_calls_ == enable_default_calls);
+                QIQI_TEST_CHECK(mock_profiles->deactivate_calls_ == 0);
             }
 
             // 2e. Full UnregisterServerWithManagers
+            const int enable_calls = mock_profiles->enable_calls_;
+            const int enable_default_calls = mock_profiles->enable_default_calls_;
             QIQI_TEST_CHECK(SUCCEEDED(UnregisterServerWithManagers(
                 mock_profiles.Get(), mock_cat_mgr.Get(), false)));
             QIQI_TEST_CHECK(!mock_profiles->registered_);
             QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_ == 0);
+            QIQI_TEST_CHECK(mock_profiles->enable_calls_ == enable_calls);
+            QIQI_TEST_CHECK(mock_profiles->enable_default_calls_ == enable_default_calls);
+            QIQI_TEST_CHECK(mock_profiles->enabled_);
+            QIQI_TEST_CHECK(mock_profiles->deactivate_calls_ == 1);
+            QIQI_TEST_CHECK(mock_profiles->deactivate_flags_ == TF_IPPMF_FORSESSION);
+            QIQI_TEST_CHECK(!IsNative64BitClsidRegistered());
+
+            // Reinstall must override an old per-user disabled state.
+            mock_profiles->enabled_ = false;
+            QIQI_TEST_CHECK(SUCCEEDED(RegisterServerWithManagers(
+                hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false)));
+            QIQI_TEST_CHECK(mock_profiles->enabled_);
+            QIQI_TEST_CHECK(SUCCEEDED(UnregisterServerWithManagers(
+                mock_profiles.Get(), mock_cat_mgr.Get(), false)));
 
             ::RegOverridePredefKey(HKEY_CLASSES_ROOT, nullptr);
         }
@@ -152,11 +189,26 @@ void TestClassFactoryAndDllExports() {
     }
 }
 
+void TestEnableCurrentUserProfile() {
+    ComPtr<MockTfInputProcessorProfiles> profiles(new MockTfInputProcessorProfiles());
+    QIQI_TEST_CHECK(EnableCurrentUserProfile(profiles.Get()) == S_OK);
+    QIQI_TEST_CHECK(profiles->enabled_);
+    QIQI_TEST_CHECK(!profiles->registered_);
+    QIQI_TEST_CHECK(!profiles->profile_added_);
+    QIQI_TEST_CHECK(profiles->enable_default_calls_ == 0);
+    QIQI_TEST_CHECK(profiles->activate_calls_ == 0);
+    QIQI_TEST_CHECK(EnableCurrentUserProfile(profiles.Get()) == S_OK);
+    QIQI_TEST_CHECK(profiles->enable_calls_ == 2);
+    profiles->fail_enable_ = true;
+    QIQI_TEST_CHECK(EnableCurrentUserProfile(profiles.Get()) == E_ACCESSDENIED);
+}
+
 } // namespace
 
 void RunTsfComTests() {
     TestLambdaEditSession();
     TestClassFactoryAndDllExports();
+    TestEnableCurrentUserProfile();
 }
 
 } // namespace qiqi::test

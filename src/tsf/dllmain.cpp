@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <string_view>
 #include "common/guids.h"
 #include "common/logger.h"
 #include "tsf/class_factory.h"
@@ -50,4 +51,13 @@ STDAPI DllRegisterServer(void) {
 
 STDAPI DllUnregisterServer(void) {
     return qiqi::UnregisterServer();
+}
+
+STDAPI DllInstall(BOOL install, LPCWSTR command_line) {
+    if (!install || !command_line || std::wstring_view(command_line) != L"user") {
+        QIQI_LOG_ERROR("DllInstall supports only installation with /i:user");
+        qiqi::log::Flush();
+        return E_INVALIDARG;
+    }
+    return qiqi::EnableCurrentUserProfile();
 }

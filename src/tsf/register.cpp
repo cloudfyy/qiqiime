@@ -112,6 +112,27 @@ bool IsRunningUnderWow64() noexcept {
     return false;
 }
 
+HRESULT EnableCurrentUserProfile(ITfInputProcessorProfiles* custom_profiles) {
+    ComPtr<ITfInputProcessorProfiles> profiles = custom_profiles;
+    HRESULT hr = S_OK;
+    if (!profiles) {
+        hr = ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&profiles));
+    }
+    if (SUCCEEDED(hr)) {
+        hr = profiles->EnableLanguageProfile(
+            kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86, TRUE);
+    }
+    if (FAILED(hr)) {
+        QIQI_LOG_ERROR("EnableCurrentUserProfile failed with HRESULT 0x{:08x}",
+                       gsl::narrow_cast<unsigned int>(hr));
+    } else {
+        QIQI_LOG_INFO("QiQi Wubi profile enabled for the current user");
+    }
+    log::Flush();
+    return hr;
+}
+
 HRESULT RegisterServerWithManagers(
     HINSTANCE instance,
     ITfInputProcessorProfiles* custom_profiles,
@@ -171,7 +192,7 @@ HRESULT RegisterServerWithManagers(
         // Also register MUI display name resource (ID 100) and icon index 0 via ITfInputProcessorProfileMgr
         ComPtr<ITfInputProcessorProfileMgr> profile_mgr;
         if (SUCCEEDED(profiles.As(&profile_mgr)) && profile_mgr) {
-            profile_mgr->RegisterProfile(
+            hr = profile_mgr->RegisterProfile(
                 kClsidQiQiTextService,
                 kChineseSimplifiedLangId,
                 kGuidProfileWubi86,
@@ -184,6 +205,19 @@ HRESULT RegisterServerWithManagers(
                 0,
                 TRUE,
                 0);
+            if (FAILED(hr)) {
+                break;
+            }
+        }
+
+        hr = profiles->EnableLanguageProfileByDefault(
+            kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86, TRUE);
+        if (FAILED(hr)) {
+            break;
+        }
+        hr = EnableCurrentUserProfile(profiles.Get());
+        if (FAILED(hr)) {
+            break;
         }
 
         ComPtr<ITfCategoryMgr> cat_mgr = custom_cat_mgr;
@@ -216,11 +250,12 @@ HRESULT UnregisterServerWithManagers(
     const bool is_wow64 = override_wow64.value_or(IsRunningUnderWow64());
     QIQI_LOG_INFO("UnregisterServer starting (arch={}, wow64={})",
                   version::kArch, is_wow64);
+    const bool keep_native_profile = is_wow64 && IsNative64BitClsidRegistered();
     UnregisterComClsid();
 
     // If unregistering the 32-bit WOW64 DLL while the 64-bit DLL is still registered,
     // keep the shared TSF Language Profile intact until the 64-bit DLL is also unregistered.
-    if (is_wow64 && IsNative64BitClsidRegistered()) {
+    if (keep_native_profile) {
         QIQI_LOG_INFO("UnregisterServer (WOW64): removed 32-bit COM CLSID; keeping active 64-bit TSF profile");
         log::Flush();
         return S_OK;
@@ -243,17 +278,20 @@ HRESULT UnregisterServerWithManagers(
                            IID_PPV_ARGS(&profiles));
     }
     if (profiles) {
-        // Deactivate and disable the QiQi Wubi profile first so Windows TSF immediately switches
-        // active processes (including explorer.exe) away from qiqiime.dll and calls Deactivate().
+        // Deactivate without persisting an HKCU disable override across reinstalls.
         ComPtr<ITfInputProcessorProfileMgr> profile_mgr;
         if (SUCCEEDED(profiles.As(&profile_mgr)) && profile_mgr) {
-            profile_mgr->DeactivateProfile(
+            const HRESULT deactivate_hr = profile_mgr->DeactivateProfile(
                 TF_PROFILETYPE_INPUTPROCESSOR,
                 kChineseSimplifiedLangId,
                 kClsidQiQiTextService,
                 kGuidProfileWubi86,
                 nullptr,
-                TF_IPPMF_FORPROCESS | TF_IPPMF_FORSESSION | TF_IPPMF_DISABLEPROFILE);
+                TF_IPPMF_FORSESSION);
+            if (FAILED(deactivate_hr)) {
+                QIQI_LOG_WARN("DeactivateProfile failed with HRESULT 0x{:08x}; continuing unregistration",
+                              gsl::narrow_cast<unsigned int>(deactivate_hr));
+            }
             profile_mgr->UnregisterProfile(
                 kClsidQiQiTextService,
                 kChineseSimplifiedLangId,
@@ -261,10 +299,6 @@ HRESULT UnregisterServerWithManagers(
                 0);
             profile_mgr->ReleaseInputProcessor(kClsidQiQiTextService, 0);
         }
-        profiles->EnableLanguageProfile(
-            kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86, FALSE);
-        profiles->EnableLanguageProfileByDefault(
-            kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86, FALSE);
         profiles->RemoveLanguageProfile(
             kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86);
         profiles->Unregister(kClsidQiQiTextService);

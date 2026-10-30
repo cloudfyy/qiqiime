@@ -54,6 +54,20 @@
 
 ---
 
+### 当前用户启用与旧版本修复
+
+MSI 先以系统身份注册双架构 DLL，再以安装发起用户身份启用语言配置，覆盖旧版本卸载留下的用户级 `Enable=0`。启用不会改变用户当前选择的输入法。卸载不再主动写入用户级禁用标记。
+
+如果以其他管理员账户安装，或通过 SYSTEM 静默部署，不能据此保证当前桌面用户已启用。安装后，请由实际使用输入法的账户在普通 PowerShell 窗口运行以下命令（无需管理员权限；使用包含此修复的新版本 DLL 和脚本）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "C:\Program Files\QiQiIME\scripts\register_ime.ps1" -EnableCurrentUserOnly
+```
+
+此命令只启用当前用户已有的系统级语言配置，不重新注册 COM、不删除用户数据，也不修改其他账户。完成后用 `Win + Space` 检查；若列表尚未刷新，先重新打开应用，必要时注销后登录。
+
+---
+
 ## 4. 生成独立发行包（`.msi` 安装包与 `.zip` 便携包）
 
 在源码仓库中运行以下命令，可自动编译并测试 `x64` 与 `x86` 双架构，然后同时生成 **标准 Windows Installer `.msi` 安装包**（基于 WiX Toolset）与 **`.zip` 绿色压缩包**：

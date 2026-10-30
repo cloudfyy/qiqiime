@@ -7,6 +7,7 @@ param(
     [string]$Config = "Release",
     [switch]$AutoElevate,
     [switch]$VerifyOnly,
+    [switch]$EnableCurrentUserOnly,
     [switch]$LaunchNotepad
 )
 
@@ -17,6 +18,16 @@ $dlls = Resolve-QiQiDllPaths -Config $Config
 Test-QiQiRuntimeFiles -Dlls $dlls
 
 if ($VerifyOnly) {
+    exit 0
+}
+
+if ($EnableCurrentUserOnly) {
+    if ([Environment]::Is64BitOperatingSystem) {
+        Invoke-QiQiRegsvr32 -DllPath $dlls.X64 -EnableCurrentUser
+    } else {
+        Invoke-QiQiRegsvr32 -DllPath $dlls.X86 -Is32Bit -EnableCurrentUser
+    }
+    Write-QiQiPass "Current user's TSF profile enabled. Switch input method with Win+Space."
     exit 0
 }
 

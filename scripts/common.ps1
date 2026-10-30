@@ -74,14 +74,17 @@ function Resolve-QiQiDllPaths([string]$Config = "Release", [string]$BaseDir = $s
     }
 }
 
-function Invoke-QiQiRegsvr32([string]$DllPath, [switch]$Is32Bit, [switch]$Unregister) {
+function Invoke-QiQiRegsvr32([string]$DllPath, [switch]$Is32Bit, [switch]$Unregister, [switch]$EnableCurrentUser) {
     $regsvr = if ($Is32Bit -and [Environment]::Is64BitOperatingSystem) {
         Join-Path $env:SystemRoot "SysWOW64\regsvr32.exe"
     } else {
         Join-Path $env:SystemRoot "System32\regsvr32.exe"
     }
     $archLabel = if ($Is32Bit) { "x86 (WOW64)" } else { "x64" }
-    if ($Unregister) {
+    if ($EnableCurrentUser) {
+        Write-Host "  Enabling current user's TSF profile: $DllPath"
+        & $regsvr /s /n /i:user $DllPath
+    } elseif ($Unregister) {
         Write-Host "  Unregistering $archLabel TSF Text Service: $DllPath"
         & $regsvr /u /s $DllPath
     } else {
@@ -89,7 +92,7 @@ function Invoke-QiQiRegsvr32([string]$DllPath, [switch]$Is32Bit, [switch]$Unregi
         & $regsvr /s $DllPath
     }
     if ($LASTEXITCODE -ne 0) {
-        $op = if ($Unregister) { "unregister" } else { "register" }
+        $op = if ($EnableCurrentUser) { "enable current user profile for" } elseif ($Unregister) { "unregister" } else { "register" }
         Write-Error "Failed to $op $archLabel DLL ($DllPath), exit code: $LASTEXITCODE"
     }
 }

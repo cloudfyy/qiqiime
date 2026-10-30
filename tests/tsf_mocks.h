@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <string>
 #include <utility>
+#include "common/guids.h"
 
 namespace qiqi::test {
 
@@ -528,15 +529,37 @@ public:
     STDMETHODIMP ChangeCurrentLanguage(LANGID) override { return E_NOTIMPL; }
     STDMETHODIMP GetLanguageList(LANGID**, ULONG*) override { return E_NOTIMPL; }
     STDMETHODIMP EnumLanguageProfiles(LANGID, IEnumTfLanguageProfiles**) override { return E_NOTIMPL; }
-    STDMETHODIMP EnableLanguageProfile(REFCLSID, LANGID, REFGUID, BOOL) override { return E_NOTIMPL; }
+    STDMETHODIMP EnableLanguageProfile(REFCLSID clsid, LANGID langid, REFGUID profile, BOOL enable) override {
+        ++enable_calls_;
+        if (!IsEqualCLSID(clsid, kClsidQiQiTextService) || langid != kChineseSimplifiedLangId ||
+            !IsEqualGUID(profile, kGuidProfileWubi86)) return E_INVALIDARG;
+        if (fail_enable_) return E_ACCESSDENIED;
+        enabled_ = enable != FALSE;
+        return S_OK;
+    }
     STDMETHODIMP IsEnabledLanguageProfile(REFCLSID, LANGID, REFGUID, BOOL*) override { return E_NOTIMPL; }
-    STDMETHODIMP EnableLanguageProfileByDefault(REFCLSID, LANGID, REFGUID, BOOL) override { return E_NOTIMPL; }
+    STDMETHODIMP EnableLanguageProfileByDefault(REFCLSID clsid, LANGID langid, REFGUID profile, BOOL enable) override {
+        ++enable_default_calls_;
+        if (!IsEqualCLSID(clsid, kClsidQiQiTextService) || langid != kChineseSimplifiedLangId ||
+            !IsEqualGUID(profile, kGuidProfileWubi86)) return E_INVALIDARG;
+        if (fail_enable_default_) return E_ACCESSDENIED;
+        enabled_by_default_ = enable != FALSE;
+        return S_OK;
+    }
     STDMETHODIMP SubstituteKeyboardLayout(REFCLSID, LANGID, REFGUID, HKL) override { return E_NOTIMPL; }
 
     // ITfInputProcessorProfileMgr
-    STDMETHODIMP ActivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD) override { return E_NOTIMPL; }
-    STDMETHODIMP DeactivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD) override { return E_NOTIMPL; }
+    STDMETHODIMP ActivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD) override {
+        ++activate_calls_;
+        return S_OK;
+    }
+    STDMETHODIMP DeactivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD flags) override {
+        ++deactivate_calls_;
+        deactivate_flags_ = flags;
+        return S_OK;
+    }
     STDMETHODIMP RegisterProfile(REFCLSID, LANGID, REFGUID, const WCHAR*, ULONG, const WCHAR*, ULONG, ULONG, HKL, DWORD, BOOL, DWORD) override {
+        if (fail_register_profile_) return E_FAIL;
         profile_mgr_registered_ = true;
         return S_OK;
     }
@@ -548,6 +571,16 @@ public:
 
     bool fail_register_ = false;
     bool fail_add_profile_ = false;
+    bool fail_register_profile_ = false;
+    bool fail_enable_ = false;
+    bool fail_enable_default_ = false;
+    bool enabled_ = false;
+    bool enabled_by_default_ = false;
+    int enable_calls_ = 0;
+    int enable_default_calls_ = 0;
+    int activate_calls_ = 0;
+    int deactivate_calls_ = 0;
+    DWORD deactivate_flags_ = 0;
     bool registered_ = false;
     bool profile_added_ = false;
     bool profile_mgr_registered_ = false;

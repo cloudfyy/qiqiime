@@ -8,6 +8,8 @@ namespace qiqi {
 bool IsRunningUnderWow64() noexcept;
 bool IsNative64BitClsidRegistered() noexcept;
 
+HRESULT EnableCurrentUserProfile(ITfInputProcessorProfiles* custom_profiles = nullptr);
+
 HRESULT RegisterServerWithManagers(
     HINSTANCE instance,
     ITfInputProcessorProfiles* custom_profiles = nullptr,

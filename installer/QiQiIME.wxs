@@ -81,6 +81,14 @@
                   ExeCommand="[SystemFolder]regsvr32.exe /s &quot;[DirX86]qiqiime.dll&quot;"
                   Return="check" />
 
+    <!-- Only enable the initiating user's profile; do not repeat machine registration. -->
+    <CustomAction Id="EnableUserProfile"
+                  Directory="DirX64"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  ExeCommand="[System64Folder]regsvr32.exe /s /n /i:user &quot;[DirX64]qiqiime.dll&quot;"
+                  Return="check" />
+
     <CustomAction Id="UnregX86"
                   Directory="DirX86"
                   Execute="deferred"
@@ -100,6 +108,7 @@
     <InstallExecuteSequence>
       <Custom Action="RegX64" After="InstallFiles" Condition="NOT Installed OR REINSTALL" />
       <Custom Action="RegX86" After="RegX64" Condition="NOT Installed OR REINSTALL" />
+      <Custom Action="EnableUserProfile" After="RegX86" Condition="NOT Installed OR REINSTALL" />
       <Custom Action="UnregX86" After="InstallInitialize" Condition="REMOVE=&quot;ALL&quot;" />
       <Custom Action="UnregX64" After="UnregX86" Condition="REMOVE=&quot;ALL&quot;" />
     </InstallExecuteSequence>
