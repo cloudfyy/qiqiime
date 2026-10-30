@@ -5,11 +5,14 @@
 param(
     [ValidateSet("Release", "Debug")]
     [string]$Config = "Release",
-    [string]$Generator = "Visual Studio 18 2026",
+    [string]$Generator = "",
     [switch]$Package
 )
 
 . (Join-Path $PSScriptRoot "common.ps1")
+if ([string]::IsNullOrWhiteSpace($Generator)) {
+    $Generator = Get-QiQiDefaultVsGenerator
+}
 
 foreach ($t in (Get-QiQiBuildTargets)) {
     $cacheFile = Join-Path $t.BuildDir "CMakeCache.txt"

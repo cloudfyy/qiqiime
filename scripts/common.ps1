@@ -38,6 +38,17 @@ function Get-QiQiVersion {
     return "0.0.0"
 }
 
+function Get-QiQiDefaultVsGenerator {
+    foreach ($year in @(@{ Ver = "18"; Name = "Visual Studio 18 2026" }, @{ Ver = "2022"; Name = "Visual Studio 17 2022" })) {
+        foreach ($edition in @("Enterprise", "Professional", "Community", "BuildTools")) {
+            if (Test-Path "$env:ProgramFiles\Microsoft Visual Studio\$($year.Ver)\$edition") {
+                return $year.Name
+            }
+        }
+    }
+    return "Visual Studio 18 2026"
+}
+
 function Get-QiQiBuildTargets {
     return @(
         @{ Name = "x64"; Arch = "x64";   BuildDir = Join-Path $script:QiQiRepoRoot "build\x64" },

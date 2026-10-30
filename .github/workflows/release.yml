@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v0.8.2)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package-and-release:
+    name: Package Dual-Arch ZIP & MSI Installers
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET & Install WiX Toolset CLI
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix
+          & "$env:USERPROFILE\.dotnet\tools\wix.exe" eula accept wix7 2>$null | Out-Null
+
+      - name: Build, test, and package (.zip + zh-CN.msi + en-US.msi)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
+
+      - name: Upload Release Artifacts to GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: QiQiIME-Release-Packages
+          path: |
+            dist/*.msi
+            dist/*.zip
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag_name != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          name: "奇奇五笔 (QiQi Wubi IME) ${{ github.event.inputs.tag_name || github.ref_name }}"
+          generate_release_notes: true
+          files: |
+            dist/*.msi
+            dist/*.zip

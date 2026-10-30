@@ -1,0 +1,57 @@
+name: CI & Lint
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-lint:
+    name: Build (x64 & x86), Unit Tests & CppCoreCheck Lint
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/x64/vcpkg_installed
+            build/x86/vcpkg_installed
+            C:\Users\runneradmin\AppData\Local\vcpkg\archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+
+      - name: Build and run unit tests (x64 & x86)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
+
+      - name: Run MSVC CppCoreCheck static analysis lint (x64)
+        shell: pwsh
+        run: |
+          $out = cmake --build build\x64 --config Release --target qiqi_engine qiqiime -- /t:Rebuild /p:RunCodeAnalysis=true /p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset
+          $warnings = $out | Select-String -Pattern "qiqiime[\\/]src[\\/].*warning" | Where-Object { $_ -notmatch "C26490" } | Select-Object -Unique
+          if ($warnings.Count -gt 0) {
+            Write-Host "CppCoreCheck warnings detected:" -ForegroundColor Red
+            $warnings | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+            exit 1
+          }
+          Write-Host "[PASS] Zero CppCoreCheck warnings in src/." -ForegroundColor Green
+
+      - name: Run PowerShell PSScriptAnalyzer lint on scripts/
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
+          $issues = Invoke-ScriptAnalyzer -Path scripts -Severity Error
+          if ($issues.Count -gt 0) {
+            $issues | Format-Table -AutoSize
+            exit 1
+          }
+          Write-Host "[PASS] Zero PSScriptAnalyzer errors in scripts/." -ForegroundColor Green
