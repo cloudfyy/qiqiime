@@ -40,6 +40,7 @@ struct UiStrings {
     // Settings dialog & ITfFnConfigure
     const wchar_t* configure_display_name;
     const wchar_t* dlg_title;
+    const wchar_t* dlg_grp_jidian;
     const wchar_t* dlg_radio_jidian;
     const wchar_t* dlg_radio_haifeng;
     const wchar_t* dlg_radio_builtin;
@@ -56,6 +57,9 @@ struct UiStrings {
     const wchar_t* dlg_chk_clear_empty4;
     const wchar_t* dlg_chk_key_sound;
     const wchar_t* dlg_chk_log_keystrokes;
+    const wchar_t* dlg_lbl_privacy_notice;
+    const wchar_t* dlg_confirm_log_title;
+    const wchar_t* dlg_confirm_log_msg;
     const wchar_t* dlg_lbl_page_size;
     const wchar_t* dlg_lbl_ui_lang;
     const wchar_t* dlg_lang_auto;
@@ -106,7 +110,8 @@ inline constexpr UiStrings kZhCnStrings = {
 
     L"QiQi 五笔属性设置",
     L"QiQi 五笔输入法 - 属性设置",
-    L"极点五笔 86 核心词库 (推荐)",
+    L"极点五笔 86 词库",
+    L"极点五笔 86 核心词库",
     L"海峰五笔 86 超大字符集词库 (含生僻字)",
     L"仅使用内置精简保底词库",
     L"启用极点现代扩展词库 (Extra)",
@@ -121,7 +126,10 @@ inline constexpr UiStrings kZhCnStrings = {
     L"四码重码时发出提示音",
     L"空码时自动清空输入",
     L"启用打字按键音效",
-    L"收集按键诊断日志 (注意：含输入隐私信息，仅排查开启)",
+    L"收集按键诊断日志 (仅用于排查问题)",
+    L"⚠ 隐私提示：开启后将在本地日志中记录您的按键与上屏文本等隐私信息",
+    L"隐私安全确认 - 收集按键诊断日志",
+    L"开启“收集按键诊断日志”后，您的按键过程、候选词及上屏文本等输入隐私信息将被记录到本地日志文件 (%LOCALAPPDATA%\\QiQiIME\\logs\\qiqiime.log) 中。\n\n该功能仅用于排查输入异常，排查完成后建议及时关闭。\n是否确认开启？",
     L"每页候选词数量:",
     L"界面语言 (Language):",
     L"跟随系统 (Auto)",
@@ -174,7 +182,8 @@ inline constexpr UiStrings kEnUsStrings = {
 
     L"QiQi Wubi Settings",
     L"QiQi Wubi IME - Settings",
-    L"Jidian Wubi 86 Core Dictionary (Recommended)",
+    L"Jidian Wubi 86 Dictionary",
+    L"Jidian Wubi 86 Core Dictionary",
     L"Haifeng Wubi 86 Extended CJK Dictionary",
     L"Built-in Minimal Fallback Dictionary Only",
     L"Enable Jidian Extra Dictionary",
@@ -189,7 +198,10 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Chime on duplicate 4-letter code",
     L"Auto-clear input when no code matches",
     L"Enable typing key sound effects",
-    L"Log keystrokes for troubleshooting (Privacy notice: records typed input)",
+    L"Log keystrokes for troubleshooting",
+    L"⚠ Privacy Notice: Records typed keys & committed text in local log",
+    L"Privacy Confirmation - Keystroke Logging",
+    L"Enabling keystroke logging will record your typed keys, candidates, and committed text in the local log file (%LOCALAPPDATA%\\QiQiIME\\logs\\qiqiime.log).\n\nThis option is intended only for troubleshooting. Are you sure you want to enable it?",
     L"Candidates per page:",
     L"UI Language:",
     L"System Default (Auto)",

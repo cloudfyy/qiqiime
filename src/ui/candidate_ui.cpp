@@ -493,40 +493,34 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 
-    if (msg == WM_MOUSEACTIVATE) {
-        return MA_NOACTIVATE;
+    switch (msg) {
+        case WM_MOUSEACTIVATE:
+            return MA_NOACTIVATE;
+        case WM_LBUTTONDOWN:
+            self->OnLeftButtonDown(PointFromLParam(lparam));
+            return 0;
+        case WM_DPICHANGED:
+            self->UpdateDpiAndFont(HIWORD(wparam));
+            self->RecalculatePopupLayout();
+            if (lparam != 0) {
+                const auto* suggested = reinterpret_cast<const RECT*>(lparam);
+                self->popup_pos_.x = suggested->left;
+                self->popup_pos_.y = suggested->top;
+                ::SetWindowPos(
+                    hwnd,
+                    HWND_TOPMOST,
+                    self->popup_pos_.x,
+                    self->popup_pos_.y,
+                    self->popup_width_,
+                    self->popup_height_,
+                    SWP_NOACTIVATE | (self->is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+            }
+            return 0;
+        case WM_PAINT:
+            return PaintWindowClient(hwnd, [self](HDC hdc, const RECT& rc) { self->PaintPopup(hdc, rc); });
+        default:
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-    if (msg == WM_LBUTTONDOWN) {
-        self->OnLeftButtonDown(PointFromLParam(lparam));
-        return 0;
-    }
-    if (msg == WM_DPICHANGED) {
-        self->UpdateDpiAndFont(HIWORD(wparam));
-        self->RecalculatePopupLayout();
-        if (lparam != 0) {
-            const auto* suggested = reinterpret_cast<const RECT*>(lparam);
-            self->popup_pos_.x = suggested->left;
-            self->popup_pos_.y = suggested->top;
-            ::SetWindowPos(
-                hwnd,
-                HWND_TOPMOST,
-                self->popup_pos_.x,
-                self->popup_pos_.y,
-                self->popup_width_,
-                self->popup_height_,
-                SWP_NOACTIVATE | (self->is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
-        }
-        return 0;
-    }
-    if (msg == WM_PAINT) {
-        const ScopedPaintDC paint_dc(hwnd);
-        RECT rc{};
-        ::GetClientRect(hwnd, &rc);
-        self->PaintPopup(paint_dc.Get(), rc);
-        return 0;
-    }
-
-    return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 } // namespace qiqi

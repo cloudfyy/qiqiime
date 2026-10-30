@@ -41,6 +41,7 @@ bool IsCapsLockOn() noexcept {
 
 constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
     switch (id) {
+        case LangBarMenuId::SyncMenuState:     return "SyncMenuState";
         case LangBarMenuId::ToggleChinese:     return "ToggleChinese";
         case LangBarMenuId::ToggleFullWidth:   return "ToggleFullWidth";
         case LangBarMenuId::TogglePunctuation: return "TogglePunctuation";
@@ -93,6 +94,19 @@ std::string FormatVirtualKey(uint32_t vk) {
         case VK_OEM_COMMA:  return "VK_OEM_COMMA(,/<)";
         case VK_OEM_PERIOD: return "VK_OEM_PERIOD(./>)";
         default:            return std::format("0x{:02X}", vk);
+    }
+}
+
+void NotifyAllStatusBarWindowsConfigChanged(bool show_status_bar) noexcept {
+    const UINT msg = ::RegisterWindowMessageW(kConfigChangedBroadcastMsg);
+    HWND hwnd = nullptr;
+    while ((hwnd = ::FindWindowExW(nullptr, hwnd, kStatusBarWndClass, nullptr)) != nullptr) {
+        if (!show_status_bar) {
+            ::ShowWindowAsync(hwnd, SW_HIDE);
+        }
+        if (msg != 0) {
+            ::PostMessageW(hwnd, msg, show_status_bar ? 1 : 0, 0);
+        }
     }
 }
 
@@ -404,6 +418,11 @@ void QiQiTextService::UninitLangBarItem() {
 }
 
 void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
+    if (action_id == LangBarMenuId::SyncMenuState) {
+        ReloadConfigIfModified();
+        SyncTsfCompartments();
+        return;
+    }
     QIQI_LOG_INFO("HandleLangBarMenuAction invoked (action={} [{}])",
                   LangBarMenuIdToString(action_id), static_cast<unsigned int>(action_id));
     switch (action_id) {
@@ -424,6 +443,7 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
                 SaveConfigFile(GetDefaultUserConfigPath(), config_);
                 LoadExternalDictionaryNextToDll();
                 SyncTsfCompartments();
+                NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
             }
             break;
         case LangBarMenuId::DictHaifeng:
@@ -432,6 +452,7 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
                 SaveConfigFile(GetDefaultUserConfigPath(), config_);
                 LoadExternalDictionaryNextToDll();
                 SyncTsfCompartments();
+                NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
             }
             break;
         case LangBarMenuId::ToggleExtraDict:
@@ -440,12 +461,14 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
                 SaveConfigFile(GetDefaultUserConfigPath(), config_);
                 LoadExternalDictionaryNextToDll();
                 SyncTsfCompartments();
+                NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
             }
             break;
         case LangBarMenuId::ToggleStatusBar:
             config_.show_status_bar = !config_.show_status_bar;
             SaveConfigFile(GetDefaultUserConfigPath(), config_);
             SyncTsfCompartments();
+            NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
             break;
         case LangBarMenuId::ToggleUiLanguage:
             config_.ui_language = (ResolveUiLanguage(config_.ui_language) == UiLanguage::EnUs)
@@ -453,6 +476,7 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
                 : UiLanguage::EnUs;
             SaveConfigFile(GetDefaultUserConfigPath(), config_);
             SyncTsfCompartments();
+            NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
             break;
         case LangBarMenuId::OpenSettings:
             log::Flush();
@@ -484,11 +508,17 @@ STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* /*pdim*/) noex
 STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* /*pdimPrevFocus*/) {
     if (!pdimFocus) {
         ResetCompositionAndUI();
+        if (status_bar_) {
+            status_bar_->Show(false);
+        }
         if (config_.log_keystrokes) {
             log::Flush();
         }
     } else {
         ReloadConfigIfModified();
+        if (status_bar_) {
+            status_bar_->Show(config_.show_status_bar);
+        }
     }
     return S_OK;
 }
@@ -505,8 +535,16 @@ STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* /*pic*/) noexcept {
 STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
     if (!fForeground) {
         ResetCompositionAndUI();
+        if (status_bar_) {
+            status_bar_->Show(false);
+        }
         if (config_.log_keystrokes) {
             log::Flush();
+        }
+    } else {
+        ReloadConfigIfModified();
+        if (status_bar_) {
+            status_bar_->Show(config_.show_status_bar);
         }
     }
     return S_OK;
@@ -717,11 +755,13 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
 
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
     QIQI_LOG_INFO("Opening Settings dialog");
+    ReloadConfigIfModified();
     if (ShowSettingsDialog(g_dll_instance, hwndParent, config_)) {
         SaveConfigFile(GetDefaultUserConfigPath(), config_);
         ApplyDynamicEngineSettings();
         LoadExternalDictionaryNextToDll();
         SyncTsfCompartments();
+        NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
         QIQI_LOG_INFO("Settings dialog saved and applied");
     } else {
         QIQI_LOG_DEBUG("Settings dialog cancelled");

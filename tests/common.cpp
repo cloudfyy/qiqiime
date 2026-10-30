@@ -355,10 +355,10 @@ void TestScopedHandleTemplate() {
         QIQI_TEST_CHECK(::GetBkMode(mem_dc.Get()) == OPAQUE);
     }
 
-    // Test BindOrGetWindowUserData on a temporary window
+        // Test BindOrGetWindowUserData, ClientPointFromLParam, and PaintWindowClient on a temporary window
     {
         const ScopedWindow test_wnd(::CreateWindowExW(
-            0, L"STATIC", L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+            0, L"STATIC", L"", WS_POPUP, 100, 200, 50, 40, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
         QIQI_TEST_CHECK(test_wnd.IsValid());
         int payload = 12345;
         CREATESTRUCTW cs{};
@@ -367,6 +367,22 @@ void TestScopedHandleTemplate() {
         QIQI_TEST_CHECK(BindOrGetWindowUserData<int>(
                             test_wnd.Get(), WM_NCCREATE, reinterpret_cast<LPARAM>(&cs)) == &payload);
         QIQI_TEST_CHECK(BindOrGetWindowUserData<int>(test_wnd.Get(), WM_PAINT, 0) == &payload);
+
+        const POINT client_pt = ClientPointFromLParam(test_wnd.Get(), MAKELPARAM(15, 25), false);
+        QIQI_TEST_CHECK(client_pt.x == 15 && client_pt.y == 25);
+        const POINT nc_null_pt = ClientPointFromLParam(nullptr, MAKELPARAM(115, 225), true);
+        QIQI_TEST_CHECK(nc_null_pt.x == 115 && nc_null_pt.y == 225);
+        POINT screen_pt{10, 20};
+        ::ClientToScreen(test_wnd.Get(), &screen_pt);
+        const POINT nc_converted = ClientPointFromLParam(
+            test_wnd.Get(), MAKELPARAM(screen_pt.x, screen_pt.y), true);
+        QIQI_TEST_CHECK(nc_converted.x == 10 && nc_converted.y == 20);
+
+        bool painted = false;
+        QIQI_TEST_CHECK(PaintWindowClient(test_wnd.Get(), [&painted](HDC hdc, const RECT& rc) {
+            painted = (hdc != nullptr && rc.right == 50 && rc.bottom == 40);
+        }) == 0);
+        QIQI_TEST_CHECK(painted);
     }
 }
 

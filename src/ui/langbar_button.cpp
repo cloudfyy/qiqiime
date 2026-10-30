@@ -151,6 +151,7 @@ STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT* /*pr
         if (pt.x == 0 && pt.y == 0) {
             ::GetCursorPos(&pt);
         }
+        action_callback_(LangBarMenuId::SyncMenuState);
         ShowSharedPopupMenu(state_, pt, action_callback_, true);
     }
     return S_OK;
@@ -159,6 +160,9 @@ STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT* /*pr
 STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
     if (!pMenu) {
         return E_INVALIDARG;
+    }
+    if (action_callback_) {
+        action_callback_(LangBarMenuId::SyncMenuState);
     }
     for (const auto& item : BuildSharedMenuItems(state_)) {
         if (item.IsSeparator()) {

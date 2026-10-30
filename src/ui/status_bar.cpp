@@ -584,9 +584,90 @@ void StatusBarUI::OnRightButtonUp(POINT client_pt) const {
     if (!hwnd_) {
         return;
     }
+    if (action_callback_) {
+        action_callback_(LangBarMenuId::SyncMenuState);
+    }
     POINT screen_pt = client_pt;
     ::ClientToScreen(hwnd_.Get(), &screen_pt);
     LangBarButton::ShowSharedPopupMenu(state_, screen_pt, action_callback_);
+}
+
+void StatusBarUI::OnDpiChanged(UINT new_dpi, const RECT* suggested_rect) noexcept {
+    UpdateDpiAndFonts(new_dpi);
+    if (suggested_rect) {
+        pos_.x = suggested_rect->left;
+        pos_.y = suggested_rect->top;
+    }
+    ClampToCurrentMonitor();
+    if (hwnd_) {
+        ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
+    }
+}
+
+LRESULT StatusBarUI::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    switch (msg) {
+        case WM_MOUSEACTIVATE:
+            return MA_NOACTIVATE;
+        case WM_NCHITTEST: {
+            const POINT pt = ClientPointFromLParam(hwnd, lparam, true);
+            return (pt.x >= 0 && pt.x < ScaleByDpi(kButtonsOffset)) ? HTCAPTION : HTCLIENT;
+        }
+        case WM_SETCURSOR:
+            ::SetCursor(::LoadCursorW(nullptr, LOWORD(lparam) == HTCAPTION ? IDC_SIZEALL : IDC_HAND));
+            return TRUE;
+        case WM_MOVE:
+            pos_ = PointFromLParam(lparam);
+            HideTooltip();
+            return 0;
+        case WM_EXITSIZEMOVE:
+        case WM_DISPLAYCHANGE:
+            ClampToCurrentMonitor();
+            return 0;
+        case WM_DPICHANGED:
+            OnDpiChanged(HIWORD(wparam), reinterpret_cast<const RECT*>(lparam));
+            return 0;
+        case WM_MOUSEMOVE:
+        case WM_NCMOUSEMOVE:
+            OnMouseMove(ClientPointFromLParam(hwnd, lparam, msg == WM_NCMOUSEMOVE));
+            return 0;
+        case WM_MOUSELEAVE:
+        case WM_NCMOUSELEAVE:
+            OnMouseLeave();
+            return 0;
+        case WM_LBUTTONDOWN:
+            HideTooltip();
+            OnLeftButtonDown(PointFromLParam(lparam));
+            return 0;
+        case WM_RBUTTONUP:
+        case WM_NCRBUTTONUP:
+            HideTooltip();
+            OnRightButtonUp(ClientPointFromLParam(hwnd, lparam, msg == WM_NCRBUTTONUP));
+            return 0;
+        case WM_COMMAND:
+            if (action_callback_) {
+                action_callback_(static_cast<LangBarMenuId>(LOWORD(wparam)));
+            }
+            return 0;
+        case WM_SETTINGCHANGE:
+            ApplySystemThemeToMenuAndWindow(hwnd, IsSystemDarkTheme());
+            ::InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        case WM_PAINT:
+            return PaintWindowClient(hwnd, [this](HDC hdc, const RECT& rc) noexcept { PaintBar(hdc, rc); });
+        default: {
+            static const UINT kBroadcastMsg = ::RegisterWindowMessageW(kConfigChangedBroadcastMsg);
+            if (kBroadcastMsg != 0 && msg == kBroadcastMsg) {
+                if (wparam == 0) {
+                    Show(false);
+                }
+                if (action_callback_) {
+                    action_callback_(LangBarMenuId::SyncMenuState);
+                }
+                return 0;
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+        }
+    }
 }
 
 LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -594,91 +675,7 @@ LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     if (!self || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-
-    if (msg == WM_MOUSEACTIVATE) {
-        return MA_NOACTIVATE;
-    }
-    if (msg == WM_NCHITTEST) {
-        POINT pt = PointFromLParam(lparam);
-        ::ScreenToClient(hwnd, &pt);
-        if (pt.x >= 0 && pt.x < self->ScaleByDpi(kButtonsOffset)) {
-            return HTCAPTION; // Dragging by the leftmost gripper moves the bar
-        }
-        return HTCLIENT;
-    }
-    if (msg == WM_SETCURSOR) {
-        const WORD hit = LOWORD(lparam);
-        ::SetCursor(::LoadCursorW(nullptr, hit == HTCAPTION ? IDC_SIZEALL : IDC_HAND));
-        return TRUE;
-    }
-    if (msg == WM_MOVE) {
-        self->pos_ = PointFromLParam(lparam);
-        self->HideTooltip();
-        return 0;
-    }
-    if (msg == WM_EXITSIZEMOVE || msg == WM_DISPLAYCHANGE) {
-        self->ClampToCurrentMonitor();
-        return 0;
-    }
-    if (msg == WM_DPICHANGED) {
-        self->UpdateDpiAndFonts(HIWORD(wparam));
-        if (lparam != 0) {
-            const auto* suggested = reinterpret_cast<const RECT*>(lparam);
-            self->pos_.x = suggested->left;
-            self->pos_.y = suggested->top;
-        }
-        self->ClampToCurrentMonitor();
-        ::InvalidateRect(hwnd, nullptr, TRUE);
-        return 0;
-    }
-    if (msg == WM_NCMOUSEMOVE) {
-        POINT pt = PointFromLParam(lparam);
-        ::ScreenToClient(hwnd, &pt);
-        self->OnMouseMove(pt);
-        return 0;
-    }
-    if (msg == WM_MOUSEMOVE) {
-        self->OnMouseMove(PointFromLParam(lparam));
-        return 0;
-    }
-    if (msg == WM_MOUSELEAVE || msg == WM_NCMOUSELEAVE) {
-        self->OnMouseLeave();
-        return 0;
-    }
-    if (msg == WM_LBUTTONDOWN) {
-        self->HideTooltip();
-        self->OnLeftButtonDown(PointFromLParam(lparam));
-        return 0;
-    }
-    if (msg == WM_RBUTTONUP || msg == WM_NCRBUTTONUP) {
-        self->HideTooltip();
-        POINT pt = PointFromLParam(lparam);
-        if (msg == WM_NCRBUTTONUP) {
-            ::ScreenToClient(hwnd, &pt);
-        }
-        self->OnRightButtonUp(pt);
-        return 0;
-    }
-    if (msg == WM_COMMAND) {
-        if (self->action_callback_) {
-            self->action_callback_(static_cast<LangBarMenuId>(LOWORD(wparam)));
-        }
-        return 0;
-    }
-    if (msg == WM_SETTINGCHANGE) {
-        ApplySystemThemeToMenuAndWindow(hwnd, IsSystemDarkTheme());
-        ::InvalidateRect(hwnd, nullptr, TRUE);
-        return 0;
-    }
-    if (msg == WM_PAINT) {
-        const ScopedPaintDC paint_dc(hwnd);
-        RECT rc{};
-        ::GetClientRect(hwnd, &rc);
-        self->PaintBar(paint_dc.Get(), rc);
-        return 0;
-    }
-
-    return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+    return self->HandleMessage(hwnd, msg, wparam, lparam);
 }
 
 LRESULT CALLBACK StatusBarUI::TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept {
@@ -686,19 +683,14 @@ LRESULT CALLBACK StatusBarUI::TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam,
     if (!self || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-
-    if (msg == WM_MOUSEACTIVATE) {
-        return MA_NOACTIVATE;
+    switch (msg) {
+        case WM_MOUSEACTIVATE:
+            return MA_NOACTIVATE;
+        case WM_PAINT:
+            return PaintWindowClient(hwnd, [self](HDC hdc, const RECT& rc) noexcept { self->PaintTooltip(hdc, rc); });
+        default:
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-    if (msg == WM_PAINT) {
-        const ScopedPaintDC paint_dc(hwnd);
-        RECT rc{};
-        ::GetClientRect(hwnd, &rc);
-        self->PaintTooltip(paint_dc.Get(), rc);
-        return 0;
-    }
-
-    return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 } // namespace qiqi

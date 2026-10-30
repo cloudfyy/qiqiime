@@ -315,6 +315,25 @@ constexpr POINT PointFromLParam(LPARAM lparam) noexcept {
     };
 }
 
+// Extract client-space coordinates from a mouse message LPARAM (converting screen coordinates if is_non_client is true).
+inline POINT ClientPointFromLParam(HWND hwnd, LPARAM lparam, bool is_non_client = false) noexcept {
+    POINT pt = PointFromLParam(lparam);
+    if (is_non_client && hwnd) {
+        ::ScreenToClient(hwnd, &pt);
+    }
+    return pt;
+}
+
+// Standard WM_PAINT wrapper that creates a ScopedPaintDC, queries GetClientRect, and invokes paint_fn(hdc, rc).
+template <typename PaintFn>
+LRESULT PaintWindowClient(HWND hwnd, PaintFn&& paint_fn) {
+    const ScopedPaintDC paint_dc(hwnd);
+    RECT rc{};
+    ::GetClientRect(hwnd, &rc);
+    std::forward<PaintFn>(paint_fn)(paint_dc.Get(), rc);
+    return 0;
+}
+
 // Bind CREATESTRUCTW::lpCreateParams to GWLP_USERDATA on WM_NCCREATE and retrieve the typed window context pointer.
 template <typename T>
 T* BindOrGetWindowUserData(HWND hwnd, UINT msg, LPARAM lparam) noexcept {

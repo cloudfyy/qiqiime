@@ -16,6 +16,8 @@ inline constexpr const wchar_t* kStatusBarTooltipWndClass = L"QiQiIMEStatusBarTo
 inline constexpr const wchar_t* kSettingsWndClass = L"QiQiIMESettingsDialogClass";
 inline constexpr const wchar_t* kAboutWndClass = L"QiQiIMEAboutDialogClass";
 inline constexpr const wchar_t* kMenuWndClass = L"QiQiIMEQuickSettingsMenuClass";
+// Global broadcast message name used to synchronize cross-process QiQiIME instances (e.g. hiding/showing StatusBarUI)
+inline constexpr const wchar_t* kConfigChangedBroadcastMsg = L"QiQiIME_ConfigChanged_Broadcast";
 inline constexpr const wchar_t* kGitHubRepoUrl = L"https://github.com/cloudfyy/qiqiime";
 
 // {8E7B9D31-5A42-4C81-9F11-202610290001}

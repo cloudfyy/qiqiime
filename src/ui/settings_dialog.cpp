@@ -37,6 +37,7 @@ constexpr int kIdChkBeepDup4 = 117;
 constexpr int kIdChkCodeHint = 118;
 constexpr int kIdChkDynamicFreq = 119;
 constexpr int kIdChkLogKeystrokes = 120;
+constexpr int kIdLblPrivacyNotice = 121;
 constexpr int kIdBtnOpenGitHub = 201;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
@@ -49,24 +50,25 @@ struct SettingsCheckboxBinding {
     int control_id;
     bool QiQiConfig::* config_field;
     const wchar_t* UiStrings::* label_field;
+    int x_offset_px;
     int y_offset_px;
     int width_px;
 };
 
 constexpr std::array<SettingsCheckboxBinding, 13> kSettingsCheckboxes = {{
-    {kIdChkExtraDict,     &QiQiConfig::enable_jidian_extra,          &UiStrings::dlg_chk_extra,          112, 400},
-    {kIdChkAutoCommit4,   &QiQiConfig::auto_commit_4code,            &UiStrings::dlg_chk_auto_commit4,   140, 400},
-    {kIdChkPushCommit5,   &QiQiConfig::push_commit_5th,              &UiStrings::dlg_chk_push_commit5,   168, 400},
-    {kIdChkQuickSelect,   &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select,   196, 400},
-    {kIdChkCodeHint,      &QiQiConfig::show_code_hint,               &UiStrings::dlg_chk_code_hint,      224, 400},
-    {kIdChkDynamicFreq,   &QiQiConfig::dynamic_phrase_freq,          &UiStrings::dlg_chk_dynamic_freq,   252, 400},
-    {kIdChkShiftToggle,   &QiQiConfig::shift_toggle_mode,            &UiStrings::dlg_chk_shift_toggle,   280, 400},
-    {kIdChkStatusBar,     &QiQiConfig::show_status_bar,              &UiStrings::dlg_chk_status_bar,     308, 400},
-    {kIdChkBeepEmpty4,    &QiQiConfig::beep_on_empty_4code,          &UiStrings::dlg_chk_beep_empty4,    336, 400},
-    {kIdChkBeepDup4,      &QiQiConfig::beep_on_dup_4code,            &UiStrings::dlg_chk_beep_dup4,      364, 400},
-    {kIdChkClearEmpty4,   &QiQiConfig::clear_on_empty_4code,         &UiStrings::dlg_chk_clear_empty4,   392, 400},
-    {kIdChkKeySound,      &QiQiConfig::enable_key_sound,             &UiStrings::dlg_chk_key_sound,      420, 400},
-    {kIdChkLogKeystrokes, &QiQiConfig::log_keystrokes,               &UiStrings::dlg_chk_log_keystrokes, 448, 412},
+    {kIdChkExtraDict,     &QiQiConfig::enable_jidian_extra,          &UiStrings::dlg_chk_extra,          44,  66, 360},
+    {kIdChkAutoCommit4,   &QiQiConfig::auto_commit_4code,            &UiStrings::dlg_chk_auto_commit4,   24, 166, 400},
+    {kIdChkPushCommit5,   &QiQiConfig::push_commit_5th,              &UiStrings::dlg_chk_push_commit5,   24, 194, 400},
+    {kIdChkQuickSelect,   &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select,   24, 222, 400},
+    {kIdChkCodeHint,      &QiQiConfig::show_code_hint,               &UiStrings::dlg_chk_code_hint,      24, 250, 400},
+    {kIdChkDynamicFreq,   &QiQiConfig::dynamic_phrase_freq,          &UiStrings::dlg_chk_dynamic_freq,   24, 278, 400},
+    {kIdChkShiftToggle,   &QiQiConfig::shift_toggle_mode,            &UiStrings::dlg_chk_shift_toggle,   24, 306, 400},
+    {kIdChkStatusBar,     &QiQiConfig::show_status_bar,              &UiStrings::dlg_chk_status_bar,     24, 334, 400},
+    {kIdChkBeepEmpty4,    &QiQiConfig::beep_on_empty_4code,          &UiStrings::dlg_chk_beep_empty4,    24, 362, 400},
+    {kIdChkBeepDup4,      &QiQiConfig::beep_on_dup_4code,            &UiStrings::dlg_chk_beep_dup4,      24, 390, 400},
+    {kIdChkClearEmpty4,   &QiQiConfig::clear_on_empty_4code,         &UiStrings::dlg_chk_clear_empty4,   24, 418, 400},
+    {kIdChkKeySound,      &QiQiConfig::enable_key_sound,             &UiStrings::dlg_chk_key_sound,      24, 446, 400},
+    {kIdChkLogKeystrokes, &QiQiConfig::log_keystrokes,               &UiStrings::dlg_chk_log_keystrokes, 24, 474, 400},
 }};
 
 ScopedIcon CreateBrandIcon(int size_px) noexcept {
@@ -78,6 +80,7 @@ struct DialogContext {
     bool accepted = false;
     bool done = false;
     ScopedGdiHandle<HFONT> font;
+    ScopedGdiHandle<HFONT> bold_font;
     ScopedIcon icon;
 };
 
@@ -127,55 +130,89 @@ void UpdateExtraDictCheckboxState(HWND hwnd) noexcept {
     }
 }
 
+void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
+    switch (LOWORD(wparam)) {
+        case kIdRadioJidian:
+        case kIdRadioHaifeng:
+        case kIdRadioBuiltin:
+            UpdateExtraDictCheckboxState(hwnd);
+            return;
+        case kIdChkLogKeystrokes:
+            if (HIWORD(wparam) == BN_CLICKED && ::IsDlgButtonChecked(hwnd, kIdChkLogKeystrokes) == BST_CHECKED) {
+                const UiLanguage lang = ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
+                const auto& str = GetUiStrings(lang);
+                const int choice = ::MessageBoxW(
+                    hwnd,
+                    str.dlg_confirm_log_msg,
+                    str.dlg_confirm_log_title,
+                    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+                if (choice != IDYES) {
+                    ::CheckDlgButton(hwnd, kIdChkLogKeystrokes, BST_UNCHECKED);
+                }
+            }
+            return;
+        case kIdBtnOk:
+            if (ctx.config) {
+                ReadSettingsFromWindowControls(hwnd, *ctx.config);
+            }
+            ctx.accepted = true;
+            ctx.done = true;
+            ::PostMessageW(hwnd, WM_NULL, 0, 0);
+            return;
+        case kIdBtnCancel:
+            ctx.accepted = false;
+            ctx.done = true;
+            ::PostMessageW(hwnd, WM_NULL, 0, 0);
+            return;
+        case kIdBtnOpenIni: {
+            const auto cfg_path = GetDefaultUserConfigPath();
+            EnsureDefaultConfigFile(cfg_path);
+            ::ShellExecuteW(hwnd, L"open", L"notepad.exe", cfg_path.c_str(), nullptr, SW_SHOWNORMAL);
+            return;
+        }
+        case kIdBtnAbout: {
+            const UiLanguage lang = ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
+            ShowAboutDialog(g_dll_instance, hwnd, lang);
+            return;
+        }
+        default:
+            return;
+    }
+}
+
 LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     auto* ctx = BindOrGetWindowUserData<DialogContext>(hwnd, msg, lparam);
-    if (msg == WM_NCCREATE) {
+    if (!ctx || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-    if (msg == WM_COMMAND && ctx) {
-        const int id = LOWORD(wparam);
-        if (id == kIdRadioJidian || id == kIdRadioHaifeng || id == kIdRadioBuiltin) {
-            UpdateExtraDictCheckboxState(hwnd);
-            return 0;
-        }
-        if (id == kIdBtnOk) {
-            if (ctx->config) {
-                ReadSettingsFromWindowControls(hwnd, *ctx->config);
+    switch (msg) {
+        case WM_CTLCOLORSTATIC: {
+            const HWND ctrl = reinterpret_cast<HWND>(lparam);
+            if (ctrl && ::GetDlgCtrlID(ctrl) == kIdLblPrivacyNotice) {
+                const HDC hdc = reinterpret_cast<HDC>(wparam);
+                ::SetTextColor(hdc, RGB(196, 43, 28));
+                ::SetBkMode(hdc, TRANSPARENT);
+                return reinterpret_cast<LRESULT>(::GetSysColorBrush(COLOR_BTNFACE));
             }
-            ctx->accepted = true;
-            ctx->done = true;
-            ::PostMessageW(hwnd, WM_NULL, 0, 0);
-            return 0;
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         }
-        if (id == kIdBtnCancel) {
+        case WM_COMMAND:
+            HandleSettingsCommand(hwnd, wparam, *ctx);
+            return 0;
+        case WM_CLOSE:
             ctx->accepted = false;
             ctx->done = true;
             ::PostMessageW(hwnd, WM_NULL, 0, 0);
             return 0;
-        }
-        if (id == kIdBtnOpenIni) {
-            const auto cfg_path = GetDefaultUserConfigPath();
-            EnsureDefaultConfigFile(cfg_path);
-            ::ShellExecuteW(hwnd, L"open", L"notepad.exe", cfg_path.c_str(), nullptr, SW_SHOWNORMAL);
-            return 0;
-        }
-        if (id == kIdBtnAbout) {
-            const UiLanguage lang = ctx->config ? ctx->config->ui_language : UiLanguage::Auto;
-            ShowAboutDialog(g_dll_instance, hwnd, lang);
-            return 0;
-        }
+        case WM_NCDESTROY:
+            ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            {
+                const std::unique_ptr<DialogContext> owned_ctx(ctx);
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+        default:
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-    if (msg == WM_CLOSE && ctx) {
-        ctx->accepted = false;
-        ctx->done = true;
-        ::PostMessageW(hwnd, WM_NULL, 0, 0);
-        return 0;
-    }
-    if (msg == WM_NCDESTROY && ctx) {
-        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-        const std::unique_ptr<DialogContext> owned_ctx(ctx);
-    }
-    return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 void PaintAboutDialog(HDC hdc, const RECT& client_rc, const AboutDialogContext& ctx) {
@@ -227,38 +264,38 @@ void PaintAboutDialog(HDC hdc, const RECT& client_rc, const AboutDialogContext& 
 
 LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     auto* ctx = BindOrGetWindowUserData<AboutDialogContext>(hwnd, msg, lparam);
-    if (msg == WM_NCCREATE) {
+    if (!ctx || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-    if (msg == WM_PAINT && ctx) {
-        const ScopedPaintDC paint_dc(hwnd);
-        RECT rc{};
-        ::GetClientRect(hwnd, &rc);
-        PaintAboutDialog(paint_dc.Get(), rc, *ctx);
-        return 0;
-    }
-    if (msg == WM_COMMAND && ctx) {
-        const int id = LOWORD(wparam);
-        if (id == kIdBtnOk || id == kIdBtnCancel) {
+    switch (msg) {
+        case WM_PAINT:
+            return PaintWindowClient(hwnd, [ctx](HDC hdc, const RECT& rc) { PaintAboutDialog(hdc, rc, *ctx); });
+        case WM_COMMAND:
+            switch (LOWORD(wparam)) {
+                case kIdBtnOk:
+                case kIdBtnCancel:
+                    ctx->done = true;
+                    ::PostMessageW(hwnd, WM_NULL, 0, 0);
+                    return 0;
+                case kIdBtnOpenGitHub:
+                    ::ShellExecuteW(hwnd, L"open", kGitHubRepoUrl, nullptr, nullptr, SW_SHOWNORMAL);
+                    return 0;
+                default:
+                    return 0;
+            }
+        case WM_CLOSE:
             ctx->done = true;
             ::PostMessageW(hwnd, WM_NULL, 0, 0);
             return 0;
-        }
-        if (id == kIdBtnOpenGitHub) {
-            ::ShellExecuteW(hwnd, L"open", kGitHubRepoUrl, nullptr, nullptr, SW_SHOWNORMAL);
-            return 0;
-        }
+        case WM_NCDESTROY:
+            ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            {
+                const std::unique_ptr<AboutDialogContext> owned_ctx(ctx);
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+        default:
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-    if (msg == WM_CLOSE && ctx) {
-        ctx->done = true;
-        ::PostMessageW(hwnd, WM_NULL, 0, 0);
-        return 0;
-    }
-    if (msg == WM_NCDESTROY && ctx) {
-        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-        const std::unique_ptr<AboutDialogContext> owned_ctx(ctx);
-    }
-    return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 } // namespace
@@ -344,12 +381,17 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     lf.lfCharSet = DEFAULT_CHARSET;
     wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
     ctx->font.Reset(::CreateFontIndirectW(&lf));
+
+    LOGFONTW bold_lf = lf;
+    bold_lf.lfHeight = -S(13);
+    bold_lf.lfWeight = FW_SEMIBOLD;
+    ctx->bold_font.Reset(::CreateFontIndirectW(&bold_lf));
     ctx->icon = CreateBrandIcon(S(16));
 
     const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
 
     const int dlg_w = S(460);
-    const int dlg_h = S(624);
+    const int dlg_h = S(676);
     const POINT centered{
         (mon.work_area.left + mon.work_area.right - dlg_w) / 2,
         (mon.work_area.top + mon.work_area.bottom - dlg_h) / 2
@@ -357,6 +399,7 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     const POINT dlg_pos = ClampPointToWorkArea(centered, dlg_w, dlg_h, mon.work_area);
 
     const HFONT f = ctx->font.Get();
+    const HFONT bold_f = ctx->bold_font.Get();
     ScopedWindow hwnd(::CreateWindowExW(
         WS_EX_DLGMODALFRAME,
         kSettingsWndClass,
@@ -375,9 +418,11 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
         ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
     }
 
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_jidian, BS_AUTORADIOBUTTON | WS_GROUP, S(24), S(20), S(400), S(24), kIdRadioJidian);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_haifeng, BS_AUTORADIOBUTTON, S(24), S(48), S(400), S(24), kIdRadioHaifeng);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_builtin, BS_AUTORADIOBUTTON, S(24), S(76), S(400), S(24), kIdRadioBuiltin);
+    // Jidian Wubi 86 group box containing both Jidian Core radio button and Jidian Extra checkbox
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_grp_jidian, BS_GROUPBOX, S(16), S(14), S(412), S(84), 0);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_jidian, BS_AUTORADIOBUTTON | WS_GROUP, S(28), S(38), S(380), S(24), kIdRadioJidian);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_haifeng, BS_AUTORADIOBUTTON, S(24), S(104), S(400), S(24), kIdRadioHaifeng);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_builtin, BS_AUTORADIOBUTTON, S(24), S(132), S(400), S(24), kIdRadioBuiltin);
 
     for (const auto& binding : kSettingsCheckboxes) {
         CreateChildControl(
@@ -387,30 +432,33 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
             L"BUTTON",
             str.*(binding.label_field),
             BS_AUTOCHECKBOX,
-            S(24),
+            S(binding.x_offset_px),
             S(binding.y_offset_px),
             S(binding.width_px),
             S(24),
             binding.control_id);
     }
 
-    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(24), S(484), S(150), S(24), 0);
-    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(480), S(70), S(200), kIdComboPageSize);
+    // Highlighted wrapped privacy notice line directly under the keystroke logging checkbox
+    CreateChildControl(hwnd.Get(), instance, bold_f, L"STATIC", str.dlg_lbl_privacy_notice, 0, S(44), S(498), S(388), S(32), kIdLblPrivacyNotice);
+
+    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(24), S(536), S(150), S(24), 0);
+    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(532), S(70), S(200), kIdComboPageSize);
     for (const wchar_t* label : kPageSizeLabels) {
         ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     }
 
-    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(24), S(518), S(150), S(24), 0);
-    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(514), S(200), S(160), kIdComboUiLang);
+    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(24), S(570), S(150), S(24), 0);
+    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(566), S(200), S(160), kIdComboUiLang);
     const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
     for (const wchar_t* item : lang_items) {
         ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
     }
 
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_open_ini, BS_PUSHBUTTON, S(24), S(554), S(104), S(28), kIdBtnOpenIni);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_about, BS_PUSHBUTTON, S(136), S(554), S(72), S(28), kIdBtnAbout);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(218), S(554), S(78), S(28), kIdBtnOk);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(304), S(554), S(78), S(28), kIdBtnCancel);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_open_ini, BS_PUSHBUTTON, S(24), S(606), S(104), S(28), kIdBtnOpenIni);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_about, BS_PUSHBUTTON, S(136), S(606), S(72), S(28), kIdBtnAbout);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(218), S(606), S(78), S(28), kIdBtnOk);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(304), S(606), S(78), S(28), kIdBtnCancel);
 
     if (bound_config) {
         WriteSettingsToWindowControls(hwnd.Get(), *bound_config);

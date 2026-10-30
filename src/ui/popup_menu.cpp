@@ -300,6 +300,22 @@ private:
         }
     }
 
+    void PaintMenu(HDC hdc, const RECT& rect) const {
+        const auto palette = Palette();
+        const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(palette.window_bg));
+        const ScopedGdiHandle<HBRUSH> line(::CreateSolidBrush(palette.border_color));
+        ::FillRect(hdc, &rect, background.Get());
+        for (size_t i = 0; i < model_.size(); ++i) {
+            if (!model_.at(i).IsSeparator()) {
+                continue;
+            }
+            const RECT row = rows_.at(i);
+            const int y = (row.top + row.bottom) / 2;
+            const RECT separator{rect.left + 8, y, rect.right - 8, y + 1};
+            ::FillRect(hdc, &separator, line.Get());
+        }
+    }
+
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         auto* self = BindOrGetWindowUserData<QuickSettingsMenu>(hwnd, msg, lparam);
         if (!self) {
@@ -331,25 +347,8 @@ private:
                 return 0;
             case WM_ERASEBKGND:
                 return 1;
-            case WM_PAINT: {
-                const ScopedPaintDC dc(hwnd);
-                RECT rect{};
-                ::GetClientRect(hwnd, &rect);
-                const auto palette = Palette();
-                const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(palette.window_bg));
-                const ScopedGdiHandle<HBRUSH> line(::CreateSolidBrush(palette.border_color));
-                ::FillRect(dc.Get(), &rect, background.Get());
-                for (size_t i = 0; i < self->model_.size(); ++i) {
-                    if (!self->model_.at(i).IsSeparator()) {
-                        continue;
-                    }
-                    const RECT row = self->rows_.at(i);
-                    const int y = (row.top + row.bottom) / 2;
-                    const RECT separator{rect.left + 8, y, rect.right - 8, y + 1};
-                    ::FillRect(dc.Get(), &separator, line.Get());
-                }
-                return 0;
-            }
+            case WM_PAINT:
+                return PaintWindowClient(hwnd, [self](HDC hdc, const RECT& rc) { self->PaintMenu(hdc, rc); });
             default:
                 return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         }

@@ -66,6 +66,8 @@ private:
     void OnMouseLeave() noexcept;
     void OnLeftButtonDown(POINT pt) const;
     void OnRightButtonUp(POINT client_pt) const;
+    void OnDpiChanged(UINT new_dpi, const RECT* suggested_rect) noexcept;
+    LRESULT HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
     static LRESULT CALLBACK TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept;
 

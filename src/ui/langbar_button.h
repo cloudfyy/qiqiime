@@ -17,6 +17,7 @@ namespace qiqi {
 using Microsoft::WRL::ComPtr;
 
 enum class LangBarMenuId : UINT {
+    SyncMenuState = 0,
     ToggleChinese = 1,
     ToggleFullWidth = 2,
     TogglePunctuation = 3,
