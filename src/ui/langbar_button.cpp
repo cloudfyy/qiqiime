@@ -58,9 +58,8 @@ void AppendWin32PopupItem(
 } // namespace
 
 ScopedMenu LangBarButton::BuildSharedPopupMenu(
-    const LangBarState& state, HWND owner_hwnd, ScopedGdiHandle<HBRUSH>& out_bg_brush) noexcept {
+    const LangBarState& state, HWND /*owner_hwnd*/, ScopedGdiHandle<HBRUSH>& out_bg_brush) noexcept {
     const auto& palette = GetCurrentThemePalette();
-    ApplySystemThemeToMenuAndWindow(owner_hwnd, palette.is_dark);
 
     ScopedMenu menu(::CreatePopupMenu());
     if (!menu) {
@@ -140,7 +139,8 @@ STDMETHODIMP LangBarButton::GetInfo(TF_LANGBARITEMINFO* pInfo) noexcept {
     const auto& str = GetUiStrings(state_.ui_language);
     pInfo->clsidService = kClsidQiQiTextService;
     pInfo->guidItem = kGuidLbiInputMode;
-    pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_BTN_MENU | TF_LBI_STYLE_SHOWNINTRAY;
+    pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_BTN_MENU |
+                     TF_LBI_STYLE_SHOWNINTRAY | TF_LBI_STYLE_TEXTCOLORICON;
     pInfo->ulSort = 0;
     wcscpy_s(pInfo->szDescription, str.langbar_desc);
     return S_OK;
@@ -172,40 +172,10 @@ STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT* /*pr
         return S_OK;
     }
     if (click == TF_LBI_CLK_RIGHT) {
-        ScopedGdiHandle<HBRUSH> menu_bg;
-        const ScopedMenu menu = BuildSharedPopupMenu(state_, nullptr, menu_bg);
-        if (!menu) {
-            return S_OK;
-        }
         if (pt.x == 0 && pt.y == 0) {
             ::GetCursorPos(&pt);
         }
-        // Create a temporary message-only / popup host window so TrackPopupMenu works reliably from taskbar tray
-        const ScopedWindow host_hwnd(::CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-            L"STATIC",
-            L"",
-            WS_POPUP,
-            pt.x, pt.y, 1, 1,
-            nullptr, nullptr, g_dll_instance, nullptr));
-        const HWND menu_owner = host_hwnd ? host_hwnd.Get() : ::GetForegroundWindow();
-        if (menu_owner) {
-            ::SetForegroundWindow(menu_owner);
-        }
-        const BOOL cmd = ::TrackPopupMenu(
-            menu.Get(),
-            TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
-            pt.x,
-            pt.y,
-            0,
-            menu_owner,
-            nullptr);
-        if (menu_owner) {
-            ::PostMessageW(menu_owner, WM_NULL, 0, 0);
-        }
-        if (cmd > 0) {
-            action_callback_(static_cast<LangBarMenuId>(cmd));
-        }
+        ShowSharedPopupMenu(state_, pt, action_callback_, true);
     }
     return S_OK;
 }
@@ -214,7 +184,6 @@ STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
     if (!pMenu) {
         return E_INVALIDARG;
     }
-    ApplySystemThemeToMenuAndWindow(nullptr, IsSystemDarkTheme());
     const auto& str = GetUiStrings(state_.ui_language);
 
     AddMenuEntry(pMenu, LangBarMenuId::ToggleChinese, str.menu_toggle_chinese, state_.chinese_mode);
@@ -290,8 +259,38 @@ void LangBarButton::UpdateState(const LangBarState& state) {
 
 ScopedIcon LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
     const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
-    const auto& palette = GetCurrentThemePalette();
-    return CreateTransparentGlyphIcon(ch, size, palette.text_primary);
+    const ScopedMemoryDC dc(::CreateCompatibleDC(nullptr));
+    const ScopedGdiHandle<HBITMAP> mask(::CreateBitmap(size, size * 2, 1, 1, nullptr));
+    if (!dc || !mask) {
+        return {};
+    }
+    LOGFONTW lf{};
+    lf.lfHeight = -(size - 2);
+    lf.lfWeight = FW_SEMIBOLD;
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfQuality = NONANTIALIASED_QUALITY;
+    wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
+    const ScopedGdiHandle<HFONT> font(::CreateFontIndirectW(&lf));
+    if (!font) {
+        return {};
+    }
+    {
+        const ScopedSelectObject select_bitmap(dc.Get(), mask.Get());
+        const ScopedSelectObject select_font(dc.Get(), font.Get());
+        // A monochrome icon stores AND above XOR. Transparent background: AND=1, XOR=0.
+        ::PatBlt(dc.Get(), 0, 0, size, size * 2, BLACKNESS);
+        ::PatBlt(dc.Get(), 0, 0, size, size, WHITENESS);
+        ::SetBkMode(dc.Get(), TRANSPARENT);
+        ::SetTextColor(dc.Get(), RGB(0, 0, 0));
+        RECT rect{0, 0, size, size};
+        ::DrawTextW(dc.Get(), &ch, 1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        ::GdiFlush();
+    }
+    ICONINFO info{};
+    info.fIcon = TRUE;
+    info.hbmMask = mask.Get();
+    // TF_LBI_STYLE_TEXTCOLORICON lets TSF recolor the black glyph for the actual taskbar theme.
+    return ScopedIcon(::CreateIconIndirect(&info));
 }
 
 } // namespace qiqi

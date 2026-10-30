@@ -85,6 +85,24 @@ public:
     // Build a themed Win32 HMENU matching the current LangBarState (shared by tray right-click and StatusBarUI).
     static ScopedMenu BuildSharedPopupMenu(
         const LangBarState& state, HWND owner_hwnd, ScopedGdiHandle<HBRUSH>& out_bg_brush) noexcept;
+    static void ShowSharedPopupMenu(
+        const LangBarState& state, POINT screen_pt, const ActionCallback& callback, bool align_bottom = false);
+
+    static constexpr bool KeepsMenuOpen(LangBarMenuId id) noexcept {
+        switch (id) {
+            case LangBarMenuId::ToggleChinese:
+            case LangBarMenuId::ToggleFullWidth:
+            case LangBarMenuId::TogglePunctuation:
+            case LangBarMenuId::DictJidian:
+            case LangBarMenuId::DictHaifeng:
+            case LangBarMenuId::ToggleExtraDict:
+            case LangBarMenuId::ToggleStatusBar:
+            case LangBarMenuId::ToggleUiLanguage:
+                return true;
+            default:
+                return false;
+        }
+    }
 
 private:
     static ScopedIcon CreateTextIcon(wchar_t ch) noexcept;

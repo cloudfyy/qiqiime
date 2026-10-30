@@ -582,24 +582,9 @@ void StatusBarUI::OnRightButtonUp(POINT client_pt) const {
     if (!hwnd_) {
         return;
     }
-    ScopedGdiHandle<HBRUSH> menu_bg;
-    const ScopedMenu menu = BuildContextMenu(menu_bg);
-    if (!menu) {
-        return;
-    }
     POINT screen_pt = client_pt;
     ::ClientToScreen(hwnd_.Get(), &screen_pt);
-    const BOOL cmd = ::TrackPopupMenu(
-        menu.Get(),
-        TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
-        screen_pt.x,
-        screen_pt.y,
-        0,
-        hwnd_.Get(),
-        nullptr);
-    if (cmd > 0 && action_callback_) {
-        action_callback_(static_cast<LangBarMenuId>(cmd));
-    }
+    LangBarButton::ShowSharedPopupMenu(state_, screen_pt, action_callback_);
 }
 
 LRESULT CALLBACK StatusBarUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
