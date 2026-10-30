@@ -8,6 +8,7 @@
 #include <functional>
 
 #include "common/config.h"
+#include "common/scoped_handle.h"
 
 namespace qiqi {
 
@@ -82,7 +83,7 @@ public:
     const LangBarState& State() const noexcept { return state_; }
 
 private:
-    static HICON CreateTextIcon(wchar_t ch) noexcept;
+    static ScopedIcon CreateTextIcon(wchar_t ch) noexcept;
 
     std::atomic<ULONG> ref_count_{1};
     ComPtr<ITfLangBarItemSink> sink_;

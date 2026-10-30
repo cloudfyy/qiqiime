@@ -550,12 +550,10 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
     }
     if (IsEqualGUID(rguid, kGuidPreservedKeyAddUserWord)) {
         *pfEaten = TRUE;
-        if (::OpenClipboard(nullptr)) {
-            const auto close_guard = gsl::finally([]() noexcept { ::CloseClipboard(); });
+        if (const ScopedClipboard clip{}; clip.IsOpen()) {
             if (const HANDLE hdata = ::GetClipboardData(CF_UNICODETEXT)) {
-                if (const auto* wtext = static_cast<const wchar_t*>(::GlobalLock(hdata))) {
-                    const std::wstring phrase(wtext);
-                    ::GlobalUnlock(hdata);
+                if (const ScopedGlobalLock<wchar_t> locked(hdata); locked) {
+                    const std::wstring phrase(locked.Get());
                     if (phrase.size() >= 2 && phrase.size() <= 16 &&
                         engine_.AddUserPhrase(phrase, GetDefaultUserDictPath())) {
                         PlayImeSound(SoundEffectKind::KeyClick);

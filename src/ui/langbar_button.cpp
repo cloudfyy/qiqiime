@@ -157,7 +157,8 @@ STDMETHODIMP LangBarButton::GetIcon(HICON* phIcon) noexcept {
     if (!phIcon) {
         return E_INVALIDARG;
     }
-    *phIcon = CreateTextIcon(state_.chinese_mode ? L'中' : L'英');
+    ScopedIcon icon = CreateTextIcon(state_.chinese_mode ? L'中' : L'英');
+    *phIcon = icon.Detach();
     return *phIcon ? S_OK : E_FAIL;
 }
 
@@ -199,22 +200,22 @@ void LangBarButton::UpdateState(const LangBarState& state) {
     }
 }
 
-HICON LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
+ScopedIcon LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
     const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
     const ScopedWindowDC screen_dc(nullptr);
     if (!screen_dc) {
-        return nullptr;
+        return {};
     }
 
     const ScopedMemoryDC mem_dc(::CreateCompatibleDC(screen_dc.Get()));
     if (!mem_dc) {
-        return nullptr;
+        return {};
     }
 
     const ScopedGdiHandle<HBITMAP> color_bmp(::CreateCompatibleBitmap(screen_dc.Get(), size, size));
     const ScopedGdiHandle<HBITMAP> mask_bmp(::CreateBitmap(size, size, 1, 1, nullptr));
     if (!color_bmp || !mask_bmp) {
-        return nullptr;
+        return {};
     }
 
     const ScopedSelectObject sel_bmp(mem_dc.Get(), color_bmp.Get());
@@ -242,7 +243,7 @@ HICON LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
     ii.fIcon = TRUE;
     ii.hbmMask = mask_bmp.Get();
     ii.hbmColor = color_bmp.Get();
-    return ::CreateIconIndirect(&ii);
+    return ScopedIcon(::CreateIconIndirect(&ii));
 }
 
 } // namespace qiqi

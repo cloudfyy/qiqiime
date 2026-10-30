@@ -227,6 +227,57 @@ private:
     HGDIOBJ old_obj_ = nullptr;
 };
 
+// RAII wrapper for ::OpenClipboard(hwnd) / ::CloseClipboard().
+class ScopedClipboard final {
+public:
+    explicit ScopedClipboard(HWND owner = nullptr) noexcept
+        : opened_(::OpenClipboard(owner) != FALSE) {}
+
+    ~ScopedClipboard() noexcept {
+        if (opened_) {
+            ::CloseClipboard();
+        }
+    }
+
+    ScopedClipboard(const ScopedClipboard&) = delete;
+    ScopedClipboard& operator=(const ScopedClipboard&) = delete;
+    ScopedClipboard(ScopedClipboard&&) = delete;
+    ScopedClipboard& operator=(ScopedClipboard&&) = delete;
+
+    bool IsOpen() const noexcept { return opened_; }
+    explicit operator bool() const noexcept { return opened_; }
+
+private:
+    bool opened_ = false;
+};
+
+// RAII wrapper for ::GlobalLock(hmem) / ::GlobalUnlock(hmem).
+template <typename T>
+class ScopedGlobalLock final {
+public:
+    explicit ScopedGlobalLock(HGLOBAL hmem) noexcept
+        : hmem_(hmem),
+          ptr_(hmem ? static_cast<const T*>(::GlobalLock(hmem)) : nullptr) {}
+
+    ~ScopedGlobalLock() noexcept {
+        if (hmem_ && ptr_) {
+            ::GlobalUnlock(hmem_);
+        }
+    }
+
+    ScopedGlobalLock(const ScopedGlobalLock&) = delete;
+    ScopedGlobalLock& operator=(const ScopedGlobalLock&) = delete;
+    ScopedGlobalLock(ScopedGlobalLock&&) = delete;
+    ScopedGlobalLock& operator=(ScopedGlobalLock&&) = delete;
+
+    const T* Get() const noexcept { return ptr_; }
+    explicit operator bool() const noexcept { return ptr_ != nullptr; }
+
+private:
+    HGLOBAL hmem_ = nullptr;
+    const T* ptr_ = nullptr;
+};
+
 // Extract signed client/screen coordinates from mouse message LPARAM using gsl::narrow_cast.
 constexpr POINT PointFromLParam(LPARAM lparam) noexcept {
     return POINT{

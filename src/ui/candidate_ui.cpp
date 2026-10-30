@@ -75,7 +75,6 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
     font_.Reset(::CreateFontIndirectW(&lf));
 
     if (dwrite_factory_) {
-        dwrite_text_format_.Reset();
         if (SUCCEEDED(dwrite_factory_->CreateTextFormat(
                 L"Microsoft YaHei UI",
                 nullptr,
@@ -84,7 +83,7 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
                 DWRITE_FONT_STRETCH_NORMAL,
                 static_cast<float>(ScaleByDpi(16)),
                 L"zh-CN",
-                &dwrite_text_format_)) &&
+                dwrite_text_format_.ReleaseAndGetAddressOf())) &&
             dwrite_text_format_) {
             dwrite_text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
             dwrite_text_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
@@ -392,7 +391,7 @@ void CandidateUI::DestroyPopupWindow() noexcept {
     is_shown_ = FALSE;
 }
 
-bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const noexcept {
+bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
     if (!hdc || !d2d_dc_target_ || !dwrite_text_format_) {
         return false;
     }

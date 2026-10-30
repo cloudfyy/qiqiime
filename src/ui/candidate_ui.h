@@ -85,7 +85,7 @@ private:
     void RecalculatePopupLayout();
     void OnLeftButtonDown(POINT pt) const;
     bool EnsurePopupWindow() noexcept;
-    bool PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const noexcept;
+    bool PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const;
     void PaintPopup(HDC hdc, const RECT& client_rect) const;
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
