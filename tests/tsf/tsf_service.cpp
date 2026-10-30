@@ -417,6 +417,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
     // Modify config file timestamp and trigger zero-latency hot-reload via ITfCompartmentEventSink::OnChange
     haifeng_cfg.page_size = 6;
+    haifeng_cfg.show_status_bar = true;
     haifeng_cfg.enable_key_sound = true;
     haifeng_cfg.beep_on_dup_4code = true;
     haifeng_cfg.clear_on_empty_4code = true;
@@ -444,6 +445,18 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         ScopedTfSinkConnection sink_conn;
         QIQI_TEST_CHECK(!sink_conn.IsConnected());
         QIQI_TEST_CHECK(!sink_conn.Advise(nullptr, IID_ITfCompartmentEventSink, nullptr));
+
+        // Test cross-process StatusBarUI position sync via kGuidCompartmentStatusBarPos
+        QIQI_TEST_CHECK(mock_tm->global_pos_compartment_ != nullptr);
+        const LONG packed_pos = PackScreenPointToLong(POINT{280, 360});
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(mock_tm->global_pos_compartment_.Get(), 1, packed_pos)));
+        if (const HWND sb_hwnd = ::FindWindowW(kStatusBarWndClass, nullptr)) {
+            ::SendMessageW(sb_hwnd, WM_MOVE, 0, MAKELPARAM(240, 320));
+            ::SendMessageW(sb_hwnd, WM_EXITSIZEMOVE, 0, 0);
+            const POINT saved_pt = UnpackLongToScreenPoint(
+                ReadCompartmentInt4(mock_tm->global_pos_compartment_.Get(), 0));
+            QIQI_TEST_CHECK(saved_pt.x == 240 && saved_pt.y == 320);
+        }
     }
 
     QIQI_TEST_CHECK(SUCCEEDED(hf_tm_sink->OnSetFocus(reinterpret_cast<ITfDocumentMgr*>(1), nullptr)));

@@ -156,6 +156,9 @@ QiQiTextService::QiQiTextService(HINSTANCE instance) {
     status_bar_ = std::make_unique<StatusBarUI>(instance, [this](LangBarMenuId action_id) {
         HandleLangBarMenuAction(action_id);
     });
+    status_bar_->SetPositionChangedCallback([this](POINT new_pos) {
+        SaveGlobalStatusBarPosition(new_pos);
+    });
     LoadExternalDictionaryNextToDll();
 }
 
@@ -403,6 +406,23 @@ void QiQiTextService::UninitLangBarItem() {
     }
 }
 
+bool QiQiTextService::BindCompartmentSink(
+    ITfCompartmentMgr* mgr,
+    REFGUID guid,
+    ITfCompartmentEventSink* sink,
+    ComPtr<ITfCompartment>& out_comp,
+    ScopedTfSinkConnection& out_conn) {
+    out_conn.Reset();
+    out_comp.Reset();
+    if (!mgr) {
+        return false;
+    }
+    if (FAILED(mgr->GetCompartment(guid, &out_comp)) || !out_comp) {
+        return false;
+    }
+    return out_conn.Advise(out_comp.Get(), IID_ITfCompartmentEventSink, sink);
+}
+
 void QiQiTextService::InitGlobalCompartmentSink() {
     if (!thread_mgr_) {
         return;
@@ -412,20 +432,29 @@ void QiQiTextService::InitGlobalCompartmentSink() {
         QIQI_LOG_DEBUG("InitGlobalCompartmentSink: GetGlobalCompartment unavailable");
         return;
     }
-    if (FAILED(global_mgr->GetCompartment(kGuidCompartmentConfigVersion, &global_config_comp_)) ||
-        !global_config_comp_) {
-        QIQI_LOG_WARN("InitGlobalCompartmentSink: GetCompartment(kGuidCompartmentConfigVersion) failed");
-        return;
+    if (!BindCompartmentSink(
+            global_mgr.Get(),
+            kGuidCompartmentConfigVersion,
+            static_cast<ITfCompartmentEventSink*>(this),
+            global_config_comp_,
+            global_config_sink_)) {
+        QIQI_LOG_WARN("InitGlobalCompartmentSink: failed to bind kGuidCompartmentConfigVersion");
     }
-    if (!global_config_sink_.Advise(
-            global_config_comp_.Get(),
-            IID_ITfCompartmentEventSink,
-            static_cast<ITfCompartmentEventSink*>(this))) {
-        QIQI_LOG_WARN("InitGlobalCompartmentSink: Advise(IID_ITfCompartmentEventSink) failed");
+    if (BindCompartmentSink(
+            global_mgr.Get(),
+            kGuidCompartmentStatusBarPos,
+            static_cast<ITfCompartmentEventSink*>(this),
+            global_pos_comp_,
+            global_pos_sink_)) {
+        SyncStatusBarPositionFromGlobalCompartment();
+    } else {
+        QIQI_LOG_WARN("InitGlobalCompartmentSink: failed to bind kGuidCompartmentStatusBarPos");
     }
 }
 
 void QiQiTextService::UninitGlobalCompartmentSink() {
+    global_pos_sink_.Reset();
+    global_pos_comp_.Reset();
     global_config_sink_.Reset();
     global_config_comp_.Reset();
 }
@@ -442,10 +471,42 @@ void QiQiTextService::NotifyGlobalConfigChanged() {
     }
 }
 
+void QiQiTextService::SaveGlobalStatusBarPosition(POINT pos) {
+    if (!global_pos_comp_ || client_id_ == TF_CLIENTID_NULL) {
+        return;
+    }
+    const LONG packed = PackScreenPointToLong(pos);
+    if (FAILED(WriteCompartmentInt4(global_pos_comp_.Get(), client_id_, packed))) {
+        QIQI_LOG_WARN("SaveGlobalStatusBarPosition: SetValue(pos=({}, {})) failed", pos.x, pos.y);
+    } else {
+        QIQI_LOG_DEBUG("SaveGlobalStatusBarPosition: broadcast Global Compartment pos=({}, {})", pos.x, pos.y);
+    }
+}
+
+void QiQiTextService::SyncStatusBarPositionFromGlobalCompartment() {
+    if (!global_pos_comp_ || !status_bar_) {
+        return;
+    }
+    constexpr LONG kUnsetSentinel = INT32_MIN;
+    const LONG packed = ReadCompartmentInt4(global_pos_comp_.Get(), kUnsetSentinel);
+    if (packed == kUnsetSentinel || packed == 0) {
+        return;
+    }
+    const POINT shared_pos = UnpackLongToScreenPoint(packed);
+    if (shared_pos.x != status_bar_->Position().x || shared_pos.y != status_bar_->Position().y) {
+        status_bar_->SetPosition(shared_pos);
+        QIQI_LOG_DEBUG("SyncStatusBarPositionFromGlobalCompartment: synced pos=({}, {})",
+                       shared_pos.x, shared_pos.y);
+    }
+}
+
 STDMETHODIMP QiQiTextService::OnChange(REFGUID rguid) {
     if (IsEqualGUID(rguid, kGuidCompartmentConfigVersion)) {
         QIQI_LOG_DEBUG("ITfCompartmentEventSink::OnChange(kGuidCompartmentConfigVersion) received");
         ReloadConfigIfModified();
+    } else if (IsEqualGUID(rguid, kGuidCompartmentStatusBarPos)) {
+        QIQI_LOG_DEBUG("ITfCompartmentEventSink::OnChange(kGuidCompartmentStatusBarPos) received");
+        SyncStatusBarPositionFromGlobalCompartment();
     }
     return S_OK;
 }
@@ -530,6 +591,7 @@ void QiQiTextService::HandleFocusChanged(bool has_focus) {
         }
     } else {
         ReloadConfigIfModified();
+        SyncStatusBarPositionFromGlobalCompartment();
         if (status_bar_) {
             status_bar_->Show(config_.show_status_bar);
         }

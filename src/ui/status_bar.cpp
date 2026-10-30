@@ -291,6 +291,12 @@ HBITMAP StatusBarUI::GetIconBitmap(StatusBarIconKind kind) const noexcept {
     return gsl::at(icon_bitmaps_, idx).Get();
 }
 
+void StatusBarUI::SetPosition(POINT new_pos) noexcept {
+    pos_ = new_pos;
+    pos_initialized_ = true;
+    ClampToCurrentMonitor();
+}
+
 void StatusBarUI::ClampToCurrentMonitor() noexcept {
     const MonitorMetrics mon = QueryMonitorForPoint(pos_, hwnd_.Get());
     if (mon.dpi != dpi_) {
@@ -677,6 +683,12 @@ void StatusBarUI::EndDragTracking(bool clamp_position) noexcept {
     }
     if (was_dragging && clamp_position) {
         ClampToCurrentMonitor();
+        if (pos_changed_callback_) {
+            try {
+                pos_changed_callback_(pos_);
+            } catch (...) {
+            }
+        }
     }
 }
 
@@ -751,6 +763,11 @@ LRESULT StatusBarUI::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             HideTooltip();
             return 0;
         case WM_EXITSIZEMOVE:
+            ClampToCurrentMonitor();
+            if (pos_changed_callback_) {
+                pos_changed_callback_(pos_);
+            }
+            return 0;
         case WM_DISPLAYCHANGE:
             ClampToCurrentMonitor();
             return 0;

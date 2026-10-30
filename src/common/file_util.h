@@ -8,10 +8,10 @@
 namespace qiqi {
 
 // Convert wide string (UTF-16 on Windows) to UTF-8.
-std::string WideToUtf8(std::wstring_view wide);
+std::string WideToUtf8(std::wstring_view wide) noexcept;
 
 // Convert UTF-8 string to Windows wide string (UTF-16).
-std::wstring Utf8ToWide(std::string_view utf8);
+std::wstring Utf8ToWide(std::string_view utf8) noexcept;
 
 // Query the full filesystem path of a loaded module (exe or dll). Returns empty path on failure.
 std::filesystem::path GetModuleFilePath(void* module_handle) noexcept;

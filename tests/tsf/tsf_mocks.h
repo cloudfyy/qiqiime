@@ -472,6 +472,14 @@ public:
             (*ppcomp)->AddRef();
             return S_OK;
         }
+        if (IsEqualGUID(rguid, kGuidCompartmentStatusBarPos)) {
+            if (!global_pos_compartment_) {
+                global_pos_compartment_ = new MockTfCompartment(kGuidCompartmentStatusBarPos);
+            }
+            *ppcomp = global_pos_compartment_.Get();
+            (*ppcomp)->AddRef();
+            return S_OK;
+        }
         *ppcomp = compartment_.Get();
         (*ppcomp)->AddRef();
         return S_OK;
@@ -501,6 +509,7 @@ public:
 
     ComPtr<MockTfCompartment> compartment_;
     ComPtr<MockTfCompartment> global_config_compartment_;
+    ComPtr<MockTfCompartment> global_pos_compartment_;
     ComPtr<IUnknown> single_sink_;
     ComPtr<ITfUIElement> last_ui_element_;
     ComPtr<ITfLangBarItem> langbar_item_;

@@ -26,6 +26,7 @@ enum class StatusBarIconKind : size_t {
 class StatusBarUI final {
 public:
     using ActionCallback = std::function<void(LangBarMenuId action_id)>;
+    using PositionChangedCallback = std::function<void(POINT new_pos)>;
 
     static constexpr int kGripWidth = 22;
     static constexpr int kButtonsOffset = kGripWidth; // 22
@@ -54,6 +55,10 @@ public:
     HWND WindowHandle() const noexcept { return hwnd_.Get(); }
     HWND TooltipWindowHandle() const noexcept { return tooltip_hwnd_.Get(); }
     POINT Position() const noexcept { return pos_; }
+    void SetPosition(POINT new_pos) noexcept;
+    void SetPositionChangedCallback(PositionChangedCallback cb) noexcept {
+        pos_changed_callback_ = std::move(cb);
+    }
     UINT CurrentDpi() const noexcept { return dpi_; }
     int CurrentWidth() const noexcept { return ScaleByDpi(kBarWidth); }
     int CurrentHeight() const noexcept { return ScaleByDpi(kBarHeight); }
@@ -111,6 +116,7 @@ private:
     std::wstring active_tooltip_text_;
     LangBarState state_{};
     ActionCallback action_callback_;
+    PositionChangedCallback pos_changed_callback_;
     // Destroy tooltip and bar windows first before releasing fonts, bitmaps, and state.
     ScopedWindow hwnd_;
     ScopedWindow tooltip_hwnd_;

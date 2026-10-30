@@ -97,9 +97,17 @@ private:
     void UninitFunctionProvider();
     void InitLangBarItem();
     void UninitLangBarItem();
+    static bool BindCompartmentSink(
+        ITfCompartmentMgr* mgr,
+        REFGUID guid,
+        ITfCompartmentEventSink* sink,
+        ComPtr<ITfCompartment>& out_comp,
+        ScopedTfSinkConnection& out_conn);
     void InitGlobalCompartmentSink();
     void UninitGlobalCompartmentSink();
     void NotifyGlobalConfigChanged();
+    void SaveGlobalStatusBarPosition(POINT pos);
+    void SyncStatusBarPositionFromGlobalCompartment();
     void HandleLangBarMenuAction(LangBarMenuId action_id);
     void HandleFocusChanged(bool has_focus);
     void PersistAndSyncQuickConfigChange(bool reload_dicts);
@@ -127,9 +135,11 @@ private:
     DWORD activate_flags_ = 0;
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection global_config_sink_;
+    ScopedTfSinkConnection global_pos_sink_;
     TfGuidAtom display_attribute_atom_ = TF_INVALID_GUIDATOM;
 
     ComPtr<ITfCompartment> global_config_comp_;
+    ComPtr<ITfCompartment> global_pos_comp_;
     ComPtr<ITfComposition> composition_;
     ComPtr<ITfContext> active_context_;
     ComPtr<CandidateUI> candidate_ui_;

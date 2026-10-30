@@ -173,6 +173,15 @@ void TestStatusBarUI() {
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::OpenSettings);
 
     // 4b. Test press-and-drag on a button cell: dragging beyond threshold moves the bar without firing click_action
+    //     and invokes PositionChangedCallback (also on WM_EXITSIZEMOVE)
+    POINT reported_pos{-9999, -9999};
+    bar.SetPositionChangedCallback([&reported_pos](POINT pt) noexcept {
+        reported_pos = pt;
+    });
+    static_assert(UnpackLongToScreenPoint(PackScreenPointToLong(POINT{320, 480})).x == 320);
+    static_assert(UnpackLongToScreenPoint(PackScreenPointToLong(POINT{-1200, -540})).x == -1200);
+    static_assert(UnpackLongToScreenPoint(PackScreenPointToLong(POINT{-1200, -540})).y == -540);
+
     clicked_action = static_cast<LangBarMenuId>(0);
     const POINT before_drag = bar.Position();
     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(40, 18));
@@ -185,6 +194,13 @@ void TestStatusBarUI() {
     QIQI_TEST_CHECK(bar.Position().x != before_drag.x || bar.Position().y != before_drag.y);
     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONUP, 0, MAKELPARAM(70, 38));
     QIQI_TEST_CHECK(clicked_action == static_cast<LangBarMenuId>(0));
+    QIQI_TEST_CHECK(reported_pos.x == bar.Position().x && reported_pos.y == bar.Position().y);
+
+    // Test SetPosition and WM_EXITSIZEMOVE callback notification
+    reported_pos = POINT{-9999, -9999};
+    bar.SetPosition(POINT{260, 340});
+    ::SendMessageW(bar.WindowHandle(), WM_EXITSIZEMOVE, 0, 0);
+    QIQI_TEST_CHECK(reported_pos.x == bar.Position().x && reported_pos.y == bar.Position().y);
 
     // 4c. Test WM_CAPTURECHANGED and orphan WM_LBUTTONUP (without prior WM_LBUTTONDOWN)
     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(40, 18));

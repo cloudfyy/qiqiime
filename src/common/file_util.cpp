@@ -9,34 +9,42 @@
 
 namespace qiqi {
 
-std::string WideToUtf8(std::wstring_view wide) {
-    if (wide.empty()) {
+std::string WideToUtf8(std::wstring_view wide) noexcept {
+    try {
+        if (wide.empty()) {
+            return {};
+        }
+        const int len = ::WideCharToMultiByte(
+            CP_UTF8, 0, wide.data(), gsl::narrow_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+        if (len <= 0) {
+            return {};
+        }
+        std::string result(gsl::narrow_cast<size_t>(len), '\0');
+        ::WideCharToMultiByte(
+            CP_UTF8, 0, wide.data(), gsl::narrow_cast<int>(wide.size()), result.data(), len, nullptr, nullptr);
+        return result;
+    } catch (...) {
         return {};
     }
-    const int len = ::WideCharToMultiByte(
-        CP_UTF8, 0, wide.data(), gsl::narrow_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
-    if (len <= 0) {
-        return {};
-    }
-    std::string result(gsl::narrow_cast<size_t>(len), '\0');
-    ::WideCharToMultiByte(
-        CP_UTF8, 0, wide.data(), gsl::narrow_cast<int>(wide.size()), result.data(), len, nullptr, nullptr);
-    return result;
 }
 
-std::wstring Utf8ToWide(std::string_view utf8) {
-    if (utf8.empty()) {
+std::wstring Utf8ToWide(std::string_view utf8) noexcept {
+    try {
+        if (utf8.empty()) {
+            return {};
+        }
+        const int len = ::MultiByteToWideChar(
+            CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), nullptr, 0);
+        if (len <= 0) {
+            return {};
+        }
+        std::wstring result(gsl::narrow_cast<size_t>(len), L'\0');
+        ::MultiByteToWideChar(
+            CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), result.data(), len);
+        return result;
+    } catch (...) {
         return {};
     }
-    const int len = ::MultiByteToWideChar(
-        CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), nullptr, 0);
-    if (len <= 0) {
-        return {};
-    }
-    std::wstring result(gsl::narrow_cast<size_t>(len), L'\0');
-    ::MultiByteToWideChar(
-        CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), result.data(), len);
-    return result;
 }
 
 std::filesystem::path GetModuleFilePath(void* module_handle) noexcept {

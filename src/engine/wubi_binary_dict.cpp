@@ -274,7 +274,7 @@ bool WubiMappedDict::OpenMappedFile(
         file_size.QuadPart < gsl::narrow_cast<LONGLONG>(sizeof(DictBinaryHeader)) ||
         file_size.QuadPart > kMaxDictBytes) {
         QIQI_LOG_WARN("OpenMappedFile: invalid cache file size ({} bytes) for '{}'",
-                      file_size.QuadPart, WideToUtf8(bin_path.wstring()));
+                      file_size.QuadPart, WideToUtf8(bin_path.native()));
         return false;
     }
 
@@ -283,7 +283,7 @@ bool WubiMappedDict::OpenMappedFile(
         file.Get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
     if (!mapping.IsValid()) {
         QIQI_LOG_WARN("OpenMappedFile: CreateFileMappingW failed for '{}' (error={})",
-                      WideToUtf8(bin_path.wstring()), ::GetLastError());
+                      WideToUtf8(bin_path.native()), ::GetLastError());
         return false;
     }
 
@@ -291,7 +291,7 @@ bool WubiMappedDict::OpenMappedFile(
     ScopedMappedView view(::MapViewOfFile(mapping.Get(), FILE_MAP_READ, 0, 0, 0));
     if (!view.IsValid()) {
         QIQI_LOG_WARN("OpenMappedFile: MapViewOfFile failed for '{}' (error={})",
-                      WideToUtf8(bin_path.wstring()), ::GetLastError());
+                      WideToUtf8(bin_path.native()), ::GetLastError());
         return false;
     }
 
@@ -300,7 +300,7 @@ bool WubiMappedDict::OpenMappedFile(
         gsl::narrow_cast<size_t>(file_size.QuadPart));
     if (!BindBufferView(mapped_span, expected_src_size, expected_src_mtime)) {
         QIQI_LOG_DEBUG("OpenMappedFile: cache header/timestamp mismatch for '{}', will rebuild",
-                       WideToUtf8(bin_path.wstring()));
+                       WideToUtf8(bin_path.native()));
         return false;
     }
 
