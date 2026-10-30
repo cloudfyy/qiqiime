@@ -220,23 +220,6 @@ void TestStatusBarUI() {
     ::SendMessageW(bar.WindowHandle(), WM_COMMAND, MAKEWPARAM(static_cast<UINT>(LangBarMenuId::ToggleUiLanguage), 0), 0);
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleUiLanguage);
 
-    // Test cross-process config broadcast message (wparam=1 syncs state, wparam=0 hides the bar)
-    {
-        const UINT broadcast_msg = ::RegisterWindowMessageW(kConfigChangedBroadcastMsg);
-        QIQI_TEST_CHECK(broadcast_msg != 0);
-        clicked_action = static_cast<LangBarMenuId>(999);
-        ::SendMessageW(bar.WindowHandle(), broadcast_msg, 1, 0);
-        QIQI_TEST_CHECK(clicked_action == LangBarMenuId::SyncMenuState);
-        QIQI_TEST_CHECK(bar.IsVisible());
-
-        clicked_action = static_cast<LangBarMenuId>(999);
-        ::SendMessageW(bar.WindowHandle(), broadcast_msg, 0, 0);
-        QIQI_TEST_CHECK(clicked_action == LangBarMenuId::SyncMenuState);
-        QIQI_TEST_CHECK(!bar.IsVisible());
-        bar.Show(true);
-        QIQI_TEST_CHECK(bar.IsVisible());
-    }
-
     // Test DestroyBarWindow followed by re-Show(true) when pos_initialized_ is already true
     bar.DestroyBarWindow();
     bar.Show(true);

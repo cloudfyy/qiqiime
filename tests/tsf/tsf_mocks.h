@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <msctf.h>
+#include <olectl.h>
 #include <wrl/client.h>
 #include <string>
 #include <utility>
@@ -289,13 +290,20 @@ private:
     ULONG ref_ = 1;
 };
 
-// Minimal mock ITfCompartment
-class MockTfCompartment final : public ITfCompartment {
+// Minimal mock ITfCompartment + ITfSource (supports ITfCompartmentEventSink::OnChange notifications)
+class MockTfCompartment final : public ITfCompartment, public ITfSource {
 public:
+    explicit MockTfCompartment(REFGUID guid = GUID_NULL) : guid_(guid) {}
+
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfCompartment)) {
             *ppvObj = static_cast<ITfCompartment*>(this);
+            AddRef();
+            return S_OK;
+        }
+        if (IsEqualIID(riid, IID_ITfSource)) {
+            *ppvObj = static_cast<ITfSource*>(this);
             AddRef();
             return S_OK;
         }
@@ -311,6 +319,9 @@ public:
     STDMETHODIMP SetValue(TfClientId, const VARIANT* pvarValue) override {
         if (pvarValue && pvarValue->vt == VT_I4) {
             last_val_ = pvarValue->lVal;
+            if (sink_) {
+                sink_->OnChange(guid_);
+            }
         }
         return S_OK;
     }
@@ -321,7 +332,22 @@ public:
         return S_OK;
     }
 
+    // ITfSource
+    STDMETHODIMP AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) override {
+        if (!punk || !pdwCookie) return E_INVALIDARG;
+        if (!IsEqualIID(riid, IID_ITfCompartmentEventSink)) return CONNECT_E_CANNOTCONNECT;
+        if (FAILED(punk->QueryInterface(IID_PPV_ARGS(&sink_))) || !sink_) return E_NOINTERFACE;
+        *pdwCookie = 101;
+        return S_OK;
+    }
+    STDMETHODIMP UnadviseSink(DWORD) override {
+        sink_.Reset();
+        return S_OK;
+    }
+
+    GUID guid_{};
     LONG last_val_ = 0;
+    ComPtr<ITfCompartmentEventSink> sink_;
 private:
     ULONG ref_ = 1;
 };
@@ -379,7 +405,12 @@ public:
     STDMETHODIMP IsThreadFocus(BOOL* pfThreadFocus) override { if (pfThreadFocus) *pfThreadFocus = TRUE; return S_OK; }
     STDMETHODIMP GetFunctionProvider(REFCLSID, ITfFunctionProvider**) override { return E_NOTIMPL; }
     STDMETHODIMP EnumFunctionProviders(IEnumTfFunctionProviders**) override { return E_NOTIMPL; }
-    STDMETHODIMP GetGlobalCompartment(ITfCompartmentMgr**) override { return E_NOTIMPL; }
+    STDMETHODIMP GetGlobalCompartment(ITfCompartmentMgr** ppCompMgr) override {
+        if (!ppCompMgr) return E_INVALIDARG;
+        *ppCompMgr = static_cast<ITfCompartmentMgr*>(this);
+        AddRef();
+        return S_OK;
+    }
 
     // ITfSource
     STDMETHODIMP AdviseSink(REFIID, IUnknown*, DWORD* pdwCookie) override {
@@ -431,8 +462,16 @@ public:
     STDMETHODIMP EnumUIElements(IEnumTfUIElements**) override { return E_NOTIMPL; }
 
     // ITfCompartmentMgr
-    STDMETHODIMP GetCompartment(REFGUID, ITfCompartment** ppcomp) override {
+    STDMETHODIMP GetCompartment(REFGUID rguid, ITfCompartment** ppcomp) override {
         if (!ppcomp) return E_INVALIDARG;
+        if (IsEqualGUID(rguid, kGuidCompartmentConfigVersion)) {
+            if (!global_config_compartment_) {
+                global_config_compartment_ = new MockTfCompartment(kGuidCompartmentConfigVersion);
+            }
+            *ppcomp = global_config_compartment_.Get();
+            (*ppcomp)->AddRef();
+            return S_OK;
+        }
         *ppcomp = compartment_.Get();
         (*ppcomp)->AddRef();
         return S_OK;
@@ -461,6 +500,7 @@ public:
     }
 
     ComPtr<MockTfCompartment> compartment_;
+    ComPtr<MockTfCompartment> global_config_compartment_;
     ComPtr<IUnknown> single_sink_;
     ComPtr<ITfUIElement> last_ui_element_;
     ComPtr<ITfLangBarItem> langbar_item_;

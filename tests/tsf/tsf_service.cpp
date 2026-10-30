@@ -415,7 +415,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         }
     }
 
-    // Modify config file timestamp and trigger hot-reload via OnSetFocus (also enabling key sound & clear_on_empty_4code)
+    // Modify config file timestamp and trigger zero-latency hot-reload via ITfCompartmentEventSink::OnChange
     haifeng_cfg.page_size = 6;
     haifeng_cfg.enable_key_sound = true;
     haifeng_cfg.beep_on_dup_4code = true;
@@ -425,6 +425,27 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         GetDefaultUserConfigPath(),
         std::filesystem::file_time_type::clock::now() + std::chrono::seconds(10),
         ec);
+    ComPtr<ITfCompartmentEventSink> comp_event_sink;
+    QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&comp_event_sink))) && comp_event_sink);
+    QIQI_TEST_CHECK(SUCCEEDED(comp_event_sink->OnChange(GUID_NULL)));
+    QIQI_TEST_CHECK(SUCCEEDED(comp_event_sink->OnChange(kGuidCompartmentConfigVersion)));
+    comp_event_sink.Reset();
+
+    // Also test ScopedTfSinkConnection and ReadCompartmentInt4 / WriteCompartmentInt4 helpers directly
+    {
+        QIQI_TEST_CHECK(ReadCompartmentInt4(nullptr, 77) == 77);
+        QIQI_TEST_CHECK(WriteCompartmentInt4(nullptr, 1, 10) == E_INVALIDARG);
+        QIQI_TEST_CHECK(mock_tm->global_config_compartment_ != nullptr);
+        const LONG ver_before = ReadCompartmentInt4(mock_tm->global_config_compartment_.Get(), 0);
+        QIQI_TEST_CHECK(ver_before > 0);
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(mock_tm->global_config_compartment_.Get(), 1, ver_before + 1)));
+        QIQI_TEST_CHECK(ReadCompartmentInt4(mock_tm->global_config_compartment_.Get(), 0) == ver_before + 1);
+
+        ScopedTfSinkConnection sink_conn;
+        QIQI_TEST_CHECK(!sink_conn.IsConnected());
+        QIQI_TEST_CHECK(!sink_conn.Advise(nullptr, IID_ITfCompartmentEventSink, nullptr));
+    }
+
     QIQI_TEST_CHECK(SUCCEEDED(hf_tm_sink->OnSetFocus(reinterpret_cast<ITfDocumentMgr*>(1), nullptr)));
     ComPtr<ITfKeyEventSink> hf_key_sink;
     if (SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&hf_key_sink))) && hf_key_sink) {

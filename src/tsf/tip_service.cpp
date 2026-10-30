@@ -89,19 +89,6 @@ std::string FormatVirtualKey(uint32_t vk) {
     }
 }
 
-void NotifyAllStatusBarWindowsConfigChanged(bool show_status_bar) noexcept {
-    const UINT msg = ::RegisterWindowMessageW(kConfigChangedBroadcastMsg);
-    HWND hwnd = nullptr;
-    while ((hwnd = ::FindWindowExW(nullptr, hwnd, kStatusBarWndClass, nullptr)) != nullptr) {
-        if (!show_status_bar) {
-            ::ShowWindowAsync(hwnd, SW_HIDE);
-        }
-        if (msg != 0) {
-            ::PostMessageW(hwnd, msg, show_status_bar ? 1 : 0, 0);
-        }
-    }
-}
-
 void LogKeyTraceIfEnabled(
     bool enabled,
     uint32_t vk,
@@ -267,6 +254,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     InitDisplayAttributeGuidAtom();
     InitFunctionProvider();
     InitLangBarItem();
+    InitGlobalCompartmentSink();
     if (config_.primary_dict != PrimaryDict::BuiltinOnly && engine_.MappedDictionaryCount() == 0) {
         LoadExternalDictionaryNextToDll();
     }
@@ -281,10 +269,11 @@ STDMETHODIMP QiQiTextService::Deactivate() {
         status_bar_->Show(false);
     }
 
+    UninitGlobalCompartmentSink();
     UninitLangBarItem();
     UninitFunctionProvider();
     UninitKeyEventSink();
-    UninitThreadMgrEventSink();
+    thread_mgr_sink_.Reset();
 
     thread_mgr_.Reset();
     client_id_ = TF_CLIENTID_NULL;
@@ -296,32 +285,14 @@ STDMETHODIMP QiQiTextService::Deactivate() {
 }
 
 bool QiQiTextService::InitThreadMgrEventSink() {
-    ComPtr<ITfSource> source;
-    if (FAILED(thread_mgr_.As(&source)) || !source) {
-        QIQI_LOG_ERROR("InitThreadMgrEventSink: QueryInterface(ITfSource) failed");
-        return false;
-    }
-    const HRESULT hr = source->AdviseSink(
-        IID_ITfThreadMgrEventSink,
-        static_cast<ITfThreadMgrEventSink*>(this),
-        &thread_mgr_event_cookie_);
-    if (FAILED(hr)) {
-        QIQI_LOG_ERROR("InitThreadMgrEventSink: AdviseSink failed (hr=0x{:08x})",
-                       gsl::narrow_cast<unsigned int>(hr));
+    if (!thread_mgr_sink_.Advise(
+            thread_mgr_.Get(),
+            IID_ITfThreadMgrEventSink,
+            static_cast<ITfThreadMgrEventSink*>(this))) {
+        QIQI_LOG_ERROR("InitThreadMgrEventSink: Advise(IID_ITfThreadMgrEventSink) failed");
         return false;
     }
     return true;
-}
-
-void QiQiTextService::UninitThreadMgrEventSink() {
-    if (thread_mgr_event_cookie_ == TF_INVALID_COOKIE || !thread_mgr_) {
-        return;
-    }
-    ComPtr<ITfSource> source;
-    if (SUCCEEDED(thread_mgr_.As(&source)) && source) {
-        source->UnadviseSink(thread_mgr_event_cookie_);
-    }
-    thread_mgr_event_cookie_ = TF_INVALID_COOKIE;
 }
 
 bool QiQiTextService::InitKeyEventSink() {
@@ -430,6 +401,53 @@ void QiQiTextService::UninitLangBarItem() {
     if (SUCCEEDED(thread_mgr_.As(&lb_mgr)) && lb_mgr) {
         lb_mgr->RemoveItem(langbar_btn_.Get());
     }
+}
+
+void QiQiTextService::InitGlobalCompartmentSink() {
+    if (!thread_mgr_) {
+        return;
+    }
+    ComPtr<ITfCompartmentMgr> global_mgr;
+    if (FAILED(thread_mgr_->GetGlobalCompartment(&global_mgr)) || !global_mgr) {
+        QIQI_LOG_DEBUG("InitGlobalCompartmentSink: GetGlobalCompartment unavailable");
+        return;
+    }
+    if (FAILED(global_mgr->GetCompartment(kGuidCompartmentConfigVersion, &global_config_comp_)) ||
+        !global_config_comp_) {
+        QIQI_LOG_WARN("InitGlobalCompartmentSink: GetCompartment(kGuidCompartmentConfigVersion) failed");
+        return;
+    }
+    if (!global_config_sink_.Advise(
+            global_config_comp_.Get(),
+            IID_ITfCompartmentEventSink,
+            static_cast<ITfCompartmentEventSink*>(this))) {
+        QIQI_LOG_WARN("InitGlobalCompartmentSink: Advise(IID_ITfCompartmentEventSink) failed");
+    }
+}
+
+void QiQiTextService::UninitGlobalCompartmentSink() {
+    global_config_sink_.Reset();
+    global_config_comp_.Reset();
+}
+
+void QiQiTextService::NotifyGlobalConfigChanged() {
+    if (!global_config_comp_ || client_id_ == TF_CLIENTID_NULL) {
+        return;
+    }
+    const LONG next_version = ReadCompartmentInt4(global_config_comp_.Get(), 0) + 1;
+    if (FAILED(WriteCompartmentInt4(global_config_comp_.Get(), client_id_, next_version))) {
+        QIQI_LOG_WARN("NotifyGlobalConfigChanged: SetValue(version={}) failed", next_version);
+    } else {
+        QIQI_LOG_DEBUG("NotifyGlobalConfigChanged: broadcast Global Compartment config version={}", next_version);
+    }
+}
+
+STDMETHODIMP QiQiTextService::OnChange(REFGUID rguid) {
+    if (IsEqualGUID(rguid, kGuidCompartmentConfigVersion)) {
+        QIQI_LOG_DEBUG("ITfCompartmentEventSink::OnChange(kGuidCompartmentConfigVersion) received");
+        ReloadConfigIfModified();
+    }
+    return S_OK;
 }
 
 void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
@@ -677,6 +695,7 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
                     if (phrase.size() >= 2 && phrase.size() <= 16 &&
                         engine_.AddUserPhrase(phrase, GetDefaultUserDictPath())) {
                         PlayImeSound(SoundEffectKind::KeyClick);
+                        NotifyGlobalConfigChanged();
                     } else {
                         QIQI_LOG_DEBUG("Clipboard phrase skipped (length={} outside [2..16] or encoding failed)",
                                        phrase.size());
@@ -749,11 +768,13 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
 
 void QiQiTextService::PersistAndSyncQuickConfigChange(bool reload_dicts) {
     SaveConfigFile(GetDefaultUserConfigPath(), config_);
+    std::error_code ec;
+    config_last_write_time_ = std::filesystem::last_write_time(GetDefaultUserConfigPath(), ec);
     if (reload_dicts) {
         LoadExternalDictionaryNextToDll();
     }
     SyncTsfCompartments();
-    NotifyAllStatusBarWindowsConfigChanged(config_.show_status_bar);
+    NotifyGlobalConfigChanged();
 }
 
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
@@ -833,8 +854,7 @@ void QiQiTextService::SyncTsfCompartments() {
     auto set_dword = [&](REFGUID guid, LONG val) {
         ComPtr<ITfCompartment> comp;
         if (SUCCEEDED(comp_mgr->GetCompartment(guid, &comp)) && comp) {
-            const VARIANT var = MakeInt4Variant(val);
-            comp->SetValue(client_id_, &var);
+            WriteCompartmentInt4(comp.Get(), client_id_, val);
         }
     };
 

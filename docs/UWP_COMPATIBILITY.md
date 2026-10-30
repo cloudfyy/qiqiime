@@ -48,11 +48,10 @@ Windows 10 / 11 中的现代应用（UWP 应用、部分 MSIX 打包应用、Win
 - **现状**：开发调试阶段直接从 `C:\sample\qiqiime\build\x64\Release\qiqiime.dll` 注册 COM 组件。
 - **问题**：普通工作区目录默认没有 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 的 `RX` 权限，导致开发模式下 UWP 应用无法加载 `qiqiime.dll`（表现为在 UWP 应用中切到奇奇五笔无响应或回退英文）。
 
-#### 痛点 4：跨进程窗口枚举与消息广播在 AppContainer 下的限制
+#### 痛点 4：基于 `FindWindowExW` 的 Win32 窗口广播受限于 UIPI 与窗口创建状态
 - **现状**：`NotifyAllStatusBarWindowsConfigChanged` 通过 `FindWindowExW` 枚举顶层窗口并发送 `PostMessageW(hwnd, kConfigChangedBroadcastMsg, ...)`。
-- **问题**：AppContainer 受到 UIPI（用户界面特权隔离）限制：
-  - 高/中完整性（Medium Integrity，如独立配置程序 `QiQiIMESettings.exe`）向 AppContainer 窗口发送 `PostMessageW` 是允许的；
-  - 但 AppContainer 进程向普通 Medium Integrity 进程发送自定义窗口消息可能被 UIPI 拦截（除非目标进程调用 `ChangeWindowMessageFilterEx` 放行，或由宿主在 `OnSetFocus` 时主动拉取最新 `config.ini` 时间戳）。
+- **问题**：不仅未开启浮动状态条的进程收不到通知，而且 AppContainer 进程向普通 Medium Integrity 进程发送自定义窗口消息会被 UIPI（用户界面特权隔离）拦截。
+- **正统替代**：改用 Windows TSF 原生的 **`ITfThreadMgr::GetGlobalCompartment()` + `ITfCompartmentEventSink`**（由系统 `ctfmon.exe` 跨完整性级别中转），彻底移除自定义 Win32 窗口广播与 UIPI 依赖。
 
 ---
 
@@ -67,26 +66,21 @@ Windows 10 / 11 中的现代应用（UWP 应用、部分 MSIX 打包应用、Win
   2. **未开启时零开销**：`TraceLoggingWrite` 先检查内核共享页中的 `TraceLoggingProviderEnabled` 位，未开启收集时仅有一条 `cmp` 指令（0 纳秒开销，不执行格式化）。
   3. **统一汇总**：所有 Win32 与 UWP 进程的日志与 `[KeyTrace]` 按键诊断可通过 `wpr` / `PerfView` 或 `QiQiIMESettings.exe` 统一实时捕获。
 
-### 3.2 子任务 2 (`uwp-prebuild-qdict-mmap`)：预编译 `data\*.qdict` 与并发无锁热替换机制
+### 3.2 子任务 2 (`uwp-prebuild-qdict-mmap`)：预编译 `data\*.qdict` 实现 AppContainer 零写入只读内存映射
 - **原理**：
-  1. **注册阶段自动预编译**：`RegisterServerWithManagers` 自动将 `data\wubi86_jidian.txt`、`wubi86_jidian_extra.txt`、`wubi86_haifeng.txt` 编译为同目录下的 `.qdict` 二进制映像（`UnregisterServerWithManagers` 卸载时自动清理）。
-  2. **POSIX Unlink 语义热替换（`FILE_SHARE_READ | FILE_SHARE_DELETE`）**：
-     - `WubiMappedDict::OpenMappedFile` 打开 `.qdict` 时使用 `GENERIC_READ` 与 `FILE_SHARE_READ | FILE_SHARE_DELETE`。
-     - **防原地篡改**：由于未开放 `FILE_SHARE_WRITE`，任何进程都无法原地覆盖或截断正在被映射的 `.qdict` 文件页，100% 杜绝 `STATUS_IN_PAGE_ERROR` 崩溃。
-     - **跨进程热更新不锁文件**：当底层 `.txt` 词库更新时，任意有写权限的进程可通过 `WriteFileAtomically`（先独占写 `.tmp.<pid>`，再调用 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)`）原子替换 `.qdict` 目录项，即使此时已有 UWP 或其他 Win32 进程正在映射旧的 `.qdict` 也不会报 `ERROR_SHARING_VIOLATION`！
-     - **跨进程实时感知**：已映射旧视图的进程继续安全访问内核保留的旧文件流；当 UWP 或 Win32 进程在 `OnSetFocus` / 菜单同步调用 `ReloadConfigIfModified()` 时，`WubiEngine::HasModifiedMappedDictionary()` 检测到磁盘词库大小或时间戳变化，立即重新映射新 `.qdict` 视图，旧文件流在最后一个旧句柄关闭后由 NTFS 自动回收。
+  - 在 `RegisterServerWithManagers` 注册阶段直接将 `data\wubi86_jidian.txt`、`wubi86_jidian_extra.txt`、`wubi86_haifeng.txt` 预编译为同目录下的 `.qdict` 二进制映像（`UnregisterServerWithManagers` 卸载时自动清理）。
+  - `C:\Program Files` 天然具备 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 的只读映射权限，UWP AppContainer 进程通过 `GetModuleFileNameW(g_dll_instance)` 直接 `MapViewOfFile` 只读映射 `data\*.qdict`，无需向 `%LOCALAPPDATA%` 写任何缓存文件（关于多进程词库并发热替换与实时同步机制详见 [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) 2.6 与 2.8 节）。
 
-### 3.3 子任务 3 (`uwp-hkcu-registry-config`)：通过 `HKCU\Software\QiQiIME` 注册表同步配置（保留 `config.ini` 兼容）
+### 3.3 子任务 3 (`uwp-hkcu-registry-config`)：通过 `HKCU\Software\QiQiIME` 注册表镜像向 UWP 沙箱共享配置与自造词
 - **原理**：
-  - 将 `QiQiConfig` 镜像存储在 `HKCU\Software\QiQiIME` 注册表项下，并为该注册表项设置 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 的只读（`KEY_READ`）DACL。
-  - 普通桌面进程或 `QiQiIMESettings.exe` 保存配置时，同时更新 `config.ini`（供高级用户备份/编辑）与 `HKCU\Software\QiQiIME`（含递增版本号/时间戳）。
+  - 将 `QiQiConfig` 与用户自造词数据镜像存储在 `HKCU\Software\QiQiIME` 注册表项下，并为该注册表项设置 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 与 `S-1-15-2-2` 的只读（`KEY_READ`）DACL。
+  - 普通桌面进程或 `QiQiIMESettings.exe` 保存配置/造词时，同时更新本地文件与 `HKCU\Software\QiQiIME`（并通过 TSF Global Compartment 推送变更通知）。
 - **优势**：
-  - UWP AppContainer 进程无需探测任何磁盘文件路径，直接通过 `RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\QiQiIME", 0, KEY_READ, ...)` 在微秒级（~5 μs）内读取最新配置并感知配置变更。
+  - UWP AppContainer 进程无需访问 `%LOCALAPPDATA%` 文件夹，直接通过 `RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\QiQiIME", 0, KEY_READ, ...)` 在微秒级（~5 μs）内读取最新配置与用户自造词。
 
-### 3.4 子任务 4 (`uwp-uipi-and-dev-acl`)：UIPI 广播消息放行与开发注册脚本赋权
-1. **UIPI 消息放行**：在 `StatusBarUI::EnsureBarWindow()` 中调用 `ChangeWindowMessageFilterEx(hwnd, kConfigChangedBroadcastMsg, MSGFLT_ALLOW, nullptr)`，允许低完整性进程发送配置同步广播；同时保留 `OnSetFocus` 主动检查配置版本号的双重保障。
-2. **开发脚本赋权**：在 [`scripts/register_ime.ps1`](../scripts/register_ime.ps1) 中自动对构建产物目录及 `data\` 目录执行：
-   ```powershell
-   icacls $targetDir /grant "*S-1-15-2-1:(OI)(CI)(RX)" /Q
-   ```
-   使开发者无需打包安装 MSI 即可直接在 Windows 11 便笺、设置、UWP 应用中调试奇奇五笔。
+### 3.4 子任务 4 (`uwp-dev-script-acl`)：开发注册脚本自动授予 AppContainer 读取执行权限
+- 在 [`scripts/register_ime.ps1`](../scripts/register_ime.ps1) 中自动对构建产物目录及 `data\` 目录执行：
+  ```powershell
+  icacls $targetDir /grant "*S-1-15-2-1:(OI)(CI)(RX)" /Q
+  ```
+  使开发者无需打包安装 MSI 即可直接在 Windows 11 便笺、设置、UWP 应用中调试奇奇五笔。

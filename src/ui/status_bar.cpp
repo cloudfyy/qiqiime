@@ -792,19 +792,8 @@ LRESULT StatusBarUI::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             return 0;
         case WM_PAINT:
             return PaintWindowClient(hwnd, [this](HDC hdc, const RECT& rc) noexcept { PaintBar(hdc, rc); });
-        default: {
-            static const UINT kBroadcastMsg = ::RegisterWindowMessageW(kConfigChangedBroadcastMsg);
-            if (kBroadcastMsg != 0 && msg == kBroadcastMsg) {
-                if (wparam == 0) {
-                    Show(false);
-                }
-                if (action_callback_) {
-                    action_callback_(LangBarMenuId::SyncMenuState);
-                }
-                return 0;
-            }
+        default:
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
-        }
     }
 }
 

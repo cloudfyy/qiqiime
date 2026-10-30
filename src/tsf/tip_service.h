@@ -26,6 +26,7 @@ class QiQiTextService final
           ITfThreadMgrEventSink,
           ITfKeyEventSink,
           ITfCompositionSink,
+          ITfCompartmentEventSink,
           ITfFunctionProvider,
           ITfFnConfigure,
           ITfDisplayAttributeProvider> {
@@ -71,6 +72,9 @@ public:
     // ITfCompositionSink
     STDMETHODIMP OnCompositionTerminated(TfEditCookie ecWrite, ITfComposition* pComposition) override;
 
+    // ITfCompartmentEventSink
+    STDMETHODIMP OnChange(REFGUID rguid) override;
+
     // ITfFunctionProvider
     STDMETHODIMP GetType(GUID* pguid) noexcept override;
     STDMETHODIMP GetDescription(BSTR* pbstrDesc) noexcept override;
@@ -86,7 +90,6 @@ public:
 
 private:
     bool InitThreadMgrEventSink();
-    void UninitThreadMgrEventSink();
     bool InitKeyEventSink();
     void UninitKeyEventSink();
     void InitDisplayAttributeGuidAtom();
@@ -94,6 +97,9 @@ private:
     void UninitFunctionProvider();
     void InitLangBarItem();
     void UninitLangBarItem();
+    void InitGlobalCompartmentSink();
+    void UninitGlobalCompartmentSink();
+    void NotifyGlobalConfigChanged();
     void HandleLangBarMenuAction(LangBarMenuId action_id);
     void HandleFocusChanged(bool has_focus);
     void PersistAndSyncQuickConfigChange(bool reload_dicts);
@@ -119,9 +125,11 @@ private:
     ComPtr<ITfThreadMgr> thread_mgr_;
     TfClientId client_id_ = TF_CLIENTID_NULL;
     DWORD activate_flags_ = 0;
-    DWORD thread_mgr_event_cookie_ = TF_INVALID_COOKIE;
+    ScopedTfSinkConnection thread_mgr_sink_;
+    ScopedTfSinkConnection global_config_sink_;
     TfGuidAtom display_attribute_atom_ = TF_INVALID_GUIDATOM;
 
+    ComPtr<ITfCompartment> global_config_comp_;
     ComPtr<ITfComposition> composition_;
     ComPtr<ITfContext> active_context_;
     ComPtr<CandidateUI> candidate_ui_;

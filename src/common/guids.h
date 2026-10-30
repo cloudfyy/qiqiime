@@ -16,8 +16,6 @@ inline constexpr const wchar_t* kStatusBarTooltipWndClass = L"QiQiIMEStatusBarTo
 inline constexpr const wchar_t* kSettingsWndClass = L"QiQiIMESettingsDialogClass";
 inline constexpr const wchar_t* kAboutWndClass = L"QiQiIMEAboutDialogClass";
 inline constexpr const wchar_t* kMenuWndClass = L"QiQiIMEQuickSettingsMenuClass";
-// Global broadcast message name used to synchronize cross-process QiQiIME instances (e.g. hiding/showing StatusBarUI)
-inline constexpr const wchar_t* kConfigChangedBroadcastMsg = L"QiQiIME_ConfigChanged_Broadcast";
 inline constexpr const wchar_t* kGitHubRepoUrl = L"https://github.com/cloudfyy/qiqiime";
 
 // {8E7B9D31-5A42-4C81-9F11-202610290001}
@@ -58,6 +56,18 @@ inline constexpr GUID kGuidDisplayAttributeInput = {
 // {8E7B9D31-5A42-4C81-9F11-202610290008}
 inline constexpr GUID kGuidPreservedKeyAddUserWord = {
     0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x08}
+};
+
+// {8E7B9D31-5A42-4C81-9F11-202610290009}
+// TSF Global Compartment GUID used as a zero-latency cross-process notification bus for config/dictionary updates
+inline constexpr GUID kGuidCompartmentConfigVersion = {
+    0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x09}
+};
+
+// {8E7B9D31-5A42-4C81-9F11-20261029000A}
+// TSF Global Compartment GUID storing the packed (short x, short y) screen position of StatusBarUI across processes
+inline constexpr GUID kGuidCompartmentStatusBarPos = {
+    0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x0a}
 };
 
 inline constexpr LANGID kChineseSimplifiedLangId = MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED);
