@@ -52,9 +52,34 @@
 
 ---
 
-## 2. 快速安装与卸载
+## 2. 运行环境与开发环境要求
 
-在项目或发行包根目录下运行 PowerShell：
+### 2.1 运行环境要求（终端用户）
+
+| 项目 | 最低 / 推荐要求 |
+|---|---|
+| **操作系统** | Windows 10（1809 及以上）或 Windows 11（支持 `x64` 与 `x86`） |
+| **运行库依赖** | **零外部运行库依赖**（MSVC 运行库已静态编译内嵌 `/MT`，无需安装 VC++ Redistributable） |
+| **图形与文本组件** | Windows 原生 TSF（`msctf.dll`）、GDI / Direct2D / DirectWrite（系统自带，无需额外安装任何第三方框架） |
+| **磁盘与内存占用** | 磁盘空间约 6 MB（含三套词库与 `.qdict` 映射缓存）；进程私有堆内存常驻接近 0 KB |
+| **安装权限** | 安装/卸载时需管理员权限（Administrator，用于注册系统 COM 与 TSF 语言项）；日常打字与修改配置仅需普通用户权限 |
+
+### 2.2 开发与编译环境要求（开发者）
+
+| 工具 / 组件 | 版本与配置要求 |
+|---|---|
+| **操作系统** | Windows 10 / Windows 11 (`x64`) |
+| **C++ 编译器** | Visual Studio 2026 或 Visual Studio 2022（17.10+），需勾选 **“使用 C++ 的桌面开发”** 工作负载及 MSVC `x64/x86` 生成工具（开启 `/std:c++latest` C++26 草案模式） |
+| **Windows SDK** | Windows 10 / 11 SDK（`10.0.22621.0` 或 `10.0.26100.0` 及以上） |
+| **CMake** | CMake `3.25` 或更高版本 |
+| **依赖包管理器** | `vcpkg`（Visual Studio 内置 vcpkg 或通过环境变量 `VCPKG_ROOT` 指定，Manifest 模式自动安装 `spdlog` 与 `ms-gsl`） |
+| **MSI 打包工具（可选）** | .NET SDK 8.0+ 与 **WiX Toolset CLI v4/v7+**（通过 `dotnet tool install --global wix` 安装，用于构建 `.msi` 安装包） |
+
+---
+
+## 3. 快速安装与卸载
+
+在项目或发行包根目录下运行 PowerShell（也可直接下载 GitHub Releases 中的 `.msi` 双击安装）：
 
 ```powershell
 # 一键校验产物、自动弹出 UAC 提权注册 x64+x86 输入法并打开记事本试用
@@ -66,7 +91,7 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 
 ---
 
-## 3. 技术文档索引（`docs/`）
+## 4. 技术文档索引（`docs/`）
 
 本项目将功能文档与技术文档分离，详细技术设计、开发构建与部署运维请查阅 `docs/` 目录下的专项文档：
 
@@ -78,20 +103,20 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 
 ---
 
-## 4. 开源许可协议与词库致谢（License & Third-Party Notices）
+## 5. 开源许可协议与词库致谢（License & Third-Party Notices）
 
 本项目（**奇奇五笔 / QiQiIME**，作者：`cloudfyy`）采用 **[GNU General Public License v3.0 (GPL-3.0)](./LICENSE)** 开源发布。
 
 本项目在 `data/` 目录下收录并转换了以下合法开源的 86 五笔词库码表，特此向原作者及维护社区致谢，并严格遵循各自的开源许可协议：
 
-### 4.1 极点五笔 86 词库（`wubi86_jidian.txt` / `wubi86_jidian_extra.txt`）
+### 5.1 极点五笔 86 词库（`wubi86_jidian.txt` / `wubi86_jidian_extra.txt`）
 - **上游仓库**：[KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian)
 - **原始码表文件**：
   - 核心主词库：[`wubi86_jidian.dict.yaml`](https://github.com/KyleBing/rime-wubi86-jidian/blob/master/wubi86_jidian.dict.yaml)（77,169 编码 / 89,254 词条）
   - 现代扩展词库：[`wubi86_jidian_extra.dict.yaml`](https://github.com/KyleBing/rime-wubi86-jidian/blob/master/wubi86_jidian_extra.dict.yaml)（2,100 编码 / 2,216 词条）
 - **开源协议**：[Apache License 2.0](https://github.com/KyleBing/rime-wubi86-jidian/blob/master/LICENSE)
 
-### 4.2 海峰五笔 86 超大字符集词库（`wubi86_haifeng.txt`）
+### 5.2 海峰五笔 86 超大字符集词库（`wubi86_haifeng.txt`）
 - **原作者与贡献者**：孙海峰（SUN Haifeng）及《五笔爱好者论坛》网友、深圳大学中文系合作团队
 - **上游仓库**：[definite/ibus-table-chinese (`tables/wubi-haifeng`)](https://github.com/definite/ibus-table-chinese/tree/master/tables/wubi-haifeng)
 - **原始码表说明与授权文件**：
@@ -105,6 +130,6 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
   > 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
   > 3. Neither the name of the "SunHaifeng.NET(海峰别墅)" nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
 
-### 4.3 第三方 C++ 依赖库
+### 5.3 第三方 C++ 依赖库
 - **[gabime/spdlog](https://github.com/gabime/spdlog)**：高性能 C++ 日志库，遵循 [MIT License](https://github.com/gabime/spdlog/blob/v1.x/LICENSE)。
 - **[microsoft/GSL](https://github.com/microsoft/GSL)**：C++ Core Guidelines Support Library（`gsl::span` / `gsl::not_null` / `gsl::narrow_cast` / `gsl::at` / `gsl::finally`），遵循 [MIT License](https://github.com/microsoft/GSL/blob/main/LICENSE)。

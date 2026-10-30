@@ -77,6 +77,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_definitions(UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 
 if(MSVC)
+    # Statically link the MSVC C/C++ runtime (/MT, /MTd) so qiqiime.dll has zero external VC++ Redistributable dependencies.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
     # CMake does not yet map MSVC's C++26 draft mode.
     if(NOT DEFINED CMAKE_CXX26_STANDARD_COMPILE_OPTION)
         set(CMAKE_CXX26_STANDARD_COMPILE_OPTION "/std:c++latest")

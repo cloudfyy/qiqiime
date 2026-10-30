@@ -4,13 +4,17 @@
 
 ---
 
-## 1. 开发环境要求
+## 1. 开发与编译环境要求
 
-- **操作系统**：Windows 10 / Windows 11 (`x64`)
-- **编译器与工具链**：
-  - Visual Studio 2026（或 2022，安装“使用 C++ 的桌面开发”工作负载，支持 `/std:c++latest` C++26 草案模式）
-  - CMake 3.25 或更高版本
-  - vcpkg（使用 Visual Studio 内置 vcpkg 或通过 `VCPKG_ROOT` 环境变量指定，采用 Manifest 模式自动管理 `spdlog` 与 `ms-gsl`）
+| 工具 / 组件 | 版本与配置要求 |
+|---|---|
+| **操作系统** | Windows 10（1809+）或 Windows 11 (`x64`) |
+| **Visual Studio / MSVC** | Visual Studio 2026 或 Visual Studio 2022（17.10+），安装 **“使用 C++ 的桌面开发”** 工作负载，包含 MSVC `x64` 与 `x86` 编译器及 C++ 核心功能检查工具（`CppCoreCheck`，开启 `/std:c++latest` C++26 草案模式） |
+| **Windows SDK** | Windows 10 / 11 SDK（`10.0.22621.0` 或 `10.0.26100.0` 及以上，提供 `<msctf.h>`、`<ctffunc.h>`、`<d2d1.h>`、`<dwrite.h>`） |
+| **CMake** | CMake `3.25` 或更高版本 |
+| **vcpkg** | Visual Studio 内置 vcpkg 或通过 `VCPKG_ROOT` 环境变量指定（Manifest 模式自动安装 `spdlog` 与 `ms-gsl`） |
+| **PowerShell** | Windows PowerShell 5.1 或 PowerShell 7+（用于运行构建、注册与打包脚本） |
+| **WiX Toolset（可选）** | .NET SDK 8.0+ 与 WiX CLI v4/v7+（`dotnet tool install --global wix`，用于生成 `.msi` 安装包） |
 
 ---
 
@@ -21,7 +25,7 @@ qiqiime/
 ├── CMakeLists.txt              # 根 CMake 构建配置（工具链探测、版本生成、C++26 标准与子目录调度）
 ├── CMakePresets.json           # CMake Presets (支持 x64 与 x86/Win32 双架构配置、构建与测试)
 ├── LICENSE                     # GNU General Public License v3.0 (GPL-3.0)
-├── VERSION                     # 项目版本号单一事实源 (SemVer, 当前 0.8.3)
+├── VERSION                     # 项目版本号单一事实源 (SemVer, 当前 0.8.4)
 ├── vcpkg.json                  # vcpkg 依赖清单 (spdlog, ms-gsl)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/

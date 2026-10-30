@@ -4,7 +4,18 @@
 
 ---
 
-## 1. 部署架构说明（`x64` + `x86` WOW64 双架构）
+## 1. 运行环境要求
+
+- **操作系统**：Windows 10（版本 1809 及以上）或 Windows 11（64 位 `x64` 或 32 位 `x86`）
+- **运行库**：**零外部运行库依赖**（`qiqiime.dll` 采用 `/MT` 静态链接 CRT，无需在目标机器安装 VC++ Redistributable）
+- **系统组件**：Windows TSF（`msctf.dll`）、Direct2D / DirectWrite（Windows 10/11 原生内置，无任何额外第三方运行库依赖）
+- **权限要求**：
+  - **安装 / 卸载时**：需要 **管理员权限（Administrator）**（用于向 `HKLM\SOFTWARE\Classes\CLSID` 与 `HKLM\SOFTWARE\Microsoft\CTF\TIP` 注册 COM/TSF 组件）
+  - **日常运行与修改设置时**：仅需普通标准用户权限（用户配置、词库缓存与日志均保存在 `%LOCALAPPDATA%\QiQiIME`）
+
+---
+
+## 2. 部署架构说明（`x64` + `x86` WOW64 双架构）
 
 在 64 位 Windows 操作系统上，应用程序分为 64 位原生进程（如记事本、资源管理器、Office、现代浏览器）和 32 位 WOW64 进程（如部分老软件、32 位全屏游戏）。Windows TSF 要求被注入的输入法 DLL 位数必须与宿主进程位数完全匹配：
 
@@ -22,7 +33,7 @@
 
 ---
 
-## 2. 安装（注册）与自检
+## 3. 安装（注册）与自检
 
 通过 [scripts/register_ime.ps1](../scripts/register_ime.ps1) 可一键完成 **产物完整性校验 -> 双架构注册 -> 注册表与 TSF Profile 核验**（脚本同时兼容源码 `build\` 目录与独立发行包目录）：
 
@@ -43,7 +54,7 @@
 
 ---
 
-## 3. 生成独立发行包（`.msi` 安装包与 `.zip` 便携包）
+## 4. 生成独立发行包（`.msi` 安装包与 `.zip` 便携包）
 
 在源码仓库中运行以下命令，可自动编译并测试 `x64` 与 `x86` 双架构，然后同时生成 **标准 Windows Installer `.msi` 安装包**（基于 WiX Toolset）与 **`.zip` 绿色压缩包**：
 
@@ -53,12 +64,12 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
 生成的产物位于 `dist\` 目录：
-- **`dist\QiQiIME-v0.8.3-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
-- **`dist\QiQiIME-v0.8.3-win-x64-x86-en-US.msi`**：英文版（English）Windows MSI 安装包（两个 MSI 共享相同 `UpgradeCode`，双击即可自动安装到 `C:\Program Files\QiQiIME\` 并完成 `x64` + `x86` TSF 注册，支持无缝跨版本升级与一键卸载）。
-- **`dist\QiQiIME-v0.8.3-win-x64-x86.zip`**：绿色便携压缩包，解压后结构如下（`x64` 与 `x86` 共用同一份 `data/` 词库与配置）：
+- **`dist\QiQiIME-v0.8.4-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
+- **`dist\QiQiIME-v0.8.4-win-x64-x86-en-US.msi`**：英文版（English）Windows MSI 安装包（两个 MSI 共享相同 `UpgradeCode`，双击即可自动安装到 `C:\Program Files\QiQiIME\` 并完成 `x64` + `x86` TSF 注册，支持无缝跨版本升级与一键卸载）。
+- **`dist\QiQiIME-v0.8.4-win-x64-x86.zip`**：绿色便携压缩包，解压后结构如下（`x64` 与 `x86` 共用同一份 `data/` 词库与配置）：
 
 ```text
-QiQiIME-v0.8.3-win-x64-x86/
+QiQiIME-v0.8.4-win-x64-x86/
 ├── x64/
 │   └── qiqiime.dll             # 64 位 TSF 输入法组件
 ├── x86/
@@ -85,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
 
 ---
 
-## 4. 运行期用户数据与缓存目录
+## 5. 运行期用户数据与缓存目录
 
 安装并激活输入法后，所有运行期用户数据均自动存储在当前登录用户的 `%LOCALAPPDATA%\QiQiIME` 目录下（无需管理员权限即可读写）：
 
@@ -103,9 +114,9 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
 
 ---
 
-## 5. 升级与卸载指南
+## 6. 升级与卸载指南
 
-### 5.1 卸载输入法
+### 6.1 卸载输入法
 
 1. 按 `Win + Space` 切换到系统自带的其他输入法；
 2. 运行卸载脚本（支持 `-AutoElevate` 自动提权，并自动核验 64 位与 32 位注册表项已彻底移除）：
@@ -113,7 +124,7 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
    powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
    ```
 
-### 5.2 升级或重新编译时的 DLL 文件占用处理
+### 6.2 升级或重新编译时的 DLL 文件占用处理
 
 由于 Windows TSF 会将 `qiqiime.dll` 映射进当前激活过该输入法的宿主进程，若升级覆盖或重新编译时提示 **`无法打开文件 qiqiime.dll`**：
 1. 先执行 `scripts\unregister_ime.ps1 -AutoElevate` 卸载注册；
@@ -122,7 +133,7 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
 
 ---
 
-## 6. 故障排查（查看日志）
+## 7. 故障排查（查看日志）
 
 如果遇到词库未加载、配置未生效或特定软件兼容性问题，可查看日志文件定位问题：
 

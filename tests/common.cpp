@@ -15,7 +15,7 @@ namespace qiqi::test {
 namespace {
 
 void TestVersionMechanism() {
-    static_assert(version::kCurrentVersion >= version::SemanticVersion{0, 8, 3});
+    static_assert(version::kCurrentVersion >= version::SemanticVersion{0, 8, 4});
     static_assert(version::SemanticVersion{1, 0, 0} > version::kCurrentVersion);
     QIQI_TEST_CHECK(!version::kVersion.empty());
     QIQI_TEST_CHECK(!version::kVersionW.empty());
