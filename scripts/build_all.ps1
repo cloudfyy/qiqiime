@@ -64,5 +64,35 @@ if ($Package) {
 
     Compress-Archive -Path $pkgDir -DestinationPath $zipPath -Force
     $zipSizeKB = [math]::Round((Get-Item $zipPath).Length / 1KB, 1)
-    Write-QiQiPass "Release archive created: $zipPath ($zipSizeKB KB)"
+    Write-QiQiPass "Release ZIP archive created: $zipPath ($zipSizeKB KB)"
+
+    # Build Windows Installer (.msi) package if WiX Toolset CLI is available
+    $wixCmd = Get-Command wix -ErrorAction SilentlyContinue
+    $wixExe = if ($wixCmd) {
+        $wixCmd.Source
+    } elseif (Test-Path "$env:USERPROFILE\.dotnet\tools\wix.exe") {
+        "$env:USERPROFILE\.dotnet\tools\wix.exe"
+    } else {
+        $null
+    }
+
+    if ($wixExe) {
+        $wxsPath = Join-Path $QiQiRepoRoot "installer\QiQiIME.wxs"
+        $msiPath = Join-Path $distRoot "$pkgName.msi"
+        if (Test-Path $msiPath) { Remove-Item -Force $msiPath }
+        # Ensure WiX v7+ EULA is accepted if running WiX 7+
+        & $wixExe eula accept wix7 2>$null | Out-Null
+        $global:LASTEXITCODE = 0
+        & $wixExe build $wxsPath -arch x64 -d "ProductVersion=$version" -d "StageDir=$pkgDir" -o $msiPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "WiX MSI build failed with exit code $LASTEXITCODE"
+        }
+        # Clean up intermediate .wixpdb if generated
+        $pdbPath = [System.IO.Path]::ChangeExtension($msiPath, ".wixpdb")
+        if (Test-Path $pdbPath) { Remove-Item -Force $pdbPath }
+        $msiSizeKB = [math]::Round((Get-Item $msiPath).Length / 1KB, 1)
+        Write-QiQiPass "Release MSI installer created: $msiPath ($msiSizeKB KB)"
+    } else {
+        Write-QiQiWarn "WiX Toolset CLI not found (install via 'dotnet tool install --global wix' to build .msi)"
+    }
 }

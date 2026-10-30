@@ -43,18 +43,21 @@
 
 ---
 
-## 3. 生成独立发行安装包（`dist/`）
+## 3. 生成独立发行包（`.msi` 安装包与 `.zip` 便携包）
 
-在源码仓库中运行以下命令，可自动编译并测试 `x64` 与 `x86` 双架构，然后打包生成可独立分发的目录与 ZIP 压缩包：
+在源码仓库中运行以下命令，可自动编译并测试 `x64` 与 `x86` 双架构，然后同时生成 **标准 Windows Installer `.msi` 安装包**（基于 WiX Toolset）与 **`.zip` 绿色压缩包**：
 
 ```powershell
+# 若首次打包 MSI，可先全局安装 WiX CLI：dotnet tool install --global wix
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
-生成的发行包位于 `dist\QiQiIME-v<version>-win-x64-x86.zip`，解压后结构如下（`x64` 与 `x86` 共用同一份 `data/` 词库与配置）：
+生成的产物位于 `dist\` 目录：
+- **`dist\QiQiIME-v0.8.0-win-x64-x86.msi`**：标准 Windows MSI 安装包（双击即可自动安装到 `C:\Program Files\QiQiIME\` 并自动完成 `x64` + `x86` TSF 注册；支持通过 Windows“设置 -> 已安装的应用”一键卸载或无缝版本升级）。
+- **`dist\QiQiIME-v0.8.0-win-x64-x86.zip`**：绿色便携压缩包，解压后结构如下（`x64` 与 `x86` 共用同一份 `data/` 词库与配置）：
 
 ```text
-QiQiIME-v0.7.0-win-x64-x86/
+QiQiIME-v0.8.0-win-x64-x86/
 ├── x64/
 │   └── qiqiime.dll             # 64 位 TSF 输入法组件
 ├── x86/

@@ -21,7 +21,7 @@ qiqiime/
 ├── CMakeLists.txt              # 根 CMake 构建配置（工具链探测、版本生成、C++26 标准与子目录调度）
 ├── CMakePresets.json           # CMake Presets (支持 x64 与 x86/Win32 双架构配置、构建与测试)
 ├── LICENSE                     # GNU General Public License v3.0 (GPL-3.0)
-├── VERSION                     # 项目版本号单一事实源 (SemVer, 当前 0.7.0)
+├── VERSION                     # 项目版本号单一事实源 (SemVer, 当前 0.8.0)
 ├── vcpkg.json                  # vcpkg 依赖清单 (spdlog, ms-gsl)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/
@@ -32,7 +32,9 @@ qiqiime/
 ├── docs/
 │   ├── ARCHITECTURE.md         # 【架构文档】分层架构、TSF 生命周期、状态机、内存映射与安全模型
 │   ├── DEVELOPMENT.md          # 【开发文档】源码结构、编译构建、单元测试、静态检查与日志规范
-│   └── DEPLOYMENT.md           # 【部署文档】安装注册、WOW64 部署、发行包打包、升级与卸载指南
+│   └── DEPLOYMENT.md           # 【部署文档】安装注册、WOW64 部署、MSI/ZIP 发行包打包、升级与卸载指南
+├── installer/
+│   └── QiQiIME.wxs             # WiX Toolset (v4+) Windows Installer (.msi) 安装包配置
 ├── scripts/
 │   ├── common.ps1              # 脚本公共函数与常量模块
 │   ├── build_all.ps1           # 一键构建、测试并可选打包 (-Package) x64 与 x86 双架构脚本

@@ -90,7 +90,7 @@ TSF 的按键处理分为两步：
 
 ## 3. 已完成特性清单与后续扩展
 
-### 已完成（v0.7.0）
+### 已完成（v0.8.0）
 - [x] **1. 完整中文标点与智能配对引号（`paired-quotes-punct`）**
 - [x] **2. 候选框自适应宽度、多显示器 Per-Monitor DPI 缩放与鼠标点击选词（`candidate-dpi-autosize`）**
 - [x] **3. 语言栏托盘按钮与右键菜单（`langbar-tray-menu`）**
@@ -115,4 +115,4 @@ TSF 的按键处理分为两步：
 #### P2：渲染与词频体验打磨
 - [x] **15. Direct2D / DirectWrite 渲染与生僻字/彩色 Emoji 字体回退（`directwrite-font-fallback`）**：将候选窗文字绘制升级为 `Direct2D` + `DirectWrite`（开启 `D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT`），利用系统级字体回退完美显示 CJK 扩展 B~G 区生僻字与彩色符号。
 - [x] **16. 可选词组动态调频（`optional-dynamic-phrase-freq`）**：默认保持五笔固定词序以保障盲打肌肉记忆，同时提供可选的“仅重码词组动态调频（单字固定不调频）”开关。
-- [x] **17. 独立发行包打包脚本（`release-packaging-script`）**：通过 `scripts/build_all.ps1 -Package` 将 `x64`/`x86` 双架构 DLL、三套词库、`config.ini`、注册/卸载脚本与许可证一键打包归档到 `dist/` 发行目录。
+- [x] **17. 独立发行包与 MSI 安装包打包（`release-packaging-script`）**：通过 `scripts/build_all.ps1 -Package` 配合 `installer/QiQiIME.wxs` 将 `x64`/`x86` 双架构 DLL、共享 `data/` 词库、注册/卸载脚本与许可证一键打包生成 `.msi` 安装包与 `.zip` 便携包到 `dist/` 目录。

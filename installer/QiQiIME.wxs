@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="奇奇五笔输入法 (QiQi Wubi IME)"
+           Manufacturer="cloudfyy"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="8E7B9D31-5A42-4C81-9F11-202610299999"
+           Scope="perMachine"
+           Language="2052"
+           Codepage="65001">
+
+    <SummaryInformation Description="奇奇五笔输入法 (QiQi Wubi 86 TSF IME - x64 &amp; x86)"
+                        Manufacturer="cloudfyy (https://github.com/cloudfyy/qiqiime)" />
+
+    <MajorUpgrade DowngradeErrorMessage="已安装更新版本的奇奇五笔输入法 (QiQi Wubi IME)。" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="QiQiIME">
+        <Directory Id="DirX64" Name="x64" />
+        <Directory Id="DirX86" Name="x86" />
+        <Directory Id="DirData" Name="data" />
+        <Directory Id="DirScripts" Name="scripts" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="ProductComponents">
+      <!-- 64-bit TSF DLL -->
+      <Component Id="CmpDllX64" Directory="DirX64" Guid="8E7B9D31-5A42-4C81-9F11-202610290101">
+        <File Id="FileDllX64" Source="$(var.StageDir)\x64\qiqiime.dll" KeyPath="yes" />
+      </Component>
+
+      <!-- 32-bit WOW64 TSF DLL -->
+      <Component Id="CmpDllX86" Directory="DirX86" Guid="8E7B9D31-5A42-4C81-9F11-202610290102">
+        <File Id="FileDllX86" Source="$(var.StageDir)\x86\qiqiime.dll" KeyPath="yes" />
+      </Component>
+
+      <!-- Shared dictionaries and default config.ini -->
+      <Component Id="CmpSharedData" Directory="DirData" Guid="8E7B9D31-5A42-4C81-9F11-202610290103">
+        <File Id="FileConfigIni" Source="$(var.StageDir)\data\config.ini" KeyPath="yes" />
+        <File Id="FileDictJidian" Source="$(var.StageDir)\data\wubi86_jidian.txt" />
+        <File Id="FileDictJidianExtra" Source="$(var.StageDir)\data\wubi86_jidian_extra.txt" />
+        <File Id="FileDictHaifeng" Source="$(var.StageDir)\data\wubi86_haifeng.txt" />
+      </Component>
+
+      <!-- Management scripts -->
+      <Component Id="CmpScripts" Directory="DirScripts" Guid="8E7B9D31-5A42-4C81-9F11-202610290104">
+        <File Id="FileCommonPs1" Source="$(var.StageDir)\scripts\common.ps1" KeyPath="yes" />
+        <File Id="FileRegisterPs1" Source="$(var.StageDir)\scripts\register_ime.ps1" />
+        <File Id="FileUnregisterPs1" Source="$(var.StageDir)\scripts\unregister_ime.ps1" />
+      </Component>
+
+      <!-- License and documentation -->
+      <Component Id="CmpDocs" Directory="INSTALLFOLDER" Guid="8E7B9D31-5A42-4C81-9F11-202610290105">
+        <File Id="FileLicense" Source="$(var.StageDir)\LICENSE" KeyPath="yes" />
+        <File Id="FileReadme" Source="$(var.StageDir)\README.md" />
+        <File Id="FileDeployment" Source="$(var.StageDir)\DEPLOYMENT.md" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="MainFeature" Title="奇奇五笔输入法 (QiQi Wubi 86)" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+
+    <!-- Deferred elevated CustomActions to register/unregister x64 and x86 TSF Text Services -->
+    <CustomAction Id="RegX64"
+                  Directory="DirX64"
+                  Execute="deferred"
+                  Impersonate="no"
+                  ExeCommand="[System64Folder]regsvr32.exe /s &quot;[DirX64]qiqiime.dll&quot;"
+                  Return="check" />
+
+    <CustomAction Id="RegX86"
+                  Directory="DirX86"
+                  Execute="deferred"
+                  Impersonate="no"
+                  ExeCommand="[SystemFolder]regsvr32.exe /s &quot;[DirX86]qiqiime.dll&quot;"
+                  Return="check" />
+
+    <CustomAction Id="UnregX86"
+                  Directory="DirX86"
+                  Execute="deferred"
+                  Impersonate="no"
+                  ExeCommand="[SystemFolder]regsvr32.exe /u /s &quot;[DirX86]qiqiime.dll&quot;"
+                  Return="ignore" />
+
+    <CustomAction Id="UnregX64"
+                  Directory="DirX64"
+                  Execute="deferred"
+                  Impersonate="no"
+                  ExeCommand="[System64Folder]regsvr32.exe /u /s &quot;[DirX64]qiqiime.dll&quot;"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RegX64" After="InstallFiles" Condition="NOT Installed OR REINSTALL" />
+      <Custom Action="RegX86" After="RegX64" Condition="NOT Installed OR REINSTALL" />
+      <Custom Action="UnregX86" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot;" />
+      <Custom Action="UnregX64" After="UnregX86" Condition="REMOVE=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>
