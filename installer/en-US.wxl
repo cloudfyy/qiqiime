@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="en-US" Codepage="65001">
+  <String Id="ProductName" Value="QiQi Wubi IME (奇奇五笔)" />
+  <String Id="SummaryDescription" Value="QiQi Wubi 86 TSF Input Method Editor (x64 &amp; x86)" />
+  <String Id="DowngradeErrorMessage" Value="A newer version of QiQi Wubi IME is already installed." />
+  <String Id="FeatureTitle" Value="QiQi Wubi 86 Input Method" />
+</WixLocalization>

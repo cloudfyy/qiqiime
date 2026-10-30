@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="奇奇五笔输入法 (QiQi Wubi IME)"
+  <Package Name="!(loc.ProductName)"
            Manufacturer="cloudfyy"
            Version="$(var.ProductVersion)"
            UpgradeCode="8E7B9D31-5A42-4C81-9F11-202610299999"
            Scope="perMachine"
-           Language="2052"
+           Language="$(var.ProductLcid)"
            Codepage="65001">
 
-    <SummaryInformation Description="奇奇五笔输入法 (QiQi Wubi 86 TSF IME - x64 &amp; x86)"
+    <SummaryInformation Description="!(loc.SummaryDescription)"
                         Manufacturer="cloudfyy (https://github.com/cloudfyy/qiqiime)" />
 
-    <MajorUpgrade DowngradeErrorMessage="已安装更新版本的奇奇五笔输入法 (QiQi Wubi IME)。" />
+    <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeErrorMessage)" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -57,7 +57,7 @@
       </Component>
     </ComponentGroup>
 
-    <Feature Id="MainFeature" Title="奇奇五笔输入法 (QiQi Wubi 86)" Level="1">
+    <Feature Id="MainFeature" Title="!(loc.FeatureTitle)" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
     </Feature>
 

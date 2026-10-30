@@ -53,7 +53,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
 生成的产物位于 `dist\` 目录：
-- **`dist\QiQiIME-v0.8.1-win-x64-x86.msi`**：标准 Windows MSI 安装包（双击即可自动安装到 `C:\Program Files\QiQiIME\` 并自动完成 `x64` + `x86` TSF 注册；支持通过 Windows“设置 -> 已安装的应用”一键卸载或无缝版本升级）。
+- **`dist\QiQiIME-v0.8.1-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
+- **`dist\QiQiIME-v0.8.1-win-x64-x86-en-US.msi`**：英文版（English）Windows MSI 安装包（两个 MSI 共享相同 `UpgradeCode`，双击即可自动安装到 `C:\Program Files\QiQiIME\` 并完成 `x64` + `x86` TSF 注册，支持无缝跨版本升级与一键卸载）。
 - **`dist\QiQiIME-v0.8.1-win-x64-x86.zip`**：绿色便携压缩包，解压后结构如下（`x64` 与 `x86` 共用同一份 `data/` 词库与配置）：
 
 ```text

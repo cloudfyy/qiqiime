@@ -78,20 +78,26 @@ if ($Package) {
 
     if ($wixExe) {
         $wxsPath = Join-Path $QiQiRepoRoot "installer\QiQiIME.wxs"
-        $msiPath = Join-Path $distRoot "$pkgName.msi"
-        if (Test-Path $msiPath) { Remove-Item -Force $msiPath }
         # Ensure WiX v7+ EULA is accepted if running WiX 7+
         & $wixExe eula accept wix7 2>$null | Out-Null
         $global:LASTEXITCODE = 0
-        & $wixExe build $wxsPath -arch x64 -d "ProductVersion=$version" -d "StageDir=$pkgDir" -o $msiPath
-        if ($LASTEXITCODE -ne 0) {
-            throw "WiX MSI build failed with exit code $LASTEXITCODE"
+
+        foreach ($loc in @(
+            @{ Culture = "zh-CN"; Lcid = "2052";Wxl = Join-Path $QiQiRepoRoot "installer\zh-CN.wxl" },
+            @{ Culture = "en-US"; Lcid = "1033";Wxl = Join-Path $QiQiRepoRoot "installer\en-US.wxl" }
+        )) {
+            $msiPath = Join-Path $distRoot "$pkgName-$($loc.Culture).msi"
+            if (Test-Path $msiPath) { Remove-Item -Force $msiPath }
+            & $wixExe build $wxsPath -loc $loc.Wxl -culture $loc.Culture -arch x64 `
+                -d "ProductVersion=$version" -d "ProductLcid=$($loc.Lcid)" -d "StageDir=$pkgDir" -o $msiPath
+            if ($LASTEXITCODE -ne 0) {
+                throw "WiX MSI build ($($loc.Culture)) failed with exit code $LASTEXITCODE"
+            }
+            $pdbPath = [System.IO.Path]::ChangeExtension($msiPath, ".wixpdb")
+            if (Test-Path $pdbPath) { Remove-Item -Force $pdbPath }
+            $msiSizeKB = [math]::Round((Get-Item $msiPath).Length / 1KB, 1)
+            Write-QiQiPass "Release MSI installer ($($loc.Culture)) created: $msiPath ($msiSizeKB KB)"
         }
-        # Clean up intermediate .wixpdb if generated
-        $pdbPath = [System.IO.Path]::ChangeExtension($msiPath, ".wixpdb")
-        if (Test-Path $pdbPath) { Remove-Item -Force $pdbPath }
-        $msiSizeKB = [math]::Round((Get-Item $msiPath).Length / 1KB, 1)
-        Write-QiQiPass "Release MSI installer created: $msiPath ($msiSizeKB KB)"
     } else {
         Write-QiQiWarn "WiX Toolset CLI not found (install via 'dotnet tool install --global wix' to build .msi)"
     }

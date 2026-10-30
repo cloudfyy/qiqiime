@@ -34,7 +34,9 @@ qiqiime/
 │   ├── DEVELOPMENT.md          # 【开发文档】源码结构、编译构建、单元测试、静态检查与日志规范
 │   └── DEPLOYMENT.md           # 【部署文档】安装注册、WOW64 部署、MSI/ZIP 发行包打包、升级与卸载指南
 ├── installer/
-│   └── QiQiIME.wxs             # WiX Toolset (v4+) Windows Installer (.msi) 安装包配置
+│   ├── QiQiIME.wxs             # WiX Toolset (v4+) Windows Installer (.msi) 安装包配置
+│   ├── zh-CN.wxl               # 简体中文 (LCID 2052) MSI 本地化词条
+│   └── en-US.wxl               # 英文 (LCID 1033) MSI 本地化词条
 ├── scripts/
 │   ├── common.ps1              # 脚本公共函数与常量模块
 │   ├── build_all.ps1           # 一键构建、测试并可选打包 (-Package) x64 与 x86 双架构脚本
