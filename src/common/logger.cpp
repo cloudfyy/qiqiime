@@ -53,7 +53,9 @@ std::shared_ptr<spdlog::logger> CreateLoggerInternal(
     std::vector<spdlog::sink_ptr> sinks;
 
     try {
-        sinks.push_back(std::make_shared<spdlog::sinks::msvc_sink_mt>());
+        // check_debugger_present = true avoids expensive OutputDebugStringW kernel exceptions
+        // during normal typing when no debugger is attached to the host application.
+        sinks.push_back(std::make_shared<spdlog::sinks::msvc_sink_mt>(true));
     } catch (...) {
     }
 

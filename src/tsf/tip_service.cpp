@@ -452,15 +452,18 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
             SyncTsfCompartments();
             break;
         case LangBarMenuId::OpenSettings:
+            log::Flush();
             Show(nullptr, kChineseSimplifiedLangId, kGuidProfileWubi86);
             break;
         case LangBarMenuId::OpenConfigFile: {
+            log::Flush();
             const auto cfg_path = GetDefaultUserConfigPath();
             EnsureDefaultConfigFile(cfg_path);
             ::ShellExecuteW(nullptr, L"open", L"notepad.exe", cfg_path.c_str(), nullptr, SW_SHOWNORMAL);
             break;
         }
         case LangBarMenuId::OpenAbout:
+            log::Flush();
             ShowAboutDialog(g_dll_instance, nullptr, config_.ui_language);
             break;
     }
@@ -478,6 +481,9 @@ STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* /*pdim*/) noex
 STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* /*pdimPrevFocus*/) {
     if (!pdimFocus) {
         ResetCompositionAndUI();
+        if (config_.log_keystrokes) {
+            log::Flush();
+        }
     } else {
         ReloadConfigIfModified();
     }
@@ -496,6 +502,9 @@ STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* /*pic*/) noexcept {
 STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
     if (!fForeground) {
         ResetCompositionAndUI();
+        if (config_.log_keystrokes) {
+            log::Flush();
+        }
     }
     return S_OK;
 }
@@ -558,7 +567,6 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
             cand_preview,
             PrimaryDictToDiagName(config_.primary_dict),
             engine_.MappedDictionaryCount());
-        log::Flush();
     }
     if (result.empty_4code_warning) {
         PlayImeSound(SoundEffectKind::EmptyCodeBeep);
