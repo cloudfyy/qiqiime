@@ -1,44 +1,59 @@
-# Run as Administrator to register QiQi Wubi IME (TSF) for both x64 and x86
+# Register and verify QiQi Wubi IME (TSF) for both x64 and x86 (WOW64)
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate -LaunchNotepad
 param(
     [ValidateSet("Release", "Debug")]
-    [string]$Config = "Release"
+    [string]$Config = "Release",
+    [switch]$AutoElevate,
+    [switch]$VerifyOnly,
+    [switch]$LaunchNotepad
 )
 
-$ErrorActionPreference = "Stop"
-$repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "common.ps1")
 
-$dllX64Candidates = @(
-    (Join-Path $repoRoot "build\x64\$Config\qiqiime.dll"),
-    (Join-Path $repoRoot "build\$Config\qiqiime.dll")
-)
-$dllX64 = $dllX64Candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+Write-QiQiStep "Checking QiQiIME Artifacts ($Config)"
+$dlls = Resolve-QiQiDllPaths -Config $Config
+Test-QiQiRuntimeFiles -Dlls $dlls
 
-$dllX86 = Join-Path $repoRoot "build\x86\$Config\qiqiime.dll"
-
-if (-not $dllX64 -and -not (Test-Path $dllX86)) {
-    Write-Error "No built qiqiime.dll found. Please run scripts\build_all.ps1 or CMake build first."
+if ($VerifyOnly) {
+    exit 0
 }
 
-if ($dllX64) {
-    $regsvr64 = Join-Path $env:SystemRoot "System32\regsvr32.exe"
-    Write-Host "Registering x64 TSF Text Service: $dllX64"
-    & $regsvr64 /s $dllX64
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to register x64 DLL ($dllX64), exit code: $LASTEXITCODE"
-    }
+$forwardArgs = @("-Config", $Config)
+if ($LaunchNotepad) { $forwardArgs += "-LaunchNotepad" }
+Assert-QiQiAdminOrElevate -ScriptPath $PSCommandPath -ForwardArgs $forwardArgs -AutoElevate:$AutoElevate
+
+Write-QiQiStep "Registering TSF Text Service (x64 + x86 WOW64)"
+if ($dlls.X64 -and [Environment]::Is64BitOperatingSystem) {
+    Invoke-QiQiRegsvr32 -DllPath $dlls.X64
+}
+if ($dlls.X86) {
+    Invoke-QiQiRegsvr32 -DllPath $dlls.X86 -Is32Bit
 }
 
-if (Test-Path $dllX86) {
-    $regsvr32 = if ([Environment]::Is64BitOperatingSystem) {
-        Join-Path $env:SystemRoot "SysWOW64\regsvr32.exe"
-    } else {
-        Join-Path $env:SystemRoot "System32\regsvr32.exe"
+Write-QiQiStep "Verifying COM CLSID & TSF LanguageProfile in Registry"
+$clsid64Path = "HKLM:\SOFTWARE\Classes\CLSID\$QiQiClsid\InProcServer32"
+if (-not (Test-Path $clsid64Path)) {
+    throw "64-bit COM CLSID key not found: $clsid64Path"
+}
+Write-QiQiPass "64-bit COM InProcServer32 verified: $((Get-ItemProperty -Path $clsid64Path).'(default)')"
+
+if ([Environment]::Is64BitOperatingSystem) {
+    $clsid32Path = "HKLM:\SOFTWARE\Classes\WOW6432Node\CLSID\$QiQiClsid\InProcServer32"
+    if (-not (Test-Path $clsid32Path)) {
+        throw "32-bit WOW64 COM CLSID key not found: $clsid32Path"
     }
-    Write-Host "Registering x86 (WOW64) TSF Text Service: $dllX86"
-    & $regsvr32 /s $dllX86
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to register x86 DLL ($dllX86), exit code: $LASTEXITCODE"
-    }
+    Write-QiQiPass "32-bit WOW64 COM InProcServer32 verified: $((Get-ItemProperty -Path $clsid32Path).'(default)')"
 }
 
-Write-Host "Registered successfully! Switch input method with Win+Space." -ForegroundColor Green
+$tipProfilePath = "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$QiQiClsid\LanguageProfile\0x00000804\$QiQiProfileGuid"
+if (-not (Test-Path $tipProfilePath)) {
+    throw "TSF LanguageProfile registry key not found: $tipProfilePath"
+}
+Write-QiQiPass "TSF LanguageProfile (zh-CN 0x0804) verified"
+
+Write-Host "`nRegistered successfully! Switch input method with Win+Space." -ForegroundColor Green
+if ($LaunchNotepad) {
+    Start-Process notepad.exe
+}

@@ -1,38 +1,35 @@
-# Run as Administrator to unregister QiQi Wubi IME (TSF) for both x86 and x64
+# Unregister QiQi Wubi IME (TSF) for both x86 and x64 and verify removal
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 param(
     [ValidateSet("Release", "Debug")]
-    [string]$Config = "Release"
+    [string]$Config = "Release",
+    [switch]$AutoElevate
 )
 
-$ErrorActionPreference = "Stop"
-$repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "common.ps1")
+$dlls = Resolve-QiQiDllPaths -Config $Config
 
-$dllX86 = Join-Path $repoRoot "build\x86\$Config\qiqiime.dll"
-$dllX64Candidates = @(
-    (Join-Path $repoRoot "build\x64\$Config\qiqiime.dll"),
-    (Join-Path $repoRoot "build\$Config\qiqiime.dll")
-)
-$dllX64 = $dllX64Candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-
-if (-not $dllX64 -and -not (Test-Path $dllX86)) {
+if (-not $dlls.X64 -and -not $dlls.X86) {
     Write-Error "No qiqiime.dll found to unregister."
 }
 
-# Unregister x86 (WOW64) first, then native x64
-if (Test-Path $dllX86) {
-    $regsvr32 = if ([Environment]::Is64BitOperatingSystem) {
-        Join-Path $env:SystemRoot "SysWOW64\regsvr32.exe"
-    } else {
-        Join-Path $env:SystemRoot "System32\regsvr32.exe"
-    }
-    Write-Host "Unregistering x86 (WOW64) TSF Text Service: $dllX86"
-    & $regsvr32 /u /s $dllX86
+Assert-QiQiAdminOrElevate -ScriptPath $PSCommandPath -ForwardArgs @("-Config", $Config) -AutoElevate:$AutoElevate
+
+Write-QiQiStep "Unregistering TSF Text Service (x86 WOW64 + x64)"
+if ($dlls.X86) {
+    Invoke-QiQiRegsvr32 -DllPath $dlls.X86 -Is32Bit -Unregister
+}
+if ($dlls.X64 -and [Environment]::Is64BitOperatingSystem) {
+    Invoke-QiQiRegsvr32 -DllPath $dlls.X64 -Unregister
 }
 
-if ($dllX64) {
-    $regsvr64 = Join-Path $env:SystemRoot "System32\regsvr32.exe"
-    Write-Host "Unregistering x64 TSF Text Service: $dllX64"
-    & $regsvr64 /u /s $dllX64
+if (Test-Path "HKLM:\SOFTWARE\Classes\CLSID\$QiQiClsid\InProcServer32") {
+    throw "64-bit COM CLSID still exists after unregister"
 }
-
-Write-Host "Unregistered successfully." -ForegroundColor Green
+if ([Environment]::Is64BitOperatingSystem -and (Test-Path "HKLM:\SOFTWARE\Classes\WOW6432Node\CLSID\$QiQiClsid\InProcServer32")) {
+    throw "32-bit WOW64 COM CLSID still exists after unregister"
+}
+Write-QiQiPass "Registry cleanup verified"
+Write-Host "`nUnregistered successfully." -ForegroundColor Green

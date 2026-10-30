@@ -115,4 +115,4 @@ TSF 的按键处理分为两步：
 #### P2：渲染与词频体验打磨
 - [x] **15. Direct2D / DirectWrite 渲染与生僻字/彩色 Emoji 字体回退（`directwrite-font-fallback`）**：将候选窗文字绘制升级为 `Direct2D` + `DirectWrite`（开启 `D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT`），利用系统级字体回退完美显示 CJK 扩展 B~G 区生僻字与彩色符号。
 - [x] **16. 可选词组动态调频（`optional-dynamic-phrase-freq`）**：默认保持五笔固定词序以保障盲打肌肉记忆，同时提供可选的“仅重码词组动态调频（单字固定不调频）”开关。
-- [x] **17. 独立发行包打包脚本（`release-packaging-script`）**：通过 `scripts/package_release.ps1` 将 `x64`/`x86` 双架构 DLL、三套词库、`config.ini`、独立安装/卸载脚本与许可证一键打包归档到 `dist/` 发行目录。
+- [x] **17. 独立发行包打包脚本（`release-packaging-script`）**：通过 `scripts/build_all.ps1 -Package` 将 `x64`/`x86` 双架构 DLL、三套词库、`config.ini`、注册/卸载脚本与许可证一键打包归档到 `dist/` 发行目录。
