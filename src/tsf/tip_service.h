@@ -26,6 +26,7 @@ class QiQiTextService final
           ITfThreadMgrEventSink,
           ITfKeyEventSink,
           ITfCompositionSink,
+          ITfTextLayoutSink,
           ITfCompartmentEventSink,
           ITfFunctionProvider,
           ITfFnConfigure,
@@ -72,6 +73,9 @@ public:
     // ITfCompositionSink
     STDMETHODIMP OnCompositionTerminated(TfEditCookie ecWrite, ITfComposition* pComposition) override;
 
+    // ITfTextLayoutSink
+    STDMETHODIMP OnLayoutChange(ITfContext* pic, TfLayoutCode lcode, ITfContextView* pView) override;
+
     // ITfCompartmentEventSink
     STDMETHODIMP OnChange(REFGUID rguid) override;
 
@@ -110,12 +114,14 @@ private:
     void LoadExternalDictionaryNextToDll();
 
     void ResetCompositionAndUI();
+    bool IsContextKeyboardDisabled(ITfContext* context) const noexcept;
     void ToggleModeAndCancelComposition(ITfContext* context);
     void SyncTsfCompartments();
     void ApplyDynamicEngineSettings() noexcept;
     void ReloadConfigIfModified();
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
-    void SyncCompositionUIInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text);
+    void SyncCompositionUIInSession(
+        TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot);
     void StartOrUpdateCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text);
     void CommitAndEndCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text);
     void CancelCompositionInSession(TfEditCookie ec, ITfContext* context);
@@ -123,19 +129,21 @@ private:
     static void SetRangeTextAndCollapseCaret(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range, std::wstring_view text);
 
-    void BeginOrUpdateCandidateUI();
+    void BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot);
     void EndCandidateUI();
 
     ComPtr<ITfThreadMgr> thread_mgr_;
     TfClientId client_id_ = TF_CLIENTID_NULL;
     DWORD activate_flags_ = 0;
     ScopedTfSinkConnection thread_mgr_sink_;
+    ScopedTfSinkConnection text_layout_sink_;
     ScopedTfCompartment global_config_comp_;
     ScopedTfCompartment global_pos_comp_;
     ScopedTfCompartment openclose_comp_;
     ScopedTfCompartment convmode_comp_;
     TfGuidAtom display_attribute_atom_ = TF_INVALID_GUIDATOM;
     bool syncing_compartments_ = false;
+    bool has_valid_caret_pos_ = false;
 
     ComPtr<ITfComposition> composition_;
     ComPtr<ITfContext> active_context_;
@@ -147,6 +155,7 @@ private:
     uint64_t config_registry_sequence_ = 0;
     WubiEngine engine_;
     bool shift_tap_candidate_ = false;
+    ULONGLONG shift_press_tick_ = 0;
 };
 
 // Global DLL instance and active COM object counter

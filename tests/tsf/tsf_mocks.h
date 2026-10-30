@@ -134,6 +134,7 @@ public:
     }
     STDMETHODIMP GetRangeFromPoint(TfEditCookie, const POINT*, DWORD, ITfRange**) override { return E_NOTIMPL; }
     STDMETHODIMP GetTextExt(TfEditCookie, ITfRange*, RECT* prc, BOOL* pfClipped) override {
+        if (fail_get_text_ext_) return TS_E_NOLAYOUT;
         if (prc) *prc = {100, 100, 140, 124};
         if (pfClipped) *pfClipped = FALSE;
         return S_OK;
@@ -146,6 +147,7 @@ public:
         if (phwnd) *phwnd = nullptr;
         return S_OK;
     }
+    bool fail_get_text_ext_ = false;
 private:
     ULONG ref_ = 1;
 };
@@ -190,8 +192,75 @@ private:
     ULONG ref_ = 1;
 };
 
-// Minimal mock ITfContext + ITfInsertAtSelection + ITfContextComposition
-class MockTfContext final : public ITfContext, public ITfInsertAtSelection, public ITfContextComposition {
+// Minimal mock ITfCompartment + ITfSource (supports ITfCompartmentEventSink::OnChange notifications)
+class MockTfCompartment final : public ITfCompartment, public ITfSource {
+public:
+    explicit MockTfCompartment(REFGUID guid = GUID_NULL) : guid_(guid) {}
+
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+        if (!ppvObj) return E_INVALIDARG;
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfCompartment)) {
+            *ppvObj = static_cast<ITfCompartment*>(this);
+            AddRef();
+            return S_OK;
+        }
+        if (IsEqualIID(riid, IID_ITfSource)) {
+            *ppvObj = static_cast<ITfSource*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppvObj = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() override {
+        ULONG c = --ref_;
+        if (c == 0) delete this;
+        return c;
+    }
+    STDMETHODIMP SetValue(TfClientId, const VARIANT* pvarValue) override {
+        if (pvarValue && pvarValue->vt == VT_I4) {
+            last_val_ = pvarValue->lVal;
+            if (sink_) {
+                sink_->OnChange(guid_);
+            }
+        }
+        return S_OK;
+    }
+    STDMETHODIMP GetValue(VARIANT* pvarValue) override {
+        if (!pvarValue) return E_INVALIDARG;
+        pvarValue->vt = VT_I4;
+        pvarValue->lVal = last_val_;
+        return S_OK;
+    }
+
+    // ITfSource
+    STDMETHODIMP AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) override {
+        if (!punk || !pdwCookie) return E_INVALIDARG;
+        if (!IsEqualIID(riid, IID_ITfCompartmentEventSink)) return CONNECT_E_CANNOTCONNECT;
+        if (FAILED(punk->QueryInterface(IID_PPV_ARGS(&sink_))) || !sink_) return E_NOINTERFACE;
+        *pdwCookie = 101;
+        return S_OK;
+    }
+    STDMETHODIMP UnadviseSink(DWORD) override {
+        sink_.Reset();
+        return S_OK;
+    }
+
+    GUID guid_{};
+    LONG last_val_ = 0;
+    ComPtr<ITfCompartmentEventSink> sink_;
+private:
+    ULONG ref_ = 1;
+};
+
+// Minimal mock ITfContext + ITfInsertAtSelection + ITfContextComposition + ITfSource + ITfCompartmentMgr
+class MockTfContext final
+    : public ITfContext,
+      public ITfInsertAtSelection,
+      public ITfContextComposition,
+      public ITfSource,
+      public ITfCompartmentMgr {
 public:
     MockTfContext() : range_(new MockTfRange()), view_(new MockTfContextView()), prop_(new MockTfProperty()) {}
 
@@ -203,6 +272,10 @@ public:
             *ppvObj = static_cast<ITfInsertAtSelection*>(this);
         } else if (IsEqualIID(riid, IID_ITfContextComposition) && !fail_qi_comp_) {
             *ppvObj = static_cast<ITfContextComposition*>(this);
+        } else if (IsEqualIID(riid, IID_ITfSource)) {
+            *ppvObj = static_cast<ITfSource*>(this);
+        } else if (IsEqualIID(riid, IID_ITfCompartmentMgr)) {
+            *ppvObj = static_cast<ITfCompartmentMgr*>(this);
         } else {
             *ppvObj = nullptr;
             return E_NOINTERFACE;
@@ -277,77 +350,59 @@ public:
     STDMETHODIMP FindComposition(TfEditCookie, ITfRange*, IEnumITfCompositionView**) override { return E_NOTIMPL; }
     STDMETHODIMP TakeOwnership(TfEditCookie, ITfCompositionView*, ITfCompositionSink*, ITfComposition**) override { return E_NOTIMPL; }
 
+    // ITfSource
+    STDMETHODIMP AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) override {
+        if (!punk || !pdwCookie) return E_INVALIDARG;
+        if (IsEqualIID(riid, IID_ITfTextLayoutSink)) {
+            if (FAILED(punk->QueryInterface(IID_PPV_ARGS(&layout_sink_))) || !layout_sink_) {
+                return E_NOINTERFACE;
+            }
+            *pdwCookie = 202;
+            return S_OK;
+        }
+        return CONNECT_E_CANNOTCONNECT;
+    }
+    STDMETHODIMP UnadviseSink(DWORD) override {
+        layout_sink_.Reset();
+        return S_OK;
+    }
+
+    // ITfCompartmentMgr
+    STDMETHODIMP GetCompartment(REFGUID rguid, ITfCompartment** ppcomp) override {
+        if (!ppcomp) return E_INVALIDARG;
+        if (IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_DISABLED)) {
+            if (!disabled_compartment_) {
+                disabled_compartment_ = new MockTfCompartment(GUID_COMPARTMENT_KEYBOARD_DISABLED);
+            }
+            *ppcomp = disabled_compartment_.Get();
+            (*ppcomp)->AddRef();
+            return S_OK;
+        }
+        if (IsEqualGUID(rguid, GUID_COMPARTMENT_EMPTYCONTEXT)) {
+            if (!empty_compartment_) {
+                empty_compartment_ = new MockTfCompartment(GUID_COMPARTMENT_EMPTYCONTEXT);
+            }
+            *ppcomp = empty_compartment_.Get();
+            (*ppcomp)->AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP ClearCompartment(TfClientId, REFGUID) override { return S_OK; }
+    STDMETHODIMP EnumCompartments(IEnumGUID**) override { return E_NOTIMPL; }
+
     ComPtr<MockTfRange> range_;
     ComPtr<MockTfContextView> view_;
     ComPtr<MockTfProperty> prop_;
+    ComPtr<ITfTextLayoutSink> layout_sink_;
+    ComPtr<MockTfCompartment> disabled_compartment_;
+    ComPtr<MockTfCompartment> empty_compartment_;
     bool fail_qi_insert_ = false;
     bool fail_insert_at_sel_ = false;
     bool fail_qi_comp_ = false;
     bool fail_start_comp_ = false;
     bool fail_comp_get_range_ = false;
     bool fail_get_view_ = false;
-private:
-    ULONG ref_ = 1;
-};
-
-// Minimal mock ITfCompartment + ITfSource (supports ITfCompartmentEventSink::OnChange notifications)
-class MockTfCompartment final : public ITfCompartment, public ITfSource {
-public:
-    explicit MockTfCompartment(REFGUID guid = GUID_NULL) : guid_(guid) {}
-
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
-        if (!ppvObj) return E_INVALIDARG;
-        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfCompartment)) {
-            *ppvObj = static_cast<ITfCompartment*>(this);
-            AddRef();
-            return S_OK;
-        }
-        if (IsEqualIID(riid, IID_ITfSource)) {
-            *ppvObj = static_cast<ITfSource*>(this);
-            AddRef();
-            return S_OK;
-        }
-        *ppvObj = nullptr;
-        return E_NOINTERFACE;
-    }
-    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
-    STDMETHODIMP_(ULONG) Release() override {
-        ULONG c = --ref_;
-        if (c == 0) delete this;
-        return c;
-    }
-    STDMETHODIMP SetValue(TfClientId, const VARIANT* pvarValue) override {
-        if (pvarValue && pvarValue->vt == VT_I4) {
-            last_val_ = pvarValue->lVal;
-            if (sink_) {
-                sink_->OnChange(guid_);
-            }
-        }
-        return S_OK;
-    }
-    STDMETHODIMP GetValue(VARIANT* pvarValue) override {
-        if (!pvarValue) return E_INVALIDARG;
-        pvarValue->vt = VT_I4;
-        pvarValue->lVal = last_val_;
-        return S_OK;
-    }
-
-    // ITfSource
-    STDMETHODIMP AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) override {
-        if (!punk || !pdwCookie) return E_INVALIDARG;
-        if (!IsEqualIID(riid, IID_ITfCompartmentEventSink)) return CONNECT_E_CANNOTCONNECT;
-        if (FAILED(punk->QueryInterface(IID_PPV_ARGS(&sink_))) || !sink_) return E_NOINTERFACE;
-        *pdwCookie = 101;
-        return S_OK;
-    }
-    STDMETHODIMP UnadviseSink(DWORD) override {
-        sink_.Reset();
-        return S_OK;
-    }
-
-    GUID guid_{};
-    LONG last_val_ = 0;
-    ComPtr<ITfCompartmentEventSink> sink_;
 private:
     ULONG ref_ = 1;
 };

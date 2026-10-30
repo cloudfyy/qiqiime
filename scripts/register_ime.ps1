@@ -35,6 +35,9 @@ $forwardArgs = @("-Config", $Config)
 if ($LaunchNotepad) { $forwardArgs += "-LaunchNotepad" }
 Assert-QiQiAdminOrElevate -ScriptPath $PSCommandPath -ForwardArgs $forwardArgs -AutoElevate:$AutoElevate
 
+Write-QiQiStep "Granting AppContainer (UWP) Read/Execute ACLs on Build & Data Directories"
+Grant-QiQiAppContainerReadExecute -Dlls $dlls
+
 Write-QiQiStep "Registering TSF Text Service (x64 + x86 WOW64)"
 if ($dlls.X64 -and [Environment]::Is64BitOperatingSystem) {
     Invoke-QiQiRegsvr32 -DllPath $dlls.X64

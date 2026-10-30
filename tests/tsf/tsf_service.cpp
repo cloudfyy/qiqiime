@@ -48,6 +48,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     ComPtr<ITfThreadMgrEventSink> tm_sink;
     ComPtr<ITfKeyEventSink> key_sink;
     ComPtr<ITfCompositionSink> comp_sink;
+    ComPtr<ITfTextLayoutSink> layout_sink;
     ComPtr<ITfFunctionProvider> func_prov;
     ComPtr<ITfFunction> fn_base;
     ComPtr<ITfFnConfigure> fn_cfg;
@@ -57,6 +58,8 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&tm_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&key_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&comp_sink))));
+    QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&layout_sink))));
+    layout_sink.Reset();
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&func_prov))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&fn_base))));
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&fn_cfg))));
@@ -208,8 +211,21 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
     // Test Shift tap mode toggle while composing (cancels composition and switches to English)
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
+    // Auto-repeat VK_SHIFT while still within 350ms preserves shift_tap_candidate_
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 1LL << 30, &eaten)) && eaten == FALSE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == TRUE);
+
+    // Test Shift+Click anti-mistrigger: when VK_LBUTTON is pressed during Shift release, mode is NOT toggled
+    {
+        BYTE mouse_kb_state[256]{};
+        mouse_kb_state[VK_LBUTTON] = 0x80;
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
+        ::SetKeyboardState(mouse_kb_state);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
+        ::SetKeyboardState(clean_kb_state);
+    }
 
     // In English mode, 'A' is not eaten
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
@@ -322,9 +338,34 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyUp(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyUp(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
 
+    // Test ITfTextLayoutSink::OnLayoutChange while composing when initial GetTextExt returned TS_E_NOLAYOUT
+    mock_ctx->view_->fail_get_text_ext_ = true;
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
+    QIQI_TEST_CHECK(mock_ctx->layout_sink_ != nullptr);
+    mock_ctx->view_->fail_get_text_ext_ = false;
+    QIQI_TEST_CHECK(SUCCEEDED(mock_ctx->layout_sink_->OnLayoutChange(mock_ctx.Get(), TF_LC_CREATE, mock_ctx->view_.Get())));
+    QIQI_TEST_CHECK(SUCCEEDED(mock_ctx->layout_sink_->OnLayoutChange(mock_ctx.Get(), TF_LC_CHANGE, mock_ctx->view_.Get())));
+
     // Host composition termination & focus loss
     QIQI_TEST_CHECK(SUCCEEDED(comp_sink->OnCompositionTerminated(1, nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnSetFocus(FALSE)));
+
+    // Test GUID_COMPARTMENT_KEYBOARD_DISABLED and GUID_COMPARTMENT_EMPTYCONTEXT awareness (password / read-only fields)
+    {
+        ComPtr<ITfCompartment> disabled_comp;
+        QIQI_TEST_CHECK(SUCCEEDED(mock_ctx->GetCompartment(GUID_COMPARTMENT_KEYBOARD_DISABLED, &disabled_comp)));
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(disabled_comp.Get(), 1, 1)));
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(disabled_comp.Get(), 1, 0)));
+
+        ComPtr<ITfCompartment> empty_comp;
+        QIQI_TEST_CHECK(SUCCEEDED(mock_ctx->GetCompartment(GUID_COMPARTMENT_EMPTYCONTEXT, &empty_comp)));
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(empty_comp.Get(), 1, 1)));
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(empty_comp.Get(), 1, 0)));
+    }
 
     // Test defensive failure branches in StartOrUpdateCompositionInSession, UpdateCandidateWindowPositionInSession, and BeginOrUpdateCandidateUI
     mock_ctx->fail_qi_insert_ = true;

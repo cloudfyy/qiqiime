@@ -36,6 +36,62 @@ bool IsKeyDown(int vk) noexcept {
     return (::GetKeyState(vk) & 0x8000) != 0;
 }
 
+bool IsAnyMouseButtonDown() noexcept {
+    return IsKeyDown(VK_LBUTTON) || IsKeyDown(VK_RBUTTON) || IsKeyDown(VK_MBUTTON);
+}
+
+constexpr ULONGLONG kMaxShiftTapDurationMs = 350;
+
+bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
+    GUITHREADINFO gti{};
+    gti.cbSize = sizeof(gti);
+    if (::GetGUIThreadInfo(::GetCurrentThreadId(), &gti)) {
+        if (gti.hwndCaret && (gti.rcCaret.right > gti.rcCaret.left || gti.rcCaret.bottom > gti.rcCaret.top)) {
+            POINT top_left{gti.rcCaret.left, gti.rcCaret.top};
+            POINT bottom_right{gti.rcCaret.right, gti.rcCaret.bottom};
+            if (::ClientToScreen(gti.hwndCaret, &top_left) && ::ClientToScreen(gti.hwndCaret, &bottom_right)) {
+                out_rc = RECT{top_left.x, top_left.y, bottom_right.x, bottom_right.y};
+                return true;
+            }
+        }
+        if (gti.hwndFocus) {
+            RECT focus_rc{};
+            if (::GetWindowRect(gti.hwndFocus, &focus_rc)) {
+                out_rc = RECT{focus_rc.left + 20, focus_rc.top + 24, focus_rc.left + 22, focus_rc.top + 44};
+                return true;
+            }
+        }
+    }
+    POINT cursor_pt{};
+    if (::GetCursorPos(&cursor_pt)) {
+        out_rc = RECT{cursor_pt.x, cursor_pt.y, cursor_pt.x + 2, cursor_pt.y + 20};
+        return true;
+    }
+    return false;
+}
+
+bool QueryCompartmentNonZero(IUnknown* unk, REFGUID guid) noexcept {
+    if (!unk) {
+        return false;
+    }
+    ComPtr<ITfCompartmentMgr> comp_mgr;
+    if (FAILED(unk->QueryInterface(IID_PPV_ARGS(&comp_mgr))) || !comp_mgr) {
+        return false;
+    }
+    ComPtr<ITfCompartment> comp;
+    if (FAILED(comp_mgr->GetCompartment(guid, &comp)) || !comp) {
+        return false;
+    }
+    return ReadCompartmentInt4(comp.Get(), 0) != 0;
+}
+
+bool IsValidShiftTapRelease(ULONGLONG press_tick) noexcept {
+    return (::GetTickCount64() - press_tick <= kMaxShiftTapDurationMs) &&
+           !IsAnyMouseButtonDown() &&
+           !IsKeyDown(VK_CONTROL) &&
+           !IsKeyDown(VK_MENU);
+}
+
 bool IsCapsLockOn() noexcept {
     return (::GetKeyState(VK_CAPITAL) & 0x0001) != 0;
 }
@@ -661,17 +717,42 @@ STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* /*pic*/, WPARAM wParam, LPARAM /*lParam*/, BOOL* pfEaten) noexcept {
+bool QiQiTextService::IsContextKeyboardDisabled(ITfContext* context) const noexcept {
+    if (QueryCompartmentNonZero(context, GUID_COMPARTMENT_KEYBOARD_DISABLED) ||
+        QueryCompartmentNonZero(context, GUID_COMPARTMENT_EMPTYCONTEXT)) {
+        return true;
+    }
+    return QueryCompartmentNonZero(thread_mgr_.Get(), GUID_COMPARTMENT_KEYBOARD_DISABLED) ||
+           QueryCompartmentNonZero(thread_mgr_.Get(), GUID_COMPARTMENT_EMPTYCONTEXT);
+}
+
+STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* pfEaten) noexcept {
     if (!pfEaten) {
         return E_INVALIDARG;
     }
+    if (IsContextKeyboardDisabled(pic)) {
+        shift_tap_candidate_ = false;
+        shift_press_tick_ = 0;
+        *pfEaten = FALSE;
+        return S_OK;
+    }
     const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
     if (vk == VK_SHIFT) {
-        shift_tap_candidate_ = config_.shift_toggle_mode && !IsKeyDown(VK_CONTROL) && !IsKeyDown(VK_MENU);
+        const bool is_auto_repeat = (lParam & (1LL << 30)) != 0;
+        if (!is_auto_repeat) {
+            shift_tap_candidate_ = config_.shift_toggle_mode &&
+                                   !IsKeyDown(VK_CONTROL) &&
+                                   !IsKeyDown(VK_MENU) &&
+                                   !IsAnyMouseButtonDown();
+            shift_press_tick_ = shift_tap_candidate_ ? ::GetTickCount64() : 0;
+        } else if (::GetTickCount64() - shift_press_tick_ > kMaxShiftTapDurationMs || IsAnyMouseButtonDown()) {
+            shift_tap_candidate_ = false;
+        }
         *pfEaten = FALSE;
         return S_OK;
     }
     shift_tap_candidate_ = false;
+    shift_press_tick_ = 0;
 
     *pfEaten = engine_.ShouldEatKey(
                    vk,
@@ -687,6 +768,10 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* /*pic*/, WPARAM wParam, 
 STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /*lParam*/, BOOL* pfEaten) {
     if (!pfEaten) {
         return E_INVALIDARG;
+    }
+    if (IsContextKeyboardDisabled(pic)) {
+        *pfEaten = FALSE;
+        return S_OK;
     }
     const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
     const bool shift = IsKeyDown(VK_SHIFT);
@@ -751,7 +836,14 @@ STDMETHODIMP QiQiTextService::OnTestKeyUp(ITfContext* /*pic*/, WPARAM wParam, LP
     if (!pfEaten) {
         return E_INVALIDARG;
     }
-    *pfEaten = (wParam == VK_SHIFT && shift_tap_candidate_) ? TRUE : FALSE;
+    if (wParam == VK_SHIFT && shift_tap_candidate_) {
+        if (IsValidShiftTapRelease(shift_press_tick_)) {
+            *pfEaten = TRUE;
+            return S_OK;
+        }
+        shift_tap_candidate_ = false;
+    }
+    *pfEaten = FALSE;
     return S_OK;
 }
 
@@ -761,9 +853,13 @@ STDMETHODIMP QiQiTextService::OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM /*l
     }
     if (wParam == VK_SHIFT && shift_tap_candidate_) {
         shift_tap_candidate_ = false;
-        *pfEaten = TRUE;
-        ToggleModeAndCancelComposition(pic);
-        return S_OK;
+        const bool valid_tap = IsValidShiftTapRelease(shift_press_tick_);
+        shift_press_tick_ = 0;
+        if (valid_tap) {
+            *pfEaten = TRUE;
+            ToggleModeAndCancelComposition(pic);
+            return S_OK;
+        }
     }
     *pfEaten = FALSE;
     return S_OK;
@@ -825,6 +921,26 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
 STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie /*ecWrite*/, ITfComposition* /*pComposition*/) {
     QIQI_LOG_DEBUG("Host terminated active TSF composition");
     ResetCompositionAndUI();
+    return S_OK;
+}
+
+// ITfTextLayoutSink: called when an async host (Chromium/VS Code/WPF/Word) updates its text layout
+STDMETHODIMP QiQiTextService::OnLayoutChange(
+    ITfContext* pic, TfLayoutCode lcode, ITfContextView* /*pView*/) {
+    if (lcode != TF_LC_CHANGE || !pic || pic != active_context_.Get() || !composition_) {
+        return S_OK;
+    }
+    ComPtr<ITfContext> ctx_holder(pic);
+    ComPtr<QiQiTextService> self_holder(this);
+    const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
+        [self_holder, ctx_holder](TfEditCookie ec) -> HRESULT {
+            self_holder->UpdateCandidateWindowPositionInSession(
+                ec, gsl::not_null<ITfContext*>(ctx_holder.Get()));
+            return S_OK;
+        });
+    HRESULT session_hr = S_OK;
+    std::ignore = pic->RequestEditSession(
+        client_id_, session.Get(), TF_ES_ASYNCDONTCARE | TF_ES_READ, &session_hr);
     return S_OK;
 }
 
@@ -915,6 +1031,10 @@ STDMETHODIMP QiQiTextService::GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAt
 }
 
 void QiQiTextService::ResetCompositionAndUI() {
+    shift_tap_candidate_ = false;
+    shift_press_tick_ = 0;
+    has_valid_caret_pos_ = false;
+    text_layout_sink_.Reset();
     composition_.Reset();
     active_context_.Reset();
     engine_.Reset();
@@ -1037,7 +1157,12 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
     if (!context) {
         return;
     }
-    active_context_ = context;
+    if (active_context_.Get() != context) {
+        text_layout_sink_.Reset();
+        active_context_ = context;
+        text_layout_sink_.Advise(
+            active_context_.Get(), IID_ITfTextLayoutSink, static_cast<ITfTextLayoutSink*>(this));
+    }
 
     ComPtr<ITfContext> ctx_holder(context);
     ComPtr<QiQiTextService> self_holder(this);
@@ -1055,7 +1180,7 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
             self_holder->CommitAndEndCompositionInSession(ec, non_null_ctx, result.committed_text);
             if (!result.composition_text.empty()) {
                 // e.g. 5th key auto-committed previous 4-code word and started a new 1-code composition
-                self_holder->SyncCompositionUIInSession(ec, non_null_ctx, result.composition_text);
+                self_holder->SyncCompositionUIInSession(ec, non_null_ctx, result);
             } else {
                 self_holder->EndCandidateUI();
             }
@@ -1063,7 +1188,7 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
         }
 
         if (result.action == KeyActionType::UpdateState) {
-            self_holder->SyncCompositionUIInSession(ec, non_null_ctx, result.composition_text);
+            self_holder->SyncCompositionUIInSession(ec, non_null_ctx, result);
             return S_OK;
         }
 
@@ -1084,10 +1209,10 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
 }
 
 void QiQiTextService::SyncCompositionUIInSession(
-    TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text) {
-    StartOrUpdateCompositionInSession(ec, context, text);
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot) {
+    StartOrUpdateCompositionInSession(ec, context, snapshot.composition_text);
     UpdateCandidateWindowPositionInSession(ec, context);
-    BeginOrUpdateCandidateUI();
+    BeginOrUpdateCandidateUI(snapshot);
 }
 
 void QiQiTextService::SetRangeTextAndCollapseCaret(
@@ -1163,6 +1288,7 @@ void QiQiTextService::CommitAndEndCompositionInSession(
         }
         composition_->EndComposition(ec);
         composition_.Reset();
+        has_valid_caret_pos_ = false;
     } else if (!committed_text.empty()) {
         // Direct commit without prior composition (e.g. Chinese punctuation)
         ComPtr<ITfInsertAtSelection> insert_at_sel;
@@ -1179,6 +1305,7 @@ void QiQiTextService::CommitAndEndCompositionInSession(
 }
 
 void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, ITfContext* /*context*/) {
+    has_valid_caret_pos_ = false;
     if (!composition_) {
         return;
     }
@@ -1196,35 +1323,33 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
         return;
     }
     ComPtr<ITfContextView> view;
-    if (FAILED(context->GetActiveView(&view)) || !view) {
-        QIQI_LOG_DEBUG("UpdateCandidateWindowPositionInSession: GetActiveView failed");
-        return;
-    }
     ComPtr<ITfRange> comp_range;
-    if (FAILED(composition_->GetRange(&comp_range)) || !comp_range) {
-        QIQI_LOG_DEBUG("UpdateCandidateWindowPositionInSession: composition_->GetRange failed");
-        return;
-    }
     RECT rc{};
     BOOL clipped = FALSE;
-    if (SUCCEEDED(view->GetTextExt(ec, comp_range.Get(), &rc, &clipped))) {
+    if (SUCCEEDED(context->GetActiveView(&view)) && view &&
+        SUCCEEDED(composition_->GetRange(&comp_range)) && comp_range &&
+        SUCCEEDED(view->GetTextExt(ec, comp_range.Get(), &rc, &clipped))) {
+        has_valid_caret_pos_ = true;
         candidate_ui_->MoveWindowTo(rc);
-    } else {
-        QIQI_LOG_DEBUG("UpdateCandidateWindowPositionInSession: GetTextExt failed (using previous candidate position)");
+        return;
+    }
+    if (!has_valid_caret_pos_ && QueryGuiThreadOrCursorFallbackRect(rc)) {
+        QIQI_LOG_DEBUG("UpdateCandidateWindowPositionInSession: GetTextExt pending layout; using GUI/cursor fallback");
+        candidate_ui_->MoveWindowTo(rc);
     }
 }
 
-void QiQiTextService::BeginOrUpdateCandidateUI() {
+void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot) {
     if (!candidate_ui_ || !thread_mgr_) {
         return;
     }
 
     candidate_ui_->SetCandidates(
-        engine_.RawCode(),
-        engine_.AllDisplayCandidates(),
-        engine_.PageSize(),
-        engine_.CurrentPage(),
-        engine_.SelectedInPage());
+        snapshot.composition_text,
+        snapshot.all_display_candidates,
+        snapshot.page_size,
+        snapshot.current_page,
+        snapshot.selected_index);
 
     ComPtr<ITfUIElementMgr> ui_mgr;
     if (FAILED(thread_mgr_.As(&ui_mgr)) || !ui_mgr) {

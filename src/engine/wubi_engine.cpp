@@ -605,6 +605,8 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
     res.committed_text = std::move(committed);
     res.composition_text = raw_code_;
     res.page_candidates = CurrentPageCandidates();
+    res.all_display_candidates = all_display_candidates_;
+    res.page_size = page_size_;
     res.selected_index = selected_in_page_;
     res.current_page = current_page_;
     res.total_pages = TotalPages();

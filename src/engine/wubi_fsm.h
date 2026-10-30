@@ -149,7 +149,15 @@ constexpr std::optional<char> MapPrintableAsciiChar(
         constexpr std::array<char, 10> kShiftedDigits = {')', '!', '@', '#', '$', '%', '^', '&', '*', '('};
         return gsl::at(kShiftedDigits, vk - '0');
     }
+    if (!shift_down && vk >= VK_NUMPAD0 && vk <= VK_NUMPAD9) {
+        return gsl::narrow_cast<char>('0' + (vk - VK_NUMPAD0));
+    }
     switch (vk) {
+        case VK_DECIMAL:    return shift_down ? std::nullopt : std::optional<char>('.');
+        case VK_ADD:        return shift_down ? std::nullopt : std::optional<char>('+');
+        case VK_SUBTRACT:   return shift_down ? std::nullopt : std::optional<char>('-');
+        case VK_MULTIPLY:   return shift_down ? std::nullopt : std::optional<char>('*');
+        case VK_DIVIDE:     return shift_down ? std::nullopt : std::optional<char>('/');
         case VK_OEM_1:      return shift_down ? ':' : ';';
         case VK_OEM_PLUS:   return shift_down ? '+' : '=';
         case VK_OEM_COMMA:  return shift_down ? '<' : ',';
@@ -174,7 +182,7 @@ constexpr std::optional<wchar_t> MapFullWidthChar(
     return std::nullopt;
 }
 
-// Resolve 0-based page candidate index for digit keys ('1'..'9' -> 0..8)
+// Resolve 0-based page candidate index for digit keys ('1'..'9' / VK_NUMPAD1..9 -> 0..8)
 // and optional ';' (VK_OEM_1 -> 1) / ''' (VK_OEM_7 -> 2) quick-select keys.
 constexpr std::optional<size_t> ResolveCandidateSelectIndex(
     uint32_t vk, bool shift_down, bool quick_select_enabled = false) noexcept {
@@ -183,6 +191,9 @@ constexpr std::optional<size_t> ResolveCandidateSelectIndex(
     }
     if (vk >= '1' && vk <= '9') {
         return static_cast<size_t>(vk - '1');
+    }
+    if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD9) {
+        return static_cast<size_t>(vk - VK_NUMPAD1);
     }
     if (quick_select_enabled) {
         if (vk == VK_OEM_1) {
@@ -300,6 +311,13 @@ constexpr KeyEventKind ClassifyKeyEvent(
     }
     if (full_width && MapFullWidthChar(vk, shift_down, caps_lock_on).has_value()) {
         return KeyEventKind::PrintableAscii;
+    }
+    // While composing in Half-Width mode, swallow VK_NUMPAD0 and Numpad operators (+ - * / .) so they do not
+    // leak into the active TSF composition range as literal characters; they become no-op state updates.
+    if (state != EngineState::Idle && state != EngineState::English && !shift_down &&
+        (vk == VK_NUMPAD0 || vk == VK_DECIMAL || vk == VK_ADD || vk == VK_SUBTRACT ||
+         vk == VK_MULTIPLY || vk == VK_DIVIDE)) {
+        return KeyEventKind::DigitSelect;
     }
     // Keep stateless backward-compatible classification when called with default state == Idle (e.g. in static_asserts)
     if (!full_width && state == EngineState::Idle) {

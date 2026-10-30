@@ -47,6 +47,15 @@ void TestModeSwitchingAndShouldEatKey() {
     QIQI_TEST_CHECK(shift_b_res.committed_text == L"工B");
     QIQI_TEST_CHECK(!engine.IsComposing());
 
+    // Verify Numpad candidate selection (VK_NUMPAD1) and Numpad operator/0 protection while composing
+    engine.ProcessKey('A');
+    QIQI_TEST_CHECK(engine.ShouldEatKey(VK_NUMPAD1, false, false, false));
+    QIQI_TEST_CHECK(engine.ShouldEatKey(VK_NUMPAD0, false, false, false));
+    QIQI_TEST_CHECK(engine.ShouldEatKey(VK_DECIMAL, false, false, false));
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_NUMPAD0, false).action == KeyActionType::UpdateState);
+    auto numpad_sel = engine.ProcessKey(VK_NUMPAD1, false);
+    QIQI_TEST_CHECK(numpad_sel.action == KeyActionType::Commit && numpad_sel.committed_text == L"工");
+
     // Start composing again to test ToggleChineseMode reset
     engine.ProcessKey('A');
     QIQI_TEST_CHECK(engine.IsComposing());
@@ -180,6 +189,11 @@ void TestFullWidthMode() {
 
     auto fw_digit = engine.ProcessKey('1', false);
     QIQI_TEST_CHECK(fw_digit.action == KeyActionType::Commit && fw_digit.committed_text == L"１");
+
+    auto fw_numpad = engine.ProcessKey(VK_NUMPAD5, false);
+    QIQI_TEST_CHECK(fw_numpad.action == KeyActionType::Commit && fw_numpad.committed_text == L"５");
+    auto fw_numpad_dec = engine.ProcessKey(VK_DECIMAL, false);
+    QIQI_TEST_CHECK(fw_numpad_dec.action == KeyActionType::Commit && fw_numpad_dec.committed_text == L"．");
 
     auto fw_upper = engine.ProcessKey('A', true);
     QIQI_TEST_CHECK(fw_upper.action == KeyActionType::Commit && fw_upper.committed_text == L"Ａ");

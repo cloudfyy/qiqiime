@@ -26,6 +26,8 @@ struct KeyProcessResult {
     std::wstring committed_text;
     std::wstring composition_text;
     std::vector<std::wstring> page_candidates;
+    std::vector<std::wstring> all_display_candidates;
+    size_t page_size = 5;
     size_t selected_index = 0; // Index within page_candidates
     size_t current_page = 0;
     size_t total_pages = 0;

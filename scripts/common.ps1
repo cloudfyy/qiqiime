@@ -122,6 +122,36 @@ function Test-QiQiRuntimeFiles([hashtable]$Dlls) {
     }
 }
 
+function Grant-QiQiAppContainerReadExecute([hashtable]$Dlls) {
+    $dirsToGrant = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+    foreach ($dllPath in @($Dlls.X64, $Dlls.X86)) {
+        if ($dllPath -and (Test-Path $dllPath)) {
+            $dllDir = Split-Path -Parent $dllPath
+            [void]$dirsToGrant.Add($dllDir)
+            $parentDir = Split-Path -Parent $dllDir
+            if ($parentDir) {
+                $sharedData = Join-Path $parentDir "data"
+                if (Test-Path $sharedData) {
+                    [void]$dirsToGrant.Add($sharedData)
+                }
+            }
+        }
+    }
+    $repoDataDir = Join-Path $script:QiQiRepoRoot "data"
+    if (Test-Path $repoDataDir) {
+        [void]$dirsToGrant.Add($repoDataDir)
+    }
+
+    foreach ($dir in $dirsToGrant) {
+        & icacls.exe $dir /grant "*S-1-15-2-1:(OI)(CI)(RX)" /grant "*S-1-15-2-2:(OI)(CI)(RX)" /Q | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-QiQiPass "Granted AppContainer (S-1-15-2-1 / S-1-15-2-2) RX access: $dir"
+        } else {
+            Write-QiQiWarn "icacls exited with $LASTEXITCODE for $dir"
+        }
+    }
+}
+
 function Assert-QiQiAdminOrElevate([string]$ScriptPath, [string[]]$ForwardArgs, [switch]$AutoElevate) {
     if (Test-QiQiAdmin) {
         return
