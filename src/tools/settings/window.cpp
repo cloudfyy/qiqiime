@@ -73,6 +73,18 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                 ApplyLiveSettingsLanguage(hwnd, ctx);
             }
             return;
+        case kIdComboUnderlineStyle:
+            if (HIWORD(wparam) == CBN_SELCHANGE) {
+                UpdateExtraDictCheckboxState(hwnd);
+                ::InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return;
+        case kIdChkBoldUnderline:
+            if (const HWND combo = ::GetDlgItem(hwnd, kIdComboUnderlineStyle)) {
+                ::InvalidateRect(combo, nullptr, FALSE);
+            }
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+            return;
         case kIdChkLogKeystrokes:
             if (HIWORD(wparam) == BN_CLICKED && ::IsDlgButtonChecked(hwnd, kIdChkLogKeystrokes) == BST_CHECKED) {
                 const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
@@ -309,7 +321,7 @@ ScopedWindow CreateSettingsWindow(
 
     const DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
     const DWORD wnd_ex_style = WS_EX_APPWINDOW;
-    RECT desired_rc{0, 0, S(820), S(444)};
+    RECT desired_rc{0, 0, S(820), S(474)};
     ::AdjustWindowRectEx(&desired_rc, wnd_style, FALSE, wnd_ex_style);
     const int dlg_w = desired_rc.right - desired_rc.left;
     const int dlg_h = desired_rc.bottom - desired_rc.top;

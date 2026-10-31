@@ -27,6 +27,7 @@ using ScopedD2DObject = ScopedHandle<ComReleaseTraits<T>>;
 using ScopedD2DFactory       = ScopedD2DObject<ID2D1Factory>;
 using ScopedD2DDcTarget      = ScopedD2DObject<ID2D1DCRenderTarget>;
 using ScopedD2DBrush         = ScopedD2DObject<ID2D1SolidColorBrush>;
+using ScopedD2DStrokeStyle   = ScopedD2DObject<ID2D1StrokeStyle>;
 using ScopedDWriteFactory    = ScopedD2DObject<IDWriteFactory>;
 using ScopedDWriteTextFormat = ScopedD2DObject<IDWriteTextFormat>;
 using ScopedDWriteTextLayout = ScopedD2DObject<IDWriteTextLayout>;

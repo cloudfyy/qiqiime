@@ -310,7 +310,8 @@ STDMETHODIMP QiQiTextService::GetFunction(REFGUID rguid, REFIID riid, IUnknown**
 
 // ITfDisplayAttributeProvider
 STDMETHODIMP QiQiTextService::EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** ppEnum) noexcept {
-    return CreateComObjectToOut<QiQiEnumDisplayAttributeInfo>(ppEnum);
+    return CreateComObjectToOut<QiQiEnumDisplayAttributeInfo>(
+        ppEnum, 0u, config_.underline_style, config_.bold_underline);
 }
 
 STDMETHODIMP QiQiTextService::GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** ppInfo) noexcept {
@@ -321,7 +322,8 @@ STDMETHODIMP QiQiTextService::GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAt
         *ppInfo = nullptr;
         return E_INVALIDARG;
     }
-    return CreateComObjectToOut<QiQiDisplayAttributeInfo>(ppInfo);
+    return CreateComObjectToOut<QiQiDisplayAttributeInfo>(
+        ppInfo, config_.underline_style, config_.bold_underline);
 }
 
 } // namespace qiqi

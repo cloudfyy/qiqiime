@@ -22,6 +22,14 @@ enum class UiLanguage {
     EnUs   // English (en-US)
 };
 
+enum class CompositionUnderlineStyle {
+    Dot,      // TF_LS_DOT (default)
+    Solid,    // TF_LS_SOLID
+    Dash,     // TF_LS_DASH
+    Squiggle, // TF_LS_SQUIGGLE
+    None      // TF_LS_NONE
+};
+
 struct QiQiConfig {
     // [dictionary]
     PrimaryDict primary_dict = PrimaryDict::Jidian;
@@ -46,6 +54,8 @@ struct QiQiConfig {
     bool clear_on_empty_4code = false;
     bool enable_key_sound = false;
     UiLanguage ui_language = UiLanguage::Auto;
+    CompositionUnderlineStyle underline_style = CompositionUnderlineStyle::Dot;
+    bool bold_underline = false;
 
     // [log]
     log::Level log_level = log::Level::info;

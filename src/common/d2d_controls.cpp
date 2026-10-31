@@ -248,6 +248,90 @@ void DrawFluentToggleOrRadioRow(
     }
 }
 
+namespace {
+
+constexpr const wchar_t* kUnderlineComboBoldIdProp = L"QiQiUnderlineComboBoldId";
+
+bool QueryUnderlineComboBoldState(HWND combo_hwnd, CompositionUnderlineStyle& out_style, UINT item_index, bool& out_bold) noexcept {
+    const HANDLE prop = ::GetPropW(combo_hwnd, kUnderlineComboBoldIdProp);
+    if (!prop) {
+        return false;
+    }
+    if (item_index > static_cast<UINT>(CompositionUnderlineStyle::None)) {
+        return false;
+    }
+    out_style = static_cast<CompositionUnderlineStyle>(item_index);
+    const int bold_id = gsl::narrow_cast<int>(reinterpret_cast<INT_PTR>(prop));
+    const HWND parent = ::GetParent(combo_hwnd);
+    out_bold = parent && (::IsDlgButtonChecked(parent, bold_id) == BST_CHECKED);
+    return true;
+}
+
+} // namespace
+
+void DrawFluentUnderlineStylePreview(
+    const FluentD2DThemeContext& d2d,
+    CompositionUnderlineStyle style,
+    bool bold_line,
+    const D2D1_RECT_F& sample_rect,
+    const D2D1_COLOR_F& color) noexcept {
+    if (!d2d.d2d_target || !d2d.d2d_factory || style == CompositionUnderlineStyle::None) {
+        return;
+    }
+    const float x0 = sample_rect.left;
+    const float x1 = sample_rect.right;
+    if (x1 <= x0 + 4.0f) {
+        return;
+    }
+    const float y = (sample_rect.top + sample_rect.bottom) * 0.5f + d2d.ScaleF(1);
+    const float stroke_w = d2d.ScaleF(bold_line ? 2 : 1) + (bold_line ? 0.6f : 0.3f);
+    const auto brush = CreateSolidBrush(d2d.d2d_target.Get(), color);
+    if (!brush) {
+        return;
+    }
+
+    if (style == CompositionUnderlineStyle::Squiggle) {
+        const float step = (std::max)(2.0f, d2d.ScaleF(3));
+        const float amp = d2d.ScaleF(bold_line ? 2 : 1) + 0.8f;
+        float x = x0;
+        bool up = true;
+        while (x < x1) {
+            const float next_x = (std::min)(x + step, x1);
+            const float y0 = up ? (y - amp) : (y + amp);
+            const float y1 = up ? (y + amp) : (y - amp);
+            d2d.d2d_target->DrawLine(D2D1::Point2F(x, y0), D2D1::Point2F(next_x, y1), brush.Get(), stroke_w);
+            x = next_x;
+            up = !up;
+        }
+        return;
+    }
+
+    ScopedD2DStrokeStyle stroke_style;
+    if (style == CompositionUnderlineStyle::Dot || style == CompositionUnderlineStyle::Dash) {
+        D2D1_STROKE_STYLE_PROPERTIES props = D2D1::StrokeStyleProperties(
+            D2D1_CAP_STYLE_ROUND,
+            D2D1_CAP_STYLE_ROUND,
+            D2D1_CAP_STYLE_ROUND,
+            D2D1_LINE_JOIN_ROUND,
+            10.0f,
+            style == CompositionUnderlineStyle::Dot ? D2D1_DASH_STYLE_DOT : D2D1_DASH_STYLE_DASH,
+            0.0f);
+        std::ignore = d2d.d2d_factory->CreateStrokeStyle(&props, nullptr, 0, stroke_style.Put());
+    }
+    d2d.d2d_target->DrawLine(
+        D2D1::Point2F(x0, y),
+        D2D1::Point2F(x1, y),
+        brush.Get(),
+        stroke_w,
+        stroke_style.Get());
+}
+
+void EnableFluentUnderlineComboPreview(HWND combo_hwnd, int bold_checkbox_id) noexcept {
+    if (combo_hwnd && bold_checkbox_id > 0) {
+        ::SetPropW(combo_hwnd, kUnderlineComboBoldIdProp, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(bold_checkbox_id)));
+    }
+}
+
 void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d2d) noexcept {
     if (!d2d.d2d_target || !hdc) {
         return;
@@ -289,14 +373,28 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
         const LRESULT len = ::SendMessageW(hwnd, CB_GETLBTEXTLEN, static_cast<WPARAM>(cur_sel), 0);
         if (len > 0 && len < 127) {
             ::SendMessageW(hwnd, CB_GETLBTEXT, static_cast<WPARAM>(cur_sel), reinterpret_cast<LPARAM>(item_text));
-            const D2D1_RECT_F txt_rc = D2D1::RectF(d2d.ScaleF(10), 0.0f, w - d2d.ScaleF(26), h);
+            CompositionUnderlineStyle preview_style = CompositionUnderlineStyle::Dot;
+            bool preview_bold = false;
+            const bool has_preview = QueryUnderlineComboBoldState(
+                hwnd, preview_style, static_cast<UINT>(cur_sel), preview_bold);
+            const float right_limit = w - d2d.ScaleF(has_preview ? 90 : 26);
+            const D2D1_RECT_F txt_rc = D2D1::RectF(d2d.ScaleF(10), 0.0f, right_limit, h);
             d2d.d2d_target->DrawTextW(
                 item_text,
                 gsl::narrow_cast<UINT32>(wcslen(item_text)),
                 d2d.fmt_body.Get(),
                 txt_rc,
                 txt_brush.Get(),
-                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            if (has_preview) {
+                const D2D1_COLOR_F accent_col = is_dark ? MakeD2DColor(96, 178, 255) : MakeD2DColor(0, 103, 192);
+                DrawFluentUnderlineStylePreview(
+                    d2d,
+                    preview_style,
+                    preview_bold,
+                    D2D1::RectF(w - d2d.ScaleF(84), 0.0f, w - d2d.ScaleF(28), h),
+                    accent_col);
+            }
         }
     }
 
@@ -347,16 +445,34 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
     }
     const auto txt_brush = CreateSolidBrush(d2d.d2d_target.Get(), txt_col);
     if (d2d.fmt_body && txt_brush && item_text[0] != L'\0') {
+        const float item_w = static_cast<float>(dis.rcItem.right - dis.rcItem.left);
+        const float item_h = static_cast<float>(dis.rcItem.bottom - dis.rcItem.top);
+        CompositionUnderlineStyle preview_style = CompositionUnderlineStyle::Dot;
+        bool preview_bold = false;
+        const bool has_preview = QueryUnderlineComboBoldState(
+            dis.hwndItem, preview_style, dis.itemID, preview_bold);
         const D2D1_RECT_F rc = D2D1::RectF(
             6.0f, 0.0f,
-            static_cast<float>(dis.rcItem.right - dis.rcItem.left) - 4.0f,
-            static_cast<float>(dis.rcItem.bottom - dis.rcItem.top));
+            item_w - (has_preview ? d2d.ScaleF(74) : 4.0f),
+            item_h);
         d2d.d2d_target->DrawTextW(
             item_text,
             gsl::narrow_cast<UINT32>(wcslen(item_text)),
             d2d.fmt_body.Get(),
             rc,
-            txt_brush.Get());
+            txt_brush.Get(),
+            D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        if (has_preview) {
+            const D2D1_COLOR_F line_col = is_selected
+                ? txt_col
+                : (is_dark ? MakeD2DColor(96, 178, 255) : MakeD2DColor(0, 103, 192));
+            DrawFluentUnderlineStylePreview(
+                d2d,
+                preview_style,
+                preview_bold,
+                D2D1::RectF(item_w - d2d.ScaleF(68), 0.0f, item_w - d2d.ScaleF(10), item_h),
+                line_col);
+        }
     }
 }
 
@@ -453,6 +569,7 @@ LRESULT CALLBACK FluentComboBoxSubclassProc(
             return res;
         }
         case WM_NCDESTROY:
+            ::RemovePropW(hwnd, kUnderlineComboBoldIdProp);
             ::RemoveWindowSubclass(hwnd, &FluentComboBoxSubclassProc, uIdSubclass);
             break;
         default:

@@ -18,7 +18,7 @@ struct CheckboxCase {
     const wchar_t* UiStrings::* label;
 };
 
-constexpr std::array<CheckboxCase, 13> kCheckboxCases = {{
+constexpr std::array<CheckboxCase, 14> kCheckboxCases = {{
     {kIdChkExtraDict, &QiQiConfig::enable_jidian_extra, &UiStrings::dlg_chk_extra},
     {kIdChkAutoCommit4, &QiQiConfig::auto_commit_4code, &UiStrings::dlg_chk_auto_commit4},
     {kIdChkPushCommit5, &QiQiConfig::push_commit_5th, &UiStrings::dlg_chk_push_commit5},
@@ -27,6 +27,7 @@ constexpr std::array<CheckboxCase, 13> kCheckboxCases = {{
     {kIdChkDynamicFreq, &QiQiConfig::dynamic_phrase_freq, &UiStrings::dlg_chk_dynamic_freq},
     {kIdChkShiftToggle, &QiQiConfig::shift_toggle_mode, &UiStrings::dlg_chk_shift_toggle},
     {kIdChkStatusBar, &QiQiConfig::show_status_bar, &UiStrings::dlg_chk_status_bar},
+    {kIdChkBoldUnderline, &QiQiConfig::bold_underline, &UiStrings::dlg_chk_bold_underline},
     {kIdChkBeepEmpty4, &QiQiConfig::beep_on_empty_4code, &UiStrings::dlg_chk_beep_empty4},
     {kIdChkBeepDup4, &QiQiConfig::beep_on_dup_4code, &UiStrings::dlg_chk_beep_dup4},
     {kIdChkClearEmpty4, &QiQiConfig::clear_on_empty_4code, &UiStrings::dlg_chk_clear_empty4},
@@ -69,11 +70,48 @@ void TestSettingsBindingBoundaries() {
 
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboUnderlineStyle, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
     QiQiConfig actual;
     actual.page_size = 7;
     actual.ui_language = UiLanguage::EnUs;
+    actual.underline_style = CompositionUnderlineStyle::Squiggle;
     ReadSettingsFromWindowControls(hwnd.Get(), actual);
-    QIQI_TEST_CHECK(actual.page_size == 7 && actual.ui_language == UiLanguage::EnUs);
+    QIQI_TEST_CHECK(actual.page_size == 7 && actual.ui_language == UiLanguage::EnUs &&
+                    actual.underline_style == CompositionUnderlineStyle::Squiggle);
+
+    for (const CompositionUnderlineStyle style : {
+             CompositionUnderlineStyle::Dot,
+             CompositionUnderlineStyle::Solid,
+             CompositionUnderlineStyle::Dash,
+             CompositionUnderlineStyle::Squiggle,
+             CompositionUnderlineStyle::None}) {
+        cfg.underline_style = style;
+        cfg.bold_underline = (style == CompositionUnderlineStyle::Solid ||
+                              style == CompositionUnderlineStyle::Squiggle);
+        WriteSettingsToWindowControls(hwnd.Get(), cfg);
+        QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkBoldUnderline)) ==
+                        (style != CompositionUnderlineStyle::None ? TRUE : FALSE));
+        QiQiConfig read_style;
+        ReadSettingsFromWindowControls(hwnd.Get(), read_style);
+        QIQI_TEST_CHECK(read_style.underline_style == style &&
+                        read_style.bold_underline == cfg.bold_underline);
+        ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(kIdComboUnderlineStyle, CBN_SELCHANGE), 0);
+        ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(kIdChkBoldUnderline, BN_CLICKED), 0);
+        if (const HWND combo = ::GetDlgItem(hwnd.Get(), kIdComboUnderlineStyle)) {
+            const ScopedWindowDC combo_dc(combo);
+            DRAWITEMSTRUCT dis{};
+            dis.CtlType = ODT_COMBOBOX;
+            dis.CtlID = kIdComboUnderlineStyle;
+            dis.hwndItem = combo;
+            dis.hDC = combo_dc.Get();
+            dis.rcItem = {0, 0, 200, 22};
+            dis.itemID = static_cast<UINT>(style);
+            dis.itemState = (style == CompositionUnderlineStyle::Squiggle) ? ODS_SELECTED : 0;
+            ::SendMessageW(hwnd.Get(), WM_DRAWITEM, kIdComboUnderlineStyle, reinterpret_cast<LPARAM>(&dis));
+            dis.itemState = ODS_COMBOBOXEDIT;
+            ::SendMessageW(hwnd.Get(), WM_DRAWITEM, kIdComboUnderlineStyle, reinterpret_cast<LPARAM>(&dis));
+        }
+    }
 }
 
 void TestSettingsLiveLanguagePreservesControls() {

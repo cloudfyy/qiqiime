@@ -67,6 +67,13 @@ struct UiStrings {
     const wchar_t* dlg_lang_auto;
     const wchar_t* dlg_lang_zh;
     const wchar_t* dlg_lang_en;
+    const wchar_t* dlg_lbl_underline_style;
+    const wchar_t* dlg_underline_dot;
+    const wchar_t* dlg_underline_solid;
+    const wchar_t* dlg_underline_dash;
+    const wchar_t* dlg_underline_squiggle;
+    const wchar_t* dlg_underline_none;
+    const wchar_t* dlg_chk_bold_underline;
     const wchar_t* dlg_btn_about;
     const wchar_t* dlg_btn_ok;
     const wchar_t* dlg_btn_cancel;
@@ -141,6 +148,13 @@ inline constexpr UiStrings kZhCnStrings = {
     L"跟随系统 (Auto)",
     L"简体中文 (zh-CN)",
     L"English (en-US)",
+    L"编码下划线样式:",
+    L"点状虚线",
+    L"实线",
+    L"短横虚线",
+    L"波浪线",
+    L"无下划线",
+    L"加粗编码下划线",
     L"关于...",
     L"确定",
     L"取消",
@@ -217,6 +231,13 @@ inline constexpr UiStrings kEnUsStrings = {
     L"System Default (Auto)",
     L"Simplified Chinese (zh-CN)",
     L"English (en-US)",
+    L"Underline style:",
+    L"Dotted",
+    L"Solid",
+    L"Dashed",
+    L"Squiggle",
+    L"None",
+    L"Bold composition underline",
     L"About...",
     L"OK",
     L"Cancel",

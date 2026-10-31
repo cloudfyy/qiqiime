@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/config.h"
 #include "common/d2d_util.h"
 #include "common/monitor_dpi.h"
 
@@ -50,6 +51,13 @@ void DrawFluentToggleOrRadioRow(
 
 void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d2d) noexcept;
 void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeContext& d2d) noexcept;
+void DrawFluentUnderlineStylePreview(
+    const FluentD2DThemeContext& d2d,
+    CompositionUnderlineStyle style,
+    bool bold_line,
+    const D2D1_RECT_F& sample_rect,
+    const D2D1_COLOR_F& color) noexcept;
+void EnableFluentUnderlineComboPreview(HWND combo_hwnd, int bold_checkbox_id) noexcept;
 
 // The parent owns the returned child. A combo's context must outlive the child
 // and stay at the same address. Radio groups use MAKELONG(first_id, last_id).

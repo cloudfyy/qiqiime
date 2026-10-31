@@ -3,6 +3,7 @@
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/sound.h"
+#include "Ime/tsf/display_attribute.h"
 #include "Ime/tsf/tip_service.h"
 
 namespace qiqi::test {
@@ -105,7 +106,16 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetDescription(attr_desc.Put())) && attr_desc.IsValid());
     QIQI_TEST_CHECK(attr_info->GetAttributeInfo(nullptr) == E_INVALIDARG);
     TF_DISPLAYATTRIBUTE da{};
-    QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetAttributeInfo(&da)) && da.lsStyle == TF_LS_DOT);
+    QIQI_TEST_CHECK(SUCCEEDED(attr_info->GetAttributeInfo(&da)) &&
+                    da.lsStyle == TF_LS_DOT && da.crLine.type == TF_CT_NONE);
+    QIQI_TEST_CHECK(QiQiDisplayAttributeInfo::BuildAttribute(CompositionUnderlineStyle::Solid, true).lsStyle ==
+                    TF_LS_SOLID);
+    QIQI_TEST_CHECK(QiQiDisplayAttributeInfo::BuildAttribute(CompositionUnderlineStyle::Dash, false).lsStyle ==
+                    TF_LS_DASH);
+    QIQI_TEST_CHECK(QiQiDisplayAttributeInfo::BuildAttribute(CompositionUnderlineStyle::Squiggle, true).lsStyle ==
+                    TF_LS_SQUIGGLE);
+    QIQI_TEST_CHECK(QiQiDisplayAttributeInfo::BuildAttribute(CompositionUnderlineStyle::None, false).lsStyle ==
+                    TF_LS_NONE);
     QIQI_TEST_CHECK(attr_info->SetAttributeInfo(nullptr) == E_INVALIDARG);
     da.fBoldLine = TRUE;
     QIQI_TEST_CHECK(SUCCEEDED(attr_info->SetAttributeInfo(&da)));

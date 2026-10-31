@@ -11,20 +11,9 @@ namespace qiqi {
 
 using Microsoft::WRL::ComPtr;
 
-constexpr TF_DISPLAYATTRIBUTE QiQiDisplayAttributeInfo::DefaultAttribute() noexcept {
-    TF_DISPLAYATTRIBUTE da{};
-    da.crText.type = TF_CT_NONE;
-    da.crBk.type = TF_CT_NONE;
-    da.lsStyle = TF_LS_DOT;
-    da.fBoldLine = FALSE;
-    da.crLine.type = TF_CT_COLORREF;
-    da.crLine.cr = RGB(35, 105, 200);
-    da.bAttr = TF_ATTR_INPUT;
-    return da;
-}
-
-QiQiDisplayAttributeInfo::QiQiDisplayAttributeInfo() noexcept
-    : attr_(DefaultAttribute()) {}
+QiQiDisplayAttributeInfo::QiQiDisplayAttributeInfo(
+    CompositionUnderlineStyle style, bool bold_line) noexcept
+    : attr_(BuildAttribute(style, bold_line)) {}
 
 STDMETHODIMP QiQiDisplayAttributeInfo::GetGUID(GUID* pguid) noexcept {
     if (!pguid) {
@@ -57,17 +46,19 @@ STDMETHODIMP QiQiDisplayAttributeInfo::SetAttributeInfo(const TF_DISPLAYATTRIBUT
 }
 
 STDMETHODIMP QiQiDisplayAttributeInfo::Reset() noexcept {
-    attr_ = DefaultAttribute();
+    attr_ = BuildAttribute();
     QIQI_LOG_DEBUG("QiQiDisplayAttributeInfo::Reset restored default underline attribute");
     return S_OK;
 }
 
 // QiQiEnumDisplayAttributeInfo
-QiQiEnumDisplayAttributeInfo::QiQiEnumDisplayAttributeInfo(ULONG index) noexcept
-    : index_(index) {}
+QiQiEnumDisplayAttributeInfo::QiQiEnumDisplayAttributeInfo(
+    ULONG index, CompositionUnderlineStyle style, bool bold_line) noexcept
+    : index_(index), style_(style), bold_line_(bold_line) {}
 
 STDMETHODIMP QiQiEnumDisplayAttributeInfo::Clone(IEnumTfDisplayAttributeInfo** ppEnum) noexcept {
-    const HRESULT hr = CreateComObjectToOut<QiQiEnumDisplayAttributeInfo>(ppEnum, index_);
+    const HRESULT hr = CreateComObjectToOut<QiQiEnumDisplayAttributeInfo>(
+        ppEnum, index_, style_, bold_line_);
     if (FAILED(hr) && ppEnum != nullptr) {
         QIQI_LOG_ERROR("QiQiEnumDisplayAttributeInfo::Clone failed with E_OUTOFMEMORY");
     }
@@ -88,7 +79,7 @@ STDMETHODIMP QiQiEnumDisplayAttributeInfo::Next(
         if (pcFetched) *pcFetched = 0;
         return S_FALSE;
     }
-    if (FAILED(CreateComObjectToOut<QiQiDisplayAttributeInfo>(rgInfo))) {
+    if (FAILED(CreateComObjectToOut<QiQiDisplayAttributeInfo>(rgInfo, style_, bold_line_))) {
         QIQI_LOG_ERROR("QiQiEnumDisplayAttributeInfo::Next failed to allocate QiQiDisplayAttributeInfo");
         if (pcFetched) *pcFetched = 0;
         return E_OUTOFMEMORY;

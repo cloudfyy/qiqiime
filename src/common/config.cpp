@@ -20,7 +20,7 @@ struct BoolRegBinding {
     bool QiQiConfig::* field;
 };
 
-constexpr std::array<BoolRegBinding, 15> kBoolRegBindings = {{
+constexpr std::array<BoolRegBinding, 16> kBoolRegBindings = {{
     {L"EnableJidianExtra",         &QiQiConfig::enable_jidian_extra},
     {L"AutoCommit4Code",           &QiQiConfig::auto_commit_4code},
     {L"PushCommit5th",             &QiQiConfig::push_commit_5th},
@@ -36,6 +36,7 @@ constexpr std::array<BoolRegBinding, 15> kBoolRegBindings = {{
     {L"BeepOnEmpty4Code",          &QiQiConfig::beep_on_empty_4code},
     {L"BeepOnDup4Code",            &QiQiConfig::beep_on_dup_4code},
     {L"ClearOnEmpty4Code",         &QiQiConfig::clear_on_empty_4code},
+    {L"BoldUnderline",             &QiQiConfig::bold_underline},
 }};
 
 bool WriteRegDword(HKEY key, const wchar_t* name, DWORD val) noexcept {
@@ -266,6 +267,7 @@ bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexc
         if (!WriteRegDword(key.Get(), L"PrimaryDict", static_cast<DWORD>(config.primary_dict)) ||
             !WriteRegDword(key.Get(), L"PageSize", gsl::narrow_cast<DWORD>(std::clamp<size_t>(config.page_size, 1, 9))) ||
             !WriteRegDword(key.Get(), L"UiLanguage", static_cast<DWORD>(config.ui_language)) ||
+            !WriteRegDword(key.Get(), L"UnderlineStyle", static_cast<DWORD>(config.underline_style)) ||
             !WriteRegDword(key.Get(), L"LogLevel", static_cast<DWORD>(config.log_level)) ||
             !WriteRegDword(key.Get(), L"EnableKeySound", config.enable_key_sound ? 1u : 0u) ||
             !WriteRegDword(key.Get(), L"LogKeystrokes", config.log_keystrokes ? 1u : 0u) ||
@@ -323,6 +325,10 @@ bool LoadConfigFromRegistry(
         }
         if (ReadRegDword(key.Get(), L"UiLanguage", dw) && dw <= static_cast<DWORD>(UiLanguage::EnUs)) {
             cfg.ui_language = static_cast<UiLanguage>(dw);
+        }
+        if (ReadRegDword(key.Get(), L"UnderlineStyle", dw) &&
+            dw <= static_cast<DWORD>(CompositionUnderlineStyle::None)) {
+            cfg.underline_style = static_cast<CompositionUnderlineStyle>(dw);
         }
         if (ReadRegDword(key.Get(), L"LogLevel", dw) && dw <= static_cast<DWORD>(log::Level::off)) {
             cfg.log_level = static_cast<log::Level>(dw);

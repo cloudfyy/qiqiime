@@ -168,6 +168,8 @@ void TestIniConfiguration() {
     custom_reg_cfg.clear_on_empty_4code = true;
     custom_reg_cfg.enable_key_sound = true;
     custom_reg_cfg.ui_language = UiLanguage::EnUs;
+    custom_reg_cfg.underline_style = CompositionUnderlineStyle::Squiggle;
+    custom_reg_cfg.bold_underline = true;
     custom_reg_cfg.log_level = log::Level::debug;
     custom_reg_cfg.log_keystrokes = true;
 
@@ -195,6 +197,8 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(reg_out.clear_on_empty_4code);
     QIQI_TEST_CHECK(reg_out.enable_key_sound);
     QIQI_TEST_CHECK(reg_out.ui_language == UiLanguage::EnUs);
+    QIQI_TEST_CHECK(reg_out.underline_style == CompositionUnderlineStyle::Squiggle);
+    QIQI_TEST_CHECK(reg_out.bold_underline);
     QIQI_TEST_CHECK(reg_out.log_level == log::Level::debug);
     QIQI_TEST_CHECK(reg_out.log_keystrokes);
 
