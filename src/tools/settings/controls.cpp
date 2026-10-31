@@ -40,20 +40,20 @@ struct SettingsCheckboxBinding {
 };
 
 constexpr std::array<SettingsCheckboxBinding, 14> kSettingsCheckboxes = {{
-    {kIdChkExtraDict,     &QiQiConfig::enable_jidian_extra,          &UiStrings::dlg_chk_extra,           32,  78, 360},
-    {kIdChkAutoCommit4,   &QiQiConfig::auto_commit_4code,            &UiStrings::dlg_chk_auto_commit4,    32, 232, 360},
-    {kIdChkPushCommit5,   &QiQiConfig::push_commit_5th,              &UiStrings::dlg_chk_push_commit5,    32, 260, 360},
-    {kIdChkQuickSelect,   &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select,    32, 288, 360},
-    {kIdChkCodeHint,      &QiQiConfig::show_code_hint,               &UiStrings::dlg_chk_code_hint,       32, 316, 360},
-    {kIdChkDynamicFreq,   &QiQiConfig::dynamic_phrase_freq,          &UiStrings::dlg_chk_dynamic_freq,    32, 344, 360},
-    {kIdChkShiftToggle,   &QiQiConfig::shift_toggle_mode,            &UiStrings::dlg_chk_shift_toggle,    32, 372, 360},
-    {kIdChkStatusBar,     &QiQiConfig::show_status_bar,              &UiStrings::dlg_chk_status_bar,     430,  46, 360},
-    {kIdChkBoldUnderline, &QiQiConfig::bold_underline,               &UiStrings::dlg_chk_bold_underline, 430, 174, 360},
-    {kIdChkBeepEmpty4,    &QiQiConfig::beep_on_empty_4code,          &UiStrings::dlg_chk_beep_empty4,    430, 232, 360},
-    {kIdChkBeepDup4,      &QiQiConfig::beep_on_dup_4code,            &UiStrings::dlg_chk_beep_dup4,      430, 260, 360},
-    {kIdChkClearEmpty4,   &QiQiConfig::clear_on_empty_4code,         &UiStrings::dlg_chk_clear_empty4,   430, 288, 360},
-    {kIdChkKeySound,      &QiQiConfig::enable_key_sound,             &UiStrings::dlg_chk_key_sound,      430, 316, 360},
-    {kIdChkLogKeystrokes, &QiQiConfig::log_keystrokes,               &UiStrings::dlg_chk_log_keystrokes, 430, 344, 360},
+    {kIdChkExtraDict,      &QiQiConfig::enable_jidian_extra,          &UiStrings::dlg_chk_extra,             32,  78, 360},
+    {kIdChkAutoCommit4,    &QiQiConfig::auto_commit_4code,            &UiStrings::dlg_chk_auto_commit4,      32, 232, 360},
+    {kIdChkPushCommit5,    &QiQiConfig::push_commit_5th,              &UiStrings::dlg_chk_push_commit5,      32, 260, 360},
+    {kIdChkQuickSelect,    &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select,      32, 288, 360},
+    {kIdChkCodeHint,       &QiQiConfig::show_code_hint,               &UiStrings::dlg_chk_code_hint,         32, 316, 360},
+    {kIdChkDynamicFreq,    &QiQiConfig::dynamic_phrase_freq,          &UiStrings::dlg_chk_dynamic_freq,      32, 344, 360},
+    {kIdChkShiftToggle,    &QiQiConfig::shift_toggle_mode,            &UiStrings::dlg_chk_shift_toggle,      32, 372, 360},
+    {kIdChkUpDownPageTurn, &QiQiConfig::up_down_page_turn,            &UiStrings::dlg_chk_up_down_page_turn, 32, 400, 360},
+    {kIdChkStatusBar,      &QiQiConfig::show_status_bar,              &UiStrings::dlg_chk_status_bar,       430,  46, 360},
+    {kIdChkBoldUnderline,  &QiQiConfig::bold_underline,               &UiStrings::dlg_chk_bold_underline,   430, 174, 360},
+    {kIdChkBeepEmpty4,     &QiQiConfig::beep_on_empty_4code,          &UiStrings::dlg_chk_beep_empty4,      430, 238, 360},
+    {kIdChkBeepDup4,       &QiQiConfig::beep_on_dup_4code,            &UiStrings::dlg_chk_beep_dup4,        430, 272, 360},
+    {kIdChkClearEmpty4,    &QiQiConfig::clear_on_empty_4code,         &UiStrings::dlg_chk_clear_empty4,     430, 306, 360},
+    {kIdChkKeySound,       &QiQiConfig::enable_key_sound,             &UiStrings::dlg_chk_key_sound,        430, 340, 360},
 }};
 
 } // namespace
@@ -86,7 +86,6 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     for (const auto& binding : kSettingsCheckboxes) {
         ::SetDlgItemTextW(hwnd, binding.control_id, str.*(binding.label_field));
     }
-    ::SetDlgItemTextW(hwnd, kIdLblPrivacyNotice, str.dlg_lbl_privacy_notice);
     ::SetDlgItemTextW(hwnd, kIdLblPageSize, str.dlg_lbl_page_size);
     ::SetDlgItemTextW(hwnd, kIdLblUiLang, str.dlg_lbl_ui_lang);
     ::SetDlgItemTextW(hwnd, kIdLblUnderlineStyle, str.dlg_lbl_underline_style);
@@ -204,9 +203,9 @@ void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const 
 
     const std::array<FluentCardSpec, 4> cards = {{
         {D2D1::RectF(S(18),  S(16),  S(404), S(196)), L"词库方案",           L"Dictionary"},
-        {D2D1::RectF(S(18),  S(206), S(404), S(414)), L"编码与上屏习惯",     L"Input & Commit Behavior"},
+        {D2D1::RectF(S(18),  S(206), S(404), S(434)), L"编码与上屏习惯",     L"Input & Commit Behavior"},
         {D2D1::RectF(S(416), S(16),  S(802), S(202)), L"界面与外观",         L"Appearance & Display"},
-        {D2D1::RectF(S(416), S(206), S(802), S(414)), L"提示音与诊断",       L"Sound & Diagnostics"},
+        {D2D1::RectF(S(416), S(206), S(802), S(434)), L"提示音与反馈",       L"Sound & Feedback"},
     }};
     DrawFluentCardGroup(ctx.d2d, cards, is_en, is_dark);
 }
@@ -227,7 +226,6 @@ void UpdateExtraDictCheckboxState(HWND hwnd) noexcept {
 void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& ctx) noexcept {
     const auto S = [&ctx](int px) noexcept { return ctx.d2d.ScalePx(px); };
     const HFONT f = ctx.font.Get();
-    const HFONT bold_f = ctx.bold_font.Get();
     const auto& str = GetUiStrings(ctx.config ? ctx.config->ui_language : UiLanguage::Auto);
 
     constexpr DWORD_PTR radio_group = MAKELONG(kIdRadioJidian, kIdRadioBuiltin);
@@ -264,7 +262,6 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
             binding.control_id);
     }
 
-    CreateFluentChildControl(hwnd, instance, bold_f, &ctx.d2d, L"STATIC", str.dlg_lbl_privacy_notice, SS_NOPREFIX, S(448), S(370), S(340), S(36), kIdLblPrivacyNotice);
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"STATIC", str.dlg_lbl_page_size, 0, S(430), S(78), S(156), S(24), kIdLblPageSize);
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP, S(588), S(74), S(80), S(260), kIdComboPageSize);
     ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETMINVISIBLE, 9, 0);
@@ -296,9 +293,9 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
         ::SendDlgItemMessageW(hwnd, kIdComboUnderlineStyle, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
     }
 
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_about, BS_OWNERDRAW | WS_TABSTOP, S(18), S(428), S(104), S(32), kIdBtnAbout);
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_ok, BS_OWNERDRAW | WS_TABSTOP, S(596), S(428), S(98), S(32), kIdBtnOk);
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_cancel, BS_OWNERDRAW | WS_TABSTOP, S(704), S(428), S(98), S(32), kIdBtnCancel);
+    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_about, BS_OWNERDRAW | WS_TABSTOP, S(18), S(448), S(104), S(32), kIdBtnAbout);
+    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_ok, BS_OWNERDRAW | WS_TABSTOP, S(596), S(448), S(98), S(32), kIdBtnOk);
+    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_cancel, BS_OWNERDRAW | WS_TABSTOP, S(704), S(448), S(98), S(32), kIdBtnCancel);
 }
 
 } // namespace qiqi::settings_detail

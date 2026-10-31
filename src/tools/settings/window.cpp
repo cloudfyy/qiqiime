@@ -85,16 +85,6 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             }
             ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
-        case kIdChkLogKeystrokes:
-            if (HIWORD(wparam) == BN_CLICKED && ::IsDlgButtonChecked(hwnd, kIdChkLogKeystrokes) == BST_CHECKED) {
-                const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
-                const int choice = ShowSettingsMessage(hwnd, lang, SettingsMessageKind::PrivacyConfirmation);
-                if (choice != IDYES) {
-                    ::CheckDlgButton(hwnd, kIdChkLogKeystrokes, BST_UNCHECKED);
-                }
-            }
-            ::InvalidateRect(hwnd, nullptr, FALSE);
-            return;
         case kIdBtnOk: {
             if (ctx.config) {
                 if (ctx.save_on_accept) {
@@ -201,14 +191,9 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         }
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLORBTN: {
-            const HWND ctrl = reinterpret_cast<HWND>(lparam);
             const HDC hdc = reinterpret_cast<HDC>(wparam);
             const bool is_dark = IsSystemDarkTheme();
-            if (ctrl && ::GetDlgCtrlID(ctrl) == kIdLblPrivacyNotice) {
-                ::SetTextColor(hdc, is_dark ? RGB(255, 128, 114) : RGB(196, 43, 28));
-            } else {
-                ::SetTextColor(hdc, is_dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
-            }
+            ::SetTextColor(hdc, is_dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
             ::SetBkMode(hdc, TRANSPARENT);
             if (ctx->d2d.surface_brush) {
                 return reinterpret_cast<LRESULT>(ctx->d2d.surface_brush.Get());
@@ -321,7 +306,7 @@ ScopedWindow CreateSettingsWindow(
 
     const DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
     const DWORD wnd_ex_style = WS_EX_APPWINDOW;
-    RECT desired_rc{0, 0, S(820), S(474)};
+    RECT desired_rc{0, 0, S(820), S(494)};
     ::AdjustWindowRectEx(&desired_rc, wnd_style, FALSE, wnd_ex_style);
     const int dlg_w = desired_rc.right - desired_rc.left;
     const int dlg_h = desired_rc.bottom - desired_rc.top;

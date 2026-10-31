@@ -50,10 +50,10 @@ enum class KeyEventKind : uint8_t {
     Backspace = 5,        // VK_BACK
     Escape = 6,           // VK_ESCAPE
     DigitSelect = 7,      // '1'-'9' (or ';' / ''' when quick-select is enabled while composing)
-    CandidatePrev = 8,    // VK_UP or VK_LEFT (previous candidate, cross-page)
-    CandidateNext = 9,    // VK_DOWN or VK_RIGHT (next candidate, cross-page)
-    PageUp = 10,          // VK_PRIOR or '-'
-    PageDown = 11,        // VK_NEXT or '='
+    CandidatePrev = 8,    // VK_LEFT (or VK_UP when up_down_page_turn is false)
+    CandidateNext = 9,    // VK_RIGHT (or VK_DOWN when up_down_page_turn is false)
+    PageUp = 10,          // VK_PRIOR, '-' (or VK_UP when up_down_page_turn is true)
+    PageDown = 11,        // VK_NEXT, '=' (or VK_DOWN when up_down_page_turn is true)
     ChinesePunct = 12,    // Mapped Chinese full-width punctuation
     TempEnglishGuide = 13,// 'z' key in Idle when enable_z_temp_english is active
     PrintableAscii = 14,  // Printable ASCII key in TempEnglish or FullWidth mode
@@ -224,7 +224,8 @@ constexpr KeyEventKind ClassifyKeyEvent(
     bool z_temp_english = false,
     bool full_width = false,
     EngineState state = EngineState::Idle,
-    bool caps_lock_on = false) noexcept {
+    bool caps_lock_on = false,
+    bool up_down_page_turn = false) noexcept {
     if (ctrl_down || alt_down) {
         return KeyEventKind::None;
     }
@@ -281,12 +282,14 @@ constexpr KeyEventKind ClassifyKeyEvent(
             return KeyEventKind::Backspace;
         case VK_ESCAPE:
             return KeyEventKind::Escape;
-        case VK_UP:
         case VK_LEFT:
             return KeyEventKind::CandidatePrev;
-        case VK_DOWN:
         case VK_RIGHT:
             return KeyEventKind::CandidateNext;
+        case VK_UP:
+            return up_down_page_turn ? KeyEventKind::PageUp : KeyEventKind::CandidatePrev;
+        case VK_DOWN:
+            return up_down_page_turn ? KeyEventKind::PageDown : KeyEventKind::CandidateNext;
         case VK_PRIOR:
             return KeyEventKind::PageUp;
         case VK_NEXT:

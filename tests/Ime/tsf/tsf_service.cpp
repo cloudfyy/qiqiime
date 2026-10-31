@@ -439,7 +439,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QiQiConfig haifeng_cfg{};
     haifeng_cfg.primary_dict = PrimaryDict::Haifeng;
     haifeng_cfg.enable_jidian_extra = true;
-    haifeng_cfg.log_keystrokes = true;
+    haifeng_cfg.up_down_page_turn = true;
     haifeng_cfg.user_dict_path = L"wubi86_jidian_extra.txt";
     QIQI_TEST_CHECK(SaveConfig(haifeng_cfg));
 

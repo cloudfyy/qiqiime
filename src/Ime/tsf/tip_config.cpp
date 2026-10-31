@@ -341,6 +341,7 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
     engine_.SetBeepOnDup4Code(config_.beep_on_dup_4code);
     engine_.SetClearOnEmpty4Code(config_.clear_on_empty_4code);
     engine_.SetEnableKeySound(config_.enable_key_sound);
+    engine_.SetUpDownPageTurn(config_.up_down_page_turn);
 }
 
 bool QiQiTextService::PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts) {
@@ -509,10 +510,9 @@ void QiQiTextService::ReloadConfigIfModified() {
         }
         LoadExternalDictionaryNextToDll();
         SyncTsfCompartments();
-        QIQI_LOG_INFO("Hot-reloaded modified user configuration from HKCU\\Software\\QiQiIME (dict={}, mapped_dicts={}, log_keystrokes={})",
+        QIQI_LOG_INFO("Hot-reloaded modified user configuration from HKCU\\Software\\QiQiIME (dict={}, mapped_dicts={})",
                       PrimaryDictToString(config_.primary_dict),
-                      engine_.MappedDictionaryCount(),
-                      config_.log_keystrokes);
+                      engine_.MappedDictionaryCount());
     }
 }
 

@@ -27,7 +27,6 @@ bool ShowSettingsDialog(
 void ReportSettingsNotificationFailure(HWND parent, UiLanguage ui_language) noexcept;
 
 enum class SettingsMessageKind {
-    PrivacyConfirmation,
     SaveFailure,
     NotificationFailure
 };
@@ -40,7 +39,7 @@ enum class SettingsToastKind {
 ScopedWindow CreateSettingsMessageWindow(
     HINSTANCE instance, HWND parent, UiLanguage ui_language, SettingsMessageKind kind) noexcept;
 
-// Returns a button ID, or zero on creation/modal-loop failure. Privacy confirmation defaults to No.
+// Returns a button ID, or zero on creation/modal-loop failure.
 int ShowSettingsMessage(HWND parent, UiLanguage ui_language, SettingsMessageKind kind) noexcept;
 
 void ShowSettingsToast(UiLanguage ui_language, SettingsToastKind kind) noexcept;

@@ -103,6 +103,8 @@ public:
     void SetClearOnEmpty4Code(bool enabled) noexcept { clear_on_empty_4code_ = enabled; }
     bool EnableKeySound() const noexcept { return enable_key_sound_; }
     void SetEnableKeySound(bool enabled) noexcept { enable_key_sound_ = enabled; }
+    bool UpDownPageTurn() const noexcept { return up_down_page_turn_; }
+    void SetUpDownPageTurn(bool enabled) noexcept { up_down_page_turn_ = enabled; }
 
     // State queries
     EngineState State() const noexcept { return state_; }
@@ -196,6 +198,7 @@ private:
     bool beep_on_dup_4code_ = false;
     bool clear_on_empty_4code_ = false;
     bool enable_key_sound_ = false;
+    bool up_down_page_turn_ = false;
     bool full_width_mode_ = false;
     bool chinese_punctuation_ = true;
     bool double_quote_open_ = false;

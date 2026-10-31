@@ -167,11 +167,11 @@ void TestIniConfiguration() {
     custom_reg_cfg.beep_on_dup_4code = true;
     custom_reg_cfg.clear_on_empty_4code = true;
     custom_reg_cfg.enable_key_sound = true;
+    custom_reg_cfg.up_down_page_turn = true;
     custom_reg_cfg.ui_language = UiLanguage::EnUs;
     custom_reg_cfg.underline_style = CompositionUnderlineStyle::Squiggle;
     custom_reg_cfg.bold_underline = true;
     custom_reg_cfg.log_level = log::Level::debug;
-    custom_reg_cfg.log_keystrokes = true;
 
     QIQI_TEST_CHECK(SaveConfig(custom_reg_cfg));
     uint64_t seq_after_save = 0;
@@ -196,11 +196,11 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(reg_out.beep_on_dup_4code);
     QIQI_TEST_CHECK(reg_out.clear_on_empty_4code);
     QIQI_TEST_CHECK(reg_out.enable_key_sound);
+    QIQI_TEST_CHECK(reg_out.up_down_page_turn);
     QIQI_TEST_CHECK(reg_out.ui_language == UiLanguage::EnUs);
     QIQI_TEST_CHECK(reg_out.underline_style == CompositionUnderlineStyle::Squiggle);
     QIQI_TEST_CHECK(reg_out.bold_underline);
     QIQI_TEST_CHECK(reg_out.log_level == log::Level::debug);
-    QIQI_TEST_CHECK(reg_out.log_keystrokes);
 
     const QiQiConfig reloaded = LoadConfig(nullptr);
     QIQI_TEST_CHECK(reloaded.page_size == 8 && reloaded.primary_dict == PrimaryDict::Haifeng);

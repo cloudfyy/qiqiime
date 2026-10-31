@@ -49,81 +49,6 @@ bool IsCapsLockOn() noexcept {
     return (::GetKeyState(VK_CAPITAL) & 0x0001) != 0;
 }
 
-constexpr const char* KeyActionTypeToString(KeyActionType action) noexcept {
-    switch (action) {
-        case KeyActionType::PassThrough: return "PassThrough";
-        case KeyActionType::UpdateState: return "UpdateState";
-        case KeyActionType::Commit:      return "Commit";
-        case KeyActionType::Cancel:      return "Cancel";
-        default:                         return "Unknown";
-    }
-}
-
-std::string FormatVirtualKey(uint32_t vk) {
-    if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) {
-        return std::format("'{}'(0x{:02X})", static_cast<char>(vk), vk);
-    }
-    switch (vk) {
-        case VK_SPACE:      return "VK_SPACE(0x20)";
-        case VK_RETURN:     return "VK_RETURN(0x0D)";
-        case VK_BACK:       return "VK_BACK(0x08)";
-        case VK_ESCAPE:     return "VK_ESCAPE(0x1B)";
-        case VK_SHIFT:      return "VK_SHIFT(0x10)";
-        case VK_CAPITAL:    return "VK_CAPITAL(0x14)";
-        case VK_LEFT:       return "VK_LEFT(0x25)";
-        case VK_UP:         return "VK_UP(0x26)";
-        case VK_RIGHT:      return "VK_RIGHT(0x27)";
-        case VK_DOWN:       return "VK_DOWN(0x28)";
-        case VK_OEM_1:      return "VK_OEM_1(;/:)";
-        case VK_OEM_7:      return "VK_OEM_7('/\")";
-        case VK_OEM_MINUS:  return "VK_OEM_MINUS(-/_)";
-        case VK_OEM_PLUS:   return "VK_OEM_PLUS(=/+)";
-        case VK_OEM_COMMA:  return "VK_OEM_COMMA(,/<)";
-        case VK_OEM_PERIOD: return "VK_OEM_PERIOD(./>)";
-        default:            return std::format("0x{:02X}", vk);
-    }
-}
-
-void LogKeyTraceIfEnabled(
-    bool enabled,
-    uint32_t vk,
-    bool shift,
-    bool caps,
-    bool ctrl,
-    bool alt,
-    const KeyProcessResult& result,
-    size_t total_candidates,
-    PrimaryDict primary_dict,
-    size_t mapped_dicts) {
-    if (!enabled) {
-        return;
-    }
-    std::string cand_preview;
-    for (size_t i = 0; i < result.page_candidates.size(); ++i) {
-        if (i > 0) {
-            cand_preview += ", ";
-        }
-        cand_preview += std::format("{}:{}", i + 1, WideToUtf8(gsl::at(result.page_candidates, i)));
-    }
-    QIQI_LOG_INFO(
-        "[KeyTrace] vk={} shift={} caps={} ctrl={} alt={} -> action={} raw='{}' commit='{}' "
-        "total_cands={} page={}/{} page_cands=[{}] dict={} mapped_dicts={}",
-        FormatVirtualKey(vk),
-        shift,
-        caps,
-        ctrl,
-        alt,
-        KeyActionTypeToString(result.action),
-        WideToUtf8(result.composition_text),
-        WideToUtf8(result.committed_text),
-        total_candidates,
-        result.current_page + (result.total_pages > 0 ? 1 : 0),
-        result.total_pages,
-        cand_preview,
-        PrimaryDictToString(primary_dict),
-        mapped_dicts);
-}
-
 } // namespace
 
 // ITfKeyEventSink
@@ -199,17 +124,6 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
         // while letting VK_CAPITAL pass through (*pfEaten = FALSE) so Windows toggles CapsLock state.
         *pfEaten = FALSE;
         const KeyProcessResult result = engine_.ProcessKey(vk, shift, ctrl, alt, caps);
-        LogKeyTraceIfEnabled(
-            config_.log_keystrokes,
-            vk,
-            shift,
-            caps,
-            ctrl,
-            alt,
-            result,
-            engine_.AllCandidates().size(),
-            config_.primary_dict,
-            engine_.MappedDictionaryCount());
         if (pic && result.action != KeyActionType::PassThrough) {
             ApplyEngineResult(pic, result);
         }
@@ -223,17 +137,6 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
 
     *pfEaten = TRUE;
     const KeyProcessResult result = engine_.ProcessKey(vk, shift, ctrl, alt, caps);
-    LogKeyTraceIfEnabled(
-        config_.log_keystrokes,
-        vk,
-        shift,
-        caps,
-        ctrl,
-        alt,
-        result,
-        engine_.AllCandidates().size(),
-        config_.primary_dict,
-        engine_.MappedDictionaryCount());
     if (result.empty_4code_warning) {
         PlayImeSound(SoundEffectKind::EmptyCodeBeep);
     } else if (result.dup_4code_warning) {

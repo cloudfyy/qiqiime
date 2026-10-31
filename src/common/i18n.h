@@ -53,15 +53,12 @@ struct UiStrings {
     const wchar_t* dlg_chk_code_hint;
     const wchar_t* dlg_chk_dynamic_freq;
     const wchar_t* dlg_chk_shift_toggle;
+    const wchar_t* dlg_chk_up_down_page_turn;
     const wchar_t* dlg_chk_status_bar;
     const wchar_t* dlg_chk_beep_empty4;
     const wchar_t* dlg_chk_beep_dup4;
     const wchar_t* dlg_chk_clear_empty4;
     const wchar_t* dlg_chk_key_sound;
-    const wchar_t* dlg_chk_log_keystrokes;
-    const wchar_t* dlg_lbl_privacy_notice;
-    const wchar_t* dlg_confirm_log_title;
-    const wchar_t* dlg_confirm_log_msg;
     const wchar_t* dlg_lbl_page_size;
     const wchar_t* dlg_lbl_ui_lang;
     const wchar_t* dlg_lang_auto;
@@ -134,15 +131,12 @@ inline constexpr UiStrings kZhCnStrings = {
     L"显示后续编码提示 (~code)",
     L"启用词组动态调频 (单字不调频)",
     L"允许单按 Shift 键切换中英文",
+    L"使用 ↑ / ↓ 方向键翻页",
     L"显示桌面浮动状态条",
     L"四码空码时发出提示音",
     L"四码重码时发出提示音",
     L"空码时自动清空输入",
     L"启用打字按键音效",
-    L"收集按键诊断日志 (仅用于排查问题)",
-    L"⚠ 隐私提示：开启后将通过 Windows ETW 诊断通道输出您的按键与上屏文本等隐私信息",
-    L"隐私安全确认 - 收集按键诊断日志",
-    L"开启“收集按键诊断日志”后，您的按键过程、候选词及上屏文本等输入隐私信息将通过 Windows ETW (QiQiIME.TraceLogging) 诊断通道输出。\n\n该功能仅用于排查输入异常，排查完成后建议及时关闭。\n是否确认开启？",
     L"每页候选词数量:",
     L"界面语言 (Language):",
     L"跟随系统 (Auto)",
@@ -217,15 +211,12 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Show progressive code hints (~code)",
     L"Dynamic phrase frequency (single chars fixed)",
     L"Toggle CN/EN mode with Shift key",
+    L"Turn candidate pages with Up/Down keys",
     L"Show desktop floating status bar",
     L"Beep on empty 4-letter code",
     L"Chime on duplicate 4-letter code",
     L"Auto-clear input when no code matches",
     L"Enable typing key sound effects",
-    L"Log keystrokes for troubleshooting",
-    L"⚠ Privacy Notice: Emits typed keys and committed text via Windows ETW diagnostics",
-    L"Privacy Confirmation - Keystroke Logging",
-    L"Enabling keystroke logging will emit your typed keys, candidates, and committed text via the Windows ETW (QiQiIME.TraceLogging) diagnostic channel.\n\nThis option is intended only for troubleshooting. Are you sure you want to enable it?",
     L"Candidates per page:",
     L"UI Language:",
     L"System Default (Auto)",

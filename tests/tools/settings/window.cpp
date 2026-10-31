@@ -31,7 +31,7 @@ void TestSettingsDialogControls() {
     cfg.beep_on_dup_4code = true;
     cfg.clear_on_empty_4code = true;
     cfg.enable_key_sound = true;
-    cfg.log_keystrokes = true;
+    cfg.up_down_page_turn = true;
     cfg.page_size = 7;
 
     ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
@@ -53,7 +53,7 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(read_back.beep_on_dup_4code);
     QIQI_TEST_CHECK(read_back.clear_on_empty_4code);
     QIQI_TEST_CHECK(read_back.enable_key_sound);
-    QIQI_TEST_CHECK(read_back.log_keystrokes);
+    QIQI_TEST_CHECK(read_back.up_down_page_turn);
     QIQI_TEST_CHECK(read_back.page_size == 7);
 
     // Also test BuiltinOnly and Jidian radio states + UiLanguage combobox + Cancel / WM_CLOSE
@@ -85,40 +85,18 @@ void TestSettingsDialogControls() {
     ReadSettingsFromWindowControls(hwnd.Get(), read_back);
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::Auto);
 
-    // Test privacy notice WM_CTLCOLORSTATIC highlighting and confirmation MessageBox on kIdChkLogKeystrokes (120)
+    // Test WM_CTLCOLORSTATIC brush/text styling on a static control (kIdLblPageSize = 122)
     {
-        const HWND privacy_lbl = ::GetDlgItem(hwnd.Get(), 121);
-        QIQI_TEST_CHECK(privacy_lbl != nullptr);
-        const ScopedWindowDC lbl_dc(privacy_lbl);
+        const HWND lbl = ::GetDlgItem(hwnd.Get(), 122);
+        QIQI_TEST_CHECK(lbl != nullptr);
+        const ScopedWindowDC lbl_dc(lbl);
         QIQI_TEST_CHECK(::SendMessageW(
                             hwnd.Get(),
                             WM_CTLCOLORSTATIC,
                             reinterpret_cast<WPARAM>(lbl_dc.Get()),
-                            reinterpret_cast<LPARAM>(privacy_lbl)) != 0);
+                            reinterpret_cast<LPARAM>(lbl)) != 0);
         const COLORREF tc = ::GetTextColor(lbl_dc.Get());
-        QIQI_TEST_CHECK(tc == RGB(196, 43, 28) || tc == RGB(255, 128, 114));
-
-        // 1) User clicks Cancel/No on privacy confirmation -> checkbox is automatically unchecked
-        ::CheckDlgButton(hwnd.Get(), 120, BST_CHECKED);
-        ::SetTimer(nullptr, 8, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
-            ::KillTimer(nullptr, id);
-            if (const HWND msg_box = FindThreadWindowByClass(kSettingsMessageWndClass)) {
-                ::SendMessageW(msg_box, WM_COMMAND, MAKEWPARAM(IDNO, BN_CLICKED), 0);
-            }
-        });
-        ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(120, BN_CLICKED), 0);
-        QIQI_TEST_CHECK(::IsDlgButtonChecked(hwnd.Get(), 120) == BST_UNCHECKED);
-
-        // 2) User clicks Yes on privacy confirmation -> checkbox stays checked
-        ::CheckDlgButton(hwnd.Get(), 120, BST_CHECKED);
-        ::SetTimer(nullptr, 9, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
-            ::KillTimer(nullptr, id);
-            if (const HWND msg_box = FindThreadWindowByClass(kSettingsMessageWndClass)) {
-                ::SendMessageW(msg_box, WM_COMMAND, MAKEWPARAM(IDYES, BN_CLICKED), 0);
-            }
-        });
-        ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(120, BN_CLICKED), 0);
-        QIQI_TEST_CHECK(::IsDlgButtonChecked(hwnd.Get(), 120) == BST_CHECKED);
+        QIQI_TEST_CHECK(tc == RGB(28, 32, 40) || tc == RGB(238, 240, 245));
     }
 
     ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);

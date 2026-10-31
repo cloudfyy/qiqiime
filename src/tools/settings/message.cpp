@@ -42,8 +42,6 @@ struct MessageStrings {
 MessageStrings GetMessageStrings(UiLanguage language, SettingsMessageKind kind) noexcept {
     const auto& str = GetUiStrings(language);
     switch (kind) {
-        case SettingsMessageKind::PrivacyConfirmation:
-            return {str.dlg_confirm_log_title, str.dlg_confirm_log_msg};
         case SettingsMessageKind::SaveFailure:
             return {str.dlg_title, str.dlg_save_failed};
         case SettingsMessageKind::NotificationFailure:
@@ -76,15 +74,9 @@ void ApplyToastLanguage(HWND hwnd, ToastContext& ctx, UiLanguage language) noexc
 void ApplyMessageLanguage(HWND hwnd, const MessageContext& ctx) noexcept {
     const auto strings = GetMessageStrings(ctx.language, ctx.kind);
     const auto& str = GetUiStrings(ctx.language);
-    const bool confirmation = ctx.kind == SettingsMessageKind::PrivacyConfirmation;
     ::SetWindowTextW(hwnd, strings.title);
     ::SetDlgItemTextW(hwnd, kMessageTextId, strings.text);
-    if (confirmation) {
-        ::SetDlgItemTextW(hwnd, IDYES, str.dlg_btn_yes);
-        ::SetDlgItemTextW(hwnd, IDNO, str.dlg_btn_no);
-    } else {
-        ::SetDlgItemTextW(hwnd, IDOK, str.dlg_btn_ok);
-    }
+    ::SetDlgItemTextW(hwnd, IDOK, str.dlg_btn_ok);
     ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
@@ -237,38 +229,28 @@ LRESULT CALLBACK MessageWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
             ApplyMessageLanguage(hwnd, *ctx);
             return 0;
         case WM_KEYDOWN: {
-            const bool confirmation = ctx->kind == SettingsMessageKind::PrivacyConfirmation;
-            if (wparam == VK_ESCAPE) {
-                CloseMessage(hwnd, *ctx, confirmation ? IDCANCEL : IDOK);
+            if (wparam == VK_ESCAPE || wparam == VK_RETURN) {
+                CloseMessage(hwnd, *ctx, IDOK);
                 return 0;
             }
             if (wparam == VK_TAB) {
-                const int focused = ::GetDlgCtrlID(::GetFocus());
-                ::SetFocus(::GetDlgItem(hwnd, confirmation ? (focused == IDYES ? IDNO : IDYES) : IDOK));
-                return 0;
-            }
-            if (wparam == VK_RETURN) {
-                const int focused = ::GetDlgCtrlID(::GetFocus());
-                CloseMessage(hwnd, *ctx, confirmation ? (focused == IDYES ? IDYES : IDNO) : IDOK);
+                ::SetFocus(::GetDlgItem(hwnd, IDOK));
                 return 0;
             }
             break;
         }
         case WM_SETFOCUS:
-            ::SetFocus(::GetDlgItem(hwnd,
-                ctx->kind == SettingsMessageKind::PrivacyConfirmation ? IDNO : IDOK));
+            ::SetFocus(::GetDlgItem(hwnd, IDOK));
             return 0;
         case WM_COMMAND: {
             const int id = LOWORD(wparam);
-            const bool confirmation = ctx->kind == SettingsMessageKind::PrivacyConfirmation;
-            if ((confirmation && (id == IDYES || id == IDNO || id == IDCANCEL)) ||
-                (!confirmation && (id == IDOK || id == IDCANCEL))) {
+            if (id == IDOK || id == IDCANCEL) {
                 CloseMessage(hwnd, *ctx, id);
             }
             return 0;
         }
         case WM_CLOSE:
-            CloseMessage(hwnd, *ctx, ctx->kind == SettingsMessageKind::PrivacyConfirmation ? IDCANCEL : IDOK);
+            CloseMessage(hwnd, *ctx, IDOK);
             return 0;
         case WM_NCDESTROY: {
             ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
@@ -354,22 +336,12 @@ ScopedWindow CreateSettingsMessageWindow(
         QIQI_LOG_ERROR("Settings message body creation failed");
         return {};
     }
-    const bool confirmation = kind == SettingsMessageKind::PrivacyConfirmation;
     const HWND primary = CreateFluentChildControl(hwnd.Get(), instance, font, theme,
-        L"BUTTON", confirmation ? GetUiStrings(ui_language).dlg_btn_yes : GetUiStrings(ui_language).dlg_btn_ok,
-        BS_OWNERDRAW | WS_TABSTOP, scale(confirmation ? 324 : 436), height - scale(42),
-        scale(100), scale(32), confirmation ? IDYES : IDOK);
+        L"BUTTON", GetUiStrings(ui_language).dlg_btn_ok,
+        BS_OWNERDRAW | WS_TABSTOP, scale(436), height - scale(42),
+        scale(100), scale(32), IDOK);
     if (!primary || !::IsWindow(hwnd.Get())) {
         QIQI_LOG_ERROR("Settings message button creation failed");
-        return {};
-    }
-    const HWND negative = confirmation
-        ? CreateFluentChildControl(hwnd.Get(), instance, font, theme,
-            L"BUTTON", GetUiStrings(ui_language).dlg_btn_no, BS_OWNERDRAW | WS_TABSTOP,
-            scale(436), height - scale(42), scale(100), scale(32), IDNO)
-        : nullptr;
-    if (!::IsWindow(hwnd.Get()) || (confirmation && !negative)) {
-        QIQI_LOG_ERROR("Settings message control creation failed");
         return {};
     }
     ApplySystemThemeToMenuAndWindow(hwnd.Get(), IsSystemDarkTheme());

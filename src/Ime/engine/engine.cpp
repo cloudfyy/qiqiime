@@ -229,6 +229,7 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     beep_on_dup_4code_ = cfg.beep_on_dup_4code;
     clear_on_empty_4code_ = cfg.clear_on_empty_4code;
     enable_key_sound_ = cfg.enable_key_sound;
+    up_down_page_turn_ = cfg.up_down_page_turn;
     full_width_mode_ = cfg.default_full_width;
     chinese_punctuation_ = cfg.default_chinese_punct;
     SetChineseMode(cfg.default_chinese_mode);
@@ -699,7 +700,8 @@ TransitionRule WubiEngine::EvaluateKeyTransition(
         enable_z_temp_english_,
         full_width_mode_,
         state_,
-        caps_lock_on);
+        caps_lock_on,
+        up_down_page_turn_);
     return LookupTransition(state_, event);
 }
 

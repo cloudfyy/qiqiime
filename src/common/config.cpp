@@ -20,7 +20,7 @@ struct BoolRegBinding {
     bool QiQiConfig::* field;
 };
 
-constexpr std::array<BoolRegBinding, 16> kBoolRegBindings = {{
+constexpr std::array<BoolRegBinding, 17> kBoolRegBindings = {{
     {L"EnableJidianExtra",         &QiQiConfig::enable_jidian_extra},
     {L"AutoCommit4Code",           &QiQiConfig::auto_commit_4code},
     {L"PushCommit5th",             &QiQiConfig::push_commit_5th},
@@ -36,6 +36,7 @@ constexpr std::array<BoolRegBinding, 16> kBoolRegBindings = {{
     {L"BeepOnEmpty4Code",          &QiQiConfig::beep_on_empty_4code},
     {L"BeepOnDup4Code",            &QiQiConfig::beep_on_dup_4code},
     {L"ClearOnEmpty4Code",         &QiQiConfig::clear_on_empty_4code},
+    {L"UpDownPageTurn",            &QiQiConfig::up_down_page_turn},
     {L"BoldUnderline",             &QiQiConfig::bold_underline},
 }};
 
@@ -270,7 +271,6 @@ bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexc
             !WriteRegDword(key.Get(), L"UnderlineStyle", static_cast<DWORD>(config.underline_style)) ||
             !WriteRegDword(key.Get(), L"LogLevel", static_cast<DWORD>(config.log_level)) ||
             !WriteRegDword(key.Get(), L"EnableKeySound", config.enable_key_sound ? 1u : 0u) ||
-            !WriteRegDword(key.Get(), L"LogKeystrokes", config.log_keystrokes ? 1u : 0u) ||
             !WriteRegString(key.Get(), L"UserDictPath", config.user_dict_path)) {
             return false;
         }
@@ -335,9 +335,6 @@ bool LoadConfigFromRegistry(
         }
         if (ReadRegDword(key.Get(), L"EnableKeySound", dw)) {
             cfg.enable_key_sound = (dw != 0);
-        }
-        if (ReadRegDword(key.Get(), L"LogKeystrokes", dw)) {
-            cfg.log_keystrokes = (dw != 0);
         }
         std::ignore = ReadRegString(key.Get(), L"UserDictPath", cfg.user_dict_path);
         for (const auto& binding : kBoolRegBindings) {

@@ -53,14 +53,13 @@ struct QiQiConfig {
     bool beep_on_dup_4code = false;
     bool clear_on_empty_4code = false;
     bool enable_key_sound = false;
+    bool up_down_page_turn = false;
     UiLanguage ui_language = UiLanguage::Auto;
     CompositionUnderlineStyle underline_style = CompositionUnderlineStyle::Dot;
     bool bold_underline = false;
 
     // [log]
     log::Level log_level = log::Level::info;
-    // Collect detailed keystroke/candidate trace into log file for troubleshooting (disabled by default for privacy)
-    bool log_keystrokes = false;
 };
 
 // Return canonical string name of PrimaryDict ("jidian" | "haifeng" | "builtin").

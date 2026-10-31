@@ -32,7 +32,7 @@ constexpr std::array<CheckboxCase, 14> kCheckboxCases = {{
     {kIdChkBeepDup4, &QiQiConfig::beep_on_dup_4code, &UiStrings::dlg_chk_beep_dup4},
     {kIdChkClearEmpty4, &QiQiConfig::clear_on_empty_4code, &UiStrings::dlg_chk_clear_empty4},
     {kIdChkKeySound, &QiQiConfig::enable_key_sound, &UiStrings::dlg_chk_key_sound},
-    {kIdChkLogKeystrokes, &QiQiConfig::log_keystrokes, &UiStrings::dlg_chk_log_keystrokes},
+    {kIdChkUpDownPageTurn, &QiQiConfig::up_down_page_turn, &UiStrings::dlg_chk_up_down_page_turn},
 }};
 
 void TestSettingsBindingBoundaries() {

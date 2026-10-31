@@ -23,9 +23,21 @@ void TestCompileTimeFsmTransitions() {
         KeyEventKind::DigitSelect);
     static_assert(ClassifyKeyEvent('1', true, false, false) == KeyEventKind::ChinesePunct);
     static_assert(ClassifyKeyEvent(VK_UP, false, false, false) == KeyEventKind::CandidatePrev);
+    static_assert(
+        ClassifyKeyEvent(VK_UP, false, false, false, true, false, true, false, EngineState::Composing1, false, true) ==
+        KeyEventKind::PageUp);
     static_assert(ClassifyKeyEvent(VK_LEFT, false, false, false) == KeyEventKind::CandidatePrev);
+    static_assert(
+        ClassifyKeyEvent(VK_LEFT, false, false, false, true, false, true, false, EngineState::Composing1, false, true) ==
+        KeyEventKind::CandidatePrev);
     static_assert(ClassifyKeyEvent(VK_DOWN, false, false, false) == KeyEventKind::CandidateNext);
+    static_assert(
+        ClassifyKeyEvent(VK_DOWN, false, false, false, true, false, true, false, EngineState::Composing1, false, true) ==
+        KeyEventKind::PageDown);
     static_assert(ClassifyKeyEvent(VK_RIGHT, false, false, false) == KeyEventKind::CandidateNext);
+    static_assert(
+        ClassifyKeyEvent(VK_RIGHT, false, false, false, true, false, true, false, EngineState::Composing1, false, true) ==
+        KeyEventKind::CandidateNext);
     static_assert(ClassifyKeyEvent(VK_OEM_MINUS, false, false, false) == KeyEventKind::None);
     static_assert(ClassifyKeyEvent(VK_OEM_PLUS, false, false, false) == KeyEventKind::None);
     static_assert(
@@ -333,6 +345,19 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(prev_page.current_page == 0);
     // Prev page at page 0 stays on page 0
     QIQI_TEST_CHECK(engine.ProcessKey(VK_PRIOR).current_page == 0);
+
+    // Test Jidian-style Up/Down page-turn option (default false):
+    // When enabled, VK_DOWN / VK_UP turns pages while VK_LEFT / VK_RIGHT still selects candidates.
+    QIQI_TEST_CHECK(!engine.UpDownPageTurn());
+    engine.SetUpDownPageTurn(true);
+    QIQI_TEST_CHECK(engine.UpDownPageTurn());
+    auto down_page = engine.ProcessKey(VK_DOWN);
+    QIQI_TEST_CHECK(down_page.current_page == 1 && down_page.selected_index == 0);
+    auto right_sel = engine.ProcessKey(VK_RIGHT);
+    QIQI_TEST_CHECK(right_sel.current_page == 1 && right_sel.selected_index == 1);
+    auto up_page = engine.ProcessKey(VK_UP);
+    QIQI_TEST_CHECK(up_page.current_page == 0 && up_page.selected_index == 0);
+    engine.SetUpDownPageTurn(false);
 
     // Go to page 2 (index 1), where only 2 candidates exist; pressing '9' is out of range
     engine.ProcessKey(VK_OEM_PLUS);

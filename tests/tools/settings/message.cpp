@@ -32,17 +32,11 @@ void CheckBackground(HWND hwnd, COLORREF expected) {
 
 void CheckMessageText(HWND message, SettingsMessageKind kind, UiLanguage language) {
     const auto& str = GetUiStrings(language);
-    const bool privacy = kind == SettingsMessageKind::PrivacyConfirmation;
-    QIQI_TEST_CHECK(WindowText(message) == (privacy ? str.dlg_confirm_log_title : str.dlg_title));
-    const auto* expected = privacy ? str.dlg_confirm_log_msg
-        : (kind == SettingsMessageKind::SaveFailure ? str.dlg_save_failed : str.dlg_notify_failed);
+    QIQI_TEST_CHECK(WindowText(message) == str.dlg_title);
+    const auto* expected =
+        (kind == SettingsMessageKind::SaveFailure ? str.dlg_save_failed : str.dlg_notify_failed);
     QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, 0xFFFF)) == expected);
-    if (privacy) {
-        QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, IDYES)) == str.dlg_btn_yes);
-        QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, IDNO)) == str.dlg_btn_no);
-    } else {
-        QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, IDOK)) == str.dlg_btn_ok);
-    }
+    QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, IDOK)) == str.dlg_btn_ok);
     RECT client{}, body{};
     QIQI_TEST_CHECK(::GetClientRect(message, &client));
     QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(message, 0xFFFF), &body));
@@ -68,8 +62,7 @@ void TestLiveThemeAndLanguage() {
     const ScopedWindow settings(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg, true));
     const ScopedWindow about(CreateAboutWindow(::GetModuleHandleW(nullptr), settings.Get(), UiLanguage::ZhCn));
     QIQI_TEST_CHECK(settings && about);
-    for (const auto kind : {SettingsMessageKind::PrivacyConfirmation,
-                             SettingsMessageKind::SaveFailure, SettingsMessageKind::NotificationFailure}) {
+    for (const auto kind : {SettingsMessageKind::SaveFailure, SettingsMessageKind::NotificationFailure}) {
         const ScopedWindow message(CreateSettingsMessageWindow(
             ::GetModuleHandleW(nullptr), settings.Get(), UiLanguage::ZhCn, kind));
         QIQI_TEST_CHECK(message);
@@ -128,13 +121,13 @@ void TestPromptModalBehavior() {
             if (!message) return;
             ::KillTimer(nullptr, id);
             QIQI_TEST_CHECK(!::IsWindowEnabled(::GetWindow(message, GW_OWNER)));
-            QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == IDNO);
-            ::PostMessageW(::GetDlgItem(message, IDNO), WM_KEYDOWN, VK_RETURN, 0);
+            QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == IDOK);
+            ::PostMessageW(::GetDlgItem(message, IDOK), WM_KEYDOWN, VK_RETURN, 0);
         });
         QIQI_TEST_CHECK(timer != 0);
         const auto cancel_timer = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
         QIQI_TEST_CHECK(ShowSettingsMessage(owner.Get(), UiLanguage::EnUs,
-                                            SettingsMessageKind::PrivacyConfirmation) == IDNO);
+                                            SettingsMessageKind::SaveFailure) == IDOK);
         QIQI_TEST_CHECK((::IsWindowEnabled(owner.Get()) != FALSE) == initially_enabled);
     }
     ::EnableWindow(owner.Get(), TRUE);
@@ -145,8 +138,8 @@ void TestPromptModalBehavior() {
             ::KillTimer(timer_owner, id);
             if (id == VK_TAB) {
                 ::SendMessageW(message, WM_KEYDOWN, VK_TAB, 0);
-                QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == IDYES);
-                ::PostMessageW(::GetDlgItem(message, IDYES), WM_KEYDOWN, VK_RETURN, 0);
+                QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == IDOK);
+                ::PostMessageW(::GetDlgItem(message, IDOK), WM_KEYDOWN, VK_RETURN, 0);
             } else {
                 ::PostMessageW(message, WM_KEYDOWN, VK_ESCAPE, 0);
             }
@@ -156,7 +149,7 @@ void TestPromptModalBehavior() {
             ::KillTimer(timer_owner, timer);
         });
         QIQI_TEST_CHECK(ShowSettingsMessage(owner.Get(), UiLanguage::ZhCn,
-            SettingsMessageKind::PrivacyConfirmation) == (key == VK_TAB ? IDYES : IDCANCEL));
+            SettingsMessageKind::NotificationFailure) == IDOK);
     }
     QiQiConfig cfg;
     ::PostQuitMessage(81);
