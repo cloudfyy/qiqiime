@@ -34,6 +34,42 @@ std::vector<uint8_t> MakeSingleEntryQdictBuffer() {
     return buffer;
 }
 
+bool WriteInvalidIndexQdictCache(
+    const std::filesystem::path& source_path,
+    const std::filesystem::path& cache_path) {
+    std::error_code ec;
+    const uint64_t source_size = std::filesystem::file_size(source_path, ec);
+    if (ec) {
+        return false;
+    }
+    const uint64_t source_mtime = gsl::narrow_cast<uint64_t>(
+        std::filesystem::last_write_time(source_path, ec).time_since_epoch().count());
+    if (ec) {
+        return false;
+    }
+
+    auto buffer = MakeSingleEntryQdictBuffer();
+    DictBinaryHeader header{};
+    std::memcpy(&header, buffer.data(), sizeof(header));
+    header.source_size = source_size;
+    header.source_mtime = source_mtime;
+    std::memcpy(buffer.data(), &header, sizeof(header));
+
+    DictCodeIndex code_index{};
+    std::memcpy(&code_index, buffer.data() + sizeof(DictBinaryHeader), sizeof(code_index));
+    code_index.first_word_idx = UINT32_MAX;
+    std::memcpy(buffer.data() + sizeof(DictBinaryHeader), &code_index, sizeof(code_index));
+
+    std::ofstream cache_file(cache_path, std::ios::binary | std::ios::trunc);
+    if (!cache_file) {
+        return false;
+    }
+    cache_file.write(
+        reinterpret_cast<const char*>(buffer.data()),
+        gsl::narrow_cast<std::streamsize>(buffer.size()));
+    return cache_file.good();
+}
+
 void TestBinaryDictBufferValidation() {
     auto valid_buffer = MakeSingleEntryQdictBuffer();
     const auto valid_dict = WubiMappedDict::LoadFromBinaryBuffer(std::move(valid_buffer));
@@ -186,12 +222,15 @@ void TestExternalDictFile() {
             << "瑞梅词\tzzzy\t100\n"
             << "超长码词\tabcde\t50\n";
     }
-    // Pre-create a corrupted adjacent .qdict file (<40 bytes) to test corruption recovery and rebuild
-    {
-        std::ofstream bad_qdict(adjacent_qdict, std::ios::binary);
-        bad_qdict << "corrupt";
-    }
+    // Pre-create a full-size cache with matching source metadata and an invalid index entry.
+    WubiMappedDict::ClearProcessCache();
+    const auto fallback_cache = GetAppDataDirectory() / L"cache" / L"qiqiime_test_dict.qdict";
+    std::error_code cache_ec;
+    std::filesystem::remove(fallback_cache, cache_ec);
+    QIQI_TEST_CHECK(WriteInvalidIndexQdictCache(temp_dict, adjacent_qdict));
     QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
+    const auto rebuilt_zzzz = engine.LookupExact(L"zzzz");
+    QIQI_TEST_CHECK(rebuilt_zzzz.size() == 2 && rebuilt_zzzz[0] == L"测一" && rebuilt_zzzz[1] == L"测二");
     // Loading the same file a second time hits the in-process & disk .qdict cache
     QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
     QIQI_TEST_CHECK(engine.MappedDictionaryCount() >= 1);
