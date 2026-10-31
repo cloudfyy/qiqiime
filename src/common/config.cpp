@@ -167,7 +167,7 @@ ScopedRegKey OpenOrCreateConfigRegKey(const wchar_t* subkey, REGSAM access) noex
     return key;
 }
 
-bool BumpRegistrySequenceLocked(HKEY key) noexcept {
+bool BumpRegistrySequence(HKEY key) noexcept {
     uint64_t seq = 0;
     DWORD cb = sizeof(seq);
     DWORD type = 0;
@@ -252,7 +252,7 @@ bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexc
                 return false;
             }
         }
-        return BumpRegistrySequenceLocked(key.Get());
+        return BumpRegistrySequence(key.Get());
     } catch (...) {
         return false;
     }
@@ -359,7 +359,7 @@ bool SaveUserDictBinaryToRegistry(
                 gsl::narrow_cast<DWORD>(qdict_bytes.size())) != ERROR_SUCCESS) {
             return false;
         }
-        return BumpRegistrySequenceLocked(key.Get());
+        return BumpRegistrySequence(key.Get());
     } catch (...) {
         return false;
     }
