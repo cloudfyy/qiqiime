@@ -102,6 +102,8 @@ std::wstring CandidateUI::FormatCandidateLabel(size_t index_in_page, std::wstrin
 
 void CandidateUI::RecalculatePopupLayout() {
     candidate_hit_rects_.clear();
+    prev_page_hit_rect_ = {};
+    next_page_hit_rect_ = {};
     const ScopedWindowDC screen_dc(hwnd_.Get());
     if (!screen_dc && !dwrite_text_format_) {
         popup_width_ = ScaleByDpi(kPopupWidth);
@@ -115,6 +117,8 @@ void CandidateUI::RecalculatePopupLayout() {
     const int item_gap = ScaleByDpi(16);
     const int row2_top = ScaleByDpi(32);
     const int row2_bottom = ScaleByDpi(kPopupHeight - 4);
+    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
+    const int nav_reserve_cx = (total_pages > 1) ? ScaleByDpi(52) : 0;
 
     const int header_cx = MeasureTextWidth(screen_dc.Get(), FormatHeaderText());
 
@@ -130,12 +134,36 @@ void CandidateUI::RecalculatePopupLayout() {
         cursor_x += item_cx + item_gap;
     }
 
-    const int content_width = std::max<int>(header_cx + margin_x * 2, cursor_x + margin_x);
+    const int content_width = std::max<int>(
+        header_cx + margin_x * 2 + nav_reserve_cx,
+        cursor_x + margin_x + nav_reserve_cx);
     popup_width_ = std::max(ScaleByDpi(kPopupWidth), content_width);
     popup_height_ = ScaleByDpi(kPopupHeight);
+
+    if (total_pages > 1) {
+        const int btn_w = ScaleByDpi(20);
+        const int btn_gap = ScaleByDpi(4);
+        const int next_right = popup_width_ - margin_x;
+        const int next_left = next_right - btn_w;
+        const int prev_right = next_left - btn_gap;
+        const int prev_left = prev_right - btn_w;
+        prev_page_hit_rect_ = RECT{prev_left, row2_top, prev_right, row2_bottom};
+        next_page_hit_rect_ = RECT{next_left, row2_top, next_right, row2_bottom};
+    }
 }
 
 void CandidateUI::OnLeftButtonDown(POINT pt) const {
+    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
+    if (total_pages > 1 && page_turn_callback_) {
+        if (current_page_ > 0 && ::PtInRect(&prev_page_hit_rect_, pt)) {
+            page_turn_callback_(false);
+            return;
+        }
+        if (current_page_ + 1 < total_pages && ::PtInRect(&next_page_hit_rect_, pt)) {
+            page_turn_callback_(true);
+            return;
+        }
+    }
     if (!select_callback_) {
         return;
     }
@@ -404,6 +432,35 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
                     (idx_in_page == selected_in_page_) ? accent_brush.Get() : primary_brush.Get(),
                     D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
             }
+
+            const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
+            if (total_pages > 1) {
+                const auto disabled_brush = CreateSolidBrush(
+                    d2d_dc_target_.Get(), ColorRefToD2DColor(palette.grip_dot, 0.55f));
+                const float stroke_w = std::max(1.4f, static_cast<float>(ScaleByDpi(2)) * 0.85f);
+                const float arm = static_cast<float>(ScaleByDpi(4));
+                const auto draw_chevron = [&](const RECT& btn_rc, bool is_next, bool enabled) noexcept {
+                    ID2D1SolidColorBrush* const br = enabled ? accent_brush.Get() : disabled_brush.Get();
+                    if (!br) {
+                        return;
+                    }
+                    const float cx = static_cast<float>(btn_rc.left + btn_rc.right) * 0.5f;
+                    const float cy = static_cast<float>(btn_rc.top + btn_rc.bottom) * 0.5f;
+                    const float dx = is_next ? arm * 0.55f : -arm * 0.55f;
+                    d2d_dc_target_->DrawLine(
+                        D2D1::Point2F(cx - dx, cy - arm),
+                        D2D1::Point2F(cx + dx, cy),
+                        br,
+                        stroke_w);
+                    d2d_dc_target_->DrawLine(
+                        D2D1::Point2F(cx + dx, cy),
+                        D2D1::Point2F(cx - dx, cy + arm),
+                        br,
+                        stroke_w);
+                };
+                draw_chevron(prev_page_hit_rect_, false, current_page_ > 0);
+                draw_chevron(next_page_hit_rect_, true, current_page_ + 1 < total_pages);
+            }
         }
     }
 
@@ -452,6 +509,16 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
             : RECT{ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
         ::SetTextColor(hdc, idx_in_page == selected_in_page_ ? palette.text_accent : palette.text_primary);
         ::DrawTextW(hdc, label.c_str(), -1, &item_rc, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOCLIP);
+    }
+
+    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
+    if (total_pages > 1) {
+        RECT prev_rc = prev_page_hit_rect_;
+        RECT next_rc = next_page_hit_rect_;
+        ::SetTextColor(hdc, current_page_ > 0 ? palette.text_accent : palette.grip_dot);
+        ::DrawTextW(hdc, L"‹", -1, &prev_rc, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+        ::SetTextColor(hdc, (current_page_ + 1 < total_pages) ? palette.text_accent : palette.grip_dot);
+        ::DrawTextW(hdc, L"›", -1, &next_rc, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
     }
 }
 

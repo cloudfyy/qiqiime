@@ -306,11 +306,30 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     ResetLastPlayedSoundForTest();
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyAddUserWord, &eaten)) && eaten == TRUE);
 
-    // Start composing again, then test mouse click selection on CandidateUI and LangBar menu actions
+    // Start composing again, then test mouse page-turn chevron click and candidate selection on CandidateUI
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
     if (mock_tm->last_ui_element_) {
         auto* cand_ui = static_cast<CandidateUI*>(mock_tm->last_ui_element_.Get());
         if (cand_ui->WindowHandle()) {
+            UINT cur_page = 99;
+            QIQI_TEST_CHECK(SUCCEEDED(cand_ui->GetCurrentPage(&cur_page)) && cur_page == 0);
+            const RECT next_rc = cand_ui->NextPageButtonRect();
+            if (next_rc.right > next_rc.left) {
+                ::SendMessageW(
+                    cand_ui->WindowHandle(),
+                    WM_LBUTTONDOWN,
+                    MK_LBUTTON,
+                    MAKELPARAM((next_rc.left + next_rc.right) / 2, (next_rc.top + next_rc.bottom) / 2));
+                QIQI_TEST_CHECK(SUCCEEDED(cand_ui->GetCurrentPage(&cur_page)) && cur_page == 1);
+                const RECT page1_prev_rc = cand_ui->PrevPageButtonRect();
+                ::SendMessageW(
+                    cand_ui->WindowHandle(),
+                    WM_LBUTTONDOWN,
+                    MK_LBUTTON,
+                    MAKELPARAM((page1_prev_rc.left + page1_prev_rc.right) / 2,
+                               (page1_prev_rc.top + page1_prev_rc.bottom) / 2));
+                QIQI_TEST_CHECK(SUCCEEDED(cand_ui->GetCurrentPage(&cur_page)) && cur_page == 0);
+            }
             ::SendMessageW(cand_ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 42));
             QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"工");
         }

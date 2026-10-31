@@ -23,6 +23,7 @@ using Microsoft::WRL::ComPtr;
 class CandidateUI final : public ComObjectBase<CandidateUI, ITfCandidateListUIElement> {
 public:
     using SelectCallback = std::function<void(size_t index_in_page)>;
+    using PageTurnCallback = std::function<void(bool next_page)>;
 
     static constexpr int kPopupWidth = 360;
     static constexpr int kPopupHeight = 64;
@@ -69,9 +70,12 @@ public:
     void DestroyPopupWindow() noexcept;
 
     void SetSelectCallback(SelectCallback cb) noexcept { select_callback_ = std::move(cb); }
+    void SetPageTurnCallback(PageTurnCallback cb) noexcept { page_turn_callback_ = std::move(cb); }
     void SetUiLanguage(UiLanguage lang) noexcept { ui_language_ = lang; }
     int CurrentWidth() const noexcept { return popup_width_; }
     int CurrentHeight() const noexcept { return popup_height_; }
+    RECT PrevPageButtonRect() const noexcept { return prev_page_hit_rect_; }
+    RECT NextPageButtonRect() const noexcept { return next_page_hit_rect_; }
     HWND WindowHandle() const noexcept { return hwnd_.Get(); }
 
     DWORD UiElementId() const noexcept { return ui_element_id_; }
@@ -110,12 +114,15 @@ private:
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;
     std::vector<RECT> candidate_hit_rects_;
+    RECT prev_page_hit_rect_{};
+    RECT next_page_hit_rect_{};
     size_t page_size_ = 5;
     size_t current_page_ = 0;
     size_t selected_in_page_ = 0;
     POINT popup_pos_{100, 100};
     UiLanguage ui_language_ = UiLanguage::Auto;
     SelectCallback select_callback_;
+    PageTurnCallback page_turn_callback_;
     // Destroy the popup window first before releasing fonts, D2D/DWrite targets, and candidate state.
     ScopedWindow hwnd_;
 };

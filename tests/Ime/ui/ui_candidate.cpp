@@ -137,6 +137,38 @@ void TestCandidateUI() {
         QIQI_TEST_CHECK(clicked_idx == 99);
         ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 42));
         QIQI_TEST_CHECK(clicked_idx == 0);
+
+        // Single-page candidate list (5 items, page_size 5) does not reserve page-turn chevron buttons
+        QIQI_TEST_CHECK(ui->PrevPageButtonRect().right == 0 && ui->NextPageButtonRect().right == 0);
+
+        // Multi-page D2D chevron indicators & mouse page-turn click testing
+        ui->SetCandidates(L"abcd", cands, 5, 0, 0);
+        const RECT prev_rc = ui->PrevPageButtonRect();
+        const RECT next_rc = ui->NextPageButtonRect();
+        QIQI_TEST_CHECK(prev_rc.right > prev_rc.left && next_rc.right > next_rc.left);
+        const LPARAM prev_pt = MAKELPARAM((prev_rc.left + prev_rc.right) / 2, (prev_rc.top + prev_rc.bottom) / 2);
+        const LPARAM next_pt = MAKELPARAM((next_rc.left + next_rc.right) / 2, (next_rc.top + next_rc.bottom) / 2);
+        // Click before page_turn_callback_ is set (exercises !page_turn_callback_ guard)
+        ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, next_pt);
+        int page_turn_dir = 0; // -1 = prev, +1 = next
+        ui->SetPageTurnCallback([&page_turn_dir](bool next) { page_turn_dir = next ? 1 : -1; });
+        // On page 0, clicking prev chevron is disabled (no-op), clicking next chevron turns to next page (+1)
+        ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, prev_pt);
+        QIQI_TEST_CHECK(page_turn_dir == 0);
+        ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, next_pt);
+        QIQI_TEST_CHECK(page_turn_dir == 1);
+
+        // On last page (page 1 of 2), clicking next chevron is disabled, clicking prev chevron turns to prev page (-1)
+        page_turn_dir = 0;
+        ui->SetCandidates(L"abcd", cands, 5, 1, 0);
+        const RECT p1_prev_rc = ui->PrevPageButtonRect();
+        const RECT p1_next_rc = ui->NextPageButtonRect();
+        const LPARAM p1_prev_pt = MAKELPARAM((p1_prev_rc.left + p1_prev_rc.right) / 2, (p1_prev_rc.top + p1_prev_rc.bottom) / 2);
+        const LPARAM p1_next_pt = MAKELPARAM((p1_next_rc.left + p1_next_rc.right) / 2, (p1_next_rc.top + p1_next_rc.bottom) / 2);
+        ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, p1_next_pt);
+        QIQI_TEST_CHECK(page_turn_dir == 0);
+        ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, p1_prev_pt);
+        QIQI_TEST_CHECK(page_turn_dir == -1);
     }
 
     RECT far_rc{99999, 99999, 100050, 100025};
@@ -149,9 +181,10 @@ void TestCandidateUI() {
     ui->SetUiElementId(42);
     QIQI_TEST_CHECK(ui->UiElementId() == 42);
 
-    // Verify GDI fallback PaintPopup path when Direct2D target is unavailable (both with candidates and empty)
+    // Verify GDI fallback PaintPopup path when Direct2D target is unavailable (multi-page, single-page, and empty)
     ui->DisableDirect2DForTest();
     QIQI_TEST_CHECK(!ui->IsDirectWriteActive());
+    ui->SetCandidates(L"abcd", cands, 5, 0, 0);
     if (ui->WindowHandle()) {
         ::InvalidateRect(ui->WindowHandle(), nullptr, TRUE);
         ::UpdateWindow(ui->WindowHandle());

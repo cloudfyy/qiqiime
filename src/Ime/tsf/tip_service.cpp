@@ -47,6 +47,15 @@ QiQiTextService::QiQiTextService(HINSTANCE instance) {
             }
         }
     });
+    candidate_ui_->SetPageTurnCallback([this](bool next_page) {
+        if (active_context_ && engine_.IsComposing()) {
+            const KeyProcessResult res = engine_.ProcessKey(
+                next_page ? VK_NEXT : VK_PRIOR, false, false, false);
+            if (res.action != KeyActionType::PassThrough) {
+                ApplyEngineResult(active_context_.Get(), res);
+            }
+        }
+    });
     langbar_btn_ = MakeComObject<LangBarButton>([this](LangBarMenuId action_id) {
         HandleLangBarMenuAction(action_id);
     });
