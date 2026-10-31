@@ -207,9 +207,25 @@ void TestReusableControls() {
             const ScopedD2DDcDraw draw(d2d.d2d_target.Get(), dc.Get(), rect, &end_hr);
             QIQI_TEST_CHECK(draw);
             DrawFluentCardGroup(d2d, cards, !dark, dark);
+            for (const CompositionUnderlineStyle style : {
+                     CompositionUnderlineStyle::Dot,
+                     CompositionUnderlineStyle::Solid,
+                     CompositionUnderlineStyle::Dash,
+                     CompositionUnderlineStyle::Squiggle,
+                     CompositionUnderlineStyle::None}) {
+                DrawFluentUnderlineStylePreview(
+                    d2d, style, dark, D2D1::RectF(20.0f, 30.0f, 180.0f, 54.0f), MakeD2DColor(0, 103, 192));
+            }
+            // Degenerate narrow rect guard
+            DrawFluentUnderlineStylePreview(
+                d2d, CompositionUnderlineStyle::Solid, false, D2D1::RectF(10.0f, 10.0f, 12.0f, 20.0f), MakeD2DColor(0, 103, 192));
         }
         QIQI_TEST_CHECK(SUCCEEDED(end_hr));
         QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 70) == surface);
+
+        EnableFluentUnderlineComboPreview(combo, 502);
+        PaintFluentComboBoxFrame(combo, dc.Get(), d2d);
+        DrawFluentComboBoxItem(dis, d2d);
     }
 
     parent.Reset();

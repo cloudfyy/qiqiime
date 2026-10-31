@@ -118,6 +118,8 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     ext1.primary_dict = PrimaryDict::Haifeng;
     ext1.show_status_bar = true;
     ext1.ui_language = UiLanguage::EnUs;
+    ext1.underline_style = CompositionUnderlineStyle::Squiggle;
+    ext1.bold_underline = true;
     QIQI_TEST_CHECK(SaveConfig(ext1));
     if (GetContext(hwnd.Get()).compartment_listener) {
         QIQI_TEST_CHECK(SUCCEEDED(
@@ -130,15 +132,19 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Haifeng);
     QIQI_TEST_CHECK(read_back.show_status_bar);
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::EnUs);
+    QIQI_TEST_CHECK(read_back.underline_style == CompositionUnderlineStyle::Squiggle);
+    QIQI_TEST_CHECK(read_back.bold_underline);
     QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
     wchar_t title_buf[128]{};
     ::GetWindowTextW(hwnd.Get(), title_buf, 128);
     QIQI_TEST_CHECK(std::wstring(title_buf) == GetUiStrings(UiLanguage::EnUs).dlg_title);
 
-    // 2) Dirty window: user edits page_size (to 8) and enable_key_sound (checked) in the dialog,
-    //    while external quick-settings switches primary_dict back to Jidian and ui_language to ZhCn.
+    // 2) Dirty window: user edits page_size (to 8), underline_style (to Solid), and enable_key_sound (checked)
+    //    in the dialog, while external quick-settings switches primary_dict back to Jidian and ui_language to ZhCn.
     //    Field-level merge preserves user's unsaved edits while adopting untouched external changes.
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETCURSEL, 7, 0); // page_size = 8
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboUnderlineStyle, CB_SETCURSEL,
+                         static_cast<WPARAM>(CompositionUnderlineStyle::Solid), 0);
     ::CheckDlgButton(hwnd.Get(), kIdChkKeySound, BST_CHECKED);
 
     QiQiConfig ext2 = ext1;
@@ -151,6 +157,7 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Jidian);
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::ZhCn);
     QIQI_TEST_CHECK(read_back.page_size == 8);
+    QIQI_TEST_CHECK(read_back.underline_style == CompositionUnderlineStyle::Solid);
     QIQI_TEST_CHECK(read_back.enable_key_sound);
     QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
     ::GetWindowTextW(hwnd.Get(), title_buf, 128);

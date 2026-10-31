@@ -434,27 +434,28 @@ void ShowSettingsToast(UiLanguage ui_language, SettingsToastKind kind) noexcept 
         POINT{monitor.work_area.right - width - ScalePxByDpi(20, monitor.dpi),
               monitor.work_area.bottom - height - ScalePxByDpi(20, monitor.dpi)},
         width, height, monitor.work_area);
-    auto* const owned = ctx.release();
-    const HWND hwnd = ::CreateWindowExW(
+    auto* const owned = ctx.get();
+    ScopedWindow hwnd(::CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         kSettingsToastWndClass,
         text,
         WS_POPUP,
         position.x, position.y, width, height,
-        nullptr, nullptr, instance, owned);
+        nullptr, nullptr, instance, owned));
     if (!hwnd) {
         QIQI_LOG_ERROR("Settings toast window creation failed (error={})", ::GetLastError());
         return;
     }
-    if (!::SetTimer(hwnd, 1, 3000, nullptr)) {
+    std::ignore = ctx.release();
+    if (!::SetTimer(hwnd.Get(), 1, 3000, nullptr)) {
         QIQI_LOG_ERROR("Settings toast timer creation failed (error={})", ::GetLastError());
-        ::DestroyWindow(hwnd);
         return;
     }
     owned->holds_module_reference = true;
     ++g_com_object_count;
-    ::ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-    ::UpdateWindow(hwnd);
+    const HWND raw_hwnd = hwnd.Detach();
+    ::ShowWindow(raw_hwnd, SW_SHOWNOACTIVATE);
+    ::UpdateWindow(raw_hwnd);
 }
 
 void UpdateSettingsToastLanguage(UiLanguage ui_language) noexcept {

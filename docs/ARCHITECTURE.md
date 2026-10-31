@@ -161,7 +161,7 @@ TSF 的按键处理分为两步：
 以下为待开发或待评估能力，不代表已经实现。优先补齐轻量纯五笔的日常体验；竞品历史资料中的功能仅作为需求参考，不作为当前版本可用性或性能结论。
 
 #### 近期首要待办（明早第一项工作）
-- [ ] **0. 全量代码质量检查与测试补全（`code-audit-and-test-completion`）**：对全仓（`common`、`engine`、`tsf`、`ui`、`settings`）执行代码质量扫描（RAII 合规、代码复用/DRY、C++ Core Guidelines & GSL 最佳实践、异常与边界安全），并补全遗漏的单元测试分支。
+- [x] **0. 全量代码质量检查与测试补全（`code-audit-and-test-completion`）**：对全仓（`common`、`engine`、`tsf`、`ui`、`settings`）执行代码质量扫描（RAII 合规、代码复用/DRY、C++ Core Guidelines & GSL 最佳实践、异常与边界安全），并补全遗漏的单元测试分支。
 
 #### P0：词库管理与候选控制
 - [ ] **18. 图形化词库管理（`dictionary-management-ui`）**：复用现有用户词表与取码能力，提供词条搜索、新增、编码/词条编辑、删除、批量导入导出与分类词库管理；修改后同步到本机输入法实例。
