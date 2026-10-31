@@ -63,7 +63,7 @@
 ### 2.3 按键处理与编辑会话（`OnTestKeyDown` -> `OnKeyDown` -> `RequestEditSession`）
 TSF 的按键处理分为两步：
 1. `OnTestKeyDown`：仅询问输入法**是否打算消费该按键**（`engine_.ShouldEatKey(...)`）。只消费当前状态下真正需要处理的键，绝不在空闲状态下吞掉 `Enter`、`Backspace` 或方向键。
-2. `OnKeyDown`：推进 `WubiEngine` 编译期有限状态机（`fsm.h`），得到 `KeyProcessResult`（`UpdateState` / `Commit` / `Cancel`），触发音效（若启用了按键音或空码提示音），然后通过 `ITfContext::RequestEditSession` 提交 `LambdaEditSession`。
+2. `OnKeyDown`：推进 `WubiEngine` 编译期有限状态机（[`fsm.h`](../src/Ime/engine/fsm.h) 为兼容入口；状态/事件定义、按键映射、转移规则和分页辅助分别位于 `fsm_types.h`、`fsm_key_mapping.h`、`fsm_transitions.h`、`fsm_pagination.h`），得到 `KeyProcessResult`（`UpdateState` / `Commit` / `Cancel`），触发音效（若启用了按键音或空码提示音），然后通过 `ITfContext::RequestEditSession` 提交 `LambdaEditSession`。
 
 在 `DoEditSession(TfEditCookie ec)` 内完成：
 - **新建或更新组合串**：`ITfInsertAtSelection::InsertTextAtSelection` + `ITfContextComposition::StartComposition` + `ITfRange::SetText` + 设置 `GUID_PROP_ATTRIBUTE` 下划线显示属性。

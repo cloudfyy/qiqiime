@@ -471,14 +471,21 @@ void TestMultiMonitorAndPerMonitorDpi() {
         ::SendMessageW(bar.WindowHandle(), WM_MOUSEMOVE, 0, MAKELPARAM(45, 18));
         QIQI_TEST_CHECK(!bar.ActiveTooltipText().empty());
 
-        // Simulate cross-monitor WM_DPICHANGED with suggested rect and WM_DISPLAYCHANGE re-clamping
+        // Simulate moving to a higher-DPI monitor, then removing space from its work area.
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-2560, -1440, 0, 0}, 192});
         RECT suggested_bar{-1200, -600, -900, -550};
         ::SendMessageW(
             bar.WindowHandle(),
             WM_DPICHANGED,
             MAKEWPARAM(192, 192),
             reinterpret_cast<LPARAM>(&suggested_bar));
+        QIQI_TEST_CHECK(bar.CurrentDpi() == 192);
+        QIQI_TEST_CHECK(bar.CurrentWidth() == ScalePxByDpi(StatusBarUI::kBarWidth, 192));
+
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-1800, -1000, -1000, 0}, 192});
         ::SendMessageW(bar.WindowHandle(), WM_DISPLAYCHANGE, 32, MAKELPARAM(1920, 1080));
+        QIQI_TEST_CHECK(bar.Position().x + bar.CurrentWidth() <= -1000);
+        QIQI_TEST_CHECK(bar.Position().y + bar.CurrentHeight() <= 0);
     }
     bar.DestroyBarWindow();
 

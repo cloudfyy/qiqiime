@@ -131,12 +131,133 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
     }
 }
 
+void DestroySettingsControls(HWND hwnd) noexcept {
+    ::EnumChildWindows(
+        hwnd,
+        [](HWND child, LPARAM) noexcept -> BOOL {
+            ::DestroyWindow(child);
+            return TRUE;
+        },
+        0);
+}
+
+void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, const RECT* suggested_rect) noexcept {
+    const UINT effective_dpi = dpi > 0 ? dpi : 96u;
+    RECT current_rect{};
+    if (!::GetWindowRect(hwnd, &current_rect)) {
+        QIQI_LOG_ERROR("Settings DPI update could not query window bounds (error={})", ::GetLastError());
+        return;
+    }
+
+    RECT target_rect = current_rect;
+    if (suggested_rect && suggested_rect->right > suggested_rect->left &&
+        suggested_rect->bottom > suggested_rect->top) {
+        target_rect = *suggested_rect;
+    } else if (ctx.d2d.dpi != effective_dpi) {
+        RECT desired_rect{0, 0, ScalePxByDpi(820, effective_dpi), ScalePxByDpi(494, effective_dpi)};
+        const DWORD style = gsl::narrow_cast<DWORD>(::GetWindowLongPtrW(hwnd, GWL_STYLE));
+        const DWORD ex_style = gsl::narrow_cast<DWORD>(::GetWindowLongPtrW(hwnd, GWL_EXSTYLE));
+        if (!::AdjustWindowRectEx(&desired_rect, style, FALSE, ex_style)) {
+            QIQI_LOG_ERROR("Settings DPI update could not calculate window frame (error={})", ::GetLastError());
+            return;
+        }
+        target_rect.right = target_rect.left + desired_rect.right - desired_rect.left;
+        target_rect.bottom = target_rect.top + desired_rect.bottom - desired_rect.top;
+    }
+
+    const POINT center{
+        target_rect.left + (target_rect.right - target_rect.left) / 2,
+        target_rect.top + (target_rect.bottom - target_rect.top) / 2
+    };
+    const MonitorMetrics monitor = QueryMonitorForPoint(center, hwnd);
+    const int width = target_rect.right - target_rect.left;
+    const int height = target_rect.bottom - target_rect.top;
+    const POINT position = ClampPointToWorkArea(
+        POINT{target_rect.left, target_rect.top}, width, height, monitor.work_area);
+    target_rect.left = position.x;
+    target_rect.top = position.y;
+    target_rect.right = position.x + width;
+    target_rect.bottom = position.y + height;
+
+    const bool dpi_changed = ctx.d2d.dpi != effective_dpi;
+    QiQiConfig current_config = ctx.config ? *ctx.config : ctx.baseline_config;
+    const QiQiConfig baseline_config = ctx.baseline_config;
+    int focused_control_id = 0;
+    if (dpi_changed) {
+        if (ctx.controls_initialized) {
+            const HWND focused = ::GetFocus();
+            if (focused && ::IsChild(hwnd, focused)) {
+                focused_control_id = ::GetDlgCtrlID(focused);
+            }
+            ReadSettingsFromWindowControls(hwnd, current_config);
+            DestroySettingsControls(hwnd);
+        }
+
+        ctx.d2d.Init(effective_dpi);
+        ctx.font = CreateUiFont(ctx.d2d.ScalePx(15), FW_NORMAL, CLEARTYPE_QUALITY);
+        ctx.bold_font = CreateUiFont(ctx.d2d.ScalePx(12), FW_SEMIBOLD, CLEARTYPE_QUALITY);
+        ctx.icon_small = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(16));
+        ctx.icon_big = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(48));
+        if (!ctx.font || !ctx.bold_font || !ctx.icon_small || !ctx.icon_big) {
+            QIQI_LOG_ERROR("Settings DPI update could not recreate scaled window resources");
+        }
+        if (ctx.icon_small) {
+            ::SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(ctx.icon_small.Get()));
+        }
+        if (ctx.icon_big) {
+            ::SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(ctx.icon_big.Get()));
+        }
+    }
+
+    if (!::SetWindowPos(
+            hwnd,
+            nullptr,
+            target_rect.left,
+            target_rect.top,
+            width,
+            height,
+            SWP_NOZORDER | SWP_NOACTIVATE)) {
+        QIQI_LOG_ERROR("Settings DPI update could not move window (error={})", ::GetLastError());
+    }
+
+    if (dpi_changed && ctx.controls_initialized) {
+        CreateSettingsControls(hwnd, ctx.instance, ctx);
+        WriteSettingsToWindowControls(hwnd, current_config);
+        ctx.baseline_config = baseline_config;
+        ApplyLiveSettingsLanguage(hwnd, ctx);
+        if (focused_control_id != 0) {
+            if (const HWND focused_control = ::GetDlgItem(hwnd, focused_control_id)) {
+                ::SetFocus(focused_control);
+            }
+        }
+    }
+
+    ::InvalidateRect(hwnd, nullptr, TRUE);
+    ::UpdateWindow(hwnd);
+}
+
 LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     auto* ctx = BindOrGetWindowUserData<DialogContext>(hwnd, msg, lparam);
     if (!ctx || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
     switch (msg) {
+        case WM_DPICHANGED:
+            UpdateSettingsWindowForMonitor(
+                hwnd, *ctx, HIWORD(wparam), reinterpret_cast<const RECT*>(lparam));
+            return 0;
+        case WM_DISPLAYCHANGE: {
+            RECT rect{};
+            if (::GetWindowRect(hwnd, &rect)) {
+                const POINT center{
+                    rect.left + (rect.right - rect.left) / 2,
+                    rect.top + (rect.bottom - rect.top) / 2
+                };
+                const MonitorMetrics monitor = QueryMonitorForPoint(center, hwnd);
+                UpdateSettingsWindowForMonitor(hwnd, *ctx, monitor.dpi, nullptr);
+            }
+            return 0;
+        }
         case WM_PAINT:
             return PaintWindowClient(hwnd, [hwnd, ctx](HDC hdc, const RECT& rc) {
                 PaintFluentSettingsWindow(hwnd, hdc, rc, *ctx);
@@ -285,6 +406,7 @@ ScopedWindow CreateSettingsWindow(
         QIQI_LOG_ERROR("Settings dialog context allocation failed");
         return {};
     }
+    ctx->instance = instance;
     ctx->config = bound_config;
     if (bound_config) {
         ctx->baseline_config = *bound_config;
@@ -339,6 +461,7 @@ ScopedWindow CreateSettingsWindow(
     }
 
     CreateSettingsControls(hwnd.Get(), instance, *owned_ctx);
+    owned_ctx->controls_initialized = true;
     if (bound_config) {
         WriteSettingsToWindowControls(hwnd.Get(), *bound_config);
     }

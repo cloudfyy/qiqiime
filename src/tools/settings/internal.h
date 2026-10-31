@@ -53,9 +53,11 @@ private:
 };
 
 struct DialogContext {
+    HINSTANCE instance = nullptr;
     QiQiConfig* config = nullptr;
     QiQiConfig baseline_config{};
     uint64_t config_registry_sequence = 0;
+    bool controls_initialized = false;
     bool save_on_accept = false;
     bool accepted = false;
     bool done = false;

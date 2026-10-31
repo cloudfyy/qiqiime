@@ -1,8 +1,10 @@
 #include "common/test_support.h"
 #include "common/guids.h"
 #include "common/i18n.h"
+#include "common/monitor_dpi.h"
 #include "common/theme.h"
 #include "common/win32_ui_util.h"
+#include "tools/settings/internal.h"
 #include "tools/settings/window.h"
 
 #include <windows.h>
@@ -265,10 +267,62 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(ShowAboutDialog(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
 }
 
+void TestSettingsWindowMonitorChanges() {
+    const auto original_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto restore_monitor = gsl::finally([original_monitor]() noexcept {
+        SetMonitorMetricsOverrideForTest(original_monitor);
+    });
+
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1920, 1080}, 96});
+    QiQiConfig config{};
+    config.page_size = 7;
+    config.auto_commit_4code = true;
+    const ScopedWindow dialog(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config));
+    QIQI_TEST_CHECK(dialog.IsValid());
+
+    ::SendDlgItemMessageW(dialog.Get(), settings_detail::kIdComboPageSize, CB_SETCURSEL, 8, 0);
+    ::CheckDlgButton(dialog.Get(), settings_detail::kIdChkAutoCommit4, BST_UNCHECKED);
+
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-2560, -1440, 0, 0}, 192});
+    const RECT suggested_rect{-2100, -1250, -400, -200};
+    ::SendMessageW(
+        dialog.Get(),
+        WM_DPICHANGED,
+        MAKEWPARAM(192, 192),
+        reinterpret_cast<LPARAM>(&suggested_rect));
+
+    const HWND page_size_combo = ::GetDlgItem(dialog.Get(), settings_detail::kIdComboPageSize);
+    QIQI_TEST_CHECK(page_size_combo != nullptr);
+    POINT combo_origin{};
+    ::ClientToScreen(dialog.Get(), &combo_origin);
+    RECT combo_rect{};
+    QIQI_TEST_CHECK(::GetWindowRect(page_size_combo, &combo_rect));
+    QIQI_TEST_CHECK(combo_rect.left - combo_origin.x == ScalePxByDpi(588, 192));
+
+    const HFONT combo_font = reinterpret_cast<HFONT>(::SendMessageW(page_size_combo, WM_GETFONT, 0, 0));
+    LOGFONTW font_info{};
+    QIQI_TEST_CHECK(combo_font != nullptr);
+    QIQI_TEST_CHECK(::GetObjectW(combo_font, sizeof(font_info), &font_info) == sizeof(font_info));
+    QIQI_TEST_CHECK(font_info.lfHeight == -ScalePxByDpi(15, 192));
+
+    QiQiConfig read_back{};
+    ReadSettingsFromWindowControls(dialog.Get(), read_back);
+    QIQI_TEST_CHECK(read_back.page_size == 9);
+    QIQI_TEST_CHECK(!read_back.auto_commit_4code);
+
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-1900, -1200, 0, 0}, 192});
+    ::SendMessageW(dialog.Get(), WM_DISPLAYCHANGE, 32, MAKELPARAM(1920, 1080));
+    RECT dialog_rect{};
+    QIQI_TEST_CHECK(::GetWindowRect(dialog.Get(), &dialog_rect));
+    QIQI_TEST_CHECK(dialog_rect.left == -1900 && dialog_rect.top == -1200);
+    QIQI_TEST_CHECK(dialog_rect.right <= 0 && dialog_rect.bottom <= 0);
+}
+
 } // namespace
 
 void RunSettingsDialogTests() {
     TestSettingsDialogControls();
+    TestSettingsWindowMonitorChanges();
 }
 
 } // namespace qiqi::test
