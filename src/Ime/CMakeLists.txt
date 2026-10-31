@@ -18,6 +18,9 @@ set(QIQIIME_SOURCES
     tsf/register.cpp
     tsf/tip_service.h
     tsf/tip_service.cpp
+    tsf/tip_keys.cpp
+    tsf/tip_composition.cpp
+    tsf/tip_config.cpp
     tsf/display_attribute.h
     tsf/display_attribute.cpp
     tsf/edit_session.h

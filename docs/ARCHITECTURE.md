@@ -51,7 +51,12 @@
   - `GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER`：声明提供组合串虚线下划线显示属性。
   - `GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT` / `GUID_TFCAT_TIPCAP_COMLESS` / `GUID_TFCAT_TIPCAP_SECUREMODE`：提高现代 Windows 与安全输入框下的兼容性。
 
-### 2.2 激活与停用（`ActivateEx` / `Deactivate`）
+### 2.2 激活、生命周期与模块职责拆分（`src/Ime/tsf/`）
+- `QiQiTextService` 的实现按职责拆分为四个文件：
+  - [`tip_service.cpp`](../src/Ime/tsf/tip_service.cpp)：实例构造/析构、`ActivateEx`/`Deactivate`、TSF 事件接收器注册、`ITfThreadMgrEventSink`、`ITfFunctionProvider` 与 `ITfDisplayAttributeProvider`。
+  - [`tip_keys.cpp`](../src/Ime/tsf/tip_keys.cpp)：`ITfKeyEventSink` 按键测试与处理、保留快捷键（`OnPreservedKey`）、`Shift` 轻按中英切换防误触、`Caps Lock` 处理与按键诊断日志。
+  - [`tip_composition.cpp`](../src/Ime/tsf/tip_composition.cpp)：`ITfCompositionSink`、`ITfTextLayoutSink`、编辑会话（`LambdaEditSession`）内的组合串创建/更新/提交/取消，以及候选框位置跟随与 `ITfUIElementMgr` 生命周期。
+  - [`tip_config.cpp`](../src/Ime/tsf/tip_config.cpp)：词库文件加载、TSF Global/System Compartment 同步、语言栏菜单动作分派、`ITfFnConfigure::Show` 设置启动与配置热重载。
 - 实现 `ITfTextInputProcessorEx::ActivateEx`，记录宿主进程名、`client_id` 与 `dwFlags`（包含是否处于 `TF_TMAE_UIELEMENTENABLEDONLY` UILess 模式）。
 - 挂载 `ITfThreadMgrEventSink`、`ITfKeyEventSink`、`ITfFunctionProvider` 与 `ITfLangBarItemButton`，并注册保留热键（`Ctrl+Space` 中英切换、`Shift+Space` 全半角切换、`Ctrl+.` 中英标点切换）。
 
