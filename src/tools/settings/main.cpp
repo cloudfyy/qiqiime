@@ -22,15 +22,13 @@ int WINAPI wWinMain(
     _In_ LPWSTR /*cmd_line*/,
     _In_ int /*show_cmd*/) {
     // Single-instance check: if the settings dialog is already open, bring it to the foreground.
+    if (qiqi::ActivateExistingSettingsWindow()) {
+        return 0;
+    }
     const qiqi::ScopedKernelHandle single_instance_mutex(
-        ::CreateMutexW(nullptr, TRUE, L"Local\\QiQiIMESettingsSingleInstanceMutex"));
+        ::CreateMutexW(nullptr, TRUE, qiqi::kSettingsSingleInstanceMutexName));
     if (::GetLastError() == ERROR_ALREADY_EXISTS) {
-        if (const HWND existing = ::FindWindowW(qiqi::kSettingsWndClass, nullptr)) {
-            if (::IsIconic(existing)) {
-                ::ShowWindow(existing, SW_RESTORE);
-            }
-            ::SetForegroundWindow(existing);
-        }
+        std::ignore = qiqi::ActivateExistingSettingsWindow();
         return 0;
     }
 

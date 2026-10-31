@@ -190,6 +190,32 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 
 } // namespace
 
+bool ActivateExistingSettingsWindow() noexcept {
+    const HWND existing = ::FindWindowW(kSettingsWndClass, nullptr);
+    if (!existing || !::IsWindow(existing)) {
+        return false;
+    }
+    if (::IsIconic(existing)) {
+        ::ShowWindow(existing, SW_RESTORE);
+    }
+    const HWND popup = ::GetLastActivePopup(existing);
+    const HWND target = (popup && ::IsWindow(popup)) ? popup : existing;
+    if (::IsIconic(target)) {
+        ::ShowWindow(target, SW_RESTORE);
+    }
+    DWORD target_pid = 0;
+    ::GetWindowThreadProcessId(target, &target_pid);
+    if (target_pid != 0 && target_pid != ::GetCurrentProcessId()) {
+        ::AllowSetForegroundWindow(target_pid);
+    }
+    ::SetForegroundWindow(target);
+    ::BringWindowToTop(target);
+    if (target_pid == ::GetCurrentProcessId()) {
+        ::SetActiveWindow(target);
+    }
+    return true;
+}
+
 ScopedWindow CreateSettingsWindow(
     HINSTANCE instance, HWND parent, QiQiConfig* bound_config, bool save_on_accept) noexcept {
     if (save_on_accept && !bound_config) {
@@ -271,6 +297,17 @@ ScopedWindow CreateSettingsWindow(
 
 bool ShowSettingsDialog(
     HINSTANCE instance, HWND parent, QiQiConfig& in_out_config, bool save_on_accept) noexcept {
+    if (ActivateExistingSettingsWindow()) {
+        QIQI_LOG_INFO("Settings dialog is already open; activated existing window");
+        return false;
+    }
+    const ScopedKernelHandle single_instance_mutex(
+        ::CreateMutexW(nullptr, TRUE, kSettingsSingleInstanceMutexName));
+    if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+        std::ignore = ActivateExistingSettingsWindow();
+        QIQI_LOG_INFO("Settings single-instance mutex already held; skipping duplicate dialog");
+        return false;
+    }
     const ScopedWindow hwnd(CreateSettingsWindow(instance, parent, &in_out_config, save_on_accept));
     const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd.Get(), GWLP_USERDATA));
     if (!hwnd || !ctx) {

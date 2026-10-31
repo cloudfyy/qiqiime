@@ -1034,8 +1034,13 @@ void QiQiTextService::SyncSavedConfigChange(bool reload_dicts) {
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
     QIQI_LOG_INFO("Opening Settings dialog");
     ReloadConfigIfModified();
+    if (ActivateExistingSettingsWindow()) {
+        QIQI_LOG_INFO("Activated existing Settings dialog window");
+        return S_OK;
+    }
     if (!hwndParent) {
         if (IsCurrentProcessAppContainer()) {
+            ::AllowSetForegroundWindow(ASFW_ANY);
             const HINSTANCE sh_res = ::ShellExecuteW(
                 nullptr, L"open", L"qiqiime-settings:", nullptr, nullptr, SW_SHOWNORMAL);
             if (reinterpret_cast<INT_PTR>(sh_res) > 32) {
@@ -1068,11 +1073,13 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
                         &pi) != FALSE) {
                     const ScopedKernelHandle proc(pi.hProcess);
                     const ScopedKernelHandle thread(pi.hThread);
+                    ::AllowSetForegroundWindow(pi.dwProcessId);
                     QIQI_LOG_INFO("Launched standalone QiQiIMESettings.exe from '{}'",
                                   WideToUtf8(exe_path.wstring()));
                     return S_OK;
                 }
             }
+            ::AllowSetForegroundWindow(ASFW_ANY);
             const HINSTANCE sh_res = ::ShellExecuteW(
                 nullptr, L"open", L"qiqiime-settings:", nullptr, nullptr, SW_SHOWNORMAL);
             if (reinterpret_cast<INT_PTR>(sh_res) > 32) {

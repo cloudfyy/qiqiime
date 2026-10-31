@@ -11,6 +11,10 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept;
 // Populate an open settings window's controls from QiQiConfig.
 void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept;
 
+// If a Settings dialog window is already open, restore it (if minimized) and activate its
+// foreground target (either its active owned modal popup or the Settings window itself).
+bool ActivateExistingSettingsWindow() noexcept;
+
 // Create a modeless settings window (used by both ShowSettingsDialog and unit tests).
 ScopedWindow CreateSettingsWindow(
     HINSTANCE instance, HWND parent, QiQiConfig* bound_config, bool save_on_accept = false) noexcept;

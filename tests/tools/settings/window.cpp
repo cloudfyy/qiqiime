@@ -206,6 +206,36 @@ void TestSettingsDialogControls() {
     });
     QIQI_TEST_CHECK(!ShowSettingsDialog(::GetModuleHandleW(nullptr), nullptr, cfg));
 
+    // Verify single-instance Settings behavior:
+    // 1) When no Settings window exists, ActivateExistingSettingsWindow returns false.
+    // 2) When a Settings window is open (including minimized or with an owned popup),
+    //    ActivateExistingSettingsWindow restores/activates it and ShowSettingsDialog returns false
+    //    immediately without creating a second Settings window.
+    // 3) When the single-instance mutex is already held, ShowSettingsDialog returns false without
+    //    opening a duplicate dialog.
+    QIQI_TEST_CHECK(!ActivateExistingSettingsWindow());
+    {
+        const ScopedWindow existing(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
+        QIQI_TEST_CHECK(existing.IsValid());
+        ::ShowWindow(existing.Get(), SW_MINIMIZE);
+        QIQI_TEST_CHECK(::IsIconic(existing.Get()) != FALSE);
+        QIQI_TEST_CHECK(ActivateExistingSettingsWindow());
+        QIQI_TEST_CHECK(::IsIconic(existing.Get()) == FALSE);
+
+        const ScopedWindow owned_about(
+            CreateAboutWindow(::GetModuleHandleW(nullptr), existing.Get(), UiLanguage::ZhCn));
+        QIQI_TEST_CHECK(owned_about.IsValid());
+        ::ShowWindow(owned_about.Get(), SW_SHOWNOACTIVATE);
+        QIQI_TEST_CHECK(ActivateExistingSettingsWindow());
+        QIQI_TEST_CHECK(!ShowSettingsDialog(::GetModuleHandleW(nullptr), nullptr, cfg));
+    }
+    {
+        const ScopedKernelHandle held_mutex(
+            ::CreateMutexW(nullptr, TRUE, kSettingsSingleInstanceMutexName));
+        QIQI_TEST_CHECK(held_mutex.IsValid());
+        QIQI_TEST_CHECK(!ShowSettingsDialog(::GetModuleHandleW(nullptr), nullptr, cfg));
+    }
+
     // Verify About dialog creation, painting, title localization, child controls, icon, and modal ShowAboutDialog
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_app_name).find(L"奇奇五笔") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_app_name) == L"QiQi Wubi IME");
