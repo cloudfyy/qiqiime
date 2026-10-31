@@ -50,8 +50,8 @@ enum class KeyEventKind : uint8_t {
     Backspace = 5,        // VK_BACK
     Escape = 6,           // VK_ESCAPE
     DigitSelect = 7,      // '1'-'9' (or ';' / ''' when quick-select is enabled while composing)
-    CandidateUp = 8,      // VK_UP or VK_LEFT (previous candidate, cross-page)
-    CandidateDown = 9,    // VK_DOWN or VK_RIGHT (next candidate, cross-page)
+    CandidatePrev = 8,    // VK_UP or VK_LEFT (previous candidate, cross-page)
+    CandidateNext = 9,    // VK_DOWN or VK_RIGHT (next candidate, cross-page)
     PageUp = 10,          // VK_PRIOR or '-'
     PageDown = 11,        // VK_NEXT or '='
     ChinesePunct = 12,    // Mapped Chinese full-width punctuation
@@ -72,8 +72,8 @@ enum class TransitionOp : uint8_t {
     CommitSelected = 6,         // Space: commit current selected candidate -> Idle
     CommitRawCode = 7,          // Enter: commit raw ASCII code -> Idle
     CommitDigitIndex = 8,       // '1'-'9' / ';' / ''': commit candidate at index if in page range
-    SelectPrevCandidate = 9,    // Up arrow: move selection up
-    SelectNextCandidate = 10,   // Down arrow: move selection down
+    SelectPrevCandidate = 9,    // Up/Left arrow: move selection to previous candidate (cross-page)
+    SelectNextCandidate = 10,   // Down/Right arrow: move selection to next candidate (cross-page)
     TurnPagePrev = 11,          // PageUp / '-': previous page
     TurnPageNext = 12,          // PageDown / '=': next page
     CommitPunctOnly = 13,       // Idle punctuation: directly commit Chinese punctuation
@@ -93,12 +93,15 @@ struct TransitionRule {
     bool eat_key = false;
 };
 
-constexpr bool IsComposingState(EngineState state) noexcept {
+constexpr bool IsWubiComposingState(EngineState state) noexcept {
     return state == EngineState::Composing1 ||
            state == EngineState::Composing2 ||
            state == EngineState::Composing3 ||
-           state == EngineState::Composing4 ||
-           state == EngineState::TempEnglish;
+           state == EngineState::Composing4;
+}
+
+constexpr bool IsComposingState(EngineState state) noexcept {
+    return IsWubiComposingState(state) || state == EngineState::TempEnglish;
 }
 
 constexpr std::optional<std::wstring_view> MapChinesePunctuation(uint32_t vk, bool shift_down) noexcept {
@@ -206,13 +209,10 @@ constexpr std::optional<size_t> ResolveCandidateSelectIndex(
     return std::nullopt;
 }
 
-struct KeyClassifyFlags {
-    bool chinese_punct = true;
-    bool quick_select = false;
-    bool z_temp_english = false;
-    bool full_width = false;
-    EngineState state = EngineState::Idle;
-};
+constexpr bool IsNumpadNonSelectComposingKey(uint32_t vk) noexcept {
+    return vk == VK_NUMPAD0 || vk == VK_DECIMAL || vk == VK_ADD ||
+           vk == VK_SUBTRACT || vk == VK_MULTIPLY || vk == VK_DIVIDE;
+}
 
 constexpr KeyEventKind ClassifyKeyEvent(
     uint32_t vk,
@@ -247,22 +247,16 @@ constexpr KeyEventKind ClassifyKeyEvent(
     // In TempEnglish state, all printable non-space ASCII keys (including digits, '-', '=', punctuation)
     // are appended as literal ASCII characters rather than interpreted as candidate navigation or Chinese punctuation.
     if (state == EngineState::TempEnglish) {
-        if (vk == VK_SPACE) {
-            return KeyEventKind::Space;
+        switch (vk) {
+            case VK_SPACE:  return KeyEventKind::Space;
+            case VK_RETURN: return KeyEventKind::Enter;
+            case VK_BACK:   return KeyEventKind::Backspace;
+            case VK_ESCAPE: return KeyEventKind::Escape;
+            default:
+                return MapPrintableAsciiChar(vk, shift_down, caps_lock_on).has_value()
+                    ? KeyEventKind::PrintableAscii
+                    : KeyEventKind::None;
         }
-        if (vk == VK_RETURN) {
-            return KeyEventKind::Enter;
-        }
-        if (vk == VK_BACK) {
-            return KeyEventKind::Backspace;
-        }
-        if (vk == VK_ESCAPE) {
-            return KeyEventKind::Escape;
-        }
-        if (MapPrintableAsciiChar(vk, shift_down, caps_lock_on).has_value()) {
-            return KeyEventKind::PrintableAscii;
-        }
-        return KeyEventKind::None;
     }
 
     const bool letter_upper = (shift_down != caps_lock_on);
@@ -275,36 +269,43 @@ constexpr KeyEventKind ClassifyKeyEvent(
         }
         return letter_upper ? KeyEventKind::UpperChar : KeyEventKind::CodeChar;
     }
-    if (vk == VK_SPACE) {
-        if ((state == EngineState::Idle || state == EngineState::English) && full_width) {
-            return KeyEventKind::PrintableAscii;
+
+    switch (vk) {
+        case VK_SPACE:
+            return ((state == EngineState::Idle || state == EngineState::English) && full_width)
+                ? KeyEventKind::PrintableAscii
+                : KeyEventKind::Space;
+        case VK_RETURN:
+            return KeyEventKind::Enter;
+        case VK_BACK:
+            return KeyEventKind::Backspace;
+        case VK_ESCAPE:
+            return KeyEventKind::Escape;
+        case VK_UP:
+        case VK_LEFT:
+            return KeyEventKind::CandidatePrev;
+        case VK_DOWN:
+        case VK_RIGHT:
+            return KeyEventKind::CandidateNext;
+        case VK_PRIOR:
+            return KeyEventKind::PageUp;
+        case VK_NEXT:
+            return KeyEventKind::PageDown;
+        default:
+            break;
+    }
+
+    const bool is_wubi_composing = IsWubiComposingState(state);
+    if (is_wubi_composing && !shift_down) {
+        if (vk == VK_OEM_MINUS) {
+            return KeyEventKind::PageUp;
         }
-        return KeyEventKind::Space;
-    }
-    if (vk == VK_RETURN) {
-        return KeyEventKind::Enter;
-    }
-    if (vk == VK_BACK) {
-        return KeyEventKind::Backspace;
-    }
-    if (vk == VK_ESCAPE) {
-        return KeyEventKind::Escape;
-    }
-    if (vk == VK_UP || vk == VK_LEFT) {
-        return KeyEventKind::CandidateUp;
-    }
-    if (vk == VK_DOWN || vk == VK_RIGHT) {
-        return KeyEventKind::CandidateDown;
-    }
-    if (vk == VK_PRIOR || (!shift_down && vk == VK_OEM_MINUS && state != EngineState::Idle && state != EngineState::English)) {
-        return KeyEventKind::PageUp;
-    }
-    if (vk == VK_NEXT || (!shift_down && vk == VK_OEM_PLUS && state != EngineState::Idle && state != EngineState::English)) {
-        return KeyEventKind::PageDown;
-    }
-    if (state != EngineState::Idle && state != EngineState::English &&
-        ResolveCandidateSelectIndex(vk, shift_down, composing_quick_select).has_value()) {
-        return KeyEventKind::DigitSelect;
+        if (vk == VK_OEM_PLUS) {
+            return KeyEventKind::PageDown;
+        }
+        if (ResolveCandidateSelectIndex(vk, false, composing_quick_select).has_value()) {
+            return KeyEventKind::DigitSelect;
+        }
     }
     if (state != EngineState::English && chinese_punct && MapChinesePunctuation(vk, shift_down).has_value()) {
         return KeyEventKind::ChinesePunct;
@@ -314,22 +315,8 @@ constexpr KeyEventKind ClassifyKeyEvent(
     }
     // While composing in Half-Width mode, swallow VK_NUMPAD0 and Numpad operators (+ - * / .) so they do not
     // leak into the active TSF composition range as literal characters; they become no-op state updates.
-    if (state != EngineState::Idle && state != EngineState::English && !shift_down &&
-        (vk == VK_NUMPAD0 || vk == VK_DECIMAL || vk == VK_ADD || vk == VK_SUBTRACT ||
-         vk == VK_MULTIPLY || vk == VK_DIVIDE)) {
+    if (is_wubi_composing && !shift_down && IsNumpadNonSelectComposingKey(vk)) {
         return KeyEventKind::DigitSelect;
-    }
-    // Keep stateless backward-compatible classification when called with default state == Idle (e.g. in static_asserts)
-    if (!full_width && state == EngineState::Idle) {
-        if (!shift_down && vk == VK_OEM_MINUS) {
-            return KeyEventKind::PageUp;
-        }
-        if (!shift_down && vk == VK_OEM_PLUS) {
-            return KeyEventKind::PageDown;
-        }
-        if (ResolveCandidateSelectIndex(vk, shift_down, composing_quick_select).has_value()) {
-            return KeyEventKind::DigitSelect;
-        }
     }
     return KeyEventKind::None;
 }
@@ -417,9 +404,9 @@ constexpr TransitionRule ComputeTransitionRule(EngineState state, KeyEventKind e
             return {TransitionOp::CommitRawCode, EngineState::Idle, false};
         case KeyEventKind::DigitSelect:
             return {TransitionOp::CommitDigitIndex, EngineState::Idle, true};
-        case KeyEventKind::CandidateUp:
+        case KeyEventKind::CandidatePrev:
             return {TransitionOp::SelectPrevCandidate, state, true};
-        case KeyEventKind::CandidateDown:
+        case KeyEventKind::CandidateNext:
             return {TransitionOp::SelectNextCandidate, state, true};
         case KeyEventKind::PageUp:
             return {TransitionOp::TurnPagePrev, state, true};

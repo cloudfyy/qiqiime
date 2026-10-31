@@ -17,14 +17,27 @@ void TestCompileTimeFsmTransitions() {
     static_assert(ClassifyKeyEvent(VK_RETURN, false, false, false) == KeyEventKind::Enter);
     static_assert(ClassifyKeyEvent(VK_BACK, false, false, false) == KeyEventKind::Backspace);
     static_assert(ClassifyKeyEvent(VK_ESCAPE, false, false, false) == KeyEventKind::Escape);
-    static_assert(ClassifyKeyEvent('1', false, false, false) == KeyEventKind::DigitSelect);
+    static_assert(ClassifyKeyEvent('1', false, false, false) == KeyEventKind::None);
+    static_assert(
+        ClassifyKeyEvent('1', false, false, false, true, false, true, false, EngineState::Composing1) ==
+        KeyEventKind::DigitSelect);
     static_assert(ClassifyKeyEvent('1', true, false, false) == KeyEventKind::ChinesePunct);
-    static_assert(ClassifyKeyEvent(VK_UP, false, false, false) == KeyEventKind::CandidateUp);
-    static_assert(ClassifyKeyEvent(VK_LEFT, false, false, false) == KeyEventKind::CandidateUp);
-    static_assert(ClassifyKeyEvent(VK_DOWN, false, false, false) == KeyEventKind::CandidateDown);
-    static_assert(ClassifyKeyEvent(VK_RIGHT, false, false, false) == KeyEventKind::CandidateDown);
-    static_assert(ClassifyKeyEvent(VK_OEM_MINUS, false, false, false) == KeyEventKind::PageUp);
-    static_assert(ClassifyKeyEvent(VK_OEM_PLUS, false, false, false) == KeyEventKind::PageDown);
+    static_assert(ClassifyKeyEvent(VK_UP, false, false, false) == KeyEventKind::CandidatePrev);
+    static_assert(ClassifyKeyEvent(VK_LEFT, false, false, false) == KeyEventKind::CandidatePrev);
+    static_assert(ClassifyKeyEvent(VK_DOWN, false, false, false) == KeyEventKind::CandidateNext);
+    static_assert(ClassifyKeyEvent(VK_RIGHT, false, false, false) == KeyEventKind::CandidateNext);
+    static_assert(ClassifyKeyEvent(VK_OEM_MINUS, false, false, false) == KeyEventKind::None);
+    static_assert(ClassifyKeyEvent(VK_OEM_PLUS, false, false, false) == KeyEventKind::None);
+    static_assert(
+        ClassifyKeyEvent(VK_OEM_MINUS, false, false, false, true, false, true, false, EngineState::Composing1) ==
+        KeyEventKind::PageUp);
+    static_assert(
+        ClassifyKeyEvent(VK_OEM_PLUS, false, false, false, true, false, true, false, EngineState::Composing1) ==
+        KeyEventKind::PageDown);
+    static_assert(!LookupTransition(EngineState::Idle, KeyEventKind::CandidatePrev).eat_key);
+    static_assert(!LookupTransition(EngineState::Idle, KeyEventKind::CandidateNext).eat_key);
+    static_assert(LookupTransition(EngineState::Composing1, KeyEventKind::CandidatePrev).eat_key);
+    static_assert(LookupTransition(EngineState::Composing1, KeyEventKind::CandidateNext).eat_key);
 
     // CapsLock compile-time FSM checks
     static_assert(ClassifyKeyEvent('A', false, false, false, true, false, true, false, EngineState::Idle, true) == KeyEventKind::None);
