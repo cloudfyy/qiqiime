@@ -12,7 +12,7 @@
 #include "Ime/engine/engine.h"
 #include "Ime/ui/candidate_ui.h"
 #include "Ime/ui/langbar_button.h"
-#include "Ime/ui/status_bar.h"
+#include "Ime/ui/statusbar.h"
 #include <memory>
 
 namespace qiqi {

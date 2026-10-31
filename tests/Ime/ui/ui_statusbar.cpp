@@ -6,7 +6,7 @@
 #include "Ime/ui/candidate_ui.h"
 #include "Ime/ui/langbar_button.h"
 #include "tools/settings/window.h"
-#include "Ime/ui/status_bar.h"
+#include "Ime/ui/statusbar.h"
 
 #include <windows.h>
 #include <gsl/gsl>

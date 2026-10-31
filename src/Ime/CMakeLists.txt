@@ -30,8 +30,10 @@ set(QIQIIME_SOURCES
     ui/langbar_button.h
     ui/langbar_button.cpp
     ui/popup_menu.cpp
-    ui/status_bar.h
-    ui/status_bar.cpp
+    ui/statusbar.h
+    ui/statusbar.cpp
+    ui/statusbar_icons.cpp
+    ui/statusbar_tooltip.cpp
 )
 add_library(qiqiime SHARED
     ${QIQIIME_SOURCES}

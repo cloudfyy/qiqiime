@@ -16,7 +16,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     tsf/tsf_service.cpp
     ui/ui_candidate.cpp
     ui/ui_langbar_menu.cpp
-    ui/ui_status_bar.cpp
+    ui/ui_statusbar.cpp
     tsf_ui_main.cpp
 )
 set(QIQI_TSF_UI_IMPL_SOURCES
@@ -31,7 +31,9 @@ set(QIQI_TSF_UI_IMPL_SOURCES
     "${PROJECT_SOURCE_DIR}/src/Ime/ui/candidate_ui.cpp"
     "${PROJECT_SOURCE_DIR}/src/Ime/ui/langbar_button.cpp"
     "${PROJECT_SOURCE_DIR}/src/Ime/ui/popup_menu.cpp"
-    "${PROJECT_SOURCE_DIR}/src/Ime/ui/status_bar.cpp"
+    "${PROJECT_SOURCE_DIR}/src/Ime/ui/statusbar.cpp"
+    "${PROJECT_SOURCE_DIR}/src/Ime/ui/statusbar_icons.cpp"
+    "${PROJECT_SOURCE_DIR}/src/Ime/ui/statusbar_tooltip.cpp"
 )
 add_executable(qiqi_tsf_ui_test
     ${QIQI_TSF_UI_TEST_SOURCES}
