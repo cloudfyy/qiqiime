@@ -1,6 +1,7 @@
 set(QIQI_ENGINE_SOURCES
     engine/binary_dict.cpp
     engine/binary_dict.h
+    engine/binary_dict_lookup.cpp
     engine/fsm.h
     engine/fsm_key_mapping.h
     engine/fsm_pagination.h
