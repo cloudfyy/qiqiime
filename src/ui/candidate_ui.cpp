@@ -484,6 +484,11 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
                     SWP_NOACTIVATE | (self->is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
             }
             return 0;
+        case WM_SETTINGCHANGE:
+        case WM_THEMECHANGED:
+            self->RecalculatePopupLayout();
+            ::InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
         case WM_PAINT:
             return PaintWindowClient(hwnd, [self](HDC hdc, const RECT& rc) { self->PaintPopup(hdc, rc); });
         default:

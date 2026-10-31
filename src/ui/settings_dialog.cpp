@@ -43,6 +43,8 @@ constexpr int kIdChkCodeHint = 118;
 constexpr int kIdChkDynamicFreq = 119;
 constexpr int kIdChkLogKeystrokes = 120;
 constexpr int kIdLblPrivacyNotice = 121;
+constexpr int kIdLblPageSize = 122;
+constexpr int kIdLblUiLang = 123;
 constexpr int kIdBtnOpenGitHub = 201;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
@@ -61,48 +63,24 @@ struct SettingsCheckboxBinding {
 };
 
 constexpr std::array<SettingsCheckboxBinding, 13> kSettingsCheckboxes = {{
-    {kIdChkExtraDict,     &QiQiConfig::enable_jidian_extra,          &UiStrings::dlg_chk_extra,          44,  66, 360},
-    {kIdChkAutoCommit4,   &QiQiConfig::auto_commit_4code,            &UiStrings::dlg_chk_auto_commit4,   24, 166, 400},
-    {kIdChkPushCommit5,   &QiQiConfig::push_commit_5th,              &UiStrings::dlg_chk_push_commit5,   24, 194, 400},
-    {kIdChkQuickSelect,   &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select,   24, 222, 400},
-    {kIdChkCodeHint,      &QiQiConfig::show_code_hint,               &UiStrings::dlg_chk_code_hint,      24, 250, 400},
-    {kIdChkDynamicFreq,   &QiQiConfig::dynamic_phrase_freq,          &UiStrings::dlg_chk_dynamic_freq,   24, 278, 400},
-    {kIdChkShiftToggle,   &QiQiConfig::shift_toggle_mode,            &UiStrings::dlg_chk_shift_toggle,   24, 306, 400},
-    {kIdChkStatusBar,     &QiQiConfig::show_status_bar,              &UiStrings::dlg_chk_status_bar,     24, 334, 400},
-    {kIdChkBeepEmpty4,    &QiQiConfig::beep_on_empty_4code,          &UiStrings::dlg_chk_beep_empty4,    24, 362, 400},
-    {kIdChkBeepDup4,      &QiQiConfig::beep_on_dup_4code,            &UiStrings::dlg_chk_beep_dup4,      24, 390, 400},
-    {kIdChkClearEmpty4,   &QiQiConfig::clear_on_empty_4code,         &UiStrings::dlg_chk_clear_empty4,   24, 418, 400},
-    {kIdChkKeySound,      &QiQiConfig::enable_key_sound,             &UiStrings::dlg_chk_key_sound,      24, 446, 400},
-    {kIdChkLogKeystrokes, &QiQiConfig::log_keystrokes,               &UiStrings::dlg_chk_log_keystrokes, 24, 474, 400},
+    {kIdChkExtraDict,     &QiQiConfig::enable_jidian_extra,          &UiStrings::dlg_chk_extra,           32, 108, 360},
+    {kIdChkAutoCommit4,   &QiQiConfig::auto_commit_4code,            &UiStrings::dlg_chk_auto_commit4,    32, 232, 360},
+    {kIdChkPushCommit5,   &QiQiConfig::push_commit_5th,              &UiStrings::dlg_chk_push_commit5,    32, 260, 360},
+    {kIdChkQuickSelect,   &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select,    32, 288, 360},
+    {kIdChkCodeHint,      &QiQiConfig::show_code_hint,               &UiStrings::dlg_chk_code_hint,       32, 316, 360},
+    {kIdChkDynamicFreq,   &QiQiConfig::dynamic_phrase_freq,          &UiStrings::dlg_chk_dynamic_freq,    32, 344, 360},
+    {kIdChkShiftToggle,   &QiQiConfig::shift_toggle_mode,            &UiStrings::dlg_chk_shift_toggle,    32, 372, 360},
+    {kIdChkStatusBar,     &QiQiConfig::show_status_bar,              &UiStrings::dlg_chk_status_bar,     430,  80, 360},
+    {kIdChkBeepEmpty4,    &QiQiConfig::beep_on_empty_4code,          &UiStrings::dlg_chk_beep_empty4,    430, 232, 360},
+    {kIdChkBeepDup4,      &QiQiConfig::beep_on_dup_4code,            &UiStrings::dlg_chk_beep_dup4,      430, 260, 360},
+    {kIdChkClearEmpty4,   &QiQiConfig::clear_on_empty_4code,         &UiStrings::dlg_chk_clear_empty4,   430, 288, 360},
+    {kIdChkKeySound,      &QiQiConfig::enable_key_sound,             &UiStrings::dlg_chk_key_sound,      430, 316, 360},
+    {kIdChkLogKeystrokes, &QiQiConfig::log_keystrokes,               &UiStrings::dlg_chk_log_keystrokes, 430, 344, 360},
 }};
 
-struct FluentRowDef {
-    int id;
-    bool is_radio;
-    const wchar_t* UiStrings::* label_field;
-    int card_idx;
-};
-
-constexpr std::array<FluentRowDef, 16> kFluentRows = {{
-    {kIdRadioJidian,      true,  &UiStrings::dlg_radio_jidian,     0},
-    {kIdChkExtraDict,     false, &UiStrings::dlg_chk_extra,        0},
-    {kIdRadioHaifeng,     true,  &UiStrings::dlg_radio_haifeng,    0},
-    {kIdRadioBuiltin,     true,  &UiStrings::dlg_radio_builtin,    0},
-    {kIdChkAutoCommit4,   false, &UiStrings::dlg_chk_auto_commit4, 1},
-    {kIdChkPushCommit5,   false, &UiStrings::dlg_chk_push_commit5, 1},
-    {kIdChkQuickSelect,   false, &UiStrings::dlg_chk_quick_select, 1},
-    {kIdChkCodeHint,      false, &UiStrings::dlg_chk_code_hint,    1},
-    {kIdChkDynamicFreq,   false, &UiStrings::dlg_chk_dynamic_freq, 1},
-    {kIdChkShiftToggle,   false, &UiStrings::dlg_chk_shift_toggle, 1},
-    {kIdChkStatusBar,     false, &UiStrings::dlg_chk_status_bar,   2},
-    {kIdChkBeepEmpty4,    false, &UiStrings::dlg_chk_beep_empty4,  2},
-    {kIdChkBeepDup4,      false, &UiStrings::dlg_chk_beep_dup4,    2},
-    {kIdChkClearEmpty4,   false, &UiStrings::dlg_chk_clear_empty4, 2},
-    {kIdChkKeySound,      false, &UiStrings::dlg_chk_key_sound,    2},
-    {kIdChkLogKeystrokes, false, &UiStrings::dlg_chk_log_keystrokes, 2},
-}};
-
-ScopedIcon CreateBrandIcon(int size_px) noexcept {
+ScopedIcon LoadOrCreateBrandIcon(HINSTANCE /*instance*/, int size_px) noexcept {
+    // Always generate a high-contrast royal-blue (RGB(35,105,200)) '奇' icon so it is crisp
+    // and clearly visible on both Light and Dark Windows title bars and taskbars.
     return CreateTransparentGlyphIcon(L'奇', size_px, RGB(35, 105, 200));
 }
 
@@ -115,16 +93,14 @@ struct DialogContext {
     ScopedGdiHandle<HFONT> font;
     ScopedGdiHandle<HFONT> bold_font;
     ScopedGdiHandle<HBRUSH> surface_brush;
-    ScopedIcon icon;
+    ScopedIcon icon_small;
+    ScopedIcon icon_big;
     ScopedD2DFactory d2d_factory;
     ScopedDWriteFactory dwrite_factory;
     ScopedD2DDcTarget d2d_target;
     ScopedDWriteTextFormat fmt_title;
     ScopedDWriteTextFormat fmt_body;
     ScopedDWriteTextFormat fmt_caption;
-    std::array<RECT, kFluentRows.size()> row_rects{};
-    std::array<RECT, 3> footer_btn_rects{};
-    std::array<int, 3> footer_btn_ids{{kIdBtnAbout, kIdBtnOk, kIdBtnCancel}};
 };
 
 void InitDialogD2D(DialogContext& ctx, UINT dpi) noexcept {
@@ -150,12 +126,61 @@ void InitDialogD2D(DialogContext& ctx, UINT dpi) noexcept {
     }
 }
 
+UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept {
+    const LRESULT lang_sel = ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_GETCURSEL, 0, 0);
+    if (lang_sel == 1) {
+        return UiLanguage::ZhCn;
+    }
+    if (lang_sel == 2) {
+        return UiLanguage::EnUs;
+    }
+    if (lang_sel == 0) {
+        return UiLanguage::Auto;
+    }
+    return ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
+}
+
+void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
+    const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
+    if (ctx.config) {
+        ctx.config->ui_language = lang;
+    }
+    const auto& str = GetUiStrings(lang);
+
+    ::SetWindowTextW(hwnd, str.dlg_title);
+    ::SetDlgItemTextW(hwnd, kIdRadioJidian, str.dlg_radio_jidian);
+    ::SetDlgItemTextW(hwnd, kIdRadioHaifeng, str.dlg_radio_haifeng);
+    ::SetDlgItemTextW(hwnd, kIdRadioBuiltin, str.dlg_radio_builtin);
+    for (const auto& binding : kSettingsCheckboxes) {
+        ::SetDlgItemTextW(hwnd, binding.control_id, str.*(binding.label_field));
+    }
+    ::SetDlgItemTextW(hwnd, kIdLblPrivacyNotice, str.dlg_lbl_privacy_notice);
+    ::SetDlgItemTextW(hwnd, kIdLblPageSize, str.dlg_lbl_page_size);
+    ::SetDlgItemTextW(hwnd, kIdLblUiLang, str.dlg_lbl_ui_lang);
+    ::SetDlgItemTextW(hwnd, kIdBtnAbout, str.dlg_btn_about);
+    ::SetDlgItemTextW(hwnd, kIdBtnOk, str.dlg_btn_ok);
+    ::SetDlgItemTextW(hwnd, kIdBtnCancel, str.dlg_btn_cancel);
+
+    const LRESULT cur_sel = ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_GETCURSEL, 0, 0);
+    ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_RESETCONTENT, 0, 0);
+    const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
+    for (const wchar_t* item : lang_items) {
+        ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
+    }
+    ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_SETCURSEL, cur_sel >= 0 ? cur_sel : 0, 0);
+
+    ::InvalidateRect(hwnd, nullptr, TRUE);
+}
+
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept {
     if (!ctx.d2d_target) {
         return;
     }
     const bool is_dark = IsSystemDarkTheme();
     const auto S = [d = ctx.dpi](int px) noexcept { return static_cast<float>(ScalePxByDpi(px, d)); };
+    const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
+    const bool is_en = (ResolveUiLanguage(lang) == UiLanguage::EnUs);
+    const auto& str = GetUiStrings(lang);
 
     const ScopedD2DDcDraw draw_guard(ctx.d2d_target.Get(), hdc, client_rc);
     if (!draw_guard) {
@@ -172,57 +197,70 @@ void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const 
         ctx.d2d_target.Get(), is_dark ? MakeD2DColor(76, 160, 255) : MakeD2DColor(0, 103, 192));
     const auto text_brush = CreateSolidBrush(
         ctx.d2d_target.Get(), is_dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40));
+    const auto subtext_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(168, 176, 190) : MakeD2DColor(96, 104, 118));
 
-    const float left_pad = S(12);
-    const float right_edge = static_cast<float>(client_rc.right) - S(12);
     const float radius = S(8);
 
-    // Draw 3 Fluent rounded cards:
-    // Card 0: Dictionary [10..158]
-    // Card 1: Input Behavior & Feedback [162..528]
-    // Card 2: Appearance & Language [530..598]
-    const std::array<D2D1_RECT_F, 3> cards = {{
-        D2D1::RectF(left_pad, S(10),  right_edge, S(158)),
-        D2D1::RectF(left_pad, S(162), right_edge, S(528)),
-        D2D1::RectF(left_pad, S(530), right_edge, S(598)),
+    // Header Title Banner [18, 10, 742, 42]
+    if (ctx.fmt_title && text_brush) {
+        const D2D1_RECT_F title_rc = D2D1::RectF(S(20), S(10), S(480), S(40));
+        ctx.d2d_target->DrawTextW(
+            str.about_app_name,
+            gsl::narrow_cast<UINT32>(wcslen(str.about_app_name)),
+            ctx.fmt_title.Get(),
+            title_rc,
+            text_brush.Get(),
+            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+    }
+    if (ctx.fmt_caption && subtext_brush) {
+        const std::wstring ver_tag = std::wstring(L"v") + std::wstring(version::kFullVersionW);
+        const D2D1_RECT_F ver_rc = D2D1::RectF(S(650), S(16), S(802), S(38));
+        ctx.d2d_target->DrawTextW(
+            ver_tag.c_str(),
+            gsl::narrow_cast<UINT32>(ver_tag.size()),
+            ctx.fmt_caption.Get(),
+            ver_rc,
+            subtext_brush.Get());
+    }
+
+    // 4 Symmetric 2-Column Fluent Cards:
+    // Left Column  [18..404]: Card 0 (Dictionary, 46..196), Card 1 (Typing Habits, 206..414)
+    // Right Column [416..802]: Card 2 (UI & Display, 46..196), Card 3 (Sound & Diagnostics, 206..414)
+    struct CardSpec {
+        D2D1_RECT_F rect;
+        const wchar_t* title_zh;
+        const wchar_t* title_en;
+    };
+    const std::array<CardSpec, 4> cards = {{
+        {D2D1::RectF(S(18),  S(46),  S(404), S(196)), L"词库方案",           L"Dictionary"},
+        {D2D1::RectF(S(18),  S(206), S(404), S(414)), L"编码与上屏习惯",     L"Input & Commit Behavior"},
+        {D2D1::RectF(S(416), S(46),  S(802), S(196)), L"界面与外观",         L"Appearance & Display"},
+        {D2D1::RectF(S(416), S(206), S(802), S(414)), L"提示音与诊断",       L"Sound & Diagnostics"},
     }};
 
-    for (const auto& card_rc : cards) {
-        const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(card_rc, radius, radius);
+    for (const auto& card : cards) {
+        const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(card.rect, radius, radius);
         if (card_brush) {
             ctx.d2d_target->FillRoundedRectangle(rr, card_brush.Get());
         }
         if (border_brush) {
             ctx.d2d_target->DrawRoundedRectangle(rr, border_brush.Get(), 1.0f);
         }
-    }
-
-    // Draw Fluent vertical accent indicator bar next to active radio/toggle groups
-    if (accent_brush) {
-        const D2D1_ROUNDED_RECT pill = D2D1::RoundedRect(
-            D2D1::RectF(left_pad + S(4), S(20), left_pad + S(8), S(54)), S(2), S(2));
-        ctx.d2d_target->FillRoundedRectangle(pill, accent_brush.Get());
-    }
-
-    // Draw Fluent Toggle Pill Switches on the right edge of each checkbox row
-    for (const auto& binding : kSettingsCheckboxes) {
-        const bool checked = (::IsDlgButtonChecked(hwnd, binding.control_id) == BST_CHECKED);
-        const float cy = S(binding.y_offset_px + 12);
-        const float sw_right = right_edge - S(14);
-        const float sw_left = sw_right - S(36);
-        const D2D1_ROUNDED_RECT track = D2D1::RoundedRect(
-            D2D1::RectF(sw_left, cy - S(9), sw_right, cy + S(9)), S(9), S(9));
-        if (checked && accent_brush) {
-            ctx.d2d_target->FillRoundedRectangle(track, accent_brush.Get());
-        } else if (border_brush) {
-            ctx.d2d_target->DrawRoundedRectangle(track, border_brush.Get(), 1.2f);
+        if (accent_brush) {
+            const D2D1_ROUNDED_RECT pill = D2D1::RoundedRect(
+                D2D1::RectF(card.rect.left + S(12), card.rect.top + S(10),
+                            card.rect.left + S(16), card.rect.top + S(26)),
+                S(2), S(2));
+            ctx.d2d_target->FillRoundedRectangle(pill, accent_brush.Get());
         }
-        const float knob_x = checked ? (sw_right - S(9)) : (sw_left + S(9));
-        const D2D1_ELLIPSE knob = D2D1::Ellipse(D2D1::Point2F(knob_x, cy), S(6), S(6));
-        if (checked && card_brush) {
-            ctx.d2d_target->FillEllipse(knob, card_brush.Get());
-        } else if (text_brush) {
-            ctx.d2d_target->FillEllipse(knob, text_brush.Get());
+        if (ctx.fmt_caption && accent_brush) {
+            const wchar_t* hdr = is_en ? card.title_en : card.title_zh;
+            const D2D1_RECT_F hdr_rc = D2D1::RectF(
+                card.rect.left + S(24), card.rect.top + S(9),
+                card.rect.right - S(12), card.rect.top + S(29));
+            ctx.d2d_target->DrawTextW(
+                hdr, gsl::narrow_cast<UINT32>(wcslen(hdr)), ctx.fmt_caption.Get(), hdr_rc, accent_brush.Get());
         }
     }
 }
@@ -281,9 +319,14 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             UpdateExtraDictCheckboxState(hwnd);
             ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
+        case kIdComboUiLang:
+            if (HIWORD(wparam) == CBN_SELCHANGE) {
+                ApplyLiveSettingsLanguage(hwnd, ctx);
+            }
+            return;
         case kIdChkLogKeystrokes:
             if (HIWORD(wparam) == BN_CLICKED && ::IsDlgButtonChecked(hwnd, kIdChkLogKeystrokes) == BST_CHECKED) {
-                const UiLanguage lang = ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
+                const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
                 const auto& str = GetUiStrings(lang);
                 const int choice = ::MessageBoxW(
                     hwnd,
@@ -310,7 +353,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             ::PostMessageW(hwnd, WM_NULL, 0, 0);
             return;
         case kIdBtnAbout: {
-            const UiLanguage lang = ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
+            const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
             ShowAboutDialog(g_dll_instance, hwnd, lang);
             return;
         }
@@ -345,6 +388,14 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 return reinterpret_cast<LRESULT>(ctx->surface_brush.Get());
             }
             return reinterpret_cast<LRESULT>(::GetSysColorBrush(COLOR_BTNFACE));
+        }
+        case WM_SETTINGCHANGE:
+        case WM_THEMECHANGED: {
+            const bool is_dark = IsSystemDarkTheme();
+            ctx->surface_brush.Reset(::CreateSolidBrush(is_dark ? RGB(43, 46, 52) : RGB(255, 255, 255)));
+            ApplySystemThemeToMenuAndWindow(hwnd, is_dark);
+            ApplyLiveSettingsLanguage(hwnd, *ctx);
+            return 0;
         }
         case WM_COMMAND:
             HandleSettingsCommand(hwnd, wparam, *ctx);
@@ -543,14 +594,19 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     InitDialogD2D(*ctx, mon.dpi);
     const bool is_dark = IsSystemDarkTheme();
     ctx->surface_brush.Reset(::CreateSolidBrush(is_dark ? RGB(43, 46, 52) : RGB(255, 255, 255)));
-    ctx->font = CreateUiFont(S(15), FW_NORMAL, DEFAULT_QUALITY);
-    ctx->bold_font = CreateUiFont(S(13), FW_SEMIBOLD, DEFAULT_QUALITY);
-    ctx->icon = CreateBrandIcon(S(16));
+    ctx->font = CreateUiFont(S(15), FW_NORMAL, CLEARTYPE_QUALITY);
+    ctx->bold_font = CreateUiFont(S(12), FW_SEMIBOLD, CLEARTYPE_QUALITY);
+    ctx->icon_small = LoadOrCreateBrandIcon(instance, S(16));
+    ctx->icon_big = LoadOrCreateBrandIcon(instance, S(48));
 
     const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
 
-    const int dlg_w = S(460);
-    const int dlg_h = S(676);
+    const DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
+    const DWORD wnd_ex_style = WS_EX_APPWINDOW;
+    RECT desired_rc{0, 0, S(820), S(476)};
+    ::AdjustWindowRectEx(&desired_rc, wnd_style, FALSE, wnd_ex_style);
+    const int dlg_w = desired_rc.right - desired_rc.left;
+    const int dlg_h = desired_rc.bottom - desired_rc.top;
     const POINT centered{
         (mon.work_area.left + mon.work_area.right - dlg_w) / 2,
         (mon.work_area.top + mon.work_area.bottom - dlg_h) / 2
@@ -560,10 +616,10 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     const HFONT f = ctx->font.Get();
     const HFONT bold_f = ctx->bold_font.Get();
     ScopedWindow hwnd(::CreateWindowExW(
-        WS_EX_DLGMODALFRAME,
+        wnd_ex_style,
         kSettingsWndClass,
         str.dlg_title,
-        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
+        wnd_style,
         dlg_pos.x, dlg_pos.y, dlg_w, dlg_h,
         parent, nullptr, instance, ctx.get()));
     if (!hwnd) {
@@ -574,15 +630,17 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     QIQI_LOG_DEBUG("SettingsWindow created (pos=({}, {}), size={}x{}, dpi={})",
                    dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
     const auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
-    if (owned_ctx->icon) {
-        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
+    if (owned_ctx->icon_small) {
+        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon_small.Get()));
+    }
+    if (owned_ctx->icon_big) {
+        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(owned_ctx->icon_big.Get()));
     }
 
-    // Jidian Wubi 86 group box containing both Jidian Core radio button and Jidian Extra checkbox
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_grp_jidian, BS_GROUPBOX, S(16), S(14), S(412), S(84), 0);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_jidian, BS_AUTORADIOBUTTON | WS_GROUP, S(28), S(38), S(380), S(24), kIdRadioJidian);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_haifeng, BS_AUTORADIOBUTTON, S(24), S(104), S(400), S(24), kIdRadioHaifeng);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_builtin, BS_AUTORADIOBUTTON, S(24), S(132), S(400), S(24), kIdRadioBuiltin);
+    // Card 0 (Left-Top): Dictionary Radio Buttons + Extra Checkbox
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_jidian, BS_AUTORADIOBUTTON | WS_GROUP, S(32), S(80), S(360), S(24), kIdRadioJidian);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_haifeng, BS_AUTORADIOBUTTON, S(32), S(136), S(360), S(24), kIdRadioHaifeng);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_radio_builtin, BS_AUTORADIOBUTTON, S(32), S(164), S(360), S(24), kIdRadioBuiltin);
 
     for (const auto& binding : kSettingsCheckboxes) {
         CreateChildControl(
@@ -599,25 +657,27 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
             binding.control_id);
     }
 
-    // Highlighted wrapped privacy notice line directly under the keystroke logging checkbox
-    CreateChildControl(hwnd.Get(), instance, bold_f, L"STATIC", str.dlg_lbl_privacy_notice, 0, S(44), S(498), S(388), S(32), kIdLblPrivacyNotice);
+    // Highlighted wrapped privacy notice line inside Card 3 (Right-Bottom) directly under keystroke logging
+    CreateChildControl(hwnd.Get(), instance, bold_f, L"STATIC", str.dlg_lbl_privacy_notice, SS_NOPREFIX, S(448), S(370), S(340), S(36), kIdLblPrivacyNotice);
 
-    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(24), S(536), S(150), S(24), 0);
-    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(532), S(70), S(200), kIdComboPageSize);
+    // Card 2 (Right-Top): Candidates per page & UI Language comboboxes
+    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(430), S(114), S(156), S(24), kIdLblPageSize);
+    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(588), S(110), S(80), S(200), kIdComboPageSize);
     for (const wchar_t* label : kPageSizeLabels) {
         ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     }
 
-    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(24), S(570), S(150), S(24), 0);
-    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(180), S(566), S(200), S(160), kIdComboUiLang);
+    CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(430), S(150), S(156), S(24), kIdLblUiLang);
+    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(588), S(146), S(200), S(160), kIdComboUiLang);
     const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
     for (const wchar_t* item : lang_items) {
         ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
     }
 
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_about, BS_PUSHBUTTON, S(24), S(606), S(88), S(28), kIdBtnAbout);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(240), S(606), S(86), S(28), kIdBtnOk);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(334), S(606), S(86), S(28), kIdBtnCancel);
+    // Bottom Action Bar [Y = 428, Height = 32]
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_about, BS_PUSHBUTTON, S(18), S(428), S(104), S(32), kIdBtnAbout);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(596), S(428), S(98), S(32), kIdBtnOk);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(704), S(428), S(98), S(32), kIdBtnCancel);
 
     if (bound_config) {
         WriteSettingsToWindowControls(hwnd.Get(), *bound_config);
@@ -660,11 +720,15 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
 
     ctx->body_font = CreateUiFont(S(14), FW_NORMAL);
     ctx->title_font = CreateUiFont(S(19), FW_BOLD);
-    ctx->icon = CreateBrandIcon(S(56));
+    ctx->icon = LoadOrCreateBrandIcon(instance, S(56));
 
     const auto& str = GetUiStrings(ui_language);
-    const int dlg_w = S(440);
-    const int dlg_h = S(310);
+    const DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    const DWORD wnd_ex_style = WS_EX_DLGMODALFRAME;
+    RECT desired_rc{0, 0, S(440), S(280)};
+    ::AdjustWindowRectEx(&desired_rc, wnd_style, FALSE, wnd_ex_style);
+    const int dlg_w = desired_rc.right - desired_rc.left;
+    const int dlg_h = desired_rc.bottom - desired_rc.top;
     const POINT centered{
         (mon.work_area.left + mon.work_area.right - dlg_w) / 2,
         (mon.work_area.top + mon.work_area.bottom - dlg_h) / 2
@@ -673,10 +737,10 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
 
     const HFONT f = ctx->body_font.Get();
     ScopedWindow hwnd(::CreateWindowExW(
-        WS_EX_DLGMODALFRAME,
+        wnd_ex_style,
         kAboutWndClass,
         str.about_title,
-        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        wnd_style,
         dlg_pos.x, dlg_pos.y, dlg_w, dlg_h,
         parent, nullptr, instance, ctx.get()));
     if (!hwnd) {
@@ -688,6 +752,7 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     const auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
     if (owned_ctx->icon) {
         ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
+        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
     }
 
     CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.about_btn_github, BS_PUSHBUTTON, S(24), S(236), S(120), S(28), kIdBtnOpenGitHub);

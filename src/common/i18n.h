@@ -1,5 +1,8 @@
 #pragma once
 #include <windows.h>
+#include <gsl/gsl>
+#include <array>
+#include <cwchar>
 #include "common/config.h"
 
 namespace qiqi {
@@ -194,7 +197,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Auto-clear input when no code matches",
     L"Enable typing key sound effects",
     L"Log keystrokes for troubleshooting",
-    L"⚠ Privacy Notice: Emits typed keys & committed text via Windows ETW diagnostics",
+    L"⚠ Privacy Notice: Emits typed keys and committed text via Windows ETW diagnostics",
     L"Privacy Confirmation - Keystroke Logging",
     L"Enabling keystroke logging will emit your typed keys, candidates, and committed text via the Windows ETW (QiQiIME.TraceLogging) diagnostic channel.\n\nThis option is intended only for troubleshooting. Are you sure you want to enable it?",
     L"Candidates per page:",
@@ -206,22 +209,37 @@ inline constexpr UiStrings kEnUsStrings = {
     L"OK",
     L"Cancel",
 
-    L"About 奇奇五笔 (QiQi Wubi)",
-    L"奇奇五笔 (QiQi Wubi IME)",
+    L"About QiQi Wubi IME",
+    L"QiQi Wubi IME",
     L"Version: v",
     L"Open Source Licenses:\n"
-    L"• 奇奇五笔 (QiQiIME) Core (cloudfyy): GPL License\n"
+    L"• QiQi Wubi IME Core (cloudfyy): GPL License\n"
     L"• Jidian Wubi 86 Dict (KyleBing): Apache License 2.0\n"
     L"• Haifeng Wubi 86 Dict (SUN Haifeng): BSD 3-Clause License",
     L"Visit GitHub"
 };
 
+inline UiLanguage DetectSystemPreferredUiLanguage() noexcept {
+    ULONG num_langs = 0;
+    ULONG cch_buf = 0;
+    std::array<wchar_t, 128> buf{};
+    cch_buf = gsl::narrow_cast<ULONG>(buf.size());
+    if (::GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &num_langs, buf.data(), &cch_buf) &&
+        num_langs > 0 && buf[0] != L'\0') {
+        if (_wcsnicmp(buf.data(), L"zh", 2) == 0) {
+            return UiLanguage::ZhCn;
+        }
+        return UiLanguage::EnUs;
+    }
+    const LANGID lang_id = ::GetUserDefaultUILanguage();
+    return (PRIMARYLANGID(lang_id) == LANG_CHINESE) ? UiLanguage::ZhCn : UiLanguage::EnUs;
+}
+
 inline UiLanguage ResolveUiLanguage(UiLanguage configured) noexcept {
     if (configured == UiLanguage::ZhCn || configured == UiLanguage::EnUs) {
         return configured;
     }
-    const LANGID lang_id = ::GetUserDefaultUILanguage();
-    return (PRIMARYLANGID(lang_id) == LANG_CHINESE) ? UiLanguage::ZhCn : UiLanguage::EnUs;
+    return DetectSystemPreferredUiLanguage();
 }
 
 inline const UiStrings& GetUiStrings(UiLanguage configured) noexcept {

@@ -804,7 +804,11 @@ LRESULT StatusBarUI::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             }
             return 0;
         case WM_SETTINGCHANGE:
+        case WM_THEMECHANGED:
             ApplySystemThemeToMenuAndWindow(hwnd, IsSystemDarkTheme());
+            if (action_callback_) {
+                action_callback_(LangBarMenuId::SyncMenuState);
+            }
             ::InvalidateRect(hwnd, nullptr, TRUE);
             return 0;
         case WM_PAINT:

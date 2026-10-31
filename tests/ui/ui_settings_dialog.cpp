@@ -139,11 +139,23 @@ void TestSettingsDialogControls() {
         // Exercise Direct2D Fluent UI card and toggle-switch painting in both Light and Dark themes
         for (const bool dark : {false, true}) {
             SetThemeDarkOverrideForTest(dark);
+            ::SendMessageW(hwnd_zh.Get(), WM_THEMECHANGED, 0, 0);
             ::ShowWindow(hwnd_zh.Get(), SW_SHOWNOACTIVATE);
             ::InvalidateRect(hwnd_zh.Get(), nullptr, TRUE);
             ::UpdateWindow(hwnd_zh.Get());
         }
         SetThemeDarkOverrideForTest(std::nullopt);
+
+        // Verify live UI language switching via kIdComboUiLang (111) CBN_SELCHANGE
+        ::SendDlgItemMessageW(hwnd_zh.Get(), 111, CB_SETCURSEL, 2, 0); // EnUs
+        ::SendMessageW(hwnd_zh.Get(), WM_COMMAND, MAKEWPARAM(111, CBN_SELCHANGE), 0);
+        ::GetWindowTextW(hwnd_zh.Get(), title_buf, 128);
+        QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi Wubi IME - Settings");
+
+        ::SendDlgItemMessageW(hwnd_zh.Get(), 111, CB_SETCURSEL, 1, 0); // ZhCn
+        ::SendMessageW(hwnd_zh.Get(), WM_COMMAND, MAKEWPARAM(111, CBN_SELCHANGE), 0);
+        ::GetWindowTextW(hwnd_zh.Get(), title_buf, 128);
+        QIQI_TEST_CHECK(std::wstring(title_buf) == L"QiQi 五笔输入法 - 属性设置");
 
         // Test clicking the "About..." button (id=115) inside SettingsDialog (both with bound_config and nullptr)
         ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
@@ -194,7 +206,7 @@ void TestSettingsDialogControls() {
 
     // Verify About dialog creation, painting, title localization, child controls, icon, and modal ShowAboutDialog
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_app_name).find(L"奇奇五笔") != std::wstring::npos);
-    QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_app_name).find(L"奇奇五笔") != std::wstring::npos);
+    QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_app_name) == L"QiQi Wubi IME");
     QIQI_TEST_CHECK(std::wstring(kGitHubRepoUrl) == L"https://github.com/cloudfyy/qiqiime");
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"cloudfyy") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_license_info).find(L"cloudfyy") != std::wstring::npos);
@@ -222,7 +234,7 @@ void TestSettingsDialogControls() {
         const ScopedWindow about_en(CreateAboutWindow(::GetModuleHandleW(nullptr), about_zh.Get(), UiLanguage::EnUs));
         QIQI_TEST_CHECK(about_en.IsValid());
         ::GetWindowTextW(about_en.Get(), title_buf, 128);
-        QIQI_TEST_CHECK(std::wstring(title_buf) == L"About 奇奇五笔 (QiQi Wubi)");
+        QIQI_TEST_CHECK(std::wstring(title_buf) == L"About QiQi Wubi IME");
         ::GetDlgItemTextW(about_en.Get(), 201, btn_buf, 64);
         QIQI_TEST_CHECK(std::wstring(btn_buf) == L"Visit GitHub");
         ::GetDlgItemTextW(about_en.Get(), IDOK, btn_buf, 64);
