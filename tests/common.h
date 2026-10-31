@@ -47,7 +47,9 @@ void RunEngineModesPunctTests();
 // UI & TSF test suites
 void RunLangBarMenuTests();
 void RunCandidateUITests();
+void RunD2DControlsTests();
 void RunSettingsDialogTests();
+void RunSettingsDialogEdgeTests();
 void RunStatusBarUITests();
 void RunTsfComTests();
 void RunTsfServiceTests();

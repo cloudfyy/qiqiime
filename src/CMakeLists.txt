@@ -71,11 +71,17 @@ set(QIQIIME_SOURCES
     tsf/qiqiime.def
     ui/candidate_ui.h
     ui/candidate_ui.cpp
+    ui/about_dialog.cpp
+    ui/dialog_util.h
+    ui/d2d_controls.h
+    ui/d2d_controls.cpp
     ui/langbar_button.h
     ui/langbar_button.cpp
     ui/popup_menu.cpp
     ui/settings_dialog.h
     ui/settings_dialog.cpp
+    ui/settings_dialog_controls.cpp
+    ui/settings_dialog_internal.h
     ui/status_bar.h
     ui/status_bar.cpp
 )
@@ -122,8 +128,14 @@ add_custom_command(TARGET qiqiime POST_BUILD
 # Standalone Direct2D Fluent UI Settings executable (QiQiIMESettings.exe)
 add_executable(QiQiIMESettings WIN32
     ui/settings_main.cpp
+    ui/about_dialog.cpp
+    ui/dialog_util.h
     ui/settings_dialog.cpp
+    ui/settings_dialog_controls.cpp
+    ui/settings_dialog_internal.h
     ui/settings_dialog.h
+    ui/d2d_controls.h
+    ui/d2d_controls.cpp
     common/guids.h
     "${QIQIIME_GENERATED_DIR}/common/version.rc"
 )

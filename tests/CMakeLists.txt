@@ -22,8 +22,10 @@ set(QIQI_TSF_UI_TEST_SOURCES
     tsf/tsf_com.cpp
     tsf/tsf_service.cpp
     ui/ui_candidate.cpp
+    ui/ui_d2d_controls.cpp
     ui/ui_langbar_menu.cpp
     ui/ui_settings_dialog.cpp
+    ui/ui_settings_dialog_edges.cpp
     ui/ui_status_bar.cpp
     tsf_ui_main.cpp
 )
@@ -34,9 +36,12 @@ set(QIQI_TSF_UI_IMPL_SOURCES
     "${PROJECT_SOURCE_DIR}/src/tsf/tip_service.cpp"
     "${PROJECT_SOURCE_DIR}/src/tsf/display_attribute.cpp"
     "${PROJECT_SOURCE_DIR}/src/ui/candidate_ui.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ui/about_dialog.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ui/d2d_controls.cpp"
     "${PROJECT_SOURCE_DIR}/src/ui/langbar_button.cpp"
     "${PROJECT_SOURCE_DIR}/src/ui/popup_menu.cpp"
     "${PROJECT_SOURCE_DIR}/src/ui/settings_dialog.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ui/settings_dialog_controls.cpp"
     "${PROJECT_SOURCE_DIR}/src/ui/status_bar.cpp"
 )
 add_executable(qiqi_tsf_ui_test

@@ -14,7 +14,9 @@ int main() {
 
     qiqi::test::RunLangBarMenuTests();
     qiqi::test::RunCandidateUITests();
+    qiqi::test::RunD2DControlsTests();
     qiqi::test::RunSettingsDialogTests();
+    qiqi::test::RunSettingsDialogEdgeTests();
     qiqi::test::RunStatusBarUITests();
     qiqi::test::RunTsfComTests();
     qiqi::test::RunTsfServiceTests();

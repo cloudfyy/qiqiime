@@ -84,8 +84,13 @@ TSF 的按键处理分为两步：
 
 ### 2.7 全链路 RAII、多显示器 DPI 与矢量抗锯齿 UI（`src/common/` & `src/ui/`）
 - **泛型零开销 RAII（`ScopedHandle<Traits>`）**：所有 Win32 内核句柄、文件映射视图、注册表键、GDI 对象（`HFONT`/`HBRUSH`/`HPEN`/`HBITMAP`/`HDC`）、菜单（`HMENU`）、窗口（`HWND`）与动态库（`HMODULE`）均由移动语义 RAII 包装器管理。
+- **可复用 D2D 控件（[`d2d_controls.h`](../src/ui/d2d_controls.h) / [`d2d_controls.cpp`](../src/ui/d2d_controls.cpp)）**：头文件仅提供声明，实现集中管理 Fluent 卡片、主次按钮、开关、单选框与下拉框的绘制和子类化；设置页及关于页复用同一模块，不在控件层依赖业务控件 ID 或父窗口的 `GWLP_USERDATA` 类型。每个窗口组合一个 `FluentD2DThemeContext`，通过现有 RAII 包装器持有 D2D/DWrite/GDI 资源；控件创建失败时自动回收尚未移交的窗口并记录日志，成功后由父窗口销毁子控件。下拉框借用的上下文须保持地址稳定，且存活到子控件销毁之后；单选组由调用方通过 `MAKELONG(first_id, last_id)` 指定连续 ID 范围。父窗口将 `WM_DRAWITEM` 分派给相应绘制函数，主题变更时调用 `RefreshThemeBrushes()`；卡片绘制在调用方的 `ScopedD2DDcDraw` 会话内进行，其余控件自行管理绘制会话。
 - **多显示器与 Per-Monitor DPI（`monitor_dpi.h`）**：候选窗、浮动状态栏、Tooltip、设置窗口与关于窗口均通过 `MonitorFromPoint` + `GetDpiForMonitor` 适配任意副屏坐标（含负坐标副屏）与高分屏缩放，并在跨屏拖拽（`WM_DPICHANGED` / `WM_EXITSIZEMOVE` / `WM_DISPLAYCHANGE`）时自动重算字体与边界裁剪。
 - **4x4 超采样抗锯齿状态条图标（`status_bar.cpp`）**：使用有向距离场（SDF）+ 4x4 超采样实时生成 32 位预乘 ARGB `DIBSection` 位图，通过 `GdiAlphaBlend` 渲染半角月牙、全角圆环、中英文标点与八齿设置齿轮图标。
+
+- **设置窗口职责拆分**：[`settings_dialog.cpp`](../src/ui/settings_dialog.cpp) 负责窗口创建、消息分派与命令处理；[`settings_dialog_controls.cpp`](../src/ui/settings_dialog_controls.cpp) 负责控件布局、配置绑定、语言更新与卡片绘制；[`about_dialog.cpp`](../src/ui/about_dialog.cpp) 独立实现关于窗口。内部上下文和控件 ID 集中在 [`settings_dialog_internal.h`](../src/ui/settings_dialog_internal.h)，共享图标及模态消息循环位于 [`dialog_util.h`](../src/ui/dialog_util.h)。原有 [`settings_dialog.h`](../src/ui/settings_dialog.h) 公共接口保持不变，窗口仍在 `WM_NCDESTROY` 中回收 RAII 上下文。
+
+- **控件交互与退出边界**：开关和单选框仅在有效按下后的释放事件中切换，取消点击或孤立的释放事件不改变状态。下拉框在下游消息处理返回后重新确认子类化上下文仍有效，避免回调销毁控件后访问已释放资源。模态消息循环保留并重新投递 `WM_QUIT`，遇到消息读取错误或窗口被外部销毁时返回失败，不再访问已回收的窗口上下文。
 
 ### 2.8 多进程词库同步、动态字库切换与深层 TSF 健壮性设计
 

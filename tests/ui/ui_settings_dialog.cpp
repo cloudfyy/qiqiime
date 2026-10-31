@@ -13,6 +13,10 @@ namespace qiqi::test {
 namespace {
 
 void TestSettingsDialogControls() {
+    const auto original_theme = detail::ThemeDarkOverrideStorage();
+    const auto restore_theme = gsl::finally([original_theme]() noexcept {
+        SetThemeDarkOverrideForTest(original_theme);
+    });
     QiQiConfig cfg{};
     cfg.primary_dict = PrimaryDict::Haifeng;
     cfg.enable_jidian_extra = false;
@@ -30,7 +34,7 @@ void TestSettingsDialogControls() {
     cfg.log_keystrokes = true;
     cfg.page_size = 7;
 
-    const ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
+    ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
     QIQI_TEST_CHECK(hwnd.IsValid());
 
     QiQiConfig read_back{};
@@ -98,7 +102,7 @@ void TestSettingsDialogControls() {
         ::CheckDlgButton(hwnd.Get(), 120, BST_CHECKED);
         ::SetTimer(nullptr, 8, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
             ::KillTimer(nullptr, id);
-            if (const HWND msg_box = ::FindWindowW(L"#32770", nullptr)) {
+            if (const HWND msg_box = FindThreadWindowByClass(L"#32770")) {
                 ::SendMessageW(msg_box, WM_COMMAND, MAKEWPARAM(IDNO, BN_CLICKED), 0);
             }
         });
@@ -109,7 +113,7 @@ void TestSettingsDialogControls() {
         ::CheckDlgButton(hwnd.Get(), 120, BST_CHECKED);
         ::SetTimer(nullptr, 9, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
             ::KillTimer(nullptr, id);
-            if (const HWND msg_box = ::FindWindowW(L"#32770", nullptr)) {
+            if (const HWND msg_box = FindThreadWindowByClass(L"#32770")) {
                 ::SendMessageW(msg_box, WM_COMMAND, MAKEWPARAM(IDYES, BN_CLICKED), 0);
             }
         });
@@ -145,7 +149,7 @@ void TestSettingsDialogControls() {
             ::InvalidateRect(hwnd_zh.Get(), nullptr, TRUE);
             ::UpdateWindow(hwnd_zh.Get());
         }
-        SetThemeDarkOverrideForTest(std::nullopt);
+        SetThemeDarkOverrideForTest(original_theme);
 
         // Verify live UI language switching via kIdComboUiLang (111) CBN_SELCHANGE
         ::SendDlgItemMessageW(hwnd_zh.Get(), 111, CB_SETCURSEL, 2, 0); // EnUs
@@ -161,7 +165,7 @@ void TestSettingsDialogControls() {
         // Test clicking the "About..." button (id=115) inside SettingsDialog (both with bound_config and nullptr)
         ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
             ::KillTimer(nullptr, id);
-            const HWND about_dlg = ::FindWindowW(kAboutWndClass, nullptr);
+            const HWND about_dlg = FindThreadWindowByClass(kAboutWndClass);
             if (about_dlg) {
                 ::SendMessageW(about_dlg, WM_CLOSE, 0, 0);
             }
@@ -173,7 +177,7 @@ void TestSettingsDialogControls() {
         QIQI_TEST_CHECK(::SendMessageW(hwnd_null_cfg.Get(), WM_GETICON, ICON_SMALL, 0) != 0);
         ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
             ::KillTimer(nullptr, id);
-            const HWND about_dlg = ::FindWindowW(kAboutWndClass, nullptr);
+            const HWND about_dlg = FindThreadWindowByClass(kAboutWndClass);
             if (about_dlg) {
                 ::SendMessageW(about_dlg, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
             }
@@ -181,15 +185,12 @@ void TestSettingsDialogControls() {
         ::SendMessageW(hwnd_null_cfg.Get(), WM_COMMAND, MAKEWPARAM(115, BN_CLICKED), 0);
     }
 
-    // Destroy `hwnd` before testing modal ShowSettingsDialog so FindWindowW finds the active modal window
-    {
-        const ScopedWindow destroy_first = std::move(const_cast<ScopedWindow&>(hwnd));
-    }
+    hwnd.Reset();
 
     // Test modal ShowSettingsDialog with auto-closing timer (IDOK -> returns true, IDCANCEL -> returns false)
     ::SetTimer(nullptr, 1, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
-        const HWND dlg = ::FindWindowW(L"QiQiIMESettingsDialogClass", nullptr);
+        const HWND dlg = FindThreadWindowByClass(kSettingsWndClass);
         if (dlg) {
             ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
         }
@@ -198,7 +199,7 @@ void TestSettingsDialogControls() {
 
     ::SetTimer(nullptr, 1, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
-        const HWND dlg = ::FindWindowW(L"QiQiIMESettingsDialogClass", nullptr);
+        const HWND dlg = FindThreadWindowByClass(kSettingsWndClass);
         if (dlg) {
             ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
         }
@@ -248,7 +249,7 @@ void TestSettingsDialogControls() {
 
     ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
-        const HWND dlg = ::FindWindowW(kAboutWndClass, nullptr);
+        const HWND dlg = FindThreadWindowByClass(kAboutWndClass);
         if (dlg) {
             ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
         }
