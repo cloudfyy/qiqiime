@@ -109,6 +109,53 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
+void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcept {
+    const uint64_t reg_seq = QueryRegistryConfigSequence();
+    if (reg_seq == 0 || reg_seq == ctx.config_registry_sequence) {
+        return;
+    }
+
+    QiQiConfig external_cfg{};
+    uint64_t loaded_seq = 0;
+    if (!LoadConfigFromRegistry(external_cfg, &loaded_seq)) {
+        return;
+    }
+
+    QiQiConfig current_ui_cfg = ctx.baseline_config;
+    ReadSettingsFromWindowControls(hwnd, current_ui_cfg);
+
+    QiQiConfig merged_ui_cfg = external_cfg;
+    if (current_ui_cfg.primary_dict != ctx.baseline_config.primary_dict) {
+        merged_ui_cfg.primary_dict = current_ui_cfg.primary_dict;
+    }
+    for (const auto& binding : kSettingsCheckboxes) {
+        if (current_ui_cfg.*(binding.config_field) != ctx.baseline_config.*(binding.config_field)) {
+            merged_ui_cfg.*(binding.config_field) = current_ui_cfg.*(binding.config_field);
+        }
+    }
+    if (current_ui_cfg.page_size != ctx.baseline_config.page_size) {
+        merged_ui_cfg.page_size = current_ui_cfg.page_size;
+    }
+    const bool ui_lang_follows_external =
+        (current_ui_cfg.ui_language == ctx.baseline_config.ui_language);
+    if (!ui_lang_follows_external) {
+        merged_ui_cfg.ui_language = current_ui_cfg.ui_language;
+    }
+
+    ctx.config_registry_sequence = loaded_seq;
+    if (ctx.config) {
+        *ctx.config = external_cfg;
+    }
+
+    WriteSettingsToWindowControls(hwnd, merged_ui_cfg);
+    ctx.baseline_config = external_cfg;
+    if (ui_lang_follows_external) {
+        ApplyLiveSettingsLanguage(hwnd, ctx);
+    } else {
+        ::InvalidateRect(hwnd, nullptr, TRUE);
+    }
+}
+
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept {
     if (!ctx.d2d.d2d_target) {
         return;
@@ -194,6 +241,9 @@ namespace qiqi {
 using namespace settings_detail;
 
 void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept {
+    if (auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+        ctx->baseline_config = config;
+    }
     ::CheckRadioButton(
         hwnd,
         kIdRadioJidian,

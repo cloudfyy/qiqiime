@@ -21,6 +21,45 @@ void ShowSettingsSaveFailure(HWND hwnd, UiLanguage ui_language) noexcept {
     ShowSettingsMessage(hwnd, ui_language, SettingsMessageKind::SaveFailure);
 }
 
+void InitSettingsCompartmentSubscription(HWND hwnd, DialogContext& ctx) noexcept {
+    Microsoft::WRL::ComPtr<ITfThreadMgr> thread_mgr;
+    if (const HMODULE msctf = ::GetModuleHandleW(L"msctf.dll")) {
+        using TfGetThreadMgrFn = HRESULT(WINAPI*)(ITfThreadMgr**);
+        const auto get_fn = reinterpret_cast<TfGetThreadMgrFn>(
+            ::GetProcAddress(msctf, "TF_GetThreadMgr"));
+        if (get_fn) {
+            std::ignore = get_fn(&thread_mgr);
+        }
+        if (!thread_mgr) {
+            using TfCreateThreadMgrFn = HRESULT(WINAPI*)(ITfThreadMgr**);
+            const auto create_fn = reinterpret_cast<TfCreateThreadMgrFn>(
+                ::GetProcAddress(msctf, "TF_CreateThreadMgr"));
+            if (create_fn) {
+                std::ignore = create_fn(&thread_mgr);
+            }
+        }
+    }
+    if (!thread_mgr) {
+        std::ignore = ::CoCreateInstance(
+            CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&thread_mgr));
+    }
+    if (!thread_mgr) {
+        return;
+    }
+    Microsoft::WRL::ComPtr<ITfCompartmentMgr> global_mgr;
+    if (FAILED(thread_mgr->GetGlobalCompartment(&global_mgr)) || !global_mgr) {
+        return;
+    }
+    auto listener = MakeComObject<SettingsCompartmentListener>(hwnd);
+    if (!listener) {
+        return;
+    }
+    if (ctx.global_config_comp.Bind(global_mgr.Get(), kGuidCompartmentConfigVersion, listener.Get())) {
+        ctx.tsf_thread_mgr = std::move(thread_mgr);
+        ctx.compartment_listener = std::move(listener);
+    }
+}
+
 void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
     switch (LOWORD(wparam)) {
         case kIdRadioJidian:
@@ -61,9 +100,12 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                         ShowSettingsSaveFailure(hwnd, edited.ui_language);
                         return;
                     }
+                    ctx.config_registry_sequence = QueryRegistryConfigSequence();
+                    ctx.baseline_config = edited;
                     *ctx.config = std::move(edited);
                 } else {
                     ReadSettingsFromWindowControls(hwnd, *ctx.config);
+                    ctx.baseline_config = *ctx.config;
                 }
             }
             ctx.accepted = true;
@@ -169,6 +211,14 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             ApplyLiveSettingsLanguage(hwnd, *ctx);
             return 0;
         }
+        case WM_ACTIVATE:
+            if (LOWORD(wparam) != WA_INACTIVE) {
+                SyncSettingsWindowFromExternalConfig(hwnd, *ctx);
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+        case kSettingsExternalConfigChangedMessage:
+            SyncSettingsWindowFromExternalConfig(hwnd, *ctx);
+            return 0;
         case WM_COMMAND:
             HandleSettingsCommand(hwnd, wparam, *ctx);
             return 0;
@@ -239,6 +289,10 @@ ScopedWindow CreateSettingsWindow(
         return {};
     }
     ctx->config = bound_config;
+    if (bound_config) {
+        ctx->baseline_config = *bound_config;
+    }
+    ctx->config_registry_sequence = QueryRegistryConfigSequence();
     ctx->save_on_accept = save_on_accept;
 
     const MonitorMetrics mon = QueryActiveMonitor(parent);
@@ -279,7 +333,7 @@ ScopedWindow CreateSettingsWindow(
     ApplySystemThemeToMenuAndWindow(hwnd.Get(), is_dark);
     QIQI_LOG_DEBUG("SettingsWindow created (pos=({}, {}), size={}x{}, dpi={})",
                    dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
-    const auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
+    auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
     if (owned_ctx->icon_small) {
         ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon_small.Get()));
     }
@@ -291,6 +345,7 @@ ScopedWindow CreateSettingsWindow(
     if (bound_config) {
         WriteSettingsToWindowControls(hwnd.Get(), *bound_config);
     }
+    InitSettingsCompartmentSubscription(hwnd.Get(), *owned_ctx);
     ApplySystemThemeToMenuAndWindow(hwnd.Get(), is_dark);
     return hwnd;
 }

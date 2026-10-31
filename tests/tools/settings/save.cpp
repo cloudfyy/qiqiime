@@ -91,10 +91,78 @@ void TestSaveRetryAndCancel() {
     QIQI_TEST_CHECK(!CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, nullptr, true));
 }
 
+void TestExternalConfigSyncWhileSettingsOpen() {
+    const std::wstring subkey =
+        L"Software\\QiQiIME_SettingsExtSyncTest_" + std::to_wstring(::GetCurrentProcessId());
+    const wchar_t* previous_subkey = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto cleanup = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
+        const LSTATUS result = ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+        QIQI_TEST_CHECK(result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND);
+    });
+
+    QiQiConfig cfg;
+    cfg.primary_dict = PrimaryDict::Jidian;
+    cfg.enable_jidian_extra = true;
+    cfg.show_status_bar = false;
+    cfg.page_size = 5;
+    cfg.ui_language = UiLanguage::ZhCn;
+    QIQI_TEST_CHECK(SaveConfig(cfg));
+
+    const ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg, true));
+    QIQI_TEST_CHECK(hwnd);
+
+    // 1) Clean window: external change updates all controls and live UI language immediately
+    QiQiConfig ext1 = cfg;
+    ext1.primary_dict = PrimaryDict::Haifeng;
+    ext1.show_status_bar = true;
+    ext1.ui_language = UiLanguage::EnUs;
+    QIQI_TEST_CHECK(SaveConfig(ext1));
+    if (GetContext(hwnd.Get()).compartment_listener) {
+        QIQI_TEST_CHECK(SUCCEEDED(
+            GetContext(hwnd.Get()).compartment_listener->OnChange(kGuidCompartmentConfigVersion)));
+    }
+    ::SendMessageW(hwnd.Get(), kSettingsExternalConfigChangedMessage, 0, 0);
+
+    QiQiConfig read_back{};
+    ReadSettingsFromWindowControls(hwnd.Get(), read_back);
+    QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Haifeng);
+    QIQI_TEST_CHECK(read_back.show_status_bar);
+    QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::EnUs);
+    QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
+    wchar_t title_buf[128]{};
+    ::GetWindowTextW(hwnd.Get(), title_buf, 128);
+    QIQI_TEST_CHECK(std::wstring(title_buf) == GetUiStrings(UiLanguage::EnUs).dlg_title);
+
+    // 2) Dirty window: user edits page_size (to 8) and enable_key_sound (checked) in the dialog,
+    //    while external quick-settings switches primary_dict back to Jidian and ui_language to ZhCn.
+    //    Field-level merge preserves user's unsaved edits while adopting untouched external changes.
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETCURSEL, 7, 0); // page_size = 8
+    ::CheckDlgButton(hwnd.Get(), kIdChkKeySound, BST_CHECKED);
+
+    QiQiConfig ext2 = ext1;
+    ext2.primary_dict = PrimaryDict::Jidian;
+    ext2.ui_language = UiLanguage::ZhCn;
+    QIQI_TEST_CHECK(SaveConfig(ext2));
+    ::SendMessageW(hwnd.Get(), WM_ACTIVATE, MAKEWPARAM(WA_ACTIVE, 0), 0);
+
+    ReadSettingsFromWindowControls(hwnd.Get(), read_back);
+    QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Jidian);
+    QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::ZhCn);
+    QIQI_TEST_CHECK(read_back.page_size == 8);
+    QIQI_TEST_CHECK(read_back.enable_key_sound);
+    QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
+    ::GetWindowTextW(hwnd.Get(), title_buf, 128);
+    QIQI_TEST_CHECK(std::wstring(title_buf) == GetUiStrings(UiLanguage::ZhCn).dlg_title);
+    QIQI_TEST_CHECK(cfg.primary_dict == PrimaryDict::Jidian && cfg.page_size == 5 && !cfg.enable_key_sound);
+}
+
 } // namespace
 
 void RunSettingsSaveTests() {
     TestSaveRetryAndCancel();
+    TestExternalConfigSyncWhileSettingsOpen();
 }
 
 } // namespace qiqi::test

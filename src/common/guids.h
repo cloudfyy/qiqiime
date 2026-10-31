@@ -18,6 +18,7 @@ inline constexpr const wchar_t* kAboutWndClass = L"QiQiIMEAboutDialogClass";
 inline constexpr const wchar_t* kSettingsMessageWndClass = L"QiQiIMESettingsMessageClass";
 inline constexpr const wchar_t* kSettingsToastWndClass = L"QiQiIMESettingsToastClass";
 inline constexpr UINT kSettingsLanguageChangedMessage = WM_APP + 0x100;
+inline constexpr UINT kSettingsExternalConfigChangedMessage = WM_APP + 0x101;
 inline constexpr const wchar_t* kSettingsSingleInstanceMutexName = L"Local\\QiQiIMESettingsSingleInstanceMutex";
 inline constexpr const wchar_t* kMenuWndClass = L"QiQiIMEQuickSettingsMenuClass";
 inline constexpr const wchar_t* kGitHubRepoUrl = L"https://github.com/cloudfyy/qiqiime";
