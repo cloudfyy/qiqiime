@@ -48,6 +48,7 @@ target_include_directories(qiqi_common PUBLIC
 target_link_libraries(qiqi_common PUBLIC
     Microsoft.GSL::GSL
     advapi32
+    ktmw32
     user32
     gdi32
     comctl32

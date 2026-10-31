@@ -136,7 +136,8 @@ void GrantAppContainerReadAccessToKey(HKEY key) noexcept {
     }
 }
 
-ScopedRegKey OpenOrCreateConfigRegKey(const wchar_t* subkey, REGSAM access) noexcept {
+ScopedRegKey OpenOrCreateConfigRegKey(
+    const wchar_t* subkey, REGSAM access, HANDLE transaction = nullptr) noexcept {
     if (!subkey) {
         subkey = GetActiveConfigRegistrySubKey();
     }
@@ -146,21 +147,40 @@ ScopedRegKey OpenOrCreateConfigRegKey(const wchar_t* subkey, REGSAM access) noex
     ScopedRegKey key;
     if ((access & KEY_WRITE) != 0) {
         DWORD disp = 0;
-        if (::RegCreateKeyExW(
+        const auto create_key = [&](REGSAM sam) noexcept -> LSTATUS {
+            if (transaction != nullptr && transaction != INVALID_HANDLE_VALUE) {
+                return ::RegCreateKeyTransactedW(
+                    HKEY_CURRENT_USER,
+                    subkey,
+                    0,
+                    nullptr,
+                    REG_OPTION_NON_VOLATILE,
+                    sam,
+                    nullptr,
+                    key.Put(),
+                    &disp,
+                    transaction,
+                    nullptr);
+            }
+            return ::RegCreateKeyExW(
                 HKEY_CURRENT_USER,
                 subkey,
                 0,
                 nullptr,
                 REG_OPTION_NON_VOLATILE,
-                access | WRITE_DAC | READ_CONTROL,
+                sam,
                 nullptr,
                 key.Put(),
-                &disp) == ERROR_SUCCESS) {
+                &disp);
+        };
+        if (create_key(access | WRITE_DAC | READ_CONTROL) == ERROR_SUCCESS) {
             GrantAppContainerReadAccessToKey(key.Get());
             return key;
         }
-        std::ignore = ::RegCreateKeyExW(
-            HKEY_CURRENT_USER, subkey, 0, nullptr, REG_OPTION_NON_VOLATILE, access, nullptr, key.Put(), nullptr);
+        std::ignore = create_key(access);
+    } else if (transaction != nullptr && transaction != INVALID_HANDLE_VALUE) {
+        std::ignore = ::RegOpenKeyTransactedW(
+            HKEY_CURRENT_USER, subkey, 0, access, key.Put(), transaction, nullptr);
     } else {
         std::ignore = ::RegOpenKeyExW(HKEY_CURRENT_USER, subkey, 0, access, key.Put());
     }
@@ -234,7 +254,12 @@ std::filesystem::path ResolveBundledDataFile(
 
 bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexcept {
     try {
-        const ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE);
+        ScopedKernelTransaction txn;
+        if (!txn) {
+            QIQI_LOG_ERROR("Failed to create registry transaction (error={})", ::GetLastError());
+            return false;
+        }
+        ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE, txn.Get());
         if (!key) {
             return false;
         }
@@ -252,7 +277,11 @@ bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexc
                 return false;
             }
         }
-        return BumpRegistrySequence(key.Get());
+        if (!BumpRegistrySequence(key.Get())) {
+            return false;
+        }
+        key.Reset();
+        return txn.Commit();
     } catch (...) {
         return false;
     }
@@ -346,7 +375,11 @@ bool SaveUserDictBinaryToRegistry(
         if (qdict_bytes.empty() || qdict_bytes.size() > kMaxRegDictBytes) {
             return false;
         }
-        const ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE);
+        ScopedKernelTransaction txn;
+        if (!txn) {
+            return false;
+        }
+        ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE, txn.Get());
         if (!key) {
             return false;
         }
@@ -359,7 +392,11 @@ bool SaveUserDictBinaryToRegistry(
                 gsl::narrow_cast<DWORD>(qdict_bytes.size())) != ERROR_SUCCESS) {
             return false;
         }
-        return BumpRegistrySequence(key.Get());
+        if (!BumpRegistrySequence(key.Get())) {
+            return false;
+        }
+        key.Reset();
+        return txn.Commit();
     } catch (...) {
         return false;
     }

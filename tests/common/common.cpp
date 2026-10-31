@@ -232,6 +232,91 @@ void TestScopedHandleTemplate() {
     h3.Reset();
     QIQI_TEST_CHECK(!h3.IsValid());
 
+    // Test ScopedKernelTransaction RAII (rollback-on-destruction vs explicit Commit)
+    {
+        constexpr const wchar_t* kTxnTestSubKey = L"Software\\QiQiIME_TxnUnitTest";
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, kTxnTestSubKey);
+        const auto cleanup_txn_key = gsl::finally([]() noexcept {
+            ::RegDeleteTreeW(HKEY_CURRENT_USER, kTxnTestSubKey);
+        });
+
+        const ScopedKernelTransaction invalid_txn(INVALID_HANDLE_VALUE);
+        QIQI_TEST_CHECK(!invalid_txn && !invalid_txn.IsValid() && !invalid_txn.IsCommitted());
+
+        // 1) Uncommitted ScopedKernelTransaction automatically rolls back on scope exit
+        {
+            ScopedKernelTransaction txn;
+            QIQI_TEST_CHECK(txn.IsValid() && !txn.IsCommitted());
+            ScopedKernelTransaction moved_txn(std::move(txn));
+            QIQI_TEST_CHECK(!txn.IsValid() && moved_txn.IsValid());
+            ScopedKernelTransaction assigned_txn(INVALID_HANDLE_VALUE);
+            assigned_txn = std::move(moved_txn);
+            QIQI_TEST_CHECK(!moved_txn.IsValid() && assigned_txn.IsValid());
+
+            ScopedRegKey key;
+            DWORD disp = 0;
+            QIQI_TEST_CHECK(::RegCreateKeyTransactedW(
+                                HKEY_CURRENT_USER,
+                                kTxnTestSubKey,
+                                0,
+                                nullptr,
+                                REG_OPTION_NON_VOLATILE,
+                                KEY_READ | KEY_WRITE,
+                                nullptr,
+                                key.Put(),
+                                &disp,
+                                assigned_txn.Get(),
+                                nullptr) == ERROR_SUCCESS);
+            const DWORD val = 123;
+            QIQI_TEST_CHECK(::RegSetValueExW(
+                                key.Get(),
+                                L"TestValue",
+                                0,
+                                REG_DWORD,
+                                reinterpret_cast<const BYTE*>(&val),
+                                sizeof(val)) == ERROR_SUCCESS);
+        }
+        ScopedRegKey verify_rolled_back;
+        QIQI_TEST_CHECK(::RegOpenKeyExW(
+                            HKEY_CURRENT_USER, kTxnTestSubKey, 0, KEY_READ, verify_rolled_back.Put()) !=
+                        ERROR_SUCCESS);
+
+        // 2) Committed ScopedKernelTransaction persists changes
+        {
+            ScopedKernelTransaction txn;
+            QIQI_TEST_CHECK(txn.IsValid());
+            ScopedRegKey key;
+            DWORD disp = 0;
+            QIQI_TEST_CHECK(::RegCreateKeyTransactedW(
+                                HKEY_CURRENT_USER,
+                                kTxnTestSubKey,
+                                0,
+                                nullptr,
+                                REG_OPTION_NON_VOLATILE,
+                                KEY_READ | KEY_WRITE,
+                                nullptr,
+                                key.Put(),
+                                &disp,
+                                txn.Get(),
+                                nullptr) == ERROR_SUCCESS);
+            const DWORD val = 456;
+            QIQI_TEST_CHECK(::RegSetValueExW(
+                                key.Get(),
+                                L"TestValue",
+                                0,
+                                REG_DWORD,
+                                reinterpret_cast<const BYTE*>(&val),
+                                sizeof(val)) == ERROR_SUCCESS);
+            key.Reset();
+            QIQI_TEST_CHECK(txn.Commit() && txn.IsCommitted());
+            QIQI_TEST_CHECK(!txn.Commit());
+        }
+        ScopedRegKey verify_committed;
+        QIQI_TEST_CHECK(::RegOpenKeyExW(
+                            HKEY_CURRENT_USER, kTxnTestSubKey, 0, KEY_READ, verify_committed.Put()) ==
+                        ERROR_SUCCESS);
+    }
+
     // Test ScopedGlobalLock<wchar_t>, ScopedClipboard, MakeInt4Variant, and CopyToBstr
     const ScopedGlobalLock<wchar_t> null_lock(nullptr);
     QIQI_TEST_CHECK(!null_lock && null_lock.Get() == nullptr);

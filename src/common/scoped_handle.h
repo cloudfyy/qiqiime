@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <ktmw32.h>
 #include <oleauto.h>
 #include <utility>
 
@@ -158,5 +159,66 @@ using ScopedClipboard = ScopedContextGuard<ClipboardGuardTraits>;
 
 template <typename T>
 using ScopedGlobalLock = ScopedContextGuard<GlobalLockGuardTraits<T>>;
+
+// RAII wrapper for a Kernel Transaction Manager (KTM) transaction handle used with RegCreateKeyTransactedW.
+// Automatically rolls back and closes the transaction on destruction unless Commit() succeeds.
+class ScopedKernelTransaction final {
+public:
+    ScopedKernelTransaction() noexcept
+        : handle_(::CreateTransaction(nullptr, nullptr, 0, 0, 0, 0, nullptr)) {}
+
+    explicit ScopedKernelTransaction(HANDLE h) noexcept : handle_(h) {}
+
+    ~ScopedKernelTransaction() noexcept {
+        Reset();
+    }
+
+    ScopedKernelTransaction(const ScopedKernelTransaction&) = delete;
+    ScopedKernelTransaction& operator=(const ScopedKernelTransaction&) = delete;
+
+    ScopedKernelTransaction(ScopedKernelTransaction&& other) noexcept
+        : handle_(std::exchange(other.handle_, INVALID_HANDLE_VALUE)),
+          committed_(std::exchange(other.committed_, false)) {}
+
+    ScopedKernelTransaction& operator=(ScopedKernelTransaction&& other) noexcept {
+        if (this != &other) {
+            Reset();
+            handle_ = std::exchange(other.handle_, INVALID_HANDLE_VALUE);
+            committed_ = std::exchange(other.committed_, false);
+        }
+        return *this;
+    }
+
+    bool Commit() noexcept {
+        if (!IsValid() || committed_) {
+            return false;
+        }
+        if (::CommitTransaction(handle_) == FALSE) {
+            return false;
+        }
+        committed_ = true;
+        return true;
+    }
+
+    void Reset() noexcept {
+        if (IsValid()) {
+            if (!committed_) {
+                ::RollbackTransaction(handle_);
+            }
+            ::CloseHandle(handle_);
+            handle_ = INVALID_HANDLE_VALUE;
+        }
+        committed_ = false;
+    }
+
+    HANDLE Get() const noexcept { return handle_; }
+    bool IsValid() const noexcept { return handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr; }
+    bool IsCommitted() const noexcept { return committed_; }
+    explicit operator bool() const noexcept { return IsValid(); }
+
+private:
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+    bool committed_ = false;
+};
 
 } // namespace qiqi
