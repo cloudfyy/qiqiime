@@ -2,6 +2,10 @@ set(QIQI_ENGINE_SOURCES
     engine/binary_dict.cpp
     engine/binary_dict.h
     engine/fsm.h
+    engine/fsm_key_mapping.h
+    engine/fsm_pagination.h
+    engine/fsm_transitions.h
+    engine/fsm_types.h
     engine/engine.cpp
     engine/engine_dict.cpp
     engine/engine.h
