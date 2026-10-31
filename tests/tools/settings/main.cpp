@@ -21,6 +21,7 @@ int main() {
 
     qiqi::test::RunSettingsVersionTests();
     qiqi::test::RunSettingsSaveTests();
+    qiqi::test::RunSettingsMessageTests();
     qiqi::test::RunSettingsDialogTests();
     qiqi::test::RunSettingsDialogEdgeTests();
     std::cout << "[PASS] All QiQi Settings tool tests succeeded.\n";

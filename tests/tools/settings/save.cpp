@@ -41,6 +41,7 @@ void TestSaveRetryAndCancel() {
             ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETCURSEL, 8, 0);
             ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_SETCURSEL,
                                  language == UiLanguage::ZhCn ? 1 : 2, 0);
+            ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(kIdComboUiLang, CBN_SELCHANGE), 0);
             ::CheckDlgButton(hwnd.Get(), kIdChkKeySound, BST_CHECKED);
             SetConfigRegistrySubKeyOverrideForTest(L"");
             WithDismissedMessage(GetUiStrings(language).dlg_save_failed, [&]() {

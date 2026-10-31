@@ -102,7 +102,7 @@ void TestSettingsDialogControls() {
         ::CheckDlgButton(hwnd.Get(), 120, BST_CHECKED);
         ::SetTimer(nullptr, 8, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
             ::KillTimer(nullptr, id);
-            if (const HWND msg_box = FindThreadWindowByClass(L"#32770")) {
+            if (const HWND msg_box = FindThreadWindowByClass(kSettingsMessageWndClass)) {
                 ::SendMessageW(msg_box, WM_COMMAND, MAKEWPARAM(IDNO, BN_CLICKED), 0);
             }
         });
@@ -113,7 +113,7 @@ void TestSettingsDialogControls() {
         ::CheckDlgButton(hwnd.Get(), 120, BST_CHECKED);
         ::SetTimer(nullptr, 9, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
             ::KillTimer(nullptr, id);
-            if (const HWND msg_box = FindThreadWindowByClass(L"#32770")) {
+            if (const HWND msg_box = FindThreadWindowByClass(kSettingsMessageWndClass)) {
                 ::SendMessageW(msg_box, WM_COMMAND, MAKEWPARAM(IDYES, BN_CLICKED), 0);
             }
         });

@@ -1,11 +1,13 @@
 #include "tools/settings/internal.h"
 #include "common/i18n.h"
+#include "common/guids.h"
 #include "common/theme.h"
 
 #include <commctrl.h>
 #include <gsl/gsl>
 #include <algorithm>
 #include <array>
+#include <cwchar>
 
 namespace qiqi::settings_detail {
 namespace {
@@ -57,7 +59,7 @@ UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) n
 
 void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
-    if (ctx.config) {
+    if (ctx.config && !ctx.save_on_accept) {
         ctx.config->ui_language = lang;
     }
     const auto& str = GetUiStrings(lang);
@@ -84,7 +86,27 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     }
     ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_SETCURSEL, cur_sel >= 0 ? cur_sel : 0, 0);
 
-    ::InvalidateRect(hwnd, nullptr, TRUE);
+    struct LanguageUpdate {
+        HWND owner;
+        UiLanguage language;
+    } update{hwnd, lang};
+    ::EnumThreadWindows(
+        ::GetCurrentThreadId(),
+        [](HWND owned, LPARAM param) noexcept -> BOOL {
+            const auto* change = reinterpret_cast<const LanguageUpdate*>(param);
+            if (::GetWindow(owned, GW_OWNER) == change->owner) {
+                std::array<wchar_t, 128> name{};
+                ::GetClassNameW(owned, name.data(), gsl::narrow_cast<int>(name.size()));
+                if (std::wcscmp(name.data(), kAboutWndClass) == 0 ||
+                    std::wcscmp(name.data(), kSettingsMessageWndClass) == 0) {
+                    ::SendMessageW(owned, kSettingsLanguageChangedMessage,
+                                   static_cast<WPARAM>(change->language), 0);
+                }
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&update));
+    ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept {

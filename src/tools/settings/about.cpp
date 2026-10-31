@@ -9,9 +9,11 @@
 #include "common/version.h"
 
 #include <shellapi.h>
+#include <algorithm>
 #include <memory>
 #include <new>
-#include <string>
+#include <array>
+#include <cwchar>
 
 namespace qiqi {
 namespace {
@@ -23,13 +25,23 @@ constexpr int kIdBtnCancel = IDCANCEL;
 struct AboutDialogContext {
     UiLanguage ui_language = UiLanguage::Auto;
     bool done = false;
+    int license_bottom = 198;
+    int button_top = 208;
     ScopedGdiHandle<HFONT> body_font;
     ScopedGdiHandle<HFONT> title_font;
     ScopedIcon icon;
     FluentD2DThemeContext d2d;
 };
 
-void PaintAboutDialog(HDC hdc, const RECT& client_rc, const AboutDialogContext& ctx) {
+void ApplyAboutLanguage(HWND hwnd, const AboutDialogContext& ctx) noexcept {
+    const auto& str = GetUiStrings(ctx.ui_language);
+    ::SetWindowTextW(hwnd, str.about_title);
+    ::SetDlgItemTextW(hwnd, kIdBtnOpenGitHub, str.about_btn_github);
+    ::SetDlgItemTextW(hwnd, kIdBtnOk, str.dlg_btn_ok);
+    ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+}
+
+void PaintAboutDialog(HDC hdc, const RECT& client_rc, const AboutDialogContext& ctx) noexcept {
     const ScopedSaveDC save_dc(hdc);
     const bool is_dark = IsSystemDarkTheme();
     const auto S = [&ctx](int px) noexcept { return ctx.d2d.ScalePx(px); };
@@ -52,10 +64,16 @@ void PaintAboutDialog(HDC hdc, const RECT& client_rc, const AboutDialogContext& 
     {
         const ScopedSelectObject sel_body_font(hdc, ctx.body_font.Get());
         ::SetTextColor(hdc, is_dark ? RGB(168, 176, 190) : RGB(85, 95, 110));
-        const std::wstring ver_text = std::wstring(str.about_version_prefix) +
-            std::wstring(version::kFullVersionW) + L" (" + std::wstring(version::kArchW) + L")";
+        std::array<wchar_t, 256> ver_text{};
+        const int version_length = ::swprintf_s(
+            ver_text.data(), ver_text.size(), L"%ls%ls (%ls)",
+            str.about_version_prefix, version::kFullVersionW.data(), version::kArchW.data());
+        if (version_length < 0) {
+            QIQI_LOG_ERROR("About version text formatting failed");
+            return;
+        }
         RECT ver_rc{S(94), S(52), client_rc.right - S(20), S(76)};
-        ::DrawTextW(hdc, ver_text.c_str(), -1, &ver_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        ::DrawTextW(hdc, ver_text.data(), version_length, &ver_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
         const ScopedGdiHandle<HPEN> div_pen(
             ::CreatePen(PS_SOLID, 1, is_dark ? RGB(64, 68, 78) : RGB(220, 225, 232)));
@@ -64,8 +82,8 @@ void PaintAboutDialog(HDC hdc, const RECT& client_rc, const AboutDialogContext& 
         ::LineTo(hdc, client_rc.right - S(24), S(92));
 
         ::SetTextColor(hdc, is_dark ? RGB(215, 220, 228) : RGB(45, 52, 64));
-        RECT lic_rc{S(24), S(104), client_rc.right - S(24), S(198)};
-        ::DrawTextW(hdc, str.about_license_info, -1, &lic_rc, DT_LEFT | DT_TOP | DT_WORDBREAK);
+        RECT lic_rc{S(24), S(104), client_rc.right - S(24), ctx.license_bottom};
+        ::DrawTextW(hdc, str.about_license_info, -1, &lic_rc, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX);
     }
 }
 
@@ -77,6 +95,12 @@ LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     switch (msg) {
         case WM_PAINT:
             return PaintWindowClient(hwnd, [ctx](HDC hdc, const RECT& rc) { PaintAboutDialog(hdc, rc, *ctx); });
+        case WM_PRINTCLIENT: {
+            RECT rect{};
+            ::GetClientRect(hwnd, &rect);
+            PaintAboutDialog(reinterpret_cast<HDC>(wparam), rect, *ctx);
+            return 0;
+        }
         case WM_DRAWITEM: {
             if (lparam != 0) {
                 const auto* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
@@ -94,8 +118,13 @@ LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         }
         case WM_SETTINGCHANGE:
         case WM_THEMECHANGED:
+            ctx->d2d.RefreshThemeBrushes();
             ApplySystemThemeToMenuAndWindow(hwnd, IsSystemDarkTheme());
-            ::InvalidateRect(hwnd, nullptr, TRUE);
+            ApplyAboutLanguage(hwnd, *ctx);
+            return 0;
+        case kSettingsLanguageChangedMessage:
+            ctx->ui_language = static_cast<UiLanguage>(wparam);
+            ApplyAboutLanguage(hwnd, *ctx);
             return 0;
         case WM_COMMAND:
             switch (LOWORD(wparam)) {
@@ -154,11 +183,22 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     ctx->body_font = CreateUiFont(S(14), FW_NORMAL);
     ctx->title_font = CreateUiFont(S(19), FW_BOLD);
     ctx->icon = dialog_detail::LoadOrCreateBrandIcon(S(56));
+    int license_height = S(94);
+    for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        const int measured = dialog_detail::MeasureDialogTextHeight(
+            ctx->body_font.Get(), GetUiStrings(language).about_license_info, S(392));
+        if (measured <= 0) {
+            return {};
+        }
+        license_height = std::max(license_height, measured);
+    }
+    ctx->license_bottom = S(104) + license_height;
+    ctx->button_top = ctx->license_bottom + S(10);
 
     const auto& str = GetUiStrings(ui_language);
     const DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
     const DWORD wnd_ex_style = 0;
-    RECT desired_rc{0, 0, S(440), S(254)};
+    RECT desired_rc{0, 0, S(440), ctx->button_top + S(46)};
     ::AdjustWindowRectEx(&desired_rc, wnd_style, FALSE, wnd_ex_style);
     const int dlg_w = desired_rc.right - desired_rc.left;
     const int dlg_h = desired_rc.bottom - desired_rc.top;
@@ -189,8 +229,9 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
         ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
     }
 
-    CreateFluentChildControl(hwnd.Get(), instance, f, &owned_ctx->d2d, L"BUTTON", str.about_btn_github, BS_OWNERDRAW | WS_TABSTOP, S(24), S(208), S(124), S(32), kIdBtnOpenGitHub);
-    CreateFluentChildControl(hwnd.Get(), instance, f, &owned_ctx->d2d, L"BUTTON", str.dlg_btn_ok, BS_OWNERDRAW | WS_TABSTOP, S(318), S(208), S(98), S(32), kIdBtnOk);
+    const int button_top = owned_ctx->button_top;
+    CreateFluentChildControl(hwnd.Get(), instance, f, &owned_ctx->d2d, L"BUTTON", str.about_btn_github, BS_OWNERDRAW | WS_TABSTOP, S(24), button_top, S(124), S(32), kIdBtnOpenGitHub);
+    CreateFluentChildControl(hwnd.Get(), instance, f, &owned_ctx->d2d, L"BUTTON", str.dlg_btn_ok, BS_OWNERDRAW | WS_TABSTOP, S(318), button_top, S(98), S(32), kIdBtnOk);
     return hwnd;
 }
 

@@ -22,6 +22,18 @@ bool ShowSettingsDialog(
 
 void ReportSettingsNotificationFailure(HWND parent, UiLanguage ui_language) noexcept;
 
+enum class SettingsMessageKind {
+    PrivacyConfirmation,
+    SaveFailure,
+    NotificationFailure
+};
+
+ScopedWindow CreateSettingsMessageWindow(
+    HINSTANCE instance, HWND parent, UiLanguage ui_language, SettingsMessageKind kind) noexcept;
+
+// Returns a button ID, or zero on creation/modal-loop failure. Privacy confirmation defaults to No.
+int ShowSettingsMessage(HWND parent, UiLanguage ui_language, SettingsMessageKind kind) noexcept;
+
 // Create a modeless About window (used by both ShowAboutDialog and unit tests).
 ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto) noexcept;
 

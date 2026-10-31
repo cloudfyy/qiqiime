@@ -18,8 +18,7 @@ using namespace settings_detail;
 namespace {
 
 void ShowSettingsSaveFailure(HWND hwnd, UiLanguage ui_language) noexcept {
-    const auto& str = GetUiStrings(ui_language);
-    ::MessageBoxW(hwnd, str.dlg_save_failed, str.dlg_title, MB_OK | MB_ICONERROR);
+    ShowSettingsMessage(hwnd, ui_language, SettingsMessageKind::SaveFailure);
 }
 
 void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
@@ -38,12 +37,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
         case kIdChkLogKeystrokes:
             if (HIWORD(wparam) == BN_CLICKED && ::IsDlgButtonChecked(hwnd, kIdChkLogKeystrokes) == BST_CHECKED) {
                 const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
-                const auto& str = GetUiStrings(lang);
-                const int choice = ::MessageBoxW(
-                    hwnd,
-                    str.dlg_confirm_log_msg,
-                    str.dlg_confirm_log_title,
-                    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+                const int choice = ShowSettingsMessage(hwnd, lang, SettingsMessageKind::PrivacyConfirmation);
                 if (choice != IDYES) {
                     ::CheckDlgButton(hwnd, kIdChkLogKeystrokes, BST_UNCHECKED);
                 }
@@ -103,6 +97,12 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             return PaintWindowClient(hwnd, [hwnd, ctx](HDC hdc, const RECT& rc) {
                 PaintFluentSettingsWindow(hwnd, hdc, rc, *ctx);
             });
+        case WM_PRINTCLIENT: {
+            RECT rect{};
+            ::GetClientRect(hwnd, &rect);
+            PaintFluentSettingsWindow(hwnd, reinterpret_cast<HDC>(wparam), rect, *ctx);
+            return 0;
+        }
         case WM_MEASUREITEM: {
             if (lparam != 0) {
                 auto* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
@@ -281,8 +281,7 @@ bool ShowSettingsDialog(
 
 void ReportSettingsNotificationFailure(HWND parent, UiLanguage ui_language) noexcept {
     QIQI_LOG_WARN("Settings saved, but the running IME could not be notified");
-    const auto& str = GetUiStrings(ui_language);
-    ::MessageBoxW(parent, str.dlg_notify_failed, str.dlg_title, MB_OK | MB_ICONWARNING);
+    ShowSettingsMessage(parent, ui_language, SettingsMessageKind::NotificationFailure);
 }
 
 } // namespace qiqi

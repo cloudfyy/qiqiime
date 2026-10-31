@@ -1,5 +1,6 @@
 set(QIQI_SETTINGS_UI_SOURCES
     about.cpp
+    message.cpp
     util.h
     window.cpp
     window.h

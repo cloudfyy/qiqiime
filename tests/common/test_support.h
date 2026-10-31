@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string_view>
 #include <utility>
+#include "common/guids.h"
 
 #define QIQI_TEST_CHECK(expr)                                                                   \
     do {                                                                                        \
@@ -56,7 +57,7 @@ void WithDismissedMessage(const wchar_t* expected, Action action) {
     auto* previous = std::exchange(message_box_detail::current_message, &message);
     const auto restore = gsl::finally([previous]() noexcept { message_box_detail::current_message = previous; });
     const UINT_PTR timer = ::SetTimer(nullptr, 0, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
-        const HWND box = FindThreadWindowByClass(L"#32770");
+        const HWND box = FindThreadWindowByClass(kSettingsMessageWndClass);
         if (!box) {
             return;
         }
@@ -96,5 +97,6 @@ void RunSettingsDialogTests();
 void RunSettingsDialogEdgeTests();
 void RunSettingsVersionTests();
 void RunSettingsSaveTests();
+void RunSettingsMessageTests();
 
 } // namespace qiqi::test

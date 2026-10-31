@@ -73,6 +73,7 @@ qiqiime/
 │           ├── controls.cpp # 控件布局、配置绑定、语言更新与卡片
 │           ├── internal.h       # 设置窗口内部上下文与控件 ID
 │           ├── about.cpp # 关于窗口
+│           ├── message.cpp # 复用 D2D 控件的隐私确认、保存失败与通知失败提示窗口
 │           └── util.h   # 共享图标及模态消息循环
 └── tests/
     ├── CMakeLists.txt          # 仅组织测试模块
@@ -97,7 +98,8 @@ qiqiime/
             ├── window.cpp # 设置 / 关于窗口测试
             ├── edges.cpp # 配置及生命周期边界测试
             ├── version.cpp # 设置 EXE 版本资源测试
-            └── save.cpp  # 保存失败、重试、取消及通知失败提示测试
+            ├── save.cpp  # 保存失败、重试、取消及通知失败提示测试
+            └── message.cpp # 各设置窗口的主题、语言、提示框键盘及模态行为测试
 ```
 
 源码与测试目录保持相同的模块布局。模块的 `CMakeLists.txt` 在顶层工程中定义独立目标，可通过 `cmake --build --preset x64-release --target <目标名>` 按目标构建。新增工具时，在 `src/tools/<工具名>` 与 `tests/tools/<工具名>` 分别添加自己的 `CMakeLists.txt`，并由各自的 `tools/CMakeLists.txt` 注册。

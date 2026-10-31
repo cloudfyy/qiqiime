@@ -1,0 +1,175 @@
+#include "common/test_support.h"
+#include "common/i18n.h"
+#include "common/theme.h"
+#include "common/win32_ui_util.h"
+#include "tools/settings/internal.h"
+
+#include <commctrl.h>
+#include <string>
+
+namespace qiqi::test {
+namespace {
+
+std::wstring WindowText(HWND hwnd) {
+    std::array<wchar_t, 1024> text{};
+    QIQI_TEST_CHECK(hwnd && ::GetWindowTextW(hwnd, text.data(), gsl::narrow_cast<int>(text.size())) > 0);
+    return text.data();
+}
+
+void CheckBackground(HWND hwnd, COLORREF expected) {
+    RECT rect{};
+    QIQI_TEST_CHECK(::GetClientRect(hwnd, &rect));
+    const ScopedWindowDC screen;
+    const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+    const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), rect.right, rect.bottom));
+    QIQI_TEST_CHECK(screen && dc && bitmap);
+    const ScopedSelectObject select(dc.Get(), bitmap.Get());
+    QIQI_TEST_CHECK(::PatBlt(dc.Get(), 0, 0, rect.right, rect.bottom, BLACKNESS));
+    ::SendMessageW(hwnd, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc.Get()), PRF_CLIENT);
+    QIQI_TEST_CHECK(::GetPixel(dc.Get(), 0, 0) == expected);
+}
+
+void CheckMessageText(HWND message, SettingsMessageKind kind, UiLanguage language) {
+    const auto& str = GetUiStrings(language);
+    const bool privacy = kind == SettingsMessageKind::PrivacyConfirmation;
+    QIQI_TEST_CHECK(WindowText(message) == (privacy ? str.dlg_confirm_log_title : str.dlg_title));
+    const auto* expected = privacy ? str.dlg_confirm_log_msg
+        : (kind == SettingsMessageKind::SaveFailure ? str.dlg_save_failed : str.dlg_notify_failed);
+    QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, 0xFFFF)) == expected);
+    if (privacy) {
+        QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, IDYES)) == str.dlg_btn_yes);
+        QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, IDNO)) == str.dlg_btn_no);
+    } else {
+        QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, IDOK)) == str.dlg_btn_ok);
+    }
+    RECT client{}, body{};
+    QIQI_TEST_CHECK(::GetClientRect(message, &client));
+    QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(message, 0xFFFF), &body));
+    ::MapWindowPoints(nullptr, message, reinterpret_cast<POINT*>(&body), 2);
+    QIQI_TEST_CHECK(body.right <= client.right && body.bottom < client.bottom);
+    const ScopedWindowDC dc(message);
+    const auto brush = reinterpret_cast<HBRUSH>(::SendMessageW(message, WM_CTLCOLORSTATIC,
+        reinterpret_cast<WPARAM>(dc.Get()), reinterpret_cast<LPARAM>(::GetDlgItem(message, 0xFFFF))));
+    LOGBRUSH color{};
+    QIQI_TEST_CHECK(::GetObjectW(brush, sizeof(color), &color) == sizeof(color));
+    QIQI_TEST_CHECK(color.lbColor == (IsSystemDarkTheme() ? RGB(43, 46, 52) : RGB(255, 255, 255)));
+    QIQI_TEST_CHECK(::GetTextColor(dc.Get()) ==
+                    (IsSystemDarkTheme() ? RGB(238, 240, 245) : RGB(28, 32, 40)));
+}
+
+void TestLiveThemeAndLanguage() {
+    const auto original_theme = qiqi::detail::ThemeDarkOverrideStorage();
+    const auto restore_theme = gsl::finally([original_theme]() noexcept {
+        SetThemeDarkOverrideForTest(original_theme);
+    });
+    QiQiConfig cfg;
+    cfg.ui_language = UiLanguage::ZhCn;
+    const ScopedWindow settings(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg, true));
+    const ScopedWindow about(CreateAboutWindow(::GetModuleHandleW(nullptr), settings.Get(), UiLanguage::ZhCn));
+    QIQI_TEST_CHECK(settings && about);
+    for (const auto kind : {SettingsMessageKind::PrivacyConfirmation,
+                             SettingsMessageKind::SaveFailure, SettingsMessageKind::NotificationFailure}) {
+        const ScopedWindow message(CreateSettingsMessageWindow(
+            ::GetModuleHandleW(nullptr), settings.Get(), UiLanguage::ZhCn, kind));
+        QIQI_TEST_CHECK(message);
+        for (const bool dark : {false, true, false}) {
+            SetThemeDarkOverrideForTest(dark);
+            for (const UINT event : {WM_THEMECHANGED, WM_SETTINGCHANGE}) {
+                ::SendMessageW(settings.Get(), event, 0, 0);
+                ::SendMessageW(about.Get(), event, 0, 0);
+                ::SendMessageW(message.Get(), event, 0, 0);
+                CheckBackground(settings.Get(), dark ? RGB(32, 34, 38) : RGB(243, 245, 249));
+                CheckBackground(about.Get(), dark ? RGB(32, 34, 38) : RGB(248, 250, 253));
+                CheckBackground(message.Get(), dark ? RGB(32, 34, 38) : RGB(243, 245, 249));
+            }
+            for (const WPARAM selection : {2u, 1u, 0u}) {
+                ::SendDlgItemMessageW(settings.Get(), settings_detail::kIdComboUiLang, CB_SETCURSEL, selection, 0);
+                ::SendMessageW(settings.Get(), WM_COMMAND,
+                               MAKEWPARAM(settings_detail::kIdComboUiLang, CBN_SELCHANGE), 0);
+                const auto language = selection == 2 ? UiLanguage::EnUs
+                    : (selection == 1 ? UiLanguage::ZhCn : UiLanguage::Auto);
+                CheckMessageText(message.Get(), kind, language);
+                const auto& str = GetUiStrings(language);
+                QIQI_TEST_CHECK(WindowText(settings.Get()) == str.dlg_title);
+                QIQI_TEST_CHECK(WindowText(about.Get()) == str.about_title);
+                QIQI_TEST_CHECK(WindowText(::GetDlgItem(about.Get(), 201)) == str.about_btn_github);
+                QIQI_TEST_CHECK(WindowText(::GetDlgItem(about.Get(), IDOK)) == str.dlg_btn_ok);
+                {
+                    const ScopedWindowDC dc(about.Get());
+                    const auto font = reinterpret_cast<HFONT>(::SendDlgItemMessageW(about.Get(), 201, WM_GETFONT, 0, 0));
+                    const ScopedSelectObject select(dc.Get(), font);
+                    const auto monitor = QueryActiveMonitor(about.Get());
+                    const auto scale = [dpi = monitor.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
+                    RECT bounds{0, 0, scale(392), 0};
+                    QIQI_TEST_CHECK(::DrawTextW(dc.Get(), str.about_license_info, -1, &bounds,
+                                               DT_CALCRECT | DT_WORDBREAK) > 0);
+                    RECT button{};
+                    QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(about.Get(), 201), &button));
+                    ::MapWindowPoints(nullptr, about.Get(), reinterpret_cast<POINT*>(&button), 2);
+                    QIQI_TEST_CHECK(bounds.bottom <= button.top - scale(114));
+                }
+                QIQI_TEST_CHECK(cfg.ui_language == UiLanguage::ZhCn);
+            }
+        }
+    }
+    QIQI_TEST_CHECK(!CreateSettingsMessageWindow(
+        ::GetModuleHandleW(nullptr), nullptr, UiLanguage::Auto, static_cast<SettingsMessageKind>(99)));
+}
+
+void TestPromptModalBehavior() {
+    const ScopedWindow owner(::CreateWindowExW(0, L"STATIC", L"Prompt owner", WS_POPUP,
+        0, 0, 200, 200, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+    QIQI_TEST_CHECK(owner);
+    for (const bool initially_enabled : {false, true}) {
+        ::EnableWindow(owner.Get(), initially_enabled);
+        const UINT_PTR timer = ::SetTimer(nullptr, 0, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+            const HWND message = FindThreadWindowByClass(kSettingsMessageWndClass);
+            if (!message) return;
+            ::KillTimer(nullptr, id);
+            QIQI_TEST_CHECK(!::IsWindowEnabled(::GetWindow(message, GW_OWNER)));
+            QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == IDNO);
+            ::PostMessageW(::GetDlgItem(message, IDNO), WM_KEYDOWN, VK_RETURN, 0);
+        });
+        QIQI_TEST_CHECK(timer != 0);
+        const auto cancel_timer = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
+        QIQI_TEST_CHECK(ShowSettingsMessage(owner.Get(), UiLanguage::EnUs,
+                                            SettingsMessageKind::PrivacyConfirmation) == IDNO);
+        QIQI_TEST_CHECK((::IsWindowEnabled(owner.Get()) != FALSE) == initially_enabled);
+    }
+    ::EnableWindow(owner.Get(), TRUE);
+    for (const UINT key : {VK_TAB, VK_ESCAPE}) {
+        const UINT_PTR timer = ::SetTimer(owner.Get(), key, 10, [](HWND timer_owner, UINT, UINT_PTR id, DWORD) noexcept {
+            const HWND message = FindThreadWindowByClass(kSettingsMessageWndClass);
+            if (!message) return;
+            ::KillTimer(timer_owner, id);
+            if (id == VK_TAB) {
+                ::SendMessageW(message, WM_KEYDOWN, VK_TAB, 0);
+                QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == IDYES);
+                ::PostMessageW(::GetDlgItem(message, IDYES), WM_KEYDOWN, VK_RETURN, 0);
+            } else {
+                ::PostMessageW(message, WM_KEYDOWN, VK_ESCAPE, 0);
+            }
+        });
+        QIQI_TEST_CHECK(timer != 0);
+        const auto cancel_timer = gsl::finally([timer, timer_owner = owner.Get()]() noexcept {
+            ::KillTimer(timer_owner, timer);
+        });
+        QIQI_TEST_CHECK(ShowSettingsMessage(owner.Get(), UiLanguage::ZhCn,
+            SettingsMessageKind::PrivacyConfirmation) == (key == VK_TAB ? IDYES : IDCANCEL));
+    }
+    QiQiConfig cfg;
+    ::PostQuitMessage(81);
+    QIQI_TEST_CHECK(ShowSettingsMessage(owner.Get(), UiLanguage::Auto, SettingsMessageKind::SaveFailure) == 0);
+    MSG quit{};
+    QIQI_TEST_CHECK(::PeekMessageW(&quit, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE) && quit.wParam == 81);
+    QIQI_TEST_CHECK(::IsWindowEnabled(owner.Get()));
+}
+
+} // namespace
+
+void RunSettingsMessageTests() {
+    TestLiveThemeAndLanguage();
+    TestPromptModalBehavior();
+}
+
+} // namespace qiqi::test
