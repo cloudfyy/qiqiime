@@ -110,7 +110,7 @@ private:
     void UpdateUiIndicators();
     void HandleLangBarMenuAction(LangBarMenuId action_id);
     void HandleFocusChanged(bool has_focus);
-    void PersistAndSyncQuickConfigChange(bool reload_dicts);
+    bool PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts);
     void SyncSavedConfigChange(bool reload_dicts);
     void LoadExternalDictionaryNextToDll();
 

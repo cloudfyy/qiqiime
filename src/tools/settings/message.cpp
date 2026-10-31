@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cwchar>
 #include <memory>
 #include <new>
 
@@ -15,6 +16,7 @@ namespace {
 
 constexpr int kMessageTextId = 0xFFFF;
 constexpr int kWindowWidth = 560;
+constexpr UINT kUpdateToastLanguageMessage = WM_APP + 1;
 
 struct MessageContext {
     UiLanguage language = UiLanguage::Auto;
@@ -23,6 +25,13 @@ struct MessageContext {
     int result = IDCANCEL;
     ScopedGdiHandle<HFONT> font;
     FluentD2DThemeContext d2d;
+};
+
+struct ToastContext {
+    UiLanguage language = UiLanguage::Auto;
+    SettingsToastKind kind = SettingsToastKind::SaveFailure;
+    FluentD2DThemeContext d2d;
+    bool holds_module_reference = false;
 };
 
 struct MessageStrings {
@@ -43,6 +52,25 @@ MessageStrings GetMessageStrings(UiLanguage language, SettingsMessageKind kind) 
             QIQI_LOG_ERROR("Unknown Settings message kind");
             return {};
     }
+}
+
+const wchar_t* GetToastText(UiLanguage language, SettingsToastKind kind) noexcept {
+    const auto& str = GetUiStrings(language);
+    switch (kind) {
+        case SettingsToastKind::SaveFailure:
+            return str.quick_settings_save_failed;
+        case SettingsToastKind::NotificationFailure:
+            return str.quick_settings_notify_failed;
+        default:
+            QIQI_LOG_ERROR("Unknown Settings toast kind");
+            return nullptr;
+    }
+}
+
+void ApplyToastLanguage(HWND hwnd, ToastContext& ctx, UiLanguage language) noexcept {
+    ctx.language = language;
+    ::SetWindowTextW(hwnd, GetToastText(ctx.language, ctx.kind));
+    ::InvalidateRect(hwnd, nullptr, TRUE);
 }
 
 void ApplyMessageLanguage(HWND hwnd, const MessageContext& ctx) noexcept {
@@ -82,6 +110,88 @@ void PaintMessage(HDC dc, const RECT& rect, const MessageContext& ctx) noexcept 
     }};
     DrawFluentCardGroup(ctx.d2d, cards,
                         ResolveUiLanguage(ctx.language) == UiLanguage::EnUs, dark);
+}
+
+void PaintToast(HDC dc, const RECT& rect, const ToastContext& ctx) noexcept {
+    if (!ctx.d2d.d2d_target) {
+        return;
+    }
+    const ScopedD2DDcDraw draw(ctx.d2d.d2d_target.Get(), dc, rect);
+    if (!draw) {
+        return;
+    }
+    const bool dark = IsSystemDarkTheme();
+    const auto scale = [&ctx](int px) noexcept { return ctx.d2d.ScaleF(px); };
+    ctx.d2d.d2d_target->Clear(dark ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
+    const std::array<FluentCardSpec, 1> cards = {{
+        {D2D1::RectF(scale(8), scale(8), static_cast<float>(rect.right) - scale(8),
+                     static_cast<float>(rect.bottom) - scale(8)), nullptr, nullptr}
+    }};
+    DrawFluentCardGroup(ctx.d2d, cards, false, dark);
+    const auto text_brush = CreateSolidBrush(
+        ctx.d2d.d2d_target.Get(),
+        dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40));
+    const wchar_t* const text = GetToastText(ctx.language, ctx.kind);
+    if (ctx.d2d.fmt_body && text_brush && text) {
+        ctx.d2d.d2d_target->DrawText(
+            text,
+            gsl::narrow_cast<UINT32>(std::wcslen(text)),
+            ctx.d2d.fmt_body.Get(),
+            D2D1::RectF(scale(34), scale(18), static_cast<float>(rect.right) - scale(24),
+                        static_cast<float>(rect.bottom) - scale(18)),
+            text_brush.Get(),
+            D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
+}
+
+LRESULT CALLBACK ToastWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+    auto* ctx = BindOrGetWindowUserData<ToastContext>(hwnd, message, lparam);
+    if (!ctx || message == WM_NCCREATE) {
+        return ::DefWindowProcW(hwnd, message, wparam, lparam);
+    }
+    switch (message) {
+        case WM_MOUSEACTIVATE:
+            return MA_NOACTIVATE;
+        case WM_NCHITTEST:
+            return HTTRANSPARENT;
+        case WM_PAINT:
+            return PaintWindowClient(hwnd, [ctx](HDC dc, const RECT& rect) noexcept {
+                PaintToast(dc, rect, *ctx);
+            });
+        case WM_PRINTCLIENT: {
+            RECT rect{};
+            ::GetClientRect(hwnd, &rect);
+            PaintToast(reinterpret_cast<HDC>(wparam), rect, *ctx);
+            return 0;
+        }
+        case WM_THEMECHANGED:
+        case WM_SETTINGCHANGE:
+            ctx->d2d.RefreshThemeBrushes();
+            ::SetWindowTextW(hwnd, GetToastText(ctx->language, ctx->kind));
+            ::InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        case kUpdateToastLanguageMessage:
+            ApplyToastLanguage(hwnd, *ctx, static_cast<UiLanguage>(wparam));
+            return 0;
+        case WM_TIMER:
+            if (wparam == 1) {
+                ::KillTimer(hwnd, 1);
+                ::DestroyWindow(hwnd);
+                return 0;
+            }
+            break;
+        case WM_NCDESTROY: {
+            ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            const std::unique_ptr<ToastContext> owned(ctx);
+            if (owned->holds_module_reference) {
+                --g_com_object_count;
+            }
+            return ::DefWindowProcW(hwnd, message, wparam, lparam);
+        }
+        default:
+            break;
+    }
+    return ::DefWindowProcW(hwnd, message, wparam, lparam);
 }
 
 LRESULT CALLBACK MessageWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -281,6 +391,85 @@ int ShowSettingsMessage(HWND parent, UiLanguage ui_language, SettingsMessageKind
         return 0;
     }
     return ctx->result;
+}
+
+void ShowSettingsToast(UiLanguage ui_language, SettingsToastKind kind) noexcept {
+    const wchar_t* const text = GetToastText(ui_language, kind);
+    if (!text) {
+        return;
+    }
+    const HINSTANCE instance = g_dll_instance ? g_dll_instance : ::GetModuleHandleW(nullptr);
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = &ToastWndProc;
+    wc.hInstance = instance;
+    wc.lpszClassName = kSettingsToastWndClass;
+    if (!::RegisterClassExW(&wc) && ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        QIQI_LOG_ERROR("Settings toast window registration failed (error={})", ::GetLastError());
+        return;
+    }
+
+    std::unique_ptr<ToastContext> ctx;
+    try {
+        ctx = std::make_unique<ToastContext>();
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR("Settings toast context allocation failed");
+        return;
+    }
+    const MonitorMetrics monitor = QueryActiveMonitor();
+    ctx->language = ui_language;
+    ctx->kind = kind;
+    ctx->d2d.Init(monitor.dpi);
+    if (!ctx->d2d.d2d_target || !ctx->d2d.fmt_body) {
+        QIQI_LOG_ERROR("Settings toast requires Direct2D and DirectWrite");
+        return;
+    }
+    ctx->d2d.fmt_body->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    ctx->d2d.fmt_body->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    ctx->d2d.fmt_body->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    const int width = ScalePxByDpi(440, monitor.dpi);
+    const int height = ScalePxByDpi(88, monitor.dpi);
+    const POINT position = ClampPointToWorkArea(
+        POINT{monitor.work_area.right - width - ScalePxByDpi(20, monitor.dpi),
+              monitor.work_area.bottom - height - ScalePxByDpi(20, monitor.dpi)},
+        width, height, monitor.work_area);
+    auto* const owned = ctx.release();
+    const HWND hwnd = ::CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        kSettingsToastWndClass,
+        text,
+        WS_POPUP,
+        position.x, position.y, width, height,
+        nullptr, nullptr, instance, owned);
+    if (!hwnd) {
+        QIQI_LOG_ERROR("Settings toast window creation failed (error={})", ::GetLastError());
+        return;
+    }
+    if (!::SetTimer(hwnd, 1, 3000, nullptr)) {
+        QIQI_LOG_ERROR("Settings toast timer creation failed (error={})", ::GetLastError());
+        ::DestroyWindow(hwnd);
+        return;
+    }
+    owned->holds_module_reference = true;
+    ++g_com_object_count;
+    ::ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    ::UpdateWindow(hwnd);
+}
+
+void UpdateSettingsToastLanguage(UiLanguage ui_language) noexcept {
+    const auto callback = [](HWND hwnd, LPARAM language_param) noexcept -> BOOL {
+        std::array<wchar_t, 128> class_name{};
+        if (::GetClassNameW(hwnd, class_name.data(), gsl::narrow_cast<int>(class_name.size())) > 0 &&
+            std::wcscmp(class_name.data(), kSettingsToastWndClass) == 0) {
+            ::SendMessageW(hwnd, kUpdateToastLanguageMessage, language_param, 0);
+        }
+        return TRUE;
+    };
+    if (!::EnumThreadWindows(::GetCurrentThreadId(), callback, static_cast<LPARAM>(ui_language))) {
+        QIQI_LOG_WARN("Enumerating Settings toast windows for language update failed (error={})",
+                      ::GetLastError());
+    }
 }
 
 } // namespace qiqi

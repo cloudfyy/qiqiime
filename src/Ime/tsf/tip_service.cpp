@@ -650,32 +650,39 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
             break;
         case LangBarMenuId::DictJidian:
             if (config_.primary_dict != PrimaryDict::Jidian) {
-                config_.primary_dict = PrimaryDict::Jidian;
-                PersistAndSyncQuickConfigChange(true);
+                QiQiConfig updated_config = config_;
+                updated_config.primary_dict = PrimaryDict::Jidian;
+                PersistAndSyncQuickConfigChange(std::move(updated_config), true);
             }
             break;
         case LangBarMenuId::DictHaifeng:
             if (config_.primary_dict != PrimaryDict::Haifeng) {
-                config_.primary_dict = PrimaryDict::Haifeng;
-                PersistAndSyncQuickConfigChange(true);
+                QiQiConfig updated_config = config_;
+                updated_config.primary_dict = PrimaryDict::Haifeng;
+                PersistAndSyncQuickConfigChange(std::move(updated_config), true);
             }
             break;
         case LangBarMenuId::ToggleExtraDict:
             if (config_.primary_dict == PrimaryDict::Jidian) {
-                config_.enable_jidian_extra = !config_.enable_jidian_extra;
-                PersistAndSyncQuickConfigChange(true);
+                QiQiConfig updated_config = config_;
+                updated_config.enable_jidian_extra = !updated_config.enable_jidian_extra;
+                PersistAndSyncQuickConfigChange(std::move(updated_config), true);
             }
             break;
-        case LangBarMenuId::ToggleStatusBar:
-            config_.show_status_bar = !config_.show_status_bar;
-            PersistAndSyncQuickConfigChange(false);
+        case LangBarMenuId::ToggleStatusBar: {
+            QiQiConfig updated_config = config_;
+            updated_config.show_status_bar = !updated_config.show_status_bar;
+            PersistAndSyncQuickConfigChange(std::move(updated_config), false);
             break;
-        case LangBarMenuId::ToggleUiLanguage:
-            config_.ui_language = (ResolveUiLanguage(config_.ui_language) == UiLanguage::EnUs)
+        }
+        case LangBarMenuId::ToggleUiLanguage: {
+            QiQiConfig updated_config = config_;
+            updated_config.ui_language = (ResolveUiLanguage(updated_config.ui_language) == UiLanguage::EnUs)
                 ? UiLanguage::ZhCn
                 : UiLanguage::EnUs;
-            PersistAndSyncQuickConfigChange(false);
+            PersistAndSyncQuickConfigChange(std::move(updated_config), false);
             break;
+        }
         case LangBarMenuId::OpenSettings:
             Show(nullptr, kChineseSimplifiedLangId, kGuidProfileWubi86);
             break;
@@ -1000,10 +1007,20 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
     engine_.SetEnableKeySound(config_.enable_key_sound);
 }
 
-void QiQiTextService::PersistAndSyncQuickConfigChange(bool reload_dicts) {
-    SaveConfig(config_);
+bool QiQiTextService::PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts) {
+    if (!SaveConfig(updated_config)) {
+        QIQI_LOG_ERROR("Quick settings save failed; keeping the current configuration");
+        ShowSettingsToast(config_.ui_language, SettingsToastKind::SaveFailure);
+        return false;
+    }
+
+    config_ = std::move(updated_config);
+    UpdateSettingsToastLanguage(config_.ui_language);
     SyncSavedConfigChange(reload_dicts);
-    NotifyGlobalConfigChanged();
+    if (!NotifyGlobalConfigChanged()) {
+        ShowSettingsToast(config_.ui_language, SettingsToastKind::NotificationFailure);
+    }
+    return true;
 }
 
 void QiQiTextService::SyncSavedConfigChange(bool reload_dicts) {
@@ -1179,6 +1196,7 @@ void QiQiTextService::ReloadConfigIfModified() {
     QiQiConfig updated{};
     if (LoadConfigFromRegistry(updated, &config_registry_sequence_)) {
         config_ = std::move(updated);
+        UpdateSettingsToastLanguage(config_.ui_language);
         ApplyDynamicEngineSettings();
         if (config_.dynamic_phrase_freq && !engine_.PhraseFreqPath().empty()) {
             std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());

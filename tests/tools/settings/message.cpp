@@ -6,6 +6,7 @@
 
 #include <commctrl.h>
 #include <string>
+#include <tuple>
 
 namespace qiqi::test {
 namespace {
@@ -165,11 +166,53 @@ void TestPromptModalBehavior() {
     QIQI_TEST_CHECK(::IsWindowEnabled(owner.Get()));
 }
 
+void TestNonModalD2DToast() {
+    const auto original_theme = qiqi::detail::ThemeDarkOverrideStorage();
+    const auto restore_theme = gsl::finally([original_theme]() noexcept {
+        SetThemeDarkOverrideForTest(original_theme);
+    });
+    for (const bool dark : {false, true}) {
+        SetThemeDarkOverrideForTest(dark);
+        for (const auto& [language, kind, expected] : {
+                 std::tuple{UiLanguage::ZhCn, SettingsToastKind::SaveFailure,
+                            GetUiStrings(UiLanguage::ZhCn).quick_settings_save_failed},
+                 std::tuple{UiLanguage::EnUs, SettingsToastKind::NotificationFailure,
+                            GetUiStrings(UiLanguage::EnUs).quick_settings_notify_failed}}) {
+            const HWND foreground_before = ::GetForegroundWindow();
+            const long count_before = g_com_object_count.load();
+            ShowSettingsToast(language, kind);
+            const HWND toast = FindThreadWindowByClass(kSettingsToastWndClass);
+            QIQI_TEST_CHECK(toast && ::IsWindowVisible(toast));
+            QIQI_TEST_CHECK(WindowText(toast) == expected);
+            QIQI_TEST_CHECK((::GetWindowLongPtrW(toast, GWL_EXSTYLE) & WS_EX_NOACTIVATE) != 0);
+            QIQI_TEST_CHECK(::GetForegroundWindow() == foreground_before);
+            QIQI_TEST_CHECK(g_com_object_count.load() == count_before + 1);
+            CheckBackground(toast, dark ? RGB(32, 34, 38) : RGB(243, 245, 249));
+            const UiLanguage changed_language =
+                language == UiLanguage::EnUs ? UiLanguage::ZhCn : UiLanguage::EnUs;
+            UpdateSettingsToastLanguage(changed_language);
+            const wchar_t* const changed_text = kind == SettingsToastKind::SaveFailure
+                ? GetUiStrings(changed_language).quick_settings_save_failed
+                : GetUiStrings(changed_language).quick_settings_notify_failed;
+            QIQI_TEST_CHECK(WindowText(toast) == changed_text);
+            SetThemeDarkOverrideForTest(!dark);
+            ::SendMessageW(toast, WM_THEMECHANGED, 0, 0);
+            CheckBackground(toast, dark ? RGB(243, 245, 249) : RGB(32, 34, 38));
+            SetThemeDarkOverrideForTest(dark);
+            ::SendMessageW(toast, WM_THEMECHANGED, 0, 0);
+            ::SendMessageW(toast, WM_TIMER, 1, 0);
+            QIQI_TEST_CHECK(!::IsWindow(toast));
+            QIQI_TEST_CHECK(g_com_object_count.load() == count_before);
+        }
+    }
+}
+
 } // namespace
 
 void RunSettingsMessageTests() {
     TestLiveThemeAndLanguage();
     TestPromptModalBehavior();
+    TestNonModalD2DToast();
 }
 
 } // namespace qiqi::test

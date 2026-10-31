@@ -28,11 +28,19 @@ enum class SettingsMessageKind {
     NotificationFailure
 };
 
+enum class SettingsToastKind {
+    SaveFailure,
+    NotificationFailure
+};
+
 ScopedWindow CreateSettingsMessageWindow(
     HINSTANCE instance, HWND parent, UiLanguage ui_language, SettingsMessageKind kind) noexcept;
 
 // Returns a button ID, or zero on creation/modal-loop failure. Privacy confirmation defaults to No.
 int ShowSettingsMessage(HWND parent, UiLanguage ui_language, SettingsMessageKind kind) noexcept;
+
+void ShowSettingsToast(UiLanguage ui_language, SettingsToastKind kind) noexcept;
+void UpdateSettingsToastLanguage(UiLanguage ui_language) noexcept;
 
 // Create a modeless About window (used by both ShowAboutDialog and unit tests).
 ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto) noexcept;

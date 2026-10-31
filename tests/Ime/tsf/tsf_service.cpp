@@ -440,6 +440,48 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     if (mock_tm->langbar_item_) {
         ComPtr<ITfLangBarItemButton> hf_lb;
         if (SUCCEEDED(mock_tm->langbar_item_.As(&hf_lb)) && hf_lb) {
+            ComPtr<ITfFnConfigure> cfg_check;
+            QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&cfg_check))) && cfg_check);
+            ScopedBstr display_name_before;
+            QIQI_TEST_CHECK(SUCCEEDED(cfg_check->GetDisplayName(display_name_before.Put())) &&
+                            display_name_before.IsValid());
+            const uint64_t before_quick_save = QueryRegistryConfigSequence();
+            const LONG before_quick_notify = ReadCompartmentInt4(mock_tm->global_config_compartment_.Get());
+            {
+                const wchar_t* previous_subkey = GetActiveConfigRegistrySubKey();
+                SetConfigRegistrySubKeyOverrideForTest(L"");
+                const auto restore_registry = gsl::finally([previous_subkey]() noexcept {
+                    SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
+                });
+                const HWND foreground_before = ::GetForegroundWindow();
+                const long object_count_before = g_com_object_count.load();
+                QIQI_TEST_CHECK(SUCCEEDED(
+                    hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleUiLanguage))));
+                const HWND toast = FindThreadWindowByClass(kSettingsToastWndClass);
+                QIQI_TEST_CHECK(toast && ::IsWindowVisible(toast));
+                std::array<wchar_t, 256> toast_text{};
+                QIQI_TEST_CHECK(::GetWindowTextW(
+                    toast, toast_text.data(), gsl::narrow_cast<int>(toast_text.size())) > 0);
+                QIQI_TEST_CHECK(std::wstring_view(toast_text.data()) ==
+                                GetUiStrings(haifeng_cfg.ui_language).quick_settings_save_failed);
+                QIQI_TEST_CHECK((::GetWindowLongPtrW(toast, GWL_EXSTYLE) & WS_EX_NOACTIVATE) != 0);
+                QIQI_TEST_CHECK(::GetForegroundWindow() == foreground_before);
+                QIQI_TEST_CHECK(g_com_object_count.load() == object_count_before + 1);
+                ::SendMessageW(toast, WM_TIMER, 1, 0);
+                QIQI_TEST_CHECK(!::IsWindow(toast));
+                QIQI_TEST_CHECK(g_com_object_count.load() == object_count_before);
+            }
+            QIQI_TEST_CHECK(QueryRegistryConfigSequence() == before_quick_save);
+            QIQI_TEST_CHECK(ReadCompartmentInt4(mock_tm->global_config_compartment_.Get()) ==
+                            before_quick_notify);
+            QiQiConfig quick_saved;
+            QIQI_TEST_CHECK(LoadConfigFromRegistry(quick_saved));
+            QIQI_TEST_CHECK(quick_saved.ui_language == haifeng_cfg.ui_language);
+            ScopedBstr display_name_after;
+            QIQI_TEST_CHECK(SUCCEEDED(cfg_check->GetDisplayName(display_name_after.Put())) &&
+                            display_name_after.IsValid());
+            QIQI_TEST_CHECK(std::wstring(display_name_before.Get()) == std::wstring(display_name_after.Get()));
+
             QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::DictJidian))));
             QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::DictHaifeng))));
             QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleExtraDict))));

@@ -72,6 +72,8 @@ struct UiStrings {
     const wchar_t* dlg_btn_cancel;
     const wchar_t* dlg_save_failed;
     const wchar_t* dlg_notify_failed;
+    const wchar_t* quick_settings_save_failed;
+    const wchar_t* quick_settings_notify_failed;
     const wchar_t* dlg_btn_yes;
     const wchar_t* dlg_btn_no;
 
@@ -144,6 +146,8 @@ inline constexpr UiStrings kZhCnStrings = {
     L"取消",
     L"设置保存失败。您的编辑内容仍保留在窗口中，请重试。",
     L"设置已保存，但未能通知正在运行的输入法。请重新激活输入法以加载新设置。",
+    L"保存失败，原设置未更改。",
+    L"设置已保存，但未能通知正在运行的输入法。",
     L"是",
     L"否",
 
@@ -218,6 +222,8 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Cancel",
     L"Settings could not be saved. Your edits remain in this window. Please retry.",
     L"Settings were saved, but the running IME could not be notified. Reactivate the IME to load the new settings.",
+    L"Could not save setting. The previous setting is unchanged.",
+    L"Setting saved, but the running IME could not be notified.",
     L"Yes",
     L"No",
 
