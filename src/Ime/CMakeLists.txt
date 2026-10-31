@@ -3,6 +3,7 @@ set(QIQI_ENGINE_SOURCES
     engine/binary_dict.h
     engine/fsm.h
     engine/engine.cpp
+    engine/engine_dict.cpp
     engine/engine.h
     engine/default_dict.h
 )
