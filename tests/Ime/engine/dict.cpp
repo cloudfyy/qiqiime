@@ -4,6 +4,7 @@
 #include "Ime/engine/engine.h"
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -11,6 +12,87 @@
 namespace qiqi::test {
 
 namespace {
+
+std::vector<uint8_t> MakeSingleEntryQdictBuffer() {
+    DictBinaryHeader header{};
+    header.code_count = 1;
+    header.word_count = 1;
+    header.char_count = 1;
+    const DictCodeIndex code_index{PackWubiCode(L"aaaa"), 0, 1};
+    const DictWordSlice word_slice{0, 1};
+    const wchar_t word = L'词';
+
+    std::vector<uint8_t> buffer(sizeof(header) + sizeof(code_index) + sizeof(word_slice) + sizeof(word));
+    size_t offset = 0;
+    std::memcpy(buffer.data() + offset, &header, sizeof(header));
+    offset += sizeof(header);
+    std::memcpy(buffer.data() + offset, &code_index, sizeof(code_index));
+    offset += sizeof(code_index);
+    std::memcpy(buffer.data() + offset, &word_slice, sizeof(word_slice));
+    offset += sizeof(word_slice);
+    std::memcpy(buffer.data() + offset, &word, sizeof(word));
+    return buffer;
+}
+
+void TestBinaryDictBufferValidation() {
+    auto valid_buffer = MakeSingleEntryQdictBuffer();
+    const auto valid_dict = WubiMappedDict::LoadFromBinaryBuffer(std::move(valid_buffer));
+    QIQI_TEST_CHECK(valid_dict != nullptr && valid_dict->IsValid());
+    std::vector<std::wstring> words;
+    valid_dict->LookupExact(PackWubiCode(L"aaaa"), words);
+    QIQI_TEST_CHECK(words.size() == 1 && words.front() == L"词");
+
+    auto invalid_count_buffer = MakeSingleEntryQdictBuffer();
+    DictBinaryHeader invalid_count_header{};
+    std::memcpy(&invalid_count_header, invalid_count_buffer.data(), sizeof(invalid_count_header));
+    invalid_count_header.code_count = UINT32_MAX;
+    std::memcpy(invalid_count_buffer.data(), &invalid_count_header, sizeof(invalid_count_header));
+    QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_count_buffer)) == nullptr);
+
+    auto invalid_word_count_buffer = MakeSingleEntryQdictBuffer();
+    DictBinaryHeader invalid_word_count_header{};
+    std::memcpy(&invalid_word_count_header, invalid_word_count_buffer.data(), sizeof(invalid_word_count_header));
+    invalid_word_count_header.word_count = UINT32_MAX;
+    std::memcpy(invalid_word_count_buffer.data(), &invalid_word_count_header, sizeof(invalid_word_count_header));
+    QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_word_count_buffer)) == nullptr);
+
+    auto invalid_char_count_buffer = MakeSingleEntryQdictBuffer();
+    DictBinaryHeader invalid_char_count_header{};
+    std::memcpy(&invalid_char_count_header, invalid_char_count_buffer.data(), sizeof(invalid_char_count_header));
+    invalid_char_count_header.char_count = UINT32_MAX;
+    std::memcpy(invalid_char_count_buffer.data(), &invalid_char_count_header, sizeof(invalid_char_count_header));
+    QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_char_count_buffer)) == nullptr);
+
+    auto invalid_index_buffer = MakeSingleEntryQdictBuffer();
+    DictCodeIndex invalid_index{};
+    std::memcpy(&invalid_index, invalid_index_buffer.data() + sizeof(DictBinaryHeader), sizeof(invalid_index));
+    invalid_index.first_word_idx = UINT32_MAX;
+    std::memcpy(invalid_index_buffer.data() + sizeof(DictBinaryHeader), &invalid_index, sizeof(invalid_index));
+    QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_index_buffer)) == nullptr);
+
+    auto invalid_code_buffer = MakeSingleEntryQdictBuffer();
+    DictCodeIndex invalid_code{};
+    std::memcpy(&invalid_code, invalid_code_buffer.data() + sizeof(DictBinaryHeader), sizeof(invalid_code));
+    invalid_code.packed_code = 0xFF000000u;
+    std::memcpy(invalid_code_buffer.data() + sizeof(DictBinaryHeader), &invalid_code, sizeof(invalid_code));
+    QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_code_buffer)) == nullptr);
+
+    auto invalid_slice_offset_buffer = MakeSingleEntryQdictBuffer();
+    auto* invalid_slice_data = invalid_slice_offset_buffer.data() + sizeof(DictBinaryHeader) + sizeof(DictCodeIndex);
+    DictWordSlice invalid_slice_offset{};
+    std::memcpy(&invalid_slice_offset, invalid_slice_data, sizeof(invalid_slice_offset));
+    invalid_slice_offset.char_offset = UINT32_MAX;
+    std::memcpy(invalid_slice_data, &invalid_slice_offset, sizeof(invalid_slice_offset));
+    QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_slice_offset_buffer)) == nullptr);
+
+    auto invalid_slice_length_buffer = MakeSingleEntryQdictBuffer();
+    auto* invalid_slice_length_data = invalid_slice_length_buffer.data() + sizeof(DictBinaryHeader) + sizeof(DictCodeIndex);
+    DictWordSlice invalid_slice_length{};
+    std::memcpy(&invalid_slice_length, invalid_slice_length_data, sizeof(invalid_slice_length));
+    invalid_slice_length.char_length = UINT32_MAX;
+    std::memcpy(invalid_slice_length_data, &invalid_slice_length, sizeof(invalid_slice_length));
+    QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_slice_length_buffer)) == nullptr);
+}
 
 void TestAddEntryAndLookupEdgeCases() {
     WubiEngine engine;
@@ -322,6 +404,7 @@ void TestExternalDictFile() {
 } // namespace
 
 void RunEngineDictTests() {
+    TestBinaryDictBufferValidation();
     TestAddEntryAndLookupEdgeCases();
     TestExternalDictFile();
 }

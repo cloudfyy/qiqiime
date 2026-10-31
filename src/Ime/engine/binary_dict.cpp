@@ -221,26 +221,69 @@ bool WubiMappedDict::BindBufferView(
         return false;
     }
 
-    const size_t codes_bytes = static_cast<size_t>(hdr->code_count) * sizeof(DictCodeIndex);
-    const size_t words_bytes = static_cast<size_t>(hdr->word_count) * sizeof(DictWordSlice);
-    const size_t chars_bytes = static_cast<size_t>(hdr->char_count) * sizeof(wchar_t);
-    const size_t required_bytes = sizeof(DictBinaryHeader) + codes_bytes + words_bytes + chars_bytes;
-    if (buffer.size() < required_bytes) {
-        QIQI_LOG_WARN("BindBufferView: truncated .qdict buffer (actual={} bytes, required={} bytes)",
-                      buffer.size(), required_bytes);
+    size_t remaining_bytes = buffer.size() - sizeof(DictBinaryHeader);
+    if (hdr->code_count > remaining_bytes / sizeof(DictCodeIndex)) {
+        QIQI_LOG_WARN("BindBufferView: invalid code index count ({})", hdr->code_count);
         return false;
     }
+    const size_t codes_bytes = static_cast<size_t>(hdr->code_count) * sizeof(DictCodeIndex);
+    remaining_bytes -= codes_bytes;
+    if (hdr->word_count > remaining_bytes / sizeof(DictWordSlice)) {
+        QIQI_LOG_WARN("BindBufferView: invalid word slice count ({})", hdr->word_count);
+        return false;
+    }
+    const size_t words_bytes = static_cast<size_t>(hdr->word_count) * sizeof(DictWordSlice);
+    remaining_bytes -= words_bytes;
+    if (hdr->char_count > remaining_bytes / sizeof(wchar_t)) {
+        QIQI_LOG_WARN("BindBufferView: invalid character pool count ({})", hdr->char_count);
+        return false;
+    }
+    const size_t chars_bytes = static_cast<size_t>(hdr->char_count) * sizeof(wchar_t);
 
     const auto codes_span = buffer.subspan(sizeof(DictBinaryHeader), codes_bytes);
     const auto words_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes, words_bytes);
     const auto chars_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes + words_bytes, chars_bytes);
 
-    code_index_ = std::span<const DictCodeIndex>(
+    const auto code_index = std::span<const DictCodeIndex>(
         reinterpret_cast<const DictCodeIndex*>(codes_span.data()), hdr->code_count);
-    word_slices_ = std::span<const DictWordSlice>(
+    const auto word_slices = std::span<const DictWordSlice>(
         reinterpret_cast<const DictWordSlice*>(words_span.data()), hdr->word_count);
-    char_pool_ = std::span<const wchar_t>(
+    const auto char_pool = std::span<const wchar_t>(
         reinterpret_cast<const wchar_t*>(chars_span.data()), hdr->char_count);
+
+    uint32_t previous_code = 0;
+    for (const DictCodeIndex& entry : code_index) {
+        if (entry.packed_code == 0 || entry.packed_code <= previous_code ||
+            entry.word_count == 0 || entry.first_word_idx > word_slices.size() ||
+            entry.word_count > word_slices.size() - entry.first_word_idx) {
+            QIQI_LOG_WARN("BindBufferView: invalid code index entry");
+            return false;
+        }
+
+        bool padding_started = false;
+        for (size_t i = 0; i < sizeof(entry.packed_code); ++i) {
+            const uint32_t code_byte = (entry.packed_code >> ((3 - i) * 8)) & 0xFFu;
+            if (code_byte == 0) {
+                padding_started = true;
+            } else if (padding_started || code_byte > 26) {
+                QIQI_LOG_WARN("BindBufferView: invalid packed Wubi code");
+                return false;
+            }
+        }
+        previous_code = entry.packed_code;
+    }
+
+    for (const DictWordSlice& slice : word_slices) {
+        if (slice.char_length == 0 || slice.char_offset > char_pool.size() ||
+            slice.char_length > char_pool.size() - slice.char_offset) {
+            QIQI_LOG_WARN("BindBufferView: invalid word slice");
+            return false;
+        }
+    }
+
+    code_index_ = code_index;
+    word_slices_ = word_slices;
+    char_pool_ = char_pool;
     return true;
 }
 
