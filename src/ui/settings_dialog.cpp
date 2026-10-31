@@ -9,6 +9,7 @@
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
+#include <commctrl.h>
 #include <gsl/gsl>
 #include <shellapi.h>
 #include <algorithm>
@@ -48,6 +49,7 @@ constexpr int kIdLblUiLang = 123;
 constexpr int kIdBtnOpenGitHub = 201;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
+constexpr UINT kMsgQueryControlCheckState = WM_APP + 10;
 
 constexpr std::array<const wchar_t*, 9> kPageSizeLabels = {
     L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9"
@@ -93,6 +95,7 @@ struct DialogContext {
     ScopedGdiHandle<HFONT> font;
     ScopedGdiHandle<HFONT> bold_font;
     ScopedGdiHandle<HBRUSH> surface_brush;
+    ScopedGdiHandle<HBRUSH> input_brush;
     ScopedIcon icon_small;
     ScopedIcon icon_big;
     ScopedD2DFactory d2d_factory;
@@ -101,6 +104,7 @@ struct DialogContext {
     ScopedDWriteTextFormat fmt_title;
     ScopedDWriteTextFormat fmt_body;
     ScopedDWriteTextFormat fmt_caption;
+    ScopedDWriteTextFormat fmt_btn;
 };
 
 void InitDialogD2D(DialogContext& ctx, UINT dpi) noexcept {
@@ -119,10 +123,280 @@ void InitDialogD2D(DialogContext& ctx, UINT dpi) noexcept {
         std::ignore = ctx.dwrite_factory->CreateTextFormat(
             L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, S(12), L"zh-CN", ctx.fmt_caption.Put());
+        std::ignore = ctx.dwrite_factory->CreateTextFormat(
+            L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, S(14), L"zh-CN", ctx.fmt_btn.Put());
         if (ctx.fmt_body) {
             ctx.fmt_body->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             ctx.fmt_body->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         }
+        if (ctx.fmt_btn) {
+            ctx.fmt_btn->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            ctx.fmt_btn->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            ctx.fmt_btn->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        }
+    }
+}
+
+void DrawFluentActionButton(
+    const DRAWITEMSTRUCT& dis, const DialogContext& ctx) noexcept {
+    if (!ctx.d2d_target || !dis.hDC) {
+        return;
+    }
+    const bool is_dark = IsSystemDarkTheme();
+    const auto S = [d = ctx.dpi](int px) noexcept { return static_cast<float>(ScalePxByDpi(px, d)); };
+    const bool is_primary = (dis.CtlID == kIdBtnOk);
+    const bool is_pressed = (dis.itemState & ODS_SELECTED) != 0;
+
+    D2D1_COLOR_F fill_col{};
+    D2D1_COLOR_F border_col{};
+    D2D1_COLOR_F text_col{};
+    if (is_primary) {
+        fill_col = is_pressed ? MakeD2DColor(0, 84, 166) : MakeD2DColor(0, 103, 192);
+        border_col = MakeD2DColor(40, 130, 220);
+        text_col = MakeD2DColor(255, 255, 255);
+    } else if (is_dark) {
+        fill_col = is_pressed ? MakeD2DColor(48, 52, 60) : MakeD2DColor(56, 60, 70);
+        border_col = MakeD2DColor(82, 88, 100);
+        text_col = MakeD2DColor(238, 240, 245);
+    } else {
+        fill_col = is_pressed ? MakeD2DColor(232, 236, 242) : MakeD2DColor(255, 255, 255);
+        border_col = MakeD2DColor(204, 210, 220);
+        text_col = MakeD2DColor(28, 32, 40);
+    }
+
+    const D2D1_RECT_F rc = D2D1::RectF(
+        1.0f, 1.0f,
+        static_cast<float>(dis.rcItem.right - dis.rcItem.left) - 1.0f,
+        static_cast<float>(dis.rcItem.bottom - dis.rcItem.top) - 1.0f);
+    const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(rc, S(6), S(6));
+
+    const ScopedD2DDcDraw draw_guard(ctx.d2d_target.Get(), dis.hDC, dis.rcItem);
+    if (!draw_guard) {
+        return;
+    }
+    ctx.d2d_target->Clear(is_dark ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
+
+    const auto fill_brush = CreateSolidBrush(ctx.d2d_target.Get(), fill_col);
+    const auto border_brush = CreateSolidBrush(ctx.d2d_target.Get(), border_col);
+    const auto txt_brush = CreateSolidBrush(ctx.d2d_target.Get(), text_col);
+    if (fill_brush) {
+        ctx.d2d_target->FillRoundedRectangle(rr, fill_brush.Get());
+    }
+    if (border_brush) {
+        ctx.d2d_target->DrawRoundedRectangle(rr, border_brush.Get(), 1.0f);
+    }
+
+    wchar_t btn_text[64]{};
+    ::GetWindowTextW(dis.hwndItem, btn_text, 64);
+    if (ctx.fmt_btn && txt_brush && btn_text[0] != L'\0') {
+        ctx.d2d_target->DrawTextW(
+            btn_text,
+            gsl::narrow_cast<UINT32>(wcslen(btn_text)),
+            ctx.fmt_btn.Get(),
+            rc,
+            txt_brush.Get());
+    }
+}
+
+void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const DialogContext& ctx) noexcept {
+    if (!ctx.d2d_target || !hdc) {
+        return;
+    }
+    RECT rc{};
+    ::GetClientRect(hwnd, &rc);
+    const bool is_dark = IsSystemDarkTheme();
+    const auto S = [d = ctx.dpi](int px) noexcept { return static_cast<float>(ScalePxByDpi(px, d)); };
+
+    const ScopedD2DDcDraw draw_guard(ctx.d2d_target.Get(), hdc, rc);
+    if (!draw_guard) {
+        return;
+    }
+    // Clear outer corners to match parent card surface
+    ctx.d2d_target->Clear(is_dark ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255));
+
+    const float w = static_cast<float>(rc.right - rc.left);
+    const float h = static_cast<float>(rc.bottom - rc.top);
+    const D2D1_RECT_F box_rc = D2D1::RectF(1.0f, 1.0f, w - 1.0f, h - 1.0f);
+    const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(box_rc, S(5), S(5));
+
+    const auto fill_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(56, 60, 70) : MakeD2DColor(248, 250, 253));
+    const auto border_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(86, 92, 106) : MakeD2DColor(204, 210, 222));
+    const auto txt_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40));
+    const auto chev_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(186, 194, 208) : MakeD2DColor(96, 104, 118));
+
+    if (fill_brush) {
+        ctx.d2d_target->FillRoundedRectangle(rr, fill_brush.Get());
+    }
+    if (border_brush) {
+        ctx.d2d_target->DrawRoundedRectangle(rr, border_brush.Get(), 1.0f);
+    }
+
+    // Draw selected item text
+    const LRESULT cur_sel = ::SendMessageW(hwnd, CB_GETCURSEL, 0, 0);
+    if (cur_sel >= 0 && ctx.fmt_body && txt_brush) {
+        wchar_t item_text[128]{};
+        const LRESULT len = ::SendMessageW(hwnd, CB_GETLBTEXTLEN, static_cast<WPARAM>(cur_sel), 0);
+        if (len > 0 && len < 127) {
+            ::SendMessageW(hwnd, CB_GETLBTEXT, static_cast<WPARAM>(cur_sel), reinterpret_cast<LPARAM>(item_text));
+            const D2D1_RECT_F txt_rc = D2D1::RectF(S(10), 0.0f, w - S(26), h);
+            ctx.d2d_target->DrawTextW(
+                item_text,
+                gsl::narrow_cast<UINT32>(wcslen(item_text)),
+                ctx.fmt_body.Get(),
+                txt_rc,
+                txt_brush.Get(),
+                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+        }
+    }
+
+    // Draw crisp Direct2D Fluent downward chevron 'v' on the right
+    if (chev_brush) {
+        const float cx = w - S(14);
+        const float cy = h * 0.5f + S(1);
+        const float arm = S(4);
+        ctx.d2d_target->DrawLine(
+            D2D1::Point2F(cx - arm, cy - arm * 0.6f),
+            D2D1::Point2F(cx, cy + arm * 0.5f),
+            chev_brush.Get(),
+            1.6f);
+        ctx.d2d_target->DrawLine(
+            D2D1::Point2F(cx, cy + arm * 0.5f),
+            D2D1::Point2F(cx + arm, cy - arm * 0.6f),
+            chev_brush.Get(),
+            1.6f);
+    }
+}
+
+void DrawFluentComboBox(const DRAWITEMSTRUCT& dis, const DialogContext& ctx) noexcept {
+    if (!ctx.d2d_target || !dis.hDC || dis.itemID == static_cast<UINT>(-1)) {
+        return;
+    }
+    if ((dis.itemState & ODS_COMBOBOXEDIT) != 0) {
+        const ScopedWindowDC full_dc(dis.hwndItem);
+        PaintFluentComboBoxFrame(dis.hwndItem, full_dc.Get(), ctx);
+        return;
+    }
+    const bool is_dark = IsSystemDarkTheme();
+    const bool is_selected = (dis.itemState & ODS_SELECTED) != 0;
+
+    const D2D1_COLOR_F bg_col = is_selected
+        ? (is_dark ? MakeD2DColor(0, 96, 180) : MakeD2DColor(220, 234, 252))
+        : (is_dark ? MakeD2DColor(54, 58, 68) : MakeD2DColor(255, 255, 255));
+    const D2D1_COLOR_F txt_col = is_dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40);
+
+    const ScopedD2DDcDraw draw_guard(ctx.d2d_target.Get(), dis.hDC, dis.rcItem);
+    if (!draw_guard) {
+        return;
+    }
+    ctx.d2d_target->Clear(bg_col);
+
+    wchar_t item_text[128]{};
+    const LRESULT len = ::SendMessageW(dis.hwndItem, CB_GETLBTEXTLEN, dis.itemID, 0);
+    if (len > 0 && len < 127) {
+        ::SendMessageW(dis.hwndItem, CB_GETLBTEXT, dis.itemID, reinterpret_cast<LPARAM>(item_text));
+    }
+    const auto txt_brush = CreateSolidBrush(ctx.d2d_target.Get(), txt_col);
+    if (ctx.fmt_body && txt_brush && item_text[0] != L'\0') {
+        const D2D1_RECT_F rc = D2D1::RectF(
+            6.0f, 0.0f,
+            static_cast<float>(dis.rcItem.right - dis.rcItem.left) - 4.0f,
+            static_cast<float>(dis.rcItem.bottom - dis.rcItem.top));
+        ctx.d2d_target->DrawTextW(
+            item_text,
+            gsl::narrow_cast<UINT32>(wcslen(item_text)),
+            ctx.fmt_body.Get(),
+            rc,
+            txt_brush.Get());
+    }
+}
+
+void DrawFluentRowControl(const DRAWITEMSTRUCT& dis, const DialogContext& ctx) noexcept {
+    if (!ctx.d2d_target || !dis.hDC) {
+        return;
+    }
+    const bool is_dark = IsSystemDarkTheme();
+    const auto S = [d = ctx.dpi](int px) noexcept { return static_cast<float>(ScalePxByDpi(px, d)); };
+    const int id = gsl::narrow_cast<int>(dis.CtlID);
+    const bool is_radio = (id == kIdRadioJidian || id == kIdRadioHaifeng || id == kIdRadioBuiltin);
+    const bool is_checked = (::SendMessageW(dis.hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    const bool is_enabled = (::IsWindowEnabled(dis.hwndItem) != FALSE);
+
+    const ScopedD2DDcDraw draw_guard(ctx.d2d_target.Get(), dis.hDC, dis.rcItem);
+    if (!draw_guard) {
+        return;
+    }
+    // Match parent card background exactly so there is zero white box artifact
+    ctx.d2d_target->Clear(is_dark ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255));
+
+    const float h = static_cast<float>(dis.rcItem.bottom - dis.rcItem.top);
+    const float w = static_cast<float>(dis.rcItem.right - dis.rcItem.left);
+    const float cy = h * 0.5f;
+
+    const auto accent_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(76, 160, 255) : MakeD2DColor(0, 103, 192));
+    const auto border_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(), is_dark ? MakeD2DColor(130, 138, 152) : MakeD2DColor(138, 146, 158));
+    const auto knob_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(),
+        is_checked ? MakeD2DColor(255, 255, 255)
+                   : (is_dark ? MakeD2DColor(186, 194, 206) : MakeD2DColor(96, 104, 118)));
+    const auto text_brush = CreateSolidBrush(
+        ctx.d2d_target.Get(),
+        !is_enabled ? (is_dark ? MakeD2DColor(110, 116, 128) : MakeD2DColor(150, 156, 166))
+                    : (is_dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40)));
+
+    float text_left = S(4);
+    float text_right = w - S(4);
+
+    if (is_radio) {
+        // Fluent Radio Indicator on the left [cx = S(10), cy]
+        const float r_outer = S(8);
+        const D2D1_ELLIPSE outer = D2D1::Ellipse(D2D1::Point2F(S(10), cy), r_outer, r_outer);
+        if (is_checked && accent_brush) {
+            ctx.d2d_target->FillEllipse(outer, accent_brush.Get());
+            if (knob_brush) {
+                ctx.d2d_target->FillEllipse(
+                    D2D1::Ellipse(D2D1::Point2F(S(10), cy), S(4), S(4)), knob_brush.Get());
+            }
+        } else if (border_brush) {
+            ctx.d2d_target->DrawEllipse(outer, border_brush.Get(), 1.5f);
+        }
+        text_left = S(26);
+    } else {
+        // Fluent Toggle Pill Switch on the right [w - S(42) .. w - S(6)]
+        const float sw_right = w - S(6);
+        const float sw_left = sw_right - S(36);
+        const D2D1_ROUNDED_RECT track = D2D1::RoundedRect(
+            D2D1::RectF(sw_left, cy - S(9), sw_right, cy + S(9)), S(9), S(9));
+        if (is_checked && accent_brush) {
+            ctx.d2d_target->FillRoundedRectangle(track, accent_brush.Get());
+        } else if (border_brush) {
+            ctx.d2d_target->DrawRoundedRectangle(track, border_brush.Get(), 1.4f);
+        }
+        const float knob_x = is_checked ? (sw_right - S(9)) : (sw_left + S(9));
+        if (knob_brush) {
+            ctx.d2d_target->FillEllipse(
+                D2D1::Ellipse(D2D1::Point2F(knob_x, cy), S(6), S(6)), knob_brush.Get());
+        }
+        text_right = sw_left - S(8);
+    }
+
+    wchar_t label_text[128]{};
+    ::GetWindowTextW(dis.hwndItem, label_text, 128);
+    if (ctx.fmt_body && text_brush && label_text[0] != L'\0') {
+        const D2D1_RECT_F txt_rc = D2D1::RectF(text_left, 0.0f, text_right, h);
+        ctx.d2d_target->DrawTextW(
+            label_text,
+            gsl::narrow_cast<UINT32>(wcslen(label_text)),
+            ctx.fmt_body.Get(),
+            txt_rc,
+            text_brush.Get(),
+            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
     }
 }
 
@@ -274,6 +548,93 @@ struct AboutDialogContext {
     ScopedIcon icon;
 };
 
+LRESULT CALLBACK FluentToggleSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) noexcept {
+    const bool is_radio = (dwRefData != 0);
+    switch (msg) {
+        case BM_GETCHECK:
+            return ::GetPropW(hwnd, L"QiQiChecked") ? BST_CHECKED : BST_UNCHECKED;
+        case BM_SETCHECK: {
+            if (wparam == BST_CHECKED) {
+                ::SetPropW(hwnd, L"QiQiChecked", reinterpret_cast<HANDLE>(1));
+            } else {
+                ::RemovePropW(hwnd, L"QiQiChecked");
+            }
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        case WM_LBUTTONUP:
+        case WM_KEYUP: {
+            if (msg == WM_KEYUP && wparam != VK_SPACE) {
+                break;
+            }
+            if (::IsWindowEnabled(hwnd)) {
+                const HWND parent = ::GetParent(hwnd);
+                const int id = ::GetDlgCtrlID(hwnd);
+                if (is_radio) {
+                    for (const int rid : {kIdRadioJidian, kIdRadioHaifeng, kIdRadioBuiltin}) {
+                        if (const HWND rctrl = ::GetDlgItem(parent, rid)) {
+                            ::SendMessageW(rctrl, BM_SETCHECK, (rid == id) ? BST_CHECKED : BST_UNCHECKED, 0);
+                        }
+                    }
+                } else {
+                    const bool cur = (::SendMessageW(hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                    ::SendMessageW(hwnd, BM_SETCHECK, cur ? BST_UNCHECKED : BST_CHECKED, 0);
+                }
+            }
+            break;
+        }
+        case WM_NCDESTROY:
+            ::RemovePropW(hwnd, L"QiQiChecked");
+            ::RemoveWindowSubclass(hwnd, &FluentToggleSubclassProc, uIdSubclass);
+            break;
+        default:
+            break;
+    }
+    return ::DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
+LRESULT CALLBACK FluentComboBoxSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR /*dwRefData*/) noexcept {
+    switch (msg) {
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT: {
+            const HWND parent = ::GetParent(hwnd);
+            const auto* ctx = parent
+                ? reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(parent, GWLP_USERDATA))
+                : nullptr;
+            if (!ctx || !ctx->d2d_target) {
+                break;
+            }
+            const ScopedPaintDC paint_dc(hwnd);
+            PaintFluentComboBoxFrame(hwnd, paint_dc.Get(), *ctx);
+            return 0;
+        }
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_MOUSEMOVE:
+        case WM_MOUSELEAVE:
+        case CB_SETCURSEL: {
+            const LRESULT res = ::DefSubclassProc(hwnd, msg, wparam, lparam);
+            const HWND parent = ::GetParent(hwnd);
+            if (const auto* ctx = parent
+                    ? reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(parent, GWLP_USERDATA))
+                    : nullptr) {
+                const ScopedWindowDC dc(hwnd);
+                PaintFluentComboBoxFrame(hwnd, dc.Get(), *ctx);
+            }
+            return res;
+        }
+        case WM_NCDESTROY:
+            ::RemoveWindowSubclass(hwnd, &FluentComboBoxSubclassProc, uIdSubclass);
+            break;
+        default:
+            break;
+    }
+    return ::DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
 void CreateChildControl(
     HWND parent,
     HINSTANCE inst,
@@ -286,11 +647,18 @@ void CreateChildControl(
     int w,
     int h,
     int id) noexcept {
+    const bool is_radio = (style & BS_AUTORADIOBUTTON) != 0;
+    const bool is_check = (style & BS_AUTOCHECKBOX) != 0;
+    const bool is_combo = (_wcsicmp(cls, L"COMBOBOX") == 0);
+    DWORD actual_style = style;
+    if (is_radio || is_check) {
+        actual_style = (style & ~(BS_AUTORADIOBUTTON | BS_AUTOCHECKBOX)) | BS_OWNERDRAW | WS_TABSTOP;
+    }
     const HWND ctrl = ::CreateWindowExW(
         0,
         cls,
         text,
-        WS_CHILD | WS_VISIBLE | style,
+        WS_CHILD | WS_VISIBLE | actual_style,
         x,
         y,
         w,
@@ -299,8 +667,15 @@ void CreateChildControl(
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
         inst,
         nullptr);
-    if (ctrl && font) {
-        ::SendMessageW(ctrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    if (ctrl) {
+        if (font) {
+            ::SendMessageW(ctrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        }
+        if (is_radio || is_check) {
+            ::SetWindowSubclass(ctrl, &FluentToggleSubclassProc, 1, is_radio ? 1 : 0);
+        } else if (is_combo) {
+            ::SetWindowSubclass(ctrl, &FluentComboBoxSubclassProc, 2, 0);
+        }
     }
 }
 
@@ -373,13 +748,52 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             return PaintWindowClient(hwnd, [hwnd, ctx](HDC hdc, const RECT& rc) {
                 PaintFluentSettingsWindow(hwnd, hdc, rc, *ctx);
             });
+        case WM_MEASUREITEM: {
+            if (lparam != 0) {
+                auto* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
+                if (mis->CtlType == ODT_COMBOBOX) {
+                    mis->itemHeight = gsl::narrow_cast<UINT>(ScalePxByDpi(22, ctx->dpi));
+                    return TRUE;
+                }
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+        }
+        case WM_DRAWITEM: {
+            if (lparam != 0) {
+                const auto* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
+                if (dis->CtlType == ODT_BUTTON) {
+                    if (dis->CtlID == kIdBtnAbout || dis->CtlID == kIdBtnOk || dis->CtlID == kIdBtnCancel) {
+                        DrawFluentActionButton(*dis, *ctx);
+                    } else {
+                        DrawFluentRowControl(*dis, *ctx);
+                    }
+                    return TRUE;
+                }
+                if (dis->CtlType == ODT_COMBOBOX) {
+                    DrawFluentComboBox(*dis, *ctx);
+                    return TRUE;
+                }
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+        }
+        case WM_CTLCOLOREDIT:
+        case WM_CTLCOLORLISTBOX: {
+            const HDC hdc = reinterpret_cast<HDC>(wparam);
+            const bool is_dark = IsSystemDarkTheme();
+            ::SetTextColor(hdc, is_dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
+            ::SetBkColor(hdc, is_dark ? RGB(54, 58, 68) : RGB(255, 255, 255));
+            if (ctx->input_brush) {
+                return reinterpret_cast<LRESULT>(ctx->input_brush.Get());
+            }
+            return reinterpret_cast<LRESULT>(::GetSysColorBrush(COLOR_WINDOW));
+        }
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLORBTN: {
             const HWND ctrl = reinterpret_cast<HWND>(lparam);
             const HDC hdc = reinterpret_cast<HDC>(wparam);
             const bool is_dark = IsSystemDarkTheme();
             if (ctrl && ::GetDlgCtrlID(ctrl) == kIdLblPrivacyNotice) {
-                ::SetTextColor(hdc, RGB(196, 43, 28));
+                ::SetTextColor(hdc, is_dark ? RGB(255, 128, 114) : RGB(196, 43, 28));
             } else {
                 ::SetTextColor(hdc, is_dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
             }
@@ -393,6 +807,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         case WM_THEMECHANGED: {
             const bool is_dark = IsSystemDarkTheme();
             ctx->surface_brush.Reset(::CreateSolidBrush(is_dark ? RGB(43, 46, 52) : RGB(255, 255, 255)));
+            ctx->input_brush.Reset(::CreateSolidBrush(is_dark ? RGB(54, 58, 68) : RGB(255, 255, 255)));
             ApplySystemThemeToMenuAndWindow(hwnd, is_dark);
             ApplyLiveSettingsLanguage(hwnd, *ctx);
             return 0;
@@ -594,6 +1009,7 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     InitDialogD2D(*ctx, mon.dpi);
     const bool is_dark = IsSystemDarkTheme();
     ctx->surface_brush.Reset(::CreateSolidBrush(is_dark ? RGB(43, 46, 52) : RGB(255, 255, 255)));
+    ctx->input_brush.Reset(::CreateSolidBrush(is_dark ? RGB(54, 58, 68) : RGB(255, 255, 255)));
     ctx->font = CreateUiFont(S(15), FW_NORMAL, CLEARTYPE_QUALITY);
     ctx->bold_font = CreateUiFont(S(12), FW_SEMIBOLD, CLEARTYPE_QUALITY);
     ctx->icon_small = LoadOrCreateBrandIcon(instance, S(16));
@@ -660,28 +1076,30 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     // Highlighted wrapped privacy notice line inside Card 3 (Right-Bottom) directly under keystroke logging
     CreateChildControl(hwnd.Get(), instance, bold_f, L"STATIC", str.dlg_lbl_privacy_notice, SS_NOPREFIX, S(448), S(370), S(340), S(36), kIdLblPrivacyNotice);
 
-    // Card 2 (Right-Top): Candidates per page & UI Language comboboxes
+    // Card 2 (Right-Top): Candidates per page & UI Language comboboxes (Owner-drawn dark/light adaptive, full height so no legacy GDI scrollbar)
     CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_page_size, 0, S(430), S(114), S(156), S(24), kIdLblPageSize);
-    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(588), S(110), S(80), S(200), kIdComboPageSize);
+    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP, S(588), S(110), S(80), S(260), kIdComboPageSize);
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETMINVISIBLE, 9, 0);
     for (const wchar_t* label : kPageSizeLabels) {
         ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     }
 
     CreateChildControl(hwnd.Get(), instance, f, L"STATIC", str.dlg_lbl_ui_lang, 0, S(430), S(150), S(156), S(24), kIdLblUiLang);
-    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL, S(588), S(146), S(200), S(160), kIdComboUiLang);
+    CreateChildControl(hwnd.Get(), instance, f, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP, S(588), S(146), S(200), S(200), kIdComboUiLang);
     const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
     for (const wchar_t* item : lang_items) {
         ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
     }
 
-    // Bottom Action Bar [Y = 428, Height = 32]
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_about, BS_PUSHBUTTON, S(18), S(428), S(104), S(32), kIdBtnAbout);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_DEFPUSHBUTTON, S(596), S(428), S(98), S(32), kIdBtnOk);
-    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_PUSHBUTTON, S(704), S(428), S(98), S(32), kIdBtnCancel);
+    // Bottom Action Bar [Y = 428, Height = 32] (Owner-drawn Direct2D Fluent rounded buttons)
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_about, BS_OWNERDRAW | WS_TABSTOP, S(18), S(428), S(104), S(32), kIdBtnAbout);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_ok, BS_OWNERDRAW | WS_TABSTOP, S(596), S(428), S(98), S(32), kIdBtnOk);
+    CreateChildControl(hwnd.Get(), instance, f, L"BUTTON", str.dlg_btn_cancel, BS_OWNERDRAW | WS_TABSTOP, S(704), S(428), S(98), S(32), kIdBtnCancel);
 
     if (bound_config) {
         WriteSettingsToWindowControls(hwnd.Get(), *bound_config);
     }
+    ApplySystemThemeToMenuAndWindow(hwnd.Get(), is_dark);
     return hwnd;
 }
 

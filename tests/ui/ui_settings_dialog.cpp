@@ -91,7 +91,8 @@ void TestSettingsDialogControls() {
                             WM_CTLCOLORSTATIC,
                             reinterpret_cast<WPARAM>(lbl_dc.Get()),
                             reinterpret_cast<LPARAM>(privacy_lbl)) != 0);
-        QIQI_TEST_CHECK(::GetTextColor(lbl_dc.Get()) == RGB(196, 43, 28));
+        const COLORREF tc = ::GetTextColor(lbl_dc.Get());
+        QIQI_TEST_CHECK(tc == RGB(196, 43, 28) || tc == RGB(255, 128, 114));
 
         // 1) User clicks Cancel/No on privacy confirmation -> checkbox is automatically unchecked
         ::CheckDlgButton(hwnd.Get(), 120, BST_CHECKED);

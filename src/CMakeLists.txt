@@ -96,6 +96,7 @@ target_link_libraries(qiqiime PRIVATE
     qiqi_engine
     user32
     gdi32
+    comctl32
     d2d1
     dwrite
     shell32
@@ -130,6 +131,7 @@ target_link_libraries(QiQiIMESettings PRIVATE
     qiqi_common
     user32
     gdi32
+    comctl32
     d2d1
     dwrite
     shell32

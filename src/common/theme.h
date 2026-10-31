@@ -136,7 +136,8 @@ inline const ThemePalette& GetTaskbarThemePalette() noexcept {
 
 // Sync Win32 popup menus (uxtheme ordinal 135/136) and window border with Windows 10/11 dark/light theme.
 inline void ApplySystemThemeToMenuAndWindow(HWND hwnd, bool is_dark) noexcept {
-    if (const HMODULE uxtheme = ::GetModuleHandleW(L"uxtheme.dll")) {
+    static const HMODULE uxtheme = ::LoadLibraryW(L"uxtheme.dll");
+    if (uxtheme) {
         // Ordinal 135: SetPreferredAppMode(int mode): 1 = AllowDark, 2 = ForceDark, 3 = ForceLight
         using SetPreferredAppModeFn = int(WINAPI*)(int);
         // Ordinal 136: FlushMenuThemes()
@@ -153,15 +154,30 @@ inline void ApplySystemThemeToMenuAndWindow(HWND hwnd, bool is_dark) noexcept {
             flush_menus();
         }
     }
-    if (hwnd) {
-        if (const HMODULE dwmapi = ::GetModuleHandleW(L"dwmapi.dll")) {
+    if (hwnd && ::IsWindow(hwnd)) {
+        static const HMODULE dwmapi = ::LoadLibraryW(L"dwmapi.dll");
+        if (dwmapi) {
             using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
             const auto set_attr = reinterpret_cast<DwmSetWindowAttributeFn>(
                 ::GetProcAddress(dwmapi, "DwmSetWindowAttribute"));
             if (set_attr) {
                 const BOOL dark_flag = is_dark ? TRUE : FALSE;
                 constexpr DWORD kDwmwaUseImmersiveDarkMode = 20;
-                set_attr(hwnd, kDwmwaUseImmersiveDarkMode, &dark_flag, sizeof(dark_flag));
+                constexpr DWORD kDwmwaUseImmersiveDarkModeOld = 19;
+                if (FAILED(set_attr(hwnd, kDwmwaUseImmersiveDarkMode, &dark_flag, sizeof(dark_flag)))) {
+                    set_attr(hwnd, kDwmwaUseImmersiveDarkModeOld, &dark_flag, sizeof(dark_flag));
+                }
+
+                // Explicitly set caption and border color so dark title bar is guaranteed even on older Win10/11 builds
+                constexpr DWORD kDwmwaBorderColor = 34;
+                constexpr DWORD kDwmwaCaptionColor = 35;
+                constexpr DWORD kDwmwaTextColor = 36;
+                const COLORREF cap_color = is_dark ? RGB(32, 34, 38) : RGB(243, 245, 249);
+                const COLORREF txt_color = is_dark ? RGB(238, 240, 245) : RGB(28, 32, 40);
+                const COLORREF bdr_color = is_dark ? RGB(56, 60, 68) : RGB(212, 218, 228);
+                set_attr(hwnd, kDwmwaCaptionColor, &cap_color, sizeof(cap_color));
+                set_attr(hwnd, kDwmwaTextColor, &txt_color, sizeof(txt_color));
+                set_attr(hwnd, kDwmwaBorderColor, &bdr_color, sizeof(bdr_color));
 
                 // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2
                 constexpr DWORD kDwmwaWindowCornerPreference = 33;
