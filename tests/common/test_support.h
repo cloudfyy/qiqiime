@@ -56,5 +56,6 @@ void RunTsfServiceTests();
 // Settings tool test suites
 void RunSettingsDialogTests();
 void RunSettingsDialogEdgeTests();
+void RunSettingsVersionTests();
 
 } // namespace qiqi::test

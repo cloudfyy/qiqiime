@@ -26,34 +26,34 @@ VS_VERSION_INFO VERSIONINFO
  FILEFLAGS 0x0L
 #endif
  FILEOS VOS_NT_WINDOWS32
- FILETYPE VFT_DLL
- FILESUBTYPE VFT2_DRV_INPUTMETHOD
+ FILETYPE @QIQI_RESOURCE_FILE_TYPE@
+ FILESUBTYPE @QIQI_RESOURCE_FILE_SUBTYPE@
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
         BLOCK "080404b0"
         BEGIN
-            VALUE "Comments", "奇奇五笔 (QiQi Wubi 86 TSF IME) - https://github.com/cloudfyy/qiqiime"
+            VALUE "Comments", "@QIQI_RESOURCE_COMMENTS@"
             VALUE "CompanyName", "cloudfyy (https://github.com/cloudfyy/qiqiime)"
-            VALUE "FileDescription", "奇奇五笔输入法 (QiQi Wubi 86 TSF IME - @QIQIIME_ARCH_NAME@)"
+            VALUE "FileDescription", "@QIQI_RESOURCE_DESCRIPTION@"
             VALUE "FileVersion", "@QIQIIME_FULL_VERSION@"
-            VALUE "InternalName", "qiqiime.dll"
+            VALUE "InternalName", "@QIQI_RESOURCE_FILENAME@"
             VALUE "LegalCopyright", "Copyright (C) 2026 cloudfyy. Released under the GPL License."
             VALUE "LegalTrademarks", "奇奇五笔 (QiQiIME)"
-            VALUE "OriginalFilename", "qiqiime.dll"
+            VALUE "OriginalFilename", "@QIQI_RESOURCE_FILENAME@"
             VALUE "ProductName", "奇奇五笔 (QiQi Wubi IME)"
             VALUE "ProductVersion", "@QIQIIME_FULL_VERSION@"
         END
         BLOCK "040904b0"
         BEGIN
-            VALUE "Comments", "奇奇五笔 (QiQi Wubi 86 TSF IME) - https://github.com/cloudfyy/qiqiime"
+            VALUE "Comments", "@QIQI_RESOURCE_COMMENTS@"
             VALUE "CompanyName", "cloudfyy (https://github.com/cloudfyy/qiqiime)"
-            VALUE "FileDescription", "奇奇五笔输入法 (QiQi Wubi 86 TSF IME - @QIQIIME_ARCH_NAME@)"
+            VALUE "FileDescription", "@QIQI_RESOURCE_DESCRIPTION@"
             VALUE "FileVersion", "@QIQIIME_FULL_VERSION@"
-            VALUE "InternalName", "qiqiime.dll"
+            VALUE "InternalName", "@QIQI_RESOURCE_FILENAME@"
             VALUE "LegalCopyright", "Copyright (C) 2026 cloudfyy. Released under the GPL License."
             VALUE "LegalTrademarks", "奇奇五笔 (QiQiIME)"
-            VALUE "OriginalFilename", "qiqiime.dll"
+            VALUE "OriginalFilename", "@QIQI_RESOURCE_FILENAME@"
             VALUE "ProductName", "奇奇五笔 (QiQi Wubi IME)"
             VALUE "ProductVersion", "@QIQIIME_FULL_VERSION@"
         END

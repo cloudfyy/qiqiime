@@ -157,6 +157,8 @@ cmake --build build\x64 --config Release --target qiqi_engine qiqiime -- /p:RunC
 - 修改 `VERSION` 后，CMake 会自动重新配置并提取当前 Git 短提交哈希（`git rev-parse --short=7 HEAD`）及目标架构（`x64` / `x86`），自动更新：
   - `build/<arch>/generated/common/version.h`（提供 `qiqi::version::kCurrentVersion`、`kFullVersion`、`kArch`）
   - `build/<arch>/generated/common/version.rc`（为 `qiqiime.dll` 嵌入 PE `VERSIONINFO` 资源）
+  - `build/<arch>/generated/tools/settings/version.rc`（为 `QiQiIMESettings.exe` 嵌入 PE `VERSIONINFO` 资源）
+- DLL 与设置 EXE 复用 [`version.rc.in`](../src/common/version.rc.in) 模板及统一版本号，但分别设置文件类型、描述和原始文件名。设置 EXE 标记为应用程序（`VFT_APP`），描述包含目标架构；两者均保留中英文资源、公司信息、版权与产品信息。
 
 ### 5.2 结构化排障日志
 - **日志路径**：`%LOCALAPPDATA%\QiQiIME\logs\qiqiime.log`（单文件上限 5 MB，保留 3 个滚动备份，同时输出至 `OutputDebugString`）。
