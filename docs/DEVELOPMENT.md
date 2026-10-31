@@ -47,48 +47,58 @@ qiqiime/
 │   ├── register_ime.ps1        # 一键校验产物、注册输入法并核验注册表/TSF Profile 脚本
 │   └── unregister_ime.ps1      # 一键卸载输入法并核验注册表清理脚本
 ├── src/
-│   ├── CMakeLists.txt          # 源码目标构建配置（qiqi_engine 静态库 + qiqiime.dll）
-│   ├── common/                 # 公共基础模块
-│   │   ├── config.h/.cpp       # UTF-8 INI 配置解析与原子写持久化
-│   │   ├── guids.h             # CLSID / Profile GUID / PreservedKey GUID / 窗口类名常量
-│   │   ├── i18n.h              # 简体中文 (zh-CN) / 英文 (en-US) / 跟随系统 (Auto) 界面文案表
-│   │   ├── logger.h/.cpp       # 基于 Windows ETW TraceLogging + C++26 std::format 的 noexcept 安全日志模块与最小权限文件读取
-│   │   ├── monitor_dpi.h       # 多显示器工作区查询与 Per-Monitor DPI 缩放
-│   │   ├── scoped_handle.h     # 泛型零开销 RAII 句柄模板 ScopedHandle<Traits> 与 COM/GDI/剪贴板包装器
-│   │   ├── sound.h             # 零堆分配栈/静态数组 PCM WAV 音效合成器
-│   │   ├── theme.h             # Windows 深色/浅色系统主题检测与暗色菜单/窗口适配
-│   │   ├── version.h.in        # C++ 编译期版本号与 Git Commit 元信息头文件模板
-│   │   └── version.rc.in       # Windows DLL 版本资源 (VERSIONINFO) 模板
-│   ├── engine/                 # 五笔核心引擎模块（无 COM 依赖，可独立单测）
-│   │   ├── wubi_binary_dict.h/.cpp # 4 字节紧凑编码索引 + CreateFileMappingW 只读内存映射词库 (.qdict)
-│   │   ├── wubi_fsm.h          # 编译期 (consteval/constexpr) 7 状态 × 15 事件五笔有限状态机
-│   │   ├── wubi_default_dict.h # 编译期 consteval 排序的内置核心 86 五笔码表 (.rdata)
-│   │   └── wubi_engine.h/.cpp  # 五笔状态机、查词、渐进编码提示、动态词组调频与自动取码造词
-│   ├── tsf/                    # Windows TSF 框架接入与 COM 服务模块
-│   │   ├── tip_service.h/.cpp  # TSF 核心服务（ITfTextInputProcessorEx / KeyEvent / Composition / Configure）
-│   │   ├── display_attribute.h/.cpp # ITfDisplayAttributeProvider 组合串虚线下划线显示属性
-│   │   ├── edit_session.h      # 现代 C++ Lambda 封装的 ITfEditSession
-│   │   ├── class_factory.h/.cpp# COM IClassFactory 实现
-│   │   ├── register.h/.cpp     # COM 注册表、TSF Language Profile 与 Category 注册（支持 WOW64）
-│   │   ├── dllmain.cpp         # DLL 入口、窗口类清理与导出函数
-│   │   └── qiqiime.def         # COM DLL 模块定义文件
-│   └── ui/                     # 界面交互模块
-│       ├── candidate_ui.h/.cpp # Direct2D/DirectWrite 候选窗 + ITfCandidateListUIElement（支持游戏 UILess）
-│       ├── langbar_button.h/.cpp # Windows 任务栏系统托盘“中/英”指示器与右键快捷菜单
-│       ├── status_bar.h/.cpp   # 桌面浮动状态条（4x4 超采样 32 位 ARGB 抗锯齿矢量图标、Tooltip、右键菜单）
-│       └── settings_dialog.h/.cpp # 属性设置对话框与“关于奇奇五笔”对话框
+│   ├── CMakeLists.txt          # 仅组织模块及公共版本资源依赖
+│   ├── common/                # 公共基础模块（qiqi_common 静态库）
+│   │   ├── CMakeLists.txt      # 公共模块构建与版本资源生成
+│   │   ├── config.h/.cpp       # 配置持久化
+│   │   ├── d2d_controls.h/.cpp # 可复用 Fluent D2D 控件
+│   │   ├── d2d_util.h          # D2D / DirectWrite RAII 封装
+│   │   ├── com_object.h        # COM 对象与 TSF Compartment RAII 封装
+│   │   ├── guids.h             # CLSID、Profile GUID、窗口类名常量
+│   │   ├── i18n.h              # 中英文及跟随系统的界面文案
+│   │   ├── logger.h/.cpp       # Windows ETW TraceLogging 日志
+│   │   ├── scoped_handle.h     # 泛型零开销 RAII 句柄模板
+│   │   └── ...                 # 文件、DPI、音效、主题、版本模板等公共代码
+│   ├── Ime/                   # 输入法
+│   │   ├── CMakeLists.txt      # qiqi_engine 静态库及 qiqiime.dll 构建
+│   │   ├── engine/             # 五笔状态机、词库、映射、动态调频与造词
+│   │   ├── tsf/                # COM 服务、注册、显示属性与编辑会话
+│   │   └── ui/                 # 候选窗、托盘按钮、浮动状态条与快捷菜单
+│   └── tools/                 # 独立工具，每个工具拥有自己的子目录
+│       ├── CMakeLists.txt      # 组织各工具
+│       └── settings/
+│           ├── CMakeLists.txt  # qiqi_settings_ui 静态库及 QiQiIMESettings.exe
+│           ├── main.cpp # 独立设置程序入口
+│           ├── window.h/.cpp # 设置窗口创建与消息处理
+│           ├── controls.cpp # 控件布局、配置绑定、语言更新与卡片
+│           ├── internal.h       # 设置窗口内部上下文与控件 ID
+│           ├── about.cpp # 关于窗口
+│           └── util.h   # 共享图标及模态消息循环
 └── tests/
-    ├── CMakeLists.txt          # 测试目标构建配置（qiqi_engine_test + qiqi_tsf_ui_test）
-    ├── common.h/.cpp           # 公共测试断言宏、日志系统、版本号、INI 配置、RAII 与音效测试
-    ├── engine_dict.cpp         # 词库测试（词条查询、内存映射最小权限保护、五笔自动取码与在线造词）
-    ├── engine_input.cpp        # 输入状态机测试（简码、四码上屏、分号/单引号选词、动态调频、z 临时英文、标点）
-    ├── engine_main.cpp         # qiqi_engine_test 测试入口
-    ├── tsf_mocks.h             # TSF COM 接口 Mock 实现（ITfThreadMgr / ITfContext / ITfRange 等）
-    ├── ui_candidate.cpp        # 候选窗 DirectWrite、托盘按钮、浮动状态条、设置对话框与关于对话框单测
-    ├── tsf_com.cpp             # TSF COM 基础测试（LambdaEditSession、ClassFactory、DLL 导出与注册表）
-    ├── tsf_service.cpp         # TSF 核心服务全链路测试（激活/停用、按键处理、组合串、菜单动作与热重载）
-    └── tsf_ui_main.cpp         # qiqi_tsf_ui_test 测试入口
+    ├── CMakeLists.txt          # 仅组织测试模块
+    ├── common/
+    │   ├── CMakeLists.txt      # qiqi_common_test
+    │   ├── test_support.h      # 各测试模块共享的断言及辅助函数
+    │   ├── common.cpp          # 配置、日志、版本、RAII、音效测试
+    │   ├── common_main.cpp     # 公共模块测试入口
+    │   └── ui_d2d_controls.cpp # 共享 D2D 控件测试
+    ├── Ime/
+    │   ├── CMakeLists.txt      # qiqi_engine_test 与 qiqi_tsf_ui_test
+    │   ├── engine/             # 词库、输入与模式测试
+    │   ├── tsf/                # COM Mock、注册及 TSF 服务测试
+    │   ├── ui/                 # 候选窗、托盘菜单与状态条测试
+    │   ├── engine_main.cpp     # 引擎测试入口
+    │   └── tsf_ui_main.cpp      # TSF / IME UI 测试入口
+    └── tools/
+        ├── CMakeLists.txt      # 组织各工具测试
+        └── settings/
+            ├── CMakeLists.txt  # qiqi_settings_test
+            ├── main.cpp # 设置工具测试入口
+            ├── window.cpp # 设置 / 关于窗口测试
+            └── edges.cpp # 配置及生命周期边界测试
 ```
+
+源码与测试目录保持相同的模块布局。模块的 `CMakeLists.txt` 在顶层工程中定义独立目标，可通过 `cmake --build --preset x64-release --target <目标名>` 按目标构建。新增工具时，在 `src/tools/<工具名>` 与 `tests/tools/<工具名>` 分别添加自己的 `CMakeLists.txt`，并由各自的 `tools/CMakeLists.txt` 注册。
 
 ---
 
@@ -120,8 +130,11 @@ ctest --preset x86-release --output-on-failure
 
 构建产物位于 `build\<x64|x86>\Release\`：
 - `qiqiime.dll`：TSF 输入法核心组件（`x64` 约 652 KB，`x86` 约 580 KB）
-- `qiqi_engine_test.exe`：五笔核心引擎与基础模块单元测试
-- `qiqi_tsf_ui_test.exe`：TSF COM 服务与 UI 交互单元测试
+- `QiQiIMESettings.exe`：独立设置工具
+- `qiqi_common_test.exe`：公共基础模块与共享 D2D 控件测试（`QiQiCommonTest`）
+- `qiqi_engine_test.exe`：五笔核心引擎测试（`QiQiEngineTest`）
+- `qiqi_tsf_ui_test.exe`：TSF COM 服务与 IME UI 测试（`QiQiTsfUiTest`）
+- `qiqi_settings_test.exe`：设置 / 关于窗口及配置边界测试（`QiQiSettingsTest`）
 
 ---
 

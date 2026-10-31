@@ -14,9 +14,9 @@ Windows 10 / 11 中的现代应用（UWP 应用、部分 MSIX 打包应用、Win
 
 | 模块 | 代码位置 | 兼容状态 | 技术原因 |
 | :--- | :--- | :--- | :--- |
-| **TSF 类别声明** | [`src/tsf/register.cpp`](../src/tsf/register.cpp) | ✅ 已兼容 | 注册了 `GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT` 与 `GUID_TFCAT_TIPCAP_COMLESS`，允许 Windows 在 Immersive / UWP 进程中激活输入法。 |
-| **只读匿名内存映射 (`MapViewOfFile`)** | [`src/engine/wubi_binary_dict.cpp`](../src/engine/wubi_binary_dict.cpp) | ✅ 已兼容 | `WubiMappedDict::OpenMappedFile` 使用 `GENERIC_READ`、`FILE_SHARE_READ`、`PAGE_READONLY` 且 `lpName = nullptr`（匿名内核映射对象）。AppContainer 仅禁止跨沙箱访问命名内核对象，对已打开文件句柄创建匿名只读映射完全放行，且多个进程仍可在 Windows 内核物理页缓存（Section Object）层面共享同一份物理内存页。 |
-| **内存映射失败兜底** | [`src/engine/wubi_binary_dict.cpp`](../src/engine/wubi_binary_dict.cpp) | ✅ 已兼容 | 若极端受限沙箱拒绝 `CreateFileMappingW`，会自动退化到进程内的 `fallback_buffer_`（`std::vector<uint8_t>`），保证输入法绝不崩溃或丢词。 |
+| **TSF 类别声明** | [`src/Ime/tsf/register.cpp`](../src/Ime/tsf/register.cpp) | ✅ 已兼容 | 注册了 `GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT` 与 `GUID_TFCAT_TIPCAP_COMLESS`，允许 Windows 在 Immersive / UWP 进程中激活输入法。 |
+| **只读匿名内存映射 (`MapViewOfFile`)** | [`src/Ime/engine/binary_dict.cpp`](../src/Ime/engine/binary_dict.cpp) | ✅ 已兼容 | `WubiMappedDict::OpenMappedFile` 使用 `GENERIC_READ`、`FILE_SHARE_READ`、`PAGE_READONLY` 且 `lpName = nullptr`（匿名内核映射对象）。AppContainer 仅禁止跨沙箱访问命名内核对象，对已打开文件句柄创建匿名只读映射完全放行，且多个进程仍可在 Windows 内核物理页缓存（Section Object）层面共享同一份物理内存页。 |
+| **内存映射失败兜底** | [`src/Ime/engine/binary_dict.cpp`](../src/Ime/engine/binary_dict.cpp) | ✅ 已兼容 | 若极端受限沙箱拒绝 `CreateFileMappingW`，会自动退化到进程内的 `fallback_buffer_`（`std::vector<uint8_t>`），保证输入法绝不崩溃或丢词。 |
 | **日志降级保护** | [`src/common/logger.cpp`](../src/common/logger.cpp) | ✅ 已兼容 | `CreateLoggerInternal` 对日志文件打开失败做了 `try/catch` 静默忽略并退化到 `null_sink_mt`，不会因沙箱无写权限而抛出未捕获异常。 |
 | **MSI 安装目录读取** | [`installer/QiQiIME.wxs`](../installer/QiQiIME.wxs) | ✅ 已兼容 | 正式安装路径 `C:\Program Files\QiQiIME` 继承了系统 `Program Files` 默认的 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 读取与执行（`RX`）权限，UWP 进程可正常加载 `qiqiime.dll` 并读取 `data\*.txt` 原始词库。 |
 
@@ -38,7 +38,7 @@ Windows 10 / 11 中的现代应用（UWP 应用、部分 MSIX 打包应用、Win
   - 用户在 Win32 应用中通过在线造词写入 `user_dict.txt` 的词条，在 UWP 应用中无法读取；反之亦然。
 
 #### 痛点 2：`.qdict` 二进制词库缓存无法被 UWP 直接复用
-- **现状**：[`GetCacheFilePath()`](../src/engine/wubi_binary_dict.cpp) 优先查找词库文本文件同级目录的 `.qdict`（即 `C:\Program Files\QiQiIME\data\wubi86_jidian.qdict`）；若不存在，则退回到 `%LOCALAPPDATA%\QiQiIME\cache\wubi86_jidian.qdict`。
+- **现状**：[`GetCacheFilePath()`](../src/Ime/engine/binary_dict.cpp) 优先查找词库文本文件同级目录的 `.qdict`（即 `C:\Program Files\QiQiIME\data\wubi86_jidian.qdict`）；若不存在，则退回到 `%LOCALAPPDATA%\QiQiIME\cache\wubi86_jidian.qdict`。
 - **问题**：
   - 当前安装包只打包了 `.txt` 码表，未预生成 `data\*.qdict`；
   - 普通进程无权往 `C:\Program Files\QiQiIME\data\` 写入 `.qdict`，因此缓存生成在真实用户的 `%LOCALAPPDATA%\QiQiIME\cache\` 下；

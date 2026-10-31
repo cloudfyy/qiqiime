@@ -1,4 +1,4 @@
-#include "common.h"
+#include "common/test_support.h"
 #include "common/com_object.h"
 #include "common/config.h"
 #include "common/file_util.h"
