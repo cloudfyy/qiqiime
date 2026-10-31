@@ -95,7 +95,9 @@ qiqiime/
             ├── CMakeLists.txt  # qiqi_settings_test
             ├── main.cpp # 设置工具测试入口
             ├── window.cpp # 设置 / 关于窗口测试
-            └── edges.cpp # 配置及生命周期边界测试
+            ├── edges.cpp # 配置及生命周期边界测试
+            ├── version.cpp # 设置 EXE 版本资源测试
+            └── save.cpp  # 保存失败、重试、取消及通知失败提示测试
 ```
 
 源码与测试目录保持相同的模块布局。模块的 `CMakeLists.txt` 在顶层工程中定义独立目标，可通过 `cmake --build --preset x64-release --target <目标名>` 按目标构建。新增工具时，在 `src/tools/<工具名>` 与 `tests/tools/<工具名>` 分别添加自己的 `CMakeLists.txt`，并由各自的 `tools/CMakeLists.txt` 注册。

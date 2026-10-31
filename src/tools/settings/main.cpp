@@ -45,9 +45,10 @@ int WINAPI wWinMain(
     qiqi::g_dll_instance = instance;
     qiqi::log::InitLogger();
     qiqi::QiQiConfig cfg = qiqi::LoadConfig(instance);
-    if (qiqi::ShowSettingsDialog(instance, nullptr, cfg)) {
-        qiqi::SaveConfig(cfg);
-        qiqi::BroadcastStandaloneGlobalCompartmentIncrement(qiqi::kGuidCompartmentConfigVersion);
+    if (qiqi::ShowSettingsDialog(instance, nullptr, cfg, true)) {
+        if (!qiqi::BroadcastStandaloneGlobalCompartmentIncrement(qiqi::kGuidCompartmentConfigVersion)) {
+            qiqi::ReportSettingsNotificationFailure(nullptr, cfg.ui_language);
+        }
     }
     qiqi::log::Shutdown();
     return 0;

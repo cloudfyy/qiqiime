@@ -9,12 +9,18 @@
 #include <gsl/gsl>
 #include <memory>
 #include <new>
+#include <utility>
 
 namespace qiqi {
 
 using namespace settings_detail;
 
 namespace {
+
+void ShowSettingsSaveFailure(HWND hwnd, UiLanguage ui_language) noexcept {
+    const auto& str = GetUiStrings(ui_language);
+    ::MessageBoxW(hwnd, str.dlg_save_failed, str.dlg_title, MB_OK | MB_ICONERROR);
+}
 
 void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
     switch (LOWORD(wparam)) {
@@ -44,14 +50,33 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             }
             ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
-        case kIdBtnOk:
+        case kIdBtnOk: {
             if (ctx.config) {
-                ReadSettingsFromWindowControls(hwnd, *ctx.config);
+                if (ctx.save_on_accept) {
+                    QiQiConfig edited;
+                    try {
+                        edited = *ctx.config;
+                    } catch (const std::bad_alloc&) {
+                        QIQI_LOG_ERROR("Settings save could not copy configuration");
+                        ShowSettingsSaveFailure(hwnd, GetSelectedUiLanguageFromCombo(hwnd, ctx));
+                        return;
+                    }
+                    ReadSettingsFromWindowControls(hwnd, edited);
+                    if (!SaveConfig(edited)) {
+                        QIQI_LOG_ERROR("Settings save failed; retaining edits for retry");
+                        ShowSettingsSaveFailure(hwnd, edited.ui_language);
+                        return;
+                    }
+                    *ctx.config = std::move(edited);
+                } else {
+                    ReadSettingsFromWindowControls(hwnd, *ctx.config);
+                }
             }
             ctx.accepted = true;
             ctx.done = true;
             ::PostMessageW(hwnd, WM_NULL, 0, 0);
             return;
+        }
         case kIdBtnCancel:
             ctx.accepted = false;
             ctx.done = true;
@@ -165,7 +190,12 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 
 } // namespace
 
-ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_config) noexcept {
+ScopedWindow CreateSettingsWindow(
+    HINSTANCE instance, HWND parent, QiQiConfig* bound_config, bool save_on_accept) noexcept {
+    if (save_on_accept && !bound_config) {
+        QIQI_LOG_ERROR("Settings persistence requires a bound configuration");
+        return {};
+    }
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = &SettingsWndProc;
@@ -183,6 +213,7 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
         return {};
     }
     ctx->config = bound_config;
+    ctx->save_on_accept = save_on_accept;
 
     const MonitorMetrics mon = QueryActiveMonitor(parent);
     const auto S = [dpi = mon.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
@@ -238,13 +269,20 @@ ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* b
     return hwnd;
 }
 
-bool ShowSettingsDialog(HINSTANCE instance, HWND parent, QiQiConfig& in_out_config) noexcept {
-    const ScopedWindow hwnd(CreateSettingsWindow(instance, parent, &in_out_config));
+bool ShowSettingsDialog(
+    HINSTANCE instance, HWND parent, QiQiConfig& in_out_config, bool save_on_accept) noexcept {
+    const ScopedWindow hwnd(CreateSettingsWindow(instance, parent, &in_out_config, save_on_accept));
     const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd.Get(), GWLP_USERDATA));
     if (!hwnd || !ctx) {
         return false;
     }
     return dialog_detail::RunModalDialogLoop(hwnd.Get(), ctx->done) && ctx->accepted;
+}
+
+void ReportSettingsNotificationFailure(HWND parent, UiLanguage ui_language) noexcept {
+    QIQI_LOG_WARN("Settings saved, but the running IME could not be notified");
+    const auto& str = GetUiStrings(ui_language);
+    ::MessageBoxW(parent, str.dlg_notify_failed, str.dlg_title, MB_OK | MB_ICONWARNING);
 }
 
 } // namespace qiqi

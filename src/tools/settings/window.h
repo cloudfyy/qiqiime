@@ -12,10 +12,15 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept;
 void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept;
 
 // Create a modeless settings window (used by both ShowSettingsDialog and unit tests).
-ScopedWindow CreateSettingsWindow(HINSTANCE instance, HWND parent, QiQiConfig* bound_config) noexcept;
+ScopedWindow CreateSettingsWindow(
+    HINSTANCE instance, HWND parent, QiQiConfig* bound_config, bool save_on_accept = false) noexcept;
 
-// Show modal settings dialog to edit QiQiConfig. Returns true if user clicked Save (OK).
-bool ShowSettingsDialog(HINSTANCE instance, HWND parent, QiQiConfig& in_out_config) noexcept;
+// Returns true on acceptance. With save_on_accept, persistence must succeed before acceptance.
+// Failed persistence keeps the window open and leaves in_out_config unchanged.
+bool ShowSettingsDialog(
+    HINSTANCE instance, HWND parent, QiQiConfig& in_out_config, bool save_on_accept = false) noexcept;
+
+void ReportSettingsNotificationFailure(HWND parent, UiLanguage ui_language) noexcept;
 
 // Create a modeless About window (used by both ShowAboutDialog and unit tests).
 ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto) noexcept;

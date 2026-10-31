@@ -1,6 +1,7 @@
 #include "common/test_support.h"
 #include "tsf_mocks.h"
 #include "common/guids.h"
+#include "common/i18n.h"
 #include "common/sound.h"
 #include "Ime/tsf/tip_service.h"
 
@@ -442,14 +443,70 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
             QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::DictJidian))));
             QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::DictHaifeng))));
             QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleExtraDict))));
+            const uint64_t before_settings_save = QueryRegistryConfigSequence();
+            const LONG before_settings_notify = ReadCompartmentInt4(mock_tm->global_config_compartment_.Get());
             ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
                 ::KillTimer(nullptr, id);
-                const HWND dlg = ::FindWindowW(L"QiQiIMESettingsDialogClass", nullptr);
+                const HWND dlg = FindThreadWindowByClass(kSettingsWndClass);
                 if (dlg) {
                     ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
                 }
             });
             QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::OpenSettings))));
+            QIQI_TEST_CHECK(QueryRegistryConfigSequence() == before_settings_save + 1);
+            QIQI_TEST_CHECK(ReadCompartmentInt4(mock_tm->global_config_compartment_.Get()) ==
+                            before_settings_notify + 1);
+
+            {
+                mock_tm->global_config_compartment_->fail_set_value_ = true;
+                const auto restore_notification = gsl::finally([&]() noexcept {
+                    mock_tm->global_config_compartment_->fail_set_value_ = false;
+                });
+                const uint64_t before = QueryRegistryConfigSequence();
+                const LONG notified_before = ReadCompartmentInt4(mock_tm->global_config_compartment_.Get());
+                const UINT_PTR timer = ::SetTimer(nullptr, 0, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+                    const HWND dlg = FindThreadWindowByClass(kSettingsWndClass);
+                    if (!dlg) return;
+                    ::KillTimer(nullptr, id);
+                    ::SendDlgItemMessageW(dlg, 109, CB_SETCURSEL, 7, 0);
+                    ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+                });
+                QIQI_TEST_CHECK(timer != 0);
+                const auto cancel_timer = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
+                WithDismissedMessage(GetUiStrings(haifeng_cfg.ui_language).dlg_notify_failed, [&]() {
+                    QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::OpenSettings))));
+                });
+                QIQI_TEST_CHECK(QueryRegistryConfigSequence() == before + 1);
+                QIQI_TEST_CHECK(ReadCompartmentInt4(mock_tm->global_config_compartment_.Get()) == notified_before);
+                QiQiConfig saved;
+                QIQI_TEST_CHECK(LoadConfigFromRegistry(saved) && saved.page_size == 8);
+            }
+            {
+                const uint64_t before = QueryRegistryConfigSequence();
+                const LONG notified_before = ReadCompartmentInt4(mock_tm->global_config_compartment_.Get());
+                const wchar_t* previous_subkey = GetActiveConfigRegistrySubKey();
+                SetConfigRegistrySubKeyOverrideForTest(L"");
+                const auto restore_registry = gsl::finally([previous_subkey]() noexcept {
+                    SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
+                });
+                const UINT_PTR timer = ::SetTimer(nullptr, 0, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+                    const HWND dlg = FindThreadWindowByClass(kSettingsWndClass);
+                    if (!dlg) return;
+                    ::KillTimer(nullptr, id);
+                    ::SendDlgItemMessageW(dlg, 109, CB_SETCURSEL, 8, 0);
+                    ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+                    ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
+                });
+                QIQI_TEST_CHECK(timer != 0);
+                const auto cancel_timer = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
+                WithDismissedMessage(GetUiStrings(haifeng_cfg.ui_language).dlg_save_failed, [&]() {
+                    QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::OpenSettings))));
+                });
+                QIQI_TEST_CHECK(QueryRegistryConfigSequence(previous_subkey) == before);
+                QIQI_TEST_CHECK(ReadCompartmentInt4(mock_tm->global_config_compartment_.Get()) == notified_before);
+                QiQiConfig saved;
+                QIQI_TEST_CHECK(LoadConfigFromRegistry(saved, nullptr, previous_subkey) && saved.page_size == 8);
+            }
 
             ::SetTimer(nullptr, 5, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
                 ::KillTimer(nullptr, id);

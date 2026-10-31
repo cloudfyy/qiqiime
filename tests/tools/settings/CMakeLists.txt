@@ -3,6 +3,7 @@ set(QIQI_SETTINGS_TEST_SOURCES
     window.cpp
     edges.cpp
     version.cpp
+    save.cpp
 )
 add_executable(qiqi_settings_test ${QIQI_SETTINGS_TEST_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_SETTINGS_TEST_SOURCES})

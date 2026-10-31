@@ -522,15 +522,18 @@ void QiQiTextService::UninitCompartmentSinks() {
     global_config_comp_.Reset();
 }
 
-void QiQiTextService::NotifyGlobalConfigChanged() {
+bool QiQiTextService::NotifyGlobalConfigChanged() {
     if (!global_config_comp_ || client_id_ == TF_CLIENTID_NULL) {
-        return;
+        QIQI_LOG_WARN("NotifyGlobalConfigChanged: global compartment or client ID unavailable");
+        return false;
     }
     if (FAILED(global_config_comp_.IncrementInt4(client_id_))) {
         QIQI_LOG_WARN("NotifyGlobalConfigChanged: IncrementInt4 failed");
+        return false;
     } else {
         QIQI_LOG_DEBUG("NotifyGlobalConfigChanged: broadcast Global Compartment config version={}",
                        global_config_comp_.ReadInt4(0));
+        return true;
     }
 }
 
@@ -999,12 +1002,16 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
 
 void QiQiTextService::PersistAndSyncQuickConfigChange(bool reload_dicts) {
     SaveConfig(config_);
+    SyncSavedConfigChange(reload_dicts);
+    NotifyGlobalConfigChanged();
+}
+
+void QiQiTextService::SyncSavedConfigChange(bool reload_dicts) {
     config_registry_sequence_ = QueryRegistryConfigSequence();
     if (reload_dicts) {
         LoadExternalDictionaryNextToDll();
     }
     SyncTsfCompartments();
-    NotifyGlobalConfigChanged();
 }
 
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
@@ -1057,9 +1064,12 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
             }
         }
     }
-    if (ShowSettingsDialog(g_dll_instance, hwndParent, config_)) {
+    if (ShowSettingsDialog(g_dll_instance, hwndParent, config_, true)) {
         ApplyDynamicEngineSettings();
-        PersistAndSyncQuickConfigChange(true);
+        SyncSavedConfigChange(true);
+        if (!NotifyGlobalConfigChanged()) {
+            ReportSettingsNotificationFailure(hwndParent, config_.ui_language);
+        }
         QIQI_LOG_INFO("Settings dialog saved and applied");
     } else {
         QIQI_LOG_DEBUG("Settings dialog cancelled");

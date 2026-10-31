@@ -219,6 +219,7 @@ public:
         return c;
     }
     STDMETHODIMP SetValue(TfClientId, const VARIANT* pvarValue) override {
+        if (fail_set_value_) return E_FAIL;
         if (pvarValue && pvarValue->vt == VT_I4) {
             last_val_ = pvarValue->lVal;
             if (sink_) {
@@ -249,6 +250,7 @@ public:
 
     GUID guid_{};
     LONG last_val_ = 0;
+    bool fail_set_value_ = false;
     ComPtr<ITfCompartmentEventSink> sink_;
 private:
     ULONG ref_ = 1;

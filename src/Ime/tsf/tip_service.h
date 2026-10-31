@@ -103,7 +103,7 @@ private:
     void UninitLangBarItem();
     void InitCompartmentSinks();
     void UninitCompartmentSinks();
-    void NotifyGlobalConfigChanged();
+    bool NotifyGlobalConfigChanged();
     void SaveGlobalStatusBarPosition(POINT pos);
     void SyncStatusBarPositionFromGlobalCompartment();
     void SyncEngineFromSystemCompartments(REFGUID changed_guid);
@@ -111,6 +111,7 @@ private:
     void HandleLangBarMenuAction(LangBarMenuId action_id);
     void HandleFocusChanged(bool has_focus);
     void PersistAndSyncQuickConfigChange(bool reload_dicts);
+    void SyncSavedConfigChange(bool reload_dicts);
     void LoadExternalDictionaryNextToDll();
 
     void ResetCompositionAndUI();

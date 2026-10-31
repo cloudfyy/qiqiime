@@ -167,20 +167,25 @@ ScopedRegKey OpenOrCreateConfigRegKey(const wchar_t* subkey, REGSAM access) noex
     return key;
 }
 
-void BumpRegistrySequenceLocked(HKEY key) noexcept {
+bool BumpRegistrySequenceLocked(HKEY key) noexcept {
     uint64_t seq = 0;
     DWORD cb = sizeof(seq);
     DWORD type = 0;
     std::ignore = ::RegQueryValueExW(
         key, L"ConfigSequence", nullptr, &type, reinterpret_cast<LPBYTE>(&seq), &cb);
     ++seq;
-    std::ignore = ::RegSetValueExW(
+    const LSTATUS result = ::RegSetValueExW(
         key,
         L"ConfigSequence",
         0,
         REG_QWORD,
         reinterpret_cast<const BYTE*>(&seq),
         sizeof(seq));
+    if (result != ERROR_SUCCESS) {
+        QIQI_LOG_ERROR("Failed to update registry configuration sequence (error={})", result);
+        return false;
+    }
+    return true;
 }
 
 const wchar_t* g_config_reg_subkey_override = nullptr;
@@ -247,8 +252,7 @@ bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexc
                 return false;
             }
         }
-        BumpRegistrySequenceLocked(key.Get());
-        return true;
+        return BumpRegistrySequenceLocked(key.Get());
     } catch (...) {
         return false;
     }
@@ -355,8 +359,7 @@ bool SaveUserDictBinaryToRegistry(
                 gsl::narrow_cast<DWORD>(qdict_bytes.size())) != ERROR_SUCCESS) {
             return false;
         }
-        BumpRegistrySequenceLocked(key.Get());
-        return true;
+        return BumpRegistrySequenceLocked(key.Get());
     } catch (...) {
         return false;
     }

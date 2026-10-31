@@ -32,6 +32,7 @@ constexpr int kIdBtnCancel = IDCANCEL;
 
 struct DialogContext {
     QiQiConfig* config = nullptr;
+    bool save_on_accept = false;
     bool accepted = false;
     bool done = false;
     ScopedGdiHandle<HFONT> font;

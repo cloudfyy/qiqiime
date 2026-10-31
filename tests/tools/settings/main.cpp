@@ -20,6 +20,7 @@ int main() {
     QIQI_TEST_CHECK(qiqi::g_dll_instance != nullptr);
 
     qiqi::test::RunSettingsVersionTests();
+    qiqi::test::RunSettingsSaveTests();
     qiqi::test::RunSettingsDialogTests();
     qiqi::test::RunSettingsDialogEdgeTests();
     std::cout << "[PASS] All QiQi Settings tool tests succeeded.\n";

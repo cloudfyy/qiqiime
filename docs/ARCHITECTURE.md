@@ -90,7 +90,8 @@ TSF 的按键处理分为两步：
 - **多显示器与 Per-Monitor DPI（`monitor_dpi.h`）**：候选窗、浮动状态栏、Tooltip、设置窗口与关于窗口均通过 `MonitorFromPoint` + `GetDpiForMonitor` 适配任意副屏坐标（含负坐标副屏）与高分屏缩放，并在跨屏拖拽（`WM_DPICHANGED` / `WM_EXITSIZEMOVE` / `WM_DISPLAYCHANGE`）时自动重算字体与边界裁剪。
 - **4x4 超采样抗锯齿状态条图标（`status_bar.cpp`）**：使用有向距离场（SDF）+ 4x4 超采样实时生成 32 位预乘 ARGB `DIBSection` 位图，通过 `GdiAlphaBlend` 渲染半角月牙、全角圆环、中英文标点与八齿设置齿轮图标。
 
-- **设置窗口职责拆分**：[`window.cpp`](../src/tools/settings/window.cpp) 负责窗口创建、消息分派与命令处理；[`controls.cpp`](../src/tools/settings/controls.cpp) 负责控件布局、配置绑定、语言更新与卡片绘制；[`about.cpp`](../src/tools/settings/about.cpp) 独立实现关于窗口。内部上下文和控件 ID 集中在 [`internal.h`](../src/tools/settings/internal.h)，共享图标及模态消息循环位于 [`util.h`](../src/tools/settings/util.h)。原有 [`window.h`](../src/tools/settings/window.h) 公共接口保持不变，窗口仍在 `WM_NCDESTROY` 中回收 RAII 上下文。
+- **设置窗口职责拆分**：[`window.cpp`](../src/tools/settings/window.cpp) 负责窗口创建、消息分派与命令处理；[`controls.cpp`](../src/tools/settings/controls.cpp) 负责控件布局、配置绑定、语言更新与卡片绘制；[`about.cpp`](../src/tools/settings/about.cpp) 独立实现关于窗口。内部上下文和控件 ID 集中在 [`internal.h`](../src/tools/settings/internal.h)，共享图标及模态消息循环位于 [`util.h`](../src/tools/settings/util.h)。[`window.h`](../src/tools/settings/window.h) 提供公共接口，窗口仍在 `WM_NCDESTROY` 中回收 RAII 上下文。
+- **设置保存与通知**：设置程序与进程内设置回退在用户确认时先持久化配置，再关闭窗口并发送 Global Compartment 通知。保存失败会保留当前编辑内容并显示本地化错误，取消不会将窗口中的编辑应用到绑定配置；通知失败则明确提示配置已保存但需要重新激活输入法，不回滚保存。Settings 接收 IME 通知仍暂缓，快捷菜单保存行为不在此流程变更范围内。
 
 - **控件交互与退出边界**：开关和单选框仅在有效按下后的释放事件中切换，取消点击或孤立的释放事件不改变状态。下拉框在下游消息处理返回后重新确认子类化上下文仍有效，避免回调销毁控件后访问已释放资源。模态消息循环保留并重新投递 `WM_QUIT`，遇到消息读取错误或窗口被外部销毁时返回失败，不再访问已回收的窗口上下文。
 
