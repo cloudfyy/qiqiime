@@ -70,6 +70,10 @@ std::string FormatVirtualKey(uint32_t vk) {
         case VK_ESCAPE:     return "VK_ESCAPE(0x1B)";
         case VK_SHIFT:      return "VK_SHIFT(0x10)";
         case VK_CAPITAL:    return "VK_CAPITAL(0x14)";
+        case VK_LEFT:       return "VK_LEFT(0x25)";
+        case VK_UP:         return "VK_UP(0x26)";
+        case VK_RIGHT:      return "VK_RIGHT(0x27)";
+        case VK_DOWN:       return "VK_DOWN(0x28)";
         case VK_OEM_1:      return "VK_OEM_1(;/:)";
         case VK_OEM_7:      return "VK_OEM_7('/\")";
         case VK_OEM_MINUS:  return "VK_OEM_MINUS(-/_)";

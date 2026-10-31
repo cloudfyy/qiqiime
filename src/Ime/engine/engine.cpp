@@ -812,6 +812,10 @@ KeyProcessResult WubiEngine::HandleCommitDigitIndex(const KeyInputContext& ctx) 
 KeyProcessResult WubiEngine::HandleSelectPrevCandidate(const KeyInputContext& /*ctx*/) {
     if (selected_in_page_ > 0) {
         --selected_in_page_;
+    } else if (current_page_ > 0) {
+        --current_page_;
+        const auto prev_page = CurrentPageCandidates();
+        selected_in_page_ = prev_page.empty() ? 0 : (prev_page.size() - 1);
     }
     return MakeCurrentStateResult(KeyActionType::UpdateState);
 }
@@ -820,6 +824,9 @@ KeyProcessResult WubiEngine::HandleSelectNextCandidate(const KeyInputContext& /*
     const auto page = CurrentPageCandidates();
     if (!page.empty() && selected_in_page_ + 1 < page.size()) {
         ++selected_in_page_;
+    } else if (current_page_ + 1 < TotalPages()) {
+        ++current_page_;
+        selected_in_page_ = 0;
     }
     return MakeCurrentStateResult(KeyActionType::UpdateState);
 }

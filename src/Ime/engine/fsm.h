@@ -50,8 +50,8 @@ enum class KeyEventKind : uint8_t {
     Backspace = 5,        // VK_BACK
     Escape = 6,           // VK_ESCAPE
     DigitSelect = 7,      // '1'-'9' (or ';' / ''' when quick-select is enabled while composing)
-    CandidateUp = 8,      // VK_UP
-    CandidateDown = 9,    // VK_DOWN
+    CandidateUp = 8,      // VK_UP or VK_LEFT (previous candidate, cross-page)
+    CandidateDown = 9,    // VK_DOWN or VK_RIGHT (next candidate, cross-page)
     PageUp = 10,          // VK_PRIOR or '-'
     PageDown = 11,        // VK_NEXT or '='
     ChinesePunct = 12,    // Mapped Chinese full-width punctuation
@@ -290,10 +290,10 @@ constexpr KeyEventKind ClassifyKeyEvent(
     if (vk == VK_ESCAPE) {
         return KeyEventKind::Escape;
     }
-    if (vk == VK_UP) {
+    if (vk == VK_UP || vk == VK_LEFT) {
         return KeyEventKind::CandidateUp;
     }
-    if (vk == VK_DOWN) {
+    if (vk == VK_DOWN || vk == VK_RIGHT) {
         return KeyEventKind::CandidateDown;
     }
     if (vk == VK_PRIOR || (!shift_down && vk == VK_OEM_MINUS && state != EngineState::Idle && state != EngineState::English)) {

@@ -20,7 +20,9 @@ void TestCompileTimeFsmTransitions() {
     static_assert(ClassifyKeyEvent('1', false, false, false) == KeyEventKind::DigitSelect);
     static_assert(ClassifyKeyEvent('1', true, false, false) == KeyEventKind::ChinesePunct);
     static_assert(ClassifyKeyEvent(VK_UP, false, false, false) == KeyEventKind::CandidateUp);
+    static_assert(ClassifyKeyEvent(VK_LEFT, false, false, false) == KeyEventKind::CandidateUp);
     static_assert(ClassifyKeyEvent(VK_DOWN, false, false, false) == KeyEventKind::CandidateDown);
+    static_assert(ClassifyKeyEvent(VK_RIGHT, false, false, false) == KeyEventKind::CandidateDown);
     static_assert(ClassifyKeyEvent(VK_OEM_MINUS, false, false, false) == KeyEventKind::PageUp);
     static_assert(ClassifyKeyEvent(VK_OEM_PLUS, false, false, false) == KeyEventKind::PageDown);
 
@@ -276,13 +278,33 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(r.selected_index == 0);
     QIQI_TEST_CHECK(r.page_candidates.size() == 5);
 
-    // VK_UP at index 0 stays at 0
+    // VK_UP / VK_LEFT at page 0, index 0 stays at (page 0, index 0)
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_UP).selected_index == 0);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_LEFT).selected_index == 0);
+
+    // VK_DOWN / VK_RIGHT moves selection forward, and VK_UP / VK_LEFT moves backward
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_DOWN).selected_index == 1);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_RIGHT).selected_index == 2);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_LEFT).selected_index == 1);
     QIQI_TEST_CHECK(engine.ProcessKey(VK_UP).selected_index == 0);
 
-    // VK_DOWN moves selection down
-    QIQI_TEST_CHECK(engine.ProcessKey(VK_DOWN).selected_index == 1);
-    QIQI_TEST_CHECK(engine.ProcessKey(VK_DOWN).selected_index == 2);
-    QIQI_TEST_CHECK(engine.ProcessKey(VK_UP).selected_index == 1);
+    // Stepping past the end of page 0 (index 4) automatically advances to page 1, index 0
+    for (size_t expected_idx = 1; expected_idx <= 4; ++expected_idx) {
+        const auto step = engine.ProcessKey(VK_RIGHT);
+        QIQI_TEST_CHECK(step.current_page == 0 && step.selected_index == expected_idx);
+    }
+    const auto cross_to_page1 = engine.ProcessKey(VK_DOWN);
+    QIQI_TEST_CHECK(cross_to_page1.current_page == 1 && cross_to_page1.selected_index == 0);
+    const auto page1_second = engine.ProcessKey(VK_RIGHT);
+    QIQI_TEST_CHECK(page1_second.current_page == 1 && page1_second.selected_index == 1);
+    // At the very last candidate of the last page, VK_DOWN / VK_RIGHT stays at the last candidate
+    const auto stay_at_end = engine.ProcessKey(VK_DOWN);
+    QIQI_TEST_CHECK(stay_at_end.current_page == 1 && stay_at_end.selected_index == 1);
+
+    // Stepping backward from page 1, index 0 automatically returns to page 0, last item (index 4)
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_LEFT).selected_index == 0);
+    const auto cross_back_to_page0 = engine.ProcessKey(VK_UP);
+    QIQI_TEST_CHECK(cross_back_to_page0.current_page == 0 && cross_back_to_page0.selected_index == 4);
 
     // Page navigation: next page via VK_NEXT and VK_OEM_PLUS, prev page via VK_PRIOR and VK_OEM_MINUS
     auto next_page = engine.ProcessKey(VK_NEXT);
