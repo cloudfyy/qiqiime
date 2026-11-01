@@ -29,7 +29,6 @@ qiqiime/
 ├── vcpkg.json                  # vcpkg 依赖清单 (ms-gsl)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/
-│   ├── config.ini              # 默认 UTF-8 INI 配置文件模板
 │   ├── wubi86_jidian.txt       # 极点 86 五笔核心主词库（Apache-2.0，77,169 编码 / 89,254 词条）
 │   ├── wubi86_jidian_extra.txt # 极点 86 五笔现代扩展词库（Apache-2.0，2,100 编码 / 2,216 词条）
 │   └── wubi86_haifeng.txt      # 海峰 86 五笔超大字符集词库（BSD-3-Clause，100,051 编码 / 144,374 词条）
@@ -165,10 +164,6 @@ cmake --build build\x64 --config Release --target qiqi_engine qiqiime -- /p:RunC
 - DLL 与设置 EXE 复用 [`version.rc.in`](../src/common/version.rc.in) 模板及统一版本号，但分别设置文件类型、描述和原始文件名。设置 EXE 标记为应用程序（`VFT_APP`），描述包含目标架构；两者均保留中英文资源、公司信息、版权与产品信息。
 
 ### 5.2 结构化排障日志
-- **日志路径**：`%LOCALAPPDATA%\QiQiIME\logs\qiqiime.log`（单文件上限 5 MB，保留 3 个滚动备份，同时输出至 `OutputDebugString`）。
-- **单行格式**：
-  ```text
-  [%Y-%m-%d %H:%M:%S.%e] [%n] [pid:%P] [tid:%t] [%l] %v
-  ```
-  其中 `[%n]` 自动记录加载输入法的宿主可执行文件名（如 `[notepad.exe]`、`[chrome.exe]`）。
+- **日志提供程序**：Windows ETW TraceLogging 提供程序 `QiQiIME.TraceLogging`；仅在调试器附加时额外输出到 `OutputDebugString`，不会写入 `%LOCALAPPDATA%\QiQiIME\logs\qiqiime.log`。
+- **日志字段**：结构化事件包含级别、宿主进程名、进程 ID、线程 ID 和消息。
 - **隐私与异常安全**：所有 `QIQI_LOG_*` 宏均内建 `try/catch` 异常隔离（可在 `noexcept` 函数中安全调用），且严禁在日志中记录用户的私密上屏文字内容。

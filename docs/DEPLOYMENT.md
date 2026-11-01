@@ -26,7 +26,6 @@
 
 每个架构目录下均需包含同级的运行时数据文件：
 - `qiqiime.dll`
-- `config.ini`
 - `wubi86_jidian.txt`、`wubi86_jidian_extra.txt`、`wubi86_haifeng.txt`
 
 > **重要提示**：Windows TSF 会直接从注册时所在的路径加载 `qiqiime.dll` 及其同级目录下的词库文件。安装注册后请勿移动或删除该目录（若需移动目录，请先卸载再在新目录重新注册）。
@@ -88,8 +87,7 @@ QiQiIME-v0.8.4-win-x64-x86/
 │   └── qiqiime.dll             # 64 位 TSF 输入法组件
 ├── x86/
 │   └── qiqiime.dll             # 32 位 (WOW64) TSF 输入法组件
-├── data/                       # x64 与 x86 共用的配置与 3 套五笔词库
-│   ├── config.ini
+├── data/                       # x64 与 x86 共用的 3 套五笔词库
 │   ├── wubi86_jidian.txt
 │   ├── wubi86_jidian_extra.txt
 │   └── wubi86_haifeng.txt
@@ -112,18 +110,16 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
 
 ## 5. 运行期用户数据与缓存目录
 
-安装并激活输入法后，所有运行期用户数据均自动存储在当前登录用户的 `%LOCALAPPDATA%\QiQiIME` 目录下（无需管理员权限即可读写）：
+安装并激活输入法后，用户词库及缓存存储在当前登录用户的 `%LOCALAPPDATA%\QiQiIME` 目录下（无需管理员权限即可读写）；用户设置保存在 `HKCU\Software\QiQiIME`：
 
 ```text
 %LOCALAPPDATA%\QiQiIME\
-├── config.ini              # 用户个性化配置文件（支持窗口焦点切换时自动热重载）
 ├── user_dict.txt           # 用户在线造词 (Ctrl+=) 自动追加的个人词库
 ├── cache\
 │   ├── wubi86_jidian.qdict       # 极点主词库只读内存映射二进制索引缓存
 │   ├── wubi86_jidian_extra.qdict # 极点扩展词库二进制索引缓存
 │   └── wubi86_haifeng.qdict      # 海峰大字符集词库二进制索引缓存
-└── logs\
-    └── qiqiime.log         # 结构化运行与排障日志（单文件上限 5MB，保留 3 个滚动备份）
+└── phrase_freq.txt         # 动态词频数据（启用动态调频时使用）
 ```
 
 ---
@@ -149,15 +145,4 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
 
 ## 7. 故障排查（查看日志）
 
-如果遇到词库未加载、配置未生效或特定软件兼容性问题，可查看日志文件定位问题：
-
-```powershell
-Get-Content "$env:LOCALAPPDATA\QiQiIME\logs\qiqiime.log" -Tail 50
-```
-
-每条日志均包含精确时间戳、**宿主进程文件名**（如 `[notepad.exe]`）、进程 `pid`、线程 `tid` 与详细原因：
-```log
-[2026-10-30 08:15:10.120] [notepad.exe] [pid:46364] [tid:45604] [info] Loaded user configuration from 'C:\Users\...\AppData\Local\QiQiIME\config.ini'
-[2026-10-30 08:15:10.122] [notepad.exe] [pid:46364] [tid:45604] [info] Attached external dictionary '...\wubi86_jidian.txt' (77169 codes, 89254 words, mapped=true)
-```
-如需更详细的窗口坐标、DPI 与空码状态日志，可将 `%LOCALAPPDATA%\QiQiIME\config.ini` 中的 `[log] level` 设为 `debug`。
+结构化排障事件通过 Windows ETW TraceLogging 提供程序 `QiQiIME.TraceLogging` 发出，不写入本地日志文件；可使用 Windows Performance Recorder/Analyzer 或 PerfView 捕获。设置程序保存设置时会通过 TSF Global Compartment 通知运行中的输入法实例重新加载注册表配置。

@@ -24,18 +24,18 @@ Windows 10 / 11 中的现代应用（UWP 应用、部分 MSIX 打包应用、Win
 
 ### 2.2 当前存在的不兼容痛点 ⚠️
 
-#### 痛点 1：UWP 进程的 `%LOCALAPPDATA%` 被重定向且无权访问真实用户的 `%LOCALAPPDATA%\QiQiIME`
-- **现状**：[`log::GetAppDataDirectory()`](../src/common/logger.cpp) 通过 `GetEnvironmentVariableW(L"LOCALAPPDATA", ...)` 解析路径，用于存放：
-  - 用户配置文件：`%LOCALAPPDATA%\QiQiIME\config.ini`
+#### 痛点 1：UWP 进程的 `%LOCALAPPDATA%` 被重定向，文件数据与桌面进程隔离
+- **现状**：[`GetAppDataDirectory()`](../src/common/file_util.cpp) 通过 `GetEnvironmentVariableW(L"LOCALAPPDATA", ...)` 解析路径，用于存放：
   - 用户自造词库：`%LOCALAPPDATA%\QiQiIME\user_dict.txt`
   - 编译后的二进制词库缓存：`%LOCALAPPDATA%\QiQiIME\cache\*.qdict`
+- **配置例外**：用户设置保存在 `HKCU\Software\QiQiIME`，注册表键为 `ALL APPLICATION PACKAGES` 与 `ALL RESTRICTED APPLICATION PACKAGES` 授予 `KEY_READ` 权限；配置键创建后，UWP 与桌面进程可读取同一份设置。设置程序保存后还会通过 TSF Global Compartment 通知运行中的实例重新加载。
 - **UWP 沙箱行为**：
   1. **环境变量隔离**：在 AppContainer 进程内，`LOCALAPPDATA` 被重定向至该 UWP 包的私有目录：
      `C:\Users\<User>\AppData\Local\Packages\<PackageFamilyName>\AC\...` 或 `LocalState`。
-  2. **DACL 权限拦截**：即使计算出真实用户的 `C:\Users\<User>\AppData\Local\QiQiIME` 路径，Windows 默认的用户目录 ACL **不包含 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 的访问控制项（ACE）**。UWP 进程调用 `CreateFileW` 打开真实 `config.ini` 会直接返回 `ERROR_ACCESS_DENIED (5)`。
+  2. **DACL 权限拦截**：即使计算出真实用户的 `C:\Users\<User>\AppData\Local\QiQiIME` 路径，Windows 默认的用户目录 ACL 通常不允许 AppContainer 访问该目录下的文件。
 - **实际影响**：
-  - 用户在普通 Win32 应用或未来的独立设置程序 `QiQiIMESettings.exe` 中修改了配置（如候选词个数、词库选择、四码唯一自动上屏等），**在 UWP 应用中完全不生效**（UWP 只能读到自己沙箱内的空白默认配置）。
-  - 用户在 Win32 应用中通过在线造词写入 `user_dict.txt` 的词条，在 UWP 应用中无法读取；反之亦然。
+  - 注册表配置在 UWP 与桌面进程间共享；用户词库文本文件及缓存仍受文件沙箱隔离。
+  - 桌面进程写入注册表的用户词库二进制副本可供 UWP 读取；AppContainer 仅有注册表只读权限，因此在 UWP 中新增的词条无法写回该共享副本。
 
 #### 痛点 2：`.qdict` 二进制词库缓存无法被 UWP 直接复用
 - **现状**：[`GetCacheFilePath()`](../src/Ime/engine/binary_dict.cpp) 优先查找词库文本文件同级目录的 `.qdict`（即 `C:\Program Files\QiQiIME\data\wubi86_jidian.qdict`）；若不存在，则退回到 `%LOCALAPPDATA%\QiQiIME\cache\wubi86_jidian.qdict`。

@@ -28,7 +28,7 @@
 | 五笔核心引擎与基础层 (qiqi_engine.lib)                                |
 |  - WubiEngine       : 编译期 FSM、四码唯一上屏、空码清屏/提示音、顶字 |
 |  - WubiMappedDict   : 4 字节紧凑编码索引 + 只读按需分页内存映射 (.qdict)|
-|  - Common           : INI 原子配置、ETW TraceLogging 日志、ScopedHandle RAII |
+|  - Common           : HKCU 注册表事务配置、ETW TraceLogging 日志、ScopedHandle RAII |
 +-----------------------------------------------------------------------+
 ```
 
@@ -75,7 +75,7 @@ TSF 的按键处理分为两步：
 - `ITfCompositionSink::OnCompositionTerminated`
 - `ITfThreadMgrEventSink::OnSetFocus`
 
-`QiQiTextService` 会立即清空 `WubiEngine` 缓冲、释放 `ITfComposition` 并关闭 `CandidateUI`，同时在 `OnSetFocus` 时按需检查 `%LOCALAPPDATA%\QiQiIME\config.ini` 修改时间戳实现无感热重载。
+`QiQiTextService` 会立即清空 `WubiEngine` 缓冲、释放 `ITfComposition` 并关闭 `CandidateUI`。配置保存在 `HKCU\Software\QiQiIME`；设置程序保存后递增注册表配置序列并通过 TSF Global Compartment 通知运行中的实例，实例在收到通知或 `OnSetFocus` 时检查序列并按需重新加载配置。
 
 ### 2.5 桌面弹窗与游戏 UILess 双模式（`src/Ime/ui/candidate_ui.cpp`）
 每次需要显示候选词时，先调用 `ITfUIElementMgr::BeginUIElement(candidate_ui_, &show_own_ui, &id)`：
@@ -87,7 +87,7 @@ TSF 的按键处理分为两步：
 - **最小权限访问、防篡改锁与无锁热替换（`FILE_SHARE_READ | FILE_SHARE_DELETE`）**：
   - 映射读取 `.qdict` 时，通过 `CreateFileW` 仅申请 `GENERIC_READ` 权限与 `FILE_SHARE_READ | FILE_SHARE_DELETE` 共享模式：既禁止任何进程在映射期间原地写入或截断文件页（100% 防止 `STATUS_IN_PAGE_ERROR`），又允许其他进程在 `.txt` 词库更新后通过 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 原子替换目录项（POSIX Unlink 语义）。
   - 旧进程继续安全读取旧映射视图，并在下次 `OnSetFocus`（`HasModifiedMappedDictionary()`）时无缝切换至新 `.qdict` 映射；同时启用 `SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS` 与 `FILE_TYPE_DISK` 校验，阻断命名管道令牌模拟攻击。
-  - 生成 `.qdict` 缓存与保存 `config.ini` 时，统一通过 `WriteFileAtomically` 以 `GENERIC_WRITE` + `dwShareMode = 0`（独占写）写入同目录临时文件 `.tmp.<pid>`（带 `gsl::finally` 异常/错误自动清理），完成后通过 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 原子替换目标文件。
+  - 生成 `.qdict` 缓存时，通过 `WriteFileAtomically` 以 `GENERIC_WRITE` + `dwShareMode = 0`（独占写）写入同目录临时文件 `.tmp.<pid>`（带 `gsl::finally` 异常/错误自动清理），完成后通过 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 原子替换目标文件。用户配置通过注册表事务保存，不写入 INI 文件。
 
 ### 2.7 全链路 RAII、多显示器 DPI 与矢量抗锯齿 UI（`src/common/` & `src/Ime/ui/`）
 - **泛型零开销 RAII（`ScopedHandle<Traits>`）**：所有 Win32 内核句柄、KTM 注册表事务（`ScopedKernelTransaction`，析构时若未 `Commit()` 自动回滚并关闭句柄）、文件映射视图、注册表键、GDI 对象（`HFONT`/`HBRUSH`/`HPEN`/`HBITMAP`/`HDC`）、菜单（`HMENU`）、窗口（`HWND`）与动态库（`HMODULE`）均由移动语义 RAII 包装器管理。注册表配置与用户词库写入通过 `RegCreateKeyTransactedW` + `ScopedKernelTransaction` 原子提交，避免半写入状态。
