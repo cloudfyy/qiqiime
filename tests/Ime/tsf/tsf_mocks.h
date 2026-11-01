@@ -3,8 +3,10 @@
 #include <msctf.h>
 #include <olectl.h>
 #include <wrl/client.h>
+#include <gsl/gsl>
 #include <string>
 #include <utility>
+#include "common/com_object.h"
 #include "common/guids.h"
 
 namespace qiqi::test {
@@ -27,7 +29,10 @@ public:
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
         ULONG c = --ref_;
-        if (c == 0) delete this;
+        if (c == 0) {
+            gsl::owner<MockTfRange*> owner = this;
+            delete owner;
+        }
         return c;
     }
     STDMETHODIMP GetText(TfEditCookie, DWORD, WCHAR*, ULONG, ULONG*) override { return S_OK; }
@@ -60,9 +65,9 @@ public:
     STDMETHODIMP SetGravity(TfEditCookie, TfGravity, TfGravity) override { return S_OK; }
     STDMETHODIMP Clone(ITfRange** ppClone) override {
         if (!ppClone) return E_INVALIDARG;
-        auto* clone = new MockTfRange();
+        auto clone = MakeComObject<MockTfRange>();
         clone->text_ = text_;
-        *ppClone = clone;
+        *ppClone = clone.Detach();
         return S_OK;
     }
     STDMETHODIMP GetContext(ITfContext**) override { return E_NOTIMPL; }
@@ -90,7 +95,10 @@ public:
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
         ULONG c = --ref_;
-        if (c == 0) delete this;
+        if (c == 0) {
+            gsl::owner<MockTfComposition*> owner = this;
+            delete owner;
+        }
         return c;
     }
     STDMETHODIMP GetRange(ITfRange** ppRange) override {
@@ -129,7 +137,10 @@ public:
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
         ULONG c = --ref_;
-        if (c == 0) delete this;
+        if (c == 0) {
+            gsl::owner<MockTfContextView*> owner = this;
+            delete owner;
+        }
         return c;
     }
     STDMETHODIMP GetRangeFromPoint(TfEditCookie, const POINT*, DWORD, ITfRange**) override { return E_NOTIMPL; }
@@ -168,7 +179,10 @@ public:
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
         ULONG c = --ref_;
-        if (c == 0) delete this;
+        if (c == 0) {
+            gsl::owner<MockTfProperty*> owner = this;
+            delete owner;
+        }
         return c;
     }
     STDMETHODIMP GetType(GUID*) override { return E_NOTIMPL; }
@@ -264,7 +278,10 @@ class MockTfContext final
       public ITfSource,
       public ITfCompartmentMgr {
 public:
-    MockTfContext() : range_(new MockTfRange()), view_(new MockTfContextView()), prop_(new MockTfProperty()) {}
+    MockTfContext()
+        : range_(MakeComObject<MockTfRange>()),
+          view_(MakeComObject<MockTfContextView>()),
+          prop_(MakeComObject<MockTfProperty>()) {}
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
@@ -343,9 +360,9 @@ public:
     // ITfContextComposition
     STDMETHODIMP StartComposition(TfEditCookie, ITfRange*, ITfCompositionSink*, ITfComposition** ppComposition) override {
         if (!ppComposition || fail_start_comp_) return E_FAIL;
-        auto* comp = new MockTfComposition(range_);
+        auto comp = MakeComObject<MockTfComposition>(range_);
         comp->fail_get_range_ = fail_comp_get_range_;
-        *ppComposition = comp;
+        *ppComposition = comp.Detach();
         return S_OK;
     }
     STDMETHODIMP EnumCompositions(IEnumITfCompositionView**) override { return E_NOTIMPL; }
@@ -374,7 +391,7 @@ public:
         if (!ppcomp) return E_INVALIDARG;
         if (IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_DISABLED)) {
             if (!disabled_compartment_) {
-                disabled_compartment_ = new MockTfCompartment(GUID_COMPARTMENT_KEYBOARD_DISABLED);
+                disabled_compartment_ = MakeComObject<MockTfCompartment>(GUID_COMPARTMENT_KEYBOARD_DISABLED);
             }
             *ppcomp = disabled_compartment_.Get();
             (*ppcomp)->AddRef();
@@ -382,7 +399,7 @@ public:
         }
         if (IsEqualGUID(rguid, GUID_COMPARTMENT_EMPTYCONTEXT)) {
             if (!empty_compartment_) {
-                empty_compartment_ = new MockTfCompartment(GUID_COMPARTMENT_EMPTYCONTEXT);
+                empty_compartment_ = MakeComObject<MockTfCompartment>(GUID_COMPARTMENT_EMPTYCONTEXT);
             }
             *ppcomp = empty_compartment_.Get();
             (*ppcomp)->AddRef();
@@ -419,7 +436,7 @@ class MockTfThreadMgr final
       public ITfCompartmentMgr,
       public ITfLangBarItemMgr {
 public:
-    MockTfThreadMgr() : compartment_(new MockTfCompartment()) {}
+    MockTfThreadMgr() : compartment_(MakeComObject<MockTfCompartment>()) {}
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
@@ -523,7 +540,7 @@ public:
         if (!ppcomp) return E_INVALIDARG;
         if (IsEqualGUID(rguid, kGuidCompartmentConfigVersion)) {
             if (!global_config_compartment_) {
-                global_config_compartment_ = new MockTfCompartment(kGuidCompartmentConfigVersion);
+                global_config_compartment_ = MakeComObject<MockTfCompartment>(kGuidCompartmentConfigVersion);
             }
             *ppcomp = global_config_compartment_.Get();
             (*ppcomp)->AddRef();
@@ -531,7 +548,7 @@ public:
         }
         if (IsEqualGUID(rguid, kGuidCompartmentStatusBarPos)) {
             if (!global_pos_compartment_) {
-                global_pos_compartment_ = new MockTfCompartment(kGuidCompartmentStatusBarPos);
+                global_pos_compartment_ = MakeComObject<MockTfCompartment>(kGuidCompartmentStatusBarPos);
             }
             *ppcomp = global_pos_compartment_.Get();
             (*ppcomp)->AddRef();
@@ -539,7 +556,7 @@ public:
         }
         if (IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE)) {
             if (!openclose_compartment_) {
-                openclose_compartment_ = new MockTfCompartment(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE);
+                openclose_compartment_ = MakeComObject<MockTfCompartment>(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE);
             }
             *ppcomp = openclose_compartment_.Get();
             (*ppcomp)->AddRef();
@@ -547,7 +564,7 @@ public:
         }
         if (IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION)) {
             if (!convmode_compartment_) {
-                convmode_compartment_ = new MockTfCompartment(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION);
+                convmode_compartment_ = MakeComObject<MockTfCompartment>(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION);
             }
             *ppcomp = convmode_compartment_.Get();
             (*ppcomp)->AddRef();
@@ -735,7 +752,10 @@ public:
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
         ULONG c = --ref_;
-        if (c == 0) delete this;
+        if (c == 0) {
+            gsl::owner<MockTfCategoryMgr*> owner = this;
+            delete owner;
+        }
         return c;
     }
     STDMETHODIMP RegisterCategory(REFCLSID, REFGUID, REFGUID) override {

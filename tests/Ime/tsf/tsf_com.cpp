@@ -25,7 +25,7 @@ void TestLambdaEditSession() {
     ITfEditSession** null_out = nullptr;
     QIQI_TEST_CHECK(CreateComObjectToOut<LambdaEditSession>(null_out, LambdaEditSession::Callback{}) == E_INVALIDARG);
     bool called = false;
-    auto* session = new LambdaEditSession([&called](TfEditCookie ec) -> HRESULT {
+    auto session = MakeComObject<LambdaEditSession>([&called](TfEditCookie ec) -> HRESULT {
         called = (ec == 99);
         return S_OK;
     });
@@ -41,13 +41,13 @@ void TestLambdaEditSession() {
     QIQI_TEST_CHECK(called);
 
     edit_session.Reset();
-    QIQI_TEST_CHECK(session->Release() == 0);
+    QIQI_TEST_CHECK(session.Detach()->Release() == 0);
     QIQI_TEST_CHECK(DllCanUnloadNow() == S_OK);
 
     // Empty callback returns E_FAIL
-    auto* empty_session = new LambdaEditSession({});
+    auto empty_session = MakeComObject<LambdaEditSession>({});
     QIQI_TEST_CHECK(empty_session->DoEditSession(1) == E_FAIL);
-    QIQI_TEST_CHECK(empty_session->Release() == 0);
+    QIQI_TEST_CHECK(empty_session.Detach()->Release() == 0);
 }
 
 void TestClassFactoryAndDllExports() {
@@ -106,8 +106,8 @@ void TestClassFactoryAndDllExports() {
             });
             QIQI_TEST_CHECK(!IsNative64BitClsidRegistered());
             // 2. Test full RegisterServerWithManagers / UnregisterServerWithManagers flow using mocks
-            ComPtr<MockTfInputProcessorProfiles> mock_profiles(new MockTfInputProcessorProfiles());
-            ComPtr<MockTfCategoryMgr> mock_cat_mgr(new MockTfCategoryMgr());
+            ComPtr<MockTfInputProcessorProfiles> mock_profiles = MakeComObject<MockTfInputProcessorProfiles>();
+            ComPtr<MockTfCategoryMgr> mock_cat_mgr = MakeComObject<MockTfCategoryMgr>();
 
             // 2a. Failure on profiles->Register
             mock_profiles->fail_register_ = true;
@@ -218,7 +218,7 @@ void TestClassFactoryAndDllExports() {
 }
 
 void TestEnableCurrentUserProfile() {
-    ComPtr<MockTfInputProcessorProfiles> profiles(new MockTfInputProcessorProfiles());
+    ComPtr<MockTfInputProcessorProfiles> profiles = MakeComObject<MockTfInputProcessorProfiles>();
     QIQI_TEST_CHECK(EnableCurrentUserProfile(profiles.Get()) == S_OK);
     QIQI_TEST_CHECK(profiles->enabled_);
     QIQI_TEST_CHECK(!profiles->registered_);

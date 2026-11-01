@@ -433,7 +433,7 @@ void TestMultiMonitorAndPerMonitorDpi() {
     SetMonitorMetricsOverrideForTest(secondary_mon);
 
     // 1. CandidateUI on negative-coordinate high-DPI secondary monitor
-    auto* cand_ui = new CandidateUI(::GetModuleHandleW(nullptr));
+    auto cand_ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
     QIQI_TEST_CHECK(SUCCEEDED(cand_ui->Show(TRUE)));
     cand_ui->SetCandidates(L"abcd", {L"一", L"二", L"三"}, 5, 0, 0);
 
@@ -453,7 +453,7 @@ void TestMultiMonitorAndPerMonitorDpi() {
         QIQI_TEST_CHECK(cand_ui->CurrentHeight() == ScalePxByDpi(CandidateUI::kPopupHeight, 192));
     }
     cand_ui->DestroyPopupWindow();
-    QIQI_TEST_CHECK(cand_ui->Release() == 0);
+    QIQI_TEST_CHECK(cand_ui.Detach()->Release() == 0);
 
     // 2. StatusBarUI on negative-coordinate high-DPI secondary monitor
     StatusBarUI bar(::GetModuleHandleW(nullptr));

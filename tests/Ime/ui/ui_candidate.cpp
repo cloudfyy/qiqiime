@@ -18,7 +18,7 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 void TestCandidateUI() {
-    auto *ui = new CandidateUI(::GetModuleHandleW(nullptr));
+    auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
 
     // QueryInterface tests
     QIQI_TEST_CHECK(ui->QueryInterface(IID_IUnknown, nullptr) == E_INVALIDARG);
@@ -200,7 +200,7 @@ void TestCandidateUI() {
     ui->DestroyPopupWindow();
 
     cand_elem.Reset();
-    QIQI_TEST_CHECK(ui->Release() == 0);
+    QIQI_TEST_CHECK(ui.Detach()->Release() == 0);
 }
 
 } // namespace

@@ -9,8 +9,10 @@
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <tuple>
 
@@ -74,11 +76,12 @@ void TestEtwLogger() {
     {
         wchar_t* orig_localappdata = nullptr;
         size_t orig_len = 0;
-        _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
-        const auto restore_env = gsl::finally([orig_localappdata]() noexcept {
-            if (orig_localappdata) {
-                _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
-                free(orig_localappdata);
+        std::ignore = _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
+        const std::unique_ptr<wchar_t, decltype(&std::free)> orig_localappdata_owner(
+            orig_localappdata, &std::free);
+        const auto restore_env = gsl::finally([&orig_localappdata_owner]() noexcept {
+            if (orig_localappdata_owner) {
+                _wputenv_s(L"LOCALAPPDATA", orig_localappdata_owner.get());
             }
         });
         _wputenv_s(L"LOCALAPPDATA", L"");

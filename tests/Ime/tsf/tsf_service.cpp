@@ -6,6 +6,10 @@
 #include "Ime/tsf/display_attribute.h"
 #include "Ime/tsf/tip_service.h"
 
+#include <cstdlib>
+#include <memory>
+#include <tuple>
+
 namespace qiqi::test {
 
 namespace {
@@ -17,7 +21,9 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
     wchar_t* orig_localappdata = nullptr;
     size_t orig_len = 0;
-    _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
+    std::ignore = _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
+    const std::unique_ptr<wchar_t, decltype(&std::free)> orig_localappdata_owner(
+        orig_localappdata, &std::free);
     std::error_code appdata_ec;
     const auto temp_appdata = std::filesystem::temp_directory_path() / L"QiQiIME_TsfTestAppData";
     std::filesystem::remove_all(temp_appdata, appdata_ec);
@@ -25,9 +31,8 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     const auto restore_appdata = gsl::finally([&]() noexcept {
         SetConfigRegistrySubKeyOverrideForTest(nullptr);
         ::RegDeleteTreeW(HKEY_CURRENT_USER, kTsfTestRegSubKey);
-        if (orig_localappdata) {
-            _wputenv_s(L"LOCALAPPDATA", orig_localappdata);
-            free(orig_localappdata);
+        if (orig_localappdata_owner) {
+            _wputenv_s(L"LOCALAPPDATA", orig_localappdata_owner.get());
         }
         std::error_code clean_ec;
         std::filesystem::remove_all(temp_appdata, clean_ec);
@@ -38,7 +43,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     SetMuteAudioOutputForTest(true);
     ResetLastPlayedSoundForTest();
 
-    auto* service = new QiQiTextService(g_dll_instance);
+    auto service = MakeComObject<QiQiTextService>(g_dll_instance);
 
     // QueryInterface coverage for all supported interfaces
     QIQI_TEST_CHECK(service->QueryInterface(IID_IUnknown, nullptr) == E_INVALIDARG);
@@ -154,7 +159,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
     // Activate failure paths
     QIQI_TEST_CHECK(service->ActivateEx(nullptr, 1, 0) == E_INVALIDARG);
-    ComPtr<MockTfThreadMgr> mock_tm(new MockTfThreadMgr());
+    auto mock_tm = MakeComObject<MockTfThreadMgr>();
     mock_tm->fail_query_source_ = true;
     QIQI_TEST_CHECK(service->ActivateEx(mock_tm.Get(), 1, 0) == E_FAIL);
     mock_tm->fail_query_source_ = false;
@@ -186,7 +191,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(key_sink->OnKeyUp(nullptr, VK_SHIFT, 0, nullptr) == E_INVALIDARG);
     QIQI_TEST_CHECK(key_sink->OnPreservedKey(nullptr, kGuidPreservedKeyToggleMode, nullptr) == E_INVALIDARG);
 
-    ComPtr<MockTfContext> mock_ctx(new MockTfContext());
+    auto mock_ctx = MakeComObject<MockTfContext>();
     BOOL eaten = FALSE;
 
     // Type 'A' then 'B' -> starts composition (BeginUIElement) then updates composition (UpdateUIElement)
@@ -449,7 +454,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     tm_sink.Reset();
     tip_ex.Reset();
     tip_base.Reset();
-    QIQI_TEST_CHECK(service->Release() == 0);
+    QIQI_TEST_CHECK(service.Detach()->Release() == 0);
 
     // Also test QiQiTextService with custom Haifeng + user_dict config and hot-reload on OnSetFocus
     std::error_code ec;
@@ -462,7 +467,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     haifeng_cfg.user_dict_path = L"wubi86_jidian_extra.txt";
     QIQI_TEST_CHECK(SaveConfig(haifeng_cfg));
 
-    auto* service_haifeng = new QiQiTextService(g_dll_instance);
+    auto service_haifeng = MakeComObject<QiQiTextService>(g_dll_instance);
     ComPtr<ITfThreadMgrEventSink> hf_tm_sink;
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&hf_tm_sink))));
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->Activate(mock_tm.Get(), 1)));
@@ -705,7 +710,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     }
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->Deactivate()));
     hf_tm_sink.Reset();
-    QIQI_TEST_CHECK(service_haifeng->Release() == 0);
+    QIQI_TEST_CHECK(service_haifeng.Detach()->Release() == 0);
     SetMuteAudioOutputForTest(false);
 
     // Also test QiQiTextService construction when:
@@ -713,12 +718,12 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     // 2) g_dll_instance is invalid (GetModuleFileNameW failure branch)
     HINSTANCE saved_instance = g_dll_instance;
     g_dll_instance = ::GetModuleHandleW(L"kernel32.dll");
-    auto* service_no_dict = new QiQiTextService(g_dll_instance);
-    QIQI_TEST_CHECK(service_no_dict->Release() == 0);
+    auto service_no_dict = MakeComObject<QiQiTextService>(g_dll_instance);
+    QIQI_TEST_CHECK(service_no_dict.Detach()->Release() == 0);
 
     g_dll_instance = reinterpret_cast<HINSTANCE>(0x12345678);
-    auto* service_bad_inst = new QiQiTextService(g_dll_instance);
-    QIQI_TEST_CHECK(service_bad_inst->Release() == 0);
+    auto service_bad_inst = MakeComObject<QiQiTextService>(g_dll_instance);
+    QIQI_TEST_CHECK(service_bad_inst.Detach()->Release() == 0);
     g_dll_instance = saved_instance;
 }
 

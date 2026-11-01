@@ -89,7 +89,7 @@ void CloseQuickSettingsMenu() {
 
 void TestLangBarButton() {
     LangBarMenuId last_action = static_cast<LangBarMenuId>(0);
-    auto* btn = new LangBarButton([&last_action](LangBarMenuId id) { last_action = id; });
+    auto btn = MakeComObject<LangBarButton>([&last_action](LangBarMenuId id) { last_action = id; });
 
     QIQI_TEST_CHECK(btn->QueryInterface(IID_IUnknown, nullptr) == E_INVALIDARG);
     void* out = nullptr;
@@ -235,7 +235,7 @@ void TestLangBarButton() {
 
     lb_src.Reset();
     lb_btn.Reset();
-    QIQI_TEST_CHECK(btn->Release() == 0);
+    QIQI_TEST_CHECK(btn.Detach()->Release() == 0);
 }
 
 void TestTaskbarThemeIcons() {
