@@ -280,6 +280,8 @@ class MockTfContext final
       public ITfSource,
       public ITfCompartmentMgr {
 public:
+    // These mocks allocate COM dependencies, so construction can throw std::bad_alloc.
+#pragma warning(suppress : 26455)
     MockTfContext()
         : range_(MakeComObject<MockTfRange>()),
           view_(MakeComObject<MockTfContextView>()),
@@ -438,6 +440,8 @@ class MockTfThreadMgr final
       public ITfCompartmentMgr,
       public ITfLangBarItemMgr {
 public:
+    // This mock allocates its compartment dependency, so construction can throw std::bad_alloc.
+#pragma warning(suppress : 26455)
     MockTfThreadMgr() : compartment_(MakeComObject<MockTfCompartment>()) {}
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
