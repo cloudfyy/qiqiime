@@ -16,7 +16,7 @@ using Microsoft::WRL::ComPtr;
 // Minimal mock ITfRange
 class MockTfRange final : public ITfRange {
 public:
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfRange)) {
             *ppvObj = static_cast<ITfRange*>(this);
@@ -26,42 +26,42 @@ public:
         *ppvObj = nullptr;
         return E_NOINTERFACE;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
-    STDMETHODIMP_(ULONG) Release() override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
             delete this;
         }
         return c;
     }
-    STDMETHODIMP GetText(TfEditCookie, DWORD, WCHAR*, ULONG, ULONG*) override { return S_OK; }
+    STDMETHODIMP GetText(TfEditCookie, DWORD, WCHAR*, ULONG, ULONG*) noexcept override { return S_OK; }
     STDMETHODIMP SetText(TfEditCookie, DWORD, const WCHAR* pch, LONG cch) override {
         if (pch && cch >= 0) {
             text_.assign(pch, static_cast<size_t>(cch));
         }
         return S_OK;
     }
-    STDMETHODIMP GetFormattedText(TfEditCookie, IDataObject**) override { return E_NOTIMPL; }
-    STDMETHODIMP GetEmbedded(TfEditCookie, REFGUID, REFIID, IUnknown**) override { return E_NOTIMPL; }
-    STDMETHODIMP InsertEmbedded(TfEditCookie, DWORD, IDataObject*) override { return E_NOTIMPL; }
-    STDMETHODIMP ShiftStart(TfEditCookie, LONG, LONG*, const TF_HALTCOND*) override { return S_OK; }
-    STDMETHODIMP ShiftEnd(TfEditCookie, LONG, LONG*, const TF_HALTCOND*) override { return S_OK; }
-    STDMETHODIMP ShiftStartToRange(TfEditCookie, ITfRange*, TfAnchor) override { return S_OK; }
-    STDMETHODIMP ShiftEndToRange(TfEditCookie, ITfRange*, TfAnchor) override { return S_OK; }
-    STDMETHODIMP ShiftStartRegion(TfEditCookie, TfShiftDir, BOOL*) override { return S_OK; }
-    STDMETHODIMP ShiftEndRegion(TfEditCookie, TfShiftDir, BOOL*) override { return S_OK; }
-    STDMETHODIMP IsEmpty(TfEditCookie, BOOL* pfEmpty) override {
+    STDMETHODIMP GetFormattedText(TfEditCookie, IDataObject**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetEmbedded(TfEditCookie, REFGUID, REFIID, IUnknown**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP InsertEmbedded(TfEditCookie, DWORD, IDataObject*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP ShiftStart(TfEditCookie, LONG, LONG*, const TF_HALTCOND*) noexcept override { return S_OK; }
+    STDMETHODIMP ShiftEnd(TfEditCookie, LONG, LONG*, const TF_HALTCOND*) noexcept override { return S_OK; }
+    STDMETHODIMP ShiftStartToRange(TfEditCookie, ITfRange*, TfAnchor) noexcept override { return S_OK; }
+    STDMETHODIMP ShiftEndToRange(TfEditCookie, ITfRange*, TfAnchor) noexcept override { return S_OK; }
+    STDMETHODIMP ShiftStartRegion(TfEditCookie, TfShiftDir, BOOL*) noexcept override { return S_OK; }
+    STDMETHODIMP ShiftEndRegion(TfEditCookie, TfShiftDir, BOOL*) noexcept override { return S_OK; }
+    STDMETHODIMP IsEmpty(TfEditCookie, BOOL* pfEmpty) noexcept override {
         if (pfEmpty) *pfEmpty = text_.empty() ? TRUE : FALSE;
         return S_OK;
     }
-    STDMETHODIMP Collapse(TfEditCookie, TfAnchor) override { return S_OK; }
-    STDMETHODIMP IsEqualStart(TfEditCookie, ITfRange*, TfAnchor, BOOL*) override { return S_OK; }
-    STDMETHODIMP IsEqualEnd(TfEditCookie, ITfRange*, TfAnchor, BOOL*) override { return S_OK; }
-    STDMETHODIMP CompareStart(TfEditCookie, ITfRange*, TfAnchor, LONG*) override { return S_OK; }
-    STDMETHODIMP CompareEnd(TfEditCookie, ITfRange*, TfAnchor, LONG*) override { return S_OK; }
-    STDMETHODIMP AdjustForInsert(TfEditCookie, ULONG, BOOL*) override { return S_OK; }
-    STDMETHODIMP GetGravity(TfGravity*, TfGravity*) override { return S_OK; }
-    STDMETHODIMP SetGravity(TfEditCookie, TfGravity, TfGravity) override { return S_OK; }
+    STDMETHODIMP Collapse(TfEditCookie, TfAnchor) noexcept override { return S_OK; }
+    STDMETHODIMP IsEqualStart(TfEditCookie, ITfRange*, TfAnchor, BOOL*) noexcept override { return S_OK; }
+    STDMETHODIMP IsEqualEnd(TfEditCookie, ITfRange*, TfAnchor, BOOL*) noexcept override { return S_OK; }
+    STDMETHODIMP CompareStart(TfEditCookie, ITfRange*, TfAnchor, LONG*) noexcept override { return S_OK; }
+    STDMETHODIMP CompareEnd(TfEditCookie, ITfRange*, TfAnchor, LONG*) noexcept override { return S_OK; }
+    STDMETHODIMP AdjustForInsert(TfEditCookie, ULONG, BOOL*) noexcept override { return S_OK; }
+    STDMETHODIMP GetGravity(TfGravity*, TfGravity*) noexcept override { return S_OK; }
+    STDMETHODIMP SetGravity(TfEditCookie, TfGravity, TfGravity) noexcept override { return S_OK; }
     STDMETHODIMP Clone(ITfRange** ppClone) override {
         if (!ppClone) return E_INVALIDARG;
         auto clone = MakeComObject<MockTfRange>();
@@ -69,7 +69,7 @@ public:
         *ppClone = clone.Detach();
         return S_OK;
     }
-    STDMETHODIMP GetContext(ITfContext**) override { return E_NOTIMPL; }
+    STDMETHODIMP GetContext(ITfContext**) noexcept override { return E_NOTIMPL; }
 
     std::wstring text_;
 private:
@@ -81,7 +81,7 @@ class MockTfComposition final : public ITfComposition {
 public:
     explicit MockTfComposition(ComPtr<MockTfRange> range) noexcept : range_(std::move(range)) {}
 
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfComposition)) {
             *ppvObj = static_cast<ITfComposition*>(this);
@@ -122,7 +122,7 @@ private:
 // Minimal mock ITfContextView
 class MockTfContextView final : public ITfContextView {
 public:
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfContextView)) {
             *ppvObj = static_cast<ITfContextView*>(this);
@@ -165,7 +165,7 @@ private:
 // Minimal mock ITfProperty
 class MockTfProperty final : public ITfProperty {
 public:
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfReadOnlyProperty) || IsEqualIID(riid, IID_ITfProperty)) {
             *ppvObj = static_cast<ITfProperty*>(this);
@@ -175,8 +175,8 @@ public:
         *ppvObj = nullptr;
         return E_NOINTERFACE;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
-    STDMETHODIMP_(ULONG) Release() override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
             // COM Release destroys the mock when its reference count reaches zero.
@@ -185,17 +185,17 @@ public:
         }
         return c;
     }
-    STDMETHODIMP GetType(GUID*) override { return E_NOTIMPL; }
-    STDMETHODIMP EnumRanges(TfEditCookie, IEnumTfRanges**, ITfRange*) override { return E_NOTIMPL; }
-    STDMETHODIMP GetValue(TfEditCookie, ITfRange*, VARIANT*) override { return S_OK; }
-    STDMETHODIMP GetContext(ITfContext**) override { return E_NOTIMPL; }
-    STDMETHODIMP FindRange(TfEditCookie, ITfRange*, ITfRange**, TfAnchor) override { return E_NOTIMPL; }
-    STDMETHODIMP SetValueStore(TfEditCookie, ITfRange*, ITfPropertyStore*) override { return E_NOTIMPL; }
-    STDMETHODIMP SetValue(TfEditCookie, ITfRange*, const VARIANT*) override {
+    STDMETHODIMP GetType(GUID*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP EnumRanges(TfEditCookie, IEnumTfRanges**, ITfRange*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetValue(TfEditCookie, ITfRange*, VARIANT*) noexcept override { return S_OK; }
+    STDMETHODIMP GetContext(ITfContext**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP FindRange(TfEditCookie, ITfRange*, ITfRange**, TfAnchor) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP SetValueStore(TfEditCookie, ITfRange*, ITfPropertyStore*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP SetValue(TfEditCookie, ITfRange*, const VARIANT*) noexcept override {
         set_called_ = true;
         return S_OK;
     }
-    STDMETHODIMP Clear(TfEditCookie, ITfRange*) override {
+    STDMETHODIMP Clear(TfEditCookie, ITfRange*) noexcept override {
         clear_called_ = true;
         return S_OK;
     }
@@ -211,7 +211,7 @@ class MockTfCompartment final : public ITfCompartment, public ITfSource {
 public:
     explicit MockTfCompartment(REFGUID guid = GUID_NULL) noexcept : guid_(guid) {}
 
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfCompartment)) {
             *ppvObj = static_cast<ITfCompartment*>(this);
@@ -226,8 +226,8 @@ public:
         *ppvObj = nullptr;
         return E_NOINTERFACE;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
-    STDMETHODIMP_(ULONG) Release() override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
             delete this;
@@ -244,7 +244,7 @@ public:
         }
         return S_OK;
     }
-    STDMETHODIMP GetValue(VARIANT* pvarValue) override {
+    STDMETHODIMP GetValue(VARIANT* pvarValue) noexcept override {
         if (!pvarValue) return E_INVALIDARG;
         pvarValue->vt = VT_I4;
         pvarValue->lVal = last_val_;
@@ -287,7 +287,7 @@ public:
           view_(MakeComObject<MockTfContextView>()),
           prop_(MakeComObject<MockTfProperty>()) {}
 
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfContext)) {
             *ppvObj = static_cast<ITfContext*>(this);
@@ -306,8 +306,8 @@ public:
         AddRef();
         return S_OK;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
-    STDMETHODIMP_(ULONG) Release() override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) delete this;
         return c;
@@ -319,33 +319,33 @@ public:
         *phrSession = pes->DoEditSession(1);
         return S_OK;
     }
-    STDMETHODIMP InWriteSession(TfClientId, BOOL* pfWriteSession) override {
+    STDMETHODIMP InWriteSession(TfClientId, BOOL* pfWriteSession) noexcept override {
         if (pfWriteSession) *pfWriteSession = TRUE;
         return S_OK;
     }
-    STDMETHODIMP GetSelection(TfEditCookie, ULONG, ULONG, TF_SELECTION*, ULONG*) override { return S_OK; }
-    STDMETHODIMP SetSelection(TfEditCookie, ULONG, const TF_SELECTION*) override { return S_OK; }
-    STDMETHODIMP GetStart(TfEditCookie, ITfRange**) override { return E_NOTIMPL; }
-    STDMETHODIMP GetEnd(TfEditCookie, ITfRange**) override { return E_NOTIMPL; }
+    STDMETHODIMP GetSelection(TfEditCookie, ULONG, ULONG, TF_SELECTION*, ULONG*) noexcept override { return S_OK; }
+    STDMETHODIMP SetSelection(TfEditCookie, ULONG, const TF_SELECTION*) noexcept override { return S_OK; }
+    STDMETHODIMP GetStart(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetEnd(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetActiveView(ITfContextView** ppView) override {
         if (!ppView || fail_get_view_) return E_FAIL;
         *ppView = view_.Get();
         (*ppView)->AddRef();
         return S_OK;
     }
-    STDMETHODIMP EnumViews(IEnumTfContextViews**) override { return E_NOTIMPL; }
-    STDMETHODIMP GetStatus(TF_STATUS*) override { return S_OK; }
+    STDMETHODIMP EnumViews(IEnumTfContextViews**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetStatus(TF_STATUS*) noexcept override { return S_OK; }
     STDMETHODIMP GetProperty(REFGUID, ITfProperty** ppv) override {
         if (!ppv) return E_INVALIDARG;
         *ppv = prop_.Get();
         (*ppv)->AddRef();
         return S_OK;
     }
-    STDMETHODIMP GetAppProperty(REFGUID, ITfReadOnlyProperty**) override { return E_NOTIMPL; }
-    STDMETHODIMP TrackProperties(const GUID**, ULONG, const GUID**, ULONG, ITfReadOnlyProperty**) override { return E_NOTIMPL; }
-    STDMETHODIMP EnumProperties(IEnumTfProperties**) override { return E_NOTIMPL; }
-    STDMETHODIMP GetDocumentMgr(ITfDocumentMgr**) override { return E_NOTIMPL; }
-    STDMETHODIMP CreateRangeBackup(TfEditCookie, ITfRange*, ITfRangeBackup**) override { return E_NOTIMPL; }
+    STDMETHODIMP GetAppProperty(REFGUID, ITfReadOnlyProperty**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP TrackProperties(const GUID**, ULONG, const GUID**, ULONG, ITfReadOnlyProperty**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP EnumProperties(IEnumTfProperties**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetDocumentMgr(ITfDocumentMgr**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP CreateRangeBackup(TfEditCookie, ITfRange*, ITfRangeBackup**) noexcept override { return E_NOTIMPL; }
 
     // ITfInsertAtSelection
     STDMETHODIMP InsertTextAtSelection(TfEditCookie, DWORD, const WCHAR* pchText, LONG cch, ITfRange** ppRange) override {
@@ -359,7 +359,7 @@ public:
         }
         return S_OK;
     }
-    STDMETHODIMP InsertEmbeddedAtSelection(TfEditCookie, DWORD, IDataObject*, ITfRange**) override { return E_NOTIMPL; }
+    STDMETHODIMP InsertEmbeddedAtSelection(TfEditCookie, DWORD, IDataObject*, ITfRange**) noexcept override { return E_NOTIMPL; }
 
     // ITfContextComposition
     STDMETHODIMP StartComposition(TfEditCookie, ITfRange*, ITfCompositionSink*, ITfComposition** ppComposition) override {
@@ -369,9 +369,9 @@ public:
         *ppComposition = comp.Detach();
         return S_OK;
     }
-    STDMETHODIMP EnumCompositions(IEnumITfCompositionView**) override { return E_NOTIMPL; }
-    STDMETHODIMP FindComposition(TfEditCookie, ITfRange*, IEnumITfCompositionView**) override { return E_NOTIMPL; }
-    STDMETHODIMP TakeOwnership(TfEditCookie, ITfCompositionView*, ITfCompositionSink*, ITfComposition**) override { return E_NOTIMPL; }
+    STDMETHODIMP EnumCompositions(IEnumITfCompositionView**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP FindComposition(TfEditCookie, ITfRange*, IEnumITfCompositionView**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP TakeOwnership(TfEditCookie, ITfCompositionView*, ITfCompositionSink*, ITfComposition**) noexcept override { return E_NOTIMPL; }
 
     // ITfSource
     STDMETHODIMP AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) override {
@@ -411,8 +411,8 @@ public:
         }
         return E_NOINTERFACE;
     }
-    STDMETHODIMP ClearCompartment(TfClientId, REFGUID) override { return S_OK; }
-    STDMETHODIMP EnumCompartments(IEnumGUID**) override { return E_NOTIMPL; }
+    STDMETHODIMP ClearCompartment(TfClientId, REFGUID) noexcept override { return S_OK; }
+    STDMETHODIMP EnumCompartments(IEnumGUID**) noexcept override { return E_NOTIMPL; }
 
     ComPtr<MockTfRange> range_;
     ComPtr<MockTfContextView> view_;
@@ -444,7 +444,7 @@ public:
 #pragma warning(suppress : 26455)
     MockTfThreadMgr() : compartment_(MakeComObject<MockTfCompartment>()) {}
 
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfThreadMgr)) {
             *ppvObj = static_cast<ITfThreadMgr*>(this);
@@ -467,8 +467,8 @@ public:
         AddRef();
         return S_OK;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
-    STDMETHODIMP_(ULONG) Release() override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
             delete this;
@@ -477,17 +477,17 @@ public:
     }
 
     // ITfThreadMgr
-    STDMETHODIMP Activate(TfClientId* ptid) override { if (ptid) *ptid = 1; return S_OK; }
-    STDMETHODIMP Deactivate() override { return S_OK; }
-    STDMETHODIMP CreateDocumentMgr(ITfDocumentMgr**) override { return E_NOTIMPL; }
-    STDMETHODIMP EnumDocumentMgrs(IEnumTfDocumentMgrs**) override { return E_NOTIMPL; }
-    STDMETHODIMP GetFocus(ITfDocumentMgr**) override { return E_NOTIMPL; }
-    STDMETHODIMP SetFocus(ITfDocumentMgr*) override { return S_OK; }
-    STDMETHODIMP AssociateFocus(HWND, ITfDocumentMgr*, ITfDocumentMgr**) override { return E_NOTIMPL; }
-    STDMETHODIMP IsThreadFocus(BOOL* pfThreadFocus) override { if (pfThreadFocus) *pfThreadFocus = TRUE; return S_OK; }
-    STDMETHODIMP GetFunctionProvider(REFCLSID, ITfFunctionProvider**) override { return E_NOTIMPL; }
-    STDMETHODIMP EnumFunctionProviders(IEnumTfFunctionProviders**) override { return E_NOTIMPL; }
-    STDMETHODIMP GetGlobalCompartment(ITfCompartmentMgr** ppCompMgr) override {
+    STDMETHODIMP Activate(TfClientId* ptid) noexcept override { if (ptid) *ptid = 1; return S_OK; }
+    STDMETHODIMP Deactivate() noexcept override { return S_OK; }
+    STDMETHODIMP CreateDocumentMgr(ITfDocumentMgr**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP EnumDocumentMgrs(IEnumTfDocumentMgrs**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetFocus(ITfDocumentMgr**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP SetFocus(ITfDocumentMgr*) noexcept override { return S_OK; }
+    STDMETHODIMP AssociateFocus(HWND, ITfDocumentMgr*, ITfDocumentMgr**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP IsThreadFocus(BOOL* pfThreadFocus) noexcept override { if (pfThreadFocus) *pfThreadFocus = TRUE; return S_OK; }
+    STDMETHODIMP GetFunctionProvider(REFCLSID, ITfFunctionProvider**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP EnumFunctionProviders(IEnumTfFunctionProviders**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetGlobalCompartment(ITfCompartmentMgr** ppCompMgr) noexcept override {
         if (!ppCompMgr) return E_INVALIDARG;
         *ppCompMgr = this;
         AddRef();
@@ -495,15 +495,15 @@ public:
     }
 
     // ITfSource
-    STDMETHODIMP AdviseSink(REFIID, IUnknown*, DWORD* pdwCookie) override {
+    STDMETHODIMP AdviseSink(REFIID, IUnknown*, DWORD* pdwCookie) noexcept override {
         if (fail_advise_) return E_FAIL;
         if (pdwCookie) *pdwCookie = 42;
         return S_OK;
     }
-    STDMETHODIMP UnadviseSink(DWORD) override { return S_OK; }
+    STDMETHODIMP UnadviseSink(DWORD) noexcept override { return S_OK; }
 
     // ITfSourceSingle
-    STDMETHODIMP AdviseSingleSink(TfClientId, REFIID, IUnknown* punk) override {
+    STDMETHODIMP AdviseSingleSink(TfClientId, REFIID, IUnknown* punk) noexcept override {
         single_sink_ = punk;
         return S_OK;
     }
@@ -513,35 +513,35 @@ public:
     }
 
     // ITfKeystrokeMgr
-    STDMETHODIMP AdviseKeyEventSink(TfClientId, ITfKeyEventSink*, BOOL) override {
+    STDMETHODIMP AdviseKeyEventSink(TfClientId, ITfKeyEventSink*, BOOL) noexcept override {
         return fail_key_sink_ ? E_FAIL : S_OK;
     }
-    STDMETHODIMP UnadviseKeyEventSink(TfClientId) override { return S_OK; }
-    STDMETHODIMP GetForeground(CLSID*) override { return E_NOTIMPL; }
-    STDMETHODIMP TestKeyDown(WPARAM, LPARAM, BOOL*) override { return E_NOTIMPL; }
-    STDMETHODIMP TestKeyUp(WPARAM, LPARAM, BOOL*) override { return E_NOTIMPL; }
-    STDMETHODIMP KeyDown(WPARAM, LPARAM, BOOL*) override { return E_NOTIMPL; }
-    STDMETHODIMP KeyUp(WPARAM, LPARAM, BOOL*) override { return E_NOTIMPL; }
-    STDMETHODIMP GetPreservedKey(ITfContext*, const TF_PRESERVEDKEY*, GUID*) override { return E_NOTIMPL; }
-    STDMETHODIMP IsPreservedKey(REFGUID, const TF_PRESERVEDKEY*, BOOL*) override { return E_NOTIMPL; }
-    STDMETHODIMP PreserveKey(TfClientId, REFGUID, const TF_PRESERVEDKEY*, const WCHAR*, ULONG) override { return S_OK; }
-    STDMETHODIMP UnpreserveKey(REFGUID, const TF_PRESERVEDKEY*) override { return S_OK; }
-    STDMETHODIMP SetPreservedKeyDescription(REFGUID, const WCHAR*, ULONG) override { return S_OK; }
-    STDMETHODIMP GetPreservedKeyDescription(REFGUID, BSTR*) override { return E_NOTIMPL; }
-    STDMETHODIMP SimulatePreservedKey(ITfContext*, REFGUID, BOOL*) override { return E_NOTIMPL; }
+    STDMETHODIMP UnadviseKeyEventSink(TfClientId) noexcept override { return S_OK; }
+    STDMETHODIMP GetForeground(CLSID*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP TestKeyDown(WPARAM, LPARAM, BOOL*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP TestKeyUp(WPARAM, LPARAM, BOOL*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP KeyDown(WPARAM, LPARAM, BOOL*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP KeyUp(WPARAM, LPARAM, BOOL*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetPreservedKey(ITfContext*, const TF_PRESERVEDKEY*, GUID*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP IsPreservedKey(REFGUID, const TF_PRESERVEDKEY*, BOOL*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP PreserveKey(TfClientId, REFGUID, const TF_PRESERVEDKEY*, const WCHAR*, ULONG) noexcept override { return S_OK; }
+    STDMETHODIMP UnpreserveKey(REFGUID, const TF_PRESERVEDKEY*) noexcept override { return S_OK; }
+    STDMETHODIMP SetPreservedKeyDescription(REFGUID, const WCHAR*, ULONG) noexcept override { return S_OK; }
+    STDMETHODIMP GetPreservedKeyDescription(REFGUID, BSTR*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP SimulatePreservedKey(ITfContext*, REFGUID, BOOL*) noexcept override { return E_NOTIMPL; }
 
     // ITfUIElementMgr
-    STDMETHODIMP BeginUIElement(ITfUIElement* elem, BOOL* pbShow, DWORD* pdwUIElementId) override {
+    STDMETHODIMP BeginUIElement(ITfUIElement* elem, BOOL* pbShow, DWORD* pdwUIElementId) noexcept override {
         if (fail_begin_ui_) return E_FAIL;
         last_ui_element_ = elem;
         if (pbShow) *pbShow = show_own_ui_;
         if (pdwUIElementId) *pdwUIElementId = 7;
         return S_OK;
     }
-    STDMETHODIMP UpdateUIElement(DWORD) override { return S_OK; }
-    STDMETHODIMP EndUIElement(DWORD) override { return S_OK; }
-    STDMETHODIMP GetUIElement(DWORD, ITfUIElement**) override { return E_NOTIMPL; }
-    STDMETHODIMP EnumUIElements(IEnumTfUIElements**) override { return E_NOTIMPL; }
+    STDMETHODIMP UpdateUIElement(DWORD) noexcept override { return S_OK; }
+    STDMETHODIMP EndUIElement(DWORD) noexcept override { return S_OK; }
+    STDMETHODIMP GetUIElement(DWORD, ITfUIElement**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP EnumUIElements(IEnumTfUIElements**) noexcept override { return E_NOTIMPL; }
 
     // ITfCompartmentMgr
     STDMETHODIMP GetCompartment(REFGUID rguid, ITfCompartment** ppcomp) override {
@@ -582,21 +582,21 @@ public:
         (*ppcomp)->AddRef();
         return S_OK;
     }
-    STDMETHODIMP ClearCompartment(TfClientId, REFGUID) override { return S_OK; }
-    STDMETHODIMP EnumCompartments(IEnumGUID**) override { return E_NOTIMPL; }
+    STDMETHODIMP ClearCompartment(TfClientId, REFGUID) noexcept override { return S_OK; }
+    STDMETHODIMP EnumCompartments(IEnumGUID**) noexcept override { return E_NOTIMPL; }
 
     // ITfLangBarItemMgr
-    STDMETHODIMP EnumItems(IEnumTfLangBarItems**) override { return E_NOTIMPL; }
-    STDMETHODIMP GetItem(REFGUID, ITfLangBarItem**) override { return E_NOTIMPL; }
-    STDMETHODIMP AdviseItemSink(ITfLangBarItemSink*, DWORD*, REFGUID) override { return E_NOTIMPL; }
-    STDMETHODIMP UnadviseItemSink(DWORD) override { return E_NOTIMPL; }
-    STDMETHODIMP GetItemFloatingRect(DWORD, REFGUID, RECT*) override { return E_NOTIMPL; }
-    STDMETHODIMP GetItemsStatus(ULONG, const GUID*, DWORD*) override { return E_NOTIMPL; }
-    STDMETHODIMP GetItemNum(ULONG*) override { return E_NOTIMPL; }
-    STDMETHODIMP GetItems(ULONG, ITfLangBarItem**, TF_LANGBARITEMINFO*, DWORD*, ULONG*) override { return E_NOTIMPL; }
-    STDMETHODIMP AdviseItemsSink(ULONG, ITfLangBarItemSink**, const GUID*, DWORD*) override { return E_NOTIMPL; }
-    STDMETHODIMP UnadviseItemsSink(ULONG, DWORD*) override { return E_NOTIMPL; }
-    STDMETHODIMP AddItem(ITfLangBarItem* punk) override {
+    STDMETHODIMP EnumItems(IEnumTfLangBarItems**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetItem(REFGUID, ITfLangBarItem**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP AdviseItemSink(ITfLangBarItemSink*, DWORD*, REFGUID) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP UnadviseItemSink(DWORD) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetItemFloatingRect(DWORD, REFGUID, RECT*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetItemsStatus(ULONG, const GUID*, DWORD*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetItemNum(ULONG*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetItems(ULONG, ITfLangBarItem**, TF_LANGBARITEMINFO*, DWORD*, ULONG*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP AdviseItemsSink(ULONG, ITfLangBarItemSink**, const GUID*, DWORD*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP UnadviseItemsSink(ULONG, DWORD*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP AddItem(ITfLangBarItem* punk) noexcept override {
         langbar_item_ = punk;
         return S_OK;
     }
@@ -629,7 +629,7 @@ class MockTfInputProcessorProfiles final
     : public ITfInputProcessorProfilesEx,
       public ITfInputProcessorProfileMgr {
 public:
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfInputProcessorProfiles) ||
             IsEqualIID(riid, IID_ITfInputProcessorProfilesEx)) {
@@ -645,18 +645,18 @@ public:
         *ppvObj = nullptr;
         return E_NOINTERFACE;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
-    STDMETHODIMP_(ULONG) Release() override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) delete this;
         return c;
     }
-    STDMETHODIMP Register(REFCLSID) override {
+    STDMETHODIMP Register(REFCLSID) noexcept override {
         if (fail_register_) return E_FAIL;
         registered_ = true;
         return S_OK;
     }
-    STDMETHODIMP Unregister(REFCLSID) override {
+    STDMETHODIMP Unregister(REFCLSID) noexcept override {
         registered_ = false;
         return S_OK;
     }
@@ -668,18 +668,18 @@ public:
         }
         return S_OK;
     }
-    STDMETHODIMP RemoveLanguageProfile(REFCLSID, LANGID, REFGUID) override { return S_OK; }
-    STDMETHODIMP EnumInputProcessorInfo(IEnumGUID**) override { return E_NOTIMPL; }
-    STDMETHODIMP GetDefaultLanguageProfile(LANGID, REFGUID, CLSID*, GUID*) override { return E_NOTIMPL; }
-    STDMETHODIMP SetDefaultLanguageProfile(LANGID, REFCLSID, REFGUID) override { return E_NOTIMPL; }
-    STDMETHODIMP ActivateLanguageProfile(REFCLSID, LANGID, REFGUID) override { return E_NOTIMPL; }
-    STDMETHODIMP GetActiveLanguageProfile(REFCLSID, LANGID*, GUID*) override { return E_NOTIMPL; }
-    STDMETHODIMP GetLanguageProfileDescription(REFCLSID, LANGID, REFGUID, BSTR*) override { return E_NOTIMPL; }
-    STDMETHODIMP GetCurrentLanguage(LANGID*) override { return E_NOTIMPL; }
-    STDMETHODIMP ChangeCurrentLanguage(LANGID) override { return E_NOTIMPL; }
-    STDMETHODIMP GetLanguageList(LANGID**, ULONG*) override { return E_NOTIMPL; }
-    STDMETHODIMP EnumLanguageProfiles(LANGID, IEnumTfLanguageProfiles**) override { return E_NOTIMPL; }
-    STDMETHODIMP EnableLanguageProfile(REFCLSID clsid, LANGID langid, REFGUID profile, BOOL enable) override {
+    STDMETHODIMP RemoveLanguageProfile(REFCLSID, LANGID, REFGUID) noexcept override { return S_OK; }
+    STDMETHODIMP EnumInputProcessorInfo(IEnumGUID**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetDefaultLanguageProfile(LANGID, REFGUID, CLSID*, GUID*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP SetDefaultLanguageProfile(LANGID, REFCLSID, REFGUID) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP ActivateLanguageProfile(REFCLSID, LANGID, REFGUID) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetActiveLanguageProfile(REFCLSID, LANGID*, GUID*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetLanguageProfileDescription(REFCLSID, LANGID, REFGUID, BSTR*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetCurrentLanguage(LANGID*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP ChangeCurrentLanguage(LANGID) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetLanguageList(LANGID**, ULONG*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP EnumLanguageProfiles(LANGID, IEnumTfLanguageProfiles**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP EnableLanguageProfile(REFCLSID clsid, LANGID langid, REFGUID profile, BOOL enable) noexcept override {
         ++enable_calls_;
         if (!IsEqualCLSID(clsid, kClsidQiQiTextService) || langid != kChineseSimplifiedLangId ||
             !IsEqualGUID(profile, kGuidProfileWubi86)) return E_INVALIDARG;
@@ -687,8 +687,8 @@ public:
         enabled_ = enable != FALSE;
         return S_OK;
     }
-    STDMETHODIMP IsEnabledLanguageProfile(REFCLSID, LANGID, REFGUID, BOOL*) override { return E_NOTIMPL; }
-    STDMETHODIMP EnableLanguageProfileByDefault(REFCLSID clsid, LANGID langid, REFGUID profile, BOOL enable) override {
+    STDMETHODIMP IsEnabledLanguageProfile(REFCLSID, LANGID, REFGUID, BOOL*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP EnableLanguageProfileByDefault(REFCLSID clsid, LANGID langid, REFGUID profile, BOOL enable) noexcept override {
         ++enable_default_calls_;
         if (!IsEqualCLSID(clsid, kClsidQiQiTextService) || langid != kChineseSimplifiedLangId ||
             !IsEqualGUID(profile, kGuidProfileWubi86)) return E_INVALIDARG;
@@ -696,32 +696,32 @@ public:
         enabled_by_default_ = enable != FALSE;
         return S_OK;
     }
-    STDMETHODIMP SubstituteKeyboardLayout(REFCLSID, LANGID, REFGUID, HKL) override { return E_NOTIMPL; }
-    STDMETHODIMP SetLanguageProfileDisplayName(REFCLSID, LANGID, REFGUID, const WCHAR*, ULONG, ULONG res_id) override {
+    STDMETHODIMP SubstituteKeyboardLayout(REFCLSID, LANGID, REFGUID, HKL) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP SetLanguageProfileDisplayName(REFCLSID, LANGID, REFGUID, const WCHAR*, ULONG, ULONG res_id) noexcept override {
         display_name_res_id_ = res_id;
         return S_OK;
     }
 
     // ITfInputProcessorProfileMgr
-    STDMETHODIMP ActivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD) override {
+    STDMETHODIMP ActivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD) noexcept override {
         ++activate_calls_;
         return S_OK;
     }
-    STDMETHODIMP DeactivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD flags) override {
+    STDMETHODIMP DeactivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD flags) noexcept override {
         ++deactivate_calls_;
         deactivate_flags_ = flags;
         return S_OK;
     }
-    STDMETHODIMP RegisterProfile(REFCLSID, LANGID, REFGUID, const WCHAR*, ULONG, const WCHAR*, ULONG, ULONG, HKL, DWORD, BOOL, DWORD) override {
+    STDMETHODIMP RegisterProfile(REFCLSID, LANGID, REFGUID, const WCHAR*, ULONG, const WCHAR*, ULONG, ULONG, HKL, DWORD, BOOL, DWORD) noexcept override {
         if (fail_register_profile_) return E_FAIL;
         profile_mgr_registered_ = true;
         return S_OK;
     }
-    STDMETHODIMP UnregisterProfile(REFCLSID, LANGID, REFGUID, DWORD) override { return S_OK; }
-    STDMETHODIMP GetProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, TF_INPUTPROCESSORPROFILE*) override { return E_NOTIMPL; }
-    STDMETHODIMP GetActiveProfile(REFGUID, TF_INPUTPROCESSORPROFILE*) override { return E_NOTIMPL; }
-    STDMETHODIMP EnumProfiles(LANGID, IEnumTfInputProcessorProfiles**) override { return E_NOTIMPL; }
-    STDMETHODIMP ReleaseInputProcessor(REFCLSID, DWORD) override { return E_NOTIMPL; }
+    STDMETHODIMP UnregisterProfile(REFCLSID, LANGID, REFGUID, DWORD) noexcept override { return S_OK; }
+    STDMETHODIMP GetProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, TF_INPUTPROCESSORPROFILE*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetActiveProfile(REFGUID, TF_INPUTPROCESSORPROFILE*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP EnumProfiles(LANGID, IEnumTfInputProcessorProfiles**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP ReleaseInputProcessor(REFCLSID, DWORD) noexcept override { return E_NOTIMPL; }
 
     bool fail_register_ = false;
     bool fail_add_profile_ = false;
@@ -747,7 +747,7 @@ private:
 // Minimal mock ITfCategoryMgr for non-admin unit testing of RegisterServer
 class MockTfCategoryMgr final : public ITfCategoryMgr {
 public:
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfCategoryMgr)) {
             *ppvObj = static_cast<ITfCategoryMgr*>(this);
@@ -757,8 +757,8 @@ public:
         *ppvObj = nullptr;
         return E_NOINTERFACE;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
-    STDMETHODIMP_(ULONG) Release() override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
             // COM Release destroys the mock when its reference count reaches zero.
@@ -767,26 +767,26 @@ public:
         }
         return c;
     }
-    STDMETHODIMP RegisterCategory(REFCLSID, REFGUID, REFGUID) override {
+    STDMETHODIMP RegisterCategory(REFCLSID, REFGUID, REFGUID) noexcept override {
         ++registered_categories_;
         return S_OK;
     }
-    STDMETHODIMP UnregisterCategory(REFCLSID, REFGUID, REFGUID) override {
+    STDMETHODIMP UnregisterCategory(REFCLSID, REFGUID, REFGUID) noexcept override {
         if (registered_categories_ > 0) --registered_categories_;
         return S_OK;
     }
-    STDMETHODIMP EnumCategoriesInItem(REFGUID, IEnumGUID**) override { return E_NOTIMPL; }
-    STDMETHODIMP EnumItemsInCategory(REFGUID, IEnumGUID**) override { return E_NOTIMPL; }
-    STDMETHODIMP FindClosestCategory(REFGUID, GUID*, const GUID**, ULONG) override { return E_NOTIMPL; }
-    STDMETHODIMP RegisterGUIDDescription(REFCLSID, REFGUID, const WCHAR*, ULONG) override { return E_NOTIMPL; }
-    STDMETHODIMP UnregisterGUIDDescription(REFCLSID, REFGUID) override { return E_NOTIMPL; }
-    STDMETHODIMP GetGUIDDescription(REFGUID, BSTR*) override { return E_NOTIMPL; }
-    STDMETHODIMP RegisterGUIDDWORD(REFCLSID, REFGUID, DWORD) override { return E_NOTIMPL; }
-    STDMETHODIMP UnregisterGUIDDWORD(REFCLSID, REFGUID) override { return E_NOTIMPL; }
-    STDMETHODIMP GetGUIDDWORD(REFGUID, DWORD*) override { return E_NOTIMPL; }
-    STDMETHODIMP RegisterGUID(REFGUID, TfGuidAtom*) override { return E_NOTIMPL; }
-    STDMETHODIMP GetGUID(TfGuidAtom, GUID*) override { return E_NOTIMPL; }
-    STDMETHODIMP IsEqualTfGuidAtom(TfGuidAtom, REFGUID, BOOL*) override { return E_NOTIMPL; }
+    STDMETHODIMP EnumCategoriesInItem(REFGUID, IEnumGUID**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP EnumItemsInCategory(REFGUID, IEnumGUID**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP FindClosestCategory(REFGUID, GUID*, const GUID**, ULONG) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP RegisterGUIDDescription(REFCLSID, REFGUID, const WCHAR*, ULONG) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP UnregisterGUIDDescription(REFCLSID, REFGUID) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetGUIDDescription(REFGUID, BSTR*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP RegisterGUIDDWORD(REFCLSID, REFGUID, DWORD) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP UnregisterGUIDDWORD(REFCLSID, REFGUID) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetGUIDDWORD(REFGUID, DWORD*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP RegisterGUID(REFGUID, TfGuidAtom*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetGUID(TfGuidAtom, GUID*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP IsEqualTfGuidAtom(TfGuidAtom, REFGUID, BOOL*) noexcept override { return E_NOTIMPL; }
 
     size_t registered_categories_ = 0;
 private:

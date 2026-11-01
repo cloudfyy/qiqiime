@@ -18,7 +18,7 @@ struct ControlHostState {
 };
 
 LRESULT CALLBACK DestroyHostOnMouseLeave(
-    HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR ref) {
+    HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR ref) noexcept {
     if (msg == WM_MOUSELEAVE) {
         auto* state = reinterpret_cast<ControlHostState*>(ref);
         ::DestroyWindow(::GetParent(hwnd));

@@ -20,7 +20,7 @@ namespace qiqi::test {
 
 namespace {
 
-HWND FindQuickSettingsMenu() {
+HWND FindQuickSettingsMenu() noexcept {
     return FindThreadWindowByClass(kMenuWndClass);
 }
 

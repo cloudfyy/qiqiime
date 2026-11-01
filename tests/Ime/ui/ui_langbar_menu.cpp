@@ -26,7 +26,7 @@ namespace {
 
 class MockTfMenu final : public ITfMenu {
 public:
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfMenu)) {
             *ppvObj = static_cast<ITfMenu*>(this);
@@ -36,8 +36,8 @@ public:
         *ppvObj = nullptr;
         return E_NOINTERFACE;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return 1; }
-    STDMETHODIMP_(ULONG) Release() override { return 1; }
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return 1; }
+    STDMETHODIMP_(ULONG) Release() noexcept override { return 1; }
     STDMETHODIMP AddMenuItem(UINT uId, DWORD dwFlags, HBITMAP, HBITMAP, const WCHAR* pch, ULONG cch, ITfMenu**) override {
         if (dwFlags & TF_LBMENUF_SEPARATOR) {
             ++separators_;
@@ -59,7 +59,7 @@ public:
 
 class MockLangBarItemSink final : public ITfLangBarItemSink {
 public:
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfLangBarItemSink)) {
             *ppvObj = static_cast<ITfLangBarItemSink*>(this);
@@ -69,9 +69,9 @@ public:
         *ppvObj = nullptr;
         return E_NOINTERFACE;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return 1; }
-    STDMETHODIMP_(ULONG) Release() override { return 1; }
-    STDMETHODIMP OnUpdate(DWORD dwFlags) override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return 1; }
+    STDMETHODIMP_(ULONG) Release() noexcept override { return 1; }
+    STDMETHODIMP OnUpdate(DWORD dwFlags) noexcept override {
         last_update_flags_ = dwFlags;
         return S_OK;
     }
@@ -79,7 +79,7 @@ public:
     DWORD last_update_flags_ = 0;
 };
 
-HWND FindQuickSettingsMenu() {
+HWND FindQuickSettingsMenu() noexcept {
     return FindThreadWindowByClass(kMenuWndClass);
 }
 
