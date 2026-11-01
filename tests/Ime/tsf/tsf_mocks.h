@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 #include <gsl/gsl>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -84,7 +85,8 @@ private:
 // Minimal mock ITfComposition
 class MockTfComposition final : public ITfComposition {
 public:
-    explicit MockTfComposition(ComPtr<MockTfRange> range) noexcept : range_(std::move(range)) {}
+    explicit MockTfComposition(ComPtr<MockTfRange> range, ITfCompositionSink* sink = nullptr) noexcept
+        : range_(std::move(range)), sink_(sink) {}
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
@@ -112,15 +114,30 @@ public:
     }
     STDMETHODIMP ShiftStart(TfEditCookie, ITfRange*) noexcept override { return S_OK; }
     STDMETHODIMP ShiftEnd(TfEditCookie, ITfRange*) noexcept override { return S_OK; }
-    STDMETHODIMP EndComposition(TfEditCookie) noexcept override {
+    STDMETHODIMP EndComposition(TfEditCookie ec) override {
+        ++end_composition_calls_;
+        last_end_cookie_ = ec;
+        if (end_callback_) end_callback_(ec);
+        if (FAILED(end_result_)) return end_result_;
         ended_ = true;
+        sink_.Reset();
         return S_OK;
+    }
+    HRESULT NotifyHostTermination(TfEditCookie ec) {
+        ended_ = true;
+        const auto sink = std::move(sink_);
+        return sink ? sink->OnCompositionTerminated(ec, this) : S_OK;
     }
 
     ComPtr<MockTfRange> range_;
     bool ended_ = false;
     bool fail_get_range_ = false;
+    unsigned int end_composition_calls_ = 0;
+    TfEditCookie last_end_cookie_ = 0;
+    HRESULT end_result_ = S_OK;
+    std::function<void(TfEditCookie)> end_callback_;
 private:
+    ComPtr<ITfCompositionSink> sink_;
     ULONG ref_ = 1;
 };
 
@@ -200,13 +217,20 @@ public:
         set_called_ = true;
         return S_OK;
     }
-    STDMETHODIMP Clear(TfEditCookie, ITfRange*) noexcept override {
+    STDMETHODIMP Clear(TfEditCookie ec, ITfRange*) override {
         clear_called_ = true;
-        return S_OK;
+        ++clear_calls_;
+        last_clear_cookie_ = ec;
+        if (clear_callback_) clear_callback_(ec);
+        return clear_result_;
     }
 
     bool set_called_ = false;
     bool clear_called_ = false;
+    unsigned int clear_calls_ = 0;
+    TfEditCookie last_clear_cookie_ = 0;
+    HRESULT clear_result_ = S_OK;
+    std::function<void(TfEditCookie)> clear_callback_;
 private:
     ULONG ref_ = 1;
 };
@@ -376,6 +400,8 @@ public:
 
     // ITfContext
     STDMETHODIMP RequestEditSession(TfClientId client_id, ITfEditSession* pes, DWORD flags, HRESULT* phrSession) override {
+        ++request_edit_session_calls_;
+        last_edit_session_flags_ = flags;
         if (!pes || !phrSession) return E_INVALIDARG;
         constexpr DWORD timing_mask = TF_ES_SYNC | TF_ES_ASYNC | TF_ES_ASYNCDONTCARE;
         const DWORD timing = flags & timing_mask;
@@ -402,6 +428,12 @@ public:
             return S_OK;
         }
         if (timing == TF_ES_ASYNC || (defer_edit_sessions_ && timing != TF_ES_SYNC)) {
+            if (FAILED(async_edit_session_result_)) {
+                *phrSession = async_edit_session_result_;
+                std::ignore = log::CheckHResult(async_edit_session_result_, "MockTfContext::AsyncRequest",
+                                               log::Level::debug);
+                return async_edit_session_result_;
+            }
             const auto queue = edit_session_queue_.lock();
             if (!queue) {
                 *phrSession = E_UNEXPECTED;
@@ -412,6 +444,11 @@ public:
             *phrSession = SUCCEEDED(result) ? TF_S_ASYNC : result;
             return result;
         }
+        const bool previous_write_session = in_immediate_write_session_;
+        in_immediate_write_session_ = access == TF_ES_READWRITE;
+        const auto restore_write_session = gsl::finally([this, previous_write_session]() noexcept {
+            in_immediate_write_session_ = previous_write_session;
+        });
         *phrSession = pes->DoEditSession(1);
         return S_OK;
     }
@@ -434,6 +471,10 @@ public:
     STDMETHODIMP GetStatus(TF_STATUS*) noexcept override { return S_OK; }
     STDMETHODIMP GetProperty(REFGUID, ITfProperty** ppv) override {
         if (!ppv) return E_INVALIDARG;
+        if (FAILED(get_property_result_)) {
+            *ppv = nullptr;
+            return get_property_result_;
+        }
         *ppv = prop_.Get();
         (*ppv)->AddRef();
         return S_OK;
@@ -459,11 +500,12 @@ public:
     STDMETHODIMP InsertEmbeddedAtSelection(TfEditCookie, DWORD, IDataObject*, ITfRange**) noexcept override { return E_NOTIMPL; }
 
     // ITfContextComposition
-    STDMETHODIMP StartComposition(TfEditCookie, ITfRange*, ITfCompositionSink*, ITfComposition** ppComposition) override {
+    STDMETHODIMP StartComposition(TfEditCookie, ITfRange*, ITfCompositionSink* sink, ITfComposition** ppComposition) override {
         ++start_composition_calls_;
         if (!ppComposition || fail_start_comp_) return E_FAIL;
-        auto comp = MakeComObject<MockTfComposition>(range_);
+        auto comp = MakeComObject<MockTfComposition>(range_, sink);
         comp->fail_get_range_ = fail_comp_get_range_;
+        last_composition_ = comp;
         *ppComposition = comp.Detach();
         return S_OK;
     }
@@ -514,6 +556,12 @@ public:
 
     ComPtr<MockTfRange> range_;
     ComPtr<MockTfContextView> view_;
+    ComPtr<MockTfComposition> last_composition_;
+    unsigned int request_edit_session_calls_ = 0;
+    DWORD last_edit_session_flags_ = 0;
+    bool in_immediate_write_session_ = false;
+    HRESULT get_property_result_ = S_OK;
+    HRESULT async_edit_session_result_ = S_OK;
     unsigned int get_active_view_calls_ = 0;
     unsigned int start_composition_calls_ = 0;
     ComPtr<MockTfProperty> prop_;

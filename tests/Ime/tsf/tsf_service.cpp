@@ -5,11 +5,13 @@
 #include "common/sound.h"
 #include "common/file_util.h"
 #include "Ime/tsf/display_attribute.h"
+#include "Ime/tsf/edit_session.h"
 #include "Ime/tsf/tip_service.h"
 
 #include <cstdlib>
 #include <chrono>
 #include <fstream>
+#include <iostream>
 #include <memory>
 #include <regex>
 #include <tuple>
@@ -17,6 +19,121 @@
 namespace qiqi::test {
 
 namespace {
+
+struct NativeTsfState {
+    std::wstring text;
+    std::wstring composition_text;
+    unsigned int composition_count = 0;
+    bool composing = false;
+    bool display_attribute = false;
+};
+
+class NativeCleanupLayoutSink final : public ComObjectBase<NativeCleanupLayoutSink, ITfTextLayoutSink> {
+public:
+    STDMETHODIMP OnLayoutChange(ITfContext*, TfLayoutCode code, ITfContextView*) override {
+        if (code != TF_LC_CHANGE || called || !callback) return S_OK;
+        called = true;
+        return callback();
+    }
+    bool called = false;
+    std::function<HRESULT()> callback;
+};
+
+NativeTsfState ReadNativeTsfStateInSession(gsl::not_null<ITfContext*> context, TfEditCookie ec) {
+    NativeTsfState state;
+    ComPtr<ITfRange> range;
+    ComPtr<ITfRange> end;
+    QIQI_TEST_CHECK(context->GetStart(ec, &range) == S_OK);
+    QIQI_TEST_CHECK(context->GetEnd(ec, &end) == S_OK);
+    QIQI_TEST_CHECK(range->ShiftEndToRange(ec, end.Get(), TF_ANCHOR_END) == S_OK);
+    const auto read_text = [ec](gsl::not_null<ITfRange*> target) {
+        std::array<wchar_t, 16> text{};
+        ULONG count = 0;
+        QIQI_TEST_CHECK(target->GetText(ec, 0, text.data(), gsl::narrow_cast<ULONG>(text.size()), &count) == S_OK);
+        return std::wstring(text.data(), count);
+    };
+    state.text = read_text(range.Get());
+    ComPtr<ITfContextComposition> compositions;
+    QIQI_TEST_CHECK(context->QueryInterface(IID_PPV_ARGS(&compositions)) == S_OK);
+    ComPtr<IEnumITfCompositionView> enumerator;
+    QIQI_TEST_CHECK(compositions->EnumCompositions(&enumerator) == S_OK);
+    ComPtr<ITfRange> composition_range;
+    for (;;) {
+        ComPtr<ITfCompositionView> view;
+        ULONG fetched = 0;
+        const HRESULT hr = enumerator->Next(1, &view, &fetched);
+        if (hr == S_FALSE) {
+            QIQI_TEST_CHECK(fetched == 0);
+            break;
+        }
+        QIQI_TEST_CHECK(hr == S_OK && fetched == 1 && view);
+        ++state.composition_count;
+        QIQI_TEST_CHECK(view->GetRange(&composition_range) == S_OK);
+        state.composition_text = read_text(composition_range.Get());
+    }
+    const auto has_property = [&](REFGUID guid) {
+        ComPtr<ITfProperty> property;
+        QIQI_TEST_CHECK(context->GetProperty(guid, &property) == S_OK);
+        ComPtr<IEnumTfRanges> ranges;
+        QIQI_TEST_CHECK(property->EnumRanges(ec, &ranges,
+            composition_range ? composition_range.Get() : range.Get()) == S_OK);
+        bool present = false;
+        for (;;) {
+            ComPtr<ITfRange> property_range;
+            ULONG fetched = 0;
+            const HRESULT hr = ranges->Next(1, &property_range, &fetched);
+            if (hr == S_FALSE) {
+                QIQI_TEST_CHECK(fetched == 0);
+                break;
+            }
+            QIQI_TEST_CHECK(hr == S_OK && fetched == 1 && property_range);
+            VARIANT value = MakeInt4Variant(0);
+            const auto clear = gsl::finally([&]() noexcept { ::VariantClear(&value); });
+            QIQI_TEST_CHECK(property->GetValue(ec, property_range.Get(), &value) == S_OK);
+            QIQI_TEST_CHECK(value.vt == VT_EMPTY || value.vt == VT_I4);
+            present = present || (value.vt == VT_I4 && value.lVal != 0);
+        }
+        return present;
+    };
+    state.composing = has_property(GUID_PROP_COMPOSING);
+    state.display_attribute = has_property(GUID_PROP_ATTRIBUTE);
+    return state;
+}
+
+NativeTsfState ReadNativeTsfState(gsl::not_null<ITfContext*> context, TfClientId client) {
+    NativeTsfState state;
+    const auto session = MakeComObject<LambdaEditSession>([&](TfEditCookie ec) -> HRESULT {
+        state = ReadNativeTsfStateInSession(context, ec);
+        return S_OK;
+    });
+    HRESULT result = E_FAIL;
+    QIQI_TEST_CHECK(context->RequestEditSession(client, session.Get(), TF_ES_SYNC | TF_ES_READ, &result) == S_OK);
+    QIQI_TEST_CHECK(result == S_OK);
+    return state;
+}
+
+NativeTsfState WaitForNativeTsfState(gsl::not_null<ITfContext*> context, TfClientId client,
+                                    std::wstring_view text, unsigned int composition_count) {
+    const ULONGLONG started = ::GetTickCount64();
+    for (;;) {
+        const auto state = ReadNativeTsfState(context, client);
+        if (state.text == text && state.composition_count == composition_count) {
+            return state;
+        }
+        if (::GetTickCount64() - started >= 5000) {
+            std::cerr << "[FAIL] Native TSF state: text_length=" << state.text.size()
+                      << " expected_length=" << text.size() << " compositions=" << state.composition_count
+                      << " expected_compositions=" << composition_count << '\n';
+            QIQI_TEST_CHECK(false);
+        }
+        MSG message{};
+        while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            ::TranslateMessage(&message);
+            ::DispatchMessageW(&message);
+        }
+        QIQI_TEST_CHECK(::MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE) != WAIT_FAILED);
+    }
+}
 
 void TestFocusPerformanceLogs() {
     const auto executable = GetModuleFilePath(nullptr);
@@ -31,6 +148,8 @@ void TestFocusPerformanceLogs() {
     const ScopedKernelHandle thread(info.hThread);
     std::vector<std::wstring> focus_records;
     std::vector<std::wstring> reload_records;
+    std::vector<std::wstring> cleanup_records;
+    std::vector<std::wstring> lifecycle_records;
     bool exited = false;
     while (!exited) {
         DEBUG_EVENT event{};
@@ -57,8 +176,11 @@ void TestFocusPerformanceLogs() {
                 QIQI_TEST_CHECK(read == bytes.size());
                 message.assign(bytes.begin(), bytes.end());
             }
+            QIQI_TEST_CHECK(!message.contains(L"SENSITIVE_DIAGNOSTIC_SENTINEL"));
             if (message.contains(L"FocusPerformance(")) focus_records.push_back(message);
             if (message.contains(L"ReloadConfigIfModified(focus_id=")) reload_records.push_back(message);
+            if (message.contains(L"TsfCleanup(")) cleanup_records.push_back(message);
+            if (message.contains(L"TsfLifecycle(")) lifecycle_records.push_back(message);
         } else if (event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT) {
             if (event.u.Exception.ExceptionRecord.ExceptionCode != EXCEPTION_BREAKPOINT) {
                 continuation = DBG_EXCEPTION_NOT_HANDLED;
@@ -116,6 +238,64 @@ void TestFocusPerformanceLogs() {
     QIQI_TEST_CHECK(gsl::at(reload_records, 8).contains(L"phrase_frequency_status=loaded, completed=true"));
     QIQI_TEST_CHECK(gsl::at(reload_records, 9).contains(L"focus_id=12, config_status=sequence-unavailable"));
     QIQI_TEST_CHECK(gsl::at(reload_records, 9).contains(L"dictionary_reload_calls=0"));
+
+    QIQI_TEST_CHECK(!cleanup_records.empty());
+    const std::wregex cleanup_identity(LR"(TsfCleanup\(service=([0-9]+), cleanup=([0-9]+), stage=)");
+    std::vector<std::wstring> identities;
+    for (const auto& record : cleanup_records) {
+        std::wsmatch identity;
+        QIQI_TEST_CHECK(std::regex_search(record, identity, cleanup_identity));
+        const auto key = identity.str();
+        if (std::find(identities.begin(), identities.end(), key) == identities.end()) identities.push_back(key);
+    }
+    // Seven Debug scenarios; the following Info/Off scenarios must produce no cleanup diagnostics.
+    QIQI_TEST_CHECK(identities.size() == 7);
+    const auto find_stage = [&](size_t scenario, std::wstring_view stage) {
+        for (size_t i = 0; i < cleanup_records.size(); ++i) {
+            const auto& record = gsl::at(cleanup_records, i);
+            if (record.contains(gsl::at(identities, scenario) + std::wstring(stage))) return i;
+        }
+        return cleanup_records.size();
+    };
+    const auto check_stage = [&](size_t scenario, std::wstring_view stage) {
+        const size_t index = find_stage(scenario, stage);
+        if (index == cleanup_records.size()) {
+            std::wcerr << L"[FAIL] Cleanup diagnostic scenario " << scenario << L": missing " << stage << L'\n';
+        }
+        QIQI_TEST_CHECK(index < cleanup_records.size());
+        return index;
+    };
+    const auto sync = check_stage(0, L"sync-request");
+    const auto callback = check_stage(0, L"callback-enter");
+    const auto ended = check_stage(0, L"end-composition, hr=0x00000000");
+    const auto sync_result = check_stage(0, L"sync-result");
+    QIQI_TEST_CHECK(sync < callback && callback < ended && ended < sync_result);
+    const auto queued = check_stage(1, L"async-result");
+    QIQI_TEST_CHECK(gsl::at(cleanup_records, queued).contains(L"queued=true"));
+    QIQI_TEST_CHECK(queued < check_stage(1, L"write-forced-async"));
+    QIQI_TEST_CHECK(queued < check_stage(1, L"callback-enter"));
+    check_stage(1, L"attribute-clear, hr=0x00000000");
+    check_stage(1, L"end-composition, hr=0x00000000");
+    check_stage(2, L"host-terminated");
+    check_stage(2, L"host-attribute-clear, hr=0x00000000");
+    check_stage(2, L"skip-host-terminated");
+    QIQI_TEST_CHECK(find_stage(2, L"end-composition") == cleanup_records.size());
+    check_stage(3, L"async-rejected, hr=0x80070005");
+    QIQI_TEST_CHECK(find_stage(3, L"callback-enter") == cleanup_records.size());
+    const auto released = check_stage(4, L"released");
+    QIQI_TEST_CHECK(gsl::at(cleanup_records, released).contains(L"async_requested=true, started=false, finished=false"));
+    QIQI_TEST_CHECK(find_stage(4, L"callback-enter") == cleanup_records.size());
+    check_stage(5, L"sync-failed-no-fallback");
+    QIQI_TEST_CHECK(find_stage(5, L"async-request") == cleanup_records.size());
+    QIQI_TEST_CHECK(find_stage(5, L"callback-enter") == cleanup_records.size());
+    check_stage(6, L"attribute-clear, hr=0x80004005");
+    check_stage(6, L"end-composition, hr=0x80070005");
+    const auto failed_callback = check_stage(6, L"released");
+    QIQI_TEST_CHECK(gsl::at(cleanup_records, failed_callback).contains(L"started=true, finished=true"));
+    QIQI_TEST_CHECK(std::any_of(lifecycle_records.begin(), lifecycle_records.end(), [](const auto& record) {
+        return record.contains(L"stage=stale-edit-skipped") &&
+               record.contains(L"active=false, target_matches=false");
+    }));
 }
 
 void TestQiQiTextServiceLifecycleAndKeyFlow() {
@@ -402,10 +582,12 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
             QIQI_TEST_CHECK(key_sink->OnKeyDown(same_context.Get(), 'B', 0, &deferred_eaten) == S_OK && deferred_eaten);
             const auto before_stale_action = ui_calls();
             const auto writes_before_stale_action = same_context->range_->set_text_calls_;
+            const auto clears_before_stale_action = same_context->prop_->clear_calls_;
             QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->PendingCount() == 1);
             QIQI_TEST_CHECK(same_context->range_->text_ == L"a");
             QIQI_TEST_CHECK(same_context->range_->set_text_calls_ == writes_before_stale_action);
-            QIQI_TEST_CHECK(!same_context->prop_->clear_called_ && ui_calls() == before_stale_action);
+            QIQI_TEST_CHECK(same_context->prop_->clear_calls_ == clears_before_stale_action &&
+                            ui_calls() == before_stale_action);
             QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->PendingCount() == 0);
             QIQI_TEST_CHECK(same_context->range_->text_ == L"b" && same_context->start_composition_calls_ == 2);
             QIQI_TEST_CHECK(key_sink->OnSetFocus(FALSE) == S_OK);
@@ -498,6 +680,275 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         QIQI_TEST_CHECK(ui_calls() == before_terminated_write);
         QIQI_TEST_CHECK(queue->RunNext() == S_OK && terminated_context->range_->text_ == L"c");
         QIQI_TEST_CHECK(key_sink->OnSetFocus(FALSE) == S_OK);
+    }
+
+    // Deactivation preserves preedit text and ends only the captured host composition.
+    {
+        enum class Failure { None, Synchronous, ReadOnly, Request, End, Range, Property, PropertyQuery };
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        for (const auto failure : {Failure::None, Failure::Synchronous, Failure::ReadOnly, Failure::Request,
+                                   Failure::End, Failure::Range, Failure::Property, Failure::PropertyQuery}) {
+            QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+            auto queue = std::make_shared<MockEditSessionQueue>();
+            auto context = MakeComObject<MockTfContext>(queue);
+            BOOL cleanup_eaten = FALSE;
+            QIQI_TEST_CHECK(key_sink->OnKeyDown(context.Get(), 'A', 0, &cleanup_eaten) == S_OK && cleanup_eaten);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK && context->range_->text_ == L"a");
+            const auto composition = context->last_composition_;
+            QIQI_TEST_CHECK(composition && !composition->ended_);
+            composition->end_callback_ = [&](TfEditCookie ec) {
+                QIQI_TEST_CHECK(ec == 1);
+                if (failure != Failure::Synchronous) QIQI_TEST_CHECK(context->in_immediate_write_session_);
+            };
+            QIQI_TEST_CHECK(key_sink->OnKeyDown(context.Get(), 'B', 0, &cleanup_eaten) == S_OK && cleanup_eaten);
+            QIQI_TEST_CHECK(queue->PendingCount() == 1);
+            context->allow_sync_edit_sessions_ = failure != Failure::Synchronous;
+            context->read_only_ = failure == Failure::ReadOnly;
+            if (failure == Failure::Request) context->edit_session_request_result_ = E_ACCESSDENIED;
+            if (failure == Failure::End) composition->end_result_ = E_FAIL;
+            if (failure == Failure::Range) composition->fail_get_range_ = true;
+            if (failure == Failure::Property) context->prop_->clear_result_ = E_ACCESSDENIED;
+            if (failure == Failure::PropertyQuery) context->get_property_result_ = E_ACCESSDENIED;
+            const auto requests_before = context->request_edit_session_calls_;
+            const auto writes_before = context->range_->set_text_calls_;
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+            const auto cleanup_requests = failure == Failure::Synchronous ? 2u : 1u;
+            QIQI_TEST_CHECK(context->request_edit_session_calls_ == requests_before + cleanup_requests);
+            QIQI_TEST_CHECK(context->last_edit_session_flags_ ==
+                            gsl::narrow_cast<DWORD>(
+                                (failure == Failure::Synchronous ? TF_ES_ASYNC : TF_ES_SYNC) | TF_ES_READWRITE));
+            QIQI_TEST_CHECK(queue->PendingCount() == (failure == Failure::Synchronous ? 2u : 1u) && !context->layout_sink_);
+            const bool can_edit = failure != Failure::Synchronous && failure != Failure::ReadOnly &&
+                                  failure != Failure::Request;
+            QIQI_TEST_CHECK(composition->end_composition_calls_ == (can_edit ? 1u : 0u));
+            QIQI_TEST_CHECK(composition->ended_ == (can_edit && failure != Failure::End));
+            const bool can_clear = can_edit && failure != Failure::Range && failure != Failure::PropertyQuery;
+            QIQI_TEST_CHECK(context->prop_->clear_calls_ == (can_clear ? 1u : 0u));
+            if (can_clear) QIQI_TEST_CHECK(context->prop_->last_clear_cookie_ == 1);
+            QIQI_TEST_CHECK(context->range_->text_ == L"a" && context->range_->set_text_calls_ == writes_before);
+            BOOL shown = TRUE;
+            QIQI_TEST_CHECK(mock_tm->last_ui_element_->IsShown(&shown) == S_OK && shown == FALSE);
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+            QIQI_TEST_CHECK(context->request_edit_session_calls_ == requests_before + cleanup_requests);
+            QIQI_TEST_CHECK(composition->end_composition_calls_ == (can_edit ? 1u : 0u));
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+            if (failure == Failure::Synchronous) {
+                const auto ui_before_cleanup = std::tuple{
+                    mock_tm->begin_ui_calls_, mock_tm->update_ui_calls_, mock_tm->end_ui_calls_};
+                QIQI_TEST_CHECK(queue->PendingCount() == 1 && queue->RunNext() == S_OK);
+                QIQI_TEST_CHECK(composition->ended_ && composition->end_composition_calls_ == 1);
+                QIQI_TEST_CHECK(context->prop_->clear_calls_ == 1);
+                QIQI_TEST_CHECK((std::tuple{
+                    mock_tm->begin_ui_calls_, mock_tm->update_ui_calls_, mock_tm->end_ui_calls_}) == ui_before_cleanup);
+            }
+            QIQI_TEST_CHECK(queue->PendingCount() == 0);
+            QIQI_TEST_CHECK(context->range_->text_ == L"a" && context->range_->set_text_calls_ == writes_before);
+        }
+
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+        auto host_context = MakeComObject<MockTfContext>();
+        BOOL cleanup_eaten = FALSE;
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(host_context.Get(), 'A', 0, &cleanup_eaten) == S_OK && cleanup_eaten);
+        const auto host_composition = host_context->last_composition_;
+        const auto host_requests = host_context->request_edit_session_calls_;
+        QIQI_TEST_CHECK(host_composition->NotifyHostTermination(17) == S_OK);
+        QIQI_TEST_CHECK(host_composition->ended_ && host_composition->end_composition_calls_ == 0);
+        QIQI_TEST_CHECK(host_context->range_->text_ == L"a");
+        QIQI_TEST_CHECK(host_context->prop_->clear_calls_ == 1 && host_context->prop_->last_clear_cookie_ == 17);
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        QIQI_TEST_CHECK(host_context->request_edit_session_calls_ == host_requests);
+        QIQI_TEST_CHECK(host_composition->end_composition_calls_ == 0);
+
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+        auto reentrant_context = MakeComObject<MockTfContext>();
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(reentrant_context.Get(), 'A', 0, &cleanup_eaten) == S_OK && cleanup_eaten);
+        const auto reentrant_composition = reentrant_context->last_composition_;
+        reentrant_composition->end_callback_ = [&](TfEditCookie ec) {
+            QIQI_TEST_CHECK(reentrant_context->in_immediate_write_session_ && ec == 1);
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+            QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == E_UNEXPECTED);
+            QIQI_TEST_CHECK(reentrant_composition->NotifyHostTermination(ec) == S_OK);
+        };
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        QIQI_TEST_CHECK(reentrant_composition->ended_ && reentrant_composition->end_composition_calls_ == 1);
+        QIQI_TEST_CHECK(reentrant_context->prop_->clear_calls_ == 1 && reentrant_context->range_->text_ == L"a");
+        reentrant_composition->end_callback_ = {};
+
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+        auto interrupted_context = MakeComObject<MockTfContext>();
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(interrupted_context.Get(), 'A', 0, &cleanup_eaten) == S_OK && cleanup_eaten);
+        const auto interrupted_composition = interrupted_context->last_composition_;
+        interrupted_context->prop_->clear_callback_ = [&](TfEditCookie ec) {
+            QIQI_TEST_CHECK(interrupted_context->in_immediate_write_session_ && ec == 1);
+            QIQI_TEST_CHECK(interrupted_composition->NotifyHostTermination(ec) == S_OK);
+        };
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        QIQI_TEST_CHECK(interrupted_composition->ended_ && interrupted_composition->end_composition_calls_ == 0);
+        QIQI_TEST_CHECK(interrupted_context->prop_->clear_calls_ == 1 && interrupted_context->range_->text_ == L"a");
+        interrupted_context->prop_->clear_callback_ = {};
+
+        // Late termination of A must not reset B's composition or candidate UI.
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+        auto previous_context = MakeComObject<MockTfContext>();
+        auto current_context = MakeComObject<MockTfContext>();
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(previous_context.Get(), 'A', 0, &cleanup_eaten) == S_OK && cleanup_eaten);
+        const auto previous_composition = previous_context->last_composition_;
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(current_context.Get(), 'B', 0, &cleanup_eaten) == S_OK && cleanup_eaten);
+        const auto current_composition = current_context->last_composition_;
+        const auto current_text = current_context->range_->text_;
+        const auto ui_ends = mock_tm->end_ui_calls_;
+        QIQI_TEST_CHECK(previous_composition->NotifyHostTermination(19) == S_OK);
+        QIQI_TEST_CHECK(current_context->range_->text_ == current_text && mock_tm->end_ui_calls_ == ui_ends);
+        QIQI_TEST_CHECK(!current_composition->ended_);
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        QIQI_TEST_CHECK(current_composition->ended_ && current_composition->end_composition_calls_ == 1);
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+    }
+
+    // Deferred cleanup survives deactivation, but cannot clear a new composition's attributes.
+    {
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        for (const bool host_terminates : {false, true}) {
+            auto queue = std::make_shared<MockEditSessionQueue>();
+            auto context = MakeComObject<MockTfContext>(queue);
+            BOOL eaten_deferred = FALSE;
+            QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+            QIQI_TEST_CHECK(key_sink->OnKeyDown(context.Get(), 'A', 0, &eaten_deferred) == S_OK && eaten_deferred);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+            const auto old_composition = context->last_composition_;
+            context->allow_sync_edit_sessions_ = false;
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK && queue->PendingCount() == 1);
+            QIQI_TEST_CHECK(!old_composition->ended_);
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK && queue->PendingCount() == 1);
+            if (host_terminates) {
+                QIQI_TEST_CHECK(old_composition->NotifyHostTermination(23) == S_OK);
+                QIQI_TEST_CHECK(context->prop_->clear_calls_ == 1 && context->prop_->last_clear_cookie_ == 23);
+            }
+            QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+            QIQI_TEST_CHECK(key_sink->OnKeyDown(context.Get(), 'B', 0, &eaten_deferred) == S_OK && eaten_deferred);
+            QIQI_TEST_CHECK(queue->PendingCount() == 2 && context->range_->text_ == L"a");
+            if (!host_terminates) {
+                QIQI_TEST_CHECK(context->last_edit_session_flags_ == (TF_ES_ASYNC | TF_ES_READWRITE));
+            }
+            const auto ui_before = std::tuple{
+                mock_tm->begin_ui_calls_, mock_tm->update_ui_calls_, mock_tm->end_ui_calls_};
+            QIQI_TEST_CHECK(queue->RunNext(29) == S_OK && queue->PendingCount() == 1);
+            QIQI_TEST_CHECK(old_composition->end_composition_calls_ == (host_terminates ? 0u : 1u));
+            QIQI_TEST_CHECK(old_composition->ended_ && context->range_->text_ == L"a");
+            QIQI_TEST_CHECK(context->prop_->clear_calls_ == 1);
+            QIQI_TEST_CHECK((std::tuple{
+                mock_tm->begin_ui_calls_, mock_tm->update_ui_calls_, mock_tm->end_ui_calls_}) == ui_before);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK && context->range_->text_ == L"b");
+            const auto new_composition = context->last_composition_;
+            QIQI_TEST_CHECK(new_composition.Get() != old_composition.Get() && !new_composition->ended_);
+            QIQI_TEST_CHECK(context->prop_->clear_calls_ == 1);
+            context->allow_sync_edit_sessions_ = true;
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK && new_composition->ended_);
+        }
+
+        for (const HRESULT failure : {E_ACCESSDENIED, TF_E_DISCONNECTED}) {
+            auto queue = std::make_shared<MockEditSessionQueue>();
+            auto context = MakeComObject<MockTfContext>(queue);
+            BOOL eaten_deferred = FALSE;
+            QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+            QIQI_TEST_CHECK(key_sink->OnKeyDown(context.Get(), 'A', 0, &eaten_deferred) == S_OK && eaten_deferred);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+            const auto composition = context->last_composition_;
+            context->allow_sync_edit_sessions_ = false;
+            context->async_edit_session_result_ = failure;
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK && queue->PendingCount() == 0);
+            QIQI_TEST_CHECK(!composition->ended_ && context->prop_->clear_calls_ == 0);
+            QIQI_TEST_CHECK(context->range_->text_ == L"a" && !context->layout_sink_);
+        }
+        const auto initial_objects = g_com_object_count.load();
+        for (const bool execute_cleanup : {false, true}) {
+            auto queue = std::make_shared<MockEditSessionQueue>();
+            auto context = MakeComObject<MockTfContext>(queue);
+            auto peer = MakeComObject<QiQiTextService>(g_dll_instance);
+            auto peer_manager = MakeComObject<MockTfThreadMgr>();
+            BOOL eaten_deferred = FALSE;
+            QIQI_TEST_CHECK(peer->Activate(peer_manager.Get(), 2) == S_OK);
+            QIQI_TEST_CHECK(peer->OnKeyDown(context.Get(), 'A', 0, &eaten_deferred) == S_OK && eaten_deferred);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+            context->allow_sync_edit_sessions_ = false;
+            QIQI_TEST_CHECK(peer->Deactivate() == S_OK && queue->PendingCount() == 1);
+            peer.Reset();
+            peer_manager.Reset();
+            if (execute_cleanup) {
+                QIQI_TEST_CHECK(queue->RunNext() == S_OK && context->last_composition_->ended_);
+            } else {
+                QIQI_TEST_CHECK(queue->ClearForCleanup() == S_OK && queue->PendingCount() == 0);
+                QIQI_TEST_CHECK(!context->last_composition_->ended_);
+            }
+        }
+        QIQI_TEST_CHECK(g_com_object_count.load() == initial_objects);
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+    }
+
+    // Real TSF, private document, no system TIP activation: cleanup must remove host composition state.
+    {
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        ComPtr<ITfThreadMgr2> native_manager;
+        QIQI_TEST_CHECK(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
+                                          IID_PPV_ARGS(&native_manager)) == S_OK);
+        TfClientId native_client = TF_CLIENTID_NULL;
+        QIQI_TEST_CHECK(native_manager->ActivateEx(&native_client, TF_TMAE_NOACTIVATETIP) == S_OK);
+        const auto deactivate_native = gsl::finally([&]() noexcept {
+            std::ignore = log::CheckHResult(native_manager->Deactivate(), "NativeCleanupTest::Deactivate");
+        });
+        ComPtr<ITfDocumentMgr> document;
+        QIQI_TEST_CHECK(native_manager->CreateDocumentMgr(&document) == S_OK);
+        ComPtr<ITfContext> context;
+        TfEditCookie owner_cookie = 0;
+        QIQI_TEST_CHECK(document->CreateContext(native_client, 0, nullptr, &context, &owner_cookie) == S_OK);
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        const auto pop_native = gsl::finally([&]() noexcept {
+            std::ignore = log::CheckHResult(document->Pop(TF_POPF_ALL), "NativeCleanupTest::Pop");
+        });
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), native_client) == S_OK);
+        BOOL native_eaten = FALSE;
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(context.Get(), 'A', 0, &native_eaten) == S_OK && native_eaten);
+        const auto before = WaitForNativeTsfState(context.Get(), native_client, L"a", 1);
+        QIQI_TEST_CHECK(before.composing && before.display_attribute);
+        ComPtr<ITfContextOwnerServices> owner_services;
+        QIQI_TEST_CHECK(context.As(&owner_services) == S_OK);
+        const auto cleanup_layout_sink = MakeComObject<NativeCleanupLayoutSink>();
+        ScopedTfSinkConnection layout_connection;
+        QIQI_TEST_CHECK(layout_connection.Advise(context.Get(), IID_ITfTextLayoutSink, cleanup_layout_sink.Get()));
+        cleanup_layout_sink->callback = [&]() -> HRESULT {
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+            const auto pending = ReadNativeTsfState(context.Get(), native_client);
+            QIQI_TEST_CHECK(pending.text == L"a" && pending.composition_count == 1);
+            return S_OK;
+        };
+        QIQI_TEST_CHECK(owner_services->OnLayoutChange() == S_OK && cleanup_layout_sink->called);
+        const auto ended = WaitForNativeTsfState(context.Get(), native_client, L"a", 0);
+        QIQI_TEST_CHECK(!ended.composing && !ended.display_attribute);
+
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), native_client) == S_OK);
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(context.Get(), 'A', 0, &native_eaten) == S_OK && native_eaten);
+        QIQI_TEST_CHECK(WaitForNativeTsfState(context.Get(), native_client, L"aa", 1).composing);
+        cleanup_layout_sink->called = false;
+        cleanup_layout_sink->callback = [&]() -> HRESULT {
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+            QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), native_client) == S_OK);
+            const auto ui_before = std::tuple{
+                mock_tm->begin_ui_calls_, mock_tm->update_ui_calls_, mock_tm->end_ui_calls_};
+            QIQI_TEST_CHECK(key_sink->OnKeyDown(context.Get(), 'B', 0, &native_eaten) == S_OK && native_eaten);
+            QIQI_TEST_CHECK((std::tuple{
+                mock_tm->begin_ui_calls_, mock_tm->update_ui_calls_, mock_tm->end_ui_calls_}) == ui_before);
+            QIQI_TEST_CHECK(ReadNativeTsfState(context.Get(), native_client).text == L"aa");
+            return S_OK;
+        };
+        QIQI_TEST_CHECK(owner_services->OnLayoutChange() == S_OK && cleanup_layout_sink->called);
+        const auto fresh = WaitForNativeTsfState(context.Get(), native_client, L"aab", 1);
+        QIQI_TEST_CHECK(fresh.composition_text == L"b" && fresh.composing && fresh.display_attribute);
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        const auto final_state = WaitForNativeTsfState(context.Get(), native_client, L"aab", 0);
+        QIQI_TEST_CHECK(!final_state.composing && !final_state.display_attribute);
+        layout_connection.Reset();
+        cleanup_layout_sink->callback = {};
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
     }
 
     // ThreadMgrEventSink notifications (including non-null OnSetFocus to test config hot-reload check)
@@ -1140,6 +1591,43 @@ void RunTsfFocusDiagnosticsScenario() {
         log::SetLevel(level);
         QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
         QIQI_TEST_CHECK(service->OnSetFocus(document.Get(), nullptr) == S_OK);
+    }
+
+    std::array<BYTE, 256> keyboard{};
+    QIQI_TEST_CHECK(::SetKeyboardState(keyboard.data()));
+    log::SetLevel(log::Level::debug);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    for (int scenario = 0; scenario < 9; ++scenario) {
+        auto queue = std::make_shared<MockEditSessionQueue>();
+        auto context = MakeComObject<MockTfContext>(queue);
+        if (scenario == 7) log::SetLevel(log::Level::info);
+        if (scenario == 8) log::SetLevel(log::Level::off);
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+        context->range_->text_ = L"SENSITIVE_DIAGNOSTIC_SENTINEL";
+        const auto composition = context->last_composition_;
+        context->allow_sync_edit_sessions_ = scenario == 0 || scenario >= 5;
+        if (scenario == 3) context->async_edit_session_result_ = E_ACCESSDENIED;
+        if (scenario == 5) context->read_only_ = true;
+        if (scenario == 6) {
+            context->prop_->clear_result_ = E_FAIL;
+            composition->end_result_ = E_ACCESSDENIED;
+        }
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        if (scenario == 1) {
+            QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+        } else if (scenario == 2) {
+            QIQI_TEST_CHECK(composition->NotifyHostTermination(23) == S_OK);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+        } else if (scenario == 4) {
+            QIQI_TEST_CHECK(queue->ClearForCleanup() == S_OK);
+        }
     }
 }
 

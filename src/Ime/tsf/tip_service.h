@@ -15,6 +15,8 @@
 #include "Ime/ui/langbar_button.h"
 #include "Ime/ui/statusbar.h"
 #include <memory>
+#include <string_view>
+#include <vector>
 
 namespace qiqi {
 
@@ -99,6 +101,24 @@ private:
         uint64_t activation = 0;
         uint64_t context = 0;
     };
+    struct CompositionCleanup {
+        CompositionCleanup() = default;
+        ~CompositionCleanup() noexcept;
+        CompositionCleanup(const CompositionCleanup&) = delete;
+        CompositionCleanup& operator=(const CompositionCleanup&) = delete;
+        CompositionCleanup(CompositionCleanup&&) = delete;
+        CompositionCleanup& operator=(CompositionCleanup&&) = delete;
+        void LogResult(std::string_view stage, HRESULT hr) const noexcept;
+        uint64_t service_id = 0;
+        uint64_t id = 0;
+        ComPtr<ITfContext> context;
+        ComPtr<ITfComposition> composition;
+        ComPtr<ITfRange> range;
+        bool started = false;
+        bool finished = false;
+        bool terminated = false;
+        bool async_requested = false;
+    };
 
     bool InitThreadMgrEventSink() noexcept;
     bool InitKeyEventSink();
@@ -122,6 +142,8 @@ private:
     void LoadExternalDictionaryNextToDll();
 
     void ResetCompositionAndUI();
+    void EndCompositionOnDeactivate();
+    bool HasPendingCompositionCleanup(const ITfContext* context);
     void ResetContextAndUI();
     bool IsEditSessionCurrent(EditSessionEpoch epoch, const ITfContext* context) const noexcept;
     bool IsContextKeyboardDisabled(ITfContext* context) const noexcept;
@@ -138,14 +160,19 @@ private:
     void UpdateCandidateWindowPositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context);
     static void SetRangeTextAndCollapseCaret(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range, std::wstring_view text);
+    static HRESULT ClearCompositionDisplayAttributeInSession(
+        TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range);
 
     void BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot);
     void EndCandidateUI();
 
+    const uint64_t service_log_id_;
+    uint64_t next_cleanup_log_id_ = 0;
     ComPtr<ITfThreadMgr> thread_mgr_;
     TfClientId client_id_ = TF_CLIENTID_NULL;
     DWORD activate_flags_ = 0;
     bool is_active_ = false;
+    bool deactivating_ = false;
     EditSessionEpoch edit_session_epoch_;
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection text_layout_sink_;
@@ -162,6 +189,7 @@ private:
     bool last_logged_focus_state_ = false;
 
     ComPtr<ITfComposition> composition_;
+    std::vector<std::weak_ptr<CompositionCleanup>> composition_cleanups_;
     ComPtr<ITfContext> active_context_;
     ComPtr<CandidateUI> candidate_ui_;
     ComPtr<LangBarButton> langbar_btn_;

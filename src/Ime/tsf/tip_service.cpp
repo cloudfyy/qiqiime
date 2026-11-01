@@ -16,6 +16,8 @@ namespace qiqi {
 
 namespace {
 
+std::atomic<uint64_t> next_service_log_id{0};
+
 struct PreservedKeyDef {
     const GUID* guid;
     UINT vkey;
@@ -32,7 +34,7 @@ constexpr std::array<PreservedKeyDef, 4> kPreservedKeys = {{
 
 } // namespace
 
-QiQiTextService::QiQiTextService(HINSTANCE instance) {
+QiQiTextService::QiQiTextService(HINSTANCE instance) : service_log_id_(++next_service_log_id) {
     std::ignore = log::EnsureInitialized();
     config_ = LoadConfig(instance);
     config_registry_sequence_ = QueryRegistryConfigSequence();
@@ -95,6 +97,11 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     if (!ptim) {
         return E_INVALIDARG;
     }
+    if (deactivating_) {
+        QIQI_LOG_WARN("ActivateEx: activation during deactivation rejected (hr=0x{:08x})",
+                       gsl::narrow_cast<unsigned int>(E_UNEXPECTED));
+        return E_UNEXPECTED;
+    }
     is_active_ = false;
     ++edit_session_epoch_.activation;
     std::ignore = log::EnsureInitialized();
@@ -120,13 +127,25 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     }
     is_active_ = true;
     SyncTsfCompartments();
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=activated, activation={}, context={}, client_id={})",
+                   service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, client_id_);
     return S_OK;
 }
 
 STDMETHODIMP QiQiTextService::Deactivate() {
+    if (deactivating_) {
+        QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=deactivate-reentrant, activation={}, context={})",
+                       service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context);
+        return S_OK;
+    }
+    deactivating_ = true;
+    const auto finish_deactivation = gsl::finally([this]() noexcept { deactivating_ = false; });
     is_active_ = false;
     ++edit_session_epoch_.activation;
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=deactivate-begin, activation={}, context={}, has_composition={})",
+                   service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, composition_ != nullptr);
     QIQI_LOG_INFO("QiQiTextService::Deactivate(client_id={})", client_id_);
+    EndCompositionOnDeactivate();
     ResetCompositionAndUI();
     if (status_bar_) {
         status_bar_->Show(false);
@@ -143,6 +162,8 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     activate_flags_ = 0;
     engine_.ClearExternalDictionaries();
     WubiMappedDict::ClearProcessCache();
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=deactivate-local-complete, activation={}, context={}, tracked_cleanups={})",
+                   service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, composition_cleanups_.size());
     return S_OK;
 }
 

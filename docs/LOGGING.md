@@ -191,6 +191,18 @@ ETW 采集不需要 PDB 才能显示这些自描述消息；调试调用栈或�
 
 双架构测试通过自有调试子进程捕获实际日志，覆盖上述变化组合、两类来源、相同/变化的位置、获得/失去焦点及 Info/Off 过滤；这不替代真实宿主测量。本项仅提供观测，不增加耗时阈值、不合并重载、不改变 TSF/UI 的线程或生命周期策略。
 
+### 6.2 组合生命周期与停用清理（任务 43、44）
+
+复用第 2–5 节的采集步骤，应用设为 Debug（`LogLevel=1`）或 Trace，ETW 会话允许 Verbose；筛选 `TsfLifecycle(` 和 `TsfCleanup(`。这些是现有 `message` 字符串中的字段，不是新增 ETW 负载。
+
+- 按 PID、模块加载周期和 `service` 关联服务，进一步按 `cleanup` 关联一次旧组合清理；模块重载后编号可以重新开始。事件头 TID/时间用于判断回调发生在哪个线程、何时真正执行。
+- `sync-result` / `async-result` 同时记录外层 `request_hr` 和内层 `session_hr`。`queued=true` 只表示异步请求获准排队；必须继续观察 `callback-enter`、`attribute-clear`、`end-composition` 和退出阶段。
+- `callback-exit`、`finished=true` 或 `deactivate-local-complete` 都不表示宿主清理完整成功。属性清理和结束组合分别记录实际 HRESULT，失败为 Warn；`released` 只是独立状态开始析构。
+- `host-terminated` 后出现 `skip-host-terminated` 是预期的重复处理屏障；`write-forced-async` 表明新写在等待哪一次旧清理。`stale-edit-skipped` 用快照/当前周期解释业务任务为什么被拒绝。
+- 不记录输入文本、按键、候选、范围内容或裸 COM 地址。详细记录受 Info/Off 正常过滤，没有接收方时不格式化。
+
+字段表、预期日志顺序、只排队不执行及“组合已结束但属性残留”等故障的判读，见[组合生命周期设计与排障](TSF_COMPOSITION_LIFECYCLE.md#7-log-protocol-and-troubleshooting)。不要只凭单条成功状态判断宿主组合已结束。
+
 ## 7. 无日志与共享日志的检查清单
 
 | 现象 | 检查项 |
