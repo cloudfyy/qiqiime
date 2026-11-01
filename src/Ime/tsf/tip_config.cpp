@@ -153,7 +153,7 @@ void QiQiTextService::UninitCompartmentSinks() noexcept {
     global_config_comp_.Reset();
 }
 
-bool QiQiTextService::NotifyGlobalConfigChanged() {
+bool QiQiTextService::NotifyGlobalConfigChanged() noexcept {
     if (!global_config_comp_ || client_id_ == TF_CLIENTID_NULL) {
         QIQI_LOG_WARN("NotifyGlobalConfigChanged: global compartment or client ID unavailable");
         return false;
@@ -167,7 +167,7 @@ bool QiQiTextService::NotifyGlobalConfigChanged() {
     return true;
 }
 
-void QiQiTextService::SaveGlobalStatusBarPosition(POINT pos) {
+void QiQiTextService::SaveGlobalStatusBarPosition(POINT pos) noexcept {
     if (!global_pos_comp_ || client_id_ == TF_CLIENTID_NULL) {
         return;
     }
@@ -179,7 +179,7 @@ void QiQiTextService::SaveGlobalStatusBarPosition(POINT pos) {
     }
 }
 
-void QiQiTextService::SyncStatusBarPositionFromGlobalCompartment() {
+void QiQiTextService::SyncStatusBarPositionFromGlobalCompartment() noexcept {
     if (!global_pos_comp_ || !status_bar_) {
         return;
     }

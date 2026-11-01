@@ -137,7 +137,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     return S_OK;
 }
 
-bool QiQiTextService::InitThreadMgrEventSink() {
+bool QiQiTextService::InitThreadMgrEventSink() noexcept {
     ITfThreadMgrEventSink* sink = this;
     if (!thread_mgr_sink_.Advise(
             thread_mgr_.Get(),

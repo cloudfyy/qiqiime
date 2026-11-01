@@ -28,10 +28,12 @@ bool QueryCompartmentNonZero(IUnknown* unk, REFGUID guid) noexcept {
         return false;
     }
     ComPtr<ITfCompartmentMgr> comp_mgr;
+#pragma warning(suppress : 26447) // TSF COM calls report failures through HRESULT.
     if (FAILED(unk->QueryInterface(IID_PPV_ARGS(&comp_mgr))) || !comp_mgr) {
         return false;
     }
     ComPtr<ITfCompartment> comp;
+#pragma warning(suppress : 26447) // TSF COM calls report failures through HRESULT.
     if (FAILED(comp_mgr->GetCompartment(guid, &comp)) || !comp) {
         return false;
     }

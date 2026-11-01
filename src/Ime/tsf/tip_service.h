@@ -93,7 +93,7 @@ public:
     STDMETHODIMP GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** ppInfo) noexcept override;
 
 private:
-    bool InitThreadMgrEventSink();
+    bool InitThreadMgrEventSink() noexcept;
     bool InitKeyEventSink();
     void UninitKeyEventSink();
     void InitDisplayAttributeGuidAtom();
@@ -103,9 +103,9 @@ private:
     void UninitLangBarItem();
     void InitCompartmentSinks();
     void UninitCompartmentSinks() noexcept;
-    bool NotifyGlobalConfigChanged();
-    void SaveGlobalStatusBarPosition(POINT pos);
-    void SyncStatusBarPositionFromGlobalCompartment();
+    bool NotifyGlobalConfigChanged() noexcept;
+    void SaveGlobalStatusBarPosition(POINT pos) noexcept;
+    void SyncStatusBarPositionFromGlobalCompartment() noexcept;
     void SyncEngineFromSystemCompartments(REFGUID changed_guid);
     void UpdateUiIndicators();
     void HandleLangBarMenuAction(LangBarMenuId action_id);
