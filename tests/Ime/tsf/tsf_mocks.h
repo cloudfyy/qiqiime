@@ -39,6 +39,7 @@ public:
     }
     STDMETHODIMP GetText(TfEditCookie, DWORD, WCHAR*, ULONG, ULONG*) noexcept override { return S_OK; }
     STDMETHODIMP SetText(TfEditCookie, DWORD, const WCHAR* pch, LONG cch) override {
+        ++set_text_calls_;
         if (pch && cch >= 0) {
             text_.assign(pch, static_cast<size_t>(cch));
         }
@@ -75,6 +76,7 @@ public:
     STDMETHODIMP GetContext(ITfContext**) noexcept override { return E_NOTIMPL; }
 
     std::wstring text_;
+    unsigned int set_text_calls_ = 0;
 private:
     ULONG ref_ = 1;
 };
@@ -422,6 +424,7 @@ public:
     STDMETHODIMP GetStart(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetEnd(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetActiveView(ITfContextView** ppView) override {
+        ++get_active_view_calls_;
         if (!ppView || fail_get_view_) return E_FAIL;
         *ppView = view_.Get();
         (*ppView)->AddRef();
@@ -457,6 +460,7 @@ public:
 
     // ITfContextComposition
     STDMETHODIMP StartComposition(TfEditCookie, ITfRange*, ITfCompositionSink*, ITfComposition** ppComposition) override {
+        ++start_composition_calls_;
         if (!ppComposition || fail_start_comp_) return E_FAIL;
         auto comp = MakeComObject<MockTfComposition>(range_);
         comp->fail_get_range_ = fail_comp_get_range_;
@@ -510,6 +514,8 @@ public:
 
     ComPtr<MockTfRange> range_;
     ComPtr<MockTfContextView> view_;
+    unsigned int get_active_view_calls_ = 0;
+    unsigned int start_composition_calls_ = 0;
     ComPtr<MockTfProperty> prop_;
     ComPtr<ITfTextLayoutSink> layout_sink_;
     ComPtr<MockTfCompartment> disabled_compartment_;
@@ -634,14 +640,15 @@ public:
 
     // ITfUIElementMgr
     STDMETHODIMP BeginUIElement(ITfUIElement* elem, BOOL* pbShow, DWORD* pdwUIElementId) noexcept override {
+        ++begin_ui_calls_;
         if (fail_begin_ui_) return E_FAIL;
         last_ui_element_ = elem;
         if (pbShow) *pbShow = show_own_ui_;
         if (pdwUIElementId) *pdwUIElementId = 7;
         return S_OK;
     }
-    STDMETHODIMP UpdateUIElement(DWORD) noexcept override { return S_OK; }
-    STDMETHODIMP EndUIElement(DWORD) noexcept override { return S_OK; }
+    STDMETHODIMP UpdateUIElement(DWORD) noexcept override { ++update_ui_calls_; return S_OK; }
+    STDMETHODIMP EndUIElement(DWORD) noexcept override { ++end_ui_calls_; return S_OK; }
     STDMETHODIMP GetUIElement(DWORD, ITfUIElement**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP EnumUIElements(IEnumTfUIElements**) noexcept override { return E_NOTIMPL; }
 
@@ -716,6 +723,9 @@ public:
     ComPtr<MockTfCompartment> global_pos_compartment_;
     ComPtr<IUnknown> single_sink_;
     ComPtr<ITfUIElement> last_ui_element_;
+    unsigned int begin_ui_calls_ = 0;
+    unsigned int update_ui_calls_ = 0;
+    unsigned int end_ui_calls_ = 0;
     ComPtr<ITfLangBarItem> langbar_item_;
     bool fail_query_source_ = false;
     bool fail_query_key_mgr_ = false;

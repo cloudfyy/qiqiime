@@ -47,13 +47,18 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie /*ecWrite*/, 
 // ITfTextLayoutSink: called when an async host (Chromium/VS Code/WPF/Word) updates its text layout
 STDMETHODIMP QiQiTextService::OnLayoutChange(
     ITfContext* pic, TfLayoutCode lcode, ITfContextView* /*pView*/) {
-    if (lcode != TF_LC_CHANGE || !pic || !composition_ || !candidate_ui_) {
+    if (lcode != TF_LC_CHANGE || !pic || !is_active_ || pic != active_context_.Get() ||
+        !composition_ || !candidate_ui_) {
         return S_OK;
     }
     ComPtr<ITfContext> ctx_holder(pic);
     ComPtr<QiQiTextService> self_holder(this);
+    const auto epoch = edit_session_epoch_;
     const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
-        [self_holder, ctx_holder](TfEditCookie ec) -> HRESULT {
+        [self_holder, ctx_holder, epoch](TfEditCookie ec) -> HRESULT {
+        if (!self_holder->IsEditSessionCurrent(epoch, ctx_holder.Get())) {
+            return S_OK;
+        }
         self_holder->UpdateCandidateWindowPositionInSession(
             ec, gsl::not_null<ITfContext*>(ctx_holder.Get()));
         return S_OK;
@@ -71,30 +76,62 @@ STDMETHODIMP QiQiTextService::OnLayoutChange(
 void QiQiTextService::ResetCompositionAndUI() {
     shift_tap_candidate_ = false;
     shift_press_tick_ = 0;
-    has_valid_caret_pos_ = false;
-    text_layout_sink_.Reset();
-    composition_.Reset();
-    active_context_.Reset();
     engine_.Reset();
+    ResetContextAndUI();
+}
+
+void QiQiTextService::ResetContextAndUI() {
+    // Invalidate before COM cleanup can deliver reentrant callbacks.
+    ++edit_session_epoch_.context;
+    active_context_.Reset();
+    has_valid_caret_pos_ = false;
+    composition_.Reset();
+    text_layout_sink_.Reset();
     EndCandidateUI();
+}
+
+bool QiQiTextService::IsEditSessionCurrent(EditSessionEpoch epoch, const ITfContext* context) const noexcept {
+    if (is_active_ && epoch.activation == edit_session_epoch_.activation &&
+        epoch.context == edit_session_epoch_.context && context == active_context_.Get()) {
+        return true;
+    }
+    QIQI_LOG_DEBUG("Skipping stale TSF edit session (activation={}/{}, context={}/{}, active={})",
+                   epoch.activation, edit_session_epoch_.activation,
+                   epoch.context, edit_session_epoch_.context, is_active_);
+    return false;
 }
 
 void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessResult& result) {
     if (!context) {
         return;
     }
+    if (!is_active_) {
+        QIQI_LOG_DEBUG("ApplyEngineResult: ignoring edit request while service is inactive");
+        return;
+    }
+    ComPtr<ITfContext> ctx_holder(context);
+    auto epoch = edit_session_epoch_;
     if (active_context_.Get() != context) {
-        text_layout_sink_.Reset();
-        active_context_ = context;
+        ++epoch.context;
+        ResetContextAndUI();
+        if (!IsEditSessionCurrent(epoch, nullptr)) {
+            return;
+        }
+        active_context_ = ctx_holder;
         ITfTextLayoutSink* sink = this;
         text_layout_sink_.Advise(active_context_.Get(), IID_ITfTextLayoutSink, sink);
     }
 
-    ComPtr<ITfContext> ctx_holder(context);
+    if (!IsEditSessionCurrent(epoch, context)) {
+        return;
+    }
     ComPtr<QiQiTextService> self_holder(this);
 
     const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
-        [self_holder, ctx_holder, result](TfEditCookie ec) -> HRESULT {
+        [self_holder, ctx_holder, result, epoch](TfEditCookie ec) -> HRESULT {
+        if (!self_holder->IsEditSessionCurrent(epoch, ctx_holder.Get())) {
+            return S_OK;
+        }
         const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
         if (result.action == KeyActionType::Cancel) {
             self_holder->CancelCompositionInSession(ec, non_null_ctx.get());

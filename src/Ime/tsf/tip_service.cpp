@@ -95,6 +95,8 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     if (!ptim) {
         return E_INVALIDARG;
     }
+    is_active_ = false;
+    ++edit_session_epoch_.activation;
     std::ignore = log::EnsureInitialized();
     thread_mgr_ = ptim;
     client_id_ = tid;
@@ -116,11 +118,14 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     if (config_.primary_dict != PrimaryDict::BuiltinOnly && engine_.MappedDictionaryCount() == 0) {
         LoadExternalDictionaryNextToDll();
     }
+    is_active_ = true;
     SyncTsfCompartments();
     return S_OK;
 }
 
 STDMETHODIMP QiQiTextService::Deactivate() {
+    is_active_ = false;
+    ++edit_session_epoch_.activation;
     QIQI_LOG_INFO("QiQiTextService::Deactivate(client_id={})", client_id_);
     ResetCompositionAndUI();
     if (status_bar_) {

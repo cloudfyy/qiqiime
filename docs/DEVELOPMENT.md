@@ -200,5 +200,15 @@ cmake --build build\x64 --config Release --target lint
 - 调度器强引用待执行上下文与会话，上下文仅弱引用调度器，避免 Context→Session→Context 引用环。运行前先移出请求，局部强引用保证回调期间对象存活，并允许重入入队；清理或销毁调度器释放待处理请求。回调不得强捕获拥有它的调度器，避免另一个引用环；已过期的调度器不能静默退回立即执行。
 - Windows SDK 的 `TF_ES_ASYNCDONTCARE` 为 **0**，不是独立位。Mock 校验同步/异步冲突、访问模式和未知位；成功异步请求返回外层 `S_OK`、内层 `TF_S_ASYNC`。同步拒绝和只读读写拒绝分别返回内层 `TF_E_SYNCHRONOUS`、`TS_E_READONLY`；只读上下文仍允许读请求。这是最小请求标志与结果模型，不是完整 TSF 锁、编辑权限或 cookie 校验器。
 - [`tsf_com.cpp`](../tests/Ime/tsf/tsf_com.cpp) 覆盖默认兼容性、FIFO、请求元数据、同步优先、失败注入、回调失败后继续执行、重入及引用释放；[`tsf_service.cpp`](../tests/Ime/tsf/tsf_service.cpp) 调度真实生产写回调和布局读回调，覆盖停用/重新激活后执行、输入上下文变化及旧队列保留。
-- Mock 不理解激活周期，不自动丢弃过期任务，也不将旧回调可能修改文档的行为定义为正确。任务 43 才实现并断言过期任务不得写文档、创建组合或恢复 UI；任务 44 处理主动结束宿主组合。本任务不修改生产代码。
+- Mock 不理解激活周期，不自动丢弃过期任务，也不将旧回调可能修改文档的行为定义为正确。任务 43 已在生产回调中实现并断言过期任务不得写文档、创建组合或恢复 UI；任务 44 处理主动结束宿主组合。任务 42 本身不修改生产代码。
 - 验证：x64/x86 Release 的 `QiQiTsfUiTest`、`QiQiEtwIntegrationTest` 均通过，ETW 未跳过；定向运行使用 `ctest --test-dir build\x64 -C Release -R '^(QiQiTsfUiTest|QiQiEtwIntegrationTest)$' --output-on-failure --timeout 120`，x86 替换为 `build\x86`。x64 测试目标同时执行 CppCoreCheck，新增 Mock 与测试没有新增诊断。
+
+### 5.6 过期编辑会话屏障（任务 43）
+
+- [`QiQiTextService`](../src/Ime/tsf/tip_service.h) 为每个服务实例维护激活状态及激活/上下文周期；有效激活尝试和停用改变激活周期，停用在任何清理之前标记为无效。部分激活失败仍通过 `Deactivate` 回滚，不使旧任务重新有效。
+- [`ApplyEngineResult` 与 `OnLayoutChange`](../src/Ime/tsf/tip_composition.cpp) 在提交请求前保存周期，回调开始处通过同一检查核对激活状态、两个周期和目标上下文。强引用只保证对象存活，不代表目标仍有效；同一 COM 指针重新激活或 A→B→A 后，旧快照也必须失效。预期丢弃返回 `S_OK`，调试日志仅记录周期与激活状态，不输出输入文本，也不伪造失败 HRESULT。
+- `ResetContextAndUI` 在 COM 清理前使上下文周期失效并清空活动目标，统一注销布局订阅、释放本地组合和结束候选 UI；现有的焦点丢失、宿主终止和停用重置复用它。切换输入上下文也使用该清理，避免新目标沿用旧组合范围；处理已生成的引擎结果时不额外重置引擎。提交请求前再次检查目标切换过程中是否发生重入失效。
+- 布局通知只接受当前活动上下文，执行过期读回调时不查询旧视图。调度器仍保留旧请求并实际调用其生产回调，屏障不依赖 Mock 过滤；同周期的多个写入快照保持 FIFO，不按每个按键递增周期。
+- [`生命周期测试`](../tests/Ime/tsf/tsf_service.cpp) 通过实际文本、写入/组合创建/视图查询与 UI 调用次数验证：停用及失败激活后执行旧任务、同一上下文重新激活、焦点重置、A→B→A、宿主终止、过期提交/取消，以及旧布局读任务遇到新组合。另验证正常 FIFO 更新、提交、下一次组合和延迟布局读，不只检查回调返回成功。
+- 验证：x64/x86 Release 的 `QiQiTsfUiTest`、`QiQiEtwIntegrationTest` 均通过，ETW 未跳过；x64 生产与测试目标执行 CppCoreCheck，修复新增的 const 正确性诊断后无新增告警。仍保留既有告警，不扩大豁免范围。
+- 范围：本任务覆盖现有重置入口及 `ApplyEngineResult` 观察到的上下文切换，不建立文档管理器列表。非空文档间焦点变化的实际目标识别、文档解除初始化和上下文栈通知仍由任务 45 实现；主动取得编辑权限并调用宿主 `EndComposition` 仍由任务 44 处理。本地释放组合不等于已正确结束宿主组合，受控测试也不替代浏览器/UWP 的真实宿主验证。

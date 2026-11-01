@@ -5,6 +5,7 @@
 #include <msctf.h>
 #include <wrl/client.h>
 #include <atomic>
+#include <cstdint>
 
 #include "common/com_object.h"
 #include "common/config.h"
@@ -94,6 +95,10 @@ public:
 
 private:
     enum class FocusNotificationSource { ThreadManager, KeyEvent };
+    struct EditSessionEpoch {
+        uint64_t activation = 0;
+        uint64_t context = 0;
+    };
 
     bool InitThreadMgrEventSink() noexcept;
     bool InitKeyEventSink();
@@ -117,6 +122,8 @@ private:
     void LoadExternalDictionaryNextToDll();
 
     void ResetCompositionAndUI();
+    void ResetContextAndUI();
+    bool IsEditSessionCurrent(EditSessionEpoch epoch, const ITfContext* context) const noexcept;
     bool IsContextKeyboardDisabled(ITfContext* context) const noexcept;
     void ToggleModeAndCancelComposition(ITfContext* context);
     void SyncTsfCompartments();
@@ -138,6 +145,8 @@ private:
     ComPtr<ITfThreadMgr> thread_mgr_;
     TfClientId client_id_ = TF_CLIENTID_NULL;
     DWORD activate_flags_ = 0;
+    bool is_active_ = false;
+    EditSessionEpoch edit_session_epoch_;
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection text_layout_sink_;
     bool function_provider_registered_ = false;
