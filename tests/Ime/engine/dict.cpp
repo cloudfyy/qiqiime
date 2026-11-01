@@ -33,7 +33,7 @@ std::vector<uint8_t> MakeSingleEntryQdictBuffer() {
     header.char_count = 1;
     const DictCodeIndex code_index{PackWubiCode(L"aaaa"), 0, 1};
     const DictWordSlice word_slice{0, 1};
-    const wchar_t word = L'词';
+    constexpr wchar_t word = L'词';
 
     std::vector<uint8_t> buffer(sizeof(header) + sizeof(code_index) + sizeof(word_slice) + sizeof(word));
     size_t offset = 0;

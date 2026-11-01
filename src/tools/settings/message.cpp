@@ -309,8 +309,8 @@ ScopedWindow CreateSettingsMessageWindow(
         body_height = std::max(body_height, measured);
     }
     const int height = body_height + scale(124);
-    const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
-    const DWORD ex_style = WS_EX_DLGMODALFRAME;
+    constexpr DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
+    constexpr DWORD ex_style = WS_EX_DLGMODALFRAME;
     RECT rect{0, 0, scale(kWindowWidth), height};
     ::AdjustWindowRectEx(&rect, style, FALSE, ex_style);
     const int width = rect.right - rect.left;

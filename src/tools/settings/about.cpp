@@ -196,8 +196,8 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     ctx->button_top = ctx->license_bottom + S(10);
 
     const auto& str = GetUiStrings(ui_language);
-    const DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
-    const DWORD wnd_ex_style = 0;
+    constexpr DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
+    constexpr DWORD wnd_ex_style = 0;
     RECT desired_rc{0, 0, S(440), ctx->button_top + S(46)};
     ::AdjustWindowRectEx(&desired_rc, wnd_style, FALSE, wnd_ex_style);
     const int dlg_w = desired_rc.right - desired_rc.left;

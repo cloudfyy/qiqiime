@@ -211,7 +211,7 @@ void TestLangBarButton() {
     QIQI_TEST_CHECK(!menu_en.item_texts_.empty() &&
                     menu_en.item_texts_.front().find(L"Chinese Input Mode") != std::wstring::npos);
 
-    POINT pt{0, 0};
+    const POINT pt{0, 0};
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_LEFT, pt, nullptr)));
     QIQI_TEST_CHECK(last_action == LangBarMenuId::ToggleChinese);
 

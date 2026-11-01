@@ -65,7 +65,7 @@ public:
     bool AddUserPhrase(std::wstring_view phrase, const std::filesystem::path& user_dict_path = {});
 
     // Persist and restore dynamic phrase frequency promotions (code word1 word2 ...)
-    void SetPhraseFreqPath(std::filesystem::path path) { phrase_freq_path_ = std::move(path); }
+    void SetPhraseFreqPath(std::filesystem::path path) noexcept { phrase_freq_path_ = std::move(path); }
     const std::filesystem::path& PhraseFreqPath() const noexcept { return phrase_freq_path_; }
     bool LoadPhraseFrequencies(const std::filesystem::path& file_path);
     bool SavePhraseFrequencies(const std::filesystem::path& file_path) const;

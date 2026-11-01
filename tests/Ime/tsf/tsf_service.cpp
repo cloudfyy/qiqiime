@@ -343,7 +343,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     if (mock_tm->langbar_item_) {
         ComPtr<ITfLangBarItemButton> lb_btn;
         if (SUCCEEDED(mock_tm->langbar_item_.As(&lb_btn)) && lb_btn) {
-            POINT pt{0, 0};
+            const POINT pt{0, 0};
             QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnClick(TF_LBI_CLK_LEFT, pt, nullptr)));
             QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleChinese))));
             QIQI_TEST_CHECK(SUCCEEDED(lb_btn->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleFullWidth))));

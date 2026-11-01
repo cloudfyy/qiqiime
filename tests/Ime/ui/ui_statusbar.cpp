@@ -440,7 +440,7 @@ void TestMultiMonitorAndPerMonitorDpi() {
     cand_ui->SetCandidates(L"abcd", {L"一", L"二", L"三"}, 5, 0, 0);
 
     // Move near bottom-right of secondary monitor -> should flip above and clamp within [-1920..0, -1080..0]
-    RECT near_bottom_right{-50, -20, -10, -2};
+    const RECT near_bottom_right{-50, -20, -10, -2};
     cand_ui->MoveWindowTo(near_bottom_right);
     QIQI_TEST_CHECK(cand_ui->CurrentHeight() == ScalePxByDpi(CandidateUI::kPopupHeight, 144));
 

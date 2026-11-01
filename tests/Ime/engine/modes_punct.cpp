@@ -167,7 +167,7 @@ void TestFullWidthMode() {
     // Runtime verification of AsciiToFullWidth and all OEM keys in MapFullWidthChar
     QIQI_TEST_CHECK(AsciiToFullWidth(' ') == L'\u3000');
     QIQI_TEST_CHECK(AsciiToFullWidth('\n') == L'\n');
-    for (uint32_t vk : {VK_OEM_1, VK_OEM_PLUS, VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD,
+    for (const uint32_t vk : {VK_OEM_1, VK_OEM_PLUS, VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD,
                         VK_OEM_2, VK_OEM_3, VK_OEM_4, VK_OEM_5, VK_OEM_6, VK_OEM_7}) {
         QIQI_TEST_CHECK(MapFullWidthChar(vk, false).has_value());
         QIQI_TEST_CHECK(MapFullWidthChar(vk, true).has_value());

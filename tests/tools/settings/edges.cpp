@@ -155,7 +155,7 @@ void CheckQuitMessage(int exit_code) {
 }
 
 void TestModalLoopTermination() {
-    const bool done = true;
+    constexpr bool done = true;
     QIQI_TEST_CHECK(!dialog_detail::RunModalDialogLoop(nullptr, done));
     const ScopedWindow hwnd(::CreateWindowExW(
         0, L"STATIC", L"", WS_POPUP, 0, 0, 100, 100, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));

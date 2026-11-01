@@ -70,7 +70,7 @@ void TestCandidateUI() {
     QIQI_TEST_CHECK(SUCCEEDED(ui->Show(TRUE)));
     BOOL shown = FALSE;
     QIQI_TEST_CHECK(SUCCEEDED(ui->IsShown(&shown)) && shown == TRUE);
-    RECT normal_rc{100, 100, 150, 125};
+    const RECT normal_rc{100, 100, 150, 125};
     ui->MoveWindowTo(normal_rc);
     MSG msg{};
     while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -171,7 +171,7 @@ void TestCandidateUI() {
         QIQI_TEST_CHECK(page_turn_dir == -1);
     }
 
-    RECT far_rc{99999, 99999, 100050, 100025};
+    const RECT far_rc{99999, 99999, 100050, 100025};
     ui->MoveWindowTo(far_rc);
     while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
         ::TranslateMessage(&msg);

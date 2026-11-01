@@ -426,8 +426,8 @@ ScopedWindow CreateSettingsWindow(
 
     const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
 
-    const DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
-    const DWORD wnd_ex_style = WS_EX_APPWINDOW;
+    constexpr DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
+    constexpr DWORD wnd_ex_style = WS_EX_APPWINDOW;
     RECT desired_rc{0, 0, S(820), S(494)};
     ::AdjustWindowRectEx(&desired_rc, wnd_style, FALSE, wnd_ex_style);
     const int dlg_w = desired_rc.right - desired_rc.left;

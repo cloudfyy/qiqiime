@@ -275,7 +275,7 @@ void TestScopedHandleTemplate() {
                                 &disp,
                                 assigned_txn.Get(),
                                 nullptr) == ERROR_SUCCESS);
-            const DWORD val = 123;
+            constexpr DWORD val = 123;
             QIQI_TEST_CHECK(::RegSetValueExW(
                                 key.Get(),
                                 L"TestValue",
@@ -307,7 +307,7 @@ void TestScopedHandleTemplate() {
                                 &disp,
                                 txn.Get(),
                                 nullptr) == ERROR_SUCCESS);
-            const DWORD val = 456;
+            constexpr DWORD val = 456;
             QIQI_TEST_CHECK(::RegSetValueExW(
                                 key.Get(),
                                 L"TestValue",

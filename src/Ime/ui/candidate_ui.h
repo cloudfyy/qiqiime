@@ -81,7 +81,7 @@ public:
     DWORD UiElementId() const noexcept { return ui_element_id_; }
     void SetUiElementId(DWORD id) noexcept { ui_element_id_ = id; }
     bool IsDirectWriteActive() const noexcept { return dwrite_text_format_.IsValid() && d2d_dc_target_.IsValid(); }
-    void DisableDirect2DForTest() { d2d_dc_target_.Reset(); }
+    void DisableDirect2DForTest() noexcept { d2d_dc_target_.Reset(); }
 
 private:
     int ScaleByDpi(int px) const noexcept { return ScalePxByDpi(px, dpi_); }

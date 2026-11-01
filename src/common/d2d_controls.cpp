@@ -310,7 +310,7 @@ void DrawFluentUnderlineStylePreview(
 
     ScopedD2DStrokeStyle stroke_style;
     if (style == CompositionUnderlineStyle::Dot || style == CompositionUnderlineStyle::Dash) {
-        D2D1_STROKE_STYLE_PROPERTIES props = D2D1::StrokeStyleProperties(
+        const D2D1_STROKE_STYLE_PROPERTIES props = D2D1::StrokeStyleProperties(
             D2D1_CAP_STYLE_ROUND,
             D2D1_CAP_STYLE_ROUND,
             D2D1_CAP_STYLE_ROUND,

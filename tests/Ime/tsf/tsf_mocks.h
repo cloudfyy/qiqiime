@@ -28,7 +28,7 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
-        ULONG c = --ref_;
+        const ULONG c = --ref_;
         if (c == 0) {
             gsl::owner<MockTfRange*> owner = this;
             delete owner;
@@ -94,7 +94,7 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
-        ULONG c = --ref_;
+        const ULONG c = --ref_;
         if (c == 0) {
             gsl::owner<MockTfComposition*> owner = this;
             delete owner;
@@ -136,7 +136,7 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
-        ULONG c = --ref_;
+        const ULONG c = --ref_;
         if (c == 0) {
             gsl::owner<MockTfContextView*> owner = this;
             delete owner;
@@ -178,7 +178,7 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
-        ULONG c = --ref_;
+        const ULONG c = --ref_;
         if (c == 0) {
             gsl::owner<MockTfProperty*> owner = this;
             delete owner;
@@ -209,7 +209,7 @@ private:
 // Minimal mock ITfCompartment + ITfSource (supports ITfCompartmentEventSink::OnChange notifications)
 class MockTfCompartment final : public ITfCompartment, public ITfSource {
 public:
-    explicit MockTfCompartment(REFGUID guid = GUID_NULL) : guid_(guid) {}
+    explicit MockTfCompartment(REFGUID guid = GUID_NULL) noexcept : guid_(guid) {}
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
@@ -228,7 +228,7 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
-        ULONG c = --ref_;
+        const ULONG c = --ref_;
         if (c == 0) {
             gsl::owner<MockTfCompartment*> owner = this;
             delete owner;
@@ -307,7 +307,7 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
-        ULONG c = --ref_;
+        const ULONG c = --ref_;
         if (c == 0) delete this;
         return c;
     }
@@ -466,7 +466,7 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
-        ULONG c = --ref_;
+        const ULONG c = --ref_;
         if (c == 0) {
             gsl::owner<MockTfThreadMgr*> owner = this;
             delete owner;
@@ -645,7 +645,7 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
-        ULONG c = --ref_;
+        const ULONG c = --ref_;
         if (c == 0) delete this;
         return c;
     }
@@ -757,7 +757,7 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
-        ULONG c = --ref_;
+        const ULONG c = --ref_;
         if (c == 0) {
             gsl::owner<MockTfCategoryMgr*> owner = this;
             delete owner;
