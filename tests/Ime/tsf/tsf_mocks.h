@@ -79,7 +79,7 @@ private:
 // Minimal mock ITfComposition
 class MockTfComposition final : public ITfComposition {
 public:
-    explicit MockTfComposition(ComPtr<MockTfRange> range) : range_(std::move(range)) {}
+    explicit MockTfComposition(ComPtr<MockTfRange> range) noexcept : range_(std::move(range)) {}
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
@@ -91,8 +91,8 @@ public:
         *ppvObj = nullptr;
         return E_NOINTERFACE;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
-    STDMETHODIMP_(ULONG) Release() override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
             delete this;
@@ -105,9 +105,9 @@ public:
         (*ppRange)->AddRef();
         return S_OK;
     }
-    STDMETHODIMP ShiftStart(TfEditCookie, ITfRange*) override { return S_OK; }
-    STDMETHODIMP ShiftEnd(TfEditCookie, ITfRange*) override { return S_OK; }
-    STDMETHODIMP EndComposition(TfEditCookie) override {
+    STDMETHODIMP ShiftStart(TfEditCookie, ITfRange*) noexcept override { return S_OK; }
+    STDMETHODIMP ShiftEnd(TfEditCookie, ITfRange*) noexcept override { return S_OK; }
+    STDMETHODIMP EndComposition(TfEditCookie) noexcept override {
         ended_ = true;
         return S_OK;
     }
@@ -132,8 +132,8 @@ public:
         *ppvObj = nullptr;
         return E_NOINTERFACE;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
-    STDMETHODIMP_(ULONG) Release() override {
+    STDMETHODIMP_(ULONG) AddRef() noexcept override { return ++ref_; }
+    STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
             // COM Release destroys the mock when its reference count reaches zero.
@@ -142,18 +142,18 @@ public:
         }
         return c;
     }
-    STDMETHODIMP GetRangeFromPoint(TfEditCookie, const POINT*, DWORD, ITfRange**) override { return E_NOTIMPL; }
-    STDMETHODIMP GetTextExt(TfEditCookie, ITfRange*, RECT* prc, BOOL* pfClipped) override {
+    STDMETHODIMP GetRangeFromPoint(TfEditCookie, const POINT*, DWORD, ITfRange**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetTextExt(TfEditCookie, ITfRange*, RECT* prc, BOOL* pfClipped) noexcept override {
         if (fail_get_text_ext_) return TS_E_NOLAYOUT;
         if (prc) *prc = {100, 100, 140, 124};
         if (pfClipped) *pfClipped = FALSE;
         return S_OK;
     }
-    STDMETHODIMP GetScreenExt(RECT* prc) override {
+    STDMETHODIMP GetScreenExt(RECT* prc) noexcept override {
         if (prc) *prc = {0, 0, 1920, 1080};
         return S_OK;
     }
-    STDMETHODIMP GetWnd(HWND* phwnd) override {
+    STDMETHODIMP GetWnd(HWND* phwnd) noexcept override {
         if (phwnd) *phwnd = nullptr;
         return S_OK;
     }
