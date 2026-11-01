@@ -93,10 +93,12 @@ public:
     STDMETHODIMP GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** ppInfo) noexcept override;
 
 private:
+    enum class FocusNotificationSource { ThreadManager, KeyEvent };
+
     bool InitThreadMgrEventSink() noexcept;
     bool InitKeyEventSink();
     void UninitKeyEventSink();
-    void InitDisplayAttributeGuidAtom();
+    void RegisterCompositionDisplayAttributeAtom();
     void InitFunctionProvider();
     void UninitFunctionProvider();
     void InitLangBarItem();
@@ -105,11 +107,11 @@ private:
     void UninitCompartmentSinks() noexcept;
     bool NotifyGlobalConfigChanged() noexcept;
     void SaveGlobalStatusBarPosition(POINT pos) noexcept;
-    void SyncStatusBarPositionFromGlobalCompartment() noexcept;
+    bool SyncStatusBarPositionFromGlobalCompartment() noexcept;
     void SyncEngineFromSystemCompartments(REFGUID changed_guid);
     void UpdateUiIndicators();
     void HandleLangBarMenuAction(LangBarMenuId action_id);
-    void HandleFocusChanged(bool has_focus);
+    void HandleFocusChanged(bool has_focus, FocusNotificationSource source);
     bool PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts);
     void SyncSavedConfigChange(bool reload_dicts);
     void LoadExternalDictionaryNextToDll();
@@ -119,7 +121,7 @@ private:
     void ToggleModeAndCancelComposition(ITfContext* context);
     void SyncTsfCompartments();
     void ApplyDynamicEngineSettings() noexcept;
-    void ReloadConfigIfModified();
+    void ReloadConfigIfModified(uint64_t focus_log_id = 0);
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
     void SyncCompositionUIInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot);
@@ -147,6 +149,8 @@ private:
     TfGuidAtom display_attribute_atom_ = TF_INVALID_GUIDATOM;
     bool syncing_compartments_ = false;
     bool has_valid_caret_pos_ = false;
+    bool has_logged_focus_state_ = false;
+    bool last_logged_focus_state_ = false;
 
     ComPtr<ITfComposition> composition_;
     ComPtr<ITfContext> active_context_;

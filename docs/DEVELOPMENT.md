@@ -167,6 +167,8 @@ cmake --build build\x64 --config Release --target lint
 - DLL 与设置 EXE 复用 [`version.rc.in`](../src/common/version.rc.in) 模板及统一版本号，但分别设置文件类型、描述和原始文件名。设置 EXE 标记为应用程序（`VFT_APP`），描述包含目标架构；两者均保留中英文资源、公司信息、版权与产品信息。
 
 ### 5.2 结构化排障日志
+- **监控步骤**：日志级别设置、原生调试器实时查看、`logman` 采集与 WPA 分析见[应用日志监控指南](LOGGING.md)，其中也说明了当前 IME 日志初始化限制。
+- **焦点性能埋点**：任务 50 使用 `std::chrono::steady_clock` 记录纳秒耗时，仅在详细级别且有接收方时计时；按进程内递增编号关联焦点处理与重载详情，保留原检查/重载顺序。字段和真实宿主复现步骤见[焦点处理耗时](LOGGING.md#61-焦点处理耗时任务-50)，不能将状态相同或测试进程耗时当成可合并通知、需要后台化的依据。
 - **日志提供程序**：Windows ETW TraceLogging 提供程序 `QiQiIME.TraceLogging`；仅在调试器附加时额外输出到 `OutputDebugString`，不会写入 `%LOCALAPPDATA%\QiQiIME\logs\qiqiime.log`。
 - **日志字段**：结构化事件包含级别、宿主进程名、进程 ID、线程 ID 和消息。
 - **隐私与异常安全**：所有 `QIQI_LOG_*` 宏均内建 `try/catch` 异常隔离（可在 `noexcept` 函数中安全调用），且严禁在日志中记录用户的私密上屏文字内容。

@@ -91,6 +91,7 @@ void RunCandidateUITests();
 void RunStatusBarUITests();
 void RunTsfComTests();
 void RunTsfServiceTests();
+void RunTsfFocusDiagnosticsScenario();
 
 // Settings tool test suites
 void RunSettingsDialogTests();

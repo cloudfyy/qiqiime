@@ -180,21 +180,23 @@ void QiQiTextService::SaveGlobalStatusBarPosition(POINT pos) noexcept {
     }
 }
 
-void QiQiTextService::SyncStatusBarPositionFromGlobalCompartment() noexcept {
+bool QiQiTextService::SyncStatusBarPositionFromGlobalCompartment() noexcept {
     if (!global_pos_comp_ || !status_bar_) {
-        return;
+        return false;
     }
     constexpr LONG kUnsetSentinel = INT32_MIN;
     const LONG packed = global_pos_comp_.ReadInt4(kUnsetSentinel);
     if (packed == kUnsetSentinel || packed == 0) {
-        return;
+        return false;
     }
     const POINT shared_pos = UnpackLongToScreenPoint(packed);
     if (shared_pos.x != status_bar_->Position().x || shared_pos.y != status_bar_->Position().y) {
         status_bar_->SetPosition(shared_pos);
         QIQI_LOG_DEBUG("SyncStatusBarPositionFromGlobalCompartment: synced pos=({}, {})",
                        shared_pos.x, shared_pos.y);
+        return true;
     }
+    return false;
 }
 
 void QiQiTextService::SyncEngineFromSystemCompartments(REFGUID changed_guid) {
@@ -490,31 +492,52 @@ void QiQiTextService::SyncTsfCompartments() {
     }
 }
 
-void QiQiTextService::ReloadConfigIfModified() {
-    if (engine_.HasModifiedMappedDictionary()) {
+void QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
+    const bool trace = log::GetLevel() <= log::Level::debug && log::IsLogSinkActive();
+    const bool dictionary_modified = engine_.HasModifiedMappedDictionary();
+    unsigned int dictionary_reload_calls = 0;
+    std::string_view config_status = "not-checked";
+    std::string_view phrase_frequency_status = "not-requested";
+    bool completed = false;
+    const auto trace_reload = gsl::finally([&]() noexcept {
+        if (trace) {
+            QIQI_LOG_DEBUG("ReloadConfigIfModified(focus_id={}, config_status={}, dictionary_modified={}, "
+                           "dictionary_reload_calls={}, mapped_dicts={}, phrase_frequency_status={}, completed={})",
+                           focus_log_id, config_status, dictionary_modified, dictionary_reload_calls,
+                           engine_.MappedDictionaryCount(), phrase_frequency_status, completed);
+        }
+    });
+    if (dictionary_modified) {
         QIQI_LOG_INFO("Detected modified dictionary file on disk; hot-reloading external dictionaries");
+        ++dictionary_reload_calls;
         LoadExternalDictionaryNextToDll();
     }
 
     const uint64_t reg_seq = QueryRegistryConfigSequence();
     if (reg_seq == 0 || reg_seq == config_registry_sequence_) {
+        config_status = reg_seq == 0 ? "sequence-unavailable" : "unchanged";
+        completed = true;
         return;
     }
 
     QiQiConfig updated{};
+    config_status = "load-failed";
     if (LoadConfigFromRegistry(updated, &config_registry_sequence_)) {
+        config_status = "loaded";
         config_ = std::move(updated);
         UpdateSettingsToastLanguage(config_.ui_language);
         ApplyDynamicEngineSettings();
         if (config_.dynamic_phrase_freq && !engine_.PhraseFreqPath().empty()) {
-            std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
+            phrase_frequency_status = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath()) ? "loaded" : "load-failed";
         }
+        ++dictionary_reload_calls;
         LoadExternalDictionaryNextToDll();
         SyncTsfCompartments();
         QIQI_LOG_INFO("Hot-reloaded modified user configuration from HKCU\\Software\\QiQiIME (dict={}, mapped_dicts={})",
                       PrimaryDictToString(config_.primary_dict),
                       engine_.MappedDictionaryCount());
     }
+    completed = true;
 }
 
 } // namespace qiqi

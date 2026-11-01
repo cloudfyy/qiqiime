@@ -57,7 +57,7 @@ bool IsCapsLockOn() noexcept {
 
 // ITfKeyEventSink
 STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
-    HandleFocusChanged(fForeground != FALSE);
+    HandleFocusChanged(fForeground != FALSE, FocusNotificationSource::KeyEvent);
     return S_OK;
 }
 

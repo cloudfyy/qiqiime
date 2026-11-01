@@ -101,6 +101,7 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 |---|---|---|
 | **架构文档** | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 系统分层架构、TSF COM 生命周期、编译期 `consteval` 状态机、`.qdict` 按需分页只读内存映射与最小权限安全设计、Direct2D/DirectWrite 与 RAII 体系 |
 | **开发文档** | [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) | 源码目录结构、CMake + vcpkg + C++26 双架构构建、单元测试套件、`CppCoreCheck` 静态代码检查、版本号生成机制与结构化排障日志规范 |
+| **日志监控** | [docs/LOGGING.md](./docs/LOGGING.md) | 日志级别设置、原生调试器实时查看、ETW 采集、WPA 分析、错误码解释及无日志排查 |
 | **部署文档** | [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) | `x64` + `x86 (WOW64)` 双架构注册原理、独立发行包打包（`build_all.ps1 -Package`）、用户数据目录结构、升级 DLL 占用处理与故障排查 |
 
 ---

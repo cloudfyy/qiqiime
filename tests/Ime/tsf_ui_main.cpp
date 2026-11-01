@@ -4,13 +4,18 @@
 #include <gsl/gsl>
 #include <iostream>
 
-int main() {
+int main(int argc, char* argv[]) {
     const HRESULT co_hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     const auto co_cleanup = gsl::finally([co_hr]() noexcept {
         if (SUCCEEDED(co_hr)) {
             ::CoUninitialize();
         }
     });
+
+    if (argc == 2 && std::string_view(argv[1]) == "--tsf-focus-diagnostics") {
+        qiqi::test::RunTsfFocusDiagnosticsScenario();
+        return 0;
+    }
 
     qiqi::test::RunLangBarMenuTests();
     qiqi::test::RunCandidateUITests();

@@ -7,6 +7,8 @@
 
 #include <oleauto.h>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cwchar>
 #include <string>
 
@@ -105,7 +107,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
         Deactivate();
         return E_FAIL;
     }
-    InitDisplayAttributeGuidAtom();
+    RegisterCompositionDisplayAttributeAtom();
     InitFunctionProvider();
     InitLangBarItem();
     InitCompartmentSinks();
@@ -192,7 +194,7 @@ void QiQiTextService::UninitKeyEventSink() {
     }
 }
 
-void QiQiTextService::InitDisplayAttributeGuidAtom() {
+void QiQiTextService::RegisterCompositionDisplayAttributeAtom() {
     display_attribute_atom_ = TF_INVALID_GUIDATOM;
     ComPtr<ITfCategoryMgr> cat_mgr;
     if (const HMODULE msctf = ::GetModuleHandleW(L"msctf.dll")) {
@@ -207,13 +209,13 @@ void QiQiTextService::InitDisplayAttributeGuidAtom() {
     if (!cat_mgr) {
         std::ignore = log::CheckHResult(::CoCreateInstance(
             CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&cat_mgr)),
-            "InitDisplayAttributeGuidAtom::CoCreateInstance(ITfCategoryMgr)");
+            "RegisterCompositionDisplayAttributeAtom::CoCreateInstance(ITfCategoryMgr)");
     }
     if (cat_mgr) {
         std::ignore = log::CheckHResult(cat_mgr->RegisterGUID(kGuidDisplayAttributeInput, &display_attribute_atom_),
-                                       "InitDisplayAttributeGuidAtom::RegisterGUID");
+                                       "RegisterCompositionDisplayAttributeAtom::RegisterGUID");
     } else {
-        QIQI_LOG_WARN("InitDisplayAttributeGuidAtom: ITfCategoryMgr unavailable");
+        QIQI_LOG_WARN("RegisterCompositionDisplayAttributeAtom: ITfCategoryMgr unavailable");
     }
 }
 
@@ -275,23 +277,53 @@ STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* /*pdim*/) noex
     return S_OK;
 }
 
-void QiQiTextService::HandleFocusChanged(bool has_focus) {
+void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource source) {
+    using Clock = std::chrono::steady_clock;
+    static std::atomic<uint64_t> focus_log_sequence{0};
+    const bool measure = log::GetLevel() <= log::Level::debug && log::IsLogSinkActive();
+    const auto started = measure ? Clock::now() : Clock::time_point{};
+    const uint64_t event_id = measure ? focus_log_sequence.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
+    const bool same_state = has_logged_focus_state_ && last_logged_focus_state_ == has_focus;
+    if (measure) {
+        has_logged_focus_state_ = true;
+        last_logged_focus_state_ = has_focus;
+    }
+    int64_t reload_ns = 0;
+    int64_t position_ns = 0;
+    bool position_changed = false;
+    bool completed = false;
+    const auto trace_focus = gsl::finally([&]() noexcept {
+        if (measure) {
+            const auto total_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - started).count();
+            QIQI_LOG_DEBUG("FocusPerformance(id={}, source={}, has_focus={}, same_state={}, reload_checked={}, "
+                           "reload_ns={}, position_ns={}, total_ns={}, position_changed={}, completed={})",
+                           event_id, source == FocusNotificationSource::ThreadManager ? "thread-manager" : "key-event",
+                           has_focus, same_state, has_focus, reload_ns, position_ns, total_ns, position_changed, completed);
+        }
+    });
     if (!has_focus) {
         ResetCompositionAndUI();
         if (status_bar_) {
             status_bar_->Show(false);
         }
     } else {
-        ReloadConfigIfModified();
-        SyncStatusBarPositionFromGlobalCompartment();
+        const auto reload_started = measure ? Clock::now() : Clock::time_point{};
+        ReloadConfigIfModified(event_id);
+        const auto reload_finished = measure ? Clock::now() : Clock::time_point{};
+        position_changed = SyncStatusBarPositionFromGlobalCompartment();
+        if (measure) {
+            reload_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(reload_finished - reload_started).count();
+            position_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - reload_finished).count();
+        }
         if (status_bar_) {
             status_bar_->Show(config_.show_status_bar);
         }
     }
+    completed = true;
 }
 
 STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* /*pdimPrevFocus*/) {
-    HandleFocusChanged(pdimFocus != nullptr);
+    HandleFocusChanged(pdimFocus != nullptr, FocusNotificationSource::ThreadManager);
     return S_OK;
 }
 

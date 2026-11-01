@@ -164,7 +164,7 @@ TSF 的按键处理分为两步：
 
 以下待办由代码阅读发现的问题及待验证风险整理，未勾选项尚未实施；静态风险不等于真实宿主中已经复现的故障。保存于本架构文档，供后续会话继续执行。与下方任务 41 协调 UI 清理方案，不重复实现，也不在存在过期回调时仅提前销毁窗口。
 
-**执行顺序调整：任务 49 优先，其后 42 → 43 → 44 → 45 → 41 → 46 → 47，再继续 48、50–54 与原有功能待办。箭头表示建议执行顺序，硬依赖以各任务说明为准。**
+**执行顺序调整：任务 49 已优先完成，任务 50、54 已提前完成；剩余按 42 → 43 → 44 → 45 → 41 → 46 → 47，再继续 48、51–53 与原有功能待办。箭头表示建议执行顺序，硬依赖以各任务说明为准。**
 
 **首要执行：全仓库失败诊断**
 
@@ -178,6 +178,14 @@ TSF 的按键处理分为两步：
   - 审计范围、修复项、验证方式及独立生命周期剩余项见[开发文档](DEVELOPMENT.md#53-失败日志审计范围任务-49)；后续代码沿用该失败诊断规范。
 
 **P0：先建立测试能力，再修复过期任务**
+
+- [ ] **55. 修复 IME 日志初始化循环依赖（`ime-etw-logger-bootstrap`）**
+  - 当前 [`Log`](../src/common/logger.h) 在 Provider 尚未注册时通过 `IsLogSinkActive` 提前返回，而注册发生在尚未进入的 `WriteLogMessage` 路径中；IME 未主动初始化，导致仅开启 ETW 采集、未附加调试器时可能始终没有日志。任务 49 遗漏了这一初始化缺陷。
+  - 在正常服务激活路径、首条需要记录的消息之前明确初始化日志，不依赖调试器启动日志通路；避免在 `DllMain` 的加载器锁内注册或执行复杂初始化。
+  - 覆盖首次激活，以及停用后重新激活；与任务 51 的进程共享日志生命周期协调，停用一个服务实例不得破坏其他实例的日志能力，不重复实现关闭策略。
+  - 保留应用日志级别、无接收方时的低开销、真实注册错误码及不递归失败兜底，不记录用户输入或敏感数据。
+  - 补充无调试器且 ETW 会话已启动、应用启动后才启用采集、停用/重新激活、多实例、注册失败及日志 Off 的测试；实际采集验证应确认包含目标宿主 PID 和预期消息，不能仅检查会话存在。
+  - 修复并验证后更新[日志监控指南](LOGGING.md#当前实现的初始化限制)，移除已解决的初始化限制说明；当前只记录待办，不修改实现或现有执行顺序。
 
 - [ ] **42. 延迟编辑会话测试能力（`tsf-deferred-session-test-support`）**
   - 扩展现有立即执行回调的编辑会话 Mock，支持排队及手动执行；模拟停用、重新激活和上下文变化后才执行旧任务的时序。
@@ -222,12 +230,14 @@ TSF 的按键处理分为两步：
   - 测试全部成功、单项重复/其他失败、部分成功回滚、重复停用、重新激活及注销失败，保持原快捷键行为。
   - 参考源码：微软 [SampleIME](https://github.com/microsoft/Windows-classic-samples/blob/main/Samples/IME/cpp/SampleIME/CompositionProcessorEngine.cpp) 未逐次检查注册返回值，注销按表进行，不宜照搬错误处理；[Weasel](https://github.com/rime/weasel/blob/master/WeaselTSF/KeyEventSink.cpp) 当前注册代码位于 `#if 0`，初始化直接成功，注销为空。实施前复核源码，不能据此泛化所有输入法行为。
   - 官方依据：[PreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-preservekey)、[UnpreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-unpreservekey)。
-- [ ] **50. 焦点处理性能埋点（`tsf-focus-performance-instrumentation`）**
+- [x] **50. 焦点处理性能埋点（`tsf-focus-performance-instrumentation`）**
   - 对 [`HandleFocusChanged`](../src/Ime/tsf/tip_service.cpp) 的 `ReloadConfigIfModified`、`SyncStatusBarPositionFromGlobalCompartment` 分别测量耗时，并记录焦点处理总耗时及两类通知来源。
   - 区分配置/词库无变化检查与实际重载，识别重复通知、同次词库与配置变化导致的重复加载；记录重载结果及非敏感计数。
   - 复用现有计时/日志机制；如无则用单调高精度时钟（如 `std::chrono::steady_clock`），单位明确，精度能观察轻量检查。
   - 详细埋点采用调试/跟踪级别，减少日志关闭时开销及生产刷屏，不记录用户文本或敏感路径，不新增吞异常或成功形状的失败结果。
   - 验证无变化、配置变化、词库变化、两者同时变化、位置相同/变化及两种焦点通知；在真实宿主测量后再决定优化。不在本项擅自增加阈值、改变重载策略或把 TSF/UI 对象移到后台线程。
+  - 已实现 Debug 级别 `FocusPerformance` 与关联的重载详情，采用单调时钟整数纳秒，保留同次双重载，并记录配置/词频结果、词库调用次数及映射数量。详细日志关闭或没有接收方时不读取计时时钟；失去焦点仅测量既有清理路径。
+  - 双架构构建与 TSF/UI 测试通过；自有调试子进程直接验证实际日志、计时形状、所需变化分支及 Info/Off 过滤。真实宿主测量留作后续优化依据，操作步骤见[日志指南](LOGGING.md#61-焦点处理耗时任务-50)；不宣称已完成宿主性能优化。
 
 **P2：共享资源与命名**
 
@@ -245,11 +255,23 @@ TSF 的按键处理分为两步：
   - 保存并诊断创建、回退及注册的实际 HRESULT；不能在宿主线程擅自初始化/反初始化 COM。只有证实 COM 路径足够可靠后再评估简化。
   - 覆盖导出成功/不可用、导出失败后 COM 成功、全部创建失败及注册失败；保留失败不终止激活的既有行为，验证目标宿主兼容性。
   - 官方依据：[TF_CreateCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-tf_createcategorymgr)、[GetModuleHandleW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew)、[ITfCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr)。
-- [ ] **54. 明确显示属性注册命名（`tsf-display-attribute-registration-name`）**
-  - 将 `InitDisplayAttributeGuidAtom` 改为 `RegisterCompositionDisplayAttributeAtom`，同步声明、定义、调用、日志及直接相关文档/测试引用，不改变行为；与任务 53 协调。
+- [x] **54. 明确显示属性注册命名（`tsf-display-attribute-registration-name`）**
+  - 已统一为 `RegisterCompositionDisplayAttributeAtom`，同步声明、定义、调用、日志及直接相关文档引用；双架构构建与 TSF/UI 测试验证既有行为，未改变类别管理器创建/回退及注册失败不终止激活的策略。任务 53 的生命周期评估仍独立待办。
   - 保留 [`display_attribute.cpp`](../src/Ime/tsf/display_attribute.cpp)、[`display_attribute.h`](../src/Ime/tsf/display_attribute.h) 及其类名；它们对应 TSF 正式接口，暂不进行收益有限的批量改名。
 
+#### P2：轻量实时诊断工具
+
+- [ ] **56. 独立实时日志监控工具（`realtime-etw-log-monitor`）**
+  - 为日常开发和用户问题复现提供按需启动的轻量工具，避免每次附加调试器或打开 WPA；作为可选诊断程序，不随 IME 常驻，不替代 WPA 的完整离线分析能力。
+  - 依赖任务 55：先保证无调试器时宿主能正常注册并输出日志；与任务 51 协调共享日志生命周期，工具不能靠附加调试器掩盖初始化问题。
+  - 直接消费 `QiQiIME.TraceLogging` 的实时 ETW 事件，并按自描述元数据解码 `process`、`message` 和事件头；复用现有 Provider，不新增文本文件轮询、宿主注入或第二套日志传输。
+  - 最小功能包含开始/停止采集、按进程名/PID及级别过滤、时间/线程/消息显示、暂停滚动、清空和按需导出；区分显示过滤与应用日志级别，不承诺显示已在应用侧被过滤的消息。具体界面形式在实施前确定。
+  - 使用有界事件缓冲和批量显示，明确报告丢失事件、解码失败、权限不足及会话创建/停止错误；按采集 API 的权限要求运行工具，不提升被测宿主权限，只清理本工具拥有的会话与资源。
+  - 验证多宿主与 x64/x86 事件、无调试器、晚启动监控、进程退出/重新启动、高频事件、缓冲溢出、暂停/恢复及退出清理；导出前提供敏感环境信息检查，不默认长期写盘或上传日志。
+  - 完成后更新[日志监控指南](LOGGING.md)，提供操作步骤；当前仅记录待办，不调整已有任务的执行顺序。
+
 #### 近期首要待办（明早第一项工作）
+*** End of File
 - [x] **0. 全量代码质量检查与测试补全（`code-audit-and-test-completion`）**：对全仓（`common`、`engine`、`tsf`、`ui`、`settings`）执行代码质量扫描（RAII 合规、代码复用/DRY、C++ Core Guidelines & GSL 最佳实践、异常与边界安全），并补全遗漏的单元测试分支。
 
 #### P0：TSF 停用阶段资源清理

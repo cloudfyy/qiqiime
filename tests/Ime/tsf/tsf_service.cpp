@@ -3,16 +3,120 @@
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/sound.h"
+#include "common/file_util.h"
 #include "Ime/tsf/display_attribute.h"
 #include "Ime/tsf/tip_service.h"
 
 #include <cstdlib>
+#include <chrono>
+#include <fstream>
 #include <memory>
+#include <regex>
 #include <tuple>
 
 namespace qiqi::test {
 
 namespace {
+
+void TestFocusPerformanceLogs() {
+    const auto executable = GetModuleFilePath(nullptr);
+    QIQI_TEST_CHECK(!executable.empty());
+    std::wstring command = L"\"" + executable.wstring() + L"\" --tsf-focus-diagnostics";
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION info{};
+    QIQI_TEST_CHECK(::CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
+                                    DEBUG_ONLY_THIS_PROCESS, nullptr, nullptr, &startup, &info));
+    const ScopedKernelHandle process(info.hProcess);
+    const ScopedKernelHandle thread(info.hThread);
+    std::vector<std::wstring> focus_records;
+    std::vector<std::wstring> reload_records;
+    bool exited = false;
+    while (!exited) {
+        DEBUG_EVENT event{};
+        QIQI_TEST_CHECK(::WaitForDebugEventEx(&event, 30'000));
+        DWORD continuation = DBG_CONTINUE;
+        if (event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT) {
+            const ScopedFileHandle image(event.u.CreateProcessInfo.hFile);
+        } else if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT) {
+            const ScopedFileHandle image(event.u.LoadDll.hFile);
+        } else if (event.dwDebugEventCode == OUTPUT_DEBUG_STRING_EVENT) {
+            const auto& output = event.u.DebugString;
+            SIZE_T read = 0;
+            std::wstring message;
+            if (output.fUnicode) {
+                QIQI_TEST_CHECK(output.nDebugStringLength % sizeof(wchar_t) == 0);
+                message.resize(output.nDebugStringLength / sizeof(wchar_t));
+                QIQI_TEST_CHECK(::ReadProcessMemory(process.Get(), output.lpDebugStringData, message.data(),
+                                                    message.size() * sizeof(wchar_t), &read));
+                QIQI_TEST_CHECK(read == message.size() * sizeof(wchar_t));
+            } else {
+                std::string bytes(output.nDebugStringLength, '\0');
+                QIQI_TEST_CHECK(::ReadProcessMemory(process.Get(), output.lpDebugStringData, bytes.data(),
+                                                    bytes.size(), &read));
+                QIQI_TEST_CHECK(read == bytes.size());
+                message.assign(bytes.begin(), bytes.end());
+            }
+            if (message.contains(L"FocusPerformance(")) focus_records.push_back(message);
+            if (message.contains(L"ReloadConfigIfModified(focus_id=")) reload_records.push_back(message);
+        } else if (event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT) {
+            if (event.u.Exception.ExceptionRecord.ExceptionCode != EXCEPTION_BREAKPOINT) {
+                continuation = DBG_EXCEPTION_NOT_HANDLED;
+            }
+        } else if (event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT) {
+            QIQI_TEST_CHECK(event.u.ExitProcess.dwExitCode == 0);
+            exited = true;
+        }
+        QIQI_TEST_CHECK(::ContinueDebugEvent(event.dwProcessId, event.dwThreadId, continuation));
+    }
+
+    // Observe actual logger output without adding a production test sink or changing ETW initialization.
+    QIQI_TEST_CHECK(focus_records.size() == 12 && reload_records.size() == 10);
+    const std::wregex durations(LR"(reload_ns=([0-9]+), position_ns=([0-9]+), total_ns=([0-9]+))");
+    for (size_t i = 0; i < focus_records.size(); ++i) {
+        const auto& record = gsl::at(focus_records, i);
+        QIQI_TEST_CHECK(record.contains(std::format(L"FocusPerformance(id={}, ", i + 1)));
+        QIQI_TEST_CHECK(record.contains(L"completed=true)"));
+        std::wsmatch match;
+        QIQI_TEST_CHECK(std::regex_search(record, match, durations));
+        const auto reload_ns = std::stoull(match[1].str());
+        const auto position_ns = std::stoull(match[2].str());
+        const auto total_ns = std::stoull(match[3].str());
+        QIQI_TEST_CHECK(total_ns > 0 && total_ns >= reload_ns + position_ns);
+        if (i != 7 && i != 8) {
+            QIQI_TEST_CHECK(reload_ns > 0 && position_ns > 0);
+            QIQI_TEST_CHECK(record.contains(L"has_focus=true") && record.contains(L"reload_checked=true"));
+        } else {
+            QIQI_TEST_CHECK(reload_ns == 0 && position_ns == 0);
+            QIQI_TEST_CHECK(record.contains(L"has_focus=false") && record.contains(L"reload_checked=false"));
+        }
+    }
+    QIQI_TEST_CHECK(gsl::at(focus_records, 0).contains(L"source=thread-manager") &&
+                    gsl::at(focus_records, 0).contains(L"same_state=false"));
+    QIQI_TEST_CHECK(gsl::at(focus_records, 1).contains(L"source=key-event") &&
+                    gsl::at(focus_records, 1).contains(L"same_state=true"));
+    QIQI_TEST_CHECK(gsl::at(focus_records, 2).contains(L"position_changed=true"));
+    QIQI_TEST_CHECK(gsl::at(focus_records, 3).contains(L"position_changed=false"));
+    QIQI_TEST_CHECK(gsl::at(focus_records, 7).contains(L"same_state=false"));
+    QIQI_TEST_CHECK(gsl::at(focus_records, 8).contains(L"same_state=true"));
+    for (size_t i = 0; i < 7; ++i) {
+        const auto& record = gsl::at(reload_records, i);
+        const bool config_changed = i == 4 || i == 6;
+        const bool dictionary_changed = i == 5 || i == 6;
+        QIQI_TEST_CHECK(record.contains(std::format(L"focus_id={}, config_status={}", i + 1,
+                                                   config_changed ? L"loaded" : L"unchanged")));
+        QIQI_TEST_CHECK(record.contains(std::format(L"dictionary_modified={}, dictionary_reload_calls={}",
+                                                   dictionary_changed, static_cast<unsigned int>(config_changed) +
+                                                   static_cast<unsigned int>(dictionary_changed))));
+        QIQI_TEST_CHECK(record.contains(L"mapped_dicts=1, phrase_frequency_status=not-requested, completed=true)"));
+    }
+    QIQI_TEST_CHECK(gsl::at(reload_records, 7).contains(L"focus_id=10, config_status=loaded"));
+    QIQI_TEST_CHECK(gsl::at(reload_records, 7).contains(L"phrase_frequency_status=load-failed, completed=true"));
+    QIQI_TEST_CHECK(gsl::at(reload_records, 8).contains(L"focus_id=11, config_status=loaded"));
+    QIQI_TEST_CHECK(gsl::at(reload_records, 8).contains(L"phrase_frequency_status=loaded, completed=true"));
+    QIQI_TEST_CHECK(gsl::at(reload_records, 9).contains(L"focus_id=12, config_status=sequence-unavailable"));
+    QIQI_TEST_CHECK(gsl::at(reload_records, 9).contains(L"dictionary_reload_calls=0"));
+}
 
 void TestQiQiTextServiceLifecycleAndKeyFlow() {
     constexpr const wchar_t* kTsfTestRegSubKey = L"Software\\QiQiIME_TsfUnitTest";
@@ -758,8 +862,99 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
 } // namespace
 
+void RunTsfFocusDiagnosticsScenario() {
+    QIQI_TEST_CHECK(::IsDebuggerPresent());
+    const auto subkey = std::format(L"Software\\QiQiIME_FocusTest_{}", ::GetCurrentProcessId());
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto directory = std::filesystem::temp_directory_path() /
+                           std::format(L"QiQiIME_FocusTest_{}", ::GetCurrentProcessId());
+    QIQI_TEST_CHECK(std::filesystem::create_directory(directory));
+    wchar_t* previous_appdata = nullptr;
+    size_t previous_length = 0;
+    QIQI_TEST_CHECK(_wdupenv_s(&previous_appdata, &previous_length, L"LOCALAPPDATA") == 0);
+    const std::unique_ptr<wchar_t, decltype(&std::free)> previous_appdata_owner(previous_appdata, &std::free);
+    QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", directory.c_str()) == 0);
+    const auto cleanup = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(nullptr);
+        QIQI_TEST_CHECK(::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str()) == ERROR_SUCCESS);
+        QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", previous_appdata_owner ? previous_appdata_owner.get() : L"") == 0);
+        std::error_code ec;
+        std::filesystem::remove_all(directory, ec);
+        QIQI_TEST_CHECK(!ec);
+        SetMuteAudioOutputForTest(false);
+    });
+    SetMuteAudioOutputForTest(true);
+    const auto dictionary = directory / L"focus.txt";
+    const auto write_dictionary = [&](int generation) {
+        std::ofstream file(dictionary, std::ios::binary | std::ios::trunc);
+        file << "zzzz first second" << generation << "\n";
+        file.close();
+        QIQI_TEST_CHECK(file.good());
+        std::filesystem::last_write_time(dictionary, std::filesystem::file_time_type::clock::now() +
+                                                     std::chrono::seconds(10 * generation));
+    };
+    write_dictionary(0);
+    QiQiConfig config{};
+    config.primary_dict = PrimaryDict::BuiltinOnly;
+    config.enable_jidian_extra = false;
+    config.user_dict_path = dictionary.wstring();
+    config.log_level = log::Level::debug;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+    auto manager = MakeComObject<MockTfThreadMgr>();
+    ComPtr<ITfThreadMgr> document_manager_factory;
+    QIQI_TEST_CHECK(SUCCEEDED(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
+                                                IID_PPV_ARGS(&document_manager_factory))));
+    ComPtr<ITfDocumentMgr> document;
+    QIQI_TEST_CHECK(document_manager_factory->CreateDocumentMgr(&document) == S_OK);
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
+    manager->global_pos_compartment_->last_val_ = 0;
+    QIQI_TEST_CHECK(service->OnSetFocus(document.Get(), nullptr) == S_OK);
+    QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
+    manager->global_pos_compartment_->last_val_ = gsl::narrow_cast<LONG>(MAKELONG(137, 149));
+    QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
+    QIQI_TEST_CHECK(service->OnSetFocus(document.Get(), nullptr) == S_OK);
+    config.page_size = 4;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
+    write_dictionary(1);
+    QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
+    write_dictionary(2);
+    config.page_size = 6;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(service->OnSetFocus(document.Get(), nullptr) == S_OK);
+    QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+    QIQI_TEST_CHECK(service->OnSetFocus(nullptr, document.Get()) == S_OK);
+    config.dynamic_phrase_freq = true;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
+    {
+        std::ofstream frequencies(GetDefaultPhraseFreqPath(), std::ios::binary | std::ios::trunc);
+        frequencies << "zzzz first\n";
+        frequencies.close();
+        QIQI_TEST_CHECK(frequencies.good());
+    }
+    config.page_size = 5;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
+    {
+        SetConfigRegistrySubKeyOverrideForTest(L"");
+        const auto restore_registry = gsl::finally([&]() noexcept {
+            SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+        });
+        QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
+    }
+    for (const auto level : {log::Level::info, log::Level::off}) {
+        log::SetLevel(level);
+        QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
+        QIQI_TEST_CHECK(service->OnSetFocus(document.Get(), nullptr) == S_OK);
+    }
+}
+
 void RunTsfServiceTests() {
     TestQiQiTextServiceLifecycleAndKeyFlow();
+    TestFocusPerformanceLogs();
 }
 
 } // namespace qiqi::test
