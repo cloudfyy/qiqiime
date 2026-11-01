@@ -4,6 +4,7 @@
 #include "common/file_util.h"
 #include "common/i18n.h"
 #include "common/logger.h"
+#include "common/etw_registration.h"
 #include "common/scoped_handle.h"
 #include "common/sound.h"
 #include "common/version.h"
@@ -15,10 +16,74 @@
 #include <memory>
 #include <string>
 #include <tuple>
+#include <thread>
 
 namespace qiqi::test {
 
 namespace {
+
+std::atomic<ULONG> registration_error{ERROR_SUCCESS};
+std::atomic<unsigned int> registration_calls{0};
+std::atomic<unsigned int> unregistration_calls{0};
+std::atomic<bool> block_registration{false};
+std::atomic<bool> registration_entered{false};
+std::atomic<bool> release_registration{false};
+
+ULONG RegisterTestProvider() noexcept {
+    ++registration_calls;
+    if (block_registration) {
+        registration_entered.store(true);
+        registration_entered.notify_all();
+        release_registration.wait(false);
+    }
+    return registration_error.load();
+}
+
+void UnregisterTestProvider() noexcept { ++unregistration_calls; }
+
+void TestEtwRegistrationLifetime() {
+    registration_calls = 0;
+    unregistration_calls = 0;
+    registration_error = ERROR_ACCESS_DENIED;
+    {
+        log::detail::EtwRegistration registration(RegisterTestProvider, UnregisterTestProvider);
+        QIQI_TEST_CHECK(!registration.IsRegistered());
+        registration.Shutdown();
+        QIQI_TEST_CHECK(registration_calls == 0 && unregistration_calls == 0);
+        QIQI_TEST_CHECK(registration.EnsureRegistered() == ERROR_ACCESS_DENIED);
+        QIQI_TEST_CHECK(!registration.IsRegistered());
+        registration.Shutdown();
+        QIQI_TEST_CHECK(unregistration_calls == 0);
+
+        registration_error = ERROR_SUCCESS;
+        block_registration = true;
+        registration_entered = false;
+        release_registration = false;
+        std::jthread first([&]() {
+            QIQI_TEST_CHECK(registration.EnsureRegistered() == ERROR_SUCCESS);
+        });
+        registration_entered.wait(false);
+        QIQI_TEST_CHECK(!registration.IsRegistered());
+        std::vector<std::jthread> callers;
+        for (int i = 0; i < 8; ++i) {
+            callers.emplace_back([&]() {
+                QIQI_TEST_CHECK(registration.EnsureRegistered() == ERROR_SUCCESS);
+                QIQI_TEST_CHECK(registration.IsRegistered());
+            });
+        }
+        release_registration.store(true);
+        release_registration.notify_all();
+        first.join();
+        callers.clear();
+        block_registration = false;
+        QIQI_TEST_CHECK(registration_calls == 2 && registration.IsRegistered());
+        registration.Shutdown();
+        registration.Shutdown();
+        QIQI_TEST_CHECK(unregistration_calls == 1 && !registration.IsRegistered());
+        QIQI_TEST_CHECK(registration.EnsureRegistered() == ERROR_SUCCESS);
+    }
+    QIQI_TEST_CHECK(registration_calls == 3 && unregistration_calls == 2);
+}
 
 void TestVersionMechanism() {
     static_assert(version::kCurrentVersion >= version::SemanticVersion{0, 8, 4});
@@ -35,9 +100,15 @@ void TestVersionMechanism() {
 }
 
 void TestEtwLogger() {
-    // 1. Test lazy initialization & Windows ETW TraceLogging provider registration before InitLogger() is ever called
-    QIQI_TEST_CHECK(log::IsEtwProviderRegistered());
-    QIQI_LOG_DEBUG("Lazy default logger test");
+    log::Shutdown();
+    QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
+    log::Shutdown();
+    QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
+    log::SetLevel(log::Level::debug);
+    QIQI_LOG_DEBUG("Logging does not initialize the provider");
+    QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
+    QIQI_TEST_CHECK(log::EnsureInitialized());
+    QIQI_TEST_CHECK(log::IsEtwProviderRegistered() && log::GetLevel() == log::Level::debug);
 
     // 2. Test WideToUtf8, Utf8ToWide, and GetModuleFilePath
     QIQI_TEST_CHECK(WideToUtf8(L"").empty());
@@ -81,7 +152,7 @@ void TestEtwLogger() {
     QIQI_TEST_CHECK(!log::CheckHResult(E_FAIL, "failed operation", log::Level::err));
     QIQI_TEST_CHECK(::GetLastError() == ERROR_SHARING_VIOLATION);
 
-    // 4. Test GetAppDataDirectory fallback when LOCALAPPDATA is unset, plus Shutdown & lazy re-Init
+    // 4. Test GetAppDataDirectory fallback when LOCALAPPDATA is unset and explicit reinitialization.
     {
         wchar_t* orig_localappdata = nullptr;
         size_t orig_len = 0;
@@ -97,10 +168,13 @@ void TestEtwLogger() {
         QIQI_TEST_CHECK(!GetAppDataDirectory().empty());
     }
     log::Shutdown();
-    // WriteLogMessage after Shutdown exercises lazy EnsureRegistered inside WriteLogMessage
-    log::WriteLogMessage(log::Level::info, "Lazy re-init after Shutdown");
+    log::WriteLogMessage(log::Level::info, "Direct writing does not reinitialize after Shutdown");
+    QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
     log::Shutdown();
-    QIQI_TEST_CHECK(log::IsEtwProviderRegistered());
+    QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
+    log::SetLevel(log::Level::off);
+    QIQI_TEST_CHECK(log::EnsureInitialized());
+    QIQI_TEST_CHECK(log::IsEtwProviderRegistered() && log::GetLevel() == log::Level::off);
     log::InitLogger();
 }
 
@@ -474,6 +548,7 @@ void TestI18nLocalization() {
 } // namespace
 
 void RunCommonTests() {
+    TestEtwRegistrationLifetime();
     TestEtwLogger();
     TestVersionMechanism();
     TestIniConfiguration();

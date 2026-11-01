@@ -25,7 +25,7 @@ qiqiime/
 ├── CMakeLists.txt              # 根 CMake 构建配置（工具链探测、版本生成、C++26 标准与子目录调度）
 ├── CMakePresets.json           # CMake Presets (支持 x64 与 x86/Win32 双架构配置、构建与测试)
 ├── LICENSE                     # GNU General Public License v3.0 (GPL-3.0)
-├── VERSION                     # 项目版本号单一事实源 (SemVer, 当前 0.8.4)
+├── VERSION                     # 项目版本号单一事实源 (SemVer)
 ├── vcpkg.json                  # vcpkg 依赖清单 (ms-gsl)
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/
@@ -167,7 +167,8 @@ cmake --build build\x64 --config Release --target lint
 - DLL 与设置 EXE 复用 [`version.rc.in`](../src/common/version.rc.in) 模板及统一版本号，但分别设置文件类型、描述和原始文件名。设置 EXE 标记为应用程序（`VFT_APP`），描述包含目标架构；两者均保留中英文资源、公司信息、版权与产品信息。
 
 ### 5.2 结构化排障日志
-- **监控步骤**：日志级别设置、原生调试器实时查看、`logman` 采集与 WPA 分析见[应用日志监控指南](LOGGING.md)，其中也说明了当前 IME 日志初始化限制。
+- **监控步骤**：日志级别设置、原生调试器实时查看、`logman` 采集与 WPA 分析见[应用日志监控指南](LOGGING.md)。任务 55、51 已修复初始化及停用影响共享日志的问题；ETW 无需附加调试器。
+- **初始化与生命周期**：正常入口调用 `EnsureInitialized`，幂等注册且不改变日志级别；`InitLogger` 额外设置级别。注册成功后才发布状态，查询及写日志不隐式注册；同进程 IME 实例共享，同名 Provider 在不同进程独立。`Deactivate` 不注销，模块清理在调用者结束后注销，不在 `DllMain` 注册、格式化日志或获取初始化锁。
 - **焦点性能埋点**：任务 50 使用 `std::chrono::steady_clock` 记录纳秒耗时，仅在详细级别且有接收方时计时；按进程内递增编号关联焦点处理与重载详情，保留原检查/重载顺序。字段和真实宿主复现步骤见[焦点处理耗时](LOGGING.md#61-焦点处理耗时任务-50)，不能将状态相同或测试进程耗时当成可合并通知、需要后台化的依据。
 - **日志提供程序**：Windows ETW TraceLogging 提供程序 `QiQiIME.TraceLogging`；仅在调试器附加时额外输出到 `OutputDebugString`，不会写入 `%LOCALAPPDATA%\QiQiIME\logs\qiqiime.log`。
 - **日志字段**：结构化事件包含级别、宿主进程名、进程 ID、线程 ID 和消息。
@@ -181,5 +182,13 @@ cmake --build build\x64 --config Release --target lint
 - 已检查生产代码中的失败日志、COM 返回值、文件/注册表读写及异常兜底，覆盖 `common`、IME 引擎、TSF、候选窗/语言栏/状态条、设置程序及安装/构建脚本；测试与第三方依赖仅作为验证依据，未修改第三方代码。
 - 修复实际 HRESULT 漏报、ETW 注册错误判断、注册表/文件读写及缓存映射错误码缺失、回调异常吞错，以及设置程序单实例互斥量失败；构建脚本补充阶段/架构/退出码诊断。保留可选能力失败后的原有回退，COM CLSID 必需值写入失败不再报告注册成功。
 - 失败注入覆盖函数提供程序及语言栏部分成功、注册失败、注销失败、重复停用和再次激活；公共日志测试覆盖成功/异步 HRESULT 与错误码保留；配置、文件、词库、设置及绘制由现有回归测试覆盖。
-- 任务 48 的保留键所有权策略、任务 51/52 的进程共享资源策略、任务 53 的 DLL 生命周期与任务 42–47 的异步生命周期处理仍独立待办；本次只补充这些路径的失败诊断，不宣称对应生命周期问题已修复。
+- 任务 48 的保留键所有权策略、任务 52 的进程词库缓存策略、任务 53 的 DLL 生命周期与任务 42–47 的异步生命周期处理仍独立待办；审计阶段只补失败诊断，任务 51 的共享日志问题后来与任务 55 一并修复。
 - 验证：x64/x86 Release 构建及各 4 组 CTest 全部通过，`lint` 的 CppCoreCheck 与 PSScriptAnalyzer 通过；模拟 CMake 返回 37，确认构建脚本输出阶段、架构和错误码并保留退出码。首次 x64 窗口交互测试失败且后续设置测试未结束，停止该测试进程后，TSF/UI 隔离重跑与最终全套重跑均通过；此记录不等同于已修复窗口交互测试的偶发性问题。
+
+### 5.4 日志初始化与生命周期验证（任务 55、51）
+
+- 公共测试覆盖失败注册的实际返回码、失败不发布已注册状态、成功重试、并发初始化只成功注册一次、注册完成前查询为 false、未初始化/重复关闭不注册，以及 Off 下的显式初始化。TSF/UI 测试覆盖停用一个实例保留 Provider、重新激活不重置 Off。
+- `QiQiEtwIntegrationTest` 启动两个无调试器子进程加载真实 `qiqiime.dll`，覆盖采集先于/晚于初始化、一个进程退出后另一个继续输出、同进程多实例停用/重新激活、模块卸载重载及 Off 过滤。实际 ETL 经 TDH 解码并断言目标 PID、预期消息、级别和零丢失，不只检查会话存在。每个子进程隔离 HKCU 与 LOCALAPPDATA，不修改真实配置或词库。
+- 采集仅启用自有测试 PID；唯一命名会话、句柄、子进程作业及临时文件按生命周期清理。普通权限缺少采集控制权限时显式报告 `StartTraceW error=5`，CTest 标记跳过（退出码 77），不能当作 ETW 验证通过。
+- 定向运行：`ctest --test-dir build\x64 -C Release -R '^(QiQiCommonTest|QiQiTsfUiTest|QiQiEtwIntegrationTest)$' --output-on-failure`；x86 使用 `build\x86`。本次两个架构实际 ETW 测试均通过，没有因权限跳过；这些受控宿主验证不替代浏览器/UWP 的兼容性或真实输入体验测试。
+- 验证：x64/x86 Release 完整构建及各 5 组 CTest 全部通过；CppCoreCheck 在既有 435 条基线以内，PSScriptAnalyzer 零错误。仅对 ETW SDK 必需的回调联合体局部说明并豁免 C26476，不替换 Windows ABI，也不扩大告警豁免范围。

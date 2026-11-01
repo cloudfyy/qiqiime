@@ -16,14 +16,17 @@ enum class Level : uint8_t {
     off = 6
 };
 
-// Initialize the global QiQiIME ETW TraceLogging provider and set the active log level.
+// Initialize the module's shared ETW TraceLogging provider and set the active log level.
 void InitLogger(Level level = Level::info) noexcept;
+
+// Register once per module, outside DllMain, without changing the shared log level. Failure is diagnosed.
+bool EnsureInitialized() noexcept;
 
 // Query or dynamically change the active log level.
 Level GetLevel() noexcept;
 void SetLevel(Level level) noexcept;
 
-// Query whether the Windows ETW TraceLogging provider is registered.
+// Query registration without initializing or changing provider state.
 bool IsEtwProviderRegistered() noexcept;
 
 // Return whether any log consumer (active ETW session or attached debugger) is currently listening.
@@ -49,7 +52,7 @@ void Log(Level level, std::string_view fmt, Args&&... args) noexcept {
     }
 }
 
-// Safely unregister the Windows ETW TraceLogging provider on dynamic DLL unload (when not in process termination).
+// Module teardown only: callers must be quiescent. Does not initialize or acquire the initialization lock.
 void Shutdown() noexcept;
 
 } // namespace qiqi::log

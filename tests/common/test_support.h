@@ -92,6 +92,8 @@ void RunStatusBarUITests();
 void RunTsfComTests();
 void RunTsfServiceTests();
 void RunTsfFocusDiagnosticsScenario();
+void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_directory);
+int RunTsfEtwIntegrationTests();
 
 // Settings tool test suites
 void RunSettingsDialogTests();

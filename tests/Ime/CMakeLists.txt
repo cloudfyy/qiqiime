@@ -13,6 +13,7 @@ add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
 set(QIQI_TSF_UI_TEST_SOURCES
     tsf/tsf_mocks.h
     tsf/tsf_com.cpp
+    tsf/tsf_logging.cpp
     tsf/tsf_service.cpp
     ui/ui_candidate.cpp
     ui/ui_langbar_menu.cpp
@@ -49,5 +50,9 @@ target_link_libraries(qiqi_tsf_ui_test PRIVATE
     ole32
     oleaut32
     uuid
+    tdh
 )
 add_test(NAME QiQiTsfUiTest COMMAND qiqi_tsf_ui_test)
+add_dependencies(qiqi_tsf_ui_test qiqiime)
+add_test(NAME QiQiEtwIntegrationTest COMMAND qiqi_tsf_ui_test --etw-integration)
+set_tests_properties(QiQiEtwIntegrationTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)

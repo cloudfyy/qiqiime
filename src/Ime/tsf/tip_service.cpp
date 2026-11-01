@@ -33,6 +33,7 @@ constexpr std::array<PreservedKeyDef, 4> kPreservedKeys = {{
 } // namespace
 
 QiQiTextService::QiQiTextService(HINSTANCE instance) {
+    std::ignore = log::EnsureInitialized();
     config_ = LoadConfig(instance);
     config_registry_sequence_ = QueryRegistryConfigSequence();
     log::SetLevel(config_.log_level);
@@ -94,6 +95,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     if (!ptim) {
         return E_INVALIDARG;
     }
+    std::ignore = log::EnsureInitialized();
     thread_mgr_ = ptim;
     client_id_ = tid;
     activate_flags_ = dwFlags;
@@ -136,7 +138,6 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     activate_flags_ = 0;
     engine_.ClearExternalDictionaries();
     WubiMappedDict::ClearProcessCache();
-    log::Shutdown();
     return S_OK;
 }
 

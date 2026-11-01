@@ -22,6 +22,7 @@ set(QIQI_COMMON_SOURCES
     d2d_controls.cpp
     d2d_controls.h
     d2d_util.h
+    etw_registration.h
     file_util.cpp
     file_util.h
     guids.h

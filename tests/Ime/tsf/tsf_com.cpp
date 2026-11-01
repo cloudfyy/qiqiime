@@ -2,6 +2,7 @@
 #include "tsf_mocks.h"
 #include "common/guids.h"
 #include "common/scoped_handle.h"
+#include "common/logger.h"
 #include "Ime/tsf/class_factory.h"
 #include "Ime/tsf/edit_session.h"
 #include "Ime/tsf/register.h"
@@ -55,8 +56,12 @@ void TestClassFactoryAndDllExports() {
         QIQI_TEST_CHECK(!IsRunningUnderWow64());
     }
     HMODULE hmod = ::GetModuleHandleW(nullptr);
+    log::Shutdown();
+    QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
     QIQI_TEST_CHECK(DllMain(hmod, DLL_PROCESS_ATTACH, nullptr) == TRUE);
+    QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
     QIQI_TEST_CHECK(DllMain(hmod, DLL_PROCESS_DETACH, nullptr) == TRUE);
+    QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
     QIQI_TEST_CHECK(DllMain(hmod, DLL_PROCESS_ATTACH, nullptr) == TRUE);
     QIQI_TEST_CHECK(DllCanUnloadNow() == S_OK);
 

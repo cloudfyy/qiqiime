@@ -1,4 +1,5 @@
 #include "common/logger.h"
+#include "common/etw_registration.h"
 #include "common/file_util.h"
 #include "common/scoped_handle.h"
 
@@ -14,7 +15,7 @@
 #include <format>
 
 // Windows ETW TraceLogging Provider for QiQiIME: {8E7B9D31-5A42-4C81-9F11-202610290099}
-// Works inside UWP/AppContainer/Low-Integrity sandboxes without filesystem permissions and has zero cost when not enabled.
+// Works inside UWP/AppContainer/Low-Integrity sandboxes without filesystem permissions, with low idle overhead.
 #pragma warning(push)
 #pragma warning(disable : 26447 26477 26812)
 TRACELOGGING_DEFINE_PROVIDER(
@@ -29,46 +30,20 @@ namespace {
 
 std::atomic<Level> g_log_level{Level::info};
 
-// RAII guard for the Windows ETW TraceLogging provider registration.
-class ScopedEtwProvider final {
-public:
-    ScopedEtwProvider() noexcept { EnsureRegistered(); }
-    ~ScopedEtwProvider() noexcept { Unregister(); }
-
-    ScopedEtwProvider(const ScopedEtwProvider&) = delete;
-    ScopedEtwProvider& operator=(const ScopedEtwProvider&) = delete;
-    ScopedEtwProvider(ScopedEtwProvider&&) = delete;
-    ScopedEtwProvider& operator=(ScopedEtwProvider&&) = delete;
-
-    void EnsureRegistered() noexcept {
-        if (!registered_.exchange(true)) {
-            const ULONG error = ::TraceLoggingRegister(g_qiqi_etw_provider);
-            if (error != ERROR_SUCCESS) {
-                registered_ = false;
-                std::array<char, 128> message{};
-                std::snprintf(message.data(), message.size(),
-                              "QiQiIME: TraceLoggingRegister failed (error=%lu)\n", error);
-                ::OutputDebugStringA(message.data());
-            }
-        }
+ULONG RegisterProvider() noexcept {
+    const ULONG error = ::TraceLoggingRegister(g_qiqi_etw_provider);
+    if (error != ERROR_SUCCESS) {
+        std::array<char, 128> message{};
+        std::snprintf(message.data(), message.size(),
+                      "QiQiIME: TraceLoggingRegister failed (error=%lu)\n", error);
+        ::OutputDebugStringA(message.data());
     }
-
-    void Unregister() noexcept {
-        if (registered_.exchange(false)) {
-            ::TraceLoggingUnregister(g_qiqi_etw_provider);
-        }
-    }
-
-    bool IsRegistered() const noexcept { return registered_.load(); }
-
-private:
-    std::atomic<bool> registered_{false};
-};
-
-ScopedEtwProvider& GetEtwProvider() noexcept {
-    static ScopedEtwProvider provider;
-    return provider;
+    return error;
 }
+
+void UnregisterProvider() noexcept { ::TraceLoggingUnregister(g_qiqi_etw_provider); }
+
+constinit detail::EtwRegistration g_provider_registration{RegisterProvider, UnregisterProvider};
 
 std::string_view GetProcessName() noexcept {
     static const std::string kProcName = []() noexcept -> std::string {
@@ -159,7 +134,11 @@ void EmitEtwTraceEvent(Level level, std::string_view proc_name, std::string_view
 
 void InitLogger(Level level) noexcept {
     g_log_level = level;
-    GetEtwProvider().EnsureRegistered();
+    std::ignore = EnsureInitialized();
+}
+
+bool EnsureInitialized() noexcept {
+    return g_provider_registration.EnsureRegistered() == ERROR_SUCCESS;
 }
 
 Level GetLevel() noexcept {
@@ -186,9 +165,7 @@ void ReportLoggingFailure() noexcept {
 }
 
 bool IsEtwProviderRegistered() noexcept {
-    auto& provider = GetEtwProvider();
-    provider.EnsureRegistered();
-    return provider.IsRegistered();
+    return g_provider_registration.IsRegistered();
 }
 
 bool IsLogSinkActive() noexcept {
@@ -200,12 +177,11 @@ void WriteLogMessage(Level level, std::string_view message) noexcept {
     if (level < GetLevel() || level == Level::off) {
         return;
     }
-    auto& provider = GetEtwProvider();
-    provider.EnsureRegistered();
     const std::string_view proc_name = GetProcessName();
 
-    // 1. Emit to Windows ETW TraceLogging (100% lock-free kernel write, zero heap allocation)
-    EmitEtwTraceEvent(level, proc_name, message);
+    if (g_provider_registration.IsRegistered()) {
+        EmitEtwTraceEvent(level, proc_name, message);
+    }
 
     // 2. Output to debugger only when attached (avoids kernel exception overhead in normal typing)
     if (::IsDebuggerPresent() != FALSE) {
@@ -229,7 +205,7 @@ void WriteLogMessage(Level level, std::string_view message) noexcept {
 }
 
 void Shutdown() noexcept {
-    GetEtwProvider().Unregister();
+    g_provider_registration.Shutdown();
 }
 
 } // namespace qiqi::log
