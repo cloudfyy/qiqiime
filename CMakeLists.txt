@@ -107,6 +107,21 @@ enable_testing()
 add_subdirectory(src)
 add_subdirectory(tests)
 
+if(MSVC AND CMAKE_GENERATOR MATCHES "^Visual Studio")
+    find_program(QIQI_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+    add_custom_target(lint
+        COMMAND "${QIQI_POWERSHELL_EXECUTABLE}"
+            -NoLogo
+            -NoProfile
+            -ExecutionPolicy Bypass
+            -File "${PROJECT_SOURCE_DIR}/scripts/lint.ps1"
+            -BuildDirectory "${CMAKE_BINARY_DIR}"
+            -Configuration "$<CONFIG>"
+        USES_TERMINAL
+        VERBATIM
+    )
+endif()
+
 # Optional helper target to build the secondary x86 (Win32) tree on demand when packaging dual-arch installers
 if(QIQIIME_ARCH_NAME STREQUAL "x64" AND EXISTS "${CMAKE_SOURCE_DIR}/build/x86/CMakeCache.txt")
     add_custom_target(qiqi_build_x86
@@ -114,4 +129,3 @@ if(QIQIIME_ARCH_NAME STREQUAL "x64" AND EXISTS "${CMAKE_SOURCE_DIR}/build/x86/CM
         VERBATIM USES_TERMINAL
     )
 endif()
-

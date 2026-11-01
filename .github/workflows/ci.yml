@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-test-lint:
-    name: Build (x64 & x86), Unit Tests & CppCoreCheck Lint
+    name: Build (x64 & x86), Unit Tests & Core Guidelines/GSL Lint
     runs-on: windows-latest
 
     steps:
@@ -33,25 +33,8 @@ jobs:
         run: |
           powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
 
-      - name: Run MSVC CppCoreCheck static analysis lint (x64)
-        shell: pwsh
-        run: |
-          $out = cmake --build build\x64 --config Release --target qiqi_engine qiqiime -- /t:Rebuild /p:RunCodeAnalysis=true /p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset
-          $warnings = $out | Select-String -Pattern "qiqiime[\\/]src[\\/].*warning" | Where-Object { $_ -notmatch "C26490" } | Select-Object -Unique
-          if ($warnings.Count -gt 0) {
-            Write-Host "CppCoreCheck warnings detected:" -ForegroundColor Red
-            $warnings | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
-            exit 1
-          }
-          Write-Host "[PASS] Zero CppCoreCheck warnings in src/." -ForegroundColor Green
-
-      - name: Run PowerShell PSScriptAnalyzer lint on scripts/
+      - name: Run C++ and PowerShell lint
         shell: pwsh
         run: |
           Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
-          $issues = Invoke-ScriptAnalyzer -Path scripts -Severity Error
-          if ($issues.Count -gt 0) {
-            $issues | Format-Table -AutoSize
-            exit 1
-          }
-          Write-Host "[PASS] Zero PSScriptAnalyzer errors in scripts/." -ForegroundColor Green
+          cmake --build build\x64 --config Release --target lint

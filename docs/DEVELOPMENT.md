@@ -141,15 +141,18 @@ ctest --preset x86-release --output-on-failure
 
 ---
 
-## 4. 代码规范与静态代码检查（`CppCoreCheck`）
+## 4. 代码规范与静态代码检查（`lint`）
 
-项目遵循 **C++ Core Guidelines**，全面采用 `gsl::span`、`gsl::not_null`、`gsl::narrow_cast`、`gsl::at`、`gsl::finally` 以及自定义零开销移动语义 `ScopedHandle<Traits>` RAII 模板。
+项目遵循 **C++ Core Guidelines**，使用 `gsl::span`、`gsl::not_null`、`gsl::narrow_cast`、`gsl::at`、`gsl::finally` 及 `ScopedHandle<Traits>` RAII 模板。`lint` target 使用 MSVC CppCoreCheck 检查 C++ Core Guidelines 与 GSL 规则，并使用 PSScriptAnalyzer 检查 `scripts/` 下的 PowerShell 脚本。C++ 检查覆盖公共库、引擎、设置界面、输入法、设置程序及测试目标；按既有规则排除 C26490，并以 435 条去重后的其他 CppCoreCheck 诊断作为当前基线，新增诊断会使 lint 失败。基线应在逐步修复旧告警后下调。
 
-可通过以下命令运行 MSVC `CppCoreCheck` 静态分析：
+安装 PSScriptAnalyzer 后，可从已配置的 Visual Studio CMake 构建目录运行：
 
 ```powershell
-cmake --build build\x64 --config Release --target qiqi_engine qiqiime -- /p:RunCodeAnalysis=true /p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset
+Install-Module -Name PSScriptAnalyzer -Scope CurrentUser
+cmake --build build\x64 --config Release --target lint
 ```
+
+项目常规编译另启用 MSVC `/W4`；`lint` 会在指定配置下重建启用静态分析的目标。
 
 ---
 
