@@ -59,8 +59,12 @@ STDMETHODIMP QiQiTextService::OnLayoutChange(
         return S_OK;
     });
     HRESULT session_hr = S_OK;
-    std::ignore = pic->RequestEditSession(
+    const HRESULT request_hr = pic->RequestEditSession(
         client_id_, session.Get(), TF_ES_ASYNCDONTCARE | TF_ES_READ, &session_hr);
+    std::ignore = log::CheckHResult(request_hr, "OnLayoutChange::RequestEditSession", log::Level::debug);
+    if (SUCCEEDED(request_hr)) {
+        std::ignore = log::CheckHResult(session_hr, "OnLayoutChange::DoEditSession", log::Level::debug);
+    }
     return S_OK;
 }
 
@@ -139,16 +143,19 @@ void QiQiTextService::SyncCompositionUIInSession(
 
 void QiQiTextService::SetRangeTextAndCollapseCaret(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range, std::wstring_view text) {
-    range->SetText(ec, 0, text.data(), gsl::narrow_cast<LONG>(text.size()));
+    std::ignore = log::CheckHResult(range->SetText(ec, 0, text.data(), gsl::narrow_cast<LONG>(text.size())),
+                                   "SetRangeTextAndCollapseCaret::SetText");
 
     ComPtr<ITfRange> caret_range;
-    if (SUCCEEDED(range->Clone(&caret_range)) && caret_range) {
-        caret_range->Collapse(ec, TF_ANCHOR_END);
+    if (log::CheckHResult(range->Clone(&caret_range), "SetRangeTextAndCollapseCaret::Clone") && caret_range) {
+        std::ignore = log::CheckHResult(caret_range->Collapse(ec, TF_ANCHOR_END),
+                                       "SetRangeTextAndCollapseCaret::Collapse");
         TF_SELECTION sel{};
         sel.range = caret_range.Get();
         sel.style.ase = TF_AE_NONE;
         sel.style.fInterimChar = FALSE;
-        context->SetSelection(ec, 1, &sel);
+        std::ignore = log::CheckHResult(context->SetSelection(ec, 1, &sel),
+                                       "SetRangeTextAndCollapseCaret::SetSelection");
     }
 }
 
@@ -156,33 +163,32 @@ void QiQiTextService::StartOrUpdateCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text) {
     if (!composition_) {
         ComPtr<ITfInsertAtSelection> insert_at_sel;
-        if (FAILED(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel))) || !insert_at_sel) {
-            QIQI_LOG_WARN("StartOrUpdateCompositionInSession: QueryInterface(ITfInsertAtSelection) failed");
+        if (!log::CheckHResult(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel)),
+                              "StartOrUpdateComposition::QueryInterface(ITfInsertAtSelection)") || !insert_at_sel) {
             return;
         }
         ComPtr<ITfRange> insert_range;
-        if (FAILED(insert_at_sel->InsertTextAtSelection(
-                ec, TF_IAS_QUERYONLY, nullptr, 0, &insert_range)) || !insert_range) {
-            QIQI_LOG_WARN("StartOrUpdateCompositionInSession: InsertTextAtSelection(TF_IAS_QUERYONLY) failed");
+        if (!log::CheckHResult(insert_at_sel->InsertTextAtSelection(
+                ec, TF_IAS_QUERYONLY, nullptr, 0, &insert_range),
+                "StartOrUpdateComposition::InsertTextAtSelection(TF_IAS_QUERYONLY)") || !insert_range) {
             return;
         }
 
         ComPtr<ITfContextComposition> ctx_comp;
-        if (FAILED(context->QueryInterface(IID_PPV_ARGS(&ctx_comp))) || !ctx_comp) {
-            QIQI_LOG_WARN("StartOrUpdateCompositionInSession: QueryInterface(ITfContextComposition) failed");
+        if (!log::CheckHResult(context->QueryInterface(IID_PPV_ARGS(&ctx_comp)),
+                              "StartOrUpdateComposition::QueryInterface(ITfContextComposition)") || !ctx_comp) {
             return;
         }
-        if (FAILED(ctx_comp->StartComposition(
-                ec, insert_range.Get(), static_cast<ITfCompositionSink*>(this), &composition_)) ||
+        if (!log::CheckHResult(ctx_comp->StartComposition(
+                ec, insert_range.Get(), static_cast<ITfCompositionSink*>(this), &composition_),
+                "StartOrUpdateComposition::StartComposition") ||
             !composition_) {
-            QIQI_LOG_WARN("StartOrUpdateCompositionInSession: StartComposition failed");
             return;
         }
     }
 
     ComPtr<ITfRange> comp_range;
-    if (FAILED(composition_->GetRange(&comp_range)) || !comp_range) {
-        QIQI_LOG_WARN("StartOrUpdateCompositionInSession: composition_->GetRange failed");
+    if (!log::CheckHResult(composition_->GetRange(&comp_range), "StartOrUpdateComposition::GetRange") || !comp_range) {
         return;
     }
     SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), text);
@@ -190,9 +196,11 @@ void QiQiTextService::StartOrUpdateCompositionInSession(
     // Apply dotted underline display attribute to the composition range
     if (display_attribute_atom_ != TF_INVALID_GUIDATOM) {
         ComPtr<ITfProperty> disp_prop;
-        if (SUCCEEDED(context->GetProperty(GUID_PROP_ATTRIBUTE, &disp_prop)) && disp_prop) {
+        if (log::CheckHResult(context->GetProperty(GUID_PROP_ATTRIBUTE, &disp_prop),
+                             "StartOrUpdateComposition::GetProperty(GUID_PROP_ATTRIBUTE)") && disp_prop) {
             const VARIANT var = MakeInt4Variant(gsl::narrow_cast<LONG>(display_attribute_atom_));
-            disp_prop->SetValue(ec, comp_range.Get(), &var);
+            std::ignore = log::CheckHResult(disp_prop->SetValue(ec, comp_range.Get(), &var),
+                                           "StartOrUpdateComposition::SetValue(GUID_PROP_ATTRIBUTE)");
         }
     }
 }
@@ -201,27 +209,26 @@ void QiQiTextService::CommitAndEndCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text) {
     if (composition_) {
         ComPtr<ITfRange> comp_range;
-        if (SUCCEEDED(composition_->GetRange(&comp_range)) && comp_range) {
+        if (log::CheckHResult(composition_->GetRange(&comp_range), "CommitComposition::GetRange") && comp_range) {
             ComPtr<ITfProperty> disp_prop;
-            if (SUCCEEDED(context->GetProperty(GUID_PROP_ATTRIBUTE, &disp_prop)) && disp_prop) {
-                disp_prop->Clear(ec, comp_range.Get());
+            if (log::CheckHResult(context->GetProperty(GUID_PROP_ATTRIBUTE, &disp_prop),
+                                 "CommitComposition::GetProperty(GUID_PROP_ATTRIBUTE)") && disp_prop) {
+                std::ignore = log::CheckHResult(disp_prop->Clear(ec, comp_range.Get()), "CommitComposition::Clear");
             }
             SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), committed_text);
         }
-        composition_->EndComposition(ec);
+        std::ignore = log::CheckHResult(composition_->EndComposition(ec), "CommitComposition::EndComposition");
         composition_.Reset();
         has_valid_caret_pos_ = false;
     } else if (!committed_text.empty()) {
         // Direct commit without prior composition (e.g. Chinese punctuation)
         ComPtr<ITfInsertAtSelection> insert_at_sel;
-        if (SUCCEEDED(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel))) && insert_at_sel) {
+        if (log::CheckHResult(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel)),
+                             "DirectCommit::QueryInterface(ITfInsertAtSelection)") && insert_at_sel) {
             ComPtr<ITfRange> inserted_range;
-            if (FAILED(insert_at_sel->InsertTextAtSelection(
-                    ec, 0, committed_text.c_str(), gsl::narrow_cast<LONG>(committed_text.size()), &inserted_range))) {
-                QIQI_LOG_WARN("CommitAndEndCompositionInSession: InsertTextAtSelection failed");
-            }
-        } else {
-            QIQI_LOG_WARN("CommitAndEndCompositionInSession: QueryInterface(ITfInsertAtSelection) failed");
+            std::ignore = log::CheckHResult(insert_at_sel->InsertTextAtSelection(
+                    ec, 0, committed_text.c_str(), gsl::narrow_cast<LONG>(committed_text.size()), &inserted_range),
+                    "DirectCommit::InsertTextAtSelection");
         }
     }
 }
@@ -232,10 +239,10 @@ void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, ITfContext* /*
         return;
     }
     ComPtr<ITfRange> comp_range;
-    if (SUCCEEDED(composition_->GetRange(&comp_range)) && comp_range) {
-        comp_range->SetText(ec, 0, L"", 0);
+    if (log::CheckHResult(composition_->GetRange(&comp_range), "CancelComposition::GetRange") && comp_range) {
+        std::ignore = log::CheckHResult(comp_range->SetText(ec, 0, L"", 0), "CancelComposition::SetText");
     }
-    composition_->EndComposition(ec);
+    std::ignore = log::CheckHResult(composition_->EndComposition(ec), "CancelComposition::EndComposition");
     composition_.Reset();
 }
 
@@ -248,9 +255,10 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
     ComPtr<ITfRange> comp_range;
     RECT rc{};
     BOOL clipped = FALSE;
-    if (SUCCEEDED(context->GetActiveView(&view)) && view &&
-        SUCCEEDED(composition_->GetRange(&comp_range)) && comp_range &&
-        SUCCEEDED(view->GetTextExt(ec, comp_range.Get(), &rc, &clipped))) {
+    if (log::CheckHResult(context->GetActiveView(&view), "CandidatePosition::GetActiveView", log::Level::debug) && view &&
+        log::CheckHResult(composition_->GetRange(&comp_range), "CandidatePosition::GetRange", log::Level::debug) && comp_range &&
+        log::CheckHResult(view->GetTextExt(ec, comp_range.Get(), &rc, &clipped),
+                         "CandidatePosition::GetTextExt", log::Level::trace)) {
         has_valid_caret_pos_ = true;
         candidate_ui_->MoveWindowTo(rc);
         return;
@@ -274,7 +282,8 @@ void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot)
         snapshot.selected_index);
 
     ComPtr<ITfUIElementMgr> ui_mgr;
-    if (FAILED(thread_mgr_.As(&ui_mgr)) || !ui_mgr) {
+    if (!log::CheckHResult(thread_mgr_.As(&ui_mgr),
+                          "BeginOrUpdateCandidateUI::QueryInterface(ITfUIElementMgr)", log::Level::debug) || !ui_mgr) {
         // Fallback if UIElementMgr unavailable
         QIQI_LOG_DEBUG("BeginOrUpdateCandidateUI: ITfUIElementMgr unavailable; showing popup directly");
         candidate_ui_->Show(TRUE);
@@ -284,7 +293,8 @@ void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot)
     if (candidate_ui_->UiElementId() == TF_INVALID_UIELEMENTID) {
         BOOL show_own_ui = TRUE;
         DWORD element_id = TF_INVALID_UIELEMENTID;
-        if (SUCCEEDED(ui_mgr->BeginUIElement(candidate_ui_.Get(), &show_own_ui, &element_id))) {
+        if (log::CheckHResult(ui_mgr->BeginUIElement(candidate_ui_.Get(), &show_own_ui, &element_id),
+                             "BeginOrUpdateCandidateUI::BeginUIElement")) {
             candidate_ui_->SetUiElementId(element_id);
             // If host game/app returned FALSE in show_own_ui (UILess mode), do not show popup window
             const bool force_uiless = (activate_flags_ & TF_TMAE_UIELEMENTENABLEDONLY) != 0 && !show_own_ui;
@@ -292,13 +302,14 @@ void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot)
             QIQI_LOG_DEBUG("BeginOrUpdateCandidateUI: BeginUIElement(id={}, show_own_ui={}, show_popup={})",
                            element_id, show_own_ui != FALSE, show_popup);
             candidate_ui_->Show(show_popup ? TRUE : FALSE);
-            ui_mgr->UpdateUIElement(element_id);
+            std::ignore = log::CheckHResult(ui_mgr->UpdateUIElement(element_id), "ITfUIElementMgr::UpdateUIElement");
         } else {
             QIQI_LOG_WARN("BeginOrUpdateCandidateUI: BeginUIElement failed; falling back to popup window");
             candidate_ui_->Show(TRUE);
         }
     } else {
-        ui_mgr->UpdateUIElement(candidate_ui_->UiElementId());
+        std::ignore = log::CheckHResult(ui_mgr->UpdateUIElement(candidate_ui_->UiElementId()),
+                                       "ITfUIElementMgr::UpdateUIElement");
     }
 }
 
@@ -308,8 +319,9 @@ void QiQiTextService::EndCandidateUI() {
     }
     if (candidate_ui_->UiElementId() != TF_INVALID_UIELEMENTID && thread_mgr_) {
         ComPtr<ITfUIElementMgr> ui_mgr;
-        if (SUCCEEDED(thread_mgr_.As(&ui_mgr)) && ui_mgr) {
-            ui_mgr->EndUIElement(candidate_ui_->UiElementId());
+        if (log::CheckHResult(thread_mgr_.As(&ui_mgr), "EndCandidateUI::QueryInterface(ITfUIElementMgr)") && ui_mgr) {
+            std::ignore = log::CheckHResult(ui_mgr->EndUIElement(candidate_ui_->UiElementId()),
+                                           "ITfUIElementMgr::EndUIElement");
         }
         candidate_ui_->SetUiElementId(TF_INVALID_UIELEMENTID);
     }

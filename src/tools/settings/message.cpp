@@ -396,9 +396,12 @@ void ShowSettingsToast(UiLanguage ui_language, SettingsToastKind kind) noexcept 
         QIQI_LOG_ERROR("Settings toast requires Direct2D and DirectWrite");
         return;
     }
-    ctx->d2d.fmt_body->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    ctx->d2d.fmt_body->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    ctx->d2d.fmt_body->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    std::ignore = log::CheckHResult(ctx->d2d.fmt_body->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP),
+                                   "SettingsToast::SetWordWrapping");
+    std::ignore = log::CheckHResult(ctx->d2d.fmt_body->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING),
+                                   "SettingsToast::SetTextAlignment");
+    std::ignore = log::CheckHResult(ctx->d2d.fmt_body->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
+                                   "SettingsToast::SetParagraphAlignment");
 
     const int width = ScalePxByDpi(440, monitor.dpi);
     const int height = ScalePxByDpi(88, monitor.dpi);

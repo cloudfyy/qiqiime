@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "common/guids.h"
+#include "common/logger.h"
 #include "common/scoped_handle.h"
 
 namespace qiqi {
@@ -180,7 +181,7 @@ inline LONG ReadCompartmentInt4(ITfCompartment* comp, LONG default_val = 0) noex
         return default_val;
     }
     VARIANT var{};
-    if (SUCCEEDED(comp->GetValue(&var)) && var.vt == VT_I4) {
+    if (log::CheckHResult(comp->GetValue(&var), "ITfCompartment::GetValue", log::Level::debug) && var.vt == VT_I4) {
         return var.lVal;
     }
     return default_val;
@@ -192,7 +193,9 @@ inline HRESULT WriteCompartmentInt4(ITfCompartment* comp, TfClientId tid, LONG v
         return E_INVALIDARG;
     }
     const VARIANT var = MakeInt4Variant(val);
-    return comp->SetValue(tid, &var);
+    const HRESULT hr = comp->SetValue(tid, &var);
+    std::ignore = log::CheckHResult(hr, "ITfCompartment::SetValue");
+    return hr;
 }
 
 // RAII wrapper for ITfSource::AdviseSink / UnadviseSink cookie lifetime management.
@@ -212,11 +215,13 @@ public:
             return false;
         }
         Microsoft::WRL::ComPtr<ITfSource> src;
-        if (FAILED(source_owner->QueryInterface(IID_PPV_ARGS(&src))) || !src) {
+        if (!log::CheckHResult(source_owner->QueryInterface(IID_PPV_ARGS(&src)),
+                              "ScopedTfSinkConnection::QueryInterface(ITfSource)") || !src) {
             return false;
         }
         DWORD cookie = TF_INVALID_COOKIE;
-        if (FAILED(src->AdviseSink(riid, sink, &cookie)) || cookie == TF_INVALID_COOKIE) {
+        if (!log::CheckHResult(src->AdviseSink(riid, sink, &cookie),
+                              "ITfSource::AdviseSink") || cookie == TF_INVALID_COOKIE) {
             return false;
         }
         source_ = std::move(src);
@@ -226,7 +231,7 @@ public:
 
     void Reset() noexcept {
         if (source_ && cookie_ != TF_INVALID_COOKIE) {
-            source_->UnadviseSink(cookie_);
+            std::ignore = log::CheckHResult(source_->UnadviseSink(cookie_), "ITfSource::UnadviseSink");
         }
         source_.Reset();
         cookie_ = TF_INVALID_COOKIE;
@@ -255,7 +260,8 @@ public:
         if (!mgr) {
             return false;
         }
-        if (FAILED(mgr->GetCompartment(guid, &comp_)) || !comp_) {
+        if (!log::CheckHResult(mgr->GetCompartment(guid, &comp_),
+                              "ITfCompartmentMgr::GetCompartment") || !comp_) {
             return false;
         }
         if (sink) {
@@ -294,25 +300,27 @@ private:
 // by temporarily activating an ITfThreadMgr instance.
 inline bool BroadcastStandaloneGlobalCompartmentIncrement(REFGUID compartment_guid) noexcept {
     Microsoft::WRL::ComPtr<ITfThreadMgr> thread_mgr;
-    if (FAILED(::CoCreateInstance(
+    if (!log::CheckHResult(::CoCreateInstance(
             CLSID_TF_ThreadMgr,
             nullptr,
             CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&thread_mgr))) ||
+            IID_PPV_ARGS(&thread_mgr)), "Broadcast::CoCreateInstance(ITfThreadMgr)") ||
         !thread_mgr) {
         return false;
     }
 
     TfClientId client_id = TF_CLIENTID_NULL;
-    if (FAILED(thread_mgr->Activate(&client_id)) || client_id == TF_CLIENTID_NULL) {
+    if (!log::CheckHResult(thread_mgr->Activate(&client_id), "Broadcast::ITfThreadMgr::Activate") ||
+        client_id == TF_CLIENTID_NULL) {
         return false;
     }
     const auto deactivate_guard = gsl::finally([&]() noexcept {
-        thread_mgr->Deactivate();
+        std::ignore = log::CheckHResult(thread_mgr->Deactivate(), "Broadcast::ITfThreadMgr::Deactivate");
     });
 
     Microsoft::WRL::ComPtr<ITfCompartmentMgr> global_mgr;
-    if (FAILED(thread_mgr->GetGlobalCompartment(&global_mgr)) || !global_mgr) {
+    if (!log::CheckHResult(thread_mgr->GetGlobalCompartment(&global_mgr),
+                          "Broadcast::ITfThreadMgr::GetGlobalCompartment") || !global_mgr) {
         return false;
     }
 

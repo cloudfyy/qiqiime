@@ -39,7 +39,7 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
     font_ = CreateUiFont(ScaleByDpi(18), FW_NORMAL);
 
     if (dwrite_factory_) {
-        if (SUCCEEDED(dwrite_factory_->CreateTextFormat(
+        if (log::CheckHResult(dwrite_factory_->CreateTextFormat(
                 L"Microsoft YaHei UI",
                 nullptr,
                 DWRITE_FONT_WEIGHT_NORMAL,
@@ -47,10 +47,12 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
                 DWRITE_FONT_STRETCH_NORMAL,
                 static_cast<float>(ScaleByDpi(16)),
                 L"zh-CN",
-                dwrite_text_format_.Put())) &&
+                dwrite_text_format_.Put()), "CandidateUI::CreateTextFormat") &&
             dwrite_text_format_) {
-            dwrite_text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-            dwrite_text_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            std::ignore = log::CheckHResult(dwrite_text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP),
+                                           "CandidateUI::SetWordWrapping");
+            std::ignore = log::CheckHResult(dwrite_text_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
+                                           "CandidateUI::SetParagraphAlignment");
         }
     }
 }
@@ -61,16 +63,16 @@ int CandidateUI::MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const
     }
     if (dwrite_factory_ && dwrite_text_format_) {
         ScopedDWriteTextLayout layout;
-        if (SUCCEEDED(dwrite_factory_->CreateTextLayout(
+        if (log::CheckHResult(dwrite_factory_->CreateTextLayout(
                 text.data(),
                 gsl::narrow_cast<UINT32>(text.size()),
                 dwrite_text_format_.Get(),
                 4096.0f,
                 static_cast<float>(popup_height_),
-                layout.Put())) &&
+                layout.Put()), "CandidateUI::CreateTextLayout", log::Level::debug) &&
             layout) {
             DWRITE_TEXT_METRICS metrics{};
-            if (SUCCEEDED(layout->GetMetrics(&metrics))) {
+            if (log::CheckHResult(layout->GetMetrics(&metrics), "CandidateUI::GetMetrics", log::Level::debug)) {
                 return gsl::narrow_cast<int>(std::ceil(metrics.widthIncludingTrailingWhitespace));
             }
         }
@@ -465,7 +467,8 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
     }
 
     if (FAILED(end_hr)) {
-        QIQI_LOG_WARN("CandidateUI::PaintPopupDirect2D EndDraw failed; falling back to GDI rendering");
+        QIQI_LOG_WARN("CandidateUI::PaintPopupDirect2D EndDraw failed (hr=0x{:08x}); falling back to GDI rendering",
+                      gsl::narrow_cast<unsigned int>(end_hr));
         d2d_dc_target_.Reset();
         return false;
     }

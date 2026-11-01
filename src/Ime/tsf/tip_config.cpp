@@ -121,7 +121,8 @@ void QiQiTextService::InitCompartmentSinks() {
 
     // 1. Bind thread-scoped system compartments for bidirectional mode sync
     ComPtr<ITfCompartmentMgr> thread_comp_mgr;
-    if (SUCCEEDED(thread_mgr_.As(&thread_comp_mgr)) && thread_comp_mgr) {
+    if (log::CheckHResult(thread_mgr_.As(&thread_comp_mgr),
+                         "InitCompartmentSinks::QueryInterface(ITfCompartmentMgr)") && thread_comp_mgr) {
         if (!openclose_comp_.Bind(thread_comp_mgr.Get(), GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, sink)) {
             QIQI_LOG_WARN("InitCompartmentSinks: failed to bind GUID_COMPARTMENT_KEYBOARD_OPENCLOSE");
         }
@@ -132,8 +133,8 @@ void QiQiTextService::InitCompartmentSinks() {
 
     // 2. Bind process-wide TSF Global Compartments for config/dict broadcast & status bar position
     ComPtr<ITfCompartmentMgr> global_mgr;
-    if (FAILED(thread_mgr_->GetGlobalCompartment(&global_mgr)) || !global_mgr) {
-        QIQI_LOG_DEBUG("InitCompartmentSinks: GetGlobalCompartment unavailable");
+    if (!log::CheckHResult(thread_mgr_->GetGlobalCompartment(&global_mgr),
+                          "InitCompartmentSinks::GetGlobalCompartment", log::Level::debug) || !global_mgr) {
         return;
     }
     if (!global_config_comp_.Bind(global_mgr.Get(), kGuidCompartmentConfigVersion, sink)) {

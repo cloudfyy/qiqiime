@@ -41,35 +41,52 @@ constexpr std::array<BoolRegBinding, 17> kBoolRegBindings = {{
 }};
 
 bool WriteRegDword(HKEY key, const wchar_t* name, DWORD val) noexcept {
-    return ::RegSetValueExW(
-               key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&val), sizeof(val)) == ERROR_SUCCESS;
+    const LSTATUS error = ::RegSetValueExW(
+        key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&val), sizeof(val));
+    if (error != ERROR_SUCCESS) {
+        QIQI_LOG_ERROR("WriteRegDword::RegSetValueExW failed (error={})", error);
+    }
+    return error == ERROR_SUCCESS;
+}
+
+bool CheckRegistryRead(LSTATUS error, std::string_view operation) noexcept {
+    if (error != ERROR_SUCCESS && error != ERROR_FILE_NOT_FOUND) {
+        QIQI_LOG_WARN("{} failed (error={})", operation, error);
+    }
+    return error == ERROR_SUCCESS;
 }
 
 bool ReadRegDword(HKEY key, const wchar_t* name, DWORD& out_val) noexcept {
     DWORD type = 0;
     DWORD cb = sizeof(out_val);
-    return ::RegQueryValueExW(
-               key, name, nullptr, &type, reinterpret_cast<LPBYTE>(&out_val), &cb) == ERROR_SUCCESS &&
+    return CheckRegistryRead(::RegQueryValueExW(
+               key, name, nullptr, &type, reinterpret_cast<LPBYTE>(&out_val), &cb), "ReadRegDword::RegQueryValueExW") &&
            type == REG_DWORD;
 }
 
 bool WriteRegString(HKEY key, const wchar_t* name, std::wstring_view val) noexcept {
     const DWORD cb = gsl::narrow_cast<DWORD>((val.size() + 1) * sizeof(wchar_t));
-    return ::RegSetValueExW(
-               key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(val.data()), cb) == ERROR_SUCCESS;
+    const LSTATUS error = ::RegSetValueExW(
+        key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(val.data()), cb);
+    if (error != ERROR_SUCCESS) {
+        QIQI_LOG_ERROR("WriteRegString::RegSetValueExW failed (error={})", error);
+    }
+    return error == ERROR_SUCCESS;
 }
 
 bool ReadRegString(HKEY key, const wchar_t* name, std::wstring& out_val) {
     DWORD type = 0;
     DWORD cb = 0;
     constexpr DWORD kMaxStringBytes = 4096;
-    if (::RegQueryValueExW(key, name, nullptr, &type, nullptr, &cb) != ERROR_SUCCESS ||
+    if (!CheckRegistryRead(::RegQueryValueExW(key, name, nullptr, &type, nullptr, &cb),
+                           "ReadRegString::RegQueryValueExW(size)") ||
         type != REG_SZ || cb < sizeof(wchar_t) || cb > kMaxStringBytes) {
         return false;
     }
     std::wstring buf(cb / sizeof(wchar_t), L'\0');
-    if (::RegQueryValueExW(
-            key, name, nullptr, &type, reinterpret_cast<LPBYTE>(buf.data()), &cb) != ERROR_SUCCESS) {
+    if (!CheckRegistryRead(::RegQueryValueExW(
+            key, name, nullptr, &type, reinterpret_cast<LPBYTE>(buf.data()), &cb),
+            "ReadRegString::RegQueryValueExW(data)")) {
         return false;
     }
     while (!buf.empty() && buf.back() == L'\0') {
@@ -92,7 +109,7 @@ void GrantAppContainerReadAccessToKey(HKEY key) noexcept {
     // KEY_READ access while preserving the current user's existing DACL entries.
     PACL old_dacl = nullptr;
     PSECURITY_DESCRIPTOR sd_raw = nullptr;
-    if (::GetSecurityInfo(
+    const DWORD security_error = ::GetSecurityInfo(
             key,
             SE_REGISTRY_KEY,
             DACL_SECURITY_INFORMATION,
@@ -100,15 +117,23 @@ void GrantAppContainerReadAccessToKey(HKEY key) noexcept {
             nullptr,
             &old_dacl,
             nullptr,
-            &sd_raw) != ERROR_SUCCESS) {
+            &sd_raw);
+    if (security_error != ERROR_SUCCESS) {
+        QIQI_LOG_WARN("GrantAppContainerReadAccessToKey::GetSecurityInfo failed (error={})", security_error);
         return;
     }
     const ScopedLocalAlloc sd_guard(sd_raw);
 
     PSID sid_all_apps = nullptr;
     PSID sid_restricted_apps = nullptr;
-    std::ignore = ::ConvertStringSidToSidW(L"S-1-15-2-1", &sid_all_apps);
-    std::ignore = ::ConvertStringSidToSidW(L"S-1-15-2-2", &sid_restricted_apps);
+    if (!::ConvertStringSidToSidW(L"S-1-15-2-1", &sid_all_apps)) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("ConvertStringSidToSidW(all applications) failed (error={})", error);
+    }
+    if (!::ConvertStringSidToSidW(L"S-1-15-2-2", &sid_restricted_apps)) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("ConvertStringSidToSidW(restricted applications) failed (error={})", error);
+    }
     const ScopedLocalAlloc sid1_guard(sid_all_apps);
     const ScopedLocalAlloc sid2_guard(sid_restricted_apps);
 
@@ -131,10 +156,16 @@ void GrantAppContainerReadAccessToKey(HKEY key) noexcept {
     }
 
     PACL new_dacl = nullptr;
-    if (::SetEntriesInAclW(ea_count, ea.data(), old_dacl, &new_dacl) == ERROR_SUCCESS && new_dacl) {
+    const DWORD acl_error = ::SetEntriesInAclW(ea_count, ea.data(), old_dacl, &new_dacl);
+    if (acl_error == ERROR_SUCCESS && new_dacl) {
         const ScopedLocalAlloc dacl_guard(new_dacl);
-        std::ignore = ::SetSecurityInfo(
+        const DWORD error = ::SetSecurityInfo(
             key, SE_REGISTRY_KEY, DACL_SECURITY_INFORMATION, nullptr, nullptr, new_dacl, nullptr);
+        if (error != ERROR_SUCCESS) {
+            QIQI_LOG_WARN("GrantAppContainerReadAccessToKey::SetSecurityInfo failed (error={})", error);
+        }
+    } else {
+        QIQI_LOG_WARN("GrantAppContainerReadAccessToKey::SetEntriesInAclW failed (error={})", acl_error);
     }
 }
 
@@ -175,16 +206,27 @@ ScopedRegKey OpenOrCreateConfigRegKey(
                 key.Put(),
                 &disp);
         };
-        if (create_key(access | WRITE_DAC | READ_CONTROL) == ERROR_SUCCESS) {
+        const LSTATUS acl_error = create_key(access | WRITE_DAC | READ_CONTROL);
+        if (acl_error == ERROR_SUCCESS) {
             GrantAppContainerReadAccessToKey(key.Get());
             return key;
         }
-        std::ignore = create_key(access);
+        QIQI_LOG_DEBUG("Config::RegCreateKey with ACL access failed; retrying basic access (error={})", acl_error);
+        const LSTATUS error = create_key(access);
+        if (error != ERROR_SUCCESS) {
+            QIQI_LOG_ERROR("Config::RegCreateKey failed (error={})", error);
+        }
     } else if (transaction != nullptr && transaction != INVALID_HANDLE_VALUE) {
-        std::ignore = ::RegOpenKeyTransactedW(
+        const LSTATUS error = ::RegOpenKeyTransactedW(
             HKEY_CURRENT_USER, subkey, 0, access, key.Put(), transaction, nullptr);
+        if (error != ERROR_SUCCESS && error != ERROR_FILE_NOT_FOUND) {
+            QIQI_LOG_WARN("Config::RegOpenKeyTransactedW failed (error={})", error);
+        }
     } else {
-        std::ignore = ::RegOpenKeyExW(HKEY_CURRENT_USER, subkey, 0, access, key.Put());
+        const LSTATUS error = ::RegOpenKeyExW(HKEY_CURRENT_USER, subkey, 0, access, key.Put());
+        if (error != ERROR_SUCCESS && error != ERROR_FILE_NOT_FOUND) {
+            QIQI_LOG_WARN("Config::RegOpenKeyExW failed (error={})", error);
+        }
     }
     return key;
 }
@@ -193,8 +235,9 @@ bool BumpRegistrySequence(HKEY key) noexcept {
     uint64_t seq = 0;
     DWORD cb = sizeof(seq);
     DWORD type = 0;
-    std::ignore = ::RegQueryValueExW(
-        key, L"ConfigSequence", nullptr, &type, reinterpret_cast<LPBYTE>(&seq), &cb);
+    std::ignore = CheckRegistryRead(::RegQueryValueExW(
+        key, L"ConfigSequence", nullptr, &type, reinterpret_cast<LPBYTE>(&seq), &cb),
+        "BumpRegistrySequence::RegQueryValueExW");
     ++seq;
     const LSTATUS result = ::RegSetValueExW(
         key,
@@ -283,8 +326,14 @@ bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexc
             return false;
         }
         key.Reset();
-        return txn.Commit();
+        if (!txn.Commit()) {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_ERROR("SaveConfigToRegistry::CommitTransaction failed (error={})", error);
+            return false;
+        }
+        return true;
     } catch (...) {
+        QIQI_LOG_ERROR("SaveConfigToRegistry failed with a C++ exception");
         return false;
     }
 }
@@ -301,13 +350,13 @@ bool LoadConfigFromRegistry(
         uint64_t seq = 0;
         DWORD cb_seq = sizeof(seq);
         DWORD type_seq = 0;
-        if (::RegQueryValueExW(
+        if (!CheckRegistryRead(::RegQueryValueExW(
                 key.Get(),
                 L"ConfigSequence",
                 nullptr,
                 &type_seq,
                 reinterpret_cast<LPBYTE>(&seq),
-                &cb_seq) != ERROR_SUCCESS ||
+                &cb_seq), "LoadConfigFromRegistry::RegQueryValueExW(ConfigSequence)") ||
             type_seq != REG_QWORD || seq == 0) {
             return false;
         }
@@ -345,6 +394,7 @@ bool LoadConfigFromRegistry(
         out_config = std::move(cfg);
         return true;
     } catch (...) {
+        QIQI_LOG_ERROR("LoadConfigFromRegistry failed with a C++ exception");
         return false;
     }
 }
@@ -357,13 +407,13 @@ uint64_t QueryRegistryConfigSequence(const wchar_t* subkey) noexcept {
     uint64_t seq = 0;
     DWORD cb = sizeof(seq);
     DWORD type = 0;
-    if (::RegQueryValueExW(
+    if (CheckRegistryRead(::RegQueryValueExW(
             key.Get(),
             L"ConfigSequence",
             nullptr,
             &type,
             reinterpret_cast<LPBYTE>(&seq),
-            &cb) == ERROR_SUCCESS &&
+            &cb), "QueryRegistryConfigSequence::RegQueryValueExW") &&
         type == REG_QWORD) {
         return seq;
     }
@@ -376,31 +426,42 @@ bool SaveUserDictBinaryToRegistry(
     try {
         constexpr size_t kMaxRegDictBytes = 512 * 1024;
         if (qdict_bytes.empty() || qdict_bytes.size() > kMaxRegDictBytes) {
+            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry: empty or oversize dictionary (bytes={})", qdict_bytes.size());
             return false;
         }
         ScopedKernelTransaction txn;
         if (!txn) {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry::CreateTransaction failed (error={})", error);
             return false;
         }
         ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE, txn.Get());
         if (!key) {
             return false;
         }
-        if (::RegSetValueExW(
+        const LSTATUS error = ::RegSetValueExW(
                 key.Get(),
                 L"UserDictQdict",
                 0,
                 REG_BINARY,
                 qdict_bytes.data(),
-                gsl::narrow_cast<DWORD>(qdict_bytes.size())) != ERROR_SUCCESS) {
+                gsl::narrow_cast<DWORD>(qdict_bytes.size()));
+        if (error != ERROR_SUCCESS) {
+            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry::RegSetValueExW failed (error={})", error);
             return false;
         }
         if (!BumpRegistrySequence(key.Get())) {
             return false;
         }
         key.Reset();
-        return txn.Commit();
+        if (!txn.Commit()) {
+            const DWORD commit_error = ::GetLastError();
+            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry::CommitTransaction failed (error={})", commit_error);
+            return false;
+        }
+        return true;
     } catch (...) {
+        QIQI_LOG_ERROR("SaveUserDictBinaryToRegistry failed with a C++ exception");
         return false;
     }
 }
@@ -415,18 +476,19 @@ bool LoadUserDictBinaryFromRegistry(
     DWORD type = 0;
     DWORD cb = 0;
     constexpr DWORD kMaxRegDictBytes = 512 * 1024;
-    if (::RegQueryValueExW(key.Get(), L"UserDictQdict", nullptr, &type, nullptr, &cb) != ERROR_SUCCESS ||
+    if (!CheckRegistryRead(::RegQueryValueExW(key.Get(), L"UserDictQdict", nullptr, &type, nullptr, &cb),
+                           "LoadUserDictBinaryFromRegistry::RegQueryValueExW(size)") ||
         type != REG_BINARY || cb == 0 || cb > kMaxRegDictBytes) {
         return false;
     }
     out_qdict_bytes.resize(cb);
-    return ::RegQueryValueExW(
+    return CheckRegistryRead(::RegQueryValueExW(
                key.Get(),
                L"UserDictQdict",
                nullptr,
                &type,
                out_qdict_bytes.data(),
-               &cb) == ERROR_SUCCESS;
+               &cb), "LoadUserDictBinaryFromRegistry::RegQueryValueExW(data)");
 }
 
 bool SaveConfig(const QiQiConfig& config) noexcept {
@@ -440,7 +502,9 @@ QiQiConfig LoadConfig(void* /*module_handle*/) noexcept {
                       PrimaryDictToString(cfg.primary_dict), cfg.page_size);
         return cfg;
     }
-    SaveConfigToRegistry(cfg);
+    if (!SaveConfigToRegistry(cfg)) {
+        QIQI_LOG_WARN("LoadConfig: using in-memory defaults; initial configuration could not be saved");
+    }
     return cfg;
 }
 

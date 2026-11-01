@@ -28,27 +28,29 @@ void InitSettingsCompartmentSubscription(HWND hwnd, DialogContext& ctx) noexcept
         const auto get_fn = reinterpret_cast<TfGetThreadMgrFn>(
             ::GetProcAddress(msctf, "TF_GetThreadMgr"));
         if (get_fn) {
-            std::ignore = get_fn(&thread_mgr);
+            std::ignore = log::CheckHResult(get_fn(&thread_mgr), "Settings::TF_GetThreadMgr", log::Level::debug);
         }
         if (!thread_mgr) {
             using TfCreateThreadMgrFn = HRESULT(WINAPI*)(ITfThreadMgr**);
             const auto create_fn = reinterpret_cast<TfCreateThreadMgrFn>(
                 ::GetProcAddress(msctf, "TF_CreateThreadMgr"));
             if (create_fn) {
-                std::ignore = create_fn(&thread_mgr);
+                std::ignore = log::CheckHResult(create_fn(&thread_mgr), "Settings::TF_CreateThreadMgr", log::Level::debug);
             }
         }
     }
     if (!thread_mgr) {
-        std::ignore = ::CoCreateInstance(
-            CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&thread_mgr));
+        std::ignore = log::CheckHResult(::CoCreateInstance(
+            CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&thread_mgr)),
+            "Settings::CoCreateInstance(ITfThreadMgr)");
     }
     if (!thread_mgr) {
         return;
     }
     Microsoft::WRL::ComPtr<ITfCompartmentMgr> global_mgr;
 #pragma warning(suppress : 26447) // TSF COM methods report failure through HRESULT.
-    if (FAILED(thread_mgr->GetGlobalCompartment(&global_mgr)) || !global_mgr) {
+    if (!log::CheckHResult(thread_mgr->GetGlobalCompartment(&global_mgr),
+                          "Settings::GetGlobalCompartment") || !global_mgr) {
         return;
     }
     Microsoft::WRL::ComPtr<SettingsCompartmentListener> listener;

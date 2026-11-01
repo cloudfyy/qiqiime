@@ -17,13 +17,20 @@ std::string WideToUtf8(std::wstring_view wide) noexcept {
         const int len = ::WideCharToMultiByte(
             CP_UTF8, 0, wide.data(), gsl::narrow_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
         if (len <= 0) {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_WARN("WideCharToMultiByte(size) failed (error={})", error);
             return {};
         }
         std::string result(gsl::narrow_cast<size_t>(len), '\0');
-        ::WideCharToMultiByte(
-            CP_UTF8, 0, wide.data(), gsl::narrow_cast<int>(wide.size()), result.data(), len, nullptr, nullptr);
+        if (::WideCharToMultiByte(
+                CP_UTF8, 0, wide.data(), gsl::narrow_cast<int>(wide.size()), result.data(), len, nullptr, nullptr) == 0) {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_WARN("WideCharToMultiByte(convert) failed (error={})", error);
+            return {};
+        }
         return result;
     } catch (...) {
+        QIQI_LOG_ERROR("WideToUtf8 failed with a C++ exception");
         return {};
     }
 }
@@ -36,13 +43,20 @@ std::wstring Utf8ToWide(std::string_view utf8) noexcept {
         const int len = ::MultiByteToWideChar(
             CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), nullptr, 0);
         if (len <= 0) {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_WARN("MultiByteToWideChar(size) failed (error={})", error);
             return {};
         }
         std::wstring result(gsl::narrow_cast<size_t>(len), L'\0');
-        ::MultiByteToWideChar(
-            CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), result.data(), len);
+        if (::MultiByteToWideChar(
+                CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), result.data(), len) == 0) {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_WARN("MultiByteToWideChar(convert) failed (error={})", error);
+            return {};
+        }
         return result;
     } catch (...) {
+        QIQI_LOG_ERROR("Utf8ToWide failed with a C++ exception");
         return {};
     }
 }
@@ -50,14 +64,18 @@ std::wstring Utf8ToWide(std::string_view utf8) noexcept {
 std::filesystem::path GetModuleFilePath(void* module_handle) noexcept {
     try {
         std::array<wchar_t, MAX_PATH> module_path{};
-        if (::GetModuleFileNameW(
+        const DWORD length = ::GetModuleFileNameW(
                 static_cast<HMODULE>(module_handle),
                 module_path.data(),
-                gsl::narrow_cast<DWORD>(module_path.size())) == 0) {
+                gsl::narrow_cast<DWORD>(module_path.size()));
+        if (length == 0 || length >= module_path.size()) {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_WARN("GetModuleFileNameW failed or buffer truncated (error={})", error);
             return {};
         }
         return std::filesystem::path(module_path.data());
     } catch (...) {
+        QIQI_LOG_ERROR("GetModuleFilePath failed with a C++ exception");
         return {};
     }
 }
@@ -92,19 +110,26 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
         nullptr));
-    if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
-        QIQI_LOG_DEBUG("ReadFileToUtf8String: could not open disk file '{}' (error={})",
-                       WideToUtf8(file_path.wstring()), ::GetLastError());
+    if (!file.IsValid()) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_DEBUG("ReadFileToUtf8String::CreateFileW failed (error={})", error);
+        return false;
+    }
+    if (::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+        QIQI_LOG_WARN("ReadFileToUtf8String: target is not a disk file");
         return false;
     }
 
     LARGE_INTEGER file_size{};
     constexpr LONGLONG kMaxAllowedReadBytes = 64LL * 1024LL * 1024LL; // 64 MB safety ceiling
-    if (!::GetFileSizeEx(file.Get(), &file_size) ||
-        file_size.QuadPart < 0 ||
+    if (!::GetFileSizeEx(file.Get(), &file_size)) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("ReadFileToUtf8String::GetFileSizeEx failed (error={})", error);
+        return false;
+    }
+    if (file_size.QuadPart < 0 ||
         file_size.QuadPart > kMaxAllowedReadBytes) {
-        QIQI_LOG_WARN("ReadFileToUtf8String: invalid or oversize file ({} bytes) for '{}'",
-                      file_size.QuadPart, WideToUtf8(file_path.wstring()));
+        QIQI_LOG_WARN("ReadFileToUtf8String: invalid or oversize file ({} bytes)", file_size.QuadPart);
         return false;
     }
 
@@ -116,10 +141,11 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
     out_content.resize(gsl::narrow_cast<size_t>(file_size.QuadPart));
     DWORD total_read = 0;
     const DWORD to_read = gsl::narrow_cast<DWORD>(file_size.QuadPart);
-    if (!::ReadFile(file.Get(), out_content.data(), to_read, &total_read, nullptr) ||
-        total_read != to_read) {
-        QIQI_LOG_WARN("ReadFileToUtf8String: ReadFile failed for '{}' (expected={}, read={}, error={})",
-                      WideToUtf8(file_path.wstring()), to_read, total_read, ::GetLastError());
+    const BOOL read_ok = ::ReadFile(file.Get(), out_content.data(), to_read, &total_read, nullptr);
+    const DWORD read_error = read_ok ? ERROR_SUCCESS : ::GetLastError();
+    if (!read_ok || total_read != to_read) {
+        QIQI_LOG_WARN("ReadFileToUtf8String::ReadFile incomplete (expected={}, read={}, error={})",
+                      to_read, total_read, read_error);
         out_content.clear();
         return false;
     }
@@ -130,12 +156,14 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
     try {
         std::error_code ec;
         if (std::filesystem::is_directory(target_path, ec)) {
-            QIQI_LOG_WARN("WriteFileAtomically: target path '{}' is a directory",
-                          WideToUtf8(target_path.wstring()));
+            QIQI_LOG_WARN("WriteFileAtomically: target is a directory");
             return false;
         }
         if (target_path.has_parent_path()) {
             std::filesystem::create_directories(target_path.parent_path(), ec);
+            if (ec) {
+                QIQI_LOG_WARN("WriteFileAtomically::create_directories failed (error={})", ec.value());
+            }
         }
 
         const std::filesystem::path tmp_path =
@@ -145,6 +173,9 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
             if (!moved_ok) {
                 std::error_code rm_ec;
                 std::filesystem::remove(tmp_path, rm_ec);
+                if (rm_ec) {
+                    QIQI_LOG_WARN("WriteFileAtomically::remove temporary file failed (error={})", rm_ec.value());
+                }
             }
         });
 
@@ -157,29 +188,37 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
                 CREATE_ALWAYS,
                 FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
                 nullptr));
-            if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
-                QIQI_LOG_WARN("WriteFileAtomically: CreateFileW failed for '{}' (error={})",
-                              WideToUtf8(tmp_path.wstring()), ::GetLastError());
+            if (!file.IsValid()) {
+                const DWORD error = ::GetLastError();
+                QIQI_LOG_WARN("WriteFileAtomically::CreateFileW failed (error={})", error);
+                return false;
+            }
+            if (::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+                QIQI_LOG_WARN("WriteFileAtomically: target is not a disk file");
                 return false;
             }
 
             DWORD written = 0;
             const DWORD to_write = gsl::narrow_cast<DWORD>(bytes.size());
-            if (to_write > 0 &&
-                (!::WriteFile(file.Get(), bytes.data(), to_write, &written, nullptr) || written != to_write)) {
-                QIQI_LOG_ERROR("WriteFileAtomically: WriteFile failed for '{}' (expected={}, written={}, error={})",
-                               WideToUtf8(tmp_path.wstring()), to_write, written, ::GetLastError());
-                return false;
+            if (to_write > 0) {
+                const BOOL write_ok = ::WriteFile(file.Get(), bytes.data(), to_write, &written, nullptr);
+                const DWORD error = write_ok ? ERROR_SUCCESS : ::GetLastError();
+                if (!write_ok || written != to_write) {
+                    QIQI_LOG_ERROR("WriteFileAtomically::WriteFile incomplete (expected={}, written={}, error={})",
+                                   to_write, written, error);
+                    return false;
+                }
             }
         }
 
         moved_ok = (::MoveFileExW(tmp_path.c_str(), target_path.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE);
         if (!moved_ok) {
-            QIQI_LOG_WARN("WriteFileAtomically: MoveFileExW '{}' -> '{}' failed (error={})",
-                          WideToUtf8(tmp_path.wstring()), WideToUtf8(target_path.wstring()), ::GetLastError());
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_WARN("WriteFileAtomically::MoveFileExW failed (error={})", error);
         }
         return moved_ok;
     } catch (...) {
+        QIQI_LOG_ERROR("WriteFileAtomically failed with a C++ exception");
         return false;
     }
 }

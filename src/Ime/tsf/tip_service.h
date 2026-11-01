@@ -138,6 +138,8 @@ private:
     DWORD activate_flags_ = 0;
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection text_layout_sink_;
+    bool function_provider_registered_ = false;
+    bool langbar_item_added_ = false;
     ScopedTfCompartment global_config_comp_;
     ScopedTfCompartment global_pos_comp_;
     ScopedTfCompartment openclose_comp_;

@@ -29,19 +29,21 @@ void AddMenuEntry(ITfMenu* menu, LangBarMenuId id, const wchar_t* text, bool che
     if (!enabled) {
         flags |= TF_LBMENUF_GRAYED;
     }
-    menu->AddMenuItem(
+    std::ignore = log::CheckHResult(menu->AddMenuItem(
         static_cast<UINT>(id),
         flags,
         nullptr,
         nullptr,
         text,
         gsl::narrow_cast<ULONG>(wcslen(text)),
-        nullptr);
+        nullptr), "LangBarButton::AddMenuItem");
 }
 
 void AddMenuSeparator(ITfMenu* menu) {
     if (menu) {
-        menu->AddMenuItem(0, TF_LBMENUF_SEPARATOR, nullptr, nullptr, nullptr, 0, nullptr);
+        std::ignore = log::CheckHResult(
+            menu->AddMenuItem(0, TF_LBMENUF_SEPARATOR, nullptr, nullptr, nullptr, 0, nullptr),
+            "LangBarButton::AddMenuItem(separator)");
     }
 }
 
@@ -53,7 +55,10 @@ void AppendWin32PopupItem(
     const UINT flags = MF_STRING |
         (checked ? MF_CHECKED : MF_UNCHECKED) |
         (enabled ? MF_ENABLED : (MF_GRAYED | MF_DISABLED));
-    ::AppendMenuW(menu, flags, static_cast<UINT_PTR>(id), text);
+    if (!::AppendMenuW(menu, flags, static_cast<UINT_PTR>(id), text)) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("LangBarButton::AppendMenuW failed (error={})", error);
+    }
 }
 
 } // namespace
@@ -208,7 +213,8 @@ STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCo
     if (sink_) {
         return CONNECT_E_ADVISELIMIT;
     }
-    if (FAILED(punk->QueryInterface(IID_PPV_ARGS(&sink_))) || !sink_) {
+    if (!log::CheckHResult(punk->QueryInterface(IID_PPV_ARGS(&sink_)),
+                          "LangBarButton::QueryInterface(ITfLangBarItemSink)", log::Level::debug) || !sink_) {
         return E_NOINTERFACE;
     }
     sink_cookie_ = kLangBarSinkCookie;
@@ -228,7 +234,8 @@ STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) {
 void LangBarButton::UpdateState(const LangBarState& state) {
     state_ = state;
     if (sink_) {
-        sink_->OnUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP);
+        std::ignore = log::CheckHResult(sink_->OnUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP),
+                                       "LangBarButton::OnUpdate");
     }
 }
 

@@ -504,12 +504,14 @@ public:
 
     // ITfSourceSingle
     STDMETHODIMP AdviseSingleSink(TfClientId, REFIID, IUnknown* punk) noexcept override {
+        if (FAILED(single_sink_result_)) return single_sink_result_;
         single_sink_ = punk;
         return S_OK;
     }
     STDMETHODIMP UnadviseSingleSink(TfClientId, REFIID) override {
+        ++unadvise_single_calls_;
         single_sink_.Reset();
-        return S_OK;
+        return unadvise_single_result_;
     }
 
     // ITfKeystrokeMgr
@@ -597,12 +599,14 @@ public:
     STDMETHODIMP AdviseItemsSink(ULONG, ITfLangBarItemSink**, const GUID*, DWORD*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP UnadviseItemsSink(ULONG, DWORD*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP AddItem(ITfLangBarItem* punk) noexcept override {
+        if (FAILED(add_item_result_)) return add_item_result_;
         langbar_item_ = punk;
         return S_OK;
     }
     STDMETHODIMP RemoveItem(ITfLangBarItem*) override {
+        ++remove_item_calls_;
         langbar_item_.Reset();
-        return S_OK;
+        return remove_item_result_;
     }
 
     ComPtr<MockTfCompartment> compartment_;
@@ -619,6 +623,12 @@ public:
     bool fail_advise_ = false;
     bool fail_key_sink_ = false;
     bool fail_begin_ui_ = false;
+    HRESULT single_sink_result_ = S_OK;
+    HRESULT unadvise_single_result_ = S_OK;
+    HRESULT add_item_result_ = S_OK;
+    HRESULT remove_item_result_ = S_OK;
+    unsigned int unadvise_single_calls_ = 0;
+    unsigned int remove_item_calls_ = 0;
     BOOL show_own_ui_ = TRUE;
 private:
     ULONG ref_ = 1;

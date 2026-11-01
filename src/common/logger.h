@@ -32,6 +32,10 @@ bool IsLogSinkActive() noexcept;
 // Emit a pre-formatted UTF-8 log entry to Windows ETW TraceLogging (and debugger when attached).
 void WriteLogMessage(Level level, std::string_view message) noexcept;
 
+// Preserve the result of a COM operation while diagnosing only failed HRESULTs.
+bool CheckHResult(int32_t hr, std::string_view operation, Level level = Level::warn) noexcept;
+void ReportLoggingFailure() noexcept;
+
 template <typename... Args>
 void Log(Level level, std::string_view fmt, Args&&... args) noexcept {
     if (level < GetLevel() || level == Level::off || !IsLogSinkActive()) {
@@ -41,6 +45,7 @@ void Log(Level level, std::string_view fmt, Args&&... args) noexcept {
         const std::string msg = std::vformat(fmt, std::make_format_args(args...));
         WriteLogMessage(level, msg);
     } catch (...) {
+        ReportLoggingFailure();
     }
 }
 
@@ -55,4 +60,3 @@ void Shutdown() noexcept;
 #define QIQI_LOG_WARN(...)     ::qiqi::log::Log(::qiqi::log::Level::warn,     __VA_ARGS__)
 #define QIQI_LOG_ERROR(...)    ::qiqi::log::Log(::qiqi::log::Level::err,      __VA_ARGS__)
 #define QIQI_LOG_CRITICAL(...) ::qiqi::log::Log(::qiqi::log::Level::critical, __VA_ARGS__)
-

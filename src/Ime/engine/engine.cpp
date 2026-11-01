@@ -54,10 +54,7 @@ void WubiEngine::SetChineseMode(bool enabled) noexcept {
         Reset();
         state_ = EngineState::English;
     }
-    try {
-        QIQI_LOG_DEBUG("WubiEngine mode switched to {}", enabled ? "Chinese" : "English");
-    } catch (...) {
-    }
+    QIQI_LOG_DEBUG("WubiEngine mode switched to {}", enabled ? "Chinese" : "English");
 }
 
 void WubiEngine::ToggleChineseMode() noexcept {
@@ -524,11 +521,8 @@ KeyProcessResult WubiEngine::ProcessKey(
 
     const TransitionRule rule = EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down, caps_lock_on);
     if (rule.op != TransitionOp::PassThrough) {
-        QIQI_LOG_TRACE("FSM transition: state={} vk=0x{:02X} shift={} caps={} -> op={} next_state={}",
+        QIQI_LOG_TRACE("FSM transition: state={} -> op={} next_state={}",
                        static_cast<unsigned int>(state_),
-                       vk,
-                       shift_down,
-                       caps_lock_on,
                        static_cast<unsigned int>(rule.op),
                        static_cast<unsigned int>(rule.next_state));
     }

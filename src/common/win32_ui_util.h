@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "common/scoped_handle.h"
+#include "common/logger.h"
 
 namespace qiqi {
 
@@ -17,7 +18,13 @@ struct WindowDcGuardTraits {
     using ResourceType = HDC;
     static constexpr HDC Invalid() noexcept { return nullptr; }
     static constexpr bool IsValid(const HDC hdc) noexcept { return hdc != nullptr; }
-    static HDC Acquire(HWND hwnd) noexcept { return ::GetDC(hwnd); }
+    static HDC Acquire(HWND hwnd) noexcept {
+        const HDC dc = ::GetDC(hwnd);
+        if (!dc) {
+            QIQI_LOG_DEBUG("ScopedWindowDC::GetDC failed");
+        }
+        return dc;
+    }
     static void Release(HWND hwnd, HDC hdc) noexcept { ::ReleaseDC(hwnd, hdc); }
 };
 
@@ -133,7 +140,11 @@ inline ScopedGdiHandle<HFONT> CreateUiFont(
     lf.lfCharSet = DEFAULT_CHARSET;
     lf.lfQuality = quality;
     wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
-    return ScopedGdiHandle<HFONT>(::CreateFontIndirectW(&lf));
+    ScopedGdiHandle<HFONT> font(::CreateFontIndirectW(&lf));
+    if (!font) {
+        QIQI_LOG_WARN("CreateUiFont::CreateFontIndirectW failed");
+    }
+    return font;
 }
 
 // Create a 32-bit ARGB transparent HICON containing a single centered glyph (no solid background fill).
@@ -145,6 +156,7 @@ inline ScopedIcon CreateTransparentGlyphIcon(wchar_t ch, int size_px, COLORREF t
     }
     const ScopedMemoryDC mem_dc(::CreateCompatibleDC(screen_dc.Get()));
     if (!mem_dc) {
+        QIQI_LOG_WARN("CreateTransparentGlyphIcon::CreateCompatibleDC failed");
         return {};
     }
 
@@ -161,6 +173,7 @@ inline ScopedIcon CreateTransparentGlyphIcon(wchar_t ch, int size_px, COLORREF t
         ::CreateDIBSection(screen_dc.Get(), &bmi, DIB_RGB_COLORS, &bits, nullptr, 0));
     const ScopedGdiHandle<HBITMAP> mask_bmp(::CreateBitmap(sz, sz, 1, 1, nullptr));
     if (!color_bmp || !bits || !mask_bmp) {
+        QIQI_LOG_WARN("CreateTransparentGlyphIcon: bitmap creation failed");
         return {};
     }
 
@@ -202,7 +215,12 @@ inline ScopedIcon CreateTransparentGlyphIcon(wchar_t ch, int size_px, COLORREF t
     ii.fIcon = TRUE;
     ii.hbmMask = mask_bmp.Get();
     ii.hbmColor = color_bmp.Get();
-    return ScopedIcon(::CreateIconIndirect(&ii));
+    ScopedIcon icon(::CreateIconIndirect(&ii));
+    if (!icon) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("CreateTransparentGlyphIcon::CreateIconIndirect failed (error={})", error);
+    }
+    return icon;
 }
 
 } // namespace qiqi

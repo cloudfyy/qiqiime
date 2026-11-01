@@ -34,14 +34,18 @@ std::pair<std::wstring, std::wstring> GetClsidRegistryPaths() {
     return {std::move(clsid_key), std::move(inproc_key)};
 }
 
-void SetRegSzValue(HKEY key, const wchar_t* value_name, std::wstring_view value) noexcept {
-    ::RegSetValueExW(
+bool SetRegSzValue(HKEY key, const wchar_t* value_name, std::wstring_view value) noexcept {
+    const LSTATUS error = ::RegSetValueExW(
         key,
         value_name,
         0,
         REG_SZ,
         reinterpret_cast<const BYTE*>(value.data()),
         gsl::narrow_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+    if (error != ERROR_SUCCESS) {
+        QIQI_LOG_ERROR("SetRegSzValue::RegSetValueExW failed (error={})", error);
+    }
+    return error == ERROR_SUCCESS;
 }
 
 bool RegisterComClsid(HINSTANCE instance) {
@@ -63,7 +67,9 @@ bool RegisterComClsid(HINSTANCE instance) {
                            WideToUtf8(clsid_key), st);
             return false;
         }
-        SetRegSzValue(hkey.Get(), nullptr, kTextServiceDesc);
+        if (!SetRegSzValue(hkey.Get(), nullptr, kTextServiceDesc)) {
+            return false;
+        }
     }
 
     {
@@ -76,8 +82,10 @@ bool RegisterComClsid(HINSTANCE instance) {
                            WideToUtf8(inproc_key), st);
             return false;
         }
-        SetRegSzValue(hkey.Get(), nullptr, module_path.native());
-        SetRegSzValue(hkey.Get(), L"ThreadingModel", L"Apartment");
+        if (!SetRegSzValue(hkey.Get(), nullptr, module_path.native()) ||
+            !SetRegSzValue(hkey.Get(), L"ThreadingModel", L"Apartment")) {
+            return false;
+        }
     }
     QIQI_LOG_DEBUG("RegisterComClsid succeeded for '{}'", WideToUtf8(module_path.wstring()));
     return true;
@@ -85,8 +93,12 @@ bool RegisterComClsid(HINSTANCE instance) {
 
 void UnregisterComClsid() {
     const auto [clsid_key, inproc_key] = GetClsidRegistryPaths();
-    ::RegDeleteKeyW(HKEY_CLASSES_ROOT, inproc_key.c_str());
-    ::RegDeleteKeyW(HKEY_CLASSES_ROOT, clsid_key.c_str());
+    for (const auto* path : {&inproc_key, &clsid_key}) {
+        const LSTATUS error = ::RegDeleteKeyW(HKEY_CLASSES_ROOT, path->c_str());
+        if (error != ERROR_SUCCESS && error != ERROR_FILE_NOT_FOUND) {
+            QIQI_LOG_WARN("UnregisterComClsid::RegDeleteKeyW failed (error={})", error);
+        }
+    }
 }
 
 // Categories declared for modern Windows, UWP/AppContainer, and fullscreen UILess games
@@ -114,7 +126,7 @@ void RegisterSettingsUriProtocol(HINSTANCE instance) noexcept {
 
         {
             ScopedRegKey proto_key;
-            if (::RegCreateKeyExW(
+            const LSTATUS error = ::RegCreateKeyExW(
                     HKEY_CLASSES_ROOT,
                     kSettingsUriScheme,
                     0,
@@ -123,16 +135,20 @@ void RegisterSettingsUriProtocol(HINSTANCE instance) noexcept {
                     KEY_WRITE,
                     nullptr,
                     proto_key.Put(),
-                    nullptr) != ERROR_SUCCESS) {
+                    nullptr);
+            if (error != ERROR_SUCCESS) {
+                QIQI_LOG_WARN("RegisterSettingsUriProtocol::RegCreateKeyExW(protocol) failed (error={})", error);
                 return;
             }
-            SetRegSzValue(proto_key.Get(), nullptr, L"URL:QiQiIME Settings Protocol");
-            SetRegSzValue(proto_key.Get(), L"URL Protocol", L"");
+            if (!SetRegSzValue(proto_key.Get(), nullptr, L"URL:QiQiIME Settings Protocol") ||
+                !SetRegSzValue(proto_key.Get(), L"URL Protocol", L"")) {
+                return;
+            }
         }
 
         {
             ScopedRegKey cmd_key;
-            if (::RegCreateKeyExW(
+            const LSTATUS error = ::RegCreateKeyExW(
                     HKEY_CLASSES_ROOT,
                     kSettingsUriCommandKey,
                     0,
@@ -141,19 +157,29 @@ void RegisterSettingsUriProtocol(HINSTANCE instance) noexcept {
                     KEY_WRITE,
                     nullptr,
                     cmd_key.Put(),
-                    nullptr) == ERROR_SUCCESS) {
+                    nullptr);
+            if (error == ERROR_SUCCESS) {
                 const std::wstring cmd_str = L"\"" + exe_path.wstring() + L"\"";
-                SetRegSzValue(cmd_key.Get(), nullptr, cmd_str);
+                if (!SetRegSzValue(cmd_key.Get(), nullptr, cmd_str)) {
+                    return;
+                }
+            } else {
+                QIQI_LOG_WARN("RegisterSettingsUriProtocol::RegCreateKeyExW(command) failed (error={})", error);
+                return;
             }
         }
         QIQI_LOG_DEBUG("Registered qiqiime-settings: URI protocol -> '{}'",
                        WideToUtf8(exe_path.wstring()));
     } catch (...) {
+        QIQI_LOG_ERROR("RegisterSettingsUriProtocol failed with a C++ exception");
     }
 }
 
 void UnregisterSettingsUriProtocol() noexcept {
-    ::RegDeleteTreeW(HKEY_CLASSES_ROOT, kSettingsUriScheme);
+    const LSTATUS error = ::RegDeleteTreeW(HKEY_CLASSES_ROOT, kSettingsUriScheme);
+    if (error != ERROR_SUCCESS && error != ERROR_FILE_NOT_FOUND) {
+        QIQI_LOG_WARN("UnregisterSettingsUriProtocol::RegDeleteTreeW failed (error={})", error);
+    }
 }
 
 void PrebuildBundledDictionaries(HINSTANCE instance) noexcept {
@@ -175,6 +201,7 @@ void PrebuildBundledDictionaries(HINSTANCE instance) noexcept {
             }
         }
     } catch (...) {
+        QIQI_LOG_ERROR("PrebuildBundledDictionaries failed with a C++ exception");
     }
 }
 
@@ -192,8 +219,12 @@ void RemovePrebuiltBundledDictionaries(HINSTANCE instance) noexcept {
             if (std::filesystem::remove(qdict_path, ec)) {
                 QIQI_LOG_DEBUG("Removed prebuilt dictionary cache '{}'", WideToUtf8(qdict_path.wstring()));
             }
+            if (ec) {
+                QIQI_LOG_WARN("RemovePrebuiltBundledDictionaries::remove failed (error={})", ec.value());
+            }
         }
     } catch (...) {
+        QIQI_LOG_ERROR("RemovePrebuiltBundledDictionaries failed with a C++ exception");
     }
 }
 
@@ -203,9 +234,14 @@ bool IsNative64BitClsidRegistered() noexcept {
     try {
         const auto [clsid_key, inproc_key] = GetClsidRegistryPaths();
         ScopedRegKey hkey;
-        return ::RegOpenKeyExW(HKEY_CLASSES_ROOT, inproc_key.c_str(), 0,
-                               KEY_READ | KEY_WOW64_64KEY, hkey.Put()) == ERROR_SUCCESS;
+        const LSTATUS error = ::RegOpenKeyExW(HKEY_CLASSES_ROOT, inproc_key.c_str(), 0,
+                                             KEY_READ | KEY_WOW64_64KEY, hkey.Put());
+        if (error != ERROR_SUCCESS && error != ERROR_FILE_NOT_FOUND) {
+            QIQI_LOG_WARN("IsNative64BitClsidRegistered::RegOpenKeyExW failed (error={})", error);
+        }
+        return error == ERROR_SUCCESS;
     } catch (...) {
+        QIQI_LOG_ERROR("IsNative64BitClsidRegistered failed with a C++ exception");
         return false;
     }
 }
@@ -300,7 +336,8 @@ HRESULT RegisterServerWithManagers(
 
         // Also register MUI display name resource (ID 100) and icon index 0 via ITfInputProcessorProfileMgr
         ComPtr<ITfInputProcessorProfileMgr> profile_mgr;
-        if (SUCCEEDED(profiles.As(&profile_mgr)) && profile_mgr) {
+        if (log::CheckHResult(profiles.As(&profile_mgr), "RegisterServer::QueryInterface(ITfInputProcessorProfileMgr)",
+                             log::Level::debug) && profile_mgr) {
             hr = profile_mgr->RegisterProfile(
                 kClsidQiQiTextService,
                 kChineseSimplifiedLangId,
@@ -324,7 +361,8 @@ HRESULT RegisterServerWithManagers(
         // Set localized MUI resource string ID 100 on the language profile so Windows displays
         // "QiQi Wubi" on English UI and "奇奇五笔" on Chinese UI.
         ComPtr<ITfInputProcessorProfilesEx> profiles_ex;
-        if (SUCCEEDED(profiles.As(&profiles_ex)) && profiles_ex) {
+        if (log::CheckHResult(profiles.As(&profiles_ex), "RegisterServer::QueryInterface(ITfInputProcessorProfilesEx)",
+                             log::Level::debug) && profiles_ex) {
             const HRESULT disp_hr = profiles_ex->SetLanguageProfileDisplayName(
                 kClsidQiQiTextService,
                 kChineseSimplifiedLangId,
@@ -400,24 +438,27 @@ HRESULT UnregisterServerWithManagers(
 
     ComPtr<ITfCategoryMgr> cat_mgr = custom_cat_mgr;
     if (!cat_mgr) {
-        ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
-                           IID_PPV_ARGS(&cat_mgr));
+        std::ignore = log::CheckHResult(::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
+                           IID_PPV_ARGS(&cat_mgr)), "UnregisterServer::CoCreateInstance(ITfCategoryMgr)");
     }
     if (cat_mgr) {
         for (const auto& cat : kSupportedCategories) {
-            cat_mgr->UnregisterCategory(kClsidQiQiTextService, cat, kClsidQiQiTextService);
+            std::ignore = log::CheckHResult(
+                cat_mgr->UnregisterCategory(kClsidQiQiTextService, cat, kClsidQiQiTextService),
+                "UnregisterServer::UnregisterCategory");
         }
     }
 
     ComPtr<ITfInputProcessorProfiles> profiles = custom_profiles;
     if (!profiles) {
-        ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
-                           IID_PPV_ARGS(&profiles));
+        std::ignore = log::CheckHResult(::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
+                           IID_PPV_ARGS(&profiles)), "UnregisterServer::CoCreateInstance(ITfInputProcessorProfiles)");
     }
     if (profiles) {
         // Deactivate without persisting an HKCU disable override across reinstalls.
         ComPtr<ITfInputProcessorProfileMgr> profile_mgr;
-        if (SUCCEEDED(profiles.As(&profile_mgr)) && profile_mgr) {
+        if (log::CheckHResult(profiles.As(&profile_mgr), "UnregisterServer::QueryInterface(ITfInputProcessorProfileMgr)",
+                             log::Level::debug) && profile_mgr) {
             const HRESULT deactivate_hr = profile_mgr->DeactivateProfile(
                 TF_PROFILETYPE_INPUTPROCESSOR,
                 kChineseSimplifiedLangId,
@@ -429,16 +470,18 @@ HRESULT UnregisterServerWithManagers(
                 QIQI_LOG_WARN("DeactivateProfile failed with HRESULT 0x{:08x}; continuing unregistration",
                               gsl::narrow_cast<unsigned int>(deactivate_hr));
             }
-            profile_mgr->UnregisterProfile(
+            std::ignore = log::CheckHResult(profile_mgr->UnregisterProfile(
                 kClsidQiQiTextService,
                 kChineseSimplifiedLangId,
                 kGuidProfileWubi86,
-                0);
-            profile_mgr->ReleaseInputProcessor(kClsidQiQiTextService, 0);
+                0), "UnregisterServer::UnregisterProfile");
+            std::ignore = log::CheckHResult(profile_mgr->ReleaseInputProcessor(kClsidQiQiTextService, 0),
+                                           "UnregisterServer::ReleaseInputProcessor");
         }
-        profiles->RemoveLanguageProfile(
-            kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86);
-        profiles->Unregister(kClsidQiQiTextService);
+        std::ignore = log::CheckHResult(profiles->RemoveLanguageProfile(
+            kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86),
+            "UnregisterServer::RemoveLanguageProfile");
+        std::ignore = log::CheckHResult(profiles->Unregister(kClsidQiQiTextService), "UnregisterServer::Unregister");
     }
     ::CoFreeUnusedLibraries();
     UnregisterSettingsUriProtocol();

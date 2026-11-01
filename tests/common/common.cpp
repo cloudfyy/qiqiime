@@ -68,9 +68,18 @@ void TestEtwLogger() {
     log::WriteLogMessage(log::Level::critical, "Critical message");
 
     log::SetLevel(log::Level::off);
+    ::SetLastError(ERROR_ACCESS_DENIED);
+    QIQI_TEST_CHECK(log::CheckHResult(S_OK, "successful operation"));
+    QIQI_TEST_CHECK(log::CheckHResult(S_FALSE, "optional operation"));
+    QIQI_TEST_CHECK(log::CheckHResult(TF_S_ASYNC, "queued edit session"));
+    QIQI_TEST_CHECK(!log::CheckHResult(E_ACCESSDENIED, "failed operation"));
+    QIQI_TEST_CHECK(::GetLastError() == ERROR_ACCESS_DENIED);
     QIQI_LOG_INFO("Suppressed when level is off");
     log::WriteLogMessage(log::Level::off, "Suppressed off write");
     log::SetLevel(log::Level::info);
+    ::SetLastError(ERROR_SHARING_VIOLATION);
+    QIQI_TEST_CHECK(!log::CheckHResult(E_FAIL, "failed operation", log::Level::err));
+    QIQI_TEST_CHECK(::GetLastError() == ERROR_SHARING_VIOLATION);
 
     // 4. Test GetAppDataDirectory fallback when LOCALAPPDATA is unset, plus Shutdown & lazy re-Init
     {

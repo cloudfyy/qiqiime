@@ -8,6 +8,9 @@
 #include <gsl/gsl>
 
 #include <atomic>
+#include <array>
+#include <cstdio>
+#include <cwchar>
 #include <format>
 
 // Windows ETW TraceLogging Provider for QiQiIME: {8E7B9D31-5A42-4C81-9F11-202610290099}
@@ -39,8 +42,13 @@ public:
 
     void EnsureRegistered() noexcept {
         if (!registered_.exchange(true)) {
-            if (FAILED(::TraceLoggingRegister(g_qiqi_etw_provider))) {
+            const ULONG error = ::TraceLoggingRegister(g_qiqi_etw_provider);
+            if (error != ERROR_SUCCESS) {
                 registered_ = false;
+                std::array<char, 128> message{};
+                std::snprintf(message.data(), message.size(),
+                              "QiQiIME: TraceLoggingRegister failed (error=%lu)\n", error);
+                ::OutputDebugStringA(message.data());
             }
         }
     }
@@ -65,11 +73,22 @@ ScopedEtwProvider& GetEtwProvider() noexcept {
 std::string_view GetProcessName() noexcept {
     static const std::string kProcName = []() noexcept -> std::string {
         try {
-            std::string name = WideToUtf8(GetModuleFilePath(nullptr).filename().wstring());
-            if (!name.empty()) {
-                return name;
+            std::array<wchar_t, MAX_PATH> path{};
+            const DWORD length = ::GetModuleFileNameW(nullptr, path.data(), gsl::narrow_cast<DWORD>(path.size()));
+            if (length > 0 && length < path.size()) {
+                const wchar_t* separator = std::wcsrchr(path.data(), L'\\');
+                const wchar_t* name = separator ? separator + 1 : path.data();
+                const int bytes = ::WideCharToMultiByte(CP_UTF8, 0, name, -1, nullptr, 0, nullptr, nullptr);
+                if (bytes > 0) {
+                    std::string result(gsl::narrow_cast<size_t>(bytes), '\0');
+                    if (::WideCharToMultiByte(CP_UTF8, 0, name, -1, result.data(), bytes, nullptr, nullptr) > 0) {
+                        result.pop_back();
+                        return result;
+                    }
+                }
             }
         } catch (...) {
+            ReportLoggingFailure();
         }
         return "qiqiime";
     }();
@@ -151,6 +170,21 @@ void SetLevel(Level level) noexcept {
     g_log_level = level;
 }
 
+bool CheckHResult(int32_t hr, std::string_view operation, Level level) noexcept {
+    if (hr >= 0) {
+        return true;
+    }
+
+    const DWORD error = ::GetLastError();
+    Log(level, "{} failed (hr=0x{:08x})", operation, gsl::narrow_cast<unsigned int>(hr));
+    ::SetLastError(error);
+    return false;
+}
+
+void ReportLoggingFailure() noexcept {
+    ::OutputDebugStringA("QiQiIME: logging failed with a formatting, allocation or encoding error\n");
+}
+
 bool IsEtwProviderRegistered() noexcept {
     auto& provider = GetEtwProvider();
     provider.EnsureRegistered();
@@ -177,9 +211,19 @@ void WriteLogMessage(Level level, std::string_view message) noexcept {
     if (::IsDebuggerPresent() != FALSE) {
         try {
             const std::string line = std::format("[{}] [{}] {}\r\n", proc_name, LevelTag(level), message);
-            const std::wstring wide_line = Utf8ToWide(line);
-            ::OutputDebugStringW(wide_line.c_str());
+            const int chars = ::MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, nullptr, 0);
+            if (chars > 0) {
+                std::wstring wide_line(gsl::narrow_cast<size_t>(chars), L'\0');
+                if (::MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, wide_line.data(), chars) > 0) {
+                    ::OutputDebugStringW(wide_line.c_str());
+                } else {
+                    ReportLoggingFailure();
+                }
+            } else {
+                ReportLoggingFailure();
+            }
         } catch (...) {
+            ReportLoggingFailure();
         }
     }
 }

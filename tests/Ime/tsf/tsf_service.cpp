@@ -173,6 +173,35 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(service->ActivateEx(mock_tm.Get(), 1, 0) == E_FAIL);
     mock_tm->fail_key_sink_ = false;
 
+    mock_tm->single_sink_result_ = E_ACCESSDENIED;
+    mock_tm->add_item_result_ = E_OUTOFMEMORY;
+    QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+    QIQI_TEST_CHECK(!mock_tm->single_sink_ && !mock_tm->langbar_item_);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(mock_tm->unadvise_single_calls_ == 0 && mock_tm->remove_item_calls_ == 0);
+
+    mock_tm->single_sink_result_ = S_OK;
+    QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+    QIQI_TEST_CHECK(mock_tm->single_sink_ && !mock_tm->langbar_item_);
+    mock_tm->unadvise_single_result_ = E_FAIL;
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(mock_tm->unadvise_single_calls_ == 1 && mock_tm->remove_item_calls_ == 0);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(mock_tm->unadvise_single_calls_ == 1);
+
+    mock_tm->single_sink_result_ = E_ACCESSDENIED;
+    mock_tm->add_item_result_ = S_OK;
+    mock_tm->remove_item_result_ = E_FAIL;
+    QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+    QIQI_TEST_CHECK(!mock_tm->single_sink_ && mock_tm->langbar_item_);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(mock_tm->unadvise_single_calls_ == 1 && mock_tm->remove_item_calls_ == 1);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(mock_tm->remove_item_calls_ == 1);
+    mock_tm->single_sink_result_ = S_OK;
+    mock_tm->unadvise_single_result_ = S_OK;
+    mock_tm->remove_item_result_ = S_OK;
+
     // Activate success
     QIQI_TEST_CHECK(SUCCEEDED(service->Activate(mock_tm.Get(), 1)));
 

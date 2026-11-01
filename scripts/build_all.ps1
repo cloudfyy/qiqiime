@@ -19,16 +19,28 @@ foreach ($t in (Get-QiQiBuildTargets)) {
     if (-not (Test-Path $cacheFile)) {
         Write-QiQiStep "Configuring $($t.Name) ($($t.Arch))"
         & cmake -S $QiQiRepoRoot -B $t.BuildDir -G $Generator -A $t.Arch
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        if ($LASTEXITCODE -ne 0) {
+            $configureExitCode = $LASTEXITCODE
+            Write-Error "CMake configuration ($($t.Name)) failed with exit code $configureExitCode." -ErrorAction Continue
+            exit $configureExitCode
+        }
     }
 
     Write-QiQiStep "Building $($t.Name) ($Config)"
     & cmake --build $t.BuildDir --config $Config
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    if ($LASTEXITCODE -ne 0) {
+        $buildExitCode = $LASTEXITCODE
+        Write-Error "CMake build ($($t.Name), $Config) failed with exit code $buildExitCode." -ErrorAction Continue
+        exit $buildExitCode
+    }
 
     Write-QiQiStep "Testing $($t.Name) ($Config)"
     & ctest --test-dir $t.BuildDir -C $Config --output-on-failure
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    if ($LASTEXITCODE -ne 0) {
+        $testExitCode = $LASTEXITCODE
+        Write-Error "CTest ($($t.Name), $Config) failed with exit code $testExitCode." -ErrorAction Continue
+        exit $testExitCode
+    }
 }
 
 Write-Host "`nBoth x64 and x86 ($Config) builds and unit tests succeeded!" -ForegroundColor Green

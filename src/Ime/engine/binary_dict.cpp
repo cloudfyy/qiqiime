@@ -184,6 +184,7 @@ void WubiMappedDict::ClearProcessCache() noexcept {
         std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
         g_process_dict_cache.clear();
     } catch (...) {
+        QIQI_LOG_ERROR("ClearProcessCache failed with a C++ exception");
     }
 }
 
@@ -307,17 +308,26 @@ bool WubiMappedDict::OpenMappedFile(
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
         nullptr));
-    if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+    if (!file.IsValid()) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_DEBUG("OpenMappedFile::CreateFileW failed (error={})", error);
+        return false;
+    }
+    if (::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+        QIQI_LOG_WARN("OpenMappedFile: cache is not a disk file");
         return false;
     }
 
     LARGE_INTEGER file_size{};
     constexpr LONGLONG kMaxDictBytes = 128LL * 1024LL * 1024LL; // 128 MB upper bound
-    if (!::GetFileSizeEx(file.Get(), &file_size) ||
-        file_size.QuadPart < gsl::narrow_cast<LONGLONG>(sizeof(DictBinaryHeader)) ||
+    if (!::GetFileSizeEx(file.Get(), &file_size)) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("OpenMappedFile::GetFileSizeEx failed (error={})", error);
+        return false;
+    }
+    if (file_size.QuadPart < gsl::narrow_cast<LONGLONG>(sizeof(DictBinaryHeader)) ||
         file_size.QuadPart > kMaxDictBytes) {
-        QIQI_LOG_WARN("OpenMappedFile: invalid cache file size ({} bytes) for '{}'",
-                      file_size.QuadPart, WideToUtf8(bin_path.native()));
+        QIQI_LOG_WARN("OpenMappedFile: invalid cache file size ({} bytes)", file_size.QuadPart);
         return false;
     }
 
@@ -325,16 +335,16 @@ bool WubiMappedDict::OpenMappedFile(
     ScopedKernelHandle mapping(::CreateFileMappingW(
         file.Get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
     if (!mapping.IsValid()) {
-        QIQI_LOG_WARN("OpenMappedFile: CreateFileMappingW failed for '{}' (error={})",
-                      WideToUtf8(bin_path.native()), ::GetLastError());
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("OpenMappedFile::CreateFileMappingW failed (error={})", error);
         return false;
     }
 
     // Map with FILE_MAP_READ only
     ScopedMappedView view(::MapViewOfFile(mapping.Get(), FILE_MAP_READ, 0, 0, 0));
     if (!view.IsValid()) {
-        QIQI_LOG_WARN("OpenMappedFile: MapViewOfFile failed for '{}' (error={})",
-                      WideToUtf8(bin_path.native()), ::GetLastError());
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("OpenMappedFile::MapViewOfFile failed (error={})", error);
         return false;
     }
 
@@ -362,16 +372,25 @@ bool WubiMappedDict::IsSourceModified() const noexcept {
         }
         std::error_code ec;
         if (!std::filesystem::exists(source_path_, ec)) {
+            if (ec) {
+                QIQI_LOG_DEBUG("IsSourceModified::exists failed (error={})", ec.value());
+            }
             return false;
         }
         const uint64_t cur_size = std::filesystem::file_size(source_path_, ec);
+        if (ec) {
+            QIQI_LOG_DEBUG("IsSourceModified::file_size failed (error={})", ec.value());
+            return false;
+        }
         const uint64_t cur_mtime = gsl::narrow_cast<uint64_t>(
             std::filesystem::last_write_time(source_path_, ec).time_since_epoch().count());
         if (ec) {
+            QIQI_LOG_DEBUG("IsSourceModified::last_write_time failed (error={})", ec.value());
             return false;
         }
         return (cur_size != loaded_src_size_) || (cur_mtime != loaded_src_mtime_);
     } catch (...) {
+        QIQI_LOG_ERROR("IsSourceModified failed with a C++ exception");
         return false;
     }
 }
@@ -391,12 +410,20 @@ bool WubiMappedDict::CompileTextFileToQdict(
     const std::filesystem::path& out_qdict_path) {
     std::error_code ec;
     if (!std::filesystem::exists(txt_path, ec)) {
+        if (ec) {
+            QIQI_LOG_WARN("CompileTextFileToQdict::exists failed (error={})", ec.value());
+        }
         return false;
     }
     const uint64_t src_size = std::filesystem::file_size(txt_path, ec);
+    if (ec) {
+        QIQI_LOG_WARN("CompileTextFileToQdict::file_size failed (error={})", ec.value());
+        return false;
+    }
     const uint64_t src_mtime = gsl::narrow_cast<uint64_t>(
         std::filesystem::last_write_time(txt_path, ec).time_since_epoch().count());
     if (ec) {
+        QIQI_LOG_WARN("CompileTextFileToQdict::last_write_time failed (error={})", ec.value());
         return false;
     }
     std::vector<uint8_t> bin_buffer;

@@ -29,12 +29,14 @@ bool QueryCompartmentNonZero(IUnknown* unk, REFGUID guid) noexcept {
     }
     ComPtr<ITfCompartmentMgr> comp_mgr;
 #pragma warning(suppress : 26447) // TSF COM calls report failures through HRESULT.
-    if (FAILED(unk->QueryInterface(IID_PPV_ARGS(&comp_mgr))) || !comp_mgr) {
+    if (!log::CheckHResult(unk->QueryInterface(IID_PPV_ARGS(&comp_mgr)),
+                          "QueryCompartmentNonZero::QueryInterface(ITfCompartmentMgr)", log::Level::debug) || !comp_mgr) {
         return false;
     }
     ComPtr<ITfCompartment> comp;
 #pragma warning(suppress : 26447) // TSF COM calls report failures through HRESULT.
-    if (FAILED(comp_mgr->GetCompartment(guid, &comp)) || !comp) {
+    if (!log::CheckHResult(comp_mgr->GetCompartment(guid, &comp),
+                          "QueryCompartmentNonZero::GetCompartment", log::Level::debug) || !comp) {
         return false;
     }
     return ReadCompartmentInt4(comp.Get(), 0) != 0;

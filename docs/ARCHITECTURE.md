@@ -160,8 +160,103 @@ TSF 的按键处理分为两步：
 
 以下为待开发或待评估能力，不代表已经实现。优先补齐轻量纯五笔的日常体验；竞品历史资料中的功能仅作为需求参考，不作为当前版本可用性或性能结论。
 
+#### 首要代码审查待办：TSF 生命周期、诊断与性能
+
+以下待办由代码阅读发现的问题及待验证风险整理，未勾选项尚未实施；静态风险不等于真实宿主中已经复现的故障。保存于本架构文档，供后续会话继续执行。与下方任务 41 协调 UI 清理方案，不重复实现，也不在存在过期回调时仅提前销毁窗口。
+
+**执行顺序调整：任务 49 优先，其后 42 → 43 → 44 → 45 → 41 → 46 → 47，再继续 48、50–54 与原有功能待办。箭头表示建议执行顺序，硬依赖以各任务说明为准。**
+
+**首要执行：全仓库失败诊断**
+
+- [x] **49. 全仓库失败日志审计（`audit-failure-log-error-codes`）**
+  - 全面扫描生产代码，不限当前文件或 TSF：覆盖 IME 引擎/UI、公共组件、配置/文件操作、安装注册和各工具程序；测试及第三方依赖用于理解与验证，不修改第三方代码。
+  - 查找已有失败日志缺错误码、返回值被忽略及失败未记录的路径；先区分应修复、预期可选探测/回退、无需错误码和需进一步确认，不机械添加日志。
+  - 已知案例：[`tip_service.cpp`](../src/Ime/tsf/tip_service.cpp) 的 `RegisterGUID`、`AdviseSingleSink`、`UnadviseSingleSink`、语言栏 `AddItem`/`RemoveItem` 及相应接口查询。跟踪成功注册/添加状态，区分无需清理与真正注销失败。
+  - 保存真实返回值，记录操作名、必要的非敏感上下文及错误码。COM 沿用 `hr=0x{:08x}` 与 `gsl::narrow_cast<unsigned int>`；仅在 Win32 API 约定使用 `GetLastError` 时，于失败后立即捕获，不能替代 HRESULT 或输出陈旧错误。
+  - 合理区分回退诊断与最终失败级别，不记录用户输入或敏感数据，不造成按键日志刷屏，不改变既有业务行为。
+  - 分批修复并记录覆盖范围与剩余项，补充失败注入测试，验证错误码来源、操作上下文及正常行为；不能仅修复当前文件就宣布完成。与任务 48、53 协调避免重复实现。
+  - 审计范围、修复项、验证方式及独立生命周期剩余项见[开发文档](DEVELOPMENT.md#53-失败日志审计范围任务-49)；后续代码沿用该失败诊断规范。
+
+**P0：先建立测试能力，再修复过期任务**
+
+- [ ] **42. 延迟编辑会话测试能力（`tsf-deferred-session-test-support`）**
+  - 扩展现有立即执行回调的编辑会话 Mock，支持排队及手动执行；模拟停用、重新激活和上下文变化后才执行旧任务的时序。
+  - 先建立可暴露问题的测试，再实施任务 43、44；不要用同步 Mock 的成功结果代替异步生命周期验证。
+- [ ] **43. 阻止过期异步编辑任务（`tsf-stale-edit-sessions`）**
+  - 对 [`ApplyEngineResult` 与 `OnLayoutChange`](../src/Ime/tsf/tip_composition.cpp) 的编辑会话校验激活周期及输入上下文周期；停用或输入目标失效后，旧任务不得写文档、创建组合或恢复 UI。
+  - 仅检查是否激活或 `ComPtr` 非空不够：重新激活后旧任务仍属于旧周期，对象存活也不代表仍是有效输入目标。
+  - 依赖任务 42；确保新周期的正常输入不受影响。
+
+**P1：组合、上下文与真实宿主验证**
+
+- [ ] **44. 停用时正确结束宿主组合（`tsf-end-composition-on-deactivate`）**
+  - [`Deactivate`](../src/Ime/tsf/tip_service.cpp) 调用的本地重置仅释放 `composition_` 引用，不等于调用 `EndComposition`。
+  - 区分宿主已经终止组合与 IME 主动取消；在有效编辑会话中处理需要主动结束的组合，再清理相关状态和显示属性。
+  - 处理编辑权限不可用、请求失败、回调重入、部分初始化失败及重复停用；不在无有效编辑权限时强行修改文档。
+  - 依赖任务 42，与任务 41 的窗口销毁流程协调。
+- [ ] **45. 文档及上下文生命周期处理（`tsf-document-context-lifecycle`）**
+  - 继续以 `ITfContext` 为核心，不建立不必要的文档管理器列表。`OnInitDocumentMgr` 无文档级资源时可保持空实现。
+  - `OnUninitDocumentMgr` 判断是否关联当前上下文；`OnSetFocus` 比较实际输入目标，而不只是判断文档指针非空。
+  - `OnPushContext` 判断上下文用途及关联关系，不能无条件取消主组合；`OnPopContext` 判断弹出的是不是当前上下文，非当前上下文通知不得清理当前输入。
+  - 统一旧任务失效、订阅注销及组合/UI 清理流程；出栈或文档解除初始化时不假定仍能取得编辑权限。
+  - **官方背景**：上下文栈最多两个；第一个为主文档上下文，通常只有它。文本服务可为模态 UI（官方例子为候选列表）压入第二个上下文，结束后弹出并恢复主上下文。普通窗口切换或候选窗显示不必然触发 `Push`/`Pop`，正常模态入栈不等于主组合失效。
+  - 首次入栈会触发 `OnInitDocumentMgr` 及 `OnPushContext`；移除最后一个上下文会触发 `OnUninitDocumentMgr`。实现及 Mock 应核对具体通知时机，不将此描述当作回调顺序，也不把解除初始化等同于 COM 对象析构。
+  - `Pop(0)` 只弹出栈顶，不能移除唯一的主上下文；`Pop(TF_POPF_ALL)` 仅用于文档解除初始化，清空上下文并终止文本服务 UI。`Push`/`Pop` 必须同线程，不能在 `Pop` 期间重入 `Push`/`Pop`。
+  - 依赖任务 43、44。官方依据：[Push](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-push)、[Pop](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-pop)。
+- [ ] **46. 生命周期回归测试（`tsf-lifecycle-regression-tests`）**
+  - 依赖任务 43、44、45，利用任务 42 的延迟执行能力验证：提交后停用、停用后重新激活、输入目标变化及过期任务执行。
+  - 覆盖停用时仍有组合、宿主提前终止、重复停用、激活失败回滚、文档解除初始化及上下文出入栈。
+  - 验证正常模态入栈不误取消主组合，非当前文档/上下文通知不干扰当前输入，旧任务不写文档、不恢复 UI，引用及订阅正确释放。
+  - 按官方 API 语义模拟通知，不能仅用普通窗口切换替代上下文栈测试。
+- [ ] **47. 真实宿主生命周期验证（`tsf-real-host-lifecycle-tests`）**
+  - 在 VS Code 与浏览器中验证组合期间失焦、停用、重新激活后的组合文本、下划线及候选窗口清理。
+  - 检查 UI 是否残留或被旧任务重新显示，记录可复现步骤、宿主条件和验证结果；配合单元测试，不以 Mock 代替真实显示验证。
+  - 依赖任务 43、44、45。
+
+**P1：注册所有权、全仓库日志与性能**
+
+- [ ] **48. 保留键注册与注销生命周期（`tsf-preserved-key-registration-lifetime`）**
+  - 保留现有快捷键方案，逐键记录本激活周期成功注册的 GUID 与 `TF_PRESERVEDKEY`；停用或初始化失败回滚时只注销本周期成功注册项，同时跟踪键盘监听注册状态。
+  - 区分 `TF_E_ALREADY_EXISTS` 与其他失败，记录实际 `HRESULT`；不强行覆盖、先注销已有注册，或将重复注册视为本次取得所有权。注销失败不得静默丢失状态和诊断。
+  - `PreserveKey` 是 TSF 保留键机制，不是 `RegisterHotKey` 全局热键。重复注册返回值不能单独证明其他输入法占用同一组合键；注册成功也不代表没有应用/系统快捷键语义冲突，后者需另行验证，不能擅自新增抢键策略。
+  - 测试全部成功、单项重复/其他失败、部分成功回滚、重复停用、重新激活及注销失败，保持原快捷键行为。
+  - 参考源码：微软 [SampleIME](https://github.com/microsoft/Windows-classic-samples/blob/main/Samples/IME/cpp/SampleIME/CompositionProcessorEngine.cpp) 未逐次检查注册返回值，注销按表进行，不宜照搬错误处理；[Weasel](https://github.com/rime/weasel/blob/master/WeaselTSF/KeyEventSink.cpp) 当前注册代码位于 `#if 0`，初始化直接成功，注销为空。实施前复核源码，不能据此泛化所有输入法行为。
+  - 官方依据：[PreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-preservekey)、[UnpreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-unpreservekey)。
+- [ ] **50. 焦点处理性能埋点（`tsf-focus-performance-instrumentation`）**
+  - 对 [`HandleFocusChanged`](../src/Ime/tsf/tip_service.cpp) 的 `ReloadConfigIfModified`、`SyncStatusBarPositionFromGlobalCompartment` 分别测量耗时，并记录焦点处理总耗时及两类通知来源。
+  - 区分配置/词库无变化检查与实际重载，识别重复通知、同次词库与配置变化导致的重复加载；记录重载结果及非敏感计数。
+  - 复用现有计时/日志机制；如无则用单调高精度时钟（如 `std::chrono::steady_clock`），单位明确，精度能观察轻量检查。
+  - 详细埋点采用调试/跟踪级别，减少日志关闭时开销及生产刷屏，不记录用户文本或敏感路径，不新增吞异常或成功形状的失败结果。
+  - 验证无变化、配置变化、词库变化、两者同时变化、位置相同/变化及两种焦点通知；在真实宿主测量后再决定优化。不在本项擅自增加阈值、改变重载策略或把 TSF/UI 对象移到后台线程。
+
+**P2：共享资源与命名**
+
+- [ ] **51. 共享日志关闭时机（`tsf-shared-logger-lifetime`）**
+  - 评估每个 `Deactivate` 调用 `log::Shutdown` 对同进程其他服务实例的影响；ETW Provider 属于共享资源，应与模块或明确的共享资源生命周期对齐。
+  - 用多实例测试验证停用一个实例不影响另一个实例的日志能力，不能把可重新注册等同于没有并发影响。
+- [ ] **52. 进程词库缓存清理时机（`tsf-process-dict-cache-lifetime`）**
+  - 评估每个 `Deactivate` 调用 `ClearProcessCache` 是否造成多实例后续重复加载，按共享资源生命周期决定清理策略。
+  - 其他实例持有的 `shared_ptr` 不因清空缓存而悬空；重点验证共享复用、内存释放及停用一个实例后其他实例查询正常，不将性能风险误报成已确认的悬空引用。
+- [ ] **53. 类别管理器创建及 DLL 生命周期（`tsf-category-manager-creation-lifetime`）**
+  - 背景：先用 `GetModuleHandleW`/`GetProcAddress` 动态调用 `TF_CreateCategoryMgr`，未取得接口则回退 `CoCreateInstance`；两条创建路径都忽略 HRESULT，仅检查指针，`RegisterGUID` 日志也缺错误码。
+  - 官方说明导出函数可在不初始化 COM 时创建类别管理器，调用线程必须维护对象引用计数；局部 `ComPtr` 管理接口是合理的。文档没有要求导出优先、COM 回退的固定顺序。
+  - `GetModuleHandleW` 不增加 DLL 引用计数，官方建议 `GetModuleHandleEx` 避免卸载竞态；尚未证明当前激活场景实际会发生，应先核实宿主兼容性和模块生命周期依据。
+  - 不凭推测删回退。若保留动态路径，复用 RAII 模块资源机制，保障调用及接口使用期间模块存活，接口先释放、持有的模块引用后释放；借用的 `GetModuleHandleW` 句柄不得 `FreeLibrary`。
+  - 保存并诊断创建、回退及注册的实际 HRESULT；不能在宿主线程擅自初始化/反初始化 COM。只有证实 COM 路径足够可靠后再评估简化。
+  - 覆盖导出成功/不可用、导出失败后 COM 成功、全部创建失败及注册失败；保留失败不终止激活的既有行为，验证目标宿主兼容性。
+  - 官方依据：[TF_CreateCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-tf_createcategorymgr)、[GetModuleHandleW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew)、[ITfCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr)。
+- [ ] **54. 明确显示属性注册命名（`tsf-display-attribute-registration-name`）**
+  - 将 `InitDisplayAttributeGuidAtom` 改为 `RegisterCompositionDisplayAttributeAtom`，同步声明、定义、调用、日志及直接相关文档/测试引用，不改变行为；与任务 53 协调。
+  - 保留 [`display_attribute.cpp`](../src/Ime/tsf/display_attribute.cpp)、[`display_attribute.h`](../src/Ime/tsf/display_attribute.h) 及其类名；它们对应 TSF 正式接口，暂不进行收益有限的批量改名。
+
 #### 近期首要待办（明早第一项工作）
 - [x] **0. 全量代码质量检查与测试补全（`code-audit-and-test-completion`）**：对全仓（`common`、`engine`、`tsf`、`ui`、`settings`）执行代码质量扫描（RAII 合规、代码复用/DRY、C++ Core Guidelines & GSL 最佳实践、异常与边界安全），并补全遗漏的单元测试分支。
+
+#### P0：TSF 停用阶段资源清理
+- [ ] **41. 提前销毁停用服务的 UI 窗口（`tsf-deactivate-ui-cleanup`）**：将状态栏与候选窗口的销毁提前到 `QiQiTextService::Deactivate()`，不再仅隐藏窗口并等待 COM 引用计数归零后析构。
+  - 保留 UI 对象与回调以支持再次激活；先结束组合和 TSF UI 元素，再销毁窗口，并在所属 UI 线程完成清理。
+  - 析构保留幂等兜底，复用现有 RAII 清理机制，移除无意义的空 `catch (...)`，避免静默吞错。
+  - 补充停用后对象仍被引用、重复停用、激活失败回滚、再次激活及异步 EditSession 的生命周期回归测试。
 
 #### P0：禁输入场景识别研究
 - [ ] **36. 密码框与禁输入上下文识别研究（`restricted-input-context-research`）**：先研究并验证方案，再决定实现；现有 TSF 禁用标志检查不等同于所有密码框、只读框和游戏场景已覆盖。
@@ -173,6 +268,21 @@ TSF 的按键处理分为两步：
   - 产出带官方资料依据、可复现测试结果、检测边界和实施建议的研究结论；明确无法可靠识别的自绘控件，不承诺所有宿主都可检测。
 
 #### P0：词库管理与候选控制
+- [ ] **39. 公共跨进程变更同步机制（`cross-process-change-sync`）**：先实现共享机制，再开展任务 40，依次接入词库文件和词频文件；复用通知、版本检测及写入协调，保留各自的数据处理逻辑。
+  - 普通应用可发布更新；容器类应用只接收通知并只读同步，验证通知对象及数据访问权限，避免依赖仅进程范围的 TSF Global Compartment 广播。
+  - 支持按数据类型、数据源和递增版本识别变更，并通过增量记录传递新增、修改、删除或调序操作，使已同步实例仅应用变化，不必每次读取全量数据；通知唤醒与可追溯的增量记录分离，具体传输和存储方案在实现前验证。
+  - 检测版本缺口、增量记录过期和基线不匹配；启动或无法增量恢复时使用全量快照，不能仅靠可能丢失的通知保证一致性。
+  - 获得焦点时补偿检查版本，在新一轮输入时应用更新，避免正在输入时候选突然重排；验证并发写入、漏通知、晚启动、进程退出及容器只读同步。
+- [ ] **40. 词库与词频文件接入跨进程同步（`cross-process-dictionary-phrase-frequency-sync`）**：依赖任务 39，先实现词库文件接入，再实现词频文件接入。
+  - 词库文件：
+    - 受控编辑发布词条级增量；处理词库新增、删除、替换及内存映射缓存失效。
+    - 外部编辑器修改文件时，补充文件变化检测；能可靠生成差异时增量同步，否则明确触发全量重新加载，不承诺任意文件替换均可免全量读取。
+  - 词频文件：普通应用中的 IME 可动态写盘，容器类应用中的 IME 只需接收变更通知并只读同步，不要求写盘。
+    - 词频文件格式以读写效率为主，可采用二进制格式。
+    - 暂不做批量合并；跨进程写入必须协调，避免旧实例覆盖其他实例的新记录。
+    - 支持按编码或选词调序操作增量同步，避免每次变更都读取全量词频记录。
+    - 验证普通应用之间及普通应用到容器类应用的调序同步。
+- [ ] **38. 词频文件查看与编辑工具（`phrase-frequency-editor`）**：在任务 40 完成后，编写用于查看和编辑词频文件的小工具，兼容任务 40 确定的文件格式；编辑保存应遵循同一跨进程写入协调与变更通知机制。
 - [ ] **18. 图形化词库管理（`dictionary-management-ui`）**：复用现有用户词表与取码能力，提供词条搜索、新增、编码/词条编辑、删除、批量导入导出与分类词库管理；修改后同步到本机输入法实例。
 - [ ] **19. 候选词手动调序（`manual-candidate-order`）**：支持将指定候选词置顶、调整顺序并持久化，与现有可选动态调频明确区分；默认继续保持固定词序。
 - [ ] **20. 候选词删除与屏蔽（`candidate-delete-blocklist`）**：提供候选操作及快捷键，区分删除用户词与屏蔽系统词，支持恢复屏蔽词和批量删除。

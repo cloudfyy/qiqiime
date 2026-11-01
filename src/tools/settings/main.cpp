@@ -27,7 +27,14 @@ int WINAPI wWinMain(
     }
     const qiqi::ScopedKernelHandle single_instance_mutex(
         ::CreateMutexW(nullptr, TRUE, qiqi::kSettingsSingleInstanceMutexName));
-    if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+    const DWORD mutex_error = ::GetLastError();
+    if (!single_instance_mutex) {
+        qiqi::log::InitLogger();
+        QIQI_LOG_ERROR("Settings::CreateMutexW failed (error={})", mutex_error);
+        qiqi::log::Shutdown();
+        return 1;
+    }
+    if (mutex_error == ERROR_ALREADY_EXISTS) {
         std::ignore = qiqi::ActivateExistingSettingsWindow();
         return 0;
     }
@@ -42,6 +49,7 @@ int WINAPI wWinMain(
 
     qiqi::g_dll_instance = instance;
     qiqi::log::InitLogger();
+    std::ignore = qiqi::log::CheckHResult(co_hr, "Settings::CoInitializeEx");
     qiqi::QiQiConfig cfg = qiqi::LoadConfig(instance);
     if (qiqi::ShowSettingsDialog(instance, nullptr, cfg, true)) {
         if (!qiqi::BroadcastStandaloneGlobalCompartmentIncrement(qiqi::kGuidCompartmentConfigVersion)) {

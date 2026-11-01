@@ -131,8 +131,7 @@ bool WubiEngine::AddUserPhrase(std::wstring_view phrase, const std::filesystem::
         return false;
     }
     AddEntry(code, phrase);
-    QIQI_LOG_INFO("Added user phrase (code='{}', length={})",
-                  WideToUtf8(code), SplitUtf16Codepoints(phrase).size());
+    QIQI_LOG_INFO("Added user phrase (length={})", SplitUtf16Codepoints(phrase).size());
 
     if (user_dict_path.empty()) {
         return true;
@@ -142,6 +141,9 @@ bool WubiEngine::AddUserPhrase(std::wstring_view phrase, const std::filesystem::
         std::error_code ec;
         if (user_dict_path.has_parent_path()) {
             std::filesystem::create_directories(user_dict_path.parent_path(), ec);
+            if (ec) {
+                QIQI_LOG_WARN("AddUserPhrase::create_directories failed (error={})", ec.value());
+            }
         }
         bool wrote_ok = false;
         {
@@ -153,16 +155,25 @@ bool WubiEngine::AddUserPhrase(std::wstring_view phrase, const std::filesystem::
                 OPEN_ALWAYS,
                 FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
                 nullptr));
-            if (!file.IsValid() || ::GetFileType(file.Get()) != FILE_TYPE_DISK) {
-                QIQI_LOG_WARN("AddUserPhrase: failed to open user dict '{}' for append (error={})",
-                              WideToUtf8(user_dict_path.wstring()), ::GetLastError());
+            if (!file.IsValid()) {
+                const DWORD error = ::GetLastError();
+                QIQI_LOG_WARN("AddUserPhrase::CreateFileW failed (error={})", error);
+                return false;
+            }
+            if (::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+                QIQI_LOG_WARN("AddUserPhrase: target is not a disk file");
                 return false;
             }
             const std::string line = WideToUtf8(code) + " " + WideToUtf8(phrase) + "\n";
             DWORD written = 0;
             const DWORD to_write = gsl::narrow_cast<DWORD>(line.size());
-            wrote_ok = (::WriteFile(file.Get(), line.data(), to_write, &written, nullptr) != FALSE) &&
-                       (written == to_write);
+            const BOOL write_ok = ::WriteFile(file.Get(), line.data(), to_write, &written, nullptr);
+            const DWORD error = write_ok ? ERROR_SUCCESS : ::GetLastError();
+            wrote_ok = write_ok && written == to_write;
+            if (!wrote_ok) {
+                QIQI_LOG_WARN("AddUserPhrase::WriteFile incomplete (expected={}, written={}, error={})",
+                              to_write, written, error);
+            }
         }
         if (wrote_ok) {
             std::filesystem::path user_qdict_path = user_dict_path;
@@ -178,6 +189,7 @@ bool WubiEngine::AddUserPhrase(std::wstring_view phrase, const std::filesystem::
         }
         return wrote_ok;
     } catch (...) {
+        QIQI_LOG_ERROR("AddUserPhrase failed with a C++ exception");
         return false;
     }
 }
@@ -230,7 +242,9 @@ void WubiEngine::PromotePhraseForCode(std::wstring_view code, std::wstring_view 
     std::erase(list, word);
     list.insert(list.begin(), std::wstring(word));
     if (!phrase_freq_path_.empty()) {
-        std::ignore = SavePhraseFrequencies(phrase_freq_path_);
+        if (!SavePhraseFrequencies(phrase_freq_path_)) {
+            QIQI_LOG_WARN("PromotePhraseForCode: in-memory order updated but persistence failed");
+        }
     }
 }
 
@@ -300,6 +314,7 @@ bool WubiEngine::SavePhraseFrequencies(const std::filesystem::path& file_path) c
             file_path,
             std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(out.data()), out.size()));
     } catch (...) {
+        QIQI_LOG_ERROR("SavePhraseFrequencies failed with a C++ exception");
         return false;
     }
 }

@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 
 #include "common/scoped_handle.h"
+#include "common/logger.h"
 
 namespace qiqi {
 
@@ -53,16 +54,16 @@ inline bool CreateD2DDcTargetAndDWrite(
     ScopedD2DFactory& out_d2d_factory,
     ScopedDWriteFactory& out_dwrite_factory,
     ScopedD2DDcTarget& out_dc_target) noexcept {
-    std::ignore = ::D2D1CreateFactory(
+    std::ignore = log::CheckHResult(::D2D1CreateFactory(
         D2D1_FACTORY_TYPE_SINGLE_THREADED,
         __uuidof(ID2D1Factory),
         nullptr,
-        reinterpret_cast<void**>(out_d2d_factory.Put()));
+        reinterpret_cast<void**>(out_d2d_factory.Put())), "D2D1CreateFactory");
 
-    std::ignore = ::DWriteCreateFactory(
+    std::ignore = log::CheckHResult(::DWriteCreateFactory(
         DWRITE_FACTORY_TYPE_SHARED,
         __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(out_dwrite_factory.Put()));
+        reinterpret_cast<IUnknown**>(out_dwrite_factory.Put())), "DWriteCreateFactory");
 
     if (out_d2d_factory) {
         const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
@@ -70,7 +71,8 @@ inline bool CreateD2DDcTargetAndDWrite(
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
             96.0f,
             96.0f);
-        std::ignore = out_d2d_factory->CreateDCRenderTarget(&props, out_dc_target.Put());
+        std::ignore = log::CheckHResult(
+            out_d2d_factory->CreateDCRenderTarget(&props, out_dc_target.Put()), "ID2D1Factory::CreateDCRenderTarget");
     }
     return out_d2d_factory.IsValid() && out_dwrite_factory.IsValid() && out_dc_target.IsValid();
 }
@@ -80,7 +82,8 @@ inline ScopedD2DBrush CreateSolidBrush(
     ID2D1RenderTarget* target, const D2D1_COLOR_F& color) noexcept {
     ScopedD2DBrush brush;
     if (target) {
-        std::ignore = target->CreateSolidColorBrush(color, brush.Put());
+        std::ignore = log::CheckHResult(target->CreateSolidColorBrush(color, brush.Put()),
+                                      "ID2D1RenderTarget::CreateSolidColorBrush", log::Level::debug);
     }
     return brush;
 }
@@ -93,7 +96,8 @@ struct D2DDcDrawGuardTraits {
     static constexpr bool IsValid(const HRESULT* marker) noexcept { return marker != nullptr; }
     static HRESULT* Acquire(
         ID2D1DCRenderTarget* target, HDC hdc, const RECT& rc, HRESULT* out_end_hr = nullptr) noexcept {
-        if (!target || !hdc || FAILED(target->BindDC(hdc, &rc))) {
+        if (!target || !hdc || !log::CheckHResult(target->BindDC(hdc, &rc),
+                                                "ID2D1DCRenderTarget::BindDC", log::Level::debug)) {
             return nullptr;
         }
         target->BeginDraw();
@@ -103,6 +107,7 @@ struct D2DDcDrawGuardTraits {
     static void Release(ID2D1DCRenderTarget* target, HRESULT* out_end_hr) noexcept {
         if (target) {
             const HRESULT hr = target->EndDraw();
+            std::ignore = log::CheckHResult(hr, "ID2D1RenderTarget::EndDraw", log::Level::debug);
             if (out_end_hr) {
                 *out_end_hr = hr;
             }

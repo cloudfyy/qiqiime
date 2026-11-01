@@ -123,6 +123,7 @@ ScopedGdiHandle<HBITMAP> CreateAntialiasedIconBitmap(
     void* bits = nullptr;
     ScopedGdiHandle<HBITMAP> dib(::CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0));
     if (!dib || !bits) {
+        QIQI_LOG_WARN("CreateAntialiasedIconBitmap::CreateDIBSection failed");
         return {};
     }
 

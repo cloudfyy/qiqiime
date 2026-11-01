@@ -402,6 +402,7 @@ void StatusBarUI::EndDragTracking(bool clamp_position) noexcept {
             try {
                 pos_changed_callback_(pos_);
             } catch (...) {
+                QIQI_LOG_ERROR("StatusBarUI::EndDragTracking position notification failed with a C++ exception");
             }
         }
     }

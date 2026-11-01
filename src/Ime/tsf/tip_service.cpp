@@ -80,6 +80,7 @@ QiQiTextService::~QiQiTextService() noexcept {
         }
         langbar_btn_.Reset();
     } catch (...) {
+        QIQI_LOG_ERROR("QiQiTextService destructor UI cleanup failed with a C++ exception");
     }
 }
 
@@ -152,8 +153,8 @@ bool QiQiTextService::InitThreadMgrEventSink() noexcept {
 bool QiQiTextService::InitKeyEventSink() {
     ITfKeyEventSink* sink = this;
     ComPtr<ITfKeystrokeMgr> key_mgr;
-    if (FAILED(thread_mgr_.As(&key_mgr)) || !key_mgr) {
-        QIQI_LOG_ERROR("InitKeyEventSink: QueryInterface(ITfKeystrokeMgr) failed");
+    if (!log::CheckHResult(thread_mgr_.As(&key_mgr),
+                          "InitKeyEventSink::QueryInterface(ITfKeystrokeMgr)", log::Level::err) || !key_mgr) {
         return false;
     }
     const HRESULT hr = key_mgr->AdviseKeyEventSink(client_id_, sink, TRUE);
@@ -180,12 +181,14 @@ void QiQiTextService::UninitKeyEventSink() {
         return;
     }
     ComPtr<ITfKeystrokeMgr> key_mgr;
-    if (SUCCEEDED(thread_mgr_.As(&key_mgr)) && key_mgr) {
+    if (log::CheckHResult(thread_mgr_.As(&key_mgr), "UninitKeyEventSink::QueryInterface(ITfKeystrokeMgr)") && key_mgr) {
         for (const auto& def : kPreservedKeys) {
             const TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
-            key_mgr->UnpreserveKey(*def.guid, &pk);
+            std::ignore = log::CheckHResult(key_mgr->UnpreserveKey(*def.guid, &pk),
+                                           "ITfKeystrokeMgr::UnpreserveKey");
         }
-        key_mgr->UnadviseKeyEventSink(client_id_);
+        std::ignore = log::CheckHResult(key_mgr->UnadviseKeyEventSink(client_id_),
+                                       "ITfKeystrokeMgr::UnadviseKeyEventSink");
     }
 }
 
@@ -197,17 +200,18 @@ void QiQiTextService::InitDisplayAttributeGuidAtom() {
         const auto fn = reinterpret_cast<TfCreateCategoryMgrFn>(
             ::GetProcAddress(msctf, "TF_CreateCategoryMgr"));
         if (fn) {
-            std::ignore = fn(&cat_mgr);
+            std::ignore = log::CheckHResult(fn(&cat_mgr), "TF_CreateCategoryMgr; trying COM fallback",
+                                           log::Level::debug);
         }
     }
     if (!cat_mgr) {
-        std::ignore = ::CoCreateInstance(
-            CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&cat_mgr));
+        std::ignore = log::CheckHResult(::CoCreateInstance(
+            CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&cat_mgr)),
+            "InitDisplayAttributeGuidAtom::CoCreateInstance(ITfCategoryMgr)");
     }
     if (cat_mgr) {
-        if (FAILED(cat_mgr->RegisterGUID(kGuidDisplayAttributeInput, &display_attribute_atom_))) {
-            QIQI_LOG_WARN("InitDisplayAttributeGuidAtom: RegisterGUID failed");
-        }
+        std::ignore = log::CheckHResult(cat_mgr->RegisterGUID(kGuidDisplayAttributeInput, &display_attribute_atom_),
+                                       "InitDisplayAttributeGuidAtom::RegisterGUID");
     } else {
         QIQI_LOG_WARN("InitDisplayAttributeGuidAtom: ITfCategoryMgr unavailable");
     }
@@ -218,22 +222,27 @@ void QiQiTextService::InitFunctionProvider() {
         return;
     }
     ComPtr<ITfSourceSingle> source_single;
-    if (SUCCEEDED(thread_mgr_.As(&source_single)) && source_single) {
+    if (log::CheckHResult(thread_mgr_.As(&source_single),
+                         "InitFunctionProvider::QueryInterface(ITfSourceSingle)") && source_single) {
         ITfFunctionProvider* const provider = this;
-        if (FAILED(source_single->AdviseSingleSink(client_id_, IID_ITfFunctionProvider, provider))) {
-            QIQI_LOG_WARN("InitFunctionProvider: AdviseSingleSink(IID_ITfFunctionProvider) failed");
-        }
+        function_provider_registered_ = log::CheckHResult(
+            source_single->AdviseSingleSink(client_id_, IID_ITfFunctionProvider, provider),
+            "InitFunctionProvider::AdviseSingleSink(IID_ITfFunctionProvider)");
     }
 }
 
 void QiQiTextService::UninitFunctionProvider() {
-    if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL) {
+    if (!function_provider_registered_ || !thread_mgr_ || client_id_ == TF_CLIENTID_NULL) {
         return;
     }
     ComPtr<ITfSourceSingle> source_single;
-    if (SUCCEEDED(thread_mgr_.As(&source_single)) && source_single) {
-        source_single->UnadviseSingleSink(client_id_, IID_ITfFunctionProvider);
+    if (log::CheckHResult(thread_mgr_.As(&source_single),
+                         "UninitFunctionProvider::QueryInterface(ITfSourceSingle)") && source_single) {
+        std::ignore = log::CheckHResult(
+            source_single->UnadviseSingleSink(client_id_, IID_ITfFunctionProvider),
+            "UninitFunctionProvider::UnadviseSingleSink(IID_ITfFunctionProvider)");
     }
+    function_provider_registered_ = false;
 }
 
 void QiQiTextService::InitLangBarItem() {
@@ -241,21 +250,20 @@ void QiQiTextService::InitLangBarItem() {
         return;
     }
     ComPtr<ITfLangBarItemMgr> lb_mgr;
-    if (SUCCEEDED(thread_mgr_.As(&lb_mgr)) && lb_mgr) {
-        if (FAILED(lb_mgr->AddItem(langbar_btn_.Get()))) {
-            QIQI_LOG_WARN("InitLangBarItem: ITfLangBarItemMgr::AddItem failed");
-        }
+    if (log::CheckHResult(thread_mgr_.As(&lb_mgr), "InitLangBarItem::QueryInterface(ITfLangBarItemMgr)") && lb_mgr) {
+        langbar_item_added_ = log::CheckHResult(lb_mgr->AddItem(langbar_btn_.Get()), "InitLangBarItem::AddItem");
     }
 }
 
 void QiQiTextService::UninitLangBarItem() {
-    if (!thread_mgr_ || !langbar_btn_) {
+    if (!langbar_item_added_ || !thread_mgr_ || !langbar_btn_) {
         return;
     }
     ComPtr<ITfLangBarItemMgr> lb_mgr;
-    if (SUCCEEDED(thread_mgr_.As(&lb_mgr)) && lb_mgr) {
-        lb_mgr->RemoveItem(langbar_btn_.Get());
+    if (log::CheckHResult(thread_mgr_.As(&lb_mgr), "UninitLangBarItem::QueryInterface(ITfLangBarItemMgr)") && lb_mgr) {
+        std::ignore = log::CheckHResult(lb_mgr->RemoveItem(langbar_btn_.Get()), "UninitLangBarItem::RemoveItem");
     }
+    langbar_item_added_ = false;
 }
 
 // ITfThreadMgrEventSink
