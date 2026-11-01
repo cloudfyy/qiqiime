@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <tuple>
 
 namespace qiqi::test {
 
@@ -47,7 +48,7 @@ void TestEtwLogger() {
     // 3. Test Pure Lock-Free ETW Logger (InitLogger, SetLevel, GetLevel, IsLogSinkActive, WriteLogMessage)
     log::InitLogger(log::Level::info);
     QIQI_TEST_CHECK(log::GetLevel() == log::Level::info);
-    (void)log::IsLogSinkActive();
+    std::ignore = log::IsLogSinkActive();
     log::SetLevel(log::Level::trace);
     QIQI_TEST_CHECK(log::GetLevel() == log::Level::trace);
 
@@ -339,8 +340,8 @@ void TestScopedHandleTemplate() {
 
     {
         const ScopedClipboard clip{};
-        (void)clip.IsOpen();
-        (void)static_cast<bool>(clip);
+        std::ignore = clip.IsOpen();
+        std::ignore = static_cast<bool>(clip);
     }
 
     const VARIANT v42 = MakeInt4Variant(42);

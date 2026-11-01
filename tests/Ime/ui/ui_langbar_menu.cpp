@@ -12,6 +12,8 @@
 #include <gsl/gsl>
 #include <array>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace qiqi::test {
@@ -471,8 +473,10 @@ LRESULT CALLBACK CheckMenuButtonFontLifetime(
 }
 
 void TestQuickSettingsMenuResourceLifetime() {
-    const auto original_monitor = detail::MonitorMetricsOverrideStorage();
-    const auto restore_monitor = gsl::finally([&]() { SetMonitorMetricsOverrideForTest(original_monitor); });
+    auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
+    const auto restore_monitor = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(std::move(original_monitor));
+    });
     auto monitor = QueryMonitorForPoint(POINT{200, 200});
     monitor.dpi = 96;
     SetMonitorMetricsOverrideForTest(monitor);
@@ -599,8 +603,10 @@ void TestQuickSettingsMenuKeyboardAndDismissal() {
 }
 
 void TestQuickSettingsMenuWorkArea() {
-    const auto original_monitor = detail::MonitorMetricsOverrideStorage();
-    const auto restore_monitor = gsl::finally([&]() { SetMonitorMetricsOverrideForTest(original_monitor); });
+    auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
+    const auto restore_monitor = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(std::move(original_monitor));
+    });
     for (const UINT dpi : {96u, 144u, 288u}) {
         SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-1280, -720, 0, 0}, dpi});
         const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {

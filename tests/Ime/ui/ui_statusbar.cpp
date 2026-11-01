@@ -12,6 +12,8 @@
 #include <gsl/gsl>
 #include <array>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace qiqi::test {
@@ -36,7 +38,7 @@ void TestStatusBarUI() {
 
     // 1. Test theme detection & palette switching (OS default, forced Light, forced Dark)
     SetThemeDarkOverrideForTest(std::nullopt);
-    (void)IsSystemDarkTheme();
+    std::ignore = IsSystemDarkTheme();
     SetThemeDarkOverrideForTest(false);
     QIQI_TEST_CHECK(!IsSystemDarkTheme());
     QIQI_TEST_CHECK(!GetCurrentThemePalette().is_dark);
@@ -254,9 +256,9 @@ void TestStatusBarUI() {
 }
 
 void TestStatusBarBoundariesAtDifferentDpis() {
-    const auto original_monitor = detail::MonitorMetricsOverrideStorage();
-    const auto restore_monitor = gsl::finally([original_monitor]() noexcept {
-        SetMonitorMetricsOverrideForTest(original_monitor);
+    auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
+    const auto restore_monitor = gsl::finally([&original_monitor]() noexcept {
+        SetMonitorMetricsOverrideForTest(std::move(original_monitor));
     });
     const std::array<LangBarMenuId, 4> actions{
         LangBarMenuId::ToggleChinese, LangBarMenuId::ToggleFullWidth,

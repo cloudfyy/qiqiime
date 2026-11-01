@@ -7,6 +7,7 @@
 #include <atomic>
 #include <concepts>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 #include "common/guids.h"
@@ -118,8 +119,8 @@ private:
         if constexpr (detail::HasQueryAdditionalInterfaces<Derived>) {
             return static_cast<Derived*>(this)->QueryAdditionalInterfaces(riid, ppvObj);
         } else {
-            (void)riid;
-            (void)ppvObj;
+            std::ignore = riid;
+            std::ignore = ppvObj;
             return false;
         }
     }
@@ -127,7 +128,7 @@ private:
     template <typename... Ifaces>
     bool TryMatchInterfaces(REFIID riid, void** ppvObj) noexcept {
         if constexpr (sizeof...(Ifaces) == 0) {
-            (void)riid;
+            std::ignore = riid;
             return false;
         } else {
             if (!ppvObj) {

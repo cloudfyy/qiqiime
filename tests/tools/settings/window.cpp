@@ -9,6 +9,8 @@
 
 #include <windows.h>
 #include <string>
+#include <tuple>
+#include <utility>
 
 namespace qiqi::test {
 
@@ -268,9 +270,9 @@ void TestSettingsDialogControls() {
 }
 
 void TestSettingsWindowMonitorChanges() {
-    const auto original_monitor = detail::MonitorMetricsOverrideStorage();
-    const auto restore_monitor = gsl::finally([original_monitor]() noexcept {
-        SetMonitorMetricsOverrideForTest(original_monitor);
+    auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
+    const auto restore_monitor = gsl::finally([&original_monitor]() noexcept {
+        SetMonitorMetricsOverrideForTest(std::move(original_monitor));
     });
 
     SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1920, 1080}, 96});
