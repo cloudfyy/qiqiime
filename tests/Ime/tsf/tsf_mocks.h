@@ -4,10 +4,13 @@
 #include <olectl.h>
 #include <wrl/client.h>
 #include <gsl/gsl>
+#include <deque>
+#include <memory>
 #include <string>
 #include <utility>
 #include "common/com_object.h"
 #include "common/guids.h"
+#include "common/logger.h"
 
 namespace qiqi::test {
 
@@ -272,6 +275,60 @@ private:
     ULONG ref_ = 1;
 };
 
+class MockEditSessionQueue final {
+public:
+    struct Request {
+        ComPtr<ITfContext> context;
+        ComPtr<ITfEditSession> session;
+        TfClientId client_id;
+        DWORD flags;
+    };
+
+    MockEditSessionQueue() = default;
+    ~MockEditSessionQueue() = default;
+    MockEditSessionQueue(const MockEditSessionQueue&) = delete;
+    MockEditSessionQueue& operator=(const MockEditSessionQueue&) = delete;
+    MockEditSessionQueue(MockEditSessionQueue&&) = delete;
+    MockEditSessionQueue& operator=(MockEditSessionQueue&&) = delete;
+
+    HRESULT Enqueue(gsl::not_null<ITfContext*> context, gsl::not_null<ITfEditSession*> session,
+                    TfClientId client_id, DWORD flags) {
+        if (!IsOwnerThread()) return RPC_E_WRONG_THREAD;
+        requests_.push_back({ComPtr<ITfContext>(context.get()), ComPtr<ITfEditSession>(session.get()), client_id, flags});
+        return S_OK;
+    }
+
+    HRESULT RunNext(TfEditCookie cookie = 1) {
+        if (!IsOwnerThread()) return RPC_E_WRONG_THREAD;
+        if (requests_.empty()) {
+            QIQI_LOG_ERROR("MockEditSessionQueue::RunNext: no pending edit session");
+            return E_UNEXPECTED;
+        }
+        auto request = std::move(requests_.front());
+        requests_.pop_front();
+        return request.session->DoEditSession(cookie);
+    }
+
+    HRESULT ClearForCleanup() noexcept {
+        if (!IsOwnerThread()) return RPC_E_WRONG_THREAD;
+        requests_.clear();
+        return S_OK;
+    }
+
+    size_t PendingCount() const noexcept { return requests_.size(); }
+    const std::deque<Request>& PendingRequests() const noexcept { return requests_; }
+
+private:
+    bool IsOwnerThread() const noexcept {
+        if (::GetCurrentThreadId() == owner_thread_) return true;
+        QIQI_LOG_ERROR("MockEditSessionQueue: edit sessions must execute on the owning thread");
+        return false;
+    }
+
+    const DWORD owner_thread_ = ::GetCurrentThreadId();
+    std::deque<Request> requests_;
+};
+
 // Minimal mock ITfContext + ITfInsertAtSelection + ITfContextComposition + ITfSource + ITfCompartmentMgr
 class MockTfContext final
     : public ITfContext,
@@ -282,10 +339,12 @@ class MockTfContext final
 public:
     // These mocks allocate COM dependencies, so construction can throw std::bad_alloc.
 #pragma warning(suppress : 26455)
-    MockTfContext()
+    explicit MockTfContext(const std::shared_ptr<MockEditSessionQueue>& queue = {})
         : range_(MakeComObject<MockTfRange>()),
           view_(MakeComObject<MockTfContextView>()),
-          prop_(MakeComObject<MockTfProperty>()) {}
+          prop_(MakeComObject<MockTfProperty>()),
+          edit_session_queue_(queue),
+          defer_edit_sessions_(queue != nullptr) {}
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
@@ -314,8 +373,43 @@ public:
     }
 
     // ITfContext
-    STDMETHODIMP RequestEditSession(TfClientId, ITfEditSession* pes, DWORD, HRESULT* phrSession) override {
+    STDMETHODIMP RequestEditSession(TfClientId client_id, ITfEditSession* pes, DWORD flags, HRESULT* phrSession) override {
         if (!pes || !phrSession) return E_INVALIDARG;
+        constexpr DWORD timing_mask = TF_ES_SYNC | TF_ES_ASYNC | TF_ES_ASYNCDONTCARE;
+        const DWORD timing = flags & timing_mask;
+        const DWORD access = flags & TF_ES_READWRITE;
+        if (timing == (TF_ES_SYNC | TF_ES_ASYNC) ||
+            (access != TF_ES_READ && access != TF_ES_READWRITE) ||
+            (flags & ~(timing_mask | TF_ES_READWRITE)) != 0) {
+            *phrSession = E_INVALIDARG;
+            QIQI_LOG_DEBUG("MockTfContext::RequestEditSession: invalid flags=0x{:x}", flags);
+            return E_INVALIDARG;
+        }
+        if (FAILED(edit_session_request_result_)) {
+            *phrSession = edit_session_request_result_;
+            std::ignore = log::CheckHResult(edit_session_request_result_, "MockTfContext::RequestEditSession",
+                                           log::Level::debug);
+            return edit_session_request_result_;
+        }
+        if (read_only_ && access == TF_ES_READWRITE) {
+            *phrSession = TS_E_READONLY;
+            return S_OK;
+        }
+        if (timing == TF_ES_SYNC && !allow_sync_edit_sessions_) {
+            *phrSession = TF_E_SYNCHRONOUS;
+            return S_OK;
+        }
+        if (timing == TF_ES_ASYNC || (defer_edit_sessions_ && timing != TF_ES_SYNC)) {
+            const auto queue = edit_session_queue_.lock();
+            if (!queue) {
+                *phrSession = E_UNEXPECTED;
+                QIQI_LOG_ERROR("MockTfContext::RequestEditSession: asynchronous scheduler missing or expired");
+                return E_UNEXPECTED;
+            }
+            const HRESULT result = queue->Enqueue(this, pes, client_id, flags);
+            *phrSession = SUCCEEDED(result) ? TF_S_ASYNC : result;
+            return result;
+        }
         *phrSession = pes->DoEditSession(1);
         return S_OK;
     }
@@ -426,8 +520,14 @@ public:
     bool fail_start_comp_ = false;
     bool fail_comp_get_range_ = false;
     bool fail_get_view_ = false;
+    HRESULT edit_session_request_result_ = S_OK;
+    bool allow_sync_edit_sessions_ = true;
+    bool read_only_ = false;
 private:
     ULONG ref_ = 1;
+    // The external queue holds contexts/sessions; a strong back-reference here would create a COM ownership cycle.
+    std::weak_ptr<MockEditSessionQueue> edit_session_queue_;
+    const bool defer_edit_sessions_ = false;
 };
 
 // Minimal mock ITfThreadMgr + ITfSource + ITfSourceSingle + ITfKeystrokeMgr + ITfUIElementMgr + ITfCompartmentMgr + ITfLangBarItemMgr

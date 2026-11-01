@@ -12,6 +12,8 @@
 #include <msctf.h>
 #include <olectl.h>
 #include <wrl/client.h>
+#include <memory>
+#include <vector>
 
 extern "C" BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) noexcept;
 extern "C" HRESULT STDAPICALLTYPE DllInstall(BOOL install, LPCWSTR command_line);
@@ -49,6 +51,157 @@ void TestLambdaEditSession() {
     auto empty_session = MakeComObject<LambdaEditSession>(LambdaEditSession::Callback{});
     QIQI_TEST_CHECK(empty_session->DoEditSession(1) == E_FAIL);
     QIQI_TEST_CHECK(empty_session.Detach()->Release() == 0);
+}
+
+void TestDeferredEditSessions() {
+    static_assert(TF_ES_ASYNCDONTCARE == 0);
+    const long initial_objects = g_com_object_count.load();
+    auto immediate = MakeComObject<MockTfContext>();
+    int immediate_calls = 0;
+    auto immediate_session = MakeComObject<LambdaEditSession>([&](TfEditCookie cookie) {
+        QIQI_TEST_CHECK(cookie == 1);
+        ++immediate_calls;
+        return S_FALSE;
+    });
+    HRESULT session_result = E_FAIL;
+    QIQI_TEST_CHECK(immediate->RequestEditSession(7, immediate_session.Get(),
+                                                 TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, &session_result) == S_OK);
+    QIQI_TEST_CHECK(session_result == S_FALSE && immediate_calls == 1);
+    QIQI_TEST_CHECK(immediate->RequestEditSession(7, immediate_session.Get(),
+                                                 TF_ES_ASYNC | TF_ES_READ, &session_result) == E_UNEXPECTED);
+    QIQI_TEST_CHECK(session_result == E_UNEXPECTED && immediate_calls == 1);
+    immediate_session.Reset();
+
+    auto queue = std::make_shared<MockEditSessionQueue>();
+    auto first = MakeComObject<MockTfContext>(queue);
+    auto second = MakeComObject<MockTfContext>(queue);
+    const DWORD owner_thread = ::GetCurrentThreadId();
+    std::vector<int> order;
+    for (int index = 0; index < 3; ++index) {
+        auto context = index == 1 ? second : first;
+        auto session = MakeComObject<LambdaEditSession>([&, context, index](TfEditCookie cookie) {
+            QIQI_TEST_CHECK(::GetCurrentThreadId() == owner_thread);
+            QIQI_TEST_CHECK(cookie == gsl::narrow_cast<TfEditCookie>(10 + index));
+            QIQI_TEST_CHECK(context);
+            order.push_back(index);
+            return index == 1 ? E_FAIL : (index == 2 ? S_FALSE : S_OK);
+        });
+        const DWORD flags = index == 1 ? TF_ES_ASYNC | TF_ES_READ : TF_ES_ASYNCDONTCARE | TF_ES_READWRITE;
+        QIQI_TEST_CHECK(context->RequestEditSession(gsl::narrow_cast<TfClientId>(7 + index), session.Get(),
+                                                   flags, &session_result) == S_OK);
+        QIQI_TEST_CHECK(session_result == TF_S_ASYNC);
+    }
+    QIQI_TEST_CHECK(order.empty() && queue->PendingCount() == 3);
+    QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 0).context.Get() == first.Get());
+    QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 1).context.Get() == second.Get());
+    QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 1).client_id == 8);
+    QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 1).flags == (TF_ES_ASYNC | TF_ES_READ));
+    QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 2).flags == (TF_ES_ASYNCDONTCARE | TF_ES_READWRITE));
+    auto sync_session = MakeComObject<LambdaEditSession>([&](TfEditCookie cookie) {
+        QIQI_TEST_CHECK(cookie == 1);
+        order.push_back(99);
+        return S_OK;
+    });
+    QIQI_TEST_CHECK(first->RequestEditSession(7, sync_session.Get(), TF_ES_SYNC | TF_ES_READWRITE,
+                                             &session_result) == S_OK);
+    QIQI_TEST_CHECK(session_result == S_OK && order == std::vector<int>{99} && queue->PendingCount() == 3);
+    first->allow_sync_edit_sessions_ = false;
+    QIQI_TEST_CHECK(first->RequestEditSession(7, sync_session.Get(), TF_ES_SYNC | TF_ES_READWRITE,
+                                             &session_result) == S_OK);
+    QIQI_TEST_CHECK(session_result == TF_E_SYNCHRONOUS && queue->PendingCount() == 3);
+    first->read_only_ = true;
+    QIQI_TEST_CHECK(first->RequestEditSession(7, sync_session.Get(), TF_ES_ASYNCDONTCARE | TF_ES_READWRITE,
+                                             &session_result) == S_OK);
+    QIQI_TEST_CHECK(session_result == TS_E_READONLY && queue->PendingCount() == 3);
+    {
+        first->allow_sync_edit_sessions_ = true;
+        bool read_called = false;
+        auto read_session = MakeComObject<LambdaEditSession>([&](TfEditCookie) {
+            read_called = true;
+            return S_FALSE;
+        });
+        QIQI_TEST_CHECK(first->RequestEditSession(7, read_session.Get(), TF_ES_SYNC | TF_ES_READ,
+                                                 &session_result) == S_OK);
+        QIQI_TEST_CHECK(read_called && session_result == S_FALSE && queue->PendingCount() == 3);
+    }
+    first->read_only_ = false;
+    for (const DWORD flags : std::array<DWORD, 3>{TF_ES_SYNC | TF_ES_ASYNC | TF_ES_READ,
+                                                TF_ES_ASYNC | (TF_ES_READWRITE & ~TF_ES_READ),
+                                                TF_ES_ASYNC | TF_ES_READ | 0x80000000u}) {
+        QIQI_TEST_CHECK(first->RequestEditSession(7, sync_session.Get(), flags, &session_result) == E_INVALIDARG);
+        QIQI_TEST_CHECK(session_result == E_INVALIDARG && queue->PendingCount() == 3);
+    }
+    QIQI_TEST_CHECK(first->RequestEditSession(7, nullptr, TF_ES_ASYNC | TF_ES_READ, &session_result) == E_INVALIDARG);
+    QIQI_TEST_CHECK(first->RequestEditSession(7, sync_session.Get(), TF_ES_ASYNC | TF_ES_READ, nullptr) == E_INVALIDARG);
+    first->edit_session_request_result_ = TF_E_DISCONNECTED;
+    QIQI_TEST_CHECK(first->RequestEditSession(7, sync_session.Get(), TF_ES_ASYNC | TF_ES_READ,
+                                             &session_result) == TF_E_DISCONNECTED);
+    QIQI_TEST_CHECK(session_result == TF_E_DISCONNECTED && queue->PendingCount() == 3);
+    QIQI_TEST_CHECK(queue->RunNext(10) == S_OK);
+    QIQI_TEST_CHECK(queue->RunNext(11) == E_FAIL);
+    QIQI_TEST_CHECK(queue->RunNext(12) == S_FALSE);
+    QIQI_TEST_CHECK((order == std::vector<int>{99, 0, 1, 2}));
+    QIQI_TEST_CHECK(queue->PendingCount() == 0 && queue->RunNext() == E_UNEXPECTED);
+    sync_session.Reset();
+    first->edit_session_request_result_ = S_OK;
+
+    auto reentrant = MakeComObject<LambdaEditSession>([&, first](TfEditCookie) {
+        QIQI_TEST_CHECK(queue->PendingCount() == 0);
+        auto next = MakeComObject<LambdaEditSession>([&](TfEditCookie cookie) {
+            QIQI_TEST_CHECK(cookie == 55);
+            order.push_back(4);
+            return S_OK;
+        });
+        HRESULT result = E_FAIL;
+        QIQI_TEST_CHECK(first->RequestEditSession(7, next.Get(), TF_ES_ASYNC | TF_ES_READ, &result) == S_OK);
+        QIQI_TEST_CHECK(result == TF_S_ASYNC);
+        order.push_back(3);
+        return S_OK;
+    });
+    QIQI_TEST_CHECK(first->RequestEditSession(7, reentrant.Get(), TF_ES_ASYNC | TF_ES_READ,
+                                             &session_result) == S_OK);
+    reentrant.Reset();
+    QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->PendingCount() == 1);
+    QIQI_TEST_CHECK(queue->RunNext(55) == S_OK && queue->PendingCount() == 0);
+    QIQI_TEST_CHECK((order == std::vector<int>{99, 0, 1, 2, 3, 4}));
+    first.Reset();
+    second.Reset();
+    QIQI_TEST_CHECK(g_com_object_count.load() == initial_objects);
+
+    auto token = std::make_shared<int>(1);
+    const std::weak_ptr<int> token_lifetime(token);
+    const std::weak_ptr<MockEditSessionQueue> queue_lifetime(queue);
+    auto retained_context = MakeComObject<MockTfContext>(queue);
+    bool called = false;
+    auto retained_session = MakeComObject<LambdaEditSession>([retained_context, token, &called](TfEditCookie) {
+        called = true;
+        return S_OK;
+    });
+    QIQI_TEST_CHECK(retained_context->RequestEditSession(7, retained_session.Get(), TF_ES_ASYNC | TF_ES_READ,
+                                                        &session_result) == S_OK);
+    retained_session.Reset();
+    token.reset();
+    retained_context.Reset();
+    QIQI_TEST_CHECK(!token_lifetime.expired() && queue->PendingCount() == 1);
+    QIQI_TEST_CHECK(queue->ClearForCleanup() == S_OK);
+    QIQI_TEST_CHECK(token_lifetime.expired() && !called && g_com_object_count.load() == initial_objects);
+
+    auto surviving_context = MakeComObject<MockTfContext>(queue);
+    auto pending = MakeComObject<LambdaEditSession>([surviving_context, &called](TfEditCookie) {
+        called = true;
+        return S_OK;
+    });
+    QIQI_TEST_CHECK(surviving_context->RequestEditSession(7, pending.Get(), TF_ES_ASYNC | TF_ES_READ,
+                                                        &session_result) == S_OK);
+    pending.Reset();
+    queue.reset();
+    QIQI_TEST_CHECK(queue_lifetime.expired() && !called);
+    auto after_expiry = MakeComObject<LambdaEditSession>([](TfEditCookie) { return S_OK; });
+    QIQI_TEST_CHECK(surviving_context->RequestEditSession(7, after_expiry.Get(),
+                                                        TF_ES_ASYNCDONTCARE | TF_ES_READ, &session_result) == E_UNEXPECTED);
+    QIQI_TEST_CHECK(session_result == E_UNEXPECTED);
+    after_expiry.Reset();
+    QIQI_TEST_CHECK(g_com_object_count.load() == initial_objects);
 }
 
 void TestClassFactoryAndDllExports() {
@@ -240,6 +393,7 @@ void TestEnableCurrentUserProfile() {
 
 void RunTsfComTests() {
     TestLambdaEditSession();
+    TestDeferredEditSessions();
     TestClassFactoryAndDllExports();
     TestEnableCurrentUserProfile();
 }

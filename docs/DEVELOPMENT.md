@@ -192,3 +192,13 @@ cmake --build build\x64 --config Release --target lint
 - 采集仅启用自有测试 PID；唯一命名会话、句柄、子进程作业及临时文件按生命周期清理。普通权限缺少采集控制权限时显式报告 `StartTraceW error=5`，CTest 标记跳过（退出码 77），不能当作 ETW 验证通过。
 - 定向运行：`ctest --test-dir build\x64 -C Release -R '^(QiQiCommonTest|QiQiTsfUiTest|QiQiEtwIntegrationTest)$' --output-on-failure`；x86 使用 `build\x86`。本次两个架构实际 ETW 测试均通过，没有因权限跳过；这些受控宿主验证不替代浏览器/UWP 的兼容性或真实输入体验测试。
 - 验证：x64/x86 Release 完整构建及各 5 组 CTest 全部通过；CppCoreCheck 在既有 435 条基线以内，PSScriptAnalyzer 零错误。仅对 ETW SDK 必需的回调联合体局部说明并豁免 C26476，不替换 Windows ABI，也不扩大告警豁免范围。
+
+### 5.5 延迟编辑会话测试（任务 42）
+
+- [`MockTfContext` 与 `MockEditSessionQueue`](../tests/Ime/tsf/tsf_mocks.h) 提供确定性的编辑会话调度，不使用后台线程或 `Sleep`。默认上下文的 `TF_ES_ASYNCDONTCARE` 请求仍立即执行；传入外部 `std::shared_ptr<MockEditSessionQueue>` 后排队。显式 `TF_ES_ASYNC` 必须排队，无调度器时明确失败；`TF_ES_SYNC` 立即执行，优先于待处理异步请求。
+- 测试持有调度器，并将同一调度器传给需要验证的上下文；`PendingCount`/`PendingRequests` 检查待执行请求与目标，`RunNext(cookie)` 按 FIFO 执行一个请求并返回真实回调 HRESULT，默认 cookie 为 1。`ClearForCleanup` 仅用于显式测试清理。入队、运行和清理须在创建线程进行，错误线程或空队列执行会返回错误并记录诊断。
+- 调度器强引用待执行上下文与会话，上下文仅弱引用调度器，避免 Context→Session→Context 引用环。运行前先移出请求，局部强引用保证回调期间对象存活，并允许重入入队；清理或销毁调度器释放待处理请求。回调不得强捕获拥有它的调度器，避免另一个引用环；已过期的调度器不能静默退回立即执行。
+- Windows SDK 的 `TF_ES_ASYNCDONTCARE` 为 **0**，不是独立位。Mock 校验同步/异步冲突、访问模式和未知位；成功异步请求返回外层 `S_OK`、内层 `TF_S_ASYNC`。同步拒绝和只读读写拒绝分别返回内层 `TF_E_SYNCHRONOUS`、`TS_E_READONLY`；只读上下文仍允许读请求。这是最小请求标志与结果模型，不是完整 TSF 锁、编辑权限或 cookie 校验器。
+- [`tsf_com.cpp`](../tests/Ime/tsf/tsf_com.cpp) 覆盖默认兼容性、FIFO、请求元数据、同步优先、失败注入、回调失败后继续执行、重入及引用释放；[`tsf_service.cpp`](../tests/Ime/tsf/tsf_service.cpp) 调度真实生产写回调和布局读回调，覆盖停用/重新激活后执行、输入上下文变化及旧队列保留。
+- Mock 不理解激活周期，不自动丢弃过期任务，也不将旧回调可能修改文档的行为定义为正确。任务 43 才实现并断言过期任务不得写文档、创建组合或恢复 UI；任务 44 处理主动结束宿主组合。本任务不修改生产代码。
+- 验证：x64/x86 Release 的 `QiQiTsfUiTest`、`QiQiEtwIntegrationTest` 均通过，ETW 未跳过；定向运行使用 `ctest --test-dir build\x64 -C Release -R '^(QiQiTsfUiTest|QiQiEtwIntegrationTest)$' --output-on-failure --timeout 120`，x86 替换为 `build\x86`。x64 测试目标同时执行 CppCoreCheck，新增 Mock 与测试没有新增诊断。

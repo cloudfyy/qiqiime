@@ -325,6 +325,36 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     }
 
     // ThreadMgrEventSink notifications (including non-null OnSetFocus to test config hot-reload check)
+    {
+        auto queue = std::make_shared<MockEditSessionQueue>();
+        auto old_context = MakeComObject<MockTfContext>(queue);
+        BOOL deferred_eaten = FALSE;
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(old_context.Get(), 'A', 0, &deferred_eaten) == S_OK && deferred_eaten);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1 && old_context->range_->text_.empty());
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1 && old_context->range_->text_.empty());
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1);
+        auto new_context = MakeComObject<MockTfContext>(queue);
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(new_context.Get(), 'B', 0, &deferred_eaten) == S_OK && deferred_eaten);
+        QIQI_TEST_CHECK(queue->PendingCount() == 2 && new_context->range_->text_.empty());
+        QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 0).context.Get() == old_context.Get());
+        QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 1).context.Get() == new_context.Get());
+        // Task 42 schedules real old callbacks; task 43 will assert they cannot mutate stale targets.
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->PendingCount() == 1);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->PendingCount() == 0);
+        QIQI_TEST_CHECK(key_sink->OnSetFocus(FALSE) == S_OK);
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(new_context.Get(), 'C', 0, &deferred_eaten) == S_OK && deferred_eaten);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->PendingCount() == 0);
+        QIQI_TEST_CHECK(service->OnLayoutChange(new_context.Get(), TF_LC_CHANGE, nullptr) == S_OK);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1);
+        QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 0).flags == (TF_ES_ASYNCDONTCARE | TF_ES_READ));
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK && queue->PendingCount() == 1);
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK && queue->PendingCount() == 1);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->PendingCount() == 0);
+        QIQI_TEST_CHECK(key_sink->OnSetFocus(FALSE) == S_OK);
+    }
+
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnInitDocumentMgr(nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnUninitDocumentMgr(nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnPushContext(nullptr)));
