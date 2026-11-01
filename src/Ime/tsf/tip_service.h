@@ -102,7 +102,7 @@ private:
     void InitLangBarItem();
     void UninitLangBarItem();
     void InitCompartmentSinks();
-    void UninitCompartmentSinks();
+    void UninitCompartmentSinks() noexcept;
     bool NotifyGlobalConfigChanged();
     void SaveGlobalStatusBarPosition(POINT pos);
     void SyncStatusBarPositionFromGlobalCompartment();

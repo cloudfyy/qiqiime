@@ -146,7 +146,7 @@ void QiQiTextService::InitCompartmentSinks() {
     }
 }
 
-void QiQiTextService::UninitCompartmentSinks() {
+void QiQiTextService::UninitCompartmentSinks() noexcept {
     convmode_comp_.Reset();
     openclose_comp_.Reset();
     global_pos_comp_.Reset();

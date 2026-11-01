@@ -267,7 +267,7 @@ private:
         return palette;
     }
 
-    void DrawItem(const DRAWITEMSTRUCT& item) const {
+    void DrawItem(const DRAWITEMSTRUCT& item) const noexcept {
         const ScopedSaveDC save_dc(item.hDC);
         if (!save_dc) {
             QIQI_LOG_ERROR("Saving quick settings drawing context failed: {}", ::GetLastError());
