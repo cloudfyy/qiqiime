@@ -16,6 +16,8 @@ struct ComReleaseTraits {
     static constexpr bool IsValid(const T* p) noexcept { return p != nullptr; }
     static void Close(T* p) noexcept {
         if (p) {
+            // COM Release reports failures through its return value and must not throw across the ABI.
+#pragma warning(suppress : 26447)
             p->Release();
         }
     }

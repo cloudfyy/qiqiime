@@ -137,7 +137,7 @@ public:
         const ULONG c = --ref_;
         if (c == 0) {
             // COM Release destroys the mock when its reference count reaches zero.
-#pragma warning(suppress : 26409)
+#pragma warning(suppress : 26401 26409)
             delete this;
         }
         return c;
@@ -180,7 +180,7 @@ public:
         const ULONG c = --ref_;
         if (c == 0) {
             // COM Release destroys the mock when its reference count reaches zero.
-#pragma warning(suppress : 26409)
+#pragma warning(suppress : 26401 26409)
             delete this;
         }
         return c;
@@ -758,7 +758,7 @@ public:
         const ULONG c = --ref_;
         if (c == 0) {
             // COM Release destroys the mock when its reference count reaches zero.
-#pragma warning(suppress : 26409)
+#pragma warning(suppress : 26401 26409)
             delete this;
         }
         return c;

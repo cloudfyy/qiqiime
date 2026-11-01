@@ -47,10 +47,17 @@ void InitSettingsCompartmentSubscription(HWND hwnd, DialogContext& ctx) noexcept
         return;
     }
     Microsoft::WRL::ComPtr<ITfCompartmentMgr> global_mgr;
+#pragma warning(suppress : 26447) // TSF COM methods report failure through HRESULT.
     if (FAILED(thread_mgr->GetGlobalCompartment(&global_mgr)) || !global_mgr) {
         return;
     }
-    auto listener = MakeComObject<SettingsCompartmentListener>(hwnd);
+    Microsoft::WRL::ComPtr<SettingsCompartmentListener> listener;
+    try {
+        listener = MakeComObject<SettingsCompartmentListener>(hwnd);
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_WARN("Settings compartment listener allocation failed");
+        return;
+    }
     if (!listener) {
         return;
     }
