@@ -5,8 +5,10 @@
 #include "common/win32_ui_util.h"
 
 #include <commctrl.h>
+#include <array>
 #include <gsl/gsl>
 #include <cwchar>
+#include <limits>
 #include <tuple>
 
 namespace qiqi {
@@ -153,12 +155,12 @@ void DrawFluentPushButton(
         d2d.d2d_target->DrawRoundedRectangle(rr, border_brush.Get(), 1.0f);
     }
 
-    wchar_t btn_text[64]{};
-    ::GetWindowTextW(dis.hwndItem, btn_text, 64);
-    if (d2d.fmt_btn && txt_brush && btn_text[0] != L'\0') {
+    std::array<wchar_t, 64> btn_text{};
+    ::GetWindowTextW(dis.hwndItem, btn_text.data(), gsl::narrow_cast<int>(btn_text.size()));
+    if (d2d.fmt_btn && txt_brush && gsl::at(btn_text, 0) != L'\0') {
         d2d.d2d_target->DrawTextW(
-            btn_text,
-            gsl::narrow_cast<UINT32>(wcslen(btn_text)),
+            btn_text.data(),
+            gsl::narrow_cast<UINT32>(wcslen(btn_text.data())),
             d2d.fmt_btn.Get(),
             rc,
             txt_brush.Get());
@@ -234,13 +236,13 @@ void DrawFluentToggleOrRadioRow(
         text_right = sw_left - d2d.ScaleF(8);
     }
 
-    wchar_t label_text[128]{};
-    ::GetWindowTextW(dis.hwndItem, label_text, 128);
-    if (d2d.fmt_body && text_brush && label_text[0] != L'\0') {
+    std::array<wchar_t, 128> label_text{};
+    ::GetWindowTextW(dis.hwndItem, label_text.data(), gsl::narrow_cast<int>(label_text.size()));
+    if (d2d.fmt_body && text_brush && gsl::at(label_text, 0) != L'\0') {
         const D2D1_RECT_F txt_rc = D2D1::RectF(text_left, 0.0f, text_right, h);
         d2d.d2d_target->DrawTextW(
-            label_text,
-            gsl::narrow_cast<UINT32>(wcslen(label_text)),
+            label_text.data(),
+            gsl::narrow_cast<UINT32>(wcslen(label_text.data())),
             d2d.fmt_body.Get(),
             txt_rc,
             text_brush.Get(),
@@ -369,19 +371,21 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
 
     const LRESULT cur_sel = ::SendMessageW(hwnd, CB_GETCURSEL, 0, 0);
     if (cur_sel >= 0 && d2d.fmt_body && txt_brush) {
-        wchar_t item_text[128]{};
-        const LRESULT len = ::SendMessageW(hwnd, CB_GETLBTEXTLEN, static_cast<WPARAM>(cur_sel), 0);
+        std::array<wchar_t, 128> item_text{};
+        const LRESULT len = ::SendMessageW(hwnd, CB_GETLBTEXTLEN, gsl::narrow_cast<WPARAM>(cur_sel), 0);
         if (len > 0 && len < 127) {
-            ::SendMessageW(hwnd, CB_GETLBTEXT, static_cast<WPARAM>(cur_sel), reinterpret_cast<LPARAM>(item_text));
+            ::SendMessageW(
+                hwnd, CB_GETLBTEXT, gsl::narrow_cast<WPARAM>(cur_sel),
+                reinterpret_cast<LPARAM>(item_text.data()));
             CompositionUnderlineStyle preview_style = CompositionUnderlineStyle::Dot;
             bool preview_bold = false;
             const bool has_preview = QueryUnderlineComboBoldState(
-                hwnd, preview_style, static_cast<UINT>(cur_sel), preview_bold);
+                hwnd, preview_style, gsl::narrow_cast<UINT>(cur_sel), preview_bold);
             const float right_limit = w - d2d.ScaleF(has_preview ? 90 : 26);
             const D2D1_RECT_F txt_rc = D2D1::RectF(d2d.ScaleF(10), 0.0f, right_limit, h);
             d2d.d2d_target->DrawTextW(
-                item_text,
-                gsl::narrow_cast<UINT32>(wcslen(item_text)),
+                item_text.data(),
+                gsl::narrow_cast<UINT32>(wcslen(item_text.data())),
                 d2d.fmt_body.Get(),
                 txt_rc,
                 txt_brush.Get(),
@@ -416,7 +420,7 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
 }
 
 void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeContext& d2d) noexcept {
-    if (!d2d.d2d_target || !dis.hDC || dis.itemID == static_cast<UINT>(-1)) {
+    if (!d2d.d2d_target || !dis.hDC || dis.itemID == std::numeric_limits<UINT>::max()) {
         return;
     }
     if ((dis.itemState & ODS_COMBOBOXEDIT) != 0) {
@@ -438,13 +442,15 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
     }
     d2d.d2d_target->Clear(bg_col);
 
-    wchar_t item_text[128]{};
+    std::array<wchar_t, 128> item_text{};
     const LRESULT len = ::SendMessageW(dis.hwndItem, CB_GETLBTEXTLEN, dis.itemID, 0);
     if (len > 0 && len < 127) {
-        ::SendMessageW(dis.hwndItem, CB_GETLBTEXT, dis.itemID, reinterpret_cast<LPARAM>(item_text));
+        ::SendMessageW(
+            dis.hwndItem, CB_GETLBTEXT, gsl::narrow_cast<WPARAM>(dis.itemID),
+            reinterpret_cast<LPARAM>(item_text.data()));
     }
     const auto txt_brush = CreateSolidBrush(d2d.d2d_target.Get(), txt_col);
-    if (d2d.fmt_body && txt_brush && item_text[0] != L'\0') {
+    if (d2d.fmt_body && txt_brush && gsl::at(item_text, 0) != L'\0') {
         const float item_w = static_cast<float>(dis.rcItem.right - dis.rcItem.left);
         const float item_h = static_cast<float>(dis.rcItem.bottom - dis.rcItem.top);
         CompositionUnderlineStyle preview_style = CompositionUnderlineStyle::Dot;
@@ -456,8 +462,8 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
             item_w - (has_preview ? d2d.ScaleF(74) : 4.0f),
             item_h);
         d2d.d2d_target->DrawTextW(
-            item_text,
-            gsl::narrow_cast<UINT32>(wcslen(item_text)),
+            item_text.data(),
+            gsl::narrow_cast<UINT32>(wcslen(item_text.data())),
             d2d.fmt_body.Get(),
             rc,
             txt_brush.Get(),

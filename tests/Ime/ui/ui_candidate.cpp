@@ -103,9 +103,9 @@ void TestCandidateUI() {
     QIQI_TEST_CHECK(SUCCEEDED(ui->GetCurrentPage(&cur_page)) && cur_page == 1);
     QIQI_TEST_CHECK(SUCCEEDED(ui->SetPageIndex(nullptr, 0)));
 
-    UINT page_indices[4]{};
-    QIQI_TEST_CHECK(SUCCEEDED(ui->GetPageIndex(page_indices, 4, &page_cnt)) && page_cnt == 2);
-    QIQI_TEST_CHECK(page_indices[0] == 0 && page_indices[1] == 5);
+    std::array<UINT, 4> page_indices{};
+    QIQI_TEST_CHECK(SUCCEEDED(ui->GetPageIndex(page_indices.data(), 4, &page_cnt)) && page_cnt == 2);
+    QIQI_TEST_CHECK(gsl::at(page_indices, 0) == 0 && gsl::at(page_indices, 1) == 5);
 
     QIQI_TEST_CHECK(SUCCEEDED(ui->GetString(6, str.Put())) && str.IsValid());
     QIQI_TEST_CHECK(std::wstring(str.Get()) == L"七");

@@ -5,6 +5,7 @@
 #include <winver.h>
 #include <cstddef>
 #include <string>
+#include <span>
 #include <vector>
 
 namespace qiqi::test {
@@ -37,11 +38,14 @@ void RunSettingsVersionTests() {
     const auto query_string = [&data](const std::wstring& key) {
         void* text = nullptr;
         UINT count = 0;
-        QIQI_TEST_CHECK(::VerQueryValueW(data.data(), key.c_str(), &text, &count));
-        QIQI_TEST_CHECK(text != nullptr && count > 0);
+        if (!::VerQueryValueW(data.data(), key.c_str(), &text, &count) || !text || count == 0) {
+            QIQI_TEST_CHECK(false);
+            return std::wstring_view{};
+        }
         const auto* chars = static_cast<const wchar_t*>(text);
-        QIQI_TEST_CHECK(chars[count - 1] == L'\0');
-        return std::wstring_view(chars, count - 1);
+        const std::span<const wchar_t> chars_view(chars, count);
+        QIQI_TEST_CHECK(gsl::at(chars_view, chars_view.size() - 1) == L'\0');
+        return std::wstring_view(chars_view.data(), chars_view.size() - 1);
     };
     const std::wstring description =
         L"奇奇五笔设置 (QiQi Wubi Settings - " + std::wstring(version::kArchW) + L")";

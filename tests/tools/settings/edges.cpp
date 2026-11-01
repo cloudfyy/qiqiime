@@ -61,11 +61,11 @@ void TestSettingsBindingBoundaries() {
     constexpr std::array<size_t, 5> sizes = {0, 1, 9, 10, std::numeric_limits<size_t>::max()};
     constexpr std::array<size_t, 5> expected = {1, 1, 9, 9, 9};
     for (size_t i = 0; i < sizes.size(); ++i) {
-        cfg.page_size = sizes[i];
+        cfg.page_size = gsl::at(sizes, i);
         WriteSettingsToWindowControls(hwnd.Get(), cfg);
         QiQiConfig actual;
         ReadSettingsFromWindowControls(hwnd.Get(), actual);
-        QIQI_TEST_CHECK(actual.page_size == expected[i]);
+        QIQI_TEST_CHECK(actual.page_size == gsl::at(expected, i));
     }
 
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
@@ -138,9 +138,9 @@ void TestSettingsLiveLanguagePreservesControls() {
         const auto& str = GetUiStrings(actual.ui_language);
         for (const auto& test : kCheckboxCases) {
             QIQI_TEST_CHECK((actual.*(test.field)) == (cfg.*(test.field)));
-            wchar_t label[256]{};
-            ::GetDlgItemTextW(hwnd.Get(), test.id, label, 256);
-            QIQI_TEST_CHECK(std::wstring(label) == str.*(test.label));
+            std::array<wchar_t, 256> label{};
+            ::GetDlgItemTextW(hwnd.Get(), test.id, label.data(), gsl::narrow_cast<int>(label.size()));
+            QIQI_TEST_CHECK(std::wstring(label.data()) == str.*(test.label));
         }
     }
     ::SendDlgItemMessageW(hwnd.Get(), kIdRadioJidian, BM_CLICK, 0, 0);

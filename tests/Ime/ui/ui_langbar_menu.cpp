@@ -10,7 +10,9 @@
 #include <oleauto.h>
 #include <wrl/client.h>
 #include <gsl/gsl>
+#include <algorithm>
 #include <array>
+#include <span>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -182,7 +184,10 @@ void TestLangBarButton() {
     st.ui_language = UiLanguage::ZhCn;
     btn->UpdateState(st);
     QIQI_TEST_CHECK(SUCCEEDED(btn->GetInfo(&info)));
-    QIQI_TEST_CHECK(std::wstring(info.szDescription) == L"QiQi 五笔状态与菜单");
+    const std::span<const wchar_t> zh_description(info.szDescription);
+    const std::wstring_view zh_expected = L"QiQi 五笔状态与菜单";
+    QIQI_TEST_CHECK(std::equal(zh_expected.begin(), zh_expected.end(), zh_description.begin()) &&
+                    gsl::at(zh_description, zh_expected.size()) == L'\0');
     QIQI_TEST_CHECK(btn->InitMenu(nullptr) == E_INVALIDARG);
     MockTfMenu menu_zh;
     QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_zh)));
@@ -194,7 +199,10 @@ void TestLangBarButton() {
     st.ui_language = UiLanguage::EnUs;
     btn->UpdateState(st);
     QIQI_TEST_CHECK(SUCCEEDED(btn->GetInfo(&info)));
-    QIQI_TEST_CHECK(std::wstring(info.szDescription) == L"QiQi Wubi Status & Menu");
+    const std::span<const wchar_t> en_description(info.szDescription);
+    const std::wstring_view en_expected = L"QiQi Wubi Status & Menu";
+    QIQI_TEST_CHECK(std::equal(en_expected.begin(), en_expected.end(), en_description.begin()) &&
+                    gsl::at(en_description, en_expected.size()) == L'\0');
     QIQI_TEST_CHECK(SUCCEEDED(btn->GetTooltipString(tooltip.Put())) &&
                     std::wstring(tooltip.Get()).find(L"Left-click") != std::wstring::npos);
     MockTfMenu menu_en;

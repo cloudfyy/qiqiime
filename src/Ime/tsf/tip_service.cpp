@@ -138,10 +138,11 @@ STDMETHODIMP QiQiTextService::Deactivate() {
 }
 
 bool QiQiTextService::InitThreadMgrEventSink() {
+    ITfThreadMgrEventSink* sink = this;
     if (!thread_mgr_sink_.Advise(
             thread_mgr_.Get(),
             IID_ITfThreadMgrEventSink,
-            static_cast<ITfThreadMgrEventSink*>(this))) {
+            sink)) {
         QIQI_LOG_ERROR("InitThreadMgrEventSink: Advise(IID_ITfThreadMgrEventSink) failed");
         return false;
     }
@@ -149,12 +150,13 @@ bool QiQiTextService::InitThreadMgrEventSink() {
 }
 
 bool QiQiTextService::InitKeyEventSink() {
+    ITfKeyEventSink* sink = this;
     ComPtr<ITfKeystrokeMgr> key_mgr;
     if (FAILED(thread_mgr_.As(&key_mgr)) || !key_mgr) {
         QIQI_LOG_ERROR("InitKeyEventSink: QueryInterface(ITfKeystrokeMgr) failed");
         return false;
     }
-    const HRESULT hr = key_mgr->AdviseKeyEventSink(client_id_, static_cast<ITfKeyEventSink*>(this), TRUE);
+    const HRESULT hr = key_mgr->AdviseKeyEventSink(client_id_, sink, TRUE);
     if (FAILED(hr)) {
         QIQI_LOG_ERROR("InitKeyEventSink: AdviseKeyEventSink failed (hr=0x{:08x})",
                        gsl::narrow_cast<unsigned int>(hr));

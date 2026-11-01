@@ -452,7 +452,7 @@ ScopedWindow CreateSettingsWindow(
     ApplySystemThemeToMenuAndWindow(hwnd.Get(), is_dark);
     QIQI_LOG_DEBUG("SettingsWindow created (pos=({}, {}), size={}x{}, dpi={})",
                    dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
-    auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
+    const gsl::not_null<DialogContext*> owned_ctx(ctx.release());
     if (owned_ctx->icon_small) {
         ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon_small.Get()));
     }

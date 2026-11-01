@@ -78,17 +78,20 @@ constexpr POINT PointFromLParam(LPARAM lparam) noexcept {
 
 // Pack a 2D screen POINT into a 32-bit LONG for TSF Global Compartment storage (returns 0 only for (0,0)).
 constexpr LONG PackScreenPointToLong(POINT pt) noexcept {
-    const auto ux = static_cast<uint32_t>(static_cast<uint16_t>(gsl::narrow_cast<int16_t>(pt.x)));
-    const auto uy = static_cast<uint32_t>(static_cast<uint16_t>(gsl::narrow_cast<int16_t>(pt.y)));
+    const auto ux = gsl::narrow_cast<uint32_t>(
+        gsl::narrow_cast<uint16_t>(gsl::narrow_cast<int16_t>(pt.x)));
+    const auto uy = gsl::narrow_cast<uint32_t>(
+        gsl::narrow_cast<uint16_t>(gsl::narrow_cast<int16_t>(pt.y)));
     return gsl::narrow_cast<LONG>(ux | (uy << 16u));
 }
 
 // Unpack a 32-bit LONG from TSF Global Compartment back into a signed 2D screen POINT.
 constexpr POINT UnpackLongToScreenPoint(LONG packed) noexcept {
-    const auto u = static_cast<uint32_t>(packed);
+    const auto u = gsl::narrow_cast<uint32_t>(packed);
     return POINT{
-        static_cast<LONG>(static_cast<int16_t>(static_cast<uint16_t>(u & 0xFFFFu))),
-        static_cast<LONG>(static_cast<int16_t>(static_cast<uint16_t>((u >> 16u) & 0xFFFFu)))
+        gsl::narrow_cast<LONG>(gsl::narrow_cast<int16_t>(gsl::narrow_cast<uint16_t>(u & 0xFFFFu))),
+        gsl::narrow_cast<LONG>(
+            gsl::narrow_cast<int16_t>(gsl::narrow_cast<uint16_t>((u >> 16u) & 0xFFFFu)))
     };
 }
 

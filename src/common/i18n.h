@@ -255,7 +255,7 @@ inline UiLanguage DetectSystemPreferredUiLanguage() noexcept {
     std::array<wchar_t, 128> buf{};
     cch_buf = gsl::narrow_cast<ULONG>(buf.size());
     if (::GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &num_langs, buf.data(), &cch_buf) &&
-        num_langs > 0 && buf[0] != L'\0') {
+        num_langs > 0 && gsl::at(buf, 0) != L'\0') {
         if (_wcsnicmp(buf.data(), L"zh", 2) == 0) {
             return UiLanguage::ZhCn;
         }

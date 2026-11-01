@@ -229,7 +229,10 @@ public:
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
         ULONG c = --ref_;
-        if (c == 0) delete this;
+        if (c == 0) {
+            gsl::owner<MockTfCompartment*> owner = this;
+            delete owner;
+        }
         return c;
     }
     STDMETHODIMP SetValue(TfClientId, const VARIANT* pvarValue) override {
@@ -464,7 +467,10 @@ public:
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() override {
         ULONG c = --ref_;
-        if (c == 0) delete this;
+        if (c == 0) {
+            gsl::owner<MockTfThreadMgr*> owner = this;
+            delete owner;
+        }
         return c;
     }
 

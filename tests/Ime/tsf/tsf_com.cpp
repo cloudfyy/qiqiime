@@ -45,7 +45,7 @@ void TestLambdaEditSession() {
     QIQI_TEST_CHECK(DllCanUnloadNow() == S_OK);
 
     // Empty callback returns E_FAIL
-    auto empty_session = MakeComObject<LambdaEditSession>({});
+    auto empty_session = MakeComObject<LambdaEditSession>(LambdaEditSession::Callback{});
     QIQI_TEST_CHECK(empty_session->DoEditSession(1) == E_FAIL);
     QIQI_TEST_CHECK(empty_session.Detach()->Release() == 0);
 }

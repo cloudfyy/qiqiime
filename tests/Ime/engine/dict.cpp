@@ -7,11 +7,24 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <string>
 
 namespace qiqi::test {
 
 namespace {
+
+template <typename T>
+void WriteBinaryValue(std::vector<uint8_t>& buffer, size_t offset, const T& value) {
+    const std::span<uint8_t> bytes(buffer);
+    std::memcpy(bytes.subspan(offset, sizeof(value)).data(), &value, sizeof(value));
+}
+
+template <typename T>
+void ReadBinaryValue(const std::vector<uint8_t>& buffer, size_t offset, T& value) {
+    const std::span<const uint8_t> bytes(buffer);
+    std::memcpy(&value, bytes.subspan(offset, sizeof(value)).data(), sizeof(value));
+}
 
 std::vector<uint8_t> MakeSingleEntryQdictBuffer() {
     DictBinaryHeader header{};
@@ -24,13 +37,13 @@ std::vector<uint8_t> MakeSingleEntryQdictBuffer() {
 
     std::vector<uint8_t> buffer(sizeof(header) + sizeof(code_index) + sizeof(word_slice) + sizeof(word));
     size_t offset = 0;
-    std::memcpy(buffer.data() + offset, &header, sizeof(header));
+    WriteBinaryValue(buffer, offset, header);
     offset += sizeof(header);
-    std::memcpy(buffer.data() + offset, &code_index, sizeof(code_index));
+    WriteBinaryValue(buffer, offset, code_index);
     offset += sizeof(code_index);
-    std::memcpy(buffer.data() + offset, &word_slice, sizeof(word_slice));
+    WriteBinaryValue(buffer, offset, word_slice);
     offset += sizeof(word_slice);
-    std::memcpy(buffer.data() + offset, &word, sizeof(word));
+    WriteBinaryValue(buffer, offset, word);
     return buffer;
 }
 
@@ -56,9 +69,9 @@ bool WriteInvalidIndexQdictCache(
     std::memcpy(buffer.data(), &header, sizeof(header));
 
     DictCodeIndex code_index{};
-    std::memcpy(&code_index, buffer.data() + sizeof(DictBinaryHeader), sizeof(code_index));
+    ReadBinaryValue(buffer, sizeof(DictBinaryHeader), code_index);
     code_index.first_word_idx = UINT32_MAX;
-    std::memcpy(buffer.data() + sizeof(DictBinaryHeader), &code_index, sizeof(code_index));
+    WriteBinaryValue(buffer, sizeof(DictBinaryHeader), code_index);
 
     std::ofstream cache_file(cache_path, std::ios::binary | std::ios::trunc);
     if (!cache_file) {
@@ -101,32 +114,42 @@ void TestBinaryDictBufferValidation() {
 
     auto invalid_index_buffer = MakeSingleEntryQdictBuffer();
     DictCodeIndex invalid_index{};
-    std::memcpy(&invalid_index, invalid_index_buffer.data() + sizeof(DictBinaryHeader), sizeof(invalid_index));
+    ReadBinaryValue(invalid_index_buffer, sizeof(DictBinaryHeader), invalid_index);
     invalid_index.first_word_idx = UINT32_MAX;
-    std::memcpy(invalid_index_buffer.data() + sizeof(DictBinaryHeader), &invalid_index, sizeof(invalid_index));
+    WriteBinaryValue(invalid_index_buffer, sizeof(DictBinaryHeader), invalid_index);
     QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_index_buffer)) == nullptr);
 
     auto invalid_code_buffer = MakeSingleEntryQdictBuffer();
     DictCodeIndex invalid_code{};
-    std::memcpy(&invalid_code, invalid_code_buffer.data() + sizeof(DictBinaryHeader), sizeof(invalid_code));
+    ReadBinaryValue(invalid_code_buffer, sizeof(DictBinaryHeader), invalid_code);
     invalid_code.packed_code = 0xFF000000u;
-    std::memcpy(invalid_code_buffer.data() + sizeof(DictBinaryHeader), &invalid_code, sizeof(invalid_code));
+    WriteBinaryValue(invalid_code_buffer, sizeof(DictBinaryHeader), invalid_code);
     QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_code_buffer)) == nullptr);
 
     auto invalid_slice_offset_buffer = MakeSingleEntryQdictBuffer();
-    auto* invalid_slice_data = invalid_slice_offset_buffer.data() + sizeof(DictBinaryHeader) + sizeof(DictCodeIndex);
     DictWordSlice invalid_slice_offset{};
-    std::memcpy(&invalid_slice_offset, invalid_slice_data, sizeof(invalid_slice_offset));
+    ReadBinaryValue(
+        invalid_slice_offset_buffer,
+        sizeof(DictBinaryHeader) + sizeof(DictCodeIndex),
+        invalid_slice_offset);
     invalid_slice_offset.char_offset = UINT32_MAX;
-    std::memcpy(invalid_slice_data, &invalid_slice_offset, sizeof(invalid_slice_offset));
+    WriteBinaryValue(
+        invalid_slice_offset_buffer,
+        sizeof(DictBinaryHeader) + sizeof(DictCodeIndex),
+        invalid_slice_offset);
     QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_slice_offset_buffer)) == nullptr);
 
     auto invalid_slice_length_buffer = MakeSingleEntryQdictBuffer();
-    auto* invalid_slice_length_data = invalid_slice_length_buffer.data() + sizeof(DictBinaryHeader) + sizeof(DictCodeIndex);
     DictWordSlice invalid_slice_length{};
-    std::memcpy(&invalid_slice_length, invalid_slice_length_data, sizeof(invalid_slice_length));
+    ReadBinaryValue(
+        invalid_slice_length_buffer,
+        sizeof(DictBinaryHeader) + sizeof(DictCodeIndex),
+        invalid_slice_length);
     invalid_slice_length.char_length = UINT32_MAX;
-    std::memcpy(invalid_slice_length_data, &invalid_slice_length, sizeof(invalid_slice_length));
+    WriteBinaryValue(
+        invalid_slice_length_buffer,
+        sizeof(DictBinaryHeader) + sizeof(DictCodeIndex),
+        invalid_slice_length);
     QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_slice_length_buffer)) == nullptr);
 }
 
@@ -174,17 +197,17 @@ void TestAddEntryAndLookupEdgeCases() {
     engine.AddEntry(L"XYZW", L"测试词");
     engine.AddEntry(L"xyzw", L"测试词");
     auto exact = engine.LookupExact(L"xyzw");
-    QIQI_TEST_CHECK(exact.size() == 1 && exact[0] == L"测试词");
+    QIQI_TEST_CHECK(exact.size() == 1 && gsl::at(exact, 0) == L"测试词");
 
     // Prefix lookup where prefix itself also has an exact match (covers exact-skip in prefix loop)
     engine.AddEntry(L"xyz", L"三码词");
     auto short_prefix_cands = engine.LookupCandidates(L"xyz");
-    QIQI_TEST_CHECK(short_prefix_cands.size() >= 2 && short_prefix_cands[0] == L"三码词");
+    QIQI_TEST_CHECK(short_prefix_cands.size() >= 2 && gsl::at(short_prefix_cands, 0) == L"三码词");
 
     // Prefix lookup at the lexicographical tail of the dictionary (reaches dict_.end() without break)
     engine.AddEntry(L"yyyx", L"尾词");
     auto tail_cands = engine.LookupCandidates(L"yyy");
-    QIQI_TEST_CHECK(!tail_cands.empty() && tail_cands[0] == L"尾词");
+    QIQI_TEST_CHECK(!tail_cands.empty() && gsl::at(tail_cands, 0) == L"尾词");
 
     // Prefix and wildcard 50-candidate cap, plus 50+ exact match cap
     for (int i = 0; i < 60; ++i) {
@@ -230,14 +253,15 @@ void TestExternalDictFile() {
     QIQI_TEST_CHECK(WriteInvalidIndexQdictCache(temp_dict, adjacent_qdict));
     QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
     const auto rebuilt_zzzz = engine.LookupExact(L"zzzz");
-    QIQI_TEST_CHECK(rebuilt_zzzz.size() == 2 && rebuilt_zzzz[0] == L"测一" && rebuilt_zzzz[1] == L"测二");
+    QIQI_TEST_CHECK(rebuilt_zzzz.size() == 2 && gsl::at(rebuilt_zzzz, 0) == L"测一" &&
+                    gsl::at(rebuilt_zzzz, 1) == L"测二");
     // Loading the same file a second time hits the in-process & disk .qdict cache
     QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
     QIQI_TEST_CHECK(engine.MappedDictionaryCount() >= 1);
     auto zzzz = engine.LookupExact(L"zzzz");
-    QIQI_TEST_CHECK(zzzz.size() == 2 && zzzz[0] == L"测一" && zzzz[1] == L"测二");
+    QIQI_TEST_CHECK(zzzz.size() == 2 && gsl::at(zzzz, 0) == L"测一" && gsl::at(zzzz, 1) == L"测二");
     auto zzzy = engine.LookupExact(L"zzzy");
-    QIQI_TEST_CHECK(zzzy.size() == 1 && zzzy[0] == L"瑞梅词");
+    QIQI_TEST_CHECK(zzzy.size() == 1 && gsl::at(zzzy, 0) == L"瑞梅词");
 
     // Prefix & wildcard lookup on mapped dictionary (including progressive suffix hints via ProcessKey)
     auto zz_prefix = engine.LookupCandidates(L"zzz");
@@ -294,18 +318,18 @@ void TestExternalDictFile() {
         WubiEngine updater_engine;
         QIQI_TEST_CHECK(updater_engine.LoadDictionaryFile(temp_dict));
         auto updated_zzzz = updater_engine.LookupExact(L"zzzz");
-        QIQI_TEST_CHECK(updated_zzzz.size() == 3 && updated_zzzz[0] == L"新词一");
+        QIQI_TEST_CHECK(updated_zzzz.size() == 3 && gsl::at(updated_zzzz, 0) == L"新词一");
 
         // Old engine still safely reads its existing mapped view ("测一", "测二") without STATUS_IN_PAGE_ERROR
         auto old_zzzz = engine.LookupExact(L"zzzz");
-        QIQI_TEST_CHECK(old_zzzz.size() == 2 && old_zzzz[0] == L"测一");
+        QIQI_TEST_CHECK(old_zzzz.size() == 2 && gsl::at(old_zzzz, 0) == L"测一");
 
         // Once old engine reloads, it picks up the newly mapped .qdict ("新词一", "新词二", "新词三")
         engine.ClearExternalDictionaries();
         QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
         QIQI_TEST_CHECK(!engine.HasModifiedMappedDictionary());
         auto reloaded_zzzz = engine.LookupExact(L"zzzz");
-        QIQI_TEST_CHECK(reloaded_zzzz.size() == 3 && reloaded_zzzz[0] == L"新词一");
+        QIQI_TEST_CHECK(reloaded_zzzz.size() == 3 && gsl::at(reloaded_zzzz, 0) == L"新词一");
     }
 
     // Test CompileTextFileToQdict prebuilding .qdict and loading when .txt is absent or read-only
@@ -325,7 +349,7 @@ void TestExternalDictFile() {
         // Second LoadDictionaryFile with missing_txt hits the in-process cache for qdict-only path
         QIQI_TEST_CHECK(prebuilt_engine.LoadDictionaryFile(missing_txt));
         auto pre_zzzz = prebuilt_engine.LookupExact(L"zzzz");
-        QIQI_TEST_CHECK(pre_zzzz.size() == 3 && pre_zzzz[0] == L"新词一");
+        QIQI_TEST_CHECK(pre_zzzz.size() == 3 && gsl::at(pre_zzzz, 0) == L"新词一");
         prebuilt_engine.ClearExternalDictionaries();
         WubiMappedDict::ClearProcessCache();
         std::filesystem::remove(prebuilt_qdict, pre_ec);
@@ -358,7 +382,7 @@ void TestExternalDictFile() {
             WubiEngine jidian_engine;
             QIQI_TEST_CHECK(jidian_engine.LoadDictionaryFile(main_dict));
             auto gong = jidian_engine.LookupExact(L"aaaa");
-            QIQI_TEST_CHECK(gong.size() >= 2 && gong[0] == L"工");
+            QIQI_TEST_CHECK(gong.size() >= 2 && gsl::at(gong, 0) == L"工");
             // Exercise mapped prefix and wildcard 50-result cap on full dictionary
             auto wq_prefix = jidian_engine.LookupCandidates(L"w");
             QIQI_TEST_CHECK(wq_prefix.size() == 50);
@@ -388,7 +412,7 @@ void TestExternalDictFile() {
             QIQI_TEST_CHECK(haifeng_engine.LoadDictionaryFile(haifeng_dict));
             // Verify Unicode CJK Extension B character (U+20000 '𠀀' -> ghab) in Haifeng Wubi
             auto cjkb = haifeng_engine.LookupExact(L"ghab");
-            QIQI_TEST_CHECK(!cjkb.empty() && cjkb[0] == L"𠀀");
+            QIQI_TEST_CHECK(!cjkb.empty() && gsl::at(cjkb, 0) == L"𠀀");
             // Verify FindLongestCodeForWord and EncodePhraseWubi86 on UTF-16 surrogate pair CJK Ext-B char
             QIQI_TEST_CHECK(haifeng_engine.LookupCharacterCode(L"𠀀") == L"ghab");
             QIQI_TEST_CHECK(haifeng_engine.EncodePhraseWubi86(L"𠀀好") == L"ghvb");
@@ -427,9 +451,8 @@ void TestExternalDictFile() {
     // Verify LoadDictionaryFromBinaryBuffer with valid and invalid .qdict bytes
     std::string qdict_raw;
     QIQI_TEST_CHECK(ReadFileToUtf8String(temp_user_qdict, qdict_raw));
-    std::vector<uint8_t> qdict_vec(
-        reinterpret_cast<const uint8_t*>(qdict_raw.data()),
-        reinterpret_cast<const uint8_t*>(qdict_raw.data()) + qdict_raw.size());
+    std::vector<uint8_t> qdict_vec(qdict_raw.size());
+    std::memcpy(qdict_vec.data(), qdict_raw.data(), qdict_raw.size());
     WubiEngine mem_buf_engine;
     QIQI_TEST_CHECK(!mem_buf_engine.LoadDictionaryFromBinaryBuffer({1, 2, 3}));
     QIQI_TEST_CHECK(mem_buf_engine.LoadDictionaryFromBinaryBuffer(std::move(qdict_vec)));

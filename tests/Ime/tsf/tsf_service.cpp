@@ -38,8 +38,8 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         std::filesystem::remove_all(temp_appdata, clean_ec);
     });
 
-    BYTE clean_kb_state[256]{};
-    ::SetKeyboardState(clean_kb_state);
+    std::array<BYTE, 256> clean_kb_state{};
+    ::SetKeyboardState(clean_kb_state.data());
     SetMuteAudioOutputForTest(true);
     ResetLastPlayedSoundForTest();
 
@@ -234,13 +234,13 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
     // Test Shift+Click anti-mistrigger: when VK_LBUTTON is pressed during Shift release, mode is NOT toggled
     {
-        BYTE mouse_kb_state[256]{};
-        mouse_kb_state[VK_LBUTTON] = 0x80;
+        std::array<BYTE, 256> mouse_kb_state{};
+        gsl::at(mouse_kb_state, VK_LBUTTON) = 0x80;
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
-        ::SetKeyboardState(mouse_kb_state);
+        ::SetKeyboardState(mouse_kb_state.data());
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
-        ::SetKeyboardState(clean_kb_state);
+        ::SetKeyboardState(clean_kb_state.data());
     }
 
     // In English mode, 'A' is not eaten
@@ -255,15 +255,15 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     // 2) Pressing VK_CAPITAL mid-composition commits the raw English code ("ab") while letting VK_CAPITAL pass through (*pfEaten = FALSE)
     // 3) While composing, pressing a letter with Caps Lock ON commits the current candidate + uppercase letter
     {
-        BYTE caps_kb_state[256]{};
-        caps_kb_state[VK_CAPITAL] = 0x01;
-        ::SetKeyboardState(caps_kb_state);
+        std::array<BYTE, 256> caps_kb_state{};
+        gsl::at(caps_kb_state, VK_CAPITAL) = 0x01;
+        ::SetKeyboardState(caps_kb_state.data());
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_OEM_PERIOD, 0, &eaten)) && eaten == FALSE);
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_OEM_PERIOD, 0, &eaten)) && eaten == FALSE);
 
-        ::SetKeyboardState(clean_kb_state);
+        ::SetKeyboardState(clean_kb_state.data());
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'B', 0, &eaten)) && eaten == TRUE);
         QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"ab");
@@ -274,11 +274,11 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
         QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"a");
 
-        ::SetKeyboardState(caps_kb_state);
+        ::SetKeyboardState(caps_kb_state.data());
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), 'B', 0, &eaten)) && eaten == TRUE);
         QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'B', 0, &eaten)) && eaten == TRUE);
         QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"工B");
-        ::SetKeyboardState(clean_kb_state);
+        ::SetKeyboardState(clean_kb_state.data());
     }
 
     // Test FullWidth toggle (Shift+Space) and Chinese Punctuation toggle (Ctrl+.) PreservedKeys
@@ -314,8 +314,8 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     // Start composing again, then test mouse page-turn chevron click and candidate selection on CandidateUI
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
     if (mock_tm->last_ui_element_) {
-        auto* cand_ui = static_cast<CandidateUI*>(mock_tm->last_ui_element_.Get());
-        if (cand_ui->WindowHandle()) {
+        auto* cand_ui = dynamic_cast<CandidateUI*>(mock_tm->last_ui_element_.Get());
+        if (cand_ui && cand_ui->WindowHandle()) {
             UINT cur_page = 99;
             QIQI_TEST_CHECK(SUCCEEDED(cand_ui->GetCurrentPage(&cur_page)) && cur_page == 0);
             const RECT next_rc = cand_ui->NextPageButtonRect();

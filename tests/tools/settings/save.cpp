@@ -2,6 +2,7 @@
 #include "common/i18n.h"
 #include "tools/settings/internal.h"
 
+#include <array>
 #include <string>
 
 namespace qiqi::test {
@@ -135,9 +136,9 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(read_back.underline_style == CompositionUnderlineStyle::Squiggle);
     QIQI_TEST_CHECK(read_back.bold_underline);
     QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
-    wchar_t title_buf[128]{};
-    ::GetWindowTextW(hwnd.Get(), title_buf, 128);
-    QIQI_TEST_CHECK(std::wstring(title_buf) == GetUiStrings(UiLanguage::EnUs).dlg_title);
+    std::array<wchar_t, 128> title_buf{};
+    ::GetWindowTextW(hwnd.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
+    QIQI_TEST_CHECK(std::wstring(title_buf.data()) == GetUiStrings(UiLanguage::EnUs).dlg_title);
 
     // 2) Dirty window: user edits page_size (to 8), underline_style (to Solid), and enable_key_sound (checked)
     //    in the dialog, while external quick-settings switches primary_dict back to Jidian and ui_language to ZhCn.
@@ -160,8 +161,8 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(read_back.underline_style == CompositionUnderlineStyle::Solid);
     QIQI_TEST_CHECK(read_back.enable_key_sound);
     QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
-    ::GetWindowTextW(hwnd.Get(), title_buf, 128);
-    QIQI_TEST_CHECK(std::wstring(title_buf) == GetUiStrings(UiLanguage::ZhCn).dlg_title);
+    ::GetWindowTextW(hwnd.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
+    QIQI_TEST_CHECK(std::wstring(title_buf.data()) == GetUiStrings(UiLanguage::ZhCn).dlg_title);
     QIQI_TEST_CHECK(cfg.primary_dict == PrimaryDict::Jidian && cfg.page_size == 5 && !cfg.enable_key_sound);
 }
 

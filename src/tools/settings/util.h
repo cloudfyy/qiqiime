@@ -63,7 +63,7 @@ inline bool RunModalDialogLoop(HWND hwnd, const bool& done_flag, bool route_dial
             return false;
         }
         if (result == 0) {
-            ::PostQuitMessage(static_cast<int>(msg.wParam));
+            ::PostQuitMessage(gsl::narrow_cast<int>(msg.wParam));
             return false;
         }
         if (route_dialog_keys && msg.message == WM_KEYDOWN &&

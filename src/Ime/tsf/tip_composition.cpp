@@ -82,8 +82,8 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
     if (active_context_.Get() != context) {
         text_layout_sink_.Reset();
         active_context_ = context;
-        text_layout_sink_.Advise(
-            active_context_.Get(), IID_ITfTextLayoutSink, static_cast<ITfTextLayoutSink*>(this));
+        ITfTextLayoutSink* sink = this;
+        text_layout_sink_.Advise(active_context_.Get(), IID_ITfTextLayoutSink, sink);
     }
 
     ComPtr<ITfContext> ctx_holder(context);

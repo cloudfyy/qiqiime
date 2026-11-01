@@ -152,7 +152,7 @@ void TestFirstLevelShortCodes() {
     auto r1 = engine.ProcessKey('A');
     QIQI_TEST_CHECK(r1.action == KeyActionType::UpdateState);
     QIQI_TEST_CHECK(r1.composition_text == L"a");
-    QIQI_TEST_CHECK(!r1.page_candidates.empty() && r1.page_candidates[0] == L"工");
+    QIQI_TEST_CHECK(!r1.page_candidates.empty() && gsl::at(r1.page_candidates, 0) == L"工");
 
     auto r2 = engine.ProcessKey(VK_SPACE);
     QIQI_TEST_CHECK(r2.action == KeyActionType::Commit);
@@ -432,10 +432,10 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(commit_fixed.action == KeyActionType::Commit && commit_fixed.committed_text == L"词组乙");
     auto cands_before = engine.LookupExact(L"qrst");
     QIQI_TEST_CHECK(cands_before.size() == 4 &&
-                    cands_before[0] == L"单" &&
-                    cands_before[1] == L"词组甲" &&
-                    cands_before[2] == L"词组乙" &&
-                    cands_before[3] == L"字");
+                    gsl::at(cands_before, 0) == L"单" &&
+                    gsl::at(cands_before, 1) == L"词组甲" &&
+                    gsl::at(cands_before, 2) == L"词组乙" &&
+                    gsl::at(cands_before, 3) == L"字");
 
     // Enable dynamic_phrase_freq: selecting "词组乙" promotes it to the 1st phrase slot (index 1),
     // while single characters "单" (index 0) and "字" (index 3) remain fixed!
@@ -449,10 +449,10 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(commit_prom.action == KeyActionType::Commit && commit_prom.committed_text == L"词组乙");
     auto cands_after = engine.LookupExact(L"qrst");
     QIQI_TEST_CHECK(cands_after.size() == 4 &&
-                    cands_after[0] == L"单" &&
-                    cands_after[1] == L"词组乙" &&
-                    cands_after[2] == L"词组甲" &&
-                    cands_after[3] == L"字");
+                    gsl::at(cands_after, 0) == L"单" &&
+                    gsl::at(cands_after, 1) == L"词组乙" &&
+                    gsl::at(cands_after, 2) == L"词组甲" &&
+                    gsl::at(cands_after, 3) == L"字");
 
     // Selecting single character "字" (4th candidate via '4') does NOT move single characters
     engine.ProcessKey('Q');
@@ -462,7 +462,9 @@ void TestNavigationSelectionAndReturnCommit() {
     auto commit_single = engine.ProcessKey('4', false);
     QIQI_TEST_CHECK(commit_single.action == KeyActionType::Commit && commit_single.committed_text == L"字");
     auto cands_single_fixed = engine.LookupExact(L"qrst");
-    QIQI_TEST_CHECK(cands_single_fixed[0] == L"单" && cands_single_fixed[3] == L"字");
+    QIQI_TEST_CHECK(cands_single_fixed.size() == 4 &&
+                    gsl::at(cands_single_fixed, 0) == L"单" &&
+                    gsl::at(cands_single_fixed, 3) == L"字");
 
     // Selecting "词组甲" via VK_DOWN + VK_SPACE (CommitSelected) promotes "词组甲" back ahead of "词组乙" without duplication
     const auto temp_freq_path = std::filesystem::temp_directory_path() / L"qiqiime_test_phrase_freq.txt";
@@ -482,10 +484,10 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(commit_via_space.action == KeyActionType::Commit && commit_via_space.committed_text == L"词组甲");
     auto cands_repromoted = engine.LookupExact(L"qrst");
     QIQI_TEST_CHECK(cands_repromoted.size() == 4 &&
-                    cands_repromoted[0] == L"单" &&
-                    cands_repromoted[1] == L"词组甲" &&
-                    cands_repromoted[2] == L"词组乙" &&
-                    cands_repromoted[3] == L"字");
+                    gsl::at(cands_repromoted, 0) == L"单" &&
+                    gsl::at(cands_repromoted, 1) == L"词组甲" &&
+                    gsl::at(cands_repromoted, 2) == L"词组乙" &&
+                    gsl::at(cands_repromoted, 3) == L"字");
 
     // Verify dynamic phrase promotions were persisted to temp_freq_path and can be restored into a fresh WubiEngine
     QIQI_TEST_CHECK(std::filesystem::exists(temp_freq_path));
@@ -498,10 +500,10 @@ void TestNavigationSelectionAndReturnCommit() {
     QIQI_TEST_CHECK(restored_freq_engine.LoadPhraseFrequencies(temp_freq_path));
     auto restored_cands = restored_freq_engine.LookupExact(L"qrst");
     QIQI_TEST_CHECK(restored_cands.size() == 4 &&
-                    restored_cands[0] == L"单" &&
-                    restored_cands[1] == L"词组甲" &&
-                    restored_cands[2] == L"词组乙" &&
-                    restored_cands[3] == L"字");
+                    gsl::at(restored_cands, 0) == L"单" &&
+                    gsl::at(restored_cands, 1) == L"词组甲" &&
+                    gsl::at(restored_cands, 2) == L"词组乙" &&
+                    gsl::at(restored_cands, 3) == L"字");
     engine.SetPhraseFreqPath({});
     std::filesystem::remove(temp_freq_path, freq_ec);
     engine.SetDynamicPhraseFreq(false);

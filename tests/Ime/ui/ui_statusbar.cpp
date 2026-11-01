@@ -292,13 +292,13 @@ void TestStatusBarBoundariesAtDifferentDpis() {
                 const int left = zone == 0 ? 0 : offset + (static_cast<int>(zone) - 1) * cell_width;
                 const int right = zone == 0 ? offset : left + cell_width;
                 for (const int x : {left, right - 1}) {
-                    QIQI_TEST_CHECK(std::wstring(bar.GetTooltipTextForX(x)) == tips[zone]);
+                    QIQI_TEST_CHECK(std::wstring(bar.GetTooltipTextForX(x)) == gsl::at(tips, zone));
                     const size_t previous_clicks = clicked.size();
                     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, 1));
                     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONUP, 0, MAKELPARAM(x, 1));
                     QIQI_TEST_CHECK(clicked.size() == previous_clicks + (zone == 0 ? 0 : 1));
                     if (zone != 0) {
-                        QIQI_TEST_CHECK(clicked.back() == actions[zone - 1]);
+                        QIQI_TEST_CHECK(clicked.back() == gsl::at(actions, zone - 1));
                     }
                 }
             }
@@ -359,9 +359,11 @@ void TestStatusBarContextMenuState() {
                     QIQI_TEST_CHECK(flags != static_cast<UINT>(-1));
                     QIQI_TEST_CHECK(((flags & MF_CHECKED) != 0) == item.checked);
                     QIQI_TEST_CHECK(((flags & (MF_GRAYED | MF_DISABLED)) == 0) == item.enabled);
-                    wchar_t text[256]{};
-                    QIQI_TEST_CHECK(::GetMenuStringW(menu.Get(), static_cast<UINT>(item.id), text, 256, MF_BYCOMMAND) > 0);
-                    QIQI_TEST_CHECK(std::wstring(text) == item.text);
+                    std::array<wchar_t, 256> text{};
+                    QIQI_TEST_CHECK(::GetMenuStringW(
+                                        menu.Get(), static_cast<UINT>(item.id), text.data(),
+                                        gsl::narrow_cast<int>(text.size()), MF_BYCOMMAND) > 0);
+                    QIQI_TEST_CHECK(std::wstring(text.data()) == item.text);
                 }
                 MENUINFO info{};
                 info.cbSize = sizeof(info);
