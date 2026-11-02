@@ -136,6 +136,7 @@ public:
     // Exact + prefix lookup for a Wubi code
     std::vector<std::wstring> LookupCandidates(std::wstring_view code) const;
     std::vector<std::wstring> LookupExact(std::wstring_view code) const;
+    const auto& MappedDictionaries() const noexcept { return mapped_dicts_; }
     size_t MappedDictionaryCount() const noexcept { return mapped_dicts_.size(); }
     bool HasModifiedMappedDictionary() const noexcept;
 

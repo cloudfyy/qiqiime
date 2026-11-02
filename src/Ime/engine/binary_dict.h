@@ -148,6 +148,7 @@ public:
 
     // Static in-memory cache of loaded dictionaries inside the current process
     static void ClearProcessCache() noexcept;
+    static size_t ProcessCacheSize() noexcept;
 
     bool IsValid() const noexcept { return !code_index_.empty(); }
     bool IsMemoryMapped() const noexcept { return mapped_view_.IsValid(); }

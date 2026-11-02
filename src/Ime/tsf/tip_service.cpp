@@ -129,7 +129,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     InitFunctionProvider();
     InitLangBarItem();
     InitCompartmentSinks();
-    if (config_.primary_dict != PrimaryDict::BuiltinOnly && engine_.MappedDictionaryCount() == 0) {
+    if (engine_.MappedDictionaryCount() == 0) {
         LoadExternalDictionaryNextToDll();
     }
     is_active_ = true;
@@ -170,7 +170,6 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     client_id_ = TF_CLIENTID_NULL;
     activate_flags_ = 0;
     engine_.ClearExternalDictionaries();
-    WubiMappedDict::ClearProcessCache();
     QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=deactivate-local-complete, activation={}, context={}, tracked_cleanups={})",
                    service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, composition_cleanups_.size());
     return windows_destroyed ? S_OK : E_FAIL;

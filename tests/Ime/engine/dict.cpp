@@ -417,6 +417,26 @@ void TestExternalDictFile() {
             QIQI_TEST_CHECK(haifeng_engine.LookupCharacterCode(L"𠀀") == L"ghab");
             QIQI_TEST_CHECK(haifeng_engine.EncodePhraseWubi86(L"𠀀好") == L"ghvb");
         }
+        if (std::filesystem::exists(main_dict)) {
+            WubiMappedDict::ClearProcessCache();
+            QIQI_TEST_CHECK(WubiMappedDict::ProcessCacheSize() == 0);
+            const auto first_mapped = WubiMappedDict::LoadFromTextOrCache(main_dict);
+            const auto second_mapped = WubiMappedDict::LoadFromTextOrCache(main_dict);
+            QIQI_TEST_CHECK(first_mapped && first_mapped == second_mapped);
+            QIQI_TEST_CHECK(WubiMappedDict::ProcessCacheSize() == 1);
+            const std::weak_ptr<const WubiMappedDict> weak_mapped = first_mapped;
+
+            WubiEngine active_peer;
+            QIQI_TEST_CHECK(active_peer.LoadDictionaryFile(main_dict));
+            QIQI_TEST_CHECK(active_peer.MappedDictionaries().size() == 1 &&
+                            active_peer.MappedDictionaries().front() == first_mapped);
+
+            // Clearing the process cache removes the static map entry without dangling active shared_ptr holders.
+            WubiMappedDict::ClearProcessCache();
+            QIQI_TEST_CHECK(WubiMappedDict::ProcessCacheSize() == 0 && !weak_mapped.expired());
+            const auto peer_lookup = active_peer.LookupExact(L"aaaa");
+            QIQI_TEST_CHECK(peer_lookup.size() >= 2 && gsl::at(peer_lookup, 0) == L"工");
+        }
     }
 
     // 4. Test Wubi 86 automatic phrase encoding (2+2, 1+1+2, 1+1+1+last) and persistent AddUserPhrase

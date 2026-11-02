@@ -282,3 +282,10 @@ cmake --build build\x64 --config Release --target lint
 - [`QiQiTextService`](../src/Ime/tsf/tip_service.h) 新增 `key_event_sink_registered_` 与 `registered_preserved_keys_`：[`InitKeyEventSink`](../src/Ime/tsf/tip_service.cpp) 在 `AdviseKeyEventSink` 成功后标记键盘监听已注册，并仅将返回成功（`SUCCEEDED`）的 `(GUID, TF_PRESERVEDKEY)` 记入本激活周期持有列表。
 - 区分 `TF_E_ALREADY_EXISTS`（警告记录已注册并跳过本次所有权）与其他失败（记录操作与实际 `HRESULT`），不先注销或覆盖已有注册。[`UninitKeyEventSink`](../src/Ime/tsf/tip_service.cpp) 先移出并清空本周期持有状态，仅对持有项调用 `UnpreserveKey`（失败记录 `vkey`/`mod` 与 `HRESULT`）、仅在监听已注册时调用 `UnadviseKeyEventSink`，保证部分激活回滚、重复停用、注销失败或 `ITfKeystrokeMgr` 查询失败后的状态一致与可再次激活。
 - [`service.cpp`](../tests/Ime/tsf/service.cpp) 覆盖全部成功、查询/监听注册失败回滚、`TF_E_ALREADY_EXISTS` 与 `E_OUTOFMEMORY` 部分成功、全部保留键失败、重复停用、注销失败、`ITfKeystrokeMgr` 注销查询失败后重新激活，以及自有调试子进程对实际 `OutputDebugString` 警告消息的校验；现有快捷键行为保持不变。
+
+### 5.11 进程词库缓存生命周期（任务 52）
+
+- 评估结论：`g_process_dict_cache` 以规范化路径缓存 `(src_size, src_mtime, std::shared_ptr<const WubiMappedDict>)`。虽然清空该映射不会使其他实例已持有的 `shared_ptr` 悬空，但在每个实例 `Deactivate` 时调用 `WubiMappedDict::ClearProcessCache()` 会使同进程后续激活、实例重载或新实例无法命中内存缓存，被迫重新打开并映射 `.qdict` 文件。
+- 调整策略：[`QiQiTextService::Deactivate`](../src/Ime/tsf/tip_service.cpp) 仅调用 `engine_.ClearExternalDictionaries()` 释放当前服务实例持有的词库引用，不再清空进程级缓存；进程缓存随模块生命周期在 [`DllMain`](../src/Ime/tsf/dllmain.cpp) 动态卸载（`DLL_PROCESS_DETACH` 且 `lpReserved == nullptr`）时统一清理，运行期词库文件修改则由 `LoadFromTextOrCache` 的文件大小与最后修改时间比对自动更新。
+- 关联修正：`ActivateEx` 原先仅在 `config_.primary_dict != PrimaryDict::BuiltinOnly` 时恢复被 `Deactivate` 清空的外部词库，导致 `BuiltinOnly` 配置下停用后重新激活丢失已配置的外部用户词库；现统一在 `engine_.MappedDictionaryCount() == 0` 时调用 `LoadExternalDictionaryNextToDll()`（直接命中进程级缓存）。
+- 验证：[`dict.cpp`](../tests/Ime/engine/dict.cpp) 与 [`service.cpp`](../tests/Ime/tsf/service.cpp) 验证多实例指针级复用、停用一个实例后进程缓存保留且另一实例及再次激活实例（含 `BuiltinOnly` 用户词库）候选查询正常、显式 `ClearProcessCache` 不影响在用 `shared_ptr`，以及所有实例与缓存释放后 `weak_ptr` 过期（底层映射资源释放）。

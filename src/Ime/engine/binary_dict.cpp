@@ -188,6 +188,16 @@ void WubiMappedDict::ClearProcessCache() noexcept {
     }
 }
 
+size_t WubiMappedDict::ProcessCacheSize() noexcept {
+    try {
+        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+        return g_process_dict_cache.size();
+    } catch (...) {
+        QIQI_LOG_ERROR("ProcessCacheSize failed with a C++ exception");
+        return 0;
+    }
+}
+
 void WubiMappedDict::ResetViews() noexcept {
     code_index_ = {};
     word_slices_ = {};
