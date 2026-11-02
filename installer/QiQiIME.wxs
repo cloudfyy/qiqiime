@@ -10,7 +10,15 @@
 
     <SummaryInformation Description="!(loc.SummaryDescription)"
                         Manufacturer="cloudfyy (https://github.com/cloudfyy/qiqiime)"
+                        Comments="!(loc.SummaryComments)"
+                        Keywords="!(loc.SummaryKeywords)"
                         Codepage="$(var.SummaryCodepage)" />
+
+    <Icon Id="ProductIcon" SourceFile="data\qiqiime-monitor.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+    <Property Id="ARPCOMMENTS" Value="!(loc.SummaryComments)" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/cloudfyy/qiqiime" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/cloudfyy/qiqiime" />
 
     <!-- Suppress "Files in Use" dialog and prevent Windows Installer from forcing a reboot when explorer.exe holds qiqiime.dll -->
     <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
@@ -29,22 +37,26 @@
     </StandardDirectory>
 
     <ComponentGroup Id="ProductComponents">
-      <!-- 64-bit TSF DLL and standalone Settings executable -->
+      <!-- 64-bit TSF DLL and standalone GUI tools -->
       <Component Id="CmpDllX64" Directory="DirX64" Guid="8E7B9D31-5A42-4C81-9F11-202610290101">
         <File Id="FileDllX64" Source="$(var.StageDir)\x64\qiqiime.dll" KeyPath="yes" />
         <File Id="FileSettingsExeX64" Source="$(var.StageDir)\x64\QiQiIMESettings.exe" />
+        <File Id="FileLogMonitorExeX64" Source="$(var.StageDir)\x64\QiQiIMELogMonitor.exe" />
       </Component>
 
-      <!-- 32-bit WOW64 TSF DLL -->
+      <!-- 32-bit WOW64 TSF DLL and standalone GUI tools -->
       <Component Id="CmpDllX86" Directory="DirX86" Guid="8E7B9D31-5A42-4C81-9F11-202610290102">
         <File Id="FileDllX86" Source="$(var.StageDir)\x86\qiqiime.dll" KeyPath="yes" />
+        <File Id="FileSettingsExeX86" Source="$(var.StageDir)\x86\QiQiIMESettings.exe" />
+        <File Id="FileLogMonitorExeX86" Source="$(var.StageDir)\x86\QiQiIMELogMonitor.exe" />
       </Component>
 
-      <!-- Shared dictionaries -->
+      <!-- Shared dictionaries (and cleanup rule for prebuilt .qdict binary caches generated during registration) -->
       <Component Id="CmpSharedData" Directory="DirData" Guid="8E7B9D31-5A42-4C81-9F11-202610290103">
         <File Id="FileDictJidian" Source="$(var.StageDir)\data\wubi86_jidian.txt" KeyPath="yes" />
         <File Id="FileDictJidianExtra" Source="$(var.StageDir)\data\wubi86_jidian_extra.txt" />
         <File Id="FileDictHaifeng" Source="$(var.StageDir)\data\wubi86_haifeng.txt" />
+        <RemoveFile Id="RemovePrebuiltQdict" Name="*.qdict" On="uninstall" />
       </Component>
 
       <!-- Management scripts -->
@@ -59,12 +71,21 @@
         <File Id="FileLicense" Source="$(var.StageDir)\LICENSE" KeyPath="yes" />
         <File Id="FileReadme" Source="$(var.StageDir)\README.md" />
         <File Id="FileDeployment" Source="$(var.StageDir)\DEPLOYMENT.md" />
+        <File Id="FileLogging" Source="$(var.StageDir)\LOGGING.md" />
       </Component>
     </ComponentGroup>
 
     <Feature Id="MainFeature" Title="!(loc.FeatureTitle)" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
     </Feature>
+
+    <!-- Grant AppContainer / Restricted AppContainer read & execute access on installation folder -->
+    <CustomAction Id="GrantAppContainerAcl"
+                  Directory="INSTALLFOLDER"
+                  Execute="deferred"
+                  Impersonate="no"
+                  ExeCommand="[System64Folder]icacls.exe &quot;[INSTALLFOLDER].&quot; /grant &quot;*S-1-15-2-1:(OI)(CI)(RX)&quot; /grant &quot;*S-1-15-2-2:(OI)(CI)(RX)&quot; /Q"
+                  Return="ignore" />
 
     <!-- Deferred elevated CustomActions to register/unregister x64 and x86 TSF Text Services -->
     <CustomAction Id="RegX64"
@@ -106,7 +127,8 @@
     <!-- Run UnregX86 / UnregX64 during InstallInitialize .. InstallValidate cannot host deferred actions;
          Instead, run immediate elevated/custom or run deferred right after InstallInitialize, while MSIRESTARTMANAGERCONTROL=Disable skips InstallValidate's RestartManager lock dialog -->
     <InstallExecuteSequence>
-      <Custom Action="RegX64" After="InstallFiles" Condition="NOT Installed OR REINSTALL" />
+      <Custom Action="GrantAppContainerAcl" After="InstallFiles" Condition="NOT Installed OR REINSTALL" />
+      <Custom Action="RegX64" After="GrantAppContainerAcl" Condition="NOT Installed OR REINSTALL" />
       <Custom Action="RegX86" After="RegX64" Condition="NOT Installed OR REINSTALL" />
       <Custom Action="EnableUserProfile" After="RegX86" Condition="NOT Installed OR REINSTALL" />
       <Custom Action="UnregX86" After="InstallInitialize" Condition="REMOVE=&quot;ALL&quot;" />

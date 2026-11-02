@@ -82,12 +82,16 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 - **`dist\QiQiIME-v0.8.4-win-x64-x86.zip`**：绿色便携压缩包，解压后结构如下（`x64` 与 `x86` 共用同一份 `data/` 词库与配置）：
 
 ```text
-QiQiIME-v0.8.4-win-x64-x86/
+QiQiIME-v0.9.22-win-x64-x86/
 ├── x64/
-│   └── qiqiime.dll             # 64 位 TSF 输入法组件
+│   ├── qiqiime.dll             # 64 位 TSF 输入法组件
+│   ├── QiQiIMESettings.exe     # 64 位独立设置程序
+│   └── QiQiIMELogMonitor.exe   # 64 位独立实时 ETW 日志监控工具
 ├── x86/
-│   └── qiqiime.dll             # 32 位 (WOW64) TSF 输入法组件
-├── data/                       # x64 与 x86 共用的 3 套五笔词库
+│   ├── qiqiime.dll             # 32 位 (WOW64) TSF 输入法组件
+│   ├── QiQiIMESettings.exe     # 32 位独立设置程序
+│   └── QiQiIMELogMonitor.exe   # 32 位独立实时 ETW 日志监控工具
+├── data/                       # x64 与 x86 共用的 3 套五笔词库（安装注册时自动预编译同名 .qdict 缓存）
 │   ├── wubi86_jidian.txt
 │   ├── wubi86_jidian_extra.txt
 │   └── wubi86_haifeng.txt
@@ -97,7 +101,8 @@ QiQiIME-v0.8.4-win-x64-x86/
 │   └── unregister_ime.ps1      # 卸载清理脚本
 ├── LICENSE                     # GPL-3.0 许可证
 ├── README.md                   # 功能与使用说明
-└── DEPLOYMENT.md               # 部署与安装说明
+├── DEPLOYMENT.md               # 部署与安装说明
+└── LOGGING.md                  # 应用日志与实时监控工具指南
 ```
 
 终端用户解压到固定目录（如 `C:\Program Files\QiQiIME`）后，直接运行以下命令即可完成安装：

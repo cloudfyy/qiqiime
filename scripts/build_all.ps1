@@ -63,11 +63,19 @@ if ($Package) {
     New-Item -ItemType Directory -Path (Join-Path $pkgDir "scripts") -Force | Out-Null
 
     Copy-Item $dlls.X64 -Destination (Join-Path $pkgDir "x64\qiqiime.dll")
-    $settingsExe = Join-Path (Split-Path -Parent $dlls.X64) "QiQiIMESettings.exe"
-    if (Test-Path $settingsExe) {
-        Copy-Item $settingsExe -Destination (Join-Path $pkgDir "x64\QiQiIMESettings.exe")
-    }
     Copy-Item $dlls.X86 -Destination (Join-Path $pkgDir "x86\qiqiime.dll")
+    foreach ($archPair in @(
+        @{ Dir = (Split-Path -Parent $dlls.X64); Dest = (Join-Path $pkgDir "x64") },
+        @{ Dir = (Split-Path -Parent $dlls.X86); Dest = (Join-Path $pkgDir "x86") }
+    )) {
+        foreach ($exeName in $QiQiToolExeNames) {
+            $exePath = Join-Path $archPair.Dir $exeName
+            if (-not (Test-Path $exePath)) {
+                throw "Missing tool executable for packaging: $exePath"
+            }
+            Copy-Item $exePath -Destination (Join-Path $archPair.Dest $exeName)
+        }
+    }
 
     foreach ($fileName in $QiQiDataFileNames) {
         $srcFile = Join-Path $QiQiRepoRoot "data\$fileName"
@@ -80,6 +88,7 @@ if ($Package) {
     Copy-Item (Join-Path $QiQiRepoRoot "LICENSE") -Destination $pkgDir
     Copy-Item (Join-Path $QiQiRepoRoot "README.md") -Destination $pkgDir
     Copy-Item (Join-Path $QiQiRepoRoot "docs\DEPLOYMENT.md") -Destination $pkgDir
+    Copy-Item (Join-Path $QiQiRepoRoot "docs\LOGGING.md") -Destination $pkgDir
 
     Compress-Archive -Path $pkgDir -DestinationPath $zipPath -Force
     $zipSizeKB = [math]::Round((Get-Item $zipPath).Length / 1KB, 1)

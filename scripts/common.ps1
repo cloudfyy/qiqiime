@@ -10,6 +10,10 @@ $script:QiQiDataFileNames = @(
     "wubi86_jidian_extra.txt",
     "wubi86_haifeng.txt"
 )
+$script:QiQiToolExeNames = @(
+    "QiQiIMESettings.exe",
+    "QiQiIMELogMonitor.exe"
+)
 
 function Write-QiQiStep([string]$Message) {
     Write-Host "`n=== $Message ===" -ForegroundColor Cyan
@@ -107,6 +111,15 @@ function Test-QiQiRuntimeFiles([hashtable]$Dlls) {
         $item = Get-Item $archInfo.Dll
         $ver = $item.VersionInfo
         Write-QiQiPass "$($archInfo.Name) DLL ($([math]::Round($item.Length / 1KB, 1)) KB): $($item.FullName) [v$($ver.FileVersion)]"
+        foreach ($exeName in $script:QiQiToolExeNames) {
+            $exePath = Join-Path $item.DirectoryName $exeName
+            if (-not (Test-Path $exePath)) {
+                throw "Missing required tool executable ($exeName) for $($archInfo.Name) in $($item.DirectoryName)"
+            }
+            $exeItem = Get-Item $exePath
+            $exeVer = $exeItem.VersionInfo
+            Write-QiQiPass "$($archInfo.Name) $exeName ($([math]::Round($exeItem.Length / 1KB, 1)) KB): $($exeItem.FullName) [v$($exeVer.FileVersion)]"
+        }
         $parentDir = if ($item.Directory.Parent) { $item.Directory.Parent.FullName } else { $item.DirectoryName }
         foreach ($reqFile in $script:QiQiDataFileNames) {
             $candidates = @(
