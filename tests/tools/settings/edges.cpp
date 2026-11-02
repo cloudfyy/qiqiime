@@ -68,9 +68,9 @@ void TestSettingsBindingBoundaries() {
         QIQI_TEST_CHECK(actual.page_size == gsl::at(expected, i));
     }
 
-    ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
-    ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
-    ::SendDlgItemMessageW(hwnd.Get(), kIdComboUnderlineStyle, CB_SETCURSEL, static_cast<WPARAM>(-1), 0);
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboUnderlineStyle, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     QiQiConfig actual;
     actual.page_size = 7;
     actual.ui_language = UiLanguage::EnUs;

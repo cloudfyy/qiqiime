@@ -237,19 +237,19 @@ bool WubiMappedDict::BindBufferView(
         QIQI_LOG_WARN("BindBufferView: invalid code index count ({})", hdr->code_count);
         return false;
     }
-    const size_t codes_bytes = static_cast<size_t>(hdr->code_count) * sizeof(DictCodeIndex);
+    const size_t codes_bytes = gsl::narrow_cast<size_t>(hdr->code_count) * sizeof(DictCodeIndex);
     remaining_bytes -= codes_bytes;
     if (hdr->word_count > remaining_bytes / sizeof(DictWordSlice)) {
         QIQI_LOG_WARN("BindBufferView: invalid word slice count ({})", hdr->word_count);
         return false;
     }
-    const size_t words_bytes = static_cast<size_t>(hdr->word_count) * sizeof(DictWordSlice);
+    const size_t words_bytes = gsl::narrow_cast<size_t>(hdr->word_count) * sizeof(DictWordSlice);
     remaining_bytes -= words_bytes;
     if (hdr->char_count > remaining_bytes / sizeof(wchar_t)) {
         QIQI_LOG_WARN("BindBufferView: invalid character pool count ({})", hdr->char_count);
         return false;
     }
-    const size_t chars_bytes = static_cast<size_t>(hdr->char_count) * sizeof(wchar_t);
+    const size_t chars_bytes = gsl::narrow_cast<size_t>(hdr->char_count) * sizeof(wchar_t);
 
     const auto codes_span = buffer.subspan(sizeof(DictBinaryHeader), codes_bytes);
     const auto words_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes, words_bytes);

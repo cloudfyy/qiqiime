@@ -95,9 +95,9 @@ void TestFocusPerformanceLogs() {
         QIQI_TEST_CHECK(record.contains(L"completed=true)"));
         std::wsmatch match;
         QIQI_TEST_CHECK(std::regex_search(record, match, durations));
-        const auto reload_ns = std::stoull(match[1].str());
-        const auto position_ns = std::stoull(match[2].str());
-        const auto total_ns = std::stoull(match[3].str());
+        const auto reload_ns = std::stoull(match.str(1));
+        const auto position_ns = std::stoull(match.str(2));
+        const auto total_ns = std::stoull(match.str(3));
         QIQI_TEST_CHECK(total_ns > 0 && total_ns >= reload_ns + position_ns);
         if (i != 7 && i != 8) {
             QIQI_TEST_CHECK(reload_ns > 0 && position_ns > 0);
@@ -963,7 +963,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
                 const auto restore_registry = gsl::finally([previous_subkey]() noexcept {
                     SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
                 });
-                const HWND foreground_before = ::GetForegroundWindow();
+                const auto* foreground_before = ::GetForegroundWindow();
                 const long object_count_before = g_com_object_count.load();
                 QIQI_TEST_CHECK(SUCCEEDED(
                     hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleUiLanguage))));

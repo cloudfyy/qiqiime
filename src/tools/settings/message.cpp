@@ -339,14 +339,14 @@ ScopedWindow CreateSettingsMessageWindow(
     }
     const HFONT font = owned->font.Get();
     const auto* theme = &owned->d2d;
-    const HWND body = CreateFluentChildControl(hwnd.Get(), instance, font, theme,
+    const auto* body = CreateFluentChildControl(hwnd.Get(), instance, font, theme,
         L"STATIC", strings.text, SS_LEFT | SS_NOPREFIX, scale(32), scale(52),
         scale(kWindowWidth - 64), body_height, kMessageTextId);
     if (!body || !::IsWindow(hwnd.Get())) {
         QIQI_LOG_ERROR("Settings message body creation failed");
         return {};
     }
-    const HWND primary = CreateFluentChildControl(hwnd.Get(), instance, font, theme,
+    const auto* primary = CreateFluentChildControl(hwnd.Get(), instance, font, theme,
         L"BUTTON", GetUiStrings(ui_language).dlg_btn_ok,
         BS_OWNERDRAW | WS_TABSTOP, scale(436), height - scale(42),
         scale(100), scale(32), IDOK);

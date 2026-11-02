@@ -21,7 +21,7 @@ struct WindowDcGuardTraits {
     using ContextType  = HWND;
     using ResourceType = HDC;
     static constexpr HDC Invalid() noexcept { return nullptr; }
-    static constexpr bool IsValid(const HDC hdc) noexcept { return hdc != nullptr; }
+    static constexpr bool IsValid(const ResourceType& hdc) noexcept { return hdc != nullptr; }
     static HDC Acquire(HWND hwnd) noexcept {
         const HDC dc = ::GetDC(hwnd);
         if (!dc) {

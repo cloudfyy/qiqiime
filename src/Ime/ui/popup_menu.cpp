@@ -167,7 +167,7 @@ private:
             if (!button) {
                 button = ::CreateWindowExW(
                     0, L"BUTTON", item.text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, 0, 0, 1, 1, hwnd_.Get(),
-                    reinterpret_cast<HMENU>(static_cast<UINT_PTR>(id)),
+                    reinterpret_cast<HMENU>(gsl::narrow_cast<UINT_PTR>(id)),
                     reinterpret_cast<HINSTANCE>(::GetWindowLongPtrW(hwnd_.Get(), GWLP_HINSTANCE)), nullptr);
                 if (!button) {
                     return false;

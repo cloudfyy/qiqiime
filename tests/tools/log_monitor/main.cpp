@@ -295,6 +295,27 @@ void TestDesktopIntegration() {
     Click(window, Copy);
     const auto multi_copied = ReadClipboardText(window.Handle());
     QIQI_TEST_CHECK(multi_copied.contains(L"Monitor initialized") && multi_copied.contains(L"Copied 1 log record(s) to clipboard") && multi_copied.contains(L"\r\n"));
+    ListView_SetItemState(list, -1, 0, LVIS_SELECTED);
+    QIQI_TEST_CHECK(ListView_GetSelectedCount(list) == 0);
+    {
+        std::array<BYTE, 256> keys{};
+        QIQI_TEST_CHECK(::GetKeyboardState(keys.data()));
+        const auto restore_keys = gsl::finally([&keys]() noexcept {
+            ::SetKeyboardState(keys.data());
+        });
+        std::array<BYTE, 256> ctrl_down = keys;
+        gsl::at(ctrl_down, VK_CONTROL) = 0x80;
+        QIQI_TEST_CHECK(::SetKeyboardState(ctrl_down.data()));
+        ::SendMessageW(list, WM_KEYDOWN, 'A', 0);
+        QIQI_TEST_CHECK(ListView_GetSelectedCount(list) >= 2);
+        ::SendMessageW(list, WM_KEYDOWN, 'C', 0);
+        QIQI_TEST_CHECK(ReadClipboardText(window.Handle()).contains(L"Monitor initialized"));
+        ::SendMessageW(list, WM_KEYDOWN, VK_INSERT, 0);
+    }
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
+    ::SendMessageW(Child(window, Language), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
+    SelectLanguage(window, UiLanguage::EnUs);
     {
         bool closed_about = false;
         const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {

@@ -51,13 +51,17 @@ std::string_view GetProcessName() noexcept {
             std::array<wchar_t, MAX_PATH> path{};
             const DWORD length = ::GetModuleFileNameW(nullptr, path.data(), gsl::narrow_cast<DWORD>(path.size()));
             if (length > 0 && length < path.size()) {
-                const wchar_t* separator = std::wcsrchr(path.data(), L'\\');
-                const wchar_t* name = separator ? separator + 1 : path.data();
-                const int bytes = ::WideCharToMultiByte(CP_UTF8, 0, name, -1, nullptr, 0, nullptr, nullptr);
+                const std::wstring_view full_path(path.data(), length);
+                const size_t sep = full_path.find_last_of(L'\\');
+                const std::wstring_view file_view =
+                    (sep == std::wstring_view::npos) ? full_path : full_path.substr(sep + 1);
+                const int bytes = ::WideCharToMultiByte(
+                    CP_UTF8, 0, file_view.data(), gsl::narrow_cast<int>(file_view.size()), nullptr, 0, nullptr, nullptr);
                 if (bytes > 0) {
                     std::string result(gsl::narrow_cast<size_t>(bytes), '\0');
-                    if (::WideCharToMultiByte(CP_UTF8, 0, name, -1, result.data(), bytes, nullptr, nullptr) > 0) {
-                        result.pop_back();
+                    if (::WideCharToMultiByte(
+                            CP_UTF8, 0, file_view.data(), gsl::narrow_cast<int>(file_view.size()),
+                            result.data(), bytes, nullptr, nullptr) > 0) {
                         return result;
                     }
                 }

@@ -319,19 +319,19 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
     }
 
     const int idx = gsl::narrow_cast<int>(std::clamp<size_t>(config.page_size, 1, 9) - 1);
-    ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETCURSEL, static_cast<WPARAM>(idx), 0);
+    ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(idx), 0);
 
     const int lang_idx = (config.ui_language == UiLanguage::ZhCn)
         ? 1
         : (config.ui_language == UiLanguage::EnUs ? 2 : 0);
-    ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_SETCURSEL, static_cast<WPARAM>(lang_idx), 0);
+    ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(lang_idx), 0);
 
     const int underline_idx = std::clamp(
         static_cast<int>(config.underline_style),
         0,
         static_cast<int>(CompositionUnderlineStyle::None));
     ::SendDlgItemMessageW(
-        hwnd, kIdComboUnderlineStyle, CB_SETCURSEL, static_cast<WPARAM>(underline_idx), 0);
+        hwnd, kIdComboUnderlineStyle, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(underline_idx), 0);
     UpdateExtraDictCheckboxState(hwnd);
 }
 

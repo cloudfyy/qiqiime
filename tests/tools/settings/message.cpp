@@ -174,7 +174,7 @@ void TestNonModalD2DToast() {
                             GetUiStrings(UiLanguage::ZhCn).quick_settings_save_failed},
                  std::tuple{UiLanguage::EnUs, SettingsToastKind::NotificationFailure,
                             GetUiStrings(UiLanguage::EnUs).quick_settings_notify_failed}}) {
-            const HWND foreground_before = ::GetForegroundWindow();
+            const auto* foreground_before = ::GetForegroundWindow();
             const long count_before = g_com_object_count.load();
             ShowSettingsToast(language, kind);
             const HWND toast = FindThreadWindowByClass(kSettingsToastWndClass);

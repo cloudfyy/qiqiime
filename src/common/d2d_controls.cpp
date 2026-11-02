@@ -390,7 +390,7 @@ void DrawFluentUnderlineStylePreview(
 
 void EnableFluentUnderlineComboPreview(HWND combo_hwnd, int bold_checkbox_id) noexcept {
     if (combo_hwnd && bold_checkbox_id > 0) {
-        ::SetPropW(combo_hwnd, kUnderlineComboBoldIdProp, reinterpret_cast<HANDLE>(static_cast<INT_PTR>(bold_checkbox_id)));
+        ::SetPropW(combo_hwnd, kUnderlineComboBoldIdProp, reinterpret_cast<HANDLE>(gsl::narrow_cast<INT_PTR>(bold_checkbox_id)));
     }
 }
 
@@ -697,7 +697,7 @@ HWND CreateFluentChildControl(
         w,
         h,
         parent,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+        reinterpret_cast<HMENU>(gsl::narrow_cast<INT_PTR>(id)),
         inst,
         nullptr));
     if (!ctrl) {

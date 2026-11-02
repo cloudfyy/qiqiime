@@ -93,8 +93,8 @@ bool RegisterComClsid(HINSTANCE instance) {
 
 void UnregisterComClsid() {
     const auto [clsid_key, inproc_key] = GetClsidRegistryPaths();
-    for (const auto* path : {&inproc_key, &clsid_key}) {
-        const LSTATUS error = ::RegDeleteKeyW(HKEY_CLASSES_ROOT, path->c_str());
+    for (const std::wstring_view path : {std::wstring_view(inproc_key), std::wstring_view(clsid_key)}) {
+        const LSTATUS error = ::RegDeleteKeyW(HKEY_CLASSES_ROOT, path.data());
         if (error != ERROR_SUCCESS && error != ERROR_FILE_NOT_FOUND) {
             QIQI_LOG_WARN("UnregisterComClsid::RegDeleteKeyW failed (error={})", error);
         }

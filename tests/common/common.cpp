@@ -117,6 +117,18 @@ void TestEtwLogger() {
     QIQI_TEST_CHECK(Utf8ToWide("五笔ABC") == L"五笔ABC");
     QIQI_TEST_CHECK(!GetModuleFilePath(nullptr).empty());
     QIQI_TEST_CHECK(GetModuleFilePath(reinterpret_cast<void*>(0x12345678)).empty());
+    {
+        const ScopedClipboard lock_clip(nullptr);
+        QIQI_TEST_CHECK(lock_clip.IsOpen());
+        const ScopedWindow other_owner(::CreateWindowExW(
+            0, L"STATIC", L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+        // When another window tries to open the clipboard on a background thread while locked, OpenClipboard fails:
+        std::jthread worker([hwnd = other_owner.Get()]() {
+            QIQI_TEST_CHECK(CopyTextToClipboard(hwnd, L"locked") != ERROR_SUCCESS);
+        });
+    }
+    QIQI_TEST_CHECK(LoadAppIconOrBrandFallback(nullptr, 24, 1, false).IsValid());
+    QIQI_TEST_CHECK(LoadAppIconOrBrandFallback(::GetModuleHandleW(nullptr), 24, 9999, true).IsValid());
 
     // 3. Test Pure Lock-Free ETW Logger (InitLogger, SetLevel, GetLevel, IsLogSinkActive, WriteLogMessage)
     log::InitLogger(log::Level::info);

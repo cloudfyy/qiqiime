@@ -522,7 +522,7 @@ void TestQuickSettingsMenuResourceLifetime() {
         ::GdiFlush();
         QIQI_TEST_CHECK(::GetGuiResources(::GetCurrentProcess(), GR_GDIOBJECTS) <= gdi_before);
 
-        const auto old_font = reinterpret_cast<HFONT>(::SendMessageW(button, WM_GETFONT, 0, 0));
+        const auto* old_font = reinterpret_cast<HFONT>(::SendMessageW(button, WM_GETFONT, 0, 0));
         auto monitor = QueryMonitorForPoint(POINT{200, 200});
         monitor.dpi = 144;
         SetMonitorMetricsOverrideForTest(monitor);
@@ -533,7 +533,7 @@ void TestQuickSettingsMenuResourceLifetime() {
 
         const ScopedMemoryDC dc(::CreateCompatibleDC(nullptr));
         QIQI_TEST_CHECK(dc);
-        const COLORREF text_color = RGB(17, 33, 65);
+        constexpr COLORREF text_color = RGB(17, 33, 65);
         ::SetTextColor(dc.Get(), text_color);
         ::SetBkMode(dc.Get(), OPAQUE);
         const HGDIOBJ original_font = ::GetCurrentObject(dc.Get(), OBJ_FONT);
@@ -824,7 +824,7 @@ void TestQuickSettingsMenuFocusRestoration() {
         next_foreground = activate_other ? other.Get() : nullptr;
         const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
             ::KillTimer(nullptr, id);
-            const HWND menu = FindQuickSettingsMenu();
+            const auto* menu = FindQuickSettingsMenu();
             QIQI_TEST_CHECK(menu && ::GetForegroundWindow() == menu);
             if (next_foreground) {
                 ::ShowWindow(next_foreground, SW_SHOW);

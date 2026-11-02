@@ -10,7 +10,7 @@
 namespace qiqi {
 
 std::wstring_view WubiMappedDict::GetWordView(const DictWordSlice& slice) const noexcept {
-    if (static_cast<size_t>(slice.char_offset) + slice.char_length > char_pool_.size()) {
+    if (gsl::narrow_cast<size_t>(slice.char_offset) + slice.char_length > char_pool_.size()) {
         return {};
     }
     const auto sub = char_pool_.subspan(slice.char_offset, slice.char_length);
@@ -22,7 +22,7 @@ bool WubiMappedDict::AppendWordsForCodeEntry(
     std::vector<std::wstring>& out_words,
     size_t max_results) const {
     const size_t end_idx = std::min<size_t>(
-        static_cast<size_t>(entry.first_word_idx) + entry.word_count, word_slices_.size());
+        gsl::narrow_cast<size_t>(entry.first_word_idx) + entry.word_count, word_slices_.size());
     for (size_t i = entry.first_word_idx; i < end_idx; ++i) {
         const std::wstring_view word = GetWordView(gsl::at(word_slices_, i));
         if (!word.empty()) {

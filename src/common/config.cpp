@@ -370,7 +370,7 @@ bool LoadConfigFromRegistry(
             cfg.primary_dict = static_cast<PrimaryDict>(dw);
         }
         if (ReadRegDword(key.Get(), L"PageSize", dw) && dw >= 1 && dw <= 9) {
-            cfg.page_size = static_cast<size_t>(dw);
+            cfg.page_size = gsl::narrow_cast<size_t>(dw);
         }
         if (ReadRegDword(key.Get(), L"UiLanguage", dw) && dw <= static_cast<DWORD>(UiLanguage::EnUs)) {
             cfg.ui_language = static_cast<UiLanguage>(dw);

@@ -43,7 +43,7 @@ public:
     STDMETHODIMP SetText(TfEditCookie, DWORD, const WCHAR* pch, LONG cch) override {
         ++set_text_calls_;
         if (pch && cch >= 0) {
-            text_.assign(pch, static_cast<size_t>(cch));
+            text_.assign(pch, gsl::narrow_cast<size_t>(cch));
         }
         if (set_text_callback_) set_text_callback_();
         return S_OK;
@@ -530,7 +530,7 @@ public:
     STDMETHODIMP InsertTextAtSelection(TfEditCookie, DWORD, const WCHAR* pchText, LONG cch, ITfRange** ppRange) override {
         if (fail_insert_at_sel_) return E_FAIL;
         if (pchText && cch > 0) {
-            range_->text_.assign(pchText, static_cast<size_t>(cch));
+            range_->text_.assign(pchText, gsl::narrow_cast<size_t>(cch));
         }
         if (ppRange) {
             *ppRange = range_.Get();
@@ -849,7 +849,7 @@ public:
         key_event_sink_ = sink;
         return S_OK;
     }
-    STDMETHODIMP UnadviseKeyEventSink(TfClientId tid) noexcept override {
+    STDMETHODIMP UnadviseKeyEventSink(TfClientId tid) override {
         ++unadvise_key_sink_calls_;
         last_unadvised_key_sink_client_id_ = tid;
         key_event_sink_.Reset();

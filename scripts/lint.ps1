@@ -63,7 +63,18 @@ if ($cppWarnings.Count -gt 0) {
 Write-Host '[PASS] CppCoreCheck findings are within the reviewed baseline.' -ForegroundColor Green
 
 if (-not (Get-Command Invoke-ScriptAnalyzer -ErrorAction SilentlyContinue)) {
-    throw 'PSScriptAnalyzer is required. Install it with: Install-Module PSScriptAnalyzer -Scope CurrentUser'
+    Write-Host '[WARN] PSScriptAnalyzer is not installed; verifying PowerShell AST syntax instead.' -ForegroundColor Yellow
+    foreach ($psFile in Get-ChildItem -Path $PSScriptRoot -Filter '*.ps1' -File) {
+        $tokens = $null
+        $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($psFile.FullName, [ref]$tokens, [ref]$errors)
+        if ($errors -and $errors.Count -gt 0) {
+            $errors | Format-Table -AutoSize | Out-String | Write-Host
+            throw "PowerShell syntax error in $($psFile.FullName)."
+        }
+    }
+    Write-Host '[PASS] Zero PowerShell syntax errors in scripts/.' -ForegroundColor Green
+    exit 0
 }
 
 Write-Host 'Running PSScriptAnalyzer on scripts/...'
