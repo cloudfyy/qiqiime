@@ -503,7 +503,7 @@ void QiQiTextService::SyncTsfCompartments() {
 }
 
 void QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
-    const bool trace = log::GetLevel() <= log::Level::debug && log::IsLogSinkActive();
+    const bool trace = log::ShouldLog(log::Level::debug);
     const bool dictionary_modified = engine_.HasModifiedMappedDictionary();
     unsigned int dictionary_reload_calls = 0;
     std::string_view config_status = "not-checked";

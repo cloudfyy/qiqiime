@@ -62,7 +62,7 @@ constexpr bool IsShiftVirtualKey(uint32_t vk) noexcept {
 
 void QiQiTextService::LogShiftTap(std::string_view stage, uint32_t vk, const ITfContext* context,
                                  bool eaten, std::string_view reason) const noexcept {
-    if (log::GetLevel() > log::Level::debug || !log::IsLogSinkActive()) return;
+    if (!log::ShouldLog(log::Level::debug)) return;
     const char* key = vk == VK_LSHIFT ? "left" : vk == VK_RSHIFT ? "right" :
                       vk == VK_SHIFT ? "generic" : "not-recorded";
     QIQI_LOG_DEBUG("ShiftTap(service={}, attempt={}, stage={}, key={}, reason={}, eaten={}, candidate={}, elapsed_ms={}, max_ms={}, enabled={}, active={}, resetting={}, preparing={}, has_context={}, current_context={}, chinese={}, composing={}, shift={}, ctrl={}, alt={}, mouse={})",
@@ -75,6 +75,32 @@ void QiQiTextService::LogShiftTap(std::string_view stage, uint32_t vk, const ITf
 }
 
 // ITfKeyEventSink
+void QiQiTextService::TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, ITfContext* context,
+                                         LPARAM flags) noexcept {
+    const bool is_auto_repeat = (flags & (1LL << 30)) != 0;
+    const bool ctrl = IsKeyDown(VK_CONTROL);
+    const bool alt = IsKeyDown(VK_MENU);
+    const bool mouse_down = IsAnyMouseButtonDown();
+    const char* reason = is_auto_repeat ? "repeat-preserved" : "press-preserved";
+    if (!is_active_ || resetting_context_ || preparing_input_context_) {
+        reason = !is_active_ ? "inactive" : resetting_context_ ? "resetting" : "preparing";
+        shift_tap_candidate_ = false;
+        shift_press_tick_ = 0;
+    } else if (!is_auto_repeat && !shift_tap_candidate_) {
+        ++shift_log_sequence_;
+        shift_tap_candidate_ = config_.shift_toggle_mode && !ctrl && !alt && !mouse_down;
+        shift_press_tick_ = shift_tap_candidate_ ? ::GetTickCount64() : 0;
+        reason = !config_.shift_toggle_mode ? "disabled" : ctrl ? "ctrl" :
+                 alt ? "alt" : mouse_down ? "mouse-button" : "armed";
+    } else if (::GetTickCount64() - shift_press_tick_ > kMaxShiftTapDurationMs || mouse_down) {
+        shift_tap_candidate_ = false;
+        reason = mouse_down ? "repeat-mouse-button" : "repeat-timeout";
+    }
+    LogShiftTap(stage, vk, context, false, reason);
+    QIQI_LOG_DEBUG("ShiftTapContext(service={}, attempt={}, keyboard_disabled={})",
+                   service_log_id_, shift_log_sequence_, IsContextKeyboardDisabled(context));
+}
+
 STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
     HandleFocusChanged(fForeground != FALSE, FocusNotificationSource::KeyEvent);
     return S_OK;
@@ -97,31 +123,15 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
     const bool ctrl = IsKeyDown(VK_CONTROL);
     const bool alt = IsKeyDown(VK_MENU);
     const bool caps = IsCapsLockOn();
-    const bool mouse_down = IsAnyMouseButtonDown();
-    const bool keyboard_disabled = IsContextKeyboardDisabled(pic);
     const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
-    const bool is_auto_repeat = (lParam & (1LL << 30)) != 0;
-    if (IsShiftVirtualKey(vk) && !is_auto_repeat) ++shift_log_sequence_;
-    if (IsShiftVirtualKey(vk) && is_active_ && !resetting_context_ && !preparing_input_context_) {
-        const char* reason = "repeat-preserved";
-        if (!is_auto_repeat) {
-            shift_tap_candidate_ = config_.shift_toggle_mode &&
-                                   !ctrl && !alt && !mouse_down;
-            shift_press_tick_ = shift_tap_candidate_ ? ::GetTickCount64() : 0;
-            reason = !config_.shift_toggle_mode ? "disabled" : ctrl ? "ctrl" :
-                     alt ? "alt" : mouse_down ? "mouse-button" : "armed";
-        } else if (::GetTickCount64() - shift_press_tick_ > kMaxShiftTapDurationMs || mouse_down) {
-            shift_tap_candidate_ = false;
-            reason = mouse_down ? "repeat-mouse-button" : "repeat-timeout";
-        }
+    if (IsShiftVirtualKey(vk)) {
+        TrackShiftTapKeyDown("OnTestKeyDown", vk, pic, lParam);
         *pfEaten = FALSE;
-        LogShiftTap("OnTestKeyDown", vk, pic, false, reason);
-        QIQI_LOG_DEBUG("ShiftTapContext(service={}, attempt={}, keyboard_disabled={})",
-                       service_log_id_, shift_log_sequence_, keyboard_disabled);
         return S_OK;
     }
+    const bool keyboard_disabled = IsContextKeyboardDisabled(pic);
     if (!pic || !is_active_ || resetting_context_ || preparing_input_context_ || keyboard_disabled) {
-        if (IsShiftVirtualKey(vk) || shift_tap_candidate_) {
+        if (shift_tap_candidate_) {
             LogShiftTap("OnTestKeyDown", vk, pic, false,
                         !pic ? "no-context" : !is_active_ ? "inactive" : resetting_context_ ? "resetting" :
                         preparing_input_context_ ? "preparing" : "keyboard-disabled");
@@ -142,7 +152,7 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /*lParam*/, BOOL* pfEaten) {
+STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* pfEaten) {
     if (!pfEaten) {
         return E_INVALIDARG;
     }
@@ -152,15 +162,21 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
     const bool ctrl = IsKeyDown(VK_CONTROL);
     const bool alt = IsKeyDown(VK_MENU);
     const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
-    if (IsShiftVirtualKey(vk)) LogShiftTap("OnKeyDown", vk, pic, false, "received");
+    if (IsShiftVirtualKey(vk)) {
+        // Hosts may dispatch directly, without the test callback. Do not bind a context for Shift.
+        TrackShiftTapKeyDown("OnKeyDown", vk, pic, lParam);
+        *pfEaten = FALSE;
+        return S_OK;
+    }
+    if (shift_tap_candidate_) LogShiftTap("OnKeyDown", 0, pic, false, "other-key-cancelled");
+    shift_tap_candidate_ = false;
+    shift_press_tick_ = 0;
     if (IsContextKeyboardDisabled(pic)) {
         *pfEaten = FALSE;
-        if (IsShiftVirtualKey(vk)) LogShiftTap("OnKeyDown", vk, pic, false, "keyboard-disabled");
         return S_OK;
     }
     if (!PrepareInputContext(pic)) {
         *pfEaten = FALSE;
-        if (IsShiftVirtualKey(vk)) LogShiftTap("OnKeyDown", vk, pic, false, "prepare-failed");
         return S_OK;
     }
 
@@ -233,6 +249,7 @@ STDMETHODIMP QiQiTextService::OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM /*l
         }
     } else if (IsShiftVirtualKey(vk)) {
         LogShiftTap("OnKeyUp", vk, pic, false, "no-candidate");
+        shift_press_tick_ = 0;
     }
     *pfEaten = FALSE;
     return S_OK;

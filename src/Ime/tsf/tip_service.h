@@ -146,6 +146,8 @@ private:
     void HandleFocusChanged(bool has_focus, FocusNotificationSource source);
     void LogShiftTap(std::string_view stage, uint32_t vk, const ITfContext* context,
                      bool eaten, std::string_view reason) const noexcept;
+    void TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, ITfContext* context,
+                             LPARAM flags) noexcept;
     bool PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts);
     void SyncSavedConfigChange(bool reload_dicts);
     void LoadExternalDictionaryNextToDll();

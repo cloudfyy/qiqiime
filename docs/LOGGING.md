@@ -58,9 +58,13 @@ QiQiIME 使用 Windows ETW TraceLogging，不会自动生成文本日志文件�
 
 ## 2. 设置应用日志级别
 
-应用级别和 ETW 会话级别是两道独立过滤：采集器选了 Verbose，也不能收到已被应用级别过滤掉的 Debug 消息。
+当 ETW 会话（如 `QiQiIMELogMonitor.exe` 或 `logman`）启用 `QiQiIME.TraceLogging` Provider 时，只要应用未配置为 `Off`（`LogLevel=6`），输入法会自动按当前 ETW 会话请求的级别（例如 `TRACE_LEVEL_VERBOSE`）放行并输出对应级别的 ETW 事件。因此**使用 `QiQiIMELogMonitor.exe` 采集 `All` / `Verbose` 日志时，无需手工修改注册表 `LogLevel` 或重启被测应用**。
 
-配置存储在当前用户注册表 `HKCU\Software\QiQiIME` 的 DWORD 值 `LogLevel`。当前图形设置界面没有日志级别控件。
+注册表 `HKCU\Software\QiQiIME` 下的 DWORD 值 `LogLevel` 主要用于：
+1. 控制仅附加原生调试器（无 ETW 会话请求该级别）时的 `OutputDebugString` 输出阈值；
+2. 当设为 `6`（`Off`）时，显式关闭全部 ETW 与调试器常规日志输出。
+
+当前图形设置界面没有日志级别控件。
 
 | LogLevel | 应用级别 | 建议用途 | ETW 事件 |
 |---|---|---|---|
@@ -102,13 +106,13 @@ QiQiIME 使用 Windows ETW TraceLogging，不会自动生成文本日志文件�
 
 ### Shift 切换无响应或图标不更新
 
-1. 使用包含诊断代码的新 DLL，按上方步骤将应用日志级别设为 **Debug（`LogLevel=1`）**，保存工作并完全退出、重启被测应用，避免仍加载旧 DLL。监控器的级别筛选选择全部或 Verbose；仅改变监控器筛选不能启用应用侧 Debug 日志。
+1. 使用包含诊断代码的新 DLL（若刚更新 DLL，保存工作并重启被测应用以加载新 DLL）。在 `QiQiIMELogMonitor.exe` 中将级别筛选保持为 **全部 / All** 或 **详细 / Verbose** 并点击 **开始采集 / Start**（ETW 会话会自动启用 Verbose 级别事件，无需手工修改注册表 `LogLevel`，除非此前将 `LogLevel` 设为了 `6` 即 `Off`）。
 2. 开始采集，聚焦可编辑区域，分别轻按左、右 Shift 各数次，记录无效操作的大致时间；同时测试点击任务栏中英文图标。先不要仅筛选 `Input mode toggled`，以免遗漏失败链路。
-3. 导出这一时段的全部日志，按 PID/TID 和 `ShiftTap(service=…, attempt=…)` 关联同一服务内的操作。`attempt` 在每次非自动重复的 Shift 按下测试回调递增，不代表系统收到的所有物理按键。
-   - 正常链路为 `OnTestKeyDown / armed` → `OnTestKeyUp / accepted` → `OnKeyUp / accepted` → `toggle-complete`。Shift 按下测试不吞键，因此宿主未调用 `OnKeyDown` 本身不是故障。
+3. 导出这一时段的全部日志，按 PID/TID 和 `ShiftTap(service=…, attempt=…)` 关联同一服务内的操作。`attempt` 在非自动重复的 Shift 按下回调建立新候选时递增，不代表系统收到的所有物理按键。
+   - 正常链路为 `OnTestKeyDown / armed` 或 `OnKeyDown / armed` → 可选的 `OnTestKeyUp / accepted` → `OnKeyUp / accepted` → `toggle-complete`。两种按下入口共用跟踪逻辑且不吞键；测试和实际回调同时到达时以 `press-preserved` 保留原始计时，不重复建立候选。宿主省略测试回调或实际按下回调本身不是故障。
    - `disabled` 表示配置关闭 Shift 切换；`ctrl`、`alt`、`mouse-button` 表示组合操作；`timeout` 表示超过 **350 ms**；`repeat-timeout` / `repeat-mouse-button` 表示自动重复期间失效。
    - `other-key-cancelled` 表示期间出现其他按键（不记录键值）；`context-reset-cancelled` 表示上下文清理取消候选；`inactive`、`resetting`、`preparing`、`keyboard-disabled` 或 `no-context` 说明相关入口状态。`no-candidate` 应结合前面的取消记录分析。
-   - `ShiftTapContext` 额外报告按下测试时的 `keyboard_disabled`，不改变现有 Shift 分支的行为。每条 `ShiftTap` 包含候选状态、按住时长、配置、上下文与修饰键布尔状态，不包含输入文字、普通按键值或完整键盘状态。
+   - `ShiftTapContext` 额外报告两种按下入口的 `keyboard_disabled`，不改变现有 Shift 分支的行为。Shift 跟踪不绑定上下文，空上下文仍可切换；未激活、正在清理或准备上下文时不建立候选。每条 `ShiftTap` 包含候选状态、按住时长、配置、上下文与修饰键布尔状态，不包含输入文字、普通按键值或完整键盘状态。
 4. 已出现 `toggle-complete` 但图标不变时，检查 `SyncTsfCompartments` 的服务/操作编号、组件是否存在、`openclose` / `conversion` 写入的真实 HRESULT，以及 `LangBarButton::UpdateState`、`OnUpdate`、`GetIcon` / `GetText`。`sink=false` 表示当时没有语言栏通知订阅；通知成功只说明 API 接受，不保证系统已经重绘。语言栏记录按 PID/TID 和相邻事件关联，不含服务编号。
 5. 确认新版、Debug 级别、采集及 PID 均正确后，若无效操作附近连 `OnTestKeyDown` 都没有，只能说明这些操作未被本服务的该回调记录，不能仅凭缺失日志断定 Windows 丢键。采集结束恢复原日志级别。
 

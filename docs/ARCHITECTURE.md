@@ -63,7 +63,7 @@
 ### 2.3 按键处理与编辑会话（`OnTestKeyDown` -> `OnKeyDown` -> `RequestEditSession`）
 TSF 的按键处理分为两步：
 1. `OnTestKeyDown`：仅询问输入法**是否打算消费该按键**。当前 context 使用 `engine_.ShouldEatKey(...)`；不同 context 使用只读的 `ShouldEatKeyAfterReset(...)`，按实际目标切换后将采用的状态预测，不把旧组合的选词/退格语义带到新输入框。空 context、未激活或重入生命周期转换不消费。预判不绑定 context、不清理宿主组合、不申请编辑会话，也不推进 FSM；原有 Shift 轻触跟踪独立保留。
-2. `OnKeyDown`：先通过 `PrepareInputContext` 准备目标、必要时重置旧引擎并失效旧周期，再推进 `WubiEngine` 编译期有限状态机（[`fsm.h`](../src/Ime/engine/fsm.h) 为兼容入口；状态/事件定义、按键映射、转移规则和分页辅助分别位于 `fsm_types.h`、`fsm_key_mapping.h`、`fsm_transitions.h`、`fsm_pagination.h`），得到 `KeyProcessResult`（`UpdateState` / `Commit` / `Cancel`），触发音效（若启用了按键音或空码提示音），然后通过 `ITfContext::RequestEditSession` 提交 `LambdaEditSession`。预判成功不保证编辑权限，实际回调仍复核状态。
+2. `OnKeyDown`：Shift 与 `OnTestKeyDown` 共用轻触跟踪，不吞按下事件、不绑定上下文；宿主省略测试回调时仍可建立候选，同时收到两个回调时保留原始计时。其他按键先取消 Shift 候选，再通过 `PrepareInputContext` 准备目标、必要时重置旧引擎并失效旧周期，再推进 `WubiEngine` 编译期有限状态机（[`fsm.h`](../src/Ime/engine/fsm.h) 为兼容入口；状态/事件定义、按键映射、转移规则和分页辅助分别位于 `fsm_types.h`、`fsm_key_mapping.h`、`fsm_transitions.h`、`fsm_pagination.h`），得到 `KeyProcessResult`（`UpdateState` / `Commit` / `Cancel`），触发音效（若启用了按键音或空码提示音），然后通过 `ITfContext::RequestEditSession` 提交 `LambdaEditSession`。预判成功不保证编辑权限，实际回调仍复核状态。
 
 上下文切换、失焦、移除和停用是 FSM 外部的生命周期事件，不加入现有 7 状态 × 16 按键事件表。`Reset` 与只读预判共用 `StateAfterCompositionReset`：中文组合态（含临时英文）回到 `Idle`，`English` 保持不变；全半角及标点模式不被目标切换改写。旧宿主组合的同步/异步清理独立于新目标的引擎状态，不能用“仍有待清理宿主组合”推断 FSM 仍在组合态。
 
@@ -296,9 +296,9 @@ TSF 的按键处理分为两步：
   - 自身诊断使用独立的 `QiQiIME.LogMonitor` Provider、有界视图与导出来源，不重发采集消息；状态区分别显示 ETW 丢失、本地淘汰、解码和内存异常。启动异常使用 RAII 回滚，停止失败保留自有会话供重试；同步等待 Provider 启用，避免晚启动采集丢失首条消息。
   - 桌面增强：独立 16–256 像素品牌窗口图标（去除与标题栏/关于框重复的客户区图标与说明文字）、系统深浅色/高对比度及变更通知、运行时中英/自动语言；不修改 IME 配置，不增加托盘通知。共享控件回退及工作区矩形帮助代码，支持跨屏 DPI、负坐标、普通窗口拔屏恢复和窄窗口布局。
   - x64/x86 的模型/GUI/版本/导出、实时多进程 ETW、Common、Settings、TSF/UI 及原有 ETW 回归通过，新增 ETW 测试未跳过；两个方向的跨架构采集与真实 GUI 收到事件、正常退出均验证通过。覆盖中文、内嵌 NUL、时间/级别、Provider 重注册、高频溢出、会话清理、主题/语言状态保留、深色表头像素及模拟显示器变化；真实双屏 150%→100% 移动另行通过。定向 CppCoreCheck 无新增监控器告警，详见[开发文档](DEVELOPMENT.md#513-实时日志监控工具任务-56)。完整真实高对比度、热插拔/最大化/最小化及浏览器/UWP 矩阵不据此宣称全面验证。
-- [ ] **57. 日志监控器默认级别与输入法输出级别脱节修复（`log-monitor-effective-level-sync`）**
+- [x] **57. 日志监控器默认级别与输入法输出级别脱节修复（`log-monitor-effective-level-sync`）**
   - 问题现象：`QiQiIMELogMonitor` 界面默认 `Level` 显示为 `All`（且 ETW 会话启用了 `TRACE_LEVEL_VERBOSE`），但输入法侧 [`Log`](../src/common/logger.h) 被进程内 `g_log_level`（默认注册表 `LogLevel=2` 即 `Info`）提前拦截，导致用户在监控器看到 `Level = All` 却完全收不到 `Debug`/`Trace`（`Verbose`）级别日志。
-  - 修复目标：消除监控器界面显示的 `All`/`Verbose` 与输入法实际输出级别之间的脱节（例如在 ETW 会话按级别启用 Provider 时按会话请求级别放行，或由监控器联动/明确同步有效采集级别），使用户在监控器选择 `All`/`Verbose` 开始采集时无需手工修改注册表即可实时看到详细诊断日志。
+  - 修复方案：新增 `log::ShouldLog(Level)` 并在 `Log`、`WriteLogMessage`、焦点计时、配置热重载及 `LogShiftTap` 中统一复用；当 `LogLevel != Off` 时，按活跃 ETW 会话请求的级别（`TraceLoggingProviderEnabled(g_qiqi_etw_provider, etw_level, 0)`）直接放行 ETW 事件，同时保留 `LogLevel` 对附加调试器 `OutputDebugString` 的阈值控制及 `LogLevel=Off` 的总开关语义，使监控器开始采集即可实时收到 `Debug`/`Trace`（`Verbose`）诊断日志而无需手改注册表或重启宿主。
 - [ ] **58. 修复英文模式下 Shift 无法切回中文及 Ctrl+Space Compartment 写入失败（`tsf-shift-toggle-and-compartment-sync`）**
   - 问题现象：
     1. 按 `Ctrl+Space` 触发外部 TSF Compartment 变更后，[`SyncEngineFromSystemCompartments`](../src/Ime/tsf/tip_config.cpp) 在 `OnChange` 回调栈中反调 [`SyncTsfCompartments`](../src/Ime/tsf/tip_config.cpp)，导致 `ITfCompartment::SetValue failed (hr=0x8000ffff)`（`E_UNEXPECTED`）。

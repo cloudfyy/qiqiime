@@ -151,6 +151,8 @@ void TestEtwLogger() {
     log::WriteLogMessage(log::Level::critical, "Critical message");
 
     log::SetLevel(log::Level::off);
+    QIQI_TEST_CHECK(!log::ShouldLog(log::Level::critical) && !log::ShouldLog(log::Level::info) &&
+                    !log::ShouldLog(log::Level::trace) && !log::ShouldLog(log::Level::off));
     ::SetLastError(ERROR_ACCESS_DENIED);
     QIQI_TEST_CHECK(log::CheckHResult(S_OK, "successful operation"));
     QIQI_TEST_CHECK(log::CheckHResult(S_FALSE, "optional operation"));
@@ -160,6 +162,7 @@ void TestEtwLogger() {
     QIQI_LOG_INFO("Suppressed when level is off");
     log::WriteLogMessage(log::Level::off, "Suppressed off write");
     log::SetLevel(log::Level::info);
+    QIQI_TEST_CHECK(!log::ShouldLog(log::Level::off));
     ::SetLastError(ERROR_SHARING_VIOLATION);
     QIQI_TEST_CHECK(!log::CheckHResult(E_FAIL, "failed operation", log::Level::err));
     QIQI_TEST_CHECK(::GetLastError() == ERROR_SHARING_VIOLATION);

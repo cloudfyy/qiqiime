@@ -87,8 +87,35 @@ constexpr std::string_view LevelTag(Level level) noexcept {
     }
 }
 
+constexpr UCHAR ToEtwLevel(Level level) noexcept {
+    switch (level) {
+        case Level::trace:
+        case Level::debug:    return WINEVENT_LEVEL_VERBOSE;
+        case Level::info:     return WINEVENT_LEVEL_INFO;
+        case Level::warn:     return WINEVENT_LEVEL_WARNING;
+        case Level::err:
+        case Level::critical: return WINEVENT_LEVEL_ERROR;
+        case Level::off:
+        default:              return 0;
+    }
+}
+
 #pragma warning(push)
-#pragma warning(disable : 26447 26812)
+#pragma warning(disable : 26447 26477 26812)
+bool IsEtwEnabledForLevel(Level level) noexcept {
+    const UCHAR etw_level = ToEtwLevel(level);
+    return etw_level != 0 &&
+           g_provider_registration.IsRegistered() &&
+           (::TraceLoggingProviderEnabled(g_qiqi_etw_provider, etw_level, 0) != FALSE);
+}
+
+bool IsDebuggerEnabledForLevel(Level level, Level configured_level) noexcept {
+    return level != Level::off &&
+           configured_level != Level::off &&
+           level >= configured_level &&
+           (::IsDebuggerPresent() != FALSE);
+}
+
 void EmitEtwTraceEvent(Level level, std::string_view proc_name, std::string_view message) noexcept {
     const int msg_len = gsl::narrow_cast<int>(message.size());
     const int proc_len = gsl::narrow_cast<int>(proc_name.size());
@@ -173,22 +200,37 @@ bool IsEtwProviderRegistered() noexcept {
 }
 
 bool IsLogSinkActive() noexcept {
-    return (::TraceLoggingProviderEnabled(g_qiqi_etw_provider, 0, 0) != FALSE) ||
+    return (g_provider_registration.IsRegistered() &&
+            (::TraceLoggingProviderEnabled(g_qiqi_etw_provider, 0, 0) != FALSE)) ||
            (::IsDebuggerPresent() != FALSE);
 }
 
+bool ShouldLog(Level level) noexcept {
+    const Level configured = GetLevel();
+    if (level == Level::off || configured == Level::off) {
+        return false;
+    }
+    return IsEtwEnabledForLevel(level) || IsDebuggerEnabledForLevel(level, configured);
+}
+
 void WriteLogMessage(Level level, std::string_view message) noexcept {
-    if (level < GetLevel() || level == Level::off) {
+    const Level configured = GetLevel();
+    if (level == Level::off || configured == Level::off) {
+        return;
+    }
+    const bool emit_etw = IsEtwEnabledForLevel(level);
+    const bool emit_debugger = IsDebuggerEnabledForLevel(level, configured);
+    if (!emit_etw && !emit_debugger) {
         return;
     }
     const std::string_view proc_name = GetProcessName();
 
-    if (g_provider_registration.IsRegistered()) {
+    if (emit_etw) {
         EmitEtwTraceEvent(level, proc_name, message);
     }
 
-    // 2. Output to debugger only when attached (avoids kernel exception overhead in normal typing)
-    if (::IsDebuggerPresent() != FALSE) {
+    // 2. Output to debugger only when attached and within configured level (avoids kernel exception overhead in normal typing)
+    if (emit_debugger) {
         try {
             const std::string line = std::format("[{}] [{}] {}\r\n", proc_name, LevelTag(level), message);
             const int chars = ::MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, nullptr, 0);

@@ -219,7 +219,9 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
     QiQiConfig config{};
     config.primary_dict = PrimaryDict::BuiltinOnly;
     config.enable_jidian_extra = false;
-    config.log_level = log::Level::debug;
+    // Keep default log_level (Level::info) to verify that an active ETW session requesting TRACE_LEVEL_VERBOSE
+    // receives Debug/Verbose events without requiring a manual registry LogLevel=1 override.
+    QIQI_TEST_CHECK(config.log_level == log::Level::info);
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
 
     // Load/construct before signalling readiness, so the parent can start ETW after initialization.
@@ -232,7 +234,7 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
         QIQI_TEST_CHECK(::WaitForSingleObject(proceed.Get(), 30'000) == WAIT_OBJECT_0);
         ExerciseLoadedIme(config, true);
     }
-    config.log_level = log::Level::debug;
+    config.log_level = log::Level::info;
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
     ExerciseLoadedIme(config, false);
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());

@@ -237,7 +237,7 @@ void TestFocusPerformanceLogs() {
                         gsl::narrow_cast<unsigned int>(E_FAIL)));
     }));
     for (const auto* reason : {L"armed", L"accepted", L"toggle-complete", L"no-candidate", L"disabled",
-                              L"ctrl", L"alt", L"mouse-button", L"timeout", L"repeat-preserved",
+                              L"ctrl", L"alt", L"mouse-button", L"timeout", L"repeat-preserved", L"press-preserved",
                               L"other-key-cancelled", L"context-reset-cancelled", L"inactive"}) {
         QIQI_TEST_CHECK(std::any_of(shift_records.begin(), shift_records.end(), [&](const auto& record) {
             return record.contains(std::format(L"reason={},", reason));
@@ -254,7 +254,8 @@ void TestFocusPerformanceLogs() {
                record.contains(L"max_ms=350, enabled=true, active=true");
     }));
     QIQI_TEST_CHECK(std::any_of(shift_records.begin(), shift_records.end(), [](const auto& record) {
-        return record.contains(L"stage=OnKeyDown,") && record.contains(L"reason=received,");
+        return record.contains(L"stage=OnKeyDown, key=generic, reason=armed,") &&
+               record.contains(L"eaten=false, candidate=true,");
     }));
     for (const auto* expected : {L"compartment=openclose, value=0, hr=0x00000000",
                                  L"compartment=conversion,", L"hr=0x80004005",
@@ -718,6 +719,47 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     auto mock_ctx = MakeComObject<MockTfContext>();
     BOOL eaten = FALSE;
 
+    // Reproduce hosts that omit the test callbacks, including a not-yet-bound context.
+    for (const UINT key : {VK_SHIFT, VK_LSHIFT, VK_RSHIFT}) {
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), key, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), key, 1LL << 30, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), key, 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 0);
+        QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), key, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(nullptr, key, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(key_sink->OnTestKeyUp(nullptr, key, 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(key_sink->OnKeyUp(nullptr, key, 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 1);
+    }
+    for (const int modifier : {VK_CONTROL, VK_MENU, VK_LBUTTON}) {
+        auto keyboard = clean_kb_state;
+        gsl::at(keyboard, modifier) = 0x80;
+        QIQI_TEST_CHECK(::SetKeyboardState(keyboard.data()));
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
+        QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 1);
+    }
+    QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_CONTROL, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 1);
+
+    QIQI_TEST_CHECK(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    ::Sleep(220);
+    QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    ::Sleep(160);
+    QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 1);
+
+    QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    ::Sleep(360);
+    QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 1LL << 30, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 1LL << 30, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 1);
+
     // Type 'A' then 'B' -> starts composition (BeginUIElement) then updates composition (UpdateUIElement)
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
@@ -752,6 +794,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     // Test Shift tap mode toggle while composing (cancels composition and switches to English)
     QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
     // Auto-repeat VK_SHIFT while still within 350ms preserves shift_tap_candidate_
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 1LL << 30, &eaten)) && eaten == FALSE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == TRUE);
@@ -1444,6 +1487,9 @@ void RunTsfFocusDiagnosticsScenario() {
         QIQI_TEST_CHECK(service->OnTestKeyDown(shift_context.Get(), key, flags, &eaten) == S_OK && !eaten);
     };
     press_shift(VK_SHIFT);
+    BOOL shift_down_eaten = TRUE;
+    QIQI_TEST_CHECK(service->OnKeyDown(shift_context.Get(), VK_SHIFT, 0, &shift_down_eaten) == S_OK &&
+                   !shift_down_eaten);
     press_shift(VK_SHIFT, 1LL << 30);
     release_shift(VK_SHIFT, true);
     QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 0);
@@ -1482,6 +1528,11 @@ void RunTsfFocusDiagnosticsScenario() {
     release_shift(VK_SHIFT, false);
     QIQI_TEST_CHECK(service->OnKeyDown(shift_context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
     QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 1);
+    release_shift(VK_SHIFT, true);
+    QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 0);
+    QIQI_TEST_CHECK(service->OnKeyDown(shift_context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    release_shift(VK_SHIFT, true);
+    QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 1);
 
     QIQI_LOG_INFO("ShiftLogFilter(begin)");
     for (const auto level : {log::Level::info, log::Level::off}) {
@@ -1504,7 +1555,11 @@ void RunTsfFocusDiagnosticsScenario() {
     QIQI_TEST_CHECK(disabled_service->Activate(manager.Get(), 1) == S_OK);
     QIQI_TEST_CHECK(disabled_service->OnTestKeyDown(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
     QIQI_TEST_CHECK(disabled_service->OnTestKeyUp(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(disabled_service->OnKeyDown(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(disabled_service->OnKeyUp(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
     QIQI_TEST_CHECK(disabled_service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(disabled_service->OnKeyDown(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(disabled_service->OnKeyUp(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
 }
 
 void RunTsfServiceTests() {

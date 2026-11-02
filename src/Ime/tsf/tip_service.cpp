@@ -369,7 +369,7 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
     const uint64_t focus_revision = ++focus_revision_;
     using Clock = std::chrono::steady_clock;
     static std::atomic<uint64_t> focus_log_sequence{0};
-    const bool measure = log::GetLevel() <= log::Level::debug && log::IsLogSinkActive();
+    const bool measure = log::ShouldLog(log::Level::debug);
     const auto started = measure ? Clock::now() : Clock::time_point{};
     const uint64_t event_id = measure ? focus_log_sequence.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
     const bool same_state = has_logged_focus_state_ && last_logged_focus_state_ == has_focus;

@@ -32,6 +32,9 @@ bool IsEtwProviderRegistered() noexcept;
 // Return whether any log consumer (active ETW session or attached debugger) is currently listening.
 bool IsLogSinkActive() noexcept;
 
+// Return whether a log entry at `level` should be formatted and emitted for any active sink.
+bool ShouldLog(Level level) noexcept;
+
 // Emit a pre-formatted UTF-8 log entry to Windows ETW TraceLogging (and debugger when attached).
 void WriteLogMessage(Level level, std::string_view message) noexcept;
 
@@ -41,7 +44,7 @@ void ReportLoggingFailure() noexcept;
 
 template <typename... Args>
 void Log(Level level, std::string_view fmt, Args&&... args) noexcept {
-    if (level < GetLevel() || level == Level::off || !IsLogSinkActive()) {
+    if (!ShouldLog(level)) {
         return;
     }
     try {
