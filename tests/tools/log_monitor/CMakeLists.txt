@@ -1,0 +1,7 @@
+add_executable(qiqi_log_monitor_test main.cpp "${CMAKE_BINARY_DIR}/generated/tools/log_monitor/version.rc")
+target_include_directories(qiqi_log_monitor_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
+target_link_libraries(qiqi_log_monitor_test PRIVATE qiqi_log_monitor version)
+add_dependencies(qiqi_log_monitor_test QiQiIMELogMonitor)
+add_test(NAME QiQiLogMonitorTest COMMAND qiqi_log_monitor_test)
+add_test(NAME QiQiLogMonitorIntegrationTest COMMAND qiqi_log_monitor_test --integration)
+set_tests_properties(QiQiLogMonitorIntegrationTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 40)

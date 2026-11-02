@@ -300,3 +300,33 @@ cmake --build build\x64 --config Release --target lint
 - [`category_manager.cpp`](../tests/Ime/tsf/category_manager.cpp) 通过局部 API 参数测试导出成功、模块/导出不可用、导出失败后回退、两种创建均失败、成功但无接口、异常失败输出和两条路径的 GUID 注册失败；在每条路径断言接口释放先于模块引用释放，不新增全局测试钩子。
 - 原生测试在未初始化 COM 的新线程中预加载系统 `msctf.dll`，验证真实导出创建与 GUID/Atom 映射，并检查调用前后仍为未初始化 COM；另在测试 STA 中强制导出失败，验证真实 COM 回退与 GUID 映射。x64/x86 Release 的 `QiQiTsfUiTest` 与 `QiQiEtwIntegrationTest` 均通过，未跳过；VS Code、浏览器及容器类宿主的交互矩阵仍由任务 47 跟进，不将本测试等同于全部宿主兼容性验证。
 - 定向 CppCoreCheck 已修正本次新增的异常声明与测试资源类型诊断；动态导出所需的函数指针转换沿用仓库排除 C26490 的规则，其余仅保留既有诊断。复核 RAII 释放顺序、共享日志/句柄封装复用、Core Guidelines/GSL 及缺失测试，未扩大告警豁免范围；最终双架构回归与 `git diff --check` 通过。
+
+### 5.13 实时日志监控工具（任务 56）
+
+- [`model`](../src/tools/log_monitor/model.h) 实现条数/字节双上限、单调事件 ID、过滤与 UTF-8 导出；字节预算计入字符串容量。队列在锁内转交拥有数据的快照，GUI 不保留 ETW 回调指针。导出使用严格 UTF-16 转换，非法文本或写入失败不能变成成功的空字段；写入器直接返回 Win32 错误，不使用会向 IME Provider 写日志且只返回 bool 的共享原子写入接口。目标可能部分写入，错误提示明确保留内存记录。
+- [`collector`](../src/tools/log_monitor/collector.h) 创建带 PID/计时/序号的自有实时会话，仅订阅 IME Provider；在后台用 TDH 有界解析自描述元数据、事件名及计数字符串，保留计数字符串内的 NUL。使用系统时间时钟，验证回调时间确为 UTC FILETIME，而非未经转换的原始时钟值。
+- `EnableTraceEx2` 使用有界同步等待，使已注册宿主在开始采集返回后发出的首条消息不会因异步启用竞态而漏收。启动后的每条失败/异常路径由作用域守卫停止自有会话、关闭消费者并等待线程退出；停止失败不丢失会话句柄，也不创建替代会话掩盖问题。生命周期方法仅由 GUI 线程调用，不与消费者或其他控制线程并发执行。
+- 自身诊断为独立的进程级 `QiQiIME.LogMonitor` 注册；消费者停止并 join 后，队列和诊断对象才能释放。关键错误保留在 GUI 状态，另有有界诊断视图；常规采集记录不进入自身日志。只操作自有会话，不修改宿主权限或系统日志设置。
+- [`window`](../src/tools/log_monitor/window.h) 使用 Win32 `LVS_OWNERDATA`，列表回调按稳定 ID 查找已拥有数据；重建时抑制选择通知重入，已淘汰选择会清除。原生窗口销毁时同步清空 RAII HWND，避免句柄复用后的重复销毁。详情提供键盘可用滑块，DPI 变更同步字体/布局/列宽。
+- [`d2d_controls`](../src/common/d2d_controls.h) 提取共享颜色和高对比度检测，由设置程序和监控器共同使用；按钮在高对比度、缺少 D2D 或文字格式时原生回退，使用作用域守卫恢复 DC/字体。没有抽取整个设置窗口，也未新增 UI 框架。
+- GUI 可执行文件沿用根 `VERSION`、生成版本头、图标与 `version.rc.in`，资源类型为 `VFT_APP`；不维护工具私有版本常量。构建目标 `QiQiIMELogMonitor`，测试目标 `qiqi_log_monitor_test`，两者已纳入现有 lint 目标集合。无需安装新依赖或生成 MSI。
+- 监控器通过资源模板参数单独使用 [`qiqiime-monitor.ico`](../data/qiqiime-monitor.ico)，IME 和设置程序保留原图标。[`generate_monitor_icon.ps1`](../scripts/generate_monitor_icon.ps1) 使用系统字体轮廓分别生成 16、20、24、32、40、48、64、96、128、256 像素 PNG 帧；同环境重新生成的文件字节一致。窗口拥有大小图标，DPI 切换时先替换控件/窗口引用，再释放旧资源。
+- 系统主题、颜色和设置通知统一刷新共享画刷及原生控件主题；高对比度下共享按钮/组合框回退到系统颜色和 GDI 绘制，并恢复 DC/字体。原生深色表头在部分系统上保留黑色文字，监控器通过列表子类的表头 custom draw 修正，保留原生列宽调整及命中测试；高对比度和浅色仍使用原生表头。
+- 语言选择复用 `UiLanguage`/`ResolveUiLanguage`，只更新当前窗口文案，不重建采集器或重置筛选、选择、暂停状态，不持久化或修改 IME 配置。技术事件与导出协议保持不变。
+- 下拉框内容重建由 [`ReplaceComboBoxItems`](../src/common/win32_ui_util.h) 统一处理，设置程序的初始化/实时翻译与监控器的语言/级别共用：按索引保留选择，索引失效时选择第一项，拒绝无效控件、排序/非字符串组合框及空字符串指针，失败返回 `HRESULT` 交由各自日志通道报告。监控器的语言选项直接使用现有 `UiStrings`，不维护第二份语言名称翻译。严格导出编码及 ETW 解码不改用宽松的字符串转换，独立诊断不改用 IME 日志写入器。
+- 多显示器复用 [`monitor_dpi.h`](../src/common/monitor_dpi.h) 的工作区/DPI 查询及矩形适配；响应 `WM_DPICHANGED`、`WM_DISPLAYCHANGE`、`SPI_SETWORKAREA`，支持负坐标及较小工作区。相同 DPI 不重复缩放列宽，普通窗口保持在目标工作区；最大化/最小化迁移交给 Windows。
+
+验证命令（x86 将 `x64` 替换为 `x86`，GUI 回归按架构顺序运行）：
+
+```powershell
+cmake --build --preset x64-release --target qiqi_log_monitor_test qiqi_common_test qiqi_settings_test qiqi_tsf_ui_test --parallel 2
+ctest --test-dir build\x64 -C Release -R '^(QiQiLogMonitorTest|QiQiLogMonitorIntegrationTest|QiQiCommonTest|QiQiSettingsTest|QiQiTsfUiTest|QiQiEtwIntegrationTest)$' --output-on-failure --timeout 120
+```
+
+- [`main.cpp`](../tests/tools/log_monitor/main.cpp) 覆盖条数/字节精确边界、预留字符串容量、超大记录、ID/淘汰/清空、PID 溢出、过滤、转义/严格编码、真实文件写入及共享冲突、版本资源、原生虚拟列表、选择、暂停/清空、详情高度、DPI 和销毁。
+- 桌面集成测试覆盖中英/自动语言及状态保留、四类主题/颜色通知、高对比度优先级、实际表头绘制像素和亮色文字、256 像素图标资源、DPI 图标尺寸、重复 DPI 通知、负坐标、模拟拔屏及缩小工作区；共享控件测试检查高对比度组合框选中色和 DC 恢复。
+- 公共下拉框测试覆盖首次选择、翻译后保留索引、列表缩短/清空、无效控件/样式/字符串指针，以及注入的内存不足、添加项和恢复选择失败；监控器另外验证所选语言文案直接来自共享 `UiStrings`。
+- 实时集成测试不附加调试器，覆盖宿主先注册后开始采集、后注册子进程、Provider 注销/重新注册、中文/换行/NUL 精确负载、PID/TID/事件名/级别/UTC 时间、诊断隔离、1,024 条突发消息的本地有界淘汰、停止后会话不存在及再次启动。权限不足时仅此集成测试返回 CTest skip code 77，不能让普通模型/GUI 测试随之跳过。
+- 双架构上述 6 项测试通过且未跳过；通过测试程序的 `--integration <另一架构测试程序完整路径>` 参数验证两个方向跨架构采集（这是测试入口，不是 GUI 工具的 CLI）。真实 GUI 启动、显示子进程事件、零解码/ETW 丢失状态及正常退出另行检查。
+- 定向 MSVC CppCoreCheck 修正新增告警，Windows ABI 转换沿用仓库既有 C26490 排除；分配型默认构造器的异常传播、满足前置条件的消费者 join 只作逐处说明，不将其伪造为不会失败的分配。共享文件其余旧告警未扩大修复范围。复核 RAII、复用、Core Guidelines/GSL 与缺失测试。
+- 真实 GUI 已在双屏间移动，验证 150%→100% DPI 切换、工作区边界及已有事件保留；浅色、深色和模拟高对比度窗口均接收子进程事件并正常退出。测试宿主提供 `--preview-dark` / `--preview-contrast` 供视觉检查，不是生产 GUI 的 CLI；后者仅切换应用回退分支、使用当前系统色，不修改 Windows 高对比度设置。完整真实高对比度主题、热插拔/最大化/最小化矩阵及浏览器/UWP 交互仍需另行人工验证。

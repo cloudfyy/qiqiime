@@ -278,8 +278,8 @@ TSF 的按键处理分为两步：
   - 官方依据：[TF_CreateCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-tf_createcategorymgr)、[GetModuleHandleW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew)、[ITfCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr)。
   - 已保留导出优先/COM 回退路径，改用 `GetModuleHandleExW(0, ...)` 与现有 `ScopedModule` 持有引用，局部 COM 接口先于模块释放；各失败阶段记录对应错误码，不修改宿主 COM 初始化状态，注册失败仍不阻止激活。
   - 双架构 TSF/UI 与 ETW 测试通过；新增失败分支、释放顺序、未初始化 COM 线程上的原生导出及真实 COM 回退测试。详见[开发文档](DEVELOPMENT.md#512-类别管理器创建与模块引用任务-53)，真实宿主交互验证继续由任务 47 跟进。
-- [ ] **56. 独立实时日志监控工具（`realtime-etw-log-monitor`）**
-  - 执行顺序：紧接任务 53，先完成类别管理器工作，再开始本项；依赖任务 55、51（均已完成）。本次只调整顺序，不实施监控工具。
+- [x] **56. 独立实时日志监控工具（`realtime-etw-log-monitor`）**
+  - 执行顺序：紧接任务 53；依赖任务 55、51（均已完成）。
   - 为日常开发和用户问题复现提供按需启动的轻量工具，避免每次附加调试器或打开 WPA；作为可选诊断程序，不随 IME 常驻，不替代 WPA 的完整离线分析能力。
   - 沿用无调试器正常注册和按模块清理的策略，工具不能靠附加调试器掩盖初始化问题。
   - 直接消费 `QiQiIME.TraceLogging` 的实时 ETW 事件，并按自描述元数据解码 `process`、`message` 和事件头；复用现有 Provider，不新增文本文件轮询、宿主注入或第二套日志传输。
@@ -292,6 +292,10 @@ TSF 的按键处理分为两步：
   - 使用有界事件缓冲和批量显示，明确报告丢失事件、解码失败、权限不足及会话创建/停止错误；按采集 API 的权限要求运行工具，不提升被测宿主权限，只清理本工具拥有的会话与资源。
   - 验证多宿主与 x64/x86 事件、无调试器、晚启动监控、进程退出/重新启动、高频事件、缓冲溢出、暂停/恢复及退出清理；导出前提供敏感环境信息检查，不默认长期写盘或上传日志。
   - 完成后更新[日志监控指南](LOGGING.md)，提供操作步骤。
+  - 已实现 [`QiQiIMELogMonitor`](../src/tools/log_monitor/CMakeLists.txt)：共享版本资源、后台实时采集/TDH 解码、原生虚拟列表、稳定 ID、筛选、详情高度滑块、暂停滚动、有界缓冲和带隐私确认的 UTF-8 快照导出。提取并在设置程序共用控件颜色及高对比度/原生按钮回退，不依赖设置窗口内部状态。
+  - 自身诊断使用独立的 `QiQiIME.LogMonitor` Provider、有界视图与导出来源，不重发采集消息；状态区分别显示 ETW 丢失、本地淘汰、解码和内存异常。启动异常使用 RAII 回滚，停止失败保留自有会话供重试；同步等待 Provider 启用，避免晚启动采集丢失首条消息。
+  - 桌面增强：独立 16–256 像素品牌图标、版本大标题、系统深浅色/高对比度及变更通知、运行时中英/自动语言；不修改 IME 配置，不增加托盘通知。共享控件回退及工作区矩形帮助代码，支持跨屏 DPI、负坐标、普通窗口拔屏恢复和窄窗口布局。
+  - x64/x86 的模型/GUI/版本/导出、实时多进程 ETW、Common、Settings、TSF/UI 及原有 ETW 回归通过，新增 ETW 测试未跳过；两个方向的跨架构采集与真实 GUI 收到事件、正常退出均验证通过。覆盖中文、内嵌 NUL、时间/级别、Provider 重注册、高频溢出、会话清理、主题/语言状态保留、深色表头像素及模拟显示器变化；真实双屏 150%→100% 移动另行通过。定向 CppCoreCheck 无新增监控器告警，详见[开发文档](DEVELOPMENT.md#513-实时日志监控工具任务-56)。完整真实高对比度、热插拔/最大化/最小化及浏览器/UWP 矩阵不据此宣称全面验证。
 - [ ] **47. 真实宿主生命周期验证（`tsf-real-host-lifecycle-tests`）**
   - 在 VS Code 与浏览器中验证组合期间失焦、停用、重新激活后的组合文本、下划线及候选窗口清理。
   - 检查 UI 是否残留或被旧任务重新显示，记录可复现步骤、宿主条件和验证结果；配合单元测试，不以 Mock 代替真实显示验证。

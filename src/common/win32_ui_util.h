@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <cwchar>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -53,6 +54,33 @@ struct SelectObjectGuardTraits {
 using ScopedWindowDC     = ScopedContextGuard<WindowDcGuardTraits>;
 using ScopedSaveDC       = ScopedContextGuard<SaveDcGuardTraits>;
 using ScopedSelectObject = ScopedContextGuard<SelectObjectGuardTraits>;
+
+// Replace an unsorted string combo's items, preserving the index or selecting the first item.
+// The caller reports failures.
+inline HRESULT ReplaceComboBoxItems(HWND combo, std::span<const wchar_t* const> items) noexcept {
+    if (!::IsWindow(combo)) return HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
+    std::array<wchar_t, 32> name{};
+    if (!::GetClassNameW(combo, name.data(), gsl::narrow_cast<int>(name.size())) ||
+        std::wcscmp(name.data(), L"ComboBox") != 0) return E_INVALIDARG;
+    const LONG_PTR style = ::GetWindowLongPtrW(combo, GWL_STYLE);
+    if ((style & CBS_SORT) != 0 ||
+        ((style & (CBS_OWNERDRAWFIXED | CBS_OWNERDRAWVARIABLE)) != 0 && (style & CBS_HASSTRINGS) == 0)) return E_INVALIDARG;
+    for (const auto* item : items) {
+        if (!item) return E_INVALIDARG;
+    }
+    const LRESULT selection = ::SendMessageW(combo, CB_GETCURSEL, 0, 0);
+    ::SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    for (const auto* item : items) {
+        const LRESULT result = ::SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
+        if (result == CB_ERRSPACE) return E_OUTOFMEMORY;
+        if (result == CB_ERR) return E_FAIL;
+    }
+    if (!items.empty()) {
+        const auto index = selection >= 0 && gsl::narrow_cast<size_t>(selection) < items.size() ? selection : 0;
+        if (::SendMessageW(combo, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(index), 0) == CB_ERR) return E_FAIL;
+    }
+    return S_OK;
+}
 
 // RAII wrapper for ::BeginPaint(hwnd, &ps) / ::EndPaint(hwnd, &ps).
 class ScopedPaintDC final {

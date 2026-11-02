@@ -3,7 +3,7 @@
 #pragma code_page(65001)
 
 // Brand icon (used by ITfInputProcessorProfiles::AddLanguageProfile in Win+Space switcher)
-1 ICON "@PROJECT_SOURCE_DIR@/data/qiqiime.ico"
+1 ICON "@QIQI_RESOURCE_ICON@"
 
 // Localized string table for ITfInputProcessorProfileMgr::RegisterProfile
 STRINGTABLE LANGUAGE 0x04, 0x02

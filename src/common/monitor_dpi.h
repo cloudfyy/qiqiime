@@ -99,4 +99,11 @@ constexpr POINT ClampPointToWorkArea(POINT pos, int width, int height, const REC
     };
 }
 
+constexpr RECT ClampWindowRectToWorkArea(const RECT& window, const RECT& work_area) noexcept {
+    const LONG width = std::clamp<LONG>(window.right - window.left, 1, std::max<LONG>(1, work_area.right - work_area.left));
+    const LONG height = std::clamp<LONG>(window.bottom - window.top, 1, std::max<LONG>(1, work_area.bottom - work_area.top));
+    const POINT origin = ClampPointToWorkArea({window.left, window.top}, width, height, work_area);
+    return {origin.x, origin.y, origin.x + width, origin.y + height};
+}
+
 } // namespace qiqi

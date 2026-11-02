@@ -12,6 +12,39 @@
 #include <tuple>
 
 namespace qiqi {
+namespace {
+std::optional<bool> high_contrast_override;
+}
+
+void SetHighContrastOverrideForTest(std::optional<bool> enabled) noexcept {
+    high_contrast_override = enabled;
+}
+
+bool IsHighContrastEnabled() noexcept {
+    if (high_contrast_override) return *high_contrast_override;
+    HIGHCONTRASTW contrast{};
+    contrast.cbSize = sizeof(contrast);
+    return ::SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+           (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
+}
+
+HBRUSH ApplyFluentControlColors(HDC dc, const FluentD2DThemeContext& theme, bool input) noexcept {
+    if (IsHighContrastEnabled()) {
+        ::SetTextColor(dc, ::GetSysColor(input ? COLOR_WINDOWTEXT : COLOR_BTNTEXT));
+        ::SetBkColor(dc, ::GetSysColor(input ? COLOR_WINDOW : COLOR_BTNFACE));
+        ::SetBkMode(dc, input ? OPAQUE : TRANSPARENT);
+        return ::GetSysColorBrush(input ? COLOR_WINDOW : COLOR_BTNFACE);
+    }
+    const bool dark = IsSystemDarkTheme();
+    ::SetTextColor(dc, dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
+    if (input) {
+        ::SetBkColor(dc, dark ? RGB(54, 58, 68) : RGB(255, 255, 255));
+    } else {
+        ::SetBkMode(dc, TRANSPARENT);
+    }
+    const HBRUSH brush = input ? theme.input_brush.Get() : theme.surface_brush.Get();
+    return brush ? brush : ::GetSysColorBrush(input ? COLOR_WINDOW : COLOR_BTNFACE);
+}
 
 int FluentD2DThemeContext::ScalePx(int px) const noexcept {
     return ScalePxByDpi(px, dpi);
@@ -59,8 +92,10 @@ void FluentD2DThemeContext::Init(UINT monitor_dpi) noexcept {
 
 void FluentD2DThemeContext::RefreshThemeBrushes() noexcept {
     const bool is_dark = IsSystemDarkTheme();
-    surface_brush.Reset(::CreateSolidBrush(is_dark ? RGB(43, 46, 52) : RGB(255, 255, 255)));
-    input_brush.Reset(::CreateSolidBrush(is_dark ? RGB(54, 58, 68) : RGB(255, 255, 255)));
+    surface_brush.Reset(::CreateSolidBrush(IsHighContrastEnabled() ? ::GetSysColor(COLOR_BTNFACE) :
+        (is_dark ? RGB(43, 46, 52) : RGB(255, 255, 255))));
+    input_brush.Reset(::CreateSolidBrush(IsHighContrastEnabled() ? ::GetSysColor(COLOR_WINDOW) :
+        (is_dark ? RGB(54, 58, 68) : RGB(255, 255, 255))));
     if (!surface_brush || !input_brush) {
         QIQI_LOG_ERROR("Fluent theme brush creation failed (error={})", ::GetLastError());
     }
@@ -115,7 +150,26 @@ void DrawFluentPushButton(
     const FluentD2DThemeContext& d2d,
     bool is_primary,
     D2D1_COLOR_F outer_bg) noexcept {
-    if (!d2d.d2d_target || !dis.hDC) {
+    if (!dis.hDC) {
+        return;
+    }
+    if (IsHighContrastEnabled() || !d2d.d2d_target || !d2d.fmt_btn) {
+        const ScopedSaveDC saved(dis.hDC);
+        const auto font = reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0));
+        const ScopedSelectObject selected_font(dis.hDC, font);
+        RECT rect = dis.rcItem;
+        ::DrawFrameControl(dis.hDC, &rect, DFC_BUTTON,
+            DFCS_BUTTONPUSH | ((dis.itemState & ODS_SELECTED) ? DFCS_PUSHED : 0) |
+            ((dis.itemState & ODS_DISABLED) ? DFCS_INACTIVE : 0));
+        std::array<wchar_t, 256> text{};
+        ::GetWindowTextW(dis.hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
+        ::SetTextColor(dis.hDC, ::GetSysColor((dis.itemState & ODS_DISABLED) ? COLOR_GRAYTEXT : COLOR_BTNTEXT));
+        ::SetBkMode(dis.hDC, TRANSPARENT);
+        ::DrawTextW(dis.hDC, text.data(), -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        if (dis.itemState & ODS_FOCUS) {
+            ::InflateRect(&rect, -3, -3);
+            ::DrawFocusRect(dis.hDC, &rect);
+        }
         return;
     }
     const bool is_dark = IsSystemDarkTheme();
@@ -426,7 +480,26 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
 }
 
 void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeContext& d2d) noexcept {
-    if (!d2d.d2d_target || !dis.hDC || dis.itemID == std::numeric_limits<UINT>::max()) {
+    if (!dis.hDC || dis.itemID == std::numeric_limits<UINT>::max()) {
+        return;
+    }
+    std::array<wchar_t, 128> item_text{};
+    const LRESULT len = ::SendMessageW(dis.hwndItem, CB_GETLBTEXTLEN, dis.itemID, 0);
+    if (len > 0 && len < gsl::narrow_cast<LRESULT>(item_text.size())) {
+        ::SendMessageW(dis.hwndItem, CB_GETLBTEXT, dis.itemID, reinterpret_cast<LPARAM>(item_text.data()));
+    }
+    if (IsHighContrastEnabled() || !d2d.d2d_target || !d2d.fmt_body) {
+        const ScopedSaveDC saved(dis.hDC);
+        const auto font = reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0));
+        const ScopedSelectObject selected_font(dis.hDC, font);
+        const bool selected = (dis.itemState & ODS_SELECTED) != 0;
+        ::FillRect(dis.hDC, &dis.rcItem, ::GetSysColorBrush(selected ? COLOR_HIGHLIGHT : COLOR_WINDOW));
+        ::SetTextColor(dis.hDC, ::GetSysColor(selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT));
+        ::SetBkMode(dis.hDC, TRANSPARENT);
+        RECT text = dis.rcItem;
+        text.left += d2d.ScalePx(4);
+        ::DrawTextW(dis.hDC, item_text.data(), -1, &text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        if (dis.itemState & ODS_FOCUS) ::DrawFocusRect(dis.hDC, &dis.rcItem);
         return;
     }
     if ((dis.itemState & ODS_COMBOBOXEDIT) != 0) {
@@ -448,13 +521,6 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
     }
     d2d.d2d_target->Clear(bg_col);
 
-    std::array<wchar_t, 128> item_text{};
-    const LRESULT len = ::SendMessageW(dis.hwndItem, CB_GETLBTEXTLEN, dis.itemID, 0);
-    if (len > 0 && len < 127) {
-        ::SendMessageW(
-            dis.hwndItem, CB_GETLBTEXT, gsl::narrow_cast<WPARAM>(dis.itemID),
-            reinterpret_cast<LPARAM>(item_text.data()));
-    }
     const auto txt_brush = CreateSolidBrush(d2d.d2d_target.Get(), txt_col);
     if (d2d.fmt_body && txt_brush && gsl::at(item_text, 0) != L'\0') {
         const float item_w = static_cast<float>(dis.rcItem.right - dis.rcItem.left);
@@ -554,11 +620,13 @@ LRESULT CALLBACK FluentToggleSubclassProc(
 LRESULT CALLBACK FluentComboBoxSubclassProc(
     HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) noexcept {
     const auto* d2d = reinterpret_cast<const FluentD2DThemeContext*>(dwRefData);
+    const bool fluent = d2d && d2d->d2d_target && d2d->fmt_body && !IsHighContrastEnabled();
     switch (msg) {
         case WM_ERASEBKGND:
-            return 1;
+            if (fluent) return 1;
+            break;
         case WM_PAINT: {
-            if (!d2d || !d2d->d2d_target) {
+            if (!fluent) {
                 break;
             }
             const ScopedPaintDC paint_dc(hwnd);
@@ -574,7 +642,7 @@ LRESULT CALLBACK FluentComboBoxSubclassProc(
             DWORD_PTR current_ref = 0;
             // A parent notification may destroy the child and its borrowed context.
             if (::GetWindowSubclass(hwnd, &FluentComboBoxSubclassProc, uIdSubclass, &current_ref) &&
-                current_ref == dwRefData && d2d && d2d->d2d_target) {
+                current_ref == dwRefData && fluent) {
                 const ScopedWindowDC dc(hwnd);
                 PaintFluentComboBoxFrame(hwnd, dc.Get(), *d2d);
             }

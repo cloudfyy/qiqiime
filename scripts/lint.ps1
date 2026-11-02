@@ -12,10 +12,12 @@ $ErrorActionPreference = 'Stop'
 $targets = @(
     'qiqiime'
     'QiQiIMESettings'
+    'QiQiIMELogMonitor'
     'qiqi_common_test'
     'qiqi_engine_test'
     'qiqi_tsf_ui_test'
     'qiqi_settings_test'
+    'qiqi_log_monitor_test'
 )
 $buildArguments = @(
     '--build', $BuildDirectory,

@@ -2,6 +2,7 @@
 #include "common/i18n.h"
 #include "common/guids.h"
 #include "common/theme.h"
+#include "common/win32_ui_util.h"
 
 #include <commctrl.h>
 #include <gsl/gsl>
@@ -94,12 +95,8 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdBtnCancel, str.dlg_btn_cancel);
 
     const auto replace_combo_items = [hwnd](int combo_id, std::span<const wchar_t* const> items) noexcept {
-        const LRESULT cur_sel = ::SendDlgItemMessageW(hwnd, combo_id, CB_GETCURSEL, 0, 0);
-        ::SendDlgItemMessageW(hwnd, combo_id, CB_RESETCONTENT, 0, 0);
-        for (const wchar_t* item : items) {
-            ::SendDlgItemMessageW(hwnd, combo_id, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
-        }
-        ::SendDlgItemMessageW(hwnd, combo_id, CB_SETCURSEL, cur_sel >= 0 ? cur_sel : 0, 0);
+        std::ignore = log::CheckHResult(ReplaceComboBoxItems(::GetDlgItem(hwnd, combo_id), items),
+            "Settings::ReplaceComboBoxItems");
     };
     const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
     replace_combo_items(kIdComboUiLang, lang_items);
@@ -265,16 +262,14 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"STATIC", str.dlg_lbl_page_size, 0, S(430), S(78), S(156), S(24), kIdLblPageSize);
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP, S(588), S(74), S(80), S(260), kIdComboPageSize);
     ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETMINVISIBLE, 9, 0);
-    for (const wchar_t* label : kPageSizeLabels) {
-        ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
-    }
+    std::ignore = log::CheckHResult(ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboPageSize), kPageSizeLabels),
+        "Settings::ReplaceComboBoxItems(page size)");
 
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"STATIC", str.dlg_lbl_ui_lang, 0, S(430), S(112), S(156), S(24), kIdLblUiLang);
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP, S(588), S(108), S(200), S(200), kIdComboUiLang);
     const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
-    for (const wchar_t* item : lang_items) {
-        ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
-    }
+    std::ignore = log::CheckHResult(ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiLang), lang_items),
+        "Settings::ReplaceComboBoxItems(language)");
 
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"STATIC", str.dlg_lbl_underline_style, 0, S(430), S(146), S(156), S(24), kIdLblUnderlineStyle);
     const HWND underline_combo = CreateFluentChildControl(
@@ -289,9 +284,8 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
         str.dlg_underline_squiggle,
         str.dlg_underline_none,
     };
-    for (const wchar_t* item : underline_items) {
-        ::SendDlgItemMessageW(hwnd, kIdComboUnderlineStyle, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
-    }
+    std::ignore = log::CheckHResult(ReplaceComboBoxItems(underline_combo, underline_items),
+        "Settings::ReplaceComboBoxItems(underline)");
 
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_about, BS_OWNERDRAW | WS_TABSTOP, S(18), S(448), S(104), S(32), kIdBtnAbout);
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_ok, BS_OWNERDRAW | WS_TABSTOP, S(596), S(448), S(98), S(32), kIdBtnOk);

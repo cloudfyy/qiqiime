@@ -17,6 +17,46 @@ struct ControlHostState {
     std::unique_ptr<FluentD2DThemeContext> d2d;
 };
 
+LRESULT CALLBACK FailComboMutation(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
+    UINT_PTR, DWORD_PTR failure) noexcept {
+    if (msg == CB_ADDSTRING && failure == 1) return CB_ERRSPACE;
+    if ((msg == CB_ADDSTRING && failure == 2) || (msg == CB_SETCURSEL && failure == 3)) return CB_ERR;
+    return ::DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
+void TestComboItemReplacement(HWND combo, HWND label) {
+    const std::array original{L"First", L"Second"};
+    QIQI_TEST_CHECK(ReplaceComboBoxItems(combo, original) == S_OK);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCOUNT, 0, 0) == 2);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCURSEL, 0, 0) == 0);
+    ::SendMessageW(combo, CB_SETCURSEL, 1, 0);
+    const std::array translated{L"第一项", L"第二项", L"第三项"};
+    QIQI_TEST_CHECK(ReplaceComboBoxItems(combo, translated) == S_OK);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCOUNT, 0, 0) == 3);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCURSEL, 0, 0) == 1);
+    std::array<wchar_t, 16> selected{};
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETLBTEXT, 1, reinterpret_cast<LPARAM>(selected.data())) == 3);
+    QIQI_TEST_CHECK(std::wstring_view(selected.data()) == gsl::at(translated, 1));
+    const std::array<const wchar_t*, 1> invalid{nullptr};
+    QIQI_TEST_CHECK(ReplaceComboBoxItems(combo, invalid) == E_INVALIDARG);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCOUNT, 0, 0) == 3);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCURSEL, 0, 0) == 1);
+    QIQI_TEST_CHECK(ReplaceComboBoxItems(label, original) == E_INVALIDARG);
+    QIQI_TEST_CHECK(ReplaceComboBoxItems(nullptr, original) == HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE));
+    QIQI_TEST_CHECK(ReplaceComboBoxItems(combo, std::span(original).first(1)) == S_OK);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCURSEL, 0, 0) == 0);
+    for (DWORD_PTR failure = 1; failure <= 3; ++failure) {
+        QIQI_TEST_CHECK(::SetWindowSubclass(combo, FailComboMutation, 88, failure));
+        const auto restore = gsl::finally([combo]() noexcept {
+            ::RemoveWindowSubclass(combo, FailComboMutation, 88);
+        });
+        QIQI_TEST_CHECK(ReplaceComboBoxItems(combo, original) == (failure == 1 ? E_OUTOFMEMORY : E_FAIL));
+    }
+    QIQI_TEST_CHECK(ReplaceComboBoxItems(combo, {}) == S_OK);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCOUNT, 0, 0) == 0);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCURSEL, 0, 0) == CB_ERR);
+}
+
 LRESULT CALLBACK DestroyHostOnMouseLeave(
     HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR ref) noexcept {
     if (msg == WM_MOUSELEAVE) {
@@ -95,6 +135,33 @@ void TestReusableControls() {
     const HWND other_radio = create(L"BUTTON", BS_AUTORADIOBUTTON | WS_GROUP, 701, MAKELONG(701, 701));
     const HWND label = create(L"STATIC", SS_LEFTNOWORDWRAP, 503);
     const HWND combo = create(L"COMBOBOX", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, 504);
+    TestComboItemReplacement(combo, label);
+    const HWND sorted = create(L"COMBOBOX", CBS_DROPDOWNLIST | CBS_SORT, 505);
+    const HWND item_data = create(L"COMBOBOX", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED, 506);
+    const std::array labels{L"Item"};
+    QIQI_TEST_CHECK(ReplaceComboBoxItems(sorted, labels) == E_INVALIDARG);
+    QIQI_TEST_CHECK(ReplaceComboBoxItems(item_data, labels) == E_INVALIDARG);
+    {
+        const ScopedMemoryDC dc(::CreateCompatibleDC(nullptr));
+        QIQI_TEST_CHECK(dc);
+        QIQI_TEST_CHECK(ApplyFluentControlColors(dc.Get(), d2d, true) != nullptr);
+        QIQI_TEST_CHECK(ApplyFluentControlColors(dc.Get(), d2d, false) != nullptr);
+        if (IsHighContrastEnabled()) {
+            QIQI_TEST_CHECK(::GetTextColor(dc.Get()) == ::GetSysColor(COLOR_BTNTEXT));
+        } else {
+            QIQI_TEST_CHECK(::GetBkMode(dc.Get()) == TRANSPARENT);
+        }
+        const auto color = ::GetTextColor(dc.Get());
+        const auto font = ::GetCurrentObject(dc.Get(), OBJ_FONT);
+        const FluentD2DThemeContext native;
+        DRAWITEMSTRUCT item{};
+        item.hwndItem = action;
+        item.hDC = dc.Get();
+        item.rcItem = {0, 0, 240, 32};
+        DrawFluentPushButton(item, native, true, MakeD2DColor(255, 255, 255));
+        QIQI_TEST_CHECK(::GetTextColor(dc.Get()) == color);
+        QIQI_TEST_CHECK(::GetCurrentObject(dc.Get(), OBJ_FONT) == font);
+    }
     const auto type = [](HWND hwnd) { return ::GetWindowLongPtrW(hwnd, GWL_STYLE) & BS_TYPEMASK; };
     QIQI_TEST_CHECK(type(action) == BS_OWNERDRAW);
     QIQI_TEST_CHECK(type(toggle) == BS_OWNERDRAW && type(radio_a) == BS_OWNERDRAW);
@@ -196,6 +263,22 @@ void TestReusableControls() {
                 ? (dark ? RGB(0, 96, 180) : RGB(220, 234, 252))
                 : (dark ? RGB(54, 58, 68) : RGB(255, 255, 255));
             QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 4) == fill);
+        }
+        {
+            SetHighContrastOverrideForTest(true);
+            const auto restore_contrast = gsl::finally([&d2d]() noexcept {
+                SetHighContrastOverrideForTest(std::nullopt);
+                d2d.RefreshThemeBrushes();
+            });
+            d2d.RefreshThemeBrushes();
+            QIQI_TEST_CHECK(ApplyFluentControlColors(dc.Get(), d2d, true));
+            QIQI_TEST_CHECK(::GetTextColor(dc.Get()) == ::GetSysColor(COLOR_WINDOWTEXT));
+            QIQI_TEST_CHECK(::GetBkColor(dc.Get()) == ::GetSysColor(COLOR_WINDOW));
+            const auto text_color = ::GetTextColor(dc.Get());
+            dis.itemState = ODS_SELECTED | ODS_FOCUS;
+            DrawFluentComboBoxItem(dis, d2d);
+            QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 4) == ::GetSysColor(COLOR_HIGHLIGHT));
+            QIQI_TEST_CHECK(::GetTextColor(dc.Get()) == text_color);
         }
 
         const RECT rect{0, 0, 240, 100};

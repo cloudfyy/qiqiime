@@ -5,8 +5,12 @@
 #include "common/monitor_dpi.h"
 
 #include <span>
+#include <optional>
 
 namespace qiqi {
+
+bool IsHighContrastEnabled() noexcept;
+void SetHighContrastOverrideForTest(std::optional<bool> enabled) noexcept;
 
 struct FluentCardSpec {
     D2D1_RECT_F rect{};
@@ -30,6 +34,9 @@ struct FluentD2DThemeContext {
     void Init(UINT monitor_dpi) noexcept;
     void RefreshThemeBrushes() noexcept;
 };
+
+// Shared WM_CTLCOLOR handling; input=false is for labels/buttons.
+HBRUSH ApplyFluentControlColors(HDC dc, const FluentD2DThemeContext& theme, bool input) noexcept;
 
 // Draws into an already active ScopedD2DDcDraw session.
 void DrawFluentCardGroup(

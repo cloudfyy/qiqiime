@@ -311,24 +311,12 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         case WM_CTLCOLOREDIT:
         case WM_CTLCOLORLISTBOX: {
             const HDC hdc = reinterpret_cast<HDC>(wparam);
-            const bool is_dark = IsSystemDarkTheme();
-            ::SetTextColor(hdc, is_dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
-            ::SetBkColor(hdc, is_dark ? RGB(54, 58, 68) : RGB(255, 255, 255));
-            if (ctx->d2d.input_brush) {
-                return reinterpret_cast<LRESULT>(ctx->d2d.input_brush.Get());
-            }
-            return reinterpret_cast<LRESULT>(::GetSysColorBrush(COLOR_WINDOW));
+            return reinterpret_cast<LRESULT>(ApplyFluentControlColors(hdc, ctx->d2d, true));
         }
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLORBTN: {
             const HDC hdc = reinterpret_cast<HDC>(wparam);
-            const bool is_dark = IsSystemDarkTheme();
-            ::SetTextColor(hdc, is_dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
-            ::SetBkMode(hdc, TRANSPARENT);
-            if (ctx->d2d.surface_brush) {
-                return reinterpret_cast<LRESULT>(ctx->d2d.surface_brush.Get());
-            }
-            return reinterpret_cast<LRESULT>(::GetSysColorBrush(COLOR_BTNFACE));
+            return reinterpret_cast<LRESULT>(ApplyFluentControlColors(hdc, ctx->d2d, false));
         }
         case WM_SETTINGCHANGE:
         case WM_THEMECHANGED: {
