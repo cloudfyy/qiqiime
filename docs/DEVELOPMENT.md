@@ -263,4 +263,15 @@ cmake --build build\x64 --config Release --target lint
 - 回归使用真实 HWND 与销毁消息验证顺序和线程，不以可见性代替销毁：覆盖外部引用、重复停用、激活失败回滚、再次激活后的菜单/选词回调、旧异步写入/布局/清理、UILess、宿主 Begin/End 重入、最终服务释放后保留的 UI，以及独立 UI 的跨线程拒绝与销毁重建。
 - Begin/End 重入时切换到另一个 manager，并故意复用相同数值的 UI ID，验证旧注销仅作用于旧 manager、新窗口不被隐藏。独立用例显式保存、清理并恢复线程键盘状态，避免先前消息泵带入的环境状态影响普通按键断言；未改变生产按键规则。
 - 最终验证：x64/x86 Release 的 `QiQiTsfUiTest` 与 `QiQiEtwIntegrationTest` 各连续通过 2 次、均未跳过；双架构构建与定向 CppCoreCheck 通过，修正新增向下转换诊断后仅保留既有告警，`git diff --check` 通过。
-- 生命周期契约、诊断字段与验证边界见英文[设计文档](TSF_COMPOSITION_LIFECYCLE.md)。任务 46 的完整回归矩阵及任务 47 的真实宿主验证仍未完成。
+- 生命周期契约、诊断字段与验证边界见英文[设计文档](TSF_COMPOSITION_LIFECYCLE.md)。完整回归矩阵见下节；任务 47 的真实宿主验证仍独立待办。
+
+### 5.9 生命周期回归矩阵（任务 46）
+
+- 先盘点已有延迟写入/提交/取消/布局、FIFO、重新激活、焦点与 A→B→A、模态及无关通知、移除后屏障、清理失败矩阵、引用/订阅释放，以及任务 41 的真实 HWND 和 UI 注册重入；不重复计为本轮新增测试。完整矩阵见英文[设计文档](TSF_COMPOSITION_LIFECYCLE.md#91-regression-inventory-task-46)。
+- 新增 `TestReentrantCompositionEdits`：86 个执行中编辑/宿主终止边界用例、8 个迟到 `StartComposition` 用例、4 个清理期间属性查询用例，并显式断言各矩阵计数；另外覆盖同周期替换组合的 2 例及键盘状态重入的 2 例。按实际文本、写入/属性/选择/视图/UI 调用次数、组合身份及对象计数验证，不只检查返回成功，不报告未测量的覆盖率。
+- 测试先复现 `GetRange` 内停用后旧编辑仍写文档，以及清理已进入但 `GetProperty` 内宿主终止发生在实际 `Clear` 前导致漏清属性。编辑强持有原组合，并在宿主调用之间检查 epoch、context 和组合身份；清理独立记录 `attribute_clear_started`，需要时用宿主通知的 write cookie 清一次，移除后不再调用宿主编辑 API。
+- 迟到的组合创建结果先私有持有，临时弱跟踪使用 `id == 0`，不消耗正式清理诊断 ID。期间的移除/终止不会被返回结果覆盖；仍连接的迟到旧组合转入独立清理，捕获原 client ID。同 context 新写若早于迟到清理入队，执行入口再次检查，并将已捕获结果显式异步排到旧清理后，不重算按键、不推进 FSM。
+- 同一 epoch 也可能重入提交并创建替代组合；新增测试先复现旧更新/布局返回后继续刷新新 UI。更新返回其原组合快照，布局查询及 UI 发布之间继续复核身份；提交/取消在旧 `EndComposition` 前先使共享组合槽与旧 caret 状态失效，保留重入创建的新组合。
+- 确定性键盘测试在旧目标清理及 compartment 查询中注入新的 Ctrl 状态，先复现当前按键被错误透传。`OnTestKeyDown`/`OnKeyDown` 改为在宿主调用前捕获当前事件的修饰键和 CapsLock，预判还捕获 Shift 轻触所需鼠标状态；下一事件正常观察新状态，FSM 表及消费规则不变。普通按键矩阵每次显式建立中性键盘前置状态，整个用例保存/恢复原线程状态，不影响专门的修饰键测试。
+- 不能撤销已开始的宿主写入；回归在可观察写入之后触发重入，要求失效后不再发后续操作。实际浏览器/VS Code 的焦点、下划线和窗口行为仍由任务 47 验证，不以 Mock 或私有 TSF 文档替代。
+- 最终验证：x64/x86 Release 的 `QiQiTsfUiTest` 与 `QiQiEtwIntegrationTest` 各连续通过 2 次、均未跳过；`QiQiEngineTest` 双架构通过。双架构构建与定向 CppCoreCheck 通过，修正新增的取消路径 const 诊断后，修改的生产代码无分析告警，仅保留既有其他路径/测试告警；`git diff --check` 通过。RAII、组合快照复用、Core Guidelines/GSL 及缺失测试已复核，未放宽断言或生产 Shift 轻触时限。

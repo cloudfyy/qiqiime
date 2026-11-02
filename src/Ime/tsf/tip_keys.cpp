@@ -74,6 +74,11 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
     if (!pfEaten) {
         return E_INVALIDARG;
     }
+    const bool shift = IsKeyDown(VK_SHIFT);
+    const bool ctrl = IsKeyDown(VK_CONTROL);
+    const bool alt = IsKeyDown(VK_MENU);
+    const bool caps = IsCapsLockOn();
+    const bool mouse_down = IsAnyMouseButtonDown();
     const bool keyboard_disabled = IsContextKeyboardDisabled(pic);
     if (!pic || !is_active_ || resetting_context_ || preparing_input_context_ || keyboard_disabled) {
         shift_tap_candidate_ = false;
@@ -86,11 +91,9 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
         const bool is_auto_repeat = (lParam & (1LL << 30)) != 0;
         if (!is_auto_repeat) {
             shift_tap_candidate_ = config_.shift_toggle_mode &&
-                                   !IsKeyDown(VK_CONTROL) &&
-                                   !IsKeyDown(VK_MENU) &&
-                                   !IsAnyMouseButtonDown();
+                                   !ctrl && !alt && !mouse_down;
             shift_press_tick_ = shift_tap_candidate_ ? ::GetTickCount64() : 0;
-        } else if (::GetTickCount64() - shift_press_tick_ > kMaxShiftTapDurationMs || IsAnyMouseButtonDown()) {
+        } else if (::GetTickCount64() - shift_press_tick_ > kMaxShiftTapDurationMs || mouse_down) {
             shift_tap_candidate_ = false;
         }
         *pfEaten = FALSE;
@@ -99,10 +102,6 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
     shift_tap_candidate_ = false;
     shift_press_tick_ = 0;
 
-    const bool shift = IsKeyDown(VK_SHIFT);
-    const bool ctrl = IsKeyDown(VK_CONTROL);
-    const bool alt = IsKeyDown(VK_MENU);
-    const bool caps = IsCapsLockOn();
     const bool eat_key = pic == active_context_.Get()
         ? engine_.ShouldEatKey(vk, shift, ctrl, alt, caps)
         : engine_.ShouldEatKeyAfterReset(vk, shift, ctrl, alt, caps);
@@ -114,6 +113,11 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
     if (!pfEaten) {
         return E_INVALIDARG;
     }
+    // Host calls during target preparation can pump a newer keyboard message.
+    const bool shift = IsKeyDown(VK_SHIFT);
+    const bool caps = IsCapsLockOn();
+    const bool ctrl = IsKeyDown(VK_CONTROL);
+    const bool alt = IsKeyDown(VK_MENU);
     if (IsContextKeyboardDisabled(pic)) {
         *pfEaten = FALSE;
         return S_OK;
@@ -123,10 +127,6 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
         return S_OK;
     }
     const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
-    const bool shift = IsKeyDown(VK_SHIFT);
-    const bool caps = IsCapsLockOn();
-    const bool ctrl = IsKeyDown(VK_CONTROL);
-    const bool alt = IsKeyDown(VK_MENU);
 
     if (vk == VK_CAPITAL && engine_.IsComposing()) {
         // Industry standard: pressing CapsLock mid-composition commits the raw English code

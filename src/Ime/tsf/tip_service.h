@@ -110,11 +110,12 @@ private:
         CompositionCleanup& operator=(CompositionCleanup&&) = delete;
         void LogResult(std::string_view stage, HRESULT hr) const noexcept;
         uint64_t service_id = 0;
-        uint64_t id = 0;
+        uint64_t id = 0; // Zero tracks an unpublished StartComposition result, not a scheduled cleanup.
         ComPtr<ITfContext> context;
         ComPtr<ITfComposition> composition;
         ComPtr<ITfRange> range;
         bool started = false;
+        bool attribute_clear_started = false;
         bool finished = false;
         bool terminated = false;
         bool async_requested = false;
@@ -146,6 +147,8 @@ private:
     void SetUiPresentationEnabled(bool enabled) noexcept;
     bool DestroyUIWindows() noexcept;
     void ScheduleCompositionCleanup();
+    void ScheduleCompositionCleanup(
+        ComPtr<ITfContext> context, ComPtr<ITfComposition> composition, TfClientId client_id);
     bool HasPendingCompositionCleanup(const ITfContext* context);
     void MarkCompositionContextRemoved(const ITfContext* context) noexcept;
     void ResetContextAndUI(bool try_host_cleanup = true);
@@ -153,6 +156,8 @@ private:
     bool IsActiveDocument(ITfDocumentMgr* document) const;
     bool ReconcileDocumentTarget(ITfDocumentMgr* document, std::string_view source);
     bool IsEditSessionCurrent(EditSessionEpoch epoch, const ITfContext* context) const noexcept;
+    bool IsCompositionEditCurrent(
+        EditSessionEpoch epoch, const ITfContext* context, const ITfComposition* composition) const noexcept;
     bool IsContextKeyboardDisabled(ITfContext* context) const noexcept;
     void ToggleModeAndCancelComposition(ITfContext* context);
     void SyncTsfCompartments();
@@ -161,14 +166,13 @@ private:
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
     void SyncCompositionUIInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot);
-    void StartOrUpdateCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text);
+    ComPtr<ITfComposition> StartOrUpdateCompositionInSession(
+        TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text);
     void CommitAndEndCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text);
-    void CancelCompositionInSession(TfEditCookie ec, ITfContext* context);
+    void CancelCompositionInSession(TfEditCookie ec, const ITfContext* context);
     void UpdateCandidateWindowPositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context);
-    static void SetRangeTextAndCollapseCaret(
+    void SetRangeTextAndCollapseCaret(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range, std::wstring_view text);
-    static HRESULT ClearCompositionDisplayAttributeInSession(
-        TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range);
 
     void BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot);
     void EndCandidateUI();

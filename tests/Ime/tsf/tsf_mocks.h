@@ -45,6 +45,7 @@ public:
         if (pch && cch >= 0) {
             text_.assign(pch, static_cast<size_t>(cch));
         }
+        if (set_text_callback_) set_text_callback_();
         return S_OK;
     }
     STDMETHODIMP GetFormattedText(TfEditCookie, IDataObject**) noexcept override { return E_NOTIMPL; }
@@ -60,7 +61,10 @@ public:
         if (pfEmpty) *pfEmpty = text_.empty() ? TRUE : FALSE;
         return S_OK;
     }
-    STDMETHODIMP Collapse(TfEditCookie, TfAnchor) noexcept override { return S_OK; }
+    STDMETHODIMP Collapse(TfEditCookie, TfAnchor) override {
+        if (collapse_callback_) collapse_callback_();
+        return S_OK;
+    }
     STDMETHODIMP IsEqualStart(TfEditCookie, ITfRange*, TfAnchor, BOOL*) noexcept override { return S_OK; }
     STDMETHODIMP IsEqualEnd(TfEditCookie, ITfRange*, TfAnchor, BOOL*) noexcept override { return S_OK; }
     STDMETHODIMP CompareStart(TfEditCookie, ITfRange*, TfAnchor, LONG*) noexcept override { return S_OK; }
@@ -70,15 +74,22 @@ public:
     STDMETHODIMP SetGravity(TfEditCookie, TfGravity, TfGravity) noexcept override { return S_OK; }
     STDMETHODIMP Clone(ITfRange** ppClone) override {
         if (!ppClone) return E_INVALIDARG;
+        ++clone_calls_;
         auto clone = MakeComObject<MockTfRange>();
         clone->text_ = text_;
+        clone->collapse_callback_ = collapse_callback_;
         *ppClone = clone.Detach();
+        if (clone_callback_) clone_callback_();
         return S_OK;
     }
     STDMETHODIMP GetContext(ITfContext**) noexcept override { return E_NOTIMPL; }
 
     std::wstring text_;
     unsigned int set_text_calls_ = 0;
+    unsigned int clone_calls_ = 0;
+    std::function<void()> set_text_callback_;
+    std::function<void()> clone_callback_;
+    std::function<void()> collapse_callback_;
 private:
     ULONG ref_ = 1;
 };
@@ -219,8 +230,10 @@ public:
     STDMETHODIMP GetContext(ITfContext**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP FindRange(TfEditCookie, ITfRange*, ITfRange**, TfAnchor) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP SetValueStore(TfEditCookie, ITfRange*, ITfPropertyStore*) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP SetValue(TfEditCookie, ITfRange*, const VARIANT*) noexcept override {
+    STDMETHODIMP SetValue(TfEditCookie, ITfRange*, const VARIANT*) override {
         set_called_ = true;
+        ++set_calls_;
+        if (set_callback_) set_callback_();
         return S_OK;
     }
     STDMETHODIMP Clear(TfEditCookie ec, ITfRange*) override {
@@ -232,6 +245,8 @@ public:
     }
 
     bool set_called_ = false;
+    unsigned int set_calls_ = 0;
+    std::function<void()> set_callback_;
     bool clear_called_ = false;
     unsigned int clear_calls_ = 0;
     TfEditCookie last_clear_cookie_ = 0;
@@ -279,10 +294,11 @@ public:
         }
         return S_OK;
     }
-    STDMETHODIMP GetValue(VARIANT* pvarValue) noexcept override {
+    STDMETHODIMP GetValue(VARIANT* pvarValue) override {
         if (!pvarValue) return E_INVALIDARG;
         pvarValue->vt = VT_I4;
         pvarValue->lVal = last_val_;
+        if (get_value_callback_) get_value_callback_();
         return S_OK;
     }
 
@@ -302,6 +318,7 @@ public:
     GUID guid_{};
     LONG last_val_ = 0;
     bool fail_set_value_ = false;
+    std::function<void()> get_value_callback_;
     ComPtr<ITfCompartmentEventSink> sink_;
 private:
     ULONG ref_ = 1;
@@ -467,7 +484,11 @@ public:
         return S_OK;
     }
     STDMETHODIMP GetSelection(TfEditCookie, ULONG, ULONG, TF_SELECTION*, ULONG*) noexcept override { return S_OK; }
-    STDMETHODIMP SetSelection(TfEditCookie, ULONG, const TF_SELECTION*) noexcept override { return S_OK; }
+    STDMETHODIMP SetSelection(TfEditCookie, ULONG, const TF_SELECTION*) override {
+        ++set_selection_calls_;
+        if (set_selection_callback_) set_selection_callback_();
+        return S_OK;
+    }
     STDMETHODIMP GetStart(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetEnd(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetActiveView(ITfContextView** ppView) override {
@@ -487,6 +508,7 @@ public:
         }
         *ppv = prop_.Get();
         (*ppv)->AddRef();
+        if (get_property_callback_) get_property_callback_();
         return S_OK;
     }
     STDMETHODIMP GetAppProperty(REFGUID, ITfReadOnlyProperty**) noexcept override { return E_NOTIMPL; }
@@ -526,6 +548,7 @@ public:
         comp->fail_get_range_ = fail_comp_get_range_;
         last_composition_ = comp;
         *ppComposition = comp.Detach();
+        if (start_composition_callback_) start_composition_callback_();
         return S_OK;
     }
     STDMETHODIMP EnumCompositions(IEnumITfCompositionView**) noexcept override { return E_NOTIMPL; }
@@ -588,6 +611,10 @@ public:
     HRESULT async_edit_session_result_ = S_OK;
     unsigned int get_active_view_calls_ = 0;
     unsigned int start_composition_calls_ = 0;
+    unsigned int set_selection_calls_ = 0;
+    std::function<void()> set_selection_callback_;
+    std::function<void()> get_property_callback_;
+    std::function<void()> start_composition_callback_;
     ComPtr<MockTfProperty> prop_;
     ComPtr<ITfTextLayoutSink> layout_sink_;
     HRESULT layout_advise_result_ = S_OK;

@@ -1,7 +1,7 @@
 # TSF Composition Lifecycle, Deactivation Cleanup, and Diagnostics
 
 This document explains the invariants, ownership, reentrancy, and debugging workflow
-for tasks 41, 43, 44, and 45. The implementation lives in
+for tasks 41 and 43 through 46. The implementation lives in
 [`tip_service.cpp`](../src/Ime/tsf/tip_service.cpp),
 [`tip_composition.cpp`](../src/Ime/tsf/tip_composition.cpp), and
 [`tip_service.h`](../src/Ime/tsf/tip_service.h).
@@ -32,6 +32,34 @@ Each service maintains:
 
 `ResetContextAndUI` invalidates the old context **before** removing COM subscriptions, releasing the composition, or clearing UI. After switching targets, the caller checks for reentrant invalidation again before submitting a new request. An epoch is not a per-key sequence number: normal writes within one epoch still execute in FIFO order, rather than retaining only the latest write.
 
+### 2.1 In-Flight Host Calls
+
+Entry checks alone are insufficient. `GetRange`, text writes, range cloning and
+collapse, selection changes, property lookup/updates, and composition termination
+can reenter the service. Application edits strongly retain their original
+composition and check `IsCompositionEditCurrent` between host operations. This
+checks the epoch, context, and actual composition identity. A replacement
+composition in the same context and epoch must not inherit the old operation.
+
+The update helper returns its captured composition so layout and candidate UI
+publication can use the same identity barrier. Layout reads also recheck identity
+between host calls. Commit/cancel detach the old shared composition and retire
+its caret state **before** calling its captured `EndComposition`; a new composition
+created inside that call must remain owned and visible when the old call returns.
+
+These barriers cannot undo a host call that has already started. Tests inject
+callbacks after observable text/selection/property writes and require that no
+subsequent stale operation occur after invalidation.
+
+### 2.2 Keyboard Event State
+
+`OnTestKeyDown` and `OnKeyDown` sample modifiers and CapsLock before querying
+compartments or preparing a new target. Host calls may pump newer keyboard
+messages; their state must apply to the next event, not retroactively to the
+event currently being processed. Preflight also snapshots the mouse-button state
+used by Shift-tap tracking. This changes neither the engine transition table nor
+normal FIFO ordering.
+
 ## 3. Cleanup State and Strong/Weak Ownership
 
 ```text
@@ -50,12 +78,20 @@ The cleanup callback captures only `cleanup`, not the service, thread manager, o
 | Cleanup state | Exact meaning |
 |---|---|
 | `started` | The cleanup edit callback has entered; host termination notifications do not set it |
+| `attribute_clear_started` | The actual `ITfProperty::Clear` call has begun, not merely property lookup; prevents duplicate clearing during reentrancy |
 | `finished` | The edit callback has exited, host termination has handled a task that had not started, or context removal has invalidated cleanup; **this does not mean attribute clearing or composition termination succeeded** |
 | `terminated` | The host has reported termination of the old composition; do not call `EndComposition` again |
 | `async_requested` | An asynchronous request has been attempted, not necessarily accepted or executed |
 | `context_removed` | A Pop/uninitialization notification removed the captured context; skip further edits even if an old callback is later delivered |
 
 The service removes expired or finished weak references when adding or querying tasks. `tracked_cleanups` is only the number of entries in the weak-reference container at that moment. It may include finished or expired entries and is not a pending-request count.
+
+An unpublished `StartComposition` result is temporarily tracked in the same weak
+container with `id == 0`, a captured context, and the host's output composition.
+This is not a scheduled cleanup and consumes no cleanup diagnostic ID. Removal
+and host termination observed before `StartComposition` returns invalidate that
+result. A late, still-connected live composition is handed to independent cleanup
+with its captured client ID; it must not replace the new shared composition.
 
 ## 4. Deactivation Algorithm and Request Results
 
@@ -175,13 +211,24 @@ Old cleanup queued -> Deactivate returns -> reactivate on the same context
 
 Other contexts are unaffected. Normal write callbacks still pass the epoch barrier; old-composition cleanup intentionally does not. Do not "simplify" this by allowing the new write to execute synchronously, or by making cleanup use the service's current composition or range.
 
+If reactivation occurs inside an outstanding `StartComposition`, a new write can
+already be queued before the late old result is available for cleanup. Its edit
+callback checks again for matching unfinished cleanup and resubmits the captured
+result using explicit `TF_ES_ASYNC`, behind that cleanup. It does not process the
+key again or advance the FSM. Under asynchronous FIFO ordering:
+
+```text
+new write -> requeue behind cleanup -> old cleanup -> new write
+```
+
 ### 5.4 Early Host Termination of the Old Composition
 
 `OnCompositionTerminated` distinguishes composition identities:
 
-- **Old composition awaiting cleanup:** set `terminated`. If the callback has not started, clear the old attribute using the notification's write cookie and set `finished`. The later edit callback logs `skip-host-terminated` without clearing attributes or ending the composition again.
-- **Old composition whose cleanup is executing:** set `terminated`. The active callback handles the reentrant outcome and, when needed, logs `skip-end-after-host-termination` to avoid duplicate termination.
-- **Current composition:** clear its attribute, recheck epochs after reentrancy, then reset the engine, context, and UI.
+- **Old composition awaiting cleanup:** set `terminated`. If attribute clearing has not started and the range is available, clear the old attribute using the notification's write cookie. If the callback has not started, also set `finished`. The later edit callback logs `skip-host-terminated` without clearing attributes or ending the composition again.
+- **Old composition whose cleanup is executing:** set `terminated`. Termination inside `GetProperty` still clears the attribute with the notification's write cookie, because `started` alone does not mean `Clear` has begun. Termination inside the actual `Clear` call does not clear again. The outer property lookup rechecks termination/removal and skips its stale clear and subsequent `EndComposition`.
+- **Current composition:** detach it, clear its attribute, recheck epochs and the expected empty composition slot after reentrancy, then reset the engine, context, and UI. A replacement must not be reset.
+- **Unpublished composition being started:** mark the temporary state terminated; do not publish or explicitly end the late result.
 - **Neither current nor awaiting cleanup:** ignore the old notification; it must not reset the new composition or UI.
 
 Duplicate old notifications do not clear attributes again. The host notification supplies a valid cookie, so no additional edit session is needed. The host handles termination semantics; the service only clears the display attribute.
@@ -219,6 +266,12 @@ Logs use the existing TraceLogging **`message` string**, not new ETW payload fie
 | `context-removed`, `skip-removed-context`, `skip-end-after-context-removal` | A removed context invalidated previously queued cleanup; no further attribute or termination calls are made after observing removal |
 | `skip-request-invalidated` | Range retrieval reentered termination/removal; do not submit a new edit-session request for the invalidated cleanup |
 | `released` | State snapshot at the start of destruction; not proof that all COM objects are destroyed or cleanup succeeded |
+
+Additional `TsfLifecycle.stage` values include `replaced-composition-edit-skipped`
+(same epoch, different composition), `composition-start-write-deferred`,
+`composition-start-terminated`, `composition-start-removed`,
+`stale-composition-start`, and `write-requeued-behind-cleanup`. These expose
+logical outcomes without logging input text, key values, or COM addresses.
 
 For a recoverable synchronous rejection, filtering by the same IDs should show:
 
@@ -331,9 +384,35 @@ old-manager cleanup cannot deregister the replacement manager's element.
 Standalone UI regressions cover external native destruction, recreation, and
 wrong-thread rejection followed by owner-thread cleanup.
 
-The broader regression matrix under task 46 and real browser/UWP host validation
-under task 47 remain separate work. These tests are not proof of arbitrary host
-callback orderings or certification of the entire document/window lifecycle.
+### 9.1 Regression Inventory (Task 46)
+
+The matrix consolidates existing regressions rather than claiming they are all
+new. Tests assert actual text, API call counts, composition identities, layout
+subscriptions, UI registration, and COM object-count recovery, not just `S_OK`.
+
+| Surface | Covered scenarios | Evidence |
+|---|---|---|
+| Queued application edits | Update/commit/cancel/layout after deactivation, focus reset, reactivation, and A-to-B-to-A; valid FIFO updates remain ordered | External `MockEditSessionQueue` and document/UI call counters |
+| Activation and teardown | Repeated deactivation, activation rollback, retained host/UI references, later reactivation | Existing lifecycle tests and native HWND destruction observations |
+| Document/context notifications | Modal retention, unrelated notifications, current Pop/uninitialization, disconnected parent, binding/query reentrancy, subscription rejection | Scoped document mocks and real private TSF documents |
+| Independent cleanup | Sync success, controlled async fallback, rejection/read-only/disconnection, early/duplicate host termination, abandoned queues, removal after acceptance | Existing failure matrix, host properties, and debug-child stage assertions |
+| UI lifetime and reentrancy | Real window destruction, owner-thread checks, Begin/End reentrancy, replacement manager with reused numeric ID, stale position results | Task 41 regressions |
+| In-flight application edits | 84 update/commit/cancel/host-termination boundary/transition combinations, plus two same-context continuations inside old `EndComposition` | 86 cases in `TestReentrantCompositionEdits` |
+| Late composition start | Deactivation, same-context reactivation, target switch with sync/async cleanup; removal and host termination | Eight start-result cases with bounded FIFO execution |
+| Cleanup property lookup | Sync/async cleanup interrupted by removal or host termination before actual attribute clearing | Four cases; no removed-context edits, exactly one host-cookie clear |
+| Same-epoch replacement | Commit and start a replacement inside old range lookup or layout lookup | Two cases; no later old edits or UI updates |
+| Keyboard state reentrancy | New Ctrl state injected during target cleanup and compartment lookup | Two key-entry cases; current event keeps its snapshot, next event observes Ctrl |
+
+The added lifecycle matrix has explicit 86/8/4 case-count assertions. Its two
+same-epoch replacement cases and two keyboard-state regressions are additional
+to those 98 cases. Plain-key fixtures isolate and restore thread keyboard state;
+modifier-specific tests retain their intentional state and the real Shift-tap
+deadline. This inventory is not a measured coverage percentage.
+
+Task 47 still requires actual VS Code/browser focus and UI validation. Mock and
+private-document tests are not proof of arbitrary host callback orderings,
+successful cleanup without write access, or certification of the entire
+document/window lifecycle.
 
 ## 10. Official References
 

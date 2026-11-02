@@ -7,6 +7,34 @@ namespace qiqi {
 
 namespace {
 
+template <typename IsCurrent>
+HRESULT ClearCompositionDisplayAttribute(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range,
+    IsCurrent is_current, bool* clear_started = nullptr) {
+    if (!is_current()) {
+        QIQI_LOG_DEBUG("CompositionAttributeClear: invalidated operation skipped");
+        return S_FALSE;
+    }
+    ComPtr<ITfProperty> property;
+    const HRESULT property_hr = context->GetProperty(GUID_PROP_ATTRIBUTE, &property);
+    if (!log::CheckHResult(property_hr, "CompositionCleanup::GetProperty(GUID_PROP_ATTRIBUTE)")) {
+        return property_hr;
+    }
+    if (!property) {
+        QIQI_LOG_WARN("CompositionCleanup::GetProperty returned no property (hr=0x{:08x})",
+                       gsl::narrow_cast<unsigned int>(property_hr));
+        return E_UNEXPECTED;
+    }
+    if (!is_current()) {
+        QIQI_LOG_DEBUG("CompositionAttributeClear: invalidated operation skipped after property lookup");
+        return S_FALSE;
+    }
+    if (clear_started) *clear_started = true;
+    const HRESULT hr = property->Clear(ec, range.get());
+    std::ignore = log::CheckHResult(hr, "CompositionCleanup::Clear(GUID_PROP_ATTRIBUTE)");
+    return hr;
+}
+
 bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
     GUITHREADINFO gti{};
     gti.cbSize = sizeof(gti);
@@ -38,6 +66,7 @@ bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
 } // namespace
 
 QiQiTextService::CompositionCleanup::~CompositionCleanup() noexcept {
+    if (id == 0) return;
     QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=released, async_requested={}, started={}, finished={}, terminated={}, context_removed={})",
                    service_id, id, async_requested, started, finished, terminated, context_removed);
 }
@@ -58,6 +87,12 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfC
     for (const auto& pending : composition_cleanups_) {
         const auto cleanup = pending.lock();
         if (pComposition && cleanup && pComposition == cleanup->composition.Get()) {
+            if (cleanup->id == 0) {
+                cleanup->terminated = true;
+                cleanup->finished = true;
+                QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=composition-start-terminated)", service_log_id_);
+                return S_OK;
+            }
             QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=host-terminated, started={}, finished={}, duplicate={})",
                            cleanup->service_id, cleanup->id, cleanup->started, cleanup->finished, cleanup->terminated);
             if (cleanup->terminated) {
@@ -65,10 +100,11 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfC
             }
             cleanup->terminated = true;
             if (cleanup->context_removed) return S_OK;
-            if (!cleanup->started && cleanup->range) {
-                const HRESULT clear_hr = ClearCompositionDisplayAttributeInSession(
+            if (!cleanup->attribute_clear_started && cleanup->range) {
+                const HRESULT clear_hr = ClearCompositionDisplayAttribute(
                     ecWrite, gsl::not_null<ITfContext*>(cleanup->context.Get()),
-                    gsl::not_null<ITfRange*>(cleanup->range.Get()));
+                    gsl::not_null<ITfRange*>(cleanup->range.Get()),
+                    [&cleanup]() noexcept { return !cleanup->context_removed; }, &cleanup->attribute_clear_started);
                 cleanup->LogResult("host-attribute-clear", clear_hr);
             }
             if (!cleanup->started) cleanup->finished = true;
@@ -90,14 +126,17 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfC
         const HRESULT range_hr = composition_holder->GetRange(&range);
         if (log::CheckHResult(range_hr, "HostTermination::GetRange")) {
             if (range) {
-                std::ignore = ClearCompositionDisplayAttributeInSession(
-                    ecWrite, gsl::not_null<ITfContext*>(context_holder.Get()), gsl::not_null<ITfRange*>(range.Get()));
+                std::ignore = ClearCompositionDisplayAttribute(
+                    ecWrite, gsl::not_null<ITfContext*>(context_holder.Get()), gsl::not_null<ITfRange*>(range.Get()),
+                    [this, epoch, &context_holder]() noexcept {
+                        return IsCompositionEditCurrent(epoch, context_holder.Get(), nullptr);
+                    });
             } else {
                 QIQI_LOG_WARN("HostTermination::GetRange returned no range (hr=0x{:08x})",
                                gsl::narrow_cast<unsigned int>(range_hr));
             }
         }
-        if (!IsEditSessionCurrent(epoch, context_holder.Get())) {
+        if (!IsCompositionEditCurrent(epoch, context_holder.Get(), nullptr)) {
             return S_OK;
         }
     }
@@ -111,16 +150,21 @@ void QiQiTextService::ScheduleCompositionCleanup() {
                        service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context);
         return;
     }
+    ScheduleCompositionCleanup(active_context_, std::move(composition_), client_id_);
+}
+
+void QiQiTextService::ScheduleCompositionCleanup(
+    ComPtr<ITfContext> context, ComPtr<ITfComposition> composition, TfClientId client_id) {
     const auto cleanup = std::make_shared<CompositionCleanup>();
     cleanup->service_id = service_log_id_;
     cleanup->id = ++next_cleanup_log_id_;
     QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=created, activation={}, context={}, client_id={})",
-                   cleanup->service_id, cleanup->id, edit_session_epoch_.activation, edit_session_epoch_.context, client_id_);
-    cleanup->composition = std::move(composition_);
-    cleanup->context = active_context_;
-    if (!active_context_ || client_id_ == TF_CLIENTID_NULL) {
+                   cleanup->service_id, cleanup->id, edit_session_epoch_.activation, edit_session_epoch_.context, client_id);
+    cleanup->composition = std::move(composition);
+    cleanup->context = std::move(context);
+    if (!cleanup->context || client_id == TF_CLIENTID_NULL) {
         QIQI_LOG_WARN("TsfCleanup(service={}, cleanup={}, stage=unavailable, has_context={}, valid_client={})",
-                       cleanup->service_id, cleanup->id, active_context_ != nullptr, client_id_ != TF_CLIENTID_NULL);
+                       cleanup->service_id, cleanup->id, cleanup->context != nullptr, client_id != TF_CLIENTID_NULL);
         return;
     }
     std::ignore = HasPendingCompositionCleanup(nullptr);
@@ -157,9 +201,11 @@ void QiQiTextService::ScheduleCompositionCleanup() {
                 return S_OK;
             }
             if (cleanup->range) {
-                const HRESULT clear_hr = ClearCompositionDisplayAttributeInSession(
+                const HRESULT clear_hr = ClearCompositionDisplayAttribute(
                     ec, gsl::not_null<ITfContext*>(cleanup->context.Get()),
-                    gsl::not_null<ITfRange*>(cleanup->range.Get()));
+                    gsl::not_null<ITfRange*>(cleanup->range.Get()),
+                    [&cleanup]() noexcept { return !cleanup->terminated && !cleanup->context_removed; },
+                    &cleanup->attribute_clear_started);
                 cleanup->LogResult("attribute-clear", clear_hr);
             }
             if (cleanup->terminated || cleanup->context_removed) {
@@ -177,7 +223,7 @@ void QiQiTextService::ScheduleCompositionCleanup() {
     QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=sync-request, flags=0x{:x})",
                    cleanup->service_id, cleanup->id, TF_ES_SYNC | TF_ES_READWRITE);
     const HRESULT request_hr = cleanup->context->RequestEditSession(
-        client_id_, session.Get(), TF_ES_SYNC | TF_ES_READWRITE, &session_hr);
+        client_id, session.Get(), TF_ES_SYNC | TF_ES_READWRITE, &session_hr);
     QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=sync-result, request_hr=0x{:08x}, session_hr=0x{:08x}, started={}, terminated={})",
                    cleanup->service_id, cleanup->id, gsl::narrow_cast<unsigned int>(request_hr),
                    gsl::narrow_cast<unsigned int>(session_hr), cleanup->started, cleanup->terminated);
@@ -190,7 +236,7 @@ void QiQiTextService::ScheduleCompositionCleanup() {
         QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=async-request, flags=0x{:x})",
                        cleanup->service_id, cleanup->id, TF_ES_ASYNC | TF_ES_READWRITE);
         const HRESULT async_hr = cleanup->context->RequestEditSession(
-            client_id_, session.Get(), TF_ES_ASYNC | TF_ES_READWRITE, &session_hr);
+            client_id, session.Get(), TF_ES_ASYNC | TF_ES_READWRITE, &session_hr);
         QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=async-result, request_hr=0x{:08x}, session_hr=0x{:08x}, queued={})",
                        cleanup->service_id, cleanup->id, gsl::narrow_cast<unsigned int>(async_hr),
                        gsl::narrow_cast<unsigned int>(session_hr), SUCCEEDED(async_hr) && session_hr == TF_S_ASYNC);
@@ -218,6 +264,10 @@ bool QiQiTextService::HasPendingCompositionCleanup(const ITfContext* context) {
     for (const auto& pending : composition_cleanups_) {
         const auto cleanup = pending.lock();
         if (cleanup && cleanup->context.Get() == context) {
+            if (cleanup->id == 0) {
+                QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=composition-start-write-deferred)", service_log_id_);
+                return true;
+            }
             QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=write-forced-async)",
                            cleanup->service_id, cleanup->id);
             return true;
@@ -232,6 +282,10 @@ void QiQiTextService::MarkCompositionContextRemoved(const ITfContext* context) n
         if (cleanup && cleanup->context.Get() == context) {
             cleanup->context_removed = true;
             cleanup->finished = true;
+            if (cleanup->id == 0) {
+                QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=composition-start-removed)", service_log_id_);
+                continue;
+            }
             QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=context-removed, started={})",
                            cleanup->service_id, cleanup->id, cleanup->started);
         }
@@ -339,6 +393,15 @@ bool QiQiTextService::PrepareInputContext(ITfContext* context) {
     return true;
 }
 
+bool QiQiTextService::IsCompositionEditCurrent(
+    EditSessionEpoch epoch, const ITfContext* context, const ITfComposition* composition) const noexcept {
+    if (!IsEditSessionCurrent(epoch, context)) return false;
+    if (composition_.Get() == composition) return true;
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=replaced-composition-edit-skipped, activation={}, context={})",
+                   service_log_id_, epoch.activation, epoch.context);
+    return false;
+}
+
 void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessResult& result) {
     if (!context || !is_active_ || resetting_context_ || preparing_input_context_ ||
         context != active_context_.Get()) {
@@ -354,16 +417,22 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
         if (!self_holder->IsEditSessionCurrent(epoch, ctx_holder.Get())) {
             return S_OK;
         }
+        if (self_holder->HasPendingCompositionCleanup(ctx_holder.Get())) {
+            QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=write-requeued-behind-cleanup, activation={}, context={})",
+                           self_holder->service_log_id_, epoch.activation, epoch.context);
+            self_holder->ApplyEngineResult(ctx_holder.Get(), result);
+            return S_OK;
+        }
         const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
         if (result.action == KeyActionType::Cancel) {
             self_holder->CancelCompositionInSession(ec, non_null_ctx.get());
-            if (self_holder->IsEditSessionCurrent(epoch, ctx_holder.Get())) self_holder->EndCandidateUI();
+            if (self_holder->IsCompositionEditCurrent(epoch, ctx_holder.Get(), nullptr)) self_holder->EndCandidateUI();
             return S_OK;
         }
 
         if (result.action == KeyActionType::Commit) {
             self_holder->CommitAndEndCompositionInSession(ec, non_null_ctx, result.committed_text);
-            if (!self_holder->IsEditSessionCurrent(epoch, ctx_holder.Get())) return S_OK;
+            if (!self_holder->IsCompositionEditCurrent(epoch, ctx_holder.Get(), nullptr)) return S_OK;
             if (!result.composition_text.empty()) {
                 // e.g. 5th key auto-committed previous 4-code word and started a new 1-code composition
                 self_holder->SyncCompositionUIInSession(ec, non_null_ctx, result);
@@ -397,22 +466,26 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
 void QiQiTextService::SyncCompositionUIInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot) {
     const auto epoch = edit_session_epoch_;
-    StartOrUpdateCompositionInSession(ec, context, snapshot.composition_text);
-    if (!IsEditSessionCurrent(epoch, context.get())) return;
+    const auto composition = StartOrUpdateCompositionInSession(ec, context, snapshot.composition_text);
+    if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return;
     UpdateCandidateWindowPositionInSession(ec, context);
-    if (!IsEditSessionCurrent(epoch, context.get())) return;
+    if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return;
     BeginOrUpdateCandidateUI(snapshot);
 }
 
 void QiQiTextService::SetRangeTextAndCollapseCaret(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range, std::wstring_view text) {
+    const auto epoch = edit_session_epoch_;
+    const auto composition = composition_;
     std::ignore = log::CheckHResult(range->SetText(ec, 0, text.data(), gsl::narrow_cast<LONG>(text.size())),
                                    "SetRangeTextAndCollapseCaret::SetText");
-
+    if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return;
     ComPtr<ITfRange> caret_range;
     if (log::CheckHResult(range->Clone(&caret_range), "SetRangeTextAndCollapseCaret::Clone") && caret_range) {
+        if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return;
         std::ignore = log::CheckHResult(caret_range->Collapse(ec, TF_ANCHOR_END),
                                        "SetRangeTextAndCollapseCaret::Collapse");
+        if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return;
         TF_SELECTION sel{};
         sel.range = caret_range.Get();
         sel.style.ase = TF_AE_NONE;
@@ -422,69 +495,106 @@ void QiQiTextService::SetRangeTextAndCollapseCaret(
     }
 }
 
-void QiQiTextService::StartOrUpdateCompositionInSession(
+ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text) {
+    const auto epoch = edit_session_epoch_;
+    const TfClientId client_id = client_id_;
     if (!composition_) {
         ComPtr<ITfInsertAtSelection> insert_at_sel;
         if (!log::CheckHResult(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel)),
                               "StartOrUpdateComposition::QueryInterface(ITfInsertAtSelection)") || !insert_at_sel) {
-            return;
+            return {};
         }
+        if (!IsCompositionEditCurrent(epoch, context.get(), nullptr)) return {};
         ComPtr<ITfRange> insert_range;
         if (!log::CheckHResult(insert_at_sel->InsertTextAtSelection(
                 ec, TF_IAS_QUERYONLY, nullptr, 0, &insert_range),
                 "StartOrUpdateComposition::InsertTextAtSelection(TF_IAS_QUERYONLY)") || !insert_range) {
-            return;
+            return {};
         }
+        if (!IsCompositionEditCurrent(epoch, context.get(), nullptr)) return {};
 
         ComPtr<ITfContextComposition> ctx_comp;
         if (!log::CheckHResult(context->QueryInterface(IID_PPV_ARGS(&ctx_comp)),
                               "StartOrUpdateComposition::QueryInterface(ITfContextComposition)") || !ctx_comp) {
-            return;
+            return {};
         }
-        if (!log::CheckHResult(ctx_comp->StartComposition(
-                ec, insert_range.Get(), static_cast<ITfCompositionSink*>(this), &composition_),
-                "StartOrUpdateComposition::StartComposition") ||
-            !composition_) {
-            return;
+        if (!IsCompositionEditCurrent(epoch, context.get(), nullptr)) return {};
+        // Track the unpublished result so removal/termination during StartComposition is remembered.
+        const auto starting = std::make_shared<CompositionCleanup>();
+        starting->context = context.get();
+        composition_cleanups_.push_back(starting);
+        const HRESULT start_hr = ctx_comp->StartComposition(ec, insert_range.Get(), this, &starting->composition);
+        const bool start_ok = log::CheckHResult(start_hr, "StartOrUpdateComposition::StartComposition");
+        starting->finished = true;
+        if (!IsCompositionEditCurrent(epoch, context.get(), nullptr) ||
+            starting->context_removed || starting->terminated) {
+            QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=stale-composition-start, activation={}, context={}, "
+                           "context_removed={}, terminated={})",
+                           service_log_id_, epoch.activation, epoch.context, starting->context_removed, starting->terminated);
+            if (starting->composition && !starting->context_removed && !starting->terminated) {
+                ScheduleCompositionCleanup(starting->context, std::move(starting->composition), client_id);
+            }
+            if (starting->terminated && IsCompositionEditCurrent(epoch, context.get(), nullptr)) {
+                ResetCompositionAndUI();
+            }
+            return {};
         }
+        if (!start_ok || !starting->composition) {
+            return {};
+        }
+        composition_ = std::move(starting->composition);
     }
 
+    const auto composition = composition_;
     ComPtr<ITfRange> comp_range;
-    if (!log::CheckHResult(composition_->GetRange(&comp_range), "StartOrUpdateComposition::GetRange") || !comp_range) {
-        return;
+    if (!log::CheckHResult(composition->GetRange(&comp_range), "StartOrUpdateComposition::GetRange") || !comp_range) {
+        return composition;
     }
+    if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return composition;
     SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), text);
+    if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return composition;
 
     // Apply dotted underline display attribute to the composition range
     if (display_attribute_atom_ != TF_INVALID_GUIDATOM) {
         ComPtr<ITfProperty> disp_prop;
         if (log::CheckHResult(context->GetProperty(GUID_PROP_ATTRIBUTE, &disp_prop),
                              "StartOrUpdateComposition::GetProperty(GUID_PROP_ATTRIBUTE)") && disp_prop) {
+            if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return composition;
             const VARIANT var = MakeInt4Variant(gsl::narrow_cast<LONG>(display_attribute_atom_));
             std::ignore = log::CheckHResult(disp_prop->SetValue(ec, comp_range.Get(), &var),
                                            "StartOrUpdateComposition::SetValue(GUID_PROP_ATTRIBUTE)");
         }
     }
+    return composition;
 }
 
 void QiQiTextService::CommitAndEndCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text) {
-    if (composition_) {
+    const auto epoch = edit_session_epoch_;
+    const auto composition = composition_;
+    if (composition) {
         ComPtr<ITfRange> comp_range;
-        if (log::CheckHResult(composition_->GetRange(&comp_range), "CommitComposition::GetRange") && comp_range) {
-            std::ignore = ClearCompositionDisplayAttributeInSession(
-                ec, context, gsl::not_null<ITfRange*>(comp_range.Get()));
+        if (log::CheckHResult(composition->GetRange(&comp_range), "CommitComposition::GetRange") && comp_range) {
+            if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return;
+            std::ignore = ClearCompositionDisplayAttribute(
+                ec, context, gsl::not_null<ITfRange*>(comp_range.Get()),
+                [this, epoch, &context, &composition]() noexcept {
+                    return IsCompositionEditCurrent(epoch, context.get(), composition.Get());
+                });
+            if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return;
             SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), committed_text);
         }
-        std::ignore = log::CheckHResult(composition_->EndComposition(ec), "CommitComposition::EndComposition");
+        if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return;
         composition_.Reset();
         has_valid_caret_pos_ = false;
+        std::ignore = log::CheckHResult(composition->EndComposition(ec), "CommitComposition::EndComposition");
     } else if (!committed_text.empty()) {
         // Direct commit without prior composition (e.g. Chinese punctuation)
         ComPtr<ITfInsertAtSelection> insert_at_sel;
         if (log::CheckHResult(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel)),
                              "DirectCommit::QueryInterface(ITfInsertAtSelection)") && insert_at_sel) {
+            if (!IsCompositionEditCurrent(epoch, context.get(), nullptr)) return;
             ComPtr<ITfRange> inserted_range;
             std::ignore = log::CheckHResult(insert_at_sel->InsertTextAtSelection(
                     ec, 0, committed_text.c_str(), gsl::narrow_cast<LONG>(committed_text.size()), &inserted_range),
@@ -493,34 +603,22 @@ void QiQiTextService::CommitAndEndCompositionInSession(
     }
 }
 
-HRESULT QiQiTextService::ClearCompositionDisplayAttributeInSession(
-    TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range) {
-    ComPtr<ITfProperty> property;
-    const HRESULT property_hr = context->GetProperty(GUID_PROP_ATTRIBUTE, &property);
-    if (!log::CheckHResult(property_hr, "CompositionCleanup::GetProperty(GUID_PROP_ATTRIBUTE)")) {
-        return property_hr;
-    }
-    if (!property) {
-        QIQI_LOG_WARN("CompositionCleanup::GetProperty returned no property (hr=0x{:08x})",
-                       gsl::narrow_cast<unsigned int>(property_hr));
-        return E_UNEXPECTED;
-    }
-    const HRESULT hr = property->Clear(ec, range.get());
-    std::ignore = log::CheckHResult(hr, "CompositionCleanup::Clear(GUID_PROP_ATTRIBUTE)");
-    return hr;
-}
-
-void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, ITfContext* /*context*/) {
-    has_valid_caret_pos_ = false;
-    if (!composition_) {
+void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, const ITfContext* context) {
+    const auto epoch = edit_session_epoch_;
+    const auto composition = composition_;
+    if (!composition) {
+        has_valid_caret_pos_ = false;
         return;
     }
     ComPtr<ITfRange> comp_range;
-    if (log::CheckHResult(composition_->GetRange(&comp_range), "CancelComposition::GetRange") && comp_range) {
+    if (log::CheckHResult(composition->GetRange(&comp_range), "CancelComposition::GetRange") && comp_range) {
+        if (!IsCompositionEditCurrent(epoch, context, composition.Get())) return;
         std::ignore = log::CheckHResult(comp_range->SetText(ec, 0, L"", 0), "CancelComposition::SetText");
     }
-    std::ignore = log::CheckHResult(composition_->EndComposition(ec), "CancelComposition::EndComposition");
+    if (!IsCompositionEditCurrent(epoch, context, composition.Get())) return;
     composition_.Reset();
+    has_valid_caret_pos_ = false;
+    std::ignore = log::CheckHResult(composition->EndComposition(ec), "CancelComposition::EndComposition");
 }
 
 void QiQiTextService::UpdateCandidateWindowPositionInSession(
@@ -536,12 +634,12 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
     BOOL clipped = FALSE;
     const bool got_position =
         log::CheckHResult(context->GetActiveView(&view), "CandidatePosition::GetActiveView", log::Level::debug) && view &&
-        IsEditSessionCurrent(epoch, context.get()) &&
+        IsCompositionEditCurrent(epoch, context.get(), composition.Get()) &&
         log::CheckHResult(composition->GetRange(&comp_range), "CandidatePosition::GetRange", log::Level::debug) && comp_range &&
-        IsEditSessionCurrent(epoch, context.get()) &&
+        IsCompositionEditCurrent(epoch, context.get(), composition.Get()) &&
         log::CheckHResult(view->GetTextExt(ec, comp_range.Get(), &rc, &clipped),
                          "CandidatePosition::GetTextExt", log::Level::trace);
-    if (!IsEditSessionCurrent(epoch, context.get()) || composition_ != composition) return;
+    if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return;
     if (got_position) {
         has_valid_caret_pos_ = true;
         candidate_ui_->MoveWindowTo(rc);
