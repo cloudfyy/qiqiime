@@ -74,7 +74,8 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
     if (!pfEaten) {
         return E_INVALIDARG;
     }
-    if (IsContextKeyboardDisabled(pic)) {
+    const bool keyboard_disabled = IsContextKeyboardDisabled(pic);
+    if (!pic || !is_active_ || resetting_context_ || preparing_input_context_ || keyboard_disabled) {
         shift_tap_candidate_ = false;
         shift_press_tick_ = 0;
         *pfEaten = FALSE;
@@ -98,14 +99,14 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
     shift_tap_candidate_ = false;
     shift_press_tick_ = 0;
 
-    *pfEaten = engine_.ShouldEatKey(
-                   vk,
-                   IsKeyDown(VK_SHIFT),
-                   IsKeyDown(VK_CONTROL),
-                   IsKeyDown(VK_MENU),
-                   IsCapsLockOn())
-                   ? TRUE
-                   : FALSE;
+    const bool shift = IsKeyDown(VK_SHIFT);
+    const bool ctrl = IsKeyDown(VK_CONTROL);
+    const bool alt = IsKeyDown(VK_MENU);
+    const bool caps = IsCapsLockOn();
+    const bool eat_key = pic == active_context_.Get()
+        ? engine_.ShouldEatKey(vk, shift, ctrl, alt, caps)
+        : engine_.ShouldEatKeyAfterReset(vk, shift, ctrl, alt, caps);
+    *pfEaten = eat_key ? TRUE : FALSE;
     return S_OK;
 }
 

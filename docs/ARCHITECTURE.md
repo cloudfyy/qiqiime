@@ -62,8 +62,10 @@
 
 ### 2.3 按键处理与编辑会话（`OnTestKeyDown` -> `OnKeyDown` -> `RequestEditSession`）
 TSF 的按键处理分为两步：
-1. `OnTestKeyDown`：仅询问输入法**是否打算消费该按键**（`engine_.ShouldEatKey(...)`）。只消费当前状态下真正需要处理的键，绝不在空闲状态下吞掉 `Enter`、`Backspace` 或方向键。
-2. `OnKeyDown`：推进 `WubiEngine` 编译期有限状态机（[`fsm.h`](../src/Ime/engine/fsm.h) 为兼容入口；状态/事件定义、按键映射、转移规则和分页辅助分别位于 `fsm_types.h`、`fsm_key_mapping.h`、`fsm_transitions.h`、`fsm_pagination.h`），得到 `KeyProcessResult`（`UpdateState` / `Commit` / `Cancel`），触发音效（若启用了按键音或空码提示音），然后通过 `ITfContext::RequestEditSession` 提交 `LambdaEditSession`。
+1. `OnTestKeyDown`：仅询问输入法**是否打算消费该按键**。当前 context 使用 `engine_.ShouldEatKey(...)`；不同 context 使用只读的 `ShouldEatKeyAfterReset(...)`，按实际目标切换后将采用的状态预测，不把旧组合的选词/退格语义带到新输入框。空 context、未激活或重入生命周期转换不消费。预判不绑定 context、不清理宿主组合、不申请编辑会话，也不推进 FSM；原有 Shift 轻触跟踪独立保留。
+2. `OnKeyDown`：先通过 `PrepareInputContext` 准备目标、必要时重置旧引擎并失效旧周期，再推进 `WubiEngine` 编译期有限状态机（[`fsm.h`](../src/Ime/engine/fsm.h) 为兼容入口；状态/事件定义、按键映射、转移规则和分页辅助分别位于 `fsm_types.h`、`fsm_key_mapping.h`、`fsm_transitions.h`、`fsm_pagination.h`），得到 `KeyProcessResult`（`UpdateState` / `Commit` / `Cancel`），触发音效（若启用了按键音或空码提示音），然后通过 `ITfContext::RequestEditSession` 提交 `LambdaEditSession`。预判成功不保证编辑权限，实际回调仍复核状态。
+
+上下文切换、失焦、移除和停用是 FSM 外部的生命周期事件，不加入现有 7 状态 × 16 按键事件表。`Reset` 与只读预判共用 `StateAfterCompositionReset`：中文组合态（含临时英文）回到 `Idle`，`English` 保持不变；全半角及标点模式不被目标切换改写。旧宿主组合的同步/异步清理独立于新目标的引擎状态，不能用“仍有待清理宿主组合”推断 FSM 仍在组合态。
 
 在 `DoEditSession(TfEditCookie ec)` 内完成：
 - **新建或更新组合串**：`ITfInsertAtSelection::InsertTextAtSelection` + `ITfContextComposition::StartComposition` + `ITfRange::SetText` + 设置 `GUID_PROP_ATTRIBUTE` 下划线显示属性。

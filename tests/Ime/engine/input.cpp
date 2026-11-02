@@ -2,7 +2,10 @@
 #include "Ime/engine/engine.h"
 
 #include <windows.h>
+#include <array>
 #include <string>
+#include <string_view>
+#include <utility>
 
 namespace qiqi::test {
 
@@ -144,6 +147,61 @@ void TestCompileTimeFsmTransitions() {
     const auto comp_shift_caps = engine.ProcessKey('B', true, false, false, true);
     QIQI_TEST_CHECK(comp_shift_caps.action == KeyActionType::UpdateState && comp_shift_caps.composition_text == L"ab");
     engine.Reset();
+}
+
+void TestResetKeyPrediction() {
+    static_assert(StateAfterCompositionReset(EngineState::English) == EngineState::English);
+    static_assert(StateAfterCompositionReset(EngineState::Idle) == EngineState::Idle);
+    static_assert(StateAfterCompositionReset(EngineState::Composing4) == EngineState::Idle);
+    static_assert(StateAfterCompositionReset(EngineState::TempEnglish) == EngineState::Idle);
+    constexpr std::array<std::pair<EngineState, std::wstring_view>, 7> seeds = {{
+        {EngineState::English, L""},
+        {EngineState::Idle, L""},
+        {EngineState::Composing1, L"a"},
+        {EngineState::Composing2, L"ab"},
+        {EngineState::Composing3, L"abc"},
+        {EngineState::Composing4, L"abcz"},
+        {EngineState::TempEnglish, L"z"}
+    }};
+    for (const auto& entry : seeds) {
+        const EngineState state = entry.first;
+        const std::wstring_view seed = entry.second;
+        for (const bool full_width : {false, true}) {
+            QiQiConfig config{};
+            config.default_chinese_mode = state != EngineState::English;
+            config.default_full_width = full_width;
+            config.auto_commit_4code = false;
+            config.clear_on_empty_4code = false;
+            config.enable_z_temp_english = true;
+            config.semicolon_quote_quick_select = true;
+            WubiEngine engine;
+            engine.ApplyConfig(config);
+            for (const wchar_t code : seed) engine.ProcessKey(gsl::narrow_cast<uint32_t>(code - L'a' + L'A'));
+            QIQI_TEST_CHECK(engine.State() == state);
+            const auto candidates = engine.AllCandidates();
+            const auto page = engine.CurrentPage();
+            const auto selected = engine.SelectedInPage();
+            WubiEngine reset_engine;
+            reset_engine.ApplyConfig(config);
+            reset_engine.Reset();
+            for (uint32_t modifiers = 0; modifiers < 16; ++modifiers) {
+                const bool shift = (modifiers & 1) != 0;
+                const bool ctrl = (modifiers & 2) != 0;
+                const bool alt = (modifiers & 4) != 0;
+                const bool caps = (modifiers & 8) != 0;
+                for (uint32_t vk = 0; vk < 256; ++vk) {
+                    QIQI_TEST_CHECK(engine.ShouldEatKeyAfterReset(vk, shift, ctrl, alt, caps) ==
+                                    reset_engine.ShouldEatKey(vk, shift, ctrl, alt, caps));
+                }
+            }
+            QIQI_TEST_CHECK(engine.State() == state && engine.RawCode() == seed && engine.AllCandidates() == candidates);
+            QIQI_TEST_CHECK(engine.CurrentPage() == page && engine.SelectedInPage() == selected);
+            engine.Reset();
+            QIQI_TEST_CHECK(engine.State() == StateAfterCompositionReset(state) && engine.RawCode().empty());
+            QIQI_TEST_CHECK(engine.AllCandidates().empty() && engine.CurrentPage() == 0 && engine.SelectedInPage() == 0);
+            QIQI_TEST_CHECK(engine.IsFullWidthMode() == full_width && engine.IsChineseMode() == config.default_chinese_mode);
+        }
+    }
 }
 
 void TestFirstLevelShortCodes() {
@@ -650,6 +708,7 @@ void TestNavigationSelectionAndReturnCommit() {
 
 void RunEngineInputTests() {
     TestCompileTimeFsmTransitions();
+    TestResetKeyPrediction();
     TestFirstLevelShortCodes();
     TestFourCodeUniqueAutoCommit();
     TestFifthKeyPushAutoCommit();

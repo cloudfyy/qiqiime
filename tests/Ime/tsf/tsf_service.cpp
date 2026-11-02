@@ -367,6 +367,7 @@ void TestAdditionalContextLifecycleCoverage(gsl::not_null<QiQiTextService*> serv
         context->layout_advise_callback_ = [&] {
             QIQI_TEST_CHECK(document->Pop(TF_POPF_ALL) == S_OK);
             BOOL nested_eaten = TRUE;
+            QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'B', 0, &nested_eaten) == S_OK && !nested_eaten);
             QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &nested_eaten) == S_OK && !nested_eaten);
         };
         BOOL eaten = TRUE;
@@ -487,6 +488,87 @@ void TestAdditionalContextLifecycleCoverage(gsl::not_null<QiQiTextService*> serv
         QIQI_TEST_CHECK(focus_service->OnSetFocus(document.Get(), document.Get()) == S_OK);
         document->get_top_callback = {};
         QIQI_TEST_CHECK(!::IsWindowVisible(status) && context->last_composition_->ended_ && !context->layout_sink_);
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
+void TestContextFsmKeyPrediction(gsl::not_null<QiQiTextService*> service) {
+    const auto objects_before = g_com_object_count.load();
+    std::array<BYTE, 256> original_keyboard{};
+    QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
+    const auto restore_keyboard = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(::SetKeyboardState(original_keyboard.data()));
+    });
+    std::array<BYTE, 256> clean_keyboard{};
+    QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+    {
+        auto inactive_service = MakeComObject<QiQiTextService>(g_dll_instance);
+        auto context = MakeComObject<MockTfContext>();
+        BOOL eaten = TRUE;
+        QIQI_TEST_CHECK(inactive_service->OnTestKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(inactive_service->OnTestKeyDown(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(inactive_service->OnTestKeyUp(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    }
+    for (const bool temporary_english : {false, true}) {
+        auto current = MakeComObject<MockTfContext>();
+        auto next = MakeComObject<MockTfContext>();
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(current.Get(), temporary_english ? 'Z' : 'A', 0, &eaten) == S_OK && eaten);
+        const auto composition = current->last_composition_;
+        const auto initial_text = current->range_->text_;
+        const auto requests_before = current->request_edit_session_calls_;
+        for (const UINT key : std::array<UINT, 5>{VK_BACK, VK_SPACE, VK_RETURN, VK_ESCAPE, '1'}) {
+            QIQI_TEST_CHECK(service->OnTestKeyDown(current.Get(), key, 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(service->OnTestKeyDown(next.Get(), key, 0, &eaten) == S_OK && !eaten);
+        }
+        for (const UINT key : {VK_LEFT, VK_NEXT}) {
+            QIQI_TEST_CHECK(service->OnTestKeyDown(current.Get(), key, 0, &eaten) == S_OK);
+            QIQI_TEST_CHECK((eaten != FALSE) == !temporary_english);
+            QIQI_TEST_CHECK(service->OnTestKeyDown(next.Get(), key, 0, &eaten) == S_OK && !eaten);
+        }
+        for (const UINT modifier : {VK_SHIFT, VK_CAPITAL}) {
+            auto keyboard = clean_keyboard;
+            gsl::at(keyboard, modifier) = modifier == VK_SHIFT ? BYTE{0x80} : BYTE{1};
+            QIQI_TEST_CHECK(::SetKeyboardState(keyboard.data()));
+            QIQI_TEST_CHECK(service->OnTestKeyDown(current.Get(), 'D', 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(service->OnTestKeyDown(next.Get(), 'D', 0, &eaten) == S_OK && !eaten);
+        }
+        QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+        QIQI_TEST_CHECK(service->OnTestKeyDown(nullptr, 'B', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(!composition->ended_ && current->range_->text_ == initial_text);
+        QIQI_TEST_CHECK(current->request_edit_session_calls_ == requests_before && next->request_edit_session_calls_ == 0);
+        QIQI_TEST_CHECK(!next->layout_sink_ && next->start_composition_calls_ == 0);
+        QIQI_TEST_CHECK(service->OnTestKeyDown(current.Get(), VK_BACK, 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(service->OnKeyDown(current.Get(), 'B', 0, &eaten) == S_OK && eaten);
+        const auto continued_text = initial_text + L"b";
+        QIQI_TEST_CHECK(current->range_->text_ == continued_text && !composition->ended_);
+        QIQI_TEST_CHECK(service->OnTestKeyDown(next.Get(), 'C', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(service->OnKeyDown(next.Get(), 'C', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(composition->ended_ && current->range_->text_ == continued_text && next->range_->text_ == L"c");
+        const auto next_composition = next->last_composition_;
+        next_composition->get_range_callback_ = [&] {
+            QIQI_TEST_CHECK(service->OnTestKeyDown(next.Get(), 'D', 0, &eaten) == S_OK && !eaten);
+        };
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+        next_composition->get_range_callback_ = {};
+    }
+    {
+        auto current = MakeComObject<MockTfContext>();
+        auto next = MakeComObject<MockTfContext>();
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnPreservedKey(current.Get(), kGuidPreservedKeyToggleMode, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(service->OnTestKeyDown(next.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(service->OnKeyDown(next.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(next->range_->text_.empty() && next->request_edit_session_calls_ == 0);
+        QIQI_TEST_CHECK(service->OnPreservedKey(next.Get(), kGuidPreservedKeyToggleFullWidth, &eaten) == S_OK && eaten);
+        auto full_width_context = MakeComObject<MockTfContext>();
+        QIQI_TEST_CHECK(service->OnTestKeyDown(full_width_context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(service->OnKeyDown(full_width_context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(full_width_context->range_->text_ == L"\uff41");
+        QIQI_TEST_CHECK(service->OnPreservedKey(full_width_context.Get(), kGuidPreservedKeyToggleFullWidth, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(service->OnTestKeyDown(full_width_context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(service->OnPreservedKey(full_width_context.Get(), kGuidPreservedKeyToggleMode, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
     }
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
@@ -1026,6 +1108,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     }
     QIQI_TEST_CHECK(g_com_object_count.load() == document_objects_before);
     TestAdditionalContextLifecycleCoverage(gsl::not_null<QiQiTextService*>(service.Get()));
+    TestContextFsmKeyPrediction(gsl::not_null<QiQiTextService*>(service.Get()));
 
     // Deactivation preserves preedit text and ends only the captured host composition.
     {

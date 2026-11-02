@@ -220,6 +220,10 @@ The preparation guard retains the pending context, not just a Boolean flag. A ma
 
 `ApplyEngineResult` no longer switches targets after the fact. UI/configuration callbacks can submit results only for an already prepared current context. Backspace in a fresh context is therefore passed through when its engine has no composition, instead of creating text derived from the previous context.
 
+`OnTestKeyDown` must predict that same boundary without performing it. For the current context it uses `ShouldEatKey`; for a different context it uses the read-only `ShouldEatKeyAfterReset`. Both routes share the configured key classifier and transition table. The preview does not bind contexts, reset the live engine, end host compositions, or request edit sessions; the existing Shift-tap tracking remains separate. Missing/inactive targets and reentrant reset/binding are declined. A positive prediction is not an edit-permission grant: the actual callback still prepares and rechecks its target.
+
+The engine's seven states and sixteen key-event categories are unchanged. Lifecycle reset is external to the key transition table. `StateAfterCompositionReset`, shared by actual reset and preview, maps Chinese composing states (including `TempEnglish`) to `Idle`, leaves `Idle` unchanged, and preserves `English`. Full-width and punctuation modes are retained. A deferred old-host cleanup must not keep the new target's FSM in a composing state.
+
 The shared reset path also fixes a second gap in task 43: context switching and focus loss previously released the local composition reference without explicitly ending the host composition. Connected-target resets now use `ScheduleCompositionCleanup`, the same synchronous attempt and controlled asynchronous recovery used by deactivation. If focus returns to the same context before old cleanup executes, `HasPendingCompositionCleanup` still forces the new write behind it.
 
 ### 8.4 Removal Is Not a New Write Opportunity
@@ -253,6 +257,7 @@ The post-0.9.19 coverage review adds direct assertions for removal during parent
 
 The parent-lookup removal test failed against the pre-review code, which continued binding an already removed target. Retaining the pending context in the preparation guard closes that gap. This is branch/behavior coverage, not a measured coverage percentage or proof of arbitrary host callback orderings. The existing Shift-tap integration case still uses the real 350 ms deadline; its thread keyboard state is reset immediately before the sequence to reduce ambient-state interference without relaxing production timing.
 
+FSM boundary regressions compare reset previews for all seven valid engine states, both width modes, all sixteen modifier combinations, and virtual keys 0 through 255. They also assert preservation of the live raw code, candidates, page, and selection. TSF tests exercise old/new-context predictions in Wubi and temporary English composition, Shift/CapsLock, English/full-width mode retention, inactive/null targets, and reset/binding reentrancy. Preflight alone must leave host text, composition ownership, subscriptions, and edit-request counts unchanged; continued input in the old target and actual input in the new target verify that prediction did not mutate the engine.
 See the [development guide](DEVELOPMENT.md) for targeted test commands; validate both architectures. Browser/UWP host compatibility is not certified, and successful host cleanup is not guaranteed for read-only, disconnected, or rejected requests.
 
 Window destruction under task 41, the broader regression matrix under task 46, and real browser/UWP host validation under task 47 remain separate work. This document does not claim that the entire document/window lifecycle is complete.

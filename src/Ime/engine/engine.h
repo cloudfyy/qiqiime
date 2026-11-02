@@ -125,6 +125,10 @@ public:
     bool ShouldEatKey(
         uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on = false) const noexcept;
 
+    // Predict a target switch without mutating the current composition.
+    bool ShouldEatKeyAfterReset(
+        uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on = false) const noexcept;
+
     // Process a key press and return the state transition
     KeyProcessResult ProcessKey(
         uint32_t vk, bool shift_down = false, bool ctrl_down = false, bool alt_down = false, bool caps_lock_on = false);
@@ -145,7 +149,7 @@ private:
     using ActionHandler = KeyProcessResult (WubiEngine::*)(const KeyInputContext&);
 
     TransitionRule EvaluateKeyTransition(
-        uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on = false) const noexcept;
+        EngineState state, uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept;
     void PromotePhraseForCode(std::wstring_view code, std::wstring_view word);
     std::wstring CurrentSelectedCandidateOrRaw() const;
     std::wstring_view ResolveChinesePunctuation(uint32_t vk, bool shift_down) noexcept;

@@ -67,9 +67,7 @@ void WubiEngine::Reset() noexcept {
     all_display_candidates_.clear();
     current_page_ = 0;
     selected_in_page_ = 0;
-    if (state_ != EngineState::English) {
-        state_ = EngineState::Idle;
-    }
+    state_ = StateAfterCompositionReset(state_);
 }
 
 size_t WubiEngine::TotalPages() const noexcept {
@@ -256,25 +254,30 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
 }
 
 TransitionRule WubiEngine::EvaluateKeyTransition(
-    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept {
+    EngineState state, uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept {
     const KeyEventKind event = ClassifyKeyEvent(
         vk,
         shift_down,
         ctrl_down,
         alt_down,
         chinese_punctuation_,
-        semicolon_quote_quick_select_ && IsComposing(),
+        semicolon_quote_quick_select_ && IsComposingState(state),
         enable_z_temp_english_,
         full_width_mode_,
-        state_,
+        state,
         caps_lock_on,
         up_down_page_turn_);
-    return LookupTransition(state_, event);
+    return LookupTransition(state, event);
 }
 
 bool WubiEngine::ShouldEatKey(
     uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept {
-    return EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down, caps_lock_on).eat_key;
+    return EvaluateKeyTransition(state_, vk, shift_down, ctrl_down, alt_down, caps_lock_on).eat_key;
+}
+
+bool WubiEngine::ShouldEatKeyAfterReset(
+    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept {
+    return EvaluateKeyTransition(StateAfterCompositionReset(state_), vk, shift_down, ctrl_down, alt_down, caps_lock_on).eat_key;
 }
 
 void WubiEngine::UpdateTempEnglishCandidates() {
@@ -519,7 +522,7 @@ KeyProcessResult WubiEngine::ProcessKey(
     };
     static_assert(AllActionHandlersBound(std::span<const ActionHandler>(kActionHandlers)));
 
-    const TransitionRule rule = EvaluateKeyTransition(vk, shift_down, ctrl_down, alt_down, caps_lock_on);
+    const TransitionRule rule = EvaluateKeyTransition(state_, vk, shift_down, ctrl_down, alt_down, caps_lock_on);
     if (rule.op != TransitionOp::PassThrough) {
         QIQI_LOG_TRACE("FSM transition: state={} -> op={} next_state={}",
                        static_cast<unsigned int>(state_),

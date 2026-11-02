@@ -69,6 +69,10 @@ struct TransitionRule {
     bool eat_key = false;
 };
 
+constexpr EngineState StateAfterCompositionReset(EngineState state) noexcept {
+    return state == EngineState::English ? EngineState::English : EngineState::Idle;
+}
+
 constexpr bool IsWubiComposingState(EngineState state) noexcept {
     return state == EngineState::Composing1 ||
            state == EngineState::Composing2 ||

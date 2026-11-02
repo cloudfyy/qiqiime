@@ -246,3 +246,10 @@ cmake --build build\x64 --config Release --target lint
 - 前次 x86 验证中 Shift 轻触断言曾偶发失败，隔离重跑通过；现将线程键盘状态复位移到该序列之前，减少此前消息泵带来的环境状态干扰。未改变生产的 350 ms 限制、未增加盲目重试，也未确认该次失败的唯一根因；测试仍依赖实际调度。
 - 此次按行为/分支复核，不报告未测量的覆盖率，也不替代任务 41、46、47 的窗口销毁、完整矩阵及真实宿主验证。
 - 最终验证：x64/x86 Release 的 `QiQiTsfUiTest` 各连续通过 3 次，`QiQiEtwIntegrationTest` 双架构均通过且未跳过；生产/测试目标执行 CppCoreCheck，修复新增 const/noexcept 诊断后仅保留既有告警。
+
+#### 生命周期与 FSM 边界
+
+- 目标切换已在实际 `OnKeyDown` 前重置引擎，`OnTestKeyDown` 也必须按新目标的重置后状态预测。不同 context 使用只读 `ShouldEatKeyAfterReset`，当前目标继续使用 `ShouldEatKey`；预判不执行绑定、宿主清理或编辑请求。空目标、未激活和重入重置/绑定均不消费按键。
+- 保持现有按键状态转移表；实际 `Reset` 与预测共用 `StateAfterCompositionReset`，中文组合及临时英文回到 `Idle`，英文模式保持 `English`，全半角与标点设置保留。异步宿主清理不反向改变新目标的 FSM。
+- 引擎回归比较 7 个状态、2 种宽度、16 种修饰键组合及全部 256 个虚拟键，并检查预测不改变编码、候选、分页和选中项。TSF 回归先复现新目标 Backspace 仍按旧组合预测的问题，再覆盖临时英文、Shift/CapsLock、英文/全角保持及生命周期重入，并以实际文本、组合结束及编辑请求计数验证无副作用。
+- 验证：x64/x86 Release 的 `QiQiEngineTest`、`QiQiTsfUiTest`、`QiQiEtwIntegrationTest` 均通过且未跳过；定向 CppCoreCheck 修正新增的 string-view 引用诊断后仅保留既有告警。
