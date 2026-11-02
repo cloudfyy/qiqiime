@@ -38,6 +38,7 @@ void TestFocusPerformanceLogs() {
     std::vector<std::wstring> reload_records;
     std::vector<std::wstring> cleanup_records;
     std::vector<std::wstring> lifecycle_records;
+    std::vector<std::wstring> preserved_key_records;
     bool exited = false;
     while (!exited) {
         DEBUG_EVENT event{};
@@ -69,6 +70,11 @@ void TestFocusPerformanceLogs() {
             if (message.contains(L"ReloadConfigIfModified(focus_id=")) reload_records.push_back(message);
             if (message.contains(L"TsfCleanup(")) cleanup_records.push_back(message);
             if (message.contains(L"TsfLifecycle(")) lifecycle_records.push_back(message);
+            if (message.contains(L"InitKeyEventSink: PreserveKey") ||
+                message.contains(L"UninitKeyEventSink: UnpreserveKey") ||
+                message.contains(L"UninitKeyEventSink::UnadviseKeyEventSink")) {
+                preserved_key_records.push_back(message);
+            }
         } else if (event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT) {
             if (event.u.Exception.ExceptionRecord.ExceptionCode != EXCEPTION_BREAKPOINT) {
                 continuation = DBG_EXCEPTION_NOT_HANDLED;
@@ -190,6 +196,141 @@ void TestFocusPerformanceLogs() {
     QIQI_TEST_CHECK(std::any_of(lifecycle_records.begin(), lifecycle_records.end(), [](const auto& record) {
         return record.contains(L"stage=context-pop, current=false");
     }));
+    QIQI_TEST_CHECK(std::any_of(preserved_key_records.begin(), preserved_key_records.end(), [](const auto& record) {
+        return record.contains(
+            std::format(L"PreserveKey(vkey=0x20, mod=0x{:X}) already registered; skipping ownership (hr=0x{:08x})",
+                        gsl::narrow_cast<unsigned int>(TF_MOD_CONTROL),
+                        gsl::narrow_cast<unsigned int>(TF_E_ALREADY_EXISTS)));
+    }));
+    QIQI_TEST_CHECK(std::any_of(preserved_key_records.begin(), preserved_key_records.end(), [](const auto& record) {
+        return record.contains(
+            std::format(L"PreserveKey(vkey=0xBE, mod=0x{:X}) failed (hr=0x{:08x})",
+                        gsl::narrow_cast<unsigned int>(TF_MOD_CONTROL),
+                        gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY)));
+    }));
+    QIQI_TEST_CHECK(std::any_of(preserved_key_records.begin(), preserved_key_records.end(), [](const auto& record) {
+        return record.contains(
+            std::format(L"UninitKeyEventSink: UnpreserveKey(vkey=0x20, mod=0x{:X}) failed (hr=0x{:08x})",
+                        gsl::narrow_cast<unsigned int>(TF_MOD_SHIFT),
+                        gsl::narrow_cast<unsigned int>(CONNECT_E_NOCONNECTION)));
+    }));
+    QIQI_TEST_CHECK(std::any_of(preserved_key_records.begin(), preserved_key_records.end(), [](const auto& record) {
+        return record.contains(
+            std::format(L"UninitKeyEventSink::UnadviseKeyEventSink failed (hr=0x{:08x})",
+                        gsl::narrow_cast<unsigned int>(E_FAIL)));
+    }));
+}
+
+void TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*> service) {
+    auto manager = MakeComObject<MockTfThreadMgr>();
+    const auto reset_counters = [&]() {
+        manager->advise_key_sink_calls_ = 0;
+        manager->unadvise_key_sink_calls_ = 0;
+        manager->preserve_key_calls_ = 0;
+        manager->unpreserve_key_calls_ = 0;
+        manager->preserved_keys_.clear();
+        manager->unpreserved_keys_.clear();
+        manager->preserve_key_callback_ = {};
+        manager->unpreserve_key_callback_ = {};
+        manager->unadvise_key_sink_result_ = S_OK;
+        manager->unpreserve_key_result_ = S_OK;
+    };
+
+    // 1. All succeed: exact 4 keys registered with client ID, unregistered on Deactivate, no duplicate on second Deactivate.
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 11) == S_OK);
+    QIQI_TEST_CHECK(manager->advise_key_sink_calls_ == 1 && manager->key_sink_client_id_ == 11 && manager->key_event_sink_);
+    QIQI_TEST_CHECK(manager->preserve_key_calls_ == 4 && manager->preserved_keys_.size() == 4);
+    for (const auto& entry : manager->preserved_keys_) {
+        QIQI_TEST_CHECK(entry.client_id == 11);
+    }
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(manager->unpreserve_key_calls_ == 4 && manager->preserved_keys_.empty());
+    QIQI_TEST_CHECK(manager->unadvise_key_sink_calls_ == 1 && manager->last_unadvised_key_sink_client_id_ == 11 &&
+                    !manager->key_event_sink_);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(manager->unpreserve_key_calls_ == 4 && manager->unadvise_key_sink_calls_ == 1);
+
+    // 2. Rollback when AdviseKeyEventSink or QueryInterface(ITfKeystrokeMgr) fails: no PreserveKey, UnpreserveKey, or UnadviseKeyEventSink.
+    reset_counters();
+    manager->fail_query_key_mgr_ = true;
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 12) == E_FAIL);
+    manager->fail_query_key_mgr_ = false;
+    QIQI_TEST_CHECK(manager->advise_key_sink_calls_ == 0 && manager->unadvise_key_sink_calls_ == 0);
+    QIQI_TEST_CHECK(manager->preserve_key_calls_ == 0 && manager->unpreserve_key_calls_ == 0);
+
+    manager->fail_key_sink_ = true;
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 12) == E_FAIL);
+    manager->fail_key_sink_ = false;
+    QIQI_TEST_CHECK(manager->advise_key_sink_calls_ == 1 && manager->unadvise_key_sink_calls_ == 0);
+    QIQI_TEST_CHECK(manager->preserve_key_calls_ == 0 && manager->unpreserve_key_calls_ == 0);
+
+    // 3. Partial success: TF_E_ALREADY_EXISTS and E_OUTOFMEMORY are NOT claimed as owned and NOT unpreserved on Deactivate.
+    reset_counters();
+    manager->preserve_key_callback_ = [&](TfClientId tid, REFGUID rguid, const TF_PRESERVEDKEY& pk) -> HRESULT {
+        if (IsEqualGUID(rguid, kGuidPreservedKeyToggleMode)) {
+            return TF_E_ALREADY_EXISTS;
+        }
+        if (IsEqualGUID(rguid, kGuidPreservedKeyTogglePunctuation)) {
+            return E_OUTOFMEMORY;
+        }
+        manager->preserved_keys_.push_back({tid, rguid, pk});
+        return S_OK;
+    };
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 13) == S_OK);
+    QIQI_TEST_CHECK(manager->preserve_key_calls_ == 4 && manager->preserved_keys_.size() == 2);
+    // Preserved key dispatch remains functional.
+    auto context = MakeComObject<MockTfContext>();
+    BOOL eaten = FALSE;
+    QIQI_TEST_CHECK(service->OnPreservedKey(context.Get(), kGuidPreservedKeyToggleFullWidth, &eaten) == S_OK && eaten);
+    QIQI_TEST_CHECK(service->OnPreservedKey(context.Get(), kGuidPreservedKeyToggleFullWidth, &eaten) == S_OK && eaten);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(manager->unpreserve_key_calls_ == 2 && manager->preserved_keys_.empty());
+    QIQI_TEST_CHECK(manager->unpreserved_keys_.size() == 2);
+    QIQI_TEST_CHECK(IsEqualGUID(gsl::at(manager->unpreserved_keys_, 0).guid, kGuidPreservedKeyToggleFullWidth));
+    QIQI_TEST_CHECK(IsEqualGUID(gsl::at(manager->unpreserved_keys_, 1).guid, kGuidPreservedKeyAddUserWord));
+    QIQI_TEST_CHECK(manager->unadvise_key_sink_calls_ == 1 && manager->last_unadvised_key_sink_client_id_ == 13);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(manager->unpreserve_key_calls_ == 2 && manager->unadvise_key_sink_calls_ == 1);
+
+    // 4. All PreserveKey fail (e.g. TF_E_ALREADY_EXISTS / E_FAIL): key sink is still unadvised on Deactivate, 0 UnpreserveKey calls.
+    reset_counters();
+    manager->preserve_key_callback_ = [](TfClientId, REFGUID rguid, const TF_PRESERVEDKEY&) -> HRESULT {
+        return IsEqualGUID(rguid, kGuidPreservedKeyToggleMode) ? TF_E_ALREADY_EXISTS : E_FAIL;
+    };
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 14) == S_OK);
+    QIQI_TEST_CHECK(manager->preserve_key_calls_ == 4 && manager->preserved_keys_.empty());
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(manager->unpreserve_key_calls_ == 0 && manager->unadvise_key_sink_calls_ == 1);
+
+    // 5. UnpreserveKey and UnadviseKeyEventSink failures on Deactivate still retire local ownership and allow clean reactivation.
+    reset_counters();
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 15) == S_OK);
+    QIQI_TEST_CHECK(manager->preserved_keys_.size() == 4);
+    manager->unpreserve_key_callback_ = [&](REFGUID rguid, const TF_PRESERVEDKEY&) -> HRESULT {
+        return IsEqualGUID(rguid, kGuidPreservedKeyToggleFullWidth) ? CONNECT_E_NOCONNECTION : E_FAIL;
+    };
+    manager->unadvise_key_sink_result_ = E_FAIL;
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(manager->unpreserve_key_calls_ == 4 && manager->unadvise_key_sink_calls_ == 1);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(manager->unpreserve_key_calls_ == 4 && manager->unadvise_key_sink_calls_ == 1);
+
+    // 6. QueryInterface(ITfKeystrokeMgr) failure during UninitKeyEventSink retires local ownership without retrying on second Deactivate,
+    //    and subsequent reactivation succeeds cleanly.
+    reset_counters();
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 16) == S_OK);
+    manager->fail_query_key_mgr_ = true;
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    manager->fail_query_key_mgr_ = false;
+    QIQI_TEST_CHECK(manager->unpreserve_key_calls_ == 0 && manager->unadvise_key_sink_calls_ == 0);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(manager->unpreserve_key_calls_ == 0 && manager->unadvise_key_sink_calls_ == 0);
+
+    reset_counters();
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 17) == S_OK);
+    QIQI_TEST_CHECK(manager->preserve_key_calls_ == 4 && manager->preserved_keys_.size() == 4);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    QIQI_TEST_CHECK(manager->unpreserve_key_calls_ == 4 && manager->unadvise_key_sink_calls_ == 1);
 }
 
 void TestQiQiTextServiceLifecycleAndKeyFlow() {
@@ -379,6 +520,8 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     mock_tm->single_sink_result_ = S_OK;
     mock_tm->unadvise_single_result_ = S_OK;
     mock_tm->remove_item_result_ = S_OK;
+
+    TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*>(service.Get()));
 
     // Activate success
     QIQI_TEST_CHECK(SUCCEEDED(service->Activate(mock_tm.Get(), 1)));
@@ -1090,6 +1233,22 @@ void RunTsfFocusDiagnosticsScenario() {
             QIQI_TEST_CHECK(queue->ClearForCleanup() == S_OK);
         }
     }
+
+    log::SetLevel(log::Level::debug);
+    manager->preserve_key_callback_ = [](TfClientId, REFGUID rguid, const TF_PRESERVEDKEY&) -> HRESULT {
+        if (IsEqualGUID(rguid, kGuidPreservedKeyToggleMode)) return TF_E_ALREADY_EXISTS;
+        if (IsEqualGUID(rguid, kGuidPreservedKeyTogglePunctuation)) return E_OUTOFMEMORY;
+        return S_OK;
+    };
+    manager->unpreserve_key_callback_ = [](REFGUID rguid, const TF_PRESERVEDKEY&) -> HRESULT {
+        return IsEqualGUID(rguid, kGuidPreservedKeyToggleFullWidth) ? CONNECT_E_NOCONNECTION : S_OK;
+    };
+    manager->unadvise_key_sink_result_ = E_FAIL;
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    manager->preserve_key_callback_ = {};
+    manager->unpreserve_key_callback_ = {};
+    manager->unadvise_key_sink_result_ = S_OK;
 }
 
 void RunTsfServiceTests() {

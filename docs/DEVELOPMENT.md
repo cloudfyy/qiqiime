@@ -275,3 +275,10 @@ cmake --build build\x64 --config Release --target lint
 - 确定性键盘测试在旧目标清理及 compartment 查询中注入新的 Ctrl 状态，先复现当前按键被错误透传。`OnTestKeyDown`/`OnKeyDown` 改为在宿主调用前捕获当前事件的修饰键和 CapsLock，预判还捕获 Shift 轻触所需鼠标状态；下一事件正常观察新状态，FSM 表及消费规则不变。普通按键矩阵每次显式建立中性键盘前置状态，整个用例保存/恢复原线程状态，不影响专门的修饰键测试。
 - 不能撤销已开始的宿主写入；回归在可观察写入之后触发重入，要求失效后不再发后续操作。实际浏览器/VS Code 的焦点、下划线和窗口行为仍由任务 47 验证，不以 Mock 或私有 TSF 文档替代。
 - 最终验证：x64/x86 Release 的 `QiQiTsfUiTest` 与 `QiQiEtwIntegrationTest` 各连续通过 2 次、均未跳过；`QiQiEngineTest` 双架构通过。双架构构建与定向 CppCoreCheck 通过，修正新增的取消路径 const 诊断后，修改的生产代码无分析告警，仅保留既有其他路径/测试告警；`git diff --check` 通过。RAII、组合快照复用、Core Guidelines/GSL 及缺失测试已复核，未放宽断言或生产 Shift 轻触时限。
+
+### 5.10 保留键与键盘监听所有权生命周期（任务 48）
+
+- 复核微软 `SampleIME` 与 `Weasel`：`SampleIME` 在 `InitPreservedKey`/`UninitPreservedKey` 中忽略 `PreserveKey`/`UnpreserveKey` 的返回值并按表全量注销，`Weasel` 的 `_InitPreservedKey` 位于 `#if 0` 且注销为空；两者均不适合作为所有权与失败处理模型。
+- [`QiQiTextService`](../src/Ime/tsf/tip_service.h) 新增 `key_event_sink_registered_` 与 `registered_preserved_keys_`：[`InitKeyEventSink`](../src/Ime/tsf/tip_service.cpp) 在 `AdviseKeyEventSink` 成功后标记键盘监听已注册，并仅将返回成功（`SUCCEEDED`）的 `(GUID, TF_PRESERVEDKEY)` 记入本激活周期持有列表。
+- 区分 `TF_E_ALREADY_EXISTS`（警告记录已注册并跳过本次所有权）与其他失败（记录操作与实际 `HRESULT`），不先注销或覆盖已有注册。[`UninitKeyEventSink`](../src/Ime/tsf/tip_service.cpp) 先移出并清空本周期持有状态，仅对持有项调用 `UnpreserveKey`（失败记录 `vkey`/`mod` 与 `HRESULT`）、仅在监听已注册时调用 `UnadviseKeyEventSink`，保证部分激活回滚、重复停用、注销失败或 `ITfKeystrokeMgr` 查询失败后的状态一致与可再次激活。
+- [`service.cpp`](../tests/Ime/tsf/service.cpp) 覆盖全部成功、查询/监听注册失败回滚、`TF_E_ALREADY_EXISTS` 与 `E_OUTOFMEMORY` 部分成功、全部保留键失败、重复停用、注销失败、`ITfKeystrokeMgr` 注销查询失败后重新激活，以及自有调试子进程对实际 `OutputDebugString` 警告消息的校验；现有快捷键行为保持不变。

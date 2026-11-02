@@ -842,10 +842,19 @@ public:
     }
 
     // ITfKeystrokeMgr
-    STDMETHODIMP AdviseKeyEventSink(TfClientId, ITfKeyEventSink*, BOOL) noexcept override {
-        return fail_key_sink_ ? E_FAIL : S_OK;
+    STDMETHODIMP AdviseKeyEventSink(TfClientId tid, ITfKeyEventSink* sink, BOOL) noexcept override {
+        ++advise_key_sink_calls_;
+        if (fail_key_sink_) return E_FAIL;
+        key_sink_client_id_ = tid;
+        key_event_sink_ = sink;
+        return S_OK;
     }
-    STDMETHODIMP UnadviseKeyEventSink(TfClientId) noexcept override { return S_OK; }
+    STDMETHODIMP UnadviseKeyEventSink(TfClientId tid) noexcept override {
+        ++unadvise_key_sink_calls_;
+        last_unadvised_key_sink_client_id_ = tid;
+        key_event_sink_.Reset();
+        return unadvise_key_sink_result_;
+    }
     STDMETHODIMP GetForeground(CLSID*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP TestKeyDown(WPARAM, LPARAM, BOOL*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP TestKeyUp(WPARAM, LPARAM, BOOL*) noexcept override { return E_NOTIMPL; }
@@ -853,8 +862,32 @@ public:
     STDMETHODIMP KeyUp(WPARAM, LPARAM, BOOL*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetPreservedKey(ITfContext*, const TF_PRESERVEDKEY*, GUID*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP IsPreservedKey(REFGUID, const TF_PRESERVEDKEY*, BOOL*) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP PreserveKey(TfClientId, REFGUID, const TF_PRESERVEDKEY*, const WCHAR*, ULONG) noexcept override { return S_OK; }
-    STDMETHODIMP UnpreserveKey(REFGUID, const TF_PRESERVEDKEY*) noexcept override { return S_OK; }
+    STDMETHODIMP PreserveKey(
+        TfClientId tid, REFGUID rguid, const TF_PRESERVEDKEY* prekey, const WCHAR* pchDesc, ULONG cchDesc) override {
+        if (!prekey || (!pchDesc && cchDesc != 0)) return E_INVALIDARG;
+        ++preserve_key_calls_;
+        if (preserve_key_callback_) {
+            return preserve_key_callback_(tid, rguid, *prekey);
+        }
+        preserved_keys_.push_back({tid, rguid, *prekey});
+        return S_OK;
+    }
+    STDMETHODIMP UnpreserveKey(REFGUID rguid, const TF_PRESERVEDKEY* pprekey) override {
+        if (!pprekey) return E_INVALIDARG;
+        ++unpreserve_key_calls_;
+        unpreserved_keys_.push_back({TF_CLIENTID_NULL, rguid, *pprekey});
+        if (unpreserve_key_callback_) {
+            return unpreserve_key_callback_(rguid, *pprekey);
+        }
+        const auto it = std::find_if(preserved_keys_.begin(), preserved_keys_.end(), [&](const auto& entry) {
+            return IsEqualGUID(entry.guid, rguid) && entry.key.uVKey == pprekey->uVKey &&
+                   entry.key.uModifiers == pprekey->uModifiers;
+        });
+        if (it != preserved_keys_.end()) {
+            preserved_keys_.erase(it);
+        }
+        return unpreserve_key_result_;
+    }
     STDMETHODIMP SetPreservedKeyDescription(REFGUID, const WCHAR*, ULONG) noexcept override { return S_OK; }
     STDMETHODIMP GetPreservedKeyDescription(REFGUID, BSTR*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP SimulatePreservedKey(ITfContext*, REFGUID, BOOL*) noexcept override { return E_NOTIMPL; }
@@ -944,12 +977,31 @@ public:
         return remove_item_result_;
     }
 
+    struct PreservedKeyRecord {
+        TfClientId client_id = TF_CLIENTID_NULL;
+        GUID guid{};
+        TF_PRESERVEDKEY key{};
+    };
+
     ComPtr<MockTfCompartment> compartment_;
     ComPtr<MockTfCompartment> openclose_compartment_;
     ComPtr<MockTfCompartment> convmode_compartment_;
     ComPtr<MockTfCompartment> global_config_compartment_;
     ComPtr<MockTfCompartment> global_pos_compartment_;
     ComPtr<IUnknown> single_sink_;
+    ComPtr<ITfKeyEventSink> key_event_sink_;
+    TfClientId key_sink_client_id_ = TF_CLIENTID_NULL;
+    TfClientId last_unadvised_key_sink_client_id_ = TF_CLIENTID_NULL;
+    unsigned int advise_key_sink_calls_ = 0;
+    unsigned int unadvise_key_sink_calls_ = 0;
+    unsigned int preserve_key_calls_ = 0;
+    unsigned int unpreserve_key_calls_ = 0;
+    HRESULT unadvise_key_sink_result_ = S_OK;
+    HRESULT unpreserve_key_result_ = S_OK;
+    std::vector<PreservedKeyRecord> preserved_keys_;
+    std::vector<PreservedKeyRecord> unpreserved_keys_;
+    std::function<HRESULT(TfClientId, REFGUID, const TF_PRESERVEDKEY&)> preserve_key_callback_;
+    std::function<HRESULT(REFGUID, const TF_PRESERVEDKEY&)> unpreserve_key_callback_;
     ComPtr<ITfUIElement> last_ui_element_;
     unsigned int begin_ui_calls_ = 0;
     unsigned int update_ui_calls_ = 0;

@@ -189,7 +189,12 @@ bool QiQiTextService::InitThreadMgrEventSink() noexcept {
 }
 
 bool QiQiTextService::InitKeyEventSink() {
-    ITfKeyEventSink* sink = this;
+    key_event_sink_registered_ = false;
+    registered_preserved_keys_.clear();
+    if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL) {
+        return false;
+    }
+    ITfKeyEventSink* const sink = this;
     ComPtr<ITfKeystrokeMgr> key_mgr;
     if (!log::CheckHResult(thread_mgr_.As(&key_mgr),
                           "InitKeyEventSink::QueryInterface(ITfKeystrokeMgr)", log::Level::err) || !key_mgr) {
@@ -201,12 +206,21 @@ bool QiQiTextService::InitKeyEventSink() {
                        gsl::narrow_cast<unsigned int>(hr));
         return false;
     }
+    key_event_sink_registered_ = true;
 
     for (const auto& def : kPreservedKeys) {
         const TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
         const HRESULT pk_hr = key_mgr->PreserveKey(
             client_id_, *def.guid, &pk, def.desc, gsl::narrow_cast<ULONG>(std::wcslen(def.desc)));
-        if (FAILED(pk_hr)) {
+        if (SUCCEEDED(pk_hr)) {
+            registered_preserved_keys_.push_back({*def.guid, pk});
+            continue;
+        }
+        if (pk_hr == TF_E_ALREADY_EXISTS) {
+            QIQI_LOG_WARN("InitKeyEventSink: PreserveKey(vkey=0x{:02X}, mod=0x{:X}) already registered; "
+                          "skipping ownership (hr=0x{:08x})",
+                          def.vkey, def.modifiers, gsl::narrow_cast<unsigned int>(pk_hr));
+        } else {
             QIQI_LOG_WARN("InitKeyEventSink: PreserveKey(vkey=0x{:02X}, mod=0x{:X}) failed (hr=0x{:08x})",
                           def.vkey, def.modifiers, gsl::narrow_cast<unsigned int>(pk_hr));
         }
@@ -215,18 +229,32 @@ bool QiQiTextService::InitKeyEventSink() {
 }
 
 void QiQiTextService::UninitKeyEventSink() {
+    if (!key_event_sink_registered_ && registered_preserved_keys_.empty()) {
+        return;
+    }
+    const auto registered_keys = std::move(registered_preserved_keys_);
+    registered_preserved_keys_.clear();
+    const bool had_key_event_sink = std::exchange(key_event_sink_registered_, false);
     if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL) {
+        QIQI_LOG_WARN("UninitKeyEventSink: missing thread manager or client ID (preserved_keys={}, key_sink={})",
+                      registered_keys.size(), had_key_event_sink);
         return;
     }
     ComPtr<ITfKeystrokeMgr> key_mgr;
-    if (log::CheckHResult(thread_mgr_.As(&key_mgr), "UninitKeyEventSink::QueryInterface(ITfKeystrokeMgr)") && key_mgr) {
-        for (const auto& def : kPreservedKeys) {
-            const TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
-            std::ignore = log::CheckHResult(key_mgr->UnpreserveKey(*def.guid, &pk),
-                                           "ITfKeystrokeMgr::UnpreserveKey");
+    if (!log::CheckHResult(thread_mgr_.As(&key_mgr), "UninitKeyEventSink::QueryInterface(ITfKeystrokeMgr)") ||
+        !key_mgr) {
+        return;
+    }
+    for (const auto& entry : registered_keys) {
+        const HRESULT unpreserve_hr = key_mgr->UnpreserveKey(entry.guid, &entry.key);
+        if (FAILED(unpreserve_hr)) {
+            QIQI_LOG_WARN("UninitKeyEventSink: UnpreserveKey(vkey=0x{:02X}, mod=0x{:X}) failed (hr=0x{:08x})",
+                          entry.key.uVKey, entry.key.uModifiers, gsl::narrow_cast<unsigned int>(unpreserve_hr));
         }
+    }
+    if (had_key_event_sink) {
         std::ignore = log::CheckHResult(key_mgr->UnadviseKeyEventSink(client_id_),
-                                       "ITfKeystrokeMgr::UnadviseKeyEventSink");
+                                       "UninitKeyEventSink::UnadviseKeyEventSink");
     }
 }
 

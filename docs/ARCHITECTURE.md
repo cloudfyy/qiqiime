@@ -166,7 +166,7 @@ TSF 的按键处理分为两步：
 
 以下待办由代码阅读发现的问题及待验证风险整理，未勾选项尚未实施；静态风险不等于真实宿主中已经复现的故障。保存于本架构文档，供后续会话继续执行。与下方任务 41 协调 UI 清理方案，不重复实现，也不在存在过期回调时仅提前销毁窗口。
 
-**执行顺序调整：任务 49 已优先完成，任务 50、54 已提前完成，任务 55、51 已协同完成，任务 41–46 已完成；任务 45 补齐目标切换时的引擎隔离、宿主组合清理和移除后的旧清理屏障，任务 41 补齐停用窗口销毁与宿主 UI 重入保护，任务 46 补齐回归矩阵及执行中重入屏障。下一项为 47，再继续 48、52–53 与原有功能待办。顺序为建议，硬依赖以各任务说明为准。**
+**执行顺序调整：任务 49 已优先完成，任务 50、54 已提前完成，任务 55、51 已协同完成，任务 41–46、48 已完成；任务 45 补齐目标切换时的引擎隔离、宿主组合清理和移除后的旧清理屏障，任务 41 补齐停用窗口销毁与宿主 UI 重入保护，任务 46 补齐回归矩阵及执行中重入屏障，任务 48 补齐保留键与键盘监听所有权生命周期。下一项按 52 → 53 → 47，再继续原有功能待办。顺序为建议，硬依赖以各任务说明为准。**
 
 **首要执行：全仓库失败诊断**
 
@@ -234,20 +234,19 @@ TSF 的按键处理分为两步：
   - 已盘点既有回归并建立[覆盖矩阵](TSF_COMPOSITION_LIFECYCLE.md#91-regression-inventory-task-46)：新增 86 个执行中编辑/宿主终止、8 个迟到组合创建、4 个清理属性查询用例，另补同周期替换组合及按键状态重入各 2 例。
   - 先用失败测试复现再修正旧编辑在宿主调用返回后继续执行、宿主终止发生在属性查询中导致漏清、同周期替换组合后旧 UI 继续刷新，以及目标清理/compartment 查询改变当前按键修饰状态。迟到组合复用独立清理，新写必要时重新排到旧清理后，不改 FSM 表或同周期 FIFO。
   - x64/x86 Release TSF/UI 与 ETW 各连续通过 2 次，引擎回归通过；双架构定向 CppCoreCheck 修正新增 const 诊断后仅保留既有告警。验证边界见[开发文档](DEVELOPMENT.md#59-生命周期回归矩阵任务-46)，真实宿主显示验证仍由任务 47 完成。
-- [ ] **47. 真实宿主生命周期验证（`tsf-real-host-lifecycle-tests`）**
-  - 在 VS Code 与浏览器中验证组合期间失焦、停用、重新激活后的组合文本、下划线及候选窗口清理。
-  - 检查 UI 是否残留或被旧任务重新显示，记录可复现步骤、宿主条件和验证结果；配合单元测试，不以 Mock 代替真实显示验证。
-  - 依赖任务 43、44、45。
 
 **P1：注册所有权、全仓库日志与性能**
 
-- [ ] **48. 保留键注册与注销生命周期（`tsf-preserved-key-registration-lifetime`）**
+- [x] **48. 保留键注册与注销生命周期（`tsf-preserved-key-registration-lifetime`）**
   - 保留现有快捷键方案，逐键记录本激活周期成功注册的 GUID 与 `TF_PRESERVEDKEY`；停用或初始化失败回滚时只注销本周期成功注册项，同时跟踪键盘监听注册状态。
   - 区分 `TF_E_ALREADY_EXISTS` 与其他失败，记录实际 `HRESULT`；不强行覆盖、先注销已有注册，或将重复注册视为本次取得所有权。注销失败不得静默丢失状态和诊断。
   - `PreserveKey` 是 TSF 保留键机制，不是 `RegisterHotKey` 全局热键。重复注册返回值不能单独证明其他输入法占用同一组合键；注册成功也不代表没有应用/系统快捷键语义冲突，后者需另行验证，不能擅自新增抢键策略。
   - 测试全部成功、单项重复/其他失败、部分成功回滚、重复停用、重新激活及注销失败，保持原快捷键行为。
   - 参考源码：微软 [SampleIME](https://github.com/microsoft/Windows-classic-samples/blob/main/Samples/IME/cpp/SampleIME/CompositionProcessorEngine.cpp) 未逐次检查注册返回值，注销按表进行，不宜照搬错误处理；[Weasel](https://github.com/rime/weasel/blob/master/WeaselTSF/KeyEventSink.cpp) 当前注册代码位于 `#if 0`，初始化直接成功，注销为空。实施前复核源码，不能据此泛化所有输入法行为。
   - 官方依据：[PreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-preservekey)、[UnpreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-unpreservekey)。
+  - 已在 `QiQiTextService` 逐键记录本激活周期成功注册的 `(GUID, TF_PRESERVEDKEY)` 并独立跟踪 `key_event_sink_registered_`；`Deactivate` 或初始化失败回滚时只对本周期成功项调用 `UnpreserveKey`，只在 `AdviseKeyEventSink` 成功后调用 `UnadviseKeyEventSink`。
+  - 复核了微软 SampleIME（忽略 `PreserveKey`/`UnpreserveKey` 返回值且按静态表全量注销）与 Weasel（保留键注册位于 `#if 0`、注销为空），未照搬其实现；显式区分 `TF_E_ALREADY_EXISTS`（记录跳过所有权）与其他失败，注销时逐键记录 `vkey`/`mod` 与真实 `HRESULT`，并在操作前清空本地持有表保证重复停用幂等。
+  - x64/x86 Release TSF/UI 与 ETW 集成测试通过，自有调试子进程验证重复注册、其他失败与注销失败日志；定向 CppCoreCheck 无新增告警。详见[开发文档](DEVELOPMENT.md#510-保留键与键盘监听所有权生命周期任务-48)。
 - [x] **50. 焦点处理性能埋点（`tsf-focus-performance-instrumentation`）**
   - 对 [`HandleFocusChanged`](../src/Ime/tsf/tip_service.cpp) 的 `ReloadConfigIfModified`、`SyncStatusBarPositionFromGlobalCompartment` 分别测量耗时，并记录焦点处理总耗时及两类通知来源。
   - 区分配置/词库无变化检查与实际重载，识别重复通知、同次词库与配置变化导致的重复加载；记录重载结果及非敏感计数。
@@ -274,6 +273,10 @@ TSF 的按键处理分为两步：
   - 保存并诊断创建、回退及注册的实际 HRESULT；不能在宿主线程擅自初始化/反初始化 COM。只有证实 COM 路径足够可靠后再评估简化。
   - 覆盖导出成功/不可用、导出失败后 COM 成功、全部创建失败及注册失败；保留失败不终止激活的既有行为，验证目标宿主兼容性。
   - 官方依据：[TF_CreateCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-tf_createcategorymgr)、[GetModuleHandleW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew)、[ITfCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr)。
+- [ ] **47. 真实宿主生命周期验证（`tsf-real-host-lifecycle-tests`）**
+  - 在 VS Code 与浏览器中验证组合期间失焦、停用、重新激活后的组合文本、下划线及候选窗口清理。
+  - 检查 UI 是否残留或被旧任务重新显示，记录可复现步骤、宿主条件和验证结果；配合单元测试，不以 Mock 代替真实显示验证。
+  - 依赖任务 43、44、45。
 - [x] **54. 明确显示属性注册命名（`tsf-display-attribute-registration-name`）**
   - 已统一为 `RegisterCompositionDisplayAttributeAtom`，同步声明、定义、调用、日志及直接相关文档引用；双架构构建与 TSF/UI 测试验证既有行为，未改变类别管理器创建/回退及注册失败不终止激活的策略。任务 53 的生命周期评估仍独立待办。
   - 保留 [`display_attribute.cpp`](../src/Ime/tsf/display_attribute.cpp)、[`display_attribute.h`](../src/Ime/tsf/display_attribute.h) 及其类名；它们对应 TSF 正式接口，暂不进行收益有限的批量改名。

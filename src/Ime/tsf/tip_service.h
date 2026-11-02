@@ -122,6 +122,11 @@ private:
         bool context_removed = false;
     };
 
+    struct RegisteredPreservedKey {
+        GUID guid{};
+        TF_PRESERVEDKEY key{};
+    };
+
     bool InitThreadMgrEventSink() noexcept;
     bool InitKeyEventSink();
     void UninitKeyEventSink();
@@ -189,6 +194,8 @@ private:
     EditSessionEpoch edit_session_epoch_;
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection text_layout_sink_;
+    bool key_event_sink_registered_ = false;
+    std::vector<RegisteredPreservedKey> registered_preserved_keys_;
     bool function_provider_registered_ = false;
     bool langbar_item_added_ = false;
     ScopedTfCompartment global_config_comp_;
