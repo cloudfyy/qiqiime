@@ -67,7 +67,8 @@ public:
                        size_t selected_in_page);
 
     void MoveWindowTo(const RECT& text_rect);
-    void DestroyPopupWindow() noexcept;
+    bool DestroyPopupWindow() noexcept;
+    void SetPresentationEnabled(bool enabled) noexcept { presentation_enabled_ = enabled; }
 
     void SetSelectCallback(SelectCallback cb) noexcept { select_callback_ = std::move(cb); }
     void SetPageTurnCallback(PageTurnCallback cb) noexcept { page_turn_callback_ = std::move(cb); }
@@ -107,6 +108,8 @@ private:
     int popup_width_ = kPopupWidth;
     int popup_height_ = kPopupHeight;
     BOOL is_shown_ = FALSE;
+    bool presentation_enabled_ = true;
+    bool destroying_window_ = false;
     DWORD ui_element_id_ = TF_INVALID_UIELEMENTID;
     DWORD updated_flags_ = TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION |
                            TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;

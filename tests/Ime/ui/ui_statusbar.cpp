@@ -12,6 +12,7 @@
 #include <gsl/gsl>
 #include <array>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -229,7 +230,7 @@ void TestStatusBarUI() {
     QIQI_TEST_CHECK(clicked_action == LangBarMenuId::ToggleUiLanguage);
 
     // Test DestroyBarWindow followed by re-Show(true) when pos_initialized_ is already true
-    bar.DestroyBarWindow();
+    QIQI_TEST_CHECK(bar.DestroyBarWindow());
     bar.Show(true);
     QIQI_TEST_CHECK(bar.WindowHandle() != nullptr);
 
@@ -415,9 +416,22 @@ void TestStatusBarTooltipLifecycle() {
 
     bar.Show(true);
     show_tooltip();
+    QIQI_TEST_CHECK(::DestroyWindow(bar.TooltipWindowHandle()));
+    QIQI_TEST_CHECK(!bar.TooltipWindowHandle() && bar.ActiveTooltipText().empty());
+    show_tooltip();
+    const HWND recreated_bar = bar.WindowHandle();
+    QIQI_TEST_CHECK(::DestroyWindow(recreated_bar));
+    QIQI_TEST_CHECK(!bar.WindowHandle() && !bar.TooltipWindowHandle());
+    bar.Show(true);
+    show_tooltip();
     const HWND old_window = bar.WindowHandle();
     const HWND old_tooltip = bar.TooltipWindowHandle();
-    bar.DestroyBarWindow();
+    bool wrong_thread_destroyed = true;
+    {
+        const std::jthread worker([&]() { wrong_thread_destroyed = bar.DestroyBarWindow(); });
+    }
+    QIQI_TEST_CHECK(!wrong_thread_destroyed && ::IsWindow(old_window) && ::IsWindow(old_tooltip));
+    QIQI_TEST_CHECK(bar.DestroyBarWindow());
     QIQI_TEST_CHECK(!::IsWindow(old_window) && !::IsWindow(old_tooltip));
     QIQI_TEST_CHECK(bar.WindowHandle() == nullptr && bar.TooltipWindowHandle() == nullptr);
     QIQI_TEST_CHECK(!bar.IsVisible() && bar.HoveredZone() == -1);

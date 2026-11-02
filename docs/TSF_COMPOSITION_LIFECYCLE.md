@@ -1,8 +1,8 @@
 # TSF Composition Lifecycle, Deactivation Cleanup, and Diagnostics
 
 This document explains the invariants, ownership, reentrancy, and debugging workflow
-for tasks 43, 44, and 45. The implementation lives in
-[`tip_service.cpp`](../src/Ime/tsf/tip_service.cpp)、
+for tasks 41, 43, 44, and 45. The implementation lives in
+[`tip_service.cpp`](../src/Ime/tsf/tip_service.cpp),
 [`tip_composition.cpp`](../src/Ime/tsf/tip_composition.cpp), and
 [`tip_service.h`](../src/Ime/tsf/tip_service.h).
 For logging configuration, ETW sessions, and capture tools, see the
@@ -78,6 +78,66 @@ Requests have two result layers; inspect both:
 TSF may reject synchronous read/write sessions during notifications such as layout changes, as specified by the API. An asynchronous request can execute after the notification returns. However, attempting to upgrade read access to write access inside a read session may cause even the asynchronous request to fail. Unrecoverable disconnection, read-only access, or request rejection can leave host composition state or attributes behind. Preserve actual HRESULTs; do not report complete cleanup in these cases.
 
 If range retrieval or attribute clearing fails, cleanup still attempts to end the composition. Consequently, composition termination can succeed while the display attribute remains. Callback exit does not imply complete success. Without a range, there is no `attribute-clear` stage.
+
+### 4.1 Native Windows and Retained UI Objects (Task 41)
+
+Deactivation releases native UI resources even when queued sessions, the host, or
+external clients still retain COM references. The candidate and status-bar objects
+remain allocated for reactivation; their candidate-selection, paging, menu, and
+position callbacks are not disconnected merely because the service is inactive.
+
+The local teardown order is:
+
+1. Disable presentation on both UI objects and invalidate the activation epoch.
+2. Reset composition/context state using the cleanup algorithm above. Invalidate
+   the published candidate UI-element ID and attempt `EndUIElement`.
+3. Destroy the candidate popup, status-bar tooltip, and status bar on their owning
+   UI thread. Release status-bar capture/drag state and clear hover/tooltip state.
+4. Unadvise TSF subscriptions and release the thread manager and dictionaries.
+
+Independent asynchronous composition cleanup can still finish after window
+destruction. This does not delay `Deactivate` or permit the cleanup to restore UI.
+An in-flight `BeginUIElement` has no published ID yet: its late successful ID is
+ended through the captured old manager after the host call returns.
+
+UI objects start presentation-disabled when owned by a service. Successful
+activation enables them again; standalone UI objects retain their previous
+default behavior. While disabled or destroying a window, candidate `Show(TRUE)`
+returns `S_FALSE`, reports `IsShown == FALSE`, and does not create a popup.
+Status-bar and tooltip creation/show paths obey the same presentation gate.
+Thus even a host-retained candidate interface cannot reopen an inactive service's
+window. Final service destruction also disconnects candidate callbacks that
+capture the service.
+
+`BeginOrUpdateCandidateUI` validates the captured epoch/context after host calls
+and before publishing an ID or showing/updating UI. A stale begin retires only
+its provisional ID; it must not overwrite or hide a reactivated service's UI.
+`EndCandidateUI` invalidates the shared ID before calling the host and performs
+no shared-state reset after `EndUIElement` returns. Nested teardown therefore
+cannot end the same published ID twice or erase a newer registration.
+
+Candidate-position queries also retain the old composition and recheck the
+epoch/context around host calls before updating caret state or moving a window.
+A regression reproduced an old `GetTextExt` result moving a replacement popup
+after reentrant deactivation/reactivation; the result must instead be discarded.
+
+The shared Win32 destruction helper validates window ownership before calling
+`DestroyWindow`. Wrong-thread calls are rejected and logged with owner/current
+thread IDs; native failures retain the handle for an owner-thread retry and log
+the actual Win32 error. `WM_NCDESTROY` detaches the matching stored handle,
+including external native destruction, preventing reuse of a stale HWND.
+The destructor retains the same idempotent cleanup as a final safeguard.
+
+`Deactivate` returns `E_FAIL` if native UI destruction fails, while continuing
+the remaining local TSF teardown. `S_OK` means local window teardown succeeded;
+it still does not certify successful host composition cleanup or successful host
+UI-element deregistration. `TsfLifecycle(..., stage=ui-windows-destroyed, ...)`
+reports separate candidate/status destruction results, not host cleanup results.
+`ui-begin-stale` identifies a late host registration result and its provisional
+ID; `ui-end` records logical ID retirement and whether an old manager is retained.
+The normal TSF STA/UI-thread contract remains required: this implementation does
+not marshal final destruction to another thread or promise safe final release
+from an arbitrary worker thread.
 
 ## 5. Key Execution Sequences
 
@@ -260,7 +320,20 @@ The parent-lookup removal test failed against the pre-review code, which continu
 FSM boundary regressions compare reset previews for all seven valid engine states, both width modes, all sixteen modifier combinations, and virtual keys 0 through 255. They also assert preservation of the live raw code, candidates, page, and selection. TSF tests exercise old/new-context predictions in Wubi and temporary English composition, Shift/CapsLock, English/full-width mode retention, inactive/null targets, and reset/binding reentrancy. Preflight alone must leave host text, composition ownership, subscriptions, and edit-request counts unchanged; continued input in the old target and actual input in the new target verify that prediction did not mutate the engine.
 See the [development guide](DEVELOPMENT.md) for targeted test commands; validate both architectures. Browser/UWP host compatibility is not certified, and successful host cleanup is not guaranteed for read-only, disconnected, or rejected requests.
 
-Window destruction under task 41, the broader regression matrix under task 46, and real browser/UWP host validation under task 47 remain separate work. This document does not claim that the entire document/window lifecycle is complete.
+Task 41 regressions observe actual native destruction while the service and host
+UI references remain alive, verify composition/UI-end ordering and owner-thread
+execution, and exercise tooltip/capture cleanup, repeated deactivation,
+activation rollback, reactivation callbacks, stale queued layout/write/cleanup
+requests, UILess mode, and retained UI after final service release. Reentrant
+begin/end calls must not publish stale IDs, double-end an ID, or hide newer UI.
+Replacement managers deliberately reuse the same numeric UI ID to verify that
+old-manager cleanup cannot deregister the replacement manager's element.
+Standalone UI regressions cover external native destruction, recreation, and
+wrong-thread rejection followed by owner-thread cleanup.
+
+The broader regression matrix under task 46 and real browser/UWP host validation
+under task 47 remain separate work. These tests are not proof of arbitrary host
+callback orderings or certification of the entire document/window lifecycle.
 
 ## 10. Official References
 

@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cstring>
 #include <span>
+#include <string_view>
+#include <tuple>
 #include <utility>
 
 #include "common/scoped_handle.h"
@@ -129,6 +131,35 @@ T* BindOrGetWindowUserData(HWND hwnd, UINT msg, LPARAM lparam) noexcept {
         ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
     }
     return reinterpret_cast<T*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+}
+
+inline bool CheckWindowOwnerThread(HWND hwnd, std::string_view operation) noexcept {
+    if (!hwnd) return true;
+    const DWORD owner_thread = ::GetWindowThreadProcessId(hwnd, nullptr);
+    if (owner_thread == 0) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("{}: GetWindowThreadProcessId failed (error={})", operation, error);
+        return false;
+    }
+    if (owner_thread != ::GetCurrentThreadId()) {
+        QIQI_LOG_WARN("{}: window destruction rejected on wrong thread (owner_thread={}, current_thread={})",
+                      operation, owner_thread, ::GetCurrentThreadId());
+        return false;
+    }
+    return true;
+}
+
+inline bool DestroyWindowOnOwnerThread(ScopedWindow& window, std::string_view operation) noexcept {
+    const HWND hwnd = window.Get();
+    if (!hwnd) return true;
+    if (!CheckWindowOwnerThread(hwnd, operation)) return false;
+    if (!::DestroyWindow(hwnd)) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("{}: DestroyWindow failed (error={})", operation, error);
+        return false;
+    }
+    if (window.Get() == hwnd) std::ignore = window.Detach();
+    return true;
 }
 
 // Create a Microsoft YaHei UI font scaled to the specified pixel height and weight.

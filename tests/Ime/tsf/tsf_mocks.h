@@ -168,9 +168,10 @@ public:
         return c;
     }
     STDMETHODIMP GetRangeFromPoint(TfEditCookie, const POINT*, DWORD, ITfRange**) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP GetTextExt(TfEditCookie, ITfRange*, RECT* prc, BOOL* pfClipped) noexcept override {
+    STDMETHODIMP GetTextExt(TfEditCookie, ITfRange*, RECT* prc, BOOL* pfClipped) override {
+        if (get_text_ext_callback_) get_text_ext_callback_();
         if (fail_get_text_ext_) return TS_E_NOLAYOUT;
-        if (prc) *prc = {100, 100, 140, 124};
+        if (prc) *prc = text_ext_;
         if (pfClipped) *pfClipped = FALSE;
         return S_OK;
     }
@@ -183,6 +184,8 @@ public:
         return S_OK;
     }
     bool fail_get_text_ext_ = false;
+    RECT text_ext_{100, 100, 140, 124};
+    std::function<void()> get_text_ext_callback_;
 private:
     ULONG ref_ = 1;
 };
@@ -830,16 +833,23 @@ public:
     STDMETHODIMP SimulatePreservedKey(ITfContext*, REFGUID, BOOL*) noexcept override { return E_NOTIMPL; }
 
     // ITfUIElementMgr
-    STDMETHODIMP BeginUIElement(ITfUIElement* elem, BOOL* pbShow, DWORD* pdwUIElementId) noexcept override {
+    STDMETHODIMP BeginUIElement(ITfUIElement* elem, BOOL* pbShow, DWORD* pdwUIElementId) override {
         ++begin_ui_calls_;
         if (fail_begin_ui_) return E_FAIL;
         last_ui_element_ = elem;
         if (pbShow) *pbShow = show_own_ui_;
-        if (pdwUIElementId) *pdwUIElementId = 7;
+        const DWORD id = next_ui_element_id_++;
+        if (pdwUIElementId) *pdwUIElementId = id;
+        if (begin_ui_callback_) begin_ui_callback_(id);
         return S_OK;
     }
     STDMETHODIMP UpdateUIElement(DWORD) noexcept override { ++update_ui_calls_; return S_OK; }
-    STDMETHODIMP EndUIElement(DWORD) noexcept override { ++end_ui_calls_; return S_OK; }
+    STDMETHODIMP EndUIElement(DWORD id) override {
+        ++end_ui_calls_;
+        ended_ui_ids_.push_back(id);
+        if (end_ui_callback_) end_ui_callback_(id);
+        return end_ui_result_;
+    }
     STDMETHODIMP GetUIElement(DWORD, ITfUIElement**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP EnumUIElements(IEnumTfUIElements**) noexcept override { return E_NOTIMPL; }
 
@@ -917,6 +927,11 @@ public:
     unsigned int begin_ui_calls_ = 0;
     unsigned int update_ui_calls_ = 0;
     unsigned int end_ui_calls_ = 0;
+    DWORD next_ui_element_id_ = 7;
+    std::vector<DWORD> ended_ui_ids_;
+    std::function<void(DWORD)> begin_ui_callback_;
+    std::function<void(DWORD)> end_ui_callback_;
+    HRESULT end_ui_result_ = S_OK;
     ComPtr<ITfLangBarItem> langbar_item_;
     bool fail_query_source_ = false;
     bool fail_query_key_mgr_ = false;

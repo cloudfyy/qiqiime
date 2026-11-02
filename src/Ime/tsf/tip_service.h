@@ -143,6 +143,8 @@ private:
     void LoadExternalDictionaryNextToDll();
 
     void ResetCompositionAndUI(bool try_host_cleanup = true);
+    void SetUiPresentationEnabled(bool enabled) noexcept;
+    bool DestroyUIWindows() noexcept;
     void ScheduleCompositionCleanup();
     bool HasPendingCompositionCleanup(const ITfContext* context);
     void MarkCompositionContextRemoved(const ITfContext* context) noexcept;

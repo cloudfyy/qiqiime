@@ -357,12 +357,13 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
         const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
         if (result.action == KeyActionType::Cancel) {
             self_holder->CancelCompositionInSession(ec, non_null_ctx.get());
-            self_holder->EndCandidateUI();
+            if (self_holder->IsEditSessionCurrent(epoch, ctx_holder.Get())) self_holder->EndCandidateUI();
             return S_OK;
         }
 
         if (result.action == KeyActionType::Commit) {
             self_holder->CommitAndEndCompositionInSession(ec, non_null_ctx, result.committed_text);
+            if (!self_holder->IsEditSessionCurrent(epoch, ctx_holder.Get())) return S_OK;
             if (!result.composition_text.empty()) {
                 // e.g. 5th key auto-committed previous 4-code word and started a new 1-code composition
                 self_holder->SyncCompositionUIInSession(ec, non_null_ctx, result);
@@ -395,8 +396,11 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
 
 void QiQiTextService::SyncCompositionUIInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot) {
+    const auto epoch = edit_session_epoch_;
     StartOrUpdateCompositionInSession(ec, context, snapshot.composition_text);
+    if (!IsEditSessionCurrent(epoch, context.get())) return;
     UpdateCandidateWindowPositionInSession(ec, context);
+    if (!IsEditSessionCurrent(epoch, context.get())) return;
     BeginOrUpdateCandidateUI(snapshot);
 }
 
@@ -524,14 +528,21 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
     if (!composition_ || !candidate_ui_) {
         return;
     }
+    const auto epoch = edit_session_epoch_;
+    const auto composition = composition_;
     ComPtr<ITfContextView> view;
     ComPtr<ITfRange> comp_range;
     RECT rc{};
     BOOL clipped = FALSE;
-    if (log::CheckHResult(context->GetActiveView(&view), "CandidatePosition::GetActiveView", log::Level::debug) && view &&
-        log::CheckHResult(composition_->GetRange(&comp_range), "CandidatePosition::GetRange", log::Level::debug) && comp_range &&
+    const bool got_position =
+        log::CheckHResult(context->GetActiveView(&view), "CandidatePosition::GetActiveView", log::Level::debug) && view &&
+        IsEditSessionCurrent(epoch, context.get()) &&
+        log::CheckHResult(composition->GetRange(&comp_range), "CandidatePosition::GetRange", log::Level::debug) && comp_range &&
+        IsEditSessionCurrent(epoch, context.get()) &&
         log::CheckHResult(view->GetTextExt(ec, comp_range.Get(), &rc, &clipped),
-                         "CandidatePosition::GetTextExt", log::Level::trace)) {
+                         "CandidatePosition::GetTextExt", log::Level::trace);
+    if (!IsEditSessionCurrent(epoch, context.get()) || composition_ != composition) return;
+    if (got_position) {
         has_valid_caret_pos_ = true;
         candidate_ui_->MoveWindowTo(rc);
         return;
@@ -543,9 +554,11 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
 }
 
 void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot) {
-    if (!candidate_ui_ || !thread_mgr_) {
+    if (!candidate_ui_ || !thread_mgr_ || !active_context_ || !is_active_ || resetting_context_) {
         return;
     }
+    const auto epoch = edit_session_epoch_;
+    const auto context = active_context_;
 
     candidate_ui_->SetCandidates(
         snapshot.composition_text,
@@ -553,10 +566,14 @@ void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot)
         snapshot.page_size,
         snapshot.current_page,
         snapshot.selected_index);
+    if (!IsEditSessionCurrent(epoch, context.Get())) return;
 
     ComPtr<ITfUIElementMgr> ui_mgr;
-    if (!log::CheckHResult(thread_mgr_.As(&ui_mgr),
-                          "BeginOrUpdateCandidateUI::QueryInterface(ITfUIElementMgr)", log::Level::debug) || !ui_mgr) {
+    const HRESULT manager_hr = thread_mgr_.As(&ui_mgr);
+    const bool manager_ok = log::CheckHResult(
+        manager_hr, "BeginOrUpdateCandidateUI::QueryInterface(ITfUIElementMgr)", log::Level::debug);
+    if (!IsEditSessionCurrent(epoch, context.Get())) return;
+    if (!manager_ok || !ui_mgr) {
         // Fallback if UIElementMgr unavailable
         QIQI_LOG_DEBUG("BeginOrUpdateCandidateUI: ITfUIElementMgr unavailable; showing popup directly");
         candidate_ui_->Show(TRUE);
@@ -566,8 +583,18 @@ void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot)
     if (candidate_ui_->UiElementId() == TF_INVALID_UIELEMENTID) {
         BOOL show_own_ui = TRUE;
         DWORD element_id = TF_INVALID_UIELEMENTID;
-        if (log::CheckHResult(ui_mgr->BeginUIElement(candidate_ui_.Get(), &show_own_ui, &element_id),
-                             "BeginOrUpdateCandidateUI::BeginUIElement")) {
+        const HRESULT begin_hr = ui_mgr->BeginUIElement(candidate_ui_.Get(), &show_own_ui, &element_id);
+        const bool begin_ok = log::CheckHResult(begin_hr, "BeginOrUpdateCandidateUI::BeginUIElement");
+        if (!IsEditSessionCurrent(epoch, context.Get())) {
+            QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=ui-begin-stale, activation={}, context={}, "
+                           "element_id={}, begin_ok={})",
+                           service_log_id_, epoch.activation, epoch.context, element_id, begin_ok);
+            if (begin_ok && element_id != TF_INVALID_UIELEMENTID) {
+                std::ignore = log::CheckHResult(ui_mgr->EndUIElement(element_id), "StaleCandidateUI::EndUIElement");
+            }
+            return;
+        }
+        if (begin_ok) {
             candidate_ui_->SetUiElementId(element_id);
             // If host game/app returned FALSE in show_own_ui (UILess mode), do not show popup window
             const bool force_uiless = (activate_flags_ & TF_TMAE_UIELEMENTENABLEDONLY) != 0 && !show_own_ui;
@@ -575,6 +602,7 @@ void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot)
             QIQI_LOG_DEBUG("BeginOrUpdateCandidateUI: BeginUIElement(id={}, show_own_ui={}, show_popup={})",
                            element_id, show_own_ui != FALSE, show_popup);
             candidate_ui_->Show(show_popup ? TRUE : FALSE);
+            if (!IsEditSessionCurrent(epoch, context.Get())) return;
             std::ignore = log::CheckHResult(ui_mgr->UpdateUIElement(element_id), "ITfUIElementMgr::UpdateUIElement");
         } else {
             QIQI_LOG_WARN("BeginOrUpdateCandidateUI: BeginUIElement failed; falling back to popup window");
@@ -590,15 +618,19 @@ void QiQiTextService::EndCandidateUI() {
     if (!candidate_ui_) {
         return;
     }
-    if (candidate_ui_->UiElementId() != TF_INVALID_UIELEMENTID && thread_mgr_) {
+    const DWORD element_id = candidate_ui_->UiElementId();
+    const auto manager = thread_mgr_;
+    candidate_ui_->SetUiElementId(TF_INVALID_UIELEMENTID);
+    candidate_ui_->Show(FALSE);
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=ui-end, element_id={}, has_manager={})",
+                   service_log_id_, element_id, manager != nullptr);
+    if (element_id != TF_INVALID_UIELEMENTID && manager) {
         ComPtr<ITfUIElementMgr> ui_mgr;
-        if (log::CheckHResult(thread_mgr_.As(&ui_mgr), "EndCandidateUI::QueryInterface(ITfUIElementMgr)") && ui_mgr) {
-            std::ignore = log::CheckHResult(ui_mgr->EndUIElement(candidate_ui_->UiElementId()),
+        if (log::CheckHResult(manager.As(&ui_mgr), "EndCandidateUI::QueryInterface(ITfUIElementMgr)") && ui_mgr) {
+            std::ignore = log::CheckHResult(ui_mgr->EndUIElement(element_id),
                                            "ITfUIElementMgr::EndUIElement");
         }
-        candidate_ui_->SetUiElementId(TF_INVALID_UIELEMENTID);
     }
-    candidate_ui_->Show(FALSE);
 }
 
 } // namespace qiqi

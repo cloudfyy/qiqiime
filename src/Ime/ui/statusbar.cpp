@@ -92,7 +92,7 @@ StatusBarUI::StatusBarUI(HINSTANCE instance, ActionCallback cb) noexcept
 }
 
 StatusBarUI::~StatusBarUI() noexcept {
-    DestroyBarWindow();
+    std::ignore = DestroyBarWindow();
 }
 
 int StatusBarUI::ScaleByDpi(int px) const noexcept {
@@ -137,6 +137,7 @@ void StatusBarUI::ClampToCurrentMonitor() noexcept {
 }
 
 void StatusBarUI::Show(bool visible) noexcept {
+    visible = visible && presentation_enabled_ && !destroying_window_;
     visible_ = visible;
     if (visible) {
         if (EnsureBarWindow()) {
@@ -161,6 +162,7 @@ void StatusBarUI::UpdateState(const LangBarState& state) noexcept {
 }
 
 bool StatusBarUI::EnsureBarWindow() noexcept {
+    if (!presentation_enabled_ || destroying_window_) return false;
     if (hwnd_ && ::IsWindow(hwnd_.Get())) {
         return true;
     }
@@ -205,14 +207,20 @@ bool StatusBarUI::EnsureBarWindow() noexcept {
     return hwnd_.IsValid();
 }
 
-void StatusBarUI::DestroyBarWindow() noexcept {
+bool StatusBarUI::DestroyBarWindow() noexcept {
+    if (destroying_window_) return true;
+    if (!CheckWindowOwnerThread(hwnd_.Get(), "StatusBarUI::DestroyBarWindow") ||
+        !CheckWindowOwnerThread(tooltip_hwnd_.Get(), "StatusBarUI::DestroyTooltipWindow")) return false;
+    destroying_window_ = true;
+    const auto finish = gsl::finally([this]() noexcept { destroying_window_ = false; });
+    visible_ = false;
     HideTooltip();
     EndDragTracking(false);
-    tooltip_hwnd_.Reset();
-    hwnd_.Reset();
-    visible_ = false;
+    const bool tooltip_destroyed = DestroyWindowOnOwnerThread(tooltip_hwnd_, "StatusBarUI::DestroyTooltipWindow");
+    const bool bar_destroyed = DestroyWindowOnOwnerThread(hwnd_, "StatusBarUI::DestroyBarWindow");
     hovered_zone_ = -1;
     tracking_mouse_ = false;
+    return tooltip_destroyed && bar_destroyed;
 }
 
 bool StatusBarUI::IsDraggableBlankPoint(POINT client_pt) const noexcept {
@@ -463,6 +471,17 @@ void StatusBarUI::OnDpiChanged(UINT new_dpi, const RECT* suggested_rect) noexcep
 
 LRESULT StatusBarUI::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
+        case WM_NCDESTROY:
+            if (hwnd_.Get() == hwnd) {
+                std::ignore = hwnd_.Detach();
+                visible_ = false;
+                left_button_down_ = false;
+                is_dragging_ = false;
+                hovered_zone_ = -1;
+                tracking_mouse_ = false;
+                HideTooltip();
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
         case WM_NCHITTEST: {

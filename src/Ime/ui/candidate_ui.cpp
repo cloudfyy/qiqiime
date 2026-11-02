@@ -18,7 +18,7 @@ CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
 }
 
 CandidateUI::~CandidateUI() noexcept {
-    DestroyPopupWindow();
+    std::ignore = DestroyPopupWindow();
 }
 
 void CandidateUI::InitDirect2DAndDirectWrite() noexcept {
@@ -190,6 +190,8 @@ STDMETHODIMP CandidateUI::GetGUID(GUID* pguid) noexcept {
 }
 
 STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
+    const bool blocked = bShow && (!presentation_enabled_ || destroying_window_);
+    if (blocked) bShow = FALSE;
     is_shown_ = bShow;
     if (bShow) {
         if (EnsurePopupWindow()) {
@@ -199,7 +201,7 @@ STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
     } else if (hwnd_) {
         ::ShowWindow(hwnd_.Get(), SW_HIDE);
     }
-    return S_OK;
+    return blocked ? S_FALSE : S_OK;
 }
 
 STDMETHODIMP CandidateUI::IsShown(BOOL* pbShow) noexcept {
@@ -328,6 +330,7 @@ void CandidateUI::MoveWindowTo(const RECT& text_rect) {
 }
 
 bool CandidateUI::EnsurePopupWindow() noexcept {
+    if (!presentation_enabled_ || destroying_window_) return false;
     if (hwnd_ && ::IsWindow(hwnd_.Get())) {
         return true;
     }
@@ -359,9 +362,13 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
     return hwnd_.IsValid();
 }
 
-void CandidateUI::DestroyPopupWindow() noexcept {
-    hwnd_.Reset();
+bool CandidateUI::DestroyPopupWindow() noexcept {
+    if (destroying_window_) return true;
+    if (!CheckWindowOwnerThread(hwnd_.Get(), "CandidateUI::DestroyPopupWindow")) return false;
+    destroying_window_ = true;
+    const auto finish = gsl::finally([this]() noexcept { destroying_window_ = false; });
     is_shown_ = FALSE;
+    return DestroyWindowOnOwnerThread(hwnd_, "CandidateUI::DestroyPopupWindow");
 }
 
 bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
@@ -532,6 +539,12 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     }
 
     switch (msg) {
+        case WM_NCDESTROY:
+            if (self->hwnd_.Get() == hwnd) {
+                std::ignore = self->hwnd_.Detach();
+                self->is_shown_ = FALSE;
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
         case WM_LBUTTONDOWN:

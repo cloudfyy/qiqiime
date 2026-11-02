@@ -50,7 +50,8 @@ public:
     void Show(bool visible) noexcept;
     bool IsVisible() const noexcept { return visible_; }
     void UpdateState(const LangBarState& state) noexcept;
-    void DestroyBarWindow() noexcept;
+    bool DestroyBarWindow() noexcept;
+    void SetPresentationEnabled(bool enabled) noexcept { presentation_enabled_ = enabled; }
 
     HWND WindowHandle() const noexcept { return hwnd_.Get(); }
     HWND TooltipWindowHandle() const noexcept { return tooltip_hwnd_.Get(); }
@@ -105,6 +106,8 @@ private:
     COLORREF icon_fg_color_ = CLR_INVALID;
     UINT dpi_ = 96;
     bool visible_ = false;
+    bool presentation_enabled_ = true;
+    bool destroying_window_ = false;
     POINT pos_{0, 0};
     bool pos_initialized_ = false;
     int hovered_zone_ = -1; // -1 = none, 0 = grip/logo, 1..kCellCount = cells 0..kCellCount-1

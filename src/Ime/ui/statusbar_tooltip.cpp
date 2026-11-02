@@ -10,6 +10,7 @@
 namespace qiqi {
 
 bool StatusBarUI::EnsureTooltipWindow() noexcept {
+    if (!presentation_enabled_ || destroying_window_) return false;
     if (tooltip_hwnd_ && ::IsWindow(tooltip_hwnd_.Get())) {
         return true;
     }
@@ -116,11 +117,17 @@ void StatusBarUI::PaintTooltip(HDC hdc, const RECT& client_rect) const noexcept 
 }
 
 LRESULT CALLBACK StatusBarUI::TooltipWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept {
-    const auto* self = BindOrGetWindowUserData<const StatusBarUI>(hwnd, msg, lparam);
+    auto* self = BindOrGetWindowUserData<StatusBarUI>(hwnd, msg, lparam);
     if (!self || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
     switch (msg) {
+        case WM_NCDESTROY:
+            if (self->tooltip_hwnd_.Get() == hwnd) {
+                std::ignore = self->tooltip_hwnd_.Detach();
+                self->active_tooltip_text_.clear();
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
         case WM_PAINT:

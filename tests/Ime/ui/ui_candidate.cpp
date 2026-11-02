@@ -9,6 +9,7 @@
 #include <wrl/client.h>
 #include <gsl/gsl>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace qiqi::test {
@@ -197,7 +198,19 @@ void TestCandidateUI() {
 
     QIQI_TEST_CHECK(SUCCEEDED(ui->Show(FALSE)));
     QIQI_TEST_CHECK(SUCCEEDED(ui->IsShown(&shown)) && shown == FALSE);
-    ui->DestroyPopupWindow();
+    const HWND old_window = ui->WindowHandle();
+    QIQI_TEST_CHECK(old_window && ui->DestroyPopupWindow());
+    QIQI_TEST_CHECK(!::IsWindow(old_window) && !ui->WindowHandle() && ui->DestroyPopupWindow());
+    QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK && ui->WindowHandle());
+    const HWND recreated = ui->WindowHandle();
+    bool wrong_thread_destroyed = true;
+    {
+        const std::jthread worker([&]() { wrong_thread_destroyed = ui->DestroyPopupWindow(); });
+    }
+    QIQI_TEST_CHECK(!wrong_thread_destroyed && ui->WindowHandle() == recreated && ::IsWindow(recreated));
+    QIQI_TEST_CHECK(::DestroyWindow(recreated) && !ui->WindowHandle());
+    QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK && ui->WindowHandle());
+    QIQI_TEST_CHECK(ui->DestroyPopupWindow());
 
     cand_elem.Reset();
     QIQI_TEST_CHECK(ui.Detach()->Release() == 0);

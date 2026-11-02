@@ -70,23 +70,30 @@ QiQiTextService::QiQiTextService(HINSTANCE instance) : service_log_id_(++next_se
     status_bar_->SetPositionChangedCallback([this](POINT new_pos) {
         SaveGlobalStatusBarPosition(new_pos);
     });
+    SetUiPresentationEnabled(false);
     LoadExternalDictionaryNextToDll();
 }
 
 QiQiTextService::~QiQiTextService() noexcept {
-    try {
-        if (status_bar_) {
-            status_bar_->DestroyBarWindow();
-            status_bar_.reset();
-        }
-        if (candidate_ui_) {
-            candidate_ui_->DestroyPopupWindow();
-            candidate_ui_.Reset();
-        }
-        langbar_btn_.Reset();
-    } catch (...) {
-        QIQI_LOG_ERROR("QiQiTextService destructor UI cleanup failed with a C++ exception");
+    if (candidate_ui_) {
+        candidate_ui_->SetSelectCallback({});
+        candidate_ui_->SetPageTurnCallback({});
     }
+    std::ignore = DestroyUIWindows();
+}
+
+void QiQiTextService::SetUiPresentationEnabled(bool enabled) noexcept {
+    if (candidate_ui_) candidate_ui_->SetPresentationEnabled(enabled);
+    if (status_bar_) status_bar_->SetPresentationEnabled(enabled);
+}
+
+bool QiQiTextService::DestroyUIWindows() noexcept {
+    SetUiPresentationEnabled(false);
+    const bool candidate_destroyed = !candidate_ui_ || candidate_ui_->DestroyPopupWindow();
+    const bool status_destroyed = !status_bar_ || status_bar_->DestroyBarWindow();
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=ui-windows-destroyed, candidate_destroyed={}, status_destroyed={})",
+                   service_log_id_, candidate_destroyed, status_destroyed);
+    return candidate_destroyed && status_destroyed;
 }
 
 STDMETHODIMP QiQiTextService::Activate(ITfThreadMgr* ptim, TfClientId tid) {
@@ -126,6 +133,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
         LoadExternalDictionaryNextToDll();
     }
     is_active_ = true;
+    SetUiPresentationEnabled(true);
     SyncTsfCompartments();
     QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=activated, activation={}, context={}, client_id={})",
                    service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, client_id_);
@@ -141,6 +149,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     deactivating_ = true;
     const auto finish_deactivation = gsl::finally([this]() noexcept { deactivating_ = false; });
     is_active_ = false;
+    SetUiPresentationEnabled(false);
     ++edit_session_epoch_.activation;
     QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=deactivate-begin, activation={}, context={}, has_composition={})",
                    service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, composition_ != nullptr);
@@ -149,6 +158,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     if (status_bar_) {
         status_bar_->Show(false);
     }
+    const bool windows_destroyed = DestroyUIWindows();
 
     UninitCompartmentSinks();
     UninitLangBarItem();
@@ -163,7 +173,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     WubiMappedDict::ClearProcessCache();
     QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=deactivate-local-complete, activation={}, context={}, tracked_cleanups={})",
                    service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, composition_cleanups_.size());
-    return S_OK;
+    return windows_destroyed ? S_OK : E_FAIL;
 }
 
 bool QiQiTextService::InitThreadMgrEventSink() noexcept {
