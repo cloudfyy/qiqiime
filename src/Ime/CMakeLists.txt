@@ -20,6 +20,7 @@ set(QIQIIME_SOURCES
     tsf/dllmain.cpp
     tsf/class_factory.h
     tsf/class_factory.cpp
+    tsf/category_manager.h
     tsf/register.h
     tsf/register.cpp
     tsf/tip_service.h

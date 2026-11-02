@@ -289,3 +289,14 @@ cmake --build build\x64 --config Release --target lint
 - 调整策略：[`QiQiTextService::Deactivate`](../src/Ime/tsf/tip_service.cpp) 仅调用 `engine_.ClearExternalDictionaries()` 释放当前服务实例持有的词库引用，不再清空进程级缓存；进程缓存随模块生命周期在 [`DllMain`](../src/Ime/tsf/dllmain.cpp) 动态卸载（`DLL_PROCESS_DETACH` 且 `lpReserved == nullptr`）时统一清理，运行期词库文件修改则由 `LoadFromTextOrCache` 的文件大小与最后修改时间比对自动更新。
 - 关联修正：`ActivateEx` 原先仅在 `config_.primary_dict != PrimaryDict::BuiltinOnly` 时恢复被 `Deactivate` 清空的外部词库，导致 `BuiltinOnly` 配置下停用后重新激活丢失已配置的外部用户词库；现统一在 `engine_.MappedDictionaryCount() == 0` 时调用 `LoadExternalDictionaryNextToDll()`（直接命中进程级缓存）。
 - 验证：[`dict.cpp`](../tests/Ime/engine/dict.cpp) 与 [`service.cpp`](../tests/Ime/tsf/service.cpp) 验证多实例指针级复用、停用一个实例后进程缓存保留且另一实例及再次激活实例（含 `BuiltinOnly` 用户词库）候选查询正常、显式 `ClearProcessCache` 不影响在用 `shared_ptr`，以及所有实例与缓存释放后 `weak_ptr` 过期（底层映射资源释放）。
+
+### 5.12 类别管理器创建与模块引用（任务 53）
+
+- 保留“导出函数优先、COM 回退”的既有顺序。[`TF_CreateCategoryMgr`](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-tf_createcategorymgr) 支持无需初始化 COM 的创建路径；不能仅因普通 STA 宿主中 `CoCreateInstance` 成功就删掉它。生产代码不调用 `CoInitializeEx` 或 `CoUninitialize`，不改变宿主线程的 COM 状态。
+- [`category_manager.h`](../src/Ime/tsf/category_manager.h) 将创建与样式 Atom 注册保持在同一个作用域：使用 [`GetModuleHandleExW`](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw) 的 `0` 标志取得已加载 `msctf.dll` 的持有引用，由现有 `ScopedModule` 释放；不使用 `PIN`、`UNCHANGED_REFCOUNT` 或主动加载 DLL 的新生产回退。
+- 模块守卫先于 `ComPtr<ITfCategoryMgr>` 声明，所以成功、注册失败及创建失败路径都先释放接口，再释放持有的模块引用。此改动消除借用句柄路径缺乏显式引用保障的问题，不宣称此前已复现 DLL 卸载故障。
+- 无模块或无导出时继续尝试 COM；模块/导出查询失败立即捕获 `GetLastError`，记录 Debug 回退诊断。导出创建失败使用实际 HRESULT 记录 Debug，COM 创建及 `RegisterGUID` 失败使用现有 `CheckHResult` 记录警告。成功却无接口按 `E_UNEXPECTED` 诊断；导出返回失败时不沿用其输出接口。
+- 仅在 `RegisterGUID` 成功时发布 Atom，失败返回 `TF_INVALID_GUIDATOM`，保持输入法激活不因此失败的原有行为。调用方仍为 [`RegisterCompositionDisplayAttributeAtom`](../src/Ime/tsf/tip_service.cpp)，没有将类别管理器或函数指针缓存到模块引用之外。
+- [`category_manager.cpp`](../tests/Ime/tsf/category_manager.cpp) 通过局部 API 参数测试导出成功、模块/导出不可用、导出失败后回退、两种创建均失败、成功但无接口、异常失败输出和两条路径的 GUID 注册失败；在每条路径断言接口释放先于模块引用释放，不新增全局测试钩子。
+- 原生测试在未初始化 COM 的新线程中预加载系统 `msctf.dll`，验证真实导出创建与 GUID/Atom 映射，并检查调用前后仍为未初始化 COM；另在测试 STA 中强制导出失败，验证真实 COM 回退与 GUID 映射。x64/x86 Release 的 `QiQiTsfUiTest` 与 `QiQiEtwIntegrationTest` 均通过，未跳过；VS Code、浏览器及容器类宿主的交互矩阵仍由任务 47 跟进，不将本测试等同于全部宿主兼容性验证。
+- 定向 CppCoreCheck 已修正本次新增的异常声明与测试资源类型诊断；动态导出所需的函数指针转换沿用仓库排除 C26490 的规则，其余仅保留既有诊断。复核 RAII 释放顺序、共享日志/句柄封装复用、Core Guidelines/GSL 及缺失测试，未扩大告警豁免范围；最终双架构回归与 `git diff --check` 通过。

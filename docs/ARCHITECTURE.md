@@ -268,7 +268,7 @@ TSF 的按键处理分为两步：
   - 已移除 [`QiQiTextService::Deactivate`](../src/Ime/tsf/tip_service.cpp) 中的 `WubiMappedDict::ClearProcessCache()`：停用仅通过 `engine_.ClearExternalDictionaries()` 释放本实例的 `shared_ptr<const WubiMappedDict>`，进程级 `g_process_dict_cache` 由模块生命周期管理（[`DllMain`](../src/Ime/tsf/dllmain.cpp) 动态卸载时清理，文件修改时按大小/时间戳自动更新替换）。
   - 同时修正 `ActivateEx` 在 `PrimaryDict::BuiltinOnly` 模式下停用后重新激活漏重新挂载用户词库的问题（统一在 `engine_.MappedDictionaryCount() == 0` 时调用 `LoadExternalDictionaryNextToDll` 复用进程缓存）。
   - 引擎与 TSF 测试共同验证：同进程多实例共享同一 `WubiMappedDict` 实例、停用一个实例不清空进程缓存且其他实例与重新激活实例查询正常（含 `BuiltinOnly` + 用户词库）、显式清空缓存不会使已持有的 `shared_ptr` 悬空，且所有持有者与缓存释放后底层对象归零销毁。详见[开发文档](DEVELOPMENT.md#511-进程词库缓存生命周期任务-52)。
-- [ ] **53. 类别管理器创建及 DLL 生命周期（`tsf-category-manager-creation-lifetime`）**
+- [x] **53. 类别管理器创建及 DLL 生命周期（`tsf-category-manager-creation-lifetime`）**
   - 背景：先用 `GetModuleHandleW`/`GetProcAddress` 动态调用 `TF_CreateCategoryMgr`，未取得接口则回退 `CoCreateInstance`；两条创建路径都忽略 HRESULT，仅检查指针，`RegisterGUID` 日志也缺错误码。
   - 官方说明导出函数可在不初始化 COM 时创建类别管理器，调用线程必须维护对象引用计数；局部 `ComPtr` 管理接口是合理的。文档没有要求导出优先、COM 回退的固定顺序。
   - `GetModuleHandleW` 不增加 DLL 引用计数，官方建议 `GetModuleHandleEx` 避免卸载竞态；尚未证明当前激活场景实际会发生，应先核实宿主兼容性和模块生命周期依据。
@@ -276,6 +276,22 @@ TSF 的按键处理分为两步：
   - 保存并诊断创建、回退及注册的实际 HRESULT；不能在宿主线程擅自初始化/反初始化 COM。只有证实 COM 路径足够可靠后再评估简化。
   - 覆盖导出成功/不可用、导出失败后 COM 成功、全部创建失败及注册失败；保留失败不终止激活的既有行为，验证目标宿主兼容性。
   - 官方依据：[TF_CreateCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-tf_createcategorymgr)、[GetModuleHandleW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew)、[ITfCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr)。
+  - 已保留导出优先/COM 回退路径，改用 `GetModuleHandleExW(0, ...)` 与现有 `ScopedModule` 持有引用，局部 COM 接口先于模块释放；各失败阶段记录对应错误码，不修改宿主 COM 初始化状态，注册失败仍不阻止激活。
+  - 双架构 TSF/UI 与 ETW 测试通过；新增失败分支、释放顺序、未初始化 COM 线程上的原生导出及真实 COM 回退测试。详见[开发文档](DEVELOPMENT.md#512-类别管理器创建与模块引用任务-53)，真实宿主交互验证继续由任务 47 跟进。
+- [ ] **56. 独立实时日志监控工具（`realtime-etw-log-monitor`）**
+  - 执行顺序：紧接任务 53，先完成类别管理器工作，再开始本项；依赖任务 55、51（均已完成）。本次只调整顺序，不实施监控工具。
+  - 为日常开发和用户问题复现提供按需启动的轻量工具，避免每次附加调试器或打开 WPA；作为可选诊断程序，不随 IME 常驻，不替代 WPA 的完整离线分析能力。
+  - 沿用无调试器正常注册和按模块清理的策略，工具不能靠附加调试器掩盖初始化问题。
+  - 直接消费 `QiQiIME.TraceLogging` 的实时 ETW 事件，并按自描述元数据解码 `process`、`message` 和事件头；复用现有 Provider，不新增文本文件轮询、宿主注入或第二套日志传输。
+  - 已确定使用 GUI，独立程序必须带版本号。复用根 `VERSION`、生成的 `common/version.h` 与 `version.rc.in`，沿用设置程序的 CMake 资源生成方式，设置独立 EXE 名称/描述及 `VFT_APP`；标题显示版本，关于信息和导出头包含完整版本、构建标识及工具架构。不复制维护第二套版本常量，也不以工具架构推断事件来源架构。
+  - 推荐界面采用原生 Win32 窗口与现有 D2D 皮肤混合：工具栏按钮、筛选框复用 `CreateFluentChildControl`、`FluentD2DThemeContext`，主题、DPI、字体及句柄管理复用 `common` 帮助代码；大量日志行用原生 `ListView` 的 `LVS_OWNERDATA` 虚拟列表，不重写 D2D 表格、滚动条、选择与键盘导航。高对比度优先系统可读性，不引入新 UI 框架，也不直接依赖设置窗口的内部状态。
+  - 界面设计：顶部开始/停止、暂停滚动、清空、导出、关于；第二行进程名、PID、级别与消息文本筛选；中部列出时间、进程、PID、TID、级别、消息；底部可调整高度的只读详情区和采集状态、缓冲用量、丢失/淘汰及解码失败计数。暂停滚动不停止采集，停止后保留已有记录；导出明确针对当前筛选快照并先提示环境信息检查。
+  - 区分显示过滤与应用日志级别，不承诺显示已在应用侧被过滤的消息。当前 Provider 将 Trace/Debug 合并为 ETW Verbose、Error/Critical 合并为 ETW Error；第一版按实际 ETW 级别显示和筛选，不虚构原始级别。
+  - 尽量复用 [`logging.cpp`](../tests/Ime/tsf/logging.cpp) 已验证的 Provider 过滤、TDH 解码与会话清理经验；目前它是离线 ETL 测试，不可直接当实时采集器。只在实际复用时提取无测试断言的最小公共逻辑，生产程序不依赖测试代码。
+  - 采集与解码在后台执行，使用按条数及字节数有界的缓冲，UI 批量刷新；筛选和详情基于稳定事件标识，淘汰时不留下悬空引用。监控器自身诊断显示在状态区，避免逐事件日志或解码错误日志回流导致自激。第一版不同时实现 CLI。
+  - 使用有界事件缓冲和批量显示，明确报告丢失事件、解码失败、权限不足及会话创建/停止错误；按采集 API 的权限要求运行工具，不提升被测宿主权限，只清理本工具拥有的会话与资源。
+  - 验证多宿主与 x64/x86 事件、无调试器、晚启动监控、进程退出/重新启动、高频事件、缓冲溢出、暂停/恢复及退出清理；导出前提供敏感环境信息检查，不默认长期写盘或上传日志。
+  - 完成后更新[日志监控指南](LOGGING.md)，提供操作步骤。
 - [ ] **47. 真实宿主生命周期验证（`tsf-real-host-lifecycle-tests`）**
   - 在 VS Code 与浏览器中验证组合期间失焦、停用、重新激活后的组合文本、下划线及候选窗口清理。
   - 检查 UI 是否残留或被旧任务重新显示，记录可复现步骤、宿主条件和验证结果；配合单元测试，不以 Mock 代替真实显示验证。
@@ -283,17 +299,6 @@ TSF 的按键处理分为两步：
 - [x] **54. 明确显示属性注册命名（`tsf-display-attribute-registration-name`）**
   - 已统一为 `RegisterCompositionDisplayAttributeAtom`，同步声明、定义、调用、日志及直接相关文档引用；双架构构建与 TSF/UI 测试验证既有行为，未改变类别管理器创建/回退及注册失败不终止激活的策略。任务 53 的生命周期评估仍独立待办。
   - 保留 [`display_attribute.cpp`](../src/Ime/tsf/display_attribute.cpp)、[`display_attribute.h`](../src/Ime/tsf/display_attribute.h) 及其类名；它们对应 TSF 正式接口，暂不进行收益有限的批量改名。
-
-#### P2：轻量实时诊断工具
-
-- [ ] **56. 独立实时日志监控工具（`realtime-etw-log-monitor`）**
-  - 为日常开发和用户问题复现提供按需启动的轻量工具，避免每次附加调试器或打开 WPA；作为可选诊断程序，不随 IME 常驻，不替代 WPA 的完整离线分析能力。
-  - 依赖任务 55（已完成），任务 51 的共享生命周期前置也已完成；沿用无调试器正常注册和按模块清理的策略，工具不能靠附加调试器掩盖初始化问题。
-  - 直接消费 `QiQiIME.TraceLogging` 的实时 ETW 事件，并按自描述元数据解码 `process`、`message` 和事件头；复用现有 Provider，不新增文本文件轮询、宿主注入或第二套日志传输。
-  - 最小功能包含开始/停止采集、按进程名/PID及级别过滤、时间/线程/消息显示、暂停滚动、清空和按需导出；区分显示过滤与应用日志级别，不承诺显示已在应用侧被过滤的消息。具体界面形式在实施前确定。
-  - 使用有界事件缓冲和批量显示，明确报告丢失事件、解码失败、权限不足及会话创建/停止错误；按采集 API 的权限要求运行工具，不提升被测宿主权限，只清理本工具拥有的会话与资源。
-  - 验证多宿主与 x64/x86 事件、无调试器、晚启动监控、进程退出/重新启动、高频事件、缓冲溢出、暂停/恢复及退出清理；导出前提供敏感环境信息检查，不默认长期写盘或上传日志。
-  - 完成后更新[日志监控指南](LOGGING.md)，提供操作步骤；当前仅记录待办，不调整已有任务的执行顺序。
 
 #### 近期首要待办（明早第一项工作）
 *** End of File

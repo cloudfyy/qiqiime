@@ -20,6 +20,8 @@ extern "C" HRESULT STDAPICALLTYPE DllInstall(BOOL install, LPCWSTR command_line)
 
 namespace qiqi::test {
 
+void RunCategoryManagerTests();
+
 using Microsoft::WRL::ComPtr;
 
 namespace {
@@ -392,6 +394,7 @@ void TestEnableCurrentUserProfile() {
 } // namespace
 
 void RunTsfComTests() {
+    RunCategoryManagerTests();
     TestLambdaEditSession();
     TestDeferredEditSessions();
     TestClassFactoryAndDllExports();

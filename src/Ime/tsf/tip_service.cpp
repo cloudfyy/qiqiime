@@ -1,4 +1,5 @@
 #include "Ime/tsf/tip_service.h"
+#include "Ime/tsf/category_manager.h"
 #include "Ime/tsf/display_attribute.h"
 #include "common/file_util.h"
 #include "common/guids.h"
@@ -258,28 +259,7 @@ void QiQiTextService::UninitKeyEventSink() {
 }
 
 void QiQiTextService::RegisterCompositionDisplayAttributeAtom() {
-    display_attribute_atom_ = TF_INVALID_GUIDATOM;
-    ComPtr<ITfCategoryMgr> cat_mgr;
-    if (const HMODULE msctf = ::GetModuleHandleW(L"msctf.dll")) {
-        using TfCreateCategoryMgrFn = HRESULT(WINAPI*)(ITfCategoryMgr**);
-        const auto fn = reinterpret_cast<TfCreateCategoryMgrFn>(
-            ::GetProcAddress(msctf, "TF_CreateCategoryMgr"));
-        if (fn) {
-            std::ignore = log::CheckHResult(fn(&cat_mgr), "TF_CreateCategoryMgr; trying COM fallback",
-                                           log::Level::debug);
-        }
-    }
-    if (!cat_mgr) {
-        std::ignore = log::CheckHResult(::CoCreateInstance(
-            CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&cat_mgr)),
-            "RegisterCompositionDisplayAttributeAtom::CoCreateInstance(ITfCategoryMgr)");
-    }
-    if (cat_mgr) {
-        std::ignore = log::CheckHResult(cat_mgr->RegisterGUID(kGuidDisplayAttributeInput, &display_attribute_atom_),
-                                       "RegisterCompositionDisplayAttributeAtom::RegisterGUID");
-    } else {
-        QIQI_LOG_WARN("RegisterCompositionDisplayAttributeAtom: ITfCategoryMgr unavailable");
-    }
+    display_attribute_atom_ = detail::RegisterCompositionDisplayAttributeAtom();
 }
 
 void QiQiTextService::InitFunctionProvider() {

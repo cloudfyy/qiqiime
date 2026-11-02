@@ -1149,7 +1149,7 @@ private:
     ULONG ref_ = 1;
 };
 
-// Minimal mock ITfCategoryMgr for non-admin unit testing of RegisterServer
+// Minimal mock ITfCategoryMgr for registration and display attribute tests.
 class MockTfCategoryMgr final : public ITfCategoryMgr {
 public:
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
@@ -1166,6 +1166,7 @@ public:
     STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
+            if (on_final_release_) on_final_release_(this, release_context_);
             // COM Release destroys the mock when its reference count reaches zero.
 #pragma warning(suppress : 26401 26409)
             delete this;
@@ -1189,11 +1190,23 @@ public:
     STDMETHODIMP RegisterGUIDDWORD(REFCLSID, REFGUID, DWORD) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP UnregisterGUIDDWORD(REFCLSID, REFGUID) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetGUIDDWORD(REFGUID, DWORD*) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP RegisterGUID(REFGUID, TfGuidAtom*) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP RegisterGUID(REFGUID guid, TfGuidAtom* atom) noexcept override {
+        if (!atom) return E_INVALIDARG;
+        ++register_guid_calls_;
+        registered_guid_ = guid;
+        *atom = registered_atom_;
+        return register_guid_result_;
+    }
     STDMETHODIMP GetGUID(TfGuidAtom, GUID*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP IsEqualTfGuidAtom(TfGuidAtom, REFGUID, BOOL*) noexcept override { return E_NOTIMPL; }
 
     size_t registered_categories_ = 0;
+    size_t register_guid_calls_ = 0;
+    GUID registered_guid_{};
+    TfGuidAtom registered_atom_ = 73;
+    HRESULT register_guid_result_ = E_NOTIMPL;
+    void (*on_final_release_)(MockTfCategoryMgr*, void*) noexcept = nullptr;
+    void* release_context_ = nullptr;
 private:
     ULONG ref_ = 1;
 };
