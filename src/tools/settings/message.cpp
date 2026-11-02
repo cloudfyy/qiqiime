@@ -273,13 +273,7 @@ ScopedWindow CreateSettingsMessageWindow(
     if (!strings.title || !strings.text) {
         return {};
     }
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.lpfnWndProc = &MessageWndProc;
-    wc.hInstance = instance;
-    wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
-    wc.lpszClassName = kSettingsMessageWndClass;
-    if (!::RegisterClassExW(&wc) && ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+    if (!dialog_detail::RegisterDialogWindowClass(instance, kSettingsMessageWndClass, &MessageWndProc)) {
         QIQI_LOG_ERROR("Settings message window registration failed (error={})", ::GetLastError());
         return {};
     }
@@ -315,28 +309,17 @@ ScopedWindow CreateSettingsMessageWindow(
     const int height = body_height + scale(124);
     constexpr DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
     constexpr DWORD ex_style = 0;
-    RECT rect{0, 0, scale(kWindowWidth), height};
-    ::AdjustWindowRectEx(&rect, style, FALSE, ex_style);
-    const int width = rect.right - rect.left;
-    const int window_height = rect.bottom - rect.top;
-    const POINT centered{
-        (monitor.work_area.left + monitor.work_area.right - width) / 2,
-        (monitor.work_area.top + monitor.work_area.bottom - window_height) / 2
-    };
-    const POINT position = ClampPointToWorkArea(centered, width, window_height, monitor.work_area);
+    const RECT bounds = ComputeCenteredWindowBounds(
+        scale(kWindowWidth), height, style, ex_style, monitor.work_area);
     ScopedWindow hwnd(::CreateWindowExW(ex_style, kSettingsMessageWndClass, strings.title, style,
-        position.x, position.y, width, window_height, parent, nullptr, instance, ctx.get()));
+        bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
+        parent, nullptr, instance, ctx.get()));
     if (!hwnd) {
         QIQI_LOG_ERROR("Settings message creation failed (error={})", ::GetLastError());
         return {};
     }
     const auto* owned = ctx.release();
-    if (owned->icon_small) {
-        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned->icon_small.Get()));
-    }
-    if (owned->icon_big) {
-        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(owned->icon_big.Get()));
-    }
+    dialog_detail::ApplyDialogIcons(hwnd.Get(), owned->icon_small.Get(), owned->icon_big.Get());
     const HFONT font = owned->font.Get();
     const auto* theme = &owned->d2d;
     const auto* body = CreateFluentChildControl(hwnd.Get(), instance, font, theme,

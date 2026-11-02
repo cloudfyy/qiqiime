@@ -133,8 +133,9 @@ public:
     KeyProcessResult ProcessKey(
         uint32_t vk, bool shift_down = false, bool ctrl_down = false, bool alt_down = false, bool caps_lock_on = false);
 
-    // Exact + prefix lookup for a Wubi code
-    std::vector<std::wstring> LookupCandidates(std::wstring_view code) const;
+    // Exact + prefix lookup for a Wubi code (optionally populating progressive/wildcard display labels)
+    std::vector<std::wstring> LookupCandidates(
+        std::wstring_view code, std::vector<std::wstring>* out_display_labels = nullptr) const;
     std::vector<std::wstring> LookupExact(std::wstring_view code) const;
     const auto& MappedDictionaries() const noexcept { return mapped_dicts_; }
     size_t MappedDictionaryCount() const noexcept { return mapped_dicts_.size(); }

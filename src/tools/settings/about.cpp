@@ -158,15 +158,12 @@ LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 } // namespace
 
 ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language) noexcept {
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = &AboutWndProc;
-    wc.hInstance = instance;
-    wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
-    wc.lpszClassName = kAboutWndClass;
-    ::RegisterClassExW(&wc);
+    if (!dialog_detail::RegisterDialogWindowClass(
+            instance, kAboutWndClass, &AboutWndProc,
+            CS_HREDRAW | CS_VREDRAW, nullptr, reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1))) {
+        QIQI_LOG_ERROR("About dialog class registration failed (error={})", ::GetLastError());
+        return {};
+    }
 
     std::unique_ptr<AboutDialogContext> ctx;
     try {
@@ -200,15 +197,10 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     const auto& str = GetUiStrings(ui_language);
     constexpr DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
     constexpr DWORD wnd_ex_style = 0;
-    RECT desired_rc{0, 0, S(440), ctx->button_top + S(46)};
-    ::AdjustWindowRectEx(&desired_rc, wnd_style, FALSE, wnd_ex_style);
-    const int dlg_w = desired_rc.right - desired_rc.left;
-    const int dlg_h = desired_rc.bottom - desired_rc.top;
-    const POINT centered{
-        (mon.work_area.left + mon.work_area.right - dlg_w) / 2,
-        (mon.work_area.top + mon.work_area.bottom - dlg_h) / 2
-    };
-    const POINT dlg_pos = ClampPointToWorkArea(centered, dlg_w, dlg_h, mon.work_area);
+    const RECT bounds = ComputeCenteredWindowBounds(
+        S(440), ctx->button_top + S(46), wnd_style, wnd_ex_style, mon.work_area);
+    const int dlg_w = bounds.right - bounds.left;
+    const int dlg_h = bounds.bottom - bounds.top;
 
     const HFONT f = ctx->body_font.Get();
     ScopedWindow hwnd(::CreateWindowExW(
@@ -216,7 +208,7 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
         kAboutWndClass,
         str.about_title,
         wnd_style,
-        dlg_pos.x, dlg_pos.y, dlg_w, dlg_h,
+        bounds.left, bounds.top, dlg_w, dlg_h,
         parent, nullptr, instance, ctx.get()));
     if (!hwnd) {
         QIQI_LOG_ERROR("CreateAboutWindow CreateWindowExW failed (error={})", ::GetLastError());
@@ -224,14 +216,9 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     }
     ApplySystemThemeToMenuAndWindow(hwnd.Get(), IsSystemDarkTheme());
     QIQI_LOG_DEBUG("AboutWindow created (pos=({}, {}), size={}x{}, dpi={})",
-                   dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
+                   bounds.left, bounds.top, dlg_w, dlg_h, mon.dpi);
     const auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
-    if (owned_ctx->icon_small) {
-        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon_small.Get()));
-    }
-    if (owned_ctx->icon) {
-        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
-    }
+    dialog_detail::ApplyDialogIcons(hwnd.Get(), owned_ctx->icon_small.Get(), owned_ctx->icon.Get());
 
     const int button_top = owned_ctx->button_top;
     CreateFluentChildControl(hwnd.Get(), instance, f, &owned_ctx->d2d, L"BUTTON", str.about_btn_github, BS_OWNERDRAW | WS_TABSTOP, S(24), button_top, S(124), S(32), kIdBtnOpenGitHub);

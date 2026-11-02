@@ -106,4 +106,19 @@ constexpr RECT ClampWindowRectToWorkArea(const RECT& window, const RECT& work_ar
     return {origin.x, origin.y, origin.x + width, origin.y + height};
 }
 
+// Compute a top-level window's outer bounds centered on `work_area` from desired client dimensions.
+inline RECT ComputeCenteredWindowBounds(
+    int client_width_px, int client_height_px, DWORD style, DWORD ex_style, const RECT& work_area) noexcept {
+    RECT desired{0, 0, std::max(1, client_width_px), std::max(1, client_height_px)};
+    ::AdjustWindowRectEx(&desired, style, FALSE, ex_style);
+    const int width = desired.right - desired.left;
+    const int height = desired.bottom - desired.top;
+    const POINT centered{
+        (work_area.left + work_area.right - width) / 2,
+        (work_area.top + work_area.bottom - height) / 2
+    };
+    const POINT pos = ClampPointToWorkArea(centered, width, height, work_area);
+    return {pos.x, pos.y, pos.x + width, pos.y + height};
+}
+
 } // namespace qiqi

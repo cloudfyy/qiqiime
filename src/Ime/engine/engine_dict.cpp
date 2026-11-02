@@ -376,7 +376,8 @@ std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const 
     return results;
 }
 
-std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) const {
+std::vector<std::wstring> WubiEngine::LookupCandidates(
+    std::wstring_view code, std::vector<std::wstring>* out_display_labels) const {
     const uint32_t exact_code = PackWubiCode(code);
     if (exact_code == 0) {
         return {};
@@ -384,13 +385,24 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) c
 
     constexpr size_t kMaxCandidateResults = 50;
     std::vector<std::wstring> results;
+    if (out_display_labels) {
+        out_display_labels->clear();
+    }
 
     // Wildcard query if 'z' is present
     const bool has_wildcard = (code.find(L'z') != std::wstring_view::npos) ||
                               (code.find(L'Z') != std::wstring_view::npos);
     if (has_wildcard) {
+        const auto append_wildcard_word = [&](uint32_t packed_code, std::wstring_view word) {
+            const size_t prev_sz = results.size();
+            AppendUniqueWord(results, word);
+            if (out_display_labels && results.size() > prev_sz) {
+                out_display_labels->push_back(std::wstring(word) + L"(" + UnpackWubiCode(packed_code) + L")");
+            }
+            return results.size() >= kMaxCandidateResults;
+        };
         for (const auto& mapped : mapped_dicts_) {
-            mapped->LookupWildcard(code, results, kMaxCandidateResults);
+            mapped->LookupWildcard(code, results, kMaxCandidateResults, out_display_labels);
             if (results.size() >= kMaxCandidateResults) {
                 return results;
             }
@@ -398,19 +410,16 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) c
         for (const auto& [k, words] : dict_) {
             if (MatchesWildcardPattern(k, code)) {
                 for (const auto& w : words) {
-                    AppendUniqueWord(results, w);
-                    if (results.size() >= kMaxCandidateResults) {
+                    if (append_wildcard_word(k, w)) {
                         return results;
                     }
                 }
             }
         }
         for (const auto& entry : kSortedBuiltinWubi86Dict) {
-            if (MatchesWildcardPattern(entry.packed_code, code)) {
-                AppendUniqueWord(results, entry.word);
-                if (results.size() >= kMaxCandidateResults) {
-                    return results;
-                }
+            if (MatchesWildcardPattern(entry.packed_code, code) &&
+                append_wildcard_word(entry.packed_code, entry.word)) {
+                return results;
             }
         }
         return results;
@@ -418,23 +427,40 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) c
 
     // 1. Exact matches first
     results = LookupExact(code);
-    if (results.size() >= kMaxCandidateResults) {
+    if (results.size() > kMaxCandidateResults) {
         results.resize(kMaxCandidateResults);
+    }
+    if (out_display_labels) {
+        *out_display_labels = results;
+    }
+    if (results.size() >= kMaxCandidateResults) {
         return results;
     }
 
     // 2. Prefix matches in (exact_code, prefix_hi]
     const uint32_t prefix_hi = PackWubiPrefixUpperBound(code);
+    const auto append_prefix_word = [&](uint32_t packed_code, std::wstring_view word) {
+        const size_t prev_sz = results.size();
+        AppendUniqueWord(results, word);
+        if (out_display_labels && results.size() > prev_sz) {
+            const std::wstring code_str = UnpackWubiCode(packed_code);
+            const std::wstring_view suffix = (code_str.size() > code.size())
+                ? std::wstring_view(code_str).substr(code.size())
+                : std::wstring_view(code_str);
+            out_display_labels->push_back(std::wstring(word) + L"(~" + std::wstring(suffix) + L")");
+        }
+        return results.size() >= kMaxCandidateResults;
+    };
     for (const auto& mapped : mapped_dicts_) {
-        mapped->LookupPrefix(exact_code, exact_code, prefix_hi, results, kMaxCandidateResults);
+        mapped->LookupPrefix(
+            exact_code, exact_code, prefix_hi, results, kMaxCandidateResults, code, out_display_labels);
         if (results.size() >= kMaxCandidateResults) {
             return results;
         }
     }
     for (auto it = dict_.upper_bound(exact_code); it != dict_.end() && it->first <= prefix_hi; ++it) {
         for (const auto& w : it->second) {
-            AppendUniqueWord(results, w);
-            if (results.size() >= kMaxCandidateResults) {
+            if (append_prefix_word(it->first, w)) {
                 return results;
             }
         }
@@ -446,8 +472,7 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(std::wstring_view code) c
         if (entry.packed_code > prefix_hi) {
             break;
         }
-        AppendUniqueWord(results, entry.word);
-        if (results.size() >= kMaxCandidateResults) {
+        if (append_prefix_word(entry.packed_code, entry.word)) {
             return results;
         }
     }

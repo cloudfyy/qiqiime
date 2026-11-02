@@ -25,6 +25,35 @@ inline ScopedIcon LoadOrCreateBrandIcon(int size_px, HINSTANCE instance = nullpt
     return LoadAppIconOrBrandFallback(instance, size_px, 1, use_resource);
 }
 
+inline void ApplyDialogIcons(HWND hwnd, HICON small_icon, HICON big_icon) noexcept {
+    if (!hwnd) return;
+    if (small_icon) {
+        ::SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(small_icon));
+    }
+    if (big_icon) {
+        ::SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(big_icon));
+    }
+}
+
+inline bool RegisterDialogWindowClass(
+    HINSTANCE instance,
+    const wchar_t* class_name,
+    WNDPROC wnd_proc,
+    UINT style = 0,
+    HICON icon = nullptr,
+    HBRUSH background = nullptr) noexcept {
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.style = style;
+    wc.lpfnWndProc = wnd_proc;
+    wc.hInstance = instance;
+    wc.hIcon = icon;
+    wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
+    wc.hbrBackground = background;
+    wc.lpszClassName = class_name;
+    return ::RegisterClassExW(&wc) != 0 || ::GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+}
+
 inline int MeasureDialogTextHeight(HFONT font, const wchar_t* text, int width) noexcept {
     if (!font || !text || !*text || width <= 0) {
         QIQI_LOG_ERROR("Dialog text measurement requires a font, nonempty text and positive width");

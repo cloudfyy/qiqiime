@@ -210,12 +210,7 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
         if (!ctx.font || !ctx.bold_font || !ctx.icon_small || !ctx.icon_big) {
             QIQI_LOG_ERROR("Settings DPI update could not recreate scaled window resources");
         }
-        if (ctx.icon_small) {
-            ::SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(ctx.icon_small.Get()));
-        }
-        if (ctx.icon_big) {
-            ::SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(ctx.icon_big.Get()));
-        }
+        dialog_detail::ApplyDialogIcons(hwnd, ctx.icon_small.Get(), ctx.icon_big.Get());
     }
 
     if (!::SetWindowPos(
@@ -387,15 +382,13 @@ ScopedWindow CreateSettingsWindow(
         QIQI_LOG_ERROR("Settings persistence requires a bound configuration");
         return {};
     }
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.lpfnWndProc = &SettingsWndProc;
-    wc.hInstance = instance;
-    wc.hIcon = ::LoadIconW(instance, MAKEINTRESOURCEW(1));
-    wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
-    wc.lpszClassName = kSettingsWndClass;
-    ::RegisterClassExW(&wc);
+    if (!dialog_detail::RegisterDialogWindowClass(
+            instance, kSettingsWndClass, &SettingsWndProc, 0,
+            ::LoadIconW(instance, MAKEINTRESOURCEW(1)),
+            reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1))) {
+        QIQI_LOG_ERROR("Settings dialog class registration failed (error={})", ::GetLastError());
+        return {};
+    }
 
     std::unique_ptr<DialogContext> ctx;
     try {
@@ -426,22 +419,17 @@ ScopedWindow CreateSettingsWindow(
 
     constexpr DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
     constexpr DWORD wnd_ex_style = WS_EX_APPWINDOW;
-    RECT desired_rc{0, 0, S(820), S(494)};
-    ::AdjustWindowRectEx(&desired_rc, wnd_style, FALSE, wnd_ex_style);
-    const int dlg_w = desired_rc.right - desired_rc.left;
-    const int dlg_h = desired_rc.bottom - desired_rc.top;
-    const POINT centered{
-        (mon.work_area.left + mon.work_area.right - dlg_w) / 2,
-        (mon.work_area.top + mon.work_area.bottom - dlg_h) / 2
-    };
-    const POINT dlg_pos = ClampPointToWorkArea(centered, dlg_w, dlg_h, mon.work_area);
+    const RECT bounds = ComputeCenteredWindowBounds(
+        S(820), S(494), wnd_style, wnd_ex_style, mon.work_area);
+    const int dlg_w = bounds.right - bounds.left;
+    const int dlg_h = bounds.bottom - bounds.top;
 
     ScopedWindow hwnd(::CreateWindowExW(
         wnd_ex_style,
         kSettingsWndClass,
         str.dlg_title,
         wnd_style,
-        dlg_pos.x, dlg_pos.y, dlg_w, dlg_h,
+        bounds.left, bounds.top, dlg_w, dlg_h,
         parent, nullptr, instance, ctx.get()));
     if (!hwnd) {
         QIQI_LOG_ERROR("CreateSettingsWindow CreateWindowExW failed (error={})", ::GetLastError());
@@ -449,14 +437,9 @@ ScopedWindow CreateSettingsWindow(
     }
     ApplySystemThemeToMenuAndWindow(hwnd.Get(), is_dark);
     QIQI_LOG_DEBUG("SettingsWindow created (pos=({}, {}), size={}x{}, dpi={})",
-                   dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
+                   bounds.left, bounds.top, dlg_w, dlg_h, mon.dpi);
     const gsl::not_null<DialogContext*> owned_ctx(ctx.release());
-    if (owned_ctx->icon_small) {
-        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon_small.Get()));
-    }
-    if (owned_ctx->icon_big) {
-        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(owned_ctx->icon_big.Get()));
-    }
+    dialog_detail::ApplyDialogIcons(hwnd.Get(), owned_ctx->icon_small.Get(), owned_ctx->icon_big.Get());
 
     CreateSettingsControls(hwnd.Get(), instance, *owned_ctx);
     owned_ctx->controls_initialized = true;
