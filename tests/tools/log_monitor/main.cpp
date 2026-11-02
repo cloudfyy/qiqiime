@@ -43,6 +43,16 @@ void SelectLanguage(const MonitorWindow& window, UiLanguage language) noexcept {
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
 }
 
+std::wstring ReadClipboardText(HWND owner = nullptr) {
+    const ScopedClipboard clip(owner);
+    QIQI_TEST_CHECK(clip.IsOpen());
+    const HANDLE data = ::GetClipboardData(CF_UNICODETEXT);
+    QIQI_TEST_CHECK(data != nullptr);
+    const ScopedGlobalLock<wchar_t> lock(data);
+    QIQI_TEST_CHECK(lock.IsValid());
+    return std::wstring(lock.Get());
+}
+
 void TestDarkHeader(HWND list) {
     const HWND header = ListView_GetHeader(list);
     RECT rect{};
@@ -145,6 +155,14 @@ void TestBuffersAndFilters() {
     QIQI_TEST_CHECK(exported.contains(version::kFullVersion) && exported.contains(version::kArch));
     QIQI_TEST_CHECK(exported.contains("\\tline\\nnext") && exported.contains("PID\tTID"));
     QIQI_TEST_CHECK(FormatTime(event.time).ends_with(L"Z"));
+    auto second_event = MakeEvent(std::wstring(L"multi\0nul", 9));
+    second_event.level = 2;
+    second_event.pid = 99;
+    const auto formatted_clip = FormatEventsForClipboard(std::array{event, second_event});
+    QIQI_TEST_CHECK(formatted_clip.contains(L"PID=42\tTID=84\tInfo\tQiQiLogInfo\tCase sensitive? no.\tline\nnext\r\n"));
+    QIQI_TEST_CHECK(formatted_clip.contains(L"PID=99\tTID=84\tError\tQiQiLogInfo\tmulti\x2400nul"));
+    QIQI_TEST_CHECK(CopyTextToClipboard(nullptr, std::wstring_view(L"clip\0test", 9)) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(ReadClipboardText() == L"clip\x2400test");
     event.message = std::wstring(1, L'\xD800');
     bool invalid = false;
     try { ExportEvents({event}, L"test"); } catch (const std::system_error&) { invalid = true; }
@@ -246,12 +264,16 @@ void TestDesktopIntegration() {
     MonitorWindow window;
     QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr)));
     const HWND list = Child(window, List);
+    const LONG_PTR list_style = ::GetWindowLongPtrW(list, GWL_STYLE);
+    QIQI_TEST_CHECK((list_style & LVS_OWNERDATA) != 0 && (list_style & LVS_SINGLESEL) == 0);
     const UINT initial_dpi = ::GetDpiForWindow(window.Handle());
     QIQI_TEST_CHECK(IconWidth(reinterpret_cast<HICON>(::SendMessageW(window.Handle(), WM_GETICON, ICON_BIG, 0))) == ScalePxByDpi(48, initial_dpi));
-    QIQI_TEST_CHECK(::SendMessageW(Child(window, BrandIcon), STM_GETIMAGE, IMAGE_ICON, 0) ==
-        ::SendMessageW(window.Handle(), WM_GETICON, ICON_BIG, 0));
+    QIQI_TEST_CHECK(Child(window, Copy) != nullptr);
+    QIQI_TEST_CHECK(::GetDlgItem(window.Handle(), 122) == nullptr);
+    QIQI_TEST_CHECK(::GetDlgItem(window.Handle(), 123) == nullptr);
     SelectLanguage(window, UiLanguage::EnUs);
     QIQI_TEST_CHECK(ControlText(Child(window, Clear)) == L"Clear");
+    QIQI_TEST_CHECK(ControlText(Child(window, Copy)) == L"Copy");
     QIQI_TEST_CHECK(ControlText(Child(window, Language)) == GetUiStrings(UiLanguage::EnUs).dlg_lang_en);
     Click(window, Source);
     ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
@@ -261,9 +283,24 @@ void TestDesktopIntegration() {
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Level), CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
     ListView_SetItemState(list, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    Click(window, Copy);
+    const auto single_copied = ReadClipboardText(window.Handle());
+    QIQI_TEST_CHECK(single_copied.contains(L"Monitor initialized") && single_copied.contains(L"PID="));
+    ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+    ::SetWindowTextW(Child(window, Search), L"");
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) >= 2);
+    ListView_SetItemState(list, -1, LVIS_SELECTED, LVIS_SELECTED);
+    QIQI_TEST_CHECK(ListView_GetSelectedCount(list) >= 2);
+    QIQI_TEST_CHECK(ControlText(Child(window, Details)).contains(L"Selected entries: "));
+    Click(window, Copy);
+    const auto multi_copied = ReadClipboardText(window.Handle());
+    QIQI_TEST_CHECK(multi_copied.contains(L"Monitor initialized") && multi_copied.contains(L"Copied 1 log record(s) to clipboard") && multi_copied.contains(L"\r\n"));
+    ::SetWindowTextW(Child(window, Search), L"initialized");
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1 && ListView_GetSelectedCount(list) == 1);
     Click(window, Pause);
     SelectLanguage(window, UiLanguage::ZhCn);
     QIQI_TEST_CHECK(ControlText(Child(window, Clear)) == L"清空");
+    QIQI_TEST_CHECK(ControlText(Child(window, Copy)) == L"复制");
     QIQI_TEST_CHECK(ControlText(Child(window, Language)) == GetUiStrings(UiLanguage::ZhCn).dlg_lang_zh);
     QIQI_TEST_CHECK(ControlText(Child(window, Pause)) == L"恢复滚动");
     QIQI_TEST_CHECK(ControlText(Child(window, Source)) == L"输入法日志");

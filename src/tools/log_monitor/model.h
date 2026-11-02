@@ -5,6 +5,7 @@
 #include <deque>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -71,6 +72,8 @@ private:
 std::optional<DWORD> ParsePid(const std::wstring& text) noexcept;
 std::wstring LevelName(UCHAR level);
 std::wstring FormatTime(uint64_t time);
+std::wstring FormatEventEntry(const Event& event, std::wstring_view level_text = {});
+std::wstring FormatEventsForClipboard(std::span<const Event> events);
 std::string ExportEvents(const std::vector<Event>& events, std::wstring_view source);
 // Explicit export only; reports Win32 errors. On failure a target can be partial; the snapshot is retained.
 ULONG WriteExport(const wchar_t* path, std::string_view bytes) noexcept;

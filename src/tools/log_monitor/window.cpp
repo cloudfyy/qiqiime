@@ -37,7 +37,6 @@ struct MonitorWindow::Impl {
     EventBuffer tools{512, 1024 * 1024};
     FluentD2DThemeContext theme;
     ScopedGdiHandle<HFONT> font;
-    ScopedGdiHandle<HFONT> title_font;
     ScopedIcon small_icon;
     ScopedIcon big_icon;
     UiLanguage ui_language = UiLanguage::Auto;
@@ -45,6 +44,7 @@ struct MonitorWindow::Impl {
     HWND hwnd = nullptr;
     MonitorWindow* owner = nullptr;
     std::vector<uint64_t> rows;
+    std::vector<uint64_t> selected_ids;
     Filter filter;
     std::wstring last_error;
     uint64_t selected = 0;
@@ -58,6 +58,7 @@ struct MonitorWindow::Impl {
     int detail_height = 130; // Logical pixels.
 
     EventBuffer& Current() noexcept { return diagnostic_view ? tools : events; }
+    const EventBuffer& Current() const noexcept { return diagnostic_view ? tools : events; }
     HWND Child(ControlId id) const noexcept { return ::GetDlgItem(hwnd, std::to_underlying(id)); }
     const wchar_t* Text(const wchar_t* zh, const wchar_t* en) const noexcept {
         return ResolveUiLanguage(ui_language) == UiLanguage::EnUs ? en : zh;
@@ -87,7 +88,6 @@ struct MonitorWindow::Impl {
         }
         ::SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(loaded_small.Get()));
         ::SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(loaded_big.Get()));
-        ::SendMessageW(Child(BrandIcon), STM_SETIMAGE, IMAGE_ICON, reinterpret_cast<LPARAM>(loaded_big.Get()));
         small_icon = std::move(loaded_small);
         big_icon = std::move(loaded_big);
     }
@@ -114,6 +114,23 @@ struct MonitorWindow::Impl {
         auto* self = reinterpret_cast<Impl*>(context);
         if (message == WM_NCDESTROY) {
             ::RemoveWindowSubclass(window, ListProcedure, subclass);
+        } else if (message == WM_KEYDOWN && self && self->ready && (::GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+            if (wparam == 'C' || wparam == VK_INSERT) {
+                try {
+                    self->CopySelection();
+                } catch (const std::exception&) {
+                    self->diagnostics.Record(2, L"Copy keyboard shortcut failed", ERROR_UNHANDLED_EXCEPTION);
+                }
+                return 0;
+            }
+            if (wparam == 'A') {
+                try {
+                    self->SelectAllRows();
+                } catch (const std::exception&) {
+                    self->diagnostics.Record(2, L"Select all shortcut failed", ERROR_UNHANDLED_EXCEPTION);
+                }
+                return 0;
+            }
         } else if (message == WM_NOTIFY && lparam && !IsHighContrastEnabled() && IsSystemDarkTheme()) {
             const auto& notification = *reinterpret_cast<const NMHDR*>(lparam);
             if (notification.hwndFrom == ListView_GetHeader(window) && notification.code == NM_CUSTOMDRAW) {
@@ -155,20 +172,17 @@ struct MonitorWindow::Impl {
     bool CreateControls() {
         theme.Init(::GetDpiForWindow(hwnd));
         font = CreateUiFont(theme.ScalePx(14));
-        title_font = CreateUiFont(theme.ScalePx(18), FW_SEMIBOLD);
-        if (!font || !title_font) {
+        if (!font) {
             Failure(L"Create monitor font", ::GetLastError());
             return false;
         }
         constexpr DWORD button = BS_OWNERDRAW | WS_TABSTOP;
-        if (!Add(L"STATIC", L"", SS_ICON | SS_REALSIZECONTROL, BrandIcon) ||
-            !Add(L"STATIC", L"", SS_LEFTNOWORDWRAP | SS_ENDELLIPSIS, AppTitle) ||
-            !Add(L"STATIC", L"", SS_LEFTNOWORDWRAP, AppVersion) ||
-            !Add(L"STATIC", L"", SS_LEFT, LanguageLabel) ||
+        if (!Add(L"STATIC", L"", SS_LEFT, LanguageLabel) ||
             !Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, Language) ||
             !Add(L"BUTTON", Text(L"开始采集", L"Start"), button, Start) ||
             !Add(L"BUTTON", Text(L"暂停滚动", L"Pause scroll"), button, Pause) ||
             !Add(L"BUTTON", Text(L"清空", L"Clear"), button, Clear) ||
+            !Add(L"BUTTON", Text(L"复制", L"Copy"), button, Copy) ||
             !Add(L"BUTTON", Text(L"导出", L"Export"), button, Export) ||
             !Add(L"BUTTON", Text(L"工具诊断", L"Diagnostics"), button, Source) ||
             !Add(L"BUTTON", Text(L"关于", L"About"), button, About) ||
@@ -182,12 +196,11 @@ struct MonitorWindow::Impl {
             !Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, Pid) ||
             !Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, Level) ||
             !Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, Search) ||
-            !Add(WC_LISTVIEWW, L"", LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS | LVS_SINGLESEL |
+            !Add(WC_LISTVIEWW, L"", LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS |
                 WS_BORDER | WS_TABSTOP, List) ||
             !Add(L"EDIT", L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL |
                 WS_HSCROLL | WS_BORDER | WS_TABSTOP, Details) ||
             !Add(L"STATIC", L"", SS_LEFT, Status)) return false;
-        ::SendMessageW(Child(AppTitle), WM_SETFONT, reinterpret_cast<WPARAM>(title_font.Get()), TRUE);
         ::SendMessageW(Child(Details), EM_SETLIMITTEXT, 1024 * 1024, 0);
         ::SendMessageW(Child(DetailsSize), TBM_SETRANGE, TRUE, MAKELPARAM(60, 400));
         ::SendMessageW(Child(DetailsSize), TBM_SETPOS, TRUE, detail_height);
@@ -234,26 +247,26 @@ struct MonitorWindow::Impl {
         const auto move = [&](ControlId id, int x, int y, int w, int h) {
             ::MoveWindow(Child(id), x, y, std::max(1, w), std::max(1, h), TRUE);
         };
-        move(BrandIcon, s(12), s(10), s(48), s(48));
-        move(AppTitle, s(74), s(8), width - s(410), s(28));
-        move(AppVersion, s(74), s(38), width - s(410), s(22));
-        move(LanguageLabel, width - s(306), s(22), s(90), s(24));
-        move(Language, width - s(212), s(16), s(200), s(200));
-        const int toolbar_columns = width >= s(700) ? 6 : 3;
-        int index = 0;
-        for (const auto id : {Start, Pause, Clear, Export, Source, About}) {
-            move(id, s(12 + (index % toolbar_columns) * 112), s(76 + (index / toolbar_columns) * 44), s(104), s(32));
-            ++index;
+        constexpr std::array buttons{Start, Pause, Clear, Copy, Export, Source, About};
+        constexpr int button_count = gsl::narrow_cast<int>(buttons.size());
+        const int toolbar_columns = width >= s(1060) ? button_count : (width >= s(720) ? 4 : 3);
+        const int toolbar_rows = (button_count + toolbar_columns - 1) / toolbar_columns;
+        for (int index = 0; index < button_count; ++index) {
+            move(gsl::at(buttons, index), s(12 + (index % toolbar_columns) * 108),
+                s(12 + (index / toolbar_columns) * 40), s(100), s(32));
         }
-        int filter_top = s(76 + (6 / toolbar_columns) * 44);
-        if (width >= s(980)) {
-            move(DetailsSizeLabel, s(690), s(82), s(90), s(24));
-            move(DetailsSize, s(785), s(76), width - s(797), s(32));
+        int filter_top = s(12 + toolbar_rows * 40);
+        if (width >= s(760)) {
+            move(LanguageLabel, width - s(296), s(18), s(76), s(24));
+            move(Language, width - s(212), s(12), s(200), s(200));
         } else {
-            move(DetailsSizeLabel, s(12), filter_top + s(4), s(90), s(24));
-            move(DetailsSize, s(110), filter_top, width - s(122), s(30));
+            move(LanguageLabel, s(12), filter_top + s(4), s(76), s(24));
+            move(Language, s(92), filter_top, width - s(104), s(200));
             filter_top += s(38);
         }
+        move(DetailsSizeLabel, s(12), filter_top + s(4), s(90), s(24));
+        move(DetailsSize, s(110), filter_top, width - s(122), s(30));
+        filter_top += s(38);
         move(ProcessLabel, s(12), filter_top + s(4), s(55), s(24));
         move(Process, s(70), filter_top, s(170), s(28));
         move(PidLabel, s(254), filter_top + s(4), s(30), s(24));
@@ -303,10 +316,9 @@ struct MonitorWindow::Impl {
         if (!ready) return;
         const auto title = std::format(L"{} v{} ({})", Text(L"奇奇日志监控", L"QiQiIME Log Monitor"), version::kVersionW, version::kArchW);
         ::SetWindowTextW(hwnd, title.c_str());
-        const auto subtitle = std::format(L"{} | {} ({})", Text(L"实时 ETW 诊断", L"Real-time ETW diagnostics"), version::kFullVersionW, version::kArchW);
         for (const auto& [id, text] : std::array{
-            std::pair{AppTitle, Text(L"奇奇日志监控", L"QiQiIME Log Monitor")},
-            std::pair{Clear, Text(L"清空", L"Clear")}, std::pair{Export, Text(L"导出", L"Export")},
+            std::pair{Clear, Text(L"清空", L"Clear")}, std::pair{Copy, Text(L"复制", L"Copy")},
+            std::pair{Export, Text(L"导出", L"Export")},
             std::pair{About, Text(L"关于", L"About")}, std::pair{ProcessLabel, Text(L"进程", L"Process")},
             std::pair{LevelLabel, Text(L"级别", L"Level")}, std::pair{SearchLabel, Text(L"消息", L"Message")},
             std::pair{DetailsSizeLabel, Text(L"详情高度", L"Details")}, std::pair{LanguageLabel, Text(L"语言", L"Language")},
@@ -314,7 +326,6 @@ struct MonitorWindow::Impl {
             std::pair{Source, diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics")}}) {
             ::SetWindowTextW(Child(id), text);
         }
-        ::SetWindowTextW(Child(AppVersion), subtitle.c_str());
         const auto replace = [&](ControlId id, std::span<const wchar_t* const> items) {
             const HRESULT result = ReplaceComboBoxItems(Child(id), items);
             if (FAILED(result)) throw std::system_error(gsl::narrow_cast<int>(result),
@@ -348,15 +359,12 @@ struct MonitorWindow::Impl {
         if (dpi != previous) {
             theme.Init(dpi);
             auto next_font = CreateUiFont(theme.ScalePx(14));
-            auto next_title = CreateUiFont(theme.ScalePx(18), FW_SEMIBOLD);
-            if (next_font && next_title) {
+            if (next_font) {
                 ::EnumChildWindows(hwnd, [](HWND child, LPARAM handle) noexcept -> BOOL {
                     ::SendMessageW(child, WM_SETFONT, handle, TRUE);
                     return TRUE;
                 }, reinterpret_cast<LPARAM>(next_font.Get()));
-                ::SendMessageW(Child(AppTitle), WM_SETFONT, reinterpret_cast<WPARAM>(next_title.Get()), TRUE);
                 font = std::move(next_font);
-                title_font = std::move(next_title);
             } else {
                 diagnostics.Record(2, L"Recreate DPI fonts", ::GetLastError());
             }
@@ -401,6 +409,31 @@ struct MonitorWindow::Impl {
         RebuildRows();
     }
 
+    void SyncSelectionFromList() {
+        selected_ids.clear();
+        const HWND list = Child(List);
+        int index = -1;
+        while ((index = ListView_GetNextItem(list, index, LVNI_SELECTED)) >= 0) {
+            if (gsl::narrow_cast<size_t>(index) < rows.size()) {
+                selected_ids.push_back(gsl::at(rows, gsl::narrow_cast<size_t>(index)));
+            }
+        }
+        const int focused = ListView_GetNextItem(list, -1, LVNI_FOCUSED | LVNI_SELECTED);
+        if (focused >= 0 && gsl::narrow_cast<size_t>(focused) < rows.size()) {
+            selected = gsl::at(rows, gsl::narrow_cast<size_t>(focused));
+        } else {
+            selected = selected_ids.empty() ? 0 : selected_ids.back();
+        }
+        UpdateDetails();
+    }
+
+    void SelectAllRows() {
+        const HWND list = Child(List);
+        if (rows.empty()) return;
+        ListView_SetItemState(list, -1, LVIS_SELECTED, LVIS_SELECTED);
+        SyncSelectionFromList();
+    }
+
     void RebuildRows() {
         updating_rows = true;
         const auto restore = gsl::finally([this]() noexcept { updating_rows = false; });
@@ -412,19 +445,30 @@ struct MonitorWindow::Impl {
             }
         }
         rows.swap(next);
-        ListView_SetItemCountEx(Child(List), gsl::narrow_cast<int>(rows.size()), LVSICF_NOSCROLL);
-        const auto found = std::find(rows.begin(), rows.end(), selected);
-        if (found != rows.end()) {
-            const int index = gsl::narrow_cast<int>(found - rows.begin());
-            ListView_SetItemState(Child(List), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
-            ListView_SetItemState(Child(List), index, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        const HWND list = Child(List);
+        ListView_SetItemCountEx(list, gsl::narrow_cast<int>(rows.size()), LVSICF_NOSCROLL);
+        ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+        std::vector<uint64_t> retained;
+        retained.reserve(selected_ids.size());
+        int focus_index = -1;
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const uint64_t id = gsl::at(rows, i);
+            if (std::find(selected_ids.begin(), selected_ids.end(), id) != selected_ids.end()) {
+                retained.push_back(id);
+                ListView_SetItemState(list, gsl::narrow_cast<int>(i), LVIS_SELECTED, LVIS_SELECTED);
+                if (id == selected || focus_index < 0) focus_index = gsl::narrow_cast<int>(i);
+            }
+        }
+        selected_ids.swap(retained);
+        if (focus_index >= 0 && gsl::narrow_cast<size_t>(focus_index) < rows.size()) {
+            selected = gsl::at(rows, gsl::narrow_cast<size_t>(focus_index));
+            ListView_SetItemState(list, focus_index, LVIS_FOCUSED, LVIS_FOCUSED);
         } else {
             selected = 0;
-            ListView_SetItemState(Child(List), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
-            ::SetWindowTextW(Child(Details), L"");
         }
-        if (!paused && !rows.empty()) ListView_EnsureVisible(Child(List), gsl::narrow_cast<int>(rows.size() - 1), FALSE);
-        ::InvalidateRect(Child(List), nullptr, FALSE);
+        UpdateDetails();
+        if (!paused && !rows.empty()) ListView_EnsureVisible(list, gsl::narrow_cast<int>(rows.size() - 1), FALSE);
+        ::InvalidateRect(list, nullptr, FALSE);
     }
 
     void Tick() {
@@ -488,25 +532,88 @@ struct MonitorWindow::Impl {
                     }
                 }
             }
-        } else if (header.code == LVN_ITEMCHANGED && !updating_rows) {
-            const int index = ListView_GetNextItem(Child(List), -1, LVNI_SELECTED);
-            if (index >= 0 && gsl::narrow_cast<size_t>(index) < rows.size()) {
-                selected = gsl::at(rows, gsl::narrow_cast<size_t>(index));
-                UpdateDetails();
-            }
+        } else if ((header.code == LVN_ITEMCHANGED || header.code == LVN_ODSTATECHANGED) && !updating_rows) {
+            SyncSelectionFromList();
         }
     }
 
+    std::vector<Event> CollectSelectedEvents() const {
+        std::vector<Event> result;
+        const HWND list = Child(List);
+        int index = -1;
+        while ((index = ListView_GetNextItem(list, index, LVNI_SELECTED)) >= 0) {
+            if (gsl::narrow_cast<size_t>(index) < rows.size()) {
+                if (const auto* event = Current().Find(gsl::at(rows, gsl::narrow_cast<size_t>(index)))) {
+                    result.push_back(*event);
+                }
+            }
+        }
+        if (result.empty() && selected != 0) {
+            if (const auto* event = Current().Find(selected)) {
+                result.push_back(*event);
+            }
+        }
+        return result;
+    }
+
     void UpdateDetails() {
-        if (const auto* event = Current().Find(selected)) {
-            auto text = std::format(L"{} | {} | PID={} TID={} | {} | {}\r\n{}",
-                FormatTime(event->time), event->process, event->pid, event->tid,
-                LevelText(event->level), event->name, event->message);
-            std::replace(text.begin(), text.end(), L'\0', L'\x2400');
+        const auto items = CollectSelectedEvents();
+        if (items.size() > 1) {
+            std::wstring text = std::format(L"{}: {}\r\n", Text(L"已选择日志项", L"Selected entries"), items.size());
+            for (size_t i = 0; i < items.size(); ++i) {
+                if (i > 0) text += L"\r\n\r\n";
+                const auto& event = gsl::at(items, i);
+                text += FormatEventEntry(event, LevelText(event.level));
+            }
+            ::SetWindowTextW(Child(Details), text.c_str());
+        } else if (items.size() == 1) {
+            const auto& event = items.front();
+            const auto text = FormatEventEntry(event, LevelText(event.level));
             ::SetWindowTextW(Child(Details), text.c_str());
         } else {
             ::SetWindowTextW(Child(Details), L"");
         }
+    }
+
+    void CopySelection() {
+        const auto items = CollectSelectedEvents();
+        if (items.empty()) return;
+        const auto text = FormatEventsForClipboard(items);
+        const ULONG error = CopyTextToClipboard(hwnd, text);
+        if (error != ERROR_SUCCESS) {
+            Failure(Text(L"复制到剪贴板失败", L"Copy to clipboard failed"), error);
+        } else {
+            diagnostics.Record(4, std::format(L"Copied {} log record(s) to clipboard", items.size()));
+        }
+    }
+
+    void ShowListContextMenu(POINT screen_pt) {
+        const HWND list = Child(List);
+        if (screen_pt.x == -1 && screen_pt.y == -1) {
+            RECT rc{};
+            const int sel = ListView_GetNextItem(list, -1, LVNI_FOCUSED | LVNI_SELECTED);
+            if (sel >= 0 && ::SendMessageW(list, LVM_GETITEMRECT, gsl::narrow_cast<WPARAM>(sel), reinterpret_cast<LPARAM>(&rc))) {
+                screen_pt = {rc.left + theme.ScalePx(16), rc.bottom};
+                ::ClientToScreen(list, &screen_pt);
+            } else if (::GetWindowRect(list, &rc)) {
+                screen_pt = {rc.left + theme.ScalePx(16), rc.top + theme.ScalePx(28)};
+            }
+        }
+        const ScopedMenu menu(::CreatePopupMenu());
+        if (!menu) {
+            diagnostics.Record(2, L"CreatePopupMenu", ::GetLastError());
+            return;
+        }
+        const bool has_sel = !CollectSelectedEvents().empty();
+        const bool has_rows = !rows.empty();
+        ::AppendMenuW(menu.Get(), MF_STRING | (has_sel ? MF_ENABLED : MF_GRAYED), 1,
+            Text(L"复制选中日志项\tCtrl+C", L"Copy selected entries\tCtrl+C"));
+        ::AppendMenuW(menu.Get(), MF_STRING | (has_rows ? MF_ENABLED : MF_GRAYED), 2,
+            Text(L"全选\tCtrl+A", L"Select all\tCtrl+A"));
+        const BOOL cmd = ::TrackPopupMenu(
+            menu.Get(), TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, screen_pt.x, screen_pt.y, 0, hwnd, nullptr);
+        if (cmd == 1) CopySelection();
+        else if (cmd == 2) SelectAllRows();
     }
 
     void ExportSnapshot() {
@@ -556,11 +663,13 @@ struct MonitorWindow::Impl {
             paused = !paused;
             ::SetWindowTextW(Child(Pause), paused ? Text(L"恢复滚动", L"Resume scroll") : Text(L"暂停滚动", L"Pause scroll"));
             break;
-        case Clear: Current().Clear(); selected = 0; RebuildRows(); break;
+        case Clear: Current().Clear(); selected = 0; selected_ids.clear(); RebuildRows(); break;
+        case Copy: CopySelection(); break;
         case Export: ExportSnapshot(); break;
         case Source:
             diagnostic_view = !diagnostic_view;
             selected = 0;
+            selected_ids.clear();
             ::SetWindowTextW(Child(Source), diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics"));
             ::SetWindowTextW(Child(Process), L"");
             ::SetWindowTextW(Child(Pid), L"");
@@ -605,6 +714,12 @@ struct MonitorWindow::Impl {
             case WM_TIMER: if (self->ready) self->Tick(); return 0;
             case WM_COMMAND: if (self->ready) self->Command(LOWORD(wparam), HIWORD(wparam)); return 0;
             case WM_NOTIFY: if (self->ready && lparam) self->Notify(*reinterpret_cast<NMHDR*>(lparam)); return 0;
+            case WM_CONTEXTMENU:
+                if (self->ready && reinterpret_cast<HWND>(wparam) == self->Child(List)) {
+                    self->ShowListContextMenu(PointFromLParam(lparam));
+                    return 0;
+                }
+                break;
             case WM_HSCROLL:
                 if (self->ready && reinterpret_cast<HWND>(lparam) == self->Child(DetailsSize)) {
                     self->detail_height = gsl::narrow_cast<int>(::SendMessageW(self->Child(DetailsSize), TBM_GETPOS, 0, 0));

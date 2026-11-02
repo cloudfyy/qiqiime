@@ -138,6 +138,30 @@ std::wstring FormatTime(uint64_t time) {
         system.wDay, system.wHour, system.wMinute, system.wSecond, system.wMilliseconds);
 }
 
+std::wstring FormatEventEntry(const Event& event, std::wstring_view level_text) {
+    const std::wstring default_level = level_text.empty() ? LevelName(event.level) : std::wstring{};
+    const std::wstring_view level = level_text.empty() ? std::wstring_view(default_level) : level_text;
+    auto text = std::format(L"{} | {} | PID={} TID={} | {} | {}\r\n{}",
+        FormatTime(event.time), event.process, event.pid, event.tid,
+        level, event.name, event.message);
+    std::replace(text.begin(), text.end(), L'\0', L'\x2400');
+    return text;
+}
+
+std::wstring FormatEventsForClipboard(std::span<const Event> events) {
+    std::wstring result;
+    for (size_t i = 0; i < events.size(); ++i) {
+        if (i > 0) result += L"\r\n";
+        const auto& event = gsl::at(events, i);
+        auto message = event.message;
+        std::replace(message.begin(), message.end(), L'\0', L'\x2400');
+        result += std::format(L"{}\t{}\tPID={}\tTID={}\t{}\t{}\t{}",
+            FormatTime(event.time), event.process, event.pid, event.tid,
+            LevelName(event.level), event.name, message);
+    }
+    return result;
+}
+
 std::string ExportEvents(const std::vector<Event>& events, std::wstring_view source) {
     std::string result = std::format("# QiQiIME Log Monitor {} ({})\r\n# Source: {}\r\n",
         version::kFullVersion, version::kArch, Escape(source));

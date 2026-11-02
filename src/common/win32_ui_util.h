@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cwchar>
+#include <limits>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -80,6 +81,46 @@ inline HRESULT ReplaceComboBoxItems(HWND combo, std::span<const wchar_t* const> 
         if (::SendMessageW(combo, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(index), 0) == CB_ERR) return E_FAIL;
     }
     return S_OK;
+}
+
+// Copy wide text to the clipboard as CF_UNICODETEXT, replacing embedded NULs with U+2400.
+inline ULONG CopyTextToClipboard(HWND owner, std::wstring_view text) noexcept {
+    if (text.size() >= (std::numeric_limits<SIZE_T>::max() / sizeof(wchar_t))) return ERROR_BUFFER_OVERFLOW;
+    const SIZE_T bytes = (text.size() + 1) * sizeof(wchar_t);
+    ScopedGlobalAlloc memory(::GlobalAlloc(GMEM_MOVEABLE, bytes));
+    if (!memory) {
+        const DWORD error = ::GetLastError();
+        return error ? error : ERROR_NOT_ENOUGH_MEMORY;
+    }
+    {
+        auto* buffer = static_cast<wchar_t*>(::GlobalLock(memory.Get()));
+        if (!buffer) {
+            const DWORD error = ::GetLastError();
+            return error ? error : ERROR_LOCK_FAILED;
+        }
+        const auto unlock = gsl::finally([raw = memory.Get()]() noexcept { ::GlobalUnlock(raw); });
+        const std::span<wchar_t> dst(buffer, text.size() + 1);
+        for (size_t i = 0; i < text.size(); ++i) {
+            const wchar_t ch = gsl::at(text, i);
+            gsl::at(dst, i) = ch == L'\0' ? L'\x2400' : ch;
+        }
+        dst.back() = L'\0';
+    }
+    const ScopedClipboard clip(owner);
+    if (!clip) {
+        const DWORD error = ::GetLastError();
+        return error ? error : ERROR_ACCESS_DENIED;
+    }
+    if (!::EmptyClipboard()) {
+        const DWORD error = ::GetLastError();
+        return error ? error : ERROR_GEN_FAILURE;
+    }
+    if (!::SetClipboardData(CF_UNICODETEXT, memory.Get())) {
+        const DWORD error = ::GetLastError();
+        return error ? error : ERROR_GEN_FAILURE;
+    }
+    std::ignore = memory.Detach();
+    return ERROR_SUCCESS;
 }
 
 // RAII wrapper for ::BeginPaint(hwnd, &ps) / ::EndPaint(hwnd, &ps).
