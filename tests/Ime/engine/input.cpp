@@ -216,6 +216,12 @@ void TestFirstLevelShortCodes() {
     QIQI_TEST_CHECK(r2.action == KeyActionType::Commit);
     QIQI_TEST_CHECK(r2.committed_text == L"工");
     QIQI_TEST_CHECK(!engine.IsComposing());
+
+    // 'cf' -> 对
+    engine.ProcessKey('C');
+    auto r_cf = engine.ProcessKey('F');
+    QIQI_TEST_CHECK(!r_cf.page_candidates.empty() && gsl::at(r_cf.page_candidates, 0) == L"对");
+    engine.Reset();
 }
 
 void TestFourCodeUniqueAutoCommit() {

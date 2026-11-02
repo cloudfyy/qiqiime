@@ -82,7 +82,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 - **`dist\QiQiIME-v0.8.4-win-x64-x86.zip`**：绿色便携压缩包，解压后结构如下（`x64` 与 `x86` 共用同一份 `data/` 词库与配置）：
 
 ```text
-QiQiIME-v0.9.22-win-x64-x86/
+QiQiIME-v0.9.23-win-x64-x86/
 ├── x64/
 │   ├── qiqiime.dll             # 64 位 TSF 输入法组件
 │   ├── QiQiIMESettings.exe     # 64 位独立设置程序

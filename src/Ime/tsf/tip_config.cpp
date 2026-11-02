@@ -61,26 +61,27 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
     }
     const std::filesystem::path dll_dir = module_path.parent_path();
 
-    bool loaded_any = false;
+    size_t primary_count = 0;
     if (config_.primary_dict == PrimaryDict::Jidian) {
         const std::filesystem::path jidian_path = ResolveBundledDataFile(dll_dir, L"wubi86_jidian.txt");
-        if (std::filesystem::exists(jidian_path)) {
-            loaded_any |= engine_.LoadDictionaryFile(jidian_path);
+        if (std::filesystem::exists(jidian_path) && engine_.LoadDictionaryFile(jidian_path)) {
+            ++primary_count;
         }
     } else if (config_.primary_dict == PrimaryDict::Haifeng) {
         const std::filesystem::path haifeng_path = ResolveBundledDataFile(dll_dir, L"wubi86_haifeng.txt");
-        if (std::filesystem::exists(haifeng_path)) {
-            loaded_any |= engine_.LoadDictionaryFile(haifeng_path);
+        if (std::filesystem::exists(haifeng_path) && engine_.LoadDictionaryFile(haifeng_path)) {
+            ++primary_count;
         }
     }
 
     if (config_.primary_dict == PrimaryDict::Jidian && config_.enable_jidian_extra) {
         const std::filesystem::path extra_path = ResolveBundledDataFile(dll_dir, L"wubi86_jidian_extra.txt");
-        if (std::filesystem::exists(extra_path)) {
-            loaded_any |= engine_.LoadDictionaryFile(extra_path);
+        if (std::filesystem::exists(extra_path) && engine_.LoadDictionaryFile(extra_path)) {
+            ++primary_count;
         }
     }
 
+    bool loaded_any = (primary_count > 0);
     if (!config_.user_dict_path.empty()) {
         std::filesystem::path user_path(config_.user_dict_path);
         if (user_path.is_relative()) {

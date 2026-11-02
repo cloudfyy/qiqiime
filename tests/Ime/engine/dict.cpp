@@ -383,6 +383,8 @@ void TestExternalDictFile() {
             QIQI_TEST_CHECK(jidian_engine.LoadDictionaryFile(main_dict));
             auto gong = jidian_engine.LookupExact(L"aaaa");
             QIQI_TEST_CHECK(gong.size() >= 2 && gsl::at(gong, 0) == L"工");
+            auto cf_cands = jidian_engine.LookupCandidates(L"cf");
+            QIQI_TEST_CHECK(!cf_cands.empty() && gsl::at(cf_cands, 0) == L"对");
             // Exercise mapped prefix and wildcard 50-result cap on full dictionary
             auto wq_prefix = jidian_engine.LookupCandidates(L"w");
             QIQI_TEST_CHECK(wq_prefix.size() == 50);
