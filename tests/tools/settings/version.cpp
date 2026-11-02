@@ -1,9 +1,11 @@
 #include "common/test_support.h"
 #include "common/file_util.h"
+#include "common/scoped_handle.h"
 #include "common/version.h"
 
 #include <winver.h>
 #include <cstddef>
+#include <cstring>
 #include <string>
 #include <span>
 #include <vector>
@@ -61,6 +63,25 @@ void RunSettingsVersionTests() {
                         L"cloudfyy (https://github.com/cloudfyy/qiqiime)");
         QIQI_TEST_CHECK(query_string(block + L"ProductName") == L"奇奇五笔 (QiQi Wubi IME)");
     }
+
+    const ScopedModule resource(::LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE));
+    QIQI_TEST_CHECK(resource.IsValid());
+    const HRSRC group = ::FindResourceW(resource.Get(), MAKEINTRESOURCEW(1), RT_GROUP_ICON);
+    QIQI_TEST_CHECK(group != nullptr);
+    const HGLOBAL loaded = ::LoadResource(resource.Get(), group);
+    QIQI_TEST_CHECK(loaded != nullptr);
+    const std::span<const BYTE> bytes(
+        static_cast<const BYTE*>(::LockResource(loaded)), ::SizeofResource(resource.Get(), group));
+    QIQI_TEST_CHECK(bytes.size() >= 6);
+    WORD count = 0;
+    std::memcpy(&count, bytes.subspan(4, 2).data(), 2);
+    QIQI_TEST_CHECK(count >= 6 && bytes.size() >= 6 + size_t{count} * 14);
+    bool has_256_frame = false;
+    for (size_t i = 0; i < count; ++i) {
+        const auto entry = bytes.subspan(6 + i * 14, 14);
+        if (entry.front() == 0 && gsl::at(entry, 1) == 0) has_256_frame = true;
+    }
+    QIQI_TEST_CHECK(has_256_frame);
 }
 
 } // namespace qiqi::test

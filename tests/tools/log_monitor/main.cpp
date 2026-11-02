@@ -373,11 +373,30 @@ void TestDesktopIntegration() {
     std::memcpy(&count, bytes.subspan(4, 2).data(), 2);
     QIQI_TEST_CHECK(bytes.size() >= 6 + size_t{count} * 14);
     bool high_resolution = false;
+    WORD monitor_icon_id = 0;
     for (size_t i = 0; i < count; ++i) {
         const auto entry = bytes.subspan(6 + i * 14, 14);
-        if (entry.front() == 0 && gsl::at(entry, 1) == 0) high_resolution = true;
+        if (entry.front() == 0 && gsl::at(entry, 1) == 0) {
+            high_resolution = true;
+            std::memcpy(&monitor_icon_id, entry.subspan(12, 2).data(), 2);
+        }
     }
-    QIQI_TEST_CHECK(high_resolution);
+    QIQI_TEST_CHECK(high_resolution && monitor_icon_id != 0);
+    const auto settings_exe = GetModuleFilePath(nullptr).parent_path() / L"QiQiIMESettings.exe";
+    if (std::filesystem::exists(settings_exe)) {
+        const ScopedModule settings_res(::LoadLibraryExW(settings_exe.c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE));
+        QIQI_TEST_CHECK(settings_res.IsValid());
+        const HRSRC mon_frame = ::FindResourceW(resource.Get(), MAKEINTRESOURCEW(monitor_icon_id), RT_ICON);
+        const HRSRC set_frame = ::FindResourceW(settings_res.Get(), MAKEINTRESOURCEW(monitor_icon_id), RT_ICON);
+        QIQI_TEST_CHECK(mon_frame != nullptr && set_frame != nullptr);
+        const DWORD mon_size = ::SizeofResource(resource.Get(), mon_frame);
+        const DWORD set_size = ::SizeofResource(settings_res.Get(), set_frame);
+        const auto* mon_ptr = static_cast<const BYTE*>(::LockResource(::LoadResource(resource.Get(), mon_frame)));
+        const auto* set_ptr = static_cast<const BYTE*>(::LockResource(::LoadResource(settings_res.Get(), set_frame)));
+        QIQI_TEST_CHECK(mon_ptr != nullptr && set_ptr != nullptr);
+        const bool distinct_icons = (mon_size != set_size) || (std::memcmp(mon_ptr, set_ptr, mon_size) != 0);
+        QIQI_TEST_CHECK(distinct_icons);
+    }
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
 }
 

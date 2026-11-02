@@ -16,6 +16,7 @@ set(QIQI_RESOURCE_FILE_SUBTYPE 0x0L)
 set(QIQI_RESOURCE_FILENAME "QiQiIMESettings.exe")
 set(QIQI_RESOURCE_DESCRIPTION "奇奇五笔设置 (QiQi Wubi Settings - ${QIQIIME_ARCH_NAME})")
 set(QIQI_RESOURCE_COMMENTS "奇奇五笔设置 (QiQi Wubi Settings) - https://github.com/cloudfyy/qiqiime")
+set(QIQI_RESOURCE_ICON "${PROJECT_SOURCE_DIR}/data/qiqiime-settings.ico")
 set(QIQI_SETTINGS_VERSION_RESOURCE "${QIQIIME_GENERATED_DIR}/tools/settings/version.rc")
 configure_file(
     "${PROJECT_SOURCE_DIR}/src/common/version.rc.in"
@@ -23,7 +24,7 @@ configure_file(
     @ONLY
 )
 set_source_files_properties("${QIQI_SETTINGS_VERSION_RESOURCE}"
-    PROPERTIES OBJECT_DEPENDS "${PROJECT_SOURCE_DIR}/data/qiqiime.ico"
+    PROPERTIES OBJECT_DEPENDS "${QIQI_RESOURCE_ICON}"
 )
 
 add_executable(QiQiIMESettings WIN32

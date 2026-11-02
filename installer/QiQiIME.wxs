@@ -14,7 +14,7 @@
                         Keywords="!(loc.SummaryKeywords)"
                         Codepage="$(var.SummaryCodepage)" />
 
-    <Icon Id="ProductIcon" SourceFile="data\qiqiime-monitor.ico" />
+    <Icon Id="ProductIcon" SourceFile="data\qiqiime-settings.ico" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
     <Property Id="ARPCOMMENTS" Value="!(loc.SummaryComments)" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/cloudfyy/qiqiime" />

@@ -391,6 +391,7 @@ ScopedWindow CreateSettingsWindow(
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = &SettingsWndProc;
     wc.hInstance = instance;
+    wc.hIcon = ::LoadIconW(instance, MAKEINTRESOURCEW(1));
     wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
     wc.lpszClassName = kSettingsWndClass;
