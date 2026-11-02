@@ -9,6 +9,7 @@ bool IsRunningUnderWow64() noexcept;
 bool IsNative64BitClsidRegistered() noexcept;
 
 HRESULT EnableCurrentUserProfile(ITfInputProcessorProfiles* custom_profiles = nullptr);
+HRESULT DeactivateCurrentUserProfile(ITfInputProcessorProfiles* custom_profiles = nullptr);
 
 HRESULT RegisterServerWithManagers(
     HINSTANCE instance,

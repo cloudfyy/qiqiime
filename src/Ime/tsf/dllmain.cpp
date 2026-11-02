@@ -60,9 +60,9 @@ STDAPI DllUnregisterServer(void) {
 
 STDAPI DllInstall(BOOL install, LPCWSTR command_line) {
     std::ignore = qiqi::log::EnsureInitialized();
-    if (!install || !command_line || std::wstring_view(command_line) != L"user") {
-        QIQI_LOG_ERROR("DllInstall supports only installation with /i:user");
+    if (!command_line || std::wstring_view(command_line) != L"user") {
+        QIQI_LOG_ERROR("DllInstall supports only /i:user");
         return E_INVALIDARG;
     }
-    return qiqi::EnableCurrentUserProfile();
+    return install ? qiqi::EnableCurrentUserProfile() : qiqi::DeactivateCurrentUserProfile();
 }

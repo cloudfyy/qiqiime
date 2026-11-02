@@ -249,7 +249,8 @@ void TestClassFactoryAndDllExports() {
     QIQI_TEST_CHECK(RegisterServer(reinterpret_cast<HINSTANCE>(0x12345678)) == SELFREG_E_CLASS);
     QIQI_TEST_CHECK(DllInstall(TRUE, nullptr) == E_INVALIDARG);
     QIQI_TEST_CHECK(DllInstall(TRUE, L"machine") == E_INVALIDARG);
-    QIQI_TEST_CHECK(DllInstall(FALSE, L"user") == E_INVALIDARG);
+    QIQI_TEST_CHECK(DllInstall(FALSE, nullptr) == E_INVALIDARG);
+    QIQI_TEST_CHECK(DllInstall(FALSE, L"machine") == E_INVALIDARG);
 
     // Redirect COM writes and mock TSF so tests never change the real user's profiles.
     const wchar_t* kTempRegPath = L"Software\\QiQiIME_UnitTest_TempHKCR";
@@ -366,13 +367,16 @@ void TestClassFactoryAndDllExports() {
                                     proto_cmd.Put()) != ERROR_SUCCESS);
             }
 
-            // Reinstall must override an old per-user disabled state.
+            // Reinstall must override an old per-user disabled state, and unregistration continues if session deactivation fails.
             mock_profiles->enabled_ = false;
             QIQI_TEST_CHECK(SUCCEEDED(RegisterServerWithManagers(
                 hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false)));
             QIQI_TEST_CHECK(mock_profiles->enabled_);
+            mock_profiles->fail_deactivate_ = true;
             QIQI_TEST_CHECK(SUCCEEDED(UnregisterServerWithManagers(
                 mock_profiles.Get(), mock_cat_mgr.Get(), false)));
+            mock_profiles->fail_deactivate_ = false;
+            QIQI_TEST_CHECK(!mock_profiles->registered_);
         }
     }
 }
@@ -389,6 +393,15 @@ void TestEnableCurrentUserProfile() {
     QIQI_TEST_CHECK(profiles->enable_calls_ == 2);
     profiles->fail_enable_ = true;
     QIQI_TEST_CHECK(EnableCurrentUserProfile(profiles.Get()) == E_ACCESSDENIED);
+
+    QIQI_TEST_CHECK(DeactivateCurrentUserProfile(profiles.Get()) == S_OK);
+    QIQI_TEST_CHECK(profiles->deactivate_calls_ == 1);
+    QIQI_TEST_CHECK(profiles->deactivate_flags_ == TF_IPPMF_FORSESSION);
+    profiles->fail_deactivate_ = true;
+    QIQI_TEST_CHECK(DeactivateCurrentUserProfile(profiles.Get()) == E_FAIL);
+    profiles->fail_deactivate_ = false;
+    profiles->fail_qi_profile_mgr_ = true;
+    QIQI_TEST_CHECK(DeactivateCurrentUserProfile(profiles.Get()) == E_NOINTERFACE);
 }
 
 } // namespace

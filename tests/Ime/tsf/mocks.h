@@ -1042,7 +1042,7 @@ public:
             AddRef();
             return S_OK;
         }
-        if (IsEqualIID(riid, IID_ITfInputProcessorProfileMgr)) {
+        if (IsEqualIID(riid, IID_ITfInputProcessorProfileMgr) && !fail_qi_profile_mgr_) {
             *ppvObj = static_cast<ITfInputProcessorProfileMgr*>(this);
             AddRef();
             return S_OK;
@@ -1112,8 +1112,13 @@ public:
         ++activate_calls_;
         return S_OK;
     }
-    STDMETHODIMP DeactivateProfile(DWORD, LANGID, REFCLSID, REFGUID, HKL, DWORD flags) noexcept override {
+    STDMETHODIMP DeactivateProfile(DWORD profile_type, LANGID langid, REFCLSID clsid, REFGUID profile, HKL, DWORD flags) noexcept override {
         ++deactivate_calls_;
+        if (profile_type != TF_PROFILETYPE_INPUTPROCESSOR || !IsEqualCLSID(clsid, kClsidQiQiTextService) ||
+            langid != kChineseSimplifiedLangId || !IsEqualGUID(profile, kGuidProfileWubi86)) {
+            return E_INVALIDARG;
+        }
+        if (fail_deactivate_) return E_FAIL;
         deactivate_flags_ = flags;
         return S_OK;
     }
@@ -1133,6 +1138,8 @@ public:
     bool fail_register_profile_ = false;
     bool fail_enable_ = false;
     bool fail_enable_default_ = false;
+    bool fail_qi_profile_mgr_ = false;
+    bool fail_deactivate_ = false;
     bool enabled_ = false;
     bool enabled_by_default_ = false;
     int enable_calls_ = 0;

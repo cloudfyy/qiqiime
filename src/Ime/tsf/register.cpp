@@ -228,6 +228,17 @@ void RemovePrebuiltBundledDictionaries(HINSTANCE instance) noexcept {
     }
 }
 
+HRESULT ResolveInputProcessorProfiles(
+    ITfInputProcessorProfiles* custom_profiles,
+    ComPtr<ITfInputProcessorProfiles>& profiles) noexcept {
+    profiles = custom_profiles;
+    if (profiles) {
+        return S_OK;
+    }
+    return ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
+                              IID_PPV_ARGS(&profiles));
+}
+
 } // namespace
 
 bool IsNative64BitClsidRegistered() noexcept {
@@ -255,12 +266,8 @@ bool IsRunningUnderWow64() noexcept {
 }
 
 HRESULT EnableCurrentUserProfile(ITfInputProcessorProfiles* custom_profiles) {
-    ComPtr<ITfInputProcessorProfiles> profiles = custom_profiles;
-    HRESULT hr = S_OK;
-    if (!profiles) {
-        hr = ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
-                                IID_PPV_ARGS(&profiles));
-    }
+    ComPtr<ITfInputProcessorProfiles> profiles;
+    HRESULT hr = ResolveInputProcessorProfiles(custom_profiles, profiles);
     if (SUCCEEDED(hr)) {
         hr = profiles->EnableLanguageProfile(
             kClsidQiQiTextService, kChineseSimplifiedLangId, kGuidProfileWubi86, TRUE);
@@ -270,6 +277,32 @@ HRESULT EnableCurrentUserProfile(ITfInputProcessorProfiles* custom_profiles) {
                        gsl::narrow_cast<unsigned int>(hr));
     } else {
         QIQI_LOG_INFO("QiQi Wubi profile enabled for the current user");
+    }
+    return hr;
+}
+
+HRESULT DeactivateCurrentUserProfile(ITfInputProcessorProfiles* custom_profiles) {
+    ComPtr<ITfInputProcessorProfiles> profiles;
+    HRESULT hr = ResolveInputProcessorProfiles(custom_profiles, profiles);
+    ComPtr<ITfInputProcessorProfileMgr> profile_mgr;
+    if (SUCCEEDED(hr)) {
+        hr = profiles.As(&profile_mgr);
+    }
+    if (SUCCEEDED(hr)) {
+        // Deactivate for the current session without persisting an HKCU disable override across reinstalls.
+        hr = profile_mgr->DeactivateProfile(
+            TF_PROFILETYPE_INPUTPROCESSOR,
+            kChineseSimplifiedLangId,
+            kClsidQiQiTextService,
+            kGuidProfileWubi86,
+            nullptr,
+            TF_IPPMF_FORSESSION);
+    }
+    if (FAILED(hr)) {
+        QIQI_LOG_WARN("DeactivateCurrentUserProfile failed with HRESULT 0x{:08x}",
+                      gsl::narrow_cast<unsigned int>(hr));
+    } else {
+        QIQI_LOG_INFO("QiQi Wubi profile deactivated for the current user session");
     }
     return hr;
 }
@@ -455,21 +488,10 @@ HRESULT UnregisterServerWithManagers(
                            IID_PPV_ARGS(&profiles)), "UnregisterServer::CoCreateInstance(ITfInputProcessorProfiles)");
     }
     if (profiles) {
-        // Deactivate without persisting an HKCU disable override across reinstalls.
+        std::ignore = DeactivateCurrentUserProfile(profiles.Get());
         ComPtr<ITfInputProcessorProfileMgr> profile_mgr;
         if (log::CheckHResult(profiles.As(&profile_mgr), "UnregisterServer::QueryInterface(ITfInputProcessorProfileMgr)",
                              log::Level::debug) && profile_mgr) {
-            const HRESULT deactivate_hr = profile_mgr->DeactivateProfile(
-                TF_PROFILETYPE_INPUTPROCESSOR,
-                kChineseSimplifiedLangId,
-                kClsidQiQiTextService,
-                kGuidProfileWubi86,
-                nullptr,
-                TF_IPPMF_FORSESSION);
-            if (FAILED(deactivate_hr)) {
-                QIQI_LOG_WARN("DeactivateProfile failed with HRESULT 0x{:08x}; continuing unregistration",
-                              gsl::narrow_cast<unsigned int>(deactivate_hr));
-            }
             std::ignore = log::CheckHResult(profile_mgr->UnregisterProfile(
                 kClsidQiQiTextService,
                 kChineseSimplifiedLangId,
