@@ -53,6 +53,10 @@ bool IsCapsLockOn() noexcept {
     return (::GetKeyState(VK_CAPITAL) & 0x0001) != 0;
 }
 
+constexpr bool IsShiftVirtualKey(uint32_t vk) noexcept {
+    return vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT;
+}
+
 } // namespace
 
 // ITfKeyEventSink
@@ -80,14 +84,8 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
     const bool caps = IsCapsLockOn();
     const bool mouse_down = IsAnyMouseButtonDown();
     const bool keyboard_disabled = IsContextKeyboardDisabled(pic);
-    if (!pic || !is_active_ || resetting_context_ || preparing_input_context_ || keyboard_disabled) {
-        shift_tap_candidate_ = false;
-        shift_press_tick_ = 0;
-        *pfEaten = FALSE;
-        return S_OK;
-    }
     const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
-    if (vk == VK_SHIFT) {
+    if (IsShiftVirtualKey(vk) && is_active_ && !resetting_context_ && !preparing_input_context_) {
         const bool is_auto_repeat = (lParam & (1LL << 30)) != 0;
         if (!is_auto_repeat) {
             shift_tap_candidate_ = config_.shift_toggle_mode &&
@@ -96,6 +94,12 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
         } else if (::GetTickCount64() - shift_press_tick_ > kMaxShiftTapDurationMs || mouse_down) {
             shift_tap_candidate_ = false;
         }
+        *pfEaten = FALSE;
+        return S_OK;
+    }
+    if (!pic || !is_active_ || resetting_context_ || preparing_input_context_ || keyboard_disabled) {
+        shift_tap_candidate_ = false;
+        shift_press_tick_ = 0;
         *pfEaten = FALSE;
         return S_OK;
     }
@@ -163,7 +167,8 @@ STDMETHODIMP QiQiTextService::OnTestKeyUp(ITfContext* /*pic*/, WPARAM wParam, LP
     if (!pfEaten) {
         return E_INVALIDARG;
     }
-    if (wParam == VK_SHIFT && shift_tap_candidate_) {
+    const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
+    if (IsShiftVirtualKey(vk) && shift_tap_candidate_) {
         if (IsValidShiftTapRelease(shift_press_tick_)) {
             *pfEaten = TRUE;
             return S_OK;
@@ -178,7 +183,8 @@ STDMETHODIMP QiQiTextService::OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM /*l
     if (!pfEaten) {
         return E_INVALIDARG;
     }
-    if (wParam == VK_SHIFT && shift_tap_candidate_) {
+    const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
+    if (IsShiftVirtualKey(vk) && shift_tap_candidate_) {
         shift_tap_candidate_ = false;
         const bool valid_tap = IsValidShiftTapRelease(shift_press_tick_);
         shift_press_tick_ = 0;
@@ -244,14 +250,21 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
 }
 
 void QiQiTextService::ToggleModeAndCancelComposition(ITfContext* context) {
-    if (context && !PrepareInputContext(context)) return;
-    if (engine_.IsComposing() && context) {
-        KeyProcessResult cancel_res{};
-        cancel_res.action = KeyActionType::Cancel;
-        ApplyEngineResult(context, cancel_res);
+    ITfContext* const target = context ? context : active_context_.Get();
+    if (engine_.IsComposing()) {
+        if (target && PrepareInputContext(target) && engine_.IsComposing()) {
+            KeyProcessResult cancel_res{};
+            cancel_res.action = KeyActionType::Cancel;
+            ApplyEngineResult(target, cancel_res);
+        } else {
+            ResetCompositionAndUI();
+        }
+    } else if (target && active_context_ && target != active_context_.Get()) {
+        std::ignore = PrepareInputContext(target);
     }
     engine_.ToggleChineseMode();
     SyncTsfCompartments();
+    QIQI_LOG_INFO("Input mode toggled: {}", engine_.IsChineseMode() ? "Chinese" : "English");
 }
 
 } // namespace qiqi

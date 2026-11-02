@@ -722,6 +722,22 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     // In English mode, 'A' is not eaten
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
 
+    // Test VK_LSHIFT / VK_RSHIFT tap toggle and Shift tap with nullptr / empty context
+    {
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(nullptr, VK_LSHIFT, 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyUp(nullptr, VK_LSHIFT, 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyUp(nullptr, VK_LSHIFT, 0, &eaten)) && eaten == TRUE);
+        // Now back in Chinese mode: 'A' should be eaten
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
+
+        // Toggle back to English using VK_RSHIFT on an unprepared context
+        auto fresh_ctx = MakeComObject<MockTfContext>();
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(fresh_ctx.Get(), VK_RSHIFT, 0, &eaten)) && eaten == FALSE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyUp(fresh_ctx.Get(), VK_RSHIFT, 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyUp(fresh_ctx.Get(), VK_RSHIFT, 0, &eaten)) && eaten == TRUE);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
+    }
+
     // Toggle back to Chinese mode via PreservedKey (Ctrl+Space)
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyToggleMode, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidProfileWubi86, &eaten)) && eaten == FALSE);

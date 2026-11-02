@@ -322,8 +322,10 @@ STDMETHODIMP QiQiTextService::OnLayoutChange(
 }
 
 void QiQiTextService::ResetCompositionAndUI(bool try_host_cleanup) {
-    shift_tap_candidate_ = false;
-    shift_press_tick_ = 0;
+    if (!preparing_input_context_) {
+        shift_tap_candidate_ = false;
+        shift_press_tick_ = 0;
+    }
     engine_.Reset();
     ResetContextAndUI(try_host_cleanup);
 }
