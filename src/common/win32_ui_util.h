@@ -323,4 +323,19 @@ inline ScopedIcon CreateTransparentGlyphIcon(wchar_t ch, int size_px, COLORREF t
     return icon;
 }
 
+// Load a DPI-scaled icon from a module's resource (ID 1 by default), falling back to a transparent
+// brand '奇' glyph icon if the module has no icon resource or uses the white taskbar-only icon.
+inline ScopedIcon LoadAppIconOrBrandFallback(
+    HINSTANCE instance, int size_px, WORD resource_id = 1, bool allow_module_resource = true) noexcept {
+    const int sz = std::max(16, size_px);
+    if (allow_module_resource && instance) {
+        ScopedIcon loaded(static_cast<HICON>(::LoadImageW(
+            instance, MAKEINTRESOURCEW(resource_id), IMAGE_ICON, sz, sz, LR_DEFAULTCOLOR)));
+        if (loaded) {
+            return loaded;
+        }
+    }
+    return CreateTransparentGlyphIcon(L'奇', sz, RGB(35, 105, 200));
+}
+
 } // namespace qiqi

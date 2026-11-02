@@ -233,7 +233,9 @@ void TestSettingsDialogControls() {
     {
         const ScopedWindow about_zh(CreateAboutWindow(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
         QIQI_TEST_CHECK(about_zh.IsValid());
-        QIQI_TEST_CHECK(::SendMessageW(about_zh.Get(), WM_GETICON, ICON_SMALL, 0) != 0);
+        const LRESULT small_icon = ::SendMessageW(about_zh.Get(), WM_GETICON, ICON_SMALL, 0);
+        const LRESULT big_icon = ::SendMessageW(about_zh.Get(), WM_GETICON, ICON_BIG, 0);
+        QIQI_TEST_CHECK(small_icon != 0 && big_icon != 0 && small_icon != big_icon);
         ::GetWindowTextW(about_zh.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
         QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"关于 奇奇五笔");
         std::array<wchar_t, 64> btn_buf{};

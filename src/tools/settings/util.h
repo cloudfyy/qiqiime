@@ -5,8 +5,24 @@
 
 namespace qiqi::dialog_detail {
 
-inline ScopedIcon LoadOrCreateBrandIcon(int size_px) noexcept {
-    return CreateTransparentGlyphIcon(L'奇', size_px, RGB(35, 105, 200));
+inline ScopedIcon LoadOrCreateBrandIcon(int size_px, HINSTANCE instance = nullptr) noexcept {
+    // Only load embedded icon resource 1 when running inside standalone QiQiIMESettings.exe
+    // (which embeds blue qiqiime-settings.ico); qiqiime.dll embeds white taskbar-only qiqiime.ico.
+    bool use_resource = false;
+    if (instance) {
+        std::array<wchar_t, MAX_PATH> module_path{};
+        const DWORD len = ::GetModuleFileNameW(
+            instance, module_path.data(), gsl::narrow_cast<DWORD>(module_path.size()));
+        if (len > 0 && len < module_path.size()) {
+            const std::wstring_view full_view(module_path.data(), len);
+            const size_t sep = full_view.find_last_of(L"\\/");
+            const std::wstring_view filename =
+                (sep == std::wstring_view::npos) ? full_view : full_view.substr(sep + 1);
+            use_resource = (filename.size() == 19 &&
+                            _wcsnicmp(filename.data(), L"QiQiIMESettings.exe", 19) == 0);
+        }
+    }
+    return LoadAppIconOrBrandFallback(instance, size_px, 1, use_resource);
 }
 
 inline int MeasureDialogTextHeight(HFONT font, const wchar_t* text, int width) noexcept {

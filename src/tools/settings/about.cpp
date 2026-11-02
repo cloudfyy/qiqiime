@@ -29,6 +29,7 @@ struct AboutDialogContext {
     int button_top = 208;
     ScopedGdiHandle<HFONT> body_font;
     ScopedGdiHandle<HFONT> title_font;
+    ScopedIcon icon_small;
     ScopedIcon icon;
     FluentD2DThemeContext d2d;
 };
@@ -182,7 +183,8 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
 
     ctx->body_font = CreateUiFont(S(14), FW_NORMAL);
     ctx->title_font = CreateUiFont(S(19), FW_BOLD);
-    ctx->icon = dialog_detail::LoadOrCreateBrandIcon(S(56));
+    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(S(16), instance);
+    ctx->icon = dialog_detail::LoadOrCreateBrandIcon(S(56), instance);
     int license_height = S(94);
     for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
         const int measured = dialog_detail::MeasureDialogTextHeight(
@@ -224,8 +226,10 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     QIQI_LOG_DEBUG("AboutWindow created (pos=({}, {}), size={}x{}, dpi={})",
                    dlg_pos.x, dlg_pos.y, dlg_w, dlg_h, mon.dpi);
     const auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
+    if (owned_ctx->icon_small) {
+        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon_small.Get()));
+    }
     if (owned_ctx->icon) {
-        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
         ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(owned_ctx->icon.Get()));
     }
 

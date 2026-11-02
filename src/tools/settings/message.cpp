@@ -24,6 +24,8 @@ struct MessageContext {
     bool done = false;
     int result = IDCANCEL;
     ScopedGdiHandle<HFONT> font;
+    ScopedIcon icon_small;
+    ScopedIcon icon_big;
     FluentD2DThemeContext d2d;
 };
 
@@ -294,6 +296,8 @@ ScopedWindow CreateSettingsMessageWindow(
     ctx->d2d.Init(monitor.dpi);
     const auto scale = [dpi = monitor.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
     ctx->font = CreateUiFont(scale(14), FW_NORMAL, CLEARTYPE_QUALITY);
+    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(scale(16), instance);
+    ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(scale(48), instance);
     if (!ctx->font || !ctx->d2d.d2d_target || !ctx->d2d.surface_brush ||
         !ctx->d2d.fmt_caption || !ctx->d2d.fmt_btn) {
         QIQI_LOG_ERROR("Settings message drawing resources unavailable");
@@ -310,7 +314,7 @@ ScopedWindow CreateSettingsMessageWindow(
     }
     const int height = body_height + scale(124);
     constexpr DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
-    constexpr DWORD ex_style = WS_EX_DLGMODALFRAME;
+    constexpr DWORD ex_style = 0;
     RECT rect{0, 0, scale(kWindowWidth), height};
     ::AdjustWindowRectEx(&rect, style, FALSE, ex_style);
     const int width = rect.right - rect.left;
@@ -327,6 +331,12 @@ ScopedWindow CreateSettingsMessageWindow(
         return {};
     }
     const auto* owned = ctx.release();
+    if (owned->icon_small) {
+        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(owned->icon_small.Get()));
+    }
+    if (owned->icon_big) {
+        ::SendMessageW(hwnd.Get(), WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(owned->icon_big.Get()));
+    }
     const HFONT font = owned->font.Get();
     const auto* theme = &owned->d2d;
     const HWND body = CreateFluentChildControl(hwnd.Get(), instance, font, theme,

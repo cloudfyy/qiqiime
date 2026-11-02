@@ -683,7 +683,15 @@ struct MonitorWindow::Impl {
                 L"QiQiIME.TraceLogging -> ETW / TDH",
                 Text(L"应用侧关闭的日志无法恢复。Verbose 合并 Trace/Debug，Error 合并 Error/Critical。",
                      L"Application-filtered events cannot be recovered. Verbose merges Trace/Debug; Error merges Error/Critical."));
-            ::MessageBoxW(hwnd, text.c_str(), Text(L"关于", L"About"), MB_OK | MB_ICONINFORMATION);
+            MSGBOXPARAMSW params{};
+            params.cbSize = sizeof(params);
+            params.hwndOwner = hwnd;
+            params.hInstance = instance;
+            params.lpszText = text.c_str();
+            params.lpszCaption = Text(L"关于", L"About");
+            params.dwStyle = MB_OK | MB_USERICON;
+            params.lpszIcon = MAKEINTRESOURCEW(1);
+            ::MessageBoxIndirectW(&params);
             break;
         }
         case Process: case Pid: case Search:

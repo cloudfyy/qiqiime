@@ -66,6 +66,9 @@ void TestLiveThemeAndLanguage() {
         const ScopedWindow message(CreateSettingsMessageWindow(
             ::GetModuleHandleW(nullptr), settings.Get(), UiLanguage::ZhCn, kind));
         QIQI_TEST_CHECK(message);
+        QIQI_TEST_CHECK(::SendMessageW(message.Get(), WM_GETICON, ICON_SMALL, 0) != 0);
+        QIQI_TEST_CHECK(::SendMessageW(message.Get(), WM_GETICON, ICON_BIG, 0) != 0);
+        QIQI_TEST_CHECK((::GetWindowLongPtrW(message.Get(), GWL_EXSTYLE) & WS_EX_DLGMODALFRAME) == 0);
         for (const bool dark : {false, true, false}) {
             SetThemeDarkOverrideForTest(dark);
             for (const UINT event : {WM_THEMECHANGED, WM_SETTINGCHANGE}) {

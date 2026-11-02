@@ -295,6 +295,23 @@ void TestDesktopIntegration() {
     Click(window, Copy);
     const auto multi_copied = ReadClipboardText(window.Handle());
     QIQI_TEST_CHECK(multi_copied.contains(L"Monitor initialized") && multi_copied.contains(L"Copied 1 log record(s) to clipboard") && multi_copied.contains(L"\r\n"));
+    {
+        bool closed_about = false;
+        const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+            if (const HWND dlg = ::FindWindowW(L"#32770", L"About")) {
+                if (const HWND icon_ctrl = ::GetDlgItem(dlg, 0x0014)) {
+                    QIQI_TEST_CHECK(::SendMessageW(icon_ctrl, STM_GETICON, 0, 0) != 0);
+                }
+                ::KillTimer(nullptr, id);
+                ::PostMessageW(dlg, WM_COMMAND, IDOK, 0);
+            }
+        });
+        QIQI_TEST_CHECK(timer != 0);
+        Click(window, About);
+        ::KillTimer(nullptr, timer);
+        closed_about = true;
+        QIQI_TEST_CHECK(closed_about);
+    }
     ::SetWindowTextW(Child(window, Search), L"initialized");
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1 && ListView_GetSelectedCount(list) == 1);
     Click(window, Pause);

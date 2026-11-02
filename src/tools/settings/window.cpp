@@ -205,8 +205,8 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
         ctx.d2d.Init(effective_dpi);
         ctx.font = CreateUiFont(ctx.d2d.ScalePx(15), FW_NORMAL, CLEARTYPE_QUALITY);
         ctx.bold_font = CreateUiFont(ctx.d2d.ScalePx(12), FW_SEMIBOLD, CLEARTYPE_QUALITY);
-        ctx.icon_small = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(16));
-        ctx.icon_big = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(48));
+        ctx.icon_small = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(16), ctx.instance);
+        ctx.icon_big = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(48), ctx.instance);
         if (!ctx.font || !ctx.bold_font || !ctx.icon_small || !ctx.icon_big) {
             QIQI_LOG_ERROR("Settings DPI update could not recreate scaled window resources");
         }
@@ -419,8 +419,8 @@ ScopedWindow CreateSettingsWindow(
     const bool is_dark = IsSystemDarkTheme();
     ctx->font = CreateUiFont(S(15), FW_NORMAL, CLEARTYPE_QUALITY);
     ctx->bold_font = CreateUiFont(S(12), FW_SEMIBOLD, CLEARTYPE_QUALITY);
-    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(S(16));
-    ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(S(48));
+    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(S(16), instance);
+    ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(S(48), instance);
 
     const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
 
