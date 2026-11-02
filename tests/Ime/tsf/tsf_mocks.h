@@ -496,6 +496,7 @@ public:
         if (!link || !link->document) return TF_E_DISCONNECTED;
         *document = link->document;
         (*document)->AddRef();
+        if (get_document_callback_) get_document_callback_();
         return S_OK;
     }
     STDMETHODIMP CreateRangeBackup(TfEditCookie, ITfRange*, ITfRangeBackup**) noexcept override { return E_NOTIMPL; }
@@ -532,15 +533,19 @@ public:
     STDMETHODIMP AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) override {
         if (!punk || !pdwCookie) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_ITfTextLayoutSink)) {
+            ++layout_advise_calls_;
+            if (FAILED(layout_advise_result_)) return layout_advise_result_;
             if (FAILED(punk->QueryInterface(IID_PPV_ARGS(&layout_sink_))) || !layout_sink_) {
                 return E_NOINTERFACE;
             }
             *pdwCookie = 202;
+            if (layout_advise_callback_) layout_advise_callback_();
             return S_OK;
         }
         return CONNECT_E_CANNOTCONNECT;
     }
     STDMETHODIMP UnadviseSink(DWORD) override {
+        ++layout_unadvise_calls_;
         layout_sink_.Reset();
         return S_OK;
     }
@@ -582,6 +587,11 @@ public:
     unsigned int start_composition_calls_ = 0;
     ComPtr<MockTfProperty> prop_;
     ComPtr<ITfTextLayoutSink> layout_sink_;
+    HRESULT layout_advise_result_ = S_OK;
+    unsigned int layout_advise_calls_ = 0;
+    unsigned int layout_unadvise_calls_ = 0;
+    std::function<void()> get_document_callback_;
+    std::function<void()> layout_advise_callback_;
     ComPtr<MockTfCompartment> disabled_compartment_;
     ComPtr<MockTfCompartment> empty_compartment_;
     bool fail_qi_insert_ = false;
@@ -687,6 +697,35 @@ private:
     const std::shared_ptr<MockDocumentLink> link_;
     std::vector<ComPtr<ITfContext>> stack_;
     bool popping_ = false;
+};
+
+class MockTfDocumentMgrAlias final : public ComObjectBase<MockTfDocumentMgrAlias, ITfDocumentMgr> {
+public:
+    explicit MockTfDocumentMgrAlias(gsl::not_null<ITfDocumentMgr*> document) noexcept : document_(document.get()) {}
+
+    STDMETHODIMP QueryInterface(REFIID riid, void** object) noexcept override {
+        if (IsEqualIID(riid, IID_IUnknown)) {
+            if (!object) return E_INVALIDARG;
+            *object = nullptr;
+            if (FAILED(identity_result)) return identity_result;
+#pragma warning(suppress : 26447) // COM identity queries report failure through HRESULT.
+            return document_->QueryInterface(riid, object);
+        }
+        return ComObjectBase<MockTfDocumentMgrAlias, ITfDocumentMgr>::QueryInterface(riid, object);
+    }
+    STDMETHODIMP CreateContext(TfClientId client, DWORD flags, IUnknown* owner,
+                              ITfContext** context, TfEditCookie* cookie) override {
+        return document_->CreateContext(client, flags, owner, context, cookie);
+    }
+    STDMETHODIMP Push(ITfContext* context) override { return document_->Push(context); }
+    STDMETHODIMP Pop(DWORD flags) override { return document_->Pop(flags); }
+    STDMETHODIMP GetTop(ITfContext** context) override { return document_->GetTop(context); }
+    STDMETHODIMP GetBase(ITfContext** context) override { return document_->GetBase(context); }
+    STDMETHODIMP EnumContexts(IEnumTfContexts** contexts) override { return document_->EnumContexts(contexts); }
+
+    HRESULT identity_result = S_OK;
+private:
+    const ComPtr<ITfDocumentMgr> document_;
 };
 
 class MockTfThreadMgr final

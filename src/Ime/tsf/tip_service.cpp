@@ -424,8 +424,13 @@ STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
 STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* pic) {
     if (pic) MarkCompositionContextRemoved(pic);
     const bool current = is_active_ && pic && pic == active_context_.Get();
-    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=context-pop, current={})", service_log_id_, current);
-    if (current) ResetCompositionAndUI(false);
+    const bool preparing = is_active_ && pic && pic == preparing_input_context_.Get();
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=context-pop, current={}, preparing={})", service_log_id_, current, preparing);
+    if (current) {
+        ResetCompositionAndUI(false);
+    } else if (preparing) {
+        ++edit_session_epoch_.context;
+    }
     return S_OK;
 }
 

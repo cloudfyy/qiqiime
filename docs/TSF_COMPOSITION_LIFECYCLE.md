@@ -216,6 +216,8 @@ Previously, `ApplyEngineResult` noticed context changes only after `engine_.Proc
 4. Capture the new parent document and attach the layout sink. Recheck epochs after reentrant COM calls, and remove a subscription published after an invalidating notification.
 5. Only then process the key and submit its result for the prepared context.
 
+The preparation guard retains the pending context, not just a Boolean flag. A matching `OnPopContext` during `GetDocumentMgr` invalidates the epoch even before `active_context_` is assigned, so the outer operation declines the key without attaching a sink or requesting an edit session. Unrelated removals do not cancel preparation. RAII releases the pending reference on every exit.
+
 `ApplyEngineResult` no longer switches targets after the fact. UI/configuration callbacks can submit results only for an already prepared current context. Backspace in a fresh context is therefore passed through when its engine has no composition, instead of creating text derived from the previous context.
 
 The shared reset path also fixes a second gap in task 43: context switching and focus loss previously released the local composition reference without explicitly ending the host composition. Connected-target resets now use `ScheduleCompositionCleanup`, the same synchronous attempt and controlled asynchronous recovery used by deactivation. If focus returns to the same context before old cleanup executes, `HasPendingCompositionCleanup` still forces the new write behind it.
@@ -233,7 +235,7 @@ All records retain the existing service/cleanup correlation scheme:
 - `document-target`: `source=focus|push`, `retained`, and `covered_by_modal` explain why the current target was retained or reset.
 - `document-uninit`: `related` says whether the cached parent matched.
 - `context-push`: `related` distinguishes current-document stack changes from unrelated notifications.
-- `context-pop`: `current` identifies removal of the actual input target.
+- `context-pop`: `current` identifies removal of the actual input target; `preparing` identifies a target still being bound.
 - `context-reset`: `try_host_cleanup=false` identifies the removal path; `cleanup-skipped-removed-context` explicitly reports local release without claiming host termination.
 - `input-document-unavailable` preserves the actual parent-query HRESULT. Editing is not assumed to succeed: the subsequent edit-session request still determines access, while no parent relationship is fabricated.
 
@@ -246,6 +248,10 @@ An owned debug child process captures actual `OutputDebugString` messages. Asser
 Task 45 adds scoped document mocks with a weak context-to-parent link, preserving ownership without a mock document/context cycle. Tests verify focus changes, unchanged/modal targets, unrelated Pop/uninitialization, disconnection before notification, query failure, query reentrancy, old layout/write callbacks, A-to-B-to-A asynchronous cleanup ordering, removal of a context whose cleanup is already queued, and COM object-count recovery. Existing tests that passed a fabricated `ITfDocumentMgr*` are replaced with actual mock document objects.
 
 Real private TSF documents also forward actual Push/Pop/uninitialization notifications into the service through an owned, scoped event-sink connection. Assertions cover preservation of the main composition across modal Push/Pop, old host cleanup on a non-null document switch, fresh composition contents in the second document, and UI termination on full context removal. The test does not call native `SetFocus`, activate the system TIP, or assume a fixed notification order. Captured debug-child logs additionally assert modal-retention and non-current-pop fields.
+
+The post-0.9.19 coverage review adds direct assertions for removal during parent lookup, unrelated removal during binding, layout-sink publication after reentrant invalidation, layout subscription rejection, different document interface pointers sharing canonical `IUnknown` identity, identity-query rejection, `GetBase` failure, and removal inside attribute clearing before `EndComposition`. A dedicated service with an isolated status-bar configuration checks actual window visibility: ordinary removal must not suppress focus-loss hiding, a newer reentrant focus gain must remain visible, and focus loss during document reconciliation must not be overwritten. Configuration, subscriptions, and service ownership are restored with RAII, and COM object counts must recover.
+
+The parent-lookup removal test failed against the pre-review code, which continued binding an already removed target. Retaining the pending context in the preparation guard closes that gap. This is branch/behavior coverage, not a measured coverage percentage or proof of arbitrary host callback orderings. The existing Shift-tap integration case still uses the real 350 ms deadline; its thread keyboard state is reset immediately before the sequence to reduce ambient-state interference without relaxing production timing.
 
 See the [development guide](DEVELOPMENT.md) for targeted test commands; validate both architectures. Browser/UWP host compatibility is not certified, and successful host cleanup is not guaranteed for read-only, disconnected, or rejected requests.
 

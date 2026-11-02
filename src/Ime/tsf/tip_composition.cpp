@@ -313,9 +313,9 @@ bool QiQiTextService::PrepareInputContext(ITfContext* context) {
         return false;
     }
     if (active_context_.Get() == context) return true;
-    preparing_input_context_ = true;
-    const auto finish_prepare = gsl::finally([this]() noexcept { preparing_input_context_ = false; });
     ComPtr<ITfContext> ctx_holder(context);
+    preparing_input_context_ = ctx_holder;
+    const auto finish_prepare = gsl::finally([this]() noexcept { preparing_input_context_.Reset(); });
     auto epoch = edit_session_epoch_;
     ++epoch.context;
     ResetCompositionAndUI();

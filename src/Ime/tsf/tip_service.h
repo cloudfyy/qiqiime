@@ -179,7 +179,7 @@ private:
     bool is_active_ = false;
     bool deactivating_ = false;
     bool resetting_context_ = false;
-    bool preparing_input_context_ = false;
+    ComPtr<ITfContext> preparing_input_context_;
     EditSessionEpoch edit_session_epoch_;
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection text_layout_sink_;

@@ -328,6 +328,169 @@ void TestFocusPerformanceLogs() {
     }));
 }
 
+void TestAdditionalContextLifecycleCoverage(gsl::not_null<QiQiTextService*> service) {
+    const auto objects_before = g_com_object_count.load();
+    for (const bool remove_target : {false, true}) {
+        auto document = MakeComObject<MockTfDocumentMgr>();
+        auto context = document->CreateTestContext();
+        auto unrelated_document = MakeComObject<MockTfDocumentMgr>();
+        auto unrelated_context = unrelated_document->CreateTestContext();
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        QIQI_TEST_CHECK(unrelated_document->Push(unrelated_context.Get()) == S_OK);
+        document->events = service.get();
+        unrelated_document->events = service.get();
+        const auto disconnect = gsl::finally([&]() noexcept {
+            document->events = nullptr;
+            unrelated_document->events = nullptr;
+        });
+        context->get_document_callback_ = [&] {
+            const auto& removed_document = remove_target ? document : unrelated_document;
+            QIQI_TEST_CHECK(removed_document->Pop(TF_POPF_ALL) == S_OK);
+        };
+        BOOL eaten = TRUE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK);
+        if (remove_target) {
+            QIQI_TEST_CHECK(!eaten && context->request_edit_session_calls_ == 0 && context->layout_advise_calls_ == 0);
+            QIQI_TEST_CHECK(context->range_->text_.empty() && context->start_composition_calls_ == 0);
+        } else {
+            QIQI_TEST_CHECK(eaten && context->range_->text_ == L"a" && context->layout_sink_);
+        }
+        context->get_document_callback_ = {};
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+    }
+    {
+        auto document = MakeComObject<MockTfDocumentMgr>();
+        auto context = document->CreateTestContext();
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        document->events = service.get();
+        const auto disconnect = gsl::finally([&]() noexcept { document->events = nullptr; });
+        context->layout_advise_callback_ = [&] {
+            QIQI_TEST_CHECK(document->Pop(TF_POPF_ALL) == S_OK);
+            BOOL nested_eaten = TRUE;
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &nested_eaten) == S_OK && !nested_eaten);
+        };
+        BOOL eaten = TRUE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(context->layout_advise_calls_ == 1 && context->layout_unadvise_calls_ == 1);
+        QIQI_TEST_CHECK(!context->layout_sink_ && context->request_edit_session_calls_ == 0);
+        context->layout_advise_callback_ = {};
+        auto retry_context = document->CreateTestContext();
+        QIQI_TEST_CHECK(document->Push(retry_context.Get()) == S_OK);
+        QIQI_TEST_CHECK(service->OnKeyDown(retry_context.Get(), 'C', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(retry_context->range_->text_ == L"c" && retry_context->layout_sink_);
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+        QIQI_TEST_CHECK(context->layout_unadvise_calls_ == 1 && !context->layout_sink_);
+        QIQI_TEST_CHECK(retry_context->layout_unadvise_calls_ == 1 && !retry_context->layout_sink_);
+    }
+    {
+        auto document = MakeComObject<MockTfDocumentMgr>();
+        auto context = document->CreateTestContext();
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        context->layout_advise_result_ = E_ACCESSDENIED;
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(context->range_->text_ == L"a" && !context->layout_sink_);
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK && context->last_composition_->ended_);
+        QIQI_TEST_CHECK(context->layout_unadvise_calls_ == 0);
+    }
+    {
+        auto document = MakeComObject<MockTfDocumentMgr>();
+        auto context = document->CreateTestContext();
+        auto alias = MakeComObject<MockTfDocumentMgrAlias>(gsl::not_null<ITfDocumentMgr*>(document.Get()));
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        const auto requests = context->request_edit_session_calls_;
+        const auto composition = context->last_composition_;
+        alias->identity_result = E_ACCESSDENIED;
+        QIQI_TEST_CHECK(service->OnUninitDocumentMgr(alias.Get()) == S_OK);
+        QIQI_TEST_CHECK(!composition->ended_ && context->layout_sink_);
+        alias->identity_result = S_OK;
+        QIQI_TEST_CHECK(service->OnUninitDocumentMgr(alias.Get()) == S_OK);
+        QIQI_TEST_CHECK(context->request_edit_session_calls_ == requests && !context->layout_sink_);
+        QIQI_TEST_CHECK(context->layout_unadvise_calls_ == 1 && !composition->ended_);
+        QIQI_TEST_CHECK(service->OnUninitDocumentMgr(alias.Get()) == S_OK && context->layout_unadvise_calls_ == 1);
+    }
+    {
+        auto document = MakeComObject<MockTfDocumentMgr>();
+        auto context = document->CreateTestContext();
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        const auto composition = context->last_composition_;
+        document->get_base_result = E_ACCESSDENIED;
+        QIQI_TEST_CHECK(service->OnSetFocus(document.Get(), document.Get()) == S_OK);
+        QIQI_TEST_CHECK(composition->ended_ && context->prop_->clear_calls_ == 1 && !context->layout_sink_);
+    }
+    {
+        auto document = MakeComObject<MockTfDocumentMgr>();
+        auto context = document->CreateTestContext();
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        const auto composition = context->last_composition_;
+        document->events = service.get();
+        const auto disconnect = gsl::finally([&]() noexcept { document->events = nullptr; });
+        context->prop_->clear_callback_ = [&](TfEditCookie) {
+            QIQI_TEST_CHECK(document->Pop(TF_POPF_ALL) == S_OK);
+        };
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+        context->prop_->clear_callback_ = {};
+        QIQI_TEST_CHECK(context->prop_->clear_calls_ == 1 && composition->end_composition_calls_ == 0);
+        QIQI_TEST_CHECK(context->range_->text_ == L"a" && !context->layout_sink_);
+    }
+    {
+        const QiQiConfig saved_config = LoadConfig(g_dll_instance);
+        auto focus_config = saved_config;
+        focus_config.show_status_bar = true;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(focus_config));
+        const auto restore_config = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK(SaveConfigToRegistry(saved_config));
+        });
+        auto focus_service = MakeComObject<QiQiTextService>(g_dll_instance);
+        auto focus_manager = MakeComObject<MockTfThreadMgr>();
+        QIQI_TEST_CHECK(focus_service->Activate(focus_manager.Get(), 2) == S_OK);
+        const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(focus_service->Deactivate() == S_OK); });
+        for (const bool regain_focus : {false, true}) {
+            QIQI_TEST_CHECK(focus_service->OnSetFocus(TRUE) == S_OK);
+            const HWND status = FindThreadWindowByClass(kStatusBarWndClass);
+            QIQI_TEST_CHECK(status && ::IsWindowVisible(status));
+            auto document = MakeComObject<MockTfDocumentMgr>();
+            auto context = document->CreateTestContext();
+            QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+            BOOL eaten = FALSE;
+            QIQI_TEST_CHECK(focus_service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+            const auto composition = context->last_composition_;
+            document->events = focus_service.Get();
+            const auto disconnect = gsl::finally([&]() noexcept { document->events = nullptr; });
+            composition->get_range_callback_ = [&] {
+                if (regain_focus) {
+                    QIQI_TEST_CHECK(focus_service->OnSetFocus(TRUE) == S_OK);
+                } else {
+                    QIQI_TEST_CHECK(document->Pop(TF_POPF_ALL) == S_OK);
+                }
+            };
+            QIQI_TEST_CHECK(focus_service->OnSetFocus(FALSE) == S_OK);
+            composition->get_range_callback_ = {};
+            QIQI_TEST_CHECK((::IsWindowVisible(status) != FALSE) == regain_focus);
+            QIQI_TEST_CHECK(focus_service->OnSetFocus(FALSE) == S_OK && !::IsWindowVisible(status));
+        }
+        QIQI_TEST_CHECK(focus_service->OnSetFocus(TRUE) == S_OK);
+        const HWND status = FindThreadWindowByClass(kStatusBarWndClass);
+        QIQI_TEST_CHECK(status && ::IsWindowVisible(status));
+        auto document = MakeComObject<MockTfDocumentMgr>();
+        auto context = document->CreateTestContext();
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(focus_service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        document->get_top_callback = [&] { QIQI_TEST_CHECK(focus_service->OnSetFocus(FALSE) == S_OK); };
+        QIQI_TEST_CHECK(focus_service->OnSetFocus(document.Get(), document.Get()) == S_OK);
+        document->get_top_callback = {};
+        QIQI_TEST_CHECK(!::IsWindowVisible(status) && context->last_composition_->ended_ && !context->layout_sink_);
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 void TestQiQiTextServiceLifecycleAndKeyFlow() {
     constexpr const wchar_t* kTsfTestRegSubKey = L"Software\\QiQiIME_TsfUnitTest";
     ::RegDeleteTreeW(HKEY_CURRENT_USER, kTsfTestRegSubKey);
@@ -862,6 +1025,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         QIQI_TEST_CHECK(composition->end_composition_calls_ == 0 && context->prop_->clear_calls_ == 0);
     }
     QIQI_TEST_CHECK(g_com_object_count.load() == document_objects_before);
+    TestAdditionalContextLifecycleCoverage(gsl::not_null<QiQiTextService*>(service.Get()));
 
     // Deactivation preserves preedit text and ends only the captured host composition.
     {
@@ -1223,6 +1387,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"a");
 
     // Test Shift tap mode toggle while composing (cancels composition and switches to English)
+    QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
     // Auto-repeat VK_SHIFT while still within 350ms preserves shift_tap_candidate_
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 1LL << 30, &eaten)) && eaten == FALSE);
