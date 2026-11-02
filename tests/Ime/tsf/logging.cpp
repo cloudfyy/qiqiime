@@ -4,7 +4,7 @@
 #include "common/file_util.h"
 #include "common/logger.h"
 #include "common/scoped_handle.h"
-#include "tsf_mocks.h"
+#include "mocks.h"
 
 #include <evntrace.h>
 #include <tdh.h>

@@ -11,10 +11,11 @@ target_link_libraries(qiqi_engine_test PRIVATE qiqi_engine)
 add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
 
 set(QIQI_TSF_UI_TEST_SOURCES
-    tsf/tsf_mocks.h
-    tsf/tsf_com.cpp
-    tsf/tsf_logging.cpp
-    tsf/tsf_service.cpp
+    tsf/mocks.h
+    tsf/com.cpp
+    tsf/logging.cpp
+    tsf/service.cpp
+    tsf/service_lifecycle.cpp
     ui/ui_candidate.cpp
     ui/ui_langbar_menu.cpp
     ui/ui_statusbar.cpp
