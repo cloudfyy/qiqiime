@@ -1,6 +1,6 @@
-#include "tools/settings/window.h"
+#include "common/about_dialog.h"
 #include "common/d2d_controls.h"
-#include "tools/settings/util.h"
+#include "common/dialog_util.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
@@ -157,7 +157,7 @@ LRESULT CALLBACK AboutWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 } // namespace
 
-ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language) noexcept {
+ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language, bool use_embedded_icon) noexcept {
     if (!dialog_detail::RegisterDialogWindowClass(
             instance, kAboutWndClass, &AboutWndProc,
             CS_HREDRAW | CS_VREDRAW, nullptr, reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1))) {
@@ -180,8 +180,12 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
 
     ctx->body_font = CreateUiFont(S(14), FW_NORMAL);
     ctx->title_font = CreateUiFont(S(19), FW_BOLD);
-    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(S(16), instance);
-    ctx->icon = dialog_detail::LoadOrCreateBrandIcon(S(56), instance);
+    const auto load_icon = [&](int size) noexcept {
+        return use_embedded_icon ? LoadAppIconOrBrandFallback(instance, S(size), 1, true) :
+            dialog_detail::LoadOrCreateBrandIcon(S(size), instance);
+    };
+    ctx->icon_small = load_icon(16);
+    ctx->icon = load_icon(56);
     int license_height = S(94);
     for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
         const int measured = dialog_detail::MeasureDialogTextHeight(
@@ -197,10 +201,22 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     const auto& str = GetUiStrings(ui_language);
     constexpr DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
     constexpr DWORD wnd_ex_style = 0;
-    const RECT bounds = ComputeCenteredWindowBounds(
+    RECT bounds = ComputeCenteredWindowBounds(
         S(440), ctx->button_top + S(46), wnd_style, wnd_ex_style, mon.work_area);
     const int dlg_w = bounds.right - bounds.left;
     const int dlg_h = bounds.bottom - bounds.top;
+    if (parent) {
+        RECT parent_rect{};
+        if (!::GetWindowRect(parent, &parent_rect)) {
+            QIQI_LOG_ERROR("About dialog owner bounds unavailable (error={})", ::GetLastError());
+            return {};
+        }
+        const POINT position = ClampPointToWorkArea({
+            parent_rect.left + (parent_rect.right - parent_rect.left - dlg_w) / 2,
+            parent_rect.top + (parent_rect.bottom - parent_rect.top - dlg_h) / 2},
+            dlg_w, dlg_h, mon.work_area);
+        bounds = {position.x, position.y, position.x + dlg_w, position.y + dlg_h};
+    }
 
     const HFONT f = ctx->body_font.Get();
     ScopedWindow hwnd(::CreateWindowExW(
@@ -226,8 +242,8 @@ ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_la
     return hwnd;
 }
 
-bool ShowAboutDialog(HINSTANCE instance, HWND parent, UiLanguage ui_language) noexcept {
-    const ScopedWindow hwnd(CreateAboutWindow(instance, parent, ui_language));
+bool ShowAboutDialog(HINSTANCE instance, HWND parent, UiLanguage ui_language, bool use_embedded_icon) noexcept {
+    const ScopedWindow hwnd(CreateAboutWindow(instance, parent, ui_language, use_embedded_icon));
     const auto* ctx = reinterpret_cast<const AboutDialogContext*>(::GetWindowLongPtrW(hwnd.Get(), GWLP_USERDATA));
     return (hwnd && ctx) ? dialog_detail::RunModalDialogLoop(hwnd.Get(), ctx->done) : false;
 }

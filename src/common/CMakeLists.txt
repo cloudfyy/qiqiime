@@ -16,12 +16,15 @@ configure_file(
 )
 
 set(QIQI_COMMON_SOURCES
+    about_dialog.cpp
+    about_dialog.h
     com_object.h
     config.cpp
     config.h
     d2d_controls.cpp
     d2d_controls.h
     d2d_util.h
+    dialog_util.h
     etw_registration.h
     file_util.cpp
     file_util.h
@@ -55,4 +58,5 @@ target_link_libraries(qiqi_common PUBLIC
     comctl32
     d2d1
     dwrite
+    shell32
 )

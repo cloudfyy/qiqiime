@@ -1,7 +1,7 @@
 #include "common/test_support.h"
+#include "common/dialog_util.h"
 #include "common/guids.h"
 #include "common/i18n.h"
-#include "tools/settings/util.h"
 #include "tools/settings/internal.h"
 
 #include <limits>

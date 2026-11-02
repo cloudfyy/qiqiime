@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include "common/about_dialog.h"
 #include "common/config.h"
 #include "common/scoped_handle.h"
 
@@ -44,11 +45,5 @@ int ShowSettingsMessage(HWND parent, UiLanguage ui_language, SettingsMessageKind
 
 void ShowSettingsToast(UiLanguage ui_language, SettingsToastKind kind) noexcept;
 void UpdateSettingsToastLanguage(UiLanguage ui_language) noexcept;
-
-// Create a modeless About window (used by both ShowAboutDialog and unit tests).
-ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto) noexcept;
-
-// Show modal About dialog displaying IME name ("奇奇五笔"), icon, version, GitHub URL, and licenses.
-bool ShowAboutDialog(HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto) noexcept;
 
 } // namespace qiqi

@@ -1,5 +1,5 @@
 #include "tools/settings/internal.h"
-#include "tools/settings/util.h"
+#include "common/dialog_util.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"

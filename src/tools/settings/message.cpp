@@ -1,6 +1,6 @@
 #include "tools/settings/window.h"
-#include "tools/settings/util.h"
 #include "common/d2d_controls.h"
+#include "common/dialog_util.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/theme.h"

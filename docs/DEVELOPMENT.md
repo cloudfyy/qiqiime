@@ -49,9 +49,11 @@ qiqiime/
 │   ├── CMakeLists.txt          # 仅组织模块及公共版本资源依赖
 │   ├── common/                # 公共基础模块（qiqi_common 静态库）
 │   │   ├── CMakeLists.txt      # 公共模块构建与版本资源生成
+│   │   ├── about_dialog.h/.cpp # 共享关于窗口（供 IME、设置及日志监控复用）
 │   │   ├── config.h/.cpp       # 配置持久化
 │   │   ├── d2d_controls.h/.cpp # 可复用 Fluent D2D 控件
 │   │   ├── d2d_util.h          # D2D / DirectWrite RAII 封装
+│   │   ├── dialog_util.h       # 共享对话框辅助与模态消息循环
 │   │   ├── com_object.h        # COM 对象与 TSF Compartment RAII 封装
 │   │   ├── guids.h             # CLSID、Profile GUID、窗口类名常量
 │   │   ├── i18n.h              # 中英文及跟随系统的界面文案
@@ -65,15 +67,19 @@ qiqiime/
 │   │   └── ui/                 # 候选窗、托盘按钮、浮动状态条与快捷菜单
 │   └── tools/                 # 独立工具，每个工具拥有自己的子目录
 │       ├── CMakeLists.txt      # 组织各工具
-│       └── settings/
-│           ├── CMakeLists.txt  # qiqi_settings_ui 静态库及 QiQiIMESettings.exe
-│           ├── main.cpp # 独立设置程序入口
-│           ├── window.h/.cpp # 设置窗口创建与消息处理
-│           ├── controls.cpp # 控件布局、配置绑定、语言更新与卡片
-│           ├── internal.h       # 设置窗口内部上下文与控件 ID
-│           ├── about.cpp # 关于窗口
-│           ├── message.cpp # 复用 D2D 控件的隐私确认、保存失败与通知失败提示窗口
-│           └── util.h   # 共享图标及模态消息循环
+│       ├── settings/
+│       │   ├── CMakeLists.txt  # qiqi_settings_ui 静态库及 QiQiIMESettings.exe
+│       │   ├── main.cpp # 独立设置程序入口
+│       │   ├── window.h/.cpp # 设置窗口创建与消息处理
+│       │   ├── controls.cpp # 控件布局、配置绑定、语言更新与卡片
+│       │   ├── internal.h       # 设置窗口内部上下文与控件 ID
+│       │   └── message.cpp # 复用 D2D 控件的隐私确认、保存失败与通知失败提示窗口
+│       └── log_monitor/
+│           ├── CMakeLists.txt  # qiqi_log_monitor 静态库及 QiQiIMELogMonitor.exe
+│           ├── main.cpp        # 独立日志监控程序入口
+│           ├── model.h/.cpp    # 事件缓冲、筛选、复制与导出
+│           ├── collector.h/.cpp # ETW 会话与 TDH 解码
+│           └── window.h/.cpp   # 日志监控窗口与详情分隔条
 └── tests/
     ├── CMakeLists.txt          # 仅组织测试模块
     ├── common/

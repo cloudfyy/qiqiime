@@ -1,5 +1,6 @@
 #include "tools/log_monitor/window.h"
 #include "tools/log_monitor/collector.h"
+#include "common/about_dialog.h"
 #include "common/d2d_controls.h"
 #include "common/file_util.h"
 #include "common/i18n.h"
@@ -56,6 +57,8 @@ struct MonitorWindow::Impl {
     bool updating_rows = false;
     bool updating_display = false;
     int detail_height = 130; // Logical pixels.
+    int detail_limit = 400;
+    int splitter_drag_offset = 0;
 
     EventBuffer& Current() noexcept { return diagnostic_view ? tools : events; }
     const EventBuffer& Current() const noexcept { return diagnostic_view ? tools : events; }
@@ -107,6 +110,82 @@ struct MonitorWindow::Impl {
             return false;
         }
         return true;
+    }
+
+    void ResizeDetails(int height) noexcept {
+        detail_height = std::clamp(height, 60, detail_limit);
+        Layout();
+        ::InvalidateRect(Child(DetailsSplitter), nullptr, FALSE);
+    }
+
+    static LRESULT CALLBACK SplitterProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
+        UINT_PTR subclass, DWORD_PTR context) noexcept {
+        auto* self = reinterpret_cast<Impl*>(context);
+        switch (message) {
+        case WM_SETCURSOR:
+            ::SetCursor(::LoadCursorW(nullptr, IDC_SIZENS));
+            return TRUE;
+        case WM_LBUTTONDOWN:
+            ::SetFocus(window);
+            self->splitter_drag_offset = PointFromLParam(lparam).y;
+            ::SetCapture(window);
+            if (::GetCapture() != window) {
+                self->diagnostics.Record(2, L"Details splitter mouse capture failed");
+            }
+            ::InvalidateRect(window, nullptr, FALSE);
+            return 0;
+        case WM_MOUSEMOVE:
+            if (::GetCapture() == window) {
+                POINT point = PointFromLParam(lparam);
+                if (!::ClientToScreen(window, &point) || !::ScreenToClient(self->hwnd, &point)) {
+                    self->diagnostics.Record(2, L"Map details splitter mouse coordinates", ::GetLastError());
+                    return 0;
+                }
+                RECT rect{};
+                if (!::GetClientRect(self->hwnd, &rect)) {
+                    self->diagnostics.Record(2, L"Get details splitter layout bounds", ::GetLastError());
+                    return 0;
+                }
+                const int height = rect.bottom - self->theme.ScalePx(50) -
+                    (point.y - self->splitter_drag_offset);
+                self->ResizeDetails(::MulDiv(height, 96, gsl::narrow_cast<int>(self->theme.dpi)));
+            }
+            return 0;
+        case WM_LBUTTONUP:
+            if (::GetCapture() == window && !::ReleaseCapture()) {
+                self->diagnostics.Record(2, L"Release details splitter mouse capture", ::GetLastError());
+            }
+            return 0;
+        case WM_GETDLGCODE: return DLGC_WANTARROWS;
+        case WM_KEYDOWN:
+            switch (wparam) {
+            case VK_UP: self->ResizeDetails(self->detail_height + 10); return 0;
+            case VK_DOWN: self->ResizeDetails(self->detail_height - 10); return 0;
+            case VK_HOME: self->ResizeDetails(60); return 0;
+            case VK_END: self->ResizeDetails(self->detail_limit); return 0;
+            default: break;
+            }
+            break;
+        case WM_CAPTURECHANGED: case WM_SETFOCUS: case WM_KILLFOCUS:
+            ::InvalidateRect(window, nullptr, FALSE);
+            return 0;
+        case WM_PAINT:
+            return PaintWindowClient(window, [window, self](HDC dc, const RECT& rect) noexcept {
+                const HBRUSH background = IsHighContrastEnabled() ? ::GetSysColorBrush(COLOR_BTNFACE) :
+                    self->theme.surface_brush.Get();
+                ::FillRect(dc, &rect, background ? background : ::GetSysColorBrush(COLOR_BTNFACE));
+                RECT line = rect;
+                line.top = (rect.bottom - self->theme.ScalePx(2)) / 2;
+                line.bottom = line.top + self->theme.ScalePx(2);
+                ::FillRect(dc, &line, ::GetSysColorBrush(
+                    ::GetCapture() == window || ::GetFocus() == window ? COLOR_HIGHLIGHT : COLOR_3DSHADOW));
+            });
+        case WM_NCDESTROY:
+            ::RemoveWindowSubclass(window, SplitterProcedure, subclass);
+            break;
+        default: break;
+        }
+        return ::DefSubclassProc(window, message, wparam, lparam);
     }
 
     static LRESULT CALLBACK ListProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
@@ -186,8 +265,7 @@ struct MonitorWindow::Impl {
             !Add(L"BUTTON", Text(L"导出", L"Export"), button, Export) ||
             !Add(L"BUTTON", Text(L"工具诊断", L"Diagnostics"), button, Source) ||
             !Add(L"BUTTON", Text(L"关于", L"About"), button, About) ||
-            !Add(L"STATIC", Text(L"详情高度", L"Details"), SS_LEFT, DetailsSizeLabel) ||
-            !Add(TRACKBAR_CLASSW, L"", TBS_NOTICKS | WS_TABSTOP, DetailsSize) ||
+            !Add(L"STATIC", Text(L"调整详情区高度", L"Resize details pane"), SS_NOTIFY | WS_TABSTOP, DetailsSplitter) ||
             !Add(L"STATIC", Text(L"进程", L"Process"), SS_LEFT, ProcessLabel) ||
             !Add(L"STATIC", L"PID", SS_LEFT, PidLabel) ||
             !Add(L"STATIC", Text(L"级别", L"Level"), SS_LEFT, LevelLabel) ||
@@ -202,8 +280,10 @@ struct MonitorWindow::Impl {
                 WS_HSCROLL | WS_BORDER | WS_TABSTOP, Details) ||
             !Add(L"STATIC", L"", SS_LEFT, Status)) return false;
         ::SendMessageW(Child(Details), EM_SETLIMITTEXT, 1024 * 1024, 0);
-        ::SendMessageW(Child(DetailsSize), TBM_SETRANGE, TRUE, MAKELPARAM(60, 400));
-        ::SendMessageW(Child(DetailsSize), TBM_SETPOS, TRUE, detail_height);
+        if (!::SetWindowSubclass(Child(DetailsSplitter), SplitterProcedure, 1, reinterpret_cast<DWORD_PTR>(this))) {
+            Failure(L"SetWindowSubclass(details splitter)", ERROR_NOT_ENOUGH_MEMORY);
+            return false;
+        }
         if (!theme.d2d_target || !theme.fmt_btn) {
             diagnostics.Record(3, L"Direct2D/DirectWrite unavailable; using native button fallback", ERROR_NOT_SUPPORTED);
         }
@@ -238,13 +318,13 @@ struct MonitorWindow::Impl {
         return true;
     }
 
-    void Layout() {
+    void Layout() noexcept {
         if (!ready) return;
         RECT rect{};
         ::GetClientRect(hwnd, &rect);
-        const auto s = [this](int value) { return theme.ScalePx(value); };
+        const auto s = [this](int value) noexcept { return theme.ScalePx(value); };
         const int width = rect.right;
-        const auto move = [&](ControlId id, int x, int y, int w, int h) {
+        const auto move = [&](ControlId id, int x, int y, int w, int h) noexcept {
             ::MoveWindow(Child(id), x, y, std::max(1, w), std::max(1, h), TRUE);
         };
         constexpr std::array buttons{Start, Pause, Clear, Copy, Export, Source, About};
@@ -264,9 +344,6 @@ struct MonitorWindow::Impl {
             move(Language, s(92), filter_top, width - s(104), s(200));
             filter_top += s(38);
         }
-        move(DetailsSizeLabel, s(12), filter_top + s(4), s(90), s(24));
-        move(DetailsSize, s(110), filter_top, width - s(122), s(30));
-        filter_top += s(38);
         move(ProcessLabel, s(12), filter_top + s(4), s(55), s(24));
         move(Process, s(70), filter_top, s(170), s(28));
         move(PidLabel, s(254), filter_top + s(4), s(30), s(24));
@@ -282,9 +359,13 @@ struct MonitorWindow::Impl {
             move(Search, s(680), filter_top, width - s(692), s(28));
         }
         const int top = filter_top + s(42);
-        const int detail = std::min(s(detail_height), std::max(s(60), (gsl::narrow_cast<int>(rect.bottom) - top) / 2));
+        const int detail_limit_px = std::max(s(60), gsl::narrow_cast<int>(rect.bottom) - top - s(50) - s(60));
+        detail_limit = std::max(60, gsl::narrow_cast<int>(
+            gsl::narrow_cast<int64_t>(detail_limit_px) * 96 / theme.dpi));
+        const int detail = std::min(s(std::clamp(detail_height, 60, detail_limit)), detail_limit_px);
         const int list_bottom = rect.bottom - detail - s(50);
         move(List, s(12), top, width - s(24), list_bottom - top);
+        move(DetailsSplitter, s(12), list_bottom, width - s(24), s(8));
         move(Details, s(12), list_bottom + s(8), width - s(24), detail);
         move(Status, s(12), rect.bottom - s(30), width - s(24), s(24));
     }
@@ -295,7 +376,7 @@ struct MonitorWindow::Impl {
         const bool contrast = IsHighContrastEnabled();
         const bool dark = !contrast && IsSystemDarkTheme();
         ApplySystemThemeToMenuAndWindow(hwnd, dark);
-        for (const auto id : {List, Process, Pid, Search, Details, Language, Level, DetailsSize}) {
+        for (const auto id : {List, Process, Pid, Search, Details, Language, Level}) {
             const HRESULT result = ::SetWindowTheme(Child(id), contrast ? nullptr : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
             if (FAILED(result)) diagnostics.Record(3, L"SetWindowTheme(control)", gsl::narrow_cast<ULONG>(result));
         }
@@ -321,7 +402,8 @@ struct MonitorWindow::Impl {
             std::pair{Export, Text(L"导出", L"Export")},
             std::pair{About, Text(L"关于", L"About")}, std::pair{ProcessLabel, Text(L"进程", L"Process")},
             std::pair{LevelLabel, Text(L"级别", L"Level")}, std::pair{SearchLabel, Text(L"消息", L"Message")},
-            std::pair{DetailsSizeLabel, Text(L"详情高度", L"Details")}, std::pair{LanguageLabel, Text(L"语言", L"Language")},
+            std::pair{DetailsSplitter, Text(L"调整详情区高度", L"Resize details pane")},
+            std::pair{LanguageLabel, Text(L"语言", L"Language")},
             std::pair{Pause, paused ? Text(L"恢复滚动", L"Resume scroll") : Text(L"暂停滚动", L"Pause scroll")},
             std::pair{Source, diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics")}}) {
             ::SetWindowTextW(Child(id), text);
@@ -678,20 +760,9 @@ struct MonitorWindow::Impl {
             Refilter();
             break;
         case About: {
-            const auto text = std::format(L"{}\r\n{} ({})\r\n{}\r\n{}\r\n{}",
-                Text(L"奇奇日志监控", L"QiQiIME Log Monitor"), version::kFullVersionW, version::kArchW, version::kGitCommitW,
-                L"QiQiIME.TraceLogging -> ETW / TDH",
-                Text(L"应用侧关闭的日志无法恢复。Verbose 合并 Trace/Debug，Error 合并 Error/Critical。",
-                     L"Application-filtered events cannot be recovered. Verbose merges Trace/Debug; Error merges Error/Critical."));
-            MSGBOXPARAMSW params{};
-            params.cbSize = sizeof(params);
-            params.hwndOwner = hwnd;
-            params.hInstance = instance;
-            params.lpszText = text.c_str();
-            params.lpszCaption = Text(L"关于", L"About");
-            params.dwStyle = MB_OK | MB_USERICON;
-            params.lpszIcon = MAKEINTRESOURCEW(1);
-            ::MessageBoxIndirectW(&params);
+            if (!ShowAboutDialog(instance, hwnd, ui_language, true)) {
+                diagnostics.Record(2, L"About dialog creation or message loop did not complete");
+            }
             break;
         }
         case Process: case Pid: case Search:
@@ -728,12 +799,6 @@ struct MonitorWindow::Impl {
                     return 0;
                 }
                 break;
-            case WM_HSCROLL:
-                if (self->ready && reinterpret_cast<HWND>(lparam) == self->Child(DetailsSize)) {
-                    self->detail_height = gsl::narrow_cast<int>(::SendMessageW(self->Child(DetailsSize), TBM_GETPOS, 0, 0));
-                    self->Layout();
-                }
-                return 0;
             case WM_DRAWITEM:
                 if (lparam) {
                     const auto& item = *reinterpret_cast<DRAWITEMSTRUCT*>(lparam);
