@@ -144,6 +144,8 @@ private:
     void UpdateUiIndicators();
     void HandleLangBarMenuAction(LangBarMenuId action_id);
     void HandleFocusChanged(bool has_focus, FocusNotificationSource source);
+    void LogShiftTap(std::string_view stage, uint32_t vk, const ITfContext* context,
+                     bool eaten, std::string_view reason) const noexcept;
     bool PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts);
     void SyncSavedConfigChange(bool reload_dicts);
     void LoadExternalDictionaryNextToDll();
@@ -221,6 +223,7 @@ private:
     WubiEngine engine_;
     bool shift_tap_candidate_ = false;
     ULONGLONG shift_press_tick_ = 0;
+    uint64_t shift_log_sequence_ = 0;
 };
 
 // Global DLL instance and active COM object counter

@@ -296,6 +296,16 @@ TSF 的按键处理分为两步：
   - 自身诊断使用独立的 `QiQiIME.LogMonitor` Provider、有界视图与导出来源，不重发采集消息；状态区分别显示 ETW 丢失、本地淘汰、解码和内存异常。启动异常使用 RAII 回滚，停止失败保留自有会话供重试；同步等待 Provider 启用，避免晚启动采集丢失首条消息。
   - 桌面增强：独立 16–256 像素品牌窗口图标（去除与标题栏/关于框重复的客户区图标与说明文字）、系统深浅色/高对比度及变更通知、运行时中英/自动语言；不修改 IME 配置，不增加托盘通知。共享控件回退及工作区矩形帮助代码，支持跨屏 DPI、负坐标、普通窗口拔屏恢复和窄窗口布局。
   - x64/x86 的模型/GUI/版本/导出、实时多进程 ETW、Common、Settings、TSF/UI 及原有 ETW 回归通过，新增 ETW 测试未跳过；两个方向的跨架构采集与真实 GUI 收到事件、正常退出均验证通过。覆盖中文、内嵌 NUL、时间/级别、Provider 重注册、高频溢出、会话清理、主题/语言状态保留、深色表头像素及模拟显示器变化；真实双屏 150%→100% 移动另行通过。定向 CppCoreCheck 无新增监控器告警，详见[开发文档](DEVELOPMENT.md#513-实时日志监控工具任务-56)。完整真实高对比度、热插拔/最大化/最小化及浏览器/UWP 矩阵不据此宣称全面验证。
+- [ ] **57. 日志监控器默认级别与输入法输出级别脱节修复（`log-monitor-effective-level-sync`）**
+  - 问题现象：`QiQiIMELogMonitor` 界面默认 `Level` 显示为 `All`（且 ETW 会话启用了 `TRACE_LEVEL_VERBOSE`），但输入法侧 [`Log`](../src/common/logger.h) 被进程内 `g_log_level`（默认注册表 `LogLevel=2` 即 `Info`）提前拦截，导致用户在监控器看到 `Level = All` 却完全收不到 `Debug`/`Trace`（`Verbose`）级别日志。
+  - 修复目标：消除监控器界面显示的 `All`/`Verbose` 与输入法实际输出级别之间的脱节（例如在 ETW 会话按级别启用 Provider 时按会话请求级别放行，或由监控器联动/明确同步有效采集级别），使用户在监控器选择 `All`/`Verbose` 开始采集时无需手工修改注册表即可实时看到详细诊断日志。
+- [ ] **58. 修复英文模式下 Shift 无法切回中文及 Ctrl+Space Compartment 写入失败（`tsf-shift-toggle-and-compartment-sync`）**
+  - 问题现象：
+    1. 按 `Ctrl+Space` 触发外部 TSF Compartment 变更后，[`SyncEngineFromSystemCompartments`](../src/Ime/tsf/tip_config.cpp) 在 `OnChange` 回调栈中反调 [`SyncTsfCompartments`](../src/Ime/tsf/tip_config.cpp)，导致 `ITfCompartment::SetValue failed (hr=0x8000ffff)`（`E_UNEXPECTED`）。
+    2. 切换到英文模式（任务栏显示“英 奇”）后，将 `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` 设为 `0`（键盘关闭）会导致 Windows TSF 停止按开启状态向 `ITfKeyEventSink` 派发普通 `Shift` 按键（或需要通过 `TF_MOD_ON_KEYUP` 保留键 / 仅用 `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION` 表达中英转换模式而保持 `OPENCLOSE=1`），从而出现“按 Shift 一直没有反应/没有日志”。
+  - 修复目标：
+    1. 收到外部 `OnChange` 时避免在通知回调内对同一 Compartment 重复回写相同值，消除 `0x8000ffff` 警告。
+    2. 核实并修复 TSF 下中英文切换与 `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` / `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION` 及 `Shift` 按键监听的协同关系，确保在中文与英文模式下按 `Shift` 或 `Ctrl+Space` 均可双向稳定切换且任务栏状态同步。
 - [ ] **47. 真实宿主生命周期验证（`tsf-real-host-lifecycle-tests`）**
   - 在 VS Code 与浏览器中验证组合期间失焦、停用、重新激活后的组合文本、下划线及候选窗口清理。
   - 检查 UI 是否残留或被旧任务重新显示，记录可复现步骤、宿主条件和验证结果；配合单元测试，不以 Mock 代替真实显示验证。

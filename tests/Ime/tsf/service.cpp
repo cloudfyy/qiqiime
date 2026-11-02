@@ -23,6 +23,12 @@ void RunTsfServiceLifecycleTests(gsl::not_null<QiQiTextService*> service, gsl::n
 
 namespace {
 
+class DiagnosticLangBarSink final : public ComObjectBase<DiagnosticLangBarSink, ITfLangBarItemSink> {
+public:
+    STDMETHODIMP OnUpdate(DWORD) noexcept override { return result; }
+    HRESULT result = S_OK;
+};
+
 void TestFocusPerformanceLogs() {
     const auto executable = GetModuleFilePath(nullptr);
     QIQI_TEST_CHECK(!executable.empty());
@@ -39,6 +45,9 @@ void TestFocusPerformanceLogs() {
     std::vector<std::wstring> cleanup_records;
     std::vector<std::wstring> lifecycle_records;
     std::vector<std::wstring> preserved_key_records;
+    std::vector<std::wstring> shift_records;
+    std::vector<std::wstring> indicator_records;
+    bool checking_shift_filter = false;
     bool exited = false;
     while (!exited) {
         DEBUG_EVENT event{};
@@ -66,6 +75,14 @@ void TestFocusPerformanceLogs() {
                 message.assign(bytes.begin(), bytes.end());
             }
             QIQI_TEST_CHECK(!message.contains(L"SENSITIVE_DIAGNOSTIC_SENTINEL"));
+            if (message.contains(L"ShiftLogFilter(begin)")) checking_shift_filter = true;
+            if (message.contains(L"ShiftLogFilter(end)")) checking_shift_filter = false;
+            const bool shift_diagnostic = message.contains(L"ShiftTap(") || message.contains(L"ShiftTapContext(");
+            const bool indicator_diagnostic = message.contains(L"SyncTsfCompartments(") ||
+                                               message.contains(L"LangBarButton::");
+            if (checking_shift_filter) QIQI_TEST_CHECK(!shift_diagnostic && !indicator_diagnostic);
+            if (shift_diagnostic) shift_records.push_back(message);
+            if (indicator_diagnostic) indicator_records.push_back(message);
             if (message.contains(L"FocusPerformance(")) focus_records.push_back(message);
             if (message.contains(L"ReloadConfigIfModified(focus_id=")) reload_records.push_back(message);
             if (message.contains(L"TsfCleanup(")) cleanup_records.push_back(message);
@@ -219,6 +236,38 @@ void TestFocusPerformanceLogs() {
             std::format(L"UninitKeyEventSink::UnadviseKeyEventSink failed (hr=0x{:08x})",
                         gsl::narrow_cast<unsigned int>(E_FAIL)));
     }));
+    for (const auto* reason : {L"armed", L"accepted", L"toggle-complete", L"no-candidate", L"disabled",
+                              L"ctrl", L"alt", L"mouse-button", L"timeout", L"repeat-preserved",
+                              L"other-key-cancelled", L"context-reset-cancelled", L"inactive"}) {
+        QIQI_TEST_CHECK(std::any_of(shift_records.begin(), shift_records.end(), [&](const auto& record) {
+            return record.contains(std::format(L"reason={},", reason));
+        }));
+    }
+    for (const auto* key : {L"left", L"right", L"generic"}) {
+        QIQI_TEST_CHECK(std::any_of(shift_records.begin(), shift_records.end(), [&](const auto& record) {
+            return record.contains(std::format(L"key={},", key));
+        }));
+    }
+    QIQI_TEST_CHECK(std::any_of(shift_records.begin(), shift_records.end(), [](const auto& record) {
+        return record.contains(L"stage=OnTestKeyDown, key=generic, reason=armed") &&
+               record.contains(L"attempt=1,") && record.contains(L"eaten=false, candidate=true") &&
+               record.contains(L"max_ms=350, enabled=true, active=true");
+    }));
+    QIQI_TEST_CHECK(std::any_of(shift_records.begin(), shift_records.end(), [](const auto& record) {
+        return record.contains(L"stage=OnKeyDown,") && record.contains(L"reason=received,");
+    }));
+    for (const auto* expected : {L"compartment=openclose, value=0, hr=0x00000000",
+                                 L"compartment=conversion,", L"hr=0x80004005",
+                                 L"LangBarButton::UpdateState(chinese_before=",
+                                 L"LangBarButton::OnUpdate(chinese=false, hr=0x00000001)",
+                                 L"LangBarButton::OnUpdate(chinese=true, hr=0x80070005)",
+                                 L"LangBarButton::GetIcon(chinese=false, created=true)",
+                                 L"LangBarButton::GetText(chinese=false, hr=0x00000000)"}) {
+        QIQI_TEST_CHECK(std::any_of(indicator_records.begin(), indicator_records.end(), [&](const auto& record) {
+            return record.contains(expected);
+        }));
+    }
+    QIQI_TEST_CHECK(!checking_shift_filter);
 }
 
 void TestProcessDictCacheLifetime() {
@@ -1371,6 +1420,91 @@ void RunTsfFocusDiagnosticsScenario() {
     manager->preserve_key_callback_ = {};
     manager->unpreserve_key_callback_ = {};
     manager->unadvise_key_sink_result_ = S_OK;
+
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    auto shift_context = MakeComObject<MockTfContext>();
+    shift_context->range_->text_ = L"SENSITIVE_DIAGNOSTIC_SENTINEL";
+    ComPtr<ITfSource> button_source;
+    ComPtr<ITfLangBarItemButton> button;
+    QIQI_TEST_CHECK(manager->langbar_item_.As(&button_source) == S_OK);
+    QIQI_TEST_CHECK(manager->langbar_item_.As(&button) == S_OK);
+    auto indicator_sink = MakeComObject<DiagnosticLangBarSink>();
+    indicator_sink->result = S_FALSE;
+    DWORD cookie = 0;
+    QIQI_TEST_CHECK(button_source->AdviseSink(IID_ITfLangBarItemSink, indicator_sink.Get(), &cookie) == S_OK);
+    const auto release_shift = [&](UINT key, bool expected) {
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnTestKeyUp(shift_context.Get(), key, 0, &eaten) == S_OK &&
+                       (eaten != FALSE) == expected);
+        QIQI_TEST_CHECK(service->OnKeyUp(shift_context.Get(), key, 0, &eaten) == S_OK &&
+                       (eaten != FALSE) == expected);
+    };
+    const auto press_shift = [&](UINT key, LPARAM flags = 0) {
+        BOOL eaten = TRUE;
+        QIQI_TEST_CHECK(service->OnTestKeyDown(shift_context.Get(), key, flags, &eaten) == S_OK && !eaten);
+    };
+    press_shift(VK_SHIFT);
+    press_shift(VK_SHIFT, 1LL << 30);
+    release_shift(VK_SHIFT, true);
+    QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 0);
+    {
+        ScopedIcon icon;
+        ScopedBstr text;
+        QIQI_TEST_CHECK(button->GetIcon(icon.Put()) == S_OK && icon.IsValid());
+        QIQI_TEST_CHECK(button->GetText(text.Put()) == S_OK && std::wstring_view(text.Get()) == L"英");
+    }
+    indicator_sink->result = E_ACCESSDENIED;
+    manager->convmode_compartment_->fail_set_value_ = true;
+    press_shift(VK_LSHIFT);
+    release_shift(VK_LSHIFT, true);
+    QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 1);
+    manager->convmode_compartment_->fail_set_value_ = false;
+    indicator_sink->result = S_OK;
+    release_shift(VK_RSHIFT, false);
+
+    for (const int modifier : {VK_CONTROL, VK_MENU, VK_LBUTTON}) {
+        press_shift(VK_RSHIFT);
+        gsl::at(keyboard, modifier) = 0x80;
+        QIQI_TEST_CHECK(::SetKeyboardState(keyboard.data()));
+        release_shift(VK_RSHIFT, false);
+        press_shift(VK_RSHIFT);
+        release_shift(VK_RSHIFT, false);
+        gsl::at(keyboard, modifier) = 0;
+        QIQI_TEST_CHECK(::SetKeyboardState(keyboard.data()));
+        QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 1);
+    }
+    press_shift(VK_SHIFT);
+    ::Sleep(360);
+    release_shift(VK_SHIFT, false);
+    press_shift(VK_SHIFT);
+    BOOL eaten = FALSE;
+    QIQI_TEST_CHECK(service->OnTestKeyDown(shift_context.Get(), 'Z', 0, &eaten) == S_OK);
+    release_shift(VK_SHIFT, false);
+    QIQI_TEST_CHECK(service->OnKeyDown(shift_context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 1);
+
+    QIQI_LOG_INFO("ShiftLogFilter(begin)");
+    for (const auto level : {log::Level::info, log::Level::off}) {
+        log::SetLevel(level);
+        press_shift(VK_SHIFT);
+        release_shift(VK_SHIFT, true);
+    }
+    log::SetLevel(log::Level::debug);
+    QIQI_LOG_INFO("ShiftLogFilter(end)");
+    QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 1);
+    QIQI_TEST_CHECK(button_source->UnadviseSink(cookie) == S_OK);
+    press_shift(VK_SHIFT);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    press_shift(VK_SHIFT);
+    release_shift(VK_SHIFT, false);
+
+    config.shift_toggle_mode = false;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    auto disabled_service = MakeComObject<QiQiTextService>(g_dll_instance);
+    QIQI_TEST_CHECK(disabled_service->Activate(manager.Get(), 1) == S_OK);
+    QIQI_TEST_CHECK(disabled_service->OnTestKeyDown(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(disabled_service->OnTestKeyUp(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(disabled_service->Deactivate() == S_OK);
 }
 
 void RunTsfServiceTests() {

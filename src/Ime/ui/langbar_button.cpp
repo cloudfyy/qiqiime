@@ -196,11 +196,16 @@ STDMETHODIMP LangBarButton::GetIcon(HICON* phIcon) noexcept {
         QIQI_LOG_WARN("LangBarButton::GetIcon failed to create taskbar glyph icon");
         return E_FAIL;
     }
+    QIQI_LOG_DEBUG("LangBarButton::GetIcon(chinese={}, created=true)", state_.chinese_mode);
     return S_OK;
 }
 
 STDMETHODIMP LangBarButton::GetText(BSTR* pbstrText) noexcept {
-    return CopyToBstr(state_.chinese_mode ? L"中" : L"英", pbstrText);
+    const HRESULT hr = CopyToBstr(state_.chinese_mode ? L"中" : L"英", pbstrText);
+    QIQI_LOG_DEBUG("LangBarButton::GetText(chinese={}, hr=0x{:08x})",
+                   state_.chinese_mode, gsl::narrow_cast<unsigned int>(hr));
+    std::ignore = log::CheckHResult(hr, "LangBarButton::GetText");
+    return hr;
 }
 
 STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) {
@@ -219,6 +224,7 @@ STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCo
     }
     sink_cookie_ = kLangBarSinkCookie;
     *pdwCookie = sink_cookie_;
+    QIQI_LOG_DEBUG("LangBarButton::AdviseSink(connected=true)");
     return S_OK;
 }
 
@@ -228,14 +234,19 @@ STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) {
     }
     sink_.Reset();
     sink_cookie_ = 0;
+    QIQI_LOG_DEBUG("LangBarButton::UnadviseSink(connected=false)");
     return S_OK;
 }
 
 void LangBarButton::UpdateState(const LangBarState& state) {
+    QIQI_LOG_DEBUG("LangBarButton::UpdateState(chinese_before={}, chinese_after={}, sink={})",
+                   state_.chinese_mode, state.chinese_mode, sink_ != nullptr);
     state_ = state;
     if (sink_) {
-        std::ignore = log::CheckHResult(sink_->OnUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP),
-                                       "LangBarButton::OnUpdate");
+        const HRESULT hr = sink_->OnUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP);
+        std::ignore = log::CheckHResult(hr, "LangBarButton::OnUpdate");
+        QIQI_LOG_DEBUG("LangBarButton::OnUpdate(chinese={}, hr=0x{:08x})",
+                       state_.chinese_mode, gsl::narrow_cast<unsigned int>(hr));
     }
 }
 

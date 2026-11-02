@@ -100,6 +100,18 @@ QiQiIME 使用 Windows ETW TraceLogging，不会自动生成文本日志文件�
 
    再次重启被测应用。如已关闭该 PowerShell 窗口且无法确认原值，可明确设置为 `2`（默认 Info），但这不是恢复原配置。
 
+### Shift 切换无响应或图标不更新
+
+1. 使用包含诊断代码的新 DLL，按上方步骤将应用日志级别设为 **Debug（`LogLevel=1`）**，保存工作并完全退出、重启被测应用，避免仍加载旧 DLL。监控器的级别筛选选择全部或 Verbose；仅改变监控器筛选不能启用应用侧 Debug 日志。
+2. 开始采集，聚焦可编辑区域，分别轻按左、右 Shift 各数次，记录无效操作的大致时间；同时测试点击任务栏中英文图标。先不要仅筛选 `Input mode toggled`，以免遗漏失败链路。
+3. 导出这一时段的全部日志，按 PID/TID 和 `ShiftTap(service=…, attempt=…)` 关联同一服务内的操作。`attempt` 在每次非自动重复的 Shift 按下测试回调递增，不代表系统收到的所有物理按键。
+   - 正常链路为 `OnTestKeyDown / armed` → `OnTestKeyUp / accepted` → `OnKeyUp / accepted` → `toggle-complete`。Shift 按下测试不吞键，因此宿主未调用 `OnKeyDown` 本身不是故障。
+   - `disabled` 表示配置关闭 Shift 切换；`ctrl`、`alt`、`mouse-button` 表示组合操作；`timeout` 表示超过 **350 ms**；`repeat-timeout` / `repeat-mouse-button` 表示自动重复期间失效。
+   - `other-key-cancelled` 表示期间出现其他按键（不记录键值）；`context-reset-cancelled` 表示上下文清理取消候选；`inactive`、`resetting`、`preparing`、`keyboard-disabled` 或 `no-context` 说明相关入口状态。`no-candidate` 应结合前面的取消记录分析。
+   - `ShiftTapContext` 额外报告按下测试时的 `keyboard_disabled`，不改变现有 Shift 分支的行为。每条 `ShiftTap` 包含候选状态、按住时长、配置、上下文与修饰键布尔状态，不包含输入文字、普通按键值或完整键盘状态。
+4. 已出现 `toggle-complete` 但图标不变时，检查 `SyncTsfCompartments` 的服务/操作编号、组件是否存在、`openclose` / `conversion` 写入的真实 HRESULT，以及 `LangBarButton::UpdateState`、`OnUpdate`、`GetIcon` / `GetText`。`sink=false` 表示当时没有语言栏通知订阅；通知成功只说明 API 接受，不保证系统已经重绘。语言栏记录按 PID/TID 和相邻事件关联，不含服务编号。
+5. 确认新版、Debug 级别、采集及 PID 均正确后，若无效操作附近连 `OnTestKeyDown` 都没有，只能说明这些操作未被本服务的该回调记录，不能仅凭缺失日志断定 Windows 丢键。采集结束恢复原日志级别。
+
 ## 3. 实时查看：附加原生调试器
 
 适合开发时查看单个宿主的操作顺序与 HRESULT，不需要生成日志文件。

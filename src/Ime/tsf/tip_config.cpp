@@ -464,6 +464,10 @@ void QiQiTextService::UpdateUiIndicators() {
 }
 
 void QiQiTextService::SyncTsfCompartments() {
+    QIQI_LOG_DEBUG("SyncTsfCompartments(service={}, attempt={}, chinese={}, thread_mgr={}, client_valid={}, syncing={}, langbar={}, openclose={}, conversion={})",
+                   service_log_id_, shift_log_sequence_, engine_.IsChineseMode(), thread_mgr_ != nullptr,
+                   client_id_ != TF_CLIENTID_NULL, syncing_compartments_, langbar_btn_ != nullptr,
+                   static_cast<bool>(openclose_comp_), static_cast<bool>(convmode_comp_));
     UpdateUiIndicators();
 
     if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL || syncing_compartments_) {
@@ -475,7 +479,10 @@ void QiQiTextService::SyncTsfCompartments() {
     });
 
     if (openclose_comp_) {
-        openclose_comp_.WriteInt4(client_id_, engine_.IsChineseMode() ? 1 : 0);
+        const LONG value = engine_.IsChineseMode() ? 1 : 0;
+        const HRESULT hr = openclose_comp_.WriteInt4(client_id_, value);
+        QIQI_LOG_DEBUG("SyncTsfCompartments(service={}, attempt={}, compartment=openclose, value={}, hr=0x{:08x})",
+                       service_log_id_, shift_log_sequence_, value, gsl::narrow_cast<unsigned int>(hr));
     }
 
     LONG conv_mode = 0;
@@ -489,7 +496,9 @@ void QiQiTextService::SyncTsfCompartments() {
         conv_mode |= TF_CONVERSIONMODE_SYMBOL;
     }
     if (convmode_comp_) {
-        convmode_comp_.WriteInt4(client_id_, conv_mode);
+        const HRESULT hr = convmode_comp_.WriteInt4(client_id_, conv_mode);
+        QIQI_LOG_DEBUG("SyncTsfCompartments(service={}, attempt={}, compartment=conversion, value={}, hr=0x{:08x})",
+                       service_log_id_, shift_log_sequence_, conv_mode, gsl::narrow_cast<unsigned int>(hr));
     }
 }
 

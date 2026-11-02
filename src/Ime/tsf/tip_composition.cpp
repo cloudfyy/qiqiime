@@ -323,6 +323,9 @@ STDMETHODIMP QiQiTextService::OnLayoutChange(
 
 void QiQiTextService::ResetCompositionAndUI(bool try_host_cleanup) {
     if (!preparing_input_context_) {
+        if (shift_tap_candidate_) {
+            LogShiftTap("ResetCompositionAndUI", 0, active_context_.Get(), false, "context-reset-cancelled");
+        }
         shift_tap_candidate_ = false;
         shift_press_tick_ = 0;
     }
