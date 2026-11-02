@@ -1,7 +1,7 @@
 # TSF Composition Lifecycle, Deactivation Cleanup, and Diagnostics
 
 This document explains the invariants, ownership, reentrancy, and debugging workflow
-for tasks 43 and 44. The implementation lives in
+for tasks 43, 44, and 45. The implementation lives in
 [`tip_service.cpp`](../src/Ime/tsf/tip_service.cpp)、
 [`tip_composition.cpp`](../src/Ime/tsf/tip_composition.cpp), and
 [`tip_service.h`](../src/Ime/tsf/tip_service.h).
@@ -50,9 +50,10 @@ The cleanup callback captures only `cleanup`, not the service, thread manager, o
 | Cleanup state | Exact meaning |
 |---|---|
 | `started` | The cleanup edit callback has entered; host termination notifications do not set it |
-| `finished` | The edit callback has exited, or host termination has handled a task that had not started; **this does not mean attribute clearing or composition termination succeeded** |
+| `finished` | The edit callback has exited, host termination has handled a task that had not started, or context removal has invalidated cleanup; **this does not mean attribute clearing or composition termination succeeded** |
 | `terminated` | The host has reported termination of the old composition; do not call `EndComposition` again |
 | `async_requested` | An asynchronous request has been attempted, not necessarily accepted or executed |
+| `context_removed` | A Pop/uninitialization notification removed the captured context; skip further edits even if an old callback is later delivered |
 
 The service removes expired or finished weak references when adding or querying tasks. `tracked_cleanups` is only the number of entries in the weak-reference container at that moment. It may include finished or expired entries and is not a pending-request count.
 
@@ -61,7 +62,7 @@ The service removes expired or finished weak references when adding or querying 
 1. Set `deactivating_`, invalidate application activation state, and increment the activation epoch.
 2. Transfer the current composition into independent state, capturing the old context, range, and diagnostic IDs.
 3. Request `TF_ES_SYNC | TF_ES_READWRITE`. The callback clears the display attribute first, then calls `EndComposition` on the old composition.
-4. Request `TF_ES_ASYNC | TF_ES_READWRITE` on the same cleanup session **only if** the outer request succeeded, the session result is `TF_E_SYNCHRONOUS`, the callback has not started, and the host has not terminated the composition.
+4. Request `TF_ES_ASYNC | TF_ES_READWRITE` on the same cleanup session **only if** the outer request succeeded, the session result is `TF_E_SYNCHRONOUS`, the callback has not started, the host has not terminated the composition, and the captured context has not been removed.
 5. Without waiting for asynchronous completion, reset the local engine, context, candidate UI, subscriptions, and thread-manager reference.
 
 Requests have two result layers; inspect both:
@@ -131,6 +132,8 @@ Duplicate old notifications do not clear attributes again. The host notification
 - Reentrant `ActivateEx` during deactivation returns the actual `E_UNEXPECTED` and logs the failure. Normal activation is allowed only after the outer deactivation completes.
 - Attribute clearing and composition termination can both trigger COM reentrancy. Do not blindly operate on the service's current state after either call. Independent cleanup always uses old captured state.
 - RAII resets `deactivating_` and sets `finished` when the callback exits. Do not introduce message-pump waits, background threads, or host edit API calls without a valid write cookie.
+- Context reset and input binding have their own RAII guards. Reentrant input during either transition is not consumed, and activation during a lifecycle transition returns `E_UNEXPECTED`. A notification during document queries or layout-sink registration invalidates the outer attempt; it cannot bind a stale target or publish an orphaned subscription.
+- Focus UI processing also checks a per-service focus revision. A newer reentrant focus notification supersedes the older one. Context removal alone does not supersede focus loss, so removal during cleanup must not prevent the status bar from being hidden.
 
 ## 7. Log Protocol and Troubleshooting
 
@@ -153,6 +156,8 @@ Logs use the existing TraceLogging **`message` string**, not new ETW payload fie
 | `host-terminated`, `host-attribute-clear` | Early host termination, including duplicate-notification and callback-start state |
 | `skip-host-terminated`, `skip-end-after-host-termination` | Expected prevention of duplicate edits/termination, not cleanup failure |
 | `write-forced-async` | Which old cleanup caused a new write to require asynchronous scheduling |
+| `context-removed`, `skip-removed-context`, `skip-end-after-context-removal` | A removed context invalidated previously queued cleanup; no further attribute or termination calls are made after observing removal |
+| `skip-request-invalidated` | Range retrieval reentered termination/removal; do not submit a new edit-session request for the invalidated cleanup |
 | `released` | State snapshot at the start of destruction; not proof that all COM objects are destroyed or cleanup succeeded |
 
 For a recoverable synchronous rejection, filtering by the same IDs should show:
@@ -174,20 +179,85 @@ Other stages are omitted from this example. Actual logs retain full hexadecimal 
 4. **Expected new input is discarded:** inspect snapshot/current epochs, `active`, and `target_matches` in `stale-edit-skipped`. Look backward for the corresponding `context-reset` or deactivation.
 5. **No stage records at Info/Off:** this is normal filtering. Temporarily enable Debug and a receiver as described in the [logging guide](LOGGING.md), then restore configuration after capture.
 
-## 8. Validation and Remaining Boundaries
+## 8. Document and Context Notifications
+
+### 8.1 Context Is Still the Input Identity
+
+`active_context_` remains the input target. `active_document_` caches only that context's parent, obtained during input binding. It is not a document registry, focus history, or list of every document in the process. The cached parent makes uninitialization recognizable even when the context's `GetDocumentMgr` already fails after disconnection. Both references are released on reset/deactivation. Parent comparisons use COM `IUnknown` identity when interface pointers differ.
+
+`OnInitDocumentMgr` owns no document-wide resources and remains a no-op. Notifications do not proactively bind a new input target; the next actual key-down binds its context.
+
+### 8.2 Reconciling Focus and Stack Changes
+
+`ReconcileDocumentTarget` queries the incoming document's `GetTop` and `GetBase`:
+
+| Relationship | Action |
+|---|---|
+| Current context is the top | Retain the current composition and epoch |
+| Current context is the base, covered by a secondary/modal context | Retain the main composition; a modal push alone is not target invalidation |
+| Neither top nor base is current, or a stack query fails | Invalidate old application requests and reset the old target, attempting authorized host cleanup |
+| A query reenters deactivation/reset and changes the captured epoch | Return `false`; the outer focus notification must not continue with stale state |
+
+`OnPushContext` first checks the pushed context's parent. An unrelated document cannot reset current input. A related push uses the same reconciliation logic as focus changes. No Push/Pop is initiated from these callbacks, and no callback order beyond the API's guarantees is assumed.
+
+`OnPopContext` compares the removed context itself, not just its document. Popping an unrelated context or the modal context above the current main context does not reset current input. Removing the actual input context does. `OnUninitDocumentMgr` resets only when the cached parent matches. Repeated notifications are harmless after the active relationship has been cleared.
+
+Preserving the main composition on a modal notification is not a request to process keys for the modal UI. Existing requests still require a TSF-granted edit cookie and the epoch barrier. If an actual key-down arrives for a different context, it follows the explicit input-target transition described below.
+
+### 8.3 Reset Before Processing a New Target's Key
+
+Previously, `ApplyEngineResult` noticed context changes only after `engine_.ProcessKey` had already run. Consequently, Backspace in a fresh context could operate on the previous context's engine composition. Merely choosing a new COM range did not prevent that cross-target carryover.
+
+`PrepareInputContext` now runs before processing an actual key-down, and before contextual mode-toggle cancellation:
+
+1. Reject missing/inactive targets and reentrant transitions without consuming the key.
+2. When the target differs, reset the old engine and invalidate its epoch **before** interpreting the new key.
+3. Reuse the old-composition cleanup path, preserving its preedit text rather than deleting it.
+4. Capture the new parent document and attach the layout sink. Recheck epochs after reentrant COM calls, and remove a subscription published after an invalidating notification.
+5. Only then process the key and submit its result for the prepared context.
+
+`ApplyEngineResult` no longer switches targets after the fact. UI/configuration callbacks can submit results only for an already prepared current context. Backspace in a fresh context is therefore passed through when its engine has no composition, instead of creating text derived from the previous context.
+
+The shared reset path also fixes a second gap in task 43: context switching and focus loss previously released the local composition reference without explicitly ending the host composition. Connected-target resets now use `ScheduleCompositionCleanup`, the same synchronous attempt and controlled asynchronous recovery used by deactivation. If focus returns to the same context before old cleanup executes, `HasPendingCompositionCleanup` still forces the new write behind it.
+
+### 8.4 Removal Is Not a New Write Opportunity
+
+Pop and document-uninitialization handling use `ResetCompositionAndUI(false)`. They invalidate callbacks, release local context/document/composition references, detach subscriptions, and end candidate UI **without requesting a new edit session**. Removal does not prove that editing access remains available. Any remaining host termination belongs to TSF/the host; local release is not logged as successful `EndComposition`.
+
+Removal also marks matching independent cleanup states with `context_removed` and `finished`. A cleanup request accepted before removal may still be delivered by a scheduler; it logs `skip-removed-context` rather than clearing attributes or ending the old composition. Removal during attribute clearing prevents the subsequent `EndComposition` call. Old host termination notifications must not clear a newly bound composition.
+
+### 8.5 Additional Diagnostic Fields
+
+All records retain the existing service/cleanup correlation scheme:
+
+- `document-target`: `source=focus|push`, `retained`, and `covered_by_modal` explain why the current target was retained or reset.
+- `document-uninit`: `related` says whether the cached parent matched.
+- `context-push`: `related` distinguishes current-document stack changes from unrelated notifications.
+- `context-pop`: `current` identifies removal of the actual input target.
+- `context-reset`: `try_host_cleanup=false` identifies the removal path; `cleanup-skipped-removed-context` explicitly reports local release without claiming host termination.
+- `input-document-unavailable` preserves the actual parent-query HRESULT. Editing is not assumed to succeed: the subsequent edit-session request still determines access, while no parent relationship is fabricated.
+
+## 9. Validation and Remaining Boundaries
 
 [`tsf_service.cpp`](../tests/Ime/tsf/tsf_service.cpp) covers deferred mock scheduling, failure injection, reentrancy, host termination, reactivation isolation, and COM reference release. Real Windows TSF private-document tests trigger synchronous rejection inside a layout notification, then use a bounded message pump to verify asynchronous completion. They check preserved text, composition enumeration, both property types, and isolation of the new composition, without changing user focus or activating the system TIP.
 
 An owned debug child process captures actual `OutputDebugString` messages. Assertions cover ID correlation, synchronous callback entry before request return, asynchronous queue acceptance before execution, forced asynchronous writes, skipping after early host termination, request rejection, no retry for read-only access, queued-request abandonment, accurate callback-exit reporting despite API failures, stale application requests, and Info/Off filtering. Synthetic text includes a marker that must never appear in output. These tests add no production sink, use no `Sleep`, and do not replace debugger-free ETW integration tests against the real DLL.
 
+Task 45 adds scoped document mocks with a weak context-to-parent link, preserving ownership without a mock document/context cycle. Tests verify focus changes, unchanged/modal targets, unrelated Pop/uninitialization, disconnection before notification, query failure, query reentrancy, old layout/write callbacks, A-to-B-to-A asynchronous cleanup ordering, removal of a context whose cleanup is already queued, and COM object-count recovery. Existing tests that passed a fabricated `ITfDocumentMgr*` are replaced with actual mock document objects.
+
+Real private TSF documents also forward actual Push/Pop/uninitialization notifications into the service through an owned, scoped event-sink connection. Assertions cover preservation of the main composition across modal Push/Pop, old host cleanup on a non-null document switch, fresh composition contents in the second document, and UI termination on full context removal. The test does not call native `SetFocus`, activate the system TIP, or assume a fixed notification order. Captured debug-child logs additionally assert modal-retention and non-current-pop fields.
+
 See the [development guide](DEVELOPMENT.md) for targeted test commands; validate both architectures. Browser/UWP host compatibility is not certified, and successful host cleanup is not guaranteed for read-only, disconnected, or rejected requests.
 
-Task 45 still covers document uninitialization, focus changes between non-null documents, and context Push/Pop. Window destruction under task 41 is also separate pending work. This document does not claim that the entire document/window lifecycle is complete.
+Window destruction under task 41, the broader regression matrix under task 46, and real browser/UWP host validation under task 47 remain separate work. This document does not claim that the entire document/window lifecycle is complete.
 
-## 9. Official References
+## 10. Official References
 
 - [ITfContext::RequestEditSession](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcontext-requesteditsession): synchronous/asynchronous flags, locks, and two-layer results.
 - [ITfComposition::EndComposition](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcomposition-endcomposition): write cookies and composition termination.
 - [ITfTextInputProcessor::Deactivate](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itftextinputprocessor-deactivate): deactivation and thread-manager reference release.
 - [ITfCompositionSink::OnCompositionTerminated](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcompositionsink-oncompositionterminated): host termination notifications.
 - [ITfContextOwnerServices::OnLayoutChange](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcontextownerservices-onlayoutchange): the layout notification entry point used by real-document tests.
+- [ITfDocumentMgr::Push](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-push): primary/modal contexts, the two-context limit, and notification semantics.
+- [ITfDocumentMgr::Pop](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-pop): removal, uninitialization, same-thread requirements, and reentrancy restrictions.
+- [ITfThreadMgrEventSink::OnSetFocus](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfthreadmgreventsink-onsetfocus): focused and previously focused documents.

@@ -38,8 +38,8 @@ bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
 } // namespace
 
 QiQiTextService::CompositionCleanup::~CompositionCleanup() noexcept {
-    QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=released, async_requested={}, started={}, finished={}, terminated={})",
-                   service_id, id, async_requested, started, finished, terminated);
+    QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=released, async_requested={}, started={}, finished={}, terminated={}, context_removed={})",
+                   service_id, id, async_requested, started, finished, terminated, context_removed);
 }
 
 void QiQiTextService::CompositionCleanup::LogResult(std::string_view stage, HRESULT hr) const noexcept {
@@ -64,6 +64,7 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfC
                 return S_OK;
             }
             cleanup->terminated = true;
+            if (cleanup->context_removed) return S_OK;
             if (!cleanup->started && cleanup->range) {
                 const HRESULT clear_hr = ClearCompositionDisplayAttributeInSession(
                     ecWrite, gsl::not_null<ITfContext*>(cleanup->context.Get()),
@@ -104,7 +105,7 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfC
     return S_OK;
 }
 
-void QiQiTextService::EndCompositionOnDeactivate() {
+void QiQiTextService::ScheduleCompositionCleanup() {
     if (!composition_) {
         QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=cleanup-not-needed, activation={}, context={})",
                        service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context);
@@ -130,6 +131,11 @@ void QiQiTextService::EndCompositionOnDeactivate() {
         QIQI_LOG_WARN("DeactivateComposition::GetRange returned no range (hr=0x{:08x})",
                        gsl::narrow_cast<unsigned int>(range_hr));
     }
+    if (cleanup->context_removed || cleanup->terminated) {
+        QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=skip-request-invalidated, terminated={}, context_removed={})",
+                       cleanup->service_id, cleanup->id, cleanup->terminated, cleanup->context_removed);
+        return;
+    }
     const auto session = MakeComObject<LambdaEditSession>(
         [cleanup](TfEditCookie ec) -> HRESULT {
             cleanup->started = true;
@@ -140,6 +146,11 @@ void QiQiTextService::EndCompositionOnDeactivate() {
                 QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=callback-exit, terminated={})",
                                cleanup->service_id, cleanup->id, cleanup->terminated);
             });
+            if (cleanup->context_removed) {
+                QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=skip-removed-context)",
+                               cleanup->service_id, cleanup->id);
+                return S_OK;
+            }
             if (cleanup->terminated) {
                 QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=skip-host-terminated)",
                                cleanup->service_id, cleanup->id);
@@ -151,9 +162,10 @@ void QiQiTextService::EndCompositionOnDeactivate() {
                     gsl::not_null<ITfRange*>(cleanup->range.Get()));
                 cleanup->LogResult("attribute-clear", clear_hr);
             }
-            if (cleanup->terminated) {
-                QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=skip-end-after-host-termination)",
-                               cleanup->service_id, cleanup->id);
+            if (cleanup->terminated || cleanup->context_removed) {
+                QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage={})",
+                               cleanup->service_id, cleanup->id,
+                               cleanup->context_removed ? "skip-end-after-context-removal" : "skip-end-after-host-termination");
                 return S_OK;
             }
             const HRESULT hr = cleanup->composition->EndComposition(ec);
@@ -169,7 +181,8 @@ void QiQiTextService::EndCompositionOnDeactivate() {
     QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=sync-result, request_hr=0x{:08x}, session_hr=0x{:08x}, started={}, terminated={})",
                    cleanup->service_id, cleanup->id, gsl::narrow_cast<unsigned int>(request_hr),
                    gsl::narrow_cast<unsigned int>(session_hr), cleanup->started, cleanup->terminated);
-    if (SUCCEEDED(request_hr) && session_hr == TF_E_SYNCHRONOUS && !cleanup->started && !cleanup->terminated) {
+    if (SUCCEEDED(request_hr) && session_hr == TF_E_SYNCHRONOUS &&
+        !cleanup->started && !cleanup->terminated && !cleanup->context_removed) {
         QIQI_LOG_DEBUG("DeactivateComposition: synchronous access refused; requesting asynchronous cleanup (hr=0x{:08x})",
                        gsl::narrow_cast<unsigned int>(session_hr));
         session_hr = E_FAIL;
@@ -213,6 +226,18 @@ bool QiQiTextService::HasPendingCompositionCleanup(const ITfContext* context) {
     return false;
 }
 
+void QiQiTextService::MarkCompositionContextRemoved(const ITfContext* context) noexcept {
+    for (const auto& pending : composition_cleanups_) {
+        const auto cleanup = pending.lock();
+        if (cleanup && cleanup->context.Get() == context) {
+            cleanup->context_removed = true;
+            cleanup->finished = true;
+            QIQI_LOG_DEBUG("TsfCleanup(service={}, cleanup={}, stage=context-removed, started={})",
+                           cleanup->service_id, cleanup->id, cleanup->started);
+        }
+    }
+}
+
 // ITfTextLayoutSink: called when an async host (Chromium/VS Code/WPF/Word) updates its text layout
 STDMETHODIMP QiQiTextService::OnLayoutChange(
     ITfContext* pic, TfLayoutCode lcode, ITfContextView* /*pView*/) {
@@ -242,20 +267,29 @@ STDMETHODIMP QiQiTextService::OnLayoutChange(
     return S_OK;
 }
 
-void QiQiTextService::ResetCompositionAndUI() {
+void QiQiTextService::ResetCompositionAndUI(bool try_host_cleanup) {
     shift_tap_candidate_ = false;
     shift_press_tick_ = 0;
     engine_.Reset();
-    ResetContextAndUI();
+    ResetContextAndUI(try_host_cleanup);
 }
 
-void QiQiTextService::ResetContextAndUI() {
-    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=context-reset, activation={}, context_before={}, context_after={}, has_context={}, has_composition={})",
+void QiQiTextService::ResetContextAndUI(bool try_host_cleanup) {
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=context-reset, activation={}, context_before={}, context_after={}, has_context={}, has_composition={}, try_host_cleanup={})",
                    service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context,
-                   edit_session_epoch_.context + 1, active_context_ != nullptr, composition_ != nullptr);
+                   edit_session_epoch_.context + 1, active_context_ != nullptr, composition_ != nullptr, try_host_cleanup);
     // Invalidate before COM cleanup can deliver reentrant callbacks.
     ++edit_session_epoch_.context;
+    if (resetting_context_) return;
+    resetting_context_ = true;
+    const auto finish_reset = gsl::finally([this]() noexcept { resetting_context_ = false; });
+    if (try_host_cleanup) {
+        ScheduleCompositionCleanup();
+    } else if (composition_) {
+        QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=cleanup-skipped-removed-context)", service_log_id_);
+    }
     active_context_.Reset();
+    active_document_.Reset();
     has_valid_caret_pos_ = false;
     composition_.Reset();
     text_layout_sink_.Reset();
@@ -263,7 +297,7 @@ void QiQiTextService::ResetContextAndUI() {
 }
 
 bool QiQiTextService::IsEditSessionCurrent(EditSessionEpoch epoch, const ITfContext* context) const noexcept {
-    if (is_active_ && epoch.activation == edit_session_epoch_.activation &&
+    if (is_active_ && !resetting_context_ && epoch.activation == edit_session_epoch_.activation &&
         epoch.context == edit_session_epoch_.context && context == active_context_.Get()) {
         return true;
     }
@@ -273,30 +307,46 @@ bool QiQiTextService::IsEditSessionCurrent(EditSessionEpoch epoch, const ITfCont
     return false;
 }
 
-void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessResult& result) {
-    if (!context) {
-        return;
+bool QiQiTextService::PrepareInputContext(ITfContext* context) {
+    if (!context || !is_active_ || resetting_context_ || preparing_input_context_) {
+        QIQI_LOG_TRACE("TsfLifecycle(service={}, stage=input-target-unavailable)", service_log_id_);
+        return false;
     }
-    if (!is_active_) {
-        QIQI_LOG_DEBUG("ApplyEngineResult: ignoring edit request while service is inactive");
+    if (active_context_.Get() == context) return true;
+    preparing_input_context_ = true;
+    const auto finish_prepare = gsl::finally([this]() noexcept { preparing_input_context_ = false; });
+    ComPtr<ITfContext> ctx_holder(context);
+    auto epoch = edit_session_epoch_;
+    ++epoch.context;
+    ResetCompositionAndUI();
+    if (!IsEditSessionCurrent(epoch, nullptr)) return false;
+    ComPtr<ITfDocumentMgr> document;
+    const HRESULT document_hr = context->GetDocumentMgr(&document);
+    if (!log::CheckHResult(document_hr, "PrepareInputContext::GetDocumentMgr") || !document) {
+        QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=input-document-unavailable, hr=0x{:08x})",
+                       service_log_id_, gsl::narrow_cast<unsigned int>(document_hr));
+    }
+    if (!IsEditSessionCurrent(epoch, nullptr)) return false;
+    active_context_ = ctx_holder;
+    active_document_ = std::move(document);
+    ITfTextLayoutSink* sink = this;
+    text_layout_sink_.Advise(active_context_.Get(), IID_ITfTextLayoutSink, sink);
+    if (!IsEditSessionCurrent(epoch, context)) {
+        // A notification during AdviseSink may have invalidated the target before the cookie was published.
+        text_layout_sink_.Reset();
+        return false;
+    }
+    return true;
+}
+
+void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessResult& result) {
+    if (!context || !is_active_ || resetting_context_ || preparing_input_context_ ||
+        context != active_context_.Get()) {
+        QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=unprepared-edit-skipped)", service_log_id_);
         return;
     }
     ComPtr<ITfContext> ctx_holder(context);
-    auto epoch = edit_session_epoch_;
-    if (active_context_.Get() != context) {
-        ++epoch.context;
-        ResetContextAndUI();
-        if (!IsEditSessionCurrent(epoch, nullptr)) {
-            return;
-        }
-        active_context_ = ctx_holder;
-        ITfTextLayoutSink* sink = this;
-        text_layout_sink_.Advise(active_context_.Get(), IID_ITfTextLayoutSink, sink);
-    }
-
-    if (!IsEditSessionCurrent(epoch, context)) {
-        return;
-    }
+    const auto epoch = edit_session_epoch_;
     ComPtr<QiQiTextService> self_holder(this);
 
     const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(

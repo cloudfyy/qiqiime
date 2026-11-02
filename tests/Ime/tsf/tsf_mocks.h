@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 #include "common/com_object.h"
 #include "common/guids.h"
 #include "common/logger.h"
@@ -108,6 +109,7 @@ public:
     }
     STDMETHODIMP GetRange(ITfRange** ppRange) override {
         if (!ppRange || fail_get_range_) return E_FAIL;
+        if (get_range_callback_) get_range_callback_();
         *ppRange = range_.Get();
         (*ppRange)->AddRef();
         return S_OK;
@@ -136,6 +138,7 @@ public:
     TfEditCookie last_end_cookie_ = 0;
     HRESULT end_result_ = S_OK;
     std::function<void(TfEditCookie)> end_callback_;
+    std::function<void()> get_range_callback_;
 private:
     ComPtr<ITfCompositionSink> sink_;
     ULONG ref_ = 1;
@@ -355,6 +358,10 @@ private:
     std::deque<Request> requests_;
 };
 
+struct MockDocumentLink {
+    ITfDocumentMgr* document = nullptr;
+};
+
 // Minimal mock ITfContext + ITfInsertAtSelection + ITfContextComposition + ITfSource + ITfCompartmentMgr
 class MockTfContext final
     : public ITfContext,
@@ -482,7 +489,15 @@ public:
     STDMETHODIMP GetAppProperty(REFGUID, ITfReadOnlyProperty**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP TrackProperties(const GUID**, ULONG, const GUID**, ULONG, ITfReadOnlyProperty**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP EnumProperties(IEnumTfProperties**) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP GetDocumentMgr(ITfDocumentMgr**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetDocumentMgr(ITfDocumentMgr** document) override {
+        if (!document) return E_INVALIDARG;
+        *document = nullptr;
+        const auto link = document_link_.lock();
+        if (!link || !link->document) return TF_E_DISCONNECTED;
+        *document = link->document;
+        (*document)->AddRef();
+        return S_OK;
+    }
     STDMETHODIMP CreateRangeBackup(TfEditCookie, ITfRange*, ITfRangeBackup**) noexcept override { return E_NOTIMPL; }
 
     // ITfInsertAtSelection
@@ -560,6 +575,7 @@ public:
     unsigned int request_edit_session_calls_ = 0;
     DWORD last_edit_session_flags_ = 0;
     bool in_immediate_write_session_ = false;
+    std::weak_ptr<MockDocumentLink> document_link_;
     HRESULT get_property_result_ = S_OK;
     HRESULT async_edit_session_result_ = S_OK;
     unsigned int get_active_view_calls_ = 0;
@@ -585,6 +601,94 @@ private:
 };
 
 // Minimal mock ITfThreadMgr + ITfSource + ITfSourceSingle + ITfKeystrokeMgr + ITfUIElementMgr + ITfCompartmentMgr + ITfLangBarItemMgr
+class MockTfDocumentMgr final : public ComObjectBase<MockTfDocumentMgr, ITfDocumentMgr> {
+public:
+    // The weak parent link is allocated and can fail with std::bad_alloc.
+#pragma warning(suppress : 26455)
+    MockTfDocumentMgr() : link_(std::make_shared<MockDocumentLink>()) { link_->document = this; }
+
+    ComPtr<MockTfContext> CreateTestContext(const std::shared_ptr<MockEditSessionQueue>& queue = {}) {
+        auto context = MakeComObject<MockTfContext>(queue);
+        context->document_link_ = link_;
+        return context;
+    }
+
+    STDMETHODIMP CreateContext(TfClientId, DWORD, IUnknown*, ITfContext** context, TfEditCookie* cookie) override {
+        if (!context || !cookie) return E_INVALIDARG;
+        *context = CreateTestContext().Detach();
+        *cookie = 1;
+        return S_OK;
+    }
+    STDMETHODIMP Push(ITfContext* context) override {
+        if (!context) return E_INVALIDARG;
+        if (popping_) return E_UNEXPECTED;
+        if (stack_.size() == 2) return TF_E_STACKFULL;
+        ComPtr<ITfDocumentMgr> owner;
+        const HRESULT hr = context->GetDocumentMgr(&owner);
+        if (FAILED(hr)) return hr;
+        if (owner.Get() != this) return E_INVALIDARG;
+        stack_.emplace_back(context);
+        if (events && stack_.size() == 1) {
+            const HRESULT init_hr = events->OnInitDocumentMgr(this);
+            if (FAILED(init_hr)) return init_hr;
+        }
+        return events ? events->OnPushContext(context) : S_OK;
+    }
+    STDMETHODIMP Pop(DWORD flags) override {
+        if (flags != 0 && flags != TF_POPF_ALL) return E_INVALIDARG;
+        if (popping_) return E_UNEXPECTED;
+        if (stack_.empty() || (flags == 0 && stack_.size() == 1)) return E_FAIL;
+        popping_ = true;
+        const auto finish = gsl::finally([this]() noexcept { popping_ = false; });
+        const size_t count = flags == TF_POPF_ALL ? stack_.size() : 1;
+        for (size_t i = 0; i < count; ++i) {
+            const auto context = std::move(stack_.back());
+            stack_.pop_back();
+            if (events) {
+                const HRESULT hr = events->OnPopContext(context.Get());
+                if (FAILED(hr)) return hr;
+            }
+        }
+        return events && stack_.empty() ? events->OnUninitDocumentMgr(this) : S_OK;
+    }
+    STDMETHODIMP GetTop(ITfContext** context) override {
+        if (!context) return E_INVALIDARG;
+        *context = nullptr;
+        if (FAILED(get_top_result)) return get_top_result;
+        if (get_top_callback) get_top_callback();
+        if (!stack_.empty()) {
+            *context = stack_.back().Get();
+            (*context)->AddRef();
+        }
+        return S_OK;
+    }
+    STDMETHODIMP GetBase(ITfContext** context) override {
+        if (!context) return E_INVALIDARG;
+        *context = nullptr;
+        if (FAILED(get_base_result)) return get_base_result;
+        if (!stack_.empty()) {
+            *context = stack_.front().Get();
+            (*context)->AddRef();
+        }
+        return S_OK;
+    }
+    STDMETHODIMP EnumContexts(IEnumTfContexts** contexts) noexcept override {
+        if (contexts) *contexts = nullptr;
+        return E_NOTIMPL;
+    }
+
+    // Non-owning observer: tests keep the sink alive and disconnect it before teardown.
+    ITfThreadMgrEventSink* events = nullptr;
+    HRESULT get_top_result = S_OK;
+    HRESULT get_base_result = S_OK;
+    std::function<void()> get_top_callback;
+
+private:
+    const std::shared_ptr<MockDocumentLink> link_;
+    std::vector<ComPtr<ITfContext>> stack_;
+    bool popping_ = false;
+};
+
 class MockTfThreadMgr final
     : public ITfThreadMgr,
       public ITfSource,

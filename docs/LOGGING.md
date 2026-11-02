@@ -191,7 +191,7 @@ ETW 采集不需要 PDB 才能显示这些自描述消息；调试调用栈或�
 
 双架构测试通过自有调试子进程捕获实际日志，覆盖上述变化组合、两类来源、相同/变化的位置、获得/失去焦点及 Info/Off 过滤；这不替代真实宿主测量。本项仅提供观测，不增加耗时阈值、不合并重载、不改变 TSF/UI 的线程或生命周期策略。
 
-### 6.2 组合生命周期与停用清理（任务 43、44）
+### 6.2 组合生命周期与停用清理（任务 43、44、45）
 
 复用第 2–5 节的采集步骤，应用设为 Debug（`LogLevel=1`）或 Trace，ETW 会话允许 Verbose；筛选 `TsfLifecycle(` 和 `TsfCleanup(`。这些是现有 `message` 字符串中的字段，不是新增 ETW 负载。
 
@@ -202,6 +202,8 @@ ETW 采集不需要 PDB 才能显示这些自描述消息；调试调用栈或�
 - 不记录输入文本、按键、候选、范围内容或裸 COM 地址。详细记录受 Info/Off 正常过滤，没有接收方时不格式化。
 
 字段表、预期日志顺序、只排队不执行及“组合已结束但属性残留”等故障的判读，见[组合生命周期设计与排障](TSF_COMPOSITION_LIFECYCLE.md#7-log-protocol-and-troubleshooting)。不要只凭单条成功状态判断宿主组合已结束。
+
+任务 45 增加 `document-target`（`source`、`retained`、`covered_by_modal`）、`document-uninit`（`related`）、`context-push`（`related`）及 `context-pop`（`current`）。`context-reset` 的 `try_host_cleanup=false` 表示目标移除后的本地清理，不代表调用了 `EndComposition`；排队清理收到 `context-removed` 后应跳过，记录 `skip-removed-context` 或 `skip-end-after-context-removal`。字段含义和重入边界见[文档与上下文通知](TSF_COMPOSITION_LIFECYCLE.md#8-document-and-context-notifications)。
 
 ## 7. 无日志与共享日志的检查清单
 

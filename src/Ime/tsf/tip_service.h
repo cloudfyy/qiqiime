@@ -60,10 +60,10 @@ public:
 
     // ITfThreadMgrEventSink
     STDMETHODIMP OnInitDocumentMgr(ITfDocumentMgr* pdim) noexcept override;
-    STDMETHODIMP OnUninitDocumentMgr(ITfDocumentMgr* pdim) noexcept override;
+    STDMETHODIMP OnUninitDocumentMgr(ITfDocumentMgr* pdim) override;
     STDMETHODIMP OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* pdimPrevFocus) override;
-    STDMETHODIMP OnPushContext(ITfContext* pic) noexcept override;
-    STDMETHODIMP OnPopContext(ITfContext* pic) noexcept override;
+    STDMETHODIMP OnPushContext(ITfContext* pic) override;
+    STDMETHODIMP OnPopContext(ITfContext* pic) override;
 
     // ITfKeyEventSink
     STDMETHODIMP OnSetFocus(BOOL fForeground) override;
@@ -118,6 +118,7 @@ private:
         bool finished = false;
         bool terminated = false;
         bool async_requested = false;
+        bool context_removed = false;
     };
 
     bool InitThreadMgrEventSink() noexcept;
@@ -141,10 +142,14 @@ private:
     void SyncSavedConfigChange(bool reload_dicts);
     void LoadExternalDictionaryNextToDll();
 
-    void ResetCompositionAndUI();
-    void EndCompositionOnDeactivate();
+    void ResetCompositionAndUI(bool try_host_cleanup = true);
+    void ScheduleCompositionCleanup();
     bool HasPendingCompositionCleanup(const ITfContext* context);
-    void ResetContextAndUI();
+    void MarkCompositionContextRemoved(const ITfContext* context) noexcept;
+    void ResetContextAndUI(bool try_host_cleanup = true);
+    bool PrepareInputContext(ITfContext* context);
+    bool IsActiveDocument(ITfDocumentMgr* document) const;
+    bool ReconcileDocumentTarget(ITfDocumentMgr* document, std::string_view source);
     bool IsEditSessionCurrent(EditSessionEpoch epoch, const ITfContext* context) const noexcept;
     bool IsContextKeyboardDisabled(ITfContext* context) const noexcept;
     void ToggleModeAndCancelComposition(ITfContext* context);
@@ -173,6 +178,8 @@ private:
     DWORD activate_flags_ = 0;
     bool is_active_ = false;
     bool deactivating_ = false;
+    bool resetting_context_ = false;
+    bool preparing_input_context_ = false;
     EditSessionEpoch edit_session_epoch_;
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection text_layout_sink_;
@@ -187,10 +194,12 @@ private:
     bool has_valid_caret_pos_ = false;
     bool has_logged_focus_state_ = false;
     bool last_logged_focus_state_ = false;
+    uint64_t focus_revision_ = 0;
 
     ComPtr<ITfComposition> composition_;
     std::vector<std::weak_ptr<CompositionCleanup>> composition_cleanups_;
     ComPtr<ITfContext> active_context_;
+    ComPtr<ITfDocumentMgr> active_document_;
     ComPtr<CandidateUI> candidate_ui_;
     ComPtr<LangBarButton> langbar_btn_;
     std::unique_ptr<StatusBarUI> status_bar_;

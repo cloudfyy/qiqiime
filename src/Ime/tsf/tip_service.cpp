@@ -97,8 +97,8 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     if (!ptim) {
         return E_INVALIDARG;
     }
-    if (deactivating_) {
-        QIQI_LOG_WARN("ActivateEx: activation during deactivation rejected (hr=0x{:08x})",
+    if (deactivating_ || resetting_context_ || preparing_input_context_) {
+        QIQI_LOG_WARN("ActivateEx: activation during lifecycle transition rejected (hr=0x{:08x})",
                        gsl::narrow_cast<unsigned int>(E_UNEXPECTED));
         return E_UNEXPECTED;
     }
@@ -145,7 +145,6 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=deactivate-begin, activation={}, context={}, has_composition={})",
                    service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, composition_ != nullptr);
     QIQI_LOG_INFO("QiQiTextService::Deactivate(client_id={})", client_id_);
-    EndCompositionOnDeactivate();
     ResetCompositionAndUI();
     if (status_bar_) {
         status_bar_->Show(false);
@@ -300,11 +299,57 @@ STDMETHODIMP QiQiTextService::OnInitDocumentMgr(ITfDocumentMgr* /*pdim*/) noexce
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* /*pdim*/) noexcept {
+STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* pdim) {
+    const bool related = is_active_ && IsActiveDocument(pdim);
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=document-uninit, related={})", service_log_id_, related);
+    if (related) {
+        MarkCompositionContextRemoved(active_context_.Get());
+        ResetCompositionAndUI(false);
+    }
     return S_OK;
 }
 
+bool QiQiTextService::IsActiveDocument(ITfDocumentMgr* document) const {
+    if (!document || !active_document_) return false;
+    if (document == active_document_.Get()) return true;
+    ComPtr<IUnknown> current_identity;
+    ComPtr<IUnknown> incoming_identity;
+    if (!log::CheckHResult(active_document_.As(&current_identity), "IsActiveDocument::CurrentIdentity") ||
+        !log::CheckHResult(document->QueryInterface(IID_PPV_ARGS(&incoming_identity)),
+                          "IsActiveDocument::IncomingIdentity")) {
+        return false;
+    }
+    return current_identity == incoming_identity;
+}
+
+bool QiQiTextService::ReconcileDocumentTarget(ITfDocumentMgr* document, std::string_view source) {
+    if (!active_context_ || !document) return true;
+    const auto context = active_context_;
+    const auto epoch = edit_session_epoch_;
+    ComPtr<ITfContext> top;
+    ComPtr<ITfContext> base;
+    const HRESULT top_hr = document->GetTop(&top);
+    const HRESULT base_hr = document->GetBase(&base);
+    const bool top_ok = log::CheckHResult(top_hr, "ReconcileDocumentTarget::GetTop");
+    const bool base_ok = log::CheckHResult(base_hr, "ReconcileDocumentTarget::GetBase");
+    if (!IsEditSessionCurrent(epoch, context.Get())) return false;
+    const bool retained = top_ok && base_ok && (top == context || base == context);
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=document-target, source={}, retained={}, covered_by_modal={})",
+                   service_log_id_, source, retained, retained && top != context);
+    if (!retained) {
+        auto expected = edit_session_epoch_;
+        ++expected.context;
+        ResetCompositionAndUI();
+        return IsEditSessionCurrent(expected, nullptr);
+    } else {
+        active_document_ = document;
+    }
+    return true;
+}
+
 void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource source) {
+    if (!is_active_) return;
+    const uint64_t focus_revision = ++focus_revision_;
     using Clock = std::chrono::steady_clock;
     static std::atomic<uint64_t> focus_log_sequence{0};
     const bool measure = log::GetLevel() <= log::Level::debug && log::IsLogSinkActive();
@@ -330,12 +375,14 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
     });
     if (!has_focus) {
         ResetCompositionAndUI();
+        if (!is_active_ || focus_revision != focus_revision_) return;
         if (status_bar_) {
             status_bar_->Show(false);
         }
     } else {
         const auto reload_started = measure ? Clock::now() : Clock::time_point{};
         ReloadConfigIfModified(event_id);
+        if (!is_active_ || focus_revision != focus_revision_) return;
         const auto reload_finished = measure ? Clock::now() : Clock::time_point{};
         position_changed = SyncStatusBarPositionFromGlobalCompartment();
         if (measure) {
@@ -350,15 +397,35 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
 }
 
 STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* /*pdimPrevFocus*/) {
+    if (!is_active_) return S_OK;
+    const auto focus_revision = focus_revision_;
+    if (!ReconcileDocumentTarget(pdimFocus, "focus")) return S_OK;
+    if (!is_active_ || focus_revision != focus_revision_) return S_OK;
     HandleFocusChanged(pdimFocus != nullptr, FocusNotificationSource::ThreadManager);
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* /*pic*/) noexcept {
+STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
+    if (!is_active_ || !pic || !active_context_ || pic == active_context_.Get()) return S_OK;
+    const auto epoch = edit_session_epoch_;
+    const auto context = active_context_;
+    ComPtr<ITfDocumentMgr> document;
+    if (!log::CheckHResult(pic->GetDocumentMgr(&document), "OnPushContext::GetDocumentMgr") || !document) {
+        QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=context-push-unresolved)", service_log_id_);
+        return S_OK;
+    }
+    if (!IsEditSessionCurrent(epoch, context.Get())) return S_OK;
+    const bool related = IsActiveDocument(document.Get());
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=context-push, related={})", service_log_id_, related);
+    if (related) std::ignore = ReconcileDocumentTarget(document.Get(), "push");
     return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* /*pic*/) noexcept {
+STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* pic) {
+    if (pic) MarkCompositionContextRemoved(pic);
+    const bool current = is_active_ && pic && pic == active_context_.Get();
+    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=context-pop, current={})", service_log_id_, current);
+    if (current) ResetCompositionAndUI(false);
     return S_OK;
 }
 

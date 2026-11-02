@@ -117,6 +117,10 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM /
         *pfEaten = FALSE;
         return S_OK;
     }
+    if (!PrepareInputContext(pic)) {
+        *pfEaten = FALSE;
+        return S_OK;
+    }
     const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
     const bool shift = IsKeyDown(VK_SHIFT);
     const bool caps = IsCapsLockOn();
@@ -239,6 +243,7 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
 }
 
 void QiQiTextService::ToggleModeAndCancelComposition(ITfContext* context) {
+    if (context && !PrepareInputContext(context)) return;
     if (engine_.IsComposing() && context) {
         KeyProcessResult cancel_res{};
         cancel_res.action = KeyActionType::Cancel;

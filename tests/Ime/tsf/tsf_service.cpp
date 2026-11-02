@@ -39,6 +39,30 @@ public:
     std::function<HRESULT()> callback;
 };
 
+class NativeDocumentEventSink final : public ComObjectBase<NativeDocumentEventSink, ITfThreadMgrEventSink> {
+public:
+    explicit NativeDocumentEventSink(gsl::not_null<QiQiTextService*> service) noexcept : service_(service) {}
+    STDMETHODIMP OnInitDocumentMgr(ITfDocumentMgr* document) override { return service_->OnInitDocumentMgr(document); }
+    STDMETHODIMP OnUninitDocumentMgr(ITfDocumentMgr* document) override {
+        ++uninits;
+        return service_->OnUninitDocumentMgr(document);
+    }
+    STDMETHODIMP OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) noexcept override { return S_OK; }
+    STDMETHODIMP OnPushContext(ITfContext* context) override {
+        ++pushes;
+        return service_->OnPushContext(context);
+    }
+    STDMETHODIMP OnPopContext(ITfContext* context) override {
+        ++pops;
+        return service_->OnPopContext(context);
+    }
+    unsigned int pushes = 0;
+    unsigned int pops = 0;
+    unsigned int uninits = 0;
+private:
+    const gsl::not_null<QiQiTextService*> service_;
+};
+
 NativeTsfState ReadNativeTsfStateInSession(gsl::not_null<ITfContext*> context, TfEditCookie ec) {
     NativeTsfState state;
     ComPtr<ITfRange> range;
@@ -295,6 +319,12 @@ void TestFocusPerformanceLogs() {
     QIQI_TEST_CHECK(std::any_of(lifecycle_records.begin(), lifecycle_records.end(), [](const auto& record) {
         return record.contains(L"stage=stale-edit-skipped") &&
                record.contains(L"active=false, target_matches=false");
+    }));
+    QIQI_TEST_CHECK(std::any_of(lifecycle_records.begin(), lifecycle_records.end(), [](const auto& record) {
+        return record.contains(L"stage=document-target, source=push, retained=true, covered_by_modal=true");
+    }));
+    QIQI_TEST_CHECK(std::any_of(lifecycle_records.begin(), lifecycle_records.end(), [](const auto& record) {
+        return record.contains(L"stage=context-pop, current=false");
     }));
 }
 
@@ -652,7 +682,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         QIQI_TEST_CHECK(context_a->range_->set_text_calls_ == 0 && context_b->range_->set_text_calls_ == 0);
         QIQI_TEST_CHECK(ui_calls() == before_context_switch);
         QIQI_TEST_CHECK(queue->RunNext() == S_OK && context_a->start_composition_calls_ == 1);
-        QIQI_TEST_CHECK(!context_a->range_->text_.empty() && context_b->range_->text_.empty());
+        QIQI_TEST_CHECK(context_a->range_->text_ == L"c" && context_b->range_->text_.empty());
 
         // Never reuse A's composition range when B becomes the current input target.
         QIQI_TEST_CHECK(service->OnLayoutChange(context_a.Get(), TF_LC_CHANGE, nullptr) == S_OK);
@@ -660,8 +690,12 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         const auto text_in_a = context_a->range_->text_;
         const auto reads_in_a = context_a->get_active_view_calls_;
         auto context_c = MakeComObject<MockTfContext>();
-        QIQI_TEST_CHECK(key_sink->OnKeyDown(context_c.Get(), VK_BACK, 0, &deferred_eaten) == S_OK && deferred_eaten);
-        QIQI_TEST_CHECK(context_c->start_composition_calls_ == 1 && !context_c->range_->text_.empty());
+        const auto old_composition = context_a->last_composition_;
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(context_c.Get(), VK_BACK, 0, &deferred_eaten) == S_OK && !deferred_eaten);
+        QIQI_TEST_CHECK(context_c->start_composition_calls_ == 0 && context_c->range_->text_.empty());
+        QIQI_TEST_CHECK(old_composition->ended_ && context_a->prop_->clear_calls_ > 0);
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(context_c.Get(), 'D', 0, &deferred_eaten) == S_OK && deferred_eaten);
+        QIQI_TEST_CHECK(context_c->range_->text_ == L"d");
         const auto before_context_layout = ui_calls();
         QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->PendingCount() == 0);
         QIQI_TEST_CHECK(context_a->range_->text_ == text_in_a && context_a->get_active_view_calls_ == reads_in_a);
@@ -681,6 +715,153 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         QIQI_TEST_CHECK(queue->RunNext() == S_OK && terminated_context->range_->text_ == L"c");
         QIQI_TEST_CHECK(key_sink->OnSetFocus(FALSE) == S_OK);
     }
+
+    const auto document_objects_before = g_com_object_count.load();
+    // Document/stack notifications share the epoch barrier and old-host cleanup.
+    {
+        auto queue = std::make_shared<MockEditSessionQueue>();
+        auto document_a = MakeComObject<MockTfDocumentMgr>();
+        auto document_b = MakeComObject<MockTfDocumentMgr>();
+        document_a->events = service.Get();
+        document_b->events = service.Get();
+        const auto disconnect = gsl::finally([&]() noexcept {
+            document_a->events = nullptr;
+            document_b->events = nullptr;
+        });
+        auto context_a = document_a->CreateTestContext(queue);
+        auto context_b = document_b->CreateTestContext(queue);
+        auto modal = document_b->CreateTestContext();
+        QIQI_TEST_CHECK(document_a->Push(context_a.Get()) == S_OK);
+        QIQI_TEST_CHECK(document_b->Push(context_b.Get()) == S_OK);
+        BOOL handled = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context_a.Get(), 'A', 0, &handled) == S_OK && handled);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+        const auto composition_a = context_a->last_composition_;
+        QIQI_TEST_CHECK(service->OnKeyDown(context_a.Get(), 'B', 0, &handled) == S_OK && handled);
+        QIQI_TEST_CHECK(service->OnLayoutChange(context_a.Get(), TF_LC_CHANGE, nullptr) == S_OK);
+        QIQI_TEST_CHECK(service->OnSetFocus(document_b.Get(), document_a.Get()) == S_OK);
+        QIQI_TEST_CHECK(composition_a->ended_ && context_a->range_->text_ == L"a");
+        QIQI_TEST_CHECK(service->OnKeyDown(context_b.Get(), 'C', 0, &handled) == S_OK && handled);
+        const auto ui_before_stale = std::tuple{
+            mock_tm->begin_ui_calls_, mock_tm->update_ui_calls_, mock_tm->end_ui_calls_};
+        const auto old_views = context_a->get_active_view_calls_;
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->RunNext() == S_OK);
+        QIQI_TEST_CHECK(context_a->range_->text_ == L"a" && context_a->get_active_view_calls_ == old_views);
+        QIQI_TEST_CHECK((std::tuple{
+            mock_tm->begin_ui_calls_, mock_tm->update_ui_calls_, mock_tm->end_ui_calls_}) == ui_before_stale);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK && context_b->range_->text_ == L"c");
+        const auto composition_b = context_b->last_composition_;
+        QIQI_TEST_CHECK(service->OnKeyDown(context_b.Get(), 'D', 0, &handled) == S_OK && handled);
+        QIQI_TEST_CHECK(document_b->Push(modal.Get()) == S_OK);
+        QIQI_TEST_CHECK(service->OnSetFocus(document_b.Get(), document_b.Get()) == S_OK);
+        QIQI_TEST_CHECK(!composition_b->ended_);
+        QIQI_TEST_CHECK(document_a->Pop(TF_POPF_ALL) == S_OK && !composition_b->ended_);
+        QIQI_TEST_CHECK(document_b->Pop(0) == S_OK && !composition_b->ended_);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK && context_b->range_->text_ == L"cd");
+        QIQI_TEST_CHECK(context_b->last_composition_ == composition_b && queue->PendingCount() == 0);
+
+        QIQI_TEST_CHECK(service->OnKeyDown(context_b.Get(), 'E', 0, &handled) == S_OK && handled);
+        QIQI_TEST_CHECK(service->OnLayoutChange(context_b.Get(), TF_LC_CHANGE, nullptr) == S_OK);
+        const auto requests_before_pop = context_b->request_edit_session_calls_;
+        context_b->edit_session_request_result_ = TF_E_DISCONNECTED;
+        context_b->document_link_.reset();
+        QIQI_TEST_CHECK(document_b->Pop(TF_POPF_ALL) == S_OK);
+        QIQI_TEST_CHECK(context_b->request_edit_session_calls_ == requests_before_pop);
+        auto fresh = document_a->CreateTestContext(queue);
+        QIQI_TEST_CHECK(document_a->Push(fresh.Get()) == S_OK);
+        QIQI_TEST_CHECK(service->OnKeyDown(fresh.Get(), 'F', 0, &handled) == S_OK && handled);
+        const auto views_before_stale = context_b->get_active_view_calls_;
+        const auto ends_before_stale = mock_tm->end_ui_calls_;
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->RunNext() == S_OK);
+        QIQI_TEST_CHECK(context_b->range_->text_ == L"cd" && context_b->get_active_view_calls_ == views_before_stale);
+        QIQI_TEST_CHECK(mock_tm->end_ui_calls_ == ends_before_stale);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK && fresh->range_->text_ == L"f");
+        QIQI_TEST_CHECK(composition_b->NotifyHostTermination(23) == S_OK);
+        QIQI_TEST_CHECK(fresh->last_composition_ && !fresh->last_composition_->ended_);
+
+        const auto requests_before_uninit = fresh->request_edit_session_calls_;
+        fresh->edit_session_request_result_ = TF_E_DISCONNECTED;
+        fresh->document_link_.reset();
+        QIQI_TEST_CHECK(service->OnUninitDocumentMgr(document_a.Get()) == S_OK);
+        QIQI_TEST_CHECK(fresh->request_edit_session_calls_ == requests_before_uninit);
+        QIQI_TEST_CHECK(service->OnUninitDocumentMgr(document_a.Get()) == S_OK);
+        auto fallback = document_b->CreateTestContext();
+        QIQI_TEST_CHECK(document_b->Push(fallback.Get()) == S_OK);
+        QIQI_TEST_CHECK(service->OnKeyDown(fallback.Get(), 'G', 0, &handled) == S_OK && handled);
+        QIQI_TEST_CHECK(fallback->range_->text_ == L"g");
+        document_a->get_top_result = E_ACCESSDENIED;
+        QIQI_TEST_CHECK(service->OnSetFocus(document_a.Get(), document_b.Get()) == S_OK);
+        QIQI_TEST_CHECK(fallback->last_composition_->ended_);
+        document_a->get_top_result = S_OK;
+        QIQI_TEST_CHECK(service->OnKeyDown(fallback.Get(), 'H', 0, &handled) == S_OK && handled);
+        document_a->get_top_callback = [&] { QIQI_TEST_CHECK(service->Deactivate() == S_OK); };
+        QIQI_TEST_CHECK(service->OnSetFocus(document_a.Get(), document_b.Get()) == S_OK);
+        document_a->get_top_callback = {};
+        QIQI_TEST_CHECK(service->OnKeyDown(fallback.Get(), 'I', 0, &handled) == S_OK && !handled);
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
+    }
+
+    // Focus A -> B -> A must preserve the asynchronous old-cleanup barrier.
+    for (const bool remove_old_context : {false, true}) {
+        auto queue = std::make_shared<MockEditSessionQueue>();
+        auto document_a = MakeComObject<MockTfDocumentMgr>();
+        auto document_b = MakeComObject<MockTfDocumentMgr>();
+        auto context_a = document_a->CreateTestContext(queue);
+        auto context_b = document_b->CreateTestContext(queue);
+        QIQI_TEST_CHECK(document_a->Push(context_a.Get()) == S_OK && document_b->Push(context_b.Get()) == S_OK);
+        BOOL handled = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context_a.Get(), 'A', 0, &handled) == S_OK && handled);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+        const auto old_composition = context_a->last_composition_;
+        context_a->allow_sync_edit_sessions_ = false;
+        QIQI_TEST_CHECK(service->OnSetFocus(document_b.Get(), document_a.Get()) == S_OK);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1 && !old_composition->ended_);
+        QIQI_TEST_CHECK(service->OnKeyDown(context_b.Get(), 'B', 0, &handled) == S_OK && handled);
+        if (remove_old_context) {
+            context_a->edit_session_request_result_ = TF_E_DISCONNECTED;
+            QIQI_TEST_CHECK(document_a->Pop(TF_POPF_ALL) == S_OK);
+            QIQI_TEST_CHECK(service->OnPopContext(context_a.Get()) == S_OK);
+            const auto clears = context_a->prop_->clear_calls_;
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+            QIQI_TEST_CHECK(!old_composition->ended_ && context_a->prop_->clear_calls_ == clears);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK && context_b->range_->text_ == L"b");
+            QIQI_TEST_CHECK(old_composition->NotifyHostTermination(23) == S_OK);
+            QIQI_TEST_CHECK(!context_b->last_composition_->ended_);
+        } else {
+            QIQI_TEST_CHECK(service->OnSetFocus(document_a.Get(), document_b.Get()) == S_OK);
+            QIQI_TEST_CHECK(service->OnKeyDown(context_a.Get(), 'C', 0, &handled) == S_OK && handled);
+            QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 2).flags == (TF_ES_ASYNC | TF_ES_READWRITE));
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK && old_composition->ended_);
+            const auto cleared_old_attribute = context_a->prop_->clear_calls_;
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK && context_b->start_composition_calls_ == 0);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK && context_a->range_->text_ == L"c");
+            QIQI_TEST_CHECK(context_a->prop_->clear_calls_ == cleared_old_attribute);
+            QIQI_TEST_CHECK(context_a->last_composition_ != old_composition);
+            context_a->allow_sync_edit_sessions_ = true;
+        }
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK && queue->PendingCount() == 0);
+    }
+
+    {
+        auto document = MakeComObject<MockTfDocumentMgr>();
+        document->events = service.Get();
+        const auto disconnect = gsl::finally([&]() noexcept { document->events = nullptr; });
+        auto context = document->CreateTestContext();
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        BOOL handled = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &handled) == S_OK && handled);
+        const auto composition = context->last_composition_;
+        const auto requests_before_removal = context->request_edit_session_calls_;
+        composition->get_range_callback_ = [&] {
+            context->edit_session_request_result_ = TF_E_DISCONNECTED;
+            QIQI_TEST_CHECK(document->Pop(TF_POPF_ALL) == S_OK);
+        };
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+        composition->get_range_callback_ = {};
+        QIQI_TEST_CHECK(context->request_edit_session_calls_ == requests_before_removal);
+        QIQI_TEST_CHECK(composition->end_composition_calls_ == 0 && context->prop_->clear_calls_ == 0);
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == document_objects_before);
 
     // Deactivation preserves preedit text and ends only the captured host composition.
     {
@@ -948,6 +1129,46 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         QIQI_TEST_CHECK(!final_state.composing && !final_state.display_attribute);
         layout_connection.Reset();
         cleanup_layout_sink->callback = {};
+
+        // Forward actual stack notifications without changing the user's native document focus.
+        QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), native_client) == S_OK);
+        const auto document_events = MakeComObject<NativeDocumentEventSink>(
+            gsl::not_null<QiQiTextService*>(service.Get()));
+        ScopedTfSinkConnection document_connection;
+        QIQI_TEST_CHECK(document_connection.Advise(native_manager.Get(), IID_ITfThreadMgrEventSink, document_events.Get()));
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(context.Get(), 'C', 0, &native_eaten) == S_OK && native_eaten);
+        QIQI_TEST_CHECK(WaitForNativeTsfState(context.Get(), native_client, L"aabc", 1).composing);
+        ComPtr<ITfContext> modal_context;
+        QIQI_TEST_CHECK(document->CreateContext(native_client, 0, nullptr, &modal_context, &owner_cookie) == S_OK);
+        QIQI_TEST_CHECK(document->Push(modal_context.Get()) == S_OK);
+        QIQI_TEST_CHECK(service->OnSetFocus(document.Get(), document.Get()) == S_OK);
+        QIQI_TEST_CHECK(document->Pop(0) == S_OK);
+        QIQI_TEST_CHECK(WaitForNativeTsfState(context.Get(), native_client, L"aabc", 1).display_attribute);
+        ComPtr<ITfDocumentMgr> second_document;
+        ComPtr<ITfContext> second_context;
+        QIQI_TEST_CHECK(native_manager->CreateDocumentMgr(&second_document) == S_OK);
+        QIQI_TEST_CHECK(second_document->CreateContext(
+            native_client, 0, nullptr, &second_context, &owner_cookie) == S_OK);
+        QIQI_TEST_CHECK(second_document->Push(second_context.Get()) == S_OK);
+        bool second_on_stack = true;
+        const auto pop_second = gsl::finally([&]() noexcept {
+            if (second_on_stack) {
+                std::ignore = log::CheckHResult(second_document->Pop(TF_POPF_ALL), "NativeDocumentTest::Pop");
+            }
+        });
+        QIQI_TEST_CHECK(service->OnSetFocus(second_document.Get(), document.Get()) == S_OK);
+        const auto switched = WaitForNativeTsfState(context.Get(), native_client, L"aabc", 0);
+        QIQI_TEST_CHECK(!switched.composing && !switched.display_attribute);
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(second_context.Get(), 'D', 0, &native_eaten) == S_OK && native_eaten);
+        QIQI_TEST_CHECK(WaitForNativeTsfState(second_context.Get(), native_client, L"d", 1).composing);
+        const auto ui_ends_before_pop = mock_tm->end_ui_calls_;
+        QIQI_TEST_CHECK(second_document->Pop(TF_POPF_ALL) == S_OK);
+        second_on_stack = false;
+        QIQI_TEST_CHECK(document_events->pushes == 2 && document_events->pops == 2 && document_events->uninits == 1);
+        QIQI_TEST_CHECK(mock_tm->end_ui_calls_ > ui_ends_before_pop);
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(context.Get(), VK_BACK, 0, &native_eaten) == S_OK && !native_eaten);
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        document_connection.Reset();
         QIQI_TEST_CHECK(service->Activate(mock_tm.Get(), 1) == S_OK);
     }
 
@@ -956,7 +1177,8 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnUninitDocumentMgr(nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnPushContext(nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnPopContext(nullptr)));
-    QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnSetFocus(reinterpret_cast<ITfDocumentMgr*>(1), nullptr)));
+    auto empty_document = MakeComObject<MockTfDocumentMgr>();
+    QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnSetFocus(empty_document.Get(), nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnSetFocus(nullptr, nullptr)));
 
     // KeyEventSink error checks
@@ -1439,7 +1661,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
             TF_CONVERSIONMODE_NATIVE | TF_CONVERSIONMODE_SYMBOL)));
     }
 
-    QIQI_TEST_CHECK(SUCCEEDED(hf_tm_sink->OnSetFocus(reinterpret_cast<ITfDocumentMgr*>(1), nullptr)));
+    QIQI_TEST_CHECK(SUCCEEDED(hf_tm_sink->OnSetFocus(empty_document.Get(), nullptr)));
     ComPtr<ITfKeyEventSink> hf_key_sink;
     if (SUCCEEDED(service_haifeng->QueryInterface(IID_PPV_ARGS(&hf_key_sink))) && hf_key_sink) {
         ResetLastPlayedSoundForTest();
@@ -1599,13 +1821,22 @@ void RunTsfFocusDiagnosticsScenario() {
     QIQI_TEST_CHECK(service->Deactivate() == S_OK);
     for (int scenario = 0; scenario < 9; ++scenario) {
         auto queue = std::make_shared<MockEditSessionQueue>();
-        auto context = MakeComObject<MockTfContext>(queue);
+        auto composition_document = MakeComObject<MockTfDocumentMgr>();
+        auto context = composition_document->CreateTestContext(queue);
+        QIQI_TEST_CHECK(composition_document->Push(context.Get()) == S_OK);
         if (scenario == 7) log::SetLevel(log::Level::info);
         if (scenario == 8) log::SetLevel(log::Level::off);
         QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
         BOOL eaten = FALSE;
         QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
         QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+        if (scenario == 0) {
+            const auto modal = composition_document->CreateTestContext();
+            QIQI_TEST_CHECK(composition_document->Push(modal.Get()) == S_OK);
+            QIQI_TEST_CHECK(service->OnPushContext(modal.Get()) == S_OK);
+            QIQI_TEST_CHECK(composition_document->Pop(0) == S_OK);
+            QIQI_TEST_CHECK(service->OnPopContext(modal.Get()) == S_OK);
+        }
         context->range_->text_ = L"SENSITIVE_DIAGNOSTIC_SENTINEL";
         const auto composition = context->last_composition_;
         context->allow_sync_edit_sessions_ = scenario == 0 || scenario >= 5;
