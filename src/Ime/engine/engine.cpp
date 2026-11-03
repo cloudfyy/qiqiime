@@ -266,10 +266,21 @@ KeyProcessResult WubiEngine::HandleCommitRawCode(const KeyInputContext& /*ctx*/)
 
 KeyProcessResult WubiEngine::HandleCommitDigitIndex(const KeyInputContext& ctx) {
     const auto idx_opt = ResolveCandidateSelectIndex(ctx.vk, ctx.shift_down, semicolon_quote_quick_select_);
+    return idx_opt.has_value()
+        ? CommitCandidate(*idx_opt)
+        : MakeCurrentStateResult(KeyActionType::UpdateState);
+}
+
+KeyProcessResult WubiEngine::CommitCandidate(size_t index_in_page) {
+    if (!IsComposing()) {
+        return {};
+    }
     const auto page = CurrentPageCandidates();
-    if (idx_opt.has_value() && *idx_opt < page.size()) {
-        std::wstring selected = gsl::at(page, *idx_opt);
-        PromotePhraseForCode(raw_code_, selected);
+    if (index_in_page < page.size()) {
+        std::wstring selected = gsl::at(page, index_in_page);
+        if (IsWubiComposingState(state_)) {
+            PromotePhraseForCode(raw_code_, selected);
+        }
         return CommitAndReset(std::move(selected));
     }
     return MakeCurrentStateResult(KeyActionType::UpdateState);

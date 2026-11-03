@@ -46,8 +46,7 @@ QiQiTextService::QiQiTextService(HINSTANCE instance) : service_log_id_(++next_se
     candidate_ui_ = MakeComObject<CandidateUI>(instance);
     candidate_ui_->SetSelectCallback([this](size_t index_in_page) {
         if (index_in_page < 9 && active_context_ && engine_.IsComposing()) {
-            const KeyProcessResult res = engine_.ProcessKey(
-                gsl::narrow_cast<uint32_t>('1' + index_in_page), false, false, false);
+            const KeyProcessResult res = engine_.CommitCandidate(index_in_page);
             if (res.action != KeyActionType::PassThrough) {
                 ApplyEngineResult(active_context_.Get(), res);
             }

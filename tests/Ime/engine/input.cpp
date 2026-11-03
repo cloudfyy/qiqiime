@@ -204,6 +204,54 @@ void TestResetKeyPrediction() {
     }
 }
 
+void TestCandidateCommit() {
+    WubiEngine engine;
+    QIQI_TEST_CHECK(engine.CommitCandidate(0).action == KeyActionType::PassThrough);
+    engine.SetChineseMode(false);
+    QIQI_TEST_CHECK(engine.CommitCandidate(0).action == KeyActionType::PassThrough);
+    QIQI_TEST_CHECK(engine.State() == EngineState::English);
+    engine.SetChineseMode(true);
+
+    for (const bool full_width : {false, true}) {
+        engine.SetFullWidthMode(full_width);
+        engine.ProcessKey('Z');
+        for (const auto vk : {'H', 'E', 'L', 'L', 'O'}) engine.ProcessKey(gsl::narrow_cast<uint32_t>(vk));
+        const auto digit = engine.ProcessKey('1');
+        QIQI_TEST_CHECK(digit.action == KeyActionType::UpdateState && digit.composition_text == L"zhello1");
+        QIQI_TEST_CHECK(engine.CommitCandidate(1).action == KeyActionType::UpdateState);
+        QIQI_TEST_CHECK(engine.RawCode() == L"zhello1" && engine.IsTempEnglishMode());
+        const auto committed = engine.CommitCandidate(0);
+        QIQI_TEST_CHECK(committed.action == KeyActionType::Commit && committed.committed_text == L"hello1");
+        QIQI_TEST_CHECK(committed.composition_text.empty() && committed.page_candidates.empty());
+        QIQI_TEST_CHECK(engine.State() == EngineState::Idle && engine.RawCode().empty());
+        QIQI_TEST_CHECK(engine.IsFullWidthMode() == full_width);
+        QIQI_TEST_CHECK(engine.CommitCandidate(0).action == KeyActionType::PassThrough);
+
+        engine.ProcessKey('Z');
+        const auto guide = engine.CommitCandidate(0);
+        QIQI_TEST_CHECK(guide.action == KeyActionType::Commit && guide.committed_text == L"z");
+    }
+    engine.SetFullWidthMode(false);
+
+    for (int i = 1; i <= 7; ++i) engine.AddEntry(L"mnop", L"candidate" + std::to_wstring(i));
+    for (const auto vk : {'M', 'N', 'O', 'P'}) engine.ProcessKey(gsl::narrow_cast<uint32_t>(vk));
+    engine.ProcessKey(VK_NEXT);
+    QIQI_TEST_CHECK(engine.CurrentPage() == 1 && engine.CurrentPageCandidates().size() == 2);
+    const auto selected = engine.SelectedInPage();
+    QIQI_TEST_CHECK(engine.CommitCandidate(2).action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.RawCode() == L"mnop" && engine.CurrentPage() == 1 && engine.SelectedInPage() == selected);
+    const auto committed = engine.CommitCandidate(1);
+    QIQI_TEST_CHECK(committed.action == KeyActionType::Commit && committed.committed_text == L"candidate7");
+    QIQI_TEST_CHECK(engine.State() == EngineState::Idle);
+
+    engine.AddEntry(L"qrst", L"phrase1");
+    engine.AddEntry(L"qrst", L"phrase2");
+    engine.SetDynamicPhraseFreq(true);
+    for (const auto vk : {'Q', 'R', 'S', 'T'}) engine.ProcessKey(gsl::narrow_cast<uint32_t>(vk));
+    QIQI_TEST_CHECK(engine.CommitCandidate(1).committed_text == L"phrase2");
+    QIQI_TEST_CHECK(engine.LookupExact(L"qrst").front() == L"phrase2");
+}
+
 void TestFirstLevelShortCodes() {
     WubiEngine engine;
     // 'a' -> 工, Space commits
@@ -715,6 +763,7 @@ void TestNavigationSelectionAndReturnCommit() {
 void RunEngineInputTests() {
     TestCompileTimeFsmTransitions();
     TestResetKeyPrediction();
+    TestCandidateCommit();
     TestFirstLevelShortCodes();
     TestFourCodeUniqueAutoCommit();
     TestFifthKeyPushAutoCommit();

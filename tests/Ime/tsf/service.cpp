@@ -924,6 +924,31 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         }
     }
 
+    for (const auto* code : {L"zhello1", L"z"}) {
+        QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
+        auto click_context = MakeComObject<MockTfContext>();
+        for (const wchar_t ch : std::wstring(code)) {
+            const auto vk = gsl::narrow_cast<uint32_t>(ch >= L'a' && ch <= L'z' ? ch - L'a' + L'A' : ch);
+            QIQI_TEST_CHECK(key_sink->OnKeyDown(click_context.Get(), vk, 0, &eaten) == S_OK && eaten);
+        }
+        QIQI_TEST_CHECK(click_context->range_->text_ == code);
+        const auto composition = click_context->last_composition_;
+        QIQI_TEST_CHECK(composition && !composition->ended_);
+        const auto element = mock_tm->last_ui_element_;
+        auto* const cand_ui = dynamic_cast<CandidateUI*>(element.Get());
+        QIQI_TEST_CHECK(cand_ui && cand_ui->WindowHandle());
+        ::SendMessageW(cand_ui->WindowHandle(), WM_DPICHANGED, MAKEWPARAM(96, 96), 0);
+        const std::wstring expected = std::wstring(code) == L"z" ? L"z" : L"hello1";
+        ::SendMessageW(cand_ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 42));
+        QIQI_TEST_CHECK(click_context->range_->text_ == expected && composition->ended_);
+        BOOL shown = TRUE;
+        QIQI_TEST_CHECK(cand_ui->IsShown(&shown) == S_OK && !shown);
+        const auto requests_after_commit = click_context->request_edit_session_calls_;
+        ::SendMessageW(cand_ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 42));
+        QIQI_TEST_CHECK(click_context->range_->text_ == expected);
+        QIQI_TEST_CHECK(click_context->request_edit_session_calls_ == requests_after_commit);
+    }
+
     if (mock_tm->langbar_item_) {
         ComPtr<ITfLangBarItemButton> lb_btn;
         if (SUCCEEDED(mock_tm->langbar_item_.As(&lb_btn)) && lb_btn) {

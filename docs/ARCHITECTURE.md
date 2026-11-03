@@ -67,6 +67,8 @@ TSF 的按键处理分为两步：
 
 上下文切换、失焦、移除和停用是 FSM 外部的生命周期事件，不加入现有 7 状态 × 16 按键事件表。`Reset` 与只读预判共用 `StateAfterCompositionReset`：中文组合态（含临时英文）回到 `Idle`，`English` 保持不变；全半角及标点模式不被目标切换改写。旧宿主组合的同步/异步清理独立于新目标的引擎状态，不能用“仍有待清理宿主组合”推断 FSM 仍在组合态。
 
+候选鼠标点击直接调用 `WubiEngine::CommitCandidate(index_in_page)`，不模拟数字按键；普通五笔的数字选词也复用该提交逻辑，并保留动态词频调整。临时英文模式下，键盘数字仍追加到正文，点击候选则提交去掉引导 `z` 的正文（只有引导时提交 `z`），不追加候选序号，也不参与五笔词频调整。
+
 在 `DoEditSession(TfEditCookie ec)` 内完成：
 - **新建或更新组合串**：`ITfInsertAtSelection::InsertTextAtSelection` + `ITfContextComposition::StartComposition` + `ITfRange::SetText` + 设置 `GUID_PROP_ATTRIBUTE` 下划线显示属性。
 - **上屏并结束组合**：清除显示属性、将范围文本替换为最终汉字、折叠选区到末尾、调用 `ITfComposition::EndComposition`。
