@@ -46,6 +46,12 @@ void SelectPid(const MonitorWindow& window, DWORD pid) {
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Pid), CBN_SELCHANGE), 0);
 }
 
+LRESULT CALLBACK SimulateOpenDropdown(HWND control, UINT message, WPARAM wparam, LPARAM lparam,
+                                     UINT_PTR, DWORD_PTR) noexcept {
+    if (message == CB_GETDROPPEDSTATE) return TRUE;
+    return ::DefSubclassProc(control, message, wparam, lparam);
+}
+
 std::wstring ControlText(HWND hwnd) {
     std::wstring text(gsl::narrow_cast<size_t>(::GetWindowTextLengthW(hwnd)) + 1, L'\0');
     const int copied = ::GetWindowTextW(hwnd, text.data(), gsl::narrow_cast<int>(text.size()));
@@ -271,6 +277,18 @@ void TestBuffersAndFilters() {
     processes.Clear();
     QIQI_TEST_CHECK(CollectProcessChoices(processes, L"").names.empty() &&
                     CollectProcessChoices(processes, L"").pids.empty());
+    auto unnamed = MakeEvent();
+    unnamed.process.clear();
+    unnamed.pid = 0;
+    QIQI_TEST_CHECK(processes.Push(unnamed));
+    auto maximum_pid = MakeEvent();
+    maximum_pid.pid = MAXDWORD;
+    QIQI_TEST_CHECK(processes.Push(maximum_pid));
+    choices = CollectProcessChoices(processes, L"");
+    QIQI_TEST_CHECK(choices.names == std::vector<std::wstring>({L"Code.exe"}));
+    QIQI_TEST_CHECK(choices.pids == std::vector<DWORD>({0, MAXDWORD}));
+    QIQI_TEST_CHECK(CollectProcessChoices(processes, L"code.exe").pids == std::vector<DWORD>({MAXDWORD}));
+    QIQI_TEST_CHECK(CollectProcessChoices(processes, L" ").pids.empty());
 
     Filter filter;
     auto event = MakeEvent(L"Case sensitive? no.\tline\nnext");
@@ -533,6 +551,7 @@ void TestDesktopIntegration() {
         std::array<BYTE, 256> ctrl_down = keys;
         gsl::at(ctrl_down, VK_CONTROL) = 0x80;
         QIQI_TEST_CHECK(::SetKeyboardState(ctrl_down.data()));
+#pragma warning(suppress : 26496) // Mutated by the Win32 subclass callback through dwRefData.
         unsigned int detail_updates = 0;
         const HWND details = Child(window, Details);
         const SUBCLASSPROC count_updates =
@@ -750,6 +769,11 @@ int Integration(const wchar_t* peer) {
     }
     collector.PollLoss();
     QIQI_TEST_CHECK(collector.Stop());
+    if (collector.decode_errors != 0 || collector.events_lost != 0) {
+        std::cerr << "ETW counters: decode=" << collector.decode_errors.load()
+                  << ", events_lost=" << collector.events_lost.load()
+                  << ", buffers_lost=" << collector.buffers_lost.load() << "\n";
+    }
     QIQI_TEST_CHECK(!collector.Running() && collector.decode_errors == 0 && collector.events_lost == 0);
     const auto own = std::find_if(received.begin(), received.end(), [&](const Event& event) {
         return event.message == Utf8ToWide(marker);
@@ -808,6 +832,11 @@ int Integration(const wchar_t* peer) {
         ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Process), CBN_SELCHANGE), 0);
         QIQI_TEST_CHECK(ControlText(Child(window, Process)) == own->process);
 
+        const HWND process_combo = Child(window, Process);
+        QIQI_TEST_CHECK(::SetWindowSubclass(process_combo, SimulateOpenDropdown, 92, 0));
+        const auto restore_dropdown = gsl::finally([=]() noexcept {
+            ::RemoveWindowSubclass(process_combo, SimulateOpenDropdown, 92);
+        });
         PROCESS_INFORMATION second_child{};
         QIQI_TEST_CHECK(::CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
             CREATE_NO_WINDOW, nullptr, nullptr, &startup, &second_child));
@@ -816,6 +845,15 @@ int Integration(const wchar_t* peer) {
         QIQI_TEST_CHECK(::WaitForSingleObject(second_process.Get(), 10'000) == WAIT_OBJECT_0);
         DWORD second_exit = 1;
         QIQI_TEST_CHECK(::GetExitCodeProcess(second_process.Get(), &second_exit) && second_exit == 0);
+        // Drain captured child events while refresh is deferred; no new events are needed on close.
+        for (int i = 0; i < 30; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+        }
+        QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) == 1);
+        ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Process), CBN_CLOSEUP), 0);
+        QIQI_TEST_CHECK(::RemoveWindowSubclass(process_combo, SimulateOpenDropdown, 92));
+        ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
         for (int i = 0; i < 50 && ::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) != 3; ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);

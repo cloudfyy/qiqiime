@@ -22,7 +22,10 @@ std::wstring ReadText(HWND control) {
 
 void MonitorWindow::Impl::RefreshProcessChoices(bool force) {
     if (!force && (::SendMessageW(Child(Process), CB_GETDROPPEDSTATE, 0, 0) ||
-                   ::SendMessageW(Child(Pid), CB_GETDROPPEDSTATE, 0, 0))) return;
+                   ::SendMessageW(Child(Pid), CB_GETDROPPEDSTATE, 0, 0))) {
+        process_choices_pending = true;
+        return;
+    }
     updating_filters = true;
     const auto restore = gsl::finally([this]() noexcept { updating_filters = false; });
     auto next = CollectProcessChoices(Current(), filter.process);
@@ -64,6 +67,7 @@ void MonitorWindow::Impl::RefreshProcessChoices(bool force) {
     ::SendMessageW(Child(Pid), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(selected_pid), 0);
     ::EnableWindow(Child(Pid), !single && !next.pids.empty());
     process_choices = std::move(next);
+    process_choices_pending = false;
 }
 
 void MonitorWindow::Impl::Refilter() {
@@ -155,9 +159,9 @@ void MonitorWindow::Impl::Tick() {
         changed = true;
     }
     if (++ticks % 10 == 0) collector.PollLoss();
-    if (changed) {
+    if (changed || process_choices_pending) {
         RefreshProcessChoices();
-        RebuildRows();
+        if (changed || !process_choices_pending) RebuildRows();
     }
     UpdateStatus();
 }

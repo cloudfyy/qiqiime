@@ -149,6 +149,10 @@ ctest --preset x86-release --output-on-failure
 
 ## 4. 代码规范与静态代码检查（`lint`）
 
+日志监控器的筛选回归另覆盖匿名进程、PID 0/MAXDWORD，以及下拉框展开期间收到同名新进程、收起后无新增日志时的补偿刷新；真实多进程 ETW 测试验证 PID 从单选置灰转为“全部/多选项”，不只检查数据收集函数。
+
+ETW 集成测试仍要求零丢失，不通过放宽断言掩盖采集失败；失败输出保留实际丢失计数及缓冲统计，区分解码失败与 ETW 事件丢失。
+
 项目遵循 **C++ Core Guidelines**，使用 `gsl::span`、`gsl::not_null`、`gsl::narrow_cast`、`gsl::at`、`gsl::finally` 及 `ScopedHandle<Traits>` RAII 模板。`lint` target 使用 MSVC CppCoreCheck 检查 C++ Core Guidelines 与 GSL 规则，并使用 PSScriptAnalyzer 检查 `scripts/` 下的 PowerShell 脚本。C++ 检查覆盖公共库、引擎、设置界面、输入法、设置程序及测试目标；按既有规则排除 C26490，并以 435 条去重后的其他 CppCoreCheck 诊断作为当前基线，新增诊断会使 lint 失败。基线应在逐步修复旧告警后下调。
 
 安装 PSScriptAnalyzer 后，可从已配置的 Visual Studio CMake 构建目录运行：

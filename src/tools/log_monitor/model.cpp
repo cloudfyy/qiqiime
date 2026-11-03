@@ -95,7 +95,7 @@ ProcessChoices CollectProcessChoices(const EventBuffer& buffer, std::wstring_vie
     choices.pids.reserve(buffer.Events().size());
     for (const auto& event : buffer.Events()) {
         if (!event.process.empty()) choices.names.push_back(event.process);
-        if (Contains(event.process, process)) choices.pids.push_back(event.pid);
+        if (process.empty() || Contains(event.process, process)) choices.pids.push_back(event.pid);
     }
     std::sort(choices.names.begin(), choices.names.end(), [](const auto& left, const auto& right) {
         return std::lexicographical_compare(left.begin(), left.end(), right.begin(), right.end(),

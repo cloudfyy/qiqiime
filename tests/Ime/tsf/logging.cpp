@@ -296,6 +296,13 @@ int RunTsfEtwIntegrationTests() {
     FinishHost(late);
     properties = StopSession(session, name);
     active = false;
+    if (properties.properties.EventsLost != 0 || properties.properties.LogBuffersLost != 0) {
+        std::cerr << "ETW counters: events_lost=" << properties.properties.EventsLost
+                  << ", buffers_lost=" << properties.properties.LogBuffersLost
+                  << ", buffers=" << properties.properties.NumberOfBuffers
+                  << ", minimum=" << properties.properties.MinimumBuffers
+                  << ", maximum=" << properties.properties.MaximumBuffers << "\n";
+    }
     QIQI_TEST_CHECK(properties.properties.EventsLost == 0 && properties.properties.LogBuffersLost == 0);
 
     Collector collector{pids};

@@ -37,6 +37,7 @@ struct MonitorWindow::Impl {
     bool updating_display = false;
     bool updating_filters = false;
     bool automatic_pid = false;
+    bool process_choices_pending = false;
     int detail_height = 130; // Logical pixels.
     int detail_limit = 400;
     int splitter_drag_offset = 0;
