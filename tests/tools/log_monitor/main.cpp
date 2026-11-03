@@ -260,6 +260,17 @@ void TestBuffersAndFilters() {
     QIQI_TEST_CHECK(formatted_clip.contains(L"PID=99\tTID=84\tError\tQiQiLogInfo\tmulti\x2400nul"));
     QIQI_TEST_CHECK(CopyTextToClipboard(nullptr, std::wstring_view(L"clip\0test", 9)) == ERROR_SUCCESS);
     QIQI_TEST_CHECK(ReadClipboardText() == L"clip\x2400test");
+    std::vector<Event> full_buffer;
+    full_buffer.reserve(10'000);
+    for (int i = 0; i < 10'000; ++i) {
+        full_buffer.push_back(MakeEvent(std::format(L"bulk-record-{} {}", i, std::wstring(256, L'x'))));
+    }
+    const auto full_copy = FormatEventsForClipboard(full_buffer);
+    QIQI_TEST_CHECK(full_copy.size() > 1'000'000);
+    QIQI_TEST_CHECK(std::count(full_copy.begin(), full_copy.end(), L'\n') == 9'999);
+    QIQI_TEST_CHECK(full_copy.contains(L"bulk-record-0 ") && full_copy.contains(L"bulk-record-9999 "));
+    QIQI_TEST_CHECK(CopyTextToClipboard(nullptr, full_copy) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(ReadClipboardText() == full_copy);
     event.message = std::wstring(1, L'\xD800');
     bool invalid = false;
     try { ExportEvents({event}, L"test"); } catch (const std::system_error&) { invalid = true; }
@@ -443,6 +454,7 @@ void TestDesktopIntegration() {
     Click(window, Copy);
     const auto single_copied = ReadClipboardText(window.Handle());
     QIQI_TEST_CHECK(single_copied.contains(L"Monitor initialized") && single_copied.contains(L"PID="));
+    for (int i = 0; i < 450; ++i) Click(window, Copy);
     ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
     ::SetWindowTextW(Child(window, Search), L"");
     QIQI_TEST_CHECK(ListView_GetItemCount(list) >= 2);
@@ -463,11 +475,52 @@ void TestDesktopIntegration() {
         std::array<BYTE, 256> ctrl_down = keys;
         gsl::at(ctrl_down, VK_CONTROL) = 0x80;
         QIQI_TEST_CHECK(::SetKeyboardState(ctrl_down.data()));
+        unsigned int detail_updates = 0;
+        const HWND details = Child(window, Details);
+        const SUBCLASSPROC count_updates =
+            [](HWND control, UINT message, WPARAM wparam, LPARAM lparam,
+               UINT_PTR, DWORD_PTR context) noexcept -> LRESULT {
+                if (message == WM_SETTEXT) ++*reinterpret_cast<unsigned int*>(context);
+                return ::DefSubclassProc(control, message, wparam, lparam);
+            };
+        QIQI_TEST_CHECK(::SetWindowSubclass(details, count_updates, 91,
+                                           reinterpret_cast<DWORD_PTR>(&detail_updates)));
+        const auto remove_counter = gsl::finally([=]() noexcept {
+            ::RemoveWindowSubclass(details, count_updates, 91);
+        });
+        const auto select_begin = std::chrono::steady_clock::now();
         ::SendMessageW(list, WM_KEYDOWN, 'A', 0);
-        QIQI_TEST_CHECK(ListView_GetSelectedCount(list) >= 2);
+        QIQI_TEST_CHECK(std::chrono::steady_clock::now() - select_begin < std::chrono::seconds(1));
+        QIQI_TEST_CHECK(detail_updates == 1);
+        QIQI_TEST_CHECK(ListView_GetSelectedCount(list) == gsl::narrow_cast<UINT>(ListView_GetItemCount(list)));
+        QIQI_TEST_CHECK(ListView_GetSelectedCount(list) >= 405);
         ::SendMessageW(list, WM_KEYDOWN, 'C', 0);
-        QIQI_TEST_CHECK(ReadClipboardText(window.Handle()).contains(L"Monitor initialized"));
+        const auto bulk_copied = ReadClipboardText(window.Handle());
+        QIQI_TEST_CHECK(bulk_copied.contains(L"Monitor initialized"));
+        const auto copied_count = std::count(bulk_copied.begin(), bulk_copied.end(), L'\n');
+        QIQI_TEST_CHECK(gsl::narrow_cast<UINT>(copied_count + 1) == ListView_GetSelectedCount(list));
         ::SendMessageW(list, WM_KEYDOWN, VK_INSERT, 0);
+        QIQI_TEST_CHECK(ReadClipboardText(window.Handle()) == bulk_copied);
+        Click(window, Copy);
+        QIQI_TEST_CHECK(ReadClipboardText(window.Handle()) == bulk_copied);
+        ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+        ::SendMessageW(list, WM_KEYDOWN, 'C', 0);
+        QIQI_TEST_CHECK(ReadClipboardText(window.Handle()) == bulk_copied);
+        ::SendMessageW(list, WM_KEYDOWN, 'A', 0);
+        ::SendMessageW(list, WM_KEYDOWN, 'C', 0);
+        QIQI_TEST_CHECK(ListView_GetSelectedCount(list) == gsl::narrow_cast<UINT>(ListView_GetItemCount(list)));
+        const auto refreshed_copy = ReadClipboardText(window.Handle());
+        size_t record_count = 0;
+        const std::wstring record_marker = std::format(L"\tPID={}\tTID=", ::GetCurrentProcessId());
+        for (size_t position = 0; (position = refreshed_copy.find(record_marker, position)) != std::wstring::npos;
+             position += record_marker.size()) {
+            ++record_count;
+        }
+        QIQI_TEST_CHECK(record_count == gsl::narrow_cast<size_t>(ListView_GetItemCount(list)));
+        QIQI_TEST_CHECK(refreshed_copy.contains(L"Monitor initialized"));
+        QIQI_TEST_CHECK(refreshed_copy.contains(std::format(L"Copied {} log record(s) to clipboard",
+                                                          copied_count + 1)));
+        QIQI_TEST_CHECK(refreshed_copy.size() > bulk_copied.size());
     }
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
     ::SendMessageW(Child(window, Language), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);

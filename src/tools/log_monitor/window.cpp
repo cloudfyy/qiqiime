@@ -512,7 +512,11 @@ struct MonitorWindow::Impl {
     void SelectAllRows() {
         const HWND list = Child(List);
         if (rows.empty()) return;
-        ListView_SetItemState(list, -1, LVIS_SELECTED, LVIS_SELECTED);
+        {
+            updating_rows = true;
+            const auto restore = gsl::finally([this]() noexcept { updating_rows = false; });
+            ListView_SetItemState(list, -1, LVIS_SELECTED, LVIS_SELECTED);
+        }
         SyncSelectionFromList();
     }
 
@@ -533,9 +537,11 @@ struct MonitorWindow::Impl {
         std::vector<uint64_t> retained;
         retained.reserve(selected_ids.size());
         int focus_index = -1;
+        auto selection = selected_ids.begin();
         for (size_t i = 0; i < rows.size(); ++i) {
             const uint64_t id = gsl::at(rows, i);
-            if (std::find(selected_ids.begin(), selected_ids.end(), id) != selected_ids.end()) {
+            while (selection != selected_ids.end() && *selection < id) ++selection;
+            if (selection != selected_ids.end() && *selection == id) {
                 retained.push_back(id);
                 ListView_SetItemState(list, gsl::narrow_cast<int>(i), LVIS_SELECTED, LVIS_SELECTED);
                 if (id == selected || focus_index < 0) focus_index = gsl::narrow_cast<int>(i);
@@ -614,7 +620,13 @@ struct MonitorWindow::Impl {
                     }
                 }
             }
-        } else if ((header.code == LVN_ITEMCHANGED || header.code == LVN_ODSTATECHANGED) && !updating_rows) {
+        } else if (header.code == LVN_ITEMCHANGED && !updating_rows) {
+            const auto& change = *reinterpret_cast<const NMLISTVIEW*>(&header);
+            if ((change.uChanged & LVIF_STATE) &&
+                ((change.uOldState ^ change.uNewState) & LVIS_SELECTED)) {
+                SyncSelectionFromList();
+            }
+        } else if (header.code == LVN_ODSTATECHANGED && !updating_rows) {
             SyncSelectionFromList();
         }
     }
