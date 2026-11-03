@@ -348,6 +348,15 @@ void TestJournal() {
     }, committed) == E_OUTOFMEMORY);
     QIQI_TEST_CHECK(channel.Read(applied, batch) == S_OK &&
                     batch.snapshot == SnapshotReason::BaselineMismatch);
+    QIQI_TEST_CHECK(channel.Synchronize(applied, InputBoundary::NewInput, snapshot, delta) == S_OK);
+    QIQI_TEST_CHECK(channel.Publish(applied, Operation::Add, {}, []() -> HRESULT {
+        throw std::runtime_error("unexpected callback failure");
+    }, committed) == E_UNEXPECTED);
+    QIQI_TEST_CHECK(channel.Read(applied, batch) == S_OK &&
+                    batch.snapshot == SnapshotReason::BaselineMismatch);
+    QIQI_TEST_CHECK(channel.Watch() == S_OK);
+    QIQI_TEST_CHECK(channel.NotificationHandle() != INVALID_HANDLE_VALUE);
+    QIQI_TEST_CHECK(channel.Rearm() == S_OK);
     std::vector<uint8_t> too_large(Channel::kMaxPayloadBytes + 1);
     const Version before = Current(channel);
     QIQI_TEST_CHECK(channel.Publish(before, Operation::Add, too_large, []() { return S_OK; },
@@ -365,7 +374,11 @@ void TestJournal() {
     QIQI_TEST_CHECK(frequency_next.sequence == 1 && Current(channel) == before);
     QIQI_TEST_CHECK(Channel::Create(fixture.directory / L"invalid", {}) == E_INVALIDARG);
     QIQI_TEST_CHECK(!std::filesystem::exists(fixture.directory / L"invalid"));
+    const auto regular_file = fixture.directory / L"not_a_directory.txt";
+    QIQI_TEST_CHECK(WriteFileAtomically(regular_file, kPayload));
+    QIQI_TEST_CHECK(Channel::Create(regular_file, kSource) == E_INVALIDARG);
     Channel invalid(L"relative", kSource);
+    QIQI_TEST_CHECK(invalid.Watch() == E_INVALIDARG);
     QIQI_TEST_CHECK(invalid.Read({}, batch) == E_INVALIDARG);
     QIQI_TEST_CHECK(invalid.Rearm() == E_UNEXPECTED);
 }
@@ -399,10 +412,52 @@ void TestRetentionAndCorruption() {
                     batch.snapshot == SnapshotReason::VersionGap);
     std::string binary;
     QIQI_TEST_CHECK(ReadFileToUtf8String(fixture.directory / L"journal.bin", binary));
-    std::vector<uint8_t> damaged(binary.begin(), binary.end());
+    const std::vector<uint8_t> valid_bytes(binary.begin(), binary.end());
+    std::vector<uint8_t> damaged = valid_bytes;
     damaged.back() ^= 1;
     QIQI_TEST_CHECK(WriteFileAtomicallyResult(fixture.directory / L"journal.bin", damaged) == S_OK);
     QIQI_TEST_CHECK(channel.Read(committed, batch) == HRESULT_FROM_WIN32(ERROR_CRC));
+
+    const auto with_valid_hash = [](std::vector<uint8_t> body) {
+        body.resize(body.size() - 8);
+        uint64_t hash = 14695981039346656037ull;
+        for (const uint8_t b : body) hash = (hash ^ b) * 1099511628211ull;
+        for (size_t i = 0; i < 8; ++i) {
+            body.push_back(gsl::narrow_cast<uint8_t>(hash & 0xff));
+            hash >>= 8;
+        }
+        return body;
+    };
+    // 1. Wrong magic -> ERROR_UNKNOWN_REVISION
+    auto wrong_magic = valid_bytes;
+    gsl::at(wrong_magic, 0) = 0;
+    QIQI_TEST_CHECK(WriteFileAtomicallyResult(fixture.directory / L"journal.bin", with_valid_hash(wrong_magic)) == S_OK);
+    QIQI_TEST_CHECK(channel.Read(committed, batch) == HRESULT_FROM_WIN32(ERROR_UNKNOWN_REVISION));
+
+    // 2. Pending flag with zero recovery GUID -> ERROR_INVALID_DATA
+    auto invalid_pending = valid_bytes;
+    invalid_pending.resize(76 + 8);
+    gsl::at(invalid_pending, 68) = 1; // flags = 1 (pending)
+    for (size_t i = 72; i < 76; ++i) gsl::at(invalid_pending, i) = 0; // count = 0
+    QIQI_TEST_CHECK(WriteFileAtomicallyResult(fixture.directory / L"journal.bin", with_valid_hash(invalid_pending)) == S_OK);
+    QIQI_TEST_CHECK(channel.Read(committed, batch) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+
+    // 3. Invalid operation in record -> ERROR_INVALID_DATA
+    auto invalid_op = valid_bytes;
+    gsl::at(invalid_op, 76 + 8) = 99;
+    QIQI_TEST_CHECK(WriteFileAtomicallyResult(fixture.directory / L"journal.bin", with_valid_hash(invalid_op)) == S_OK);
+    QIQI_TEST_CHECK(channel.Read(committed, batch) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+
+    // 4. Truncated journal (< header + hash) -> ERROR_INVALID_DATA
+    constexpr std::array<uint8_t, 10> truncated{};
+    QIQI_TEST_CHECK(WriteFileAtomicallyResult(fixture.directory / L"journal.bin", truncated) == S_OK);
+    QIQI_TEST_CHECK(channel.Read(committed, batch) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+
+    // 5. Oversized journal (> kMaxJournalBytes) -> ERROR_INVALID_DATA
+    const std::vector<uint8_t> oversized(Channel::kMaxJournalBytes + 1, 0);
+    QIQI_TEST_CHECK(WriteFileAtomicallyResult(fixture.directory / L"journal.bin", oversized) == S_OK);
+    QIQI_TEST_CHECK(channel.Read(committed, batch) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+
     QIQI_TEST_CHECK(WriteFileAtomicallyResult(fixture.directory, {}) == E_INVALIDARG);
 }
 

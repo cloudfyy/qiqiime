@@ -58,6 +58,10 @@ void TestCompileTimeFsmTransitions() {
     static_assert(ClassifyKeyEvent('A', false, false, false, true, false, true, false, EngineState::Idle, true) == KeyEventKind::None);
     static_assert(ClassifyKeyEvent('Z', false, false, false, true, false, true, false, EngineState::Idle, true) == KeyEventKind::None);
     static_assert(ClassifyKeyEvent(VK_OEM_PERIOD, false, false, false, true, false, true, false, EngineState::Idle, true) == KeyEventKind::None);
+    const uint32_t non_digit_vk = ::GetCurrentProcessId() != 0 ? uint32_t{'A'} : uint32_t{0};
+    QIQI_TEST_CHECK(!ResolveCandidateSelectIndex(non_digit_vk, false, false).has_value());
+    WubiEngine idle_engine;
+    QIQI_TEST_CHECK(idle_engine.CommitCandidate(0).action == KeyActionType::PassThrough);
     static_assert(ClassifyKeyEvent('A', false, false, false, true, false, true, true, EngineState::Idle, true) == KeyEventKind::PrintableAscii);
     static_assert(ClassifyKeyEvent('A', false, false, false, true, false, true, false, EngineState::Composing1, true) == KeyEventKind::UpperChar);
     static_assert(ClassifyKeyEvent('A', true, false, false, true, false, true, false, EngineState::Composing1, true) == KeyEventKind::CodeChar);

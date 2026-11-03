@@ -15,6 +15,7 @@
 #include <iostream>
 #include <memory>
 #include <regex>
+#include <thread>
 #include <tuple>
 
 namespace qiqi::test {
@@ -1007,6 +1008,32 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     }
     ResetLastPlayedSoundForTest();
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyAddUserWord, &eaten)) && eaten == TRUE);
+
+    // Edge cases for kGuidPreservedKeyAddUserWord: 1-char text skipped, empty clipboard (no CF_UNICODETEXT), and locked clipboard
+    QIQI_TEST_CHECK(CopyTextToClipboard(nullptr, L"中") == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyAddUserWord, &eaten)) && eaten == TRUE);
+    if (const ScopedClipboard clip{}; clip.IsOpen()) {
+        ::EmptyClipboard();
+    }
+    QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyAddUserWord, &eaten)) && eaten == TRUE);
+    {
+        const ScopedWindow lock_owner(::CreateWindowExW(
+            0, L"STATIC", L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+        std::atomic<bool> locked{false};
+        std::atomic<bool> release{false};
+        std::jthread locker([&]() {
+            if (::OpenClipboard(lock_owner.Get())) {
+                locked.store(true);
+                locked.notify_all();
+                release.wait(false);
+                ::CloseClipboard();
+            }
+        });
+        locked.wait(false);
+        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyAddUserWord, &eaten)) && eaten == TRUE);
+        release.store(true);
+        release.notify_all();
+    }
 
     // Start composing again, then test mouse page-turn chevron click and candidate selection on CandidateUI
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);

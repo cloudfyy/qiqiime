@@ -390,3 +390,4 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 - [ ] **33. 98 版与其他编码方案（`additional-code-schemes`）**：评估码表、造词规则和用户词库隔离，避免仅替换主词库导致编码方案混用。
 - [ ] **34. 跨设备配置与词库同步（`cross-device-sync`）**：本地备份成熟后再评估账号或用户指定存储的同步，明确隐私授权、离线行为、冲突解决和服务维护成本；与现有本机跨进程同步区分。
 - [ ] **35. 皮肤扩展与附加工具（`optional-skins-tools`）**：评估可选皮肤、软键盘、输入统计及更新提示；截图、账号等级等非核心功能暂不列为必做，避免偏离轻量纯五笔定位。
+- [ ] **60. 调试模式与高频测试下的剪贴板打开失败专项排查（`clipboard-debug-failure-investigation`）**：专门排查 `Debug` 构建或连续高频剪贴板测试中 `::OpenClipboard` 偶发失败的原因（区分系统剪贴板历史/远程桌面/IDE 监听服务抢占、测试窗口消息队列残留 `WM_QUIT` 与代码自身问题），不盲目在 `ScopedClipboard` 中添加 `Sleep` 循环重试。

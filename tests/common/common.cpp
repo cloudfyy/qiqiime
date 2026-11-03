@@ -210,6 +210,12 @@ void TestEtwLogger() {
     static_assert(log::OpcodeTag(log::Opcode::Stop) == "stop");
     static_assert(log::OpcodeNameW(std::to_underlying(log::Opcode::Start)) == L"Start");
     static_assert(log::OpcodeNameW(99) == L"Info");
+    const uint8_t runtime_invalid_opcode = ::GetCurrentProcessId() != 0 ? uint8_t{99} : uint8_t{0};
+    const uint8_t runtime_stop_opcode =
+        ::GetCurrentProcessId() != 0 ? std::to_underlying(log::Opcode::Stop) : uint8_t{0};
+    QIQI_TEST_CHECK(log::NormalizeOpcode(static_cast<log::Opcode>(runtime_invalid_opcode)) == log::Opcode::Info);
+    QIQI_TEST_CHECK(log::OpcodeNameW(runtime_stop_opcode) == L"Stop");
+    log::ReportLoggingFailure();
 
     GUID ambient_before = GUID_NULL;
     QIQI_TEST_CHECK(::EventActivityIdControl(EVENT_ACTIVITY_CTRL_GET_ID, &ambient_before) == ERROR_SUCCESS);
@@ -264,6 +270,23 @@ void TestEtwLogger() {
     QIQI_TEST_CHECK(::GetLastError() == ERROR_SHARING_VIOLATION);
 
     // 4. Test GetAppDataDirectory fallback when LOCALAPPDATA is unset and explicit reinitialization.
+    {
+        const auto empty_file = std::filesystem::temp_directory_path() /
+            (L"qiqi_empty_read_" + std::to_wstring(::GetCurrentProcessId()) + L".txt");
+        const auto remove_empty = gsl::finally([&empty_file]() noexcept {
+            std::error_code ec;
+            std::filesystem::remove(empty_file, ec);
+        });
+        QIQI_TEST_CHECK(WriteFileAtomicallyResult(empty_file, {}) == S_OK);
+        std::string empty_content = "non-empty";
+        QIQI_TEST_CHECK(ReadFileToUtf8String(empty_file, empty_content) && empty_content.empty());
+        constexpr uint8_t dummy_byte = 0;
+        if constexpr (sizeof(size_t) > sizeof(DWORD)) {
+            const std::span<const uint8_t> oversize_span(&dummy_byte, static_cast<size_t>(MAXDWORD) + 1);
+            QIQI_TEST_CHECK(WriteFileAtomicallyResult(empty_file, oversize_span) == E_INVALIDARG);
+        }
+        QIQI_TEST_CHECK(WriteFileAtomicallyResult(empty_file / L"nested.txt", std::span(&dummy_byte, 1)) != S_OK);
+    }
     {
         wchar_t* orig_localappdata = nullptr;
         size_t orig_len = 0;

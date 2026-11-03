@@ -301,6 +301,14 @@ void TestBuffersAndFilters() {
     QIQI_TEST_CHECK(FormatShortGuid(GUID_NULL).empty() && FormatGuid(GUID_NULL).empty());
     QIQI_TEST_CHECK(FormatShortGuid(parent_act) == L"12345678");
     QIQI_TEST_CHECK(FormatGuid(parent_act) == L"{12345678-9abc-def0-1122-334455667788}");
+    QIQI_TEST_CHECK(LevelName(1) == L"Critical" && LevelName(3) == L"Warning" &&
+                    LevelName(5) == L"Verbose" && LevelName(99) == L"Level 99");
+    bool bad_limits = false;
+    try { EventBuffer invalid_buf(0, 1024); } catch (const std::invalid_argument&) { bad_limits = true; }
+    QIQI_TEST_CHECK(bad_limits);
+    bool bad_time = false;
+    try { std::ignore = FormatTime(std::numeric_limits<uint64_t>::max()); } catch (const std::runtime_error&) { bad_time = true; }
+    QIQI_TEST_CHECK(bad_time);
     QIQI_TEST_CHECK(filter.Matches(event));
     filter.process = L"CODE";
     filter.pid = 42;
@@ -329,6 +337,10 @@ void TestBuffersAndFilters() {
     QIQI_TEST_CHECK(exported.contains("\\tline\\nnext") &&
                     exported.contains("PID\tTID\tLevel\tCategory\tOpcode\tActivityId\tRelatedActivityId") &&
                     exported.contains("Composition\tStart\t{87654321-9abc-def0-1122-334455667788}\t{12345678-9abc-def0-1122-334455667788}"));
+    const auto entry_details = FormatEventEntry(event, L"");
+    QIQI_TEST_CHECK(entry_details.contains(L"Composition:Start") &&
+                    entry_details.contains(L"Activity={87654321-9abc-def0-1122-334455667788}") &&
+                    entry_details.contains(L"Related={12345678-9abc-def0-1122-334455667788}"));
     QIQI_TEST_CHECK(FormatTime(event.time).ends_with(L"Z"));
     auto second_event = MakeEvent(std::wstring(L"multi\0nul", 9));
     second_event.level = 2;
@@ -368,7 +380,8 @@ void TestExport() {
         std::error_code error;
         std::filesystem::remove(path, error);
     });
-    const auto bytes = ExportEvents({MakeEvent(L"中文\tline\nend\\")}, L"test");
+    const auto bytes = ExportEvents({MakeEvent(std::wstring(L"中文\0\r\tline\nend\\", 14))}, L"test");
+    QIQI_TEST_CHECK(bytes.contains("\\0\\r\\tline\\nend\\\\"));
     QIQI_TEST_CHECK(WriteExport(path.c_str(), bytes) == ERROR_SUCCESS);
     std::string content;
     QIQI_TEST_CHECK(ReadFileToUtf8String(path, content) && content == bytes);
@@ -396,6 +409,43 @@ void TestWindowAndVersion() {
     QIQI_TEST_CHECK(ListView_GetItemCount(list) >= 1);
     ListView_SetItemState(list, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
     QIQI_TEST_CHECK(::GetWindowTextLengthW(Child(window, Details)) > 0);
+    for (int col = 0; col < 7; ++col) {
+        std::array<wchar_t, 256> cell_buf{};
+        NMLVDISPINFOW disp{};
+        disp.hdr.hwndFrom = list;
+        disp.hdr.idFrom = gsl::narrow_cast<UINT_PTR>(std::to_underlying(List));
+        disp.hdr.code = LVN_GETDISPINFOW;
+        disp.item.mask = LVIF_TEXT;
+        disp.item.iItem = 0;
+        disp.item.iSubItem = col;
+        disp.item.pszText = cell_buf.data();
+        disp.item.cchTextMax = gsl::narrow_cast<int>(cell_buf.size());
+        ::SendMessageW(window.Handle(), WM_NOTIFY, disp.hdr.idFrom, reinterpret_cast<LPARAM>(&disp));
+        QIQI_TEST_CHECK(gsl::at(cell_buf, 0) != L'\0');
+    }
+    ::SendMessageW(Child(window, Process), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Process), CBN_SELCHANGE), 0);
+    ::SendMessageW(Child(window, Pid), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Pid), CBN_SELCHANGE), 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Pid), CBN_CLOSEUP), 0);
+    for (int col = 1; col <= 8; ++col) {
+        ::SendMessageW(Child(window, Category), CB_SETCURSEL, col, 0);
+        ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Category), CBN_SELCHANGE), 0);
+    }
+    ::SendMessageW(Child(window, Category), CB_SETCURSEL, 0, 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Category), CBN_SELCHANGE), 0);
+    ListView_SetItemState(list, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    {
+        const UINT_PTR cancel_menu_timer = ::SetTimer(window.Handle(), 3, 15, [](HWND owner, UINT, UINT_PTR id, DWORD) noexcept {
+            ::KillTimer(owner, id);
+            ::SendMessageW(owner, WM_CANCELMODE, 0, 0);
+        });
+        QIQI_TEST_CHECK(cancel_menu_timer != 0);
+        const auto kill_timer = gsl::finally([&window, cancel_menu_timer]() noexcept {
+            ::KillTimer(window.Handle(), cancel_menu_timer);
+        });
+        ::SendMessageW(window.Handle(), WM_CONTEXTMENU, reinterpret_cast<WPARAM>(list), MAKELPARAM(-1, -1));
+    }
     ::SetWindowTextW(Child(window, Search), L"initialized");
     QIQI_TEST_CHECK(ListView_GetNextItem(list, -1, LVNI_SELECTED) == 0);
     SetProcessFilter(window, L"missing-process");
@@ -480,6 +530,7 @@ void TestDetailsSplitter(const MonitorWindow& window) {
         QIQI_TEST_CHECK(::GetCapture() != splitter);
     };
     ::ShowWindow(window.Handle(), SW_SHOWNOACTIVATE);
+    QIQI_TEST_CHECK(::SendMessageW(splitter, WM_GETDLGCODE, 0, 0) == DLGC_WANTARROWS);
     ::SendMessageW(splitter, WM_SETCURSOR, reinterpret_cast<WPARAM>(splitter), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
     QIQI_TEST_CHECK(::GetCursor() == ::LoadCursorW(nullptr, IDC_SIZENS));
     drag(-ScalePxByDpi(50, dpi));
