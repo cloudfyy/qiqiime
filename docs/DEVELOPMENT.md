@@ -9,9 +9,9 @@
 | 工具 / 组件 | 版本与配置要求 |
 |---|---|
 | **操作系统** | Windows 10（1809+）或 Windows 11 (`x64`) |
-| **Visual Studio / MSVC** | Visual Studio 2026 或 Visual Studio 2022（17.10+），安装 **“使用 C++ 的桌面开发”** 工作负载，包含 MSVC `x64` 与 `x86` 编译器及 C++ 核心功能检查工具（`CppCoreCheck`，开启 `/std:c++latest` C++26 草案模式） |
+| **Visual Studio / MSVC** | 默认预设使用 Visual Studio 2026，安装 **“使用 C++ 的桌面开发”** 工作负载、MSVC `x64/x86` 编译器与 `CppCoreCheck`；项目使用 `/std:c++latest` 草案模式，不表示完整实现 C++26。VS 2022 等其他版本需选择相应生成器并验证实际代码兼容性 |
 | **Windows SDK** | Windows 10 / 11 SDK（`10.0.22621.0` 或 `10.0.26100.0` 及以上，提供 `<msctf.h>`、`<ctffunc.h>`、`<d2d1.h>`、`<dwrite.h>`） |
-| **CMake** | CMake `3.25` 或更高版本 |
+| **CMake** | 项目配置最低 `3.25`；默认 VS 2026 预设需要 **`4.2` 或更高版本**（[生成器要求](https://cmake.org/cmake/help/latest/generator/Visual%20Studio%2018%202026.html)） |
 | **vcpkg** | Visual Studio 内置 vcpkg 或通过 `VCPKG_ROOT` 环境变量指定（Manifest 模式自动安装 `ms-gsl`） |
 | **PowerShell** | Windows PowerShell 5.1 或 PowerShell 7+（用于运行构建、注册与打包脚本） |
 | **WiX Toolset（可选）** | .NET SDK 8.0+ 与 WiX CLI v4/v7+（`dotnet tool install --global wix`，用于生成 `.msi` 安装包） |
@@ -30,7 +30,7 @@ qiqiime/
 ├── vcpkg-configuration.json    # vcpkg 注册表基线配置
 ├── data/
 │   ├── wubi86_jidian.txt       # 极点 86 五笔核心主词库（Apache-2.0，77,169 编码 / 89,254 词条）
-│   ├── wubi86_jidian_extra.txt # 极点 86 五笔现代扩展词库（Apache-2.0，2,100 编码 / 2,216 词条）
+│   ├── wubi86_jidian_extra.txt # 极点 86 五笔现代扩展词库（Apache-2.0，2,098 编码 / 2,216 编码-词语条目）
 │   └── wubi86_haifeng.txt      # 海峰 86 五笔超大字符集词库（BSD-3-Clause，100,051 编码 / 144,374 词条）
 ├── docs/
 │   ├── ARCHITECTURE.md         # 【架构文档】分层架构、TSF 生命周期、状态机、内存映射与安全模型
@@ -58,7 +58,7 @@ qiqiime/
 │   │   ├── guids.h             # CLSID、Profile GUID、窗口类名常量
 │   │   ├── i18n.h              # 中英文及跟随系统的界面文案
 │   │   ├── logger.h/.cpp       # Windows ETW TraceLogging 日志
-│   │   ├── scoped_handle.h     # 泛型零开销 RAII 句柄模板
+│   │   ├── scoped_handle.h     # 类型化 RAII 句柄模板
 │   │   └── ...                 # 文件、DPI、音效、主题、版本模板等公共代码
 │   ├── ime/                   # 输入法
 │   │   ├── CMakeLists.txt      # qiqi_engine 静态库及 qiqiime.dll 构建
@@ -139,12 +139,14 @@ ctest --preset x86-release --output-on-failure
 ```
 
 构建产物位于 `build\<x64|x86>\Release\`：
-- `qiqiime.dll`：TSF 输入法核心组件（`x64` 约 652 KB，`x86` 约 580 KB）
+- `qiqiime.dll`：TSF 输入法核心组件；大小随版本、架构及构建选项变化
 - `QiQiIMESettings.exe`：独立设置工具
+- `QiQiIMELogMonitor.exe`：独立实时 ETW 日志监控工具
 - `qiqi_common_test.exe`：公共基础模块与共享 D2D 控件测试（`QiQiCommonTest`）
 - `qiqi_engine_test.exe`：五笔核心引擎测试（`QiQiEngineTest`）
-- `qiqi_tsf_ui_test.exe`：TSF COM 服务与 IME UI 测试（`QiQiTsfUiTest`）
+- `qiqi_tsf_ui_test.exe`：TSF COM 服务与 IME UI 测试（`QiQiTsfUiTest`）；`--etw-integration` 模式另注册为 `QiQiEtwIntegrationTest`
 - `qiqi_settings_test.exe`：设置 / 关于窗口及配置边界测试（`QiQiSettingsTest`）
+- `qiqi_log_monitor_test.exe`：监控器测试（`QiQiLogMonitorTest`）；`--integration` 模式另注册为 `QiQiLogMonitorIntegrationTest`
 
 ---
 
@@ -156,7 +158,7 @@ ETW 集成测试仍要求零丢失，不通过放宽断言掩盖采集失败；�
 
 模态退出测试先移除较高优先级的排队消息再检查 `WM_QUIT`：该消息按低优先级合成，仅筛选 `WM_QUIT` 的 `PeekMessage` 可能暂时取不到；回归用例固定排入 `WM_APP` 后验证退出码。公共 ETW 写入测试注入成功、内存不足、事件过大及拒绝访问，验证实际错误码、非递归诊断及调用线程错误状态保留。
 
-项目遵循 **C++ Core Guidelines**，使用 `gsl::span`、`gsl::not_null`、`gsl::narrow_cast`、`gsl::at`、`gsl::finally` 及 `ScopedHandle<Traits>` RAII 模板。`lint` target 使用 MSVC CppCoreCheck 检查 C++ Core Guidelines 与 GSL 规则，并使用 PSScriptAnalyzer 检查 `scripts/` 下的 PowerShell 脚本。C++ 检查覆盖公共库、引擎、设置界面、输入法、设置程序及测试目标；按既有规则排除 C26490，并以 435 条去重后的其他 CppCoreCheck 诊断作为当前基线，新增诊断会使 lint 失败。基线应在逐步修复旧告警后下调。
+项目以 **C++ Core Guidelines** 为代码规范，使用 `std::span`、`gsl::not_null`、`gsl::narrow_cast`、`gsl::at`、`gsl::finally` 及 `ScopedHandle<Traits>` RAII 模板；不把采用这些工具等同于所有代码已经完全合规。`lint` target 使用 MSVC CppCoreCheck 检查 C++ Core Guidelines 与 GSL 规则，并使用 PSScriptAnalyzer 检查 `scripts/` 下的 PowerShell 脚本。C++ 检查覆盖公共库、引擎、设置界面、输入法、设置程序及测试目标；按既有规则排除 C26490，并以 435 条去重后的其他 CppCoreCheck 诊断作为当前基线，新增诊断会使 lint 失败。基线应在逐步修复旧告警后下调。
 
 安装 PSScriptAnalyzer 后，可从已配置的 Visual Studio CMake 构建目录运行：
 
@@ -195,7 +197,7 @@ cmake --build build\x64 --config Release --target lint
 - 已检查生产代码中的失败日志、COM 返回值、文件/注册表读写及异常兜底，覆盖 `common`、IME 引擎、TSF、候选窗/语言栏/状态条、设置程序及安装/构建脚本；测试与第三方依赖仅作为验证依据，未修改第三方代码。
 - 修复实际 HRESULT 漏报、ETW 注册错误判断、注册表/文件读写及缓存映射错误码缺失、回调异常吞错，以及设置程序单实例互斥量失败；构建脚本补充阶段/架构/退出码诊断。保留可选能力失败后的原有回退，COM CLSID 必需值写入失败不再报告注册成功。
 - 失败注入覆盖函数提供程序及语言栏部分成功、注册失败、注销失败、重复停用和再次激活；公共日志测试覆盖成功/异步 HRESULT 与错误码保留；配置、文件、词库、设置及绘制由现有回归测试覆盖。
-- 任务 48 的保留键所有权策略、任务 52 的进程词库缓存策略、任务 53 的 DLL 生命周期与任务 42–47 的异步生命周期处理仍独立待办；审计阶段只补失败诊断，任务 51 的共享日志问题后来与任务 55 一并修复。
+- 本节记录任务 49 当时的审计范围，仅补失败诊断。任务 48、52、53 及 42–46 后续已完成对应实现与自动化验证，任务 51 的共享日志问题与任务 55 一并修复；任务 47 的真实宿主验收仍未完成，已有阶段性反馈见[实测记录](TSF_REAL_HOST_TESTS.md)。
 - 验证：x64/x86 Release 构建及各 4 组 CTest 全部通过，`lint` 的 CppCoreCheck 与 PSScriptAnalyzer 通过；模拟 CMake 返回 37，确认构建脚本输出阶段、架构和错误码并保留退出码。首次 x64 窗口交互测试失败且后续设置测试未结束，停止该测试进程后，TSF/UI 隔离重跑与最终全套重跑均通过；此记录不等同于已修复窗口交互测试的偶发性问题。
 
 ### 5.4 日志初始化与生命周期验证（任务 55、51）
@@ -237,7 +239,7 @@ cmake --build build\x64 --config Release --target lint
 - 只读、断开、请求拒绝及宿主范围/属性/结束 API 失败都记录实际 HRESULT，不无限重试或强行越过权限。读会话内升级写权限也不能假定异步就会成功。属性或范围清理失败不阻止在有效权限下尝试结束组合；停用返回 `S_OK` 或排队返回 `TF_S_ASYNC` 都不等于宿主清理已成功。这些不可恢复情形可能保留宿主组合/属性，应从诊断识别，不宣称所有宿主都能结束。
 - [`Mock 回归测试`](../tests/ime/tsf/service_lifecycle.cpp) 覆盖同步和异步 flags、保留文字、失败注入、重复停用、部分激活失败回滚、清理期间重入、旧组合通知、异步请求失败/断开、同一上下文重新激活及宿主提前终止；断言旧回调不调用 UI、不误清新属性，并检查释放外部服务引用后清理仍可完成、COM 对象计数恢复。
 - 同一测试建立真实 Windows TSF 管理器及私有文档，使用 `TF_TMAE_NOACTIVATETIP` 禁止激活系统 TIP，不切换用户焦点。通过真实布局通知触发同步拒绝，验证通知内组合仍存在、通知返回后异步清理完成；枚举宿主组合和属性范围，断言保留文本、`GUID_PROP_COMPOSING` 与 `GUID_PROP_ATTRIBUTE` 消失。另验证立即重新激活后旧清理先于新写入，新的组合范围仅含新文字且属性保留；以有界消息泵等待真实异步处理，不用 `Sleep`。
-- 真实 TSF 文档验证不同于 ETW 日志采集，不替代浏览器/UWP 实际宿主验证；任务 41 的窗口销毁仍独立待办，任务 45 的文档/上下文栈处理见下文 5.8。
+- 真实 TSF 文档验证不同于 ETW 日志采集，不替代浏览器/UWP 实际宿主验证；任务 41 的窗口销毁后续已由 5.10 完成，任务 45 的文档/上下文栈处理见下文 5.8。
 - 验证：x64/x86 Release 的 `QiQiTsfUiTest`（含上述真实 TSF 文档测试）、`QiQiEtwIntegrationTest` 均通过，未跳过；定向 CppCoreCheck 修复新增非空类型约束并复用现有 VARIANT 初始化帮助函数后无新增告警。清理请求完成和被调度器放弃两条路径均检查 COM 对象计数恢复。
 
 ### 5.8 文档及上下文生命周期（任务 45）
@@ -249,7 +251,7 @@ cmake --build build\x64 --config Release --target lint
 - Mock 验证延迟写入/布局、非空文档切换、模态入栈/出栈、无关通知、移除前断开、范围查询失败与重入、A→B→A 异步顺序、已排队清理的 context 被移除及 COM 对象计数恢复。原测试中的伪文档地址改为实际 Mock 对象。自有调试子进程校验实际输出的模态保留和非当前出栈字段。
 - 真实 Windows TSF 私有文档通过实际事件订阅转发 Push/Pop/Uninit 通知，验证主组合跨模态 Push/Pop 保留、非空文档切换时旧属性/组合清除且文字保留、新文档组合独立、全部出栈时结束 UI；不调用原生 `SetFocus` 或激活系统 TIP，不假定通知顺序。
 - 另覆盖清理范围查询期间重入出栈/解除初始化：移除标记先于新编辑请求，既不清属性也不调用结束 API；焦点处理使用独立 revision，普通 context 移除不吞掉失焦隐藏动作，较新的重入焦点通知则取代旧动作。
-- 验证：x64/x86 Release 的 `QiQiTsfUiTest`、`QiQiEtwIntegrationTest` 均通过，未跳过；定向 CppCoreCheck 修复新增构造分配/noexcept 诊断后无新增告警。首次运行遇到旧测试伪文档地址访问异常，替换为实际 Mock 文档后双架构全部通过。窗口销毁与真实浏览器/UWP 验证仍由任务 41、47 处理。
+- 验证：x64/x86 Release 的 `QiQiTsfUiTest`、`QiQiEtwIntegrationTest` 均通过，未跳过；定向 CppCoreCheck 修复新增构造分配/noexcept 诊断后无新增告警。首次运行遇到旧测试伪文档地址访问异常，替换为实际 Mock 文档后双架构全部通过。窗口销毁后续由任务 41 完成；真实浏览器/UWP 验收仍由任务 47 跟进。
 
 #### 0.9.19 提交后的覆盖复核
 
@@ -257,7 +259,7 @@ cmake --build build\x64 --config Release --target lint
 - 新回归先复现了一个实际缺口：`GetDocumentMgr` 重入移除目标时，目标尚未写入 `active_context_`，原来的布尔绑定保护无法识别该目标，返回后仍会绑定并写入。绑定保护改为持有待绑定 context，匹配出栈立即失效周期；外层不消费按键、不订阅、不申请编辑权限，无关移除不受影响。
 - 使用独立服务和隔离的状态栏配置检查真实窗口可见性：普通出栈不应吞掉失焦隐藏动作；较新的重入得焦优先于旧失焦；文档查询期间失焦不应被旧外层通知重新显示。
 - 前次 x86 验证中 Shift 轻触断言曾偶发失败，隔离重跑通过；现将线程键盘状态复位移到该序列之前，减少此前消息泵带来的环境状态干扰。未改变生产的 350 ms 限制、未增加盲目重试，也未确认该次失败的唯一根因；测试仍依赖实际调度。
-- 此次按行为/分支复核，不报告未测量的覆盖率，也不替代任务 41、46、47 的窗口销毁、完整矩阵及真实宿主验证。
+- 此次按行为/分支复核，不报告未测量的覆盖率。窗口销毁和完整回归矩阵后续分别由任务 41、46 补齐；自动化结果仍不替代任务 47 的真实宿主验证。
 - 最终验证：x64/x86 Release 的 `QiQiTsfUiTest` 各连续通过 3 次，`QiQiEtwIntegrationTest` 双架构均通过且未跳过；生产/测试目标执行 CppCoreCheck，修复新增 const/noexcept 诊断后仅保留既有告警。
 
 #### 生命周期与 FSM 边界
@@ -276,7 +278,7 @@ cmake --build build\x64 --config Release --target lint
 - 回归使用真实 HWND 与销毁消息验证顺序和线程，不以可见性代替销毁：覆盖外部引用、重复停用、激活失败回滚、再次激活后的菜单/选词回调、旧异步写入/布局/清理、UILess、宿主 Begin/End 重入、最终服务释放后保留的 UI，以及独立 UI 的跨线程拒绝与销毁重建。
 - Begin/End 重入时切换到另一个 manager，并故意复用相同数值的 UI ID，验证旧注销仅作用于旧 manager、新窗口不被隐藏。独立用例显式保存、清理并恢复线程键盘状态，避免先前消息泵带入的环境状态影响普通按键断言；未改变生产按键规则。
 - 最终验证：x64/x86 Release 的 `QiQiTsfUiTest` 与 `QiQiEtwIntegrationTest` 各连续通过 2 次、均未跳过；双架构构建与定向 CppCoreCheck 通过，修正新增向下转换诊断后仅保留既有告警，`git diff --check` 通过。
-- 生命周期契约、诊断字段与验证边界见英文[设计文档](TSF_COMPOSITION_LIFECYCLE.md)。完整回归矩阵见下节；任务 47 的真实宿主验证仍独立待办。
+- 生命周期契约、诊断字段与验证边界见英文[设计文档](TSF_COMPOSITION_LIFECYCLE.md)。完整回归矩阵见下节；任务 47 已有[阶段性人工反馈](TSF_REAL_HOST_TESTS.md)，但完整验收仍未完成。
 
 ### 5.9 生命周期回归矩阵（任务 46）
 

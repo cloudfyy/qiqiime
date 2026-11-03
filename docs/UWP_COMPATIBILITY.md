@@ -1,86 +1,69 @@
-# 奇奇五笔输入法 (QiQiIME) UWP / AppContainer 兼容性分析与设计方案
+# 奇奇五笔输入法 (QiQiIME) UWP / AppContainer 当前实现与验证边界
 
 ## 1. 背景概述
 
-Windows 10 / 11 中的现代应用（UWP 应用、部分 MSIX 打包应用、Windows 系统内置组件如搜索框/设置/便笺、以及开启了 AppContainer 沙箱的浏览器子进程）运行在 **AppContainer 低完整性沙箱（Low Integrity / AppContainer Token）** 中。
+Windows 10 / 11 的部分应用进程运行在 AppContainer 中。不能仅凭 Microsoft Store 来源、MSIX 打包、应用名称或低完整性级别认定某个进程属于 AppContainer；应检查实际承载输入法的进程令牌和宿主条件。
 
-由于 TSF（Text Services Framework）采用**进程内 COM 组件（In-Process Server）**架构，当用户在 UWP 应用中切换到奇奇五笔时，Windows 会将 `qiqiime.dll` 直接加载进该 UWP 应用的沙箱进程空间中执行。因此，`qiqiime.dll` 中的所有文件 I/O、内存映射、配置读取、词库加载与进程间通知都必须遵循 AppContainer 的安全边界。
+QiQiIME 是 TSF 进程内 COM 组件。在允许加载该输入法的宿主中，`qiqiime.dll` 遵循承载进程的访问权限；文件、注册表、内存映射和通知接口不能绕过宿主的安全边界。以下区分已实现机制、访问失败时的回退和仍需实测的兼容范围，不把机制存在等同于所有沙箱可用。
 
 ---
 
 ## 2. 当前架构与 UWP 兼容现状评估
 
-### 2.1 已兼容的部分 ✅
+### 2.1 已实现机制（不等于全面兼容）
 
-| 模块 | 代码位置 | 兼容状态 | 技术原因 |
-| :--- | :--- | :--- | :--- |
-| **TSF 类别声明** | [`src/ime/tsf/register.cpp`](../src/ime/tsf/register.cpp) | ✅ 已兼容 | 注册了 `GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT` 与 `GUID_TFCAT_TIPCAP_COMLESS`，允许 Windows 在 Immersive / UWP 进程中激活输入法。 |
-| **只读匿名内存映射 (`MapViewOfFile`)** | [`src/ime/engine/binary_dict.cpp`](../src/ime/engine/binary_dict.cpp) | ✅ 已兼容 | `WubiMappedDict::OpenMappedFile` 使用 `GENERIC_READ`、`FILE_SHARE_READ`、`PAGE_READONLY` 且 `lpName = nullptr`（匿名内核映射对象）。AppContainer 仅禁止跨沙箱访问命名内核对象，对已打开文件句柄创建匿名只读映射完全放行，且多个进程仍可在 Windows 内核物理页缓存（Section Object）层面共享同一份物理内存页。 |
-| **内存映射失败兜底** | [`src/ime/engine/binary_dict.cpp`](../src/ime/engine/binary_dict.cpp) | ✅ 已兼容 | 若极端受限沙箱拒绝 `CreateFileMappingW`，会自动退化到进程内的 `fallback_buffer_`（`std::vector<uint8_t>`），保证输入法绝不崩溃或丢词。 |
-| **日志降级保护** | [`src/common/logger.cpp`](../src/common/logger.cpp) | ✅ 已兼容 | `CreateLoggerInternal` 对日志文件打开失败做了 `try/catch` 静默忽略并退化到 `null_sink_mt`，不会因沙箱无写权限而抛出未捕获异常。 |
-| **MSI 安装目录读取** | [`installer/QiQiIME.wxs`](../installer/QiQiIME.wxs) | ✅ 已兼容 | 正式安装路径 `C:\Program Files\QiQiIME` 继承了系统 `Program Files` 默认的 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 读取与执行（`RX`）权限，UWP 进程可正常加载 `qiqiime.dll` 并读取 `data\*.txt` 原始词库。 |
-
----
-
-### 2.2 当前存在的不兼容痛点 ⚠️
-
-#### 痛点 1：UWP 进程的 `%LOCALAPPDATA%` 被重定向，文件数据与桌面进程隔离
-- **现状**：[`GetAppDataDirectory()`](../src/common/file_util.cpp) 通过 `GetEnvironmentVariableW(L"LOCALAPPDATA", ...)` 解析路径，用于存放：
-  - 用户自造词库：`%LOCALAPPDATA%\QiQiIME\user_dict.txt`
-  - 编译后的二进制词库缓存：`%LOCALAPPDATA%\QiQiIME\cache\*.qdict`
-- **配置例外**：用户设置保存在 `HKCU\Software\QiQiIME`，注册表键为 `ALL APPLICATION PACKAGES` 与 `ALL RESTRICTED APPLICATION PACKAGES` 授予 `KEY_READ` 权限；配置键创建后，UWP 与桌面进程可读取同一份设置。设置程序保存后还会通过 TSF Global Compartment 通知运行中的实例重新加载。
-- **UWP 沙箱行为**：
-  1. **环境变量隔离**：在 AppContainer 进程内，`LOCALAPPDATA` 被重定向至该 UWP 包的私有目录：
-     `C:\Users\<User>\AppData\Local\Packages\<PackageFamilyName>\AC\...` 或 `LocalState`。
-  2. **DACL 权限拦截**：即使计算出真实用户的 `C:\Users\<User>\AppData\Local\QiQiIME` 路径，Windows 默认的用户目录 ACL 通常不允许 AppContainer 访问该目录下的文件。
-- **实际影响**：
-  - 注册表配置在 UWP 与桌面进程间共享；用户词库文本文件及缓存仍受文件沙箱隔离。
-  - 桌面进程写入注册表的用户词库二进制副本可供 UWP 读取；AppContainer 仅有注册表只读权限，因此在 UWP 中新增的词条无法写回该共享副本。
-
-#### 痛点 2：`.qdict` 二进制词库缓存无法被 UWP 直接复用
-- **现状**：[`GetCacheFilePath()`](../src/ime/engine/binary_dict.cpp) 优先查找词库文本文件同级目录的 `.qdict`（即 `C:\Program Files\QiQiIME\data\wubi86_jidian.qdict`）；若不存在，则退回到 `%LOCALAPPDATA%\QiQiIME\cache\wubi86_jidian.qdict`。
-- **问题**：
-  - 当前安装包只打包了 `.txt` 码表，未预生成 `data\*.qdict`；
-  - 普通进程无权往 `C:\Program Files\QiQiIME\data\` 写入 `.qdict`，因此缓存生成在真实用户的 `%LOCALAPPDATA%\QiQiIME\cache\` 下；
-  - 由于痛点 1 的隔离，每个 UWP 应用既没有现成的 `Program Files\...\*.qdict` 可映射，也读不到真实用户的 `%LOCALAPPDATA%\QiQiIME\cache\*.qdict`，只能在各自沙箱内各自重新解析 `.txt` 并编译一份私有 `.qdict`。
-
-#### 痛点 3：开发目录注册（`scripts/register_ime.ps1`）缺少 AppContainer 读取权限
-- **现状**：开发调试阶段直接从 `C:\sample\qiqiime\build\x64\Release\qiqiime.dll` 注册 COM 组件。
-- **问题**：普通工作区目录默认没有 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 的 `RX` 权限，导致开发模式下 UWP 应用无法加载 `qiqiime.dll`（表现为在 UWP 应用中切到奇奇五笔无响应或回退英文）。
-
-#### 痛点 4：基于 `FindWindowExW` 的 Win32 窗口广播受限于 UIPI 与窗口创建状态
-- **现状**：`NotifyAllStatusBarWindowsConfigChanged` 通过 `FindWindowExW` 枚举顶层窗口并发送 `PostMessageW(hwnd, kConfigChangedBroadcastMsg, ...)`。
-- **问题**：不仅未开启浮动状态条的进程收不到通知，而且 AppContainer 进程向普通 Medium Integrity 进程发送自定义窗口消息会被 UIPI（用户界面特权隔离）拦截。
-- **正统替代**：改用 Windows TSF 原生的 **`ITfThreadMgr::GetGlobalCompartment()` + `ITfCompartmentEventSink`**（由系统 `ctfmon.exe` 跨完整性级别中转），彻底移除自定义 Win32 窗口广播与 UIPI 依赖。
+| 模块 | 代码位置 | 当前机制与边界 |
+| :--- | :--- | :--- |
+| **TSF 类别声明** | [`register.cpp`](../src/ime/tsf/register.cpp) | 声明 `GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT` 与 `GUID_TFCAT_TIPCAP_COMLESS`；实际激活仍取决于宿主支持、注册状态和 DLL 访问权限。 |
+| **只读匿名文件映射** | [`binary_dict.cpp`](../src/ime/engine/binary_dict.cpp) | 以 `GENERIC_READ`、`FILE_SHARE_READ \| FILE_SHARE_DELETE` 打开文件，创建 `PAGE_READONLY` 匿名映射；这些标志不授予额外文件访问权，也不保证映射一定成功。 |
+| **内存缓冲回退** | [`binary_dict.cpp`](../src/ime/engine/binary_dict.cpp) | 文本读取及二进制编译成功、但缓存无法映射时，可保留堆内存中的 `fallback_buffer_`。源文件不可读、编译失败或内存不足时仍可能加载失败，不保证零堆占用或绝不丢失词库能力。 |
+| **ETW 日志** | [`logger.cpp`](../src/common/logger.cpp) | 使用 `QiQiIME.TraceLogging`，不依赖 spdlog 或自动写入文本日志。注册/写入可能失败，按实际错误码诊断；采集控制权限与宿主写事件权限不能混为一谈。 |
+| **注册期词库预编译** | [`register.cpp`](../src/ime/tsf/register.cpp) | 注册时尝试为三套随包词库生成同目录 `.qdict`，卸载注册时尝试清理；源文件或权限问题可能导致预编译失败。 |
+| **开发目录读取权限** | [`register_ime.ps1`](../scripts/register_ime.ps1)、[`common.ps1`](../scripts/common.ps1) | 注册脚本已对所需产物及数据目录配置应用包读取/执行权限；结果应检查实际 ACL，不能因位于 `Program Files` 就假定任何宿主均可访问。 |
 
 ---
 
-## 3. 完整解决方案设计（Windows 官方正统架构）
+### 2.2 访问限制与失败边界
 
-遵循微软官方 TSF 输入法（如 Microsoft Wubi / Pinyin）在 Windows 10/11 下的安全最佳实践，**绝不使用“字符串截取路径硬穿 AppContainer 沙箱目录”或“放宽用户 `%LOCALAPPDATA%` 文件夹 ACL”的非标做法**，而是采用以下 4 个正统、零解耦依赖的子任务：
+#### 用户文件与注册表镜像
+- [`GetAppDataDirectory()`](../src/common/file_util.cpp) 从当前进程的 `LOCALAPPDATA` 解析用户数据路径。应用包、进程令牌和重定向机制可能影响实际路径与访问结果，不能固定推导为某个包的 `AC` 或 `LocalState` 目录。
+- 普通桌面进程通常使用 `%LOCALAPPDATA%\QiQiIME\user_dict.txt`、`phrase_freq.txt` 与 `cache\`；这不意味着 AppContainer 能访问同一目录，也不应通过开放整个用户目录权限解决。
+- [`config.cpp`](../src/common/config.cpp) 将设置保存在 `HKCU\Software\QiQiIME`，并尝试为 `S-1-15-2-1` 与 `S-1-15-2-2` 授予 `KEY_READ`。实际访问仍受令牌、有效 ACL 和系统策略约束；该读取授权不等于允许应用包写回共享设置。
+- 在线造词写入默认用户词表后，会尝试编译二进制镜像并写入注册表 `UserDictQdict`，镜像上限为 **512 KiB**。文件追加、缓存生成与注册表事务不是一个跨资源事务，不能保证三者同时成功。
+- 默认用户词表不存在时，[`LoadExternalDictionaryNextToDll`](../src/ime/tsf/tip_config.cpp) 才尝试读取注册表镜像；指定自定义用户词库路径时不走这一缺失文件回退。不能据此承诺所有沙箱中的用户词库实时双向同步。
 
-### 3.1 子任务 1 (`uwp-etw-tracelogging`)：基于 Windows ETW (`TraceLoggingProvider.h`) 的跨沙箱内核级诊断
-- **原理**：使用 Windows SDK 原生无清单 ETW（`<TraceLoggingProvider.h>`）注册 `QiQiIME.TraceLogging` Provider。
-- **优势**：
-  1. **全沙箱免权限**：ETW 直接通过内核态句柄写入事件缓冲，在任何 UWP AppContainer、浏览器低完整性进程（Low Integrity）中 100% 正常工作，无需任何文件写入权限。
-  2. **未开启时零开销**：`TraceLoggingWrite` 先检查内核共享页中的 `TraceLoggingProviderEnabled` 位，未开启收集时仅有一条 `cmp` 指令（0 纳秒开销，不执行格式化）。
-  3. **统一汇总**：所有 Win32 与 UWP 进程的日志与 `[KeyTrace]` 按键诊断可通过 `wpr` / `PerfView` 或 `QiQiIMESettings.exe` 统一实时捕获。
+#### 缓存选择与内存占用
+- 加载器先尝试词库旁的 `.qdict`，再尝试当前进程用户缓存目录；还会校验缓存格式及源文件大小/时间戳，不是只要文件存在就复用。
+- 注册期生成且可读取的有效缓存可减少运行时文本解析和缓存写出。加载器仍会探测、尝试创建本地缓存目录，因此不宣称“沙箱内没有任何写入尝试”。
+- 缓存缺失或过期时，尝试解析文本、写出缓存并重新映射；无法映射时才使用可用的二进制内存缓冲。读取、写入、映射和缓冲分配都有各自失败条件。
+- 同一模块内的引擎实例复用进程词库缓存；不同进程仍有独立对象和堆内存。只读文件映射可由系统按需分页并共享底层文件页，不等于零私有堆或零工作集。
 
-### 3.2 子任务 2 (`uwp-prebuild-qdict-mmap`)：预编译 `data\*.qdict` 实现 AppContainer 零写入只读内存映射
-- **原理**：
-  - 在 `RegisterServerWithManagers` 注册阶段直接将 `data\wubi86_jidian.txt`、`wubi86_jidian_extra.txt`、`wubi86_haifeng.txt` 预编译为同目录下的 `.qdict` 二进制映像（`UnregisterServerWithManagers` 卸载时自动清理）。
-  - `C:\Program Files` 天然具备 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 的只读映射权限，UWP AppContainer 进程通过 `GetModuleFileNameW(g_dll_instance)` 直接 `MapViewOfFile` 只读映射 `data\*.qdict`，无需向 `%LOCALAPPDATA%` 写任何缓存文件（关于多进程词库并发热替换与实时同步机制详见 [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) 2.6 与 2.8 节）。
+#### 配置通知与跨进程文件同步
+- 当前实现已经使用 `ITfThreadMgr::GetGlobalCompartment` 与 `ITfCompartmentEventSink`，不再以旧的状态栏窗口广播作为配置通知方案。
+- 配置保存后递增注册表序列并发送 Global Compartment 通知，运行中的实例在通知或焦点检查时按需重载。通知可能失败，不能保证所有进程立即或零延迟更新。
+- 任意编辑词库/词频文件的统一跨进程变更检测与并发写入协调仍属于[任务 39、40](ARCHITECTURE.md)，不能将配置通知等同于这两项已经完成。
 
-### 3.3 子任务 3 (`uwp-hkcu-registry-config`)：通过 `HKCU\Software\QiQiIME` 注册表镜像向 UWP 沙箱共享配置与自造词
-- **原理**：
-  - 将 `QiQiConfig` 与用户自造词数据镜像存储在 `HKCU\Software\QiQiIME` 注册表项下，并为该注册表项设置 `ALL APPLICATION PACKAGES (S-1-15-2-1)` 与 `S-1-15-2-2` 的只读（`KEY_READ`）DACL。
-  - 普通桌面进程或 `QiQiIMESettings.exe` 保存配置/造词时，同时更新本地文件与 `HKCU\Software\QiQiIME`（并通过 TSF Global Compartment 推送变更通知）。
-- **优势**：
-  - UWP AppContainer 进程无需访问 `%LOCALAPPDATA%` 文件夹，直接通过 `RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\QiQiIME", 0, KEY_READ, ...)` 在微秒级（~5 μs）内读取最新配置与用户自造词。
+#### 日志权限与生命周期
+- Provider 在正常入口显式初始化，不在 `DllMain` 初始化；服务停用不注销，按模块生命周期清理。日志宏及注册状态查询不隐式初始化。
+- 没有接收方或相关级别关闭时跳过消息格式化，但仍有状态检查成本；没有“0 纳秒”或单条指令开销的测量依据。
+- 使用 [`QiQiIMELogMonitor.exe` 或 ETW 工具](LOGGING.md)采集；`QiQiIMESettings.exe` 不是实时日志查看器。注册失败、事件写入失败、采集权限和丢失计数必须分别检查，不保证任意 AppContainer 都能输出或被采集。
 
-### 3.4 子任务 4 (`uwp-dev-script-acl`)：开发注册脚本自动授予 AppContainer 读取执行权限
-- 在 [`scripts/register_ime.ps1`](../scripts/register_ime.ps1) 中自动对构建产物目录及 `data\` 目录执行：
-  ```powershell
-  icacls $targetDir /grant "*S-1-15-2-1:(OI)(CI)(RX)" /Q
-  ```
-  使开发者无需打包安装 MSI 即可直接在 Windows 11 便笺、设置、UWP 应用中调试奇奇五笔。
+---
+
+## 3. 验证流程与尚未覆盖的范围
+
+1. 记录实际宿主名称、版本、PID、进程架构及是否属于 AppContainer，不以 Microsoft Store 来源代替令牌验证。
+2. 确认宿主实际加载的 DLL 版本与注册路径；检查 DLL、工具和词库目录的有效读取/执行权限，以及注册阶段预编译缓存的结果。
+3. 分别验证主/扩展词库加载、默认用户词表缺失时的注册表镜像回退、配置读取与变更通知；区分读取成功与写回成功。
+4. 按[真实宿主测试步骤](TSF_REAL_HOST_TESTS.md)验证组合、失焦、停用、重新激活及候选清理，记录实际日志与未覆盖分支。没有事件不能判为正常，Mock 或私有 TSF 文档成功也不替代宿主测试。
+
+2026-11-03 已记录部分桌面宿主及 Microsoft Store 应用的人工反馈，但商店应用身份、版本、控件类型和完整重复次数未补齐；详见[结果记录](TSF_REAL_HOST_TESTS.md#8-2026-11-03-人工测试结果)。不据此宣布所有 UWP、MSIX、浏览器沙箱或游戏兼容。
+
+密码框、只读控件及游戏非聊天场景的识别仍属于[任务 36](ARCHITECTURE.md)，现有 compartment 检查不代表这些场景已全面覆盖。词库镜像及日志路径也可能含有用户数据，分享诊断前须检查并脱敏，不记录密码或输入正文。
+
+## 4. 参考资料
+
+- [Microsoft：AppContainer isolation](https://learn.microsoft.com/en-us/windows/win32/secauthz/appcontainer-isolation)
+- [部署与运行数据目录](DEPLOYMENT.md)
+- [日志权限、生命周期及监控](LOGGING.md)
+- [当前架构与后续任务](ARCHITECTURE.md)

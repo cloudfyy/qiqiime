@@ -1,6 +1,8 @@
 # 奇奇五笔输入法 (QiQi Wubi IME)
 
-**奇奇五笔（QiQiIME）** 是一款面向 Windows 10 / 11 的轻量、高速、零堆内存常驻开销的 **86 版五笔输入法**，基于 Windows 原生 **TSF（Text Services Framework）** 与 **C++26** 构建，同时支持 64 位与 32 位桌面软件及全屏游戏。
+**奇奇五笔（QiQiIME）** 是一款面向 Windows 10 / 11 的 **86 版五笔输入法**，基于 Windows 原生 **TSF（Text Services Framework）** 与 **C++** 构建，提供 `x64` 与 `x86` 组件。
+
+外部词库优先采用只读内存映射，并在同一进程内复用缓存，以减少重复加载；引擎、候选列表和界面仍会使用堆内存。实际资源占用与性能取决于词库、配置和宿主，不作“零内存开销”或未经测量的性能承诺。当前宿主验证情况及边界见[真实宿主测试记录](./docs/TSF_REAL_HOST_TESTS.md#8-2026-11-03-人工测试结果)。
 
 ---
 
@@ -8,49 +10,51 @@
 
 ### 1.1 多词库体系（极点五笔 & 海峰超大字符集）
 - **极点五笔 86 核心词库（默认）**：收录 77,169 编码 / 89,254 词条，保持经典极点五笔盲打词序体验。
-- **极点现代扩展词库（可选叠加）**：收录 2,100 编码 / 2,216 条现代互联网、科技、生活常用新词（当主词库设为极点五笔时可自由开关）。
-- **海峰五笔 86 超大字符集词库**：收录 100,051 编码 / 144,374 词条，完整覆盖 GBK 与 Unicode CJK 扩展 A/B 区生僻字（如 `𠀀`）。
-- **自定义用户词库与在线造词**：支持加载用户自定义词表（兼容 `编码 词1 词2` 与 Rime `.dict.yaml` 格式），并支持通过 **`Ctrl + =`** 将剪贴板中的双字词（2+2）、三字词（1+1+2）或多字词（1+1+1+末）按五笔 86 规则自动取码并持久化到用户词库。
+- **极点现代扩展词库（可选叠加）**：收录 2,098 编码 / 2,216 词条，包含现代互联网、科技、生活用语（当主词库设为极点五笔时可自由开关）。
+- **海峰五笔 86 超大字符集词库**：收录 100,051 编码 / 144,374 词条，包含 GBK 汉字与 Unicode CJK 扩展 A/B 区生僻字（如 `𠀀`）。
+- **自定义用户词库与在线造词**：支持加载用户自定义词表（兼容 `编码 词1 词2` 与 Rime `.dict.yaml` 格式）。对剪贴板中长度符合要求、所需汉字能查到编码的词组，可通过 **`Ctrl + =`** 按五笔 86 规则取码并追加到用户词库：双字词取 2+2，三字词取 1+1+2，多字词取前三字及末字的首码。
+
+词库统计以当前仓库文件为准：编码去重，词条按“编码 + 词条”去重；同一词条的不同编码分别计数。
 
 ### 1.2 纯正 86 五笔打字体验
-- **四码唯一自动上屏（`auto_commit_4code`）**：输入满 4 码且无重码时立即自动上屏（如 `wqvb` -> `你好`）。
-- **第五码顶字上屏（`push_commit_5th`）**：4 码有重码时继续输入第 5 个字母，自动将当前首选词顶上屏并开启下一轮输入。
-- **分号 `;` / 单引号 `'` 快捷选重码（`semicolon_quote_quick_select`）**：在输入编码状态下，按 `;` 直接上屏第 2 候选词、按 `'` 直接上屏第 3 候选词。
+- **四码唯一自动上屏（`auto_commit_4code`）**：启用后，输入不含通配符的 4 码且只有一个精确候选时自动上屏。
+- **第五码顶字上屏（`push_commit_5th`）**：启用后，在已有 4 码且尚未上屏时继续输入字母，将当前选中候选上屏并开启下一轮编码；无候选时上屏原始编码。
+- **分号 `;` / 单引号 `'` 快捷选重码（`semicolon_quote_quick_select`）**：启用后，在五笔组合态下按 `;` 上屏当前页第 2 候选词，按 `'` 上屏当前页第 3 候选词；对应候选不存在时不提交。
 - **渐进后续编码提示（`show_code_hint`）与 `z` 万能学习键**：
   - 输入 1~3 码时，在候选词旁自动提示剩余编码后缀（如输入 `wq` 显示 `你好(~vb)`）；
   - 第 2~4 码支持按 `z` 万能键通配查询，并显示完整五笔编码反查提示（如 `1.你(wqiy)`）。
-- **首码 `z` 引导临时英文模式（`enable_z_temp_english`）**：在中文空闲态下首键按 `z` 即可直接输入含大小写字母、数字与符号的英文单词、网址或代码标识符（如 `zhttps://github.com`），按空格或回车直接上屏，无需来回切换中英模式。
+- **首码 `z` 引导临时英文模式（`enable_z_temp_english`）**：启用后，在中文空闲态下按小写 `z`，可继续输入 ASCII 字母、数字和常用符号组成的英文单词、网址或代码标识符。按空格或回车上屏后续内容，不包含引导 `z`（如输入 `zhttps://github.com`，上屏 `https://github.com`）；仅输入引导键时提交 `z`。
 - **空码自动清屏与提示音（`beep_on_empty_4code` / `beep_on_dup_4code` / `clear_on_empty_4code`）**：
   - 支持四码空码提示音、四码重码提示音与可选打字按键音效（`enable_key_sound`）；
   - 支持可选“空码时自动清空输入”（默认关闭）。
-- **可选重码词组动态调频（`dynamic_phrase_freq`）**：默认严格保持五笔固定词序；开启后，单字位置始终固定不变，仅将高频选中的重码词组动态提升至前排。
+- **可选重码词组动态调频（`dynamic_phrase_freq`）**：默认关闭，保持固定候选顺序；开启后，显式选中的词组按最近选择顺序调整同编码下的词组排序，单字候选保留原位置。这是最近选择优先，不是累计使用次数排名。
 
 ### 1.3 快捷键一览
 
 | 快捷键 / 操作 | 功能说明 |
 |---|---|
-| **`Win + Space`** | 在 Windows 输入法列表切换到「QiQi 五笔 86」 |
-| **单按 `Shift`** 或 **`Ctrl + Space`** | 切换 **中 / 英** 输入模式 |
+| **`Win + Space`** | 切换系统输入法，在列表中选择「QiQi 五笔 86」 |
+| **轻按 `Shift`** 或 **`Ctrl + Space`** | 切换 **中 / 英** 输入模式；Shift 轻按切换可在设置中关闭 |
 | **`Shift + Space`** | 切换 **全角 / 半角** 字符模式 |
 | **`Ctrl + .`** | 切换 **中文全角标点 / 英文半角标点**（含智能配对引号 `“”` / `‘’`） |
-| **`Ctrl + =`** | 将剪贴板中的词组自动按五笔 86 规则取码并加入个人词库 |
-| **`Space`（空格键）** | 上屏当前高亮候选词（默认第 1 候选词） |
-| **`;` / `'`** | 在组合态下快捷上屏 **第 2 / 第 3** 候选词 |
-| **`1` ~ `9` 数字键 / 鼠标点击** | 直接上屏当前页对应序号的候选词 |
-| **`Enter`（回车键）** | 将当前已输入的英文字母原文直接上屏 |
-| **组合态下未按 `Shift` 的 `-` / `=`，或 `PageUp` / `PageDown`** | 候选框翻至上一页 / 下一页 |
-| **`↑` / `↓` 方向键** | 默认移动到前一个 / 后一个候选词（跨页）；启用 `up_down_page_turn` 后改为翻页 |
-| **组合态按 `Shift + 字母`** | 将当前首选词连同该大写英文字母一并上屏 |
+| **`Ctrl + =`** | 对长度和取码条件满足要求的剪贴板词组取码并追加到用户词库 |
+| **`Space`（空格键）** | 五笔组合态上屏当前高亮候选（默认第 1 个）；无候选时按空码设置处理；临时英文模式下提交英文内容 |
+| **`;` / `'`** | 开启快捷选词时，在五笔组合态上屏当前页 **第 2 / 第 3** 候选词 |
+| **`1` ~ `9` 数字键 / 鼠标点击** | 五笔组合态下选择当前页有效序号对应的候选；临时英文模式下数字键追加数字，鼠标点击上屏所点候选 |
+| **`Enter`（回车键）** | 将当前五笔编码或临时英文内容原样上屏 |
+| **五笔组合态下未按 `Shift` 的 `-` / `=`，或 `PageUp` / `PageDown`** | 候选框翻至上一页 / 下一页；临时英文中的 `-` / `=` 作为普通符号输入 |
+| **五笔组合态下的 `↑` / `↓` 方向键** | 默认移动到前一个 / 后一个候选词（跨页）；启用 `up_down_page_turn` 后改为翻页 |
+| **五笔组合态按 `Shift + 字母`（Caps Lock 关闭时）** | 将当前选中候选连同该大写英文字母一并上屏；无候选时使用原始编码 |
 
 ### 1.4 界面与个性化设置
-- **Direct2D / DirectWrite 候选窗口**：支持彩色 Emoji（`D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT`）与 CJK 扩展 B~G 区生僻字系统级字体回退，同时支持**全屏游戏 UILess 模式**。
+- **Direct2D / DirectWrite 候选窗口**：启用彩色 Emoji 绘制（`D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT`）与系统字体回退；实际字形覆盖和彩色显示取决于系统及可用字体。为支持 TSF UILess 的宿主提供候选接口，不保证所有全屏游戏兼容。
 - **任务栏托盘与 4x4 超采样抗锯齿浮动状态条**：
   - 任务栏托盘实时显示“中/英”状态图标，支持左键切换中英、右键打开快捷菜单；
-  - “中/英”图标由系统按任务栏主题着色，兼容应用与任务栏使用不同深浅配色；快捷菜单跟随应用深浅色及高对比度配色，切换开关、词库和界面语言后保持展开并即时刷新，点击外部或按 Esc 关闭，打开设置、配置文件或关于时自动关闭；
+  - “中/英”图标由系统按任务栏主题着色，兼容应用与任务栏使用不同深浅配色；快捷菜单跟随应用深浅色及高对比度配色，切换开关、词库和界面语言后保持展开并即时刷新，点击外部或按 Esc 关闭，打开设置或关于时自动关闭；
   - 桌面浮动状态条（默认关闭）支持胶囊把手拖拽、悬停提示（Tooltip）、右键菜单，并自动跟随 Windows 深色/浅色主题与多显示器高分屏 DPI。
 - **图形化属性设置与运行时同步**：
   - 通过图形界面调整并保存设置；配置存储在注册表 `HKCU\Software\QiQiIME`，保存后通过 TSF 全局通知同步运行中的输入法实例，并支持中/英文（`zh-CN` / `en-US`）双语界面切换。
-  - `up_down_page_turn` 默认关闭；当前版本不从 `%LOCALAPPDATA%\QiQiIME\config.ini` 读取配置。
+  - `up_down_page_turn` 默认关闭。
 
 ---
 
@@ -60,10 +64,11 @@
 
 | 项目 | 最低 / 推荐要求 |
 |---|---|
-| **操作系统** | Windows 10（1809 及以上）或 Windows 11（支持 `x64` 与 `x86`） |
-| **运行库依赖** | **零外部运行库依赖**（MSVC 运行库已静态编译内嵌 `/MT`，无需安装 VC++ Redistributable） |
+| **操作系统** | 目标系统为 Windows 10（1809 及以上）或 Windows 11；提供 `x64` 与 `x86` 组件，64 位 Windows 上的 32 位应用使用 WOW64；未提供原生 ARM64 组件 |
+| **运行库依赖** | Release 构建静态链接 MSVC 运行库（`/MT`），无需另装 VC++ Redistributable；仍依赖 Windows 系统组件 |
 | **图形与文本组件** | Windows 原生 TSF（`msctf.dll`）、GDI / Direct2D / DirectWrite（系统自带，无需额外安装任何第三方框架） |
-| **磁盘与内存占用** | 磁盘空间约 6 MB（含三套词库与 `.qdict` 映射缓存）；进程私有堆内存常驻接近 0 KB |
+| **磁盘占用** | 随发行包所含架构、工具、词库及生成的 `.qdict` 缓存变化，以实际安装和缓存目录大小为准 |
+| **内存占用** | 词库映射页由系统按需载入；引擎、缓存、候选与界面仍占用内存，不等于零私有堆或零工作集 |
 | **安装权限** | 安装/卸载时需管理员权限（Administrator，用于注册系统 COM 与 TSF 语言项）；日常打字与修改配置仅需普通用户权限 |
 
 ### 2.2 开发与编译环境要求（开发者）
@@ -71,9 +76,9 @@
 | 工具 / 组件 | 版本与配置要求 |
 |---|---|
 | **操作系统** | Windows 10 / Windows 11 (`x64`) |
-| **C++ 编译器** | Visual Studio 2026 或 Visual Studio 2022（17.10+），需勾选 **“使用 C++ 的桌面开发”** 工作负载及 MSVC `x64/x86` 生成工具（开启 `/std:c++latest` C++26 草案模式） |
+| **C++ 编译器** | 默认 CMake 预设使用 Visual Studio 2026，需安装 **“使用 C++ 的桌面开发”** 工作负载及 MSVC `x64/x86` 生成工具；项目使用 `/std:c++latest` 草案模式，不表示完整实现 C++26。使用 VS 2022 等其他版本时需选择相应生成器并验证编译兼容性 |
 | **Windows SDK** | Windows 10 / 11 SDK（`10.0.22621.0` 或 `10.0.26100.0` 及以上） |
-| **CMake** | CMake `3.25` 或更高版本 |
+| **CMake** | 项目配置最低 `3.25`；默认 VS 2026 预设需要 **`4.2` 或更高版本**（[生成器要求](https://cmake.org/cmake/help/latest/generator/Visual%20Studio%2018%202026.html)） |
 | **依赖包管理器** | `vcpkg`（Visual Studio 内置 vcpkg 或通过环境变量 `VCPKG_ROOT` 指定，Manifest 模式自动安装 `ms-gsl`） |
 | **MSI 打包工具（可选）** | .NET SDK 8.0+ 与 **WiX Toolset CLI v4/v7+**（通过 `dotnet tool install --global wix` 安装，用于构建 `.msi` 安装包） |
 
@@ -81,13 +86,15 @@
 
 ## 3. 快速安装与卸载
 
-在项目或发行包根目录下运行 PowerShell（也可直接下载 GitHub Releases 中的 `.msi` 双击安装）：
+从源码安装时，须先按[开发指南](./docs/DEVELOPMENT.md)完成双架构 Release 构建；注册脚本只检查和注册已有产物，不会自动编译。若所用发行版本提供 `.msi`，可直接运行安装程序；使用 ZIP 包时先完整解压并保留目录结构。
+
+以下命令在已构建的项目根目录或解压后的发行包根目录运行：
 
 ```powershell
 # 一键校验产物、自动弹出 UAC 提权注册 x64+x86 输入法并打开记事本试用
 powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate -LaunchNotepad
 
-# 一键卸载输入法并清理注册表
+# 注销输入法的 COM 与 TSF 注册；此脚本不删除用户配置、词库或安装文件
 powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 ```
 
@@ -99,10 +106,11 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 
 | 文档分类 | 文档链接 | 内容概述 |
 |---|---|---|
-| **架构文档** | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 系统分层架构、TSF COM 生命周期、编译期 `consteval` 状态机、`.qdict` 按需分页只读内存映射与最小权限安全设计、Direct2D/DirectWrite 与 RAII 体系 |
+| **架构文档** | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 系统分层架构、TSF COM 生命周期、静态分派与运行时 FSM、`.qdict` 按需分页只读内存映射、Direct2D/DirectWrite 与 RAII 体系 |
 | **开发文档** | [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) | 源码目录结构、CMake + vcpkg + C++26 双架构构建、单元测试套件、`CppCoreCheck` 静态代码检查、版本号生成机制与结构化排障日志规范 |
 | **日志监控** | [docs/LOGGING.md](./docs/LOGGING.md) | 日志级别设置、原生调试器实时查看、ETW 采集、WPA 分析、错误码解释及无日志排查 |
 | **部署文档** | [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) | `x64` + `x86 (WOW64)` 双架构注册原理、独立发行包打包（`build_all.ps1 -Package`）、用户数据目录结构、升级 DLL 占用处理与故障排查 |
+| **真实宿主测试** | [docs/TSF_REAL_HOST_TESTS.md](./docs/TSF_REAL_HOST_TESTS.md) | 生命周期测试步骤、已有人工反馈及尚未覆盖的宿主与验证边界 |
 
 ---
 
@@ -115,8 +123,8 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 ### 5.1 极点五笔 86 词库（`wubi86_jidian.txt` / `wubi86_jidian_extra.txt`）
 - **上游仓库**：[KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian)
 - **原始码表文件**：
-  - 核心主词库：[`wubi86_jidian.dict.yaml`](https://github.com/KyleBing/rime-wubi86-jidian/blob/master/wubi86_jidian.dict.yaml)（77,169 编码 / 89,254 词条）
-  - 现代扩展词库：[`wubi86_jidian_extra.dict.yaml`](https://github.com/KyleBing/rime-wubi86-jidian/blob/master/wubi86_jidian_extra.dict.yaml)（2,100 编码 / 2,216 词条）
+  - 核心主词库：[`wubi86_jidian.dict.yaml`](https://github.com/KyleBing/rime-wubi86-jidian/blob/master/wubi86_jidian.dict.yaml)（本仓库转换后：77,169 编码 / 89,254 词条）
+  - 现代扩展词库：[`wubi86_jidian_extra.dict.yaml`](https://github.com/KyleBing/rime-wubi86-jidian/blob/master/wubi86_jidian_extra.dict.yaml)（本仓库转换后：2,098 编码 / 2,216 词条）
 - **开源协议**：[Apache License 2.0](https://github.com/KyleBing/rime-wubi86-jidian/blob/master/LICENSE)
 
 ### 5.2 海峰五笔 86 超大字符集词库（`wubi86_haifeng.txt`）
@@ -124,7 +132,7 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 - **上游仓库**：[definite/ibus-table-chinese (`tables/wubi-haifeng`)](https://github.com/definite/ibus-table-chinese/tree/master/tables/wubi-haifeng)
 - **原始码表说明与授权文件**：
   - 码表说明：[`tables/wubi-haifeng/README`](https://github.com/definite/ibus-table-chinese/blob/master/tables/wubi-haifeng/README)
-  - 授权文件：[`tables/wubi-haifeng/COPYING`](https://github.com/definite/ibus-table-chinese/blob/master/tables/wubi-haifeng/COPYING)（100,051 编码 / 144,374 词条，涵盖 GBK、常用词组及 Unicode CJK 扩展 A/B 区全部汉字）
+  - 授权文件：[`tables/wubi-haifeng/COPYING`](https://github.com/definite/ibus-table-chinese/blob/master/tables/wubi-haifeng/COPYING)（本仓库转换后：100,051 编码 / 144,374 词条，包含 GBK 汉字、常用词组及 Unicode CJK 扩展 A/B 区汉字）
 - **开源协议**：**BSD 3-Clause License**
   > Copyright (c) 2010, SUN Haifeng (孙海峰). All rights reserved.
   >

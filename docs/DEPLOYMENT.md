@@ -6,12 +6,12 @@
 
 ## 1. 运行环境要求
 
-- **操作系统**：Windows 10（版本 1809 及以上）或 Windows 11（64 位 `x64` 或 32 位 `x86`）
-- **运行库**：**零外部运行库依赖**（`qiqiime.dll` 采用 `/MT` 静态链接 CRT，无需在目标机器安装 VC++ Redistributable）
-- **系统组件**：Windows TSF（`msctf.dll`）、Direct2D / DirectWrite（Windows 10/11 原生内置，无任何额外第三方运行库依赖）
+- **操作系统与架构**：目标平台为 Windows 10 / 11；当前双架构发行包及 MSI 面向 `x64` Windows，`x86` DLL 用于其中的 32 位 WOW64 宿主。Windows 11 没有 32 位系统版本，项目也未提供原生 ARM64 DLL；这些构建目标不等于所有系统/宿主组合均已验证。
+- **运行库**：Release 构建采用 `/MT` 静态链接 MSVC CRT，不需要额外安装 VC++ Redistributable；这不等于没有系统 DLL 或运行环境依赖。
+- **系统组件**：依赖 Windows TSF（`msctf.dll`）、Direct2D / DirectWrite 等系统组件。
 - **权限要求**：
   - **安装 / 卸载时**：需要 **管理员权限（Administrator）**（用于向 `HKLM\SOFTWARE\Classes\CLSID` 与 `HKLM\SOFTWARE\Microsoft\CTF\TIP` 注册 COM/TSF 组件）
-  - **日常运行与修改设置时**：仅需普通标准用户权限（用户配置、词库缓存与日志均保存在 `%LOCALAPPDATA%\QiQiIME`）
+  - **日常运行与修改设置时**：桌面标准用户通常不需提权；设置保存在 `HKCU\Software\QiQiIME`，用户文件及缓存位置见第 5 节。日志使用 ETW，不自动写本地日志文件，采集控制可能需要额外权限。AppContainer 的访问能力还取决于令牌和 ACL，见 [UWP / AppContainer 边界](https://github.com/cloudfyy/qiqiime/blob/main/docs/UWP_COMPATIBILITY.md)。
 
 ---
 
@@ -24,17 +24,22 @@
 | `x64\qiqiime.dll`（或 `build\x64\Release\qiqiime.dll`） | 64 位原生应用 | `System32\regsvr32.exe` | `HKCR\CLSID\{8E7B9D31-...}\InProcServer32` + TSF `LanguageProfile` |
 | `x86\qiqiime.dll`（或 `build\x86\Release\qiqiime.dll`） | 32 位 (WOW64) 应用 | `SysWOW64\regsvr32.exe` | `HKCR\WOW6432Node\CLSID\{8E7B9D31-...}\InProcServer32` |
 
-每个架构目录下均需包含同级的运行时数据文件：
+每个架构目录下需包含以下运行组件，注册脚本会检查它们：
 - `qiqiime.dll`
-- `wubi86_jidian.txt`、`wubi86_jidian_extra.txt`、`wubi86_haifeng.txt`
+- `QiQiIMESettings.exe`
+- `QiQiIMELogMonitor.exe`
 
-> **重要提示**：Windows TSF 会直接从注册时所在的路径加载 `qiqiime.dll` 及其同级目录下的词库文件。安装注册后请勿移动或删除该目录（若需移动目录，请先卸载再在新目录重新注册）。
+三套词库 `wubi86_jidian.txt`、`wubi86_jidian_extra.txt`、`wubi86_haifeng.txt` 在发行包中共用上级 `data` 目录。运行时依次查找 DLL 同目录、上级 `data`、上级目录中的随包数据文件；用户选择的外部词库另按配置路径访问。
+
+> **重要提示**：TSF 从注册表记录的绝对路径加载 DLL。注册后不要移动或删除运行目录；需要迁移时先注销，再在新位置重新注册。ZIP 分发也不是免注册的便携运行方式。
 
 ---
 
 ## 3. 安装（注册）与自检
 
-通过 [scripts/register_ime.ps1](../scripts/register_ime.ps1) 可一键完成 **产物完整性校验 -> 双架构注册 -> 注册表与 TSF Profile 核验**（脚本同时兼容源码 `build\` 目录与独立发行包目录）：
+通过 [scripts/register_ime.ps1](https://github.com/cloudfyy/qiqiime/blob/main/scripts/register_ime.ps1) 可完成 **产物完整性校验 -> 双架构注册 -> 注册表与 TSF Profile 核验**（脚本同时兼容源码 `build\` 目录与独立发行包目录）：
+
+脚本不编译源码，需先完成构建或解压完整发行包。注册时会尝试预编译随包词库缓存，并为部署目录授予 AppContainer 读取/执行权限；失败以诊断为准，不保证所有沙箱宿主均可访问。
 
 - **在普通 PowerShell 窗口执行（自动弹出 UAC 管理员提权，安装后打开记事本试用）**：
   ```powershell
@@ -55,7 +60,7 @@
 
 ### 当前用户启用与旧版本修复
 
-MSI 先以系统身份注册双架构 DLL，再以安装发起用户身份启用语言配置，覆盖旧版本卸载留下的用户级 `Enable=0`。启用不会改变用户当前选择的输入法。卸载时会在 `InstallValidate` 之前先在发起用户的交互会话中按会话停用该输入法配置（不主动写入持久化用户级禁用标记），并启用 Restart Manager 快速占用枚举（禁用自动关闭宿主进程）与 `MSIFASTINSTALL=7`，避免回退到耗时数分钟的旧版 `Perflib(740)` 模块扫描或创建系统还原点。
+MSI 先以系统身份注册双架构 DLL，再尝试以安装发起用户身份启用语言配置，覆盖旧版本卸载留下的用户级 `Enable=0`，但不主动切换当前输入法。卸载在 `InstallValidate` 前尝试按会话停用该配置，不主动持久化用户级禁用标记；同时配置 Restart Manager、禁用自动关闭宿主进程，并设置 `MSIFASTINSTALL=7` 以减少部分安装开销。这些设置不能保证没有文件占用、扫描等待、重启要求或升级失败。
 
 如果以其他管理员账户安装，或通过 SYSTEM 静默部署，不能据此保证当前桌面用户已启用。安装后，请由实际使用输入法的账户在普通 PowerShell 窗口运行以下命令（无需管理员权限；使用包含此修复的新版本 DLL 和脚本）：
 
@@ -67,19 +72,19 @@ powershell -ExecutionPolicy Bypass -File "C:\Program Files\QiQiIME\scripts\regis
 
 ---
 
-## 4. 生成独立发行包（`.msi` 安装包与 `.zip` 便携包）
+## 4. 生成独立发行包（`.msi` 安装包与 `.zip` 压缩包）
 
-在源码仓库中运行以下命令，可自动编译并测试 `x64` 与 `x86` 双架构，然后同时生成 **标准 Windows Installer `.msi` 安装包**（基于 WiX Toolset）与 **`.zip` 绿色压缩包**：
+在源码仓库中显式运行以下打包命令，会编译并测试双架构，然后生成 ZIP；仅在找到 WiX CLI 时另生成中英文 MSI，否则报告跳过 MSI 的警告。日常构建无需加 `-Package`：
 
 ```powershell
 # 若首次打包 MSI，可先全局安装 WiX CLI：dotnet tool install --global wix
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
-生成的产物位于 `dist\` 目录：
+生成的产物位于 `dist\`，文件名使用项目版本号（以下以 `0.9.28` 为例）：
 - **`dist\QiQiIME-v0.9.28-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
-- **`dist\QiQiIME-v0.9.28-win-x64-x86-en-US.msi`**：英文版（English）Windows MSI 安装包（两个 MSI 共享相同 `UpgradeCode`，双击即可自动安装到 `C:\Program Files\QiQiIME\` 并完成 `x64` + `x86` TSF 注册，支持无缝跨版本升级与一键卸载）。
-- **`dist\QiQiIME-v0.9.28-win-x64-x86.zip`**：绿色便携压缩包，解压后结构如下（`x64` 与 `x86` 共用同一份 `data/` 词库与配置）：
+- **`dist\QiQiIME-v0.9.28-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
+- **`dist\QiQiIME-v0.9.28-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
 
 ```text
 QiQiIME-v0.9.28-win-x64-x86/
@@ -91,21 +96,21 @@ QiQiIME-v0.9.28-win-x64-x86/
 │   ├── qiqiime.dll             # 32 位 (WOW64) TSF 输入法组件
 │   ├── QiQiIMESettings.exe     # 32 位独立设置程序
 │   └── QiQiIMELogMonitor.exe   # 32 位独立实时 ETW 日志监控工具
-├── data/                       # x64 与 x86 共用的 3 套五笔词库（安装注册时自动预编译同名 .qdict 缓存）
+├── data/                       # 共用词库；注册时尝试预编译同名 .qdict 缓存
 │   ├── wubi86_jidian.txt
 │   ├── wubi86_jidian_extra.txt
 │   └── wubi86_haifeng.txt
 ├── scripts/
 │   ├── common.ps1              # 公共脚本模块
 │   ├── register_ime.ps1        # 安装注册脚本
-│   └── unregister_ime.ps1      # 卸载清理脚本
+│   └── unregister_ime.ps1      # 注销 COM/TSF 注册的脚本，不删除安装目录
 ├── LICENSE                     # GPL-3.0 许可证
 ├── README.md                   # 功能与使用说明
 ├── DEPLOYMENT.md               # 部署与安装说明
 └── LOGGING.md                  # 应用日志与实时监控工具指南
 ```
 
-终端用户解压到固定目录（如 `C:\Program Files\QiQiIME`）后，直接运行以下命令即可完成安装：
+终端用户解压到固定目录后，从解压目录运行以下命令注册；解压到 `Program Files` 本身也需要管理员权限。请检查脚本结果，注册后保持目录位置不变：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
@@ -115,29 +120,35 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
 
 ## 5. 运行期用户数据与缓存目录
 
-安装并激活输入法后，用户词库及缓存存储在当前登录用户的 `%LOCALAPPDATA%\QiQiIME` 目录下（无需管理员权限即可读写）；用户设置保存在 `HKCU\Software\QiQiIME`：
+桌面进程默认使用其 `LOCALAPPDATA` 下的 `QiQiIME` 目录保存用户词库和词组排序数据；路径可受自定义配置、环境及权限影响。下图是默认布局示意，不表示每项必然存在：
 
 ```text
 %LOCALAPPDATA%\QiQiIME\
 ├── user_dict.txt           # 用户在线造词 (Ctrl+=) 自动追加的个人词库
-├── cache\
-│   ├── wubi86_jidian.qdict       # 极点主词库只读内存映射二进制索引缓存
-│   ├── wubi86_jidian_extra.qdict # 极点扩展词库二进制索引缓存
-│   └── wubi86_haifeng.qdict      # 海峰大字符集词库二进制索引缓存
-└── phrase_freq.txt         # 动态词频数据（启用动态调频时使用）
+├── user_dict.qdict         # 用户词库编译缓存（成功生成时）
+├── cache\                 # 无法使用词库同目录缓存时的后备缓存目录
+└── phrase_freq.txt         # 最近选中词组的排序记录（启用动态调频时使用）
 ```
+
+词库优先尝试有效的同目录 `.qdict`，再尝试后备缓存；缺失或过期时解析文本并尝试生成缓存。映射失败时可尝试内存缓冲，但读取、编译、分配及写入仍可能失败，不能保证零写盘或任意沙箱中均可加载。
+
+设置保存在 `HKCU\Software\QiQiIME`；默认用户词库的二进制镜像另存为其中的 `UserDictQdict`（最大 512 KiB），在默认用户词表不存在时作为加载后备，不是所有用户文件的实时备份。文本、缓存和注册表镜像不是一个跨资源事务。
+
+日志通过 ETW 发出；只有显式采集或导出才产生相应文件。AppContainer 路径和访问权限不能直接套用桌面进程假设，详见 [UWP / AppContainer 说明](https://github.com/cloudfyy/qiqiime/blob/main/docs/UWP_COMPATIBILITY.md)。
 
 ---
 
 ## 6. 升级与卸载指南
 
-### 6.1 卸载输入法
+### 6.1 注销与卸载输入法
 
 1. 按 `Win + Space` 切换到系统自带的其他输入法；
-2. 运行卸载脚本（支持 `-AutoElevate` 自动提权，并自动核验 64 位与 32 位注册表项已彻底移除）：
+2. ZIP 或源码目录注册的版本，运行注销脚本（支持 `-AutoElevate` 自动提权，并核验双架构注册项；失败以实际诊断为准）：
    ```powershell
    powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
    ```
+
+脚本不删除用户设置、用户词库或安装目录；注销并确认文件不再占用后，才可自行清理部署文件。MSI 安装的版本应通过 Windows“已安装的应用”或对应 MSI 卸载，不能用注销脚本代替 Windows Installer 的产品卸载。用户数据保留不等于有独立备份。
 
 ### 6.2 升级或重新编译时的 DLL 文件占用处理
 
@@ -150,4 +161,4 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
 
 ## 7. 故障排查（查看日志）
 
-结构化排障事件通过 Windows ETW TraceLogging 提供程序 `QiQiIME.TraceLogging` 发出，不写入本地日志文件；可使用 Windows Performance Recorder/Analyzer 或 PerfView 捕获。设置程序保存设置时会通过 TSF Global Compartment 通知运行中的输入法实例重新加载注册表配置。
+结构化排障事件通过 Windows ETW TraceLogging 提供程序 `QiQiIME.TraceLogging` 发出，不自动写本地日志文件；可使用 `QiQiIMELogMonitor.exe` 实时采集，或用 WPR 等工具采集后在 WPA 中分析。采集权限及限制见 [日志指南](LOGGING.md)。设置程序保存后尝试发送 TSF Global Compartment 通知，运行中的实例据通知或焦点检查按需重载注册表配置，不保证所有实例立即更新。

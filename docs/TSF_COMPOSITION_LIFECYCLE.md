@@ -335,6 +335,8 @@ The preparation guard retains the pending context, not just a Boolean flag. A ma
 
 `OnTestKeyDown` must predict that same boundary without performing it. For the current context it uses `ShouldEatKey`; for a different context it uses the read-only `ShouldEatKeyAfterReset`. Both routes share the configured key classifier and transition table. The preview does not bind contexts, reset the live engine, end host compositions, or request edit sessions; the existing Shift-tap tracking remains separate. Missing/inactive targets and reentrant reset/binding are declined. A positive prediction is not an edit-permission grant: the actual callback still prepares and rechecks its target.
 
+These lifecycle and epoch checks do not classify every password, read-only, or otherwise restricted input field. The existing disabled-compartment checks are not a unified policy across every key and asynchronous callback; that policy remains separate task 36 research.
+
 The engine's seven states and sixteen key-event categories are unchanged. Lifecycle reset is external to the key transition table. `StateAfterCompositionReset`, shared by actual reset and preview, maps Chinese composing states (including `TempEnglish`) to `Idle`, leaves `Idle` unchanged, and preserves `English`. Full-width and punctuation modes are retained. A deferred old-host cleanup must not keep the new target's FSM in a composing state.
 
 The shared reset path also fixes a second gap in task 43: context switching and focus loss previously released the local composition reference without explicitly ending the host composition. Connected-target resets now use `ScheduleCompositionCleanup`, the same synchronous attempt and controlled asynchronous recovery used by deactivation. If focus returns to the same context before old cleanup executes, `HasPendingCompositionCleanup` still forces the new write behind it.
@@ -357,6 +359,8 @@ All records retain the existing service/cleanup correlation scheme:
 - `input-document-unavailable` preserves the actual parent-query HRESULT. Editing is not assumed to succeed: the subsequent edit-session request still determines access, while no parent relationship is fabricated.
 
 ## 9. Validation and Remaining Boundaries
+
+The [real-host test record](TSF_REAL_HOST_TESTS.md) includes partial manual feedback from 2026-11-03. It is not a completed compatibility matrix or proof that every UWP/AppContainer host is supported; task 47 remains open.
 
 [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) and [`service.cpp`](../tests/ime/tsf/service.cpp) cover deferred mock scheduling, failure injection, reentrancy, host termination, reactivation isolation, and COM reference release. Real Windows TSF private-document tests trigger synchronous rejection inside a layout notification, then use a bounded message pump to verify asynchronous completion. They check preserved text, composition enumeration, both property types, and isolation of the new composition, without changing user focus or activating the system TIP.
 
