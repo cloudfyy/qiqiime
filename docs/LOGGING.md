@@ -45,6 +45,20 @@
 
 布局回调保留宿主传入的 `ITfContextView`，在编辑会话内查询该 view；空 view 和普通输入更新仍通过 `GetActiveView` 查询。`query` 的 `notification_view` 标识查询来源；异步回调在上下文失效后不再查询旧 view。如果滚动时通知到达而该 view 持续成功返回相同矩形，应记录为坐标未更新，不能仅凭 API 成功判定真实宿主定位通过。
 
+### FSM 状态转移诊断
+
+`FSM transition` 在按键处理器正常返回后记录：`state` 是执行前状态，`op` 是所选操作，`planned_state` 是转移表中的目标状态，`actual_state` 是处理器执行后的引擎状态。新日志以 `planned_state` 替代旧字段 `next_state`，不改变 FSM 表或按键行为；数字定义见 [fsm_types.h](../src/Ime/engine/fsm_types.h)。
+
+例如四码唯一候选自动上屏时，可能记录：
+
+```text
+FSM transition: state=4 -> op=2 planned_state=5 actual_state=1
+```
+
+表示从三码组合态追加第四码，表中目标是四码组合态，但自动提交后实际回到空闲态。禁止五码顶字、选词序号越界、空码清除及临时英文退格取消也可能使两种状态不同，不应仅据此判定转移失败。
+
+该日志使用 Trace 级别，在 ETW 中显示为 Verbose；调试器按 Trace 阈值输出。透传操作不记录转移，日志不包含虚拟键、编码、候选或提交文字。`actual_state` 只表示引擎处理完成，不证明后续 TSF 编辑会话已执行或宿主已接受提交。
+
 ## 1. 先了解日志在哪里
 
 QiQiIME 使用 Windows ETW TraceLogging，不会自动生成文本日志文件，也没有注册“事件查看器 → Windows 日志 → 应用程序”中的专用事件源。

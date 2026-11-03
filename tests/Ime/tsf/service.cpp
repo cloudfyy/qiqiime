@@ -47,7 +47,9 @@ void TestFocusPerformanceLogs() {
     std::vector<std::wstring> preserved_key_records;
     std::vector<std::wstring> shift_records;
     std::vector<std::wstring> indicator_records;
+    std::vector<std::wstring> fsm_records;
     bool checking_shift_filter = false;
+    bool checking_fsm = false;
     bool exited = false;
     while (!exited) {
         DEBUG_EVENT event{};
@@ -75,6 +77,11 @@ void TestFocusPerformanceLogs() {
                 message.assign(bytes.begin(), bytes.end());
             }
             QIQI_TEST_CHECK(!message.contains(L"SENSITIVE_DIAGNOSTIC_SENTINEL"));
+            if (message.contains(L"FsmDiagnostics(begin)")) checking_fsm = true;
+            if (message.contains(L"FsmDiagnostics(end)")) checking_fsm = false;
+            if (checking_fsm && message.contains(L"FSM transition:")) {
+                fsm_records.push_back(message);
+            }
             if (message.contains(L"ShiftLogFilter(begin)")) checking_shift_filter = true;
             if (message.contains(L"ShiftLogFilter(end)")) checking_shift_filter = false;
             const bool shift_diagnostic = message.contains(L"ShiftTap(") || message.contains(L"ShiftTapContext(");
@@ -269,6 +276,29 @@ void TestFocusPerformanceLogs() {
         }));
     }
     QIQI_TEST_CHECK(!checking_shift_filter);
+    QIQI_TEST_CHECK(!checking_fsm);
+    constexpr std::array<std::wstring_view, 16> expected_fsm = {
+        L"state=1 -> op=1 planned_state=2 actual_state=2",
+        L"state=2 -> op=1 planned_state=3 actual_state=3",
+        L"state=3 -> op=1 planned_state=4 actual_state=4",
+        L"state=4 -> op=2 planned_state=5 actual_state=1",
+        L"state=1 -> op=1 planned_state=2 actual_state=2",
+        L"state=2 -> op=1 planned_state=3 actual_state=3",
+        L"state=3 -> op=1 planned_state=4 actual_state=4",
+        L"state=4 -> op=2 planned_state=5 actual_state=5",
+        L"state=5 -> op=3 planned_state=2 actual_state=5",
+        L"state=5 -> op=8 planned_state=1 actual_state=5",
+        L"state=1 -> op=1 planned_state=2 actual_state=2",
+        L"state=2 -> op=1 planned_state=3 actual_state=3",
+        L"state=3 -> op=1 planned_state=4 actual_state=4",
+        L"state=4 -> op=2 planned_state=5 actual_state=1",
+        L"state=1 -> op=16 planned_state=6 actual_state=6",
+        L"state=6 -> op=18 planned_state=6 actual_state=1"
+    };
+    QIQI_TEST_CHECK(fsm_records.size() == expected_fsm.size());
+    for (size_t i = 0; i < expected_fsm.size(); ++i) {
+        QIQI_TEST_CHECK(gsl::at(fsm_records, i).contains(gsl::at(expected_fsm, i)));
+    }
 }
 
 void TestProcessDictCacheLifetime() {
@@ -1585,6 +1615,45 @@ void RunTsfFocusDiagnosticsScenario() {
     QIQI_TEST_CHECK(disabled_service->Deactivate() == S_OK);
     QIQI_TEST_CHECK(disabled_service->OnKeyDown(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
     QIQI_TEST_CHECK(disabled_service->OnKeyUp(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+
+    const auto previous_level = log::GetLevel();
+    const auto restore_level = gsl::finally([previous_level]() noexcept { log::SetLevel(previous_level); });
+    log::SetLevel(log::Level::trace);
+    QIQI_LOG_INFO("FsmDiagnostics(begin)");
+    WubiEngine engine;
+    engine.AddEntry(L"abcd", L"SENSITIVE_DIAGNOSTIC_SENTINEL");
+    for (const auto vk : {'A', 'B', 'C'}) engine.ProcessKey(gsl::narrow_cast<uint32_t>(vk));
+    const auto automatic_commit = engine.ProcessKey('D');
+    QIQI_TEST_CHECK(automatic_commit.action == KeyActionType::Commit && engine.State() == EngineState::Idle);
+    QIQI_TEST_CHECK(automatic_commit.committed_text == L"SENSITIVE_DIAGNOSTIC_SENTINEL");
+
+    engine.SetAutoCommit4Code(false);
+    engine.SetPushCommit5th(false);
+    for (const auto vk : {'A', 'B', 'C', 'D'}) engine.ProcessKey(gsl::narrow_cast<uint32_t>(vk));
+    const auto fifth = engine.ProcessKey('E');
+    QIQI_TEST_CHECK(fifth.action == KeyActionType::UpdateState && engine.State() == EngineState::Composing4);
+    QIQI_TEST_CHECK(engine.RawCode() == L"abcd");
+    const auto missing_candidate = engine.ProcessKey('9');
+    QIQI_TEST_CHECK(missing_candidate.action == KeyActionType::UpdateState && engine.State() == EngineState::Composing4);
+    QIQI_TEST_CHECK(engine.RawCode() == L"abcd");
+
+    engine.Reset();
+    engine.SetClearOnEmpty4Code(true);
+    for (const auto vk : {'Y', 'Y', 'Y'}) engine.ProcessKey(gsl::narrow_cast<uint32_t>(vk));
+    const auto empty_code = engine.ProcessKey('X');
+    QIQI_TEST_CHECK(empty_code.action == KeyActionType::Cancel && engine.State() == EngineState::Idle);
+    engine.ProcessKey('Z');
+    const auto cancel_guide = engine.ProcessKey(VK_BACK);
+    QIQI_TEST_CHECK(cancel_guide.action == KeyActionType::Cancel && engine.State() == EngineState::Idle);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_F1).action == KeyActionType::PassThrough);
+
+    for (const auto level : {log::Level::info, log::Level::off}) {
+        log::SetLevel(level);
+        QIQI_TEST_CHECK(engine.ProcessKey('A').action == KeyActionType::UpdateState);
+        QIQI_TEST_CHECK(engine.ProcessKey(VK_ESCAPE).action == KeyActionType::Cancel);
+    }
+    log::SetLevel(log::Level::trace);
+    QIQI_LOG_INFO("FsmDiagnostics(end)");
 }
 
 void RunTsfServiceTests() {

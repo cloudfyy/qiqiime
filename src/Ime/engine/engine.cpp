@@ -427,15 +427,18 @@ KeyProcessResult WubiEngine::ProcessKey(
     };
     static_assert(AllActionHandlersBound(std::span<const ActionHandler>(kActionHandlers)));
 
-    const TransitionRule rule = EvaluateKeyTransition(state_, vk, shift_down, ctrl_down, alt_down, caps_lock_on);
-    if (rule.op != TransitionOp::PassThrough) {
-        QIQI_LOG_TRACE("FSM transition: state={} -> op={} next_state={}",
-                       static_cast<unsigned int>(state_),
-                       static_cast<unsigned int>(rule.op),
-                       static_cast<unsigned int>(rule.next_state));
-    }
+    const EngineState state_before = state_;
+    const TransitionRule rule = EvaluateKeyTransition(state_before, vk, shift_down, ctrl_down, alt_down, caps_lock_on);
     const KeyInputContext ctx{vk, shift_down, caps_lock_on, rule.next_state};
-    return (this->*gsl::at(kActionHandlers, static_cast<size_t>(rule.op)))(ctx);
+    KeyProcessResult result = (this->*gsl::at(kActionHandlers, static_cast<size_t>(rule.op)))(ctx);
+    if (rule.op != TransitionOp::PassThrough) {
+        QIQI_LOG_TRACE("FSM transition: state={} -> op={} planned_state={} actual_state={}",
+                       static_cast<unsigned int>(state_before),
+                       static_cast<unsigned int>(rule.op),
+                       static_cast<unsigned int>(rule.next_state),
+                       static_cast<unsigned int>(state_));
+    }
+    return result;
 }
 
 } // namespace qiqi
