@@ -294,26 +294,36 @@ void QiQiTextService::MarkCompositionContextRemoved(const ITfContext* context) n
 
 // ITfTextLayoutSink: called when an async host (Chromium/VS Code/WPF/Word) updates its text layout
 STDMETHODIMP QiQiTextService::OnLayoutChange(
-    ITfContext* pic, TfLayoutCode lcode, ITfContextView* /*pView*/) {
+    ITfContext* pic, TfLayoutCode lcode, ITfContextView* pView) {
+    QIQI_LOG_DEBUG("CandidatePosition(service={}, stage=layout-notification, activation={}, context={}, code={}, active={}, target_matches={}, has_composition={}, has_ui={})",
+                   service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context,
+                   gsl::narrow_cast<int>(lcode), is_active_, pic && pic == active_context_.Get(),
+                   composition_ != nullptr, candidate_ui_ != nullptr);
     if (lcode != TF_LC_CHANGE || !pic || !is_active_ || pic != active_context_.Get() ||
         !composition_ || !candidate_ui_) {
         return S_OK;
     }
     ComPtr<ITfContext> ctx_holder(pic);
+    const ComPtr<ITfContextView> view_holder(pView);
     ComPtr<QiQiTextService> self_holder(this);
     const auto epoch = edit_session_epoch_;
     const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
-        [self_holder, ctx_holder, epoch](TfEditCookie ec) -> HRESULT {
+        [self_holder, ctx_holder, view_holder, epoch](TfEditCookie ec) -> HRESULT {
         if (!self_holder->IsEditSessionCurrent(epoch, ctx_holder.Get())) {
             return S_OK;
         }
+        QIQI_LOG_DEBUG("CandidatePosition(service={}, stage=layout-callback, activation={}, context={})",
+                       self_holder->service_log_id_, epoch.activation, epoch.context);
         self_holder->UpdateCandidateWindowPositionInSession(
-            ec, gsl::not_null<ITfContext*>(ctx_holder.Get()));
+            ec, gsl::not_null<ITfContext*>(ctx_holder.Get()), view_holder);
         return S_OK;
     });
     HRESULT session_hr = S_OK;
     const HRESULT request_hr = pic->RequestEditSession(
         client_id_, session.Get(), TF_ES_ASYNCDONTCARE | TF_ES_READ, &session_hr);
+    QIQI_LOG_DEBUG("CandidatePosition(service={}, stage=layout-request, activation={}, context={}, request_hr=0x{:08x}, session_hr=0x{:08x})",
+                   service_log_id_, epoch.activation, epoch.context,
+                   gsl::narrow_cast<unsigned int>(request_hr), gsl::narrow_cast<unsigned int>(session_hr));
     std::ignore = log::CheckHResult(request_hr, "OnLayoutChange::RequestEditSession", log::Level::debug);
     if (SUCCEEDED(request_hr)) {
         std::ignore = log::CheckHResult(session_hr, "OnLayoutChange::DoEditSession", log::Level::debug);
@@ -389,7 +399,9 @@ bool QiQiTextService::PrepareInputContext(ITfContext* context) {
     active_context_ = ctx_holder;
     active_document_ = std::move(document);
     ITfTextLayoutSink* sink = this;
-    text_layout_sink_.Advise(active_context_.Get(), IID_ITfTextLayoutSink, sink);
+    const bool layout_advised = text_layout_sink_.Advise(active_context_.Get(), IID_ITfTextLayoutSink, sink);
+    QIQI_LOG_DEBUG("CandidatePosition(service={}, stage=layout-advise, activation={}, context={}, connected={})",
+                   service_log_id_, epoch.activation, epoch.context, layout_advised);
     if (!IsEditSessionCurrent(epoch, context)) {
         // A notification during AdviseSink may have invalidated the target before the cookie was published.
         text_layout_sink_.Reset();
@@ -627,24 +639,29 @@ void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, const ITfConte
 }
 
 void QiQiTextService::UpdateCandidateWindowPositionInSession(
-    TfEditCookie ec, gsl::not_null<ITfContext*> context) {
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view) {
     if (!composition_ || !candidate_ui_) {
         return;
     }
     const auto epoch = edit_session_epoch_;
     const auto composition = composition_;
-    ComPtr<ITfContextView> view;
+    const bool notification_view = view != nullptr;
     ComPtr<ITfRange> comp_range;
     RECT rc{};
     BOOL clipped = FALSE;
+    QIQI_LOG_DEBUG("CandidatePosition(service={}, stage=query, activation={}, context={}, had_position={}, notification_view={})",
+                   service_log_id_, epoch.activation, epoch.context, has_valid_caret_pos_, notification_view);
     const bool got_position =
-        log::CheckHResult(context->GetActiveView(&view), "CandidatePosition::GetActiveView", log::Level::debug) && view &&
+        (view || log::CheckHResult(context->GetActiveView(&view), "CandidatePosition::GetActiveView", log::Level::debug)) && view &&
         IsCompositionEditCurrent(epoch, context.get(), composition.Get()) &&
         log::CheckHResult(composition->GetRange(&comp_range), "CandidatePosition::GetRange", log::Level::debug) && comp_range &&
         IsCompositionEditCurrent(epoch, context.get(), composition.Get()) &&
         log::CheckHResult(view->GetTextExt(ec, comp_range.Get(), &rc, &clipped),
                          "CandidatePosition::GetTextExt", log::Level::trace);
     if (!IsCompositionEditCurrent(epoch, context.get(), composition.Get())) return;
+    QIQI_LOG_DEBUG("CandidatePosition(service={}, stage=query-result, activation={}, context={}, success={}, rect=({}, {}, {}, {}), clipped={}, had_position={})",
+                   service_log_id_, epoch.activation, epoch.context, got_position,
+                   rc.left, rc.top, rc.right, rc.bottom, clipped != FALSE, has_valid_caret_pos_);
     if (got_position) {
         has_valid_caret_pos_ = true;
         candidate_ui_->MoveWindowTo(rc);
@@ -652,7 +669,12 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
     }
     if (!has_valid_caret_pos_ && QueryGuiThreadOrCursorFallbackRect(rc)) {
         QIQI_LOG_DEBUG("UpdateCandidateWindowPositionInSession: GetTextExt pending layout; using GUI/cursor fallback");
+        QIQI_LOG_DEBUG("CandidatePosition(service={}, stage=fallback, activation={}, context={}, rect=({}, {}, {}, {}))",
+                       service_log_id_, epoch.activation, epoch.context, rc.left, rc.top, rc.right, rc.bottom);
         candidate_ui_->MoveWindowTo(rc);
+    } else {
+        QIQI_LOG_DEBUG("CandidatePosition(service={}, stage=position-unchanged, activation={}, context={}, had_position={})",
+                       service_log_id_, epoch.activation, epoch.context, has_valid_caret_pos_);
     }
 }
 

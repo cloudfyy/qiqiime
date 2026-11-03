@@ -37,6 +37,14 @@
 - 每个窗口创建带 PID 的唯一会话，只停止自身会话；停止失败保留所有权供重试，窗口不会将失败当成成功关闭。异常终止可能留下会话，可根据工具启动诊断中记录的精确会话名清理，不要停止其他采集工具的会话。
 - 初版是 Win32/D2D 混合 GUI，没有 CLI 或 ETL 导入功能。原生虚拟列表承担选择、滚动和键盘交互；按钮、字体、主题及 DPI 帮助代码与设置程序共用，高对比度或 D2D 不可用时按钮走原生绘制。
 
+### 候选窗口定位诊断
+
+候选不跟随滚动或跳到左上角时，导出异常前后完整的 All/Verbose 日志，按 PID/TID/service/activation/context 关联 `CandidatePosition`。`layout-advise` 报告布局订阅，`layout-notification` 报告宿主通知与目标状态，`layout-request` 和 `layout-callback` 区分请求及实际执行；`query-result` 包含定位成功状态、宿主返回的矩形、裁剪标志及是否已有有效位置。`fallback` 表示 GUI/鼠标定位回退，`position-unchanged` 表示没有取得新位置。
+
+`CandidatePositionPopup` 记录传入矩形、屏幕边界约束后的目标位置、DPI 和实际窗口矩形；这些诊断不记录输入文字或裸 COM 地址。没有布局通知不能单凭候选停留推断旧回调复活；成功返回的零坐标也需结合宿主和屏幕位置判断，不直接认定是输入法或宿主的问题。
+
+布局回调保留宿主传入的 `ITfContextView`，在编辑会话内查询该 view；空 view 和普通输入更新仍通过 `GetActiveView` 查询。`query` 的 `notification_view` 标识查询来源；异步回调在上下文失效后不再查询旧 view。如果滚动时通知到达而该 view 持续成功返回相同矩形，应记录为坐标未更新，不能仅凭 API 成功判定真实宿主定位通过。
+
 ## 1. 先了解日志在哪里
 
 QiQiIME 使用 Windows ETW TraceLogging，不会自动生成文本日志文件，也没有注册“事件查看器 → Windows 日志 → 应用程序”中的专用事件源。

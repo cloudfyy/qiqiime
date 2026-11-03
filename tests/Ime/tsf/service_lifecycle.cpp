@@ -907,6 +907,65 @@ void TestDeactivationWindowLifecycle() {
             QIQI_TEST_CHECK(service->Deactivate() == S_OK);
         }
 
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        auto moving = MakeComObject<MockTfContext>();
+        QIQI_TEST_CHECK(service->OnKeyDown(moving.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        RECT before_move{};
+        QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &before_move));
+        moving->view_->text_ext_ = {350, 250, 390, 274};
+        QIQI_TEST_CHECK(service->OnLayoutChange(moving.Get(), TF_LC_CHANGE, moving->view_.Get()) == S_OK);
+        RECT after_move{};
+        QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &after_move));
+        QIQI_TEST_CHECK(!::EqualRect(&before_move, &after_move));
+        QIQI_TEST_CHECK((moving->last_edit_session_flags_ & TF_ES_READWRITE) == TF_ES_READ);
+        moving->view_->fail_get_text_ext_ = true;
+        QIQI_TEST_CHECK(service->OnLayoutChange(moving.Get(), TF_LC_CHANGE, moving->view_.Get()) == S_OK);
+        RECT pending_layout{};
+        QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &pending_layout));
+        QIQI_TEST_CHECK(::EqualRect(&after_move, &pending_layout));
+        const auto ignored_requests = moving->request_edit_session_calls_;
+        QIQI_TEST_CHECK(service->OnLayoutChange(moving.Get(), TF_LC_CREATE, moving->view_.Get()) == S_OK);
+        QIQI_TEST_CHECK(moving->request_edit_session_calls_ == ignored_requests);
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+        QIQI_TEST_CHECK(!::IsWindowVisible(ui->WindowHandle()));
+        const auto unfocused_requests = moving->request_edit_session_calls_;
+        QIQI_TEST_CHECK(service->OnLayoutChange(moving.Get(), TF_LC_CHANGE, moving->view_.Get()) == S_OK);
+        QIQI_TEST_CHECK(moving->request_edit_session_calls_ == unfocused_requests &&
+                        !::IsWindowVisible(ui->WindowHandle()));
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        auto view_queue = std::make_shared<MockEditSessionQueue>();
+        auto view_context = MakeComObject<MockTfContext>(view_queue);
+        QIQI_TEST_CHECK(service->OnKeyDown(view_context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(view_queue->RunNext() == S_OK);
+        RECT default_rect{};
+        QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &default_rect));
+        const auto default_view_queries = view_context->get_active_view_calls_;
+        auto notified_view = MakeComObject<MockTfContextView>();
+        notified_view->text_ext_ = {350, 250, 390, 274};
+        unsigned int notified_queries = 0;
+        notified_view->get_text_ext_callback_ = [&]() { ++notified_queries; };
+        QIQI_TEST_CHECK(service->OnLayoutChange(view_context.Get(), TF_LC_CHANGE, notified_view.Get()) == S_OK);
+        notified_view.Reset();
+        QIQI_TEST_CHECK(view_queue->PendingCount() == 1 && notified_queries == 0);
+        QIQI_TEST_CHECK(view_queue->RunNext() == S_OK && notified_queries == 1);
+        RECT notified_rect{};
+        QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &notified_rect));
+        QIQI_TEST_CHECK(!::EqualRect(&default_rect, &notified_rect));
+        QIQI_TEST_CHECK(view_context->get_active_view_calls_ == default_view_queries);
+        QIQI_TEST_CHECK(service->OnLayoutChange(view_context.Get(), TF_LC_CHANGE, nullptr) == S_OK);
+        QIQI_TEST_CHECK(view_queue->RunNext() == S_OK);
+        RECT restored_rect{};
+        QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &restored_rect));
+        QIQI_TEST_CHECK(::EqualRect(&default_rect, &restored_rect));
+        auto stale_view = MakeComObject<MockTfContextView>();
+        stale_view->get_text_ext_callback_ = [&]() { ++notified_queries; };
+        QIQI_TEST_CHECK(service->OnLayoutChange(view_context.Get(), TF_LC_CHANGE, stale_view.Get()) == S_OK);
+        stale_view.Reset();
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        QIQI_TEST_CHECK(view_queue->RunNext() == S_OK && notified_queries == 1 && !ui->WindowHandle());
+
         auto queue = std::make_shared<MockEditSessionQueue>();
         auto deferred = MakeComObject<MockTfContext>(queue);
         QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);

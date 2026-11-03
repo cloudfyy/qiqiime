@@ -323,9 +323,22 @@ void CandidateUI::MoveWindowTo(const RECT& text_rect) {
     // Clamp all 4 edges (left/top/right/bottom, including negative multi-monitor coordinates)
     popup_pos_ = ClampPointToWorkArea(popup_pos_, popup_width_, popup_height_, mon.work_area);
 
+    QIQI_LOG_DEBUG("CandidatePositionPopup(stage=move, rect=({}, {}, {}, {}), target=({}, {}), size={}x{}, dpi={}, has_window={}, shown={})",
+                   text_rect.left, text_rect.top, text_rect.right, text_rect.bottom,
+                   popup_pos_.x, popup_pos_.y, popup_width_, popup_height_, dpi_, hwnd_.Get() != nullptr, is_shown_ != FALSE);
     if (hwnd_) {
-        ::SetWindowPos(hwnd_.Get(), HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
-                       SWP_NOACTIVATE | (is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+        if (!::SetWindowPos(hwnd_.Get(), HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
+                            SWP_NOACTIVATE | (is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW))) {
+            QIQI_LOG_ERROR("CandidatePositionPopup::SetWindowPos failed (error={})", ::GetLastError());
+        } else if (log::ShouldLog(log::Level::debug)) {
+            RECT actual{};
+            if (::GetWindowRect(hwnd_.Get(), &actual)) {
+                QIQI_LOG_DEBUG("CandidatePositionPopup(stage=moved, rect=({}, {}, {}, {}))",
+                               actual.left, actual.top, actual.right, actual.bottom);
+            } else {
+                QIQI_LOG_ERROR("CandidatePositionPopup::GetWindowRect failed (error={})", ::GetLastError());
+            }
+        }
     }
 }
 
