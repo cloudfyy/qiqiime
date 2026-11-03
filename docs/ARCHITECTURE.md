@@ -26,7 +26,7 @@
                                    ▼
 +-----------------------------------------------------------------------+
 | 五笔核心引擎与基础层 (qiqi_engine.lib)                                |
-|  - WubiEngine       : 编译期 FSM、四码唯一上屏、空码清屏/提示音、顶字 |
+|  - WubiEngine       : 静态分派 + 运行时 FSM、四码上屏、空码清屏、顶字 |
 |  - WubiMappedDict   : 4 字节紧凑编码索引 + 只读按需分页内存映射 (.qdict)|
 |  - Common           : HKCU 注册表事务配置、ETW TraceLogging 日志、ScopedHandle RAII |
 +-----------------------------------------------------------------------+
@@ -36,13 +36,13 @@
 1. **无 COM 依赖即可测试**：`qiqi_engine_test.exe` 可以直接验证所有按键与五笔上屏规则，无需先通过 `regsvr32` 注入宿主进程。
 2. **宿主安全**：输入法 DLL 会被注入到资源管理器、浏览器、Office 等进程中，引擎层保持纯内存/只读映射计算，避免阻塞宿主 UI 线程。
 
-源码按 [`src/common`](../src/common)、[`src/Ime`](../src/Ime)、[`src/tools/settings`](../src/tools/settings)、[`src/tools/log_monitor`](../src/tools/log_monitor) 分层，测试采用对应布局。公共 D2D 控件与关于窗口由 `qiqi_common` 统一编译；设置窗口由 `qiqi_settings_ui` 统一编译，供独立设置程序和 IME 的进程内设置回退路径复用。每个模块及对应测试目录均有自己的 `CMakeLists.txt`，顶层文件只负责组织，新增工具使用独立的 `tools/<工具名>` 子目录。
+源码按 [`src/common`](../src/common)、[`src/ime`](../src/ime)、[`src/tools/settings`](../src/tools/settings)、[`src/tools/log_monitor`](../src/tools/log_monitor) 分层，测试采用对应布局。公共 D2D 控件与关于窗口由 `qiqi_common` 统一编译；设置窗口由 `qiqi_settings_ui` 统一编译，供独立设置程序和 IME 的进程内设置回退路径复用。每个模块及对应测试目录均有自己的 `CMakeLists.txt`，顶层文件只负责组织，新增工具使用独立的 `tools/<工具名>` 子目录。
 
 ---
 
 ## 2. 关键子系统与安全设计
 
-### 2.1 注册阶段（`src/Ime/tsf/register.cpp`）
+### 2.1 注册阶段（`src/ime/tsf/register.cpp`）
 - **COM InProcServer32（支持 `x64` + `x86` WOW64 双视图）**：注册 `kClsidQiQiTextService`，线程模型为 `Apartment`（STA）。在 64 位 Windows 上分别通过 `System32\regsvr32.exe` 与 `SysWOW64\regsvr32.exe` 注册 `x64` 与 `x86` DLL，其中 WOW64 进程自动检测已存在的 64 位注册项并避免覆盖全局共享的 TSF Language Profile。
 - **Language Profile**：通过 `ITfInputProcessorProfiles::AddLanguageProfile` 注册到 `zh-CN` (`0x0804`)。
 - **Categories（`ITfCategoryMgr`）**：
@@ -51,25 +51,27 @@
   - `GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER`：声明提供组合串虚线下划线显示属性。
   - `GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT` / `GUID_TFCAT_TIPCAP_COMLESS` / `GUID_TFCAT_TIPCAP_SECUREMODE`：提高现代 Windows 与安全输入框下的兼容性。
 
-### 2.2 激活、生命周期与模块职责拆分（`src/Ime/tsf/`）
+### 2.2 激活、生命周期与模块职责拆分（`src/ime/tsf/`）
 - `QiQiTextService` 的实现按职责拆分为四个文件：
-  - [`tip_service.cpp`](../src/Ime/tsf/tip_service.cpp)：实例构造/析构、`ActivateEx`/`Deactivate`、TSF 事件接收器注册、`ITfThreadMgrEventSink`、`ITfFunctionProvider` 与 `ITfDisplayAttributeProvider`。
-  - [`tip_keys.cpp`](../src/Ime/tsf/tip_keys.cpp)：`ITfKeyEventSink` 按键测试与处理、保留快捷键（`OnPreservedKey`）、`Shift` 轻按中英切换防误触、`Caps Lock` 处理与按键诊断日志。
-  - [`tip_composition.cpp`](../src/Ime/tsf/tip_composition.cpp)：`ITfCompositionSink`、`ITfTextLayoutSink`、编辑会话（`LambdaEditSession`）内的组合串创建/更新/提交/取消，以及候选框位置跟随与 `ITfUIElementMgr` 生命周期。
-  - [`tip_config.cpp`](../src/Ime/tsf/tip_config.cpp)：词库文件加载、TSF Global/System Compartment 同步、语言栏菜单动作分派、`ITfFnConfigure::Show` 设置启动与配置热重载。
+  - [`tip_service.cpp`](../src/ime/tsf/tip_service.cpp)：实例构造/析构、`ActivateEx`/`Deactivate`、TSF 事件接收器注册、`ITfThreadMgrEventSink`、`ITfFunctionProvider` 与 `ITfDisplayAttributeProvider`。
+  - [`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp)：`ITfKeyEventSink` 按键测试与处理、保留快捷键（`OnPreservedKey`）、`Shift` 轻按中英切换防误触、`Caps Lock` 处理与按键诊断日志。
+  - [`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp)：`ITfCompositionSink`、`ITfTextLayoutSink`、编辑会话（`LambdaEditSession`）内的组合串创建/更新/提交/取消，以及候选框位置跟随与 `ITfUIElementMgr` 生命周期。
+  - [`tip_config.cpp`](../src/ime/tsf/tip_config.cpp)：词库文件加载、TSF Global/System Compartment 同步、语言栏菜单动作分派、`ITfFnConfigure::Show` 设置启动与配置热重载。
 - 实现 `ITfTextInputProcessorEx::ActivateEx`，记录宿主进程名、`client_id` 与 `dwFlags`（包含是否处于 `TF_TMAE_UIELEMENTENABLEDONLY` UILess 模式）。
 - 挂载 `ITfThreadMgrEventSink`、`ITfKeyEventSink`、`ITfFunctionProvider` 与 `ITfLangBarItemButton`，并注册保留热键（`Ctrl+Space` 中英切换、`Shift+Space` 全半角切换、`Ctrl+.` 中英标点切换）。
 
 ### 2.3 按键处理与编辑会话（`OnTestKeyDown` -> `OnKeyDown` -> `RequestEditSession`）
 TSF 的按键处理分为两步：
 1. `OnTestKeyDown`：仅询问输入法**是否打算消费该按键**。当前 context 使用 `engine_.ShouldEatKey(...)`；不同 context 使用只读的 `ShouldEatKeyAfterReset(...)`，按实际目标切换后将采用的状态预测，不把旧组合的选词/退格语义带到新输入框。空 context、未激活或重入生命周期转换不消费。预判不绑定 context、不清理宿主组合、不申请编辑会话，也不推进 FSM；原有 Shift 轻触跟踪独立保留。
-2. `OnKeyDown`：Shift 与 `OnTestKeyDown` 共用轻触跟踪，不吞按下事件、不绑定上下文；宿主省略测试回调时仍可建立候选，同时收到两个回调时保留原始计时。其他按键先取消 Shift 候选，再通过 `PrepareInputContext` 准备目标、必要时重置旧引擎并失效旧周期，再推进 `WubiEngine` 编译期有限状态机（[`fsm.h`](../src/Ime/engine/fsm.h) 为兼容入口；状态/事件定义、按键映射、转移规则和分页辅助分别位于 `fsm_types.h`、`fsm_key_mapping.h`、`fsm_transitions.h`、`fsm_pagination.h`），得到 `KeyProcessResult`（`UpdateState` / `Commit` / `Cancel`），触发音效（若启用了按键音或空码提示音），然后通过 `ITfContext::RequestEditSession` 提交 `LambdaEditSession`。预判成功不保证编辑权限，实际回调仍复核状态。
+2. `OnKeyDown`：Shift 与 `OnTestKeyDown` 共用轻触跟踪，不吞按下事件、不绑定上下文；宿主省略测试回调时仍可建立候选，同时收到两个回调时保留原始计时。其他按键先取消 Shift 候选，再通过 `PrepareInputContext` 准备目标、必要时重置旧引擎并失效旧周期，再推进 `WubiEngine` 的静态分派与运行时有限状态机（[`ime/fsm/fsm.h`](../src/ime/fsm/fsm.h) 为聚合入口；状态/事件定义、按键映射、分派规则和分页辅助分别位于同目录的 `types.h`、`key_mapping.h`、`transitions.h`、`pagination.h`），得到 `KeyProcessResult`（`UpdateState` / `Commit` / `Cancel`），触发音效（若启用了按键音或空码提示音），然后通过 `ITfContext::RequestEditSession` 提交 `LambdaEditSession`。预判成功不保证编辑权限，实际回调仍复核状态。
+
+编译期生成的 7 状态 × 16 按键事件表只选择 `TransitionOp` 和吞键策略，不包含预设目标状态。运行时处理器根据词库和配置返回 `TransitionOutcome { next_state, result }`，公共执行入口统一应用最终状态；处理器只修改组合数据，不直接赋值 `state_` 或调用生命周期 `Reset`。四码唯一上屏、空码清除、五码顶字开关及无效选词等分支显式返回真实终态，不额外查词预测终态。若执行异常，RAII 清理复位组合、记录错误并继续传播原异常。`ShouldEatKey` / `ShouldEatKeyAfterReset` 仍只读分类和静态分派，不查词、不执行状态转移；引擎完成不等于宿主编辑会话已完成。
 
 上下文切换、失焦、移除和停用是 FSM 外部的生命周期事件，不加入现有 7 状态 × 16 按键事件表。`Reset` 与只读预判共用 `StateAfterCompositionReset`：中文组合态（含临时英文）回到 `Idle`，`English` 保持不变；全半角及标点模式不被目标切换改写。旧宿主组合的同步/异步清理独立于新目标的引擎状态，不能用“仍有待清理宿主组合”推断 FSM 仍在组合态。
 
-候选鼠标点击直接调用 `WubiEngine::CommitCandidate(index_in_page)`，不模拟数字按键；普通五笔的数字选词也复用该提交逻辑，并保留动态词频调整。临时英文模式下，键盘数字仍追加到正文，点击候选则提交去掉引导 `z` 的正文（只有引导时提交 `z`），不追加候选序号，也不参与五笔词频调整。
+候选鼠标点击直接调用 `WubiEngine::CommitCandidate(index_in_page)`，不模拟数字按键；普通五笔的数字选词复用同一内部提交处理器，两条路径都只经公共执行入口应用一次最终状态，并保留动态词频调整。临时英文模式下，键盘数字仍追加到正文，点击候选则提交去掉引导 `z` 的正文（只有引导时提交 `z`），不追加候选序号，也不参与五笔词频调整。
 
-Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理候选标记、原始按下时间和诊断序号，不加入五笔 FSM。跟踪器只使用调用方传入的时刻与 Ctrl/Alt/鼠标状态，TSF 层负责读取系统状态和生命周期门禁；测试松键与实际松键共用判定入口，预判通过不消耗候选，实际松键先复位再执行模式切换。阈值仍为 350 ms（等于阈值有效），双按下回调和自动重复不延长原计时，自动重复不能独立建立候选。拒绝或超时可保留原时间供诊断，实际松键及生命周期重置清除计时但保留序号。
+Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理候选标记、原始按下时间和诊断序号，不加入五笔 FSM。跟踪器只使用调用方传入的时刻与 Ctrl/Alt/鼠标状态，TSF 层负责读取系统状态和生命周期门禁；测试松键与实际松键共用判定入口，预判通过不消耗候选，实际松键先复位再执行模式切换。阈值仍为 350 ms（等于阈值有效），双按下回调和自动重复不延长原计时，自动重复不能独立建立候选。拒绝或超时可保留原时间供诊断，实际松键及生命周期重置清除计时但保留序号。
 
 在 `DoEditSession(TfEditCookie ec)` 内完成：
 - **新建或更新组合串**：`ITfInsertAtSelection::InsertTextAtSelection` + `ITfContextComposition::StartComposition` + `ITfRange::SetText` + 设置 `GUID_PROP_ATTRIBUTE` 下划线显示属性。
@@ -83,23 +85,23 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理�
 
 `QiQiTextService` 会立即清空 `WubiEngine` 缓冲、释放 `ITfComposition` 并关闭 `CandidateUI`。配置保存在 `HKCU\Software\QiQiIME`；设置程序保存后递增注册表配置序列并通过 TSF Global Compartment 通知运行中的实例，实例在收到通知或 `OnSetFocus` 时检查序列并按需重新加载配置。
 
-### 2.5 桌面弹窗与游戏 UILess 双模式（`src/Ime/ui/candidate_ui.cpp`）
+### 2.5 桌面弹窗与游戏 UILess 双模式（`src/ime/ui/candidate_ui.cpp`）
 每次需要显示候选词时，先调用 `ITfUIElementMgr::BeginUIElement(candidate_ui_, &show_own_ui, &id)`：
 - 若宿主应用返回 `show_own_ui == TRUE`（桌面应用）：显示自带的 `WS_EX_TOPMOST | WS_EX_NOACTIVATE` 候选窗口。
 - 若宿主应用返回 `show_own_ui == FALSE`（全屏游戏 UILess 模式）：隐藏自带弹窗，仅通过 `UpdateUIElement` 通知游戏，由游戏调用 `ITfCandidateListUIElement` 接口自行渲染。
 
-### 2.6 内存映射词库与最小权限安全模型（`src/Ime/engine/binary_dict.cpp` & `src/common/file_util.cpp`）
+### 2.6 内存映射词库与最小权限安全模型（`src/ime/engine/binary_dict.cpp` & `src/common/file_util.cpp`）
 - **零隐私数据映射**：`.qdict` 映射文件仅包含静态五笔码表的只读索引（`DictBinaryHeader` + `DictCodeIndex` + `DictWordSlice` + `wchar_t` 字符池），不包含任何用户实时按键或输入状态；映射对象为匿名内核对象（`lpName == nullptr`）。
 - **最小权限访问、防篡改锁与无锁热替换（`FILE_SHARE_READ | FILE_SHARE_DELETE`）**：
   - 映射读取 `.qdict` 时，通过 `CreateFileW` 仅申请 `GENERIC_READ` 权限与 `FILE_SHARE_READ | FILE_SHARE_DELETE` 共享模式：既禁止任何进程在映射期间原地写入或截断文件页（100% 防止 `STATUS_IN_PAGE_ERROR`），又允许其他进程在 `.txt` 词库更新后通过 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 原子替换目录项（POSIX Unlink 语义）。
   - 旧进程继续安全读取旧映射视图，并在下次 `OnSetFocus`（`HasModifiedMappedDictionary()`）时无缝切换至新 `.qdict` 映射；同时启用 `SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS` 与 `FILE_TYPE_DISK` 校验，阻断命名管道令牌模拟攻击。
   - 生成 `.qdict` 缓存时，通过 `WriteFileAtomically` 以 `GENERIC_WRITE` + `dwShareMode = 0`（独占写）写入同目录临时文件 `.tmp.<pid>`（带 `gsl::finally` 异常/错误自动清理），完成后通过 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 原子替换目标文件。用户配置通过注册表事务保存，不写入 INI 文件。
 
-### 2.7 全链路 RAII、多显示器 DPI 与矢量抗锯齿 UI（`src/common/` & `src/Ime/ui/`）
+### 2.7 全链路 RAII、多显示器 DPI 与矢量抗锯齿 UI（`src/common/` & `src/ime/ui/`）
 - **泛型零开销 RAII（`ScopedHandle<Traits>`）**：所有 Win32 内核句柄、KTM 注册表事务（`ScopedKernelTransaction`，析构时若未 `Commit()` 自动回滚并关闭句柄）、文件映射视图、注册表键、GDI 对象（`HFONT`/`HBRUSH`/`HPEN`/`HBITMAP`/`HDC`）、菜单（`HMENU`）、窗口（`HWND`）与动态库（`HMODULE`）均由移动语义 RAII 包装器管理。注册表配置与用户词库写入通过 `RegCreateKeyTransactedW` + `ScopedKernelTransaction` 原子提交，避免半写入状态。
 - **可复用 D2D 控件（[`d2d_controls.h`](../src/common/d2d_controls.h) / [`d2d_controls.cpp`](../src/common/d2d_controls.cpp)）**：头文件仅提供声明，实现集中管理 Fluent 卡片、主次按钮、开关、单选框与下拉框的绘制和子类化；设置页及关于页复用同一模块，不在控件层依赖业务控件 ID 或父窗口的 `GWLP_USERDATA` 类型。每个窗口组合一个 `FluentD2DThemeContext`，通过现有 RAII 包装器持有 D2D/DWrite/GDI 资源；控件创建失败时自动回收尚未移交的窗口并记录日志，成功后由父窗口销毁子控件。下拉框借用的上下文须保持地址稳定，且存活到子控件销毁之后；单选组由调用方通过 `MAKELONG(first_id, last_id)` 指定连续 ID 范围。父窗口将 `WM_DRAWITEM` 分派给相应绘制函数，主题变更时调用 `RefreshThemeBrushes()`；卡片绘制在调用方的 `ScopedD2DDcDraw` 会话内进行，其余控件自行管理绘制会话。
 - **多显示器与 Per-Monitor DPI（`monitor_dpi.h`）**：候选窗、浮动状态栏、Tooltip、设置窗口与关于窗口均通过 `MonitorFromPoint` + `GetDpiForMonitor` 适配任意副屏坐标（含负坐标副屏）与高分屏缩放，并在跨屏拖拽（`WM_DPICHANGED` / `WM_EXITSIZEMOVE` / `WM_DISPLAYCHANGE`）时自动重算字体与边界裁剪。
-- **4x4 超采样抗锯齿状态条图标与模块拆分（[`statusbar_icons.cpp`](../src/Ime/ui/statusbar_icons.cpp) / [`statusbar_tooltip.cpp`](../src/Ime/ui/statusbar_tooltip.cpp) / [`statusbar.cpp`](../src/Ime/ui/statusbar.cpp)）**：使用有向距离场（SDF）+ 4x4 超采样实时生成 32 位预乘 ARGB `DIBSection` 位图，通过 `GdiAlphaBlend` 渲染半角月牙、全角圆环、中英文标点与八齿设置齿轮图标；悬停提示弹窗与状态栏主窗口及拖拽交互按职责分文件维护。
+- **4x4 超采样抗锯齿状态条图标与模块拆分（[`statusbar_icons.cpp`](../src/ime/ui/statusbar_icons.cpp) / [`statusbar_tooltip.cpp`](../src/ime/ui/statusbar_tooltip.cpp) / [`statusbar.cpp`](../src/ime/ui/statusbar.cpp)）**：使用有向距离场（SDF）+ 4x4 超采样实时生成 32 位预乘 ARGB `DIBSection` 位图，通过 `GdiAlphaBlend` 渲染半角月牙、全角圆环、中英文标点与八齿设置齿轮图标；悬停提示弹窗与状态栏主窗口及拖拽交互按职责分文件维护。
 
 - **设置窗口职责拆分**：[`window.cpp`](../src/tools/settings/window.cpp) 负责窗口创建、消息分派与命令处理；[`controls.cpp`](../src/tools/settings/controls.cpp) 负责控件布局、配置绑定、语言更新与卡片绘制；[`about.cpp`](../src/tools/settings/about.cpp) 独立实现关于窗口。内部上下文和控件 ID 集中在 [`internal.h`](../src/tools/settings/internal.h)，共享图标及模态消息循环位于 [`util.h`](../src/tools/settings/util.h)。[`window.h`](../src/tools/settings/window.h) 提供公共接口，窗口仍在 `WM_NCDESTROY` 中回收 RAII 上下文。
 - **设置保存与通知**：设置程序与进程内设置回退共享单实例互斥与窗口唤醒逻辑：若设置窗口已打开，再次触发设置仅恢复并切到已有设置窗口（或其当前活动的子模态窗口）前台，不会启动第二个设置实例。用户在设置窗口确认时先持久化配置，再关闭窗口并发送 Global Compartment 通知。保存失败会保留当前编辑内容并显示本地化错误，取消不会将窗口中的编辑应用到绑定配置；通知失败则明确提示配置已保存但需要重新激活输入法，不回滚保存。语言栏快捷设置先保存配置副本；失败时保留原运行时状态且不广播，以非模态 D2D Toast 短暂提示，不抢焦点或阻断菜单操作。设置窗口打开期间同时订阅 `kGuidCompartmentConfigVersion` 并在 `WM_ACTIVATE` 时校验注册表配置序列号：外部配置变更按字段合并刷新窗口控件与界面语言，同时保留用户在窗口内尚未保存的修改。
@@ -126,7 +128,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理�
 3. **深层 TSF 输入体验与宿主兼容机制**
    - **异步排版光标跟随（`ITfTextLayoutSink` + Caret 兜底，`tsf-text-layout-sink-caret`）**：针对 Chromium / VS Code / WPF / Word 等异步排版宿主在首键插入组合串时 `GetTextExt` 返回 `TS_E_NOLAYOUT` 的情况，通过 `ITfTextLayoutSink::OnLayoutChange` 在宿主完成排版后立即刷新候选窗位置，并以 `GetGUIThreadInfo`（`rcCaret`）/ 焦点窗口坐标兜底，避免候选窗跳至 `(0, 0)`。
    - **Shift 键中英切换防误触（`shift-tap-anti-mistrigger`）**：记录 `VK_SHIFT` 按下时间戳（`GetTickCount64()`）并检测鼠标按键状态（`VK_LBUTTON` / `VK_RBUTTON` / `VK_MBUTTON`），仅当单按时长 `<= 350ms` 且期间无鼠标点击与其它按键时才触发中英切换，防止 `Shift+Click` 选区或长按 `Shift` 误切模式。
-   - **数字小键盘支持（`numpad-and-composing-digits`）**：在编译期 FSM 与全角模式中支持 `VK_NUMPAD0..9` 与 `VK_DECIMAL`，防止组合态下按小键盘数字穿透破坏正在输入的编码串。
+   - **数字小键盘支持（`numpad-and-composing-digits`）**：在静态按键分类、运行时 FSM 与全角模式中支持 `VK_NUMPAD0..9` 与 `VK_DECIMAL`，防止组合态下按小键盘数字穿透破坏正在输入的编码串。
    - **禁用态与密码框上下文感知（`tsf-disabled-context-awareness`）**：感知 `GUID_COMPARTMENT_KEYBOARD_DISABLED` 与 `GUID_COMPARTMENT_EMPTYCONTEXT`，在密码框、只读控件及游戏非聊天状态下自动旁路放行按键。
    - **异步 EditSession 状态快照隔离（`async-editsession-snapshot`）**：在 `KeyProcessResult` 中携带自包含的候选/分页快照传入 `LambdaEditSession`，避免 `TF_ES_ASYNCDONTCARE` 异步执行时读取到超前或滞后的引擎状态。
    - **词组动态调频跨会话持久化（`persist-dynamic-phrase-freq`）**：当启用 `dynamic_phrase_freq` 时持久化 `promoted_phrases_`，使高频词组排序在跨进程和重启后保持一致。
@@ -177,7 +179,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理�
 - [x] **49. 全仓库失败日志审计（`audit-failure-log-error-codes`）**
   - 全面扫描生产代码，不限当前文件或 TSF：覆盖 IME 引擎/UI、公共组件、配置/文件操作、安装注册和各工具程序；测试及第三方依赖用于理解与验证，不修改第三方代码。
   - 查找已有失败日志缺错误码、返回值被忽略及失败未记录的路径；先区分应修复、预期可选探测/回退、无需错误码和需进一步确认，不机械添加日志。
-  - 已知案例：[`tip_service.cpp`](../src/Ime/tsf/tip_service.cpp) 的 `RegisterGUID`、`AdviseSingleSink`、`UnadviseSingleSink`、语言栏 `AddItem`/`RemoveItem` 及相应接口查询。跟踪成功注册/添加状态，区分无需清理与真正注销失败。
+  - 已知案例：[`tip_service.cpp`](../src/ime/tsf/tip_service.cpp) 的 `RegisterGUID`、`AdviseSingleSink`、`UnadviseSingleSink`、语言栏 `AddItem`/`RemoveItem` 及相应接口查询。跟踪成功注册/添加状态，区分无需清理与真正注销失败。
   - 保存真实返回值，记录操作名、必要的非敏感上下文及错误码。COM 沿用 `hr=0x{:08x}` 与 `gsl::narrow_cast<unsigned int>`；仅在 Win32 API 约定使用 `GetLastError` 时，于失败后立即捕获，不能替代 HRESULT 或输出陈旧错误。
   - 合理区分回退诊断与最终失败级别，不记录用户输入或敏感数据，不造成按键日志刷屏，不改变既有业务行为。
   - 分批修复并记录覆盖范围与剩余项，补充失败注入测试，验证错误码来源、操作上下文及正常行为；不能仅修复当前文件就宣布完成。与任务 48、53 协调避免重复实现。
@@ -200,7 +202,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理�
   - 已增加外部拥有的 FIFO 调度器，保留默认立即执行，覆盖同步优先、异步返回值、请求/回调失败、只读限制、重入及 COM 引用释放；停用/重新激活和上下文变化后的真实写回调、布局读回调可手动运行。
   - x64/x86 的 TSF/UI 与真实 ETW 集成测试通过；仅扩展测试能力，不修改生产代码或自动过滤旧任务。调度器所有权与使用边界见[开发文档](DEVELOPMENT.md#55-延迟编辑会话测试任务-42)。
 - [x] **43. 阻止过期异步编辑任务（`tsf-stale-edit-sessions`）**
-  - 对 [`ApplyEngineResult` 与 `OnLayoutChange`](../src/Ime/tsf/tip_composition.cpp) 的编辑会话校验激活周期及输入上下文周期；停用或输入目标失效后，旧任务不得写文档、创建组合或恢复 UI。
+  - 对 [`ApplyEngineResult` 与 `OnLayoutChange`](../src/ime/tsf/tip_composition.cpp) 的编辑会话校验激活周期及输入上下文周期；停用或输入目标失效后，旧任务不得写文档、创建组合或恢复 UI。
   - 仅检查是否激活或 `ComPtr` 非空不够：重新激活后旧任务仍属于旧周期，对象存活也不代表仍是有效输入目标。
   - 依赖任务 42；确保新周期的正常输入不受影响。
   - 已为写入及布局读回调捕获服务实例的激活/上下文周期，在回调开始处统一校验；停用先关闭有效激活状态，现有重置入口及输入目标切换先使旧任务失效，再清理本地状态。过期任务返回 `S_OK` 并记录不含输入内容的调试诊断，不访问文档或恢复 UI。
@@ -210,7 +212,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理�
 
 - [x] **44. 停用时正确结束宿主组合（`tsf-end-composition-on-deactivate`）**
   - 状态机、所有权、关键时序及可关联的详细调试日志见[组合生命周期设计与排障](TSF_COMPOSITION_LIFECYCLE.md)。
-  - 原 [`Deactivate`](../src/Ime/tsf/tip_service.cpp) 调用的本地重置仅释放 `composition_` 引用，不等于调用 `EndComposition`。
+  - 原 [`Deactivate`](../src/ime/tsf/tip_service.cpp) 调用的本地重置仅释放 `composition_` 引用，不等于调用 `EndComposition`。
   - 区分宿主已经终止组合与 IME 主动取消；在有效编辑会话中处理需要主动结束的组合，再清理相关状态和显示属性。
   - 处理编辑权限不可用、请求失败、回调重入、部分初始化失败及重复停用；不在无有效编辑权限时强行修改文档。
   - 依赖任务 42，与任务 41 的窗口销毁流程协调。
@@ -252,7 +254,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理�
   - 复核了微软 SampleIME（忽略 `PreserveKey`/`UnpreserveKey` 返回值且按静态表全量注销）与 Weasel（保留键注册位于 `#if 0`、注销为空），未照搬其实现；显式区分 `TF_E_ALREADY_EXISTS`（记录跳过所有权）与其他失败，注销时逐键记录 `vkey`/`mod` 与真实 `HRESULT`，并在操作前清空本地持有表保证重复停用幂等。
   - x64/x86 Release TSF/UI 与 ETW 集成测试通过，自有调试子进程验证重复注册、其他失败与注销失败日志；定向 CppCoreCheck 无新增告警。详见[开发文档](DEVELOPMENT.md#510-保留键与键盘监听所有权生命周期任务-48)。
 - [x] **50. 焦点处理性能埋点（`tsf-focus-performance-instrumentation`）**
-  - 对 [`HandleFocusChanged`](../src/Ime/tsf/tip_service.cpp) 的 `ReloadConfigIfModified`、`SyncStatusBarPositionFromGlobalCompartment` 分别测量耗时，并记录焦点处理总耗时及两类通知来源。
+  - 对 [`HandleFocusChanged`](../src/ime/tsf/tip_service.cpp) 的 `ReloadConfigIfModified`、`SyncStatusBarPositionFromGlobalCompartment` 分别测量耗时，并记录焦点处理总耗时及两类通知来源。
   - 区分配置/词库无变化检查与实际重载，识别重复通知、同次词库与配置变化导致的重复加载；记录重载结果及非敏感计数。
   - 复用现有计时/日志机制；如无则用单调高精度时钟（如 `std::chrono::steady_clock`），单位明确，精度能观察轻量检查。
   - 详细埋点采用调试/跟踪级别，减少日志关闭时开销及生产刷屏，不记录用户文本或敏感路径，不新增吞异常或成功形状的失败结果。
@@ -269,7 +271,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理�
 - [x] **52. 进程词库缓存清理时机（`tsf-process-dict-cache-lifetime`）**
   - 评估每个 `Deactivate` 调用 `ClearProcessCache` 是否造成多实例后续重复加载，按共享资源生命周期决定清理策略。
   - 其他实例持有的 `shared_ptr` 不因清空缓存而悬空；重点验证共享复用、内存释放及停用一个实例后其他实例查询正常，不将性能风险误报成已确认的悬空引用。
-  - 已移除 [`QiQiTextService::Deactivate`](../src/Ime/tsf/tip_service.cpp) 中的 `WubiMappedDict::ClearProcessCache()`：停用仅通过 `engine_.ClearExternalDictionaries()` 释放本实例的 `shared_ptr<const WubiMappedDict>`，进程级 `g_process_dict_cache` 由模块生命周期管理（[`DllMain`](../src/Ime/tsf/dllmain.cpp) 动态卸载时清理，文件修改时按大小/时间戳自动更新替换）。
+  - 已移除 [`QiQiTextService::Deactivate`](../src/ime/tsf/tip_service.cpp) 中的 `WubiMappedDict::ClearProcessCache()`：停用仅通过 `engine_.ClearExternalDictionaries()` 释放本实例的 `shared_ptr<const WubiMappedDict>`，进程级 `g_process_dict_cache` 由模块生命周期管理（[`DllMain`](../src/ime/tsf/dllmain.cpp) 动态卸载时清理，文件修改时按大小/时间戳自动更新替换）。
   - 同时修正 `ActivateEx` 在 `PrimaryDict::BuiltinOnly` 模式下停用后重新激活漏重新挂载用户词库的问题（统一在 `engine_.MappedDictionaryCount() == 0` 时调用 `LoadExternalDictionaryNextToDll` 复用进程缓存）。
   - 引擎与 TSF 测试共同验证：同进程多实例共享同一 `WubiMappedDict` 实例、停用一个实例不清空进程缓存且其他实例与重新激活实例查询正常（含 `BuiltinOnly` + 用户词库）、显式清空缓存不会使已持有的 `shared_ptr` 悬空，且所有持有者与缓存释放后底层对象归零销毁。详见[开发文档](DEVELOPMENT.md#511-进程词库缓存生命周期任务-52)。
 - [x] **53. 类别管理器创建及 DLL 生命周期（`tsf-category-manager-creation-lifetime`）**
@@ -291,7 +293,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理�
   - 推荐界面采用原生 Win32 窗口与现有 D2D 皮肤混合：工具栏按钮、筛选框复用 `CreateFluentChildControl`、`FluentD2DThemeContext`，主题、DPI、字体及句柄管理复用 `common` 帮助代码；大量日志行用原生 `ListView` 的 `LVS_OWNERDATA` 虚拟列表，不重写 D2D 表格、滚动条、选择与键盘导航。高对比度优先系统可读性，不引入新 UI 框架，也不直接依赖设置窗口的内部状态。
   - 界面设计：顶部开始/停止、暂停滚动、清空、导出、关于；第二行进程名、PID、级别与消息文本筛选；中部列出时间、进程、PID、TID、级别、消息；底部可调整高度的只读详情区和采集状态、缓冲用量、丢失/淘汰及解码失败计数。暂停滚动不停止采集，停止后保留已有记录；导出明确针对当前筛选快照并先提示环境信息检查。
   - 区分显示过滤与应用日志级别，不承诺显示已在应用侧被过滤的消息。当前 Provider 将 Trace/Debug 合并为 ETW Verbose、Error/Critical 合并为 ETW Error；第一版按实际 ETW 级别显示和筛选，不虚构原始级别。
-  - 尽量复用 [`logging.cpp`](../tests/Ime/tsf/logging.cpp) 已验证的 Provider 过滤、TDH 解码与会话清理经验；目前它是离线 ETL 测试，不可直接当实时采集器。只在实际复用时提取无测试断言的最小公共逻辑，生产程序不依赖测试代码。
+  - 尽量复用 [`logging.cpp`](../tests/ime/tsf/logging.cpp) 已验证的 Provider 过滤、TDH 解码与会话清理经验；目前它是离线 ETL 测试，不可直接当实时采集器。只在实际复用时提取无测试断言的最小公共逻辑，生产程序不依赖测试代码。
   - 采集与解码在后台执行，使用按条数及字节数有界的缓冲，UI 批量刷新；筛选和详情基于稳定事件标识，淘汰时不留下悬空引用。监控器自身诊断显示在状态区，避免逐事件日志或解码错误日志回流导致自激。第一版不同时实现 CLI。
   - 使用有界事件缓冲和批量显示，明确报告丢失事件、解码失败、权限不足及会话创建/停止错误；按采集 API 的权限要求运行工具，不提升被测宿主权限，只清理本工具拥有的会话与资源。
   - 验证多宿主与 x64/x86 事件、无调试器、晚启动监控、进程退出/重新启动、高频事件、缓冲溢出、暂停/恢复及退出清理；导出前提供敏感环境信息检查，不默认长期写盘或上传日志。
@@ -305,7 +307,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理�
   - 修复方案：新增 `log::ShouldLog(Level)` 并在 `Log`、`WriteLogMessage`、焦点计时、配置热重载及 `LogShiftTap` 中统一复用；当 `LogLevel != Off` 时，按活跃 ETW 会话请求的级别（`TraceLoggingProviderEnabled(g_qiqi_etw_provider, etw_level, 0)`）直接放行 ETW 事件，同时保留 `LogLevel` 对附加调试器 `OutputDebugString` 的阈值控制及 `LogLevel=Off` 的总开关语义，使监控器开始采集即可实时收到 `Debug`/`Trace`（`Verbose`）诊断日志而无需手改注册表或重启宿主。
 - [x] **58. 修复英文模式下 Shift 无法切回中文及 Ctrl+Space Compartment 写入失败（`tsf-shift-toggle-and-compartment-sync`）**
   - 问题现象：
-    1. 按 `Ctrl+Space` 触发外部 TSF Compartment 变更后，[`SyncEngineFromSystemCompartments`](../src/Ime/tsf/tip_config.cpp) 在 `OnChange` 回调栈中反调 [`SyncTsfCompartments`](../src/Ime/tsf/tip_config.cpp)，导致 `ITfCompartment::SetValue failed (hr=0x8000ffff)`（`E_UNEXPECTED`）。
+    1. 按 `Ctrl+Space` 触发外部 TSF Compartment 变更后，[`SyncEngineFromSystemCompartments`](../src/ime/tsf/tip_config.cpp) 在 `OnChange` 回调栈中反调 [`SyncTsfCompartments`](../src/ime/tsf/tip_config.cpp)，导致 `ITfCompartment::SetValue failed (hr=0x8000ffff)`（`E_UNEXPECTED`）。
     2. 最初怀疑英文模式下 `OPENCLOSE=0` 影响 Shift 派发；实际 VS Code 日志显示宿主直接调用 `OnKeyDown` / `OnKeyUp`，省略测试回调，而 Shift 候选仅在 `OnTestKeyDown` 建立，导致 `attempt=0`、释放时始终 `no-candidate`。两种按下入口已共用跟踪逻辑，重复回调保留原始计时。
   - 修复目标：
     1. 收到外部 `OnChange` 时避免在通知回调内对同一 Compartment 重复回写相同值，消除 `0x8000ffff` 警告。
@@ -318,7 +320,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理�
   - 依赖任务 43、44、45。
 - [x] **54. 明确显示属性注册命名（`tsf-display-attribute-registration-name`）**
   - 已统一为 `RegisterCompositionDisplayAttributeAtom`，同步声明、定义、调用、日志及直接相关文档引用；双架构构建与 TSF/UI 测试验证既有行为，未改变类别管理器创建/回退及注册失败不终止激活的策略。任务 53 的生命周期评估仍独立待办。
-  - 保留 [`display_attribute.cpp`](../src/Ime/tsf/display_attribute.cpp)、[`display_attribute.h`](../src/Ime/tsf/display_attribute.h) 及其类名；它们对应 TSF 正式接口，暂不进行收益有限的批量改名。
+  - 保留 [`display_attribute.cpp`](../src/ime/tsf/display_attribute.cpp)、[`display_attribute.h`](../src/ime/tsf/display_attribute.h) 及其类名；它们对应 TSF 正式接口，暂不进行收益有限的批量改名。
 
 #### 近期首要待办（明早第一项工作）
 *** End of File

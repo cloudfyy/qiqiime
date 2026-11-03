@@ -2,9 +2,9 @@
 
 This document explains the invariants, ownership, reentrancy, and debugging workflow
 for tasks 41 and 43 through 46. The implementation lives in
-[`tip_service.cpp`](../src/Ime/tsf/tip_service.cpp),
-[`tip_composition.cpp`](../src/Ime/tsf/tip_composition.cpp), and
-[`tip_service.h`](../src/Ime/tsf/tip_service.h).
+[`tip_service.cpp`](../src/ime/tsf/tip_service.cpp),
+[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp), and
+[`tip_service.h`](../src/ime/tsf/tip_service.h).
 For logging configuration, ETW sessions, and capture tools, see the
 [logging guide](LOGGING.md).
 
@@ -358,7 +358,7 @@ All records retain the existing service/cleanup correlation scheme:
 
 ## 9. Validation and Remaining Boundaries
 
-[`service_lifecycle.cpp`](../tests/Ime/tsf/service_lifecycle.cpp) and [`service.cpp`](../tests/Ime/tsf/service.cpp) cover deferred mock scheduling, failure injection, reentrancy, host termination, reactivation isolation, and COM reference release. Real Windows TSF private-document tests trigger synchronous rejection inside a layout notification, then use a bounded message pump to verify asynchronous completion. They check preserved text, composition enumeration, both property types, and isolation of the new composition, without changing user focus or activating the system TIP.
+[`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) and [`service.cpp`](../tests/ime/tsf/service.cpp) cover deferred mock scheduling, failure injection, reentrancy, host termination, reactivation isolation, and COM reference release. Real Windows TSF private-document tests trigger synchronous rejection inside a layout notification, then use a bounded message pump to verify asynchronous completion. They check preserved text, composition enumeration, both property types, and isolation of the new composition, without changing user focus or activating the system TIP.
 
 An owned debug child process captures actual `OutputDebugString` messages. Assertions cover ID correlation, synchronous callback entry before request return, asynchronous queue acceptance before execution, forced asynchronous writes, skipping after early host termination, request rejection, no retry for read-only access, queued-request abandonment, accurate callback-exit reporting despite API failures, stale application requests, and Info/Off filtering. Synthetic text includes a marker that must never appear in output. These tests add no production sink, use no `Sleep`, and do not replace debugger-free ETW integration tests against the real DLL.
 

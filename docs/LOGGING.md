@@ -47,17 +47,17 @@
 
 ### FSM 状态转移诊断
 
-`FSM transition` 在按键处理器正常返回后记录：`state` 是执行前状态，`op` 是所选操作，`planned_state` 是转移表中的目标状态，`actual_state` 是处理器执行后的引擎状态。新日志以 `planned_state` 替代旧字段 `next_state`，不改变 FSM 表或按键行为；数字定义见 [fsm_types.h](../src/Ime/engine/fsm_types.h)。
+`FSM transition` 在运行时处理器返回且最终状态统一应用后记录：`state_before` 是执行前状态，`op` 是静态表选择的操作，`state_after` 是处理完成后的真实状态。静态表只决定操作和吞键策略，不再提供预设目标状态，因此不再记录 `planned_state` / `actual_state` 两套结果；数字定义见 [types.h](../src/ime/fsm/types.h)。
 
 例如四码唯一候选自动上屏时，可能记录：
 
 ```text
-FSM transition: state=4 -> op=2 planned_state=5 actual_state=1
+FSM transition: state_before=4 -> op=2 state_after=1
 ```
 
-表示从三码组合态追加第四码，表中目标是四码组合态，但自动提交后实际回到空闲态。禁止五码顶字、选词序号越界、空码清除及临时英文退格取消也可能使两种状态不同，不应仅据此判定转移失败。
+表示从三码组合态追加第四码，运行时查词确认唯一候选并自动提交，最终回到空闲态。关闭自动上屏则停留在四码组合态；禁止五码顶字或选词序号越界会保留原状态，空码清除及临时英文引导符退格取消会返回空闲态。这些条件分支都由处理器显式返回最终状态。
 
-该日志使用 Trace 级别，在 ETW 中显示为 Verbose；调试器按 Trace 阈值输出。透传操作不记录转移，日志不包含虚拟键、编码、候选或提交文字。`actual_state` 只表示引擎处理完成，不证明后续 TSF 编辑会话已执行或宿主已接受提交。
+该日志使用 Trace 级别，在 ETW 中显示为 Verbose；调试器按 Trace 阈值输出。透传操作不记录转移，日志不包含虚拟键、编码、候选或提交文字。`state_after` 只表示引擎处理完成，不证明后续 TSF 编辑会话已执行或宿主已接受提交。若处理器异常退出，公共执行入口清空组合以避免编码与状态不一致，记录 Error 并继续传播原异常，不产生正常完成的转移日志。
 
 ## 1. 先了解日志在哪里
 

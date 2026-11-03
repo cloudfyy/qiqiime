@@ -60,9 +60,10 @@ qiqiime/
 │   │   ├── logger.h/.cpp       # Windows ETW TraceLogging 日志
 │   │   ├── scoped_handle.h     # 泛型零开销 RAII 句柄模板
 │   │   └── ...                 # 文件、DPI、音效、主题、版本模板等公共代码
-│   ├── Ime/                   # 输入法
+│   ├── ime/                   # 输入法
 │   │   ├── CMakeLists.txt      # qiqi_engine 静态库及 qiqiime.dll 构建
 │   │   ├── engine/             # 五笔状态机、词库、映射、动态调频与造词
+│   │   ├── fsm/                # 状态/事件定义、按键映射、静态分派与分页辅助（fsm.h 为聚合入口）
 │   │   ├── tsf/                # COM 服务、注册、显示属性与编辑会话
 │   │   └── ui/                 # 候选窗、托盘按钮、浮动状态条与快捷菜单
 │   └── tools/                 # 独立工具，每个工具拥有自己的子目录
@@ -88,7 +89,7 @@ qiqiime/
     │   ├── common.cpp          # 配置、日志、版本、RAII、音效测试
     │   ├── common_main.cpp     # 公共模块测试入口
     │   └── ui_d2d_controls.cpp # 共享 D2D 控件测试
-    ├── Ime/
+    ├── ime/
     │   ├── CMakeLists.txt      # qiqi_engine_test 与 qiqi_tsf_ui_test
     │   ├── engine/             # 词库、输入与模式测试
     │   ├── tsf/                # COM Mock、注册及 TSF 服务测试
@@ -207,21 +208,21 @@ cmake --build build\x64 --config Release --target lint
 
 ### 5.5 延迟编辑会话测试（任务 42）
 
-- [`MockTfContext` 与 `MockEditSessionQueue`](../tests/Ime/tsf/mocks.h) 提供确定性的编辑会话调度，不使用后台线程或 `Sleep`。默认上下文的 `TF_ES_ASYNCDONTCARE` 请求仍立即执行；传入外部 `std::shared_ptr<MockEditSessionQueue>` 后排队。显式 `TF_ES_ASYNC` 必须排队，无调度器时明确失败；`TF_ES_SYNC` 立即执行，优先于待处理异步请求。
+- [`MockTfContext` 与 `MockEditSessionQueue`](../tests/ime/tsf/mocks.h) 提供确定性的编辑会话调度，不使用后台线程或 `Sleep`。默认上下文的 `TF_ES_ASYNCDONTCARE` 请求仍立即执行；传入外部 `std::shared_ptr<MockEditSessionQueue>` 后排队。显式 `TF_ES_ASYNC` 必须排队，无调度器时明确失败；`TF_ES_SYNC` 立即执行，优先于待处理异步请求。
 - 测试持有调度器，并将同一调度器传给需要验证的上下文；`PendingCount`/`PendingRequests` 检查待执行请求与目标，`RunNext(cookie)` 按 FIFO 执行一个请求并返回真实回调 HRESULT，默认 cookie 为 1。`ClearForCleanup` 仅用于显式测试清理。入队、运行和清理须在创建线程进行，错误线程或空队列执行会返回错误并记录诊断。
 - 调度器强引用待执行上下文与会话，上下文仅弱引用调度器，避免 Context→Session→Context 引用环。运行前先移出请求，局部强引用保证回调期间对象存活，并允许重入入队；清理或销毁调度器释放待处理请求。回调不得强捕获拥有它的调度器，避免另一个引用环；已过期的调度器不能静默退回立即执行。
 - Windows SDK 的 `TF_ES_ASYNCDONTCARE` 为 **0**，不是独立位。Mock 校验同步/异步冲突、访问模式和未知位；成功异步请求返回外层 `S_OK`、内层 `TF_S_ASYNC`。同步拒绝和只读读写拒绝分别返回内层 `TF_E_SYNCHRONOUS`、`TS_E_READONLY`；只读上下文仍允许读请求。这是最小请求标志与结果模型，不是完整 TSF 锁、编辑权限或 cookie 校验器。
-- [`com.cpp`](../tests/Ime/tsf/com.cpp) 覆盖默认兼容性、FIFO、请求元数据、同步优先、失败注入、回调失败后继续执行、重入及引用释放；[`service_lifecycle.cpp`](../tests/Ime/tsf/service_lifecycle.cpp) 调度真实生产写回调和布局读回调，覆盖停用/重新激活后执行、输入上下文变化及旧队列保留。
+- [`com.cpp`](../tests/ime/tsf/com.cpp) 覆盖默认兼容性、FIFO、请求元数据、同步优先、失败注入、回调失败后继续执行、重入及引用释放；[`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) 调度真实生产写回调和布局读回调，覆盖停用/重新激活后执行、输入上下文变化及旧队列保留。
 - Mock 不理解激活周期，不自动丢弃过期任务，也不将旧回调可能修改文档的行为定义为正确。任务 43 已在生产回调中实现并断言过期任务不得写文档、创建组合或恢复 UI；任务 44 处理主动结束宿主组合。任务 42 本身不修改生产代码。
 - 验证：x64/x86 Release 的 `QiQiTsfUiTest`、`QiQiEtwIntegrationTest` 均通过，ETW 未跳过；定向运行使用 `ctest --test-dir build\x64 -C Release -R '^(QiQiTsfUiTest|QiQiEtwIntegrationTest)$' --output-on-failure --timeout 120`，x86 替换为 `build\x86`。x64 测试目标同时执行 CppCoreCheck，新增 Mock 与测试没有新增诊断。
 
 ### 5.6 过期编辑会话屏障（任务 43）
 
-- [`QiQiTextService`](../src/Ime/tsf/tip_service.h) 为每个服务实例维护激活状态及激活/上下文周期；有效激活尝试和停用改变激活周期，停用在任何清理之前标记为无效。部分激活失败仍通过 `Deactivate` 回滚，不使旧任务重新有效。
-- [`ApplyEngineResult` 与 `OnLayoutChange`](../src/Ime/tsf/tip_composition.cpp) 在提交请求前保存周期，回调开始处通过同一检查核对激活状态、两个周期和目标上下文。强引用只保证对象存活，不代表目标仍有效；同一 COM 指针重新激活或 A→B→A 后，旧快照也必须失效。预期丢弃返回 `S_OK`，调试日志仅记录周期与激活状态，不输出输入文本，也不伪造失败 HRESULT。
+- [`QiQiTextService`](../src/ime/tsf/tip_service.h) 为每个服务实例维护激活状态及激活/上下文周期；有效激活尝试和停用改变激活周期，停用在任何清理之前标记为无效。部分激活失败仍通过 `Deactivate` 回滚，不使旧任务重新有效。
+- [`ApplyEngineResult` 与 `OnLayoutChange`](../src/ime/tsf/tip_composition.cpp) 在提交请求前保存周期，回调开始处通过同一检查核对激活状态、两个周期和目标上下文。强引用只保证对象存活，不代表目标仍有效；同一 COM 指针重新激活或 A→B→A 后，旧快照也必须失效。预期丢弃返回 `S_OK`，调试日志仅记录周期与激活状态，不输出输入文本，也不伪造失败 HRESULT。
 - `ResetContextAndUI` 在 COM 清理前使上下文周期失效并清空活动目标，统一注销布局订阅、释放本地组合和结束候选 UI；现有的焦点丢失、宿主终止和停用重置复用它。切换输入上下文也使用该清理，避免新目标沿用旧组合范围；处理已生成的引擎结果时不额外重置引擎。提交请求前再次检查目标切换过程中是否发生重入失效。
 - 布局通知只接受当前活动上下文，执行过期读回调时不查询旧视图。调度器仍保留旧请求并实际调用其生产回调，屏障不依赖 Mock 过滤；同周期的多个写入快照保持 FIFO，不按每个按键递增周期。
-- [`生命周期测试`](../tests/Ime/tsf/service_lifecycle.cpp) 通过实际文本、写入/组合创建/视图查询与 UI 调用次数验证：停用及失败激活后执行旧任务、同一上下文重新激活、焦点重置、A→B→A、宿主终止、过期提交/取消，以及旧布局读任务遇到新组合。另验证正常 FIFO 更新、提交、下一次组合和延迟布局读，不只检查回调返回成功。
+- [`生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 通过实际文本、写入/组合创建/视图查询与 UI 调用次数验证：停用及失败激活后执行旧任务、同一上下文重新激活、焦点重置、A→B→A、宿主终止、过期提交/取消，以及旧布局读任务遇到新组合。另验证正常 FIFO 更新、提交、下一次组合和延迟布局读，不只检查回调返回成功。
 - 验证：x64/x86 Release 的 `QiQiTsfUiTest`、`QiQiEtwIntegrationTest` 均通过，ETW 未跳过；x64 生产与测试目标执行 CppCoreCheck，修复新增的 const 正确性诊断后无新增告警。仍保留既有告警，不扩大豁免范围。
 - 范围：本任务覆盖现有重置入口及输入上下文周期，不建立文档管理器列表。后续任务 45 补充文档/栈通知，并修正“生成引擎结果后才切换目标”的跨输入框携带问题，详见下文 5.8；任务 44 已补充停用时的同步清理及受控异步补救。本地释放组合不等于已正确结束宿主组合，受控测试也不替代浏览器/UWP 的真实宿主验证。
 
@@ -229,12 +230,12 @@ cmake --build build\x64 --config Release --target lint
 
 - 完整的状态定义、强弱所有权图、同步/异步与重新激活时序、重入规则、日志协议和排障步骤见[组合生命周期设计](TSF_COMPOSITION_LIFECYCLE.md)；采集入口见[日志指南](LOGGING.md#62-组合生命周期与停用清理任务-434445)。
 - 按更新确认的策略保留预编辑文字，并允许受控异步补救。清理只清除旧范围的 `GUID_PROP_ATTRIBUTE` 并结束旧组合，不删除/替换文本或恢复 UI。
-- [`Deactivate`](../src/Ime/tsf/tip_service.cpp) 仍同步返回：先拒绝旧业务任务并设置停用保护，再通过 [`ScheduleCompositionCleanup`](../src/Ime/tsf/tip_composition.cpp) 请求 `TF_ES_SYNC | TF_ES_READWRITE`。仅当请求成功但会话结果为 `TF_E_SYNCHRONOUS`、回调未执行、宿主未终止组合且上下文未被移除时，再申请 `TF_ES_ASYNC | TF_ES_READWRITE`；不等待异步回调便清理本地引擎、订阅、UI 和线程管理器引用。任务 45 将该路径复用到仍连接的目标切换和失焦。
+- [`Deactivate`](../src/ime/tsf/tip_service.cpp) 仍同步返回：先拒绝旧业务任务并设置停用保护，再通过 [`ScheduleCompositionCleanup`](../src/ime/tsf/tip_composition.cpp) 请求 `TF_ES_SYNC | TF_ES_READWRITE`。仅当请求成功但会话结果为 `TF_E_SYNCHRONOUS`、回调未执行、宿主未终止组合且上下文未被移除时，再申请 `TF_ES_ASYNC | TF_ES_READWRITE`；不等待异步回调便清理本地引擎、订阅、UI 和线程管理器引用。任务 45 将该路径复用到仍连接的目标切换和失焦。
 - 每次清理独立保存旧上下文、组合及范围。编辑回调强引用该状态，不捕获线程管理器或服务；服务只保存弱引用，避免服务与清理任务强引用成环。组合自身可能持有其 sink，COM 引用计数仍保证服务和模块存活到请求被执行或释放。RAII 复位停用保护及清理完成标志，任务被宿主放弃时捕获资源也会释放。
 - 同一上下文有待处理清理时，新业务写请求强制使用 `TF_ES_ASYNC`，避免默认同步优先越过旧清理；TSF 的异步 FIFO 先结束旧组合，再创建新组合。其他上下文不受此调度限制。原业务回调仍检查任务 43 的激活/上下文周期，只有独立旧组合清理不依赖当前激活周期。
-- [`OnCompositionTerminated`](../src/Ime/tsf/tip_composition.cpp) 区分当前、待清理及旧组合。宿主提前终止待清理组合时，使用通知的写 cookie 清理旧范围并标记终止，之后旧回调直接退出，不能清除新组合属性；清理过程中发生终止也不重复结束。非当前组合通知不重置新组合/UI。停用期间重入停用不重复清理，重入激活记录并返回 `E_UNEXPECTED`，外层结束后正常激活可继续。
+- [`OnCompositionTerminated`](../src/ime/tsf/tip_composition.cpp) 区分当前、待清理及旧组合。宿主提前终止待清理组合时，使用通知的写 cookie 清理旧范围并标记终止，之后旧回调直接退出，不能清除新组合属性；清理过程中发生终止也不重复结束。非当前组合通知不重置新组合/UI。停用期间重入停用不重复清理，重入激活记录并返回 `E_UNEXPECTED`，外层结束后正常激活可继续。
 - 只读、断开、请求拒绝及宿主范围/属性/结束 API 失败都记录实际 HRESULT，不无限重试或强行越过权限。读会话内升级写权限也不能假定异步就会成功。属性或范围清理失败不阻止在有效权限下尝试结束组合；停用返回 `S_OK` 或排队返回 `TF_S_ASYNC` 都不等于宿主清理已成功。这些不可恢复情形可能保留宿主组合/属性，应从诊断识别，不宣称所有宿主都能结束。
-- [`Mock 回归测试`](../tests/Ime/tsf/service_lifecycle.cpp) 覆盖同步和异步 flags、保留文字、失败注入、重复停用、部分激活失败回滚、清理期间重入、旧组合通知、异步请求失败/断开、同一上下文重新激活及宿主提前终止；断言旧回调不调用 UI、不误清新属性，并检查释放外部服务引用后清理仍可完成、COM 对象计数恢复。
+- [`Mock 回归测试`](../tests/ime/tsf/service_lifecycle.cpp) 覆盖同步和异步 flags、保留文字、失败注入、重复停用、部分激活失败回滚、清理期间重入、旧组合通知、异步请求失败/断开、同一上下文重新激活及宿主提前终止；断言旧回调不调用 UI、不误清新属性，并检查释放外部服务引用后清理仍可完成、COM 对象计数恢复。
 - 同一测试建立真实 Windows TSF 管理器及私有文档，使用 `TF_TMAE_NOACTIVATETIP` 禁止激活系统 TIP，不切换用户焦点。通过真实布局通知触发同步拒绝，验证通知内组合仍存在、通知返回后异步清理完成；枚举宿主组合和属性范围，断言保留文本、`GUID_PROP_COMPOSING` 与 `GUID_PROP_ATTRIBUTE` 消失。另验证立即重新激活后旧清理先于新写入，新的组合范围仅含新文字且属性保留；以有界消息泵等待真实异步处理，不用 `Sleep`。
 - 真实 TSF 文档验证不同于 ETW 日志采集，不替代浏览器/UWP 实际宿主验证；任务 41 的窗口销毁仍独立待办，任务 45 的文档/上下文栈处理见下文 5.8。
 - 验证：x64/x86 Release 的 `QiQiTsfUiTest`（含上述真实 TSF 文档测试）、`QiQiEtwIntegrationTest` 均通过，未跳过；定向 CppCoreCheck 修复新增非空类型约束并复用现有 VARIANT 初始化帮助函数后无新增告警。清理请求完成和被调度器放弃两条路径均检查 COM 对象计数恢复。
@@ -291,25 +292,25 @@ cmake --build build\x64 --config Release --target lint
 ### 5.10 保留键与键盘监听所有权生命周期（任务 48）
 
 - 复核微软 `SampleIME` 与 `Weasel`：`SampleIME` 在 `InitPreservedKey`/`UninitPreservedKey` 中忽略 `PreserveKey`/`UnpreserveKey` 的返回值并按表全量注销，`Weasel` 的 `_InitPreservedKey` 位于 `#if 0` 且注销为空；两者均不适合作为所有权与失败处理模型。
-- [`QiQiTextService`](../src/Ime/tsf/tip_service.h) 新增 `key_event_sink_registered_` 与 `registered_preserved_keys_`：[`InitKeyEventSink`](../src/Ime/tsf/tip_service.cpp) 在 `AdviseKeyEventSink` 成功后标记键盘监听已注册，并仅将返回成功（`SUCCEEDED`）的 `(GUID, TF_PRESERVEDKEY)` 记入本激活周期持有列表。
-- 区分 `TF_E_ALREADY_EXISTS`（警告记录已注册并跳过本次所有权）与其他失败（记录操作与实际 `HRESULT`），不先注销或覆盖已有注册。[`UninitKeyEventSink`](../src/Ime/tsf/tip_service.cpp) 先移出并清空本周期持有状态，仅对持有项调用 `UnpreserveKey`（失败记录 `vkey`/`mod` 与 `HRESULT`）、仅在监听已注册时调用 `UnadviseKeyEventSink`，保证部分激活回滚、重复停用、注销失败或 `ITfKeystrokeMgr` 查询失败后的状态一致与可再次激活。
-- [`service.cpp`](../tests/Ime/tsf/service.cpp) 覆盖全部成功、查询/监听注册失败回滚、`TF_E_ALREADY_EXISTS` 与 `E_OUTOFMEMORY` 部分成功、全部保留键失败、重复停用、注销失败、`ITfKeystrokeMgr` 注销查询失败后重新激活，以及自有调试子进程对实际 `OutputDebugString` 警告消息的校验；现有快捷键行为保持不变。
+- [`QiQiTextService`](../src/ime/tsf/tip_service.h) 新增 `key_event_sink_registered_` 与 `registered_preserved_keys_`：[`InitKeyEventSink`](../src/ime/tsf/tip_service.cpp) 在 `AdviseKeyEventSink` 成功后标记键盘监听已注册，并仅将返回成功（`SUCCEEDED`）的 `(GUID, TF_PRESERVEDKEY)` 记入本激活周期持有列表。
+- 区分 `TF_E_ALREADY_EXISTS`（警告记录已注册并跳过本次所有权）与其他失败（记录操作与实际 `HRESULT`），不先注销或覆盖已有注册。[`UninitKeyEventSink`](../src/ime/tsf/tip_service.cpp) 先移出并清空本周期持有状态，仅对持有项调用 `UnpreserveKey`（失败记录 `vkey`/`mod` 与 `HRESULT`）、仅在监听已注册时调用 `UnadviseKeyEventSink`，保证部分激活回滚、重复停用、注销失败或 `ITfKeystrokeMgr` 查询失败后的状态一致与可再次激活。
+- [`service.cpp`](../tests/ime/tsf/service.cpp) 覆盖全部成功、查询/监听注册失败回滚、`TF_E_ALREADY_EXISTS` 与 `E_OUTOFMEMORY` 部分成功、全部保留键失败、重复停用、注销失败、`ITfKeystrokeMgr` 注销查询失败后重新激活，以及自有调试子进程对实际 `OutputDebugString` 警告消息的校验；现有快捷键行为保持不变。
 
 ### 5.11 进程词库缓存生命周期（任务 52）
 
 - 评估结论：`g_process_dict_cache` 以规范化路径缓存 `(src_size, src_mtime, std::shared_ptr<const WubiMappedDict>)`。虽然清空该映射不会使其他实例已持有的 `shared_ptr` 悬空，但在每个实例 `Deactivate` 时调用 `WubiMappedDict::ClearProcessCache()` 会使同进程后续激活、实例重载或新实例无法命中内存缓存，被迫重新打开并映射 `.qdict` 文件。
-- 调整策略：[`QiQiTextService::Deactivate`](../src/Ime/tsf/tip_service.cpp) 仅调用 `engine_.ClearExternalDictionaries()` 释放当前服务实例持有的词库引用，不再清空进程级缓存；进程缓存随模块生命周期在 [`DllMain`](../src/Ime/tsf/dllmain.cpp) 动态卸载（`DLL_PROCESS_DETACH` 且 `lpReserved == nullptr`）时统一清理，运行期词库文件修改则由 `LoadFromTextOrCache` 的文件大小与最后修改时间比对自动更新。
+- 调整策略：[`QiQiTextService::Deactivate`](../src/ime/tsf/tip_service.cpp) 仅调用 `engine_.ClearExternalDictionaries()` 释放当前服务实例持有的词库引用，不再清空进程级缓存；进程缓存随模块生命周期在 [`DllMain`](../src/ime/tsf/dllmain.cpp) 动态卸载（`DLL_PROCESS_DETACH` 且 `lpReserved == nullptr`）时统一清理，运行期词库文件修改则由 `LoadFromTextOrCache` 的文件大小与最后修改时间比对自动更新。
 - 关联修正：`ActivateEx` 原先仅在 `config_.primary_dict != PrimaryDict::BuiltinOnly` 时恢复被 `Deactivate` 清空的外部词库，导致 `BuiltinOnly` 配置下停用后重新激活丢失已配置的外部用户词库；现统一在 `engine_.MappedDictionaryCount() == 0` 时调用 `LoadExternalDictionaryNextToDll()`（直接命中进程级缓存）。
-- 验证：[`dict.cpp`](../tests/Ime/engine/dict.cpp) 与 [`service.cpp`](../tests/Ime/tsf/service.cpp) 验证多实例指针级复用、停用一个实例后进程缓存保留且另一实例及再次激活实例（含 `BuiltinOnly` 用户词库）候选查询正常、显式 `ClearProcessCache` 不影响在用 `shared_ptr`，以及所有实例与缓存释放后 `weak_ptr` 过期（底层映射资源释放）。
+- 验证：[`dict.cpp`](../tests/ime/engine/dict.cpp) 与 [`service.cpp`](../tests/ime/tsf/service.cpp) 验证多实例指针级复用、停用一个实例后进程缓存保留且另一实例及再次激活实例（含 `BuiltinOnly` 用户词库）候选查询正常、显式 `ClearProcessCache` 不影响在用 `shared_ptr`，以及所有实例与缓存释放后 `weak_ptr` 过期（底层映射资源释放）。
 
 ### 5.12 类别管理器创建与模块引用（任务 53）
 
 - 保留“导出函数优先、COM 回退”的既有顺序。[`TF_CreateCategoryMgr`](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-tf_createcategorymgr) 支持无需初始化 COM 的创建路径；不能仅因普通 STA 宿主中 `CoCreateInstance` 成功就删掉它。生产代码不调用 `CoInitializeEx` 或 `CoUninitialize`，不改变宿主线程的 COM 状态。
-- [`category_manager.h`](../src/Ime/tsf/category_manager.h) 将创建与样式 Atom 注册保持在同一个作用域：使用 [`GetModuleHandleExW`](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw) 的 `0` 标志取得已加载 `msctf.dll` 的持有引用，由现有 `ScopedModule` 释放；不使用 `PIN`、`UNCHANGED_REFCOUNT` 或主动加载 DLL 的新生产回退。
+- [`category_manager.h`](../src/ime/tsf/category_manager.h) 将创建与样式 Atom 注册保持在同一个作用域：使用 [`GetModuleHandleExW`](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw) 的 `0` 标志取得已加载 `msctf.dll` 的持有引用，由现有 `ScopedModule` 释放；不使用 `PIN`、`UNCHANGED_REFCOUNT` 或主动加载 DLL 的新生产回退。
 - 模块守卫先于 `ComPtr<ITfCategoryMgr>` 声明，所以成功、注册失败及创建失败路径都先释放接口，再释放持有的模块引用。此改动消除借用句柄路径缺乏显式引用保障的问题，不宣称此前已复现 DLL 卸载故障。
 - 无模块或无导出时继续尝试 COM；模块/导出查询失败立即捕获 `GetLastError`，记录 Debug 回退诊断。导出创建失败使用实际 HRESULT 记录 Debug，COM 创建及 `RegisterGUID` 失败使用现有 `CheckHResult` 记录警告。成功却无接口按 `E_UNEXPECTED` 诊断；导出返回失败时不沿用其输出接口。
-- 仅在 `RegisterGUID` 成功时发布 Atom，失败返回 `TF_INVALID_GUIDATOM`，保持输入法激活不因此失败的原有行为。调用方仍为 [`RegisterCompositionDisplayAttributeAtom`](../src/Ime/tsf/tip_service.cpp)，没有将类别管理器或函数指针缓存到模块引用之外。
-- [`category_manager.cpp`](../tests/Ime/tsf/category_manager.cpp) 通过局部 API 参数测试导出成功、模块/导出不可用、导出失败后回退、两种创建均失败、成功但无接口、异常失败输出和两条路径的 GUID 注册失败；在每条路径断言接口释放先于模块引用释放，不新增全局测试钩子。
+- 仅在 `RegisterGUID` 成功时发布 Atom，失败返回 `TF_INVALID_GUIDATOM`，保持输入法激活不因此失败的原有行为。调用方仍为 [`RegisterCompositionDisplayAttributeAtom`](../src/ime/tsf/tip_service.cpp)，没有将类别管理器或函数指针缓存到模块引用之外。
+- [`category_manager.cpp`](../tests/ime/tsf/category_manager.cpp) 通过局部 API 参数测试导出成功、模块/导出不可用、导出失败后回退、两种创建均失败、成功但无接口、异常失败输出和两条路径的 GUID 注册失败；在每条路径断言接口释放先于模块引用释放，不新增全局测试钩子。
 - 原生测试在未初始化 COM 的新线程中预加载系统 `msctf.dll`，验证真实导出创建与 GUID/Atom 映射，并检查调用前后仍为未初始化 COM；另在测试 STA 中强制导出失败，验证真实 COM 回退与 GUID 映射。x64/x86 Release 的 `QiQiTsfUiTest` 与 `QiQiEtwIntegrationTest` 均通过，未跳过；VS Code、浏览器及容器类宿主的交互矩阵仍由任务 47 跟进，不将本测试等同于全部宿主兼容性验证。
 - 定向 CppCoreCheck 已修正本次新增的异常声明与测试资源类型诊断；动态导出所需的函数指针转换沿用仓库排除 C26490 的规则，其余仅保留既有诊断。复核 RAII 释放顺序、共享日志/句柄封装复用、Core Guidelines/GSL 及缺失测试，未扩大告警豁免范围；最终双架构回归与 `git diff --check` 通过。
 
