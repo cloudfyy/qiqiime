@@ -246,6 +246,15 @@ private:
 
     bool IsEntryRemoved(uint32_t packed_code, std::wstring_view word) const;
     bool CheckAndPublishExternalUserDictChanges(const std::filesystem::path& dict_path);
+    template <typename FileMutator, typename MemoryMutator>
+    bool MutateUserDictionaryEntry(
+        std::wstring_view code,
+        std::wstring_view word,
+        std::wstring_view new_word,
+        sync::Operation op,
+        const std::filesystem::path& user_dict_path,
+        FileMutator mutate_file,
+        MemoryMutator mutate_memory);
 
     std::map<uint32_t, std::vector<std::wstring>> dict_;
     std::map<uint32_t, std::vector<std::wstring>> removed_entries_;

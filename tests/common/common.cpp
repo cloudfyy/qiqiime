@@ -1,4 +1,5 @@
 #include "common/test_support.h"
+#include "common/binary_codec.h"
 #include "common/com_object.h"
 #include "common/config.h"
 #include "common/file_util.h"
@@ -286,6 +287,17 @@ void TestEtwLogger() {
             QIQI_TEST_CHECK(WriteFileAtomicallyResult(empty_file, oversize_span) == E_INVALIDARG);
         }
         QIQI_TEST_CHECK(WriteFileAtomicallyResult(empty_file / L"nested.txt", std::span(&dummy_byte, 1)) != S_OK);
+        QIQI_TEST_CHECK(GetSyncChannelDirectoryForFile({}).empty());
+        // Test BinarySpanReader out-of-bounds branches (ReadLeNumber, ReadBytes, ReadWString)
+        constexpr std::array<uint8_t, 2> short_buf{1, 2};
+        codec::BinarySpanReader num_reader(short_buf);
+        QIQI_TEST_CHECK(num_reader.ReadLe32() == 0 && !num_reader.Valid());
+        codec::BinarySpanReader bytes_reader(short_buf);
+        QIQI_TEST_CHECK(bytes_reader.ReadBytes(5).empty() && !bytes_reader.Valid());
+        std::vector<uint8_t> bad_wstr;
+        codec::AppendLe32(bad_wstr, 10);
+        codec::BinarySpanReader wstr_reader(bad_wstr);
+        QIQI_TEST_CHECK(wstr_reader.ReadWString(4).empty() && !wstr_reader.Valid());
     }
     {
         wchar_t* orig_localappdata = nullptr;

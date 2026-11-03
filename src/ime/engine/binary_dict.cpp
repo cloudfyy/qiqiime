@@ -74,6 +74,7 @@ bool ParseTextDictIntoBinaryBuffer(
     return true;
 }
 
+[[gsl::suppress("type.1")]]
 bool ValidateBinaryTableViews(
     std::span<const uint8_t> buffer,
     uint32_t expected_magic,

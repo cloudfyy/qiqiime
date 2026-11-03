@@ -116,6 +116,11 @@ void TestBinaryDictBufferValidation() {
     std::memcpy(bad_checksum_buffer.data(), &bad_checksum_header, sizeof(bad_checksum_header));
     QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(bad_checksum_buffer)) == nullptr);
 
+    auto trailing_bytes_buffer = MakeSingleEntryQdictBuffer();
+    trailing_bytes_buffer.push_back(0xAA);
+    QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(trailing_bytes_buffer)) == nullptr);
+    WubiMappedDict::InvalidateProcessCacheForPath({});
+
     auto invalid_count_buffer = MakeSingleEntryQdictBuffer();
     DictBinaryHeader invalid_count_header{};
     std::memcpy(&invalid_count_header, invalid_count_buffer.data(), sizeof(invalid_count_header));
@@ -634,12 +639,40 @@ void TestCrossProcessDictAndPhraseFreqSync() {
 
     // Reader now promotes "短语一" without prior explicit sync after writer's change -> coordinated write preserves both!
     for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) reader.ProcessKey(vk);
+    QIQI_TEST_CHECK(reader.SynchronizePhraseFrequencies(sync::InputBoundary::Composing) == S_FALSE);
     QIQI_TEST_CHECK(reader.CommitCandidate(3).committed_text == L"短语一");
     QIQI_TEST_CHECK(writer.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
     const auto w_qrst = writer.LookupExact(L"qrst");
     QIQI_TEST_CHECK(w_qrst.size() == 4 && gsl::at(w_qrst, 0) == L"单" &&
                     gsl::at(w_qrst, 1) == L"短语一" && gsl::at(w_qrst, 2) == L"短语三" &&
                     gsl::at(w_qrst, 3) == L"短语二");
+
+    // 5. Direct SavePhraseFrequencies, legacy single-character filtering, in-memory entry mutations, and file deletion cleanup
+    QIQI_TEST_CHECK(!writer.SavePhraseFrequencies({}));
+    QIQI_TEST_CHECK(writer.SavePhraseFrequencies(freq_file));
+    {
+        std::ofstream legacy_freq(freq_file, std::ios::binary | std::ios::trunc);
+        legacy_freq << "aaaa 工\nqrst 短语二 短语一\n";
+    }
+    QIQI_TEST_CHECK(reader.LoadPhraseFrequencies(freq_file));
+
+    WubiEngine in_mem;
+    QIQI_TEST_CHECK(!in_mem.RemoveEntry(L"", L"词") && !in_mem.RemoveEntry(L"abcd", L""));
+    QIQI_TEST_CHECK(!in_mem.ModifyEntry(L"", L"旧", L"新") && !in_mem.ModifyEntry(L"abcd", L"", L"新"));
+    QIQI_TEST_CHECK(in_mem.AddUserEntry(L"abcd", L"内存一"));
+    QIQI_TEST_CHECK(in_mem.AddUserEntry(L"abcd", L"内存二"));
+    QIQI_TEST_CHECK(in_mem.ModifyUserEntry(L"abcd", L"内存一", L"内存一")); // no-op same word
+    QIQI_TEST_CHECK(in_mem.ModifyUserEntry(L"abcd", L"内存一", L"内存二")); // target already exists -> deduplicates
+    QIQI_TEST_CHECK(in_mem.LookupExact(L"abcd").size() == 1);
+    QIQI_TEST_CHECK(in_mem.ModifyUserEntry(L"aaaa", L"工", L"工改")); // modifies entry from builtin/mapped layer
+    QIQI_TEST_CHECK(in_mem.RemoveUserEntry(L"abcd", L"内存二"));
+    QIQI_TEST_CHECK(in_mem.LookupExact(L"abcd").empty());
+
+    std::filesystem::remove(user_dict, ec);
+    std::filesystem::remove(freq_file, ec);
+    QIQI_TEST_CHECK(writer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(writer.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(!writer.LoadPhraseFrequencies(freq_file));
 }
 
 } // namespace
