@@ -23,6 +23,7 @@ set(QIQIIME_SOURCES
     tsf/category_manager.h
     tsf/register.h
     tsf/register.cpp
+    tsf/shift_tap.h
     tsf/tip_service.h
     tsf/tip_service.cpp
     tsf/tip_keys.cpp

@@ -29,6 +29,74 @@ public:
     HRESULT result = S_OK;
 };
 
+void TestShiftTapTracking() {
+    ShiftTapTracker tracker;
+    QIQI_TEST_CHECK(!tracker.IsCandidate() && tracker.Sequence() == 0 && tracker.ElapsedMs(1000) == 0);
+    QIQI_TEST_CHECK(std::string_view(tracker.ReleaseReason(1000, {})) == "no-candidate");
+
+    for (const uint64_t elapsed : {uint64_t{0}, uint64_t{349}, uint64_t{350}, uint64_t{351}}) {
+        tracker.Reset();
+        const auto sequence = tracker.Sequence();
+        QIQI_TEST_CHECK(std::string_view(tracker.OnKeyDown(1000, false, true, {})) == "armed");
+        QIQI_TEST_CHECK(tracker.Sequence() == sequence + 1);
+        const char* reason = tracker.ReleaseReason(1000 + elapsed, {});
+        QIQI_TEST_CHECK((reason == nullptr) == (elapsed <= 350));
+        if (reason) QIQI_TEST_CHECK(std::string_view(reason) == "timeout");
+        QIQI_TEST_CHECK(tracker.IsCandidate() && tracker.ElapsedMs(1000 + elapsed) == elapsed);
+    }
+
+    tracker.Reset();
+    QIQI_TEST_CHECK(std::string_view(tracker.OnKeyDown(1000, false, true, {})) == "armed");
+    const auto sequence = tracker.Sequence();
+    QIQI_TEST_CHECK(std::string_view(tracker.OnKeyDown(1220, false, true, {})) == "press-preserved");
+    QIQI_TEST_CHECK(std::string_view(tracker.OnKeyDown(1349, true, true, {})) == "repeat-preserved");
+    QIQI_TEST_CHECK(tracker.ReleaseReason(1350, {}) == nullptr && tracker.Sequence() == sequence);
+    QIQI_TEST_CHECK(std::string_view(tracker.OnKeyDown(1351, true, true, {})) == "repeat-timeout");
+    QIQI_TEST_CHECK(!tracker.IsCandidate() && tracker.ElapsedMs(1351) == 351);
+    tracker.OnKeyDown(1352, true, true, {});
+    QIQI_TEST_CHECK(!tracker.IsCandidate() && tracker.Sequence() == sequence);
+    tracker.Reset();
+    QIQI_TEST_CHECK(tracker.ElapsedMs(1352) == 0 && tracker.Sequence() == sequence);
+
+    for (uint32_t mask = 0; mask < 8; ++mask) {
+        const ShiftTapModifiers modifiers{(mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0};
+        for (const bool enabled : {false, true}) {
+            tracker.Reset();
+            const char* expected = !enabled ? "disabled" : modifiers.ctrl ? "ctrl" :
+                                   modifiers.alt ? "alt" : modifiers.mouse ? "mouse-button" : "armed";
+            QIQI_TEST_CHECK(std::string_view(tracker.OnKeyDown(2000, false, enabled, modifiers)) == expected);
+            QIQI_TEST_CHECK(tracker.IsCandidate() == (enabled && mask == 0));
+        }
+
+        tracker.Reset();
+        tracker.OnKeyDown(2000, false, true, {});
+        const char* reason = tracker.ReleaseReason(2100, modifiers);
+        if (mask == 0) {
+            QIQI_TEST_CHECK(reason == nullptr);
+        } else {
+            const char* expected = modifiers.mouse ? "mouse-button" : modifiers.ctrl ? "ctrl" : "alt";
+            QIQI_TEST_CHECK(reason && std::string_view(reason) == expected);
+        }
+        QIQI_TEST_CHECK(std::string_view(tracker.ReleaseReason(2351, modifiers)) == "timeout");
+    }
+
+    tracker.Reset();
+    tracker.OnKeyDown(3000, false, true, {});
+    QIQI_TEST_CHECK(std::string_view(tracker.OnKeyDown(3100, true, true, {false, false, true})) ==
+                    "repeat-mouse-button");
+    QIQI_TEST_CHECK(!tracker.IsCandidate() && tracker.ElapsedMs(3100) == 100);
+    tracker.OnKeyDown(3200, false, true, {});
+    tracker.Disarm();
+    QIQI_TEST_CHECK(!tracker.IsCandidate() && tracker.ElapsedMs(3250) == 50);
+    QIQI_TEST_CHECK(std::string_view(tracker.ReleaseReason(3250, {})) == "no-candidate");
+    tracker.Reset();
+    tracker.OnKeyDown(3300, true, true, {});
+    QIQI_TEST_CHECK(!tracker.IsCandidate());
+    tracker.OnKeyDown(0, false, true, {});
+    QIQI_TEST_CHECK(tracker.ReleaseReason(350, {}) == nullptr);
+    QIQI_TEST_CHECK(std::string_view(tracker.ReleaseReason(351, {})) == "timeout");
+}
+
 void TestFocusPerformanceLogs() {
     const auto executable = GetModuleFilePath(nullptr);
     QIQI_TEST_CHECK(!executable.empty());
@@ -790,6 +858,21 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
     QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 1);
 
+    QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(key_sink->OnSetFocus(FALSE) == S_OK);
+    QIQI_TEST_CHECK(key_sink->OnTestKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 1);
+
+    QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    auto modified_keyboard = clean_kb_state;
+    gsl::at(modified_keyboard, VK_CONTROL) = 0x80;
+    QIQI_TEST_CHECK(::SetKeyboardState(modified_keyboard.data()));
+    QIQI_TEST_CHECK(key_sink->OnTestKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
+    QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 1);
+
     // Type 'A' then 'B' -> starts composition (BeginUIElement) then updates composition (UpdateUIElement)
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
@@ -825,7 +908,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
-    // Auto-repeat VK_SHIFT while still within 350ms preserves shift_tap_candidate_
+    // Auto-repeat VK_SHIFT within 350ms preserves the tap candidate.
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 1LL << 30, &eaten)) && eaten == FALSE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == TRUE);
@@ -1657,6 +1740,7 @@ void RunTsfFocusDiagnosticsScenario() {
 }
 
 void RunTsfServiceTests() {
+    TestShiftTapTracking();
     TestQiQiTextServiceLifecycleAndKeyFlow();
     TestFocusPerformanceLogs();
 }

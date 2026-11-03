@@ -69,6 +69,8 @@ TSF 的按键处理分为两步：
 
 候选鼠标点击直接调用 `WubiEngine::CommitCandidate(index_in_page)`，不模拟数字按键；普通五笔的数字选词也复用该提交逻辑，并保留动态词频调整。临时英文模式下，键盘数字仍追加到正文，点击候选则提交去掉引导 `z` 的正文（只有引导时提交 `z`），不追加候选序号，也不参与五笔词频调整。
 
+Shift 轻触由独立的 [`ShiftTapTracker`](../src/Ime/tsf/shift_tap.h) 管理候选标记、原始按下时间和诊断序号，不加入五笔 FSM。跟踪器只使用调用方传入的时刻与 Ctrl/Alt/鼠标状态，TSF 层负责读取系统状态和生命周期门禁；测试松键与实际松键共用判定入口，预判通过不消耗候选，实际松键先复位再执行模式切换。阈值仍为 350 ms（等于阈值有效），双按下回调和自动重复不延长原计时，自动重复不能独立建立候选。拒绝或超时可保留原时间供诊断，实际松键及生命周期重置清除计时但保留序号。
+
 在 `DoEditSession(TfEditCookie ec)` 内完成：
 - **新建或更新组合串**：`ITfInsertAtSelection::InsertTextAtSelection` + `ITfContextComposition::StartComposition` + `ITfRange::SetText` + 设置 `GUID_PROP_ATTRIBUTE` 下划线显示属性。
 - **上屏并结束组合**：清除显示属性、将范围文本替换为最终汉字、折叠选区到末尾、调用 `ITfComposition::EndComposition`。

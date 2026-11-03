@@ -11,6 +11,7 @@
 #include "common/config.h"
 #include "common/guids.h"
 #include "Ime/engine/engine.h"
+#include "Ime/tsf/shift_tap.h"
 #include "Ime/ui/candidate_ui.h"
 #include "Ime/ui/langbar_button.h"
 #include "Ime/ui/statusbar.h"
@@ -148,6 +149,8 @@ private:
                      bool eaten, std::string_view reason) const noexcept;
     void TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, ITfContext* context,
                              LPARAM flags) noexcept;
+    bool HandleShiftTapKeyUp(std::string_view stage, uint32_t vk, const ITfContext* context,
+                             bool test_only) noexcept;
     bool PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts);
     void SyncSavedConfigChange(bool reload_dicts);
     void LoadExternalDictionaryNextToDll();
@@ -224,9 +227,7 @@ private:
     QiQiConfig config_{};
     uint64_t config_registry_sequence_ = 0;
     WubiEngine engine_;
-    bool shift_tap_candidate_ = false;
-    ULONGLONG shift_press_tick_ = 0;
-    uint64_t shift_log_sequence_ = 0;
+    ShiftTapTracker shift_tap_;
 };
 
 // Global DLL instance and active COM object counter

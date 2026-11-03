@@ -21,7 +21,9 @@ bool IsAnyMouseButtonDown() noexcept {
     return IsKeyDown(VK_LBUTTON) || IsKeyDown(VK_RBUTTON) || IsKeyDown(VK_MBUTTON);
 }
 
-constexpr ULONGLONG kMaxShiftTapDurationMs = 350;
+ShiftTapModifiers ReadShiftTapModifiers() noexcept {
+    return {IsKeyDown(VK_CONTROL), IsKeyDown(VK_MENU), IsAnyMouseButtonDown()};
+}
 
 bool QueryCompartmentNonZero(IUnknown* unk, REFGUID guid) noexcept {
     if (!unk) {
@@ -42,14 +44,6 @@ bool QueryCompartmentNonZero(IUnknown* unk, REFGUID guid) noexcept {
     return ReadCompartmentInt4(comp.Get(), 0) != 0;
 }
 
-const char* ShiftTapReleaseReason(ULONGLONG press_tick) noexcept {
-    if (::GetTickCount64() - press_tick > kMaxShiftTapDurationMs) return "timeout";
-    if (IsAnyMouseButtonDown()) return "mouse-button";
-    if (IsKeyDown(VK_CONTROL)) return "ctrl";
-    if (IsKeyDown(VK_MENU)) return "alt";
-    return nullptr;
-}
-
 bool IsCapsLockOn() noexcept {
     return (::GetKeyState(VK_CAPITAL) & 0x0001) != 0;
 }
@@ -66,9 +60,9 @@ void QiQiTextService::LogShiftTap(std::string_view stage, uint32_t vk, const ITf
     const char* key = vk == VK_LSHIFT ? "left" : vk == VK_RSHIFT ? "right" :
                       vk == VK_SHIFT ? "generic" : "not-recorded";
     QIQI_LOG_DEBUG("ShiftTap(service={}, attempt={}, stage={}, key={}, reason={}, eaten={}, candidate={}, elapsed_ms={}, max_ms={}, enabled={}, active={}, resetting={}, preparing={}, has_context={}, current_context={}, chinese={}, composing={}, shift={}, ctrl={}, alt={}, mouse={})",
-                   service_log_id_, shift_log_sequence_, stage, key, reason, eaten,
-                   shift_tap_candidate_, shift_press_tick_ ? ::GetTickCount64() - shift_press_tick_ : 0,
-                   kMaxShiftTapDurationMs, config_.shift_toggle_mode, is_active_, resetting_context_,
+                   service_log_id_, shift_tap_.Sequence(), stage, key, reason, eaten,
+                   shift_tap_.IsCandidate(), shift_tap_.ElapsedMs(::GetTickCount64()),
+                   ShiftTapTracker::kMaxDurationMs, config_.shift_toggle_mode, is_active_, resetting_context_,
                    preparing_input_context_ != nullptr, context != nullptr,
                    context && context == active_context_.Get(), engine_.IsChineseMode(), engine_.IsComposing(),
                    IsKeyDown(VK_SHIFT), IsKeyDown(VK_CONTROL), IsKeyDown(VK_MENU), IsAnyMouseButtonDown());
@@ -78,27 +72,37 @@ void QiQiTextService::LogShiftTap(std::string_view stage, uint32_t vk, const ITf
 void QiQiTextService::TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, ITfContext* context,
                                          LPARAM flags) noexcept {
     const bool is_auto_repeat = (flags & (1LL << 30)) != 0;
-    const bool ctrl = IsKeyDown(VK_CONTROL);
-    const bool alt = IsKeyDown(VK_MENU);
-    const bool mouse_down = IsAnyMouseButtonDown();
-    const char* reason = is_auto_repeat ? "repeat-preserved" : "press-preserved";
+    const auto modifiers = ReadShiftTapModifiers();
+    const char* reason = nullptr;
     if (!is_active_ || resetting_context_ || preparing_input_context_) {
         reason = !is_active_ ? "inactive" : resetting_context_ ? "resetting" : "preparing";
-        shift_tap_candidate_ = false;
-        shift_press_tick_ = 0;
-    } else if (!is_auto_repeat && !shift_tap_candidate_) {
-        ++shift_log_sequence_;
-        shift_tap_candidate_ = config_.shift_toggle_mode && !ctrl && !alt && !mouse_down;
-        shift_press_tick_ = shift_tap_candidate_ ? ::GetTickCount64() : 0;
-        reason = !config_.shift_toggle_mode ? "disabled" : ctrl ? "ctrl" :
-                 alt ? "alt" : mouse_down ? "mouse-button" : "armed";
-    } else if (::GetTickCount64() - shift_press_tick_ > kMaxShiftTapDurationMs || mouse_down) {
-        shift_tap_candidate_ = false;
-        reason = mouse_down ? "repeat-mouse-button" : "repeat-timeout";
+        shift_tap_.Reset();
+    } else {
+        reason = shift_tap_.OnKeyDown(::GetTickCount64(), is_auto_repeat, config_.shift_toggle_mode, modifiers);
     }
     LogShiftTap(stage, vk, context, false, reason);
     QIQI_LOG_DEBUG("ShiftTapContext(service={}, attempt={}, keyboard_disabled={})",
-                   service_log_id_, shift_log_sequence_, IsContextKeyboardDisabled(context));
+                   service_log_id_, shift_tap_.Sequence(), IsContextKeyboardDisabled(context));
+}
+
+bool QiQiTextService::HandleShiftTapKeyUp(std::string_view stage, uint32_t vk, const ITfContext* context,
+                                         bool test_only) noexcept {
+    if (!IsShiftVirtualKey(vk)) return false;
+    if (!shift_tap_.IsCandidate()) {
+        LogShiftTap(stage, vk, context, false, "no-candidate");
+        if (!test_only) shift_tap_.Reset();
+        return false;
+    }
+    const auto now = ::GetTickCount64();
+    const auto modifiers = ReadShiftTapModifiers();
+    const char* reason = shift_tap_.ReleaseReason(now, modifiers);
+    LogShiftTap(stage, vk, context, reason == nullptr, reason ? reason : "accepted");
+    if (!test_only) {
+        shift_tap_.Reset();
+    } else if (reason) {
+        shift_tap_.Disarm();
+    }
+    return reason == nullptr;
 }
 
 STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
@@ -131,19 +135,17 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
     }
     const bool keyboard_disabled = IsContextKeyboardDisabled(pic);
     if (!pic || !is_active_ || resetting_context_ || preparing_input_context_ || keyboard_disabled) {
-        if (shift_tap_candidate_) {
+        if (shift_tap_.IsCandidate()) {
             LogShiftTap("OnTestKeyDown", vk, pic, false,
                         !pic ? "no-context" : !is_active_ ? "inactive" : resetting_context_ ? "resetting" :
                         preparing_input_context_ ? "preparing" : "keyboard-disabled");
         }
-        shift_tap_candidate_ = false;
-        shift_press_tick_ = 0;
+        shift_tap_.Reset();
         *pfEaten = FALSE;
         return S_OK;
     }
-    if (shift_tap_candidate_) LogShiftTap("OnTestKeyDown", 0, pic, false, "other-key-cancelled");
-    shift_tap_candidate_ = false;
-    shift_press_tick_ = 0;
+    if (shift_tap_.IsCandidate()) LogShiftTap("OnTestKeyDown", 0, pic, false, "other-key-cancelled");
+    shift_tap_.Reset();
 
     const bool eat_key = pic == active_context_.Get()
         ? engine_.ShouldEatKey(vk, shift, ctrl, alt, caps)
@@ -168,9 +170,8 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM l
         *pfEaten = FALSE;
         return S_OK;
     }
-    if (shift_tap_candidate_) LogShiftTap("OnKeyDown", 0, pic, false, "other-key-cancelled");
-    shift_tap_candidate_ = false;
-    shift_press_tick_ = 0;
+    if (shift_tap_.IsCandidate()) LogShiftTap("OnKeyDown", 0, pic, false, "other-key-cancelled");
+    shift_tap_.Reset();
     if (IsContextKeyboardDisabled(pic)) {
         *pfEaten = FALSE;
         return S_OK;
@@ -215,19 +216,7 @@ STDMETHODIMP QiQiTextService::OnTestKeyUp(ITfContext* pic, WPARAM wParam, LPARAM
     if (!pfEaten) {
         return E_INVALIDARG;
     }
-    const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
-    if (IsShiftVirtualKey(vk) && shift_tap_candidate_) {
-        const char* reason = ShiftTapReleaseReason(shift_press_tick_);
-        LogShiftTap("OnTestKeyUp", vk, pic, reason == nullptr, reason ? reason : "accepted");
-        if (!reason) {
-            *pfEaten = TRUE;
-            return S_OK;
-        }
-        shift_tap_candidate_ = false;
-    } else if (IsShiftVirtualKey(vk)) {
-        LogShiftTap("OnTestKeyUp", vk, pic, false, "no-candidate");
-    }
-    *pfEaten = FALSE;
+    *pfEaten = HandleShiftTapKeyUp("OnTestKeyUp", gsl::narrow_cast<uint32_t>(wParam), pic, true) ? TRUE : FALSE;
     return S_OK;
 }
 
@@ -236,20 +225,11 @@ STDMETHODIMP QiQiTextService::OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM /*l
         return E_INVALIDARG;
     }
     const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
-    if (IsShiftVirtualKey(vk) && shift_tap_candidate_) {
-        const char* reason = ShiftTapReleaseReason(shift_press_tick_);
-        LogShiftTap("OnKeyUp", vk, pic, reason == nullptr, reason ? reason : "accepted");
-        shift_tap_candidate_ = false;
-        shift_press_tick_ = 0;
-        if (!reason) {
-            *pfEaten = TRUE;
-            ToggleModeAndCancelComposition(pic);
-            LogShiftTap("OnKeyUp", vk, pic, true, "toggle-complete");
-            return S_OK;
-        }
-    } else if (IsShiftVirtualKey(vk)) {
-        LogShiftTap("OnKeyUp", vk, pic, false, "no-candidate");
-        shift_press_tick_ = 0;
+    if (HandleShiftTapKeyUp("OnKeyUp", vk, pic, false)) {
+        *pfEaten = TRUE;
+        ToggleModeAndCancelComposition(pic);
+        LogShiftTap("OnKeyUp", vk, pic, true, "toggle-complete");
+        return S_OK;
     }
     *pfEaten = FALSE;
     return S_OK;
