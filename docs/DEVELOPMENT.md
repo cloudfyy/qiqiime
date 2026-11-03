@@ -143,6 +143,7 @@ ctest --preset x86-release --output-on-failure
 - `QiQiIMESettings.exe`：独立设置工具
 - `QiQiIMELogMonitor.exe`：独立实时 ETW 日志监控工具
 - `qiqi_common_test.exe`：公共基础模块与共享 D2D 控件测试（`QiQiCommonTest`）
+- `qiqi_change_sync_test.exe`：公共跨进程日志、并发写入与真实 AppContainer 只读同步测试（`QiQiChangeSyncTest`）
 - `qiqi_engine_test.exe`：五笔核心引擎测试（`QiQiEngineTest`）
 - `qiqi_tsf_ui_test.exe`：TSF COM 服务与 IME UI 测试（`QiQiTsfUiTest`）；`--etw-integration` 模式另注册为 `QiQiEtwIntegrationTest`
 - `qiqi_settings_test.exe`：设置 / 关于窗口及配置边界测试（`QiQiSettingsTest`）
@@ -345,3 +346,24 @@ ctest --test-dir build\x64 -C Release -R '^(QiQiLogMonitorTest|QiQiLogMonitorInt
 - 双架构上述 6 项测试通过且未跳过；通过测试程序的 `--integration <另一架构测试程序完整路径>` 参数验证两个方向跨架构采集（这是测试入口，不是 GUI 工具的 CLI）。真实 GUI 启动、显示子进程事件、零解码/ETW 丢失状态及正常退出另行检查。
 - 定向 MSVC CppCoreCheck 修正新增告警，Windows ABI 转换沿用仓库既有 C26490 排除；分配型默认构造器的异常传播、满足前置条件的消费者 join 只作逐处说明，不将其伪造为不会失败的分配。共享文件其余旧告警未扩大修复范围。复核 RAII、复用、Core Guidelines/GSL 与缺失测试。
 - 真实 GUI 已在双屏间移动，验证 150%→100% DPI 切换、工作区边界及已有事件保留；浅色、深色和模拟高对比度窗口均接收子进程事件并正常退出。测试宿主提供 `--preview-dark` / `--preview-contrast` 供视觉检查，不是生产 GUI 的 CLI；后者仅切换应用回退分支、使用当前系统色，不修改 Windows 高对比度设置。完整真实高对比度主题、热插拔/最大化/最小化矩阵及浏览器/UWP 交互仍需另行人工验证。
+
+### 5.14 公共跨进程变更同步（任务 39）
+
+- [`Channel`](../src/common/change_sync.h) 不依赖 TSF 广播、不创建常驻服务或后台线程。每个数据源使用独立的绝对目录，绑定数据类型与稳定源 GUID；适配层须向桌面和容器实例提供同一路径，不能各自从进程环境推导不同目录。词库/词频的业务接入属于任务 40。
+- `Create` 仅允许非 AppContainer 发布进程调用，为专用通道目录配置受保护 ACL：所有者/系统可写，AppContainer 可读及遍历。不要传入安装根目录或含无关私密文件的目录；增量正文可能含用户词条和排序记录，不能当作公开或加密数据。测试覆盖已有目录重新配置权限及容器不能写入。
+- `journal.bin` 使用固定宽度小端字段，保存格式版本、数据类型、源/基线 GUID、递增序号、操作和不透明增量正文，并作内容校验。正文由业务层解释；最多保留 256 条、总文件不超过 2 MiB，单条正文上限 64 KiB，超限参数明确失败。记录/字节保留窗口过期后要求全量快照，不逐次读取完整业务数据。
+- `Watch` 的目录通知可能由临时文件、源文件或最终日志替换触发，不能等同于提交完成；唤醒后先 `Rearm`，再检查版本。漏通知或晚启动仍能通过 `Read`/`Synchronize` 检查持久化版本；实际焦点补偿入口在任务 40 接入。
+- `Publish` 使用非阻塞排他文件锁和预期版本检查；只有持锁后才执行源数据读改写回调。先保存未完成标记，再写源并提交增量；回调失败/异常使基线失效，写进程退出或最终提交失败则保留可识别的未完成状态。下一读者持共享锁要求快照恢复，不把未提交增量当作成功。锁冲突/旧版本保留实际 HRESULT，调用者应在合适边界重新读取并重试，不能丢弃操作或无界阻塞输入线程。
+- 源文件应自行原子替换；此协议不能撤销业务回调已经产生的外部副作用，也不是跨文件或断电持久性事务。日志校验/格式失败显式报错，不信任损坏版本；不得静默继续应用旧增量。`WriteFileAtomicallyResult` 复用已有原子写实现并保留 HRESULT，原有布尔接口继续可用。
+- `Synchronize` 在 `Composing` 时不更新本地状态；`NewInput` 时在共享锁内调用快照或增量适配器。仅回调返回 `S_OK` 才确认版本，失败或 `S_FALSE` 不推进。适配器须在成功时一次性发布本地状态，不从持读锁的回调重入发布接口。
+- [`回归测试`](../tests/common/change_sync.cpp) 覆盖新增/修改/删除/调序、组合期暂缓、漏通知、晚启动、基线/保留窗口变化、并发读改写、回调失败/异常、损坏校验、提交失败和持锁写进程退出。真实 AppContainer 子进程验证通知、只读增量与写入拒绝；x64/x86 均通过，并验证两个方向跨架构写入及容器读取。测试使用独立目录、唯一临时容器配置与拥有的子进程，不修改真实词库。
+- 复核 RAII、共享帮助函数复用和 GSL/Core Guidelines；定向分析修正新增代码告警，保留仓库既有 Windows ABI 转换排除及第三方 GSL 头诊断。既有回归首轮 Common/LogMonitor 的剪贴板用例失败，隔离重跑通过，未修改或放宽断言；不据此声称已修复剪贴板环境的偶发失败。
+
+```powershell
+cmake --build --preset x64-release --target qiqi_change_sync_test
+ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
+# 两个架构的测试程序均已构建后；反向测试交换 x64/x86
+.\build\x64\Release\qiqi_change_sync_test.exe --peer "$PWD\build\x86\Release\qiqi_change_sync_test.exe"
+```
+
+接口依据：[文件变更通知](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirstchangenotificationw)、[文件锁](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex)、[AppContainer 隔离](https://learn.microsoft.com/en-us/windows/win32/secauthz/appcontainer-isolation)。真实测试只证明当前环境的公共协议路径，不等同于所有宿主或沙箱策略均已验收。

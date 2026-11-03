@@ -19,6 +19,8 @@ set(QIQI_COMMON_SOURCES
     about_dialog.cpp
     about_dialog.h
     com_object.h
+    change_sync.cpp
+    change_sync.h
     config.cpp
     config.h
     d2d_controls.cpp
@@ -53,6 +55,7 @@ target_include_directories(qiqi_common PUBLIC
 target_link_libraries(qiqi_common PUBLIC
     Microsoft.GSL::GSL
     advapi32
+    ole32
     ktmw32
     user32
     gdi32

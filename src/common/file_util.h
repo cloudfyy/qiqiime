@@ -1,4 +1,5 @@
 #pragma once
+#include <windows.h>
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -33,5 +34,8 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
 // Write a byte buffer atomically to target_path via an exclusive-write temporary file + MoveFileExW,
 // using ScopedFileHandle RAII and gsl::finally to guarantee temporary file cleanup on any error or exception.
 bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<const uint8_t> bytes);
+
+// HRESULT-preserving form for callers that must distinguish failed writes.
+HRESULT WriteFileAtomicallyResult(const std::filesystem::path& target_path, std::span<const uint8_t> bytes);
 
 } // namespace qiqi

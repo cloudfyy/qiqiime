@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <gsl/gsl>
 #include <array>
+#include <new>
 #include <string>
 
 namespace qiqi {
@@ -153,16 +154,25 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
 }
 
 bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<const uint8_t> bytes) {
+    return SUCCEEDED(WriteFileAtomicallyResult(target_path, bytes));
+}
+
+HRESULT WriteFileAtomicallyResult(const std::filesystem::path& target_path, std::span<const uint8_t> bytes) {
     try {
+        if (bytes.size() > MAXDWORD) {
+            QIQI_LOG_ERROR("WriteFileAtomically: byte count exceeds DWORD capacity");
+            return E_INVALIDARG;
+        }
         std::error_code ec;
         if (std::filesystem::is_directory(target_path, ec)) {
             QIQI_LOG_WARN("WriteFileAtomically: target is a directory");
-            return false;
+            return E_INVALIDARG;
         }
         if (target_path.has_parent_path()) {
             std::filesystem::create_directories(target_path.parent_path(), ec);
             if (ec) {
                 QIQI_LOG_WARN("WriteFileAtomically::create_directories failed (error={})", ec.value());
+                return HRESULT_FROM_WIN32(ec.value());
             }
         }
 
@@ -170,12 +180,10 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
             target_path.wstring() + L".tmp." + std::to_wstring(::GetCurrentProcessId());
         bool moved_ok = false;
         const auto cleanup_tmp = gsl::finally([&tmp_path, &moved_ok]() noexcept {
-            if (!moved_ok) {
-                std::error_code rm_ec;
-                std::filesystem::remove(tmp_path, rm_ec);
-                if (rm_ec) {
-                    QIQI_LOG_WARN("WriteFileAtomically::remove temporary file failed (error={})", rm_ec.value());
-                }
+            if (!moved_ok && !::DeleteFileW(tmp_path.c_str())) {
+                const DWORD error = ::GetLastError();
+                if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+                    QIQI_LOG_WARN("WriteFileAtomically::DeleteFileW temporary file failed (error={})", error);
             }
         });
 
@@ -191,11 +199,11 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
             if (!file.IsValid()) {
                 const DWORD error = ::GetLastError();
                 QIQI_LOG_WARN("WriteFileAtomically::CreateFileW failed (error={})", error);
-                return false;
+                return HRESULT_FROM_WIN32(error);
             }
             if (::GetFileType(file.Get()) != FILE_TYPE_DISK) {
                 QIQI_LOG_WARN("WriteFileAtomically: target is not a disk file");
-                return false;
+                return E_INVALIDARG;
             }
 
             DWORD written = 0;
@@ -206,7 +214,7 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
                 if (!write_ok || written != to_write) {
                     QIQI_LOG_ERROR("WriteFileAtomically::WriteFile incomplete (expected={}, written={}, error={})",
                                    to_write, written, error);
-                    return false;
+                    return write_ok ? E_FAIL : HRESULT_FROM_WIN32(error);
                 }
             }
         }
@@ -215,11 +223,15 @@ bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<con
         if (!moved_ok) {
             const DWORD error = ::GetLastError();
             QIQI_LOG_WARN("WriteFileAtomically::MoveFileExW failed (error={})", error);
+            return HRESULT_FROM_WIN32(error);
         }
-        return moved_ok;
+        return S_OK;
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR("WriteFileAtomically failed with an allocation exception");
+        return E_OUTOFMEMORY;
     } catch (...) {
         QIQI_LOG_ERROR("WriteFileAtomically failed with a C++ exception");
-        return false;
+        return E_UNEXPECTED;
     }
 }
 

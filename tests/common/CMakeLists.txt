@@ -14,3 +14,9 @@ target_link_libraries(qiqi_common_test PRIVATE
     uuid
 )
 add_test(NAME QiQiCommonTest COMMAND qiqi_common_test)
+
+add_executable(qiqi_change_sync_test change_sync.cpp)
+target_include_directories(qiqi_change_sync_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
+target_link_libraries(qiqi_change_sync_test PRIVATE qiqi_common ole32 userenv)
+add_test(NAME QiQiChangeSyncTest COMMAND qiqi_change_sync_test)
+set_tests_properties(QiQiChangeSyncTest PROPERTIES TIMEOUT 90)
