@@ -4,6 +4,8 @@
 
 独立 GUI 工具 `QiQiIMELogMonitor.exe` 已实现，日常复现可直接使用下方的实时监控流程；需要离线分析时仍可使用调试器或 ETW/WPA。
 
+窗口实现按职责拆分：[window.cpp](../src/tools/log_monitor/window.cpp) 负责窗口生命周期与主消息分发，[ui.cpp](../src/tools/log_monitor/ui.cpp) 负责控件创建、布局、主题、语言与 DPI，[view.cpp](../src/tools/log_monitor/view.cpp) 负责筛选、列表选择、刷新及详情，[actions.cpp](../src/tools/log_monitor/actions.cpp) 负责快捷键、分隔条、命令、复制和导出。共享的私有 `Impl` 声明位于 [internal.h](../src/tools/log_monitor/internal.h)，公开接口仍为 [window.h](../src/tools/log_monitor/window.h)。
+
 ## GUI 实时监控
 
 1. 构建 `QiQiIMELogMonitor`（例如 `cmake --build --preset x64-release --target QiQiIMELogMonitor`），运行 `build\x64\Release\QiQiIMELogMonitor.exe`；x86 构建位于对应的 `build\x86\Release`。标题、关于、文件版本资源及导出头共用项目版本。

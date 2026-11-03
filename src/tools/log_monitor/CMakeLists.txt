@@ -1,5 +1,7 @@
 set(QIQI_MONITOR_SOURCES
-    model.h model.cpp collector.h collector.cpp window.h window.cpp
+    model.h model.cpp collector.h collector.cpp
+    window.h internal.h window.cpp
+    ui.cpp view.cpp actions.cpp
 )
 add_library(qiqi_log_monitor STATIC ${QIQI_MONITOR_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_MONITOR_SOURCES})
