@@ -11,9 +11,6 @@ namespace qiqi {
 
 namespace {
 
-constexpr uint32_t kDictMagic = 0x49514257u;
-constexpr uint32_t kDictFormatVersion = 1u;
-
 struct ProcessDictCacheEntry {
     uint64_t src_size = 0;
     uint64_t src_mtime = 0;
@@ -70,9 +67,155 @@ bool ParseTextDictIntoBinaryBuffer(
     }
 
     const std::wstring wide_content = Utf8ToWide(StripUtf8Bom(raw_utf8));
-    std::wstring_view content_view(wide_content);
+    std::map<uint32_t, std::vector<std::wstring>> grouped;
+    WubiMappedDict::ParseTextDictEntries(wide_content, grouped);
+    WubiMappedDict::CompileEntriesToBinaryBuffer(
+        grouped, out_buffer, codec::kDictBinaryMagic, codec::kDictBinaryVersion, src_size, src_mtime);
+    return true;
+}
 
-    std::map<uint32_t, std::vector<std::wstring_view>> grouped;
+bool ValidateBinaryTableViews(
+    std::span<const uint8_t> buffer,
+    uint32_t expected_magic,
+    uint32_t expected_version,
+    uint64_t expected_src_size,
+    uint64_t expected_src_mtime,
+    std::span<const DictCodeIndex>& out_code_index,
+    std::span<const DictWordSlice>& out_word_slices,
+    std::span<const wchar_t>& out_char_pool) noexcept {
+    if (buffer.size() < sizeof(DictBinaryHeader)) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: buffer size ({} bytes) smaller than DictBinaryHeader", buffer.size());
+        return false;
+    }
+    const auto* hdr = reinterpret_cast<const DictBinaryHeader*>(buffer.data());
+    if (hdr->magic != expected_magic || hdr->version != expected_version) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: invalid or outdated header (magic=0x{:08X}, version={})",
+                      hdr->magic, hdr->version);
+        return false;
+    }
+    if (expected_src_size != 0 && hdr->source_size != expected_src_size) {
+        QIQI_LOG_DEBUG("ValidateBinaryTableViews: source_size mismatch (cached={}, current={})",
+                       hdr->source_size, expected_src_size);
+        return false;
+    }
+    if (expected_src_mtime != 0 && hdr->source_mtime != 0 && hdr->source_mtime != expected_src_mtime) {
+        QIQI_LOG_DEBUG("ValidateBinaryTableViews: source_mtime mismatch (cached={}, current={})",
+                       hdr->source_mtime, expected_src_mtime);
+        return false;
+    }
+
+    size_t remaining_bytes = buffer.size() - sizeof(DictBinaryHeader);
+    if (hdr->code_count > remaining_bytes / sizeof(DictCodeIndex)) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: invalid code index count ({})", hdr->code_count);
+        return false;
+    }
+    const size_t codes_bytes = gsl::narrow_cast<size_t>(hdr->code_count) * sizeof(DictCodeIndex);
+    remaining_bytes -= codes_bytes;
+    if (hdr->word_count > remaining_bytes / sizeof(DictWordSlice)) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: invalid word slice count ({})", hdr->word_count);
+        return false;
+    }
+    const size_t words_bytes = gsl::narrow_cast<size_t>(hdr->word_count) * sizeof(DictWordSlice);
+    remaining_bytes -= words_bytes;
+    if (hdr->char_count > remaining_bytes / sizeof(wchar_t)) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: invalid character pool count ({})", hdr->char_count);
+        return false;
+    }
+    const size_t chars_bytes = gsl::narrow_cast<size_t>(hdr->char_count) * sizeof(wchar_t);
+    const size_t payload_bytes = codes_bytes + words_bytes + chars_bytes;
+    if (remaining_bytes != chars_bytes) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: trailing bytes mismatch");
+        return false;
+    }
+    const uint32_t expected_checksum = codec::ComputeFnv1a32(
+        buffer.subspan(sizeof(DictBinaryHeader), payload_bytes));
+    if (hdr->payload_checksum != expected_checksum) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: payload checksum mismatch (header=0x{:08X}, computed=0x{:08X})",
+                      hdr->payload_checksum, expected_checksum);
+        return false;
+    }
+
+    const auto codes_span = buffer.subspan(sizeof(DictBinaryHeader), codes_bytes);
+    const auto words_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes, words_bytes);
+    const auto chars_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes + words_bytes, chars_bytes);
+
+    const auto code_index = std::span<const DictCodeIndex>(
+        reinterpret_cast<const DictCodeIndex*>(codes_span.data()), hdr->code_count);
+    const auto word_slices = std::span<const DictWordSlice>(
+        reinterpret_cast<const DictWordSlice*>(words_span.data()), hdr->word_count);
+    const auto char_pool = std::span<const wchar_t>(
+        reinterpret_cast<const wchar_t*>(chars_span.data()), hdr->char_count);
+
+    uint32_t previous_code = 0;
+    for (const DictCodeIndex& entry : code_index) {
+        if (entry.packed_code == 0 || entry.packed_code <= previous_code ||
+            entry.word_count == 0 || entry.first_word_idx > word_slices.size() ||
+            entry.word_count > word_slices.size() - entry.first_word_idx) {
+            QIQI_LOG_WARN("ValidateBinaryTableViews: invalid code index entry");
+            return false;
+        }
+
+        bool padding_started = false;
+        for (size_t i = 0; i < sizeof(entry.packed_code); ++i) {
+            const uint32_t code_byte = (entry.packed_code >> ((3 - i) * 8)) & 0xFFu;
+            if (code_byte == 0) {
+                padding_started = true;
+            } else if (padding_started || code_byte > 26) {
+                QIQI_LOG_WARN("ValidateBinaryTableViews: invalid packed Wubi code");
+                return false;
+            }
+        }
+        previous_code = entry.packed_code;
+    }
+
+    for (const DictWordSlice& slice : word_slices) {
+        if (slice.char_length == 0 || slice.char_offset > char_pool.size() ||
+            slice.char_length > char_pool.size() - slice.char_offset) {
+            QIQI_LOG_WARN("ValidateBinaryTableViews: invalid word slice");
+            return false;
+        }
+    }
+
+    out_code_index = code_index;
+    out_word_slices = word_slices;
+    out_char_pool = char_pool;
+    return true;
+}
+
+} // namespace
+
+void WubiMappedDict::ClearProcessCache() noexcept {
+    try {
+        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+        g_process_dict_cache.clear();
+    } catch (...) {
+        QIQI_LOG_ERROR("ClearProcessCache failed with a C++ exception");
+    }
+}
+
+void WubiMappedDict::InvalidateProcessCacheForPath(const std::filesystem::path& txt_path) noexcept {
+    try {
+        if (txt_path.empty()) {
+            return;
+        }
+        std::error_code ec;
+        std::filesystem::path adjacent_qdict = txt_path;
+        adjacent_qdict.replace_extension(L".qdict");
+        const std::wstring key_txt = std::filesystem::weakly_canonical(txt_path, ec).wstring();
+        const std::wstring key_qdict = std::filesystem::weakly_canonical(adjacent_qdict, ec).wstring();
+        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+        g_process_dict_cache.erase(key_txt);
+        g_process_dict_cache.erase(key_qdict);
+    } catch (...) {
+        QIQI_LOG_ERROR("InvalidateProcessCacheForPath failed with a C++ exception");
+    }
+}
+
+void WubiMappedDict::ParseTextDictEntries(
+    std::wstring_view wide_content,
+    std::map<uint32_t, std::vector<std::wstring>>& out_entries) {
+    out_entries.clear();
+    std::wstring_view content_view(wide_content);
     bool in_yaml_header = false;
 
     while (!content_view.empty()) {
@@ -86,7 +229,6 @@ bool ParseTextDictIntoBinaryBuffer(
         if (first.empty() || first.starts_with(L'#')) {
             continue;
         }
-
         if (first == L"---") {
             in_yaml_header = true;
             continue;
@@ -98,15 +240,12 @@ bool ParseTextDictIntoBinaryBuffer(
             continue;
         }
 
-        auto add_to_group = [&grouped](std::wstring_view code_tok, std::wstring_view word_tok) {
+        auto add_to_group = [&out_entries](std::wstring_view code_tok, std::wstring_view word_tok) {
             const uint32_t packed = PackWubiCode(code_tok);
             if (packed == 0 || word_tok.empty()) {
                 return;
             }
-            auto& vec = grouped[packed];
-            if (std::find(vec.begin(), vec.end(), word_tok) == vec.end()) {
-                vec.push_back(word_tok);
-            }
+            AppendUniqueWord(out_entries[packed], word_tok);
         };
 
         if (IsWubiCodeToken(first)) {
@@ -120,34 +259,47 @@ bool ParseTextDictIntoBinaryBuffer(
             }
         }
     }
+}
 
+void WubiMappedDict::CompileEntriesToBinaryBuffer(
+    const std::map<uint32_t, std::vector<std::wstring>>& entries,
+    std::vector<uint8_t>& out_buffer,
+    uint32_t magic,
+    uint32_t version,
+    uint64_t src_size,
+    uint64_t src_mtime) {
     std::vector<DictCodeIndex> code_indices;
-    code_indices.reserve(grouped.size());
+    code_indices.reserve(entries.size());
     std::vector<DictWordSlice> word_slices;
     std::wstring char_pool;
 
-    for (const auto& [packed_code, words] : grouped) {
-        if (words.empty()) {
+    for (const auto& [packed_code, words] : entries) {
+        if (packed_code == 0 || words.empty()) {
             continue;
         }
         DictCodeIndex ci{};
         ci.packed_code = packed_code;
         ci.first_word_idx = gsl::narrow_cast<uint32_t>(word_slices.size());
-        ci.word_count = gsl::narrow_cast<uint32_t>(words.size());
-        code_indices.push_back(ci);
-
-        for (const auto word_sv : words) {
+        ci.word_count = 0;
+        for (const auto& word : words) {
+            if (word.empty()) {
+                continue;
+            }
             DictWordSlice ws{};
             ws.char_offset = gsl::narrow_cast<uint32_t>(char_pool.size());
-            ws.char_length = gsl::narrow_cast<uint32_t>(word_sv.size());
+            ws.char_length = gsl::narrow_cast<uint32_t>(word.size());
             word_slices.push_back(ws);
-            char_pool.append(word_sv);
+            char_pool.append(word);
+            ++ci.word_count;
+        }
+        if (ci.word_count > 0) {
+            code_indices.push_back(ci);
         }
     }
 
     DictBinaryHeader hdr{};
-    hdr.magic = kDictMagic;
-    hdr.version = kDictFormatVersion;
+    hdr.magic = magic;
+    hdr.version = version;
     hdr.source_size = src_size;
     hdr.source_mtime = src_mtime;
     hdr.code_count = gsl::narrow_cast<uint32_t>(code_indices.size());
@@ -161,7 +313,6 @@ bool ParseTextDictIntoBinaryBuffer(
 
     out_buffer.resize(total_bytes);
     std::span<uint8_t> out_span(out_buffer);
-    std::memcpy(out_span.data(), &hdr, sizeof(hdr));
     out_span = out_span.subspan(sizeof(hdr));
     if (codes_bytes > 0) {
         std::memcpy(out_span.data(), code_indices.data(), codes_bytes);
@@ -174,18 +325,35 @@ bool ParseTextDictIntoBinaryBuffer(
     if (chars_bytes > 0) {
         std::memcpy(out_span.data(), char_pool.data(), chars_bytes);
     }
-    return true;
+    hdr.payload_checksum = codec::ComputeFnv1a32(
+        std::span<const uint8_t>(out_buffer).subspan(sizeof(DictBinaryHeader)));
+    std::memcpy(out_buffer.data(), &hdr, sizeof(hdr));
 }
 
-} // namespace
-
-void WubiMappedDict::ClearProcessCache() noexcept {
-    try {
-        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
-        g_process_dict_cache.clear();
-    } catch (...) {
-        QIQI_LOG_ERROR("ClearProcessCache failed with a C++ exception");
+bool WubiMappedDict::DecodeBinaryBufferToEntries(
+    std::span<const uint8_t> buffer,
+    std::map<uint32_t, std::vector<std::wstring>>& out_entries,
+    uint32_t expected_magic,
+    uint32_t expected_version) {
+    std::span<const DictCodeIndex> code_index;
+    std::span<const DictWordSlice> word_slices;
+    std::span<const wchar_t> char_pool;
+    if (!ValidateBinaryTableViews(
+            buffer, expected_magic, expected_version, 0, 0, code_index, word_slices, char_pool)) {
+        return false;
     }
+    std::map<uint32_t, std::vector<std::wstring>> decoded;
+    for (const DictCodeIndex& entry : code_index) {
+        auto& list = decoded[entry.packed_code];
+        const size_t end_idx = gsl::narrow_cast<size_t>(entry.first_word_idx) + entry.word_count;
+        for (size_t i = entry.first_word_idx; i < end_idx; ++i) {
+            const DictWordSlice& slice = gsl::at(word_slices, i);
+            const auto sub = char_pool.subspan(slice.char_offset, slice.char_length);
+            AppendUniqueWord(list, std::wstring_view(sub.data(), sub.size()));
+        }
+    }
+    out_entries = std::move(decoded);
+    return true;
 }
 
 size_t WubiMappedDict::ProcessCacheSize() noexcept {
@@ -211,91 +379,15 @@ bool WubiMappedDict::BindBufferView(
     std::span<const uint8_t> buffer,
     uint64_t expected_src_size,
     uint64_t expected_src_mtime) noexcept {
-    if (buffer.size() < sizeof(DictBinaryHeader)) {
-        QIQI_LOG_WARN("BindBufferView: buffer size ({} bytes) smaller than DictBinaryHeader", buffer.size());
-        return false;
-    }
-    const auto* hdr = reinterpret_cast<const DictBinaryHeader*>(buffer.data());
-    if (hdr->magic != kDictMagic || hdr->version != kDictFormatVersion) {
-        QIQI_LOG_WARN("BindBufferView: invalid .qdict header (magic=0x{:08X}, version={})",
-                      hdr->magic, hdr->version);
-        return false;
-    }
-    if (expected_src_size != 0 && hdr->source_size != expected_src_size) {
-        QIQI_LOG_DEBUG("BindBufferView: source_size mismatch (cached={}, current={})",
-                       hdr->source_size, expected_src_size);
-        return false;
-    }
-    if (expected_src_mtime != 0 && hdr->source_mtime != 0 && hdr->source_mtime != expected_src_mtime) {
-        QIQI_LOG_DEBUG("BindBufferView: source_mtime mismatch (cached={}, current={})",
-                       hdr->source_mtime, expected_src_mtime);
-        return false;
-    }
-
-    size_t remaining_bytes = buffer.size() - sizeof(DictBinaryHeader);
-    if (hdr->code_count > remaining_bytes / sizeof(DictCodeIndex)) {
-        QIQI_LOG_WARN("BindBufferView: invalid code index count ({})", hdr->code_count);
-        return false;
-    }
-    const size_t codes_bytes = gsl::narrow_cast<size_t>(hdr->code_count) * sizeof(DictCodeIndex);
-    remaining_bytes -= codes_bytes;
-    if (hdr->word_count > remaining_bytes / sizeof(DictWordSlice)) {
-        QIQI_LOG_WARN("BindBufferView: invalid word slice count ({})", hdr->word_count);
-        return false;
-    }
-    const size_t words_bytes = gsl::narrow_cast<size_t>(hdr->word_count) * sizeof(DictWordSlice);
-    remaining_bytes -= words_bytes;
-    if (hdr->char_count > remaining_bytes / sizeof(wchar_t)) {
-        QIQI_LOG_WARN("BindBufferView: invalid character pool count ({})", hdr->char_count);
-        return false;
-    }
-    const size_t chars_bytes = gsl::narrow_cast<size_t>(hdr->char_count) * sizeof(wchar_t);
-
-    const auto codes_span = buffer.subspan(sizeof(DictBinaryHeader), codes_bytes);
-    const auto words_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes, words_bytes);
-    const auto chars_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes + words_bytes, chars_bytes);
-
-    const auto code_index = std::span<const DictCodeIndex>(
-        reinterpret_cast<const DictCodeIndex*>(codes_span.data()), hdr->code_count);
-    const auto word_slices = std::span<const DictWordSlice>(
-        reinterpret_cast<const DictWordSlice*>(words_span.data()), hdr->word_count);
-    const auto char_pool = std::span<const wchar_t>(
-        reinterpret_cast<const wchar_t*>(chars_span.data()), hdr->char_count);
-
-    uint32_t previous_code = 0;
-    for (const DictCodeIndex& entry : code_index) {
-        if (entry.packed_code == 0 || entry.packed_code <= previous_code ||
-            entry.word_count == 0 || entry.first_word_idx > word_slices.size() ||
-            entry.word_count > word_slices.size() - entry.first_word_idx) {
-            QIQI_LOG_WARN("BindBufferView: invalid code index entry");
-            return false;
-        }
-
-        bool padding_started = false;
-        for (size_t i = 0; i < sizeof(entry.packed_code); ++i) {
-            const uint32_t code_byte = (entry.packed_code >> ((3 - i) * 8)) & 0xFFu;
-            if (code_byte == 0) {
-                padding_started = true;
-            } else if (padding_started || code_byte > 26) {
-                QIQI_LOG_WARN("BindBufferView: invalid packed Wubi code");
-                return false;
-            }
-        }
-        previous_code = entry.packed_code;
-    }
-
-    for (const DictWordSlice& slice : word_slices) {
-        if (slice.char_length == 0 || slice.char_offset > char_pool.size() ||
-            slice.char_length > char_pool.size() - slice.char_offset) {
-            QIQI_LOG_WARN("BindBufferView: invalid word slice");
-            return false;
-        }
-    }
-
-    code_index_ = code_index;
-    word_slices_ = word_slices;
-    char_pool_ = char_pool;
-    return true;
+    return ValidateBinaryTableViews(
+        buffer,
+        codec::kDictBinaryMagic,
+        codec::kDictBinaryVersion,
+        expected_src_size,
+        expected_src_mtime,
+        code_index_,
+        word_slices_,
+        char_pool_);
 }
 
 bool WubiMappedDict::OpenMappedFile(

@@ -265,12 +265,42 @@ const wchar_t* GetActiveConfigRegistrySubKey() noexcept {
     return g_config_reg_subkey_override ? g_config_reg_subkey_override : kDefaultConfigRegSubKey;
 }
 
+bool IsProcessAppContainer() noexcept {
+    ScopedKernelHandle token;
+    if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, token.Put())) {
+        return false;
+    }
+    DWORD is_app_container = 0;
+    DWORD ret_len = 0;
+    if (::GetTokenInformation(
+            token.Get(),
+            TokenIsAppContainer,
+            &is_app_container,
+            sizeof(is_app_container),
+            &ret_len)) {
+        return is_app_container != 0;
+    }
+    return false;
+}
+
 std::filesystem::path GetDefaultUserDictPath() {
     return ResolveDefaultUserFilePath(L"user_dict.txt");
 }
 
 std::filesystem::path GetDefaultPhraseFreqPath() {
     return ResolveDefaultUserFilePath(L"phrase_freq.txt");
+}
+
+std::filesystem::path GetSyncChannelDirectoryForFile(const std::filesystem::path& file_path) {
+    if (file_path.empty()) {
+        return {};
+    }
+    std::error_code ec;
+    std::filesystem::path abs_path = std::filesystem::absolute(file_path, ec);
+    if (ec || abs_path.empty()) {
+        abs_path = file_path;
+    }
+    return std::filesystem::path(abs_path.wstring() + L".sync");
 }
 
 std::filesystem::path ResolveBundledDataFile(

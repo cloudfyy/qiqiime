@@ -41,6 +41,7 @@ QiQiTextService::QiQiTextService(HINSTANCE instance) : service_log_id_(++next_se
     config_registry_sequence_ = QueryRegistryConfigSequence();
     log::SetLevel(config_.log_level);
     engine_.ApplyConfig(config_);
+    engine_.SetUserDictPath(GetDefaultUserDictPath());
     engine_.SetPhraseFreqPath(GetDefaultPhraseFreqPath());
     std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
     candidate_ui_ = MakeComObject<CandidateUI>(instance);

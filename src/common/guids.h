@@ -75,6 +75,18 @@ inline constexpr GUID kGuidCompartmentStatusBarPos = {
     0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x0a}
 };
 
+// {8E7B9D31-5A42-4C81-9F11-20261029000B}
+// Cross-process change_sync Source GUID for user dictionary channels
+inline constexpr GUID kGuidSyncSourceDictionary = {
+    0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x0b}
+};
+
+// {8E7B9D31-5A42-4C81-9F11-20261029000C}
+// Cross-process change_sync Source GUID for phrase frequency channels
+inline constexpr GUID kGuidSyncSourcePhraseFrequency = {
+    0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x0c}
+};
+
 inline constexpr LANGID kChineseSimplifiedLangId = MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED);
 inline constexpr const wchar_t* kTextServiceDesc = L"奇奇五笔 (QiQi Wubi IME)";
 inline constexpr const wchar_t* kProfileDescZh = L"奇奇五笔";

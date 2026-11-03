@@ -26,6 +26,14 @@ void ReadBinaryValue(const std::vector<uint8_t>& buffer, size_t offset, T& value
     std::memcpy(&value, bytes.subspan(offset, sizeof(value)).data(), sizeof(value));
 }
 
+void RefreshQdictChecksum(std::vector<uint8_t>& buffer) {
+    DictBinaryHeader header{};
+    ReadBinaryValue(buffer, 0, header);
+    header.payload_checksum = codec::ComputeFnv1a32(
+        std::span<const uint8_t>(buffer).subspan(sizeof(DictBinaryHeader)));
+    WriteBinaryValue(buffer, 0, header);
+}
+
 std::vector<uint8_t> MakeSingleEntryQdictBuffer() {
     DictBinaryHeader header{};
     header.code_count = 1;
@@ -44,6 +52,7 @@ std::vector<uint8_t> MakeSingleEntryQdictBuffer() {
     WriteBinaryValue(buffer, offset, word_slice);
     offset += sizeof(word_slice);
     WriteBinaryValue(buffer, offset, word);
+    RefreshQdictChecksum(buffer);
     return buffer;
 }
 
@@ -72,6 +81,7 @@ bool WriteInvalidIndexQdictCache(
     ReadBinaryValue(buffer, sizeof(DictBinaryHeader), code_index);
     code_index.first_word_idx = UINT32_MAX;
     WriteBinaryValue(buffer, sizeof(DictBinaryHeader), code_index);
+    RefreshQdictChecksum(buffer);
 
     std::ofstream cache_file(cache_path, std::ios::binary | std::ios::trunc);
     if (!cache_file) {
@@ -90,6 +100,21 @@ void TestBinaryDictBufferValidation() {
     std::vector<std::wstring> words;
     valid_dict->LookupExact(PackWubiCode(L"aaaa"), words);
     QIQI_TEST_CHECK(words.size() == 1 && words.front() == L"词");
+
+    // Outdated .qdict version (v1) and corrupted payload checksum must be rejected
+    auto v1_buffer = MakeSingleEntryQdictBuffer();
+    DictBinaryHeader v1_header{};
+    std::memcpy(&v1_header, v1_buffer.data(), sizeof(v1_header));
+    v1_header.version = 1u;
+    std::memcpy(v1_buffer.data(), &v1_header, sizeof(v1_header));
+    QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(v1_buffer)) == nullptr);
+
+    auto bad_checksum_buffer = MakeSingleEntryQdictBuffer();
+    DictBinaryHeader bad_checksum_header{};
+    std::memcpy(&bad_checksum_header, bad_checksum_buffer.data(), sizeof(bad_checksum_header));
+    bad_checksum_header.payload_checksum ^= 1u;
+    std::memcpy(bad_checksum_buffer.data(), &bad_checksum_header, sizeof(bad_checksum_header));
+    QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(bad_checksum_buffer)) == nullptr);
 
     auto invalid_count_buffer = MakeSingleEntryQdictBuffer();
     DictBinaryHeader invalid_count_header{};
@@ -117,6 +142,7 @@ void TestBinaryDictBufferValidation() {
     ReadBinaryValue(invalid_index_buffer, sizeof(DictBinaryHeader), invalid_index);
     invalid_index.first_word_idx = UINT32_MAX;
     WriteBinaryValue(invalid_index_buffer, sizeof(DictBinaryHeader), invalid_index);
+    RefreshQdictChecksum(invalid_index_buffer);
     QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_index_buffer)) == nullptr);
 
     auto invalid_code_buffer = MakeSingleEntryQdictBuffer();
@@ -124,6 +150,7 @@ void TestBinaryDictBufferValidation() {
     ReadBinaryValue(invalid_code_buffer, sizeof(DictBinaryHeader), invalid_code);
     invalid_code.packed_code = 0xFF000000u;
     WriteBinaryValue(invalid_code_buffer, sizeof(DictBinaryHeader), invalid_code);
+    RefreshQdictChecksum(invalid_code_buffer);
     QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_code_buffer)) == nullptr);
 
     auto invalid_slice_offset_buffer = MakeSingleEntryQdictBuffer();
@@ -137,6 +164,7 @@ void TestBinaryDictBufferValidation() {
         invalid_slice_offset_buffer,
         sizeof(DictBinaryHeader) + sizeof(DictCodeIndex),
         invalid_slice_offset);
+    RefreshQdictChecksum(invalid_slice_offset_buffer);
     QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_slice_offset_buffer)) == nullptr);
 
     auto invalid_slice_length_buffer = MakeSingleEntryQdictBuffer();
@@ -150,6 +178,7 @@ void TestBinaryDictBufferValidation() {
         invalid_slice_length_buffer,
         sizeof(DictBinaryHeader) + sizeof(DictCodeIndex),
         invalid_slice_length);
+    RefreshQdictChecksum(invalid_slice_length_buffer);
     QIQI_TEST_CHECK(WubiMappedDict::LoadFromBinaryBuffer(std::move(invalid_slice_length_buffer)) == nullptr);
 }
 
@@ -483,6 +512,134 @@ void TestExternalDictFile() {
 
     std::filesystem::remove(temp_user_dict, ec);
     std::filesystem::remove(temp_user_qdict, ec);
+    std::filesystem::remove_all(GetSyncChannelDirectoryForFile(temp_user_dict), ec);
+}
+
+void TestCrossProcessDictAndPhraseFreqSync() {
+    const auto base_dir = std::filesystem::temp_directory_path() /
+        (L"qiqiime_task40_sync_" + std::to_wstring(::GetCurrentProcessId()));
+    std::error_code ec;
+    std::filesystem::remove_all(base_dir, ec);
+    std::filesystem::create_directories(base_dir, ec);
+    const auto cleanup = gsl::finally([&base_dir]() noexcept {
+        std::error_code rm_ec;
+        std::filesystem::remove_all(base_dir, rm_ec);
+    });
+
+    const auto user_dict = base_dir / L"user_dict.txt";
+    const auto freq_file = base_dir / L"phrase_freq.txt";
+
+    WubiEngine writer;
+    WubiEngine reader;
+    writer.SetUserDictPath(user_dict);
+    reader.SetUserDictPath(user_dict);
+    writer.SetPhraseFreqPath(freq_file);
+    reader.SetPhraseFreqPath(freq_file);
+    writer.SetDynamicPhraseFreq(true);
+    reader.SetDynamicPhraseFreq(true);
+
+    // 1. Controlled dictionary Add / Modify / Remove -> incremental sync in reader
+    QIQI_TEST_CHECK(writer.AddUserPhrase(L"中国好", user_dict));
+    QIQI_TEST_CHECK(reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(reader.UserDictSnapshotSyncCount() == 1 && reader.UserDictIncrementalSyncCount() == 0);
+    auto r_klvb = reader.LookupExact(L"klvb");
+    QIQI_TEST_CHECK(!r_klvb.empty() && r_klvb.front() == L"中国好");
+
+    QIQI_TEST_CHECK(writer.AddUserEntry(L"abcd", L"词条甲", user_dict));
+    QIQI_TEST_CHECK(writer.AddUserEntry(L"abcd", L"词条乙", user_dict));
+    QIQI_TEST_CHECK(writer.ModifyUserEntry(L"abcd", L"词条甲", L"词条甲改", user_dict));
+    QIQI_TEST_CHECK(writer.RemoveUserEntry(L"klvb", L"中国好", user_dict));
+
+    // Composing boundary defers synchronization so active candidates never jump mid-input
+    reader.ProcessKey('A');
+    QIQI_TEST_CHECK(reader.IsComposing());
+    QIQI_TEST_CHECK(reader.SynchronizeUserDictionary() == S_FALSE);
+    QIQI_TEST_CHECK(!reader.SynchronizeCrossProcessChanges());
+    QIQI_TEST_CHECK(reader.LookupExact(L"abcd").empty());
+
+    // NewInput boundary applies all 4 incremental records without a full snapshot reload
+    reader.Reset();
+    QIQI_TEST_CHECK(reader.SynchronizeCrossProcessChanges());
+    QIQI_TEST_CHECK(reader.UserDictSnapshotSyncCount() == 1 && reader.UserDictIncrementalSyncCount() == 4);
+    const auto r_abcd = reader.LookupExact(L"abcd");
+    QIQI_TEST_CHECK(r_abcd.size() == 2 && gsl::at(r_abcd, 0) == L"词条甲改" && gsl::at(r_abcd, 1) == L"词条乙");
+    QIQI_TEST_CHECK(reader.LookupExact(L"klvb").empty());
+
+    // 2. External editor modification: small bounded diff (<= 16 ops) syncs incrementally
+    {
+        std::ofstream ofs(user_dict, std::ios::binary | std::ios::app);
+        ofs << "abcd 外部新增一\nabce 外部新增二\n";
+    }
+    std::filesystem::last_write_time(
+        user_dict,
+        std::filesystem::file_time_type::clock::now() + std::chrono::seconds(2),
+        ec);
+    QIQI_TEST_CHECK(reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(reader.UserDictSnapshotSyncCount() == 1 && reader.UserDictIncrementalSyncCount() == 6);
+    const auto r_abcd_ext = reader.LookupExact(L"abcd");
+    QIQI_TEST_CHECK(r_abcd_ext.size() == 3 && gsl::at(r_abcd_ext, 2) == L"外部新增一");
+    const auto r_abce_ext = reader.LookupExact(L"abce");
+    QIQI_TEST_CHECK(r_abce_ext.size() == 1 && gsl::at(r_abce_ext, 0) == L"外部新增二");
+
+    // 3. External editor large replacement (> 16 ops) rotates baseline and triggers full snapshot reload
+    {
+        std::ofstream ofs(user_dict, std::ios::binary | std::ios::trunc);
+        for (int i = 0; i < 20; ++i) {
+            ofs << "xyza 批量替换词" << i << "\n";
+        }
+    }
+    std::filesystem::last_write_time(
+        user_dict,
+        std::filesystem::file_time_type::clock::now() + std::chrono::seconds(5),
+        ec);
+    QIQI_TEST_CHECK(reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(reader.UserDictSnapshotSyncCount() == 2);
+    QIQI_TEST_CHECK(reader.LookupExact(L"abcd").empty());
+    QIQI_TEST_CHECK(reader.LookupExact(L"xyza").size() == 20);
+
+    // 4. Phrase frequency binary format (QPF1) & coordinated cross-process incremental reorder sync
+    writer.AddEntry(L"qrst", L"单");
+    writer.AddEntry(L"qrst", L"短语一");
+    writer.AddEntry(L"qrst", L"短语二");
+    writer.AddEntry(L"qrst", L"短语三");
+    reader.AddEntry(L"qrst", L"单");
+    reader.AddEntry(L"qrst", L"短语一");
+    reader.AddEntry(L"qrst", L"短语二");
+    reader.AddEntry(L"qrst", L"短语三");
+
+    // Writer selects "短语二" (index 2 on page) -> promotes "短语二" ahead of "短语一"
+    for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) writer.ProcessKey(vk);
+    QIQI_TEST_CHECK(writer.CommitCandidate(2).committed_text == L"短语二");
+
+    // Verify binary QPF1 magic header on disk
+    std::string raw_freq;
+    QIQI_TEST_CHECK(ReadFileToUtf8String(freq_file, raw_freq) && raw_freq.size() >= 20);
+    QIQI_TEST_CHECK(raw_freq.substr(0, 4) == "QPF1");
+
+    // Reader initial sync loads snapshot, then subsequent writer promotion syncs incrementally via Operation::Reorder
+    QIQI_TEST_CHECK(reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(reader.PhraseFreqSnapshotSyncCount() == 1);
+    auto r_qrst = reader.LookupExact(L"qrst");
+    QIQI_TEST_CHECK(r_qrst.size() == 4 && gsl::at(r_qrst, 0) == L"单" && gsl::at(r_qrst, 1) == L"短语二");
+
+    // Writer promotes "短语三" -> reader receives incremental Operation::Reorder without snapshot reload
+    for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) writer.ProcessKey(vk);
+    QIQI_TEST_CHECK(writer.CommitCandidate(3).committed_text == L"短语三");
+    QIQI_TEST_CHECK(reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(reader.PhraseFreqSnapshotSyncCount() == 1 && reader.PhraseFreqIncrementalSyncCount() == 1);
+    r_qrst = reader.LookupExact(L"qrst");
+    QIQI_TEST_CHECK(r_qrst.size() == 4 && gsl::at(r_qrst, 0) == L"单" &&
+                    gsl::at(r_qrst, 1) == L"短语三" && gsl::at(r_qrst, 2) == L"短语二" &&
+                    gsl::at(r_qrst, 3) == L"短语一");
+
+    // Reader now promotes "短语一" without prior explicit sync after writer's change -> coordinated write preserves both!
+    for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) reader.ProcessKey(vk);
+    QIQI_TEST_CHECK(reader.CommitCandidate(3).committed_text == L"短语一");
+    QIQI_TEST_CHECK(writer.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
+    const auto w_qrst = writer.LookupExact(L"qrst");
+    QIQI_TEST_CHECK(w_qrst.size() == 4 && gsl::at(w_qrst, 0) == L"单" &&
+                    gsl::at(w_qrst, 1) == L"短语一" && gsl::at(w_qrst, 2) == L"短语三" &&
+                    gsl::at(w_qrst, 3) == L"短语二");
 }
 
 } // namespace
@@ -491,6 +648,7 @@ void RunEngineDictTests() {
     TestBinaryDictBufferValidation();
     TestAddEntryAndLookupEdgeCases();
     TestExternalDictFile();
+    TestCrossProcessDictAndPhraseFreqSync();
 }
 
 } // namespace qiqi::test

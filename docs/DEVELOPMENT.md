@@ -367,3 +367,10 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 ```
 
 接口依据：[文件变更通知](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirstchangenotificationw)、[文件锁](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex)、[AppContainer 隔离](https://learn.microsoft.com/en-us/windows/win32/secauthz/appcontainer-isolation)。真实测试只证明当前环境的公共协议路径，不等同于所有宿主或沙箱策略均已验收。
+
+### 5.15 词库与词频文件接入跨进程同步（任务 40）
+
+- **通道路径与源标识**：[`GetSyncChannelDirectoryForFile`](../src/common/config.h) 为目标数据文件分配 `<绝对路径>.sync` 专用通道目录，词库与词频分别使用 [`kGuidSyncSourceDictionary` 与 `kGuidSyncSourcePhraseFrequency`](../src/common/guids.h)。
+- **词库增量与外部编辑检测**：[`WubiEngine`](../src/ime/engine/engine.h) 的 `AddUserPhrase`、`AddUserEntry`、`RemoveUserEntry`、`ModifyUserEntry` 在排他锁下先合并远端增量，再写入词表、通道快照、`source.meta`（大小、修改时间、FNV-1a 哈希）与 `.qdict`，并通过 `WubiMappedDict::InvalidateProcessCacheForPath` 失效旧进程缓存。`CheckAndPublishExternalUserDictChanges` 在检测到外部编辑器直接修改词表时，对 `<= 16` 条且未打乱幸存词顺序的差异发布 `Add`/`Remove` 增量，其余情况旋转基线触发全量快照重载。
+- **二进制词频（`QPF1`）与调序同步**：`SavePhraseFrequencies` 输出小端二进制格式 `QPF1`（含魔数、版本、编码/词条表与尾部 64 位 FNV-1a 校验），`LoadPhraseFrequencies` 同时兼容 `QPF1` 与旧版 UTF-8 文本。`PromotePhraseForCode` 在普通桌面进程中先同步远端未应用调序，再发布 `Operation::Reorder` 并更新 `snapshot.qfreq`；在 AppContainer 中仅更新内存且拒绝写盘。
+- **输入边界隔离**：[`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp) 与 [`tip_config.cpp`](../src/ime/tsf/tip_config.cpp) 在焦点切换及非组合态按键入口触发 `SynchronizeCrossProcessChanges(InputBoundary::NewInput)`，组合态下返回 `S_FALSE` 暂缓，保证打字中途候选不重排。

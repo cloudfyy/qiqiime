@@ -185,6 +185,10 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM l
         return S_OK;
     }
 
+    if (!engine_.IsComposing()) {
+        std::ignore = engine_.SynchronizeCrossProcessChanges(sync::InputBoundary::NewInput);
+    }
+
     if (vk == VK_CAPITAL && engine_.IsComposing()) {
         // Industry standard: pressing CapsLock mid-composition commits the raw English code
         // while letting VK_CAPITAL pass through (*pfEaten = FALSE) so Windows toggles CapsLock state.

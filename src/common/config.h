@@ -105,11 +105,17 @@ bool LoadUserDictBinaryFromRegistry(
     std::vector<uint8_t>& out_qdict_bytes,
     const wchar_t* subkey = nullptr);
 
+// Return whether the current process is running inside a Windows AppContainer sandbox.
+bool IsProcessAppContainer() noexcept;
+
 // Return default user custom dictionary path: %LOCALAPPDATA%\QiQiIME\user_dict.txt
 std::filesystem::path GetDefaultUserDictPath();
 
 // Return default user dynamic phrase frequency table path: %LOCALAPPDATA%\QiQiIME\phrase_freq.txt
 std::filesystem::path GetDefaultPhraseFreqPath();
+
+// Return the dedicated cross-process synchronization channel directory for a given data file path.
+std::filesystem::path GetSyncChannelDirectoryForFile(const std::filesystem::path& file_path);
 
 // Resolve a bundled data file (e.g. wubi86_jidian.txt) relative to the DLL directory,
 // checking <dll_dir>/<name>, <dll_dir>/../data/<name>, and <dll_dir>/../<name> so x64 and x86 can share one data/ folder.

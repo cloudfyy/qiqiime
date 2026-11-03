@@ -8,6 +8,7 @@
 #include <optional>
 #include <cstdint>
 
+#include "common/change_sync.h"
 #include "common/config.h"
 #include "ime/engine/binary_dict.h"
 #include "ime/fsm/fsm.h"
@@ -52,8 +53,10 @@ public:
     bool LoadDictionaryFromBinaryBuffer(std::vector<uint8_t> qdict_bytes);
     void ClearExternalDictionaries() noexcept { mapped_dicts_.clear(); }
 
-    // Add a single entry
+    // Add, remove, or modify an entry in the mutable user dictionary overlay.
     void AddEntry(std::wstring_view code, std::wstring_view word);
+    bool RemoveEntry(std::wstring_view code, std::wstring_view word);
+    bool ModifyEntry(std::wstring_view code, std::wstring_view old_word, std::wstring_view new_word);
 
     // Find the longest Wubi 86 code registered for a single character/word across active dictionaries.
     std::wstring LookupCharacterCode(std::wstring_view ch) const;
@@ -61,14 +64,61 @@ public:
     // Compute the 4-letter Wubi 86 phrase code (2+2 for 2 chars, 1+1+2 for 3 chars, 1+1+1+last for >=4 chars).
     std::wstring EncodePhraseWubi86(std::wstring_view phrase) const;
 
-    // Auto-encode a multi-character phrase, add it to the active in-memory dictionary, and optionally append to user_dict_path.
-    bool AddUserPhrase(std::wstring_view phrase, const std::filesystem::path& user_dict_path = {});
+    // Configure or query the active user dictionary path used for cross-process synchronization.
+    void SetUserDictPath(std::filesystem::path path) noexcept {
+        if (user_dict_path_ != path) {
+            user_dict_path_ = std::move(path);
+            user_dict_sync_version_ = {};
+        }
+    }
+    const std::filesystem::path& UserDictPath() const noexcept { return user_dict_path_; }
 
-    // Persist and restore dynamic phrase frequency promotions (code word1 word2 ...)
-    void SetPhraseFreqPath(std::filesystem::path path) noexcept { phrase_freq_path_ = std::move(path); }
+    // Controlled user dictionary mutations (publish entry-level deltas and coordinate cross-process writes).
+    bool AddUserPhrase(std::wstring_view phrase, const std::filesystem::path& user_dict_path = {});
+    bool AddUserEntry(
+        std::wstring_view code,
+        std::wstring_view word,
+        const std::filesystem::path& user_dict_path = {});
+    bool RemoveUserEntry(
+        std::wstring_view code,
+        std::wstring_view word,
+        const std::filesystem::path& user_dict_path = {});
+    bool ModifyUserEntry(
+        std::wstring_view code,
+        std::wstring_view old_word,
+        std::wstring_view new_word,
+        const std::filesystem::path& user_dict_path = {});
+
+    // Persist and restore dynamic phrase frequency promotions (binary QPF1 or legacy UTF-8 text).
+    void SetPhraseFreqPath(std::filesystem::path path) noexcept {
+        if (phrase_freq_path_ != path) {
+            phrase_freq_path_ = std::move(path);
+            phrase_freq_sync_version_ = {};
+        }
+    }
     const std::filesystem::path& PhraseFreqPath() const noexcept { return phrase_freq_path_; }
     bool LoadPhraseFrequencies(const std::filesystem::path& file_path);
     bool SavePhraseFrequencies(const std::filesystem::path& file_path) const;
+
+    // Synchronize cross-process dictionary and phrase-frequency changes at a safe input boundary.
+    HRESULT SynchronizeUserDictionary(sync::InputBoundary boundary);
+    HRESULT SynchronizeUserDictionary() {
+        return SynchronizeUserDictionary(IsComposing() ? sync::InputBoundary::Composing : sync::InputBoundary::NewInput);
+    }
+    HRESULT SynchronizePhraseFrequencies(sync::InputBoundary boundary);
+    HRESULT SynchronizePhraseFrequencies() {
+        return SynchronizePhraseFrequencies(
+            IsComposing() ? sync::InputBoundary::Composing : sync::InputBoundary::NewInput);
+    }
+    bool SynchronizeCrossProcessChanges(sync::InputBoundary boundary);
+    bool SynchronizeCrossProcessChanges() {
+        return SynchronizeCrossProcessChanges(
+            IsComposing() ? sync::InputBoundary::Composing : sync::InputBoundary::NewInput);
+    }
+    uint64_t UserDictIncrementalSyncCount() const noexcept { return user_dict_incremental_syncs_; }
+    uint64_t UserDictSnapshotSyncCount() const noexcept { return user_dict_snapshot_syncs_; }
+    uint64_t PhraseFreqIncrementalSyncCount() const noexcept { return phrase_freq_incremental_syncs_; }
+    uint64_t PhraseFreqSnapshotSyncCount() const noexcept { return phrase_freq_snapshot_syncs_; }
 
     // Mode & configuration management
     void ApplyConfig(const QiQiConfig& cfg) noexcept;
@@ -194,9 +244,20 @@ private:
     TransitionOutcome HandleCommitTempEnglish(const KeyInputContext& ctx);
     TransitionOutcome HandleCommitFullWidth(const KeyInputContext& ctx);
 
+    bool IsEntryRemoved(uint32_t packed_code, std::wstring_view word) const;
+    bool CheckAndPublishExternalUserDictChanges(const std::filesystem::path& dict_path);
+
     std::map<uint32_t, std::vector<std::wstring>> dict_;
+    std::map<uint32_t, std::vector<std::wstring>> removed_entries_;
     std::map<uint32_t, std::vector<std::wstring>> promoted_phrases_;
+    std::filesystem::path user_dict_path_;
     std::filesystem::path phrase_freq_path_;
+    sync::Version user_dict_sync_version_{};
+    sync::Version phrase_freq_sync_version_{};
+    uint64_t user_dict_incremental_syncs_ = 0;
+    uint64_t user_dict_snapshot_syncs_ = 0;
+    uint64_t phrase_freq_incremental_syncs_ = 0;
+    uint64_t phrase_freq_snapshot_syncs_ = 0;
     std::vector<std::shared_ptr<const WubiMappedDict>> mapped_dicts_;
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;

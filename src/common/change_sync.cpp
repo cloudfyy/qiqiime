@@ -1,4 +1,5 @@
 #include "common/change_sync.h"
+#include "common/binary_codec.h"
 #include "common/file_util.h"
 #include "common/logger.h"
 
@@ -12,8 +13,6 @@
 
 namespace qiqi::sync {
 namespace {
-constexpr uint32_t kMagic = 0x53435151;
-constexpr uint32_t kSchema = 1;
 constexpr size_t kHeaderBytes = 76;
 
 HRESULT Report(HRESULT hr, const char* operation, const GUID* activity_id = nullptr) noexcept {
@@ -71,93 +70,44 @@ struct Journal {
     std::vector<Change> changes;
 };
 
-void Number(std::vector<uint8_t>& bytes, uint64_t value, size_t count) {
-    for (size_t i = 0; i < count; ++i) {
-        bytes.push_back(gsl::narrow_cast<uint8_t>(value & 0xff));
-        value >>= 8;
-    }
-}
-
-void Id(std::vector<uint8_t>& bytes, GUID id) {
-    Number(bytes, id.Data1, 4);
-    Number(bytes, id.Data2, 2);
-    Number(bytes, id.Data3, 2);
-    for (const uint8_t value : id.Data4) bytes.push_back(value);
-}
-
-constexpr uint64_t Hash(std::span<const uint8_t> bytes) noexcept {
-    uint64_t result = 14695981039346656037ull;
-    for (const uint8_t value : bytes) result = (result ^ value) * 1099511628211ull;
-    return result;
-}
-
-class Decoder final {
-public:
-    explicit Decoder(std::span<const uint8_t> bytes) noexcept : bytes_(bytes) {}
-    uint64_t Number(size_t count) noexcept {
-        if (count > bytes_.size()) { valid = false; return 0; }
-        uint64_t result = 0;
-        for (size_t i = 0; i < count; ++i) result |= uint64_t{gsl::at(bytes_, i)} << (i * 8);
-        bytes_ = bytes_.subspan(count);
-        return result;
-    }
-    GUID Id() noexcept {
-        GUID result{};
-        result.Data1 = gsl::narrow_cast<ULONG>(Number(4));
-        result.Data2 = gsl::narrow_cast<USHORT>(Number(2));
-        result.Data3 = gsl::narrow_cast<USHORT>(Number(2));
-        for (auto& value : result.Data4) value = gsl::narrow_cast<uint8_t>(Number(1));
-        return result;
-    }
-    std::vector<uint8_t> Payload(size_t count) {
-        if (count > bytes_.size()) { valid = false; return {}; }
-        const auto data = bytes_.first(count);
-        bytes_ = bytes_.subspan(count);
-        return {data.begin(), data.end()};
-    }
-    bool Empty() const noexcept { return bytes_.empty(); }
-    bool valid = true;
-private:
-    std::span<const uint8_t> bytes_;
-};
-
 std::vector<uint8_t> Encode(const Journal& journal) {
     std::vector<uint8_t> bytes;
-    Number(bytes, kMagic, 4);
-    Number(bytes, kSchema, 4);
-    Number(bytes, std::to_underlying(journal.source.type), 4);
-    Id(bytes, journal.source.id);
-    Id(bytes, journal.version.baseline);
-    Number(bytes, journal.version.sequence, 8);
-    Id(bytes, journal.recovery);
-    Number(bytes, journal.pending ? 1 : 0, 4);
-    Number(bytes, journal.changes.size(), 4);
+    codec::AppendLe32(bytes, codec::kSyncJournalBinaryMagic);
+    codec::AppendLe32(bytes, codec::kSyncJournalBinaryVer);
+    codec::AppendLe32(bytes, std::to_underlying(journal.source.type));
+    codec::AppendGuid(bytes, journal.source.id);
+    codec::AppendGuid(bytes, journal.version.baseline);
+    codec::AppendLe64(bytes, journal.version.sequence);
+    codec::AppendGuid(bytes, journal.recovery);
+    codec::AppendLe32(bytes, journal.pending ? 1u : 0u);
+    codec::AppendLe32(bytes, gsl::narrow_cast<uint32_t>(journal.changes.size()));
     for (const auto& change : journal.changes) {
-        Number(bytes, change.sequence, 8);
-        Number(bytes, std::to_underlying(change.operation), 4);
-        Number(bytes, change.payload.size(), 4);
+        codec::AppendLe64(bytes, change.sequence);
+        codec::AppendLe32(bytes, std::to_underlying(change.operation));
+        codec::AppendLe32(bytes, gsl::narrow_cast<uint32_t>(change.payload.size()));
         bytes.insert(bytes.end(), change.payload.begin(), change.payload.end());
     }
-    Number(bytes, Hash(bytes), 8);
+    codec::AppendLe64(bytes, codec::ComputeFnv1a64(bytes));
     return bytes;
 }
 
 HRESULT Decode(std::span<const uint8_t> bytes, Source source, Journal& journal) {
     if (bytes.size() < kHeaderBytes + 8 || bytes.size() > Channel::kMaxJournalBytes)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    Decoder checksum(bytes.last(8));
-    if (Hash(bytes.first(bytes.size() - 8)) != checksum.Number(8))
+    codec::BinarySpanReader checksum(bytes.last(8));
+    if (codec::ComputeFnv1a64(bytes.first(bytes.size() - 8)) != checksum.ReadLe64())
         return HRESULT_FROM_WIN32(ERROR_CRC);
-    Decoder input(bytes.first(bytes.size() - 8));
-    if (input.Number(4) != kMagic || input.Number(4) != kSchema)
+    codec::BinarySpanReader input(bytes.first(bytes.size() - 8));
+    if (input.ReadLe32() != codec::kSyncJournalBinaryMagic ||
+        input.ReadLe32() != codec::kSyncJournalBinaryVer)
         return HRESULT_FROM_WIN32(ERROR_UNKNOWN_REVISION);
-    journal.source.type = static_cast<DataType>(input.Number(4));
-    journal.source.id = input.Id();
-    journal.version.baseline = input.Id();
-    journal.version.sequence = input.Number(8);
-    journal.recovery = input.Id();
-    const uint64_t flags = input.Number(4);
-    const uint64_t count = input.Number(4);
+    journal.source.type = static_cast<DataType>(input.ReadLe32());
+    journal.source.id = input.ReadGuid();
+    journal.version.baseline = input.ReadGuid();
+    journal.version.sequence = input.ReadLe64();
+    journal.recovery = input.ReadGuid();
+    const uint64_t flags = input.ReadLe32();
+    const uint64_t count = input.ReadLe32();
     if (journal.source != source || journal.version.baseline == GUID_NULL || flags > 1 ||
         count > Channel::kMaxRecords || count > journal.version.sequence)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -166,16 +116,16 @@ HRESULT Decode(std::span<const uint8_t> bytes, Source source, Journal& journal) 
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     for (uint64_t i = 0; i < count; ++i) {
         Change change;
-        change.sequence = input.Number(8);
-        change.operation = static_cast<Operation>(input.Number(4));
-        const uint64_t length = input.Number(4);
+        change.sequence = input.ReadLe64();
+        change.operation = static_cast<Operation>(input.ReadLe32());
+        const uint64_t length = input.ReadLe32();
         if (length > Channel::kMaxPayloadBytes || !Valid(change.operation) ||
             change.sequence != journal.version.sequence - count + i + 1)
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        change.payload = input.Payload(gsl::narrow_cast<size_t>(length));
+        change.payload = input.ReadBytes(gsl::narrow_cast<size_t>(length));
         journal.changes.push_back(std::move(change));
     }
-    return input.valid && input.Empty() ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    return input.Valid() && input.Empty() ? S_OK : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
 }
 
 class FileLock final {

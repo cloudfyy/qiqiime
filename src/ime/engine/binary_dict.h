@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <span>
 #include <string>
@@ -12,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/binary_codec.h"
 #include "common/scoped_handle.h"
 
 namespace qiqi {
@@ -95,14 +97,14 @@ constexpr bool MatchesWildcardPattern(uint32_t packed_code, std::wstring_view pa
 
 #pragma pack(push, 1)
 struct DictBinaryHeader {
-    uint32_t magic = 0x49514257u; // "WBQI"
-    uint32_t version = 1u;
+    uint32_t magic = codec::kDictBinaryMagic;     // "WBQI"
+    uint32_t version = codec::kDictBinaryVersion; // v2 with payload FNV-1a 32-bit checksum
     uint64_t source_size = 0;
     uint64_t source_mtime = 0;
     uint32_t code_count = 0;
     uint32_t word_count = 0;
     uint32_t char_count = 0;
-    uint32_t reserved = 0;
+    uint32_t payload_checksum = 0;
 };
 
 struct DictCodeIndex {
@@ -148,11 +150,35 @@ public:
 
     // Static in-memory cache of loaded dictionaries inside the current process
     static void ClearProcessCache() noexcept;
+    static void InvalidateProcessCacheForPath(const std::filesystem::path& txt_path) noexcept;
     static size_t ProcessCacheSize() noexcept;
+
+    // Parse a UTF-16 text/YAML dictionary into deduplicated per-code word lists.
+    static void ParseTextDictEntries(
+        std::wstring_view wide_content,
+        std::map<uint32_t, std::vector<std::wstring>>& out_entries);
+
+    // Compile an in-memory map (packed_code -> ordered words) into the unified flat binary table format
+    // (DictBinaryHeader + DictCodeIndex[] + DictWordSlice[] + wchar_t[] pool with payload_checksum).
+    static void CompileEntriesToBinaryBuffer(
+        const std::map<uint32_t, std::vector<std::wstring>>& entries,
+        std::vector<uint8_t>& out_buffer,
+        uint32_t magic = codec::kDictBinaryMagic,
+        uint32_t version = codec::kDictBinaryVersion,
+        uint64_t src_size = 0,
+        uint64_t src_mtime = 0);
+
+    // Decode and validate a flat binary table buffer back into an in-memory map (packed_code -> ordered words).
+    static bool DecodeBinaryBufferToEntries(
+        std::span<const uint8_t> buffer,
+        std::map<uint32_t, std::vector<std::wstring>>& out_entries,
+        uint32_t expected_magic = codec::kDictBinaryMagic,
+        uint32_t expected_version = codec::kDictBinaryVersion);
 
     bool IsValid() const noexcept { return !code_index_.empty(); }
     bool IsMemoryMapped() const noexcept { return mapped_view_.IsValid(); }
     bool IsSourceModified() const noexcept;
+    const std::filesystem::path& SourcePath() const noexcept { return source_path_; }
     size_t CodeCount() const noexcept { return code_index_.size(); }
     size_t WordCount() const noexcept { return word_slices_.size(); }
 

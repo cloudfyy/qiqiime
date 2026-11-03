@@ -15,24 +15,6 @@ namespace qiqi {
 
 namespace {
 
-bool IsCurrentProcessAppContainer() noexcept {
-    ScopedKernelHandle token;
-    if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, token.Put())) {
-        return false;
-    }
-    DWORD is_app_container = 0;
-    DWORD ret_len = 0;
-    if (::GetTokenInformation(
-            token.Get(),
-            TokenIsAppContainer,
-            &is_app_container,
-            sizeof(is_app_container),
-            &ret_len)) {
-        return is_app_container != 0;
-    }
-    return false;
-}
-
 constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
     switch (id) {
         case LangBarMenuId::SyncMenuState:     return "SyncMenuState";
@@ -87,21 +69,26 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
         if (user_path.is_relative()) {
             user_path = ResolveBundledDataFile(dll_dir, config_.user_dict_path);
         }
+        engine_.SetUserDictPath(user_path);
         if (std::filesystem::exists(user_path)) {
             loaded_any |= engine_.LoadDictionaryFile(user_path);
+            std::ignore = engine_.SynchronizeUserDictionary();
         } else {
             QIQI_LOG_WARN("Configured user dictionary '{}' does not exist",
                           WideToUtf8(user_path.wstring()));
         }
     } else {
         const std::filesystem::path default_user_dict = GetDefaultUserDictPath();
+        engine_.SetUserDictPath(default_user_dict);
         if (std::filesystem::exists(default_user_dict)) {
             loaded_any |= engine_.LoadDictionaryFile(default_user_dict);
+            std::ignore = engine_.SynchronizeUserDictionary();
         } else {
             std::vector<uint8_t> reg_user_dict;
             if (LoadUserDictBinaryFromRegistry(reg_user_dict)) {
                 loaded_any |= engine_.LoadDictionaryFromBinaryBuffer(std::move(reg_user_dict));
             }
+            std::ignore = engine_.SynchronizeUserDictionary();
         }
     }
 
@@ -380,7 +367,7 @@ STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /
         return S_OK;
     }
     if (!hwndParent) {
-        if (IsCurrentProcessAppContainer()) {
+        if (IsProcessAppContainer()) {
             ::AllowSetForegroundWindow(ASFW_ANY);
             const HINSTANCE sh_res = ::ShellExecuteW(
                 nullptr, L"open", L"qiqiime-settings:", nullptr, nullptr, SW_SHOWNORMAL);
@@ -541,6 +528,11 @@ void QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
             "Detected modified dictionary file on disk; hot-reloading external dictionaries");
         ++dictionary_reload_calls;
         LoadExternalDictionaryNextToDll();
+    } else {
+        std::ignore = engine_.SynchronizeUserDictionary();
+    }
+    if (config_.dynamic_phrase_freq) {
+        std::ignore = engine_.SynchronizePhraseFrequencies();
     }
 
     const uint64_t reg_seq = QueryRegistryConfigSequence();

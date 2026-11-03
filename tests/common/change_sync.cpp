@@ -2,6 +2,7 @@
 #include "common/file_util.h"
 #include "common/scoped_handle.h"
 #include "common/change_sync.h"
+#include "ime/engine/engine.h"
 
 #include <sddl.h>
 #include <userenv.h>
@@ -205,6 +206,21 @@ void ProbeReader(const std::filesystem::path& directory, HANDLE ready) {
         [&]() { called = true; return S_OK; }, denied) == E_ACCESSDENIED);
     QIQI_TEST_CHECK(!called && denied == Version{});
     QIQI_TEST_CHECK(Channel::Create(directory / L"forbidden", kSource) == E_ACCESSDENIED);
+    const auto user_dict = directory / L"user_dict.txt";
+    const auto freq_file = directory / L"phrase_freq.txt";
+    WubiEngine container_engine;
+    container_engine.SetUserDictPath(user_dict);
+    container_engine.SetPhraseFreqPath(freq_file);
+    container_engine.SetDynamicPhraseFreq(true);
+    QIQI_TEST_CHECK(container_engine.SynchronizeCrossProcessChanges(InputBoundary::NewInput));
+    QIQI_TEST_CHECK(container_engine.UserDictSnapshotSyncCount() == 1);
+    QIQI_TEST_CHECK(container_engine.PhraseFreqSnapshotSyncCount() == 1);
+    const auto init_qrst = container_engine.LookupExact(L"qrst");
+    QIQI_TEST_CHECK(init_qrst.size() == 2 && gsl::at(init_qrst, 0) == L"短语一" && gsl::at(init_qrst, 1) == L"短语二");
+    QIQI_TEST_CHECK(!container_engine.AddUserEntry(L"abcd", L"禁止写入", user_dict));
+    QIQI_TEST_CHECK(!container_engine.RemoveUserEntry(L"qrst", L"短语一", user_dict));
+    QIQI_TEST_CHECK(!container_engine.ModifyUserEntry(L"qrst", L"短语一", L"禁止修改", user_dict));
+    QIQI_TEST_CHECK(!container_engine.SavePhraseFrequencies(freq_file));
     SendReady(ready);
     const auto deadline = ::GetTickCount64() + kTimeout;
     for (;;) {
@@ -233,6 +249,14 @@ void ProbeReader(const std::filesystem::path& directory, HANDLE ready) {
             }
             QIQI_TEST_CHECK(hr == S_OK && received && applied.sequence == 1);
             QIQI_TEST_CHECK(channel.Rearm() == S_OK);
+            QIQI_TEST_CHECK(container_engine.SynchronizeCrossProcessChanges(InputBoundary::NewInput));
+            QIQI_TEST_CHECK(container_engine.UserDictIncrementalSyncCount() == 1);
+            QIQI_TEST_CHECK(container_engine.PhraseFreqIncrementalSyncCount() == 1);
+            const auto synced_abcd = container_engine.LookupExact(L"abcd");
+            QIQI_TEST_CHECK(synced_abcd.size() == 1 && gsl::at(synced_abcd, 0) == L"容器增量词");
+            const auto synced_qrst = container_engine.LookupExact(L"qrst");
+            QIQI_TEST_CHECK(synced_qrst.size() == 2 && gsl::at(synced_qrst, 0) == L"短语二" &&
+                            gsl::at(synced_qrst, 1) == L"短语一");
             return;
         }
     }
@@ -252,6 +276,17 @@ void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
     const ScopedFileHandle lock(::CreateFileW(lock_path.c_str(), GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
     QIQI_TEST_CHECK(lock);
+    const auto user_dict = fixture.directory / L"user_dict.txt";
+    const auto freq_file = fixture.directory / L"phrase_freq.txt";
+    WubiEngine host_engine;
+    host_engine.SetUserDictPath(user_dict);
+    host_engine.SetPhraseFreqPath(freq_file);
+    host_engine.SetDynamicPhraseFreq(true);
+    QIQI_TEST_CHECK(host_engine.AddUserEntry(L"qrst", L"短语一", user_dict));
+    QIQI_TEST_CHECK(host_engine.AddUserEntry(L"qrst", L"短语二", user_dict));
+    for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) host_engine.ProcessKey(vk);
+    QIQI_TEST_CHECK(host_engine.CommitCandidate(0).committed_text == L"短语一");
+
     const auto executable = fixture.directory / L"reader.exe";
     std::filesystem::copy_file(peer.empty() ? GetModuleFilePath(nullptr) : peer, executable);
     const auto name = L"QiQiSyncTest." + GuidText();
@@ -273,6 +308,9 @@ void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
     capabilities.AppContainerSid = sid;
     Child child(executable, L"--probe \"" + fixture.directory.wstring() + L"\"", &capabilities);
     child.AwaitReady();
+    QIQI_TEST_CHECK(host_engine.AddUserEntry(L"abcd", L"容器增量词", user_dict));
+    for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) host_engine.ProcessKey(vk);
+    QIQI_TEST_CHECK(host_engine.CommitCandidate(1).committed_text == L"短语二");
     Channel channel(fixture.directory, kSource);
     Batch batch;
     QIQI_TEST_CHECK(channel.Read({}, batch) == S_OK);
