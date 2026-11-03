@@ -50,6 +50,8 @@ QiQiIME 使用 Windows ETW TraceLogging，不会自动生成文本日志文件�
 | 调试输出 | 附加调试器时额外输出到 `OutputDebugString` |
 | 离线采集文件 | 由采集工具生成的 `.etl`，不是输入法自动写入的 `.log` |
 
+ETW 写入失败通过不递归的 `OutputDebugStringA` 输出 `EventWriteTransfer failed (error=实际 Win32 错误码)`，不包含事件正文，并保留调用线程的 `GetLastError`。该诊断不再次写入 ETW；采集器的丢失计数仍需单独观察。错误码 8 表示 `ERROR_NOT_ENOUGH_MEMORY`，不能仅据此认定是采集缓冲配置或应用内存泄漏。
+
 输入法 DLL 运行在使用它的应用进程内，不是独立的 `QiQiIME.exe`。排查浏览器、VS Code 或记事本时，需监控实际承载输入法的进程；多进程应用可能不是主窗口所属进程。独立设置程序的进程名是 `QiQiIMESettings.exe`。
 
 ### 初始化与共享生命周期

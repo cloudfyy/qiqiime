@@ -5,6 +5,7 @@
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/etw_registration.h"
+#include "common/etw_write.h"
 #include "common/scoped_handle.h"
 #include "common/sound.h"
 #include "common/version.h"
@@ -40,6 +41,54 @@ ULONG RegisterTestProvider() noexcept {
 }
 
 void UnregisterTestProvider() noexcept { ++unregistration_calls; }
+
+ULONG write_error = ERROR_SUCCESS;
+unsigned int write_calls = 0;
+unsigned int write_reports = 0;
+std::array<char, 128> write_report{};
+
+#pragma warning(suppress : 26461) // Match EventWriteTransfer's SDK callback signature.
+ULONG WINAPI WriteTestEvent(
+    REGHANDLE provider, PCEVENT_DESCRIPTOR descriptor, LPCGUID activity, LPCGUID related,
+    ULONG count, PEVENT_DATA_DESCRIPTOR data) {
+    QIQI_TEST_CHECK(provider == 17 && descriptor && descriptor->Level == 4);
+    QIQI_TEST_CHECK(!activity && !related && count == 1 && data && data->Size == 3);
+    ++write_calls;
+    ::SetLastError(ERROR_INVALID_DATA);
+    return write_error;
+}
+
+void WINAPI CollectWriteFailure(LPCSTR message) {
+    ++write_reports;
+    QIQI_TEST_CHECK(strcpy_s(write_report.data(), write_report.size(), message) == 0);
+    ::SetLastError(ERROR_ACCESS_DENIED);
+}
+
+void TestEtwWriteDiagnostics() {
+    const DWORD saved_error = ::GetLastError();
+    const auto restore_error = gsl::finally([saved_error]() noexcept { ::SetLastError(saved_error); });
+    EVENT_DESCRIPTOR descriptor{};
+    descriptor.Level = 4;
+    EVENT_DATA_DESCRIPTOR data{};
+    constexpr std::array<char, 3> payload{'a', 'b', 'c'};
+    ::EventDataDescCreate(&data, payload.data(), gsl::narrow_cast<ULONG>(payload.size()));
+    write_calls = 0;
+    write_reports = 0;
+    for (const ULONG error : {ERROR_SUCCESS, ERROR_NOT_ENOUGH_MEMORY, ERROR_MORE_DATA, ERROR_ACCESS_DENIED}) {
+        write_error = error;
+        ::SetLastError(ERROR_FILE_NOT_FOUND);
+        QIQI_TEST_CHECK(log::detail::WriteEtwEvent(
+            17, &descriptor, nullptr, nullptr, 1, &data, WriteTestEvent, CollectWriteFailure) == error);
+        QIQI_TEST_CHECK(::GetLastError() == ERROR_FILE_NOT_FOUND);
+        if (error != ERROR_SUCCESS) {
+            QIQI_TEST_CHECK(std::string_view(write_report.data()) ==
+                std::format("QiQiIME: EventWriteTransfer failed (error={})\n", error));
+        } else {
+            QIQI_TEST_CHECK(write_reports == 0);
+        }
+    }
+    QIQI_TEST_CHECK(write_calls == 4 && write_reports == 3);
+}
 
 void TestEtwRegistrationLifetime() {
     registration_calls = 0;
@@ -563,6 +612,7 @@ void TestI18nLocalization() {
 } // namespace
 
 void RunCommonTests() {
+    TestEtwWriteDiagnostics();
     TestEtwRegistrationLifetime();
     TestEtwLogger();
     TestVersionMechanism();

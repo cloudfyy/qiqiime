@@ -1,9 +1,22 @@
 #include "common/logger.h"
 #include "common/etw_registration.h"
+#include "common/etw_write.h"
 #include "common/file_util.h"
 #include "common/scoped_handle.h"
 
 #include <windows.h>
+
+namespace {
+ULONG WINAPI QiQiWriteEtwEvent(
+    REGHANDLE provider, PCEVENT_DESCRIPTOR descriptor, LPCGUID activity, LPCGUID related,
+    ULONG count, PEVENT_DATA_DESCRIPTOR data) noexcept {
+    return qiqi::log::detail::WriteEtwEvent(
+        provider, descriptor, activity, related, count, data, ::EventWriteTransfer, ::OutputDebugStringA);
+}
+} // namespace
+
+// The SDK hook observes actual write errors without recursively writing another ETW event.
+#define TLG_EVENT_WRITE_TRANSFER QiQiWriteEtwEvent
 #include <TraceLoggingProvider.h>
 #include <winmeta.h>
 #include <gsl/gsl>

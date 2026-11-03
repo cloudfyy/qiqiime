@@ -153,6 +153,8 @@ ctest --preset x86-release --output-on-failure
 
 ETW 集成测试仍要求零丢失，不通过放宽断言掩盖采集失败；失败输出保留实际丢失计数及缓冲统计，区分解码失败与 ETW 事件丢失。
 
+模态退出测试先移除较高优先级的排队消息再检查 `WM_QUIT`：该消息按低优先级合成，仅筛选 `WM_QUIT` 的 `PeekMessage` 可能暂时取不到；回归用例固定排入 `WM_APP` 后验证退出码。公共 ETW 写入测试注入成功、内存不足、事件过大及拒绝访问，验证实际错误码、非递归诊断及调用线程错误状态保留。
+
 项目遵循 **C++ Core Guidelines**，使用 `gsl::span`、`gsl::not_null`、`gsl::narrow_cast`、`gsl::at`、`gsl::finally` 及 `ScopedHandle<Traits>` RAII 模板。`lint` target 使用 MSVC CppCoreCheck 检查 C++ Core Guidelines 与 GSL 规则，并使用 PSScriptAnalyzer 检查 `scripts/` 下的 PowerShell 脚本。C++ 检查覆盖公共库、引擎、设置界面、输入法、设置程序及测试目标；按既有规则排除 C26490，并以 435 条去重后的其他 CppCoreCheck 诊断作为当前基线，新增诊断会使 lint 失败。基线应在逐步修复旧告警后下调。
 
 安装 PSScriptAnalyzer 后，可从已配置的 Visual Studio CMake 构建目录运行：

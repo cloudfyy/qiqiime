@@ -26,6 +26,7 @@ set(QIQI_COMMON_SOURCES
     d2d_util.h
     dialog_util.h
     etw_registration.h
+    etw_write.h
     file_util.cpp
     file_util.h
     guids.h

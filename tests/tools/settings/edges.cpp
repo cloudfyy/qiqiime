@@ -150,11 +150,20 @@ void TestSettingsLiveLanguagePreservesControls() {
 
 void CheckQuitMessage(int exit_code) {
     MSG msg{};
-    QIQI_TEST_CHECK(::PeekMessageW(&msg, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE));
+    // WM_QUIT is synthesized only after higher-priority queued messages are removed.
+    while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        if (msg.message == WM_QUIT) break;
+        ::TranslateMessage(&msg);
+        ::DispatchMessageW(&msg);
+    }
+    QIQI_TEST_CHECK(msg.message == WM_QUIT);
     QIQI_TEST_CHECK(msg.wParam == static_cast<WPARAM>(exit_code));
 }
 
 void TestModalLoopTermination() {
+    QIQI_TEST_CHECK(::PostThreadMessageW(::GetCurrentThreadId(), WM_APP, 0, 0));
+    ::PostQuitMessage(29);
+    CheckQuitMessage(29);
     constexpr bool done = true;
     QIQI_TEST_CHECK(!dialog_detail::RunModalDialogLoop(nullptr, done));
     const ScopedWindow hwnd(::CreateWindowExW(
