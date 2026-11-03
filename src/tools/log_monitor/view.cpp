@@ -80,6 +80,8 @@ void MonitorWindow::Impl::Refilter() {
     RefreshProcessChoices();
     const LRESULT level = ::SendMessageW(Child(Level), CB_GETCURSEL, 0, 0);
     filter.level = level >= 0 ? gsl::narrow_cast<UCHAR>(level) : 0;
+    const LRESULT category = ::SendMessageW(Child(Category), CB_GETCURSEL, 0, 0);
+    filter.keyword = CategoryMaskFromIndex(category);
     filter.text = ReadText(Child(Search));
     RebuildRows();
 }
@@ -178,6 +180,10 @@ void MonitorWindow::Impl::UpdateStatus() {
         Text(L"ETW 丢失(事件/缓冲)", L"ETW lost(events/buffers)"), collector.events_lost.load(), collector.buffers_lost.load(),
         Text(L"解码失败", L"Decode"), collector.decode_errors.load(), Text(L"内存异常", L"Memory"),
         collector.allocation_errors.load() + diagnostics.allocation_errors.load());
+    if (filter.activity_id.has_value()) {
+        status = std::format(L"{}: {} | {}", Text(L"活动筛选", L"Activity filter"),
+            FormatShortGuid(*filter.activity_id), status);
+    }
     if (!last_error.empty()) status = std::wstring(Text(L"错误: ", L"ERROR: ")) + last_error + L" | " + status;
     ::SetWindowTextW(Child(Status), status.c_str());
 }
@@ -189,6 +195,19 @@ std::wstring MonitorWindow::Impl::Cell(const Event& event, int column) const {
     case 2: return std::to_wstring(event.pid);
     case 3: return std::to_wstring(event.tid);
     case 4: return LevelText(event.level);
+    case 5: {
+        const uint64_t effective_kw = event.keyword != 0 ? event.keyword : std::to_underlying(log::Keyword::General);
+        std::wstring cell(CategoryText(effective_kw));
+        if (event.opcode == std::to_underlying(log::Opcode::Start)) {
+            cell += L":Start";
+        } else if (event.opcode == std::to_underlying(log::Opcode::Stop)) {
+            cell += L":Stop";
+        }
+        if (event.activity_id != GUID_NULL) {
+            cell += std::format(L" [{}]", FormatShortGuid(event.activity_id));
+        }
+        return cell;
+    }
     default: {
         std::wstring preview = event.message.substr(0, 1024);
         std::replace(preview.begin(), preview.end(), L'\r', L' ');

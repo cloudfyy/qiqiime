@@ -115,11 +115,13 @@ constexpr UCHAR ToEtwLevel(Level level) noexcept {
 
 #pragma warning(push)
 #pragma warning(disable : 26447 26477 26812)
-bool IsEtwEnabledForLevel(Level level) noexcept {
+bool IsEtwEnabledForLevel(Level level, Keyword keyword) noexcept {
     const UCHAR etw_level = ToEtwLevel(level);
+    const Keyword norm_kw = NormalizeKeyword(keyword);
     return etw_level != 0 &&
            g_provider_registration.IsRegistered() &&
-           (::TraceLoggingProviderEnabled(g_qiqi_etw_provider, etw_level, 0) != FALSE);
+           (::TraceLoggingProviderEnabled(
+                g_qiqi_etw_provider, etw_level, std::to_underlying(norm_kw)) != FALSE);
 }
 
 bool IsDebuggerEnabledForLevel(Level level, Level configured_level) noexcept {
@@ -129,41 +131,69 @@ bool IsDebuggerEnabledForLevel(Level level, Level configured_level) noexcept {
            (::IsDebuggerPresent() != FALSE);
 }
 
-void EmitEtwTraceEvent(Level level, std::string_view proc_name, std::string_view message) noexcept {
+template <Keyword Kw, Opcode Op>
+void EmitEtwWithMetadata(
+    Level level,
+    std::string_view proc_name,
+    std::string_view message,
+    const GUID* activity_id,
+    const GUID* related_activity_id) noexcept {
+    constexpr ULONGLONG kKeywordMask = std::to_underlying(Kw);
+    constexpr UCHAR kOpcodeVal = std::to_underlying(Op);
     const int msg_len = gsl::narrow_cast<int>(message.size());
     const int proc_len = gsl::narrow_cast<int>(proc_name.size());
+    const GUID* const effective_activity = (activity_id != nullptr) ? activity_id : &GUID_NULL;
+    const GUID* const effective_related =
+        (related_activity_id != nullptr && *related_activity_id != GUID_NULL) ? related_activity_id : nullptr;
+
     switch (level) {
         case Level::trace:
         case Level::debug:
-            TraceLoggingWrite(
+            TraceLoggingWriteActivity(
                 g_qiqi_etw_provider,
                 "QiQiLogVerbose",
+                effective_activity,
+                effective_related,
                 TraceLoggingLevel(WINEVENT_LEVEL_VERBOSE),
+                TraceLoggingKeyword(kKeywordMask),
+                TraceLoggingOpcode(kOpcodeVal),
                 TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
                 TraceLoggingCountedString(message.data(), msg_len, "message"));
             break;
         case Level::info:
-            TraceLoggingWrite(
+            TraceLoggingWriteActivity(
                 g_qiqi_etw_provider,
                 "QiQiLogInfo",
+                effective_activity,
+                effective_related,
                 TraceLoggingLevel(WINEVENT_LEVEL_INFO),
+                TraceLoggingKeyword(kKeywordMask),
+                TraceLoggingOpcode(kOpcodeVal),
                 TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
                 TraceLoggingCountedString(message.data(), msg_len, "message"));
             break;
         case Level::warn:
-            TraceLoggingWrite(
+            TraceLoggingWriteActivity(
                 g_qiqi_etw_provider,
                 "QiQiLogWarning",
+                effective_activity,
+                effective_related,
                 TraceLoggingLevel(WINEVENT_LEVEL_WARNING),
+                TraceLoggingKeyword(kKeywordMask),
+                TraceLoggingOpcode(kOpcodeVal),
                 TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
                 TraceLoggingCountedString(message.data(), msg_len, "message"));
             break;
         case Level::err:
         case Level::critical:
-            TraceLoggingWrite(
+            TraceLoggingWriteActivity(
                 g_qiqi_etw_provider,
                 "QiQiLogError",
+                effective_activity,
+                effective_related,
                 TraceLoggingLevel(WINEVENT_LEVEL_ERROR),
+                TraceLoggingKeyword(kKeywordMask),
+                TraceLoggingOpcode(kOpcodeVal),
                 TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
                 TraceLoggingCountedString(message.data(), msg_len, "message"));
             break;
@@ -172,9 +202,88 @@ void EmitEtwTraceEvent(Level level, std::string_view proc_name, std::string_view
             break;
     }
 }
+
+template <Keyword Kw>
+void EmitEtwForKeyword(
+    Level level,
+    Opcode opcode,
+    std::string_view proc_name,
+    std::string_view message,
+    const GUID* activity_id,
+    const GUID* related_activity_id) noexcept {
+    switch (NormalizeOpcode(opcode)) {
+        case Opcode::Start:
+            EmitEtwWithMetadata<Kw, Opcode::Start>(level, proc_name, message, activity_id, related_activity_id);
+            break;
+        case Opcode::Stop:
+            EmitEtwWithMetadata<Kw, Opcode::Stop>(level, proc_name, message, activity_id, related_activity_id);
+            break;
+        case Opcode::Info:
+        default:
+            EmitEtwWithMetadata<Kw, Opcode::Info>(level, proc_name, message, activity_id, related_activity_id);
+            break;
+    }
+}
+
+void EmitEtwTraceEvent(
+    Level level,
+    std::string_view proc_name,
+    std::string_view message,
+    const LogContext& context) noexcept {
+    switch (NormalizeKeyword(context.keyword)) {
+        case Keyword::Lifecycle:
+            EmitEtwForKeyword<Keyword::Lifecycle>(
+                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+            break;
+        case Keyword::Input:
+            EmitEtwForKeyword<Keyword::Input>(
+                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+            break;
+        case Keyword::Composition:
+            EmitEtwForKeyword<Keyword::Composition>(
+                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+            break;
+        case Keyword::Dictionary:
+            EmitEtwForKeyword<Keyword::Dictionary>(
+                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+            break;
+        case Keyword::Sync:
+            EmitEtwForKeyword<Keyword::Sync>(
+                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+            break;
+        case Keyword::UI:
+            EmitEtwForKeyword<Keyword::UI>(
+                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+            break;
+        case Keyword::Config:
+            EmitEtwForKeyword<Keyword::Config>(
+                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+            break;
+        case Keyword::General:
+        default:
+            EmitEtwForKeyword<Keyword::General>(
+                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+            break;
+    }
+}
 #pragma warning(pop)
 
 } // namespace
+
+GUID CreateActivityId() noexcept {
+    const DWORD saved_error = ::GetLastError();
+    GUID id = GUID_NULL;
+    const ULONG status = ::EventActivityIdControl(EVENT_ACTIVITY_CTRL_CREATE_ID, &id);
+    ::SetLastError(saved_error);
+    if (status != ERROR_SUCCESS) {
+        std::array<char, 128> message{};
+        std::snprintf(message.data(), message.size(),
+                      "QiQiIME: EventActivityIdControl(CREATE_ID) failed (error=%lu)\n", status);
+        ::OutputDebugStringA(message.data());
+        return GUID_NULL;
+    }
+    return id;
+}
 
 void InitLogger(Level level) noexcept {
     g_log_level = level;
@@ -193,13 +302,13 @@ void SetLevel(Level level) noexcept {
     g_log_level = level;
 }
 
-bool CheckHResult(int32_t hr, std::string_view operation, Level level) noexcept {
+bool CheckHResult(int32_t hr, std::string_view operation, Level level, const LogContext& context) noexcept {
     if (hr >= 0) {
         return true;
     }
 
     const DWORD error = ::GetLastError();
-    Log(level, "{} failed (hr=0x{:08x})", operation, gsl::narrow_cast<unsigned int>(hr));
+    LogWithContext(level, context, "{} failed (hr=0x{:08x})", operation, gsl::narrow_cast<unsigned int>(hr));
     ::SetLastError(error);
     return false;
 }
@@ -218,20 +327,20 @@ bool IsLogSinkActive() noexcept {
            (::IsDebuggerPresent() != FALSE);
 }
 
-bool ShouldLog(Level level) noexcept {
+bool ShouldLog(Level level, Keyword keyword) noexcept {
     const Level configured = GetLevel();
     if (level == Level::off || configured == Level::off) {
         return false;
     }
-    return IsEtwEnabledForLevel(level) || IsDebuggerEnabledForLevel(level, configured);
+    return IsEtwEnabledForLevel(level, keyword) || IsDebuggerEnabledForLevel(level, configured);
 }
 
-void WriteLogMessage(Level level, std::string_view message) noexcept {
+void WriteLogMessage(Level level, std::string_view message, const LogContext& context) noexcept {
     const Level configured = GetLevel();
     if (level == Level::off || configured == Level::off) {
         return;
     }
-    const bool emit_etw = IsEtwEnabledForLevel(level);
+    const bool emit_etw = IsEtwEnabledForLevel(level, context.keyword);
     const bool emit_debugger = IsDebuggerEnabledForLevel(level, configured);
     if (!emit_etw && !emit_debugger) {
         return;
@@ -239,13 +348,19 @@ void WriteLogMessage(Level level, std::string_view message) noexcept {
     const std::string_view proc_name = GetProcessName();
 
     if (emit_etw) {
-        EmitEtwTraceEvent(level, proc_name, message);
+        EmitEtwTraceEvent(level, proc_name, message, context);
     }
 
     // 2. Output to debugger only when attached and within configured level (avoids kernel exception overhead in normal typing)
     if (emit_debugger) {
         try {
-            const std::string line = std::format("[{}] [{}] {}\r\n", proc_name, LevelTag(level), message);
+            const std::string line = std::format(
+                "[{}] [{}] [{}:{}] {}\r\n",
+                proc_name,
+                LevelTag(level),
+                KeywordTag(context.keyword),
+                OpcodeTag(context.opcode),
+                message);
             const int chars = ::MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, nullptr, 0);
             if (chars > 0) {
                 std::wstring wide_line(gsl::narrow_cast<size_t>(chars), L'\0');

@@ -1,5 +1,6 @@
 #include "tools/log_monitor/collector.h"
 #include "common/etw_registration.h"
+#include "common/logger.h"
 #include "common/version.h"
 
 #include <TraceLoggingProvider.h>
@@ -155,6 +156,24 @@ ULONG DecodeEvent(EVENT_RECORD& record, Event& event) {
     event.pid = record.EventHeader.ProcessId;
     event.tid = record.EventHeader.ThreadId;
     event.level = record.EventHeader.EventDescriptor.Level;
+    event.opcode = record.EventHeader.EventDescriptor.Opcode;
+    event.keyword = record.EventHeader.EventDescriptor.Keyword != 0
+        ? record.EventHeader.EventDescriptor.Keyword
+        : std::to_underlying(log::Keyword::General);
+    event.activity_id = record.EventHeader.ActivityId;
+    event.related_activity_id = GUID_NULL;
+    if (record.ExtendedData != nullptr && record.ExtendedDataCount > 0) {
+        const std::span<const EVENT_HEADER_EXTENDED_DATA_ITEM> ext_items(
+            record.ExtendedData, record.ExtendedDataCount);
+        for (const auto& item : ext_items) {
+            if (item.ExtType == EVENT_HEADER_EXT_TYPE_RELATED_ACTIVITYID &&
+                item.DataSize == sizeof(EVENT_EXTENDED_ITEM_RELATED_ACTIVITYID) &&
+                item.DataPtr != 0) {
+                const auto* rel = reinterpret_cast<const EVENT_EXTENDED_ITEM_RELATED_ACTIVITYID*>(item.DataPtr);
+                event.related_activity_id = rel->RelatedActivityId;
+            }
+        }
+    }
     event.name = L"TraceLogging";
     if (info->EventNameOffset) {
         const auto name = MetadataString(storage, info->EventNameOffset);

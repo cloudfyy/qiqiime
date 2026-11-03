@@ -469,11 +469,12 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
             it->second.src_size == src_size &&
             it->second.src_mtime == src_mtime &&
             it->second.dict) {
-            QIQI_LOG_DEBUG("In-process dictionary cache hit for '{}'", WideToUtf8(canonical_key));
+            QIQI_LOG_CAT_DEBUG(log::Keyword::Dictionary, "In-process dictionary cache hit for '{}'", WideToUtf8(canonical_key));
             return it->second.dict;
         }
     }
 
+    const GUID dict_act_id = log::CreateActivityId();
     auto dict = std::make_shared<WubiMappedDict>();
     dict->source_path_ = txt_exists ? txt_path : adjacent_qdict;
     dict->loaded_src_size_ = src_size;
@@ -492,10 +493,14 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
     for (const auto& candidate : {adjacent_qdict, fallback_cache}) {
         if (!candidate.empty() && std::filesystem::exists(candidate, ec) &&
             dict->OpenMappedFile(candidate, src_size, txt_exists ? src_mtime : 0)) {
-            QIQI_LOG_INFO("Mapped binary dictionary cache '{}' ({} codes, {} words)",
-                          WideToUtf8(candidate.wstring()),
-                          dict->CodeCount(),
-                          dict->WordCount());
+            QIQI_LOG_ACT_STOP(
+                log::Level::info,
+                log::Keyword::Dictionary,
+                &dict_act_id,
+                "Mapped binary dictionary cache '{}' ({} codes, {} words)",
+                WideToUtf8(candidate.wstring()),
+                dict->CodeCount(),
+                dict->WordCount());
             std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
             g_process_dict_cache[canonical_key] = {src_size, src_mtime, dict};
             return dict;
@@ -507,6 +512,13 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
     }
 
     // 2. Parse text dictionary and compile binary image
+    QIQI_LOG_ACT_START(
+        log::Level::debug,
+        log::Keyword::Dictionary,
+        &dict_act_id,
+        nullptr,
+        "Compiling text dictionary '{}'",
+        WideToUtf8(txt_path.wstring()));
     std::vector<uint8_t> bin_buffer;
     if (!ParseTextDictIntoBinaryBuffer(txt_path, src_size, src_mtime, bin_buffer)) {
         return nullptr;
@@ -522,19 +534,27 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
 
     if (!dict->OpenMappedFile(written_cache, src_size, src_mtime)) {
         // Fallback to flat in-memory buffer if file mapping is unavailable in sandbox
-        QIQI_LOG_WARN("Falling back to in-memory dictionary buffer for '{}'",
-                      WideToUtf8(txt_path.wstring()));
+        QIQI_LOG_ACT_INFO(
+            log::Level::warn,
+            log::Keyword::Dictionary,
+            &dict_act_id,
+            "Falling back to in-memory dictionary buffer for '{}'",
+            WideToUtf8(txt_path.wstring()));
         dict->fallback_buffer_ = std::move(bin_buffer);
         if (!dict->BindBufferView(dict->fallback_buffer_, src_size, src_mtime)) {
             return nullptr;
         }
     }
 
-    QIQI_LOG_INFO("Compiled & mapped dictionary '{}' -> '{}' ({} codes, {} words)",
-                  WideToUtf8(txt_path.wstring()),
-                  WideToUtf8(written_cache.wstring()),
-                  dict->CodeCount(),
-                  dict->WordCount());
+    QIQI_LOG_ACT_STOP(
+        log::Level::info,
+        log::Keyword::Dictionary,
+        &dict_act_id,
+        "Compiled & mapped dictionary '{}' -> '{}' ({} codes, {} words)",
+        WideToUtf8(txt_path.wstring()),
+        WideToUtf8(written_cache.wstring()),
+        dict->CodeCount(),
+        dict->WordCount());
 
     {
         std::lock_guard<std::mutex> lock(g_dict_cache_mutex);

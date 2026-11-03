@@ -464,10 +464,14 @@ void QiQiTextService::UpdateUiIndicators() {
 }
 
 void QiQiTextService::SyncTsfCompartments() {
-    QIQI_LOG_DEBUG("SyncTsfCompartments(service={}, attempt={}, chinese={}, thread_mgr={}, client_valid={}, syncing={}, langbar={}, openclose={}, conversion={})",
-                   service_log_id_, shift_tap_.Sequence(), engine_.IsChineseMode(), thread_mgr_ != nullptr,
-                   client_id_ != TF_CLIENTID_NULL, syncing_compartments_, langbar_btn_ != nullptr,
-                   static_cast<bool>(openclose_comp_), static_cast<bool>(convmode_comp_));
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Config,
+        &current_lifecycle_activity_,
+        "SyncTsfCompartments(service={}, attempt={}, chinese={}, thread_mgr={}, client_valid={}, syncing={}, langbar={}, openclose={}, conversion={})",
+        service_log_id_, shift_tap_.Sequence(), engine_.IsChineseMode(), thread_mgr_ != nullptr,
+        client_id_ != TF_CLIENTID_NULL, syncing_compartments_, langbar_btn_ != nullptr,
+        static_cast<bool>(openclose_comp_), static_cast<bool>(convmode_comp_));
     UpdateUiIndicators();
 
     if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL || syncing_compartments_) {
@@ -481,8 +485,12 @@ void QiQiTextService::SyncTsfCompartments() {
     if (openclose_comp_) {
         const LONG value = engine_.IsChineseMode() ? 1 : 0;
         const HRESULT hr = openclose_comp_.WriteInt4(client_id_, value);
-        QIQI_LOG_DEBUG("SyncTsfCompartments(service={}, attempt={}, compartment=openclose, value={}, hr=0x{:08x})",
-                       service_log_id_, shift_tap_.Sequence(), value, gsl::narrow_cast<unsigned int>(hr));
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Config,
+            &current_lifecycle_activity_,
+            "SyncTsfCompartments(service={}, attempt={}, compartment=openclose, value={}, hr=0x{:08x})",
+            service_log_id_, shift_tap_.Sequence(), value, gsl::narrow_cast<unsigned int>(hr));
     }
 
     LONG conv_mode = 0;
@@ -497,13 +505,17 @@ void QiQiTextService::SyncTsfCompartments() {
     }
     if (convmode_comp_) {
         const HRESULT hr = convmode_comp_.WriteInt4(client_id_, conv_mode);
-        QIQI_LOG_DEBUG("SyncTsfCompartments(service={}, attempt={}, compartment=conversion, value={}, hr=0x{:08x})",
-                       service_log_id_, shift_tap_.Sequence(), conv_mode, gsl::narrow_cast<unsigned int>(hr));
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Config,
+            &current_lifecycle_activity_,
+            "SyncTsfCompartments(service={}, attempt={}, compartment=conversion, value={}, hr=0x{:08x})",
+            service_log_id_, shift_tap_.Sequence(), conv_mode, gsl::narrow_cast<unsigned int>(hr));
     }
 }
 
 void QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
-    const bool trace = log::ShouldLog(log::Level::debug);
+    const bool trace = log::ShouldLog(log::Level::debug, log::Keyword::Config);
     const bool dictionary_modified = engine_.HasModifiedMappedDictionary();
     unsigned int dictionary_reload_calls = 0;
     std::string_view config_status = "not-checked";
@@ -511,14 +523,22 @@ void QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
     bool completed = false;
     const auto trace_reload = gsl::finally([&]() noexcept {
         if (trace) {
-            QIQI_LOG_DEBUG("ReloadConfigIfModified(focus_id={}, config_status={}, dictionary_modified={}, "
-                           "dictionary_reload_calls={}, mapped_dicts={}, phrase_frequency_status={}, completed={})",
-                           focus_log_id, config_status, dictionary_modified, dictionary_reload_calls,
-                           engine_.MappedDictionaryCount(), phrase_frequency_status, completed);
+            QIQI_LOG_ACT_INFO(
+                log::Level::debug,
+                log::Keyword::Config,
+                &current_lifecycle_activity_,
+                "ReloadConfigIfModified(focus_id={}, config_status={}, dictionary_modified={}, "
+                "dictionary_reload_calls={}, mapped_dicts={}, phrase_frequency_status={}, completed={})",
+                focus_log_id, config_status, dictionary_modified, dictionary_reload_calls,
+                engine_.MappedDictionaryCount(), phrase_frequency_status, completed);
         }
     });
     if (dictionary_modified) {
-        QIQI_LOG_INFO("Detected modified dictionary file on disk; hot-reloading external dictionaries");
+        QIQI_LOG_ACT_INFO(
+            log::Level::info,
+            log::Keyword::Dictionary,
+            &current_lifecycle_activity_,
+            "Detected modified dictionary file on disk; hot-reloading external dictionaries");
         ++dictionary_reload_calls;
         LoadExternalDictionaryNextToDll();
     }
@@ -543,9 +563,13 @@ void QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
         ++dictionary_reload_calls;
         LoadExternalDictionaryNextToDll();
         SyncTsfCompartments();
-        QIQI_LOG_INFO("Hot-reloaded modified user configuration from HKCU\\Software\\QiQiIME (dict={}, mapped_dicts={})",
-                      PrimaryDictToString(config_.primary_dict),
-                      engine_.MappedDictionaryCount());
+        QIQI_LOG_ACT_INFO(
+            log::Level::info,
+            log::Keyword::Config,
+            &current_lifecycle_activity_,
+            "Hot-reloaded modified user configuration from HKCU\\Software\\QiQiIME (dict={}, mapped_dicts={})",
+            PrimaryDictToString(config_.primary_dict),
+            engine_.MappedDictionaryCount());
     }
     completed = true;
 }

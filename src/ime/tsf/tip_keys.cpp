@@ -56,16 +56,18 @@ constexpr bool IsShiftVirtualKey(uint32_t vk) noexcept {
 
 void QiQiTextService::LogShiftTap(std::string_view stage, uint32_t vk, const ITfContext* context,
                                  bool eaten, std::string_view reason) const noexcept {
-    if (!log::ShouldLog(log::Level::debug)) return;
+    if (!log::ShouldLog(log::Level::debug, log::Keyword::Input)) return;
     const char* key = vk == VK_LSHIFT ? "left" : vk == VK_RSHIFT ? "right" :
                       vk == VK_SHIFT ? "generic" : "not-recorded";
-    QIQI_LOG_DEBUG("ShiftTap(service={}, attempt={}, stage={}, key={}, reason={}, eaten={}, candidate={}, elapsed_ms={}, max_ms={}, enabled={}, active={}, resetting={}, preparing={}, has_context={}, current_context={}, chinese={}, composing={}, shift={}, ctrl={}, alt={}, mouse={})",
-                   service_log_id_, shift_tap_.Sequence(), stage, key, reason, eaten,
-                   shift_tap_.IsCandidate(), shift_tap_.ElapsedMs(::GetTickCount64()),
-                   ShiftTapTracker::kMaxDurationMs, config_.shift_toggle_mode, is_active_, resetting_context_,
-                   preparing_input_context_ != nullptr, context != nullptr,
-                   context && context == active_context_.Get(), engine_.IsChineseMode(), engine_.IsComposing(),
-                   IsKeyDown(VK_SHIFT), IsKeyDown(VK_CONTROL), IsKeyDown(VK_MENU), IsAnyMouseButtonDown());
+    QIQI_LOG_CAT_DEBUG(
+        log::Keyword::Input,
+        "ShiftTap(service={}, attempt={}, stage={}, key={}, reason={}, eaten={}, candidate={}, elapsed_ms={}, max_ms={}, enabled={}, active={}, resetting={}, preparing={}, has_context={}, current_context={}, chinese={}, composing={}, shift={}, ctrl={}, alt={}, mouse={})",
+        service_log_id_, shift_tap_.Sequence(), stage, key, reason, eaten,
+        shift_tap_.IsCandidate(), shift_tap_.ElapsedMs(::GetTickCount64()),
+        ShiftTapTracker::kMaxDurationMs, config_.shift_toggle_mode, is_active_, resetting_context_,
+        preparing_input_context_ != nullptr, context != nullptr,
+        context && context == active_context_.Get(), engine_.IsChineseMode(), engine_.IsComposing(),
+        IsKeyDown(VK_SHIFT), IsKeyDown(VK_CONTROL), IsKeyDown(VK_MENU), IsAnyMouseButtonDown());
 }
 
 // ITfKeyEventSink
@@ -81,8 +83,10 @@ void QiQiTextService::TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, 
         reason = shift_tap_.OnKeyDown(::GetTickCount64(), is_auto_repeat, config_.shift_toggle_mode, modifiers);
     }
     LogShiftTap(stage, vk, context, false, reason);
-    QIQI_LOG_DEBUG("ShiftTapContext(service={}, attempt={}, keyboard_disabled={})",
-                   service_log_id_, shift_tap_.Sequence(), IsContextKeyboardDisabled(context));
+    QIQI_LOG_CAT_DEBUG(
+        log::Keyword::Input,
+        "ShiftTapContext(service={}, attempt={}, keyboard_disabled={})",
+        service_log_id_, shift_tap_.Sequence(), IsContextKeyboardDisabled(context));
 }
 
 bool QiQiTextService::HandleShiftTapKeyUp(std::string_view stage, uint32_t vk, const ITfContext* context,

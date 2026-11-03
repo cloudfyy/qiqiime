@@ -199,14 +199,61 @@ void TestEtwLogger() {
     log::WriteLogMessage(log::Level::err, "Direct err");
     log::WriteLogMessage(log::Level::critical, "Critical message");
 
+    static_assert(log::NormalizeKeyword(log::Keyword::General) == log::Keyword::General);
+    static_assert(log::NormalizeKeyword(log::Keyword::All) == log::Keyword::General);
+    static_assert(log::NormalizeOpcode(log::Opcode::Start) == log::Opcode::Start);
+    static_assert(log::NormalizeOpcode(static_cast<log::Opcode>(99)) == log::Opcode::Info);
+    static_assert(log::KeywordTag(log::Keyword::Composition) == "composition");
+    static_assert(log::KeywordTag(log::Keyword::All) == "general");
+    static_assert(log::KeywordNameW(std::to_underlying(log::Keyword::Sync)) == L"Sync");
+    static_assert(log::KeywordNameW(0) == L"General");
+    static_assert(log::OpcodeTag(log::Opcode::Stop) == "stop");
+    static_assert(log::OpcodeNameW(std::to_underlying(log::Opcode::Start)) == L"Start");
+    static_assert(log::OpcodeNameW(99) == L"Info");
+
+    GUID ambient_before = GUID_NULL;
+    QIQI_TEST_CHECK(::EventActivityIdControl(EVENT_ACTIVITY_CTRL_GET_ID, &ambient_before) == ERROR_SUCCESS);
+    ::SetLastError(ERROR_NOT_READY);
+    const GUID act_a = log::CreateActivityId();
+    QIQI_TEST_CHECK(::GetLastError() == ERROR_NOT_READY);
+    const GUID act_b = log::CreateActivityId();
+    GUID ambient_after = GUID_NULL;
+    QIQI_TEST_CHECK(::EventActivityIdControl(EVENT_ACTIVITY_CTRL_GET_ID, &ambient_after) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(act_a != GUID_NULL && act_b != GUID_NULL && act_a != act_b);
+    QIQI_TEST_CHECK(ambient_before == ambient_after);
+
+    for (const log::Keyword kw : {
+             log::Keyword::General,
+             log::Keyword::Lifecycle,
+             log::Keyword::Input,
+             log::Keyword::Composition,
+             log::Keyword::Dictionary,
+             log::Keyword::Sync,
+             log::Keyword::UI,
+             log::Keyword::Config}) {
+        QIQI_LOG_CAT_TRACE(kw, "Category trace {}", log::KeywordTag(kw));
+        QIQI_LOG_CAT_DEBUG(kw, "Category debug {}", log::KeywordTag(kw));
+        QIQI_LOG_CAT_INFO(kw, "Category info {}", log::KeywordTag(kw));
+        QIQI_LOG_CAT_WARN(kw, "Category warn {}", log::KeywordTag(kw));
+        QIQI_LOG_CAT_ERROR(kw, "Category error {}", log::KeywordTag(kw));
+        QIQI_LOG_ACT_START(log::Level::debug, kw, &act_a, &act_b, "Activity start {}", log::KeywordTag(kw));
+        QIQI_LOG_ACT_INFO(log::Level::info, kw, &act_a, "Activity info {}", log::KeywordTag(kw));
+        QIQI_LOG_ACT_STOP(log::Level::warn, kw, &act_a, "Activity stop {}", log::KeywordTag(kw));
+    }
+
     log::SetLevel(log::Level::off);
-    QIQI_TEST_CHECK(!log::ShouldLog(log::Level::critical) && !log::ShouldLog(log::Level::info) &&
+    QIQI_TEST_CHECK(!log::ShouldLog(log::Level::critical, log::Keyword::Lifecycle) &&
+                    !log::ShouldLog(log::Level::info, log::Keyword::Sync) &&
                     !log::ShouldLog(log::Level::trace) && !log::ShouldLog(log::Level::off));
     ::SetLastError(ERROR_ACCESS_DENIED);
     QIQI_TEST_CHECK(log::CheckHResult(S_OK, "successful operation"));
     QIQI_TEST_CHECK(log::CheckHResult(S_FALSE, "optional operation"));
     QIQI_TEST_CHECK(log::CheckHResult(TF_S_ASYNC, "queued edit session"));
-    QIQI_TEST_CHECK(!log::CheckHResult(E_ACCESSDENIED, "failed operation"));
+    QIQI_TEST_CHECK(!log::CheckHResult(
+        E_ACCESSDENIED,
+        "failed operation",
+        log::Level::warn,
+        log::LogContext{log::Keyword::Composition, log::Opcode::Info, &act_a, &act_b}));
     QIQI_TEST_CHECK(::GetLastError() == ERROR_ACCESS_DENIED);
     QIQI_LOG_INFO("Suppressed when level is off");
     log::WriteLogMessage(log::Level::off, "Suppressed off write");

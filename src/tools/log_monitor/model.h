@@ -1,6 +1,7 @@
 #pragma once
 
 #include <windows.h>
+#include <cguid.h>
 #include <cstdint>
 #include <deque>
 #include <mutex>
@@ -23,6 +24,10 @@ struct Event {
     DWORD pid = 0;
     DWORD tid = 0;
     UCHAR level = 0;
+    UCHAR opcode = 0;
+    uint64_t keyword = 1;
+    GUID activity_id{};
+    GUID related_activity_id{};
     std::wstring process;
     std::wstring name;
     std::wstring message;
@@ -33,6 +38,8 @@ struct Filter {
     std::wstring process;
     std::optional<DWORD> pid;
     UCHAR level = 0; // Zero means all; otherwise exact ETW level.
+    uint64_t keyword = 0; // Zero means all; otherwise bitmask match.
+    std::optional<GUID> activity_id; // Matches activity_id or related_activity_id.
     std::wstring text;
     bool Matches(const Event& event) const noexcept;
 };
@@ -77,6 +84,8 @@ struct ProcessChoices {
 ProcessChoices CollectProcessChoices(const EventBuffer& buffer, std::wstring_view process);
 std::optional<DWORD> ParsePid(const std::wstring& text) noexcept;
 std::wstring LevelName(UCHAR level);
+std::wstring FormatGuid(const GUID& guid);
+std::wstring FormatShortGuid(const GUID& guid);
 std::wstring FormatTime(uint64_t time);
 std::wstring FormatEventEntry(const Event& event, std::wstring_view level_text = {});
 std::wstring FormatEventsForClipboard(std::span<const Event> events);

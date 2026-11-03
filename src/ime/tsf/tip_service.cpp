@@ -91,8 +91,14 @@ bool QiQiTextService::DestroyUIWindows() noexcept {
     SetUiPresentationEnabled(false);
     const bool candidate_destroyed = !candidate_ui_ || candidate_ui_->DestroyPopupWindow();
     const bool status_destroyed = !status_bar_ || status_bar_->DestroyBarWindow();
-    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=ui-windows-destroyed, candidate_destroyed={}, status_destroyed={})",
-                   service_log_id_, candidate_destroyed, status_destroyed);
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::UI,
+        &current_lifecycle_activity_,
+        "TsfLifecycle(service={}, stage=ui-windows-destroyed, candidate_destroyed={}, status_destroyed={})",
+        service_log_id_,
+        candidate_destroyed,
+        status_destroyed);
     return candidate_destroyed && status_destroyed;
 }
 
@@ -105,23 +111,43 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
         return E_INVALIDARG;
     }
     if (deactivating_ || resetting_context_ || preparing_input_context_) {
-        QIQI_LOG_WARN("ActivateEx: activation during lifecycle transition rejected (hr=0x{:08x})",
-                       gsl::narrow_cast<unsigned int>(E_UNEXPECTED));
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Lifecycle,
+            "ActivateEx: activation during lifecycle transition rejected (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(E_UNEXPECTED));
         return E_UNEXPECTED;
     }
     is_active_ = false;
     ++edit_session_epoch_.activation;
     std::ignore = log::EnsureInitialized();
+    const GUID act_id = log::CreateActivityId();
+    const GUID prev_act = std::exchange(current_lifecycle_activity_, act_id);
+    const auto restore_act = gsl::finally([this, prev_act]() noexcept {
+        current_lifecycle_activity_ = prev_act;
+    });
     thread_mgr_ = ptim;
     client_id_ = tid;
     activate_flags_ = dwFlags;
 
     const std::string host_exe = WideToUtf8(GetModuleFilePath(nullptr).filename().wstring());
-    QIQI_LOG_INFO("QiQiTextService::ActivateEx(version={}, arch={}, host='{}', client_id={}, flags=0x{:x})",
-                  version::kFullVersion, version::kArch, host_exe, tid, dwFlags);
+    QIQI_LOG_ACT_START(
+        log::Level::info,
+        log::Keyword::Lifecycle,
+        &act_id,
+        nullptr,
+        "QiQiTextService::ActivateEx(version={}, arch={}, host='{}', client_id={}, flags=0x{:x})",
+        version::kFullVersion,
+        version::kArch,
+        host_exe,
+        tid,
+        dwFlags);
 
     if (!InitThreadMgrEventSink() || !InitKeyEventSink()) {
-        QIQI_LOG_ERROR("QiQiTextService::ActivateEx failed to initialize TSF event sinks");
+        QIQI_LOG_ACT_STOP(
+            log::Level::err,
+            log::Keyword::Lifecycle,
+            &act_id,
+            "QiQiTextService::ActivateEx failed to initialize TSF event sinks");
         Deactivate();
         return E_FAIL;
     }
@@ -135,25 +161,56 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     is_active_ = true;
     SetUiPresentationEnabled(true);
     SyncTsfCompartments();
-    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=activated, activation={}, context={}, client_id={})",
-                   service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, client_id_);
+    QIQI_LOG_ACT_STOP(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &act_id,
+        "TsfLifecycle(service={}, stage=activated, activation={}, context={}, client_id={})",
+        service_log_id_,
+        edit_session_epoch_.activation,
+        edit_session_epoch_.context,
+        client_id_);
     return S_OK;
 }
 
 STDMETHODIMP QiQiTextService::Deactivate() {
     if (deactivating_) {
-        QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=deactivate-reentrant, activation={}, context={})",
-                       service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context);
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Lifecycle,
+            &current_lifecycle_activity_,
+            "TsfLifecycle(service={}, stage=deactivate-reentrant, activation={}, context={})",
+            service_log_id_,
+            edit_session_epoch_.activation,
+            edit_session_epoch_.context);
         return S_OK;
     }
     deactivating_ = true;
-    const auto finish_deactivation = gsl::finally([this]() noexcept { deactivating_ = false; });
+    const GUID act_id = log::CreateActivityId();
+    const GUID prev_act = std::exchange(current_lifecycle_activity_, act_id);
+    const auto finish_deactivation = gsl::finally([this, prev_act]() noexcept {
+        current_lifecycle_activity_ = prev_act;
+        deactivating_ = false;
+    });
     is_active_ = false;
     SetUiPresentationEnabled(false);
     ++edit_session_epoch_.activation;
-    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=deactivate-begin, activation={}, context={}, has_composition={})",
-                   service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, composition_ != nullptr);
-    QIQI_LOG_INFO("QiQiTextService::Deactivate(client_id={})", client_id_);
+    QIQI_LOG_ACT_START(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &act_id,
+        &prev_act,
+        "TsfLifecycle(service={}, stage=deactivate-begin, activation={}, context={}, has_composition={})",
+        service_log_id_,
+        edit_session_epoch_.activation,
+        edit_session_epoch_.context,
+        composition_ != nullptr);
+    QIQI_LOG_ACT_INFO(
+        log::Level::info,
+        log::Keyword::Lifecycle,
+        &act_id,
+        "QiQiTextService::Deactivate(client_id={})",
+        client_id_);
     ResetCompositionAndUI();
     if (status_bar_) {
         status_bar_->Show(false);
@@ -170,8 +227,15 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     client_id_ = TF_CLIENTID_NULL;
     activate_flags_ = 0;
     engine_.ClearExternalDictionaries();
-    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=deactivate-local-complete, activation={}, context={}, tracked_cleanups={})",
-                   service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context, composition_cleanups_.size());
+    QIQI_LOG_ACT_STOP(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &act_id,
+        "TsfLifecycle(service={}, stage=deactivate-local-complete, activation={}, context={}, tracked_cleanups={})",
+        service_log_id_,
+        edit_session_epoch_.activation,
+        edit_session_epoch_.context,
+        composition_cleanups_.size());
     return windows_destroyed ? S_OK : E_FAIL;
 }
 
@@ -317,7 +381,13 @@ STDMETHODIMP QiQiTextService::OnInitDocumentMgr(ITfDocumentMgr* /*pdim*/) noexce
 
 STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* pdim) {
     const bool related = is_active_ && IsActiveDocument(pdim);
-    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=document-uninit, related={})", service_log_id_, related);
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &current_lifecycle_activity_,
+        "TsfLifecycle(service={}, stage=document-uninit, related={})",
+        service_log_id_,
+        related);
     if (related) {
         MarkCompositionContextRemoved(active_context_.Get());
         ResetCompositionAndUI(false);
@@ -350,8 +420,15 @@ bool QiQiTextService::ReconcileDocumentTarget(ITfDocumentMgr* document, std::str
     const bool base_ok = log::CheckHResult(base_hr, "ReconcileDocumentTarget::GetBase");
     if (!IsEditSessionCurrent(epoch, context.Get())) return false;
     const bool retained = top_ok && base_ok && (top == context || base == context);
-    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=document-target, source={}, retained={}, covered_by_modal={})",
-                   service_log_id_, source, retained, retained && top != context);
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &current_lifecycle_activity_,
+        "TsfLifecycle(service={}, stage=document-target, source={}, retained={}, covered_by_modal={})",
+        service_log_id_,
+        source,
+        retained,
+        retained && top != context);
     if (!retained) {
         auto expected = edit_session_epoch_;
         ++expected.context;
@@ -368,7 +445,9 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
     const uint64_t focus_revision = ++focus_revision_;
     using Clock = std::chrono::steady_clock;
     static std::atomic<uint64_t> focus_log_sequence{0};
-    const bool measure = log::ShouldLog(log::Level::debug);
+    const GUID focus_act_id = log::CreateActivityId();
+    const GUID prev_act = std::exchange(current_lifecycle_activity_, focus_act_id);
+    const bool measure = log::ShouldLog(log::Level::debug, log::Keyword::Lifecycle);
     const auto started = measure ? Clock::now() : Clock::time_point{};
     const uint64_t event_id = measure ? focus_log_sequence.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
     const bool same_state = has_logged_focus_state_ && last_logged_focus_state_ == has_focus;
@@ -381,12 +460,25 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
     bool position_changed = false;
     bool completed = false;
     const auto trace_focus = gsl::finally([&]() noexcept {
+        current_lifecycle_activity_ = prev_act;
         if (measure) {
             const auto total_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - started).count();
-            QIQI_LOG_DEBUG("FocusPerformance(id={}, source={}, has_focus={}, same_state={}, reload_checked={}, "
-                           "reload_ns={}, position_ns={}, total_ns={}, position_changed={}, completed={})",
-                           event_id, source == FocusNotificationSource::ThreadManager ? "thread-manager" : "key-event",
-                           has_focus, same_state, has_focus, reload_ns, position_ns, total_ns, position_changed, completed);
+            QIQI_LOG_ACT_STOP(
+                log::Level::debug,
+                log::Keyword::Lifecycle,
+                &focus_act_id,
+                "FocusPerformance(id={}, source={}, has_focus={}, same_state={}, reload_checked={}, "
+                "reload_ns={}, position_ns={}, total_ns={}, position_changed={}, completed={})",
+                event_id,
+                source == FocusNotificationSource::ThreadManager ? "thread-manager" : "key-event",
+                has_focus,
+                same_state,
+                has_focus,
+                reload_ns,
+                position_ns,
+                total_ns,
+                position_changed,
+                completed);
         }
     });
     if (!has_focus) {
@@ -427,12 +519,23 @@ STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
     const auto context = active_context_;
     ComPtr<ITfDocumentMgr> document;
     if (!log::CheckHResult(pic->GetDocumentMgr(&document), "OnPushContext::GetDocumentMgr") || !document) {
-        QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=context-push-unresolved)", service_log_id_);
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Lifecycle,
+            &current_lifecycle_activity_,
+            "TsfLifecycle(service={}, stage=context-push-unresolved)",
+            service_log_id_);
         return S_OK;
     }
     if (!IsEditSessionCurrent(epoch, context.Get())) return S_OK;
     const bool related = IsActiveDocument(document.Get());
-    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=context-push, related={})", service_log_id_, related);
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &current_lifecycle_activity_,
+        "TsfLifecycle(service={}, stage=context-push, related={})",
+        service_log_id_,
+        related);
     if (related) std::ignore = ReconcileDocumentTarget(document.Get(), "push");
     return S_OK;
 }
@@ -441,7 +544,14 @@ STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* pic) {
     if (pic) MarkCompositionContextRemoved(pic);
     const bool current = is_active_ && pic && pic == active_context_.Get();
     const bool preparing = is_active_ && pic && pic == preparing_input_context_.Get();
-    QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=context-pop, current={}, preparing={})", service_log_id_, current, preparing);
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &current_lifecycle_activity_,
+        "TsfLifecycle(service={}, stage=context-pop, current={}, preparing={})",
+        service_log_id_,
+        current,
+        preparing);
     if (current) {
         ResetCompositionAndUI(false);
     } else if (preparing) {

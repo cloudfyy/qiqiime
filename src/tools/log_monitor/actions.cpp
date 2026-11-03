@@ -178,16 +178,32 @@ void MonitorWindow::Impl::ShowListContextMenu(POINT screen_pt) {
         diagnostics.Record(2, L"CreatePopupMenu", ::GetLastError());
         return;
     }
-    const bool has_sel = !CollectSelectedEvents().empty();
+    const auto selected_items = CollectSelectedEvents();
+    const bool has_sel = !selected_items.empty();
     const bool has_rows = !rows.empty();
+    const bool has_activity = has_sel && selected_items.front().activity_id != GUID_NULL;
     ::AppendMenuW(menu.Get(), MF_STRING | (has_sel ? MF_ENABLED : MF_GRAYED), 1,
         Text(L"复制选中日志项\tCtrl+C", L"Copy selected entries\tCtrl+C"));
     ::AppendMenuW(menu.Get(), MF_STRING | (has_rows ? MF_ENABLED : MF_GRAYED), 2,
         Text(L"全选\tCtrl+A", L"Select all\tCtrl+A"));
+    ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu.Get(), MF_STRING | (has_activity ? MF_ENABLED : MF_GRAYED), 3,
+        Text(L"按当前活动关联筛选", L"Filter by selected activity"));
+    ::AppendMenuW(menu.Get(), MF_STRING | (filter.activity_id.has_value() ? MF_ENABLED : MF_GRAYED), 4,
+        Text(L"清除活动关联筛选", L"Clear activity filter"));
     const BOOL cmd = ::TrackPopupMenu(
         menu.Get(), TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, screen_pt.x, screen_pt.y, 0, hwnd, nullptr);
     if (cmd == 1) CopySelection();
     else if (cmd == 2) SelectAllRows();
+    else if (cmd == 3 && has_activity) {
+        filter.activity_id = selected_items.front().activity_id;
+        Refilter();
+        UpdateStatus();
+    } else if (cmd == 4) {
+        filter.activity_id.reset();
+        Refilter();
+        UpdateStatus();
+    }
 }
 
 void MonitorWindow::Impl::ExportSnapshot() {
@@ -254,10 +270,13 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         ::SetWindowTextW(Child(Source), diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics"));
         ::SetWindowTextW(Child(Process), L"");
         filter.pid.reset();
+        filter.activity_id.reset();
         automatic_pid = false;
         ::SetWindowTextW(Child(Search), L"");
         ::SendMessageW(Child(Level), CB_SETCURSEL, 0, 0);
+        ::SendMessageW(Child(Category), CB_SETCURSEL, 0, 0);
         Refilter();
+        UpdateStatus();
         break;
     case About: {
         if (!ShowAboutDialog(instance, hwnd, ui_language, true)) {
@@ -299,6 +318,7 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         if (notification == EN_CHANGE) Refilter();
         break;
     case Level: if (notification == CBN_SELCHANGE) Refilter(); break;
+    case Category: if (notification == CBN_SELCHANGE) Refilter(); break;
     case Language:
         if (notification == CBN_SELCHANGE) {
             const LRESULT choice = ::SendMessageW(Child(Language), CB_GETCURSEL, 0, 0);

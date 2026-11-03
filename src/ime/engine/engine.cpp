@@ -469,10 +469,12 @@ KeyProcessResult WubiEngine::ProcessKey(
         return (this->*gsl::at(kActionHandlers, static_cast<size_t>(rule.op)))(ctx);
     });
     if (rule.op != TransitionOp::PassThrough) {
-        QIQI_LOG_TRACE("FSM transition: state_before={} -> op={} state_after={}",
-                       static_cast<unsigned int>(state_before),
-                       static_cast<unsigned int>(rule.op),
-                       static_cast<unsigned int>(state_));
+        QIQI_LOG_CAT_TRACE(
+            log::Keyword::Input,
+            "FSM transition: state_before={} -> op={} state_after={}",
+            static_cast<unsigned int>(state_before),
+            static_cast<unsigned int>(rule.op),
+            static_cast<unsigned int>(state_));
     }
     return result;
 }

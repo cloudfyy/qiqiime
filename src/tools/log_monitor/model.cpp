@@ -1,4 +1,5 @@
 #include "tools/log_monitor/model.h"
+#include "common/logger.h"
 #include "common/scoped_handle.h"
 #include "common/version.h"
 
@@ -48,7 +49,14 @@ size_t Event::Bytes() const noexcept {
 }
 
 bool Filter::Matches(const Event& event) const noexcept {
-    return (!pid || event.pid == *pid) && (!level || event.level == level) &&
+    const uint64_t effective_kw = event.keyword != 0 ? event.keyword : std::to_underlying(log::Keyword::General);
+    const bool activity_ok = !activity_id.has_value() ||
+                             ( *activity_id != GUID_NULL &&
+                               (event.activity_id == *activity_id || event.related_activity_id == *activity_id) );
+    return (!pid || event.pid == *pid) &&
+           (!level || event.level == level) &&
+           (!keyword || (effective_kw & keyword) != 0) &&
+           activity_ok &&
            (process.empty() || Contains(event.process, process)) &&
            (text.empty() || Contains(event.message, text));
 }
@@ -149,6 +157,20 @@ std::wstring LevelName(UCHAR level) {
     }
 }
 
+std::wstring FormatGuid(const GUID& guid) {
+    if (guid == GUID_NULL) return {};
+    return std::format(
+        L"{{{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}}}",
+        guid.Data1, guid.Data2, guid.Data3,
+        gsl::at(guid.Data4, 0), gsl::at(guid.Data4, 1), gsl::at(guid.Data4, 2), gsl::at(guid.Data4, 3),
+        gsl::at(guid.Data4, 4), gsl::at(guid.Data4, 5), gsl::at(guid.Data4, 6), gsl::at(guid.Data4, 7));
+}
+
+std::wstring FormatShortGuid(const GUID& guid) {
+    if (guid == GUID_NULL) return {};
+    return std::format(L"{:08x}", guid.Data1);
+}
+
 std::wstring FormatTime(uint64_t time) {
     const FILETIME utc{gsl::narrow_cast<DWORD>(time), gsl::narrow_cast<DWORD>(time >> 32)};
     SYSTEMTIME system{};
@@ -162,9 +184,17 @@ std::wstring FormatTime(uint64_t time) {
 std::wstring FormatEventEntry(const Event& event, std::wstring_view level_text) {
     const std::wstring default_level = level_text.empty() ? LevelName(event.level) : std::wstring{};
     const std::wstring_view level = level_text.empty() ? std::wstring_view(default_level) : level_text;
-    auto text = std::format(L"{} | {} | PID={} TID={} | {} | {}\r\n{}",
+    std::wstring activity_meta;
+    if (event.activity_id != GUID_NULL) {
+        activity_meta = std::format(L" | Activity={}", FormatGuid(event.activity_id));
+        if (event.related_activity_id != GUID_NULL) {
+            activity_meta += std::format(L" Related={}", FormatGuid(event.related_activity_id));
+        }
+    }
+    auto text = std::format(L"{} | {} | PID={} TID={} | {} | {}:{} | {}{}\r\n{}",
         FormatTime(event.time), event.process, event.pid, event.tid,
-        level, event.name, event.message);
+        level, log::KeywordNameW(event.keyword), log::OpcodeNameW(event.opcode),
+        event.name, activity_meta, event.message);
     std::replace(text.begin(), text.end(), L'\0', L'\x2400');
     return text;
 }
@@ -176,9 +206,10 @@ std::wstring FormatEventsForClipboard(std::span<const Event> events) {
         const auto& event = gsl::at(events, i);
         auto message = event.message;
         std::replace(message.begin(), message.end(), L'\0', L'\x2400');
-        result += std::format(L"{}\t{}\tPID={}\tTID={}\t{}\t{}\t{}",
+        result += std::format(L"{}\t{}\tPID={}\tTID={}\t{}\t{}\t{}\t{}\t{}\t{}",
             FormatTime(event.time), event.process, event.pid, event.tid,
-            LevelName(event.level), event.name, message);
+            LevelName(event.level), log::KeywordNameW(event.keyword), log::OpcodeNameW(event.opcode),
+            FormatGuid(event.activity_id), event.name, message);
     }
     return result;
 }
@@ -186,10 +217,13 @@ std::wstring FormatEventsForClipboard(std::span<const Event> events) {
 std::string ExportEvents(const std::vector<Event>& events, std::wstring_view source) {
     std::string result = std::format("# QiQiIME Log Monitor {} ({})\r\n# Source: {}\r\n",
         version::kFullVersion, version::kArch, Escape(source));
-    result += "TimeUTC\tProcess\tPID\tTID\tLevel\tEvent\tMessage\r\n";
+    result += "TimeUTC\tProcess\tPID\tTID\tLevel\tCategory\tOpcode\tActivityId\tRelatedActivityId\tEvent\tMessage\r\n";
     for (const auto& event : events) {
-        result += std::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\r\n", Escape(FormatTime(event.time)),
+        result += std::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\r\n",
+            Escape(FormatTime(event.time)),
             Escape(event.process), event.pid, event.tid, Escape(LevelName(event.level)),
+            Escape(log::KeywordNameW(event.keyword)), Escape(log::OpcodeNameW(event.opcode)),
+            Escape(FormatGuid(event.activity_id)), Escape(FormatGuid(event.related_activity_id)),
             Escape(event.name), Escape(event.message));
     }
     return result;

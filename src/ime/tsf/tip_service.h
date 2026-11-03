@@ -109,9 +109,11 @@ private:
         CompositionCleanup& operator=(const CompositionCleanup&) = delete;
         CompositionCleanup(CompositionCleanup&&) = delete;
         CompositionCleanup& operator=(CompositionCleanup&&) = delete;
-        void LogResult(std::string_view stage, HRESULT hr) const noexcept;
+        void LogResult(std::string_view stage, HRESULT hr, log::Opcode opcode = log::Opcode::Info) const noexcept;
         uint64_t service_id = 0;
         uint64_t id = 0; // Zero tracks an unpublished StartComposition result, not a scheduled cleanup.
+        GUID activity_id = GUID_NULL;
+        GUID parent_activity_id = GUID_NULL;
         ComPtr<ITfContext> context;
         ComPtr<ITfComposition> composition;
         ComPtr<ITfRange> range;
@@ -216,6 +218,7 @@ private:
     bool has_logged_focus_state_ = false;
     bool last_logged_focus_state_ = false;
     uint64_t focus_revision_ = 0;
+    GUID current_lifecycle_activity_ = GUID_NULL;
 
     ComPtr<ITfComposition> composition_;
     std::vector<std::weak_ptr<CompositionCleanup>> composition_cleanups_;

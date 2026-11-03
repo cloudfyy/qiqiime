@@ -16,28 +16,30 @@ constexpr uint32_t kMagic = 0x53435151;
 constexpr uint32_t kSchema = 1;
 constexpr size_t kHeaderBytes = 76;
 
-HRESULT Report(HRESULT hr, const char* operation) noexcept {
+HRESULT Report(HRESULT hr, const char* operation, const GUID* activity_id = nullptr) noexcept {
     if (FAILED(hr)) {
+        const log::Opcode opcode = (activity_id != nullptr) ? log::Opcode::Stop : log::Opcode::Info;
+        const log::LogContext ctx{log::Keyword::Sync, opcode, activity_id, nullptr};
         if (hr == HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION) ||
             hr == HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH)) {
-            QIQI_LOG_DEBUG("ChangeSync: {} requires retry (hr=0x{:08x})", operation,
-                           gsl::narrow_cast<unsigned int>(hr));
+            QIQI_LOG_CTX(log::Level::debug, ctx, "ChangeSync: {} requires retry (hr=0x{:08x})", operation,
+                         gsl::narrow_cast<unsigned int>(hr));
         } else {
-            QIQI_LOG_ERROR("ChangeSync: {} failed (hr=0x{:08x})", operation,
-                           gsl::narrow_cast<unsigned int>(hr));
+            QIQI_LOG_CTX(log::Level::err, ctx, "ChangeSync: {} failed (hr=0x{:08x})", operation,
+                         gsl::narrow_cast<unsigned int>(hr));
         }
     }
     return hr;
 }
 
 template <typename Action>
-HRESULT Checked(const char* operation, Action action) noexcept {
+HRESULT Checked(const char* operation, Action action, const GUID* activity_id = nullptr) noexcept {
     try {
-        return Report(action(), operation);
+        return Report(action(), operation, activity_id);
     } catch (const std::bad_alloc&) {
-        return Report(E_OUTOFMEMORY, operation);
+        return Report(E_OUTOFMEMORY, operation, activity_id);
     } catch (...) {
-        return Report(E_UNEXPECTED, operation);
+        return Report(E_UNEXPECTED, operation, activity_id);
     }
 }
 
@@ -210,8 +212,10 @@ HRESULT Load(const std::filesystem::path& directory, Source source, Journal& jou
     if (!::ReadFile(file.Get(), bytes.data(), gsl::narrow_cast<DWORD>(bytes.size()), &read, nullptr))
         return HRESULT_FROM_WIN32(::GetLastError());
     if (read != bytes.size()) {
-        QIQI_LOG_ERROR("ChangeSync: short journal read (expected={}, read={}, error={})",
-                       bytes.size(), read, ERROR_SUCCESS);
+        QIQI_LOG_CAT_ERROR(
+            log::Keyword::Sync,
+            "ChangeSync: short journal read (expected={}, read={}, error={})",
+            bytes.size(), read, ERROR_SUCCESS);
         return E_FAIL;
     }
     return Decode(bytes, source, journal);
@@ -227,7 +231,7 @@ void Recover(Journal& journal) noexcept {
     journal.changes.clear();
 }
 
-Batch Since(const Journal& journal, Version applied) {
+Batch Since(const Journal& journal, Version applied, const GUID* activity_id = nullptr) {
     Batch batch;
     batch.version = journal.version;
     if (journal.pending) batch.version.baseline = journal.recovery;
@@ -243,8 +247,12 @@ Batch Since(const Journal& journal, Version applied) {
             if (change.sequence > applied.sequence) batch.changes.push_back(change);
     }
     if (batch.snapshot != SnapshotReason::None)
-        QIQI_LOG_DEBUG("ChangeSync: full snapshot required (reason={}, version={})",
-                       std::to_underlying(batch.snapshot), batch.version.sequence);
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Sync,
+            activity_id,
+            "ChangeSync: full snapshot required (reason={}, version={})",
+            std::to_underlying(batch.snapshot), batch.version.sequence);
     return batch;
 }
 } // namespace
@@ -337,6 +345,7 @@ HRESULT Channel::Read(Version applied, Batch& batch) const noexcept {
 
 HRESULT Channel::Publish(Version expected, Operation operation, std::span<const uint8_t> payload,
                        const std::function<HRESULT()>& write_source, Version& committed) const noexcept {
+    const GUID act_id = log::CreateActivityId();
     return Checked("Publish", [&]() -> HRESULT {
         if (!directory_.is_absolute() || !Valid(source_) || !Valid(operation) ||
             payload.size() > kMaxPayloadBytes || !write_source) return E_INVALIDARG;
@@ -356,6 +365,15 @@ HRESULT Channel::Publish(Version expected, Operation operation, std::span<const 
         if (journal.version != expected) return HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH);
         if (journal.version.sequence == std::numeric_limits<uint64_t>::max())
             return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
+        QIQI_LOG_ACT_START(
+            log::Level::debug,
+            log::Keyword::Sync,
+            &act_id,
+            nullptr,
+            "ChangeSync: publish begin (type={}, op={}, expected_seq={})",
+            std::to_underlying(source_.type),
+            std::to_underlying(operation),
+            expected.sequence);
         Journal next = journal;
         ++next.version.sequence;
         next.changes.push_back(Change{next.version.sequence, operation, {payload.begin(), payload.end()}});
@@ -372,21 +390,32 @@ HRESULT Channel::Publish(Version expected, Operation operation, std::span<const 
         if (FAILED(hr)) return hr;
         hr = Save(directory_, journal);
         if (FAILED(hr)) return hr;
-        hr = Checked("WriteSource", write_source);
+        hr = Checked("WriteSource", write_source, &act_id);
         if (hr != S_OK) {
             Recover(journal);
-            Report(Save(directory_, journal), "InvalidateAfterFailedWrite");
+            Report(Save(directory_, journal), "InvalidateAfterFailedWrite", &act_id);
             return hr;
         }
         hr = Save(directory_, next);
-        if (SUCCEEDED(hr)) committed = next.version;
+        if (SUCCEEDED(hr)) {
+            committed = next.version;
+            QIQI_LOG_ACT_STOP(
+                log::Level::debug,
+                log::Keyword::Sync,
+                &act_id,
+                "ChangeSync: publish committed (type={}, op={}, committed_seq={})",
+                std::to_underlying(source_.type),
+                std::to_underlying(operation),
+                committed.sequence);
+        }
         return hr;
-    });
+    }, &act_id);
 }
 
 HRESULT Channel::Synchronize(Version& applied, InputBoundary boundary,
     const std::function<HRESULT()>& load_snapshot,
     const std::function<HRESULT(std::span<const Change>)>& apply_changes) const noexcept {
+    const GUID act_id = log::CreateActivityId();
     return Checked("Synchronize", [&]() -> HRESULT {
         if (!directory_.is_absolute() || !Valid(source_) || !load_snapshot || !apply_changes ||
             (boundary != InputBoundary::Composing && boundary != InputBoundary::NewInput)) return E_INVALIDARG;
@@ -397,11 +426,40 @@ HRESULT Channel::Synchronize(Version& applied, InputBoundary boundary,
         Journal journal;
         hr = Load(directory_, source_, journal);
         if (FAILED(hr)) return hr;
-        const auto batch = Since(journal, applied);
-        if (batch.snapshot != SnapshotReason::None) hr = load_snapshot();
-        else if (!batch.changes.empty()) hr = apply_changes(batch.changes);
-        if (hr == S_OK) applied = batch.version;
+        const auto batch = Since(journal, applied, &act_id);
+        if (batch.snapshot != SnapshotReason::None) {
+            QIQI_LOG_ACT_START(
+                log::Level::debug,
+                log::Keyword::Sync,
+                &act_id,
+                nullptr,
+                "ChangeSync: synchronize snapshot begin (reason={}, target_seq={})",
+                std::to_underlying(batch.snapshot),
+                batch.version.sequence);
+            hr = load_snapshot();
+        } else if (!batch.changes.empty()) {
+            QIQI_LOG_ACT_START(
+                log::Level::debug,
+                log::Keyword::Sync,
+                &act_id,
+                nullptr,
+                "ChangeSync: synchronize delta begin (changes={}, target_seq={})",
+                batch.changes.size(),
+                batch.version.sequence);
+            hr = apply_changes(batch.changes);
+        }
+        if (hr == S_OK && (batch.snapshot != SnapshotReason::None || !batch.changes.empty())) {
+            applied = batch.version;
+            QIQI_LOG_ACT_STOP(
+                log::Level::debug,
+                log::Keyword::Sync,
+                &act_id,
+                "ChangeSync: synchronize complete (applied_seq={})",
+                applied.sequence);
+        } else if (hr == S_OK) {
+            applied = batch.version;
+        }
         return hr;
-    });
+    }, &act_id);
 }
 } // namespace qiqi::sync

@@ -62,10 +62,12 @@ bool MonitorWindow::Impl::CreateControls() {
         !Add(L"STATIC", Text(L"进程", L"Process"), SS_LEFT, ProcessLabel) ||
         !Add(L"STATIC", L"PID", SS_LEFT, PidLabel) ||
         !Add(L"STATIC", Text(L"级别", L"Level"), SS_LEFT, LevelLabel) ||
+        !Add(L"STATIC", Text(L"分类", L"Category"), SS_LEFT, CategoryLabel) ||
         !Add(L"STATIC", Text(L"消息", L"Message"), SS_LEFT, SearchLabel) ||
         !Add(L"COMBOBOX", L"", CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, Process) ||
         !Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, Pid) ||
         !Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, Level) ||
+        !Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, Category) ||
         !Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, Search) ||
         !Add(WC_LISTVIEWW, L"", LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS |
             WS_BORDER | WS_TABSTOP, List) ||
@@ -85,10 +87,10 @@ bool MonitorWindow::Impl::CreateControls() {
         Failure(L"SetWindowSubclass(list header)", ERROR_NOT_ENOUGH_MEMORY);
         return false;
     }
-    std::array<const wchar_t*, 6> columns{
+    std::array<const wchar_t*, 7> columns{
         Text(L"时间 (UTC)", L"Time (UTC)"), Text(L"进程", L"Process"), L"PID", L"TID",
-        Text(L"级别", L"Level"), Text(L"消息", L"Message")};
-    constexpr std::array widths{190, 160, 80, 80, 90, 500};
+        Text(L"级别", L"Level"), Text(L"分类 / 阶段", L"Category / Stage"), Text(L"消息", L"Message")};
+    constexpr std::array widths{180, 140, 72, 72, 80, 145, 420};
     for (size_t i = 0; i < columns.size(); ++i) {
         LVCOLUMNW column{};
         column.mask = LVCF_TEXT | LVCF_WIDTH;
@@ -137,19 +139,21 @@ void MonitorWindow::Impl::Layout() noexcept {
         move(Language, s(92), filter_top, width - s(104), s(200));
         filter_top += s(38);
     }
-    move(ProcessLabel, s(12), filter_top + s(4), s(55), s(24));
-    move(Process, s(70), filter_top, s(170), s(240));
-    move(PidLabel, s(254), filter_top + s(4), s(30), s(24));
-    move(Pid, s(290), filter_top, s(90), s(240));
-    move(LevelLabel, s(392), filter_top + s(4), s(50), s(24));
-    move(Level, s(448), filter_top, s(150), s(240));
-    if (width < s(940)) {
+    move(ProcessLabel, s(12), filter_top + s(4), s(48), s(24));
+    move(Process, s(62), filter_top, s(150), s(240));
+    move(PidLabel, s(222), filter_top + s(4), s(28), s(24));
+    move(Pid, s(254), filter_top, s(82), s(240));
+    move(LevelLabel, s(346), filter_top + s(4), s(44), s(24));
+    move(Level, s(394), filter_top, s(110), s(240));
+    move(CategoryLabel, s(514), filter_top + s(4), s(52), s(24));
+    move(Category, s(570), filter_top, s(126), s(240));
+    if (width < s(980)) {
         filter_top += s(38);
-        move(SearchLabel, s(12), filter_top + s(4), s(65), s(24));
-        move(Search, s(80), filter_top, width - s(92), s(28));
+        move(SearchLabel, s(12), filter_top + s(4), s(58), s(24));
+        move(Search, s(74), filter_top, width - s(86), s(28));
     } else {
-        move(SearchLabel, s(610), filter_top + s(4), s(65), s(24));
-        move(Search, s(680), filter_top, width - s(692), s(28));
+        move(SearchLabel, s(706), filter_top + s(4), s(58), s(24));
+        move(Search, s(768), filter_top, width - s(780), s(28));
     }
     const int top = filter_top + s(42);
     const int detail_limit_px = std::max(s(60), gsl::narrow_cast<int>(rect.bottom) - top - s(50) - s(60));
@@ -169,7 +173,7 @@ void MonitorWindow::Impl::UpdateTheme() noexcept {
     const bool contrast = IsHighContrastEnabled();
     const bool dark = !contrast && IsSystemDarkTheme();
     ApplySystemThemeToMenuAndWindow(hwnd, dark);
-    for (const auto id : {List, Process, Pid, Search, Details, Language, Level}) {
+    for (const auto id : {List, Process, Pid, Search, Details, Language, Level, Category}) {
         const HRESULT result = ::SetWindowTheme(Child(id), contrast ? nullptr : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
         if (FAILED(result)) diagnostics.Record(3, L"SetWindowTheme(control)", gsl::narrow_cast<ULONG>(result));
     }
@@ -194,7 +198,8 @@ void MonitorWindow::Impl::ApplyLanguage() {
         std::pair{Clear, Text(L"清空", L"Clear")}, std::pair{Copy, Text(L"复制", L"Copy")},
         std::pair{Export, Text(L"导出", L"Export")},
         std::pair{About, Text(L"关于", L"About")}, std::pair{ProcessLabel, Text(L"进程", L"Process")},
-        std::pair{LevelLabel, Text(L"级别", L"Level")}, std::pair{SearchLabel, Text(L"消息", L"Message")},
+        std::pair{LevelLabel, Text(L"级别", L"Level")}, std::pair{CategoryLabel, Text(L"分类", L"Category")},
+        std::pair{SearchLabel, Text(L"消息", L"Message")},
         std::pair{DetailsSplitter, Text(L"调整详情区高度", L"Resize details pane")},
         std::pair{LanguageLabel, Text(L"语言", L"Language")},
         std::pair{Pause, paused ? Text(L"恢复滚动", L"Resume scroll") : Text(L"暂停滚动", L"Pause scroll")},
@@ -208,13 +213,24 @@ void MonitorWindow::Impl::ApplyLanguage() {
     };
     const std::array levels{LevelText(0), LevelText(1), LevelText(2), LevelText(3), LevelText(4), LevelText(5)};
     replace(Level, levels);
+    const std::array categories{
+        CategoryText(0),
+        CategoryText(std::to_underlying(log::Keyword::General)),
+        CategoryText(std::to_underlying(log::Keyword::Lifecycle)),
+        CategoryText(std::to_underlying(log::Keyword::Input)),
+        CategoryText(std::to_underlying(log::Keyword::Composition)),
+        CategoryText(std::to_underlying(log::Keyword::Dictionary)),
+        CategoryText(std::to_underlying(log::Keyword::Sync)),
+        CategoryText(std::to_underlying(log::Keyword::UI)),
+        CategoryText(std::to_underlying(log::Keyword::Config))};
+    replace(Category, categories);
     const auto& strings = GetUiStrings(ui_language);
     const std::array languages{strings.dlg_lang_auto, strings.dlg_lang_zh, strings.dlg_lang_en};
     replace(Language, languages);
     RefreshProcessChoices(true);
-    const std::array<const wchar_t*, 6> columns{
+    const std::array<const wchar_t*, 7> columns{
         Text(L"时间 (UTC)", L"Time (UTC)"), Text(L"进程", L"Process"), L"PID", L"TID",
-        Text(L"级别", L"Level"), Text(L"消息", L"Message")};
+        Text(L"级别", L"Level"), Text(L"分类 / 阶段", L"Category / Stage"), Text(L"消息", L"Message")};
     for (size_t i = 0; i < columns.size(); ++i) {
         std::wstring text(gsl::at(columns, i));
         LVCOLUMNW column{};
@@ -244,10 +260,10 @@ void MonitorWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) {
         } else {
             diagnostics.Record(2, L"Recreate DPI fonts", ::GetLastError());
         }
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < 7; ++i) {
             ListView_SetColumnWidth(Child(List), i, ::MulDiv(ListView_GetColumnWidth(Child(List), i), gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
         }
-        for (const auto id : {Process, Pid, Level, Language}) {
+        for (const auto id : {Process, Pid, Level, Category, Language}) {
             ::SendMessageW(Child(id), CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), theme.ScalePx(22));
             ::SendMessageW(Child(id), CB_SETITEMHEIGHT, 0, theme.ScalePx(22));
         }

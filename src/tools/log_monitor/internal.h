@@ -4,6 +4,7 @@
 #include "tools/log_monitor/collector.h"
 #include "common/d2d_controls.h"
 #include "common/i18n.h"
+#include "common/logger.h"
 
 #include <commctrl.h>
 
@@ -57,6 +58,34 @@ struct MonitorWindow::Impl {
         case 4: return Text(L"信息", L"Info");
         case 5: return Text(L"详细", L"Verbose");
         default: return Text(L"全部", L"All");
+        }
+    }
+
+    const wchar_t* CategoryText(uint64_t keyword) const noexcept {
+        switch (keyword) {
+        case std::to_underlying(log::Keyword::General):     return Text(L"通用", L"General");
+        case std::to_underlying(log::Keyword::Lifecycle):   return Text(L"生命周期", L"Lifecycle");
+        case std::to_underlying(log::Keyword::Input):       return Text(L"输入/FSM", L"Input");
+        case std::to_underlying(log::Keyword::Composition): return Text(L"组合/会话", L"Composition");
+        case std::to_underlying(log::Keyword::Dictionary):  return Text(L"词库", L"Dictionary");
+        case std::to_underlying(log::Keyword::Sync):        return Text(L"跨进程同步", L"Sync");
+        case std::to_underlying(log::Keyword::UI):          return Text(L"界面", L"UI");
+        case std::to_underlying(log::Keyword::Config):      return Text(L"配置", L"Config");
+        default:                                            return Text(L"全部", L"All");
+        }
+    }
+
+    static constexpr uint64_t CategoryMaskFromIndex(LRESULT index) noexcept {
+        switch (index) {
+        case 1: return std::to_underlying(log::Keyword::General);
+        case 2: return std::to_underlying(log::Keyword::Lifecycle);
+        case 3: return std::to_underlying(log::Keyword::Input);
+        case 4: return std::to_underlying(log::Keyword::Composition);
+        case 5: return std::to_underlying(log::Keyword::Dictionary);
+        case 6: return std::to_underlying(log::Keyword::Sync);
+        case 7: return std::to_underlying(log::Keyword::UI);
+        case 8: return std::to_underlying(log::Keyword::Config);
+        default: return 0;
         }
     }
 

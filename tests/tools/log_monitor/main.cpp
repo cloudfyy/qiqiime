@@ -292,12 +292,31 @@ void TestBuffersAndFilters() {
 
     Filter filter;
     auto event = MakeEvent(L"Case sensitive? no.\tline\nnext");
+    const GUID parent_act{0x12345678, 0x9abc, 0xdef0, {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}};
+    const GUID child_act{0x87654321, 0x9abc, 0xdef0, {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}};
+    event.keyword = std::to_underlying(log::Keyword::Composition);
+    event.opcode = std::to_underlying(log::Opcode::Start);
+    event.activity_id = child_act;
+    event.related_activity_id = parent_act;
+    QIQI_TEST_CHECK(FormatShortGuid(GUID_NULL).empty() && FormatGuid(GUID_NULL).empty());
+    QIQI_TEST_CHECK(FormatShortGuid(parent_act) == L"12345678");
+    QIQI_TEST_CHECK(FormatGuid(parent_act) == L"{12345678-9abc-def0-1122-334455667788}");
     QIQI_TEST_CHECK(filter.Matches(event));
     filter.process = L"CODE";
     filter.pid = 42;
     filter.level = 4;
+    filter.keyword = std::to_underlying(log::Keyword::Composition);
+    filter.activity_id = parent_act; // Matches via related_activity_id!
     filter.text = L"NEXT";
     QIQI_TEST_CHECK(filter.Matches(event));
+    filter.activity_id = child_act; // Matches via activity_id!
+    QIQI_TEST_CHECK(filter.Matches(event));
+    filter.activity_id = GUID_NULL;
+    QIQI_TEST_CHECK(!filter.Matches(event));
+    filter.activity_id.reset();
+    filter.keyword = std::to_underlying(log::Keyword::Sync);
+    QIQI_TEST_CHECK(!filter.Matches(event));
+    filter.keyword = 0;
     filter.pid = 43;
     QIQI_TEST_CHECK(!filter.Matches(event));
     filter.pid.reset();
@@ -307,14 +326,18 @@ void TestBuffersAndFilters() {
     QIQI_TEST_CHECK(ParsePid(L"0") == 0 && ParsePid(L"4294967295") == MAXDWORD);
     const auto exported = ExportEvents({event}, L"test");
     QIQI_TEST_CHECK(exported.contains(version::kFullVersion) && exported.contains(version::kArch));
-    QIQI_TEST_CHECK(exported.contains("\\tline\\nnext") && exported.contains("PID\tTID"));
+    QIQI_TEST_CHECK(exported.contains("\\tline\\nnext") &&
+                    exported.contains("PID\tTID\tLevel\tCategory\tOpcode\tActivityId\tRelatedActivityId") &&
+                    exported.contains("Composition\tStart\t{87654321-9abc-def0-1122-334455667788}\t{12345678-9abc-def0-1122-334455667788}"));
     QIQI_TEST_CHECK(FormatTime(event.time).ends_with(L"Z"));
     auto second_event = MakeEvent(std::wstring(L"multi\0nul", 9));
     second_event.level = 2;
     second_event.pid = 99;
     const auto formatted_clip = FormatEventsForClipboard(std::array{event, second_event});
-    QIQI_TEST_CHECK(formatted_clip.contains(L"PID=42\tTID=84\tInfo\tQiQiLogInfo\tCase sensitive? no.\tline\nnext\r\n"));
-    QIQI_TEST_CHECK(formatted_clip.contains(L"PID=99\tTID=84\tError\tQiQiLogInfo\tmulti\x2400nul"));
+    QIQI_TEST_CHECK(formatted_clip.contains(
+        L"PID=42\tTID=84\tInfo\tComposition\tStart\t{87654321-9abc-def0-1122-334455667788}\tQiQiLogInfo\tCase sensitive? no.\tline\nnext\r\n"));
+    QIQI_TEST_CHECK(formatted_clip.contains(
+        L"PID=99\tTID=84\tError\tGeneral\tInfo\t\tQiQiLogInfo\tmulti\x2400nul"));
     QIQI_TEST_CHECK(CopyTextToClipboard(nullptr, std::wstring_view(L"clip\0test", 9)) == ERROR_SUCCESS);
     QIQI_TEST_CHECK(ReadClipboardText() == L"clip\x2400test");
     std::vector<Event> full_buffer;
@@ -396,7 +419,7 @@ void TestWindowAndVersion() {
     const WORD doubled_dpi = gsl::narrow<WORD>(gsl::narrow_cast<uint64_t>(dpi) * 2);
     ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(doubled_dpi, doubled_dpi), reinterpret_cast<LPARAM>(&rect));
     QIQI_TEST_CHECK(ListView_GetColumnWidth(list, 0) == column_width * 2);
-    for (const auto id : {Process, Pid, Level, Language}) {
+    for (const auto id : {Process, Pid, Level, Category, Language}) {
         QIQI_TEST_CHECK(::SendMessageW(Child(window, id), CB_GETITEMHEIGHT, 0, 0) ==
                         ScalePxByDpi(22, doubled_dpi));
         const LRESULT edit_height = ::SendMessageW(Child(window, id), CB_GETITEMHEIGHT,
@@ -729,8 +752,13 @@ int Integration(const wchar_t* peer) {
     }
     const std::wstring session_name(collector.SessionName());
     const std::string marker = std::string("QiQi monitor exact UTF-8: \xe4\xbd\xa0\xe5\xa5\xbd\tline\nend") + std::string("\0tail\0", 6);
-    log::WriteLogMessage(log::Level::info, marker);
-    QIQI_LOG_DEBUG("monitor-verbose-with-default-info-level");
+    const GUID parent_act = log::CreateActivityId();
+    const GUID child_act = log::CreateActivityId();
+    log::WriteLogMessage(
+        log::Level::info,
+        marker,
+        log::LogContext{log::Keyword::Sync, log::Opcode::Start, &child_act, &parent_act});
+    QIQI_LOG_ACT_STOP(log::Level::debug, log::Keyword::Sync, &child_act, "monitor-verbose-with-default-info-level");
     diagnostics.Record(2, L"MONITOR_ONLY_SENTINEL", ERROR_INVALID_DATA);
     log::Shutdown();
     QIQI_TEST_CHECK(log::EnsureInitialized());
@@ -783,18 +811,28 @@ int Integration(const wchar_t* peer) {
                << L", now=" << FormatTime(MakeEvent().time) << std::endl;
     QIQI_TEST_CHECK(own->pid == ::GetCurrentProcessId() && own->tid == ::GetCurrentThreadId());
     QIQI_TEST_CHECK(own->level == 4 && !own->process.empty());
+    QIQI_TEST_CHECK(own->keyword == std::to_underlying(log::Keyword::Sync));
+    QIQI_TEST_CHECK(own->opcode == std::to_underlying(log::Opcode::Start));
+    QIQI_TEST_CHECK(own->activity_id == child_act && own->related_activity_id == parent_act);
     QIQI_TEST_CHECK(own->name == L"QiQiLogInfo");
     QIQI_TEST_CHECK(own->time <= MakeEvent().time && MakeEvent().time - own->time < 60ULL * 10'000'000);
-    QIQI_TEST_CHECK(std::any_of(received.begin(), received.end(), [](const Event& event) {
+    QIQI_TEST_CHECK(std::any_of(received.begin(), received.end(), [&](const Event& event) {
         return event.message == L"monitor-verbose-with-default-info-level" && event.level == 5 &&
+               event.keyword == std::to_underlying(log::Keyword::Sync) &&
+               event.opcode == std::to_underlying(log::Opcode::Stop) &&
+               event.activity_id == child_act && event.related_activity_id == GUID_NULL &&
                event.name == L"QiQiLogVerbose";
     }));
     QIQI_TEST_CHECK(std::any_of(received.begin(), received.end(), [&](const Event& event) {
-        return event.pid == process.dwProcessId && event.message == L"child-emitter";
+        return event.pid == process.dwProcessId && event.message == L"child-emitter" &&
+               event.keyword == std::to_underlying(log::Keyword::General) &&
+               event.opcode == std::to_underlying(log::Opcode::Info) &&
+               event.activity_id == GUID_NULL;
     }));
     QIQI_TEST_CHECK(std::any_of(received.begin(), received.end(), [&](const Event& event) {
         return event.pid == process.dwProcessId && event.message == L"child-debug-default-info" &&
-               event.level == 5 && event.name == L"QiQiLogVerbose";
+               event.level == 5 && event.keyword == std::to_underlying(log::Keyword::Lifecycle) &&
+               event.name == L"QiQiLogVerbose";
     }));
     QIQI_TEST_CHECK(std::none_of(received.begin(), received.end(), [](const Event& event) {
         return event.message.contains(L"MONITOR_ONLY_SENTINEL");
@@ -863,6 +901,12 @@ int Integration(const wchar_t* peer) {
         QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == L"All");
         SelectPid(window, second_child.dwProcessId);
         QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 2);
+        ::SendMessageW(Child(window, Category), CB_SETCURSEL, 2, 0); // Lifecycle
+        ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Category), CBN_SELCHANGE), 0);
+        QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
+        ::SendMessageW(Child(window, Category), CB_SETCURSEL, 0, 0); // All
+        ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Category), CBN_SELCHANGE), 0);
+        QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 2);
         ::SetWindowTextW(Child(window, Search), L"child-debug");
         QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
         QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) == 3);
@@ -912,7 +956,7 @@ int wmain(int argc, wchar_t* argv[]) {
     }
     if (args.size() >= 2 && std::wstring_view(gsl::at(args, 1)) == L"--emit") {
         qiqi::log::InitLogger(qiqi::log::Level::info);
-        QIQI_LOG_DEBUG("child-debug-default-info");
+        QIQI_LOG_CAT_DEBUG(qiqi::log::Keyword::Lifecycle, "child-debug-default-info");
         qiqi::log::WriteLogMessage(qiqi::log::Level::info, "child-emitter");
         qiqi::log::Shutdown();
         return 0;

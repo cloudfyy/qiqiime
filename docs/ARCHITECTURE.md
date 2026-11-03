@@ -173,7 +173,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 
 以下待办由代码阅读发现的问题及待验证风险整理，未勾选项尚未实施；静态风险不等于真实宿主中已经复现的故障。保存于本架构文档，供后续会话继续执行。与下方任务 41 协调 UI 清理方案，不重复实现，也不在存在过期回调时仅提前销毁窗口。
 
-**进度说明：任务 39 的公共同步层及任务 41–46、48–58 的对应代码或工具工作已完成；下一步按 40 → 38 推进，任务 36 暂缓。历史验证记录不等于所有真实宿主已验收。任务 47 已记录 2026-11-03 阶段性人工反馈，逐用例次数、宿主条件及部分分支仍未补齐，保留未完成状态。现有禁用标志检查也不等同于完整密码框识别。**
+**进度说明：任务 39 的公共同步层及任务 41–46、48–59 的对应代码或工具工作已完成；下一步按 40 → 38 推进，任务 36 暂缓。历史验证记录不等于所有真实宿主已验收。任务 47 已记录 2026-11-03 阶段性人工反馈，逐用例次数、宿主条件及部分分支仍未补齐，保留未完成状态。现有禁用标志检查也不等同于完整密码框识别。**
 
 **首要执行：全仓库失败诊断**
 
@@ -314,6 +314,11 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
     1. 收到外部 `OnChange` 时避免在通知回调内对同一 Compartment 重复回写相同值，消除 `0x8000ffff` 警告。
     2. 核实并修复 TSF 下中英文切换与 `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` / `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION` 及 `Shift` 按键监听的协同关系，确保在中文与英文模式下按 `Shift` 或 `Ctrl+Space` 均可双向稳定切换且任务栏状态同步。
   - 验证结果：双架构构建及回归测试通过；2026-11-03 用户确认任务 58 已正常，按上述目标完成验收。
+- [x] **59. ETW 结构化分类（Keywords）、操作阶段（Opcode）与异步活动关联（ActivityId）（`etw-keywords-opcode-activity-correlation`）**
+  - 在 [`logger.h`](../src/common/logger.h) / [`logger.cpp`](../src/common/logger.cpp) 中定义非零 `Keyword` 位掩码（`General`、`Lifecycle`、`Input`、`Composition`、`Dictionary`、`Sync`、`UI`、`Config`）、`Opcode`（`Info`、`Start`、`Stop`）、`LogContext` 与 `CreateActivityId()`。
+  - 使用 `TraceLoggingWriteActivity` 显式写入 `ActivityId` 与可选 `RelatedActivityId`；无活动事件显式写入 `GUID_NULL`，不修改或拾取宿主线程隐式 TLS `ActivityId`。`ShouldLog` 按 `(Level, Keyword)` 短路过滤。
+  - 为 TSF 组合清理（`CompositionCleanup`）、编辑会话（`RequestEditSession` / `LambdaEditSession`）、服务激活/停用/焦点切换、跨进程同步（`change_sync::Channel`）与词库加载接入分类、起止阶段及跨异步回调保持的 `ActivityId` / `RelatedActivityId`。
+  - 升级 `QiQiIMELogMonitor` 解码 `Keyword`、`Opcode`、`ActivityId` 与扩展头中的 `RelatedActivityId`，支持按分类与活动关联筛选、显示、复制及导出；x64/x86 单元测试与真实无调试器 ETW 集成测试验证通过。
 - [ ] **47. 真实宿主生命周期验证（`tsf-real-host-lifecycle-tests`）**
   - 执行步骤、矩阵及通过标准见[任务 47 测试文档](TSF_REAL_HOST_TESTS.md)；第 8 节已记录 2026-11-03 人工反馈，尚缺逐用例次数、完整环境/日志及部分分支的验收证据，不据此自动勾选完成。
   - 在 VS Code 与浏览器中验证组合期间失焦、停用、重新激活后的组合文本、下划线及候选窗口清理。

@@ -187,7 +187,7 @@ cmake --build build\x64 --config Release --target lint
 - **初始化与生命周期**：正常入口调用 `EnsureInitialized`，幂等注册且不改变日志级别；`InitLogger` 额外设置级别。注册成功后才发布状态，查询及写日志不隐式注册；同进程 IME 实例共享，同名 Provider 在不同进程独立。`Deactivate` 不注销，模块清理在调用者结束后注销，不在 `DllMain` 注册、格式化日志或获取初始化锁。
 - **焦点性能埋点**：任务 50 使用 `std::chrono::steady_clock` 记录纳秒耗时，仅在详细级别且有接收方时计时；按进程内递增编号关联焦点处理与重载详情，保留原检查/重载顺序。字段和真实宿主复现步骤见[焦点处理耗时](LOGGING.md#61-焦点处理耗时任务-50)，不能将状态相同或测试进程耗时当成可合并通知、需要后台化的依据。
 - **日志提供程序**：Windows ETW TraceLogging 提供程序 `QiQiIME.TraceLogging`；仅在调试器附加时额外输出到 `OutputDebugString`，不会写入 `%LOCALAPPDATA%\QiQiIME\logs\qiqiime.log`。
-- **日志字段**：结构化事件包含级别、宿主进程名、进程 ID、线程 ID 和消息。
+- **日志字段与 ETW 元数据**：结构化事件包含级别（`Level`）、非零分类掩码（`Keyword`：`General`、`Lifecycle`、`Input`、`Composition`、`Dictionary`、`Sync`、`UI`、`Config`）、操作阶段（`Opcode`：`Info`、`Start`、`Stop`）、显式活动关联（`ActivityId` 与可选 `RelatedActivityId`）、宿主进程名、进程 ID、线程 ID 和消息。无活动事件显式写入 `GUID_NULL`，不修改或拾取宿主线程隐式 TLS `ActivityId`。`ShouldLog(Level, Keyword)` 在格式化前按会话级别与分类掩码短路。
 - **隐私与异常安全**：所有 `QIQI_LOG_*` 宏均内建 `try/catch` 异常隔离（可在 `noexcept` 函数中安全调用），且严禁在日志中记录用户的私密上屏文字内容。
 - **失败诊断**：保存实际返回值，记录操作名与错误码。COM 可复用 `log::CheckHResult`，输出 `hr=0x{:08x}`，只将失败 HRESULT 记为失败，`S_FALSE` 与 `TF_S_ASYNC` 不误报；该帮助函数保留调用线程的 `GetLastError`。
 - **Win32 与注册表**：仅在 API 文档约定支持 `GetLastError` 时，于失败后立即捕获；注册表及 ACL API 使用其直接返回的错误码。读写成功但字节数不足时记录实际字节数和 `ERROR_SUCCESS`，不能输出陈旧的线程错误。`SetWindowSubclass`、部分 GDI 操作及输入校验失败只记录操作和条件，不编造错误码。

@@ -121,6 +121,10 @@ void FinishHost(const HostProcess& host) {
 struct LogRecord {
     DWORD pid;
     UCHAR level;
+    UCHAR opcode;
+    uint64_t keyword;
+    GUID activity_id;
+    GUID related_activity_id;
     std::string message;
 };
 
@@ -153,9 +157,28 @@ void WINAPI CollectEvent(EVENT_RECORD* event) {
         collector.error = error;
         return;
     }
+    GUID related_id = GUID_NULL;
+    if (event->ExtendedData != nullptr && event->ExtendedDataCount > 0) {
+        const std::span<const EVENT_HEADER_EXTENDED_DATA_ITEM> ext_items(
+            event->ExtendedData, event->ExtendedDataCount);
+        for (const auto& item : ext_items) {
+            if (item.ExtType == EVENT_HEADER_EXT_TYPE_RELATED_ACTIVITYID &&
+                item.DataSize == sizeof(EVENT_EXTENDED_ITEM_RELATED_ACTIVITYID) &&
+                item.DataPtr != 0) {
+                const auto* rel = reinterpret_cast<const EVENT_EXTENDED_ITEM_RELATED_ACTIVITYID*>(item.DataPtr);
+                related_id = rel->RelatedActivityId;
+            }
+        }
+    }
     QIQI_TEST_CHECK(event->EventHeader.TimeStamp.QuadPart > 0);
-    collector.records.push_back({event->EventHeader.ProcessId, event->EventHeader.EventDescriptor.Level,
-                                 std::string(bytes.begin(), bytes.end())});
+    collector.records.push_back({
+        event->EventHeader.ProcessId,
+        event->EventHeader.EventDescriptor.Level,
+        event->EventHeader.EventDescriptor.Opcode,
+        event->EventHeader.EventDescriptor.Keyword,
+        event->EventHeader.ActivityId,
+        related_id,
+        std::string(bytes.begin(), bytes.end())});
 }
 
 void ExerciseLoadedIme(QiQiConfig& config, bool multiple_instances) {
@@ -188,6 +211,18 @@ void ExerciseLoadedIme(QiQiConfig& config, bool multiple_instances) {
         QIQI_TEST_CHECK(first->Activate(first_manager.Get(), 1) == S_OK);
         QIQI_TEST_CHECK(first_keys->OnSetFocus(TRUE) == S_OK);
         QIQI_TEST_CHECK(second->Deactivate() == S_OK);
+    } else {
+        std::array<BYTE, 256> clean_kb{};
+        QIQI_TEST_CHECK(::SetKeyboardState(clean_kb.data()));
+        auto queue = std::make_shared<MockEditSessionQueue>();
+        auto context = MakeComObject<MockTfContext>(queue);
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(first_keys->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1 && queue->RunNext() == S_OK);
+        context->allow_sync_edit_sessions_ = false;
+        QIQI_TEST_CHECK(first->Deactivate() == S_OK);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1 && queue->RunNext() == S_OK);
+        return;
     }
     QIQI_TEST_CHECK(first->Deactivate() == S_OK);
 }
@@ -324,15 +359,59 @@ int RunTsfEtwIntegrationTests() {
         bool after_instance_deactivation = false;
         bool after_reactivation = false;
         bool after_module_reload = false;
+        GUID last_deactivate_activity = GUID_NULL;
+        GUID cleanup_activity = GUID_NULL;
+        GUID cleanup_related = GUID_NULL;
+        bool saw_cleanup_start = false;
+        bool saw_cleanup_async = false;
+        bool saw_cleanup_stop = false;
         for (const auto& record : collector.records) {
-            if (record.pid != pid || !record.message.contains("FocusPerformance(")) continue;
+            if (record.pid != pid) continue;
+            QIQI_TEST_CHECK(record.keyword != 0);
+            if (record.message.contains("QiQiTextService::ActivateEx(")) {
+                QIQI_TEST_CHECK(record.keyword == std::to_underlying(log::Keyword::Lifecycle));
+                QIQI_TEST_CHECK(record.opcode == std::to_underlying(log::Opcode::Start));
+                QIQI_TEST_CHECK(record.activity_id != GUID_NULL);
+            }
+            if (record.message.contains("stage=deactivate-begin")) {
+                QIQI_TEST_CHECK(record.keyword == std::to_underlying(log::Keyword::Lifecycle));
+                QIQI_TEST_CHECK(record.opcode == std::to_underlying(log::Opcode::Start));
+                QIQI_TEST_CHECK(record.activity_id != GUID_NULL);
+                last_deactivate_activity = record.activity_id;
+            }
+            if (record.message.contains("TsfCleanup(") && record.message.contains("stage=created")) {
+                QIQI_TEST_CHECK(record.keyword == std::to_underlying(log::Keyword::Composition));
+                QIQI_TEST_CHECK(record.opcode == std::to_underlying(log::Opcode::Start));
+                QIQI_TEST_CHECK(record.activity_id != GUID_NULL);
+                QIQI_TEST_CHECK(record.related_activity_id == last_deactivate_activity);
+                cleanup_activity = record.activity_id;
+                cleanup_related = record.related_activity_id;
+                saw_cleanup_start = true;
+            }
+            if (record.message.contains("TsfCleanup(") && record.message.contains("stage=async-result, request_hr=0x00000000, session_hr=0x00040300, queued=true")) {
+                QIQI_TEST_CHECK(record.keyword == std::to_underlying(log::Keyword::Composition));
+                QIQI_TEST_CHECK(record.opcode == std::to_underlying(log::Opcode::Info));
+                QIQI_TEST_CHECK(record.activity_id == cleanup_activity);
+                saw_cleanup_async = true;
+            }
+            if (record.message.contains("TsfCleanup(") && record.message.contains("stage=callback-exit")) {
+                QIQI_TEST_CHECK(record.keyword == std::to_underlying(log::Keyword::Composition));
+                QIQI_TEST_CHECK(record.opcode == std::to_underlying(log::Opcode::Stop));
+                QIQI_TEST_CHECK(record.activity_id == cleanup_activity);
+                saw_cleanup_stop = true;
+            }
+            if (!record.message.contains("FocusPerformance(")) continue;
             QIQI_TEST_CHECK(record.level == TRACE_LEVEL_VERBOSE);
+            QIQI_TEST_CHECK(record.keyword == std::to_underlying(log::Keyword::Lifecycle));
+            QIQI_TEST_CHECK(record.opcode == std::to_underlying(log::Opcode::Stop));
+            QIQI_TEST_CHECK(record.activity_id != GUID_NULL);
             ++focus_count;
             after_instance_deactivation |= record.message.contains("id=2,");
             after_reactivation |= record.message.contains("id=3,");
             after_module_reload |= focus_count == 4 && record.message.contains("id=1,");
         }
         QIQI_TEST_CHECK(focus_count == 4 && after_instance_deactivation && after_reactivation && after_module_reload);
+        QIQI_TEST_CHECK(saw_cleanup_start && saw_cleanup_async && saw_cleanup_stop && cleanup_related != GUID_NULL);
     }
     std::cout << "[PASS] ETW captured real IME DLL events without a debugger from PIDs "
               << late.pid << " and " << early.pid << "; late enable, instance/module lifetime and Off verified.\n";

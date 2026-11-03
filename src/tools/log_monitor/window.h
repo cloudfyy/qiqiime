@@ -8,7 +8,8 @@ namespace qiqi::monitor {
 inline constexpr std::wstring_view kWindowClass = L"QiQiIMELogMonitorWindow";
 enum class ControlId { Start = 100, Pause, Clear, Export, Source, About, Process, Pid, Level, Search,
                  List, Details, Status, ProcessLabel, PidLabel, LevelLabel, SearchLabel,
-                 DetailsSplitter, LanguageLabel = 119, Language, Copy };
+                 DetailsSplitter, LanguageLabel = 119, Language, Copy,
+                 CategoryLabel = 124, Category = 125 };
 
 class MonitorWindow final {
 public:
