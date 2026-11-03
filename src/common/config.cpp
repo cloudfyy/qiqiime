@@ -301,7 +301,7 @@ bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexc
     try {
         ScopedKernelTransaction txn;
         if (!txn) {
-            QIQI_LOG_ERROR("Failed to create registry transaction (error={})", ::GetLastError());
+            QIQI_LOG_ERROR("Failed to create registry transaction (error={})", txn.Error());
             return false;
         }
         ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE, txn.Get());
@@ -327,8 +327,7 @@ bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexc
         }
         key.Reset();
         if (!txn.Commit()) {
-            const DWORD error = ::GetLastError();
-            QIQI_LOG_ERROR("SaveConfigToRegistry::CommitTransaction failed (error={})", error);
+            QIQI_LOG_ERROR("SaveConfigToRegistry::CommitTransaction failed (error={})", txn.Error());
             return false;
         }
         return true;
@@ -431,8 +430,7 @@ bool SaveUserDictBinaryToRegistry(
         }
         ScopedKernelTransaction txn;
         if (!txn) {
-            const DWORD error = ::GetLastError();
-            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry::CreateTransaction failed (error={})", error);
+            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry::CreateTransaction failed (error={})", txn.Error());
             return false;
         }
         ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE, txn.Get());
@@ -455,8 +453,7 @@ bool SaveUserDictBinaryToRegistry(
         }
         key.Reset();
         if (!txn.Commit()) {
-            const DWORD commit_error = ::GetLastError();
-            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry::CommitTransaction failed (error={})", commit_error);
+            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry::CommitTransaction failed (error={})", txn.Error());
             return false;
         }
         return true;

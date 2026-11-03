@@ -6,6 +6,22 @@
 
 namespace qiqi {
 
+// Preserves the calling thread's Win32 GetLastError() across RAII teardown / Close / Release calls
+// (modeled after wil::last_error_context).
+class ScopedLastErrorRestore final {
+public:
+    ScopedLastErrorRestore() noexcept : error_(::GetLastError()) {}
+    ~ScopedLastErrorRestore() noexcept { ::SetLastError(error_); }
+
+    ScopedLastErrorRestore(const ScopedLastErrorRestore&) = delete;
+    ScopedLastErrorRestore& operator=(const ScopedLastErrorRestore&) = delete;
+    ScopedLastErrorRestore(ScopedLastErrorRestore&&) = delete;
+    ScopedLastErrorRestore& operator=(ScopedLastErrorRestore&&) = delete;
+
+private:
+    DWORD error_;
+};
+
 // Generic zero-overhead move-only RAII wrapper parameterized by a Traits policy.
 template <typename Traits>
 class ScopedHandle final {
@@ -32,6 +48,7 @@ public:
 
     void Reset(HandleType new_handle = Traits::Invalid()) noexcept {
         if (Traits::IsValid(handle_)) {
+            const ScopedLastErrorRestore preserve_error;
             Traits::Close(handle_);
         }
         handle_ = new_handle;
@@ -112,10 +129,18 @@ public:
 
     template <typename... Args>
     explicit ScopedContextGuard(ContextType ctx = ContextType{}, Args&&... args) noexcept
-        : ctx_(ctx), res_(Traits::Acquire(ctx, std::forward<Args>(args)...)) {}
+        : ctx_(ctx) {
+        if constexpr (requires { Traits::Acquire(ctx, error_, std::forward<Args>(args)...); }) {
+            res_ = Traits::Acquire(ctx, error_, std::forward<Args>(args)...);
+        } else {
+            res_ = Traits::Acquire(ctx, std::forward<Args>(args)...);
+            error_ = Traits::IsValid(res_) ? ERROR_SUCCESS : ::GetLastError();
+        }
+    }
 
     ~ScopedContextGuard() noexcept {
         if (Traits::IsValid(res_)) {
+            const ScopedLastErrorRestore preserve_error;
             Traits::Release(ctx_, res_);
         }
     }
@@ -126,6 +151,7 @@ public:
     ScopedContextGuard& operator=(ScopedContextGuard&&) = delete;
 
     ResourceType Get() const noexcept { return res_; }
+    DWORD Error() const noexcept { return error_; }
     bool IsValid() const noexcept { return Traits::IsValid(res_); }
     bool IsOpen() const noexcept { return IsValid(); }
     explicit operator bool() const noexcept { return IsValid(); }
@@ -133,6 +159,7 @@ public:
 private:
     ContextType ctx_{};
     ResourceType res_ = Traits::Invalid();
+    DWORD error_ = ERROR_SUCCESS;
 };
 
 struct ClipboardGuardTraits {
@@ -140,7 +167,15 @@ struct ClipboardGuardTraits {
     using ResourceType = bool;
     static constexpr bool Invalid() noexcept { return false; }
     static constexpr bool IsValid(bool opened) noexcept { return opened; }
-    static bool Acquire(HWND owner) noexcept { return ::OpenClipboard(owner) != FALSE; }
+    static bool Acquire(HWND owner, DWORD& out_error) noexcept {
+        if (::OpenClipboard(owner) != FALSE) {
+            out_error = ERROR_SUCCESS;
+            return true;
+        }
+        const DWORD err = ::GetLastError();
+        out_error = (err != ERROR_SUCCESS) ? err : ERROR_ACCESS_DENIED;
+        return false;
+    }
     static void Release(HWND /*owner*/, bool /*opened*/) noexcept { ::CloseClipboard(); }
 };
 
@@ -150,8 +185,19 @@ struct GlobalLockGuardTraits {
     using ResourceType = const T*;
     static constexpr const T* Invalid() noexcept { return nullptr; }
     static constexpr bool IsValid(const T* ptr) noexcept { return ptr != nullptr; }
-    static const T* Acquire(HGLOBAL hmem) noexcept {
-        return hmem ? static_cast<const T*>(::GlobalLock(hmem)) : nullptr;
+    static const T* Acquire(HGLOBAL hmem, DWORD& out_error) noexcept {
+        if (!hmem) {
+            out_error = ERROR_INVALID_HANDLE;
+            return nullptr;
+        }
+        const auto* ptr = static_cast<const T*>(::GlobalLock(hmem));
+        if (ptr) {
+            out_error = ERROR_SUCCESS;
+            return ptr;
+        }
+        const DWORD err = ::GetLastError();
+        out_error = (err != ERROR_SUCCESS) ? err : ERROR_LOCK_FAILED;
+        return nullptr;
     }
     static void Release(HGLOBAL hmem, const T* /*ptr*/) noexcept { ::GlobalUnlock(hmem); }
 };
@@ -166,9 +212,15 @@ using ScopedGlobalLock = ScopedContextGuard<GlobalLockGuardTraits<T>>;
 class ScopedKernelTransaction final {
 public:
     ScopedKernelTransaction() noexcept
-        : handle_(::CreateTransaction(nullptr, nullptr, 0, 0, 0, 0, nullptr)) {}
+        : handle_(::CreateTransaction(nullptr, nullptr, 0, 0, 0, 0, nullptr)) {
+        if (!IsValid()) {
+            const DWORD err = ::GetLastError();
+            error_ = (err != ERROR_SUCCESS) ? err : ERROR_GEN_FAILURE;
+        }
+    }
 
-    explicit ScopedKernelTransaction(HANDLE h) noexcept : handle_(h) {}
+    explicit ScopedKernelTransaction(HANDLE h) noexcept
+        : handle_(h), error_(IsValid() ? ERROR_SUCCESS : ERROR_INVALID_HANDLE) {}
 
     ~ScopedKernelTransaction() noexcept {
         Reset();
@@ -179,30 +231,37 @@ public:
 
     ScopedKernelTransaction(ScopedKernelTransaction&& other) noexcept
         : handle_(std::exchange(other.handle_, INVALID_HANDLE_VALUE)),
-          committed_(std::exchange(other.committed_, false)) {}
+          committed_(std::exchange(other.committed_, false)),
+          error_(std::exchange(other.error_, ERROR_INVALID_HANDLE)) {}
 
     ScopedKernelTransaction& operator=(ScopedKernelTransaction&& other) noexcept {
         if (this != &other) {
             Reset();
             handle_ = std::exchange(other.handle_, INVALID_HANDLE_VALUE);
             committed_ = std::exchange(other.committed_, false);
+            error_ = std::exchange(other.error_, ERROR_INVALID_HANDLE);
         }
         return *this;
     }
 
     bool Commit() noexcept {
         if (!IsValid() || committed_) {
+            error_ = ERROR_INVALID_STATE;
             return false;
         }
         if (::CommitTransaction(handle_) == FALSE) {
+            const DWORD err = ::GetLastError();
+            error_ = (err != ERROR_SUCCESS) ? err : ERROR_GEN_FAILURE;
             return false;
         }
+        error_ = ERROR_SUCCESS;
         committed_ = true;
         return true;
     }
 
     void Reset() noexcept {
         if (IsValid()) {
+            const ScopedLastErrorRestore preserve_error;
             if (!committed_) {
                 ::RollbackTransaction(handle_);
             }
@@ -213,6 +272,7 @@ public:
     }
 
     HANDLE Get() const noexcept { return handle_; }
+    DWORD Error() const noexcept { return error_; }
     bool IsValid() const noexcept { return handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr; }
     bool IsCommitted() const noexcept { return committed_; }
     explicit operator bool() const noexcept { return IsValid(); }
@@ -220,6 +280,7 @@ public:
 private:
     HANDLE handle_ = INVALID_HANDLE_VALUE;
     bool committed_ = false;
+    DWORD error_ = ERROR_SUCCESS;
 };
 
 } // namespace qiqi

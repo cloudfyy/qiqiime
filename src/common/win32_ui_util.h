@@ -108,8 +108,7 @@ inline ULONG CopyTextToClipboard(HWND owner, std::wstring_view text) noexcept {
     }
     const ScopedClipboard clip(owner);
     if (!clip) {
-        const DWORD error = ::GetLastError();
-        return error ? error : ERROR_ACCESS_DENIED;
+        return clip.Error();
     }
     if (!::EmptyClipboard()) {
         const DWORD error = ::GetLastError();

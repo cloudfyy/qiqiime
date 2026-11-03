@@ -467,16 +467,20 @@ void TestScopedHandleTemplate() {
 
         const ScopedKernelTransaction invalid_txn(INVALID_HANDLE_VALUE);
         QIQI_TEST_CHECK(!invalid_txn && !invalid_txn.IsValid() && !invalid_txn.IsCommitted());
+        QIQI_TEST_CHECK(invalid_txn.Error() == ERROR_INVALID_HANDLE);
 
-        // 1) Uncommitted ScopedKernelTransaction automatically rolls back on scope exit
+        // 1) Uncommitted ScopedKernelTransaction automatically rolls back on scope exit and preserves GetLastError()
+        ::SetLastError(ERROR_FILE_NOT_FOUND);
         {
             ScopedKernelTransaction txn;
-            QIQI_TEST_CHECK(txn.IsValid() && !txn.IsCommitted());
+            QIQI_TEST_CHECK(txn.IsValid() && !txn.IsCommitted() && txn.Error() == ERROR_SUCCESS);
             ScopedKernelTransaction moved_txn(std::move(txn));
-            QIQI_TEST_CHECK(!txn.IsValid() && moved_txn.IsValid());
+            QIQI_TEST_CHECK(!txn.IsValid() && txn.Error() == ERROR_INVALID_HANDLE &&
+                            moved_txn.IsValid() && moved_txn.Error() == ERROR_SUCCESS);
             ScopedKernelTransaction assigned_txn(INVALID_HANDLE_VALUE);
             assigned_txn = std::move(moved_txn);
-            QIQI_TEST_CHECK(!moved_txn.IsValid() && assigned_txn.IsValid());
+            QIQI_TEST_CHECK(!moved_txn.IsValid() && moved_txn.Error() == ERROR_INVALID_HANDLE &&
+                            assigned_txn.IsValid() && assigned_txn.Error() == ERROR_SUCCESS);
 
             ScopedRegKey key;
             DWORD disp = 0;
@@ -500,7 +504,9 @@ void TestScopedHandleTemplate() {
                                 REG_DWORD,
                                 reinterpret_cast<const BYTE*>(&val),
                                 sizeof(val)) == ERROR_SUCCESS);
+            ::SetLastError(ERROR_SHARING_VIOLATION);
         }
+        QIQI_TEST_CHECK(::GetLastError() == ERROR_SHARING_VIOLATION);
         ScopedRegKey verify_rolled_back;
         QIQI_TEST_CHECK(::RegOpenKeyExW(
                             HKEY_CURRENT_USER, kTxnTestSubKey, 0, KEY_READ, verify_rolled_back.Put()) !=
@@ -533,8 +539,8 @@ void TestScopedHandleTemplate() {
                                 reinterpret_cast<const BYTE*>(&val),
                                 sizeof(val)) == ERROR_SUCCESS);
             key.Reset();
-            QIQI_TEST_CHECK(txn.Commit() && txn.IsCommitted());
-            QIQI_TEST_CHECK(!txn.Commit());
+            QIQI_TEST_CHECK(txn.Commit() && txn.IsCommitted() && txn.Error() == ERROR_SUCCESS);
+            QIQI_TEST_CHECK(!txn.Commit() && txn.Error() == ERROR_INVALID_STATE);
         }
         ScopedRegKey verify_committed;
         QIQI_TEST_CHECK(::RegOpenKeyExW(
@@ -542,9 +548,10 @@ void TestScopedHandleTemplate() {
                         ERROR_SUCCESS);
     }
 
-    // Test ScopedGlobalLock<wchar_t>, ScopedClipboard, MakeInt4Variant, and CopyToBstr
+    // Test ScopedGlobalLock<wchar_t>, ScopedClipboard, ScopedLastErrorRestore, MakeInt4Variant, and CopyToBstr
+    ::SetLastError(ERROR_SUCCESS);
     const ScopedGlobalLock<wchar_t> null_lock(nullptr);
-    QIQI_TEST_CHECK(!null_lock && null_lock.Get() == nullptr);
+    QIQI_TEST_CHECK(!null_lock && null_lock.Get() == nullptr && null_lock.Error() == ERROR_INVALID_HANDLE);
 
     const HGLOBAL hmem = ::GlobalAlloc(GMEM_MOVEABLE, 16 * sizeof(wchar_t));
     QIQI_TEST_CHECK(hmem != nullptr);
@@ -554,15 +561,23 @@ void TestScopedHandleTemplate() {
     }
     {
         const ScopedGlobalLock<wchar_t> lock(hmem);
-        QIQI_TEST_CHECK(lock && std::wstring(lock.Get()) == L"奇奇五笔");
+        QIQI_TEST_CHECK(lock && lock.Error() == ERROR_SUCCESS && std::wstring(lock.Get()) == L"奇奇五笔");
+        ::SetLastError(ERROR_ALREADY_EXISTS);
     }
+    QIQI_TEST_CHECK(::GetLastError() == ERROR_ALREADY_EXISTS);
     ::GlobalFree(hmem);
 
     {
         const ScopedClipboard clip{};
-        std::ignore = clip.IsOpen();
+        if (clip.IsOpen()) {
+            QIQI_TEST_CHECK(clip.Error() == ERROR_SUCCESS);
+        } else {
+            QIQI_TEST_CHECK(clip.Error() != ERROR_SUCCESS);
+        }
         std::ignore = static_cast<bool>(clip);
+        ::SetLastError(ERROR_PATH_NOT_FOUND);
     }
+    QIQI_TEST_CHECK(::GetLastError() == ERROR_PATH_NOT_FOUND);
 
     const VARIANT v42 = MakeInt4Variant(42);
     QIQI_TEST_CHECK(v42.vt == VT_I4 && v42.lVal == 42);

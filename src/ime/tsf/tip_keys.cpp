@@ -277,12 +277,14 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
                         QIQI_LOG_DEBUG("Clipboard phrase skipped (length={} outside [2..16] or encoding failed)",
                                        phrase.size());
                     }
+                } else {
+                    QIQI_LOG_WARN("OnPreservedKey(AddUserWord): GlobalLock failed (error={})", locked.Error());
                 }
             } else {
                 QIQI_LOG_DEBUG("OnPreservedKey(AddUserWord): clipboard does not contain CF_UNICODETEXT");
             }
         } else {
-            QIQI_LOG_WARN("OnPreservedKey(AddUserWord): OpenClipboard failed (error={})", ::GetLastError());
+            QIQI_LOG_WARN("OnPreservedKey(AddUserWord): OpenClipboard failed (error={})", clip.Error());
         }
         return S_OK;
     }
