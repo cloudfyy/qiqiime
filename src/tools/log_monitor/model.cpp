@@ -89,6 +89,27 @@ const Event* EventBuffer::Find(uint64_t id) const noexcept {
     return &gsl::at(events_, gsl::narrow_cast<size_t>(id - events_.front().id));
 }
 
+ProcessChoices CollectProcessChoices(const EventBuffer& buffer, std::wstring_view process) {
+    ProcessChoices choices;
+    choices.names.reserve(buffer.Events().size());
+    choices.pids.reserve(buffer.Events().size());
+    for (const auto& event : buffer.Events()) {
+        if (!event.process.empty()) choices.names.push_back(event.process);
+        if (Contains(event.process, process)) choices.pids.push_back(event.pid);
+    }
+    std::sort(choices.names.begin(), choices.names.end(), [](const auto& left, const auto& right) {
+        return std::lexicographical_compare(left.begin(), left.end(), right.begin(), right.end(),
+            [](wchar_t a, wchar_t b) { return std::towlower(a) < std::towlower(b); });
+    });
+    const auto duplicates = std::unique(choices.names.begin(), choices.names.end(), [](const auto& left, const auto& right) {
+        return left.size() == right.size() && Contains(left, right);
+    });
+    choices.names.erase(duplicates, choices.names.end());
+    std::sort(choices.pids.begin(), choices.pids.end());
+    choices.pids.erase(std::unique(choices.pids.begin(), choices.pids.end()), choices.pids.end());
+    return choices;
+}
+
 void EventQueue::Push(Event event) {
     const std::lock_guard lock(mutex_);
     buffer_.Push(std::move(event));

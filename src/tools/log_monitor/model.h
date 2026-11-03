@@ -69,6 +69,12 @@ private:
     EventBuffer buffer_;
 };
 
+struct ProcessChoices {
+    std::vector<std::wstring> names;
+    std::vector<DWORD> pids;
+};
+
+ProcessChoices CollectProcessChoices(const EventBuffer& buffer, std::wstring_view process);
 std::optional<DWORD> ParsePid(const std::wstring& text) noexcept;
 std::wstring LevelName(UCHAR level);
 std::wstring FormatTime(uint64_t time);

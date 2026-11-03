@@ -32,6 +32,20 @@ void Click(const MonitorWindow& window, ControlId id) noexcept {
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(id), BN_CLICKED), 0);
 }
 
+void SetProcessFilter(const MonitorWindow& window, const wchar_t* name) {
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, Process), name));
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Process), CBN_EDITCHANGE), 0);
+}
+
+void SelectPid(const MonitorWindow& window, DWORD pid) {
+    const auto text = std::to_wstring(pid);
+    const LRESULT index = ::SendMessageW(Child(window, Pid), CB_FINDSTRINGEXACT, gsl::narrow_cast<WPARAM>(-1),
+                                        reinterpret_cast<LPARAM>(text.c_str()));
+    QIQI_TEST_CHECK(index != CB_ERR);
+    QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(index), 0) != CB_ERR);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Pid), CBN_SELCHANGE), 0);
+}
+
 std::wstring ControlText(HWND hwnd) {
     std::wstring text(gsl::narrow_cast<size_t>(::GetWindowTextLengthW(hwnd)) + 1, L'\0');
     const int copied = ::GetWindowTextW(hwnd, text.data(), gsl::narrow_cast<int>(text.size()));
@@ -233,6 +247,31 @@ void TestBuffersAndFilters() {
     QIQI_TEST_CHECK(!capacities.Push(std::move(reserved)));
     QIQI_TEST_CHECK(capacities.Events().empty());
 
+    EventBuffer processes(3, 4096);
+    auto first_process = MakeEvent();
+    first_process.pid = 10;
+    QIQI_TEST_CHECK(processes.Push(first_process));
+    QIQI_TEST_CHECK(processes.Push(first_process));
+    auto second_process = first_process;
+    second_process.pid = 20;
+    second_process.process = L"code.exe";
+    QIQI_TEST_CHECK(processes.Push(second_process));
+    auto choices = CollectProcessChoices(processes, L"CODE");
+    QIQI_TEST_CHECK(choices.names.size() == 1 && choices.pids == std::vector<DWORD>({10, 20}));
+    second_process.pid = 30;
+    second_process.process = L"notepad.exe";
+    QIQI_TEST_CHECK(processes.Push(second_process));
+    QIQI_TEST_CHECK(CollectProcessChoices(processes, L"").pids == std::vector<DWORD>({10, 20, 30}));
+    QIQI_TEST_CHECK(CollectProcessChoices(processes, L"notepad").pids == std::vector<DWORD>({30}));
+    QIQI_TEST_CHECK(CollectProcessChoices(processes, L"missing").pids.empty());
+    QIQI_TEST_CHECK(processes.Push(second_process));
+    QIQI_TEST_CHECK(CollectProcessChoices(processes, L"code").pids == std::vector<DWORD>({20}));
+    QIQI_TEST_CHECK(processes.Push(second_process));
+    QIQI_TEST_CHECK(CollectProcessChoices(processes, L"").names == std::vector<std::wstring>({L"notepad.exe"}));
+    processes.Clear();
+    QIQI_TEST_CHECK(CollectProcessChoices(processes, L"").names.empty() &&
+                    CollectProcessChoices(processes, L"").pids.empty());
+
     Filter filter;
     auto event = MakeEvent(L"Case sensitive? no.\tline\nnext");
     QIQI_TEST_CHECK(filter.Matches(event));
@@ -318,19 +357,38 @@ void TestWindowAndVersion() {
     QIQI_TEST_CHECK(::GetWindowTextLengthW(Child(window, Details)) > 0);
     ::SetWindowTextW(Child(window, Search), L"initialized");
     QIQI_TEST_CHECK(ListView_GetNextItem(list, -1, LVNI_SELECTED) == 0);
-    ::SetWindowTextW(Child(window, Pid), L"invalid");
+    SetProcessFilter(window, L"missing-process");
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 0);
+    QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, Pid)));
+    SetProcessFilter(window, L"QiQiIMELogMonitor.exe");
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
+    QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(::GetCurrentProcessId()));
+    QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, Pid)));
     Click(window, Clear);
-    ::SetWindowTextW(Child(window, Pid), L"");
+    QIQI_TEST_CHECK(::SendMessageW(Child(window, Process), CB_GETCOUNT, 0, 0) == 0);
+    SetProcessFilter(window, L"");
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 0);
     ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
     const int column_width = ListView_GetColumnWidth(list, 0);
     RECT rect{};
     ::GetWindowRect(window.Handle(), &rect);
     const UINT dpi = ::GetDpiForWindow(window.Handle());
+    const LRESULT process_edit_height = ::SendMessageW(Child(window, Process), CB_GETITEMHEIGHT,
+                                                      gsl::narrow_cast<WPARAM>(-1), 0);
     const WORD doubled_dpi = gsl::narrow<WORD>(gsl::narrow_cast<uint64_t>(dpi) * 2);
     ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(doubled_dpi, doubled_dpi), reinterpret_cast<LPARAM>(&rect));
     QIQI_TEST_CHECK(ListView_GetColumnWidth(list, 0) == column_width * 2);
+    for (const auto id : {Process, Pid, Level, Language}) {
+        QIQI_TEST_CHECK(::SendMessageW(Child(window, id), CB_GETITEMHEIGHT, 0, 0) ==
+                        ScalePxByDpi(22, doubled_dpi));
+        const LRESULT edit_height = ::SendMessageW(Child(window, id), CB_GETITEMHEIGHT,
+                                                   gsl::narrow_cast<WPARAM>(-1), 0);
+        if (id == Process) {
+            QIQI_TEST_CHECK(std::abs(edit_height - process_edit_height * 2) <= 3);
+        } else {
+            QIQI_TEST_CHECK(edit_height == ScalePxByDpi(22, doubled_dpi));
+        }
+    }
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
     const auto executable = GetModuleFilePath(nullptr).parent_path() / L"QiQiIMELogMonitor.exe";
     DWORD unused = 0;
@@ -446,7 +504,7 @@ void TestDesktopIntegration() {
     Click(window, Source);
     ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
     ::SetWindowTextW(Child(window, Search), L"initialized");
-    ::SetWindowTextW(Child(window, Pid), std::to_wstring(::GetCurrentProcessId()).c_str());
+    SelectPid(window, ::GetCurrentProcessId());
     ::SendMessageW(Child(window, Level), CB_SETCURSEL, 4, 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Level), CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
@@ -727,6 +785,72 @@ int Integration(const wchar_t* peer) {
     QIQI_TEST_CHECK(std::any_of(received.begin(), received.end(), [](const Event& event) {
         return event.message == L"after provider re-registration" && event.level == 3;
     }));
+
+    {
+        MonitorWindow window;
+        QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr)));
+        SelectLanguage(window, UiLanguage::EnUs);
+        Click(window, Start);
+        log::WriteLogMessage(log::Level::info, "filter-parent");
+        SetProcessFilter(window, own->process.c_str());
+        const auto parent_pid = std::to_wstring(::GetCurrentProcessId());
+        for (int i = 0; i < 50 && ControlText(Child(window, Pid)) != parent_pid; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+        }
+        QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) == 1);
+        QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, Pid)));
+        QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(::GetCurrentProcessId()));
+        const LRESULT name_index = ::SendMessageW(Child(window, Process), CB_FINDSTRINGEXACT,
+            gsl::narrow_cast<WPARAM>(-1), reinterpret_cast<LPARAM>(own->process.c_str()));
+        QIQI_TEST_CHECK(name_index != CB_ERR);
+        ::SendMessageW(Child(window, Process), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(name_index), 0);
+        ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Process), CBN_SELCHANGE), 0);
+        QIQI_TEST_CHECK(ControlText(Child(window, Process)) == own->process);
+
+        PROCESS_INFORMATION second_child{};
+        QIQI_TEST_CHECK(::CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
+            CREATE_NO_WINDOW, nullptr, nullptr, &startup, &second_child));
+        const ScopedKernelHandle second_process(second_child.hProcess);
+        const ScopedKernelHandle second_thread(second_child.hThread);
+        QIQI_TEST_CHECK(::WaitForSingleObject(second_process.Get(), 10'000) == WAIT_OBJECT_0);
+        DWORD second_exit = 1;
+        QIQI_TEST_CHECK(::GetExitCodeProcess(second_process.Get(), &second_exit) && second_exit == 0);
+        for (int i = 0; i < 50 && ::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) != 3; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+        }
+        QIQI_TEST_CHECK(::IsWindowEnabled(Child(window, Pid)));
+        QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) == 3);
+        QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == L"All");
+        SelectPid(window, second_child.dwProcessId);
+        QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 2);
+        ::SetWindowTextW(Child(window, Search), L"child-debug");
+        QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
+        QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) == 3);
+        SelectLanguage(window, UiLanguage::ZhCn);
+        QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(second_child.dwProcessId));
+        ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+        QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(second_child.dwProcessId));
+        SelectLanguage(window, UiLanguage::EnUs);
+        ::SetWindowTextW(Child(window, Search), L"");
+        SetProcessFilter(window, L"");
+        QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == L"All");
+        SelectPid(window, second_child.dwProcessId);
+        QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 2);
+        Click(window, Start);
+        Click(window, Clear);
+        QIQI_TEST_CHECK(::SendMessageW(Child(window, Process), CB_GETCOUNT, 0, 0) == 0);
+        QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) == 1);
+        QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, Pid)));
+        Click(window, Source);
+        QIQI_TEST_CHECK(ControlText(Child(window, Process)).empty());
+        QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == L"All");
+        SetProcessFilter(window, L"QiQiIMELogMonitor.exe");
+        QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, Pid)));
+        QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(::GetCurrentProcessId()));
+    }
+
     QIQI_TEST_CHECK(collector.Start());
     for (int i = 0; i < 1024; ++i) log::WriteLogMessage(log::Level::info, "burst-monitor");
     for (int i = 0; i < 30 && queue.Evicted() == 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));

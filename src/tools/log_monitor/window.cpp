@@ -47,15 +47,17 @@ struct MonitorWindow::Impl {
     std::vector<uint64_t> rows;
     std::vector<uint64_t> selected_ids;
     Filter filter;
+    ProcessChoices process_choices;
     std::wstring last_error;
     uint64_t selected = 0;
     unsigned int ticks = 0;
     bool paused = false;
     bool diagnostic_view = false;
-    bool valid_filter = true;
     bool ready = false;
     bool updating_rows = false;
     bool updating_display = false;
+    bool updating_filters = false;
+    bool automatic_pid = false;
     int detail_height = 130; // Logical pixels.
     int detail_limit = 400;
     int splitter_drag_offset = 0;
@@ -270,8 +272,8 @@ struct MonitorWindow::Impl {
             !Add(L"STATIC", L"PID", SS_LEFT, PidLabel) ||
             !Add(L"STATIC", Text(L"级别", L"Level"), SS_LEFT, LevelLabel) ||
             !Add(L"STATIC", Text(L"消息", L"Message"), SS_LEFT, SearchLabel) ||
-            !Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, Process) ||
-            !Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, Pid) ||
+            !Add(L"COMBOBOX", L"", CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, Process) ||
+            !Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, Pid) ||
             !Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, Level) ||
             !Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, Search) ||
             !Add(WC_LISTVIEWW, L"", LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS |
@@ -345,9 +347,9 @@ struct MonitorWindow::Impl {
             filter_top += s(38);
         }
         move(ProcessLabel, s(12), filter_top + s(4), s(55), s(24));
-        move(Process, s(70), filter_top, s(170), s(28));
+        move(Process, s(70), filter_top, s(170), s(240));
         move(PidLabel, s(254), filter_top + s(4), s(30), s(24));
-        move(Pid, s(290), filter_top, s(90), s(28));
+        move(Pid, s(290), filter_top, s(90), s(240));
         move(LevelLabel, s(392), filter_top + s(4), s(50), s(24));
         move(Level, s(448), filter_top, s(150), s(240));
         if (width < s(940)) {
@@ -418,6 +420,7 @@ struct MonitorWindow::Impl {
         const auto& strings = GetUiStrings(ui_language);
         const std::array languages{strings.dlg_lang_auto, strings.dlg_lang_zh, strings.dlg_lang_en};
         replace(Language, languages);
+        RefreshProcessChoices(true);
         const std::array<const wchar_t*, 6> columns{
             Text(L"时间 (UTC)", L"Time (UTC)"), Text(L"进程", L"Process"), L"PID", L"TID",
             Text(L"级别", L"Level"), Text(L"消息", L"Message")};
@@ -453,7 +456,7 @@ struct MonitorWindow::Impl {
             for (int i = 0; i < 6; ++i) {
                 ListView_SetColumnWidth(Child(List), i, ::MulDiv(ListView_GetColumnWidth(Child(List), i), gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
             }
-            for (const auto id : {Level, Language}) {
+            for (const auto id : {Process, Pid, Level, Language}) {
                 ::SendMessageW(Child(id), CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), theme.ScalePx(22));
                 ::SendMessageW(Child(id), CB_SETITEMHEIGHT, 0, theme.ScalePx(22));
             }
@@ -480,11 +483,60 @@ struct MonitorWindow::Impl {
         UpdateDpi(QueryMonitorForPoint(center, hwnd).dpi, rect);
     }
 
+    void RefreshProcessChoices(bool force = false) {
+        if (!force && (::SendMessageW(Child(Process), CB_GETDROPPEDSTATE, 0, 0) ||
+                       ::SendMessageW(Child(Pid), CB_GETDROPPEDSTATE, 0, 0))) return;
+        updating_filters = true;
+        const auto restore = gsl::finally([this]() noexcept { updating_filters = false; });
+        auto next = CollectProcessChoices(Current(), filter.process);
+        const auto replace = [&](ControlId id, const std::vector<std::wstring>& items) {
+            std::vector<const wchar_t*> text;
+            text.reserve(items.size());
+            for (const auto& item : items) text.push_back(item.c_str());
+            const HRESULT hr = ReplaceComboBoxItems(Child(id), text);
+            if (FAILED(hr)) throw std::system_error(gsl::narrow_cast<int>(hr),
+                std::system_category(), "RefreshProcessChoices::ReplaceComboBoxItems");
+        };
+        if (next.names != process_choices.names) {
+            // Preserve typed text and caret when refreshing the suggestion list.
+            const LRESULT edit_selection = ::SendMessageW(Child(Process), CB_GETEDITSEL, 0, 0);
+            replace(Process, next.names);
+            ::SetWindowTextW(Child(Process), filter.process.c_str());
+            ::SendMessageW(Child(Process), CB_SETEDITSEL, 0, edit_selection);
+        }
+        const bool single = !filter.process.empty() && next.pids.size() == 1;
+        const bool was_single = automatic_pid;
+        if (single) {
+            filter.pid = next.pids.front();
+        } else if (automatic_pid || (filter.pid &&
+                   std::find(next.pids.begin(), next.pids.end(), *filter.pid) == next.pids.end())) {
+            filter.pid.reset();
+        }
+        automatic_pid = single;
+        if (force || next.pids != process_choices.pids || single != was_single) {
+            std::vector<std::wstring> pids;
+            if (!single) pids.emplace_back(Text(L"全部", L"All"));
+            for (const DWORD pid : next.pids) pids.push_back(std::to_wstring(pid));
+            replace(Pid, pids);
+        }
+        int selected_pid = 0;
+        if (filter.pid && !single) {
+            const auto found = std::find(next.pids.begin(), next.pids.end(), *filter.pid);
+            if (found != next.pids.end()) selected_pid = gsl::narrow_cast<int>(found - next.pids.begin()) + 1;
+        }
+        ::SendMessageW(Child(Pid), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(selected_pid), 0);
+        ::EnableWindow(Child(Pid), !single && !next.pids.empty());
+        process_choices = std::move(next);
+    }
+
     void Refilter() {
-        filter.process = ReadText(Child(Process));
-        const auto pid = ReadText(Child(Pid));
-        filter.pid = ParsePid(pid);
-        valid_filter = pid.empty() || filter.pid.has_value();
+        const auto process = ReadText(Child(Process));
+        if (process != filter.process) {
+            filter.process = process;
+            filter.pid.reset();
+            automatic_pid = false;
+        }
+        RefreshProcessChoices();
         const LRESULT level = ::SendMessageW(Child(Level), CB_GETCURSEL, 0, 0);
         filter.level = level >= 0 ? gsl::narrow_cast<UCHAR>(level) : 0;
         filter.text = ReadText(Child(Search));
@@ -524,11 +576,9 @@ struct MonitorWindow::Impl {
         updating_rows = true;
         const auto restore = gsl::finally([this]() noexcept { updating_rows = false; });
         std::vector<uint64_t> next;
-        if (valid_filter) {
-            next.reserve(Current().Events().size());
-            for (const auto& event : Current().Events()) {
-                if (filter.Matches(event)) next.push_back(event.id);
-            }
+        next.reserve(Current().Events().size());
+        for (const auto& event : Current().Events()) {
+            if (filter.Matches(event)) next.push_back(event.id);
         }
         rows.swap(next);
         const HWND list = Child(List);
@@ -568,13 +618,16 @@ struct MonitorWindow::Impl {
             changed = true;
         }
         if (++ticks % 10 == 0) collector.PollLoss();
-        if (changed) RebuildRows();
+        if (changed) {
+            RefreshProcessChoices();
+            RebuildRows();
+        }
         UpdateStatus();
     }
 
     void UpdateStatus() {
         ::SetWindowTextW(Child(Start), collector.Running() ? Text(L"停止采集", L"Stop") : Text(L"开始采集", L"Start"));
-        auto status = valid_filter ? std::format(
+        auto status = std::format(
             L"{} | {}: {} / {} | {}: {} KiB | {}: {} | {}: {}/{} | {}: {} | {}: {}",
             collector.Running() ? Text(L"采集中", L"Capturing") : Text(L"已停止", L"Stopped"),
             Text(L"显示", L"Visible"), rows.size(), Current().Events().size(),
@@ -583,8 +636,7 @@ struct MonitorWindow::Impl {
                 tools.Evicted() + diagnostics.queue.Evicted() : events.Evicted() + pending.Evicted(),
             Text(L"ETW 丢失(事件/缓冲)", L"ETW lost(events/buffers)"), collector.events_lost.load(), collector.buffers_lost.load(),
             Text(L"解码失败", L"Decode"), collector.decode_errors.load(), Text(L"内存异常", L"Memory"),
-            collector.allocation_errors.load() + diagnostics.allocation_errors.load()) :
-            Text(L"PID 无效：请输入 0 到 4294967295 的整数，或留空。", L"Invalid PID: enter 0..4294967295, or leave empty.");
+            collector.allocation_errors.load() + diagnostics.allocation_errors.load());
         if (!last_error.empty()) status = std::wstring(Text(L"错误: ", L"ERROR: ")) + last_error + L" | " + status;
         ::SetWindowTextW(Child(Status), status.c_str());
     }
@@ -757,7 +809,14 @@ struct MonitorWindow::Impl {
             paused = !paused;
             ::SetWindowTextW(Child(Pause), paused ? Text(L"恢复滚动", L"Resume scroll") : Text(L"暂停滚动", L"Pause scroll"));
             break;
-        case Clear: Current().Clear(); selected = 0; selected_ids.clear(); RebuildRows(); break;
+        case Clear:
+            Current().Clear();
+            selected = 0;
+            selected_ids.clear();
+            RefreshProcessChoices();
+            RebuildRows();
+            UpdateStatus();
+            break;
         case Copy: CopySelection(); break;
         case Export: ExportSnapshot(); break;
         case Source:
@@ -766,7 +825,8 @@ struct MonitorWindow::Impl {
             selected_ids.clear();
             ::SetWindowTextW(Child(Source), diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics"));
             ::SetWindowTextW(Child(Process), L"");
-            ::SetWindowTextW(Child(Pid), L"");
+            filter.pid.reset();
+            automatic_pid = false;
             ::SetWindowTextW(Child(Search), L"");
             ::SendMessageW(Child(Level), CB_SETCURSEL, 0, 0);
             Refilter();
@@ -777,7 +837,37 @@ struct MonitorWindow::Impl {
             }
             break;
         }
-        case Process: case Pid: case Search:
+        case Process:
+            if (!updating_filters && (notification == CBN_EDITCHANGE || notification == CBN_SELCHANGE)) {
+                if (notification == CBN_SELCHANGE) {
+                    const LRESULT index = ::SendMessageW(Child(Process), CB_GETCURSEL, 0, 0);
+                    if (index < 0 || gsl::narrow_cast<size_t>(index) >= process_choices.names.size()) {
+                        diagnostics.Record(2, L"Invalid process selection", ERROR_INVALID_DATA);
+                        break;
+                    }
+                    ::SetWindowTextW(Child(Process), gsl::at(process_choices.names, gsl::narrow_cast<size_t>(index)).c_str());
+                }
+                Refilter();
+            } else if (!updating_filters && notification == CBN_CLOSEUP) {
+                Refilter();
+            }
+            break;
+        case Pid:
+            if (!updating_filters && notification == CBN_SELCHANGE) {
+                const LRESULT index = ::SendMessageW(Child(Pid), CB_GETCURSEL, 0, 0);
+                if (index < 0 || automatic_pid ||
+                    gsl::narrow_cast<size_t>(index) > process_choices.pids.size()) {
+                    diagnostics.Record(2, L"Invalid PID selection", ERROR_INVALID_DATA);
+                    break;
+                }
+                filter.pid = index == 0 ? std::nullopt :
+                    std::optional<DWORD>(gsl::at(process_choices.pids, gsl::narrow_cast<size_t>(index - 1)));
+                Refilter();
+            } else if (!updating_filters && notification == CBN_CLOSEUP) {
+                Refilter();
+            }
+            break;
+        case Search:
             if (notification == EN_CHANGE) Refilter();
             break;
         case Level: if (notification == CBN_SELCHANGE) Refilter(); break;

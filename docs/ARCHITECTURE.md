@@ -299,14 +299,16 @@ TSF 的按键处理分为两步：
 - [x] **57. 日志监控器默认级别与输入法输出级别脱节修复（`log-monitor-effective-level-sync`）**
   - 问题现象：`QiQiIMELogMonitor` 界面默认 `Level` 显示为 `All`（且 ETW 会话启用了 `TRACE_LEVEL_VERBOSE`），但输入法侧 [`Log`](../src/common/logger.h) 被进程内 `g_log_level`（默认注册表 `LogLevel=2` 即 `Info`）提前拦截，导致用户在监控器看到 `Level = All` 却完全收不到 `Debug`/`Trace`（`Verbose`）级别日志。
   - 修复方案：新增 `log::ShouldLog(Level)` 并在 `Log`、`WriteLogMessage`、焦点计时、配置热重载及 `LogShiftTap` 中统一复用；当 `LogLevel != Off` 时，按活跃 ETW 会话请求的级别（`TraceLoggingProviderEnabled(g_qiqi_etw_provider, etw_level, 0)`）直接放行 ETW 事件，同时保留 `LogLevel` 对附加调试器 `OutputDebugString` 的阈值控制及 `LogLevel=Off` 的总开关语义，使监控器开始采集即可实时收到 `Debug`/`Trace`（`Verbose`）诊断日志而无需手改注册表或重启宿主。
-- [ ] **58. 修复英文模式下 Shift 无法切回中文及 Ctrl+Space Compartment 写入失败（`tsf-shift-toggle-and-compartment-sync`）**
+- [x] **58. 修复英文模式下 Shift 无法切回中文及 Ctrl+Space Compartment 写入失败（`tsf-shift-toggle-and-compartment-sync`）**
   - 问题现象：
     1. 按 `Ctrl+Space` 触发外部 TSF Compartment 变更后，[`SyncEngineFromSystemCompartments`](../src/Ime/tsf/tip_config.cpp) 在 `OnChange` 回调栈中反调 [`SyncTsfCompartments`](../src/Ime/tsf/tip_config.cpp)，导致 `ITfCompartment::SetValue failed (hr=0x8000ffff)`（`E_UNEXPECTED`）。
-    2. 切换到英文模式（任务栏显示“英 奇”）后，将 `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` 设为 `0`（键盘关闭）会导致 Windows TSF 停止按开启状态向 `ITfKeyEventSink` 派发普通 `Shift` 按键（或需要通过 `TF_MOD_ON_KEYUP` 保留键 / 仅用 `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION` 表达中英转换模式而保持 `OPENCLOSE=1`），从而出现“按 Shift 一直没有反应/没有日志”。
+    2. 最初怀疑英文模式下 `OPENCLOSE=0` 影响 Shift 派发；实际 VS Code 日志显示宿主直接调用 `OnKeyDown` / `OnKeyUp`，省略测试回调，而 Shift 候选仅在 `OnTestKeyDown` 建立，导致 `attempt=0`、释放时始终 `no-candidate`。两种按下入口已共用跟踪逻辑，重复回调保留原始计时。
   - 修复目标：
     1. 收到外部 `OnChange` 时避免在通知回调内对同一 Compartment 重复回写相同值，消除 `0x8000ffff` 警告。
     2. 核实并修复 TSF 下中英文切换与 `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` / `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION` 及 `Shift` 按键监听的协同关系，确保在中文与英文模式下按 `Shift` 或 `Ctrl+Space` 均可双向稳定切换且任务栏状态同步。
+  - 验证结果：双架构构建及回归测试通过；2026-11-03 用户确认任务 58 已正常，按上述目标完成验收。
 - [ ] **47. 真实宿主生命周期验证（`tsf-real-host-lifecycle-tests`）**
+  - 执行步骤、真实宿主矩阵、通过标准及结果模板见[任务 47 测试文档](TSF_REAL_HOST_TESTS.md)；文档已提供，实测结果仍待填写。
   - 在 VS Code 与浏览器中验证组合期间失焦、停用、重新激活后的组合文本、下划线及候选窗口清理。
   - 检查 UI 是否残留或被旧任务重新显示，记录可复现步骤、宿主条件和验证结果；配合单元测试，不以 Mock 代替真实显示验证。
   - 依赖任务 43、44、45。
