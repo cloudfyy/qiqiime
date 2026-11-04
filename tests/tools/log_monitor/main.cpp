@@ -7,6 +7,7 @@
 #include "common/theme.h"
 #include "common/i18n.h"
 #include "common/win32_ui_util.h"
+#include "common/command_ui.h"
 #include "tools/log_monitor/collector.h"
 #include "tools/log_monitor/window.h"
 
@@ -28,8 +29,25 @@ HWND Child(const MonitorWindow& window, ControlId id) noexcept {
     return ::GetDlgItem(window.Handle(), std::to_underlying(id));
 }
 
-void Click(const MonitorWindow& window, ControlId id) noexcept {
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(id), BN_CLICKED), 0);
+void Click(const MonitorWindow& window, ControlId id) {
+    const HWND toolbar = Child(window, Toolbar);
+    if (::SendMessageW(toolbar, TB_COMMANDTOINDEX, std::to_underlying(id), 0) >= 0) {
+#pragma warning(suppress : 26496) // TB_GETRECT writes through LPARAM.
+        RECT rect{};
+        QIQI_TEST_CHECK(::SendMessageW(toolbar, TB_GETRECT, std::to_underlying(id), reinterpret_cast<LPARAM>(&rect)));
+        const LPARAM point = MAKELPARAM((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
+        ::SendMessageW(toolbar, WM_LBUTTONDOWN, MK_LBUTTON, point);
+        ::SendMessageW(toolbar, WM_LBUTTONUP, 0, point);
+    } else {
+        ::SendMessageW(window.Handle(), WM_COMMAND, std::to_underlying(id), 0);
+    }
+}
+
+std::wstring CommandName(const MonitorWindow& window, ControlId id) {
+    std::array<wchar_t, 256> text{};
+    QIQI_TEST_CHECK(::GetMenuStringW(::GetMenu(window.Handle()), std::to_underlying(id), text.data(),
+                                     gsl::narrow_cast<int>(text.size()), MF_BYCOMMAND) > 0);
+    return text.data();
 }
 
 void SetProcessFilter(const MonitorWindow& window, const wchar_t* name) {
@@ -40,15 +58,16 @@ void SetProcessFilter(const MonitorWindow& window, const wchar_t* name) {
 void SelectPid(const MonitorWindow& window, DWORD pid) {
     const auto text = std::to_wstring(pid);
     const LRESULT index = ::SendMessageW(Child(window, Pid), CB_FINDSTRINGEXACT, gsl::narrow_cast<WPARAM>(-1),
-                                        reinterpret_cast<LPARAM>(text.c_str()));
+                                         reinterpret_cast<LPARAM>(text.c_str()));
     QIQI_TEST_CHECK(index != CB_ERR);
     QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(index), 0) != CB_ERR);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Pid), CBN_SELCHANGE), 0);
 }
 
-LRESULT CALLBACK SimulateOpenDropdown(HWND control, UINT message, WPARAM wparam, LPARAM lparam,
-                                     UINT_PTR, DWORD_PTR) noexcept {
-    if (message == CB_GETDROPPEDSTATE) return TRUE;
+LRESULT CALLBACK SimulateOpenDropdown(HWND control, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
+                                      DWORD_PTR) noexcept {
+    if (message == CB_GETDROPPEDSTATE)
+        return TRUE;
     return ::DefSubclassProc(control, message, wparam, lparam);
 }
 
@@ -60,8 +79,199 @@ std::wstring ControlText(HWND hwnd) {
 }
 
 void SelectLanguage(const MonitorWindow& window, UiLanguage language) noexcept {
-    ::SendMessageW(Child(window, Language), CB_SETCURSEL, std::to_underlying(language), 0);
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
+    const auto id = std::to_underlying(LanguageAuto) + std::to_underlying(language);
+    ::SendMessageW(window.Handle(), WM_COMMAND, id, 0);
+}
+
+void CheckComboEditFont(HWND combo, UINT dpi) {
+    COMBOBOXINFO info{};
+    info.cbSize = sizeof(info);
+    QIQI_TEST_CHECK(::GetComboBoxInfo(combo, &info) && info.hwndItem);
+    const auto font = reinterpret_cast<HFONT>(::SendMessageW(info.hwndItem, WM_GETFONT, 0, 0));
+    LOGFONTW logical{};
+    QIQI_TEST_CHECK(::GetObjectW(font, sizeof(logical), &logical) == sizeof(logical));
+    QIQI_TEST_CHECK(-logical.lfHeight == ScalePxByDpi(14, dpi));
+    const ScopedWindowDC dc(info.hwndItem);
+    const ScopedSelectObject selected(dc.Get(), font);
+    QIQI_TEST_CHECK(dc && selected);
+    TEXTMETRICW metrics{};
+    RECT rect{};
+    QIQI_TEST_CHECK(::GetTextMetricsW(dc.Get(), &metrics) && ::GetClientRect(info.hwndItem, &rect));
+    QIQI_TEST_CHECK(metrics.tmHeight <= rect.bottom - rect.top);
+}
+
+void TestMenusAndToolbar() {
+    const auto restore = gsl::finally([]() noexcept {
+        SetThemeDarkOverrideForTest(std::nullopt);
+        SetHighContrastOverrideForTest(std::nullopt);
+        MSG message{};
+        while (::PeekMessageW(&message, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE)) {
+        }
+    });
+    MonitorWindow window;
+    QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr)));
+    const HWND toolbar = Child(window, Toolbar);
+    constexpr std::array commands{Start, Pause, Clear, Copy, Export, Source};
+    for (const UINT dpi : {96u, 120u, 144u, 192u}) {
+        for (const int width : {760, 920, 1160}) {
+            RECT proposed{0, 0, ScalePxByDpi(width, dpi), ScalePxByDpi(780, dpi)};
+            ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&proposed));
+            for (const auto language : {UiLanguage::EnUs, UiLanguage::ZhCn, UiLanguage::Auto}) {
+                SelectLanguage(window, language);
+                const HMENU menu = ::GetMenu(window.Handle());
+                QIQI_TEST_CHECK(menu && ::GetMenuItemCount(menu) == 5);
+                constexpr std::array keys{L'f', L'e', L'v', L'l', L'h'};
+                for (size_t i = 0; i < keys.size(); ++i) {
+                    QIQI_TEST_CHECK(::SendMessageW(window.Handle(), WM_MENUCHAR, gsl::at(keys, i),
+                                                   reinterpret_cast<LPARAM>(menu)) == MAKELRESULT(i, MNC_EXECUTE));
+                    MEASUREITEMSTRUCT measure{};
+                    measure.CtlType = ODT_MENU;
+                    measure.itemData = i;
+                    QIQI_TEST_CHECK(
+                        ::SendMessageW(window.Handle(), WM_MEASUREITEM, 0, reinterpret_cast<LPARAM>(&measure)));
+                    QIQI_TEST_CHECK(measure.itemWidth > 0 &&
+                                    measure.itemHeight >= gsl::narrow_cast<UINT>(ScalePxByDpi(14, dpi)));
+                }
+                for (const auto id : {LanguageAuto, LanguageZh, LanguageEn}) {
+                    QIQI_TEST_CHECK(
+                        (::GetMenuState(menu, std::to_underlying(id), MF_BYCOMMAND) & MF_CHECKED) ==
+                        (std::to_underlying(id) - std::to_underlying(LanguageAuto) == std::to_underlying(language)
+                             ? UINT{MF_CHECKED}
+                             : 0u));
+                }
+                QIQI_TEST_CHECK(::SendMessageW(toolbar, TB_BUTTONCOUNT, 0, 0) ==
+                                gsl::narrow_cast<LRESULT>(commands.size()));
+                QIQI_TEST_CHECK(::SendMessageW(toolbar, TB_GETTEXTROWS, 0, 0) == 0);
+                for (size_t i = 0; i < commands.size(); ++i) {
+                    const auto id = gsl::at(commands, i);
+                    QIQI_TEST_CHECK(Child(window, id) == nullptr);
+                    QIQI_TEST_CHECK(::SendMessageW(toolbar, TB_COMMANDTOINDEX, std::to_underlying(id), 0) ==
+                                    gsl::narrow_cast<LRESULT>(i));
+#pragma warning(suppress : 26496) // TB_GETRECT writes through LPARAM.
+                    RECT rect{};
+                    QIQI_TEST_CHECK(
+                        ::SendMessageW(toolbar, TB_GETRECT, std::to_underlying(id), reinterpret_cast<LPARAM>(&rect)));
+                    QIQI_TEST_CHECK(rect.right - rect.left == ScalePxByDpi(36, dpi));
+                    QIQI_TEST_CHECK(rect.bottom - rect.top == ScalePxByDpi(36, dpi));
+                    std::array<wchar_t, 256> tooltip{};
+                    NMTBGETINFOTIPW tip{};
+                    tip.hdr = {toolbar, std::to_underlying(Toolbar), TBN_GETINFOTIPW};
+                    tip.iItem = std::to_underlying(id);
+                    tip.pszText = tooltip.data();
+                    tip.cchTextMax = gsl::narrow_cast<int>(tooltip.size());
+                    ::SendMessageW(window.Handle(), WM_NOTIFY, tip.hdr.idFrom, reinterpret_cast<LPARAM>(&tip));
+                    QIQI_TEST_CHECK(std::wstring_view(tooltip.data()) == CommandName(window, id));
+                    TBBUTTONINFO button{};
+                    button.cbSize = sizeof(button);
+                    button.dwMask = TBIF_STYLE;
+                    QIQI_TEST_CHECK(::SendMessageW(toolbar, TB_GETBUTTONINFOW, std::to_underlying(id),
+                                                   reinterpret_cast<LPARAM>(&button)) >= 0);
+                    QIQI_TEST_CHECK((button.fsStyle & (BTNS_SHOWTEXT | BTNS_AUTOSIZE)) == 0);
+                }
+                RECT client{};
+                ::GetClientRect(window.Handle(), &client);
+                ::MapWindowPoints(window.Handle(), nullptr, reinterpret_cast<POINT*>(&client), 2);
+                std::vector<RECT> controls;
+                for (HWND child = ::GetWindow(window.Handle(), GW_CHILD); child;
+                     child = ::GetWindow(child, GW_HWNDNEXT)) {
+                    std::array<wchar_t, 64> name{};
+                    ::GetClassNameW(child, name.data(), gsl::narrow_cast<int>(name.size()));
+                    QIQI_TEST_CHECK(_wcsicmp(name.data(), L"BUTTON") != 0);
+                    RECT bounds{}, overlap{};
+                    ::GetWindowRect(child, &bounds);
+                    QIQI_TEST_CHECK(bounds.left >= client.left && bounds.top >= client.top &&
+                                    bounds.right <= client.right && bounds.bottom <= client.bottom);
+                    for (const auto& other : controls)
+                        QIQI_TEST_CHECK(!::IntersectRect(&overlap, &bounds, &other));
+                    controls.push_back(bounds);
+                }
+                for (const auto id : {ProcessLabel, PidLabel, LevelLabel, CategoryLabel, SearchLabel}) {
+                    const HWND label = Child(window, id);
+                    const ScopedWindowDC dc(label);
+                    const ScopedSelectObject font(dc.Get(),
+                                                  reinterpret_cast<HFONT>(::SendMessageW(label, WM_GETFONT, 0, 0)));
+                    const auto text = ControlText(label);
+                    SIZE size{};
+                    RECT bounds{};
+                    ::GetClientRect(label, &bounds);
+                    QIQI_TEST_CHECK(
+                        ::GetTextExtentPoint32W(dc.Get(), text.data(), gsl::narrow_cast<int>(text.size()), &size));
+                    QIQI_TEST_CHECK(size.cx <= bounds.right && size.cy <= bounds.bottom);
+                }
+            }
+        }
+    }
+    SelectLanguage(window, UiLanguage::EnUs);
+    const auto icon = [&](ControlId id) {
+        TBBUTTONINFO button{};
+        button.cbSize = sizeof(button);
+        button.dwMask = TBIF_LPARAM;
+        QIQI_TEST_CHECK(
+            ::SendMessageW(toolbar, TB_GETBUTTONINFOW, std::to_underlying(id), reinterpret_cast<LPARAM>(&button)) >= 0);
+        return gsl::narrow_cast<ToolIcon>(button.lParam);
+    };
+    QIQI_TEST_CHECK(icon(Start) == ToolIcon::Start && icon(Pause) == ToolIcon::Pause &&
+                    icon(Source) == ToolIcon::Diagnostics);
+    Click(window, Pause);
+    QIQI_TEST_CHECK(icon(Pause) == ToolIcon::Resume);
+    QIQI_TEST_CHECK(CommandName(window, Pause) == L"Resume scroll");
+    QIQI_TEST_CHECK((::SendMessageW(toolbar, TB_GETSTATE, std::to_underlying(Pause), 0) & TBSTATE_CHECKED) != 0);
+    Click(window, Source);
+    QIQI_TEST_CHECK(icon(Source) == ToolIcon::Events);
+    QIQI_TEST_CHECK(CommandName(window, Source) == L"IME events");
+    QIQI_TEST_CHECK((::SendMessageW(toolbar, TB_GETSTATE, std::to_underlying(Source), 0) & TBSTATE_CHECKED) != 0);
+    for (const bool dark : {false, true}) {
+        for (const bool contrast : {false, true}) {
+            SetThemeDarkOverrideForTest(dark);
+            SetHighContrastOverrideForTest(contrast);
+            ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
+            const ScopedWindowDC window_dc(window.Handle());
+            const ScopedMemoryDC dc(::CreateCompatibleDC(window_dc.Get()));
+            const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(window_dc.Get(), 80, 80));
+            const ScopedSelectObject selected(dc.Get(), bitmap.Get());
+            std::vector<uint64_t> shapes;
+            for (const auto id : commands) {
+                NMCUSTOMDRAW draw{};
+                draw.hdr = {toolbar, std::to_underlying(Toolbar), NM_CUSTOMDRAW};
+                draw.hdc = dc.Get();
+                draw.rc = {0, 0, 80, 80};
+                draw.dwDrawStage = CDDS_ITEMPREPAINT;
+                draw.dwItemSpec = std::to_underlying(id);
+                const COLORREF brush_color = ::GetDCBrushColor(dc.Get());
+                QIQI_TEST_CHECK(::SendMessageW(window.Handle(), WM_NOTIFY, draw.hdr.idFrom,
+                                               reinterpret_cast<LPARAM>(&draw)) == CDRF_SKIPDEFAULT);
+                QIQI_TEST_CHECK(::GetDCBrushColor(dc.Get()) == brush_color);
+                const auto& palette = GetThemePalette(dark);
+                const COLORREF background = contrast ? ::GetSysColor(COLOR_BTNFACE) : palette.window_bg;
+                const COLORREF foreground = contrast ? ::GetSysColor(COLOR_BTNTEXT) : palette.text_primary;
+                size_t ink = 0;
+                uint64_t shape = 14695981039346656037ull;
+                for (int y = 16; y < 64; ++y) {
+                    for (int x = 16; x < 64; ++x) {
+                        const auto pixel = ::GetPixel(dc.Get(), x, y);
+                        QIQI_TEST_CHECK(pixel == background || pixel == foreground);
+                        if (pixel == foreground)
+                            ++ink;
+                        shape = (shape ^ gsl::narrow_cast<uint64_t>(pixel == foreground)) * 1099511628211ull;
+                    }
+                }
+                QIQI_TEST_CHECK(ink > 10 && std::ranges::find(shapes, shape) == shapes.end());
+                shapes.push_back(shape);
+            }
+        }
+    }
+    std::array<wchar_t, 16> text{};
+    NMTBGETINFOTIPW invalid_tip{};
+    invalid_tip.hdr = {toolbar, std::to_underlying(Toolbar), TBN_GETINFOTIPW};
+    invalid_tip.iItem = 0x7fff;
+    invalid_tip.pszText = text.data();
+    invalid_tip.cchTextMax = gsl::narrow_cast<int>(text.size());
+    ::SendMessageW(window.Handle(), WM_NOTIFY, invalid_tip.hdr.idFrom, reinterpret_cast<LPARAM>(&invalid_tip));
+    ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+    ::SetWindowTextW(Child(window, Search), L"TB_GETBUTTONTEXTW");
+    QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
+    QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
+    Click(window, Exit);
 }
 
 struct AboutExpectation {
@@ -90,68 +300,72 @@ std::vector<DWORD> IconPixels(HICON icon) {
     std::vector<DWORD> pixels(gsl::narrow_cast<size_t>(bitmap.bmWidth) * gsl::narrow_cast<size_t>(bitmap.bmHeight));
     const ScopedWindowDC dc;
     QIQI_TEST_CHECK(dc);
-    QIQI_TEST_CHECK(::GetDIBits(dc.Get(), color.Get(), 0, gsl::narrow_cast<UINT>(bitmap.bmHeight),
-        pixels.data(), &dib, DIB_RGB_COLORS) == bitmap.bmHeight);
+    QIQI_TEST_CHECK(::GetDIBits(dc.Get(), color.Get(), 0, gsl::narrow_cast<UINT>(bitmap.bmHeight), pixels.data(), &dib,
+                                DIB_RGB_COLORS) == bitmap.bmHeight);
     return pixels;
 }
 
 void TestAboutDialogs() {
     ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     std::vector<RECT> work_areas;
-    QIQI_TEST_CHECK(::EnumDisplayMonitors(nullptr, nullptr,
+    QIQI_TEST_CHECK(::EnumDisplayMonitors(
+        nullptr, nullptr,
         [](HMONITOR monitor, HDC, LPRECT, LPARAM context) -> BOOL {
             MONITORINFO info{};
             info.cbSize = sizeof(info);
             QIQI_TEST_CHECK(::GetMonitorInfoW(monitor, &info));
             reinterpret_cast<std::vector<RECT>*>(context)->push_back(info.rcWork);
             return TRUE;
-        }, reinterpret_cast<LPARAM>(&work_areas)));
+        },
+        reinterpret_cast<LPARAM>(&work_areas)));
     QIQI_TEST_CHECK(!work_areas.empty());
     MonitorWindow window;
     QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr)));
     for (const RECT& work : work_areas) {
         const int width = std::min<LONG>(640, work.right - work.left);
         const int height = std::min<LONG>(480, work.bottom - work.top);
-        QIQI_TEST_CHECK(::SetWindowPos(window.Handle(), nullptr,
-            work.left + (work.right - work.left - width) * 3 / 4,
-            work.top + (work.bottom - work.top - height) / 3,
-            width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW));
+        QIQI_TEST_CHECK(::SetWindowPos(window.Handle(), nullptr, work.left + (work.right - work.left - width) * 3 / 4,
+                                       work.top + (work.bottom - work.top - height) / 3, width, height,
+                                       SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW));
         for (const auto language : {UiLanguage::EnUs, UiLanguage::ZhCn}) {
             SelectLanguage(window, language);
             AboutExpectation expected{window.Handle(), language, work};
             auto* previous = std::exchange(current_about, &expected);
             const auto restore = gsl::finally([previous]() noexcept { current_about = previous; });
-            const UINT_PTR timer = ::SetTimer(window.Handle(), 2, 15, [](HWND timer_owner, UINT, UINT_PTR id, DWORD) noexcept {
-                const HWND dialog = test::FindThreadWindowByClass(kAboutWndClass);
-                if (!dialog) return;
-                QIQI_TEST_CHECK(current_about != nullptr);
-                QIQI_TEST_CHECK(::GetWindow(dialog, GW_OWNER) == current_about->owner);
-                const auto& strings = GetUiStrings(current_about->language);
-                QIQI_TEST_CHECK(ControlText(dialog) == strings.about_title);
-                QIQI_TEST_CHECK(ControlText(::GetDlgItem(dialog, 201)) == strings.about_btn_github);
-                QIQI_TEST_CHECK(ControlText(::GetDlgItem(dialog, IDOK)) == strings.dlg_btn_ok);
-                const UINT dpi = ::GetDpiForWindow(dialog);
-                const ScopedIcon expected_icon(static_cast<HICON>(::LoadImageW(::GetModuleHandleW(nullptr),
-                    MAKEINTRESOURCEW(1), IMAGE_ICON, ScalePxByDpi(56, dpi), ScalePxByDpi(56, dpi), LR_DEFAULTCOLOR)));
-                const auto actual_icon = reinterpret_cast<HICON>(::SendMessageW(dialog, WM_GETICON, ICON_BIG, 0));
-                QIQI_TEST_CHECK(IconPixels(actual_icon) == IconPixels(expected_icon.Get()));
-                RECT owner_rect{}, dialog_rect{};
-                QIQI_TEST_CHECK(::GetWindowRect(current_about->owner, &owner_rect));
-                QIQI_TEST_CHECK(::GetWindowRect(dialog, &dialog_rect));
-                const int dialog_width = dialog_rect.right - dialog_rect.left;
-                const int dialog_height = dialog_rect.bottom - dialog_rect.top;
-                const POINT centered = ClampPointToWorkArea({
-                    owner_rect.left + (owner_rect.right - owner_rect.left - dialog_width) / 2,
-                    owner_rect.top + (owner_rect.bottom - owner_rect.top - dialog_height) / 2},
-                    dialog_width, dialog_height, current_about->work_area);
-                QIQI_TEST_CHECK(std::abs(dialog_rect.left - centered.x) <= 2);
-                QIQI_TEST_CHECK(std::abs(dialog_rect.top - centered.y) <= 2);
-                QIQI_TEST_CHECK(::MonitorFromWindow(dialog, MONITOR_DEFAULTTONEAREST) ==
-                    ::MonitorFromWindow(current_about->owner, MONITOR_DEFAULTTONEAREST));
-                current_about->seen = true;
-                ::KillTimer(timer_owner, id);
-                ::SendMessageW(dialog, WM_COMMAND, IDOK, 0);
-            });
+            const UINT_PTR timer =
+                ::SetTimer(window.Handle(), 2, 15, [](HWND timer_owner, UINT, UINT_PTR id, DWORD) noexcept {
+                    const HWND dialog = test::FindThreadWindowByClass(kAboutWndClass);
+                    if (!dialog)
+                        return;
+                    QIQI_TEST_CHECK(current_about != nullptr);
+                    QIQI_TEST_CHECK(::GetWindow(dialog, GW_OWNER) == current_about->owner);
+                    const auto& strings = GetUiStrings(current_about->language);
+                    QIQI_TEST_CHECK(ControlText(dialog) == strings.about_title);
+                    QIQI_TEST_CHECK(ControlText(::GetDlgItem(dialog, 201)) == strings.about_btn_github);
+                    QIQI_TEST_CHECK(ControlText(::GetDlgItem(dialog, IDOK)) == strings.dlg_btn_ok);
+                    const UINT dpi = ::GetDpiForWindow(dialog);
+                    const ScopedIcon expected_icon(static_cast<HICON>(
+                        ::LoadImageW(::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                     ScalePxByDpi(56, dpi), ScalePxByDpi(56, dpi), LR_DEFAULTCOLOR)));
+                    const auto actual_icon = reinterpret_cast<HICON>(::SendMessageW(dialog, WM_GETICON, ICON_BIG, 0));
+                    QIQI_TEST_CHECK(IconPixels(actual_icon) == IconPixels(expected_icon.Get()));
+                    RECT owner_rect{}, dialog_rect{};
+                    QIQI_TEST_CHECK(::GetWindowRect(current_about->owner, &owner_rect));
+                    QIQI_TEST_CHECK(::GetWindowRect(dialog, &dialog_rect));
+                    const int dialog_width = dialog_rect.right - dialog_rect.left;
+                    const int dialog_height = dialog_rect.bottom - dialog_rect.top;
+                    const POINT centered = ClampPointToWorkArea(
+                        {owner_rect.left + (owner_rect.right - owner_rect.left - dialog_width) / 2,
+                         owner_rect.top + (owner_rect.bottom - owner_rect.top - dialog_height) / 2},
+                        dialog_width, dialog_height, current_about->work_area);
+                    QIQI_TEST_CHECK(std::abs(dialog_rect.left - centered.x) <= 2);
+                    QIQI_TEST_CHECK(std::abs(dialog_rect.top - centered.y) <= 2);
+                    QIQI_TEST_CHECK(::MonitorFromWindow(dialog, MONITOR_DEFAULTTONEAREST) ==
+                                    ::MonitorFromWindow(current_about->owner, MONITOR_DEFAULTTONEAREST));
+                    current_about->seen = true;
+                    ::KillTimer(timer_owner, id);
+                    ::SendMessageW(dialog, WM_COMMAND, IDOK, 0);
+                });
             QIQI_TEST_CHECK(timer != 0);
             const auto cancel_timer = gsl::finally([&window, timer]() noexcept { ::KillTimer(window.Handle(), timer); });
             Click(window, About);
@@ -480,18 +694,17 @@ void TestWindowAndVersion() {
     RECT rect{};
     ::GetWindowRect(window.Handle(), &rect);
     const UINT dpi = ::GetDpiForWindow(window.Handle());
-    const LRESULT process_edit_height = ::SendMessageW(Child(window, Process), CB_GETITEMHEIGHT,
-                                                      gsl::narrow_cast<WPARAM>(-1), 0);
+    CheckComboEditFont(Child(window, Process), dpi);
     const WORD doubled_dpi = gsl::narrow<WORD>(gsl::narrow_cast<uint64_t>(dpi) * 2);
     ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(doubled_dpi, doubled_dpi), reinterpret_cast<LPARAM>(&rect));
     QIQI_TEST_CHECK(ListView_GetColumnWidth(list, 0) == column_width * 2);
-    for (const auto id : {Process, Pid, Level, Category, Language}) {
+    for (const auto id : {Process, Pid, Level, Category}) {
         QIQI_TEST_CHECK(::SendMessageW(Child(window, id), CB_GETITEMHEIGHT, 0, 0) ==
                         ScalePxByDpi(22, doubled_dpi));
         const LRESULT edit_height = ::SendMessageW(Child(window, id), CB_GETITEMHEIGHT,
                                                    gsl::narrow_cast<WPARAM>(-1), 0);
         if (id == Process) {
-            QIQI_TEST_CHECK(std::abs(edit_height - process_edit_height * 2) <= 3);
+            CheckComboEditFont(Child(window, Process), doubled_dpi);
         } else {
             QIQI_TEST_CHECK(edit_height == ScalePxByDpi(22, doubled_dpi));
         }
@@ -605,13 +818,13 @@ void TestDesktopIntegration() {
     QIQI_TEST_CHECK((list_style & LVS_OWNERDATA) != 0 && (list_style & LVS_SINGLESEL) == 0);
     const UINT initial_dpi = ::GetDpiForWindow(window.Handle());
     QIQI_TEST_CHECK(IconWidth(reinterpret_cast<HICON>(::SendMessageW(window.Handle(), WM_GETICON, ICON_BIG, 0))) == ScalePxByDpi(48, initial_dpi));
-    QIQI_TEST_CHECK(Child(window, Copy) != nullptr);
+    QIQI_TEST_CHECK(Child(window, Copy) == nullptr && Child(window, Toolbar) != nullptr);
     QIQI_TEST_CHECK(::GetDlgItem(window.Handle(), 122) == nullptr);
     QIQI_TEST_CHECK(::GetDlgItem(window.Handle(), 123) == nullptr);
     SelectLanguage(window, UiLanguage::EnUs);
-    QIQI_TEST_CHECK(ControlText(Child(window, Clear)) == L"Clear");
-    QIQI_TEST_CHECK(ControlText(Child(window, Copy)) == L"Copy");
-    QIQI_TEST_CHECK(ControlText(Child(window, Language)) == GetUiStrings(UiLanguage::EnUs).dlg_lang_en);
+    QIQI_TEST_CHECK(CommandName(window, Clear) == L"Clear");
+    QIQI_TEST_CHECK(CommandName(window, Copy) == L"Copy");
+    QIQI_TEST_CHECK(CommandName(window, LanguageEn) == GetUiStrings(UiLanguage::EnUs).dlg_lang_en);
     Click(window, Source);
     ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
     ::SetWindowTextW(Child(window, Search), L"initialized");
@@ -623,10 +836,10 @@ void TestDesktopIntegration() {
     Click(window, Copy);
     const auto single_copied = ReadClipboardText(window.Handle());
     QIQI_TEST_CHECK(single_copied.contains(L"Monitor initialized") && single_copied.contains(L"PID="));
-    // Populate diagnostic entries via invalid language selection notifications without hammering the system clipboard 450 times.
+    // Populate diagnostics without repeatedly accessing the system clipboard.
     for (int i = 0; i < 450; ++i) {
-        ::SendMessageW(Child(window, Language), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
-        ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
+        ::SendMessageW(Child(window, Pid), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+        ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Pid), CBN_SELCHANGE), 0);
     }
     SelectLanguage(window, UiLanguage::EnUs);
     ::SendMessageW(Child(window, Level), CB_SETCURSEL, 0, 0);
@@ -639,7 +852,7 @@ void TestDesktopIntegration() {
     QIQI_TEST_CHECK(ControlText(Child(window, Details)).contains(L"Selected entries: "));
     Click(window, Copy);
     const auto multi_copied = ReadClipboardText(window.Handle());
-    QIQI_TEST_CHECK(multi_copied.contains(L"Monitor initialized") && multi_copied.contains(L"Invalid language selection") && multi_copied.contains(L"\r\n"));
+    QIQI_TEST_CHECK(multi_copied.contains(L"Monitor initialized") && multi_copied.contains(L"Invalid PID selection") && multi_copied.contains(L"\r\n"));
     ::SendMessageW(Child(window, Level), CB_SETCURSEL, 4, 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Level), CBN_SELCHANGE), 0);
     ListView_SetItemState(list, -1, 0, LVIS_SELECTED);
@@ -705,19 +918,18 @@ void TestDesktopIntegration() {
         ::SendMessageW(Child(window, Level), CB_SETCURSEL, 4, 0);
         ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Level), CBN_SELCHANGE), 0);
     }
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
-    ::SendMessageW(Child(window, Language), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
+    ::SendMessageW(Child(window, Pid), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Pid), CBN_SELCHANGE), 0);
     SelectLanguage(window, UiLanguage::EnUs);
     ::SetWindowTextW(Child(window, Search), L"initialized");
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1 && ListView_GetSelectedCount(list) == 1);
     Click(window, Pause);
     SelectLanguage(window, UiLanguage::ZhCn);
-    QIQI_TEST_CHECK(ControlText(Child(window, Clear)) == L"清空");
-    QIQI_TEST_CHECK(ControlText(Child(window, Copy)) == L"复制");
-    QIQI_TEST_CHECK(ControlText(Child(window, Language)) == GetUiStrings(UiLanguage::ZhCn).dlg_lang_zh);
-    QIQI_TEST_CHECK(ControlText(Child(window, Pause)) == L"恢复滚动");
-    QIQI_TEST_CHECK(ControlText(Child(window, Source)) == L"输入法日志");
+    QIQI_TEST_CHECK(CommandName(window, Clear) == L"清空");
+    QIQI_TEST_CHECK(CommandName(window, Copy) == L"复制");
+    QIQI_TEST_CHECK(CommandName(window, LanguageZh) == GetUiStrings(UiLanguage::ZhCn).dlg_lang_zh);
+    QIQI_TEST_CHECK(CommandName(window, Pause) == L"恢复滚动");
+    QIQI_TEST_CHECK(CommandName(window, Source) == L"输入法日志");
     QIQI_TEST_CHECK(ControlText(window.Handle()).contains(L"奇奇日志监控"));
     QIQI_TEST_CHECK(ControlText(Child(window, Search)) == L"initialized");
     QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(::GetCurrentProcessId()));
@@ -733,7 +945,7 @@ void TestDesktopIntegration() {
         ::SendMessageW(window.Handle(), message, 0, 0);
         QIQI_TEST_CHECK(ListView_GetBkColor(list) == RGB(43, 46, 52));
         QIQI_TEST_CHECK(ListView_GetTextColor(list) == RGB(238, 240, 245));
-        QIQI_TEST_CHECK(ControlText(Child(window, Clear)) == L"清空");
+        QIQI_TEST_CHECK(CommandName(window, Clear) == L"清空");
         QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
     }
     TestDarkHeader(list);
@@ -746,11 +958,11 @@ void TestDesktopIntegration() {
     ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
     QIQI_TEST_CHECK(ListView_GetBkColor(list) == RGB(255, 255, 255));
     SelectLanguage(window, UiLanguage::Auto);
-    QIQI_TEST_CHECK(ControlText(Child(window, Language)) == GetUiStrings(UiLanguage::Auto).dlg_lang_auto);
-    QIQI_TEST_CHECK(ControlText(Child(window, Clear)) ==
+    QIQI_TEST_CHECK(CommandName(window, LanguageAuto) == GetUiStrings(UiLanguage::Auto).dlg_lang_auto);
+    QIQI_TEST_CHECK(CommandName(window, Clear) ==
         (ResolveUiLanguage(UiLanguage::Auto) == UiLanguage::EnUs ? L"Clear" : L"清空"));
     ::SendMessageW(window.Handle(), WM_SETTINGCHANGE, 0, 0);
-    QIQI_TEST_CHECK(::SendMessageW(Child(window, Language), CB_GETCURSEL, 0, 0) == 0);
+    QIQI_TEST_CHECK((::GetMenuState(::GetMenu(window.Handle()), std::to_underlying(LanguageAuto), MF_BYCOMMAND) & MF_CHECKED) != 0);
     const int original_column = ListView_GetColumnWidth(list, 0);
     SetMonitorMetricsOverrideForTest(MonitorMetrics{{-2560, 0, 0, 1440}, 192});
     RECT proposed{-2700, -100, 100, 1600};
@@ -936,7 +1148,11 @@ int Integration(const wchar_t* peer) {
         QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr)));
         SelectLanguage(window, UiLanguage::EnUs);
         Click(window, Start);
-        log::WriteLogMessage(log::Level::info, "filter-parent");
+        QIQI_TEST_CHECK(CommandName(window, Start) == L"Stop");
+        GUID gui_activity{};
+        QIQI_TEST_CHECK(SUCCEEDED(::CoCreateGuid(&gui_activity)));
+        log::WriteLogMessage(log::Level::info, "filter-parent",
+            log::LogContext{log::Keyword::Sync, log::Opcode::Start, &gui_activity});
         SetProcessFilter(window, own->process.c_str());
         const auto parent_pid = std::to_wstring(::GetCurrentProcessId());
         for (int i = 0; i < 50 && ControlText(Child(window, Pid)) != parent_pid; ++i) {
@@ -952,6 +1168,16 @@ int Integration(const wchar_t* peer) {
         ::SendMessageW(Child(window, Process), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(name_index), 0);
         ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Process), CBN_SELCHANGE), 0);
         QIQI_TEST_CHECK(ControlText(Child(window, Process)) == own->process);
+        ::SetWindowTextW(Child(window, Search), L"filter-parent");
+        QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
+        ListView_SetItemState(Child(window, List), 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        QIQI_TEST_CHECK((::GetMenuState(::GetMenu(window.Handle()), std::to_underlying(FilterActivity), MF_BYCOMMAND) & MF_GRAYED) == 0);
+        Click(window, FilterActivity);
+        QIQI_TEST_CHECK(ControlText(Child(window, Status)).contains(L"Activity filter"));
+        QIQI_TEST_CHECK((::GetMenuState(::GetMenu(window.Handle()), std::to_underlying(ClearActivity), MF_BYCOMMAND) & MF_GRAYED) == 0);
+        Click(window, ClearActivity);
+        QIQI_TEST_CHECK(!ControlText(Child(window, Status)).contains(L"Activity filter"));
+        ::SetWindowTextW(Child(window, Search), L"");
 
         const HWND process_combo = Child(window, Process);
         QIQI_TEST_CHECK(::SetWindowSubclass(process_combo, SimulateOpenDropdown, 92, 0));
@@ -994,6 +1220,7 @@ int Integration(const wchar_t* peer) {
         QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
         QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) == 3);
         SelectLanguage(window, UiLanguage::ZhCn);
+        QIQI_TEST_CHECK(CommandName(window, Start) == L"停止采集");
         QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(second_child.dwProcessId));
         ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
         QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(second_child.dwProcessId));
@@ -1004,6 +1231,7 @@ int Integration(const wchar_t* peer) {
         SelectPid(window, second_child.dwProcessId);
         QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 2);
         Click(window, Start);
+        QIQI_TEST_CHECK(CommandName(window, Start) == L"Start");
         Click(window, Clear);
         QIQI_TEST_CHECK(::SendMessageW(Child(window, Process), CB_GETCOUNT, 0, 0) == 0);
         QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) == 1);
@@ -1051,6 +1279,7 @@ int wmain(int argc, wchar_t* argv[]) {
     TestExport();
     TestAboutDialogs();
     TestWindowAndVersion();
+    TestMenusAndToolbar();
     TestDesktopIntegration();
     std::cout << "[PASS] Log monitor model, GUI and version tests\n";
     return 0;

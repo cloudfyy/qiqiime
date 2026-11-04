@@ -1,7 +1,7 @@
 #include "tools/log_monitor/internal.h"
 #include "common/about_dialog.h"
 #include "common/theme.h"
-#include "common/tool_window.h"
+#include "common/window.h"
 #include "common/win32_ui_util.h"
 
 #include <gsl/gsl>
@@ -142,32 +142,24 @@ void MonitorWindow::Impl::ShowListContextMenu(POINT screen_pt) {
         diagnostics.Record(2, L"CreatePopupMenu", ::GetLastError());
         return;
     }
-    const auto selected_items = CollectSelectedEvents();
-    const bool has_sel = !selected_items.empty();
+    const auto* selected_event = FirstSelectedEvent();
+    const bool has_sel = selected_event != nullptr;
     const bool has_rows = !rows.empty();
-    const bool has_activity = has_sel && selected_items.front().activity_id != GUID_NULL;
-    ::AppendMenuW(menu.Get(), MF_STRING | (has_sel ? MF_ENABLED : MF_GRAYED), 1,
-        Text(L"复制选中日志项\tCtrl+C", L"Copy selected entries\tCtrl+C"));
-    ::AppendMenuW(menu.Get(), MF_STRING | (has_rows ? MF_ENABLED : MF_GRAYED), 2,
-        Text(L"全选\tCtrl+A", L"Select all\tCtrl+A"));
-    ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
-    ::AppendMenuW(menu.Get(), MF_STRING | (has_activity ? MF_ENABLED : MF_GRAYED), 3,
-        Text(L"按当前活动关联筛选", L"Filter by selected activity"));
-    ::AppendMenuW(menu.Get(), MF_STRING | (filter.activity_id.has_value() ? MF_ENABLED : MF_GRAYED), 4,
-        Text(L"清除活动关联筛选", L"Clear activity filter"));
+    const bool has_activity = has_sel && selected_event->activity_id != GUID_NULL;
+    for (const auto& [id, enabled] : std::array{
+             std::pair{Copy, has_sel}, std::pair{SelectAll, has_rows}, std::pair{FilterActivity, has_activity},
+             std::pair{ClearActivity, filter.activity_id.has_value()}}) {
+        std::wstring text(CommandText(id));
+        if (id == Copy) text += L"\tCtrl+C";
+        if (id == SelectAll) text += L"\tCtrl+A";
+        if (!::AppendMenuW(menu.Get(), MF_STRING | (enabled ? MF_ENABLED : MF_GRAYED), std::to_underlying(id), text.c_str())) {
+            diagnostics.Record(2, L"AppendMenuW(context)", ::GetLastError());
+            return;
+        }
+    }
     const BOOL cmd = ::TrackPopupMenu(
         menu.Get(), TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, screen_pt.x, screen_pt.y, 0, hwnd, nullptr);
-    if (cmd == 1) CopySelection();
-    else if (cmd == 2) SelectAllRows();
-    else if (cmd == 3 && has_activity) {
-        filter.activity_id = selected_items.front().activity_id;
-        Refilter();
-        UpdateStatus();
-    } else if (cmd == 4) {
-        filter.activity_id.reset();
-        Refilter();
-        UpdateStatus();
-    }
+    if (cmd) Command(cmd, 0);
 }
 
 void MonitorWindow::Impl::ExportSnapshot() {
@@ -205,6 +197,24 @@ void MonitorWindow::Impl::ExportSnapshot() {
 
 void MonitorWindow::Impl::Command(int id, int notification) {
     switch (gsl::narrow_cast<ControlId>(id)) {
+    case Exit: ::SendMessageW(hwnd, WM_CLOSE, 0, 0); break;
+    case SelectAll: SelectAllRows(); break;
+    case FilterActivity: {
+        const auto* event = FirstSelectedEvent();
+        if (event && event->activity_id != GUID_NULL) {
+            filter.activity_id = event->activity_id;
+            Refilter();
+            UpdateStatus();
+        } else {
+            diagnostics.Record(3, L"Activity filter requires a selected activity", ERROR_NOT_FOUND);
+        }
+        break;
+    }
+    case ClearActivity:
+        filter.activity_id.reset();
+        Refilter();
+        UpdateStatus();
+        break;
     case Start:
         if (collector.Running()) {
             collector.Stop();
@@ -215,7 +225,7 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         break;
     case Pause:
         paused = !paused;
-        ::SetWindowTextW(Child(Pause), paused ? Text(L"恢复滚动", L"Resume scroll") : Text(L"暂停滚动", L"Pause scroll"));
+        RefreshCommandState();
         break;
     case Clear:
         Current().Clear();
@@ -231,7 +241,6 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         diagnostic_view = !diagnostic_view;
         selected = 0;
         selected_ids.clear();
-        ::SetWindowTextW(Child(Source), diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics"));
         ::SetWindowTextW(Child(Process), L"");
         filter.pid.reset();
         filter.activity_id.reset();
@@ -283,16 +292,11 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         break;
     case Level: if (notification == CBN_SELCHANGE) Refilter(); break;
     case Category: if (notification == CBN_SELCHANGE) Refilter(); break;
-    case Language:
-        if (notification == CBN_SELCHANGE) {
-            const LRESULT choice = ::SendMessageW(Child(Language), CB_GETCURSEL, 0, 0);
-            if (choice >= 0 && choice <= 2) {
-                ui_language = gsl::narrow_cast<UiLanguage>(choice);
-                ApplyLanguage();
-            } else {
-                diagnostics.Record(2, L"Invalid language selection", ERROR_INVALID_DATA);
-            }
-        }
+    case LanguageAuto:
+    case LanguageZh:
+    case LanguageEn:
+        ui_language = gsl::narrow_cast<UiLanguage>(id - std::to_underlying(LanguageAuto));
+        ApplyLanguage();
         break;
     default: break;
     }

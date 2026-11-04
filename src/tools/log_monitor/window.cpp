@@ -1,6 +1,6 @@
 #include "tools/log_monitor/internal.h"
 #include "common/theme.h"
-#include "common/tool_window.h"
+#include "common/window.h"
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
@@ -22,9 +22,12 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
     auto* self = BindOrGetWindowUserData<Impl>(window, message, lparam);
     if (!self || message == WM_NCCREATE) return ::DefWindowProcW(window, message, wparam, lparam);
     try {
+        if (const auto handled = self->command_ui.HandleMessage(window, message, wparam, lparam, self->font.Get(), self->theme)) {
+            return *handled;
+        }
         if (const auto handled = HandleFluentToolWindowMessage(
                 window, message, wparam, lparam, self->theme,
-                gsl::narrow_cast<UINT>(std::to_underlying(Start)), 760, 560)) {
+                0, 760, 560)) {
             return *handled;
         }
         switch (message) {

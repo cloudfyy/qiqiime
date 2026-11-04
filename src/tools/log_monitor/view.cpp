@@ -1,5 +1,5 @@
 #include "tools/log_monitor/internal.h"
-#include "common/tool_window.h"
+#include "common/window.h"
 #include "common/win32_ui_util.h"
 
 #include <gsl/gsl>
@@ -92,6 +92,15 @@ void MonitorWindow::Impl::SyncSelectionFromList() {
         selected = selected_ids.empty() ? 0 : selected_ids.back();
     }
     UpdateDetails();
+    RefreshCommandState();
+}
+
+const Event* MonitorWindow::Impl::FirstSelectedEvent() const noexcept {
+    const int row = ListView_GetNextItem(Child(List), -1, LVNI_SELECTED);
+    if (row >= 0 && gsl::narrow_cast<size_t>(row) < rows.size()) {
+        return Current().Find(gsl::at(rows, gsl::narrow_cast<size_t>(row)));
+    }
+    return Current().Find(selected);
 }
 
 void MonitorWindow::Impl::SelectAllRows() {
@@ -159,7 +168,7 @@ void MonitorWindow::Impl::Tick() {
 }
 
 void MonitorWindow::Impl::UpdateStatus() {
-    ::SetWindowTextW(Child(Start), collector.Running() ? Text(L"停止采集", L"Stop") : Text(L"开始采集", L"Start"));
+    RefreshCommandState();
     auto status = std::format(
         L"{} | {}: {} / {} | {}: {} KiB | {}: {} | {}: {}/{} | {}: {} | {}: {}",
         collector.Running() ? Text(L"采集中", L"Capturing") : Text(L"已停止", L"Stopped"),

@@ -40,7 +40,9 @@ set(QIQI_COMMON_SOURCES
     scoped_handle.h
     sound.h
     theme.h
-    tool_window.h
+    window.h
+    command_ui.cpp
+    command_ui.h
     version.h.in
     version.rc.in
     win32_ui_util.h
@@ -62,6 +64,7 @@ target_link_libraries(qiqi_common PUBLIC
     user32
     gdi32
     comctl32
+    uxtheme
     d2d1
     dwrite
     shell32

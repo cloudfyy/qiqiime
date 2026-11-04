@@ -2,7 +2,7 @@
 #include "common/about_dialog.h"
 #include "common/file_util.h"
 #include "common/theme.h"
-#include "common/tool_window.h"
+#include "common/window.h"
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
@@ -28,85 +28,29 @@ constexpr std::array toolbar_commands{
     throw std::system_error(error, std::system_category(), operation);
 }
 
-void DrawToolbarIcon(HDC dc, const RECT& rect, ControlId command, int size, int stroke, COLORREF color) noexcept {
-    const ScopedGdiHandle<HPEN> pen(::CreatePen(PS_SOLID, stroke, color));
-    if (!pen) {
-        QIQI_LOG_ERROR("DictManager toolbar icon pen creation failed");
-        return;
-    }
-    const ScopedSelectObject selected_pen(dc, pen.Get());
-    const ScopedSelectObject selected_brush(dc, ::GetStockObject(NULL_BRUSH));
-    if (!selected_pen || !selected_brush) {
-        QIQI_LOG_ERROR("DictManager toolbar icon GDI object selection failed");
-        return;
-    }
-    const int left = rect.left + (rect.right - rect.left - size) / 2;
-    const int top = rect.top + (rect.bottom - rect.top - size) / 2;
-    const auto x = [&](int value) noexcept { return left + ::MulDiv(value, size, 24); };
-    const auto y = [&](int value) noexcept { return top + ::MulDiv(value, size, 24); };
-    bool drawn = true;
-    const auto path = [&](std::initializer_list<POINT> points) noexcept {
-        std::array<POINT, 8> scaled{};
-        size_t count = 0;
-        for (const auto& point : points) {
-            gsl::at(scaled, count++) = {x(point.x), y(point.y)};
-        }
-        if (!::Polyline(dc, scaled.data(), gsl::narrow_cast<int>(count))) drawn = false;
-    };
-    const auto box = [&](int l, int t, int r, int b) noexcept {
-        if (!::Rectangle(dc, x(l), y(t), x(r), y(b))) drawn = false;
-    };
-    switch (command) {
-    case NewWord:
-        path({{12, 3}, {12, 21}});
-        path({{3, 12}, {21, 12}});
-        break;
-    case Reload:
-        if (!::Arc(dc, x(4), y(4), x(20), y(20), x(20), y(4), x(20), y(12))) drawn = false;
-        path({{16, 8}, {20, 12}, {23, 8}});
-        break;
-    case Copy:
-        box(4, 8, 16, 21);
-        path({{9, 8}, {9, 3}, {21, 3}, {21, 16}, {16, 16}});
-        break;
-    case Import:
-        path({{4, 16}, {4, 21}, {20, 21}, {20, 16}});
-        path({{12, 3}, {12, 16}});
-        path({{7, 11}, {12, 16}, {17, 11}});
-        break;
-    case Export:
-        path({{4, 16}, {4, 21}, {20, 21}, {20, 16}});
-        path({{12, 16}, {12, 3}});
-        path({{7, 8}, {12, 3}, {17, 8}});
-        break;
-    case SaveWord:
-        path({{4, 3}, {17, 3}, {21, 7}, {21, 21}, {4, 21}, {4, 3}});
-        box(8, 3, 16, 10);
-        box(8, 14, 17, 21);
-        break;
-    case Pin:
-        path({{8, 3}, {16, 3}, {15, 11}, {19, 16}, {5, 16}, {9, 11}, {8, 3}});
-        path({{12, 16}, {12, 23}});
-        break;
-    case Delete:
-        path({{3, 6}, {21, 6}});
-        path({{8, 6}, {8, 3}, {16, 3}, {16, 6}});
-        path({{6, 6}, {7, 21}, {17, 21}, {18, 6}});
-        path({{10, 10}, {10, 17}});
-        path({{14, 10}, {14, 17}});
-        break;
-    case Promote:
-        path({{4, 21}, {4, 15}, {8, 15}, {8, 21}});
-        path({{11, 21}, {11, 11}, {15, 11}, {15, 21}});
-        path({{20, 21}, {20, 3}});
-        path({{16, 7}, {20, 3}, {24, 7}});
-        break;
-    default:
-        QIQI_LOG_ERROR("DictManager toolbar icon command is not supported");
-        return;
-    }
-    if (!drawn) QIQI_LOG_ERROR("DictManager toolbar icon drawing failed");
 }
+
+void DictManagerWindow::Impl::ReportCommandError(void*, const char* operation, ULONG error) noexcept {
+    QIQI_LOG_ERROR("DictManager UI operation '{}' failed (error=0x{:08X})", operation, error);
+}
+
+ToolCommand DictManagerWindow::Impl::UiCommand(ControlId id) const noexcept {
+    ToolIcon icon = ToolIcon::None;
+    switch (id) {
+    case NewWord: icon = ToolIcon::New; break;
+    case Reload: icon = ToolIcon::Reload; break;
+    case Copy: icon = ToolIcon::Copy; break;
+    case Import: icon = ToolIcon::Import; break;
+    case Export: icon = ToolIcon::Export; break;
+    case SaveWord: icon = ToolIcon::Save; break;
+    case Pin: icon = ToolIcon::Pin; break;
+    case Delete: icon = ToolIcon::Delete; break;
+    case Promote: icon = ToolIcon::Promote; break;
+    default: break;
+    }
+    return {id == Separator ? 0u : gsl::narrow_cast<UINT>(std::to_underlying(id)), CommandText(id), icon, true,
+        id >= LanguageAuto && id <= LanguageEn &&
+            std::to_underlying(id) - std::to_underlying(LanguageAuto) == std::to_underlying(ui_language)};
 }
 
 const wchar_t* DictManagerWindow::Impl::CommandText(ControlId id) const noexcept {
@@ -145,76 +89,23 @@ const wchar_t* DictManagerWindow::Impl::MenuHeading(size_t index) const noexcept
 }
 
 void DictManagerWindow::Impl::UpdateCommands() {
-    ScopedMenu menu(::CreateMenu());
-    if (!menu) ThrowMenuError("CreateMenu", ::GetLastError());
-    const auto append = [](HMENU target, UINT flags, UINT_PTR id, const wchar_t* text) {
-        if (!::AppendMenuW(target, flags, id, text)) {
-            ThrowMenuError("AppendMenuW", ::GetLastError());
-        }
-    };
-    const auto group = [&](size_t index, std::initializer_list<ControlId> commands) {
-        ScopedMenu popup(::CreatePopupMenu());
-        if (!popup) ThrowMenuError("CreatePopupMenu", ::GetLastError());
-        for (const auto id : commands) {
-            if (id == Separator) {
-                append(popup.Get(), MF_SEPARATOR, 0, nullptr);
-            } else {
-                append(popup.Get(), MF_STRING, std::to_underlying(id), CommandText(id));
-            }
-        }
-        if (index == 2 && !::CheckMenuRadioItem(
-                popup.Get(), std::to_underlying(LanguageAuto), std::to_underlying(LanguageEn),
-                std::to_underlying(LanguageAuto) + std::to_underlying(ui_language), MF_BYCOMMAND)) {
-            ThrowMenuError("CheckMenuRadioItem", ::GetLastError());
-        }
-        append(menu.Get(), MF_POPUP, reinterpret_cast<UINT_PTR>(popup.Get()), MenuHeading(index));
-        std::ignore = popup.Detach();
-        MENUITEMINFOW info{};
-        info.cbSize = sizeof(info);
-        info.fMask = MIIM_FTYPE | MIIM_DATA;
-        info.fType = MFT_OWNERDRAW;
-        info.dwItemData = index;
-        if (!::SetMenuItemInfoW(menu.Get(), gsl::narrow_cast<UINT>(index), TRUE, &info)) {
-            ThrowMenuError("SetMenuItemInfoW", ::GetLastError());
-        }
-    };
-    group(0, {Reload, Separator, Import, Export, Separator, Backup, Restore, Separator, Exit});
-    group(1, {NewWord, SaveWord, CancelEdit, AutoCode, Separator, Copy, SelectAll, Pin, Delete, Promote, Separator, ClearFreq});
-    group(2, {LanguageAuto, LanguageZh, LanguageEn});
-    group(3, {About});
-    const HMENU previous = ::GetMenu(hwnd);
-    if (!::SetMenu(hwnd, menu.Get())) {
-        ThrowMenuError("SetMenu", ::GetLastError());
-    }
-    std::ignore = menu.Detach(); // The window owns the attached menu.
-    const ScopedMenu old_menu(previous);
-
-    constexpr std::array save_commands{SaveWord};
-    for (const HWND toolbar : {Child(Toolbar), Child(InlineSave)}) {
-        while (::SendMessageW(toolbar, TB_BUTTONCOUNT, 0, 0) > 0) {
-            if (!::SendMessageW(toolbar, TB_DELETEBUTTON, 0, 0)) {
-                QIQI_LOG_ERROR("DictManager TB_DELETEBUTTON failed");
-                throw std::runtime_error("TB_DELETEBUTTON failed");
-            }
-        }
-        const auto commands = toolbar == Child(Toolbar)
-            ? std::span<const ControlId>(toolbar_commands) : std::span<const ControlId>(save_commands);
-        for (const auto id : commands) {
-            TBBUTTON item{};
-            item.iBitmap = I_IMAGENONE;
-            item.idCommand = std::to_underlying(id);
-            item.fsState = TBSTATE_ENABLED;
-            item.fsStyle = BTNS_BUTTON;
-            item.iString = reinterpret_cast<INT_PTR>(CommandText(id));
-            if (!::SendMessageW(toolbar, TB_ADDBUTTONSW, 1, reinterpret_cast<LPARAM>(&item))) {
-                QIQI_LOG_ERROR("DictManager TB_ADDBUTTONSW failed");
-                throw std::runtime_error("TB_ADDBUTTONSW failed");
-            }
-        }
-        ::SendMessageW(toolbar, TB_AUTOSIZE, 0, 0);
-    }
+    const std::array file{UiCommand(Reload), UiCommand(Separator), UiCommand(Import), UiCommand(Export),
+        UiCommand(Separator), UiCommand(Backup), UiCommand(Restore), UiCommand(Separator), UiCommand(Exit)};
+    const std::array edit{UiCommand(NewWord), UiCommand(SaveWord), UiCommand(CancelEdit), UiCommand(AutoCode),
+        UiCommand(Separator), UiCommand(Copy), UiCommand(SelectAll), UiCommand(Pin), UiCommand(Delete),
+        UiCommand(Promote), UiCommand(Separator), UiCommand(ClearFreq)};
+    const std::array language{UiCommand(LanguageAuto), UiCommand(LanguageZh), UiCommand(LanguageEn)};
+    const std::array help{UiCommand(About)};
+    const std::array menus{
+        ToolMenu{MenuHeading(0), L'f', file}, ToolMenu{MenuHeading(1), L'e', edit},
+        ToolMenu{MenuHeading(2), L'l', language, true}, ToolMenu{MenuHeading(3), L'h', help}};
+    command_ui.SetMenu(hwnd, menus);
+    std::array<ToolCommand, toolbar_commands.size()> buttons{};
+    std::ranges::transform(toolbar_commands, buttons.begin(), [this](ControlId id) { return UiCommand(id); });
+    command_ui.SetToolbar(Child(Toolbar), buttons);
+    const std::array save{UiCommand(SaveWord)};
+    command_ui.SetToolbar(Child(InlineSave), save);
     UpdateCommandState();
-    ::DrawMenuBar(hwnd);
 }
 
 void DictManagerWindow::Impl::Failure(std::wstring_view operation, ULONG error) {
@@ -335,13 +226,8 @@ bool DictManagerWindow::Impl::CreateControls() {
         !Add(L"STATIC", L"", SS_LEFT, Status)) {
         return false;
     }
-    for (const auto id : {Toolbar, InlineSave}) {
-        ::SendMessageW(Child(id), TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
-        ::SendMessageW(Child(id), TB_SETMAXTEXTROWS, 0, 0);
-        ::SendMessageW(Child(id), TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS | TBSTYLE_EX_DOUBLEBUFFER);
-    }
-    // The row toolbar has no bitmap; avoid the native default bitmap's minimum button size.
-    ::SendMessageW(Child(InlineSave), TB_SETBITMAPSIZE, 0, MAKELPARAM(1, 1));
+    command_ui.InitializeToolbar(Child(Toolbar));
+    command_ui.InitializeToolbar(Child(InlineSave), true);
     for (const auto id : {EditWordInput, EditCodeInput, InlineSave}) {
         ::ShowWindow(Child(id), SW_HIDE);
         if (!::SetWindowSubclass(Child(id), EditorProcedure, 1, reinterpret_cast<DWORD_PTR>(this))) {
@@ -397,13 +283,7 @@ void DictManagerWindow::Impl::Layout() noexcept {
         ::MoveWindow(Child(id), x, y, std::max(1, w), std::max(1, h), TRUE);
     };
 
-    const int button_size = s(36);
-    ::SendMessageW(Child(Toolbar), TB_SETBUTTONSIZE, 0, MAKELPARAM(button_size, button_size));
-    ::SendMessageW(Child(Toolbar), TB_SETBUTTONWIDTH, 0, MAKELPARAM(button_size, button_size));
-    ::SendMessageW(Child(Toolbar), TB_AUTOSIZE, 0, 0);
-    RECT toolbar_rect{};
-    ::GetWindowRect(Child(Toolbar), &toolbar_rect);
-    const int filter_top = toolbar_rect.bottom - toolbar_rect.top + s(12);
+    const int filter_top = command_ui.LayoutToolbar(Child(Toolbar), width, theme) + s(12);
     move(SourceLabel, s(12), filter_top + s(4), s(56), s(24));
     move(SourceCombo, s(72), filter_top, s(165), s(220));
     move(SearchLabel, s(250), filter_top + s(4), s(64), s(24));
@@ -423,72 +303,7 @@ void DictManagerWindow::Impl::UpdateTheme() noexcept {
         Child(SearchEdit),
         Child(EditWordInput), Child(EditCodeInput)};
     std::ignore = ApplyToolWindowListAndControlsTheme(hwnd, Child(List), theme, controls);
-    const bool contrast = IsHighContrastEnabled();
-    const auto& palette = GetCurrentThemePalette();
-    ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(
-        contrast ? ::GetSysColor(COLOR_MENUBAR) : palette.window_bg));
-    if (background && ::GetMenu(hwnd)) {
-        MENUINFO info{};
-        info.cbSize = sizeof(info);
-        info.fMask = MIM_BACKGROUND;
-        info.hbrBack = background.Get();
-        if (::SetMenuInfo(::GetMenu(hwnd), &info)) {
-            menu_brush = std::move(background);
-        } else {
-            QIQI_LOG_ERROR("DictManager SetMenuInfo failed (error={})", ::GetLastError());
-        }
-    } else if (!background) {
-        QIQI_LOG_ERROR("DictManager menu background brush creation failed");
-    }
-    ::DrawMenuBar(hwnd);
-    ::InvalidateRect(Child(Toolbar), nullptr, TRUE);
-    ::InvalidateRect(Child(InlineSave), nullptr, TRUE);
-    for (const auto id : {Toolbar, InlineSave}) {
-        const auto tooltip = reinterpret_cast<HWND>(::SendMessageW(Child(id), TB_GETTOOLTIPS, 0, 0));
-        if (tooltip) {
-            std::ignore = log::CheckHResult(
-                ::SetWindowTheme(tooltip, contrast ? nullptr : (palette.is_dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr),
-                "DictManager toolbar tooltip theme");
-        }
-    }
-}
-
-LRESULT DictManagerWindow::Impl::DrawToolbar(NMCUSTOMDRAW& draw) const noexcept {
-    const bool contrast = IsHighContrastEnabled();
-    const auto& palette = GetCurrentThemePalette();
-    const auto fill = [&](const RECT& rect, COLORREF color) noexcept {
-        ::SetDCBrushColor(draw.hdc, color);
-        ::FillRect(draw.hdc, &rect, static_cast<HBRUSH>(::GetStockObject(DC_BRUSH)));
-    };
-    if (draw.dwDrawStage == CDDS_PREPAINT) {
-        fill(draw.rc, contrast ? ::GetSysColor(COLOR_BTNFACE) : palette.window_bg);
-        return CDRF_NOTIFYITEMDRAW;
-    }
-    if (draw.dwDrawStage == CDDS_ITEMPREPAINT) {
-        const bool hot = (draw.uItemState & (CDIS_HOT | CDIS_SELECTED)) != 0;
-        const bool disabled = (draw.uItemState & CDIS_DISABLED) != 0;
-        const COLORREF background = contrast
-            ? ::GetSysColor(hot ? COLOR_HIGHLIGHT : COLOR_BTNFACE)
-            : (hot ? palette.hover_bg : palette.window_bg);
-        const COLORREF foreground = contrast
-            ? ::GetSysColor(disabled ? COLOR_GRAYTEXT : (hot ? COLOR_HIGHLIGHTTEXT : COLOR_BTNTEXT))
-            : (disabled ? palette.grip_dot : palette.text_primary);
-        const ScopedSaveDC save(draw.hdc);
-        fill(draw.rc, background);
-        const bool inline_save = draw.hdr.hwndFrom == Child(InlineSave);
-        const int icon_size = inline_save
-            ? std::max(1, std::min(theme.ScalePx(16), gsl::narrow_cast<int>(draw.rc.bottom - draw.rc.top) - theme.ScalePx(4)))
-            : theme.ScalePx(20);
-        DrawToolbarIcon(draw.hdc, draw.rc, gsl::narrow_cast<ControlId>(draw.dwItemSpec),
-            icon_size, std::max(1, theme.ScalePx(inline_save ? 1 : 2)), foreground);
-        if (draw.uItemState & CDIS_FOCUS) {
-            RECT focus_rect = draw.rc;
-            ::InflateRect(&focus_rect, -2, -2);
-            ::DrawFocusRect(draw.hdc, &focus_rect);
-        }
-        return CDRF_SKIPDEFAULT;
-    }
-    return CDRF_DODEFAULT;
+    command_ui.ApplyTheme(hwnd);
 }
 
 void DictManagerWindow::Impl::ApplyLanguage() {
@@ -1267,56 +1082,8 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
     auto* self = BindOrGetWindowUserData<Impl>(window, message, lparam);
     if (!self || message == WM_NCCREATE) return ::DefWindowProcW(window, message, wparam, lparam);
     try {
-        if (message == WM_MEASUREITEM && lparam) {
-            auto& measure = *reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
-            if (measure.CtlType == ODT_MENU) {
-                const ScopedWindowDC dc(window);
-                const ScopedSelectObject selected(dc.Get(), self->font.Get());
-                RECT bounds{};
-                if (!dc || !selected || !::DrawTextW(dc.Get(), self->MenuHeading(measure.itemData), -1,
-                        &bounds, DT_CALCRECT | DT_SINGLELINE)) {
-                    QIQI_LOG_ERROR("DictManager menu text measurement failed");
-                    return FALSE;
-                }
-                measure.itemWidth = gsl::narrow_cast<UINT>(bounds.right + self->theme.ScalePx(20));
-                measure.itemHeight = gsl::narrow_cast<UINT>(bounds.bottom + self->theme.ScalePx(8));
-                return TRUE;
-            }
-        }
-        if (message == WM_DRAWITEM && lparam) {
-            const auto& draw = *reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
-            if (draw.CtlType == ODT_MENU) {
-                const bool contrast = IsHighContrastEnabled();
-                const auto& palette = GetCurrentThemePalette();
-                const bool hot = (draw.itemState & (ODS_HOTLIGHT | ODS_SELECTED)) != 0;
-                const ScopedSaveDC saved(draw.hDC);
-                const ScopedSelectObject selected(draw.hDC, self->font.Get());
-                ::SetDCBrushColor(draw.hDC, contrast
-                    ? ::GetSysColor(hot ? COLOR_HIGHLIGHT : COLOR_MENUBAR)
-                    : (hot ? palette.hover_bg : palette.window_bg));
-                ::FillRect(draw.hDC, &draw.rcItem, static_cast<HBRUSH>(::GetStockObject(DC_BRUSH)));
-                ::SetTextColor(draw.hDC, contrast
-                    ? ::GetSysColor(hot ? COLOR_HIGHLIGHTTEXT : COLOR_MENUTEXT) : palette.text_primary);
-                ::SetBkMode(draw.hDC, TRANSPARENT);
-                RECT rect = draw.rcItem;
-                ::DrawTextW(draw.hDC, self->MenuHeading(draw.itemData), -1, &rect,
-                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | ((draw.itemState & ODS_NOACCEL) ? DT_HIDEPREFIX : 0));
-                return TRUE;
-            }
-        }
-        if (message == WM_NOTIFY && lparam) {
-            const auto& header = *reinterpret_cast<const NMHDR*>(lparam);
-            if ((header.hwndFrom == self->Child(Toolbar) || header.hwndFrom == self->Child(InlineSave)) && header.code == NM_CUSTOMDRAW) {
-                return self->DrawToolbar(*reinterpret_cast<NMCUSTOMDRAW*>(lparam));
-            }
-            if ((header.hwndFrom == self->Child(Toolbar) || header.hwndFrom == self->Child(InlineSave)) && header.code == TBN_GETINFOTIPW) {
-                auto& tip = *reinterpret_cast<NMTBGETINFOTIPW*>(lparam);
-                if (tip.pszText && tip.cchTextMax > 0) {
-                    wcsncpy_s(tip.pszText, gsl::narrow_cast<size_t>(tip.cchTextMax),
-                        self->CommandText(gsl::narrow_cast<ControlId>(tip.iItem)), _TRUNCATE);
-                }
-                return 0;
-            }
+        if (const auto handled = self->command_ui.HandleMessage(window, message, wparam, lparam, self->font.Get(), self->theme)) {
+            return *handled;
         }
         if (const auto handled = HandleFluentToolWindowMessage(
                 window, message, wparam, lparam, self->theme,
@@ -1327,16 +1094,6 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
         case WM_SIZE:
             self->Layout();
             return 0;
-        case WM_MENUCHAR:
-            if (reinterpret_cast<HMENU>(lparam) == ::GetMenu(window)) {
-                constexpr std::array keys{L'f', L'e', L'l', L'h'};
-                for (size_t i = 0; i < keys.size(); ++i) {
-                    if (LOWORD(wparam) == gsl::at(keys, i) || LOWORD(wparam) == gsl::at(keys, i) - L'a' + L'A') {
-                        return MAKELRESULT(i, MNC_EXECUTE);
-                    }
-                }
-            }
-            break;
         case WM_TIMER:
             if (self->ready) self->Tick();
             return 0;

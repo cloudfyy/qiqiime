@@ -5,8 +5,10 @@
 #include "common/d2d_controls.h"
 #include "common/i18n.h"
 #include "common/logger.h"
+#include "common/command_ui.h"
 
 #include <commctrl.h>
+#include <array>
 
 namespace qiqi::monitor {
 
@@ -20,6 +22,8 @@ struct MonitorWindow::Impl {
     ScopedGdiHandle<HFONT> font;
     ScopedIcon small_icon;
     ScopedIcon big_icon;
+    ToolCommandUi command_ui{ReportCommandError, this};
+    std::optional<std::array<bool, 5>> command_state;
     UiLanguage ui_language = UiLanguage::Auto;
     HINSTANCE instance = nullptr;
     HWND hwnd = nullptr;
@@ -98,6 +102,12 @@ struct MonitorWindow::Impl {
     static LRESULT CALLBACK ListProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
         UINT_PTR subclass, DWORD_PTR context) noexcept;
     bool CreateControls();
+    static void ReportCommandError(void* context, const char* operation, ULONG error) noexcept;
+    const wchar_t* CommandText(ControlId id) const noexcept;
+    ToolCommand UiCommand(ControlId id) const noexcept;
+    const Event* FirstSelectedEvent() const noexcept;
+    void UpdateCommands();
+    void RefreshCommandState();
     void Layout() noexcept;
     void UpdateTheme() noexcept;
     void ApplyLanguage();

@@ -5,6 +5,7 @@
 #include "common/d2d_controls.h"
 #include "common/i18n.h"
 #include "common/logger.h"
+#include "common/command_ui.h"
 
 #include <commctrl.h>
 #include <optional>
@@ -17,7 +18,7 @@ struct DictManagerWindow::Impl {
     ScopedGdiHandle<HFONT> font;
     ScopedIcon small_icon;
     ScopedIcon big_icon;
-    ScopedGdiHandle<HBRUSH> menu_brush;
+    ToolCommandUi command_ui{ReportCommandError, this};
     UiLanguage ui_language = UiLanguage::Auto;
     HINSTANCE instance = nullptr;
     HWND hwnd = nullptr;
@@ -77,9 +78,10 @@ struct DictManagerWindow::Impl {
         UINT_PTR subclass, DWORD_PTR context) noexcept;
     bool CreateControls();
     void UpdateCommands();
+    static void ReportCommandError(void*, const char* operation, ULONG error) noexcept;
+    ToolCommand UiCommand(ControlId id) const noexcept;
     const wchar_t* CommandText(ControlId id) const noexcept;
     const wchar_t* MenuHeading(size_t index) const noexcept;
-    LRESULT DrawToolbar(NMCUSTOMDRAW& draw) const noexcept;
     void Layout() noexcept;
     void UpdateTheme() noexcept;
     void ApplyLanguage();

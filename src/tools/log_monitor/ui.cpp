@@ -1,6 +1,6 @@
 #include "tools/log_monitor/internal.h"
 #include "common/theme.h"
-#include "common/tool_window.h"
+#include "common/window.h"
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
@@ -13,6 +13,87 @@
 
 namespace qiqi::monitor {
 using enum ControlId;
+
+void MonitorWindow::Impl::ReportCommandError(void* context, const char* operation, ULONG error) noexcept {
+    auto* self = static_cast<Impl*>(context);
+    std::array<wchar_t, 128> text{};
+    size_t count = 0;
+    for (const char ch : std::string_view(operation)) {
+        if (count == text.size() - 1) break;
+        gsl::at(text, count++) = gsl::narrow_cast<wchar_t>(ch);
+    }
+    self->diagnostics.Record(2, std::wstring_view(text.data(), count), error);
+}
+
+const wchar_t* MonitorWindow::Impl::CommandText(ControlId id) const noexcept {
+    switch (id) {
+    case Start: return collector.Running() ? Text(L"停止采集", L"Stop") : Text(L"开始采集", L"Start");
+    case Pause: return paused ? Text(L"恢复滚动", L"Resume scroll") : Text(L"暂停滚动", L"Pause scroll");
+    case Clear: return Text(L"清空", L"Clear");
+    case Copy: return Text(L"复制", L"Copy");
+    case Export: return Text(L"导出...", L"Export...");
+    case Source: return diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics");
+    case About: return Text(L"关于...", L"About...");
+    case SelectAll: return Text(L"全选", L"Select All");
+    case FilterActivity: return Text(L"按当前活动关联筛选", L"Filter by selected activity");
+    case ClearActivity: return Text(L"清除活动关联筛选", L"Clear activity filter");
+    case LanguageAuto: return GetUiStrings(ui_language).dlg_lang_auto;
+    case LanguageZh: return GetUiStrings(ui_language).dlg_lang_zh;
+    case LanguageEn: return GetUiStrings(ui_language).dlg_lang_en;
+    case Exit: return Text(L"退出", L"Exit");
+    default: return L"";
+    }
+}
+
+ToolCommand MonitorWindow::Impl::UiCommand(ControlId id) const noexcept {
+    ToolIcon icon = ToolIcon::None;
+    switch (id) {
+    case Start: icon = collector.Running() ? ToolIcon::Stop : ToolIcon::Start; break;
+    case Pause: icon = paused ? ToolIcon::Resume : ToolIcon::Pause; break;
+    case Clear: icon = ToolIcon::Delete; break;
+    case Copy: icon = ToolIcon::Copy; break;
+    case Export: icon = ToolIcon::Export; break;
+    case Source: icon = diagnostic_view ? ToolIcon::Events : ToolIcon::Diagnostics; break;
+    default: break;
+    }
+    const bool checked = (id == Pause && paused) || (id == Source && diagnostic_view) ||
+        (id >= LanguageAuto && id <= LanguageEn &&
+            std::to_underlying(id) - std::to_underlying(LanguageAuto) == std::to_underlying(ui_language));
+    const auto* selected_event = id == FilterActivity ? FirstSelectedEvent() : nullptr;
+    const bool enabled = id == FilterActivity ? selected_event && selected_event->activity_id != GUID_NULL
+        : (id != ClearActivity || filter.activity_id.has_value());
+    return {gsl::narrow_cast<UINT>(std::to_underlying(id)), CommandText(id), icon, enabled, checked};
+}
+
+void MonitorWindow::Impl::UpdateCommands() {
+    const ToolCommand separator{};
+    const std::array file{UiCommand(Start), UiCommand(Pause), separator, UiCommand(Export), separator, UiCommand(Exit)};
+    const std::array edit{UiCommand(Copy), UiCommand(SelectAll), separator, UiCommand(Clear)};
+    const std::array view{UiCommand(Source), separator, UiCommand(FilterActivity), UiCommand(ClearActivity)};
+    const std::array language{UiCommand(LanguageAuto), UiCommand(LanguageZh), UiCommand(LanguageEn)};
+    const std::array help{UiCommand(About)};
+    const std::array menus{
+        ToolMenu{Text(L"文件(&F)", L"&File"), L'f', file},
+        ToolMenu{Text(L"编辑(&E)", L"&Edit"), L'e', edit},
+        ToolMenu{Text(L"查看(&V)", L"&View"), L'v', view},
+        ToolMenu{Text(L"语言(&L)", L"&Language"), L'l', language, true},
+        ToolMenu{Text(L"帮助(&H)", L"&Help"), L'h', help}};
+    command_ui.SetMenu(hwnd, menus);
+    const std::array buttons{UiCommand(Start), UiCommand(Pause), UiCommand(Clear),
+        UiCommand(Copy), UiCommand(Export), UiCommand(Source)};
+    command_ui.SetToolbar(Child(Toolbar), buttons);
+    command_state.reset();
+    RefreshCommandState();
+}
+
+void MonitorWindow::Impl::RefreshCommandState() {
+    const auto* event = FirstSelectedEvent();
+    const std::array state{collector.Running(), paused, diagnostic_view,
+        event && event->activity_id != GUID_NULL, filter.activity_id.has_value()};
+    if (command_state == state) return;
+    for (const auto id : {Start, Pause, Source, FilterActivity, ClearActivity}) command_ui.UpdateCommand(hwnd, UiCommand(id));
+    command_state = state;
+}
 
 void MonitorWindow::Impl::UpdateIcons() noexcept {
     if (!UpdateWindowBrandIcons(hwnd, instance, theme, small_icon, big_icon)) {
@@ -38,16 +119,8 @@ bool MonitorWindow::Impl::CreateControls() {
         Failure(L"Create monitor font", ::GetLastError());
         return false;
     }
-    constexpr DWORD button = BS_OWNERDRAW | WS_TABSTOP;
-    if (!Add(L"STATIC", L"", SS_LEFT, LanguageLabel) ||
-        !Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, Language) ||
-        !Add(L"BUTTON", Text(L"开始采集", L"Start"), button, Start) ||
-        !Add(L"BUTTON", Text(L"暂停滚动", L"Pause scroll"), button, Pause) ||
-        !Add(L"BUTTON", Text(L"清空", L"Clear"), button, Clear) ||
-        !Add(L"BUTTON", Text(L"复制", L"Copy"), button, Copy) ||
-        !Add(L"BUTTON", Text(L"导出", L"Export"), button, Export) ||
-        !Add(L"BUTTON", Text(L"工具诊断", L"Diagnostics"), button, Source) ||
-        !Add(L"BUTTON", Text(L"关于", L"About"), button, About) ||
+    if (!Add(TOOLBARCLASSNAMEW, L"", TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | TBSTYLE_WRAPABLE |
+            CCS_TOP | CCS_NODIVIDER | WS_TABSTOP, Toolbar) ||
         !Add(L"STATIC", Text(L"调整详情区高度", L"Resize details pane"), SS_NOTIFY | WS_TABSTOP, DetailsSplitter) ||
         !Add(L"STATIC", Text(L"进程", L"Process"), SS_LEFT, ProcessLabel) ||
         !Add(L"STATIC", L"PID", SS_LEFT, PidLabel) ||
@@ -64,13 +137,11 @@ bool MonitorWindow::Impl::CreateControls() {
         !Add(L"EDIT", L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL |
             WS_HSCROLL | WS_BORDER | WS_TABSTOP, Details) ||
         !Add(L"STATIC", L"", SS_LEFT, Status)) return false;
+    command_ui.InitializeToolbar(Child(Toolbar));
     ::SendMessageW(Child(Details), EM_SETLIMITTEXT, 1024 * 1024, 0);
     if (!::SetWindowSubclass(Child(DetailsSplitter), SplitterProcedure, 1, reinterpret_cast<DWORD_PTR>(this))) {
         Failure(L"SetWindowSubclass(details splitter)", ERROR_NOT_ENOUGH_MEMORY);
         return false;
-    }
-    if (!theme.d2d_target || !theme.fmt_btn) {
-        diagnostics.Record(3, L"Direct2D/DirectWrite unavailable; using native button fallback", ERROR_NOT_SUPPORTED);
     }
     ListView_SetExtendedListViewStyle(Child(List), LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
     if (!::SetWindowSubclass(Child(List), ListProcedure, 1, reinterpret_cast<DWORD_PTR>(this))) {
@@ -112,38 +183,22 @@ void MonitorWindow::Impl::Layout() noexcept {
     const auto move = [&](ControlId id, int x, int y, int w, int h) noexcept {
         ::MoveWindow(Child(id), x, y, std::max(1, w), std::max(1, h), TRUE);
     };
-    constexpr std::array buttons{Start, Pause, Clear, Copy, Export, Source, About};
-    constexpr int button_count = gsl::narrow_cast<int>(buttons.size());
-    const int toolbar_columns = width >= s(1060) ? button_count : (width >= s(720) ? 4 : 3);
-    const int toolbar_rows = (button_count + toolbar_columns - 1) / toolbar_columns;
-    for (int index = 0; index < button_count; ++index) {
-        move(gsl::at(buttons, index), s(12 + (index % toolbar_columns) * 108),
-            s(12 + (index / toolbar_columns) * 40), s(100), s(32));
-    }
-    int filter_top = s(12 + toolbar_rows * 40);
-    if (width >= s(760)) {
-        move(LanguageLabel, width - s(296), s(18), s(76), s(24));
-        move(Language, width - s(212), s(12), s(200), s(200));
-    } else {
-        move(LanguageLabel, s(12), filter_top + s(4), s(76), s(24));
-        move(Language, s(92), filter_top, width - s(104), s(200));
+    int filter_top = command_ui.LayoutToolbar(Child(Toolbar), width, theme) + s(12);
+    move(ProcessLabel, s(12), filter_top + s(4), s(60), s(24));
+    move(Process, s(76), filter_top, s(150), s(240));
+    move(PidLabel, s(236), filter_top + s(4), s(28), s(24));
+    move(Pid, s(268), filter_top, s(82), s(240));
+    move(LevelLabel, s(360), filter_top + s(4), s(44), s(24));
+    move(Level, s(408), filter_top, s(110), s(240));
+    move(CategoryLabel, s(528), filter_top + s(4), s(72), s(24));
+    move(Category, s(604), filter_top, s(126), s(240));
+    if (width < s(1100)) {
         filter_top += s(38);
-    }
-    move(ProcessLabel, s(12), filter_top + s(4), s(48), s(24));
-    move(Process, s(62), filter_top, s(150), s(240));
-    move(PidLabel, s(222), filter_top + s(4), s(28), s(24));
-    move(Pid, s(254), filter_top, s(82), s(240));
-    move(LevelLabel, s(346), filter_top + s(4), s(44), s(24));
-    move(Level, s(394), filter_top, s(110), s(240));
-    move(CategoryLabel, s(514), filter_top + s(4), s(52), s(24));
-    move(Category, s(570), filter_top, s(126), s(240));
-    if (width < s(980)) {
-        filter_top += s(38);
-        move(SearchLabel, s(12), filter_top + s(4), s(58), s(24));
-        move(Search, s(74), filter_top, width - s(86), s(28));
+        move(SearchLabel, s(12), filter_top + s(4), s(68), s(24));
+        move(Search, s(84), filter_top, width - s(96), s(28));
     } else {
-        move(SearchLabel, s(706), filter_top + s(4), s(58), s(24));
-        move(Search, s(768), filter_top, width - s(780), s(28));
+        move(SearchLabel, s(740), filter_top + s(4), s(68), s(24));
+        move(Search, s(812), filter_top, width - s(824), s(28));
     }
     const int top = filter_top + s(42);
     const int detail_limit_px = std::max(s(60), gsl::narrow_cast<int>(rect.bottom) - top - s(50) - s(60));
@@ -161,10 +216,11 @@ void MonitorWindow::Impl::UpdateTheme() noexcept {
     if (!ready) return;
     const std::array controls{
         Child(List), Child(Process), Child(Pid), Child(Search),
-        Child(Details), Child(Language), Child(Level), Child(Category)};
+        Child(Details), Child(Level), Child(Category)};
     if (!ApplyToolWindowListAndControlsTheme(hwnd, Child(List), theme, controls)) {
         diagnostics.Record(3, L"SetWindowTheme(control/header)", ERROR_GEN_FAILURE);
     }
+    command_ui.ApplyTheme(hwnd);
 }
 
 void MonitorWindow::Impl::ApplyLanguage() {
@@ -172,15 +228,10 @@ void MonitorWindow::Impl::ApplyLanguage() {
     const auto title = std::format(L"{} v{} ({})", Text(L"奇奇日志监控", L"QiQiIME Log Monitor"), version::kVersionW, version::kArchW);
     ::SetWindowTextW(hwnd, title.c_str());
     for (const auto& [id, text] : std::array{
-        std::pair{Clear, Text(L"清空", L"Clear")}, std::pair{Copy, Text(L"复制", L"Copy")},
-        std::pair{Export, Text(L"导出", L"Export")},
-        std::pair{About, Text(L"关于", L"About")}, std::pair{ProcessLabel, Text(L"进程", L"Process")},
+        std::pair{ProcessLabel, Text(L"进程", L"Process")},
         std::pair{LevelLabel, Text(L"级别", L"Level")}, std::pair{CategoryLabel, Text(L"分类", L"Category")},
         std::pair{SearchLabel, Text(L"消息", L"Message")},
-        std::pair{DetailsSplitter, Text(L"调整详情区高度", L"Resize details pane")},
-        std::pair{LanguageLabel, Text(L"语言", L"Language")},
-        std::pair{Pause, paused ? Text(L"恢复滚动", L"Resume scroll") : Text(L"暂停滚动", L"Pause scroll")},
-        std::pair{Source, diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics")}}) {
+        std::pair{DetailsSplitter, Text(L"调整详情区高度", L"Resize details pane")}}) {
         ::SetWindowTextW(Child(id), text);
     }
     const auto replace = [&](ControlId id, std::span<const wchar_t* const> items) {
@@ -201,9 +252,6 @@ void MonitorWindow::Impl::ApplyLanguage() {
         CategoryText(std::to_underlying(log::Keyword::UI)),
         CategoryText(std::to_underlying(log::Keyword::Config))};
     replace(Category, categories);
-    const auto& strings = GetUiStrings(ui_language);
-    const std::array languages{strings.dlg_lang_auto, strings.dlg_lang_zh, strings.dlg_lang_en};
-    replace(Language, languages);
     RefreshProcessChoices(true);
     const std::array<const wchar_t*, 7> columns{
         Text(L"时间 (UTC)", L"Time (UTC)"), Text(L"进程", L"Process"), L"PID", L"TID",
@@ -215,6 +263,9 @@ void MonitorWindow::Impl::ApplyLanguage() {
         column.pszText = text.data();
         ListView_SetColumn(Child(List), gsl::narrow_cast<int>(i), &column);
     }
+    UpdateCommands();
+    Layout();
+    UpdateTheme();
     UpdateStatus();
     UpdateDetails();
     ::InvalidateRect(Child(List), nullptr, FALSE);
@@ -240,7 +291,7 @@ void MonitorWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) noexcept {
         for (int i = 0; i < 7; ++i) {
             ListView_SetColumnWidth(Child(List), i, ::MulDiv(ListView_GetColumnWidth(Child(List), i), gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
         }
-        for (const auto id : {Process, Pid, Level, Category, Language}) {
+        for (const auto id : {Process, Pid, Level, Category}) {
             ::SendMessageW(Child(id), CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), theme.ScalePx(22));
             ::SendMessageW(Child(id), CB_SETITEMHEIGHT, 0, theme.ScalePx(22));
         }
