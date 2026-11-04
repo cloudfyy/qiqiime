@@ -14,7 +14,7 @@
 namespace qiqi::monitor {
 using enum ControlId;
 
-void MonitorWindow::Impl::UpdateIcons() {
+void MonitorWindow::Impl::UpdateIcons() noexcept {
     if (!UpdateWindowBrandIcons(hwnd, instance, theme, small_icon, big_icon)) {
         diagnostics.Record(2, L"Load DPI-scaled brand icons", ::GetLastError());
     }
@@ -220,7 +220,7 @@ void MonitorWindow::Impl::ApplyLanguage() {
     ::InvalidateRect(Child(List), nullptr, FALSE);
 }
 
-void MonitorWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) {
+void MonitorWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) noexcept {
     if (!ready || updating_display) return;
     updating_display = true;
     const auto restore = gsl::finally([this]() noexcept { updating_display = false; });
@@ -256,7 +256,7 @@ void MonitorWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) {
     UpdateTheme();
 }
 
-void MonitorWindow::Impl::RecoverDisplay() {
+void MonitorWindow::Impl::RecoverDisplay() noexcept {
     if (!ready || updating_display || ::IsIconic(hwnd) || ::IsZoomed(hwnd)) return;
     RECT rect{};
     if (!::GetWindowRect(hwnd, &rect)) {

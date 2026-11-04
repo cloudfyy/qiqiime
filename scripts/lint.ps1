@@ -13,11 +13,14 @@ $targets = @(
     'qiqiime'
     'QiQiIMESettings'
     'QiQiIMELogMonitor'
+    'QiQiIMEDictManager'
     'qiqi_common_test'
+    'qiqi_change_sync_test'
     'qiqi_engine_test'
     'qiqi_tsf_ui_test'
     'qiqi_settings_test'
     'qiqi_log_monitor_test'
+    'qiqi_dict_manager_test'
 )
 $buildArguments = @(
     '--build', $BuildDirectory,

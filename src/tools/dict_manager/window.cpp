@@ -27,7 +27,7 @@ void DictManagerWindow::Impl::Failure(std::wstring_view operation, ULONG error) 
     ::MessageBoxW(hwnd, message.c_str(), Text(L"奇奇五笔词库管理", L"QiQiIME Dictionary Manager"), MB_OK | MB_ICONERROR);
 }
 
-void DictManagerWindow::Impl::UpdateIcons() {
+void DictManagerWindow::Impl::UpdateIcons() noexcept {
     std::ignore = UpdateWindowBrandIcons(hwnd, instance, theme, small_icon, big_icon);
 }
 
@@ -49,17 +49,22 @@ LRESULT CALLBACK DictManagerWindow::Impl::ListProcedure(
     if (message == WM_NCDESTROY) {
         ::RemoveWindowSubclass(window, ListProcedure, subclass);
     } else if (message == WM_KEYDOWN && self && self->ready) {
-        if ((::GetKeyState(VK_CONTROL) & 0x8000) != 0) {
-            if (wparam == 'C' || wparam == VK_INSERT) {
-                self->CopySelection();
+        try {
+            if ((::GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+                if (wparam == 'C' || wparam == VK_INSERT) {
+                    self->CopySelection();
+                    return 0;
+                }
+                if (wparam == 'A') {
+                    self->SelectAllRows();
+                    return 0;
+                }
+            } else if (wparam == VK_DELETE) {
+                self->ExecuteDeleteSelected();
                 return 0;
             }
-            if (wparam == 'A') {
-                self->SelectAllRows();
-                return 0;
-            }
-        } else if (wparam == VK_DELETE) {
-            self->ExecuteDeleteSelected();
+        } catch (const std::exception&) {
+            QIQI_LOG_CAT_ERROR(log::Keyword::Dictionary, "DictManager ListProcedure shortcut failed with an exception");
             return 0;
         }
     } else if (message == WM_NOTIFY && self) {
@@ -259,7 +264,7 @@ void DictManagerWindow::Impl::ApplyLanguage() {
     ::InvalidateRect(Child(List), nullptr, FALSE);
 }
 
-void DictManagerWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) {
+void DictManagerWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) noexcept {
     if (!ready) return;
     const UINT previous = theme.dpi;
     if (dpi != previous) {
@@ -297,7 +302,7 @@ void DictManagerWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) {
     UpdateTheme();
 }
 
-void DictManagerWindow::Impl::RecoverDisplay() {
+void DictManagerWindow::Impl::RecoverDisplay() noexcept {
     if (!ready || ::IsIconic(hwnd) || ::IsZoomed(hwnd)) return;
     RECT rect{};
     if (!::GetWindowRect(hwnd, &rect)) return;
@@ -362,7 +367,7 @@ void DictManagerWindow::Impl::SelectAllRows() {
     SyncSelectionFromList();
 }
 
-void DictManagerWindow::Impl::SyncEditorFromSelection() {
+void DictManagerWindow::Impl::SyncEditorFromSelection() noexcept {
     const auto* rec = model.FindById(selected_id);
     if (!rec) return;
     updating_editor = true;

@@ -59,7 +59,7 @@ struct DictManagerWindow::Impl {
         }
     }
 
-    void UpdateIcons();
+    void UpdateIcons() noexcept;
     void Failure(std::wstring_view operation, ULONG error);
     bool Add(const wchar_t* cls, const wchar_t* text, DWORD style, ControlId id);
     static LRESULT CALLBACK ListProcedure(
@@ -69,8 +69,8 @@ struct DictManagerWindow::Impl {
     void Layout() noexcept;
     void UpdateTheme() noexcept;
     void ApplyLanguage();
-    void UpdateDpi(UINT dpi, const RECT& proposed);
-    void RecoverDisplay();
+    void UpdateDpi(UINT dpi, const RECT& proposed) noexcept;
+    void RecoverDisplay() noexcept;
     void Refilter();
     void SyncSelectionFromList();
     void SelectAllRows();
@@ -80,7 +80,7 @@ struct DictManagerWindow::Impl {
     std::wstring Cell(const DictRecord& record, int column) const;
     void Notify(NMHDR& header);
     std::vector<DictRecord> CollectSelectedRecords() const;
-    void SyncEditorFromSelection();
+    void SyncEditorFromSelection() noexcept;
     void AutoFillCodeFromWord();
     void ExecuteAddOrUpdate();
     void ExecutePinSelected();

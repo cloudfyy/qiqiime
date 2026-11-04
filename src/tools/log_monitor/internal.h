@@ -89,7 +89,7 @@ struct MonitorWindow::Impl {
         }
     }
 
-    void UpdateIcons();
+    void UpdateIcons() noexcept;
     void Failure(std::wstring_view operation, ULONG error);
     bool Add(const wchar_t* cls, const wchar_t* text, DWORD style, ControlId id);
     void ResizeDetails(int height) noexcept;
@@ -101,8 +101,8 @@ struct MonitorWindow::Impl {
     void Layout() noexcept;
     void UpdateTheme() noexcept;
     void ApplyLanguage();
-    void UpdateDpi(UINT dpi, const RECT& proposed);
-    void RecoverDisplay();
+    void UpdateDpi(UINT dpi, const RECT& proposed) noexcept;
+    void RecoverDisplay() noexcept;
     void RefreshProcessChoices(bool force = false);
     void Refilter();
     void SyncSelectionFromList();
