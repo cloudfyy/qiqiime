@@ -617,8 +617,8 @@ void TestGuiWindow() {
                     (language == LanguageAuto && ResolveUiLanguage(UiLanguage::Auto) == UiLanguage::EnUs);
                 const auto sources = english
                     ? std::array{L"All Sources", L"User Dict", L"Pinned", L"Blocked", L"Phrase Ordering",
-                          L"Primary Dict", L"Extra Dict"}
-                    : std::array{L"全部来源", L"用户词库", L"手动置顶", L"已屏蔽词", L"词组排序", L"主词库", L"扩展词库"};
+                          L"Primary Dict", L"Jidian Extra Dict"}
+                    : std::array{L"全部来源", L"用户词库", L"手动置顶", L"已屏蔽词", L"词组排序", L"主词库", L"极点扩展词库"};
                 QIQI_TEST_CHECK(::SendMessageW(Child(window, SourceCombo), CB_GETCOUNT, 0, 0) ==
                     gsl::narrow_cast<LRESULT>(sources.size()));
                 for (size_t i = 0; i < sources.size(); ++i) {

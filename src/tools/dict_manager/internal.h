@@ -52,7 +52,7 @@ struct DictManagerWindow::Impl {
         case DictEntrySource::Blocked:     return Text(L"已屏蔽词", L"Blocked");
         case DictEntrySource::PhraseFreq:  return Text(L"词组排序", L"Phrase Ordering");
         case DictEntrySource::PrimaryDict: return Text(L"主词库", L"Primary Dict");
-        case DictEntrySource::ExtraDict:   return Text(L"扩展词库", L"Extra Dict");
+        case DictEntrySource::ExtraDict:   return Text(L"极点扩展词库", L"Jidian Extra Dict");
         default:                           return Text(L"全部来源", L"All Sources");
         }
     }
