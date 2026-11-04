@@ -15,6 +15,8 @@
                         Codepage="$(var.SummaryCodepage)" />
 
     <Icon Id="ProductIcon" SourceFile="data\qiqiime-settings.ico" />
+    <Icon Id="DictManagerIcon" SourceFile="data\qiqiime-dict.ico" />
+    <Icon Id="LogMonitorIcon" SourceFile="data\qiqiime-monitor.ico" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
     <Property Id="ARPCOMMENTS" Value="!(loc.SummaryComments)" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/cloudfyy/qiqiime" />
@@ -39,6 +41,10 @@
         <Directory Id="DirData" Name="data" />
         <Directory Id="DirScripts" Name="scripts" />
       </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="QiQiProgramMenuFolder" Name="QiQiIME" />
     </StandardDirectory>
 
     <ComponentGroup Id="ProductComponents">
@@ -79,6 +85,29 @@
         <File Id="FileReadme" Source="$(var.StageDir)\README.md" />
         <File Id="FileDeployment" Source="$(var.StageDir)\DEPLOYMENT.md" />
         <File Id="FileLogging" Source="$(var.StageDir)\LOGGING.md" />
+      </Component>
+
+      <Component Id="CmpStartMenuShortcuts" Directory="QiQiProgramMenuFolder"
+                 Guid="8E7B9D31-5A42-4C81-9F11-202610290106" Bitness="always64">
+        <Shortcut Id="SettingsShortcut"
+                  Name="!(loc.SettingsShortcutName)"
+                  Description="!(loc.SettingsShortcutDescription)"
+                  Target="[#FileSettingsExeX64]" WorkingDirectory="DirX64"
+                  Icon="ProductIcon" IconIndex="0" Advertise="no" />
+        <Shortcut Id="DictManagerShortcut"
+                  Name="!(loc.DictManagerShortcutName)"
+                  Description="!(loc.DictManagerShortcutDescription)"
+                  Target="[#FileDictManagerExeX64]" WorkingDirectory="DirX64"
+                  Icon="DictManagerIcon" IconIndex="0" Advertise="no" />
+        <Shortcut Id="LogMonitorShortcut"
+                  Name="!(loc.LogMonitorShortcutName)"
+                  Description="!(loc.LogMonitorShortcutDescription)"
+                  Target="[#FileLogMonitorExeX64]" WorkingDirectory="DirX64"
+                  Icon="LogMonitorIcon" IconIndex="0" Advertise="no" />
+        <RemoveFolder Id="RemoveQiQiProgramMenuFolder" On="uninstall" />
+        <!-- HKMU resolves to HKLM for this per-machine package and satisfies ICE43. -->
+        <RegistryValue Root="HKMU" Key="Software\QiQiIME\Installer"
+                       Name="StartMenuShortcuts" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </ComponentGroup>
 

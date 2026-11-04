@@ -98,6 +98,18 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 - **`dist\QiQiIME-v0.9.30-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
 - **`dist\QiQiIME-v0.9.30-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
 
+MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个工具入口，均启动安装目录下的 x64 程序，快捷方式不主动请求管理员权限：
+
+| 简体中文 MSI | 英文 MSI |
+|---|---|
+| 奇奇五笔设置 | QiQiIME Settings |
+| 奇奇五笔词典管理器 | QiQiIME Dict Manager |
+| 奇奇五笔日志监视器 | QiQiIME Log Monitor |
+
+快捷方式名称和说明跟随所安装 MSI 的语言，不随之后的 Windows 显示语言或工具内语言设置自动改名。可按上述名称在开始菜单搜索；搜索索引更新可能需要时间。ZIP 解压或注册脚本不会创建这些入口。MSI 卸载时移除对应快捷方式，仅在文件夹为空时移除 `QiQiIME` 开始菜单文件夹。
+
+日志采集若遇到权限不足，需按[日志监控指南](LOGGING.md)单独提升监控工具或配置 ETW 权限，不要提升输入法宿主。入口与中英文资源的静态回归检查已纳入 `QiQiInstallerShortcutsTest`；该检查不安装产品，不能替代实际安装、升级和卸载验证。
+
 ```text
 QiQiIME-v0.9.30-win-x64-x86/
 ├── x64/
@@ -148,6 +160,8 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
 
 设置保存在 `HKCU\Software\QiQiIME`；默认用户词库的二进制镜像另存为其中的 `UserDictQdict`（最大 512 KiB），在默认用户词表不存在时作为加载后备，不是所有用户文件的实时备份。文本、缓存和注册表镜像不是一个跨资源事务。
 
+词典管理器保存用户词条时先写入用户词库 TXT，再尝试重建 QDICT 缓存及更新同步数据；编辑系统词库等其他来源的词条会另存为用户词，不改写随包词库。备份为用户选择位置的 `.qbak` 文件，不会把运行时词库迁移到备份目录。备份和还原由独立桌面工具执行，不要求 AppContainer 访问备份目录；当前用户仍需具有目标目录的创建、写入及重命名/替换权限。
+
 日志通过 ETW 发出；只有显式采集或导出才产生相应文件。AppContainer 路径和访问权限不能直接套用桌面进程假设，详见 [UWP / AppContainer 说明](https://github.com/cloudfyy/qiqiime/blob/main/docs/UWP_COMPATIBILITY.md)。
 
 ---
@@ -163,6 +177,10 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
    ```
 
 脚本不删除用户设置、用户词库或安装目录；注销并确认文件不再占用后，才可自行清理部署文件。MSI 安装的版本应通过 Windows“已安装的应用”或对应 MSI 卸载，不能用注销脚本代替 Windows Installer 的产品卸载。用户数据保留不等于有独立备份。
+
+MSI 卸载会移除安装文件及开始菜单入口，并清理安装目录中的随包 QDICT 缓存；当前不主动清除 `HKCU\Software\QiQiIME` 中的个人设置、默认 `%LOCALAPPDATA%\QiQiIME` 用户数据或安装目录外自行保存的备份，静默卸载也不额外清除这些数据。自定义词库或备份应放在安装目录之外，避免与安装器管理的文件混用。
+
+**当前没有检测随包词库是否被修改并询问删除的功能**，也没有“彻底清除个人数据”选项。不要依赖 MSI 自动保护手工改过的安装目录文件，升级或卸载前请先另行备份。后续若增加数据清除功能，应默认保留个人数据，仅在用户明确选择并确认后清除；修改过的随包词库则需另行设计内容检测与保留/备份机制，而不是只按修改时间判断或弹窗后直接删除。
 
 ### 6.2 升级或重新编译时的 DLL 文件占用处理
 

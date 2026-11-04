@@ -6,4 +6,10 @@
   <String Id="SummaryKeywords" Value="QiQiIME, QiQi Wubi, Wubi, TSF, Input Method, IME, GPL-3.0" />
   <String Id="DowngradeErrorMessage" Value="A newer version of QiQi Wubi IME is already installed." />
   <String Id="FeatureTitle" Value="QiQi Wubi 86 Input Method" />
+  <String Id="SettingsShortcutName" Value="QiQiIME Settings" />
+  <String Id="SettingsShortcutDescription" Value="Configure QiQi Wubi IME." />
+  <String Id="DictManagerShortcutName" Value="QiQiIME Dict Manager" />
+  <String Id="DictManagerShortcutDescription" Value="Manage QiQiIME user dictionary entries and backups." />
+  <String Id="LogMonitorShortcutName" Value="QiQiIME Log Monitor" />
+  <String Id="LogMonitorShortcutDescription" Value="View and export QiQiIME diagnostic logs." />
 </WixLocalization>

@@ -6,4 +6,10 @@
   <String Id="SummaryKeywords" Value="QiQiIME, 奇奇五笔, Wubi, 五笔输入法, TSF, Input Method, GPL-3.0" />
   <String Id="DowngradeErrorMessage" Value="已安装更新版本的奇奇五笔输入法 (QiQi Wubi IME)。" />
   <String Id="FeatureTitle" Value="奇奇五笔输入法 (QiQi Wubi 86)" />
+  <String Id="SettingsShortcutName" Value="奇奇五笔设置" />
+  <String Id="SettingsShortcutDescription" Value="配置奇奇五笔输入法。" />
+  <String Id="DictManagerShortcutName" Value="奇奇五笔词典管理器" />
+  <String Id="DictManagerShortcutDescription" Value="管理奇奇五笔用户词条与词库备份。" />
+  <String Id="LogMonitorShortcutName" Value="奇奇五笔日志监视器" />
+  <String Id="LogMonitorShortcutDescription" Value="查看和导出奇奇五笔诊断日志。" />
 </WixLocalization>
