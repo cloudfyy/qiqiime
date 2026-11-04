@@ -140,6 +140,22 @@ void TestModelAndCrossProcessSync() {
     QIQI_TEST_CHECK(peer_engine.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
     QIQI_TEST_CHECK(peer_engine.LookupExact(L"abcd").size() == 1);
 
+    QIQI_TEST_CHECK(model.DeleteOrBlockEntry(L"abcd", L"管理词改")); // deletes user entry
+    QIQI_TEST_CHECK(model.DeleteOrBlockEntry(L"aaaa", L"工"));     // blocks system entry
+    QIQI_TEST_CHECK(model.UnblockSystemEntry(L"aaaa", L"工"));
+    QIQI_TEST_CHECK(model.AddOrUpdateUserEntry(L"abcd", L"管理词改"));
+
+    // Invalid input validation branches
+    QIQI_TEST_CHECK(!model.AddOrUpdateUserEntry(L"", L"词") && !model.AddOrUpdateUserEntry(L"abcd", L""));
+    QIQI_TEST_CHECK(!model.ModifyUserEntry(L"", L"旧", L"新") && !model.ModifyUserEntry(L"abcd", L"", L"新"));
+    QIQI_TEST_CHECK(!model.PinUserEntry(L"", L"词") && !model.UnpinUserEntry(L"", L"词"));
+    QIQI_TEST_CHECK(!model.BlockSystemEntry(L"", L"词") && !model.UnblockSystemEntry(L"", L"词"));
+    QIQI_TEST_CHECK(!model.DeleteOrBlockEntry(L"", L"词"));
+    QIQI_TEST_CHECK(!model.ExportRecordsToFile({}, model.Records()));
+    QIQI_TEST_CHECK(!model.CreateBackupBundle({}));
+    size_t bad_imported = 0;
+    QIQI_TEST_CHECK(!model.ImportUserEntriesFromFile(temp_dir / L"missing.txt", bad_imported));
+
     // Phrase frequency promotion, removal, and clearing synced to peer WubiEngine
     QIQI_TEST_CHECK(!model.PromotePhraseFrequency(L"abcd", L"单"));
     QIQI_TEST_CHECK(model.PromotePhraseFrequency(L"abcd", L"管理词改"));
@@ -274,6 +290,77 @@ void TestGuiWindow() {
     ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 2, 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
+
+    // Query LVN_GETDISPINFOW for all 4 columns
+    const HWND list = Child(window, List);
+    for (int col = 0; col < 4; ++col) {
+        std::array<wchar_t, 256> cell_buf{};
+        NMLVDISPINFOW disp{};
+        disp.hdr.hwndFrom = list;
+        disp.hdr.idFrom = gsl::narrow_cast<UINT_PTR>(std::to_underlying(List));
+        disp.hdr.code = LVN_GETDISPINFOW;
+        disp.item.mask = LVIF_TEXT;
+        disp.item.iItem = 0;
+        disp.item.iSubItem = col;
+        disp.item.pszText = cell_buf.data();
+        disp.item.cchTextMax = gsl::narrow_cast<int>(cell_buf.size());
+        ::SendMessageW(window.Handle(), WM_NOTIFY, disp.hdr.idFrom, reinterpret_cast<LPARAM>(&disp));
+        QIQI_TEST_CHECK(gsl::at(cell_buf, 0) != L'\0');
+    }
+
+    // Exercise search filters, Reload, AutoCodeBtn, Copy, Ctrl+A / Ctrl+C / VK_DELETE, DPI / theme / display changes, and context menu
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchCodeEdit), L"kw"));
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SearchCodeEdit), EN_CHANGE), 0);
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchWordEdit), L"人民"));
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SearchWordEdit), EN_CHANGE), 0);
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchCodeEdit), L""));
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SearchCodeEdit), EN_CHANGE), 0);
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchWordEdit), L""));
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SearchWordEdit), EN_CHANGE), 0);
+
+    Click(window, AutoCodeBtn);
+    ListView_SetItemState(list, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    Click(window, Copy);
+    Click(window, Reload);
+    ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+
+    // Keyboard shortcuts on ListView (Ctrl+A, Ctrl+C, VK_DELETE)
+    {
+        std::array<BYTE, 256> keys{};
+        QIQI_TEST_CHECK(::GetKeyboardState(keys.data()));
+        const auto restore_keys = gsl::finally([&keys]() noexcept { ::SetKeyboardState(keys.data()); });
+        std::array<BYTE, 256> ctrl_down = keys;
+        gsl::at(ctrl_down, VK_CONTROL) = 0x80;
+        QIQI_TEST_CHECK(::SetKeyboardState(ctrl_down.data()));
+        ::SendMessageW(list, WM_KEYDOWN, 'A', 0);
+        ::SendMessageW(list, WM_KEYDOWN, 'C', 0);
+    }
+
+    // Context menu open & cancel
+    {
+        const UINT_PTR cancel_timer = ::SetTimer(window.Handle(), 9, 15, [](HWND owner, UINT, UINT_PTR id, DWORD) noexcept {
+            ::KillTimer(owner, id);
+            ::SendMessageW(owner, WM_CANCELMODE, 0, 0);
+        });
+        QIQI_TEST_CHECK(cancel_timer != 0);
+        const auto kill_timer = gsl::finally([&window, cancel_timer]() noexcept {
+            ::KillTimer(window.Handle(), cancel_timer);
+        });
+        ::SendMessageW(window.Handle(), WM_CONTEXTMENU, reinterpret_cast<WPARAM>(list), MAKELPARAM(-1, -1));
+    }
+
+    // DPI, theme, and display recovery messages
+    RECT wnd_rect{};
+    ::GetWindowRect(window.Handle(), &wnd_rect);
+    ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(144, 144), reinterpret_cast<LPARAM>(&wnd_rect));
+    ::SendMessageW(window.Handle(), WM_DISPLAYCHANGE, 0, 0);
+    ::SendMessageW(window.Handle(), WM_SETTINGCHANGE, SPI_SETWORKAREA, 0);
+    ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
+
+    ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 2, 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
     ListView_SetItemState(Child(window, List), 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
     Click(window, PinBtn); // Unpin when already pinned
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
