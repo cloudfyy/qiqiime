@@ -81,13 +81,14 @@ powershell -ExecutionPolicy Bypass -File "C:\Program Files\QiQiIME\scripts\regis
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
-生成的产物位于 `dist\`，文件名使用项目版本号（以下以 `0.9.28` 为例）：
-- **`dist\QiQiIME-v0.9.28-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
-- **`dist\QiQiIME-v0.9.28-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
-- **`dist\QiQiIME-v0.9.28-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
+生成的产物位于 `dist\`，文件名使用项目版本号（以下以 `0.9.29` 为例）：
+
+- **`dist\QiQiIME-v0.9.29-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
+- **`dist\QiQiIME-v0.9.29-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
+- **`dist\QiQiIME-v0.9.29-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
 
 ```text
-QiQiIME-v0.9.28-win-x64-x86/
+QiQiIME-v0.9.29-win-x64-x86/
 ├── x64/
 │   ├── qiqiime.dll             # 64 位 TSF 输入法组件
 │   ├── QiQiIMESettings.exe     # 64 位独立设置程序
