@@ -562,13 +562,23 @@ bool WubiEngine::MutateUserDictionaryEntry(
     sync::Operation op,
     const std::filesystem::path& user_dict_path,
     FileMutator mutate_file,
-    MemoryMutator mutate_memory) {
+    MemoryMutator mutate_memory,
+    bool reset_baseline,
+    bool require_original) {
     const uint32_t packed = PackWubiCode(code);
     if (packed == 0 || word.empty() || (op == sync::Operation::Modify && new_word.empty())) {
         return false;
     }
     const std::filesystem::path target_path = !user_dict_path.empty() ? user_dict_path : user_dict_path_;
+    const auto contains_original = [packed, word](const auto& entries) {
+        const auto found = entries.find(packed);
+        return found != entries.end() && std::ranges::contains(found->second, word);
+    };
     if (target_path.empty()) {
+        if (require_original && !contains_original(dict_)) {
+            std::ignore = log::CheckHResult(HRESULT_FROM_WIN32(ERROR_NOT_FOUND), "ReplaceUserEntry original missing");
+            return false;
+        }
         mutate_memory();
         return true;
     }
@@ -601,13 +611,19 @@ bool WubiEngine::MutateUserDictionaryEntry(
                 if (!ReadDictEntriesFromFile(target_path, file_entries)) {
                     return E_FAIL;
                 }
+                if (require_original && !contains_original(file_entries)) {
+                    return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+                }
                 mutate_file(file_entries, packed);
-                return WriteUpdatedUserDictFiles(target_path, channel_dir, file_entries);
+                const HRESULT write_hr = WriteUpdatedUserDictFiles(target_path, channel_dir, file_entries);
+                if (FAILED(write_hr)) return write_hr;
+                // A multi-code edit needs a single source write and a snapshot reload in older clients.
+                return reset_baseline ? S_FALSE : S_OK;
             },
             committed);
-        if (hr == S_OK) {
+        if (hr == S_OK || (reset_baseline && hr == S_FALSE)) {
             mutate_memory();
-            user_dict_sync_version_ = committed;
+            user_dict_sync_version_ = reset_baseline ? sync::Version{} : committed;
             return true;
         }
         if (hr != HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION) &&
@@ -668,6 +684,35 @@ bool WubiEngine::ModifyUserEntry(
             }
         },
         [this, code, old_word, new_word]() { std::ignore = ModifyEntry(code, old_word, new_word); });
+}
+
+bool WubiEngine::ReplaceUserEntry(
+    std::wstring_view old_code, std::wstring_view old_word,
+    std::wstring_view new_code, std::wstring_view new_word,
+    const std::filesystem::path& user_dict_path) {
+    const uint32_t new_packed = PackWubiCode(new_code);
+    if (new_packed == 0 || new_word.empty()) return false;
+    return MutateUserDictionaryEntry(
+        old_code, old_word, new_word, sync::Operation::Modify, user_dict_path,
+        [old_word, new_packed, new_word](std::map<uint32_t, std::vector<std::wstring>>& entries, uint32_t old_packed) {
+            if (old_packed == new_packed) {
+                if (old_word != new_word) {
+                    std::ignore = ReplaceWordInCodeMap(entries, old_packed, old_word, new_word);
+                }
+            } else {
+                EraseWordFromCodeMap(entries, old_packed, old_word);
+                AppendUniqueWord(entries[new_packed], new_word);
+            }
+        },
+        [this, old_code, old_word, new_code, new_word]() {
+            if (old_code == new_code) {
+                std::ignore = ModifyEntry(old_code, old_word, new_word);
+            } else {
+                std::ignore = RemoveEntry(old_code, old_word);
+                AddEntry(new_code, new_word);
+            }
+        },
+        old_code != new_code, true);
 }
 
 bool WubiEngine::PinUserEntry(

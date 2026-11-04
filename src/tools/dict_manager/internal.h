@@ -7,6 +7,7 @@
 #include "common/logger.h"
 
 #include <commctrl.h>
+#include <optional>
 
 namespace qiqi::dict_manager {
 
@@ -16,6 +17,7 @@ struct DictManagerWindow::Impl {
     ScopedGdiHandle<HFONT> font;
     ScopedIcon small_icon;
     ScopedIcon big_icon;
+    ScopedGdiHandle<HBRUSH> menu_brush;
     UiLanguage ui_language = UiLanguage::Auto;
     HINSTANCE instance = nullptr;
     HWND hwnd = nullptr;
@@ -29,6 +31,11 @@ struct DictManagerWindow::Impl {
     bool updating_rows = false;
     bool updating_filters = false;
     bool updating_editor = false;
+    bool editing = false;
+    bool code_edited = false;
+    bool ime_composing = false;
+    int editing_row = -1;
+    std::optional<DictRecord> edit_original;
 
     HWND Child(ControlId id) const noexcept { return ::GetDlgItem(hwnd, std::to_underlying(id)); }
     const wchar_t* Text(const wchar_t* zh, const wchar_t* en) const noexcept {
@@ -65,12 +72,19 @@ struct DictManagerWindow::Impl {
     static LRESULT CALLBACK ListProcedure(
         HWND window, UINT message, WPARAM wparam, LPARAM lparam,
         UINT_PTR subclass, DWORD_PTR context) noexcept;
+    static LRESULT CALLBACK EditorProcedure(
+        HWND window, UINT message, WPARAM wparam, LPARAM lparam,
+        UINT_PTR subclass, DWORD_PTR context) noexcept;
     bool CreateControls();
+    void UpdateCommands();
+    const wchar_t* CommandText(ControlId id) const noexcept;
+    const wchar_t* MenuHeading(size_t index) const noexcept;
+    LRESULT DrawToolbar(NMCUSTOMDRAW& draw) const noexcept;
     void Layout() noexcept;
     void UpdateTheme() noexcept;
     void ApplyLanguage();
-    void UpdateDpi(UINT dpi, const RECT& proposed) noexcept;
-    void RecoverDisplay() noexcept;
+    void UpdateDpi(UINT dpi, const RECT& proposed);
+    void RecoverDisplay();
     void Refilter();
     void SyncSelectionFromList();
     void SelectAllRows();
@@ -80,7 +94,12 @@ struct DictManagerWindow::Impl {
     std::wstring Cell(const DictRecord& record, int column) const;
     void Notify(NMHDR& header);
     std::vector<DictRecord> CollectSelectedRecords() const;
-    void SyncEditorFromSelection() noexcept;
+    void BeginEdit(int row, int column);
+    void BeginNew();
+    void CancelEditing();
+    void PositionEditor() noexcept;
+    void UpdateCommandState() noexcept;
+    [[nodiscard]] const DictRecord* FindOriginal() const noexcept;
     void AutoFillCodeFromWord();
     void ExecuteAddOrUpdate();
     void ExecutePinSelected();

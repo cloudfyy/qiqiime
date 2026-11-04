@@ -14,6 +14,7 @@
 
 #include <commctrl.h>
 #include <winver.h>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <span>
@@ -27,8 +28,32 @@ HWND Child(const DictManagerWindow& window, ControlId id) noexcept {
     return ::GetDlgItem(window.Handle(), std::to_underlying(id));
 }
 
-void Click(const DictManagerWindow& window, ControlId id) noexcept {
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(id), BN_CLICKED), 0);
+RECT ToolbarItemRect(const DictManagerWindow& window, ControlId id) {
+#pragma warning(suppress : 26496) // TB_GETRECT writes through LPARAM.
+    RECT rect{};
+    QIQI_TEST_CHECK(::SendMessageW(Child(window, id == SaveWord ? InlineSave : Toolbar), TB_GETRECT,
+        std::to_underlying(id), reinterpret_cast<LPARAM>(&rect)));
+    return rect;
+}
+
+void InvokeCommand(const DictManagerWindow& window, ControlId id, bool toolbar = false) {
+    if (toolbar) {
+        const HWND target = Child(window, id == SaveWord ? InlineSave : Toolbar);
+        QIQI_TEST_CHECK(::SendMessageW(target, TB_COMMANDTOINDEX, std::to_underlying(id), 0) >= 0);
+        const auto rect = ToolbarItemRect(window, id);
+        const LPARAM point = MAKELPARAM((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
+        ::SendMessageW(target, WM_LBUTTONDOWN, MK_LBUTTON, point);
+        ::SendMessageW(target, WM_LBUTTONUP, 0, point);
+        return;
+    }
+    ::SendMessageW(window.Handle(), WM_COMMAND, std::to_underlying(id), 0);
+}
+
+std::wstring MenuText(HMENU menu, ControlId id) {
+    std::array<wchar_t, 256> text{};
+    QIQI_TEST_CHECK(::GetMenuStringW(menu, std::to_underlying(id), text.data(),
+        gsl::narrow_cast<int>(text.size()), MF_BYCOMMAND) > 0);
+    return text.data();
 }
 
 std::wstring ControlText(HWND hwnd) {
@@ -42,6 +67,209 @@ void DrainQuitMessages() noexcept {
     MSG msg{};
     while (::PeekMessageW(&msg, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE)) {
     }
+}
+
+void CheckLayout(const DictManagerWindow& window, UINT dpi) {
+    constexpr std::array labels{SourceLabel, SearchLabel};
+    for (const auto id : labels) {
+        const HWND child = Child(window, id);
+        const ScopedWindowDC dc(child);
+        QIQI_TEST_CHECK(dc);
+        const ScopedSelectObject font(dc.Get(), reinterpret_cast<HFONT>(::SendMessageW(child, WM_GETFONT, 0, 0)));
+        QIQI_TEST_CHECK(font);
+        const auto text = ControlText(child);
+        SIZE size{};
+        QIQI_TEST_CHECK(::GetTextExtentPoint32W(dc.Get(), text.data(), gsl::narrow_cast<int>(text.size()), &size));
+        RECT rect{};
+        QIQI_TEST_CHECK(::GetClientRect(child, &rect));
+        QIQI_TEST_CHECK(size.cx <= rect.right && size.cy <= rect.bottom);
+    }
+    const HWND toolbar = Child(window, Toolbar);
+    QIQI_TEST_CHECK(toolbar != nullptr);
+    const ScopedWindowDC dc(toolbar);
+    QIQI_TEST_CHECK(dc);
+    const auto toolbar_font = reinterpret_cast<HFONT>(::SendMessageW(toolbar, WM_GETFONT, 0, 0));
+    const ScopedSelectObject font(dc.Get(), toolbar_font);
+    QIQI_TEST_CHECK(font);
+    LOGFONTW logical_font{};
+    QIQI_TEST_CHECK(::GetObjectW(toolbar_font, sizeof(logical_font), &logical_font) == sizeof(logical_font));
+    QIQI_TEST_CHECK(-logical_font.lfHeight == ScalePxByDpi(14, dpi));
+    const HMENU menu = ::GetMenu(window.Handle());
+    QIQI_TEST_CHECK(menu && ::GetMenuItemCount(menu) == 4);
+    for (UINT i = 0; i < 4; ++i) {
+        std::array<wchar_t, 64> heading{};
+        QIQI_TEST_CHECK(::GetMenuStringW(menu, i, heading.data(), gsl::narrow_cast<int>(heading.size()), MF_BYPOSITION));
+        RECT bounds{};
+        QIQI_TEST_CHECK(::DrawTextW(dc.Get(), heading.data(), -1, &bounds, DT_CALCRECT | DT_SINGLELINE));
+        MEASUREITEMSTRUCT measure{};
+        measure.CtlType = ODT_MENU;
+        measure.itemData = i;
+        QIQI_TEST_CHECK(::SendMessageW(window.Handle(), WM_MEASUREITEM, 0, reinterpret_cast<LPARAM>(&measure)));
+        QIQI_TEST_CHECK(measure.itemWidth >= gsl::narrow_cast<UINT>(bounds.right));
+        QIQI_TEST_CHECK(measure.itemHeight >= gsl::narrow_cast<UINT>(bounds.bottom));
+        constexpr std::array keys{L'f', L'e', L'l', L'h'};
+        QIQI_TEST_CHECK(::SendMessageW(window.Handle(), WM_MENUCHAR, gsl::at(keys, i),
+            reinterpret_cast<LPARAM>(menu)) == MAKELRESULT(i, MNC_EXECUTE));
+    }
+    constexpr std::array commands{
+        Reload, NewWord, Copy, Import, Export, Pin, Delete, Promote};
+    QIQI_TEST_CHECK(::SendMessageW(toolbar, TB_BUTTONCOUNT, 0, 0) == gsl::narrow_cast<LRESULT>(commands.size()));
+    QIQI_TEST_CHECK(::SendMessageW(toolbar, TB_GETTEXTROWS, 0, 0) == 0);
+    std::vector<RECT> items;
+    for (const auto id : commands) {
+        QIQI_TEST_CHECK(::SendMessageW(toolbar, TB_COMMANDTOINDEX, std::to_underlying(id), 0) ==
+            gsl::narrow_cast<LRESULT>(items.size()));
+        QIQI_TEST_CHECK(Child(window, id) == nullptr);
+        std::array<wchar_t, 256> text{};
+        const LRESULT length = ::SendMessageW(toolbar, TB_GETBUTTONTEXTW,
+            std::to_underlying(id), reinterpret_cast<LPARAM>(text.data()));
+        QIQI_TEST_CHECK(length > 0 && length < gsl::narrow_cast<LRESULT>(text.size()));
+        QIQI_TEST_CHECK(MenuText(menu, id) == text.data());
+        TBBUTTONINFO button{};
+        button.cbSize = sizeof(button);
+        button.dwMask = TBIF_STYLE;
+        QIQI_TEST_CHECK(::SendMessageW(toolbar, TB_GETBUTTONINFOW,
+            std::to_underlying(id), reinterpret_cast<LPARAM>(&button)) >= 0);
+        QIQI_TEST_CHECK((button.fsStyle & (BTNS_SHOWTEXT | BTNS_AUTOSIZE)) == 0);
+        std::array<wchar_t, 256> tooltip{};
+        NMTBGETINFOTIPW tip{};
+        tip.hdr.hwndFrom = toolbar;
+        tip.hdr.idFrom = std::to_underlying(Toolbar);
+        tip.hdr.code = TBN_GETINFOTIPW;
+        tip.iItem = std::to_underlying(id);
+        tip.pszText = tooltip.data();
+        tip.cchTextMax = gsl::narrow_cast<int>(tooltip.size());
+        ::SendMessageW(window.Handle(), WM_NOTIFY, std::to_underlying(Toolbar), reinterpret_cast<LPARAM>(&tip));
+        QIQI_TEST_CHECK(std::wstring_view(tooltip.data()) == text.data());
+        const auto rect = ToolbarItemRect(window, id);
+        QIQI_TEST_CHECK(rect.right - rect.left == ScalePxByDpi(36, dpi));
+        QIQI_TEST_CHECK(rect.bottom - rect.top == ScalePxByDpi(36, dpi));
+        RECT toolbar_client{};
+        QIQI_TEST_CHECK(::GetClientRect(toolbar, &toolbar_client));
+        QIQI_TEST_CHECK(rect.left >= 0 && rect.top >= 0 &&
+            rect.right <= toolbar_client.right && rect.bottom <= toolbar_client.bottom);
+        for (const auto& other : items) {
+            RECT intersection{};
+            QIQI_TEST_CHECK(!::IntersectRect(&intersection, &rect, &other));
+        }
+        items.push_back(rect);
+    }
+    for (const auto id : {Backup, Restore, ClearFreq, About, AutoCode, SelectAll, Exit,
+             LanguageAuto, LanguageZh, LanguageEn}) {
+        QIQI_TEST_CHECK(!MenuText(menu, id).empty());
+    }
+
+    RECT client{};
+    QIQI_TEST_CHECK(::GetClientRect(window.Handle(), &client));
+    POINT origin{};
+    QIQI_TEST_CHECK(::ClientToScreen(window.Handle(), &origin));
+    ::OffsetRect(&client, origin.x, origin.y);
+    std::vector<RECT> controls;
+    for (HWND child = ::GetWindow(window.Handle(), GW_CHILD); child; child = ::GetWindow(child, GW_HWNDNEXT)) {
+        std::array<wchar_t, 64> class_name{};
+        QIQI_TEST_CHECK(::GetClassNameW(child, class_name.data(), gsl::narrow_cast<int>(class_name.size())));
+        QIQI_TEST_CHECK(_wcsicmp(class_name.data(), L"BUTTON") != 0);
+        const int id = ::GetDlgCtrlID(child);
+        if (id == std::to_underlying(EditCodeInput) || id == std::to_underlying(EditWordInput) ||
+            id == std::to_underlying(InlineSave)) continue;
+        RECT rect{};
+        QIQI_TEST_CHECK(::GetWindowRect(child, &rect));
+        QIQI_TEST_CHECK(rect.left >= client.left && rect.top >= client.top);
+        QIQI_TEST_CHECK(rect.right <= client.right && rect.bottom <= client.bottom);
+        for (const auto& other : controls) {
+            RECT intersection{};
+            QIQI_TEST_CHECK(!::IntersectRect(&intersection, &rect, &other));
+        }
+        controls.push_back(rect);
+    }
+}
+
+void CheckCommandAppearance(const DictManagerWindow& window, UINT dpi, bool dark, bool contrast) {
+    SetThemeDarkOverrideForTest(dark);
+    SetHighContrastOverrideForTest(contrast);
+    const auto restore = gsl::finally([]() noexcept {
+        SetThemeDarkOverrideForTest(std::nullopt);
+        SetHighContrastOverrideForTest(std::nullopt);
+    });
+    ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
+    ::SendMessageW(window.Handle(), WM_SYSCOLORCHANGE, 0, 0);
+    CheckLayout(window, dpi);
+    const ScopedWindowDC window_dc(window.Handle());
+    QIQI_TEST_CHECK(window_dc);
+    const ScopedMemoryDC dc(::CreateCompatibleDC(window_dc.Get()));
+    QIQI_TEST_CHECK(dc);
+    const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(window_dc.Get(), 512, 96));
+    QIQI_TEST_CHECK(bitmap);
+    const ScopedSelectObject selected(dc.Get(), bitmap.Get());
+    QIQI_TEST_CHECK(selected);
+    const auto& palette = GetThemePalette(dark);
+    NMTBCUSTOMDRAW toolbar{};
+    toolbar.nmcd.hdr.hwndFrom = Child(window, Toolbar);
+    toolbar.nmcd.hdr.idFrom = std::to_underlying(Toolbar);
+    toolbar.nmcd.hdr.code = NM_CUSTOMDRAW;
+    toolbar.nmcd.hdc = dc.Get();
+    toolbar.nmcd.rc = {0, 0, 512, 96};
+    toolbar.nmcd.dwDrawStage = CDDS_PREPAINT;
+    QIQI_TEST_CHECK(::SendMessageW(window.Handle(), WM_NOTIFY, std::to_underlying(Toolbar),
+        reinterpret_cast<LPARAM>(&toolbar)) == CDRF_NOTIFYITEMDRAW);
+    QIQI_TEST_CHECK(::GetPixel(dc.Get(), 1, 1) ==
+        (contrast ? ::GetSysColor(COLOR_BTNFACE) : palette.window_bg));
+    toolbar.nmcd.dwDrawStage = CDDS_ITEMPREPAINT;
+    constexpr std::array commands{
+        Reload, Copy, Import, Export, NewWord, Pin, Delete, Promote, SaveWord};
+    for (const UINT state : {0u, UINT{CDIS_HOT}, UINT{CDIS_SELECTED}, UINT{CDIS_DISABLED}, UINT{CDIS_FOCUS}}) {
+        toolbar.nmcd.uItemState = state;
+        const bool hot = (state & (CDIS_HOT | CDIS_SELECTED)) != 0;
+        const COLORREF background = contrast
+            ? ::GetSysColor(hot ? COLOR_HIGHLIGHT : COLOR_BTNFACE)
+            : (hot ? palette.hover_bg : palette.window_bg);
+        const COLORREF foreground = contrast
+            ? ::GetSysColor((state & CDIS_DISABLED) ? COLOR_GRAYTEXT : (hot ? COLOR_HIGHLIGHTTEXT : COLOR_BTNTEXT))
+            : ((state & CDIS_DISABLED) ? palette.grip_dot : palette.text_primary);
+        std::vector<uint64_t> shapes;
+        for (const auto id : commands) {
+            toolbar.nmcd.hdr.hwndFrom = Child(window, id == SaveWord ? InlineSave : Toolbar);
+            toolbar.nmcd.dwItemSpec = std::to_underlying(id);
+            QIQI_TEST_CHECK(::SendMessageW(window.Handle(), WM_NOTIFY, std::to_underlying(Toolbar),
+                reinterpret_cast<LPARAM>(&toolbar)) == CDRF_SKIPDEFAULT);
+            QIQI_TEST_CHECK(::GetPixel(dc.Get(), 1, 1) == background);
+            const int size = ScalePxByDpi(20, dpi);
+            const int stroke = ScalePxByDpi(2, dpi);
+            const int left = (512 - size) / 2 - stroke;
+            const int top = (96 - size) / 2 - stroke;
+            size_t ink = 0;
+            uint64_t shape = 14695981039346656037ull;
+            for (int y = top; y < top + size + 2 * stroke; ++y) {
+                for (int x = left; x < left + size + 2 * stroke; ++x) {
+                    const COLORREF pixel = ::GetPixel(dc.Get(), x, y);
+                    QIQI_TEST_CHECK(pixel == background || pixel == foreground);
+                    const bool filled = pixel == foreground;
+                    if (filled) ++ink;
+                    shape = (shape ^ gsl::narrow_cast<uint64_t>(filled)) * 1099511628211ull;
+                }
+            }
+            QIQI_TEST_CHECK(ink > 10);
+            QIQI_TEST_CHECK(std::ranges::find(shapes, shape) == shapes.end());
+            shapes.push_back(shape);
+        }
+    }
+
+    MENUINFO menu_info{};
+    menu_info.cbSize = sizeof(menu_info);
+    menu_info.fMask = MIM_BACKGROUND;
+    QIQI_TEST_CHECK(::GetMenuInfo(::GetMenu(window.Handle()), &menu_info));
+    LOGBRUSH brush{};
+    QIQI_TEST_CHECK(::GetObjectW(menu_info.hbrBack, sizeof(brush), &brush) == sizeof(brush));
+    QIQI_TEST_CHECK(brush.lbColor == (contrast ? ::GetSysColor(COLOR_MENUBAR) : palette.window_bg));
+    DRAWITEMSTRUCT menu{};
+    menu.CtlType = ODT_MENU;
+    menu.itemData = 2;
+    menu.itemState = ODS_SELECTED;
+    menu.hDC = dc.Get();
+    menu.rcItem = {0, 0, 512, 96};
+    QIQI_TEST_CHECK(::SendMessageW(window.Handle(), WM_DRAWITEM, 0, reinterpret_cast<LPARAM>(&menu)));
+    QIQI_TEST_CHECK(::GetPixel(dc.Get(), 1, 1) ==
+        (contrast ? ::GetSysColor(COLOR_HIGHLIGHT) : palette.hover_bg));
 }
 
 void TestVersionResource() {
@@ -195,13 +423,14 @@ void TestModelAndCrossProcessSync() {
     // Filter matching and clipboard formatting
     DictFilter filter{};
     filter.source = DictEntrySource::UserDict;
-    filter.code_query = L"QW";
-    filter.word_query = L"导入";
-    size_t matched = 0;
-    for (const auto& rec : model.Records()) {
-        if (filter.Matches(rec)) ++matched;
+    for (const auto* query : {L" QW ", L"导入"}) {
+        filter.SetQuery(query);
+        size_t matched = 0;
+        for (const auto& rec : model.Records()) {
+            if (filter.Matches(rec)) ++matched;
+        }
+        QIQI_TEST_CHECK(matched == 2);
     }
-    QIQI_TEST_CHECK(matched == 2);
     QIQI_TEST_CHECK(!FormatRecordsForClipboard(model.Records()).empty());
 
     // Backup & Restore (.qbak bundle with FNV-1a checksum validation, Merge vs Replace conflict modes)
@@ -248,7 +477,66 @@ void TestModelAndCrossProcessSync() {
     const size_t before_merge_count = model.UserEntryCount();
     QIQI_TEST_CHECK(model.RestoreBackupBundle(backup_file, BackupConflictMode::Merge, summary));
     QIQI_TEST_CHECK(model.UserEntryCount() == before_merge_count);
+
+    QIQI_TEST_CHECK(model.AddOrUpdateUserEntry(L"lmno", L"待修改词"));
+    const size_t before_replace = model.UserEntryCount();
+    QIQI_TEST_CHECK(model.ReplaceUserEntry(L"lmno", L"待修改词", L"lmno", L"待修改词"));
+    model.ReloadAll();
+    QIQI_TEST_CHECK(model.UserEntryCount() == before_replace);
+    QIQI_TEST_CHECK(model.ReplaceUserEntry(L"lmno", L"待修改词", L"lmno", L"同码新词"));
+    QIQI_TEST_CHECK(peer_engine.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(peer_engine.LookupExact(L"lmno").front() == L"同码新词");
+    const auto snapshots = peer_engine.UserDictSnapshotSyncCount();
+    QIQI_TEST_CHECK(model.ReplaceUserEntry(L"lmno", L"同码新词", L" PQRS ", L"  新码新词  "));
+    QIQI_TEST_CHECK(model.UserEntryCount() == before_replace);
+    QIQI_TEST_CHECK(peer_engine.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(peer_engine.UserDictSnapshotSyncCount() > snapshots);
+    QIQI_TEST_CHECK(peer_engine.LookupExact(L"lmno").empty());
+    QIQI_TEST_CHECK(peer_engine.LookupExact(L"pqrs").front() == L"新码新词");
+    QIQI_TEST_CHECK(!model.ReplaceUserEntry(L"pqrs", L"新码新词", L"a1", L"无效"));
+    QIQI_TEST_CHECK(!model.ReplaceUserEntry(L"pqrs", L"新码新词", L"abcd", L" "));
+    QIQI_TEST_CHECK(!model.ReplaceUserEntry(L"pqrs", L"已删除原词", L"abcd", L"不能复活"));
+    QIQI_TEST_CHECK(!model.ReplaceUserEntry(L"pqrs", L"已删除原词", L"pqrs", L"不能复活"));
+    {
+        const ScopedFileHandle locked(::CreateFileW(user_dict.c_str(), GENERIC_READ, FILE_SHARE_READ,
+            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(locked);
+        QIQI_TEST_CHECK(!model.ReplaceUserEntry(L"pqrs", L"新码新词", L"lmno", L"写入失败"));
+    }
+    model.ReloadAll();
+    QIQI_TEST_CHECK(model.UserEntryCount() == before_replace);
+    QIQI_TEST_CHECK(std::ranges::any_of(model.Records(), [](const DictRecord& rec) {
+        return rec.source == DictEntrySource::UserDict && rec.code == L"pqrs" && rec.word == L"新码新词";
+    }));
 }
+
+void TestSmartSearch() {
+    const DictRecord record{1, PackWubiCode(L"khlg"), L"khlg", L"中国IME2026!", DictEntrySource::UserDict, 1};
+    DictFilter filter;
+    for (const auto& [query, expected] : std::array{
+             std::pair{L"", true}, std::pair{L" \t\r\n ", true},
+             std::pair{L" KH ", true}, std::pair{L"hL", true}, std::pair{L"khlg", true},
+             std::pair{L"khlga", false}, std::pair{L"aaaa", false},
+             std::pair{L"中国", true}, std::pair{L" 国 ", true},
+             std::pair{L"不存在", false}, std::pair{L"IME", false},
+             std::pair{L"国IME", true}, std::pair{L"2026", true}, std::pair{L"!", true},
+             std::pair{L"k h", false}, std::pair{L"kh中国", false}}) {
+        filter.SetQuery(query);
+        QIQI_TEST_CHECK(filter.Matches(record) == expected);
+    }
+    filter.SetQuery(L"中国");
+    filter.source = DictEntrySource::PrimaryDict;
+    QIQI_TEST_CHECK(!filter.Matches(record));
+    filter.source = DictEntrySource::UserDict;
+    QIQI_TEST_CHECK(filter.Matches(record));
+    filter.SetQuery(L"KH");
+    QIQI_TEST_CHECK(filter.Matches(record));
+    filter.SetQuery(L" \t ");
+    filter.source = DictEntrySource::PrimaryDict;
+    QIQI_TEST_CHECK(!filter.Matches(record));
+}
+
+void ExerciseGuiCommands(const DictManagerWindow& window);
 
 void TestGuiWindow() {
     const auto temp_dir = std::filesystem::temp_directory_path() /
@@ -268,25 +556,263 @@ void TestGuiWindow() {
     DictManagerWindow window;
     QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr), user_dict, freq_file));
     QIQI_TEST_CHECK(::IsWindow(window.Handle()));
+    CheckLayout(window, ::GetDpiForWindow(window.Handle()));
 
+    for (const UINT dpi : {96u, 120u, 144u, 192u}) {
+        for (const int width : {920, 1020, 1160}) {
+            RECT proposed{0, 0, ScalePxByDpi(width, dpi), ScalePxByDpi(680, dpi)};
+            ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&proposed));
+            for (const auto language : {LanguageEn, LanguageZh, LanguageAuto}) {
+                InvokeCommand(window, language);
+                const HMENU menu = ::GetMenu(window.Handle());
+                for (const auto id : {LanguageAuto, LanguageZh, LanguageEn}) {
+                    QIQI_TEST_CHECK((::GetMenuState(menu, std::to_underlying(id), MF_BYCOMMAND) & MF_CHECKED) ==
+                        (id == language ? UINT{MF_CHECKED} : 0u));
+                }
+                CheckLayout(window, dpi);
+                if (width == 1020 && language == LanguageAuto) {
+                    CheckCommandAppearance(window, dpi, false, false);
+                    CheckCommandAppearance(window, dpi, true, false);
+                    CheckCommandAppearance(window, dpi, false, true);
+                }
+            }
+        }
+    }
+
+    ExerciseGuiCommands(window);
+}
+
+void TestInlineEditing() {
+    const auto temp_dir =
+        std::filesystem::temp_directory_path() / (L"qiqi_dict_inline_" + std::to_wstring(::GetCurrentProcessId()));
+    std::filesystem::create_directories(temp_dir);
+    const auto cleanup = gsl::finally([&temp_dir]() noexcept {
+        DrainQuitMessages();
+        std::error_code ec;
+        std::filesystem::remove_all(temp_dir, ec);
+    });
+    const auto user_dict = temp_dir / L"user_dict.txt";
+    const auto freq_file = temp_dir / L"phrase_freq.txt";
+    std::string source = "abcd 原始词\n";
+    for (int i = 0; i < 100; ++i)
+        source += "zzzz 滚动测试词" + std::to_string(i) + "\n";
+    QIQI_TEST_CHECK(WriteFileAtomically(user_dict, codec::AsByteSpan(source)));
+
+    DictManagerWindow window;
+    QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr), user_dict, freq_file));
+    const HWND list = Child(window, List);
+    const auto visible = [&](ControlId id) {
+        return (::GetWindowLongPtrW(Child(window, id), GWL_STYLE) & WS_VISIBLE) != 0;
+    };
+    const auto search = [&](const wchar_t* text) {
+        QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchEdit), text));
+    };
+    const auto begin = [&](int row = 0, int column = 1) {
+        ListView_SetItemState(list, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        NMITEMACTIVATE click{};
+        click.hdr = {list, std::to_underlying(List), NM_DBLCLK};
+        click.iItem = row;
+        click.iSubItem = column;
+        ::SendMessageW(window.Handle(), WM_NOTIFY, std::to_underlying(List), reinterpret_cast<LPARAM>(&click));
+        QIQI_TEST_CHECK(visible(EditWordInput) && visible(EditCodeInput) && visible(InlineSave));
+    };
+    const auto check_position = [&](int row) {
+        for (const auto& [id, column] :
+             std::array{std::pair{EditCodeInput, 0}, std::pair{EditWordInput, 1}, std::pair{InlineSave, 4}}) {
+            RECT cell{}, editor{}, intersection{};
+#pragma warning(suppress : 26477) // ListView_GetSubItemRect expands to a null-pointer check.
+            QIQI_TEST_CHECK(ListView_GetSubItemRect(list, row, column, column == 0 ? LVIR_LABEL : LVIR_BOUNDS, &cell));
+            ::MapWindowPoints(list, nullptr, reinterpret_cast<POINT*>(&cell), 2);
+            QIQI_TEST_CHECK(::GetWindowRect(Child(window, id), &editor));
+            QIQI_TEST_CHECK(::IntersectRect(&intersection, &cell, &editor) && ::EqualRect(&intersection, &editor));
+        }
+        const auto button = ToolbarItemRect(window, SaveWord);
+        RECT toolbar{};
+        ::GetClientRect(Child(window, InlineSave), &toolbar);
+        QIQI_TEST_CHECK(button.left >= 0 && button.top >= 0 && button.right <= toolbar.right &&
+                        button.bottom <= toolbar.bottom);
+    };
+    ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 1, 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
+    search(L"abcd");
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1 && !visible(EditWordInput));
+    begin(0, 0);
+    QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"abcd");
+    QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"原始词");
+    QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, SearchEdit)) && !::IsWindowEnabled(Child(window, SourceCombo)));
+    QIQI_TEST_CHECK(
+        (::GetMenuState(::GetMenu(window.Handle()), std::to_underlying(Delete), MF_BYCOMMAND) & MF_GRAYED) != 0);
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"wxyz"));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"行内新词"));
+    InvokeCommand(window, Reload);
+    InvokeCommand(window, Delete);
+    QIQI_TEST_CHECK(visible(EditWordInput) && ControlText(Child(window, EditWordInput)) == L"行内新词");
+
+    WubiEngine peer;
+    peer.SetUserDictPath(user_dict);
+    QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    ::SendMessageW(Child(window, EditWordInput), WM_KILLFOCUS, reinterpret_cast<WPARAM>(list), 0);
+    ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+    QIQI_TEST_CHECK(peer.LookupExact(L"abcd").front() == L"原始词" && peer.LookupExact(L"wxyz").empty());
+    ::SendMessageW(Child(window, EditWordInput), WM_IME_STARTCOMPOSITION, 0, 0);
+    ::SendMessageW(Child(window, EditWordInput), WM_KEYDOWN, VK_RETURN, 0);
+    ::SendMessageW(Child(window, EditWordInput), WM_KEYDOWN, VK_ESCAPE, 0);
+    QIQI_TEST_CHECK(visible(EditWordInput));
+    ::SendMessageW(Child(window, EditWordInput), WM_IME_ENDCOMPOSITION, 0, 0);
+    QIQI_TEST_CHECK((::SendMessageW(Child(window, EditWordInput), WM_GETDLGCODE, VK_RETURN, 0) & DLGC_WANTMESSAGE) !=
+                    0);
+    QIQI_TEST_CHECK((::SendMessageW(Child(window, EditWordInput), WM_GETDLGCODE, VK_ESCAPE, 0) & DLGC_WANTMESSAGE) !=
+                    0);
+
+    for (const UINT dpi : {96u, 120u, 144u, 192u}) {
+        RECT rect{0, 0, ScalePxByDpi(1020, dpi), ScalePxByDpi(680, dpi)};
+        ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rect));
+        for (const auto language : {LanguageEn, LanguageZh}) {
+            InvokeCommand(window, language);
+            for (const bool dark : {false, true}) {
+                SetThemeDarkOverrideForTest(dark);
+                ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
+                QIQI_TEST_CHECK(visible(EditWordInput) && ControlText(Child(window, EditWordInput)) == L"行内新词");
+                QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"wxyz");
+                check_position(0);
+                QIQI_TEST_CHECK(ControlText(Child(window, SearchEdit)) == L"abcd");
+            }
+        }
+    }
+    SetThemeDarkOverrideForTest(std::nullopt);
+    QIQI_TEST_CHECK(peer.AddUserEntry(L"aaaa", L"外部新增词"));
+    InvokeCommand(window, SaveWord, true);
+    QIQI_TEST_CHECK(!visible(EditWordInput) && ::IsWindowEnabled(Child(window, SearchEdit)));
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 0);
+    QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(peer.LookupExact(L"abcd").empty() && peer.LookupExact(L"wxyz").front() == L"行内新词");
+    QIQI_TEST_CHECK(peer.LookupExact(L"aaaa").front() == L"外部新增词");
+
+    search(L"wxyz");
+    ListView_SetItemState(list, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    ::SendMessageW(list, WM_KEYDOWN, VK_F2, 0);
+    QIQI_TEST_CHECK(visible(EditWordInput));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"a1"));
+    InvokeCommand(window, SaveWord, true);
+    QIQI_TEST_CHECK(visible(EditWordInput) && ControlText(Child(window, EditCodeInput)) == L"a1");
+    ::SendMessageW(Child(window, EditCodeInput), WM_KEYDOWN, VK_ESCAPE, 0);
+    QIQI_TEST_CHECK(!visible(EditWordInput) && ListView_GetItemCount(list) == 1);
+    begin();
+    QIQI_TEST_CHECK(peer.RemoveUserEntry(L"wxyz", L"行内新词"));
+    QIQI_TEST_CHECK(peer.AddUserEntry(L"wxyz", L"远端修改词"));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"不能覆盖远端"));
+    InvokeCommand(window, SaveWord);
+    QIQI_TEST_CHECK(visible(EditWordInput) && ControlText(Child(window, EditWordInput)) == L"不能覆盖远端");
+    QIQI_TEST_CHECK(peer.LookupExact(L"wxyz").front() == L"远端修改词");
+    InvokeCommand(window, CancelEdit);
+
+    search(L"");
+    begin(0, 1);
+    ListView_EnsureVisible(list, ListView_GetItemCount(list) - 1, FALSE);
+    QIQI_TEST_CHECK(!visible(EditWordInput) && !visible(InlineSave));
+    ListView_EnsureVisible(list, 0, FALSE);
+    QIQI_TEST_CHECK(visible(EditWordInput));
+    check_position(0);
+    const int width = ListView_GetColumnWidth(list, 1);
+    const int wider_column = width + ScalePxByDpi(20, 192);
+    ListView_SetColumnWidth(list, 1, wider_column);
+    check_position(0);
+    RECT client{};
+    ::GetClientRect(list, &client);
+    const int oversized_column = width + gsl::narrow_cast<int>(client.right);
+    ListView_SetColumnWidth(list, 1, oversized_column);
+    QIQI_TEST_CHECK(!visible(EditWordInput));
+    ListView_Scroll(list, ScalePxByDpi(60, 192), 0);
+    QIQI_TEST_CHECK(!visible(EditWordInput));
+    ListView_Scroll(list, -::GetScrollPos(list, SB_HORZ), 0);
+    ListView_SetColumnWidth(list, 1, width);
+    QIQI_TEST_CHECK(visible(EditWordInput));
+    check_position(0);
+    InvokeCommand(window, CancelEdit);
+
+    search(L"不存在");
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 0);
+    InvokeCommand(window, NewWord, true);
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1 && visible(EditWordInput));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"中华人民共和国"));
+    QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"kwwl");
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"test"));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"中国"));
+    QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"test");
+    ::SendMessageW(Child(window, EditWordInput), WM_KEYDOWN, VK_RETURN, 0);
+    QIQI_TEST_CHECK(!visible(EditWordInput) && ListView_GetItemCount(list) == 0);
+    QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(peer.LookupExact(L"test").front() == L"中国");
+
+    search(L"test");
+    begin();
+    InvokeCommand(window, SaveWord);
+    QIQI_TEST_CHECK(!visible(EditWordInput) && ListView_GetItemCount(list) == 1);
+    begin();
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"失败草稿"));
+    {
+        const ScopedFileHandle locked(::CreateFileW(user_dict.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(locked);
+        InvokeCommand(window, SaveWord);
+        QIQI_TEST_CHECK(visible(EditWordInput) && ControlText(Child(window, EditWordInput)) == L"失败草稿");
+    }
+    InvokeCommand(window, CancelEdit);
+    QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(peer.LookupExact(L"test").front() == L"中国");
+
+    QIQI_TEST_CHECK(peer.PinUserEntry(L"test", L"置顶原词"));
+    ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+    ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 2, 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
+    begin();
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"用户副本"));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"copy"));
+    ::SendMessageW(Child(window, EditWordInput), WM_KEYDOWN, VK_RETURN, 0);
+    QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(peer.LookupExact(L"copy").front() == L"用户副本");
+    QIQI_TEST_CHECK(peer.PinnedEntries().at(PackWubiCode(L"test")).front() == L"置顶原词");
+
+    search(L"不存在");
+    InvokeCommand(window, NewWord);
+    const UINT_PTR timer = ::SetTimer(window.Handle(), 19, 20, [](HWND owner, UINT, UINT_PTR id, DWORD) noexcept {
+        const HWND popup = ::GetLastActivePopup(owner);
+        if (popup != owner) {
+            ::KillTimer(owner, id);
+            ::PostMessageW(popup, WM_COMMAND, IDNO, 0);
+        }
+    });
+    QIQI_TEST_CHECK(timer != 0);
+    ::SendMessageW(window.Handle(), WM_CLOSE, 0, 0);
+    ::KillTimer(window.Handle(), timer);
+    QIQI_TEST_CHECK(::IsWindow(window.Handle()) && visible(EditWordInput));
+    InvokeCommand(window, CancelEdit);
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 0);
+    InvokeCommand(window, Exit);
+    DrainQuitMessages();
+}
+
+void ExerciseGuiCommands(const DictManagerWindow& window) {
     // Type a phrase into EditWordInput -> verify AutoCode fills EditCodeInput with "kwwl"
+    InvokeCommand(window, NewWord, true);
     QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"中华人民共和国"));
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(EditWordInput), EN_CHANGE), 0);
     QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"kwwl");
 
-    // Click Add / Save User Word -> verify list gets 1 row
-    Click(window, AddUpdateBtn);
+    InvokeCommand(window, SaveWord, true);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) >= 1);
 
     // Select first row, promote phrase frequency, and filter by PhraseFreq source (combo index 4)
     ListView_SetItemState(Child(window, List), 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-    Click(window, PromoteBtn);
+    InvokeCommand(window, Promote, true);
     ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 4, 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
 
-    // Pin entry via PinBtn and verify Pinned source filter (combo index 2)
-    Click(window, PinBtn);
+    // Pin entry and verify Pinned source filter (combo index 2).
+    ListView_SetItemState(Child(window, List), 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    InvokeCommand(window, Pin, true);
     ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 2, 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
@@ -308,22 +834,39 @@ void TestGuiWindow() {
         QIQI_TEST_CHECK(gsl::at(cell_buf, 0) != L'\0');
     }
 
-    // Exercise search filters, Reload, AutoCodeBtn, Copy, Ctrl+A / Ctrl+C / VK_DELETE, DPI / theme / display changes, and context menu
-    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchCodeEdit), L"kw"));
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SearchCodeEdit), EN_CHANGE), 0);
-    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
-    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchWordEdit), L"人民"));
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SearchWordEdit), EN_CHANGE), 0);
-    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
-    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchCodeEdit), L""));
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SearchCodeEdit), EN_CHANGE), 0);
-    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchWordEdit), L""));
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SearchWordEdit), EN_CHANGE), 0);
+    // Exercise filters, menu/toolbar commands, keyboard shortcuts, and display changes.
+    const auto search = [&](const wchar_t* query, int count) {
+        QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchEdit), query));
+        QIQI_TEST_CHECK(ListView_GetItemCount(list) == count);
+        QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"中华人民共和国");
+        QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"kwwl");
+    };
+    search(L" KW ", 1);
+    search(L"人民", 1);
+    for (const auto language : {LanguageEn, LanguageZh}) {
+        InvokeCommand(window, language);
+        QIQI_TEST_CHECK(ControlText(Child(window, SearchEdit)) == L"人民");
+        QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
+        QIQI_TEST_CHECK(ControlText(Child(window, SearchLabel)) == (language == LanguageEn ? L"Search" : L"搜索"));
+        std::array<wchar_t, 128> cue{};
+        QIQI_TEST_CHECK(::SendMessageW(Child(window, SearchEdit), EM_GETCUEBANNER,
+            reinterpret_cast<WPARAM>(cue.data()), gsl::narrow_cast<LPARAM>(cue.size())));
+        QIQI_TEST_CHECK(std::wstring_view(cue.data()) == (language == LanguageEn
+            ? L"Wubi code or word (letters search codes)" : L"五笔编码或词条（纯字母按编码搜索）"));
+    }
+    search(L"不存在", 0);
+    search(L"KW人民", 0);
+    search(L"k w", 0);
+    search(L"KWWL", 1);
+    search(L" \t ", 1);
+    search(L"", 1);
 
-    Click(window, AutoCodeBtn);
+    InvokeCommand(window, AutoCode);
     ListView_SetItemState(list, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-    Click(window, Copy);
-    Click(window, Reload);
+    InvokeCommand(window, SelectAll);
+    QIQI_TEST_CHECK(ListView_GetSelectedCount(list) == gsl::narrow_cast<UINT>(ListView_GetItemCount(list)));
+    InvokeCommand(window, Copy, true);
+    InvokeCommand(window, Reload, true);
     ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
 
     // Keyboard shortcuts on ListView (Ctrl+A, Ctrl+C, VK_DELETE)
@@ -362,30 +905,28 @@ void TestGuiWindow() {
     ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 2, 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
     ListView_SetItemState(Child(window, List), 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-    Click(window, PinBtn); // Unpin when already pinned
+    InvokeCommand(window, Pin); // Unpin when already pinned.
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
 
     // Switch language between EnUs and ZhCn
-    ::SendMessageW(Child(window, Language), CB_SETCURSEL, std::to_underlying(UiLanguage::EnUs), 0);
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
-    QIQI_TEST_CHECK(ControlText(Child(window, Reload)) == L"Reload");
-    ::SendMessageW(Child(window, Language), CB_SETCURSEL, std::to_underlying(UiLanguage::ZhCn), 0);
-    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
-    QIQI_TEST_CHECK(ControlText(Child(window, Reload)) == L"刷新");
+    InvokeCommand(window, LanguageEn);
+    QIQI_TEST_CHECK(MenuText(::GetMenu(window.Handle()), Reload) == L"Reload");
+    InvokeCommand(window, LanguageZh);
+    QIQI_TEST_CHECK(MenuText(::GetMenu(window.Handle()), Reload) == L"刷新");
 
     // Clear frequencies, switch back to UserDict (combo index 1), delete entry
     ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 4, 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
-    Click(window, ClearFreq);
+    InvokeCommand(window, ClearFreq);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
     ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 1, 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
     ListView_SetItemState(Child(window, List), 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-    Click(window, DeleteBtn);
+    InvokeCommand(window, Delete, true);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
 
-    ::SendMessageW(window.Handle(), WM_CLOSE, 0, 0);
+    InvokeCommand(window, Exit);
     DrainQuitMessages();
 }
 
@@ -394,8 +935,10 @@ void TestGuiWindow() {
 int main() {
     ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     TestVersionResource();
+    TestSmartSearch();
     TestModelAndCrossProcessSync();
     TestGuiWindow();
+    TestInlineEditing();
     std::cout << "[PASS] QiQiDictManagerTest\n";
     return 0;
 }

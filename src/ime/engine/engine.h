@@ -92,6 +92,12 @@ public:
         std::wstring_view old_word,
         std::wstring_view new_word,
         const std::filesystem::path& user_dict_path = {});
+    bool ReplaceUserEntry(
+        std::wstring_view old_code,
+        std::wstring_view old_word,
+        std::wstring_view new_code,
+        std::wstring_view new_word,
+        const std::filesystem::path& user_dict_path = {});
     bool PinUserEntry(
         std::wstring_view code,
         std::wstring_view word,
@@ -293,7 +299,9 @@ private:
         sync::Operation op,
         const std::filesystem::path& user_dict_path,
         FileMutator mutate_file,
-        MemoryMutator mutate_memory);
+        MemoryMutator mutate_memory,
+        bool reset_baseline = false,
+        bool require_original = false);
 
     std::map<uint32_t, std::vector<std::wstring>> dict_;
     std::map<uint32_t, std::vector<std::wstring>> pinned_entries_;

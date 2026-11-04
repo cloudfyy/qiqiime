@@ -45,25 +45,19 @@ std::wstring TrimWhitespace(std::wstring_view input) {
 
 } // namespace
 
-bool DictFilter::Matches(const DictRecord& record) const {
-    if (source != DictEntrySource::All && record.source != source) {
-        return false;
-    }
-    if (!code_query.empty()) {
-        const std::wstring norm_code = NormalizeAsciiLower(code_query);
-        if (!norm_code.empty() && record.code.find(norm_code) == std::wstring::npos) {
-            return false;
-        }
-    }
-    if (!word_query.empty()) {
-        const std::wstring trimmed = TrimWhitespace(word_query);
-        if (!trimmed.empty() &&
-            record.word.find(trimmed) == std::wstring::npos &&
-            record.code.find(NormalizeAsciiLower(trimmed)) == std::wstring::npos) {
-            return false;
-        }
-    }
-    return true;
+void DictFilter::SetQuery(std::wstring_view query) {
+    std::wstring normalized = TrimWhitespace(query);
+    const bool code = !normalized.empty() && std::ranges::all_of(normalized, [](wchar_t ch) noexcept {
+        return (ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z');
+    });
+    if (code) normalized = NormalizeAsciiLower(normalized);
+    query_ = std::move(normalized);
+    search_code_ = code;
+}
+
+bool DictFilter::Matches(const DictRecord& record) const noexcept {
+    return (source == DictEntrySource::All || record.source == source) &&
+        (query_.empty() || (search_code_ ? record.code : record.word).find(query_) != std::wstring::npos);
 }
 
 void DictManagerModel::InitializePaths(
@@ -327,6 +321,17 @@ bool DictManagerModel::RemoveUserEntry(std::wstring_view code, std::wstring_view
     if (!engine_.RemoveUserEntry(norm_code, norm_word, user_dict_path_)) {
         return false;
     }
+    RebuildRecords();
+    return true;
+}
+
+bool DictManagerModel::ReplaceUserEntry(
+    std::wstring_view old_code, std::wstring_view old_word,
+    std::wstring_view new_code, std::wstring_view new_word) {
+    const auto code = NormalizeAsciiLower(new_code);
+    const auto word = TrimWhitespace(new_word);
+    if (PackWubiCode(code) == 0 || word.empty()) return false;
+    if (!engine_.ReplaceUserEntry(old_code, old_word, code, word, user_dict_path_)) return false;
     RebuildRecords();
     return true;
 }

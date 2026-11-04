@@ -41,10 +41,13 @@ struct DictRecord {
 
 struct DictFilter {
     DictEntrySource source = DictEntrySource::All;
-    std::wstring code_query;
-    std::wstring word_query;
 
-    bool Matches(const DictRecord& record) const;
+    void SetQuery(std::wstring_view query);
+    bool Matches(const DictRecord& record) const noexcept;
+
+private:
+    std::wstring query_;
+    bool search_code_ = false;
 };
 
 class DictManagerModel final {
@@ -78,6 +81,9 @@ public:
     // User dictionary, manual pinning, and blocklist operations (coordinated via change_sync)
     bool AddOrUpdateUserEntry(std::wstring_view code, std::wstring_view word);
     bool ModifyUserEntry(std::wstring_view code, std::wstring_view old_word, std::wstring_view new_word);
+    bool ReplaceUserEntry(
+        std::wstring_view old_code, std::wstring_view old_word,
+        std::wstring_view new_code, std::wstring_view new_word);
     bool RemoveUserEntry(std::wstring_view code, std::wstring_view word);
     bool PinUserEntry(std::wstring_view code, std::wstring_view word);
     bool UnpinUserEntry(std::wstring_view code, std::wstring_view word);
