@@ -48,6 +48,8 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           name: "奇奇五笔 (QiQi Wubi IME) ${{ github.event.inputs.tag_name || github.ref_name }}"
+          prerelease: ${{ contains(github.event.inputs.tag_name || github.ref_name, '-') }}
+          make_latest: ${{ contains(github.event.inputs.tag_name || github.ref_name, '-') && 'false' || 'legacy' }}
           generate_release_notes: true
           files: |
             dist/*.msi
