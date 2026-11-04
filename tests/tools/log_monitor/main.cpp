@@ -158,16 +158,32 @@ void TestAboutDialogs() {
             QIQI_TEST_CHECK(expected.seen);
         }
     }
+    ::DestroyWindow(window.Handle());
+    MSG msg{};
+    while (::PeekMessageW(&msg, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE)) {
+    }
 }
 
 std::wstring ReadClipboardText(HWND owner = nullptr) {
-    const ScopedClipboard clip(owner);
-    QIQI_TEST_CHECK(clip.IsOpen());
-    const HANDLE data = ::GetClipboardData(CF_UNICODETEXT);
-    QIQI_TEST_CHECK(data != nullptr);
-    const ScopedGlobalLock<wchar_t> lock(data);
-    QIQI_TEST_CHECK(lock.IsValid());
-    return std::wstring(lock.Get());
+    for (int attempt = 0; attempt < 25; ++attempt) {
+        const ScopedClipboard clip(owner);
+        if (!clip.IsOpen()) {
+            const HWND clip_owner = ::GetOpenClipboardWindow();
+            const DWORD holder_tid = clip_owner ? ::GetWindowThreadProcessId(clip_owner, nullptr) : 0;
+            if (clip.Error() == ERROR_ACCESS_DENIED && holder_tid != ::GetCurrentThreadId()) {
+                ::Sleep(2);
+                continue;
+            }
+        }
+        QIQI_TEST_CHECK(clip.IsOpen());
+        const HANDLE data = ::GetClipboardData(CF_UNICODETEXT);
+        QIQI_TEST_CHECK(data != nullptr);
+        const ScopedGlobalLock<wchar_t> lock(data);
+        QIQI_TEST_CHECK(lock.IsValid());
+        return std::wstring(lock.Get());
+    }
+    QIQI_TEST_CHECK(false);
+    return {};
 }
 
 void TestDarkHeader(HWND list) {
@@ -496,6 +512,9 @@ void TestWindowAndVersion() {
                    HIWORD(info->dwFileVersionLS) == version::kPatch);
     QIQI_TEST_CHECK(::DestroyWindow(window.Handle()));
     QIQI_TEST_CHECK(window.Handle() == nullptr);
+    MSG msg{};
+    while (::PeekMessageW(&msg, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE)) {
+    }
 }
 
 void TestDetailsSplitter(const MonitorWindow& window) {
@@ -604,19 +623,30 @@ void TestDesktopIntegration() {
     Click(window, Copy);
     const auto single_copied = ReadClipboardText(window.Handle());
     QIQI_TEST_CHECK(single_copied.contains(L"Monitor initialized") && single_copied.contains(L"PID="));
-    for (int i = 0; i < 450; ++i) Click(window, Copy);
+    // Populate diagnostic entries via invalid language selection notifications without hammering the system clipboard 450 times.
+    for (int i = 0; i < 450; ++i) {
+        ::SendMessageW(Child(window, Language), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+        ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
+    }
+    SelectLanguage(window, UiLanguage::EnUs);
+    ::SendMessageW(Child(window, Level), CB_SETCURSEL, 0, 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Level), CBN_SELCHANGE), 0);
     ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
     ::SetWindowTextW(Child(window, Search), L"");
-    QIQI_TEST_CHECK(ListView_GetItemCount(list) >= 2);
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) >= 405);
     ListView_SetItemState(list, -1, LVIS_SELECTED, LVIS_SELECTED);
-    QIQI_TEST_CHECK(ListView_GetSelectedCount(list) >= 2);
+    QIQI_TEST_CHECK(ListView_GetSelectedCount(list) >= 405);
     QIQI_TEST_CHECK(ControlText(Child(window, Details)).contains(L"Selected entries: "));
     Click(window, Copy);
     const auto multi_copied = ReadClipboardText(window.Handle());
-    QIQI_TEST_CHECK(multi_copied.contains(L"Monitor initialized") && multi_copied.contains(L"Copied 1 log record(s) to clipboard") && multi_copied.contains(L"\r\n"));
+    QIQI_TEST_CHECK(multi_copied.contains(L"Monitor initialized") && multi_copied.contains(L"Invalid language selection") && multi_copied.contains(L"\r\n"));
+    ::SendMessageW(Child(window, Level), CB_SETCURSEL, 4, 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Level), CBN_SELCHANGE), 0);
     ListView_SetItemState(list, -1, 0, LVIS_SELECTED);
     QIQI_TEST_CHECK(ListView_GetSelectedCount(list) == 0);
     {
+        ::SendMessageW(Child(window, Level), CB_SETCURSEL, 0, 0);
+        ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Level), CBN_SELCHANGE), 0);
         std::array<BYTE, 256> keys{};
         QIQI_TEST_CHECK(::GetKeyboardState(keys.data()));
         const auto restore_keys = gsl::finally([&keys]() noexcept {
@@ -672,6 +702,8 @@ void TestDesktopIntegration() {
         QIQI_TEST_CHECK(refreshed_copy.contains(std::format(L"Copied {} log record(s) to clipboard",
                                                           copied_count + 1)));
         QIQI_TEST_CHECK(refreshed_copy.size() > bulk_copied.size());
+        ::SendMessageW(Child(window, Level), CB_SETCURSEL, 4, 0);
+        ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Level), CBN_SELCHANGE), 0);
     }
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
     ::SendMessageW(Child(window, Language), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);

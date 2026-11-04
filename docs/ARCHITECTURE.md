@@ -388,4 +388,8 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 - [ ] **33. 98 版与其他编码方案（`additional-code-schemes`）**：评估码表、造词规则和用户词库隔离，避免仅替换主词库导致编码方案混用。
 - [ ] **34. 跨设备配置与词库同步（`cross-device-sync`）**：本地备份成熟后再评估账号或用户指定存储的同步，明确隐私授权、离线行为、冲突解决和服务维护成本；与现有本机跨进程同步区分。
 - [ ] **35. 皮肤扩展与附加工具（`optional-skins-tools`）**：评估可选皮肤、软键盘、输入统计及更新提示；截图、账号等级等非核心功能暂不列为必做，避免偏离轻量纯五笔定位。
-- [ ] **60. 调试模式与高频测试下的剪贴板打开失败专项排查（`clipboard-debug-failure-investigation`）**：专门排查 `Debug` 构建或连续高频剪贴板测试中 `::OpenClipboard` 偶发失败的原因（区分系统剪贴板历史/远程桌面/IDE 监听服务抢占、测试窗口消息队列残留 `WM_QUIT` 与代码自身问题），不盲目在 `ScopedClipboard` 中添加 `Sleep` 循环重试。
+- [x] **60. 调试模式与高频测试下的剪贴板打开失败专项排查（`clipboard-debug-failure-investigation`）**：已定位并修复三个根因：
+  1. 远程桌面客户端（`msrdc.exe`）与 `explorer.exe` 监听 `WM_CLIPBOARDUPDATE` 并异步短暂打开剪贴板，导致紧接 `SetClipboardData` 后的下一次 `OpenClipboard` 偶发返回 `ERROR_ACCESS_DENIED (5)`；
+  2. `tests/tools/log_monitor/main.cpp` 为填充诊断队列连续调用了 450 次真实剪贴板写入（已改为通过诊断通知填充，不再连续轰炸系统剪贴板）；
+  3. 测试销毁窗口后未排空线程队列中的 `WM_QUIT`，导致后续弹窗立即中止返回。
+  - 修复保持 `ScopedClipboard` 单次无阻塞语义，仅在高层复制入口 [`CopyTextToClipboard`](../src/common/win32_ui_util.h) 与测试读取辅助中对跨线程/跨进程 `ERROR_ACCESS_DENIED` 做有界短退避（同线程持有时立即失败返回，避免自锁等待）。

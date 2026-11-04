@@ -106,20 +106,32 @@ inline ULONG CopyTextToClipboard(HWND owner, std::wstring_view text) noexcept {
         }
         dst.back() = L'\0';
     }
-    const ScopedClipboard clip(owner);
-    if (!clip) {
-        return clip.Error();
+    ULONG last_open_error = ERROR_ACCESS_DENIED;
+    for (int attempt = 0; attempt < 25; ++attempt) {
+        const ScopedClipboard clip(owner);
+        if (!clip) {
+            last_open_error = clip.Error();
+            const HWND clip_owner = ::GetOpenClipboardWindow();
+            const DWORD holder_tid = clip_owner ? ::GetWindowThreadProcessId(clip_owner, nullptr) : 0;
+            // Do not sleep if our own thread holds the clipboard or if the failure is not transient contention.
+            if (last_open_error != ERROR_ACCESS_DENIED || holder_tid == ::GetCurrentThreadId()) {
+                return last_open_error;
+            }
+            ::Sleep(2);
+            continue;
+        }
+        if (!::EmptyClipboard()) {
+            const DWORD error = ::GetLastError();
+            return error ? error : ERROR_GEN_FAILURE;
+        }
+        if (!::SetClipboardData(CF_UNICODETEXT, memory.Get())) {
+            const DWORD error = ::GetLastError();
+            return error ? error : ERROR_GEN_FAILURE;
+        }
+        std::ignore = memory.Detach();
+        return ERROR_SUCCESS;
     }
-    if (!::EmptyClipboard()) {
-        const DWORD error = ::GetLastError();
-        return error ? error : ERROR_GEN_FAILURE;
-    }
-    if (!::SetClipboardData(CF_UNICODETEXT, memory.Get())) {
-        const DWORD error = ::GetLastError();
-        return error ? error : ERROR_GEN_FAILURE;
-    }
-    std::ignore = memory.Detach();
-    return ERROR_SUCCESS;
+    return last_open_error;
 }
 
 // RAII wrapper for ::BeginPaint(hwnd, &ps) / ::EndPaint(hwnd, &ps).
