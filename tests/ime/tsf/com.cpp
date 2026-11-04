@@ -297,7 +297,7 @@ void TestClassFactoryAndDllExports() {
                 hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false) == E_ACCESSDENIED);
             mock_profiles->fail_enable_ = false;
 
-            // 2c. Full success of RegisterServerWithManagers (AddLanguageProfile + RegisterProfile + 7 Categories)
+            // 2c. Full success of RegisterServerWithManagers (AddLanguageProfile + RegisterProfile + 6 Categories)
             QIQI_TEST_CHECK(SUCCEEDED(RegisterServerWithManagers(
                 hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false)));
             QIQI_TEST_CHECK(mock_profiles->registered_);
@@ -312,7 +312,14 @@ void TestClassFactoryAndDllExports() {
             QIQI_TEST_CHECK(mock_profiles->last_profile_desc_ == kProfileDescZh ||
                             mock_profiles->last_profile_desc_ == kProfileDescEn);
             QIQI_TEST_CHECK(mock_profiles->display_name_res_id_ == 100);
-            QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_ == 7);
+            QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_.size() == 6);
+            QIQI_TEST_CHECK(mock_cat_mgr->unregister_category_calls_.empty());
+            for (const auto& category : {GUID_TFCAT_TIP_KEYBOARD, GUID_TFCAT_TIPCAP_UIELEMENTENABLED,
+                                        GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT, GUID_TFCAT_TIPCAP_COMLESS,
+                                        GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT, GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER}) {
+                QIQI_TEST_CHECK(mock_cat_mgr->HasCategory(category));
+            }
+            QIQI_TEST_CHECK(!mock_cat_mgr->HasCategory(GUID_TFCAT_TIPCAP_SECUREMODE));
 
             // Verify qiqiime-settings: URI protocol was registered in HKCR
             {
@@ -335,10 +342,18 @@ void TestClassFactoryAndDllExports() {
                 native64_key.Reset();
                 const int enable_calls = mock_profiles->enable_calls_;
                 const int enable_default_calls = mock_profiles->enable_default_calls_;
+                const auto register_calls = mock_cat_mgr->register_category_calls_.size();
+                mock_cat_mgr->registered_categories_.push_back(GUID_TFCAT_TIPCAP_SECUREMODE);
                 QIQI_TEST_CHECK(RegisterServerWithManagers(
                     hmod, mock_profiles.Get(), mock_cat_mgr.Get(), true) == S_OK);
+                QIQI_TEST_CHECK(!mock_cat_mgr->HasCategory(GUID_TFCAT_TIPCAP_SECUREMODE));
+                QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_.size() == 6);
+                QIQI_TEST_CHECK(mock_cat_mgr->register_category_calls_.size() == register_calls);
+                mock_cat_mgr->registered_categories_.push_back(GUID_TFCAT_TIPCAP_SECUREMODE);
                 QIQI_TEST_CHECK(UnregisterServerWithManagers(
                     mock_profiles.Get(), mock_cat_mgr.Get(), true) == S_OK);
+                QIQI_TEST_CHECK(!mock_cat_mgr->HasCategory(GUID_TFCAT_TIPCAP_SECUREMODE));
+                QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_.size() == 6);
                 QIQI_TEST_CHECK(mock_profiles->enable_calls_ == enable_calls);
                 QIQI_TEST_CHECK(mock_profiles->enable_default_calls_ == enable_default_calls);
                 QIQI_TEST_CHECK(mock_profiles->deactivate_calls_ == 0);
@@ -347,10 +362,11 @@ void TestClassFactoryAndDllExports() {
             // 2e. Full UnregisterServerWithManagers
             const int enable_calls = mock_profiles->enable_calls_;
             const int enable_default_calls = mock_profiles->enable_default_calls_;
+            mock_cat_mgr->registered_categories_.push_back(GUID_TFCAT_TIPCAP_SECUREMODE);
             QIQI_TEST_CHECK(SUCCEEDED(UnregisterServerWithManagers(
                 mock_profiles.Get(), mock_cat_mgr.Get(), false)));
             QIQI_TEST_CHECK(!mock_profiles->registered_);
-            QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_ == 0);
+            QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_.empty());
             QIQI_TEST_CHECK(mock_profiles->enable_calls_ == enable_calls);
             QIQI_TEST_CHECK(mock_profiles->enable_default_calls_ == enable_default_calls);
             QIQI_TEST_CHECK(mock_profiles->enabled_);
@@ -377,6 +393,57 @@ void TestClassFactoryAndDllExports() {
                 mock_profiles.Get(), mock_cat_mgr.Get(), false)));
             mock_profiles->fail_deactivate_ = false;
             QIQI_TEST_CHECK(!mock_profiles->registered_);
+
+            mock_cat_mgr->missing_category_result_ = S_OK;
+            QIQI_TEST_CHECK(RegisterServerWithManagers(
+                hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false) == S_OK);
+            QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_.size() == 6);
+            mock_cat_mgr->registered_categories_.push_back(GUID_TFCAT_TIPCAP_SECUREMODE);
+            const auto prior_unregistrations = mock_cat_mgr->unregister_category_calls_.size();
+            const auto prior_registrations = mock_cat_mgr->register_category_calls_.size();
+            for (int attempt = 0; attempt < 2; ++attempt) {
+                QIQI_TEST_CHECK(RegisterServerWithManagers(
+                    hmod, mock_profiles.Get(), mock_cat_mgr.Get(), false) == S_OK);
+                QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_.size() == 6);
+                QIQI_TEST_CHECK(!mock_cat_mgr->HasCategory(GUID_TFCAT_TIPCAP_SECUREMODE));
+                QIQI_TEST_CHECK(mock_cat_mgr->unregister_category_calls_.size() == prior_unregistrations + 1);
+                QIQI_TEST_CHECK(IsEqualGUID(mock_cat_mgr->unregister_category_calls_.back(),
+                                            GUID_TFCAT_TIPCAP_SECUREMODE));
+            }
+            QIQI_TEST_CHECK(mock_cat_mgr->register_category_calls_.size() == prior_registrations + 12);
+            QIQI_TEST_CHECK(std::none_of(mock_cat_mgr->register_category_calls_.begin(),
+                                         mock_cat_mgr->register_category_calls_.end(),
+                [](const GUID& category) { return IsEqualGUID(category, GUID_TFCAT_TIPCAP_SECUREMODE); }));
+            QIQI_TEST_CHECK(UnregisterServerWithManagers(
+                mock_profiles.Get(), mock_cat_mgr.Get(), false) == S_OK);
+            QIQI_TEST_CHECK(mock_cat_mgr->registered_categories_.empty());
+
+            for (const bool fail_lookup : {true, false}) {
+                const auto failing_profiles = MakeComObject<MockTfInputProcessorProfiles>();
+                const auto failing_categories = MakeComObject<MockTfCategoryMgr>();
+                failing_categories->registered_categories_.push_back(GUID_TFCAT_TIPCAP_SECUREMODE);
+                const HRESULT failure = fail_lookup ? E_ACCESSDENIED : E_FAIL;
+                if (fail_lookup) {
+                    failing_categories->find_category_result_ = failure;
+                } else {
+                    failing_categories->unregister_category_result_ = failure;
+                }
+                QIQI_TEST_CHECK(RegisterServerWithManagers(
+                    hmod, failing_profiles.Get(), failing_categories.Get(), false) == failure);
+                QIQI_TEST_CHECK(failing_categories->HasCategory(GUID_TFCAT_TIPCAP_SECUREMODE));
+                QIQI_TEST_CHECK(failing_categories->register_category_calls_.empty());
+                QIQI_TEST_CHECK(!failing_profiles->registered_);
+                failing_profiles->registered_ = true;
+                QIQI_TEST_CHECK(UnregisterServerWithManagers(
+                    failing_profiles.Get(), failing_categories.Get(), false) == failure);
+                QIQI_TEST_CHECK(!failing_profiles->registered_);
+                QIQI_TEST_CHECK(failing_categories->HasCategory(GUID_TFCAT_TIPCAP_SECUREMODE));
+                failing_categories->find_category_result_ = S_OK;
+                failing_categories->unregister_category_result_ = S_OK;
+                QIQI_TEST_CHECK(UnregisterServerWithManagers(
+                    failing_profiles.Get(), failing_categories.Get(), false) == S_OK);
+                QIQI_TEST_CHECK(failing_categories->registered_categories_.empty());
+            }
         }
     }
 }

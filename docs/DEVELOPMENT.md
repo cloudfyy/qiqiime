@@ -163,6 +163,8 @@ ctest --preset x86-release --output-on-failure
 - `qiqi_settings_test.exe`：设置 / 关于窗口及配置边界测试（`QiQiSettingsTest`）
 - `qiqi_log_monitor_test.exe`：监控器测试（`QiQiLogMonitorTest`）；`--integration` 模式另注册为 `QiQiLogMonitorIntegrationTest`
 
+任务 36 的原生 TSF 作用域/只读/compartment 契约及原生 EDIT 样式检查已纳入 `QiQiTsfUiTest`。显式运行 `.\build\x64\Release\qiqi_tsf_ui_test.exe --restricted-input-diagnostics`（x86 对应替换路径）还会观察现有禁用按键与异步编辑行为；`[OBSERVE]` 不是保护已实现的通过断言。实验边界、双架构复现步骤及真实宿主待验证矩阵见[禁输入场景研究](RESTRICTED_INPUT_CONTEXT_RESEARCH.md)。不会读取密码或真实剪贴板，不修改生产输入策略。
+
 ---
 
 ## 4. 代码规范与静态代码检查（`lint`）

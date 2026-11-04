@@ -15,6 +15,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     tsf/com.cpp
     tsf/category_manager.cpp
     tsf/logging.cpp
+    tsf/restricted_input.cpp
     tsf/service.cpp
     tsf/service_lifecycle.cpp
     ui/ui_candidate.cpp

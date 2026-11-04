@@ -52,6 +52,8 @@
 
 脚本不编译源码，需先完成构建或解压完整发行包。注册时会尝试预编译随包词库缓存，并为部署目录授予 AppContainer 读取/执行权限；失败以诊断为准，不保证所有沙箱宿主均可访问。
 
+当前代码已撤下未经安全桌面验收的 `GUID_TFCAT_TIPCAP_SECUREMODE` 能力声明。使用新构建重新注册时，会先检查并撤销旧版遗留分类；分类不存在为正常无操作，实际查询或撤销失败会记录 HRESULT 并使注册失败。卸载同样清理历史分类，失败时继续其余清理并返回该错误；WOW64 路径保留共享原生 Profile 和其他能力，只撤销此历史声明。仅替换 DLL 或执行 `-EnableCurrentUserOnly` 不会完成分类迁移；源码改动和构建也不会自动更改本机注册状态。此变更不等于实现密码框保护，Windows 登录与安全桌面支持仍待任务 61 验证。
+
 - **在普通 PowerShell 窗口执行（自动弹出 UAC 管理员提权，安装后打开记事本试用）**：
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate -LaunchNotepad
@@ -92,11 +94,11 @@ powershell -ExecutionPolicy Bypass -File "C:\Program Files\QiQiIME\scripts\regis
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
-生成的产物位于 `dist\`，文件名使用项目版本号（以下以 `0.9.31` 为例）：
+生成的产物位于 `dist\`，文件名使用项目版本号（以下以 `0.9.32` 为例）：
 
-- **`dist\QiQiIME-v0.9.31-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
-- **`dist\QiQiIME-v0.9.31-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
-- **`dist\QiQiIME-v0.9.31-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
+- **`dist\QiQiIME-v0.9.32-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
+- **`dist\QiQiIME-v0.9.32-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
+- **`dist\QiQiIME-v0.9.32-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
 
 MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个工具入口，均启动安装目录下的 x64 程序，快捷方式不主动请求管理员权限：
 
@@ -111,7 +113,7 @@ MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个�
 日志采集若遇到权限不足，需按[日志监控指南](LOGGING.md)单独提升监控工具或配置 ETW 权限，不要提升输入法宿主。入口与中英文资源的静态回归检查已纳入 `QiQiInstallerShortcutsTest`；该检查不安装产品，不能替代实际安装、升级和卸载验证。
 
 ```text
-QiQiIME-v0.9.31-win-x64-x86/
+QiQiIME-v0.9.32-win-x64-x86/
 ├── x64/
 │   ├── qiqiime.dll             # 64 位 TSF 输入法组件
 │   ├── QiQiIMESettings.exe     # 64 位独立设置程序

@@ -102,15 +102,28 @@ void UnregisterComClsid() {
 }
 
 // Categories declared for modern Windows, UWP/AppContainer, and fullscreen UILess games
-const std::array<GUID, 7> kSupportedCategories = {
+const std::array<GUID, 6> kSupportedCategories = {
     GUID_TFCAT_TIP_KEYBOARD,
-    GUID_TFCAT_TIPCAP_SECUREMODE,
     GUID_TFCAT_TIPCAP_UIELEMENTENABLED,
     GUID_TFCAT_TIPCAP_INPUTMODECOMPARTMENT,
     GUID_TFCAT_TIPCAP_COMLESS,
     GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT,
     GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER
 };
+
+HRESULT UnregisterLegacySecureModeCategory(gsl::not_null<ITfCategoryMgr*> manager) {
+    const GUID* legacy_category = &GUID_TFCAT_TIPCAP_SECUREMODE;
+    GUID category = GUID_NULL;
+    HRESULT hr = manager->FindClosestCategory(kClsidQiQiTextService, &category, &legacy_category, 1);
+    if (!log::CheckHResult(hr, "UnregisterLegacySecureModeCategory::FindClosestCategory")) {
+        return hr;
+    }
+    if (IsEqualGUID(category, GUID_NULL)) return S_OK;
+    hr = manager->UnregisterCategory(
+        kClsidQiQiTextService, GUID_TFCAT_TIPCAP_SECUREMODE, kClsidQiQiTextService);
+    std::ignore = log::CheckHResult(hr, "UnregisterLegacySecureModeCategory::UnregisterCategory");
+    return hr;
+}
 
 constexpr const wchar_t* kSettingsUriScheme = L"qiqiime-settings";
 constexpr const wchar_t* kSettingsUriCommandKey = L"qiqiime-settings\\shell\\open\\command";
@@ -320,6 +333,14 @@ HRESULT RegisterServerWithManagers(
         return SELFREG_E_CLASS;
     }
 
+    ComPtr<ITfCategoryMgr> cat_mgr = custom_cat_mgr;
+    HRESULT hr = cat_mgr ? S_OK : ::CoCreateInstance(
+        CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&cat_mgr));
+    if (SUCCEEDED(hr) && !cat_mgr) hr = E_UNEXPECTED;
+    if (!log::CheckHResult(hr, "RegisterServer::CoCreateInstance(ITfCategoryMgr)")) return hr;
+    hr = UnregisterLegacySecureModeCategory(cat_mgr.Get());
+    if (FAILED(hr)) return hr;
+
     // On 64-bit Windows, when registering the 32-bit (WOW64) DLL after the 64-bit DLL is already
     // registered, only the 32-bit HKCR\WOW6432Node\CLSID\InProcServer32 entry is needed; skip
     // overwriting the shared 64-bit TSF Language Profile icon/module path.
@@ -328,7 +349,7 @@ HRESULT RegisterServerWithManagers(
         return S_OK;
     }
 
-    HRESULT hr = E_FAIL;
+    hr = E_FAIL;
     do {
         ComPtr<ITfInputProcessorProfiles> profiles = custom_profiles;
         if (!profiles) {
@@ -421,24 +442,12 @@ HRESULT RegisterServerWithManagers(
             break;
         }
 
-        ComPtr<ITfCategoryMgr> cat_mgr = custom_cat_mgr;
-        if (!cat_mgr) {
-            hr = ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
-                                    IID_PPV_ARGS(&cat_mgr));
-        } else {
-            hr = S_OK;
-        }
-        if (SUCCEEDED(hr) && cat_mgr) {
-            for (const auto& cat : kSupportedCategories) {
-                const HRESULT cat_hr = cat_mgr->RegisterCategory(kClsidQiQiTextService, cat, kClsidQiQiTextService);
-                if (FAILED(cat_hr)) {
-                    QIQI_LOG_WARN("RegisterServer: RegisterCategory failed (hr=0x{:08x})",
-                                  gsl::narrow_cast<unsigned int>(cat_hr));
-                }
+        for (const auto& cat : kSupportedCategories) {
+            const HRESULT cat_hr = cat_mgr->RegisterCategory(kClsidQiQiTextService, cat, kClsidQiQiTextService);
+            if (FAILED(cat_hr)) {
+                QIQI_LOG_WARN("RegisterServer: RegisterCategory failed (hr=0x{:08x})",
+                              gsl::narrow_cast<unsigned int>(cat_hr));
             }
-        } else {
-            QIQI_LOG_WARN("RegisterServer: ITfCategoryMgr unavailable (hr=0x{:08x})",
-                          gsl::narrow_cast<unsigned int>(hr));
         }
         RegisterSettingsUriProtocol(instance);
         PrebuildBundledDictionaries(instance);
@@ -462,18 +471,21 @@ HRESULT UnregisterServerWithManagers(
     const bool keep_native_profile = is_wow64 && IsNative64BitClsidRegistered();
     UnregisterComClsid();
 
+    ComPtr<ITfCategoryMgr> cat_mgr = custom_cat_mgr;
+    HRESULT category_hr = cat_mgr ? S_OK : ::CoCreateInstance(
+        CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&cat_mgr));
+    if (SUCCEEDED(category_hr) && !cat_mgr) category_hr = E_UNEXPECTED;
+    if (log::CheckHResult(category_hr, "UnregisterServer::CoCreateInstance(ITfCategoryMgr)")) {
+        category_hr = UnregisterLegacySecureModeCategory(cat_mgr.Get());
+    }
+
     // If unregistering the 32-bit WOW64 DLL while the 64-bit DLL is still registered,
     // keep the shared TSF Language Profile intact until the 64-bit DLL is also unregistered.
     if (keep_native_profile) {
         QIQI_LOG_INFO("UnregisterServer (WOW64): removed 32-bit COM CLSID; keeping active 64-bit TSF profile");
-        return S_OK;
+        return category_hr;
     }
 
-    ComPtr<ITfCategoryMgr> cat_mgr = custom_cat_mgr;
-    if (!cat_mgr) {
-        std::ignore = log::CheckHResult(::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
-                           IID_PPV_ARGS(&cat_mgr)), "UnregisterServer::CoCreateInstance(ITfCategoryMgr)");
-    }
     if (cat_mgr) {
         for (const auto& cat : kSupportedCategories) {
             std::ignore = log::CheckHResult(
@@ -509,8 +521,13 @@ HRESULT UnregisterServerWithManagers(
     UnregisterSettingsUriProtocol();
     RemovePrebuiltBundledDictionaries(g_dll_instance);
 
-    QIQI_LOG_INFO("UnregisterServer completed");
-    return S_OK;
+    if (FAILED(category_hr)) {
+        QIQI_LOG_WARN("UnregisterServer completed with category cleanup failure (hr=0x{:08x})",
+                      gsl::narrow_cast<unsigned int>(category_hr));
+    } else {
+        QIQI_LOG_INFO("UnregisterServer completed");
+    }
+    return category_hr;
 }
 
 HRESULT RegisterServer(HINSTANCE instance) {

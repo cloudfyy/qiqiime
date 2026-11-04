@@ -5,6 +5,11 @@
 #include <iostream>
 #include <span>
 
+namespace qiqi::test {
+void RunRestrictedInputContractTests();
+void RunRestrictedInputDiagnostics();
+}
+
 int wmain(int argc, wchar_t* argv[]) {
     QIQI_TEST_CHECK(argv != nullptr);
     const std::span<wchar_t* const> args(argv, gsl::narrow_cast<size_t>(argc));
@@ -15,6 +20,12 @@ int wmain(int argc, wchar_t* argv[]) {
         }
     });
 
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--restricted-input-diagnostics") {
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        qiqi::test::RunRestrictedInputContractTests();
+        qiqi::test::RunRestrictedInputDiagnostics();
+        return 0;
+    }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--tsf-focus-diagnostics") {
         qiqi::test::RunTsfFocusDiagnosticsScenario();
         return 0;
@@ -31,6 +42,7 @@ int wmain(int argc, wchar_t* argv[]) {
     qiqi::test::RunCandidateUITests();
     qiqi::test::RunStatusBarUITests();
     qiqi::test::RunTsfComTests();
+    qiqi::test::RunRestrictedInputContractTests();
     qiqi::test::RunTsfServiceTests();
     std::cout << "[PASS] All QiQi TSF & UI unit tests succeeded.\n";
     return 0;

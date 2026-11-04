@@ -4,9 +4,11 @@
 #include <olectl.h>
 #include <wrl/client.h>
 #include <gsl/gsl>
+#include <algorithm>
 #include <deque>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -296,6 +298,10 @@ public:
     }
     STDMETHODIMP GetValue(VARIANT* pvarValue) override {
         if (!pvarValue) return E_INVALIDARG;
+        if (get_value_result_ != S_OK) {
+            ::VariantInit(pvarValue);
+            return get_value_result_;
+        }
         pvarValue->vt = VT_I4;
         pvarValue->lVal = last_val_;
         if (get_value_callback_) get_value_callback_();
@@ -317,6 +323,7 @@ public:
 
     GUID guid_{};
     LONG last_val_ = 0;
+    HRESULT get_value_result_ = S_OK;
     bool fail_set_value_ = false;
     std::function<void()> get_value_callback_;
     ComPtr<ITfCompartmentEventSink> sink_;
@@ -1180,17 +1187,40 @@ public:
         }
         return c;
     }
-    STDMETHODIMP RegisterCategory(REFCLSID, REFGUID, REFGUID) noexcept override {
-        ++registered_categories_;
+    bool HasCategory(REFGUID category) const noexcept {
+        return std::any_of(registered_categories_.begin(), registered_categories_.end(),
+                           [&](const GUID& existing) { return IsEqualGUID(existing, category); });
+    }
+    STDMETHODIMP RegisterCategory(REFCLSID, REFGUID category, REFGUID) override {
+        register_category_calls_.push_back(category);
+        if (!HasCategory(category)) registered_categories_.push_back(category);
         return S_OK;
     }
-    STDMETHODIMP UnregisterCategory(REFCLSID, REFGUID, REFGUID) noexcept override {
-        if (registered_categories_ > 0) --registered_categories_;
+    STDMETHODIMP UnregisterCategory(REFCLSID, REFGUID category, REFGUID) override {
+        unregister_category_calls_.push_back(category);
+        if (FAILED(unregister_category_result_)) return unregister_category_result_;
+        std::erase_if(registered_categories_, [&](const GUID& existing) { return IsEqualGUID(existing, category); });
         return S_OK;
     }
     STDMETHODIMP EnumCategoriesInItem(REFGUID, IEnumGUID**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP EnumItemsInCategory(REFGUID, IEnumGUID**) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP FindClosestCategory(REFGUID, GUID*, const GUID**, ULONG) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP FindClosestCategory(REFGUID, GUID* category, const GUID** list, ULONG count) noexcept override {
+        if (!category || (count != 0 && !list)) return E_INVALIDARG;
+        *category = GUID_NULL;
+        if (FAILED(find_category_result_)) return find_category_result_;
+        if (count == 0 && !registered_categories_.empty()) {
+            *category = registered_categories_.front();
+            return S_OK;
+        }
+        for (const auto* candidate : std::span<const GUID* const>(list, count)) {
+            if (!candidate) return E_INVALIDARG;
+            if (HasCategory(*candidate)) {
+                *category = *candidate;
+                return S_OK;
+            }
+        }
+        return missing_category_result_;
+    }
     STDMETHODIMP RegisterGUIDDescription(REFCLSID, REFGUID, const WCHAR*, ULONG) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP UnregisterGUIDDescription(REFCLSID, REFGUID) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetGUIDDescription(REFGUID, BSTR*) noexcept override { return E_NOTIMPL; }
@@ -1207,7 +1237,12 @@ public:
     STDMETHODIMP GetGUID(TfGuidAtom, GUID*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP IsEqualTfGuidAtom(TfGuidAtom, REFGUID, BOOL*) noexcept override { return E_NOTIMPL; }
 
-    size_t registered_categories_ = 0;
+    std::vector<GUID> registered_categories_;
+    std::vector<GUID> register_category_calls_;
+    std::vector<GUID> unregister_category_calls_;
+    HRESULT find_category_result_ = S_OK;
+    HRESULT missing_category_result_ = S_FALSE;
+    HRESULT unregister_category_result_ = S_OK;
     size_t register_guid_calls_ = 0;
     GUID registered_guid_{};
     TfGuidAtom registered_atom_ = 73;
