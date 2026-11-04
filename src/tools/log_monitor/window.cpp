@@ -1,5 +1,6 @@
 #include "tools/log_monitor/internal.h"
 #include "common/theme.h"
+#include "common/tool_window.h"
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
@@ -21,6 +22,11 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
     auto* self = BindOrGetWindowUserData<Impl>(window, message, lparam);
     if (!self || message == WM_NCCREATE) return ::DefWindowProcW(window, message, wparam, lparam);
     try {
+        if (const auto handled = HandleFluentToolWindowMessage(
+                window, message, wparam, lparam, self->theme,
+                gsl::narrow_cast<UINT>(std::to_underlying(Start)), 760, 560)) {
+            return *handled;
+        }
         switch (message) {
         case WM_SIZE: self->Layout(); return 0;
         case WM_TIMER: if (self->ready) self->Tick(); return 0;
@@ -32,42 +38,6 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
                 return 0;
             }
             break;
-        case WM_DRAWITEM:
-            if (lparam) {
-                const auto& item = *reinterpret_cast<DRAWITEMSTRUCT*>(lparam);
-                if (item.CtlType == ODT_COMBOBOX) {
-                    DrawFluentComboBoxItem(item, self->theme);
-                } else if (item.CtlType == ODT_BUTTON) {
-                    DrawFluentPushButton(item, self->theme, item.CtlID == gsl::narrow_cast<UINT>(std::to_underlying(Start)),
-                        IsSystemDarkTheme() ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255));
-                }
-                return TRUE;
-            }
-            break;
-        case WM_MEASUREITEM:
-            if (lparam && reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->CtlType == ODT_COMBOBOX) {
-                reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight = gsl::narrow_cast<UINT>(self->theme.ScalePx(22));
-                return TRUE;
-            }
-            break;
-        case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX:
-            return reinterpret_cast<LRESULT>(ApplyFluentControlColors(reinterpret_cast<HDC>(wparam), self->theme, true));
-        case WM_CTLCOLORSTATIC: case WM_CTLCOLORBTN:
-            return reinterpret_cast<LRESULT>(ApplyFluentControlColors(reinterpret_cast<HDC>(wparam), self->theme, false));
-        case WM_ERASEBKGND: {
-            RECT rect{};
-            ::GetClientRect(window, &rect);
-            const HBRUSH brush = IsHighContrastEnabled() ? ::GetSysColorBrush(COLOR_BTNFACE) : self->theme.surface_brush.Get();
-            ::FillRect(reinterpret_cast<HDC>(wparam), &rect, brush ? brush : ::GetSysColorBrush(COLOR_BTNFACE));
-            return 1;
-        }
-        case WM_GETMINMAXINFO: {
-            auto& info = *reinterpret_cast<MINMAXINFO*>(lparam);
-            const auto monitor = QueryActiveMonitor(window);
-            info.ptMinTrackSize = {std::min<LONG>(self->theme.ScalePx(760), monitor.work_area.right - monitor.work_area.left),
-                std::min<LONG>(self->theme.ScalePx(560), monitor.work_area.bottom - monitor.work_area.top)};
-            return 0;
-        }
         case WM_DPICHANGED: {
             if (lparam) self->UpdateDpi(HIWORD(wparam), *reinterpret_cast<const RECT*>(lparam));
             return 0;
@@ -134,14 +104,7 @@ bool MonitorWindow::Create(HINSTANCE instance) {
     const auto title = std::format(L"{} v{} ({})",
         impl_->Text(L"奇奇日志监控", L"QiQiIME Log Monitor"), version::kVersionW, version::kArchW);
     const auto monitor = QueryActiveMonitor(nullptr);
-    const auto initial_rect = [&](UINT dpi) {
-        const LONG width = std::min<LONG>(ScalePxByDpi(1160, dpi), monitor.work_area.right - monitor.work_area.left);
-        const LONG height = std::min<LONG>(ScalePxByDpi(780, dpi), monitor.work_area.bottom - monitor.work_area.top);
-        const LONG left = monitor.work_area.left + (monitor.work_area.right - monitor.work_area.left - width) / 2;
-        const LONG top = monitor.work_area.top + (monitor.work_area.bottom - monitor.work_area.top - height) / 2;
-        return RECT{left, top, left + width, top + height};
-    };
-    const auto rect = initial_rect(monitor.dpi);
+    const auto rect = ComputeCenteredToolWindowRect(monitor, 1160, 780, monitor.dpi);
     window_.Reset(::CreateWindowExW(0, kWindowClass.data(), title.c_str(), WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
         nullptr, nullptr, instance, impl_.get()));
@@ -151,7 +114,7 @@ bool MonitorWindow::Create(HINSTANCE instance) {
     }
     impl_->hwnd = window_.Get();
     if (!impl_->CreateControls()) return false;
-    impl_->UpdateDpi(impl_->theme.dpi, initial_rect(impl_->theme.dpi));
+    impl_->UpdateDpi(impl_->theme.dpi, ComputeCenteredToolWindowRect(monitor, 1160, 780, impl_->theme.dpi));
     impl_->Layout();
     impl_->Tick();
     return true;
@@ -160,16 +123,7 @@ bool MonitorWindow::Create(HINSTANCE instance) {
 int RunMonitor(HINSTANCE instance, int show) {
     MonitorWindow window;
     if (!window.Create(instance)) return 1;
-    ::ShowWindow(window.Handle(), show);
-    MSG message{};
-    BOOL result = 0;
-    while ((result = ::GetMessageW(&message, nullptr, 0, 0)) > 0) {
-        if (!::IsDialogMessageW(window.Handle(), &message)) {
-            ::TranslateMessage(&message);
-            ::DispatchMessageW(&message);
-        }
-    }
-    return result == -1 ? 1 : gsl::narrow_cast<int>(message.wParam);
+    return RunToolWindowMessageLoop(window.Handle(), show);
 }
 
 } // namespace qiqi::monitor

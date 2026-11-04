@@ -1,6 +1,7 @@
 #include "tools/log_monitor/internal.h"
 #include "common/about_dialog.h"
 #include "common/theme.h"
+#include "common/tool_window.h"
 #include "common/win32_ui_util.h"
 
 #include <gsl/gsl>
@@ -111,40 +112,13 @@ LRESULT CALLBACK MonitorWindow::Impl::ListProcedure(HWND window, UINT message, W
             }
             return 0;
         }
-    } else if (message == WM_NOTIFY && lparam && !IsHighContrastEnabled() && IsSystemDarkTheme()) {
-        const auto& notification = *reinterpret_cast<const NMHDR*>(lparam);
-        if (notification.hwndFrom == ListView_GetHeader(window) && notification.code == NM_CUSTOMDRAW) {
-            const auto& draw = *reinterpret_cast<const NMCUSTOMDRAW*>(lparam);
-            if (draw.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
-            if (draw.dwDrawStage == CDDS_ITEMPREPAINT) {
-                std::array<wchar_t, 256> text{};
-                HDITEMW item{};
-                item.mask = HDI_TEXT | HDI_FORMAT;
-                item.pszText = text.data();
-                item.cchTextMax = gsl::narrow_cast<int>(text.size());
-                if (!Header_GetItem(notification.hwndFrom, gsl::narrow_cast<int>(draw.dwItemSpec), &item)) {
-                    self->diagnostics.Record(2, L"Read dark list header", ERROR_INVALID_DATA);
-                    return CDRF_DODEFAULT;
-                }
-                // Native dark header themes can retain black text on supported Windows builds.
-                const ScopedSaveDC saved(draw.hdc);
-                const ScopedSelectObject selected_font(draw.hdc, self->font.Get());
-                ::SetDCBrushColor(draw.hdc, (draw.uItemState & CDIS_HOT) ? RGB(66, 70, 78) : RGB(54, 58, 66));
-                const auto brush = ::GetSysColorBrush(COLOR_WINDOWFRAME);
-                ::FillRect(draw.hdc, &draw.rc, static_cast<HBRUSH>(::GetStockObject(DC_BRUSH)));
-                const RECT border{draw.rc.right - 1, draw.rc.top, draw.rc.right, draw.rc.bottom};
-                ::FillRect(draw.hdc, &border, brush);
-                RECT label = draw.rc;
-                label.left += self->theme.ScalePx(6);
-                label.right -= self->theme.ScalePx(6);
-                ::SetTextColor(draw.hdc, RGB(238, 240, 245));
-                ::SetBkMode(draw.hdc, TRANSPARENT);
-                const UINT alignment = (item.fmt & HDF_RIGHT) ? DT_RIGHT : ((item.fmt & HDF_CENTER) ? DT_CENTER : DT_LEFT);
-                ::DrawTextW(draw.hdc, text.data(), -1, &label,
-                    DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX | alignment);
-                return CDRF_SKIPDEFAULT;
-            }
+    } else if (message == WM_NOTIFY && self) {
+        bool header_failed = false;
+        const auto drawn = TryCustomDrawDarkListViewHeader(window, lparam, self->font.Get(), self->theme, &header_failed);
+        if (header_failed) {
+            self->diagnostics.Record(2, L"Read dark list header", ERROR_INVALID_DATA);
         }
+        if (drawn) return *drawn;
     }
     return ::DefSubclassProc(window, message, wparam, lparam);
 }
@@ -162,17 +136,7 @@ void MonitorWindow::Impl::CopySelection() {
 }
 
 void MonitorWindow::Impl::ShowListContextMenu(POINT screen_pt) {
-    const HWND list = Child(List);
-    if (screen_pt.x == -1 && screen_pt.y == -1) {
-        RECT rc{};
-        const int sel = ListView_GetNextItem(list, -1, LVNI_FOCUSED | LVNI_SELECTED);
-        if (sel >= 0 && ::SendMessageW(list, LVM_GETITEMRECT, gsl::narrow_cast<WPARAM>(sel), reinterpret_cast<LPARAM>(&rc))) {
-            screen_pt = {rc.left + theme.ScalePx(16), rc.bottom};
-            ::ClientToScreen(list, &screen_pt);
-        } else if (::GetWindowRect(list, &rc)) {
-            screen_pt = {rc.left + theme.ScalePx(16), rc.top + theme.ScalePx(28)};
-        }
-    }
+    screen_pt = ResolveListViewContextMenuPoint(Child(List), screen_pt, theme);
     const ScopedMenu menu(::CreatePopupMenu());
     if (!menu) {
         diagnostics.Record(2, L"CreatePopupMenu", ::GetLastError());

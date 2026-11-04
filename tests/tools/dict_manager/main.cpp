@@ -69,6 +69,25 @@ void TestVersionResource() {
     UINT count = 0;
     QIQI_TEST_CHECK(::VerQueryValueW(data.data(), L"\\StringFileInfo\\080404b0\\OriginalFilename", &text, &count));
     QIQI_TEST_CHECK(text != nullptr && std::wstring_view(static_cast<const wchar_t*>(text)) == L"QiQiIMEDictManager.exe");
+
+    const ScopedModule resource(::LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE));
+    QIQI_TEST_CHECK(resource.IsValid());
+    const HRSRC group = ::FindResourceW(resource.Get(), MAKEINTRESOURCEW(1), RT_GROUP_ICON);
+    QIQI_TEST_CHECK(group != nullptr);
+    const HGLOBAL loaded = ::LoadResource(resource.Get(), group);
+    QIQI_TEST_CHECK(loaded != nullptr);
+    const std::span<const BYTE> bytes(
+        static_cast<const BYTE*>(::LockResource(loaded)), ::SizeofResource(resource.Get(), group));
+    QIQI_TEST_CHECK(bytes.size() >= 6);
+    WORD icon_count = 0;
+    std::memcpy(&icon_count, bytes.subspan(4, 2).data(), 2);
+    QIQI_TEST_CHECK(icon_count == 10 && bytes.size() >= 6 + size_t{icon_count} * 14);
+    bool has_256_frame = false;
+    for (size_t i = 0; i < icon_count; ++i) {
+        const auto entry = bytes.subspan(6 + i * 14, 14);
+        if (entry.front() == 0 && gsl::at(entry, 1) == 0) has_256_frame = true;
+    }
+    QIQI_TEST_CHECK(has_256_frame);
 }
 
 void TestModelAndCrossProcessSync() {

@@ -1,4 +1,5 @@
 #include "tools/log_monitor/internal.h"
+#include "common/tool_window.h"
 #include "common/win32_ui_util.h"
 
 #include <gsl/gsl>
@@ -8,17 +9,6 @@
 
 namespace qiqi::monitor {
 using enum ControlId;
-
-namespace {
-std::wstring ReadText(HWND control) {
-    const int size = ::GetWindowTextLengthW(control);
-    std::wstring result(gsl::narrow_cast<size_t>(size) + 1, L'\0');
-    const int copied = ::GetWindowTextW(control, result.data(), size + 1);
-    result.resize(gsl::narrow_cast<size_t>(copied));
-    return result;
-}
-
-} // namespace
 
 void MonitorWindow::Impl::RefreshProcessChoices(bool force) {
     if (!force && (::SendMessageW(Child(Process), CB_GETDROPPEDSTATE, 0, 0) ||
@@ -71,7 +61,7 @@ void MonitorWindow::Impl::RefreshProcessChoices(bool force) {
 }
 
 void MonitorWindow::Impl::Refilter() {
-    const auto process = ReadText(Child(Process));
+    const auto process = ReadWindowTextString(Child(Process));
     if (process != filter.process) {
         filter.process = process;
         filter.pid.reset();
@@ -82,7 +72,7 @@ void MonitorWindow::Impl::Refilter() {
     filter.level = level >= 0 ? gsl::narrow_cast<UCHAR>(level) : 0;
     const LRESULT category = ::SendMessageW(Child(Category), CB_GETCURSEL, 0, 0);
     filter.keyword = CategoryMaskFromIndex(category);
-    filter.text = ReadText(Child(Search));
+    filter.text = ReadWindowTextString(Child(Search));
     RebuildRows();
 }
 

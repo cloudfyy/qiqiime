@@ -13,7 +13,7 @@ set(QIQI_RESOURCE_FILE_SUBTYPE 0x0L)
 set(QIQI_RESOURCE_FILENAME "QiQiIMEDictManager.exe")
 set(QIQI_RESOURCE_DESCRIPTION "奇奇五笔词库管理 (QiQiIME Dictionary Manager - ${QIQIIME_ARCH_NAME})")
 set(QIQI_RESOURCE_COMMENTS "QiQiIME dictionary and phrase frequency manager")
-set(QIQI_RESOURCE_ICON "${PROJECT_SOURCE_DIR}/data/qiqiime-settings.ico")
+set(QIQI_RESOURCE_ICON "${PROJECT_SOURCE_DIR}/data/qiqiime-dict.ico")
 set(QIQI_DICT_MANAGER_RESOURCE "${QIQIIME_GENERATED_DIR}/tools/dict_manager/version.rc")
 configure_file("${PROJECT_SOURCE_DIR}/src/common/version.rc.in" "${QIQI_DICT_MANAGER_RESOURCE}" @ONLY)
 set_source_files_properties("${QIQI_DICT_MANAGER_RESOURCE}"

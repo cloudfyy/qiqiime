@@ -40,6 +40,7 @@ set(QIQI_COMMON_SOURCES
     scoped_handle.h
     sound.h
     theme.h
+    tool_window.h
     version.h.in
     version.rc.in
     win32_ui_util.h

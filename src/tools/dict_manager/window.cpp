@@ -2,6 +2,7 @@
 #include "common/about_dialog.h"
 #include "common/file_util.h"
 #include "common/theme.h"
+#include "common/tool_window.h"
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
@@ -16,18 +17,6 @@
 namespace qiqi::dict_manager {
 using enum ControlId;
 
-namespace {
-
-std::wstring ReadControlText(HWND control) {
-    const int size = ::GetWindowTextLengthW(control);
-    std::wstring result(gsl::narrow_cast<size_t>(size) + 1, L'\0');
-    const int copied = ::GetWindowTextW(control, result.data(), size + 1);
-    result.resize(gsl::narrow_cast<size_t>(copied));
-    return result;
-}
-
-} // namespace
-
 void DictManagerWindow::Impl::Failure(std::wstring_view operation, ULONG error) {
     QIQI_LOG_CAT_ERROR(
         log::Keyword::Dictionary,
@@ -39,19 +28,7 @@ void DictManagerWindow::Impl::Failure(std::wstring_view operation, ULONG error) 
 }
 
 void DictManagerWindow::Impl::UpdateIcons() {
-    const auto load = [&](int size) {
-        return ScopedIcon(static_cast<HICON>(::LoadImageW(
-            instance, MAKEINTRESOURCEW(1), IMAGE_ICON, theme.ScalePx(size), theme.ScalePx(size), LR_DEFAULTCOLOR)));
-    };
-    auto loaded_small = load(16);
-    auto loaded_big = load(48);
-    if (!loaded_small || !loaded_big) {
-        return;
-    }
-    ::SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(loaded_small.Get()));
-    ::SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(loaded_big.Get()));
-    small_icon = std::move(loaded_small);
-    big_icon = std::move(loaded_big);
+    std::ignore = UpdateWindowBrandIcons(hwnd, instance, theme, small_icon, big_icon);
 }
 
 bool DictManagerWindow::Impl::Add(const wchar_t* cls, const wchar_t* text, DWORD style, ControlId id) {
@@ -85,37 +62,9 @@ LRESULT CALLBACK DictManagerWindow::Impl::ListProcedure(
             self->ExecuteDeleteSelected();
             return 0;
         }
-    } else if (message == WM_NOTIFY && lparam && !IsHighContrastEnabled() && IsSystemDarkTheme()) {
-        const auto& notification = *reinterpret_cast<const NMHDR*>(lparam);
-        if (notification.hwndFrom == ListView_GetHeader(window) && notification.code == NM_CUSTOMDRAW) {
-            const auto& draw = *reinterpret_cast<const NMCUSTOMDRAW*>(lparam);
-            if (draw.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
-            if (draw.dwDrawStage == CDDS_ITEMPREPAINT) {
-                std::array<wchar_t, 256> text{};
-                HDITEMW item{};
-                item.mask = HDI_TEXT | HDI_FORMAT;
-                item.pszText = text.data();
-                item.cchTextMax = gsl::narrow_cast<int>(text.size());
-                if (!Header_GetItem(notification.hwndFrom, gsl::narrow_cast<int>(draw.dwItemSpec), &item)) {
-                    return CDRF_DODEFAULT;
-                }
-                const ScopedSaveDC saved(draw.hdc);
-                const ScopedSelectObject selected_font(draw.hdc, self->font.Get());
-                ::SetDCBrushColor(draw.hdc, (draw.uItemState & CDIS_HOT) ? RGB(66, 70, 78) : RGB(54, 58, 66));
-                const auto brush = ::GetSysColorBrush(COLOR_WINDOWFRAME);
-                ::FillRect(draw.hdc, &draw.rc, static_cast<HBRUSH>(::GetStockObject(DC_BRUSH)));
-                const RECT border{draw.rc.right - 1, draw.rc.top, draw.rc.right, draw.rc.bottom};
-                ::FillRect(draw.hdc, &border, brush);
-                RECT label = draw.rc;
-                label.left += self->theme.ScalePx(6);
-                label.right -= self->theme.ScalePx(6);
-                ::SetTextColor(draw.hdc, RGB(238, 240, 245));
-                ::SetBkMode(draw.hdc, TRANSPARENT);
-                const UINT alignment = (item.fmt & HDF_RIGHT) ? DT_RIGHT : ((item.fmt & HDF_CENTER) ? DT_CENTER : DT_LEFT);
-                ::DrawTextW(draw.hdc, text.data(), -1, &label,
-                    DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX | alignment);
-                return CDRF_SKIPDEFAULT;
-            }
+    } else if (message == WM_NOTIFY && self) {
+        if (const auto drawn = TryCustomDrawDarkListViewHeader(window, lparam, self->font.Get(), self->theme)) {
+            return *drawn;
         }
     }
     return ::DefSubclassProc(window, message, wparam, lparam);
@@ -237,24 +186,11 @@ void DictManagerWindow::Impl::Layout() noexcept {
 
 void DictManagerWindow::Impl::UpdateTheme() noexcept {
     if (!ready) return;
-    theme.RefreshThemeBrushes();
-    const bool contrast = IsHighContrastEnabled();
-    const bool dark = !contrast && IsSystemDarkTheme();
-    ApplySystemThemeToMenuAndWindow(hwnd, dark);
-    for (const auto id : {List, Language, SourceCombo, SearchCodeEdit, SearchWordEdit, EditWordInput, EditCodeInput}) {
-        std::ignore = ::SetWindowTheme(
-            Child(id), contrast ? nullptr : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
-    }
-    std::ignore = ::SetWindowTheme(
-        ListView_GetHeader(Child(List)),
-        contrast ? nullptr : (dark ? L"DarkMode_ItemsView" : L"ItemsView"),
-        nullptr);
-    const COLORREF background = contrast ? ::GetSysColor(COLOR_WINDOW) : (dark ? RGB(43, 46, 52) : RGB(255, 255, 255));
-    const COLORREF foreground = contrast ? ::GetSysColor(COLOR_WINDOWTEXT) : (dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
-    ListView_SetBkColor(Child(List), background);
-    ListView_SetTextBkColor(Child(List), background);
-    ListView_SetTextColor(Child(List), foreground);
-    ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
+    const std::array controls{
+        Child(List), Child(Language), Child(SourceCombo),
+        Child(SearchCodeEdit), Child(SearchWordEdit),
+        Child(EditWordInput), Child(EditCodeInput)};
+    std::ignore = ApplyToolWindowListAndControlsTheme(hwnd, Child(List), theme, controls);
 }
 
 void DictManagerWindow::Impl::ApplyLanguage() {
@@ -363,8 +299,8 @@ void DictManagerWindow::Impl::RecoverDisplay() {
 void DictManagerWindow::Impl::Refilter() {
     const LRESULT src_sel = ::SendMessageW(Child(SourceCombo), CB_GETCURSEL, 0, 0);
     filter.source = SourceFromComboIndex(src_sel);
-    filter.code_query = ReadControlText(Child(SearchCodeEdit));
-    filter.word_query = ReadControlText(Child(SearchWordEdit));
+    filter.code_query = ReadWindowTextString(Child(SearchCodeEdit));
+    filter.word_query = ReadWindowTextString(Child(SearchWordEdit));
     RebuildRows();
     UpdateStatus();
 }
@@ -507,7 +443,7 @@ std::vector<DictRecord> DictManagerWindow::Impl::CollectSelectedRecords() const 
 }
 
 void DictManagerWindow::Impl::AutoFillCodeFromWord() {
-    const std::wstring word = ReadControlText(Child(EditWordInput));
+    const std::wstring word = ReadWindowTextString(Child(EditWordInput));
     const std::wstring auto_code = model.ComputeAutoCode(word);
     if (!auto_code.empty()) {
         ::SetWindowTextW(Child(EditCodeInput), auto_code.c_str());
@@ -515,8 +451,8 @@ void DictManagerWindow::Impl::AutoFillCodeFromWord() {
 }
 
 void DictManagerWindow::Impl::ExecuteAddOrUpdate() {
-    const std::wstring word = ReadControlText(Child(EditWordInput));
-    std::wstring code = ReadControlText(Child(EditCodeInput));
+    const std::wstring word = ReadWindowTextString(Child(EditWordInput));
+    std::wstring code = ReadWindowTextString(Child(EditCodeInput));
     if (code.empty() && !word.empty()) {
         code = model.ComputeAutoCode(word);
         if (!code.empty()) {
@@ -561,8 +497,8 @@ void DictManagerWindow::Impl::ExecuteDeleteSelected() {
 }
 
 void DictManagerWindow::Impl::ExecutePromoteSelected() {
-    std::wstring word = ReadControlText(Child(EditWordInput));
-    std::wstring code = ReadControlText(Child(EditCodeInput));
+    std::wstring word = ReadWindowTextString(Child(EditWordInput));
+    std::wstring code = ReadWindowTextString(Child(EditCodeInput));
     if (const auto* selected_rec = model.FindById(selected_id)) {
         if (word.empty()) word = selected_rec->word;
         if (code.empty()) code = selected_rec->code;
@@ -600,17 +536,7 @@ void DictManagerWindow::Impl::CopySelection() {
 }
 
 void DictManagerWindow::Impl::ShowListContextMenu(POINT screen_pt) {
-    const HWND list = Child(List);
-    if (screen_pt.x == -1 && screen_pt.y == -1) {
-        RECT rc{};
-        const int sel = ListView_GetNextItem(list, -1, LVNI_FOCUSED | LVNI_SELECTED);
-        if (sel >= 0 && ::SendMessageW(list, LVM_GETITEMRECT, gsl::narrow_cast<WPARAM>(sel), reinterpret_cast<LPARAM>(&rc))) {
-            screen_pt = {rc.left + theme.ScalePx(16), rc.bottom};
-            ::ClientToScreen(list, &screen_pt);
-        } else if (::GetWindowRect(list, &rc)) {
-            screen_pt = {rc.left + theme.ScalePx(16), rc.top + theme.ScalePx(28)};
-        }
-    }
+    screen_pt = ResolveListViewContextMenuPoint(Child(List), screen_pt, theme);
     const ScopedMenu menu(::CreatePopupMenu());
     if (!menu) return;
     const auto selected = CollectSelectedRecords();
@@ -753,6 +679,11 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
     auto* self = BindOrGetWindowUserData<Impl>(window, message, lparam);
     if (!self || message == WM_NCCREATE) return ::DefWindowProcW(window, message, wparam, lparam);
     try {
+        if (const auto handled = HandleFluentToolWindowMessage(
+                window, message, wparam, lparam, self->theme,
+                gsl::narrow_cast<UINT>(std::to_underlying(AddUpdateBtn)), 920, 560)) {
+            return *handled;
+        }
         switch (message) {
         case WM_SIZE:
             self->Layout();
@@ -772,50 +703,6 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
                 return 0;
             }
             break;
-        case WM_DRAWITEM:
-            if (lparam) {
-                const auto& item = *reinterpret_cast<DRAWITEMSTRUCT*>(lparam);
-                if (item.CtlType == ODT_COMBOBOX) {
-                    DrawFluentComboBoxItem(item, self->theme);
-                } else if (item.CtlType == ODT_BUTTON) {
-                    DrawFluentPushButton(
-                        item,
-                        self->theme,
-                        item.CtlID == gsl::narrow_cast<UINT>(std::to_underlying(AddUpdateBtn)),
-                        IsSystemDarkTheme() ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255));
-                }
-                return TRUE;
-            }
-            break;
-        case WM_MEASUREITEM:
-            if (lparam && reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->CtlType == ODT_COMBOBOX) {
-                reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight =
-                    gsl::narrow_cast<UINT>(self->theme.ScalePx(22));
-                return TRUE;
-            }
-            break;
-        case WM_CTLCOLOREDIT:
-        case WM_CTLCOLORLISTBOX:
-            return reinterpret_cast<LRESULT>(ApplyFluentControlColors(reinterpret_cast<HDC>(wparam), self->theme, true));
-        case WM_CTLCOLORSTATIC:
-        case WM_CTLCOLORBTN:
-            return reinterpret_cast<LRESULT>(ApplyFluentControlColors(reinterpret_cast<HDC>(wparam), self->theme, false));
-        case WM_ERASEBKGND: {
-            RECT rect{};
-            ::GetClientRect(window, &rect);
-            const HBRUSH brush =
-                IsHighContrastEnabled() ? ::GetSysColorBrush(COLOR_BTNFACE) : self->theme.surface_brush.Get();
-            ::FillRect(reinterpret_cast<HDC>(wparam), &rect, brush ? brush : ::GetSysColorBrush(COLOR_BTNFACE));
-            return 1;
-        }
-        case WM_GETMINMAXINFO: {
-            auto& info = *reinterpret_cast<MINMAXINFO*>(lparam);
-            const auto monitor = QueryActiveMonitor(window);
-            info.ptMinTrackSize = {
-                std::min<LONG>(self->theme.ScalePx(920), monitor.work_area.right - monitor.work_area.left),
-                std::min<LONG>(self->theme.ScalePx(560), monitor.work_area.bottom - monitor.work_area.top)};
-            return 0;
-        }
         case WM_DPICHANGED:
             if (lparam) self->UpdateDpi(HIWORD(wparam), *reinterpret_cast<const RECT*>(lparam));
             return 0;
@@ -899,14 +786,7 @@ bool DictManagerWindow::Create(
         version::kVersionW,
         version::kArchW);
     const auto monitor = QueryActiveMonitor(nullptr);
-    const auto initial_rect = [&](UINT dpi) {
-        const LONG width = std::min<LONG>(ScalePxByDpi(1020, dpi), monitor.work_area.right - monitor.work_area.left);
-        const LONG height = std::min<LONG>(ScalePxByDpi(680, dpi), monitor.work_area.bottom - monitor.work_area.top);
-        const LONG left = monitor.work_area.left + (monitor.work_area.right - monitor.work_area.left - width) / 2;
-        const LONG top = monitor.work_area.top + (monitor.work_area.bottom - monitor.work_area.top - height) / 2;
-        return RECT{left, top, left + width, top + height};
-    };
-    const auto rect = initial_rect(monitor.dpi);
+    const auto rect = ComputeCenteredToolWindowRect(monitor, 1020, 680, monitor.dpi);
     window_.Reset(::CreateWindowExW(
         0,
         kWindowClass.data(),
@@ -926,7 +806,7 @@ bool DictManagerWindow::Create(
     }
     impl_->hwnd = window_.Get();
     if (!impl_->CreateControls()) return false;
-    impl_->UpdateDpi(impl_->theme.dpi, initial_rect(impl_->theme.dpi));
+    impl_->UpdateDpi(impl_->theme.dpi, ComputeCenteredToolWindowRect(monitor, 1020, 680, impl_->theme.dpi));
     impl_->Layout();
     return true;
 }
@@ -934,16 +814,7 @@ bool DictManagerWindow::Create(
 int RunDictManager(HINSTANCE instance, int show) {
     DictManagerWindow window;
     if (!window.Create(instance)) return 1;
-    ::ShowWindow(window.Handle(), show);
-    MSG message{};
-    BOOL result = 0;
-    while ((result = ::GetMessageW(&message, nullptr, 0, 0)) > 0) {
-        if (!::IsDialogMessageW(window.Handle(), &message)) {
-            ::TranslateMessage(&message);
-            ::DispatchMessageW(&message);
-        }
-    }
-    return result < 0 ? 1 : gsl::narrow_cast<int>(message.wParam);
+    return RunToolWindowMessageLoop(window.Handle(), show);
 }
 
 } // namespace qiqi::dict_manager

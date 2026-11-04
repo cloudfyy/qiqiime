@@ -1,5 +1,6 @@
 #include "tools/log_monitor/internal.h"
 #include "common/theme.h"
+#include "common/tool_window.h"
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
@@ -14,20 +15,9 @@ namespace qiqi::monitor {
 using enum ControlId;
 
 void MonitorWindow::Impl::UpdateIcons() {
-    const auto load = [&](int size) {
-        return ScopedIcon(static_cast<HICON>(::LoadImageW(instance, MAKEINTRESOURCEW(1),
-            IMAGE_ICON, theme.ScalePx(size), theme.ScalePx(size), LR_DEFAULTCOLOR)));
-    };
-    auto loaded_small = load(16);
-    auto loaded_big = load(48);
-    if (!loaded_small || !loaded_big) {
+    if (!UpdateWindowBrandIcons(hwnd, instance, theme, small_icon, big_icon)) {
         diagnostics.Record(2, L"Load DPI-scaled brand icons", ::GetLastError());
-        return;
     }
-    ::SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(loaded_small.Get()));
-    ::SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(loaded_big.Get()));
-    small_icon = std::move(loaded_small);
-    big_icon = std::move(loaded_big);
 }
 
 bool MonitorWindow::Impl::Add(const wchar_t* cls, const wchar_t* text, DWORD style, ControlId id) {
@@ -169,25 +159,12 @@ void MonitorWindow::Impl::Layout() noexcept {
 
 void MonitorWindow::Impl::UpdateTheme() noexcept {
     if (!ready) return;
-    theme.RefreshThemeBrushes();
-    const bool contrast = IsHighContrastEnabled();
-    const bool dark = !contrast && IsSystemDarkTheme();
-    ApplySystemThemeToMenuAndWindow(hwnd, dark);
-    for (const auto id : {List, Process, Pid, Search, Details, Language, Level, Category}) {
-        const HRESULT result = ::SetWindowTheme(Child(id), contrast ? nullptr : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
-        if (FAILED(result)) diagnostics.Record(3, L"SetWindowTheme(control)", gsl::narrow_cast<ULONG>(result));
+    const std::array controls{
+        Child(List), Child(Process), Child(Pid), Child(Search),
+        Child(Details), Child(Language), Child(Level), Child(Category)};
+    if (!ApplyToolWindowListAndControlsTheme(hwnd, Child(List), theme, controls)) {
+        diagnostics.Record(3, L"SetWindowTheme(control/header)", ERROR_GEN_FAILURE);
     }
-    const HRESULT header = ::SetWindowTheme(ListView_GetHeader(Child(List)),
-        contrast ? nullptr : (dark ? L"DarkMode_ItemsView" : L"ItemsView"), nullptr);
-    if (FAILED(header)) diagnostics.Record(3, L"SetWindowTheme(header)", gsl::narrow_cast<ULONG>(header));
-    const COLORREF background = contrast ? ::GetSysColor(COLOR_WINDOW) :
-        (dark ? RGB(43, 46, 52) : RGB(255, 255, 255));
-    const COLORREF foreground = contrast ? ::GetSysColor(COLOR_WINDOWTEXT) :
-        (dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
-    ListView_SetBkColor(Child(List), background);
-    ListView_SetTextBkColor(Child(List), background);
-    ListView_SetTextColor(Child(List), foreground);
-    ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
 }
 
 void MonitorWindow::Impl::ApplyLanguage() {
