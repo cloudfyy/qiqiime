@@ -367,7 +367,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 - [x] **18. 图形化词库管理（`dictionary-management-ui`）**：已实现独立词库与词频管理工具 [`QiQiIMEDictManager`](../src/tools/dict_manager/CMakeLists.txt)，并支持从 `QiQiIMESettings` 一键启动；复用现有 `common`（Fluent D2D 主题、DPI、多语言、关于弹窗、ETW 结构化日志）与 `qiqi_engine`（用户词表、五笔 86 自动取码、`QPF1` 动态词频），提供词条搜索/编码反查、新增、编码/词条编辑、删除、动态词频置顶/清空、批量导入导出与分类词库筛选，所有变更通过 `change_sync` 实时同步到本机输入法实例。
 - [x] **19. 候选词手动调序（`manual-candidate-order`）**：支持在组合输入态按 `Ctrl+1..9` 将对应候选词固定置顶（或在 `QiQiIMEDictManager` 中一键固定置顶/取消置顶），以 `^词条` 规则持久化于 `user_dict.txt` 并通过 `change_sync` 跨进程增量同步；手动置顶词始终排在同码候选首位，与可选动态调频（`QPF1`）明确区分且互不覆盖，默认继续保持固定词序。
 - [x] **20. 候选词删除与屏蔽（`candidate-delete-blocklist`）**：支持在组合输入态按 `Ctrl+Delete`（针对当前选中候选）或 `Ctrl+Shift+1..9`（针对指定序号候选）执行快捷删除/屏蔽：自动区分删除用户词与屏蔽系统词（以 `!词条` 持久化于 `user_dict.txt` 且不编译入正向 `.qdict` 词表），并在 `QiQiIMEDictManager` 中支持筛选查看「已屏蔽词 (!)」与批量恢复/删除。
-- [ ] **21. 本地备份与恢复（`local-config-dictionary-backup`）**：提供配置、用户词库、词频和屏蔽记录的一键导出、导入及恢复，导入前校验并明确处理冲突。
+- [x] **21. 本地备份与恢复（`local-config-dictionary-backup`）**：在 `QiQiIMEDictManager` 中提供配置（`[config]`）、用户词库（`[user_dict]`，含普通词、`^置顶词`、`!屏蔽词`）和动态词频（`[phrase_freq]`）的单文件可读备份包（`.qbak`，带 64 位 FNV-1a 校验头）导出与恢复；恢复前校验文件头与校验和，并支持选择「合并模式（保留现有词条）」或「覆盖模式（完全替换）」，恢复后自动通过 `change_sync` 同步本机实例。
 
 #### P1：拼音辅助与汉字筛选
 - [ ] **22. 临时拼音输入（`temp-pinyin-input`）**：在纯五笔模式下按需进入拼音辅助输入，完成后返回五笔；与现有首码 `z` 临时英文及后续 `z` 通配查询保持兼容。

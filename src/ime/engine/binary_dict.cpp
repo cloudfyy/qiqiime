@@ -277,7 +277,7 @@ void WubiMappedDict::ParseTextDictEntries(
             for (std::wstring_view word = NextToken(line); !word.empty(); word = NextToken(line)) {
                 add_to_group(first, word);
             }
-        } else {
+        } else if (!preserve_rule_markers) {
             const std::wstring_view second = NextToken(line);
             if (IsWubiCodeToken(second)) {
                 add_to_group(second, first);

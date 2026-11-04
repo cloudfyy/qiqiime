@@ -9,6 +9,17 @@
 
 namespace qiqi::dict_manager {
 
+enum class BackupConflictMode : uint8_t {
+    Merge = 0,   // Keep existing user words/pins/blocks/frequencies and merge backup entries
+    Replace = 1, // Replace user_dict.txt and phrase_freq.txt completely with backup contents
+};
+
+struct BackupRestoreSummary {
+    bool config_restored = false;
+    size_t user_entries_applied = 0;
+    size_t phrase_freq_applied = 0;
+};
+
 enum class DictEntrySource : uint8_t {
     All = 0,
     UserDict = 1,
@@ -84,6 +95,13 @@ public:
     bool ExportRecordsToFile(
         const std::filesystem::path& export_path,
         std::span<const DictRecord> records) const;
+
+    // Full local backup & restore of configuration, user dictionary (words + ^pinned + !blocked), and phrase frequencies
+    bool CreateBackupBundle(const std::filesystem::path& backup_path) const;
+    bool RestoreBackupBundle(
+        const std::filesystem::path& backup_path,
+        BackupConflictMode mode,
+        BackupRestoreSummary& out_summary);
 
 private:
     void RebuildRecords();

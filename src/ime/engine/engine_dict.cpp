@@ -390,7 +390,6 @@ bool WubiEngine::RemoveEntry(std::wstring_view code, std::wstring_view word) {
     EraseWordFromCodeMap(dict_, packed, word);
     EraseWordFromCodeMap(pinned_entries_, packed, word);
     EraseWordFromCodeMap(promoted_phrases_, packed, word);
-    AppendUniqueWord(removed_entries_[packed], word);
     return true;
 }
 
@@ -455,11 +454,10 @@ bool WubiEngine::ModifyEntry(std::wstring_view code, std::wstring_view old_word,
         return true;
     }
     if (ReplaceWordInCodeMap(dict_, packed, old_word, new_word)) {
-        AppendUniqueWord(removed_entries_[packed], old_word);
         EraseWordFromCodeMap(removed_entries_, packed, new_word);
         return true;
     }
-    RemoveEntry(code, old_word);
+    BlockEntry(code, old_word);
     AddEntry(code, new_word);
     return true;
 }

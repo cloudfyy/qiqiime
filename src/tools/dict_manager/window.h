@@ -14,6 +14,8 @@ enum class ControlId {
     Copy,
     Import,
     Export,
+    Backup,
+    Restore,
     ClearFreq,
     About,
     LanguageLabel,

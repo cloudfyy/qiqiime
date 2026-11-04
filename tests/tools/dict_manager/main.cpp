@@ -187,6 +187,51 @@ void TestModelAndCrossProcessSync() {
     }
     QIQI_TEST_CHECK(matched == 2);
     QIQI_TEST_CHECK(!FormatRecordsForClipboard(model.Records()).empty());
+
+    // Backup & Restore (.qbak bundle with FNV-1a checksum validation, Merge vs Replace conflict modes)
+    const std::wstring test_reg_subkey =
+        L"Software\\QiQiIME_DictMgrBackupTest_" + std::to_wstring(::GetCurrentProcessId());
+    SetConfigRegistrySubKeyOverrideForTest(test_reg_subkey.c_str());
+    const auto restore_reg = gsl::finally([&test_reg_subkey]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(nullptr);
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, test_reg_subkey.c_str());
+    });
+
+    QiQiConfig custom_cfg = LoadConfig();
+    custom_cfg.page_size = 7;
+    custom_cfg.dynamic_phrase_freq = true;
+    QIQI_TEST_CHECK(SaveConfig(custom_cfg));
+
+    QIQI_TEST_CHECK(model.PinUserEntry(L"abcd", L"备份置顶词"));
+    QIQI_TEST_CHECK(model.BlockSystemEntry(L"aaaa", L"工"));
+    const auto backup_file = temp_dir / L"test_backup.qbak";
+    QIQI_TEST_CHECK(model.CreateBackupBundle(backup_file));
+
+    // Corrupting the backup file payload must be rejected by checksum validation
+    std::string raw_backup;
+    QIQI_TEST_CHECK(ReadFileToUtf8String(backup_file, raw_backup));
+    const auto corrupt_file = temp_dir / L"corrupt.qbak";
+    {
+        std::string corrupted = raw_backup + "\nabcd 被篡改词\n";
+        QIQI_TEST_CHECK(WriteFileAtomically(corrupt_file, codec::AsByteSpan(corrupted)));
+    }
+    BackupRestoreSummary summary{};
+    QIQI_TEST_CHECK(!model.RestoreBackupBundle(corrupt_file, BackupConflictMode::Replace, summary));
+
+    // Mutate current state and test Replace mode (overwrites config, user_dict, and phrase_freq)
+    custom_cfg.page_size = 3;
+    QIQI_TEST_CHECK(SaveConfig(custom_cfg));
+    QIQI_TEST_CHECK(model.AddOrUpdateUserEntry(L"zzzz", L"临时未备份词"));
+    QIQI_TEST_CHECK(model.RestoreBackupBundle(backup_file, BackupConflictMode::Replace, summary));
+    QIQI_TEST_CHECK(summary.config_restored && summary.user_entries_applied >= 5 && summary.phrase_freq_applied == 1);
+    QIQI_TEST_CHECK(LoadConfig().page_size == 7);
+    QIQI_TEST_CHECK(model.PinnedEntryCount() == 1 && model.BlockedEntryCount() == 1);
+
+    // Test Merge mode (preserves newly added entry while re-applying backup entries)
+    QIQI_TEST_CHECK(model.AddOrUpdateUserEntry(L"mnop", L"合并保留词"));
+    const size_t before_merge_count = model.UserEntryCount();
+    QIQI_TEST_CHECK(model.RestoreBackupBundle(backup_file, BackupConflictMode::Merge, summary));
+    QIQI_TEST_CHECK(model.UserEntryCount() == before_merge_count);
 }
 
 void TestGuiWindow() {

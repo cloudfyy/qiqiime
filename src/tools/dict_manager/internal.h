@@ -91,6 +91,8 @@ struct DictManagerWindow::Impl {
     void ShowListContextMenu(POINT screen_pt);
     void ImportUserDictDialog();
     void ExportSnapshotDialog();
+    void BackupBundleDialog();
+    void RestoreBundleDialog();
     void Command(int id, int notification);
     static LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 };

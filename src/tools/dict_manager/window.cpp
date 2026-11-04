@@ -84,6 +84,8 @@ bool DictManagerWindow::Impl::CreateControls() {
         !Add(L"BUTTON", Text(L"复制", L"Copy"), button, Copy) ||
         !Add(L"BUTTON", Text(L"导入词库", L"Import"), button, Import) ||
         !Add(L"BUTTON", Text(L"导出快照", L"Export"), button, Export) ||
+        !Add(L"BUTTON", Text(L"备份全部", L"Backup"), button, Backup) ||
+        !Add(L"BUTTON", Text(L"恢复备份", L"Restore"), button, Restore) ||
         !Add(L"BUTTON", Text(L"清空词频", L"Clear Freq"), button, ClearFreq) ||
         !Add(L"BUTTON", Text(L"关于", L"About"), button, About) ||
         !Add(L"STATIC", Text(L"来源", L"Source"), SS_LEFT, SourceLabel) ||
@@ -153,13 +155,13 @@ void DictManagerWindow::Impl::Layout() noexcept {
         ::MoveWindow(Child(id), x, y, std::max(1, w), std::max(1, h), TRUE);
     };
 
-    constexpr std::array buttons{Reload, Copy, Import, Export, ClearFreq, About};
+    constexpr std::array buttons{Reload, Copy, Import, Export, Backup, Restore, ClearFreq, About};
     constexpr int button_count = gsl::narrow_cast<int>(buttons.size());
     for (int i = 0; i < button_count; ++i) {
-        move(gsl::at(buttons, i), s(12 + i * 108), s(12), s(100), s(32));
+        move(gsl::at(buttons, i), s(12 + i * 94), s(12), s(88), s(32));
     }
-    move(LanguageLabel, width - s(296), s(18), s(76), s(24));
-    move(Language, width - s(212), s(12), s(200), s(200));
+    move(LanguageLabel, width - s(256), s(18), s(56), s(24));
+    move(Language, width - s(196), s(12), s(184), s(200));
 
     const int filter_top = s(54);
     move(SourceLabel, s(12), filter_top + s(4), s(44), s(24));
@@ -209,6 +211,8 @@ void DictManagerWindow::Impl::ApplyLanguage() {
              std::pair{Copy, Text(L"复制", L"Copy")},
              std::pair{Import, Text(L"导入词库", L"Import")},
              std::pair{Export, Text(L"导出快照", L"Export")},
+             std::pair{Backup, Text(L"备份全部", L"Backup")},
+             std::pair{Restore, Text(L"恢复备份", L"Restore")},
              std::pair{ClearFreq, Text(L"清空词频", L"Clear Freq")},
              std::pair{About, Text(L"关于", L"About")},
              std::pair{LanguageLabel, Text(L"语言", L"Language")},
@@ -665,6 +669,77 @@ void DictManagerWindow::Impl::ExportSnapshotDialog() {
     UpdateStatus();
 }
 
+void DictManagerWindow::Impl::BackupBundleDialog() {
+    std::array<wchar_t, 32768> path{};
+    wcscpy_s(path.data(), path.size(), L"qiqiime_backup.qbak");
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = hwnd;
+    dialog.lpstrTitle = Text(L"备份配置、用户词库与词频 (.qbak)", L"Backup Config, User Dict & Phrase Freq (.qbak)");
+    dialog.lpstrFilter = Text(
+        L"奇奇五笔备份 (*.qbak)\0*.qbak\0所有文件\0*.*\0",
+        L"QiQiIME Backup (*.qbak)\0*.qbak\0All files\0*.*\0");
+    dialog.lpstrFile = path.data();
+    dialog.nMaxFile = gsl::narrow_cast<DWORD>(path.size());
+    dialog.lpstrDefExt = L"qbak";
+    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!::GetSaveFileNameW(&dialog)) return;
+    if (model.CreateBackupBundle(path.data())) {
+        last_message = Text(L"已导出完整备份文件 (.qbak)", L"Exported full backup bundle (.qbak)");
+    } else {
+        last_message = Text(L"创建备份文件失败", L"Failed to create backup bundle");
+    }
+    UpdateStatus();
+}
+
+void DictManagerWindow::Impl::RestoreBundleDialog() {
+    std::array<wchar_t, 32768> path{};
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = hwnd;
+    dialog.lpstrTitle = Text(L"选择要恢复的奇奇五笔备份 (.qbak)", L"Select QiQiIME Backup to Restore (.qbak)");
+    dialog.lpstrFilter = Text(
+        L"奇奇五笔备份 (*.qbak)\0*.qbak\0所有文件\0*.*\0",
+        L"QiQiIME Backup (*.qbak)\0*.qbak\0All files\0*.*\0");
+    dialog.lpstrFile = path.data();
+    dialog.nMaxFile = gsl::narrow_cast<DWORD>(path.size());
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!::GetOpenFileNameW(&dialog)) return;
+
+    const int choice = ::MessageBoxW(
+        hwnd,
+        Text(
+            L"请选择恢复方式：\r\n"
+            L"• 点击「是 (Y)」：合并模式（保留现有用户词库与词频，合并备份项）\r\n"
+            L"• 点击「否 (N)」：覆盖模式（用备份完全替换现有用户词库与词频）\r\n"
+            L"• 点击「取消」：中止恢复",
+            L"Choose restore conflict mode:\r\n"
+            L"• Yes: Merge (keep existing user words & frequencies, merge backup items)\r\n"
+            L"• No: Replace (overwrite existing user dictionary & frequencies with backup)\r\n"
+            L"• Cancel: Abort restore"),
+        Text(L"恢复配置与词库备份", L"Restore Config & Dictionary Backup"),
+        MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON1);
+    if (choice == IDCANCEL) return;
+
+    const BackupConflictMode mode = (choice == IDNO) ? BackupConflictMode::Replace : BackupConflictMode::Merge;
+    BackupRestoreSummary summary{};
+    if (model.RestoreBackupBundle(path.data(), mode, summary)) {
+        last_message = std::format(
+            L"{} ({}: {}, {}: {})",
+            Text(L"已恢复备份并同步", L"Restored backup and synchronized"),
+            Text(L"词库规则", L"Dict rules"),
+            summary.user_entries_applied,
+            Text(L"词频", L"Freq"),
+            summary.phrase_freq_applied);
+        RebuildRows();
+    } else {
+        last_message = Text(
+            L"备份文件校验失败（格式错误或校验和不匹配）",
+            L"Backup validation failed (invalid format or checksum mismatch)");
+    }
+    UpdateStatus();
+}
+
 void DictManagerWindow::Impl::Command(int id, int notification) {
     switch (gsl::narrow_cast<ControlId>(id)) {
     case Reload:
@@ -681,6 +756,12 @@ void DictManagerWindow::Impl::Command(int id, int notification) {
         break;
     case Export:
         ExportSnapshotDialog();
+        break;
+    case Backup:
+        BackupBundleDialog();
+        break;
+    case Restore:
+        RestoreBundleDialog();
         break;
     case ClearFreq:
         ExecuteClearFrequencies();
