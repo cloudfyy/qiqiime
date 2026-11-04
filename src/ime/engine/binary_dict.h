@@ -204,6 +204,21 @@ public:
     // Find the longest Wubi code (up to 4 letters) associated with a single character or word.
     std::wstring FindLongestCodeForWord(std::wstring_view word) const;
 
+    // Enumerate all (packed_code, word) pairs in lexicographical code order.
+    template <typename Callback>
+    void ForEachEntry(Callback&& callback) const {
+        for (const auto& entry : code_index_) {
+            const size_t end_idx = std::min<size_t>(
+                gsl::narrow_cast<size_t>(entry.first_word_idx) + entry.word_count, word_slices_.size());
+            for (size_t i = entry.first_word_idx; i < end_idx; ++i) {
+                const std::wstring_view word = GetWordView(gsl::at(word_slices_, i));
+                if (!word.empty()) {
+                    callback(entry.packed_code, word);
+                }
+            }
+        }
+    }
+
 private:
     bool OpenMappedFile(const std::filesystem::path& bin_path,
                         uint64_t expected_src_size,

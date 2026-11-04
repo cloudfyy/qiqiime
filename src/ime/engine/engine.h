@@ -99,6 +99,17 @@ public:
     const std::filesystem::path& PhraseFreqPath() const noexcept { return phrase_freq_path_; }
     bool LoadPhraseFrequencies(const std::filesystem::path& file_path);
     bool SavePhraseFrequencies(const std::filesystem::path& file_path) const;
+    bool PromoteUserPhraseFrequency(
+        std::wstring_view code,
+        std::wstring_view word,
+        const std::filesystem::path& file_path = {});
+    bool RemovePhraseFrequency(
+        std::wstring_view code,
+        std::wstring_view word,
+        const std::filesystem::path& file_path = {});
+    bool ClearPhraseFrequencies(const std::filesystem::path& file_path = {});
+    const std::map<uint32_t, std::vector<std::wstring>>& UserDictionaryEntries() const noexcept { return dict_; }
+    const std::map<uint32_t, std::vector<std::wstring>>& PromotedPhrases() const noexcept { return promoted_phrases_; }
 
     // Synchronize cross-process dictionary and phrase-frequency changes at a safe input boundary.
     HRESULT SynchronizeUserDictionary(sync::InputBoundary boundary);

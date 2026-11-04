@@ -1,11 +1,13 @@
 #include "tools/settings/internal.h"
 #include "common/dialog_util.h"
+#include "common/file_util.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/theme.h"
 
 #include <commctrl.h>
+#include <shellapi.h>
 #include <gsl/gsl>
 #include <memory>
 #include <new>
@@ -132,6 +134,20 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
         case kIdBtnAbout: {
             const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
             ShowAboutDialog(g_dll_instance, hwnd, lang);
+            return;
+        }
+        case kIdBtnDictManager: {
+            const std::filesystem::path mod_path = GetModuleFilePath(ctx.instance ? ctx.instance : g_dll_instance);
+            const std::filesystem::path exe_path =
+                mod_path.empty() ? std::filesystem::path(L"QiQiIMEDictManager.exe")
+                                 : (mod_path.parent_path() / L"QiQiIMEDictManager.exe");
+            const HINSTANCE res = ::ShellExecuteW(hwnd, L"open", exe_path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            if (reinterpret_cast<INT_PTR>(res) <= 32) {
+                QIQI_LOG_CAT_WARN(
+                    log::Keyword::UI,
+                    "Settings failed to launch QiQiIMEDictManager.exe (code={})",
+                    reinterpret_cast<INT_PTR>(res));
+            }
             return;
         }
         default:
@@ -286,7 +302,8 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             if (lparam != 0) {
                 const auto* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
                 if (dis->CtlType == ODT_BUTTON) {
-                    if (dis->CtlID == kIdBtnAbout || dis->CtlID == kIdBtnOk || dis->CtlID == kIdBtnCancel) {
+                    if (dis->CtlID == kIdBtnAbout || dis->CtlID == kIdBtnDictManager ||
+                        dis->CtlID == kIdBtnOk || dis->CtlID == kIdBtnCancel) {
                         DrawFluentPushButton(
                             *dis, ctx->d2d, dis->CtlID == kIdBtnOk,
                             IsSystemDarkTheme() ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));

@@ -12,7 +12,8 @@ $script:QiQiDataFileNames = @(
 )
 $script:QiQiToolExeNames = @(
     "QiQiIMESettings.exe",
-    "QiQiIMELogMonitor.exe"
+    "QiQiIMELogMonitor.exe",
+    "QiQiIMEDictManager.exe"
 )
 
 function Write-QiQiStep([string]$Message) {

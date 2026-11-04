@@ -307,16 +307,18 @@ bool ComputeBoundedDictDiff(
     return !out_ops.empty() && out_ops.size() <= max_ops;
 }
 
-void EraseWordFromCodeMap(
+bool EraseWordFromCodeMap(
     std::map<uint32_t, std::vector<std::wstring>>& entries,
     uint32_t packed,
     std::wstring_view word) {
     if (const auto it = entries.find(packed); it != entries.end()) {
-        std::erase(it->second, word);
+        const size_t removed = std::erase(it->second, word);
         if (it->second.empty()) {
             entries.erase(it);
         }
+        return removed > 0;
     }
+    return false;
 }
 
 bool ReplaceWordInCodeMap(
@@ -844,25 +846,43 @@ bool WubiEngine::HasModifiedMappedDictionary() const noexcept {
 }
 
 void WubiEngine::PromotePhraseForCode(std::wstring_view code, std::wstring_view word) {
-    if (!dynamic_phrase_freq_ || SplitUtf16Codepoints(word).size() < 2) {
+    if (!dynamic_phrase_freq_) {
         return;
+    }
+    std::ignore = PromoteUserPhraseFrequency(code, word, phrase_freq_path_);
+}
+
+bool WubiEngine::PromoteUserPhraseFrequency(
+    std::wstring_view code,
+    std::wstring_view word,
+    const std::filesystem::path& file_path) {
+    if (SplitUtf16Codepoints(word).size() < 2) {
+        return false;
     }
     const uint32_t packed = PackWubiCode(code);
     if (packed == 0) {
-        return;
+        return false;
     }
-    PromotePhraseInMap(promoted_phrases_, packed, word);
-    if (phrase_freq_path_.empty() || IsProcessAppContainer()) {
-        return;
+    const std::filesystem::path target_path = !file_path.empty() ? file_path : phrase_freq_path_;
+    if (target_path.empty()) {
+        PromotePhraseInMap(promoted_phrases_, packed, word);
+        return true;
     }
+    if (IsProcessAppContainer()) {
+        PromotePhraseInMap(promoted_phrases_, packed, word);
+        return false;
+    }
+    SetPhraseFreqPath(target_path);
 
-    const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(phrase_freq_path_);
+    const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(target_path);
     const sync::Source source{sync::DataType::PhraseFrequency, kGuidSyncSourcePhraseFrequency};
     if (FAILED(sync::Channel::Create(channel_dir, source))) {
-        if (!SavePhraseFrequencies(phrase_freq_path_)) {
-            QIQI_LOG_CAT_WARN(log::Keyword::Dictionary, "PromotePhraseForCode: in-memory order updated but persistence failed");
+        PromotePhraseInMap(promoted_phrases_, packed, word);
+        if (!SavePhraseFrequencies(target_path)) {
+            QIQI_LOG_CAT_WARN(log::Keyword::Dictionary, "PromoteUserPhraseFrequency: in-memory order updated but persistence failed");
+            return false;
         }
-        return;
+        return true;
     }
     const sync::Channel channel(channel_dir, source);
     const std::vector<uint8_t> payload = EncodeDictEntryDelta(packed, word);
@@ -880,7 +900,7 @@ void WubiEngine::PromotePhraseForCode(std::wstring_view code, std::wstring_view 
             payload,
             [&]() -> HRESULT {
                 const std::vector<uint8_t> snapshot_bytes = EncodePhraseFreqSnapshot(promoted_phrases_);
-                const HRESULT file_hr = WriteFileAtomicallyResult(phrase_freq_path_, snapshot_bytes);
+                const HRESULT file_hr = WriteFileAtomicallyResult(target_path, snapshot_bytes);
                 if (FAILED(file_hr)) {
                     return file_hr;
                 }
@@ -889,7 +909,7 @@ void WubiEngine::PromotePhraseForCode(std::wstring_view code, std::wstring_view 
             committed);
         if (hr == S_OK) {
             phrase_freq_sync_version_ = committed;
-            return;
+            return true;
         }
         if (hr != HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION) &&
             hr != HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH)) {
@@ -897,7 +917,95 @@ void WubiEngine::PromotePhraseForCode(std::wstring_view code, std::wstring_view 
         }
         ::SwitchToThread();
     }
-    QIQI_LOG_CAT_WARN(log::Keyword::Dictionary, "PromotePhraseForCode: in-memory order updated but coordinated persistence failed");
+    QIQI_LOG_CAT_WARN(log::Keyword::Dictionary, "PromoteUserPhraseFrequency: in-memory order updated but coordinated persistence failed");
+    return false;
+}
+
+bool WubiEngine::RemovePhraseFrequency(
+    std::wstring_view code,
+    std::wstring_view word,
+    const std::filesystem::path& file_path) {
+    const uint32_t packed = PackWubiCode(code);
+    if (packed == 0 || word.empty()) {
+        return false;
+    }
+    const std::filesystem::path target_path = !file_path.empty() ? file_path : phrase_freq_path_;
+    if (target_path.empty()) {
+        return EraseWordFromCodeMap(promoted_phrases_, packed, word);
+    }
+    if (IsProcessAppContainer()) {
+        return false;
+    }
+    SetPhraseFreqPath(target_path);
+
+    const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(target_path);
+    const sync::Source source{sync::DataType::PhraseFrequency, kGuidSyncSourcePhraseFrequency};
+    if (FAILED(sync::Channel::Create(channel_dir, source))) {
+        return false;
+    }
+    const sync::Channel channel(channel_dir, source);
+    const std::vector<uint8_t> payload = EncodeDictEntryDelta(packed, word);
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        std::ignore = SynchronizePhraseFrequencies(sync::InputBoundary::NewInput);
+        if (!EraseWordFromCodeMap(promoted_phrases_, packed, word)) {
+            return false;
+        }
+        sync::Batch current_batch;
+        if (FAILED(channel.Read(phrase_freq_sync_version_, current_batch))) {
+            break;
+        }
+        sync::Version committed{};
+        const HRESULT hr = channel.Publish(
+            current_batch.version,
+            sync::Operation::Remove,
+            payload,
+            [&]() -> HRESULT {
+                const std::vector<uint8_t> snapshot_bytes = EncodePhraseFreqSnapshot(promoted_phrases_);
+                const HRESULT file_hr = WriteFileAtomicallyResult(target_path, snapshot_bytes);
+                if (FAILED(file_hr)) {
+                    return file_hr;
+                }
+                return WriteFileAtomicallyResult(channel_dir / L"snapshot.qfreq", snapshot_bytes);
+            },
+            committed);
+        if (hr == S_OK) {
+            phrase_freq_sync_version_ = committed;
+            return true;
+        }
+        if (hr != HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION) &&
+            hr != HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH)) {
+            break;
+        }
+        ::SwitchToThread();
+    }
+    return false;
+}
+
+bool WubiEngine::ClearPhraseFrequencies(const std::filesystem::path& file_path) {
+    const std::filesystem::path target_path = !file_path.empty() ? file_path : phrase_freq_path_;
+    promoted_phrases_.clear();
+    if (target_path.empty()) {
+        return true;
+    }
+    if (IsProcessAppContainer()) {
+        return false;
+    }
+    SetPhraseFreqPath(target_path);
+
+    const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(target_path);
+    std::error_code ec;
+    if (std::filesystem::exists(channel_dir / L"journal.bin", ec)) {
+        std::filesystem::remove(channel_dir / L"journal.bin", ec);
+    }
+    if (!SavePhraseFrequencies(target_path)) {
+        return false;
+    }
+    const sync::Channel channel(channel_dir, {sync::DataType::PhraseFrequency, kGuidSyncSourcePhraseFrequency});
+    sync::Batch batch;
+    if (SUCCEEDED(channel.Read({}, batch))) {
+        phrase_freq_sync_version_ = batch.version;
+    }
+    return true;
 }
 
 bool WubiEngine::LoadPhraseFrequencies(const std::filesystem::path& file_path) {
@@ -1005,12 +1113,19 @@ HRESULT WubiEngine::SynchronizePhraseFrequencies(sync::InputBoundary boundary) {
                 uint32_t packed = 0;
                 std::wstring word;
                 std::wstring unused_new;
-                if (change.operation != sync::Operation::Reorder ||
-                    !DecodeDictEntryDelta(change, packed, word, unused_new) ||
-                    SplitUtf16Codepoints(word).size() < 2) {
+                if (!DecodeDictEntryDelta(change, packed, word, unused_new)) {
                     return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
                 }
-                PromotePhraseInMap(promoted_phrases_, packed, word);
+                if (change.operation == sync::Operation::Reorder) {
+                    if (SplitUtf16Codepoints(word).size() < 2) {
+                        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                    }
+                    PromotePhraseInMap(promoted_phrases_, packed, word);
+                } else if (change.operation == sync::Operation::Remove) {
+                    std::ignore = EraseWordFromCodeMap(promoted_phrases_, packed, word);
+                } else {
+                    return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+                }
             }
             phrase_freq_incremental_syncs_ += changes.size();
             return S_OK;

@@ -47,6 +47,7 @@
         <File Id="FileDllX64" Source="$(var.StageDir)\x64\qiqiime.dll" KeyPath="yes" />
         <File Id="FileSettingsExeX64" Source="$(var.StageDir)\x64\QiQiIMESettings.exe" />
         <File Id="FileLogMonitorExeX64" Source="$(var.StageDir)\x64\QiQiIMELogMonitor.exe" />
+        <File Id="FileDictManagerExeX64" Source="$(var.StageDir)\x64\QiQiIMEDictManager.exe" />
       </Component>
 
       <!-- 32-bit WOW64 TSF DLL and standalone GUI tools -->
@@ -54,6 +55,7 @@
         <File Id="FileDllX86" Source="$(var.StageDir)\x86\qiqiime.dll" KeyPath="yes" />
         <File Id="FileSettingsExeX86" Source="$(var.StageDir)\x86\QiQiIMESettings.exe" />
         <File Id="FileLogMonitorExeX86" Source="$(var.StageDir)\x86\QiQiIMELogMonitor.exe" />
+        <File Id="FileDictManagerExeX86" Source="$(var.StageDir)\x86\QiQiIMEDictManager.exe" />
       </Component>
 
       <!-- Shared dictionaries (and cleanup rule for prebuilt .qdict binary caches generated during registration) -->

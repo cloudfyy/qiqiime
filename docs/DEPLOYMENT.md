@@ -28,6 +28,7 @@
 - `qiqiime.dll`
 - `QiQiIMESettings.exe`
 - `QiQiIMELogMonitor.exe`
+- `QiQiIMEDictManager.exe`
 
 三套词库 `wubi86_jidian.txt`、`wubi86_jidian_extra.txt`、`wubi86_haifeng.txt` 在发行包中共用上级 `data` 目录。运行时依次查找 DLL 同目录、上级 `data`、上级目录中的随包数据文件；用户选择的外部词库另按配置路径访问。
 

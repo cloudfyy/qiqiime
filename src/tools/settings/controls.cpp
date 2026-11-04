@@ -91,6 +91,7 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdLblUiLang, str.dlg_lbl_ui_lang);
     ::SetDlgItemTextW(hwnd, kIdLblUnderlineStyle, str.dlg_lbl_underline_style);
     ::SetDlgItemTextW(hwnd, kIdBtnAbout, str.dlg_btn_about);
+    ::SetDlgItemTextW(hwnd, kIdBtnDictManager, str.dlg_btn_dict_mgr);
     ::SetDlgItemTextW(hwnd, kIdBtnOk, str.dlg_btn_ok);
     ::SetDlgItemTextW(hwnd, kIdBtnCancel, str.dlg_btn_cancel);
 
@@ -288,6 +289,7 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
         "Settings::ReplaceComboBoxItems(underline)");
 
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_about, BS_OWNERDRAW | WS_TABSTOP, S(18), S(448), S(104), S(32), kIdBtnAbout);
+    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_dict_mgr, BS_OWNERDRAW | WS_TABSTOP, S(132), S(448), S(156), S(32), kIdBtnDictManager);
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_ok, BS_OWNERDRAW | WS_TABSTOP, S(596), S(448), S(98), S(32), kIdBtnOk);
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_cancel, BS_OWNERDRAW | WS_TABSTOP, S(704), S(448), S(98), S(32), kIdBtnCancel);
 }

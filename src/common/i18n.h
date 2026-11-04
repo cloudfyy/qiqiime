@@ -72,6 +72,7 @@ struct UiStrings {
     const wchar_t* dlg_underline_none;
     const wchar_t* dlg_chk_bold_underline;
     const wchar_t* dlg_btn_about;
+    const wchar_t* dlg_btn_dict_mgr;
     const wchar_t* dlg_btn_ok;
     const wchar_t* dlg_btn_cancel;
     const wchar_t* dlg_save_failed;
@@ -150,6 +151,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"无下划线",
     L"加粗编码下划线",
     L"关于...",
+    L"词库与词频管理...",
     L"确定",
     L"取消",
     L"保存设置失败，请重试。",
@@ -230,6 +232,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"None",
     L"Bold composition underline",
     L"About...",
+    L"Dictionary Manager...",
     L"OK",
     L"Cancel",
     L"Settings could not be saved. Your edits remain in this window. Please retry.",
