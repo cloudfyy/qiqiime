@@ -69,7 +69,32 @@ void DrainQuitMessages() noexcept {
     }
 }
 
+void ClickRowEdit(const DictManagerWindow& window, int row) {
+    const HWND list = Child(window, List);
+    ::SetActiveWindow(window.Handle());
+    ListView_EnsureVisible(list, row, FALSE);
+    RECT rect{};
+#pragma warning(suppress : 26477) // ListView_GetItemRect expands to a null-pointer check.
+    QIQI_TEST_CHECK(ListView_GetItemRect(list, row, &rect, LVIR_BOUNDS));
+    const POINT point{rect.left + ListView_GetColumnWidth(list, std::to_underlying(ColumnId::Edit)) / 2,
+        (rect.top + rect.bottom) / 2};
+    LVHITTESTINFO hit{};
+    hit.pt = point;
+    QIQI_TEST_CHECK(ListView_SubItemHitTest(list, &hit) == row);
+    QIQI_TEST_CHECK(hit.iSubItem == std::to_underlying(ColumnId::Edit));
+    const LPARAM position = MAKELPARAM(point.x, point.y);
+    ::SendMessageW(list, WM_LBUTTONDOWN, MK_LBUTTON, position);
+    QIQI_TEST_CHECK(::GetCapture() == list);
+    ::SendMessageW(list, WM_LBUTTONUP, 0, position);
+    QIQI_TEST_CHECK(::GetCapture() != list);
+    QIQI_TEST_CHECK(::GetFocus() == Child(window, EditCodeInput));
+}
+
 void CheckLayout(const DictManagerWindow& window, UINT dpi) {
+    QIQI_TEST_CHECK(Header_GetItemCount(ListView_GetHeader(Child(window, List))) ==
+        std::to_underlying(ColumnId::Count));
+    QIQI_TEST_CHECK(ListView_GetColumnWidth(Child(window, List), std::to_underlying(ColumnId::Edit)) ==
+        ScalePxByDpi(40, dpi));
     constexpr std::array labels{SourceLabel, SearchLabel};
     for (const auto id : labels) {
         const HWND child = Child(window, id);
@@ -202,6 +227,19 @@ void CheckCommandAppearance(const DictManagerWindow& window, UINT dpi, bool dark
     QIQI_TEST_CHECK(bitmap);
     const ScopedSelectObject selected(dc.Get(), bitmap.Get());
     QIQI_TEST_CHECK(selected);
+    const HWND list = Child(window, List);
+    RECT edit_cell{};
+#pragma warning(suppress : 26477) // ListView_GetItemRect expands to a null-pointer check.
+    QIQI_TEST_CHECK(ListView_GetItemRect(list, 0, &edit_cell, LVIR_BOUNDS));
+    edit_cell.right = edit_cell.left + ListView_GetColumnWidth(list, std::to_underlying(ColumnId::Edit));
+    ::SendMessageW(list, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc.Get()), PRF_CLIENT);
+    size_t edit_ink = 0;
+    for (int y = edit_cell.top + 2; y < edit_cell.bottom - 2; ++y) {
+        for (int x = edit_cell.left + 2; x < edit_cell.right - 2; ++x) {
+            if (::GetPixel(dc.Get(), x, y) == ListView_GetTextColor(list)) ++edit_ink;
+        }
+    }
+    QIQI_TEST_CHECK(edit_ink > 10);
     const auto& palette = GetThemePalette(dark);
     NMTBCUSTOMDRAW toolbar{};
     toolbar.nmcd.hdr.hwndFrom = Child(window, Toolbar);
@@ -556,6 +594,15 @@ void TestGuiWindow() {
     DictManagerWindow window;
     QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr), user_dict, freq_file));
     QIQI_TEST_CHECK(::IsWindow(window.Handle()));
+    QIQI_TEST_CHECK(::SendMessageW(Child(window, SourceCombo), CB_GETCURSEL, 0, 0) == 1);
+    QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
+    ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 0, 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
+    const int all_count = ListView_GetItemCount(Child(window, List));
+    QIQI_TEST_CHECK(all_count > 0);
+    InvokeCommand(window, Reload);
+    QIQI_TEST_CHECK(::SendMessageW(Child(window, SourceCombo), CB_GETCURSEL, 0, 0) == 0);
+    QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == all_count);
     CheckLayout(window, ::GetDpiForWindow(window.Handle()));
 
     for (const UINT dpi : {96u, 120u, 144u, 192u}) {
@@ -564,7 +611,39 @@ void TestGuiWindow() {
             ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&proposed));
             for (const auto language : {LanguageEn, LanguageZh, LanguageAuto}) {
                 InvokeCommand(window, language);
+                QIQI_TEST_CHECK(::SendMessageW(Child(window, SourceCombo), CB_GETCURSEL, 0, 0) == 0);
+                QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == all_count);
+                const bool english = language == LanguageEn ||
+                    (language == LanguageAuto && ResolveUiLanguage(UiLanguage::Auto) == UiLanguage::EnUs);
+                const auto sources = english
+                    ? std::array{L"All Sources", L"User Dict", L"Pinned", L"Blocked", L"Phrase Ordering",
+                          L"Primary Dict", L"Extra Dict"}
+                    : std::array{L"全部来源", L"用户词库", L"手动置顶", L"已屏蔽词", L"词组排序", L"主词库", L"扩展词库"};
+                QIQI_TEST_CHECK(::SendMessageW(Child(window, SourceCombo), CB_GETCOUNT, 0, 0) ==
+                    gsl::narrow_cast<LRESULT>(sources.size()));
+                for (size_t i = 0; i < sources.size(); ++i) {
+                    std::array<wchar_t, 64> text{};
+                    const LRESULT length = ::SendMessageW(Child(window, SourceCombo), CB_GETLBTEXTLEN, i, 0);
+                    QIQI_TEST_CHECK(length > 0 && length < gsl::narrow_cast<LRESULT>(text.size()));
+                    QIQI_TEST_CHECK(::SendMessageW(Child(window, SourceCombo), CB_GETLBTEXT, i,
+                        reinterpret_cast<LPARAM>(text.data())) == length);
+                    QIQI_TEST_CHECK(std::wstring_view(text.data()) == gsl::at(sources, i));
+                }
                 const HMENU menu = ::GetMenu(window.Handle());
+                QIQI_TEST_CHECK(MenuText(menu, ClearFreq) == (english ? L"Reset Phrase Ordering" : L"重置词组排序"));
+                QIQI_TEST_CHECK(MenuText(menu, Promote) == (english ? L"Prioritize Phrase" : L"词组置前"));
+                QIQI_TEST_CHECK(ControlText(Child(window, Status)).find(
+                    english ? L"Phrase ordering" : L"词组排序") != std::wstring::npos);
+                std::array<wchar_t, 64> edit_tip{};
+                NMLVGETINFOTIPW tip{};
+                tip.hdr = {Child(window, List), std::to_underlying(List), LVN_GETINFOTIPW};
+                tip.iItem = 0;
+                tip.iSubItem = std::to_underlying(ColumnId::Edit);
+                tip.pszText = edit_tip.data();
+                tip.cchTextMax = gsl::narrow_cast<int>(edit_tip.size());
+                ::SendMessageW(window.Handle(), WM_NOTIFY, std::to_underlying(List), reinterpret_cast<LPARAM>(&tip));
+                QIQI_TEST_CHECK(std::wstring_view(edit_tip.data()) ==
+                    (english ? L"Edit entry (code)" : L"编辑词条（编码）"));
                 for (const auto id : {LanguageAuto, LanguageZh, LanguageEn}) {
                     QIQI_TEST_CHECK((::GetMenuState(menu, std::to_underlying(id), MF_BYCOMMAND) & MF_CHECKED) ==
                         (id == language ? UINT{MF_CHECKED} : 0u));
@@ -579,6 +658,11 @@ void TestGuiWindow() {
         }
     }
 
+    ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 1, 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
+    InvokeCommand(window, Reload);
+    QIQI_TEST_CHECK(::SendMessageW(Child(window, SourceCombo), CB_GETCURSEL, 0, 0) == 1);
+    QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
     ExerciseGuiCommands(window);
 }
 
@@ -601,27 +685,41 @@ void TestInlineEditing() {
     DictManagerWindow window;
     QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr), user_dict, freq_file));
     const HWND list = Child(window, List);
+    QIQI_TEST_CHECK(::SendMessageW(Child(window, SourceCombo), CB_GETCURSEL, 0, 0) == 1);
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 101);
     const auto visible = [&](ControlId id) {
         return (::GetWindowLongPtrW(Child(window, id), GWL_STYLE) & WS_VISIBLE) != 0;
     };
     const auto search = [&](const wchar_t* text) {
         QIQI_TEST_CHECK(::SetWindowTextW(Child(window, SearchEdit), text));
     };
-    const auto begin = [&](int row = 0, int column = 1) {
+    const auto marked = [&](int row = 0) {
+        std::array<wchar_t, 256> source_text{};
+        ListView_GetItemText(list, row, std::to_underlying(ColumnId::Source),
+            source_text.data(), gsl::narrow_cast<int>(source_text.size()));
+        return std::wstring_view(source_text.data()).starts_with(L"* ");
+    };
+    const auto begin = [&](int row = 0, ColumnId column = ColumnId::Word) {
         ListView_SetItemState(list, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        ListView_EnsureVisible(list, row, FALSE);
+        RECT cell{};
+#pragma warning(suppress : 26477) // ListView_GetSubItemRect expands to a null-pointer check.
+        QIQI_TEST_CHECK(ListView_GetSubItemRect(list, row, std::to_underlying(column), LVIR_BOUNDS, &cell));
         NMITEMACTIVATE click{};
         click.hdr = {list, std::to_underlying(List), NM_DBLCLK};
         click.iItem = row;
-        click.iSubItem = column;
+        click.iSubItem = std::to_underlying(column);
+        click.ptAction = {(cell.left + cell.right) / 2, (cell.top + cell.bottom) / 2};
         ::SendMessageW(window.Handle(), WM_NOTIFY, std::to_underlying(List), reinterpret_cast<LPARAM>(&click));
         QIQI_TEST_CHECK(visible(EditWordInput) && visible(EditCodeInput) && visible(InlineSave));
     };
     const auto check_position = [&](int row) {
         for (const auto& [id, column] :
-             std::array{std::pair{EditCodeInput, 0}, std::pair{EditWordInput, 1}, std::pair{InlineSave, 4}}) {
+             std::array{std::pair{EditCodeInput, ColumnId::Code}, std::pair{EditWordInput, ColumnId::Word},
+                 std::pair{InlineSave, ColumnId::Action}}) {
             RECT cell{}, editor{}, intersection{};
 #pragma warning(suppress : 26477) // ListView_GetSubItemRect expands to a null-pointer check.
-            QIQI_TEST_CHECK(ListView_GetSubItemRect(list, row, column, column == 0 ? LVIR_LABEL : LVIR_BOUNDS, &cell));
+            QIQI_TEST_CHECK(ListView_GetSubItemRect(list, row, std::to_underlying(column), LVIR_BOUNDS, &cell));
             ::MapWindowPoints(list, nullptr, reinterpret_cast<POINT*>(&cell), 2);
             QIQI_TEST_CHECK(::GetWindowRect(Child(window, id), &editor));
             QIQI_TEST_CHECK(::IntersectRect(&intersection, &cell, &editor) && ::EqualRect(&intersection, &editor));
@@ -631,19 +729,166 @@ void TestInlineEditing() {
         ::GetClientRect(Child(window, InlineSave), &toolbar);
         QIQI_TEST_CHECK(button.left >= 0 && button.top >= 0 && button.right <= toolbar.right &&
                         button.bottom <= toolbar.bottom);
+        const ScopedWindowDC window_dc(window.Handle());
+        QIQI_TEST_CHECK(window_dc);
+        const ScopedMemoryDC dc(::CreateCompatibleDC(window_dc.Get()));
+        QIQI_TEST_CHECK(dc);
+        const ScopedGdiHandle<HBITMAP> bitmap(
+            ::CreateCompatibleBitmap(window_dc.Get(), toolbar.right, toolbar.bottom));
+        QIQI_TEST_CHECK(bitmap);
+        const ScopedSelectObject selected(dc.Get(), bitmap.Get());
+        QIQI_TEST_CHECK(selected);
+        ::SendMessageW(Child(window, InlineSave), WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc.Get()), PRF_CLIENT);
+        const auto foreground = IsHighContrastEnabled() ? ::GetSysColor(COLOR_BTNTEXT)
+                                                       : GetCurrentThemePalette().text_primary;
+        size_t ink = 0;
+        for (int y = button.top + 2; y < button.bottom - 2; ++y) {
+            for (int x = button.left + 2; x < button.right - 2; ++x) {
+                if (::GetPixel(dc.Get(), x, y) == foreground) ++ink;
+            }
+        }
+        QIQI_TEST_CHECK(ink > 10);
     };
     ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 1, 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
-    search(L"abcd");
-    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1 && !visible(EditWordInput));
-    begin(0, 0);
+    search(L"");
+    ::ShowWindow(window.Handle(), SW_SHOWNOACTIVATE);
+    {
+        RECT row{};
+#pragma warning(suppress : 26477) // ListView_GetItemRect expands to a null-pointer check.
+        QIQI_TEST_CHECK(ListView_GetItemRect(list, 0, &row, LVIR_BOUNDS));
+        const POINT icon_point{row.left + ListView_GetColumnWidth(list, std::to_underlying(ColumnId::Edit)) / 2,
+            (row.top + row.bottom) / 2};
+        const LPARAM icon = MAKELPARAM(icon_point.x, icon_point.y);
+        ::SendMessageW(list, WM_LBUTTONDOWN, MK_LBUTTON, icon);
+        QIQI_TEST_CHECK(::GetCapture() == list);
+        ::SendMessageW(list, WM_CANCELMODE, 0, 0);
+        QIQI_TEST_CHECK(::GetCapture() != list);
+        ::SendMessageW(list, WM_LBUTTONUP, 0, icon);
+        QIQI_TEST_CHECK(!visible(EditCodeInput));
+        ::SendMessageW(list, WM_LBUTTONDOWN, MK_LBUTTON, icon);
+        const POINT outside_point{row.left + ListView_GetColumnWidth(list, std::to_underlying(ColumnId::Edit)) + 10,
+            (row.top + row.bottom) / 2};
+        const LPARAM outside = MAKELPARAM(outside_point.x, outside_point.y);
+        ::SendMessageW(list, WM_LBUTTONUP, 0, outside);
+        QIQI_TEST_CHECK(::GetCapture() != list && !visible(EditCodeInput));
+    }
+    for (const auto column : {ColumnId::Code, ColumnId::Word}) {
+        RECT cell{};
+#pragma warning(suppress : 26477) // ListView_GetSubItemRect expands to a null-pointer check.
+        QIQI_TEST_CHECK(ListView_GetSubItemRect(list, 0, std::to_underlying(column), LVIR_BOUNDS, &cell));
+        const LPARAM point = MAKELPARAM((cell.left + cell.right) / 2, (cell.top + cell.bottom) / 2);
+        // Seed the first-click selection without entering native drag tracking.
+        ListView_SetItemState(list, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        ::SendMessageW(list, WM_LBUTTONDBLCLK, MK_LBUTTON, point);
+        ::SendMessageW(list, WM_LBUTTONUP, 0, point);
+        QIQI_TEST_CHECK(visible(EditCodeInput) && visible(EditWordInput));
+        QIQI_TEST_CHECK(::GetFocus() == Child(window,
+            column == ColumnId::Code ? EditCodeInput : EditWordInput));
+        InvokeCommand(window, CancelEdit);
+    }
+    ClickRowEdit(window, 0);
+    QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"abcd");
+    ClickRowEdit(window, 1);
+    QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"zzzz" && !marked(1));
+    const auto second_word = ControlText(Child(window, EditWordInput));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"drop"));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"放弃的行内草稿"));
+    QIQI_TEST_CHECK(marked(1));
+    begin(1, ColumnId::Word);
+    QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"放弃的行内草稿" && marked(1));
+    ClickRowEdit(window, 1);
+    QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"放弃的行内草稿" && marked(1));
+    ClickRowEdit(window, 0);
     QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"abcd");
     QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"原始词");
-    QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, SearchEdit)) && !::IsWindowEnabled(Child(window, SourceCombo)));
+    QIQI_TEST_CHECK(!marked(0) && !marked(1));
+    check_position(0);
+    ListView_SetItemState(list, 1, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    ::SendMessageW(list, WM_KEYDOWN, VK_F2, 0);
+    QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == second_word);
+    InvokeCommand(window, CancelEdit);
+
+    const int original_count = ListView_GetItemCount(list);
+    InvokeCommand(window, NewWord);
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == original_count + 1);
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"drop"));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"放弃的新增草稿"));
+    ClickRowEdit(window, 2);
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == original_count);
+    QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"zzzz");
+    QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == second_word && !marked(1));
+    check_position(1);
+    InvokeCommand(window, CancelEdit);
+
+    for (const auto target : {SourceCombo, SearchEdit}) {
+        for (const bool new_word : {false, true}) {
+            search(L"abcd");
+            if (new_word) InvokeCommand(window, NewWord);
+            else begin();
+            QIQI_TEST_CHECK(::IsWindowEnabled(Child(window, SearchEdit)) &&
+                ::IsWindowEnabled(Child(window, SourceCombo)));
+            QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"drop"));
+            QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"筛选时放弃的草稿"));
+            QIQI_TEST_CHECK(marked());
+            ::SetFocus(Child(window, target));
+            QIQI_TEST_CHECK(::GetFocus() == Child(window, target));
+            QIQI_TEST_CHECK(!visible(EditWordInput) && !visible(EditCodeInput) && !visible(InlineSave));
+            QIQI_TEST_CHECK(!ControlText(Child(window, Status)).starts_with(L"* "));
+            QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1 && !marked());
+            if (target == SearchEdit) {
+                search(L"zzzz");
+                QIQI_TEST_CHECK(ListView_GetItemCount(list) == 100);
+            } else {
+                ::SendMessageW(Child(window, SourceCombo), CB_SHOWDROPDOWN, TRUE, 0);
+                QIQI_TEST_CHECK(::SendMessageW(Child(window, SourceCombo), CB_GETDROPPEDSTATE, 0, 0));
+                ::SendMessageW(Child(window, SourceCombo), CB_SHOWDROPDOWN, FALSE, 0);
+                ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 2, 0);
+                ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
+                QIQI_TEST_CHECK(ListView_GetItemCount(list) == 0);
+                ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 1, 0);
+                ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
+                QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
+            }
+            QIQI_TEST_CHECK(::GetFocus() == Child(window, target));
+        }
+    }
+    search(L"abcd");
+    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1 && !visible(EditWordInput));
+    begin(0, ColumnId::Code);
+    check_position(0);
+    QIQI_TEST_CHECK(!marked());
+    QIQI_TEST_CHECK(!ControlText(Child(window, Status)).starts_with(L"* "));
+    ::RedrawWindow(window.Handle(), nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    ::RedrawWindow(list, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+    {
+        const ScopedWindowDC dc(Child(window, InlineSave));
+        QIQI_TEST_CHECK(dc);
+        const auto button = ToolbarItemRect(window, SaveWord);
+        size_t ink = 0;
+        for (int y = button.top + 2; y < button.bottom - 2; ++y) {
+            for (int x = button.left + 2; x < button.right - 2; ++x) {
+                if (::GetPixel(dc.Get(), x, y) == GetCurrentThemePalette().text_primary) ++ink;
+            }
+        }
+        QIQI_TEST_CHECK(ink > 10);
+    }
+    QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"abcd");
+    QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"原始词");
+    QIQI_TEST_CHECK(::IsWindowEnabled(Child(window, SearchEdit)) && ::IsWindowEnabled(Child(window, SourceCombo)));
     QIQI_TEST_CHECK(
         (::GetMenuState(::GetMenu(window.Handle()), std::to_underlying(Delete), MF_BYCOMMAND) & MF_GRAYED) != 0);
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"暂时修改"));
+    QIQI_TEST_CHECK(marked() && ControlText(Child(window, Status)).starts_with(L"* "));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"原始词"));
+    QIQI_TEST_CHECK(!marked() && !ControlText(Child(window, Status)).starts_with(L"* "));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"temp"));
+    QIQI_TEST_CHECK(marked());
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"abcd"));
+    QIQI_TEST_CHECK(!marked());
     QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"wxyz"));
     QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"行内新词"));
+    QIQI_TEST_CHECK(marked());
     InvokeCommand(window, Reload);
     InvokeCommand(window, Delete);
     QIQI_TEST_CHECK(visible(EditWordInput) && ControlText(Child(window, EditWordInput)) == L"行内新词");
@@ -651,6 +896,7 @@ void TestInlineEditing() {
     WubiEngine peer;
     peer.SetUserDictPath(user_dict);
     QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(peer.LookupExact(L"drop").empty());
     ::SendMessageW(Child(window, EditWordInput), WM_KILLFOCUS, reinterpret_cast<WPARAM>(list), 0);
     ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
     QIQI_TEST_CHECK(peer.LookupExact(L"abcd").front() == L"原始词" && peer.LookupExact(L"wxyz").empty());
@@ -672,8 +918,10 @@ void TestInlineEditing() {
             for (const bool dark : {false, true}) {
                 SetThemeDarkOverrideForTest(dark);
                 ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
+                ClickRowEdit(window, 0);
                 QIQI_TEST_CHECK(visible(EditWordInput) && ControlText(Child(window, EditWordInput)) == L"行内新词");
                 QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"wxyz");
+                QIQI_TEST_CHECK(marked() && ControlText(Child(window, Status)).starts_with(L"* "));
                 check_position(0);
                 QIQI_TEST_CHECK(ControlText(Child(window, SearchEdit)) == L"abcd");
             }
@@ -683,6 +931,7 @@ void TestInlineEditing() {
     QIQI_TEST_CHECK(peer.AddUserEntry(L"aaaa", L"外部新增词"));
     InvokeCommand(window, SaveWord, true);
     QIQI_TEST_CHECK(!visible(EditWordInput) && ::IsWindowEnabled(Child(window, SearchEdit)));
+    QIQI_TEST_CHECK(!ControlText(Child(window, Status)).starts_with(L"* "));
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 0);
     QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
     QIQI_TEST_CHECK(peer.LookupExact(L"abcd").empty() && peer.LookupExact(L"wxyz").front() == L"行内新词");
@@ -707,25 +956,25 @@ void TestInlineEditing() {
     InvokeCommand(window, CancelEdit);
 
     search(L"");
-    begin(0, 1);
+    begin(0, ColumnId::Word);
     ListView_EnsureVisible(list, ListView_GetItemCount(list) - 1, FALSE);
     QIQI_TEST_CHECK(!visible(EditWordInput) && !visible(InlineSave));
     ListView_EnsureVisible(list, 0, FALSE);
     QIQI_TEST_CHECK(visible(EditWordInput));
     check_position(0);
-    const int width = ListView_GetColumnWidth(list, 1);
+    const int width = ListView_GetColumnWidth(list, std::to_underlying(ColumnId::Word));
     const int wider_column = width + ScalePxByDpi(20, 192);
-    ListView_SetColumnWidth(list, 1, wider_column);
+    ListView_SetColumnWidth(list, std::to_underlying(ColumnId::Word), wider_column);
     check_position(0);
     RECT client{};
     ::GetClientRect(list, &client);
     const int oversized_column = width + gsl::narrow_cast<int>(client.right);
-    ListView_SetColumnWidth(list, 1, oversized_column);
+    ListView_SetColumnWidth(list, std::to_underlying(ColumnId::Word), oversized_column);
     QIQI_TEST_CHECK(!visible(EditWordInput));
     ListView_Scroll(list, ScalePxByDpi(60, 192), 0);
     QIQI_TEST_CHECK(!visible(EditWordInput));
     ListView_Scroll(list, -::GetScrollPos(list, SB_HORZ), 0);
-    ListView_SetColumnWidth(list, 1, width);
+    ListView_SetColumnWidth(list, std::to_underlying(ColumnId::Word), width);
     QIQI_TEST_CHECK(visible(EditWordInput));
     check_position(0);
     InvokeCommand(window, CancelEdit);
@@ -734,7 +983,9 @@ void TestInlineEditing() {
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 0);
     InvokeCommand(window, NewWord, true);
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1 && visible(EditWordInput));
+    QIQI_TEST_CHECK(!marked());
     QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"中华人民共和国"));
+    QIQI_TEST_CHECK(marked());
     QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"kwwl");
     QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"test"));
     QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"中国"));
@@ -756,6 +1007,7 @@ void TestInlineEditing() {
         QIQI_TEST_CHECK(locked);
         InvokeCommand(window, SaveWord);
         QIQI_TEST_CHECK(visible(EditWordInput) && ControlText(Child(window, EditWordInput)) == L"失败草稿");
+        QIQI_TEST_CHECK(marked());
     }
     InvokeCommand(window, CancelEdit);
     QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
@@ -776,6 +1028,8 @@ void TestInlineEditing() {
 
     search(L"不存在");
     InvokeCommand(window, NewWord);
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"退出确认草稿"));
+    QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"exit"));
     const UINT_PTR timer = ::SetTimer(window.Handle(), 19, 20, [](HWND owner, UINT, UINT_PTR id, DWORD) noexcept {
         const HWND popup = ::GetLastActivePopup(owner);
         if (popup != owner) {
@@ -784,13 +1038,57 @@ void TestInlineEditing() {
         }
     });
     QIQI_TEST_CHECK(timer != 0);
-    ::SendMessageW(window.Handle(), WM_CLOSE, 0, 0);
-    ::KillTimer(window.Handle(), timer);
-    QIQI_TEST_CHECK(::IsWindow(window.Handle()) && visible(EditWordInput));
-    InvokeCommand(window, CancelEdit);
-    QIQI_TEST_CHECK(ListView_GetItemCount(list) == 0);
+    const HWND closing = window.Handle();
     InvokeCommand(window, Exit);
+    if (::IsWindow(closing)) ::KillTimer(closing, timer);
+    QIQI_TEST_CHECK(!::IsWindow(closing));
+    QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(peer.LookupExact(L"exit").empty());
     DrainQuitMessages();
+
+    for (const int mode : {0, 1, 2, 3, 4}) {
+        DictManagerWindow unchanged;
+        QIQI_TEST_CHECK(unchanged.Create(::GetModuleHandleW(nullptr), user_dict, freq_file));
+        if (mode < 2 || mode == 4) {
+            ::SendMessageW(Child(unchanged, SourceCombo), CB_SETCURSEL, 1, 0);
+            ::SendMessageW(unchanged.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
+            QIQI_TEST_CHECK(::SetWindowTextW(Child(unchanged, SearchEdit), L"test"));
+            const HWND unchanged_list = Child(unchanged, List);
+            ListView_SetItemState(unchanged_list, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+            ::SendMessageW(unchanged_list, WM_KEYDOWN, VK_F2, 0);
+            QIQI_TEST_CHECK(ControlText(Child(unchanged, EditWordInput)) == L"中国");
+        } else {
+            InvokeCommand(unchanged, NewWord);
+        }
+        if (mode == 1 || mode == 3) {
+            const auto original_word = ControlText(Child(unchanged, EditWordInput));
+            const auto original_code = ControlText(Child(unchanged, EditCodeInput));
+            QIQI_TEST_CHECK(::SetWindowTextW(Child(unchanged, EditWordInput), L"临时更改"));
+            QIQI_TEST_CHECK(::SetWindowTextW(Child(unchanged, EditWordInput), original_word.c_str()));
+            QIQI_TEST_CHECK(::SetWindowTextW(Child(unchanged, EditCodeInput), original_code.c_str()));
+        }
+        if (mode == 4) {
+            QIQI_TEST_CHECK(::SetWindowTextW(Child(unchanged, EditWordInput), L"关闭时放弃更改"));
+            QIQI_TEST_CHECK(::SetWindowTextW(Child(unchanged, EditCodeInput), L"exit"));
+        }
+        QIQI_TEST_CHECK(ControlText(Child(unchanged, Status)).starts_with(L"* ") == (mode == 4));
+        const UINT_PTR dismiss = ::SetTimer(unchanged.Handle(), 19, 20, [](HWND owner, UINT, UINT_PTR id, DWORD) noexcept {
+            const HWND popup = ::GetLastActivePopup(owner);
+            if (popup != owner) {
+                ::KillTimer(owner, id);
+                ::PostMessageW(popup, WM_COMMAND, IDNO, 0);
+            }
+        });
+        QIQI_TEST_CHECK(dismiss != 0);
+        const HWND handle = unchanged.Handle();
+        ::SendMessageW(handle, WM_CLOSE, 0, 0);
+        if (::IsWindow(handle)) ::KillTimer(handle, dismiss);
+        QIQI_TEST_CHECK(!::IsWindow(handle));
+        DrainQuitMessages();
+    }
+    QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(peer.LookupExact(L"exit").empty());
+    QIQI_TEST_CHECK(std::ranges::contains(peer.LookupExact(L"test"), L"中国"));
 }
 
 void ExerciseGuiCommands(const DictManagerWindow& window) {
@@ -819,7 +1117,7 @@ void ExerciseGuiCommands(const DictManagerWindow& window) {
 
     // Query LVN_GETDISPINFOW for all 4 columns
     const HWND list = Child(window, List);
-    for (int col = 0; col < 4; ++col) {
+    for (int col = std::to_underlying(ColumnId::Code); col <= std::to_underlying(ColumnId::Rank); ++col) {
         std::array<wchar_t, 256> cell_buf{};
         NMLVDISPINFOW disp{};
         disp.hdr.hwndFrom = list;

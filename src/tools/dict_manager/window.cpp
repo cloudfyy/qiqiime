@@ -15,6 +15,7 @@
 #include <span>
 #include <system_error>
 #include <uxtheme.h>
+#include <utility>
 
 namespace qiqi::dict_manager {
 using enum ControlId;
@@ -23,7 +24,7 @@ namespace {
 constexpr std::array toolbar_commands{
     Reload, NewWord, Copy, Import, Export, Pin, Delete, Promote};
 
-[[noreturn]] void ThrowMenuError(const char* operation, DWORD error) {
+[[noreturn]] void ThrowUiError(const char* operation, DWORD error) {
     QIQI_LOG_ERROR("DictManager {} failed (error={})", operation, error);
     throw std::system_error(error, std::system_category(), operation);
 }
@@ -61,7 +62,7 @@ const wchar_t* DictManagerWindow::Impl::CommandText(ControlId id) const noexcept
     case Export: return Text(L"导出快照...", L"Export...");
     case Backup: return Text(L"备份全部...", L"Backup...");
     case Restore: return Text(L"恢复备份...", L"Restore...");
-    case ClearFreq: return Text(L"清空词频", L"Clear Frequencies");
+    case ClearFreq: return Text(L"重置词组排序", L"Reset Phrase Ordering");
     case About: return Text(L"关于...", L"About...");
     case AutoCode: return Text(L"自动取码", L"Auto Code");
     case NewWord: return Text(L"新增词条", L"New Word");
@@ -69,7 +70,7 @@ const wchar_t* DictManagerWindow::Impl::CommandText(ControlId id) const noexcept
     case SaveWord: return Text(L"保存用户词", L"Save Word");
     case Pin: return Text(L"置顶 / 取消置顶", L"Pin / Unpin");
     case Delete: return Text(L"删除 / 屏蔽 / 恢复", L"Delete / Block / Restore");
-    case Promote: return Text(L"词频置顶", L"Promote Frequency");
+    case Promote: return Text(L"词组置前", L"Prioritize Phrase");
     case SelectAll: return Text(L"全选", L"Select All");
     case LanguageAuto: return GetUiStrings(ui_language).dlg_lang_auto;
     case LanguageZh: return GetUiStrings(ui_language).dlg_lang_zh;
@@ -154,7 +155,7 @@ LRESULT CALLBACK DictManagerWindow::Impl::ListProcedure(
                 self->Command(std::to_underlying(Delete), 0);
                 return 0;
             } else if (wparam == VK_F2) {
-                self->BeginEdit(ListView_GetNextItem(window, -1, LVNI_FOCUSED), 1);
+                self->BeginEdit(ListView_GetNextItem(window, -1, LVNI_FOCUSED), std::to_underlying(ColumnId::Word));
                 return 0;
             } else if (wparam == VK_ESCAPE && self->editing) {
                 self->CancelEditing();
@@ -169,7 +170,53 @@ LRESULT CALLBACK DictManagerWindow::Impl::ListProcedure(
             return *drawn;
         }
     }
-    const LRESULT result = ::DefSubclassProc(window, message, wparam, lparam);
+    int activate_edit_row = -1;
+    bool edit_mouse_handled = false;
+    if (self && self->ready) {
+        if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP) {
+            LVHITTESTINFO hit{};
+            hit.pt = PointFromLParam(lparam);
+            const int row = ListView_SubItemHitTest(window, &hit);
+            const bool edit_icon = row >= 0 && hit.iSubItem == std::to_underlying(ColumnId::Edit);
+            if (message == WM_LBUTTONDOWN) {
+                self->pressed_edit_row = edit_icon ? row : -1;
+                if (edit_icon) {
+                    ::SetFocus(window);
+                    ListView_SetItemState(window, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+                    ListView_SetItemState(window, row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+                    ::SetCapture(window);
+                    if (::GetCapture() != window) {
+                        self->pressed_edit_row = -1;
+                        ReportCommandError(self, "SetCapture(edit icon)", ERROR_SUCCESS);
+                    }
+                    edit_mouse_handled = true;
+                }
+            } else {
+                const int pressed = std::exchange(self->pressed_edit_row, -1);
+                if (pressed >= 0) {
+                    if (::GetCapture() == window && !::ReleaseCapture()) {
+                        ReportCommandError(self, "ReleaseCapture(edit icon)", ::GetLastError());
+                    }
+                    if (edit_icon && row == pressed) activate_edit_row = row;
+                    edit_mouse_handled = true;
+                }
+            }
+        } else if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE) {
+            self->pressed_edit_row = -1;
+            if (message == WM_CANCELMODE && ::GetCapture() == window && !::ReleaseCapture()) {
+                ReportCommandError(self, "ReleaseCapture(cancel edit icon)", ::GetLastError());
+            }
+        }
+    }
+    const LRESULT result = edit_mouse_handled ? 0 : ::DefSubclassProc(window, message, wparam, lparam);
+    if (self && self->ready && activate_edit_row >= 0) {
+        try {
+            self->BeginEdit(activate_edit_row, std::to_underlying(ColumnId::Code));
+        } catch (const std::exception&) {
+            QIQI_LOG_ERROR("DictManager edit icon operation failed with an exception");
+            ::SetWindowTextW(self->Child(Status), self->Text(L"编辑操作失败，请重试。", L"Edit operation failed; please retry."));
+        }
+    }
     if (self && self->ready && (message == WM_HSCROLL || message == WM_VSCROLL ||
             message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_SIZE ||
             message == WM_NOTIFY || message == LVM_SCROLL || message == LVM_ENSUREVISIBLE)) {
@@ -218,7 +265,8 @@ bool DictManagerWindow::Impl::CreateControls() {
         !Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP | WS_VSCROLL, SourceCombo) ||
         !Add(L"STATIC", Text(L"搜索", L"Search"), SS_LEFT, SearchLabel) ||
         !Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, SearchEdit) ||
-        !Add(WC_LISTVIEWW, L"", LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP, List) ||
+        !Add(WC_LISTVIEWW, L"", LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS |
+                 WS_BORDER | WS_TABSTOP | WS_CLIPSIBLINGS, List) ||
         !Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, EditWordInput) ||
         !Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, EditCodeInput) ||
         !Add(TOOLBARCLASSNAMEW, L"", TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | CCS_NORESIZE |
@@ -236,18 +284,19 @@ bool DictManagerWindow::Impl::CreateControls() {
         }
     }
 
-    ListView_SetExtendedListViewStyle(Child(List), LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+    ListView_SetExtendedListViewStyle(Child(List), LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP);
     if (!::SetWindowSubclass(Child(List), ListProcedure, 1, reinterpret_cast<DWORD_PTR>(this))) {
         Failure(L"SetWindowSubclass(list)", ERROR_NOT_ENOUGH_MEMORY);
         return false;
     }
 
-    std::array<const wchar_t*, 5> columns{
+    const std::array columns{
+        Text(L"编辑", L"Edit"),
         Text(L"五笔编码", L"Wubi Code"),
         Text(L"词条内容", L"Word / Phrase"),
         Text(L"数据来源", L"Source"),
         Text(L"同码顺位", L"Rank"), Text(L"操作", L"Action")};
-    constexpr std::array widths{120, 320, 180, 76, 52};
+    constexpr std::array widths{40, 120, 320, 180, 76, 52};
     for (size_t i = 0; i < columns.size(); ++i) {
         LVCOLUMNW column{};
         column.mask = LVCF_TEXT | LVCF_WIDTH;
@@ -263,6 +312,13 @@ bool DictManagerWindow::Impl::CreateControls() {
     ready = true;
     UpdateIcons();
     ApplyLanguage();
+    const LRESULT source_selection = ::SendMessageW(
+        Child(SourceCombo), CB_SETCURSEL, std::to_underlying(DictEntrySource::UserDict), 0);
+    if (source_selection == CB_ERR) {
+        Failure(L"CB_SETCURSEL(default source)", gsl::narrow_cast<ULONG>(source_selection));
+        return false;
+    }
+    filter.source = SourceFromComboIndex(source_selection);
     UpdateTheme();
     RebuildRows();
     UpdateStatus();
@@ -340,9 +396,13 @@ void DictManagerWindow::Impl::ApplyLanguage() {
         SourceText(DictEntrySource::PhraseFreq),
         SourceText(DictEntrySource::PrimaryDict),
         SourceText(DictEntrySource::ExtraDict)};
-    std::ignore = ReplaceComboBoxItems(Child(SourceCombo), sources);
+    const HRESULT source_result = ReplaceComboBoxItems(Child(SourceCombo), sources);
+    if (FAILED(source_result)) {
+        ThrowUiError("ReplaceComboBoxItems(source)", gsl::narrow_cast<DWORD>(source_result));
+    }
 
-    const std::array<const wchar_t*, 5> columns{
+    const std::array columns{
+        Text(L"编辑", L"Edit"),
         Text(L"五笔编码", L"Wubi Code"),
         Text(L"词条内容", L"Word / Phrase"),
         Text(L"数据来源", L"Source"),
@@ -375,7 +435,7 @@ void DictManagerWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) {
                 reinterpret_cast<LPARAM>(next_font.Get()));
             font = std::move(next_font);
         }
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < std::to_underlying(ColumnId::Count); ++i) {
             ListView_SetColumnWidth(
                 Child(List),
                 i,
@@ -493,8 +553,18 @@ void DictManagerWindow::Impl::UpdateCommandState() noexcept {
     for (const auto id : {SaveWord, CancelEdit, AutoCode}) {
         ::EnableMenuItem(::GetMenu(hwnd), std::to_underlying(id), MF_BYCOMMAND | (editing ? MF_ENABLED : MF_GRAYED));
     }
-    ::EnableWindow(Child(SearchEdit), !editing);
-    ::EnableWindow(Child(SourceCombo), !editing);
+}
+
+void DictManagerWindow::Impl::UpdateEditorState() {
+    const auto word = ReadWindowTextString(Child(EditWordInput));
+    const auto code = ReadWindowTextString(Child(EditCodeInput));
+    const bool dirty = editing && (edit_original
+        ? word != edit_original->word || code != edit_original->code
+        : !word.empty() || !code.empty());
+    if (editor_dirty == dirty) return;
+    editor_dirty = dirty;
+    ListView_RedrawItems(Child(List), editing_row, editing_row);
+    UpdateStatus();
 }
 
 void DictManagerWindow::Impl::PositionEditor() noexcept {
@@ -511,12 +581,12 @@ void DictManagerWindow::Impl::PositionEditor() noexcept {
     ::GetWindowRect(ListView_GetHeader(list), &header);
     ::MapWindowPoints(nullptr, list, reinterpret_cast<POINT*>(&header), 2);
     std::array<RECT, 3> cells{};
-    constexpr std::array columns{0, 1, 4};
+    constexpr std::array columns{ColumnId::Code, ColumnId::Word, ColumnId::Action};
     for (size_t i = 0; i < cells.size(); ++i) {
         auto& cell = gsl::at(cells, i);
-        const int column = gsl::at(columns, i);
+        const int column = std::to_underlying(gsl::at(columns, i));
 #pragma warning(suppress : 26477) // ListView_GetSubItemRect expands to a null-pointer check.
-        if (!ListView_GetSubItemRect(list, editing_row, column, column == 0 ? LVIR_LABEL : LVIR_BOUNDS, &cell) ||
+        if (!ListView_GetSubItemRect(list, editing_row, column, LVIR_BOUNDS, &cell) ||
             cell.top < header.bottom || cell.bottom > client.bottom || cell.left < 0 || cell.right > client.right) {
             hide();
             return;
@@ -541,32 +611,38 @@ void DictManagerWindow::Impl::PositionEditor() noexcept {
 }
 
 void DictManagerWindow::Impl::BeginEdit(int row, int column) {
-    if (editing) {
+    if (editing && row == editing_row) {
         ListView_EnsureVisible(Child(List), editing_row, FALSE);
         PositionEditor();
-        ::SetFocus(Child(column == 0 ? EditCodeInput : EditWordInput));
-        if (row != editing_row) {
-            last_message = Text(L"请先保存当前编辑，或按 Esc 取消。", L"Save the current edit or press Esc to cancel first.");
-            UpdateStatus();
-        }
+        ::SetFocus(Child(column == std::to_underlying(ColumnId::Code) ? EditCodeInput : EditWordInput));
         return;
     }
     if (row < 0 || gsl::narrow_cast<size_t>(row) >= rows.size()) return;
     const auto* record = model.FindById(gsl::at(rows, gsl::narrow_cast<size_t>(row)));
     if (!record) return;
+    const bool discard_new = editing && !edit_original;
+    const int previous_row = editing_row;
     edit_original = *record;
     editing = true;
+    editor_dirty = false;
     editing_row = row;
     code_edited = false;
+    ime_composing = false;
+    if (discard_new) {
+        RebuildRows();
+    } else if (previous_row >= 0) {
+        ListView_RedrawItems(Child(List), previous_row, previous_row);
+    }
     updating_editor = true;
     const auto restore = gsl::finally([this]() noexcept { updating_editor = false; });
     ::SetWindowTextW(Child(EditWordInput), record->word.c_str());
     ::SetWindowTextW(Child(EditCodeInput), record->code.c_str());
     UpdateCommandState();
-    ListView_EnsureVisible(Child(List), row, FALSE);
+    ListView_EnsureVisible(Child(List), editing_row, FALSE);
     PositionEditor();
-    ::SetFocus(Child(column == 0 ? EditCodeInput : EditWordInput));
-    ::SendMessageW(Child(column == 0 ? EditCodeInput : EditWordInput), EM_SETSEL, 0, -1);
+    const HWND editor = Child(column == std::to_underlying(ColumnId::Code) ? EditCodeInput : EditWordInput);
+    ::SetFocus(editor);
+    ::SendMessageW(editor, EM_SETSEL, 0, -1);
     last_message = record->source == DictEntrySource::UserDict
         ? Text(L"行内编辑：Enter 保存，Esc 取消。", L"Inline edit: Enter to save, Esc to cancel.")
         : Text(L"行内编辑：另存为用户词条；Enter 保存，Esc 取消。", L"Inline edit: save as a user word; Enter to save, Esc to cancel.");
@@ -575,10 +651,11 @@ void DictManagerWindow::Impl::BeginEdit(int row, int column) {
 
 void DictManagerWindow::Impl::BeginNew() {
     if (editing) {
-        BeginEdit(editing_row, 1);
+        BeginEdit(editing_row, std::to_underlying(ColumnId::Word));
         return;
     }
     editing = true;
+    editor_dirty = false;
     edit_original.reset();
     editing_row = 0;
     code_edited = false;
@@ -596,15 +673,16 @@ void DictManagerWindow::Impl::BeginNew() {
     UpdateStatus();
 }
 
-void DictManagerWindow::Impl::CancelEditing() {
+void DictManagerWindow::Impl::CancelEditing(bool focus_list) {
     if (!editing) return;
     editing = false;
+    editor_dirty = false;
     edit_original.reset();
     editing_row = -1;
     ime_composing = false;
     RebuildRows();
     UpdateCommandState();
-    ::SetFocus(Child(List));
+    if (focus_list) ::SetFocus(Child(List));
     last_message = Text(L"已取消编辑，未保存更改。", L"Edit cancelled; no changes saved.");
     UpdateStatus();
     Tick();
@@ -630,37 +708,85 @@ void DictManagerWindow::Impl::UpdateStatus() {
         model.PinnedEntryCount(),
         Text(L"已屏蔽", L"Blocked"),
         model.BlockedEntryCount(),
-        Text(L"动态词频", L"Phrase freq"),
+        Text(L"词组排序", L"Phrase ordering"),
         model.PhraseFreqCount(),
         Text(L"系统词库", L"System dict"),
         model.SystemEntryCount());
     if (!last_message.empty()) {
         status = last_message + L" | " + status;
     }
+    if (editor_dirty) {
+        status = std::wstring(Text(L"* 未保存的更改", L"* Unsaved changes")) + L" | " + status;
+    }
     ::SetWindowTextW(Child(Status), status.c_str());
 }
 
 std::wstring DictManagerWindow::Impl::Cell(const DictRecord& record, int column) const {
-    switch (column) {
-    case 0: return record.code;
-    case 1: return record.word;
-    case 2: return SourceText(record.source);
-    case 3: return std::to_wstring(record.rank_in_code);
+    switch (gsl::narrow_cast<ColumnId>(column)) {
+    case ColumnId::Code: return record.code;
+    case ColumnId::Word: return record.word;
+    case ColumnId::Source: return SourceText(record.source);
+    case ColumnId::Rank: return std::to_wstring(record.rank_in_code);
     default: return {};
     }
 }
 
-void DictManagerWindow::Impl::Notify(NMHDR& header) {
-    if (header.idFrom != gsl::narrow_cast<UINT_PTR>(std::to_underlying(List))) return;
-    if (header.code == LVN_GETDISPINFOW) {
+LRESULT DictManagerWindow::Impl::Notify(NMHDR& header) {
+    if (header.idFrom != gsl::narrow_cast<UINT_PTR>(std::to_underlying(List))) return 0;
+    if (header.code == NM_CUSTOMDRAW) {
+        const auto& draw = *reinterpret_cast<const NMLVCUSTOMDRAW*>(&header);
+        if (draw.nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
+        if (draw.nmcd.dwDrawStage == CDDS_ITEMPREPAINT) return CDRF_NOTIFYSUBITEMDRAW;
+        if (draw.iSubItem == std::to_underlying(ColumnId::Edit)) {
+            if (draw.nmcd.dwDrawStage == (CDDS_ITEMPREPAINT | CDDS_SUBITEM)) return CDRF_NOTIFYPOSTPAINT;
+            if (draw.nmcd.dwDrawStage == (CDDS_ITEMPOSTPAINT | CDDS_SUBITEM)) {
+                RECT cell{};
+                const HWND list = Child(List);
+#pragma warning(suppress : 26477) // ListView_GetItemRect expands to a null-pointer check.
+                if (!ListView_GetItemRect(list, gsl::narrow_cast<int>(draw.nmcd.dwItemSpec), &cell, LVIR_BOUNDS)) {
+                    ReportCommandError(this, "ListView_GetItemRect(edit icon)", ERROR_NOT_FOUND);
+                    return CDRF_DODEFAULT;
+                }
+                cell.right = cell.left + ListView_GetColumnWidth(list, std::to_underlying(ColumnId::Edit));
+                const ScopedSaveDC saved(draw.nmcd.hdc);
+                if (!saved) {
+                    ReportCommandError(this, "SaveDC(edit icon)", ::GetLastError());
+                    return CDRF_DODEFAULT;
+                }
+                const int clipped = ::IntersectClipRect(draw.nmcd.hdc, cell.left, cell.top, cell.right, cell.bottom);
+                if (clipped == ERROR) {
+                    ReportCommandError(this, "IntersectClipRect(edit icon)", ::GetLastError());
+                    return CDRF_DODEFAULT;
+                }
+                if (clipped == NULLREGION) return CDRF_DODEFAULT;
+                const int size = std::max(1, std::min({theme.ScalePx(16),
+                    gsl::narrow_cast<int>(cell.right - cell.left) - theme.ScalePx(4),
+                    gsl::narrow_cast<int>(cell.bottom - cell.top) - theme.ScalePx(4)}));
+                command_ui.DrawIcon(draw.nmcd.hdc, cell, ToolIcon::Edit, size,
+                    std::max(1, theme.ScalePx(1)), ::GetTextColor(draw.nmcd.hdc));
+            }
+        }
+        return CDRF_DODEFAULT;
+    } else if (header.code == LVN_GETINFOTIPW) {
+        auto& info = *reinterpret_cast<NMLVGETINFOTIPW*>(&header);
+        if (info.iSubItem == std::to_underlying(ColumnId::Edit) && info.pszText && info.cchTextMax > 0) {
+            wcsncpy_s(info.pszText, gsl::narrow_cast<size_t>(info.cchTextMax),
+                Text(L"编辑词条（编码）", L"Edit entry (code)"), _TRUNCATE);
+        }
+    } else if (header.code == LVN_GETDISPINFOW) {
         auto& info = *reinterpret_cast<NMLVDISPINFOW*>(&header);
         if ((info.item.mask & LVIF_TEXT) && info.item.iItem >= 0 &&
             gsl::narrow_cast<size_t>(info.item.iItem) < rows.size()) {
             const auto id = gsl::at(rows, gsl::narrow_cast<size_t>(info.item.iItem));
             const auto* rec = id == 0 && edit_original ? &*edit_original : model.FindById(id);
             {
-                const auto text = rec ? Cell(*rec, info.item.iSubItem)
-                    : (info.item.iSubItem == 2 ? Text(L"新增用户词", L"New User Word") : L"");
+                auto text = rec ? Cell(*rec, info.item.iSubItem)
+                    : (info.item.iSubItem == std::to_underlying(ColumnId::Source)
+                        ? Text(L"新增用户词", L"New User Word") : L"");
+                if (editor_dirty && info.item.iItem == editing_row &&
+                    info.item.iSubItem == std::to_underlying(ColumnId::Source)) {
+                    text.insert(0, L"* ");
+                }
                 if (info.item.pszText && info.item.cchTextMax > 0) {
                     wcsncpy_s(
                         info.item.pszText,
@@ -679,10 +805,19 @@ void DictManagerWindow::Impl::Notify(NMHDR& header) {
         SyncSelectionFromList();
     } else if (header.code == NM_DBLCLK) {
         const auto& click = *reinterpret_cast<const NMITEMACTIVATE*>(&header);
-        if (click.iSubItem == 0 || click.iSubItem == 1) BeginEdit(click.iItem, click.iSubItem);
+        LVHITTESTINFO hit{};
+        hit.pt = click.ptAction;
+        const int row = ListView_SubItemHitTest(Child(List), &hit);
+        if (row >= 0) {
+            if (hit.iSubItem == std::to_underlying(ColumnId::Code) ||
+                hit.iSubItem == std::to_underlying(ColumnId::Word)) {
+                BeginEdit(row, hit.iSubItem);
+            }
+        }
     } else if (header.code == LVN_ENDSCROLL) {
         PositionEditor();
     }
+    return 0;
 }
 
 std::vector<DictRecord> DictManagerWindow::Impl::CollectSelectedRecords() const {
@@ -711,10 +846,17 @@ void DictManagerWindow::Impl::AutoFillCodeFromWord() {
     updating_editor = true;
     const auto restore = gsl::finally([this]() noexcept { updating_editor = false; });
     ::SetWindowTextW(Child(EditCodeInput), auto_code.c_str());
+    UpdateEditorState();
 }
 
 void DictManagerWindow::Impl::ExecuteAddOrUpdate() {
     if (!editing || ime_composing) return;
+    if (edit_original && !editor_dirty) {
+        CancelEditing();
+        last_message = Text(L"内容未修改，无需保存。", L"No changes to save.");
+        UpdateStatus();
+        return;
+    }
     const std::wstring word = ReadWindowTextString(Child(EditWordInput));
     std::wstring code = ReadWindowTextString(Child(EditCodeInput));
     if (code.empty() && !word.empty() && !edit_original && !code_edited) {
@@ -741,6 +883,7 @@ void DictManagerWindow::Impl::ExecuteAddOrUpdate() {
             L"Save failed; draft preserved. Check code, word and external changes.");
     } else {
         editing = false;
+        editor_dirty = false;
         edit_original.reset();
         editing_row = -1;
         last_message = Text(L"已保存用户词条并同步", L"Saved user entry and synchronized");
@@ -813,20 +956,20 @@ void DictManagerWindow::Impl::ExecutePromoteSelected() {
         return;
     }
     if (model.PromotePhraseFrequency(record->code, record->word)) {
-        last_message = Text(L"已置顶动态词频并同步", L"Promoted phrase frequency and synchronized");
+        last_message = Text(L"已将词组置前并同步", L"Prioritized phrase and synchronized");
         RebuildRows();
     } else {
-        last_message = Text(L"词频置顶仅支持双字及以上词组", L"Phrase frequency promotion requires a multi-character phrase");
+        last_message = Text(L"词组置前仅支持双字及以上词组", L"Prioritizing requires a multi-character phrase");
     }
     UpdateStatus();
 }
 
 void DictManagerWindow::Impl::ExecuteClearFrequencies() {
     if (model.ClearAllPhraseFrequencies()) {
-        last_message = Text(L"已清空全部动态词频记录", L"Cleared all dynamic phrase frequencies");
+        last_message = Text(L"已重置全部词组排序", L"Reset all phrase ordering");
         RebuildRows();
     } else {
-        last_message = Text(L"清空动态词频失败", L"Failed to clear phrase frequencies");
+        last_message = Text(L"重置词组排序失败", L"Failed to reset phrase ordering");
     }
     UpdateStatus();
 }
@@ -847,7 +990,7 @@ void DictManagerWindow::Impl::CopySelection() {
 void DictManagerWindow::Impl::ShowListContextMenu(POINT screen_pt) {
     screen_pt = ResolveListViewContextMenuPoint(Child(List), screen_pt, theme);
     const ScopedMenu menu(::CreatePopupMenu());
-    if (!menu) ThrowMenuError("CreatePopupMenu", ::GetLastError());
+    if (!menu) ThrowUiError("CreatePopupMenu", ::GetLastError());
     const auto selected = CollectSelectedRecords();
     const bool has_sel = !selected.empty();
     for (const auto id : {Copy, SelectAll, Pin, Promote, Delete}) {
@@ -858,7 +1001,7 @@ void DictManagerWindow::Impl::ShowListContextMenu(POINT screen_pt) {
         const bool enabled = (id == SelectAll ? !rows.empty() : has_sel) && (!editing || id == Copy || id == SelectAll);
         if (!::AppendMenuW(menu.Get(), MF_STRING | (enabled ? MF_ENABLED : MF_GRAYED),
                 std::to_underlying(id), text.c_str())) {
-            ThrowMenuError("AppendMenuW", ::GetLastError());
+            ThrowUiError("AppendMenuW", ::GetLastError());
         }
     }
     const BOOL cmd = ::TrackPopupMenu(
@@ -921,7 +1064,7 @@ void DictManagerWindow::Impl::BackupBundleDialog() {
     OPENFILENAMEW dialog{};
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = hwnd;
-    dialog.lpstrTitle = Text(L"备份配置、用户词库与词频 (.qbak)", L"Backup Config, User Dict & Phrase Freq (.qbak)");
+    dialog.lpstrTitle = Text(L"备份配置、用户词库与词组排序 (.qbak)", L"Backup Config, User Dict & Phrase Ordering (.qbak)");
     dialog.lpstrFilter = Text(
         L"奇奇五笔备份 (*.qbak)\0*.qbak\0所有文件\0*.*\0",
         L"QiQiIME Backup (*.qbak)\0*.qbak\0All files\0*.*\0");
@@ -956,12 +1099,12 @@ void DictManagerWindow::Impl::RestoreBundleDialog() {
         hwnd,
         Text(
             L"请选择恢复方式：\r\n"
-            L"• 点击「是 (Y)」：合并模式（保留现有用户词库与词频，合并备份项）\r\n"
-            L"• 点击「否 (N)」：覆盖模式（用备份完全替换现有用户词库与词频）\r\n"
+            L"• 点击「是 (Y)」：合并模式（保留现有用户词库与词组排序，合并备份项）\r\n"
+            L"• 点击「否 (N)」：覆盖模式（用备份完全替换现有用户词库与词组排序）\r\n"
             L"• 点击「取消」：中止恢复",
             L"Choose restore conflict mode:\r\n"
-            L"• Yes: Merge (keep existing user words & frequencies, merge backup items)\r\n"
-            L"• No: Replace (overwrite existing user dictionary & frequencies with backup)\r\n"
+            L"• Yes: Merge (keep existing user words & phrase ordering, merge backup items)\r\n"
+            L"• No: Replace (overwrite existing user dictionary & phrase ordering with backup)\r\n"
             L"• Cancel: Abort restore"),
         Text(L"恢复配置与词库备份", L"Restore Config & Dictionary Backup"),
         MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON1);
@@ -975,7 +1118,7 @@ void DictManagerWindow::Impl::RestoreBundleDialog() {
             Text(L"已恢复备份并同步", L"Restored backup and synchronized"),
             Text(L"词库规则", L"Dict rules"),
             summary.user_entries_applied,
-            Text(L"词频", L"Freq"),
+            Text(L"词组排序", L"Phrase ordering"),
             summary.phrase_freq_applied);
         RebuildRows();
     } else {
@@ -1002,7 +1145,7 @@ void DictManagerWindow::Impl::Command(int id, int notification) {
         break;
     case Reload:
         model.ReloadAll();
-        last_message = Text(L"已重新加载词库与词频", L"Reloaded dictionaries and phrase frequencies");
+        last_message = Text(L"已重新加载词库与词组排序", L"Reloaded dictionaries and phrase ordering");
         RebuildRows();
         UpdateStatus();
         break;
@@ -1034,22 +1177,28 @@ void DictManagerWindow::Impl::Command(int id, int notification) {
         std::ignore = ShowAboutDialog(instance, hwnd, ui_language, true);
         break;
     case SourceCombo:
+        if (editing && notification == CBN_SETFOCUS) CancelEditing(false);
         if (!editing && !updating_filters && notification == CBN_SELCHANGE) {
             Refilter();
         }
         break;
     case SearchEdit:
+        if (editing && notification == EN_SETFOCUS) CancelEditing(false);
         if (!editing && !updating_filters && notification == EN_CHANGE) {
             Refilter();
         }
         break;
     case EditWordInput:
-        if (editing && !edit_original && !code_edited && !updating_editor && notification == EN_CHANGE) {
-            AutoFillCodeFromWord();
+        if (editing && !updating_editor && notification == EN_CHANGE) {
+            if (!edit_original && !code_edited) AutoFillCodeFromWord();
+            else UpdateEditorState();
         }
         break;
     case EditCodeInput:
-        if (editing && !updating_editor && notification == EN_CHANGE) code_edited = true;
+        if (editing && !updating_editor && notification == EN_CHANGE) {
+            code_edited = true;
+            UpdateEditorState();
+        }
         break;
     case AutoCode:
         AutoFillCodeFromWord();
@@ -1101,7 +1250,7 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
             if (self->ready) self->Command(LOWORD(wparam), HIWORD(wparam));
             return 0;
         case WM_NOTIFY:
-            if (self->ready && lparam) self->Notify(*reinterpret_cast<NMHDR*>(lparam));
+            if (self->ready && lparam) return self->Notify(*reinterpret_cast<NMHDR*>(lparam));
             return 0;
         case WM_CONTEXTMENU:
             if (self->ready && reinterpret_cast<HWND>(wparam) == self->Child(List)) {
@@ -1125,10 +1274,6 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
             self->UpdateTheme();
             return 0;
         case WM_CLOSE:
-            if (self->editing && ::MessageBoxW(window,
-                    self->Text(L"放弃尚未保存的行内编辑并关闭？", L"Discard the unsaved inline edit and close?"),
-                    self->Text(L"未保存的更改", L"Unsaved changes"),
-                    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) return 0;
             ::DestroyWindow(window);
             return 0;
         case WM_DESTROY:

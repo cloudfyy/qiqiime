@@ -177,13 +177,13 @@ void ToolCommandUi::DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, 
                              COLORREF color) const noexcept {
     const ScopedGdiHandle<HPEN> pen(::CreatePen(PS_SOLID, stroke, color));
     if (!pen) {
-        Report("CreatePen(toolbar icon)");
+        Report("CreatePen(command icon)");
         return;
     }
     const ScopedSelectObject selected_pen(dc, pen.Get());
     const ScopedSelectObject selected_brush(dc, ::GetStockObject(NULL_BRUSH));
     if (!selected_pen || !selected_brush) {
-        Report("SelectObject(toolbar icon)");
+        Report("SelectObject(command icon)");
         return;
     }
     const int left = rect.left + (rect.right - rect.left - size) / 2;
@@ -204,6 +204,11 @@ void ToolCommandUi::DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, 
             drawn = false;
     };
     switch (icon) {
+    case ToolIcon::Edit:
+        path({{4, 16}, {16, 4}, {21, 9}, {9, 21}, {3, 22}, {4, 16}});
+        path({{13, 7}, {18, 12}});
+        path({{4, 16}, {9, 21}});
+        break;
     case ToolIcon::New:
         path({{12, 3}, {12, 21}});
         path({{3, 12}, {21, 12}});
@@ -273,11 +278,11 @@ void ToolCommandUi::DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, 
         path({{8, 16}, {14, 16}});
         break;
     default:
-        Report("Unsupported toolbar icon", ERROR_INVALID_PARAMETER);
+        Report("Unsupported command icon", ERROR_INVALID_PARAMETER);
         return;
     }
     if (!drawn)
-        Report("Draw toolbar icon");
+        Report("Draw command icon");
 }
 
 LRESULT ToolCommandUi::DrawToolbar(NMCUSTOMDRAW& draw, const Toolbar& toolbar,

@@ -26,7 +26,8 @@ enum class ToolIcon {
     Pause,
     Resume,
     Diagnostics,
-    Events
+    Events,
+    Edit
 };
 
 struct ToolCommand {
@@ -58,6 +59,7 @@ class ToolCommandUi final {
     void UpdateCommand(HWND window, const ToolCommand& command);
     int LayoutToolbar(HWND toolbar, int width, const FluentD2DThemeContext& theme) const noexcept;
     void ApplyTheme(HWND window) noexcept;
+    void DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, int stroke, COLORREF color) const noexcept;
     std::optional<LRESULT> HandleMessage(HWND window, UINT message, WPARAM wparam, LPARAM lparam, HFONT font,
                                          const FluentD2DThemeContext& theme);
 
@@ -68,7 +70,6 @@ class ToolCommandUi final {
     };
     void Report(const char* operation, ULONG error = ERROR_SUCCESS) const noexcept;
     [[noreturn]] void Fail(const char* operation, ULONG error) const;
-    void DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, int stroke, COLORREF color) const noexcept;
     LRESULT DrawToolbar(NMCUSTOMDRAW& draw, const Toolbar& toolbar, const FluentD2DThemeContext& theme) const noexcept;
 
     ErrorSink error_sink_;

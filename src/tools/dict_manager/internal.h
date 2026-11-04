@@ -33,9 +33,11 @@ struct DictManagerWindow::Impl {
     bool updating_filters = false;
     bool updating_editor = false;
     bool editing = false;
+    bool editor_dirty = false;
     bool code_edited = false;
     bool ime_composing = false;
     int editing_row = -1;
+    int pressed_edit_row = -1;
     std::optional<DictRecord> edit_original;
 
     HWND Child(ControlId id) const noexcept { return ::GetDlgItem(hwnd, std::to_underlying(id)); }
@@ -46,9 +48,9 @@ struct DictManagerWindow::Impl {
     const wchar_t* SourceText(DictEntrySource src) const noexcept {
         switch (src) {
         case DictEntrySource::UserDict:    return Text(L"用户词库", L"User Dict");
-        case DictEntrySource::Pinned:      return Text(L"手动置顶 (^)", L"Pinned (^)");
-        case DictEntrySource::Blocked:     return Text(L"已屏蔽词 (!)", L"Blocked (!)");
-        case DictEntrySource::PhraseFreq:  return Text(L"动态词频 (QPF1)", L"Phrase Freq (QPF1)");
+        case DictEntrySource::Pinned:      return Text(L"手动置顶", L"Pinned");
+        case DictEntrySource::Blocked:     return Text(L"已屏蔽词", L"Blocked");
+        case DictEntrySource::PhraseFreq:  return Text(L"词组排序", L"Phrase Ordering");
         case DictEntrySource::PrimaryDict: return Text(L"主词库", L"Primary Dict");
         case DictEntrySource::ExtraDict:   return Text(L"扩展词库", L"Extra Dict");
         default:                           return Text(L"全部来源", L"All Sources");
@@ -94,11 +96,12 @@ struct DictManagerWindow::Impl {
     void Tick();
     void UpdateStatus();
     std::wstring Cell(const DictRecord& record, int column) const;
-    void Notify(NMHDR& header);
+    LRESULT Notify(NMHDR& header);
     std::vector<DictRecord> CollectSelectedRecords() const;
     void BeginEdit(int row, int column);
     void BeginNew();
-    void CancelEditing();
+    void CancelEditing(bool focus_list = true);
+    void UpdateEditorState();
     void PositionEditor() noexcept;
     void UpdateCommandState() noexcept;
     [[nodiscard]] const DictRecord* FindOriginal() const noexcept;

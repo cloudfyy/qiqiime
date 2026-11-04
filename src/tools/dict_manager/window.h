@@ -9,6 +9,16 @@ namespace qiqi::dict_manager {
 
 inline constexpr std::wstring_view kWindowClass = L"QiQiIMEDictManagerWindow";
 
+enum class ColumnId {
+    Edit,
+    Code,
+    Word,
+    Source,
+    Rank,
+    Action,
+    Count,
+};
+
 enum class ControlId {
     Reload = 200,
     Copy,
