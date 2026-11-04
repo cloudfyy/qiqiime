@@ -101,6 +101,10 @@ constexpr TransitionRule ComputeTransitionRule(EngineState state, KeyEventKind e
             return {TransitionOp::CommitSelectedAndUpper, true};
         case KeyEventKind::PrintableAscii:
             return {TransitionOp::CommitFullWidth, true};
+        case KeyEventKind::PinCandidate:
+            return {TransitionOp::PinDigitCandidate, true};
+        case KeyEventKind::DeleteCandidate:
+            return {TransitionOp::DeleteOrBlockCandidate, true};
         default:
             return {TransitionOp::PassThrough, false};
     }

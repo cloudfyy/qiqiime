@@ -99,7 +99,8 @@ bool DictManagerWindow::Impl::CreateControls() {
         !Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, EditCodeInput) ||
         !Add(L"BUTTON", Text(L"自动取码", L"Auto Code"), button, AutoCodeBtn) ||
         !Add(L"BUTTON", Text(L"新增/保存用户词", L"Add / Save User Word"), button, AddUpdateBtn) ||
-        !Add(L"BUTTON", Text(L"删除选中", L"Delete Selected"), button, DeleteBtn) ||
+        !Add(L"BUTTON", Text(L"固定置顶", L"Pin Top"), button, PinBtn) ||
+        !Add(L"BUTTON", Text(L"删除/屏蔽", L"Delete/Block"), button, DeleteBtn) ||
         !Add(L"BUTTON", Text(L"词频置顶", L"Promote Freq"), button, PromoteBtn) ||
         !Add(L"STATIC", L"", SS_LEFT, Status)) {
         return false;
@@ -173,13 +174,14 @@ void DictManagerWindow::Impl::Layout() noexcept {
     move(List, s(12), list_top, width - s(24), std::max(s(80), edit_bar_top - list_top - s(8)));
 
     move(EditWordLabel, s(12), edit_bar_top + s(6), s(44), s(24));
-    move(EditWordInput, s(58), edit_bar_top + s(2), s(200), s(28));
-    move(EditCodeLabel, s(270), edit_bar_top + s(6), s(44), s(24));
-    move(EditCodeInput, s(316), edit_bar_top + s(2), s(90), s(28));
-    move(AutoCodeBtn, s(416), edit_bar_top, s(96), s(32));
-    move(AddUpdateBtn, s(520), edit_bar_top, s(144), s(32));
-    move(DeleteBtn, s(672), edit_bar_top, s(104), s(32));
-    move(PromoteBtn, s(784), edit_bar_top, s(104), s(32));
+    move(EditWordInput, s(58), edit_bar_top + s(2), s(185), s(28));
+    move(EditCodeLabel, s(252), edit_bar_top + s(6), s(44), s(24));
+    move(EditCodeInput, s(298), edit_bar_top + s(2), s(84), s(28));
+    move(AutoCodeBtn, s(390), edit_bar_top, s(92), s(32));
+    move(AddUpdateBtn, s(490), edit_bar_top, s(138), s(32));
+    move(PinBtn, s(636), edit_bar_top, s(96), s(32));
+    move(DeleteBtn, s(740), edit_bar_top, s(104), s(32));
+    move(PromoteBtn, s(852), edit_bar_top, s(100), s(32));
 
     move(Status, s(12), rect.bottom - s(32), width - s(24), s(24));
 }
@@ -217,7 +219,8 @@ void DictManagerWindow::Impl::ApplyLanguage() {
              std::pair{EditCodeLabel, Text(L"编码:", L"Code:")},
              std::pair{AutoCodeBtn, Text(L"自动取码", L"Auto Code")},
              std::pair{AddUpdateBtn, Text(L"新增/保存用户词", L"Add / Save User Word")},
-             std::pair{DeleteBtn, Text(L"删除选中", L"Delete Selected")},
+             std::pair{PinBtn, Text(L"固定置顶", L"Pin Top")},
+             std::pair{DeleteBtn, Text(L"删除/屏蔽", L"Delete/Block")},
              std::pair{PromoteBtn, Text(L"词频置顶", L"Promote Freq")}}) {
         ::SetWindowTextW(Child(id), text);
     }
@@ -225,6 +228,8 @@ void DictManagerWindow::Impl::ApplyLanguage() {
     const std::array sources{
         SourceText(DictEntrySource::All),
         SourceText(DictEntrySource::UserDict),
+        SourceText(DictEntrySource::Pinned),
+        SourceText(DictEntrySource::Blocked),
         SourceText(DictEntrySource::PhraseFreq),
         SourceText(DictEntrySource::PrimaryDict),
         SourceText(DictEntrySource::ExtraDict)};
@@ -371,12 +376,16 @@ void DictManagerWindow::Impl::Tick() {
 
 void DictManagerWindow::Impl::UpdateStatus() {
     auto status = std::format(
-        L"{}: {} / {} | {}: {} | {}: {} | {}: {}",
+        L"{}: {} / {} | {}: {} | {}: {} | {}: {} | {}: {} | {}: {}",
         Text(L"当前显示", L"Visible"),
         rows.size(),
         model.Records().size(),
-        Text(L"用户词条", L"User words"),
+        Text(L"用户词", L"User"),
         model.UserEntryCount(),
+        Text(L"置顶", L"Pinned"),
+        model.PinnedEntryCount(),
+        Text(L"已屏蔽", L"Blocked"),
+        model.BlockedEntryCount(),
         Text(L"动态词频", L"Phrase freq"),
         model.PhraseFreqCount(),
         Text(L"系统词库", L"System dict"),
@@ -476,22 +485,68 @@ void DictManagerWindow::Impl::ExecuteAddOrUpdate() {
     UpdateStatus();
 }
 
+void DictManagerWindow::Impl::ExecutePinSelected() {
+    std::wstring word = ReadWindowTextString(Child(EditWordInput));
+    std::wstring code = ReadWindowTextString(Child(EditCodeInput));
+    if (const auto* selected_rec = model.FindById(selected_id)) {
+        if (selected_rec->source == DictEntrySource::Pinned) {
+            if (model.UnpinUserEntry(selected_rec->code, selected_rec->word)) {
+                last_message = Text(L"已取消固定置顶并同步", L"Unpinned entry and synchronized");
+                RebuildRows();
+                UpdateStatus();
+                return;
+            }
+        }
+        if (word.empty()) word = selected_rec->word;
+        if (code.empty()) code = selected_rec->code;
+    }
+    if (code.empty() && !word.empty()) {
+        code = model.ComputeAutoCode(word);
+        if (!code.empty()) {
+            ::SetWindowTextW(Child(EditCodeInput), code.c_str());
+        }
+    }
+    if (model.PinUserEntry(code, word)) {
+        last_message = Text(L"已固定置顶并同步", L"Pinned entry to top and synchronized");
+        RebuildRows();
+    } else {
+        last_message = Text(L"固定置顶失败（请检查五笔编码与词条）", L"Failed to pin entry");
+    }
+    UpdateStatus();
+}
+
 void DictManagerWindow::Impl::ExecuteDeleteSelected() {
     const auto selected = CollectSelectedRecords();
     if (selected.empty()) return;
-    size_t removed_count = 0;
+    size_t changed_count = 0;
     for (const auto& rec : selected) {
-        if (rec.source == DictEntrySource::UserDict) {
-            if (model.RemoveUserEntry(rec.code, rec.word)) ++removed_count;
-        } else if (rec.source == DictEntrySource::PhraseFreq) {
-            if (model.RemovePhraseFrequency(rec.code, rec.word)) ++removed_count;
+        switch (rec.source) {
+        case DictEntrySource::UserDict:
+            if (model.RemoveUserEntry(rec.code, rec.word)) ++changed_count;
+            break;
+        case DictEntrySource::Pinned:
+            if (model.UnpinUserEntry(rec.code, rec.word)) ++changed_count;
+            break;
+        case DictEntrySource::Blocked:
+            if (model.UnblockSystemEntry(rec.code, rec.word)) ++changed_count;
+            break;
+        case DictEntrySource::PhraseFreq:
+            if (model.RemovePhraseFrequency(rec.code, rec.word)) ++changed_count;
+            break;
+        case DictEntrySource::PrimaryDict:
+        case DictEntrySource::ExtraDict:
+            if (model.BlockSystemEntry(rec.code, rec.word)) ++changed_count;
+            break;
+        default:
+            break;
         }
     }
-    if (removed_count > 0) {
-        last_message = std::format(L"{}: {}", Text(L"已删除并同步记录数", L"Deleted & synced records"), removed_count);
+    if (changed_count > 0) {
+        last_message = std::format(
+            L"{}: {}",
+            Text(L"已处理（删除/屏蔽/恢复）记录数", L"Processed (deleted/blocked/restored) records"),
+            changed_count);
         RebuildRows();
-    } else {
-        last_message = Text(L"仅用户词库与动态词频支持删除", L"Only user dictionary and phrase frequency entries can be deleted");
     }
     UpdateStatus();
 }
@@ -541,23 +596,24 @@ void DictManagerWindow::Impl::ShowListContextMenu(POINT screen_pt) {
     if (!menu) return;
     const auto selected = CollectSelectedRecords();
     const bool has_sel = !selected.empty();
-    const bool can_delete = has_sel &&
-        (selected.front().source == DictEntrySource::UserDict || selected.front().source == DictEntrySource::PhraseFreq);
     ::AppendMenuW(menu.Get(), MF_STRING | (has_sel ? MF_ENABLED : MF_GRAYED), 1,
         Text(L"复制选中词条\tCtrl+C", L"Copy selected entries\tCtrl+C"));
     ::AppendMenuW(menu.Get(), MF_STRING | (!rows.empty() ? MF_ENABLED : MF_GRAYED), 2,
         Text(L"全选\tCtrl+A", L"Select all\tCtrl+A"));
     ::AppendMenuW(menu.Get(), MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu.Get(), MF_STRING | (has_sel ? MF_ENABLED : MF_GRAYED), 3,
-        Text(L"将选中词组置顶词频", L"Promote phrase frequency"));
-    ::AppendMenuW(menu.Get(), MF_STRING | (can_delete ? MF_ENABLED : MF_GRAYED), 4,
-        Text(L"删除选中项\tDel", L"Delete selected\tDel"));
+        Text(L"固定置顶 / 取消置顶", L"Pin to top / Unpin"));
+    ::AppendMenuW(menu.Get(), MF_STRING | (has_sel ? MF_ENABLED : MF_GRAYED), 4,
+        Text(L"将选中词组置顶动态词频", L"Promote phrase frequency"));
+    ::AppendMenuW(menu.Get(), MF_STRING | (has_sel ? MF_ENABLED : MF_GRAYED), 5,
+        Text(L"删除用户词 / 屏蔽系统词 / 恢复已屏蔽词\tDel", L"Delete / Block / Restore selected\tDel"));
     const BOOL cmd = ::TrackPopupMenu(
         menu.Get(), TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, screen_pt.x, screen_pt.y, 0, hwnd, nullptr);
     if (cmd == 1) CopySelection();
     else if (cmd == 2) SelectAllRows();
-    else if (cmd == 3) ExecutePromoteSelected();
-    else if (cmd == 4) ExecuteDeleteSelected();
+    else if (cmd == 3) ExecutePinSelected();
+    else if (cmd == 4) ExecutePromoteSelected();
+    else if (cmd == 5) ExecuteDeleteSelected();
 }
 
 void DictManagerWindow::Impl::ImportUserDictDialog() {
@@ -653,6 +709,9 @@ void DictManagerWindow::Impl::Command(int id, int notification) {
         break;
     case AddUpdateBtn:
         ExecuteAddOrUpdate();
+        break;
+    case PinBtn:
+        ExecutePinSelected();
         break;
     case DeleteBtn:
         ExecuteDeleteSelected();

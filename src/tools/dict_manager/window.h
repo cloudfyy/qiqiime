@@ -31,6 +31,7 @@ enum class ControlId {
     EditCodeInput,
     AutoCodeBtn,
     AddUpdateBtn,
+    PinBtn,
     DeleteBtn,
     PromoteBtn,
     Status,

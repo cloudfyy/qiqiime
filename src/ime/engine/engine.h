@@ -57,6 +57,10 @@ public:
     void AddEntry(std::wstring_view code, std::wstring_view word);
     bool RemoveEntry(std::wstring_view code, std::wstring_view word);
     bool ModifyEntry(std::wstring_view code, std::wstring_view old_word, std::wstring_view new_word);
+    void PinEntry(std::wstring_view code, std::wstring_view word);
+    bool UnpinEntry(std::wstring_view code, std::wstring_view word);
+    void BlockEntry(std::wstring_view code, std::wstring_view word);
+    bool UnblockEntry(std::wstring_view code, std::wstring_view word);
 
     // Find the longest Wubi 86 code registered for a single character/word across active dictionaries.
     std::wstring LookupCharacterCode(std::wstring_view ch) const;
@@ -88,6 +92,26 @@ public:
         std::wstring_view old_word,
         std::wstring_view new_word,
         const std::filesystem::path& user_dict_path = {});
+    bool PinUserEntry(
+        std::wstring_view code,
+        std::wstring_view word,
+        const std::filesystem::path& user_dict_path = {});
+    bool UnpinUserEntry(
+        std::wstring_view code,
+        std::wstring_view word,
+        const std::filesystem::path& user_dict_path = {});
+    bool BlockSystemEntry(
+        std::wstring_view code,
+        std::wstring_view word,
+        const std::filesystem::path& user_dict_path = {});
+    bool UnblockSystemEntry(
+        std::wstring_view code,
+        std::wstring_view word,
+        const std::filesystem::path& user_dict_path = {});
+    bool DeleteOrBlockUserOrSystemEntry(
+        std::wstring_view code,
+        std::wstring_view word,
+        const std::filesystem::path& user_dict_path = {});
 
     // Persist and restore dynamic phrase frequency promotions (binary QPF1 or legacy UTF-8 text).
     void SetPhraseFreqPath(std::filesystem::path path) noexcept {
@@ -109,6 +133,8 @@ public:
         const std::filesystem::path& file_path = {});
     bool ClearPhraseFrequencies(const std::filesystem::path& file_path = {});
     const std::map<uint32_t, std::vector<std::wstring>>& UserDictionaryEntries() const noexcept { return dict_; }
+    const std::map<uint32_t, std::vector<std::wstring>>& PinnedEntries() const noexcept { return pinned_entries_; }
+    const std::map<uint32_t, std::vector<std::wstring>>& BlockedEntries() const noexcept { return removed_entries_; }
     const std::map<uint32_t, std::vector<std::wstring>>& PromotedPhrases() const noexcept { return promoted_phrases_; }
 
     // Synchronize cross-process dictionary and phrase-frequency changes at a safe input boundary.
@@ -254,6 +280,8 @@ private:
     TransitionOutcome HandlePopTempEnglish(const KeyInputContext& ctx);
     TransitionOutcome HandleCommitTempEnglish(const KeyInputContext& ctx);
     TransitionOutcome HandleCommitFullWidth(const KeyInputContext& ctx);
+    TransitionOutcome HandlePinDigitCandidate(const KeyInputContext& ctx);
+    TransitionOutcome HandleDeleteOrBlockCandidate(const KeyInputContext& ctx);
 
     bool IsEntryRemoved(uint32_t packed_code, std::wstring_view word) const;
     bool CheckAndPublishExternalUserDictChanges(const std::filesystem::path& dict_path);
@@ -268,6 +296,7 @@ private:
         MemoryMutator mutate_memory);
 
     std::map<uint32_t, std::vector<std::wstring>> dict_;
+    std::map<uint32_t, std::vector<std::wstring>> pinned_entries_;
     std::map<uint32_t, std::vector<std::wstring>> removed_entries_;
     std::map<uint32_t, std::vector<std::wstring>> promoted_phrases_;
     std::filesystem::path user_dict_path_;

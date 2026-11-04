@@ -36,7 +36,7 @@
 1. **无 COM 依赖即可测试**：`qiqi_engine_test.exe` 可以直接验证所有按键与五笔上屏规则，无需先通过 `regsvr32` 注入宿主进程。
 2. **宿主安全**：输入法 DLL 会被注入到资源管理器、浏览器、Office 等进程中，引擎层保持纯内存/只读映射计算，避免阻塞宿主 UI 线程。
 
-源码按 [`src/common`](../src/common)、[`src/ime`](../src/ime)、[`src/tools/settings`](../src/tools/settings)、[`src/tools/log_monitor`](../src/tools/log_monitor) 分层，测试采用对应布局。公共 D2D 控件与关于窗口由 `qiqi_common` 统一编译；设置窗口由 `qiqi_settings_ui` 统一编译，供独立设置程序和 IME 的进程内设置回退路径复用。每个模块及对应测试目录均有自己的 `CMakeLists.txt`，顶层文件只负责组织，新增工具使用独立的 `tools/<工具名>` 子目录。
+源码按 [`src/common`](../src/common)、[`src/ime`](../src/ime)、[`src/tools/settings`](../src/tools/settings)、[`src/tools/log_monitor`](../src/tools/log_monitor)、[`src/tools/dict_manager`](../src/tools/dict_manager) 分层，测试采用对应布局。公共 D2D 控件、工具窗口辅助（`tool_window.h`）与关于窗口由 `qiqi_common` 统一编译；设置窗口由 `qiqi_settings_ui` 统一编译，供独立设置程序和 IME 的进程内设置回退路径复用。每个模块及对应测试目录均有自己的 `CMakeLists.txt`，顶层文件只负责组织，新增工具使用独立的 `tools/<工具名>` 子目录。
 
 ---
 
@@ -65,9 +65,9 @@ TSF 的按键处理分为两步：
 1. `OnTestKeyDown`：仅询问输入法**是否打算消费该按键**。当前 context 使用 `engine_.ShouldEatKey(...)`；不同 context 使用只读的 `ShouldEatKeyAfterReset(...)`，按实际目标切换后将采用的状态预测，不把旧组合的选词/退格语义带到新输入框。空 context、未激活或重入生命周期转换不消费。预判不绑定 context、不清理宿主组合、不申请编辑会话，也不推进 FSM；原有 Shift 轻触跟踪独立保留。
 2. `OnKeyDown`：Shift 与 `OnTestKeyDown` 共用轻触跟踪，不吞按下事件、不绑定上下文；宿主省略测试回调时仍可建立候选，同时收到两个回调时保留原始计时。其他按键先取消 Shift 候选，再通过 `PrepareInputContext` 准备目标、必要时重置旧引擎并失效旧周期，再推进 `WubiEngine` 的静态分派与运行时有限状态机（[`ime/fsm/fsm.h`](../src/ime/fsm/fsm.h) 为聚合入口；状态/事件定义、按键映射、分派规则和分页辅助分别位于同目录的 `types.h`、`key_mapping.h`、`transitions.h`、`pagination.h`），得到 `KeyProcessResult`（`UpdateState` / `Commit` / `Cancel`），触发音效（若启用了按键音或空码提示音），然后通过 `ITfContext::RequestEditSession` 提交 `LambdaEditSession`。预判成功不保证编辑权限，实际回调仍复核状态。
 
-编译期生成的 7 状态 × 16 按键事件表只选择 `TransitionOp` 和吞键策略，不包含预设目标状态。运行时处理器根据词库和配置返回 `TransitionOutcome { next_state, result }`，公共执行入口统一应用最终状态；处理器只修改组合数据，不直接赋值 `state_` 或调用生命周期 `Reset`。四码唯一上屏、空码清除、五码顶字开关及无效选词等分支显式返回真实终态，不额外查词预测终态。若执行异常，RAII 清理复位组合、记录错误并继续传播原异常。`ShouldEatKey` / `ShouldEatKeyAfterReset` 仍只读分类和静态分派，不查词、不执行状态转移；引擎完成不等于宿主编辑会话已完成。
+编译期生成的 7 状态 × 18 按键事件表只选择 `TransitionOp` 和吞键策略，不包含预设目标状态。运行时处理器根据词库和配置返回 `TransitionOutcome { next_state, result }`，公共执行入口统一应用最终状态；处理器只修改组合数据，不直接赋值 `state_` 或调用生命周期 `Reset`。四码唯一上屏、空码清除、五码顶字开关及无效选词等分支显式返回真实终态，不额外查词预测终态。若执行异常，RAII 清理复位组合、记录错误并继续传播原异常。`ShouldEatKey` / `ShouldEatKeyAfterReset` 仍只读分类和静态分派，不查词、不执行状态转移；引擎完成不等于宿主编辑会话已完成。
 
-上下文切换、失焦、移除和停用是 FSM 外部的生命周期事件，不加入现有 7 状态 × 16 按键事件表。`Reset` 与只读预判共用 `StateAfterCompositionReset`：中文组合态（含临时英文）回到 `Idle`，`English` 保持不变；全半角及标点模式不被目标切换改写。旧宿主组合的同步/异步清理独立于新目标的引擎状态，不能用“仍有待清理宿主组合”推断 FSM 仍在组合态。
+上下文切换、失焦、移除和停用是 FSM 外部的生命周期事件，不加入现有 7 状态 × 18 按键事件表。`Reset` 与只读预判共用 `StateAfterCompositionReset`：中文组合态（含临时英文）回到 `Idle`，`English` 保持不变；全半角及标点模式不被目标切换改写。旧宿主组合的同步/异步清理独立于新目标的引擎状态，不能用“仍有待清理宿主组合”推断 FSM 仍在组合态。
 
 候选鼠标点击直接调用 `WubiEngine::CommitCandidate(index_in_page)`，不模拟数字按键；普通五笔的数字选词复用同一内部提交处理器，两条路径都只经公共执行入口应用一次最终状态，并保留动态词频调整。临时英文模式下，键盘数字仍追加到正文，点击候选则提交去掉引导 `z` 的正文（只有引导时提交 `z`），不追加候选序号，也不参与五笔词频调整。
 
@@ -365,8 +365,8 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
     - 跨进程写入前先同步远端未应用增量再发布 `Operation::Reorder` 并更新快照，避免旧实例覆盖其他实例的新调序记录。
     - 已验证普通应用之间、跨架构进程之间及普通应用到真实 AppContainer 子进程的词库与词频增量/快照同步。
 - [x] **18. 图形化词库管理（`dictionary-management-ui`）**：已实现独立词库与词频管理工具 [`QiQiIMEDictManager`](../src/tools/dict_manager/CMakeLists.txt)，并支持从 `QiQiIMESettings` 一键启动；复用现有 `common`（Fluent D2D 主题、DPI、多语言、关于弹窗、ETW 结构化日志）与 `qiqi_engine`（用户词表、五笔 86 自动取码、`QPF1` 动态词频），提供词条搜索/编码反查、新增、编码/词条编辑、删除、动态词频置顶/清空、批量导入导出与分类词库筛选，所有变更通过 `change_sync` 实时同步到本机输入法实例。
-- [ ] **19. 候选词手动调序（`manual-candidate-order`）**：支持将指定候选词置顶、调整顺序并持久化（遵循跨进程写入协调与变更通知机制），与现有可选动态调频明确区分；默认继续保持固定词序。
-- [ ] **20. 候选词删除与屏蔽（`candidate-delete-blocklist`）**：提供候选操作及快捷键，区分删除用户词与屏蔽系统词，支持恢复屏蔽词和批量删除。
+- [x] **19. 候选词手动调序（`manual-candidate-order`）**：支持在组合输入态按 `Ctrl+1..9` 将对应候选词固定置顶（或在 `QiQiIMEDictManager` 中一键固定置顶/取消置顶），以 `^词条` 规则持久化于 `user_dict.txt` 并通过 `change_sync` 跨进程增量同步；手动置顶词始终排在同码候选首位，与可选动态调频（`QPF1`）明确区分且互不覆盖，默认继续保持固定词序。
+- [x] **20. 候选词删除与屏蔽（`candidate-delete-blocklist`）**：支持在组合输入态按 `Ctrl+Delete`（针对当前选中候选）或 `Ctrl+Shift+1..9`（针对指定序号候选）执行快捷删除/屏蔽：自动区分删除用户词与屏蔽系统词（以 `!词条` 持久化于 `user_dict.txt` 且不编译入正向 `.qdict` 词表），并在 `QiQiIMEDictManager` 中支持筛选查看「已屏蔽词 (!)」与批量恢复/删除。
 - [ ] **21. 本地备份与恢复（`local-config-dictionary-backup`）**：提供配置、用户词库、词频和屏蔽记录的一键导出、导入及恢复，导入前校验并明确处理冲突。
 
 #### P1：拼音辅助与汉字筛选

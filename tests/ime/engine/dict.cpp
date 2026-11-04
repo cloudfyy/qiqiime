@@ -673,6 +673,70 @@ void TestCrossProcessDictAndPhraseFreqSync() {
     QIQI_TEST_CHECK(writer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
     QIQI_TEST_CHECK(writer.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
     QIQI_TEST_CHECK(!writer.LoadPhraseFrequencies(freq_file));
+
+    // 6. Manual candidate pinning (^word), system word blocklist (!word), and composing hotkeys (Ctrl+1..9 / Ctrl+Delete / Ctrl+Shift+1..9)
+    WubiEngine pin_writer;
+    WubiEngine pin_reader;
+    pin_writer.SetUserDictPath(user_dict);
+    pin_reader.SetUserDictPath(user_dict);
+    pin_writer.SetPhraseFreqPath(freq_file);
+    pin_reader.SetPhraseFreqPath(freq_file);
+    pin_writer.SetAutoCommit4Code(false);
+    pin_writer.SetDynamicPhraseFreq(true);
+    pin_reader.SetDynamicPhraseFreq(true);
+
+    QIQI_TEST_CHECK(pin_writer.AddUserEntry(L"abcd", L"普通词一"));
+    QIQI_TEST_CHECK(pin_writer.AddUserEntry(L"abcd", L"普通词二"));
+    QIQI_TEST_CHECK(pin_writer.AddUserEntry(L"abcd", L"置顶候选"));
+    // Enter composing for "abcd" and press Ctrl+'3' to pin the 3rd candidate ("置顶候选") to top
+    for (const uint32_t vk : {'A', 'B', 'C', 'D'}) pin_writer.ProcessKey(vk);
+    QIQI_TEST_CHECK(pin_writer.ShouldEatKey('3', false, true, false));
+    const auto pin_res = pin_writer.ProcessKey('3', false, true, false);
+    QIQI_TEST_CHECK(pin_res.action == KeyActionType::UpdateState &&
+                    !pin_res.page_candidates.empty() &&
+                    pin_res.page_candidates.front() == L"置顶候选");
+    pin_writer.Reset();
+
+    // Even when dynamic phrase frequency promotes "普通词二", manually pinned "置顶候选" stays at index 0!
+    QIQI_TEST_CHECK(pin_writer.PromoteUserPhraseFrequency(L"abcd", L"普通词二", freq_file));
+    const auto after_pin = pin_writer.LookupExact(L"abcd");
+    QIQI_TEST_CHECK(after_pin.size() == 3 &&
+                    gsl::at(after_pin, 0) == L"置顶候选" &&
+                    gsl::at(after_pin, 1) == L"普通词二");
+
+    // Verify peer instance receives ^word pin via incremental sync and compiled .qdict excludes !blocked words
+    QIQI_TEST_CHECK(pin_reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(pin_reader.LookupExact(L"abcd").front() == L"置顶候选");
+
+    // Unpin restores order prior to manual pin (where "普通词二" was promoted by dynamic phrase freq)
+    QIQI_TEST_CHECK(pin_writer.UnpinUserEntry(L"abcd", L"置顶候选"));
+    QIQI_TEST_CHECK(pin_reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(pin_reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(pin_reader.LookupExact(L"abcd").front() == L"普通词二");
+    pin_writer.SetDynamicPhraseFreq(false);
+    pin_reader.SetDynamicPhraseFreq(false);
+    QIQI_TEST_CHECK(pin_writer.LookupExact(L"abcd").front() == L"普通词一");
+    QIQI_TEST_CHECK(pin_reader.LookupExact(L"abcd").front() == L"普通词一");
+
+    // Composing Ctrl+Shift+'2' deletes 2nd candidate ("普通词二"), and Ctrl+Delete on builtin "aaaa" ("工") blocks it
+    for (const uint32_t vk : {'A', 'B', 'C', 'D'}) pin_writer.ProcessKey(vk);
+    QIQI_TEST_CHECK(pin_writer.ShouldEatKey('2', true, true, false));
+    std::ignore = pin_writer.ProcessKey('2', true, true, false);
+    pin_writer.Reset();
+    QIQI_TEST_CHECK(pin_writer.LookupExact(L"abcd").size() == 2);
+
+    pin_writer.ProcessKey('A');
+    QIQI_TEST_CHECK(pin_writer.ShouldEatKey(VK_DELETE, false, true, false));
+    std::ignore = pin_writer.ProcessKey(VK_DELETE, false, true, false);
+    pin_writer.Reset();
+    QIQI_TEST_CHECK(pin_writer.LookupExact(L"a").empty());
+    QIQI_TEST_CHECK(pin_reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(pin_reader.LookupExact(L"a").empty());
+
+    // Unblock restores builtin "工" for code "a"
+    QIQI_TEST_CHECK(pin_writer.UnblockSystemEntry(L"a", L"工"));
+    QIQI_TEST_CHECK(pin_reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(!pin_reader.LookupExact(L"a").empty() && pin_reader.LookupExact(L"a").front() == L"工");
 }
 
 } // namespace

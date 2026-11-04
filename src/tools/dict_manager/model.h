@@ -12,9 +12,11 @@ namespace qiqi::dict_manager {
 enum class DictEntrySource : uint8_t {
     All = 0,
     UserDict = 1,
-    PhraseFreq = 2,
-    PrimaryDict = 3,
-    ExtraDict = 4,
+    Pinned = 2,
+    Blocked = 3,
+    PhraseFreq = 4,
+    PrimaryDict = 5,
+    ExtraDict = 6,
 };
 
 struct DictRecord {
@@ -54,16 +56,23 @@ public:
     const DictRecord* FindById(uint64_t id) const noexcept;
 
     size_t UserEntryCount() const noexcept { return user_entry_count_; }
+    size_t PinnedEntryCount() const noexcept { return pinned_entry_count_; }
+    size_t BlockedEntryCount() const noexcept { return blocked_entry_count_; }
     size_t PhraseFreqCount() const noexcept { return phrase_freq_count_; }
     size_t SystemEntryCount() const noexcept { return system_entry_count_; }
 
     // Auto-compute Wubi 86 4-letter code for a character or phrase.
     std::wstring ComputeAutoCode(std::wstring_view word) const;
 
-    // User dictionary operations (coordinated via change_sync)
+    // User dictionary, manual pinning, and blocklist operations (coordinated via change_sync)
     bool AddOrUpdateUserEntry(std::wstring_view code, std::wstring_view word);
     bool ModifyUserEntry(std::wstring_view code, std::wstring_view old_word, std::wstring_view new_word);
     bool RemoveUserEntry(std::wstring_view code, std::wstring_view word);
+    bool PinUserEntry(std::wstring_view code, std::wstring_view word);
+    bool UnpinUserEntry(std::wstring_view code, std::wstring_view word);
+    bool BlockSystemEntry(std::wstring_view code, std::wstring_view word);
+    bool UnblockSystemEntry(std::wstring_view code, std::wstring_view word);
+    bool DeleteOrBlockEntry(std::wstring_view code, std::wstring_view word);
 
     // Dynamic phrase frequency operations (coordinated via change_sync)
     bool PromotePhraseFrequency(std::wstring_view code, std::wstring_view word);
@@ -87,6 +96,8 @@ private:
     std::shared_ptr<const WubiMappedDict> extra_dict_;
     std::vector<DictRecord> records_;
     size_t user_entry_count_ = 0;
+    size_t pinned_entry_count_ = 0;
+    size_t blocked_entry_count_ = 0;
     size_t phrase_freq_count_ = 0;
     size_t system_entry_count_ = 0;
 };

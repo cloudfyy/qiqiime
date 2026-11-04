@@ -214,40 +214,64 @@ void WubiMappedDict::InvalidateProcessCacheForPath(const std::filesystem::path& 
 
 void WubiMappedDict::ParseTextDictEntries(
     std::wstring_view wide_content,
-    std::map<uint32_t, std::vector<std::wstring>>& out_entries) {
+    std::map<uint32_t, std::vector<std::wstring>>& out_entries,
+    bool preserve_rule_markers) {
     out_entries.clear();
     std::wstring_view content_view(wide_content);
     bool in_yaml_header = false;
 
     while (!content_view.empty()) {
-        const size_t nl = content_view.find(L'\n');
-        std::wstring_view line = (nl == std::wstring_view::npos)
-            ? content_view
-            : content_view.substr(0, nl);
-        content_view.remove_prefix(nl == std::wstring_view::npos ? content_view.size() : nl + 1);
+    const size_t nl = content_view.find(L'\n');
+    std::wstring_view line = (nl == std::wstring_view::npos)
+        ? content_view
+        : content_view.substr(0, nl);
+    content_view.remove_prefix(nl == std::wstring_view::npos ? content_view.size() : nl + 1);
 
-        const std::wstring_view first = NextToken(line);
-        if (first.empty() || first.starts_with(L'#')) {
-            continue;
+    const std::wstring_view first = NextToken(line);
+    if (first.empty() || first.starts_with(L'#')) {
+        continue;
+    }
+    if (first == L"---") {
+        in_yaml_header = true;
+        continue;
+    }
+    if (in_yaml_header) {
+        if (first == L"...") {
+            in_yaml_header = false;
         }
-        if (first == L"---") {
-            in_yaml_header = true;
-            continue;
-        }
-        if (in_yaml_header) {
-            if (first == L"...") {
-                in_yaml_header = false;
-            }
-            continue;
-        }
+        continue;
+    }
 
-        auto add_to_group = [&out_entries](std::wstring_view code_tok, std::wstring_view word_tok) {
-            const uint32_t packed = PackWubiCode(code_tok);
-            if (packed == 0 || word_tok.empty()) {
+    auto add_to_group = [&out_entries, preserve_rule_markers](
+                            std::wstring_view code_tok, std::wstring_view word_tok) {
+        const uint32_t packed = PackWubiCode(code_tok);
+        if (packed == 0 || word_tok.empty()) {
+            return;
+        }
+        if (preserve_rule_markers) {
+            if ((word_tok == L"^") || (word_tok == L"!")) {
                 return;
             }
             AppendUniqueWord(out_entries[packed], word_tok);
-        };
+            return;
+        }
+        // Skip blocklist markers ("!word") when building positive binary lookup tables (.qdict).
+        if (word_tok.starts_with(L'!')) {
+            return;
+        }
+        // Strip manual pin prefix ("^word") and place pinned words ahead of normal words for the code.
+        if (word_tok.starts_with(L'^')) {
+            word_tok.remove_prefix(1);
+            if (word_tok.empty()) {
+                return;
+            }
+            auto& list = out_entries[packed];
+            std::erase(list, word_tok);
+            list.insert(list.begin(), std::wstring(word_tok));
+            return;
+        }
+        AppendUniqueWord(out_entries[packed], word_tok);
+    };
 
         if (IsWubiCodeToken(first)) {
             for (std::wstring_view word = NextToken(line); !word.empty(); word = NextToken(line)) {

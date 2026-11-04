@@ -423,6 +423,43 @@ WubiEngine::TransitionOutcome WubiEngine::HandleCommitFullWidth(const KeyInputCo
     return {state_, {}};
 }
 
+WubiEngine::TransitionOutcome WubiEngine::HandlePinDigitCandidate(const KeyInputContext& ctx) {
+    if (!IsWubiComposingState(state_) || raw_code_.find(L'z') != std::wstring::npos) {
+        return {state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
+    }
+    const auto idx_opt = ResolveDigitKeyIndex(ctx.vk);
+    const auto page = CurrentPageCandidates();
+    if (idx_opt.has_value() && *idx_opt < page.size()) {
+        const std::wstring target = gsl::at(page, *idx_opt);
+        if (PinUserEntry(raw_code_, target)) {
+            RefreshCandidates();
+        }
+    }
+    return {state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
+}
+
+WubiEngine::TransitionOutcome WubiEngine::HandleDeleteOrBlockCandidate(const KeyInputContext& ctx) {
+    if (!IsWubiComposingState(state_) || raw_code_.find(L'z') != std::wstring::npos) {
+        return {state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
+    }
+    const auto page = CurrentPageCandidates();
+    std::optional<size_t> target_idx;
+    if (ctx.vk == VK_DELETE) {
+        if (!page.empty()) {
+            target_idx = std::min(selected_in_page_, page.size() - 1);
+        }
+    } else {
+        target_idx = ResolveDigitKeyIndex(ctx.vk);
+    }
+    if (target_idx.has_value() && *target_idx < page.size()) {
+        const std::wstring target = gsl::at(page, *target_idx);
+        if (DeleteOrBlockUserOrSystemEntry(raw_code_, target)) {
+            RefreshCandidates();
+        }
+    }
+    return {state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
+}
+
 template <typename Fn>
 consteval bool AllActionHandlersBound(std::span<const Fn> handlers) noexcept {
     for (const auto fn : handlers) {
@@ -458,7 +495,9 @@ KeyProcessResult WubiEngine::ProcessKey(
         &WubiEngine::HandleAppendTempEnglish,     // 17: AppendTempEnglish
         &WubiEngine::HandlePopTempEnglish,        // 18: PopTempEnglish
         &WubiEngine::HandleCommitTempEnglish,     // 19: CommitTempEnglish
-        &WubiEngine::HandleCommitFullWidth        // 20: CommitFullWidth
+        &WubiEngine::HandleCommitFullWidth,       // 20: CommitFullWidth
+        &WubiEngine::HandlePinDigitCandidate,     // 21: PinDigitCandidate
+        &WubiEngine::HandleDeleteOrBlockCandidate // 22: DeleteOrBlockCandidate
     };
     static_assert(AllActionHandlersBound(std::span<const ActionHandler>(kActionHandlers)));
 

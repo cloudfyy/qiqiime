@@ -144,7 +144,7 @@ bool ReadDictEntriesFromFile(
     if (!ReadFileToUtf8String(file_path, raw_utf8)) {
         return false;
     }
-    WubiMappedDict::ParseTextDictEntries(Utf8ToWide(StripUtf8Bom(raw_utf8)), out_entries);
+    WubiMappedDict::ParseTextDictEntries(Utf8ToWide(StripUtf8Bom(raw_utf8)), out_entries, true);
     if (out_raw_utf8) {
         *out_raw_utf8 = std::move(raw_utf8);
     }
@@ -353,6 +353,16 @@ void WubiEngine::AddEntry(std::wstring_view code, std::wstring_view word) {
     if (word.empty()) {
         return;
     }
+    if (word.starts_with(L'^')) {
+        word.remove_prefix(1);
+        PinEntry(code, word);
+        return;
+    }
+    if (word.starts_with(L'!')) {
+        word.remove_prefix(1);
+        BlockEntry(code, word);
+        return;
+    }
     const uint32_t packed = PackWubiCode(code);
     if (packed == 0) {
         return;
@@ -365,13 +375,72 @@ bool WubiEngine::RemoveEntry(std::wstring_view code, std::wstring_view word) {
     if (word.empty()) {
         return false;
     }
+    if (word.starts_with(L'^')) {
+        word.remove_prefix(1);
+        return UnpinEntry(code, word);
+    }
+    if (word.starts_with(L'!')) {
+        word.remove_prefix(1);
+        return UnblockEntry(code, word);
+    }
     const uint32_t packed = PackWubiCode(code);
     if (packed == 0) {
         return false;
     }
     EraseWordFromCodeMap(dict_, packed, word);
+    EraseWordFromCodeMap(pinned_entries_, packed, word);
+    EraseWordFromCodeMap(promoted_phrases_, packed, word);
     AppendUniqueWord(removed_entries_[packed], word);
     return true;
+}
+
+void WubiEngine::PinEntry(std::wstring_view code, std::wstring_view word) {
+    if (word.empty()) {
+        return;
+    }
+    const uint32_t packed = PackWubiCode(code);
+    if (packed == 0) {
+        return;
+    }
+    EraseWordFromCodeMap(removed_entries_, packed, word);
+    auto& list = pinned_entries_[packed];
+    std::erase(list, word);
+    list.insert(list.begin(), std::wstring(word));
+    AppendUniqueWord(dict_[packed], word);
+}
+
+bool WubiEngine::UnpinEntry(std::wstring_view code, std::wstring_view word) {
+    const uint32_t packed = PackWubiCode(code);
+    if (packed == 0 || word.empty()) {
+        return false;
+    }
+    const bool removed = EraseWordFromCodeMap(pinned_entries_, packed, word);
+    if (removed) {
+        AppendUniqueWord(dict_[packed], word);
+    }
+    return removed;
+}
+
+void WubiEngine::BlockEntry(std::wstring_view code, std::wstring_view word) {
+    if (word.empty()) {
+        return;
+    }
+    const uint32_t packed = PackWubiCode(code);
+    if (packed == 0) {
+        return;
+    }
+    EraseWordFromCodeMap(dict_, packed, word);
+    EraseWordFromCodeMap(pinned_entries_, packed, word);
+    EraseWordFromCodeMap(promoted_phrases_, packed, word);
+    AppendUniqueWord(removed_entries_[packed], word);
+}
+
+bool WubiEngine::UnblockEntry(std::wstring_view code, std::wstring_view word) {
+    const uint32_t packed = PackWubiCode(code);
+    if (packed == 0 || word.empty()) {
+        return false;
+    }
+    return EraseWordFromCodeMap(removed_entries_, packed, word);
 }
 
 bool WubiEngine::ModifyEntry(std::wstring_view code, std::wstring_view old_word, std::wstring_view new_word) {
@@ -603,6 +672,135 @@ bool WubiEngine::ModifyUserEntry(
         [this, code, old_word, new_word]() { std::ignore = ModifyEntry(code, old_word, new_word); });
 }
 
+bool WubiEngine::PinUserEntry(
+    std::wstring_view code,
+    std::wstring_view word,
+    const std::filesystem::path& user_dict_path) {
+    if (word.empty()) {
+        return false;
+    }
+    const std::wstring pinned_token = L"^" + std::wstring(word);
+    return MutateUserDictionaryEntry(
+        code,
+        pinned_token,
+        {},
+        sync::Operation::Add,
+        user_dict_path,
+        [word, pinned_token](std::map<uint32_t, std::vector<std::wstring>>& file_entries, uint32_t packed) {
+            EraseWordFromCodeMap(file_entries, packed, L"!" + std::wstring(word));
+            EraseWordFromCodeMap(file_entries, packed, pinned_token);
+            auto& list = file_entries[packed];
+            list.insert(list.begin(), pinned_token);
+        },
+        [this, code, word]() { PinEntry(code, word); });
+}
+
+bool WubiEngine::UnpinUserEntry(
+    std::wstring_view code,
+    std::wstring_view word,
+    const std::filesystem::path& user_dict_path) {
+    if (word.empty()) {
+        return false;
+    }
+    const std::wstring pinned_token = L"^" + std::wstring(word);
+    return MutateUserDictionaryEntry(
+        code,
+        pinned_token,
+        {},
+        sync::Operation::Remove,
+        user_dict_path,
+        [word, pinned_token](std::map<uint32_t, std::vector<std::wstring>>& file_entries, uint32_t packed) {
+            if (EraseWordFromCodeMap(file_entries, packed, pinned_token) &&
+                std::find(file_entries[packed].begin(), file_entries[packed].end(), word) == file_entries[packed].end()) {
+                file_entries[packed].push_back(std::wstring(word));
+            }
+        },
+        [this, code, word]() { std::ignore = UnpinEntry(code, word); });
+}
+
+bool WubiEngine::BlockSystemEntry(
+    std::wstring_view code,
+    std::wstring_view word,
+    const std::filesystem::path& user_dict_path) {
+    if (word.empty()) {
+        return false;
+    }
+    const std::wstring block_token = L"!" + std::wstring(word);
+    return MutateUserDictionaryEntry(
+        code,
+        block_token,
+        {},
+        sync::Operation::Add,
+        user_dict_path,
+        [word, block_token](std::map<uint32_t, std::vector<std::wstring>>& file_entries, uint32_t packed) {
+            EraseWordFromCodeMap(file_entries, packed, word);
+            EraseWordFromCodeMap(file_entries, packed, L"^" + std::wstring(word));
+            AppendUniqueWord(file_entries[packed], block_token);
+        },
+        [this, code, word]() { BlockEntry(code, word); });
+}
+
+bool WubiEngine::UnblockSystemEntry(
+    std::wstring_view code,
+    std::wstring_view word,
+    const std::filesystem::path& user_dict_path) {
+    if (word.empty()) {
+        return false;
+    }
+    const std::wstring block_token = L"!" + std::wstring(word);
+    return MutateUserDictionaryEntry(
+        code,
+        block_token,
+        {},
+        sync::Operation::Remove,
+        user_dict_path,
+        [block_token](std::map<uint32_t, std::vector<std::wstring>>& file_entries, uint32_t packed) {
+            EraseWordFromCodeMap(file_entries, packed, block_token);
+        },
+        [this, code, word]() { std::ignore = UnblockEntry(code, word); });
+}
+
+bool WubiEngine::DeleteOrBlockUserOrSystemEntry(
+    std::wstring_view code,
+    std::wstring_view word,
+    const std::filesystem::path& user_dict_path) {
+    const uint32_t packed = PackWubiCode(code);
+    if (packed == 0 || word.empty()) {
+        return false;
+    }
+    // Check if the word is also present in any system/builtin dictionary for this code.
+    bool in_system = false;
+    for (const auto& entry : kSortedBuiltinWubi86Dict) {
+        if (entry.packed_code == packed && entry.word == word) {
+            in_system = true;
+            break;
+        }
+    }
+    if (!in_system) {
+        const std::filesystem::path target_path = !user_dict_path.empty() ? user_dict_path : user_dict_path_;
+        std::error_code ec;
+        const std::wstring user_canon =
+            target_path.empty() ? std::wstring{} : std::filesystem::weakly_canonical(target_path, ec).wstring();
+        for (const auto& mapped : mapped_dicts_) {
+            if (!mapped) continue;
+            if (!user_canon.empty() && !mapped->SourcePath().empty() &&
+                std::filesystem::weakly_canonical(mapped->SourcePath(), ec).wstring() == user_canon) {
+                continue;
+            }
+            std::vector<std::wstring> sys_words;
+            mapped->LookupExact(packed, sys_words);
+            if (std::find(sys_words.begin(), sys_words.end(), word) != sys_words.end()) {
+                in_system = true;
+                break;
+            }
+        }
+    }
+    if (in_system) {
+        return BlockSystemEntry(code, word, user_dict_path);
+    }
+    return RemoveUserEntry(code, word, user_dict_path);
+}
+
 bool WubiEngine::CheckAndPublishExternalUserDictChanges(const std::filesystem::path& dict_path) {
     if (dict_path.empty() || IsProcessAppContainer()) {
         return false;
@@ -776,8 +974,23 @@ HRESULT WubiEngine::SynchronizeUserDictionary(sync::InputBoundary boundary) {
                     }
                 }
             }
-            dict_ = std::move(loaded);
+            dict_.clear();
+            pinned_entries_.clear();
             removed_entries_.clear();
+            for (const auto& [packed, words] : loaded) {
+                const std::wstring code = UnpackWubiCode(packed);
+                for (const auto& w : words) {
+                    if (w.starts_with(L'^') || w.starts_with(L'!')) {
+                        continue;
+                    }
+                    AddEntry(code, w);
+                }
+                for (auto it = words.rbegin(); it != words.rend(); ++it) {
+                    if (it->starts_with(L'^') || it->starts_with(L'!')) {
+                        AddEntry(code, *it);
+                    }
+                }
+            }
             ++user_dict_snapshot_syncs_;
             return S_OK;
         },
@@ -1157,6 +1370,15 @@ std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const 
     }
 
     std::vector<std::wstring> results;
+    if (const auto pin_it = pinned_entries_.find(packed); pin_it != pinned_entries_.end()) {
+        for (const auto& w : pin_it->second) {
+            if (!IsEntryRemoved(packed, w)) {
+                AppendUniqueWord(results, w);
+            }
+        }
+    }
+    const size_t pinned_count = results.size();
+
     for (const auto& mapped : mapped_dicts_) {
         mapped->LookupExact(packed, results);
     }
@@ -1165,7 +1387,9 @@ std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const 
     }
     if (const auto it = dict_.find(packed); it != dict_.end()) {
         for (const auto& w : it->second) {
-            AppendUniqueWord(results, w);
+            if (!IsEntryRemoved(packed, w)) {
+                AppendUniqueWord(results, w);
+            }
         }
     }
     for (const auto& entry : kSortedBuiltinWubi86Dict) {
@@ -1178,13 +1402,13 @@ std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const 
         }
     }
 
-    if (dynamic_phrase_freq_ && results.size() > 1) {
+    if (dynamic_phrase_freq_ && results.size() > pinned_count + 1) {
         if (const auto pit = promoted_phrases_.find(packed); pit != promoted_phrases_.end()) {
-            // Keep all single-character entries in their fixed positions;
-            // reorder only multi-character phrase slots so promoted phrases appear first.
+            // Keep manually pinned entries at the very front and single-character entries in their fixed positions;
+            // reorder only non-pinned multi-character phrase slots so promoted phrases appear first.
             std::vector<size_t> phrase_slots;
             std::vector<std::wstring> phrases;
-            for (size_t i = 0; i < results.size(); ++i) {
+            for (size_t i = pinned_count; i < results.size(); ++i) {
                 if (SplitUtf16Codepoints(gsl::at(results, i)).size() >= 2) {
                     phrase_slots.push_back(i);
                     phrases.push_back(gsl::at(results, i));

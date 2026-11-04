@@ -75,12 +75,18 @@ qiqiime/
 │       │   ├── controls.cpp # 控件布局、配置绑定、语言更新与卡片
 │       │   ├── internal.h       # 设置窗口内部上下文与控件 ID
 │       │   └── message.cpp # 复用 D2D 控件的隐私确认、保存失败与通知失败提示窗口
-│       └── log_monitor/
-│           ├── CMakeLists.txt  # qiqi_log_monitor 静态库及 QiQiIMELogMonitor.exe
-│           ├── main.cpp        # 独立日志监控程序入口
-│           ├── model.h/.cpp    # 事件缓冲、筛选、复制与导出
-│           ├── collector.h/.cpp # ETW 会话与 TDH 解码
-│           └── window.h/.cpp   # 日志监控窗口与详情分隔条
+│       ├── log_monitor/
+│       │   ├── CMakeLists.txt  # qiqi_log_monitor 静态库及 QiQiIMELogMonitor.exe
+│       │   ├── main.cpp        # 独立日志监控程序入口
+│       │   ├── model.h/.cpp    # 事件缓冲、筛选、复制与导出
+│       │   ├── collector.h/.cpp # ETW 会话与 TDH 解码
+│       │   └── window.h/.cpp   # 日志监控窗口与详情分隔条
+│       └── dict_manager/
+│           ├── CMakeLists.txt  # qiqi_dict_manager 静态库及 QiQiIMEDictManager.exe
+│           ├── main.cpp        # 独立词库与词频管理程序入口
+│           ├── model.h/.cpp    # 多源词库/置顶/屏蔽/词频模型、五笔自动取码与导入导出
+│           ├── internal.h      # 词库管理窗口内部状态与来源映射
+│           └── window.h/.cpp   # 词库管理窗口、虚拟列表与跨进程同步交互
 └── tests/
     ├── CMakeLists.txt          # 仅组织测试模块
     ├── common/
@@ -98,14 +104,20 @@ qiqiime/
     │   └── tsf_ui_main.cpp      # TSF / IME UI 测试入口
     └── tools/
         ├── CMakeLists.txt      # 组织各工具测试
-        └── settings/
-            ├── CMakeLists.txt  # qiqi_settings_test
-            ├── main.cpp # 设置工具测试入口
-            ├── window.cpp # 设置 / 关于窗口测试
-            ├── edges.cpp # 配置及生命周期边界测试
-            ├── version.cpp # 设置 EXE 版本资源测试
-            ├── save.cpp  # 保存失败、重试、取消及通知失败提示测试
-            └── message.cpp # 各设置窗口的主题、语言、提示框键盘及模态行为测试
+        ├── settings/
+        │   ├── CMakeLists.txt  # qiqi_settings_test
+        │   ├── main.cpp # 设置工具测试入口
+        │   ├── window.cpp # 设置 / 关于窗口测试
+        │   ├── edges.cpp # 配置及生命周期边界测试
+        │   ├── version.cpp # 设置 EXE 版本资源测试
+        │   ├── save.cpp  # 保存失败、重试、取消及通知失败提示测试
+        │   └── message.cpp # 各设置窗口的主题、语言、提示框键盘及模态行为测试
+        ├── log_monitor/
+        │   ├── CMakeLists.txt  # qiqi_log_monitor_test
+        │   └── main.cpp        # 实时日志监控模型、GUI、版本与 ETW 集成测试
+        └── dict_manager/
+            ├── CMakeLists.txt  # qiqi_dict_manager_test
+            └── main.cpp        # 词库与词频管理模型、跨进程同步、GUI 与版本测试
 ```
 
 源码与测试目录保持相同的模块布局。模块的 `CMakeLists.txt` 在顶层工程中定义独立目标，可通过 `cmake --build --preset x64-release --target <目标名>` 按目标构建。新增工具时，在 `src/tools/<工具名>` 与 `tests/tools/<工具名>` 分别添加自己的 `CMakeLists.txt`，并由各自的 `tools/CMakeLists.txt` 注册。

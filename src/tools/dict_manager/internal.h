@@ -38,6 +38,8 @@ struct DictManagerWindow::Impl {
     const wchar_t* SourceText(DictEntrySource src) const noexcept {
         switch (src) {
         case DictEntrySource::UserDict:    return Text(L"用户词库", L"User Dict");
+        case DictEntrySource::Pinned:      return Text(L"手动置顶 (^)", L"Pinned (^)");
+        case DictEntrySource::Blocked:     return Text(L"已屏蔽词 (!)", L"Blocked (!)");
         case DictEntrySource::PhraseFreq:  return Text(L"动态词频 (QPF1)", L"Phrase Freq (QPF1)");
         case DictEntrySource::PrimaryDict: return Text(L"主词库", L"Primary Dict");
         case DictEntrySource::ExtraDict:   return Text(L"扩展词库", L"Extra Dict");
@@ -48,9 +50,11 @@ struct DictManagerWindow::Impl {
     static constexpr DictEntrySource SourceFromComboIndex(LRESULT index) noexcept {
         switch (index) {
         case 1: return DictEntrySource::UserDict;
-        case 2: return DictEntrySource::PhraseFreq;
-        case 3: return DictEntrySource::PrimaryDict;
-        case 4: return DictEntrySource::ExtraDict;
+        case 2: return DictEntrySource::Pinned;
+        case 3: return DictEntrySource::Blocked;
+        case 4: return DictEntrySource::PhraseFreq;
+        case 5: return DictEntrySource::PrimaryDict;
+        case 6: return DictEntrySource::ExtraDict;
         default: return DictEntrySource::All;
         }
     }
@@ -79,6 +83,7 @@ struct DictManagerWindow::Impl {
     void SyncEditorFromSelection();
     void AutoFillCodeFromWord();
     void ExecuteAddOrUpdate();
+    void ExecutePinSelected();
     void ExecuteDeleteSelected();
     void ExecutePromoteSelected();
     void ExecuteClearFrequencies();

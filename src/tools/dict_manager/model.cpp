@@ -129,11 +129,19 @@ void DictManagerModel::ReloadAll() {
         std::string raw_utf8;
         if (ReadFileToUtf8String(user_dict_path_, raw_utf8)) {
             std::map<uint32_t, std::vector<std::wstring>> user_entries;
-            WubiMappedDict::ParseTextDictEntries(Utf8ToWide(StripUtf8Bom(raw_utf8)), user_entries);
+            WubiMappedDict::ParseTextDictEntries(Utf8ToWide(StripUtf8Bom(raw_utf8)), user_entries, true);
             for (const auto& [packed, words] : user_entries) {
                 const std::wstring code = UnpackWubiCode(packed);
                 for (const auto& w : words) {
+                    if (w.starts_with(L'^') || w.starts_with(L'!')) {
+                        continue;
+                    }
                     engine_.AddEntry(code, w);
+                }
+                for (auto it = words.rbegin(); it != words.rend(); ++it) {
+                    if (it->starts_with(L'^') || it->starts_with(L'!')) {
+                        engine_.AddEntry(code, *it);
+                    }
                 }
             }
         }
@@ -179,9 +187,21 @@ bool DictManagerModel::PollExternalChanges() {
 void DictManagerModel::RebuildRecords() {
     records_.clear();
     user_entry_count_ = 0;
+    pinned_entry_count_ = 0;
+    blocked_entry_count_ = 0;
     phrase_freq_count_ = 0;
     system_entry_count_ = 0;
     uint64_t next_id = 1;
+
+    for (const auto& [packed, words] : engine_.PinnedEntries()) {
+        const std::wstring code = UnpackWubiCode(packed);
+        uint32_t rank = 1;
+        for (const auto& w : words) {
+            records_.push_back(DictRecord{
+                next_id++, packed, code, w, DictEntrySource::Pinned, rank++});
+            ++pinned_entry_count_;
+        }
+    }
 
     for (const auto& [packed, words] : engine_.UserDictionaryEntries()) {
         const std::wstring code = UnpackWubiCode(packed);
@@ -190,6 +210,16 @@ void DictManagerModel::RebuildRecords() {
             records_.push_back(DictRecord{
                 next_id++, packed, code, w, DictEntrySource::UserDict, rank++});
             ++user_entry_count_;
+        }
+    }
+
+    for (const auto& [packed, words] : engine_.BlockedEntries()) {
+        const std::wstring code = UnpackWubiCode(packed);
+        uint32_t rank = 1;
+        for (const auto& w : words) {
+            records_.push_back(DictRecord{
+                next_id++, packed, code, w, DictEntrySource::Blocked, rank++});
+            ++blocked_entry_count_;
         }
     }
 
@@ -292,6 +322,56 @@ bool DictManagerModel::RemoveUserEntry(std::wstring_view code, std::wstring_view
     const std::wstring norm_code = NormalizeAsciiLower(code);
     const std::wstring norm_word = TrimWhitespace(word);
     if (!engine_.RemoveUserEntry(norm_code, norm_word, user_dict_path_)) {
+        return false;
+    }
+    RebuildRecords();
+    return true;
+}
+
+bool DictManagerModel::PinUserEntry(std::wstring_view code, std::wstring_view word) {
+    const std::wstring norm_code = NormalizeAsciiLower(code);
+    const std::wstring norm_word = TrimWhitespace(word);
+    if (!engine_.PinUserEntry(norm_code, norm_word, user_dict_path_)) {
+        return false;
+    }
+    RebuildRecords();
+    return true;
+}
+
+bool DictManagerModel::UnpinUserEntry(std::wstring_view code, std::wstring_view word) {
+    const std::wstring norm_code = NormalizeAsciiLower(code);
+    const std::wstring norm_word = TrimWhitespace(word);
+    if (!engine_.UnpinUserEntry(norm_code, norm_word, user_dict_path_)) {
+        return false;
+    }
+    RebuildRecords();
+    return true;
+}
+
+bool DictManagerModel::BlockSystemEntry(std::wstring_view code, std::wstring_view word) {
+    const std::wstring norm_code = NormalizeAsciiLower(code);
+    const std::wstring norm_word = TrimWhitespace(word);
+    if (!engine_.BlockSystemEntry(norm_code, norm_word, user_dict_path_)) {
+        return false;
+    }
+    RebuildRecords();
+    return true;
+}
+
+bool DictManagerModel::UnblockSystemEntry(std::wstring_view code, std::wstring_view word) {
+    const std::wstring norm_code = NormalizeAsciiLower(code);
+    const std::wstring norm_word = TrimWhitespace(word);
+    if (!engine_.UnblockSystemEntry(norm_code, norm_word, user_dict_path_)) {
+        return false;
+    }
+    RebuildRecords();
+    return true;
+}
+
+bool DictManagerModel::DeleteOrBlockEntry(std::wstring_view code, std::wstring_view word) {
+    const std::wstring norm_code = NormalizeAsciiLower(code);
+    const std::wstring norm_word = TrimWhitespace(word);
+    if (!engine_.DeleteOrBlockUserOrSystemEntry(norm_code, norm_word, user_dict_path_)) {
         return false;
     }
     RebuildRecords();

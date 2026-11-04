@@ -217,12 +217,21 @@ void TestGuiWindow() {
     Click(window, AddUpdateBtn);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) >= 1);
 
-    // Select first row, promote phrase frequency, and filter by PhraseFreq source
+    // Select first row, promote phrase frequency, and filter by PhraseFreq source (combo index 4)
     ListView_SetItemState(Child(window, List), 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
     Click(window, PromoteBtn);
+    ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 4, 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
+    QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
+
+    // Pin entry via PinBtn and verify Pinned source filter (combo index 2)
+    Click(window, PinBtn);
     ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 2, 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
+    ListView_SetItemState(Child(window, List), 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    Click(window, PinBtn); // Unpin when already pinned
+    QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
 
     // Switch language between EnUs and ZhCn
     ::SendMessageW(Child(window, Language), CB_SETCURSEL, std::to_underlying(UiLanguage::EnUs), 0);
@@ -232,7 +241,9 @@ void TestGuiWindow() {
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Language), CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(ControlText(Child(window, Reload)) == L"刷新");
 
-    // Clear frequencies, switch back to UserDict, delete entry
+    // Clear frequencies, switch back to UserDict (combo index 1), delete entry
+    ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 4, 0);
+    ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(SourceCombo), CBN_SELCHANGE), 0);
     Click(window, ClearFreq);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
     ::SendMessageW(Child(window, SourceCombo), CB_SETCURSEL, 1, 0);

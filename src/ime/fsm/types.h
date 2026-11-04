@@ -34,7 +34,9 @@ enum class KeyEventKind : uint8_t {
     TempEnglishGuide = 13,// 'z' key in Idle when enable_z_temp_english is active
     PrintableAscii = 14,  // Printable ASCII key in TempEnglish or FullWidth mode
     CapsLockToggle = 15,  // VK_CAPITAL pressed mid-composition: commit raw code without eating OS toggle
-    Count = 16
+    PinCandidate = 16,    // Ctrl+'1'..'9' while composing: pin candidate to top of code
+    DeleteCandidate = 17, // Ctrl+Delete or Ctrl+Shift+'1'..'9' while composing: delete user word or block system word
+    Count = 18
 };
 
 // State machine transition actions executed by the engine
@@ -60,7 +62,9 @@ enum class TransitionOp : uint8_t {
     PopTempEnglish = 18,        // TempEnglish Backspace: pop last char or cancel if only 'z' remains
     CommitTempEnglish = 19,     // TempEnglish Space/Enter: commit temporary English string -> Idle
     CommitFullWidth = 20,       // FullWidth mode fallback: commit (optional candidate +) full-width char -> Idle
-    Count = 21
+    PinDigitCandidate = 21,     // Ctrl+'1'..'9': pin candidate at digit index to top
+    DeleteOrBlockCandidate = 22,// Ctrl+Delete or Ctrl+Shift+'1'..'9': delete user entry or block system entry
+    Count = 23
 };
 
 struct TransitionRule {

@@ -119,6 +119,16 @@ constexpr bool IsNumpadNonSelectComposingKey(uint32_t vk) noexcept {
            vk == VK_SUBTRACT || vk == VK_MULTIPLY || vk == VK_DIVIDE;
 }
 
+constexpr std::optional<size_t> ResolveDigitKeyIndex(uint32_t vk) noexcept {
+    if (vk >= '1' && vk <= '9') {
+        return static_cast<size_t>(vk - '1');
+    }
+    if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD9) {
+        return static_cast<size_t>(vk - VK_NUMPAD1);
+    }
+    return std::nullopt;
+}
+
 constexpr KeyEventKind ClassifyKeyEvent(
     uint32_t vk,
     bool shift_down,
@@ -131,7 +141,18 @@ constexpr KeyEventKind ClassifyKeyEvent(
     EngineState state = EngineState::Idle,
     bool caps_lock_on = false,
     bool up_down_page_turn = false) noexcept {
-    if (ctrl_down || alt_down) {
+    if (alt_down) {
+        return KeyEventKind::None;
+    }
+    if (ctrl_down) {
+        if (IsWubiComposingState(state)) {
+            if (!shift_down && ResolveDigitKeyIndex(vk).has_value()) {
+                return KeyEventKind::PinCandidate;
+            }
+            if ((shift_down && ResolveDigitKeyIndex(vk).has_value()) || (!shift_down && vk == VK_DELETE)) {
+                return KeyEventKind::DeleteCandidate;
+            }
+        }
         return KeyEventKind::None;
     }
 

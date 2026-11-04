@@ -156,7 +156,8 @@ public:
     // Parse a UTF-16 text/YAML dictionary into deduplicated per-code word lists.
     static void ParseTextDictEntries(
         std::wstring_view wide_content,
-        std::map<uint32_t, std::vector<std::wstring>>& out_entries);
+            std::map<uint32_t, std::vector<std::wstring>>& out_entries,
+            bool preserve_rule_markers = false);
 
     // Compile an in-memory map (packed_code -> ordered words) into the unified flat binary table format
     // (DictBinaryHeader + DictCodeIndex[] + DictWordSlice[] + wchar_t[] pool with payload_checksum).
