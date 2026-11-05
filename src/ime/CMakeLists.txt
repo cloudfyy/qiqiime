@@ -28,6 +28,7 @@ set(QIQIIME_SOURCES
     comp/finish.h
     comp/range.h
     comp/start.h
+    comp/update.h
     tsf/register.h
     tsf/register.cpp
     tsf/shift_tap.h

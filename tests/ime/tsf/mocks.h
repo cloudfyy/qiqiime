@@ -258,11 +258,12 @@ public:
     STDMETHODIMP GetContext(ITfContext**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP FindRange(TfEditCookie, ITfRange*, ITfRange**, TfAnchor) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP SetValueStore(TfEditCookie, ITfRange*, ITfPropertyStore*) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP SetValue(TfEditCookie, ITfRange*, const VARIANT*) override {
+    STDMETHODIMP SetValue(TfEditCookie ec, ITfRange* range, const VARIANT* value) override {
         set_called_ = true;
         ++set_calls_;
+        if (set_observer_) set_observer_(ec, range, value);
         if (set_callback_) set_callback_();
-        return S_OK;
+        return set_result_;
     }
     STDMETHODIMP Clear(TfEditCookie ec, ITfRange*) override {
         clear_called_ = true;
@@ -274,6 +275,8 @@ public:
 
     bool set_called_ = false;
     unsigned int set_calls_ = 0;
+    HRESULT set_result_ = S_OK;
+    std::function<void(TfEditCookie, ITfRange*, const VARIANT*)> set_observer_;
     std::function<void()> set_callback_;
     bool clear_called_ = false;
     unsigned int clear_calls_ = 0;

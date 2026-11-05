@@ -83,6 +83,24 @@ diagnosed but still allows the original service reset when identity remains vali
 A replacement composition created in the same context and epoch must suppress
 that reset just as an epoch change does.
 
+[`UpdateCompositionInSession`](../src/ime/comp/update.h) owns the captured
+composition through range lookup, the existing text/caret helper, and optional
+display-attribute publication, then returns that same composition for the
+service's layout/UI identity checks. It does not publish shared composition
+state, reset the engine, begin/end a composition, or request a new edit session.
+Range and property lifetimes follow the original local scopes, including early
+returns after invalidation. Failure/null range results return the captured
+composition without an additional helper identity check; caret/property failures
+retain their original best-effort behavior. There is no new check after
+`SetValue`; the service's existing caller check still protects UI publication.
+
+The attribute atom is borrowed by reference for this synchronous call, not
+snapshotted at entry: its validity is read after text/caret edits, and its actual
+value is read again after property lookup and identity validation. This preserves
+updates made during host reentrancy, including the original behavior when an atom
+becomes invalid after entering the attribute branch. Neither the atom reference
+nor the identity predicate is retained after return.
+
 ### 2.2 Keyboard Event State
 
 `OnTestKeyDown` and `OnKeyDown` sample modifiers and CapsLock before querying

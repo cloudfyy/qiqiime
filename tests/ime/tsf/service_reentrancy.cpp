@@ -75,9 +75,12 @@ void TestReentrantCompositionEdits() {
     for (const auto& test_case : cases) {
         const auto [key, boundary] = test_case;
         const bool host_termination = key == 0;
+        const bool update_replacement = key == 'B' &&
+            (boundary == Boundary::Property || boundary == Boundary::Attribute);
         for (const auto transition : {Transition::Deactivate, Transition::ReactivateSameContext,
                                      Transition::SwitchContext, Transition::RemoveContext, Transition::ContinueSameContext}) {
-            if (transition == Transition::ContinueSameContext && boundary != Boundary::End && !host_termination) continue;
+            if (transition == Transition::ContinueSameContext && boundary != Boundary::End &&
+                !host_termination && !update_replacement) continue;
             auto service = MakeComObject<QiQiTextService>(g_dll_instance);
             auto manager = MakeComObject<MockTfThreadMgr>();
             QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
@@ -106,7 +109,7 @@ void TestReentrantCompositionEdits() {
             const auto interrupt = [&]() {
                 if (std::exchange(entered, true)) return;
                 if (transition == Transition::ContinueSameContext) {
-                    if (host_termination) {
+                    if (host_termination || update_replacement) {
                         QIQI_TEST_CHECK(send_key(service, context.Get(), VK_ESCAPE, &eaten) == S_OK && eaten);
                     }
                     QIQI_TEST_CHECK(send_key(service, context.Get(), 'C', &eaten) == S_OK && eaten);
@@ -170,7 +173,7 @@ void TestReentrantCompositionEdits() {
             ++edit_cases;
         }
     }
-    QIQI_TEST_CHECK(edit_cases == 89);
+    QIQI_TEST_CHECK(edit_cases == 91);
     for (const bool during_layout : {false, true}) {
         auto service = MakeComObject<QiQiTextService>(g_dll_instance);
         auto manager = MakeComObject<MockTfThreadMgr>();

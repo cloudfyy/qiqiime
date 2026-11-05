@@ -175,7 +175,7 @@ ctest --preset x86-release --output-on-failure
 
 ### 3.3 组合组件与生命周期测试组织
 
-- [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`finish`、`range`、`start` 短名；服务仍在 [`src/ime/tsf`](../src/ime/tsf) 负责宿主接口、当前组合及 UI 协调，目录调整不改变 FSM 或生命周期边界。
+- [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`finish`、`range`、`start`、`update` 短名；服务仍在 [`src/ime/tsf`](../src/ime/tsf) 负责宿主接口、当前组合及 UI 协调，目录调整不改变 FSM 或生命周期边界。
 - [`tests/ime/comp`](../tests/ime/comp) 镜像组件目录，分别保留编辑票据/任务、清理、范围写入及开始准备测试；共享 Mock 仍在 [`mocks.h`](../tests/ime/tsf/mocks.h)。
 - [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) 仅保留有序入口，依次调用[延迟会话](../tests/ime/tsf/service_deferred.cpp)、[上下文/文档](../tests/ime/tsf/service_context.cpp)、[窗口生命周期](../tests/ime/tsf/service_windows.cpp)、[重入](../tests/ime/tsf/service_reentrancy.cpp)、[服务清理](../tests/ime/tsf/service_cleanup.cpp)及[原生 TSF](../tests/ime/tsf/service_native.cpp)测试。组件测试仍在原窗口测试的配置/键盘快照之前运行；入口的 key/composition sink 强引用保留到全部子套件返回，各测试块的局部 COM/RAII 作用域不变。
 
@@ -540,3 +540,10 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **拥有范围而非提前释放**：`CompositionTerminationResult` 保留取得的 range，服务将它留到原 if 作用域结束，仍按 range、原组合、context 的顺序释放。`may_reset` 不代表属性清除成功，也不能由 range 非空推导；仅供服务立即决定是否继续原重置路径，不能跨后续宿主调用缓存复用。
 - **门面与重置仍在服务**：[`OnCompositionTerminated`](../src/ime/tsf/tip_composition.cpp) 保留已登记清理优先、无关组合忽略、空通知及缺少活动 context 的原路径；仍先捕获票据/context 强引用并移走当前组合，再调用 helper。实际引擎/UI 重置仍在服务，生命周期日志及 FSM 不变。
 - **验证**：[`宿主终止单元回归`](../tests/ime/comp/finish.cpp) 新增 17 种失败/空返回/失效条件 × 3 种文本，共 51 组，检查完整宿主/复核顺序、允许重置与资源存在性的独立关系、范围在最终复核及返回值作用域内的引用数、原文本不变和无额外结束/写入。另扩展[服务重入矩阵](../tests/ime/tsf/service_reentrancy.cpp)，在范围获取、属性查询及属性清除期间先取消旧引擎状态再输入，验证同 context/epoch 的新组合及 UI 不被旧终止流程覆盖；矩阵精确增加为 89 组。x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。完整 R05 仍未完成，未重跑全仓测试或新增真实宿主验收。
+
+### 5.31 TSF 现有组合更新与属性发布（R05 第十三步）
+
+- **收拢整个更新序列**：[`UpdateCompositionInSession`](../src/ime/comp/update.h) 以强引用捕获并返回原组合，集中范围获取、既有文本/光标 helper 及可选显示属性写入；原各宿主边界后的身份复核、失败后的继续/停止策略及范围/属性局部作用域不变。服务原 `SetRangeTextAndCollapseCaret` 包装已移除，但保留既有范围 helper 的诊断操作名；第八步描述的是当时的包装边界。
+- **保持读取与复核时点**：属性 atom 以同步借用引用传入，在文本/光标完成后判断有效性、属性查询及原身份复核后再读取写入值，不提前快照或追加复核。属性写入后仍由服务原调用方验证返回组合后再发布布局/UI；开始、未发布记录、组合字段发布和引擎/UI 决策仍在服务。
+- **错误保持可见**：保留原 HRESULT 诊断及尽力更新策略；成功但无范围/属性时新增明确警告。更新 helper 不保存 cookie/借用引用/检查器，不请求会话、不开始或结束组合，也不清除属性。
+- **验证**：[`更新回归`](../tests/ime/comp/update.cpp) 的 28 种正常/失败/空返回/身份失效条件 × ASCII、空及含 NUL/中文/代理对文本，共 84 组；另有 5 组实时 atom 读取和 3 组外部组合引用在宿主调用中释放的寿命测试。逐项验证宿主/复核序列、UTF-16 长度、selection、`VT_I4` 参数和范围/属性/返回组合引用释放；[服务矩阵](../tests/ime/tsf/service_reentrancy.cpp) 新增属性查询/写入中的同 context/epoch 替换，精确增加为 91 组。x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。完整 R05 仍未完成，FSM、宿主显示许可及定位算法不变。

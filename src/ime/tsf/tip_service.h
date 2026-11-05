@@ -160,8 +160,6 @@ private:
     void CancelCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context);
     void UpdateCandidateWindowPositionInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view = {});
-    void SetRangeTextAndCollapseCaret(
-        TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range, std::wstring_view text);
 
     void BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot);
     void EndCandidateUI();

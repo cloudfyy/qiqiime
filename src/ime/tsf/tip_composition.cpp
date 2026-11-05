@@ -1,7 +1,7 @@
 #include "ime/tsf/tip_service.h"
 #include "ime/comp/finish.h"
-#include "ime/comp/range.h"
 #include "ime/comp/start.h"
+#include "ime/comp/update.h"
 #include "ime/tsf/edit_session.h"
 #include "common/logger.h"
 
@@ -371,15 +371,6 @@ void QiQiTextService::SyncCompositionUIInSession(
     BeginOrUpdateCandidateUI(snapshot);
 }
 
-void QiQiTextService::SetRangeTextAndCollapseCaret(
-    TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range, std::wstring_view text) {
-    const EditSessionTicket ticket{edit_session_epoch_, context.get()};
-    const auto composition = composition_;
-    WriteCompositionTextAndCaret(ec, context, range, text, [this, ticket, &composition]() noexcept {
-        return IsCompositionEditCurrent(ticket, composition.Get());
-    });
-}
-
 ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text) {
     const EditSessionTicket ticket{edit_session_epoch_, context.get()};
@@ -407,27 +398,11 @@ ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
         composition_ = std::move(starting->composition);
     }
 
-    const auto composition = composition_;
-    ComPtr<ITfRange> comp_range;
-    if (!log::CheckHResult(composition->GetRange(&comp_range), "StartOrUpdateComposition::GetRange") || !comp_range) {
-        return composition;
-    }
-    if (!IsCompositionEditCurrent(ticket, composition.Get())) return composition;
-    SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), text);
-    if (!IsCompositionEditCurrent(ticket, composition.Get())) return composition;
-
-    // Apply dotted underline display attribute to the composition range
-    if (display_attribute_atom_ != TF_INVALID_GUIDATOM) {
-        ComPtr<ITfProperty> disp_prop;
-        if (log::CheckHResult(context->GetProperty(GUID_PROP_ATTRIBUTE, &disp_prop),
-                             "StartOrUpdateComposition::GetProperty(GUID_PROP_ATTRIBUTE)") && disp_prop) {
-            if (!IsCompositionEditCurrent(ticket, composition.Get())) return composition;
-            const VARIANT var = MakeInt4Variant(gsl::narrow_cast<LONG>(display_attribute_atom_));
-            std::ignore = log::CheckHResult(disp_prop->SetValue(ec, comp_range.Get(), &var),
-                                           "StartOrUpdateComposition::SetValue(GUID_PROP_ATTRIBUTE)");
-        }
-    }
-    return composition;
+    return UpdateCompositionInSession(
+        ec, context, composition_, text, display_attribute_atom_,
+        [this, ticket](const ITfComposition* composition) noexcept {
+            return IsCompositionEditCurrent(ticket, composition);
+        });
 }
 
 void QiQiTextService::CommitAndEndCompositionInSession(

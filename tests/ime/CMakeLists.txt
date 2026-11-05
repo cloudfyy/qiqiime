@@ -17,6 +17,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/finish.cpp
     comp/range.cpp
     comp/start.cpp
+    comp/update.cpp
     tsf/mocks.h
     tsf/com.cpp
     tsf/category_manager.cpp

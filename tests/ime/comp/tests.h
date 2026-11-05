@@ -7,5 +7,6 @@ void RunTsfCompositionCleanupTests();
 void RunTsfCompositionRangeTests();
 void RunTsfCompositionStartTests();
 void RunTsfCompositionFinishTests();
+void RunTsfCompositionUpdateTests();
 
 } // namespace qiqi::test
