@@ -13,6 +13,7 @@ add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
 set(QIQI_TSF_UI_TEST_SOURCES
     tsf/mocks.h
     tsf/com.cpp
+    tsf/composition_range.cpp
     tsf/category_manager.cpp
     tsf/logging.cpp
     tsf/restricted_input.cpp

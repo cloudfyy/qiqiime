@@ -25,6 +25,7 @@ set(QIQIIME_SOURCES
     tsf/composition_cleanup.h
     tsf/composition_cleanup.cpp
     tsf/composition_edit.h
+    tsf/composition_range.h
     tsf/register.h
     tsf/register.cpp
     tsf/shift_tap.h

@@ -42,13 +42,16 @@ public:
         return c;
     }
     STDMETHODIMP GetText(TfEditCookie, DWORD, WCHAR*, ULONG, ULONG*) noexcept override { return S_OK; }
-    STDMETHODIMP SetText(TfEditCookie, DWORD, const WCHAR* pch, LONG cch) override {
+    STDMETHODIMP SetText(TfEditCookie ec, DWORD flags, const WCHAR* pch, LONG cch) override {
         ++set_text_calls_;
-        if (pch && cch >= 0) {
+        last_set_text_cookie_ = ec;
+        last_set_text_flags_ = flags;
+        last_set_text_length_ = cch;
+        if (SUCCEEDED(set_text_result_) && pch && cch >= 0) {
             text_.assign(pch, gsl::narrow_cast<size_t>(cch));
         }
         if (set_text_callback_) set_text_callback_();
-        return S_OK;
+        return set_text_result_;
     }
     STDMETHODIMP GetFormattedText(TfEditCookie, IDataObject**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetEmbedded(TfEditCookie, REFGUID, REFIID, IUnknown**) noexcept override { return E_NOTIMPL; }
@@ -63,9 +66,10 @@ public:
         if (pfEmpty) *pfEmpty = text_.empty() ? TRUE : FALSE;
         return S_OK;
     }
-    STDMETHODIMP Collapse(TfEditCookie, TfAnchor) override {
+    STDMETHODIMP Collapse(TfEditCookie ec, TfAnchor anchor) override {
+        if (collapse_observer_) collapse_observer_(ec, anchor);
         if (collapse_callback_) collapse_callback_();
-        return S_OK;
+        return collapse_result_;
     }
     STDMETHODIMP IsEqualStart(TfEditCookie, ITfRange*, TfAnchor, BOOL*) noexcept override { return S_OK; }
     STDMETHODIMP IsEqualEnd(TfEditCookie, ITfRange*, TfAnchor, BOOL*) noexcept override { return S_OK; }
@@ -77,21 +81,34 @@ public:
     STDMETHODIMP Clone(ITfRange** ppClone) override {
         if (!ppClone) return E_INVALIDARG;
         ++clone_calls_;
-        auto clone = MakeComObject<MockTfRange>();
-        clone->text_ = text_;
-        clone->collapse_callback_ = collapse_callback_;
-        *ppClone = clone.Detach();
+        *ppClone = nullptr;
+        if (SUCCEEDED(clone_result_) && !return_null_clone_) {
+            auto clone = MakeComObject<MockTfRange>();
+            clone->text_ = text_;
+            clone->collapse_callback_ = collapse_callback_;
+            clone->collapse_observer_ = collapse_observer_;
+            clone->collapse_result_ = collapse_result_;
+            *ppClone = clone.Detach();
+        }
         if (clone_callback_) clone_callback_();
-        return S_OK;
+        return clone_result_;
     }
     STDMETHODIMP GetContext(ITfContext**) noexcept override { return E_NOTIMPL; }
 
     std::wstring text_;
     unsigned int set_text_calls_ = 0;
     unsigned int clone_calls_ = 0;
+    TfEditCookie last_set_text_cookie_ = 0;
+    DWORD last_set_text_flags_ = 0;
+    LONG last_set_text_length_ = 0;
+    HRESULT set_text_result_ = S_OK;
+    HRESULT clone_result_ = S_OK;
+    HRESULT collapse_result_ = S_OK;
+    bool return_null_clone_ = false;
     std::function<void()> set_text_callback_;
     std::function<void()> clone_callback_;
     std::function<void()> collapse_callback_;
+    std::function<void(TfEditCookie, TfAnchor)> collapse_observer_;
 private:
     ULONG ref_ = 1;
 };
@@ -496,10 +513,11 @@ public:
         return S_OK;
     }
     STDMETHODIMP GetSelection(TfEditCookie, ULONG, ULONG, TF_SELECTION*, ULONG*) noexcept override { return S_OK; }
-    STDMETHODIMP SetSelection(TfEditCookie, ULONG, const TF_SELECTION*) override {
+    STDMETHODIMP SetSelection(TfEditCookie ec, ULONG count, const TF_SELECTION* selection) override {
         ++set_selection_calls_;
+        if (selection_observer_) selection_observer_(ec, count, selection);
         if (set_selection_callback_) set_selection_callback_();
-        return S_OK;
+        return set_selection_result_;
     }
     STDMETHODIMP GetStart(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetEnd(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
@@ -631,6 +649,8 @@ public:
     unsigned int get_active_view_calls_ = 0;
     unsigned int start_composition_calls_ = 0;
     unsigned int set_selection_calls_ = 0;
+    HRESULT set_selection_result_ = S_OK;
+    std::function<void(TfEditCookie, ULONG, const TF_SELECTION*)> selection_observer_;
     std::function<void()> set_selection_callback_;
     std::function<void()> get_property_callback_;
     std::function<void()> start_composition_callback_;

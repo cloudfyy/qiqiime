@@ -117,6 +117,16 @@ R05 仍后置；本轮不调整 TSF 生命周期或输入 FSM。
 
 边界：这是独立的清理协调器，不是完整组合生命周期协调器；活动目标、当前组合、UI 与重入验证仍在服务。完整 R05 待办保持未完成，FSM、宿主许可与错误返回策略不变。
 
+## 后续实施：R05 第八步（范围写入与光标折叠）
+
+- **组合目标仍由服务固定。** [`SetRangeTextAndCollapseCaret`](../src/ime/tsf/tip_composition.cpp) 保留原票据和组合强引用获取时机，只把同步宿主操作委托给 [`WriteCompositionTextAndCaret`](../src/ime/tsf/composition_range.h)。helper 不保存 cookie、不拥有服务、不请求新会话，也不重新捕获 epoch；文本写入、clone、折叠后的组合身份复核位置不变。
+- **不借提取改变失败策略。** `SetText` 和 `Collapse` 失败仍记录真实 HRESULT，并在目标有效时按原流程尽力继续；`Clone` 失败仍停止 caret 更新。成功却无 clone 仍停止，但补充原 HRESULT 的明确警告。helper 不是入口权限检查器，调用方必须先验证；不因调用完成或更新光标而宣称文本写入成功。
+- **新增独立契约回归。** [`RunTsfCompositionRangeTests`](../tests/ime/tsf/composition_range.cpp) 的 13 组条件与 3 种文本组合成 39 组，覆盖每个宿主边界的失效、各步失败、空 clone、内嵌 NUL/中文/代理对的完整 UTF-16 长度，验证精确调用/复核顺序、cookie/flags、末端折叠及单项 selection 的样式和 clone 身份；额外保留 selection range 检查 helper 返回后的引用计数，确认局部 COM 引用释放。扩展 mock 的失败与观察能力，默认成功行为及原有重入 callback 时机不变。
+
+验证：IME DLL 与 TSF/UI 测试完成 x64/x86 构建和 CppCoreCheck，自有源码无非 C26490 诊断；两个架构的 `QiQiTsfUiTest` 串行通过。既有服务重入及原生私有文档 TSF 回归继续通过；未重跑全仓测试、构建 MSI 或进行新的真实宿主验收。
+
+边界：提取的是可独立测试的同步范围编辑序列，不是完整组合生命周期协调器，也不是对偶发光标偏移的根因修复。FSM、候选定位算法、宿主许可与原有尽力编辑策略不变，完整 R05 待办继续保留。
+
 ## 1. 结论与优先级
 
 最有价值的方向不是增加继承层次，而是把**恢复工作流、同步批次发布、编辑状态和配置字段规则**变成明确、可独立测试的对象或值。

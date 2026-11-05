@@ -495,3 +495,11 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **屏障不与服务激活绑定**：两个写入屏障检查点继续在原位置调用 `HasPending`，包括回调执行中再次检查及保留原结果重排队；`HasPending` 仍使用原查询/裁剪和阶段日志。焦点/上下文移除入口转交协调器，但当前组合终止、激活、上下文与引擎/UI 重置不迁移。
 - **销毁不取消宿主回调**：协调器只间接持有弱记录，队列回调继续只强持有独立记录及其 COM 资源，不捕获协调器或服务。协调器析构不执行 COM 清理、不改写外部未发布记录，也不取消已入队任务；真实 HRESULT 和尽力清理策略保持不变。
 - **验证**：[`协调器回归`](../tests/ime/tsf/service_lifecycle.cpp) 的 9 组调度矩阵检查登记可见性、同步/异步请求、range 查询中失效、拒绝、丢弃、入队后移除/重复终止及 cookie/调用次数；另验证不可用目标不访问宿主或提前裁剪、未发布记录的弱所有权与终止、同 context 的全部移除、跨 context 隔离、完成槽位裁剪及协调器销毁后的回调执行/释放。x64/x86 IME DLL/TSF 测试构建和 CppCoreCheck、串行 `QiQiTsfUiTest` 通过；完整组合生命周期协调器仍未完成。
+
+### 5.26 TSF 范围写入与光标折叠（R05 第八步）
+
+- **只提取同步宿主操作**：[`WriteCompositionTextAndCaret`](../src/ime/tsf/composition_range.h) 执行原有 `SetText`、`Clone`、`Collapse(TF_ANCHOR_END)`、`SetSelection` 序列。服务的 `SetRangeTextAndCollapseCaret` 仍在原时点捕获票据和组合强引用，传入绑定该原组合的检查器；helper 不保存 cookie、目标或检查器，也不授予编辑会话权限。context/range 及检查器依赖的对象由调用方强持有，caret clone 则由 helper 的局部 COM 强引用持有至调用结束。
+- **保持复核位置而非另建入口**：生产调用方先验证目标，helper 在写入文本、成功取得 caret clone、折叠后分别复核；首次复核之前仍会执行 `SetText`，不可将 helper 当作自行验证入口的写入 API。selection 返回后的验证仍由原服务调用链负责，不在 helper 中新增检查、请求或重排队。
+- **保留原尽力错误策略**：各失败保留实际 HRESULT；`SetText` 或 `Collapse` 失败后，若目标仍有效，仍按原策略继续后续步骤，不能将 helper 返回或光标更新解释成写入成功。`Clone` 失败或成功却无 range 时停止 caret 操作；后者新增明确警告并记录原 HRESULT，不再只有静默跳过，但不增加自动重试。
+- **固定文本与 selection 形状**：传递完整 `wstring_view` 的 UTF-16 码元长度，不按零终止字符串截断，也不改成字节数或 Unicode 码点数。selection 只含一个已折叠的 clone，使用本次 cookie、`TF_AE_NONE` 和非 interim 标志；不复用原 composition range 作为 caret。
+- **验证**：[`独立范围编辑回归`](../tests/ime/tsf/composition_range.cpp) 将 13 组正常/各边界失效/失败/空 clone 条件分别应用于 ASCII、空文本及含内嵌 NUL、中文和代理对的 UTF-16 文本，共 39 组。检查精确调用/复核顺序、HRESULT 对应的继续/停止策略、文本与长度、cookie/flags、折叠锚点、selection 形状及 helper 退出后的 clone 引用释放。既有真实服务重入矩阵和原生私有文档 TSF 回归继续通过；x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。FSM、候选定位算法和宿主 UI 许可不变，未据此宣称修复偶发光标偏移。

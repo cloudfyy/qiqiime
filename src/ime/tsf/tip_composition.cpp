@@ -1,5 +1,6 @@
 #include "ime/tsf/tip_service.h"
 #include "ime/tsf/composition_attribute.h"
+#include "ime/tsf/composition_range.h"
 #include "ime/tsf/edit_session.h"
 #include "common/logger.h"
 
@@ -384,22 +385,9 @@ void QiQiTextService::SetRangeTextAndCollapseCaret(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range, std::wstring_view text) {
     const EditSessionTicket ticket{edit_session_epoch_, context.get()};
     const auto composition = composition_;
-    std::ignore = log::CheckHResult(range->SetText(ec, 0, text.data(), gsl::narrow_cast<LONG>(text.size())),
-                                   "SetRangeTextAndCollapseCaret::SetText");
-    if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-    ComPtr<ITfRange> caret_range;
-    if (log::CheckHResult(range->Clone(&caret_range), "SetRangeTextAndCollapseCaret::Clone") && caret_range) {
-        if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-        std::ignore = log::CheckHResult(caret_range->Collapse(ec, TF_ANCHOR_END),
-                                       "SetRangeTextAndCollapseCaret::Collapse");
-        if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-        TF_SELECTION sel{};
-        sel.range = caret_range.Get();
-        sel.style.ase = TF_AE_NONE;
-        sel.style.fInterimChar = FALSE;
-        std::ignore = log::CheckHResult(context->SetSelection(ec, 1, &sel),
-                                       "SetRangeTextAndCollapseCaret::SetSelection");
-    }
+    WriteCompositionTextAndCaret(ec, context, range, text, [this, ticket, &composition]() noexcept {
+        return IsCompositionEditCurrent(ticket, composition.Get());
+    });
 }
 
 ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
