@@ -358,7 +358,8 @@ void TestCompositionCleanupRequests() {
             if (test.invalidation == Invalidation::Removed) {
                 registry.MarkContextRemoved(context.Get(), 0, GUID_NULL);
             } else if (test.invalidation == Invalidation::Terminated) {
-                cleanup->terminated = true;
+                QIQI_TEST_CHECK(HandleCompositionCleanupTermination(
+                    registry, 89, composition.Get(), 0, GUID_NULL));
             }
         };
         composition->end_callback_ = [&](TfEditCookie ec) noexcept {
@@ -413,6 +414,144 @@ void TestCompositionCleanupRequests() {
         QIQI_TEST_CHECK(!registry.FindPending(context.Get()) && registry.TrackedCount() == 0);
         QIQI_TEST_CHECK(context->range_->set_text_calls_ == 0);
         composition->end_callback_ = {};
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
+void TestCompositionCleanupTermination() {
+    enum class Reentry { None, LookupRemoval, LookupDuplicate, ClearRemoval, ClearDuplicate };
+    struct Case {
+        bool unpublished = false;
+        bool started = false;
+        bool finished = false;
+        bool terminated = false;
+        bool removed = false;
+        bool has_range = true;
+        bool attribute_started = false;
+        bool null_property = false;
+        HRESULT property_hr = S_OK;
+        HRESULT clear_hr = S_OK;
+        Reentry reentry = Reentry::None;
+        unsigned int clear_calls = 1;
+        unsigned int property_calls = 1;
+        bool expect_finished = true;
+    };
+    const std::array cases{
+        Case{},
+        Case{.started = true, .expect_finished = false},
+        Case{.finished = true},
+        Case{.finished = true, .removed = true, .clear_calls = 0, .property_calls = 0},
+        Case{.finished = true, .terminated = true, .clear_calls = 0, .property_calls = 0},
+        Case{.started = true, .terminated = true, .clear_calls = 0, .property_calls = 0, .expect_finished = false},
+        Case{.has_range = false, .clear_calls = 0, .property_calls = 0},
+        Case{.attribute_started = true, .clear_calls = 0, .property_calls = 0},
+        Case{.unpublished = true, .clear_calls = 0, .property_calls = 0},
+        Case{.unpublished = true, .started = true, .clear_calls = 0, .property_calls = 0},
+        Case{.null_property = true, .clear_calls = 0},
+        Case{.property_hr = E_ACCESSDENIED, .clear_calls = 0},
+        Case{.clear_hr = E_ACCESSDENIED},
+        Case{.reentry = Reentry::LookupRemoval, .clear_calls = 0},
+        Case{.reentry = Reentry::LookupDuplicate},
+        Case{.reentry = Reentry::ClearRemoval},
+        Case{.reentry = Reentry::ClearDuplicate},
+    };
+    const auto objects_before = g_com_object_count.load();
+    for (const auto& test : cases) {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        const auto unrelated = MakeComObject<MockTfComposition>(context->range_);
+        const auto cleanup = std::make_shared<CompositionCleanup>();
+        cleanup->id = test.unpublished ? 0u : 1u;
+        cleanup->context = context;
+        cleanup->composition = composition;
+        if (test.has_range) cleanup->range = context->range_;
+        cleanup->started = test.started;
+        cleanup->finished = test.finished;
+        cleanup->terminated = test.terminated;
+        cleanup->context_removed = test.removed;
+        cleanup->attribute_clear_started = test.attribute_started;
+        context->return_null_property_ = test.null_property;
+        context->get_property_result_ = test.property_hr;
+        context->prop_->clear_result_ = test.clear_hr;
+        CompositionCleanupRegistry registry;
+        registry.Track(cleanup);
+        QIQI_TEST_CHECK(!HandleCompositionCleanupTermination(registry, 97, nullptr, 0, GUID_NULL));
+        QIQI_TEST_CHECK(!HandleCompositionCleanupTermination(registry, 97, unrelated.Get(), 0, GUID_NULL));
+        QIQI_TEST_CHECK(cleanup->terminated == test.terminated && cleanup->finished == test.finished);
+        unsigned int reentries = 0;
+        const auto reenter = [&] {
+            ++reentries;
+            QIQI_TEST_CHECK(cleanup->terminated);
+            if (test.reentry == Reentry::LookupRemoval || test.reentry == Reentry::ClearRemoval) {
+                registry.MarkContextRemoved(context.Get(), 0, GUID_NULL);
+            } else {
+                QIQI_TEST_CHECK(HandleCompositionCleanupTermination(registry, 97, composition.Get(), 0, GUID_NULL));
+            }
+        };
+        context->get_property_callback_ = [&] {
+            QIQI_TEST_CHECK(cleanup->terminated);
+            if (test.reentry == Reentry::LookupRemoval || test.reentry == Reentry::LookupDuplicate) reenter();
+        };
+        context->prop_->clear_callback_ = [&](TfEditCookie ec) {
+            QIQI_TEST_CHECK(ec == 97 && cleanup->terminated && cleanup->attribute_clear_started);
+            if (test.reentry == Reentry::ClearRemoval || test.reentry == Reentry::ClearDuplicate) reenter();
+        };
+        QIQI_TEST_CHECK(HandleCompositionCleanupTermination(registry, 97, composition.Get(), 0, GUID_NULL));
+        QIQI_TEST_CHECK(cleanup->terminated && cleanup->finished == test.expect_finished &&
+                        cleanup->started == test.started && !cleanup->async_requested);
+        QIQI_TEST_CHECK(cleanup->context_removed ==
+                        (test.removed || test.reentry == Reentry::LookupRemoval || test.reentry == Reentry::ClearRemoval));
+        QIQI_TEST_CHECK(cleanup->attribute_clear_started == (test.attribute_started || test.clear_calls != 0));
+        QIQI_TEST_CHECK(context->get_property_calls_ == test.property_calls &&
+                        context->prop_->clear_calls_ == test.clear_calls &&
+                        reentries == (test.reentry == Reentry::None ? 0u : 1u));
+        QIQI_TEST_CHECK(HandleCompositionCleanupTermination(registry, 101, composition.Get(), 0, GUID_NULL));
+        QIQI_TEST_CHECK(context->get_property_calls_ == test.property_calls &&
+                        context->prop_->clear_calls_ == test.clear_calls &&
+                        cleanup->finished == test.expect_finished);
+        QIQI_TEST_CHECK(composition->end_composition_calls_ == 0 && !composition->ended_ &&
+                        context->request_edit_session_calls_ == 0 && context->range_->set_text_calls_ == 0);
+        QIQI_TEST_CHECK(registry.TrackedCount() == 1 && registry.FindComposition(composition.Get()) == cleanup);
+        context->get_property_callback_ = {};
+        context->prop_->clear_callback_ = {};
+    }
+    {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        auto cleanup = std::make_shared<CompositionCleanup>();
+        cleanup->id = 1;
+        cleanup->context = context;
+        cleanup->composition = composition;
+        cleanup->range = context->range_;
+        const std::weak_ptr<CompositionCleanup> released = cleanup;
+        CompositionCleanupRegistry registry;
+        registry.Track(cleanup);
+        context->prop_->clear_callback_ = [&](TfEditCookie ec) {
+            QIQI_TEST_CHECK(ec == 103);
+            registry.MarkContextRemoved(context.Get(), 0, GUID_NULL);
+            QIQI_TEST_CHECK(!registry.FindPending(context.Get()) && registry.TrackedCount() == 0);
+            cleanup.reset();
+            QIQI_TEST_CHECK(!released.expired());
+        };
+        QIQI_TEST_CHECK(HandleCompositionCleanupTermination(registry, 103, composition.Get(), 0, GUID_NULL));
+        QIQI_TEST_CHECK(released.expired() && context->prop_->clear_calls_ == 1 &&
+                        composition->end_composition_calls_ == 0 && context->request_edit_session_calls_ == 0);
+        context->prop_->clear_callback_ = {};
+    }
+    {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        CompositionCleanupRegistry registry;
+        auto cleanup = std::make_shared<CompositionCleanup>();
+        cleanup->context = context;
+        registry.Track(cleanup);
+        QIQI_TEST_CHECK(!HandleCompositionCleanupTermination(registry, 107, nullptr, 0, GUID_NULL));
+        QIQI_TEST_CHECK(!cleanup->terminated && !cleanup->finished);
+        cleanup->composition = composition;
+        cleanup.reset();
+        QIQI_TEST_CHECK(!HandleCompositionCleanupTermination(registry, 107, composition.Get(), 0, GUID_NULL));
+        QIQI_TEST_CHECK(registry.TrackedCount() == 1 && context->get_property_calls_ == 0 &&
+                        context->prop_->clear_calls_ == 0);
     }
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
@@ -1155,6 +1294,7 @@ void TestDeactivationWindowLifecycle() {
     TestCompositionCleanupRegistry();
     TestCompositionCleanupExecution();
     TestCompositionCleanupRequests();
+    TestCompositionCleanupTermination();
     std::array<BYTE, 256> original_keyboard{};
     QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
     const auto restore_keyboard = gsl::finally([&]() noexcept {

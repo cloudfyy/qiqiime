@@ -63,4 +63,9 @@ private:
     std::vector<std::weak_ptr<CompositionCleanup>> records_;
 };
 
+// True means a tracked record consumed the notification, not that host cleanup succeeded.
+[[nodiscard]] bool HandleCompositionCleanupTermination(
+    const CompositionCleanupRegistry& registry, TfEditCookie ec, const ITfComposition* composition,
+    uint64_t service_id, const GUID& lifecycle_activity);
+
 } // namespace qiqi

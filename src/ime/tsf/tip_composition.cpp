@@ -40,41 +40,9 @@ bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
 // ITfCompositionSink: called when the host application forcefully terminates composition
 // (e.g. user clicked elsewhere, switched Excel cell, or DOM re-rendered)
 STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfComposition* pComposition) {
-    {
-        const auto cleanup = composition_cleanups_.FindComposition(pComposition);
-        if (cleanup) {
-            if (cleanup->id == 0) {
-                cleanup->terminated = true;
-                cleanup->finished = true;
-                QIQI_LOG_ACT_INFO(
-                    log::Level::debug,
-                    log::Keyword::Lifecycle,
-                    &current_lifecycle_activity_,
-                    "TsfLifecycle(service={}, stage=composition-start-terminated)",
-                    service_log_id_);
-                return S_OK;
-            }
-            QIQI_LOG_ACT_INFO(
-                log::Level::debug,
-                log::Keyword::Composition,
-                &cleanup->activity_id,
-                "TsfCleanup(service={}, cleanup={}, stage=host-terminated, started={}, finished={}, duplicate={})",
-                cleanup->service_id, cleanup->id, cleanup->started, cleanup->finished, cleanup->terminated);
-            if (cleanup->terminated) {
-                return S_OK;
-            }
-            cleanup->terminated = true;
-            if (cleanup->context_removed) return S_OK;
-            if (!cleanup->attribute_clear_started && cleanup->range) {
-                const HRESULT clear_hr = ClearCompositionDisplayAttribute(
-                    ecWrite, gsl::not_null<ITfContext*>(cleanup->context.Get()),
-                    gsl::not_null<ITfRange*>(cleanup->range.Get()),
-                    [&cleanup]() noexcept { return !cleanup->context_removed; }, &cleanup->attribute_clear_started);
-                cleanup->LogResult("host-attribute-clear", clear_hr);
-            }
-            if (!cleanup->started) cleanup->finished = true;
-            return S_OK;
-        }
+    if (HandleCompositionCleanupTermination(
+            composition_cleanups_, ecWrite, pComposition, service_log_id_, current_lifecycle_activity_)) {
+        return S_OK;
     }
     if (pComposition && pComposition != composition_.Get()) {
         QIQI_LOG_ACT_INFO(

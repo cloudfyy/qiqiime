@@ -513,6 +513,7 @@ public:
     STDMETHODIMP EnumViews(IEnumTfContextViews**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetStatus(TF_STATUS*) noexcept override { return S_OK; }
     STDMETHODIMP GetProperty(REFGUID, ITfProperty** ppv) override {
+        ++get_property_calls_;
         if (!ppv) return E_INVALIDARG;
         if (return_null_property_) {
             *ppv = nullptr;
@@ -624,6 +625,7 @@ public:
     bool in_immediate_write_session_ = false;
     std::weak_ptr<MockDocumentLink> document_link_;
     HRESULT get_property_result_ = S_OK;
+    unsigned int get_property_calls_ = 0;
     bool return_null_property_ = false;
     HRESULT async_edit_session_result_ = S_OK;
     unsigned int get_active_view_calls_ = 0;

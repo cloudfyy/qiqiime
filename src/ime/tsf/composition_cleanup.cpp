@@ -184,6 +184,41 @@ void RequestCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, TfCl
     }
 }
 
+bool HandleCompositionCleanupTermination(
+    const CompositionCleanupRegistry& registry, TfEditCookie ec, const ITfComposition* composition,
+    uint64_t service_id, const GUID& lifecycle_activity) {
+    const auto cleanup = registry.FindComposition(composition);
+    if (!cleanup) return false;
+    if (cleanup->id == 0) {
+        cleanup->terminated = true;
+        cleanup->finished = true;
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Lifecycle,
+            &lifecycle_activity,
+            "TsfLifecycle(service={}, stage=composition-start-terminated)",
+            service_id);
+        return true;
+    }
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Composition,
+        &cleanup->activity_id,
+        "TsfCleanup(service={}, cleanup={}, stage=host-terminated, started={}, finished={}, duplicate={})",
+        cleanup->service_id, cleanup->id, cleanup->started, cleanup->finished, cleanup->terminated);
+    if (cleanup->terminated) return true;
+    cleanup->terminated = true;
+    if (cleanup->context_removed) return true;
+    if (!cleanup->attribute_clear_started && cleanup->range) {
+        const HRESULT clear_hr = ClearCompositionDisplayAttribute(
+            ec, gsl::not_null<ITfContext*>(cleanup->context.Get()), gsl::not_null<ITfRange*>(cleanup->range.Get()),
+            [&cleanup]() noexcept { return !cleanup->context_removed; }, &cleanup->attribute_clear_started);
+        cleanup->LogResult("host-attribute-clear", clear_hr);
+    }
+    if (!cleanup->started) cleanup->finished = true;
+    return true;
+}
+
 void CompositionCleanupRegistry::Track(const std::shared_ptr<CompositionCleanup>& cleanup) {
     Expects(cleanup != nullptr);
     records_.push_back(cleanup);
