@@ -1,4 +1,5 @@
 #pragma once
+#include "ime/comp/cleanup.h"
 #include "ime/engine/engine.h"
 #include "ime/tsf/edit_session.h"
 #include <gsl/gsl>
@@ -32,6 +33,33 @@ private:
     KeyProcessResult snapshot_;
     EditSessionTicket ticket_;
     GUID activity_;
+};
+
+enum class CompositionEditDisposition { Discard, Requeue, Execute };
+
+// Synchronous scope: borrows the task and activity slot, never the service or edit cookie.
+class CompositionEditScope {
+public:
+    CompositionEditScope(const CompositionEditTask& task, GUID& activity) noexcept
+        : task_(task), activity_(activity), previous_activity_(std::exchange(activity, task.Activity())) {}
+    ~CompositionEditScope() noexcept { activity_ = previous_activity_; }
+    CompositionEditScope(const CompositionEditScope&) = delete;
+    CompositionEditScope& operator=(const CompositionEditScope&) = delete;
+    CompositionEditScope(CompositionEditScope&&) = delete;
+    CompositionEditScope& operator=(CompositionEditScope&&) = delete;
+
+    template <typename IsCurrent>
+    [[nodiscard]] CompositionEditDisposition Check(
+        CompositionCleanupCoordinator& cleanups, IsCurrent is_current) const {
+        if (!is_current(task_.Ticket())) return CompositionEditDisposition::Discard;
+        return cleanups.HasPending(task_.Context().Get(), activity_)
+            ? CompositionEditDisposition::Requeue : CompositionEditDisposition::Execute;
+    }
+
+private:
+    const CompositionEditTask& task_;
+    GUID& activity_;
+    const GUID previous_activity_;
 };
 
 } // namespace qiqi

@@ -317,14 +317,14 @@ HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const Co
     const auto& result = task.Snapshot();
     const auto ticket = task.Ticket();
     const auto& edit_act_id = task.Activity();
-    const GUID prev_act = std::exchange(current_lifecycle_activity_, edit_act_id);
-    const auto restore_act = gsl::finally([this, prev_act]() noexcept {
-        current_lifecycle_activity_ = prev_act;
+    const CompositionEditScope scope(task, current_lifecycle_activity_);
+    const auto disposition = scope.Check(composition_cleanups_, [this](EditSessionTicket expected) noexcept {
+        return IsEditSessionCurrent(expected);
     });
-    if (!IsEditSessionCurrent(ticket)) {
+    if (disposition == CompositionEditDisposition::Discard) {
         return S_OK;
     }
-    if (composition_cleanups_.HasPending(ctx_holder.Get(), current_lifecycle_activity_)) {
+    if (disposition == CompositionEditDisposition::Requeue) {
         QIQI_LOG_ACT_INFO(
             log::Level::debug,
             log::Keyword::Composition,

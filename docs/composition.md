@@ -32,6 +32,22 @@ Each service maintains:
 
 `ResetContextAndUI` invalidates the old context **before** removing COM subscriptions, releasing the composition, or clearing UI. After switching targets, the caller checks for reentrant invalidation again before submitting a new request. An epoch is not a per-key sequence number: normal writes within one epoch still execute in FIFO order, rather than retaining only the latest write.
 
+[`CompositionEditTask`](../src/ime/comp/edit.h) owns the captured context, immutable
+result snapshot, original ticket, and activity ID. Its synchronous
+`CompositionEditScope` borrows that task and the service's activity slot: both must
+outlive the scope. It switches to the task activity on entry and restores the
+previous activity on every exit, including nested callbacks and early returns.
+The scope cannot be copied or moved and retains no service or edit cookie.
+
+The scope's `Check` first invokes the original ticket predicate. A stale task
+returns `Discard` without querying or pruning cleanup records. Only a current
+task checks the existing same-context cleanup barrier: unfinished unpublished or
+ordinary cleanup returns `Requeue`; otherwise it returns `Execute`. The service
+still logs and resubmits the original snapshot when requeued, and alone dispatches
+cancel/commit/update and UI work. No host operation or request runs inside this
+scope helper. `Execute` is only an entry decision, not a replacement for the
+identity checks between subsequent host calls.
+
 ### 2.1 In-Flight Host Calls
 
 Entry checks alone are insufficient. `GetRange`, text writes, range cloning and
