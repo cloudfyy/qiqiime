@@ -2,18 +2,19 @@
 
 #include "tools/dict_manager/window.h"
 #include "tools/dict_manager/model.h"
+#include "tools/dict_manager/editor.h"
 #include "common/d2d_controls.h"
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/command_ui.h"
 
 #include <commctrl.h>
-#include <optional>
 
 namespace qiqi::dict_manager {
 
 struct DictManagerWindow::Impl {
     DictManagerModel model;
+    DictEditor editor;
     FluentD2DThemeContext theme;
     ScopedGdiHandle<HFONT> font;
     ScopedIcon small_icon;
@@ -32,13 +33,9 @@ struct DictManagerWindow::Impl {
     bool updating_rows = false;
     bool updating_filters = false;
     bool updating_editor = false;
-    bool editing = false;
-    bool editor_dirty = false;
-    bool code_edited = false;
     bool ime_composing = false;
     int editing_row = -1;
     int pressed_edit_row = -1;
-    std::optional<DictRecord> edit_original;
 
     HWND Child(ControlId id) const noexcept { return ::GetDlgItem(hwnd, std::to_underlying(id)); }
     const wchar_t* Text(const wchar_t* zh, const wchar_t* en) const noexcept {
@@ -101,9 +98,10 @@ struct DictManagerWindow::Impl {
     void BeginEdit(int row, int column);
     void BeginNew();
     void CancelEditing(bool focus_list = true);
-    void UpdateEditorState();
+    void UpdateEditorState(CodeChange change = CodeChange::Automatic);
     void PositionEditor() noexcept;
     void UpdateCommandState() noexcept;
+    bool CanExecute(ControlId id) const noexcept;
     [[nodiscard]] const DictRecord* FindOriginal() const noexcept;
     void AutoFillCodeFromWord();
     void ExecuteAddOrUpdate();

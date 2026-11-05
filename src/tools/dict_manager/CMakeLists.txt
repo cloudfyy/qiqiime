@@ -1,5 +1,6 @@
 set(QIQI_DICT_MANAGER_SOURCES
     model.h model.cpp
+    editor.h editor.cpp
     window.h internal.h window.cpp
 )
 add_library(qiqi_dict_manager STATIC ${QIQI_DICT_MANAGER_SOURCES})

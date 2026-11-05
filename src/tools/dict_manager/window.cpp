@@ -192,7 +192,7 @@ LRESULT CALLBACK DictManagerWindow::Impl::ListProcedure(
             } else if (wparam == VK_F2) {
                 self->BeginEdit(ListView_GetNextItem(window, -1, LVNI_FOCUSED), std::to_underlying(ColumnId::Word));
                 return 0;
-            } else if (wparam == VK_ESCAPE && self->editing) {
+            } else if (wparam == VK_ESCAPE && self->editor.Active()) {
                 self->CancelEditing();
                 return 0;
             }
@@ -520,7 +520,7 @@ void DictManagerWindow::Impl::RebuildRows() {
             next.push_back(rec.id);
         }
     }
-    if (editing) {
+    if (editor.Active()) {
         const auto* original = FindOriginal();
         const auto row = original ? std::ranges::find(next, original->id) : next.end();
         if (row != next.end()) {
@@ -537,7 +537,7 @@ void DictManagerWindow::Impl::RebuildRows() {
     selected_ids.clear();
     selected_id = 0;
     ::InvalidateRect(list, nullptr, FALSE);
-    if (editing) {
+    if (editor.Active()) {
         ListView_SetItemState(list, editing_row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
     }
     PositionEditor();
@@ -572,32 +572,40 @@ void DictManagerWindow::Impl::SelectAllRows() {
 }
 
 const DictRecord* DictManagerWindow::Impl::FindOriginal() const noexcept {
-    if (!edit_original) return nullptr;
-    const auto& records = model.Records();
-    const auto found = std::ranges::find_if(records, [&](const DictRecord& rec) {
-        return rec.source == edit_original->source && rec.code == edit_original->code && rec.word == edit_original->word;
-    });
-    return found == records.end() ? nullptr : &*found;
+    return editor.FindOriginal(model.Records());
+}
+
+bool DictManagerWindow::Impl::CanExecute(ControlId id) const noexcept {
+    switch (id) {
+        case NewWord: return editor.CanExecute(EditorCommand::NewWord);
+        case SaveWord: return editor.CanExecute(EditorCommand::Save);
+        case CancelEdit: return editor.CanExecute(EditorCommand::Cancel);
+        case AutoCode: return editor.CanExecute(EditorCommand::AutoCode);
+        case Reload:
+        case Import:
+        case Restore:
+        case Pin:
+        case Delete:
+        case Promote:
+        case ClearFreq: return editor.CanExecute(EditorCommand::ChangeRecords);
+        default: return true;
+    }
 }
 
 void DictManagerWindow::Impl::UpdateCommandState() noexcept {
-    for (const auto id : {Reload, NewWord, Import, Restore, Pin, Delete, Promote, ClearFreq}) {
-        ::EnableMenuItem(::GetMenu(hwnd), std::to_underlying(id), MF_BYCOMMAND | (editing ? MF_GRAYED : MF_ENABLED));
-        ::SendMessageW(Child(Toolbar), TB_ENABLEBUTTON, std::to_underlying(id), MAKELONG(!editing, 0));
+    for (const auto id : {Reload, NewWord, Import, Restore, Pin, Delete, Promote, ClearFreq, SaveWord, CancelEdit, AutoCode}) {
+        const bool enabled = CanExecute(id);
+        ::EnableMenuItem(::GetMenu(hwnd), std::to_underlying(id), MF_BYCOMMAND | (enabled ? MF_ENABLED : MF_GRAYED));
+        ::SendMessageW(Child(Toolbar), TB_ENABLEBUTTON, std::to_underlying(id), MAKELONG(enabled, 0));
     }
-    for (const auto id : {SaveWord, CancelEdit, AutoCode}) {
-        ::EnableMenuItem(::GetMenu(hwnd), std::to_underlying(id), MF_BYCOMMAND | (editing ? MF_ENABLED : MF_GRAYED));
-    }
+    ::SendMessageW(Child(InlineSave), TB_ENABLEBUTTON, std::to_underlying(SaveWord), MAKELONG(CanExecute(SaveWord), 0));
 }
 
-void DictManagerWindow::Impl::UpdateEditorState() {
-    const auto word = ReadWindowTextString(Child(EditWordInput));
-    const auto code = ReadWindowTextString(Child(EditCodeInput));
-    const bool dirty = editing && (edit_original
-        ? word != edit_original->word || code != edit_original->code
-        : !word.empty() || !code.empty());
-    if (editor_dirty == dirty) return;
-    editor_dirty = dirty;
+void DictManagerWindow::Impl::UpdateEditorState(CodeChange change) {
+    const bool dirty = editor.Dirty();
+    editor.ChangeWord(ReadWindowTextString(Child(EditWordInput)));
+    editor.ChangeCode(ReadWindowTextString(Child(EditCodeInput)), change);
+    if (editor.Dirty() == dirty) return;
     ListView_RedrawItems(Child(List), editing_row, editing_row);
     UpdateStatus();
 }
@@ -606,7 +614,7 @@ void DictManagerWindow::Impl::PositionEditor() noexcept {
     const auto hide = [&]() noexcept {
         for (const auto id : {EditCodeInput, EditWordInput, InlineSave}) ::ShowWindow(Child(id), SW_HIDE);
     };
-    if (!editing || editing_row < 0) {
+    if (!editor.Active() || editing_row < 0) {
         hide();
         return;
     }
@@ -646,7 +654,7 @@ void DictManagerWindow::Impl::PositionEditor() noexcept {
 }
 
 void DictManagerWindow::Impl::BeginEdit(int row, int column) {
-    if (editing && row == editing_row) {
+    if (editor.Active() && row == editing_row) {
         ListView_EnsureVisible(Child(List), editing_row, FALSE);
         PositionEditor();
         ::SetFocus(Child(column == std::to_underlying(ColumnId::Code) ? EditCodeInput : EditWordInput));
@@ -655,13 +663,10 @@ void DictManagerWindow::Impl::BeginEdit(int row, int column) {
     if (row < 0 || gsl::narrow_cast<size_t>(row) >= rows.size()) return;
     const auto* record = model.FindById(gsl::at(rows, gsl::narrow_cast<size_t>(row)));
     if (!record) return;
-    const bool discard_new = editing && !edit_original;
+    const bool discard_new = editor.Mode() == EditorMode::NewDraft;
     const int previous_row = editing_row;
-    edit_original = *record;
-    editing = true;
-    editor_dirty = false;
+    editor.BeginExisting(*record);
     editing_row = row;
-    code_edited = false;
     ime_composing = false;
     if (discard_new) {
         RebuildRows();
@@ -675,9 +680,9 @@ void DictManagerWindow::Impl::BeginEdit(int row, int column) {
     UpdateCommandState();
     ListView_EnsureVisible(Child(List), editing_row, FALSE);
     PositionEditor();
-    const HWND editor = Child(column == std::to_underlying(ColumnId::Code) ? EditCodeInput : EditWordInput);
-    ::SetFocus(editor);
-    ::SendMessageW(editor, EM_SETSEL, 0, -1);
+    const HWND input = Child(column == std::to_underlying(ColumnId::Code) ? EditCodeInput : EditWordInput);
+    ::SetFocus(input);
+    ::SendMessageW(input, EM_SETSEL, 0, -1);
     last_message = record->source == DictEntrySource::UserDict
         ? Text(L"行内编辑：Enter 保存，Esc 取消。", L"Inline edit: Enter to save, Esc to cancel.")
         : Text(L"行内编辑：另存为用户词条；Enter 保存，Esc 取消。", L"Inline edit: save as a user word; Enter to save, Esc to cancel.");
@@ -685,19 +690,18 @@ void DictManagerWindow::Impl::BeginEdit(int row, int column) {
 }
 
 void DictManagerWindow::Impl::BeginNew() {
-    if (editing) {
+    if (editor.Active()) {
         BeginEdit(editing_row, std::to_underlying(ColumnId::Word));
         return;
     }
-    editing = true;
-    editor_dirty = false;
-    edit_original.reset();
+    if (!editor.BeginNew()) return;
     editing_row = 0;
-    code_edited = false;
-    updating_editor = true;
-    ::SetWindowTextW(Child(EditWordInput), L"");
-    ::SetWindowTextW(Child(EditCodeInput), L"");
-    updating_editor = false;
+    {
+        updating_editor = true;
+        const auto restore = gsl::finally([this]() noexcept { updating_editor = false; });
+        ::SetWindowTextW(Child(EditWordInput), L"");
+        ::SetWindowTextW(Child(EditCodeInput), L"");
+    }
     RebuildRows();
     UpdateCommandState();
     ListView_EnsureVisible(Child(List), editing_row, FALSE);
@@ -709,10 +713,8 @@ void DictManagerWindow::Impl::BeginNew() {
 }
 
 void DictManagerWindow::Impl::CancelEditing(bool focus_list) {
-    if (!editing) return;
-    editing = false;
-    editor_dirty = false;
-    edit_original.reset();
+    if (!editor.Active()) return;
+    editor.Cancel();
     editing_row = -1;
     ime_composing = false;
     RebuildRows();
@@ -724,7 +726,7 @@ void DictManagerWindow::Impl::CancelEditing(bool focus_list) {
 }
 
 void DictManagerWindow::Impl::Tick() {
-    if (editing) return;
+    if (editor.Active()) return;
     if (model.PollExternalChanges()) {
         RebuildRows();
         UpdateStatus();
@@ -735,7 +737,7 @@ void DictManagerWindow::Impl::UpdateStatus() {
     auto status = std::format(
         L"{}: {} / {} | {}: {} | {}: {} | {}: {} | {}: {} | {}: {}",
         Text(L"当前显示", L"Visible"),
-        rows.size() - (editing && std::ranges::find(rows, uint64_t{0}) != rows.end() ? 1 : 0),
+        rows.size() - (editor.Active() && std::ranges::find(rows, uint64_t{0}) != rows.end() ? 1 : 0),
         model.Records().size(),
         Text(L"用户词", L"User"),
         model.UserEntryCount(),
@@ -750,7 +752,7 @@ void DictManagerWindow::Impl::UpdateStatus() {
     if (!last_message.empty()) {
         status = last_message + L" | " + status;
     }
-    if (editor_dirty) {
+    if (editor.Dirty()) {
         status = std::wstring(Text(L"* 未保存的更改", L"* Unsaved changes")) + L" | " + status;
     }
     ::SetWindowTextW(Child(Status), status.c_str());
@@ -813,12 +815,12 @@ LRESULT DictManagerWindow::Impl::Notify(NMHDR& header) {
         if ((info.item.mask & LVIF_TEXT) && info.item.iItem >= 0 &&
             gsl::narrow_cast<size_t>(info.item.iItem) < rows.size()) {
             const auto id = gsl::at(rows, gsl::narrow_cast<size_t>(info.item.iItem));
-            const auto* rec = id == 0 && edit_original ? &*edit_original : model.FindById(id);
+            const auto* rec = id == 0 && editor.Original() ? editor.Original() : model.FindById(id);
             {
                 auto text = rec ? Cell(*rec, info.item.iSubItem)
                     : (info.item.iSubItem == std::to_underlying(ColumnId::Source)
                         ? Text(L"新增用户词", L"New User Word") : L"");
-                if (editor_dirty && info.item.iItem == editing_row &&
+                if (editor.Dirty() && info.item.iItem == editing_row &&
                     info.item.iSubItem == std::to_underlying(ColumnId::Source)) {
                     text.insert(0, L"* ");
                 }
@@ -875,7 +877,7 @@ std::vector<DictRecord> DictManagerWindow::Impl::CollectSelectedRecords() const 
 }
 
 void DictManagerWindow::Impl::AutoFillCodeFromWord() {
-    if (!editing) return;
+    if (!editor.CanExecute(EditorCommand::AutoCode)) return;
     const std::wstring word = ReadWindowTextString(Child(EditWordInput));
     const std::wstring auto_code = model.ComputeAutoCode(word);
     updating_editor = true;
@@ -885,41 +887,37 @@ void DictManagerWindow::Impl::AutoFillCodeFromWord() {
 }
 
 void DictManagerWindow::Impl::ExecuteAddOrUpdate() {
-    if (!editing || ime_composing) return;
-    if (edit_original && !editor_dirty) {
+    if (!editor.CanExecute(EditorCommand::Save) || ime_composing) return;
+    UpdateEditorState();
+    if (editor.PrepareSave(model.Records()) == EditorSaveAction::Unchanged) {
         CancelEditing();
         last_message = Text(L"内容未修改，无需保存。", L"No changes to save.");
         UpdateStatus();
         return;
     }
-    const std::wstring word = ReadWindowTextString(Child(EditWordInput));
-    std::wstring code = ReadWindowTextString(Child(EditCodeInput));
-    if (code.empty() && !word.empty() && !edit_original && !code_edited) {
-        code = model.ComputeAutoCode(word);
-        if (!code.empty()) {
-            ::SetWindowTextW(Child(EditCodeInput), code.c_str());
-        }
+    if (editor.Code().empty() && !editor.Word().empty() && editor.WantsAutomaticCode()) {
+        AutoFillCodeFromWord();
     }
     if (model.PollExternalChanges()) RebuildRows();
-    if (edit_original && !FindOriginal()) {
+    const auto action = editor.PrepareSave(model.Records());
+    if (action == EditorSaveAction::MissingOriginal) {
         last_message = Text(L"原词条已被其他进程修改或删除；草稿已保留，请取消后重新编辑。",
             L"The original entry changed or was removed externally; draft preserved. Cancel and edit again.");
         UpdateStatus();
         return;
     }
     bool ok = false;
-    if (edit_original && edit_original->source == DictEntrySource::UserDict) {
-        ok = model.ReplaceUserEntry(edit_original->code, edit_original->word, code, word);
+    if (action == EditorSaveAction::ReplaceUser) {
+        const auto* original = editor.Original();
+        ok = model.ReplaceUserEntry(original->code, original->word, editor.Code(), editor.Word());
     } else {
-        ok = model.AddOrUpdateUserEntry(code, word);
+        ok = model.AddOrUpdateUserEntry(editor.Code(), editor.Word());
     }
+    editor.CompleteSave(ok);
     if (!ok) {
         last_message = Text(L"保存失败，草稿已保留；请检查编码、词条及外部更改。",
             L"Save failed; draft preserved. Check code, word and external changes.");
     } else {
-        editing = false;
-        editor_dirty = false;
-        edit_original.reset();
         editing_row = -1;
         last_message = Text(L"已保存用户词条并同步", L"Saved user entry and synchronized");
         RebuildRows();
@@ -1033,7 +1031,7 @@ void DictManagerWindow::Impl::ShowListContextMenu(POINT screen_pt) {
         if (id == Copy) text += L"\tCtrl+C";
         if (id == SelectAll) text += L"\tCtrl+A";
         if (id == Delete) text += L"\tDel";
-        const bool enabled = (id == SelectAll ? !rows.empty() : has_sel) && (!editing || id == Copy || id == SelectAll);
+        const bool enabled = (id == SelectAll ? !rows.empty() : has_sel) && CanExecute(id);
         if (!::AppendMenuW(menu.Get(), MF_STRING | (enabled ? MF_ENABLED : MF_GRAYED),
                 std::to_underlying(id), text.c_str())) {
             ThrowUiError("AppendMenuW", ::GetLastError());
@@ -1155,10 +1153,11 @@ void DictManagerWindow::Impl::RestoreBundleDialog() {
 }
 
 void DictManagerWindow::Impl::Command(int id, int notification) {
-    if (editing && std::ranges::contains(std::array{Reload, NewWord, Import, Restore, Pin, Delete, Promote, ClearFreq},
-            gsl::narrow_cast<ControlId>(id))) {
-        last_message = Text(L"请先保存当前编辑，或按 Esc 取消。", L"Save the current edit or press Esc to cancel first.");
-        UpdateStatus();
+    if (!CanExecute(gsl::narrow_cast<ControlId>(id))) {
+        if (editor.Active()) {
+            last_message = Text(L"请先保存当前编辑，或按 Esc 取消。", L"Save the current edit or press Esc to cancel first.");
+            UpdateStatus();
+        }
         return;
     }
     switch (gsl::narrow_cast<ControlId>(id)) {
@@ -1202,27 +1201,26 @@ void DictManagerWindow::Impl::Command(int id, int notification) {
         std::ignore = ShowAboutDialog(instance, hwnd, ui_language, true);
         break;
     case SourceCombo:
-        if (editing && notification == CBN_SETFOCUS) CancelEditing(false);
-        if (!editing && !updating_filters && notification == CBN_SELCHANGE) {
+        if (editor.Active() && notification == CBN_SETFOCUS) CancelEditing(false);
+        if (!editor.Active() && !updating_filters && notification == CBN_SELCHANGE) {
             Refilter();
         }
         break;
     case SearchEdit:
-        if (editing && notification == EN_SETFOCUS) CancelEditing(false);
-        if (!editing && !updating_filters && notification == EN_CHANGE) {
+        if (editor.Active() && notification == EN_SETFOCUS) CancelEditing(false);
+        if (!editor.Active() && !updating_filters && notification == EN_CHANGE) {
             Refilter();
         }
         break;
     case EditWordInput:
-        if (editing && !updating_editor && notification == EN_CHANGE) {
-            if (!edit_original && !code_edited) AutoFillCodeFromWord();
+        if (editor.Active() && !updating_editor && notification == EN_CHANGE) {
+            if (editor.WantsAutomaticCode()) AutoFillCodeFromWord();
             else UpdateEditorState();
         }
         break;
     case EditCodeInput:
-        if (editing && !updating_editor && notification == EN_CHANGE) {
-            code_edited = true;
-            UpdateEditorState();
+        if (editor.Active() && !updating_editor && notification == EN_CHANGE) {
+            UpdateEditorState(CodeChange::Manual);
         }
         break;
     case AutoCode:

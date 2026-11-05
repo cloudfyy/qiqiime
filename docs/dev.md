@@ -437,3 +437,11 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **只合并可编辑字段**：[`MergeSettingsConfig`](../src/common/config.cpp) 在外部配置副本上覆盖相对基线确已修改的可编辑标量；不分配内存、不复制路径。窗口实际控件绑定、读写、布局及语言刷新继续由 [`controls.cpp`](../src/tools/settings/controls.cpp) 维护。增加控件时同步检查投影标志和真实窗口矩阵，不扩大隐藏字段的编辑范围。
 - **选择与执行分离**：[`GetBundledDictionaryLoadPlan`](../src/common/config.h) 只返回自带主词库、扩展词库的角色、文件名及加载顺序；三种主词库与扩展开关共有六种组合。IME 和工具分别执行，继续复用 `ResolveBundledDataFile` 的路径查找和现有映射缓存；用户来源及 IME 注册表回退不搬入纯计划。
 - **验证入口**：[`公共测试`](../tests/common/common.cpp) 检查格式键集合、注册表策略、逐字段合并和计划矩阵；[`设置测试`](../tests/tools/settings/save.cpp) 覆盖 19 个可编辑字段各自的干净/已编辑窗口；[`词库工具测试`](../tests/tools/dict_manager/main.cpp) 覆盖备份投影及来源/顺序、相对用户路径、缺失文件和缓存复用；[`TSF 测试`](../tests/ime/tsf/service.cpp) 保留用户来源回退与生命周期验证，不替代真实 AppContainer 或宿主验收。
+
+### 5.18 词库编辑草稿与窗口边界（R02）
+
+- **草稿唯一所有者**：[`DictEditor`](../src/tools/dict_manager/editor.h) 以 variant 表达 Browsing / NewDraft / ExistingDraft，拥有词条、编码和原项副本。不要在 View 新增与其重复的编辑、脏状态或手动编码标志；脏状态由文本是否恢复原值决定。
+- **先决策再执行**：[`PrepareSave`](../src/tools/dict_manager/editor.cpp) 区分未编辑、无修改、原项缺失、添加和替换；原项身份按来源/编码/词条核对，不依赖刷新后可能变动的行 ID。窗口先同步外部记录，再执行需要写入的计划；`CompleteSave(false)` 保留草稿，成功才退出。词条/编码规范化和落盘校验仍由已有模型处理。
+- **编码接管**：只有未手动改码的新建草稿随词条变化自动取码；已有项不自动覆盖编码。主动“自动取码”可更新当前编码，但不清除已经接管的手动模式。取消或重新开始新建草稿时才重置该状态。
+- **窗口保留控件职责**：[`window.cpp`](../src/tools/dict_manager/window.cpp) 将控件变化送入草稿，菜单、工具栏、右键菜单与命令分派复用命令许可。IME 组合态、通知更新守卫、鼠标捕获、焦点与编辑行位置留在 View；组合态 Enter/Esc 不提交或取消草稿。
+- **测试**：[`词库工具测试`](../tests/tools/dict_manager/main.cpp) 同时包含不创建窗口的状态/保存动作矩阵和真实窗口回归，检查失败保留、原项外部删除后不复活、行 ID 重排、编码接管、筛选切换、主题/DPI 与组合态按键。未引入 Undo、跨资源事务或新的 TSF 生命周期抽象。
