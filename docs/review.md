@@ -1,0 +1,255 @@
+# 设计模式优化扫描报告
+
+日期：2026-11-05
+
+对象：当前工作树，包含尚未提交的修改。
+
+范围：公共基础设施、输入引擎/FSM、TSF 生命周期、设置、词库管理器、日志监控器及相关测试。
+
+本报告依据实际源码、C++ 符号引用与现有测试，区分已确认的控制流风险和结构性改进机会。不修改业务代码，不把“大文件”“switch 多”直接等同于需要引入设计模式；未进行恢复失败故障注入、性能基准或新的真实宿主验收。
+
+## 1. 结论与优先级
+
+最有价值的方向不是增加继承层次，而是把**恢复工作流、同步批次发布、编辑状态和配置字段规则**变成明确、可独立测试的对象或值。
+
+| 编号 | 优先级 | 位置/问题 | 建议模式 | 收益 | 实施风险 |
+|---|---|---|---|---|---|
+| R01 | P1 | 备份恢复混合解析、配置保存、删除和逐项写入，结果可能掩盖部分失败 | 分阶段工作流 + Unit of Work；必要时配合 Memento/补偿 | 避免错误成功提示，明确数据恢复边界 | 中；真正跨资源事务为高 |
+| R02 | P2 | 词库行内编辑的状态、业务决策和 HWND 操作交织 | MVP/Presentation Model + 值类型状态 + 轻量 Command | 降低 GUI 耦合，便于测试复杂交互 | 中 |
+| R03 | P2 | 配置字段规则分散在注册表、备份、UI 合并中 | 类型化字段描述表与投影 | 降低新增配置漏接线概率 | 低至中 |
+| R04 | P2 | IME 和词库管理器分别选择主词库及扩展词库 | 策略式加载计划，先用纯函数实现 | 统一选择规则，保留各宿主加载差异 | 低至中 |
+| R05 | P2，后置 | TSF 服务承担多种接口及编辑、清理、UI 生命周期协调 | Facade + 内部组合协调器，收敛已有 Command 快照 | 集中生命周期不变量 | 高 |
+| R06 | P1；整体拆分后置 | 同步批次逐项修改当前内存，后续失败不自动撤销前项 | 候选快照事务 + Adapter；Store Facade 可后置 | 失败不留下部分更新，改善失败路径测试 | 中；整体存储拆分为高 |
+
+P1 表示应优先评估的可靠性问题，不是安全漏洞评级。MVP、Repository、Unit of Work 属于架构/应用模式；字段描述表属于数据驱动设计，不能都冠以 GoF 模式名称。
+
+## 2. 已经合理使用的机制：保留而不是重写
+
+| 机制 | 代码证据 | 判断 |
+|---|---|---|
+| 表驱动 FSM + 轻量命令分派 | [transitions.h:10](../src/ime/fsm/transitions.h#L10)、[engine.cpp:474](../src/ime/engine/engine.cpp#L474) | 已有明确状态/事件与操作映射、处理器完整性静态断言；不建议改成每状态一个虚类 |
+| RAII 与作用域连接 | [ScopedTfSinkConnection](../src/common/com_object.h#L202)、[ScopedTfCompartment](../src/common/com_object.h#L248)、[scoped_handle.h](../src/common/scoped_handle.h) | 已集中处理资源释放和取消订阅；新增协调器应复用这些封装 |
+| 共享 UI 门面 | [ToolCommandUi](../src/common/command_ui.h#L48) | 已统一菜单、工具栏和图标；不应再为两个工具复制一套框架 |
+| 不可变词库共享，具有 Flyweight 特征 | [LoadFromTextOrCache](../src/ime/engine/binary_dict.cpp#L563) | 已有进程缓存与 `shared_ptr<const WubiMappedDict>`；多次调用加载入口不等于多次读取/解析词库 |
+| 传输与数据载荷适配分离 | [Channel](../src/common/change_sync.h#L43) | 通道不解释词库业务载荷，快照和增量通过回调提供；R06 应延续该边界 |
+| 显式单实例资源所有权 | [ShowSettingsDialog](../src/tools/settings/window.cpp#L471) | 当前由窗口入口统一持有互斥量；无需另建全局 Singleton |
+
+这些机制并不表示所有代码已经完全符合 Core Guidelines，但说明项目并不缺设计模式基础。
+
+## 3. 优化项详解
+
+### R01：备份恢复采用分阶段工作流和显式工作单元
+
+**证据**
+
+- [RestoreBackupBundle:613](../src/tools/dict_manager/model.cpp#L613) 同时负责格式/校验和检查、配置解释和后续落盘。
+- [model.cpp:700](../src/tools/dict_manager/model.cpp#L700) 先保存配置，再解析词库内容和执行恢复。
+- [model.cpp:710](../src/tools/dict_manager/model.cpp#L710) 的 Replace 分支删除现有文件/同步目录，并调用清空词频；部分错误未决定最终返回值。
+- 后续添加、置顶、屏蔽及词频操作仅在成功时增加计数；函数最终仍返回 `true`。
+- [RestoreBundleDialog:1084](../src/tools/dict_manager/window.cpp#L1084) 根据该布尔值显示“已恢复备份并同步”，未区分完整成功和部分成功。
+
+**判断**
+
+这是可以从控制流直接确认的风险：配置保存或某些恢复写入失败，不一定会使外层返回失败。尚未通过本轮故障注入确认具体环境中的最终文件状态，不应据此宣称已复现数据丢失。
+
+**建议结构**
+
+```text
+ParseAndValidate -> RestorePlan -> Prepare -> Apply -> RestoreResult
+                                      \-> 有条件的补偿/恢复
+```
+
+1. `RestorePlan` 保存已解析并验证的配置、词库规则、词频和 Merge/Replace 意图；构建计划不修改现有资源。
+2. `RestoreResult` 明确区分完整成功、部分成功、未应用失败、补偿失败，并保留失败阶段、真实错误码和应用计数。
+3. 工作单元协调配置、用户词库及词频参与者，避免 UI 自行拼接多个持久化操作。
+4. 若要求失败回滚，可用 Memento 保存必要的前态；补偿必须检查版本，不能覆盖其他进程刚提交的数据。
+5. 优先做结果显性化和阶段拆分；是否把现有“尽力恢复”改成“全有或全无”属于行为决策，应另行确认。
+
+**重要限制**
+
+注册表、多个文件和同步 journal 不会因为使用 RAII 或 `UnitOfWork` 类名就变成原子事务。单文件原子替换也不等于整个恢复原子化。若要求进程崩溃后恢复一致性，还需要持久化恢复记录、并发协调和重启恢复协议，不能只在析构函数中尝试写回旧文件。
+
+**测试**
+
+现有 [备份恢复测试](../tests/tools/dict_manager/main.cpp#L474) 已覆盖校验和拒绝、正常 Replace/Merge 和配置回读；不是“没有恢复测试”。符号引用显示现有直接调用主要覆盖这三类场景。
+
+应补充：配置保存失败、用户词库写入失败、词频写入失败、Replace 删除/准备失败、部分操作成功后的结果与 UI 提示，以及并发修改时补偿不得覆盖新数据。先通过文件锁/隔离注册表构造失败；确有必要时再增加窄的持久化适配测试接口。
+
+### R02：词库编辑采用 MVP 和显式草稿状态
+
+**证据**
+
+- [DictManagerWindow::Impl:15](../src/tools/dict_manager/internal.h#L15) 同时持有模型、控件/主题、选中行、草稿、多个编辑标志和命令处理。
+- [BeginEdit:613](../src/tools/dict_manager/window.cpp#L613)、[CancelEditing:676](../src/tools/dict_manager/window.cpp#L676)、[ExecuteAddOrUpdate:852](../src/tools/dict_manager/window.cpp#L852) 都同时处理状态转换、业务调用及控件更新。
+- [Command:1132](../src/tools/dict_manager/window.cpp#L1132) 需要与 [UpdateCommandState:548](../src/tools/dict_manager/window.cpp#L548) 分别维护编辑期间允许的操作。
+- [FindOriginal:539](../src/tools/dict_manager/window.cpp#L539) 已按来源、编码、词条核对原记录，而不只依赖显示行号。
+
+**建议**
+
+保留 Win32 View 和已有 `DictManagerModel`，抽出不依赖 HWND 的编辑控制器/Presentation Model：
+
+```text
+Win32 消息 -> EditEvent -> 编辑控制器
+                         -> EditorState
+                         -> 模型操作/待显示结果
+View 根据结果更新控件、焦点和状态栏
+```
+
+- 用 `Browsing / NewDraft / ExistingDraft` 的值类型或 `std::variant` 表达互斥业务状态。
+- 把保存、取消、手动改码、词条变更等表示为轻量事件/命令；无需每个命令一个堆分配对象。
+- 命令可用性和保存校验尽量共享同一份业务判断。
+- 草稿保持稳定的原记录身份及前态，避免刷新后把旧行号当作原记录。
+
+**不要过度合并状态**
+
+IME composing、控件通知重入抑制、鼠标捕获和编辑业务阶段不是同一个维度。不要把所有布尔值排列组合成一个巨型枚举；View 的 `updating_*` 守卫仍应靠近控件操作。
+
+**收益与边界**
+
+目前代码已有 PImpl，但 PImpl 只隐藏实现，不能自动分离 UI 与业务。此建议是结构优化，不表示当前编辑行为已被证明有错误，也不顺带加入撤销/重做功能。
+
+**测试**
+
+保留 [TestInlineEditing](../tests/tools/dict_manager/main.cpp#L673) 的真实窗口回归，并增加纯状态测试：新建/已有草稿切换、未修改保存、失败保留草稿、外部删除原项、手动改码后不再自动覆盖，以及 composing 期间 Enter/Esc 不提前执行编辑命令。
+
+### R03：配置字段采用类型化描述表和分层投影
+
+**证据**
+
+- 注册表已有 [kBoolRegBindings:23](../src/common/config.cpp#L23)，UI 已有 [kSettingsCheckboxes:43](../src/tools/settings/controls.cpp#L43)；不应重新发明这两项。
+- 备份在 [SerializeConfigSection:471](../src/tools/dict_manager/model.cpp#L471) 和 [ApplyConfigKeyValue:500](../src/tools/dict_manager/model.cpp#L500) 分别手写字段。
+- [外部配置合并:142](../src/tools/settings/controls.cpp#L142) 对复选框已有通用逻辑，但组合框/其他字段仍需单独接线。
+- 例如 `commit_on_english_switch` 同时出现在注册表、备份读写和 UI 合并路径。
+
+**建议**
+
+在公共配置层维护类型化字段描述：成员指针、稳定字段标识、各格式键名、校验/转换规则及参与哪些投影。注册表、备份和设置分别消费需要的投影。
+
+- 先统一重复的标量配置读写规则，不要求一次覆盖所有特殊字段。
+- 保留现有默认值、合法值范围和旧格式兼容性；注册表键与备份键不能靠大小写转换猜测。
+- UI 控件 ID、布局坐标和语言刷新留在设置模块，不能塞进公共配置表。
+- 设置的三方合并只处理该窗口实际允许编辑的字段，不能顺带覆盖隐藏配置。
+- 保留各格式原有包含/排除范围，不擅自把路径等字段新增到备份。
+
+这是数据驱动的类型化映射，而不是必须建立对象树的 GoF Visitor。成员指针、`constexpr` 表和小型函数已经足够，不需要反射框架、代码生成器或 `void*` 类型擦除。
+
+**测试**
+
+保留 [设置保存/外部同步测试](../tests/tools/settings/save.cpp#L99)，补字段集合一致性、重复键检查、合法值往返、缺失键默认、非法枚举拒绝/保留策略，以及“本地已编辑字段保留、未编辑字段跟随外部”的逐字段矩阵。
+
+### R04：词库选择规则采用共享加载计划
+
+**证据**
+
+- IME 的 [LoadExternalDictionaryNextToDll:36](../src/ime/tsf/tip_config.cpp#L36) 分别选择极点、海峰、扩展和用户来源。
+- 词库工具的 [ReloadAll:84](../src/tools/dict_manager/model.cpp#L84) 再次维护主词库和扩展词库选择。
+- 两者有合理差异：IME 包含注册表二进制回退，工具需要保留来源以展示记录。
+
+**建议**
+
+提取纯函数式的 `DictionaryLoadPlan`，只决定来源角色、文件名、启用条件与顺序。IME 和工具各自执行计划，保留来源标记、AppContainer/注册表回退和各自的诊断。
+
+当前固定来源数量不多，先使用值对象与共享选择函数；这属于策略式分离，但没有必要立即建立 `IDictionaryLoader`、Abstract Factory 或插件注册系统。
+
+不要把工具中缓存加载再调用引擎加载直接认定为重复磁盘 I/O；已有 [进程缓存](../src/ime/engine/binary_dict.cpp#L583)，本轮没有性能测量。
+
+**测试**
+
+纯函数矩阵覆盖 BuiltinOnly、Jidian、Haifeng 与扩展开关的全部组合，以及加载顺序和来源角色。保留各执行端的缺失文件、相对路径、缓存复用和注册表回退测试；不能为了统一实现而抹平原有差异。
+
+### R05：TSF 服务保留 COM Facade，逐步收敛组合协调器
+
+**证据**
+
+- [QiQiTextService](../src/ime/tsf/tip_service.h#L26) 对外实现多个 COM 接口，并持有激活状态、epoch、组合、清理任务及 UI 对象。
+- [ApplyEngineResult:597](../src/ime/tsf/tip_composition.cpp#L597) 已按值捕获编辑结果并做 epoch 检查，也已有清理屏障。
+- [清理编辑会话:235](../src/ime/tsf/tip_composition.cpp#L235) 和 [同步/异步清理请求:303](../src/ime/tsf/tip_composition.cpp#L303) 另有任务状态和错误处理。
+
+**建议**
+
+不是新增一个“万能事件队列”，而是封装已有的命令快照与生命周期规则：
+
+1. 首先将 epoch/目标身份验证整理为明确的票据/上下文值，保持原有检查位置。
+2. 再把清理记录、待清理判断和编辑任务准备收敛到私有组合协调器。
+3. 对外仍由 `QiQiTextService` 保持 COM 身份和接口适配；UI 展示仅消费协调后的快照。
+
+**必须保留的不变量**
+
+- TSF 编辑和坐标查询只能在允许的编辑会话中执行；不能把 `TfEditCookie` 保存后跨会话复用。
+- 不能只在入口验证一次；宿主 COM 调用可能同步重入，调用后的 epoch/组合身份复核不能删除。
+- 保留旧清理阻止新写入越过的语义、宿主调度顺序、取消/提交区别。
+- 回调生命周期仍需要正确的 COM 强引用；不能因拆类造成悬空指针或循环持有。
+- 不绕过 `BeginUIElement` 的宿主显示许可，不改变中英切换先更新引擎状态再调用宿主的顺序。
+- 不借此引入后台线程执行 STA COM 操作，不改 FSM 规则。
+
+**测试与时机**
+
+已有 [重入测试](../tests/ime/tsf/service_lifecycle.cpp#L408)、[跨 epoch 延迟会话测试](../tests/ime/tsf/service_lifecycle.cpp#L1038) 和 [模式切换策略测试](../tests/ime/tsf/service.cpp#L33)，应先作为特征测试保持不变。
+
+每次只迁移一个边界，重新验证同步/异步会话、A-B-A 上下文、Deactivate 后回调、未执行即释放的清理、宿主终止及 UI 注册重入。此项风险高，不能与 FSM 或候选位置算法重写一起提交。
+
+### R06：同步适配采用候选快照事务，Store 提取后置
+
+**证据**
+
+- [Channel::Synchronize:365](../src/common/change_sync.cpp#L365) 只在回调返回 `S_OK` 时推进已应用版本，不负责撤销回调已经修改的业务内存。
+- [SynchronizeUserDictionary:978](../src/ime/engine/engine_dict.cpp#L978) 的增量回调逐项解码并调用 `AddEntry`、`RemoveEntry`、`ModifyEntry`；后续项解码/操作不受支持时直接返回错误。
+- [SynchronizePhraseFrequencies:1327](../src/ime/engine/engine_dict.cpp#L1327) 同样会先修改当前词频，再处理下一项。
+- [engine.h:306](../src/ime/engine/engine.h#L306) 附近把用户词、置顶、屏蔽、词频、路径和同步版本放在同一引擎对象内。
+- 已有 [MutateUserDictionaryEntry:558](../src/ime/engine/engine_dict.cpp#L558) 统一词库变更流程，已有 [Channel](../src/common/change_sync.h#L43) 统一传输；不能再建立一套平行的通道/重试框架。
+
+**判断**
+
+版本未推进不等于状态未变化。若批次前项合法且已经应用，后项解码或语义校验失败，当前回调没有回滚前项。这是静态控制流可确认的失败原子性缺口；本轮没有构造对应 journal 做运行时复现，也不将其描述成已发生的用户数据损坏。
+
+**优先建议**
+
+```text
+当前状态 -> 候选 Overlay/Snapshot
+              -> 解码、验证、应用整个批次
+              -> 全部成功：无抛出交换，返回 S_OK，再推进版本
+              -> 任意失败：丢弃候选，原状态和版本均保持
+```
+
+使用事务式快照提供强失败保证，不必为了这一点先拆出整个存储层。只提前验证所有载荷仍不充分：应用过程中还可能分配失败，因此对外发布也必须有边界。快照重载路径应一起检查，避免清空旧容器后再逐项构建新状态。
+
+候选状态只包含本次需要发布的数据；首先追求正确性，再测量大词库下的复制成本，必要时优化为受影响编码的暂存。不要未经测量就宣称复制或重构提升性能。
+
+**长期结构**
+
+后续若继续扩展持久化来源、恢复工作流或故障注入，可把用户词库与词频分别收敛到 Store，由其管理路径、版本、格式转换、同步和持久化。输入引擎通过窄门面获取数据与变更结果，继续负责候选、分页和按键状态转换。先组合现有代码和模板帮助函数，不要求所有映射表都虚接口化。
+
+**约束与测试**
+
+保持 composing 边界不热更新、AppContainer 只读、版本不匹配重试、单源发布先持久化再提交内存，以及现有置顶/屏蔽/词频顺序。
+
+应在隔离通道中补“合法首项 + 非法后项”“词库不支持的操作”“词频不支持的操作”和快照加载失败测试；不仅验证 HRESULT 和版本，还要逐项比较用户词、置顶、屏蔽及词频与失败前一致。重构后运行 [change_sync 测试](../tests/common/change_sync.cpp) 和 [引擎词库测试](../tests/ime/engine/dict.cpp)，不能仅靠通道层测试证明引擎适配也具备原子发布。
+
+## 4. 不建议的“模式化”
+
+1. **不将输入 FSM 改为大量动态 State 类。** 当前表驱动和命令处理已适合固定状态集合；新增虚调用和分配没有已证实收益。
+2. **不新增全局 EventBus/Service Locator。** TSF STA 回调、文件变化同步、ETW 工作线程有不同生命周期与线程约束，不能用一个总线隐藏。
+3. **不让编辑 Command 自动拥有 Undo。** 内存草稿取消与跨进程持久化撤销是不同问题。
+4. **不建立万能窗口基类。** 已有共享 UI/窗口帮助函数；日志监控关闭需停止采集、词库工具需处理草稿，不应为复用少量代码混合其生命周期。
+5. **不把所有 Win32 API 都包成虚接口。** 只在确实需要可控失败/替换实现的边界增加适配，优先使用现有测试机制。
+6. **不以换文件、换类名或降低行数证明优化成功。** 应衡量不变量是否集中、重复规则是否减少、失败是否可观察以及测试是否更独立。
+
+## 5. 建议落地顺序与验收
+
+1. R01、R06 先补失败特征测试，分别明确恢复结果和同步批次的发布边界；跨资源恢复原子化单独设计。
+2. R03、R04 做小范围规则抽取，保留文件格式和默认行为。
+3. R02 分离编辑业务状态，再迁移命令决策；控件布局和绘制不同时改动。
+4. R05 仅在 TSF 生命周期继续演进时渐进处理；R06 的整体 Store 提取在存储扩展需求出现时实施。
+
+每项独立提交，控制变更面。修改代码后检查 RAII 释放/取消订阅、复用现有帮助函数、Core Guidelines/GSL 类型与边界，并补失败和重入测试。诊断只记录阶段、相关 ID、计数及真实 API 错误码，不记录用户输入或备份内容。
+
+通用验证门禁：
+
+```powershell
+cmake --build --preset x64-release --target lint
+cmake --build --preset x86-release --target lint
+ctest --preset x64-release --output-on-failure --parallel 1
+ctest --preset x86-release --output-on-failure --parallel 1
+```
+
+GUI 测试串行执行；TSF 项目另保留真实宿主验收，不能用单元测试替代 Word/Copilot/VS Code 的实际行为。没有代码行为变化的本轮报告无需重复构建，也未将上一轮通过结果当作这些尚未实施重构的验证。
