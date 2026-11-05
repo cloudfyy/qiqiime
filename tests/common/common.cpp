@@ -149,6 +149,85 @@ void TestVersionMechanism() {
     QIQI_TEST_CHECK(version::kFullVersion.starts_with(version::kVersion));
 }
 
+void TestFileUtilityBoundaries() {
+    QIQI_TEST_CHECK(WideToUtf8(std::wstring_view(L"A\0B", 3)) == std::string("A\0B", 3));
+    QIQI_TEST_CHECK(Utf8ToWide(std::string_view("A\0B", 3)) == std::wstring(L"A\0B", 3));
+
+    const auto path = std::filesystem::temp_directory_path() /
+        (L"qiqi_file_boundaries_" + std::to_wstring(::GetCurrentProcessId()) + L".bin");
+    const auto cleanup = gsl::finally([&path]() noexcept {
+        std::error_code error;
+        std::filesystem::remove(path, error);
+        QIQI_TEST_CHECK(!error);
+    });
+    constexpr LONGLONG limit = 64LL * 1024LL * 1024LL;
+    {
+        const ScopedFileHandle file(::CreateFileW(
+            path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(file.IsValid());
+        LARGE_INTEGER size{};
+        size.QuadPart = limit;
+        QIQI_TEST_CHECK(::SetFilePointerEx(file.Get(), size, nullptr, FILE_BEGIN));
+        QIQI_TEST_CHECK(::SetEndOfFile(file.Get()));
+    }
+    std::string content;
+    QIQI_TEST_CHECK(ReadFileToUtf8String(path, content));
+    QIQI_TEST_CHECK(content.size() == gsl::narrow_cast<size_t>(limit));
+    {
+        const ScopedFileHandle file(::CreateFileW(
+            path.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(file.IsValid());
+        LARGE_INTEGER size{};
+        size.QuadPart = limit + 1;
+        QIQI_TEST_CHECK(::SetFilePointerEx(file.Get(), size, nullptr, FILE_BEGIN));
+        QIQI_TEST_CHECK(::SetEndOfFile(file.Get()));
+    }
+    QIQI_TEST_CHECK(!ReadFileToUtf8String(path, content));
+    QIQI_TEST_CHECK(!ReadFileToUtf8String(path / L"missing", content));
+
+    constexpr std::array<uint8_t, 3> original{'o', 'l', 'd'};
+    constexpr std::array<uint8_t, 3> replacement{'n', 'e', 'w'};
+    QIQI_TEST_CHECK(WriteFileAtomicallyResult(path, original) == S_OK);
+    {
+        const ScopedFileHandle locked(::CreateFileW(
+            path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(locked.IsValid());
+        const HRESULT failed_write = WriteFileAtomicallyResult(path, replacement);
+        QIQI_TEST_CHECK(failed_write == E_ACCESSDENIED ||
+                        failed_write == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION));
+        QIQI_TEST_CHECK(ReadFileToUtf8String(path, content) && content == "old");
+        QIQI_TEST_CHECK(!std::filesystem::exists(
+            path.wstring() + L".tmp." + std::to_wstring(::GetCurrentProcessId())));
+    }
+    QIQI_TEST_CHECK(WriteFileAtomicallyResult(path, replacement) == S_OK);
+    QIQI_TEST_CHECK(ReadFileToUtf8String(path, content) && content == "new");
+
+    const auto with_environment = [](const wchar_t* name, const wchar_t* value, const auto& action) {
+        std::wstring previous(32768, L'\0');
+        const DWORD length = ::GetEnvironmentVariableW(
+            name, previous.data(), gsl::narrow_cast<DWORD>(previous.size()));
+        QIQI_TEST_CHECK(length < previous.size());
+        previous.resize(length);
+        const auto restore_environment = gsl::finally([&previous, name]() noexcept {
+            QIQI_TEST_CHECK(::SetEnvironmentVariableW(name, previous.empty() ? nullptr : previous.c_str()));
+        });
+        QIQI_TEST_CHECK(::SetEnvironmentVariableW(name, value));
+        action();
+    };
+    const std::wstring long_directory =
+        L"C:\\" + std::wstring(100, L'a') + L"\\" + std::wstring(100, L'b') +
+        L"\\" + std::wstring(100, L'c');
+    with_environment(L"LOCALAPPDATA", long_directory.c_str(), [&]() {
+        QIQI_TEST_CHECK(GetAppDataDirectory() == std::filesystem::path(long_directory) / L"QiQiIME");
+    });
+    with_environment(L"LOCALAPPDATA", nullptr, [&]() {
+        std::wstring temporary(32768, L'\0');
+        const DWORD length = ::GetTempPathW(gsl::narrow_cast<DWORD>(temporary.size()), temporary.data());
+        QIQI_TEST_CHECK(length > 0 && length < temporary.size());
+        QIQI_TEST_CHECK(GetAppDataDirectory() == std::filesystem::path(temporary.data()) / L"QiQiIME");
+    });
+}
+
 void TestEtwLogger() {
     log::Shutdown();
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
@@ -283,7 +362,8 @@ void TestEtwLogger() {
         QIQI_TEST_CHECK(ReadFileToUtf8String(empty_file, empty_content) && empty_content.empty());
         constexpr uint8_t dummy_byte = 0;
         if constexpr (sizeof(size_t) > sizeof(DWORD)) {
-            const std::span<const uint8_t> oversize_span(&dummy_byte, static_cast<size_t>(MAXDWORD) + 1);
+            const std::span<const uint8_t> oversize_span(
+                &dummy_byte, gsl::narrow_cast<size_t>(uint64_t{MAXDWORD} + 1));
             QIQI_TEST_CHECK(WriteFileAtomicallyResult(empty_file, oversize_span) == E_INVALIDARG);
         }
         QIQI_TEST_CHECK(WriteFileAtomicallyResult(empty_file / L"nested.txt", std::span(&dummy_byte, 1)) != S_OK);
@@ -723,6 +803,7 @@ void RunCommonTests() {
     TestEtwWriteDiagnostics();
     TestEtwRegistrationLifetime();
     TestEtwLogger();
+    TestFileUtilityBoundaries();
     TestVersionMechanism();
     TestIniConfiguration();
     TestScopedHandleTemplate();

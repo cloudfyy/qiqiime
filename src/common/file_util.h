@@ -17,7 +17,7 @@ std::wstring Utf8ToWide(std::string_view utf8) noexcept;
 // Query the full filesystem path of a loaded module (exe or dll). Returns empty path on failure.
 std::filesystem::path GetModuleFilePath(void* module_handle) noexcept;
 
-// Return the base user data directory: %LOCALAPPDATA%\QiQiIME (or %TEMP%\QiQiIME fallback).
+// Return %LOCALAPPDATA%\QiQiIME (or %TEMP%\QiQiIME fallback), including paths beyond MAX_PATH.
 std::filesystem::path GetAppDataDirectory();
 
 // Strip leading UTF-8 BOM (\xEF\xBB\xBF) if present.

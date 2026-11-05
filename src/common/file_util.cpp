@@ -82,22 +82,39 @@ std::filesystem::path GetModuleFilePath(void* module_handle) noexcept {
 }
 
 std::filesystem::path GetAppDataDirectory() {
-    std::array<wchar_t, MAX_PATH> env_buf{};
-    const DWORD env_len = ::GetEnvironmentVariableW(
-        L"LOCALAPPDATA", env_buf.data(), gsl::narrow_cast<DWORD>(env_buf.size()));
-    std::filesystem::path base_dir;
-    if (env_len > 0 && env_len < env_buf.size()) {
-        base_dir = env_buf.data();
-    } else {
-        std::array<wchar_t, MAX_PATH> temp_path{};
-        if (::GetTempPathW(gsl::narrow_cast<DWORD>(temp_path.size()), temp_path.data()) > 0) {
-            base_dir = temp_path.data();
+    std::wstring buffer(MAX_PATH, L'\0');
+    for (;;) {
+        ::SetLastError(ERROR_SUCCESS);
+        const DWORD length = ::GetEnvironmentVariableW(
+            L"LOCALAPPDATA", buffer.data(), gsl::narrow_cast<DWORD>(buffer.size()));
+        if (length >= buffer.size()) {
+            buffer.resize(length);
+            continue;
         }
+        if (length > 0) {
+            buffer.resize(length);
+            return std::filesystem::path(buffer) / L"QiQiIME";
+        }
+        const DWORD error = ::GetLastError();
+        if (error != ERROR_SUCCESS && error != ERROR_ENVVAR_NOT_FOUND) {
+            QIQI_LOG_WARN("GetEnvironmentVariableW(LOCALAPPDATA) failed (error={})", error);
+        }
+        break;
     }
-    if (base_dir.empty()) {
-        return {};
+    for (;;) {
+        const DWORD length = ::GetTempPathW(gsl::narrow_cast<DWORD>(buffer.size()), buffer.data());
+        if (length >= buffer.size()) {
+            buffer.resize(length);
+            continue;
+        }
+        if (length == 0) {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_WARN("GetTempPathW failed (error={})", error);
+            return {};
+        }
+        buffer.resize(length);
+        return std::filesystem::path(buffer) / L"QiQiIME";
     }
-    return base_dir / L"QiQiIME";
 }
 
 bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& out_content) {
