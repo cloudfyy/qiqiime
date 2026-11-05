@@ -36,7 +36,7 @@ constexpr std::array<PreservedKeyDef, 4> kPreservedKeys = {{
 } // namespace
 
 QiQiTextService::QiQiTextService(HINSTANCE instance)
-    : service_log_id_(++next_service_log_id), composition_cleanups_(service_log_id_) {
+    : service_log_id_(++next_service_log_id), composition_lifecycle_(service_log_id_) {
     std::ignore = log::EnsureInitialized();
     config_ = LoadConfig(instance);
     config_registry_sequence_ = QueryRegistryConfigSequence();
@@ -47,19 +47,19 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
     std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
     candidate_ui_ = MakeComObject<CandidateUI>(instance);
     candidate_ui_->SetSelectCallback([this](size_t index_in_page) {
-        if (index_in_page < 9 && active_context_ && engine_.IsComposing()) {
+        if (index_in_page < 9 && composition_lifecycle_.Context() && engine_.IsComposing()) {
             const KeyProcessResult res = engine_.CommitCandidate(index_in_page);
             if (res.action != KeyActionType::PassThrough) {
-                ApplyEngineResult(active_context_.Get(), res);
+                ApplyEngineResult(composition_lifecycle_.Context().Get(), res);
             }
         }
     });
     candidate_ui_->SetPageTurnCallback([this](bool next_page) {
-        if (active_context_ && engine_.IsComposing()) {
+        if (composition_lifecycle_.Context() && engine_.IsComposing()) {
             const KeyProcessResult res = engine_.ProcessKey(
                 next_page ? VK_NEXT : VK_PRIOR, false, false, false);
             if (res.action != KeyActionType::PassThrough) {
-                ApplyEngineResult(active_context_.Get(), res);
+                ApplyEngineResult(composition_lifecycle_.Context().Get(), res);
             }
         }
     });
@@ -119,8 +119,8 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
             gsl::narrow_cast<unsigned int>(E_UNEXPECTED));
         return E_UNEXPECTED;
     }
-    is_active_ = false;
-    ++edit_session_epoch_.activation;
+    composition_lifecycle_.SetActive(false);
+    composition_lifecycle_.InvalidateActivation();
     std::ignore = log::EnsureInitialized();
     const GUID act_id = log::CreateActivityId();
     const GUID prev_act = std::exchange(current_lifecycle_activity_, act_id);
@@ -160,7 +160,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     if (engine_.MappedDictionaryCount() == 0) {
         LoadExternalDictionaryNextToDll();
     }
-    is_active_ = true;
+    composition_lifecycle_.SetActive(true);
     SetUiPresentationEnabled(true);
     SyncTsfCompartments();
     QIQI_LOG_ACT_STOP(
@@ -169,8 +169,8 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
         &act_id,
         "TsfLifecycle(service={}, stage=activated, activation={}, context={}, client_id={})",
         service_log_id_,
-        edit_session_epoch_.activation,
-        edit_session_epoch_.context,
+        composition_lifecycle_.Epoch().activation,
+        composition_lifecycle_.Epoch().context,
         client_id_);
     return S_OK;
 }
@@ -183,8 +183,8 @@ STDMETHODIMP QiQiTextService::Deactivate() {
             &current_lifecycle_activity_,
             "TsfLifecycle(service={}, stage=deactivate-reentrant, activation={}, context={})",
             service_log_id_,
-            edit_session_epoch_.activation,
-            edit_session_epoch_.context);
+            composition_lifecycle_.Epoch().activation,
+            composition_lifecycle_.Epoch().context);
         return S_OK;
     }
     deactivating_ = true;
@@ -194,9 +194,9 @@ STDMETHODIMP QiQiTextService::Deactivate() {
         current_lifecycle_activity_ = prev_act;
         deactivating_ = false;
     });
-    is_active_ = false;
+    composition_lifecycle_.SetActive(false);
     SetUiPresentationEnabled(false);
-    ++edit_session_epoch_.activation;
+    composition_lifecycle_.InvalidateActivation();
     QIQI_LOG_ACT_START(
         log::Level::debug,
         log::Keyword::Lifecycle,
@@ -204,9 +204,9 @@ STDMETHODIMP QiQiTextService::Deactivate() {
         &prev_act,
         "TsfLifecycle(service={}, stage=deactivate-begin, activation={}, context={}, has_composition={})",
         service_log_id_,
-        edit_session_epoch_.activation,
-        edit_session_epoch_.context,
-        composition_ != nullptr);
+        composition_lifecycle_.Epoch().activation,
+        composition_lifecycle_.Epoch().context,
+        composition_lifecycle_.Composition() != nullptr);
     QIQI_LOG_ACT_INFO(
         log::Level::info,
         log::Keyword::Lifecycle,
@@ -235,9 +235,9 @@ STDMETHODIMP QiQiTextService::Deactivate() {
         &act_id,
         "TsfLifecycle(service={}, stage=deactivate-local-complete, activation={}, context={}, tracked_cleanups={})",
         service_log_id_,
-        edit_session_epoch_.activation,
-        edit_session_epoch_.context,
-        composition_cleanups_.TrackedCount());
+        composition_lifecycle_.Epoch().activation,
+        composition_lifecycle_.Epoch().context,
+        composition_lifecycle_.Cleanups().TrackedCount());
     return windows_destroyed ? S_OK : E_FAIL;
 }
 
@@ -382,7 +382,7 @@ STDMETHODIMP QiQiTextService::OnInitDocumentMgr(ITfDocumentMgr* /*pdim*/) noexce
 }
 
 STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* pdim) {
-    const bool related = is_active_ && IsActiveDocument(pdim);
+    const bool related = composition_lifecycle_.IsActive() && IsActiveDocument(pdim);
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
         log::Keyword::Lifecycle,
@@ -391,18 +391,18 @@ STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* pdim) {
         service_log_id_,
         related);
     if (related) {
-        composition_cleanups_.MarkContextRemoved(active_context_.Get(), current_lifecycle_activity_);
+        composition_lifecycle_.Cleanups().MarkContextRemoved(composition_lifecycle_.Context().Get(), current_lifecycle_activity_);
         ResetCompositionAndUI(false);
     }
     return S_OK;
 }
 
 bool QiQiTextService::IsActiveDocument(ITfDocumentMgr* document) const {
-    if (!document || !active_document_) return false;
-    if (document == active_document_.Get()) return true;
+    if (!document || !composition_lifecycle_.Document()) return false;
+    if (document == composition_lifecycle_.Document().Get()) return true;
     ComPtr<IUnknown> current_identity;
     ComPtr<IUnknown> incoming_identity;
-    if (!log::CheckHResult(active_document_.As(&current_identity), "IsActiveDocument::CurrentIdentity") ||
+    if (!log::CheckHResult(composition_lifecycle_.Document().As(&current_identity), "IsActiveDocument::CurrentIdentity") ||
         !log::CheckHResult(document->QueryInterface(IID_PPV_ARGS(&incoming_identity)),
                           "IsActiveDocument::IncomingIdentity")) {
         return false;
@@ -411,9 +411,9 @@ bool QiQiTextService::IsActiveDocument(ITfDocumentMgr* document) const {
 }
 
 bool QiQiTextService::ReconcileDocumentTarget(ITfDocumentMgr* document, std::string_view source) {
-    if (!active_context_ || !document) return true;
-    const auto context = active_context_;
-    const EditSessionTicket ticket{edit_session_epoch_, context.Get()};
+    if (!composition_lifecycle_.Context() || !document) return true;
+    const auto context = composition_lifecycle_.Context();
+    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.Get()};
     ComPtr<ITfContext> top;
     ComPtr<ITfContext> base;
     const HRESULT top_hr = document->GetTop(&top);
@@ -432,18 +432,18 @@ bool QiQiTextService::ReconcileDocumentTarget(ITfDocumentMgr* document, std::str
         retained,
         retained && top != context);
     if (!retained) {
-        EditSessionTicket expected{edit_session_epoch_, nullptr};
+        EditSessionTicket expected{composition_lifecycle_.Epoch(), nullptr};
         ++expected.epoch.context;
         ResetCompositionAndUI();
         return IsEditSessionCurrent(expected);
     } else {
-        active_document_ = document;
+        composition_lifecycle_.SetDocument(document);
     }
     return true;
 }
 
 void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource source) {
-    if (!is_active_) return;
+    if (!composition_lifecycle_.IsActive()) return;
     const uint64_t focus_revision = ++focus_revision_;
     using Clock = std::chrono::steady_clock;
     static std::atomic<uint64_t> focus_log_sequence{0};
@@ -485,14 +485,14 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
     });
     if (!has_focus) {
         ResetCompositionAndUI();
-        if (!is_active_ || focus_revision != focus_revision_) return;
+        if (!composition_lifecycle_.IsActive() || focus_revision != focus_revision_) return;
         if (status_bar_) {
             status_bar_->Show(false);
         }
     } else {
         const auto reload_started = measure ? Clock::now() : Clock::time_point{};
         ReloadConfigIfModified(event_id);
-        if (!is_active_ || focus_revision != focus_revision_) return;
+        if (!composition_lifecycle_.IsActive() || focus_revision != focus_revision_) return;
         const auto reload_finished = measure ? Clock::now() : Clock::time_point{};
         position_changed = SyncStatusBarPositionFromGlobalCompartment();
         if (measure) {
@@ -507,18 +507,18 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
 }
 
 STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* /*pdimPrevFocus*/) {
-    if (!is_active_) return S_OK;
+    if (!composition_lifecycle_.IsActive()) return S_OK;
     const auto focus_revision = focus_revision_;
     if (!ReconcileDocumentTarget(pdimFocus, "focus")) return S_OK;
-    if (!is_active_ || focus_revision != focus_revision_) return S_OK;
+    if (!composition_lifecycle_.IsActive() || focus_revision != focus_revision_) return S_OK;
     HandleFocusChanged(pdimFocus != nullptr, FocusNotificationSource::ThreadManager);
     return S_OK;
 }
 
 STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
-    if (!is_active_ || !pic || !active_context_ || pic == active_context_.Get()) return S_OK;
-    const EditSessionTicket ticket{edit_session_epoch_, active_context_.Get()};
-    const auto context = active_context_;
+    if (!composition_lifecycle_.IsActive() || !pic || !composition_lifecycle_.Context() || pic == composition_lifecycle_.Context().Get()) return S_OK;
+    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), composition_lifecycle_.Context().Get()};
+    const auto context = composition_lifecycle_.Context();
     ComPtr<ITfDocumentMgr> document;
     if (!log::CheckHResult(pic->GetDocumentMgr(&document), "OnPushContext::GetDocumentMgr") || !document) {
         QIQI_LOG_ACT_INFO(
@@ -543,9 +543,9 @@ STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
 }
 
 STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* pic) {
-    if (pic) composition_cleanups_.MarkContextRemoved(pic, current_lifecycle_activity_);
-    const bool current = is_active_ && pic && pic == active_context_.Get();
-    const bool preparing = is_active_ && pic && pic == preparing_input_context_.Get();
+    if (pic) composition_lifecycle_.Cleanups().MarkContextRemoved(pic, current_lifecycle_activity_);
+    const bool current = composition_lifecycle_.IsActive() && pic && pic == composition_lifecycle_.Context().Get();
+    const bool preparing = composition_lifecycle_.IsActive() && pic && pic == preparing_input_context_.Get();
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
         log::Keyword::Lifecycle,
@@ -557,7 +557,7 @@ STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* pic) {
     if (current) {
         ResetCompositionAndUI(false);
     } else if (preparing) {
-        ++edit_session_epoch_.context;
+        composition_lifecycle_.InvalidateContext();
     }
     return S_OK;
 }

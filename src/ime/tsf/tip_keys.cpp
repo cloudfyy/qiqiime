@@ -64,9 +64,9 @@ void QiQiTextService::LogShiftTap(std::string_view stage, uint32_t vk, const ITf
         "ShiftTap(service={}, attempt={}, stage={}, key={}, reason={}, eaten={}, candidate={}, elapsed_ms={}, max_ms={}, enabled={}, active={}, resetting={}, preparing={}, has_context={}, current_context={}, chinese={}, composing={}, shift={}, ctrl={}, alt={}, mouse={})",
         service_log_id_, shift_tap_.Sequence(), stage, key, reason, eaten,
         shift_tap_.IsCandidate(), shift_tap_.ElapsedMs(::GetTickCount64()),
-        ShiftTapTracker::kMaxDurationMs, config_.shift_toggle_mode, is_active_, resetting_context_,
+        ShiftTapTracker::kMaxDurationMs, config_.shift_toggle_mode, composition_lifecycle_.IsActive(), resetting_context_,
         preparing_input_context_ != nullptr, context != nullptr,
-        context && context == active_context_.Get(), engine_.IsChineseMode(), engine_.IsComposing(),
+        context && context == composition_lifecycle_.Context().Get(), engine_.IsChineseMode(), engine_.IsComposing(),
         IsKeyDown(VK_SHIFT), IsKeyDown(VK_CONTROL), IsKeyDown(VK_MENU), IsAnyMouseButtonDown());
 }
 
@@ -76,8 +76,8 @@ void QiQiTextService::TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, 
     const bool is_auto_repeat = (flags & (1LL << 30)) != 0;
     const auto modifiers = ReadShiftTapModifiers();
     const char* reason = nullptr;
-    if (!is_active_ || resetting_context_ || preparing_input_context_) {
-        reason = !is_active_ ? "inactive" : resetting_context_ ? "resetting" : "preparing";
+    if (!composition_lifecycle_.IsActive() || resetting_context_ || preparing_input_context_) {
+        reason = !composition_lifecycle_.IsActive() ? "inactive" : resetting_context_ ? "resetting" : "preparing";
         shift_tap_.Reset();
     } else {
         reason = shift_tap_.OnKeyDown(::GetTickCount64(), is_auto_repeat, config_.shift_toggle_mode, modifiers);
@@ -138,10 +138,10 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
         return S_OK;
     }
     const bool keyboard_disabled = IsContextKeyboardDisabled(pic);
-    if (!pic || !is_active_ || resetting_context_ || preparing_input_context_ || keyboard_disabled) {
+    if (!pic || !composition_lifecycle_.IsActive() || resetting_context_ || preparing_input_context_ || keyboard_disabled) {
         if (shift_tap_.IsCandidate()) {
             LogShiftTap("OnTestKeyDown", vk, pic, false,
-                        !pic ? "no-context" : !is_active_ ? "inactive" : resetting_context_ ? "resetting" :
+                        !pic ? "no-context" : !composition_lifecycle_.IsActive() ? "inactive" : resetting_context_ ? "resetting" :
                         preparing_input_context_ ? "preparing" : "keyboard-disabled");
         }
         shift_tap_.Reset();
@@ -151,7 +151,7 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
     if (shift_tap_.IsCandidate()) LogShiftTap("OnTestKeyDown", 0, pic, false, "other-key-cancelled");
     shift_tap_.Reset();
 
-    const bool eat_key = pic == active_context_.Get()
+    const bool eat_key = pic == composition_lifecycle_.Context().Get()
         ? engine_.ShouldEatKey(vk, shift, ctrl, alt, caps)
         : engine_.ShouldEatKeyAfterReset(vk, shift, ctrl, alt, caps);
     *pfEaten = eat_key ? TRUE : FALSE;
@@ -298,7 +298,7 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
 
 void QiQiTextService::SetChineseModeAndFinishComposition(ITfContext* context, bool enabled) {
     if (enabled == engine_.IsChineseMode()) return;
-    const ComPtr<ITfContext> target(context ? context : active_context_.Get());
+    const ComPtr<ITfContext> target(context ? context : composition_lifecycle_.Context().Get());
     KeyProcessResult result{};
     if (engine_.IsComposing()) {
         if (target && PrepareInputContext(target.Get()) && engine_.IsComposing()) {
@@ -309,7 +309,7 @@ void QiQiTextService::SetChineseModeAndFinishComposition(ITfContext* context, bo
         } else {
             ResetCompositionAndUI();
         }
-    } else if (target && active_context_ && target.Get() != active_context_.Get()) {
+    } else if (target && composition_lifecycle_.Context() && target.Get() != composition_lifecycle_.Context().Get()) {
         std::ignore = PrepareInputContext(target.Get());
     }
     // Host edits can reenter mode synchronization and key prediction.

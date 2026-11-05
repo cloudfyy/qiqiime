@@ -17,6 +17,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/finish.cpp
     comp/range.cpp
     comp/start.cpp
+    comp/state.cpp
     comp/update.cpp
     tsf/mocks.h
     tsf/com.cpp
@@ -71,6 +72,8 @@ target_link_libraries(qiqi_tsf_ui_test PRIVATE
     tdh
 )
 add_test(NAME QiQiTsfUiTest COMMAND qiqi_tsf_ui_test)
+add_test(NAME QiQiCompositionLifecycleTest COMMAND qiqi_tsf_ui_test --composition-lifecycle-tests)
+set_tests_properties(QiQiCompositionLifecycleTest PROPERTIES RUN_SERIAL TRUE)
 add_dependencies(qiqi_tsf_ui_test qiqiime)
 add_test(NAME QiQiEtwIntegrationTest COMMAND qiqi_tsf_ui_test --etw-integration)
 set_tests_properties(QiQiEtwIntegrationTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)

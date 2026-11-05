@@ -19,14 +19,27 @@ The implementation **preserves preedit text** and only ends the composition and 
 
 ## 2. Application Edit-Session Barrier
 
-Each service maintains:
+Each service owns a noncopyable, nonmovable
+[`CompositionLifecycleState`](../src/ime/comp/state.h), which maintains:
 
 | State | Purpose |
 |---|---|
-| `is_active_` | Whether application callbacks may currently execute |
-| `edit_session_epoch_.activation` | Incremented on valid activation attempts and deactivation, so reactivating the same service cannot revive old requests |
-| `edit_session_epoch_.context` | Incremented before context reset, so an A-to-B-to-A switch cannot revive old requests |
-| `active_context_` | The current input target; pointer equality does not replace epoch checks |
+| `IsActive()` | Whether application callbacks may currently execute |
+| `Epoch().activation` | Incremented on valid activation attempts and deactivation, so reactivating the same service cannot revive old requests |
+| `Epoch().context` | Incremented before context reset, so an A-to-B-to-A switch cannot revive old requests |
+| `Context()` | The current input target; pointer equality does not replace epoch checks |
+| `Document()` / `Composition()` | Strong references to the active parent and current host composition |
+| `Cleanups()` | The same cleanup coordinator and diagnostic sequence across activations |
+
+The state owner preserves the original member-release order: document, context,
+cleanup bookkeeping, then composition. Its individual mutation methods retain
+the original assignment/move/release operations; they do not bundle a transition,
+implicitly invalidate epochs, reset unrelated fields, or call `EndComposition`.
+This includes allowing the original temporary states during reentrant teardown.
+The service still orders invalidation before host calls, owns transition guards
+and the pending preparation context, and decides when to publish/reset UI.
+The owner stays at the same address for the service lifetime, so live epoch
+references and detached cleanup bookkeeping are not replaced on reactivation.
 
 `ApplyEngineResult` and layout callbacks capture the epoch and target. Before executing, `IsEditSessionCurrent` checks activation state, both epoch counters, and the context. Expected stale-request rejection returns `S_OK` and logs `stale-edit-skipped`; it is not an API failure.
 
@@ -496,9 +509,16 @@ returns a non-null composition on failure.
 
 The existing 91 edit-boundary and four cleanup-reentrancy cases remain intact.
 This stage adds tests, not production behavior: it does not change the existing
-policy for a current failed start with non-null output. Joint ownership of the
-current composition, epochs, context/document, and activation/UI coordination
-still resides in the service; the complete R05 coordinator remains unfinished.
+policy for a current failed start with non-null output. The current composition,
+epochs, context/document, and cleanup coordinator now share the state owner
+described above. Cross-stage target preparation, activation/reset, and UI
+coordination remain in the service; the complete R05 coordinator is unfinished.
+
+`QiQiCompositionLifecycleTest` runs composition components and the complete
+service lifecycle/key-flow tests without the standalone popup/candidate/status
+UI suites. It uses `RUN_SERIAL` and retains the same native TSF, cleanup, and
+reentrancy assertions. It supplements, rather than replaces, `QiQiTsfUiTest`;
+a focused pass must not be reported as a full GUI-suite pass.
 
 [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) retains the ordered entry point for the deferred, document/context, window, reentrancy, cleanup, and native TSF suites under [`tests/ime/tsf`](../tests/ime/tsf); independent composition component tests mirror the production module under [`tests/ime/comp`](../tests/ime/comp). Together with [`service.cpp`](../tests/ime/tsf/service.cpp), they cover deferred mock scheduling, failure injection, reentrancy, host termination, reactivation isolation, and COM reference release. The [real Windows TSF private-document tests](../tests/ime/tsf/service_native.cpp) trigger synchronous rejection inside a layout notification, then use a bounded message pump to verify asynchronous completion. They check preserved text, composition enumeration, both property types, and isolation of the new composition, without changing user focus or activating the system TIP.
 

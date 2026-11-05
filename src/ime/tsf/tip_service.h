@@ -13,6 +13,7 @@
 #include "ime/engine/engine.h"
 #include "ime/comp/cleanup.h"
 #include "ime/comp/edit.h"
+#include "ime/comp/state.h"
 #include "ime/tsf/edit_session.h"
 #include "ime/tsf/shift_tap.h"
 #include "ime/ui/candidate_ui.h"
@@ -168,11 +169,9 @@ private:
     ComPtr<ITfThreadMgr> thread_mgr_;
     TfClientId client_id_ = TF_CLIENTID_NULL;
     DWORD activate_flags_ = 0;
-    bool is_active_ = false;
     bool deactivating_ = false;
     bool resetting_context_ = false;
     ComPtr<ITfContext> preparing_input_context_;
-    EditSessionEpoch edit_session_epoch_;
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection text_layout_sink_;
     bool key_event_sink_registered_ = false;
@@ -191,10 +190,7 @@ private:
     uint64_t focus_revision_ = 0;
     GUID current_lifecycle_activity_ = GUID_NULL;
 
-    ComPtr<ITfComposition> composition_;
-    CompositionCleanupCoordinator composition_cleanups_;
-    ComPtr<ITfContext> active_context_;
-    ComPtr<ITfDocumentMgr> active_document_;
+    CompositionLifecycleState composition_lifecycle_;
     ComPtr<CandidateUI> candidate_ui_;
     ComPtr<LangBarButton> langbar_btn_;
     std::unique_ptr<StatusBarUI> status_bar_;

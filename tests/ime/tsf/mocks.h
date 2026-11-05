@@ -133,6 +133,7 @@ public:
     STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
+            if (release_observer_) release_observer_();
             delete this;
         }
         return c;
@@ -178,6 +179,7 @@ public:
     HRESULT end_result_ = S_OK;
     std::function<void(TfEditCookie)> end_callback_;
     std::function<void()> get_range_callback_;
+    std::move_only_function<void() noexcept> release_observer_;
 private:
     ComPtr<ITfCompositionSink> sink_;
     ULONG ref_ = 1;
@@ -468,7 +470,10 @@ public:
     STDMETHODIMP_(ULONG) AddRef() noexcept override { return ++ref_; }
     STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
-        if (c == 0) delete this;
+        if (c == 0) {
+            if (release_observer_) release_observer_();
+            delete this;
+        }
         return c;
     }
 
@@ -674,6 +679,7 @@ public:
     HRESULT async_edit_session_result_ = S_OK;
     unsigned int get_active_view_calls_ = 0;
     unsigned int start_composition_calls_ = 0;
+    std::move_only_function<void() noexcept> release_observer_;
     unsigned int set_selection_calls_ = 0;
     HRESULT set_selection_result_ = S_OK;
     std::function<void(TfEditCookie, ULONG, const TF_SELECTION*)> selection_observer_;

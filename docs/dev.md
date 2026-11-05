@@ -162,8 +162,11 @@ ctest --preset x86-release --output-on-failure
 - `qiqi_change_sync_test.exe`：公共跨进程日志、并发写入与真实 AppContainer 只读同步测试（`QiQiChangeSyncTest`）
 - `qiqi_engine_test.exe`：五笔核心引擎测试（`QiQiEngineTest`）
 - `qiqi_tsf_ui_test.exe`：TSF COM 服务与 IME UI 测试（`QiQiTsfUiTest`）；`--etw-integration` 模式另注册为 `QiQiEtwIntegrationTest`
+
 - `qiqi_settings_test.exe`：设置 / 关于窗口及配置边界测试（`QiQiSettingsTest`）；直接编译并调用独立程序的 `wWinMain`，在隔离注册表下验证首次启动实际创建可见窗口、再次启动恢复已最小化窗口、关闭后可重新启动，以及取消不保存配置。
 - `qiqi_log_monitor_test.exe`：监控器测试（`QiQiLogMonitorTest`）；`--integration` 模式另注册为 `QiQiLogMonitorIntegrationTest`
+
+`--composition-lifecycle-tests` 模式注册为 `QiQiCompositionLifecycleTest`，运行组合组件及完整服务生命周期/按键回归（含既有编辑/清理与原生 TSF 测试），不运行独立菜单、候选窗和状态栏 UI 套件。该入口不替代完整 `QiQiTsfUiTest`；CTest 将它标为 `RUN_SERIAL`，避免与其他共享注册表/窗口测试并发。例如：`ctest --test-dir build\x64 -C Release -R '^QiQiCompositionLifecycleTest$' --repeat until-fail:2 --output-on-failure`，x86 替换目录即可。
 
 任务 36 的原生 TSF 作用域/只读/compartment 契约及原生 EDIT 样式检查已纳入 `QiQiTsfUiTest`。显式运行 `.\build\x64\Release\qiqi_tsf_ui_test.exe --restricted-input-diagnostics`（x86 对应替换路径）还会观察现有禁用按键与异步编辑行为；`[OBSERVE]` 不是保护已实现的通过断言。实验边界、双架构复现步骤及真实宿主待验证矩阵见[禁输入场景研究](restricted.md)。不会读取密码或真实剪贴板，不修改生产输入策略。
 
@@ -175,7 +178,7 @@ ctest --preset x86-release --output-on-failure
 
 ### 3.3 组合组件与生命周期测试组织
 
-- [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`finish`、`range`、`start`、`update` 短名；服务仍在 [`src/ime/tsf`](../src/ime/tsf) 负责宿主接口、当前组合及 UI 协调，目录调整不改变 FSM 或生命周期边界。
+- [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`finish`、`range`、`start`、`state`、`update` 短名；服务仍在 [`src/ime/tsf`](../src/ime/tsf) 负责宿主接口、跨阶段转场与 UI 协调，目录调整不改变 FSM 或生命周期边界。
 - [`tests/ime/comp`](../tests/ime/comp) 镜像组件目录，分别保留编辑票据/任务、清理、范围写入及开始准备测试；共享 Mock 仍在 [`mocks.h`](../tests/ime/tsf/mocks.h)。
 - [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) 仅保留有序入口，依次调用[延迟会话](../tests/ime/tsf/service_deferred.cpp)、[上下文/文档](../tests/ime/tsf/service_context.cpp)、[窗口生命周期](../tests/ime/tsf/service_windows.cpp)、[重入](../tests/ime/tsf/service_reentrancy.cpp)、[服务清理](../tests/ime/tsf/service_cleanup.cpp)及[原生 TSF](../tests/ime/tsf/service_native.cpp)测试。组件测试仍在原窗口测试的配置/键盘快照之前运行；入口的 key/composition sink 强引用保留到全部子套件返回，各测试块的局部 COM/RAII 作用域不变。
 
@@ -570,3 +573,11 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **审计与验证**：保留配置、键盘、文档事件解绑和服务停用的 RAII，旧 context 的开始回调在排队任务继续执行前解除，完整矩阵后 COM 对象计数恢复。x64/x86 构建与 CppCoreCheck 通过，修正新增 cookie 断言的有符号/无符号警告；两个架构的 `QiQiTsfUiTest` 均通过 CTest 的 `--repeat until-fail:2` 连续重复验证。
 - **异常记录与边界**：首次 x64 运行已通过新增生命周期矩阵，随后在[`既有 Shift 按键回归`](../tests/ime/tsf/service.cpp) 的 `OnKeyUp` 断言失败；后续 x64 单次及连续两次、x86 连续两次通过，尚未确认首次失败根因，不据此宣称已修复。未扩展运行其他 CTest 套件、构建 MSI 或新增真实宿主验收。
 - **下一边界**：独立宿主操作、开始/更新/结束、编辑任务与入口屏障已可单测；当前组合字段、epoch、活动 context/document 的联合所有权以及激活/目标/UI 协调仍在服务。后续应先评估该联合状态边界，而不是继续逐函数搬迁；完整 R05 继续保持未完成。
+
+### 5.35 TSF 生命周期联合状态所有权（R05 第十七步）
+
+- **收拢数据所有权而非原子化转场**：[`CompositionLifecycleState`](../src/ime/comp/state.h) 联合持有激活标记、epoch、当前组合、原清理协调器及活动 context/document；不可复制/移动，实时 epoch 引用及清理编号在重激活间保持同一存储。服务的停用/重置/目标准备重入保护、准备中的 context、COM 门面和引擎/UI 决策仍在原处。
+- **保持释放与操作顺序**：COM/清理成员保留原声明顺序，析构依次释放 document、context、清理协调器、composition。每个变更入口只完成原赋值、移走、失效或释放，不隐式推进 epoch、清理其他字段、调用宿主结束或合并多步转场；服务仍先失效，再按原边界调度和释放，允许原重入中的临时状态。四个服务实现反向归一访问器/变更入口后，与上一提交源码一致（忽略换行和末尾空白）。
+- **独立验证**：[`状态测试`](../tests/ime/comp/state.cpp) 新增 56 组激活/重置/epoch/目标身份矩阵，包含准备时的空目标；另验证 COM 引用数、组合移交与替换、document/context/composition 最终释放顺序，以及同步/异步清理在状态变化或所有者销毁后仍独立完成。既有 38 组开始重入、5 组恢复、91 组编辑及 4 组清除重入保留。
+- **可定向运行而不掩盖 GUI 失败**：增加上述 `QiQiCompositionLifecycleTest`，复用默认入口的组合组件调用和完整服务测试。初次 x64 全套分别在既有菜单动作/窗口查找断言失败，均发生在新状态测试前；未确认根因，也未修改菜单代码或放宽断言。定向测试在双架构各连续通过两次后，完整 `QiQiTsfUiTest` 最终亦分别通过。
+- **验证与边界**：x64/x86 IME DLL/测试构建及 CppCoreCheck 通过；清除入口不额外承诺 SDK `Reset` 未声明的 `noexcept`，测试最终释放观察器使用不可复制的 `noexcept` 回调，自有源码无新增非 C26490 诊断。未运行其他 CTest 套件、制作 MSI 或新增真实宿主验收。联合所有权已收拢，但跨阶段的目标准备/激活/重置/UI 协调仍在服务，完整 R05 继续保持未完成。

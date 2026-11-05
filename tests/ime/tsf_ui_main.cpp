@@ -11,6 +11,18 @@ void RunRestrictedInputContractTests();
 void RunRestrictedInputDiagnostics();
 }
 
+namespace {
+
+void RunCompositionComponentTests() {
+    qiqi::test::RunTsfCompositionRangeTests();
+    qiqi::test::RunTsfCompositionStartTests();
+    qiqi::test::RunTsfCompositionFinishTests();
+    qiqi::test::RunTsfCompositionUpdateTests();
+    qiqi::test::RunTsfCompositionStateTests();
+}
+
+} // namespace
+
 int wmain(int argc, wchar_t* argv[]) {
     QIQI_TEST_CHECK(argv != nullptr);
     const std::span<wchar_t* const> args(argv, gsl::narrow_cast<size_t>(argc));
@@ -38,15 +50,19 @@ int wmain(int argc, wchar_t* argv[]) {
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--etw-integration") {
         return qiqi::test::RunTsfEtwIntegrationTests();
     }
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--composition-lifecycle-tests") {
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        RunCompositionComponentTests();
+        qiqi::test::RunTsfServiceTests();
+        std::cout << "[PASS] QiQi composition components and service lifecycle tests succeeded.\n";
+        return 0;
+    }
 
     qiqi::test::RunLangBarMenuTests();
     qiqi::test::RunCandidateUITests();
     qiqi::test::RunStatusBarUITests();
     qiqi::test::RunTsfComTests();
-    qiqi::test::RunTsfCompositionRangeTests();
-    qiqi::test::RunTsfCompositionStartTests();
-    qiqi::test::RunTsfCompositionFinishTests();
-    qiqi::test::RunTsfCompositionUpdateTests();
+    RunCompositionComponentTests();
     qiqi::test::RunRestrictedInputContractTests();
     qiqi::test::RunTsfServiceTests();
     std::cout << "[PASS] All QiQi TSF & UI unit tests succeeded.\n";
