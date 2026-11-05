@@ -307,6 +307,116 @@ void TestCompositionCleanupExecution() {
     }
 }
 
+void TestCompositionCleanupRequests() {
+    enum class Invalidation { None, Removed, Terminated };
+    struct Case {
+        bool asynchronous = false;
+        bool read_only = false;
+        HRESULT request_hr = S_OK;
+        HRESULT async_hr = S_OK;
+        HRESULT end_hr = S_OK;
+        bool range_failure = false;
+        bool null_range = false;
+        Invalidation invalidation = Invalidation::None;
+        bool discard = false;
+    };
+    const std::array cases{
+        Case{},
+        Case{.asynchronous = true},
+        Case{.read_only = true},
+        Case{.request_hr = E_ACCESSDENIED},
+        Case{.request_hr = TF_E_DISCONNECTED},
+        Case{.request_hr = TF_E_SYNCHRONOUS},
+        Case{.end_hr = E_ACCESSDENIED},
+        Case{.end_hr = TF_E_SYNCHRONOUS},
+        Case{.asynchronous = true, .async_hr = E_ACCESSDENIED},
+        Case{.asynchronous = true, .async_hr = TF_E_DISCONNECTED},
+        Case{.range_failure = true},
+        Case{.null_range = true},
+        Case{.invalidation = Invalidation::Removed},
+        Case{.invalidation = Invalidation::Terminated},
+        Case{.asynchronous = true, .discard = true},
+        Case{.asynchronous = true, .range_failure = true},
+        Case{.asynchronous = true, .end_hr = E_ACCESSDENIED},
+    };
+    const auto objects_before = g_com_object_count.load();
+    for (const auto& test : cases) {
+        auto queue = std::make_shared<MockEditSessionQueue>();
+        const auto context = MakeComObject<MockTfContext>(queue);
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        auto cleanup = std::make_shared<CompositionCleanup>();
+        cleanup->id = 1;
+        cleanup->context = context;
+        cleanup->composition = composition;
+        CompositionCleanupRegistry registry;
+        registry.Track(cleanup);
+        bool registered_during_range = false;
+        composition->get_range_callback_ = [&]() noexcept {
+            registered_during_range = registry.FindComposition(composition.Get()) == cleanup &&
+                                      registry.FindPending(context.Get()) == cleanup;
+            QIQI_TEST_CHECK(registered_during_range);
+            if (test.invalidation == Invalidation::Removed) {
+                registry.MarkContextRemoved(context.Get(), 0, GUID_NULL);
+            } else if (test.invalidation == Invalidation::Terminated) {
+                cleanup->terminated = true;
+            }
+        };
+        composition->end_callback_ = [&](TfEditCookie ec) noexcept {
+            QIQI_TEST_CHECK(cleanup->started && !cleanup->finished);
+            QIQI_TEST_CHECK(ec == (test.asynchronous ? TfEditCookie{83} : TfEditCookie{1}));
+        };
+        composition->fail_get_range_ = test.range_failure;
+        composition->return_null_range_ = test.null_range;
+        composition->end_result_ = test.end_hr;
+        context->allow_sync_edit_sessions_ = !test.asynchronous;
+        context->read_only_ = test.read_only;
+        context->edit_session_request_result_ = test.request_hr;
+        context->async_edit_session_result_ = test.async_hr;
+        RequestCompositionCleanup(cleanup, 7);
+        composition->get_range_callback_ = {};
+        const bool invalidated = test.invalidation != Invalidation::None;
+        const bool rejected = FAILED(test.request_hr) || test.read_only;
+        const bool fallback = !invalidated && !rejected && test.asynchronous;
+        const bool queued = fallback && SUCCEEDED(test.async_hr);
+        const bool immediate = !invalidated && !rejected && !test.asynchronous;
+        const unsigned int requests = invalidated ? 0u : fallback ? 2u : 1u;
+        QIQI_TEST_CHECK(registered_during_range == !test.range_failure);
+        QIQI_TEST_CHECK(context->request_edit_session_calls_ == requests &&
+                        cleanup->async_requested == fallback);
+        QIQI_TEST_CHECK(cleanup->started == immediate && cleanup->finished == !queued);
+        QIQI_TEST_CHECK(queue->PendingCount() == (queued ? 1u : 0u));
+        if (requests) {
+            QIQI_TEST_CHECK(context->last_edit_session_flags_ ==
+                            ((fallback ? DWORD{TF_ES_ASYNC} : DWORD{TF_ES_SYNC}) | DWORD{TF_ES_READWRITE}));
+        }
+        if (queued) {
+            const auto& request = queue->PendingRequests().front();
+            QIQI_TEST_CHECK(request.client_id == 7 && request.context.Get() == context.Get() &&
+                            request.flags == (TF_ES_ASYNC | TF_ES_READWRITE));
+            QIQI_TEST_CHECK(!composition->ended_ && context->prop_->clear_calls_ == 0);
+            if (test.discard) {
+                const std::weak_ptr<CompositionCleanup> released = cleanup;
+                cleanup.reset();
+                QIQI_TEST_CHECK(queue->ClearForCleanup() == S_OK && released.expired());
+                QIQI_TEST_CHECK(!registry.FindPending(context.Get()) && registry.TrackedCount() == 0);
+                QIQI_TEST_CHECK(composition->end_composition_calls_ == 0 && context->prop_->clear_calls_ == 0);
+                composition->end_callback_ = {};
+                continue;
+            }
+            QIQI_TEST_CHECK(queue->RunNext(83) == test.end_hr && queue->PendingCount() == 0);
+        }
+        const bool executed = immediate || queued;
+        const unsigned int clear_calls = executed && !test.range_failure && !test.null_range ? 1u : 0u;
+        QIQI_TEST_CHECK(cleanup->finished && cleanup->started == executed);
+        QIQI_TEST_CHECK(composition->end_composition_calls_ == (executed ? 1u : 0u) &&
+                        context->prop_->clear_calls_ == clear_calls);
+        QIQI_TEST_CHECK(!registry.FindPending(context.Get()) && registry.TrackedCount() == 0);
+        QIQI_TEST_CHECK(context->range_->set_text_calls_ == 0);
+        composition->end_callback_ = {};
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 struct NativeTsfState {
     std::wstring text;
     std::wstring composition_text;
@@ -1044,6 +1154,7 @@ void TestDeactivationWindowLifecycle() {
     TestCompositionEditTasks();
     TestCompositionCleanupRegistry();
     TestCompositionCleanupExecution();
+    TestCompositionCleanupRequests();
     std::array<BYTE, 256> original_keyboard{};
     QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
     const auto restore_keyboard = gsl::finally([&]() noexcept {

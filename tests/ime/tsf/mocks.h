@@ -123,6 +123,10 @@ public:
     STDMETHODIMP GetRange(ITfRange** ppRange) override {
         if (!ppRange || fail_get_range_) return E_FAIL;
         if (get_range_callback_) get_range_callback_();
+        if (return_null_range_) {
+            *ppRange = nullptr;
+            return S_OK;
+        }
         *ppRange = range_.Get();
         (*ppRange)->AddRef();
         return S_OK;
@@ -147,6 +151,7 @@ public:
     ComPtr<MockTfRange> range_;
     bool ended_ = false;
     bool fail_get_range_ = false;
+    bool return_null_range_ = false;
     unsigned int end_composition_calls_ = 0;
     TfEditCookie last_end_cookie_ = 0;
     HRESULT end_result_ = S_OK;

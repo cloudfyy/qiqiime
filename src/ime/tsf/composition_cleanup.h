@@ -38,6 +38,9 @@ struct CompositionCleanup {
 // Best-effort end: attribute failures are logged; when attempted, return EndComposition's HRESULT.
 HRESULT ExecuteCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, TfEditCookie ec);
 
+// Register the record before calling: GetRange and RequestEditSession can reenter the service.
+void RequestCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, TfClientId client_id);
+
 // STA bookkeeping only; edit-session callbacks, not this registry, own cleanup records.
 class CompositionCleanupRegistry {
 public:

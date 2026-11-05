@@ -1,5 +1,6 @@
 #include "ime/tsf/composition_cleanup.h"
 #include "ime/tsf/composition_attribute.h"
+#include "ime/tsf/edit_session.h"
 #include <algorithm>
 #include <gsl/gsl>
 
@@ -87,6 +88,100 @@ HRESULT ExecuteCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, T
         hr, "DeactivateComposition::EndComposition", log::Level::warn,
         log::LogContext{log::Keyword::Composition, log::Opcode::Info, &cleanup->activity_id, nullptr});
     return hr;
+}
+
+void RequestCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, TfClientId client_id) {
+    Expects(cleanup != nullptr && cleanup->context != nullptr && cleanup->composition != nullptr &&
+            client_id != TF_CLIENTID_NULL);
+    const HRESULT range_hr = cleanup->composition->GetRange(&cleanup->range);
+    cleanup->LogResult("get-range", range_hr);
+    if (log::CheckHResult(range_hr, "DeactivateComposition::GetRange", log::Level::warn,
+                          log::LogContext{log::Keyword::Composition, log::Opcode::Info, &cleanup->activity_id, nullptr}) &&
+        !cleanup->range) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::warn,
+            log::Keyword::Composition,
+            &cleanup->activity_id,
+            "DeactivateComposition::GetRange returned no range (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(range_hr));
+    }
+    if (cleanup->context_removed || cleanup->terminated) {
+        cleanup->finished = true;
+        QIQI_LOG_ACT_STOP(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &cleanup->activity_id,
+            "TsfCleanup(service={}, cleanup={}, stage=skip-request-invalidated, terminated={}, context_removed={})",
+            cleanup->service_id, cleanup->id, cleanup->terminated, cleanup->context_removed);
+        return;
+    }
+    const auto session = MakeComObject<LambdaEditSession>(
+        [cleanup](TfEditCookie ec) -> HRESULT {
+            return ExecuteCompositionCleanup(cleanup, ec);
+        });
+    HRESULT session_hr = E_FAIL;
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Composition,
+        &cleanup->activity_id,
+        "TsfCleanup(service={}, cleanup={}, stage=sync-request, flags=0x{:x})",
+        cleanup->service_id, cleanup->id, TF_ES_SYNC | TF_ES_READWRITE);
+    const HRESULT request_hr = cleanup->context->RequestEditSession(
+        client_id, session.Get(), TF_ES_SYNC | TF_ES_READWRITE, &session_hr);
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Composition,
+        &cleanup->activity_id,
+        "TsfCleanup(service={}, cleanup={}, stage=sync-result, request_hr=0x{:08x}, session_hr=0x{:08x}, started={}, terminated={})",
+        cleanup->service_id, cleanup->id, gsl::narrow_cast<unsigned int>(request_hr),
+        gsl::narrow_cast<unsigned int>(session_hr), cleanup->started, cleanup->terminated);
+    if (SUCCEEDED(request_hr) && session_hr == TF_E_SYNCHRONOUS &&
+        !cleanup->started && !cleanup->terminated && !cleanup->context_removed) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &cleanup->activity_id,
+            "DeactivateComposition: synchronous access refused; requesting asynchronous cleanup (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(session_hr));
+        session_hr = E_FAIL;
+        cleanup->async_requested = true;
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &cleanup->activity_id,
+            "TsfCleanup(service={}, cleanup={}, stage=async-request, flags=0x{:x})",
+            cleanup->service_id, cleanup->id, TF_ES_ASYNC | TF_ES_READWRITE);
+        const HRESULT async_hr = cleanup->context->RequestEditSession(
+            client_id, session.Get(), TF_ES_ASYNC | TF_ES_READWRITE, &session_hr);
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &cleanup->activity_id,
+            "TsfCleanup(service={}, cleanup={}, stage=async-result, request_hr=0x{:08x}, session_hr=0x{:08x}, queued={})",
+            cleanup->service_id, cleanup->id, gsl::narrow_cast<unsigned int>(async_hr),
+            gsl::narrow_cast<unsigned int>(session_hr), SUCCEEDED(async_hr) && session_hr == TF_S_ASYNC);
+        if (FAILED(async_hr) || FAILED(session_hr)) {
+            cleanup->finished = true;
+            cleanup->LogResult("async-rejected", FAILED(async_hr) ? async_hr : session_hr, log::Opcode::Stop);
+        }
+        const log::LogContext cleanup_ctx{log::Keyword::Composition, log::Opcode::Info, &cleanup->activity_id, nullptr};
+        if (log::CheckHResult(async_hr, "DeactivateComposition::RequestEditSession(TF_ES_ASYNC | TF_ES_READWRITE)",
+                              log::Level::warn, cleanup_ctx)) {
+            std::ignore = log::CheckHResult(session_hr, "DeactivateComposition::AsyncEditSession",
+                                            log::Level::warn, cleanup_ctx);
+        }
+        return;
+    }
+    if (FAILED(request_hr) || FAILED(session_hr)) {
+        cleanup->finished = true;
+        cleanup->LogResult("sync-failed-no-fallback", FAILED(request_hr) ? request_hr : session_hr, log::Opcode::Stop);
+    }
+    const log::LogContext cleanup_ctx{log::Keyword::Composition, log::Opcode::Info, &cleanup->activity_id, nullptr};
+    if (log::CheckHResult(request_hr, "DeactivateComposition::RequestEditSession(TF_ES_SYNC | TF_ES_READWRITE)",
+                          log::Level::warn, cleanup_ctx)) {
+        std::ignore = log::CheckHResult(session_hr, "DeactivateComposition::DoEditSession",
+                                        log::Level::warn, cleanup_ctx);
+    }
 }
 
 void CompositionCleanupRegistry::Track(const std::shared_ptr<CompositionCleanup>& cleanup) {
