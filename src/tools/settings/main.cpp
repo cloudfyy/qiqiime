@@ -2,7 +2,6 @@
 #include "common/config.h"
 #include "common/guids.h"
 #include "common/logger.h"
-#include "common/scoped_handle.h"
 #include "tools/settings/window.h"
 
 #include <windows.h>
@@ -25,20 +24,6 @@ int WINAPI wWinMain(
     if (qiqi::ActivateExistingSettingsWindow()) {
         return 0;
     }
-    const qiqi::ScopedKernelHandle single_instance_mutex(
-        ::CreateMutexW(nullptr, TRUE, qiqi::kSettingsSingleInstanceMutexName));
-    const DWORD mutex_error = ::GetLastError();
-    if (!single_instance_mutex) {
-        qiqi::log::InitLogger();
-        QIQI_LOG_ERROR("Settings::CreateMutexW failed (error={})", mutex_error);
-        qiqi::log::Shutdown();
-        return 1;
-    }
-    if (mutex_error == ERROR_ALREADY_EXISTS) {
-        std::ignore = qiqi::ActivateExistingSettingsWindow();
-        return 0;
-    }
-
     ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     const HRESULT co_hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     const auto co_uninit = gsl::finally([co_hr]() noexcept {

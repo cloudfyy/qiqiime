@@ -221,6 +221,14 @@ void TestSettingsDialogControls() {
         QIQI_TEST_CHECK(!ShowSettingsDialog(::GetModuleHandleW(nullptr), nullptr, cfg));
     }
 
+    {
+        const ScopedKernelHandle conflicting_event(
+            ::CreateEventW(nullptr, TRUE, FALSE, kSettingsSingleInstanceMutexName));
+        QIQI_TEST_CHECK(conflicting_event.IsValid());
+        QIQI_TEST_CHECK(!ShowSettingsDialog(::GetModuleHandleW(nullptr), nullptr, cfg));
+        QIQI_TEST_CHECK(!FindThreadWindowByClass(kSettingsWndClass));
+    }
+
     // Verify About dialog creation, painting, title localization, child controls, icon, and modal ShowAboutDialog
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_app_name).find(L"奇奇五笔") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_app_name) == L"QiQi Wubi IME");

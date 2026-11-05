@@ -476,7 +476,12 @@ bool ShowSettingsDialog(
     }
     const ScopedKernelHandle single_instance_mutex(
         ::CreateMutexW(nullptr, TRUE, kSettingsSingleInstanceMutexName));
-    if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+    const DWORD mutex_error = ::GetLastError();
+    if (!single_instance_mutex) {
+        QIQI_LOG_ERROR("Settings::CreateMutexW failed (error={})", mutex_error);
+        return false;
+    }
+    if (mutex_error == ERROR_ALREADY_EXISTS) {
         std::ignore = ActivateExistingSettingsWindow();
         QIQI_LOG_INFO("Settings single-instance mutex already held; skipping duplicate dialog");
         return false;

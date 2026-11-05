@@ -6,7 +6,10 @@ set(QIQI_SETTINGS_TEST_SOURCES
     save.cpp
     message.cpp
 )
-add_executable(qiqi_settings_test ${QIQI_SETTINGS_TEST_SOURCES})
+add_executable(qiqi_settings_test
+    ${QIQI_SETTINGS_TEST_SOURCES}
+    "${PROJECT_SOURCE_DIR}/src/tools/settings/main.cpp"
+)
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_SETTINGS_TEST_SOURCES})
 target_include_directories(qiqi_settings_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
 target_link_libraries(qiqi_settings_test PRIVATE

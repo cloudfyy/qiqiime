@@ -22,6 +22,7 @@ ScopedWindow CreateSettingsWindow(
 
 // Returns true on acceptance. With save_on_accept, persistence must succeed before acceptance.
 // Failed persistence keeps the window open and leaves in_out_config unchanged.
+// Owns the single-instance mutex; callers must not create it before calling.
 bool ShowSettingsDialog(
     HINSTANCE instance, HWND parent, QiQiConfig& in_out_config, bool save_on_accept = false) noexcept;
 
