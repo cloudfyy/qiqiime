@@ -129,6 +129,21 @@ public:
         write_.Reset();
     }
 
+    Child(const Child&) = delete;
+    Child& operator=(const Child&) = delete;
+    Child(Child&&) = delete;
+    Child& operator=(Child&&) = delete;
+
+    ~Child() {
+        job_.Reset();
+        const DWORD wait = ::WaitForSingleObject(process_.Get(), kTimeout);
+        if (wait != WAIT_OBJECT_0) {
+            const DWORD error = wait == WAIT_FAILED ? ::GetLastError() : ERROR_TIMEOUT;
+            std::fprintf(stderr, "Test child cleanup failed (wait=%lu, error=%lu)\n", wait, error);
+            std::abort();
+        }
+    }
+
     void AwaitReady() const {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kTimeout);
         DWORD available = 0;
@@ -165,6 +180,37 @@ private:
     ScopedKernelHandle process_;
 };
 
+template <typename Action>
+void WithAppContainerProfile(const Action& action) {
+    const auto name = L"QiQiSyncTest." + GuidText();
+    PSID sid = nullptr;
+    const HRESULT profile = ::CreateAppContainerProfile(name.c_str(), name.c_str(), L"QiQi sync test",
+                                                        nullptr, 0, &sid);
+    if (FAILED(profile)) std::cerr << "CreateAppContainerProfile hr=" << std::hex << profile << "\n";
+    QIQI_TEST_CHECK(SUCCEEDED(profile));
+    const auto cleanup = gsl::finally([&name, sid]() noexcept {
+        ::FreeSid(sid);
+        const HRESULT hr = ::DeleteAppContainerProfile(name.c_str());
+        if (FAILED(hr)) {
+            std::fprintf(stderr, "Test AppContainer profile cleanup failed (hr=0x%08lx)\n",
+                         gsl::narrow_cast<unsigned long>(hr));
+            std::abort();
+        }
+    });
+    SECURITY_CAPABILITIES capabilities{};
+    capabilities.AppContainerSid = sid;
+    action(capabilities);
+}
+
+void RequireAppContainerToken() {
+    ScopedKernelHandle token;
+    QIQI_TEST_CHECK(::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, token.Put()));
+    DWORD container = 0;
+    DWORD size = 0;
+    QIQI_TEST_CHECK(::GetTokenInformation(
+        token.Get(), TokenIsAppContainer, &container, sizeof(container), &size) && container);
+}
+
 struct ChangeHandleTraits : FileHandleTraits {
     static void Close(HANDLE value) noexcept { ::FindCloseChangeNotification(value); }
 };
@@ -176,12 +222,7 @@ void SendReady(HANDLE pipe) {
 }
 
 void ProbeReader(const std::filesystem::path& directory, HANDLE ready) {
-    ScopedKernelHandle token;
-    QIQI_TEST_CHECK(::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, token.Put()));
-    DWORD container = 0;
-    DWORD size = 0;
-    QIQI_TEST_CHECK(::GetTokenInformation(
-        token.Get(), TokenIsAppContainer, &container, sizeof(container), &size) && container);
+    RequireAppContainerToken();
     const auto path = directory / L"lock";
     const ScopedFileHandle reader(::CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
@@ -263,6 +304,23 @@ void ProbeReader(const std::filesystem::path& directory, HANDLE ready) {
     QIQI_TEST_CHECK(false);
 }
 
+void HoldReader(const std::filesystem::path& directory, std::wstring_view mode,
+                HANDLE release, HANDLE ready) {
+    RequireAppContainerToken();
+    QIQI_TEST_CHECK(mode == L"deny-write" || mode == L"shared-lock" || mode == L"deny-delete");
+    const auto path = directory / (mode == L"deny-delete" ? L"journal.bin" : L"writer.lock");
+    const DWORD sharing = mode == L"deny-write" ? FILE_SHARE_READ : FILE_SHARE_READ | FILE_SHARE_WRITE;
+    const ScopedFileHandle reader(::CreateFileW(path.c_str(), GENERIC_READ, sharing, nullptr,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    QIQI_TEST_CHECK(reader);
+    if (mode == L"shared-lock") {
+        OVERLAPPED position{};
+        QIQI_TEST_CHECK(::LockFileEx(reader.Get(), LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &position));
+    }
+    SendReady(ready);
+    QIQI_TEST_CHECK(::WaitForSingleObject(release, kTimeout) == WAIT_OBJECT_0);
+}
+
 void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
     Fixture fixture(L"appcontainer");
     PSECURITY_DESCRIPTOR raw = nullptr;
@@ -289,42 +347,104 @@ void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
 
     const auto executable = fixture.directory / L"reader.exe";
     std::filesystem::copy_file(peer.empty() ? GetModuleFilePath(nullptr) : peer, executable);
-    const auto name = L"QiQiSyncTest." + GuidText();
-    PSID sid = nullptr;
-    const HRESULT profile = ::CreateAppContainerProfile(name.c_str(), name.c_str(), L"QiQi sync test",
-                                                        nullptr, 0, &sid);
-    if (FAILED(profile)) std::cerr << "CreateAppContainerProfile hr=" << std::hex << profile << "\n";
-    QIQI_TEST_CHECK(SUCCEEDED(profile));
-    const auto cleanup = gsl::finally([&name, sid]() noexcept {
-        ::FreeSid(sid);
-        const HRESULT hr = ::DeleteAppContainerProfile(name.c_str());
-        if (FAILED(hr)) {
-            std::fprintf(stderr, "Test AppContainer profile cleanup failed (hr=0x%08lx)\n",
-                         gsl::narrow_cast<unsigned long>(hr));
-            std::abort();
-        }
+    WithAppContainerProfile([&](SECURITY_CAPABILITIES& capabilities) {
+        Child child(executable, L"--probe \"" + fixture.directory.wstring() + L"\"", &capabilities);
+        child.AwaitReady();
+        QIQI_TEST_CHECK(host_engine.AddUserEntry(L"abcd", L"容器增量词", user_dict));
+        for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) host_engine.ProcessKey(vk);
+        QIQI_TEST_CHECK(host_engine.CommitCandidate(1).committed_text == L"短语二");
+        Channel channel(fixture.directory, kSource);
+        Batch batch;
+        QIQI_TEST_CHECK(channel.Read({}, batch) == S_OK);
+        Version committed;
+        QIQI_TEST_CHECK(channel.Publish(batch.version, Operation::Add, kPayload, [&]() {
+            return WriteFileAtomicallyResult(fixture.directory / L"published", kPayload);
+        }, committed) == S_OK);
+        child.Join();
     });
-    SECURITY_CAPABILITIES capabilities{};
-    capabilities.AppContainerSid = sid;
-    Child child(executable, L"--probe \"" + fixture.directory.wstring() + L"\"", &capabilities);
-    child.AwaitReady();
-    QIQI_TEST_CHECK(host_engine.AddUserEntry(L"abcd", L"容器增量词", user_dict));
-    for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) host_engine.ProcessKey(vk);
-    QIQI_TEST_CHECK(host_engine.CommitCandidate(1).committed_text == L"短语二");
-    Channel channel(fixture.directory, kSource);
-    Batch batch;
-    QIQI_TEST_CHECK(channel.Read({}, batch) == S_OK);
-    Version committed;
-    QIQI_TEST_CHECK(channel.Publish(batch.version, Operation::Add, kPayload, [&]() {
-        return WriteFileAtomicallyResult(fixture.directory / L"published", kPayload);
-    }, committed) == S_OK);
-    child.Join();
 }
 
 Version Current(const Channel& channel) {
     Batch batch;
     QIQI_TEST_CHECK(channel.Read({}, batch) == S_OK);
     return batch.version;
+}
+
+void TestReaderInterferenceCharacterization(const std::filesystem::path& peer = {}) {
+    WithAppContainerProfile([&](SECURITY_CAPABILITIES& capabilities) {
+        for (const std::wstring_view mode : {L"deny-write", L"shared-lock", L"deny-delete"}) {
+            Fixture fixture(mode);
+            Channel channel(fixture.directory, kSource);
+            const Version before = Current(channel);
+            const auto source = fixture.directory / L"published";
+            constexpr std::array<uint8_t, 3> original{'o', 'l', 'd'};
+            QIQI_TEST_CHECK(WriteFileAtomicallyResult(source, original) == S_OK);
+            std::string journal_before;
+            QIQI_TEST_CHECK(ReadFileToUtf8String(fixture.directory / L"journal.bin", journal_before));
+            const auto executable = fixture.directory / L"reader.exe";
+            std::filesystem::copy_file(peer.empty() ? GetModuleFilePath(nullptr) : peer, executable);
+            SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+            const ScopedKernelHandle release(::CreateEventW(&attributes, TRUE, FALSE, nullptr));
+            QIQI_TEST_CHECK(release);
+            const auto arguments = L"--hold-reader \"" + fixture.directory.wstring() + L"\" " +
+                std::wstring(mode) + L" " + std::to_wstring(reinterpret_cast<uintptr_t>(release.Get()));
+            Child child(executable, arguments, &capabilities, release.Get());
+            child.AwaitReady();
+
+            const HRESULT expected = mode == L"shared-lock" ? HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION) :
+                HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION);
+            QIQI_TEST_CHECK(Channel::Create(fixture.directory, kSource) ==
+                (mode == L"deny-delete" ? S_OK : expected));
+            size_t writes = 0;
+            const auto write_source = [&]() {
+                ++writes;
+                return WriteFileAtomicallyResult(source, kPayload);
+            };
+            for (int attempt = 0; attempt < 2; ++attempt) {
+                Version committed;
+                const HRESULT blocked = channel.Publish(before, Operation::Add, kPayload, write_source, committed);
+                if (mode == L"deny-delete") {
+                    QIQI_TEST_CHECK(blocked == E_ACCESSDENIED ||
+                                    blocked == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION));
+                } else {
+                    QIQI_TEST_CHECK(blocked == expected);
+                }
+                QIQI_TEST_CHECK(writes == 0 && committed == Version{});
+                QIQI_TEST_CHECK(Current(channel) == before);
+                std::string text;
+                QIQI_TEST_CHECK(ReadFileToUtf8String(source, text) && text == "old");
+                QIQI_TEST_CHECK(ReadFileToUtf8String(fixture.directory / L"journal.bin", text) &&
+                                text == journal_before);
+                QIQI_TEST_CHECK(!std::filesystem::exists((fixture.directory / L"journal.bin").wstring() +
+                    L".tmp." + std::to_wstring(::GetCurrentProcessId())));
+            }
+
+            QIQI_TEST_CHECK(::SetEvent(release.Get()));
+            child.Join();
+            QIQI_TEST_CHECK(Channel::Create(fixture.directory, kSource) == S_OK);
+            QIQI_TEST_CHECK(Current(channel) == before);
+            Version committed;
+            QIQI_TEST_CHECK(channel.Publish(before, Operation::Add, kPayload, write_source, committed) == S_OK);
+            QIQI_TEST_CHECK(writes == 1 && committed.baseline == before.baseline &&
+                            committed.sequence == before.sequence + 1);
+            std::string text;
+            QIQI_TEST_CHECK(ReadFileToUtf8String(source, text) && text == "delta");
+            Version applied = before;
+            size_t deltas = 0;
+            const auto apply_delta = [&](std::span<const Change> changes) {
+                QIQI_TEST_CHECK(changes.size() == 1 && changes.front().sequence == committed.sequence);
+                QIQI_TEST_CHECK(changes.front().operation == Operation::Add &&
+                                std::ranges::equal(changes.front().payload, kPayload));
+                ++deltas;
+                return S_OK;
+            };
+            for (int attempt = 0; attempt < 2; ++attempt) {
+                QIQI_TEST_CHECK(channel.Synchronize(applied, InputBoundary::NewInput,
+                    []() { return E_UNEXPECTED; }, apply_delta) == S_OK);
+                QIQI_TEST_CHECK(applied == committed && deltas == 1);
+            }
+        }
+    });
 }
 
 void TestJournal() {
@@ -528,12 +648,18 @@ void Writer(const std::filesystem::path& directory, size_t count, HANDLE start, 
 
 void TestConcurrentWriters(const std::filesystem::path& peer = {}) {
     Fixture fixture(L"writers");
+    Channel late(fixture.directory, kSource);
+    const Version before = Current(late);
+    constexpr size_t writes_per_process = 30;
+    constexpr size_t total_writes = writes_per_process * 2;
+    const std::string expected_counter = std::to_string(total_writes);
     constexpr std::array<uint8_t, 1> zero{'0'};
     QIQI_TEST_CHECK(WriteFileAtomically(fixture.directory / L"counter", zero));
     SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
     const ScopedKernelHandle start(::CreateEventW(&attributes, TRUE, FALSE, nullptr));
     QIQI_TEST_CHECK(start);
-    const auto arguments = L"--writer \"" + fixture.directory.wstring() + L"\" 30 " +
+    const auto arguments = L"--writer \"" + fixture.directory.wstring() + L"\" " +
+        std::to_wstring(writes_per_process) + L" " +
         std::to_wstring(reinterpret_cast<uintptr_t>(start.Get()));
     Child first(GetModuleFilePath(nullptr), arguments, nullptr, start.Get());
     Child second(peer.empty() ? GetModuleFilePath(nullptr) : peer, arguments, nullptr, start.Get());
@@ -543,17 +669,25 @@ void TestConcurrentWriters(const std::filesystem::path& peer = {}) {
     first.Join();
     second.Join();
     std::string counter;
-    QIQI_TEST_CHECK(ReadFileToUtf8String(fixture.directory / L"counter", counter) && counter == "60");
-    Channel late(fixture.directory, kSource);
+    QIQI_TEST_CHECK(ReadFileToUtf8String(fixture.directory / L"counter", counter) && counter == expected_counter);
     Batch batch;
     QIQI_TEST_CHECK(late.Read({}, batch) == S_OK &&
-                    batch.snapshot == SnapshotReason::Startup && batch.version.sequence == 60);
+                    batch.snapshot == SnapshotReason::Startup && batch.version.sequence == total_writes);
+    QIQI_TEST_CHECK(late.Read(before, batch) == S_OK && batch.snapshot == SnapshotReason::None &&
+                    batch.version.baseline == before.baseline && batch.changes.size() == total_writes);
+    uint64_t sequence = before.sequence;
+    for (const auto& change : batch.changes) {
+        QIQI_TEST_CHECK(change.sequence == ++sequence && change.operation == Operation::Modify);
+        QIQI_TEST_CHECK(std::ranges::equal(change.payload, kPayload));
+    }
+    QIQI_TEST_CHECK(sequence == batch.version.sequence);
     Version applied;
     QIQI_TEST_CHECK(late.Synchronize(applied, InputBoundary::NewInput, [&]() {
         std::string snapshot;
-        return ReadFileToUtf8String(fixture.directory / L"counter", snapshot) && snapshot == "60" ? S_OK : E_FAIL;
+        return ReadFileToUtf8String(fixture.directory / L"counter", snapshot) &&
+            snapshot == expected_counter ? S_OK : E_FAIL;
     }, [](std::span<const Change>) { return E_FAIL; }) == S_OK);
-    QIQI_TEST_CHECK(applied.sequence == 60);
+    QIQI_TEST_CHECK(applied.baseline == before.baseline && applied.sequence == total_writes);
 }
 
 void CrashWriter(const std::filesystem::path& directory, HANDLE ready) {
@@ -624,8 +758,15 @@ int wmain(int argc, wchar_t** argv) try {
     const std::span<wchar_t*> arguments(argv, gsl::narrow_cast<size_t>(argc));
     if (arguments.size() == 3 && std::wstring_view(gsl::at(arguments, 1)) == L"--peer") {
         TestConcurrentWriters(gsl::at(arguments, 2));
+        TestReaderInterferenceCharacterization(gsl::at(arguments, 2));
         TestAppContainerTransport(gsl::at(arguments, 2));
         std::cout << "[PASS] Mixed-architecture writers and AppContainer reader.\n";
+        return 0;
+    }
+    if (arguments.size() == 6 && std::wstring_view(gsl::at(arguments, 1)) == L"--hold-reader") {
+        const ScopedKernelHandle release(reinterpret_cast<HANDLE>(_wcstoui64(gsl::at(arguments, 4), nullptr, 10)));
+        const ScopedKernelHandle ready(reinterpret_cast<HANDLE>(_wcstoui64(gsl::at(arguments, 5), nullptr, 10)));
+        HoldReader(gsl::at(arguments, 2), gsl::at(arguments, 3), release.Get(), ready.Get());
         return 0;
     }
     if (arguments.size() == 4 && std::wstring_view(gsl::at(arguments, 1)) == L"--probe") {
@@ -650,6 +791,7 @@ int wmain(int argc, wchar_t** argv) try {
     TestConcurrentWriters();
     TestWriterExit();
     TestCommitFailure();
+    TestReaderInterferenceCharacterization();
     TestAppContainerTransport();
     std::cout << "[PASS] Cross-process transport and real AppContainer read-only access.\n";
     return 0;
