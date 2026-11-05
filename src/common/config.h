@@ -1,10 +1,14 @@
 #pragma once
 #include <array>
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <gsl/gsl>
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <type_traits>
 #include <vector>
 #include "common/logger.h"
 
@@ -63,6 +67,88 @@ struct QiQiConfig {
     log::Level log_level = log::Level::info;
 };
 
+template <typename T>
+struct ConfigField {
+    std::string_view backup_key;
+    const wchar_t* registry_key;
+    T QiQiConfig::* member;
+    uint64_t minimum;
+    uint64_t maximum;
+    bool settings_editable;
+
+    constexpr uint64_t Value(const QiQiConfig& config) const noexcept {
+        if constexpr (std::is_enum_v<T>) {
+            return static_cast<uint64_t>(config.*member);
+        } else {
+            return gsl::narrow_cast<uint64_t>(config.*member);
+        }
+    }
+
+    constexpr uint64_t RegistryValue(const QiQiConfig& config) const noexcept {
+        if constexpr (std::is_same_v<T, size_t>) {
+            return std::clamp(Value(config), minimum, maximum);
+        } else {
+            return Value(config);
+        }
+    }
+
+    constexpr bool Assign(QiQiConfig& config, uint64_t value) const noexcept {
+        if constexpr (std::is_same_v<T, bool>) {
+            config.*member = (value != 0);
+        } else {
+            if (value < minimum || value > maximum) return false;
+            if constexpr (std::is_enum_v<T>) {
+                config.*member = static_cast<T>(value);
+            } else {
+                config.*member = gsl::narrow_cast<T>(value);
+            }
+        }
+        return true;
+    }
+};
+
+// Order and keys preserve the backup format; paths remain registry-only.
+inline constexpr auto kConfigFields = std::tuple{
+    ConfigField{"primary_dict", L"PrimaryDict", &QiQiConfig::primary_dict, 0, 2, true},
+    ConfigField{"enable_jidian_extra", L"EnableJidianExtra", &QiQiConfig::enable_jidian_extra, 0, 1, true},
+    ConfigField{"page_size", L"PageSize", &QiQiConfig::page_size, 1, 9, true},
+    ConfigField{"auto_commit_4code", L"AutoCommit4Code", &QiQiConfig::auto_commit_4code, 0, 1, true},
+    ConfigField{"push_commit_5th", L"PushCommit5th", &QiQiConfig::push_commit_5th, 0, 1, true},
+    ConfigField{"semicolon_quote_quick_select", L"SemicolonQuoteQuickSelect", &QiQiConfig::semicolon_quote_quick_select, 0, 1, true},
+    ConfigField{"show_code_hint", L"ShowCodeHint", &QiQiConfig::show_code_hint, 0, 1, true},
+    ConfigField{"enable_z_temp_english", L"EnableZTempEnglish", &QiQiConfig::enable_z_temp_english, 0, 1, false},
+    ConfigField{"dynamic_phrase_freq", L"DynamicPhraseFreq", &QiQiConfig::dynamic_phrase_freq, 0, 1, true},
+    ConfigField{"default_chinese_mode", L"DefaultChineseMode", &QiQiConfig::default_chinese_mode, 0, 1, false},
+    ConfigField{"default_full_width", L"DefaultFullWidth", &QiQiConfig::default_full_width, 0, 1, false},
+    ConfigField{"default_chinese_punct", L"DefaultChinesePunct", &QiQiConfig::default_chinese_punct, 0, 1, false},
+    ConfigField{"shift_toggle_mode", L"ShiftToggleMode", &QiQiConfig::shift_toggle_mode, 0, 1, true},
+    ConfigField{"commit_on_english_switch", L"CommitOnEnglishSwitch", &QiQiConfig::commit_on_english_switch, 0, 1, true},
+    ConfigField{"show_status_bar", L"ShowStatusBar", &QiQiConfig::show_status_bar, 0, 1, true},
+    ConfigField{"beep_on_empty_4code", L"BeepOnEmpty4Code", &QiQiConfig::beep_on_empty_4code, 0, 1, true},
+    ConfigField{"beep_on_dup_4code", L"BeepOnDup4Code", &QiQiConfig::beep_on_dup_4code, 0, 1, true},
+    ConfigField{"clear_on_empty_4code", L"ClearOnEmpty4Code", &QiQiConfig::clear_on_empty_4code, 0, 1, true},
+    ConfigField{"enable_key_sound", L"EnableKeySound", &QiQiConfig::enable_key_sound, 0, 1, true},
+    ConfigField{"up_down_page_turn", L"UpDownPageTurn", &QiQiConfig::up_down_page_turn, 0, 1, true},
+    ConfigField{"ui_language", L"UiLanguage", &QiQiConfig::ui_language, 0, 2, true},
+    ConfigField{"underline_style", L"UnderlineStyle", &QiQiConfig::underline_style, 0, 4, true},
+    ConfigField{"bold_underline", L"BoldUnderline", &QiQiConfig::bold_underline, 0, 1, true},
+    ConfigField{"log_level", L"LogLevel", &QiQiConfig::log_level, 0, 6, false}
+};
+
+template <typename Visitor>
+constexpr void ForEachConfigField(Visitor&& visitor)
+    noexcept(std::apply([](const auto&... fields) {
+        return (std::is_nothrow_invocable_v<Visitor&, decltype(fields)> && ...);
+    }, kConfigFields)) {
+    std::apply([&visitor](const auto&... fields)
+        noexcept((std::is_nothrow_invocable_v<Visitor&, decltype(fields)> && ...)) {
+        (visitor(fields), ...);
+    }, kConfigFields);
+}
+
+void MergeSettingsConfig(
+    QiQiConfig& external, const QiQiConfig& baseline, const QiQiConfig& local) noexcept;
+
 // Return canonical string name of PrimaryDict ("jidian" | "haifeng" | "builtin").
 constexpr std::string_view PrimaryDictToString(PrimaryDict dict) noexcept {
     switch (dict) {
@@ -79,6 +165,30 @@ inline constexpr std::array<std::wstring_view, 3> kBundledDictFileNames = {
     L"wubi86_jidian_extra.txt",
     L"wubi86_haifeng.txt"
 };
+
+enum class DictionarySourceRole { Primary, Extra };
+
+struct DictionarySource {
+    DictionarySourceRole role;
+    std::wstring_view file_name;
+};
+
+inline constexpr std::array<DictionarySource, 3> kBundledDictionarySources{{
+    {DictionarySourceRole::Primary, std::get<0>(kBundledDictFileNames)},
+    {DictionarySourceRole::Extra, std::get<1>(kBundledDictFileNames)},
+    {DictionarySourceRole::Primary, std::get<2>(kBundledDictFileNames)}
+}};
+
+constexpr std::span<const DictionarySource> GetBundledDictionaryLoadPlan(
+    PrimaryDict primary, bool enable_extra) noexcept {
+    const std::span<const DictionarySource> sources(kBundledDictionarySources);
+    switch (primary) {
+        case PrimaryDict::Jidian: return sources.first(enable_extra ? 2 : 1);
+        case PrimaryDict::Haifeng: return sources.subspan(2, 1);
+        case PrimaryDict::BuiltinOnly:
+        default: return {};
+    }
+}
 
 // Default HKCU registry subkey for cross-process & UWP AppContainer configuration/user-dict synchronization.
 inline constexpr const wchar_t* kDefaultConfigRegSubKey = L"Software\\QiQiIME";

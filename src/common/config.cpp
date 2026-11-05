@@ -15,32 +15,6 @@ namespace qiqi {
 
 namespace {
 
-struct BoolRegBinding {
-    const wchar_t* value_name;
-    bool QiQiConfig::* field;
-};
-
-constexpr std::array<BoolRegBinding, 18> kBoolRegBindings = {{
-    {L"EnableJidianExtra",         &QiQiConfig::enable_jidian_extra},
-    {L"AutoCommit4Code",           &QiQiConfig::auto_commit_4code},
-    {L"PushCommit5th",             &QiQiConfig::push_commit_5th},
-    {L"SemicolonQuoteQuickSelect", &QiQiConfig::semicolon_quote_quick_select},
-    {L"ShowCodeHint",              &QiQiConfig::show_code_hint},
-    {L"EnableZTempEnglish",        &QiQiConfig::enable_z_temp_english},
-    {L"DynamicPhraseFreq",         &QiQiConfig::dynamic_phrase_freq},
-    {L"DefaultChineseMode",        &QiQiConfig::default_chinese_mode},
-    {L"DefaultFullWidth",          &QiQiConfig::default_full_width},
-    {L"DefaultChinesePunct",       &QiQiConfig::default_chinese_punct},
-    {L"ShiftToggleMode",           &QiQiConfig::shift_toggle_mode},
-    {L"CommitOnEnglishSwitch",     &QiQiConfig::commit_on_english_switch},
-    {L"ShowStatusBar",             &QiQiConfig::show_status_bar},
-    {L"BeepOnEmpty4Code",          &QiQiConfig::beep_on_empty_4code},
-    {L"BeepOnDup4Code",            &QiQiConfig::beep_on_dup_4code},
-    {L"ClearOnEmpty4Code",         &QiQiConfig::clear_on_empty_4code},
-    {L"UpDownPageTurn",            &QiQiConfig::up_down_page_turn},
-    {L"BoldUnderline",             &QiQiConfig::bold_underline},
-}};
-
 bool WriteRegDword(HKEY key, const wchar_t* name, DWORD val) noexcept {
     const LSTATUS error = ::RegSetValueExW(
         key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&val), sizeof(val));
@@ -339,20 +313,14 @@ bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexc
         if (!key) {
             return false;
         }
-        if (!WriteRegDword(key.Get(), L"PrimaryDict", static_cast<DWORD>(config.primary_dict)) ||
-            !WriteRegDword(key.Get(), L"PageSize", gsl::narrow_cast<DWORD>(std::clamp<size_t>(config.page_size, 1, 9))) ||
-            !WriteRegDword(key.Get(), L"UiLanguage", static_cast<DWORD>(config.ui_language)) ||
-            !WriteRegDword(key.Get(), L"UnderlineStyle", static_cast<DWORD>(config.underline_style)) ||
-            !WriteRegDword(key.Get(), L"LogLevel", static_cast<DWORD>(config.log_level)) ||
-            !WriteRegDword(key.Get(), L"EnableKeySound", config.enable_key_sound ? 1u : 0u) ||
-            !WriteRegString(key.Get(), L"UserDictPath", config.user_dict_path)) {
-            return false;
-        }
-        for (const auto& binding : kBoolRegBindings) {
-            if (!WriteRegDword(key.Get(), binding.value_name, (config.*(binding.field)) ? 1u : 0u)) {
-                return false;
+        bool fields_saved = true;
+        ForEachConfigField([&](const auto& field) {
+            if (fields_saved) {
+                fields_saved = WriteRegDword(
+                    key.Get(), field.registry_key, gsl::narrow_cast<DWORD>(field.RegistryValue(config)));
             }
-        }
+        });
+        if (!fields_saved || !WriteRegString(key.Get(), L"UserDictPath", config.user_dict_path)) return false;
         if (!BumpRegistrySequence(key.Get())) {
             return false;
         }
@@ -396,37 +364,27 @@ bool LoadConfigFromRegistry(
 
         QiQiConfig cfg{};
         DWORD dw = 0;
-        if (ReadRegDword(key.Get(), L"PrimaryDict", dw) && dw <= static_cast<DWORD>(PrimaryDict::BuiltinOnly)) {
-            cfg.primary_dict = static_cast<PrimaryDict>(dw);
-        }
-        if (ReadRegDword(key.Get(), L"PageSize", dw) && dw >= 1 && dw <= 9) {
-            cfg.page_size = gsl::narrow_cast<size_t>(dw);
-        }
-        if (ReadRegDword(key.Get(), L"UiLanguage", dw) && dw <= static_cast<DWORD>(UiLanguage::EnUs)) {
-            cfg.ui_language = static_cast<UiLanguage>(dw);
-        }
-        if (ReadRegDword(key.Get(), L"UnderlineStyle", dw) &&
-            dw <= static_cast<DWORD>(CompositionUnderlineStyle::None)) {
-            cfg.underline_style = static_cast<CompositionUnderlineStyle>(dw);
-        }
-        if (ReadRegDword(key.Get(), L"LogLevel", dw) && dw <= static_cast<DWORD>(log::Level::off)) {
-            cfg.log_level = static_cast<log::Level>(dw);
-        }
-        if (ReadRegDword(key.Get(), L"EnableKeySound", dw)) {
-            cfg.enable_key_sound = (dw != 0);
-        }
-        std::ignore = ReadRegString(key.Get(), L"UserDictPath", cfg.user_dict_path);
-        for (const auto& binding : kBoolRegBindings) {
-            if (ReadRegDword(key.Get(), binding.value_name, dw)) {
-                cfg.*(binding.field) = (dw != 0);
+        ForEachConfigField([&](const auto& field) {
+            if (ReadRegDword(key.Get(), field.registry_key, dw)) {
+                std::ignore = field.Assign(cfg, dw);
             }
-        }
+        });
+        std::ignore = ReadRegString(key.Get(), L"UserDictPath", cfg.user_dict_path);
         out_config = std::move(cfg);
         return true;
     } catch (...) {
         QIQI_LOG_ERROR("LoadConfigFromRegistry failed with a C++ exception");
         return false;
     }
+}
+
+void MergeSettingsConfig(
+    QiQiConfig& external, const QiQiConfig& baseline, const QiQiConfig& local) noexcept {
+    ForEachConfigField([&](const auto& field) noexcept {
+        if (field.settings_editable && local.*(field.member) != baseline.*(field.member)) {
+            external.*(field.member) = local.*(field.member);
+        }
+    });
 }
 
 uint64_t QueryRegistryConfigSequence(const wchar_t* subkey) noexcept {

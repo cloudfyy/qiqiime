@@ -155,28 +155,9 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
     ReadSettingsFromWindowControls(hwnd, current_ui_cfg);
 
     QiQiConfig merged_ui_cfg = external_cfg;
-    if (current_ui_cfg.primary_dict != ctx.baseline_config.primary_dict) {
-        merged_ui_cfg.primary_dict = current_ui_cfg.primary_dict;
-    }
-    for (const auto& binding : kSettingsCheckboxes) {
-        if (current_ui_cfg.*(binding.config_field) != ctx.baseline_config.*(binding.config_field)) {
-            merged_ui_cfg.*(binding.config_field) = current_ui_cfg.*(binding.config_field);
-        }
-    }
-    if (current_ui_cfg.page_size != ctx.baseline_config.page_size) {
-        merged_ui_cfg.page_size = current_ui_cfg.page_size;
-    }
-    if (current_ui_cfg.underline_style != ctx.baseline_config.underline_style) {
-        merged_ui_cfg.underline_style = current_ui_cfg.underline_style;
-    }
-    if (current_ui_cfg.commit_on_english_switch != ctx.baseline_config.commit_on_english_switch) {
-        merged_ui_cfg.commit_on_english_switch = current_ui_cfg.commit_on_english_switch;
-    }
+    MergeSettingsConfig(merged_ui_cfg, ctx.baseline_config, current_ui_cfg);
     const bool ui_lang_follows_external =
         (current_ui_cfg.ui_language == ctx.baseline_config.ui_language);
-    if (!ui_lang_follows_external) {
-        merged_ui_cfg.ui_language = current_ui_cfg.ui_language;
-    }
 
     ctx.config_registry_sequence = loaded_seq;
     if (ctx.config) {

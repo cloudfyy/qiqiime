@@ -174,11 +174,55 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(cfg.primary_dict == PrimaryDict::Jidian && cfg.page_size == 5 && !cfg.enable_key_sound);
 }
 
+void TestSettingsFieldMergeMatrix() {
+    const std::wstring subkey = L"Software\\QiQiIME_SettingsMatrix_" + std::to_wstring(::GetCurrentProcessId());
+    const wchar_t* previous = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto cleanup = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        QIQI_TEST_CHECK(::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str()) == ERROR_SUCCESS);
+    });
+    size_t cases = 0;
+    ForEachConfigField([&](const auto& field) {
+        if (!field.settings_editable) return;
+        for (const bool dirty : {false, true}) {
+            QiQiConfig baseline;
+            QIQI_TEST_CHECK(field.Assign(baseline, field.minimum));
+            QiQiConfig config = baseline;
+            QIQI_TEST_CHECK(SaveConfig(config));
+            const ScopedWindow window(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config, true));
+            QIQI_TEST_CHECK(window);
+            QiQiConfig local = baseline;
+            if (dirty) QIQI_TEST_CHECK(field.Assign(local, field.maximum));
+            WriteSettingsToWindowControls(window.Get(), local);
+            GetContext(window.Get()).baseline_config = baseline;
+            QiQiConfig external = baseline;
+            ForEachConfigField([&](const auto& other) {
+                QIQI_TEST_CHECK(other.Assign(external,
+                    other.Value(baseline) == other.maximum ? other.minimum : other.maximum));
+            });
+            external.user_dict_path = L"external-matrix.txt";
+            QIQI_TEST_CHECK(SaveConfig(external));
+            ::SendMessageW(window.Get(), kSettingsExternalConfigChangedMessage, 0, 0);
+            QiQiConfig actual = config;
+            ReadSettingsFromWindowControls(window.Get(), actual);
+            ForEachConfigField([&](const auto& other) {
+                QIQI_TEST_CHECK(other.Value(actual) ==
+                    (dirty && other.backup_key == field.backup_key ? field.Value(local) : other.Value(external)));
+            });
+            QIQI_TEST_CHECK(config.user_dict_path == external.user_dict_path);
+            ++cases;
+        }
+    });
+    QIQI_TEST_CHECK(cases == 38);
+}
+
 } // namespace
 
 void RunSettingsSaveTests() {
     TestSaveRetryAndCancel();
     TestExternalConfigSyncWhileSettingsOpen();
+    TestSettingsFieldMergeMatrix();
 }
 
 } // namespace qiqi::test

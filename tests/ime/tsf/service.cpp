@@ -582,6 +582,43 @@ void TestProcessDictCacheLifetime() {
     QIQI_TEST_CHECK(WubiMappedDict::ProcessCacheSize() == 0 && weak_dict.expired());
 }
 
+void TestDictionaryRegistryFallback() {
+    const std::wstring subkey = L"Software\\QiQiIME_DictFallback_" + std::to_wstring(::GetCurrentProcessId());
+    const wchar_t* previous = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto cleanup = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        QIQI_TEST_CHECK(::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str()) == ERROR_SUCCESS);
+    });
+    QIQI_TEST_CHECK(!std::filesystem::exists(GetDefaultUserDictPath()));
+    const std::map<uint32_t, std::vector<std::wstring>> entries{
+        {PackWubiCode(L"qwer"), {L"镜像回退词"}}
+    };
+    std::vector<uint8_t> bytes;
+    WubiMappedDict::CompileEntriesToBinaryBuffer(entries, bytes);
+    QIQI_TEST_CHECK(SaveUserDictBinaryToRegistry(bytes));
+    for (const bool configured_path : {false, true}) {
+        QiQiConfig config;
+        config.primary_dict = PrimaryDict::BuiltinOnly;
+        config.enable_jidian_extra = true;
+        config.auto_commit_4code = false;
+        config.user_dict_path = configured_path ?
+            (GetDefaultUserDictPath().parent_path() / L"missing-explicit.txt").wstring() : L"";
+        QIQI_TEST_CHECK(SaveConfig(config));
+        auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        auto manager = MakeComObject<MockTfThreadMgr>();
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        auto context = MakeComObject<MockTfContext>();
+        BOOL eaten = FALSE;
+        for (const UINT key : std::array<UINT, 4>{'Q', 'W', 'E', 'R'}) {
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+        }
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SPACE, 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK((context->range_->text_ == L"镜像回退词") == !configured_path);
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    }
+}
+
 void TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*> service) {
     auto manager = MakeComObject<MockTfThreadMgr>();
     const auto reset_counters = [&]() {
@@ -884,6 +921,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
     TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*>(service.Get()));
     TestProcessDictCacheLifetime();
+    TestDictionaryRegistryFallback();
 
     // Activate success
     QIQI_TEST_CHECK(SUCCEEDED(service->Activate(mock_tm.Get(), 1)));

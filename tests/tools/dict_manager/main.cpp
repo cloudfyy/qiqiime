@@ -358,6 +358,76 @@ void TestVersionResource() {
     QIQI_TEST_CHECK(has_256_frame);
 }
 
+void TestDictionarySourceSelection() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        (L"qiqi_dict_plan_" + std::to_wstring(::GetCurrentProcessId()));
+    const std::wstring subkey = L"Software\\QiQiIME_DictPlan_" + std::to_wstring(::GetCurrentProcessId());
+    const wchar_t* previous = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto cleanup = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        QIQI_TEST_CHECK(::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str()) == ERROR_SUCCESS);
+        WubiMappedDict::ClearProcessCache();
+        std::error_code ec;
+        std::filesystem::remove_all(directory, ec);
+        QIQI_TEST_CHECK(!ec);
+    });
+    const auto module = directory / L"bin";
+    const auto data = directory / L"data";
+    QIQI_TEST_CHECK(std::filesystem::create_directories(module));
+    QIQI_TEST_CHECK(std::filesystem::create_directories(data));
+    const auto write = [](const std::filesystem::path& path, std::string_view text) {
+        QIQI_TEST_CHECK(WriteFileAtomically(path, codec::AsByteSpan(text)));
+    };
+    write(data / L"wubi86_jidian.txt", "aaaa 计划极点\n");
+    write(data / L"wubi86_jidian_extra.txt", "bbbb 计划扩展\n");
+    write(data / L"wubi86_haifeng.txt", "cccc 计划海峰\n");
+    write(module / L"relative-user.txt", "dddd 计划用户\n");
+    for (const PrimaryDict primary : {PrimaryDict::BuiltinOnly, PrimaryDict::Jidian, PrimaryDict::Haifeng}) {
+        for (const bool extra : {false, true}) {
+            QiQiConfig config;
+            config.primary_dict = primary;
+            config.enable_jidian_extra = extra;
+            config.user_dict_path = L"relative-user.txt";
+            QIQI_TEST_CHECK(SaveConfig(config));
+            DictManagerModel model;
+            model.InitializePaths(module, {}, directory / L"missing-frequency.txt");
+            QIQI_TEST_CHECK(model.ReloadAllResult() == S_OK && model.UserEntryCount() == 1);
+            std::vector<DictEntrySource> sources;
+            for (const auto& record : model.Records()) {
+                if (record.source == DictEntrySource::UserDict) {
+                    QIQI_TEST_CHECK(record.word == L"计划用户");
+                } else if (record.source == DictEntrySource::PrimaryDict) {
+                    QIQI_TEST_CHECK(record.word == (primary == PrimaryDict::Jidian ? L"计划极点" : L"计划海峰"));
+                    sources.push_back(record.source);
+                } else if (record.source == DictEntrySource::ExtraDict) {
+                    QIQI_TEST_CHECK(record.word == L"计划扩展");
+                    sources.push_back(record.source);
+                }
+            }
+            std::vector<DictEntrySource> expected;
+            if (primary != PrimaryDict::BuiltinOnly) expected.push_back(DictEntrySource::PrimaryDict);
+            if (primary == PrimaryDict::Jidian && extra) expected.push_back(DictEntrySource::ExtraDict);
+            QIQI_TEST_CHECK(sources == expected);
+            if (primary != PrimaryDict::BuiltinOnly) {
+                const auto path = data / (primary == PrimaryDict::Jidian ? L"wubi86_jidian.txt" : L"wubi86_haifeng.txt");
+                const auto cached = WubiMappedDict::LoadFromTextOrCache(path);
+                QIQI_TEST_CHECK(cached && model.ReloadAllResult() == S_OK);
+                QIQI_TEST_CHECK(WubiMappedDict::LoadFromTextOrCache(path) == cached);
+            }
+        }
+    }
+    WubiMappedDict::ClearProcessCache();
+    QIQI_TEST_CHECK(std::filesystem::remove(data / L"wubi86_haifeng.txt"));
+    QIQI_TEST_CHECK(std::filesystem::remove(data / L"wubi86_haifeng.qdict"));
+    DictManagerModel missing;
+    missing.InitializePaths(module, {}, directory / L"missing-frequency.txt");
+    QIQI_TEST_CHECK(missing.ReloadAllResult() == S_OK && missing.UserEntryCount() == 1);
+    QIQI_TEST_CHECK(std::ranges::none_of(missing.Records(), [](const DictRecord& record) {
+        return record.source == DictEntrySource::PrimaryDict || record.source == DictEntrySource::ExtraDict;
+    }));
+}
+
 void TestModelAndCrossProcessSync() {
     const auto temp_dir = std::filesystem::temp_directory_path() /
         (L"qiqi_dict_mgr_test_" + std::to_wstring(::GetCurrentProcessId()));
@@ -604,6 +674,53 @@ void TestBackupRestoreResults() {
     };
     const std::string full_body =
         "[config]\npage_size=7\n[user_dict]\nabcd 新增词条\n[phrase_freq]\nabcd 新增词组\n";
+
+    reset();
+    for (const bool maximum : {false, true}) {
+        QiQiConfig expected = LoadConfig();
+        ForEachConfigField([&](const auto& field) {
+            QIQI_TEST_CHECK(field.Assign(expected, maximum ? field.maximum : field.minimum));
+        });
+        expected.user_dict_path = L"not-in-backup.txt";
+        QIQI_TEST_CHECK(SaveConfig(expected));
+        QIQI_TEST_CHECK(model.CreateBackupBundle(backup));
+        const auto bytes = read_file(backup);
+        QIQI_TEST_CHECK(!bytes.contains("user_dict_path") && !bytes.contains("not-in-backup.txt"));
+        size_t position = bytes.find("[config]\n");
+        ForEachConfigField([&](const auto& field) {
+            const auto line = std::format("{}={}\n", field.backup_key, field.Value(expected));
+            const size_t found = bytes.find(line, position);
+            QIQI_TEST_CHECK(found != std::string::npos && bytes.find(line, found + line.size()) == std::string::npos);
+            position = found + line.size();
+        });
+        QIQI_TEST_CHECK(SaveConfig(QiQiConfig{}));
+        QIQI_TEST_CHECK(model.RestoreBackupBundle(backup, BackupConflictMode::Merge).status == BackupRestoreStatus::Success);
+        const auto restored = LoadConfig();
+        ForEachConfigField([&](const auto& field) {
+            QIQI_TEST_CHECK(field.Value(restored) == field.Value(expected));
+        });
+        QIQI_TEST_CHECK(restored.user_dict_path.empty());
+    }
+    ForEachConfigField([&](const auto& field) {
+        for (uint64_t value = field.minimum; value <= field.maximum + 1; ++value) {
+            const QiQiConfig before = LoadConfig();
+            const uint64_t sequence = QueryRegistryConfigSequence();
+            WriteRestoreBundle(backup, std::format("[config]\n{}={}\n", field.backup_key, value));
+            QiQiConfig expected = before;
+            const bool valid = field.Assign(expected, value);
+            const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
+            QIQI_TEST_CHECK(result.status == (valid ? BackupRestoreStatus::Success : BackupRestoreStatus::Failed));
+            if (!valid) {
+                QIQI_TEST_CHECK(result.stage == BackupRestoreStage::Validate && QueryRegistryConfigSequence() == sequence);
+            }
+            const auto restored = LoadConfig();
+            ForEachConfigField([&](const auto& other) {
+                QIQI_TEST_CHECK(other.Value(restored) == other.Value(expected));
+            });
+        }
+    });
+    WriteRestoreBundle(backup, "[config]\nfuture_numeric_key=123\n");
+    QIQI_TEST_CHECK(model.RestoreBackupBundle(backup, BackupConflictMode::Merge).status == BackupRestoreStatus::Success);
 
     // Checksummed malformed later input must not apply earlier configuration or dictionary lines.
     reset();
@@ -1591,6 +1708,7 @@ int main() {
     ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     TestVersionResource();
     TestSmartSearch();
+    TestDictionarySourceSelection();
     TestModelAndCrossProcessSync();
     TestBackupRestoreResults();
     TestGuiWindow();

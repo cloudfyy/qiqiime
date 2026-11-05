@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <limits>
 #include <string>
 #include <tuple>
 #include <thread>
@@ -402,6 +403,125 @@ void TestEtwLogger() {
     QIQI_TEST_CHECK(log::EnsureInitialized());
     QIQI_TEST_CHECK(log::IsEtwProviderRegistered() && log::GetLevel() == log::Level::off);
     log::InitLogger();
+}
+
+void TestConfigFieldProjections() {
+    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 24> expected_keys{{
+        {"primary_dict", L"PrimaryDict"}, {"enable_jidian_extra", L"EnableJidianExtra"},
+        {"page_size", L"PageSize"}, {"auto_commit_4code", L"AutoCommit4Code"},
+        {"push_commit_5th", L"PushCommit5th"}, {"semicolon_quote_quick_select", L"SemicolonQuoteQuickSelect"},
+        {"show_code_hint", L"ShowCodeHint"}, {"enable_z_temp_english", L"EnableZTempEnglish"},
+        {"dynamic_phrase_freq", L"DynamicPhraseFreq"}, {"default_chinese_mode", L"DefaultChineseMode"},
+        {"default_full_width", L"DefaultFullWidth"}, {"default_chinese_punct", L"DefaultChinesePunct"},
+        {"shift_toggle_mode", L"ShiftToggleMode"}, {"commit_on_english_switch", L"CommitOnEnglishSwitch"},
+        {"show_status_bar", L"ShowStatusBar"}, {"beep_on_empty_4code", L"BeepOnEmpty4Code"},
+        {"beep_on_dup_4code", L"BeepOnDup4Code"}, {"clear_on_empty_4code", L"ClearOnEmpty4Code"},
+        {"enable_key_sound", L"EnableKeySound"}, {"up_down_page_turn", L"UpDownPageTurn"},
+        {"ui_language", L"UiLanguage"}, {"underline_style", L"UnderlineStyle"},
+        {"bold_underline", L"BoldUnderline"}, {"log_level", L"LogLevel"}
+    }};
+    constexpr std::array<std::string_view, 19> editable_keys{
+        "primary_dict", "enable_jidian_extra", "page_size", "auto_commit_4code",
+        "push_commit_5th", "semicolon_quote_quick_select", "show_code_hint", "dynamic_phrase_freq",
+        "shift_toggle_mode", "commit_on_english_switch", "show_status_bar", "beep_on_empty_4code",
+        "beep_on_dup_4code", "clear_on_empty_4code", "enable_key_sound", "up_down_page_turn",
+        "ui_language", "underline_style", "bold_underline"
+    };
+    const std::wstring subkey = L"Software\\QiQiIME_ConfigFields_" + std::to_wstring(::GetCurrentProcessId());
+    const auto cleanup = gsl::finally([&]() noexcept {
+        const LSTATUS error = ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+        QIQI_TEST_CHECK(error == ERROR_SUCCESS || error == ERROR_FILE_NOT_FOUND);
+    });
+    const QiQiConfig defaults;
+    size_t index = 0;
+    ForEachConfigField([&](const auto& field) {
+        const auto& expected = gsl::at(expected_keys, index++);
+        QIQI_TEST_CHECK(field.backup_key == expected.first && field.registry_key == expected.second);
+        QIQI_TEST_CHECK(std::ranges::count(editable_keys, field.backup_key) == (field.settings_editable ? 1 : 0));
+        for (const auto& other : expected_keys) {
+            QIQI_TEST_CHECK((field.backup_key == other.first) == (field.registry_key == other.second));
+        }
+        for (uint64_t value = field.minimum; value <= field.maximum; ++value) {
+            QiQiConfig config;
+            QIQI_TEST_CHECK(field.Assign(config, value));
+            QIQI_TEST_CHECK(SaveConfigToRegistry(config, subkey.c_str()));
+            QiQiConfig loaded;
+            QIQI_TEST_CHECK(LoadConfigFromRegistry(loaded, nullptr, subkey.c_str()));
+            QIQI_TEST_CHECK(field.Value(loaded) == value);
+        }
+        ScopedRegKey key;
+        QIQI_TEST_CHECK(::RegOpenKeyExW(HKEY_CURRENT_USER, subkey.c_str(), 0, KEY_SET_VALUE, key.Put()) == ERROR_SUCCESS);
+        const DWORD invalid = gsl::narrow_cast<DWORD>(field.maximum + 1);
+        QIQI_TEST_CHECK(::RegSetValueExW(key.Get(), field.registry_key, 0, REG_DWORD,
+            reinterpret_cast<const BYTE*>(&invalid), sizeof(invalid)) == ERROR_SUCCESS);
+        QiQiConfig loaded;
+        QIQI_TEST_CHECK(LoadConfigFromRegistry(loaded, nullptr, subkey.c_str()));
+        using Value = std::remove_cvref_t<decltype(defaults.*(field.member))>;
+        if constexpr (std::is_same_v<Value, bool>) {
+            QIQI_TEST_CHECK(field.Value(loaded) == 1);
+        } else {
+            QIQI_TEST_CHECK(field.Value(loaded) == field.Value(defaults));
+            QiQiConfig unchanged;
+            QIQI_TEST_CHECK(!field.Assign(unchanged, invalid));
+            QIQI_TEST_CHECK(field.Value(unchanged) == field.Value(defaults));
+        }
+        QIQI_TEST_CHECK(::RegDeleteValueW(key.Get(), field.registry_key) == ERROR_SUCCESS);
+        QIQI_TEST_CHECK(LoadConfigFromRegistry(loaded, nullptr, subkey.c_str()));
+        QIQI_TEST_CHECK(field.Value(loaded) == field.Value(defaults));
+
+        for (const bool local_changed : {false, true}) {
+            for (const bool external_changed : {false, true}) {
+                QiQiConfig baseline;
+                QIQI_TEST_CHECK(field.Assign(baseline, field.minimum));
+                QiQiConfig local = baseline;
+                QiQiConfig external = baseline;
+                if (local_changed) QIQI_TEST_CHECK(field.Assign(local, field.maximum));
+                if (external_changed) QIQI_TEST_CHECK(field.Assign(external, field.maximum));
+                local.user_dict_path = L"local.txt";
+                external.user_dict_path = L"external.txt";
+                auto merged = external;
+                MergeSettingsConfig(merged, baseline, local);
+                QIQI_TEST_CHECK(field.Value(merged) ==
+                    (field.settings_editable && local_changed ? field.Value(local) : field.Value(external)));
+                QIQI_TEST_CHECK(merged.user_dict_path == external.user_dict_path);
+                ForEachConfigField([&](const auto& other) {
+                    if (other.backup_key != field.backup_key) {
+                        QIQI_TEST_CHECK(other.Value(merged) == other.Value(external));
+                    }
+                });
+            }
+        }
+    });
+    QIQI_TEST_CHECK(index == expected_keys.size());
+    for (const size_t page_size : {size_t{0}, (std::numeric_limits<size_t>::max)()}) {
+        QiQiConfig config;
+        config.page_size = page_size;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(config, subkey.c_str()));
+        QiQiConfig loaded;
+        QIQI_TEST_CHECK(LoadConfigFromRegistry(loaded, nullptr, subkey.c_str()));
+        QIQI_TEST_CHECK(loaded.page_size == (page_size == 0 ? 1u : 9u));
+    }
+}
+
+void TestDictionaryLoadPlans() {
+    for (const PrimaryDict primary : {PrimaryDict::BuiltinOnly, PrimaryDict::Jidian, PrimaryDict::Haifeng}) {
+        for (const bool extra : {false, true}) {
+            const auto plan = GetBundledDictionaryLoadPlan(primary, extra);
+            const size_t expected_count = primary == PrimaryDict::BuiltinOnly ? 0u :
+                (primary == PrimaryDict::Jidian && extra ? 2u : 1u);
+            QIQI_TEST_CHECK(plan.size() == expected_count);
+            if (!plan.empty()) {
+                QIQI_TEST_CHECK(plan.front().role == DictionarySourceRole::Primary);
+                QIQI_TEST_CHECK(plan.front().file_name ==
+                    (primary == PrimaryDict::Jidian ? L"wubi86_jidian.txt" : L"wubi86_haifeng.txt"));
+            }
+            if (plan.size() == 2) {
+                QIQI_TEST_CHECK(plan.back().role == DictionarySourceRole::Extra);
+                QIQI_TEST_CHECK(plan.back().file_name == L"wubi86_jidian_extra.txt");
+            }
+        }
+    }
+    QIQI_TEST_CHECK(GetBundledDictionaryLoadPlan(static_cast<PrimaryDict>(99), true).empty());
 }
 
 void TestIniConfiguration() {
@@ -805,6 +925,8 @@ void RunCommonTests() {
     TestEtwLogger();
     TestFileUtilityBoundaries();
     TestVersionMechanism();
+    TestConfigFieldProjections();
+    TestDictionaryLoadPlans();
     TestIniConfiguration();
     TestScopedHandleTemplate();
     TestI18nLocalization();

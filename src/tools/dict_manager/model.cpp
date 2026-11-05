@@ -115,16 +115,9 @@ HRESULT DictManagerModel::ReloadAllResult() {
     engine_.SetDynamicPhraseFreq(true);
 
     if (!module_dir_.empty()) {
-        if (cfg.primary_dict == PrimaryDict::Jidian) {
-            const auto jidian_path = ResolveBundledDataFile(module_dir_, L"wubi86_jidian.txt");
-            load_dictionary(jidian_path, primary_dict_);
-            if (cfg.enable_jidian_extra) {
-                const auto extra_path = ResolveBundledDataFile(module_dir_, L"wubi86_jidian_extra.txt");
-                load_dictionary(extra_path, extra_dict_);
-            }
-        } else if (cfg.primary_dict == PrimaryDict::Haifeng) {
-            const auto haifeng_path = ResolveBundledDataFile(module_dir_, L"wubi86_haifeng.txt");
-            load_dictionary(haifeng_path, primary_dict_);
+        for (const auto& source : GetBundledDictionaryLoadPlan(cfg.primary_dict, cfg.enable_jidian_extra)) {
+            load_dictionary(ResolveBundledDataFile(module_dir_, source.file_name),
+                source.role == DictionarySourceRole::Primary ? primary_dict_ : extra_dict_);
         }
     }
 
@@ -481,64 +474,19 @@ constexpr std::string_view kBackupChecksumPrefix = "# checksum_fnv1a64=";
 
 std::string SerializeConfigSection(const QiQiConfig& cfg) {
     std::string out = "[config]\n";
-    out += std::format("primary_dict={}\n", static_cast<int>(cfg.primary_dict));
-    out += std::format("enable_jidian_extra={}\n", cfg.enable_jidian_extra ? 1 : 0);
-    out += std::format("page_size={}\n", cfg.page_size);
-    out += std::format("auto_commit_4code={}\n", cfg.auto_commit_4code ? 1 : 0);
-    out += std::format("push_commit_5th={}\n", cfg.push_commit_5th ? 1 : 0);
-    out += std::format("semicolon_quote_quick_select={}\n", cfg.semicolon_quote_quick_select ? 1 : 0);
-    out += std::format("show_code_hint={}\n", cfg.show_code_hint ? 1 : 0);
-    out += std::format("enable_z_temp_english={}\n", cfg.enable_z_temp_english ? 1 : 0);
-    out += std::format("dynamic_phrase_freq={}\n", cfg.dynamic_phrase_freq ? 1 : 0);
-    out += std::format("default_chinese_mode={}\n", cfg.default_chinese_mode ? 1 : 0);
-    out += std::format("default_full_width={}\n", cfg.default_full_width ? 1 : 0);
-    out += std::format("default_chinese_punct={}\n", cfg.default_chinese_punct ? 1 : 0);
-    out += std::format("shift_toggle_mode={}\n", cfg.shift_toggle_mode ? 1 : 0);
-    out += std::format("commit_on_english_switch={}\n", cfg.commit_on_english_switch ? 1 : 0);
-    out += std::format("show_status_bar={}\n", cfg.show_status_bar ? 1 : 0);
-    out += std::format("beep_on_empty_4code={}\n", cfg.beep_on_empty_4code ? 1 : 0);
-    out += std::format("beep_on_dup_4code={}\n", cfg.beep_on_dup_4code ? 1 : 0);
-    out += std::format("clear_on_empty_4code={}\n", cfg.clear_on_empty_4code ? 1 : 0);
-    out += std::format("enable_key_sound={}\n", cfg.enable_key_sound ? 1 : 0);
-    out += std::format("up_down_page_turn={}\n", cfg.up_down_page_turn ? 1 : 0);
-    out += std::format("ui_language={}\n", static_cast<int>(cfg.ui_language));
-    out += std::format("underline_style={}\n", static_cast<int>(cfg.underline_style));
-    out += std::format("bold_underline={}\n", cfg.bold_underline ? 1 : 0);
-    out += std::format("log_level={}\n", static_cast<int>(cfg.log_level));
+    ForEachConfigField([&](const auto& field) {
+        out += std::format("{}={}\n", field.backup_key, field.Value(cfg));
+    });
     return out;
 }
 
 bool ApplyConfigKeyValue(QiQiConfig& cfg, std::string_view key, int val) noexcept {
-    if ((key == "primary_dict" && val > 2) ||
-        (key == "page_size" && (val < 1 || val > 9)) ||
-        (key == "ui_language" && val > 2) ||
-        (key == "underline_style" && val > 4) ||
-        (key == "log_level" && val > 6)) return false;
-    if (key == "primary_dict" && val >= 0 && val <= 2) cfg.primary_dict = static_cast<PrimaryDict>(val);
-    else if (key == "enable_jidian_extra") cfg.enable_jidian_extra = (val != 0);
-    else if (key == "page_size" && val >= 1 && val <= 9) cfg.page_size = gsl::narrow_cast<size_t>(val);
-    else if (key == "auto_commit_4code") cfg.auto_commit_4code = (val != 0);
-    else if (key == "push_commit_5th") cfg.push_commit_5th = (val != 0);
-    else if (key == "semicolon_quote_quick_select") cfg.semicolon_quote_quick_select = (val != 0);
-    else if (key == "show_code_hint") cfg.show_code_hint = (val != 0);
-    else if (key == "enable_z_temp_english") cfg.enable_z_temp_english = (val != 0);
-    else if (key == "dynamic_phrase_freq") cfg.dynamic_phrase_freq = (val != 0);
-    else if (key == "default_chinese_mode") cfg.default_chinese_mode = (val != 0);
-    else if (key == "default_full_width") cfg.default_full_width = (val != 0);
-    else if (key == "default_chinese_punct") cfg.default_chinese_punct = (val != 0);
-    else if (key == "shift_toggle_mode") cfg.shift_toggle_mode = (val != 0);
-    else if (key == "commit_on_english_switch") cfg.commit_on_english_switch = (val != 0);
-    else if (key == "show_status_bar") cfg.show_status_bar = (val != 0);
-    else if (key == "beep_on_empty_4code") cfg.beep_on_empty_4code = (val != 0);
-    else if (key == "beep_on_dup_4code") cfg.beep_on_dup_4code = (val != 0);
-    else if (key == "clear_on_empty_4code") cfg.clear_on_empty_4code = (val != 0);
-    else if (key == "enable_key_sound") cfg.enable_key_sound = (val != 0);
-    else if (key == "up_down_page_turn") cfg.up_down_page_turn = (val != 0);
-    else if (key == "ui_language" && val >= 0 && val <= 2) cfg.ui_language = static_cast<UiLanguage>(val);
-    else if (key == "underline_style" && val >= 0 && val <= 4) cfg.underline_style = static_cast<CompositionUnderlineStyle>(val);
-    else if (key == "bold_underline") cfg.bold_underline = (val != 0);
-    else if (key == "log_level" && val >= 0 && val <= 6) cfg.log_level = static_cast<log::Level>(val);
-    return true; // Unknown numeric keys remain forward-compatible.
+    if (val < 0) return false;
+    bool valid = true; // Unknown numeric keys remain forward-compatible.
+    ForEachConfigField([&](const auto& field) {
+        if (key == field.backup_key) valid = field.Assign(cfg, gsl::narrow_cast<uint64_t>(val));
+    });
+    return valid;
 }
 
 bool ParseHexU64(std::string_view sv, uint64_t& out) noexcept {
