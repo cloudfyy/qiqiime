@@ -92,7 +92,7 @@
 | **操作系统** | Windows 10 / Windows 11 (`x64`) |
 | **C++ 编译器** | 默认 CMake 预设使用 Visual Studio 2026，需安装 **“使用 C++ 的桌面开发”** 工作负载及 MSVC `x64/x86` 生成工具；项目使用 `/std:c++latest` 草案模式，不表示完整实现 C++26。使用 VS 2022 等其他版本时需选择相应生成器并验证编译兼容性 |
 | **Windows SDK** | Windows 10 / 11 SDK（`10.0.22621.0` 或 `10.0.26100.0` 及以上） |
-| **CMake** | 项目配置最低 `3.25`；默认 VS 2026 预设需要 **`4.2` 或更高版本**（[生成器要求](https://cmake.org/cmake/help/latest/generator/Visual%20Studio%2018%202026.html)） |
+| **CMake** | **`4.4.4` 或更高版本**；默认使用 VS 2026 预设 |
 | **依赖包管理器** | `vcpkg`（Visual Studio 内置 vcpkg 或通过环境变量 `VCPKG_ROOT` 指定，Manifest 模式自动安装 `ms-gsl`） |
 | **MSI 打包工具（可选）** | .NET SDK 8.0+ 与 **WiX Toolset CLI v4/v7+**（通过 `dotnet tool install --global wix` 安装，用于构建 `.msi` 安装包） |
 

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 4.4.4)
 
 # Automatically locate vcpkg toolchain if not explicitly provided
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
