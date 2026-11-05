@@ -597,15 +597,20 @@ public:
     STDMETHODIMP InsertEmbeddedAtSelection(TfEditCookie, DWORD, IDataObject*, ITfRange**) noexcept override { return E_NOTIMPL; }
 
     // ITfContextComposition
-    STDMETHODIMP StartComposition(TfEditCookie, ITfRange*, ITfCompositionSink* sink, ITfComposition** ppComposition) override {
+    STDMETHODIMP StartComposition(
+        TfEditCookie ec, ITfRange* range, ITfCompositionSink* sink, ITfComposition** ppComposition) override {
         ++start_composition_calls_;
+        if (start_composition_observer_) start_composition_observer_(ec, range, sink, ppComposition);
         if (!ppComposition || fail_start_comp_) return E_FAIL;
-        auto comp = MakeComObject<MockTfComposition>(range_, sink);
-        comp->fail_get_range_ = fail_comp_get_range_;
-        last_composition_ = comp;
-        *ppComposition = comp.Detach();
+        *ppComposition = nullptr;
+        if (!return_null_started_composition_) {
+            auto comp = MakeComObject<MockTfComposition>(range_, sink);
+            comp->fail_get_range_ = fail_comp_get_range_;
+            last_composition_ = comp;
+            *ppComposition = comp.Detach();
+        }
         if (start_composition_callback_) start_composition_callback_();
-        return S_OK;
+        return start_composition_result_;
     }
     STDMETHODIMP EnumCompositions(IEnumITfCompositionView**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP FindComposition(TfEditCookie, ITfRange*, IEnumITfCompositionView**) noexcept override { return E_NOTIMPL; }
@@ -676,6 +681,9 @@ public:
     std::function<void()> get_property_callback_;
     std::function<void(REFGUID, ITfProperty**)> get_property_observer_;
     std::function<void()> start_composition_callback_;
+    std::function<void(TfEditCookie, ITfRange*, ITfCompositionSink*, ITfComposition**)> start_composition_observer_;
+    HRESULT start_composition_result_ = S_OK;
+    bool return_null_started_composition_ = false;
     ComPtr<MockTfProperty> prop_;
     ComPtr<ITfTextLayoutSink> layout_sink_;
     HRESULT layout_advise_result_ = S_OK;

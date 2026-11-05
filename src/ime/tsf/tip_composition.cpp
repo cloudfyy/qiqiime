@@ -376,26 +376,19 @@ ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
     const EditSessionTicket ticket{edit_session_epoch_, context.get()};
     const TfClientId client_id = client_id_;
     if (!composition_) {
-        const auto prepared = PrepareCompositionStart(ec, context, [this, ticket]() noexcept {
-            return IsCompositionEditCurrent(ticket, nullptr);
-        });
-        if (!prepared.ready) return {};
-        // Track the unpublished result so removal/termination during StartComposition is remembered.
-        const auto starting = composition_cleanups_.TrackStarting(context);
-        const HRESULT start_hr = prepared.composition_context->StartComposition(
-            ec, prepared.range.Get(), this, &starting->composition);
-        std::ignore = log::CheckHResult(start_hr, "StartOrUpdateComposition::StartComposition");
-        starting->finished = true;
-        const auto disposition = composition_cleanups_.ResolveStarting(
-            starting, start_hr, IsCompositionEditCurrent(ticket, nullptr), client_id,
-            ticket.epoch, edit_session_epoch_, current_lifecycle_activity_);
-        if (disposition != CompositionStartDisposition::Publish) {
-            if (disposition == CompositionStartDisposition::Terminated && IsCompositionEditCurrent(ticket, nullptr)) {
+        const auto attempt = BeginCompositionInSession(
+            ec, context, this, composition_cleanups_, client_id, ticket.epoch,
+            edit_session_epoch_, current_lifecycle_activity_,
+            [this, ticket]() noexcept {
+                return IsCompositionEditCurrent(ticket, nullptr);
+            });
+        if (attempt.disposition != CompositionStartDisposition::Publish) {
+            if (attempt.disposition == CompositionStartDisposition::Terminated && IsCompositionEditCurrent(ticket, nullptr)) {
                 ResetCompositionAndUI();
             }
             return {};
         }
-        composition_ = std::move(starting->composition);
+        composition_ = std::move(attempt.starting->composition);
     }
 
     return UpdateCompositionInSession(

@@ -3,8 +3,11 @@
 #include <msctf.h>
 #include <wrl/client.h>
 #include <gsl/gsl>
+#include <functional>
+#include <tuple>
 
 #include "common/logger.h"
+#include "ime/comp/cleanup.h"
 
 namespace qiqi {
 
@@ -14,6 +17,13 @@ struct CompositionStartPreparation {
     Microsoft::WRL::ComPtr<ITfRange> range;
     Microsoft::WRL::ComPtr<ITfContextComposition> composition_context;
     bool ready = false;
+};
+
+// Field order preserves record, then preparation-resource release after publication.
+struct CompositionStartAttempt {
+    CompositionStartPreparation preparation;
+    std::shared_ptr<CompositionCleanup> starting;
+    CompositionStartDisposition disposition = CompositionStartDisposition::Discard;
 };
 
 template <typename IsCurrent>
@@ -53,6 +63,24 @@ template <typename IsCurrent>
     if (!is_current()) return prepared;
     prepared.ready = true;
     return prepared;
+}
+
+// Epoch/activity references stay live across host reentrancy; none are retained in the result.
+template <typename IsCurrent>
+[[nodiscard]] CompositionStartAttempt BeginCompositionInSession(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfCompositionSink*> sink,
+    CompositionCleanupCoordinator& cleanups, TfClientId client_id, const EditSessionEpoch& attempted_epoch,
+    const EditSessionEpoch& current_epoch, const GUID& lifecycle_activity, IsCurrent is_current) {
+    CompositionStartAttempt attempt{.preparation = PrepareCompositionStart(ec, context, std::ref(is_current))};
+    if (!attempt.preparation.ready) return attempt;
+    attempt.starting = cleanups.TrackStarting(context);
+    const HRESULT start_hr = attempt.preparation.composition_context->StartComposition(
+        ec, attempt.preparation.range.Get(), sink.get(), &attempt.starting->composition);
+    std::ignore = log::CheckHResult(start_hr, "StartOrUpdateComposition::StartComposition");
+    attempt.starting->finished = true;
+    attempt.disposition = cleanups.ResolveStarting(
+        attempt.starting, start_hr, is_current(), client_id, attempted_epoch, current_epoch, lifecycle_activity);
+    return attempt;
 }
 
 } // namespace qiqi

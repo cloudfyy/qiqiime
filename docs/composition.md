@@ -144,7 +144,7 @@ result. A late, still-connected live composition is handed to independent cleanu
 with its captured client ID; it must not replace the new shared composition.
 
 [`CompositionCleanupCoordinator::ResolveStarting`](../src/ime/comp/cleanup.cpp)
-resolves that unpublished result after the service diagnoses the start HRESULT,
+resolves that unpublished result after the begin helper diagnoses the start HRESULT,
 marks the record finished, and checks the original ticket, in that order.
 `Publish` requires a successful result, a non-null composition, and a still-current,
 connected, unterminated record. Stale live results use the existing independent
@@ -152,9 +152,23 @@ cleanup path even if the start HRESULT failed. The resolver owns a strong record
 reference across scheduling and reads its termination flag afterward because
 scheduling can reenter. `Discard` does not certify cleanup success; `Terminated`
 only tells the service to recheck its ticket before resetting the engine/UI.
-The service retains preparation resources, the actual host start call, and final
-composition publication. Successful starts returning no composition are diagnosed
-with their original HRESULT.
+Successful starts returning no composition are diagnosed with their original HRESULT.
+
+[`BeginCompositionInSession`](../src/ime/comp/start.h) combines preparation,
+unpublished registration, the host start call, its HRESULT diagnostic, the finished
+mark, the original identity check, and that resolver, in the original order.
+Its owning `CompositionStartAttempt` retains partial or complete preparation
+resources and the starting record through the service's original branch scope.
+The record releases before the preparation interfaces/range, just as the original
+locals did. Unready preparation returns without registering or starting.
+
+Preparation and the post-start check use the same predicate instance, including
+stateful, noncopyable predicates. Epoch/activity references remain live across
+synchronous host reentrancy; neither those references, the predicate, nor the edit
+cookie are retained in the attempt. The service still rechecks identity before a
+termination-triggered engine/UI reset and alone moves an accepted composition
+into shared state. Extracting the workflow does not add a cleanup policy for a
+current failed start that happens to return a composition.
 
 ## 4. Deactivation Algorithm and Request Results
 

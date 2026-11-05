@@ -4,12 +4,40 @@
 #include "ime/comp/start.h"
 #include "ime/comp/tests.h"
 #include "ime/tsf/edit_session.h"
+#include <algorithm>
 #include <array>
+#include <memory>
+#include <span>
 #include <vector>
 
 namespace qiqi::test {
 
 namespace {
+
+class StartCompositionSink final : public ComObjectBase<StartCompositionSink, ITfCompositionSink> {
+public:
+    explicit StartCompositionSink(CompositionCleanupCoordinator& cleanups) noexcept : cleanups_(cleanups) {}
+    STDMETHODIMP OnCompositionTerminated(TfEditCookie ec, ITfComposition* composition) override {
+        ++notifications_;
+        return cleanups_.HandleTermination(ec, composition, GUID_NULL) ? S_OK : E_UNEXPECTED;
+    }
+    unsigned int notifications_ = 0;
+private:
+    CompositionCleanupCoordinator& cleanups_;
+};
+
+enum class BeginStep { None, Insertion, Check, Range, Composition, Start, CleanupRange };
+constexpr std::array kBeginTrace{
+    BeginStep::Insertion, BeginStep::Check, BeginStep::Range, BeginStep::Check,
+    BeginStep::Composition, BeginStep::Check, BeginStep::Start, BeginStep::Check,
+};
+
+std::vector<BeginStep> BeginTracePrefix(size_t count, bool cleanup = false) {
+    const auto prefix = std::span(kBeginTrace).first(count);
+    std::vector<BeginStep> result(prefix.begin(), prefix.end());
+    if (cleanup) result.push_back(BeginStep::CleanupRange);
+    return result;
+}
 
 void TestCompositionStartPreparation() {
     enum class Boundary { None, InsertionInterface, Range, CompositionInterface };
@@ -268,12 +296,221 @@ void TestCompositionStartResolutionReentry() {
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
+void TestCompositionBeginWorkflow() {
+    enum class Fault { None, Insertion, Range, Composition, NullInsertion, NullRange, NullComposition };
+    enum class HostEvent { None, Stale, Removed, Terminated, RemovedAndTerminated };
+    struct Case {
+        BeginStep invalidation = BeginStep::None;
+        bool initially_current = true;
+        Fault fault = Fault::None;
+        HRESULT start_hr = S_OK;
+        bool fail_start = false;
+        bool null_start = false;
+        HostEvent host_event = HostEvent::None;
+        unsigned int interfaces = 2;
+        bool range = true;
+        bool ready = true;
+        bool scheduled = false;
+        CompositionStartDisposition disposition = CompositionStartDisposition::Publish;
+        std::vector<BeginStep> events{kBeginTrace.begin(), kBeginTrace.end()};
+    };
+    using Disposition = CompositionStartDisposition;
+    const std::array cases{
+        Case{},
+        Case{.invalidation = BeginStep::Insertion, .interfaces = 1, .range = false, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(2)},
+        Case{.invalidation = BeginStep::Range, .interfaces = 1, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(4)},
+        Case{.invalidation = BeginStep::Composition, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(6)},
+        Case{.initially_current = false, .interfaces = 1, .range = false, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(2)},
+        Case{.fault = Fault::Insertion, .interfaces = 0, .range = false, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(1)},
+        Case{.fault = Fault::Range, .interfaces = 1, .range = false, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(3)},
+        Case{.fault = Fault::Composition, .interfaces = 1, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(5)},
+        Case{.fault = Fault::NullInsertion, .interfaces = 0, .range = false, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(1)},
+        Case{.fault = Fault::NullRange, .interfaces = 1, .range = false, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(3)},
+        Case{.fault = Fault::NullComposition, .interfaces = 1, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(5)},
+        Case{.invalidation = BeginStep::Composition, .fault = Fault::Composition, .interfaces = 1, .ready = false,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(5)},
+        Case{.fail_start = true, .disposition = Disposition::Discard},
+        Case{.null_start = true, .disposition = Disposition::Discard},
+        Case{.start_hr = S_FALSE},
+        Case{.start_hr = E_ACCESSDENIED, .disposition = Disposition::Discard},
+        Case{.start_hr = E_ACCESSDENIED, .null_start = true, .disposition = Disposition::Discard},
+        Case{.host_event = HostEvent::Stale, .scheduled = true,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(8, true)},
+        Case{.start_hr = E_ACCESSDENIED, .host_event = HostEvent::Stale, .scheduled = true,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(8, true)},
+        Case{.null_start = true, .host_event = HostEvent::Stale, .disposition = Disposition::Discard},
+        Case{.host_event = HostEvent::Removed, .disposition = Disposition::Discard},
+        Case{.host_event = HostEvent::Terminated, .disposition = Disposition::Terminated},
+        Case{.host_event = HostEvent::RemovedAndTerminated, .disposition = Disposition::Terminated},
+        Case{.invalidation = BeginStep::Start, .scheduled = true,
+             .disposition = Disposition::Discard, .events = BeginTracePrefix(8, true)},
+        Case{.invalidation = BeginStep::Start, .fail_start = true, .disposition = Disposition::Discard},
+    };
+    const auto objects_before = g_com_object_count.load();
+    for (const auto& test : cases) {
+        for (const bool asynchronous : {false, true}) {
+            CompositionCleanupCoordinator cleanups(89);
+            const auto queue = std::make_shared<MockEditSessionQueue>();
+            const auto context = MakeComObject<MockTfContext>(queue);
+            const auto sink = MakeComObject<StartCompositionSink>(cleanups);
+            context->range_->text_ = L"preedit";
+            context->allow_sync_edit_sessions_ = !asynchronous;
+            context->fail_qi_insert_ = test.fault == Fault::Insertion;
+            context->fail_insert_at_sel_ = test.fault == Fault::Range;
+            context->fail_qi_comp_ = test.fault == Fault::Composition;
+            context->return_null_insert_ = test.fault == Fault::NullInsertion;
+            context->return_null_insert_range_ = test.fault == Fault::NullRange;
+            context->return_null_composition_context_ = test.fault == Fault::NullComposition;
+            context->fail_start_comp_ = test.fail_start;
+            context->return_null_started_composition_ = test.null_start;
+            context->start_composition_result_ = test.start_hr;
+            bool current = test.initially_current;
+            unsigned int checks = 0;
+            std::vector<BeginStep> events;
+            EditSessionEpoch current_epoch{3, 5};
+            const auto observe = [&](BeginStep step) {
+                events.push_back(step);
+                if (test.invalidation == step) current = false;
+            };
+            context->query_interface_observer_ = [&](REFIID iid) {
+                QIQI_TEST_CHECK(IsEqualIID(iid, IID_ITfInsertAtSelection) || IsEqualIID(iid, IID_ITfContextComposition));
+                observe(IsEqualIID(iid, IID_ITfInsertAtSelection) ? BeginStep::Insertion : BeginStep::Composition);
+            };
+            context->insert_observer_ = [&](TfEditCookie ec, DWORD flags, const WCHAR* text, LONG length, ITfRange** output) {
+                QIQI_TEST_CHECK(ec == 193 && flags == DWORD{TF_IAS_QUERYONLY} && !text && length == 0 && output && !*output);
+                observe(BeginStep::Range);
+            };
+            context->start_composition_observer_ = [&](TfEditCookie ec, ITfRange* range, ITfCompositionSink* target,
+                                                       ITfComposition** output) {
+                QIQI_TEST_CHECK(ec == 193 && range == context->range_.Get() && target == sink.Get() && output && !*output);
+                QIQI_TEST_CHECK(cleanups.TrackedCount() == 1 && cleanups.HasPending(context.Get(), GUID_NULL));
+                QIQI_TEST_CHECK(context->AddRef() == 5 && context->Release() == 4);
+                QIQI_TEST_CHECK(context->range_->AddRef() == 3 && context->range_->Release() == 2);
+                observe(BeginStep::Start);
+            };
+            context->start_composition_callback_ = [&] {
+                if (context->last_composition_) {
+                    context->last_composition_->get_range_callback_ = [&] { observe(BeginStep::CleanupRange); };
+                }
+                if (test.host_event == HostEvent::Stale) {
+                    current = false;
+                    ++current_epoch.activation;
+                }
+                if (test.host_event == HostEvent::Removed || test.host_event == HostEvent::RemovedAndTerminated) {
+                    cleanups.MarkContextRemoved(context.Get(), GUID_NULL);
+                }
+                if (test.host_event == HostEvent::Terminated || test.host_event == HostEvent::RemovedAndTerminated) {
+                    QIQI_TEST_CHECK(context->last_composition_ &&
+                                    context->last_composition_->NotifyHostTermination(197) == S_OK);
+                }
+            };
+            const bool created = test.ready && !test.fail_start && !test.null_start;
+            ComPtr<ITfComposition> published;
+            {
+                const auto attempt = BeginCompositionInSession(
+                    193, context.Get(), sink.Get(), cleanups, 29, {3, 5}, current_epoch, GUID_NULL,
+                    [&] {
+                        observe(BeginStep::Check);
+                        ++checks;
+                        if (checks == 4) {
+                            QIQI_TEST_CHECK(cleanups.TrackedCount() == 1 && !cleanups.HasPending(context.Get(), GUID_NULL));
+                        } else {
+                            QIQI_TEST_CHECK(cleanups.TrackedCount() == 0);
+                        }
+                        return current;
+                    });
+                QIQI_TEST_CHECK(events == test.events && attempt.preparation.ready == test.ready &&
+                                (attempt.starting != nullptr) == test.ready && attempt.disposition == test.disposition);
+                QIQI_TEST_CHECK(context->start_composition_calls_ == (test.ready ? 1u : 0u));
+                QIQI_TEST_CHECK(queue->PendingCount() == (test.scheduled && asynchronous ? 1u : 0u));
+                if (test.scheduled && asynchronous) {
+                    const auto& request = queue->PendingRequests().front();
+                    QIQI_TEST_CHECK(request.client_id == 29 && request.context.Get() == context.Get() &&
+                                    request.flags == DWORD{TF_ES_ASYNC | TF_ES_READWRITE});
+                    QIQI_TEST_CHECK(queue->RunNext(199) == S_OK);
+                }
+                QIQI_TEST_CHECK(context->request_edit_session_calls_ ==
+                                (test.scheduled ? (asynchronous ? 2u : 1u) : 0u));
+                QIQI_TEST_CHECK(context->prop_->clear_calls_ == (test.scheduled ? 1u : 0u));
+                if (created) {
+                    QIQI_TEST_CHECK(context->last_composition_->end_composition_calls_ == (test.scheduled ? 1u : 0u));
+                }
+                const ULONG context_probe = 2UL + test.interfaces + (test.ready ? 1UL : 0UL);
+                QIQI_TEST_CHECK(context->AddRef() == context_probe && context->Release() == context_probe - 1);
+                const ULONG range_probe = 2UL + (test.range ? 1UL : 0UL) + (created ? 1UL : 0UL);
+                QIQI_TEST_CHECK(context->range_->AddRef() == range_probe && context->range_->Release() == range_probe - 1);
+                if (attempt.starting) {
+                    QIQI_TEST_CHECK(attempt.starting->finished && attempt.starting->id == 0 &&
+                                    attempt.starting->context.Get() == context.Get());
+                    QIQI_TEST_CHECK(attempt.starting->context_removed ==
+                                    (test.host_event == HostEvent::Removed || test.host_event == HostEvent::RemovedAndTerminated));
+                    QIQI_TEST_CHECK(attempt.starting->terminated ==
+                                    (test.host_event == HostEvent::Terminated || test.host_event == HostEvent::RemovedAndTerminated));
+                    QIQI_TEST_CHECK(attempt.starting->composition.Get() ==
+                                    (created && !test.scheduled ? context->last_composition_.Get() : nullptr));
+                }
+                if (attempt.disposition == Disposition::Publish) {
+                    published = std::move(attempt.starting->composition);
+                    QIQI_TEST_CHECK(!attempt.starting->composition && published.Get() == context->last_composition_.Get());
+                }
+            }
+            QIQI_TEST_CHECK(context->AddRef() == 2 && context->Release() == 1);
+            const ULONG range_probe = 2UL + (created ? 1UL : 0UL);
+            QIQI_TEST_CHECK(context->range_->AddRef() == range_probe && context->range_->Release() == range_probe - 1);
+            QIQI_TEST_CHECK(!cleanups.HasPending(context.Get(), GUID_NULL) && queue->PendingCount() == 0);
+            QIQI_TEST_CHECK(checks == gsl::narrow_cast<unsigned int>(std::ranges::count(test.events, BeginStep::Check)));
+            QIQI_TEST_CHECK(context->range_->text_ == L"preedit" && context->range_->set_text_calls_ == 0 &&
+                            context->range_->clone_calls_ == 0 && context->set_selection_calls_ == 0 &&
+                            context->prop_->set_calls_ == 0);
+            QIQI_TEST_CHECK(sink->notifications_ ==
+                            (test.host_event == HostEvent::Terminated || test.host_event == HostEvent::RemovedAndTerminated ? 1u : 0u));
+            context->query_interface_observer_ = {};
+            context->insert_observer_ = {};
+            context->start_composition_observer_ = {};
+            context->start_composition_callback_ = {};
+            if (context->last_composition_) context->last_composition_->get_range_callback_ = {};
+        }
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
+void TestCompositionBeginPredicate() {
+    const auto objects_before = g_com_object_count.load();
+    {
+        CompositionCleanupCoordinator cleanups(97);
+        const auto context = MakeComObject<MockTfContext>();
+        const auto sink = MakeComObject<StartCompositionSink>(cleanups);
+        unsigned int observed = 0;
+        const auto attempt = BeginCompositionInSession(
+            211, context.Get(), sink.Get(), cleanups, 31, {3, 5}, {3, 5}, GUID_NULL,
+            [calls = std::make_unique<unsigned int>(0), &observed]() mutable noexcept {
+                observed = ++*calls;
+                return true;
+            });
+        QIQI_TEST_CHECK(observed == 4 && attempt.disposition == CompositionStartDisposition::Publish &&
+                        attempt.starting && attempt.starting->finished && attempt.starting->composition);
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 } // namespace
 
 void RunTsfCompositionStartTests() {
     TestCompositionStartPreparation();
     TestCompositionStartResolution();
     TestCompositionStartResolutionReentry();
+    TestCompositionBeginWorkflow();
+    TestCompositionBeginPredicate();
 }
 
 } // namespace qiqi::test
