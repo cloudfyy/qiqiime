@@ -24,6 +24,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     tsf_ui_main.cpp
 )
 set(QIQI_TSF_UI_IMPL_SOURCES
+    "${PROJECT_SOURCE_DIR}/src/ime/tsf/composition_cleanup.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/dllmain.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/class_factory.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/register.cpp"

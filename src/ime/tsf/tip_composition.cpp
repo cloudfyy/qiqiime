@@ -1,7 +1,6 @@
 #include "ime/tsf/tip_service.h"
 #include "ime/tsf/edit_session.h"
 #include "common/logger.h"
-#include <algorithm>
 
 namespace qiqi {
 
@@ -65,34 +64,12 @@ bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
 
 } // namespace
 
-QiQiTextService::CompositionCleanup::~CompositionCleanup() noexcept {
-    if (id == 0) return;
-    const log::Opcode opcode = finished ? log::Opcode::Info : log::Opcode::Stop;
-    QIQI_LOG_CTX(
-        log::Level::debug,
-        (log::LogContext{log::Keyword::Composition, opcode, &activity_id, nullptr}),
-        "TsfCleanup(service={}, cleanup={}, stage=released, async_requested={}, started={}, finished={}, terminated={}, context_removed={})",
-        service_id, id, async_requested, started, finished, terminated, context_removed);
-}
-
-void QiQiTextService::CompositionCleanup::LogResult(
-    std::string_view stage, HRESULT hr, log::Opcode opcode) const noexcept {
-    const log::LogContext ctx{log::Keyword::Composition, opcode, &activity_id, nullptr};
-    if (FAILED(hr)) {
-        QIQI_LOG_CTX(log::Level::warn, ctx, "TsfCleanup(service={}, cleanup={}, stage={}, hr=0x{:08x})",
-                     service_id, id, stage, gsl::narrow_cast<unsigned int>(hr));
-    } else {
-        QIQI_LOG_CTX(log::Level::debug, ctx, "TsfCleanup(service={}, cleanup={}, stage={}, hr=0x{:08x})",
-                     service_id, id, stage, gsl::narrow_cast<unsigned int>(hr));
-    }
-}
-
 // ITfCompositionSink: called when the host application forcefully terminates composition
 // (e.g. user clicked elsewhere, switched Excel cell, or DOM re-rendered)
 STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfComposition* pComposition) {
-    for (const auto& pending : composition_cleanups_) {
-        const auto cleanup = pending.lock();
-        if (pComposition && cleanup && pComposition == cleanup->composition.Get()) {
+    {
+        const auto cleanup = composition_cleanups_.FindComposition(pComposition);
+        if (cleanup) {
             if (cleanup->id == 0) {
                 cleanup->terminated = true;
                 cleanup->finished = true;
@@ -209,7 +186,7 @@ void QiQiTextService::ScheduleCompositionCleanup(
         return;
     }
     std::ignore = HasPendingCompositionCleanup(nullptr);
-    composition_cleanups_.push_back(cleanup);
+    composition_cleanups_.Track(cleanup);
     const HRESULT range_hr = cleanup->composition->GetRange(&cleanup->range);
     cleanup->LogResult("get-range", range_hr);
     if (log::CheckHResult(range_hr, "DeactivateComposition::GetRange", log::Level::warn,
@@ -358,58 +335,29 @@ void QiQiTextService::ScheduleCompositionCleanup(
     }
 }
 
-bool QiQiTextService::HasPendingCompositionCleanup(const ITfContext* context) {
-    std::erase_if(composition_cleanups_, [](const auto& pending) {
-        const auto cleanup = pending.lock();
-        return !cleanup || cleanup->finished;
-    });
-    for (const auto& pending : composition_cleanups_) {
-        const auto cleanup = pending.lock();
-        if (cleanup && cleanup->context.Get() == context) {
-            if (cleanup->id == 0) {
-                QIQI_LOG_ACT_INFO(
-                    log::Level::debug,
-                    log::Keyword::Lifecycle,
-                    &current_lifecycle_activity_,
-                    "TsfLifecycle(service={}, stage=composition-start-write-deferred)",
-                    service_log_id_);
-                return true;
-            }
-            QIQI_LOG_ACT_INFO(
-                log::Level::debug,
-                log::Keyword::Composition,
-                &cleanup->activity_id,
-                "TsfCleanup(service={}, cleanup={}, stage=write-forced-async)",
-                cleanup->service_id, cleanup->id);
-            return true;
-        }
+bool QiQiTextService::HasPendingCompositionCleanup(const ITfContext* context) noexcept {
+    const auto cleanup = composition_cleanups_.FindPending(context);
+    if (!cleanup) return false;
+    if (cleanup->id == 0) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Lifecycle,
+            &current_lifecycle_activity_,
+            "TsfLifecycle(service={}, stage=composition-start-write-deferred)",
+            service_log_id_);
+        return true;
     }
-    return false;
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Composition,
+        &cleanup->activity_id,
+        "TsfCleanup(service={}, cleanup={}, stage=write-forced-async)",
+        cleanup->service_id, cleanup->id);
+    return true;
 }
 
 void QiQiTextService::MarkCompositionContextRemoved(const ITfContext* context) noexcept {
-    for (const auto& pending : composition_cleanups_) {
-        const auto cleanup = pending.lock();
-        if (cleanup && cleanup->context.Get() == context) {
-            cleanup->context_removed = true;
-            cleanup->finished = true;
-            if (cleanup->id == 0) {
-                QIQI_LOG_ACT_INFO(
-                    log::Level::debug,
-                    log::Keyword::Lifecycle,
-                    &current_lifecycle_activity_,
-                    "TsfLifecycle(service={}, stage=composition-start-removed)",
-                    service_log_id_);
-                continue;
-            }
-            QIQI_LOG_ACT_INFO(
-                log::Level::debug,
-                log::Keyword::Composition,
-                &cleanup->activity_id,
-                "TsfCleanup(service={}, cleanup={}, stage=context-removed, started={})",
-                cleanup->service_id, cleanup->id, cleanup->started);
-        }
-    }
+    composition_cleanups_.MarkContextRemoved(context, service_log_id_, current_lifecycle_activity_);
 }
 
 // ITfTextLayoutSink: called when an async host (Chromium/VS Code/WPF/Word) updates its text layout
@@ -733,7 +681,7 @@ ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
         // Track the unpublished result so removal/termination during StartComposition is remembered.
         const auto starting = std::make_shared<CompositionCleanup>();
         starting->context = context.get();
-        composition_cleanups_.push_back(starting);
+        composition_cleanups_.Track(starting);
         const HRESULT start_hr = ctx_comp->StartComposition(ec, insert_range.Get(), this, &starting->composition);
         const bool start_ok = log::CheckHResult(start_hr, "StartOrUpdateComposition::StartComposition");
         starting->finished = true;

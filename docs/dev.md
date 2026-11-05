@@ -450,5 +450,12 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 
 - **票据是非拥有快照**：[`EditSessionTicket`](../src/ime/tsf/edit_session.h) 配对激活/上下文 epoch 与原始目标身份，只比较值，不执行 COM 调用。异步回调仍必须捕获原有 context/service/view 强引用；会话内操作继续保留组合强引用和组合身份复核。不要把裸目标指针当成所有者，也不要在宿主重入后重新捕获 epoch 来“更新”旧任务的票据。
 - **验证不只是指针相等**：[`IsEditSessionCurrent`](../src/ime/tsf/tip_composition.cpp) 还要求服务激活且不在重置中。保持原有宿主调用前后的检查位置，不把检查缩减到回调入口。A-B-A 必须因 epoch 不同而拒绝；空目标票据仅用于输入目标准备/文档切换后的内部重置检查，不授予编辑权限。
-- **清理不能按当前票据取消**：[`CompositionCleanup`](../src/ime/tsf/tip_service.h) 独立拥有旧组合及其资源，保留移除、宿主终止、开始/完成状态和同 context 的写入屏障。Deactivate 使旧编辑失效，但旧清理仍可完成；未执行请求被丢弃时保留原诊断并释放引用，不宣称宿主清理成功。不要复用旧编辑 cookie，也不要把 STA 操作转移到后台线程。
+- **清理不能按当前票据取消**：[`CompositionCleanup`](../src/ime/tsf/composition_cleanup.h) 独立拥有旧组合及其资源，保留移除、宿主终止、开始/完成状态和同 context 的写入屏障。Deactivate 使旧编辑失效，但旧清理仍可完成；未执行请求被丢弃时保留原诊断并释放引用，不宣称宿主清理成功。不要复用旧编辑 cookie，也不要把 STA 操作转移到后台线程。
 - **回归与范围**：[`生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 覆盖票据匹配矩阵、旧布局/提交/取消回调与跨激活清理/新写入交错，以及未执行队列释放后的对象计数。继续保留同步/异步清理、宿主终止和 UI 注册重入测试；宿主 `BeginUIElement` 许可、FSM 与定位策略不变，完整协调器提取尚未实施。
+
+### 5.20 TSF 清理登记边界（R05 第二步）
+
+- **记录拥有，登记不拥有**：[`CompositionCleanupRegistry`](../src/ime/tsf/composition_cleanup.h) 只保存弱引用；编辑会话回调继续强持有 `CompositionCleanup`，记录继续拥有 context、composition、range。登记器析构不取消外部记录，也不调用 COM 清理；它只在所属 STA 使用，不引入锁、线程切换或通用事件队列。
+- **不要统一不同的裁剪时机**：`Track` 只追加；`FindComposition` 不裁剪已完成记录，且空组合不匹配未发布结果。`FindPending` 先移除全部已完成/过期弱记录，再按原顺序返回同 context 的首项；`TrackedCount` 保留原始弱槽位诊断含义，不代表尚未完成的任务数。
+- **移除标记覆盖全部匹配项**：`MarkContextRemoved` 同时设置 `context_removed` 和 `finished`，包括已完成项及 id 为零的未发布结果；不影响别的 context，也不在此时裁剪或代替宿主清理。按原阶段及真实 HRESULT 记录诊断，不能把标记完成或释放记录解释为宿主组合已结束。
+- **调度留在服务**：[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp) 仍负责 COM 请求、同步/异步回退、回调体和宿主终止响应。不能为了提取登记逻辑而挪动重入检查或让新写入越过旧清理屏障；[`登记与生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 同时固定弱所有权、查询/裁剪差异、移除范围及现有宿主执行顺序。

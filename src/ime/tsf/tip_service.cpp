@@ -236,7 +236,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
         service_log_id_,
         edit_session_epoch_.activation,
         edit_session_epoch_.context,
-        composition_cleanups_.size());
+        composition_cleanups_.TrackedCount());
     return windows_destroyed ? S_OK : E_FAIL;
 }
 

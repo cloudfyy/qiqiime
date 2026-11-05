@@ -11,6 +11,7 @@
 #include "common/config.h"
 #include "common/guids.h"
 #include "ime/engine/engine.h"
+#include "ime/tsf/composition_cleanup.h"
 #include "ime/tsf/edit_session.h"
 #include "ime/tsf/shift_tap.h"
 #include "ime/ui/candidate_ui.h"
@@ -99,29 +100,6 @@ public:
 
 private:
     enum class FocusNotificationSource { ThreadManager, KeyEvent };
-    struct CompositionCleanup {
-        CompositionCleanup() = default;
-        ~CompositionCleanup() noexcept;
-        CompositionCleanup(const CompositionCleanup&) = delete;
-        CompositionCleanup& operator=(const CompositionCleanup&) = delete;
-        CompositionCleanup(CompositionCleanup&&) = delete;
-        CompositionCleanup& operator=(CompositionCleanup&&) = delete;
-        void LogResult(std::string_view stage, HRESULT hr, log::Opcode opcode = log::Opcode::Info) const noexcept;
-        uint64_t service_id = 0;
-        uint64_t id = 0; // Zero tracks an unpublished StartComposition result, not a scheduled cleanup.
-        GUID activity_id = GUID_NULL;
-        GUID parent_activity_id = GUID_NULL;
-        ComPtr<ITfContext> context;
-        ComPtr<ITfComposition> composition;
-        ComPtr<ITfRange> range;
-        bool started = false;
-        bool attribute_clear_started = false;
-        bool finished = false;
-        bool terminated = false;
-        bool async_requested = false;
-        bool context_removed = false;
-    };
-
     struct RegisteredPreservedKey {
         GUID guid{};
         TF_PRESERVEDKEY key{};
@@ -160,7 +138,7 @@ private:
     void ScheduleCompositionCleanup();
     void ScheduleCompositionCleanup(
         ComPtr<ITfContext> context, ComPtr<ITfComposition> composition, TfClientId client_id);
-    bool HasPendingCompositionCleanup(const ITfContext* context);
+    bool HasPendingCompositionCleanup(const ITfContext* context) noexcept;
     void MarkCompositionContextRemoved(const ITfContext* context) noexcept;
     void ResetContextAndUI(bool try_host_cleanup = true);
     bool PrepareInputContext(ITfContext* context);
@@ -219,7 +197,7 @@ private:
     GUID current_lifecycle_activity_ = GUID_NULL;
 
     ComPtr<ITfComposition> composition_;
-    std::vector<std::weak_ptr<CompositionCleanup>> composition_cleanups_;
+    CompositionCleanupRegistry composition_cleanups_;
     ComPtr<ITfContext> active_context_;
     ComPtr<ITfDocumentMgr> active_document_;
     ComPtr<CandidateUI> candidate_ui_;

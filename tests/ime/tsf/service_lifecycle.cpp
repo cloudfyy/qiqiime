@@ -2,6 +2,7 @@
 #include "mocks.h"
 #include "common/guids.h"
 #include "common/file_util.h"
+#include "ime/tsf/composition_cleanup.h"
 #include "ime/tsf/edit_session.h"
 #include "ime/tsf/tip_service.h"
 
@@ -44,6 +45,91 @@ void TestEditSessionTickets() {
     QIQI_TEST_CHECK(detached.Matches({7, 11}, nullptr));
     QIQI_TEST_CHECK(!detached.Matches({7, 11}, first.Get()));
     QIQI_TEST_CHECK(!detached.Matches({7, 12}, nullptr));
+}
+
+void TestCompositionCleanupRegistry() {
+    static_assert(!std::is_copy_constructible_v<CompositionCleanup>);
+    static_assert(!std::is_move_constructible_v<CompositionCleanup>);
+    static_assert(!std::is_copy_constructible_v<CompositionCleanupRegistry>);
+    static_assert(!std::is_move_constructible_v<CompositionCleanupRegistry>);
+    const auto first = MakeComObject<MockTfContext>();
+    const auto second = MakeComObject<MockTfContext>();
+    const auto first_composition = MakeComObject<MockTfComposition>(first->range_);
+    const auto second_composition = MakeComObject<MockTfComposition>(second->range_);
+    const auto make_cleanup = [](gsl::not_null<ITfContext*> context, ITfComposition* composition, uint64_t id) {
+        auto cleanup = std::make_shared<CompositionCleanup>();
+        cleanup->context = context.get();
+        cleanup->composition = composition;
+        cleanup->id = id;
+        return cleanup;
+    };
+
+    CompositionCleanupRegistry registry;
+    QIQI_TEST_CHECK(registry.TrackedCount() == 0 && !registry.FindComposition(nullptr));
+    QIQI_TEST_CHECK(!registry.FindPending(nullptr) && !registry.FindPending(first.Get()));
+    const auto starting = make_cleanup(first.Get(), nullptr, 0);
+    registry.Track(starting);
+    QIQI_TEST_CHECK(starting.use_count() == 1 && registry.TrackedCount() == 1);
+    QIQI_TEST_CHECK(!registry.FindComposition(nullptr));
+    QIQI_TEST_CHECK(registry.FindPending(first.Get()) == starting && !registry.FindPending(second.Get()));
+
+    const auto scheduled = make_cleanup(first.Get(), first_composition.Get(), 1);
+    auto other = make_cleanup(second.Get(), second_composition.Get(), 2);
+    registry.Track(scheduled);
+    registry.Track(other);
+    QIQI_TEST_CHECK(registry.FindPending(first.Get()) == starting && registry.TrackedCount() == 3);
+    QIQI_TEST_CHECK(registry.FindComposition(first_composition.Get()) == scheduled);
+    QIQI_TEST_CHECK(registry.FindComposition(second_composition.Get()) == other);
+    scheduled->finished = true;
+    QIQI_TEST_CHECK(registry.FindComposition(first_composition.Get()) == scheduled && registry.TrackedCount() == 3);
+    QIQI_TEST_CHECK(registry.FindPending(first.Get()) == starting && registry.TrackedCount() == 2);
+    QIQI_TEST_CHECK(!registry.FindComposition(first_composition.Get()));
+    registry.MarkContextRemoved(first.Get(), 0, GUID_NULL);
+    QIQI_TEST_CHECK(starting->context_removed && starting->finished && !starting->terminated);
+    QIQI_TEST_CHECK(!scheduled->context_removed && !other->context_removed && !other->finished);
+    QIQI_TEST_CHECK(registry.TrackedCount() == 2);
+    QIQI_TEST_CHECK(!registry.FindPending(first.Get()) && registry.TrackedCount() == 1);
+    const std::weak_ptr<CompositionCleanup> expired = other;
+    other.reset();
+    QIQI_TEST_CHECK(expired.expired() && registry.TrackedCount() == 1);
+    QIQI_TEST_CHECK(!registry.FindComposition(second_composition.Get()) && registry.TrackedCount() == 1);
+    QIQI_TEST_CHECK(!registry.FindPending(nullptr) && registry.TrackedCount() == 0);
+
+    // Removal reaches every matching record, including already-finished and unpublished results.
+    const auto pending = make_cleanup(first.Get(), first_composition.Get(), 3);
+    const auto finished = make_cleanup(first.Get(), first_composition.Get(), 4);
+    const auto unpublished = make_cleanup(first.Get(), nullptr, 0);
+    const auto foreign = make_cleanup(second.Get(), second_composition.Get(), 5);
+    finished->finished = true;
+    registry.Track(pending);
+    registry.Track(finished);
+    registry.Track(unpublished);
+    registry.Track(foreign);
+    registry.MarkContextRemoved(first.Get(), 0, GUID_NULL);
+    for (const auto& cleanup : {pending, finished, unpublished}) {
+        QIQI_TEST_CHECK(cleanup->context_removed && cleanup->finished && !cleanup->terminated);
+    }
+    QIQI_TEST_CHECK(!foreign->context_removed && !foreign->finished);
+    QIQI_TEST_CHECK(registry.TrackedCount() == 4);
+    QIQI_TEST_CHECK(registry.FindComposition(first_composition.Get()) == pending);
+    registry.MarkContextRemoved(first.Get(), 0, GUID_NULL);
+    QIQI_TEST_CHECK(!registry.FindPending(first.Get()) && registry.TrackedCount() == 1);
+    QIQI_TEST_CHECK(registry.FindPending(second.Get()) == foreign);
+
+    const auto survivor = make_cleanup(first.Get(), first_composition.Get(), 6);
+    {
+        CompositionCleanupRegistry transient;
+        transient.Track(survivor);
+        QIQI_TEST_CHECK(survivor.use_count() == 1);
+    }
+    QIQI_TEST_CHECK(survivor.use_count() == 1 && !survivor->finished && !survivor->context_removed);
+    QIQI_TEST_CHECK(survivor->context.Get() == first.Get() &&
+                    survivor->composition.Get() == first_composition.Get());
+    QIQI_TEST_CHECK(first->request_edit_session_calls_ == 0 && second->request_edit_session_calls_ == 0);
+    QIQI_TEST_CHECK(first->prop_->clear_calls_ == 0 && second->prop_->clear_calls_ == 0);
+    QIQI_TEST_CHECK(first_composition->end_composition_calls_ == 0 &&
+                    second_composition->end_composition_calls_ == 0);
+    QIQI_TEST_CHECK(first->range_->set_text_calls_ == 0 && second->range_->set_text_calls_ == 0);
 }
 
 struct NativeTsfState {
@@ -780,6 +866,7 @@ struct UiWindowDestructionProbe {
 
 void TestDeactivationWindowLifecycle() {
     TestEditSessionTickets();
+    TestCompositionCleanupRegistry();
     std::array<BYTE, 256> original_keyboard{};
     QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
     const auto restore_keyboard = gsl::finally([&]() noexcept {

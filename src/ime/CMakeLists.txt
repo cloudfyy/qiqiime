@@ -21,6 +21,8 @@ set(QIQIIME_SOURCES
     tsf/class_factory.h
     tsf/class_factory.cpp
     tsf/category_manager.h
+    tsf/composition_cleanup.h
+    tsf/composition_cleanup.cpp
     tsf/register.h
     tsf/register.cpp
     tsf/shift_tap.h
