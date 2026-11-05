@@ -9,24 +9,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$targets = @(
-    'qiqiime'
-    'QiQiIMESettings'
-    'QiQiIMELogMonitor'
-    'QiQiIMEDictManager'
-    'qiqi_common_test'
-    'qiqi_change_sync_test'
-    'qiqi_engine_test'
-    'qiqi_tsf_ui_test'
-    'qiqi_settings_test'
-    'qiqi_log_monitor_test'
-    'qiqi_dict_manager_test'
-)
 $buildArguments = @(
     '--build', $BuildDirectory,
     '--config', $Configuration,
-    '--target'
-) + $targets + @(
+    '--target', 'ALL_BUILD',
     '--',
     '/t:Rebuild',
     '/p:RunCodeAnalysis=true',
@@ -49,7 +35,7 @@ $cppWarnings = @(
         } |
         Sort-Object -Unique
 )
-$baselineWarningCount = 435
+$baselineWarningCount = 0
 if ($cppWarnings.Count -gt $baselineWarningCount) {
     Write-Host 'CppCoreCheck findings exceed the reviewed baseline:' -ForegroundColor Red
     $cppWarnings | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
@@ -65,9 +51,10 @@ if ($cppWarnings.Count -gt 0) {
 }
 Write-Host '[PASS] CppCoreCheck findings are within the reviewed baseline.' -ForegroundColor Green
 
+$scriptPaths = @($PSScriptRoot, (Join-Path (Split-Path -Parent $PSScriptRoot) 'tests'))
 if (-not (Get-Command Invoke-ScriptAnalyzer -ErrorAction SilentlyContinue)) {
     Write-Host '[WARN] PSScriptAnalyzer is not installed; verifying PowerShell AST syntax instead.' -ForegroundColor Yellow
-    foreach ($psFile in Get-ChildItem -Path $PSScriptRoot -Filter '*.ps1' -File) {
+    foreach ($psFile in Get-ChildItem -Path $scriptPaths -Filter '*.ps1' -File -Recurse) {
         $tokens = $null
         $errors = $null
         [void][System.Management.Automation.Language.Parser]::ParseFile($psFile.FullName, [ref]$tokens, [ref]$errors)
@@ -76,14 +63,18 @@ if (-not (Get-Command Invoke-ScriptAnalyzer -ErrorAction SilentlyContinue)) {
             throw "PowerShell syntax error in $($psFile.FullName)."
         }
     }
-    Write-Host '[PASS] Zero PowerShell syntax errors in scripts/.' -ForegroundColor Green
+    Write-Host '[PASS] Zero PowerShell syntax errors in scripts/ and tests/.' -ForegroundColor Green
     exit 0
 }
 
-Write-Host 'Running PSScriptAnalyzer on scripts/...'
-$scriptIssues = @(Invoke-ScriptAnalyzer -Path (Join-Path $PSScriptRoot '.') -Severity Error)
+Write-Host 'Running PSScriptAnalyzer on scripts/ and tests/...'
+$scriptIssues = @(
+    foreach ($scriptPath in $scriptPaths) {
+        Invoke-ScriptAnalyzer -Path $scriptPath -Recurse -Severity Error
+    }
+)
 if ($scriptIssues.Count -gt 0) {
     $scriptIssues | Format-Table -AutoSize | Out-String | Write-Host
     throw "PSScriptAnalyzer reported $($scriptIssues.Count) error(s)."
 }
-Write-Host '[PASS] Zero PSScriptAnalyzer errors in scripts/.' -ForegroundColor Green
+Write-Host '[PASS] Zero PSScriptAnalyzer errors in scripts/ and tests/.' -ForegroundColor Green

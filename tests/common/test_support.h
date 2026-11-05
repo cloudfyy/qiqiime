@@ -12,6 +12,7 @@
     do {                                                                                        \
         if (!(expr)) {                                                                          \
             std::cerr << "[FAIL] " << __FILE__ << ":" << __LINE__ << ": " << #expr << "\n";     \
+            _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);                         \
             std::abort();                                                                       \
         }                                                                                       \
     } while (false)
