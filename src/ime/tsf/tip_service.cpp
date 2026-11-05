@@ -35,7 +35,8 @@ constexpr std::array<PreservedKeyDef, 4> kPreservedKeys = {{
 
 } // namespace
 
-QiQiTextService::QiQiTextService(HINSTANCE instance) : service_log_id_(++next_service_log_id) {
+QiQiTextService::QiQiTextService(HINSTANCE instance)
+    : service_log_id_(++next_service_log_id), composition_cleanups_(service_log_id_) {
     std::ignore = log::EnsureInitialized();
     config_ = LoadConfig(instance);
     config_registry_sequence_ = QueryRegistryConfigSequence();
@@ -390,7 +391,7 @@ STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* pdim) {
         service_log_id_,
         related);
     if (related) {
-        MarkCompositionContextRemoved(active_context_.Get());
+        composition_cleanups_.MarkContextRemoved(active_context_.Get(), current_lifecycle_activity_);
         ResetCompositionAndUI(false);
     }
     return S_OK;
@@ -542,7 +543,7 @@ STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
 }
 
 STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* pic) {
-    if (pic) MarkCompositionContextRemoved(pic);
+    if (pic) composition_cleanups_.MarkContextRemoved(pic, current_lifecycle_activity_);
     const bool current = is_active_ && pic && pic == active_context_.Get();
     const bool preparing = is_active_ && pic && pic == preparing_input_context_.Get();
     QIQI_LOG_ACT_INFO(

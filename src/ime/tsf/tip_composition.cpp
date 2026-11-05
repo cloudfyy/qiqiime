@@ -40,8 +40,7 @@ bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
 // ITfCompositionSink: called when the host application forcefully terminates composition
 // (e.g. user clicked elsewhere, switched Excel cell, or DOM re-rendered)
 STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfComposition* pComposition) {
-    if (HandleCompositionCleanupTermination(
-            composition_cleanups_, ecWrite, pComposition, service_log_id_, current_lifecycle_activity_)) {
+    if (composition_cleanups_.HandleTermination(ecWrite, pComposition, current_lifecycle_activity_)) {
         return S_OK;
     }
     if (pComposition && pComposition != composition_.Get()) {
@@ -97,63 +96,8 @@ void QiQiTextService::ScheduleCompositionCleanup() {
             service_log_id_, edit_session_epoch_.activation, edit_session_epoch_.context);
         return;
     }
-    ScheduleCompositionCleanup(active_context_, std::move(composition_), client_id_);
-}
-
-void QiQiTextService::ScheduleCompositionCleanup(
-    ComPtr<ITfContext> context, ComPtr<ITfComposition> composition, TfClientId client_id) {
-    const auto cleanup = std::make_shared<CompositionCleanup>();
-    cleanup->service_id = service_log_id_;
-    cleanup->id = ++next_cleanup_log_id_;
-    cleanup->activity_id = log::CreateActivityId();
-    cleanup->parent_activity_id = current_lifecycle_activity_;
-    QIQI_LOG_ACT_START(
-        log::Level::debug,
-        log::Keyword::Composition,
-        &cleanup->activity_id,
-        &cleanup->parent_activity_id,
-        "TsfCleanup(service={}, cleanup={}, stage=created, activation={}, context={}, client_id={})",
-        cleanup->service_id, cleanup->id, edit_session_epoch_.activation, edit_session_epoch_.context, client_id);
-    cleanup->composition = std::move(composition);
-    cleanup->context = std::move(context);
-    if (!cleanup->context || client_id == TF_CLIENTID_NULL) {
-        cleanup->finished = true;
-        QIQI_LOG_ACT_STOP(
-            log::Level::warn,
-            log::Keyword::Composition,
-            &cleanup->activity_id,
-            "TsfCleanup(service={}, cleanup={}, stage=unavailable, has_context={}, valid_client={})",
-            cleanup->service_id, cleanup->id, cleanup->context != nullptr, client_id != TF_CLIENTID_NULL);
-        return;
-    }
-    std::ignore = HasPendingCompositionCleanup(nullptr);
-    composition_cleanups_.Track(cleanup);
-    RequestCompositionCleanup(cleanup, client_id);
-}
-
-bool QiQiTextService::HasPendingCompositionCleanup(const ITfContext* context) noexcept {
-    const auto cleanup = composition_cleanups_.FindPending(context);
-    if (!cleanup) return false;
-    if (cleanup->id == 0) {
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::Lifecycle,
-            &current_lifecycle_activity_,
-            "TsfLifecycle(service={}, stage=composition-start-write-deferred)",
-            service_log_id_);
-        return true;
-    }
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::Composition,
-        &cleanup->activity_id,
-        "TsfCleanup(service={}, cleanup={}, stage=write-forced-async)",
-        cleanup->service_id, cleanup->id);
-    return true;
-}
-
-void QiQiTextService::MarkCompositionContextRemoved(const ITfContext* context) noexcept {
-    composition_cleanups_.MarkContextRemoved(context, service_log_id_, current_lifecycle_activity_);
+    composition_cleanups_.Schedule(
+        active_context_, std::move(composition_), client_id_, edit_session_epoch_, current_lifecycle_activity_);
 }
 
 // ITfTextLayoutSink: called when an async host (Chromium/VS Code/WPF/Word) updates its text layout
@@ -363,7 +307,8 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
     const HRESULT req_hr = context->RequestEditSession(
         client_id_,
         session.Get(),
-        (HasPendingCompositionCleanup(context) ? TF_ES_ASYNC : TF_ES_ASYNCDONTCARE) | TF_ES_READWRITE,
+        (composition_cleanups_.HasPending(context, current_lifecycle_activity_) ? TF_ES_ASYNC : TF_ES_ASYNCDONTCARE) |
+            TF_ES_READWRITE,
         &session_hr);
     if (FAILED(req_hr) || FAILED(session_hr)) {
         QIQI_LOG_ACT_STOP(
@@ -388,7 +333,7 @@ HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const Co
     if (!IsEditSessionCurrent(ticket)) {
         return S_OK;
     }
-    if (HasPendingCompositionCleanup(ctx_holder.Get())) {
+    if (composition_cleanups_.HasPending(ctx_holder.Get(), current_lifecycle_activity_)) {
         QIQI_LOG_ACT_INFO(
             log::Level::debug,
             log::Keyword::Composition,
@@ -483,9 +428,7 @@ ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
         }
         if (!IsCompositionEditCurrent(ticket, nullptr)) return {};
         // Track the unpublished result so removal/termination during StartComposition is remembered.
-        const auto starting = std::make_shared<CompositionCleanup>();
-        starting->context = context.get();
-        composition_cleanups_.Track(starting);
+        const auto starting = composition_cleanups_.TrackStarting(context);
         const HRESULT start_hr = ctx_comp->StartComposition(ec, insert_range.Get(), this, &starting->composition);
         const bool start_ok = log::CheckHResult(start_hr, "StartOrUpdateComposition::StartComposition");
         starting->finished = true;
@@ -496,7 +439,9 @@ ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
                            service_log_id_, ticket.epoch.activation, ticket.epoch.context,
                            starting->context_removed, starting->terminated);
             if (starting->composition && !starting->context_removed && !starting->terminated) {
-                ScheduleCompositionCleanup(starting->context, std::move(starting->composition), client_id);
+                composition_cleanups_.Schedule(
+                    starting->context, std::move(starting->composition), client_id,
+                    edit_session_epoch_, current_lifecycle_activity_);
             }
             if (starting->terminated && IsCompositionEditCurrent(ticket, nullptr)) {
                 ResetCompositionAndUI();

@@ -7,10 +7,13 @@
 #include <memory>
 #include <string_view>
 #include <vector>
+#include <gsl/gsl>
 
 #include "common/logger.h"
 
 namespace qiqi {
+
+struct EditSessionEpoch;
 
 struct CompositionCleanup {
     CompositionCleanup() = default;
@@ -67,5 +70,31 @@ private:
 [[nodiscard]] bool HandleCompositionCleanupTermination(
     const CompositionCleanupRegistry& registry, TfEditCookie ec, const ITfComposition* composition,
     uint64_t service_id, const GUID& lifecycle_activity);
+
+// Owns cleanup bookkeeping, not the service or the records retained by host callbacks.
+class CompositionCleanupCoordinator {
+public:
+    explicit CompositionCleanupCoordinator(uint64_t service_id) noexcept : service_id_(service_id) {}
+    ~CompositionCleanupCoordinator() = default;
+    CompositionCleanupCoordinator(const CompositionCleanupCoordinator&) = delete;
+    CompositionCleanupCoordinator& operator=(const CompositionCleanupCoordinator&) = delete;
+    CompositionCleanupCoordinator(CompositionCleanupCoordinator&&) = delete;
+    CompositionCleanupCoordinator& operator=(CompositionCleanupCoordinator&&) = delete;
+
+    [[nodiscard]] std::shared_ptr<CompositionCleanup> TrackStarting(gsl::not_null<ITfContext*> context);
+    void Schedule(
+        Microsoft::WRL::ComPtr<ITfContext> context, Microsoft::WRL::ComPtr<ITfComposition> composition,
+        TfClientId client_id, const EditSessionEpoch& epoch, const GUID& lifecycle_activity);
+    [[nodiscard]] bool HasPending(const ITfContext* context, const GUID& lifecycle_activity) noexcept;
+    void MarkContextRemoved(const ITfContext* context, const GUID& lifecycle_activity) const noexcept;
+    [[nodiscard]] bool HandleTermination(
+        TfEditCookie ec, const ITfComposition* composition, const GUID& lifecycle_activity) const;
+    [[nodiscard]] size_t TrackedCount() const noexcept { return registry_.TrackedCount(); }
+
+private:
+    const uint64_t service_id_;
+    uint64_t next_cleanup_id_ = 0;
+    CompositionCleanupRegistry registry_;
+};
 
 } // namespace qiqi

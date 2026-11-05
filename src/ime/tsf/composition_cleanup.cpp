@@ -272,4 +272,75 @@ void CompositionCleanupRegistry::MarkContextRemoved(
     }
 }
 
+std::shared_ptr<CompositionCleanup> CompositionCleanupCoordinator::TrackStarting(gsl::not_null<ITfContext*> context) {
+    const auto starting = std::make_shared<CompositionCleanup>();
+    starting->context = context.get();
+    registry_.Track(starting);
+    return starting;
+}
+
+void CompositionCleanupCoordinator::Schedule(
+    Microsoft::WRL::ComPtr<ITfContext> context, Microsoft::WRL::ComPtr<ITfComposition> composition,
+    TfClientId client_id, const EditSessionEpoch& epoch, const GUID& lifecycle_activity) {
+    const auto cleanup = std::make_shared<CompositionCleanup>();
+    cleanup->service_id = service_id_;
+    cleanup->id = ++next_cleanup_id_;
+    cleanup->activity_id = log::CreateActivityId();
+    cleanup->parent_activity_id = lifecycle_activity;
+    QIQI_LOG_ACT_START(
+        log::Level::debug,
+        log::Keyword::Composition,
+        &cleanup->activity_id,
+        &cleanup->parent_activity_id,
+        "TsfCleanup(service={}, cleanup={}, stage=created, activation={}, context={}, client_id={})",
+        cleanup->service_id, cleanup->id, epoch.activation, epoch.context, client_id);
+    cleanup->composition = std::move(composition);
+    cleanup->context = std::move(context);
+    if (!cleanup->context || client_id == TF_CLIENTID_NULL) {
+        cleanup->finished = true;
+        QIQI_LOG_ACT_STOP(
+            log::Level::warn,
+            log::Keyword::Composition,
+            &cleanup->activity_id,
+            "TsfCleanup(service={}, cleanup={}, stage=unavailable, has_context={}, valid_client={})",
+            cleanup->service_id, cleanup->id, cleanup->context != nullptr, client_id != TF_CLIENTID_NULL);
+        return;
+    }
+    std::ignore = HasPending(nullptr, lifecycle_activity);
+    registry_.Track(cleanup);
+    RequestCompositionCleanup(cleanup, client_id);
+}
+
+bool CompositionCleanupCoordinator::HasPending(
+    const ITfContext* context, const GUID& lifecycle_activity) noexcept {
+    const auto cleanup = registry_.FindPending(context);
+    if (!cleanup) return false;
+    if (cleanup->id == 0) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Lifecycle,
+            &lifecycle_activity,
+            "TsfLifecycle(service={}, stage=composition-start-write-deferred)",
+            service_id_);
+        return true;
+    }
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Composition,
+        &cleanup->activity_id,
+        "TsfCleanup(service={}, cleanup={}, stage=write-forced-async)",
+        cleanup->service_id, cleanup->id);
+    return true;
+}
+
+void CompositionCleanupCoordinator::MarkContextRemoved(
+    const ITfContext* context, const GUID& lifecycle_activity) const noexcept {
+    registry_.MarkContextRemoved(context, service_id_, lifecycle_activity);
+}
+
+bool CompositionCleanupCoordinator::HandleTermination(
+    TfEditCookie ec, const ITfComposition* composition, const GUID& lifecycle_activity) const {
+    return HandleCompositionCleanupTermination(registry_, ec, composition, service_id_, lifecycle_activity);
+}
+
 } // namespace qiqi

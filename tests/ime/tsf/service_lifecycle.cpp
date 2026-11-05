@@ -556,6 +556,161 @@ void TestCompositionCleanupTermination() {
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
+void TestCompositionCleanupCoordinator() {
+    static_assert(!std::is_copy_constructible_v<CompositionCleanupCoordinator>);
+    static_assert(!std::is_move_constructible_v<CompositionCleanupCoordinator>);
+    enum class RangeEvent { None, Removed, Terminated };
+    enum class QueuedEvent { Run, Discard, Removed, Terminated };
+    struct Case {
+        bool asynchronous = false;
+        RangeEvent range_event = RangeEvent::None;
+        QueuedEvent queued_event = QueuedEvent::Run;
+        HRESULT request_hr = S_OK;
+        HRESULT async_hr = S_OK;
+        unsigned int requests = 1;
+        bool queued = false;
+        unsigned int clears = 1;
+        unsigned int ends = 1;
+    };
+    const std::array cases{
+        Case{},
+        Case{.asynchronous = true, .requests = 2, .queued = true},
+        Case{.asynchronous = true, .queued_event = QueuedEvent::Discard,
+             .requests = 2, .queued = true, .clears = 0, .ends = 0},
+        Case{.asynchronous = true, .queued_event = QueuedEvent::Removed,
+             .requests = 2, .queued = true, .clears = 0, .ends = 0},
+        Case{.asynchronous = true, .queued_event = QueuedEvent::Terminated,
+             .requests = 2, .queued = true, .ends = 0},
+        Case{.asynchronous = true, .range_event = RangeEvent::Removed, .requests = 0, .clears = 0, .ends = 0},
+        Case{.asynchronous = true, .range_event = RangeEvent::Terminated, .requests = 0, .clears = 0, .ends = 0},
+        Case{.request_hr = E_ACCESSDENIED, .clears = 0, .ends = 0},
+        Case{.asynchronous = true, .async_hr = E_ACCESSDENIED, .requests = 2, .clears = 0, .ends = 0},
+    };
+    constexpr GUID activity{0x23456789, 0x2345, 0x6789, {0xab, 0xcd, 0xef, 1, 2, 3, 4, 5}};
+    const auto objects_before = g_com_object_count.load();
+    for (const auto& test : cases) {
+        auto queue = std::make_shared<MockEditSessionQueue>();
+        const auto context = MakeComObject<MockTfContext>(queue);
+        const auto unrelated = MakeComObject<MockTfContext>();
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        CompositionCleanupCoordinator coordinator(41);
+        context->allow_sync_edit_sessions_ = !test.asynchronous;
+        context->edit_session_request_result_ = test.request_hr;
+        context->async_edit_session_result_ = test.async_hr;
+        bool registered_during_range = false;
+        composition->get_range_callback_ = [&] {
+            registered_during_range = coordinator.TrackedCount() == 1 && coordinator.HasPending(context.Get(), activity);
+            QIQI_TEST_CHECK(registered_during_range && !coordinator.HasPending(unrelated.Get(), activity));
+            if (test.range_event == RangeEvent::Removed) {
+                coordinator.MarkContextRemoved(context.Get(), activity);
+            } else if (test.range_event == RangeEvent::Terminated) {
+                QIQI_TEST_CHECK(coordinator.HandleTermination(105, composition.Get(), activity));
+            }
+        };
+        coordinator.Schedule(context, composition, 7, {9, 17}, activity);
+        composition->get_range_callback_ = {};
+        QIQI_TEST_CHECK(registered_during_range && context->request_edit_session_calls_ == test.requests);
+        QIQI_TEST_CHECK(queue->PendingCount() == (test.queued ? 1u : 0u));
+        QIQI_TEST_CHECK(coordinator.HasPending(context.Get(), activity) == test.queued);
+        if (test.queued) {
+            const auto& request = queue->PendingRequests().front();
+            QIQI_TEST_CHECK(request.client_id == 7 && request.context.Get() == context.Get() &&
+                            request.flags == (TF_ES_ASYNC | TF_ES_READWRITE));
+            QIQI_TEST_CHECK(context->prop_->clear_calls_ == 0 && composition->end_composition_calls_ == 0);
+            if (test.queued_event == QueuedEvent::Removed || test.queued_event == QueuedEvent::Terminated) {
+                if (test.queued_event == QueuedEvent::Removed) coordinator.MarkContextRemoved(context.Get(), activity);
+                QIQI_TEST_CHECK(coordinator.HandleTermination(107, composition.Get(), activity));
+                QIQI_TEST_CHECK(coordinator.HandleTermination(107, composition.Get(), activity));
+                QIQI_TEST_CHECK(coordinator.TrackedCount() == 1);
+                QIQI_TEST_CHECK(!coordinator.HasPending(context.Get(), activity) && coordinator.TrackedCount() == 0);
+                QIQI_TEST_CHECK(!coordinator.HandleTermination(107, composition.Get(), activity));
+            }
+            if (test.queued_event == QueuedEvent::Discard) {
+                QIQI_TEST_CHECK(queue->ClearForCleanup() == S_OK);
+            } else {
+                QIQI_TEST_CHECK(queue->RunNext(109) == S_OK);
+            }
+        }
+        QIQI_TEST_CHECK(queue->PendingCount() == 0 && context->prop_->clear_calls_ == test.clears &&
+                        composition->end_composition_calls_ == test.ends);
+        if (test.clears) {
+            const TfEditCookie cookie = test.queued_event == QueuedEvent::Terminated ?
+                TfEditCookie{107} : test.asynchronous ? TfEditCookie{109} : TfEditCookie{1};
+            QIQI_TEST_CHECK(context->prop_->last_clear_cookie_ == cookie);
+        }
+        if (test.ends) {
+            QIQI_TEST_CHECK(composition->last_end_cookie_ == (test.asynchronous ? TfEditCookie{109} : TfEditCookie{1}));
+        }
+        QIQI_TEST_CHECK(!coordinator.HasPending(context.Get(), activity) && coordinator.TrackedCount() == 0 &&
+                        context->range_->set_text_calls_ == 0);
+    }
+    for (const bool missing_context : {false, true}) {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        CompositionCleanupCoordinator coordinator(43);
+        const auto starting = coordinator.TrackStarting(context.Get());
+        starting->finished = true;
+        bool queried_range = false;
+        composition->get_range_callback_ = [&] { queried_range = true; };
+        ComPtr<ITfContext> target = context;
+        if (missing_context) target.Reset();
+        coordinator.Schedule(target, composition, missing_context ? TfClientId{7} : TF_CLIENTID_NULL, {9, 17}, activity);
+        QIQI_TEST_CHECK(!queried_range && context->request_edit_session_calls_ == 0 &&
+                        context->get_property_calls_ == 0 && composition->end_composition_calls_ == 0);
+        QIQI_TEST_CHECK(coordinator.TrackedCount() == 1 && starting->finished && !starting->terminated);
+        QIQI_TEST_CHECK(!coordinator.HasPending(context.Get(), activity) && coordinator.TrackedCount() == 0);
+        composition->get_range_callback_ = {};
+    }
+    {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto unrelated = MakeComObject<MockTfContext>();
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        CompositionCleanupCoordinator coordinator(47);
+        const auto starting = coordinator.TrackStarting(context.Get());
+        QIQI_TEST_CHECK(starting.use_count() == 1 && starting->id == 0 && starting->context.Get() == context.Get() &&
+                        !starting->composition && !starting->finished && !starting->terminated);
+        QIQI_TEST_CHECK(coordinator.HasPending(context.Get(), activity) && !coordinator.HasPending(unrelated.Get(), activity));
+        QIQI_TEST_CHECK(!coordinator.HandleTermination(111, nullptr, activity));
+        starting->composition = composition;
+        QIQI_TEST_CHECK(coordinator.HandleTermination(111, composition.Get(), activity));
+        QIQI_TEST_CHECK(starting->finished && starting->terminated && !starting->attribute_clear_started &&
+                        context->get_property_calls_ == 0 && composition->end_composition_calls_ == 0);
+        QIQI_TEST_CHECK(!coordinator.HasPending(context.Get(), activity) && coordinator.TrackedCount() == 0);
+        const auto finished = coordinator.TrackStarting(context.Get());
+        const auto pending = coordinator.TrackStarting(context.Get());
+        auto other = coordinator.TrackStarting(unrelated.Get());
+        finished->finished = true;
+        coordinator.MarkContextRemoved(context.Get(), activity);
+        QIQI_TEST_CHECK(finished->context_removed && finished->finished && pending->context_removed && pending->finished);
+        QIQI_TEST_CHECK(!other->context_removed && !other->finished && other.use_count() == 1);
+        QIQI_TEST_CHECK(!coordinator.HasPending(context.Get(), activity) && coordinator.HasPending(unrelated.Get(), activity));
+        const std::weak_ptr<CompositionCleanup> released = other;
+        other.reset();
+        QIQI_TEST_CHECK(released.expired() && !coordinator.HasPending(unrelated.Get(), activity) &&
+                        coordinator.TrackedCount() == 0);
+    }
+    {
+        auto queue = std::make_shared<MockEditSessionQueue>();
+        const auto context = MakeComObject<MockTfContext>(queue);
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        context->allow_sync_edit_sessions_ = false;
+        std::shared_ptr<CompositionCleanup> starting;
+        {
+            CompositionCleanupCoordinator coordinator(53);
+            starting = coordinator.TrackStarting(context.Get());
+            starting->finished = true;
+            coordinator.Schedule(context, composition, 7, {9, 17}, activity);
+            QIQI_TEST_CHECK(coordinator.TrackedCount() == 1 && coordinator.HasPending(context.Get(), activity));
+        }
+        QIQI_TEST_CHECK(starting->finished && !starting->context_removed && !starting->terminated);
+        starting.reset();
+        QIQI_TEST_CHECK(queue->RunNext(113) == S_OK && queue->PendingCount() == 0);
+        QIQI_TEST_CHECK(context->prop_->clear_calls_ == 1 && context->prop_->last_clear_cookie_ == 113 &&
+                        composition->end_composition_calls_ == 1 && composition->last_end_cookie_ == 113);
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 struct NativeTsfState {
     std::wstring text;
     std::wstring composition_text;
@@ -1295,6 +1450,7 @@ void TestDeactivationWindowLifecycle() {
     TestCompositionCleanupExecution();
     TestCompositionCleanupRequests();
     TestCompositionCleanupTermination();
+    TestCompositionCleanupCoordinator();
     std::array<BYTE, 256> original_keyboard{};
     QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
     const auto restore_keyboard = gsl::finally([&]() noexcept {

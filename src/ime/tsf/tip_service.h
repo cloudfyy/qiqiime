@@ -137,10 +137,6 @@ private:
     void SetUiPresentationEnabled(bool enabled) noexcept;
     bool DestroyUIWindows() noexcept;
     void ScheduleCompositionCleanup();
-    void ScheduleCompositionCleanup(
-        ComPtr<ITfContext> context, ComPtr<ITfComposition> composition, TfClientId client_id);
-    bool HasPendingCompositionCleanup(const ITfContext* context) noexcept;
-    void MarkCompositionContextRemoved(const ITfContext* context) noexcept;
     void ResetContextAndUI(bool try_host_cleanup = true);
     bool PrepareInputContext(ITfContext* context);
     bool IsActiveDocument(ITfDocumentMgr* document) const;
@@ -171,7 +167,6 @@ private:
     void EndCandidateUI();
 
     const uint64_t service_log_id_;
-    uint64_t next_cleanup_log_id_ = 0;
     ComPtr<ITfThreadMgr> thread_mgr_;
     TfClientId client_id_ = TF_CLIENTID_NULL;
     DWORD activate_flags_ = 0;
@@ -199,7 +194,7 @@ private:
     GUID current_lifecycle_activity_ = GUID_NULL;
 
     ComPtr<ITfComposition> composition_;
-    CompositionCleanupRegistry composition_cleanups_;
+    CompositionCleanupCoordinator composition_cleanups_;
     ComPtr<ITfContext> active_context_;
     ComPtr<ITfDocumentMgr> active_document_;
     ComPtr<CandidateUI> candidate_ui_;
