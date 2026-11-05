@@ -2,7 +2,7 @@
 
 **奇奇五笔（QiQiIME）** 是一款面向 Windows 10 / 11 的 **86 版五笔输入法**，基于 Windows 原生 **TSF（Text Services Framework）** 与 **C++** 构建，提供 `x64` 与 `x86` 组件。
 
-外部词库优先采用只读内存映射，并在同一进程内复用缓存，以减少重复加载；引擎、候选列表和界面仍会使用堆内存。实际资源占用与性能取决于词库、配置和宿主，不作“零内存开销”或未经测量的性能承诺。当前宿主验证情况及边界见[真实宿主测试记录](./docs/TSF_REAL_HOST_TESTS.md#8-2026-11-03-人工测试结果)。
+外部词库优先采用只读内存映射，并在同一进程内复用缓存，以减少重复加载；引擎、候选列表和界面仍会使用堆内存。实际资源占用与性能取决于词库、配置和宿主，不作“零内存开销”或未经测量的性能承诺。当前宿主验证情况及边界见[真实宿主测试记录](./docs/hosts.md#8-2026-11-03-人工测试结果)。
 
 ---
 
@@ -10,10 +10,10 @@
 
 [GitHub 预发布版](https://github.com/cloudfyy/qiqiime/releases/tag/v1.0.0-rc.1)供试用和兼容性反馈，尚非 1.0 正式版。发布标签为 `v1.0.0-rc.1`，程序、MSI 及发行文件名的内部数字版本为 `0.99.0`，为后续正式版 `1.0.0` 保留升级顺序；关于窗口和日志显示 `0.99.0+提交号`。
 
-- 提供包含 x64/x86 组件的简体中文 MSI、英文 MSI 和 ZIP；安装及升级前请[备份用户数据并阅读部署说明](./docs/DEPLOYMENT.md)。
-- [禁输入上下文的统一准入](./docs/RESTRICTED_INPUT_CONTEXT_RESEARCH.md)尚未接入生产，已知部分入口及排队编辑在上下文禁用后仍可能处理操作；不承诺密码/PIN 场景的完整保护，敏感输入请使用系统键盘布局或已验证的系统输入方式。
-- [真实宿主生命周期验收](./docs/TSF_REAL_HOST_TESTS.md)尚未收尾，包含历史 VS Code 跨输入目标误删反馈的定向复测；安装、升级和卸载的真实环境验收仍需补齐，自动测试通过不代表这些场景已通过。
-- Windows 登录与安全桌面不在已验证支持范围内，已撤下安全模式能力声明。Explorer 文件列表输入可能将组合小窗及候选窗放到屏幕左上角，暂保留现状；详见[已知兼容性记录](./docs/ARCHITECTURE.md#已知兼容性问题explorer-文件列表输入定位)。
+- 提供包含 x64/x86 组件的简体中文 MSI、英文 MSI 和 ZIP；安装及升级前请[备份用户数据并阅读部署说明](./docs/deploy.md)。
+- [禁输入上下文的统一准入](./docs/restricted.md)尚未接入生产，已知部分入口及排队编辑在上下文禁用后仍可能处理操作；不承诺密码/PIN 场景的完整保护，敏感输入请使用系统键盘布局或已验证的系统输入方式。
+- [真实宿主生命周期验收](./docs/hosts.md)尚未收尾，包含历史 VS Code 跨输入目标误删反馈的定向复测；安装、升级和卸载的真实环境验收仍需补齐，自动测试通过不代表这些场景已通过。
+- Windows 登录与安全桌面不在已验证支持范围内，已撤下安全模式能力声明。Explorer 文件列表输入可能将组合小窗及候选窗放到屏幕左上角，暂保留现状；详见[已知兼容性记录](./docs/arch.md#已知兼容性问题explorer-文件列表输入定位)。
 
 ## 1. 核心功能特性
 
@@ -101,7 +101,7 @@
 
 ## 3. 快速安装与卸载
 
-从源码安装时，须先按[开发指南](./docs/DEVELOPMENT.md)完成双架构 Release 构建；注册脚本只检查和注册已有产物，不会自动编译。若所用发行版本提供 `.msi`，可直接运行安装程序；使用 ZIP 包时先完整解压并保留目录结构。
+从源码安装时，须先按[开发指南](./docs/dev.md)完成双架构 Release 构建；注册脚本只检查和注册已有产物，不会自动编译。若所用发行版本提供 `.msi`，可直接运行安装程序；使用 ZIP 包时先完整解压并保留目录结构。
 
 以下命令在已构建的项目根目录或解压后的发行包根目录运行：
 
@@ -121,11 +121,11 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 
 | 文档分类 | 文档链接 | 内容概述 |
 |---|---|---|
-| **架构文档** | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | 系统分层架构、TSF COM 生命周期、静态分派与运行时 FSM、`.qdict` 按需分页只读内存映射、Direct2D/DirectWrite 与 RAII 体系 |
-| **开发文档** | [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) | 源码目录结构、CMake + vcpkg + C++26 双架构构建、单元测试套件、`CppCoreCheck` 静态代码检查、版本号生成机制与结构化排障日志规范 |
-| **日志监控** | [docs/LOGGING.md](./docs/LOGGING.md) | 日志级别设置、原生调试器实时查看、ETW 采集、WPA 分析、错误码解释及无日志排查 |
-| **部署文档** | [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) | `x64` + `x86 (WOW64)` 双架构注册原理、独立发行包打包（`build_all.ps1 -Package`）、用户数据目录结构、升级 DLL 占用处理与故障排查 |
-| **真实宿主测试** | [docs/TSF_REAL_HOST_TESTS.md](./docs/TSF_REAL_HOST_TESTS.md) | 生命周期测试步骤、已有人工反馈及尚未覆盖的宿主与验证边界 |
+| **架构文档** | [docs/arch.md](./docs/arch.md) | 系统分层架构、TSF COM 生命周期、静态分派与运行时 FSM、`.qdict` 按需分页只读内存映射、Direct2D/DirectWrite 与 RAII 体系 |
+| **开发文档** | [docs/dev.md](./docs/dev.md) | 源码目录结构、CMake + vcpkg + C++26 双架构构建、单元测试套件、`CppCoreCheck` 静态代码检查、版本号生成机制与结构化排障日志规范 |
+| **日志监控** | [docs/log.md](./docs/log.md) | 日志级别设置、原生调试器实时查看、ETW 采集、WPA 分析、错误码解释及无日志排查 |
+| **部署文档** | [docs/deploy.md](./docs/deploy.md) | `x64` + `x86 (WOW64)` 双架构注册原理、独立发行包打包（`build_all.ps1 -Package`）、用户数据目录结构、升级 DLL 占用处理与故障排查 |
+| **真实宿主测试** | [docs/hosts.md](./docs/hosts.md) | 生命周期测试步骤、已有人工反馈及尚未覆盖的宿主与验证边界 |
 
 ---
 

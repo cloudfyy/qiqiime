@@ -11,7 +11,7 @@
 - **系统组件**：依赖 Windows TSF（`msctf.dll`）、Direct2D / DirectWrite 等系统组件。
 - **权限要求**：
   - **安装 / 卸载时**：需要 **管理员权限（Administrator）**（用于向 `HKLM\SOFTWARE\Classes\CLSID` 与 `HKLM\SOFTWARE\Microsoft\CTF\TIP` 注册 COM/TSF 组件）
-  - **日常运行与修改设置时**：桌面标准用户通常不需提权；设置保存在 `HKCU\Software\QiQiIME`，用户文件及缓存位置见第 5 节。日志使用 ETW，不自动写本地日志文件，采集控制可能需要额外权限。AppContainer 的访问能力还取决于令牌和 ACL，见 [UWP / AppContainer 边界](https://github.com/cloudfyy/qiqiime/blob/main/docs/UWP_COMPATIBILITY.md)。
+  - **日常运行与修改设置时**：桌面标准用户通常不需提权；设置保存在 `HKCU\Software\QiQiIME`，用户文件及缓存位置见第 5 节。日志使用 ETW，不自动写本地日志文件，采集控制可能需要额外权限。AppContainer 的访问能力还取决于令牌和 ACL，见 [UWP / AppContainer 边界](https://github.com/cloudfyy/qiqiime/blob/main/docs/uwp.md)。
 
 ---
 
@@ -30,7 +30,7 @@
 - `QiQiIMELogMonitor.exe`
 - `QiQiIMEDictManager.exe`
 
-日志监控器也使用原生菜单和纯图标工具条：开始/停止、暂停/恢复滚动、清空、复制、导出、诊断/输入法日志；语言切换位于“语言”菜单，关于位于“帮助”菜单。两款工具共用菜单、工具条和矢量图标实现，支持实时语言切换、系统主题、高对比度及跨显示器 DPI。采集权限、筛选、详情和导出隐私提示保持不变，使用方法见 [应用日志监控指南](LOGGING.md)。
+日志监控器也使用原生菜单和纯图标工具条：开始/停止、暂停/恢复滚动、清空、复制、导出、诊断/输入法日志；语言切换位于“语言”菜单，关于位于“帮助”菜单。两款工具共用菜单、工具条和矢量图标实现，支持实时语言切换、系统主题、高对比度及跨显示器 DPI。采集权限、筛选、详情和导出隐私提示保持不变，使用方法见 [应用日志监控指南](log.md)。
 
 词库管理器通过“文件 / 编辑 / 语言 / 帮助”菜单提供完整功能，顶部纯图标工具条从左到右为刷新、新增词条、复制、导入、导出、置顶/取消置顶、删除/屏蔽/恢复及词组置前；保存图标移至正在编辑的行旁。悬停图标可查看当前界面语言的功能提示。界面语言从“语言”菜单实时切换（自动 / 简体中文 / English）；菜单和图标跟随系统主题、高对比度和显示器 DPI，工具条在窗口较窄时自动换行。
 
@@ -112,7 +112,9 @@ MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个�
 
 快捷方式名称和说明跟随所安装 MSI 的语言，不随之后的 Windows 显示语言或工具内语言设置自动改名。可按上述名称在开始菜单搜索；搜索索引更新可能需要时间。ZIP 解压或注册脚本不会创建这些入口。MSI 卸载时移除对应快捷方式，仅在文件夹为空时移除 `QiQiIME` 开始菜单文件夹。
 
-日志采集若遇到权限不足，需按[日志监控指南](LOGGING.md)单独提升监控工具或配置 ETW 权限，不要提升输入法宿主。入口与中英文资源的静态回归检查已纳入 `QiQiInstallerShortcutsTest`；该检查不安装产品，不能替代实际安装、升级和卸载验证。
+设置工具为单实例：重复启动应恢复并激活已有窗口，没有窗口时应创建可见设置窗口。曾发现旧版独立入口和对话框重复创建同名单实例互斥量，导致程序以退出码 0 立即退出；该情况不是快捷方式失效，也不应通过管理员权限或重复注册输入法解决。修复后需更新实际安装目录中的设置 EXE；仅编译工作区产物不会改变开始菜单当前指向的旧文件。
+
+日志采集若遇到权限不足，需按[日志监控指南](log.md)单独提升监控工具或配置 ETW 权限，不要提升输入法宿主。入口与中英文资源的静态回归检查已纳入 `QiQiInstallerShortcutsTest`；该检查不安装产品，不能替代实际安装、升级和卸载验证。
 
 ```text
 QiQiIME-v0.99.0-win-x64-x86/
@@ -136,8 +138,8 @@ QiQiIME-v0.99.0-win-x64-x86/
 │   └── unregister_ime.ps1      # 注销 COM/TSF 注册的脚本，不删除安装目录
 ├── LICENSE                     # GPL-3.0 许可证
 ├── README.md                   # 功能与使用说明
-├── DEPLOYMENT.md               # 部署与安装说明
-└── LOGGING.md                  # 应用日志与实时监控工具指南
+├── deploy.md               # 部署与安装说明
+└── log.md                  # 应用日志与实时监控工具指南
 ```
 
 终端用户解压到固定目录后，从解压目录运行以下命令注册；解压到 `Program Files` 本身也需要管理员权限。请检查脚本结果，注册后保持目录位置不变：
@@ -166,7 +168,7 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
 
 词典管理器保存用户词条时先写入用户词库 TXT，再尝试重建 QDICT 缓存及更新同步数据；编辑系统词库等其他来源的词条会另存为用户词，不改写随包词库。备份为用户选择位置的 `.qbak` 文件，不会把运行时词库迁移到备份目录。备份和还原由独立桌面工具执行，不要求 AppContainer 访问备份目录；当前用户仍需具有目标目录的创建、写入及重命名/替换权限。
 
-日志通过 ETW 发出；只有显式采集或导出才产生相应文件。AppContainer 路径和访问权限不能直接套用桌面进程假设，详见 [UWP / AppContainer 说明](https://github.com/cloudfyy/qiqiime/blob/main/docs/UWP_COMPATIBILITY.md)。
+日志通过 ETW 发出；只有显式采集或导出才产生相应文件。AppContainer 路径和访问权限不能直接套用桌面进程假设，详见 [UWP / AppContainer 说明](https://github.com/cloudfyy/qiqiime/blob/main/docs/uwp.md)。
 
 ---
 
@@ -197,4 +199,4 @@ MSI 卸载会移除安装文件及开始菜单入口，并清理安装目录中�
 
 ## 7. 故障排查（查看日志）
 
-结构化排障事件通过 Windows ETW TraceLogging 提供程序 `QiQiIME.TraceLogging` 发出，不自动写本地日志文件；可使用 `QiQiIMELogMonitor.exe` 实时采集，或用 WPR 等工具采集后在 WPA 中分析。采集权限及限制见 [日志指南](LOGGING.md)。设置程序保存后尝试发送 TSF Global Compartment 通知，运行中的实例据通知或焦点检查按需重载注册表配置，不保证所有实例立即更新。
+结构化排障事件通过 Windows ETW TraceLogging 提供程序 `QiQiIME.TraceLogging` 发出，不自动写本地日志文件；可使用 `QiQiIMELogMonitor.exe` 实时采集，或用 WPR 等工具采集后在 WPA 中分析。采集权限及限制见 [日志指南](log.md)。设置程序保存后尝试发送 TSF Global Compartment 通知，运行中的实例据通知或焦点检查按需重载注册表配置，不保证所有实例立即更新。

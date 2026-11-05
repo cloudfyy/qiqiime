@@ -1,6 +1,6 @@
 # 奇奇五笔应用日志监控指南
 
-本文说明如何监控输入法宿主及独立设置程序的日志。日志实现见 [logger.h](../src/common/logger.h) 和 [logger.cpp](../src/common/logger.cpp)，开发规范见 [DEVELOPMENT.md](DEVELOPMENT.md#52-结构化排障日志)。
+本文说明如何监控输入法宿主及独立设置程序的日志。日志实现见 [logger.h](../src/common/logger.h) 和 [logger.cpp](../src/common/logger.cpp)，开发规范见 [dev.md](dev.md#52-结构化排障日志)。
 
 独立 GUI 工具 `QiQiIMELogMonitor.exe` 已实现，日常复现可直接使用下方的实时监控流程；需要离线分析时仍可使用调试器或 ETW/WPA。
 
@@ -276,9 +276,9 @@ ETW 采集不需要 PDB 才能显示这些自描述消息；调试调用栈或�
 - `host-terminated` 后出现 `skip-host-terminated` 是预期的重复处理屏障；`write-forced-async` 表明新写在等待哪一次旧清理。`stale-edit-skipped` 用快照/当前周期解释业务任务为什么被拒绝。
 - 不记录输入文本、按键、候选、范围内容或裸 COM 地址。详细记录受 Info/Off 正常过滤，没有接收方时不格式化。
 
-字段表、预期日志顺序、只排队不执行及“组合已结束但属性残留”等故障的判读，见[组合生命周期设计与排障](TSF_COMPOSITION_LIFECYCLE.md#7-log-protocol-and-troubleshooting)。不要只凭单条成功状态判断宿主组合已结束。
+字段表、预期日志顺序、只排队不执行及“组合已结束但属性残留”等故障的判读，见[组合生命周期设计与排障](composition.md#7-log-protocol-and-troubleshooting)。不要只凭单条成功状态判断宿主组合已结束。
 
-任务 45 增加 `document-target`（`source`、`retained`、`covered_by_modal`）、`document-uninit`（`related`）、`context-push`（`related`）及 `context-pop`（`current`）。`context-reset` 的 `try_host_cleanup=false` 表示目标移除后的本地清理，不代表调用了 `EndComposition`；排队清理收到 `context-removed` 后应跳过，记录 `skip-removed-context` 或 `skip-end-after-context-removal`。字段含义和重入边界见[文档与上下文通知](TSF_COMPOSITION_LIFECYCLE.md#8-document-and-context-notifications)。
+任务 45 增加 `document-target`（`source`、`retained`、`covered_by_modal`）、`document-uninit`（`related`）、`context-push`（`related`）及 `context-pop`（`current`）。`context-reset` 的 `try_host_cleanup=false` 表示目标移除后的本地清理，不代表调用了 `EndComposition`；排队清理收到 `context-removed` 后应跳过，记录 `skip-removed-context` 或 `skip-end-after-context-removal`。字段含义和重入边界见[文档与上下文通知](composition.md#8-document-and-context-notifications)。
 
 ## 7. 无日志与共享日志的检查清单
 

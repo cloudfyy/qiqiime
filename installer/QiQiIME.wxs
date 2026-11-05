@@ -83,8 +83,8 @@
       <Component Id="CmpDocs" Directory="INSTALLFOLDER" Guid="8E7B9D31-5A42-4C81-9F11-202610290105">
         <File Id="FileLicense" Source="$(var.StageDir)\LICENSE" KeyPath="yes" />
         <File Id="FileReadme" Source="$(var.StageDir)\README.md" />
-        <File Id="FileDeployment" Source="$(var.StageDir)\DEPLOYMENT.md" />
-        <File Id="FileLogging" Source="$(var.StageDir)\LOGGING.md" />
+        <File Id="FileDeployment" Source="$(var.StageDir)\deploy.md" />
+        <File Id="FileLogging" Source="$(var.StageDir)\log.md" />
       </Component>
 
       <Component Id="CmpStartMenuShortcuts" Directory="QiQiProgramMenuFolder"

@@ -6,7 +6,7 @@ for tasks 41 and 43 through 46. The implementation lives in
 [`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp), and
 [`tip_service.h`](../src/ime/tsf/tip_service.h).
 For logging configuration, ETW sessions, and capture tools, see the
-[logging guide](LOGGING.md).
+[logging guide](log.md).
 
 ## 1. Two Separate Problems
 
@@ -290,7 +290,7 @@ Other stages are omitted from this example. Actual logs retain full hexadecimal 
 2. **Callback ran, but attributes remain:** check `get-range`, `attribute-clear`, and `end-composition` separately. Do not rely on `callback-exit` or `finished`.
 3. **New attributes disappear after reactivation:** inspect the old IDs' `write-forced-async`, termination, and skip stages. Compare new epochs to determine whether FIFO was broken or new objects were used by old cleanup.
 4. **Expected new input is discarded:** inspect snapshot/current epochs, `active`, and `target_matches` in `stale-edit-skipped`. Look backward for the corresponding `context-reset` or deactivation.
-5. **No stage records at Info/Off:** this is normal filtering. Temporarily enable Debug and a receiver as described in the [logging guide](LOGGING.md), then restore configuration after capture.
+5. **No stage records at Info/Off:** this is normal filtering. Temporarily enable Debug and a receiver as described in the [logging guide](log.md), then restore configuration after capture.
 
 ## 8. Document and Context Notifications
 
@@ -386,7 +386,7 @@ All records retain the existing service/cleanup correlation scheme:
 
 ## 9. Validation and Remaining Boundaries
 
-The [real-host test record](TSF_REAL_HOST_TESTS.md) includes partial manual feedback from 2026-11-03. It is not a completed compatibility matrix or proof that every UWP/AppContainer host is supported; task 47 remains open.
+The [real-host test record](hosts.md) includes partial manual feedback from 2026-11-03. It is not a completed compatibility matrix or proof that every UWP/AppContainer host is supported; task 47 remains open.
 
 [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) and [`service.cpp`](../tests/ime/tsf/service.cpp) cover deferred mock scheduling, failure injection, reentrancy, host termination, reactivation isolation, and COM reference release. Real Windows TSF private-document tests trigger synchronous rejection inside a layout notification, then use a bounded message pump to verify asynchronous completion. They check preserved text, composition enumeration, both property types, and isolation of the new composition, without changing user focus or activating the system TIP.
 
@@ -401,7 +401,7 @@ The post-0.9.19 coverage review adds direct assertions for removal during parent
 The parent-lookup removal test failed against the pre-review code, which continued binding an already removed target. Retaining the pending context in the preparation guard closes that gap. This is branch/behavior coverage, not a measured coverage percentage or proof of arbitrary host callback orderings. The existing Shift-tap integration case still uses the real 350 ms deadline; its thread keyboard state is reset immediately before the sequence to reduce ambient-state interference without relaxing production timing.
 
 FSM boundary regressions compare reset previews for all seven valid engine states, both width modes, all sixteen modifier combinations, and virtual keys 0 through 255. They also assert preservation of the live raw code, candidates, page, and selection. TSF tests exercise old/new-context predictions in Wubi and temporary English composition, Shift/CapsLock, English/full-width mode retention, inactive/null targets, and reset/binding reentrancy. Preflight alone must leave host text, composition ownership, subscriptions, and edit-request counts unchanged; continued input in the old target and actual input in the new target verify that prediction did not mutate the engine.
-See the [development guide](DEVELOPMENT.md) for targeted test commands; validate both architectures. Browser/UWP host compatibility is not certified, and successful host cleanup is not guaranteed for read-only, disconnected, or rejected requests.
+See the [development guide](dev.md) for targeted test commands; validate both architectures. Browser/UWP host compatibility is not certified, and successful host cleanup is not guaranteed for read-only, disconnected, or rejected requests.
 
 Task 41 regressions observe actual native destruction while the service and host
 UI references remain alive, verify composition/UI-end ordering and owner-thread

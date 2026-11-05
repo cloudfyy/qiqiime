@@ -33,9 +33,9 @@ qiqiime/
 │   ├── wubi86_jidian_extra.txt # 极点 86 五笔现代扩展词库（Apache-2.0，2,098 编码 / 2,216 编码-词语条目）
 │   └── wubi86_haifeng.txt      # 海峰 86 五笔超大字符集词库（BSD-3-Clause，100,051 编码 / 144,374 词条）
 ├── docs/
-│   ├── ARCHITECTURE.md         # 【架构文档】分层架构、TSF 生命周期、状态机、内存映射与安全模型
-│   ├── DEVELOPMENT.md          # 【开发文档】源码结构、编译构建、单元测试、静态检查与日志规范
-│   └── DEPLOYMENT.md           # 【部署文档】安装注册、WOW64 部署、MSI/ZIP 发行包打包、升级与卸载指南
+│   ├── arch.md         # 【架构文档】分层架构、TSF 生命周期、状态机、内存映射与安全模型
+│   ├── dev.md          # 【开发文档】源码结构、编译构建、单元测试、静态检查与日志规范
+│   └── deploy.md           # 【部署文档】安装注册、WOW64 部署、MSI/ZIP 发行包打包、升级与卸载指南
 ├── installer/
 │   ├── QiQiIME.wxs             # WiX Toolset (v4+) Windows Installer (.msi) 安装包配置
 │   ├── zh-CN.wxl               # 简体中文 (LCID 2052) MSI 本地化词条
@@ -160,10 +160,16 @@ ctest --preset x86-release --output-on-failure
 - `qiqi_change_sync_test.exe`：公共跨进程日志、并发写入与真实 AppContainer 只读同步测试（`QiQiChangeSyncTest`）
 - `qiqi_engine_test.exe`：五笔核心引擎测试（`QiQiEngineTest`）
 - `qiqi_tsf_ui_test.exe`：TSF COM 服务与 IME UI 测试（`QiQiTsfUiTest`）；`--etw-integration` 模式另注册为 `QiQiEtwIntegrationTest`
-- `qiqi_settings_test.exe`：设置 / 关于窗口及配置边界测试（`QiQiSettingsTest`）
+- `qiqi_settings_test.exe`：设置 / 关于窗口及配置边界测试（`QiQiSettingsTest`）；直接编译并调用独立程序的 `wWinMain`，在隔离注册表下验证首次启动实际创建可见窗口、再次启动恢复已最小化窗口、关闭后可重新启动，以及取消不保存配置。
 - `qiqi_log_monitor_test.exe`：监控器测试（`QiQiLogMonitorTest`）；`--integration` 模式另注册为 `QiQiLogMonitorIntegrationTest`
 
-任务 36 的原生 TSF 作用域/只读/compartment 契约及原生 EDIT 样式检查已纳入 `QiQiTsfUiTest`。显式运行 `.\build\x64\Release\qiqi_tsf_ui_test.exe --restricted-input-diagnostics`（x86 对应替换路径）还会观察现有禁用按键与异步编辑行为；`[OBSERVE]` 不是保护已实现的通过断言。实验边界、双架构复现步骤及真实宿主待验证矩阵见[禁输入场景研究](RESTRICTED_INPUT_CONTEXT_RESEARCH.md)。不会读取密码或真实剪贴板，不修改生产输入策略。
+任务 36 的原生 TSF 作用域/只读/compartment 契约及原生 EDIT 样式检查已纳入 `QiQiTsfUiTest`。显式运行 `.\build\x64\Release\qiqi_tsf_ui_test.exe --restricted-input-diagnostics`（x86 对应替换路径）还会观察现有禁用按键与异步编辑行为；`[OBSERVE]` 不是保护已实现的通过断言。实验边界、双架构复现步骤及真实宿主待验证矩阵见[禁输入场景研究](restricted.md)。不会读取密码或真实剪贴板，不修改生产输入策略。
+
+设置窗口的单实例互斥量仅由 `ShowSettingsDialog` 持有，独立 EXE 和 IME 调用方不得提前创建同名互斥量，否则对话框会把自身误判为另一个实例并直接退出。创建失败记录真实 Win32 错误码并停止创建窗口；回归同时覆盖已存在的互斥量和同名异类内核对象，避免只检查快捷方式目标或进程退出码而遗漏实际启动失败。
+
+`QiQiStandaloneToolsTest` 另直接启动当前架构的设置、词库管理器和日志监控器 EXE，核对真实可见窗口及窗口类、正常关闭和重新启动，并验证设置程序重复启动恢复原有最小化窗口。测试只关闭自己启动的进程，不修改快捷方式或安装目录；作为 `RUN_SERIAL` 测试运行，避免与其他 GUI 回归争用窗口或单实例互斥量。
+
+公共文件工具回归覆盖包含 NUL 的 UTF-8/UTF-16 转换、64 MiB 读取上限及超过上限一个字节、缺失文件、原子替换失败时原文件保留及临时文件清理、解除锁定后重试，以及超过 `MAX_PATH` 的 `LOCALAPPDATA`、缺失变量时的临时目录回退。目录查询根据 API 返回的所需容量重试，不把有效长路径当作缺失或使用截断结果。共享断言仍输出失败位置并非零退出，但关闭 CRT 的交互式 abort/WER 报告，避免失败测试等待桌面错误对话框。
 
 ---
 
@@ -175,7 +181,7 @@ ETW 集成测试仍要求零丢失，不通过放宽断言掩盖采集失败；�
 
 模态退出测试先移除较高优先级的排队消息再检查 `WM_QUIT`：该消息按低优先级合成，仅筛选 `WM_QUIT` 的 `PeekMessage` 可能暂时取不到；回归用例固定排入 `WM_APP` 后验证退出码。公共 ETW 写入测试注入成功、内存不足、事件过大及拒绝访问，验证实际错误码、非递归诊断及调用线程错误状态保留。
 
-项目以 **C++ Core Guidelines** 为代码规范，使用 `std::span`、`gsl::not_null`、`gsl::narrow_cast`、`gsl::at`、`gsl::finally` 及 `ScopedHandle<Traits>` RAII 模板；不把采用这些工具等同于所有代码已经完全合规。`lint` target 使用 MSVC CppCoreCheck 检查 C++ Core Guidelines 与 GSL 规则，并使用 PSScriptAnalyzer 检查 `scripts/` 下的 PowerShell 脚本。C++ 检查覆盖公共库、引擎、设置界面、输入法、设置程序及测试目标；按既有规则排除 C26490，并以 435 条去重后的其他 CppCoreCheck 诊断作为当前基线，新增诊断会使 lint 失败。基线应在逐步修复旧告警后下调。
+项目以 **C++ Core Guidelines** 为代码规范，使用 `std::span`、`gsl::not_null`、`gsl::narrow_cast`、`gsl::at`、`gsl::finally` 及 `ScopedHandle<Traits>` RAII 模板；不把采用这些工具等同于所有代码已经完全合规。`lint` target 使用 MSVC CppCoreCheck 检查 C++ Core Guidelines 与 GSL 规则，并使用 PSScriptAnalyzer 检查 `scripts/` 和 `tests/` 下的 PowerShell 脚本。C++ 检查通过 Visual Studio 的 `ALL_BUILD` 一次重建全部生产和测试目标，避免逐目标重复重建公共依赖，并自动纳入新增目标；按既有规则排除 C26490，其他仓库源码诊断的去重基线为 **0**，出现任何诊断即失败。PowerShell 门禁检查 Error 级诊断，不把通过门禁等同于没有 Warning 级风格或兼容性建议。
 
 安装 PSScriptAnalyzer 后，可从已配置的 Visual Studio CMake 构建目录运行：
 
@@ -185,6 +191,12 @@ cmake --build build\x64 --config Release --target lint
 ```
 
 项目常规编译另启用 MSVC `/W4`；`lint` 会在指定配置下重建启用静态分析的目标。
+
+### 4.1 原生执行覆盖率
+
+使用本机 Visual Studio Enterprise 的 `Microsoft.CodeCoverage.Console` 收集原生 C++ 覆盖率；Debug 产物须保留 PDB 并以 `/PROFILE /INCREMENTAL:NO` 链接。覆盖率配置的 `ModulePaths/IncludeDirectories` 指向当前构建产物目录，`Sources/Include` 仅匹配仓库 `src`，启用 `EnableStaticNativeInstrumentation`、`EnableStaticNativeInstrumentationRestore` 和 `CollectFromChildProcesses`，以覆盖真实工具子进程；报告与插桩产物不用于安装。
+
+收集时串行运行完整 `ctest --test-dir build\x64 -C Debug --output-on-failure --parallel 1`，并单独运行双架构 Release 全套回归。Cobertura 的模块汇总会重复计算静态库源码；源码行覆盖率应按文件路径和行号去重，任一模块命中即视为覆盖。同样必须列出未出现在报告中的实现文件，不能只看已有模块的百分比。该工具导出的 `branch-rate` 不代表已经测得所有 C++ 分支覆盖率；真实宿主矩阵、权限及资源耗尽等边界仍需独立验证。
 
 词库管理器与日志监控器采用原生菜单和窄窗口自动换行的纯图标平面工具条，不使用独立 `BUTTON` 控件。两者共同使用 `qiqi_common` 中的 [`ToolCommandUi`](../src/common/command_ui.h)：应用提供命令 ID、本地化文案、语义图标、状态与菜单分组，共享层管理菜单所有权、菜单栏测量/绘制及助记键、工具项创建/更新、悬停提示、主题/高对比度和 DPI 尺寸。图标集中于 [`command_ui.cpp`](../src/common/command_ui.cpp)，不再分散到业务窗口中；工具项为 36 个逻辑像素的方形区域，居中绘制 20 个逻辑像素的 GDI 矢量图标，无外部图片或字体依赖，绘制对象使用现有 RAII 包装。工具条隐藏文字但保留原生命令名称及本地化提示。词库管理器的行旁保存使用同一组件的紧凑模式。业务状态、筛选、采集及行内编辑仍由各工具维护，未抽象整个窗口。共享层通过调用方错误回调报告失败，不直接初始化或写入 ETW；词库管理器使用原有日志，监控器仅写独立诊断 Provider，避免采集自身 IME 日志形成反馈。
 
@@ -215,9 +227,9 @@ cmake --build build\x64 --config Release --target lint
 - DLL 与设置 EXE 复用 [`version.rc.in`](../src/common/version.rc.in) 模板及统一版本号，但分别设置文件类型、描述和原始文件名。设置 EXE 标记为应用程序（`VFT_APP`），描述包含目标架构；两者均保留中英文资源、公司信息、版权与产品信息。
 
 ### 5.2 结构化排障日志
-- **监控步骤**：日志级别设置、原生调试器实时查看、`logman` 采集与 WPA 分析见[应用日志监控指南](LOGGING.md)。任务 55、51 已修复初始化及停用影响共享日志的问题；ETW 无需附加调试器。
+- **监控步骤**：日志级别设置、原生调试器实时查看、`logman` 采集与 WPA 分析见[应用日志监控指南](log.md)。任务 55、51 已修复初始化及停用影响共享日志的问题；ETW 无需附加调试器。
 - **初始化与生命周期**：正常入口调用 `EnsureInitialized`，幂等注册且不改变日志级别；`InitLogger` 额外设置级别。注册成功后才发布状态，查询及写日志不隐式注册；同进程 IME 实例共享，同名 Provider 在不同进程独立。`Deactivate` 不注销，模块清理在调用者结束后注销，不在 `DllMain` 注册、格式化日志或获取初始化锁。
-- **焦点性能埋点**：任务 50 使用 `std::chrono::steady_clock` 记录纳秒耗时，仅在详细级别且有接收方时计时；按进程内递增编号关联焦点处理与重载详情，保留原检查/重载顺序。字段和真实宿主复现步骤见[焦点处理耗时](LOGGING.md#61-焦点处理耗时任务-50)，不能将状态相同或测试进程耗时当成可合并通知、需要后台化的依据。
+- **焦点性能埋点**：任务 50 使用 `std::chrono::steady_clock` 记录纳秒耗时，仅在详细级别且有接收方时计时；按进程内递增编号关联焦点处理与重载详情，保留原检查/重载顺序。字段和真实宿主复现步骤见[焦点处理耗时](log.md#61-焦点处理耗时任务-50)，不能将状态相同或测试进程耗时当成可合并通知、需要后台化的依据。
 - **日志提供程序**：Windows ETW TraceLogging 提供程序 `QiQiIME.TraceLogging`；仅在调试器附加时额外输出到 `OutputDebugString`，不会写入 `%LOCALAPPDATA%\QiQiIME\logs\qiqiime.log`。
 - **日志字段与 ETW 元数据**：结构化事件包含级别（`Level`）、非零分类掩码（`Keyword`：`General`、`Lifecycle`、`Input`、`Composition`、`Dictionary`、`Sync`、`UI`、`Config`）、操作阶段（`Opcode`：`Info`、`Start`、`Stop`）、显式活动关联（`ActivityId` 与可选 `RelatedActivityId`）、宿主进程名、进程 ID、线程 ID 和消息。无活动事件显式写入 `GUID_NULL`，不修改或拾取宿主线程隐式 TLS `ActivityId`。`ShouldLog(Level, Keyword)` 在格式化前按会话级别与分类掩码短路。
 - **隐私与异常安全**：所有 `QIQI_LOG_*` 宏均内建 `try/catch` 异常隔离（可在 `noexcept` 函数中安全调用），且严禁在日志中记录用户的私密上屏文字内容。
@@ -230,7 +242,7 @@ cmake --build build\x64 --config Release --target lint
 - 已检查生产代码中的失败日志、COM 返回值、文件/注册表读写及异常兜底，覆盖 `common`、IME 引擎、TSF、候选窗/语言栏/状态条、设置程序及安装/构建脚本；测试与第三方依赖仅作为验证依据，未修改第三方代码。
 - 修复实际 HRESULT 漏报、ETW 注册错误判断、注册表/文件读写及缓存映射错误码缺失、回调异常吞错，以及设置程序单实例互斥量失败；构建脚本补充阶段/架构/退出码诊断。保留可选能力失败后的原有回退，COM CLSID 必需值写入失败不再报告注册成功。
 - 失败注入覆盖函数提供程序及语言栏部分成功、注册失败、注销失败、重复停用和再次激活；公共日志测试覆盖成功/异步 HRESULT 与错误码保留；配置、文件、词库、设置及绘制由现有回归测试覆盖。
-- 本节记录任务 49 当时的审计范围，仅补失败诊断。任务 48、52、53 及 42–46 后续已完成对应实现与自动化验证，任务 51 的共享日志问题与任务 55 一并修复；任务 47 的真实宿主验收仍未完成，已有阶段性反馈见[实测记录](TSF_REAL_HOST_TESTS.md)。
+- 本节记录任务 49 当时的审计范围，仅补失败诊断。任务 48、52、53 及 42–46 后续已完成对应实现与自动化验证，任务 51 的共享日志问题与任务 55 一并修复；任务 47 的真实宿主验收仍未完成，已有阶段性反馈见[实测记录](hosts.md)。
 - 验证：x64/x86 Release 构建及各 4 组 CTest 全部通过，`lint` 的 CppCoreCheck 与 PSScriptAnalyzer 通过；模拟 CMake 返回 37，确认构建脚本输出阶段、架构和错误码并保留退出码。首次 x64 窗口交互测试失败且后续设置测试未结束，停止该测试进程后，TSF/UI 隔离重跑与最终全套重跑均通过；此记录不等同于已修复窗口交互测试的偶发性问题。
 
 ### 5.4 日志初始化与生命周期验证（任务 55、51）
@@ -263,7 +275,7 @@ cmake --build build\x64 --config Release --target lint
 
 ### 5.7 停用组合清理与受控异步补救（任务 44）
 
-- 完整的状态定义、强弱所有权图、同步/异步与重新激活时序、重入规则、日志协议和排障步骤见[组合生命周期设计](TSF_COMPOSITION_LIFECYCLE.md)；采集入口见[日志指南](LOGGING.md#62-组合生命周期与停用清理任务-434445)。
+- 完整的状态定义、强弱所有权图、同步/异步与重新激活时序、重入规则、日志协议和排障步骤见[组合生命周期设计](composition.md)；采集入口见[日志指南](log.md#62-组合生命周期与停用清理任务-434445)。
 - 按更新确认的策略保留预编辑文字，并允许受控异步补救。清理只清除旧范围的 `GUID_PROP_ATTRIBUTE` 并结束旧组合，不删除/替换文本或恢复 UI。
 - [`Deactivate`](../src/ime/tsf/tip_service.cpp) 仍同步返回：先拒绝旧业务任务并设置停用保护，再通过 [`ScheduleCompositionCleanup`](../src/ime/tsf/tip_composition.cpp) 请求 `TF_ES_SYNC | TF_ES_READWRITE`。仅当请求成功但会话结果为 `TF_E_SYNCHRONOUS`、回调未执行、宿主未终止组合且上下文未被移除时，再申请 `TF_ES_ASYNC | TF_ES_READWRITE`；不等待异步回调便清理本地引擎、订阅、UI 和线程管理器引用。任务 45 将该路径复用到仍连接的目标切换和失焦。
 - 每次清理独立保存旧上下文、组合及范围。编辑回调强引用该状态，不捕获线程管理器或服务；服务只保存弱引用，避免服务与清理任务强引用成环。组合自身可能持有其 sink，COM 引用计数仍保证服务和模块存活到请求被执行或释放。RAII 复位停用保护及清理完成标志，任务被宿主放弃时捕获资源也会释放。
@@ -280,7 +292,7 @@ cmake --build build\x64 --config Release --target lint
 - 继续以活动 `ITfContext` 为核心，仅缓存其所属文档用于移除后的关联判断，不建立文档管理器列表。焦点与同文档入栈统一通过 `ReconcileDocumentTarget` 查询栈顶/主上下文；主上下文被正常模态栈顶覆盖时保留组合，无关文档通知不得重置当前输入。
 - 出栈按 context 身份处理，解除初始化按缓存文档的 COM 身份处理；当前目标移除先失效旧写入/布局任务，再清订阅、引擎和 UI，不请求新的编辑会话。已排队的独立清理也标记为 context 已移除，迟到回调不得再清属性或结束组合；本地释放不等于宿主已结束。
 - 一并修正任务 43 的两个相关缺口：新目标的按键在引擎处理前准备上下文，避免旧组合通过 Backspace 等按键带到新输入框；仍连接的目标切换/失焦复用任务 44 的宿主清理，而不只是释放本地引用。A→B→A 时同一 context 的新写仍强制排在旧异步清理之后。
-- 重置/绑定以 RAII 防止重入输入，文档查询和布局订阅之后复核周期，过时焦点通知不再继续显示 UI；重入激活明确失败。新增文档/栈日志记录关联判断、模态覆盖和是否尝试宿主清理，不记录输入内容。完整英文说明见[组合生命周期设计](TSF_COMPOSITION_LIFECYCLE.md#8-document-and-context-notifications)。
+- 重置/绑定以 RAII 防止重入输入，文档查询和布局订阅之后复核周期，过时焦点通知不再继续显示 UI；重入激活明确失败。新增文档/栈日志记录关联判断、模态覆盖和是否尝试宿主清理，不记录输入内容。完整英文说明见[组合生命周期设计](composition.md#8-document-and-context-notifications)。
 - Mock 验证延迟写入/布局、非空文档切换、模态入栈/出栈、无关通知、移除前断开、范围查询失败与重入、A→B→A 异步顺序、已排队清理的 context 被移除及 COM 对象计数恢复。原测试中的伪文档地址改为实际 Mock 对象。自有调试子进程校验实际输出的模态保留和非当前出栈字段。
 - 真实 Windows TSF 私有文档通过实际事件订阅转发 Push/Pop/Uninit 通知，验证主组合跨模态 Push/Pop 保留、非空文档切换时旧属性/组合清除且文字保留、新文档组合独立、全部出栈时结束 UI；不调用原生 `SetFocus` 或激活系统 TIP，不假定通知顺序。
 - 另覆盖清理范围查询期间重入出栈/解除初始化：移除标记先于新编辑请求，既不清属性也不调用结束 API；焦点处理使用独立 revision，普通 context 移除不吞掉失焦隐藏动作，较新的重入焦点通知则取代旧动作。
@@ -311,11 +323,11 @@ cmake --build build\x64 --config Release --target lint
 - 回归使用真实 HWND 与销毁消息验证顺序和线程，不以可见性代替销毁：覆盖外部引用、重复停用、激活失败回滚、再次激活后的菜单/选词回调、旧异步写入/布局/清理、UILess、宿主 Begin/End 重入、最终服务释放后保留的 UI，以及独立 UI 的跨线程拒绝与销毁重建。
 - Begin/End 重入时切换到另一个 manager，并故意复用相同数值的 UI ID，验证旧注销仅作用于旧 manager、新窗口不被隐藏。独立用例显式保存、清理并恢复线程键盘状态，避免先前消息泵带入的环境状态影响普通按键断言；未改变生产按键规则。
 - 最终验证：x64/x86 Release 的 `QiQiTsfUiTest` 与 `QiQiEtwIntegrationTest` 各连续通过 2 次、均未跳过；双架构构建与定向 CppCoreCheck 通过，修正新增向下转换诊断后仅保留既有告警，`git diff --check` 通过。
-- 生命周期契约、诊断字段与验证边界见英文[设计文档](TSF_COMPOSITION_LIFECYCLE.md)。完整回归矩阵见下节；任务 47 已有[阶段性人工反馈](TSF_REAL_HOST_TESTS.md)，但完整验收仍未完成。
+- 生命周期契约、诊断字段与验证边界见英文[设计文档](composition.md)。完整回归矩阵见下节；任务 47 已有[阶段性人工反馈](hosts.md)，但完整验收仍未完成。
 
 ### 5.9 生命周期回归矩阵（任务 46）
 
-- 先盘点已有延迟写入/提交/取消/布局、FIFO、重新激活、焦点与 A→B→A、模态及无关通知、移除后屏障、清理失败矩阵、引用/订阅释放，以及任务 41 的真实 HWND 和 UI 注册重入；不重复计为本轮新增测试。完整矩阵见英文[设计文档](TSF_COMPOSITION_LIFECYCLE.md#91-regression-inventory-task-46)。
+- 先盘点已有延迟写入/提交/取消/布局、FIFO、重新激活、焦点与 A→B→A、模态及无关通知、移除后屏障、清理失败矩阵、引用/订阅释放，以及任务 41 的真实 HWND 和 UI 注册重入；不重复计为本轮新增测试。完整矩阵见英文[设计文档](composition.md#91-regression-inventory-task-46)。
 - 新增 `TestReentrantCompositionEdits`：86 个执行中编辑/宿主终止边界用例、8 个迟到 `StartComposition` 用例、4 个清理期间属性查询用例，并显式断言各矩阵计数；另外覆盖同周期替换组合的 2 例及键盘状态重入的 2 例。按实际文本、写入/属性/选择/视图/UI 调用次数、组合身份及对象计数验证，不只检查返回成功，不报告未测量的覆盖率。
 - 测试先复现 `GetRange` 内停用后旧编辑仍写文档，以及清理已进入但 `GetProperty` 内宿主终止发生在实际 `Clear` 前导致漏清属性。编辑强持有原组合，并在宿主调用之间检查 epoch、context 和组合身份；清理独立记录 `attribute_clear_started`，需要时用宿主通知的 write cookie 清一次，移除后不再调用宿主编辑 API。
 - 迟到的组合创建结果先私有持有，临时弱跟踪使用 `id == 0`，不消耗正式清理诊断 ID。期间的移除/终止不会被返回结果覆盖；仍连接的迟到旧组合转入独立清理，捕获原 client ID。同 context 新写若早于迟到清理入队，执行入口再次检查，并将已捕获结果显式异步排到旧清理后，不重算按键、不推进 FSM。
