@@ -12,6 +12,7 @@
 #include "common/guids.h"
 #include "ime/engine/engine.h"
 #include "ime/tsf/composition_cleanup.h"
+#include "ime/tsf/composition_edit.h"
 #include "ime/tsf/edit_session.h"
 #include "ime/tsf/shift_tap.h"
 #include "ime/ui/candidate_ui.h"
@@ -154,6 +155,7 @@ private:
     void ApplyDynamicEngineSettings() noexcept;
     void ReloadConfigIfModified(uint64_t focus_log_id = 0);
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
+    HRESULT ApplyCompositionEditInSession(TfEditCookie ec, const CompositionEditTask& task);
     void SyncCompositionUIInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot);
     ComPtr<ITfComposition> StartOrUpdateCompositionInSession(

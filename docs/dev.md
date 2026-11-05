@@ -459,3 +459,10 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **不要统一不同的裁剪时机**：`Track` 只追加；`FindComposition` 不裁剪已完成记录，且空组合不匹配未发布结果。`FindPending` 先移除全部已完成/过期弱记录，再按原顺序返回同 context 的首项；`TrackedCount` 保留原始弱槽位诊断含义，不代表尚未完成的任务数。
 - **移除标记覆盖全部匹配项**：`MarkContextRemoved` 同时设置 `context_removed` 和 `finished`，包括已完成项及 id 为零的未发布结果；不影响别的 context，也不在此时裁剪或代替宿主清理。按原阶段及真实 HRESULT 记录诊断，不能把标记完成或释放记录解释为宿主组合已结束。
 - **调度留在服务**：[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp) 仍负责 COM 请求、同步/异步回退、回调体和宿主终止响应。不能为了提取登记逻辑而挪动重入检查或让新写入越过旧清理屏障；[`登记与生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 同时固定弱所有权、查询/裁剪差异、移除范围及现有宿主执行顺序。
+
+### 5.21 TSF 写入任务快照（R05 第三步）
+
+- **任务与目标不可分离**：[`CompositionEditTask`](../src/ime/tsf/composition_edit.h) 拥有 context、完整结果副本、原票据和活动 ID，构造时以 GSL 前置条件要求非空 context 且目标匹配。通过只读访问器消费，复制/移动构造传递，不在已发布任务上赋值改写；移动后的源对象不再执行。任务不持有服务或编辑 cookie，回调仍单独强持有服务。
+- **先捕获再请求**：[`ApplyEngineResult`](../src/ime/tsf/tip_composition.cpp) 保留原有强引用获取、epoch 捕获和结果复制时机；请求标志仍在原位置根据清理屏障决定。只把原回调体移入 `ApplyCompositionEditInSession`，不挪动票据验证、清理判断、提交/取消区别或宿主调用后的复核。
+- **再排队保留快照**：清理仍未完成时，不执行当前写入，而是将该任务的结果重新排队；不要重新读取引擎来构造替代结果，也不能把旧编辑 cookie 带给后续会话。活动 ID 仍按原作用域恢复，失效任务仍按既有诊断跳过。
+- **验证与范围**：[`任务与生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 比较四类动作的 12 个结果字段，覆盖复制/移动、生产者结束后的延迟访问及清理中重入再排队的 FIFO 快照。布局读取、独立清理回调、宿主 UI 许可及 FSM 不变；本步不等于已完成整个生命周期协调器。

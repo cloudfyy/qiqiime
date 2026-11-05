@@ -559,49 +559,8 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
     const GUID edit_act_id = log::CreateActivityId();
 
     const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
-        [self_holder, ctx_holder, result, ticket, edit_act_id](TfEditCookie ec) -> HRESULT {
-        const GUID prev_act = std::exchange(self_holder->current_lifecycle_activity_, edit_act_id);
-        const auto restore_act = gsl::finally([&self_holder, prev_act]() noexcept {
-            self_holder->current_lifecycle_activity_ = prev_act;
-        });
-        if (!self_holder->IsEditSessionCurrent(ticket)) {
-            return S_OK;
-        }
-        if (self_holder->HasPendingCompositionCleanup(ctx_holder.Get())) {
-            QIQI_LOG_ACT_INFO(
-                log::Level::debug,
-                log::Keyword::Composition,
-                &edit_act_id,
-                "TsfLifecycle(service={}, stage=write-requeued-behind-cleanup, activation={}, context={})",
-                self_holder->service_log_id_, ticket.epoch.activation, ticket.epoch.context);
-            self_holder->ApplyEngineResult(ctx_holder.Get(), result);
-            return S_OK;
-        }
-        const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
-        if (result.action == KeyActionType::Cancel) {
-            self_holder->CancelCompositionInSession(ec, non_null_ctx.get());
-            if (self_holder->IsCompositionEditCurrent(ticket, nullptr)) self_holder->EndCandidateUI();
-            return S_OK;
-        }
-
-        if (result.action == KeyActionType::Commit) {
-            self_holder->CommitAndEndCompositionInSession(ec, non_null_ctx, result.committed_text);
-            if (!self_holder->IsCompositionEditCurrent(ticket, nullptr)) return S_OK;
-            if (!result.composition_text.empty()) {
-                // e.g. 5th key auto-committed previous 4-code word and started a new 1-code composition
-                self_holder->SyncCompositionUIInSession(ec, non_null_ctx, result);
-            } else {
-                self_holder->EndCandidateUI();
-            }
-            return S_OK;
-        }
-
-        if (result.action == KeyActionType::UpdateState) {
-            self_holder->SyncCompositionUIInSession(ec, non_null_ctx, result);
-            return S_OK;
-        }
-
-        return S_OK;
+        [self_holder, task = CompositionEditTask(ctx_holder, result, ticket, edit_act_id)](TfEditCookie ec) -> HRESULT {
+            return self_holder->ApplyCompositionEditInSession(ec, task);
     });
 
     HRESULT session_hr = S_OK;
@@ -619,6 +578,55 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
             gsl::narrow_cast<unsigned int>(req_hr),
             gsl::narrow_cast<unsigned int>(session_hr));
     }
+}
+
+HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const CompositionEditTask& task) {
+    const auto& ctx_holder = task.Context();
+    const auto& result = task.Snapshot();
+    const auto ticket = task.Ticket();
+    const auto& edit_act_id = task.Activity();
+    const GUID prev_act = std::exchange(current_lifecycle_activity_, edit_act_id);
+    const auto restore_act = gsl::finally([this, prev_act]() noexcept {
+        current_lifecycle_activity_ = prev_act;
+    });
+    if (!IsEditSessionCurrent(ticket)) {
+        return S_OK;
+    }
+    if (HasPendingCompositionCleanup(ctx_holder.Get())) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &edit_act_id,
+            "TsfLifecycle(service={}, stage=write-requeued-behind-cleanup, activation={}, context={})",
+            service_log_id_, ticket.epoch.activation, ticket.epoch.context);
+        ApplyEngineResult(ctx_holder.Get(), result);
+        return S_OK;
+    }
+    const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
+    if (result.action == KeyActionType::Cancel) {
+        CancelCompositionInSession(ec, non_null_ctx.get());
+        if (IsCompositionEditCurrent(ticket, nullptr)) EndCandidateUI();
+        return S_OK;
+    }
+
+    if (result.action == KeyActionType::Commit) {
+        CommitAndEndCompositionInSession(ec, non_null_ctx, result.committed_text);
+        if (!IsCompositionEditCurrent(ticket, nullptr)) return S_OK;
+        if (!result.composition_text.empty()) {
+            // e.g. 5th key auto-committed previous 4-code word and started a new 1-code composition
+            SyncCompositionUIInSession(ec, non_null_ctx, result);
+        } else {
+            EndCandidateUI();
+        }
+        return S_OK;
+    }
+
+    if (result.action == KeyActionType::UpdateState) {
+        SyncCompositionUIInSession(ec, non_null_ctx, result);
+        return S_OK;
+    }
+
+    return S_OK;
 }
 
 void QiQiTextService::SyncCompositionUIInSession(

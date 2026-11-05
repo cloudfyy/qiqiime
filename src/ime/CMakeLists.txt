@@ -23,6 +23,7 @@ set(QIQIIME_SOURCES
     tsf/category_manager.h
     tsf/composition_cleanup.h
     tsf/composition_cleanup.cpp
+    tsf/composition_edit.h
     tsf/register.h
     tsf/register.cpp
     tsf/shift_tap.h
