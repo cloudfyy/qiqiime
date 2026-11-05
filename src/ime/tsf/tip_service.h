@@ -157,7 +157,7 @@ private:
     ComPtr<ITfComposition> StartOrUpdateCompositionInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text);
     void CommitAndEndCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text);
-    void CancelCompositionInSession(TfEditCookie ec, const ITfContext* context);
+    void CancelCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context);
     void UpdateCandidateWindowPositionInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view = {});
     void SetRangeTextAndCollapseCaret(

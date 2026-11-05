@@ -1,5 +1,6 @@
 #include "ime/tsf/tip_service.h"
 #include "ime/comp/attribute.h"
+#include "ime/comp/finish.h"
 #include "ime/comp/range.h"
 #include "ime/comp/start.h"
 #include "ime/tsf/edit_session.h"
@@ -347,7 +348,7 @@ HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const Co
     }
     const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
     if (result.action == KeyActionType::Cancel) {
-        CancelCompositionInSession(ec, non_null_ctx.get());
+        CancelCompositionInSession(ec, non_null_ctx);
         if (IsCompositionEditCurrent(ticket, nullptr)) EndCandidateUI();
         return S_OK;
     }
@@ -445,52 +446,37 @@ void QiQiTextService::CommitAndEndCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text) {
     const EditSessionTicket ticket{edit_session_epoch_, context.get()};
     const auto composition = composition_;
+    const auto is_current = [this, ticket, &composition]() noexcept {
+        return IsCompositionEditCurrent(ticket, composition.Get());
+    };
     if (composition) {
-        ComPtr<ITfRange> comp_range;
-        if (log::CheckHResult(composition->GetRange(&comp_range), "CommitComposition::GetRange") && comp_range) {
-            if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-            std::ignore = ClearCompositionDisplayAttribute(
-                ec, context, gsl::not_null<ITfRange*>(comp_range.Get()),
-                [this, ticket, &composition]() noexcept {
-                    return IsCompositionEditCurrent(ticket, composition.Get());
-                });
-            if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-            SetRangeTextAndCollapseCaret(ec, context, gsl::not_null<ITfRange*>(comp_range.Get()), committed_text);
-        }
-        if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-        composition_.Reset();
-        has_valid_caret_pos_ = false;
-        std::ignore = log::CheckHResult(composition->EndComposition(ec), "CommitComposition::EndComposition");
-    } else if (!committed_text.empty()) {
-        // Direct commit without prior composition (e.g. Chinese punctuation)
-        ComPtr<ITfInsertAtSelection> insert_at_sel;
-        if (log::CheckHResult(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel)),
-                             "DirectCommit::QueryInterface(ITfInsertAtSelection)") && insert_at_sel) {
-            if (!IsCompositionEditCurrent(ticket, nullptr)) return;
-            ComPtr<ITfRange> inserted_range;
-            std::ignore = log::CheckHResult(insert_at_sel->InsertTextAtSelection(
-                    ec, 0, committed_text.c_str(), gsl::narrow_cast<LONG>(committed_text.size()), &inserted_range),
-                    "DirectCommit::InsertTextAtSelection");
-        }
+        FinishCompositionInSession(
+            ec, context, composition.Get(), CompositionFinishKind::Commit, committed_text, is_current,
+            [this]() noexcept {
+                composition_.Reset();
+                has_valid_caret_pos_ = false;
+            });
+    } else {
+        InsertCommittedTextInSession(ec, context, committed_text, is_current);
     }
 }
 
-void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, const ITfContext* context) {
-    const EditSessionTicket ticket{edit_session_epoch_, context};
+void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context) {
+    const EditSessionTicket ticket{edit_session_epoch_, context.get()};
     const auto composition = composition_;
     if (!composition) {
         has_valid_caret_pos_ = false;
         return;
     }
-    ComPtr<ITfRange> comp_range;
-    if (log::CheckHResult(composition->GetRange(&comp_range), "CancelComposition::GetRange") && comp_range) {
-        if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-        std::ignore = log::CheckHResult(comp_range->SetText(ec, 0, L"", 0), "CancelComposition::SetText");
-    }
-    if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-    composition_.Reset();
-    has_valid_caret_pos_ = false;
-    std::ignore = log::CheckHResult(composition->EndComposition(ec), "CancelComposition::EndComposition");
+    FinishCompositionInSession(
+        ec, context, composition.Get(), CompositionFinishKind::Cancel, {},
+        [this, ticket, &composition]() noexcept {
+            return IsCompositionEditCurrent(ticket, composition.Get());
+        },
+        [this]() noexcept {
+            composition_.Reset();
+            has_valid_caret_pos_ = false;
+        });
 }
 
 void QiQiTextService::UpdateCandidateWindowPositionInSession(

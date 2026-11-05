@@ -45,6 +45,7 @@ int wmain(int argc, wchar_t* argv[]) {
     qiqi::test::RunTsfComTests();
     qiqi::test::RunTsfCompositionRangeTests();
     qiqi::test::RunTsfCompositionStartTests();
+    qiqi::test::RunTsfCompositionFinishTests();
     qiqi::test::RunRestrictedInputContractTests();
     qiqi::test::RunTsfServiceTests();
     std::cout << "[PASS] All QiQi TSF & UI unit tests succeeded.\n";

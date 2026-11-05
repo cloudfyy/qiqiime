@@ -25,6 +25,7 @@ set(QIQIIME_SOURCES
     comp/cleanup.h
     comp/cleanup.cpp
     comp/edit.h
+    comp/finish.h
     comp/range.h
     comp/start.h
     tsf/register.h

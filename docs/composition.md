@@ -51,6 +51,24 @@ These barriers cannot undo a host call that has already started. Tests inject
 callbacks after observable text/selection/property writes and require that no
 subsequent stale operation occur after invalidation.
 
+[`FinishCompositionInSession`](../src/ime/comp/finish.h) shares the synchronous
+ending sequence, not the policy of commit and cancel. Commit clears the display
+attribute, replaces the text, and collapses the caret through the existing range
+helper. Cancel only writes an empty string; it does not clear attributes or set
+selection. Failed or empty range retrieval still permits best-effort termination
+when the original identity is current, as do ordinary property/text/caret failures.
+Invalidation stops the remaining operations at the original check boundaries.
+
+The service retains the original composition strongly and supplies the state
+detachment callback. The helper holds the acquired range through `EndComposition`
+and performs no additional checks or state changes after detachment/termination.
+This preserves a new composition and caret state created by a reentrant end call,
+including when ending the old composition fails. The separate
+[`InsertCommittedTextInSession`](../src/ime/comp/finish.h) handles direct commits:
+empty text does nothing; nonempty text queries the insertion interface, checks
+identity, and inserts without creating a composition, clearing attributes, or
+adjusting selection. Neither helper stores an edit cookie or schedules work.
+
 ### 2.2 Keyboard Event State
 
 `OnTestKeyDown` and `OnKeyDown` sample modifiers and CapsLock before querying

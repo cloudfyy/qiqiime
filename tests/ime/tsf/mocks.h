@@ -138,6 +138,8 @@ public:
         return c;
     }
     STDMETHODIMP GetRange(ITfRange** ppRange) override {
+        ++get_range_calls_;
+        if (get_range_observer_) get_range_observer_(ppRange);
         if (!ppRange || fail_get_range_) return E_FAIL;
         if (get_range_callback_) get_range_callback_();
         if (return_null_range_) {
@@ -169,6 +171,8 @@ public:
     bool ended_ = false;
     bool fail_get_range_ = false;
     bool return_null_range_ = false;
+    unsigned int get_range_calls_ = 0;
+    std::function<void(ITfRange**)> get_range_observer_;
     unsigned int end_composition_calls_ = 0;
     TfEditCookie last_end_cookie_ = 0;
     HRESULT end_result_ = S_OK;
@@ -541,8 +545,9 @@ public:
     }
     STDMETHODIMP EnumViews(IEnumTfContextViews**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetStatus(TF_STATUS*) noexcept override { return S_OK; }
-    STDMETHODIMP GetProperty(REFGUID, ITfProperty** ppv) override {
+    STDMETHODIMP GetProperty(REFGUID guid, ITfProperty** ppv) override {
         ++get_property_calls_;
+        if (get_property_observer_) get_property_observer_(guid, ppv);
         if (!ppv) return E_INVALIDARG;
         if (return_null_property_) {
             *ppv = nullptr;
@@ -666,6 +671,7 @@ public:
     std::function<void(TfEditCookie, ULONG, const TF_SELECTION*)> selection_observer_;
     std::function<void()> set_selection_callback_;
     std::function<void()> get_property_callback_;
+    std::function<void(REFGUID, ITfProperty**)> get_property_observer_;
     std::function<void()> start_composition_callback_;
     ComPtr<MockTfProperty> prop_;
     ComPtr<ITfTextLayoutSink> layout_sink_;

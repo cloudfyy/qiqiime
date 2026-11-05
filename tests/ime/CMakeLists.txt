@@ -14,6 +14,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/tests.h
     comp/cleanup.cpp
     comp/edit.cpp
+    comp/finish.cpp
     comp/range.cpp
     comp/start.cpp
     tsf/mocks.h

@@ -175,7 +175,7 @@ ctest --preset x86-release --output-on-failure
 
 ### 3.3 组合组件与生命周期测试组织
 
-- [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`range`、`start` 短名；服务仍在 [`src/ime/tsf`](../src/ime/tsf) 负责宿主接口、当前组合及 UI 协调，目录调整不改变 FSM 或生命周期边界。
+- [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`finish`、`range`、`start` 短名；服务仍在 [`src/ime/tsf`](../src/ime/tsf) 负责宿主接口、当前组合及 UI 协调，目录调整不改变 FSM 或生命周期边界。
 - [`tests/ime/comp`](../tests/ime/comp) 镜像组件目录，分别保留编辑票据/任务、清理、范围写入及开始准备测试；共享 Mock 仍在 [`mocks.h`](../tests/ime/tsf/mocks.h)。
 - [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) 仅保留有序入口，依次调用[延迟会话](../tests/ime/tsf/service_deferred.cpp)、[上下文/文档](../tests/ime/tsf/service_context.cpp)、[窗口生命周期](../tests/ime/tsf/service_windows.cpp)、[重入](../tests/ime/tsf/service_reentrancy.cpp)、[服务清理](../tests/ime/tsf/service_cleanup.cpp)及[原生 TSF](../tests/ime/tsf/service_native.cpp)测试。组件测试仍在原窗口测试的配置/键盘快照之前运行；入口的 key/composition sink 强引用保留到全部子套件返回，各测试块的局部 COM/RAII 作用域不变。
 
@@ -526,3 +526,10 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **保持检查与宿主顺序**：服务仍依次执行 `StartComposition`、原 HRESULT 诊断、`finished = true`、原票据/组合身份检查，再进入裁决；准备资源和未发布记录保留在原作用域。协调器以强引用持有记录，先调用已有 `Schedule`，返回前再读取终止标志，不能缓存重入前的判断。
 - **重置与发布仍在服务**：`Terminated` 不代表已重置或清理成功；服务再次检查原票据后才重置引擎/UI，或仅在 `Publish` 时移动组合引用。开始失败的原诊断不变；成功却返回空组合时新增携带原 HRESULT 的警告，不记录输入内容。
 - **验证**：[`开始结果回归`](../tests/ime/comp/start.cpp) 新增 16 种身份/移除/终止/空结果 × 3 种 HRESULT × 同步/异步，共 96 组矩阵；另有 4 组重入/释放和 2 组协调器销毁后队列执行/丢弃场景。验证结果类型、移动与保留的强引用、登记先于宿主调用、client ID、flags、cookie、待清理屏障、清除/结束次数及对象计数恢复。原 12 组准备测试和真实服务重入/原生 TSF 测试保留；x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。完整 R05 仍未完成，FSM、宿主 UI 许可及定位算法不变。
+
+### 5.29 TSF 提交/取消的组合结束流程（R05 第十一步）
+
+- **共享结束序列但不混同策略**：[`FinishCompositionInSession`](../src/ime/comp/finish.h) 收拢范围获取、分策略写入、复核和宿主结束。提交复用属性清除及文本/光标 helper；取消只删空，不清属性、不克隆/折叠范围或设置 selection。获取范围失败/为空及普通属性、写入、光标失败仍按原策略尽力结束，失效则在原检查点停止后续操作。
+- **状态仍由服务解除**：服务以原票据和组合身份提供检查器，强持有旧组合，并在结束前回调中解除当前组合引用、清除旧 caret 状态；helper 的范围引用跨越整个 `EndComposition`。解除状态后不追加检查或状态写入，宿主结束中的新组合/caret 不被旧流程覆盖，结束失败也不重新发布旧组合。
+- **直接上屏独立保留**：[`InsertCommittedTextInSession`](../src/ime/comp/finish.h) 对空文本不调用宿主；非空文本保留接口查询后的身份检查、显式长度插入及局部插入范围引用，不新增组合或 selection 操作。取消入口使用与实际调用方一致的 `gsl::not_null<ITfContext*>`。成功却无范围/插入接口新增原 HRESULT 警告，原失败诊断和尽力策略不变。
+- **验证**：[`结束流程回归`](../tests/ime/comp/finish.cpp) 的 35 组提交/取消条件分别覆盖 ASCII、空文本及含 NUL/中文/代理对的 UTF-16，共 105 组；另有 9 组直接上屏条件 × 3 种文本，共 27 组。逐项比较宿主调用/复核序列、参数、次数、失败后的继续/停止、caret clone 释放、范围在结束中的存活，以及结束回调创建新组合后状态不被覆盖。原服务重入和原生 TSF 回归保留；x64/x86 构建、CppCoreCheck、串行 `QiQiTsfUiTest` 通过。完整 R05 仍未完成，FSM、UI 许可和定位算法不变。
