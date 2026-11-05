@@ -2,6 +2,7 @@
 #include "mocks.h"
 #include "common/guids.h"
 #include "common/file_util.h"
+#include "ime/tsf/composition_attribute.h"
 #include "ime/tsf/composition_cleanup.h"
 #include "ime/tsf/composition_edit.h"
 #include "ime/tsf/edit_session.h"
@@ -199,6 +200,111 @@ void TestCompositionCleanupRegistry() {
     QIQI_TEST_CHECK(first_composition->end_composition_calls_ == 0 &&
                     second_composition->end_composition_calls_ == 0);
     QIQI_TEST_CHECK(first->range_->set_text_calls_ == 0 && second->range_->set_text_calls_ == 0);
+}
+
+void TestCompositionCleanupExecution() {
+    enum class Interrupt { None, RemovedBefore, TerminatedBefore, RemovedLookup, TerminatedLookup, RemovedClear, TerminatedClear };
+    struct Case {
+        bool has_range = true;
+        Interrupt interrupt = Interrupt::None;
+        HRESULT property_hr = S_OK;
+        bool null_property = false;
+        HRESULT clear_hr = S_OK;
+        HRESULT end_hr = S_OK;
+        unsigned int clear_calls = 1;
+        unsigned int end_calls = 1;
+    };
+    const std::array cases{
+        Case{},
+        Case{.has_range = false, .clear_calls = 0},
+        Case{.interrupt = Interrupt::RemovedBefore, .clear_calls = 0, .end_calls = 0},
+        Case{.interrupt = Interrupt::TerminatedBefore, .clear_calls = 0, .end_calls = 0},
+        Case{.interrupt = Interrupt::RemovedLookup, .clear_calls = 0, .end_calls = 0},
+        Case{.interrupt = Interrupt::TerminatedLookup, .clear_calls = 0, .end_calls = 0},
+        Case{.interrupt = Interrupt::RemovedClear, .end_calls = 0},
+        Case{.interrupt = Interrupt::TerminatedClear, .end_calls = 0},
+        Case{.property_hr = E_ACCESSDENIED, .clear_calls = 0},
+        Case{.null_property = true, .clear_calls = 0},
+        Case{.clear_hr = E_ACCESSDENIED},
+        Case{.end_hr = TF_E_DISCONNECTED},
+        Case{.clear_hr = E_ACCESSDENIED, .end_hr = TF_E_DISCONNECTED},
+    };
+    for (const auto& test : cases) {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        const auto cleanup = std::make_shared<CompositionCleanup>();
+        cleanup->context = context;
+        cleanup->composition = composition;
+        if (test.has_range) cleanup->range = context->range_;
+        context->get_property_result_ = test.property_hr;
+        context->return_null_property_ = test.null_property;
+        context->prop_->clear_result_ = test.clear_hr;
+        composition->end_result_ = test.end_hr;
+        cleanup->context_removed = test.interrupt == Interrupt::RemovedBefore;
+        cleanup->terminated = test.interrupt == Interrupt::TerminatedBefore;
+        context->get_property_callback_ = [&]() noexcept {
+            if (test.interrupt == Interrupt::RemovedLookup) cleanup->context_removed = true;
+            if (test.interrupt == Interrupt::TerminatedLookup) cleanup->terminated = true;
+        };
+        context->prop_->clear_callback_ = [&](TfEditCookie ec) noexcept {
+            QIQI_TEST_CHECK(ec == 71);
+            if (test.interrupt == Interrupt::RemovedClear) cleanup->context_removed = true;
+            if (test.interrupt == Interrupt::TerminatedClear) cleanup->terminated = true;
+        };
+        const HRESULT expected_hr = test.end_calls ? test.end_hr : S_OK;
+        QIQI_TEST_CHECK(ExecuteCompositionCleanup(cleanup, 71) == expected_hr);
+        QIQI_TEST_CHECK(cleanup->started && cleanup->finished);
+        QIQI_TEST_CHECK(context->prop_->clear_calls_ == test.clear_calls &&
+                        cleanup->attribute_clear_started == (test.clear_calls != 0));
+        QIQI_TEST_CHECK(composition->end_composition_calls_ == test.end_calls &&
+                        composition->ended_ == (test.end_calls != 0 && SUCCEEDED(test.end_hr)));
+        if (test.clear_calls) QIQI_TEST_CHECK(context->prop_->last_clear_cookie_ == 71);
+        if (test.end_calls) QIQI_TEST_CHECK(composition->last_end_cookie_ == 71);
+        QIQI_TEST_CHECK(context->request_edit_session_calls_ == 0 && context->range_->set_text_calls_ == 0);
+        context->get_property_callback_ = {};
+        context->prop_->clear_callback_ = {};
+    }
+
+    for (const auto failure : {0, 1, 2}) {
+        const auto context = MakeComObject<MockTfContext>();
+        context->get_property_result_ = failure == 0 ? E_ACCESSDENIED : S_OK;
+        context->return_null_property_ = failure == 1;
+        context->prop_->clear_result_ = TF_E_DISCONNECTED;
+        bool started = false;
+        const HRESULT expected_hr = failure == 0 ? E_ACCESSDENIED : failure == 1 ? E_UNEXPECTED : TF_E_DISCONNECTED;
+        QIQI_TEST_CHECK(ClearCompositionDisplayAttribute(
+            73, gsl::not_null<ITfContext*>(context.Get()), gsl::not_null<ITfRange*>(context->range_.Get()),
+            []() noexcept { return true; }, &started) == expected_hr);
+        QIQI_TEST_CHECK(started == (failure == 2) && context->prop_->clear_calls_ == (failure == 2 ? 1u : 0u));
+    }
+    {
+        const auto context = MakeComObject<MockTfContext>();
+        bool looked_up = false;
+        context->get_property_callback_ = [&]() noexcept { looked_up = true; };
+        QIQI_TEST_CHECK(ClearCompositionDisplayAttribute(
+            73, gsl::not_null<ITfContext*>(context.Get()), gsl::not_null<ITfRange*>(context->range_.Get()),
+            []() noexcept { return false; }) == S_FALSE);
+        QIQI_TEST_CHECK(!looked_up && context->prop_->clear_calls_ == 0);
+        context->get_property_callback_ = {};
+    }
+    {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        auto cleanup = std::make_shared<CompositionCleanup>();
+        cleanup->context = context;
+        cleanup->composition = composition;
+        cleanup->range = context->range_;
+        const std::weak_ptr<CompositionCleanup> released = cleanup;
+        context->prop_->clear_callback_ = [&](TfEditCookie ec) {
+            QIQI_TEST_CHECK(ec == 79);
+            cleanup.reset();
+            QIQI_TEST_CHECK(!released.expired());
+        };
+        QIQI_TEST_CHECK(ExecuteCompositionCleanup(cleanup, 79) == S_OK);
+        QIQI_TEST_CHECK(!cleanup && released.expired() && composition->end_composition_calls_ == 1);
+        QIQI_TEST_CHECK(composition->last_end_cookie_ == 79 && context->prop_->last_clear_cookie_ == 79);
+        context->prop_->clear_callback_ = {};
+    }
 }
 
 struct NativeTsfState {
@@ -937,6 +1043,7 @@ void TestDeactivationWindowLifecycle() {
     TestEditSessionTickets();
     TestCompositionEditTasks();
     TestCompositionCleanupRegistry();
+    TestCompositionCleanupExecution();
     std::array<BYTE, 256> original_keyboard{};
     QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
     const auto restore_keyboard = gsl::finally([&]() noexcept {

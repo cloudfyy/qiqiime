@@ -35,6 +35,9 @@ struct CompositionCleanup {
     bool context_removed = false;
 };
 
+// Best-effort end: attribute failures are logged; when attempted, return EndComposition's HRESULT.
+HRESULT ExecuteCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, TfEditCookie ec);
+
 // STA bookkeeping only; edit-session callbacks, not this registry, own cleanup records.
 class CompositionCleanupRegistry {
 public:

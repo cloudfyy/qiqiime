@@ -509,6 +509,10 @@ public:
     STDMETHODIMP GetStatus(TF_STATUS*) noexcept override { return S_OK; }
     STDMETHODIMP GetProperty(REFGUID, ITfProperty** ppv) override {
         if (!ppv) return E_INVALIDARG;
+        if (return_null_property_) {
+            *ppv = nullptr;
+            return S_OK;
+        }
         if (FAILED(get_property_result_)) {
             *ppv = nullptr;
             return get_property_result_;
@@ -615,6 +619,7 @@ public:
     bool in_immediate_write_session_ = false;
     std::weak_ptr<MockDocumentLink> document_link_;
     HRESULT get_property_result_ = S_OK;
+    bool return_null_property_ = false;
     HRESULT async_edit_session_result_ = S_OK;
     unsigned int get_active_view_calls_ = 0;
     unsigned int start_composition_calls_ = 0;

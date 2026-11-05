@@ -458,7 +458,7 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **记录拥有，登记不拥有**：[`CompositionCleanupRegistry`](../src/ime/tsf/composition_cleanup.h) 只保存弱引用；编辑会话回调继续强持有 `CompositionCleanup`，记录继续拥有 context、composition、range。登记器析构不取消外部记录，也不调用 COM 清理；它只在所属 STA 使用，不引入锁、线程切换或通用事件队列。
 - **不要统一不同的裁剪时机**：`Track` 只追加；`FindComposition` 不裁剪已完成记录，且空组合不匹配未发布结果。`FindPending` 先移除全部已完成/过期弱记录，再按原顺序返回同 context 的首项；`TrackedCount` 保留原始弱槽位诊断含义，不代表尚未完成的任务数。
 - **移除标记覆盖全部匹配项**：`MarkContextRemoved` 同时设置 `context_removed` 和 `finished`，包括已完成项及 id 为零的未发布结果；不影响别的 context，也不在此时裁剪或代替宿主清理。按原阶段及真实 HRESULT 记录诊断，不能把标记完成或释放记录解释为宿主组合已结束。
-- **调度留在服务**：[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp) 仍负责 COM 请求、同步/异步回退、回调体和宿主终止响应。不能为了提取登记逻辑而挪动重入检查或让新写入越过旧清理屏障；[`登记与生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 同时固定弱所有权、查询/裁剪差异、移除范围及现有宿主执行顺序。
+- **调度留在服务**：[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp) 仍负责 COM 请求、同步/异步回退和宿主终止响应，独立清理回调委托清理模块执行。不能为了提取登记逻辑而挪动重入检查或让新写入越过旧清理屏障；[`登记与生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 同时固定弱所有权、查询/裁剪差异、移除范围及现有宿主执行顺序。
 
 ### 5.21 TSF 写入任务快照（R05 第三步）
 
@@ -466,3 +466,10 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **先捕获再请求**：[`ApplyEngineResult`](../src/ime/tsf/tip_composition.cpp) 保留原有强引用获取、epoch 捕获和结果复制时机；请求标志仍在原位置根据清理屏障决定。只把原回调体移入 `ApplyCompositionEditInSession`，不挪动票据验证、清理判断、提交/取消区别或宿主调用后的复核。
 - **再排队保留快照**：清理仍未完成时，不执行当前写入，而是将该任务的结果重新排队；不要重新读取引擎来构造替代结果，也不能把旧编辑 cookie 带给后续会话。活动 ID 仍按原作用域恢复，失效任务仍按既有诊断跳过。
 - **验证与范围**：[`任务与生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 比较四类动作的 12 个结果字段，覆盖复制/移动、生产者结束后的延迟访问及清理中重入再排队的 FIFO 快照。布局读取、独立清理回调、宿主 UI 许可及 FSM 不变；本步不等于已完成整个生命周期协调器。
+
+### 5.22 TSF 独立清理执行与属性复核（R05 第四步）
+
+- **执行期间固定强所有权**：[`ExecuteCompositionCleanup`](../src/ime/tsf/composition_cleanup.h) 按值接收记录，只在对应 context 允许写入的编辑会话内调用，不保存 cookie 或改用后台线程。作用域守卫保证每个返回分支都设置 `finished`；宿主释放调用方引用不影响正在执行的记录，登记器仍只弱持有它。
+- **共用重入复核**：[`属性清除 helper`](../src/ime/tsf/composition_attribute.h) 先验证目标，查询属性后再验证，只有仍有效才设置清除开始标志并调用宿主。当前组合编辑、宿主终止和独立清理共用此实现；移除/终止后不继续触碰旧目标。
+- **执行结束不等于宿主成功**：属性查询/清除失败按真实 HRESULT 诊断，成功却无属性视为 `E_UNEXPECTED`；尽力结束组合的既有策略不变，若调用 `EndComposition` 则返回其实际结果。不能用 `finished`、`attribute_clear_started` 或单个返回值推断所有清理操作均成功，也不借本次拆分增加重复结束或自动重试。
+- **验证与范围**：[`清理执行及生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 检查 13 组执行/重入/失败边界、helper 的真实错误码和入口失效，以及调用方释放引用后的完成与销毁。服务仍负责请求/回退、range 获取、宿主终止及激活/上下文/UI 协调；完整协调器保持未完成状态。

@@ -21,6 +21,7 @@ set(QIQIIME_SOURCES
     tsf/class_factory.h
     tsf/class_factory.cpp
     tsf/category_manager.h
+    tsf/composition_attribute.h
     tsf/composition_cleanup.h
     tsf/composition_cleanup.cpp
     tsf/composition_edit.h

@@ -1,38 +1,11 @@
 #include "ime/tsf/tip_service.h"
+#include "ime/tsf/composition_attribute.h"
 #include "ime/tsf/edit_session.h"
 #include "common/logger.h"
 
 namespace qiqi {
 
 namespace {
-
-template <typename IsCurrent>
-HRESULT ClearCompositionDisplayAttribute(
-    TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfRange*> range,
-    IsCurrent is_current, bool* clear_started = nullptr) {
-    if (!is_current()) {
-        QIQI_LOG_DEBUG("CompositionAttributeClear: invalidated operation skipped");
-        return S_FALSE;
-    }
-    ComPtr<ITfProperty> property;
-    const HRESULT property_hr = context->GetProperty(GUID_PROP_ATTRIBUTE, &property);
-    if (!log::CheckHResult(property_hr, "CompositionCleanup::GetProperty(GUID_PROP_ATTRIBUTE)")) {
-        return property_hr;
-    }
-    if (!property) {
-        QIQI_LOG_WARN("CompositionCleanup::GetProperty returned no property (hr=0x{:08x})",
-                       gsl::narrow_cast<unsigned int>(property_hr));
-        return E_UNEXPECTED;
-    }
-    if (!is_current()) {
-        QIQI_LOG_DEBUG("CompositionAttributeClear: invalidated operation skipped after property lookup");
-        return S_FALSE;
-    }
-    if (clear_started) *clear_started = true;
-    const HRESULT hr = property->Clear(ec, range.get());
-    std::ignore = log::CheckHResult(hr, "CompositionCleanup::Clear(GUID_PROP_ATTRIBUTE)");
-    return hr;
-}
 
 bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
     GUITHREADINFO gti{};
@@ -211,64 +184,7 @@ void QiQiTextService::ScheduleCompositionCleanup(
     }
     const auto session = MakeComObject<LambdaEditSession>(
         [cleanup](TfEditCookie ec) -> HRESULT {
-            cleanup->started = true;
-            QIQI_LOG_ACT_INFO(
-                log::Level::debug,
-                log::Keyword::Composition,
-                &cleanup->activity_id,
-                "TsfCleanup(service={}, cleanup={}, stage=callback-enter, async_requested={}, terminated={}, has_range={})",
-                cleanup->service_id, cleanup->id, cleanup->async_requested, cleanup->terminated, cleanup->range != nullptr);
-            const auto finish = gsl::finally([cleanup]() noexcept {
-                cleanup->finished = true;
-                QIQI_LOG_ACT_STOP(
-                    log::Level::debug,
-                    log::Keyword::Composition,
-                    &cleanup->activity_id,
-                    "TsfCleanup(service={}, cleanup={}, stage=callback-exit, terminated={})",
-                    cleanup->service_id, cleanup->id, cleanup->terminated);
-            });
-            if (cleanup->context_removed) {
-                QIQI_LOG_ACT_INFO(
-                    log::Level::debug,
-                    log::Keyword::Composition,
-                    &cleanup->activity_id,
-                    "TsfCleanup(service={}, cleanup={}, stage=skip-removed-context)",
-                    cleanup->service_id, cleanup->id);
-                return S_OK;
-            }
-            if (cleanup->terminated) {
-                QIQI_LOG_ACT_INFO(
-                    log::Level::debug,
-                    log::Keyword::Composition,
-                    &cleanup->activity_id,
-                    "TsfCleanup(service={}, cleanup={}, stage=skip-host-terminated)",
-                    cleanup->service_id, cleanup->id);
-                return S_OK;
-            }
-            if (cleanup->range) {
-                const HRESULT clear_hr = ClearCompositionDisplayAttribute(
-                    ec, gsl::not_null<ITfContext*>(cleanup->context.Get()),
-                    gsl::not_null<ITfRange*>(cleanup->range.Get()),
-                    [&cleanup]() noexcept { return !cleanup->terminated && !cleanup->context_removed; },
-                    &cleanup->attribute_clear_started);
-                cleanup->LogResult("attribute-clear", clear_hr);
-            }
-            if (cleanup->terminated || cleanup->context_removed) {
-                QIQI_LOG_ACT_INFO(
-                    log::Level::debug,
-                    log::Keyword::Composition,
-                    &cleanup->activity_id,
-                    "TsfCleanup(service={}, cleanup={}, stage={})",
-                    cleanup->service_id, cleanup->id,
-                    cleanup->context_removed ? "skip-end-after-context-removal" : "skip-end-after-host-termination");
-                return S_OK;
-            }
-            const HRESULT hr = cleanup->composition->EndComposition(ec);
-            cleanup->LogResult("end-composition", hr);
-            std::ignore = log::CheckHResult(
-                hr, "DeactivateComposition::EndComposition", log::Level::warn,
-                log::LogContext{log::Keyword::Composition, log::Opcode::Info, &cleanup->activity_id, nullptr});
-            return hr;
+            return ExecuteCompositionCleanup(cleanup, ec);
         });
     HRESULT session_hr = E_FAIL;
     QIQI_LOG_ACT_INFO(

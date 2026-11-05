@@ -1,4 +1,5 @@
 #include "ime/tsf/composition_cleanup.h"
+#include "ime/tsf/composition_attribute.h"
 #include <algorithm>
 #include <gsl/gsl>
 
@@ -24,6 +25,68 @@ void CompositionCleanup::LogResult(
         QIQI_LOG_CTX(log::Level::debug, ctx, "TsfCleanup(service={}, cleanup={}, stage={}, hr=0x{:08x})",
                      service_id, id, stage, gsl::narrow_cast<unsigned int>(hr));
     }
+}
+
+HRESULT ExecuteCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, TfEditCookie ec) {
+    Expects(cleanup != nullptr && cleanup->context != nullptr && cleanup->composition != nullptr);
+    cleanup->started = true;
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Composition,
+        &cleanup->activity_id,
+        "TsfCleanup(service={}, cleanup={}, stage=callback-enter, async_requested={}, terminated={}, has_range={})",
+        cleanup->service_id, cleanup->id, cleanup->async_requested, cleanup->terminated, cleanup->range != nullptr);
+    const auto finish = gsl::finally([&cleanup]() noexcept {
+        cleanup->finished = true;
+        QIQI_LOG_ACT_STOP(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &cleanup->activity_id,
+            "TsfCleanup(service={}, cleanup={}, stage=callback-exit, terminated={})",
+            cleanup->service_id, cleanup->id, cleanup->terminated);
+    });
+    if (cleanup->context_removed) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &cleanup->activity_id,
+            "TsfCleanup(service={}, cleanup={}, stage=skip-removed-context)",
+            cleanup->service_id, cleanup->id);
+        return S_OK;
+    }
+    if (cleanup->terminated) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &cleanup->activity_id,
+            "TsfCleanup(service={}, cleanup={}, stage=skip-host-terminated)",
+            cleanup->service_id, cleanup->id);
+        return S_OK;
+    }
+    if (cleanup->range) {
+        const HRESULT clear_hr = ClearCompositionDisplayAttribute(
+            ec, gsl::not_null<ITfContext*>(cleanup->context.Get()),
+            gsl::not_null<ITfRange*>(cleanup->range.Get()),
+            [&cleanup]() noexcept { return !cleanup->terminated && !cleanup->context_removed; },
+            &cleanup->attribute_clear_started);
+        cleanup->LogResult("attribute-clear", clear_hr);
+    }
+    if (cleanup->terminated || cleanup->context_removed) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &cleanup->activity_id,
+            "TsfCleanup(service={}, cleanup={}, stage={})",
+            cleanup->service_id, cleanup->id,
+            cleanup->context_removed ? "skip-end-after-context-removal" : "skip-end-after-host-termination");
+        return S_OK;
+    }
+    const HRESULT hr = cleanup->composition->EndComposition(ec);
+    cleanup->LogResult("end-composition", hr);
+    std::ignore = log::CheckHResult(
+        hr, "DeactivateComposition::EndComposition", log::Level::warn,
+        log::LogContext{log::Keyword::Composition, log::Opcode::Info, &cleanup->activity_id, nullptr});
+    return hr;
 }
 
 void CompositionCleanupRegistry::Track(const std::shared_ptr<CompositionCleanup>& cleanup) {
