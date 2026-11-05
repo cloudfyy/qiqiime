@@ -404,25 +404,15 @@ ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
         const auto starting = composition_cleanups_.TrackStarting(context);
         const HRESULT start_hr = prepared.composition_context->StartComposition(
             ec, prepared.range.Get(), this, &starting->composition);
-        const bool start_ok = log::CheckHResult(start_hr, "StartOrUpdateComposition::StartComposition");
+        std::ignore = log::CheckHResult(start_hr, "StartOrUpdateComposition::StartComposition");
         starting->finished = true;
-        if (!IsCompositionEditCurrent(ticket, nullptr) ||
-            starting->context_removed || starting->terminated) {
-            QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=stale-composition-start, activation={}, context={}, "
-                           "context_removed={}, terminated={})",
-                           service_log_id_, ticket.epoch.activation, ticket.epoch.context,
-                           starting->context_removed, starting->terminated);
-            if (starting->composition && !starting->context_removed && !starting->terminated) {
-                composition_cleanups_.Schedule(
-                    starting->context, std::move(starting->composition), client_id,
-                    edit_session_epoch_, current_lifecycle_activity_);
-            }
-            if (starting->terminated && IsCompositionEditCurrent(ticket, nullptr)) {
+        const auto disposition = composition_cleanups_.ResolveStarting(
+            starting, start_hr, IsCompositionEditCurrent(ticket, nullptr), client_id,
+            ticket.epoch, edit_session_epoch_, current_lifecycle_activity_);
+        if (disposition != CompositionStartDisposition::Publish) {
+            if (disposition == CompositionStartDisposition::Terminated && IsCompositionEditCurrent(ticket, nullptr)) {
                 ResetCompositionAndUI();
             }
-            return {};
-        }
-        if (!start_ok || !starting->composition) {
             return {};
         }
         composition_ = std::move(starting->composition);

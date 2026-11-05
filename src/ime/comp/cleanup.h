@@ -71,6 +71,8 @@ private:
     const CompositionCleanupRegistry& registry, TfEditCookie ec, const ITfComposition* composition,
     uint64_t service_id, const GUID& lifecycle_activity);
 
+enum class CompositionStartDisposition { Discard, Publish, Terminated };
+
 // Owns cleanup bookkeeping, not the service or the records retained by host callbacks.
 class CompositionCleanupCoordinator {
 public:
@@ -82,6 +84,10 @@ public:
     CompositionCleanupCoordinator& operator=(CompositionCleanupCoordinator&&) = delete;
 
     [[nodiscard]] std::shared_ptr<CompositionCleanup> TrackStarting(gsl::not_null<ITfContext*> context);
+    // Finish the record before checking the ticket; scheduling below may reenter the service.
+    [[nodiscard]] CompositionStartDisposition ResolveStarting(
+        std::shared_ptr<CompositionCleanup> starting, HRESULT start_hr, bool edit_current, TfClientId client_id,
+        const EditSessionEpoch& attempted_epoch, const EditSessionEpoch& current_epoch, const GUID& lifecycle_activity);
     void Schedule(
         Microsoft::WRL::ComPtr<ITfContext> context, Microsoft::WRL::ComPtr<ITfComposition> composition,
         TfClientId client_id, const EditSessionEpoch& epoch, const GUID& lifecycle_activity);

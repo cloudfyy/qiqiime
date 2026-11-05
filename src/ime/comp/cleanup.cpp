@@ -279,6 +279,29 @@ std::shared_ptr<CompositionCleanup> CompositionCleanupCoordinator::TrackStarting
     return starting;
 }
 
+CompositionStartDisposition CompositionCleanupCoordinator::ResolveStarting(
+    std::shared_ptr<CompositionCleanup> starting, HRESULT start_hr, bool edit_current, TfClientId client_id,
+    const EditSessionEpoch& attempted_epoch, const EditSessionEpoch& current_epoch, const GUID& lifecycle_activity) {
+    Expects(starting != nullptr && starting->id == 0 && starting->finished && starting->context != nullptr);
+    if (!edit_current || starting->context_removed || starting->terminated) {
+        QIQI_LOG_DEBUG("TsfLifecycle(service={}, stage=stale-composition-start, activation={}, context={}, "
+                       "context_removed={}, terminated={})",
+                       service_id_, attempted_epoch.activation, attempted_epoch.context,
+                       starting->context_removed, starting->terminated);
+        if (starting->composition && !starting->context_removed && !starting->terminated) {
+            Schedule(starting->context, std::move(starting->composition), client_id, current_epoch, lifecycle_activity);
+        }
+        return starting->terminated ? CompositionStartDisposition::Terminated : CompositionStartDisposition::Discard;
+    }
+    if (FAILED(start_hr)) return CompositionStartDisposition::Discard;
+    if (!starting->composition) {
+        QIQI_LOG_WARN("StartOrUpdateComposition::StartComposition returned no composition (hr=0x{:08x})",
+                      gsl::narrow_cast<unsigned int>(start_hr));
+        return CompositionStartDisposition::Discard;
+    }
+    return CompositionStartDisposition::Publish;
+}
+
 void CompositionCleanupCoordinator::Schedule(
     Microsoft::WRL::ComPtr<ITfContext> context, Microsoft::WRL::ComPtr<ITfComposition> composition,
     TfClientId client_id, const EditSessionEpoch& epoch, const GUID& lifecycle_activity) {

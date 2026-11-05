@@ -519,3 +519,10 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **创建与发布仍在服务**：[`StartOrUpdateCompositionInSession`](../src/ime/tsf/tip_composition.cpp) 仍在原时点捕获票据/client ID，仅在准备就绪后登记未发布结果并调用 `StartComposition`；完成标记、失效判断、旧结果清理、终止后的重置及当前组合发布均留在原位置。helper 不登记清理、不开始组合、不写文本、不更新 UI、不请求编辑会话，也不保存 cookie 或检查器。
 - **错误保持真实且可见**：接口或范围获取失败保留原 HRESULT 诊断和停止策略；成功却返回空接口/范围时仍停止，新增包含原 HRESULT 的明确警告。检查器失效仍由服务原有生命周期诊断记录，不额外查询 COM 身份或重试。
 - **验证**：[`独立开始准备回归`](../tests/ime/comp/start.cpp) 的 12 组条件固定正常流程、入口/三处宿主边界失效、三步失败及成功却返回空资源的行为。检查精确调用/复核顺序、query-only 的 cookie/flags/空文本/零长度、各部分资源与 `ready`、准备值存活及退出后的真实 COM 引用计数，并确认无文本/selection/组合/属性/会话副作用。既有服务开始/发布/重入与原生私有文档 TSF 回归继续通过；x64/x86 构建、CppCoreCheck 和串行 TSF/UI 测试通过。完整 R05 仍未完成，FSM、当前组合及 UI 协调不变。
+
+### 5.28 TSF 未发布组合的结果裁决（R05 第十步）
+
+- **沿用清理协调器**：[`ResolveStarting`](../src/ime/comp/cleanup.cpp) 返回 `Publish`、`Discard` 或 `Terminated`，收拢未发布结果的失效判断及旧组合补救清理，不新增队列或协调器。仅成功、非空、仍有效且未移除/终止的结果允许发布；过期但仍连接的活组合即使开始调用失败也继续按原策略清理。
+- **保持检查与宿主顺序**：服务仍依次执行 `StartComposition`、原 HRESULT 诊断、`finished = true`、原票据/组合身份检查，再进入裁决；准备资源和未发布记录保留在原作用域。协调器以强引用持有记录，先调用已有 `Schedule`，返回前再读取终止标志，不能缓存重入前的判断。
+- **重置与发布仍在服务**：`Terminated` 不代表已重置或清理成功；服务再次检查原票据后才重置引擎/UI，或仅在 `Publish` 时移动组合引用。开始失败的原诊断不变；成功却返回空组合时新增携带原 HRESULT 的警告，不记录输入内容。
+- **验证**：[`开始结果回归`](../tests/ime/comp/start.cpp) 新增 16 种身份/移除/终止/空结果 × 3 种 HRESULT × 同步/异步，共 96 组矩阵；另有 4 组重入/释放和 2 组协调器销毁后队列执行/丢弃场景。验证结果类型、移动与保留的强引用、登记先于宿主调用、client ID、flags、cookie、待清理屏障、清除/结束次数及对象计数恢复。原 12 组准备测试和真实服务重入/原生 TSF 测试保留；x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。完整 R05 仍未完成，FSM、宿主 UI 许可及定位算法不变。
