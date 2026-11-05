@@ -209,74 +209,157 @@ void TestReentrantCompositionEdits() {
         QIQI_TEST_CHECK(context->range_->text_ == L"c" && context->last_composition_ != composition);
         QIQI_TEST_CHECK(composition->ended_ && !context->last_composition_->ended_);
     }
+    struct StartResult { HRESULT hr; bool null_composition = false; };
+    constexpr std::array start_results{
+        StartResult{S_OK}, StartResult{S_FALSE}, StartResult{E_ACCESSDENIED},
+        StartResult{S_OK, true}, StartResult{E_ACCESSDENIED, true},
+    };
+    size_t recovery_cases = 0;
+    for (const auto& result : start_results) {
+        auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        auto manager = MakeComObject<MockTfThreadMgr>();
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
+        const auto queue = std::make_shared<MockEditSessionQueue>();
+        const auto context = MakeComObject<MockTfContext>(queue);
+        context->start_composition_result_ = result.hr;
+        context->return_null_started_composition_ = result.null_composition;
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(send_key(service, context.Get(), 'A', &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1 && queue->RunNext(23) == S_OK && queue->PendingCount() == 0);
+        const auto first_composition = context->last_composition_;
+        const bool published = SUCCEEDED(result.hr) && !result.null_composition;
+        QIQI_TEST_CHECK((first_composition != nullptr) == !result.null_composition);
+        QIQI_TEST_CHECK(context->start_composition_calls_ == 1 &&
+                        context->range_->text_ == (published ? L"a" : L"") &&
+                        context->range_->set_text_calls_ == (published ? 1u : 0u));
+        if (first_composition) {
+            QIQI_TEST_CHECK(!first_composition->ended_ && first_composition->end_composition_calls_ == 0);
+            if (!published) QIQI_TEST_CHECK(first_composition->get_range_calls_ == 0);
+        }
+        context->start_composition_result_ = S_OK;
+        context->return_null_started_composition_ = false;
+        QIQI_TEST_CHECK(send_key(service, context.Get(), 'B', &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1 && queue->RunNext(29) == S_OK && queue->PendingCount() == 0);
+        const auto recovered = context->last_composition_;
+        QIQI_TEST_CHECK(recovered && !recovered->ended_ && context->range_->text_ == L"ab" &&
+                        context->start_composition_calls_ == (published ? 1u : 2u));
+        QIQI_TEST_CHECK((recovered == first_composition) == published);
+        if (first_composition && !published) {
+            const auto ui_before = std::tuple{
+                manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_};
+            const auto writes_before = context->range_->set_text_calls_;
+            const auto clears_before = context->prop_->clear_calls_;
+            QIQI_TEST_CHECK(first_composition->NotifyHostTermination(31) == S_OK);
+            QIQI_TEST_CHECK(first_composition->ended_ && first_composition->end_composition_calls_ == 0);
+            QIQI_TEST_CHECK(context->range_->text_ == L"ab" && !recovered->ended_ &&
+                            context->range_->set_text_calls_ == writes_before &&
+                            context->prop_->clear_calls_ == clears_before);
+            QIQI_TEST_CHECK((std::tuple{
+                manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_}) == ui_before);
+        }
+        QIQI_TEST_CHECK(send_key(service, context.Get(), 'C', &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1 && queue->RunNext(37) == S_OK && queue->PendingCount() == 0);
+        QIQI_TEST_CHECK(context->range_->text_ == L"abc" && context->last_composition_ == recovered &&
+                        context->range_->set_text_calls_ == (published ? 3u : 2u) &&
+                        context->start_composition_calls_ == (published ? 1u : 2u));
+        ++recovery_cases;
+    }
+    QIQI_TEST_CHECK(recovery_cases == 5);
     enum class StartTransition { Deactivate, ReactivateSameContext, SwitchContext, RemoveContext, HostTermination };
     size_t start_cases = 0;
-    for (const auto transition : {StartTransition::Deactivate, StartTransition::ReactivateSameContext,
-                                 StartTransition::SwitchContext, StartTransition::RemoveContext,
-                                 StartTransition::HostTermination}) {
-        for (const bool asynchronous_cleanup : {false, true}) {
-            if (asynchronous_cleanup &&
-                (transition == StartTransition::RemoveContext || transition == StartTransition::HostTermination)) continue;
-            auto service = MakeComObject<QiQiTextService>(g_dll_instance);
-            auto manager = MakeComObject<MockTfThreadMgr>();
-            QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
-            const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
-            auto queue = std::make_shared<MockEditSessionQueue>();
-            auto document = MakeComObject<MockTfDocumentMgr>();
-            auto context = document->CreateTestContext(queue);
-            auto next_context = MakeComObject<MockTfContext>();
-            document->events = service.Get();
-            const auto disconnect = gsl::finally([&]() noexcept { document->events = nullptr; });
-            QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
-            ComPtr<MockTfComposition> late_composition;
-            bool entered = false;
-            BOOL eaten = FALSE;
-            context->start_composition_callback_ = [&]() {
-                if (std::exchange(entered, true)) return;
-                late_composition = context->last_composition_;
-                if (transition == StartTransition::Deactivate || transition == StartTransition::ReactivateSameContext) {
-                    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
-                    if (transition == StartTransition::ReactivateSameContext) {
-                        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
-                        QIQI_TEST_CHECK(send_key(service, context.Get(), 'C', &eaten) == S_OK && eaten);
+    for (const auto& result : start_results) {
+        for (const auto transition : {StartTransition::Deactivate, StartTransition::ReactivateSameContext,
+                                     StartTransition::SwitchContext, StartTransition::RemoveContext,
+                                     StartTransition::HostTermination}) {
+            for (const bool asynchronous_cleanup : {false, true}) {
+                if (asynchronous_cleanup &&
+                    (transition == StartTransition::RemoveContext || transition == StartTransition::HostTermination)) continue;
+                if (result.null_composition && transition == StartTransition::HostTermination) continue;
+                auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+                auto manager = MakeComObject<MockTfThreadMgr>();
+                QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+                const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
+                auto queue = std::make_shared<MockEditSessionQueue>();
+                auto document = MakeComObject<MockTfDocumentMgr>();
+                auto context = document->CreateTestContext(queue);
+                auto next_context = MakeComObject<MockTfContext>();
+                context->start_composition_result_ = result.hr;
+                context->return_null_started_composition_ = result.null_composition;
+                document->events = service.Get();
+                const auto disconnect = gsl::finally([&]() noexcept { document->events = nullptr; });
+                QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+                ComPtr<MockTfComposition> late_composition;
+                bool entered = false;
+                BOOL eaten = FALSE;
+                context->start_composition_callback_ = [&]() {
+                    if (std::exchange(entered, true)) return;
+                    late_composition = context->last_composition_;
+                    if (transition == StartTransition::Deactivate || transition == StartTransition::ReactivateSameContext) {
+                        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+                        if (transition == StartTransition::ReactivateSameContext) {
+                            QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+                            QIQI_TEST_CHECK(send_key(service, context.Get(), 'C', &eaten) == S_OK && eaten);
+                        }
+                    } else {
+                        if (transition == StartTransition::RemoveContext) {
+                            QIQI_TEST_CHECK(document->Pop(TF_POPF_ALL) == S_OK);
+                        }
+                        if (late_composition &&
+                            (transition == StartTransition::RemoveContext || transition == StartTransition::HostTermination)) {
+                            QIQI_TEST_CHECK(late_composition->NotifyHostTermination(17) == S_OK);
+                        }
+                        QIQI_TEST_CHECK(send_key(service, next_context.Get(), 'C', &eaten) == S_OK && eaten);
                     }
-                } else {
-                    if (transition == StartTransition::RemoveContext) {
-                        QIQI_TEST_CHECK(document->Pop(TF_POPF_ALL) == S_OK);
-                    }
-                    if (transition == StartTransition::RemoveContext || transition == StartTransition::HostTermination) {
-                        QIQI_TEST_CHECK(late_composition->NotifyHostTermination(17) == S_OK);
-                    }
-                    QIQI_TEST_CHECK(send_key(service, next_context.Get(), 'C', &eaten) == S_OK && eaten);
-                }
-            };
-            QIQI_TEST_CHECK(send_key(service, context.Get(), 'A', &eaten) == S_OK && eaten);
-            QIQI_TEST_CHECK(queue->PendingCount() == 1);
-            context->allow_sync_edit_sessions_ = !asynchronous_cleanup;
-            QIQI_TEST_CHECK(queue->RunNext() == S_OK && entered && late_composition);
-            context->start_composition_callback_ = {};
-            QIQI_TEST_CHECK(context->range_->text_.empty() && context->range_->set_text_calls_ == 0);
-            for (unsigned int i = 0; i < 3 && queue->PendingCount() != 0; ++i) {
-                QIQI_TEST_CHECK(queue->RunNext() == S_OK);
-            }
-            QIQI_TEST_CHECK(queue->PendingCount() == 0 && late_composition->ended_);
-            const bool host_ended = transition == StartTransition::RemoveContext || transition == StartTransition::HostTermination;
-            QIQI_TEST_CHECK(late_composition->end_composition_calls_ == (host_ended ? 0u : 1u));
-            QIQI_TEST_CHECK(context->prop_->clear_calls_ == (host_ended ? 0u : 1u));
-            if (transition == StartTransition::ReactivateSameContext) {
-                QIQI_TEST_CHECK(context->range_->text_ == L"c" && context->range_->set_text_calls_ == 1);
-                QIQI_TEST_CHECK(context->last_composition_ != late_composition && !context->last_composition_->ended_);
-            } else {
+                };
+                QIQI_TEST_CHECK(send_key(service, context.Get(), 'A', &eaten) == S_OK && eaten);
+                QIQI_TEST_CHECK(queue->PendingCount() == 1);
+                context->allow_sync_edit_sessions_ = !asynchronous_cleanup;
+                QIQI_TEST_CHECK(queue->RunNext(41) == S_OK && entered &&
+                                (late_composition != nullptr) == !result.null_composition);
+                context->start_composition_callback_ = {};
+                context->start_composition_result_ = S_OK;
+                context->return_null_started_composition_ = false;
                 QIQI_TEST_CHECK(context->range_->text_.empty() && context->range_->set_text_calls_ == 0);
-                if (transition != StartTransition::Deactivate) {
-                    QIQI_TEST_CHECK(next_context->range_->text_ == L"c" && !next_context->last_composition_->ended_);
+                for (unsigned int i = 0; i < 3 && queue->PendingCount() != 0; ++i) {
+                    const auto ui_before = std::tuple{
+                        manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_};
+                    const auto writes_before = context->range_->set_text_calls_;
+                    const bool cleanup_unfinished = late_composition && !late_composition->ended_;
+                    QIQI_TEST_CHECK(queue->RunNext(43) == S_OK);
+                    if (cleanup_unfinished && late_composition->ended_) {
+                        QIQI_TEST_CHECK(context->range_->set_text_calls_ == writes_before);
+                        QIQI_TEST_CHECK((std::tuple{
+                            manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_}) == ui_before);
+                    }
                 }
+                QIQI_TEST_CHECK(queue->PendingCount() == 0);
+                const bool host_ended = transition == StartTransition::RemoveContext || transition == StartTransition::HostTermination;
+                const bool cleanup_expected = !result.null_composition && !host_ended;
+                if (late_composition) {
+                    QIQI_TEST_CHECK(late_composition->ended_ &&
+                                    late_composition->end_composition_calls_ == (cleanup_expected ? 1u : 0u));
+                    if (cleanup_expected) {
+                        QIQI_TEST_CHECK(late_composition->last_end_cookie_ ==
+                                        (asynchronous_cleanup ? TfEditCookie{43} : TfEditCookie{1}));
+                    }
+                }
+                QIQI_TEST_CHECK(context->prop_->clear_calls_ == (cleanup_expected ? 1u : 0u));
+                if (transition == StartTransition::ReactivateSameContext) {
+                    QIQI_TEST_CHECK(context->range_->text_ == L"c" && context->range_->set_text_calls_ == 1);
+                    QIQI_TEST_CHECK(context->last_composition_ != late_composition && !context->last_composition_->ended_);
+                } else {
+                    QIQI_TEST_CHECK(context->range_->text_.empty() && context->range_->set_text_calls_ == 0);
+                    if (transition != StartTransition::Deactivate) {
+                        QIQI_TEST_CHECK(next_context->range_->text_ == L"c" && !next_context->last_composition_->ended_);
+                    }
+                }
+                context->allow_sync_edit_sessions_ = true;
+                ++start_cases;
             }
-            context->allow_sync_edit_sessions_ = true;
-            ++start_cases;
         }
     }
-    QIQI_TEST_CHECK(start_cases == 8);
+    QIQI_TEST_CHECK(start_cases == 38);
     size_t cleanup_cases = 0;
     for (const bool asynchronous_cleanup : {false, true}) {
         for (const bool remove_context : {false, true}) {

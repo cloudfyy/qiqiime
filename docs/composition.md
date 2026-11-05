@@ -481,6 +481,25 @@ All records retain the existing service/cleanup correlation scheme:
 
 The [real-host test record](hosts.md) includes partial manual feedback from 2026-11-03. It is not a completed compatibility matrix or proof that every UWP/AppContainer host is supported; task 47 remains open.
 
+The [service start regressions](../tests/ime/tsf/service_reentrancy.cpp) exercise
+five start outcomes through the real service: `S_OK`, `S_FALSE`, failure with a
+composition, successful null output, and failed null output. Five current-target
+cases check recovery of the original engine snapshot and immunity to a late
+termination from a failed, unpublished result. The start-reentrancy matrix has
+38 cases spanning deactivation, same-context reactivation, target switches,
+removal, and host termination with synchronous/asynchronous cleanup where
+applicable. Null outputs do not fabricate host termination notifications.
+Checks cover cleanup of stale non-null results even after failure, no cleanup
+for null results, unchanged new-target UI/text, and cleanup's own edit cookie.
+These are mock-host outcome injections, not evidence that a specific real host
+returns a non-null composition on failure.
+
+The existing 91 edit-boundary and four cleanup-reentrancy cases remain intact.
+This stage adds tests, not production behavior: it does not change the existing
+policy for a current failed start with non-null output. Joint ownership of the
+current composition, epochs, context/document, and activation/UI coordination
+still resides in the service; the complete R05 coordinator remains unfinished.
+
 [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) retains the ordered entry point for the deferred, document/context, window, reentrancy, cleanup, and native TSF suites under [`tests/ime/tsf`](../tests/ime/tsf); independent composition component tests mirror the production module under [`tests/ime/comp`](../tests/ime/comp). Together with [`service.cpp`](../tests/ime/tsf/service.cpp), they cover deferred mock scheduling, failure injection, reentrancy, host termination, reactivation isolation, and COM reference release. The [real Windows TSF private-document tests](../tests/ime/tsf/service_native.cpp) trigger synchronous rejection inside a layout notification, then use a bounded message pump to verify asynchronous completion. They check preserved text, composition enumeration, both property types, and isolation of the new composition, without changing user focus or activating the system TIP.
 
 An owned debug child process captures actual `OutputDebugString` messages. Assertions cover ID correlation, synchronous callback entry before request return, asynchronous queue acceptance before execution, forced asynchronous writes, skipping after early host termination, request rejection, no retry for read-only access, queued-request abandonment, accurate callback-exit reporting despite API failures, stale application requests, and Info/Off filtering. Synthetic text includes a marker that must never appear in output. These tests add no production sink, use no `Sleep`, and do not replace debugger-free ETW integration tests against the real DLL.
