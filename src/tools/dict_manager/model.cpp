@@ -10,6 +10,7 @@
 #include <charconv>
 #include <cwctype>
 #include <format>
+#include <limits>
 #include <map>
 
 namespace qiqi::dict_manager {
@@ -82,11 +83,32 @@ void DictManagerModel::InitializePaths(
 }
 
 void DictManagerModel::ReloadAll() {
+    std::ignore = ReloadAllResult();
+}
+
+HRESULT DictManagerModel::ReloadAllResult() {
     const GUID activity_id = log::CreateActivityId();
     QIQI_LOG_ACT_START(log::Level::debug, log::Keyword::Dictionary, &activity_id, nullptr, "DictManagerModel::ReloadAll(begin)");
     engine_ = WubiEngine{};
     primary_dict_.reset();
     extra_dict_.reset();
+    HRESULT result = S_OK;
+    const auto check = [&result](HRESULT error) {
+        if (FAILED(error) && SUCCEEDED(result)) result = error;
+    };
+    const auto exists = [&check](const std::filesystem::path& path) {
+        std::error_code ec;
+        const bool present = std::filesystem::exists(path, ec);
+        if (ec) check(HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value())));
+        return present && !ec;
+    };
+    const auto load_dictionary = [this, &check, &exists](
+                                     const std::filesystem::path& path,
+                                     std::shared_ptr<const WubiMappedDict>& dictionary) {
+        if (!exists(path)) return;
+        dictionary = WubiMappedDict::LoadFromTextOrCache(path);
+        if (!dictionary || !engine_.LoadDictionaryFile(path)) check(E_FAIL);
+    };
 
     const QiQiConfig cfg = LoadConfig();
     engine_.ApplyConfig(cfg);
@@ -95,36 +117,24 @@ void DictManagerModel::ReloadAll() {
     if (!module_dir_.empty()) {
         if (cfg.primary_dict == PrimaryDict::Jidian) {
             const auto jidian_path = ResolveBundledDataFile(module_dir_, L"wubi86_jidian.txt");
-            if (std::filesystem::exists(jidian_path)) {
-                primary_dict_ = WubiMappedDict::LoadFromTextOrCache(jidian_path);
-                if (primary_dict_) {
-                    std::ignore = engine_.LoadDictionaryFile(jidian_path);
-                }
-            }
+            load_dictionary(jidian_path, primary_dict_);
             if (cfg.enable_jidian_extra) {
                 const auto extra_path = ResolveBundledDataFile(module_dir_, L"wubi86_jidian_extra.txt");
-                if (std::filesystem::exists(extra_path)) {
-                    extra_dict_ = WubiMappedDict::LoadFromTextOrCache(extra_path);
-                    if (extra_dict_) {
-                        std::ignore = engine_.LoadDictionaryFile(extra_path);
-                    }
-                }
+                load_dictionary(extra_path, extra_dict_);
             }
         } else if (cfg.primary_dict == PrimaryDict::Haifeng) {
             const auto haifeng_path = ResolveBundledDataFile(module_dir_, L"wubi86_haifeng.txt");
-            if (std::filesystem::exists(haifeng_path)) {
-                primary_dict_ = WubiMappedDict::LoadFromTextOrCache(haifeng_path);
-                if (primary_dict_) {
-                    std::ignore = engine_.LoadDictionaryFile(haifeng_path);
-                }
-            }
+            load_dictionary(haifeng_path, primary_dict_);
         }
     }
 
     engine_.SetUserDictPath(user_dict_path_);
     if (!user_dict_path_.empty()) {
         std::string raw_utf8;
-        if (ReadFileToUtf8String(user_dict_path_, raw_utf8)) {
+        const bool user_file_exists = exists(user_dict_path_);
+        if (user_file_exists && !ReadFileToUtf8String(user_dict_path_, raw_utf8)) {
+            check(E_FAIL);
+        } else if (user_file_exists) {
             std::map<uint32_t, std::vector<std::wstring>> user_entries;
             WubiMappedDict::ParseTextDictEntries(Utf8ToWide(StripUtf8Bom(raw_utf8)), user_entries, true);
             for (const auto& [packed, words] : user_entries) {
@@ -142,13 +152,13 @@ void DictManagerModel::ReloadAll() {
                 }
             }
         }
-        std::ignore = engine_.SynchronizeUserDictionary(sync::InputBoundary::NewInput);
+        check(engine_.SynchronizeUserDictionary(sync::InputBoundary::NewInput));
     }
 
     engine_.SetPhraseFreqPath(phrase_freq_path_);
     if (!phrase_freq_path_.empty()) {
-        std::ignore = engine_.LoadPhraseFrequencies(phrase_freq_path_);
-        std::ignore = engine_.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput);
+        if (exists(phrase_freq_path_) && !engine_.LoadPhraseFrequencies(phrase_freq_path_)) check(E_FAIL);
+        check(engine_.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput));
     }
 
     RebuildRecords();
@@ -160,6 +170,7 @@ void DictManagerModel::ReloadAll() {
         user_entry_count_,
         phrase_freq_count_,
         system_entry_count_);
+    return result;
 }
 
 bool DictManagerModel::PollExternalChanges() {
@@ -497,7 +508,12 @@ std::string SerializeConfigSection(const QiQiConfig& cfg) {
     return out;
 }
 
-void ApplyConfigKeyValue(QiQiConfig& cfg, std::string_view key, int val) noexcept {
+bool ApplyConfigKeyValue(QiQiConfig& cfg, std::string_view key, int val) noexcept {
+    if ((key == "primary_dict" && val > 2) ||
+        (key == "page_size" && (val < 1 || val > 9)) ||
+        (key == "ui_language" && val > 2) ||
+        (key == "underline_style" && val > 4) ||
+        (key == "log_level" && val > 6)) return false;
     if (key == "primary_dict" && val >= 0 && val <= 2) cfg.primary_dict = static_cast<PrimaryDict>(val);
     else if (key == "enable_jidian_extra") cfg.enable_jidian_extra = (val != 0);
     else if (key == "page_size" && val >= 1 && val <= 9) cfg.page_size = gsl::narrow_cast<size_t>(val);
@@ -522,6 +538,7 @@ void ApplyConfigKeyValue(QiQiConfig& cfg, std::string_view key, int val) noexcep
     else if (key == "underline_style" && val >= 0 && val <= 4) cfg.underline_style = static_cast<CompositionUnderlineStyle>(val);
     else if (key == "bold_underline") cfg.bold_underline = (val != 0);
     else if (key == "log_level" && val >= 0 && val <= 6) cfg.log_level = static_cast<log::Level>(val);
+    return true; // Unknown numeric keys remain forward-compatible.
 }
 
 bool ParseHexU64(std::string_view sv, uint64_t& out) noexcept {
@@ -547,6 +564,110 @@ bool ParseDecInt(std::string_view sv, int& out) noexcept {
     }
     out = val;
     return true;
+}
+
+struct RestorePlan {
+    QiQiConfig config;
+    bool has_config = false;
+    std::vector<std::pair<std::string, int>> config_values;
+    std::map<uint32_t, std::vector<std::wstring>> user_entries;
+    std::map<uint32_t, std::vector<std::wstring>> freq_entries;
+};
+
+bool ValidateDictionaryLine(std::string_view line, bool user_dictionary) {
+    if (line.find('\0') != std::string_view::npos ||
+        line.size() > gsl::narrow_cast<size_t>((std::numeric_limits<int>::max)()) ||
+        ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, line.data(),
+            gsl::narrow_cast<int>(line.size()), nullptr, 0) == 0) return false;
+    const std::wstring wide = Utf8ToWide(line);
+    std::wstring_view rest(wide);
+    const auto next = [&rest]() {
+        const size_t start = rest.find_first_not_of(L" \t\r\n");
+        if (start == std::wstring_view::npos) {
+            rest = {};
+            return std::wstring_view{};
+        }
+        rest.remove_prefix(start);
+        const size_t end = rest.find_first_of(L" \t\r\n");
+        const auto token = rest.substr(0, end);
+        rest.remove_prefix(end == std::wstring_view::npos ? rest.size() : end);
+        return token;
+    };
+    const auto is_code = [](std::wstring_view token) noexcept {
+        return !token.empty() && token.size() <= 4 && std::ranges::all_of(token, [](wchar_t ch) noexcept {
+            return ch >= L'a' && ch <= L'z';
+        });
+    };
+    const auto valid_word = [user_dictionary](std::wstring_view word) noexcept {
+        if (word.empty() || word == L"^" || word == L"!") return false;
+        if (user_dictionary) return true;
+        if (word.starts_with(L'!')) return false;
+        if (word.starts_with(L'^')) word.remove_prefix(1);
+        // A surrogate pair is one character, not a promotable phrase.
+        return word.size() >= 2 &&
+            !(word.size() == 2 && IS_HIGH_SURROGATE(word.front()) && IS_LOW_SURROGATE(word.back()));
+    };
+    const auto first = next();
+    const auto second = next();
+    if (is_code(first)) {
+        if (!valid_word(second)) return false;
+        for (auto word = next(); !word.empty(); word = next()) {
+            if (!valid_word(word)) return false;
+        }
+        return true;
+    }
+    return !user_dictionary && valid_word(first) && is_code(second) && next().empty();
+}
+
+bool ParseRestorePlan(std::string_view body, RestorePlan& plan) {
+    std::string user_lines;
+    std::string freq_lines;
+    enum class Section { None, Config, UserDict, PhraseFreq } current = Section::None;
+    bool has_section = false;
+    while (!body.empty()) {
+        const size_t nl = body.find('\n');
+        auto line = body.substr(0, nl);
+        body.remove_prefix(nl == std::string_view::npos ? body.size() : nl + 1);
+        if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+        const size_t first = line.find_first_not_of(" \t");
+        if (first == std::string_view::npos || line.substr(first).starts_with('#')) continue;
+        if (line == "[config]") {
+            current = Section::Config;
+            plan.has_config = true;
+        } else if (line == "[user_dict]") {
+            current = Section::UserDict;
+        } else if (line == "[phrase_freq]") {
+            current = Section::PhraseFreq;
+        } else {
+            switch (current) {
+            case Section::Config: {
+                const size_t eq = line.find('=');
+                int value = 0;
+                if (eq == std::string_view::npos || eq == 0 ||
+                    !ParseDecInt(line.substr(eq + 1), value) ||
+                    !ApplyConfigKeyValue(plan.config, line.substr(0, eq), value)) return false;
+                plan.config_values.emplace_back(line.substr(0, eq), value);
+                break;
+            }
+            case Section::UserDict:
+            case Section::PhraseFreq: {
+                const bool user = current == Section::UserDict;
+                if (!ValidateDictionaryLine(line, user)) return false;
+                auto& lines = user ? user_lines : freq_lines;
+                lines.append(line);
+                lines.push_back('\n');
+                break;
+            }
+            case Section::None:
+                return false;
+            }
+            continue;
+        }
+        has_section = true;
+    }
+    WubiMappedDict::ParseTextDictEntries(Utf8ToWide(user_lines), plan.user_entries, true);
+    WubiMappedDict::ParseTextDictEntries(Utf8ToWide(freq_lines), plan.freq_entries, false);
+    return has_section;
 }
 
 } // namespace
@@ -610,151 +731,201 @@ bool DictManagerModel::CreateBackupBundle(const std::filesystem::path& backup_pa
     return WriteFileAtomically(backup_path, codec::AsByteSpan(full));
 }
 
-bool DictManagerModel::RestoreBackupBundle(
+BackupRestoreResult DictManagerModel::RestoreBackupBundle(
     const std::filesystem::path& backup_path,
-    BackupConflictMode mode,
-    BackupRestoreSummary& out_summary) {
-    out_summary = {};
+    BackupConflictMode mode) {
+    BackupRestoreResult result;
+    result.operations_failed = 1;
     std::string raw;
     if (!ReadFileToUtf8String(backup_path, raw)) {
-        return false;
+        result.stage = BackupRestoreStage::Read;
+        result.error = E_FAIL; // The read helper exposes only a boolean.
+        return result;
     }
     std::string_view sv = StripUtf8Bom(raw);
     if (!sv.starts_with(kBackupMagicLine)) {
-        return false;
+        return result;
     }
     sv.remove_prefix(kBackupMagicLine.size());
     // Skip optional # version=... line
     if (sv.starts_with("# version=")) {
         const size_t nl = sv.find('\n');
-        if (nl == std::string_view::npos) return false;
+        if (nl == std::string_view::npos) return result;
         sv.remove_prefix(nl + 1);
     }
     if (!sv.starts_with(kBackupChecksumPrefix)) {
-        return false;
+        return result;
     }
     sv.remove_prefix(kBackupChecksumPrefix.size());
     const size_t checksum_nl = sv.find('\n');
     if (checksum_nl == std::string_view::npos || checksum_nl < 16) {
-        return false;
+        return result;
     }
     uint64_t expected_checksum = 0;
     if (!ParseHexU64(sv.substr(0, 16), expected_checksum)) {
-        return false;
+        return result;
     }
     const std::string_view body = sv.substr(checksum_nl + 1);
     if (codec::ComputeFnv1a64(codec::AsByteSpan(body)) != expected_checksum) {
         QIQI_LOG_CAT_WARN(log::Keyword::Dictionary, "RestoreBackupBundle rejected: checksum mismatch");
-        return false;
+        return result;
     }
 
-    QiQiConfig restored_cfg = LoadConfig();
-    bool has_config_section = false;
-    std::string user_dict_lines;
-    std::string phrase_freq_lines;
-    enum class Section { None, Config, UserDict, PhraseFreq } current = Section::None;
+    RestorePlan plan;
+    if ((mode != BackupConflictMode::Merge && mode != BackupConflictMode::Replace) ||
+        !ParseRestorePlan(body, plan)) return result;
 
-    std::string_view rem = body;
-    while (!rem.empty()) {
-        const size_t nl = rem.find('\n');
-        std::string_view line = (nl == std::string_view::npos) ? rem : rem.substr(0, nl);
-        rem.remove_prefix(nl == std::string_view::npos ? rem.size() : nl + 1);
-        if (!line.empty() && line.back() == '\r') {
-            line = line.substr(0, line.size() - 1);
+    result.operations_failed = 0;
+    result.error = S_OK;
+    const auto fail = [&result](BackupRestoreStage stage, HRESULT error) {
+        if (result.operations_failed == 0) {
+            result.stage = stage;
+            result.error = error;
         }
-        if (line.empty() || line.starts_with('#')) {
-            continue;
+        ++result.operations_failed;
+    };
+    const auto refresh = [this, &result, &fail]() {
+        const HRESULT error = ReloadAllResult();
+        if (FAILED(error)) {
+            if (SUCCEEDED(result.refresh_error)) result.refresh_error = error;
+            fail(BackupRestoreStage::Refresh, error);
+        } else if (result.refresh_error == S_FALSE) {
+            result.refresh_error = S_OK;
         }
-        if (line == "[config]") {
-            current = Section::Config;
-            has_config_section = true;
-            continue;
-        }
-        if (line == "[user_dict]") {
-            current = Section::UserDict;
-            continue;
-        }
-        if (line == "[phrase_freq]") {
-            current = Section::PhraseFreq;
-            continue;
-        }
-        if (current == Section::Config) {
-            const size_t eq = line.find('=');
-            if (eq != std::string_view::npos) {
-                const std::string_view k = line.substr(0, eq);
-                const std::string_view v = line.substr(eq + 1);
-                int parsed_val = 0;
-                if (ParseDecInt(v, parsed_val)) {
-                    ApplyConfigKeyValue(restored_cfg, k, parsed_val);
-                }
-            }
-        } else if (current == Section::UserDict) {
-            user_dict_lines.append(line);
-            user_dict_lines.push_back('\n');
-        } else if (current == Section::PhraseFreq) {
-            phrase_freq_lines.append(line);
-            phrase_freq_lines.push_back('\n');
-        }
+        return SUCCEEDED(error);
+    };
+    const auto finish = [&result, &refresh](bool reload = true) {
+        // A fresh engine discards speculative failed-write state even when its persisted view
+        // cannot be fully loaded. Surface that incomplete view independently of application errors.
+        if (reload) std::ignore = refresh();
+        result.status = result.operations_failed == 0 ? BackupRestoreStatus::Success :
+            (result.operations_succeeded == 0 && !result.effects_possible ?
+                BackupRestoreStatus::Failed : BackupRestoreStatus::Partial);
+        if (result.status == BackupRestoreStatus::Success) result.stage = BackupRestoreStage::Complete;
+        return result;
+    };
+
+    if (user_dict_path_.empty() || phrase_freq_path_.empty() || user_dict_path_ == phrase_freq_path_) {
+        fail(BackupRestoreStage::Prepare, E_INVALIDARG);
+        return result;
     }
-
-    if (has_config_section) {
-        out_summary.config_restored = SaveConfig(restored_cfg);
-    }
-
-    std::map<uint32_t, std::vector<std::wstring>> backup_user_entries;
-    WubiMappedDict::ParseTextDictEntries(Utf8ToWide(user_dict_lines), backup_user_entries, true);
-
-    std::map<uint32_t, std::vector<std::wstring>> backup_freq_entries;
-    WubiMappedDict::ParseTextDictEntries(Utf8ToWide(phrase_freq_lines), backup_freq_entries, false);
 
     if (mode == BackupConflictMode::Replace) {
-        if (!user_dict_path_.empty()) {
-            std::error_code rm_ec;
-            std::filesystem::remove(user_dict_path_, rm_ec);
-            std::filesystem::path qdict_path = user_dict_path_;
-            qdict_path.replace_extension(L".qdict");
-            std::filesystem::remove(qdict_path, rm_ec);
-            WubiMappedDict::InvalidateProcessCacheForPath(user_dict_path_);
-            std::filesystem::remove_all(GetSyncChannelDirectoryForFile(user_dict_path_), rm_ec);
+        const auto remove_file = [&result, &fail](const std::filesystem::path& path) {
+            if (::DeleteFileW(path.c_str())) {
+                ++result.operations_succeeded;
+                return true;
+            }
+            const DWORD error = ::GetLastError();
+            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return true;
+            fail(BackupRestoreStage::Prepare, HRESULT_FROM_WIN32(error));
+            return false;
+        };
+        auto qdict_path = user_dict_path_;
+        qdict_path.replace_extension(L".qdict");
+        if (!remove_file(user_dict_path_)) return finish();
+        WubiMappedDict::InvalidateProcessCacheForPath(user_dict_path_);
+        if (!remove_file(qdict_path)) return finish();
+        std::error_code ec;
+        const auto channel_directory = GetSyncChannelDirectoryForFile(user_dict_path_);
+        std::vector<std::filesystem::path> channel_paths;
+        if (std::filesystem::exists(channel_directory, ec)) {
+            std::filesystem::recursive_directory_iterator it(channel_directory, ec);
+            const std::filesystem::recursive_directory_iterator end;
+            while (!ec && it != end) {
+                channel_paths.push_back(it->path());
+                it.increment(ec);
+            }
+            channel_paths.insert(channel_paths.begin(), channel_directory);
         }
-        std::ignore = engine_.ClearPhraseFrequencies(phrase_freq_path_);
-        ReloadAll();
+        if (ec) {
+            fail(BackupRestoreStage::Prepare, HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value())));
+            return finish();
+        }
+        for (auto it = channel_paths.rbegin(); it != channel_paths.rend(); ++it) {
+            const bool removed = std::filesystem::remove(*it, ec);
+            if (ec) {
+                fail(BackupRestoreStage::Prepare, HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value())));
+                return finish();
+            }
+            if (removed) ++result.operations_succeeded;
+        }
+        if (!remove_file(GetSyncChannelDirectoryForFile(phrase_freq_path_) / L"journal.bin")) return finish();
+        result.effects_possible = true;
+        if (!engine_.ClearPhraseFrequencies(phrase_freq_path_)) {
+            fail(BackupRestoreStage::Prepare, E_FAIL);
+            return finish();
+        }
+        ++result.operations_succeeded;
+        if (!refresh()) return finish(false);
     }
 
-    for (const auto& [packed, words] : backup_user_entries) {
+    const auto user_operation = [&result, &fail](bool succeeded) {
+        if (succeeded) {
+            ++result.summary.user_entries_applied;
+            ++result.operations_succeeded;
+        } else {
+            ++result.summary.user_entries_failed;
+            fail(BackupRestoreStage::UserDictionary, E_FAIL);
+        }
+    };
+    for (const auto& [packed, words] : plan.user_entries) {
         const std::wstring code = UnpackWubiCode(packed);
         for (const auto& w : words) {
             if (w.starts_with(L'^') || w.starts_with(L'!')) {
                 continue;
             }
-            if (engine_.AddUserEntry(code, w, user_dict_path_)) {
-                ++out_summary.user_entries_applied;
-            }
+            result.effects_possible = true;
+            user_operation(engine_.AddUserEntry(code, w, user_dict_path_));
         }
         for (auto it = words.rbegin(); it != words.rend(); ++it) {
             if (it->starts_with(L'^')) {
-                if (engine_.PinUserEntry(code, std::wstring_view(*it).substr(1), user_dict_path_)) {
-                    ++out_summary.user_entries_applied;
-                }
+                result.effects_possible = true;
+                user_operation(engine_.PinUserEntry(code, std::wstring_view(*it).substr(1), user_dict_path_));
             } else if (it->starts_with(L'!')) {
-                if (engine_.BlockSystemEntry(code, std::wstring_view(*it).substr(1), user_dict_path_)) {
-                    ++out_summary.user_entries_applied;
-                }
+                result.effects_possible = true;
+                user_operation(engine_.BlockSystemEntry(code, std::wstring_view(*it).substr(1), user_dict_path_));
             }
         }
     }
 
-    for (const auto& [packed, words] : backup_freq_entries) {
+    for (const auto& [packed, words] : plan.freq_entries) {
         const std::wstring code = UnpackWubiCode(packed);
         for (auto it = words.rbegin(); it != words.rend(); ++it) {
+            result.effects_possible = true;
             if (engine_.PromoteUserPhraseFrequency(code, *it, phrase_freq_path_)) {
-                ++out_summary.phrase_freq_applied;
+                ++result.summary.phrase_freq_applied;
+                ++result.operations_succeeded;
+            } else {
+                ++result.summary.phrase_freq_failed;
+                fail(BackupRestoreStage::PhraseFrequency, E_FAIL);
             }
         }
     }
 
-    RebuildRecords();
-    return true;
+    // Do not install configuration describing a restore whose dictionary operations failed.
+    if (result.operations_failed == 0 && plan.has_config) {
+        QiQiConfig config = LoadConfig();
+        for (const auto& [key, value] : plan.config_values) {
+            std::ignore = ApplyConfigKeyValue(config, key, value);
+        }
+        if (SaveConfig(config)) {
+            result.summary.config_restored = true;
+            ++result.operations_succeeded;
+        } else {
+            fail(BackupRestoreStage::Config, E_FAIL);
+        }
+    }
+    return finish();
+}
+
+bool DictManagerModel::RestoreBackupBundle(
+    const std::filesystem::path& backup_path,
+    BackupConflictMode mode,
+    BackupRestoreSummary& out_summary) {
+    const auto result = RestoreBackupBundle(backup_path, mode);
+    out_summary = result.summary;
+    return result.status == BackupRestoreStatus::Success;
 }
 
 std::wstring FormatRecordsForClipboard(std::span<const DictRecord> records) {

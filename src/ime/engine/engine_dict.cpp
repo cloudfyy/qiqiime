@@ -60,7 +60,8 @@ bool DecodeDictEntryDelta(
             return false;
         }
     }
-    return reader.Valid() && reader.Empty() && out_packed_code != 0 && !out_word.empty();
+    return reader.Valid() && reader.Empty() && out_packed_code != 0 &&
+        PackWubiCode(UnpackWubiCode(out_packed_code)) == out_packed_code && !out_word.empty();
 }
 
 std::vector<uint8_t> EncodePhraseFreqSnapshot(
@@ -134,7 +135,13 @@ bool ReadDictEntriesFromFile(
     std::string* out_raw_utf8 = nullptr) {
     out_entries.clear();
     std::error_code ec;
-    if (!std::filesystem::exists(file_path, ec)) {
+    const bool exists = std::filesystem::exists(file_path, ec);
+    if (ec) {
+        QIQI_LOG_CAT_ERROR(log::Keyword::Dictionary,
+            "ReadDictEntriesFromFile: existence check failed (error={})", ec.value());
+        return false;
+    }
+    if (!exists) {
         if (out_raw_utf8) {
             out_raw_utf8->clear();
         }
@@ -347,6 +354,13 @@ bool WubiEngine::IsEntryRemoved(uint32_t packed_code, std::wstring_view word) co
         return std::find(it->second.begin(), it->second.end(), word) != it->second.end();
     }
     return false;
+}
+
+void WubiEngine::SwapDictionaryState(WubiEngine& other) noexcept {
+    dict_.swap(other.dict_);
+    pinned_entries_.swap(other.pinned_entries_);
+    removed_entries_.swap(other.removed_entries_);
+    promoted_phrases_.swap(other.promoted_phrases_);
 }
 
 void WubiEngine::AddEntry(std::wstring_view code, std::wstring_view word) {
@@ -1003,41 +1017,59 @@ HRESULT WubiEngine::SynchronizeUserDictionary(sync::InputBoundary boundary) {
             if (!ReadDictEntriesFromFile(read_path, loaded)) {
                 return E_FAIL;
             }
+            WubiEngine staged;
+            staged.promoted_phrases_ = promoted_phrases_;
+            for (const auto& [packed, words] : loaded) {
+                const std::wstring code = UnpackWubiCode(packed);
+                for (const auto& w : words) {
+                    if (!w.starts_with(L'^') && !w.starts_with(L'!')) {
+                        staged.AddEntry(code, w);
+                    }
+                }
+                for (auto it = words.rbegin(); it != words.rend(); ++it) {
+                    if (it->starts_with(L'^') || it->starts_with(L'!')) {
+                        staged.AddEntry(code, *it);
+                    }
+                }
+            }
+            auto staged_mapped = mapped_dicts_;
             if (!is_startup_sync) {
                 // Refresh any existing mapped view of `dict_path` in place when reloading after a remote change.
                 WubiMappedDict::InvalidateProcessCacheForPath(dict_path);
                 const std::wstring target_canon = std::filesystem::weakly_canonical(dict_path, ec).wstring();
-                for (auto& m : mapped_dicts_) {
+                if (ec) {
+                    QIQI_LOG_CAT_ERROR(log::Keyword::Dictionary,
+                        "Dictionary sync: canonical path failed (error={})", ec.value());
+                    return E_FAIL;
+                }
+                for (auto& m : staged_mapped) {
                     if (!m || m->SourcePath().empty()) continue;
                     std::error_code m_ec;
-                    if (std::filesystem::weakly_canonical(m->SourcePath(), m_ec).wstring() == target_canon) {
-                        if (auto refreshed = WubiMappedDict::LoadFromTextOrCache(dict_path)) {
-                            m = std::move(refreshed);
-                        }
+                    const auto canonical = std::filesystem::weakly_canonical(m->SourcePath(), m_ec);
+                    if (m_ec) {
+                        QIQI_LOG_CAT_ERROR(log::Keyword::Dictionary,
+                            "Dictionary sync: mapped canonical path failed (error={})", m_ec.value());
+                        return E_FAIL;
+                    }
+                    if (canonical.wstring() == target_canon) {
+                        auto refreshed = WubiMappedDict::LoadFromTextOrCache(dict_path);
+                        if (!refreshed) return E_FAIL;
+                        m = std::move(refreshed);
                     }
                 }
             }
-            dict_.clear();
-            pinned_entries_.clear();
-            removed_entries_.clear();
-            for (const auto& [packed, words] : loaded) {
-                const std::wstring code = UnpackWubiCode(packed);
-                for (const auto& w : words) {
-                    if (w.starts_with(L'^') || w.starts_with(L'!')) {
-                        continue;
-                    }
-                    AddEntry(code, w);
-                }
-                for (auto it = words.rbegin(); it != words.rend(); ++it) {
-                    if (it->starts_with(L'^') || it->starts_with(L'!')) {
-                        AddEntry(code, *it);
-                    }
-                }
-            }
+            SwapDictionaryState(staged);
+            mapped_dicts_.swap(staged_mapped);
             ++user_dict_snapshot_syncs_;
             return S_OK;
         },
         [&](std::span<const sync::Change> changes) -> HRESULT {
+            // Reuse entry semantics without exposing a partially applied batch.
+            WubiEngine staged;
+            staged.dict_ = dict_;
+            staged.pinned_entries_ = pinned_entries_;
+            staged.removed_entries_ = removed_entries_;
+            staged.promoted_phrases_ = promoted_phrases_;
             for (const auto& change : changes) {
                 uint32_t packed = 0;
                 std::wstring word;
@@ -1048,18 +1080,19 @@ HRESULT WubiEngine::SynchronizeUserDictionary(sync::InputBoundary boundary) {
                 const std::wstring code = UnpackWubiCode(packed);
                 switch (change.operation) {
                     case sync::Operation::Add:
-                        AddEntry(code, word);
+                        staged.AddEntry(code, word);
                         break;
                     case sync::Operation::Remove:
-                        RemoveEntry(code, word);
+                        staged.RemoveEntry(code, word);
                         break;
                     case sync::Operation::Modify:
-                        ModifyEntry(code, word, new_word);
+                        staged.ModifyEntry(code, word, new_word);
                         break;
                     default:
                         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
                 }
             }
+            SwapDictionaryState(staged);
             user_dict_incremental_syncs_ += changes.size();
             return S_OK;
         });
@@ -1309,13 +1342,28 @@ bool WubiEngine::SavePhraseFrequencies(const std::filesystem::path& file_path) c
             return false;
         }
         const std::vector<uint8_t> bytes = EncodePhraseFreqSnapshot(promoted_phrases_);
-        if (!WriteFileAtomically(file_path, bytes)) {
+        const HRESULT write_hr = WriteFileAtomicallyResult(file_path, bytes);
+        if (FAILED(write_hr)) {
+            QIQI_LOG_CAT_ERROR(log::Keyword::Dictionary,
+                "SavePhraseFrequencies: source write failed (hr=0x{:08x})",
+                gsl::narrow_cast<unsigned int>(write_hr));
             return false;
         }
         const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(file_path);
         const sync::Source source{sync::DataType::PhraseFrequency, kGuidSyncSourcePhraseFrequency};
-        if (SUCCEEDED(sync::Channel::Create(channel_dir, source))) {
-            std::ignore = WriteFileAtomicallyResult(channel_dir / L"snapshot.qfreq", bytes);
+        const HRESULT channel_hr = sync::Channel::Create(channel_dir, source);
+        if (FAILED(channel_hr)) {
+            QIQI_LOG_CAT_ERROR(log::Keyword::Sync,
+                "SavePhraseFrequencies: channel creation failed (hr=0x{:08x})",
+                gsl::narrow_cast<unsigned int>(channel_hr));
+            return false;
+        }
+        const HRESULT snapshot_hr = WriteFileAtomicallyResult(channel_dir / L"snapshot.qfreq", bytes);
+        if (FAILED(snapshot_hr)) {
+            QIQI_LOG_CAT_ERROR(log::Keyword::Sync,
+                "SavePhraseFrequencies: snapshot write failed (hr=0x{:08x})",
+                gsl::narrow_cast<unsigned int>(snapshot_hr));
+            return false;
         }
         return true;
     } catch (...) {
@@ -1360,11 +1408,12 @@ HRESULT WubiEngine::SynchronizePhraseFrequencies(sync::InputBoundary boundary) {
             if (!DecodePhraseFreqSnapshot(bytes, loaded)) {
                 return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             }
-            promoted_phrases_ = std::move(loaded);
+            promoted_phrases_.swap(loaded);
             ++phrase_freq_snapshot_syncs_;
             return S_OK;
         },
         [&](std::span<const sync::Change> changes) -> HRESULT {
+            auto staged = promoted_phrases_;
             for (const auto& change : changes) {
                 uint32_t packed = 0;
                 std::wstring word;
@@ -1376,13 +1425,14 @@ HRESULT WubiEngine::SynchronizePhraseFrequencies(sync::InputBoundary boundary) {
                     if (SplitUtf16Codepoints(word).size() < 2) {
                         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
                     }
-                    PromotePhraseInMap(promoted_phrases_, packed, word);
+                    PromotePhraseInMap(staged, packed, word);
                 } else if (change.operation == sync::Operation::Remove) {
-                    std::ignore = EraseWordFromCodeMap(promoted_phrases_, packed, word);
+                    std::ignore = EraseWordFromCodeMap(staged, packed, word);
                 } else {
                     return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
                 }
             }
+            promoted_phrases_.swap(staged);
             phrase_freq_incremental_syncs_ += changes.size();
             return S_OK;
         });

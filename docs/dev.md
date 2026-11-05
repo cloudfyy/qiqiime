@@ -420,3 +420,12 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **词库增量与外部编辑检测**：[`WubiEngine`](../src/ime/engine/engine.h) 的 `AddUserPhrase`、`AddUserEntry`、`RemoveUserEntry`、`ModifyUserEntry` 在排他锁下先合并远端增量，再写入词表、通道快照、`source.meta`（大小、修改时间、FNV-1a 哈希）与 `.qdict`，并通过 `WubiMappedDict::InvalidateProcessCacheForPath` 失效旧进程缓存。`CheckAndPublishExternalUserDictChanges` 在检测到外部编辑器直接修改词表时，对 `<= 16` 条且未打乱幸存词顺序的差异发布 `Add`/`Remove` 增量，其余情况旋转基线触发全量快照重载。
 - **二进制词频（`QPF1`）与调序同步**：`SavePhraseFrequencies` 输出小端二进制格式 `QPF1`（含魔数、版本、编码/词条表与尾部 64 位 FNV-1a 校验），`LoadPhraseFrequencies` 同时兼容 `QPF1` 与旧版 UTF-8 文本。`PromotePhraseForCode` 在普通桌面进程中先同步远端未应用调序，再发布 `Operation::Reorder` 并更新 `snapshot.qfreq`；在 AppContainer 中仅更新内存且拒绝写盘。
 - **输入边界隔离**：[`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp) 与 [`tip_config.cpp`](../src/ime/tsf/tip_config.cpp) 在焦点切换及非组合态按键入口触发 `SynchronizeCrossProcessChanges(InputBoundary::NewInput)`，组合态下返回 `S_FALSE` 暂缓，保证打字中途候选不重排。
+
+### 5.16 恢复结果与同步适配器失败一致性（R01、R06）
+
+- **恢复先校验后应用**：[`RestoreBackupBundle`](../src/tools/dict_manager/model.cpp) 完整读取、校验备份并生成计划后才修改目标；返回失败、部分完成或完整成功，保留首次失败阶段与 HRESULT、操作计数及可能的持久化影响。前序失败后不继续保存配置；兼容 bool 入口只接受完整成功。
+- **刷新必须检查**：[`ReloadAllResult`](../src/tools/dict_manager/model.h) 以新引擎重建视图，检查文件读取、映射加载与同步结果。可选源不存在是正常情况，存在但不可读是失败；Replace 准备后的刷新和最终刷新均纳入结果，独立 `refresh_error` 保留刷新失败而不覆盖首次应用错误。界面不将刷新失败显示为恢复成功，也不声称其他进程已同步。
+- **不承诺跨资源回滚**：恢复可能已经修改部分文件；包括源写入成功、必要镜像失败而返回 false 的情况。零个确认成功操作不代表没有持久化影响，必须通过 `Partial`/`effects_possible` 和提示说明；不通过盲目重写或删除来模拟事务回滚。
+- **同步先暂存后发布**：[`WubiEngine`](../src/ime/engine/engine_dict.cpp) 在候选状态应用完整词库/词频批次，成功后交换发布。词库候选包含用户词、置顶、屏蔽及调序，快照同时暂存映射引用；失败保留本适配器原有状态、已应用版本和成功计数。词库与词频分别提交，不构成通道间的全局事务，组合态同步边界和 FSM 不变。
+- **必要词频镜像错误不吞掉**：`SavePhraseFrequencies` 检查源写入、通道创建及 `snapshot.qfreq` 写入；保留真实失败诊断，调用方不得将源写入成功视为整个保存成功。
+- **回归入口**：[`引擎测试`](../tests/ime/engine/dict.cpp) 比较失败前后的四类词条、版本和计数，覆盖非法后项、重复失败、快照读取失败与恢复，以及必要镜像/通道写入失败；[`词库管理器测试`](../tests/tools/dict_manager/main.cpp) 覆盖非法备份、配置拒绝、锁定文件/通道、部分结果、可选文件缺失、刷新失败与中英文提示。测试使用隔离目录，不以用户词库试错；不代表已完成真实宿主、崩溃恢复、分配失败注入或性能基准验收。

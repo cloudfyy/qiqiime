@@ -31,6 +31,41 @@ constexpr std::array toolbar_commands{
 
 }
 
+std::wstring FormatBackupRestoreMessage(const BackupRestoreResult& result, UiLanguage language) {
+    const bool english = ResolveUiLanguage(language) == UiLanguage::EnUs;
+    const auto text = [english](const wchar_t* zh, const wchar_t* en) noexcept { return english ? en : zh; };
+    if (result.status == BackupRestoreStatus::Success && result.refresh_error == S_OK) {
+        return std::format(L"{} ({}: {}, {}: {})",
+            text(L"已恢复备份", L"Backup restored"),
+            text(L"词库规则", L"Dict rules"), result.summary.user_entries_applied,
+            text(L"词组排序", L"Phrase ordering"), result.summary.phrase_freq_applied);
+    }
+    const wchar_t* stage = L"";
+    switch (result.stage) {
+    case BackupRestoreStage::Read: stage = text(L"读取", L"read"); break;
+    case BackupRestoreStage::Validate: stage = text(L"校验", L"validation"); break;
+    case BackupRestoreStage::Prepare: stage = text(L"准备", L"preparation"); break;
+    case BackupRestoreStage::UserDictionary: stage = text(L"词库规则", L"dictionary"); break;
+    case BackupRestoreStage::PhraseFrequency: stage = text(L"词组排序", L"phrase ordering"); break;
+    case BackupRestoreStage::Config: stage = text(L"配置", L"configuration"); break;
+    case BackupRestoreStage::Refresh: stage = text(L"刷新", L"refresh"); break;
+    case BackupRestoreStage::Complete: break;
+    }
+    std::wstring message = std::format(L"{} ({}; {}: {}, {}: {}; 0x{:08X})",
+        result.status == BackupRestoreStatus::Partial ?
+            text(L"备份恢复未完成；可能已应用部分更改", L"Backup restore incomplete; changes may already have been applied") :
+            text(L"恢复备份失败", L"Backup restore failed"),
+        stage, text(L"成功操作", L"Succeeded operations"), result.operations_succeeded,
+        text(L"失败操作", L"Failed operations"), result.operations_failed,
+        gsl::narrow_cast<uint32_t>(result.error));
+    if (FAILED(result.refresh_error)) {
+        message += std::format(L" {} (0x{:08X})",
+            text(L"刷新失败；当前显示可能不完整", L"Refresh failed; the displayed view may be incomplete"),
+            gsl::narrow_cast<uint32_t>(result.refresh_error));
+    }
+    return message;
+}
+
 void DictManagerWindow::Impl::ReportCommandError(void*, const char* operation, ULONG error) noexcept {
     QIQI_LOG_ERROR("DictManager UI operation '{}' failed (error=0x{:08X})", operation, error);
 }
@@ -1111,20 +1146,10 @@ void DictManagerWindow::Impl::RestoreBundleDialog() {
     if (choice == IDCANCEL) return;
 
     const BackupConflictMode mode = (choice == IDNO) ? BackupConflictMode::Replace : BackupConflictMode::Merge;
-    BackupRestoreSummary summary{};
-    if (model.RestoreBackupBundle(path.data(), mode, summary)) {
-        last_message = std::format(
-            L"{} ({}: {}, {}: {})",
-            Text(L"已恢复备份并同步", L"Restored backup and synchronized"),
-            Text(L"词库规则", L"Dict rules"),
-            summary.user_entries_applied,
-            Text(L"词组排序", L"Phrase ordering"),
-            summary.phrase_freq_applied);
+    const auto result = model.RestoreBackupBundle(path.data(), mode);
+    last_message = FormatBackupRestoreMessage(result, ui_language);
+    if (result.stage != BackupRestoreStage::Read && result.stage != BackupRestoreStage::Validate) {
         RebuildRows();
-    } else {
-        last_message = Text(
-            L"备份文件校验失败（格式错误或校验和不匹配）",
-            L"Backup validation failed (invalid format or checksum mismatch)");
     }
     UpdateStatus();
 }

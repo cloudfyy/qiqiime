@@ -162,6 +162,8 @@ public:
     uint64_t UserDictSnapshotSyncCount() const noexcept { return user_dict_snapshot_syncs_; }
     uint64_t PhraseFreqIncrementalSyncCount() const noexcept { return phrase_freq_incremental_syncs_; }
     uint64_t PhraseFreqSnapshotSyncCount() const noexcept { return phrase_freq_snapshot_syncs_; }
+    sync::Version UserDictSyncVersion() const noexcept { return user_dict_sync_version_; }
+    sync::Version PhraseFreqSyncVersion() const noexcept { return phrase_freq_sync_version_; }
 
     // Mode & configuration management
     void ApplyConfig(const QiQiConfig& cfg) noexcept;
@@ -290,6 +292,7 @@ private:
     TransitionOutcome HandleDeleteOrBlockCandidate(const KeyInputContext& ctx);
 
     bool IsEntryRemoved(uint32_t packed_code, std::wstring_view word) const;
+    void SwapDictionaryState(WubiEngine& other) noexcept;
     bool CheckAndPublishExternalUserDictChanges(const std::filesystem::path& dict_path);
     template <typename FileMutator, typename MemoryMutator>
     bool MutateUserDictionaryEntry(

@@ -18,6 +18,23 @@ struct BackupRestoreSummary {
     bool config_restored = false;
     size_t user_entries_applied = 0;
     size_t phrase_freq_applied = 0;
+    size_t user_entries_failed = 0;
+    size_t phrase_freq_failed = 0;
+};
+
+// Partial includes possible source writes by a failed participant, even with zero acknowledged successes.
+enum class BackupRestoreStatus : uint8_t { Failed, Partial, Success };
+enum class BackupRestoreStage : uint8_t { Read, Validate, Prepare, UserDictionary, PhraseFrequency, Config, Refresh, Complete };
+
+struct BackupRestoreResult {
+    BackupRestoreStatus status = BackupRestoreStatus::Failed;
+    BackupRestoreStage stage = BackupRestoreStage::Validate; // First failure, or Complete on success.
+    HRESULT error = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    HRESULT refresh_error = S_FALSE; // Not attempted; S_OK on success, first refresh failure otherwise.
+    BackupRestoreSummary summary;
+    size_t operations_succeeded = 0; // Includes configuration and destructive Replace preparation.
+    size_t operations_failed = 0;
+    bool effects_possible = false; // A failed bool mutator may already have persisted part of its work.
 };
 
 enum class DictEntrySource : uint8_t {
@@ -61,6 +78,8 @@ public:
         const std::filesystem::path& phrase_freq_path = {});
 
     void ReloadAll();
+    // Missing optional files are valid; failures leave a fresh but potentially incomplete persisted view.
+    HRESULT ReloadAllResult();
     bool PollExternalChanges();
 
     const std::filesystem::path& UserDictPath() const noexcept { return user_dict_path_; }
@@ -104,6 +123,10 @@ public:
 
     // Full local backup & restore of configuration, user dictionary (words + ^pinned + !blocked), and phrase frequencies
     bool CreateBackupBundle(const std::filesystem::path& backup_path) const;
+    BackupRestoreResult RestoreBackupBundle(
+        const std::filesystem::path& backup_path,
+        BackupConflictMode mode);
+    // Compatibility: true means full success, never partial application.
     bool RestoreBackupBundle(
         const std::filesystem::path& backup_path,
         BackupConflictMode mode,

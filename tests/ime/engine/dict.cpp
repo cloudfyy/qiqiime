@@ -1,5 +1,6 @@
 #include "common/test_support.h"
 #include "common/file_util.h"
+#include "common/guids.h"
 #include "common/logger.h"
 #include "ime/engine/engine.h"
 
@@ -739,9 +740,226 @@ void TestCrossProcessDictAndPhraseFreqSync() {
     QIQI_TEST_CHECK(!pin_reader.LookupExact(L"a").empty() && pin_reader.LookupExact(L"a").front() == L"工");
 }
 
+void TestSyncFailureAtomicity() {
+    using Entries = std::map<uint32_t, std::vector<std::wstring>>;
+    const auto base = std::filesystem::temp_directory_path() /
+        (L"qiqiime_sync_atomicity_" + std::to_wstring(::GetCurrentProcessId()));
+    QIQI_TEST_CHECK(std::filesystem::create_directory(base));
+    const auto cleanup = gsl::finally([&]() noexcept {
+        std::error_code error;
+        std::filesystem::remove_all(base, error);
+        QIQI_TEST_CHECK(!error);
+    });
+    const auto payload = [](std::wstring_view word, std::wstring_view replacement = {}) {
+        std::vector<uint8_t> bytes;
+        codec::AppendLe32(bytes, PackWubiCode(L"abcd"));
+        codec::AppendWString(bytes, word);
+        if (!replacement.empty()) codec::AppendWString(bytes, replacement);
+        return bytes;
+    };
+    const auto publish = [](const sync::Channel& channel, sync::Operation operation,
+                            std::span<const uint8_t> bytes) {
+        sync::Batch batch;
+        QIQI_TEST_CHECK(channel.Read({}, batch) == S_OK);
+        sync::Version committed;
+        QIQI_TEST_CHECK(channel.Publish(batch.version, operation, bytes, []() { return S_OK; }, committed) == S_OK);
+    };
+
+    for (const bool dictionary : {true, false}) {
+        for (int failure = 0; failure < (dictionary ? 3 : 4); ++failure) {
+            const bool unsupported = failure == 1;
+            const auto directory = base / (dictionary ? L"dict" : L"freq") /
+                (unsupported ? L"operation" : failure == 2 ? L"code" : failure == 3 ? L"word" : L"payload");
+            QIQI_TEST_CHECK(std::filesystem::create_directories(directory));
+            const auto path = directory / L"source.txt";
+            WubiEngine writer;
+            WubiEngine reader;
+            if (dictionary) {
+                QIQI_TEST_CHECK(writer.AddUserEntry(L"abcd", L"original", path));
+                reader.SetUserDictPath(path);
+                QIQI_TEST_CHECK(reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+            } else {
+                QIQI_TEST_CHECK(writer.PromoteUserPhraseFrequency(L"abcd", L"original"));
+                QIQI_TEST_CHECK(writer.SavePhraseFrequencies(path));
+                reader.SetPhraseFreqPath(path);
+                QIQI_TEST_CHECK(reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
+            }
+            reader.AddEntry(L"abcd", L"victim");
+            reader.PinEntry(L"abcd", L"pinned");
+            reader.BlockEntry(L"abcd", L"hidden");
+            if (dictionary) QIQI_TEST_CHECK(reader.PromoteUserPhraseFrequency(L"abcd", L"victim"));
+            const Entries words = reader.UserDictionaryEntries();
+            const Entries pins = reader.PinnedEntries();
+            const Entries blocks = reader.BlockedEntries();
+            const Entries promotions = reader.PromotedPhrases();
+            const auto dict_version = reader.UserDictSyncVersion();
+            const auto freq_version = reader.PhraseFreqSyncVersion();
+            const auto snapshots = dictionary ? reader.UserDictSnapshotSyncCount() : reader.PhraseFreqSnapshotSyncCount();
+            const auto increments = dictionary ? reader.UserDictIncrementalSyncCount() : reader.PhraseFreqIncrementalSyncCount();
+            const sync::Channel channel(GetSyncChannelDirectoryForFile(path),
+                {dictionary ? sync::DataType::Dictionary : sync::DataType::PhraseFrequency,
+                 dictionary ? kGuidSyncSourceDictionary : kGuidSyncSourcePhraseFrequency});
+            publish(channel, dictionary ? sync::Operation::Add : sync::Operation::Reorder, payload(L"added"));
+            if (dictionary) {
+                publish(channel, sync::Operation::Add, payload(L"^newpin"));
+                publish(channel, sync::Operation::Add, payload(L"!victim"));
+                publish(channel, sync::Operation::Modify, payload(L"original", L"modified"));
+                publish(channel, sync::Operation::Remove, payload(L"^pinned"));
+                publish(channel, sync::Operation::Remove, payload(L"!hidden"));
+            } else {
+                publish(channel, sync::Operation::Remove, payload(L"original"));
+            }
+            auto invalid = failure == 0 ? std::vector<uint8_t>{} : payload(L"unsupported");
+            if (failure == 2) WriteBinaryValue(invalid, 0, uint32_t{0x01ff0000});
+            if (failure == 3) invalid = payload(L"x");
+            publish(channel, unsupported ?
+                (dictionary ? sync::Operation::Reorder : sync::Operation::Add) :
+                failure == 3 ? sync::Operation::Reorder : sync::Operation::Remove,
+                invalid);
+            for (int attempt = 0; attempt < 2; ++attempt) {
+                const HRESULT hr = dictionary ?
+                    reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) :
+                    reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput);
+                QIQI_TEST_CHECK(hr == HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+                QIQI_TEST_CHECK(reader.UserDictionaryEntries() == words && reader.PinnedEntries() == pins);
+                QIQI_TEST_CHECK(reader.BlockedEntries() == blocks && reader.PromotedPhrases() == promotions);
+                QIQI_TEST_CHECK(reader.UserDictSyncVersion() == dict_version &&
+                                reader.PhraseFreqSyncVersion() == freq_version);
+                QIQI_TEST_CHECK((dictionary ? reader.UserDictSnapshotSyncCount() :
+                    reader.PhraseFreqSnapshotSyncCount()) == snapshots);
+                QIQI_TEST_CHECK((dictionary ? reader.UserDictIncrementalSyncCount() :
+                    reader.PhraseFreqIncrementalSyncCount()) == increments);
+            }
+        }
+    }
+
+    for (const bool dictionary : {true, false}) {
+        const auto directory = base / (dictionary ? L"dict-snapshot" : L"freq-snapshot");
+        QIQI_TEST_CHECK(std::filesystem::create_directory(directory));
+        const auto path = directory / L"source.txt";
+        WubiEngine writer;
+        WubiEngine reader;
+        if (dictionary) {
+            QIQI_TEST_CHECK(writer.AddUserEntry(L"abcd", L"original", path));
+            reader.SetUserDictPath(path);
+            QIQI_TEST_CHECK(reader.LoadDictionaryFile(path));
+            QIQI_TEST_CHECK(reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+        } else {
+            QIQI_TEST_CHECK(writer.PromoteUserPhraseFrequency(L"abcd", L"original"));
+            QIQI_TEST_CHECK(writer.SavePhraseFrequencies(path));
+            reader.SetPhraseFreqPath(path);
+            QIQI_TEST_CHECK(reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
+        }
+        reader.PinEntry(L"abcd", L"pinned");
+        reader.BlockEntry(L"abcd", L"hidden");
+        if (dictionary) QIQI_TEST_CHECK(reader.PromoteUserPhraseFrequency(L"abcd", L"original"));
+        const auto lookup = reader.LookupExact(L"abcd");
+        const Entries words = reader.UserDictionaryEntries();
+        const Entries pins = reader.PinnedEntries();
+        const Entries blocks = reader.BlockedEntries();
+        const Entries promotions = reader.PromotedPhrases();
+        const auto dict_version = reader.UserDictSyncVersion();
+        const auto freq_version = reader.PhraseFreqSyncVersion();
+        const auto channel_dir = GetSyncChannelDirectoryForFile(path);
+        const auto snapshot = channel_dir / (dictionary ? L"snapshot.txt" : L"snapshot.qfreq");
+        std::string original;
+        QIQI_TEST_CHECK(ReadFileToUtf8String(snapshot, original));
+        const sync::Channel channel(channel_dir,
+            {dictionary ? sync::DataType::Dictionary : sync::DataType::PhraseFrequency,
+             dictionary ? kGuidSyncSourceDictionary : kGuidSyncSourcePhraseFrequency});
+        sync::Batch batch;
+        QIQI_TEST_CHECK(channel.Read({}, batch) == S_OK);
+        sync::Version unused;
+        QIQI_TEST_CHECK(channel.Publish(batch.version, sync::Operation::Add, {},
+            []() { return S_FALSE; }, unused) == S_FALSE);
+        {
+            const ScopedFileHandle locked(::CreateFileW(snapshot.c_str(), GENERIC_READ, 0,
+                nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+            QIQI_TEST_CHECK(locked);
+            const ScopedFileHandle source_locked(::CreateFileW(path.c_str(), GENERIC_READ, 0,
+                nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+            QIQI_TEST_CHECK(source_locked);
+            const HRESULT hr = dictionary ?
+                reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) :
+                reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput);
+            QIQI_TEST_CHECK(FAILED(hr));
+            QIQI_TEST_CHECK(reader.UserDictionaryEntries() == words && reader.PinnedEntries() == pins);
+            QIQI_TEST_CHECK(reader.BlockedEntries() == blocks && reader.PromotedPhrases() == promotions);
+            QIQI_TEST_CHECK(reader.LookupExact(L"abcd") == lookup);
+            QIQI_TEST_CHECK(reader.UserDictSyncVersion() == dict_version &&
+                            reader.PhraseFreqSyncVersion() == freq_version);
+            QIQI_TEST_CHECK((dictionary ? reader.UserDictSnapshotSyncCount() :
+                reader.PhraseFreqSnapshotSyncCount()) == 1);
+        }
+        if (!dictionary) {
+            constexpr std::array<uint8_t, 3> invalid{1, 2, 3};
+            QIQI_TEST_CHECK(WriteFileAtomicallyResult(snapshot, invalid) == S_OK);
+            QIQI_TEST_CHECK(reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) ==
+                            HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+            QIQI_TEST_CHECK(reader.UserDictionaryEntries() == words && reader.PinnedEntries() == pins);
+            QIQI_TEST_CHECK(reader.BlockedEntries() == blocks && reader.PromotedPhrases() == promotions);
+            QIQI_TEST_CHECK(reader.PhraseFreqSyncVersion() == freq_version &&
+                            reader.PhraseFreqSnapshotSyncCount() == 1);
+            QIQI_TEST_CHECK(WriteFileAtomicallyResult(snapshot, codec::AsByteSpan(original)) == S_OK);
+        }
+        const HRESULT recovered = dictionary ?
+            reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) :
+            reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput);
+        QIQI_TEST_CHECK(recovered == S_OK);
+        QIQI_TEST_CHECK((dictionary ? reader.UserDictSnapshotSyncCount() :
+            reader.PhraseFreqSnapshotSyncCount()) == 2);
+        QIQI_TEST_CHECK((dictionary ? reader.UserDictSyncVersion() : reader.PhraseFreqSyncVersion()) !=
+                        (dictionary ? dict_version : freq_version));
+    }
+}
+
+void TestPhraseFrequencySaveFailures() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        (L"qiqiime_freq_save_failures_" + std::to_wstring(::GetCurrentProcessId()));
+    QIQI_TEST_CHECK(std::filesystem::create_directory(directory));
+    const auto cleanup = gsl::finally([&]() noexcept {
+        std::error_code error;
+        std::filesystem::remove_all(directory, error);
+        QIQI_TEST_CHECK(!error);
+    });
+    const auto path = directory / L"frequency.qfreq";
+    const auto channel = GetSyncChannelDirectoryForFile(path);
+    const auto snapshot = channel / L"snapshot.qfreq";
+    WubiEngine engine;
+    QIQI_TEST_CHECK(engine.PromoteUserPhraseFrequency(L"abcd", L"original"));
+    QIQI_TEST_CHECK(engine.SavePhraseFrequencies(path));
+    for (const bool block_channel : {false, true}) {
+        std::string before;
+        QIQI_TEST_CHECK(ReadFileToUtf8String(snapshot, before));
+        QIQI_TEST_CHECK(engine.PromoteUserPhraseFrequency(L"abcd",
+            block_channel ? L"channel-failure" : L"snapshot-failure"));
+        {
+            const auto target = block_channel ? channel / L"writer.lock" : snapshot;
+            const ScopedFileHandle blocker(::CreateFileW(target.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+            QIQI_TEST_CHECK(blocker);
+            QIQI_TEST_CHECK(!engine.SavePhraseFrequencies(path));
+            std::string raw;
+            QIQI_TEST_CHECK(ReadFileToUtf8String(snapshot, raw) && raw == before);
+            QIQI_TEST_CHECK(ReadFileToUtf8String(path, raw) && raw != before);
+        }
+        QIQI_TEST_CHECK(engine.SavePhraseFrequencies(path));
+        std::string source_bytes;
+        std::string snapshot_bytes;
+        QIQI_TEST_CHECK(ReadFileToUtf8String(path, source_bytes) &&
+                        ReadFileToUtf8String(snapshot, snapshot_bytes) && source_bytes == snapshot_bytes);
+        std::map<uint32_t, std::vector<std::wstring>> loaded;
+        QIQI_TEST_CHECK(WubiMappedDict::DecodeBinaryBufferToEntries(codec::AsByteSpan(snapshot_bytes), loaded,
+            codec::kPhraseFreqBinaryMagic, codec::kPhraseFreqBinaryVer));
+        QIQI_TEST_CHECK(loaded == engine.PromotedPhrases());
+    }
+}
+
 } // namespace
 
 void RunEngineDictTests() {
+    TestPhraseFrequencySaveFailures();
+    TestSyncFailureAtomicity();
     TestBinaryDictBufferValidation();
     TestAddEntryAndLookupEdgeCases();
     TestExternalDictFile();
