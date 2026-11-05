@@ -483,6 +483,7 @@ std::string SerializeConfigSection(const QiQiConfig& cfg) {
     out += std::format("default_full_width={}\n", cfg.default_full_width ? 1 : 0);
     out += std::format("default_chinese_punct={}\n", cfg.default_chinese_punct ? 1 : 0);
     out += std::format("shift_toggle_mode={}\n", cfg.shift_toggle_mode ? 1 : 0);
+    out += std::format("commit_on_english_switch={}\n", cfg.commit_on_english_switch ? 1 : 0);
     out += std::format("show_status_bar={}\n", cfg.show_status_bar ? 1 : 0);
     out += std::format("beep_on_empty_4code={}\n", cfg.beep_on_empty_4code ? 1 : 0);
     out += std::format("beep_on_dup_4code={}\n", cfg.beep_on_dup_4code ? 1 : 0);
@@ -510,6 +511,7 @@ void ApplyConfigKeyValue(QiQiConfig& cfg, std::string_view key, int val) noexcep
     else if (key == "default_full_width") cfg.default_full_width = (val != 0);
     else if (key == "default_chinese_punct") cfg.default_chinese_punct = (val != 0);
     else if (key == "shift_toggle_mode") cfg.shift_toggle_mode = (val != 0);
+    else if (key == "commit_on_english_switch") cfg.commit_on_english_switch = (val != 0);
     else if (key == "show_status_bar") cfg.show_status_bar = (val != 0);
     else if (key == "beep_on_empty_4code") cfg.beep_on_empty_4code = (val != 0);
     else if (key == "beep_on_dup_4code") cfg.beep_on_dup_4code = (val != 0);

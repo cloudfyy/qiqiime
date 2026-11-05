@@ -235,7 +235,7 @@ STDMETHODIMP QiQiTextService::OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM /*l
     const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
     if (HandleShiftTapKeyUp("OnKeyUp", vk, pic, false)) {
         *pfEaten = TRUE;
-        ToggleModeAndCancelComposition(pic);
+        ToggleModeAndFinishComposition(pic);
         LogShiftTap("OnKeyUp", vk, pic, true, "toggle-complete");
         return S_OK;
     }
@@ -249,7 +249,7 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
     }
     if (IsEqualGUID(rguid, kGuidPreservedKeyToggleMode)) {
         *pfEaten = TRUE;
-        ToggleModeAndCancelComposition(pic);
+        ToggleModeAndFinishComposition(pic);
         return S_OK;
     }
     if (IsEqualGUID(rguid, kGuidPreservedKeyToggleFullWidth)) {
@@ -296,20 +296,31 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
     return S_OK;
 }
 
-void QiQiTextService::ToggleModeAndCancelComposition(ITfContext* context) {
-    ITfContext* const target = context ? context : active_context_.Get();
+void QiQiTextService::SetChineseModeAndFinishComposition(ITfContext* context, bool enabled) {
+    if (enabled == engine_.IsChineseMode()) return;
+    const ComPtr<ITfContext> target(context ? context : active_context_.Get());
+    KeyProcessResult result{};
     if (engine_.IsComposing()) {
-        if (target && PrepareInputContext(target) && engine_.IsComposing()) {
-            KeyProcessResult cancel_res{};
-            cancel_res.action = KeyActionType::Cancel;
-            ApplyEngineResult(target, cancel_res);
+        if (target && PrepareInputContext(target.Get()) && engine_.IsComposing()) {
+            result.action = config_.commit_on_english_switch ? KeyActionType::Commit : KeyActionType::Cancel;
+            if (config_.commit_on_english_switch) {
+                result.committed_text = engine_.RawCode();
+            }
         } else {
             ResetCompositionAndUI();
         }
-    } else if (target && active_context_ && target != active_context_.Get()) {
-        std::ignore = PrepareInputContext(target);
+    } else if (target && active_context_ && target.Get() != active_context_.Get()) {
+        std::ignore = PrepareInputContext(target.Get());
     }
-    engine_.ToggleChineseMode();
+    // Host edits can reenter mode synchronization and key prediction.
+    engine_.SetChineseMode(enabled);
+    if (result.action != KeyActionType::PassThrough) {
+        ApplyEngineResult(target.Get(), result);
+    }
+}
+
+void QiQiTextService::ToggleModeAndFinishComposition(ITfContext* context) {
+    SetChineseModeAndFinishComposition(context, !engine_.IsChineseMode());
     SyncTsfCompartments();
     QIQI_LOG_INFO("Input mode toggled: {}", engine_.IsChineseMode() ? "Chinese" : "English");
 }

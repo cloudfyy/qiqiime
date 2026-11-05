@@ -30,6 +30,113 @@ public:
     HRESULT result = S_OK;
 };
 
+void TestModeSwitchCompositionPolicy(
+    gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> manager, bool commit) {
+    const QiQiConfig original_config = LoadConfig();
+    const auto restore_config = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(SaveConfigToRegistry(original_config));
+        QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+    });
+    QiQiConfig config = original_config;
+    config.commit_on_english_switch = commit;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+    std::array<BYTE, 256> original_keyboard{};
+    QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
+    const auto restore_keyboard = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(::SetKeyboardState(original_keyboard.data()));
+    });
+    std::array<BYTE, 256> clean_keyboard{};
+    QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+
+    enum class Switch { Shift, PreservedKey, LangBarClick, LangBarMenu, OpenClose, Conversion };
+    for (const bool deferred : {false, true}) {
+        for (const auto method : {Switch::Shift, Switch::PreservedKey, Switch::LangBarClick,
+                                  Switch::LangBarMenu, Switch::OpenClose, Switch::Conversion}) {
+            for (const std::wstring code : {L"a", L"ab", L"abc", L"zhello", L"z"}) {
+                const std::wstring expected = commit ? code : L"";
+                const auto queue = deferred ? std::make_shared<MockEditSessionQueue>() : nullptr;
+                auto context = MakeComObject<MockTfContext>(queue);
+                BOOL eaten = FALSE;
+                for (const wchar_t ch : code) {
+                    QIQI_TEST_CHECK(service->OnKeyDown(
+                        context.Get(), gsl::narrow_cast<WPARAM>(ch - L'a' + L'A'), 0, &eaten) == S_OK && eaten);
+                }
+                if (queue) QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+                const auto composition = context->last_composition_;
+                QIQI_TEST_CHECK(composition && !composition->ended_);
+                composition->end_callback_ = [&](TfEditCookie) {
+                    BOOL nested_eaten = TRUE;
+                    QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'D', 0, &nested_eaten) == S_OK &&
+                                    !nested_eaten);
+                    const auto requests = context->request_edit_session_calls_;
+                    const VARIANT value = MakeInt4Variant(0);
+                    QIQI_TEST_CHECK(manager->openclose_compartment_->SetValue(1, &value) == S_OK);
+                    QIQI_TEST_CHECK(context->request_edit_session_calls_ == requests);
+                };
+                switch (method) {
+                    case Switch::Shift:
+                        QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+                        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+                        QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && eaten);
+                        QIQI_TEST_CHECK(service->OnKeyUp(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && eaten);
+                        break;
+                    case Switch::PreservedKey:
+                        QIQI_TEST_CHECK(service->OnPreservedKey(
+                            context.Get(), kGuidPreservedKeyToggleMode, &eaten) == S_OK && eaten);
+                        break;
+                    case Switch::LangBarClick:
+                    case Switch::LangBarMenu: {
+                        ComPtr<ITfLangBarItemButton> button;
+                        QIQI_TEST_CHECK(manager->langbar_item_.As(&button) == S_OK && button);
+                        if (method == Switch::LangBarClick) {
+                            QIQI_TEST_CHECK(button->OnClick(TF_LBI_CLK_LEFT, POINT{}, nullptr) == S_OK);
+                        } else {
+                            QIQI_TEST_CHECK(button->OnMenuSelect(
+                                static_cast<UINT>(LangBarMenuId::ToggleChinese)) == S_OK);
+                        }
+                        break;
+                    }
+                    case Switch::OpenClose: {
+                        const VARIANT value = MakeInt4Variant(0);
+                        QIQI_TEST_CHECK(manager->openclose_compartment_->SetValue(1, &value) == S_OK);
+                        break;
+                    }
+                    case Switch::Conversion: {
+                        const VARIANT value = MakeInt4Variant(
+                            manager->convmode_compartment_->last_val_ & ~TF_CONVERSIONMODE_NATIVE);
+                        QIQI_TEST_CHECK(manager->convmode_compartment_->SetValue(1, &value) == S_OK);
+                        break;
+                    }
+                }
+                QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 0);
+                if (queue) {
+                    while (queue->PendingCount() != 0) QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+                }
+                composition->end_callback_ = {};
+                QIQI_TEST_CHECK(context->range_->text_ == expected);
+                QIQI_TEST_CHECK(composition->ended_ && composition->end_composition_calls_ == 1);
+                if (commit) QIQI_TEST_CHECK(context->prop_->clear_calls_ != 0);
+                BOOL shown = TRUE;
+                QIQI_TEST_CHECK(manager->last_ui_element_ &&
+                                manager->last_ui_element_->IsShown(&shown) == S_OK && !shown);
+                QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'D', 0, &eaten) == S_OK && !eaten);
+                QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'D', 0, &eaten) == S_OK && !eaten);
+                QIQI_TEST_CHECK(context->range_->text_ == expected);
+                QIQI_TEST_CHECK(service->OnPreservedKey(
+                    context.Get(), kGuidPreservedKeyToggleMode, &eaten) == S_OK && eaten);
+                QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+                QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_ESCAPE, 0, &eaten) == S_OK && eaten);
+                if (queue) {
+                    while (queue->PendingCount() != 0) QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+                }
+                QIQI_TEST_CHECK(context->range_->text_.empty());
+            }
+        }
+    }
+    QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+}
+
 void TestShiftTapTracking() {
     ShiftTapTracker tracker;
     QIQI_TEST_CHECK(!tracker.IsCandidate() && tracker.Sequence() == 0 && tracker.ElapsedMs(1000) == 0);
@@ -799,6 +906,11 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     RunTsfServiceLifecycleTests(
         gsl::not_null<QiQiTextService*>(service.Get()), gsl::not_null<MockTfThreadMgr*>(mock_tm.Get()));
 
+    for (const bool commit : {true, false}) {
+        TestModeSwitchCompositionPolicy(
+            gsl::not_null<QiQiTextService*>(service.Get()), gsl::not_null<MockTfThreadMgr*>(mock_tm.Get()), commit);
+    }
+
     // ThreadMgrEventSink notifications (including non-null OnSetFocus to test config hot-reload check)
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnInitDocumentMgr(nullptr)));
     QIQI_TEST_CHECK(SUCCEEDED(tm_sink->OnUninitDocumentMgr(nullptr)));
@@ -905,7 +1017,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten)));
     QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"a");
 
-    // Test Shift tap mode toggle while composing (cancels composition and switches to English)
+    // Test Shift tap mode toggle while composing (commits raw code and switches to English)
     QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == FALSE);
@@ -913,6 +1025,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 1LL << 30, &eaten)) && eaten == FALSE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnTestKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == TRUE);
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten)) && eaten == TRUE);
+    QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"a" && mock_ctx->last_composition_->ended_);
 
     // Test Shift+Click anti-mistrigger: when VK_LBUTTON is pressed during Shift release, mode is NOT toggled
     {

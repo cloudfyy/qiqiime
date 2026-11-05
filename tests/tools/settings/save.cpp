@@ -40,6 +40,7 @@ void TestSaveRetryAndCancel() {
             QIQI_TEST_CHECK(hwnd);
             ::SendDlgItemMessageW(hwnd.Get(), kIdRadioHaifeng, BM_CLICK, 0, 0);
             ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETCURSEL, 8, 0);
+            ::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_SETCURSEL, 1, 0);
             ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_SETCURSEL,
                                  language == UiLanguage::ZhCn ? 1 : 2, 0);
             ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(kIdComboUiLang, CBN_SELCHANGE), 0);
@@ -56,6 +57,7 @@ void TestSaveRetryAndCancel() {
             ReadSettingsFromWindowControls(hwnd.Get(), edits);
             QIQI_TEST_CHECK(edits.primary_dict == PrimaryDict::Haifeng && edits.page_size == 9);
             QIQI_TEST_CHECK(edits.enable_key_sound && edits.ui_language == language);
+            QIQI_TEST_CHECK(!edits.commit_on_english_switch && cfg.commit_on_english_switch);
             SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
             QIQI_TEST_CHECK(QueryRegistryConfigSequence() == before);
 
@@ -70,6 +72,8 @@ void TestSaveRetryAndCancel() {
             QIQI_TEST_CHECK(stored.primary_dict == cfg.primary_dict);
             QIQI_TEST_CHECK(stored.ui_language == cfg.ui_language);
             QIQI_TEST_CHECK(stored.enable_key_sound == cfg.enable_key_sound);
+            QIQI_TEST_CHECK(stored.commit_on_english_switch == cancel);
+            QIQI_TEST_CHECK(stored.commit_on_english_switch == cfg.commit_on_english_switch);
             QIQI_TEST_CHECK(stored.user_dict_path == L"preserved_words.txt");
             QIQI_TEST_CHECK(!stored.enable_z_temp_english);
             if (!cancel) {
@@ -121,6 +125,7 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     ext1.ui_language = UiLanguage::EnUs;
     ext1.underline_style = CompositionUnderlineStyle::Squiggle;
     ext1.bold_underline = true;
+    ext1.commit_on_english_switch = false;
     QIQI_TEST_CHECK(SaveConfig(ext1));
     if (GetContext(hwnd.Get()).compartment_listener) {
         QIQI_TEST_CHECK(SUCCEEDED(
@@ -135,6 +140,7 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::EnUs);
     QIQI_TEST_CHECK(read_back.underline_style == CompositionUnderlineStyle::Squiggle);
     QIQI_TEST_CHECK(read_back.bold_underline);
+    QIQI_TEST_CHECK(!read_back.commit_on_english_switch);
     QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
     std::array<wchar_t, 128> title_buf{};
     ::GetWindowTextW(hwnd.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
@@ -147,6 +153,7 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboUnderlineStyle, CB_SETCURSEL,
                          static_cast<WPARAM>(CompositionUnderlineStyle::Solid), 0);
     ::CheckDlgButton(hwnd.Get(), kIdChkKeySound, BST_CHECKED);
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_SETCURSEL, 0, 0);
 
     QiQiConfig ext2 = ext1;
     ext2.primary_dict = PrimaryDict::Jidian;
@@ -160,6 +167,7 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(read_back.page_size == 8);
     QIQI_TEST_CHECK(read_back.underline_style == CompositionUnderlineStyle::Solid);
     QIQI_TEST_CHECK(read_back.enable_key_sound);
+    QIQI_TEST_CHECK(read_back.commit_on_english_switch);
     QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
     ::GetWindowTextW(hwnd.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
     QIQI_TEST_CHECK(std::wstring(title_buf.data()) == GetUiStrings(UiLanguage::ZhCn).dlg_title);

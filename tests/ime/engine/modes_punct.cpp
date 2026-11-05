@@ -281,12 +281,42 @@ void TestFullWidthMode() {
     engine.SetEnableZTempEnglish(true);
 }
 
+void TestModeSwitchPolicyPreservesFsmContract() {
+    for (const bool commit : {true, false}) {
+        for (const bool full_width : {false, true}) {
+            for (const std::wstring code : {L"", L"a", L"ab", L"abc", L"abcd", L"zhello", L"z"}) {
+                WubiEngine engine;
+                QiQiConfig config;
+                config.commit_on_english_switch = commit;
+                config.default_full_width = full_width;
+                config.auto_commit_4code = false;
+                engine.ApplyConfig(config);
+                for (const wchar_t ch : code) {
+                    engine.ProcessKey(gsl::narrow_cast<uint32_t>(ch - L'a' + L'A'));
+                }
+                QIQI_TEST_CHECK(engine.RawCode() == code);
+                engine.SetChineseMode(false);
+                QIQI_TEST_CHECK(engine.State() == EngineState::English && !engine.IsComposing());
+                QIQI_TEST_CHECK(engine.RawCode().empty() && engine.CurrentPageCandidates().empty());
+                QIQI_TEST_CHECK(engine.ShouldEatKey('D', false, false, false) == full_width);
+                QIQI_TEST_CHECK(!engine.ShouldEatKey(VK_BACK, false, false, false));
+                QIQI_TEST_CHECK(engine.IsFullWidthMode() == full_width);
+                engine.SetChineseMode(true);
+                QIQI_TEST_CHECK(engine.State() == EngineState::Idle && engine.RawCode().empty());
+                QIQI_TEST_CHECK(engine.ProcessKey('B').action == KeyActionType::UpdateState);
+                QIQI_TEST_CHECK(engine.State() == EngineState::Composing1 && engine.RawCode() == L"b");
+            }
+        }
+    }
+}
+
 } // namespace
 
 void RunEngineModesPunctTests() {
     TestModeSwitchingAndShouldEatKey();
     TestChinesePunctuation();
     TestFullWidthMode();
+    TestModeSwitchPolicyPreservesFsmContract();
 }
 
 } // namespace qiqi::test

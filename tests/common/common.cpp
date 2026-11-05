@@ -377,6 +377,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(discovered.primary_dict == PrimaryDict::Jidian);
     QIQI_TEST_CHECK(discovered.enable_jidian_extra);
     QIQI_TEST_CHECK(discovered.page_size == 5);
+    QIQI_TEST_CHECK(discovered.commit_on_english_switch);
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() >= 1);
 
     // Save custom config with all fields modified and verify round-trip via LoadConfigFromRegistry & LoadConfig
@@ -395,6 +396,7 @@ void TestIniConfiguration() {
     custom_reg_cfg.default_full_width = true;
     custom_reg_cfg.default_chinese_punct = false;
     custom_reg_cfg.shift_toggle_mode = false;
+    custom_reg_cfg.commit_on_english_switch = false;
     custom_reg_cfg.show_status_bar = true;
     custom_reg_cfg.beep_on_empty_4code = false;
     custom_reg_cfg.beep_on_dup_4code = true;
@@ -424,6 +426,7 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(reg_out.default_full_width);
     QIQI_TEST_CHECK(!reg_out.default_chinese_punct);
     QIQI_TEST_CHECK(!reg_out.shift_toggle_mode);
+    QIQI_TEST_CHECK(!reg_out.commit_on_english_switch);
     QIQI_TEST_CHECK(reg_out.show_status_bar);
     QIQI_TEST_CHECK(!reg_out.beep_on_empty_4code);
     QIQI_TEST_CHECK(reg_out.beep_on_dup_4code);
@@ -437,6 +440,14 @@ void TestIniConfiguration() {
 
     const QiQiConfig reloaded = LoadConfig(nullptr);
     QIQI_TEST_CHECK(reloaded.page_size == 8 && reloaded.primary_dict == PrimaryDict::Haifeng);
+    QIQI_TEST_CHECK(!reloaded.commit_on_english_switch);
+    {
+        ScopedRegKey key;
+        QIQI_TEST_CHECK(::RegOpenKeyExW(
+            HKEY_CURRENT_USER, kTestRegSubKey, 0, KEY_SET_VALUE, key.Put()) == ERROR_SUCCESS);
+        QIQI_TEST_CHECK(::RegDeleteValueW(key.Get(), L"CommitOnEnglishSwitch") == ERROR_SUCCESS);
+    }
+    QIQI_TEST_CHECK(LoadConfigFromRegistry(reg_out) && reg_out.commit_on_english_switch);
 
     // Verify user_dict binary registry mirror round-trip and edge cases
     std::vector<uint8_t> loaded_dict_bytes;

@@ -31,6 +31,7 @@ void TestSettingsDialogControls() {
     cfg.show_code_hint = false;
     cfg.dynamic_phrase_freq = true;
     cfg.shift_toggle_mode = false;
+    cfg.commit_on_english_switch = false;
     cfg.show_status_bar = true;
     cfg.beep_on_empty_4code = false;
     cfg.beep_on_dup_4code = true;
@@ -53,6 +54,7 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(!read_back.show_code_hint);
     QIQI_TEST_CHECK(read_back.dynamic_phrase_freq);
     QIQI_TEST_CHECK(!read_back.shift_toggle_mode);
+    QIQI_TEST_CHECK(!read_back.commit_on_english_switch);
     QIQI_TEST_CHECK(read_back.show_status_bar);
     QIQI_TEST_CHECK(!read_back.beep_on_empty_4code);
     QIQI_TEST_CHECK(read_back.beep_on_dup_4code);
@@ -287,6 +289,7 @@ void TestSettingsWindowMonitorChanges() {
 
     ::SendDlgItemMessageW(dialog.Get(), settings_detail::kIdComboPageSize, CB_SETCURSEL, 8, 0);
     ::CheckDlgButton(dialog.Get(), settings_detail::kIdChkAutoCommit4, BST_UNCHECKED);
+    ::SendDlgItemMessageW(dialog.Get(), settings_detail::kIdComboEnglishSwitch, CB_SETCURSEL, 1, 0);
 
     SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-2560, -1440, 0, 0}, 192});
     const RECT suggested_rect{-2100, -1250, -400, -200};
@@ -314,6 +317,7 @@ void TestSettingsWindowMonitorChanges() {
     ReadSettingsFromWindowControls(dialog.Get(), read_back);
     QIQI_TEST_CHECK(read_back.page_size == 9);
     QIQI_TEST_CHECK(!read_back.auto_commit_4code);
+    QIQI_TEST_CHECK(!read_back.commit_on_english_switch);
 
     SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-1900, -1200, 0, 0}, 192});
     ::SendMessageW(dialog.Get(), WM_DISPLAYCHANGE, 32, MAKELPARAM(1920, 1080));

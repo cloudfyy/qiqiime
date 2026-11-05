@@ -45,6 +45,8 @@ void TestSettingsBindingBoundaries() {
     }
     const ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
     QIQI_TEST_CHECK(hwnd);
+    QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCOUNT, 0, 0) == 2);
+    QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCURSEL, 0, 0) == 0);
     for (const auto& selected : kCheckboxCases) {
         cfg.*(selected.field) = true;
         WriteSettingsToWindowControls(hwnd.Get(), cfg);
@@ -71,13 +73,25 @@ void TestSettingsBindingBoundaries() {
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboUnderlineStyle, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     QiQiConfig actual;
     actual.page_size = 7;
     actual.ui_language = UiLanguage::EnUs;
     actual.underline_style = CompositionUnderlineStyle::Squiggle;
+    actual.commit_on_english_switch = false;
     ReadSettingsFromWindowControls(hwnd.Get(), actual);
     QIQI_TEST_CHECK(actual.page_size == 7 && actual.ui_language == UiLanguage::EnUs &&
                     actual.underline_style == CompositionUnderlineStyle::Squiggle);
+    QIQI_TEST_CHECK(!actual.commit_on_english_switch);
+    for (const bool commit : {true, false}) {
+        cfg.commit_on_english_switch = commit;
+        WriteSettingsToWindowControls(hwnd.Get(), cfg);
+        QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCURSEL, 0, 0) ==
+                        (commit ? 0 : 1));
+        QiQiConfig read_policy;
+        ReadSettingsFromWindowControls(hwnd.Get(), read_policy);
+        QIQI_TEST_CHECK(read_policy.commit_on_english_switch == commit);
+    }
 
     for (const CompositionUnderlineStyle style : {
              CompositionUnderlineStyle::Dot,
@@ -118,6 +132,7 @@ void TestSettingsLiveLanguagePreservesControls() {
     QiQiConfig cfg;
     cfg.page_size = 9;
     cfg.ui_language = UiLanguage::ZhCn;
+    cfg.commit_on_english_switch = false;
     const ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
     QIQI_TEST_CHECK(hwnd);
     ::SendDlgItemMessageW(hwnd.Get(), kIdRadioHaifeng, BM_CLICK, 0, 0);
@@ -135,7 +150,22 @@ void TestSettingsLiveLanguagePreservesControls() {
         QIQI_TEST_CHECK(actual.ui_language == (selection == 2 ? UiLanguage::EnUs : UiLanguage::ZhCn));
         QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_GETCOUNT, 0, 0) == 3);
         QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_GETCOUNT, 0, 0) == 9);
+        QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCOUNT, 0, 0) == 2);
+        QIQI_TEST_CHECK(!actual.commit_on_english_switch);
         const auto& str = GetUiStrings(actual.ui_language);
+        std::array<wchar_t, 128> switch_label{};
+        ::GetDlgItemTextW(hwnd.Get(), kIdLblEnglishSwitch, switch_label.data(),
+                         gsl::narrow_cast<int>(switch_label.size()));
+        QIQI_TEST_CHECK(std::wstring(switch_label.data()) == str.dlg_lbl_english_switch);
+        for (const WPARAM item : {0u, 1u}) {
+            std::array<wchar_t, 128> text{};
+            QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETLBTEXTLEN, item, 0) <
+                            gsl::narrow_cast<LRESULT>(text.size()));
+            QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETLBTEXT, item,
+                                                 reinterpret_cast<LPARAM>(text.data())) != CB_ERR);
+            QIQI_TEST_CHECK(std::wstring(text.data()) ==
+                            (item == 0 ? str.dlg_english_switch_commit : str.dlg_english_switch_clear));
+        }
         for (const auto& test : kCheckboxCases) {
             QIQI_TEST_CHECK((actual.*(test.field)) == (cfg.*(test.field)));
             std::array<wchar_t, 256> label{};

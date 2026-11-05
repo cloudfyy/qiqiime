@@ -20,7 +20,7 @@ struct BoolRegBinding {
     bool QiQiConfig::* field;
 };
 
-constexpr std::array<BoolRegBinding, 17> kBoolRegBindings = {{
+constexpr std::array<BoolRegBinding, 18> kBoolRegBindings = {{
     {L"EnableJidianExtra",         &QiQiConfig::enable_jidian_extra},
     {L"AutoCommit4Code",           &QiQiConfig::auto_commit_4code},
     {L"PushCommit5th",             &QiQiConfig::push_commit_5th},
@@ -32,6 +32,7 @@ constexpr std::array<BoolRegBinding, 17> kBoolRegBindings = {{
     {L"DefaultFullWidth",          &QiQiConfig::default_full_width},
     {L"DefaultChinesePunct",       &QiQiConfig::default_chinese_punct},
     {L"ShiftToggleMode",           &QiQiConfig::shift_toggle_mode},
+    {L"CommitOnEnglishSwitch",     &QiQiConfig::commit_on_english_switch},
     {L"ShowStatusBar",             &QiQiConfig::show_status_bar},
     {L"BeepOnEmpty4Code",          &QiQiConfig::beep_on_empty_4code},
     {L"BeepOnDup4Code",            &QiQiConfig::beep_on_dup_4code},

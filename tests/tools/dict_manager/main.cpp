@@ -483,6 +483,7 @@ void TestModelAndCrossProcessSync() {
     QiQiConfig custom_cfg = LoadConfig();
     custom_cfg.page_size = 7;
     custom_cfg.dynamic_phrase_freq = true;
+    custom_cfg.commit_on_english_switch = false;
     QIQI_TEST_CHECK(SaveConfig(custom_cfg));
 
     QIQI_TEST_CHECK(model.PinUserEntry(L"abcd", L"备份置顶词"));
@@ -493,6 +494,7 @@ void TestModelAndCrossProcessSync() {
     // Corrupting the backup file payload must be rejected by checksum validation
     std::string raw_backup;
     QIQI_TEST_CHECK(ReadFileToUtf8String(backup_file, raw_backup));
+    QIQI_TEST_CHECK(raw_backup.contains("commit_on_english_switch=0\n"));
     const auto corrupt_file = temp_dir / L"corrupt.qbak";
     {
         std::string corrupted = raw_backup + "\nabcd 被篡改词\n";
@@ -503,11 +505,13 @@ void TestModelAndCrossProcessSync() {
 
     // Mutate current state and test Replace mode (overwrites config, user_dict, and phrase_freq)
     custom_cfg.page_size = 3;
+    custom_cfg.commit_on_english_switch = true;
     QIQI_TEST_CHECK(SaveConfig(custom_cfg));
     QIQI_TEST_CHECK(model.AddOrUpdateUserEntry(L"zzzz", L"临时未备份词"));
     QIQI_TEST_CHECK(model.RestoreBackupBundle(backup_file, BackupConflictMode::Replace, summary));
     QIQI_TEST_CHECK(summary.config_restored && summary.user_entries_applied >= 5 && summary.phrase_freq_applied == 1);
     QIQI_TEST_CHECK(LoadConfig().page_size == 7);
+    QIQI_TEST_CHECK(!LoadConfig().commit_on_english_switch);
     QIQI_TEST_CHECK(model.PinnedEntryCount() == 1 && model.BlockedEntryCount() == 1);
 
     // Test Merge mode (preserves newly added entry while re-applying backup entries)

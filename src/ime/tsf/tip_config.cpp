@@ -195,12 +195,7 @@ void QiQiTextService::SyncEngineFromSystemCompartments(REFGUID changed_guid) {
     if (IsEqualGUID(changed_guid, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE) && openclose_comp_) {
         const bool want_chinese = (openclose_comp_.ReadInt4(1) != 0);
         if (want_chinese != engine_.IsChineseMode()) {
-            if (!want_chinese && engine_.IsComposing() && active_context_) {
-                KeyProcessResult cancel_res{};
-                cancel_res.action = KeyActionType::Cancel;
-                ApplyEngineResult(active_context_.Get(), cancel_res);
-            }
-            engine_.SetChineseMode(want_chinese);
+            SetChineseModeAndFinishComposition(active_context_.Get(), want_chinese);
             changed = true;
         }
     } else if (IsEqualGUID(changed_guid, GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION) && convmode_comp_) {
@@ -210,12 +205,7 @@ void QiQiTextService::SyncEngineFromSystemCompartments(REFGUID changed_guid) {
         const bool want_cn_punct = (conv & TF_CONVERSIONMODE_SYMBOL) != 0;
 
         if (want_chinese != engine_.IsChineseMode()) {
-            if (!want_chinese && engine_.IsComposing() && active_context_) {
-                KeyProcessResult cancel_res{};
-                cancel_res.action = KeyActionType::Cancel;
-                ApplyEngineResult(active_context_.Get(), cancel_res);
-            }
-            engine_.SetChineseMode(want_chinese);
+            SetChineseModeAndFinishComposition(active_context_.Get(), want_chinese);
             changed = true;
         }
         if (want_full_width != engine_.IsFullWidthMode()) {
@@ -259,7 +249,7 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
                   LangBarMenuIdToString(action_id), static_cast<unsigned int>(action_id));
     switch (action_id) {
         case LangBarMenuId::ToggleChinese:
-            ToggleModeAndCancelComposition(active_context_.Get());
+            ToggleModeAndFinishComposition(active_context_.Get());
             break;
         case LangBarMenuId::ToggleFullWidth:
             engine_.ToggleFullWidthMode();

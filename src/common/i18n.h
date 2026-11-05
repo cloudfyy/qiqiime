@@ -53,6 +53,9 @@ struct UiStrings {
     const wchar_t* dlg_chk_code_hint;
     const wchar_t* dlg_chk_dynamic_freq;
     const wchar_t* dlg_chk_shift_toggle;
+    const wchar_t* dlg_lbl_english_switch;
+    const wchar_t* dlg_english_switch_commit;
+    const wchar_t* dlg_english_switch_clear;
     const wchar_t* dlg_chk_up_down_page_turn;
     const wchar_t* dlg_chk_status_bar;
     const wchar_t* dlg_chk_beep_empty4;
@@ -132,6 +135,9 @@ inline constexpr UiStrings kZhCnStrings = {
     L"显示后续编码提示 (~code)",
     L"启用词组动态调频 (单字不调频)",
     L"允许单按 Shift 键切换中英文",
+    L"切换英文时:",
+    L"英文上屏",
+    L"清除输入文字",
     L"使用 ↑ / ↓ 方向键翻页",
     L"显示桌面浮动状态条",
     L"四码空码时发出提示音",
@@ -213,6 +219,9 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Show progressive code hints (~code)",
     L"Dynamic phrase frequency (single chars fixed)",
     L"Toggle CN/EN mode with Shift key",
+    L"Switch to English:",
+    L"Commit raw text",
+    L"Clear input text",
     L"Turn candidate pages with Up/Down keys",
     L"Show desktop floating status bar",
     L"Beep on empty 4-letter code",

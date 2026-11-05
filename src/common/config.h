@@ -48,6 +48,7 @@ struct QiQiConfig {
     bool default_full_width = false;
     bool default_chinese_punct = true;
     bool shift_toggle_mode = true;
+    bool commit_on_english_switch = true;
     bool show_status_bar = false;
     bool beep_on_empty_4code = true;
     bool beep_on_dup_4code = false;

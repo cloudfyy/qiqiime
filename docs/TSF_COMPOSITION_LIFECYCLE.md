@@ -321,7 +321,7 @@ Preserving the main composition on a modal notification is not a request to proc
 
 Previously, `ApplyEngineResult` noticed context changes only after `engine_.ProcessKey` had already run. Consequently, Backspace in a fresh context could operate on the previous context's engine composition. Merely choosing a new COM range did not prevent that cross-target carryover.
 
-`PrepareInputContext` now runs before processing an actual key-down, and before contextual mode-toggle cancellation:
+`PrepareInputContext` now runs before processing an actual key-down, and before contextual mode-toggle commit:
 
 1. Reject missing/inactive targets and reentrant transitions without consuming the key.
 2. When the target differs, reset the old engine and invalidate its epoch **before** interpreting the new key.
@@ -332,6 +332,32 @@ Previously, `ApplyEngineResult` noticed context changes only after `engine_.Proc
 The preparation guard retains the pending context, not just a Boolean flag. A matching `OnPopContext` during `GetDocumentMgr` invalidates the epoch even before `active_context_` is assigned, so the outer operation declines the key without attaching a sink or requesting an edit session. Unrelated removals do not cancel preparation. RAII releases the pending reference on every exit.
 
 `ApplyEngineResult` no longer switches targets after the fact. UI/configuration callbacks can submit results only for an already prepared current context. Backspace in a fresh context is therefore passed through when its engine has no composition, instead of creating text derived from the previous context.
+
+Switching from Chinese to English with Shift, Ctrl+Space, the language/status bar,
+or either system mode compartment follows `commit_on_english_switch`. Its default,
+`true`, commits the current raw code, preserving the preedit literally, including
+a temporary-English `z` guide; it does not select a Chinese candidate. `false`
+cancels only the current composition and clears its preedit, not previously
+committed text. Escape still cancels, and Space/Enter in temporary English still
+omit its guide. The setting is persisted as `CommitOnEnglishSwitch` (DWORD 1/0),
+defaults to commit when absent, and participates in live configuration sync and
+dictionary-manager backup/restore.
+
+Both policies use the existing application edit-session path and FIFO ordering.
+Commit clears display attributes, collapses the caret and ends the composition;
+cancel removes the composition text and ends the composition. Switching targets
+first resets the engine, so an old target's code is never committed into a new
+target. The policy does not apply to focus-loss/deactivation cleanup.
+
+This option changes the host edit action, not the key FSM's state transition:
+both policies call `SetChineseMode(false)`, clearing engine composition data and
+entering `English` before submitting the captured host edit. A synchronous
+`EndComposition` callback therefore observes English key prediction, and a
+reentrant system-mode notification cannot resubmit the old raw code. Switching
+back enters `Idle`; width and punctuation settings
+are retained. No new key event, transition-table entry or engine state is needed.
+Regression tests cover both policies across idle, all four Wubi composing states
+and temporary English, in half/full-width modes.
 
 `OnTestKeyDown` must predict that same boundary without performing it. For the current context it uses `ShouldEatKey`; for a different context it uses the read-only `ShouldEatKeyAfterReset`. Both routes share the configured key classifier and transition table. The preview does not bind contexts, reset the live engine, end host compositions, or request edit sessions; the existing Shift-tap tracking remains separate. Missing/inactive targets and reentrant reset/binding are declined. A positive prediction is not an edit-permission grant: the actual callback still prepares and rechecks its target.
 

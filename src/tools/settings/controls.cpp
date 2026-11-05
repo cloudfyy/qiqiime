@@ -90,6 +90,7 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdLblPageSize, str.dlg_lbl_page_size);
     ::SetDlgItemTextW(hwnd, kIdLblUiLang, str.dlg_lbl_ui_lang);
     ::SetDlgItemTextW(hwnd, kIdLblUnderlineStyle, str.dlg_lbl_underline_style);
+    ::SetDlgItemTextW(hwnd, kIdLblEnglishSwitch, str.dlg_lbl_english_switch);
     ::SetDlgItemTextW(hwnd, kIdBtnAbout, str.dlg_btn_about);
     ::SetDlgItemTextW(hwnd, kIdBtnDictManager, str.dlg_btn_dict_mgr);
     ::SetDlgItemTextW(hwnd, kIdBtnOk, str.dlg_btn_ok);
@@ -110,6 +111,10 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
         str.dlg_underline_none,
     };
     replace_combo_items(kIdComboUnderlineStyle, underline_items);
+    const std::array<const wchar_t*, 2> english_switch_items = {
+        str.dlg_english_switch_commit, str.dlg_english_switch_clear
+    };
+    replace_combo_items(kIdComboEnglishSwitch, english_switch_items);
 
     struct LanguageUpdate {
         HWND owner;
@@ -163,6 +168,9 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
     }
     if (current_ui_cfg.underline_style != ctx.baseline_config.underline_style) {
         merged_ui_cfg.underline_style = current_ui_cfg.underline_style;
+    }
+    if (current_ui_cfg.commit_on_english_switch != ctx.baseline_config.commit_on_english_switch) {
+        merged_ui_cfg.commit_on_english_switch = current_ui_cfg.commit_on_english_switch;
     }
     const bool ui_lang_follows_external =
         (current_ui_cfg.ui_language == ctx.baseline_config.ui_language);
@@ -288,6 +296,18 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     std::ignore = log::CheckHResult(ReplaceComboBoxItems(underline_combo, underline_items),
         "Settings::ReplaceComboBoxItems(underline)");
 
+    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"STATIC", str.dlg_lbl_english_switch, 0,
+        S(430), S(378), S(156), S(24), kIdLblEnglishSwitch);
+    const HWND english_switch_combo = CreateFluentChildControl(
+        hwnd, instance, f, &ctx.d2d, L"COMBOBOX", L"",
+        CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP,
+        S(588), S(374), S(200), S(160), kIdComboEnglishSwitch);
+    const std::array<const wchar_t*, 2> english_switch_items = {
+        str.dlg_english_switch_commit, str.dlg_english_switch_clear
+    };
+    std::ignore = log::CheckHResult(ReplaceComboBoxItems(english_switch_combo, english_switch_items),
+        "Settings::ReplaceComboBoxItems(English switch)");
+
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_about, BS_OWNERDRAW | WS_TABSTOP, S(18), S(448), S(104), S(32), kIdBtnAbout);
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_dict_mgr, BS_OWNERDRAW | WS_TABSTOP, S(132), S(448), S(156), S(32), kIdBtnDictManager);
     CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_ok, BS_OWNERDRAW | WS_TABSTOP, S(596), S(448), S(98), S(32), kIdBtnOk);
@@ -334,6 +354,8 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
         static_cast<int>(CompositionUnderlineStyle::None));
     ::SendDlgItemMessageW(
         hwnd, kIdComboUnderlineStyle, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(underline_idx), 0);
+    ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_SETCURSEL,
+        config.commit_on_english_switch ? 0 : 1, 0);
     UpdateExtraDictCheckboxState(hwnd);
 }
 
@@ -368,6 +390,10 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     if (underline_sel >= 0 &&
         underline_sel <= static_cast<LRESULT>(CompositionUnderlineStyle::None)) {
         config.underline_style = static_cast<CompositionUnderlineStyle>(underline_sel);
+    }
+    const LRESULT english_switch_sel = ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_GETCURSEL, 0, 0);
+    if (english_switch_sel == 0 || english_switch_sel == 1) {
+        config.commit_on_english_switch = (english_switch_sel == 0);
     }
 }
 
