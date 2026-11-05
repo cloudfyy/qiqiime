@@ -445,3 +445,10 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **编码接管**：只有未手动改码的新建草稿随词条变化自动取码；已有项不自动覆盖编码。主动“自动取码”可更新当前编码，但不清除已经接管的手动模式。取消或重新开始新建草稿时才重置该状态。
 - **窗口保留控件职责**：[`window.cpp`](../src/tools/dict_manager/window.cpp) 将控件变化送入草稿，菜单、工具栏、右键菜单与命令分派复用命令许可。IME 组合态、通知更新守卫、鼠标捕获、焦点与编辑行位置留在 View；组合态 Enter/Esc 不提交或取消草稿。
 - **测试**：[`词库工具测试`](../tests/tools/dict_manager/main.cpp) 同时包含不创建窗口的状态/保存动作矩阵和真实窗口回归，检查失败保留、原项外部删除后不复活、行 ID 重排、编码接管、筛选切换、主题/DPI 与组合态按键。未引入 Undo、跨资源事务或新的 TSF 生命周期抽象。
+
+### 5.19 TSF 生命周期票据与独立清理（R05 首步）
+
+- **票据是非拥有快照**：[`EditSessionTicket`](../src/ime/tsf/edit_session.h) 配对激活/上下文 epoch 与原始目标身份，只比较值，不执行 COM 调用。异步回调仍必须捕获原有 context/service/view 强引用；会话内操作继续保留组合强引用和组合身份复核。不要把裸目标指针当成所有者，也不要在宿主重入后重新捕获 epoch 来“更新”旧任务的票据。
+- **验证不只是指针相等**：[`IsEditSessionCurrent`](../src/ime/tsf/tip_composition.cpp) 还要求服务激活且不在重置中。保持原有宿主调用前后的检查位置，不把检查缩减到回调入口。A-B-A 必须因 epoch 不同而拒绝；空目标票据仅用于输入目标准备/文档切换后的内部重置检查，不授予编辑权限。
+- **清理不能按当前票据取消**：[`CompositionCleanup`](../src/ime/tsf/tip_service.h) 独立拥有旧组合及其资源，保留移除、宿主终止、开始/完成状态和同 context 的写入屏障。Deactivate 使旧编辑失效，但旧清理仍可完成；未执行请求被丢弃时保留原诊断并释放引用，不宣称宿主清理成功。不要复用旧编辑 cookie，也不要把 STA 操作转移到后台线程。
+- **回归与范围**：[`生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 覆盖票据匹配矩阵、旧布局/提交/取消回调与跨激活清理/新写入交错，以及未执行队列释放后的对象计数。继续保留同步/异步清理、宿主终止和 UI 注册重入测试；宿主 `BeginUIElement` 许可、FSM 与定位策略不变，完整协调器提取尚未实施。

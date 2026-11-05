@@ -11,6 +11,7 @@
 #include "common/config.h"
 #include "common/guids.h"
 #include "ime/engine/engine.h"
+#include "ime/tsf/edit_session.h"
 #include "ime/tsf/shift_tap.h"
 #include "ime/ui/candidate_ui.h"
 #include "ime/ui/langbar_button.h"
@@ -98,10 +99,6 @@ public:
 
 private:
     enum class FocusNotificationSource { ThreadManager, KeyEvent };
-    struct EditSessionEpoch {
-        uint64_t activation = 0;
-        uint64_t context = 0;
-    };
     struct CompositionCleanup {
         CompositionCleanup() = default;
         ~CompositionCleanup() noexcept;
@@ -169,9 +166,9 @@ private:
     bool PrepareInputContext(ITfContext* context);
     bool IsActiveDocument(ITfDocumentMgr* document) const;
     bool ReconcileDocumentTarget(ITfDocumentMgr* document, std::string_view source);
-    bool IsEditSessionCurrent(EditSessionEpoch epoch, const ITfContext* context) const noexcept;
+    bool IsEditSessionCurrent(EditSessionTicket ticket) const noexcept;
     bool IsCompositionEditCurrent(
-        EditSessionEpoch epoch, const ITfContext* context, const ITfComposition* composition) const noexcept;
+        EditSessionTicket ticket, const ITfComposition* composition) const noexcept;
     bool IsContextKeyboardDisabled(ITfContext* context) const noexcept;
     void SetChineseModeAndFinishComposition(ITfContext* context, bool enabled);
     void ToggleModeAndFinishComposition(ITfContext* context);

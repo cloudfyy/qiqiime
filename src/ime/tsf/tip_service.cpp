@@ -412,14 +412,14 @@ bool QiQiTextService::IsActiveDocument(ITfDocumentMgr* document) const {
 bool QiQiTextService::ReconcileDocumentTarget(ITfDocumentMgr* document, std::string_view source) {
     if (!active_context_ || !document) return true;
     const auto context = active_context_;
-    const auto epoch = edit_session_epoch_;
+    const EditSessionTicket ticket{edit_session_epoch_, context.Get()};
     ComPtr<ITfContext> top;
     ComPtr<ITfContext> base;
     const HRESULT top_hr = document->GetTop(&top);
     const HRESULT base_hr = document->GetBase(&base);
     const bool top_ok = log::CheckHResult(top_hr, "ReconcileDocumentTarget::GetTop");
     const bool base_ok = log::CheckHResult(base_hr, "ReconcileDocumentTarget::GetBase");
-    if (!IsEditSessionCurrent(epoch, context.Get())) return false;
+    if (!IsEditSessionCurrent(ticket)) return false;
     const bool retained = top_ok && base_ok && (top == context || base == context);
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
@@ -431,10 +431,10 @@ bool QiQiTextService::ReconcileDocumentTarget(ITfDocumentMgr* document, std::str
         retained,
         retained && top != context);
     if (!retained) {
-        auto expected = edit_session_epoch_;
-        ++expected.context;
+        EditSessionTicket expected{edit_session_epoch_, nullptr};
+        ++expected.epoch.context;
         ResetCompositionAndUI();
-        return IsEditSessionCurrent(expected, nullptr);
+        return IsEditSessionCurrent(expected);
     } else {
         active_document_ = document;
     }
@@ -516,7 +516,7 @@ STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentM
 
 STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
     if (!is_active_ || !pic || !active_context_ || pic == active_context_.Get()) return S_OK;
-    const auto epoch = edit_session_epoch_;
+    const EditSessionTicket ticket{edit_session_epoch_, active_context_.Get()};
     const auto context = active_context_;
     ComPtr<ITfDocumentMgr> document;
     if (!log::CheckHResult(pic->GetDocumentMgr(&document), "OnPushContext::GetDocumentMgr") || !document) {
@@ -528,7 +528,7 @@ STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
             service_log_id_);
         return S_OK;
     }
-    if (!IsEditSessionCurrent(epoch, context.Get())) return S_OK;
+    if (!IsEditSessionCurrent(ticket)) return S_OK;
     const bool related = IsActiveDocument(document.Get());
     QIQI_LOG_ACT_INFO(
         log::Level::debug,

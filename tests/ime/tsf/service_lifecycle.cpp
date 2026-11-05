@@ -9,10 +9,42 @@
 #include <iostream>
 #include <memory>
 #include <tuple>
+#include <type_traits>
 
 namespace qiqi::test {
 
 namespace {
+
+void TestEditSessionTickets() {
+    static_assert(std::is_trivially_copyable_v<EditSessionTicket>);
+    static_assert(std::is_nothrow_copy_constructible_v<EditSessionTicket>);
+    const auto first = MakeComObject<MockTfContext>();
+    const auto second = MakeComObject<MockTfContext>();
+    const EditSessionTicket ticket{{7, 11}, first.Get()};
+    struct Case {
+        EditSessionEpoch epoch;
+        const ITfContext* target;
+        bool matches;
+    };
+    const std::array cases{
+        Case{{7, 11}, first.Get(), true},
+        Case{{8, 11}, first.Get(), false},
+        Case{{7, 12}, first.Get(), false},
+        Case{{8, 12}, first.Get(), false},
+        Case{{7, 11}, second.Get(), false},
+        Case{{8, 11}, second.Get(), false},
+        Case{{7, 12}, second.Get(), false},
+        Case{{7, 13}, first.Get(), false},
+        Case{{7, 11}, nullptr, false},
+    };
+    for (const auto& test : cases) {
+        QIQI_TEST_CHECK(ticket.Matches(test.epoch, test.target) == test.matches);
+    }
+    const EditSessionTicket detached{{7, 11}, nullptr};
+    QIQI_TEST_CHECK(detached.Matches({7, 11}, nullptr));
+    QIQI_TEST_CHECK(!detached.Matches({7, 11}, first.Get()));
+    QIQI_TEST_CHECK(!detached.Matches({7, 12}, nullptr));
+}
 
 struct NativeTsfState {
     std::wstring text;
@@ -747,6 +779,7 @@ struct UiWindowDestructionProbe {
 };
 
 void TestDeactivationWindowLifecycle() {
+    TestEditSessionTickets();
     std::array<BYTE, 256> original_keyboard{};
     QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
     const auto restore_keyboard = gsl::finally([&]() noexcept {
@@ -1489,6 +1522,73 @@ void RunTsfServiceLifecycleTests(gsl::not_null<QiQiTextService*> service, gsl::n
         QIQI_TEST_CHECK(service->Deactivate() == S_OK);
         QIQI_TEST_CHECK(current_composition->ended_ && current_composition->end_composition_calls_ == 1);
         QIQI_TEST_CHECK(service->Activate(mock_tm.get(), 1) == S_OK);
+    }
+
+    // Stale edits cancel, but detached cleanup must still precede the next activation's writes.
+    {
+        const auto initial_objects = g_com_object_count.load();
+        for (const UINT stale_key : {0u, UINT{VK_SPACE}, UINT{VK_ESCAPE}}) {
+            for (const bool execute_cleanup : {false, true}) {
+                auto queue = std::make_shared<MockEditSessionQueue>();
+                auto context = MakeComObject<MockTfContext>(queue);
+                auto peer = MakeComObject<QiQiTextService>(g_dll_instance);
+                auto manager = MakeComObject<MockTfThreadMgr>();
+                BOOL eaten_deferred = FALSE;
+                QIQI_TEST_CHECK(peer->Activate(manager.Get(), 2) == S_OK);
+                QIQI_TEST_CHECK(peer->OnKeyDown(context.Get(), 'A', 0, &eaten_deferred) == S_OK && eaten_deferred);
+                QIQI_TEST_CHECK(queue->RunNext() == S_OK && context->range_->text_ == L"a");
+                const auto old_composition = context->last_composition_;
+                if (stale_key == 0) {
+                    QIQI_TEST_CHECK(peer->OnLayoutChange(context.Get(), TF_LC_CHANGE, nullptr) == S_OK);
+                } else {
+                    QIQI_TEST_CHECK(peer->OnKeyDown(context.Get(), stale_key, 0, &eaten_deferred) == S_OK &&
+                                    eaten_deferred);
+                }
+                QIQI_TEST_CHECK(queue->PendingCount() == 1);
+                context->allow_sync_edit_sessions_ = false;
+                QIQI_TEST_CHECK(peer->Deactivate() == S_OK && queue->PendingCount() == 2);
+                const auto writes_before = context->range_->set_text_calls_;
+                const auto views_before = context->get_active_view_calls_;
+                if (!execute_cleanup) {
+                    peer.Reset();
+                    manager.Reset();
+                    QIQI_TEST_CHECK(queue->ClearForCleanup() == S_OK && queue->PendingCount() == 0);
+                    QIQI_TEST_CHECK(!old_composition->ended_ && old_composition->end_composition_calls_ == 0);
+                    QIQI_TEST_CHECK(context->prop_->clear_calls_ == 0 && context->range_->text_ == L"a");
+                    QIQI_TEST_CHECK(context->range_->set_text_calls_ == writes_before &&
+                                    context->get_active_view_calls_ == views_before);
+                    continue;
+                }
+                QIQI_TEST_CHECK(peer->Activate(manager.Get(), 2) == S_OK);
+                QIQI_TEST_CHECK(peer->OnKeyDown(context.Get(), 'B', 0, &eaten_deferred) == S_OK && eaten_deferred);
+                QIQI_TEST_CHECK(queue->PendingCount() == 3);
+                QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 2).flags == (TF_ES_ASYNC | TF_ES_READWRITE));
+                const auto ui_before = std::tuple{
+                    manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_};
+                QIQI_TEST_CHECK(queue->RunNext(31) == S_OK && queue->PendingCount() == 2);
+                QIQI_TEST_CHECK(context->range_->text_ == L"a" &&
+                                context->range_->set_text_calls_ == writes_before);
+                QIQI_TEST_CHECK(context->get_active_view_calls_ == views_before &&
+                                context->start_composition_calls_ == 1);
+                QIQI_TEST_CHECK(!old_composition->ended_ && context->prop_->clear_calls_ == 0);
+                QIQI_TEST_CHECK((std::tuple{
+                    manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_}) == ui_before);
+                QIQI_TEST_CHECK(queue->RunNext(37) == S_OK && queue->PendingCount() == 1);
+                QIQI_TEST_CHECK(old_composition->ended_ && old_composition->end_composition_calls_ == 1);
+                QIQI_TEST_CHECK(context->prop_->clear_calls_ == 1 && context->prop_->last_clear_cookie_ == 37);
+                QIQI_TEST_CHECK(context->range_->text_ == L"a" &&
+                                context->range_->set_text_calls_ == writes_before);
+                QIQI_TEST_CHECK((std::tuple{
+                    manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_}) == ui_before);
+                QIQI_TEST_CHECK(queue->RunNext(41) == S_OK && queue->PendingCount() == 0);
+                QIQI_TEST_CHECK(context->range_->text_ == L"b" && context->start_composition_calls_ == 2);
+                QIQI_TEST_CHECK(context->last_composition_.Get() != old_composition.Get() &&
+                                !context->last_composition_->ended_ && context->prop_->clear_calls_ == 1);
+                context->allow_sync_edit_sessions_ = true;
+                QIQI_TEST_CHECK(peer->Deactivate() == S_OK && context->last_composition_->ended_);
+            }
+        }
+        QIQI_TEST_CHECK(g_com_object_count.load() == initial_objects);
     }
 
     // Deferred cleanup survives deactivation, but cannot clear a new composition's attributes.
