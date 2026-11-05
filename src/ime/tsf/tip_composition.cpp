@@ -1,5 +1,4 @@
 #include "ime/tsf/tip_service.h"
-#include "ime/comp/attribute.h"
 #include "ime/comp/finish.h"
 #include "ime/comp/range.h"
 #include "ime/comp/start.h"
@@ -65,23 +64,12 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfC
         const EditSessionTicket ticket{edit_session_epoch_, active_context_.Get()};
         const ComPtr<ITfContext> context_holder = active_context_;
         const ComPtr<ITfComposition> composition_holder = std::move(composition_);
-        ComPtr<ITfRange> range;
-        const HRESULT range_hr = composition_holder->GetRange(&range);
-        if (log::CheckHResult(range_hr, "HostTermination::GetRange")) {
-            if (range) {
-                std::ignore = ClearCompositionDisplayAttribute(
-                    ecWrite, gsl::not_null<ITfContext*>(context_holder.Get()), gsl::not_null<ITfRange*>(range.Get()),
-                    [this, ticket]() noexcept {
-                        return IsCompositionEditCurrent(ticket, nullptr);
-                    });
-            } else {
-                QIQI_LOG_CAT_WARN(
-                    log::Keyword::Composition,
-                    "HostTermination::GetRange returned no range (hr=0x{:08x})",
-                    gsl::narrow_cast<unsigned int>(range_hr));
-            }
-        }
-        if (!IsCompositionEditCurrent(ticket, nullptr)) {
+        const auto terminated = ClearTerminatedCompositionInSession(
+            ecWrite, context_holder.Get(), composition_holder.Get(),
+            [this, ticket]() noexcept {
+                return IsCompositionEditCurrent(ticket, nullptr);
+            });
+        if (!terminated.may_reset) {
             return S_OK;
         }
     }

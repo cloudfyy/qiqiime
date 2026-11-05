@@ -25,6 +25,9 @@ constexpr std::array kPropertyFailureTrace{
     Event::Range, Event::Check, Event::Check, Event::Property, Event::Check, Event::Text, Event::Check,
     Event::Clone, Event::Check, Event::Collapse, Event::Check, Event::Selection, Event::Check, Event::Detach, Event::End,
 };
+constexpr std::array kHostTerminationTrace{
+    Event::Range, Event::Check, Event::Property, Event::Check, Event::Clear, Event::Check,
+};
 
 std::vector<Event> TracePrefix(std::span<const Event> trace, size_t count, bool extra_check = false, bool end = false) {
     const auto prefix = trace.first(count);
@@ -290,11 +293,126 @@ void TestDirectCompositionCommit() {
     }
 }
 
+void TestHostCompositionTermination() {
+    struct Case {
+        Event invalidation = Event::None;
+        bool initially_current = true;
+        bool fail_range = false;
+        bool null_range = false;
+        HRESULT property_hr = S_OK;
+        bool null_property = false;
+        HRESULT clear_hr = S_OK;
+        bool may_reset = true;
+        std::vector<Event> events{kHostTerminationTrace.begin(), kHostTerminationTrace.end()};
+    };
+    const std::array cases{
+        Case{},
+        Case{.initially_current = false, .may_reset = false, .events = {Event::Range, Event::Check, Event::Check}},
+        Case{.invalidation = Event::Range, .may_reset = false, .events = {Event::Range, Event::Check, Event::Check}},
+        Case{.invalidation = Event::Property, .may_reset = false,
+             .events = {Event::Range, Event::Check, Event::Property, Event::Check, Event::Check}},
+        Case{.invalidation = Event::Clear, .may_reset = false},
+        Case{.fail_range = true, .events = {Event::Range, Event::Check}},
+        Case{.null_range = true, .events = {Event::Range, Event::Check}},
+        Case{.property_hr = E_ACCESSDENIED, .events = {Event::Range, Event::Check, Event::Property, Event::Check}},
+        Case{.null_property = true, .events = {Event::Range, Event::Check, Event::Property, Event::Check}},
+        Case{.clear_hr = E_ACCESSDENIED},
+        Case{.initially_current = false, .fail_range = true, .may_reset = false, .events = {Event::Range, Event::Check}},
+        Case{.initially_current = false, .null_range = true, .may_reset = false, .events = {Event::Range, Event::Check}},
+        Case{.invalidation = Event::Property, .property_hr = E_ACCESSDENIED, .may_reset = false,
+             .events = {Event::Range, Event::Check, Event::Property, Event::Check}},
+        Case{.invalidation = Event::Clear, .clear_hr = E_ACCESSDENIED, .may_reset = false},
+        Case{.invalidation = Event::Range, .fail_range = true, .may_reset = false, .events = {Event::Range, Event::Check}},
+        Case{.invalidation = Event::Range, .null_range = true, .may_reset = false, .events = {Event::Range, Event::Check}},
+        Case{.invalidation = Event::Property, .null_property = true, .may_reset = false,
+             .events = {Event::Range, Event::Check, Event::Property, Event::Check}},
+    };
+    const std::array inputs{
+        std::wstring{L"abc"},
+        std::wstring{},
+        std::wstring{L'a', L'\0', L'\u4e2d', L'\xd840', L'\xdc00'},
+    };
+    const auto objects_before = g_com_object_count.load();
+    for (const auto& text : inputs) {
+        for (const auto& test : cases) {
+            const auto context = MakeComObject<MockTfContext>();
+            const auto context_holder = context;
+            const auto range = context->range_;
+            const auto composition = MakeComObject<MockTfComposition>(range);
+            ComPtr<ITfComposition> current_composition = composition;
+            const auto composition_holder = std::move(current_composition);
+            ComPtr<MockTfComposition> replacement;
+            std::vector<Event> events;
+            const auto observe = [&](Event event) {
+                events.push_back(event);
+                if (test.invalidation == event) {
+                    replacement = MakeComObject<MockTfComposition>(range);
+                    current_composition = replacement;
+                }
+            };
+            const ULONG range_probe = range->AddRef();
+            QIQI_TEST_CHECK(range->Release() == range_probe - 1);
+            QIQI_TEST_CHECK(composition->NotifyHostTermination(173) == S_OK);
+            range->text_ = text;
+            composition->fail_get_range_ = test.fail_range;
+            composition->return_null_range_ = test.null_range;
+            context->get_property_result_ = test.property_hr;
+            context->return_null_property_ = test.null_property;
+            context->prop_->clear_result_ = test.clear_hr;
+            composition->get_range_observer_ = [&](ITfRange** output) {
+                QIQI_TEST_CHECK(!current_composition && output && !*output);
+                observe(Event::Range);
+            };
+            context->get_property_observer_ = [&](REFGUID guid, ITfProperty** output) {
+                QIQI_TEST_CHECK(IsEqualGUID(guid, GUID_PROP_ATTRIBUTE) && output && !*output);
+                observe(Event::Property);
+            };
+            context->prop_->clear_callback_ = [&](TfEditCookie ec) {
+                QIQI_TEST_CHECK(ec == 173);
+                observe(Event::Clear);
+            };
+            const bool has_range = !test.fail_range && !test.null_range;
+            {
+                const auto terminated = ClearTerminatedCompositionInSession(
+                    173, context_holder.Get(), composition_holder.Get(),
+                    [&] {
+                        observe(Event::Check);
+                        const ULONG expected_probe = range_probe + (has_range ? 1UL : 0UL) + (replacement ? 1UL : 0UL);
+                        QIQI_TEST_CHECK(range->AddRef() == expected_probe && range->Release() == expected_probe - 1);
+                        return test.initially_current && !current_composition;
+                    });
+                QIQI_TEST_CHECK(terminated.may_reset == test.may_reset &&
+                                terminated.range.Get() == (has_range ? range.Get() : nullptr));
+                const ULONG expected_probe = range_probe + (has_range ? 1UL : 0UL) + (replacement ? 1UL : 0UL);
+                QIQI_TEST_CHECK(range->AddRef() == expected_probe && range->Release() == expected_probe - 1);
+            }
+            const ULONG expected_probe = range_probe + (replacement ? 1UL : 0UL);
+            QIQI_TEST_CHECK(range->AddRef() == expected_probe && range->Release() == expected_probe - 1);
+            QIQI_TEST_CHECK(events == test.events && composition->get_range_calls_ == 1);
+            QIQI_TEST_CHECK(context->get_property_calls_ ==
+                            gsl::narrow_cast<unsigned int>(std::ranges::count(test.events, Event::Property)) &&
+                            context->prop_->clear_calls_ ==
+                            gsl::narrow_cast<unsigned int>(std::ranges::count(test.events, Event::Clear)));
+            QIQI_TEST_CHECK(range->text_ == text && range->set_text_calls_ == 0 && range->clone_calls_ == 0 &&
+                            context->set_selection_calls_ == 0 && context->prop_->set_calls_ == 0 &&
+                            context->request_edit_session_calls_ == 0 && context->start_composition_calls_ == 0 &&
+                            composition->end_composition_calls_ == 0 && composition->ended_);
+            QIQI_TEST_CHECK(current_composition.Get() == replacement.Get());
+            if (replacement) QIQI_TEST_CHECK(!replacement->ended_ && replacement->end_composition_calls_ == 0);
+            composition->get_range_observer_ = {};
+            context->get_property_observer_ = {};
+            context->prop_->clear_callback_ = {};
+        }
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 } // namespace
 
 void RunTsfCompositionFinishTests() {
     TestCompositionFinishing();
     TestDirectCompositionCommit();
+    TestHostCompositionTermination();
 }
 
 } // namespace qiqi::test

@@ -8,6 +8,32 @@ namespace qiqi {
 
 enum class CompositionFinishKind { Commit, Cancel };
 
+// Retain the acquired range through the caller's original termination scope.
+struct CompositionTerminationResult {
+    Microsoft::WRL::ComPtr<ITfRange> range;
+    bool may_reset = false;
+};
+
+template <typename IsCurrent>
+[[nodiscard]] CompositionTerminationResult ClearTerminatedCompositionInSession(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfComposition*> composition,
+    IsCurrent is_current) {
+    CompositionTerminationResult result;
+    const HRESULT range_hr = composition->GetRange(&result.range);
+    if (log::CheckHResult(range_hr, "HostTermination::GetRange")) {
+        if (result.range) {
+            std::ignore = ClearCompositionDisplayAttribute(ec, context, result.range.Get(), is_current);
+        } else {
+            QIQI_LOG_CAT_WARN(
+                log::Keyword::Composition,
+                "HostTermination::GetRange returned no range (hr=0x{:08x})",
+                gsl::narrow_cast<unsigned int>(range_hr));
+        }
+    }
+    result.may_reset = is_current();
+    return result;
+}
+
 // The caller retains the context/composition and detaches current state in before_end.
 template <typename IsCurrent, typename BeforeEnd>
 void FinishCompositionInSession(

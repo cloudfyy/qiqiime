@@ -533,3 +533,10 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **状态仍由服务解除**：服务以原票据和组合身份提供检查器，强持有旧组合，并在结束前回调中解除当前组合引用、清除旧 caret 状态；helper 的范围引用跨越整个 `EndComposition`。解除状态后不追加检查或状态写入，宿主结束中的新组合/caret 不被旧流程覆盖，结束失败也不重新发布旧组合。
 - **直接上屏独立保留**：[`InsertCommittedTextInSession`](../src/ime/comp/finish.h) 对空文本不调用宿主；非空文本保留接口查询后的身份检查、显式长度插入及局部插入范围引用，不新增组合或 selection 操作。取消入口使用与实际调用方一致的 `gsl::not_null<ITfContext*>`。成功却无范围/插入接口新增原 HRESULT 警告，原失败诊断和尽力策略不变。
 - **验证**：[`结束流程回归`](../tests/ime/comp/finish.cpp) 的 35 组提交/取消条件分别覆盖 ASCII、空文本及含 NUL/中文/代理对的 UTF-16，共 105 组；另有 9 组直接上屏条件 × 3 种文本，共 27 组。逐项比较宿主调用/复核序列、参数、次数、失败后的继续/停止、caret clone 释放、范围在结束中的存活，以及结束回调创建新组合后状态不被覆盖。原服务重入和原生 TSF 回归保留；x64/x86 构建、CppCoreCheck、串行 `QiQiTsfUiTest` 通过。完整 R05 仍未完成，FSM、UI 许可和定位算法不变。
+
+### 5.30 TSF 当前组合的宿主终止（R05 第十二步）
+
+- **仅收拢宿主操作与最终复核**：[`ClearTerminatedCompositionInSession`](../src/ime/comp/finish.h) 获取原组合范围、复用属性清除 helper，并返回原最终身份复核结果；不写文本、不再次结束已终止的组合、不调度清理或重置引擎/UI。范围/属性/清除失败保留原 HRESULT 诊断及仍可按身份复核执行服务重置的策略。
+- **拥有范围而非提前释放**：`CompositionTerminationResult` 保留取得的 range，服务将它留到原 if 作用域结束，仍按 range、原组合、context 的顺序释放。`may_reset` 不代表属性清除成功，也不能由 range 非空推导；仅供服务立即决定是否继续原重置路径，不能跨后续宿主调用缓存复用。
+- **门面与重置仍在服务**：[`OnCompositionTerminated`](../src/ime/tsf/tip_composition.cpp) 保留已登记清理优先、无关组合忽略、空通知及缺少活动 context 的原路径；仍先捕获票据/context 强引用并移走当前组合，再调用 helper。实际引擎/UI 重置仍在服务，生命周期日志及 FSM 不变。
+- **验证**：[`宿主终止单元回归`](../tests/ime/comp/finish.cpp) 新增 17 种失败/空返回/失效条件 × 3 种文本，共 51 组，检查完整宿主/复核顺序、允许重置与资源存在性的独立关系、范围在最终复核及返回值作用域内的引用数、原文本不变和无额外结束/写入。另扩展[服务重入矩阵](../tests/ime/tsf/service_reentrancy.cpp)，在范围获取、属性查询及属性清除期间先取消旧引擎状态再输入，验证同 context/epoch 的新组合及 UI 不被旧终止流程覆盖；矩阵精确增加为 89 组。x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。完整 R05 仍未完成，未重跑全仓测试或新增真实宿主验收。

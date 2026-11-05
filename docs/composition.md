@@ -69,6 +69,20 @@ empty text does nothing; nonempty text queries the insertion interface, checks
 identity, and inserts without creating a composition, clearing attributes, or
 adjusting selection. Neither helper stores an edit cookie or schedules work.
 
+For the current composition's host-termination notification, the service still
+handles tracked/unrelated/null notifications and detaches the old composition
+before querying the host. [`ClearTerminatedCompositionInSession`](../src/ime/comp/finish.h)
+then obtains the old range, clears only its display attribute with the existing
+identity checks, and performs the final reset-eligibility check. It never writes
+text, ends the already-terminated composition, or resets the engine/UI.
+Its `CompositionTerminationResult` retains the range through the caller's original
+scope, preserving release order: range, old composition, then context.
+`may_reset` is an immediate identity-check result, not a cleanup-success flag or
+permission to reuse after further host calls. A range/property/clear failure is
+diagnosed but still allows the original service reset when identity remains valid.
+A replacement composition created in the same context and epoch must suppress
+that reset just as an epoch change does.
+
 ### 2.2 Keyboard Event State
 
 `OnTestKeyDown` and `OnKeyDown` sample modifiers and CapsLock before querying
