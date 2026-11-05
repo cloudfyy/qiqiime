@@ -11,21 +11,32 @@ target_link_libraries(qiqi_engine_test PRIVATE qiqi_engine)
 add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
 
 set(QIQI_TSF_UI_TEST_SOURCES
+    comp/tests.h
+    comp/cleanup.cpp
+    comp/edit.cpp
+    comp/range.cpp
+    comp/start.cpp
     tsf/mocks.h
     tsf/com.cpp
-    tsf/composition_range.cpp
     tsf/category_manager.cpp
     tsf/logging.cpp
     tsf/restricted_input.cpp
     tsf/service.cpp
+    tsf/service_lifecycle.h
     tsf/service_lifecycle.cpp
+    tsf/service_cleanup.cpp
+    tsf/service_context.cpp
+    tsf/service_deferred.cpp
+    tsf/service_native.cpp
+    tsf/service_reentrancy.cpp
+    tsf/service_windows.cpp
     ui/ui_candidate.cpp
     ui/ui_langbar_menu.cpp
     ui/ui_statusbar.cpp
     tsf_ui_main.cpp
 )
 set(QIQI_TSF_UI_IMPL_SOURCES
-    "${PROJECT_SOURCE_DIR}/src/ime/tsf/composition_cleanup.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/comp/cleanup.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/dllmain.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/class_factory.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/register.cpp"

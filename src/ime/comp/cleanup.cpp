@@ -1,5 +1,5 @@
-#include "ime/tsf/composition_cleanup.h"
-#include "ime/tsf/composition_attribute.h"
+#include "ime/comp/cleanup.h"
+#include "ime/comp/attribute.h"
 #include "ime/tsf/edit_session.h"
 #include <algorithm>
 #include <gsl/gsl>

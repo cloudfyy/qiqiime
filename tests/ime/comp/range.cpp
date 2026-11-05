@@ -1,6 +1,7 @@
 #include "common/test_support.h"
-#include "mocks.h"
-#include "ime/tsf/composition_range.h"
+#include "ime/tsf/mocks.h"
+#include "ime/comp/range.h"
+#include "ime/comp/tests.h"
 #include <array>
 #include <string>
 #include <vector>

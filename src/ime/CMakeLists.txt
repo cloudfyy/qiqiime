@@ -21,11 +21,12 @@ set(QIQIIME_SOURCES
     tsf/class_factory.h
     tsf/class_factory.cpp
     tsf/category_manager.h
-    tsf/composition_attribute.h
-    tsf/composition_cleanup.h
-    tsf/composition_cleanup.cpp
-    tsf/composition_edit.h
-    tsf/composition_range.h
+    comp/attribute.h
+    comp/cleanup.h
+    comp/cleanup.cpp
+    comp/edit.h
+    comp/range.h
+    comp/start.h
     tsf/register.h
     tsf/register.cpp
     tsf/shift_tap.h

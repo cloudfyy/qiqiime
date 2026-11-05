@@ -1,6 +1,7 @@
 #include "ime/tsf/tip_service.h"
-#include "ime/tsf/composition_attribute.h"
-#include "ime/tsf/composition_range.h"
+#include "ime/comp/attribute.h"
+#include "ime/comp/range.h"
+#include "ime/comp/start.h"
 #include "ime/tsf/edit_session.h"
 #include "common/logger.h"
 
@@ -395,29 +396,14 @@ ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
     const EditSessionTicket ticket{edit_session_epoch_, context.get()};
     const TfClientId client_id = client_id_;
     if (!composition_) {
-        ComPtr<ITfInsertAtSelection> insert_at_sel;
-        if (!log::CheckHResult(context->QueryInterface(IID_PPV_ARGS(&insert_at_sel)),
-                              "StartOrUpdateComposition::QueryInterface(ITfInsertAtSelection)") || !insert_at_sel) {
-            return {};
-        }
-        if (!IsCompositionEditCurrent(ticket, nullptr)) return {};
-        ComPtr<ITfRange> insert_range;
-        if (!log::CheckHResult(insert_at_sel->InsertTextAtSelection(
-                ec, TF_IAS_QUERYONLY, nullptr, 0, &insert_range),
-                "StartOrUpdateComposition::InsertTextAtSelection(TF_IAS_QUERYONLY)") || !insert_range) {
-            return {};
-        }
-        if (!IsCompositionEditCurrent(ticket, nullptr)) return {};
-
-        ComPtr<ITfContextComposition> ctx_comp;
-        if (!log::CheckHResult(context->QueryInterface(IID_PPV_ARGS(&ctx_comp)),
-                              "StartOrUpdateComposition::QueryInterface(ITfContextComposition)") || !ctx_comp) {
-            return {};
-        }
-        if (!IsCompositionEditCurrent(ticket, nullptr)) return {};
+        const auto prepared = PrepareCompositionStart(ec, context, [this, ticket]() noexcept {
+            return IsCompositionEditCurrent(ticket, nullptr);
+        });
+        if (!prepared.ready) return {};
         // Track the unpublished result so removal/termination during StartComposition is remembered.
         const auto starting = composition_cleanups_.TrackStarting(context);
-        const HRESULT start_hr = ctx_comp->StartComposition(ec, insert_range.Get(), this, &starting->composition);
+        const HRESULT start_hr = prepared.composition_context->StartComposition(
+            ec, prepared.range.Get(), this, &starting->composition);
         const bool start_ok = log::CheckHResult(start_hr, "StartOrUpdateComposition::StartComposition");
         starting->finished = true;
         if (!IsCompositionEditCurrent(ticket, nullptr) ||

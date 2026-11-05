@@ -6,6 +6,7 @@
 #include "common/file_util.h"
 #include "ime/tsf/display_attribute.h"
 #include "ime/tsf/edit_session.h"
+#include "ime/tsf/service_lifecycle.h"
 #include "ime/tsf/tip_service.h"
 
 #include <cstdlib>
@@ -19,8 +20,6 @@
 #include <tuple>
 
 namespace qiqi::test {
-
-void RunTsfServiceLifecycleTests(gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm);
 
 namespace {
 

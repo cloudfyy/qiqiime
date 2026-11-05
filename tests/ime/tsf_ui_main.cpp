@@ -1,4 +1,5 @@
 #include "common/test_support.h"
+#include "ime/comp/tests.h"
 #include <windows.h>
 #include <objbase.h>
 #include <gsl/gsl>
@@ -6,7 +7,6 @@
 #include <span>
 
 namespace qiqi::test {
-void RunTsfCompositionRangeTests();
 void RunRestrictedInputContractTests();
 void RunRestrictedInputDiagnostics();
 }
@@ -44,6 +44,7 @@ int wmain(int argc, wchar_t* argv[]) {
     qiqi::test::RunStatusBarUITests();
     qiqi::test::RunTsfComTests();
     qiqi::test::RunTsfCompositionRangeTests();
+    qiqi::test::RunTsfCompositionStartTests();
     qiqi::test::RunRestrictedInputContractTests();
     qiqi::test::RunTsfServiceTests();
     std::cout << "[PASS] All QiQi TSF & UI unit tests succeeded.\n";

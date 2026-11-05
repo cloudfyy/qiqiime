@@ -64,6 +64,7 @@ qiqiime/
 │   │   └── ...                 # 文件、DPI、音效、主题、版本模板等公共代码
 │   ├── ime/                   # 输入法
 │   │   ├── CMakeLists.txt      # qiqi_engine 静态库及 qiqiime.dll 构建
+│   │   ├── comp/               # 组合编辑票据、开始准备、范围写入、显示属性与清理协调
 │   │   ├── engine/             # 五笔状态机、词库、映射、动态调频与造词
 │   │   ├── fsm/                # 状态/事件定义、按键映射、静态分派与分页辅助（fsm.h 为聚合入口）
 │   │   ├── tsf/                # COM 服务、注册、显示属性与编辑会话
@@ -99,6 +100,7 @@ qiqiime/
     │   └── ui_d2d_controls.cpp # 共享 D2D 控件测试
     ├── ime/
     │   ├── CMakeLists.txt      # qiqi_engine_test 与 qiqi_tsf_ui_test
+    │   ├── comp/               # 对应组合组件的独立测试
     │   ├── engine/             # 词库、输入与模式测试
     │   ├── tsf/                # COM Mock、注册及 TSF 服务测试
     │   ├── ui/                 # 候选窗、托盘菜单与状态条测试
@@ -170,6 +172,12 @@ ctest --preset x86-release --output-on-failure
 `QiQiStandaloneToolsTest` 另直接启动当前架构的设置、词库管理器和日志监控器 EXE，核对真实可见窗口及窗口类、正常关闭和重新启动，并验证设置程序重复启动恢复原有最小化窗口。测试只关闭自己启动的进程，不修改快捷方式或安装目录；作为 `RUN_SERIAL` 测试运行，避免与其他 GUI 回归争用窗口或单实例互斥量。
 
 公共文件工具回归覆盖包含 NUL 的 UTF-8/UTF-16 转换、64 MiB 读取上限及超过上限一个字节、缺失文件、原子替换失败时原文件保留及临时文件清理、解除锁定后重试，以及超过 `MAX_PATH` 的 `LOCALAPPDATA`、缺失变量时的临时目录回退。目录查询根据 API 返回的所需容量重试，不把有效长路径当作缺失或使用截断结果。共享断言仍输出失败位置并非零退出，但关闭 CRT 的交互式 abort/WER 报告，避免失败测试等待桌面错误对话框。
+
+### 3.3 组合组件与生命周期测试组织
+
+- [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`range`、`start` 短名；服务仍在 [`src/ime/tsf`](../src/ime/tsf) 负责宿主接口、当前组合及 UI 协调，目录调整不改变 FSM 或生命周期边界。
+- [`tests/ime/comp`](../tests/ime/comp) 镜像组件目录，分别保留编辑票据/任务、清理、范围写入及开始准备测试；共享 Mock 仍在 [`mocks.h`](../tests/ime/tsf/mocks.h)。
+- [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) 仅保留有序入口，依次调用[延迟会话](../tests/ime/tsf/service_deferred.cpp)、[上下文/文档](../tests/ime/tsf/service_context.cpp)、[窗口生命周期](../tests/ime/tsf/service_windows.cpp)、[重入](../tests/ime/tsf/service_reentrancy.cpp)、[服务清理](../tests/ime/tsf/service_cleanup.cpp)及[原生 TSF](../tests/ime/tsf/service_native.cpp)测试。组件测试仍在原窗口测试的配置/键盘快照之前运行；入口的 key/composition sink 强引用保留到全部子套件返回，各测试块的局部 COM/RAII 作用域不变。
 
 ---
 
@@ -450,56 +458,64 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 
 - **票据是非拥有快照**：[`EditSessionTicket`](../src/ime/tsf/edit_session.h) 配对激活/上下文 epoch 与原始目标身份，只比较值，不执行 COM 调用。异步回调仍必须捕获原有 context/service/view 强引用；会话内操作继续保留组合强引用和组合身份复核。不要把裸目标指针当成所有者，也不要在宿主重入后重新捕获 epoch 来“更新”旧任务的票据。
 - **验证不只是指针相等**：[`IsEditSessionCurrent`](../src/ime/tsf/tip_composition.cpp) 还要求服务激活且不在重置中。保持原有宿主调用前后的检查位置，不把检查缩减到回调入口。A-B-A 必须因 epoch 不同而拒绝；空目标票据仅用于输入目标准备/文档切换后的内部重置检查，不授予编辑权限。
-- **清理不能按当前票据取消**：[`CompositionCleanup`](../src/ime/tsf/composition_cleanup.h) 独立拥有旧组合及其资源，保留移除、宿主终止、开始/完成状态和同 context 的写入屏障。Deactivate 使旧编辑失效，但旧清理仍可完成；未执行请求被丢弃时保留原诊断并释放引用，不宣称宿主清理成功。不要复用旧编辑 cookie，也不要把 STA 操作转移到后台线程。
+- **清理不能按当前票据取消**：[`CompositionCleanup`](../src/ime/comp/cleanup.h) 独立拥有旧组合及其资源，保留移除、宿主终止、开始/完成状态和同 context 的写入屏障。Deactivate 使旧编辑失效，但旧清理仍可完成；未执行请求被丢弃时保留原诊断并释放引用，不宣称宿主清理成功。不要复用旧编辑 cookie，也不要把 STA 操作转移到后台线程。
 - **回归与范围**：[`生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 覆盖票据匹配矩阵、旧布局/提交/取消回调与跨激活清理/新写入交错，以及未执行队列释放后的对象计数。继续保留同步/异步清理、宿主终止和 UI 注册重入测试；宿主 `BeginUIElement` 许可、FSM 与定位策略不变，完整协调器提取尚未实施。
 
 ### 5.20 TSF 清理登记边界（R05 第二步）
 
-- **记录拥有，登记不拥有**：[`CompositionCleanupRegistry`](../src/ime/tsf/composition_cleanup.h) 只保存弱引用；编辑会话回调继续强持有 `CompositionCleanup`，记录继续拥有 context、composition、range。登记器析构不取消外部记录，也不调用 COM 清理；它只在所属 STA 使用，不引入锁、线程切换或通用事件队列。
+- **记录拥有，登记不拥有**：[`CompositionCleanupRegistry`](../src/ime/comp/cleanup.h) 只保存弱引用；编辑会话回调继续强持有 `CompositionCleanup`，记录继续拥有 context、composition、range。登记器析构不取消外部记录，也不调用 COM 清理；它只在所属 STA 使用，不引入锁、线程切换或通用事件队列。
 - **不要统一不同的裁剪时机**：`Track` 只追加；`FindComposition` 不裁剪已完成记录，且空组合不匹配未发布结果。`FindPending` 先移除全部已完成/过期弱记录，再按原顺序返回同 context 的首项；`TrackedCount` 保留原始弱槽位诊断含义，不代表尚未完成的任务数。
 - **移除标记覆盖全部匹配项**：`MarkContextRemoved` 同时设置 `context_removed` 和 `finished`，包括已完成项及 id 为零的未发布结果；不影响别的 context，也不在此时裁剪或代替宿主清理。按原阶段及真实 HRESULT 记录诊断，不能把标记完成或释放记录解释为宿主组合已结束。
-- **发起时机留在服务**：[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp) 决定清理时机并接收宿主终止通知；记录创建/登记、待清理判断及清理模块入口由专用协调器统一管理，见 5.25。当前组合的终止/引擎/UI 重置仍在服务。不能为了提取登记逻辑而挪动重入检查或让新写入越过旧清理屏障；[`登记与生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 同时固定弱所有权、查询/裁剪差异、移除范围及现有宿主执行顺序。
+- **发起时机留在服务**：[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp) 决定清理时机并接收宿主终止通知；记录创建/登记、待清理判断及清理模块入口由专用协调器统一管理，见 5.25。当前组合的终止/引擎/UI 重置仍在服务。不能为了提取登记逻辑而挪动重入检查或让新写入越过旧清理屏障；[`登记与生命周期测试`](../tests/ime/comp/cleanup.cpp) 同时固定弱所有权、查询/裁剪差异、移除范围及现有宿主执行顺序。
 
 ### 5.21 TSF 写入任务快照（R05 第三步）
 
-- **任务与目标不可分离**：[`CompositionEditTask`](../src/ime/tsf/composition_edit.h) 拥有 context、完整结果副本、原票据和活动 ID，构造时以 GSL 前置条件要求非空 context 且目标匹配。通过只读访问器消费，复制/移动构造传递，不在已发布任务上赋值改写；移动后的源对象不再执行。任务不持有服务或编辑 cookie，回调仍单独强持有服务。
+- **任务与目标不可分离**：[`CompositionEditTask`](../src/ime/comp/edit.h) 拥有 context、完整结果副本、原票据和活动 ID，构造时以 GSL 前置条件要求非空 context 且目标匹配。通过只读访问器消费，复制/移动构造传递，不在已发布任务上赋值改写；移动后的源对象不再执行。任务不持有服务或编辑 cookie，回调仍单独强持有服务。
 - **先捕获再请求**：[`ApplyEngineResult`](../src/ime/tsf/tip_composition.cpp) 保留原有强引用获取、epoch 捕获和结果复制时机；请求标志仍在原位置根据清理屏障决定。只把原回调体移入 `ApplyCompositionEditInSession`，不挪动票据验证、清理判断、提交/取消区别或宿主调用后的复核。
 - **再排队保留快照**：清理仍未完成时，不执行当前写入，而是将该任务的结果重新排队；不要重新读取引擎来构造替代结果，也不能把旧编辑 cookie 带给后续会话。活动 ID 仍按原作用域恢复，失效任务仍按既有诊断跳过。
 - **验证与范围**：[`任务与生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 比较四类动作的 12 个结果字段，覆盖复制/移动、生产者结束后的延迟访问及清理中重入再排队的 FIFO 快照。布局读取、独立清理回调、宿主 UI 许可及 FSM 不变；本步不等于已完成整个生命周期协调器。
 
 ### 5.22 TSF 独立清理执行与属性复核（R05 第四步）
 
-- **执行期间固定强所有权**：[`ExecuteCompositionCleanup`](../src/ime/tsf/composition_cleanup.h) 按值接收记录，只在对应 context 允许写入的编辑会话内调用，不保存 cookie 或改用后台线程。作用域守卫保证每个返回分支都设置 `finished`；宿主释放调用方引用不影响正在执行的记录，登记器仍只弱持有它。
-- **共用重入复核**：[`属性清除 helper`](../src/ime/tsf/composition_attribute.h) 先验证目标，查询属性后再验证，只有仍有效才设置清除开始标志并调用宿主。当前组合编辑、宿主终止和独立清理共用此实现，但使用各自的有效性条件：独立清理在移除/终止后停止，宿主终止分支的属性移除规则见 5.24。
+- **执行期间固定强所有权**：[`ExecuteCompositionCleanup`](../src/ime/comp/cleanup.h) 按值接收记录，只在对应 context 允许写入的编辑会话内调用，不保存 cookie 或改用后台线程。作用域守卫保证每个返回分支都设置 `finished`；宿主释放调用方引用不影响正在执行的记录，登记器仍只弱持有它。
+- **共用重入复核**：[`属性清除 helper`](../src/ime/comp/attribute.h) 先验证目标，查询属性后再验证，只有仍有效才设置清除开始标志并调用宿主。当前组合编辑、宿主终止和独立清理共用此实现，但使用各自的有效性条件：独立清理在移除/终止后停止，宿主终止分支的属性移除规则见 5.24。
 - **执行结束不等于宿主成功**：属性查询/清除失败按真实 HRESULT 诊断，成功却无属性视为 `E_UNEXPECTED`；尽力结束组合的既有策略不变，若调用 `EndComposition` 则返回其实际结果。不能用 `finished`、`attribute_clear_started` 或单个返回值推断所有清理操作均成功，也不借本次拆分增加重复结束或自动重试。
-- **验证与范围**：[`清理执行及生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 检查 13 组执行/重入/失败边界、helper 的真实错误码和入口失效，以及调用方释放引用后的完成与销毁。服务仍负责发起时机、当前组合终止及激活/上下文/UI 协调；完整组合生命周期协调器保持未完成状态。
+- **验证与范围**：[`清理执行及生命周期测试`](../tests/ime/comp/cleanup.cpp) 检查 13 组执行/重入/失败边界、helper 的真实错误码和入口失效，以及调用方释放引用后的完成与销毁。服务仍负责发起时机、当前组合终止及激活/上下文/UI 协调；完整组合生命周期协调器保持未完成状态。
 
 ### 5.23 TSF 清理请求与受限回退（R05 第五步）
 
-- **先登记后调用宿主**：[`RequestCompositionCleanup`](../src/ime/tsf/composition_cleanup.h) 要求非空 context/组合和有效 client ID；生产路径由专用协调器先登记记录，再获取 range、请求编辑会话。`GetRange` 和 `RequestEditSession` 都可能重入，不能让移除/终止通知找不到进行中的记录。
+- **先登记后调用宿主**：[`RequestCompositionCleanup`](../src/ime/comp/cleanup.h) 要求非空 context/组合和有效 client ID；生产路径由专用协调器先登记记录，再获取 range、请求编辑会话。`GetRange` 和 `RequestEditSession` 都可能重入，不能让移除/终止通知找不到进行中的记录。
 - **区分两个 HRESULT 和回调是否开始**：只有请求 API 成功且会话返回 `TF_E_SYNCHRONOUS`，并确认尚未开始、未终止、未移除，才回退到异步。请求失败或已执行回调返回同一码均不重试；只读等拒绝也不改变策略。保持同步/异步各自的真实 HRESULT 诊断，`async_requested` 只表示曾尝试请求，不表示入队成功。
 - **保持原有尽力与释放边界**：range 查询失败或返回空 range 仍诊断并尝试结束组合，查询中失效则跳过请求。回调按原规则强持有记录及 COM 资源，使用其本次编辑 cookie；宿主丢弃未执行回调后允许弱登记过期，不把本地释放当成宿主组合已结束。
-- **回归**：[`请求调度测试`](../tests/ime/tsf/service_lifecycle.cpp) 的 17 组矩阵固定请求次数、标志、client ID、回退条件、登记可见性、cookie、错误/失效状态及丢弃释放；既有清理屏障、重入、宿主终止及私有文档原生 TSF 测试继续保留。整体生命周期协调器仍未全部提取。
+- **回归**：[`请求调度测试`](../tests/ime/comp/cleanup.cpp) 的 17 组矩阵固定请求次数、标志、client ID、回退条件、登记可见性、cookie、错误/失效状态及丢弃释放；既有清理屏障、重入、宿主终止及私有文档原生 TSF 测试继续保留。整体生命周期协调器仍未全部提取。
 
 ### 5.24 TSF 已登记组合的宿主终止（R05 第六步）
 
-- **分离通知归属与清理成功**：[`HandleCompositionCleanupTermination`](../src/ime/tsf/composition_cleanup.h) 查找并强持有已登记记录，返回值仅表示通知是否已处理；空组合、未匹配组合及过期记录返回未处理，由服务保留原有当前组合/无关组合路径。登记器仍只负责弱引用记账，不执行宿主调用，也不在终止查询中裁剪已完成记录。
+- **分离通知归属与清理成功**：[`HandleCompositionCleanupTermination`](../src/ime/comp/cleanup.h) 查找并强持有已登记记录，返回值仅表示通知是否已处理；空组合、未匹配组合及过期记录返回未处理，由服务保留原有当前组合/无关组合路径。登记器仍只负责弱引用记账，不执行宿主调用，也不在终止查询中裁剪已完成记录。
 - **保留未发布与重复通知语义**：id 为零的未发布结果只标记终止/完成并记录生命周期阶段。普通记录先标记终止，再调用属性接口，重复通知直接退出；已移除上下文不再访问宿主，已开始清除的属性不重复清除。尚未执行的清理标记完成，正在执行的清理仍由原作用域守卫结束；本函数不请求新编辑会话，也不再次调用 `EndComposition`。
 - **属性清除只以移除为失效**：终止标志此时已经设置，不能拿它否定本次必要的属性清除。查询属性后仍复核上下文是否移除；失败保留实际 HRESULT，成功却无属性保留 `E_UNEXPECTED` 诊断，不把“已处理”当成清除成功或新增重试策略。
-- **回归与边界**：[`宿主终止测试`](../tests/ime/tsf/service_lifecycle.cpp) 的 17 组矩阵覆盖未发布、运行/完成、重复、移除、缺少 range、已开始清除、真实属性错误/空属性，以及属性查询/清除中的移除和重复通知；另验证空/未匹配/过期记录，以及重入裁剪登记并释放调用方引用后的记录存活与最终销毁。请求测试的 range 查询中终止也改为经过实际处理入口。当前组合终止、引擎/UI 重置、FSM 和宿主许可不变；x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过，完整协调器仍后置。
+- **回归与边界**：[`宿主终止测试`](../tests/ime/comp/cleanup.cpp) 的 17 组矩阵覆盖未发布、运行/完成、重复、移除、缺少 range、已开始清除、真实属性错误/空属性，以及属性查询/清除中的移除和重复通知；另验证空/未匹配/过期记录，以及重入裁剪登记并释放调用方引用后的记录存活与最终销毁。请求测试的 range 查询中终止也改为经过实际处理入口。当前组合终止、引擎/UI 重置、FSM 和宿主许可不变；x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过，完整协调器仍后置。
 
 ### 5.25 TSF 专用清理协调器（R05 第七步）
 
-- **收拢清理工作流而非整个服务**：[`CompositionCleanupCoordinator`](../src/ime/tsf/composition_cleanup.h) 持有固定服务日志身份、服务生命周期内递增的清理编号及弱登记器，统一未发布记录创建、清理记录创建/登记、待清理判断、移除及宿主终止入口；请求、执行和终止继续复用已有 helper。它不拥有服务、引擎、活动目标或 UI，也不在 Deactivate 时重置编号或丢弃旧清理。
+- **收拢清理工作流而非整个服务**：[`CompositionCleanupCoordinator`](../src/ime/comp/cleanup.h) 持有固定服务日志身份、服务生命周期内递增的清理编号及弱登记器，统一未发布记录创建、清理记录创建/登记、待清理判断、移除及宿主终止入口；请求、执行和终止继续复用已有 helper。它不拥有服务、引擎、活动目标或 UI，也不在 Deactivate 时重置编号或丢弃旧清理。
 - **保持创建与登记顺序**：`TrackStarting` 返回调用方强持有的 id 为零记录，仍在 `StartComposition` 前登记；发布、失效判断及未发布结果的完成标记留在服务。`Schedule` 接收强引用目标、原 client ID 及创建日志上下文，先创建/诊断可用性，再裁剪旧槽位、登记并调用宿主；缺少 context/client ID 仍按原策略诊断并返回，不顺便裁剪已有槽位。传入 epoch 仅用于创建诊断，不是旧清理的取消票据。
 - **屏障不与服务激活绑定**：两个写入屏障检查点继续在原位置调用 `HasPending`，包括回调执行中再次检查及保留原结果重排队；`HasPending` 仍使用原查询/裁剪和阶段日志。焦点/上下文移除入口转交协调器，但当前组合终止、激活、上下文与引擎/UI 重置不迁移。
 - **销毁不取消宿主回调**：协调器只间接持有弱记录，队列回调继续只强持有独立记录及其 COM 资源，不捕获协调器或服务。协调器析构不执行 COM 清理、不改写外部未发布记录，也不取消已入队任务；真实 HRESULT 和尽力清理策略保持不变。
-- **验证**：[`协调器回归`](../tests/ime/tsf/service_lifecycle.cpp) 的 9 组调度矩阵检查登记可见性、同步/异步请求、range 查询中失效、拒绝、丢弃、入队后移除/重复终止及 cookie/调用次数；另验证不可用目标不访问宿主或提前裁剪、未发布记录的弱所有权与终止、同 context 的全部移除、跨 context 隔离、完成槽位裁剪及协调器销毁后的回调执行/释放。x64/x86 IME DLL/TSF 测试构建和 CppCoreCheck、串行 `QiQiTsfUiTest` 通过；完整组合生命周期协调器仍未完成。
+- **验证**：[`协调器回归`](../tests/ime/comp/cleanup.cpp) 的 9 组调度矩阵检查登记可见性、同步/异步请求、range 查询中失效、拒绝、丢弃、入队后移除/重复终止及 cookie/调用次数；另验证不可用目标不访问宿主或提前裁剪、未发布记录的弱所有权与终止、同 context 的全部移除、跨 context 隔离、完成槽位裁剪及协调器销毁后的回调执行/释放。x64/x86 IME DLL/TSF 测试构建和 CppCoreCheck、串行 `QiQiTsfUiTest` 通过；完整组合生命周期协调器仍未完成。
 
 ### 5.26 TSF 范围写入与光标折叠（R05 第八步）
 
-- **只提取同步宿主操作**：[`WriteCompositionTextAndCaret`](../src/ime/tsf/composition_range.h) 执行原有 `SetText`、`Clone`、`Collapse(TF_ANCHOR_END)`、`SetSelection` 序列。服务的 `SetRangeTextAndCollapseCaret` 仍在原时点捕获票据和组合强引用，传入绑定该原组合的检查器；helper 不保存 cookie、目标或检查器，也不授予编辑会话权限。context/range 及检查器依赖的对象由调用方强持有，caret clone 则由 helper 的局部 COM 强引用持有至调用结束。
+- **只提取同步宿主操作**：[`WriteCompositionTextAndCaret`](../src/ime/comp/range.h) 执行原有 `SetText`、`Clone`、`Collapse(TF_ANCHOR_END)`、`SetSelection` 序列。服务的 `SetRangeTextAndCollapseCaret` 仍在原时点捕获票据和组合强引用，传入绑定该原组合的检查器；helper 不保存 cookie、目标或检查器，也不授予编辑会话权限。context/range 及检查器依赖的对象由调用方强持有，caret clone 则由 helper 的局部 COM 强引用持有至调用结束。
 - **保持复核位置而非另建入口**：生产调用方先验证目标，helper 在写入文本、成功取得 caret clone、折叠后分别复核；首次复核之前仍会执行 `SetText`，不可将 helper 当作自行验证入口的写入 API。selection 返回后的验证仍由原服务调用链负责，不在 helper 中新增检查、请求或重排队。
 - **保留原尽力错误策略**：各失败保留实际 HRESULT；`SetText` 或 `Collapse` 失败后，若目标仍有效，仍按原策略继续后续步骤，不能将 helper 返回或光标更新解释成写入成功。`Clone` 失败或成功却无 range 时停止 caret 操作；后者新增明确警告并记录原 HRESULT，不再只有静默跳过，但不增加自动重试。
 - **固定文本与 selection 形状**：传递完整 `wstring_view` 的 UTF-16 码元长度，不按零终止字符串截断，也不改成字节数或 Unicode 码点数。selection 只含一个已折叠的 clone，使用本次 cookie、`TF_AE_NONE` 和非 interim 标志；不复用原 composition range 作为 caret。
-- **验证**：[`独立范围编辑回归`](../tests/ime/tsf/composition_range.cpp) 将 13 组正常/各边界失效/失败/空 clone 条件分别应用于 ASCII、空文本及含内嵌 NUL、中文和代理对的 UTF-16 文本，共 39 组。检查精确调用/复核顺序、HRESULT 对应的继续/停止策略、文本与长度、cookie/flags、折叠锚点、selection 形状及 helper 退出后的 clone 引用释放。既有真实服务重入矩阵和原生私有文档 TSF 回归继续通过；x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。FSM、候选定位算法和宿主 UI 许可不变，未据此宣称修复偶发光标偏移。
+- **验证**：[`独立范围编辑回归`](../tests/ime/comp/range.cpp) 将 13 组正常/各边界失效/失败/空 clone 条件分别应用于 ASCII、空文本及含内嵌 NUL、中文和代理对的 UTF-16 文本，共 39 组。检查精确调用/复核顺序、HRESULT 对应的继续/停止策略、文本与长度、cookie/flags、折叠锚点、selection 形状及 helper 退出后的 clone 引用释放。既有真实服务重入矩阵和原生私有文档 TSF 回归继续通过；x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。FSM、候选定位算法和宿主 UI 许可不变，未据此宣称修复偶发光标偏移。
+
+### 5.27 TSF 组合开始前的资源准备（R05 第九步）
+
+- **返回拥有资源的准备值**：[`PrepareCompositionStart`](../src/ime/comp/start.h) 按原顺序查询 `ITfInsertAtSelection`、以 `TF_IAS_QUERYONLY` 获取插入范围，再查询 `ITfContextComposition`；每步成功且返回非空资源后才调用原票据/组合身份检查器。返回值的 `ready` 仅表示三步准备和复核通过，不代表组合已开始，也不是之后宿主调用的免检许可。
+- **未就绪不等于没有资源**：[`CompositionStartPreparation`](../src/ime/comp/start.h) 保留此前取得的全部 COM 强引用，包括部分失败或复核失效的结果。特别是最后一次复核失败时三个指针仍可非空，必须检查 `ready`，不能以指针齐全代替它。字段顺序保留原接口、range、组合接口的逆序释放关系；服务将准备值保留到原作用域结束，不在 helper 返回时提前释放。
+- **创建与发布仍在服务**：[`StartOrUpdateCompositionInSession`](../src/ime/tsf/tip_composition.cpp) 仍在原时点捕获票据/client ID，仅在准备就绪后登记未发布结果并调用 `StartComposition`；完成标记、失效判断、旧结果清理、终止后的重置及当前组合发布均留在原位置。helper 不登记清理、不开始组合、不写文本、不更新 UI、不请求编辑会话，也不保存 cookie 或检查器。
+- **错误保持真实且可见**：接口或范围获取失败保留原 HRESULT 诊断和停止策略；成功却返回空接口/范围时仍停止，新增包含原 HRESULT 的明确警告。检查器失效仍由服务原有生命周期诊断记录，不额外查询 COM 身份或重试。
+- **验证**：[`独立开始准备回归`](../tests/ime/comp/start.cpp) 的 12 组条件固定正常流程、入口/三处宿主边界失效、三步失败及成功却返回空资源的行为。检查精确调用/复核顺序、query-only 的 cookie/flags/空文本/零长度、各部分资源与 `ready`、准备值存活及退出后的真实 COM 引用计数，并确认无文本/selection/组合/属性/会话副作用。既有服务开始/发布/重入与原生私有文档 TSF 回归继续通过；x64/x86 构建、CppCoreCheck 和串行 TSF/UI 测试通过。完整 R05 仍未完成，FSM、当前组合及 UI 协调不变。

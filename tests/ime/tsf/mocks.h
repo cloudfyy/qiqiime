@@ -428,13 +428,24 @@ public:
           edit_session_queue_(queue),
           defer_edit_sessions_(queue != nullptr) {}
 
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
+        if (IsEqualIID(riid, IID_ITfInsertAtSelection)) ++query_insert_calls_;
+        if (IsEqualIID(riid, IID_ITfContextComposition)) ++query_composition_calls_;
+        if (query_interface_observer_) query_interface_observer_(riid);
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfContext)) {
             *ppvObj = static_cast<ITfContext*>(this);
         } else if (IsEqualIID(riid, IID_ITfInsertAtSelection) && !fail_qi_insert_) {
+            if (return_null_insert_) {
+                *ppvObj = nullptr;
+                return S_OK;
+            }
             *ppvObj = static_cast<ITfInsertAtSelection*>(this);
         } else if (IsEqualIID(riid, IID_ITfContextComposition) && !fail_qi_comp_) {
+            if (return_null_composition_context_) {
+                *ppvObj = nullptr;
+                return S_OK;
+            }
             *ppvObj = static_cast<ITfContextComposition*>(this);
         } else if (IsEqualIID(riid, IID_ITfSource)) {
             *ppvObj = static_cast<ITfSource*>(this);
@@ -562,14 +573,16 @@ public:
     STDMETHODIMP CreateRangeBackup(TfEditCookie, ITfRange*, ITfRangeBackup**) noexcept override { return E_NOTIMPL; }
 
     // ITfInsertAtSelection
-    STDMETHODIMP InsertTextAtSelection(TfEditCookie, DWORD, const WCHAR* pchText, LONG cch, ITfRange** ppRange) override {
+    STDMETHODIMP InsertTextAtSelection(TfEditCookie ec, DWORD flags, const WCHAR* pchText, LONG cch, ITfRange** ppRange) override {
+        ++insert_at_selection_calls_;
+        if (insert_observer_) insert_observer_(ec, flags, pchText, cch, ppRange);
         if (fail_insert_at_sel_) return E_FAIL;
         if (pchText && cch > 0) {
             range_->text_.assign(pchText, gsl::narrow_cast<size_t>(cch));
         }
         if (ppRange) {
-            *ppRange = range_.Get();
-            (*ppRange)->AddRef();
+            *ppRange = return_null_insert_range_ ? nullptr : range_.Get();
+            if (*ppRange) (*ppRange)->AddRef();
         }
         return S_OK;
     }
@@ -666,6 +679,14 @@ public:
     bool fail_qi_insert_ = false;
     bool fail_insert_at_sel_ = false;
     bool fail_qi_comp_ = false;
+    bool return_null_insert_ = false;
+    bool return_null_insert_range_ = false;
+    bool return_null_composition_context_ = false;
+    unsigned int query_insert_calls_ = 0;
+    unsigned int insert_at_selection_calls_ = 0;
+    unsigned int query_composition_calls_ = 0;
+    std::function<void(REFIID)> query_interface_observer_;
+    std::function<void(TfEditCookie, DWORD, const WCHAR*, LONG, ITfRange**)> insert_observer_;
     bool fail_start_comp_ = false;
     bool fail_comp_get_range_ = false;
     bool fail_get_view_ = false;
