@@ -1,5 +1,7 @@
 # 奇奇五笔输入法 (QiQiIME) 架构与设计说明
 
+当前架构核对日期：**2026-11-06**，对应代码基线 `a911cbd`。本文前两节说明当前职责；后续任务及逐步实施记录保留历史状态。R05 **代码边界与自动验收已完成，真实宿主验收未完成**，不再以提取一个总协调类为完成条件。阅读入口：[组合协议](composition.md)、[构建与诊断](dev.md)、[人工验收](hosts.md#11-r05-重构后人工验收2026-11-06-待执行)、[实施记录](review.md)。
+
 ## 1. 架构分层
 
 ```text
@@ -20,6 +22,8 @@
 |  - LangBarButton    : ITfLangBarItemButton + ITfSource (托盘按钮/菜单)|
 |  - StatusBarUI      : 4x4 超采样 ARGB 抗锯齿浮动状态条 + Tooltip      |
 |  - Settings / About : 属性设置窗口 + 关于奇奇五笔窗口 (RAII 托管)     |
+|  - ime/comp         : 票据/状态、目标、编辑、清理、呈现/布局协议     |
+|    COM 身份与激活/焦点/配置策略留在服务，实际 UI 留在 ime/ui         |
 +-----------------------------------------------------------------------+
                                    ▲
                                    │ 纯 C++ 数据结构 (KeyProcessResult)
@@ -34,7 +38,7 @@
 
 之所以将 `qiqi_engine` 拆分为独立的静态库：
 1. **无 COM 依赖即可测试**：`qiqi_engine_test.exe` 可以直接验证所有按键与五笔上屏规则，无需先通过 `regsvr32` 注入宿主进程。
-2. **宿主安全**：输入法 DLL 会被注入到资源管理器、浏览器、Office 等进程中，引擎层保持纯内存/只读映射计算，避免阻塞宿主 UI 线程。
+2. **边界明确**：输入法 DLL 运行于资源管理器、浏览器、Office 等宿主进程；引擎不依赖 TSF COM 身份，但词库加载、缓存、用户词及词频同步仍可能执行 I/O，不能把静态库分离理解为“所有路径纯计算”或宿主 UI 不会阻塞的保证。
 
 源码按 [`src/common`](../src/common)、[`src/ime`](../src/ime)、[`src/tools/settings`](../src/tools/settings)、[`src/tools/log_monitor`](../src/tools/log_monitor)、[`src/tools/dict_manager`](../src/tools/dict_manager) 分层，测试采用对应布局。公共 D2D 控件、窗口辅助（[`window.h`](../src/common/window.h)）、菜单及工具条（[`command_ui.h`](../src/common/command_ui.h)）与关于窗口由 `qiqi_common` 统一编译；设置窗口由 `qiqi_settings_ui` 统一编译，供独立设置程序和 IME 的进程内设置回退路径复用。每个模块及对应测试目录均有自己的 `CMakeLists.txt`，顶层文件只负责组织，新增工具使用独立的 `tools/<工具名>` 子目录。
 
@@ -56,10 +60,22 @@
 - `QiQiTextService` 的实现按职责拆分为四个文件：
   - [`tip_service.cpp`](../src/ime/tsf/tip_service.cpp)：实例构造/析构、`ActivateEx`/`Deactivate`、TSF 事件接收器注册、`ITfThreadMgrEventSink`、`ITfFunctionProvider` 与 `ITfDisplayAttributeProvider`。
   - [`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp)：`ITfKeyEventSink` 按键测试与处理、保留快捷键（`OnPreservedKey`）、`Shift` 轻按中英切换防误触、`Caps Lock` 处理与按键诊断日志。
-  - [`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp)：`ITfCompositionSink`、`ITfTextLayoutSink`、编辑会话（`LambdaEditSession`）内的组合串创建/更新/提交/取消，以及候选框位置跟随与 `ITfUIElementMgr` 生命周期。
+  - [`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp)：组合/布局 COM 通知及编辑、目标准备、候选呈现/定位的服务适配；向组合模块提供实际引擎、Shift-tap、UI 与重置回调，不再独占全部内部工作流。
   - [`tip_config.cpp`](../src/ime/tsf/tip_config.cpp)：词库文件加载、TSF Global/System Compartment 同步、语言栏菜单动作分派、`ITfFnConfigure::Show` 设置启动与配置热重载。
 - 实现 `ITfTextInputProcessorEx::ActivateEx`，记录宿主进程名、`client_id` 与 `dwFlags`（包含是否处于 `TF_TMAE_UIELEMENTENABLEDONLY` UILess 模式）。
-- 挂载 `ITfThreadMgrEventSink`、`ITfKeyEventSink`、`ITfFunctionProvider` 与 `ITfLangBarItemButton`，并注册保留热键（`Ctrl+Space` 中英切换、`Shift+Space` 全半角切换、`Ctrl+.` 中英标点切换）。
+- 挂载 `ITfThreadMgrEventSink`、`ITfKeyEventSink`、`ITfFunctionProvider` 与 `ITfLangBarItemButton`，并注册保留热键（`Ctrl+Space` 中英切换、`Shift+Space` 全半角切换、`Ctrl+.` 中英标点切换、`Ctrl+=` 快捷造词）。
+- **激活是可取消的过渡**：接受的激活强持有服务，直至活动 ID 与过渡标志守卫恢复；嵌套激活返回 `E_UNEXPECTED`。激活内重入 `Deactivate` 立即关闭业务/UI 许可并使票据失效，但等待在途登记发布所有权后才统一停用，外层返回 `E_ABORT`；重复取消幂等。非取消的必需 sink 初始化失败仍为 `E_FAIL`，具体宿主/清理错误分别诊断，异常不静默转换为成功。
+
+组合模块的现行职责如下；完整调用顺序与重入检查见[组合生命周期说明](composition.md#current-module-map)。
+
+| 边界 | 所有者 / 实现 | 不应迁入的职责 |
+|---|---|---|
+| 激活/上下文 epoch、当前组合/context/父文档、清理登记 | [`state.h`](../src/ime/comp/state.h)、[`cleanup.h`](../src/ime/comp/cleanup.h)；状态对象不可复制或移动，反向销毁顺序为文档、context、清理登记、组合 | COM 服务身份、激活策略、引擎 FSM |
+| 目标准备、文档规范身份与 top/base 协调 | [`target.h`](../src/ime/comp/target.h)；保留 modal 覆盖的主 context，实际重置由服务回调 | 文档注册表、焦点历史、主动绑定所有通知目标 |
+| 编辑快照、请求/执行、开始/更新/结束、范围/属性 | [`edit.h`](../src/ime/comp/edit.h)、[`start.h`](../src/ime/comp/start.h)、[`update.h`](../src/ime/comp/update.h)、[`finish.h`](../src/ime/comp/finish.h)、[`range.h`](../src/ime/comp/range.h)、[`attribute.h`](../src/ime/comp/attribute.h) | 新的调度队列、每键 epoch、失败即成功的兜底 |
+| 候选注册/撤销与布局查询/发布协议 | [`presentation.h`](../src/ime/comp/presentation.h)、[`layout.h`](../src/ime/comp/layout.h) | 自绘窗口实现、宿主显示许可、强制绕过 UILess 的弹窗 |
+
+状态持有强引用只解决存活，不证明请求仍有效。业务编辑复核激活/context 票据及组合身份；旧组合独立清理可在停用后继续，但只能操作捕获的旧对象。每次嵌套 reset 都递增 context epoch，只有进入的最外层作用域执行并结束重置。上述协议不改变有效编辑 FIFO、清理屏障、候选显示许可或 FSM。
 
 ### 2.3 按键处理与编辑会话（`OnTestKeyDown` -> `OnKeyDown` -> `RequestEditSession`）
 TSF 的按键处理分为两步：
@@ -331,7 +347,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 
 #### 设计模式优化待办（2026-11-05）
 
-来源：[设计模式优化扫描报告](review.md)。R01、R06 已完成有界一致性修正；R03、R04 已完成配置投影与共享加载计划；R02 已分离编辑草稿状态，均通过双架构定向回归。R05 已分离票据、清理登记/请求/执行及编辑任务快照/执行入口，完整协调器仍后置。P1 表示可靠性优先级，不是安全漏洞评级，不据此宣称复现过生产数据丢失。
+来源：[设计模式优化扫描报告](review.md)。R01、R06 已完成有界一致性修正；R03、R04 已完成配置投影与共享加载计划；R02 已分离编辑草稿状态，均通过双架构定向回归。R05 的内部组合协议与服务适配边界、双架构自动验收已收口，仅真实宿主人工验收待补齐；不计划再引入总协调类或通用事件队列。P1 表示可靠性优先级，不是安全漏洞评级，不据此宣称复现过生产数据丢失。
 
 **P1：先验证并修复失败一致性**
 
@@ -344,6 +360,8 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 - [x] **R03. 统一类型化配置描述与投影**：已用成员指针描述统一 24 个标量的注册表、备份键和范围，设置仅合并 19 个可编辑字段；保留现有格式、默认值、布尔非零兼容、页大小钳制和路径排除范围。字段集合、注册表/备份往返及 38 组真实窗口合并矩阵在 x64/x86 通过；未引入反射框架或迁移控件布局。
 - [x] **R04. 提取共享的纯词库加载计划**：IME 与工具共用自带主词库/扩展的角色及顺序计划，用户来源、相对路径、诊断和 IME 注册表回退仍由执行端处理。六种组合、来源展示、缺失词库、缓存复用及默认/显式用户路径回退差异回归在 x64/x86 通过；未改授权策略或宣称性能改善。
 - [ ] **R05. 提取 TSF 组合生命周期协调边界（代码与自动验收已收口，真实宿主验收待完成）**：[`生命周期状态/票据`](../src/ime/comp/state.h)、[`清理协调器`](../src/ime/comp/cleanup.h)、[`编辑任务/请求`](../src/ime/comp/edit.h) 及开始/更新/结束、目标/文档、呈现/布局协议已归入组合模块。服务保留 COM 身份和适配、激活/停用、焦点/配置以及实际引擎/Shift-tap/UI 副作用，这是有意保留的边界，不再以增加总协调类或微小包装函数作为完成条件。收口检查复现并修复既有激活取消被覆盖问题：嵌套激活拒绝，停用先请求取消，当前登记结果发布后统一清理，外层返回真实 `E_ABORT`，强持有服务跨越回调和标志恢复；正常宿主调用顺序、清理屏障、显示许可和 FSM 不变。双架构 DLL/测试 CoreCheck、完整及定向回归通过，代码边界与自动验收完成；整体勾选仍需既定真实宿主人工验收，不宣称解决历史偶发挂起或光标定位问题。
+
+  - **以下为按实施顺序保留的历史记录**：其中“未完成”“下一步”描述当时批次，不覆盖上方当前结论。最新自动结果见[开发指南](dev.md#34-r05-最新自动验收快照2026-11-06)，剩余条件见[宿主清单](hosts.md#11-r05-重构后人工验收2026-11-06-待执行)。
 
   - 当前组合的宿主终止已由 [`HandleCompositionTermination / CompleteCurrentCompositionTermination`](../src/ime/comp/finish.h) 收拢通知分流、先移走当前组合、范围/属性清除与最终复核；range/旧组合/context 在实际重置前释放，服务保留 COM 入口与真实身份/引擎/UI 重置回调。同 context/epoch 替换和资源释放顺序已有独立及服务回归。
 

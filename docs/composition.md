@@ -1,12 +1,44 @@
 # TSF Composition Lifecycle, Deactivation Cleanup, and Diagnostics
 
 This document explains the invariants, ownership, reentrancy, and debugging workflow
-for tasks 41 and 43 through 46. The implementation lives in
+for tasks 41 and 43 through 46 and the completed code-side R05 refactoring.
+Current contracts were checked against code baseline `a911cbd` on 2026-11-06.
+The COM facade lives in
 [`tip_service.cpp`](../src/ime/tsf/tip_service.cpp),
 [`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp), and
 [`tip_service.h`](../src/ime/tsf/tip_service.h).
-For logging configuration, ETW sessions, and capture tools, see the
-[logging guide](log.md).
+Internal state and protocols live in [`ime/comp`](../src/ime/comp), not solely
+in those facade files. For logging configuration, ETW sessions, and capture
+tools, see the [logging guide](log.md); retained test timing, PDBs and the
+60/90/150-second watchdog budgets are documented in the
+[development guide](dev.md#33-组合组件与生命周期测试组织).
+
+**Status:** R05's internal boundaries and dual-architecture automated acceptance
+are complete. Activation/deactivation, focus/configuration and actual engine,
+Shift-tap and UI effects intentionally stay in the service. No universal
+coordinator or additional mechanical extraction is required. The overall R05
+checkbox remains open for [real-host acceptance](hosts.md#11-r05-重构后人工验收2026-11-06-待执行);
+the historical caret, Explorer-positioning and intermittent-hang reports have
+not been diagnosed or certified fixed.
+
+## Current Module Map
+
+| Surface | Implementation | Ownership / responsibility |
+|---|---|---|
+| COM facade | [`tip_service.h`](../src/ime/tsf/tip_service.h), [`tip_service.cpp`](../src/ime/tsf/tip_service.cpp), [`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp), [`tip_config.cpp`](../src/ime/tsf/tip_config.cpp), [`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp) | COM identity, registration, activation cancellation, focus/configuration, entry gates and real effect adapters |
+| Lifecycle state / reset | [`state.h`](../src/ime/comp/state.h) | Stable, nonmovable owner; epochs, active/reset flags, composition, cleanup coordinator, context and parent |
+| Input target / document | [`target.h`](../src/ime/comp/target.h) | Synchronous preparation, canonical document identity, top/base reconciliation and preserved reset/current checkpoints |
+| Application edits | [`edit.h`](../src/ime/comp/edit.h), [`edit_session.h`](../src/ime/tsf/edit_session.h) | Immutable task snapshot, request and execution protocols, activity scope, tickets and existing cleanup barrier |
+| Start / update / finish | [`start.h`](../src/ime/comp/start.h), [`update.h`](../src/ime/comp/update.h), [`finish.h`](../src/ime/comp/finish.h) | Host-call sequencing, publication, identity checks, commit/cancel and termination routing |
+| Range / attribute | [`range.h`](../src/ime/comp/range.h), [`attribute.h`](../src/ime/comp/attribute.h) | Guarded text/range/selection operations and display-attribute work under the granted cookie |
+| Independent old cleanup | [`cleanup.h`](../src/ime/comp/cleanup.h), [`cleanup.cpp`](../src/ime/comp/cleanup.cpp) | Captured old-object ownership, strong session/weak registry, request recovery and removal/termination barriers |
+| Candidate presentation / layout | [`presentation.h`](../src/ime/comp/presentation.h), [`layout.h`](../src/ime/comp/layout.h) | Registration/withdrawal and layout protocols; actual windows remain in [`ime/ui`](../src/ime/ui), host display permission is unchanged |
+
+Component regressions mirror these boundaries in [`tests/ime/comp`](../tests/ime/comp).
+[`tests/ime/tsf`](../tests/ime/tsf) retains the full service, native-TSF and
+reentrant-host tests. Section 9 records incremental coverage, not a new
+whole-repository run or real-host result; the [latest automatic snapshot](dev.md#34-r05-最新自动验收快照2026-11-06)
+identifies the final run and its scope.
 
 ## 1. Two Separate Problems
 
@@ -722,13 +754,25 @@ Other stages are omitted from this example. Actual logs retain full hexadecimal 
 
 ### 8.1 Context Is Still the Input Identity
 
-`active_context_` remains the input target. `active_document_` caches only that context's parent, obtained during input binding. It is not a document registry, focus history, or list of every document in the process. The cached parent makes uninitialization recognizable even when the context's `GetDocumentMgr` already fails after disconnection. Both references are released on reset/deactivation. Parent comparisons use COM `IUnknown` identity when interface pointers differ.
+`composition_lifecycle_.Context()` is the input target.
+`composition_lifecycle_.Document()` caches only that context's parent, obtained
+during input binding; the former standalone `active_context_` and
+`active_document_` service members no longer exist. This is not a document
+registry, focus history, or list of every document in the process. The cached
+parent makes uninitialization recognizable even when the context's
+`GetDocumentMgr` already fails after disconnection. Both references are released
+on reset/deactivation. [`MatchesCompositionDocument`](../src/ime/comp/target.h)
+uses the interface-pointer fast path, then current-before-incoming canonical
+`IUnknown` identity queries. Identity matching itself adds no activation gate;
+notification entries retain that policy.
 
 `OnInitDocumentMgr` owns no document-wide resources and remains a no-op. Notifications do not proactively bind a new input target; the next actual key-down binds its context.
 
 ### 8.2 Reconciling Focus and Stack Changes
 
-`ReconcileDocumentTarget` queries the incoming document's `GetTop` and `GetBase`:
+The service's `ReconcileDocumentTarget` adapts
+[`ReconcileCompositionDocumentTarget`](../src/ime/comp/target.h), which queries
+the incoming document's `GetTop` and `GetBase`:
 
 | Relationship | Action |
 |---|---|
@@ -736,6 +780,11 @@ Other stages are omitted from this example. Actual logs retain full hexadecimal 
 | Current context is the base, covered by a secondary/modal context | Retain the main composition; a modal push alone is not target invalidation |
 | Neither top nor base is current, or a stack query fails | Invalidate old application requests and reset the old target, attempting authorized host cleanup |
 | A query reenters deactivation/reset and changes the captured epoch | Return `false`; the outer focus notification must not continue with stale state |
+
+Both queries execute even if `GetTop` fails; both actual HRESULTs are diagnosed
+before the original ticket check. The captured original context stays alive
+until top/base references release. A reset is checked against the predicted next
+context epoch with a null target, rather than a newly captured post-reset ticket.
 
 `OnPushContext` first checks the pushed context's parent. An unrelated document cannot reset current input. A related push uses the same reconciliation logic as focus changes. No Push/Pop is initiated from these callbacks, and no callback order beyond the API's guarantees is assumed.
 
@@ -755,7 +804,7 @@ Previously, `ApplyEngineResult` noticed context changes only after `engine_.Proc
 4. Capture the new parent document and attach the layout sink. Recheck epochs after reentrant COM calls, and remove a subscription published after an invalidating notification.
 5. Only then process the key and submit its result for the prepared context.
 
-The preparation guard retains the pending context, not just a Boolean flag. A matching `OnPopContext` during `GetDocumentMgr` invalidates the epoch even before `active_context_` is assigned, so the outer operation declines the key without attaching a sink or requesting an edit session. Unrelated removals do not cancel preparation. RAII releases the pending reference on every exit.
+The preparation guard retains the pending context, not just a Boolean flag. A matching `OnPopContext` during `GetDocumentMgr` invalidates the epoch even before the lifecycle state's context is assigned, so the outer operation declines the key without attaching a sink or requesting an edit session. Unrelated removals do not cancel preparation. RAII releases the pending reference on every exit.
 
 `ApplyEngineResult` no longer switches targets after the fact. UI/configuration callbacks can submit results only for an already prepared current context. Backspace in a fresh context is therefore passed through when its engine has no composition, instead of creating text derived from the previous context.
 
@@ -828,11 +877,13 @@ These are mock-host outcome injections, not evidence that a specific real host
 returns a non-null composition on failure.
 
 The existing 91 edit-boundary and four cleanup-reentrancy cases remain intact.
-This stage adds tests, not production behavior: it does not change the existing
+That earlier test stage added tests, not production behavior: it did not change the existing
 policy for a current failed start with non-null output. The current composition,
 epochs, context/document, and cleanup coordinator now share the state owner
-described above. Cross-stage preparation, activation, actual teardown, and UI
-coordination remain in the service; the complete R05 coordinator is unfinished.
+described above. Subsequent R05 stages completed the target, edit, start/finish,
+presentation and layout protocol boundaries shown in the current module map.
+Activation, actual teardown callbacks and engine/UI policy remain intentionally
+in the service; their presence is not unfinished coordinator extraction.
 
 The [start/update component tests](../tests/ime/comp/start_update.cpp) add
 34 cases crossing empty/nonempty input with existing/new compositions, start

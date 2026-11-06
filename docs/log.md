@@ -4,6 +4,8 @@
 
 独立 GUI 工具 `QiQiIMELogMonitor.exe` 已实现，日常复现可直接使用下方的实时监控流程；需要离线分析时仍可使用调试器或 ETW/WPA。
 
+**先区分证据来源（2026-11-06）**：生产 IME/工具使用 ETW 或调试输出，不自动建立文本日志；完整/定向 TSF 测试另外写入保留的逐函数日志并由 watchdog 取证。GUI 监控器不会读取这些测试日志，也不替代 cdb dump 分析。分别见[组合日志](#62-组合生命周期与停用清理任务-434445)、[激活取消](#63-激活期间取消与登记所有权)、[测试挂起](#64-自动测试逐函数日志与挂起-dump)。
+
 窗口实现按职责拆分：[window.cpp](../src/tools/log_monitor/window.cpp) 负责窗口生命周期与主消息分发，[ui.cpp](../src/tools/log_monitor/ui.cpp) 负责控件创建、布局、主题、语言与 DPI，[view.cpp](../src/tools/log_monitor/view.cpp) 负责筛选、列表选择、刷新及详情，[actions.cpp](../src/tools/log_monitor/actions.cpp) 负责快捷键、分隔条、命令、复制和导出。共享的私有 `Impl` 声明位于 [internal.h](../src/tools/log_monitor/internal.h)，公开接口仍为 [window.h](../src/tools/log_monitor/window.h)。
 
 ## GUI 实时监控
@@ -280,11 +282,44 @@ ETW 采集不需要 PDB 才能显示这些自描述消息；调试调用栈或�
 
 任务 45 增加 `document-target`（`source`、`retained`、`covered_by_modal`）、`document-uninit`（`related`）、`context-push`（`related`）及 `context-pop`（`current`）。`context-reset` 的 `try_host_cleanup=false` 表示目标移除后的本地清理，不代表调用了 `EndComposition`；排队清理收到 `context-removed` 后应跳过，记录 `skip-removed-context` 或 `skip-end-after-context-removal`。字段含义和重入边界见[文档与上下文通知](composition.md#8-document-and-context-notifications)。
 
+### 6.3 激活期间取消与登记所有权
+
+R05 收口修复了激活中的宿主回调调用 `Deactivate`、随后外层继续报告成功的问题。检查同一激活活动 ID、PID/TID 和服务编号，不用单条 `S_OK` 推断整次激活完成：
+
+| 证据 | 含义 |
+|---|---|
+| `stage=activation-cancel-requested` | 在途激活收到停用请求；业务/UI 许可已关闭、激活票据已失效，不表示在途登记已完成解除 |
+| `ActivateEx cancelled by Deactivate`，`hr=0x80004004` (`E_ABORT`) | 外层停止后续初始化，等待当前登记取得的所有权发布后执行正常停用；不是正常激活成功 |
+| `activation during lifecycle transition rejected`，`hr=0x8000ffff` (`E_UNEXPECTED`) | 嵌套激活或重入生命周期转换被拒绝，不应据此重建并覆盖原 manager/client |
+| 宿主登记、解除及清理的独立 HRESULT | 取消不抹去真实失败；必需 sink 正常初始化失败仍返回 `E_FAIL`，具体失败看对应 API 记录 |
+
+重复取消是幂等请求；没有第二条取消记录不证明通知丢失。服务强引用跨越登记回调和标志恢复，已成功的迟到登记仍必须解除。正常 `Win+Space` 停用/启用不保证命中激活中重入分支，完整所有权约束见[激活与停用算法](composition.md#4-deactivation-algorithm-and-request-results)。
+
+### 6.4 自动测试逐函数日志与挂起 dump
+
+适用 `QiQiTsfUiTest` 和 `QiQiCompositionLifecycleTest`（当前测试 5/6）。这不是对任意生产宿主安装的崩溃/挂起监视器，也不自动给 VS Code、Word 或浏览器取 dump。
+
+| 证据 / 文件 | 位置与用途 |
+|---|---|
+| `tsf-ui-*.log` / `composition-lifecycle-*.log` | CTest 下位于 `build\<x64或x86>\tests\ime\test-logs`；`BEGIN/END` 为阶段，`CASE-BEGIN/CASE-END` 为函数/子套件，另有具名激活矩阵行。各行立即 flush，旧文件不覆盖、不自动删除 |
+| `watchdog-<mode>-<id>.stdout.txt` / `.stderr.txt` | 本次启动的测试输出；按 watchdog 报告的 PID/前缀与逐函数日志对应，不拿旧 PID 的保留日志判断本次进展 |
+| 同前缀 `.dmp`、`-symbols` 目录、抓取/分析命令及输出 | 挂起时保留完整 dump 和当时匹配的 EXE/PDB；正常完成不生成 dump |
+
+排查顺序：
+
+1. 核对构建、架构、测试名和本次文件；找最后未配对的 `CASE-BEGIN`，同时查看最后的阶段、失败表达式、线程和修饰键。嵌套耗时不能直接相加当作整套用时；函数结束包含其他局部对象析构，`unwinding` 表示异常展开，不等于断言已通过。
+2. 只有新 `CASE-END` 重置进展。连续 **60 秒**无完成时抓取一次 `.dump /ma`，并非总耗时超过 60 秒就抓；子测试执行上限 **90 秒**，外层 CTest **150 秒**保留诊断预算。不要用 `ctest --timeout 90` 提前终止包装器。
+3. 看抓取输出确认 dump 存在，再看离线分析的 `.reload /f`、`!analyze -hang`、`~* kv` 和 `lmv m qiqi_tsf_ui_test`。必须加载归档的匹配私有 PDB；当前构建的 PDB 可能已被重编译覆盖，不能替代归档副本。
+4. 缺系统符号时保留原告警；自动 hang 分类可能不完整，可先用私有符号查看测试栈。收集、符号加载或分析失败都不是测试成功。隔离 probe 的预期超时退出也不是普通测试通过，更不是历史真实挂起的根因证据。
+5. 日志、dump、归档 EXE/PDB 和命令/输出一起在本地保留；删除构建目录前先备份需保留证据。不配置外部符号服务器或上传；完整 dump 可能含敏感进程内存，不提交到 Git 或未经检查对外分享。
+
+Release PDB、cdb 安装要求、两架构串行命令、probe 语义及预算详见[开发指南](dev.md#33-组合组件与生命周期测试组织)。直接启动测试 EXE 仍有函数日志，但没有 watchdog；不要直接启动故意无限等待的 `--test-hang-diagnostics-probe`。
+
 ## 7. 无日志与共享日志的检查清单
 
 | 现象 | 检查项 |
 |---|---|
-| 找不到文本日志/事件查看器条目 | 使用调试器或 ETW/WPA，本项目不自动写文本日志 |
+| 生产 IME 找不到文本日志/事件查看器条目 | 使用调试器或 ETW/WPA；生产日志不自动落盘，TSF 测试保留日志是单独机制 |
 | 有 Info，没有 Debug/Trace | 检查应用 `LogLevel`，并确认进程已读取新配置 |
 | ETW 会话存在，但没有 IME 事件 | 确认 DLL 版本、宿主 PID、输入法是否已初始化、应用及采集级别；主动触发操作，注册失败时查看调试输出 |
 | 设置程序有日志，浏览器没有 | Provider 注册按进程发生；核对浏览器的实际宿主 PID |

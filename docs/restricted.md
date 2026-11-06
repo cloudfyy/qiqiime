@@ -6,6 +6,8 @@
 
 同日后续已先撤下注册层的 `GUID_TFCAT_TIPCAP_SECUREMODE` 声明，并补充旧分类迁移/卸载清理；这不改变下文记录的按键实验结果，也不表示任务 36 的准入策略或任务 61 的安全桌面支持已实现。新分类状态需实际使用新构建重新注册后才应用，未在本轮自动部署。
 
+**2026-11-06 架构同步**：R05 已把状态、票据及目标/编辑/清理协议移入 [`ime/comp`](../src/ime/comp)，COM 入口仍在服务中；下方静态路径以当前适配与组件共同理解，2026-11-05 实验数字仍为历史结果，不是本次重跑。此重构及激活取消修复**未接入统一禁输入准入**，不据此关闭任务 36。后续实施须同时覆盖[模块职责](composition.md#current-module-map)中的入口和延迟执行，不只修改原来的服务文件。
+
 主要结论：
 
 1. `GUID_COMPARTMENT_KEYBOARD_DISABLED` 和 `GUID_COMPARTMENT_EMPTYCONTEXT` 是 **context 级**信号，不是密码框分类器，也不是 thread manager 的标准禁输入标志。
@@ -42,7 +44,7 @@
 - [`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp)：普通 `OnTestKeyDown` / `OnKeyDown` 检查禁用标志；查询还回退到 thread manager，查询失败最终按 0 处理。
 - 同一文件中 Shift 路径先于普通禁用检查返回；`OnTestKeyUp` / `OnKeyUp` 依赖 Shift 跟踪状态；`OnPreservedKey` 的四种操作没有共同禁输入检查。其中快捷造词可进入剪贴板读取和词库写入路径。本轮不调用快捷造词，不接触真实剪贴板。
 - [`tip_service.cpp`](../src/ime/tsf/tip_service.cpp)：候选点击先调用引擎提交；分页同样直接进入引擎。焦点/上下文移除已有生命周期处理，但不等于同一 context 原地变成只读或禁用时必然收到清理。
-- [`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp)：epoch 和 composition 身份屏障已防止旧目标/旧组合回调；没有在每次排队编辑执行前重新检查当前禁输入条件。拒绝普通按键本身也不递增 epoch。
+- [`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp) 适配 [`state.h`](../src/ime/comp/state.h) / [`edit.h`](../src/ime/comp/edit.h) 的 epoch、组合身份及任务执行屏障，防止旧目标/旧组合回调；没有在每次排队编辑执行前重新检查当前禁输入条件。生命周期有效不等于可编辑或非敏感；拒绝普通按键本身也不递增 epoch。
 - [`engine.cpp`](../src/ime/engine/engine.cpp)：候选提交在 `ResolveCandidateCommit` 内已调用 `PromotePhraseForCode`。因此仅在 TSF 最终写入处检查，无法阻止此前发生的学习；准入应早于引擎处理。
 - [`tip_config.cpp`](../src/ime/tsf/tip_config.cpp)：当前 compartment 事件主要处理模式与配置通知，没有为每个活动 context 连接两个禁输入标志的变更通知。
 

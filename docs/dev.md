@@ -2,6 +2,8 @@
 
 本文档面向开发者，介绍 **奇奇五笔（QiQiIME）** 的源码目录结构、构建环境要求、双架构编译、单元测试、静态代码分析与日志调试规范。
 
+当前操作指南核对日期：**2026-11-06**（代码基线 `a911cbd`）。优先阅读第 2–4 节；第 5 节的逐批实施说明是历史记录，不代表每次均重新运行全仓测试。架构契约见[组合生命周期](composition.md)，剩余宿主验收见[人工清单](hosts.md#11-r05-重构后人工验收2026-11-06-待执行)。
+
 ---
 
 ## 1. 开发与编译环境要求
@@ -14,6 +16,7 @@
 | **CMake** | **`4.4.4` 或更高版本**；默认使用 VS 2026 预设 |
 | **vcpkg** | Visual Studio 内置 vcpkg 或通过 `VCPKG_ROOT` 环境变量指定（Manifest 模式自动安装 `ms-gsl`） |
 | **PowerShell** | Windows PowerShell 5.1 或 PowerShell 7+（用于运行构建、注册与打包脚本） |
+| **Windows SDK Debugging Tools** | 配置 TSF 测试时必需；分别安装 `Debuggers\x64\cdb.exe` 与 `Debuggers\x86\cdb.exe`，用于匹配目标架构的本地挂起取证。只有 SDK 头文件/库不代表已安装调试器 |
 | **WiX Toolset（可选）** | .NET SDK 8.0+ 与 WiX CLI v4/v7+（`dotnet tool install --global wix`，用于生成 `.msi` 安装包） |
 
 ---
@@ -35,7 +38,13 @@ qiqiime/
 ├── docs/
 │   ├── arch.md         # 【架构文档】分层架构、TSF 生命周期、状态机、内存映射与安全模型
 │   ├── dev.md          # 【开发文档】源码结构、编译构建、单元测试、静态检查与日志规范
-│   └── deploy.md           # 【部署文档】安装注册、WOW64 部署、MSI/ZIP 发行包打包、升级与卸载指南
+│   ├── composition.md  # 【组合协议】状态、票据、清理、重入、目标、呈现与布局
+│   ├── hosts.md        # 【宿主验收】人工步骤、历史反馈及 R05 剩余清单
+│   ├── log.md          # 【日志排障】生产 ETW、测试保留日志及 dump 分析入口
+│   ├── review.md       # 【实施记录】当前 R01–R06 状态、逐批验证与原始初评
+│   ├── restricted.md   # 【禁输入研究】已知缺口与未接入生产的准入方案
+│   ├── uwp.md          # 【兼容边界】AppContainer 权限与未完成验收
+│   └── deploy.md       # 【部署文档】注册、发行包、升级与卸载
 ├── installer/
 │   ├── QiQiIME.wxs             # WiX Toolset (v4+) Windows Installer (.msi) 安装包配置
 │   ├── zh-CN.wxl               # 简体中文 (LCID 2052) MSI 本地化词条
@@ -64,7 +73,7 @@ qiqiime/
 │   │   └── ...                 # 文件、DPI、音效、主题、版本模板等公共代码
 │   ├── ime/                   # 输入法
 │   │   ├── CMakeLists.txt      # qiqi_engine 静态库及 qiqiime.dll 构建
-│   │   ├── comp/               # 组合编辑票据、开始准备、范围写入、显示属性与清理协调
+│   │   ├── comp/               # 生命周期状态、目标/文档、编辑/清理、开始/结束、呈现/布局协议
 │   │   ├── engine/             # 五笔状态机、词库、映射、动态调频与造词
 │   │   ├── fsm/                # 状态/事件定义、按键映射、静态分派与分页辅助（fsm.h 为聚合入口）
 │   │   ├── tsf/                # COM 服务、注册、显示属性与编辑会话
@@ -105,6 +114,7 @@ qiqiime/
     │   ├── tsf/                # COM Mock、注册及 TSF 服务测试
     │   ├── ui/                 # 候选窗、托盘菜单与状态条测试
     │   ├── engine_main.cpp     # 引擎测试入口
+    │   ├── test_watchdog.ps1   # 5/6 的进展监测、匹配符号归档与 cdb dump/分析
     │   └── tsf_ui_main.cpp      # TSF / IME UI 测试入口
     └── tools/
         ├── CMakeLists.txt      # 组织各工具测试
@@ -136,9 +146,11 @@ qiqiime/
 # 编译并运行 x64 与 x86 全部单元测试
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
 
-# 编译、测试并生成独立发行包 (dist/QiQiIME-v<version>-win-x64-x86.zip)
+# 仅在明确需要发行包时使用；找到 WiX CLI 时还会生成中英文 MSI
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
+
+普通代码或文档改动不制作 MSI；保留日志与 dump 不属于发行包内容。`-Package` 会替换同版本的发行目录/包，需要保留的旧发行物应另行备份，测试证据在构建目录下另行保管。
 
 ### 3.2 使用 CMake Presets 单独构建与调试
 
@@ -185,9 +197,36 @@ ctest --preset x86-release --output-on-failure
 - **匹配符号与分析留存**：Release 测试目标保留优化并启用 `/Zi`、`/DEBUG:FULL`，PDB 分别位于 `build\x64\Release\qiqi_tsf_ui_test.pdb`、`build\x86\Release\qiqi_tsf_ui_test.pdb`，不能拿旧 Debug PDB 分析 Release dump。配置测试需已安装 PowerShell 和对应架构的 Windows SDK Debugging Tools；缺失时明确失败。每次 watchdog 保留独立 stdout/stderr；挂起时额外保留 dump、匹配 EXE/PDB 副本、cdb 命令文件、抓取和分析输出。自动执行 `.reload /f`、`!analyze -hang`、`~* kv` 及测试模块符号信息，并检查私有测试符号已加载；缺少系统符号时明确告警，自动分类可能不完整，但仍保留线程栈供人工分析。不配置外部符号服务器，不上传 dump；完整内存 dump 可能含敏感数据，只在本地保管，删除构建目录前一并备份。
 - **诊断也不能静默失败**：文件创建/写入、符号缺失、cdb 失败及超时明确报错，不伪装测试成功；只终止自己启动的测试/debugger PID。其他测试 EXE 保持 stderr 失败诊断，不自动生成 TSF 日志。stderr/镜像/写失败报告、计时嵌套/异常展开/禁用模式均有回归覆盖；阶段和逐函数日志作为常规诊断保留，不覆盖、不自动清理，也不改变既有断言。
 - **隔离取证验证**：`-Mode probe` 先在约 5 秒完成一个测试，再故意挂起；x64/x86 实测均在约第 65 秒取证、第 90 秒终止，确认按最后完成结果而非总时长 60 秒触发。两份 dump 均加载匹配的私有 PDB，并通过线程栈定位到模拟的 `Sleep(INFINITE)`；系统符号缺失告警明确保留。probe 非零退出是预期结果，不代表正常套件通过，也不解释历史偶发挂起的原因。
-- [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`finish`、`range`、`start`、`state`、`update` 短名；服务仍在 [`src/ime/tsf`](../src/ime/tsf) 负责宿主接口、跨阶段转场与 UI 协调，目录调整不改变 FSM 或生命周期边界。
+- [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`finish`、`layout`、`presentation`、`range`、`start`、`state`、`target`、`update` 短名。生命周期状态、目标/文档、内部编辑与清理、呈现/布局协议已完成提取；[`src/ime/tsf`](../src/ime/tsf) 有意保留 COM 身份、激活/停用、焦点/配置及实际引擎/Shift-tap/UI 副作用。职责及释放顺序见[模块索引](composition.md#current-module-map)，不再以继续添加包装函数判断 R05 完成。
 - [`tests/ime/comp`](../tests/ime/comp) 镜像组件目录，分别保留编辑票据/任务、清理、范围写入及开始准备测试；共享 Mock 仍在 [`mocks.h`](../tests/ime/tsf/mocks.h)。
 - [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) 仅保留有序入口，依次调用[延迟会话](../tests/ime/tsf/service_deferred.cpp)、[上下文/文档](../tests/ime/tsf/service_context.cpp)、[窗口生命周期](../tests/ime/tsf/service_windows.cpp)、[重入](../tests/ime/tsf/service_reentrancy.cpp)、[服务清理](../tests/ime/tsf/service_cleanup.cpp)及[原生 TSF](../tests/ime/tsf/service_native.cpp)测试。组件测试仍在原窗口测试的配置/键盘快照之前运行；入口的 key/composition sink 强引用保留到全部子套件返回，各测试块的局部 COM/RAII 作用域不变。
+
+使用测试名而非序号选择测试；“测试 5/6”只是当前配置中的序号。关闭其他会改写共享测试状态的测试，执行真实 TSF/GUI 回归期间暂停键盘和鼠标操作。两个架构顺序执行，不同时启动：
+
+```powershell
+cmake --build --preset x64-release --target qiqiime qiqi_tsf_ui_test
+ctest --test-dir build\x64 -C Release -R '^QiQi(TsfUi|CompositionLifecycle)Test$' --output-on-failure
+
+cmake --build --preset x86-release --target qiqiime qiqi_tsf_ui_test
+ctest --test-dir build\x86 -C Release -R '^QiQi(TsfUi|CompositionLifecycle)Test$' --output-on-failure
+```
+
+不要添加 `--timeout 90` 覆盖 CTest 的 150 秒诊断预算；90 秒由 watchdog 限制其子测试进程。需要核对实际注册属性时运行 `ctest --test-dir build\x64 -C Release --show-only=json-v1`，检查两个具名测试的命令、`RUN_SERIAL` 和 `TIMEOUT=150`；多配置生成文件中重复的文本属性行不是多个测试。
+
+### 3.4 R05 最新自动验收快照（2026-11-06）
+
+这是代码基线 `a911cbd` 的既有验证记录，不是本次文档更新重新执行的测试：
+
+| 架构 | IME DLL / 测试构建与 CoreCheck | `QiQiTsfUiTest` | `QiQiCompositionLifecycleTest` |
+|---|---|---|---|
+| x64 | 通过；自有源码无新增非 C26490 诊断 | 22.90 秒，通过 | 18.56 秒，通过 |
+| x86 | 通过；自有源码无新增非 C26490 诊断 | 25.08 秒，通过 | 18.71 秒，通过 |
+
+- 完整/定向保留日志分别有 **211/179** 对函数/子套件完成记录、**30/25** 对阶段记录；这些是该次运行的观测值，不是断言数、唯一测试函数数或长期固定门槛。
+- 文档身份与目标协调新增 **191** 例；激活过渡新增 **57** 例（54 个独立计时的矩阵行、1 个异常恢复及 2 个调用方放弃引用场景）。最终运行无超时，正常运行不生成 dump。
+- 曾先复现激活取消被覆盖的问题，再修复；新增测试也曾因错误预计未注册 key sink 的解除次数失败，已按实际成功登记数修正。失败与成功证据都保留，细节见[实施记录](review.md)。
+- 双架构隔离 probe 验证了“先约 5 秒完成一例、再挂起”的取证链：约第 65 秒取 dump，约第 90 秒停止，匹配私有符号可解析源码栈；这是诊断设施自测，不是复现历史真实挂起。
+- 未在最终收口批次重复全仓套件、制作 MSI 或完成新宿主人工验收。R05 的代码与自动验收已收口，整体勾选仍取决于[人工验收](hosts.md#11-r05-重构后人工验收2026-11-06-待执行)。
 
 ---
 
