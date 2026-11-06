@@ -9,7 +9,7 @@ namespace qiqi {
 
 class CompositionContextResetScope;
 
-// STA state only; activation/preparation guards, host call ordering, and UI policy stay in the service.
+// STA state only; activation/preparation entry gates, host scheduling, and UI policy stay in the service.
 class CompositionLifecycleState {
 public:
     explicit CompositionLifecycleState(uint64_t service_id) noexcept : cleanups_(service_id) {}

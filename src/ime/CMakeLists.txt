@@ -29,6 +29,7 @@ set(QIQIIME_SOURCES
     comp/range.h
     comp/start.h
     comp/state.h
+    comp/target.h
     comp/update.h
     tsf/register.h
     tsf/register.cpp

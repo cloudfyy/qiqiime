@@ -14,6 +14,7 @@ void RunTsfServiceLifecycleTests(
 
     RunTsfDeferredSessionTests(service, mock_tm, key_sink.Get(), comp_sink.Get());
     RunTsfDocumentLifecycleTests(service, mock_tm);
+    RunTsfTargetPreparationTests(service, mock_tm);
     TestDeactivationWindowLifecycle();
     TestReentrantCompositionEdits();
     RunTsfServiceCleanupTests(service, mock_tm, key_sink.Get());

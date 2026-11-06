@@ -1,6 +1,7 @@
 #include "ime/tsf/tip_service.h"
 #include "ime/comp/finish.h"
 #include "ime/comp/start.h"
+#include "ime/comp/target.h"
 #include "ime/comp/update.h"
 #include "ime/tsf/edit_session.h"
 #include "common/logger.h"
@@ -218,43 +219,11 @@ bool QiQiTextService::PrepareInputContext(ITfContext* context) {
     const auto restore_act = gsl::finally([this, prev_act]() noexcept {
         current_lifecycle_activity_ = prev_act;
     });
-    ComPtr<ITfContext> ctx_holder(context);
-    preparing_input_context_ = ctx_holder;
-    const auto finish_prepare = gsl::finally([this]() noexcept { preparing_input_context_.Reset(); });
-    EditSessionTicket ticket{composition_lifecycle_.Epoch(), nullptr};
-    ++ticket.epoch.context;
-    ResetCompositionAndUI();
-    if (!IsEditSessionCurrent(ticket)) return false;
-    ComPtr<ITfDocumentMgr> document;
-    const HRESULT document_hr = context->GetDocumentMgr(&document);
-    if (!log::CheckHResult(document_hr, "PrepareInputContext::GetDocumentMgr", log::Level::warn,
-                           log::LogContext{log::Keyword::Lifecycle, log::Opcode::Info, &prepare_act_id, nullptr}) ||
-        !document) {
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::Lifecycle,
-            &prepare_act_id,
-            "TsfLifecycle(service={}, stage=input-document-unavailable, hr=0x{:08x})",
-            service_log_id_, gsl::narrow_cast<unsigned int>(document_hr));
-    }
-    if (!IsEditSessionCurrent(ticket)) return false;
-    composition_lifecycle_.SetContext(ctx_holder);
-    composition_lifecycle_.SetDocument(std::move(document));
-    ticket.target = context;
-    ITfTextLayoutSink* sink = this;
-    const bool layout_advised = text_layout_sink_.Advise(composition_lifecycle_.Context().Get(), IID_ITfTextLayoutSink, sink);
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::UI,
-        &prepare_act_id,
-        "CandidatePosition(service={}, stage=layout-advise, activation={}, context={}, connected={})",
-        service_log_id_, ticket.epoch.activation, ticket.epoch.context, layout_advised);
-    if (!IsEditSessionCurrent(ticket)) {
-        // A notification during AdviseSink may have invalidated the target before the cookie was published.
-        text_layout_sink_.Reset();
-        return false;
-    }
-    return true;
+    return PrepareCompositionTarget(
+        gsl::not_null<ITfContext*>(context), composition_lifecycle_, preparing_input_context_,
+        text_layout_sink_, gsl::not_null<ITfTextLayoutSink*>(this), service_log_id_, prepare_act_id,
+        [this] { ResetCompositionAndUI(); },
+        [this](EditSessionTicket ticket) noexcept { return IsEditSessionCurrent(ticket); });
 }
 
 bool QiQiTextService::IsCompositionEditCurrent(

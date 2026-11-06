@@ -575,13 +575,16 @@ public:
     STDMETHODIMP EnumProperties(IEnumTfProperties**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetDocumentMgr(ITfDocumentMgr** document) override {
         if (!document) return E_INVALIDARG;
+        ++get_document_calls_;
         *document = nullptr;
         const auto link = document_link_.lock();
         if (!link || !link->document) return TF_E_DISCONNECTED;
-        *document = link->document;
-        (*document)->AddRef();
+        if (!return_null_document_) {
+            *document = link->document;
+            (*document)->AddRef();
+        }
         if (get_document_callback_) get_document_callback_();
-        return S_OK;
+        return get_document_result_;
     }
     STDMETHODIMP CreateRangeBackup(TfEditCookie, ITfRange*, ITfRangeBackup**) noexcept override { return E_NOTIMPL; }
 
@@ -696,6 +699,9 @@ public:
     unsigned int layout_advise_calls_ = 0;
     unsigned int layout_unadvise_calls_ = 0;
     std::function<void()> get_document_callback_;
+    HRESULT get_document_result_ = S_OK;
+    bool return_null_document_ = false;
+    unsigned int get_document_calls_ = 0;
     std::function<void()> layout_advise_callback_;
     ComPtr<MockTfCompartment> disabled_compartment_;
     ComPtr<MockTfCompartment> empty_compartment_;

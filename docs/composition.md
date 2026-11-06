@@ -38,7 +38,7 @@ the original assignment/move/release operations; they do not bundle a transition
 implicitly invalidate epochs, reset unrelated fields, or call `EndComposition`.
 This includes allowing the original temporary states during reentrant teardown.
 The service still orders invalidation before host calls, owns activation and
-preparation guards and the pending preparation context, and decides when to
+preparation entry gates and the pending preparation context, and decides when to
 publish/reset UI.
 The owner stays at the same address for the service lifetime, so live epoch
 references and detached cleanup bookkeeping are not replaced on reactivation.
@@ -56,6 +56,25 @@ and exceptional exit without rolling back the epoch. It does not release COM
 references, mutate cleanup records, or call the host/UI. `IsCurrent(ticket)`
 checks the owner's own reset flag; the service retains the actual teardown and
 UI sequence.
+
+[`PrepareCompositionTarget`](../src/ime/comp/target.h) runs the synchronous
+new-target workflow after the service's entry gates and activity switch. It
+holds the original context reference and the service's pending-target slot,
+predicts the next context epoch with a null target, invokes the original reset,
+and rechecks the ticket after reset and after `GetDocumentMgr`. Only then does
+it publish context/document, retarget the ticket, and advise the layout sink.
+The final ticket check withdraws a subscription published after a reentrant
+invalidation. The same predicate instance handles all three checks.
+
+Document-query failure or null output and layout-subscription failure retain
+the original diagnostics and nonfatal policy when the ticket is still current;
+they do not independently reject input or grant edit permission. A non-null
+document returned with a failure HRESULT is retained just as before. On exit,
+the temporary document releases before the pending-target slot is cleared,
+then the local context holder releases, all before the service restores its
+activity. The helper borrows state, pending storage, and sink connections only
+for this call; it does not retain callbacks or an edit cookie. The service keeps
+same-target/unavailable handling and the actual engine/UI reset policy.
 
 [`CompositionEditTask`](../src/ime/comp/edit.h) owns the captured context, immutable
 result snapshot, original ticket, and activity ID. Its synchronous
@@ -523,7 +542,7 @@ The existing 91 edit-boundary and four cleanup-reentrancy cases remain intact.
 This stage adds tests, not production behavior: it does not change the existing
 policy for a current failed start with non-null output. The current composition,
 epochs, context/document, and cleanup coordinator now share the state owner
-described above. Cross-stage target preparation, activation, actual teardown, and UI
+described above. Cross-stage preparation entry, activation, actual teardown, and UI
 coordination remain in the service; the complete R05 coordinator is unfinished.
 
 The [state tests](../tests/ime/comp/state.cpp) use real reset scopes in the
@@ -534,6 +553,16 @@ and absence of host operations. Two real-service cases inject one or three
 nested focus-loss resets during old cleanup: input and activation are rejected
 until the outer reset finishes, cleanup/UI are not repeated, and a fresh
 composition works afterward.
+
+The [target component tests](../tests/ime/comp/target.cpp) add 35 document-result,
+subscription-result, and invalidation-boundary cases plus two exception/resource
+unwind cases. They check exact call order, predicted tickets, strong-reference
+counts, and move-only stateful callbacks. Eight
+[real-service preparation cases](../tests/ime/tsf/service_target.cpp) exercise
+document-query and layout-advise reentrancy with continued preparation, focus
+loss, target removal, or deactivation. Nested input and activation cannot
+interleave, late subscriptions are withdrawn, same-target input avoids a
+second preparation, and a fresh target remains usable.
 
 `QiQiCompositionLifecycleTest` runs composition components and the complete
 service lifecycle/key-flow tests without the standalone popup/candidate/status

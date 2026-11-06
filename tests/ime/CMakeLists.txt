@@ -18,6 +18,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/range.cpp
     comp/start.cpp
     comp/state.cpp
+    comp/target.cpp
     comp/update.cpp
     tsf/mocks.h
     tsf/com.cpp
@@ -32,6 +33,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     tsf/service_deferred.cpp
     tsf/service_native.cpp
     tsf/service_reentrancy.cpp
+    tsf/service_target.cpp
     tsf/service_windows.cpp
     ui/ui_candidate.cpp
     ui/ui_langbar_menu.cpp
