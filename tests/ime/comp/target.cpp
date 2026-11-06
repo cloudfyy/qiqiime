@@ -270,6 +270,231 @@ void TestTargetPreparationIntegration() {
     QIQI_TEST_CHECK(cases == 32 && g_com_object_count.load() == objects_before);
 }
 
+void TestDocumentIdentityMatching() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    enum class Incoming { Missing, SamePointer, SameIdentity, Different };
+    const auto objects_before = g_com_object_count.load();
+    size_t cases = 0;
+    for (const bool active : {false, true}) {
+        for (const bool bound : {false, true}) {
+            for (const auto incoming : {Incoming::Missing, Incoming::SamePointer, Incoming::SameIdentity, Incoming::Different}) {
+                for (const bool current_fails : {false, true}) {
+                    for (const bool incoming_fails : {false, true}) {
+                        const auto document = MakeComObject<MockTfDocumentMgr>();
+                        const auto other_document = MakeComObject<MockTfDocumentMgr>();
+                        const auto current = MakeComObject<MockTfDocumentMgrAlias>(
+                            gsl::not_null<ITfDocumentMgr*>(document.Get()));
+                        const auto alias = MakeComObject<MockTfDocumentMgrAlias>(
+                            gsl::not_null<ITfDocumentMgr*>(incoming == Incoming::Different ? other_document.Get() : document.Get()));
+                        CompositionLifecycleState state(641);
+                        state.SetActive(active);
+                        if (bound) state.SetDocument(current);
+                        current->identity_result = current_fails ? E_ACCESSDENIED : S_OK;
+                        alias->identity_result = incoming_fails ? E_ACCESSDENIED : S_OK;
+                        std::array<unsigned int, 2> queries{};
+                        size_t query_count = 0;
+                        current->identity_observer = [&]() noexcept {
+                            QIQI_TEST_CHECK(query_count < queries.size());
+                            gsl::at(queries, query_count++) = 1;
+                        };
+                        alias->identity_observer = [&]() noexcept {
+                            QIQI_TEST_CHECK(query_count < queries.size());
+                            gsl::at(queries, query_count++) = 2;
+                        };
+                        ITfDocumentMgr* target = incoming == Incoming::Missing ? nullptr :
+                            incoming == Incoming::SamePointer ? current.Get() : alias.Get();
+                        const bool matches = bound && (incoming == Incoming::SamePointer ||
+                            (incoming == Incoming::SameIdentity && !current_fails && !incoming_fails));
+                        QIQI_TEST_CHECK(MatchesCompositionDocument(target, state) == matches &&
+                                        state.IsActive() == active && state.Document().Get() == (bound ? current.Get() : nullptr) &&
+                                        state.Epoch().activation == 0 && state.Epoch().context == 0 &&
+                                        document->get_top_calls == 0 && document->get_base_calls == 0);
+                        QIQI_TEST_CHECK(current->AddRef() == (bound ? 3UL : 2UL) &&
+                                        current->Release() == (bound ? 2UL : 1UL) &&
+                                        alias->AddRef() == 2 && alias->Release() == 1);
+                        const bool queried = bound && incoming != Incoming::Missing && incoming != Incoming::SamePointer;
+                        QIQI_TEST_CHECK(query_count == (queried ? current_fails ? 1u : 2u : 0u));
+                        if (queried) {
+                            QIQI_TEST_CHECK(gsl::at(queries, 0) == 1 &&
+                                            (current_fails || gsl::at(queries, 1) == 2));
+                        }
+                        current->identity_observer = {};
+                        alias->identity_observer = {};
+                        ++cases;
+                    }
+                }
+            }
+        }
+    }
+    QIQI_TEST_CHECK(cases == 64 && g_com_object_count.load() == objects_before);
+}
+
+void TestDocumentTargetReconciliation() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    enum class Shape { Empty, Unrelated, TargetTop, TargetBase, TargetBoth };
+    enum class Boundary { None, Top, Base, Reset };
+    enum class Step { Top, Base, Check, Reset };
+    const auto objects_before = g_com_object_count.load();
+    size_t cases = 0;
+    for (const auto shape : {Shape::Empty, Shape::Unrelated, Shape::TargetTop, Shape::TargetBase, Shape::TargetBoth}) {
+        for (const HRESULT top_hr : {S_OK, S_FALSE, E_ACCESSDENIED}) {
+            for (const HRESULT base_hr : {S_OK, E_ACCESSDENIED}) {
+                for (const auto boundary : {Boundary::None, Boundary::Top, Boundary::Base, Boundary::Reset}) {
+                    const auto document = MakeComObject<MockTfDocumentMgr>();
+                    const auto old_document = MakeComObject<MockTfDocumentMgr>();
+                    const auto context = document->CreateTestContext();
+                    const auto other_base = document->CreateTestContext();
+                    const auto other_top = document->CreateTestContext();
+                    if (shape != Shape::Empty) {
+                        auto* base = shape == Shape::TargetBase || shape == Shape::TargetBoth ? context.Get() : other_base.Get();
+                        auto* top = shape == Shape::TargetTop || shape == Shape::TargetBoth ? context.Get() : other_top.Get();
+                        QIQI_TEST_CHECK(document->Push(base) == S_OK);
+                        if (base != top) QIQI_TEST_CHECK(document->Push(top) == S_OK);
+                    }
+                    CompositionLifecycleState state(643);
+                    state.SetActive(true);
+                    state.InvalidateActivation();
+                    state.SetContext(context);
+                    state.SetDocument(old_document);
+                    std::vector<Step> trace;
+                    document->get_top_result = top_hr;
+                    document->get_base_result = base_hr;
+                    document->get_top_callback = [&] {
+                        trace.push_back(Step::Top);
+                        if (boundary == Boundary::Top) state.InvalidateContext();
+                    };
+                    document->get_base_callback = [&] {
+                        trace.push_back(Step::Base);
+                        if (boundary == Boundary::Base) state.InvalidateContext();
+                    };
+                    unsigned int resets = 0;
+                    unsigned int checks = 0;
+                    auto reset = [&, once = std::make_unique<bool>(false)] {
+                        QIQI_TEST_CHECK(!*once && state.Context().Get() == context.Get() && state.Document() == old_document);
+                        *once = true;
+                        ++resets;
+                        trace.push_back(Step::Reset);
+                        const CompositionContextResetScope reset_scope(state);
+                        state.ClearContext();
+                        state.ClearDocument();
+                        if (boundary == Boundary::Reset) state.InvalidateContext();
+                    };
+                    auto current = [&, calls = std::make_unique<unsigned int>(0)](EditSessionTicket ticket) {
+                        trace.push_back(Step::Check);
+                        checks = ++*calls;
+                        QIQI_TEST_CHECK(document->get_top_calls == 1 && document->get_base_calls == 1 &&
+                                        ticket.epoch.activation == 1 && ticket.epoch.context == (checks == 1 ? 0u : 1u) &&
+                                        ticket.target == (checks == 1 ? context.Get() : nullptr));
+                        return state.IsCurrent(ticket);
+                    };
+                    const bool ready = ReconcileCompositionDocumentTarget(
+                        document.Get(), "component", state, 643, GUID_NULL, std::move(reset), std::move(current));
+                    const bool stale = (boundary == Boundary::Top && SUCCEEDED(top_hr)) ||
+                        (boundary == Boundary::Base && SUCCEEDED(base_hr));
+                    const bool retained = SUCCEEDED(top_hr) && SUCCEEDED(base_hr) &&
+                        (shape == Shape::TargetTop || shape == Shape::TargetBase || shape == Shape::TargetBoth);
+                    const bool should_reset = !stale && !retained;
+                    std::vector<Step> expected;
+                    if (SUCCEEDED(top_hr)) expected.push_back(Step::Top);
+                    if (SUCCEEDED(base_hr)) expected.push_back(Step::Base);
+                    expected.push_back(Step::Check);
+                    if (should_reset) {
+                        expected.push_back(Step::Reset);
+                        expected.push_back(Step::Check);
+                    }
+                    QIQI_TEST_CHECK(ready == (!stale && (!should_reset || boundary != Boundary::Reset)) &&
+                                    trace == expected && resets == (should_reset ? 1u : 0u) &&
+                                    checks == (should_reset ? 2u : 1u) && state.IsActive() && !state.IsResettingContext() &&
+                                    state.Context().Get() == (should_reset ? nullptr : context.Get()) &&
+                                    state.Document().Get() == (should_reset ? nullptr : stale ? old_document.Get() : document.Get()) &&
+                                    context->request_edit_session_calls_ == 0 && context->range_->set_text_calls_ == 0);
+                    document->get_top_callback = {};
+                    document->get_base_callback = {};
+                    ++cases;
+                }
+            }
+        }
+    }
+    for (const bool bound : {false, true}) {
+        for (const bool has_document : {false, true}) {
+            if (bound && has_document) continue;
+            const auto context = MakeComObject<MockTfContext>();
+            const auto document = MakeComObject<MockTfDocumentMgr>();
+            CompositionLifecycleState state(645);
+            if (bound) state.SetContext(context);
+            unsigned int callbacks = 0;
+            QIQI_TEST_CHECK(ReconcileCompositionDocumentTarget(
+                has_document ? document.Get() : nullptr, "missing", state, 645, GUID_NULL,
+                [&] { ++callbacks; }, [&](EditSessionTicket) { ++callbacks; return false; }));
+            QIQI_TEST_CHECK(callbacks == 0 && document->get_top_calls == 0 && document->get_base_calls == 0 &&
+                            state.Context().Get() == (bound ? context.Get() : nullptr) && !state.Document());
+            ++cases;
+        }
+    }
+    QIQI_TEST_CHECK(cases == 123 && g_com_object_count.load() == objects_before);
+}
+
+void TestDocumentTargetUnwinding() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    enum class Boundary { None, Check, Reset, Recheck };
+    const auto objects_before = g_com_object_count.load();
+    for (const auto boundary : {Boundary::None, Boundary::Check, Boundary::Reset, Boundary::Recheck}) {
+        const auto document = MakeComObject<MockTfDocumentMgr>();
+        auto old_document = MakeComObject<MockTfDocumentMgr>();
+        auto context = old_document->CreateTestContext();
+        const auto document_link = context->document_link_;
+        const auto base = document->CreateTestContext();
+        const auto top = document->CreateTestContext();
+        QIQI_TEST_CHECK(document->Push(base.Get()) == S_OK && document->Push(top.Get()) == S_OK);
+        CompositionLifecycleState state(647);
+        state.SetActive(true);
+        state.SetContext(context);
+        state.SetDocument(old_document);
+        unsigned int releases = 0;
+        unsigned int checks = 0;
+        context->release_observer_ = [&]() noexcept {
+            QIQI_TEST_CHECK(!state.Context() && !state.Document() && document_link.expired() &&
+                            base->AddRef() == 3 && base->Release() == 2 &&
+                            top->AddRef() == 3 && top->Release() == 2);
+            ++releases;
+        };
+        const auto clear = [&] {
+            state.ClearContext();
+            state.ClearDocument();
+            context.Reset();
+            old_document.Reset();
+            QIQI_TEST_CHECK(releases == 0 && base->AddRef() == 4 && base->Release() == 3 &&
+                            top->AddRef() == 4 && top->Release() == 3);
+        };
+        bool caught = false;
+        try {
+            const bool ready = ReconcileCompositionDocumentTarget(
+                document.Get(), "unwind", state, 647, GUID_NULL,
+                [&] {
+                    state.InvalidateContext();
+                    clear();
+                    if (boundary == Boundary::Reset) throw std::runtime_error("injected document reconciliation");
+                },
+                [&](EditSessionTicket ticket) {
+                    ++checks;
+                    if (boundary == Boundary::Check || (boundary == Boundary::Recheck && checks == 2)) {
+                        if (checks == 1) clear();
+                        throw std::runtime_error("injected document reconciliation");
+                    }
+                    return state.IsCurrent(ticket);
+                });
+            QIQI_TEST_CHECK(ready && boundary == Boundary::None);
+        } catch (const std::runtime_error& error) {
+            QIQI_TEST_CHECK(std::string_view(error.what()) == "injected document reconciliation");
+            caught = true;
+        }
+        QIQI_TEST_CHECK(caught == (boundary != Boundary::None) && releases == 1 && !context && !old_document &&
+                        checks == (boundary == Boundary::Check || boundary == Boundary::Reset ? 1u : 2u) &&
+                        state.Epoch().context == (boundary == Boundary::Check ? 0u : 1u));
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 } // namespace
 
 void RunTsfCompositionTargetTests() {
@@ -278,6 +503,9 @@ void RunTsfCompositionTargetTests() {
     TestTargetPreparationUnwinding();
     TestTargetPreparationIntegration();
     RunTsfCompositionTargetEntryTests();
+    TestDocumentIdentityMatching();
+    TestDocumentTargetReconciliation();
+    TestDocumentTargetUnwinding();
 }
 
 } // namespace qiqi::test

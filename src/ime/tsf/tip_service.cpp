@@ -1,6 +1,7 @@
 #include "ime/tsf/tip_service.h"
 #include "ime/tsf/category_manager.h"
 #include "ime/tsf/display_attribute.h"
+#include "ime/comp/target.h"
 #include "common/file_util.h"
 #include "common/guids.h"
 #include "common/logger.h"
@@ -382,7 +383,7 @@ STDMETHODIMP QiQiTextService::OnInitDocumentMgr(ITfDocumentMgr* /*pdim*/) noexce
 }
 
 STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* pdim) {
-    const bool related = composition_lifecycle_.IsActive() && IsActiveDocument(pdim);
+    const bool related = composition_lifecycle_.IsActive() && MatchesCompositionDocument(pdim, composition_lifecycle_);
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
         log::Keyword::Lifecycle,
@@ -397,49 +398,11 @@ STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* pdim) {
     return S_OK;
 }
 
-bool QiQiTextService::IsActiveDocument(ITfDocumentMgr* document) const {
-    if (!document || !composition_lifecycle_.Document()) return false;
-    if (document == composition_lifecycle_.Document().Get()) return true;
-    ComPtr<IUnknown> current_identity;
-    ComPtr<IUnknown> incoming_identity;
-    if (!log::CheckHResult(composition_lifecycle_.Document().As(&current_identity), "IsActiveDocument::CurrentIdentity") ||
-        !log::CheckHResult(document->QueryInterface(IID_PPV_ARGS(&incoming_identity)),
-                          "IsActiveDocument::IncomingIdentity")) {
-        return false;
-    }
-    return current_identity == incoming_identity;
-}
-
 bool QiQiTextService::ReconcileDocumentTarget(ITfDocumentMgr* document, std::string_view source) {
-    if (!composition_lifecycle_.Context() || !document) return true;
-    const auto context = composition_lifecycle_.Context();
-    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.Get()};
-    ComPtr<ITfContext> top;
-    ComPtr<ITfContext> base;
-    const HRESULT top_hr = document->GetTop(&top);
-    const HRESULT base_hr = document->GetBase(&base);
-    const bool top_ok = log::CheckHResult(top_hr, "ReconcileDocumentTarget::GetTop");
-    const bool base_ok = log::CheckHResult(base_hr, "ReconcileDocumentTarget::GetBase");
-    if (!IsEditSessionCurrent(ticket)) return false;
-    const bool retained = top_ok && base_ok && (top == context || base == context);
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::Lifecycle,
-        &current_lifecycle_activity_,
-        "TsfLifecycle(service={}, stage=document-target, source={}, retained={}, covered_by_modal={})",
-        service_log_id_,
-        source,
-        retained,
-        retained && top != context);
-    if (!retained) {
-        EditSessionTicket expected{composition_lifecycle_.Epoch(), nullptr};
-        ++expected.epoch.context;
-        ResetCompositionAndUI();
-        return IsEditSessionCurrent(expected);
-    } else {
-        composition_lifecycle_.SetDocument(document);
-    }
-    return true;
+    return ReconcileCompositionDocumentTarget(
+        document, source, composition_lifecycle_, service_log_id_, current_lifecycle_activity_,
+        [this] { ResetCompositionAndUI(); },
+        [this](EditSessionTicket ticket) noexcept { return IsEditSessionCurrent(ticket); });
 }
 
 void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource source) {
@@ -530,7 +493,7 @@ STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
         return S_OK;
     }
     if (!IsEditSessionCurrent(ticket)) return S_OK;
-    const bool related = IsActiveDocument(document.Get());
+    const bool related = MatchesCompositionDocument(document.Get(), composition_lifecycle_);
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
         log::Keyword::Lifecycle,

@@ -140,7 +140,6 @@ private:
     void ScheduleCompositionCleanup();
     void ResetContextAndUI(bool try_host_cleanup = true);
     bool PrepareInputContext(ITfContext* context);
-    bool IsActiveDocument(ITfDocumentMgr* document) const;
     bool ReconcileDocumentTarget(ITfDocumentMgr* document, std::string_view source);
     bool IsEditSessionCurrent(EditSessionTicket ticket) const noexcept;
     bool IsCompositionEditCurrent(

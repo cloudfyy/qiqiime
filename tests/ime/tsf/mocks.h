@@ -800,23 +800,26 @@ public:
     STDMETHODIMP GetTop(ITfContext** context) override {
         if (!context) return E_INVALIDARG;
         *context = nullptr;
+        ++get_top_calls;
         if (FAILED(get_top_result)) return get_top_result;
         if (get_top_callback) get_top_callback();
         if (!stack_.empty()) {
             *context = stack_.back().Get();
             (*context)->AddRef();
         }
-        return S_OK;
+        return get_top_result;
     }
     STDMETHODIMP GetBase(ITfContext** context) override {
         if (!context) return E_INVALIDARG;
         *context = nullptr;
+        ++get_base_calls;
         if (FAILED(get_base_result)) return get_base_result;
+        if (get_base_callback) get_base_callback();
         if (!stack_.empty()) {
             *context = stack_.front().Get();
             (*context)->AddRef();
         }
-        return S_OK;
+        return get_base_result;
     }
     STDMETHODIMP EnumContexts(IEnumTfContexts** contexts) noexcept override {
         if (contexts) *contexts = nullptr;
@@ -827,7 +830,10 @@ public:
     ITfThreadMgrEventSink* events = nullptr;
     HRESULT get_top_result = S_OK;
     HRESULT get_base_result = S_OK;
+    unsigned int get_top_calls = 0;
+    unsigned int get_base_calls = 0;
     std::function<void()> get_top_callback;
+    std::function<void()> get_base_callback;
 
 private:
     const std::shared_ptr<MockDocumentLink> link_;
@@ -843,6 +849,7 @@ public:
         if (IsEqualIID(riid, IID_IUnknown)) {
             if (!object) return E_INVALIDARG;
             *object = nullptr;
+            if (identity_observer) identity_observer();
             if (FAILED(identity_result)) return identity_result;
 #pragma warning(suppress : 26447) // COM identity queries report failure through HRESULT.
             return document_->QueryInterface(riid, object);
@@ -860,6 +867,7 @@ public:
     STDMETHODIMP EnumContexts(IEnumTfContexts** contexts) override { return document_->EnumContexts(contexts); }
 
     HRESULT identity_result = S_OK;
+    std::move_only_function<void() noexcept> identity_observer;
 private:
     const ComPtr<ITfDocumentMgr> document_;
 };

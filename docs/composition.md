@@ -104,6 +104,25 @@ activity. The helper borrows state, pending storage, and sink connections only
 for this call; it does not retain callbacks or an edit cookie. The service keeps
 the actual engine/UI reset policy and callback wiring.
 
+[`MatchesCompositionDocument`](../src/ime/comp/target.h) owns the original
+document pointer fast path and canonical `IUnknown` comparison. Missing
+documents reject before querying; identical interface pointers need no query.
+Otherwise the current identity is queried before the incoming identity, with
+the same failure short circuit and HRESULT diagnostic labels. This helper is
+identity-only: activation gates remain at the notification entry points.
+
+[`ReconcileCompositionDocumentTarget`](../src/ime/comp/target.h) retains the
+original context and ticket, queries both `GetTop` and `GetBase` even when the
+first fails, reports both results, then rechecks the ticket. Both queries must
+succeed and either returned interface pointer must match the captured context
+to retain the target, including a base context covered by a modal top context.
+Otherwise the original reset callback runs with the predicted next context epoch
+and null target, followed by the original check. Missing current context or
+document remains a no-op success. Query owners release base, top, then the
+captured context on return or exception. The service retains actual engine/UI
+reset, focus revision/configuration/status-bar policy and activation/deactivation;
+no extra post-host check or scheduling policy is introduced.
+
 [`EnterCompositionTargetPreparation`](../src/ime/comp/target.h) owns the original
 entry sequence: missing/inactive/resetting/preparing targets are rejected with
 the original diagnostic before the same-target fast path. Only a new target

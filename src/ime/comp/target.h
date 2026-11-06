@@ -5,10 +5,60 @@
 #include <cstdint>
 #include <functional>
 #include <gsl/gsl>
+#include <string_view>
 #include <wrl/client.h>
 #include <utility>
 
 namespace qiqi {
+
+[[nodiscard]] inline bool MatchesCompositionDocument(
+    ITfDocumentMgr* document, const CompositionLifecycleState& state) {
+    if (!document || !state.Document()) return false;
+    if (document == state.Document().Get()) return true;
+    Microsoft::WRL::ComPtr<IUnknown> current_identity;
+    Microsoft::WRL::ComPtr<IUnknown> incoming_identity;
+    if (!log::CheckHResult(state.Document().As(&current_identity), "IsActiveDocument::CurrentIdentity") ||
+        !log::CheckHResult(document->QueryInterface(IID_PPV_ARGS(&incoming_identity)),
+                          "IsActiveDocument::IncomingIdentity")) {
+        return false;
+    }
+    return current_identity == incoming_identity;
+}
+
+template <typename Reset, typename IsCurrent>
+[[nodiscard]] bool ReconcileCompositionDocumentTarget(
+    ITfDocumentMgr* document, std::string_view source, CompositionLifecycleState& state,
+    uint64_t service_id, const GUID& activity, Reset reset, IsCurrent is_current) {
+    if (!state.Context() || !document) return true;
+    const auto context = state.Context();
+    const EditSessionTicket ticket{state.Epoch(), context.Get()};
+    Microsoft::WRL::ComPtr<ITfContext> top;
+    Microsoft::WRL::ComPtr<ITfContext> base;
+    const HRESULT top_hr = document->GetTop(&top);
+    const HRESULT base_hr = document->GetBase(&base);
+    const bool top_ok = log::CheckHResult(top_hr, "ReconcileDocumentTarget::GetTop");
+    const bool base_ok = log::CheckHResult(base_hr, "ReconcileDocumentTarget::GetBase");
+    if (!is_current(ticket)) return false;
+    const bool retained = top_ok && base_ok && (top == context || base == context);
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &activity,
+        "TsfLifecycle(service={}, stage=document-target, source={}, retained={}, covered_by_modal={})",
+        service_id,
+        source,
+        retained,
+        retained && top != context);
+    if (!retained) {
+        EditSessionTicket expected{state.Epoch(), nullptr};
+        ++expected.epoch.context;
+        reset();
+        return is_current(expected);
+    } else {
+        state.SetDocument(document);
+    }
+    return true;
+}
 
 // Borrowed slots must outlive this synchronous call.
 template <typename Reset, typename IsCurrent>
