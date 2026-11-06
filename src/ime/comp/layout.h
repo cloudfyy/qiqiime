@@ -119,4 +119,38 @@ template <typename IsCurrent>
     return query;
 }
 
+template <typename QueryFallback, typename MoveWindow>
+void ApplyCompositionLayoutPosition(
+    const CompositionLayoutQuery& query, bool& has_valid_caret_pos, const EditSessionEpoch& attempted_epoch,
+    uint64_t service_id, const GUID& activity, QueryFallback query_fallback, MoveWindow move_window) {
+    if (!query.current) return;
+    RECT rc = query.rect;
+    if (query.got_position) {
+        has_valid_caret_pos = true;
+        move_window(rc);
+        return;
+    }
+    if (!has_valid_caret_pos && query_fallback(rc)) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::UI,
+            &activity,
+            "UpdateCandidateWindowPositionInSession: GetTextExt pending layout; using GUI/cursor fallback");
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::UI,
+            &activity,
+            "CandidatePosition(service={}, stage=fallback, activation={}, context={}, rect=({}, {}, {}, {}))",
+            service_id, attempted_epoch.activation, attempted_epoch.context, rc.left, rc.top, rc.right, rc.bottom);
+        move_window(rc);
+    } else {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::UI,
+            &activity,
+            "CandidatePosition(service={}, stage=position-unchanged, activation={}, context={}, had_position={})",
+            service_id, attempted_epoch.activation, attempted_epoch.context, has_valid_caret_pos);
+    }
+}
+
 } // namespace qiqi

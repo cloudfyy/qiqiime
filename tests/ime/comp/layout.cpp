@@ -447,6 +447,7 @@ void RunTsfCompositionLayoutTests() {
     TestLayoutTaskSnapshot();
     TestLayoutCallbackScope();
     TestLayoutSessionRequests();
+    RunTsfCompositionLayoutPositionTests();
 }
 
 } // namespace qiqi::test

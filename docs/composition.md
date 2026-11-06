@@ -373,8 +373,24 @@ is released before that composition reference, with the view parameter last.
 The lifetime mocks destroy composition, range, then view because the composition
 also owns the range. No cookie or callback escapes the synchronous query.
 Raw rectangles and clipping outputs are unchanged, including zero or inverted
-rectangles. Caret mutation, window movement, GUI/cursor fallback and all
-coordinate/DPI policy remain in the service.
+rectangles. The service retains the actual window movement, GUI/cursor query
+algorithm and all coordinate/DPI policy.
+
+[`ApplyCompositionLayoutPosition`](../src/ime/comp/layout.h) now applies the
+query's original result protocol while borrowing that query and the live caret
+flag. A stale query does nothing, even if it obtained a rectangle. Successful
+TSF positioning sets the caret-validity flag before moving to the unmodified
+rectangle. An unsuccessful query calls the service's original GUI/cursor
+fallback only when the current flag is false; successful fallback moves without
+automatically making that flag true. Failure, including failure with rectangle
+output, logs unchanged positioning without movement.
+
+Clipped, zero or inverted rectangles gain no extra gate or normalization.
+The original callbacks execute synchronously, with no added identity check or
+state write afterward. Changes to the live flag inside callbacks survive.
+The service's original query range, composition and view owners span the window
+work and release in their original order. This helper copies only the rectangle,
+not the owning query; it retains no service, callback, flag reference or cookie.
 
 `CompositionLayoutTask` owns the notification context, optional view, ticket and
 activity ID for deferred layout callbacks, but not a service, composition or
@@ -728,6 +744,15 @@ results. Ten [service layout cases](../tests/ime/tsf/service_layout.cpp) inject
 deactivation or reactivation at view/range/extent boundaries, checking exact
 query counts, view routing, replacement-popup isolation and continued input.
 These mock regressions do not certify positioning in real hosts.
+
+The [layout-position tests](../tests/ime/comp/layout_position.cpp) add 72
+current/result/history/fallback/raw-rectangle combinations, all with clipped
+output, checking exact call sequences, move-only callbacks, flag timing and
+unchanged query ownership/shape. Nine callback-boundary cases exercise live
+flag mutation on successful/failed fallback and movement, nested application,
+fallback/movement exceptions, precise range references and final release.
+They preserve the original rules rather than introducing a new real-host
+positioning fix.
 
 The [edit request tests](../tests/ime/comp/edit.cpp) add 80 cases crossing eight
 cleanup states with ten request/callback outcomes. They check exact read/write

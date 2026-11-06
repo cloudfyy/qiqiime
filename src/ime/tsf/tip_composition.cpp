@@ -346,34 +346,10 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
         ec, context, gsl::not_null<ITfComposition*>(composition.Get()), view, has_valid_caret_pos_,
         ticket.epoch, service_log_id_, current_lifecycle_activity_,
         [this, ticket, &composition]() noexcept { return IsCompositionEditCurrent(ticket, composition.Get()); });
-    if (!query.current) return;
-    RECT rc = query.rect;
-    if (query.got_position) {
-        has_valid_caret_pos_ = true;
-        candidate_ui_->MoveWindowTo(rc);
-        return;
-    }
-    if (!has_valid_caret_pos_ && QueryGuiThreadOrCursorFallbackRect(rc)) {
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::UI,
-            &current_lifecycle_activity_,
-            "UpdateCandidateWindowPositionInSession: GetTextExt pending layout; using GUI/cursor fallback");
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::UI,
-            &current_lifecycle_activity_,
-            "CandidatePosition(service={}, stage=fallback, activation={}, context={}, rect=({}, {}, {}, {}))",
-            service_log_id_, ticket.epoch.activation, ticket.epoch.context, rc.left, rc.top, rc.right, rc.bottom);
-        candidate_ui_->MoveWindowTo(rc);
-    } else {
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::UI,
-            &current_lifecycle_activity_,
-            "CandidatePosition(service={}, stage=position-unchanged, activation={}, context={}, had_position={})",
-            service_log_id_, ticket.epoch.activation, ticket.epoch.context, has_valid_caret_pos_);
-    }
+    ApplyCompositionLayoutPosition(
+        query, has_valid_caret_pos_, ticket.epoch, service_log_id_, current_lifecycle_activity_,
+        [](RECT& rect) noexcept { return QueryGuiThreadOrCursorFallbackRect(rect); },
+        [this](const RECT& rect) { candidate_ui_->MoveWindowTo(rect); });
 }
 
 void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot) {
