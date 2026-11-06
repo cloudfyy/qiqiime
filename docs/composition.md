@@ -45,6 +45,14 @@ references and detached cleanup bookkeeping are not replaced on reactivation.
 
 `ApplyEngineResult` and layout callbacks capture the epoch and target. Before executing, `IsEditSessionCurrent` checks activation state, both epoch counters, and the context. Expected stale-request rejection returns `S_OK` and logs `stale-edit-skipped`; it is not an API failure.
 
+[`CheckCompositionEditSessionCurrent / CheckCompositionEditCurrent`](../src/ime/comp/state.h)
+now own the original const-state checks and diagnostics behind the service's
+same-named entry points. Composition identity is checked only after the ticket
+passes, preserving the stale-ticket versus replaced-composition diagnostic order.
+A null expected composition matches an empty current slot; no extra non-null
+gate is added. These synchronous helpers retain no references, initialize no
+logging provider and perform no host calls or state mutation.
+
 `ResetContextAndUI` invalidates the old context **before** removing COM subscriptions, releasing the composition, or clearing UI. After switching targets, the caller checks for reentrant invalidation again before submitting a new request. An epoch is not a per-key sequence number: normal writes within one epoch still execute in FIFO order, rather than retaining only the latest write.
 
 [`CompositionContextResetScope`](../src/ime/comp/state.h) borrows the state owner,
@@ -738,6 +746,13 @@ before update, retained references and cleanup's original client ID/edit cookie.
 Four additional exception cases cover post-start identity, update range/identity
 and termination reset; exceptions propagate while original owners release.
 These run through the existing start entry in both full and focused test modes.
+
+The [identity tests](../tests/ime/comp/identity.cpp) add 96 combinations of active
+state, reset scope, bound target, ticket validity, current composition presence
+and null/original/replacement identity. They check results, unchanged ownership
+and state, precise reference counts and zero host operations. The existing
+56-case ticket matrix also checks the new diagnostic entry directly; all original
+service identity/reentrancy call sites remain unchanged.
 
 The [termination-completion tests](../tests/ime/comp/termination.cpp) add 24
 empty/nonempty-preedit and outcome/reentrancy combinations. They verify normal

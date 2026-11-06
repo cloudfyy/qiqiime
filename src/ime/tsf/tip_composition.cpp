@@ -132,17 +132,7 @@ void QiQiTextService::ResetContextAndUI(bool try_host_cleanup) {
 }
 
 bool QiQiTextService::IsEditSessionCurrent(EditSessionTicket ticket) const noexcept {
-    if (composition_lifecycle_.IsCurrent(ticket)) {
-        return true;
-    }
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::Lifecycle,
-        &current_lifecycle_activity_,
-        "TsfLifecycle(service={}, stage=stale-edit-skipped, activation={}/{}, context={}/{}, active={}, target_matches={})",
-        service_log_id_, ticket.epoch.activation, composition_lifecycle_.Epoch().activation,
-        ticket.epoch.context, composition_lifecycle_.Epoch().context, composition_lifecycle_.IsActive(), ticket.target == composition_lifecycle_.Context().Get());
-    return false;
+    return CheckCompositionEditSessionCurrent(composition_lifecycle_, ticket, service_log_id_, current_lifecycle_activity_);
 }
 
 bool QiQiTextService::PrepareInputContext(ITfContext* context) {
@@ -170,15 +160,8 @@ bool QiQiTextService::PrepareInputContext(ITfContext* context) {
 
 bool QiQiTextService::IsCompositionEditCurrent(
     EditSessionTicket ticket, const ITfComposition* composition) const noexcept {
-    if (!IsEditSessionCurrent(ticket)) return false;
-    if (composition_lifecycle_.Composition().Get() == composition) return true;
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::Composition,
-        &current_lifecycle_activity_,
-        "TsfLifecycle(service={}, stage=replaced-composition-edit-skipped, activation={}, context={})",
-        service_log_id_, ticket.epoch.activation, ticket.epoch.context);
-    return false;
+    return CheckCompositionEditCurrent(
+        composition_lifecycle_, ticket, composition, service_log_id_, current_lifecycle_activity_);
 }
 
 void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessResult& result) {

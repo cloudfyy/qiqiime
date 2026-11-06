@@ -58,6 +58,8 @@ void TestLifecycleStateIdentity() {
                     for (const auto& test : identities) {
                         QIQI_TEST_CHECK(state.IsCurrent(test.ticket) ==
                                         (active && !resetting && test.matches));
+                        QIQI_TEST_CHECK(CheckCompositionEditSessionCurrent(state, test.ticket, 107, GUID_NULL) ==
+                                        (active && !resetting && test.matches));
                         ++cases;
                     }
                 }
@@ -298,6 +300,7 @@ void RunTsfCompositionStateTests() {
     TestLifecycleContextResetScopes();
     RunTsfCompositionContextResetTests();
     RunTsfCompositionCleanupHandoffTests();
+    RunTsfCompositionIdentityTests();
 }
 
 } // namespace qiqi::test

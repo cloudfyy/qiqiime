@@ -19,6 +19,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/edit_action.cpp
     comp/finish.cpp
     comp/finish_state.cpp
+    comp/identity.cpp
     comp/layout.cpp
     comp/layout_position.cpp
     comp/presentation.cpp

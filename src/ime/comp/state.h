@@ -86,6 +86,36 @@ private:
     bool entered_ = false;
 };
 
+inline bool CheckCompositionEditSessionCurrent(
+    const CompositionLifecycleState& state, EditSessionTicket ticket,
+    uint64_t service_id, const GUID& activity) noexcept {
+    if (state.IsCurrent(ticket)) {
+        return true;
+    }
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &activity,
+        "TsfLifecycle(service={}, stage=stale-edit-skipped, activation={}/{}, context={}/{}, active={}, target_matches={})",
+        service_id, ticket.epoch.activation, state.Epoch().activation,
+        ticket.epoch.context, state.Epoch().context, state.IsActive(), ticket.target == state.Context().Get());
+    return false;
+}
+
+inline bool CheckCompositionEditCurrent(
+    const CompositionLifecycleState& state, EditSessionTicket ticket, const ITfComposition* composition,
+    uint64_t service_id, const GUID& activity) noexcept {
+    if (!CheckCompositionEditSessionCurrent(state, ticket, service_id, activity)) return false;
+    if (state.Composition().Get() == composition) return true;
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Composition,
+        &activity,
+        "TsfLifecycle(service={}, stage=replaced-composition-edit-skipped, activation={}, context={})",
+        service_id, ticket.epoch.activation, ticket.epoch.context);
+    return false;
+}
+
 inline void ScheduleCurrentCompositionCleanup(
     CompositionLifecycleState& state, const TfClientId& client_id, uint64_t service_id, const GUID& activity) {
     if (!state.Composition()) {
