@@ -8,6 +8,8 @@
 
 ## 1. 开发与编译环境要求
 
+MSVC 的非 Debug 构建统一启用 `/Zi` 与 `/DEBUG:FULL`，同时保留原优化选项；DLL、工具及测试的链接 PDB 位于 `build\<arch>\<Config>`。`build_all.ps1 -Package` 将两架构产品 PDB 单独打包为 `*-symbols.zip`，Release Action 随安装包一起发布；测试符号不进入发布包。符号归档只适用于同次构建的二进制。
+
 | 工具 / 组件 | 版本与配置要求 |
 |---|---|
 | **操作系统** | Windows 11 (`x64`) |

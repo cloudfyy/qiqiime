@@ -94,6 +94,12 @@ if ($Package) {
     $zipSizeKB = [math]::Round((Get-Item $zipPath).Length / 1KB, 1)
     Write-QiQiPass "Release ZIP archive created: $zipPath ($zipSizeKB KB)"
 
+    $symbolsDir = Join-Path $distRoot "$pkgName-symbols"
+    $symbolsZip = Join-Path $distRoot "$pkgName-symbols.zip"
+    Copy-QiQiSymbols -Dlls $dlls -Destination $symbolsDir
+    Compress-Archive -Path (Join-Path $symbolsDir "x64"), (Join-Path $symbolsDir "x86") -DestinationPath $symbolsZip -Force
+    Write-QiQiPass "Release PDB archive created: $symbolsZip"
+
     # Build Windows Installer (.msi) package if WiX Toolset CLI is available
     $wixCmd = Get-Command wix -ErrorAction SilentlyContinue
     $wixExe = if ($wixCmd) {

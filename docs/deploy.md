@@ -102,6 +102,10 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 
 生成的产物位于 `dist\`，文件名使用项目内部数字版本号：
 
+Release 构建保留优化并生成完整 PDB；打包时要求 DLL 和三个工具在 x64/x86 下的八个 PDB 全部存在，缺少任一文件即报错。另生成 `QiQiIME-v0.99.1-win-x64-x86-symbols.zip`，内部按 `x64`、`x86` 分目录；符号不放入 MSI 或运行组件 ZIP。Release Action 将该符号 ZIP 与 MSI、运行组件 ZIP 一并上传为 Actions artifact，并在发布 Release 时附加为资产。普通推送 `main` 不发布安装包或符号。
+
+分析 dump 时必须使用同一次构建发布的二进制和 PDB，不能只按版本号或架构挑选符号。PDB 包含调试信息和可能的构建路径，发布前需确认可公开；测试日志、dump 与 watchdog 归档仍仅在本地保留。
+
 - **`dist\QiQiIME-v0.99.1-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
 - **`dist\QiQiIME-v0.99.1-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
 - **`dist\QiQiIME-v0.99.1-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。

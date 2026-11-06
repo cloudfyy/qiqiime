@@ -25,5 +25,6 @@
   "cmake.buildDirectory": "${workspaceFolder}/build/x64",
   "chat.tools.terminal.autoApprove": {
     "cmake": true
-  }
+  },
+  "sarif-viewer.connectToGithubCodeScanning": "off"
 }

@@ -78,6 +78,26 @@ function Resolve-QiQiDllPaths([string]$Config = "Release", [string]$BaseDir = $s
     }
 }
 
+function Copy-QiQiSymbols([hashtable]$Dlls, [string]$Destination) {
+    foreach ($arch in @("x64", "x86")) {
+        $dll = $Dlls[$arch]
+        if (-not $dll) {
+            throw "Missing $arch DLL path for symbol packaging."
+        }
+        $sourceDir = Split-Path -Parent $dll
+        $targetDir = Join-Path $Destination $arch
+        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+        foreach ($binary in (@("qiqiime.dll") + $script:QiQiToolExeNames)) {
+            $pdbName = [System.IO.Path]::ChangeExtension($binary, ".pdb")
+            $pdbPath = Join-Path $sourceDir $pdbName
+            if (-not (Test-Path -LiteralPath $pdbPath -PathType Leaf)) {
+                throw "Missing $arch symbol file: $pdbPath"
+            }
+            Copy-Item -LiteralPath $pdbPath -Destination (Join-Path $targetDir $pdbName)
+        }
+    }
+}
+
 function Invoke-QiQiRegsvr32([string]$DllPath, [switch]$Is32Bit, [switch]$Unregister, [switch]$EnableCurrentUser) {
     $regsvr = if ($Is32Bit -and [Environment]::Is64BitOperatingSystem) {
         Join-Path $env:SystemRoot "SysWOW64\regsvr32.exe"
