@@ -23,6 +23,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/finish_state.cpp
     comp/identity.cpp
     comp/layout.cpp
+    comp/layout_entry.cpp
     comp/layout_position.cpp
     comp/presentation.cpp
     comp/range.cpp

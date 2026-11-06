@@ -467,6 +467,15 @@ The service's original query range, composition and view owners span the window
 work and release in their original order. This helper copies only the rectangle,
 not the owning query; it retains no service, callback, flag reference or cookie.
 
+[`EnterCompositionLayoutNotification`](../src/ime/comp/layout.h) creates the
+original notification activity and emits its diagnostic before the original
+CHANGE/non-null/active/current-target/composition/UI gates. UI availability is
+read live at both original boundaries, not snapshotted before activity creation.
+There is no added resetting-state gate or lifecycle-activity-slot restoration.
+Only accepted notifications invoke the service's original context/view/self,
+ticket/task/session acquisition and read-request callback. The entry itself
+retains no COM object or edit cookie; callback exceptions propagate.
+
 `CompositionLayoutTask` owns the notification context, optional view, ticket and
 activity ID for deferred layout callbacks, but not a service, composition or
 edit cookie. The service retains its original local references and its strong
@@ -880,6 +889,14 @@ reference counts and actual popup visibility. Ten
 [service presentation cases](../tests/ime/tsf/service_presentation.cpp) combine
 five HRESULT/ID outcomes with deactivation or different-manager reactivation
 inside Begin, verifying old/new ID isolation and continued new-target input.
+
+The [layout-entry tests](../tests/ime/comp/layout_entry.cpp) add 288 combinations
+of three notification codes, null/same/other targets and active/bound/composing/
+UI/resetting flags. They verify diagnostic-before-gate UI reads, short-circuit
+counts, unchanged state/epoch, precise references and no host operations.
+Four normal/exception/nested/live-UI-change cases check distinct activity IDs,
+live gate reads and no added lifecycle-slot restoration. Existing layout tasks,
+requests, query/position and real-service regressions remain.
 
 The [layout component tests](../tests/ime/comp/layout.cpp) add 35 cases for
 notification/active views, HRESULT and null/non-null output combinations,

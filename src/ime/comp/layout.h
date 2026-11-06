@@ -1,5 +1,6 @@
 #pragma once
 #include "common/logger.h"
+#include "ime/comp/state.h"
 #include "ime/tsf/edit_session.h"
 #include <cstdint>
 #include <gsl/gsl>
@@ -7,6 +8,28 @@
 #include <utility>
 
 namespace qiqi {
+
+template <typename HasUI, typename Request>
+HRESULT EnterCompositionLayoutNotification(
+    const ITfContext* context, TfLayoutCode code, const CompositionLifecycleState& state,
+    uint64_t service_id, const GUID& activity, HasUI has_ui, Request request) {
+    const GUID layout_act_id = log::CreateActivityId();
+    QIQI_LOG_ACT_START(
+        log::Level::debug,
+        log::Keyword::UI,
+        &layout_act_id,
+        &activity,
+        "CandidatePosition(service={}, stage=layout-notification, activation={}, context={}, code={}, active={}, target_matches={}, has_composition={}, has_ui={})",
+        service_id, state.Epoch().activation, state.Epoch().context,
+        gsl::narrow_cast<int>(code), state.IsActive(), context && context == state.Context().Get(),
+        state.Composition() != nullptr, has_ui());
+    if (code != TF_LC_CHANGE || !context || !state.IsActive() || context != state.Context().Get() ||
+        !state.Composition() || !has_ui()) {
+        return S_OK;
+    }
+    request(layout_act_id);
+    return S_OK;
+}
 
 // Deferred layout owns its target and optional notification view, never a service or cookie.
 class CompositionLayoutTask {
