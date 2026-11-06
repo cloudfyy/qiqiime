@@ -1,4 +1,6 @@
 #pragma once
+#include "common/com_object.h"
+#include "common/logger.h"
 #include "ime/comp/cleanup.h"
 #include "ime/tsf/edit_session.h"
 #include <wrl/client.h>
@@ -83,5 +85,37 @@ private:
     CompositionLifecycleState& state_;
     bool entered_ = false;
 };
+
+template <typename ScheduleCleanup, typename EndUI>
+void ResetCompositionContextAndUI(
+    CompositionLifecycleState& state, bool try_host_cleanup, bool& has_valid_caret_pos,
+    ScopedTfSinkConnection& layout_sink, uint64_t service_id, const GUID& activity,
+    ScheduleCleanup schedule_cleanup, EndUI end_ui) {
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &activity,
+        "TsfLifecycle(service={}, stage=context-reset, activation={}, context_before={}, context_after={}, has_context={}, has_composition={}, try_host_cleanup={})",
+        service_id, state.Epoch().activation, state.Epoch().context,
+        state.Epoch().context + 1, state.Context() != nullptr, state.Composition() != nullptr, try_host_cleanup);
+    const CompositionContextResetScope reset_scope(state);
+    if (!reset_scope.Entered()) return;
+    if (try_host_cleanup) {
+        schedule_cleanup();
+    } else if (state.Composition()) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Lifecycle,
+            &activity,
+            "TsfLifecycle(service={}, stage=cleanup-skipped-removed-context)",
+            service_id);
+    }
+    state.ClearContext();
+    state.ClearDocument();
+    has_valid_caret_pos = false;
+    state.ClearComposition();
+    layout_sink.Reset();
+    end_ui();
+}
 
 } // namespace qiqi

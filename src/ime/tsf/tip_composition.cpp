@@ -145,31 +145,11 @@ void QiQiTextService::ResetCompositionAndUI(bool try_host_cleanup) {
 }
 
 void QiQiTextService::ResetContextAndUI(bool try_host_cleanup) {
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::Lifecycle,
-        &current_lifecycle_activity_,
-        "TsfLifecycle(service={}, stage=context-reset, activation={}, context_before={}, context_after={}, has_context={}, has_composition={}, try_host_cleanup={})",
-        service_log_id_, composition_lifecycle_.Epoch().activation, composition_lifecycle_.Epoch().context,
-        composition_lifecycle_.Epoch().context + 1, composition_lifecycle_.Context() != nullptr, composition_lifecycle_.Composition() != nullptr, try_host_cleanup);
-    const CompositionContextResetScope reset_scope(composition_lifecycle_);
-    if (!reset_scope.Entered()) return;
-    if (try_host_cleanup) {
-        ScheduleCompositionCleanup();
-    } else if (composition_lifecycle_.Composition()) {
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::Lifecycle,
-            &current_lifecycle_activity_,
-            "TsfLifecycle(service={}, stage=cleanup-skipped-removed-context)",
-            service_log_id_);
-    }
-    composition_lifecycle_.ClearContext();
-    composition_lifecycle_.ClearDocument();
-    has_valid_caret_pos_ = false;
-    composition_lifecycle_.ClearComposition();
-    text_layout_sink_.Reset();
-    EndCandidateUI();
+    ResetCompositionContextAndUI(
+        composition_lifecycle_, try_host_cleanup, has_valid_caret_pos_, text_layout_sink_,
+        service_log_id_, current_lifecycle_activity_,
+        [this] { ScheduleCompositionCleanup(); },
+        [this] { EndCandidateUI(); });
 }
 
 bool QiQiTextService::IsEditSessionCurrent(EditSessionTicket ticket) const noexcept {

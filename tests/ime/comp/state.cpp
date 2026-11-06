@@ -296,6 +296,7 @@ void RunTsfCompositionStateTests() {
     TestLifecycleStateReleaseOrder();
     TestLifecycleStateDetachedCleanup();
     TestLifecycleContextResetScopes();
+    RunTsfCompositionContextResetTests();
 }
 
 } // namespace qiqi::test

@@ -54,8 +54,22 @@ Only the outer scope returns `Entered() == true`; nested callers return without
 repeating teardown. The entered scope restores the reset flag on normal, early,
 and exceptional exit without rolling back the epoch. It does not release COM
 references, mutate cleanup records, or call the host/UI. `IsCurrent(ticket)`
-checks the owner's own reset flag; the service retains the actual teardown and
-UI sequence.
+checks the owner's own reset flag.
+
+[`ResetCompositionContextAndUI`](../src/ime/comp/state.h) now owns the original
+log/scope/cleanup-choice/teardown sequence around that scope. The service
+provides its real cleanup and UI callbacks, while retaining engine/Shift-tap
+reset and activation/preparation entry policy. An entered reset invokes cleanup
+only on the original host-cleanup path, then clears context, document, caret
+validity and composition, resets the layout connection, and finally ends UI.
+Removal still requests no new host edit session.
+
+The outer reset flag spans all cleanup, COM release, subscription and UI work.
+Nested attempts advance the context epoch but repeat none of that work.
+Exceptions propagate, restoring the flag without undoing the epoch or earlier
+steps. No additional active-state/identity gate, retry or post-UI reset is added.
+The helper synchronously borrows state, caret flag, layout connection and
+callbacks; it retains no service or edit cookie.
 
 [`PrepareCompositionTarget`](../src/ime/comp/target.h) runs the synchronous
 new-target workflow after the service's entry gates and activity switch. It
@@ -715,6 +729,16 @@ and absence of host operations. Two real-service cases inject one or three
 nested focus-loss resets during old cleanup: input and activation are rejected
 until the outer reset finishes, cleanup/UI are not repeated, and a fresh
 composition works afterward.
+
+The [context-reset tests](../tests/ime/comp/context_reset.cpp) add 32
+active/cleanup/composition/layout-connection/nested combinations using the real
+cleanup coordinator and scoped connection. They verify exact cleanup/UI traces,
+edit cookie, attribute clearing, retained references and no text write.
+Six cleanup/UI callback cases cover one/three nested attempts or exceptions;
+four last-owner cases check precise context/composition/range final releases
+and document lifetime through its existing weak parent link. Connected layout
+sources retain the context until subscription reset, after document/composition
+release; an unconnected context releases earlier. UI remains the final step.
 
 The [target component tests](../tests/ime/comp/target.cpp) add 35 document-result,
 subscription-result, and invalidation-boundary cases plus two exception/resource
