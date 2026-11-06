@@ -162,41 +162,26 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
 }
 
 HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const CompositionEditTask& task) {
-    const auto& ctx_holder = task.Context();
-    const auto& result = task.Snapshot();
-    const auto ticket = task.Ticket();
-    const auto& edit_act_id = task.Activity();
-    const CompositionEditScope scope(task, current_lifecycle_activity_);
-    const auto disposition = scope.Check(composition_lifecycle_.Cleanups(), [this](EditSessionTicket expected) noexcept {
-        return IsEditSessionCurrent(expected);
-    });
-    if (disposition == CompositionEditDisposition::Discard) {
-        return S_OK;
-    }
-    if (disposition == CompositionEditDisposition::Requeue) {
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::Composition,
-            &edit_act_id,
-            "TsfLifecycle(service={}, stage=write-requeued-behind-cleanup, activation={}, context={})",
-            service_log_id_, ticket.epoch.activation, ticket.epoch.context);
-        ApplyEngineResult(ctx_holder.Get(), result);
-        return S_OK;
-    }
-    const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
-    return ApplyCompositionEditActionInSession(
-        ec, non_null_ctx, result,
-        [this, ticket]() noexcept { return IsCompositionEditCurrent(ticket, nullptr); },
-        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> context) {
-            CancelCompositionInSession(cookie, context);
-        },
-        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> context, const std::wstring& text) {
-            CommitAndEndCompositionInSession(cookie, context, text);
-        },
-        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot) {
-            SyncCompositionUIInSession(cookie, context, snapshot);
-        },
-        [this] { EndCandidateUI(); });
+    return ExecuteCompositionEditInSession(
+        ec, task, current_lifecycle_activity_, composition_lifecycle_.Cleanups(), service_log_id_,
+        [this](EditSessionTicket expected) noexcept { return IsEditSessionCurrent(expected); },
+        [this](ITfContext* context, const KeyProcessResult& result) { ApplyEngineResult(context, result); },
+        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> context,
+               const KeyProcessResult& result, EditSessionTicket ticket) {
+            return ApplyCompositionEditActionInSession(
+                cookie, context, result,
+                [this, ticket]() noexcept { return IsCompositionEditCurrent(ticket, nullptr); },
+                [this](TfEditCookie cancel_cookie, gsl::not_null<ITfContext*> target) {
+                    CancelCompositionInSession(cancel_cookie, target);
+                },
+                [this](TfEditCookie commit_cookie, gsl::not_null<ITfContext*> target, const std::wstring& text) {
+                    CommitAndEndCompositionInSession(commit_cookie, target, text);
+                },
+                [this](TfEditCookie sync_cookie, gsl::not_null<ITfContext*> target, const KeyProcessResult& snapshot) {
+                    SyncCompositionUIInSession(sync_cookie, target, snapshot);
+                },
+                [this] { EndCandidateUI(); });
+        });
 }
 
 void QiQiTextService::SyncCompositionUIInSession(

@@ -17,6 +17,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/context_reset.cpp
     comp/edit.cpp
     comp/edit_action.cpp
+    comp/edit_execution.cpp
     comp/finish.cpp
     comp/finish_state.cpp
     comp/identity.cpp

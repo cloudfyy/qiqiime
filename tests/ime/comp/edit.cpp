@@ -359,6 +359,7 @@ void RunTsfCompositionEditTests() {
     TestCompositionEditScopeNesting();
     TestCompositionWriteRequests();
     RunTsfCompositionEditActionTests();
+    RunTsfCompositionEditExecutionTests();
 }
 
 } // namespace qiqi::test

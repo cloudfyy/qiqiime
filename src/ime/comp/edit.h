@@ -2,6 +2,7 @@
 #include "ime/comp/cleanup.h"
 #include "ime/engine/engine.h"
 #include "ime/tsf/edit_session.h"
+#include <functional>
 #include <gsl/gsl>
 #include <wrl/client.h>
 #include <utility>
@@ -111,5 +112,33 @@ private:
     GUID& activity_;
     const GUID previous_activity_;
 };
+
+template <typename IsCurrent, typename Requeue, typename Execute>
+HRESULT ExecuteCompositionEditInSession(
+    TfEditCookie ec, const CompositionEditTask& task, GUID& activity,
+    CompositionCleanupCoordinator& cleanups, uint64_t service_id,
+    IsCurrent is_current, Requeue requeue, Execute execute) {
+    const auto& ctx_holder = task.Context();
+    const auto& result = task.Snapshot();
+    const auto ticket = task.Ticket();
+    const auto& edit_act_id = task.Activity();
+    const CompositionEditScope scope(task, activity);
+    const auto disposition = scope.Check(cleanups, std::ref(is_current));
+    if (disposition == CompositionEditDisposition::Discard) {
+        return S_OK;
+    }
+    if (disposition == CompositionEditDisposition::Requeue) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &edit_act_id,
+            "TsfLifecycle(service={}, stage=write-requeued-behind-cleanup, activation={}, context={})",
+            service_id, ticket.epoch.activation, ticket.epoch.context);
+        requeue(ctx_holder.Get(), result);
+        return S_OK;
+    }
+    const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
+    return execute(ec, non_null_ctx, result, ticket);
+}
 
 } // namespace qiqi

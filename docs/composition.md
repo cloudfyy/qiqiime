@@ -119,10 +119,15 @@ The scope cannot be copied or moved and retains no service or edit cookie.
 The scope's `Check` first invokes the original ticket predicate. A stale task
 returns `Discard` without querying or pruning cleanup records. Only a current
 task checks the existing same-context cleanup barrier: unfinished unpublished or
-ordinary cleanup returns `Requeue`; otherwise it returns `Execute`. The service
-still logs and resubmits the original snapshot when requeued, and executes the
-actual cancel/commit/update and UI work. No host operation or request runs inside this
-scope helper. `Execute` is only an entry decision, not a replacement for the
+ordinary cleanup returns `Requeue`; otherwise it returns `Execute`.
+[`ExecuteCompositionEditInSession`](../src/ime/comp/edit.h) owns that scope and
+the discard/requeue/execute routing. It logs the original requeue diagnostic and
+invokes the service's original snapshot-resubmission callback, or constructs the
+non-null context and invokes the original action/UI callback. It borrows the task
+and callbacks synchronously, preserves execution results and exceptions, and
+restores activity after callback completion even with nesting or activity mutation.
+The scope's `Check` itself makes no host call or request.
+`Execute` is only an entry decision, not a replacement for the
 identity checks between subsequent host calls.
 
 `RequestCompositionEditSession` now owns the original write-request protocol.
@@ -759,6 +764,15 @@ before update, retained references and cleanup's original client ID/edit cookie.
 Four additional exception cases cover post-start identity, update range/identity
 and termination reset; exceptions propagate while original owners release.
 These run through the existing start entry in both full and focused test modes.
+
+The [edit-execution tests](../tests/ime/comp/edit_execution.cpp) add 64
+current/stale, eight-cleanup-state and four-action combinations. They verify
+ticket-before-registry ordering, discard without pruning, pending requeue versus
+finished/expired/removed/terminated pruning, original snapshot address,
+ticket/cookie, move-only callbacks, precise references and return propagation.
+Three identity/requeue/execute exception cases and one nested execution case
+check owner preservation and activity restoration after callback mutation.
+The original 224 scope cases and real-service requeue/action regressions remain.
 
 The [identity tests](../tests/ime/comp/identity.cpp) add 96 combinations of active
 state, reset scope, bound target, ticket validity, current composition presence
