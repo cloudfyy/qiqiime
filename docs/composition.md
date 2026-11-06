@@ -135,8 +135,15 @@ It queries the same cleanup coordinator while constructing the request
 arguments, including the existing pruning and stage diagnostics. Matching
 unfinished unpublished or scheduled cleanup selects
 `TF_ES_ASYNC | TF_ES_READWRITE`; otherwise it uses
-`TF_ES_ASYNCDONTCARE | TF_ES_READWRITE`. The service keeps its entry gates,
-original context/service references and captured task. The callback's second
+`TF_ES_ASYNCDONTCARE | TF_ES_READWRITE`.
+[`EnterCompositionEditRequest`](../src/ime/comp/edit.h) now owns the original
+null/inactive/resetting/preparing/target-mismatch gates and skip diagnostic.
+Only an accepted target gains a strong context owner and original ticket before
+the service's request callback runs. The preparing pointer is sampled before
+host calls and is not retained. The service callback keeps original service
+ownership, activity creation, captured task and session/request wiring; its local
+owners release before the entry's context owner, including exceptional exit.
+The callback's second
 cleanup check and original-snapshot requeue remain separate and unchanged.
 The helper adds no ticket check, wait, retry or cookie ownership.
 
@@ -773,6 +780,15 @@ ticket/cookie, move-only callbacks, precise references and return propagation.
 Three identity/requeue/execute exception cases and one nested execution case
 check owner preservation and activity restoration after callback mutation.
 The original 224 scope cases and real-service requeue/action regressions remain.
+
+The [edit-entry tests](../tests/ime/comp/edit_entry.cpp) add 48
+active/resetting/preparing/bound-target and null/same/other-target combinations.
+They check gate rejection without callbacks or host operations, captured
+ticket/context, move-only callbacks and precise reference counts. Four normal,
+exception, nested and deferred-owner cases release the caller's owners during
+the callback and verify context survival until callback exit, original tickets
+after nested invalidation, and immutable snapshots retained by deferred tasks.
+The original request/outcome, scope/execution and real-service matrices remain.
 
 The [identity tests](../tests/ime/comp/identity.cpp) add 96 combinations of active
 state, reset scope, bound target, ticket validity, current composition presence

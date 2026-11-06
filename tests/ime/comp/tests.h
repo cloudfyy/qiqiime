@@ -4,6 +4,7 @@ namespace qiqi::test {
 
 void RunTsfCompositionEditTests();
 void RunTsfCompositionEditExecutionTests();
+void RunTsfCompositionEditEntryTests();
 void RunTsfCompositionEditActionTests();
 void RunTsfCompositionCleanupTests();
 void RunTsfCompositionRangeTests();

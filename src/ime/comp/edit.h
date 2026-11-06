@@ -1,5 +1,6 @@
 #pragma once
 #include "ime/comp/cleanup.h"
+#include "ime/comp/state.h"
 #include "ime/engine/engine.h"
 #include "ime/tsf/edit_session.h"
 #include <functional>
@@ -37,6 +38,25 @@ private:
 };
 
 enum class CompositionEditDisposition { Discard, Requeue, Execute };
+
+template <typename Request>
+void EnterCompositionEditRequest(
+    ITfContext* context, const CompositionLifecycleState& state, const ITfContext* preparing,
+    uint64_t service_id, const GUID& activity, Request request) {
+    if (!context || !state.IsActive() || state.IsResettingContext() || preparing ||
+        context != state.Context().Get()) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Composition,
+            &activity,
+            "TsfLifecycle(service={}, stage=unprepared-edit-skipped)",
+            service_id);
+        return;
+    }
+    Microsoft::WRL::ComPtr<ITfContext> ctx_holder(context);
+    const EditSessionTicket ticket{state.Epoch(), ctx_holder.Get()};
+    request(ctx_holder, ticket);
+}
 
 inline void RequestCompositionEditSession(
     gsl::not_null<ITfContext*> context, gsl::not_null<ITfEditSession*> session, TfClientId client_id,

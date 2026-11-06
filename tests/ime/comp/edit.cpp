@@ -360,6 +360,7 @@ void RunTsfCompositionEditTests() {
     TestCompositionWriteRequests();
     RunTsfCompositionEditActionTests();
     RunTsfCompositionEditExecutionTests();
+    RunTsfCompositionEditEntryTests();
 }
 
 } // namespace qiqi::test

@@ -136,29 +136,21 @@ bool QiQiTextService::IsCompositionEditCurrent(
 }
 
 void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessResult& result) {
-    if (!context || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() || preparing_input_context_ ||
-        context != composition_lifecycle_.Context().Get()) {
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::Composition,
-            &current_lifecycle_activity_,
-            "TsfLifecycle(service={}, stage=unprepared-edit-skipped)",
-            service_log_id_);
-        return;
-    }
-    ComPtr<ITfContext> ctx_holder(context);
-    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), ctx_holder.Get()};
-    ComPtr<QiQiTextService> self_holder(this);
-    const GUID edit_act_id = log::CreateActivityId();
+    EnterCompositionEditRequest(
+        context, composition_lifecycle_, preparing_input_context_.Get(), service_log_id_, current_lifecycle_activity_,
+        [this, context, &result](const ComPtr<ITfContext>& ctx_holder, EditSessionTicket ticket) {
+            ComPtr<QiQiTextService> self_holder(this);
+            const GUID edit_act_id = log::CreateActivityId();
 
-    const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
-        [self_holder, task = CompositionEditTask(ctx_holder, result, ticket, edit_act_id)](TfEditCookie ec) -> HRESULT {
-            return self_holder->ApplyCompositionEditInSession(ec, task);
-    });
+            const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
+                [self_holder, task = CompositionEditTask(ctx_holder, result, ticket, edit_act_id)](TfEditCookie ec) -> HRESULT {
+                    return self_holder->ApplyCompositionEditInSession(ec, task);
+            });
 
-    RequestCompositionEditSession(
-        gsl::not_null<ITfContext*>(context), gsl::not_null<ITfEditSession*>(session.Get()),
-        client_id_, composition_lifecycle_.Cleanups(), current_lifecycle_activity_, edit_act_id);
+            RequestCompositionEditSession(
+                gsl::not_null<ITfContext*>(context), gsl::not_null<ITfEditSession*>(session.Get()),
+                client_id_, composition_lifecycle_.Cleanups(), current_lifecycle_activity_, edit_act_id);
+        });
 }
 
 HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const CompositionEditTask& task) {
