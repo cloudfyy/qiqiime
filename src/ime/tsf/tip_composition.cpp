@@ -307,27 +307,13 @@ ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text) {
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
     const TfClientId client_id = client_id_;
-    if (!composition_lifecycle_.Composition()) {
-        const auto attempt = BeginCompositionInSession(
-            ec, context, this, composition_lifecycle_.Cleanups(), client_id, ticket.epoch,
-            composition_lifecycle_.Epoch(), current_lifecycle_activity_,
-            [this, ticket]() noexcept {
-                return IsCompositionEditCurrent(ticket, nullptr);
-            });
-        if (attempt.disposition != CompositionStartDisposition::Publish) {
-            if (attempt.disposition == CompositionStartDisposition::Terminated && IsCompositionEditCurrent(ticket, nullptr)) {
-                ResetCompositionAndUI();
-            }
-            return {};
-        }
-        composition_lifecycle_.SetComposition(std::move(attempt.starting->composition));
-    }
-
-    return UpdateCompositionInSession(
-        ec, context, composition_lifecycle_.Composition(), text, display_attribute_atom_,
+    return EnsureAndUpdateCompositionInSession(
+        ec, context, this, composition_lifecycle_, client_id, ticket.epoch, current_lifecycle_activity_,
+        text, display_attribute_atom_,
         [this, ticket](const ITfComposition* composition) noexcept {
             return IsCompositionEditCurrent(ticket, composition);
-        });
+        },
+        [this] { ResetCompositionAndUI(); });
 }
 
 void QiQiTextService::CommitAndEndCompositionInSession(

@@ -20,6 +20,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/presentation.cpp
     comp/range.cpp
     comp/start.cpp
+    comp/start_update.cpp
     comp/state.cpp
     comp/target.cpp
     comp/update.cpp

@@ -511,6 +511,7 @@ void RunTsfCompositionStartTests() {
     TestCompositionStartResolutionReentry();
     TestCompositionBeginWorkflow();
     TestCompositionBeginPredicate();
+    RunTsfCompositionStartUpdateTests();
 }
 
 } // namespace qiqi::test

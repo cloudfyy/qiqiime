@@ -256,17 +256,32 @@ Successful starts returning no composition are diagnosed with their original HRE
 unpublished registration, the host start call, its HRESULT diagnostic, the finished
 mark, the original identity check, and that resolver, in the original order.
 Its owning `CompositionStartAttempt` retains partial or complete preparation
-resources and the starting record through the service's original branch scope.
+resources and the starting record through the caller's original branch scope.
 The record releases before the preparation interfaces/range, just as the original
 locals did. Unready preparation returns without registering or starting.
 
 Preparation and the post-start check use the same predicate instance, including
 stateful, noncopyable predicates. Epoch/activity references remain live across
 synchronous host reentrancy; neither those references, the predicate, nor the edit
-cookie are retained in the attempt. The service still rechecks identity before a
-termination-triggered engine/UI reset and alone moves an accepted composition
-into shared state. Extracting the workflow does not add a cleanup policy for a
-current failed start that happens to return a composition.
+cookie are retained in the attempt. Extracting the workflow does not add a
+cleanup policy for a current failed start that happens to return a composition.
+
+[`EnsureAndUpdateCompositionInSession`](../src/ime/comp/start.h) now owns the
+original begin-result -> publication -> update glue. It borrows the lifecycle
+state and synchronously uses the same identity predicate for preparation,
+resolution, termination-reset authorization and actual composition updates.
+Only `Terminated` followed by the original empty-composition identity check
+invokes the service's real reset callback. `Publish` moves the accepted composition
+into the state owner. The attempt, starting record and preparation resources
+release at the end of the original branch, before update's first `GetRange`.
+An existing composition bypasses Begin without an extra entry check.
+
+The service retains its original ticket and client-ID snapshot. Epoch/activity
+references and the attribute atom remain live across host callbacks; the helper
+retains none of those references or an edit cookie. Update owns and returns the
+captured composition even if range retrieval fails or same-epoch replacement
+makes it stale. Publication is not rolled back by update failure, and the original
+later presentation checks still decide whether UI work may continue.
 
 ## 4. Deactivation Algorithm and Request Results
 
@@ -639,6 +654,17 @@ policy for a current failed start with non-null output. The current composition,
 epochs, context/document, and cleanup coordinator now share the state owner
 described above. Cross-stage preparation entry, activation, actual teardown, and UI
 coordination remain in the service; the complete R05 coordinator is unfinished.
+
+The [start/update component tests](../tests/ime/comp/start_update.cpp) add
+34 cases crossing empty/nonempty input with existing/new compositions, start
+HRESULT/null outputs, preparation failure, stale cleanup, termination/reset
+decisions, same-epoch replacement, range failure before/after publication and
+an atom changed during Start. They verify exact identity-check counts, published
+and returned identities, move-only predicates/reset callbacks, preparation release
+before update, retained references and cleanup's original client ID/edit cookie.
+Four additional exception cases cover post-start identity, update range/identity
+and termination reset; exceptions propagate while original owners release.
+These run through the existing start entry in both full and focused test modes.
 
 The [state tests](../tests/ime/comp/state.cpp) use real reset scopes in the
 56-case identity matrix. Another 36 cases cross active/inactive state,

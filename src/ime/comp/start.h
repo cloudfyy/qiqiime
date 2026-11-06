@@ -4,10 +4,14 @@
 #include <wrl/client.h>
 #include <gsl/gsl>
 #include <functional>
+#include <string>
 #include <tuple>
+#include <utility>
 
 #include "common/logger.h"
 #include "ime/comp/cleanup.h"
+#include "ime/comp/state.h"
+#include "ime/comp/update.h"
 
 namespace qiqi {
 
@@ -81,6 +85,32 @@ template <typename IsCurrent>
     attempt.disposition = cleanups.ResolveStarting(
         attempt.starting, start_hr, is_current(), client_id, attempted_epoch, current_epoch, lifecycle_activity);
     return attempt;
+}
+
+template <typename IsCurrent, typename Reset>
+[[nodiscard]] Microsoft::WRL::ComPtr<ITfComposition> EnsureAndUpdateCompositionInSession(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfCompositionSink*> sink,
+    CompositionLifecycleState& state, TfClientId client_id, const EditSessionEpoch& attempted_epoch,
+    const GUID& lifecycle_activity, const std::wstring& text, const TfGuidAtom& attribute_atom,
+    IsCurrent is_current, Reset reset) {
+    if (!state.Composition()) {
+        const auto attempt = BeginCompositionInSession(
+            ec, context, sink, state.Cleanups(), client_id, attempted_epoch,
+            state.Epoch(), lifecycle_activity,
+            [&is_current]() noexcept(noexcept(is_current(nullptr))) {
+                return is_current(nullptr);
+            });
+        if (attempt.disposition != CompositionStartDisposition::Publish) {
+            if (attempt.disposition == CompositionStartDisposition::Terminated && is_current(nullptr)) {
+                reset();
+            }
+            return {};
+        }
+        state.SetComposition(std::move(attempt.starting->composition));
+    }
+
+    return UpdateCompositionInSession(
+        ec, context, state.Composition(), text, attribute_atom, std::ref(is_current));
 }
 
 } // namespace qiqi
