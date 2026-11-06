@@ -168,11 +168,8 @@ void QiQiTextService::ResetContextAndUI(bool try_host_cleanup) {
         "TsfLifecycle(service={}, stage=context-reset, activation={}, context_before={}, context_after={}, has_context={}, has_composition={}, try_host_cleanup={})",
         service_log_id_, composition_lifecycle_.Epoch().activation, composition_lifecycle_.Epoch().context,
         composition_lifecycle_.Epoch().context + 1, composition_lifecycle_.Context() != nullptr, composition_lifecycle_.Composition() != nullptr, try_host_cleanup);
-    // Invalidate before COM cleanup can deliver reentrant callbacks.
-    composition_lifecycle_.InvalidateContext();
-    if (resetting_context_) return;
-    resetting_context_ = true;
-    const auto finish_reset = gsl::finally([this]() noexcept { resetting_context_ = false; });
+    const CompositionContextResetScope reset_scope(composition_lifecycle_);
+    if (!reset_scope.Entered()) return;
     if (try_host_cleanup) {
         ScheduleCompositionCleanup();
     } else if (composition_lifecycle_.Composition()) {
@@ -192,7 +189,7 @@ void QiQiTextService::ResetContextAndUI(bool try_host_cleanup) {
 }
 
 bool QiQiTextService::IsEditSessionCurrent(EditSessionTicket ticket) const noexcept {
-    if (composition_lifecycle_.IsCurrent(ticket, resetting_context_)) {
+    if (composition_lifecycle_.IsCurrent(ticket)) {
         return true;
     }
     QIQI_LOG_ACT_INFO(
@@ -206,7 +203,7 @@ bool QiQiTextService::IsEditSessionCurrent(EditSessionTicket ticket) const noexc
 }
 
 bool QiQiTextService::PrepareInputContext(ITfContext* context) {
-    if (!context || !composition_lifecycle_.IsActive() || resetting_context_ || preparing_input_context_) {
+    if (!context || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() || preparing_input_context_) {
         QIQI_LOG_ACT_INFO(
             log::Level::trace,
             log::Keyword::Lifecycle,
@@ -274,7 +271,7 @@ bool QiQiTextService::IsCompositionEditCurrent(
 }
 
 void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessResult& result) {
-    if (!context || !composition_lifecycle_.IsActive() || resetting_context_ || preparing_input_context_ ||
+    if (!context || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() || preparing_input_context_ ||
         context != composition_lifecycle_.Context().Get()) {
         QIQI_LOG_ACT_INFO(
             log::Level::debug,
@@ -496,7 +493,7 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
 }
 
 void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot) {
-    if (!candidate_ui_ || !thread_mgr_ || !composition_lifecycle_.Context() || !composition_lifecycle_.IsActive() || resetting_context_) {
+    if (!candidate_ui_ || !thread_mgr_ || !composition_lifecycle_.Context() || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext()) {
         return;
     }
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), composition_lifecycle_.Context().Get()};

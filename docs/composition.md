@@ -25,6 +25,7 @@ Each service owns a noncopyable, nonmovable
 | State | Purpose |
 |---|---|
 | `IsActive()` | Whether application callbacks may currently execute |
+| `IsResettingContext()` | Whether an outer context-reset scope is still executing; application edits and reactivation are rejected |
 | `Epoch().activation` | Incremented on valid activation attempts and deactivation, so reactivating the same service cannot revive old requests |
 | `Epoch().context` | Incremented before context reset, so an A-to-B-to-A switch cannot revive old requests |
 | `Context()` | The current input target; pointer equality does not replace epoch checks |
@@ -36,14 +37,25 @@ cleanup bookkeeping, then composition. Its individual mutation methods retain
 the original assignment/move/release operations; they do not bundle a transition,
 implicitly invalidate epochs, reset unrelated fields, or call `EndComposition`.
 This includes allowing the original temporary states during reentrant teardown.
-The service still orders invalidation before host calls, owns transition guards
-and the pending preparation context, and decides when to publish/reset UI.
+The service still orders invalidation before host calls, owns activation and
+preparation guards and the pending preparation context, and decides when to
+publish/reset UI.
 The owner stays at the same address for the service lifetime, so live epoch
 references and detached cleanup bookkeeping are not replaced on reactivation.
 
 `ApplyEngineResult` and layout callbacks capture the epoch and target. Before executing, `IsEditSessionCurrent` checks activation state, both epoch counters, and the context. Expected stale-request rejection returns `S_OK` and logs `stale-edit-skipped`; it is not an API failure.
 
 `ResetContextAndUI` invalidates the old context **before** removing COM subscriptions, releasing the composition, or clearing UI. After switching targets, the caller checks for reentrant invalidation again before submitting a new request. An epoch is not a per-key sequence number: normal writes within one epoch still execute in FIFO order, rather than retaining only the latest write.
+
+[`CompositionContextResetScope`](../src/ime/comp/state.h) borrows the state owner,
+which must outlive the noncopyable, nonmovable scope. Every entry invalidates the
+context epoch before checking for an existing reset, including nested attempts.
+Only the outer scope returns `Entered() == true`; nested callers return without
+repeating teardown. The entered scope restores the reset flag on normal, early,
+and exceptional exit without rolling back the epoch. It does not release COM
+references, mutate cleanup records, or call the host/UI. `IsCurrent(ticket)`
+checks the owner's own reset flag; the service retains the actual teardown and
+UI sequence.
 
 [`CompositionEditTask`](../src/ime/comp/edit.h) owns the captured context, immutable
 result snapshot, original ticket, and activity ID. Its synchronous
@@ -511,8 +523,17 @@ The existing 91 edit-boundary and four cleanup-reentrancy cases remain intact.
 This stage adds tests, not production behavior: it does not change the existing
 policy for a current failed start with non-null output. The current composition,
 epochs, context/document, and cleanup coordinator now share the state owner
-described above. Cross-stage target preparation, activation/reset, and UI
+described above. Cross-stage target preparation, activation, actual teardown, and UI
 coordination remain in the service; the complete R05 coordinator is unfinished.
+
+The [state tests](../tests/ime/comp/state.cpp) use real reset scopes in the
+56-case identity matrix. Another 36 cases cross active/inactive state,
+bound/unbound targets, nested depths 0/1/3, and normal/early/exceptional exit;
+they check epoch advancement, flag restoration, unchanged ownership/records,
+and absence of host operations. Two real-service cases inject one or three
+nested focus-loss resets during old cleanup: input and activation are rejected
+until the outer reset finishes, cleanup/UI are not repeated, and a fresh
+composition works afterward.
 
 `QiQiCompositionLifecycleTest` runs composition components and the complete
 service lifecycle/key-flow tests without the standalone popup/candidate/status

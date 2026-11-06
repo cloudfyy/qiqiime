@@ -414,6 +414,43 @@ void TestReentrantCompositionEdits() {
         }
     }
     QIQI_TEST_CHECK(cleanup_cases == 4);
+    size_t reset_cases = 0;
+    for (const unsigned int nested_resets : {1u, 3u}) {
+        auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        auto manager = MakeComObject<MockTfThreadMgr>();
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
+        const auto context = MakeComObject<MockTfContext>();
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(send_key(service, context.Get(), 'A', &eaten) == S_OK && eaten);
+        const auto composition = context->last_composition_;
+        const auto ends_before = manager->end_ui_calls_;
+        bool entered = false;
+        composition->end_callback_ = [&](TfEditCookie) {
+            QIQI_TEST_CHECK(!std::exchange(entered, true));
+            const auto ui_before = std::tuple{
+                manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_};
+            for (unsigned int i = 0; i < nested_resets; ++i) {
+                QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+                QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
+                QIQI_TEST_CHECK(send_key(service, context.Get(), 'B', &eaten) == S_OK && !eaten);
+                QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == E_UNEXPECTED);
+                QIQI_TEST_CHECK((std::tuple{
+                    manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_}) == ui_before);
+                QIQI_TEST_CHECK(context->range_->text_ == L"a" && context->range_->set_text_calls_ == 1 &&
+                                composition->end_composition_calls_ == 1 && context->prop_->clear_calls_ == 1);
+            }
+        };
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK && entered);
+        composition->end_callback_ = {};
+        QIQI_TEST_CHECK(composition->ended_ && composition->end_composition_calls_ == 1 &&
+                        manager->end_ui_calls_ == ends_before + 1);
+        QIQI_TEST_CHECK(send_key(service, context.Get(), 'C', &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(context->range_->text_ == L"c" && context->range_->set_text_calls_ == 2 &&
+                        context->last_composition_ != composition && !context->last_composition_->ended_);
+        ++reset_cases;
+    }
+    QIQI_TEST_CHECK(reset_cases == 2);
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 

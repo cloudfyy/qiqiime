@@ -3,7 +3,11 @@
 #include "ime/comp/tests.h"
 #include "ime/tsf/mocks.h"
 #include <array>
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -35,36 +39,40 @@ void TestLifecycleStateIdentity() {
                 EditSessionTicket ticket;
                 bool matches;
             };
-            const std::array identities{
-                Case{{{1, 1}, state.Context().Get()}, true},
-                Case{{{0, 1}, state.Context().Get()}, false},
-                Case{{{1, 0}, state.Context().Get()}, false},
-                Case{{{0, 0}, state.Context().Get()}, false},
-                Case{{{1, 1}, second.Get()}, false},
-                Case{{{1, 1}, nullptr}, !bound},
-                Case{{{1, 2}, state.Context().Get()}, false},
-            };
             for (const bool active : {false, true}) {
                 state.SetActive(active);
                 for (const bool resetting : {false, true}) {
+                    std::optional<CompositionContextResetScope> reset_scope;
+                    if (resetting) reset_scope.emplace(state);
+                    const auto& epoch = state.Epoch();
+                    const std::array identities{
+                        Case{{epoch, state.Context().Get()}, true},
+                        Case{{{epoch.activation - 1, epoch.context}, state.Context().Get()}, false},
+                        Case{{{epoch.activation, epoch.context - 1}, state.Context().Get()}, false},
+                        Case{{{epoch.activation - 1, epoch.context - 1}, state.Context().Get()}, false},
+                        Case{{epoch, second.Get()}, false},
+                        Case{{epoch, nullptr}, !bound},
+                        Case{{{epoch.activation, epoch.context + 1}, state.Context().Get()}, false},
+                    };
+                    QIQI_TEST_CHECK(state.IsResettingContext() == resetting);
                     for (const auto& test : identities) {
-                        QIQI_TEST_CHECK(state.IsCurrent(test.ticket, resetting) ==
+                        QIQI_TEST_CHECK(state.IsCurrent(test.ticket) ==
                                         (active && !resetting && test.matches));
                         ++cases;
                     }
                 }
-                QIQI_TEST_CHECK(state.Epoch().activation == 1 && state.Epoch().context == 1);
+                QIQI_TEST_CHECK(!state.IsResettingContext() && state.Epoch().activation == 1);
             }
-            QIQI_TEST_CHECK(live_epoch.activation == 1 && live_epoch.context == 1 &&
+            QIQI_TEST_CHECK(live_epoch.activation == 1 && live_epoch.context == 3 &&
                             &live_epoch == &state.Epoch() && cleanups == &state.Cleanups());
             const EditSessionTicket old{live_epoch, state.Context().Get()};
             state.InvalidateActivation();
-            QIQI_TEST_CHECK(live_epoch.activation == 2 && !state.IsCurrent(old, false));
+            QIQI_TEST_CHECK(live_epoch.activation == 2 && !state.IsCurrent(old));
             state.InvalidateContext();
-            QIQI_TEST_CHECK(live_epoch.context == 2 && !state.IsCurrent(old, false));
+            QIQI_TEST_CHECK(live_epoch.context == 4 && !state.IsCurrent(old));
             state.SetActive(false);
             state.SetActive(true);
-            QIQI_TEST_CHECK(!state.IsCurrent(old, false) && cleanups == &state.Cleanups());
+            QIQI_TEST_CHECK(!state.IsCurrent(old) && cleanups == &state.Cleanups());
         }
         QIQI_TEST_CHECK(cases == 56);
         for (const auto& context : {first, second}) {
@@ -108,7 +116,7 @@ void TestLifecycleStateResources() {
             const EditSessionTicket ticket{state.Epoch(), context.Get()};
             state.InvalidateContext();
             state.ClearContext();
-            QIQI_TEST_CHECK(!state.IsCurrent(ticket, false) && !state.Context() &&
+            QIQI_TEST_CHECK(!state.IsCurrent(ticket) && !state.Context() &&
                             state.Composition().Get() == next_composition.Get() &&
                             state.Document().Get() == next_document.Get());
             QIQI_TEST_CHECK(state.Cleanups().HasPending(context.Get(), GUID_NULL) &&
@@ -201,6 +209,85 @@ void TestLifecycleStateDetachedCleanup() {
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
+void TestLifecycleContextResetScopes() {
+    static_assert(!std::is_copy_constructible_v<CompositionContextResetScope>);
+    static_assert(!std::is_move_constructible_v<CompositionContextResetScope>);
+    static_assert(std::is_nothrow_destructible_v<CompositionContextResetScope>);
+    enum class Exit { Normal, Early, Exception };
+    const auto objects_before = g_com_object_count.load();
+    size_t cases = 0;
+    for (const bool active : {false, true}) {
+        for (const bool bound : {false, true}) {
+            for (const unsigned int depth : {0u, 1u, 3u}) {
+                for (const auto exit : {Exit::Normal, Exit::Early, Exit::Exception}) {
+                    const auto context = MakeComObject<MockTfContext>();
+                    const auto document = MakeComObject<MockTfDocumentMgr>();
+                    const auto composition = MakeComObject<MockTfComposition>(context->range_);
+                    CompositionLifecycleState state(131);
+                    state.SetActive(active);
+                    if (bound) state.SetContext(context);
+                    state.SetDocument(document);
+                    state.SetComposition(composition);
+                    const auto starting = state.Cleanups().TrackStarting(context.Get());
+                    const auto* const cleanups = &state.Cleanups();
+                    const auto& epoch = state.Epoch();
+                    const EditSessionTicket before{epoch, state.Context().Get()};
+                    unsigned int entries = 0;
+                    const auto nest = [&](auto&& self, unsigned int remaining) noexcept -> void {
+                        if (remaining == 0) return;
+                        const auto previous = epoch.context;
+                        {
+                            const CompositionContextResetScope nested(state);
+                            QIQI_TEST_CHECK(!nested.Entered() && state.IsResettingContext() &&
+                                            epoch.context == previous + 1);
+                            QIQI_TEST_CHECK(!state.IsCurrent({epoch, state.Context().Get()}));
+                            self(self, remaining - 1);
+                        }
+                        QIQI_TEST_CHECK(state.IsResettingContext());
+                    };
+                    const auto reset = [&] {
+                        const CompositionContextResetScope outer(state);
+                        QIQI_TEST_CHECK(outer.Entered() && state.IsResettingContext() && epoch.context == 1);
+                        ++entries;
+                        QIQI_TEST_CHECK(!state.IsCurrent({epoch, state.Context().Get()}));
+                        nest(nest, depth);
+                        QIQI_TEST_CHECK(epoch.context == uint64_t{1} + depth && state.IsResettingContext());
+                        if (exit == Exit::Early) return;
+                        if (exit == Exit::Exception) throw std::runtime_error("injected context reset");
+                    };
+                    bool caught = false;
+                    try {
+                        reset();
+                    } catch (const std::runtime_error& error) {
+                        QIQI_TEST_CHECK(exit == Exit::Exception &&
+                                        std::string_view(error.what()) == "injected context reset");
+                        caught = true;
+                    }
+                    QIQI_TEST_CHECK(caught == (exit == Exit::Exception) && entries == 1 &&
+                                    !state.IsResettingContext() && state.IsActive() == active);
+                    QIQI_TEST_CHECK(epoch.activation == 0 && epoch.context == uint64_t{1} + depth &&
+                                    !state.IsCurrent(before) &&
+                                    state.IsCurrent({epoch, state.Context().Get()}) == active);
+                    QIQI_TEST_CHECK(state.Context().Get() == (bound ? context.Get() : nullptr) &&
+                                    state.Document().Get() == document.Get() &&
+                                    state.Composition().Get() == composition.Get());
+                    QIQI_TEST_CHECK(cleanups == &state.Cleanups() && state.Cleanups().TrackedCount() == 1 &&
+                                    !starting->finished && !starting->context_removed && !starting->terminated);
+                    const ULONG context_refs = 3UL + (bound ? 1UL : 0UL);
+                    QIQI_TEST_CHECK(context->AddRef() == context_refs && context->Release() == context_refs - 1 &&
+                                    document->AddRef() == 3 && document->Release() == 2 &&
+                                    composition->AddRef() == 3 && composition->Release() == 2);
+                    QIQI_TEST_CHECK(context->request_edit_session_calls_ == 0 &&
+                                    context->range_->set_text_calls_ == 0 && context->prop_->clear_calls_ == 0 &&
+                                    composition->get_range_calls_ == 0 && composition->end_composition_calls_ == 0);
+                    ++cases;
+                }
+            }
+        }
+    }
+    QIQI_TEST_CHECK(cases == 36 && g_com_object_count.load() == objects_before);
+}
+
 } // namespace
 
 void RunTsfCompositionStateTests() {
@@ -208,6 +295,7 @@ void RunTsfCompositionStateTests() {
     TestLifecycleStateResources();
     TestLifecycleStateReleaseOrder();
     TestLifecycleStateDetachedCleanup();
+    TestLifecycleContextResetScopes();
 }
 
 } // namespace qiqi::test

@@ -7,7 +7,9 @@
 
 namespace qiqi {
 
-// STA state only; the service retains transition guards, host call ordering, and UI policy.
+class CompositionContextResetScope;
+
+// STA state only; activation/preparation guards, host call ordering, and UI policy stay in the service.
 class CompositionLifecycleState {
 public:
     explicit CompositionLifecycleState(uint64_t service_id) noexcept : cleanups_(service_id) {}
@@ -23,8 +25,9 @@ public:
     void InvalidateActivation() noexcept { ++epoch_.activation; }
     void InvalidateContext() noexcept { ++epoch_.context; }
 
-    [[nodiscard]] bool IsCurrent(EditSessionTicket ticket, bool resetting) const noexcept {
-        return active_ && !resetting && ticket.Matches(epoch_, context_.Get());
+    [[nodiscard]] bool IsResettingContext() const noexcept { return resetting_context_; }
+    [[nodiscard]] bool IsCurrent(EditSessionTicket ticket) const noexcept {
+        return active_ && !resetting_context_ && ticket.Matches(epoch_, context_.Get());
     }
 
     [[nodiscard]] const Microsoft::WRL::ComPtr<ITfComposition>& Composition() const noexcept { return composition_; }
@@ -46,13 +49,39 @@ public:
     void ClearDocument() { document_.Reset(); }
 
 private:
+    friend class CompositionContextResetScope;
     EditSessionEpoch epoch_;
     bool active_ = false;
+    bool resetting_context_ = false;
     // Keep the original COM/bookkeeping destruction order: document, context, cleanups, composition.
     Microsoft::WRL::ComPtr<ITfComposition> composition_;
     CompositionCleanupCoordinator cleanups_;
     Microsoft::WRL::ComPtr<ITfContext> context_;
     Microsoft::WRL::ComPtr<ITfDocumentMgr> document_;
+};
+
+class CompositionContextResetScope {
+public:
+    explicit CompositionContextResetScope(CompositionLifecycleState& state) noexcept : state_(state) {
+        // Even a nested reset invalidates callbacks, but only the outer scope owns teardown.
+        state_.InvalidateContext();
+        if (state_.resetting_context_) return;
+        state_.resetting_context_ = true;
+        entered_ = true;
+    }
+    ~CompositionContextResetScope() noexcept {
+        if (entered_) state_.resetting_context_ = false;
+    }
+    CompositionContextResetScope(const CompositionContextResetScope&) = delete;
+    CompositionContextResetScope& operator=(const CompositionContextResetScope&) = delete;
+    CompositionContextResetScope(CompositionContextResetScope&&) = delete;
+    CompositionContextResetScope& operator=(CompositionContextResetScope&&) = delete;
+
+    [[nodiscard]] bool Entered() const noexcept { return entered_; }
+
+private:
+    CompositionLifecycleState& state_;
+    bool entered_ = false;
 };
 
 } // namespace qiqi

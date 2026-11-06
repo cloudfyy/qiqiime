@@ -112,7 +112,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     if (!ptim) {
         return E_INVALIDARG;
     }
-    if (deactivating_ || resetting_context_ || preparing_input_context_) {
+    if (deactivating_ || composition_lifecycle_.IsResettingContext() || preparing_input_context_) {
         QIQI_LOG_CAT_WARN(
             log::Keyword::Lifecycle,
             "ActivateEx: activation during lifecycle transition rejected (hr=0x{:08x})",

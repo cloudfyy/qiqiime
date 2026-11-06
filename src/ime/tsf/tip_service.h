@@ -170,7 +170,6 @@ private:
     TfClientId client_id_ = TF_CLIENTID_NULL;
     DWORD activate_flags_ = 0;
     bool deactivating_ = false;
-    bool resetting_context_ = false;
     ComPtr<ITfContext> preparing_input_context_;
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection text_layout_sink_;
