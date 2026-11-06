@@ -114,4 +114,70 @@ void RunTsfEditActionTests() {
     QIQI_TEST_CHECK(cases == 12 && g_com_object_count.load() == objects_before);
 }
 
+void RunTsfPresentationSyncTests(
+    gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> manager) {
+    enum class Boundary { Update, Position };
+    enum class Transition { Deactivate, Reactivate, Replace };
+    const auto objects_before = g_com_object_count.load();
+    std::array<BYTE, 256> original_keyboard{};
+    QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
+    const auto restore_keyboard = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(::SetKeyboardState(original_keyboard.data()));
+    });
+    std::array<BYTE, 256> clean_keyboard{};
+    size_t cases = 0;
+    for (const auto boundary : {Boundary::Update, Boundary::Position}) {
+        for (const auto transition : {Transition::Deactivate, Transition::Reactivate, Transition::Replace}) {
+            const auto context = MakeComObject<MockTfContext>();
+            const auto send_key = [&](UINT key) {
+                QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+                BOOL eaten = FALSE;
+                QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+            };
+            send_key('A');
+            const auto composition = context->last_composition_;
+            bool entered = false;
+            std::wstring after_text;
+            auto after_ui = std::tuple{
+                manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_};
+            const auto interrupt = [&] {
+                if (std::exchange(entered, true)) return;
+                if (transition == Transition::Replace) {
+                    send_key(VK_ESCAPE);
+                    send_key('C');
+                } else {
+                    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+                    if (transition == Transition::Reactivate) {
+                        QIQI_TEST_CHECK(service->Activate(manager.get(), 1) == S_OK);
+                        send_key('C');
+                    }
+                }
+                after_text = context->range_->text_;
+                after_ui = std::tuple{
+                    manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_};
+            };
+            const auto clear_callbacks = gsl::finally([&]() noexcept {
+                composition->get_range_callback_ = {};
+                context->view_->get_text_ext_callback_ = {};
+            });
+            if (boundary == Boundary::Update) composition->get_range_callback_ = interrupt;
+            else context->view_->get_text_ext_callback_ = interrupt;
+            send_key('B');
+            composition->get_range_callback_ = {};
+            context->view_->get_text_ext_callback_ = {};
+            QIQI_TEST_CHECK(entered && composition->ended_ && context->range_->text_ == after_text &&
+                            (std::tuple{manager->begin_ui_calls_, manager->update_ui_calls_, manager->end_ui_calls_}) == after_ui);
+            if (transition != Transition::Deactivate) {
+                QIQI_TEST_CHECK(context->range_->text_ == L"c" &&
+                                context->last_composition_.Get() != composition.Get());
+                send_key('D');
+                QIQI_TEST_CHECK(context->range_->text_ == L"cd");
+            }
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK && service->Activate(manager.get(), 1) == S_OK);
+            ++cases;
+        }
+    }
+    QIQI_TEST_CHECK(cases == 6 && g_com_object_count.load() == objects_before);
+}
+
 } // namespace qiqi::test

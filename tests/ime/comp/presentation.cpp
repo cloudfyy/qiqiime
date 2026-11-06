@@ -4,6 +4,8 @@
 #include "ime/tsf/mocks.h"
 #include <array>
 #include <memory>
+#include <stdexcept>
+#include <string_view>
 #include <vector>
 
 namespace qiqi::test {
@@ -237,6 +239,115 @@ void TestPresentationEndOwnership() {
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
+void TestPresentationSynchronization() {
+    enum class Step { Update, Check, Position, Present };
+    const auto objects_before = g_com_object_count.load();
+    size_t cases = 0;
+    for (const bool has_composition : {false, true}) {
+        for (const bool has_preedit : {false, true}) {
+            for (const unsigned int stale_check : {0u, 1u, 2u}) {
+                const auto context = MakeComObject<MockTfContext>();
+                auto original = has_composition ? MakeComObject<MockTfComposition>(context->range_) :
+                    ComPtr<MockTfComposition>{};
+                auto* const expected_composition = original.Get();
+                bool released = false;
+                if (original) original->release_observer_ = [&]() noexcept { released = true; };
+                auto snapshot = PresentationSnapshot();
+                if (!has_preedit) snapshot.composition_text.clear();
+                std::vector<Step> trace;
+                unsigned int checks_seen = 0;
+                SyncCompositionPresentationInSession(
+                    359, gsl::not_null<ITfContext*>(context.Get()), snapshot,
+                    [&, calls = std::make_unique<unsigned int>(0)](
+                        TfEditCookie ec, gsl::not_null<ITfContext*> target, const std::wstring& text) {
+                        QIQI_TEST_CHECK(++*calls == 1 && ec == 359 && target.get() == context.Get() &&
+                                        &text == &snapshot.composition_text);
+                        trace.push_back(Step::Update);
+                        ComPtr<ITfComposition> captured = original;
+                        original.Reset();
+                        return captured;
+                    },
+                    [&, checks = std::make_unique<unsigned int>(0)](ITfComposition* composition) {
+                        checks_seen = ++*checks;
+                        trace.push_back(Step::Check);
+                        QIQI_TEST_CHECK(composition == expected_composition && !released);
+                        if (composition) {
+                            QIQI_TEST_CHECK(composition->AddRef() == 2 && composition->Release() == 1);
+                        }
+                        return checks_seen != stale_check;
+                    },
+                    [&, calls = std::make_unique<unsigned int>(0)](
+                        TfEditCookie ec, gsl::not_null<ITfContext*> target) {
+                        QIQI_TEST_CHECK(++*calls == 1 && ec == 359 && target.get() == context.Get() && !released);
+                        trace.push_back(Step::Position);
+                    },
+                    [&, calls = std::make_unique<unsigned int>(0)](const KeyProcessResult& result) {
+                        QIQI_TEST_CHECK(++*calls == 1 && &result == &snapshot && !released &&
+                                        result.all_display_candidates.size() == 4 && result.current_page == 1);
+                        trace.push_back(Step::Present);
+                    });
+                std::vector<Step> expected{Step::Update, Step::Check};
+                if (stale_check != 1) {
+                    expected.push_back(Step::Position);
+                    expected.push_back(Step::Check);
+                    if (stale_check == 0) expected.push_back(Step::Present);
+                }
+                QIQI_TEST_CHECK(trace == expected && checks_seen == (stale_check == 1 ? 1u : 2u) &&
+                                released == has_composition && context->request_edit_session_calls_ == 0 &&
+                                context->range_->set_text_calls_ == 0);
+                ++cases;
+            }
+        }
+    }
+    QIQI_TEST_CHECK(cases == 12 && g_com_object_count.load() == objects_before);
+    enum class Boundary { Update, FirstCheck, Position, SecondCheck, Present };
+    for (const auto boundary : {
+             Boundary::Update, Boundary::FirstCheck, Boundary::Position, Boundary::SecondCheck, Boundary::Present}) {
+        const auto context = MakeComObject<MockTfContext>();
+        auto original = MakeComObject<MockTfComposition>(context->range_);
+        auto* const expected_composition = original.Get();
+        bool released = false;
+        original->release_observer_ = [&]() noexcept { released = true; };
+        const auto snapshot = PresentationSnapshot();
+        std::vector<Boundary> trace;
+        const auto visit = [&](Boundary stage) {
+            QIQI_TEST_CHECK(!released);
+            trace.push_back(stage);
+            if (stage == boundary) throw std::runtime_error("presentation boundary");
+        };
+        unsigned int checks = 0;
+        bool caught = false;
+        try {
+            SyncCompositionPresentationInSession(
+                367, gsl::not_null<ITfContext*>(context.Get()), snapshot,
+                [&](TfEditCookie, gsl::not_null<ITfContext*>, const std::wstring&) {
+                    ComPtr<ITfComposition> captured = original;
+                    original.Reset();
+                    visit(Boundary::Update);
+                    return captured;
+                },
+                [&](ITfComposition* composition) {
+                    QIQI_TEST_CHECK(composition == expected_composition);
+                    visit(++checks == 1 ? Boundary::FirstCheck : Boundary::SecondCheck);
+                    return true;
+                },
+                [&](TfEditCookie, gsl::not_null<ITfContext*>) { visit(Boundary::Position); },
+                [&](const KeyProcessResult&) { visit(Boundary::Present); });
+        } catch (const std::runtime_error& error) {
+            caught = true;
+            QIQI_TEST_CHECK(std::string_view(error.what()) == "presentation boundary");
+        }
+        std::vector<Boundary> expected;
+        for (const auto stage : {
+                 Boundary::Update, Boundary::FirstCheck, Boundary::Position, Boundary::SecondCheck, Boundary::Present}) {
+            expected.push_back(stage);
+            if (stage == boundary) break;
+        }
+        QIQI_TEST_CHECK(caught && released && trace == expected);
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 } // namespace
 
 void RunTsfCompositionPresentationTests() {
@@ -245,6 +356,7 @@ void RunTsfCompositionPresentationTests() {
     TestPresentationPermissions();
     TestPresentationLiveManagerLookup();
     TestPresentationEndOwnership();
+    TestPresentationSynchronization();
 }
 
 } // namespace qiqi::test

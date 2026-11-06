@@ -289,11 +289,18 @@ HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const Co
 void QiQiTextService::SyncCompositionUIInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot) {
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
-    const auto composition = StartOrUpdateCompositionInSession(ec, context, snapshot.composition_text);
-    if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-    UpdateCandidateWindowPositionInSession(ec, context);
-    if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-    BeginOrUpdateCandidateUI(snapshot);
+    SyncCompositionPresentationInSession(
+        ec, context, snapshot,
+        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> target, const std::wstring& text) {
+            return StartOrUpdateCompositionInSession(cookie, target, text);
+        },
+        [this, ticket](const ITfComposition* composition) noexcept {
+            return IsCompositionEditCurrent(ticket, composition);
+        },
+        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> target) {
+            UpdateCandidateWindowPositionInSession(cookie, target);
+        },
+        [this](const KeyProcessResult& result) { BeginOrUpdateCandidateUI(result); });
 }
 
 ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(

@@ -120,6 +120,16 @@ pass-through has no action. The helper adds no entry or post-update checks.
 The production snapshot remains immutable, and real host operations and their
 failure diagnostics still run in the service and existing components.
 
+`SyncCompositionPresentationInSession` owns the original
+start/update -> identity check -> position -> identity check -> publication
+sequence. The service keeps the original ticket and executes the real callbacks.
+The returned composition reference survives both positioning and publication,
+including early or exceptional exit. It may be null: the original identity
+predicate still decides whether to proceed, without added null/preedit gates.
+The second check uses that same returned composition, not a refreshed service
+slot. The helper retains no cookie, adds no scheduling or activity scope, and
+does not alter UI permissions, position fallback or failure diagnostics.
+
 ### 2.1 In-Flight Host Calls
 
 Entry checks alone are insufficient. `GetRange`, text writes, range cloning and
@@ -693,6 +703,16 @@ deactivation, reactivation or same-epoch replacement. They verify that stale
 action completion cannot end replacement UI or overwrite its preedit, while
 ordinary fifth-code handoff retains the original UI registration and accepts
 subsequent input.
+
+Presentation synchronization adds 17
+[component cases](../tests/ime/comp/presentation.cpp): twelve null/non-null
+composition, empty/non-empty preedit and invalidation combinations plus five
+exception boundaries. Checks cover exact order, zero additional checks,
+borrowed snapshot/text identity and composition reference counts through
+publication and exit. Six [service cases](../tests/ime/tsf/service_action.cpp)
+inject deactivation, reactivation or same-epoch replacement during update or
+positioning. The old synchronization cannot publish additional candidate work
+or overwrite replacement text; fresh input continues normally.
 
 The layout session extraction adds another 46 component cases: four
 snapshot/copy/move/resource cases, 22 identity/activity/nesting/exception cases

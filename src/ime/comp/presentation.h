@@ -9,6 +9,17 @@
 
 namespace qiqi {
 
+template <typename UpdateComposition, typename IsCurrent, typename Position, typename Present>
+void SyncCompositionPresentationInSession(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot,
+    UpdateComposition update_composition, IsCurrent is_current, Position position, Present present) {
+    const auto composition = update_composition(ec, context, snapshot.composition_text);
+    if (!is_current(composition.Get())) return;
+    position(ec, context);
+    if (!is_current(composition.Get())) return;
+    present(snapshot);
+}
+
 // Query the live manager at the original boundary; the service keeps the UI address stable.
 template <typename GetManager, typename IsCurrent>
 void PresentCompositionCandidates(
