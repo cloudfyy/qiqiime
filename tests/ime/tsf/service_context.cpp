@@ -4,6 +4,7 @@
 #include "ime/tsf/tip_service.h"
 #include "ime/tsf/service_lifecycle.h"
 #include <array>
+#include <format>
 #include <iostream>
 #include <memory>
 #include <tuple>
@@ -12,8 +13,82 @@ namespace qiqi::test {
 
 namespace {
 
+void TestPushedContextResolution(gsl::not_null<QiQiTextService*> service) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const auto objects_before = g_com_object_count.load();
+    for (const HRESULT result : {S_OK, S_FALSE, E_ACCESSDENIED, TF_E_DISCONNECTED}) {
+        for (const bool null_document : {false, true}) {
+            const auto case_name = std::format(
+                "context-push.result-0x{:08x}.null-{}", gsl::narrow_cast<unsigned int>(result), null_document);
+            const qiqi::test::TsfTestCaseTrace case_trace(case_name);
+            const auto document = MakeComObject<MockTfDocumentMgr>();
+            const auto context = document->CreateTestContext();
+            const auto pushed = document->CreateTestContext();
+            const auto reset = gsl::finally([&]() noexcept {
+                QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+            });
+            QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+            BOOL eaten = FALSE;
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+            const auto composition = context->last_composition_;
+            QIQI_TEST_CHECK(document->Push(pushed.Get()) == S_OK);
+            pushed->get_document_result_ = result;
+            pushed->return_null_document_ = null_document;
+            const auto parent_queries = pushed->get_document_calls_;
+            const auto top_queries = document->get_top_calls;
+            const auto base_queries = document->get_base_calls;
+            QIQI_TEST_CHECK(service->OnPushContext(pushed.Get()) == S_OK);
+            const auto reconciliations = SUCCEEDED(result) && !null_document ? 1u : 0u;
+            QIQI_TEST_CHECK(pushed->get_document_calls_ == parent_queries + 1);
+            QIQI_TEST_CHECK(document->get_top_calls == top_queries + reconciliations);
+            QIQI_TEST_CHECK(document->get_base_calls == base_queries + reconciliations);
+            QIQI_TEST_CHECK(!composition->ended_ && context->layout_sink_);
+            QIQI_TEST_CHECK(context->range_->text_ == L"a" && pushed->request_edit_session_calls_ == 0);
+            QIQI_TEST_CHECK(!pushed->layout_sink_);
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(context->last_composition_ == composition && context->range_->text_ == L"ab");
+        }
+    }
+    {
+        const qiqi::test::TsfTestCaseTrace case_trace("context-push.reentrant-focus-target");
+        const auto document = MakeComObject<MockTfDocumentMgr>();
+        const auto context = document->CreateTestContext();
+        const auto pushed = document->CreateTestContext();
+        const auto replacement_document = MakeComObject<MockTfDocumentMgr>();
+        const auto replacement = replacement_document->CreateTestContext();
+        const auto reset = gsl::finally([&]() noexcept {
+            pushed->get_document_callback_ = {};
+            QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+        });
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        QIQI_TEST_CHECK(replacement_document->Push(replacement.Get()) == S_OK);
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        const auto composition = context->last_composition_;
+        QIQI_TEST_CHECK(document->Push(pushed.Get()) == S_OK);
+        const auto top_queries = document->get_top_calls;
+        const auto base_queries = document->get_base_calls;
+        unsigned int callbacks = 0;
+        pushed->get_document_callback_ = [&] {
+            ++callbacks;
+            QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+            QIQI_TEST_CHECK(service->OnKeyDown(replacement.Get(), 'B', 0, &eaten) == S_OK && eaten);
+        };
+        QIQI_TEST_CHECK(service->OnPushContext(pushed.Get()) == S_OK);
+        QIQI_TEST_CHECK(callbacks == 1 && composition->ended_ && !context->layout_sink_);
+        QIQI_TEST_CHECK(document->get_top_calls == top_queries && document->get_base_calls == base_queries);
+        QIQI_TEST_CHECK(replacement_document->get_top_calls == 0 && replacement_document->get_base_calls == 0);
+        QIQI_TEST_CHECK(replacement->range_->text_ == L"b" && replacement->layout_sink_);
+        QIQI_TEST_CHECK(!replacement->last_composition_->ended_ && pushed->request_edit_session_calls_ == 0);
+        QIQI_TEST_CHECK(service->OnKeyDown(replacement.Get(), 'C', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(replacement->range_->text_ == L"bc");
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 void TestAdditionalContextLifecycleCoverage(gsl::not_null<QiQiTextService*> service) {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    TestPushedContextResolution(service);
     const auto objects_before = g_com_object_count.load();
     for (const bool remove_target : {false, true}) {
         auto document = MakeComObject<MockTfDocumentMgr>();

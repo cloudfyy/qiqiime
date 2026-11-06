@@ -13,12 +13,14 @@
 #include <cstdlib>
 #include <chrono>
 #include <commctrl.h>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <regex>
 #include <thread>
 #include <tuple>
+#include <utility>
 
 namespace qiqi::test {
 
@@ -51,10 +53,15 @@ void TestModeSwitchCompositionPolicy(
     QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
 
     enum class Switch { Shift, PreservedKey, LangBarClick, LangBarMenu, OpenClose, Conversion };
+    unsigned int cases = 0;
     for (const bool deferred : {false, true}) {
         for (const auto method : {Switch::Shift, Switch::PreservedKey, Switch::LangBarClick,
                                   Switch::LangBarMenu, Switch::OpenClose, Switch::Conversion}) {
             for (const std::wstring code : {L"a", L"ab", L"abc", L"zhello", L"z"}) {
+                const auto case_name = std::format(
+                    "mode-switch.commit-{}.deferred-{}.method-{}.case-{}",
+                    commit, deferred, std::to_underlying(method), ++cases);
+                const qiqi::test::TsfTestCaseTrace case_trace(case_name);
                 const std::wstring expected = commit ? code : L"";
                 const auto queue = deferred ? std::make_shared<MockEditSessionQueue>() : nullptr;
                 auto context = MakeComObject<MockTfContext>(queue);
@@ -883,6 +890,23 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
     // Activate failure paths
     QIQI_TEST_CHECK(service->ActivateEx(nullptr, 1, 0) == E_INVALIDARG);
+    {
+        const qiqi::test::TsfTestCaseTrace case_trace("activation.null-client-rollback-retry");
+        const auto manager = MakeComObject<MockTfThreadMgr>();
+        const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
+        QIQI_TEST_CHECK(service->ActivateEx(manager.Get(), TF_CLIENTID_NULL, 0) == E_FAIL);
+        QIQI_TEST_CHECK(manager->advise_thread_sink_calls_ == 1 && manager->unadvise_thread_sink_calls_ == 1);
+        QIQI_TEST_CHECK(manager->advise_key_sink_calls_ == 0 && manager->unadvise_key_sink_calls_ == 0);
+        QIQI_TEST_CHECK(manager->preserve_key_calls_ == 0 && manager->preserved_keys_.empty());
+        QIQI_TEST_CHECK(!manager->single_sink_ && !manager->langbar_item_ && !manager->key_event_sink_);
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK && manager->unadvise_thread_sink_calls_ == 1);
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        QIQI_TEST_CHECK(manager->advise_thread_sink_calls_ == 2 && manager->advise_key_sink_calls_ == 1);
+        QIQI_TEST_CHECK(manager->preserve_key_calls_ == 4 && manager->preserved_keys_.size() == 4);
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK && manager->unadvise_thread_sink_calls_ == 2);
+        QIQI_TEST_CHECK(manager->unadvise_key_sink_calls_ == 1 && manager->preserved_keys_.empty());
+        QIQI_TEST_CHECK(!manager->single_sink_ && !manager->langbar_item_ && !manager->key_event_sink_);
+    }
     auto mock_tm = MakeComObject<MockTfThreadMgr>();
     mock_tm->fail_query_source_ = true;
     QIQI_TEST_CHECK(service->ActivateEx(mock_tm.Get(), 1, 0) == E_FAIL);

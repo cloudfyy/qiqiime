@@ -5,6 +5,7 @@
 #include "ime/engine/engine.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -586,6 +587,21 @@ void TestCrossProcessDictAndPhraseFreqSync() {
     QIQI_TEST_CHECK(r_abcd_ext.size() == 3 && gsl::at(r_abcd_ext, 2) == L"外部新增一");
     const auto r_abce_ext = reader.LookupExact(L"abce");
     QIQI_TEST_CHECK(r_abce_ext.size() == 1 && gsl::at(r_abce_ext, 0) == L"外部新增二");
+
+    {
+        const auto version = reader.UserDictSyncVersion();
+        const auto modified = std::filesystem::last_write_time(user_dict, ec);
+        QIQI_TEST_CHECK(!ec);
+        std::filesystem::last_write_time(user_dict, modified + std::chrono::seconds(1), ec);
+        QIQI_TEST_CHECK(!ec);
+        QIQI_TEST_CHECK(reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+        QIQI_TEST_CHECK(reader.UserDictSyncVersion() == version);
+        QIQI_TEST_CHECK(reader.UserDictSnapshotSyncCount() == 1 && reader.UserDictIncrementalSyncCount() == 6);
+        QIQI_TEST_CHECK(reader.LookupExact(L"abcd") == r_abcd_ext && reader.LookupExact(L"abce") == r_abce_ext);
+        QIQI_TEST_CHECK(reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+        QIQI_TEST_CHECK(reader.UserDictSyncVersion() == version);
+        QIQI_TEST_CHECK(reader.UserDictSnapshotSyncCount() == 1 && reader.UserDictIncrementalSyncCount() == 6);
+    }
 
     // 3. External editor large replacement (> 16 ops) rotates baseline and triggers full snapshot reload
     {

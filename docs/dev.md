@@ -192,7 +192,7 @@ ctest --preset x86-release --output-on-failure
 
 - **保留超时排查日志**：完整 `QiQiTsfUiTest` 和定向 `QiQiCompositionLifecycleTest` 使用 [`TsfTestTrace`](../tests/ime/tsf/test_trace.h)，每次运行写入独立文件并同步输出阶段到 stderr。CTest 下分别保存在 `build\x64\tests\ime\test-logs` 与 `build\x86\tests\ime\test-logs`；直接启动 EXE 时保存在当前工作目录的 `test-logs`。文件名含模式、UTC 时间、PID 和单调时钟，追加打开，不覆盖旧文件、不自动清理；删除构建目录前请先备份需要保留的日志。
 - **阶段与失败证据**：全量/定向分别记录 30/25 个阶段的 `BEGIN`/`END`、单调时钟/耗时、线程和 Shift/Ctrl/Alt/CapsLock 原始状态；包含组合组件、服务按键、准备、布局、清理、原生 TSF 及焦点性能阶段。每行立即 flush，超时或 abort 后可从最后一个未配对的 `BEGIN` 缩小范围。[`共享断言`](../tests/common/test_support.h) 同时保留失败文件/行号/表达式与失败后采样的修饰键状态；不记录输入文本，不修改/清除按键状态。这些采样不是导致历史失败的直接证明。
-- **逐测试函数耗时**：[`TsfTestCaseTrace`](../tests/ime/tsf/test_trace.h) 为具名测试函数及子套件记录 `CASE-BEGIN`/`CASE-END`，包含单调时钟、毫秒耗时、线程、修饰键及异常展开标志；在函数其他局部对象析构后结束计时。嵌套调用分别计时，不自动为每个断言或矩阵迭代建记录；激活边界矩阵另显式记录 54 行的边界/动作/宿主失败标签与计时。最后未配对的开始记录可定位未返回的函数。未启用保留日志的专项诊断/ETW 模式不输出这些记录。
+- **逐测试函数耗时**：[`TsfTestCaseTrace`](../tests/ime/tsf/test_trace.h) 为具名测试函数及子套件记录 `CASE-BEGIN`/`CASE-END`，包含单调时钟、毫秒耗时、线程、修饰键及异常展开标志；在函数其他局部对象析构后结束计时。嵌套调用分别计时，不自动为每个断言或矩阵迭代建记录；激活边界矩阵显式记录 54 行，切英文策略矩阵记录 120 行，另有 9 个 context push 场景及无效 client 的回滚/重试标签。标签不包含输入文字，最后未配对的开始记录可定位未返回的场景。未启用保留日志的专项诊断/ETW 模式不输出这些记录。
 - **60 秒无完成结果自动取证**：CTest 测试 5/6 经 [`test_watchdog.ps1`](../tests/ime/test_watchdog.ps1) 启动，只有新出现的 `CASE-END` 才重置无进展计时；持续 60 秒没有测试完成结果时，用对应架构的 SDK `cdb` 对本次启动的 PID 收集一次 `.dump /ma`。进程执行上限仍为 90 秒，CTest 外层超时为 150 秒以预留诊断时间；cdb 抓取最多 15 秒且不超过剩余执行预算，离线分析最多 30 秒。两个测试均 `RUN_SERIAL`。直接运行 EXE 只有日志，没有 watchdog；不要直接运行故意挂起的 `--test-hang-diagnostics-probe`，应通过脚本的 `-Mode probe` 验证。
 - **匹配符号与分析留存**：Release 测试目标保留优化并启用 `/Zi`、`/DEBUG:FULL`，PDB 分别位于 `build\x64\Release\qiqi_tsf_ui_test.pdb`、`build\x86\Release\qiqi_tsf_ui_test.pdb`，不能拿旧 Debug PDB 分析 Release dump。配置测试需已安装 PowerShell 和对应架构的 Windows SDK Debugging Tools；缺失时明确失败。每次 watchdog 保留独立 stdout/stderr；挂起时额外保留 dump、匹配 EXE/PDB 副本、cdb 命令文件、抓取和分析输出。自动执行 `.reload /f`、`!analyze -hang`、`~* kv` 及测试模块符号信息，并检查私有测试符号已加载；缺少系统符号时明确告警，自动分类可能不完整，但仍保留线程栈供人工分析。不配置外部符号服务器，不上传 dump；完整内存 dump 可能含敏感数据，只在本地保管，删除构建目录前一并备份。
 - **诊断也不能静默失败**：文件创建/写入、符号缺失、cdb 失败及超时明确报错，不伪装测试成功；只终止自己启动的测试/debugger PID。其他测试 EXE 保持 stderr 失败诊断，不自动生成 TSF 日志。stderr/镜像/写失败报告、计时嵌套/异常展开/禁用模式均有回归覆盖；阶段和逐函数日志作为常规诊断保留，不覆盖、不自动清理，也不改变既有断言。
@@ -254,6 +254,26 @@ cmake --build build\x64 --config Release --target lint
 使用本机 Visual Studio Enterprise 的 `Microsoft.CodeCoverage.Console` 收集原生 C++ 覆盖率；Debug 产物须保留 PDB 并以 `/PROFILE /INCREMENTAL:NO` 链接。覆盖率配置的 `ModulePaths/IncludeDirectories` 指向当前构建产物目录，`Sources/Include` 仅匹配仓库 `src`，启用 `EnableStaticNativeInstrumentation`、`EnableStaticNativeInstrumentationRestore` 和 `CollectFromChildProcesses`，以覆盖真实工具子进程；报告与插桩产物不用于安装。
 
 收集时串行运行完整 `ctest --test-dir build\x64 -C Debug --output-on-failure --parallel 1`，并单独运行双架构 Release 全套回归。Cobertura 的模块汇总会重复计算静态库源码；源码行覆盖率应按文件路径和行号去重，任一模块命中即视为覆盖。同样必须列出未出现在报告中的实现文件，不能只看已有模块的百分比。该工具导出的 `branch-rate` 不代表已经测得所有 C++ 分支覆盖率；真实宿主矩阵、权限及资源耗尽等边界仍需独立验证。
+
+#### 2026-11-06 全仓核验与边界回归
+
+基于 `f34fea3` 并包含本轮新增测试；生产代码未改动。x64/x86 全量 `lint` 均通过，自有源码非 C26490 诊断为 0，PSScriptAnalyzer Error 为 0；新增测试目标随后在两架构再次构建并通过 CoreCheck。
+
+| 验证范围 | 结果 |
+|---|---|
+| x64 Debug 全套、静态原生覆盖率 | 12/12 通过，164.15 秒 |
+| x64 Release 全套 | 12/12 通过，147.96 秒 |
+| x86 Release 全套 | 12/12 通过，149.96 秒 |
+| 最后新增的元数据回归 | x64 Debug 补充采集及 x64/x86 Release 引擎定向测试全部通过 |
+| 去重后的源码行覆盖率 | **12,013 / 13,158（91.30%）**，93 个文件；无未出现在报告中的已跟踪生产 `.cpp` |
+| 组合模块 | **746 / 746（100%）**，12 个文件；只是已测源码行覆盖，不是全分支或真实宿主认证 |
+| TSF 模块 | **1,533 / 1,665（92.07%）**，13 个文件 |
+
+- 本轮初始采集为 12,010 / 13,158（91.28%）。补齐无效 client 激活回滚/重试、8 组父文档查询结果以及查询内失焦/目标替换，共 10 个服务门面场景；断言原组合、新目标、查询次数和 COM 所有权，不只是调用后检查 `S_OK`。
+- 比较采集结果还发现词库“仅修改时间、内容哈希不变”路径原先偶然命中，新增显式修改时间的回归，检查版本、快照/增量计数与词条不变及重复同步幂等。最终报告是完整 Debug 采集与该引擎补充采集的合并结果，再按文件/行去重，不把修改前报告并入最终覆盖率。系统前台窗口恢复等路径仍可能随运行环境变化，不能保证每次单次采集百分比相同。
+- 中间一次 Debug 定向运行在既有 Shift 切换断言失败（28.56 秒）；新门面场景当次已通过。保留失败日志，给原有 120 组模式切换增加独立名称与计时后定向重跑通过（27.24 秒），上述三套最终全仓测试也通过。没有放宽 350 ms 生产阈值或断言，未据此确定偶发失败根因。
+- 最终双架构完整/定向保留日志为 **342/310** 对完成记录，阶段仍为 **30/25** 对；分别含 120 行模式策略、54 行激活边界和 9 个 context push 标签。失败、成功、采集器诊断、覆盖率 XML/CSV 均本地保留，不自动清理、不上传。
+- 未覆盖行仍包含工具启动错误、文件/分配失败、系统 UI 及注册失败等路径，明细以逐文件报告为准；没有通过排除文件、降低断言或改写生产逻辑提高数字。静态插桩恢复后核对 27 个 Debug EXE/DLL/PDB 的 SHA-256 均与采集前一致，并恢复原 `/debug /INCREMENTAL` 链接配置；这些产物未用于安装或制作 MSI。
 
 词库管理器与日志监控器采用原生菜单和窄窗口自动换行的纯图标平面工具条，不使用独立 `BUTTON` 控件。两者共同使用 `qiqi_common` 中的 [`ToolCommandUi`](../src/common/command_ui.h)：应用提供命令 ID、本地化文案、语义图标、状态与菜单分组，共享层管理菜单所有权、菜单栏测量/绘制及助记键、工具项创建/更新、悬停提示、主题/高对比度和 DPI 尺寸。图标集中于 [`command_ui.cpp`](../src/common/command_ui.cpp)，不再分散到业务窗口中；工具项为 36 个逻辑像素的方形区域，居中绘制 20 个逻辑像素的 GDI 矢量图标，无外部图片或字体依赖，绘制对象使用现有 RAII 包装。工具条隐藏文字但保留原生命令名称及本地化提示。词库管理器的行旁保存使用同一组件的紧凑模式。业务状态、筛选、采集及行内编辑仍由各工具维护，未抽象整个窗口。共享层通过调用方错误回调报告失败，不直接初始化或写入 ETW；词库管理器使用原有日志，监控器仅写独立诊断 Provider，避免采集自身 IME 日志形成反馈。
 
