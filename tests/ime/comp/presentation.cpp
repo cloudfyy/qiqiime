@@ -357,6 +357,7 @@ void RunTsfCompositionPresentationTests() {
     TestPresentationLiveManagerLookup();
     TestPresentationEndOwnership();
     TestPresentationSynchronization();
+    RunTsfCompositionPresentationEntryTests();
 }
 
 } // namespace qiqi::test

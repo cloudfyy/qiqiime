@@ -581,8 +581,14 @@ Duplicate old notifications do not clear attributes again. The host notification
 ### 6.1 Candidate UI Registration and Withdrawal
 
 [`PresentCompositionCandidates`](../src/ime/comp/presentation.h) owns the
-synchronous snapshot/manager/Begin/Update protocol. The service keeps its
-original entry gates, ticket and strong target reference around this call.
+synchronous snapshot/manager/Begin/Update protocol.
+[`EnterCompositionCandidatePresentation`](../src/ime/comp/presentation.h)
+now owns the original UI/manager/context/active/resetting entry gates, ticket
+capture and strong target reference around the service's actual presentation
+callback. The initial UI/manager pointers are non-owning availability guards,
+read before host operations, not frozen presentation targets. The context owner
+outlives callback-local resources and releases even on exceptional exit.
+There is no added composition-presence gate, post-callback check or state write.
 `CandidateUI` is assigned only in the service constructor, so the helper borrows
 that stable object. A getter reads the live thread manager at the original query
 boundary after the first ticket check; it does not eagerly copy a manager.
@@ -880,6 +886,14 @@ document-query and layout-advise reentrancy with continued preparation, focus
 loss, target removal, or deactivation. Nested input and activation cannot
 interleave, late subscriptions are withdrawn, same-target input avoids a
 second preparation, and a fresh target remains usable.
+
+The [presentation-entry tests](../tests/ime/comp/presentation_entry.cpp) add
+64 UI/manager/bound/active/resetting/composition-presence cases. They verify
+gate rejection without UI/host work, original tickets, precise context references
+and no extra UI/manager ownership. Four normal/exception/nested/same-epoch
+replacement cases release caller ownership during the callback, checking final
+context release after callback exit and preservation of replacement state.
+Original presentation permissions, failures, live-manager and service tests remain.
 
 The [presentation components](../tests/ime/comp/presentation.cpp) add 50 cases:
 23 Begin outcome/check boundaries, six unavailable-manager paths, six existing-ID

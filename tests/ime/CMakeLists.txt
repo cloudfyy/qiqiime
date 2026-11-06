@@ -26,6 +26,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/layout_entry.cpp
     comp/layout_position.cpp
     comp/presentation.cpp
+    comp/presentation_entry.cpp
     comp/range.cpp
     comp/start.cpp
     comp/start_update.cpp

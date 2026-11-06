@@ -1,5 +1,6 @@
 #pragma once
 #include "common/logger.h"
+#include "ime/comp/state.h"
 #include "ime/engine/engine.h"
 #include "ime/tsf/edit_session.h"
 #include "ime/ui/candidate_ui.h"
@@ -8,6 +9,18 @@
 #include <wrl/client.h>
 
 namespace qiqi {
+
+template <typename Present>
+void EnterCompositionCandidatePresentation(
+    const CandidateUI* candidate_ui, const ITfThreadMgr* thread_mgr,
+    const CompositionLifecycleState& state, Present present) {
+    if (!candidate_ui || !thread_mgr || !state.Context() || !state.IsActive() || state.IsResettingContext()) {
+        return;
+    }
+    const EditSessionTicket ticket{state.Epoch(), state.Context().Get()};
+    const auto context = state.Context();
+    present(ticket);
+}
 
 template <typename UpdateComposition, typename IsCurrent, typename Position, typename Present>
 void SyncCompositionPresentationInSession(

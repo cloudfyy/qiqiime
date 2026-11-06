@@ -22,6 +22,7 @@ void RunTsfCompositionIdentityTests();
 void RunTsfCompositionTargetTests();
 void RunTsfCompositionTargetEntryTests();
 void RunTsfCompositionPresentationTests();
+void RunTsfCompositionPresentationEntryTests();
 void RunTsfCompositionLayoutTests();
 void RunTsfCompositionLayoutEntryTests();
 void RunTsfCompositionLayoutPositionTests();

@@ -233,16 +233,14 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
 }
 
 void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot) {
-    if (!candidate_ui_ || !thread_mgr_ || !composition_lifecycle_.Context() || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext()) {
-        return;
-    }
-    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), composition_lifecycle_.Context().Get()};
-    const auto context = composition_lifecycle_.Context();
-
-    PresentCompositionCandidates(
-        *candidate_ui_.Get(), activate_flags_, snapshot, ticket.epoch, service_log_id_, current_lifecycle_activity_,
-        [this]() noexcept { return thread_mgr_.Get(); },
-        [this, ticket]() noexcept { return IsEditSessionCurrent(ticket); });
+    EnterCompositionCandidatePresentation(
+        candidate_ui_.Get(), thread_mgr_.Get(), composition_lifecycle_,
+        [this, &snapshot](EditSessionTicket ticket) {
+            PresentCompositionCandidates(
+                *candidate_ui_.Get(), activate_flags_, snapshot, ticket.epoch, service_log_id_, current_lifecycle_activity_,
+                [this]() noexcept { return thread_mgr_.Get(); },
+                [this, ticket]() noexcept { return IsEditSessionCurrent(ticket); });
+        });
 }
 
 void QiQiTextService::EndCandidateUI() {
