@@ -36,6 +36,28 @@ template <typename IsCurrent>
     return result;
 }
 
+// The caller has already routed tracked and unrelated composition notifications.
+template <typename IsCurrent, typename Reset>
+HRESULT CompleteCurrentCompositionTermination(
+    TfEditCookie ec, const ITfComposition* notification, CompositionLifecycleState& state,
+    IsCurrent is_current, Reset reset) {
+    if (notification && state.Context()) {
+        const EditSessionTicket ticket{state.Epoch(), state.Context().Get()};
+        const Microsoft::WRL::ComPtr<ITfContext> context_holder = state.Context();
+        const Microsoft::WRL::ComPtr<ITfComposition> composition_holder = state.TakeComposition();
+        const auto terminated = ClearTerminatedCompositionInSession(
+            ec, context_holder.Get(), composition_holder.Get(),
+            [&is_current, ticket]() noexcept(noexcept(is_current(ticket))) {
+                return is_current(ticket);
+            });
+        if (!terminated.may_reset) {
+            return S_OK;
+        }
+    }
+    reset();
+    return S_OK;
+}
+
 // The caller retains the context/composition and detaches current state in before_end.
 template <typename IsCurrent, typename BeforeEnd>
 void FinishCompositionInSession(

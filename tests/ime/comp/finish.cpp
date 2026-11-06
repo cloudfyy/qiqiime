@@ -414,6 +414,7 @@ void RunTsfCompositionFinishTests() {
     TestDirectCompositionCommit();
     TestHostCompositionTermination();
     RunTsfCompositionFinishStateTests();
+    RunTsfCompositionTerminationTests();
 }
 
 } // namespace qiqi::test

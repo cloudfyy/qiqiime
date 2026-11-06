@@ -197,7 +197,9 @@ identity, and inserts without creating a composition, clearing attributes, or
 adjusting selection. Neither helper stores an edit cookie or schedules work.
 
 For the current composition's host-termination notification, the service still
-handles tracked/unrelated/null notifications and detaches the old composition
+routes tracked/unrelated notifications and emits the original current-notification
+diagnostic. [`CompleteCurrentCompositionTermination`](../src/ime/comp/finish.h)
+then captures the original ticket/context and detaches the old composition
 before querying the host. [`ClearTerminatedCompositionInSession`](../src/ime/comp/finish.h)
 then obtains the old range, clears only its display attribute with the existing
 identity checks, and performs the final reset-eligibility check. It never writes
@@ -209,6 +211,15 @@ permission to reuse after further host calls. A range/property/clear failure is
 diagnosed but still allows the original service reset when identity remains valid.
 A replacement composition created in the same context and epoch must suppress
 that reset just as an epoch change does.
+
+Completion releases the branch-local range, composition and context owners
+before invoking the service's actual reset callback. Null notification or
+missing context follows the original direct-reset route, without attribute
+queries or added identity gates. The same synchronous identity predicate is
+borrowed through every original check, including move-only predicates.
+Exceptions propagate with original owners released; no edit cookie, service
+or callback is retained. The service remains responsible for notification
+routing and the actual engine/UI reset.
 
 [`UpdateCompositionInSession`](../src/ime/comp/update.h) owns the captured
 composition through range lookup, the existing text/caret helper, and optional
@@ -727,6 +738,15 @@ before update, retained references and cleanup's original client ID/edit cookie.
 Four additional exception cases cover post-start identity, update range/identity
 and termination reset; exceptions propagate while original owners release.
 These run through the existing start entry in both full and focused test modes.
+
+The [termination-completion tests](../tests/ime/comp/termination.cpp) add 24
+empty/nonempty-preedit and outcome/reentrancy combinations. They verify normal
+and inactive behavior, range/property/clear failures, same-epoch replacement at
+range/property/clear, epoch invalidation, null notification and absent context.
+Checks lock exact traces, original ticket/cookie, strong references and release
+before the real reset callback, with no host EndComposition or text writes.
+Three range/identity/reset exception cases verify propagation and owner release.
+Original low-level termination and real-service reentrancy matrices remain.
 
 The [finish-state tests](../tests/ime/comp/finish_state.cpp) add 60 cases:
 commit/cancel and three text shapes (empty, ordinary, embedded null/surrogate pair)

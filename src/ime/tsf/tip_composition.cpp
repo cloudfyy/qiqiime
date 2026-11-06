@@ -64,21 +64,10 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfC
         &current_lifecycle_activity_,
         "TsfLifecycle(service={}, stage=host-terminated-current, activation={}, context={}, has_composition={})",
         service_log_id_, composition_lifecycle_.Epoch().activation, composition_lifecycle_.Epoch().context, composition_lifecycle_.Composition() != nullptr);
-    if (pComposition && composition_lifecycle_.Context()) {
-        const EditSessionTicket ticket{composition_lifecycle_.Epoch(), composition_lifecycle_.Context().Get()};
-        const ComPtr<ITfContext> context_holder = composition_lifecycle_.Context();
-        const ComPtr<ITfComposition> composition_holder = composition_lifecycle_.TakeComposition();
-        const auto terminated = ClearTerminatedCompositionInSession(
-            ecWrite, context_holder.Get(), composition_holder.Get(),
-            [this, ticket]() noexcept {
-                return IsCompositionEditCurrent(ticket, nullptr);
-            });
-        if (!terminated.may_reset) {
-            return S_OK;
-        }
-    }
-    ResetCompositionAndUI();
-    return S_OK;
+    return CompleteCurrentCompositionTermination(
+        ecWrite, pComposition, composition_lifecycle_,
+        [this](EditSessionTicket ticket) noexcept { return IsCompositionEditCurrent(ticket, nullptr); },
+        [this] { ResetCompositionAndUI(); });
 }
 
 void QiQiTextService::ScheduleCompositionCleanup() {
