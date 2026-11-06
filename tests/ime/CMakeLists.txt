@@ -15,6 +15,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/cleanup.cpp
     comp/edit.cpp
     comp/finish.cpp
+    comp/presentation.cpp
     comp/range.cpp
     comp/start.cpp
     comp/state.cpp
@@ -32,6 +33,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     tsf/service_context.cpp
     tsf/service_deferred.cpp
     tsf/service_native.cpp
+    tsf/service_presentation.cpp
     tsf/service_reentrancy.cpp
     tsf/service_target.cpp
     tsf/service_windows.cpp

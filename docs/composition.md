@@ -379,6 +379,32 @@ Duplicate old notifications do not clear attributes again. The host notification
 - Context reset and input binding have their own RAII guards. Reentrant input during either transition is not consumed, and activation during a lifecycle transition returns `E_UNEXPECTED`. A notification during document queries or layout-sink registration invalidates the outer attempt; it cannot bind a stale target or publish an orphaned subscription.
 - Focus UI processing also checks a per-service focus revision. A newer reentrant focus notification supersedes the older one. Context removal alone does not supersede focus loss, so removal during cleanup must not prevent the status bar from being hidden.
 
+### 6.1 Candidate UI Registration and Withdrawal
+
+[`PresentCompositionCandidates`](../src/ime/comp/presentation.h) owns the
+synchronous snapshot/manager/Begin/Update protocol. The service keeps its
+original entry gates, ticket and strong target reference around this call.
+`CandidateUI` is assigned only in the service constructor, so the helper borrows
+that stable object. A getter reads the live thread manager at the original query
+boundary after the first ticket check; it does not eagerly copy a manager.
+The same predicate instance handles the original checks after snapshot update,
+manager query, Begin, and Show, where applicable.
+
+A stale successful Begin with a valid ID is ended through the captured old
+`ITfUIElementMgr`. It does not clear a subsequently published ID or query a new
+manager to end the same number. Failed Begin/manager queries retain the original
+diagnosed popup fallback, still subject to the presentation-enabled gate.
+Successful negotiation retains `show_own_ui` and activation-flag policy.
+Unusual success-with-invalid-ID and failure-with-ID outputs keep the existing
+handling; tests for them are not proof that the host registered an element.
+
+`EndCompositionCandidatePresentation` first captures the old thread manager,
+then detaches the shared element ID and hides UI before querying/ending through
+that manager. A reentrant replacement may reuse the numeric ID without being
+cleared afterward. Actual End failures remain diagnosed; this protocol adds no
+retry. All local manager references release before the service's original target
+holder. No geometry, GUI/cursor fallback, display-permission or FSM rule changes.
+
 ## 7. Log Protocol and Troubleshooting
 
 Logs use the existing TraceLogging **`message` string**, not new ETW payload fields. ETW event headers provide PID, TID, timestamp, and level. Debugger output uses the same messages. Detailed stages are visible at Debug/Trace; actual failures also produce Warn records with the real HRESULT.
@@ -563,6 +589,15 @@ document-query and layout-advise reentrancy with continued preparation, focus
 loss, target removal, or deactivation. Nested input and activation cannot
 interleave, late subscriptions are withdrawn, same-target input avoids a
 second preparation, and a fresh target remains usable.
+
+The [presentation components](../tests/ime/comp/presentation.cpp) add 50 cases:
+23 Begin outcome/check boundaries, six unavailable-manager paths, six existing-ID
+updates, eight host-permission/presentation gates, six End ownership paths, and
+one late-manager lookup. Checks include exact IDs, shared stateful predicates,
+reference counts and actual popup visibility. Ten
+[service presentation cases](../tests/ime/tsf/service_presentation.cpp) combine
+five HRESULT/ID outcomes with deactivation or different-manager reactivation
+inside Begin, verifying old/new ID isolation and continued new-target input.
 
 `QiQiCompositionLifecycleTest` runs composition components and the complete
 service lifecycle/key-flow tests without the standalone popup/candidate/status

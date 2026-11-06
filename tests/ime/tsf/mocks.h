@@ -871,6 +871,10 @@ public:
         } else if (IsEqualIID(riid, IID_ITfKeystrokeMgr) && !fail_query_key_mgr_) {
             *ppvObj = static_cast<ITfKeystrokeMgr*>(this);
         } else if (IsEqualIID(riid, IID_ITfUIElementMgr) && !fail_query_ui_mgr_) {
+            if (return_null_ui_manager_) {
+                *ppvObj = nullptr;
+                return S_OK;
+            }
             *ppvObj = static_cast<ITfUIElementMgr*>(this);
         } else if (IsEqualIID(riid, IID_ITfCompartmentMgr)) {
             *ppvObj = static_cast<ITfCompartmentMgr*>(this);
@@ -987,12 +991,17 @@ public:
         if (fail_begin_ui_) return E_FAIL;
         last_ui_element_ = elem;
         if (pbShow) *pbShow = show_own_ui_;
-        const DWORD id = next_ui_element_id_++;
+        const DWORD allocated_id = next_ui_element_id_++;
+        const DWORD id = return_invalid_ui_id_ ? TF_INVALID_UIELEMENTID : allocated_id;
         if (pdwUIElementId) *pdwUIElementId = id;
         if (begin_ui_callback_) begin_ui_callback_(id);
-        return S_OK;
+        return begin_ui_result_;
     }
-    STDMETHODIMP UpdateUIElement(DWORD) noexcept override { ++update_ui_calls_; return S_OK; }
+    STDMETHODIMP UpdateUIElement(DWORD id) override {
+        ++update_ui_calls_;
+        updated_ui_ids_.push_back(id);
+        return update_ui_result_;
+    }
     STDMETHODIMP EndUIElement(DWORD id) override {
         ++end_ui_calls_;
         ended_ui_ids_.push_back(id);
@@ -1095,11 +1104,16 @@ public:
     unsigned int begin_ui_calls_ = 0;
     unsigned int update_ui_calls_ = 0;
     unsigned int end_ui_calls_ = 0;
+    std::vector<DWORD> updated_ui_ids_;
     DWORD next_ui_element_id_ = 7;
     std::vector<DWORD> ended_ui_ids_;
     std::function<void(DWORD)> begin_ui_callback_;
     std::function<void(DWORD)> end_ui_callback_;
     HRESULT end_ui_result_ = S_OK;
+    HRESULT begin_ui_result_ = S_OK;
+    HRESULT update_ui_result_ = S_OK;
+    bool return_invalid_ui_id_ = false;
+    bool return_null_ui_manager_ = false;
     ComPtr<ITfLangBarItem> langbar_item_;
     bool fail_query_source_ = false;
     bool fail_query_key_mgr_ = false;

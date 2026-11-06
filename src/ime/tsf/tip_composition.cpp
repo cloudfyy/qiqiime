@@ -1,5 +1,6 @@
 #include "ime/tsf/tip_service.h"
 #include "ime/comp/finish.h"
+#include "ime/comp/presentation.h"
 #include "ime/comp/start.h"
 #include "ime/comp/target.h"
 #include "ime/comp/update.h"
@@ -468,96 +469,17 @@ void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot)
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), composition_lifecycle_.Context().Get()};
     const auto context = composition_lifecycle_.Context();
 
-    candidate_ui_->SetCandidates(
-        snapshot.composition_text,
-        snapshot.all_display_candidates,
-        snapshot.page_size,
-        snapshot.current_page,
-        snapshot.selected_index);
-    if (!IsEditSessionCurrent(ticket)) return;
-
-    ComPtr<ITfUIElementMgr> ui_mgr;
-    const HRESULT manager_hr = thread_mgr_.As(&ui_mgr);
-    const bool manager_ok = log::CheckHResult(
-        manager_hr, "BeginOrUpdateCandidateUI::QueryInterface(ITfUIElementMgr)", log::Level::debug);
-    if (!IsEditSessionCurrent(ticket)) return;
-    if (!manager_ok || !ui_mgr) {
-        // Fallback if UIElementMgr unavailable
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::UI,
-            &current_lifecycle_activity_,
-            "BeginOrUpdateCandidateUI: ITfUIElementMgr unavailable; showing popup directly");
-        candidate_ui_->Show(TRUE);
-        return;
-    }
-
-    if (candidate_ui_->UiElementId() == TF_INVALID_UIELEMENTID) {
-        BOOL show_own_ui = TRUE;
-        DWORD element_id = TF_INVALID_UIELEMENTID;
-        const HRESULT begin_hr = ui_mgr->BeginUIElement(candidate_ui_.Get(), &show_own_ui, &element_id);
-        const bool begin_ok = log::CheckHResult(begin_hr, "BeginOrUpdateCandidateUI::BeginUIElement");
-        if (!IsEditSessionCurrent(ticket)) {
-            QIQI_LOG_ACT_INFO(
-                log::Level::debug,
-                log::Keyword::UI,
-                &current_lifecycle_activity_,
-                "TsfLifecycle(service={}, stage=ui-begin-stale, activation={}, context={}, element_id={}, begin_ok={})",
-                service_log_id_, ticket.epoch.activation, ticket.epoch.context, element_id, begin_ok);
-            if (begin_ok && element_id != TF_INVALID_UIELEMENTID) {
-                std::ignore = log::CheckHResult(ui_mgr->EndUIElement(element_id), "StaleCandidateUI::EndUIElement");
-            }
-            return;
-        }
-        if (begin_ok) {
-            candidate_ui_->SetUiElementId(element_id);
-            // If host game/app returned FALSE in show_own_ui (UILess mode), do not show popup window
-            const bool force_uiless = (activate_flags_ & TF_TMAE_UIELEMENTENABLEDONLY) != 0 && !show_own_ui;
-            const bool show_popup = (show_own_ui && !force_uiless);
-            QIQI_LOG_ACT_INFO(
-                log::Level::debug,
-                log::Keyword::UI,
-                &current_lifecycle_activity_,
-                "BeginOrUpdateCandidateUI: BeginUIElement(id={}, show_own_ui={}, show_popup={})",
-                element_id, show_own_ui != FALSE, show_popup);
-            candidate_ui_->Show(show_popup ? TRUE : FALSE);
-            if (!IsEditSessionCurrent(ticket)) return;
-            std::ignore = log::CheckHResult(ui_mgr->UpdateUIElement(element_id), "ITfUIElementMgr::UpdateUIElement");
-        } else {
-            QIQI_LOG_ACT_INFO(
-                log::Level::warn,
-                log::Keyword::UI,
-                &current_lifecycle_activity_,
-                "BeginOrUpdateCandidateUI: BeginUIElement failed; falling back to popup window");
-            candidate_ui_->Show(TRUE);
-        }
-    } else {
-        std::ignore = log::CheckHResult(ui_mgr->UpdateUIElement(candidate_ui_->UiElementId()),
-                                       "ITfUIElementMgr::UpdateUIElement");
-    }
+    PresentCompositionCandidates(
+        *candidate_ui_.Get(), activate_flags_, snapshot, ticket.epoch, service_log_id_, current_lifecycle_activity_,
+        [this]() noexcept { return thread_mgr_.Get(); },
+        [this, ticket]() noexcept { return IsEditSessionCurrent(ticket); });
 }
 
 void QiQiTextService::EndCandidateUI() {
     if (!candidate_ui_) {
         return;
     }
-    const DWORD element_id = candidate_ui_->UiElementId();
-    const auto manager = thread_mgr_;
-    candidate_ui_->SetUiElementId(TF_INVALID_UIELEMENTID);
-    candidate_ui_->Show(FALSE);
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::UI,
-        &current_lifecycle_activity_,
-        "TsfLifecycle(service={}, stage=ui-end, element_id={}, has_manager={})",
-        service_log_id_, element_id, manager != nullptr);
-    if (element_id != TF_INVALID_UIELEMENTID && manager) {
-        ComPtr<ITfUIElementMgr> ui_mgr;
-        if (log::CheckHResult(manager.As(&ui_mgr), "EndCandidateUI::QueryInterface(ITfUIElementMgr)") && ui_mgr) {
-            std::ignore = log::CheckHResult(ui_mgr->EndUIElement(element_id),
-                                           "ITfUIElementMgr::EndUIElement");
-        }
-    }
+    EndCompositionCandidatePresentation(*candidate_ui_.Get(), thread_mgr_, service_log_id_, current_lifecycle_activity_);
 }
 
 } // namespace qiqi

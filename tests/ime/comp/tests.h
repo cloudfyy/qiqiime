@@ -10,5 +10,6 @@ void RunTsfCompositionFinishTests();
 void RunTsfCompositionUpdateTests();
 void RunTsfCompositionStateTests();
 void RunTsfCompositionTargetTests();
+void RunTsfCompositionPresentationTests();
 
 } // namespace qiqi::test
