@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch]$ImeOnly)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -40,8 +40,9 @@ $brandBrush = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(35, 105, 200))
 $monitorBgBrush = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(24, 34, 48))
 $monitorHeaderBrush = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(35, 105, 200))
 try {
-    # 1. Settings / Brand Icon (data\qiqiime-settings.ico): Crisp blue '奇' glyph (16..256 px)
+    # IME branding stays legible on both taskbar themes without changing the registered icon.
     $settingsFrames = [Collections.Generic.List[byte[]]]::new()
+    $imeFrames = [Collections.Generic.List[byte[]]]::new()
     foreach ($size in $sizes) {
         $bitmap = [Drawing.Bitmap]::new($size, $size, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -66,6 +67,38 @@ try {
             $graphics.FillPath($brandBrush, $path)
             $bitmap.Save($stream, [Drawing.Imaging.ImageFormat]::Png)
             $settingsFrames.Add($stream.ToArray())
+
+            $graphics.Clear([Drawing.Color]::Transparent)
+            $box = [Drawing.Drawing2D.GraphicsPath]::new()
+            $border = [Drawing.Pen]::new([Drawing.Color]::FromArgb(128, 0, 0, 0),
+                [single][math]::Max(1, $size / 32))
+            try {
+                $inset = [single][math]::Max(1, $size * 0.04)
+                $edge = [single]($size - $inset)
+                $diameter = [single]($size * 0.32)
+                $box.AddArc($inset, $inset, $diameter, $diameter, 180, 90)
+                $box.AddLine([single]($inset + $diameter / 2), $inset, $edge, $inset)
+                $box.AddLine($edge, $inset, $edge, $edge)
+                $box.AddLine($edge, $edge, $inset, $edge)
+                $box.CloseFigure()
+                $graphics.FillPath([Drawing.Brushes]::White, $box)
+                $graphics.DrawPath($border, $box)
+            } finally {
+                $border.Dispose()
+                $box.Dispose()
+            }
+
+            $transform.Reset()
+            $transform.Translate([single](-$size / 2), [single](-$size / 2))
+            $transform.Scale([single](0.72 / 0.90), [single](0.72 / 0.90),
+                [Drawing.Drawing2D.MatrixOrder]::Append)
+            $transform.Translate([single]($size / 2), [single]($size / 2),
+                [Drawing.Drawing2D.MatrixOrder]::Append)
+            $path.Transform($transform)
+            $graphics.FillPath([Drawing.Brushes]::Black, $path)
+            $stream.SetLength(0)
+            $bitmap.Save($stream, [Drawing.Imaging.ImageFormat]::Png)
+            $imeFrames.Add($stream.ToArray())
         } finally {
             $stream.Dispose()
             $transform.Dispose()
@@ -74,6 +107,11 @@ try {
             $bitmap.Dispose()
         }
     }
+    $imeOutput = Join-Path $repoRoot 'data\qiqiime.ico'
+    Write-QiQiIcoFile -OutputPath $imeOutput -Frames $imeFrames
+    Write-Output "Generated $imeOutput (black glyph on white box, 16..256 pixels)."
+    if ($ImeOnly) { return }
+
     $settingsOutput = Join-Path $repoRoot 'data\qiqiime-settings.ico'
     Write-QiQiIcoFile -OutputPath $settingsOutput -Frames $settingsFrames
     Write-Output "Generated $settingsOutput (native '奇' brand glyph outlines, 16..256 pixels)."

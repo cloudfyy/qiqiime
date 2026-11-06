@@ -1,5 +1,6 @@
 #include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
+#include "common/file_util.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/monitor_dpi.h"
@@ -246,6 +247,51 @@ void TestLangBarButton() {
     lb_src.Reset();
     lb_btn.Reset();
     QIQI_TEST_CHECK(btn.Detach()->Release() == 0);
+}
+
+void TestImeBrandIcon() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const auto dll = GetModuleFilePath(::GetModuleHandleW(nullptr)).parent_path() / L"qiqiime.dll";
+    const ScopedModule resource(::LoadLibraryExW(dll.c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE));
+    QIQI_TEST_CHECK(resource.IsValid());
+    const ScopedWindowDC dc(nullptr);
+    QIQI_TEST_CHECK(dc.IsValid());
+    for (const int size : {16, 20, 24, 32, 40, 48, 64, 96, 128, 256}) {
+        const ScopedIcon icon(static_cast<HICON>(::LoadImageW(
+            resource.Get(), MAKEINTRESOURCEW(1), IMAGE_ICON, size, size, 0)));
+        QIQI_TEST_CHECK(icon.IsValid());
+        ICONINFO info{};
+        QIQI_TEST_CHECK(::GetIconInfo(icon.Get(), &info));
+        const ScopedGdiHandle<HBITMAP> color(info.hbmColor);
+        const ScopedGdiHandle<HBITMAP> mask(info.hbmMask);
+        BITMAP bitmap{};
+        QIQI_TEST_CHECK(::GetObjectW(color.Get(), sizeof(bitmap), &bitmap) == sizeof(bitmap));
+        QIQI_TEST_CHECK(bitmap.bmWidth == size && bitmap.bmHeight == size && bitmap.bmBitsPixel == 32);
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = size;
+        bmi.bmiHeader.biHeight = -size;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        std::vector<uint32_t> pixels(gsl::narrow_cast<size_t>(size * size));
+        QIQI_TEST_CHECK(::GetDIBits(dc.Get(), color.Get(), 0, gsl::narrow_cast<UINT>(size),
+                                  pixels.data(), &bmi, DIB_RGB_COLORS) == size);
+        size_t black = 0;
+        size_t white = 0;
+        size_t translucent = 0;
+        for (const uint32_t pixel : pixels) {
+            const auto alpha = pixel >> 24u;
+            const auto rgb = pixel & 0x00FFFFFFu;
+            QIQI_TEST_CHECK(((rgb >> 16u) & 0xFFu) == ((rgb >> 8u) & 0xFFu) &&
+                            ((rgb >> 8u) & 0xFFu) == (rgb & 0xFFu));
+            black += alpha == 255 && rgb == 0 ? 1u : 0u;
+            white += alpha == 255 && rgb == 0x00FFFFFFu ? 1u : 0u;
+            translucent += alpha > 0 && alpha < 255 ? 1u : 0u;
+        }
+        QIQI_TEST_CHECK((pixels.front() >> 24u) == 0);
+        QIQI_TEST_CHECK(black > pixels.size() / 25 && white > pixels.size() / 12 && translucent > 0);
+    }
 }
 
 void TestTaskbarThemeIcons() {
@@ -861,6 +907,7 @@ void TestQuickSettingsMenuFocusRestoration() {
 
 void RunLangBarMenuTests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    TestImeBrandIcon();
     TestTaskbarThemeIcons();
     TestSharedMenuItems();
     TestQuickSettingsMenu();

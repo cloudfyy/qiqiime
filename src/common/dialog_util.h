@@ -7,7 +7,7 @@ namespace qiqi::dialog_detail {
 
 inline ScopedIcon LoadOrCreateBrandIcon(int size_px, HINSTANCE instance = nullptr) noexcept {
     // Only load embedded icon resource 1 when running inside standalone QiQiIMESettings.exe
-    // (which embeds blue qiqiime-settings.ico); qiqiime.dll embeds white taskbar-only qiqiime.ico.
+    // (which embeds blue qiqiime-settings.ico); qiqiime.dll embeds a boxed black/white IME icon.
     bool use_resource = false;
     if (instance) {
         std::array<wchar_t, MAX_PATH> module_path{};
