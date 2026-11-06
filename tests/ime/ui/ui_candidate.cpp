@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "common/guids.h"
 #include "common/i18n.h"
@@ -19,6 +20,7 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 void TestCandidateUI() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
 
     // QueryInterface tests
@@ -219,6 +221,7 @@ void TestCandidateUI() {
 } // namespace
 
 void RunCandidateUITests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestCandidateUI();
 }
 

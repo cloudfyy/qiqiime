@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/layout.h"
 #include "ime/comp/state.h"
@@ -15,6 +16,7 @@ namespace qiqi::test {
 namespace {
 
 void TestLayoutQueryBoundaries() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Scenario {
         Normal, ViewFailure, ViewNull, ViewSFalse, ViewFailedOutput,
         RangeFailure, RangeNull, RangeSFalse, RangeFailedOutput,
@@ -143,6 +145,7 @@ void TestLayoutQueryBoundaries() {
 }
 
 void TestLayoutQueryResourceLifetime() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Kind { Current, StaleRange, NoLayout };
     enum class Released { Composition, Range, View };
     const auto objects_before = g_com_object_count.load();
@@ -196,6 +199,7 @@ void TestLayoutQueryResourceLifetime() {
 }
 
 void TestLayoutTaskSnapshot() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static_assert(std::is_copy_constructible_v<CompositionLayoutTask>);
     static_assert(std::is_nothrow_move_constructible_v<CompositionLayoutTask>);
     static_assert(!std::is_copy_assignable_v<CompositionLayoutTask>);
@@ -254,6 +258,7 @@ void TestLayoutTaskSnapshot() {
 }
 
 void TestLayoutCallbackScope() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Kind {
         Current, StaleActivation, StaleContext, WrongTarget, Inactive, Resetting,
         Replacement, ChangedActivity, Nested, ThrowCheck, ThrowUpdate,
@@ -356,6 +361,7 @@ void TestLayoutCallbackScope() {
 }
 
 void TestLayoutSessionRequests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Kind {
         Immediate, RequestSFalse, CallbackSFalse, CallbackFailure, RequestFailure,
         Deferred, DeferredFailure, ReadOnly, ExpiredQueue, Abandon,
@@ -442,6 +448,7 @@ void TestLayoutSessionRequests() {
 } // namespace
 
 void RunTsfCompositionLayoutTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestLayoutQueryBoundaries();
     TestLayoutQueryResourceLifetime();
     TestLayoutTaskSnapshot();

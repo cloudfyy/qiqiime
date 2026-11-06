@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/edit.h"
 #include "ime/comp/tests.h"
@@ -14,6 +15,7 @@ constexpr GUID edit_activity{0x23456789, 0x2345, 0x6789, {0xab, 0xcd, 0xef, 1, 2
 constexpr GUID inner_activity{0x34567890, 0x3456, 0x7890, {0xcd, 0xef, 1, 2, 3, 4, 5, 6}};
 
 void TestEditExecutionRoutes() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Cleanup { None, Pending, Scheduled, Finished, Expired, OtherContext, Removed, Terminated };
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
@@ -92,6 +94,7 @@ void TestEditExecutionRoutes() {
 }
 
 void TestEditExecutionUnwind() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     for (const int boundary : {0, 1, 2, 3}) {
         const auto context = MakeComObject<MockTfContext>();
@@ -168,6 +171,7 @@ void TestEditExecutionUnwind() {
 } // namespace
 
 void RunTsfCompositionEditExecutionTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestEditExecutionRoutes();
     TestEditExecutionUnwind();
 }

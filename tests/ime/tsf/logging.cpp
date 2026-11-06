@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "common/com_object.h"
 #include "common/config.h"
@@ -276,6 +277,7 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
 }
 
 int RunTsfEtwIntegrationTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     GUID unique{};
     QIQI_TEST_CHECK(::CoCreateGuid(&unique) == S_OK);
     std::array<wchar_t, 40> guid{};

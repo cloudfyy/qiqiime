@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/edit.h"
 #include "ime/comp/tests.h"
@@ -10,6 +11,7 @@ namespace qiqi::test {
 namespace {
 
 void TestEditEntryGates() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Target { Missing, Same, Other };
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
@@ -63,6 +65,7 @@ void TestEditEntryGates() {
 }
 
 void TestEditEntryOwners() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Exit { Success, Exception, Nested, Deferred };
     const auto objects_before = g_com_object_count.load();
     for (const auto exit : {Exit::Success, Exit::Exception, Exit::Nested, Exit::Deferred}) {
@@ -134,6 +137,7 @@ void TestEditEntryOwners() {
 } // namespace
 
 void RunTsfCompositionEditEntryTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestEditEntryGates();
     TestEditEntryOwners();
 }

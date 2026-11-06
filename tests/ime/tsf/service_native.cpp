@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/tip_service.h"
@@ -155,6 +156,7 @@ NativeTsfState WaitForNativeTsfState(gsl::not_null<ITfContext*> context, TfClien
 void RunTsfNativeLifecycleTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm,
     gsl::not_null<ITfKeyEventSink*> key_sink) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     // Real TSF, private document, no system TIP activation: cleanup must remove host composition state.
     {
         QIQI_TEST_CHECK(service->Deactivate() == S_OK);

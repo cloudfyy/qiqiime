@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/comp/finish.h"
@@ -41,6 +42,7 @@ std::vector<Event> TracePrefix(std::span<const Event> trace, size_t count, bool 
 }
 
 void TestCompositionFinishing() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     using Kind = CompositionFinishKind;
     struct Case {
         Kind kind = Kind::Commit;
@@ -216,6 +218,7 @@ void TestCompositionFinishing() {
 }
 
 void TestDirectCompositionCommit() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { None, Interface, Insert };
     enum class Step { Interface, Check, Insert };
     struct Case {
@@ -294,6 +297,7 @@ void TestDirectCompositionCommit() {
 }
 
 void TestHostCompositionTermination() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     struct Case {
         Event invalidation = Event::None;
         bool initially_current = true;
@@ -410,6 +414,7 @@ void TestHostCompositionTermination() {
 } // namespace
 
 void RunTsfCompositionFinishTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestCompositionFinishing();
     TestDirectCompositionCommit();
     TestHostCompositionTermination();

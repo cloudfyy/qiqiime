@@ -178,6 +178,13 @@ ctest --preset x86-release --output-on-failure
 
 ### 3.3 组合组件与生命周期测试组织
 
+- **保留超时排查日志**：完整 `QiQiTsfUiTest` 和定向 `QiQiCompositionLifecycleTest` 使用 [`TsfTestTrace`](../tests/ime/tsf/test_trace.h)，每次运行写入独立文件并同步输出阶段到 stderr。CTest 下分别保存在 `build\x64\tests\ime\test-logs` 与 `build\x86\tests\ime\test-logs`；直接启动 EXE 时保存在当前工作目录的 `test-logs`。文件名含模式、UTC 时间、PID 和单调时钟，追加打开，不覆盖旧文件、不自动清理；删除构建目录前请先备份需要保留的日志。
+- **阶段与失败证据**：全量/定向分别记录 30/25 个阶段的 `BEGIN`/`END`、单调时钟/耗时、线程和 Shift/Ctrl/Alt/CapsLock 原始状态；包含组合组件、服务按键、准备、布局、清理、原生 TSF 及焦点性能阶段。每行立即 flush，超时或 abort 后可从最后一个未配对的 `BEGIN` 缩小范围。[`共享断言`](../tests/common/test_support.h) 同时保留失败文件/行号/表达式与失败后采样的修饰键状态；不记录输入文本，不修改/清除按键状态。这些采样不是导致历史失败的直接证明。
+- **逐测试函数耗时**：[`TsfTestCaseTrace`](../tests/ime/tsf/test_trace.h) 为具名测试函数及子套件记录 `CASE-BEGIN`/`CASE-END`，包含单调时钟、毫秒耗时、线程、修饰键及异常展开标志；在函数其他局部对象析构后结束计时。嵌套调用分别计时，不把每个断言或矩阵循环迭代单独视作测试；最后未配对的开始记录可定位未返回的函数。未启用保留日志的专项诊断/ETW 模式不输出这些记录。
+- **60 秒无完成结果自动取证**：CTest 测试 5/6 经 [`test_watchdog.ps1`](../tests/ime/test_watchdog.ps1) 启动，只有新出现的 `CASE-END` 才重置无进展计时；持续 60 秒没有测试完成结果时，用对应架构的 SDK `cdb` 对本次启动的 PID 收集一次 `.dump /ma`。进程执行上限仍为 90 秒，CTest 外层超时为 150 秒以预留诊断时间；cdb 抓取最多 15 秒且不超过剩余执行预算，离线分析最多 30 秒。两个测试均 `RUN_SERIAL`。直接运行 EXE 只有日志，没有 watchdog；不要直接运行故意挂起的 `--test-hang-diagnostics-probe`，应通过脚本的 `-Mode probe` 验证。
+- **匹配符号与分析留存**：Release 测试目标保留优化并启用 `/Zi`、`/DEBUG:FULL`，PDB 分别位于 `build\x64\Release\qiqi_tsf_ui_test.pdb`、`build\x86\Release\qiqi_tsf_ui_test.pdb`，不能拿旧 Debug PDB 分析 Release dump。配置测试需已安装 PowerShell 和对应架构的 Windows SDK Debugging Tools；缺失时明确失败。每次 watchdog 保留独立 stdout/stderr；挂起时额外保留 dump、匹配 EXE/PDB 副本、cdb 命令文件、抓取和分析输出。自动执行 `.reload /f`、`!analyze -hang`、`~* kv` 及测试模块符号信息，并检查私有测试符号已加载；缺少系统符号时明确告警，自动分类可能不完整，但仍保留线程栈供人工分析。不配置外部符号服务器，不上传 dump；完整内存 dump 可能含敏感数据，只在本地保管，删除构建目录前一并备份。
+- **诊断也不能静默失败**：文件创建/写入、符号缺失、cdb 失败及超时明确报错，不伪装测试成功；只终止自己启动的测试/debugger PID。其他测试 EXE 保持 stderr 失败诊断，不自动生成 TSF 日志。stderr/镜像/写失败报告、计时嵌套/异常展开/禁用模式均有回归覆盖；阶段和逐函数日志作为常规诊断保留，不覆盖、不自动清理，也不改变既有断言。
+- **隔离取证验证**：`-Mode probe` 先在约 5 秒完成一个测试，再故意挂起；x64/x86 实测均在约第 65 秒取证、第 90 秒终止，确认按最后完成结果而非总时长 60 秒触发。两份 dump 均加载匹配的私有 PDB，并通过线程栈定位到模拟的 `Sleep(INFINITE)`；系统符号缺失告警明确保留。probe 非零退出是预期结果，不代表正常套件通过，也不解释历史偶发挂起的原因。
 - [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`finish`、`range`、`start`、`state`、`update` 短名；服务仍在 [`src/ime/tsf`](../src/ime/tsf) 负责宿主接口、跨阶段转场与 UI 协调，目录调整不改变 FSM 或生命周期边界。
 - [`tests/ime/comp`](../tests/ime/comp) 镜像组件目录，分别保留编辑票据/任务、清理、范围写入及开始准备测试；共享 Mock 仍在 [`mocks.h`](../tests/ime/tsf/mocks.h)。
 - [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) 仅保留有序入口，依次调用[延迟会话](../tests/ime/tsf/service_deferred.cpp)、[上下文/文档](../tests/ime/tsf/service_context.cpp)、[窗口生命周期](../tests/ime/tsf/service_windows.cpp)、[重入](../tests/ime/tsf/service_reentrancy.cpp)、[服务清理](../tests/ime/tsf/service_cleanup.cpp)及[原生 TSF](../tests/ime/tsf/service_native.cpp)测试。组件测试仍在原窗口测试的配置/键盘快照之前运行；入口的 key/composition sink 强引用保留到全部子套件返回，各测试块的局部 COM/RAII 作用域不变。
@@ -734,3 +741,11 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **保留强引用和回退政策**：range/query 与旧组合跨整个定位回调持有，按原顺序在服务 view 参数之前释放；不复制 query 或抢占 view 所有权。三个非复制回调同步借用，TSF 成功先设光标标志、回退成功不自动设标志、回调后不覆写新组合或光标状态，异常原样传播。实际 helper/回调展开与原完整服务一致。
 - **补 80 + 3 组回归**：[`布局衔接测试`](../tests/ime/comp/layout_update.cpp) 交叉 UI/组合/历史位置与十种正常、查询/回退失败、非活跃/重置、范围内替换、移动内替换和缺 view 情况，检查精确身份/范围/回退/移动次数及 view 获取。三组身份/回退/移动异常验证旧组合/range 跨回调持有、释放和保留服务 view；原查询、位置矩形/许可及真实服务矩阵保留。
 - **验证与边界**：双架构 IME DLL/测试构建和 CppCoreCheck 通过，自有源码无新增非 C26490 诊断。用户确认暂停操作后，完整 TSF/UI 通过（24.15s / 31.10s），定向生命周期通过（17.89s / 22.85s），跨架构串行、每测试 90 秒超时，未放宽断言。已检查 RAII、DRY、Core Guidelines/GSL 和缺失覆盖；FSM、定位/DPI/显示许可与真实失败策略不变。未运行其他套件、制作 MSI 或新增真实宿主验收，不宣称修复 Explorer/Copilot 光标问题或此前偶发超时，整体 R05 未完成。
+
+### 5.58 TSF 准备入口与实际目标工作流衔接（R05 第四十步）
+
+- **共享原完整准备接线**：[`PrepareCompositionInputTarget`](../src/ime/comp/target.h) 串接既有入口门禁/同目标快路径/活动作用域和实际准备工作流；同步借用 state、pending slot、布局连接及 reset/current 回调，服务保留真实引擎/UI 重置和身份诊断。原 pending 指针在宿主操作前读取，实际强引用、预测票据、文档查询、发布/订阅及复核顺序不变。
+- **保留非复制回调和释放顺序**：reset/current 经引用包装接入原 helper，不增加票据校验、host 请求或失败兜底，结果/异常原样传播。实际准备的文档/pending/context 在入口活动恢复前释放；服务不再拼接嵌套准备 lambda。实际 helper/回调展开与原完整服务一致。
+- **补 32 + 2 组集成回归**：[`目标准备测试`](../tests/ime/comp/target.cpp) 新增活跃/重置/pending 与空/同/异/未绑定目标矩阵，执行真实 reset、文档查询与布局订阅，验证快路径无宿主操作、原活动及三次身份复核。复用原释放 fixture 增加两组 reset/document 异常入口变体，锁定最终 context 释放时 pending 已清且活动尚未恢复；原 35+2 组准备组件、48+4 组入口及真实服务覆盖保留。
+- **验证记录**：双架构 IME DLL/测试构建和 CppCoreCheck 通过，自有源码无新增非 C26490 诊断。x64 完整/定向通过（24.14s / 18.03s），x86 完整通过（26.14s）。x86 定向先后无输出超时（90.02s / 90.03s）；临时阶段输出覆盖所有组件及服务阶段并通过（19.52s），未复现挂起，随后已完全撤回并重新构建/分析。无插桩重跑在既有清理测试第 198 行 A 键吞下断言失败（28.01s）；用户说明当时在写文档，暂停操作后仅重跑失败项，17.03s 通过。没有失败瞬间按键证据，不把全部失败/超时归因于操作；未放宽断言或 90 秒超时，不宣称超时根因已解决。
+- **边界**：已检查 RAII、DRY、Core Guidelines/GSL 和缺失覆盖；FSM、诊断、定位/许可与真实失败策略不变。未运行其他套件、制作 MSI 或新增真实宿主验收，整体 R05 未完成。

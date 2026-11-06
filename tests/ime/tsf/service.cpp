@@ -8,6 +8,7 @@
 #include "ime/tsf/edit_session.h"
 #include "ime/tsf/service_lifecycle.h"
 #include "ime/tsf/tip_service.h"
+#include "ime/tsf/test_trace.h"
 
 #include <cstdlib>
 #include <chrono>
@@ -31,6 +32,7 @@ public:
 
 void TestModeSwitchCompositionPolicy(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> manager, bool commit) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const QiQiConfig original_config = LoadConfig();
     const auto restore_config = gsl::finally([&]() noexcept {
         QIQI_TEST_CHECK(SaveConfigToRegistry(original_config));
@@ -137,6 +139,7 @@ void TestModeSwitchCompositionPolicy(
 }
 
 void TestShiftTapTracking() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     ShiftTapTracker tracker;
     QIQI_TEST_CHECK(!tracker.IsCandidate() && tracker.Sequence() == 0 && tracker.ElapsedMs(1000) == 0);
     QIQI_TEST_CHECK(std::string_view(tracker.ReleaseReason(1000, {})) == "no-candidate");
@@ -205,6 +208,7 @@ void TestShiftTapTracking() {
 }
 
 void TestFocusPerformanceLogs() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto executable = GetModuleFilePath(nullptr);
     QIQI_TEST_CHECK(!executable.empty());
     std::wstring command = L"\"" + executable.wstring() + L"\" --tsf-focus-diagnostics";
@@ -477,6 +481,7 @@ void TestFocusPerformanceLogs() {
 }
 
 void TestProcessDictCacheLifetime() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto dict_path = std::filesystem::temp_directory_path() /
                            std::format(L"qiqi_process_cache_test_{}.txt", ::GetCurrentProcessId());
     std::filesystem::path qdict_path = dict_path;
@@ -582,6 +587,7 @@ void TestProcessDictCacheLifetime() {
 }
 
 void TestDictionaryRegistryFallback() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const std::wstring subkey = L"Software\\QiQiIME_DictFallback_" + std::to_wstring(::GetCurrentProcessId());
     const wchar_t* previous = GetActiveConfigRegistrySubKey();
     SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
@@ -619,6 +625,7 @@ void TestDictionaryRegistryFallback() {
 }
 
 void TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*> service) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     auto manager = MakeComObject<MockTfThreadMgr>();
     const auto reset_counters = [&]() {
         manager->advise_key_sink_calls_ = 0;
@@ -731,6 +738,7 @@ void TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*> servic
 }
 
 void TestQiQiTextServiceLifecycleAndKeyFlow() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     constexpr const wchar_t* kTsfTestRegSubKey = L"Software\\QiQiIME_TsfUnitTest";
     ::RegDeleteTreeW(HKEY_CURRENT_USER, kTsfTestRegSubKey);
     SetConfigRegistrySubKeyOverrideForTest(kTsfTestRegSubKey);
@@ -1917,9 +1925,10 @@ void RunTsfFocusDiagnosticsScenario() {
 }
 
 void RunTsfServiceTests() {
-    TestShiftTapTracking();
-    TestQiQiTextServiceLifecycleAndKeyFlow();
-    TestFocusPerformanceLogs();
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    RunTsfTestStage("service.shift", TestShiftTapTracking);
+    RunTsfTestStage("service.key-flow", TestQiQiTextServiceLifecycleAndKeyFlow);
+    RunTsfTestStage("service.focus-performance", TestFocusPerformanceLogs);
 }
 
 } // namespace qiqi::test

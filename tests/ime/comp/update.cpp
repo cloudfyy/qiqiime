@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/comp/update.h"
@@ -29,6 +30,7 @@ std::vector<Event> TracePrefix(std::span<const Event> trace, size_t count, bool 
 }
 
 void TestCompositionUpdates() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     struct Case {
         Event invalidation = Event::None;
         bool initially_current = true;
@@ -182,6 +184,7 @@ void TestCompositionUpdates() {
 }
 
 void TestLiveCompositionAttributeAtom() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     struct Case {
         TfGuidAtom initial;
         Event boundary;
@@ -230,6 +233,7 @@ void TestLiveCompositionAttributeAtom() {
 }
 
 void TestCompositionUpdateOwnership() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     for (const auto boundary : {Event::Range, Event::Property, Event::Attribute}) {
         const auto context = MakeComObject<MockTfContext>();
@@ -269,6 +273,7 @@ void TestCompositionUpdateOwnership() {
 } // namespace
 
 void RunTsfCompositionUpdateTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestCompositionUpdates();
     TestLiveCompositionAttributeAtom();
     TestCompositionUpdateOwnership();

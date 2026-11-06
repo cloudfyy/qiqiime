@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/layout.h"
 #include "ime/comp/tests.h"
@@ -10,6 +11,7 @@ namespace qiqi::test {
 namespace {
 
 void TestLayoutEntryGates() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Target { Missing, Same, Other };
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
@@ -73,6 +75,7 @@ void TestLayoutEntryGates() {
 }
 
 void TestLayoutEntryCallbacks() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Exit { Normal, Exception, Nested, ChangedUI };
     const auto objects_before = g_com_object_count.load();
     for (const auto exit : {Exit::Normal, Exit::Exception, Exit::Nested, Exit::ChangedUI}) {
@@ -134,6 +137,7 @@ void TestLayoutEntryCallbacks() {
 } // namespace
 
 void RunTsfCompositionLayoutEntryTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestLayoutEntryGates();
     TestLayoutEntryCallbacks();
 }

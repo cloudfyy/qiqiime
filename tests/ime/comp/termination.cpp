@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/finish.h"
 #include "ime/comp/tests.h"
@@ -13,6 +14,7 @@ namespace {
 enum class Event { Range, Check, Property, Clear, Reset };
 
 void TestTerminationCompletion() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Outcome {
         Normal, Inactive, RangeFailure, NullRange, PropertyFailure, ClearFailure,
         ReplaceRange, ReplaceProperty, ReplaceClear, StaleRange, NullNotification, MissingContext,
@@ -127,6 +129,7 @@ void TestTerminationCompletion() {
 }
 
 void TestTerminationCompletionExceptions() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { Range, Check, Reset };
     const auto objects_before = g_com_object_count.load();
     for (const auto boundary : {Boundary::Range, Boundary::Check, Boundary::Reset}) {
@@ -167,6 +170,7 @@ void TestTerminationCompletionExceptions() {
 } // namespace
 
 void RunTsfCompositionTerminationTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestTerminationCompletion();
     TestTerminationCompletionExceptions();
     RunTsfCompositionTerminationRouteTests();

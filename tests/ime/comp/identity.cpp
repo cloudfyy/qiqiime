@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/state.h"
 #include "ime/comp/tests.h"
@@ -8,6 +9,7 @@
 namespace qiqi::test {
 
 void RunTsfCompositionIdentityTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
     for (const bool active : {false, true}) {

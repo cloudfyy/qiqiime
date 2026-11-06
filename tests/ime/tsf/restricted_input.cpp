@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "mocks.h"
 #include "common/config.h"
@@ -74,6 +75,7 @@ private:
 };
 
 void TestNativeContextContracts() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     ComPtr<ITfThreadMgrEx> manager;
     QIQI_TEST_CHECK(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
                                       IID_PPV_ARGS(&manager)) == S_OK);
@@ -171,6 +173,7 @@ void TestNativeContextContracts() {
 }
 
 void TestNativeEditStyles() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const ScopedWindow parent(::CreateWindowExW(0, L"STATIC", L"", WS_POPUP,
                                                0, 0, 200, 80, nullptr, nullptr, g_dll_instance, nullptr));
     QIQI_TEST_CHECK(parent);
@@ -244,6 +247,7 @@ void ObserveCurrentService() {
 } // namespace
 
 void RunRestrictedInputContractTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects = g_com_object_count.load();
     TestNativeContextContracts();
     TestNativeEditStyles();

@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/tip_service.h"
@@ -12,6 +13,7 @@ namespace qiqi::test {
 namespace {
 
 void TestAdditionalContextLifecycleCoverage(gsl::not_null<QiQiTextService*> service) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     for (const bool remove_target : {false, true}) {
         auto document = MakeComObject<MockTfDocumentMgr>();
@@ -183,6 +185,7 @@ void TestAdditionalContextLifecycleCoverage(gsl::not_null<QiQiTextService*> serv
 }
 
 void TestContextFsmKeyPrediction(gsl::not_null<QiQiTextService*> service) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     std::array<BYTE, 256> original_keyboard{};
     QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
@@ -267,6 +270,7 @@ void TestContextFsmKeyPrediction(gsl::not_null<QiQiTextService*> service) {
 
 void RunTsfDocumentLifecycleTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto document_objects_before = g_com_object_count.load();
     // Document/stack notifications share the epoch barrier and old-host cleanup.
     {

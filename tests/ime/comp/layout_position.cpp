@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/layout.h"
 #include "ime/comp/tests.h"
@@ -16,6 +17,7 @@ bool SameRect(const RECT& left, const RECT& right) noexcept {
 }
 
 void TestLayoutPositionBranches() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Fallback { Failure, Success, FailureWithOutput };
     enum class Event { Fallback, Move };
     constexpr std::array rectangles{RECT{}, RECT{100, 110, 140, 134}, RECT{300, 310, 280, 290}};
@@ -74,6 +76,7 @@ void TestLayoutPositionBranches() {
 }
 
 void TestLayoutPositionCallbackBoundaries() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Effect { MoveMutation, MoveException, NestedMove, FailedFallbackMutation, SuccessfulFallbackMutation, FallbackException };
     constexpr std::array effects{
         Effect::MoveMutation, Effect::MoveException, Effect::NestedMove,
@@ -156,6 +159,7 @@ void TestLayoutPositionCallbackBoundaries() {
 } // namespace
 
 void RunTsfCompositionLayoutPositionTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestLayoutPositionBranches();
     TestLayoutPositionCallbackBoundaries();
 }

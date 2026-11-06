@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/comp/range.h"
@@ -9,6 +10,7 @@
 namespace qiqi::test {
 
 void RunTsfCompositionRangeTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { None, Text, Clone, Collapse, Selection };
     enum class Event { Text, Check, Clone, Collapse, Selection };
     struct Case {

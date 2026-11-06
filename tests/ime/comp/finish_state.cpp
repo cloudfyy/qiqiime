@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/finish.h"
 #include "ime/comp/tests.h"
@@ -22,6 +23,7 @@ constexpr std::array kCommitEvents{
 constexpr std::array kCancelEvents{Event::Range, Event::Check, Event::Text, Event::Check, Event::End};
 
 void TestFinishStateProtocol() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class State { Empty, EmptyStale, Current, Stale, RangeFailure, NullRange, ReplaceRange, ReplaceText, ReplaceEnd, EndFailure };
     constexpr std::array states{
         State::Empty, State::EmptyStale, State::Current, State::Stale, State::RangeFailure,
@@ -176,6 +178,7 @@ void TestFinishStateProtocol() {
 }
 
 void TestFinishStateExceptionOwnership() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { Range, Check, Text, End };
     const auto objects_before = g_com_object_count.load();
     for (const auto kind : {CompositionFinishKind::Commit, CompositionFinishKind::Cancel}) {
@@ -228,6 +231,7 @@ void TestFinishStateExceptionOwnership() {
 } // namespace
 
 void RunTsfCompositionFinishStateTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestFinishStateProtocol();
     TestFinishStateExceptionOwnership();
 }

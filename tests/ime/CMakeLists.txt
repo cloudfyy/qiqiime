@@ -38,6 +38,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/termination_route.cpp
     comp/update.cpp
     tsf/mocks.h
+    tsf/test_trace.h
     tsf/com.cpp
     tsf/category_manager.cpp
     tsf/logging.cpp
@@ -81,6 +82,13 @@ add_executable(qiqi_tsf_ui_test
     ${QIQI_TSF_UI_TEST_SOURCES}
     ${QIQI_TSF_UI_IMPL_SOURCES}
 )
+if(MSVC)
+    target_compile_options(qiqi_tsf_ui_test PRIVATE /Zi)
+    target_link_options(qiqi_tsf_ui_test PRIVATE /DEBUG:FULL)
+    set_target_properties(qiqi_tsf_ui_test PROPERTIES
+        PDB_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
+    )
+endif()
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_TSF_UI_TEST_SOURCES})
 source_group(TREE "${PROJECT_SOURCE_DIR}/src/ime" PREFIX "src" FILES ${QIQI_TSF_UI_IMPL_SOURCES})
 target_include_directories(qiqi_tsf_ui_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
@@ -93,9 +101,23 @@ target_link_libraries(qiqi_tsf_ui_test PRIVATE
     uuid
     tdh
 )
-add_test(NAME QiQiTsfUiTest COMMAND qiqi_tsf_ui_test)
-add_test(NAME QiQiCompositionLifecycleTest COMMAND qiqi_tsf_ui_test --composition-lifecycle-tests)
-set_tests_properties(QiQiCompositionLifecycleTest PROPERTIES RUN_SERIAL TRUE)
+find_program(QIQI_TEST_POWERSHELL NAMES pwsh powershell REQUIRED)
+find_program(QIQI_TEST_CDB NAMES cdb
+    PATHS "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/Debuggers/${QIQIIME_ARCH_NAME}"
+    NO_DEFAULT_PATH REQUIRED)
+foreach(_mode IN ITEMS full focused)
+    if(_mode STREQUAL "full")
+        set(_test_name QiQiTsfUiTest)
+    else()
+        set(_test_name QiQiCompositionLifecycleTest)
+    endif()
+    add_test(NAME ${_test_name}
+        COMMAND "${QIQI_TEST_POWERSHELL}" -NoLogo -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/test_watchdog.ps1"
+            -TestExecutable "$<TARGET_FILE:qiqi_tsf_ui_test>"
+            -Debugger "${QIQI_TEST_CDB}" -Mode "${_mode}")
+    set_tests_properties(${_test_name} PROPERTIES RUN_SERIAL TRUE TIMEOUT 150)
+endforeach()
 add_dependencies(qiqi_tsf_ui_test qiqiime)
 add_test(NAME QiQiEtwIntegrationTest COMMAND qiqi_tsf_ui_test --etw-integration)
 set_tests_properties(QiQiEtwIntegrationTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)

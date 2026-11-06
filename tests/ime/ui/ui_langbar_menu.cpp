@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "common/guids.h"
 #include "common/i18n.h"
@@ -90,6 +91,7 @@ void CloseQuickSettingsMenu() {
 }
 
 void TestLangBarButton() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     LangBarMenuId last_action = static_cast<LangBarMenuId>(0);
     auto btn = MakeComObject<LangBarButton>([&last_action](LangBarMenuId id) { last_action = id; });
 
@@ -247,6 +249,7 @@ void TestLangBarButton() {
 }
 
 void TestTaskbarThemeIcons() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto restore_overrides = gsl::finally([]() noexcept {
         SetThemeDarkOverrideForTest(std::nullopt);
         SetTaskbarDarkOverrideForTest(std::nullopt);
@@ -325,6 +328,7 @@ void TestTaskbarThemeIcons() {
 }
 
 void TestSharedMenuItems() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
         for (const PrimaryDict dictionary : {PrimaryDict::Jidian, PrimaryDict::Haifeng}) {
             for (const bool enabled : {false, true}) {
@@ -374,6 +378,7 @@ void TestSharedMenuItems() {
 }
 
 void TestQuickSettingsMenu() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     for (const bool dark : {false, true}) {
         SetThemeDarkOverrideForTest(dark);
         LangBarState state{};
@@ -481,6 +486,7 @@ LRESULT CALLBACK CheckMenuButtonFontLifetime(
 }
 
 void TestQuickSettingsMenuResourceLifetime() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
     const auto restore_monitor = gsl::finally([&]() noexcept {
         SetMonitorMetricsOverrideForTest(std::move(original_monitor));
@@ -557,6 +563,7 @@ void TestQuickSettingsMenuResourceLifetime() {
 }
 
 void TestQuickSettingsMenuKeyboardAndDismissal() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     for (const int dismissal : {0, 1, 2}) {
         LangBarState state{};
         int actions = 0;
@@ -611,6 +618,7 @@ void TestQuickSettingsMenuKeyboardAndDismissal() {
 }
 
 void TestQuickSettingsMenuWorkArea() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
     const auto restore_monitor = gsl::finally([&]() noexcept {
         SetMonitorMetricsOverrideForTest(std::move(original_monitor));
@@ -636,6 +644,7 @@ void TestQuickSettingsMenuWorkArea() {
 }
 
 void TestQuickSettingsMenuCommandValidation() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     LangBarButton::ShowSharedPopupMenu(LangBarState{}, POINT{200, 200}, {});
     QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
     for (const auto action : {LangBarMenuId::OpenSettings, LangBarMenuId::OpenAbout}) {
@@ -670,6 +679,7 @@ void TestQuickSettingsMenuCommandValidation() {
 }
 
 void TestQuickSettingsMenuDisabledNavigation() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static int step = 0;
     step = 0;
     const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
@@ -741,6 +751,7 @@ int CountQuickSettingsCheckPixels(HWND menu) {
 }
 
 void TestQuickSettingsMenuLivePainting() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto original_theme = detail::ThemeDarkOverrideStorage();
     const auto original_taskbar = detail::TaskbarDarkOverrideStorage();
     const auto restore_theme = gsl::finally([&]() {
@@ -790,6 +801,7 @@ void TestQuickSettingsMenuLivePainting() {
 }
 
 void TestQuickSettingsMenuQuitMessage() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
         ::KillTimer(nullptr, id);
         QIQI_TEST_CHECK(FindQuickSettingsMenu() != nullptr);
@@ -808,6 +820,7 @@ void TestQuickSettingsMenuQuitMessage() {
 }
 
 void TestQuickSettingsMenuFocusRestoration() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     for (const bool activate_other : {false, true}) {
         const ScopedWindow previous(::CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPEDWINDOW,
             20, 20, 160, 100, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
@@ -847,6 +860,7 @@ void TestQuickSettingsMenuFocusRestoration() {
 } // namespace
 
 void RunLangBarMenuTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestTaskbarThemeIcons();
     TestSharedMenuItems();
     TestQuickSettingsMenu();

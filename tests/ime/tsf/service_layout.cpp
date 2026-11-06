@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/service_lifecycle.h"
@@ -9,6 +10,7 @@ namespace qiqi::test {
 
 void RunTsfLayoutQueryTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { View, Range, Extent };
     const auto objects_before = g_com_object_count.load();
     std::array<BYTE, 256> original_keyboard{};
@@ -91,6 +93,7 @@ void RunTsfLayoutQueryTests(
 
 void RunTsfLayoutSessionTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Transition { Current, FocusLost, Reactivate, SwitchContext, ReplaceComposition, Abandon };
     const auto objects_before = g_com_object_count.load();
     std::array<BYTE, 256> original_keyboard{};

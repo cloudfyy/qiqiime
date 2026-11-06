@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "mocks.h"
 #include "ime/tsf/category_manager.h"
@@ -95,6 +96,7 @@ struct TestCategoryManagerApi {
 };
 
 void TestCreationPaths() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto run = [](CreationScenario& scenario, TfGuidAtom expected) {
         const auto result = qiqi::detail::RegisterCompositionDisplayAttributeAtom(TestCategoryManagerApi{scenario});
         QIQI_TEST_CHECK(result == expected);
@@ -155,6 +157,7 @@ struct ComFallbackApi : qiqi::detail::CategoryManagerApi {
 };
 
 void TestNativeCreation() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     // A new thread has no COM apartment; keep an initial module reference to exercise the export path.
     std::thread worker([] {
         const ScopedModule module(::LoadLibraryExW(L"msctf.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32));
@@ -185,6 +188,7 @@ void TestNativeCreation() {
 } // namespace
 
 void RunCategoryManagerTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestCreationPaths();
     TestNativeCreation();
 }

@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "mocks.h"
 #include "common/guids.h"
@@ -27,6 +28,7 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 void TestLambdaEditSession() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     ITfEditSession** null_out = nullptr;
     QIQI_TEST_CHECK(CreateComObjectToOut<LambdaEditSession>(null_out, LambdaEditSession::Callback{}) == E_INVALIDARG);
     bool called = false;
@@ -56,6 +58,7 @@ void TestLambdaEditSession() {
 }
 
 void TestDeferredEditSessions() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static_assert(TF_ES_ASYNCDONTCARE == 0);
     const long initial_objects = g_com_object_count.load();
     auto immediate = MakeComObject<MockTfContext>();
@@ -207,6 +210,7 @@ void TestDeferredEditSessions() {
 }
 
 void TestClassFactoryAndDllExports() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     if constexpr (sizeof(void*) == 8) {
         QIQI_TEST_CHECK(!IsRunningUnderWow64());
     }
@@ -449,6 +453,7 @@ void TestClassFactoryAndDllExports() {
 }
 
 void TestEnableCurrentUserProfile() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     ComPtr<MockTfInputProcessorProfiles> profiles = MakeComObject<MockTfInputProcessorProfiles>();
     QIQI_TEST_CHECK(EnableCurrentUserProfile(profiles.Get()) == S_OK);
     QIQI_TEST_CHECK(profiles->enabled_);
@@ -474,6 +479,7 @@ void TestEnableCurrentUserProfile() {
 } // namespace
 
 void RunTsfComTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     RunCategoryManagerTests();
     TestLambdaEditSession();
     TestDeferredEditSessions();

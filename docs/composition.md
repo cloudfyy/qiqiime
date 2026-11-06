@@ -79,6 +79,12 @@ steps. No additional active-state/identity gate, retry or post-UI reset is added
 The helper synchronously borrows state, caret flag, layout connection and
 callbacks; it retains no service or edit cookie.
 
+[`PrepareCompositionInputTarget`](../src/ime/comp/target.h) joins the shared
+entry/activity protocol to the actual preparation workflow. It borrows the
+original state, pending slot and layout connection, and passes single reset/current
+callback instances by reference; the service retains actual engine/UI reset and
+identity diagnostics. It adds no host operation, identity check or cleanup policy.
+
 [`PrepareCompositionTarget`](../src/ime/comp/target.h) runs the synchronous
 new-target workflow after the shared entry gates and activity switch. It
 holds the original context reference and the service's pending-target slot,
@@ -101,7 +107,7 @@ the actual engine/UI reset policy and callback wiring.
 [`EnterCompositionTargetPreparation`](../src/ime/comp/target.h) owns the original
 entry sequence: missing/inactive/resetting/preparing targets are rejected with
 the original diagnostic before the same-target fast path. Only a new target
-creates and switches activity ID, invokes the service's original preparation
+creates and switches activity ID, invokes the original preparation
 callback, and restores the saved activity on all exits. It adds no host operation
 or identity check and preserves the callback's boolean result or exception.
 The pending pointer is non-owning and used only by the initial gate, before any
@@ -887,6 +893,14 @@ normal/failure/exception/nested activity cases. They check unavailable-before-sa
 ordering, zero preparation callbacks on gate/fast-path returns, precise activity
 restoration even after callback mutation, preparing-target reentry rejection,
 unchanged state and no extra COM references.
+
+The [integrated target tests](../tests/ime/comp/target.cpp) add 32
+active/resetting/pending and null/same/other/unbound-target cases, executing the
+actual reset, document query and layout subscription. They verify fast-path
+short-circuiting, activity restoration, original predicted tickets and all three
+identity checks. Two added reset/document unwind variants reuse the original
+release fixture, proving pending cleanup and final context release happen before
+entry activity restoration.
 
 The [target component tests](../tests/ime/comp/target.cpp) add 35 document-result,
 subscription-result, and invalidation-boundary cases plus two exception/resource

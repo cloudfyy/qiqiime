@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/service_lifecycle.h"
@@ -9,6 +10,7 @@ namespace qiqi::test {
 
 void RunTsfTargetPreparationTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { Document, Advise };
     enum class Event { None, FocusLoss, Remove, Deactivate };
     const auto objects_before = g_com_object_count.load();

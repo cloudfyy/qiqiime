@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/finish.h"
 #include "ime/comp/tests.h"
@@ -8,6 +9,7 @@
 namespace qiqi::test {
 
 void RunTsfCompositionTerminationRouteTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Route {
         Current, NullCurrent, NullEmpty, MissingContext, Unrelated,
         StartingCurrent, StartingOther, ScheduledOther, RemovedScheduled, ExpiredStarting,

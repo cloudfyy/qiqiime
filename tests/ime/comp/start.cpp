@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/comp/cleanup.h"
@@ -40,6 +41,7 @@ std::vector<BeginStep> BeginTracePrefix(size_t count, bool cleanup = false) {
 }
 
 void TestCompositionStartPreparation() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { None, InsertionInterface, Range, CompositionInterface };
     enum class Event { InsertionInterface, Check, Range, CompositionInterface };
     struct Case {
@@ -148,6 +150,7 @@ void TestCompositionStartPreparation() {
 }
 
 void TestCompositionStartResolution() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     struct Case {
         bool current = true;
         bool removed = false;
@@ -232,6 +235,7 @@ void TestCompositionStartResolution() {
 }
 
 void TestCompositionStartResolutionReentry() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Event { Prune, TerminateStarting, TerminateCleanup, RemoveContext };
     const auto objects_before = g_com_object_count.load();
     for (const auto event : {Event::Prune, Event::TerminateStarting, Event::TerminateCleanup, Event::RemoveContext}) {
@@ -297,6 +301,7 @@ void TestCompositionStartResolutionReentry() {
 }
 
 void TestCompositionBeginWorkflow() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Fault { None, Insertion, Range, Composition, NullInsertion, NullRange, NullComposition };
     enum class HostEvent { None, Stale, Removed, Terminated, RemovedAndTerminated };
     struct Case {
@@ -485,6 +490,7 @@ void TestCompositionBeginWorkflow() {
 }
 
 void TestCompositionBeginPredicate() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     {
         CompositionCleanupCoordinator cleanups(97);
@@ -506,6 +512,7 @@ void TestCompositionBeginPredicate() {
 } // namespace
 
 void RunTsfCompositionStartTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestCompositionStartPreparation();
     TestCompositionStartResolution();
     TestCompositionStartResolutionReentry();

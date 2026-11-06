@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/edit.h"
 #include "ime/comp/tests.h"
@@ -12,6 +13,7 @@ namespace qiqi::test {
 namespace {
 
 void TestActionBranches() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Step { Cancel, Commit, Check, Sync, End };
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
@@ -88,6 +90,7 @@ void TestActionBranches() {
 }
 
 void TestActionCallbackBoundaries() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Stage { Cancel, Commit, CancelCheck, CommitCheck, CommitSync, UpdateSync, CancelEnd, CommitEnd, NestedSync };
     constexpr std::array boundaries{
         Stage::Cancel, Stage::Commit, Stage::CancelCheck, Stage::CommitCheck,
@@ -178,6 +181,7 @@ void TestActionCallbackBoundaries() {
 }
 
 void TestCommitPreeditReadTiming() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     size_t cases = 0;
     for (const bool before : {false, true}) {
         for (const bool after : {false, true}) {
@@ -211,6 +215,7 @@ void TestCommitPreeditReadTiming() {
 } // namespace
 
 void RunTsfCompositionEditActionTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestActionBranches();
     TestActionCallbackBoundaries();
     TestCommitPreeditReadTiming();

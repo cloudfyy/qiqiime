@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/tip_service.h"
@@ -12,6 +13,7 @@
 namespace qiqi::test {
 
 void TestReentrantCompositionEdits() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     std::array<BYTE, 256> original_keyboard{};
     QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
     const auto restore_keyboard = gsl::finally([&]() noexcept {

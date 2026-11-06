@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/tip_service.h"
@@ -12,6 +13,7 @@ namespace qiqi::test {
 void RunTsfDeferredSessionTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm,
     gsl::not_null<ITfKeyEventSink*> key_sink, gsl::not_null<ITfCompositionSink*> comp_sink) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     // Deferred sessions must not cross activation or input-context epochs.
     {
         const auto ui_calls = [&] {
@@ -197,6 +199,7 @@ void RunTsfDeferredSessionTests(
 
 void RunTsfWriteRequestTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Mode { Immediate, Deferred, PendingCleanup };
     enum class Outcome { Success, RequestSFalse, RequestFailure, ReadOnly, AsyncFailure };
     const auto objects_before = g_com_object_count.load();

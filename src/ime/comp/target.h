@@ -3,6 +3,7 @@
 #include "common/logger.h"
 #include "ime/comp/state.h"
 #include <cstdint>
+#include <functional>
 #include <gsl/gsl>
 #include <wrl/client.h>
 #include <utility>
@@ -75,6 +76,21 @@ template <typename Prepare>
         activity = prev_act;
     });
     return prepare(gsl::not_null<ITfContext*>(context), prepare_act_id);
+}
+
+template <typename Reset, typename IsCurrent>
+[[nodiscard]] bool PrepareCompositionInputTarget(
+    ITfContext* context, CompositionLifecycleState& state,
+    Microsoft::WRL::ComPtr<ITfContext>& preparing_context, ScopedTfSinkConnection& layout_sink,
+    gsl::not_null<ITfTextLayoutSink*> sink, uint64_t service_id, GUID& activity,
+    Reset reset, IsCurrent is_current) {
+    return EnterCompositionTargetPreparation(
+        context, state, preparing_context.Get(), activity, service_id,
+        [&](gsl::not_null<ITfContext*> target, const GUID& prepare_act_id) {
+            return PrepareCompositionTarget(
+                target, state, preparing_context, layout_sink, sink, service_id, prepare_act_id,
+                std::ref(reset), std::ref(is_current));
+        });
 }
 
 } // namespace qiqi

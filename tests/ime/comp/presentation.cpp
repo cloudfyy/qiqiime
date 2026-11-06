@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/presentation.h"
 #include "ime/comp/tests.h"
@@ -31,6 +32,7 @@ void CheckCandidateSnapshot(CandidateUI& ui) {
 }
 
 void TestPresentationBeginBoundaries() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     struct Outcome { HRESULT result; bool invalid_id; };
     const std::array outcomes{
         Outcome{S_OK, false}, Outcome{S_FALSE, false}, Outcome{E_ACCESSDENIED, false},
@@ -96,6 +98,7 @@ void TestPresentationBeginBoundaries() {
 }
 
 void TestPresentationFallbackAndUpdates() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     size_t fallback_cases = 0;
     for (const bool null_manager : {false, true}) {
@@ -140,6 +143,7 @@ void TestPresentationFallbackAndUpdates() {
 }
 
 void TestPresentationPermissions() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
     for (const DWORD flags : {DWORD{0}, DWORD{TF_TMAE_UIELEMENTENABLEDONLY}}) {
@@ -174,6 +178,7 @@ void TestPresentationPermissions() {
 }
 
 void TestPresentationLiveManagerLookup() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     {
         const auto ui = MakeComObject<CandidateUI>(g_dll_instance);
@@ -203,6 +208,7 @@ void TestPresentationLiveManagerLookup() {
 }
 
 void TestPresentationEndOwnership() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Manager { Available, Missing, Failed, NullOutput };
     struct Case { Manager manager; bool valid_id; HRESULT end_hr; };
     const std::array cases{
@@ -240,6 +246,7 @@ void TestPresentationEndOwnership() {
 }
 
 void TestPresentationSynchronization() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Step { Update, Check, Position, Present };
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
@@ -351,6 +358,7 @@ void TestPresentationSynchronization() {
 } // namespace
 
 void RunTsfCompositionPresentationTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestPresentationBeginBoundaries();
     TestPresentationFallbackAndUpdates();
     TestPresentationPermissions();

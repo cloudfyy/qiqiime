@@ -108,15 +108,11 @@ bool QiQiTextService::IsEditSessionCurrent(EditSessionTicket ticket) const noexc
 }
 
 bool QiQiTextService::PrepareInputContext(ITfContext* context) {
-    return EnterCompositionTargetPreparation(
-        context, composition_lifecycle_, preparing_input_context_.Get(), current_lifecycle_activity_, service_log_id_,
-        [this](gsl::not_null<ITfContext*> target, const GUID& prepare_act_id) {
-            return PrepareCompositionTarget(
-                target, composition_lifecycle_, preparing_input_context_,
-                text_layout_sink_, gsl::not_null<ITfTextLayoutSink*>(this), service_log_id_, prepare_act_id,
-                [this] { ResetCompositionAndUI(); },
-                [this](EditSessionTicket ticket) noexcept { return IsEditSessionCurrent(ticket); });
-        });
+    return PrepareCompositionInputTarget(
+        context, composition_lifecycle_, preparing_input_context_, text_layout_sink_,
+        gsl::not_null<ITfTextLayoutSink*>(this), service_log_id_, current_lifecycle_activity_,
+        [this] { ResetCompositionAndUI(); },
+        [this](EditSessionTicket ticket) noexcept { return IsEditSessionCurrent(ticket); });
 }
 
 bool QiQiTextService::IsCompositionEditCurrent(

@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/service_lifecycle.h"
@@ -10,6 +11,7 @@ namespace qiqi::test {
 
 void RunTsfCandidatePresentationTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     struct Outcome { HRESULT result; bool invalid_id; };
     const std::array outcomes{
         Outcome{S_OK, false}, Outcome{S_FALSE, false}, Outcome{E_ACCESSDENIED, false},

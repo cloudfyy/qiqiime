@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/state.h"
 #include "ime/comp/tests.h"
@@ -16,6 +17,7 @@ public:
 };
 
 void TestContextResetProtocol() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Event { Schedule, Range, Clear, End, UI };
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
@@ -118,6 +120,7 @@ void TestContextResetProtocol() {
 }
 
 void TestContextResetCallbackBoundaries() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { Schedule, UI };
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
@@ -181,6 +184,7 @@ void TestContextResetCallbackBoundaries() {
 }
 
 void TestContextResetFinalReleaseOrder() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Event { Context, Composition, Range, UI };
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
@@ -248,6 +252,7 @@ void TestContextResetFinalReleaseOrder() {
 } // namespace
 
 void RunTsfCompositionContextResetTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestContextResetProtocol();
     TestContextResetCallbackBoundaries();
     TestContextResetFinalReleaseOrder();

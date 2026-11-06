@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/layout.h"
 #include "ime/comp/tests.h"
@@ -11,6 +12,7 @@ namespace qiqi::test {
 namespace {
 
 void TestLayoutUpdateBranches() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Outcome {
         Normal, NoLayout, FallbackFailure, RangeFailure, NullRange,
         Inactive, Resetting, ReplaceRange, MoveReplacement, NoView,
@@ -97,6 +99,7 @@ void TestLayoutUpdateBranches() {
 }
 
 void TestLayoutUpdateOwners() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     for (const int boundary : {0, 1, 2}) {
         const auto ui = MakeComObject<CandidateUI>(g_dll_instance);
@@ -162,6 +165,7 @@ void TestLayoutUpdateOwners() {
 } // namespace
 
 void RunTsfCompositionLayoutUpdateTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestLayoutUpdateBranches();
     TestLayoutUpdateOwners();
 }

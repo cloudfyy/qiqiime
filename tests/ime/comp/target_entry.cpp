@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/target.h"
 #include "ime/comp/tests.h"
@@ -10,6 +11,7 @@ namespace qiqi::test {
 namespace {
 
 void TestTargetEntryGates() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Target { Missing, Same, Other };
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
@@ -59,6 +61,7 @@ void TestTargetEntryGates() {
 }
 
 void TestTargetEntryActivityScopes() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Exit { Success, Failure, Exception, Nested };
     const auto objects_before = g_com_object_count.load();
     for (const auto exit : {Exit::Success, Exit::Failure, Exit::Exception, Exit::Nested}) {
@@ -115,6 +118,7 @@ void TestTargetEntryActivityScopes() {
 } // namespace
 
 void RunTsfCompositionTargetEntryTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestTargetEntryGates();
     TestTargetEntryActivityScopes();
 }

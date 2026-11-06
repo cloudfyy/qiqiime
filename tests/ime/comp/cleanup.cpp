@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/tip_service.h"
@@ -13,6 +14,7 @@ namespace qiqi::test {
 namespace {
 
 void TestCompositionCleanupRegistry() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static_assert(!std::is_copy_constructible_v<CompositionCleanup>);
     static_assert(!std::is_move_constructible_v<CompositionCleanup>);
     static_assert(!std::is_copy_constructible_v<CompositionCleanupRegistry>);
@@ -98,6 +100,7 @@ void TestCompositionCleanupRegistry() {
 }
 
 void TestCompositionCleanupExecution() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Interrupt { None, RemovedBefore, TerminatedBefore, RemovedLookup, TerminatedLookup, RemovedClear, TerminatedClear };
     struct Case {
         bool has_range = true;
@@ -203,6 +206,7 @@ void TestCompositionCleanupExecution() {
 }
 
 void TestCompositionCleanupRequests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Invalidation { None, Removed, Terminated };
     struct Case {
         bool asynchronous = false;
@@ -314,6 +318,7 @@ void TestCompositionCleanupRequests() {
 }
 
 void TestCompositionCleanupTermination() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Reentry { None, LookupRemoval, LookupDuplicate, ClearRemoval, ClearDuplicate };
     struct Case {
         bool unpublished = false;
@@ -452,6 +457,7 @@ void TestCompositionCleanupTermination() {
 }
 
 void TestCompositionCleanupCoordinator() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static_assert(!std::is_copy_constructible_v<CompositionCleanupCoordinator>);
     static_assert(!std::is_move_constructible_v<CompositionCleanupCoordinator>);
     enum class RangeEvent { None, Removed, Terminated };
@@ -609,6 +615,7 @@ void TestCompositionCleanupCoordinator() {
 } // namespace
 
 void RunTsfCompositionCleanupTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestCompositionCleanupRegistry();
     TestCompositionCleanupExecution();
     TestCompositionCleanupRequests();

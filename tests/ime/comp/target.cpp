@@ -1,9 +1,11 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/target.h"
 #include "ime/comp/tests.h"
 #include "ime/tsf/mocks.h"
 #include <array>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -19,6 +21,7 @@ public:
 };
 
 void TestTargetPreparationBoundaries() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { None, Reset, Document, Advise };
     enum class Step { Reset, Check, Document, Advise };
     struct DocumentResult {
@@ -131,9 +134,15 @@ void TestTargetPreparationBoundaries() {
 }
 
 void TestTargetPreparationUnwinding() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { Reset, Document };
+    struct Case { Boundary boundary; bool entry; };
+    const std::array cases{
+        Case{Boundary::Reset, false}, Case{Boundary::Document, false},
+        Case{Boundary::Reset, true}, Case{Boundary::Document, true},
+    };
     const auto objects_before = g_com_object_count.load();
-    for (const auto boundary : {Boundary::Reset, Boundary::Document}) {
+    for (const auto& test : cases) {
         auto document = MakeComObject<MockTfDocumentMgr>();
         auto context = document->CreateTestContext();
         const auto document_link = context->document_link_;
@@ -142,9 +151,12 @@ void TestTargetPreparationUnwinding() {
         state.SetActive(true);
         Microsoft::WRL::ComPtr<ITfContext> preparing;
         ScopedTfSinkConnection layout;
+        const GUID original_activity{0x123, 0x234, 0x345, {1, 2, 3, 4, 5, 6, 7, 8}};
+        GUID activity = original_activity;
         unsigned int releases = 0;
         context->release_observer_ = [&]() noexcept {
-            QIQI_TEST_CHECK(!preparing && document_link.expired());
+            QIQI_TEST_CHECK(!preparing && document_link.expired() &&
+                            IsEqualGUID(activity, original_activity) == !test.entry);
             ++releases;
         };
         context->get_document_callback_ = [&] {
@@ -153,36 +165,118 @@ void TestTargetPreparationUnwinding() {
         };
         bool caught = false;
         try {
-            std::ignore = PrepareCompositionTarget(
-                gsl::not_null<ITfContext*>(context.Get()), state, preparing, layout,
-                gsl::not_null<ITfTextLayoutSink*>(sink.Get()), 151, GUID_NULL,
-                [&] {
-                    const CompositionContextResetScope reset_scope(state);
-                    QIQI_TEST_CHECK(reset_scope.Entered() && preparing.Get() == context.Get());
-                    context.Reset();
-                    QIQI_TEST_CHECK(releases == 0);
-                    if (boundary == Boundary::Reset) {
-                        document.Reset();
-                        throw std::runtime_error("injected target preparation");
-                    }
-                },
-                [&](EditSessionTicket ticket) noexcept { return state.IsCurrent(ticket); });
+            const auto reset = [&] {
+                const CompositionContextResetScope reset_scope(state);
+                QIQI_TEST_CHECK(reset_scope.Entered() && preparing.Get() == context.Get());
+                context.Reset();
+                QIQI_TEST_CHECK(releases == 0);
+                if (test.boundary == Boundary::Reset) {
+                    document.Reset();
+                    throw std::runtime_error("injected target preparation");
+                }
+            };
+            const auto current = [&](EditSessionTicket ticket) noexcept { return state.IsCurrent(ticket); };
+            if (test.entry) {
+                std::ignore = PrepareCompositionInputTarget(
+                    context.Get(), state, preparing, layout, gsl::not_null<ITfTextLayoutSink*>(sink.Get()),
+                    151, activity, std::ref(reset), std::ref(current));
+            } else {
+                std::ignore = PrepareCompositionTarget(
+                    gsl::not_null<ITfContext*>(context.Get()), state, preparing, layout,
+                    gsl::not_null<ITfTextLayoutSink*>(sink.Get()), 151, GUID_NULL,
+                    std::ref(reset), std::ref(current));
+            }
         } catch (const std::runtime_error& error) {
             QIQI_TEST_CHECK(std::string_view(error.what()) == "injected target preparation");
             caught = true;
         }
         QIQI_TEST_CHECK(caught && releases == 1 && !context && !document && !preparing &&
                         !state.Context() && !state.Document() && !state.IsResettingContext() &&
-                        state.Epoch().context == 1 && !layout.IsConnected());
+                        state.Epoch().context == 1 && !layout.IsConnected() && IsEqualGUID(activity, original_activity));
     }
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
+void TestTargetPreparationIntegration() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    enum class Target { Missing, Same, Other, Unbound };
+    const auto objects_before = g_com_object_count.load();
+    size_t cases = 0;
+    for (const bool active : {false, true}) {
+        for (const bool resetting : {false, true}) {
+            for (const bool pending : {false, true}) {
+                for (const auto target : {Target::Missing, Target::Same, Target::Other, Target::Unbound}) {
+                    const auto document = MakeComObject<MockTfDocumentMgr>();
+                    const auto context = document->CreateTestContext();
+                    const auto old_context = MakeComObject<MockTfContext>();
+                    const auto sink = MakeComObject<TargetLayoutSink>();
+                    CompositionLifecycleState state(733);
+                    state.SetActive(active);
+                    if (target != Target::Unbound) state.SetContext(old_context);
+                    ComPtr<ITfContext> preparing;
+                    if (pending) preparing = old_context;
+                    ScopedTfSinkConnection layout;
+                    std::optional<CompositionContextResetScope> reset_scope;
+                    if (resetting) reset_scope.emplace(state);
+                    const GUID original_activity{0x123, 0x234, 0x345, {1, 2, 3, 4, 5, 6, 7, 8}};
+                    GUID activity = original_activity;
+                    unsigned int resets_seen = 0;
+                    unsigned int checks_seen = 0;
+                    unsigned int document_calls = 0;
+                    context->get_document_callback_ = [&] {
+                        ++document_calls;
+                        QIQI_TEST_CHECK(resets_seen == 1 && checks_seen == 1 && preparing.Get() == context.Get() &&
+                                        !state.Context() && !IsEqualGUID(activity, original_activity));
+                    };
+                    ITfContext* input = target == Target::Missing ? nullptr :
+                        target == Target::Same ? old_context.Get() : context.Get();
+                    const bool ready = PrepareCompositionInputTarget(
+                        input, state, preparing, layout, gsl::not_null<ITfTextLayoutSink*>(sink.Get()), 733, activity,
+                        [&, resets = std::make_unique<unsigned int>(0)] {
+                            resets_seen = ++*resets;
+                            QIQI_TEST_CHECK(resets_seen == 1 && preparing.Get() == context.Get() &&
+                                            !IsEqualGUID(activity, original_activity));
+                            const CompositionContextResetScope scope(state);
+                            QIQI_TEST_CHECK(scope.Entered());
+                            state.ClearContext();
+                            state.ClearDocument();
+                            layout.Reset();
+                        },
+                        [&, checks = std::make_unique<unsigned int>(0)](EditSessionTicket ticket) {
+                            checks_seen = ++*checks;
+                            QIQI_TEST_CHECK(resets_seen == 1 && preparing.Get() == context.Get() &&
+                                            ticket.Matches({0, 1}, checks_seen == 3 ? context.Get() : nullptr) &&
+                                            !IsEqualGUID(activity, original_activity));
+                            return state.IsCurrent(ticket);
+                        });
+                    const bool eligible = active && !resetting && !pending && target != Target::Missing;
+                    const bool prepared = eligible && target != Target::Same;
+                    QIQI_TEST_CHECK(ready == eligible && resets_seen == (prepared ? 1u : 0u) &&
+                                    checks_seen == (prepared ? 3u : 0u) && document_calls == (prepared ? 1u : 0u) &&
+                                    IsEqualGUID(activity, original_activity) && layout.IsConnected() == prepared &&
+                                    preparing.Get() == (pending ? old_context.Get() : nullptr) &&
+                                    state.IsActive() == active && state.IsResettingContext() == resetting &&
+                                    state.Epoch().context == (prepared || resetting ? 1u : 0u) &&
+                                    state.Context().Get() == (prepared ? context.Get() : target == Target::Unbound ? nullptr : old_context.Get()) &&
+                                    state.Document().Get() == (prepared ? document.Get() : nullptr) &&
+                                    context->layout_advise_calls_ == (prepared ? 1u : 0u) &&
+                                    context->request_edit_session_calls_ == 0 && context->range_->set_text_calls_ == 0);
+                    context->get_document_callback_ = {};
+                    ++cases;
+                }
+            }
+        }
+    }
+    QIQI_TEST_CHECK(cases == 32 && g_com_object_count.load() == objects_before);
 }
 
 } // namespace
 
 void RunTsfCompositionTargetTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestTargetPreparationBoundaries();
     TestTargetPreparationUnwinding();
+    TestTargetPreparationIntegration();
     RunTsfCompositionTargetEntryTests();
 }
 

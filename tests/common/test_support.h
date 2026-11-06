@@ -8,10 +8,27 @@
 #include <utility>
 #include "common/guids.h"
 
+namespace qiqi::test {
+// Borrowed from the TSF runner; other test executables keep stderr-only diagnostics.
+inline std::ostream* retained_failure_log = nullptr;
+
+inline void ReportTestFailure(const char* file, int line, const char* expression) {
+    std::cerr << "[FAIL] " << file << ":" << line << ": " << expression << std::endl;
+    if (retained_failure_log) {
+        *retained_failure_log << "[FAIL] " << file << ":" << line << ": " << expression
+                              << ", shift=" << ::GetKeyState(VK_SHIFT)
+                              << ", ctrl=" << ::GetKeyState(VK_CONTROL)
+                              << ", alt=" << ::GetKeyState(VK_MENU)
+                              << ", caps=" << ::GetKeyState(VK_CAPITAL) << std::endl;
+        if (!*retained_failure_log) std::cerr << "[FAIL] Writing retained test failure log failed." << std::endl;
+    }
+}
+} // namespace qiqi::test
+
 #define QIQI_TEST_CHECK(expr)                                                                   \
     do {                                                                                        \
         if (!(expr)) {                                                                          \
-            std::cerr << "[FAIL] " << __FILE__ << ":" << __LINE__ << ": " << #expr << "\n";     \
+            ::qiqi::test::ReportTestFailure(__FILE__, __LINE__, #expr);                          \
             _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);                         \
             std::abort();                                                                       \
         }                                                                                       \

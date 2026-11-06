@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/start.h"
 #include "ime/comp/tests.h"
@@ -21,6 +22,7 @@ private:
 };
 
 void TestStartPublicationAndUpdate() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Kind {
         Existing, ExistingStale, ExistingReplace, ExistingRangeFailure,
         New, NewSFalse, NewRangeFailure, NewFailedOutput, NewNull, NewFailedNull, PreparationFailure,
@@ -158,6 +160,7 @@ void TestStartPublicationAndUpdate() {
 }
 
 void TestStartUpdateExceptionOwnership() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { StartCheck, UpdateRange, UpdateCheck, Reset };
     const auto objects_before = g_com_object_count.load();
     for (const auto boundary : {Boundary::StartCheck, Boundary::UpdateRange, Boundary::UpdateCheck, Boundary::Reset}) {
@@ -219,6 +222,7 @@ void TestStartUpdateExceptionOwnership() {
 } // namespace
 
 void RunTsfCompositionStartUpdateTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestStartPublicationAndUpdate();
     TestStartUpdateExceptionOwnership();
 }

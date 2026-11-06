@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/service_lifecycle.h"
@@ -9,6 +10,7 @@
 namespace qiqi::test {
 
 void RunTsfEditActionTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Transition { None, Deactivate, Reactivate, ReplaceComposition };
     const QiQiConfig saved_config = LoadConfig(g_dll_instance);
     auto config = saved_config;
@@ -116,6 +118,7 @@ void RunTsfEditActionTests() {
 
 void RunTsfPresentationSyncTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> manager) {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { Update, Position };
     enum class Transition { Deactivate, Reactivate, Replace };
     const auto objects_before = g_com_object_count.load();

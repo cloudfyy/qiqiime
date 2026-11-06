@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/tip_service.h"
@@ -15,6 +16,7 @@ namespace qiqi::test {
 namespace {
 
 void TestEditSessionTickets() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static_assert(std::is_trivially_copyable_v<EditSessionTicket>);
     static_assert(std::is_nothrow_copy_constructible_v<EditSessionTicket>);
     const auto first = MakeComObject<MockTfContext>();
@@ -46,6 +48,7 @@ void TestEditSessionTickets() {
 }
 
 void TestCompositionEditTasks() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static_assert(std::is_copy_constructible_v<CompositionEditTask>);
     static_assert(std::is_nothrow_move_constructible_v<KeyProcessResult>);
     static_assert(std::is_nothrow_move_constructible_v<CompositionEditTask>);
@@ -113,6 +116,7 @@ void TestCompositionEditTasks() {
 }
 
 void TestCompositionEditScopes() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static_assert(std::is_nothrow_destructible_v<CompositionEditScope>);
     static_assert(!std::is_copy_constructible_v<CompositionEditScope>);
     static_assert(!std::is_move_constructible_v<CompositionEditScope>);
@@ -208,6 +212,7 @@ void TestCompositionEditScopes() {
 }
 
 void TestCompositionEditScopeNesting() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     constexpr GUID parent{0x12345678, 0x1234, 0x5678, {0x90, 0xab, 0xcd, 0xef, 1, 2, 3, 4}};
     constexpr GUID outer_activity{0x23456789, 0x2345, 0x6789, {0xab, 0xcd, 0xef, 1, 2, 3, 4, 5}};
     constexpr GUID inner_activity{0x34567890, 0x3456, 0x7890, {0xcd, 0xef, 1, 2, 3, 4, 5, 6}};
@@ -247,6 +252,7 @@ void TestCompositionEditScopeNesting() {
 }
 
 void TestCompositionWriteRequests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Cleanup { None, Starting, Scheduled, Finished, Expired, OtherContext, Removed, Terminated };
     enum class Outcome {
         Immediate, RequestSFalse, CallbackSFalse, CallbackFailure, RequestFailure,
@@ -353,6 +359,7 @@ void TestCompositionWriteRequests() {
 } // namespace
 
 void RunTsfCompositionEditTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestEditSessionTickets();
     TestCompositionEditTasks();
     TestCompositionEditScopes();

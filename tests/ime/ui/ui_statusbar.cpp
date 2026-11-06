@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "common/guids.h"
 #include "common/i18n.h"
@@ -32,6 +33,7 @@ void CloseQuickSettingsMenu() {
 }
 
 void TestStatusBarUI() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     // Load uxtheme.dll, dwmapi.dll, and shcore.dll via ScopedModule RAII in the test process
     const ScopedModule uxtheme_mod(::LoadLibraryW(L"uxtheme.dll"));
     const ScopedModule dwmapi_mod(::LoadLibraryW(L"dwmapi.dll"));
@@ -257,6 +259,7 @@ void TestStatusBarUI() {
 }
 
 void TestStatusBarBoundariesAtDifferentDpis() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
     const auto restore_monitor = gsl::finally([&original_monitor]() noexcept {
         SetMonitorMetricsOverrideForTest(std::move(original_monitor));
@@ -315,6 +318,7 @@ void TestStatusBarBoundariesAtDifferentDpis() {
 }
 
 void TestStatusBarContextMenuState() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     StatusBarUI bar(::GetModuleHandleW(nullptr));
     for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
         for (const PrimaryDict dict : {PrimaryDict::Jidian, PrimaryDict::Haifeng, PrimaryDict::BuiltinOnly}) {
@@ -378,6 +382,7 @@ void TestStatusBarContextMenuState() {
 }
 
 void TestStatusBarTooltipLifecycle() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     StatusBarUI bar(::GetModuleHandleW(nullptr));
     bar.Show(true);
     QIQI_TEST_CHECK(bar.WindowHandle() != nullptr);
@@ -442,6 +447,7 @@ void TestStatusBarTooltipLifecycle() {
 }
 
 void TestMultiMonitorAndPerMonitorDpi() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     // Simulate a secondary monitor located to the left/top of primary monitor (negative coordinates) at 144 DPI (150%)
     MonitorMetrics secondary_mon{};
     secondary_mon.work_area = RECT{-1920, -1080, 0, 0};
@@ -540,6 +546,7 @@ void TestMultiMonitorAndPerMonitorDpi() {
 } // namespace
 
 void RunStatusBarUITests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestStatusBarUI();
     TestStatusBarBoundariesAtDifferentDpis();
     TestStatusBarContextMenuState();

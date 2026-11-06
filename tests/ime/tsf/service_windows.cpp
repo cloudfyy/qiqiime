@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/tip_service.h"
@@ -40,6 +41,7 @@ struct UiWindowDestructionProbe {
 } // namespace
 
 void TestDeactivationWindowLifecycle() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     RunTsfCompositionEditTests();
     RunTsfCompositionCleanupTests();
     std::array<BYTE, 256> original_keyboard{};

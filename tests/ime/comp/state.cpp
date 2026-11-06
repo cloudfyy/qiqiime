@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/state.h"
 #include "ime/comp/tests.h"
@@ -16,6 +17,7 @@ namespace qiqi::test {
 namespace {
 
 void TestLifecycleStateIdentity() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static_assert(!std::is_copy_constructible_v<CompositionLifecycleState>);
     static_assert(!std::is_move_constructible_v<CompositionLifecycleState>);
     static_assert(!std::is_copy_assignable_v<CompositionLifecycleState>);
@@ -86,6 +88,7 @@ void TestLifecycleStateIdentity() {
 }
 
 void TestLifecycleStateResources() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     {
         const auto context = MakeComObject<MockTfContext>();
@@ -142,6 +145,7 @@ void TestLifecycleStateResources() {
 }
 
 void TestLifecycleStateReleaseOrder() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Released { Context, Composition };
     const auto objects_before = g_com_object_count.load();
     {
@@ -173,6 +177,7 @@ void TestLifecycleStateReleaseOrder() {
 }
 
 void TestLifecycleStateDetachedCleanup() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto objects_before = g_com_object_count.load();
     for (const bool asynchronous : {false, true}) {
         const auto queue = std::make_shared<MockEditSessionQueue>();
@@ -212,6 +217,7 @@ void TestLifecycleStateDetachedCleanup() {
 }
 
 void TestLifecycleContextResetScopes() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static_assert(!std::is_copy_constructible_v<CompositionContextResetScope>);
     static_assert(!std::is_move_constructible_v<CompositionContextResetScope>);
     static_assert(std::is_nothrow_destructible_v<CompositionContextResetScope>);
@@ -293,6 +299,7 @@ void TestLifecycleContextResetScopes() {
 } // namespace
 
 void RunTsfCompositionStateTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestLifecycleStateIdentity();
     TestLifecycleStateResources();
     TestLifecycleStateReleaseOrder();

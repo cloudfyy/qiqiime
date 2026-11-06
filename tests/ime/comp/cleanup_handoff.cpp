@@ -1,3 +1,4 @@
+#include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/state.h"
 #include "ime/comp/tests.h"
@@ -9,6 +10,7 @@ namespace qiqi::test {
 namespace {
 
 void TestCleanupHandoffOutcomes() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Outcome { Immediate, Deferred, Rejected, ReadOnly, MissingClient, MissingContext };
     enum class Event { Range, Clear, End };
     const auto objects_before = g_com_object_count.load();
@@ -93,6 +95,7 @@ void TestCleanupHandoffOutcomes() {
 }
 
 void TestCleanupHandoffReentrancy() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary { Range, Clear, End };
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
@@ -154,6 +157,7 @@ void TestCleanupHandoffReentrancy() {
 } // namespace
 
 void RunTsfCompositionCleanupHandoffTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestCleanupHandoffOutcomes();
     TestCleanupHandoffReentrancy();
 }
