@@ -2,6 +2,8 @@
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/tip_service.h"
 #include "ime/tsf/service_lifecycle.h"
+#include <array>
+#include <cstddef>
 #include <memory>
 #include <tuple>
 
@@ -191,6 +193,94 @@ void RunTsfDeferredSessionTests(
         QIQI_TEST_CHECK(queue->RunNext() == S_OK && terminated_context->range_->text_ == L"c");
         QIQI_TEST_CHECK(key_sink->OnSetFocus(FALSE) == S_OK);
     }
+}
+
+void RunTsfWriteRequestTests(
+    gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    enum class Mode { Immediate, Deferred, PendingCleanup };
+    enum class Outcome { Success, RequestSFalse, RequestFailure, ReadOnly, AsyncFailure };
+    const auto objects_before = g_com_object_count.load();
+    std::array<BYTE, 256> original_keyboard{};
+    QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
+    const auto restore_keyboard = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(::SetKeyboardState(original_keyboard.data()));
+    });
+    std::array<BYTE, 256> clean_keyboard{};
+    const auto send_key = [&](ITfContext* context, UINT key) {
+        QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context, key, 0, &eaten) == S_OK && eaten);
+    };
+    size_t cases = 0;
+    for (const auto mode : {Mode::Immediate, Mode::Deferred, Mode::PendingCleanup}) {
+        for (const auto outcome : {
+                 Outcome::Success, Outcome::RequestSFalse, Outcome::RequestFailure,
+                 Outcome::ReadOnly, Outcome::AsyncFailure}) {
+            if (mode == Mode::Immediate && outcome == Outcome::AsyncFailure) continue;
+            const auto queue = std::make_shared<MockEditSessionQueue>();
+            const auto context = MakeComObject<MockTfContext>(queue);
+            context->SetDeferredEditSessions(false);
+            send_key(context.Get(), 'A');
+            QIQI_TEST_CHECK(context->range_->text_ == L"a" && queue->PendingCount() == 0);
+            const auto old_composition = context->last_composition_;
+            const bool pending_cleanup = mode == Mode::PendingCleanup;
+            if (pending_cleanup) {
+                context->allow_sync_edit_sessions_ = false;
+                QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK && queue->PendingCount() == 1);
+                QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
+                context->allow_sync_edit_sessions_ = true;
+            }
+            context->SetDeferredEditSessions(mode == Mode::Deferred);
+            context->edit_session_request_result_ = outcome == Outcome::RequestSFalse ? S_FALSE :
+                outcome == Outcome::RequestFailure ? E_ACCESSDENIED : S_OK;
+            context->async_edit_session_result_ = outcome == Outcome::AsyncFailure ? E_ACCESSDENIED : S_OK;
+            context->read_only_ = outcome == Outcome::ReadOnly;
+            const auto requests_before = context->request_edit_session_calls_;
+            const auto writes_before = context->range_->set_text_calls_;
+            send_key(context.Get(), 'B');
+            const bool rejected = outcome == Outcome::RequestFailure || outcome == Outcome::ReadOnly ||
+                outcome == Outcome::AsyncFailure;
+            const bool queued = mode != Mode::Immediate && !rejected;
+            const DWORD flags = (pending_cleanup ? TF_ES_ASYNC : TF_ES_ASYNCDONTCARE) | TF_ES_READWRITE;
+            QIQI_TEST_CHECK(context->request_edit_session_calls_ == requests_before + 1 &&
+                            context->last_edit_session_flags_ == flags &&
+                            queue->PendingCount() ==
+                                (pending_cleanup ? std::size_t{1} : std::size_t{0}) +
+                                (queued ? std::size_t{1} : std::size_t{0}));
+            if (queued) {
+                const auto& request = queue->PendingRequests().back();
+                QIQI_TEST_CHECK(request.context.Get() == context.Get() && request.client_id == 1 &&
+                                request.flags == flags);
+            }
+            QIQI_TEST_CHECK(context->range_->set_text_calls_ ==
+                            writes_before + (!rejected && mode == Mode::Immediate ? 1u : 0u));
+            if (pending_cleanup) {
+                QIQI_TEST_CHECK(queue->RunNext(307) == S_OK && old_composition->ended_ &&
+                                old_composition->last_end_cookie_ == 307 &&
+                                context->range_->text_ == L"a" && context->range_->set_text_calls_ == writes_before);
+            }
+            if (queued) QIQI_TEST_CHECK(queue->RunNext(311) == S_OK);
+            QIQI_TEST_CHECK(queue->PendingCount() == 0 && context->range_->text_ ==
+                            (rejected ? L"a" : pending_cleanup ? L"b" : L"ab"));
+            if (!rejected && pending_cleanup) {
+                QIQI_TEST_CHECK(context->last_composition_.Get() != old_composition.Get() &&
+                                !context->last_composition_->ended_);
+            }
+            context->edit_session_request_result_ = S_OK;
+            context->async_edit_session_result_ = S_OK;
+            context->read_only_ = false;
+            send_key(context.Get(), 'C');
+            QIQI_TEST_CHECK(context->last_edit_session_flags_ == (TF_ES_ASYNCDONTCARE | TF_ES_READWRITE));
+            if (mode == Mode::Deferred) {
+                QIQI_TEST_CHECK(queue->PendingCount() == 1 && queue->RunNext(313) == S_OK);
+            }
+            QIQI_TEST_CHECK(queue->PendingCount() == 0 && context->range_->text_ ==
+                            (pending_cleanup ? L"bc" : L"abc") && !context->last_composition_->ended_);
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK && service->Activate(mock_tm.get(), 1) == S_OK);
+            ++cases;
+        }
+    }
+    QIQI_TEST_CHECK(cases == 14 && g_com_object_count.load() == objects_before);
 }
 
 } // namespace qiqi::test

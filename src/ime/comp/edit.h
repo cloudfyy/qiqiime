@@ -37,6 +37,27 @@ private:
 
 enum class CompositionEditDisposition { Discard, Requeue, Execute };
 
+inline void RequestCompositionEditSession(
+    gsl::not_null<ITfContext*> context, gsl::not_null<ITfEditSession*> session, TfClientId client_id,
+    CompositionCleanupCoordinator& cleanups, const GUID& lifecycle_activity, const GUID& edit_act_id) {
+    HRESULT session_hr = S_OK;
+    const HRESULT req_hr = context->RequestEditSession(
+        client_id,
+        session.get(),
+        (cleanups.HasPending(context.get(), lifecycle_activity) ? TF_ES_ASYNC : TF_ES_ASYNCDONTCARE) |
+            TF_ES_READWRITE,
+        &session_hr);
+    if (FAILED(req_hr) || FAILED(session_hr)) {
+        QIQI_LOG_ACT_STOP(
+            log::Level::warn,
+            log::Keyword::Composition,
+            &edit_act_id,
+            "RequestEditSession failed (req_hr=0x{:08x}, session_hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(req_hr),
+            gsl::narrow_cast<unsigned int>(session_hr));
+    }
+}
+
 // Synchronous scope: borrows the task and activity slot, never the service or edit cookie.
 class CompositionEditScope {
 public:

@@ -246,6 +246,110 @@ void TestCompositionEditScopeNesting() {
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
+void TestCompositionWriteRequests() {
+    enum class Cleanup { None, Starting, Scheduled, Finished, Expired, OtherContext, Removed, Terminated };
+    enum class Outcome {
+        Immediate, RequestSFalse, CallbackSFalse, CallbackFailure, RequestFailure,
+        AsyncFailure, ReadOnly, Deferred, ExpiredQueue, Abandon,
+    };
+    constexpr std::array cleanups{
+        Cleanup::None, Cleanup::Starting, Cleanup::Scheduled, Cleanup::Finished,
+        Cleanup::Expired, Cleanup::OtherContext, Cleanup::Removed, Cleanup::Terminated,
+    };
+    constexpr std::array outcomes{
+        Outcome::Immediate, Outcome::RequestSFalse, Outcome::CallbackSFalse, Outcome::CallbackFailure,
+        Outcome::RequestFailure, Outcome::AsyncFailure, Outcome::ReadOnly, Outcome::Deferred,
+        Outcome::ExpiredQueue, Outcome::Abandon,
+    };
+    const auto objects_before = g_com_object_count.load();
+    size_t cases = 0;
+    for (const auto cleanup : cleanups) {
+        for (const auto outcome : outcomes) {
+            auto queue = std::make_shared<MockEditSessionQueue>();
+            auto context = MakeComObject<MockTfContext>(queue);
+            const auto other_context = MakeComObject<MockTfContext>();
+            const bool force_async = cleanup == Cleanup::Starting || cleanup == Cleanup::Scheduled;
+            const bool defer = outcome == Outcome::AsyncFailure || outcome == Outcome::Deferred ||
+                outcome == Outcome::ExpiredQueue || outcome == Outcome::Abandon;
+            const bool queued = force_async || defer;
+            context->SetDeferredEditSessions(defer);
+            CompositionCleanupCoordinator coordinator(271);
+            std::shared_ptr<CompositionCleanup> record;
+            const GUID lifecycle_activity = log::CreateActivityId();
+            if (cleanup != Cleanup::None) {
+                record = coordinator.TrackStarting(
+                    cleanup == Cleanup::OtherContext ? other_context.Get() : context.Get());
+                if (cleanup == Cleanup::Scheduled) record->id = 277;
+                if (cleanup == Cleanup::Finished || cleanup == Cleanup::Terminated) record->finished = true;
+                if (cleanup == Cleanup::Terminated) record->terminated = true;
+                if (cleanup == Cleanup::Removed) coordinator.MarkContextRemoved(context.Get(), lifecycle_activity);
+                if (cleanup == Cleanup::Expired) record.reset();
+            }
+            const auto* const target = context.Get();
+            const GUID edit_activity = log::CreateActivityId();
+            const EditSessionTicket ticket{{281, 283}, target};
+            KeyProcessResult result;
+            result.action = KeyActionType::UpdateState;
+            result.composition_text = L"ab";
+            const HRESULT callback_hr = outcome == Outcome::CallbackSFalse ? S_FALSE :
+                outcome == Outcome::CallbackFailure ? E_ACCESSDENIED : S_OK;
+            context->edit_session_request_result_ = outcome == Outcome::RequestSFalse ? S_FALSE :
+                outcome == Outcome::RequestFailure ? E_ACCESSDENIED : S_OK;
+            context->async_edit_session_result_ = outcome == Outcome::AsyncFailure ? E_ACCESSDENIED : S_OK;
+            context->read_only_ = outcome == Outcome::ReadOnly;
+            bool request_returned = false;
+            unsigned int callbacks = 0;
+            auto session = MakeComObject<LambdaEditSession>(
+                [&, task = CompositionEditTask(context, result, ticket, edit_activity)](TfEditCookie ec) {
+                    ++callbacks;
+                    QIQI_TEST_CHECK(request_returned == queued && ec == (queued ? 293u : 1u) &&
+                                    task.Context().Get() == target &&
+                                    task.Ticket().Matches({281, 283}, target) &&
+                                    ::IsEqualGUID(task.Activity(), edit_activity) &&
+                                    task.Snapshot().composition_text == L"ab" &&
+                                    task.Snapshot().action == KeyActionType::UpdateState);
+                    QIQI_TEST_CHECK(context->in_immediate_write_session_ == !queued);
+                    return callback_hr;
+                });
+            result = {};
+            if (outcome == Outcome::ExpiredQueue) queue.reset();
+            RequestCompositionEditSession(
+                gsl::not_null<ITfContext*>(context.Get()), gsl::not_null<ITfEditSession*>(session.Get()),
+                287, coordinator, lifecycle_activity, edit_activity);
+            request_returned = true;
+            const DWORD flags = (force_async ? TF_ES_ASYNC : TF_ES_ASYNCDONTCARE) | TF_ES_READWRITE;
+            const bool rejected = outcome == Outcome::RequestFailure || outcome == Outcome::AsyncFailure ||
+                outcome == Outcome::ReadOnly || outcome == Outcome::ExpiredQueue;
+            const bool pending = queued && !rejected;
+            QIQI_TEST_CHECK(context->request_edit_session_calls_ == 1 && context->last_edit_session_flags_ == flags &&
+                            !context->in_immediate_write_session_ && context->range_->set_text_calls_ == 0);
+            const bool pruned = cleanup == Cleanup::Finished || cleanup == Cleanup::Expired ||
+                cleanup == Cleanup::Removed || cleanup == Cleanup::Terminated;
+            QIQI_TEST_CHECK(coordinator.TrackedCount() == (cleanup == Cleanup::None || pruned ? 0u : 1u));
+            if (queue) {
+                QIQI_TEST_CHECK(queue->PendingCount() == (pending ? 1u : 0u));
+                if (pending) {
+                    const auto& request = queue->PendingRequests().front();
+                    QIQI_TEST_CHECK(request.context.Get() == target && request.session.Get() == session.Get() &&
+                                    request.client_id == 287 && request.flags == flags && callbacks == 0);
+                }
+            }
+            session.Reset();
+            if (pending) {
+                if (outcome == Outcome::Abandon) QIQI_TEST_CHECK(queue->ClearForCleanup() == S_OK);
+                else QIQI_TEST_CHECK(queue->RunNext(293) == callback_hr);
+            }
+            const bool ran = !rejected && outcome != Outcome::Abandon;
+            QIQI_TEST_CHECK(callbacks == (ran ? 1u : 0u) && (!queue || queue->PendingCount() == 0) &&
+                            context->range_->text_.empty() && context->start_composition_calls_ == 0 &&
+                            context->insert_at_selection_calls_ == 0 && coordinator.TrackedCount() ==
+                                (cleanup == Cleanup::None || pruned ? 0u : 1u));
+            ++cases;
+        }
+    }
+    QIQI_TEST_CHECK(cases == 80 && g_com_object_count.load() == objects_before);
+}
+
 } // namespace
 
 void RunTsfCompositionEditTests() {
@@ -253,6 +357,7 @@ void RunTsfCompositionEditTests() {
     TestCompositionEditTasks();
     TestCompositionEditScopes();
     TestCompositionEditScopeNesting();
+    TestCompositionWriteRequests();
 }
 
 } // namespace qiqi::test

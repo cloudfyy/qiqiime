@@ -92,6 +92,23 @@ cancel/commit/update and UI work. No host operation or request runs inside this
 scope helper. `Execute` is only an entry decision, not a replacement for the
 identity checks between subsequent host calls.
 
+`RequestCompositionEditSession` now owns the original write-request protocol.
+It queries the same cleanup coordinator while constructing the request
+arguments, including the existing pruning and stage diagnostics. Matching
+unfinished unpublished or scheduled cleanup selects
+`TF_ES_ASYNC | TF_ES_READWRITE`; otherwise it uses
+`TF_ES_ASYNCDONTCARE | TF_ES_READWRITE`. The service keeps its entry gates,
+original context/service references and captured task. The callback's second
+cleanup check and original-snapshot requeue remain separate and unchanged.
+The helper adds no ticket check, wait, retry or cookie ownership.
+
+The initialized session result and original
+`FAILED(req_hr) || FAILED(session_hr)` diagnostic condition retain both actual
+HRESULTs. Accepted asynchronous requests do not certify callback execution or
+successful editing. A rejected request does not reset or reprocess the engine;
+subsequent input still applies the complete captured result under the original
+policy.
+
 ### 2.1 In-Flight Host Calls
 
 Entry checks alone are insufficient. `GetRange`, text writes, range cloning and
@@ -639,6 +656,18 @@ results. Ten [service layout cases](../tests/ime/tsf/service_layout.cpp) inject
 deactivation or reactivation at view/range/extent boundaries, checking exact
 query counts, view routing, replacement-popup isolation and continued input.
 These mock regressions do not certify positioning in real hosts.
+
+The [edit request tests](../tests/ime/comp/edit.cpp) add 80 cases crossing eight
+cleanup states with ten request/callback outcomes. They check exact read/write
+and timing flags, client IDs, registry pruning, synchronous/deferred entry,
+immutable snapshots, rejection and abandonment. Fourteen
+[service write-request cases](../tests/ime/tsf/service_deferred.cpp) cover
+immediate, host-deferred and pending-cleanup modes, including `S_FALSE`, request
+failure, read-only rejection and asynchronous rejection. A pending cleanup
+forces queuing even when the mock host would otherwise execute immediately;
+old cleanup completes before new text is written, and subsequent successful
+input restores the complete engine snapshot without processing a key twice.
+These mock controls do not certify real-host lock or edit-permission behavior.
 
 The layout session extraction adds another 46 component cases: four
 snapshot/copy/move/resource cases, 22 identity/activity/nesting/exception cases

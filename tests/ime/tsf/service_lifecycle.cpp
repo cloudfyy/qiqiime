@@ -13,6 +13,7 @@ void RunTsfServiceLifecycleTests(
     QIQI_TEST_CHECK(SUCCEEDED(service->QueryInterface(IID_PPV_ARGS(&comp_sink))) && comp_sink);
 
     RunTsfDeferredSessionTests(service, mock_tm, key_sink.Get(), comp_sink.Get());
+    RunTsfWriteRequestTests(service, mock_tm);
     RunTsfDocumentLifecycleTests(service, mock_tm);
     RunTsfTargetPreparationTests(service, mock_tm);
     RunTsfCandidatePresentationTests(service, mock_tm);

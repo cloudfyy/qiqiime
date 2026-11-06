@@ -1,4 +1,5 @@
 #include "ime/tsf/tip_service.h"
+#include "ime/comp/edit.h"
 #include "ime/comp/finish.h"
 #include "ime/comp/layout.h"
 #include "ime/comp/presentation.h"
@@ -242,22 +243,9 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
             return self_holder->ApplyCompositionEditInSession(ec, task);
     });
 
-    HRESULT session_hr = S_OK;
-    const HRESULT req_hr = context->RequestEditSession(
-        client_id_,
-        session.Get(),
-        (composition_lifecycle_.Cleanups().HasPending(context, current_lifecycle_activity_) ? TF_ES_ASYNC : TF_ES_ASYNCDONTCARE) |
-            TF_ES_READWRITE,
-        &session_hr);
-    if (FAILED(req_hr) || FAILED(session_hr)) {
-        QIQI_LOG_ACT_STOP(
-            log::Level::warn,
-            log::Keyword::Composition,
-            &edit_act_id,
-            "RequestEditSession failed (req_hr=0x{:08x}, session_hr=0x{:08x})",
-            gsl::narrow_cast<unsigned int>(req_hr),
-            gsl::narrow_cast<unsigned int>(session_hr));
-    }
+    RequestCompositionEditSession(
+        gsl::not_null<ITfContext*>(context), gsl::not_null<ITfEditSession*>(session.Get()),
+        client_id_, composition_lifecycle_.Cleanups(), current_lifecycle_activity_, edit_act_id);
 }
 
 HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const CompositionEditTask& task) {
