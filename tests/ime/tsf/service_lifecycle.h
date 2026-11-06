@@ -22,6 +22,8 @@ void RunTsfTargetPreparationTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm);
 void RunTsfCandidatePresentationTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm);
+void RunTsfLayoutQueryTests(
+    gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm);
 void TestDeactivationWindowLifecycle();
 void TestReentrantCompositionEdits();
 void RunTsfServiceCleanupTests(

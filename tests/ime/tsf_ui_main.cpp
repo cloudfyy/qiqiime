@@ -21,6 +21,7 @@ void RunCompositionComponentTests() {
     qiqi::test::RunTsfCompositionStateTests();
     qiqi::test::RunTsfCompositionTargetTests();
     qiqi::test::RunTsfCompositionPresentationTests();
+    qiqi::test::RunTsfCompositionLayoutTests();
 }
 
 } // namespace

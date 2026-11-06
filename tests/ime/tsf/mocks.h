@@ -37,6 +37,7 @@ public:
     STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
+            if (release_observer_) release_observer_();
             delete this;
         }
         return c;
@@ -109,6 +110,7 @@ public:
     std::function<void()> clone_callback_;
     std::function<void()> collapse_callback_;
     std::function<void(TfEditCookie, TfAnchor)> collapse_observer_;
+    std::move_only_function<void() noexcept> release_observer_;
 private:
     ULONG ref_ = 1;
 };
@@ -145,11 +147,11 @@ public:
         if (get_range_callback_) get_range_callback_();
         if (return_null_range_) {
             *ppRange = nullptr;
-            return S_OK;
+            return get_range_result_;
         }
         *ppRange = range_.Get();
         (*ppRange)->AddRef();
-        return S_OK;
+        return get_range_result_;
     }
     STDMETHODIMP ShiftStart(TfEditCookie, ITfRange*) noexcept override { return S_OK; }
     STDMETHODIMP ShiftEnd(TfEditCookie, ITfRange*) noexcept override { return S_OK; }
@@ -172,6 +174,7 @@ public:
     bool ended_ = false;
     bool fail_get_range_ = false;
     bool return_null_range_ = false;
+    HRESULT get_range_result_ = S_OK;
     unsigned int get_range_calls_ = 0;
     std::function<void(ITfRange**)> get_range_observer_;
     unsigned int end_composition_calls_ = 0;
@@ -202,6 +205,7 @@ public:
     STDMETHODIMP_(ULONG) Release() noexcept override {
         const ULONG c = --ref_;
         if (c == 0) {
+            if (release_observer_) release_observer_();
             // COM Release destroys the mock when its reference count reaches zero.
 #pragma warning(suppress : 26401 26409)
             delete this;
@@ -209,12 +213,14 @@ public:
         return c;
     }
     STDMETHODIMP GetRangeFromPoint(TfEditCookie, const POINT*, DWORD, ITfRange**) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP GetTextExt(TfEditCookie, ITfRange*, RECT* prc, BOOL* pfClipped) override {
+    STDMETHODIMP GetTextExt(TfEditCookie ec, ITfRange* range, RECT* prc, BOOL* pfClipped) override {
+        ++get_text_ext_calls_;
+        if (get_text_ext_observer_) get_text_ext_observer_(ec, range, prc, pfClipped);
         if (get_text_ext_callback_) get_text_ext_callback_();
         if (fail_get_text_ext_) return TS_E_NOLAYOUT;
         if (prc) *prc = text_ext_;
-        if (pfClipped) *pfClipped = FALSE;
-        return S_OK;
+        if (pfClipped) *pfClipped = text_clipped_;
+        return text_ext_result_;
     }
     STDMETHODIMP GetScreenExt(RECT* prc) noexcept override {
         if (prc) *prc = {0, 0, 1920, 1080};
@@ -226,7 +232,12 @@ public:
     }
     bool fail_get_text_ext_ = false;
     RECT text_ext_{100, 100, 140, 124};
+    BOOL text_clipped_ = FALSE;
+    HRESULT text_ext_result_ = S_OK;
+    unsigned int get_text_ext_calls_ = 0;
+    std::function<void(TfEditCookie, ITfRange*, RECT*, BOOL*)> get_text_ext_observer_;
     std::function<void()> get_text_ext_callback_;
+    std::move_only_function<void() noexcept> release_observer_;
 private:
     ULONG ref_ = 1;
 };
@@ -546,10 +557,11 @@ public:
     STDMETHODIMP GetEnd(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetActiveView(ITfContextView** ppView) override {
         ++get_active_view_calls_;
+        if (get_active_view_observer_) get_active_view_observer_(ppView);
         if (!ppView || fail_get_view_) return E_FAIL;
-        *ppView = view_.Get();
-        (*ppView)->AddRef();
-        return S_OK;
+        *ppView = return_null_active_view_ ? nullptr : view_.Get();
+        if (*ppView) (*ppView)->AddRef();
+        return active_view_result_;
     }
     STDMETHODIMP EnumViews(IEnumTfContextViews**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetStatus(TF_STATUS*) noexcept override { return S_OK; }
@@ -681,6 +693,9 @@ public:
     bool return_null_property_ = false;
     HRESULT async_edit_session_result_ = S_OK;
     unsigned int get_active_view_calls_ = 0;
+    HRESULT active_view_result_ = S_OK;
+    bool return_null_active_view_ = false;
+    std::function<void(ITfContextView**)> get_active_view_observer_;
     unsigned int start_composition_calls_ = 0;
     std::move_only_function<void() noexcept> release_observer_;
     unsigned int set_selection_calls_ = 0;

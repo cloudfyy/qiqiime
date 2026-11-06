@@ -294,6 +294,20 @@ epoch/context around host calls before updating caret state or moving a window.
 A regression reproduced an old `GetTextExt` result moving a replacement popup
 after reentrant deactivation/reactivation; the result must instead be discarded.
 
+[`QueryCompositionLayoutInSession`](../src/ime/comp/layout.h) now owns this
+view/range/text-extent query protocol, preserving short-circuit host calls,
+identity checks and HRESULT diagnostics. A supplied notification view takes
+precedence over the active view. The final `current` check is independent of
+query success and also rejects composition replacement within the same epoch.
+The result owns its range through the caller's UI work; the service retains
+the original composition snapshot and view parameter. The query range reference
+is released before that composition reference, with the view parameter last.
+The lifetime mocks destroy composition, range, then view because the composition
+also owns the range. No cookie or callback escapes the synchronous query.
+Raw rectangles and clipping outputs are unchanged, including zero or inverted
+rectangles. Caret mutation, window movement, GUI/cursor fallback and all
+coordinate/DPI policy remain in the service.
+
 The shared Win32 destruction helper validates window ownership before calling
 `DestroyWindow`. Wrong-thread calls are rejected and logged with owner/current
 thread IDs; native failures retain the handle for an owner-thread retry and log
@@ -598,6 +612,16 @@ reference counts and actual popup visibility. Ten
 [service presentation cases](../tests/ime/tsf/service_presentation.cpp) combine
 five HRESULT/ID outcomes with deactivation or different-manager reactivation
 inside Begin, verifying old/new ID isolation and continued new-target input.
+
+The [layout component tests](../tests/ime/comp/layout.cpp) add 35 cases for
+notification/active views, HRESULT and null/non-null output combinations,
+`S_FALSE`, clipped/zero/inverted rectangles, epoch invalidation and same-epoch
+composition replacement. Six lifetime cases verify range ownership through
+caller UI work and reference-release order on current, stale and no-layout
+results. Ten [service layout cases](../tests/ime/tsf/service_layout.cpp) inject
+deactivation or reactivation at view/range/extent boundaries, checking exact
+query counts, view routing, replacement-popup isolation and continued input.
+These mock regressions do not certify positioning in real hosts.
 
 `QiQiCompositionLifecycleTest` runs composition components and the complete
 service lifecycle/key-flow tests without the standalone popup/candidate/status

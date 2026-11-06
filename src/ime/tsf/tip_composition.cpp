@@ -1,5 +1,6 @@
 #include "ime/tsf/tip_service.h"
 #include "ime/comp/finish.h"
+#include "ime/comp/layout.h"
 #include "ime/comp/presentation.h"
 #include "ime/comp/start.h"
 #include "ime/comp/target.h"
@@ -409,32 +410,13 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
     }
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
     const auto composition = composition_lifecycle_.Composition();
-    const bool notification_view = view != nullptr;
-    ComPtr<ITfRange> comp_range;
-    RECT rc{};
-    BOOL clipped = FALSE;
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::UI,
-        &current_lifecycle_activity_,
-        "CandidatePosition(service={}, stage=query, activation={}, context={}, had_position={}, notification_view={})",
-        service_log_id_, ticket.epoch.activation, ticket.epoch.context, has_valid_caret_pos_, notification_view);
-    const bool got_position =
-        (view || log::CheckHResult(context->GetActiveView(&view), "CandidatePosition::GetActiveView", log::Level::debug)) && view &&
-        IsCompositionEditCurrent(ticket, composition.Get()) &&
-        log::CheckHResult(composition->GetRange(&comp_range), "CandidatePosition::GetRange", log::Level::debug) && comp_range &&
-        IsCompositionEditCurrent(ticket, composition.Get()) &&
-        log::CheckHResult(view->GetTextExt(ec, comp_range.Get(), &rc, &clipped),
-                         "CandidatePosition::GetTextExt", log::Level::trace);
-    if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::UI,
-        &current_lifecycle_activity_,
-        "CandidatePosition(service={}, stage=query-result, activation={}, context={}, success={}, rect=({}, {}, {}, {}), clipped={}, had_position={})",
-        service_log_id_, ticket.epoch.activation, ticket.epoch.context, got_position,
-        rc.left, rc.top, rc.right, rc.bottom, clipped != FALSE, has_valid_caret_pos_);
-    if (got_position) {
+    const auto query = QueryCompositionLayoutInSession(
+        ec, context, gsl::not_null<ITfComposition*>(composition.Get()), view, has_valid_caret_pos_,
+        ticket.epoch, service_log_id_, current_lifecycle_activity_,
+        [this, ticket, &composition]() noexcept { return IsCompositionEditCurrent(ticket, composition.Get()); });
+    if (!query.current) return;
+    RECT rc = query.rect;
+    if (query.got_position) {
         has_valid_caret_pos_ = true;
         candidate_ui_->MoveWindowTo(rc);
         return;

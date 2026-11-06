@@ -16,6 +16,7 @@ void RunTsfServiceLifecycleTests(
     RunTsfDocumentLifecycleTests(service, mock_tm);
     RunTsfTargetPreparationTests(service, mock_tm);
     RunTsfCandidatePresentationTests(service, mock_tm);
+    RunTsfLayoutQueryTests(service, mock_tm);
     TestDeactivationWindowLifecycle();
     TestReentrantCompositionEdits();
     RunTsfServiceCleanupTests(service, mock_tm, key_sink.Get());
