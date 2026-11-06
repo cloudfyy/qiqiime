@@ -168,6 +168,8 @@ private:
     ComPtr<ITfThreadMgr> thread_mgr_;
     TfClientId client_id_ = TF_CLIENTID_NULL;
     DWORD activate_flags_ = 0;
+    bool activating_ = false;
+    bool activation_cancelled_ = false;
     bool deactivating_ = false;
     ComPtr<ITfContext> preparing_input_context_;
     ScopedTfSinkConnection thread_mgr_sink_;

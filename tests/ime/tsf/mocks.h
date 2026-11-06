@@ -329,9 +329,11 @@ public:
         return c;
     }
     STDMETHODIMP SetValue(TfClientId, const VARIANT* pvarValue) override {
+        ++set_value_calls_;
         if (fail_set_value_) return E_FAIL;
         if (pvarValue && pvarValue->vt == VT_I4) {
             last_val_ = pvarValue->lVal;
+            if (set_value_callback_) set_value_callback_();
             if (sink_) {
                 sink_->OnChange(guid_);
             }
@@ -355,6 +357,7 @@ public:
         if (!punk || !pdwCookie) return E_INVALIDARG;
         if (!IsEqualIID(riid, IID_ITfCompartmentEventSink)) return CONNECT_E_CANNOTCONNECT;
         if (FAILED(punk->QueryInterface(IID_PPV_ARGS(&sink_))) || !sink_) return E_NOINTERFACE;
+        if (advise_callback_) advise_callback_();
         *pdwCookie = 101;
         return S_OK;
     }
@@ -367,6 +370,9 @@ public:
     LONG last_val_ = 0;
     HRESULT get_value_result_ = S_OK;
     bool fail_set_value_ = false;
+    unsigned int set_value_calls_ = 0;
+    std::function<void()> advise_callback_;
+    std::function<void()> set_value_callback_;
     std::function<void()> get_value_callback_;
     ComPtr<ITfCompartmentEventSink> sink_;
 private:
@@ -881,6 +887,7 @@ class MockTfThreadMgr final
       public ITfCompartmentMgr,
       public ITfLangBarItemMgr {
 public:
+    enum class ActivationStage { ThreadSink, KeySink, FunctionProvider, LangBar, GlobalCompartments };
     // This mock allocates its compartment dependency, so construction can throw std::bad_alloc.
 #pragma warning(suppress : 26455)
     MockTfThreadMgr() : compartment_(MakeComObject<MockTfCompartment>()) {}
@@ -932,23 +939,30 @@ public:
     STDMETHODIMP IsThreadFocus(BOOL* pfThreadFocus) noexcept override { if (pfThreadFocus) *pfThreadFocus = TRUE; return S_OK; }
     STDMETHODIMP GetFunctionProvider(REFCLSID, ITfFunctionProvider**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP EnumFunctionProviders(IEnumTfFunctionProviders**) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP GetGlobalCompartment(ITfCompartmentMgr** ppCompMgr) noexcept override {
+    STDMETHODIMP GetGlobalCompartment(ITfCompartmentMgr** ppCompMgr) override {
         if (!ppCompMgr) return E_INVALIDARG;
+        if (activation_callback_) activation_callback_(ActivationStage::GlobalCompartments);
         *ppCompMgr = this;
         AddRef();
         return S_OK;
     }
 
     // ITfSource
-    STDMETHODIMP AdviseSink(REFIID, IUnknown*, DWORD* pdwCookie) noexcept override {
+    STDMETHODIMP AdviseSink(REFIID, IUnknown*, DWORD* pdwCookie) override {
+        ++advise_thread_sink_calls_;
+        if (activation_callback_) activation_callback_(ActivationStage::ThreadSink);
         if (fail_advise_) return E_FAIL;
         if (pdwCookie) *pdwCookie = 42;
         return S_OK;
     }
-    STDMETHODIMP UnadviseSink(DWORD) noexcept override { return S_OK; }
+    STDMETHODIMP UnadviseSink(DWORD) noexcept override {
+        ++unadvise_thread_sink_calls_;
+        return S_OK;
+    }
 
     // ITfSourceSingle
-    STDMETHODIMP AdviseSingleSink(TfClientId, REFIID, IUnknown* punk) noexcept override {
+    STDMETHODIMP AdviseSingleSink(TfClientId, REFIID, IUnknown* punk) override {
+        if (activation_callback_) activation_callback_(ActivationStage::FunctionProvider);
         if (FAILED(single_sink_result_)) return single_sink_result_;
         single_sink_ = punk;
         return S_OK;
@@ -960,8 +974,9 @@ public:
     }
 
     // ITfKeystrokeMgr
-    STDMETHODIMP AdviseKeyEventSink(TfClientId tid, ITfKeyEventSink* sink, BOOL) noexcept override {
+    STDMETHODIMP AdviseKeyEventSink(TfClientId tid, ITfKeyEventSink* sink, BOOL) override {
         ++advise_key_sink_calls_;
+        if (activation_callback_) activation_callback_(ActivationStage::KeySink);
         if (fail_key_sink_) return E_FAIL;
         key_sink_client_id_ = tid;
         key_event_sink_ = sink;
@@ -1089,7 +1104,8 @@ public:
     STDMETHODIMP GetItems(ULONG, ITfLangBarItem**, TF_LANGBARITEMINFO*, DWORD*, ULONG*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP AdviseItemsSink(ULONG, ITfLangBarItemSink**, const GUID*, DWORD*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP UnadviseItemsSink(ULONG, DWORD*) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP AddItem(ITfLangBarItem* punk) noexcept override {
+    STDMETHODIMP AddItem(ITfLangBarItem* punk) override {
+        if (activation_callback_) activation_callback_(ActivationStage::LangBar);
         if (FAILED(add_item_result_)) return add_item_result_;
         langbar_item_ = punk;
         return S_OK;
@@ -1116,6 +1132,9 @@ public:
     TfClientId key_sink_client_id_ = TF_CLIENTID_NULL;
     TfClientId last_unadvised_key_sink_client_id_ = TF_CLIENTID_NULL;
     unsigned int advise_key_sink_calls_ = 0;
+    unsigned int advise_thread_sink_calls_ = 0;
+    unsigned int unadvise_thread_sink_calls_ = 0;
+    std::function<void(ActivationStage)> activation_callback_;
     unsigned int unadvise_key_sink_calls_ = 0;
     unsigned int preserve_key_calls_ = 0;
     unsigned int unpreserve_key_calls_ = 0;

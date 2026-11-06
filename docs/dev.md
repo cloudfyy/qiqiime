@@ -180,7 +180,7 @@ ctest --preset x86-release --output-on-failure
 
 - **保留超时排查日志**：完整 `QiQiTsfUiTest` 和定向 `QiQiCompositionLifecycleTest` 使用 [`TsfTestTrace`](../tests/ime/tsf/test_trace.h)，每次运行写入独立文件并同步输出阶段到 stderr。CTest 下分别保存在 `build\x64\tests\ime\test-logs` 与 `build\x86\tests\ime\test-logs`；直接启动 EXE 时保存在当前工作目录的 `test-logs`。文件名含模式、UTC 时间、PID 和单调时钟，追加打开，不覆盖旧文件、不自动清理；删除构建目录前请先备份需要保留的日志。
 - **阶段与失败证据**：全量/定向分别记录 30/25 个阶段的 `BEGIN`/`END`、单调时钟/耗时、线程和 Shift/Ctrl/Alt/CapsLock 原始状态；包含组合组件、服务按键、准备、布局、清理、原生 TSF 及焦点性能阶段。每行立即 flush，超时或 abort 后可从最后一个未配对的 `BEGIN` 缩小范围。[`共享断言`](../tests/common/test_support.h) 同时保留失败文件/行号/表达式与失败后采样的修饰键状态；不记录输入文本，不修改/清除按键状态。这些采样不是导致历史失败的直接证明。
-- **逐测试函数耗时**：[`TsfTestCaseTrace`](../tests/ime/tsf/test_trace.h) 为具名测试函数及子套件记录 `CASE-BEGIN`/`CASE-END`，包含单调时钟、毫秒耗时、线程、修饰键及异常展开标志；在函数其他局部对象析构后结束计时。嵌套调用分别计时，不把每个断言或矩阵循环迭代单独视作测试；最后未配对的开始记录可定位未返回的函数。未启用保留日志的专项诊断/ETW 模式不输出这些记录。
+- **逐测试函数耗时**：[`TsfTestCaseTrace`](../tests/ime/tsf/test_trace.h) 为具名测试函数及子套件记录 `CASE-BEGIN`/`CASE-END`，包含单调时钟、毫秒耗时、线程、修饰键及异常展开标志；在函数其他局部对象析构后结束计时。嵌套调用分别计时，不自动为每个断言或矩阵迭代建记录；激活边界矩阵另显式记录 54 行的边界/动作/宿主失败标签与计时。最后未配对的开始记录可定位未返回的函数。未启用保留日志的专项诊断/ETW 模式不输出这些记录。
 - **60 秒无完成结果自动取证**：CTest 测试 5/6 经 [`test_watchdog.ps1`](../tests/ime/test_watchdog.ps1) 启动，只有新出现的 `CASE-END` 才重置无进展计时；持续 60 秒没有测试完成结果时，用对应架构的 SDK `cdb` 对本次启动的 PID 收集一次 `.dump /ma`。进程执行上限仍为 90 秒，CTest 外层超时为 150 秒以预留诊断时间；cdb 抓取最多 15 秒且不超过剩余执行预算，离线分析最多 30 秒。两个测试均 `RUN_SERIAL`。直接运行 EXE 只有日志，没有 watchdog；不要直接运行故意挂起的 `--test-hang-diagnostics-probe`，应通过脚本的 `-Mode probe` 验证。
 - **匹配符号与分析留存**：Release 测试目标保留优化并启用 `/Zi`、`/DEBUG:FULL`，PDB 分别位于 `build\x64\Release\qiqi_tsf_ui_test.pdb`、`build\x86\Release\qiqi_tsf_ui_test.pdb`，不能拿旧 Debug PDB 分析 Release dump。配置测试需已安装 PowerShell 和对应架构的 Windows SDK Debugging Tools；缺失时明确失败。每次 watchdog 保留独立 stdout/stderr；挂起时额外保留 dump、匹配 EXE/PDB 副本、cdb 命令文件、抓取和分析输出。自动执行 `.reload /f`、`!analyze -hang`、`~* kv` 及测试模块符号信息，并检查私有测试符号已加载；缺少系统符号时明确告警，自动分类可能不完整，但仍保留线程栈供人工分析。不配置外部符号服务器，不上传 dump；完整内存 dump 可能含敏感数据，只在本地保管，删除构建目录前一并备份。
 - **诊断也不能静默失败**：文件创建/写入、符号缺失、cdb 失败及超时明确报错，不伪装测试成功；只终止自己启动的测试/debugger PID。其他测试 EXE 保持 stderr 失败诊断，不自动生成 TSF 日志。stderr/镜像/写失败报告、计时嵌套/异常展开/禁用模式均有回归覆盖；阶段和逐函数日志作为常规诊断保留，不覆盖、不自动清理，也不改变既有断言。
@@ -757,3 +757,11 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **补 191 组组件回归**：[`目标测试`](../tests/ime/comp/target.cpp) 新增 64 组身份比较、123 组 top/base 结果/目标形状/失效与空入口、4 组正常/异常释放回归。验证实际 QI 次数与短路、失败后仍执行另一查询、两次原票据复核、不可复制回调及无宿主写入；原准备、真实服务文档与焦点/清理回归保留。
 - **验证记录**：双架构 DLL/测试构建及 CppCoreCheck 通过，自有源码无新增非 C26490 诊断。x64 完整/定向首轮 22.25s / 18.06s，x86 27.37s / 19.01s；仅补 QI 观察/断言后，相关定向最终 x64 18.23s、x86 20.58s 再次通过。逐函数日志持续保留，60 秒无完成结果取证及 90 秒进程/150 秒 CTest 预算不变，无超时；不把这次通过视作已修复历史偶发挂起。
 - **边界**：已检查 RAII、DRY、Core Guidelines/GSL 与缺失覆盖；未改 FSM、宿主调度、定位或显示许可，未制作 MSI 或新增真实宿主验收。整体 R05 保持未完成，剩余激活/停用与整体协调边界应按验收项收口，不再以增加微小包装函数作为完成标准。
+
+### 5.60 TSF 激活取消与生命周期代码收口（R05 第四十二步）
+
+- **先复现入口缺口再修复**：最小服务测试证实 `PreserveKey` 重入 `Deactivate` 后，旧外层激活仍成功，x64 定向 7.02s 在新增断言失败。用户同意将此路径定义为取消：激活中拒绝嵌套激活（`E_UNEXPECTED`），停用令外层最终返回 `E_ABORT`；正常必需登记失败保留 `E_FAIL`，原宿主/清理 HRESULT 独立诊断。
+- **完成登记所有权后统一清理**：[`激活/停用实现`](../src/ime/tsf/tip_service.cpp) 用 RAII 恢复过渡标志，自身强引用跨越回调、清理和标志恢复。取消立即关闭活跃/UI 许可并失效票据，重复取消幂等；当前登记协议返回并记录 cookie/key/provider/item/compartment 所有权后，使用仍有效的 manager/client ID 执行原停用。后续初始化、preserved key 和 [`compartment 绑定/写入`](../src/ime/tsf/tip_config.cpp) 停止，不将迟到成功当作激活成功。C++ 异常仍传播，测试验证显式停用后可重试。
+- **57 组交接覆盖**：[`服务窗口/生命周期测试`](../tests/ime/tsf/service_windows.cpp) 新增 16 个登记/读写点与嵌套激活、取消/重复取消、必需登记失败共 54 组，另有异常恢复及两个释放最后调用方引用的场景。验证每个实际成功登记只清理一次、取消后不吃键或继续写 compartment、新激活可重新输入；矩阵每行单独计时，原日志和 dump 均保留。
+- **验证记录**：双架构 DLL/测试构建及 CppCoreCheck 通过，自有源码无新增非 C26490 诊断。首轮 x64 完整/定向在新增固定解除次数预期失败（14.85s / 12.69s）；提前取消尚未登记 key sink，改为核对实际成功登记数，未修改生产行为。最终 x64 完整/定向 22.90s / 18.56s、x86 25.08s / 18.71s 通过，无超时；90 秒进程上限、150 秒外层预算及保留证据策略不变。
+- **明确收口而非无限拆分**：非取消路径的完整配置/服务实现逆向归一与原宿主顺序一致，原 COM 成员顺序保持；有意新增的行为仅为过渡门禁/取消、必要自身保活及失败诊断。RAII、复用、Core Guidelines/GSL 和覆盖检查完成，FSM、焦点版本、中英更新顺序、定位及显示许可不变。R05 代码边界及双架构自动验收已收口，整体勾选仍待既定真实宿主人工验收；不再计划微小包装或万能协调器，未制作 MSI。

@@ -99,13 +99,16 @@ void QiQiTextService::InitCompartmentSinks() {
     ComPtr<ITfCompartmentMgr> thread_comp_mgr;
     if (log::CheckHResult(thread_mgr_.As(&thread_comp_mgr),
                          "InitCompartmentSinks::QueryInterface(ITfCompartmentMgr)") && thread_comp_mgr) {
+        if (activation_cancelled_) return;
         if (!openclose_comp_.Bind(thread_comp_mgr.Get(), GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, sink)) {
             QIQI_LOG_WARN("InitCompartmentSinks: failed to bind GUID_COMPARTMENT_KEYBOARD_OPENCLOSE");
         }
+        if (activation_cancelled_) return;
         if (!convmode_comp_.Bind(thread_comp_mgr.Get(), GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION, sink)) {
             QIQI_LOG_WARN("InitCompartmentSinks: failed to bind GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION");
         }
     }
+    if (activation_cancelled_) return;
 
     // 2. Bind process-wide TSF Global Compartments for config/dict broadcast & status bar position
     ComPtr<ITfCompartmentMgr> global_mgr;
@@ -113,10 +116,13 @@ void QiQiTextService::InitCompartmentSinks() {
                           "InitCompartmentSinks::GetGlobalCompartment", log::Level::debug) || !global_mgr) {
         return;
     }
+    if (activation_cancelled_) return;
     if (!global_config_comp_.Bind(global_mgr.Get(), kGuidCompartmentConfigVersion, sink)) {
         QIQI_LOG_WARN("InitCompartmentSinks: failed to bind kGuidCompartmentConfigVersion");
     }
+    if (activation_cancelled_) return;
     if (global_pos_comp_.Bind(global_mgr.Get(), kGuidCompartmentStatusBarPos, sink)) {
+        if (activation_cancelled_) return;
         SyncStatusBarPositionFromGlobalCompartment();
     } else {
         QIQI_LOG_WARN("InitCompartmentSinks: failed to bind kGuidCompartmentStatusBarPos");
@@ -437,9 +443,10 @@ void QiQiTextService::SyncTsfCompartments() {
         service_log_id_, shift_tap_.Sequence(), engine_.IsChineseMode(), thread_mgr_ != nullptr,
         client_id_ != TF_CLIENTID_NULL, syncing_compartments_, langbar_btn_ != nullptr,
         static_cast<bool>(openclose_comp_), static_cast<bool>(convmode_comp_));
+    if (activation_cancelled_) return;
     UpdateUiIndicators();
 
-    if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL || syncing_compartments_) {
+    if (!thread_mgr_ || client_id_ == TF_CLIENTID_NULL || syncing_compartments_ || activation_cancelled_) {
         return;
     }
     syncing_compartments_ = true;
@@ -457,6 +464,7 @@ void QiQiTextService::SyncTsfCompartments() {
             "SyncTsfCompartments(service={}, attempt={}, compartment=openclose, value={}, hr=0x{:08x})",
             service_log_id_, shift_tap_.Sequence(), value, gsl::narrow_cast<unsigned int>(hr));
     }
+    if (activation_cancelled_) return;
 
     LONG conv_mode = 0;
     if (engine_.IsChineseMode()) {

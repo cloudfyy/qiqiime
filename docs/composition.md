@@ -400,6 +400,28 @@ later presentation checks still decide whether UI work may continue.
 
 ## 4. Deactivation Algorithm and Request Results
 
+During an in-flight `ActivateEx`, deactivation first cancels that attempt rather
+than dismantling a half-published registration. It marks application state
+inactive, disables UI presentation, and invalidates the activation epoch.
+Repeated cancellation is idempotent. The current registration protocol may
+publish its result, so ownership of a successful late sink, preserved key,
+function provider, language-bar item or compartment subscription is recorded.
+Activation then stops before the next setup stage and runs the normal teardown
+below with the original manager and client ID still available. The outer
+activation reports `E_ABORT`; a failing host call and any cleanup failure retain
+their own HRESULT diagnostics. Cancellation during compartment synchronization
+also stops subsequent writes.
+
+Accepted activation holds the service itself until activity and transition
+guards have unwound, including when a host callback releases the last caller
+reference. Nested activation returns `E_UNEXPECTED`; normal required-sink
+initialization failure still returns `E_FAIL`. The activation/cancellation flags
+restore on every exit. A C++ exception is not swallowed or converted into a
+successful activation; recovery tests explicitly deactivate before retrying.
+Normal, uncancelled registration order and optional-failure policies are
+unchanged. Activation/deactivation, focus/configuration policy and real engine/UI
+side effects intentionally remain in the COM facade, not a universal event queue.
+
 1. Set `deactivating_`, invalidate application activation state, and increment the activation epoch.
 2. Transfer the current composition into independent state, capturing the old context, range, and diagnostic IDs.
 3. Request `TF_ES_SYNC | TF_ES_READWRITE`. The callback clears the display attribute first, then calls `EndComposition` on the old composition.
@@ -608,7 +630,7 @@ Duplicate old notifications do not clear attributes again. The host notification
 ## 6. Reentrancy Rules
 
 - Reentrant `Deactivate` during deactivation returns `S_OK` and logs `deactivate-reentrant`. It must not move the composition or release resources again.
-- Reentrant `ActivateEx` during deactivation returns the actual `E_UNEXPECTED` and logs the failure. Normal activation is allowed only after the outer deactivation completes.
+- Reentrant `ActivateEx` during activation or deactivation returns the actual `E_UNEXPECTED` and logs the failure. `Deactivate` during activation requests cancellation; the outer activation drains its current registration, tears down and returns `E_ABORT`. Normal activation is allowed after that outer transition completes.
 - Attribute clearing and composition termination can both trigger COM reentrancy. Do not blindly operate on the service's current state after either call. Independent cleanup always uses old captured state.
 - RAII resets `deactivating_` and sets `finished` when the callback exits. Do not introduce message-pump waits, background threads, or host edit API calls without a valid write cookie.
 - Context reset and input binding have their own RAII guards. Reentrant input during either transition is not consumed, and activation during a lifecycle transition returns `E_UNEXPECTED`. A notification during document queries or layout-sink registration invalidates the outer attempt; it cannot bind a stale target or publish an orphaned subscription.

@@ -113,13 +113,20 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     if (!ptim) {
         return E_INVALIDARG;
     }
-    if (deactivating_ || composition_lifecycle_.IsResettingContext() || preparing_input_context_) {
+    if (activating_ || deactivating_ || composition_lifecycle_.IsResettingContext() || preparing_input_context_) {
         QIQI_LOG_CAT_WARN(
             log::Keyword::Lifecycle,
             "ActivateEx: activation during lifecycle transition rejected (hr=0x{:08x})",
             gsl::narrow_cast<unsigned int>(E_UNEXPECTED));
         return E_UNEXPECTED;
     }
+    const ComPtr<QiQiTextService> self_holder(this);
+    activating_ = true;
+    activation_cancelled_ = false;
+    const auto finish_activation = gsl::finally([this]() noexcept {
+        activating_ = false;
+        activation_cancelled_ = false;
+    });
     composition_lifecycle_.SetActive(false);
     composition_lifecycle_.InvalidateActivation();
     std::ignore = log::EnsureInitialized();
@@ -145,25 +152,47 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
         tid,
         dwFlags);
 
-    if (!InitThreadMgrEventSink() || !InitKeyEventSink()) {
+    const auto cancel_activation = [this, &act_id]() -> HRESULT {
+        QIQI_LOG_ACT_STOP(
+            log::Level::warn,
+            log::Keyword::Lifecycle,
+            &act_id,
+            "QiQiTextService::ActivateEx cancelled by Deactivate (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(E_ABORT));
+        activating_ = false;
+        std::ignore = log::CheckHResult(Deactivate(), "ActivateEx::Deactivate(cancelled)");
+        return E_ABORT;
+    };
+    if (activation_cancelled_) return cancel_activation();
+    const bool sinks_ready = InitThreadMgrEventSink() && !activation_cancelled_ && InitKeyEventSink();
+    if (activation_cancelled_) return cancel_activation();
+    if (!sinks_ready) {
         QIQI_LOG_ACT_STOP(
             log::Level::err,
             log::Keyword::Lifecycle,
             &act_id,
             "QiQiTextService::ActivateEx failed to initialize TSF event sinks");
-        Deactivate();
+        activating_ = false;
+        std::ignore = log::CheckHResult(Deactivate(), "ActivateEx::Deactivate(failed)");
         return E_FAIL;
     }
     RegisterCompositionDisplayAttributeAtom();
+    if (activation_cancelled_) return cancel_activation();
     InitFunctionProvider();
+    if (activation_cancelled_) return cancel_activation();
     InitLangBarItem();
+    if (activation_cancelled_) return cancel_activation();
     InitCompartmentSinks();
+    if (activation_cancelled_) return cancel_activation();
     if (engine_.MappedDictionaryCount() == 0) {
         LoadExternalDictionaryNextToDll();
     }
+    if (activation_cancelled_) return cancel_activation();
     composition_lifecycle_.SetActive(true);
     SetUiPresentationEnabled(true);
+    if (activation_cancelled_) return cancel_activation();
     SyncTsfCompartments();
+    if (activation_cancelled_) return cancel_activation();
     QIQI_LOG_ACT_STOP(
         log::Level::debug,
         log::Keyword::Lifecycle,
@@ -177,6 +206,22 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
 }
 
 STDMETHODIMP QiQiTextService::Deactivate() {
+    if (activating_) {
+        if (!activation_cancelled_) {
+            activation_cancelled_ = true;
+            composition_lifecycle_.SetActive(false);
+            SetUiPresentationEnabled(false);
+            composition_lifecycle_.InvalidateActivation();
+            QIQI_LOG_ACT_INFO(
+                log::Level::debug,
+                log::Keyword::Lifecycle,
+                &current_lifecycle_activity_,
+                "TsfLifecycle(service={}, stage=activation-cancel-requested, activation={})",
+                service_log_id_, composition_lifecycle_.Epoch().activation);
+        }
+        // Let the in-flight registration publish its ownership before teardown.
+        return S_OK;
+    }
     if (deactivating_) {
         QIQI_LOG_ACT_INFO(
             log::Level::debug,
@@ -266,6 +311,7 @@ bool QiQiTextService::InitKeyEventSink() {
                           "InitKeyEventSink::QueryInterface(ITfKeystrokeMgr)", log::Level::err) || !key_mgr) {
         return false;
     }
+    if (activation_cancelled_) return false;
     const HRESULT hr = key_mgr->AdviseKeyEventSink(client_id_, sink, TRUE);
     if (FAILED(hr)) {
         QIQI_LOG_ERROR("InitKeyEventSink: AdviseKeyEventSink failed (hr=0x{:08x})",
@@ -273,6 +319,7 @@ bool QiQiTextService::InitKeyEventSink() {
         return false;
     }
     key_event_sink_registered_ = true;
+    if (activation_cancelled_) return false;
 
     for (const auto& def : kPreservedKeys) {
         const TF_PRESERVEDKEY pk{def.vkey, def.modifiers};
@@ -280,9 +327,7 @@ bool QiQiTextService::InitKeyEventSink() {
             client_id_, *def.guid, &pk, def.desc, gsl::narrow_cast<ULONG>(std::wcslen(def.desc)));
         if (SUCCEEDED(pk_hr)) {
             registered_preserved_keys_.push_back({*def.guid, pk});
-            continue;
-        }
-        if (pk_hr == TF_E_ALREADY_EXISTS) {
+        } else if (pk_hr == TF_E_ALREADY_EXISTS) {
             QIQI_LOG_WARN("InitKeyEventSink: PreserveKey(vkey=0x{:02X}, mod=0x{:X}) already registered; "
                           "skipping ownership (hr=0x{:08x})",
                           def.vkey, def.modifiers, gsl::narrow_cast<unsigned int>(pk_hr));
@@ -290,6 +335,7 @@ bool QiQiTextService::InitKeyEventSink() {
             QIQI_LOG_WARN("InitKeyEventSink: PreserveKey(vkey=0x{:02X}, mod=0x{:X}) failed (hr=0x{:08x})",
                           def.vkey, def.modifiers, gsl::narrow_cast<unsigned int>(pk_hr));
         }
+        if (activation_cancelled_) return false;
     }
     return true;
 }
@@ -334,7 +380,7 @@ void QiQiTextService::InitFunctionProvider() {
     }
     ComPtr<ITfSourceSingle> source_single;
     if (log::CheckHResult(thread_mgr_.As(&source_single),
-                         "InitFunctionProvider::QueryInterface(ITfSourceSingle)") && source_single) {
+                         "InitFunctionProvider::QueryInterface(ITfSourceSingle)") && source_single && !activation_cancelled_) {
         ITfFunctionProvider* const provider = this;
         function_provider_registered_ = log::CheckHResult(
             source_single->AdviseSingleSink(client_id_, IID_ITfFunctionProvider, provider),
@@ -361,7 +407,8 @@ void QiQiTextService::InitLangBarItem() {
         return;
     }
     ComPtr<ITfLangBarItemMgr> lb_mgr;
-    if (log::CheckHResult(thread_mgr_.As(&lb_mgr), "InitLangBarItem::QueryInterface(ITfLangBarItemMgr)") && lb_mgr) {
+    if (log::CheckHResult(thread_mgr_.As(&lb_mgr), "InitLangBarItem::QueryInterface(ITfLangBarItemMgr)") &&
+        lb_mgr && !activation_cancelled_) {
         langbar_item_added_ = log::CheckHResult(lb_mgr->AddItem(langbar_btn_.Get()), "InitLangBarItem::AddItem");
     }
 }
