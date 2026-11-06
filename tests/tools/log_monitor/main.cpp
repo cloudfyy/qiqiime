@@ -100,8 +100,10 @@ void CheckComboEditFont(HWND combo, UINT dpi) {
     QIQI_TEST_CHECK(metrics.tmHeight <= rect.bottom - rect.top);
 }
 
-void TestMenusAndToolbar() {
+void TestMenusAndToolbar(const RECT& work_area) {
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{work_area, 96});
     const auto restore = gsl::finally([]() noexcept {
+        SetMonitorMetricsOverrideForTest(std::nullopt);
         SetThemeDarkOverrideForTest(std::nullopt);
         SetHighContrastOverrideForTest(std::nullopt);
         MSG message{};
@@ -1279,7 +1281,8 @@ int wmain(int argc, wchar_t* argv[]) {
     TestExport();
     TestAboutDialogs();
     TestWindowAndVersion();
-    TestMenusAndToolbar();
+    TestMenusAndToolbar({0, 0, 3840, 2160});
+    TestMenusAndToolbar({0, 0, 1024, 728});
     TestDesktopIntegration();
     std::cout << "[PASS] Log monitor model, GUI and version tests\n";
     return 0;

@@ -184,22 +184,26 @@ void MonitorWindow::Impl::Layout() noexcept {
         ::MoveWindow(Child(id), x, y, std::max(1, w), std::max(1, h), TRUE);
     };
     int filter_top = command_ui.LayoutToolbar(Child(Toolbar), width, theme) + s(12);
-    move(ProcessLabel, s(12), filter_top + s(4), s(60), s(24));
-    move(Process, s(76), filter_top, s(150), s(240));
-    move(PidLabel, s(236), filter_top + s(4), s(28), s(24));
-    move(Pid, s(268), filter_top, s(82), s(240));
-    move(LevelLabel, s(360), filter_top + s(4), s(44), s(24));
-    move(Level, s(408), filter_top, s(110), s(240));
-    move(CategoryLabel, s(528), filter_top + s(4), s(72), s(24));
-    move(Category, s(604), filter_top, s(126), s(240));
-    if (width < s(1100)) {
-        filter_top += s(38);
-        move(SearchLabel, s(12), filter_top + s(4), s(68), s(24));
-        move(Search, s(84), filter_top, width - s(96), s(28));
-    } else {
-        move(SearchLabel, s(740), filter_top + s(4), s(68), s(24));
-        move(Search, s(812), filter_top, width - s(824), s(28));
-    }
+    int filter_left = s(12);
+    const auto place_filter = [&](ControlId label, ControlId input, int label_width, int input_width,
+                                  bool fill_row = false) noexcept {
+        const int label_px = s(label_width);
+        const int input_px = s(input_width);
+        if (filter_left > s(12) && filter_left + label_px + s(4) + input_px > width - s(12)) {
+            filter_left = s(12);
+            filter_top += s(38);
+        }
+        move(label, filter_left, filter_top + s(4), label_px, s(24));
+        const int input_left = filter_left + label_px + s(4);
+        move(input, input_left, filter_top,
+             fill_row ? width - s(12) - input_left : input_px, s(fill_row ? 28 : 240));
+        filter_left = input_left + input_px + s(10);
+    };
+    place_filter(ProcessLabel, Process, 60, 150);
+    place_filter(PidLabel, Pid, 28, 82);
+    place_filter(LevelLabel, Level, 44, 110);
+    place_filter(CategoryLabel, Category, 72, 126);
+    place_filter(SearchLabel, Search, 68, 200, true);
     const int top = filter_top + s(42);
     const int detail_limit_px = std::max(s(60), gsl::narrow_cast<int>(rect.bottom) - top - s(50) - s(60));
     detail_limit = std::max(60, gsl::narrow_cast<int>(

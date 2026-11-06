@@ -1225,6 +1225,7 @@ void TestEditorState() {
 }
 
 void TestInlineEditing() {
+    const auto restore_monitor = gsl::finally([]() noexcept { SetMonitorMetricsOverrideForTest(std::nullopt); });
     const auto temp_dir =
         std::filesystem::temp_directory_path() / (L"qiqi_dict_inline_" + std::to_wstring(::GetCurrentProcessId()));
     std::filesystem::create_directories(temp_dir);
@@ -1470,6 +1471,7 @@ void TestInlineEditing() {
     QIQI_TEST_CHECK((::SendMessageW(Child(window, EditWordInput), WM_GETDLGCODE, VK_ESCAPE, 0) & DLGC_WANTMESSAGE) !=
                     0);
 
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{{0, 0, 3840, 2160}, 96});
     for (const UINT dpi : {96u, 120u, 144u, 192u}) {
         RECT rect{0, 0, ScalePxByDpi(1020, dpi), ScalePxByDpi(680, dpi)};
         ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rect));
@@ -1486,6 +1488,28 @@ void TestInlineEditing() {
                 QIQI_TEST_CHECK(ControlText(Child(window, SearchEdit)) == L"abcd");
             }
         }
+    }
+    for (const UINT dpi : {120u, 144u, 192u}) {
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{{0, 0, 1024, 728}, 96});
+        RECT rect{0, 0, ScalePxByDpi(1020, dpi), ScalePxByDpi(680, dpi)};
+        ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rect));
+        RECT client{}, action{};
+        QIQI_TEST_CHECK(::GetClientRect(list, &client));
+#pragma warning(suppress : 26477) // ListView_GetSubItemRect expands to a null-pointer check.
+        QIQI_TEST_CHECK(ListView_GetSubItemRect(list, 0, std::to_underlying(ColumnId::Action), LVIR_BOUNDS, &action));
+        QIQI_TEST_CHECK(action.right > client.right);
+        QIQI_TEST_CHECK(!visible(EditWordInput) && !visible(EditCodeInput) && !visible(InlineSave));
+        QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"行内新词");
+        QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"wxyz" && marked());
+        QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+        QIQI_TEST_CHECK(peer.LookupExact(L"abcd").front() == L"原始词" && peer.LookupExact(L"wxyz").empty());
+
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{{0, 0, 3840, 2160}, 96});
+        ::SendMessageW(window.Handle(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rect));
+        QIQI_TEST_CHECK(visible(EditWordInput) && visible(EditCodeInput) && visible(InlineSave));
+        QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"行内新词");
+        QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"wxyz" && marked());
+        check_position(0);
     }
     SetThemeDarkOverrideForTest(std::nullopt);
     QIQI_TEST_CHECK(peer.AddUserEntry(L"aaaa", L"外部新增词"));
