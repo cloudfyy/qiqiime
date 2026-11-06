@@ -10,9 +10,9 @@
 
 | 工具 / 组件 | 版本与配置要求 |
 |---|---|
-| **操作系统** | Windows 10（1809+）或 Windows 11 (`x64`) |
+| **操作系统** | Windows 11 (`x64`) |
 | **Visual Studio / MSVC** | 默认预设使用 Visual Studio 2026，安装 **“使用 C++ 的桌面开发”** 工作负载、MSVC `x64/x86` 编译器与 `CppCoreCheck`；项目使用 `/std:c++latest` 草案模式，不表示完整实现 C++26。VS 2022 等其他版本需选择相应生成器并验证实际代码兼容性 |
-| **Windows SDK** | Windows 10 / 11 SDK（`10.0.22621.0` 或 `10.0.26100.0` 及以上，提供 `<msctf.h>`、`<ctffunc.h>`、`<d2d1.h>`、`<dwrite.h>`） |
+| **Windows SDK** | Windows SDK（`10.0.22621.0` 或 `10.0.26100.0` 及以上，提供 `<msctf.h>`、`<ctffunc.h>`、`<d2d1.h>`、`<dwrite.h>`） |
 | **CMake** | **`4.4.4` 或更高版本**；默认使用 VS 2026 预设 |
 | **vcpkg** | Visual Studio 内置 vcpkg 或通过 `VCPKG_ROOT` 环境变量指定（Manifest 模式自动安装 `ms-gsl`） |
 | **PowerShell** | Windows PowerShell 5.1 或 PowerShell 7+（用于运行构建、注册与打包脚本） |

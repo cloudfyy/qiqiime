@@ -1,6 +1,6 @@
 # 奇奇五笔 (QiQiIME) 部署、安装与运维指南
 
-本文档介绍如何在 Windows 10 / 11 环境中部署、安装（注册）、打包分发、升级与卸载 **奇奇五笔输入法（QiQiIME）**。
+本文档介绍如何在 Windows 11 x64 环境中部署、安装（注册）、打包分发、升级与卸载 **奇奇五笔输入法（QiQiIME）**。
 
 文档核对日期：**2026-11-06**。当前开发分支已完成 R05 代码与自动验收，但不表示已重新生成或发布安装包，也不覆盖之前的真实宿主反馈。注册/更新前备份用户数据，更新后按[重构后人工清单](hosts.md#11-r05-重构后人工验收2026-11-06-待执行)确认实际加载身份和行为；未完成的安装、升级、卸载验收仍需单独执行。
 
@@ -8,7 +8,7 @@
 
 ## 1. 运行环境要求
 
-- **操作系统与架构**：目标平台为 Windows 10 / 11；当前双架构发行包及 MSI 面向 `x64` Windows，`x86` DLL 用于其中的 32 位 WOW64 宿主。Windows 11 没有 32 位系统版本，项目也未提供原生 ARM64 DLL；这些构建目标不等于所有系统/宿主组合均已验证。
+- **操作系统与架构**：目标平台为 Windows 11 x64；当前双架构发行包及 MSI 面向该平台，`x86` DLL 仅用于其中的 32 位 WOW64 宿主，不代表支持 32 位操作系统。项目未提供原生 ARM64 DLL，其他操作系统未纳入兼容性承诺；这些构建目标不等于所有宿主组合均已验证。
 - **运行库**：Release 构建采用 `/MT` 静态链接 MSVC CRT，不需要额外安装 VC++ Redistributable；这不等于没有系统 DLL 或运行环境依赖。
 - **系统组件**：依赖 Windows TSF（`msctf.dll`）、Direct2D / DirectWrite 等系统组件。
 - **权限要求**：
@@ -98,13 +98,13 @@ powershell -ExecutionPolicy Bypass -File "C:\Program Files\QiQiIME\scripts\regis
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
-本次 1.0-RC1 的 GitHub 标签为 `v1.0.0-rc.1`，程序、MSI 和文件名的内部数字版本为 `0.99.0`；候选版不使用正式版的 `1.0.0`，以保留后续 MSI 升级顺序。GitHub Release 标记为 Pre-release，不作为正式最新版。已知限制及未完成验收见 [README](../README.md#10-rc1-预发布)。
+已发布的 1.0-RC1 GitHub 标签为 `v1.0.0-rc.1`，该版本的程序、MSI 和文件名使用内部数字版本 `0.99.0`；候选版不使用正式版的 `1.0.0`，以保留后续 MSI 升级顺序。GitHub Release 标记为 Pre-release，不作为正式最新版。当前源码补丁版本为 `0.99.1`，不表示该 Release 或发行文件已更新。已知限制及未完成验收见 [README](../README.md#10-rc1-预发布)。
 
 生成的产物位于 `dist\`，文件名使用项目内部数字版本号：
 
-- **`dist\QiQiIME-v0.99.0-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
-- **`dist\QiQiIME-v0.99.0-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
-- **`dist\QiQiIME-v0.99.0-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
+- **`dist\QiQiIME-v0.99.1-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
+- **`dist\QiQiIME-v0.99.1-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
+- **`dist\QiQiIME-v0.99.1-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
 
 MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个工具入口，均启动安装目录下的 x64 程序，快捷方式不主动请求管理员权限：
 
@@ -121,7 +121,7 @@ MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个�
 日志采集若遇到权限不足，需按[日志监控指南](log.md)单独提升监控工具或配置 ETW 权限，不要提升输入法宿主。入口与中英文资源的静态回归检查已纳入 `QiQiInstallerShortcutsTest`；该检查不安装产品，不能替代实际安装、升级和卸载验证。
 
 ```text
-QiQiIME-v0.99.0-win-x64-x86/
+QiQiIME-v0.99.1-win-x64-x86/
 ├── x64/
 │   ├── qiqiime.dll             # 64 位 TSF 输入法组件
 │   ├── QiQiIMESettings.exe     # 64 位独立设置程序

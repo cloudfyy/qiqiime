@@ -2,7 +2,7 @@
 
 ## 1. 背景概述
 
-Windows 10 / 11 的部分应用进程运行在 AppContainer 中。不能仅凭 Microsoft Store 来源、MSIX 打包、应用名称或低完整性级别认定某个进程属于 AppContainer；应检查实际承载输入法的进程令牌和宿主条件。
+Windows 11 的部分应用进程运行在 AppContainer 中。不能仅凭 Microsoft Store 来源、MSIX 打包、应用名称或低完整性级别认定某个进程属于 AppContainer；应检查实际承载输入法的进程令牌和宿主条件。
 
 QiQiIME 是 TSF 进程内 COM 组件。在允许加载该输入法的宿主中，`qiqiime.dll` 遵循承载进程的访问权限；文件、注册表、内存映射和通知接口不能绕过宿主的安全边界。以下区分已实现机制、访问失败时的回退和仍需实测的兼容范围，不把机制存在等同于所有沙箱可用。
 

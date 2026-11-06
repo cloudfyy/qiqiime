@@ -220,7 +220,7 @@ Write-Host "输出文件：$traceFile"
 
 ## 5. 在 WPA 中读取 ETL
 
-安装 Windows ADK 中的 **Windows Performance Toolkit**，使用支持 TraceLogging 的 Windows 10/11 版本 **Windows Performance Analyzer（WPA）**。
+安装 Windows ADK 中的 **Windows Performance Toolkit**，使用可在 Windows 11 上运行且支持 TraceLogging 的 **Windows Performance Analyzer（WPA）**。
 
 1. 启动 WPA，选择 **File → Open**，打开第 4 节生成的 `.etl`。
 2. 在 **Graph Explorer** 中展开 **System Activity**。
