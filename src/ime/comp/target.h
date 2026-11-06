@@ -9,7 +9,7 @@
 
 namespace qiqi {
 
-// Entry gates and activity restoration remain in the service; borrowed slots must outlive this call.
+// Borrowed slots must outlive this synchronous call.
 template <typename Reset, typename IsCurrent>
 [[nodiscard]] bool PrepareCompositionTarget(
     gsl::not_null<ITfContext*> context, CompositionLifecycleState& state,
@@ -52,6 +52,29 @@ template <typename Reset, typename IsCurrent>
         return false;
     }
     return true;
+}
+
+template <typename Prepare>
+[[nodiscard]] bool EnterCompositionTargetPreparation(
+    ITfContext* context, const CompositionLifecycleState& state,
+    const ITfContext* preparing_context, GUID& activity,
+    uint64_t service_id, Prepare prepare) {
+    if (!context || !state.IsActive() || state.IsResettingContext() || preparing_context) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::trace,
+            log::Keyword::Lifecycle,
+            &activity,
+            "TsfLifecycle(service={}, stage=input-target-unavailable)",
+            service_id);
+        return false;
+    }
+    if (state.Context().Get() == context) return true;
+    const GUID prepare_act_id = log::CreateActivityId();
+    const GUID prev_act = std::exchange(activity, prepare_act_id);
+    const auto restore_act = gsl::finally([&activity, prev_act]() noexcept {
+        activity = prev_act;
+    });
+    return prepare(gsl::not_null<ITfContext*>(context), prepare_act_id);
 }
 
 } // namespace qiqi

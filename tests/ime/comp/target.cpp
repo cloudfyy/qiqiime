@@ -183,6 +183,7 @@ void TestTargetPreparationUnwinding() {
 void RunTsfCompositionTargetTests() {
     TestTargetPreparationBoundaries();
     TestTargetPreparationUnwinding();
+    RunTsfCompositionTargetEntryTests();
 }
 
 } // namespace qiqi::test

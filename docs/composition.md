@@ -38,7 +38,7 @@ the original assignment/move/release operations; they do not bundle a transition
 implicitly invalidate epochs, reset unrelated fields, or call `EndComposition`.
 This includes allowing the original temporary states during reentrant teardown.
 The service still orders invalidation before host calls, owns activation and
-preparation entry gates and the pending preparation context, and decides when to
+the pending preparation context, wires the shared preparation entry protocol, and decides when to
 publish/reset UI.
 The owner stays at the same address for the service lifetime, so live epoch
 references and detached cleanup bookkeeping are not replaced on reactivation.
@@ -80,7 +80,7 @@ The helper synchronously borrows state, caret flag, layout connection and
 callbacks; it retains no service or edit cookie.
 
 [`PrepareCompositionTarget`](../src/ime/comp/target.h) runs the synchronous
-new-target workflow after the service's entry gates and activity switch. It
+new-target workflow after the shared entry gates and activity switch. It
 holds the original context reference and the service's pending-target slot,
 predicts the next context epoch with a null target, invokes the original reset,
 and rechecks the ticket after reset and after `GetDocumentMgr`. Only then does
@@ -93,10 +93,21 @@ the original diagnostics and nonfatal policy when the ticket is still current;
 they do not independently reject input or grant edit permission. A non-null
 document returned with a failure HRESULT is retained just as before. On exit,
 the temporary document releases before the pending-target slot is cleared,
-then the local context holder releases, all before the service restores its
+then the local context holder releases, all before the outer entry helper restores its
 activity. The helper borrows state, pending storage, and sink connections only
 for this call; it does not retain callbacks or an edit cookie. The service keeps
-same-target/unavailable handling and the actual engine/UI reset policy.
+the actual engine/UI reset policy and callback wiring.
+
+[`EnterCompositionTargetPreparation`](../src/ime/comp/target.h) owns the original
+entry sequence: missing/inactive/resetting/preparing targets are rejected with
+the original diagnostic before the same-target fast path. Only a new target
+creates and switches activity ID, invokes the service's original preparation
+callback, and restores the saved activity on all exits. It adds no host operation
+or identity check and preserves the callback's boolean result or exception.
+The pending pointer is non-owning and used only by the initial gate, before any
+host call; the real preparation still owns the pending slot and retained context.
+Nested accepted entry restores its parent's activity, while rejected entry leaves
+activity untouched. Real preparation owners release before activity restoration.
 
 [`CompositionEditTask`](../src/ime/comp/edit.h) owns the captured context, immutable
 result snapshot, original ticket, and activity ID. Its synchronous
@@ -801,6 +812,13 @@ reentrancy cases cross synchronous/deferred execution with same-epoch replacemen
 or context-epoch invalidation; old cleanup cannot modify the replacement.
 Existing reset and state-owner-destruction tests now use the same handoff helper,
 including cleanup executing after the state owner has been destroyed.
+
+The [target-entry tests](../tests/ime/comp/target_entry.cpp) add 48
+active/resetting/preparing/target-kind/preparation-result combinations and four
+normal/failure/exception/nested activity cases. They check unavailable-before-same
+ordering, zero preparation callbacks on gate/fast-path returns, precise activity
+restoration even after callback mutation, preparing-target reentry rejection,
+unchanged state and no extra COM references.
 
 The [target component tests](../tests/ime/comp/target.cpp) add 35 document-result,
 subscription-result, and invalidation-boundary cases plus two exception/resource

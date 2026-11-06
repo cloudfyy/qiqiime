@@ -28,6 +28,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/start_update.cpp
     comp/state.cpp
     comp/target.cpp
+    comp/target_entry.cpp
     comp/termination.cpp
     comp/update.cpp
     tsf/mocks.h

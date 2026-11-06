@@ -136,26 +136,15 @@ bool QiQiTextService::IsEditSessionCurrent(EditSessionTicket ticket) const noexc
 }
 
 bool QiQiTextService::PrepareInputContext(ITfContext* context) {
-    if (!context || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() || preparing_input_context_) {
-        QIQI_LOG_ACT_INFO(
-            log::Level::trace,
-            log::Keyword::Lifecycle,
-            &current_lifecycle_activity_,
-            "TsfLifecycle(service={}, stage=input-target-unavailable)",
-            service_log_id_);
-        return false;
-    }
-    if (composition_lifecycle_.Context().Get() == context) return true;
-    const GUID prepare_act_id = log::CreateActivityId();
-    const GUID prev_act = std::exchange(current_lifecycle_activity_, prepare_act_id);
-    const auto restore_act = gsl::finally([this, prev_act]() noexcept {
-        current_lifecycle_activity_ = prev_act;
-    });
-    return PrepareCompositionTarget(
-        gsl::not_null<ITfContext*>(context), composition_lifecycle_, preparing_input_context_,
-        text_layout_sink_, gsl::not_null<ITfTextLayoutSink*>(this), service_log_id_, prepare_act_id,
-        [this] { ResetCompositionAndUI(); },
-        [this](EditSessionTicket ticket) noexcept { return IsEditSessionCurrent(ticket); });
+    return EnterCompositionTargetPreparation(
+        context, composition_lifecycle_, preparing_input_context_.Get(), current_lifecycle_activity_, service_log_id_,
+        [this](gsl::not_null<ITfContext*> target, const GUID& prepare_act_id) {
+            return PrepareCompositionTarget(
+                target, composition_lifecycle_, preparing_input_context_,
+                text_layout_sink_, gsl::not_null<ITfTextLayoutSink*>(this), service_log_id_, prepare_act_id,
+                [this] { ResetCompositionAndUI(); },
+                [this](EditSessionTicket ticket) noexcept { return IsEditSessionCurrent(ticket); });
+        });
 }
 
 bool QiQiTextService::IsCompositionEditCurrent(
