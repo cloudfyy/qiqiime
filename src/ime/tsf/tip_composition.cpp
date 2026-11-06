@@ -46,26 +46,8 @@ bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
 // ITfCompositionSink: called when the host application forcefully terminates composition
 // (e.g. user clicked elsewhere, switched Excel cell, or DOM re-rendered)
 STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfComposition* pComposition) {
-    if (composition_lifecycle_.Cleanups().HandleTermination(ecWrite, pComposition, current_lifecycle_activity_)) {
-        return S_OK;
-    }
-    if (pComposition && pComposition != composition_lifecycle_.Composition().Get()) {
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::Lifecycle,
-            &current_lifecycle_activity_,
-            "TsfLifecycle(service={}, stage=host-termination-ignored, activation={}, context={})",
-            service_log_id_, composition_lifecycle_.Epoch().activation, composition_lifecycle_.Epoch().context);
-        return S_OK;
-    }
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::Lifecycle,
-        &current_lifecycle_activity_,
-        "TsfLifecycle(service={}, stage=host-terminated-current, activation={}, context={}, has_composition={})",
-        service_log_id_, composition_lifecycle_.Epoch().activation, composition_lifecycle_.Epoch().context, composition_lifecycle_.Composition() != nullptr);
-    return CompleteCurrentCompositionTermination(
-        ecWrite, pComposition, composition_lifecycle_,
+    return HandleCompositionTermination(
+        ecWrite, pComposition, composition_lifecycle_, service_log_id_, current_lifecycle_activity_,
         [this](EditSessionTicket ticket) noexcept { return IsCompositionEditCurrent(ticket, nullptr); },
         [this] { ResetCompositionAndUI(); });
 }

@@ -169,6 +169,7 @@ void TestTerminationCompletionExceptions() {
 void RunTsfCompositionTerminationTests() {
     TestTerminationCompletion();
     TestTerminationCompletionExceptions();
+    RunTsfCompositionTerminationRouteTests();
 }
 
 } // namespace qiqi::test

@@ -30,6 +30,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/target.cpp
     comp/target_entry.cpp
     comp/termination.cpp
+    comp/termination_route.cpp
     comp/update.cpp
     tsf/mocks.h
     tsf/com.cpp

@@ -58,6 +58,32 @@ HRESULT CompleteCurrentCompositionTermination(
     return S_OK;
 }
 
+template <typename IsCurrent, typename Reset>
+HRESULT HandleCompositionTermination(
+    TfEditCookie ec, const ITfComposition* notification, CompositionLifecycleState& state,
+    uint64_t service_id, const GUID& activity, IsCurrent is_current, Reset reset) {
+    if (state.Cleanups().HandleTermination(ec, notification, activity)) {
+        return S_OK;
+    }
+    if (notification && notification != state.Composition().Get()) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Lifecycle,
+            &activity,
+            "TsfLifecycle(service={}, stage=host-termination-ignored, activation={}, context={})",
+            service_id, state.Epoch().activation, state.Epoch().context);
+        return S_OK;
+    }
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Lifecycle,
+        &activity,
+        "TsfLifecycle(service={}, stage=host-terminated-current, activation={}, context={}, has_composition={})",
+        service_id, state.Epoch().activation, state.Epoch().context, state.Composition() != nullptr);
+    return CompleteCurrentCompositionTermination(
+        ec, notification, state, std::ref(is_current), std::ref(reset));
+}
+
 // The caller retains the context/composition and detaches current state in before_end.
 template <typename IsCurrent, typename BeforeEnd>
 void FinishCompositionInSession(

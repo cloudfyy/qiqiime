@@ -215,9 +215,11 @@ empty text does nothing; nonempty text queries the insertion interface, checks
 identity, and inserts without creating a composition, clearing attributes, or
 adjusting selection. Neither helper stores an edit cookie or schedules work.
 
-For the current composition's host-termination notification, the service still
-routes tracked/unrelated notifications and emits the original current-notification
-diagnostic. [`CompleteCurrentCompositionTermination`](../src/ime/comp/finish.h)
+[`HandleCompositionTermination`](../src/ime/comp/finish.h) first gives the cleanup
+coordinator the host-termination notification, then ignores unrelated non-null
+notifications, and emits the original current-notification diagnostic.
+The service retains the COM entry and actual identity/reset callbacks.
+[`CompleteCurrentCompositionTermination`](../src/ime/comp/finish.h)
 then captures the original ticket/context and detaches the old composition
 before querying the host. [`ClearTerminatedCompositionInSession`](../src/ime/comp/finish.h)
 then obtains the old range, clears only its display attribute with the existing
@@ -744,7 +746,7 @@ The existing 91 edit-boundary and four cleanup-reentrancy cases remain intact.
 This stage adds tests, not production behavior: it does not change the existing
 policy for a current failed start with non-null output. The current composition,
 epochs, context/document, and cleanup coordinator now share the state owner
-described above. Cross-stage preparation entry, activation, actual teardown, and UI
+described above. Cross-stage preparation, activation, actual teardown, and UI
 coordination remain in the service; the complete R05 coordinator is unfinished.
 
 The [start/update component tests](../tests/ime/comp/start_update.cpp) add
@@ -773,6 +775,16 @@ Checks lock exact traces, original ticket/cookie, strong references and release
 before the real reset callback, with no host EndComposition or text writes.
 Three range/identity/reset exception cases verify propagation and owner release.
 Original low-level termination and real-service reentrancy matrices remain.
+
+The [termination-route tests](../tests/ime/comp/termination_route.cpp) add 20
+active/inactive combinations with current, null/current, null/empty, missing
+context, unrelated, starting/current, starting/other, scheduled, removed and
+expired weak-record notifications. They verify coordinator-first routing even
+when a starting record overlaps the current slot, duplicate consumption without
+application callbacks or repeated attribute clearing, and deferred delivery
+without ending the already-terminated composition. Checks cover the original
+cookie, identity/reset counts, state/epoch, unchanged text and final COM counts.
+Move-only callbacks are synchronously borrowed by the completion helper.
 
 The [finish-state tests](../tests/ime/comp/finish_state.cpp) add 60 cases:
 commit/cancel and three text shapes (empty, ordinary, embedded null/surrogate pair)
