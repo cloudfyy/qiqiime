@@ -448,6 +448,8 @@ public:
           edit_session_queue_(queue),
           defer_edit_sessions_(queue != nullptr) {}
 
+    void SetDeferredEditSessions(bool enabled) noexcept { defer_edit_sessions_ = enabled; }
+
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override {
         if (!ppvObj) return E_INVALIDARG;
         if (IsEqualIID(riid, IID_ITfInsertAtSelection)) ++query_insert_calls_;
@@ -540,7 +542,7 @@ public:
             in_immediate_write_session_ = previous_write_session;
         });
         *phrSession = pes->DoEditSession(1);
-        return S_OK;
+        return edit_session_request_result_;
     }
     STDMETHODIMP InWriteSession(TfClientId, BOOL* pfWriteSession) noexcept override {
         if (pfWriteSession) *pfWriteSession = TRUE;
@@ -741,7 +743,7 @@ private:
     ULONG ref_ = 1;
     // The external queue holds contexts/sessions; a strong back-reference here would create a COM ownership cycle.
     std::weak_ptr<MockEditSessionQueue> edit_session_queue_;
-    const bool defer_edit_sessions_ = false;
+    bool defer_edit_sessions_ = false;
 };
 
 // Minimal mock ITfThreadMgr + ITfSource + ITfSourceSingle + ITfKeystrokeMgr + ITfUIElementMgr + ITfCompartmentMgr + ITfLangBarItemMgr

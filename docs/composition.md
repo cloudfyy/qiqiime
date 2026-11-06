@@ -308,6 +308,23 @@ Raw rectangles and clipping outputs are unchanged, including zero or inverted
 rectangles. Caret mutation, window movement, GUI/cursor fallback and all
 coordinate/DPI policy remain in the service.
 
+`CompositionLayoutTask` owns the notification context, optional view, ticket and
+activity ID for deferred layout callbacks, but not a service, composition or
+edit cookie. The service retains its original local references and its strong
+callback reference. `ExecuteCompositionLayoutInSession` restores the previous
+activity ID on stale, normal, nested and exceptional exits, and preserves the
+original ticket-check/log/position-update order. Layout tasks deliberately do
+not freeze the composition at notification time: a same-epoch replacement is
+queried as the current composition when the callback runs. The query itself
+then retains and checks that composition as described above.
+
+`RequestCompositionLayoutSession` preserves `TF_ES_ASYNCDONTCARE | TF_ES_READ`,
+the initialized session result, the request-return log and actual HRESULTs.
+Session-result diagnostics run only after a successful request, including
+`S_FALSE`; there is no added retry, write barrier or new queue. The callback
+may run synchronously before the request returns. `OnLayoutChange` still
+returns `S_OK` after diagnostics; that does not certify request or query success.
+
 The shared Win32 destruction helper validates window ownership before calling
 `DestroyWindow`. Wrong-thread calls are rejected and logged with owner/current
 thread IDs; native failures retain the handle for an owner-thread retry and log
@@ -622,6 +639,15 @@ results. Ten [service layout cases](../tests/ime/tsf/service_layout.cpp) inject
 deactivation or reactivation at view/range/extent boundaries, checking exact
 query counts, view routing, replacement-popup isolation and continued input.
 These mock regressions do not certify positioning in real hosts.
+
+The layout session extraction adds another 46 component cases: four
+snapshot/copy/move/resource cases, 22 identity/activity/nesting/exception cases
+and 20 request-result/timing/read-only/abandonment cases. Fourteen additional
+service cases cover twelve deferred current/stale/replacement/abandonment
+combinations and two retained-service execution/abandonment paths after all
+external references are released. They verify notification-view lifetime,
+query counts, current-composition selection, input recovery and final COM
+object-count restoration. Existing query tests remain unchanged.
 
 `QiQiCompositionLifecycleTest` runs composition components and the complete
 service lifecycle/key-flow tests without the standalone popup/candidate/status

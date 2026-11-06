@@ -116,39 +116,19 @@ STDMETHODIMP QiQiTextService::OnLayoutChange(
     ComPtr<QiQiTextService> self_holder(this);
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), ctx_holder.Get()};
     const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
-        [self_holder, ctx_holder, view_holder, ticket, layout_act_id](TfEditCookie ec) -> HRESULT {
-        const GUID prev_act = std::exchange(self_holder->current_lifecycle_activity_, layout_act_id);
-        const auto restore_act = gsl::finally([&self_holder, prev_act]() noexcept {
-            self_holder->current_lifecycle_activity_ = prev_act;
-        });
-        if (!self_holder->IsEditSessionCurrent(ticket)) {
-            return S_OK;
-        }
-        QIQI_LOG_ACT_STOP(
-            log::Level::debug,
-            log::Keyword::UI,
-            &layout_act_id,
-            "CandidatePosition(service={}, stage=layout-callback, activation={}, context={})",
-            self_holder->service_log_id_, ticket.epoch.activation, ticket.epoch.context);
-        self_holder->UpdateCandidateWindowPositionInSession(
-            ec, gsl::not_null<ITfContext*>(ctx_holder.Get()), view_holder);
-        return S_OK;
+        [self_holder, task = CompositionLayoutTask(ctx_holder, view_holder, ticket, layout_act_id)](TfEditCookie ec) -> HRESULT {
+        return ExecuteCompositionLayoutInSession(
+            ec, task, self_holder->current_lifecycle_activity_, self_holder->service_log_id_,
+            [&self_holder](EditSessionTicket expected) noexcept {
+                return self_holder->IsEditSessionCurrent(expected);
+            },
+            [&self_holder](TfEditCookie cookie, gsl::not_null<ITfContext*> context, const ComPtr<ITfContextView>& view) {
+                self_holder->UpdateCandidateWindowPositionInSession(cookie, context, view);
+            });
     });
-    HRESULT session_hr = S_OK;
-    const HRESULT request_hr = pic->RequestEditSession(
-        client_id_, session.Get(), TF_ES_ASYNCDONTCARE | TF_ES_READ, &session_hr);
-    QIQI_LOG_ACT_INFO(
-        log::Level::debug,
-        log::Keyword::UI,
-        &layout_act_id,
-        "CandidatePosition(service={}, stage=layout-request, activation={}, context={}, request_hr=0x{:08x}, session_hr=0x{:08x})",
-        service_log_id_, ticket.epoch.activation, ticket.epoch.context,
-        gsl::narrow_cast<unsigned int>(request_hr), gsl::narrow_cast<unsigned int>(session_hr));
-    const log::LogContext layout_ctx{log::Keyword::UI, log::Opcode::Info, &layout_act_id, nullptr};
-    std::ignore = log::CheckHResult(request_hr, "OnLayoutChange::RequestEditSession", log::Level::debug, layout_ctx);
-    if (SUCCEEDED(request_hr)) {
-        std::ignore = log::CheckHResult(session_hr, "OnLayoutChange::DoEditSession", log::Level::debug, layout_ctx);
-    }
+    RequestCompositionLayoutSession(
+        gsl::not_null<ITfContext*>(pic), gsl::not_null<ITfEditSession*>(session.Get()),
+        client_id_, ticket, service_log_id_, layout_act_id);
     return S_OK;
 }
 
