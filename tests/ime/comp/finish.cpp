@@ -413,6 +413,7 @@ void RunTsfCompositionFinishTests() {
     TestCompositionFinishing();
     TestDirectCompositionCommit();
     TestHostCompositionTermination();
+    RunTsfCompositionFinishStateTests();
 }
 
 } // namespace qiqi::test

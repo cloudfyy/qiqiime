@@ -1,6 +1,8 @@
 #pragma once
 #include "ime/comp/attribute.h"
 #include "ime/comp/range.h"
+#include "ime/comp/state.h"
+#include <functional>
 #include <string_view>
 #include <utility>
 
@@ -80,6 +82,30 @@ void InsertCommittedTextInSession(
     Microsoft::WRL::ComPtr<ITfRange> inserted_range;
     std::ignore = log::CheckHResult(insertion->InsertTextAtSelection(
         ec, 0, text.data(), gsl::narrow_cast<LONG>(text.size()), &inserted_range), "DirectCommit::InsertTextAtSelection");
+}
+
+template <typename IsCurrent>
+void FinishOrInsertCompositionInSession(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, CompositionLifecycleState& state,
+    bool& has_valid_caret_pos, CompositionFinishKind kind, std::wstring_view text, IsCurrent is_current) {
+    const auto composition = state.Composition();
+    const auto current = [&is_current, &composition]() noexcept(noexcept(is_current(composition.Get()))) {
+        return is_current(composition.Get());
+    };
+    if (!composition) {
+        if (kind == CompositionFinishKind::Cancel) {
+            has_valid_caret_pos = false;
+            return;
+        }
+        InsertCommittedTextInSession(ec, context, text, std::ref(current));
+        return;
+    }
+    FinishCompositionInSession(
+        ec, context, composition.Get(), kind, text, std::ref(current),
+        [&state, &has_valid_caret_pos]() noexcept {
+            state.ClearComposition();
+            has_valid_caret_pos = false;
+        });
 }
 
 } // namespace qiqi

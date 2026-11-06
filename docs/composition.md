@@ -157,8 +157,23 @@ selection. Failed or empty range retrieval still permits best-effort termination
 when the original identity is current, as do ordinary property/text/caret failures.
 Invalidation stops the remaining operations at the original check boundaries.
 
-The service retains the original composition strongly and supplies the state
-detachment callback. The helper holds the acquired range through `EndComposition`
+[`FinishOrInsertCompositionInSession`](../src/ime/comp/finish.h) now borrows
+the state owner and caret-validity flag, captures the original strong composition
+reference, and selects those same finish/direct-insertion paths. The service
+keeps its original ticket and identity predicate; every check uses the captured
+composition, never a refreshed state slot. One predicate instance serves all
+synchronous host boundaries, including noncopyable stateful predicates.
+
+With no composition, cancel only clears the caret-validity flag, without a
+ticket check or host call. Commit uses the original direct-insertion helper:
+empty text leaves the caret unchanged, and nonempty text follows its existing
+interface/identity/insert sequence. With a composition, the original pre-end
+callback clears the shared composition first and the caret flag second.
+The workflow adds no post-end state writes, scheduling, cookie retention or
+new identity checks.
+
+The finishing workflow retains the original composition strongly and supplies
+the state detachment callback. The helper holds the acquired range through `EndComposition`
 and performs no additional checks or state changes after detachment/termination.
 This preserves a new composition and caret state created by a reentrant end call,
 including when ending the old composition fails. The separate
@@ -665,6 +680,16 @@ before update, retained references and cleanup's original client ID/edit cookie.
 Four additional exception cases cover post-start identity, update range/identity
 and termination reset; exceptions propagate while original owners release.
 These run through the existing start entry in both full and focused test modes.
+
+The [finish-state tests](../tests/ime/comp/finish_state.cpp) add 60 cases:
+commit/cancel and three text shapes (empty, ordinary, embedded null/surrogate pair)
+cross ten composition states/outcomes. They check exact host/identity traces,
+no-composition behavior, captured identities, range/finish errors, same-epoch
+replacement at range/text/end, pre-end state/caret retirement, and strong
+composition/range reference counts. Eight range/check/text/end exception cases
+verify propagation and unchanged or detached state with original owners released.
+The original low-level finish/direct-insert fault matrices and real-service
+action/handoff regressions remain in both test modes.
 
 The [state tests](../tests/ime/comp/state.cpp) use real reset scopes in the
 56-case identity matrix. Another 36 cases cross active/inactive state,

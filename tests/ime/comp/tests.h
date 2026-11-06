@@ -9,6 +9,7 @@ void RunTsfCompositionRangeTests();
 void RunTsfCompositionStartTests();
 void RunTsfCompositionStartUpdateTests();
 void RunTsfCompositionFinishTests();
+void RunTsfCompositionFinishStateTests();
 void RunTsfCompositionUpdateTests();
 void RunTsfCompositionStateTests();
 void RunTsfCompositionTargetTests();

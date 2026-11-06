@@ -319,37 +319,19 @@ ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
 void QiQiTextService::CommitAndEndCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text) {
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
-    const auto composition = composition_lifecycle_.Composition();
-    const auto is_current = [this, ticket, &composition]() noexcept {
-        return IsCompositionEditCurrent(ticket, composition.Get());
-    };
-    if (composition) {
-        FinishCompositionInSession(
-            ec, context, composition.Get(), CompositionFinishKind::Commit, committed_text, is_current,
-            [this]() noexcept {
-                composition_lifecycle_.ClearComposition();
-                has_valid_caret_pos_ = false;
-            });
-    } else {
-        InsertCommittedTextInSession(ec, context, committed_text, is_current);
-    }
+    FinishOrInsertCompositionInSession(
+        ec, context, composition_lifecycle_, has_valid_caret_pos_, CompositionFinishKind::Commit, committed_text,
+        [this, ticket](const ITfComposition* composition) noexcept {
+            return IsCompositionEditCurrent(ticket, composition);
+        });
 }
 
 void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context) {
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
-    const auto composition = composition_lifecycle_.Composition();
-    if (!composition) {
-        has_valid_caret_pos_ = false;
-        return;
-    }
-    FinishCompositionInSession(
-        ec, context, composition.Get(), CompositionFinishKind::Cancel, {},
-        [this, ticket, &composition]() noexcept {
-            return IsCompositionEditCurrent(ticket, composition.Get());
-        },
-        [this]() noexcept {
-            composition_lifecycle_.ClearComposition();
-            has_valid_caret_pos_ = false;
+    FinishOrInsertCompositionInSession(
+        ec, context, composition_lifecycle_, has_valid_caret_pos_, CompositionFinishKind::Cancel, {},
+        [this, ticket](const ITfComposition* composition) noexcept {
+            return IsCompositionEditCurrent(ticket, composition);
         });
 }
 
