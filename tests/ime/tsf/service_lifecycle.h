@@ -18,6 +18,7 @@ void RunTsfDeferredSessionTests(
     gsl::not_null<ITfKeyEventSink*> key_sink, gsl::not_null<ITfCompositionSink*> comp_sink);
 void RunTsfWriteRequestTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm);
+void RunTsfEditActionTests();
 void RunTsfDocumentLifecycleTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm);
 void RunTsfTargetPreparationTests(

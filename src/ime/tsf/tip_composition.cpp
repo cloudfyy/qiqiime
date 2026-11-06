@@ -271,30 +271,19 @@ HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const Co
         return S_OK;
     }
     const gsl::not_null<ITfContext*> non_null_ctx(ctx_holder.Get());
-    if (result.action == KeyActionType::Cancel) {
-        CancelCompositionInSession(ec, non_null_ctx);
-        if (IsCompositionEditCurrent(ticket, nullptr)) EndCandidateUI();
-        return S_OK;
-    }
-
-    if (result.action == KeyActionType::Commit) {
-        CommitAndEndCompositionInSession(ec, non_null_ctx, result.committed_text);
-        if (!IsCompositionEditCurrent(ticket, nullptr)) return S_OK;
-        if (!result.composition_text.empty()) {
-            // e.g. 5th key auto-committed previous 4-code word and started a new 1-code composition
-            SyncCompositionUIInSession(ec, non_null_ctx, result);
-        } else {
-            EndCandidateUI();
-        }
-        return S_OK;
-    }
-
-    if (result.action == KeyActionType::UpdateState) {
-        SyncCompositionUIInSession(ec, non_null_ctx, result);
-        return S_OK;
-    }
-
-    return S_OK;
+    return ApplyCompositionEditActionInSession(
+        ec, non_null_ctx, result,
+        [this, ticket]() noexcept { return IsCompositionEditCurrent(ticket, nullptr); },
+        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> context) {
+            CancelCompositionInSession(cookie, context);
+        },
+        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> context, const std::wstring& text) {
+            CommitAndEndCompositionInSession(cookie, context, text);
+        },
+        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot) {
+            SyncCompositionUIInSession(cookie, context, snapshot);
+        },
+        [this] { EndCandidateUI(); });
 }
 
 void QiQiTextService::SyncCompositionUIInSession(

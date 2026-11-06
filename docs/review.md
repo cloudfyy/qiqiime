@@ -274,6 +274,19 @@ R05 仍后置；本轮不调整 TSF 生命周期或输入 FSM。
 
 已完成 RAII、DRY、Core Guidelines/GSL 和缺失覆盖检查，未运行其他套件、制作 MSI 或新增真实宿主验收。FSM、请求/清理时序和错误后的引擎策略不变，实际动作/组合/UI 跨阶段协调仍由服务执行，完整 R05 保持未完成。
 
+## 后续实施：R05 第二十四步（编辑动作与 UI 收尾协议）
+
+- **分离动作序列，保留真实副作用。** [`ApplyCompositionEditActionInSession`](../src/ime/comp/edit.h) 处理已通过入口票据和清理屏障的动作快照，保持取消/提交后的空组合身份复核、提交后读取 preedit、同步或结束 UI 的原顺序。服务继续执行取消、提交、布局/候选同步及重排队；更新分支不追加检查，无动作不产生副作用。回调/结果仅同步借用，没有新的服务持有、cookie 存储或 FSM 决策。反向归一证明协议及其余组合服务源码一致。
+- **补 52 组组件及 12 组服务覆盖。** [`独立动作组件测试`](../tests/ime/comp/edit_action.cpp) 包含 32 组动作/文本/身份形状、16 组嵌套/异常和 4 组提交后读取时点；[`服务动作测试`](../tests/ime/tsf/service_action.cpp) 交叉提交、取消、第五码提交后续写与四种终止回调状态，验证原 UI 注册保留、过期动作不影响替代组合及后续输入。新文件接入既有测试入口，避免继续扩大原编辑/重入测试文件；生产任务仍提供原不可变结果快照。
+
+验证：x64/x86 IME DLL/测试构建及 CppCoreCheck 通过，自有源码无新增非 C26490 诊断；修正测试的只读 UI 指针 const 诊断，不抑制警告。最终在用户确认暂停键盘及窗口操作后，完整 TSF/UI 分别通过（21.39s / 22.72s），定向生命周期分别通过（15.46s / 17.83s），各测试使用 90 秒超时且跨架构串行。
+
+最终复测首轮：x64 完整在 [`ui_langbar_menu.cpp`](../tests/ime/ui/ui_langbar_menu.cpp) 第 647 行失败（2.33s），x64 定向在 [`service_context.cpp`](../tests/ime/tsf/service_context.cpp) 第 347 行按键断言失败（5.17s）；x86 完整在菜单第 460 行失败（0.90s），x86 定向在 [`service_reentrancy.cpp`](../tests/ime/tsf/service_reentrancy.cpp) 第 95 行失败（8.15s）。
+
+第二轮：x64 完整的调试子进程在 [`service.cpp`](../tests/ime/tsf/service.cpp) 第 1733 行按键断言失败，父进程第 282 行检查退出码失败（25.11s）；x64 定向在 [`service_presentation.cpp`](../tests/ime/tsf/service_presentation.cpp) 第 70 行失败（3.51s）。x86 完整在重入第 95 行失败（8.28s），x86 定向在文档/context 第 153 行失败（7.51s），该次诊断明确为 `shift=0, ctrl=0, alt=-128, caps=0, default_chinese=1, open=1`。随后协调一轮不操作键盘/窗口的复测，四项均通过。该观察支持当次按键失败受到 modifier 状态影响，但不能解释全部菜单/按键失败；未清空系统输入、修改无关测试或放宽断言，不宣称根因全部定位或故障已修复。
+
+已完成 RAII、DRY、Core Guidelines/GSL 和缺失覆盖检查，未运行其他套件、制作 MSI 或新增真实宿主验收。实际编辑执行、组合/UI 同步和激活/准备跨阶段协调仍由服务负责，完整 R05 保持未完成。
+
 ## 1. 结论与优先级
 
 最有价值的方向不是增加继承层次，而是把**恢复工作流、同步批次发布、编辑状态和配置字段规则**变成明确、可独立测试的对象或值。

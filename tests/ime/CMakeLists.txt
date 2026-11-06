@@ -14,6 +14,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/tests.h
     comp/cleanup.cpp
     comp/edit.cpp
+    comp/edit_action.cpp
     comp/finish.cpp
     comp/layout.cpp
     comp/presentation.cpp
@@ -28,6 +29,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     tsf/logging.cpp
     tsf/restricted_input.cpp
     tsf/service.cpp
+    tsf/service_action.cpp
     tsf/service_lifecycle.h
     tsf/service_lifecycle.cpp
     tsf/service_cleanup.cpp

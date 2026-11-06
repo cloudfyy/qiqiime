@@ -58,6 +58,35 @@ inline void RequestCompositionEditSession(
     }
 }
 
+template <typename IsCurrent, typename Cancel, typename Commit, typename Sync, typename EndUI>
+HRESULT ApplyCompositionEditActionInSession(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& result,
+    IsCurrent is_current, Cancel cancel, Commit commit, Sync sync, EndUI end_ui) {
+    if (result.action == KeyActionType::Cancel) {
+        cancel(ec, context);
+        if (is_current()) end_ui();
+        return S_OK;
+    }
+
+    if (result.action == KeyActionType::Commit) {
+        commit(ec, context, result.committed_text);
+        if (!is_current()) return S_OK;
+        if (!result.composition_text.empty()) {
+            sync(ec, context, result);
+        } else {
+            end_ui();
+        }
+        return S_OK;
+    }
+
+    if (result.action == KeyActionType::UpdateState) {
+        sync(ec, context, result);
+        return S_OK;
+    }
+
+    return S_OK;
+}
+
 // Synchronous scope: borrows the task and activity slot, never the service or edit cookie.
 class CompositionEditScope {
 public:

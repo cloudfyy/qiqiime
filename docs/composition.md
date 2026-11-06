@@ -87,8 +87,8 @@ The scope's `Check` first invokes the original ticket predicate. A stale task
 returns `Discard` without querying or pruning cleanup records. Only a current
 task checks the existing same-context cleanup barrier: unfinished unpublished or
 ordinary cleanup returns `Requeue`; otherwise it returns `Execute`. The service
-still logs and resubmits the original snapshot when requeued, and alone dispatches
-cancel/commit/update and UI work. No host operation or request runs inside this
+still logs and resubmits the original snapshot when requeued, and executes the
+actual cancel/commit/update and UI work. No host operation or request runs inside this
 scope helper. `Execute` is only an entry decision, not a replacement for the
 identity checks between subsequent host calls.
 
@@ -108,6 +108,17 @@ HRESULTs. Accepted asynchronous requests do not certify callback execution or
 successful editing. A rejected request does not reset or reprocess the engine;
 subsequent input still applies the complete captured result under the original
 policy.
+
+`ApplyCompositionEditActionInSession` selects the action sequence after those
+entry checks. It synchronously borrows the original result, target and callbacks;
+it retains no service or cookie. Cancel runs before the original empty-composition
+identity check and ends UI only if that check succeeds. Commit likewise checks
+the original empty-composition identity after the actual commit, then reads
+the follow-up preedit at its original point to choose synchronization or UI end.
+Update calls the service's original synchronization workflow directly, and
+pass-through has no action. The helper adds no entry or post-update checks.
+The production snapshot remains immutable, and real host operations and their
+failure diagnostics still run in the service and existing components.
 
 ### 2.1 In-Flight Host Calls
 
@@ -668,6 +679,20 @@ forces queuing even when the mock host would otherwise execute immediately;
 old cleanup completes before new text is written, and subsequent successful
 input restores the complete engine snapshot without processing a key twice.
 These mock controls do not certify real-host lock or edit-permission behavior.
+
+The [action component tests](../tests/ime/comp/edit_action.cpp) add 32 cases
+crossing four actions, committed/preedit text shapes and post-action identity,
+16 nested/exceptional callback-boundary cases and four post-commit preedit-read
+cases. They check exact call order, zero extra checks, cookie/target forwarding,
+borrowed result/text identity and activity restoration by the original edit
+scope. The mutable alias used by the read-timing fixture verifies the helper's
+read point; it does not change the production task's immutable snapshot policy.
+Twelve [service action cases](../tests/ime/tsf/service_action.cpp) cover ordinary
+commit, cancel and fifth-code commit-and-restart during continued activation,
+deactivation, reactivation or same-epoch replacement. They verify that stale
+action completion cannot end replacement UI or overwrite its preedit, while
+ordinary fifth-code handoff retains the original UI registration and accepts
+subsequent input.
 
 The layout session extraction adds another 46 component cases: four
 snapshot/copy/move/resource cases, 22 identity/activity/nesting/exception cases
