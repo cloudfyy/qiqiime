@@ -448,6 +448,7 @@ void RunTsfCompositionLayoutTests() {
     TestLayoutCallbackScope();
     TestLayoutSessionRequests();
     RunTsfCompositionLayoutEntryTests();
+    RunTsfCompositionLayoutUpdateTests();
     RunTsfCompositionLayoutPositionTests();
 }
 

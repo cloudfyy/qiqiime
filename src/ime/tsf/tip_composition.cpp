@@ -217,17 +217,12 @@ void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, gsl::not_null<
 
 void QiQiTextService::UpdateCandidateWindowPositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view) {
-    if (!composition_lifecycle_.Composition() || !candidate_ui_) {
-        return;
-    }
-    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
-    const auto composition = composition_lifecycle_.Composition();
-    const auto query = QueryCompositionLayoutInSession(
-        ec, context, gsl::not_null<ITfComposition*>(composition.Get()), view, has_valid_caret_pos_,
-        ticket.epoch, service_log_id_, current_lifecycle_activity_,
-        [this, ticket, &composition]() noexcept { return IsCompositionEditCurrent(ticket, composition.Get()); });
-    ApplyCompositionLayoutPosition(
-        query, has_valid_caret_pos_, ticket.epoch, service_log_id_, current_lifecycle_activity_,
+    UpdateCompositionLayoutPositionInSession(
+        ec, context, composition_lifecycle_, candidate_ui_.Get(), view, has_valid_caret_pos_,
+        service_log_id_, current_lifecycle_activity_,
+        [this](EditSessionTicket ticket, const ITfComposition* composition) noexcept {
+            return IsCompositionEditCurrent(ticket, composition);
+        },
         [](RECT& rect) noexcept { return QueryGuiThreadOrCursorFallbackRect(rect); },
         [this](const RECT& rect) { candidate_ui_->MoveWindowTo(rect); });
 }

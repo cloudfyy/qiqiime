@@ -3,11 +3,14 @@
 #include "ime/comp/state.h"
 #include "ime/tsf/edit_session.h"
 #include <cstdint>
+#include <functional>
 #include <gsl/gsl>
 #include <wrl/client.h>
 #include <utility>
 
 namespace qiqi {
+
+class CandidateUI;
 
 template <typename HasUI, typename Request>
 HRESULT EnterCompositionLayoutNotification(
@@ -174,6 +177,28 @@ void ApplyCompositionLayoutPosition(
             "CandidatePosition(service={}, stage=position-unchanged, activation={}, context={}, had_position={})",
             service_id, attempted_epoch.activation, attempted_epoch.context, has_valid_caret_pos);
     }
+}
+
+template <typename IsCurrent, typename QueryFallback, typename MoveWindow>
+void UpdateCompositionLayoutPositionInSession(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, const CompositionLifecycleState& state,
+    const CandidateUI* candidate_ui, Microsoft::WRL::ComPtr<ITfContextView>& view,
+    bool& has_valid_caret_pos, uint64_t service_id, const GUID& activity,
+    IsCurrent is_current, QueryFallback query_fallback, MoveWindow move_window) {
+    if (!state.Composition() || !candidate_ui) {
+        return;
+    }
+    const EditSessionTicket ticket{state.Epoch(), context.get()};
+    const auto composition = state.Composition();
+    const auto query = QueryCompositionLayoutInSession(
+        ec, context, gsl::not_null<ITfComposition*>(composition.Get()), view, has_valid_caret_pos,
+        ticket.epoch, service_id, activity,
+        [&is_current, ticket, &composition]() noexcept(noexcept(is_current(ticket, composition.Get()))) {
+            return is_current(ticket, composition.Get());
+        });
+    ApplyCompositionLayoutPosition(
+        query, has_valid_caret_pos, ticket.epoch, service_id, activity,
+        std::ref(query_fallback), std::ref(move_window));
 }
 
 } // namespace qiqi

@@ -442,8 +442,9 @@ view/range/text-extent query protocol, preserving short-circuit host calls,
 identity checks and HRESULT diagnostics. A supplied notification view takes
 precedence over the active view. The final `current` check is independent of
 query success and also rejects composition replacement within the same epoch.
-The result owns its range through the caller's UI work; the service retains
-the original composition snapshot and view parameter. The query range reference
+The result owns its range through the caller's UI work; the shared positioning
+wrapper retains the original composition snapshot, and the service owns the view
+parameter. The query range reference
 is released before that composition reference, with the view parameter last.
 The lifetime mocks destroy composition, range, then view because the composition
 also owns the range. No cookie or callback escapes the synchronous query.
@@ -463,9 +464,19 @@ output, logs unchanged positioning without movement.
 Clipped, zero or inverted rectangles gain no extra gate or normalization.
 The original callbacks execute synchronously, with no added identity check or
 state write afterward. Changes to the live flag inside callbacks survive.
-The service's original query range, composition and view owners span the window
+The original query range, composition and service view owners span the window
 work and release in their original order. This helper copies only the rectangle,
 not the owning query; it retains no service, callback, flag reference or cookie.
+
+[`UpdateCompositionLayoutPositionInSession`](../src/ime/comp/layout.h) owns the
+original composition/UI gate, ticket/composition capture and query-to-position
+handoff. It borrows the service's view parameter by reference, so any active-view
+lookup updates that same owner without an extra copy or early release. The
+original composition and query remain alive through fallback/window callbacks
+and release before the service's view parameter. Service callbacks keep the
+original identity, GUI/cursor and live UI movement operations. There is no added
+active/resetting gate, identity check or state write after fallback or movement.
+Move-only callbacks are synchronously borrowed; exceptions propagate.
 
 [`EnterCompositionLayoutNotification`](../src/ime/comp/layout.h) creates the
 original notification activity and emits its diagnostic before the original
@@ -921,6 +932,15 @@ results. Ten [service layout cases](../tests/ime/tsf/service_layout.cpp) inject
 deactivation or reactivation at view/range/extent boundaries, checking exact
 query counts, view routing, replacement-popup isolation and continued input.
 These mock regressions do not certify positioning in real hosts.
+
+The [layout-update tests](../tests/ime/comp/layout_update.cpp) add 80 combinations
+of UI/composition availability, previous caret position and ten outcomes:
+normal, no layout, failed fallback, failed/null range, inactive/resetting,
+replacement during range query/movement, and missing notification view. They
+check exact identity/range/fallback/move counts, view acquisition and replacement
+state preservation. Three identity/fallback/movement exception cases verify
+old composition/range ownership through callbacks and retention of the service
+view parameter. Existing query, rectangle, callback and service coverage remains.
 
 The [layout-position tests](../tests/ime/comp/layout_position.cpp) add 72
 current/result/history/fallback/raw-rectangle combinations, all with clipped
