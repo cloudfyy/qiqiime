@@ -13,6 +13,7 @@ void RunTsfCompositionFinishStateTests();
 void RunTsfCompositionUpdateTests();
 void RunTsfCompositionStateTests();
 void RunTsfCompositionContextResetTests();
+void RunTsfCompositionCleanupHandoffTests();
 void RunTsfCompositionTargetTests();
 void RunTsfCompositionPresentationTests();
 void RunTsfCompositionLayoutTests();

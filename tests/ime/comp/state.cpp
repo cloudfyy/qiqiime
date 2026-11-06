@@ -186,7 +186,7 @@ void TestLifecycleStateDetachedCleanup() {
             state.SetContext(context);
             state.SetComposition(composition);
             const auto* const cleanups = &state.Cleanups();
-            state.Cleanups().Schedule(state.Context(), state.TakeComposition(), 41, state.Epoch(), GUID_NULL);
+            ScheduleCurrentCompositionCleanup(state, 41, 127, GUID_NULL);
             QIQI_TEST_CHECK(!state.Composition() && queue->PendingCount() == (asynchronous ? 1u : 0u));
             state.SetActive(false);
             state.InvalidateActivation();
@@ -297,6 +297,7 @@ void RunTsfCompositionStateTests() {
     TestLifecycleStateDetachedCleanup();
     TestLifecycleContextResetScopes();
     RunTsfCompositionContextResetTests();
+    RunTsfCompositionCleanupHandoffTests();
 }
 
 } // namespace qiqi::test

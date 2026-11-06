@@ -82,17 +82,7 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfC
 }
 
 void QiQiTextService::ScheduleCompositionCleanup() {
-    if (!composition_lifecycle_.Composition()) {
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::Lifecycle,
-            &current_lifecycle_activity_,
-            "TsfLifecycle(service={}, stage=cleanup-not-needed, activation={}, context={})",
-            service_log_id_, composition_lifecycle_.Epoch().activation, composition_lifecycle_.Epoch().context);
-        return;
-    }
-    composition_lifecycle_.Cleanups().Schedule(
-        composition_lifecycle_.Context(), composition_lifecycle_.TakeComposition(), client_id_, composition_lifecycle_.Epoch(), current_lifecycle_activity_);
+    ScheduleCurrentCompositionCleanup(composition_lifecycle_, client_id_, service_log_id_, current_lifecycle_activity_);
 }
 
 // ITfTextLayoutSink: called when an async host (Chromium/VS Code/WPF/Word) updates its text layout

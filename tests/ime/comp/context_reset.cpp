@@ -64,9 +64,7 @@ void TestContextResetProtocol() {
                                 events.push_back(Event::Schedule);
                                 QIQI_TEST_CHECK(state.IsResettingContext() && !state.IsCurrent(ticket) &&
                                                 state.Context().Get() == context.Get() && has_caret);
-                                if (state.Composition()) {
-                                    state.Cleanups().Schedule(state.Context(), state.TakeComposition(), 23, state.Epoch(), GUID_NULL);
-                                }
+                                ScheduleCurrentCompositionCleanup(state, 23, 487, GUID_NULL);
                             },
                             [&, calls = std::make_unique<unsigned int>(0)] {
                                 ended_ui = ++*calls;

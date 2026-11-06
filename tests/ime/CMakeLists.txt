@@ -13,6 +13,7 @@ add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
 set(QIQI_TSF_UI_TEST_SOURCES
     comp/tests.h
     comp/cleanup.cpp
+    comp/cleanup_handoff.cpp
     comp/context_reset.cpp
     comp/edit.cpp
     comp/edit_action.cpp

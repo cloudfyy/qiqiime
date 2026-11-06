@@ -239,6 +239,23 @@ normal FIFO ordering.
 
 ## 3. Cleanup State and Strong/Weak Ownership
 
+[`ScheduleCurrentCompositionCleanup`](../src/ime/comp/state.h) now owns the
+current-composition handoff. An empty slot keeps the original `cleanup-not-needed`
+diagnostic and returns without registering or requesting cleanup. Otherwise it
+moves the original composition to the existing coordinator, using the original
+context, client ID, live epoch and activity arguments. It neither changes the
+target/epoch/UI nor adds an active-state or application identity check.
+Borrowed state/client/activity references do not escape; queued work retains
+the existing independent cleanup record and captured request parameters.
+
+The coordinator retrieves the captured composition's range **before** requesting
+an edit session. Request failure, read-only rejection and asynchronous acceptance
+can therefore follow an already completed range query; its callback can replace
+application state before queuing. Later cleanup still targets only the captured
+old objects. Missing context/client ID is diagnosed under the original policy,
+without fabricating successful termination. Handoff itself does not certify
+host cleanup or edit permission.
+
 ```text
 Pending TSF request --strong--> LambdaEditSession --strong--> CompositionCleanup
                                                                |--strong--> old ITfContext
@@ -739,6 +756,16 @@ four last-owner cases check precise context/composition/range final releases
 and document lifetime through its existing weak parent link. Connected layout
 sources retain the context until subscription reset, after document/composition
 release; an unconnected context releases earlier. UI remains the final step.
+
+The [cleanup-handoff tests](../tests/ime/comp/cleanup_handoff.cpp) add 24
+active/composition/request-condition cases covering immediate/deferred cleanup,
+request rejection, read-only access and unavailable client/context. They check
+the pre-request range query, exact flags/client ID/edit cookie, current-slot
+transfer, retained references and unchanged preedit. Twelve range/attribute/end
+reentrancy cases cross synchronous/deferred execution with same-epoch replacement
+or context-epoch invalidation; old cleanup cannot modify the replacement.
+Existing reset and state-owner-destruction tests now use the same handoff helper,
+including cleanup executing after the state owner has been destroyed.
 
 The [target component tests](../tests/ime/comp/target.cpp) add 35 document-result,
 subscription-result, and invalidation-boundary cases plus two exception/resource

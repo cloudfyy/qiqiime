@@ -86,6 +86,21 @@ private:
     bool entered_ = false;
 };
 
+inline void ScheduleCurrentCompositionCleanup(
+    CompositionLifecycleState& state, const TfClientId& client_id, uint64_t service_id, const GUID& activity) {
+    if (!state.Composition()) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::debug,
+            log::Keyword::Lifecycle,
+            &activity,
+            "TsfLifecycle(service={}, stage=cleanup-not-needed, activation={}, context={})",
+            service_id, state.Epoch().activation, state.Epoch().context);
+        return;
+    }
+    state.Cleanups().Schedule(
+        state.Context(), state.TakeComposition(), client_id, state.Epoch(), activity);
+}
+
 template <typename ScheduleCleanup, typename EndUI>
 void ResetCompositionContextAndUI(
     CompositionLifecycleState& state, bool try_host_cleanup, bool& has_valid_caret_pos,
