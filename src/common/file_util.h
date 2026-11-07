@@ -30,6 +30,7 @@ constexpr std::string_view StripUtf8Bom(std::string_view sv) noexcept {
 
 // Read an entire file into a std::string in one pass. Returns false if file cannot be opened.
 bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& out_content);
+HRESULT ReadFileToUtf8StringResult(const std::filesystem::path& file_path, std::string& out_content);
 
 // Write a byte buffer atomically to target_path via an exclusive-write temporary file + MoveFileExW,
 // using ScopedFileHandle RAII and gsl::finally to guarantee temporary file cleanup on any error or exception.

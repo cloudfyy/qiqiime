@@ -906,17 +906,26 @@ void DictManagerWindow::Impl::ExecuteAddOrUpdate() {
         UpdateStatus();
         return;
     }
-    bool ok = false;
+    HRESULT save_hr = E_UNEXPECTED;
     if (action == EditorSaveAction::ReplaceUser) {
         const auto* original = editor.Original();
-        ok = model.ReplaceUserEntry(original->code, original->word, editor.Code(), editor.Word());
+        save_hr = model.ReplaceUserEntryResult(original->code, original->word, editor.Code(), editor.Word());
     } else {
-        ok = model.AddOrUpdateUserEntry(editor.Code(), editor.Word());
+        save_hr = model.AddOrUpdateUserEntryResult(editor.Code(), editor.Word());
     }
+    const bool ok = log::CheckHResult(save_hr, "DictManager::SaveWord");
     editor.CompleteSave(ok);
     if (!ok) {
-        last_message = Text(L"保存失败，草稿已保留；请检查编码、词条及外部更改。",
-            L"Save failed; draft preserved. Check code, word and external changes.");
+        const bool permission_denied =
+            save_hr == E_ACCESSDENIED || save_hr == HRESULT_FROM_WIN32(ERROR_PRIVILEGE_NOT_HELD) ||
+            save_hr == HRESULT_FROM_WIN32(ERROR_WRITE_PROTECT);
+        last_message = std::format(L"{} (HRESULT=0x{:08X})",
+            permission_denied
+                ? Text(L"保存失败：访问被拒绝或写保护，草稿已保留。请检查词库及同步目录权限、只读属性和文件占用，或改用当前用户可写的词库目录。",
+                       L"Save failed: access denied or write-protected. Draft preserved. Check dictionary/sync permissions, read-only attributes and file locks, or use a writable user directory.")
+                : Text(L"保存失败，草稿已保留；请检查编码、词条及外部更改。",
+                       L"Save failed; draft preserved. Check code, word and external changes."),
+            gsl::narrow_cast<unsigned int>(save_hr));
     } else {
         editing_row = -1;
         last_message = Text(L"已保存用户词条并同步", L"Saved user entry and synchronized");

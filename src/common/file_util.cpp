@@ -118,6 +118,10 @@ std::filesystem::path GetAppDataDirectory() {
 }
 
 bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& out_content) {
+    return SUCCEEDED(ReadFileToUtf8StringResult(file_path, out_content));
+}
+
+HRESULT ReadFileToUtf8StringResult(const std::filesystem::path& file_path, std::string& out_content) {
     // Open with least privilege: read-only access, read-only sharing, anonymous SQOS to prevent pipe impersonation,
     // and verify the target is a regular disk file.
     const ScopedFileHandle file(::CreateFileW(
@@ -131,11 +135,11 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
     if (!file.IsValid()) {
         const DWORD error = ::GetLastError();
         QIQI_LOG_DEBUG("ReadFileToUtf8String::CreateFileW failed (error={})", error);
-        return false;
+        return HRESULT_FROM_WIN32(error);
     }
     if (::GetFileType(file.Get()) != FILE_TYPE_DISK) {
         QIQI_LOG_WARN("ReadFileToUtf8String: target is not a disk file");
-        return false;
+        return E_INVALIDARG;
     }
 
     LARGE_INTEGER file_size{};
@@ -143,17 +147,17 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
     if (!::GetFileSizeEx(file.Get(), &file_size)) {
         const DWORD error = ::GetLastError();
         QIQI_LOG_WARN("ReadFileToUtf8String::GetFileSizeEx failed (error={})", error);
-        return false;
+        return HRESULT_FROM_WIN32(error);
     }
     if (file_size.QuadPart < 0 ||
         file_size.QuadPart > kMaxAllowedReadBytes) {
         QIQI_LOG_WARN("ReadFileToUtf8String: invalid or oversize file ({} bytes)", file_size.QuadPart);
-        return false;
+        return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
     }
 
     out_content.clear();
     if (file_size.QuadPart == 0) {
-        return true;
+        return S_OK;
     }
 
     out_content.resize(gsl::narrow_cast<size_t>(file_size.QuadPart));
@@ -165,9 +169,9 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
         QIQI_LOG_WARN("ReadFileToUtf8String::ReadFile incomplete (expected={}, read={}, error={})",
                       to_read, total_read, read_error);
         out_content.clear();
-        return false;
+        return read_ok ? HRESULT_FROM_WIN32(ERROR_HANDLE_EOF) : HRESULT_FROM_WIN32(read_error);
     }
-    return true;
+    return S_OK;
 }
 
 bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<const uint8_t> bytes) {

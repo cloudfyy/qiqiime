@@ -33,8 +33,9 @@ void CheckBackground(HWND hwnd, COLORREF expected) {
 void CheckMessageText(HWND message, SettingsMessageKind kind, UiLanguage language) {
     const auto& str = GetUiStrings(language);
     QIQI_TEST_CHECK(WindowText(message) == str.dlg_title);
-    const auto* expected =
-        (kind == SettingsMessageKind::SaveFailure ? str.dlg_save_failed : str.dlg_notify_failed);
+    const auto* expected = kind == SettingsMessageKind::SaveFailure ? str.dlg_save_failed :
+        (kind == SettingsMessageKind::NotificationFailure ? str.dlg_notify_failed :
+            str.dlg_dict_manager_launch_failed);
     QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, 0xFFFF)) == expected);
     QIQI_TEST_CHECK(WindowText(::GetDlgItem(message, IDOK)) == str.dlg_btn_ok);
     RECT client{}, body{};
@@ -62,7 +63,8 @@ void TestLiveThemeAndLanguage() {
     const ScopedWindow settings(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg, true));
     const ScopedWindow about(CreateAboutWindow(::GetModuleHandleW(nullptr), settings.Get(), UiLanguage::ZhCn));
     QIQI_TEST_CHECK(settings && about);
-    for (const auto kind : {SettingsMessageKind::SaveFailure, SettingsMessageKind::NotificationFailure}) {
+    for (const auto kind : {SettingsMessageKind::SaveFailure, SettingsMessageKind::NotificationFailure,
+                           SettingsMessageKind::DictManagerLaunchFailure}) {
         const ScopedWindow message(CreateSettingsMessageWindow(
             ::GetModuleHandleW(nullptr), settings.Get(), UiLanguage::ZhCn, kind));
         QIQI_TEST_CHECK(message);
@@ -111,6 +113,46 @@ void TestLiveThemeAndLanguage() {
     }
     QIQI_TEST_CHECK(!CreateSettingsMessageWindow(
         ::GetModuleHandleW(nullptr), nullptr, UiLanguage::Auto, static_cast<SettingsMessageKind>(99)));
+}
+
+thread_local DWORD launch_error = ERROR_SUCCESS;
+thread_local HANDLE launched_process = nullptr;
+
+BOOL WINAPI ExecuteDictionaryManagerForTest(SHELLEXECUTEINFOW* info) {
+    QIQI_TEST_CHECK(info && info->cbSize == sizeof(*info));
+    QIQI_TEST_CHECK(std::wstring_view(info->lpVerb) == L"open");
+    QIQI_TEST_CHECK(std::wstring_view(info->lpFile) == L"missing-dictionary-manager.exe");
+    QIQI_TEST_CHECK((info->fMask & SEE_MASK_FLAG_NO_UI) != 0);
+    if (launch_error != ERROR_SUCCESS) {
+        ::SetLastError(launch_error);
+        return FALSE;
+    }
+    launched_process = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    QIQI_TEST_CHECK(launched_process);
+    info->hProcess = launched_process;
+    return TRUE;
+}
+
+void TestDictionaryManagerLaunch() {
+    const ScopedWindow owner(::CreateWindowExW(0, L"STATIC", L"Launch owner", WS_POPUP,
+        0, 0, 200, 200, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+    QIQI_TEST_CHECK(owner);
+    for (const auto language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        for (const DWORD error : {ERROR_FILE_NOT_FOUND, ERROR_ACCESS_DENIED, ERROR_CANCELLED}) {
+            launch_error = error;
+            WithDismissedMessage(GetUiStrings(language).dlg_dict_manager_launch_failed, [&] {
+                QIQI_TEST_CHECK(settings_detail::OpenDictionaryManager(owner.Get(),
+                    L"missing-dictionary-manager.exe", language, &ExecuteDictionaryManagerForTest) == error);
+            });
+            QIQI_TEST_CHECK(::IsWindowEnabled(owner.Get()));
+        }
+    }
+    launch_error = ERROR_SUCCESS;
+    QIQI_TEST_CHECK(settings_detail::OpenDictionaryManager(owner.Get(),
+        L"missing-dictionary-manager.exe", UiLanguage::EnUs, &ExecuteDictionaryManagerForTest) == ERROR_SUCCESS);
+    DWORD flags = 0;
+    QIQI_TEST_CHECK(!::GetHandleInformation(launched_process, &flags));
+    QIQI_TEST_CHECK(::GetLastError() == ERROR_INVALID_HANDLE);
 }
 
 void TestPromptModalBehavior() {
@@ -207,6 +249,7 @@ void TestNonModalD2DToast() {
 
 void RunSettingsMessageTests() {
     TestLiveThemeAndLanguage();
+    TestDictionaryManagerLaunch();
     TestPromptModalBehavior();
     TestNonModalD2DToast();
 }

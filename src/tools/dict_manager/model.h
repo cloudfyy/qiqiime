@@ -99,8 +99,12 @@ public:
 
     // User dictionary, manual pinning, and blocklist operations (coordinated via change_sync)
     bool AddOrUpdateUserEntry(std::wstring_view code, std::wstring_view word);
+    HRESULT AddOrUpdateUserEntryResult(std::wstring_view code, std::wstring_view word);
     bool ModifyUserEntry(std::wstring_view code, std::wstring_view old_word, std::wstring_view new_word);
     bool ReplaceUserEntry(
+        std::wstring_view old_code, std::wstring_view old_word,
+        std::wstring_view new_code, std::wstring_view new_word);
+    HRESULT ReplaceUserEntryResult(
         std::wstring_view old_code, std::wstring_view old_word,
         std::wstring_view new_code, std::wstring_view new_word);
     bool RemoveUserEntry(std::wstring_view code, std::wstring_view word);

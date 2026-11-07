@@ -30,7 +30,8 @@ void ReportSettingsNotificationFailure(HWND parent, UiLanguage ui_language) noex
 
 enum class SettingsMessageKind {
     SaveFailure,
-    NotificationFailure
+    NotificationFailure,
+    DictManagerLaunchFailure
 };
 
 enum class SettingsToastKind {

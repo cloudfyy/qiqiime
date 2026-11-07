@@ -5,6 +5,8 @@
 #include "common/d2d_controls.h"
 #include "common/guids.h"
 #include <msctf.h>
+#include <shellapi.h>
+#include <filesystem>
 #include <wrl/client.h>
 
 namespace qiqi::settings_detail {
@@ -38,6 +40,10 @@ constexpr int kIdLblEnglishSwitch = 128;
 constexpr int kIdComboEnglishSwitch = 129;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
+
+DWORD OpenDictionaryManager(
+    HWND owner, const std::filesystem::path& executable, UiLanguage language,
+    gsl::not_null<decltype(&::ShellExecuteExW)> execute = &::ShellExecuteExW);
 
 class SettingsCompartmentListener final
     : public ComObjectBase<SettingsCompartmentListener, ITfCompartmentEventSink> {

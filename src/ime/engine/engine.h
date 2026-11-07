@@ -83,6 +83,9 @@ public:
         std::wstring_view code,
         std::wstring_view word,
         const std::filesystem::path& user_dict_path = {});
+    HRESULT AddUserEntryResult(
+        std::wstring_view code, std::wstring_view word,
+        const std::filesystem::path& user_dict_path = {});
     bool RemoveUserEntry(
         std::wstring_view code,
         std::wstring_view word,
@@ -97,6 +100,10 @@ public:
         std::wstring_view old_word,
         std::wstring_view new_code,
         std::wstring_view new_word,
+        const std::filesystem::path& user_dict_path = {});
+    HRESULT ReplaceUserEntryResult(
+        std::wstring_view old_code, std::wstring_view old_word,
+        std::wstring_view new_code, std::wstring_view new_word,
         const std::filesystem::path& user_dict_path = {});
     bool PinUserEntry(
         std::wstring_view code,
@@ -295,7 +302,7 @@ private:
     void SwapDictionaryState(WubiEngine& other) noexcept;
     bool CheckAndPublishExternalUserDictChanges(const std::filesystem::path& dict_path);
     template <typename FileMutator, typename MemoryMutator>
-    bool MutateUserDictionaryEntry(
+    HRESULT MutateUserDictionaryEntry(
         std::wstring_view code,
         std::wstring_view word,
         std::wstring_view new_word,

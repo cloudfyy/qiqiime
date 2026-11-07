@@ -292,16 +292,20 @@ std::wstring DictManagerModel::ComputeAutoCode(std::wstring_view word) const {
 }
 
 bool DictManagerModel::AddOrUpdateUserEntry(std::wstring_view code, std::wstring_view word) {
+    return SUCCEEDED(AddOrUpdateUserEntryResult(code, word));
+}
+
+HRESULT DictManagerModel::AddOrUpdateUserEntryResult(std::wstring_view code, std::wstring_view word) {
     const std::wstring norm_code = NormalizeAsciiLower(code);
     const std::wstring norm_word = TrimWhitespace(word);
     if (PackWubiCode(norm_code) == 0 || norm_word.empty()) {
-        return false;
+        std::ignore = log::CheckHResult(E_INVALIDARG, "DictManager::AddOrUpdateUserEntry");
+        return E_INVALIDARG;
     }
-    if (!engine_.AddUserEntry(norm_code, norm_word, user_dict_path_)) {
-        return false;
-    }
+    const HRESULT hr = engine_.AddUserEntryResult(norm_code, norm_word, user_dict_path_);
+    if (FAILED(hr)) return hr;
     RebuildRecords();
-    return true;
+    return S_OK;
 }
 
 bool DictManagerModel::ModifyUserEntry(
@@ -332,12 +336,22 @@ bool DictManagerModel::RemoveUserEntry(std::wstring_view code, std::wstring_view
 bool DictManagerModel::ReplaceUserEntry(
     std::wstring_view old_code, std::wstring_view old_word,
     std::wstring_view new_code, std::wstring_view new_word) {
+    return SUCCEEDED(ReplaceUserEntryResult(old_code, old_word, new_code, new_word));
+}
+
+HRESULT DictManagerModel::ReplaceUserEntryResult(
+    std::wstring_view old_code, std::wstring_view old_word,
+    std::wstring_view new_code, std::wstring_view new_word) {
     const auto code = NormalizeAsciiLower(new_code);
     const auto word = TrimWhitespace(new_word);
-    if (PackWubiCode(code) == 0 || word.empty()) return false;
-    if (!engine_.ReplaceUserEntry(old_code, old_word, code, word, user_dict_path_)) return false;
+    if (PackWubiCode(code) == 0 || word.empty()) {
+        std::ignore = log::CheckHResult(E_INVALIDARG, "DictManager::ReplaceUserEntry");
+        return E_INVALIDARG;
+    }
+    const HRESULT hr = engine_.ReplaceUserEntryResult(old_code, old_word, code, word, user_dict_path_);
+    if (FAILED(hr)) return hr;
     RebuildRecords();
-    return true;
+    return S_OK;
 }
 
 bool DictManagerModel::PinUserEntry(std::wstring_view code, std::wstring_view word) {

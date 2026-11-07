@@ -17,6 +17,28 @@ namespace qiqi {
 
 using namespace settings_detail;
 
+DWORD settings_detail::OpenDictionaryManager(
+    HWND owner, const std::filesystem::path& executable, UiLanguage language,
+    gsl::not_null<decltype(&::ShellExecuteExW)> execute) {
+#pragma warning(suppress : 26476) // Win32 requires this union-backed descriptor.
+    SHELLEXECUTEINFOW info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+    info.hwnd = owner;
+    info.lpVerb = L"open";
+    info.lpFile = executable.c_str();
+    info.nShow = SW_SHOWNORMAL;
+    const BOOL launched = execute(&info);
+    const DWORD error = launched ? ERROR_SUCCESS : ::GetLastError();
+    const ScopedKernelHandle process(info.hProcess);
+    if (!launched) {
+        QIQI_LOG_CAT_WARN(log::Keyword::UI,
+            "Settings failed to launch QiQiIMEDictManager.exe (error={})", error);
+        ShowSettingsMessage(owner, language, SettingsMessageKind::DictManagerLaunchFailure);
+    }
+    return error;
+}
+
 namespace {
 
 void ShowSettingsSaveFailure(HWND hwnd, UiLanguage ui_language) noexcept {
@@ -141,13 +163,8 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             const std::filesystem::path exe_path =
                 mod_path.empty() ? std::filesystem::path(L"QiQiIMEDictManager.exe")
                                  : (mod_path.parent_path() / L"QiQiIMEDictManager.exe");
-            const HINSTANCE res = ::ShellExecuteW(hwnd, L"open", exe_path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            if (reinterpret_cast<INT_PTR>(res) <= 32) {
-                QIQI_LOG_CAT_WARN(
-                    log::Keyword::UI,
-                    "Settings failed to launch QiQiIMEDictManager.exe (code={})",
-                    reinterpret_cast<INT_PTR>(res));
-            }
+            std::ignore = OpenDictionaryManager(
+                hwnd, exe_path, GetSelectedUiLanguageFromCombo(hwnd, ctx));
             return;
         }
         default:

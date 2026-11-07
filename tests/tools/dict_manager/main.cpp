@@ -613,10 +613,22 @@ void TestModelAndCrossProcessSync() {
     QIQI_TEST_CHECK(!model.ReplaceUserEntry(L"pqrs", L"已删除原词", L"abcd", L"不能复活"));
     QIQI_TEST_CHECK(!model.ReplaceUserEntry(L"pqrs", L"已删除原词", L"pqrs", L"不能复活"));
     {
-        const ScopedFileHandle locked(::CreateFileW(user_dict.c_str(), GENERIC_READ, FILE_SHARE_READ,
+        const ScopedFileHandle locked(::CreateFileW(user_dict.c_str(), GENERIC_READ, 0,
             nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
         QIQI_TEST_CHECK(locked);
-        QIQI_TEST_CHECK(!model.ReplaceUserEntry(L"pqrs", L"新码新词", L"lmno", L"写入失败"));
+        QIQI_TEST_CHECK(model.ReplaceUserEntryResult(L"pqrs", L"新码新词", L"lmno", L"写入失败") ==
+            HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION));
+    }
+    {
+        const DWORD attributes = ::GetFileAttributesW(user_dict.c_str());
+        QIQI_TEST_CHECK(attributes != INVALID_FILE_ATTRIBUTES);
+        const auto restore_attributes = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK(::SetFileAttributesW(user_dict.c_str(), attributes));
+        });
+        QIQI_TEST_CHECK(::SetFileAttributesW(user_dict.c_str(), attributes | FILE_ATTRIBUTE_READONLY));
+        QIQI_TEST_CHECK(model.AddOrUpdateUserEntryResult(L"abcd", L"无权新增") == E_ACCESSDENIED);
+        QIQI_TEST_CHECK(model.ReplaceUserEntryResult(L"pqrs", L"新码新词", L"lmno", L"无权修改") == E_ACCESSDENIED);
+        QIQI_TEST_CHECK(model.AddOrUpdateUserEntryResult(L"a1", L"无效") == E_INVALIDARG);
     }
     model.ReloadAll();
     QIQI_TEST_CHECK(model.UserEntryCount() == before_replace);
@@ -1609,12 +1621,40 @@ void TestInlineEditing() {
     begin();
     QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"失败草稿"));
     {
-        const ScopedFileHandle locked(::CreateFileW(user_dict.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+        const ScopedFileHandle locked(::CreateFileW(user_dict.c_str(), GENERIC_READ, 0, nullptr,
                                                     OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
         QIQI_TEST_CHECK(locked);
         InvokeCommand(window, SaveWord);
         QIQI_TEST_CHECK(visible(EditWordInput) && ControlText(Child(window, EditWordInput)) == L"失败草稿");
         QIQI_TEST_CHECK(marked());
+        const auto status = ControlText(Child(window, Status));
+        QIQI_TEST_CHECK(status.find(L"0x80070020") != std::wstring::npos);
+        QIQI_TEST_CHECK(status.find(L"访问被拒绝") == std::wstring::npos);
+    }
+    {
+        const DWORD attributes = ::GetFileAttributesW(user_dict.c_str());
+        QIQI_TEST_CHECK(attributes != INVALID_FILE_ATTRIBUTES);
+        const auto restore_attributes = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK(::SetFileAttributesW(user_dict.c_str(), attributes));
+        });
+        QIQI_TEST_CHECK(::SetFileAttributesW(user_dict.c_str(), attributes | FILE_ATTRIBUTE_READONLY));
+        for (const auto language : {LanguageEn, LanguageZh}) {
+            InvokeCommand(window, language);
+            InvokeCommand(window, SaveWord);
+            QIQI_TEST_CHECK(visible(EditWordInput) && marked());
+            QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"失败草稿");
+            const auto status = ControlText(Child(window, Status));
+            QIQI_TEST_CHECK(status.find(L"0x80070005") != std::wstring::npos);
+            QIQI_TEST_CHECK(status.find(language == LanguageEn ? L"access denied" : L"访问被拒绝") != std::wstring::npos);
+        }
+        InvokeCommand(window, CancelEdit);
+        InvokeCommand(window, NewWord);
+        QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditCodeInput), L"deny"));
+        QIQI_TEST_CHECK(::SetWindowTextW(Child(window, EditWordInput), L"无权新增草稿"));
+        InvokeCommand(window, SaveWord);
+        QIQI_TEST_CHECK(visible(EditWordInput) && marked());
+        QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"无权新增草稿");
+        QIQI_TEST_CHECK(ControlText(Child(window, Status)).find(L"访问被拒绝") != std::wstring::npos);
     }
     InvokeCommand(window, CancelEdit);
     QIQI_TEST_CHECK(peer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);

@@ -129,7 +129,7 @@ std::string SerializeDictEntriesToUtf8(const std::map<uint32_t, std::vector<std:
     return out;
 }
 
-bool ReadDictEntriesFromFile(
+HRESULT ReadDictEntriesFromFileResult(
     const std::filesystem::path& file_path,
     std::map<uint32_t, std::vector<std::wstring>>& out_entries,
     std::string* out_raw_utf8 = nullptr) {
@@ -139,23 +139,29 @@ bool ReadDictEntriesFromFile(
     if (ec) {
         QIQI_LOG_CAT_ERROR(log::Keyword::Dictionary,
             "ReadDictEntriesFromFile: existence check failed (error={})", ec.value());
-        return false;
+        return HRESULT_FROM_WIN32(ec.value());
     }
     if (!exists) {
         if (out_raw_utf8) {
             out_raw_utf8->clear();
         }
-        return true;
+        return S_OK;
     }
     std::string raw_utf8;
-    if (!ReadFileToUtf8String(file_path, raw_utf8)) {
-        return false;
-    }
+    const HRESULT read_hr = ReadFileToUtf8StringResult(file_path, raw_utf8);
+    if (FAILED(read_hr)) return read_hr;
     WubiMappedDict::ParseTextDictEntries(Utf8ToWide(StripUtf8Bom(raw_utf8)), out_entries, true);
     if (out_raw_utf8) {
         *out_raw_utf8 = std::move(raw_utf8);
     }
-    return true;
+    return S_OK;
+}
+
+bool ReadDictEntriesFromFile(
+    const std::filesystem::path& file_path,
+    std::map<uint32_t, std::vector<std::wstring>>& out_entries,
+    std::string* out_raw_utf8 = nullptr) {
+    return SUCCEEDED(ReadDictEntriesFromFileResult(file_path, out_entries, out_raw_utf8));
 }
 
 struct SourceMeta {
@@ -569,7 +575,7 @@ bool WubiEngine::AddUserPhrase(std::wstring_view phrase, const std::filesystem::
 }
 
 template <typename FileMutator, typename MemoryMutator>
-bool WubiEngine::MutateUserDictionaryEntry(
+HRESULT WubiEngine::MutateUserDictionaryEntry(
     std::wstring_view code,
     std::wstring_view word,
     std::wstring_view new_word,
@@ -581,7 +587,8 @@ bool WubiEngine::MutateUserDictionaryEntry(
     bool require_original) {
     const uint32_t packed = PackWubiCode(code);
     if (packed == 0 || word.empty() || (op == sync::Operation::Modify && new_word.empty())) {
-        return false;
+        std::ignore = log::CheckHResult(E_INVALIDARG, "MutateUserDictionaryEntry");
+        return E_INVALIDARG;
     }
     const std::filesystem::path target_path = !user_dict_path.empty() ? user_dict_path : user_dict_path_;
     const auto contains_original = [packed, word](const auto& entries) {
@@ -591,30 +598,28 @@ bool WubiEngine::MutateUserDictionaryEntry(
     if (target_path.empty()) {
         if (require_original && !contains_original(dict_)) {
             std::ignore = log::CheckHResult(HRESULT_FROM_WIN32(ERROR_NOT_FOUND), "ReplaceUserEntry original missing");
-            return false;
+            return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
         }
         mutate_memory();
-        return true;
+        return S_OK;
     }
     if (IsProcessAppContainer()) {
         QIQI_LOG_CAT_DEBUG(log::Keyword::Sync, "User dictionary mutation rejected inside read-only AppContainer");
-        return false;
+        return E_ACCESSDENIED;
     }
     SetUserDictPath(target_path);
     std::ignore = CheckAndPublishExternalUserDictChanges(target_path);
     const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(target_path);
     const sync::Source source{sync::DataType::Dictionary, kGuidSyncSourceDictionary};
-    if (FAILED(sync::Channel::Create(channel_dir, source))) {
-        return false;
-    }
+    const HRESULT create_hr = sync::Channel::Create(channel_dir, source);
+    if (FAILED(create_hr)) return create_hr;
     const sync::Channel channel(channel_dir, source);
     const std::vector<uint8_t> payload = EncodeDictEntryDelta(packed, word, new_word);
     for (int attempt = 0; attempt < 16; ++attempt) {
         std::ignore = SynchronizeUserDictionary(sync::InputBoundary::NewInput);
         sync::Batch current_batch;
-        if (FAILED(channel.Read(user_dict_sync_version_, current_batch))) {
-            return false;
-        }
+        const HRESULT read_hr = channel.Read(user_dict_sync_version_, current_batch);
+        if (FAILED(read_hr)) return read_hr;
         sync::Version committed{};
         const HRESULT hr = channel.Publish(
             current_batch.version,
@@ -622,9 +627,8 @@ bool WubiEngine::MutateUserDictionaryEntry(
             payload,
             [&]() -> HRESULT {
                 std::map<uint32_t, std::vector<std::wstring>> file_entries;
-                if (!ReadDictEntriesFromFile(target_path, file_entries)) {
-                    return E_FAIL;
-                }
+                const HRESULT source_hr = ReadDictEntriesFromFileResult(target_path, file_entries);
+                if (FAILED(source_hr)) return source_hr;
                 if (require_original && !contains_original(file_entries)) {
                     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
                 }
@@ -638,20 +642,26 @@ bool WubiEngine::MutateUserDictionaryEntry(
         if (hr == S_OK || (reset_baseline && hr == S_FALSE)) {
             mutate_memory();
             user_dict_sync_version_ = reset_baseline ? sync::Version{} : committed;
-            return true;
+            return S_OK;
         }
         if (hr != HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION) &&
             hr != HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH)) {
-            return false;
+            return FAILED(hr) ? hr : E_UNEXPECTED;
         }
         ::SwitchToThread();
     }
-    return false;
+    return HRESULT_FROM_WIN32(ERROR_RETRY);
 }
 
 bool WubiEngine::AddUserEntry(
     std::wstring_view code,
     std::wstring_view word,
+    const std::filesystem::path& user_dict_path) {
+    return SUCCEEDED(AddUserEntryResult(code, word, user_dict_path));
+}
+
+HRESULT WubiEngine::AddUserEntryResult(
+    std::wstring_view code, std::wstring_view word,
     const std::filesystem::path& user_dict_path) {
     return MutateUserDictionaryEntry(
         code,
@@ -669,7 +679,7 @@ bool WubiEngine::RemoveUserEntry(
     std::wstring_view code,
     std::wstring_view word,
     const std::filesystem::path& user_dict_path) {
-    return MutateUserDictionaryEntry(
+    return SUCCEEDED(MutateUserDictionaryEntry(
         code,
         word,
         {},
@@ -678,7 +688,7 @@ bool WubiEngine::RemoveUserEntry(
         [word](std::map<uint32_t, std::vector<std::wstring>>& file_entries, uint32_t packed) {
             EraseWordFromCodeMap(file_entries, packed, word);
         },
-        [this, code, word]() { std::ignore = RemoveEntry(code, word); });
+        [this, code, word]() { std::ignore = RemoveEntry(code, word); }));
 }
 
 bool WubiEngine::ModifyUserEntry(
@@ -686,7 +696,7 @@ bool WubiEngine::ModifyUserEntry(
     std::wstring_view old_word,
     std::wstring_view new_word,
     const std::filesystem::path& user_dict_path) {
-    return MutateUserDictionaryEntry(
+    return SUCCEEDED(MutateUserDictionaryEntry(
         code,
         old_word,
         new_word,
@@ -697,15 +707,25 @@ bool WubiEngine::ModifyUserEntry(
                 AppendUniqueWord(file_entries[packed], new_word);
             }
         },
-        [this, code, old_word, new_word]() { std::ignore = ModifyEntry(code, old_word, new_word); });
+        [this, code, old_word, new_word]() { std::ignore = ModifyEntry(code, old_word, new_word); }));
 }
 
 bool WubiEngine::ReplaceUserEntry(
     std::wstring_view old_code, std::wstring_view old_word,
     std::wstring_view new_code, std::wstring_view new_word,
     const std::filesystem::path& user_dict_path) {
+    return SUCCEEDED(ReplaceUserEntryResult(old_code, old_word, new_code, new_word, user_dict_path));
+}
+
+HRESULT WubiEngine::ReplaceUserEntryResult(
+    std::wstring_view old_code, std::wstring_view old_word,
+    std::wstring_view new_code, std::wstring_view new_word,
+    const std::filesystem::path& user_dict_path) {
     const uint32_t new_packed = PackWubiCode(new_code);
-    if (new_packed == 0 || new_word.empty()) return false;
+    if (new_packed == 0 || new_word.empty()) {
+        std::ignore = log::CheckHResult(E_INVALIDARG, "ReplaceUserEntry");
+        return E_INVALIDARG;
+    }
     return MutateUserDictionaryEntry(
         old_code, old_word, new_word, sync::Operation::Modify, user_dict_path,
         [old_word, new_packed, new_word](std::map<uint32_t, std::vector<std::wstring>>& entries, uint32_t old_packed) {
@@ -737,7 +757,7 @@ bool WubiEngine::PinUserEntry(
         return false;
     }
     const std::wstring pinned_token = L"^" + std::wstring(word);
-    return MutateUserDictionaryEntry(
+    return SUCCEEDED(MutateUserDictionaryEntry(
         code,
         pinned_token,
         {},
@@ -749,7 +769,7 @@ bool WubiEngine::PinUserEntry(
             auto& list = file_entries[packed];
             list.insert(list.begin(), pinned_token);
         },
-        [this, code, word]() { PinEntry(code, word); });
+        [this, code, word]() { PinEntry(code, word); }));
 }
 
 bool WubiEngine::UnpinUserEntry(
@@ -760,7 +780,7 @@ bool WubiEngine::UnpinUserEntry(
         return false;
     }
     const std::wstring pinned_token = L"^" + std::wstring(word);
-    return MutateUserDictionaryEntry(
+    return SUCCEEDED(MutateUserDictionaryEntry(
         code,
         pinned_token,
         {},
@@ -772,7 +792,7 @@ bool WubiEngine::UnpinUserEntry(
                 file_entries[packed].push_back(std::wstring(word));
             }
         },
-        [this, code, word]() { std::ignore = UnpinEntry(code, word); });
+        [this, code, word]() { std::ignore = UnpinEntry(code, word); }));
 }
 
 bool WubiEngine::BlockSystemEntry(
@@ -783,7 +803,7 @@ bool WubiEngine::BlockSystemEntry(
         return false;
     }
     const std::wstring block_token = L"!" + std::wstring(word);
-    return MutateUserDictionaryEntry(
+    return SUCCEEDED(MutateUserDictionaryEntry(
         code,
         block_token,
         {},
@@ -794,7 +814,7 @@ bool WubiEngine::BlockSystemEntry(
             EraseWordFromCodeMap(file_entries, packed, L"^" + std::wstring(word));
             AppendUniqueWord(file_entries[packed], block_token);
         },
-        [this, code, word]() { BlockEntry(code, word); });
+        [this, code, word]() { BlockEntry(code, word); }));
 }
 
 bool WubiEngine::UnblockSystemEntry(
@@ -805,7 +825,7 @@ bool WubiEngine::UnblockSystemEntry(
         return false;
     }
     const std::wstring block_token = L"!" + std::wstring(word);
-    return MutateUserDictionaryEntry(
+    return SUCCEEDED(MutateUserDictionaryEntry(
         code,
         block_token,
         {},
@@ -814,7 +834,7 @@ bool WubiEngine::UnblockSystemEntry(
         [block_token](std::map<uint32_t, std::vector<std::wstring>>& file_entries, uint32_t packed) {
             EraseWordFromCodeMap(file_entries, packed, block_token);
         },
-        [this, code, word]() { std::ignore = UnblockEntry(code, word); });
+        [this, code, word]() { std::ignore = UnblockEntry(code, word); }));
 }
 
 bool WubiEngine::DeleteOrBlockUserOrSystemEntry(
