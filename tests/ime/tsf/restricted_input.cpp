@@ -308,23 +308,101 @@ void TestUnifiedAccessPolicyAndEdgeCases() {
         QIQI_TEST_CHECK(ClassifyInputScopeSpan({}) == InputScopeClassification::Unknown);
 
         // Read-only + Private must still be Blocked (cannot write)
-        ContextFacts ro_priv{.has_context = true, .is_readonly = true, .scope_state = InputScopeClassification::Private};
+        const ContextFacts ro_priv{.has_context = true, .is_readonly = true, .scope_state = InputScopeClassification::Private};
         const AccessPolicy ro_priv_pol = EvaluatePolicy(ro_priv);
         QIQI_TEST_CHECK(!ro_priv_pol.can_input && !ro_priv_pol.can_learn && ro_priv_pol.should_reset_active);
 
         // Pending scope: do not eat key, do not learn, do not destructively reset
-        ContextFacts pending{.has_context = true, .scope_state = InputScopeClassification::Pending};
+        const ContextFacts pending{.has_context = true, .scope_state = InputScopeClassification::Pending};
         const AccessPolicy pending_pol = EvaluatePolicy(pending);
         QIQI_TEST_CHECK(!pending_pol.can_input && !pending_pol.can_learn && !pending_pol.should_reset_active);
+
+        // Stage & classification string mappings
+        for (const auto st : {AccessFactStage::None, AccessFactStage::ContextMissing, AccessFactStage::CompartmentMgrQuery,
+                              AccessFactStage::DisabledCompartmentGet, AccessFactStage::DisabledCompartmentValue,
+                              AccessFactStage::EmptyCompartmentGet, AccessFactStage::EmptyCompartmentValue,
+                              AccessFactStage::ContextStatus, AccessFactStage::ActiveViewQuery,
+                              AccessFactStage::ViewWindowQuery, AccessFactStage::WindowStyleQuery,
+                              AccessFactStage::AppPropertyGet, AccessFactStage::RangeQuery,
+                              AccessFactStage::PropertyValueGet, AccessFactStage::InputScopeQuery,
+                              AccessFactStage::GetInputScopesCall}) {
+            QIQI_TEST_CHECK(!AccessFactStageToString(st).empty() && AccessFactStageToString(st) != "unknown");
+        }
+        for (const auto cls : {InputScopeClassification::Unknown, InputScopeClassification::Pending,
+                               InputScopeClassification::Allowed, InputScopeClassification::Private,
+                               InputScopeClassification::PasswordOrPin, InputScopeClassification::QueryError}) {
+            QIQI_TEST_CHECK(!InputScopeClassificationToString(cls).empty());
+        }
+
+        // ReadContextCompartmentFlag null manager check
+        const auto null_comp_res = ReadContextCompartmentFlag(
+            nullptr, GUID_COMPARTMENT_KEYBOARD_DISABLED,
+            AccessFactStage::DisabledCompartmentGet, AccessFactStage::DisabledCompartmentValue);
+        QIQI_TEST_CHECK(null_comp_res.has_error && null_comp_res.hr == E_INVALIDARG &&
+                        null_comp_res.stage == AccessFactStage::DisabledCompartmentGet);
+
+        // ReadFastContextFacts with null context
+        const auto null_ctx_facts = ReadFastContextFacts(
+            nullptr, InputScopeClassification::Unknown, [] { return true; });
+        QIQI_TEST_CHECK(!null_ctx_facts.has_context && null_ctx_facts.IsBlocked() &&
+                        null_ctx_facts.stage == AccessFactStage::ContextMissing);
     }
 
-    // 2. Scope query edge cases: multiple scopes, empty array, inconsistent count/null, bad VT, QI failure, GetValue failure
+    // 2. Scope query and FastContextFacts edge cases
     {
         auto ctx = MakeComObject<MockTfContext>();
         ctx->get_start_result_ = S_OK;
         auto prop = MakeComObject<MockInputScopeProperty>();
         ctx->app_property_ = prop;
         ctx->get_app_property_result_ = S_OK;
+
+        // FastContextFacts error paths: CompartmentMgr QI fail / null, Disabled get/val fail / bad VT, Empty get/val fail, Status fail
+        ctx->fail_qi_compartment_mgr_ = true;
+        auto fast = ReadFastContextFacts(ctx.Get(), InputScopeClassification::Unknown, [] { return true; });
+        QIQI_TEST_CHECK(fast.HasError() && fast.stage == AccessFactStage::CompartmentMgrQuery);
+        ctx->fail_qi_compartment_mgr_ = false;
+
+        ctx->return_null_compartment_mgr_ = true;
+        fast = ReadFastContextFacts(ctx.Get(), InputScopeClassification::Unknown, [] { return true; });
+        QIQI_TEST_CHECK(fast.HasError() && fast.stage == AccessFactStage::CompartmentMgrQuery && fast.error_hr == E_UNEXPECTED);
+        ctx->return_null_compartment_mgr_ = false;
+
+        ctx->get_disabled_compartment_result_ = E_ACCESSDENIED;
+        fast = ReadFastContextFacts(ctx.Get(), InputScopeClassification::Unknown, [] { return true; });
+        QIQI_TEST_CHECK(fast.HasError() && fast.stage == AccessFactStage::DisabledCompartmentGet && fast.error_hr == E_ACCESSDENIED);
+        ctx->get_disabled_compartment_result_ = S_OK;
+
+        ctx->return_null_disabled_compartment_ = true;
+        fast = ReadFastContextFacts(ctx.Get(), InputScopeClassification::Unknown, [] { return true; });
+        QIQI_TEST_CHECK(fast.HasError() && fast.stage == AccessFactStage::DisabledCompartmentGet && fast.error_hr == E_UNEXPECTED);
+        ctx->return_null_disabled_compartment_ = false;
+
+        ComPtr<ITfCompartment> dis_comp;
+        QIQI_TEST_CHECK(ctx->GetCompartment(GUID_COMPARTMENT_KEYBOARD_DISABLED, &dis_comp) == S_OK);
+        ctx->disabled_compartment_->value_vt_ = VT_BSTR;
+        fast = ReadFastContextFacts(ctx.Get(), InputScopeClassification::Unknown, [] { return true; });
+        QIQI_TEST_CHECK(fast.HasError() && fast.stage == AccessFactStage::DisabledCompartmentValue && fast.error_hr == DISP_E_TYPEMISMATCH);
+        ctx->disabled_compartment_->value_vt_ = VT_I4;
+
+        ctx->get_empty_compartment_result_ = E_ACCESSDENIED;
+        fast = ReadFastContextFacts(ctx.Get(), InputScopeClassification::Unknown, [] { return true; });
+        QIQI_TEST_CHECK(fast.HasError() && fast.stage == AccessFactStage::EmptyCompartmentGet && fast.error_hr == E_ACCESSDENIED);
+        ctx->get_empty_compartment_result_ = S_OK;
+
+        ComPtr<ITfCompartment> emp_comp;
+        QIQI_TEST_CHECK(ctx->GetCompartment(GUID_COMPARTMENT_EMPTYCONTEXT, &emp_comp) == S_OK);
+        ctx->empty_compartment_->get_value_result_ = E_ACCESSDENIED;
+        fast = ReadFastContextFacts(ctx.Get(), InputScopeClassification::Unknown, [] { return true; });
+        QIQI_TEST_CHECK(fast.HasError() && fast.stage == AccessFactStage::EmptyCompartmentValue && fast.error_hr == E_ACCESSDENIED);
+        ctx->empty_compartment_->get_value_result_ = S_OK;
+
+        ctx->get_status_result_ = E_ACCESSDENIED;
+        fast = ReadFastContextFacts(ctx.Get(), InputScopeClassification::Unknown, [] { return true; });
+        QIQI_TEST_CHECK(fast.HasError() && fast.stage == AccessFactStage::ContextStatus && fast.error_hr == E_ACCESSDENIED);
+        ctx->get_status_result_ = E_NOTIMPL;
+        fast = ReadFastContextFacts(ctx.Get(), InputScopeClassification::Unknown, [] { return true; });
+        QIQI_TEST_CHECK(!fast.HasError() && !fast.is_readonly);
+        ctx->get_status_result_ = S_OK;
 
         // Multi-scope with password second
         prop->scopes = {IS_DEFAULT, IS_ALPHANUMERIC_PIN};
@@ -341,6 +419,13 @@ void TestUnifiedAccessPolicyAndEdgeCases() {
         res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
         QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError && res.hr == E_UNEXPECTED);
         prop->inconsistent_null_buffer_with_count = false;
+
+        // GetInputScopes failure -> QueryError
+        prop->scopes = {IS_DEFAULT};
+        prop->get_scopes_result = E_ACCESSDENIED;
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError && res.hr == E_ACCESSDENIED);
+        prop->get_scopes_result = S_OK;
 
         // Wrong VARIANT type -> QueryError
         prop->value_vt = VT_I4;
@@ -360,11 +445,56 @@ void TestUnifiedAccessPolicyAndEdgeCases() {
         QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError);
         prop->fail_qi_input_scope = false;
 
-        // Runtime access denied -> QueryError
+        // Runtime access denied on Property::GetValue -> QueryError
         prop->get_value_result = E_ACCESSDENIED;
         res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
         QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError && res.hr == E_ACCESSDENIED);
         prop->get_value_result = S_OK;
+
+        // GetStart failure -> QueryError; GetStart E_NOTIMPL / null range -> Unknown
+        ctx->get_start_result_ = E_ACCESSDENIED;
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError && res.stage == AccessFactStage::RangeQuery);
+        ctx->get_start_result_ = E_NOTIMPL;
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::Unknown && res.stage == AccessFactStage::RangeQuery);
+        ctx->get_start_result_ = S_OK;
+        ctx->return_null_start_range_ = true;
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::Unknown && res.stage == AccessFactStage::RangeQuery);
+        ctx->return_null_start_range_ = false;
+
+        // GetAppProperty failure -> QueryError; S_FALSE -> Unknown
+        ctx->get_app_property_result_ = E_ACCESSDENIED;
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError && res.stage == AccessFactStage::AppPropertyGet);
+        ctx->get_app_property_result_ = S_FALSE;
+        ctx->app_property_.Reset();
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::Unknown && res.stage == AccessFactStage::AppPropertyGet);
+
+        // ContextAccessTracker revision & caching tests
+        ContextAccessTracker tracker;
+        const EditSessionTicket t1{{1, 1}, ctx.Get()};
+        QIQI_TEST_CHECK(tracker.NeedsWindowQuery(t1) && tracker.NeedsScopeQuery(t1));
+        const uint64_t rev1 = tracker.Revision();
+        // Stale revision updates are ignored
+        tracker.UpdateWindowFacts(t1, rev1 + 99, true, false);
+        QIQI_TEST_CHECK(tracker.NeedsWindowQuery(t1));
+        tracker.UpdateWindowFacts(t1, rev1, true, false);
+        QIQI_TEST_CHECK(!tracker.NeedsWindowQuery(t1));
+        ContextFacts cached_facts{};
+        tracker.ApplyCachedWindowFacts(t1, cached_facts);
+        QIQI_TEST_CHECK(cached_facts.is_native_password_edit && !cached_facts.is_native_readonly_edit);
+
+        // QueryError is not cached as a permanent scope result
+        tracker.UpdateScopeResult(t1, rev1, {.classification = InputScopeClassification::QueryError, .hr = E_ACCESSDENIED});
+        QIQI_TEST_CHECK(tracker.NeedsScopeQuery(t1));
+        tracker.UpdateScopeResult(t1, rev1, {.classification = InputScopeClassification::Private, .hr = S_OK});
+        QIQI_TEST_CHECK(!tracker.NeedsScopeQuery(t1) && tracker.CachedScopeFor(t1) == InputScopeClassification::Private);
+        tracker.OnDynamicStateChanged();
+        QIQI_TEST_CHECK(tracker.NeedsWindowQuery(t1) && tracker.NeedsScopeQuery(t1) &&
+                        tracker.CachedScopeFor(t1) == InputScopeClassification::Unknown);
     }
 
     // 3. Service-level unified gating: queued write after disable, Shift, PreservedKeys, Candidate UI, thread-mgr compartment isolation, StatusSink

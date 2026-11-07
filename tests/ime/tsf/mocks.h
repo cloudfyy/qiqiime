@@ -348,6 +348,10 @@ public:
             ::VariantInit(pvarValue);
             return get_value_result_;
         }
+        if (value_vt_ != VT_I4) {
+            pvarValue->vt = value_vt_;
+            return S_OK;
+        }
         pvarValue->vt = VT_I4;
         pvarValue->lVal = last_val_;
         if (get_value_callback_) get_value_callback_();
@@ -370,6 +374,7 @@ public:
 
     GUID guid_{};
     LONG last_val_ = 0;
+    VARTYPE value_vt_ = VT_I4;
     HRESULT get_value_result_ = S_OK;
     bool fail_set_value_ = false;
     unsigned int set_value_calls_ = 0;
@@ -479,7 +484,11 @@ public:
             *ppvObj = static_cast<ITfContextComposition*>(this);
         } else if (IsEqualIID(riid, IID_ITfSource)) {
             *ppvObj = static_cast<ITfSource*>(this);
-        } else if (IsEqualIID(riid, IID_ITfCompartmentMgr)) {
+        } else if (IsEqualIID(riid, IID_ITfCompartmentMgr) && !fail_qi_compartment_mgr_) {
+            if (return_null_compartment_mgr_) {
+                *ppvObj = nullptr;
+                return S_OK;
+            }
             *ppvObj = static_cast<ITfCompartmentMgr*>(this);
         } else {
             *ppvObj = nullptr;
@@ -563,7 +572,7 @@ public:
         if (set_selection_callback_) set_selection_callback_();
         return set_selection_result_;
     }
-    STDMETHODIMP GetStart(TfEditCookie, ITfRange** ppRange) noexcept override {
+    STDMETHODIMP GetStart(TfEditCookie, ITfRange** ppRange) override {
         if (!ppRange) return E_INVALIDARG;
         if (FAILED(get_start_result_)) {
             *ppRange = nullptr;
@@ -708,6 +717,14 @@ public:
     STDMETHODIMP GetCompartment(REFGUID rguid, ITfCompartment** ppcomp) override {
         if (!ppcomp) return E_INVALIDARG;
         if (IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_DISABLED)) {
+            if (FAILED(get_disabled_compartment_result_)) {
+                *ppcomp = nullptr;
+                return get_disabled_compartment_result_;
+            }
+            if (return_null_disabled_compartment_) {
+                *ppcomp = nullptr;
+                return S_OK;
+            }
             if (!disabled_compartment_) {
                 disabled_compartment_ = MakeComObject<MockTfCompartment>(GUID_COMPARTMENT_KEYBOARD_DISABLED);
             }
@@ -716,6 +733,14 @@ public:
             return S_OK;
         }
         if (IsEqualGUID(rguid, GUID_COMPARTMENT_EMPTYCONTEXT)) {
+            if (FAILED(get_empty_compartment_result_)) {
+                *ppcomp = nullptr;
+                return get_empty_compartment_result_;
+            }
+            if (return_null_empty_compartment_) {
+                *ppcomp = nullptr;
+                return S_OK;
+            }
             if (!empty_compartment_) {
                 empty_compartment_ = MakeComObject<MockTfCompartment>(GUID_COMPARTMENT_EMPTYCONTEXT);
             }
@@ -765,6 +790,12 @@ public:
     bool return_null_document_ = false;
     unsigned int get_document_calls_ = 0;
     std::function<void()> layout_advise_callback_;
+    bool fail_qi_compartment_mgr_ = false;
+    bool return_null_compartment_mgr_ = false;
+    HRESULT get_disabled_compartment_result_ = S_OK;
+    bool return_null_disabled_compartment_ = false;
+    HRESULT get_empty_compartment_result_ = S_OK;
+    bool return_null_empty_compartment_ = false;
     ComPtr<MockTfCompartment> disabled_compartment_;
     ComPtr<MockTfCompartment> empty_compartment_;
     bool fail_qi_insert_ = false;
