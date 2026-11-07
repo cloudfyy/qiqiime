@@ -3,6 +3,7 @@
 #include "tools/log_monitor/model.h"
 #include <evntrace.h>
 #include <evntcons.h>
+#include <gsl/gsl>
 #include <atomic>
 #include <thread>
 
@@ -24,9 +25,24 @@ public:
 // Decode only our provider's known fields. The callback never retains EVENT_RECORD pointers.
 ULONG DecodeEvent(EVENT_RECORD& record, Event& event);
 
+struct CaptureStartFailure {
+    std::wstring_view operation;
+    ULONG error = ERROR_SUCCESS;
+    bool IsPermissionDenied() const noexcept {
+        return error == ERROR_ACCESS_DENIED || error == ERROR_PRIVILEGE_NOT_HELD;
+    }
+};
+
+struct CaptureStartApi {
+    gsl::not_null<decltype(&::StartTraceW)> start_trace = &::StartTraceW;
+    gsl::not_null<decltype(&::EnableTraceEx2)> enable_trace = &::EnableTraceEx2;
+    gsl::not_null<decltype(&::OpenTraceW)> open_trace = &::OpenTraceW;
+};
+
 class Collector final {
 public:
-    Collector(EventQueue& queue, Diagnostics& diagnostics) noexcept : queue_(queue), diagnostics_(diagnostics) {}
+    Collector(EventQueue& queue, Diagnostics& diagnostics, CaptureStartApi api = {}) noexcept
+        : queue_(queue), diagnostics_(diagnostics), api_(api) {}
     ~Collector() noexcept;
     Collector(const Collector&) = delete;
     Collector& operator=(const Collector&) = delete;
@@ -37,6 +53,7 @@ public:
     void PollLoss() noexcept;
     bool Running() const noexcept { return running_.load(); }
     std::wstring_view SessionName() const noexcept { return name_; }
+    const std::optional<CaptureStartFailure>& LastStartFailure() const noexcept { return start_failure_; }
     std::atomic<uint64_t> decode_errors{0};
     std::atomic<uint64_t> events_lost{0};
     std::atomic<uint64_t> buffers_lost{0};
@@ -44,8 +61,11 @@ public:
 private:
     static void WINAPI OnEvent(EVENT_RECORD* record) noexcept;
     void Consume() noexcept;
+    bool FailStart(std::wstring_view operation, ULONG error) noexcept;
     EventQueue& queue_;
     Diagnostics& diagnostics_;
+    CaptureStartApi api_;
+    std::optional<CaptureStartFailure> start_failure_;
     TRACEHANDLE session_ = 0;
     TRACEHANDLE reader_ = INVALID_PROCESSTRACE_HANDLE;
     std::wstring name_;

@@ -1,4 +1,5 @@
 #include "tools/log_monitor/internal.h"
+#include "tools/log_monitor/permissions.h"
 #include "common/about_dialog.h"
 #include "common/theme.h"
 #include "common/window.h"
@@ -195,6 +196,49 @@ void MonitorWindow::Impl::ExportSnapshot() {
     }
 }
 
+bool MonitorWindow::Impl::RecoverCapturePermission(const CaptureStartFailure& failure) {
+    if (!failure.IsPermissionDenied()) return false;
+    Tick();
+    CapturePermissions permissions;
+    const ULONG permission_error = QueryCapturePermissions(permissions);
+    if (permission_error != ERROR_SUCCESS) {
+        Failure(Text(L"无法检查监控器令牌权限；请查看工具诊断中的采集错误",
+                     L"Cannot inspect monitor token permissions; see diagnostics for the capture error"), permission_error);
+        return false;
+    }
+    if (permissions.elevated) {
+        Failure(std::format(L"{}: {}", failure.operation, Text(
+            L"监控器已提升权限，仍被拒绝访问。请由管理员检查 ETW 会话和提供程序权限策略。",
+            L"The monitor is already elevated. Ask an administrator to inspect ETW session and provider permissions.")),
+            failure.error);
+        return false;
+    }
+    bool accepted = false;
+    const HRESULT result = ConfirmElevatedRestart(hwnd, ui_language, failure, accepted, !events.Events().empty());
+    if (FAILED(result)) {
+        Failure(L"TaskDialogIndirect(elevated restart)", gsl::narrow_cast<ULONG>(result));
+        return false;
+    }
+    if (!accepted) {
+        diagnostics.Record(4, L"Elevated restart declined; original monitor and buffered logs retained");
+        return false;
+    }
+    if (!collector.Stop()) return false;
+    const ULONG error = LaunchElevatedMonitor(hwnd);
+    if (error == ERROR_CANCELLED) {
+        diagnostics.Record(3, L"Elevated restart cancelled by Windows; original monitor and buffered logs retained", error);
+        return false;
+    }
+    if (error != ERROR_SUCCESS) {
+        Failure(Text(L"以管理员身份重启失败；原窗口和内存日志保留",
+                     L"Elevated restart failed; original window and buffered logs retained"), error);
+        return false;
+    }
+    diagnostics.Record(4, L"Elevated monitor launched; closing original monitor");
+    ::SendMessageW(hwnd, WM_CLOSE, 0, 0);
+    return true;
+}
+
 void MonitorWindow::Impl::Command(int id, int notification) {
     switch (gsl::narrow_cast<ControlId>(id)) {
     case Exit: ::SendMessageW(hwnd, WM_CLOSE, 0, 0); break;
@@ -220,6 +264,9 @@ void MonitorWindow::Impl::Command(int id, int notification) {
             collector.Stop();
         } else if (collector.Start()) {
             last_error.clear();
+        } else if (const auto& failure = collector.LastStartFailure();
+                   failure && RecoverCapturePermission(*failure)) {
+            return;
         }
         Tick();
         break;

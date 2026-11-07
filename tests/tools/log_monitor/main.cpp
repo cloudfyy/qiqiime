@@ -20,6 +20,11 @@
 #include <system_error>
 #include <cstring>
 
+namespace qiqi::monitor::permission_tests {
+void RunPermissionRecoveryTests();
+void RunCaptureStartupRollbackTests();
+}
+
 namespace {
 using namespace qiqi;
 using namespace qiqi::monitor;
@@ -1041,10 +1046,8 @@ int Integration(const wchar_t* peer) {
     if (!collector.Start()) {
         const auto errors = diagnostics.queue.Take();
         for (const auto& error : errors) std::wcerr << error.message << L"\n";
-        const bool denied = std::any_of(errors.begin(), errors.end(), [](const Event& event) {
-            return event.message.contains(L"error=5,");
-        });
-        if (denied) return 77;
+        const auto& failure = collector.LastStartFailure();
+        if (failure && failure->IsPermissionDenied()) return 77;
         QIQI_TEST_CHECK(false);
     }
     const std::wstring session_name(collector.SessionName());
@@ -1253,6 +1256,7 @@ int Integration(const wchar_t* peer) {
     QIQI_TEST_CHECK(collector.Stop());
     QIQI_TEST_CHECK(collector.decode_errors == 0);
     QIQI_TEST_CHECK(collector.Stop());
+    qiqi::monitor::permission_tests::RunCaptureStartupRollbackTests();
     return 0;
 }
 } // namespace
@@ -1278,6 +1282,7 @@ int wmain(int argc, wchar_t* argv[]) {
         return Integration(args.size() == 3 ? gsl::at(args, 2) : nullptr);
     }
     TestBuffersAndFilters();
+    qiqi::monitor::permission_tests::RunPermissionRecoveryTests();
     TestExport();
     TestAboutDialogs();
     TestWindowAndVersion();

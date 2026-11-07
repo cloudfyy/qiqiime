@@ -127,6 +127,7 @@ struct MonitorWindow::Impl {
     void CopySelection();
     void ShowListContextMenu(POINT screen_pt);
     void ExportSnapshot();
+    bool RecoverCapturePermission(const CaptureStartFailure& failure);
     void Command(int id, int notification);
     static LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 };

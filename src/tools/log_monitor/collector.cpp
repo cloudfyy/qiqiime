@@ -1,4 +1,5 @@
 #include "tools/log_monitor/collector.h"
+#include "tools/log_monitor/permissions.h"
 #include "common/etw_registration.h"
 #include "common/logger.h"
 #include "common/version.h"
@@ -201,19 +202,33 @@ ULONG DecodeEvent(EVENT_RECORD& record, Event& event) {
 
 Collector::~Collector() noexcept { Stop(); }
 
+bool Collector::FailStart(std::wstring_view operation, ULONG error) noexcept {
+    start_failure_ = CaptureStartFailure{operation, error};
+    diagnostics_.Record(2, operation, error);
+    return false;
+}
+
 bool Collector::Start() {
+    start_failure_.reset();
     if (Running()) return true;
     if (!Stop()) return false;
+    CapturePermissions permissions;
+    const ULONG permission_error = QueryCapturePermissions(permissions);
+    if (permission_error != ERROR_SUCCESS) {
+        diagnostics_.Record(3, L"Query capture token permissions; attempting ETW access directly", permission_error);
+    } else {
+        diagnostics_.Record(4, std::format(
+            L"Capture permissions: elevated={}, Performance Log Users enabled={}; ETW calls determine access",
+            permissions.elevated, permissions.performance_log_user));
+    }
     static std::atomic<uint64_t> sequence{0};
     name_ = std::format(L"QiQiIME.LogMonitor.{}.{}.{}", ::GetCurrentProcessId(),
         ::GetTickCount64(), ++sequence);
     TraceProperties properties;
-    ULONG error = ::StartTraceW(&session_, name_.c_str(), &properties.properties);
+    ULONG error = api_.start_trace(&session_, name_.c_str(), &properties.properties);
     if (error != ERROR_SUCCESS) {
         session_ = 0;
-        diagnostics_.Record(2, error == ERROR_ACCESS_DENIED ?
-            L"StartTrace: access denied; run monitor elevated or grant trace-control permission" : L"StartTrace", error);
-        return false;
+        return FailStart(L"StartTraceW", error);
     }
     bool started = false;
     const auto rollback = gsl::finally([this, &started]() noexcept {
@@ -221,11 +236,10 @@ bool Collector::Start() {
     });
     lost_baseline_ = events_lost.load();
     buffers_baseline_ = buffers_lost.load();
-    error = ::EnableTraceEx2(session_, &kImeProvider, EVENT_CONTROL_CODE_ENABLE_PROVIDER,
+    error = api_.enable_trace(session_, &kImeProvider, EVENT_CONTROL_CODE_ENABLE_PROVIDER,
         TRACE_LEVEL_VERBOSE, 0, 0, 1000, nullptr);
     if (error != ERROR_SUCCESS) {
-        diagnostics_.Record(2, L"EnableTraceEx2(QiQiIME.TraceLogging)", error);
-        return false;
+        return FailStart(L"EnableTraceEx2(QiQiIME.TraceLogging)", error);
     }
 #pragma warning(push)
 #pragma warning(disable : 26476) // ETW chooses EventRecordCallback through ProcessTraceMode.
@@ -235,11 +249,10 @@ bool Collector::Start() {
     logfile.EventRecordCallback = &OnEvent;
     logfile.Context = this;
 #pragma warning(pop)
-    reader_ = ::OpenTraceW(&logfile);
+    reader_ = api_.open_trace(&logfile);
     if (reader_ == INVALID_PROCESSTRACE_HANDLE) {
         error = ::GetLastError();
-        diagnostics_.Record(2, L"OpenTrace", error);
-        return false;
+        return FailStart(L"OpenTraceW", error);
     }
     running_ = true;
     try {
