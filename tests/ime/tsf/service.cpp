@@ -1522,6 +1522,15 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
                     ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
                 }
             });
+            QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::OpenHelp))));
+
+            ::SetTimer(nullptr, 5, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+                ::KillTimer(nullptr, id);
+                const HWND dlg = ::FindWindowW(kAboutWndClass, nullptr);
+                if (dlg) {
+                    ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+                }
+            });
             QIQI_TEST_CHECK(SUCCEEDED(hf_lb->OnMenuSelect(static_cast<UINT>(LangBarMenuId::OpenAbout))));
         }
     }

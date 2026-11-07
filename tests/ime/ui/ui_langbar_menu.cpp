@@ -194,7 +194,7 @@ void TestLangBarButton() {
     QIQI_TEST_CHECK(btn->InitMenu(nullptr) == E_INVALIDARG);
     MockTfMenu menu_zh;
     QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_zh)));
-    QIQI_TEST_CHECK(menu_zh.item_ids_.size() == 10 && menu_zh.separators_ == 2);
+    QIQI_TEST_CHECK(menu_zh.item_ids_.size() == 11 && menu_zh.separators_ == 2);
     QIQI_TEST_CHECK(!menu_zh.item_texts_.empty() &&
                     menu_zh.item_texts_.front().find(L"中文输入模式") != std::wstring::npos);
 
@@ -210,7 +210,7 @@ void TestLangBarButton() {
                     std::wstring(tooltip.Get()).find(L"Left-click") != std::wstring::npos);
     MockTfMenu menu_en;
     QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_en)));
-    QIQI_TEST_CHECK(menu_en.item_ids_.size() == 10 && menu_en.separators_ == 2);
+    QIQI_TEST_CHECK(menu_en.item_ids_.size() == 11 && menu_en.separators_ == 2);
     QIQI_TEST_CHECK(!menu_en.item_texts_.empty() &&
                     menu_en.item_texts_.front().find(L"Chinese Input Mode") != std::wstring::npos);
 
@@ -516,6 +516,7 @@ void TestQuickSettingsMenu() {
         QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
     }
     SetThemeDarkOverrideForTest(std::nullopt);
+    QIQI_TEST_CHECK(!LangBarButton::KeepsMenuOpen(LangBarMenuId::OpenHelp));
     QIQI_TEST_CHECK(!LangBarButton::KeepsMenuOpen(LangBarMenuId::OpenAbout));
     QIQI_TEST_CHECK(!LangBarButton::KeepsMenuOpen(LangBarMenuId::OpenSettings));
 }

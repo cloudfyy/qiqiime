@@ -38,6 +38,7 @@ constexpr int kIdChkBoldUnderline = 126;
 constexpr int kIdBtnDictManager = 127;
 constexpr int kIdLblEnglishSwitch = 128;
 constexpr int kIdComboEnglishSwitch = 129;
+constexpr int kIdBtnHelp = 130;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 

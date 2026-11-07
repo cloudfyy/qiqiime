@@ -78,6 +78,7 @@ LangBarButton::MenuItems LangBarButton::BuildSharedMenuItems(const LangBarState&
         {LangBarMenuId::ToggleStatusBar, str.menu_toggle_status_bar, state.show_status_bar},
         {LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang},
         {LangBarMenuId::OpenSettings, str.menu_open_settings},
+        {LangBarMenuId::OpenHelp, str.menu_open_help},
         {LangBarMenuId::OpenAbout, str.menu_open_about}
     }};
 }

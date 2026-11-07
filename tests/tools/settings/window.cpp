@@ -147,7 +147,7 @@ void TestSettingsDialogControls() {
         ::GetWindowTextW(hwnd_zh.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
         QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"QiQi 五笔输入法 - 属性设置");
 
-        // Test clicking the "About..." button (id=115) inside SettingsDialog (both with bound_config and nullptr)
+        // Test clicking the "About..." button (id=115) and "Shortcuts..." button (id=130) inside SettingsDialog
         ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
             ::KillTimer(nullptr, id);
             const HWND about_dlg = FindThreadWindowByClass(kAboutWndClass);
@@ -156,6 +156,15 @@ void TestSettingsDialogControls() {
             }
         });
         ::SendMessageW(hwnd_zh.Get(), WM_COMMAND, MAKEWPARAM(115, BN_CLICKED), 0);
+
+        ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+            ::KillTimer(nullptr, id);
+            const HWND help_dlg = FindThreadWindowByClass(kAboutWndClass);
+            if (help_dlg) {
+                ::SendMessageW(help_dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+            }
+        });
+        ::SendMessageW(hwnd_zh.Get(), WM_COMMAND, MAKEWPARAM(130, BN_CLICKED), 0);
 
         const ScopedWindow hwnd_null_cfg(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, nullptr));
         QIQI_TEST_CHECK(hwnd_null_cfg.IsValid());
@@ -280,6 +289,38 @@ void TestSettingsDialogControls() {
         }
     });
     QIQI_TEST_CHECK(ShowAboutDialog(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
+
+    // Verify Help / Shortcuts dialog creation, painting, live language switch, and modal ShowHelpDialog
+    {
+        const ScopedWindow help_zh(CreateHelpWindow(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
+        QIQI_TEST_CHECK(help_zh.IsValid());
+        ::GetWindowTextW(help_zh.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
+        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == kZhCnStrings.help_title);
+        QIQI_TEST_CHECK(::GetDlgItem(help_zh.Get(), 201) == nullptr);
+        std::array<wchar_t, 64> btn_buf{};
+        ::GetDlgItemTextW(help_zh.Get(), IDOK, btn_buf.data(), gsl::narrow_cast<int>(btn_buf.size()));
+        QIQI_TEST_CHECK(std::wstring(btn_buf.data()) == L"确定");
+        ::ShowWindow(help_zh.Get(), SW_SHOWNOACTIVATE);
+        ::InvalidateRect(help_zh.Get(), nullptr, TRUE);
+        ::UpdateWindow(help_zh.Get());
+
+        ::SendMessageW(help_zh.Get(), kSettingsLanguageChangedMessage, static_cast<WPARAM>(UiLanguage::EnUs), 0);
+        ::GetWindowTextW(help_zh.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
+        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == kEnUsStrings.help_title);
+
+        const ScopedWindow help_en(CreateHelpWindow(::GetModuleHandleW(nullptr), help_zh.Get(), UiLanguage::EnUs));
+        QIQI_TEST_CHECK(help_en.IsValid());
+        ::GetWindowTextW(help_en.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
+        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == kEnUsStrings.help_title);
+    }
+    ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+        ::KillTimer(nullptr, id);
+        const HWND dlg = FindThreadWindowByClass(kAboutWndClass);
+        if (dlg) {
+            ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+        }
+    });
+    QIQI_TEST_CHECK(ShowHelpDialog(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
 }
 
 void TestSettingsWindowMonitorChanges() {

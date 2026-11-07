@@ -14,4 +14,10 @@ ScopedWindow CreateAboutWindow(
 bool ShowAboutDialog(
     HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto, bool use_embedded_icon = false) noexcept;
 
+// Create or show modal Help & Keyboard Shortcuts dialog sharing the About dialog infrastructure.
+ScopedWindow CreateHelpWindow(
+    HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto, bool use_embedded_icon = false) noexcept;
+bool ShowHelpDialog(
+    HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto, bool use_embedded_icon = false) noexcept;
+
 } // namespace qiqi

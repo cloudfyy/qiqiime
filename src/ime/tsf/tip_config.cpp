@@ -27,6 +27,7 @@ constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
         case LangBarMenuId::ToggleStatusBar:   return "ToggleStatusBar";
         case LangBarMenuId::OpenSettings:      return "OpenSettings";
         case LangBarMenuId::ToggleUiLanguage:  return "ToggleUiLanguage";
+        case LangBarMenuId::OpenHelp:          return "OpenHelp";
         case LangBarMenuId::OpenAbout:         return "OpenAbout";
         default:                               return "Unknown";
     }
@@ -399,6 +400,9 @@ void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
         }
         case LangBarMenuId::OpenSettings:
             Show(nullptr, kChineseSimplifiedLangId, kGuidProfileWubi86);
+            break;
+        case LangBarMenuId::OpenHelp:
+            ShowHelpDialog(g_dll_instance, nullptr, config_.ui_language);
             break;
         case LangBarMenuId::OpenAbout:
             ShowAboutDialog(g_dll_instance, nullptr, config_.ui_language);

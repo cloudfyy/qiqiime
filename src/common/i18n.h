@@ -24,6 +24,7 @@ struct UiStrings {
     const wchar_t* menu_toggle_status_bar;
     const wchar_t* menu_toggle_ui_lang;
     const wchar_t* menu_open_settings;
+    const wchar_t* menu_open_help;
     const wchar_t* menu_open_about;
 
     // Floating desktop status bar
@@ -76,6 +77,7 @@ struct UiStrings {
     const wchar_t* dlg_chk_bold_underline;
     const wchar_t* dlg_btn_about;
     const wchar_t* dlg_btn_dict_mgr;
+    const wchar_t* dlg_btn_help;
     const wchar_t* dlg_btn_ok;
     const wchar_t* dlg_btn_cancel;
     const wchar_t* dlg_save_failed;
@@ -86,12 +88,16 @@ struct UiStrings {
     const wchar_t* dlg_btn_yes;
     const wchar_t* dlg_btn_no;
 
-    // About dialog
+    // About & Help dialogs
     const wchar_t* about_title;
     const wchar_t* about_app_name;
     const wchar_t* about_version_prefix;
     const wchar_t* about_license_info;
     const wchar_t* about_btn_github;
+    const wchar_t* help_title;
+    const wchar_t* help_header_title;
+    const wchar_t* help_header_subtitle;
+    const wchar_t* help_shortcuts_info;
 };
 
 inline constexpr UiStrings kZhCnStrings = {
@@ -109,6 +115,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"显示桌面浮动状态条",
     L"Switch to English UI (英文界面)",
     L"输入法属性设置...",
+    L"快捷键与帮助...",
     L"关于奇奇五笔...",
 
     L"五笔",
@@ -159,6 +166,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"加粗编码下划线",
     L"关于...",
     L"词库与词频管理...",
+    L"快捷键说明...",
     L"确定",
     L"取消",
     L"保存设置失败，请重试。",
@@ -176,7 +184,26 @@ inline constexpr UiStrings kZhCnStrings = {
     L"• 奇奇五笔 (QiQiIME) 主程序 (cloudfyy): GPL License\n"
     L"• 极点五笔 86 词库 (KyleBing): Apache License 2.0\n"
     L"• 海峰五笔 86 词库 (孙海峰): BSD 3-Clause License",
-    L"访问 GitHub"
+    L"访问 GitHub",
+    L"快捷键与使用帮助",
+    L"奇奇五笔 快捷键与操作指南",
+    L"常用输入、选词、调序与快捷造词热键一览",
+    L"【模式切换】\n"
+    L"• 单按 Shift / Ctrl + Space：切换中 / 英文输入模式\n"
+    L"• Shift + Space：切换全角 / 半角字符模式\n"
+    L"• Ctrl + .（句号）：切换中文 / 英文标点符号\n\n"
+    L"【选词与翻页】\n"
+    L"• Space（空格）/ 数字 1–9（含小键盘）：首选上屏 / 按序号选词\n"
+    L"• ;（分号）/ '（单引号）：选第 2 / 第 3 候选词（可在设置中开关）\n"
+    L"• - = / PageUp PageDown / ↑ ↓：候选词上翻页 / 下翻页\n\n"
+    L"【特色输入】\n"
+    L"• 首码 z + 英文或符号：临时英文输入模式（回车或空格上屏）\n"
+    L"• 第 2–4 码输入 z：万能键通配查询并提示编码\n"
+    L"• 编码中按 CapsLock：已输编码转英文上屏并切换大写锁定\n\n"
+    L"【词库与调序】\n"
+    L"• Ctrl + =（等号）：剪贴板快捷造词（复制 2–16 字词组后按键入库）\n"
+    L"• Ctrl + 数字 1–9：组合态下将对应候选词置顶 / 取消置顶\n"
+    L"• Ctrl + Shift + 数字 1–9（或 Ctrl + Delete）：删除用户词 / 屏蔽系统词"
 };
 
 inline constexpr UiStrings kEnUsStrings = {
@@ -194,6 +221,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Show Floating Status Bar",
     L"切换中文界面 (Chinese UI)",
     L"IME Settings...",
+    L"Shortcuts & Help...",
     L"About QiQi Wubi...",
 
     L"Wubi",
@@ -244,6 +272,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Bold composition underline",
     L"About...",
     L"Dictionary Manager...",
+    L"Shortcuts...",
     L"OK",
     L"Cancel",
     L"Settings could not be saved. Your edits remain in this window. Please retry.",
@@ -261,7 +290,26 @@ inline constexpr UiStrings kEnUsStrings = {
     L"• QiQi Wubi IME Core (cloudfyy): GPL License\n"
     L"• Jidian Wubi 86 Dict (KyleBing): Apache License 2.0\n"
     L"• Haifeng Wubi 86 Dict (SUN Haifeng): BSD 3-Clause License",
-    L"Visit GitHub"
+    L"Visit GitHub",
+    L"Keyboard Shortcuts & Help",
+    L"QiQi Wubi Shortcuts & Guide",
+    L"Quick reference for mode switching, selection, and dictionary hotkeys",
+    L"[Mode Switching]\n"
+    L"• Tap Shift / Ctrl + Space: Toggle Chinese / English mode\n"
+    L"• Shift + Space: Toggle Full-Width / Half-Width characters\n"
+    L"• Ctrl + . (Period): Toggle Chinese / English punctuation\n\n"
+    L"[Candidate Selection & Paging]\n"
+    L"• Space / Digits 1–9 (incl. Numpad): Commit 1st / Nth candidate\n"
+    L"• ; (Semicolon) / ' (Apostrophe): Select 2nd / 3rd candidate (optional)\n"
+    L"• - = / PageUp PageDown / Up Down: Previous / Next candidate page\n\n"
+    L"[Special Input]\n"
+    L"• Leading 'z' + ASCII text: Temporary English mode (Enter/Space commits)\n"
+    L"• 'z' in 2nd–4th code position: Wildcard code query with code hints\n"
+    L"• CapsLock while composing: Commit raw code and toggle CapsLock\n\n"
+    L"[Dictionary & Ordering]\n"
+    L"• Ctrl + = (Equals): Add copied clipboard phrase (2–16 chars) to user dict\n"
+    L"• Ctrl + Digit 1–9: Pin / Unpin candidate at that index\n"
+    L"• Ctrl + Shift + Digit 1–9 (or Ctrl + Delete): Delete / Block candidate"
 };
 
 inline UiLanguage DetectSystemPreferredUiLanguage() noexcept {

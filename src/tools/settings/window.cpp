@@ -158,6 +158,11 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             ShowAboutDialog(g_dll_instance, hwnd, lang);
             return;
         }
+        case kIdBtnHelp: {
+            const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
+            ShowHelpDialog(g_dll_instance, hwnd, lang);
+            return;
+        }
         case kIdBtnDictManager: {
             const std::filesystem::path mod_path = GetModuleFilePath(ctx.instance ? ctx.instance : g_dll_instance);
             const std::filesystem::path exe_path =

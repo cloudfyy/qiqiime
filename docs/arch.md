@@ -40,7 +40,7 @@
 1. **无 COM 依赖即可测试**：`qiqi_engine_test.exe` 可以直接验证所有按键与五笔上屏规则，无需先通过 `regsvr32` 注入宿主进程。
 2. **边界明确**：输入法 DLL 运行于资源管理器、浏览器、Office 等宿主进程；引擎不依赖 TSF COM 身份，但词库加载、缓存、用户词及词频同步仍可能执行 I/O，不能把静态库分离理解为“所有路径纯计算”或宿主 UI 不会阻塞的保证。
 
-源码按 [`src/common`](../src/common)、[`src/ime`](../src/ime)、[`src/tools/settings`](../src/tools/settings)、[`src/tools/log_monitor`](../src/tools/log_monitor)、[`src/tools/dict_manager`](../src/tools/dict_manager) 分层，测试采用对应布局。公共 D2D 控件、窗口辅助（[`window.h`](../src/common/window.h)）、菜单及工具条（[`command_ui.h`](../src/common/command_ui.h)）与关于窗口由 `qiqi_common` 统一编译；设置窗口由 `qiqi_settings_ui` 统一编译，供独立设置程序和 IME 的进程内设置回退路径复用。每个模块及对应测试目录均有自己的 `CMakeLists.txt`，顶层文件只负责组织，新增工具使用独立的 `tools/<工具名>` 子目录。
+源码按 [`src/common`](../src/common)、[`src/ime`](../src/ime)、[`src/tools/settings`](../src/tools/settings)、[`src/tools/log_monitor`](../src/tools/log_monitor)、[`src/tools/dict_manager`](../src/tools/dict_manager) 分层，测试采用对应布局。公共 D2D 控件、窗口辅助（[`window.h`](../src/common/window.h)）、菜单及工具条（[`command_ui.h`](../src/common/command_ui.h)）与关于/快捷键说明窗口（[`about_dialog.h`](../src/common/about_dialog.h)）由 `qiqi_common` 统一编译；设置窗口由 `qiqi_settings_ui` 统一编译，供独立设置程序和 IME 的进程内设置回退路径复用。每个模块及对应测试目录均有自己的 `CMakeLists.txt`，顶层文件只负责组织，新增工具使用独立的 `tools/<工具名>` 子目录。
 
 ---
 
@@ -176,11 +176,10 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 
 **P0 研究进展（2026-11-07）**：任务 36、47、R05 的[研究报告](p0-research.md)已完成官方契约复核、当前路径检查及双架构禁输入诊断/生命周期定向回归。统一准入尚未实现，ETW 集成因采集权限不足跳过，真实宿主矩阵未执行；三项均保留未完成，不把研究完成等同于生产验收通过。
 
-**后续用户确认（2026-11-07）**：用户确认“47和R05已测试过了,工作正常.有问题再说”，据此将任务 47 与 R05 标记完成并移出执行队列；保留研究时点的证据边界，不补写未提供的宿主版本、用例次数或日志。当前 P0 仅剩任务 36，后续出现问题再单独跟进。
+**后续用户确认（2026-11-07）**：用户确认“47和R05已测试过了,工作正常.有问题再说”，随后任务 36 完成两层漏斗准入实现并通过双架构自动回归与独立 `QiQiTsfTestHost.exe` 手工验证，三项 P0 均已收口并移出未完成队列；保留研究时点的证据边界，不补写未提供的宿主版本、用例次数或日志。
 
 | 顺序 | 优先级 | 任务 | 排序理由与推进条件 |
 |---|---|---|---|
-| 1 | P0 | 36：密码框与禁输入上下文识别研究 | 优先明确敏感输入边界及普通按键、Shift、保留键、异步编辑的一致性；先完成研究和验证，再按证据实施，不宣称覆盖所有宿主 |
 | 4 | P1 | 62：自定义主词库选择与管理 | 直接解除主词库限于预设来源的限制；优先支持现有五笔 86 格式、失败保留旧状态和用户词保护 |
 | 5 | P1 | 63：监控阶段一 A/B，协议与核心五类 | 建立可量化性能基线和失败口径；先做协议/解码/聚合，再接链路和指标页，不以完整监控平台阻塞任务 62 |
 | 6 | P1 | 27：自定义快捷键与标点映射 | 高频操作收益明显；复用任务 36 已核实的输入门禁，做好冲突检测、恢复默认和组合态回归 |
@@ -480,8 +479,8 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 补充停用后对象仍被引用、重复停用、激活失败回滚、再次激活及异步 EditSession 的生命周期回归测试。
   - 已补展示开关、Begin/End 注册重入及旧位置查询屏障、`WM_NCDESTROY` 句柄清理与可报告失败的所属线程销毁；实际 HWND 回归检查销毁顺序、提示窗/捕获清理、不同 manager 复用相同 UI ID 的隔离及最终外部引用安全。双架构 Release 的 TSF/UI 与 ETW 测试各连续通过 2 次，定向 CppCoreCheck 保留既有告警、无新增诊断。详见[英文生命周期文档](composition.md)；完整矩阵与真实宿主仍由任务 46、47 验证。
 
-#### 进行中：禁输入场景识别研究
-- [ ] **36. 密码框与禁输入上下文识别研究（`restricted-input-context-research`）**：先研究并验证方案，再决定实现；现有 TSF 禁用标志检查不等同于所有密码框、只读框和游戏场景已覆盖。
+#### 已完成：禁输入场景识别与统一准入
+- [x] **36. 密码框与禁输入上下文识别研究与实施（`restricted-input-context-research`）**：已完成官方契约研究、两层漏斗准入模型（[`access_policy.h`](../src/ime/comp/access_policy.h)：`ContextFacts` → `AccessPolicy`）实施、双架构自动回归及独立手工测试程序 [`QiQiTsfTestHost.exe`](../tests/ime/tsf_test_host.cpp) 验证。
   - 2026-11-05 阶段性结果见[研究结论与验证矩阵](restricted.md)：核实 context 级 compartment、只读状态、输入作用域及原生 EDIT 样式；新增 x64/x86 原生契约测试与显式诊断入口，复现 Shift/保留键、禁用后排队编辑及查询失败处理的缺口。本轮未改变生产输入行为，真实宿主矩阵未完成，不勾选完成。
   - 核实 `GUID_COMPARTMENT_KEYBOARD_DISABLED`、`GUID_COMPARTMENT_EMPTYCONTEXT` 的官方语义、上下文/线程作用域及宿主设置行为，研究标志缺失或查询失败时的处理。
   - 评估 Win32 `ES_PASSWORD`、TSF 输入作用域及宿主提供的其他禁输入信号的适用范围和局限，不读取密码内容，不将只读、数字或英文输入框一律判定为密码框。
