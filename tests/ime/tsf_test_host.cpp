@@ -15,6 +15,8 @@
 #include <wrl/client.h>
 #include <gsl/gsl>
 
+#pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+
 #include <array>
 #include <format>
 #include <iostream>
@@ -100,48 +102,48 @@ struct FieldSpec {
 
 constexpr std::array<FieldSpec, 11> kFields{{
     {HostControlId::EditNormal,
-     L"1. 普通输入框 (Standard EDIT / IS_DEFAULT)",
-     L"预期：Allowed（正常五笔输入 + 正常动态调频）",
+     L"1. 普通输入框",
+     L"预期：允许输入（正常五笔打字与动态调频）",
      0, L""},
     {HostControlId::EditEsPassword,
-     L"2. Win32 原生密码框 (GWL_STYLE: ES_PASSWORD)",
-     L"预期：Blocked（按键直接上屏英文密码，Shift/Ctrl+Space 不切模式）",
+     L"2. 原生密码框",
+     L"预期：拦截中文（按键直接输入密码字符，快捷键不切模式）",
      ES_PASSWORD, L""},
     {HostControlId::EditEsReadOnly,
-     L"3. Win32 原生只读框 (GWL_STYLE: ES_READONLY)",
-     L"预期：Blocked（禁止输入与组合，允许选中复制）",
-     ES_READONLY, L"只读示例文本 Read-only sample"},
+     L"3. 原生只读框",
+     L"预期：拦截中文（禁止输入与组合，允许选中复制）",
+     ES_READONLY, L"只读示例文本"},
     {HostControlId::EditEsNumber,
-     L"4. Win32 数字框 (GWL_STYLE: ES_NUMBER + IS_NUMBER)",
-     L"预期：Allowed（不强制禁用中文输入法）",
+     L"4. 原生数字框",
+     L"预期：允许输入（不强制禁用中文输入法）",
      ES_NUMBER, L""},
     {HostControlId::EditScopePassword,
-     L"5. InputScope 密码框 (IS_PASSWORD，无 ES_PASSWORD 样式，模拟网页/WPF/自绘密码框)",
-     L"预期：Blocked（通过 ITfInputScope 识别并拦截组合与快捷键）",
+     L"5. 作用域密码框（模拟网页/自绘密码框）",
+     L"预期：拦截中文（通过密码输入作用域识别并放行按键）",
      0, L""},
     {HostControlId::EditScopePin,
-     L"6. InputScope PIN 码框 (IS_NUMERIC_PIN + IS_ALPHANUMERIC_PIN)",
-     L"预期：Blocked（通过多 InputScope 数组识别 PIN 并拦截）",
+     L"6. 作用域 PIN 码框",
+     L"预期：拦截中文（通过 PIN 码输入作用域识别并放行按键）",
      0, L""},
     {HostControlId::EditScopePrivate,
-     L"7. InputScope 无痕/私密框 (IS_PRIVATE，模拟浏览器 InPrivate 搜索框)",
-     L"预期：Private（可正常中文打字上屏，但禁止动态调频、Ctrl+= 造词、置顶/删词）",
+     L"7. 作用域无痕私密框（模拟浏览器无痕模式）",
+     L"预期：私密无痕（正常中文打字，但禁止动态调频、造词、置顶与删词）",
      0, L""},
     {HostControlId::EditScopeUrlEmail,
-     L"8. InputScope 网址/邮箱框 (IS_URL + IS_EMAIL_SMTPEMAILADDRESS)",
-     L"预期：Allowed（普通非敏感作用域，允许正常中文输入）",
+     L"8. 作用域网址与邮箱框",
+     L"预期：允许输入（普通非敏感作用域，正常中文输入）",
      0, L""},
     {HostControlId::EditCompDisabled,
-     L"9. TSF 禁用上下文框 (GUID_COMPARTMENT_KEYBOARD_DISABLED = 1)",
-     L"预期：Blocked（聚焦时自动置位当前 Context 的 KEYBOARD_DISABLED=1）",
+     L"9. 禁用键盘上下文框",
+     L"预期：拦截中文（聚焦时自动置位上下文键盘禁用标志）",
      0, L""},
     {HostControlId::EditCompEmpty,
-     L"10. TSF 空上下文框 (GUID_COMPARTMENT_EMPTYCONTEXT = 1，模拟游戏非聊天态)",
-     L"预期：Blocked（聚焦时自动置位当前 Context 的 EMPTYCONTEXT=1）",
+     L"10. 空上下文框（模拟游戏非聊天状态）",
+     L"预期：拦截中文（聚焦时自动置位空上下文标志）",
      0, L""},
     {HostControlId::EditDynamic,
-     L"11. 动态切换实验框 (支持输入组合中途原地切换状态 / 2 秒延时切换)",
-     L"预期：组合中输入 rcn 等编码不按空格，点击下方或延时切换为禁用/只读/密码时立即安全清理组合",
+     L"11. 动态切换实验框（测试组合中途状态切换）",
+     L"预期：输入编码不按空格，点击下方延时切换按钮验证组合自动安全清理",
      0, L""}
 }};
 
@@ -258,6 +260,29 @@ struct HostAppState {
         UpdateInspector();
     }
 
+    static constexpr const wchar_t* ScopeClassText(InputScopeClassification cls) noexcept {
+        switch (cls) {
+        case InputScopeClassification::Unknown:       return L"未声明";
+        case InputScopeClassification::Pending:       return L"查询中";
+        case InputScopeClassification::Allowed:       return L"普通可输入";
+        case InputScopeClassification::Private:       return L"私密无痕";
+        case InputScopeClassification::PasswordOrPin: return L"密码或PIN";
+        case InputScopeClassification::QueryError:    return L"查询错误";
+        default:                                      return L"未知";
+        }
+    }
+
+    static constexpr const wchar_t* DynamicModeText(DynamicMode mode) noexcept {
+        switch (mode) {
+        case DynamicMode::Normal:              return L"普通";
+        case DynamicMode::EsPassword:          return L"原生密码";
+        case DynamicMode::EsReadOnly:          return L"原生只读";
+        case DynamicMode::CompartmentDisabled: return L"键盘禁用";
+        case DynamicMode::ScopePrivate:        return L"私密无痕";
+        default:                               return L"普通";
+        }
+    }
+
     void UpdateInspector() {
         EnsureTsfClient();
         const HWND focus_hwnd = ::GetFocus();
@@ -271,11 +296,7 @@ struct HostAppState {
                 const auto res = QueryContextInputScopeInSession(
                     ec, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
                 scope_cls = res.classification;
-                scope_detail = std::format(
-                    L"{} (stage={}, hr=0x{:08X})",
-                    Utf8ToWide(InputScopeClassificationToString(res.classification)),
-                    Utf8ToWide(AccessFactStageToString(res.stage)),
-                    gsl::narrow_cast<unsigned int>(res.hr));
+                scope_detail = ScopeClassText(res.classification);
                 return S_OK;
             });
             HRESULT session_hr = S_OK;
@@ -291,32 +312,36 @@ struct HostAppState {
         std::wstring countdown_msg;
         if (countdown_ticks > 0) {
             countdown_msg = std::format(
-                L"  [倒计时 {:.1f}s 后自动切换动态框状态... 请立即在 11 号框内输入编码！]",
+                L"  【倒计时 {:.1f} 秒后自动切换 11 号框状态，请立即输入五笔编码！】",
                 static_cast<double>(countdown_ticks) * 0.2);
         }
 
         const std::wstring report = std::format(
-            L"当前焦点控件 ID: {} (HWND=0x{:X}) | 动态框模式: {}{}\r\n"
-            L"底层信号 (ContextFacts): has_context={} | KEYBOARD_DISABLED={} | EMPTYCONTEXT={} | TF_SD_READONLY={} | "
-            L"NativeEdit(is_edit={}, ES_PASSWORD={}, ES_READONLY={}) | InputScope={}\r\n"
-            L"归约决策 (AccessPolicy): can_input={} ({}) | can_learn={} ({}) | should_reset_active={}",
-            focus_id,
-            reinterpret_cast<uintptr_t>(focus_hwnd),
-            static_cast<int>(dynamic_mode),
+            L"当前焦点：{}  |  {}  |  11号框状态：{}{}\r\n"
+            L"底层信号：上下文存在={} | 键盘禁用={} | 空上下文={} | 文档只读={} | "
+            L"原生编辑框={} (密码样式={}, 只读样式={}) | 输入作用域={}\r\n"
+            L"准入结论：允许中文输入={} ({}) | 允许调频与造词={} ({}) | 立即清理旧组合={}",
+            focus_id >= 1001 && focus_id <= 1011
+                ? gsl::at(kFields, gsl::narrow_cast<size_t>(focus_id - 1001)).label
+                : L"无焦点输入框",
+            focus_id >= 1001 && focus_id <= 1011
+                ? gsl::at(kFields, gsl::narrow_cast<size_t>(focus_id - 1001)).expectation
+                : L"预期：请点击上方任一输入框进行测试",
+            DynamicModeText(dynamic_mode),
             countdown_msg,
-            facts.has_context,
-            facts.is_keyboard_disabled,
-            facts.is_empty_context,
-            facts.is_readonly,
-            edit_style.is_native_edit,
-            edit_style.is_password,
-            edit_style.is_readonly,
+            facts.has_context ? L"是" : L"否",
+            facts.is_keyboard_disabled ? L"是" : L"否",
+            facts.is_empty_context ? L"是" : L"否",
+            facts.is_readonly ? L"是" : L"否",
+            edit_style.is_native_edit ? L"是" : L"否",
+            edit_style.is_password ? L"是" : L"否",
+            edit_style.is_readonly ? L"是" : L"否",
             scope_detail,
-            policy.can_input,
-            policy.can_input ? L"允许中文输入" : L"拦截/放行英文",
-            policy.can_learn,
-            policy.can_learn ? L"允许调频/造词" : L"禁止调频/造词",
-            policy.should_reset_active);
+            policy.can_input ? L"是" : L"否",
+            policy.can_input ? L"正常打字" : L"拦截并直接放行按键",
+            policy.can_learn ? L"是" : L"否",
+            policy.can_learn ? L"正常记录词频" : L"无痕禁止记录",
+            policy.should_reset_active ? L"是" : L"否");
 
         if (report != last_inspector_text) {
             last_inspector_text = report;
@@ -328,21 +353,39 @@ struct HostAppState {
 bool CreateHostControls(HostAppState& app) noexcept {
     const UINT dpi = ::GetDpiForWindow(app.hwnd);
     const auto s = [dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
-    app.font = CreateUiFont(s(13));
+    app.font = CreateUiFont(s(14));
     app.mono_font = CreateUiFont(s(13), FW_BOLD);
     if (!app.font || !app.mono_font) return false;
 
-    int y = s(10);
-    const int left = s(14);
-    const int label_w = s(460);
-    const int edit_x = left + label_w + s(8);
-    const int edit_w = s(480);
-    const int row_h = s(24);
+    const ScopedWindowDC dc(app.hwnd);
+    const ScopedSelectObject sel_font(dc.Get(), app.font.Get());
+    const auto measure_text_w = [&](std::wstring_view text) noexcept {
+        SIZE sz{};
+        if (dc && ::GetTextExtentPoint32W(dc.Get(), text.data(), gsl::narrow_cast<int>(text.size()), &sz)) {
+            return gsl::narrow_cast<int>(sz.cx);
+        }
+        return gsl::narrow_cast<int>(text.size()) * s(14);
+    };
 
+    int max_label_w = s(310);
+    for (const auto& field : kFields) {
+        max_label_w = std::max(max_label_w, measure_text_w(field.label) + s(16));
+    }
+
+    const int margin = s(16);
+    const int label_w = max_label_w;
+    const int gap = s(12);
+    const int edit_x = margin + label_w + gap;
+    const int edit_w = s(480);
+    const int total_content_w = label_w + gap + edit_w;
+    const int row_h = s(26);
+    const int row_step = s(32);
+
+    int y = margin;
     for (const auto& field : kFields) {
         HWND lbl = ::CreateWindowExW(
-            0, L"STATIC", field.label, WS_CHILD | WS_VISIBLE | SS_LEFT,
-            left, y + s(3), label_w, row_h, app.hwnd, nullptr, app.instance, nullptr);
+            0, L"STATIC", field.label, WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE,
+            margin, y, label_w, row_h, app.hwnd, nullptr, app.instance, nullptr);
         if (!lbl) return false;
         ::SendMessageW(lbl, WM_SETFONT, reinterpret_cast<WPARAM>(app.font.Get()), TRUE);
 
@@ -354,9 +397,8 @@ bool CreateHostControls(HostAppState& app) noexcept {
             app.instance, nullptr);
         if (!ed) return false;
         ::SendMessageW(ed, WM_SETFONT, reinterpret_cast<WPARAM>(app.font.Get()), TRUE);
-        ::SendMessageW(ed, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(field.expectation));
 
-        y += s(30);
+        y += row_step;
     }
 
     // Configure InputScopes on specific controls
@@ -377,49 +419,64 @@ bool CreateHostControls(HostAppState& app) noexcept {
         ApplyWindowInputScopes(app.Child(HostControlId::EditScopeUrlEmail), s_url);
     }
 
-    y += s(4);
+    y += s(6);
     struct BtnSpec {
         HostControlId id;
         const wchar_t* text;
-        int width;
     };
     constexpr std::array<BtnSpec, 8> kButtons{{
-        {HostControlId::BtnDynNormal, L"11号框->普通", 105},
-        {HostControlId::BtnDynPassword, L"11号框->ES_PASSWORD", 145},
-        {HostControlId::BtnDynReadOnly, L"11号框->ES_READONLY", 145},
-        {HostControlId::BtnDynDisabled, L"11号框->DISABLED", 130},
-        {HostControlId::BtnDynPrivate, L"11号框->IS_PRIVATE", 135},
-        {HostControlId::BtnDynDelayedDisable, L"3秒后自动变DISABLED(测组合中打断)", 225},
-        {HostControlId::BtnDynDelayedReadOnly, L"3秒后自动变READONLY", 150},
-        {HostControlId::BtnClearAll, L"清空全部输入", 105}
+        {HostControlId::BtnDynNormal, L"11号框：设为普通"},
+        {HostControlId::BtnDynPassword, L"11号框：设为密码框"},
+        {HostControlId::BtnDynReadOnly, L"11号框：设为只读框"},
+        {HostControlId::BtnDynDisabled, L"11号框：设为禁用"},
+        {HostControlId::BtnDynPrivate, L"11号框：设为无痕"},
+        {HostControlId::BtnDynDelayedDisable, L"3秒后自动变禁用（测组合打断）"},
+        {HostControlId::BtnDynDelayedReadOnly, L"3秒后自动变只读（测组合打断）"},
+        {HostControlId::BtnClearAll, L"清空全部输入"}
     }};
 
-    int bx = left;
+    int bx = margin;
     for (const auto& btn : kButtons) {
-        const int bw = s(btn.width);
-        if (bx + bw > left + label_w + s(8) + edit_w) {
-            bx = left;
-            y += s(32);
+        const int bw = measure_text_w(btn.text) + s(24);
+        if (bx > margin && bx + bw > margin + total_content_w) {
+            bx = margin;
+            y += s(34);
         }
         HWND b = ::CreateWindowExW(
             0, L"BUTTON", btn.text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-            bx, y, bw, s(26), app.hwnd,
+            bx, y, bw, s(28), app.hwnd,
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(std::to_underlying(btn.id))),
             app.instance, nullptr);
         if (!b) return false;
         ::SendMessageW(b, WM_SETFONT, reinterpret_cast<WPARAM>(app.font.Get()), TRUE);
-        bx += bw + s(6);
+        bx += bw + s(8);
     }
 
-    y += s(36);
+    y += s(38);
+    const int inspector_h = s(84);
     HWND inspector = ::CreateWindowExW(
         WS_EX_CLIENTEDGE, L"EDIT", L"",
-        WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL,
-        left, y, label_w + s(8) + edit_w, s(82), app.hwnd,
+        WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY,
+        margin, y, total_content_w, inspector_h, app.hwnd,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(std::to_underlying(HostControlId::InspectorBox))),
         app.instance, nullptr);
     if (!inspector) return false;
     ::SendMessageW(inspector, WM_SETFONT, reinterpret_cast<WPARAM>(app.mono_font.Get()), TRUE);
+
+    const int client_w = margin * 2 + total_content_w;
+    const int client_h = y + inspector_h + margin;
+    const DWORD style = gsl::narrow_cast<DWORD>(::GetWindowLongPtrW(app.hwnd, GWL_STYLE));
+    const DWORD ex_style = gsl::narrow_cast<DWORD>(::GetWindowLongPtrW(app.hwnd, GWL_EXSTYLE));
+    RECT win_rc{0, 0, client_w, client_h};
+    ::AdjustWindowRectExForDpi(&win_rc, style, FALSE, ex_style, dpi);
+    const int win_w = win_rc.right - win_rc.left;
+    const int win_h = win_rc.bottom - win_rc.top;
+    const auto mon = QueryActiveMonitor(app.hwnd);
+    const POINT pos = ClampPointToWorkArea(
+        {(mon.work_area.left + mon.work_area.right - win_w) / 2,
+         (mon.work_area.top + mon.work_area.bottom - win_h) / 2},
+        win_w, win_h, mon.work_area);
+    ::SetWindowPos(app.hwnd, nullptr, pos.x, pos.y, win_w, win_h, SWP_NOZORDER | SWP_NOACTIVATE);
 
     return true;
 }
@@ -560,12 +617,12 @@ int WINAPI wWinMain(
     const auto monitor = QueryActiveMonitor(nullptr);
     const RECT rect = ComputeCenteredToolWindowRect(monitor, 1000, 540, monitor.dpi);
     const std::wstring title = std::format(
-        L"奇奇五笔 任务36 禁输入与特殊上下文真实测试宿主 v{} ({})",
-        version::kVersionW, version::kArchW);
+        L"奇奇五笔 禁输入与特殊上下文测试程序 v{}",
+        version::kVersionW);
 
     ScopedWindow window(::CreateWindowExW(
         0, kHostWindowClass, title.c_str(),
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
         nullptr, nullptr, app.instance, &app));
     if (!window) {
