@@ -11,6 +11,7 @@
 #include "common/config.h"
 #include "common/guids.h"
 #include "ime/engine/engine.h"
+#include "ime/comp/access_policy.h"
 #include "ime/comp/cleanup.h"
 #include "ime/comp/edit.h"
 #include "ime/comp/state.h"
@@ -35,6 +36,7 @@ class QiQiTextService final
           ITfKeyEventSink,
           ITfCompositionSink,
           ITfTextLayoutSink,
+          ITfStatusSink,
           ITfCompartmentEventSink,
           ITfFunctionProvider,
           ITfFnConfigure,
@@ -83,6 +85,9 @@ public:
 
     // ITfTextLayoutSink
     STDMETHODIMP OnLayoutChange(ITfContext* pic, TfLayoutCode lcode, ITfContextView* pView) override;
+
+    // ITfStatusSink
+    STDMETHODIMP OnStatusChange(ITfContext* pic, DWORD dwFlags) override;
 
     // ITfCompartmentEventSink
     STDMETHODIMP OnChange(REFGUID rguid) override;
@@ -144,6 +149,13 @@ private:
     bool IsEditSessionCurrent(EditSessionTicket ticket) const noexcept;
     bool IsCompositionEditCurrent(
         EditSessionTicket ticket, const ITfComposition* composition) const noexcept;
+    AccessPolicy EvaluateContextAccess(ITfContext* context, bool enforce_reset = true);
+    AccessPolicy EvaluateContextAccessInSession(
+        TfEditCookie ec, gsl::not_null<ITfContext*> context, EditSessionTicket ticket, bool enforce_reset = true);
+    void ConnectActiveContextAccessSinks(ITfContext* context);
+    void DisconnectActiveContextAccessSinks() noexcept;
+    void PrefetchActiveContextInputScope(ITfContext* context);
+    void HandleActiveContextAccessChanged();
     bool IsContextKeyboardDisabled(ITfContext* context) const noexcept;
     void SetChineseModeAndFinishComposition(ITfContext* context, bool enabled);
     void ToggleModeAndFinishComposition(ITfContext* context);
@@ -174,6 +186,7 @@ private:
     ComPtr<ITfContext> preparing_input_context_;
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection text_layout_sink_;
+    ScopedTfSinkConnection context_status_sink_;
     bool key_event_sink_registered_ = false;
     std::vector<RegisteredPreservedKey> registered_preserved_keys_;
     bool function_provider_registered_ = false;
@@ -182,6 +195,9 @@ private:
     ScopedTfCompartment global_pos_comp_;
     ScopedTfCompartment openclose_comp_;
     ScopedTfCompartment convmode_comp_;
+    ScopedTfCompartment context_disabled_comp_;
+    ScopedTfCompartment context_empty_comp_;
+    ContextAccessTracker context_access_;
     TfGuidAtom display_attribute_atom_ = TF_INVALID_GUIDATOM;
     bool syncing_compartments_ = false;
     bool has_valid_caret_pos_ = false;

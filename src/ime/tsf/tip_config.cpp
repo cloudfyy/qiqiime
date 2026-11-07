@@ -130,10 +130,116 @@ void QiQiTextService::InitCompartmentSinks() {
 }
 
 void QiQiTextService::UninitCompartmentSinks() noexcept {
+    DisconnectActiveContextAccessSinks();
     convmode_comp_.Reset();
     openclose_comp_.Reset();
     global_pos_comp_.Reset();
     global_config_comp_.Reset();
+}
+
+void QiQiTextService::ConnectActiveContextAccessSinks(ITfContext* context) {
+    DisconnectActiveContextAccessSinks();
+    context_access_.Reset();
+    if (!context || !composition_lifecycle_.IsActive()) {
+        return;
+    }
+    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context};
+    ITfStatusSink* const status_sink = this;
+    std::ignore = context_status_sink_.Advise(context, IID_ITfStatusSink, status_sink);
+    if (!IsEditSessionCurrent(ticket)) {
+        DisconnectActiveContextAccessSinks();
+        return;
+    }
+    ComPtr<ITfCompartmentMgr> comp_mgr;
+    if (!log::CheckHResult(context->QueryInterface(IID_PPV_ARGS(&comp_mgr)),
+                          "ConnectActiveContextAccessSinks::QueryInterface(ITfCompartmentMgr)", log::Level::debug) ||
+        !comp_mgr) {
+        return;
+    }
+    if (!IsEditSessionCurrent(ticket)) {
+        DisconnectActiveContextAccessSinks();
+        return;
+    }
+    ITfCompartmentEventSink* const sink = this;
+    std::ignore = context_disabled_comp_.Bind(comp_mgr.Get(), GUID_COMPARTMENT_KEYBOARD_DISABLED, sink);
+    if (!IsEditSessionCurrent(ticket)) {
+        DisconnectActiveContextAccessSinks();
+        return;
+    }
+    std::ignore = context_empty_comp_.Bind(comp_mgr.Get(), GUID_COMPARTMENT_EMPTYCONTEXT, sink);
+    if (!IsEditSessionCurrent(ticket)) {
+        DisconnectActiveContextAccessSinks();
+    }
+}
+
+void QiQiTextService::DisconnectActiveContextAccessSinks() noexcept {
+    context_empty_comp_.Reset();
+    context_disabled_comp_.Reset();
+    context_status_sink_.Reset();
+}
+
+STDMETHODIMP QiQiTextService::OnStatusChange(ITfContext* pic, DWORD /*dwFlags*/) {
+    if (!pic || !composition_lifecycle_.IsActive() || pic != composition_lifecycle_.Context().Get()) {
+        return S_OK;
+    }
+    HandleActiveContextAccessChanged();
+    return S_OK;
+}
+
+void QiQiTextService::PrefetchActiveContextInputScope(ITfContext* context) {
+    if (!context || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() ||
+        preparing_input_context_ || client_id_ == TF_CLIENTID_NULL) {
+        return;
+    }
+    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context};
+    if (!IsEditSessionCurrent(ticket) || !context_access_.NeedsScopeQuery(ticket)) {
+        return;
+    }
+    const ContextFacts fast_facts = ReadFastContextFacts(
+        context, InputScopeClassification::Unknown,
+        [this, ticket]() noexcept { return IsEditSessionCurrent(ticket); });
+    if (!IsEditSessionCurrent(ticket) || fast_facts.HasError() || fast_facts.IsBlocked()) {
+        return;
+    }
+    ComPtr<ITfContext> ctx_holder(context);
+    ComPtr<QiQiTextService> self_holder(this);
+    const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
+        [self_holder, ctx_holder, ticket](TfEditCookie ec) -> HRESULT {
+            if (!self_holder->IsEditSessionCurrent(ticket)) {
+                return S_OK;
+            }
+            std::ignore = self_holder->EvaluateContextAccessInSession(
+                ec, gsl::not_null<ITfContext*>(ctx_holder.Get()), ticket, true);
+            return S_OK;
+        });
+    HRESULT session_hr = S_OK;
+    const HRESULT req_hr = context->RequestEditSession(
+        client_id_, session.Get(), TF_ES_ASYNCDONTCARE | TF_ES_READ, &session_hr);
+    const log::LogContext act_ctx{log::Keyword::Input, log::Opcode::Info, &current_lifecycle_activity_, nullptr};
+    std::ignore = log::CheckHResult(req_hr, "PrefetchInputScope::RequestEditSession", log::Level::debug, act_ctx);
+    if (SUCCEEDED(req_hr)) {
+        std::ignore = log::CheckHResult(session_hr, "PrefetchInputScope::DoEditSession", log::Level::debug, act_ctx);
+    }
+}
+
+void QiQiTextService::HandleActiveContextAccessChanged() {
+    if (!composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() ||
+        preparing_input_context_) {
+        return;
+    }
+    context_access_.OnDynamicStateChanged();
+    QIQI_LOG_ACT_INFO(
+        log::Level::debug,
+        log::Keyword::Input,
+        &current_lifecycle_activity_,
+        "ContextAccess(service={}, rev={}, stage=dynamic-state-changed, has_active_context={})",
+        service_log_id_, context_access_.Revision(), composition_lifecycle_.Context() != nullptr);
+    if (ITfContext* const active_ctx = composition_lifecycle_.Context().Get()) {
+        const AccessPolicy policy = EvaluateContextAccess(active_ctx, true);
+        if (policy.can_input && composition_lifecycle_.Context().Get() == active_ctx) {
+            PrefetchActiveContextInputScope(active_ctx);
+        }
+    }
 }
 
 bool QiQiTextService::NotifyGlobalConfigChanged() noexcept {
@@ -229,6 +335,9 @@ STDMETHODIMP QiQiTextService::OnChange(REFGUID rguid) {
     } else if (IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE) ||
                IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION)) {
         SyncEngineFromSystemCompartments(rguid);
+    } else if (IsEqualGUID(rguid, GUID_COMPARTMENT_KEYBOARD_DISABLED) ||
+               IsEqualGUID(rguid, GUID_COMPARTMENT_EMPTYCONTEXT)) {
+        HandleActiveContextAccessChanged();
     }
     return S_OK;
 }

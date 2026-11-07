@@ -2,7 +2,7 @@
 
 ## 1. 状态与结论
 
-**2026-11-07 复核**：当前 `0.99.2+51cefcd` 的双架构诊断仍观察到排队编辑在禁用后执行、Shift/保留键未统一放行及查询失败与默认值合并。详见[P0 研究报告](p0-research.md)，包含本轮结果、官方契约、首键/锁时序待决点和实施批次；下方 2026-11-05 数字继续作为历史结果保留。本次未修改生产准入，真实宿主未验收。
+**2026-11-07 实施更新（批次 A + 批次 B 已落地）**：已在 [`access_policy.h`](../src/ime/comp/access_policy.h)、[`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp)、[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp)、[`tip_config.cpp`](../src/ime/tsf/tip_config.cpp)、[`tip_service.cpp`](../src/ime/tsf/tip_service.cpp) 与 [`engine.cpp`](../src/ime/engine/engine.cpp) 中实现两层漏斗准入模型（`ContextFacts` → `AccessPolicy`）：统一覆盖四个按键入口、Shift 单击切换、全部四个保留快捷键、候选点击/翻页、模式切换、异步 `EditSession` / 布局回调复核、活动 context 的禁用 compartment 与 `ITfStatusSink` 动态通知，以及 `IS_PRIVATE` 无痕状态下的动态调频/置顶/屏蔽/剪贴板造词抑制。x64/x86 Release 下 `QiQiTsfUiTest`、`QiQiCompositionLifecycleTest`、`QiQiEngineTest` 与 `--restricted-input-diagnostics` 全部通过（排队后禁用 `composition_started=0`、禁用态 Shift/保留键/错误注入 `eaten=0`、未设置 `S_FALSE` `eaten=1`）。下方 2026-11-05 与研究阶段记录作为基线对照保留；真实浏览器、WPF、UWP 和游戏的矩阵仍待人工验收，在此之前不将任务 36 标记为完成。
 
 2026-11-05 完成官方契约核实、当前路径检查及 x64/x86 本地实验。本轮只新增测试和诊断入口，**未修改生产输入行为**。任务 36 不再暂缓，但保留未完成状态：真实浏览器、WPF、UWP 和游戏的矩阵仍需执行，再决定并验收生产实现。
 
@@ -108,6 +108,8 @@ ctest --preset x86-release -R '^QiQiTsfUiTest$'
 此策略是实施建议，不是本轮已经改变的行为。对于可选属性的实际运行期错误，建议暂停当次输入处理并在下一输入边界重试；与预期“不支持”区分，避免永久禁用正常宿主或静默带错继续处理。
 
 不要每个测试回调都同步申请编辑锁。context compartment / `GetStatus` / 可确认的本线程原生窗口信号可先做快速检查；作用域通过合法的只读会话获取。缓存必须绑定 activation、context、焦点及状态修订，首次尚未完成检查时不要把前一个 context 的结论套到新目标。写入会话内仍需复核；context 身份未变化不代表语义未变化。
+
+工程落地时采用**“两层漏斗”**收敛复杂度（详见 [P0 研究报告 6.1 节](p0-research.md#61-结果模型)）：底层采集函数将 4 类信号与错误码汇总为 `ContextFacts`（保留供脱敏日志诊断），顶层纯函数 `EvaluatePolicy(const ContextFacts&)` 按 `QueryError → Blocked → Pending → Allowed/Private` 优先级短路归约为 `AccessPolicy { can_input, can_learn, should_reset_active }`，使按键、异步编辑和引擎学习入口只需判断布尔权限。
 
 ### 4.2 需要同时接入的表面
 

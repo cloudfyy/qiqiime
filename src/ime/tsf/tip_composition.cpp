@@ -75,6 +75,11 @@ STDMETHODIMP QiQiTextService::OnLayoutChange(
                         return self_holder->IsEditSessionCurrent(expected);
                     },
                     [&self_holder](TfEditCookie cookie, gsl::not_null<ITfContext*> context, const ComPtr<ITfContextView>& view) {
+                        const EditSessionTicket layout_ticket{self_holder->composition_lifecycle_.Epoch(), context.get()};
+                        const AccessPolicy policy = self_holder->EvaluateContextAccessInSession(cookie, context, layout_ticket, true);
+                        if (!policy.can_input || !self_holder->IsEditSessionCurrent(layout_ticket)) {
+                            return;
+                        }
                         self_holder->UpdateCandidateWindowPositionInSession(cookie, context, view);
                     });
             });
@@ -96,6 +101,8 @@ void QiQiTextService::ResetCompositionAndUI(bool try_host_cleanup) {
 }
 
 void QiQiTextService::ResetContextAndUI(bool try_host_cleanup) {
+    DisconnectActiveContextAccessSinks();
+    context_access_.Reset();
     ResetCompositionContextAndUI(
         composition_lifecycle_, try_host_cleanup, has_valid_caret_pos_, text_layout_sink_,
         service_log_id_, current_lifecycle_activity_,
@@ -108,11 +115,22 @@ bool QiQiTextService::IsEditSessionCurrent(EditSessionTicket ticket) const noexc
 }
 
 bool QiQiTextService::PrepareInputContext(ITfContext* context) {
-    return PrepareCompositionInputTarget(
-        context, composition_lifecycle_, preparing_input_context_, text_layout_sink_,
-        gsl::not_null<ITfTextLayoutSink*>(this), service_log_id_, current_lifecycle_activity_,
-        [this] { ResetCompositionAndUI(); },
-        [this](EditSessionTicket ticket) noexcept { return IsEditSessionCurrent(ticket); });
+    const bool was_same = (context && composition_lifecycle_.Context().Get() == context);
+    if (!PrepareCompositionInputTarget(
+            context, composition_lifecycle_, preparing_input_context_, text_layout_sink_,
+            gsl::not_null<ITfTextLayoutSink*>(this), service_log_id_, current_lifecycle_activity_,
+            [this] { ResetCompositionAndUI(); },
+            [this](EditSessionTicket ticket) noexcept { return IsEditSessionCurrent(ticket); })) {
+        return false;
+    }
+    if (!was_same && composition_lifecycle_.Context().Get() == context) {
+        ConnectActiveContextAccessSinks(context);
+        const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context};
+        if (!IsEditSessionCurrent(ticket)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool QiQiTextService::IsCompositionEditCurrent(
@@ -146,6 +164,14 @@ HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const Co
         [this](ITfContext* context, const KeyProcessResult& result) { ApplyEngineResult(context, result); },
         [this](TfEditCookie cookie, gsl::not_null<ITfContext*> context,
                const KeyProcessResult& result, EditSessionTicket ticket) {
+            const AccessPolicy policy = EvaluateContextAccessInSession(cookie, context, ticket, true);
+            if (!policy.can_input || !IsEditSessionCurrent(ticket)) {
+                return S_OK;
+            }
+            engine_.ApplyDeferredPhrasePromotion(result, policy.can_learn);
+            if (!IsEditSessionCurrent(ticket)) {
+                return S_OK;
+            }
             return ApplyCompositionEditActionInSession(
                 cookie, context, result,
                 [this, ticket]() noexcept { return IsCompositionEditCurrent(ticket, nullptr); },

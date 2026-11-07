@@ -2,7 +2,9 @@
 
 日期：2026-11-07。范围：任务 36、47、R05。性质：官方契约复核、当前代码追踪与本地定向实验，**不是生产修复或真实宿主验收报告**。
 
-**研究后状态更新（2026-11-07）**：用户确认“47和R05已测试过了,工作正常.有问题再说”，据此将两项标记完成并移出执行队列，详见[用户验收记录](hosts.md#12-2026-11-07-用户确认任务-47-与-r05-完成)。下文保持研究时点的结论、未执行矩阵及建议，不代表两项仍待收口；不补写未提供的逐项证据。当前 P0 仅剩任务 36。
+**研究后状态更新（2026-11-07）**：
+- 用户确认“47和R05已测试过了,工作正常.有问题再说”，据此将两项标记完成并移出执行队列，详见[用户验收记录](hosts.md#12-2026-11-07-用户确认任务-47-与-r05-完成)。
+- 任务 36 的**批次 A 与批次 B 代码实现已完成**（两层漏斗 [`access_policy.h`](../src/ime/comp/access_policy.h)、按键/Shift/保留键/候选/模式/异步会话统一准入、动态状态通知及 `IS_PRIVATE` 学习副作用隔离），并通过 x64/x86 双架构自动化测试与 `--restricted-input-diagnostics` 断言验证。下文保留研究时点的基线数据与分析，剩余步骤为批次 C 的真实宿主矩阵验收。
 
 ## 1. 结论与任务状态
 
@@ -147,6 +149,20 @@ ctest --preset x86-release -R '^(QiQiCompositionLifecycleTest|QiQiEtwIntegration
 明确 Blocked 不得被后续可选查询失败覆盖成 Allowed。诊断只记录分类、阶段、原因、错误码和修订，不记录按键、正文、候选、剪贴板、输入长度或对象地址；重复错误按状态变化诊断，避免逐键刷屏。
 
 **首键/锁时序尚待实验**：作用域读取需要合法编辑锁，不能在锁尚未取得时先把按键交给引擎再声称拦截，也不能吞首键无限等待。建议焦点/状态变更时预取，在合法按键编辑会话复核；无法及时完成时本次放行、不修改引擎或学习并记 Pending。必须先验证普通宿主首键是否退化为英文、是否可在既有合法读写会话内完成查询，再确定最终实现；本报告不把此难点表述为已解决。
+
+#### 两层漏斗落地结构（`ContextFacts` → `AccessPolicy`）
+
+为避免业务层散落多状态分支，代码实现收敛为独立头文件（如 `src/ime/comp/access_policy.h`），采用**“底层事实采集 + 顶层布尔权限归约”**两层结构：
+
+1. **第一层：底层事实采集（`ContextFacts`）**
+   - **无锁快检（`ReadFastFacts`）**：同步读取 context 级 `KEYBOARD_DISABLED`、`EMPTYCONTEXT`、`ITfContext::GetStatus`（`TF_SD_READONLY`）及已确认归属当前目标的本线程原生 `EDIT` 样式（`ES_PASSWORD` / `ES_READONLY`），保留真实 `HRESULT` 与失败阶段；任一命中禁输入或查询报错即可短路。
+   - **有锁作用域刷新（`RefreshInputScopeInSession`）**：仅在焦点预取或按键既有读写 `EditSession` 持有合法 `TfEditCookie` 时读取 `ITfInputScope`，按当前激活/context/状态修订缓存；`VT_EMPTY` / `E_NOTIMPL` 归入正常未声明，不产生额外错误分支。
+2. **第二层：纯函数策略归约（`EvaluatePolicy` → `AccessPolicy`）**
+   - 对业务调用方（`tip_keys.cpp`、`edit.h`、`tip_service.cpp`、`engine.cpp`）隐藏 6 种底层分类枚举，仅暴露三个正交动作标志：
+     - `can_input`：是否允许消费按键、展示候选、写入组合及执行带文本副作用的模式切换。
+     - `can_learn`：是否允许动态调频（`PromotePhraseForCode`）、词频落盘、候选置顶/删除及剪贴板快捷造词。
+     - `should_reset_active`：阻断时是否立即失效 epoch、清除 Shift 跟踪与本地引擎/候选窗，并排队清理旧组合。
+   - 优先级短路顺序：`QueryError`（`{false, false, true}`）→ `Blocked`（`{false, false, true}`）→ `Pending`（`{false, false, false}`）→ 可输入态（`{true, !is_private_scope, false}`）。
 
 ### 6.2 必须一起接入的表面
 

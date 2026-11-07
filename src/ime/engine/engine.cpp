@@ -131,9 +131,20 @@ void WubiEngine::AppendCodeAndRefresh(uint32_t vk) {
     RefreshCandidates();
 }
 
-WubiEngine::TransitionOutcome WubiEngine::CommitAndClear(std::wstring committed_text) {
+WubiEngine::TransitionOutcome WubiEngine::CommitAndClear(
+    std::wstring committed_text, std::wstring promoted_code, std::wstring promoted_word) {
     ClearCompositionData();
-    return {StateAfterCompositionReset(state_), MakeCurrentStateResult(KeyActionType::Commit, std::move(committed_text))};
+    KeyProcessResult res = MakeCurrentStateResult(KeyActionType::Commit, std::move(committed_text));
+    res.promoted_code = std::move(promoted_code);
+    res.promoted_word = std::move(promoted_word);
+    return {StateAfterCompositionReset(state_), std::move(res)};
+}
+
+void WubiEngine::ApplyDeferredPhrasePromotion(const KeyProcessResult& result, bool allow_learn) {
+    if (!allow_learn || result.promoted_code.empty() || result.promoted_word.empty()) {
+        return;
+    }
+    PromotePhraseForCode(result.promoted_code, result.promoted_word);
 }
 
 template <typename Operation>
@@ -282,14 +293,23 @@ WubiEngine::TransitionOutcome WubiEngine::HandleCancelComposition(const KeyInput
     return {EngineState::Idle, std::move(res)};
 }
 
-WubiEngine::TransitionOutcome WubiEngine::HandleCommitSelected(const KeyInputContext& /*ctx*/) {
+WubiEngine::TransitionOutcome WubiEngine::HandleCommitSelected(const KeyInputContext& ctx) {
     if (clear_on_empty_4code_ && all_candidates_.empty()) {
         ClearCompositionData();
         return {EngineState::Idle, MakeCurrentStateResult(KeyActionType::Cancel)};
     }
     std::wstring selected = CurrentSelectedCandidateOrRaw();
-    PromotePhraseForCode(raw_code_, selected);
-    return CommitAndClear(std::move(selected));
+    std::wstring promoted_code;
+    std::wstring promoted_word;
+    if (ctx.allow_learn && IsWubiComposingState(state_)) {
+        if (ctx.defer_phrase_promotion) {
+            promoted_code = raw_code_;
+            promoted_word = selected;
+        } else {
+            PromotePhraseForCode(raw_code_, selected);
+        }
+    }
+    return CommitAndClear(std::move(selected), std::move(promoted_code), std::move(promoted_word));
 }
 
 WubiEngine::TransitionOutcome WubiEngine::HandleCommitRawCode(const KeyInputContext& /*ctx*/) {
@@ -299,25 +319,36 @@ WubiEngine::TransitionOutcome WubiEngine::HandleCommitRawCode(const KeyInputCont
 WubiEngine::TransitionOutcome WubiEngine::HandleCommitDigitIndex(const KeyInputContext& ctx) {
     const auto idx_opt = ResolveCandidateSelectIndex(ctx.vk, ctx.shift_down, semicolon_quote_quick_select_);
     return idx_opt.has_value()
-        ? ResolveCandidateCommit(*idx_opt)
+        ? ResolveCandidateCommit(*idx_opt, ctx.allow_learn, ctx.defer_phrase_promotion)
         : TransitionOutcome{state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
 }
 
-KeyProcessResult WubiEngine::CommitCandidate(size_t index_in_page) {
-    return ExecuteTransition([this, index_in_page] { return ResolveCandidateCommit(index_in_page); });
+KeyProcessResult WubiEngine::CommitCandidate(
+    size_t index_in_page, bool allow_learn, bool defer_phrase_promotion) {
+    return ExecuteTransition([this, index_in_page, allow_learn, defer_phrase_promotion] {
+        return ResolveCandidateCommit(index_in_page, allow_learn, defer_phrase_promotion);
+    });
 }
 
-WubiEngine::TransitionOutcome WubiEngine::ResolveCandidateCommit(size_t index_in_page) {
+WubiEngine::TransitionOutcome WubiEngine::ResolveCandidateCommit(
+    size_t index_in_page, bool allow_learn, bool defer_phrase_promotion) {
     if (!IsComposing()) {
         return {state_, {}};
     }
     const auto page = CurrentPageCandidates();
     if (index_in_page < page.size()) {
         std::wstring selected = gsl::at(page, index_in_page);
-        if (IsWubiComposingState(state_)) {
-            PromotePhraseForCode(raw_code_, selected);
+        std::wstring promoted_code;
+        std::wstring promoted_word;
+        if (allow_learn && IsWubiComposingState(state_)) {
+            if (defer_phrase_promotion) {
+                promoted_code = raw_code_;
+                promoted_word = selected;
+            } else {
+                PromotePhraseForCode(raw_code_, selected);
+            }
         }
-        return CommitAndClear(std::move(selected));
+        return CommitAndClear(std::move(selected), std::move(promoted_code), std::move(promoted_word));
     }
     return {state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
 }
@@ -424,7 +455,7 @@ WubiEngine::TransitionOutcome WubiEngine::HandleCommitFullWidth(const KeyInputCo
 }
 
 WubiEngine::TransitionOutcome WubiEngine::HandlePinDigitCandidate(const KeyInputContext& ctx) {
-    if (!IsWubiComposingState(state_) || raw_code_.find(L'z') != std::wstring::npos) {
+    if (!ctx.allow_learn || !IsWubiComposingState(state_) || raw_code_.find(L'z') != std::wstring::npos) {
         return {state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
     }
     const auto idx_opt = ResolveDigitKeyIndex(ctx.vk);
@@ -439,7 +470,7 @@ WubiEngine::TransitionOutcome WubiEngine::HandlePinDigitCandidate(const KeyInput
 }
 
 WubiEngine::TransitionOutcome WubiEngine::HandleDeleteOrBlockCandidate(const KeyInputContext& ctx) {
-    if (!IsWubiComposingState(state_) || raw_code_.find(L'z') != std::wstring::npos) {
+    if (!ctx.allow_learn || !IsWubiComposingState(state_) || raw_code_.find(L'z') != std::wstring::npos) {
         return {state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
     }
     const auto page = CurrentPageCandidates();
@@ -472,7 +503,8 @@ consteval bool AllActionHandlersBound(std::span<const Fn> handlers) noexcept {
 }
 
 KeyProcessResult WubiEngine::ProcessKey(
-    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) {
+    uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down,
+    bool caps_lock_on, bool allow_learn, bool defer_phrase_promotion) {
     // Compile-time Command dispatch table indexed directly by TransitionOp
     static constexpr std::array<ActionHandler, static_cast<size_t>(TransitionOp::Count)> kActionHandlers = {
         &WubiEngine::HandlePassThrough,           // 0: PassThrough
@@ -503,7 +535,7 @@ KeyProcessResult WubiEngine::ProcessKey(
 
     const EngineState state_before = state_;
     const TransitionRule rule = EvaluateKeyTransition(state_before, vk, shift_down, ctrl_down, alt_down, caps_lock_on);
-    const KeyInputContext ctx{vk, shift_down, caps_lock_on};
+    const KeyInputContext ctx{vk, shift_down, caps_lock_on, allow_learn, defer_phrase_promotion};
     KeyProcessResult result = ExecuteTransition([this, &ctx, &rule] {
         return (this->*gsl::at(kActionHandlers, static_cast<size_t>(rule.op)))(ctx);
     });

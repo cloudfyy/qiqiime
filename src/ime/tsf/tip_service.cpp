@@ -49,18 +49,28 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
     candidate_ui_ = MakeComObject<CandidateUI>(instance);
     candidate_ui_->SetSelectCallback([this](size_t index_in_page) {
         if (index_in_page < 9 && composition_lifecycle_.Context() && engine_.IsComposing()) {
-            const KeyProcessResult res = engine_.CommitCandidate(index_in_page);
+            const ComPtr<ITfContext> target = composition_lifecycle_.Context();
+            const AccessPolicy policy = EvaluateContextAccess(target.Get(), true);
+            if (!policy.can_input || !engine_.IsComposing()) {
+                return;
+            }
+            const KeyProcessResult res = engine_.CommitCandidate(index_in_page, policy.can_learn, true);
             if (res.action != KeyActionType::PassThrough) {
-                ApplyEngineResult(composition_lifecycle_.Context().Get(), res);
+                ApplyEngineResult(target.Get(), res);
             }
         }
     });
     candidate_ui_->SetPageTurnCallback([this](bool next_page) {
         if (composition_lifecycle_.Context() && engine_.IsComposing()) {
+            const ComPtr<ITfContext> target = composition_lifecycle_.Context();
+            const AccessPolicy policy = EvaluateContextAccess(target.Get(), true);
+            if (!policy.can_input || !engine_.IsComposing()) {
+                return;
+            }
             const KeyProcessResult res = engine_.ProcessKey(
-                next_page ? VK_NEXT : VK_PRIOR, false, false, false);
+                next_page ? VK_NEXT : VK_PRIOR, false, false, false, false, policy.can_learn, true);
             if (res.action != KeyActionType::PassThrough) {
-                ApplyEngineResult(composition_lifecycle_.Context().Get(), res);
+                ApplyEngineResult(target.Get(), res);
             }
         }
     });

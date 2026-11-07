@@ -2,15 +2,19 @@
 #include "common/test_support.h"
 #include "mocks.h"
 #include "common/config.h"
+#include "common/file_util.h"
+#include "ime/comp/access_policy.h"
 #include "ime/tsf/edit_session.h"
 #include "ime/tsf/tip_service.h"
 
 #include <initguid.h>
 #include <inputscope.h>
 #include <array>
+#include <filesystem>
 #include <format>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 namespace qiqi::test {
 namespace {
@@ -34,7 +38,7 @@ public:
     STDMETHODIMP GetAttribute(REFGUID guid, VARIANT* value) noexcept override {
         if (!value) return E_INVALIDARG;
         ::VariantInit(value);
-        if (has_scope && IsEqualGUID(guid, GUID_PROP_INPUTSCOPE)) {
+        if (has_scope && IsEqualGUID(guid, kGuidPropInputScope)) {
             value->vt = VT_UNKNOWN;
             ITfInputScope* input_scope = this;
             value->punkVal = input_scope;
@@ -72,6 +76,106 @@ private:
         *value = nullptr;
         return E_NOTIMPL;
     }
+};
+
+class MockInputScopeProperty final : public ComObjectBase<MockInputScopeProperty, ITfReadOnlyProperty, ITfInputScope> {
+public:
+    STDMETHODIMP GetType(GUID* guid) noexcept override {
+        if (!guid) return E_INVALIDARG;
+        *guid = kGuidPropInputScope;
+        return S_OK;
+    }
+    STDMETHODIMP EnumRanges(TfEditCookie, IEnumTfRanges** ppEnum, ITfRange*) noexcept override {
+        if (ppEnum) *ppEnum = nullptr;
+        return E_NOTIMPL;
+    }
+    STDMETHODIMP GetValue(TfEditCookie, ITfRange*, VARIANT* pvarValue) override {
+        if (!pvarValue) return E_INVALIDARG;
+        ::VariantInit(pvarValue);
+        if (get_value_callback) get_value_callback();
+        if (get_value_result != S_OK) {
+            return get_value_result;
+        }
+        if (value_vt == VT_EMPTY) {
+            return S_OK;
+        }
+        if (value_vt != VT_UNKNOWN) {
+            pvarValue->vt = value_vt;
+            pvarValue->lVal = 1;
+            return S_OK;
+        }
+        if (return_null_unknown) {
+            pvarValue->vt = VT_UNKNOWN;
+            pvarValue->punkVal = nullptr;
+            return S_OK;
+        }
+        if (fail_qi_input_scope) {
+            auto dummy = MakeComObject<MockTfRange>();
+            pvarValue->vt = VT_UNKNOWN;
+            pvarValue->punkVal = dummy.Detach();
+            return S_OK;
+        }
+        pvarValue->vt = VT_UNKNOWN;
+        ITfInputScope* sc = this;
+        pvarValue->punkVal = sc;
+        AddRef();
+        return S_OK;
+    }
+    STDMETHODIMP GetContext(ITfContext** ppCtx) noexcept override {
+        if (ppCtx) *ppCtx = nullptr;
+        return E_NOTIMPL;
+    }
+
+    // ITfInputScope
+    STDMETHODIMP GetInputScopes(InputScope** pprgInputScopes, UINT* pcCount) noexcept override {
+        if (!pprgInputScopes || !pcCount) return E_INVALIDARG;
+        *pprgInputScopes = nullptr;
+        *pcCount = 0;
+        if (FAILED(get_scopes_result)) {
+            return get_scopes_result;
+        }
+        if (inconsistent_null_buffer_with_count) {
+            *pcCount = 2;
+            return S_OK;
+        }
+        if (scopes.empty()) {
+            return S_OK;
+        }
+        const size_t bytes = scopes.size() * sizeof(InputScope);
+        auto* const buf = static_cast<InputScope*>(::CoTaskMemAlloc(bytes));
+        if (!buf) return E_OUTOFMEMORY;
+        const std::span<InputScope> out_span(buf, scopes.size());
+        std::copy(scopes.begin(), scopes.end(), out_span.begin());
+        *pprgInputScopes = buf;
+        *pcCount = gsl::narrow_cast<UINT>(scopes.size());
+        return get_scopes_result;
+    }
+    STDMETHODIMP GetPhrase(BSTR** ppbstrPhrases, UINT* pcCount) noexcept override {
+        if (ppbstrPhrases) *ppbstrPhrases = nullptr;
+        if (pcCount) *pcCount = 0;
+        return E_NOTIMPL;
+    }
+    STDMETHODIMP GetRegularExpression(BSTR* pbstrRegExp) noexcept override {
+        if (pbstrRegExp) *pbstrRegExp = nullptr;
+        return E_NOTIMPL;
+    }
+    STDMETHODIMP GetSRGS(BSTR* pbstrSRGS) noexcept override {
+        if (pbstrSRGS) *pbstrSRGS = nullptr;
+        return E_NOTIMPL;
+    }
+    STDMETHODIMP GetXML(BSTR* pbstrXML) noexcept override {
+        if (pbstrXML) *pbstrXML = nullptr;
+        return E_NOTIMPL;
+    }
+
+    std::vector<InputScope> scopes{IS_DEFAULT};
+    HRESULT get_value_result = S_OK;
+    VARTYPE value_vt = VT_UNKNOWN;
+    bool return_null_unknown = false;
+    bool fail_qi_input_scope = false;
+    HRESULT get_scopes_result = S_OK;
+    bool inconsistent_null_buffer_with_count = false;
+    std::function<void()> get_value_callback;
 };
 
 void TestNativeContextContracts() {
@@ -116,36 +220,29 @@ void TestNativeContextContracts() {
             QIQI_TEST_CHECK(((status.dwDynamicFlags & TF_SD_READONLY) != 0) == read_only);
 
             const auto session = MakeComObject<LambdaEditSession>([&](TfEditCookie ec) -> HRESULT {
-                ComPtr<ITfRange> range;
-                QIQI_TEST_CHECK(context->GetStart(ec, &range) == S_OK);
-                ComPtr<ITfReadOnlyProperty> property;
-                const HRESULT property_hr = context->GetAppProperty(GUID_PROP_INPUTSCOPE, &property);
-                if (!has_scope && property_hr == S_FALSE) return S_OK;
-                QIQI_TEST_CHECK(property_hr == S_OK && property);
-                VARIANT value = MakeInt4Variant(0);
-                const auto clear = gsl::finally([&]() noexcept {
-                    QIQI_TEST_CHECK(::VariantClear(&value) == S_OK);
-                });
-                const HRESULT value_hr = property->GetValue(ec, range.Get(), &value);
+                const auto scope_res = QueryContextInputScopeInSession(
+                    ec, gsl::not_null<ITfContext*>(context.Get()), [] { return true; });
                 if (!has_scope) {
-                    std::cout << std::format("[OBSERVE] absent-owner-scope: hr=0x{:08x}, vt={}\n",
-                                              gsl::narrow_cast<unsigned int>(value_hr), value.vt);
-                    QIQI_TEST_CHECK((value_hr == S_OK || value_hr == S_FALSE) && value.vt == VT_EMPTY);
+                    QIQI_TEST_CHECK(scope_res.classification == InputScopeClassification::Unknown);
                     return S_OK;
                 }
-                if (value_hr != S_OK) {
-                    std::cerr << std::format("[FAIL] Native input scope property: hr=0x{:08x}, vt={}\n",
-                                              gsl::narrow_cast<unsigned int>(value_hr), value.vt);
+                if (IsPasswordOrPinInputScope(scope)) {
+                    QIQI_TEST_CHECK(scope_res.classification == InputScopeClassification::PasswordOrPin);
+                } else if (scope == IS_PRIVATE) {
+                    QIQI_TEST_CHECK(scope_res.classification == InputScopeClassification::Private);
+                } else {
+                    QIQI_TEST_CHECK(scope_res.classification == InputScopeClassification::Allowed);
                 }
-                QIQI_TEST_CHECK(value_hr == S_OK);
-                QIQI_TEST_CHECK(value.vt == VT_UNKNOWN && value.punkVal);
-                ComPtr<ITfInputScope> input_scope;
-                QIQI_TEST_CHECK(value.punkVal->QueryInterface(IID_PPV_ARGS(&input_scope)) == S_OK);
-                InputScope* scopes = nullptr;
-                UINT count = 0;
-                const auto free_scopes = gsl::finally([&]() noexcept { ::CoTaskMemFree(scopes); });
-                QIQI_TEST_CHECK(input_scope->GetInputScopes(&scopes, &count) == S_OK);
-                QIQI_TEST_CHECK(scopes && count == 1 && *scopes == scope);
+                const ContextFacts fast = ReadFastContextFacts(
+                    context.Get(), scope_res.classification, [] { return true; }, false);
+                const AccessPolicy pol = EvaluatePolicy(fast);
+                if (read_only || IsPasswordOrPinInputScope(scope)) {
+                    QIQI_TEST_CHECK(!pol.can_input && !pol.can_learn && pol.should_reset_active);
+                } else if (scope == IS_PRIVATE) {
+                    QIQI_TEST_CHECK(pol.can_input && !pol.can_learn && !pol.should_reset_active);
+                } else {
+                    QIQI_TEST_CHECK(pol.can_input && pol.can_learn && !pol.should_reset_active);
+                }
                 return S_OK;
             });
             HRESULT result = E_FAIL;
@@ -181,20 +278,245 @@ void TestNativeEditStyles() {
         const ScopedWindow edit(::CreateWindowExW(0, L"EDIT", L"", WS_CHILD | style,
                                                  0, 0, 100, 24, parent.Get(), nullptr, g_dll_instance, nullptr));
         QIQI_TEST_CHECK(edit);
-        ::SetLastError(ERROR_SUCCESS);
-        const LONG_PTR actual = ::GetWindowLongPtrW(edit.Get(), GWL_STYLE);
-        QIQI_TEST_CHECK(actual != 0 || ::GetLastError() == ERROR_SUCCESS);
-        QIQI_TEST_CHECK((actual & (ES_PASSWORD | ES_READONLY | ES_NUMBER)) == gsl::narrow_cast<LONG_PTR>(style));
+        const auto initial = InspectConfirmedCurrentThreadEditWindow(edit.Get());
+        QIQI_TEST_CHECK(initial.is_native_edit);
+        QIQI_TEST_CHECK(initial.is_password == ((style & ES_PASSWORD) != 0));
+        QIQI_TEST_CHECK(initial.is_readonly == ((style & ES_READONLY) != 0));
+
         QIQI_TEST_CHECK(::SendMessageW(edit.Get(), EM_SETREADONLY, TRUE, 0) != 0);
-        QIQI_TEST_CHECK((::GetWindowLongPtrW(edit.Get(), GWL_STYLE) & ES_READONLY) != 0);
+        QIQI_TEST_CHECK(InspectConfirmedCurrentThreadEditWindow(edit.Get()).is_readonly);
         QIQI_TEST_CHECK(::SendMessageW(edit.Get(), EM_SETREADONLY, FALSE, 0) != 0);
-        QIQI_TEST_CHECK((::GetWindowLongPtrW(edit.Get(), GWL_STYLE) & ES_READONLY) == 0);
+        QIQI_TEST_CHECK(!InspectConfirmedCurrentThreadEditWindow(edit.Get()).is_readonly);
         ::SendMessageW(edit.Get(), EM_SETPASSWORDCHAR, L'*', 0);
-        QIQI_TEST_CHECK((::GetWindowLongPtrW(edit.Get(), GWL_STYLE) & ES_PASSWORD) != 0);
+        QIQI_TEST_CHECK(InspectConfirmedCurrentThreadEditWindow(edit.Get()).is_password);
         ::SendMessageW(edit.Get(), EM_SETPASSWORDCHAR, 0, 0);
-        QIQI_TEST_CHECK((::GetWindowLongPtrW(edit.Get(), GWL_STYLE) & ES_PASSWORD) == 0);
+        QIQI_TEST_CHECK(!InspectConfirmedCurrentThreadEditWindow(edit.Get()).is_password);
     }
     std::cout << "[PASS] Native EDIT: ordinary/password/read-only/number styles and dynamic changes; no text read.\n";
+}
+
+void TestUnifiedAccessPolicyAndEdgeCases() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    // 1. Pure policy and multi-scope classification checks
+    {
+        constexpr std::array<InputScope, 2> mixed_pwd{{IS_DEFAULT, IS_NUMERIC_PIN}};
+        QIQI_TEST_CHECK(ClassifyInputScopeSpan(mixed_pwd) == InputScopeClassification::PasswordOrPin);
+        constexpr std::array<InputScope, 2> mixed_priv{{IS_URL, IS_PRIVATE}};
+        QIQI_TEST_CHECK(ClassifyInputScopeSpan(mixed_priv) == InputScopeClassification::Private);
+        constexpr std::array<InputScope, 3> ordinary{{IS_NUMBER, IS_EMAIL_SMTPEMAILADDRESS, IS_URL}};
+        QIQI_TEST_CHECK(ClassifyInputScopeSpan(ordinary) == InputScopeClassification::Allowed);
+        QIQI_TEST_CHECK(ClassifyInputScopeSpan({}) == InputScopeClassification::Unknown);
+
+        // Read-only + Private must still be Blocked (cannot write)
+        ContextFacts ro_priv{.has_context = true, .is_readonly = true, .scope_state = InputScopeClassification::Private};
+        const AccessPolicy ro_priv_pol = EvaluatePolicy(ro_priv);
+        QIQI_TEST_CHECK(!ro_priv_pol.can_input && !ro_priv_pol.can_learn && ro_priv_pol.should_reset_active);
+
+        // Pending scope: do not eat key, do not learn, do not destructively reset
+        ContextFacts pending{.has_context = true, .scope_state = InputScopeClassification::Pending};
+        const AccessPolicy pending_pol = EvaluatePolicy(pending);
+        QIQI_TEST_CHECK(!pending_pol.can_input && !pending_pol.can_learn && !pending_pol.should_reset_active);
+    }
+
+    // 2. Scope query edge cases: multiple scopes, empty array, inconsistent count/null, bad VT, QI failure, GetValue failure
+    {
+        auto ctx = MakeComObject<MockTfContext>();
+        ctx->get_start_result_ = S_OK;
+        auto prop = MakeComObject<MockInputScopeProperty>();
+        ctx->app_property_ = prop;
+        ctx->get_app_property_result_ = S_OK;
+
+        // Multi-scope with password second
+        prop->scopes = {IS_DEFAULT, IS_ALPHANUMERIC_PIN};
+        auto res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::PasswordOrPin);
+
+        // Empty array (count == 0)
+        prop->scopes.clear();
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::Unknown);
+
+        // Inconsistent count > 0 with null buffer -> QueryError
+        prop->inconsistent_null_buffer_with_count = true;
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError && res.hr == E_UNEXPECTED);
+        prop->inconsistent_null_buffer_with_count = false;
+
+        // Wrong VARIANT type -> QueryError
+        prop->value_vt = VT_I4;
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError && res.hr == DISP_E_TYPEMISMATCH);
+        prop->value_vt = VT_UNKNOWN;
+
+        // Null punkVal -> QueryError
+        prop->return_null_unknown = true;
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError);
+        prop->return_null_unknown = false;
+
+        // QI(ITfInputScope) failure -> QueryError
+        prop->fail_qi_input_scope = true;
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError);
+        prop->fail_qi_input_scope = false;
+
+        // Runtime access denied -> QueryError
+        prop->get_value_result = E_ACCESSDENIED;
+        res = QueryContextInputScopeInSession(1, gsl::not_null<ITfContext*>(ctx.Get()), [] { return true; });
+        QIQI_TEST_CHECK(res.classification == InputScopeClassification::QueryError && res.hr == E_ACCESSDENIED);
+        prop->get_value_result = S_OK;
+    }
+
+    // 3. Service-level unified gating: queued write after disable, Shift, PreservedKeys, Candidate UI, thread-mgr compartment isolation, StatusSink
+    {
+        const auto manager = MakeComObject<MockTfThreadMgr>();
+        const auto document = MakeComObject<MockTfDocumentMgr>();
+        const auto queue = std::make_shared<MockEditSessionQueue>();
+        const auto context = document->CreateTestContext(queue);
+        context->allow_status_sink_ = true;
+        context->get_start_result_ = S_OK;
+        const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        const auto deactivate = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+            QIQI_TEST_CHECK(queue->ClearForCleanup() == S_OK);
+        });
+
+        // Thread manager compartment with same GUID must NOT disable a normal context
+        ComPtr<ITfCompartment> tm_disabled;
+        QIQI_TEST_CHECK(manager->GetCompartment(GUID_COMPARTMENT_KEYBOARD_DISABLED, &tm_disabled) == S_OK);
+        QIQI_TEST_CHECK(WriteCompartmentInt4(tm_disabled.Get(), 1, 1) == S_OK);
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(WriteCompartmentInt4(tm_disabled.Get(), 1, 0) == S_OK);
+
+        // Queued edit session before context becomes disabled must be blocked when session runs
+        ComPtr<ITfCompartment> disabled;
+        QIQI_TEST_CHECK(context->GetCompartment(GUID_COMPARTMENT_KEYBOARD_DISABLED, &disabled) == S_OK);
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1);
+        QIQI_TEST_CHECK(WriteCompartmentInt4(disabled.Get(), 1, 1) == S_OK);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+        QIQI_TEST_CHECK(context->start_composition_calls_ == 0);
+
+        // All 4 key entry points + Shift + all 4 PreservedKeys must pass through when disabled
+        QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+        const auto mode_before = manager->convmode_compartment_->last_val_;
+        QIQI_TEST_CHECK(service->OnKeyUp(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(manager->convmode_compartment_->last_val_ == mode_before);
+
+        for (const GUID* pk_guid : {&kGuidPreservedKeyToggleMode, &kGuidPreservedKeyToggleFullWidth,
+                                    &kGuidPreservedKeyTogglePunctuation, &kGuidPreservedKeyAddUserWord}) {
+            QIQI_TEST_CHECK(service->OnPreservedKey(context.Get(), *pk_guid, &eaten) == S_OK && !eaten);
+        }
+
+        // Unset compartment (S_FALSE) allows input; compartment error (E_ACCESSDENIED) blocks & resets
+        QIQI_TEST_CHECK(WriteCompartmentInt4(disabled.Get(), 1, 0) == S_OK);
+        context->disabled_compartment_->get_value_result_ = E_ACCESSDENIED;
+        QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+        context->disabled_compartment_->get_value_result_ = S_FALSE;
+        QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        context->disabled_compartment_->get_value_result_ = S_OK;
+
+        // Composing -> dynamic read-only via ITfStatusSink -> cleans up active composition
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK && context->start_composition_calls_ == 1);
+        QIQI_TEST_CHECK(context->status_sink_ != nullptr);
+        context->status_read_only_ = true;
+        QIQI_TEST_CHECK(context->status_sink_->OnStatusChange(context.Get(), TF_SD_READONLY) == S_OK);
+        QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
+        context->status_read_only_ = false;
+        while (queue->PendingCount() > 0) {
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+        }
+    }
+
+    // 4. Private scope: normal input & commit allowed, but phrase promotion, pin/delete, and AddUserWord are suppressed
+    {
+        const auto subkey = std::format(L"Software\\QiQiIME_RestrictedPrivate_{}", ::GetCurrentProcessId());
+        ScopedRegKey reg_key;
+        DWORD disposition = 0;
+        QIQI_TEST_CHECK(::RegCreateKeyExW(HKEY_CURRENT_USER, subkey.c_str(), 0, nullptr, 0,
+                                         KEY_ALL_ACCESS, nullptr, reg_key.Put(), &disposition) == ERROR_SUCCESS);
+        SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+        const auto clean_reg = gsl::finally([&]() noexcept {
+            SetConfigRegistrySubKeyOverrideForTest(nullptr);
+            reg_key.Reset();
+            std::ignore = ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+        });
+
+        const auto temp_dir = std::filesystem::temp_directory_path() /
+                              std::format(L"QiQiIME_PrivateTest_{}", ::GetCurrentProcessId());
+        std::error_code fs_ec;
+        std::filesystem::create_directories(temp_dir, fs_ec);
+        const auto clean_dir = gsl::finally([&]() noexcept {
+            std::error_code rm_ec;
+            std::filesystem::remove_all(temp_dir, rm_ec);
+        });
+
+        QiQiConfig cfg{};
+        cfg.primary_dict = PrimaryDict::BuiltinOnly;
+        cfg.enable_jidian_extra = false;
+        cfg.dynamic_phrase_freq = true;
+        cfg.auto_commit_4code = false;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(cfg));
+
+        const auto manager = MakeComObject<MockTfThreadMgr>();
+        const auto document = MakeComObject<MockTfDocumentMgr>();
+        const auto context = document->CreateTestContext();
+        context->get_start_result_ = S_OK;
+        const auto scope_prop = MakeComObject<MockInputScopeProperty>();
+        scope_prop->scopes = {IS_PRIVATE};
+        context->app_property_ = scope_prop;
+        context->get_app_property_result_ = S_OK;
+
+        const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        const auto deactivate = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        });
+
+        BOOL eaten = FALSE;
+        // First key in IS_PRIVATE context eats and starts composition normally
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(context->start_composition_calls_ == 1 && context->range_->text_ == L"a");
+
+        // AddUserWord preserved key is rejected in Private scope without touching clipboard
+        QIQI_TEST_CHECK(service->OnPreservedKey(context.Get(), kGuidPreservedKeyAddUserWord, &eaten) == S_OK && !eaten);
+
+        // Space commits normally in Private scope
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SPACE, 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(!context->range_->text_.empty());
+
+        // Engine-level direct check: ProcessKey with allow_learn=false does not promote phrase or pin/delete
+        WubiEngine engine;
+        engine.ApplyConfig(cfg);
+        engine.SetUserDictPath(temp_dir / L"user_dict.txt");
+        engine.SetPhraseFreqPath(temp_dir / L"phrase_freq.qfreq");
+        engine.AddEntry(L"aaaa", L"测试词一");
+        engine.AddEntry(L"aaaa", L"测试词二");
+
+        std::ignore = engine.ProcessKey('A', false, false, false, false, false, false);
+        std::ignore = engine.ProcessKey('A', false, false, false, false, false, false);
+        std::ignore = engine.ProcessKey('A', false, false, false, false, false, false);
+        std::ignore = engine.ProcessKey('A', false, false, false, false, false, false);
+        // Attempt Ctrl+2 pin and Ctrl+Shift+2 delete with allow_learn=false
+        std::ignore = engine.ProcessKey('2', false, true, false, false, false, false);
+        QIQI_TEST_CHECK(engine.PinnedEntries().empty());
+        std::ignore = engine.ProcessKey('2', true, true, false, false, false, false);
+        QIQI_TEST_CHECK(engine.BlockedEntries().empty());
+        // Select 2nd candidate with allow_learn=false -> committed, but PromotedPhrases stays empty
+        const auto commit_res = engine.ProcessKey('2', false, false, false, false, false, false);
+        QIQI_TEST_CHECK(commit_res.action == KeyActionType::Commit && commit_res.committed_text == L"测试词二");
+        QIQI_TEST_CHECK(engine.PromotedPhrases().empty());
+        QIQI_TEST_CHECK(!std::filesystem::exists(temp_dir / L"phrase_freq.qfreq"));
+    }
+    std::cout << "[PASS] Unified access policy: fast/session checks, Shift/PreservedKeys, StatusSink, Private learning suppression.\n";
 }
 
 void ObserveCurrentService() {
@@ -215,32 +537,34 @@ void ObserveCurrentService() {
     QIQI_TEST_CHECK(queue->PendingCount() == 1);
     QIQI_TEST_CHECK(WriteCompartmentInt4(disabled.Get(), 1, 1) == S_OK);
     QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+    QIQI_TEST_CHECK(context->start_composition_calls_ == 0);
     std::cout << "[OBSERVE] queued-write-after-disable: composition_started="
               << (context->start_composition_calls_ != 0) << '\n';
     const auto requests = context->request_edit_session_calls_;
     const auto ui_ends = manager->end_ui_calls_;
-    QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'B', 0, &eaten) == S_OK);
+    QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
     std::cout << "[OBSERVE] disabled-test-keydown: eaten=" << eaten << '\n';
-    QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK);
+    QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
     std::cout << "[OBSERVE] disabled-keydown: eaten=" << eaten
               << " cleanup_requested=" << (context->request_edit_session_calls_ != requests)
               << " candidate_ended=" << (manager->end_ui_calls_ != ui_ends) << '\n';
     QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
 
-    QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SHIFT, 0, &eaten) == S_OK);
-    QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), VK_SHIFT, 0, &eaten) == S_OK);
+    QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
     std::cout << "[OBSERVE] disabled-shift-test-keyup: eaten=" << eaten << '\n';
     const auto mode_before = manager->convmode_compartment_->last_val_;
-    QIQI_TEST_CHECK(service->OnKeyUp(context.Get(), VK_SHIFT, 0, &eaten) == S_OK);
+    QIQI_TEST_CHECK(service->OnKeyUp(context.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+    QIQI_TEST_CHECK(manager->convmode_compartment_->last_val_ == mode_before);
     std::cout << "[OBSERVE] disabled-shift-keyup: eaten=" << eaten
               << " mode_changed=" << (manager->convmode_compartment_->last_val_ != mode_before) << '\n';
-    QIQI_TEST_CHECK(service->OnPreservedKey(context.Get(), kGuidPreservedKeyToggleMode, &eaten) == S_OK);
+    QIQI_TEST_CHECK(service->OnPreservedKey(context.Get(), kGuidPreservedKeyToggleMode, &eaten) == S_OK && !eaten);
     std::cout << "[OBSERVE] disabled-preserved-toggle: eaten=" << eaten << '\n';
     context->disabled_compartment_->get_value_result_ = E_ACCESSDENIED;
-    QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'A', 0, &eaten) == S_OK);
+    QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
     std::cout << "[OBSERVE] compartment-read-error=0x80070005: test_keydown_eaten=" << eaten << '\n';
     context->disabled_compartment_->get_value_result_ = S_FALSE;
-    QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'A', 0, &eaten) == S_OK);
+    QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
     std::cout << "[OBSERVE] compartment-unset=S_FALSE/VT_EMPTY: test_keydown_eaten=" << eaten << '\n';
 }
 
@@ -251,6 +575,7 @@ void RunRestrictedInputContractTests() {
     const auto objects = g_com_object_count.load();
     TestNativeContextContracts();
     TestNativeEditStyles();
+    TestUnifiedAccessPolicyAndEdgeCases();
     QIQI_TEST_CHECK(g_com_object_count.load() == objects);
 }
 

@@ -227,9 +227,11 @@ public:
         return S_OK;
     }
     STDMETHODIMP GetWnd(HWND* phwnd) noexcept override {
-        if (phwnd) *phwnd = nullptr;
-        return S_OK;
+        if (phwnd) *phwnd = hwnd_;
+        return get_wnd_result_;
     }
+    HWND hwnd_ = nullptr;
+    HRESULT get_wnd_result_ = S_OK;
     bool fail_get_text_ext_ = false;
     RECT text_ext_{100, 100, 140, 124};
     BOOL text_clipped_ = FALSE;
@@ -561,7 +563,16 @@ public:
         if (set_selection_callback_) set_selection_callback_();
         return set_selection_result_;
     }
-    STDMETHODIMP GetStart(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetStart(TfEditCookie, ITfRange** ppRange) noexcept override {
+        if (!ppRange) return E_INVALIDARG;
+        if (FAILED(get_start_result_)) {
+            *ppRange = nullptr;
+            return get_start_result_;
+        }
+        *ppRange = return_null_start_range_ ? nullptr : range_.Get();
+        if (*ppRange) (*ppRange)->AddRef();
+        return get_start_result_;
+    }
     STDMETHODIMP GetEnd(TfEditCookie, ITfRange**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetActiveView(ITfContextView** ppView) override {
         ++get_active_view_calls_;
@@ -572,7 +583,13 @@ public:
         return active_view_result_;
     }
     STDMETHODIMP EnumViews(IEnumTfContextViews**) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP GetStatus(TF_STATUS*) noexcept override { return S_OK; }
+    STDMETHODIMP GetStatus(TF_STATUS* status) noexcept override {
+        if (!status) return E_INVALIDARG;
+        if (FAILED(get_status_result_)) return get_status_result_;
+        *status = {};
+        status->dwDynamicFlags = status_read_only_ ? TF_SD_READONLY : 0;
+        return get_status_result_;
+    }
     STDMETHODIMP GetProperty(REFGUID guid, ITfProperty** ppv) override {
         ++get_property_calls_;
         if (get_property_observer_) get_property_observer_(guid, ppv);
@@ -590,7 +607,18 @@ public:
         if (get_property_callback_) get_property_callback_();
         return S_OK;
     }
-    STDMETHODIMP GetAppProperty(REFGUID, ITfReadOnlyProperty**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetAppProperty(REFGUID guid, ITfReadOnlyProperty** ppv) override {
+        if (!ppv) return E_INVALIDARG;
+        *ppv = nullptr;
+        if (app_property_callback_) app_property_callback_(guid);
+        if (FAILED(get_app_property_result_) || !app_property_) {
+            return app_property_ ? get_app_property_result_ :
+                   (get_app_property_result_ != S_OK ? get_app_property_result_ : E_NOTIMPL);
+        }
+        *ppv = app_property_.Get();
+        (*ppv)->AddRef();
+        return get_app_property_result_;
+    }
     STDMETHODIMP TrackProperties(const GUID**, ULONG, const GUID**, ULONG, ITfReadOnlyProperty**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP EnumProperties(IEnumTfProperties**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP GetDocumentMgr(ITfDocumentMgr** document) override {
@@ -657,9 +685,20 @@ public:
             if (layout_advise_callback_) layout_advise_callback_();
             return S_OK;
         }
+        if (IsEqualIID(riid, IID_ITfStatusSink) && allow_status_sink_) {
+            if (FAILED(punk->QueryInterface(IID_PPV_ARGS(&status_sink_))) || !status_sink_) {
+                return E_NOINTERFACE;
+            }
+            *pdwCookie = 203;
+            return S_OK;
+        }
         return CONNECT_E_CANNOTCONNECT;
     }
-    STDMETHODIMP UnadviseSink(DWORD) override {
+    STDMETHODIMP UnadviseSink(DWORD cookie) override {
+        if (cookie == 203) {
+            status_sink_.Reset();
+            return S_OK;
+        }
         ++layout_unadvise_calls_;
         layout_sink_.Reset();
         return S_OK;
@@ -745,6 +784,15 @@ public:
     HRESULT edit_session_request_result_ = S_OK;
     bool allow_sync_edit_sessions_ = true;
     bool read_only_ = false;
+    bool status_read_only_ = false;
+    HRESULT get_status_result_ = S_OK;
+    HRESULT get_start_result_ = E_NOTIMPL;
+    bool return_null_start_range_ = false;
+    HRESULT get_app_property_result_ = E_NOTIMPL;
+    ComPtr<ITfReadOnlyProperty> app_property_;
+    std::function<void(REFGUID)> app_property_callback_;
+    bool allow_status_sink_ = false;
+    ComPtr<ITfStatusSink> status_sink_;
 private:
     ULONG ref_ = 1;
     // The external queue holds contexts/sessions; a strong back-reference here would create a COM ownership cycle.

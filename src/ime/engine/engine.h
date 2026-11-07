@@ -26,6 +26,8 @@ struct KeyProcessResult {
     KeyActionType action = KeyActionType::PassThrough;
     std::wstring committed_text;
     std::wstring composition_text;
+    std::wstring promoted_code;
+    std::wstring promoted_word;
     std::vector<std::wstring> page_candidates;
     std::vector<std::wstring> all_display_candidates;
     size_t page_size = 5;
@@ -233,10 +235,15 @@ public:
 
     // Process a key press and return the state transition
     KeyProcessResult ProcessKey(
-        uint32_t vk, bool shift_down = false, bool ctrl_down = false, bool alt_down = false, bool caps_lock_on = false);
+        uint32_t vk, bool shift_down = false, bool ctrl_down = false, bool alt_down = false,
+        bool caps_lock_on = false, bool allow_learn = true, bool defer_phrase_promotion = false);
 
     // Commit a candidate on the current page without interpreting a keyboard event.
-    KeyProcessResult CommitCandidate(size_t index_in_page);
+    KeyProcessResult CommitCandidate(
+        size_t index_in_page, bool allow_learn = true, bool defer_phrase_promotion = false);
+
+    // Apply a deferred phrase promotion after host edit session access is confirmed.
+    void ApplyDeferredPhrasePromotion(const KeyProcessResult& result, bool allow_learn = true);
 
     // Exact + prefix lookup for a Wubi code (optionally populating progressive/wildcard display labels)
     std::vector<std::wstring> LookupCandidates(
@@ -251,6 +258,8 @@ private:
         uint32_t vk = 0;
         bool shift_down = false;
         bool caps_lock_on = false;
+        bool allow_learn = true;
+        bool defer_phrase_promotion = false;
     };
     struct TransitionOutcome {
         EngineState next_state;
@@ -268,8 +277,10 @@ private:
     void ClearCompositionData() noexcept;
     void AppendCodeAndRefresh(uint32_t vk);
     void UpdateTempEnglishCandidates();
-    TransitionOutcome CommitAndClear(std::wstring committed_text);
-    TransitionOutcome ResolveCandidateCommit(size_t index_in_page);
+    TransitionOutcome CommitAndClear(
+        std::wstring committed_text, std::wstring promoted_code = {}, std::wstring promoted_word = {});
+    TransitionOutcome ResolveCandidateCommit(
+        size_t index_in_page, bool allow_learn = true, bool defer_phrase_promotion = false);
     void RefreshCandidates();
     KeyProcessResult MakeCurrentStateResult(KeyActionType action, std::wstring committed = L"") const;
 
