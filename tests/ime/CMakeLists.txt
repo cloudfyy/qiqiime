@@ -121,3 +121,18 @@ endforeach()
 add_dependencies(qiqi_tsf_ui_test qiqiime)
 add_test(NAME QiQiEtwIntegrationTest COMMAND qiqi_tsf_ui_test --etw-integration)
 set_tests_properties(QiQiEtwIntegrationTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+
+add_executable(QiQiTsfTestHost WIN32
+    tsf_test_host.cpp
+    "${PROJECT_SOURCE_DIR}/src/ime/comp/cleanup.cpp"
+)
+target_include_directories(QiQiTsfTestHost PRIVATE "${PROJECT_SOURCE_DIR}/tests")
+target_link_libraries(QiQiTsfTestHost PRIVATE
+    qiqi_common
+    comctl32
+    ole32
+    oleaut32
+    uuid
+)
+
+
