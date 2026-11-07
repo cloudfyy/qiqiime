@@ -28,6 +28,9 @@ void ToolCommandUi::InitializeToolbar(HWND toolbar, bool compact) {
     // Custom-drawn compact toolbars must not inherit the default bitmap's minimum size.
     if (compact)
         ::SendMessageW(toolbar, TB_SETBITMAPSIZE, 0, MAKELPARAM(1, 1));
+    if (const auto tooltip = reinterpret_cast<HWND>(::SendMessageW(toolbar, TB_GETTOOLTIPS, 0, 0))) {
+        ::SendMessageW(tooltip, TTM_SETMAXTIPWIDTH, 0, 400);
+    }
     toolbars_.push_back({toolbar, compact});
 }
 
@@ -378,6 +381,27 @@ std::optional<LRESULT> ToolCommandUi::HandleMessage(HWND window, UINT message, W
     }
     if (message == WM_NOTIFY && lparam) {
         const auto& header = *reinterpret_cast<const NMHDR*>(lparam);
+        if (header.code == TTN_GETDISPINFOA || header.code == TTN_GETDISPINFOW) {
+            for (const auto& toolbar : toolbars_) {
+                const auto tooltip = reinterpret_cast<const HWND__*>(
+                    ::SendMessageW(toolbar.window, TB_GETTOOLTIPS, 0, 0));
+                if (tooltip && header.hwndFrom == tooltip) {
+                    const auto length = ::SendMessageW(toolbar.window, TB_GETBUTTONTEXTW, header.idFrom, 0);
+                    if (length < 0) {
+                        return 0;
+                    }
+                    tooltip_buffer_.assign(gsl::narrow_cast<size_t>(length) + 1, L'\0');
+                    ::SendMessageW(toolbar.window, TB_GETBUTTONTEXTW, header.idFrom,
+                                   reinterpret_cast<LPARAM>(tooltip_buffer_.data()));
+                    tooltip_buffer_.resize(gsl::narrow_cast<size_t>(length));
+                    if (header.code == TTN_GETDISPINFOW) {
+                        auto& disp = *reinterpret_cast<NMTTDISPINFOW*>(lparam);
+                        disp.lpszText = tooltip_buffer_.data();
+                    }
+                    return 0;
+                }
+            }
+        }
         const auto toolbar = std::ranges::find(toolbars_, header.hwndFrom, &Toolbar::window);
         if (toolbar == toolbars_.end())
             return std::nullopt;

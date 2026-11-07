@@ -75,6 +75,7 @@ class ToolCommandUi final {
     ErrorSink error_sink_;
     void* context_;
     ScopedGdiHandle<HBRUSH> menu_brush_;
+    std::wstring tooltip_buffer_;
     std::vector<std::wstring> headings_;
     std::vector<wchar_t> mnemonics_;
     std::vector<Toolbar> toolbars_;

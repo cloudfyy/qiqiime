@@ -13,6 +13,9 @@ struct CapturePermissions {
 };
 
 ULONG QueryCapturePermissions(CapturePermissions& permissions) noexcept;
+void SetElevatedOverrideForTest(std::optional<bool> elevated) noexcept;
+bool IsMonitorProcessElevated() noexcept;
+std::wstring FormatMonitorWindowTitle(UiLanguage language, bool elevated = IsMonitorProcessElevated());
 std::wstring CapturePermissionMessage(UiLanguage language, bool has_captured_logs);
 HRESULT ConfirmElevatedRestart(HWND owner, UiLanguage language, const CaptureStartFailure& failure,
     bool& accepted, bool has_captured_logs = false);

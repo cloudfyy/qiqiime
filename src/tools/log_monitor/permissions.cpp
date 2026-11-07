@@ -1,12 +1,16 @@
 #include "tools/log_monitor/permissions.h"
 #include "common/scoped_handle.h"
+#include "common/version.h"
 
 #include <commctrl.h>
 #include <objbase.h>
 #include <array>
+#include <format>
 
 namespace qiqi::monitor {
 namespace {
+std::optional<bool> g_elevated_override_for_test;
+
 HRESULT CALLBACK MarkElevatedRestartButton(HWND window, UINT notification, WPARAM, LPARAM, LONG_PTR) noexcept {
     if (notification == TDN_CREATED) {
         ::SendMessageW(window, TDM_SET_BUTTON_ELEVATION_REQUIRED_STATE, IDYES, TRUE);
@@ -14,6 +18,31 @@ HRESULT CALLBACK MarkElevatedRestartButton(HWND window, UINT notification, WPARA
     return S_OK;
 }
 } // namespace
+
+void SetElevatedOverrideForTest(std::optional<bool> elevated) noexcept {
+    g_elevated_override_for_test = elevated;
+}
+
+bool IsMonitorProcessElevated() noexcept {
+    if (g_elevated_override_for_test.has_value()) {
+        return *g_elevated_override_for_test;
+    }
+    CapturePermissions permissions{};
+    if (QueryCapturePermissions(permissions) == ERROR_SUCCESS) {
+        return permissions.elevated;
+    }
+    return false;
+}
+
+std::wstring FormatMonitorWindowTitle(UiLanguage language, bool elevated) {
+    const bool english = ResolveUiLanguage(language) == UiLanguage::EnUs;
+    const wchar_t* app_name = english ? L"QiQiIME Log Monitor" : L"奇奇日志监控";
+    if (elevated) {
+        const wchar_t* admin_tag = english ? L" [Administrator]" : L" [管理员]";
+        return std::format(L"{} v{} ({}){}", app_name, version::kVersionW, version::kArchW, admin_tag);
+    }
+    return std::format(L"{} v{} ({})", app_name, version::kVersionW, version::kArchW);
+}
 
 ULONG QueryCapturePermissions(CapturePermissions& permissions) noexcept {
     ScopedKernelHandle token;

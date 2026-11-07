@@ -1,4 +1,5 @@
 #include "tools/log_monitor/internal.h"
+#include "tools/log_monitor/permissions.h"
 #include "common/theme.h"
 #include "common/window.h"
 #include "common/version.h"
@@ -104,8 +105,7 @@ bool MonitorWindow::Create(HINSTANCE instance) {
             return false;
         }
     }
-    const auto title = std::format(L"{} v{} ({})",
-        impl_->Text(L"奇奇日志监控", L"QiQiIME Log Monitor"), version::kVersionW, version::kArchW);
+    const auto title = FormatMonitorWindowTitle(impl_->ui_language);
     const auto monitor = QueryActiveMonitor(nullptr);
     const auto rect = ComputeCenteredToolWindowRect(monitor, 1160, 780, monitor.dpi);
     window_.Reset(::CreateWindowExW(0, kWindowClass.data(), title.c_str(), WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,

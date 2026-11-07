@@ -1,4 +1,5 @@
 #include "tools/log_monitor/internal.h"
+#include "tools/log_monitor/permissions.h"
 #include "common/theme.h"
 #include "common/window.h"
 #include "common/version.h"
@@ -52,7 +53,7 @@ ToolCommand MonitorWindow::Impl::UiCommand(ControlId id) const noexcept {
     case Pause: icon = paused ? ToolIcon::Resume : ToolIcon::Pause; break;
     case Clear: icon = ToolIcon::Delete; break;
     case Copy: icon = ToolIcon::Copy; break;
-    case Export: icon = ToolIcon::Export; break;
+    case Export: icon = ToolIcon::Save; break;
     case Source: icon = diagnostic_view ? ToolIcon::Events : ToolIcon::Diagnostics; break;
     default: break;
     }
@@ -79,8 +80,8 @@ void MonitorWindow::Impl::UpdateCommands() {
         ToolMenu{Text(L"语言(&L)", L"&Language"), L'l', language, true},
         ToolMenu{Text(L"帮助(&H)", L"&Help"), L'h', help}};
     command_ui.SetMenu(hwnd, menus);
-    const std::array buttons{UiCommand(Start), UiCommand(Pause), UiCommand(Clear),
-        UiCommand(Copy), UiCommand(Export), UiCommand(Source)};
+    const std::array buttons{UiCommand(Start), UiCommand(Export), UiCommand(Clear),
+        UiCommand(Copy), UiCommand(Pause), UiCommand(Source)};
     command_ui.SetToolbar(Child(Toolbar), buttons);
     command_state.reset();
     RefreshCommandState();
@@ -229,7 +230,7 @@ void MonitorWindow::Impl::UpdateTheme() noexcept {
 
 void MonitorWindow::Impl::ApplyLanguage() {
     if (!ready) return;
-    const auto title = std::format(L"{} v{} ({})", Text(L"奇奇日志监控", L"QiQiIME Log Monitor"), version::kVersionW, version::kArchW);
+    const auto title = FormatMonitorWindowTitle(ui_language);
     ::SetWindowTextW(hwnd, title.c_str());
     for (const auto& [id, text] : std::array{
         std::pair{ProcessLabel, Text(L"进程", L"Process")},

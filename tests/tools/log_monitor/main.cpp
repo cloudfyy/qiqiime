@@ -9,6 +9,7 @@
 #include "common/win32_ui_util.h"
 #include "common/command_ui.h"
 #include "tools/log_monitor/collector.h"
+#include "tools/log_monitor/permissions.h"
 #include "tools/log_monitor/window.h"
 
 #include <commctrl.h>
@@ -118,7 +119,7 @@ void TestMenusAndToolbar(const RECT& work_area) {
     MonitorWindow window;
     QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr)));
     const HWND toolbar = Child(window, Toolbar);
-    constexpr std::array commands{Start, Pause, Clear, Copy, Export, Source};
+    constexpr std::array commands{Start, Export, Clear, Copy, Pause, Source};
     for (const UINT dpi : {96u, 120u, 144u, 192u}) {
         for (const int width : {760, 920, 1160}) {
             RECT proposed{0, 0, ScalePxByDpi(width, dpi), ScalePxByDpi(780, dpi)};
@@ -168,6 +169,13 @@ void TestMenusAndToolbar(const RECT& work_area) {
                     tip.cchTextMax = gsl::narrow_cast<int>(tooltip.size());
                     ::SendMessageW(window.Handle(), WM_NOTIFY, tip.hdr.idFrom, reinterpret_cast<LPARAM>(&tip));
                     QIQI_TEST_CHECK(std::wstring_view(tooltip.data()) == CommandName(window, id));
+
+                    const auto tooltip_hwnd = reinterpret_cast<HWND>(::SendMessageW(toolbar, TB_GETTOOLTIPS, 0, 0));
+                    QIQI_TEST_CHECK(tooltip_hwnd != nullptr);
+                    NMTTDISPINFOW disp{};
+                    disp.hdr = {tooltip_hwnd, gsl::narrow_cast<UINT_PTR>(std::to_underlying(id)), TTN_GETDISPINFOW};
+                    ::SendMessageW(window.Handle(), WM_NOTIFY, disp.hdr.idFrom, reinterpret_cast<LPARAM>(&disp));
+                    QIQI_TEST_CHECK(disp.lpszText && std::wstring_view(disp.lpszText) == CommandName(window, id));
                     TBBUTTONINFO button{};
                     button.cbSize = sizeof(button);
                     button.dwMask = TBIF_STYLE;
@@ -217,8 +225,20 @@ void TestMenusAndToolbar(const RECT& work_area) {
             ::SendMessageW(toolbar, TB_GETBUTTONINFOW, std::to_underlying(id), reinterpret_cast<LPARAM>(&button)) >= 0);
         return gsl::narrow_cast<ToolIcon>(button.lParam);
     };
-    QIQI_TEST_CHECK(icon(Start) == ToolIcon::Start && icon(Pause) == ToolIcon::Pause &&
-                    icon(Source) == ToolIcon::Diagnostics);
+    QIQI_TEST_CHECK(icon(Start) == ToolIcon::Start && icon(Export) == ToolIcon::Save &&
+                    icon(Pause) == ToolIcon::Pause && icon(Source) == ToolIcon::Diagnostics);
+
+    // Verify elevated / non-elevated title bar indicator across languages.
+    SetElevatedOverrideForTest(false);
+    SelectLanguage(window, UiLanguage::EnUs);
+    QIQI_TEST_CHECK(!ControlText(window.Handle()).contains(L"[Administrator]"));
+    SetElevatedOverrideForTest(true);
+    SelectLanguage(window, UiLanguage::EnUs);
+    QIQI_TEST_CHECK(ControlText(window.Handle()).ends_with(L" [Administrator]"));
+    SelectLanguage(window, UiLanguage::ZhCn);
+    QIQI_TEST_CHECK(ControlText(window.Handle()).ends_with(L" [管理员]"));
+    SetElevatedOverrideForTest(std::nullopt);
+    SelectLanguage(window, UiLanguage::EnUs);
     Click(window, Pause);
     QIQI_TEST_CHECK(icon(Pause) == ToolIcon::Resume);
     QIQI_TEST_CHECK(CommandName(window, Pause) == L"Resume scroll");
