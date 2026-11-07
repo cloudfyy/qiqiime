@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>QiQi TSF lifecycle test</title>
+<style>
+  textarea, [contenteditable] { display: block; width: 500px; min-height: 90px; margin: 12px; border: 1px solid #888; }
+</style>
+<label>A <textarea id="a"></textarea></label>
+<label>B <textarea id="b">BBBB</textarea></label>
+<div id="c" contenteditable="true" aria-label="C"></div>
+<button onclick="document.getElementById('a')?.remove()">Remove A</button>
+<button onclick="location.reload()">Reload</button>
+</html>
