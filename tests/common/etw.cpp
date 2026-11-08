@@ -49,7 +49,7 @@ struct TraceProperties {
         properties.BufferSize = 64;
         properties.MinimumBuffers = 2;
         properties.MaximumBuffers = 8;
-        properties.MaximumFileSize = 8;
+        properties.MaximumFileSize = 64;
         properties.LogFileNameOffset = offsetof(TraceProperties, file);
         properties.LoggerNameOffset = offsetof(TraceProperties, name);
     }
@@ -107,6 +107,7 @@ struct Capture {
     std::vector<Instance> instances;
     ULONG error = ERROR_SUCCESS;
     MetricEventObserver observer = nullptr;
+    bool retain_events = true;
 };
 
 ULONG DecodeMetric(EVENT_RECORD& record, const TRACE_EVENT_INFO& info, std::span<const BYTE> metadata,
@@ -196,8 +197,10 @@ void WINAPI OnEvent(EVENT_RECORD* record) noexcept {
         if (name && *name == L"QiQiMetric") {
             metrics::Event event;
             error = DecodeMetric(*record, *info, metadata, event);
-            if (!error && capture->events.size() < 64) capture->events.push_back(event);
-            else if (!error) error = ERROR_BUFFER_OVERFLOW;
+            if (!error && capture->retain_events) {
+                if (capture->events.size() < 64) capture->events.push_back(event);
+                else error = ERROR_BUFFER_OVERFLOW;
+            }
         } else if (name && *name == L"QiQiMetricInstance") {
             Instance instance;
             error = DecodeInstance(*record, *info, metadata, instance);
@@ -327,6 +330,7 @@ int CaptureMetrics(MetricEventObserver observer, MetricCaptureAction action) {
     std::wstring filename = file.wstring();
     Capture capture;
     capture.observer = observer;
+    capture.retain_events = action == nullptr;
 #pragma warning(suppress : 26476) // ETW selects its callback union through ProcessTraceMode.
     EVENT_TRACE_LOGFILEW logfile{};
     logfile.LogFileName = filename.data();

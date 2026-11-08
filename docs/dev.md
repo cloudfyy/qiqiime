@@ -185,6 +185,16 @@ ctest --preset x86-release --output-on-failure
 
 `--composition-lifecycle-tests` 模式注册为 `QiQiCompositionLifecycleTest`，运行组合组件及完整服务生命周期/按键回归（含既有编辑/清理与原生 TSF 测试），不运行独立菜单、候选窗和状态栏 UI 套件。该入口不替代完整 `QiQiTsfUiTest`；CTest 将它标为 `RUN_SERIAL`，避免与其他共享注册表/窗口测试并发。例如：`ctest --test-dir build\x64 -C Release -R '^QiQiCompositionLifecycleTest$' --repeat until-fail:2 --output-on-failure`，x86 替换目录即可。
 
+外部焦点对照通过 [`focus_benchmark.ps1`](../tests/ime/focus_benchmark.ps1) 手动运行，不加入常规 CTest，以免共享机器噪声被当作功能失败。先构建正常 Release 目标，再构建同源码基线（复用已安装依赖，不生成 MSI）：
+
+```powershell
+cmake -S . -B build\metrics-baseline\x64 -G "Visual Studio 18 2026" -A x64 -DQIQI_METRICS_BENCHMARK_BASELINE=ON -DVCPKG_INSTALLED_DIR="$PWD\build\x64\vcpkg_installed" -DVCPKG_MANIFEST_INSTALL=OFF
+cmake --build build\metrics-baseline\x64 --config Release --target qiqiime
+.\tests\ime\focus_benchmark.ps1 -TestExecutable .\build\x64\Release\qiqi_tsf_ui_test.exe -BaselineDll .\build\metrics-baseline\x64\Release\qiqiime_metrics_baseline.dll -CurrentDll .\build\x64\Release\qiqiime.dll -Output .\focus-benchmark-x64.json
+```
+
+x86 使用相应目录及 `-A Win32`。每个进程预热 1,000 次、外部计时 10,000 次固定焦点调用，共交替 5 组；输出保留原始值、SHA-256、PE 架构及预算参考。私有 ETL 开启态不是实时消费者验收，结果始终标注验收未完成；不要安装或分发版本带 `.metrics-baseline` 的基线 DLL。复测使用新的输出文件，禁止覆盖旧结果；当前实测与限制见[监控方案](metrics.md#外部焦点基准进度2026-11-08)。
+
 任务 36 的原生 TSF 作用域/只读/compartment 契约及原生 EDIT 样式检查已纳入 `QiQiTsfUiTest`。显式运行 `.\build\x64\Release\qiqi_tsf_ui_test.exe --restricted-input-diagnostics`（x86 对应替换路径）还会观察现有禁用按键与异步编辑行为；`[OBSERVE]` 不是保护已实现的通过断言。实验边界、双架构复现步骤及真实宿主待验证矩阵见[禁输入场景研究](restricted.md)。不会读取密码或真实剪贴板，不修改生产输入策略。
 
 设置窗口的单实例互斥量仅由 `ShowSettingsDialog` 持有，独立 EXE 和 IME 调用方不得提前创建同名互斥量，否则对话框会把自身误判为另一个实例并直接退出。创建失败记录真实 Win32 错误码并停止创建窗口；回归同时覆盖已存在的互斥量和同名异类内核对象，避免只检查快捷方式目标或进程退出码而遗漏实际启动失败。

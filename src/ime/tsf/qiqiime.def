@@ -1,4 +1,3 @@
-LIBRARY "qiqiime"
 EXPORTS
     DllGetClassObject   PRIVATE
     DllCanUnloadNow     PRIVATE

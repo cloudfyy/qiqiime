@@ -14,8 +14,10 @@
 #include <tdh.h>
 #include <filesystem>
 #include <cstdlib>
+#include <cstdio>
 #include <limits>
 #include <memory>
+#include <new>
 #include <utility>
 #include <vector>
 
@@ -66,10 +68,12 @@ TraceProperties StopSession(TRACEHANDLE session, const std::wstring& name) {
     return buffer;
 }
 
-ScopedModule LoadImeModule() {
-    const auto executable = GetModuleFilePath(nullptr);
-    QIQI_TEST_CHECK(!executable.empty());
-    const auto dll = executable.parent_path() / L"qiqiime.dll";
+ScopedModule LoadImeModule(std::filesystem::path dll = {}) {
+    if (dll.empty()) {
+        const auto executable = GetModuleFilePath(nullptr);
+        QIQI_TEST_CHECK(!executable.empty());
+        dll = executable.parent_path() / L"qiqiime.dll";
+    }
     ScopedModule module(::LoadLibraryExW(dll.c_str(), nullptr,
                                         LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS));
     QIQI_TEST_CHECK(module);
@@ -87,6 +91,110 @@ ComPtr<IClassFactory> GetImeFactory(HMODULE module) {
 
 thread_local monitor::MetricQueue* focus_metric_queue = nullptr;
 
+constexpr size_t kFocusBenchmarkSamples = 10'000;
+constexpr size_t kFocusBenchmarkWarmup = 1'000;
+struct FocusBenchmarkState {
+    std::filesystem::path dll;
+    std::vector<uint64_t> durations;
+    monitor::MetricAggregator aggregator;
+    uint64_t events = 0;
+};
+thread_local FocusBenchmarkState* focus_benchmark = nullptr;
+
+class FocusTestEnvironment final {
+public:
+    explicit FocusTestEnvironment(bool show_status_bar)
+        : directory(std::filesystem::temp_directory_path() /
+            std::format(L"qiqi-focus-test-{}-{}", ::GetCurrentProcessId(), ::GetTickCount64())),
+          saved_(LoadConfig(nullptr)) {
+        QIQI_TEST_CHECK(std::filesystem::create_directory(directory));
+        wchar_t* previous = nullptr;
+        size_t length = 0;
+        QIQI_TEST_CHECK(_wdupenv_s(&previous, &length, L"LOCALAPPDATA") == 0);
+        appdata_.reset(previous);
+        QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", directory.c_str()) == 0);
+        config.primary_dict = PrimaryDict::BuiltinOnly;
+        config.enable_jidian_extra = false;
+        config.dynamic_phrase_freq = false;
+        config.show_status_bar = show_status_bar;
+        config.log_level = log::Level::off;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    }
+    ~FocusTestEnvironment() noexcept {
+        if (!SaveConfigToRegistry(saved_)) {
+            std::fputs("[FAIL] Restoring focus test configuration failed.\n", stderr);
+            std::abort();
+        }
+        const int environment_error = _wputenv_s(L"LOCALAPPDATA", appdata_ ? appdata_.get() : L"");
+        if (environment_error != 0) {
+            std::fprintf(stderr, "[FAIL] Restoring focus test environment failed (error=%d).\n", environment_error);
+            std::abort();
+        }
+        std::error_code error;
+        try {
+            std::filesystem::remove_all(directory, error);
+        } catch (const std::bad_alloc&) {
+            std::fputs("[FAIL] Focus test directory cleanup allocation failed.\n", stderr);
+            std::abort();
+        } catch (const std::filesystem::filesystem_error& failure) {
+            std::fprintf(stderr, "[FAIL] Focus test cleanup failed (error=%d).\n", failure.code().value());
+            std::abort();
+        }
+        if (error) {
+            std::fprintf(stderr, "[FAIL] Focus test cleanup failed (error=%d).\n", error.value());
+            std::abort();
+        }
+    }
+    FocusTestEnvironment(const FocusTestEnvironment&) = delete;
+    FocusTestEnvironment& operator=(const FocusTestEnvironment&) = delete;
+    FocusTestEnvironment(FocusTestEnvironment&&) = delete;
+    FocusTestEnvironment& operator=(FocusTestEnvironment&&) = delete;
+    const std::filesystem::path directory;
+    QiQiConfig config{};
+private:
+    const QiQiConfig saved_;
+    std::unique_ptr<wchar_t, decltype(&std::free)> appdata_{nullptr, &std::free};
+};
+
+ULONG ObserveBenchmarkMetric(EVENT_RECORD& record) {
+    monitor::MetricRecord decoded;
+    const ULONG error = monitor::DecodeMetricEvent(record, 1, decoded);
+    if (error != ERROR_SUCCESS) return error;
+    if (const auto* event = std::get_if<metrics::Event>(&decoded.payload)) {
+        if (event->phase != metrics::Phase::Complete || event->outcome != metrics::Outcome::Success ||
+            event->mode != metrics::Mode::FocusGained || event->source != metrics::Source::KeyEvent)
+            return ERROR_INVALID_DATA;
+        ++focus_benchmark->events;
+    }
+    return focus_benchmark->aggregator.Consume(decoded);
+}
+
+void ExerciseFocusBenchmark() {
+    const FocusTestEnvironment environment(false);
+    const auto module = LoadImeModule(focus_benchmark->dll);
+    const auto factory = GetImeFactory(module.Get());
+    ComPtr<ITfTextInputProcessorEx> service;
+    QIQI_TEST_CHECK(factory->CreateInstance(nullptr, IID_PPV_ARGS(&service)) == S_OK);
+    const auto manager = MakeComObject<MockTfThreadMgr>();
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
+    ComPtr<ITfKeyEventSink> keys;
+    QIQI_TEST_CHECK(service.As(&keys) == S_OK);
+    for (size_t index = 0; index < kFocusBenchmarkWarmup; ++index)
+        QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK);
+    auto& durations = focus_benchmark->durations;
+    durations.resize(kFocusBenchmarkSamples);
+    for (auto& duration : durations) {
+        metrics::ClockReading start{};
+        metrics::ClockReading end{};
+        QIQI_TEST_CHECK(metrics::ReadClock(start) == S_OK);
+        const HRESULT result = keys->OnSetFocus(TRUE);
+        QIQI_TEST_CHECK(metrics::ReadClock(end) == S_OK);
+        QIQI_TEST_CHECK(result == S_OK);
+        QIQI_TEST_CHECK(metrics::ElapsedNanoseconds(start, end, duration) == S_OK);
+    }
+}
+
 ULONG ObserveFocusMetric(EVENT_RECORD& record) {
     monitor::MetricRecord decoded;
     const ULONG error = monitor::DecodeMetricEvent(record, 1, decoded);
@@ -95,29 +203,8 @@ ULONG ObserveFocusMetric(EVENT_RECORD& record) {
 }
 
 void ExerciseFocusMetrics() {
-    const auto directory = std::filesystem::temp_directory_path() /
-        std::format(L"qiqi-focus-metrics-{}-{}", ::GetCurrentProcessId(), ::GetTickCount64());
-    QIQI_TEST_CHECK(std::filesystem::create_directory(directory));
-    wchar_t* previous_appdata = nullptr;
-    size_t previous_length = 0;
-    QIQI_TEST_CHECK(_wdupenv_s(&previous_appdata, &previous_length, L"LOCALAPPDATA") == 0);
-    const std::unique_ptr<wchar_t, decltype(&std::free)> appdata(previous_appdata, &std::free);
-    const QiQiConfig saved = LoadConfig(nullptr);
-    const auto restore = gsl::finally([&]() noexcept {
-        QIQI_TEST_CHECK(SaveConfigToRegistry(saved));
-        QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", appdata ? appdata.get() : L"") == 0);
-        std::error_code error;
-        std::filesystem::remove_all(directory, error);
-        QIQI_TEST_CHECK(!error);
-    });
-    QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", directory.c_str()) == 0);
-    QiQiConfig config{};
-    config.primary_dict = PrimaryDict::BuiltinOnly;
-    config.enable_jidian_extra = false;
-    config.dynamic_phrase_freq = false;
-    config.show_status_bar = true;
-    config.log_level = log::Level::off;
-    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    FocusTestEnvironment environment(true);
+    auto& config = environment.config;
     const auto module = LoadImeModule();
     const auto factory = GetImeFactory(module.Get());
     ComPtr<ITfTextInputProcessorEx> service;
@@ -136,7 +223,7 @@ void ExerciseFocusMetrics() {
     ++config.page_size;
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
     QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK);
-    config.user_dict_path = (directory / L"missing.txt").wstring();
+    config.user_dict_path = (environment.directory / L"missing.txt").wstring();
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
     QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK);
     config.user_dict_path.clear();
@@ -313,6 +400,45 @@ void ExerciseLoadedIme(QiQiConfig& config, bool multiple_instances) {
 }
 
 } // namespace
+
+int RunFocusBenchmark(const std::filesystem::path& dll, std::wstring_view mode) {
+    if (mode != L"off" && mode != L"file") {
+        std::cerr << "[FAIL] Focus benchmark mode must be off or file.\n";
+        return 1;
+    }
+    FocusBenchmarkState state;
+    state.dll = dll;
+    focus_benchmark = &state;
+    const auto reset = gsl::finally([]() noexcept { focus_benchmark = nullptr; });
+    if (mode == L"file") {
+        QIQI_TEST_CHECK(state.aggregator.BeginCapture(1) == ERROR_SUCCESS);
+        const int result = RunMetricsEtwTest(ObserveBenchmarkMetric, ExerciseFocusBenchmark);
+        if (result != 0) return result;
+        QIQI_TEST_CHECK(state.events == 3 * (kFocusBenchmarkSamples + kFocusBenchmarkWarmup));
+        QIQI_TEST_CHECK(state.aggregator.Stop(::GetTickCount64()) == ERROR_SUCCESS);
+        QIQI_TEST_CHECK(!state.aggregator.Status().incomplete);
+    } else {
+        QIQI_TEST_CHECK(log::EnsureInitialized());
+        const auto shutdown = gsl::finally([]() noexcept { log::Shutdown(); });
+        QIQI_TEST_CHECK(!log::MetricsEnabled());
+        const uint64_t generation = log::MetricsCaptureGeneration();
+        ExerciseFocusBenchmark();
+        QIQI_TEST_CHECK(!log::MetricsEnabled() && log::MetricsCaptureGeneration() == generation);
+    }
+    auto& durations = state.durations;
+    QIQI_TEST_CHECK(durations.size() == kFocusBenchmarkSamples);
+    std::sort(durations.begin(), durations.end());
+    const auto percentile = [&](size_t percent) noexcept {
+        return gsl::at(durations, (durations.size() * percent + 99) / 100 - 1);
+    };
+    std::cout << std::format(
+        "[BENCH] {{\"schema\":1,\"metric\":\"focus-gained\",\"mode\":\"{}\",\"samples\":{},"
+        "\"warmup\":{},\"p50_ns\":{},\"p95_ns\":{},\"p99_ns\":{},\"maximum_ns\":{},"
+        "\"events\":{},\"incomplete\":false}}\n",
+        mode == L"off" ? "off" : "private-etl", durations.size(), kFocusBenchmarkWarmup,
+        percentile(50), percentile(95), percentile(99), durations.back(), state.events);
+    return 0;
+}
 
 int RunFocusMetricsEtwTest() {
     monitor::MetricQueue queue;

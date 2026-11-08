@@ -1,6 +1,9 @@
 set(QIQI_RESOURCE_FILE_TYPE VFT_DLL)
 set(QIQI_RESOURCE_FILE_SUBTYPE VFT2_DRV_INPUTMETHOD)
 set(QIQI_RESOURCE_FILENAME "qiqiime.dll")
+if(QIQI_METRICS_BENCHMARK_BASELINE)
+    set(QIQI_RESOURCE_FILENAME "qiqiime_metrics_baseline.dll")
+endif()
 set(QIQI_RESOURCE_DESCRIPTION "奇奇五笔输入法 (QiQi Wubi 86 TSF IME - ${QIQIIME_ARCH_NAME})")
 set(QIQI_RESOURCE_COMMENTS "奇奇五笔 (QiQi Wubi 86 TSF IME) - https://github.com/cloudfyy/qiqiime")
 
@@ -53,6 +56,9 @@ add_library(qiqi_common STATIC
     ${QIQI_COMMON_SOURCES}
     "${QIQIIME_GENERATED_DIR}/common/version.h"
 )
+if(QIQI_METRICS_BENCHMARK_BASELINE)
+    target_compile_definitions(qiqi_common PRIVATE QIQI_METRICS_BENCHMARK_BASELINE)
+endif()
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_COMMON_SOURCES})
 target_include_directories(qiqi_common PUBLIC
     "${PROJECT_SOURCE_DIR}/src"

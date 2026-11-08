@@ -140,7 +140,11 @@ void Emit(const Event& event) noexcept { log::WriteMetric(event); }
 
 Scope::Scope(Metric metric, uint64_t service_id, Mode mode, Source source,
     uint64_t parent_operation_id, ScopeApi api) noexcept : api_(api) {
+#ifdef QIQI_METRICS_BENCHMARK_BASELINE
+    constexpr CaptureState capture{};
+#else
     const CaptureState capture = api_.capture();
+#endif
     if (!capture.enabled) return;
     const DWORD saved_error = ::GetLastError();
     const auto restore = gsl::finally([saved_error]() noexcept { ::SetLastError(saved_error); });

@@ -34,6 +34,10 @@ elseif(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows/share/Microsoft.G
 endif()
 
 project(QiQiIME VERSION ${QIQIIME_VERSION_STRING} LANGUAGES CXX)
+option(QIQI_METRICS_BENCHMARK_BASELINE "Build inert metric scopes for same-source benchmarks only" OFF)
+if(QIQI_METRICS_BENCHMARK_BASELINE)
+    message(WARNING "Metrics benchmark baseline: do not install or distribute this DLL")
+endif()
 
 if(DEFINED PROJECT_VERSION_TWEAK AND NOT "${PROJECT_VERSION_TWEAK}" STREQUAL "")
     set(QIQIIME_VERSION_TWEAK ${PROJECT_VERSION_TWEAK})
@@ -53,6 +57,9 @@ if(NOT QIQIIME_GIT_COMMIT_HASH)
     set(QIQIIME_GIT_COMMIT_HASH "unknown")
 endif()
 set(QIQIIME_FULL_VERSION "${PROJECT_VERSION}+${QIQIIME_GIT_COMMIT_HASH}")
+if(QIQI_METRICS_BENCHMARK_BASELINE)
+    string(APPEND QIQIIME_FULL_VERSION ".metrics-baseline")
+endif()
 set(QIQI_RESOURCE_ICON "${PROJECT_SOURCE_DIR}/data/qiqiime.ico")
 
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -108,7 +115,9 @@ find_package(Microsoft.GSL CONFIG REQUIRED)
 # Build source and test subdirectories
 enable_testing()
 add_subdirectory(src)
-add_subdirectory(tests)
+if(NOT QIQI_METRICS_BENCHMARK_BASELINE)
+    add_subdirectory(tests)
+endif()
 
 if(MSVC AND CMAKE_GENERATOR MATCHES "^Visual Studio")
     find_program(QIQI_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)

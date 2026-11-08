@@ -64,6 +64,9 @@ set_target_properties(qiqiime PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
 )
+if(QIQI_METRICS_BENCHMARK_BASELINE)
+    set_target_properties(qiqiime PROPERTIES OUTPUT_NAME qiqiime_metrics_baseline)
+endif()
 target_link_libraries(qiqiime PRIVATE
     qiqi_engine
     qiqi_settings_ui

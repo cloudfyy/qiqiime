@@ -8,11 +8,13 @@
 #include <span>
 #include <sstream>
 #include <stdexcept>
+#include <filesystem>
 
 namespace qiqi::test {
 void RunRestrictedInputContractTests();
 void RunRestrictedInputDiagnostics();
 int RunFocusMetricsEtwTest();
+int RunFocusBenchmark(const std::filesystem::path& dll, std::wstring_view mode);
 }
 
 namespace {
@@ -126,6 +128,10 @@ int wmain(int argc, wchar_t* argv[]) {
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--focus-metrics-etw") {
         QIQI_TEST_CHECK(SUCCEEDED(co_hr));
         return qiqi::test::RunFocusMetricsEtwTest();
+    }
+    if (args.size() == 4 && std::wstring_view(gsl::at(args, 1)) == L"--focus-benchmark") {
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        return qiqi::test::RunFocusBenchmark(gsl::at(args, 2), gsl::at(args, 3));
     }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--test-hang-diagnostics-probe") {
         const qiqi::test::TsfTestTrace trace("hang-probe");
