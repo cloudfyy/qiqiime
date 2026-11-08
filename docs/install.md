@@ -1,6 +1,6 @@
 # 奇奇五笔输入法安装指南
 
-本文面向从 GitHub 下载 MSI 安装包的用户，以 `QiQiIME-v0.99.4-win-x64-x86-en-US.msi` 为例。其他版本请使用对应 Release 的附件，不要仅根据文件名判断来源或版本。
+本文面向从 GitHub 下载 MSI 安装包的用户，以当前 RC7（数字版本 `0.99.7`）的预期文件名 `QiQiIME-v0.99.7-win-x64-x86-en-US.msi` 为例。标签已推送不等于安装包已发布；请以[官方 Releases 页面](https://github.com/cloudfyy/qiqiime/releases)实际可下载的附件为准，不要仅根据文件名判断来源或版本。
 
 ## 1. 安装前准备
 
@@ -8,7 +8,7 @@
 - 安装和卸载需要管理员权限。日常输入和修改设置通常不需要管理员权限。
 - 无需另外安装 VC++ 运行库，Release 使用静态链接的 MSVC CRT。
 - 升级前，先在词库管理器中导出 `.qbak` 备份，并关闭正在使用奇奇五笔的应用。更多用户数据说明见[部署指南](deploy.md)。
-- 当前版本为预发布软件，实际应用兼容性仍需验证。密码、PIN、登录和安全桌面请使用系统键盘布局或已验证的系统输入方式。
+- RC7 是 1.0 候选版，不是正式版。统一禁输入准入已实现并完成既定验证，但不承诺所有宿主密码控件均可识别；密码、PIN、登录和安全桌面请使用系统键盘布局或已验证的系统输入方式。
 
 ## 2. 下载安装包
 
@@ -23,7 +23,7 @@
 如发布页面提供 SHA-256 校验值，可在 PowerShell 中计算下载文件的哈希并逐字核对：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath "$env:USERPROFILE\Downloads\QiQiIME-v0.99.4-win-x64-x86-en-US.msi"
+Get-FileHash -Algorithm SHA256 -LiteralPath "$env:USERPROFILE\Downloads\QiQiIME-v0.99.7-win-x64-x86-en-US.msi"
 ```
 
 文件位于其他目录时请修改路径。仅计算哈希、不与可信来源提供的值比较，不能证明文件安全；本指南不提供该安装包的已验证哈希。
@@ -78,12 +78,14 @@ Get-FileHash -Algorithm SHA256 -LiteralPath "$env:USERPROFILE\Downloads\QiQiIME-
 
 帮助功能在提交 `4ee3278` 中加入；此前的 `0.99.3+f813db9` 安装包不包含该功能。相同内部数字版本 `0.99.3` 的不同构建可能包含不同功能，请核对文件属性或关于窗口中的提交后缀与 Release 说明。更新仓库源码不会自动更新已经安装的程序，也不会修改旧 Release 的 MSI 附件；需要安装包含该功能的后续构建。
 
+RC7 还包含自定义主词库选择校验、日志监控器的三组互斥视图、统一采集按钮和独立 Metrics JSON 导出。指标采集默认关闭，启动方法及隐私边界见[Metrics 指南](log.md#metrics-指标跟踪)；普通日志导出仍需隐私确认。
+
 ## 6. 安装失败时收集日志
 
 确认安装包来源可信后，可在 PowerShell 中执行以下命令，生成 Windows Installer 详细日志。该命令会实际安装软件，并可能触发 UAC：
 
 ```powershell
-msiexec.exe /i "$env:USERPROFILE\Downloads\QiQiIME-v0.99.4-win-x64-x86-en-US.msi" /L*V "$env:TEMP\QiQiIME-install.log"
+msiexec.exe /i "$env:USERPROFILE\Downloads\QiQiIME-v0.99.7-win-x64-x86-en-US.msi" /L*V "$env:TEMP\QiQiIME-install.log"
 ```
 
 向项目反馈时，请提供 Windows 版本与架构、Release 标签、完整 MSI 文件名、首次安装还是升级，以及错误文字或截图。日志可能包含用户名和本机路径，分享前请检查并脱敏。

@@ -2,7 +2,9 @@
 
 ## 1. 状态与结论
 
-**2026-11-07 实施更新（批次 A + 批次 B 已落地）**：已在 [`access_policy.h`](../src/ime/comp/access_policy.h)、[`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp)、[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp)、[`tip_config.cpp`](../src/ime/tsf/tip_config.cpp)、[`tip_service.cpp`](../src/ime/tsf/tip_service.cpp) 与 [`engine.cpp`](../src/ime/engine/engine.cpp) 中实现两层漏斗准入模型（`ContextFacts` → `AccessPolicy`）：统一覆盖四个按键入口、Shift 单击切换、全部四个保留快捷键、候选点击/翻页、模式切换、异步 `EditSession` / 布局回调复核、活动 context 的禁用 compartment 与 `ITfStatusSink` 动态通知，以及 `IS_PRIVATE` 无痕状态下的动态调频/置顶/屏蔽/剪贴板造词抑制。x64/x86 Release 下 `QiQiTsfUiTest`、`QiQiCompositionLifecycleTest`、`QiQiEngineTest` 与 `--restricted-input-diagnostics` 全部通过（排队后禁用 `composition_started=0`、禁用态 Shift/保留键/错误注入 `eaten=0`、未设置 `S_FALSE` `eaten=1`）。下方 2026-11-05 与研究阶段记录作为基线对照保留；真实浏览器、WPF、UWP 和游戏的矩阵仍待人工验收，在此之前不将任务 36 标记为完成。
+**当前状态（2026-11-08 核对）**：任务 36 的研究与统一准入实施已按双架构自动回归及独立 `QiQiTsfTestHost.exe` 手工验证收口，见[任务记录](arch.md#当前执行优先级2026-11-07)。不外推未提供的真实浏览器、WPF、UWP 和游戏矩阵均已通过，不承诺所有密码控件可识别；这些边界保留供后续兼容性问题验证。
+
+**2026-11-07 实施更新（批次 A + 批次 B 已落地）**：已在 [`access_policy.h`](../src/ime/comp/access_policy.h)、[`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp)、[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp)、[`tip_config.cpp`](../src/ime/tsf/tip_config.cpp)、[`tip_service.cpp`](../src/ime/tsf/tip_service.cpp) 与 [`engine.cpp`](../src/ime/engine/engine.cpp) 中实现两层漏斗准入模型（`ContextFacts` → `AccessPolicy`）：统一覆盖四个按键入口、Shift 单击切换、全部四个保留快捷键、候选点击/翻页、模式切换、异步 `EditSession` / 布局回调复核、活动 context 的禁用 compartment 与 `ITfStatusSink` 动态通知，以及 `IS_PRIVATE` 无痕状态下的动态调频/置顶/屏蔽/剪贴板造词抑制。x64/x86 Release 下 `QiQiTsfUiTest`、`QiQiCompositionLifecycleTest`、`QiQiEngineTest` 与 `--restricted-input-diagnostics` 全部通过（排队后禁用 `composition_started=0`、禁用态 Shift/保留键/错误注入 `eaten=0`、未设置 `S_FALSE` `eaten=1`）。下方 2026-11-05 与研究阶段记录作为实施前基线保留，不将当时“未实现”的结论当作当前状态。
 
 2026-11-05 完成官方契约核实、当前路径检查及 x64/x86 本地实验。本轮只新增测试和诊断入口，**未修改生产输入行为**。任务 36 不再暂缓，但保留未完成状态：真实浏览器、WPF、UWP 和游戏的矩阵仍需执行，再决定并验收生产实现。
 
@@ -16,7 +18,7 @@
 2. `TF_SD_READONLY` 表示不可编辑，不表示敏感输入。`IS_PRIVATE` 表示私密数据，不等于密码框。数字、英文、邮箱、网址作用域不能一律禁用中文输入。
 3. 宿主应在密码字段禁用文本服务。`IS_PASSWORD` 本身不提供保护，官方还明确其不受支持、可能变动；不能依赖宿主一定提供它。密码/PIN 作用域只能作为附加的明确限制信号。
 4. 已知为真实原生 `EDIT` 的当前输入目标，可从窗口样式识别 `ES_PASSWORD` / `ES_READONLY`。无法把这个办法推广到网页、WPF PasswordBox、窗口无关控件或游戏自绘控件。
-5. 当前实现仅在部分按键入口放行禁用上下文。Shift、保留快捷键、候选点击和排队编辑尚未共享同一准入策略；不能据此承诺敏感场景完全不处理输入。
+5. 研究阶段的旧实现仅在部分按键入口放行禁用上下文，Shift、保留快捷键、候选点击和排队编辑未共享准入策略；该缺口已由首节记录的统一准入实施覆盖，但仍不能据此承诺所有宿主敏感场景均可识别。
 6. 检测结果至少要区分明确限制、正常可编辑、未声明/不支持、实际查询失败；不能把它们压成“失败即 0”的布尔值，也不能把缺少作用域当成密码或安全证明。
 
 ## 2. 官方契约与适用范围
@@ -40,6 +42,8 @@
 游戏 UILess 激活只表示 UI 协作方式，不表示聊天目标正在接收文本。若游戏没有提供 context、禁用标志、输入作用域或可靠的焦点通知，通用 TSF 代码无法可靠区分聊天和游戏操作；不得通过截取聊天内容、全局键盘钩子或进程名黑名单猜测。
 
 ## 3. 当前实现路径与实验结果
+
+本节描述 2026-11-05 的研究基线与实验，不是 RC7 的当前实现清单；生产实施及收口状态以第 1 节为准。
 
 ### 3.1 静态路径证据
 
@@ -93,7 +97,9 @@ ctest --preset x86-release -R '^QiQiTsfUiTest$'
 
 验证记录：x64/x86 Release 构建、上述显式诊断及 `QiQiTsfUiTest` 均通过。对新增源文件执行 CppCoreCheck，并以关闭增量重编译的直接编译分析复核，新增源文件无诊断；现有头文件、SDK 和第三方 GSL 头的告警未在本任务修改。没有制作 MSI，也没有注册/部署新 DLL。
 
-## 4. 推荐实施方案（尚未接入生产）
+## 4. 研究阶段推荐实施方案
+
+以下保留实施前的设计建议，当前已落实的两层漏斗及入口覆盖见第 1 节；不再作为“尚未接入生产”的状态声明。
 
 ### 4.1 分类与错误策略
 
@@ -124,7 +130,7 @@ ctest --preset x86-release -R '^QiQiTsfUiTest$'
 
 ## 5. 验证矩阵与未覆盖范围
 
-下表为后续真实宿主验收计划，**不是已通过清单**。所有输入均使用临时空白页面/控件和固定非敏感测试串，不使用实际账号、密码、剪贴板或业务文档。
+下表保留研究阶段证据与后续真实宿主验证计划，**不是当前实现或已通过清单**；任务 36 的实施与独立手工验证已按第 1 节收口。所有输入均使用临时空白页面/控件和固定非敏感测试串，不使用实际账号、密码、剪贴板或业务文档。
 
 | 场景 | 本轮证据 | 仍需真实宿主验证 |
 |---|---|---|
@@ -139,7 +145,7 @@ ctest --preset x86-release -R '^QiQiTsfUiTest$'
 
 真实验收至少记录宿主名称/版本/架构、操作系统、实际 DLL 版本、目标类型、各信号/查询 HRESULT、重复次数、时间区间及脱敏日志。每项分别标记通过、失败、未覆盖或阻塞。密码框若完全不派发 TSF 回调，应记录为宿主禁用路径，不能伪造一次 IME 检测成功。
 
-**完成边界：**本轮交付可重复实验和实施建议；尚未证明所有宿主可识别，也未实现新的密码保护。生产方案及上述矩阵没有完成前，不勾选任务 36，不宣称“密码框已全面支持”。
+**研究阶段完成边界（2026-11-05）：**当时只交付可重复实验和实施建议，未实现新的密码保护，不能据此勾选实施完成。后续生产实施与既定验证已按第 1 节收口；无论任务状态如何，仍不宣称“所有密码框已全面支持”。
 
 [compartments]: https://learn.microsoft.com/en-us/windows/win32/tsf/predefined-compartments
 [compartment-value]: https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcompartment-getvalue
