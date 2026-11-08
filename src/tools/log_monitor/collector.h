@@ -11,6 +11,10 @@
 
 namespace qiqi::monitor {
 
+inline constexpr size_t kDiagnosticMaxRecords = 512;
+inline constexpr size_t kDiagnosticMaxBytes = 1024 * 1024;
+inline constexpr uint64_t kDiagnosticReportStride = 1024;
+
 class Diagnostics final {
 public:
     Diagnostics();
@@ -20,7 +24,7 @@ public:
     Diagnostics(Diagnostics&&) = delete;
     Diagnostics& operator=(Diagnostics&&) = delete;
     void Record(UCHAR level, std::wstring_view operation, ULONG error = ERROR_SUCCESS) noexcept;
-    EventQueue queue{512, 1024 * 1024};
+    EventQueue queue{kDiagnosticMaxRecords, kDiagnosticMaxBytes};
     std::atomic<uint64_t> allocation_errors{0};
 };
 

@@ -14,6 +14,44 @@
 namespace qiqi {
 namespace {
 std::optional<bool> high_contrast_override;
+constexpr int kBodyFontSize = 14;
+constexpr int kCaptionFontSize = 12;
+constexpr int kButtonFontSize = 14;
+constexpr int kCardCornerRadius = 8;
+constexpr RECT kCardAccentOffsets{12, 10, 16, 26};
+constexpr int kCardAccentRadius = 2;
+constexpr int kCardHeaderLeftInset = 24;
+constexpr int kCardHeaderTopOffset = 9;
+constexpr int kCardHeaderRightInset = 12;
+constexpr int kCardHeaderBottomOffset = 29;
+constexpr int kButtonCornerRadius = 6;
+constexpr int kToggleTextInset = 4;
+constexpr int kRadioOuterRadius = 8;
+constexpr int kRadioCenterX = 10;
+constexpr int kRadioInnerRadius = 4;
+constexpr int kRadioTextInset = 26;
+constexpr int kToggleRightInset = 6;
+constexpr int kToggleTrackWidth = 36;
+constexpr int kToggleTrackRadius = 9;
+constexpr int kToggleKnobRadius = 6;
+constexpr int kToggleLabelGap = 8;
+constexpr int kUnderlineBaselineOffset = 1;
+constexpr int kUnderlineDotStep = 3;
+constexpr int kComboCornerRadius = 5;
+constexpr int kComboTextInset = 10;
+constexpr int kComboPreviewTextRightInset = 90;
+constexpr int kComboTextRightInset = 26;
+constexpr int kComboPreviewLeftInset = 84;
+constexpr int kComboPreviewRightInset = 28;
+constexpr int kComboChevronRightInset = 14;
+constexpr int kComboChevronVerticalOffset = 1;
+constexpr int kComboChevronArm = 4;
+constexpr int kComboFallbackTextInset = 4;
+constexpr int kComboItemPreviewTextRightInset = 74;
+constexpr int kComboItemPreviewLeftInset = 68;
+constexpr int kComboItemPreviewRightInset = 10;
+constexpr float kComboItemTextLeftInsetPx = 6.0f;
+constexpr float kComboItemTextRightInsetPx = 4.0f;
 }
 
 void SetHighContrastOverrideForTest(std::optional<bool> enabled) noexcept {
@@ -36,7 +74,7 @@ HBRUSH ApplyFluentControlColors(HDC dc, const FluentD2DThemeContext& theme, bool
         return ::GetSysColorBrush(input ? COLOR_WINDOW : COLOR_BTNFACE);
     }
     const bool dark = IsSystemDarkTheme();
-    ::SetTextColor(dc, dark ? kDarkTextColor : RGB(28, 32, 40));
+    ::SetTextColor(dc, dark ? kDarkTextColor : kLightTextColor);
     if (input) {
         ::SetBkColor(dc, dark ? RGB(54, 58, 68) : RGB(255, 255, 255));
     } else {
@@ -66,13 +104,13 @@ void FluentD2DThemeContext::Init(UINT monitor_dpi) noexcept {
     if (dwrite_factory && TryGetSystemUiFont(system_font)) {
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
             std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, ScaleF(14), L"zh-CN", fmt_body.Put()), "Fluent::CreateTextFormat(body)");
+            DWRITE_FONT_STRETCH_NORMAL, ScaleF(kBodyFontSize), L"zh-CN", fmt_body.Put()), "Fluent::CreateTextFormat(body)");
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
             std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, ScaleF(12), L"zh-CN", fmt_caption.Put()), "Fluent::CreateTextFormat(caption)");
+            DWRITE_FONT_STRETCH_NORMAL, ScaleF(kCaptionFontSize), L"zh-CN", fmt_caption.Put()), "Fluent::CreateTextFormat(caption)");
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
             std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, ScaleF(14), L"zh-CN", fmt_btn.Put()), "Fluent::CreateTextFormat(button)");
+            DWRITE_FONT_STRETCH_NORMAL, ScaleF(kButtonFontSize), L"zh-CN", fmt_btn.Put()), "Fluent::CreateTextFormat(button)");
         if (!fmt_body || !fmt_caption || !fmt_btn) {
             QIQI_LOG_ERROR("Fluent DirectWrite text format creation failed");
         }
@@ -119,7 +157,7 @@ void DrawFluentCardGroup(
         d2d.d2d_target.Get(), is_dark ? ColorRefToD2DColor(kDarkDividerColor) : MakeD2DColor(222, 227, 236));
     const auto accent_brush = CreateSolidBrush(
         d2d.d2d_target.Get(), is_dark ? MakeD2DColor(76, 160, 255) : MakeD2DColor(0, 103, 192));
-    const float radius = d2d.ScaleF(8);
+    const float radius = d2d.ScaleF(kCardCornerRadius);
 
     for (const auto& card : cards) {
         const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(card.rect, radius, radius);
@@ -131,17 +169,19 @@ void DrawFluentCardGroup(
         }
         if (accent_brush) {
             const D2D1_ROUNDED_RECT pill = D2D1::RoundedRect(
-                D2D1::RectF(card.rect.left + d2d.ScaleF(12), card.rect.top + d2d.ScaleF(10),
-                            card.rect.left + d2d.ScaleF(16), card.rect.top + d2d.ScaleF(26)),
-                d2d.ScaleF(2), d2d.ScaleF(2));
+                D2D1::RectF(card.rect.left + d2d.ScaleF(kCardAccentOffsets.left),
+                            card.rect.top + d2d.ScaleF(kCardAccentOffsets.top),
+                            card.rect.left + d2d.ScaleF(kCardAccentOffsets.right),
+                            card.rect.top + d2d.ScaleF(kCardAccentOffsets.bottom)),
+                d2d.ScaleF(kCardAccentRadius), d2d.ScaleF(kCardAccentRadius));
             d2d.d2d_target->FillRoundedRectangle(pill, accent_brush.Get());
         }
         if (d2d.fmt_caption && accent_brush) {
             const wchar_t* hdr = is_en ? card.title_en : card.title_zh;
             if (hdr) {
                 const D2D1_RECT_F hdr_rc = D2D1::RectF(
-                    card.rect.left + d2d.ScaleF(24), card.rect.top + d2d.ScaleF(9),
-                    card.rect.right - d2d.ScaleF(12), card.rect.top + d2d.ScaleF(29));
+                    card.rect.left + d2d.ScaleF(kCardHeaderLeftInset), card.rect.top + d2d.ScaleF(kCardHeaderTopOffset),
+                    card.rect.right - d2d.ScaleF(kCardHeaderRightInset), card.rect.top + d2d.ScaleF(kCardHeaderBottomOffset));
                 d2d.d2d_target->DrawTextW(
                     hdr, gsl::narrow_cast<UINT32>(wcslen(hdr)), d2d.fmt_caption.Get(), hdr_rc, accent_brush.Get());
             }
@@ -193,14 +233,14 @@ void DrawFluentPushButton(
     } else {
         fill_col = is_pressed ? MakeD2DColor(232, 236, 242) : MakeD2DColor(255, 255, 255);
         border_col = MakeD2DColor(204, 210, 220);
-        text_col = MakeD2DColor(28, 32, 40);
+        text_col = ColorRefToD2DColor(kLightTextColor);
     }
 
     const D2D1_RECT_F rc = D2D1::RectF(
         1.0f, 1.0f,
         static_cast<float>(dis.rcItem.right - dis.rcItem.left) - 1.0f,
         static_cast<float>(dis.rcItem.bottom - dis.rcItem.top) - 1.0f);
-    const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(rc, d2d.ScaleF(6), d2d.ScaleF(6));
+    const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(rc, d2d.ScaleF(kButtonCornerRadius), d2d.ScaleF(kButtonCornerRadius));
 
     const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem);
     if (!draw_guard) {
@@ -262,41 +302,44 @@ void DrawFluentToggleOrRadioRow(
     const auto text_brush = CreateSolidBrush(
         d2d.d2d_target.Get(),
         !is_enabled ? (is_dark ? MakeD2DColor(110, 116, 128) : MakeD2DColor(150, 156, 166))
-                    : (is_dark ? ColorRefToD2DColor(kDarkTextColor) : MakeD2DColor(28, 32, 40)));
+                    : ColorRefToD2DColor(is_dark ? kDarkTextColor : kLightTextColor));
 
-    float text_left = d2d.ScaleF(4);
-    float text_right = w - d2d.ScaleF(4);
+    float text_left = d2d.ScaleF(kToggleTextInset);
+    float text_right = w - d2d.ScaleF(kToggleTextInset);
 
     if (is_radio) {
-        const float r_outer = d2d.ScaleF(8);
-        const D2D1_ELLIPSE outer = D2D1::Ellipse(D2D1::Point2F(d2d.ScaleF(10), cy), r_outer, r_outer);
+        const float r_outer = d2d.ScaleF(kRadioOuterRadius);
+        const D2D1_ELLIPSE outer = D2D1::Ellipse(D2D1::Point2F(d2d.ScaleF(kRadioCenterX), cy), r_outer, r_outer);
         if (is_checked && accent_brush) {
             d2d.d2d_target->FillEllipse(outer, accent_brush.Get());
             if (knob_brush) {
                 d2d.d2d_target->FillEllipse(
-                    D2D1::Ellipse(D2D1::Point2F(d2d.ScaleF(10), cy), d2d.ScaleF(4), d2d.ScaleF(4)), knob_brush.Get());
+                    D2D1::Ellipse(D2D1::Point2F(d2d.ScaleF(kRadioCenterX), cy),
+                                  d2d.ScaleF(kRadioInnerRadius), d2d.ScaleF(kRadioInnerRadius)), knob_brush.Get());
             }
         } else if (border_brush) {
             d2d.d2d_target->DrawEllipse(outer, border_brush.Get(), 1.5f);
         }
-        text_left = d2d.ScaleF(26);
+        text_left = d2d.ScaleF(kRadioTextInset);
     } else {
-        const float sw_right = w - d2d.ScaleF(6);
-        const float sw_left = sw_right - d2d.ScaleF(36);
+        const float sw_right = w - d2d.ScaleF(kToggleRightInset);
+        const float sw_left = sw_right - d2d.ScaleF(kToggleTrackWidth);
         const D2D1_ROUNDED_RECT track = D2D1::RoundedRect(
-            D2D1::RectF(sw_left, cy - d2d.ScaleF(9), sw_right, cy + d2d.ScaleF(9)),
-            d2d.ScaleF(9), d2d.ScaleF(9));
+            D2D1::RectF(sw_left, cy - d2d.ScaleF(kToggleTrackRadius), sw_right, cy + d2d.ScaleF(kToggleTrackRadius)),
+            d2d.ScaleF(kToggleTrackRadius), d2d.ScaleF(kToggleTrackRadius));
         if (is_checked && accent_brush) {
             d2d.d2d_target->FillRoundedRectangle(track, accent_brush.Get());
         } else if (border_brush) {
             d2d.d2d_target->DrawRoundedRectangle(track, border_brush.Get(), 1.4f);
         }
-        const float knob_x = is_checked ? (sw_right - d2d.ScaleF(9)) : (sw_left + d2d.ScaleF(9));
+        const float knob_x = is_checked ? (sw_right - d2d.ScaleF(kToggleTrackRadius)) :
+                                         (sw_left + d2d.ScaleF(kToggleTrackRadius));
         if (knob_brush) {
             d2d.d2d_target->FillEllipse(
-                D2D1::Ellipse(D2D1::Point2F(knob_x, cy), d2d.ScaleF(6), d2d.ScaleF(6)), knob_brush.Get());
+                D2D1::Ellipse(D2D1::Point2F(knob_x, cy),
+                              d2d.ScaleF(kToggleKnobRadius), d2d.ScaleF(kToggleKnobRadius)), knob_brush.Get());
         }
-        text_right = sw_left - d2d.ScaleF(8);
+        text_right = sw_left - d2d.ScaleF(kToggleLabelGap);
     }
 
     std::array<wchar_t, 128> label_text{};
@@ -348,7 +391,7 @@ void DrawFluentUnderlineStylePreview(
     if (x1 <= x0 + 4.0f) {
         return;
     }
-    const float y = (sample_rect.top + sample_rect.bottom) * 0.5f + d2d.ScaleF(1);
+    const float y = (sample_rect.top + sample_rect.bottom) * 0.5f + d2d.ScaleF(kUnderlineBaselineOffset);
     const float stroke_w = d2d.ScaleF(bold_line ? 2 : 1) + (bold_line ? 0.6f : 0.3f);
     const auto brush = CreateSolidBrush(d2d.d2d_target.Get(), color);
     if (!brush) {
@@ -356,7 +399,7 @@ void DrawFluentUnderlineStylePreview(
     }
 
     if (style == CompositionUnderlineStyle::Squiggle) {
-        const float step = (std::max)(2.0f, d2d.ScaleF(3));
+        const float step = (std::max)(2.0f, d2d.ScaleF(kUnderlineDotStep));
         const float amp = d2d.ScaleF(bold_line ? 2 : 1) + 0.8f;
         float x = x0;
         bool up = true;
@@ -415,14 +458,14 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
     const float w = static_cast<float>(rc.right - rc.left);
     const float h = static_cast<float>(rc.bottom - rc.top);
     const D2D1_RECT_F box_rc = D2D1::RectF(1.0f, 1.0f, w - 1.0f, h - 1.0f);
-    const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(box_rc, d2d.ScaleF(5), d2d.ScaleF(5));
+    const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(box_rc, d2d.ScaleF(kComboCornerRadius), d2d.ScaleF(kComboCornerRadius));
 
     const auto fill_brush = CreateSolidBrush(
         d2d.d2d_target.Get(), is_dark ? MakeD2DColor(56, 60, 70) : ColorRefToD2DColor(kLightSurfaceBg));
     const auto border_brush = CreateSolidBrush(
         d2d.d2d_target.Get(), is_dark ? MakeD2DColor(86, 92, 106) : MakeD2DColor(204, 210, 222));
     const auto txt_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? ColorRefToD2DColor(kDarkTextColor) : MakeD2DColor(28, 32, 40));
+        d2d.d2d_target.Get(), ColorRefToD2DColor(is_dark ? kDarkTextColor : kLightTextColor));
     const auto chev_brush = CreateSolidBrush(
         d2d.d2d_target.Get(), is_dark ? MakeD2DColor(186, 194, 208) : MakeD2DColor(96, 104, 118));
 
@@ -445,8 +488,9 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
             bool preview_bold = false;
             const bool has_preview = QueryUnderlineComboBoldState(
                 hwnd, preview_style, gsl::narrow_cast<UINT>(cur_sel), preview_bold);
-            const float right_limit = w - d2d.ScaleF(has_preview ? 90 : 26);
-            const D2D1_RECT_F txt_rc = D2D1::RectF(d2d.ScaleF(10), 0.0f, right_limit, h);
+            const float right_limit = w - d2d.ScaleF(
+                has_preview ? kComboPreviewTextRightInset : kComboTextRightInset);
+            const D2D1_RECT_F txt_rc = D2D1::RectF(d2d.ScaleF(kComboTextInset), 0.0f, right_limit, h);
             d2d.d2d_target->DrawTextW(
                 item_text.data(),
                 gsl::narrow_cast<UINT32>(wcslen(item_text.data())),
@@ -460,16 +504,17 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
                     d2d,
                     preview_style,
                     preview_bold,
-                    D2D1::RectF(w - d2d.ScaleF(84), 0.0f, w - d2d.ScaleF(28), h),
+                    D2D1::RectF(w - d2d.ScaleF(kComboPreviewLeftInset), 0.0f,
+                                w - d2d.ScaleF(kComboPreviewRightInset), h),
                     accent_col);
             }
         }
     }
 
     if (chev_brush) {
-        const float cx = w - d2d.ScaleF(14);
-        const float cy = h * 0.5f + d2d.ScaleF(1);
-        const float arm = d2d.ScaleF(4);
+        const float cx = w - d2d.ScaleF(kComboChevronRightInset);
+        const float cy = h * 0.5f + d2d.ScaleF(kComboChevronVerticalOffset);
+        const float arm = d2d.ScaleF(kComboChevronArm);
         d2d.d2d_target->DrawLine(
             D2D1::Point2F(cx - arm, cy - arm * 0.6f),
             D2D1::Point2F(cx, cy + arm * 0.5f),
@@ -501,7 +546,7 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
         ::SetTextColor(dis.hDC, ::GetSysColor(selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT));
         ::SetBkMode(dis.hDC, TRANSPARENT);
         RECT text = dis.rcItem;
-        text.left += d2d.ScalePx(4);
+        text.left += d2d.ScalePx(kComboFallbackTextInset);
         ::DrawTextW(dis.hDC, item_text.data(), -1, &text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
         if (dis.itemState & ODS_FOCUS) ::DrawFocusRect(dis.hDC, &dis.rcItem);
         return;
@@ -517,7 +562,7 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
     const D2D1_COLOR_F bg_col = is_selected
         ? (is_dark ? MakeD2DColor(0, 96, 180) : MakeD2DColor(220, 234, 252))
         : (is_dark ? MakeD2DColor(54, 58, 68) : MakeD2DColor(255, 255, 255));
-    const D2D1_COLOR_F txt_col = is_dark ? ColorRefToD2DColor(kDarkTextColor) : MakeD2DColor(28, 32, 40);
+    const D2D1_COLOR_F txt_col = ColorRefToD2DColor(is_dark ? kDarkTextColor : kLightTextColor);
 
     const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem);
     if (!draw_guard) {
@@ -534,8 +579,8 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
         const bool has_preview = QueryUnderlineComboBoldState(
             dis.hwndItem, preview_style, dis.itemID, preview_bold);
         const D2D1_RECT_F rc = D2D1::RectF(
-            6.0f, 0.0f,
-            item_w - (has_preview ? d2d.ScaleF(74) : 4.0f),
+            kComboItemTextLeftInsetPx, 0.0f,
+            item_w - (has_preview ? d2d.ScaleF(kComboItemPreviewTextRightInset) : kComboItemTextRightInsetPx),
             item_h);
         d2d.d2d_target->DrawTextW(
             item_text.data(),
@@ -552,7 +597,8 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
                 d2d,
                 preview_style,
                 preview_bold,
-                D2D1::RectF(item_w - d2d.ScaleF(68), 0.0f, item_w - d2d.ScaleF(10), item_h),
+                D2D1::RectF(item_w - d2d.ScaleF(kComboItemPreviewLeftInset), 0.0f,
+                            item_w - d2d.ScaleF(kComboItemPreviewRightInset), item_h),
                 line_col);
         }
     }

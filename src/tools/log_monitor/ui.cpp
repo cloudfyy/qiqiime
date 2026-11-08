@@ -14,6 +14,35 @@
 
 namespace qiqi::monitor {
 using enum ControlId;
+namespace {
+constexpr int kWindowMargin = 12;
+constexpr int kFilterControlGap = 4;
+constexpr int kFilterRowStride = 38;
+constexpr int kFilterLabelHeight = 24;
+constexpr int kSearchHeight = 28;
+constexpr int kFilterDropdownHeight = 240;
+constexpr int kFilterGroupGap = 10;
+constexpr int kFilterSectionHeight = 42;
+constexpr int kMinimumListHeight = 60;
+constexpr int kSplitterHeight = 8;
+constexpr int kStatusBottomOffset = 30;
+constexpr int kStatusHeight = 24;
+constexpr WPARAM kDetailsTextLimitChars = 1024 * 1024;
+constexpr std::array kLogColumnWidths{180, 140, 72, 72, 80, 145, 420};
+struct FilterSize {
+    ControlId label;
+    ControlId input;
+    int label_width;
+    int input_width;
+    bool fill_row;
+};
+constexpr std::array kFilterSizes{
+    FilterSize{ProcessLabel, Process, 60, 150, false},
+    FilterSize{PidLabel, Pid, 28, 82, false},
+    FilterSize{LevelLabel, Level, 44, 110, false},
+    FilterSize{CategoryLabel, Category, 72, 126, false},
+    FilterSize{SearchLabel, Search, 68, 200, true}};
+}
 
 void MonitorWindow::Impl::ReportCommandError(void* context, const char* operation, ULONG error) noexcept {
     auto* self = static_cast<Impl*>(context);
@@ -139,7 +168,7 @@ bool MonitorWindow::Impl::CreateControls() {
             WS_HSCROLL | WS_BORDER | WS_TABSTOP, Details) ||
         !Add(L"STATIC", L"", SS_LEFT, Status)) return false;
     command_ui.InitializeToolbar(Child(Toolbar));
-    ::SendMessageW(Child(Details), EM_SETLIMITTEXT, 1024 * 1024, 0);
+    ::SendMessageW(Child(Details), EM_SETLIMITTEXT, kDetailsTextLimitChars, 0);
     if (!::SetWindowSubclass(Child(DetailsSplitter), SplitterProcedure, 1, reinterpret_cast<DWORD_PTR>(this))) {
         Failure(L"SetWindowSubclass(details splitter)", ERROR_NOT_ENOUGH_MEMORY);
         return false;
@@ -152,8 +181,7 @@ bool MonitorWindow::Impl::CreateControls() {
     std::array<const wchar_t*, 7> columns{
         Text(L"时间 (UTC)", L"Time (UTC)"), Text(L"进程", L"Process"), L"PID", L"TID",
         Text(L"级别", L"Level"), Text(L"分类 / 阶段", L"Category / Stage"), Text(L"消息", L"Message")};
-    constexpr std::array widths{180, 140, 72, 72, 80, 145, 420};
-    const HRESULT columns_hr = InsertListViewColumns(Child(List), columns, widths, theme.dpi);
+    const HRESULT columns_hr = InsertListViewColumns(Child(List), columns, kLogColumnWidths, theme.dpi);
     if (FAILED(columns_hr)) {
         Failure(L"ListView_InsertColumn", gsl::narrow_cast<ULONG>(columns_hr));
         return false;
@@ -162,7 +190,7 @@ bool MonitorWindow::Impl::CreateControls() {
     UpdateIcons();
     ApplyLanguage();
     UpdateTheme();
-    if (!::SetTimer(hwnd, 1, 100, nullptr)) {
+    if (!::SetTimer(hwnd, kMonitorRefreshTimerId, kMonitorRefreshIntervalMs, nullptr)) {
         Failure(L"SetTimer", ::GetLastError());
         return false;
     }
@@ -178,37 +206,40 @@ void MonitorWindow::Impl::Layout() noexcept {
     const auto move = [&](ControlId id, int x, int y, int w, int h) noexcept {
         ::MoveWindow(Child(id), x, y, std::max(1, w), std::max(1, h), TRUE);
     };
-    int filter_top = command_ui.LayoutToolbar(Child(Toolbar), width, theme) + s(12);
-    int filter_left = s(12);
+    int filter_top = command_ui.LayoutToolbar(Child(Toolbar), width, theme) + s(kWindowMargin);
+    int filter_left = s(kWindowMargin);
     const auto place_filter = [&](ControlId label, ControlId input, int label_width, int input_width,
                                   bool fill_row = false) noexcept {
         const int label_px = s(label_width);
         const int input_px = s(input_width);
-        if (filter_left > s(12) && filter_left + label_px + s(4) + input_px > width - s(12)) {
-            filter_left = s(12);
-            filter_top += s(38);
+        if (filter_left > s(kWindowMargin) &&
+            filter_left + label_px + s(kFilterControlGap) + input_px > width - s(kWindowMargin)) {
+            filter_left = s(kWindowMargin);
+            filter_top += s(kFilterRowStride);
         }
-        move(label, filter_left, filter_top + s(4), label_px, s(24));
-        const int input_left = filter_left + label_px + s(4);
+        move(label, filter_left, filter_top + s(kFilterControlGap), label_px, s(kFilterLabelHeight));
+        const int input_left = filter_left + label_px + s(kFilterControlGap);
         move(input, input_left, filter_top,
-             fill_row ? width - s(12) - input_left : input_px, s(fill_row ? 28 : 240));
-        filter_left = input_left + input_px + s(10);
+             fill_row ? width - s(kWindowMargin) - input_left : input_px,
+             s(fill_row ? kSearchHeight : kFilterDropdownHeight));
+        filter_left = input_left + input_px + s(kFilterGroupGap);
     };
-    place_filter(ProcessLabel, Process, 60, 150);
-    place_filter(PidLabel, Pid, 28, 82);
-    place_filter(LevelLabel, Level, 44, 110);
-    place_filter(CategoryLabel, Category, 72, 126);
-    place_filter(SearchLabel, Search, 68, 200, true);
-    const int top = filter_top + s(42);
-    const int detail_limit_px = std::max(s(60), gsl::narrow_cast<int>(rect.bottom) - top - s(50) - s(60));
-    detail_limit = std::max(60, gsl::narrow_cast<int>(
-        gsl::narrow_cast<int64_t>(detail_limit_px) * 96 / theme.dpi));
-    const int detail = std::min(s(std::clamp(detail_height, 60, detail_limit)), detail_limit_px);
-    const int list_bottom = rect.bottom - detail - s(50);
-    move(List, s(12), top, width - s(24), list_bottom - top);
-    move(DetailsSplitter, s(12), list_bottom, width - s(24), s(8));
-    move(Details, s(12), list_bottom + s(8), width - s(24), detail);
-    move(Status, s(12), rect.bottom - s(30), width - s(24), s(24));
+    for (const auto& filter_size : kFilterSizes) {
+        place_filter(filter_size.label, filter_size.input, filter_size.label_width,
+                     filter_size.input_width, filter_size.fill_row);
+    }
+    const int top = filter_top + s(kFilterSectionHeight);
+    const int detail_limit_px = std::max(s(kMonitorMinimumDetailHeight),
+        gsl::narrow_cast<int>(rect.bottom) - top - s(kMonitorDetailsFooterSpace) - s(kMinimumListHeight));
+    detail_limit = std::max(kMonitorMinimumDetailHeight, gsl::narrow_cast<int>(
+        gsl::narrow_cast<int64_t>(detail_limit_px) * kMonitorLayoutReferenceDpi / theme.dpi));
+    const int detail = std::min(
+        s(std::clamp(detail_height, kMonitorMinimumDetailHeight, detail_limit)), detail_limit_px);
+    const int list_bottom = rect.bottom - detail - s(kMonitorDetailsFooterSpace);
+    move(List, s(kWindowMargin), top, width - s(2 * kWindowMargin), list_bottom - top);
+    move(DetailsSplitter, s(kWindowMargin), list_bottom, width - s(2 * kWindowMargin), s(kSplitterHeight));
+    move(Details, s(kWindowMargin), list_bottom + s(kSplitterHeight), width - s(2 * kWindowMargin), detail);
+    move(Status, s(kWindowMargin), rect.bottom - s(kStatusBottomOffset), width - s(2 * kWindowMargin), s(kStatusHeight));
 }
 
 void MonitorWindow::Impl::UpdateTheme() noexcept {

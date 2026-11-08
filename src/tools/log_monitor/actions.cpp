@@ -14,9 +14,12 @@
 
 namespace qiqi::monitor {
 using enum ControlId;
+namespace {
+constexpr int kDetailKeyboardResizeStep = 10;
+}
 
 void MonitorWindow::Impl::ResizeDetails(int height) noexcept {
-    detail_height = std::clamp(height, 60, detail_limit);
+    detail_height = std::clamp(height, kMonitorMinimumDetailHeight, detail_limit);
     Layout();
     ::InvalidateRect(Child(DetailsSplitter), nullptr, FALSE);
 }
@@ -49,9 +52,9 @@ LRESULT CALLBACK MonitorWindow::Impl::SplitterProcedure(HWND window, UINT messag
                 self->diagnostics.Record(2, L"Get details splitter layout bounds", ::GetLastError());
                 return 0;
             }
-            const int height = rect.bottom - self->theme.ScalePx(50) -
+            const int height = rect.bottom - self->theme.ScalePx(kMonitorDetailsFooterSpace) -
                 (point.y - self->splitter_drag_offset);
-            self->ResizeDetails(::MulDiv(height, 96, gsl::narrow_cast<int>(self->theme.dpi)));
+            self->ResizeDetails(::MulDiv(height, kMonitorLayoutReferenceDpi, gsl::narrow_cast<int>(self->theme.dpi)));
         }
         return 0;
     case WM_LBUTTONUP:
@@ -62,9 +65,9 @@ LRESULT CALLBACK MonitorWindow::Impl::SplitterProcedure(HWND window, UINT messag
     case WM_GETDLGCODE: return DLGC_WANTARROWS;
     case WM_KEYDOWN:
         switch (wparam) {
-        case VK_UP: self->ResizeDetails(self->detail_height + 10); return 0;
-        case VK_DOWN: self->ResizeDetails(self->detail_height - 10); return 0;
-        case VK_HOME: self->ResizeDetails(60); return 0;
+        case VK_UP: self->ResizeDetails(self->detail_height + kDetailKeyboardResizeStep); return 0;
+        case VK_DOWN: self->ResizeDetails(self->detail_height - kDetailKeyboardResizeStep); return 0;
+        case VK_HOME: self->ResizeDetails(kMonitorMinimumDetailHeight); return 0;
         case VK_END: self->ResizeDetails(self->detail_limit); return 0;
         default: break;
         }

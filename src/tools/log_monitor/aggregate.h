@@ -9,6 +9,17 @@ namespace qiqi::monitor {
 inline constexpr size_t kMetricBucketCount = 512;
 inline constexpr uint64_t kMetricHistogramLimitNs = 60'000'000'000;
 inline constexpr size_t kMetricAggregationBudget = 64 * 1024 * 1024;
+inline constexpr size_t kMetricMaxServicesPerInstance = 16;
+inline constexpr size_t kMetricMaxDimensionsPerService = 16;
+inline constexpr size_t kMetricMaxPending = 4096;
+inline constexpr size_t kMetricMaxErrorCodes = 32;
+inline constexpr uint64_t kMetricWindowSeconds = 60;
+inline constexpr uint64_t kMetricP95MinimumSamples = 100;
+inline constexpr uint64_t kMetricP99MinimumSamples = 1000;
+inline constexpr uint64_t kKeyCallbackThresholdNs = 5'000'000;
+inline constexpr uint64_t kCandidateUpdateThresholdNs = 5'000'000;
+inline constexpr uint64_t kCandidateQueryThresholdNs = 2'000'000;
+inline constexpr uint64_t kCommitThresholdNs = 20'000'000;
 
 enum class QuantileState { Value, Overflow, NoSamples, InsufficientSamples, InvalidPercentile };
 struct MetricQuantile {
@@ -46,7 +57,7 @@ struct MetricSummary {
     std::array<uint64_t, 9> outcomes{};
     MetricHistogram success;
     MetricHistogram failure;
-    std::array<MetricErrorCount, 32> errors{};
+    std::array<MetricErrorCount, kMetricMaxErrorCodes> errors{};
     size_t error_count = 0;
     uint64_t other_errors = 0;
     bool cumulative = true;

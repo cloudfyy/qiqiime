@@ -157,7 +157,7 @@ inline bool ApplyToolWindowListAndControlsTheme(
         const COLORREF background =
             contrast ? ::GetSysColor(COLOR_WINDOW) : (dark ? RGB(43, 46, 52) : RGB(255, 255, 255));
         const COLORREF foreground =
-            contrast ? ::GetSysColor(COLOR_WINDOWTEXT) : (dark ? kDarkTextColor : RGB(28, 32, 40));
+            contrast ? ::GetSysColor(COLOR_WINDOWTEXT) : (dark ? kDarkTextColor : kLightTextColor);
         ListView_SetBkColor(list_hwnd, background);
         ListView_SetTextBkColor(list_hwnd, background);
         ListView_SetTextColor(list_hwnd, foreground);

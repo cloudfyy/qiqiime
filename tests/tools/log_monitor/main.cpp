@@ -9,6 +9,7 @@
 #include "common/win32_ui_util.h"
 #include "common/command_ui.h"
 #include "tools/log_monitor/collector.h"
+#include "tools/log_monitor/internal.h"
 #include "tools/log_monitor/permissions.h"
 #include "tools/log_monitor/window.h"
 
@@ -30,6 +31,15 @@ namespace {
 using namespace qiqi;
 using namespace qiqi::monitor;
 using enum qiqi::monitor::ControlId;
+
+static_assert(kEventBufferDefaultRecords == 10'000 && kEventBufferDefaultBytes == 16 * 1024 * 1024);
+static_assert(kEventQueueDefaultRecords == 2'000 && kEventQueueDefaultBytes == 4 * 1024 * 1024);
+static_assert(kMetricQueueDefaultRecords == 2'000 && kMetricQueueDefaultBytes == 4 * 1024 * 1024);
+static_assert(kDiagnosticMaxRecords == 512 && kDiagnosticMaxBytes == 1024 * 1024);
+static_assert(kDiagnosticReportStride == 1024);
+static_assert(kMonitorRefreshTimerId == 1 && kMonitorRefreshIntervalMs == 100);
+static_assert(kMonitorLossPollIntervalMs == 1000 && kMonitorLossPollTicks == 10);
+static_assert(kMonitorMinimumDetailHeight == 60 && kMonitorDetailsFooterSpace == 50);
 
 HWND Child(const MonitorWindow& window, ControlId id) noexcept {
     return ::GetDlgItem(window.Handle(), std::to_underlying(id));

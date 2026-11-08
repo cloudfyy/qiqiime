@@ -11,6 +11,9 @@
 #include <span>
 
 namespace qiqi {
+namespace {
+constexpr float kTextMeasurementWidth = 4096.0f;
+}
 
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
     InitDirect2DAndDirectWrite();
@@ -67,7 +70,7 @@ int CandidateUI::MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const
                 text.data(),
                 gsl::narrow_cast<UINT32>(text.size()),
                 dwrite_text_format_.Get(),
-                4096.0f,
+                kTextMeasurementWidth,
                 static_cast<float>(popup_height_),
                 layout.Put()), "CandidateUI::CreateTextLayout", log::Level::debug) &&
             layout) {

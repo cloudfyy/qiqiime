@@ -160,7 +160,7 @@ void MonitorWindow::Impl::Tick() {
         tools.Push(std::move(event));
         changed = true;
     }
-    if (++ticks % 10 == 0) collector.PollLoss();
+    if (++ticks % kMonitorLossPollTicks == 0) collector.PollLoss();
     if (changed || process_choices_pending) {
         RefreshProcessChoices();
         if (changed || !process_choices_pending) RebuildRows();

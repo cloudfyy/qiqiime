@@ -345,7 +345,8 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
         suggested_rect->bottom > suggested_rect->top) {
         target_rect = *suggested_rect;
     } else if (ctx.d2d.dpi != effective_dpi) {
-        RECT desired_rect{0, 0, ScalePxByDpi(820, effective_dpi), ScalePxByDpi(494, effective_dpi)};
+        RECT desired_rect{0, 0, ScalePxByDpi(settings_layout::kClientSize.cx, effective_dpi),
+                         ScalePxByDpi(settings_layout::kClientSize.cy, effective_dpi)};
         const DWORD style = gsl::narrow_cast<DWORD>(::GetWindowLongPtrW(hwnd, GWL_STYLE));
         const DWORD ex_style = gsl::narrow_cast<DWORD>(::GetWindowLongPtrW(hwnd, GWL_EXSTYLE));
         if (!::AdjustWindowRectEx(&desired_rect, style, FALSE, ex_style)) {
@@ -474,7 +475,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                         const bool inside_card = (dis->CtlID == kIdBtnBrowsePrimaryDict);
                         const D2D1_COLOR_F outer_bg = inside_card
                             ? (IsSystemDarkTheme() ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255))
-                            : (IsSystemDarkTheme() ? ColorRefToD2DColor(kDarkWindowBg) : MakeD2DColor(243, 245, 249));
+                            : ColorRefToD2DColor(IsSystemDarkTheme() ? kDarkWindowBg : kLightCaptionBg);
                         DrawFluentPushButton(*dis, ctx->d2d, dis->CtlID == kIdBtnOk, outer_bg);
                     } else {
                         const bool is_radio =
@@ -610,7 +611,8 @@ ScopedWindow CreateSettingsWindow(
     constexpr DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
     constexpr DWORD wnd_ex_style = WS_EX_APPWINDOW;
     const RECT bounds = ComputeCenteredWindowBounds(
-        S(820), S(494), wnd_style, wnd_ex_style, mon.work_area);
+        S(settings_layout::kClientSize.cx), S(settings_layout::kClientSize.cy),
+        wnd_style, wnd_ex_style, mon.work_area);
     const int dlg_w = bounds.right - bounds.left;
     const int dlg_h = bounds.bottom - bounds.top;
 

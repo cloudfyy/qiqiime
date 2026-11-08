@@ -13,6 +13,8 @@
 namespace qiqi::settings_detail {
 namespace {
 
+namespace layout = settings_layout;
+
 constexpr std::array<const wchar_t*, 9> kPageSizeLabels = {
     L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9"
 };
@@ -27,10 +29,14 @@ struct SettingsRadioBinding {
 };
 
 constexpr std::array<SettingsRadioBinding, 4> kSettingsDictRadios = {{
-    {kIdRadioJidian,  PrimaryDict::Jidian,      &UiStrings::dlg_radio_jidian,   46, 360, WS_GROUP},
-    {kIdRadioHaifeng, PrimaryDict::Haifeng,     &UiStrings::dlg_radio_haifeng,  94, 360, 0},
-    {kIdRadioBuiltin, PrimaryDict::BuiltinOnly, &UiStrings::dlg_radio_builtin, 118, 360, 0},
-    {kIdRadioCustom,  PrimaryDict::Custom,      &UiStrings::dlg_radio_custom,  142, 268, 0},
+    {kIdRadioJidian, PrimaryDict::Jidian, &UiStrings::dlg_radio_jidian,
+     layout::kDictionaryFirstRow, layout::kOptionWidth, WS_GROUP},
+    {kIdRadioHaifeng, PrimaryDict::Haifeng, &UiStrings::dlg_radio_haifeng,
+     layout::kHaifengRow, layout::kOptionWidth, 0},
+    {kIdRadioBuiltin, PrimaryDict::BuiltinOnly, &UiStrings::dlg_radio_builtin,
+     layout::kBuiltinRow, layout::kOptionWidth, 0},
+    {kIdRadioCustom, PrimaryDict::Custom, &UiStrings::dlg_radio_custom,
+     layout::kCustomRow, layout::kCustomRadioWidth, 0},
 }};
 
 struct SettingsCheckboxBinding {
@@ -43,20 +49,34 @@ struct SettingsCheckboxBinding {
 };
 
 constexpr std::array<SettingsCheckboxBinding, 14> kSettingsCheckboxes = {{
-    {kIdChkExtraDict,      &QiQiConfig::enable_jidian_extra,          &UiStrings::dlg_chk_extra,             32,  70, 360},
-    {kIdChkAutoCommit4,    &QiQiConfig::auto_commit_4code,            &UiStrings::dlg_chk_auto_commit4,      32, 232, 360},
-    {kIdChkPushCommit5,    &QiQiConfig::push_commit_5th,              &UiStrings::dlg_chk_push_commit5,      32, 260, 360},
-    {kIdChkQuickSelect,    &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select,      32, 288, 360},
-    {kIdChkCodeHint,       &QiQiConfig::show_code_hint,               &UiStrings::dlg_chk_code_hint,         32, 316, 360},
-    {kIdChkDynamicFreq,    &QiQiConfig::dynamic_phrase_freq,          &UiStrings::dlg_chk_dynamic_freq,      32, 344, 360},
-    {kIdChkShiftToggle,    &QiQiConfig::shift_toggle_mode,            &UiStrings::dlg_chk_shift_toggle,      32, 372, 360},
-    {kIdChkUpDownPageTurn, &QiQiConfig::up_down_page_turn,            &UiStrings::dlg_chk_up_down_page_turn, 32, 400, 360},
-    {kIdChkStatusBar,      &QiQiConfig::show_status_bar,              &UiStrings::dlg_chk_status_bar,       430,  46, 360},
-    {kIdChkBoldUnderline,  &QiQiConfig::bold_underline,               &UiStrings::dlg_chk_bold_underline,   430, 174, 360},
-    {kIdChkBeepEmpty4,     &QiQiConfig::beep_on_empty_4code,          &UiStrings::dlg_chk_beep_empty4,      430, 238, 360},
-    {kIdChkBeepDup4,       &QiQiConfig::beep_on_dup_4code,            &UiStrings::dlg_chk_beep_dup4,        430, 272, 360},
-    {kIdChkClearEmpty4,    &QiQiConfig::clear_on_empty_4code,         &UiStrings::dlg_chk_clear_empty4,     430, 306, 360},
-    {kIdChkKeySound,       &QiQiConfig::enable_key_sound,             &UiStrings::dlg_chk_key_sound,        430, 340, 360},
+    {kIdChkExtraDict, &QiQiConfig::enable_jidian_extra, &UiStrings::dlg_chk_extra,
+     layout::kLeftColumn, layout::kDictionaryFirstRow + layout::kDictionaryRowStep, layout::kOptionWidth},
+    {kIdChkAutoCommit4, &QiQiConfig::auto_commit_4code, &UiStrings::dlg_chk_auto_commit4,
+     layout::kLeftColumn, layout::kInputFirstRow, layout::kOptionWidth},
+    {kIdChkPushCommit5, &QiQiConfig::push_commit_5th, &UiStrings::dlg_chk_push_commit5,
+     layout::kLeftColumn, layout::kInputFirstRow + layout::kInputRowStep, layout::kOptionWidth},
+    {kIdChkQuickSelect, &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select,
+     layout::kLeftColumn, layout::kInputFirstRow + 2 * layout::kInputRowStep, layout::kOptionWidth},
+    {kIdChkCodeHint, &QiQiConfig::show_code_hint, &UiStrings::dlg_chk_code_hint,
+     layout::kLeftColumn, layout::kInputFirstRow + 3 * layout::kInputRowStep, layout::kOptionWidth},
+    {kIdChkDynamicFreq, &QiQiConfig::dynamic_phrase_freq, &UiStrings::dlg_chk_dynamic_freq,
+     layout::kLeftColumn, layout::kInputFirstRow + 4 * layout::kInputRowStep, layout::kOptionWidth},
+    {kIdChkShiftToggle, &QiQiConfig::shift_toggle_mode, &UiStrings::dlg_chk_shift_toggle,
+     layout::kLeftColumn, layout::kInputFirstRow + 5 * layout::kInputRowStep, layout::kOptionWidth},
+    {kIdChkUpDownPageTurn, &QiQiConfig::up_down_page_turn, &UiStrings::dlg_chk_up_down_page_turn,
+     layout::kLeftColumn, layout::kInputFirstRow + 6 * layout::kInputRowStep, layout::kOptionWidth},
+    {kIdChkStatusBar, &QiQiConfig::show_status_bar, &UiStrings::dlg_chk_status_bar,
+     layout::kRightColumn, layout::kDictionaryFirstRow, layout::kOptionWidth},
+    {kIdChkBoldUnderline, &QiQiConfig::bold_underline, &UiStrings::dlg_chk_bold_underline,
+     layout::kRightColumn, layout::kBoldUnderlineRow, layout::kOptionWidth},
+    {kIdChkBeepEmpty4, &QiQiConfig::beep_on_empty_4code, &UiStrings::dlg_chk_beep_empty4,
+     layout::kRightColumn, layout::kSoundFirstRow, layout::kOptionWidth},
+    {kIdChkBeepDup4, &QiQiConfig::beep_on_dup_4code, &UiStrings::dlg_chk_beep_dup4,
+     layout::kRightColumn, layout::kSoundFirstRow + layout::kSoundRowStep, layout::kOptionWidth},
+    {kIdChkClearEmpty4, &QiQiConfig::clear_on_empty_4code, &UiStrings::dlg_chk_clear_empty4,
+     layout::kRightColumn, layout::kSoundFirstRow + 2 * layout::kSoundRowStep, layout::kOptionWidth},
+    {kIdChkKeySound, &QiQiConfig::enable_key_sound, &UiStrings::dlg_chk_key_sound,
+     layout::kRightColumn, layout::kSoundFirstRow + 3 * layout::kSoundRowStep, layout::kOptionWidth},
 }};
 
 } // namespace
@@ -194,13 +214,16 @@ void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const 
     if (!draw_guard) {
         return;
     }
-    ctx.d2d.d2d_target->Clear(is_dark ? ColorRefToD2DColor(kDarkWindowBg) : MakeD2DColor(243, 245, 249));
+    ctx.d2d.d2d_target->Clear(ColorRefToD2DColor(is_dark ? kDarkWindowBg : kLightCaptionBg));
 
+    const auto card_rect = [&S](const RECT& rect) noexcept {
+        return D2D1::RectF(S(rect.left), S(rect.top), S(rect.right), S(rect.bottom));
+    };
     const std::array<FluentCardSpec, 4> cards = {{
-        {D2D1::RectF(S(18),  S(16),  S(404), S(196)), L"词库方案",           L"Dictionary"},
-        {D2D1::RectF(S(18),  S(206), S(404), S(434)), L"编码与上屏习惯",     L"Input & Commit Behavior"},
-        {D2D1::RectF(S(416), S(16),  S(802), S(202)), L"界面与外观",         L"Appearance & Display"},
-        {D2D1::RectF(S(416), S(206), S(802), S(434)), L"提示音与反馈",       L"Sound & Feedback"},
+        {card_rect(layout::kDictionaryCard), L"词库方案", L"Dictionary"},
+        {card_rect(layout::kInputCard), L"编码与上屏习惯", L"Input & Commit Behavior"},
+        {card_rect(layout::kAppearanceCard), L"界面与外观", L"Appearance & Display"},
+        {card_rect(layout::kSoundCard), L"提示音与反馈", L"Sound & Feedback"},
     }};
     DrawFluentCardGroup(ctx.d2d, cards, is_en, is_dark);
 }
@@ -222,65 +245,47 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     const auto S = [&ctx](int px) noexcept { return ctx.d2d.ScalePx(px); };
     const HFONT f = ctx.font.Get();
     const auto& str = GetUiStrings(ctx.config ? ctx.config->ui_language : UiLanguage::Auto);
+    const auto create_control = [&](const wchar_t* cls, const wchar_t* text, DWORD style,
+                                    const RECT& rect, int id, DWORD_PTR group = 0) noexcept {
+        return CreateFluentChildControl(
+            hwnd, instance, f, &ctx.d2d, cls, text, style,
+            S(rect.left), S(rect.top), S(rect.right - rect.left), S(rect.bottom - rect.top), id, group);
+    };
 
     constexpr DWORD_PTR radio_group = MAKELONG(kIdRadioJidian, kIdRadioCustom);
     for (const auto& radio : kSettingsDictRadios) {
-        CreateFluentChildControl(
-            hwnd,
-            instance,
-            f,
-            &ctx.d2d,
-            L"BUTTON",
-            str.*(radio.label_field),
-            BS_AUTORADIOBUTTON | radio.extra_style,
-            S(32),
-            S(radio.y_offset_px),
-            S(radio.width_px),
-            S(22),
-            radio.control_id,
-            radio_group);
+        create_control(L"BUTTON", str.*(radio.label_field), BS_AUTORADIOBUTTON | radio.extra_style,
+            RECT{layout::kLeftColumn, radio.y_offset_px, layout::kLeftColumn + radio.width_px,
+                 radio.y_offset_px + layout::kRadioHeight}, radio.control_id, radio_group);
     }
-    CreateFluentChildControl(
-        hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_browse_dict,
-        BS_OWNERDRAW | WS_TABSTOP, S(306), S(140), S(84), S(26), kIdBtnBrowsePrimaryDict);
-    CreateFluentChildControl(
-        hwnd, instance, f, &ctx.d2d, L"STATIC",
+    create_control(L"BUTTON", str.dlg_btn_browse_dict, BS_OWNERDRAW | WS_TABSTOP,
+                   layout::kBrowseDictionary, kIdBtnBrowsePrimaryDict);
+    create_control(L"STATIC",
         ResolveDictionaryPathDisplayText(ctx.custom_primary_dict_path, str.dlg_lbl_custom_dict_none),
-        SS_LEFTNOWORDWRAP | SS_PATHELLIPSIS, S(56), S(168), S(334), S(20), kIdLblCustomPrimaryPath);
+        SS_LEFTNOWORDWRAP | SS_PATHELLIPSIS, layout::kDictionaryPath, kIdLblCustomPrimaryPath);
 
     for (const auto& binding : kSettingsCheckboxes) {
-        CreateFluentChildControl(
-            hwnd,
-            instance,
-            f,
-            &ctx.d2d,
-            L"BUTTON",
-            str.*(binding.label_field),
-            BS_AUTOCHECKBOX,
-            S(binding.x_offset_px),
-            S(binding.y_offset_px),
-            S(binding.width_px),
-            S(24),
-            binding.control_id);
+        create_control(L"BUTTON", str.*(binding.label_field), BS_AUTOCHECKBOX,
+            RECT{binding.x_offset_px, binding.y_offset_px, binding.x_offset_px + binding.width_px,
+                 binding.y_offset_px + layout::kCheckboxHeight}, binding.control_id);
     }
 
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"STATIC", str.dlg_lbl_page_size, 0, S(430), S(78), S(156), S(24), kIdLblPageSize);
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP, S(588), S(74), S(80), S(260), kIdComboPageSize);
-    ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETMINVISIBLE, 9, 0);
+    constexpr DWORD combo_style = CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP;
+    create_control(L"STATIC", str.dlg_lbl_page_size, 0, layout::kPageSizeLabel, kIdLblPageSize);
+    create_control(L"COMBOBOX", L"", combo_style, layout::kPageSizeCombo, kIdComboPageSize);
+    ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETMINVISIBLE, kPageSizeLabels.size(), 0);
     std::ignore = log::CheckHResult(ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboPageSize), kPageSizeLabels),
         "Settings::ReplaceComboBoxItems(page size)");
 
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"STATIC", str.dlg_lbl_ui_lang, 0, S(430), S(112), S(156), S(24), kIdLblUiLang);
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP, S(588), S(108), S(200), S(200), kIdComboUiLang);
+    create_control(L"STATIC", str.dlg_lbl_ui_lang, 0, layout::kLanguageLabel, kIdLblUiLang);
+    create_control(L"COMBOBOX", L"", combo_style, layout::kLanguageCombo, kIdComboUiLang);
     const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
     std::ignore = log::CheckHResult(ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiLang), lang_items),
         "Settings::ReplaceComboBoxItems(language)");
 
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"STATIC", str.dlg_lbl_underline_style, 0, S(430), S(146), S(156), S(24), kIdLblUnderlineStyle);
-    const HWND underline_combo = CreateFluentChildControl(
-        hwnd, instance, f, &ctx.d2d, L"COMBOBOX", L"",
-        CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP,
-        S(588), S(142), S(200), S(220), kIdComboUnderlineStyle);
+    create_control(L"STATIC", str.dlg_lbl_underline_style, 0, layout::kUnderlineLabel, kIdLblUnderlineStyle);
+    const HWND underline_combo = create_control(
+        L"COMBOBOX", L"", combo_style, layout::kUnderlineCombo, kIdComboUnderlineStyle);
     EnableFluentUnderlineComboPreview(underline_combo, kIdChkBoldUnderline);
     const std::array<const wchar_t*, 5> underline_items = {
         str.dlg_underline_dot,
@@ -292,23 +297,21 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     std::ignore = log::CheckHResult(ReplaceComboBoxItems(underline_combo, underline_items),
         "Settings::ReplaceComboBoxItems(underline)");
 
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"STATIC", str.dlg_lbl_english_switch, 0,
-        S(430), S(378), S(156), S(24), kIdLblEnglishSwitch);
-    const HWND english_switch_combo = CreateFluentChildControl(
-        hwnd, instance, f, &ctx.d2d, L"COMBOBOX", L"",
-        CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP,
-        S(588), S(374), S(200), S(160), kIdComboEnglishSwitch);
+    create_control(L"STATIC", str.dlg_lbl_english_switch, 0, layout::kEnglishSwitchLabel, kIdLblEnglishSwitch);
+    const HWND english_switch_combo = create_control(
+        L"COMBOBOX", L"", combo_style, layout::kEnglishSwitchCombo, kIdComboEnglishSwitch);
     const std::array<const wchar_t*, 2> english_switch_items = {
         str.dlg_english_switch_commit, str.dlg_english_switch_clear
     };
     std::ignore = log::CheckHResult(ReplaceComboBoxItems(english_switch_combo, english_switch_items),
         "Settings::ReplaceComboBoxItems(English switch)");
 
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_about, BS_OWNERDRAW | WS_TABSTOP, S(18), S(448), S(104), S(32), kIdBtnAbout);
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_dict_mgr, BS_OWNERDRAW | WS_TABSTOP, S(132), S(448), S(156), S(32), kIdBtnDictManager);
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_help, BS_OWNERDRAW | WS_TABSTOP, S(298), S(448), S(128), S(32), kIdBtnHelp);
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_ok, BS_OWNERDRAW | WS_TABSTOP, S(596), S(448), S(98), S(32), kIdBtnOk);
-    CreateFluentChildControl(hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_cancel, BS_OWNERDRAW | WS_TABSTOP, S(704), S(448), S(98), S(32), kIdBtnCancel);
+    constexpr DWORD button_style = BS_OWNERDRAW | WS_TABSTOP;
+    create_control(L"BUTTON", str.dlg_btn_about, button_style, layout::kAboutButton, kIdBtnAbout);
+    create_control(L"BUTTON", str.dlg_btn_dict_mgr, button_style, layout::kDictionaryManagerButton, kIdBtnDictManager);
+    create_control(L"BUTTON", str.dlg_btn_help, button_style, layout::kHelpButton, kIdBtnHelp);
+    create_control(L"BUTTON", str.dlg_btn_ok, button_style, layout::kOkButton, kIdBtnOk);
+    create_control(L"BUTTON", str.dlg_btn_cancel, button_style, layout::kCancelButton, kIdBtnCancel);
 }
 
 } // namespace qiqi::settings_detail

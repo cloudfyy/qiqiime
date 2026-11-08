@@ -471,6 +471,8 @@ cmake --build build\x64 --config Release --target lint
 - 信息对话框的布局尺寸、字号、图标尺寸/资源 ID、版本文本容量和分隔线宽度集中为文件内语义常量；布局及字体尺寸使用逻辑像素并在使用时按 DPI 缩放，分隔线保持原有单物理像素宽度。Win32 参数中的空值、默认标志、空终止文本长度和居中除数不另包装为常量。
 - [`theme.h`](../src/common/theme.h) 集中定义 `kDarkWindowBg`、`kLightSurfaceBg`、`kDarkTextColor` 及信息对话框的标题、副标题、正文与分隔线颜色常量；GDI 直接使用 `COLORREF`，Direct2D 通过现有 `ColorRefToD2DColor` 转换。画刷仍由各绘制上下文的 RAII 对象持有，不共享全局 GDI 句柄。
 - 标题栏背景、文字、边框和任务栏图标使用语义颜色常量；uxtheme 导出序号及 `PreferredAppMode` 的私有 ABI 值集中命名。DWM 属性和圆角策略使用 Windows SDK 枚举，旧版深色属性 19 仅保留为具名兼容回退；浅色调色板直接采用 `ThemePalette` 默认值，避免维护两份相同色表。
+- 设置窗口的逻辑客户区、卡片、行距与控件矩形集中在 [`settings_layout`](../src/tools/settings/internal.h)；创建与 DPI 重定位使用相同定义，宽高先在逻辑坐标中计算再分别缩放，保留原有舍入。共享控件、工具栏、消息窗口与提示框的尺寸和间距采用各自具名常量，原有物理像素参数不改为逻辑像素；设置测试保留独立数值断言。
+- 监控器普通日志、指标与自身诊断分别命名条数/字节预算；TDH 元数据和字符串解析上限仍按资源用途区分，不因数值相同而合并。刷新定时器的创建/销毁共用 ID 与 100 ms 周期，丢失轮询保持 1 秒；详情布局与鼠标/键盘调整共用最小高度和底部预留空间，不改变消息处理策略。
 - GUI 可执行文件沿用根 `VERSION`、生成版本头、图标与 `version.rc.in`，资源类型为 `VFT_APP`；不维护工具私有版本常量。构建目标 `QiQiIMELogMonitor`，测试目标 `qiqi_log_monitor_test`，两者已纳入现有 lint 目标集合。无需安装新依赖或生成 MSI。
 - 监控器通过资源模板参数单独使用 [`qiqiime-monitor.ico`](../data/qiqiime-monitor.ico)（深色实时波形监控面板图标），设置程序使用 [`qiqiime-settings.ico`](../data/qiqiime-settings.ico)（蓝色“奇”字品牌高清图标），IME DLL 使用 [`qiqiime.ico`](../data/qiqiime.ico)（白底黑色“奇”字、细黑边及左上圆角，兼顾深浅色任务栏）。品牌图标由 Windows 读取固定资源，不依赖主题切换或写回注册项；“中/英”动态图标仍按任务栏主题配色。[`generate_monitor_icon.ps1`](../scripts/generate_monitor_icon.ps1) 分别生成 16、20、24、32、40、48、64、96、128、256 像素 PNG 帧；`-ImeOnly` 仅更新 IME 品牌图标，同环境重新生成的文件字节一致。TSF/UI 回归从实际 DLL 加载各尺寸图标，检查黑白像素占比、灰度、透明圆角和抗锯齿边缘。窗口拥有大小图标，DPI 切换时先替换窗口引用，再释放旧资源。
 - 系统主题、颜色和设置通知统一刷新共享画刷及原生控件主题；高对比度下共享按钮/组合框回退到系统颜色和 GDI 绘制，并恢复 DC/字体。原生深色表头在部分系统上保留黑色文字，监控器通过列表子类的表头 custom draw 修正，保留原生列宽调整及命中测试；高对比度和浅色仍使用原生表头。

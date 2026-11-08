@@ -9,6 +9,19 @@
 #include <uxtheme.h>
 
 namespace qiqi {
+namespace {
+constexpr int kToolbarHeight = 40;
+constexpr int kToolbarButtonSize = 36;
+constexpr int kToolbarIconSize = 20;
+constexpr int kCompactIconSize = 16;
+constexpr int kCompactIconPadding = 4;
+constexpr int kCompactIconStroke = 1;
+constexpr int kToolbarIconStroke = 2;
+constexpr int kFocusInsetPx = 2;
+constexpr int kMenuHeadingPaddingX = 20;
+constexpr int kMenuHeadingPaddingY = 8;
+constexpr int kMaxTooltipWidthPx = 400;
+}
 
 void ToolCommandUi::Report(const char* operation, ULONG error) const noexcept {
     error_sink_(context_, operation, error);
@@ -29,7 +42,7 @@ void ToolCommandUi::InitializeToolbar(HWND toolbar, bool compact) {
     if (compact)
         ::SendMessageW(toolbar, TB_SETBITMAPSIZE, 0, MAKELPARAM(1, 1));
     if (const auto tooltip = reinterpret_cast<HWND>(::SendMessageW(toolbar, TB_GETTOOLTIPS, 0, 0))) {
-        ::SendMessageW(tooltip, TTM_SETMAXTIPWIDTH, 0, 400);
+        ::SendMessageW(tooltip, TTM_SETMAXTIPWIDTH, 0, kMaxTooltipWidthPx);
     }
     toolbars_.push_back({toolbar, compact});
 }
@@ -137,8 +150,8 @@ void ToolCommandUi::UpdateCommand(HWND window, const ToolCommand& command) {
 }
 
 int ToolCommandUi::LayoutToolbar(HWND toolbar, int width, const FluentD2DThemeContext& theme) const noexcept {
-    ::MoveWindow(toolbar, 0, 0, width, theme.ScalePx(40), TRUE);
-    const int size = theme.ScalePx(36);
+    ::MoveWindow(toolbar, 0, 0, width, theme.ScalePx(kToolbarHeight), TRUE);
+    const int size = theme.ScalePx(kToolbarButtonSize);
     ::SendMessageW(toolbar, TB_SETBUTTONSIZE, 0, MAKELPARAM(size, size));
     ::SendMessageW(toolbar, TB_SETBUTTONWIDTH, 0, MAKELPARAM(size, size));
     ::SendMessageW(toolbar, TB_AUTOSIZE, 0, 0);
@@ -328,14 +341,14 @@ LRESULT ToolCommandUi::DrawToolbar(NMCUSTOMDRAW& draw, const Toolbar& toolbar,
                  : (disabled ? palette.grip_dot : palette.text_primary);
     fill(draw.rc, background);
     const int size = toolbar.compact
-                         ? std::max(1, std::min(theme.ScalePx(16),
-                                                gsl::narrow_cast<int>(draw.rc.bottom - draw.rc.top) - theme.ScalePx(4)))
-                         : theme.ScalePx(20);
+                         ? std::max(1, std::min(theme.ScalePx(kCompactIconSize),
+                                                gsl::narrow_cast<int>(draw.rc.bottom - draw.rc.top) - theme.ScalePx(kCompactIconPadding)))
+                         : theme.ScalePx(kToolbarIconSize);
     DrawIcon(draw.hdc, draw.rc, gsl::narrow_cast<ToolIcon>(button.lParam), size,
-             std::max(1, theme.ScalePx(toolbar.compact ? 1 : 2)), foreground);
+             std::max(1, theme.ScalePx(toolbar.compact ? kCompactIconStroke : kToolbarIconStroke)), foreground);
     if (draw.uItemState & CDIS_FOCUS) {
         RECT focus = draw.rc;
-        ::InflateRect(&focus, -2, -2);
+        ::InflateRect(&focus, -kFocusInsetPx, -kFocusInsetPx);
         ::DrawFocusRect(draw.hdc, &focus);
     }
     return CDRF_SKIPDEFAULT;
@@ -363,8 +376,8 @@ std::optional<LRESULT> ToolCommandUi::HandleMessage(HWND window, UINT message, W
                 Report("Measure menu heading");
                 return FALSE;
             }
-            measure.itemWidth = gsl::narrow_cast<UINT>(bounds.right + theme.ScalePx(20));
-            measure.itemHeight = gsl::narrow_cast<UINT>(bounds.bottom + theme.ScalePx(8));
+            measure.itemWidth = gsl::narrow_cast<UINT>(bounds.right + theme.ScalePx(kMenuHeadingPaddingX));
+            measure.itemHeight = gsl::narrow_cast<UINT>(bounds.bottom + theme.ScalePx(kMenuHeadingPaddingY));
             return TRUE;
         }
     }

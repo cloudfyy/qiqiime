@@ -226,6 +226,8 @@ void TestReusableControls() {
     static_assert(kLightDividerColor == RGB(220, 225, 232));
     static_assert(kDarkBodyTextColor == RGB(215, 220, 228));
     static_assert(kLightBodyTextColor == RGB(45, 52, 64));
+    static_assert(kLightCaptionBg == RGB(243, 245, 249));
+    static_assert(kLightTextColor == RGB(28, 32, 40));
     static_assert(!std::is_copy_constructible_v<FluentD2DThemeContext>);
     const auto original_theme = detail::ThemeDarkOverrideStorage();
     const auto restore_theme = gsl::finally([original_theme]() noexcept {

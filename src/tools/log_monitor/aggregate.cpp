@@ -11,6 +11,8 @@
 
 namespace qiqi::monitor {
 namespace {
+constexpr uint64_t kMillisecondsPerSecond = 1000;
+
 const auto& Bounds() noexcept {
     static const auto bounds = []() noexcept {
         std::array<uint64_t, kMetricBucketCount - 1> result{};
@@ -29,9 +31,10 @@ const auto& Bounds() noexcept {
 
 uint64_t Threshold(metrics::Metric metric) noexcept {
     switch (metric) {
-    case metrics::Metric::KeyCallback: case metrics::Metric::CandidateUpdate: return 5'000'000;
-    case metrics::Metric::CandidateQuery: return 2'000'000;
-    case metrics::Metric::Commit: return 20'000'000;
+    case metrics::Metric::KeyCallback: return kKeyCallbackThresholdNs;
+    case metrics::Metric::CandidateUpdate: return kCandidateUpdateThresholdNs;
+    case metrics::Metric::CandidateQuery: return kCandidateQueryThresholdNs;
+    case metrics::Metric::Commit: return kCommitThresholdNs;
     default: return 0;
     }
 }
@@ -142,7 +145,8 @@ MetricQuantile MetricHistogram::Quantile(unsigned int percentile) const noexcept
     result.samples = samples_;
     if (percentile != 50 && percentile != 95 && percentile != 99) { result.state = QuantileState::InvalidPercentile; return result; }
     if (samples_ == 0) return result;
-    const uint64_t minimum = percentile == 95 ? 100 : percentile == 99 ? 1000 : 1;
+    const uint64_t minimum = percentile == 95 ? kMetricP95MinimumSamples :
+                            percentile == 99 ? kMetricP99MinimumSamples : 1;
     if (samples_ < minimum) { result.state = QuantileState::InsufficientSamples; return result; }
     const uint64_t rank = (samples_ / 100) * percentile + ((samples_ % 100) * percentile + 99) / 100;
     uint64_t seen = 0;
@@ -196,7 +200,7 @@ struct MetricAggregator::Impl {
     struct Instance {
         DWORD pid = 0;
         MetricInstance metadata;
-        std::array<Service, 16> services{};
+        std::array<Service, kMetricMaxServicesPerInstance> services{};
         size_t service_count = 0;
     };
     struct Dimension {
@@ -219,7 +223,7 @@ struct MetricAggregator::Impl {
     Budget budget;
     std::pmr::map<MetricDimension, Dimension, DimensionLess> dimensions;
     std::pmr::map<OperationKey, Operation, OperationLess> operations;
-    std::array<Instance, 32> instances{};
+    std::array<Instance, kMetricMaxInstances> instances{};
     MetricAggregationStatus status;
     uint64_t tick_ms = 0;
 
@@ -234,8 +238,8 @@ struct MetricAggregator::Impl {
         return nullptr;
     }
     bool InWindow(uint64_t second) const noexcept {
-        const uint64_t current = tick_ms / 1000;
-        return second <= current && current - second < 60;
+        const uint64_t current = tick_ms / kMillisecondsPerSecond;
+        return second <= current && current - second < kMetricWindowSeconds;
     }
     MetricSummary* Window(Dimension& dimension, uint64_t second) {
         if (!InWindow(second)) return nullptr;
@@ -291,7 +295,7 @@ struct MetricAggregator::Impl {
         if (!Accumulate(status.provider_deltas, delta)) return Reject(status.protocol_errors, ERROR_ARITHMETIC_OVERFLOW);
         if (Any(status.provider_deltas)) status.incomplete = true;
         if (metadata.capture_generation > instance->metadata.capture_generation) {
-            ClosePending(record.pid, metadata.instance_id, record.received_tick_ms / 1000, false);
+            ClosePending(record.pid, metadata.instance_id, record.received_tick_ms / kMillisecondsPerSecond, false);
         }
         instance->metadata = metadata;
         return ERROR_SUCCESS;
@@ -308,7 +312,7 @@ struct MetricAggregator::Impl {
                 operation->second.parent != event.parent_operation_id || operation->second.source_generation != event.capture_generation) {
                 return Reject(status.protocol_errors, ERROR_INVALID_DATA);
             }
-        } else if (event.phase == metrics::Phase::Begin && status.pending == 4096) {
+        } else if (event.phase == metrics::Phase::Begin && status.pending == kMetricMaxPending) {
             ++status.pending_dropped;
             return Reject(status.aggregation_dropped, ERROR_BUFFER_OVERFLOW);
         }
@@ -317,12 +321,12 @@ struct MetricAggregator::Impl {
         const bool new_service = service == instance->services.begin() + instance->service_count;
         if (new_service && instance->service_count == instance->services.size()) return Reject(status.aggregation_dropped, ERROR_TOO_MANY_NAMES);
         auto dimension = dimensions.find(key);
-        if (dimension == dimensions.end() && !new_service && service->dimensions == 16) return Reject(status.aggregation_dropped, ERROR_TOO_MANY_NAMES);
+        if (dimension == dimensions.end() && !new_service && service->dimensions == kMetricMaxDimensionsPerService) return Reject(status.aggregation_dropped, ERROR_TOO_MANY_NAMES);
         bool inserted_dimension = false;
         bool inserted_window = false;
         bool inserted_operation = false;
         bool committed = false;
-        const uint64_t second = record.received_tick_ms / 1000;
+        const uint64_t second = record.received_tick_ms / kMillisecondsPerSecond;
         const auto rollback = gsl::finally([&]() noexcept {
             if (!committed) {
                 if (inserted_operation) operations.erase(operation);
@@ -424,7 +428,7 @@ ULONG MetricAggregator::Stop(uint64_t tick_ms) noexcept {
     if (!impl_->status.active) return ERROR_SUCCESS;
     if (tick_ms < impl_->tick_ms) return impl_->Reject(impl_->status.protocol_errors, ERROR_INVALID_DATA);
     impl_->Advance(tick_ms);
-    impl_->ClosePending(0, GUID_NULL, tick_ms / 1000, true);
+    impl_->ClosePending(0, GUID_NULL, tick_ms / kMillisecondsPerSecond, true);
     impl_->status.active = false;
     return ERROR_SUCCESS;
 }
@@ -490,7 +494,7 @@ void DrainMetrics(MetricQueue& queue, MetricAggregator& aggregator, Diagnostics&
             const auto status = aggregator.Status();
             const uint64_t count = status.aggregation_dropped + status.protocol_errors + status.generation_errors +
                 status.duplicate_events + status.allocation_errors;
-            if (count == 1 || count % 1024 == 0) diagnostics.Record(3, L"Metric aggregation (aggregated)", error);
+            if (count == 1 || count % kDiagnosticReportStride == 0) diagnostics.Record(3, L"Metric aggregation (aggregated)", error);
         }
     }
     capture = queue.Status();

@@ -8,12 +8,18 @@
 
 namespace qiqi::monitor {
 
+inline constexpr size_t kMetricMaxInstances = 32;
+inline constexpr size_t kMetricQueueDefaultRecords = 2'000;
+inline constexpr size_t kMetricQueueDefaultBytes = 4 * 1024 * 1024;
+inline constexpr size_t kMetricBuildVersionCapacity = 128;
+inline constexpr size_t kMetricArchitectureCapacity = 16;
+
 struct MetricInstance {
     uint16_t schema_version = metrics::kSchemaVersion;
     GUID instance_id{};
     uint64_t capture_generation = 0;
-    std::array<char, 128> build_version{};
-    std::array<char, 16> architecture{};
+    std::array<char, kMetricBuildVersionCapacity> build_version{};
+    std::array<char, kMetricArchitectureCapacity> architecture{};
     metrics::DiagnosticCounts diagnostics;
 };
 
@@ -48,7 +54,7 @@ struct MetricQueueStatus {
 class MetricQueue final {
 public:
 #pragma warning(suppress : 26455) // Invalid limits and bounded storage allocation reach the caller.
-    explicit MetricQueue(size_t max_records = 2'000, size_t max_bytes = 4 * 1024 * 1024);
+    explicit MetricQueue(size_t max_records = kMetricQueueDefaultRecords, size_t max_bytes = kMetricQueueDefaultBytes);
     MetricQueue(const MetricQueue&) = delete;
     MetricQueue& operator=(const MetricQueue&) = delete;
     MetricQueue(MetricQueue&&) = delete;
@@ -75,7 +81,7 @@ private:
     }
     mutable SRWLOCK mutex_ = SRWLOCK_INIT;
     std::deque<MetricRecord> records_;
-    std::array<SourceState, 32> sources_{};
+    std::array<SourceState, kMetricMaxInstances> sources_{};
     size_t source_count_ = 0;
     size_t max_records_;
     size_t max_bytes_;

@@ -14,6 +14,11 @@
 
 namespace qiqi::monitor {
 
+inline constexpr size_t kEventBufferDefaultRecords = 10'000;
+inline constexpr size_t kEventBufferDefaultBytes = 16 * 1024 * 1024;
+inline constexpr size_t kEventQueueDefaultRecords = 2'000;
+inline constexpr size_t kEventQueueDefaultBytes = 4 * 1024 * 1024;
+
 inline constexpr GUID kImeProvider = log::kProviderId;
 inline constexpr GUID kMonitorProvider =
     {0x6ab897b4, 0xd148, 0x4df9, {0x8e, 0xb7, 0x47, 0x90, 0xa2, 0x74, 0x95, 0x1e}};
@@ -47,7 +52,7 @@ struct Filter {
 class EventBuffer final {
 public:
 #pragma warning(suppress : 26455) // Allocating bounded storage may throw; callers report startup failures.
-    explicit EventBuffer(size_t max_events = 10'000, size_t max_bytes = 16 * 1024 * 1024);
+    explicit EventBuffer(size_t max_events = kEventBufferDefaultRecords, size_t max_bytes = kEventBufferDefaultBytes);
     bool Push(Event event);
     void Clear() noexcept;
     const Event* Find(uint64_t id) const noexcept;
@@ -66,7 +71,7 @@ private:
 class EventQueue final {
 public:
 #pragma warning(suppress : 26455) // std::deque allocation failures must propagate, not terminate.
-    explicit EventQueue(size_t max_events = 2'000, size_t max_bytes = 4 * 1024 * 1024)
+    explicit EventQueue(size_t max_events = kEventQueueDefaultRecords, size_t max_bytes = kEventQueueDefaultBytes)
         : buffer_(max_events, max_bytes) {}
     void Push(Event event);
     std::vector<Event> Take();

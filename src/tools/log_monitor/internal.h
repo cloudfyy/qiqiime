@@ -13,13 +13,23 @@
 
 namespace qiqi::monitor {
 
+inline constexpr UINT_PTR kMonitorRefreshTimerId = 1;
+inline constexpr UINT kMonitorRefreshIntervalMs = 100;
+inline constexpr UINT kMonitorLossPollIntervalMs = 1000;
+inline constexpr unsigned int kMonitorLossPollTicks = kMonitorLossPollIntervalMs / kMonitorRefreshIntervalMs;
+inline constexpr int kMonitorDefaultDetailHeight = 130;
+inline constexpr int kMonitorDefaultDetailLimit = 400;
+inline constexpr int kMonitorMinimumDetailHeight = 60;
+inline constexpr int kMonitorDetailsFooterSpace = 50;
+inline constexpr int kMonitorLayoutReferenceDpi = 96;
+
 struct MonitorWindow::Impl {
     Diagnostics diagnostics;
     EventQueue pending;
     Collector collector{pending, diagnostics};
     MetricAggregator metrics;
     EventBuffer events;
-    EventBuffer tools{512, 1024 * 1024};
+    EventBuffer tools{kDiagnosticMaxRecords, kDiagnosticMaxBytes};
     FluentD2DThemeContext theme;
     ScopedGdiHandle<HFONT> font;
     ScopedIcon small_icon;
@@ -45,8 +55,8 @@ struct MonitorWindow::Impl {
     bool updating_filters = false;
     bool automatic_pid = false;
     bool process_choices_pending = false;
-    int detail_height = 130; // Logical pixels.
-    int detail_limit = 400;
+    int detail_height = kMonitorDefaultDetailHeight; // Logical pixels.
+    int detail_limit = kMonitorDefaultDetailLimit;
     int splitter_drag_offset = 0;
 
     EventBuffer& Current() noexcept { return diagnostic_view ? tools : events; }

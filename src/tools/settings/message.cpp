@@ -16,6 +16,25 @@ namespace {
 
 constexpr int kMessageTextId = 0xFFFF;
 constexpr int kWindowWidth = 560;
+constexpr int kMessageBodyInset = 32;
+constexpr int kMessageBodyTop = 52;
+constexpr int kMessageExtraHeight = 124;
+constexpr int kMessageButtonRightInset = 24;
+constexpr int kMessageButtonBottomOffset = 42;
+constexpr int kMessageButtonWidth = 100;
+constexpr int kMessageButtonHeight = 32;
+constexpr RECT kMessageCardInsets{18, 16, 18, 58};
+constexpr int kMessageFontSize = 14;
+constexpr int kMessageSmallIconSize = 16;
+constexpr int kMessageBigIconSize = 48;
+constexpr int kMessageMinimumBodyHeight = 48;
+constexpr int kToastWidth = 440;
+constexpr int kToastHeight = 88;
+constexpr int kToastWorkAreaInset = 20;
+constexpr UINT_PTR kToastTimerId = 1;
+constexpr UINT kToastDurationMs = 3000;
+constexpr int kToastCardInset = 8;
+constexpr RECT kToastTextInsets{34, 18, 24, 18};
 constexpr UINT kUpdateToastLanguageMessage = WM_APP + 1;
 
 struct MessageContext {
@@ -97,13 +116,13 @@ void PaintMessage(HDC dc, const RECT& rect, const MessageContext& ctx) noexcept 
     if (!draw) return;
     const bool dark = IsSystemDarkTheme();
     ctx.d2d.d2d_target->Clear(
-        dark ? ColorRefToD2DColor(kDarkWindowBg) : MakeD2DColor(243, 245, 249));
+        ColorRefToD2DColor(dark ? kDarkWindowBg : kLightCaptionBg));
     const auto zh = GetMessageStrings(UiLanguage::ZhCn, ctx.kind);
     const auto en = GetMessageStrings(UiLanguage::EnUs, ctx.kind);
     const std::array<FluentCardSpec, 1> cards = {{
-        {D2D1::RectF(ctx.d2d.ScaleF(18), ctx.d2d.ScaleF(16),
-                     static_cast<float>(rect.right) - ctx.d2d.ScaleF(18),
-                     static_cast<float>(rect.bottom) - ctx.d2d.ScaleF(58)),
+        {D2D1::RectF(ctx.d2d.ScaleF(kMessageCardInsets.left), ctx.d2d.ScaleF(kMessageCardInsets.top),
+                     static_cast<float>(rect.right) - ctx.d2d.ScaleF(kMessageCardInsets.right),
+                     static_cast<float>(rect.bottom) - ctx.d2d.ScaleF(kMessageCardInsets.bottom)),
          zh.title, en.title}
     }};
     DrawFluentCardGroup(ctx.d2d, cards,
@@ -120,23 +139,25 @@ void PaintToast(HDC dc, const RECT& rect, const ToastContext& ctx) noexcept {
     }
     const bool dark = IsSystemDarkTheme();
     const auto scale = [&ctx](int px) noexcept { return ctx.d2d.ScaleF(px); };
-    ctx.d2d.d2d_target->Clear(dark ? ColorRefToD2DColor(kDarkWindowBg) : MakeD2DColor(243, 245, 249));
+    ctx.d2d.d2d_target->Clear(ColorRefToD2DColor(dark ? kDarkWindowBg : kLightCaptionBg));
     const std::array<FluentCardSpec, 1> cards = {{
-        {D2D1::RectF(scale(8), scale(8), static_cast<float>(rect.right) - scale(8),
-                     static_cast<float>(rect.bottom) - scale(8)), nullptr, nullptr}
+        {D2D1::RectF(scale(kToastCardInset), scale(kToastCardInset),
+                     static_cast<float>(rect.right) - scale(kToastCardInset),
+                     static_cast<float>(rect.bottom) - scale(kToastCardInset)), nullptr, nullptr}
     }};
     DrawFluentCardGroup(ctx.d2d, cards, false, dark);
     const auto text_brush = CreateSolidBrush(
         ctx.d2d.d2d_target.Get(),
-        dark ? ColorRefToD2DColor(kDarkTextColor) : MakeD2DColor(28, 32, 40));
+        ColorRefToD2DColor(dark ? kDarkTextColor : kLightTextColor));
     const wchar_t* const text = GetToastText(ctx.language, ctx.kind);
     if (ctx.d2d.fmt_body && text_brush && text) {
         ctx.d2d.d2d_target->DrawText(
             text,
             gsl::narrow_cast<UINT32>(std::wcslen(text)),
             ctx.d2d.fmt_body.Get(),
-            D2D1::RectF(scale(34), scale(18), static_cast<float>(rect.right) - scale(24),
-                        static_cast<float>(rect.bottom) - scale(18)),
+            D2D1::RectF(scale(kToastTextInsets.left), scale(kToastTextInsets.top),
+                        static_cast<float>(rect.right) - scale(kToastTextInsets.right),
+                        static_cast<float>(rect.bottom) - scale(kToastTextInsets.bottom)),
             text_brush.Get(),
             D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
@@ -172,8 +193,8 @@ LRESULT CALLBACK ToastWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
             ApplyToastLanguage(hwnd, *ctx, static_cast<UiLanguage>(wparam));
             return 0;
         case WM_TIMER:
-            if (wparam == 1) {
-                ::KillTimer(hwnd, 1);
+            if (wparam == kToastTimerId) {
+                ::KillTimer(hwnd, kToastTimerId);
                 ::DestroyWindow(hwnd);
                 return 0;
             }
@@ -213,14 +234,14 @@ LRESULT CALLBACK MessageWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
                 const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
                 if (item->CtlType == ODT_BUTTON) {
                     DrawFluentPushButton(*item, ctx->d2d, item->CtlID == IDOK,
-                        IsSystemDarkTheme() ? ColorRefToD2DColor(kDarkWindowBg) : MakeD2DColor(243, 245, 249));
+                        ColorRefToD2DColor(IsSystemDarkTheme() ? kDarkWindowBg : kLightCaptionBg));
                     return TRUE;
                 }
             }
             break;
         case WM_CTLCOLORSTATIC: {
             const auto dc = reinterpret_cast<HDC>(wparam);
-            ::SetTextColor(dc, IsSystemDarkTheme() ? kDarkTextColor : RGB(28, 32, 40));
+            ::SetTextColor(dc, IsSystemDarkTheme() ? kDarkTextColor : kLightTextColor);
             ::SetBkMode(dc, TRANSPARENT);
             return reinterpret_cast<LRESULT>(ctx->d2d.surface_brush.Get());
         }
@@ -293,24 +314,24 @@ ScopedWindow CreateSettingsMessageWindow(
     const auto monitor = QueryActiveMonitor(parent);
     ctx->d2d.Init(monitor.dpi);
     const auto scale = [dpi = monitor.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
-    ctx->font = CreateUiFont(scale(14), FW_NORMAL, CLEARTYPE_QUALITY);
-    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(scale(16), instance);
-    ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(scale(48), instance);
+    ctx->font = CreateUiFont(scale(kMessageFontSize), FW_NORMAL, CLEARTYPE_QUALITY);
+    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(scale(kMessageSmallIconSize), instance);
+    ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(scale(kMessageBigIconSize), instance);
     if (!ctx->font || !ctx->d2d.d2d_target || !ctx->d2d.surface_brush ||
         !ctx->d2d.fmt_caption || !ctx->d2d.fmt_btn) {
         QIQI_LOG_ERROR("Settings message drawing resources unavailable");
         return {};
     }
-    int body_height = scale(48);
+    int body_height = scale(kMessageMinimumBodyHeight);
     for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
         const int measured = dialog_detail::MeasureDialogTextHeight(
-            ctx->font.Get(), GetMessageStrings(language, kind).text, scale(kWindowWidth - 64));
+            ctx->font.Get(), GetMessageStrings(language, kind).text, scale(kWindowWidth - 2 * kMessageBodyInset));
         if (measured <= 0) {
             return {};
         }
         body_height = std::max(body_height, measured);
     }
-    const int height = body_height + scale(124);
+    const int height = body_height + scale(kMessageExtraHeight);
     constexpr DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
     constexpr DWORD ex_style = 0;
     const RECT bounds = ComputeCenteredWindowBounds(
@@ -327,16 +348,16 @@ ScopedWindow CreateSettingsMessageWindow(
     const HFONT font = owned->font.Get();
     const auto* theme = &owned->d2d;
     const auto* body = CreateFluentChildControl(hwnd.Get(), instance, font, theme,
-        L"STATIC", strings.text, SS_LEFT | SS_NOPREFIX, scale(32), scale(52),
-        scale(kWindowWidth - 64), body_height, kMessageTextId);
+        L"STATIC", strings.text, SS_LEFT | SS_NOPREFIX, scale(kMessageBodyInset), scale(kMessageBodyTop),
+        scale(kWindowWidth - 2 * kMessageBodyInset), body_height, kMessageTextId);
     if (!body || !::IsWindow(hwnd.Get())) {
         QIQI_LOG_ERROR("Settings message body creation failed");
         return {};
     }
     const auto* primary = CreateFluentChildControl(hwnd.Get(), instance, font, theme,
         L"BUTTON", GetUiStrings(ui_language).dlg_btn_ok,
-        BS_OWNERDRAW | WS_TABSTOP, scale(436), height - scale(42),
-        scale(100), scale(32), IDOK);
+        BS_OWNERDRAW | WS_TABSTOP, scale(kWindowWidth - kMessageButtonRightInset - kMessageButtonWidth),
+        height - scale(kMessageButtonBottomOffset), scale(kMessageButtonWidth), scale(kMessageButtonHeight), IDOK);
     if (!primary || !::IsWindow(hwnd.Get())) {
         QIQI_LOG_ERROR("Settings message button creation failed");
         return {};
@@ -400,11 +421,11 @@ void ShowSettingsToast(UiLanguage ui_language, SettingsToastKind kind) noexcept 
     std::ignore = log::CheckHResult(ctx->d2d.fmt_body->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
                                    "SettingsToast::SetParagraphAlignment");
 
-    const int width = ScalePxByDpi(440, monitor.dpi);
-    const int height = ScalePxByDpi(88, monitor.dpi);
+    const int width = ScalePxByDpi(kToastWidth, monitor.dpi);
+    const int height = ScalePxByDpi(kToastHeight, monitor.dpi);
     const POINT position = ClampPointToWorkArea(
-        POINT{monitor.work_area.right - width - ScalePxByDpi(20, monitor.dpi),
-              monitor.work_area.bottom - height - ScalePxByDpi(20, monitor.dpi)},
+        POINT{monitor.work_area.right - width - ScalePxByDpi(kToastWorkAreaInset, monitor.dpi),
+              monitor.work_area.bottom - height - ScalePxByDpi(kToastWorkAreaInset, monitor.dpi)},
         width, height, monitor.work_area);
     auto* const owned = ctx.get();
     ScopedWindow hwnd(::CreateWindowExW(
@@ -419,7 +440,7 @@ void ShowSettingsToast(UiLanguage ui_language, SettingsToastKind kind) noexcept 
         return;
     }
     std::ignore = ctx.release();
-    if (!::SetTimer(hwnd.Get(), 1, 3000, nullptr)) {
+    if (!::SetTimer(hwnd.Get(), kToastTimerId, kToastDurationMs, nullptr)) {
         QIQI_LOG_ERROR("Settings toast timer creation failed (error={})", ::GetLastError());
         return;
     }

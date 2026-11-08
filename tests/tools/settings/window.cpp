@@ -21,6 +21,46 @@ namespace qiqi::test {
 
 namespace {
 
+namespace settings_geometry = settings_detail::settings_layout;
+constexpr std::array kSettingsLayoutRectCases{
+    std::pair{settings_geometry::kDictionaryCard, RECT{18, 16, 404, 196}},
+    std::pair{settings_geometry::kInputCard, RECT{18, 206, 404, 434}},
+    std::pair{settings_geometry::kAppearanceCard, RECT{416, 16, 802, 202}},
+    std::pair{settings_geometry::kSoundCard, RECT{416, 206, 802, 434}},
+    std::pair{settings_geometry::kBrowseDictionary, RECT{306, 140, 390, 166}},
+    std::pair{settings_geometry::kDictionaryPath, RECT{56, 168, 390, 188}},
+    std::pair{settings_geometry::kPageSizeLabel, RECT{430, 78, 586, 102}},
+    std::pair{settings_geometry::kPageSizeCombo, RECT{588, 74, 668, 334}},
+    std::pair{settings_geometry::kLanguageLabel, RECT{430, 112, 586, 136}},
+    std::pair{settings_geometry::kLanguageCombo, RECT{588, 108, 788, 308}},
+    std::pair{settings_geometry::kUnderlineLabel, RECT{430, 146, 586, 170}},
+    std::pair{settings_geometry::kUnderlineCombo, RECT{588, 142, 788, 362}},
+    std::pair{settings_geometry::kEnglishSwitchLabel, RECT{430, 378, 586, 402}},
+    std::pair{settings_geometry::kEnglishSwitchCombo, RECT{588, 374, 788, 534}},
+    std::pair{settings_geometry::kAboutButton, RECT{18, 448, 122, 480}},
+    std::pair{settings_geometry::kDictionaryManagerButton, RECT{132, 448, 288, 480}},
+    std::pair{settings_geometry::kHelpButton, RECT{298, 448, 426, 480}},
+    std::pair{settings_geometry::kOkButton, RECT{596, 448, 694, 480}},
+    std::pair{settings_geometry::kCancelButton, RECT{704, 448, 802, 480}}};
+static_assert([]() constexpr noexcept {
+    for (const auto& [actual, expected] : kSettingsLayoutRectCases) {
+        if (actual.left != expected.left || actual.top != expected.top ||
+            actual.right != expected.right || actual.bottom != expected.bottom) {
+            return false;
+        }
+    }
+    return true;
+}());
+static_assert(settings_geometry::kClientSize.cx == 820 && settings_geometry::kClientSize.cy == 494);
+static_assert(settings_geometry::kLeftColumn == 32 && settings_geometry::kRightColumn == 430);
+static_assert(settings_geometry::kRadioHeight == 22 && settings_geometry::kCheckboxHeight == 24);
+static_assert(settings_geometry::kDictionaryFirstRow == 46 && settings_geometry::kHaifengRow == 94);
+static_assert(settings_geometry::kBuiltinRow == 118 && settings_geometry::kCustomRow == 142);
+static_assert(settings_geometry::kCustomRadioWidth == 268 && settings_geometry::kOptionWidth == 360);
+static_assert(settings_geometry::kInputFirstRow == 232 && settings_geometry::kInputRowStep == 28);
+static_assert(settings_geometry::kSoundFirstRow == 238 && settings_geometry::kSoundRowStep == 34);
+static_assert(settings_geometry::kBoldUnderlineRow == 174);
+
 thread_local int dictionary_confirmation_button = IDCANCEL;
 thread_local bool dictionary_confirmation_seen = false;
 

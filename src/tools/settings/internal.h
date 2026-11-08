@@ -45,6 +45,84 @@ constexpr int kIdLblCustomPrimaryPath = 133;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 
+namespace settings_layout {
+inline constexpr SIZE kClientSize{820, 494};
+inline constexpr RECT kDictionaryCard{18, 16, 404, 196};
+inline constexpr RECT kInputCard{18, 206, 404, 434};
+inline constexpr RECT kAppearanceCard{416, 16, 802, 202};
+inline constexpr RECT kSoundCard{416, 206, 802, 434};
+inline constexpr int kControlInset = 14;
+inline constexpr int kLeftColumn = kDictionaryCard.left + kControlInset;
+inline constexpr int kRightColumn = kAppearanceCard.left + kControlInset;
+inline constexpr int kOptionWidth = 360;
+inline constexpr int kRadioHeight = 22;
+inline constexpr int kCheckboxHeight = 24;
+inline constexpr int kDictionaryFirstRow = kDictionaryCard.top + 30;
+inline constexpr int kDictionaryRowStep = 24;
+inline constexpr int kHaifengRow = kDictionaryFirstRow + 2 * kDictionaryRowStep;
+inline constexpr int kBuiltinRow = kHaifengRow + kDictionaryRowStep;
+inline constexpr int kCustomRow = kBuiltinRow + kDictionaryRowStep;
+inline constexpr int kInputFirstRow = kInputCard.top + 26;
+inline constexpr int kInputRowStep = 28;
+inline constexpr int kSoundFirstRow = kSoundCard.top + 32;
+inline constexpr int kSoundRowStep = 34;
+inline constexpr int kAppearanceFirstRow = kAppearanceCard.top + 62;
+inline constexpr int kAppearanceRowStep = 34;
+inline constexpr int kLabelWidth = 156;
+inline constexpr int kComboLeft = kRightColumn + kLabelWidth + 2;
+inline constexpr int kComboWidth = 200;
+inline constexpr int kComboLabelInset = 4;
+inline constexpr int kButtonGap = 10;
+inline constexpr int kFooterTop = kInputCard.bottom + 14;
+inline constexpr int kButtonHeight = 32;
+inline constexpr int kAcceptButtonWidth = 98;
+inline constexpr RECT kBrowseDictionary{
+    kDictionaryCard.right - kControlInset - 84, kCustomRow - 2,
+    kDictionaryCard.right - kControlInset, kCustomRow - 2 + 26};
+inline constexpr int kCustomRadioWidth = kBrowseDictionary.left - kLeftColumn - 6;
+inline constexpr RECT kDictionaryPath{
+    kLeftColumn + kDictionaryRowStep, kCustomRow + 26,
+    kDictionaryCard.right - kControlInset, kCustomRow + 26 + 20};
+inline constexpr RECT kPageSizeLabel{
+    kRightColumn, kAppearanceFirstRow, kRightColumn + kLabelWidth, kAppearanceFirstRow + kCheckboxHeight};
+inline constexpr RECT kPageSizeCombo{
+    kComboLeft, kAppearanceFirstRow - kComboLabelInset, kComboLeft + 80,
+    kAppearanceFirstRow - kComboLabelInset + 260};
+inline constexpr RECT kLanguageLabel{
+    kRightColumn, kAppearanceFirstRow + kAppearanceRowStep,
+    kRightColumn + kLabelWidth, kAppearanceFirstRow + kAppearanceRowStep + kCheckboxHeight};
+inline constexpr RECT kLanguageCombo{
+    kComboLeft, kLanguageLabel.top - kComboLabelInset, kComboLeft + kComboWidth,
+    kLanguageLabel.top - kComboLabelInset + 200};
+inline constexpr RECT kUnderlineLabel{
+    kRightColumn, kLanguageLabel.top + kAppearanceRowStep,
+    kRightColumn + kLabelWidth, kLanguageLabel.top + kAppearanceRowStep + kCheckboxHeight};
+inline constexpr RECT kUnderlineCombo{
+    kComboLeft, kUnderlineLabel.top - kComboLabelInset, kComboLeft + kComboWidth,
+    kUnderlineLabel.top - kComboLabelInset + 220};
+inline constexpr int kBoldUnderlineRow = kUnderlineCombo.top + 32;
+inline constexpr RECT kEnglishSwitchLabel{
+    kRightColumn, kSoundFirstRow + 4 * kSoundRowStep + kComboLabelInset,
+    kRightColumn + kLabelWidth, kSoundFirstRow + 4 * kSoundRowStep + kComboLabelInset + kCheckboxHeight};
+inline constexpr RECT kEnglishSwitchCombo{
+    kComboLeft, kEnglishSwitchLabel.top - kComboLabelInset, kComboLeft + kComboWidth,
+    kEnglishSwitchLabel.top - kComboLabelInset + 160};
+inline constexpr RECT kAboutButton{
+    kDictionaryCard.left, kFooterTop, kDictionaryCard.left + 104, kFooterTop + kButtonHeight};
+inline constexpr RECT kDictionaryManagerButton{
+    kAboutButton.right + kButtonGap, kFooterTop,
+    kAboutButton.right + kButtonGap + 156, kFooterTop + kButtonHeight};
+inline constexpr RECT kHelpButton{
+    kDictionaryManagerButton.right + kButtonGap, kFooterTop,
+    kDictionaryManagerButton.right + kButtonGap + 128, kFooterTop + kButtonHeight};
+inline constexpr RECT kCancelButton{
+    kClientSize.cx - kDictionaryCard.left - kAcceptButtonWidth, kFooterTop,
+    kClientSize.cx - kDictionaryCard.left, kFooterTop + kButtonHeight};
+inline constexpr RECT kOkButton{
+    kCancelButton.left - kButtonGap - kAcceptButtonWidth, kFooterTop,
+    kCancelButton.left - kButtonGap, kFooterTop + kButtonHeight};
+} // namespace settings_layout
+
 DWORD OpenDictionaryManager(
     HWND owner, const std::filesystem::path& executable, UiLanguage language,
     gsl::not_null<decltype(&::ShellExecuteExW)> execute = &::ShellExecuteExW);

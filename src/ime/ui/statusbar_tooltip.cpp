@@ -8,6 +8,17 @@
 #include <algorithm>
 
 namespace qiqi {
+namespace {
+constexpr int kInitialTooltipWidthPx = 160;
+constexpr int kInitialTooltipHeightPx = 24;
+constexpr int kInitialTooltipTopOffsetPx = 28;
+constexpr int kTooltipDefaultWidth = 180;
+constexpr int kTooltipMinimumWidth = 80;
+constexpr int kTooltipWidthPadding = 16;
+constexpr int kTooltipHeight = 24;
+constexpr int kTooltipGap = 4;
+constexpr int kTooltipTextPaddingPx = 6;
+}
 
 bool StatusBarUI::EnsureTooltipWindow() noexcept {
     if (!presentation_enabled_ || destroying_window_) return false;
@@ -30,7 +41,7 @@ bool StatusBarUI::EnsureTooltipWindow() noexcept {
         kStatusBarTooltipWndClass,
         L"",
         WS_POPUP | WS_BORDER,
-        pos_.x, pos_.y - 28, 160, 24,
+        pos_.x, pos_.y - kInitialTooltipTopOffsetPx, kInitialTooltipWidthPx, kInitialTooltipHeightPx,
         hwnd_.Get(), nullptr, instance_, this));
     if (!tooltip_hwnd_) {
         QIQI_LOG_ERROR("StatusBarUI::EnsureTooltipWindow CreateWindowExW failed (error={})", ::GetLastError());
@@ -48,7 +59,7 @@ void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
         return;
     }
 
-    int tip_w = ScaleByDpi(180);
+    int tip_w = ScaleByDpi(kTooltipDefaultWidth);
     const ScopedWindowDC dc(tooltip_hwnd_.Get());
     if (dc) {
         const ScopedSelectObject sel_font(dc.Get(), tooltip_font_.Get());
@@ -58,7 +69,7 @@ void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
                 active_tooltip_text_.c_str(),
                 gsl::narrow_cast<int>(active_tooltip_text_.size()),
                 &sz)) {
-            tip_w = std::max<int>(ScaleByDpi(80), sz.cx + ScaleByDpi(16));
+            tip_w = std::max<int>(ScaleByDpi(kTooltipMinimumWidth), sz.cx + ScaleByDpi(kTooltipWidthPadding));
         }
     }
 
@@ -69,8 +80,8 @@ void StatusBarUI::UpdateTooltipForZone(int zone, int client_x) {
         bar_rc = {pos_.x, pos_.y, pos_.x + CurrentWidth(), pos_.y + CurrentHeight()};
     }
     const MonitorMetrics mon = QueryMonitorForPoint(POINT{bar_rc.left, bar_rc.top}, hwnd_.Get());
-    const int tip_h = ScaleByDpi(24);
-    const int gap = ScaleByDpi(4);
+    const int tip_h = ScaleByDpi(kTooltipHeight);
+    const int gap = ScaleByDpi(kTooltipGap);
     POINT tip_pos{
         bar_rc.left,
         (bar_rc.top - tip_h - gap >= mon.work_area.top) ? (bar_rc.top - tip_h - gap) : (bar_rc.bottom + gap)
@@ -106,8 +117,8 @@ void StatusBarUI::PaintTooltip(HDC hdc, const RECT& client_rect) const noexcept 
     ::SetBkMode(hdc, TRANSPARENT);
     ::SetTextColor(hdc, palette.tooltip_text);
     RECT text_rc = client_rect;
-    text_rc.left += 6;
-    text_rc.right -= 6;
+    text_rc.left += kTooltipTextPaddingPx;
+    text_rc.right -= kTooltipTextPaddingPx;
     ::DrawTextW(
         hdc,
         active_tooltip_text_.c_str(),

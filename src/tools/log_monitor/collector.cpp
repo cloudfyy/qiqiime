@@ -24,22 +24,33 @@ TRACELOGGING_DEFINE_PROVIDER(g_monitor_provider, "QiQiIME.LogMonitor",
 
 namespace qiqi::monitor {
 namespace {
+constexpr ULONG kMaxLogStringBytes = 64 * 1024;
+constexpr size_t kMaxLogMetadataBytes = 1024 * 1024;
+constexpr size_t kMaxMetricMetadataBytes = 64 * 1024;
+constexpr size_t kTraceSessionNameCapacity = 128;
+constexpr ULONG kTraceSystemTimeClock = 2;
+constexpr ULONG kTraceBufferSizeKiB = 64;
+constexpr ULONG kTraceMinimumBuffers = 4;
+constexpr ULONG kTraceMaximumBuffers = 32;
+constexpr ULONG kTraceFlushIntervalSeconds = 1;
+constexpr ULONG kProviderEnableTimeoutMs = 1000;
+
 ULONG RegisterDiagnostics() noexcept { return ::TraceLoggingRegister(g_monitor_provider); }
 void UnregisterDiagnostics() noexcept { ::TraceLoggingUnregister(g_monitor_provider); }
 constinit log::detail::EtwRegistration diagnostic_registration{RegisterDiagnostics, UnregisterDiagnostics};
 
 struct TraceProperties {
     EVENT_TRACE_PROPERTIES properties{};
-    std::array<wchar_t, 128> name{};
+    std::array<wchar_t, kTraceSessionNameCapacity> name{};
     TraceProperties() noexcept {
         properties.Wnode.BufferSize = sizeof(*this);
         properties.Wnode.Flags = WNODE_FLAG_TRACED_GUID;
-        properties.Wnode.ClientContext = 2;
+        properties.Wnode.ClientContext = kTraceSystemTimeClock;
         properties.LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
-        properties.BufferSize = 64;
-        properties.MinimumBuffers = 4;
-        properties.MaximumBuffers = 32;
-        properties.FlushTimer = 1;
+        properties.BufferSize = kTraceBufferSizeKiB;
+        properties.MinimumBuffers = kTraceMinimumBuffers;
+        properties.MaximumBuffers = kTraceMaximumBuffers;
+        properties.FlushTimer = kTraceFlushIntervalSeconds;
         properties.LoggerNameOffset = offsetof(TraceProperties, name);
     }
 };
@@ -51,7 +62,7 @@ ULONG ReadString(EVENT_RECORD& record, const wchar_t* name, USHORT type, std::ws
     ULONG size = 0;
     ULONG error = ::TdhGetPropertySize(&record, 0, nullptr, 1, &descriptor, &size);
     if (error != ERROR_SUCCESS) return error;
-    if (size > 65536) return ERROR_INVALID_DATA;
+    if (size > kMaxLogStringBytes) return ERROR_INVALID_DATA;
     std::vector<BYTE> data(size);
     error = ::TdhGetProperty(&record, 0, nullptr, 1, &descriptor, size, data.data());
     if (error != ERROR_SUCCESS) return error;
@@ -220,7 +231,7 @@ ULONG DecodeEvent(EVENT_RECORD& record, Event& event) {
     if (!::IsEqualGUID(record.EventHeader.ProviderId, kImeProvider)) return ERROR_NOT_FOUND;
     if (record.EventHeader.EventDescriptor.Keyword & std::to_underlying(log::Keyword::Metrics)) return ERROR_NOT_FOUND;
     std::vector<BYTE> storage;
-    ULONG error = ReadEventMetadata(record, storage, 1024 * 1024);
+    ULONG error = ReadEventMetadata(record, storage, kMaxLogMetadataBytes);
     if (error != ERROR_SUCCESS) return error;
     const gsl::not_null<TRACE_EVENT_INFO*> info(reinterpret_cast<TRACE_EVENT_INFO*>(storage.data()));
     event.time = gsl::narrow_cast<uint64_t>(record.EventHeader.TimeStamp.QuadPart);
@@ -279,7 +290,7 @@ ULONG DecodeMetricEvent(EVENT_RECORD& record, uint64_t capture_generation, Metri
         return ERROR_INVALID_DATA;
     }
     std::vector<BYTE> storage;
-    ULONG error = ReadEventMetadata(record, storage, 65536, api);
+    ULONG error = ReadEventMetadata(record, storage, kMaxMetricMetadataBytes, api);
     if (error != ERROR_SUCCESS) return error;
     const gsl::not_null<TRACE_EVENT_INFO*> info(reinterpret_cast<TRACE_EVENT_INFO*>(storage.data()));
     const auto name = MetadataString(storage, info->EventNameOffset);
@@ -393,7 +404,8 @@ bool Collector::Start(bool collect_metrics) {
     lost_baseline_ = events_lost.load();
     buffers_baseline_ = buffers_lost.load();
     error = api_.enable_trace(session_, &kImeProvider, EVENT_CONTROL_CODE_ENABLE_PROVIDER,
-        TRACE_LEVEL_VERBOSE, std::to_underlying(collect_metrics ? log::Keyword::All : log::Keyword::Logs), 0, 1000, nullptr);
+        TRACE_LEVEL_VERBOSE, std::to_underlying(collect_metrics ? log::Keyword::All : log::Keyword::Logs),
+        0, kProviderEnableTimeoutMs, nullptr);
     if (error != ERROR_SUCCESS) {
         return FailStart(L"EnableTraceEx2(QiQiIME.TraceLogging)", error);
     }
@@ -425,7 +437,7 @@ bool Collector::Start(bool collect_metrics) {
     }
     if (collect_metrics_) {
         error = api_.enable_trace(session_, &kImeProvider, EVENT_CONTROL_CODE_CAPTURE_STATE,
-            TRACE_LEVEL_VERBOSE, std::to_underlying(log::Keyword::All), 0, 1000, nullptr);
+            TRACE_LEVEL_VERBOSE, std::to_underlying(log::Keyword::All), 0, kProviderEnableTimeoutMs, nullptr);
         if (error != ERROR_SUCCESS) {
             metric_queue.RecordCaptureError();
             diagnostics_.Record(3, L"Request metric instance metadata after OpenTraceW", error);
@@ -508,7 +520,7 @@ void WINAPI Collector::OnEvent(EVENT_RECORD* record) noexcept {
                 const auto status = collector.metric_queue.Status();
                 const uint64_t count = status.protocol_errors + status.generation_errors +
                     status.queue_dropped + status.source_limit_errors + status.allocation_errors;
-                if (count == 1 || count % 1024 == 0) {
+                if (count == 1 || count % kDiagnosticReportStride == 0) {
                     collector.diagnostics_.Record(3, L"Metric decode/admission (aggregated)", error);
                 }
             }
@@ -518,7 +530,7 @@ void WINAPI Collector::OnEvent(EVENT_RECORD* record) noexcept {
         const ULONG error = DecodeEvent(*record, event);
         if (error != ERROR_SUCCESS) {
             const uint64_t count = ++collector.decode_errors;
-            if (count == 1 || count % 1024 == 0) collector.diagnostics_.Record(3, L"TDH decode (aggregated)", error);
+            if (count == 1 || count % kDiagnosticReportStride == 0) collector.diagnostics_.Record(3, L"TDH decode (aggregated)", error);
             return;
         }
         collector.queue_.Push(std::move(event));

@@ -61,7 +61,7 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
             if (!self->collector.Stop()) { self->Tick(); return 0; }
             ::DestroyWindow(window);
             return 0;
-        case WM_DESTROY: ::KillTimer(window, 1); ::PostQuitMessage(0); return 0;
+        case WM_DESTROY: ::KillTimer(window, kMonitorRefreshTimerId); ::PostQuitMessage(0); return 0;
         case WM_NCDESTROY:
             if (self->owner->window_.Get() == window) std::ignore = self->owner->window_.Detach();
             self->hwnd = nullptr;
