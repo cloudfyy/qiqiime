@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <commctrl.h>
 #include <gsl/gsl>
 #include <algorithm>
 #include <array>
@@ -8,12 +9,14 @@
 #include <cwchar>
 #include <limits>
 #include <span>
+#include <string>
 #include <string_view>
 #include <tuple>
 #include <utility>
 
 #include "common/scoped_handle.h"
 #include "common/logger.h"
+#include "common/monitor_dpi.h"
 
 namespace qiqi {
 
@@ -55,6 +58,31 @@ struct SelectObjectGuardTraits {
 using ScopedWindowDC     = ScopedContextGuard<WindowDcGuardTraits>;
 using ScopedSaveDC       = ScopedContextGuard<SaveDcGuardTraits>;
 using ScopedSelectObject = ScopedContextGuard<SelectObjectGuardTraits>;
+
+inline HRESULT InsertListViewColumns(
+    HWND list, std::span<const wchar_t* const> labels, std::span<const int> widths, UINT dpi) {
+    if (!::IsWindow(list)) return HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
+    std::array<wchar_t, 64> name{};
+    if (!::GetClassNameW(list, name.data(), gsl::narrow_cast<int>(name.size()))) {
+        const DWORD error = ::GetLastError();
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+    if (std::wcscmp(name.data(), WC_LISTVIEWW) != 0) return E_INVALIDARG;
+    if (labels.size() != widths.size() ||
+        labels.size() > gsl::narrow_cast<size_t>((std::numeric_limits<int>::max)())) return E_INVALIDARG;
+    for (size_t i = 0; i < labels.size(); ++i) {
+        if (!gsl::at(labels, i) || gsl::at(widths, i) < 0) return E_INVALIDARG;
+    }
+    for (size_t i = 0; i < labels.size(); ++i) {
+        LVCOLUMNW column{};
+        column.mask = LVCF_TEXT | LVCF_WIDTH;
+        std::wstring text(gsl::at(labels, i));
+        column.pszText = text.data();
+        column.cx = ScalePxByDpi(gsl::at(widths, i), dpi);
+        if (ListView_InsertColumn(list, gsl::narrow_cast<int>(i), &column) < 0) return E_FAIL;
+    }
+    return S_OK;
+}
 
 // Replace an unsorted string combo's items, preserving the index or selecting the first item.
 // The caller reports failures.

@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <gsl/gsl>
 #include <array>
+#include <limits>
 #include <new>
 #include <string>
 
@@ -38,21 +39,8 @@ std::string WideToUtf8(std::wstring_view wide) noexcept {
 
 std::wstring Utf8ToWide(std::string_view utf8) noexcept {
     try {
-        if (utf8.empty()) {
-            return {};
-        }
-        const int len = ::MultiByteToWideChar(
-            CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), nullptr, 0);
-        if (len <= 0) {
-            const DWORD error = ::GetLastError();
-            QIQI_LOG_WARN("MultiByteToWideChar(size) failed (error={})", error);
-            return {};
-        }
-        std::wstring result(gsl::narrow_cast<size_t>(len), L'\0');
-        if (::MultiByteToWideChar(
-                CP_UTF8, 0, utf8.data(), gsl::narrow_cast<int>(utf8.size()), result.data(), len) == 0) {
-            const DWORD error = ::GetLastError();
-            QIQI_LOG_WARN("MultiByteToWideChar(convert) failed (error={})", error);
+        std::wstring result;
+        if (FAILED(Utf8ToWideResult(utf8, result, Utf8ErrorPolicy::Replace))) {
             return {};
         }
         return result;
@@ -60,6 +48,37 @@ std::wstring Utf8ToWide(std::string_view utf8) noexcept {
         QIQI_LOG_ERROR("Utf8ToWide failed with a C++ exception");
         return {};
     }
+}
+
+HRESULT Utf8ToWideResult(std::string_view utf8, std::wstring& out_text, Utf8ErrorPolicy policy) {
+    if (policy != Utf8ErrorPolicy::Reject && policy != Utf8ErrorPolicy::Replace) {
+        QIQI_LOG_WARN("Utf8ToWideResult received an invalid decoding policy");
+        return E_INVALIDARG;
+    }
+    if (utf8.empty()) {
+        out_text.clear();
+        return S_OK;
+    }
+    if (utf8.size() > gsl::narrow_cast<size_t>((std::numeric_limits<int>::max)())) {
+        QIQI_LOG_WARN("Utf8ToWideResult input exceeds Win32 conversion limits");
+        return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
+    }
+    const DWORD flags = policy == Utf8ErrorPolicy::Reject ? MB_ERR_INVALID_CHARS : 0;
+    const int size = gsl::narrow_cast<int>(utf8.size());
+    const int count = ::MultiByteToWideChar(CP_UTF8, flags, utf8.data(), size, nullptr, 0);
+    if (count == 0) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("MultiByteToWideChar(size) failed (error={})", error);
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+    std::wstring decoded(gsl::narrow_cast<size_t>(count), L'\0');
+    if (::MultiByteToWideChar(CP_UTF8, flags, utf8.data(), size, decoded.data(), count) == 0) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("MultiByteToWideChar(convert) failed (error={})", error);
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+    out_text = std::move(decoded);
+    return S_OK;
 }
 
 std::filesystem::path GetModuleFilePath(void* module_handle) noexcept {

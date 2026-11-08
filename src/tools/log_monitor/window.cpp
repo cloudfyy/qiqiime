@@ -4,6 +4,7 @@
 #include "common/window.h"
 #include "common/version.h"
 #include "common/win32_ui_util.h"
+#include "common/dialog_util.h"
 
 #include <gsl/gsl>
 #include <algorithm>
@@ -91,19 +92,10 @@ bool MonitorWindow::Create(HINSTANCE instance) {
         impl_->Failure(L"InitCommonControlsEx", ERROR_DLL_INIT_FAILED);
         return false;
     }
-    WNDCLASSEXW cls{};
-    cls.cbSize = sizeof(cls);
-    cls.hInstance = instance;
-    cls.lpfnWndProc = &Impl::Procedure;
-    cls.lpszClassName = kWindowClass.data();
-    cls.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
-    cls.hIcon = ::LoadIconW(instance, MAKEINTRESOURCEW(1));
-    if (!::RegisterClassExW(&cls)) {
-        const DWORD error = ::GetLastError();
-        if (error != ERROR_CLASS_ALREADY_EXISTS) {
-            impl_->Failure(L"RegisterClassEx", error);
-            return false;
-        }
+    if (!dialog_detail::RegisterDialogWindowClass(instance, kWindowClass.data(), &Impl::Procedure,
+            0, ::LoadIconW(instance, MAKEINTRESOURCEW(1)))) {
+        impl_->Failure(L"RegisterClassEx", ::GetLastError());
+        return false;
     }
     const auto title = FormatMonitorWindowTitle(impl_->ui_language);
     const auto monitor = QueryActiveMonitor(nullptr);

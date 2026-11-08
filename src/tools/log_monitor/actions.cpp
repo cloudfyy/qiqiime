@@ -1,6 +1,7 @@
 #include "tools/log_monitor/internal.h"
 #include "tools/log_monitor/permissions.h"
 #include "common/about_dialog.h"
+#include "common/dialog_util.h"
 #include "common/theme.h"
 #include "common/window.h"
 #include "common/win32_ui_util.h"
@@ -8,7 +9,6 @@
 #include <gsl/gsl>
 #include <algorithm>
 #include <array>
-#include <commdlg.h>
 #include <format>
 #include <system_error>
 
@@ -173,18 +173,12 @@ void MonitorWindow::Impl::ExportSnapshot() {
         Text(L"奇奇日志监控", L"QiQiIME Log Monitor"), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) return;
     std::array<wchar_t, 32768> path{};
     wcscpy_s(path.data(), path.size(), diagnostic_view ? L"qiqi-monitor-diagnostics.log" : L"qiqi-ime-events.log");
-    OPENFILENAMEW dialog{};
-    dialog.lStructSize = sizeof(dialog);
-    dialog.hwndOwner = hwnd;
-    dialog.lpstrTitle = Text(L"导出筛选快照", L"Export filtered snapshot");
-    dialog.lpstrFilter = Text(L"UTF-8 日志 (*.log)\0*.log\0所有文件\0*.*\0", L"UTF-8 log (*.log)\0*.log\0All files\0*.*\0");
-    dialog.lpstrFile = path.data();
-    dialog.nMaxFile = gsl::narrow_cast<DWORD>(path.size());
-    dialog.lpstrDefExt = L"log";
-    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (!::GetSaveFileNameW(&dialog)) {
-        const DWORD error = ::CommDlgExtendedError();
-        if (error) Failure(L"GetSaveFileName", error);
+    const auto selection = dialog_detail::PromptForFile(hwnd,
+        Text(L"导出筛选快照", L"Export filtered snapshot"),
+        Text(L"UTF-8 日志 (*.log)\0*.log\0所有文件\0*.*\0", L"UTF-8 log (*.log)\0*.log\0All files\0*.*\0"),
+        path, dialog_detail::FileDialogMode::Save, L"log");
+    if (!selection) {
+        if (selection.status == dialog_detail::FileDialogStatus::Failed) Failure(L"GetSaveFileName", selection.error);
         return;
     }
     const auto bytes = ExportEvents(snapshot, diagnostic_view ? L"QiQiIME.LogMonitor" : L"QiQiIME.TraceLogging");

@@ -337,16 +337,10 @@ bool DictManagerWindow::Impl::CreateControls() {
         Text(L"数据来源", L"Source"),
         Text(L"同码顺位", L"Rank"), Text(L"操作", L"Action")};
     constexpr std::array widths{40, 120, 320, 180, 76, 52};
-    for (size_t i = 0; i < columns.size(); ++i) {
-        LVCOLUMNW column{};
-        column.mask = LVCF_TEXT | LVCF_WIDTH;
-        std::wstring text(gsl::at(columns, i));
-        column.pszText = text.data();
-        column.cx = theme.ScalePx(gsl::at(widths, i));
-        if (ListView_InsertColumn(Child(List), gsl::narrow_cast<int>(i), &column) < 0) {
-            Failure(L"ListView_InsertColumn", ERROR_NOT_ENOUGH_MEMORY);
-            return false;
-        }
+    const HRESULT columns_hr = InsertListViewColumns(Child(List), columns, widths, theme.dpi);
+    if (FAILED(columns_hr)) {
+        Failure(L"ListView_InsertColumn", gsl::narrow_cast<ULONG>(columns_hr));
+        return false;
     }
 
     ready = true;
@@ -1110,15 +1104,10 @@ void DictManagerWindow::Impl::ExecuteRestoreDefaultPrimaryDict() {
 
 void DictManagerWindow::Impl::ImportUserDictDialog() {
     std::array<wchar_t, 32768> path{};
-    OPENFILENAMEW dialog{};
-    dialog.lStructSize = sizeof(dialog);
-    dialog.hwndOwner = hwnd;
-    dialog.lpstrTitle = Text(L"导入用户词库文件 (UTF-8)", L"Import User Dictionary File (UTF-8)");
-    dialog.lpstrFilter = Text(L"文本词库 (*.txt)\0*.txt\0所有文件\0*.*\0", L"Text Dictionary (*.txt)\0*.txt\0All files\0*.*\0");
-    dialog.lpstrFile = path.data();
-    dialog.nMaxFile = gsl::narrow_cast<DWORD>(path.size());
-    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (!::GetOpenFileNameW(&dialog)) return;
+    if (!dialog_detail::PromptForFile(hwnd,
+            Text(L"导入用户词库文件 (UTF-8)", L"Import User Dictionary File (UTF-8)"),
+            Text(L"文本词库 (*.txt)\0*.txt\0所有文件\0*.*\0", L"Text Dictionary (*.txt)\0*.txt\0All files\0*.*\0"),
+            path, dialog_detail::FileDialogMode::Open)) return;
     size_t imported = 0;
     if (model.ImportUserEntriesFromFile(path.data(), imported)) {
         last_message = std::format(L"{}: {}", Text(L"成功导入词条数", L"Imported entries"), imported);
@@ -1132,16 +1121,10 @@ void DictManagerWindow::Impl::ImportUserDictDialog() {
 void DictManagerWindow::Impl::ExportSnapshotDialog() {
     std::array<wchar_t, 32768> path{};
     wcscpy_s(path.data(), path.size(), L"qiqi_user_dict_export.txt");
-    OPENFILENAMEW dialog{};
-    dialog.lStructSize = sizeof(dialog);
-    dialog.hwndOwner = hwnd;
-    dialog.lpstrTitle = Text(L"导出当前筛选词条 (UTF-8)", L"Export Filtered Entries (UTF-8)");
-    dialog.lpstrFilter = Text(L"文本词库 (*.txt)\0*.txt\0所有文件\0*.*\0", L"Text Dictionary (*.txt)\0*.txt\0All files\0*.*\0");
-    dialog.lpstrFile = path.data();
-    dialog.nMaxFile = gsl::narrow_cast<DWORD>(path.size());
-    dialog.lpstrDefExt = L"txt";
-    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (!::GetSaveFileNameW(&dialog)) return;
+    if (!dialog_detail::PromptForFile(hwnd,
+            Text(L"导出当前筛选词条 (UTF-8)", L"Export Filtered Entries (UTF-8)"),
+            Text(L"文本词库 (*.txt)\0*.txt\0所有文件\0*.*\0", L"Text Dictionary (*.txt)\0*.txt\0All files\0*.*\0"),
+            path, dialog_detail::FileDialogMode::Save, L"txt")) return;
     std::vector<DictRecord> snapshot;
     snapshot.reserve(rows.size());
     for (const uint64_t id : rows) {
@@ -1160,18 +1143,11 @@ void DictManagerWindow::Impl::ExportSnapshotDialog() {
 void DictManagerWindow::Impl::BackupBundleDialog() {
     std::array<wchar_t, 32768> path{};
     wcscpy_s(path.data(), path.size(), L"qiqiime_backup.qbak");
-    OPENFILENAMEW dialog{};
-    dialog.lStructSize = sizeof(dialog);
-    dialog.hwndOwner = hwnd;
-    dialog.lpstrTitle = Text(L"备份配置、用户词库与词组排序 (.qbak)", L"Backup Config, User Dict & Phrase Ordering (.qbak)");
-    dialog.lpstrFilter = Text(
-        L"奇奇五笔备份 (*.qbak)\0*.qbak\0所有文件\0*.*\0",
-        L"QiQiIME Backup (*.qbak)\0*.qbak\0All files\0*.*\0");
-    dialog.lpstrFile = path.data();
-    dialog.nMaxFile = gsl::narrow_cast<DWORD>(path.size());
-    dialog.lpstrDefExt = L"qbak";
-    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (!::GetSaveFileNameW(&dialog)) return;
+    if (!dialog_detail::PromptForFile(hwnd,
+            Text(L"备份配置、用户词库与词组排序 (.qbak)", L"Backup Config, User Dict & Phrase Ordering (.qbak)"),
+            Text(L"奇奇五笔备份 (*.qbak)\0*.qbak\0所有文件\0*.*\0",
+                L"QiQiIME Backup (*.qbak)\0*.qbak\0All files\0*.*\0"),
+            path, dialog_detail::FileDialogMode::Save, L"qbak")) return;
     if (model.CreateBackupBundle(path.data())) {
         last_message = Text(L"已导出完整备份文件 (.qbak)", L"Exported full backup bundle (.qbak)");
     } else {
@@ -1182,17 +1158,11 @@ void DictManagerWindow::Impl::BackupBundleDialog() {
 
 void DictManagerWindow::Impl::RestoreBundleDialog() {
     std::array<wchar_t, 32768> path{};
-    OPENFILENAMEW dialog{};
-    dialog.lStructSize = sizeof(dialog);
-    dialog.hwndOwner = hwnd;
-    dialog.lpstrTitle = Text(L"选择要恢复的奇奇五笔备份 (.qbak)", L"Select QiQiIME Backup to Restore (.qbak)");
-    dialog.lpstrFilter = Text(
-        L"奇奇五笔备份 (*.qbak)\0*.qbak\0所有文件\0*.*\0",
-        L"QiQiIME Backup (*.qbak)\0*.qbak\0All files\0*.*\0");
-    dialog.lpstrFile = path.data();
-    dialog.nMaxFile = gsl::narrow_cast<DWORD>(path.size());
-    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (!::GetOpenFileNameW(&dialog)) return;
+    if (!dialog_detail::PromptForFile(hwnd,
+            Text(L"选择要恢复的奇奇五笔备份 (.qbak)", L"Select QiQiIME Backup to Restore (.qbak)"),
+            Text(L"奇奇五笔备份 (*.qbak)\0*.qbak\0所有文件\0*.*\0",
+                L"QiQiIME Backup (*.qbak)\0*.qbak\0All files\0*.*\0"),
+            path, dialog_detail::FileDialogMode::Open)) return;
 
     const int choice = ::MessageBoxW(
         hwnd,
@@ -1417,19 +1387,10 @@ bool DictManagerWindow::Create(
         impl_->Failure(L"InitCommonControlsEx", ERROR_DLL_INIT_FAILED);
         return false;
     }
-    WNDCLASSEXW cls{};
-    cls.cbSize = sizeof(cls);
-    cls.hInstance = instance;
-    cls.lpfnWndProc = &Impl::Procedure;
-    cls.lpszClassName = kWindowClass.data();
-    cls.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
-    cls.hIcon = ::LoadIconW(instance, MAKEINTRESOURCEW(1));
-    if (!::RegisterClassExW(&cls)) {
-        const DWORD error = ::GetLastError();
-        if (error != ERROR_CLASS_ALREADY_EXISTS) {
-            impl_->Failure(L"RegisterClassEx", error);
-            return false;
-        }
+    if (!dialog_detail::RegisterDialogWindowClass(instance, kWindowClass.data(), &Impl::Procedure,
+            0, ::LoadIconW(instance, MAKEINTRESOURCEW(1)))) {
+        impl_->Failure(L"RegisterClassEx", ::GetLastError());
+        return false;
     }
     const auto title = std::format(
         L"{} v{} ({})",

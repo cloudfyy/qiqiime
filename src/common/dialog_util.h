@@ -5,9 +5,61 @@
 #include "common/logger.h"
 
 #include <commdlg.h>
+#include <cderr.h>
 #include <filesystem>
 
 namespace qiqi::dialog_detail {
+
+enum class FileDialogMode { Open, Save };
+enum class FileDialogStatus { Selected, Cancelled, Failed };
+
+struct FileDialogResult {
+    FileDialogStatus status = FileDialogStatus::Cancelled;
+    DWORD error = ERROR_SUCCESS;
+    constexpr explicit operator bool() const noexcept { return status == FileDialogStatus::Selected; }
+};
+
+struct FileDialogApi {
+    gsl::not_null<decltype(&::GetOpenFileNameW)> open = &::GetOpenFileNameW;
+    gsl::not_null<decltype(&::GetSaveFileNameW)> save = &::GetSaveFileNameW;
+    gsl::not_null<decltype(&::CommDlgExtendedError)> error = &::CommDlgExtendedError;
+};
+
+inline FileDialogResult PromptForFile(
+    HWND owner, const wchar_t* title, const wchar_t* filter, std::span<wchar_t> path,
+    FileDialogMode mode, const wchar_t* default_extension = nullptr, const FileDialogApi& api = {}) noexcept {
+    if (!title || !filter || path.empty() || path.size() > (std::numeric_limits<DWORD>::max)() ||
+        std::ranges::find(path, L'\0') == path.end() ||
+        (mode != FileDialogMode::Open && mode != FileDialogMode::Save)) {
+        QIQI_LOG_CAT_WARN(log::Keyword::UI, "PromptForFile received invalid dialog parameters");
+        return {FileDialogStatus::Failed, CDERR_INITIALIZATION};
+    }
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = owner;
+    dialog.lpstrTitle = title;
+    dialog.lpstrFilter = filter;
+    dialog.lpstrFile = path.data();
+    dialog.nMaxFile = gsl::narrow_cast<DWORD>(path.size());
+    dialog.lpstrDefExt = default_extension;
+    dialog.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR |
+        (mode == FileDialogMode::Open ? OFN_FILEMUSTEXIST : OFN_OVERWRITEPROMPT);
+    const BOOL selected = mode == FileDialogMode::Open ? api.open(&dialog) : api.save(&dialog);
+    if (!selected) {
+        const DWORD error = api.error();
+        if (error != ERROR_SUCCESS) {
+            QIQI_LOG_CAT_WARN(log::Keyword::UI,
+                "PromptForFile failed (mode={}, commdlg_error=0x{:08X})", std::to_underlying(mode), error);
+            return {FileDialogStatus::Failed, error};
+        }
+        return {};
+    }
+    if (path.front() == L'\0') {
+        QIQI_LOG_CAT_WARN(log::Keyword::UI, "PromptForFile returned an empty selected path");
+        return {FileDialogStatus::Failed, FNERR_INVALIDFILENAME};
+    }
+    return {FileDialogStatus::Selected, ERROR_SUCCESS};
+}
 
 inline ScopedIcon LoadOrCreateBrandIcon(int size_px, HINSTANCE instance = nullptr) noexcept {
     // Only load embedded icon resource 1 when running inside standalone QiQiIMESettings.exe
@@ -137,22 +189,8 @@ inline bool PromptForPrimaryDictionaryFile(
     if (!initial_path.empty() && initial_path.size() < path.size()) {
         std::wmemcpy(path.data(), initial_path.data(), initial_path.size());
     }
-    OPENFILENAMEW dialog{};
-    dialog.lStructSize = sizeof(dialog);
-    dialog.hwndOwner = owner;
-    dialog.lpstrTitle = str.dlg_open_primary_dict_title;
-    dialog.lpstrFilter = str.dlg_open_primary_dict_filter;
-    dialog.lpstrFile = path.data();
-    dialog.nMaxFile = gsl::narrow_cast<DWORD>(path.size());
-    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (!::GetOpenFileNameW(&dialog)) {
-        const DWORD dlg_err = ::CommDlgExtendedError();
-        if (dlg_err != 0) {
-            QIQI_LOG_CAT_WARN(
-                log::Keyword::UI,
-                "PromptForPrimaryDictionaryFile::GetOpenFileNameW failed (commdlg_error=0x{:08X})",
-                dlg_err);
-        }
+    if (!PromptForFile(owner, str.dlg_open_primary_dict_title, str.dlg_open_primary_dict_filter,
+            path, FileDialogMode::Open)) {
         return false;
     }
     out_selected_path = std::filesystem::path(path.data());

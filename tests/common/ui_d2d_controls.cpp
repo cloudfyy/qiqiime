@@ -21,6 +21,127 @@ struct ControlHostState {
     std::unique_ptr<FluentD2DThemeContext> d2d;
 };
 
+struct FileDialogTestState {
+    bool selected = true;
+    DWORD error = ERROR_SUCCESS;
+    int opens = 0;
+    int saves = 0;
+    int errors = 0;
+    OPENFILENAMEW observed{};
+    bool initial_filename_correct = false;
+};
+
+FileDialogTestState file_dialog_test;
+
+BOOL FakeFileDialog(OPENFILENAMEW* dialog, bool save) noexcept {
+    if (save) ++file_dialog_test.saves;
+    else ++file_dialog_test.opens;
+    if (!dialog) {
+        file_dialog_test.error = CDERR_INITIALIZATION;
+        return FALSE;
+    }
+    file_dialog_test.observed = *dialog;
+    file_dialog_test.initial_filename_correct = std::wcscmp(dialog->lpstrFile, L"before.txt") == 0;
+    if (file_dialog_test.selected) wcscpy_s(dialog->lpstrFile, dialog->nMaxFile, L"chosen.txt");
+    return file_dialog_test.selected ? TRUE : FALSE;
+}
+
+BOOL WINAPI FakeOpenFileDialog(OPENFILENAMEW* dialog) noexcept {
+    return FakeFileDialog(dialog, false);
+}
+
+BOOL WINAPI FakeSaveFileDialog(OPENFILENAMEW* dialog) noexcept {
+    return FakeFileDialog(dialog, true);
+}
+
+DWORD WINAPI FakeFileDialogError() noexcept {
+    ++file_dialog_test.errors;
+    return file_dialog_test.error;
+}
+
+void TestFileDialogs(HWND owner) {
+    using namespace dialog_detail;
+    std::array<wchar_t, 32> path{};
+    constexpr wchar_t filter[] = L"Text\0*.txt\0";
+    file_dialog_test = {};
+    const FileDialogApi api{&FakeOpenFileDialog, &FakeSaveFileDialog, &FakeFileDialogError};
+    for (const auto mode : {FileDialogMode::Open, FileDialogMode::Save}) {
+        for (const auto expected : {FileDialogStatus::Selected, FileDialogStatus::Cancelled, FileDialogStatus::Failed}) {
+            wcscpy_s(path.data(), path.size(), L"before.txt");
+            file_dialog_test.selected = expected == FileDialogStatus::Selected;
+            file_dialog_test.error = expected == FileDialogStatus::Failed ? FNERR_BUFFERTOOSMALL : ERROR_SUCCESS;
+            const auto result = PromptForFile(owner, L"Pick", std::span(filter).data(), path, mode,
+                mode == FileDialogMode::Save ? L"txt" : nullptr, api);
+            const auto& dialog = file_dialog_test.observed;
+            QIQI_TEST_CHECK(dialog.lStructSize == sizeof(dialog) && dialog.hwndOwner == owner);
+            QIQI_TEST_CHECK(std::wstring_view(dialog.lpstrTitle) == L"Pick" && dialog.lpstrFilter == std::span(filter).data());
+            QIQI_TEST_CHECK(dialog.lpstrFile == path.data() && dialog.nMaxFile == path.size());
+            QIQI_TEST_CHECK(file_dialog_test.initial_filename_correct);
+            const DWORD flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR |
+                (mode == FileDialogMode::Save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
+            QIQI_TEST_CHECK(dialog.Flags == flags);
+            if (mode == FileDialogMode::Save) QIQI_TEST_CHECK(std::wstring_view(dialog.lpstrDefExt) == L"txt");
+            else QIQI_TEST_CHECK(dialog.lpstrDefExt == nullptr);
+            QIQI_TEST_CHECK(result.status == expected && result.error == file_dialog_test.error);
+            QIQI_TEST_CHECK(static_cast<bool>(result) == file_dialog_test.selected);
+            QIQI_TEST_CHECK(std::wstring_view(path.data()) == (file_dialog_test.selected ? L"chosen.txt" : L"before.txt"));
+        }
+    }
+    QIQI_TEST_CHECK(file_dialog_test.opens == 3 && file_dialog_test.saves == 3 && file_dialog_test.errors == 4);
+    QIQI_TEST_CHECK(PromptForFile(owner, L"Pick", L"Text\0*.txt\0", {}, FileDialogMode::Open, nullptr, api).status
+        == FileDialogStatus::Failed);
+    path.fill(L'x');
+    QIQI_TEST_CHECK(PromptForFile(owner, L"Pick", L"Text\0*.txt\0", path, FileDialogMode::Open, nullptr, api).status
+        == FileDialogStatus::Failed);
+    QIQI_TEST_CHECK(file_dialog_test.opens == 3 && file_dialog_test.errors == 4);
+}
+
+LRESULT CALLBACK FailColumnInsertion(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
+    UINT_PTR, DWORD_PTR) noexcept {
+    if (msg == LVM_INSERTCOLUMNW) return -1;
+    return ::DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
+void TestListViewColumns(HWND owner, HWND label) {
+    const INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
+    QIQI_TEST_CHECK(::InitCommonControlsEx(&controls));
+    ScopedWindow list(::CreateWindowExW(0, WC_LISTVIEWW, L"", WS_CHILD | LVS_REPORT,
+        0, 0, 240, 100, owner, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+    QIQI_TEST_CHECK(list);
+    const std::array labels{L"First", L"Second"};
+    constexpr std::array widths{40, 120};
+    QIQI_TEST_CHECK(InsertListViewColumns(nullptr, labels, widths, 96) == HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE));
+    QIQI_TEST_CHECK(InsertListViewColumns(label, labels, widths, 96) == E_INVALIDARG);
+    QIQI_TEST_CHECK(InsertListViewColumns(list.Get(), labels, std::span(widths).first(1), 96) == E_INVALIDARG);
+    const std::array<const wchar_t*, 2> invalid{L"First", nullptr};
+    QIQI_TEST_CHECK(InsertListViewColumns(list.Get(), invalid, widths, 96) == E_INVALIDARG);
+    constexpr std::array negative{40, -1};
+    QIQI_TEST_CHECK(InsertListViewColumns(list.Get(), labels, negative, 96) == E_INVALIDARG);
+    QIQI_TEST_CHECK(Header_GetItemCount(ListView_GetHeader(list.Get())) == 0);
+    for (const UINT dpi : {0u, 96u, 144u, 192u}) {
+        QIQI_TEST_CHECK(InsertListViewColumns(list.Get(), labels, widths, dpi) == S_OK);
+        QIQI_TEST_CHECK(Header_GetItemCount(ListView_GetHeader(list.Get())) == 2);
+        for (size_t i = 0; i < labels.size(); ++i) {
+            std::array<wchar_t, 32> text{};
+            LVCOLUMNW column{};
+            column.mask = LVCF_TEXT | LVCF_WIDTH;
+            column.pszText = text.data();
+            column.cchTextMax = gsl::narrow_cast<int>(text.size());
+            QIQI_TEST_CHECK(ListView_GetColumn(list.Get(), gsl::narrow_cast<int>(i), &column));
+            QIQI_TEST_CHECK(std::wstring_view(text.data()) == gsl::at(labels, i));
+            QIQI_TEST_CHECK(column.cx == ScalePxByDpi(gsl::at(widths, i), dpi));
+        }
+        QIQI_TEST_CHECK(ListView_DeleteColumn(list.Get(), 1));
+        QIQI_TEST_CHECK(ListView_DeleteColumn(list.Get(), 0));
+    }
+    QIQI_TEST_CHECK(::SetWindowSubclass(list.Get(), FailColumnInsertion, 89, 0));
+    const auto restore = gsl::finally([hwnd = list.Get()]() noexcept {
+        ::RemoveWindowSubclass(hwnd, FailColumnInsertion, 89);
+    });
+    QIQI_TEST_CHECK(InsertListViewColumns(list.Get(), labels, widths, 96) == E_FAIL);
+    QIQI_TEST_CHECK(Header_GetItemCount(ListView_GetHeader(list.Get())) == 0);
+}
+
 LRESULT CALLBACK FailComboMutation(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
     UINT_PTR, DWORD_PTR failure) noexcept {
     if (msg == CB_ADDSTRING && failure == 1) return CB_ERRSPACE;
@@ -140,6 +261,8 @@ void TestReusableControls() {
     const HWND label = create(L"STATIC", SS_LEFTNOWORDWRAP, 503);
     const HWND combo = create(L"COMBOBOX", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, 504);
     TestComboItemReplacement(combo, label);
+    TestFileDialogs(parent.Get());
+    TestListViewColumns(parent.Get(), label);
     const HWND sorted = create(L"COMBOBOX", CBS_DROPDOWNLIST | CBS_SORT, 505);
     const HWND item_data = create(L"COMBOBOX", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED, 506);
     const std::array labels{L"Item"};

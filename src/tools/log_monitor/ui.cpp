@@ -153,16 +153,10 @@ bool MonitorWindow::Impl::CreateControls() {
         Text(L"时间 (UTC)", L"Time (UTC)"), Text(L"进程", L"Process"), L"PID", L"TID",
         Text(L"级别", L"Level"), Text(L"分类 / 阶段", L"Category / Stage"), Text(L"消息", L"Message")};
     constexpr std::array widths{180, 140, 72, 72, 80, 145, 420};
-    for (size_t i = 0; i < columns.size(); ++i) {
-        LVCOLUMNW column{};
-        column.mask = LVCF_TEXT | LVCF_WIDTH;
-        std::wstring text(gsl::at(columns, i));
-        column.pszText = text.data();
-        column.cx = theme.ScalePx(gsl::at(widths, i));
-        if (ListView_InsertColumn(Child(List), gsl::narrow_cast<int>(i), &column) < 0) {
-            Failure(L"ListView_InsertColumn", ERROR_NOT_ENOUGH_MEMORY);
-            return false;
-        }
+    const HRESULT columns_hr = InsertListViewColumns(Child(List), columns, widths, theme.dpi);
+    if (FAILED(columns_hr)) {
+        Failure(L"ListView_InsertColumn", gsl::narrow_cast<ULONG>(columns_hr));
+        return false;
     }
     ready = true;
     UpdateIcons();

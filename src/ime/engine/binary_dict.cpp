@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cstring>
 #include <map>
-#include <limits>
 #include <mutex>
 
 namespace qiqi {
@@ -58,24 +57,10 @@ constexpr std::wstring_view NextToken(std::wstring_view& line) noexcept {
 }
 
 DWORD DecodeDictionaryUtf8(std::string_view raw, std::wstring& decoded) {
-    raw = StripUtf8Bom(raw);
-    if (raw.empty()) {
-        decoded.clear();
-        return ERROR_SUCCESS;
-    }
-    if (raw.size() > gsl::narrow_cast<size_t>((std::numeric_limits<int>::max)())) {
-        return ERROR_FILE_TOO_LARGE;
-    }
-    const int size = gsl::narrow_cast<int>(raw.size());
-    const int count = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, raw.data(), size, nullptr, 0);
-    if (count == 0) {
-        return ::GetLastError();
-    }
-    decoded.resize(gsl::narrow_cast<size_t>(count));
-    if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, raw.data(), size, decoded.data(), count) == 0) {
-        return ::GetLastError();
-    }
-    return ERROR_SUCCESS;
+    const HRESULT result = Utf8ToWideResult(StripUtf8Bom(raw), decoded);
+    if (SUCCEEDED(result)) return ERROR_SUCCESS;
+    return HRESULT_FACILITY(result) == FACILITY_WIN32
+        ? gsl::narrow_cast<DWORD>(HRESULT_CODE(result)) : ERROR_GEN_FAILURE;
 }
 
 bool ParseTextDictIntoBinaryBuffer(

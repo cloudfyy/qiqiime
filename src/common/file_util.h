@@ -14,6 +14,12 @@ std::string WideToUtf8(std::wstring_view wide) noexcept;
 // Convert UTF-8 string to Windows wide string (UTF-16).
 std::wstring Utf8ToWide(std::string_view utf8) noexcept;
 
+enum class Utf8ErrorPolicy { Reject, Replace };
+
+// Leaves out_text unchanged on failure; Reject is for validated input, Replace preserves legacy decoding.
+HRESULT Utf8ToWideResult(
+    std::string_view utf8, std::wstring& out_text, Utf8ErrorPolicy policy = Utf8ErrorPolicy::Reject);
+
 // Query the full filesystem path of a loaded module (exe or dll). Returns empty path on failure.
 std::filesystem::path GetModuleFilePath(void* module_handle) noexcept;
 

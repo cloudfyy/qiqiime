@@ -245,6 +245,22 @@ void TestEtwLogger() {
     QIQI_TEST_CHECK(WideToUtf8(L"五笔ABC") == "五笔ABC");
     QIQI_TEST_CHECK(Utf8ToWide("").empty());
     QIQI_TEST_CHECK(Utf8ToWide("五笔ABC") == L"五笔ABC");
+    {
+        std::wstring decoded = L"unchanged";
+        QIQI_TEST_CHECK(Utf8ToWideResult("五笔ABC", decoded) == S_OK && decoded == L"五笔ABC");
+        const std::string embedded{"a\0b", 3};
+        QIQI_TEST_CHECK(Utf8ToWideResult(embedded, decoded) == S_OK);
+        QIQI_TEST_CHECK(decoded == std::wstring(L"a\0b", 3));
+        QIQI_TEST_CHECK(Utf8ToWideResult("\xEF\xBB\xBFtext", decoded) == S_OK);
+        QIQI_TEST_CHECK(decoded == L"\uFEFFtext");
+        const std::string malformed{"\xC3\x28", 2};
+        decoded = L"unchanged";
+        QIQI_TEST_CHECK(Utf8ToWideResult(malformed, decoded) == HRESULT_FROM_WIN32(ERROR_NO_UNICODE_TRANSLATION));
+        QIQI_TEST_CHECK(decoded == L"unchanged");
+        QIQI_TEST_CHECK(Utf8ToWideResult(malformed, decoded, Utf8ErrorPolicy::Replace) == S_OK);
+        QIQI_TEST_CHECK(decoded == L"\uFFFD(" && Utf8ToWide(malformed) == decoded);
+        QIQI_TEST_CHECK(Utf8ToWideResult("", decoded) == S_OK && decoded.empty());
+    }
     QIQI_TEST_CHECK(!GetModuleFilePath(nullptr).empty());
     QIQI_TEST_CHECK(GetModuleFilePath(reinterpret_cast<void*>(0x12345678)).empty());
     {
