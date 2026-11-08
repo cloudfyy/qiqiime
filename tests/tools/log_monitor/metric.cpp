@@ -4,6 +4,7 @@
 #include "tools/log_monitor/collector.h"
 #include "tools/log_monitor/aggregate.h"
 #include "support.h"
+#include <filesystem>
 #include <algorithm>
 #include <cstring>
 #include <limits>
@@ -414,13 +415,18 @@ int NativeTest() {
 int main(int argc, char** argv) {
     const std::span args(argv, gsl::narrow_cast<size_t>(argc));
     if (argc == 2 && std::string_view(gsl::at(args, 1)) == "--etw") return NativeTest();
+    if (argc == 3 && std::string_view(gsl::at(args, 1)) == "--json-fixtures") {
+        RunMetricExportTests(std::filesystem::path(gsl::at(args, 2)));
+        return 0;
+    }
     if (argc != 1) {
-        std::cerr << "Usage: qiqi_monitor_metrics_test [--etw]\n";
+        std::cerr << "Usage: qiqi_monitor_metrics_test [--etw | --json-fixtures existing-directory]\n";
         return 2;
     }
     TestDecoder();
     TestQueue();
     RunAggregationTests();
+    RunMetricExportTests({});
     std::cout << "[PASS] Strict metric decoding and bounded queue.\n";
     return 0;
 }

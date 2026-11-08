@@ -238,7 +238,9 @@ struct MetricAggregator::Impl {
         return &dimension.seconds.try_emplace(second).first->second;
     }
     void Advance(uint64_t tick) noexcept {
+        if (!status.capture_start_tick_ms) status.capture_start_tick_ms = tick;
         tick_ms = (std::max)(tick_ms, tick);
+        status.latest_tick_ms = tick_ms;
         for (auto& [key, dimension] : dimensions) {
             std::ignore = key;
             while (!dimension.seconds.empty() && !InWindow(dimension.seconds.begin()->first)) {
@@ -423,6 +425,7 @@ ULONG MetricAggregator::Stop(uint64_t tick_ms) noexcept {
     impl_->Advance(tick_ms);
     impl_->ClosePending(0, GUID_NULL, tick_ms / kMillisecondsPerSecond, true);
     impl_->status.active = false;
+    impl_->status.capture_stop_tick_ms = impl_->tick_ms;
     return ERROR_SUCCESS;
 }
 void MetricAggregator::Clear() noexcept {

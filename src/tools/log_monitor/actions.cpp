@@ -179,7 +179,7 @@ void MonitorWindow::Impl::ShowListContextMenu(POINT screen_pt) {
 
 void MonitorWindow::Impl::ExportSnapshot() {
     if (metrics_view) {
-        diagnostics.Record(3, L"Metrics JSON export is not implemented; log export requires log view", ERROR_NOT_SUPPORTED);
+        ExportMetricsSnapshot();
         return;
     }
     std::vector<Event> snapshot;

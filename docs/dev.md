@@ -205,7 +205,11 @@ x86 使用相应目录及 `-A Win32`。每个进程预热 1,000 次、外部计�
 
 `QiQiLogMonitorTest` 在固定的 3840×2160 和 1024×728 模拟工作区下分别运行 96/120/144/192 DPI、三组窗口宽度及界面语言矩阵，严格检查子控件边界、互不重叠和标签可读性。筛选控件按实际客户区宽度成组换行，不依赖 CI 桌面的分辨率。`QiQiDictManagerTest` 的 DPI/语言/主题草稿矩阵使用足够大的固定工作区；另在小工作区验证保存列被裁剪时编辑框隐藏但草稿不丢失、不自动保存，恢复空间后编辑框重新显示、定位正确并可保存。显示器覆盖仅限测试，通过 RAII 清理，不修改真实桌面分辨率；不能用扩大 CI 分辨率或跳过小屏断言替代这些回归。
 
-Metrics GUI 回归另见 [`metrics_view.cpp`](../tests/tools/log_monitor/metrics_view.cpp)：复用生产窗口及采集启动依赖，验证默认 Logs / 显式 Logs+Metrics 关键词、独立筛选、统计分母、无样本/样本不足、真实 HRESULT、活动关联、选中维度保持、清空保留丢失计数、暂停继续聚合、停止冻结和新代次重置。指标列表与日志列表按视图互斥显示，布局检查仅跳过隐藏控件，仍严格检查所有可见控件边界及重叠；96/144/192 DPI 最小窗口另测顶部文字实际绘制高度和原生字体/下拉框高度。启动方法和范围限制见[Metrics 跟踪](log.md#metrics-指标跟踪)。本轮 x64/x86 相关 9 项各 8 通过、1 全局 ETW 权限跳过；不代表 JSON 导出、跨进程验收或完整性能预算已完成。
+Metrics GUI 回归另见 [`metrics_view.cpp`](../tests/tools/log_monitor/metrics_view.cpp)：复用生产窗口及采集启动依赖，验证默认 Logs / 显式 Logs+Metrics 关键词、独立筛选、统计分母、无样本/样本不足、真实 HRESULT、活动关联、选中维度保持、清空保留丢失计数、暂停继续聚合、停止冻结和新代次重置。指标列表与日志列表按视图互斥显示，布局检查仅跳过隐藏控件，仍严格检查所有可见控件边界及重叠；96/144/192 DPI 最小窗口另测顶部文字实际绘制高度和原生字体/下拉框高度。启动方法和范围限制见[Metrics 跟踪](log.md#metrics-指标跟踪)。GUI 交付轮次 x64/x86 相关 9 项各 8 通过、1 全局 ETW 权限跳过；不代表跨进程验收或完整性能预算已完成。
+
+Metrics JSON 由 [`export.h/.cpp`](../src/tools/log_monitor/export.cpp) 独立序列化，GUI 和导出共享筛选/耗时直方图选择，不增加 JSON 运行时依赖。格式和边界见 [JSON 文档](metrics.md#metrics-json-格式与导出)。[`export.cpp` 测试](../tests/tools/log_monitor/export.cpp) 纳入 `QiQiMonitorMetricsTest`，覆盖别名、精确 `uint64_t`、转义、分母、空值/门槛/溢出、接收时钟、清空/停止及强失败保证；GUI 另测试取消/选文件错误、真实文件占用错误和对话框期间聚合变化。可执行程序的 `--json-fixtures <已存在目录>` 模式生成九个非覆盖快照，便于独立标准 JSON 解析器验证真实输出，不用字符串匹配冒充语法验证。
+
+JSON 交付的 x64/x86 Release 定向验证：`QiQiLogMonitorTest`、`QiQiMonitorMetricsTest`、`QiQiMonitorMetricsEtwTest` 各通过；全局 `QiQiLogMonitorIntegrationTest` 仍因权限跳过，不计作通过。九个 x64 生产快照另经 Python 标准 `json` 解析，核对精确整数、转义、字段结构、512 桶、最近秩及样本门槛、分母、别名/隐私和捕获生命周期。受影响目标 CppCoreCheck 无新增仓库规则告警（沿用 C26490 / 外部依赖排除策略）。
 
 公共文件工具回归覆盖包含 NUL 的 UTF-8/UTF-16 转换、64 MiB 读取上限及超过上限一个字节、缺失文件、原子替换失败时原文件保留及临时文件清理、解除锁定后重试，以及超过 `MAX_PATH` 的 `LOCALAPPDATA`、缺失变量时的临时目录回退。目录查询根据 API 返回的所需容量重试，不把有效长路径当作缺失或使用截断结果。共享断言仍输出失败位置并非零退出，但关闭 CRT 的交互式 abort/WER 报告，避免失败测试等待桌面错误对话框。
 

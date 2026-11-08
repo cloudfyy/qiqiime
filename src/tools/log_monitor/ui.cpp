@@ -73,7 +73,7 @@ const wchar_t* MonitorWindow::Impl::CommandText(ControlId id) const noexcept {
     case Pause: return paused ? Text(L"恢复自动滚动", L"Resume auto-scroll") : Text(L"暂停自动滚动", L"Pause auto-scroll");
     case Clear: return metrics_view ? Text(L"清空指标", L"Clear metrics") : Text(L"清空", L"Clear");
     case Copy: return Text(L"复制", L"Copy");
-    case Export: return Text(L"导出...", L"Export...");
+    case Export: return metrics_view ? Text(L"导出指标 JSON...", L"Export Metrics JSON...") : Text(L"导出...", L"Export...");
     case Source: return Text(L"输入法日志", L"IME events");
     case DiagnosticsView: return Text(L"工具诊断", L"Diagnostics");
     case MetricsView: return Text(L"指标视图", L"Metrics view");
@@ -111,7 +111,7 @@ ToolCommand MonitorWindow::Impl::UiCommand(ControlId id) const noexcept {
     const auto* selected_event = id == FilterActivity ? FirstSelectedEvent() : nullptr;
     bool enabled = true;
     switch (id) {
-    case Export: case SelectAll: enabled = !metrics_view; break;
+    case SelectAll: enabled = !metrics_view; break;
     case Copy: enabled = !metrics_view || metric_selected.has_value(); break;
     case FilterActivity:
         enabled = metrics_view ? SelectedMetricActivity() != GUID_NULL : selected_event && selected_event->activity_id != GUID_NULL;

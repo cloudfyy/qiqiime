@@ -6,7 +6,7 @@ add_test(NAME QiQiLogMonitorTest COMMAND qiqi_log_monitor_test)
 add_test(NAME QiQiLogMonitorIntegrationTest COMMAND qiqi_log_monitor_test --integration)
 set_tests_properties(QiQiLogMonitorIntegrationTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 40)
 
-add_executable(qiqi_monitor_metrics_test metric.cpp aggregate.cpp "${PROJECT_SOURCE_DIR}/tests/common/etw.cpp")
+add_executable(qiqi_monitor_metrics_test metric.cpp aggregate.cpp export.cpp "${PROJECT_SOURCE_DIR}/tests/common/etw.cpp")
 target_include_directories(qiqi_monitor_metrics_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
 target_link_libraries(qiqi_monitor_metrics_test PRIVATE qiqi_log_monitor)
 add_test(NAME QiQiMonitorMetricsTest COMMAND qiqi_monitor_metrics_test)

@@ -1,14 +1,35 @@
 #include "common/test_support.h"
+#include "common/file_util.h"
+#include "common/scoped_handle.h"
 #include "common/theme.h"
 #include "common/win32_ui_util.h"
 #include "common/window.h"
 #include "support.h"
 #include "tools/log_monitor/internal.h"
+#include <filesystem>
+#include <format>
 
 namespace qiqi::monitor {
 using enum ControlId;
 namespace {
 thread_local uint64_t enabled_keywords = 0;
+thread_local std::wstring export_path;
+thread_local bool cancel_export = false;
+thread_local DWORD export_dialog_error = ERROR_SUCCESS;
+thread_local DWORD expected_export_error = ERROR_SUCCESS;
+thread_local MetricAggregator* clear_on_save = nullptr;
+BOOL WINAPI SaveMetricsFile(OPENFILENAMEW* dialog) {
+    QIQI_TEST_CHECK(dialog != nullptr);
+    QIQI_TEST_CHECK(std::wstring_view(dialog->lpstrDefExt) == L"json");
+    QIQI_TEST_CHECK(std::wstring_view(dialog->lpstrFile) == L"qiqi-metrics.json");
+    QIQI_TEST_CHECK(std::wstring_view(dialog->lpstrTitle) == L"Export Metrics JSON snapshot");
+    if (cancel_export) return FALSE;
+    QIQI_TEST_CHECK(!export_path.empty() && export_path.size() < dialog->nMaxFile);
+    wcscpy_s(dialog->lpstrFile, dialog->nMaxFile, export_path.c_str());
+    if (clear_on_save) clear_on_save->Clear();
+    return TRUE;
+}
+DWORD WINAPI FileDialogError() noexcept { return export_dialog_error; }
 ULONG WINAPI FakeStart(PTRACEHANDLE session, LPCWSTR, PEVENT_TRACE_PROPERTIES) {
     QIQI_TEST_CHECK(session != nullptr);
     *session = 0;
@@ -138,7 +159,8 @@ struct MonitorWindowTestAccess {
         QIQI_TEST_CHECK((::GetWindowLongPtrW(list, GWL_STYLE) & WS_VISIBLE) != 0);
         QIQI_TEST_CHECK((::GetWindowLongPtrW(ui.Child(List), GWL_STYLE) & WS_VISIBLE) == 0);
         QIQI_TEST_CHECK(ListView_GetItemCount(list) == 3);
-        QIQI_TEST_CHECK((::GetMenuState(::GetMenu(handle), std::to_underlying(Export), MF_BYCOMMAND) & MF_GRAYED) != 0);
+        QIQI_TEST_CHECK((::GetMenuState(::GetMenu(handle), std::to_underlying(Export), MF_BYCOMMAND) & MF_GRAYED) == 0);
+        QIQI_TEST_CHECK(ui.UiCommand(Export).text == std::wstring_view(L"Export Metrics JSON..."));
         QIQI_TEST_CHECK(!ui.metric_rows.front().coverage || *ui.metric_rows.front().coverage < 1);
         QIQI_TEST_CHECK(ui.metric_rows.front().samples == 1001 && ui.metric_rows.front().pending == 1);
         QIQI_TEST_CHECK(ui.metric_rows.front().quantiles.back().state == QuantileState::Value);
@@ -252,6 +274,54 @@ struct MonitorWindowTestAccess {
         QIQI_TEST_CHECK(ui.metrics.Advance(::GetTickCount64() + 120'000) == ERROR_INVALID_STATE);
         ui.RebuildMetricRows();
         QIQI_TEST_CHECK(ui.metric_rows.front().samples == frozen_samples);
+        const auto export_file = std::filesystem::temp_directory_path() /
+            std::format(L"qiqi-metrics-gui-{}-{}.json", ::GetCurrentProcessId(), ::GetTickCount64());
+        QIQI_TEST_CHECK(!std::filesystem::exists(export_file));
+        export_path = export_file.wstring();
+        const dialog_detail::FileDialogApi file_api{::GetOpenFileNameW, SaveMetricsFile, FileDialogError};
+        cancel_export = true;
+        ui.ExportMetricsSnapshot(file_api);
+        QIQI_TEST_CHECK(!ui.metric_export_snapshot.empty() && !std::filesystem::exists(export_file));
+        QIQI_TEST_CHECK(ui.metric_rows.front().samples == frozen_samples && ui.paused);
+        const auto expected_snapshot = ui.metric_export_snapshot;
+        bool write_failure_seen = false;
+        {
+            const UINT_PTR timer = ::SetTimer(nullptr, 0, 10, [](HWND, UINT, UINT_PTR, DWORD) {
+                const HWND box = test::FindThreadWindowByClass(L"#32770");
+                if (!box) return;
+                std::array<wchar_t, 512> text{};
+                QIQI_TEST_CHECK(::GetDlgItemTextW(box, 0xFFFF, text.data(), gsl::narrow_cast<int>(text.size())) > 0);
+                const std::wstring_view message(text.data());
+                QIQI_TEST_CHECK(message.contains(L"Snapshot retained") || message.contains(L"snapshot retained"));
+                QIQI_TEST_CHECK(message.contains(std::format(L"0x{:08X}", expected_export_error)));
+                ::SendMessageW(box, WM_COMMAND, IDOK, 0);
+            });
+            QIQI_TEST_CHECK(timer != 0);
+            const auto cleanup_timer = gsl::finally([timer]() noexcept { QIQI_TEST_CHECK(::KillTimer(nullptr, timer)); });
+            export_dialog_error = CDERR_DIALOGFAILURE;
+            expected_export_error = export_dialog_error;
+            ui.ExportMetricsSnapshot(file_api);
+            export_dialog_error = ERROR_SUCCESS;
+            QIQI_TEST_CHECK(ui.metric_export_snapshot == expected_snapshot && !std::filesystem::exists(export_file));
+            cancel_export = false;
+            QIQI_TEST_CHECK(WriteExport(export_file.c_str(), "original") == ERROR_SUCCESS);
+            const ScopedFileHandle lock(::CreateFileW(export_file.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+            QIQI_TEST_CHECK(lock);
+            expected_export_error = ERROR_SHARING_VIOLATION;
+            ui.ExportMetricsSnapshot(file_api);
+            write_failure_seen = ui.metric_export_snapshot == expected_snapshot;
+        }
+        QIQI_TEST_CHECK(write_failure_seen && ui.metrics.Status().dimensions != 0);
+        std::string saved_json;
+        QIQI_TEST_CHECK(ReadFileToUtf8String(export_file, saved_json) && saved_json == "original");
+        clear_on_save = &ui.metrics;
+        ui.ExportMetricsSnapshot(file_api);
+        clear_on_save = nullptr;
+        QIQI_TEST_CHECK(ReadFileToUtf8String(export_file, saved_json) && saved_json == expected_snapshot);
+        QIQI_TEST_CHECK(ui.metric_export_snapshot.empty());
+        QIQI_TEST_CHECK(!saved_json.contains("ordinary log") && !saved_json.contains("\"pid\"") && !saved_json.contains("\"activity_id\""));
+        QIQI_TEST_CHECK(std::filesystem::remove(export_file));
+        export_path.clear();
         SendCommand(handle, Clear);
         QIQI_TEST_CHECK(ui.metric_rows.empty() && ui.events.Events().size() == 1);
         QIQI_TEST_CHECK(ui.metrics.Status().queue.events_lost == 3 && ui.metrics.Status().incomplete);
@@ -267,6 +337,7 @@ struct MonitorWindowTestAccess {
         SendCommand(handle, Source);
         QIQI_TEST_CHECK(!ui.metrics_view && !ui.diagnostic_view);
         QIQI_TEST_CHECK((::GetMenuState(::GetMenu(handle), std::to_underlying(Export), MF_BYCOMMAND) & MF_GRAYED) == 0);
+        QIQI_TEST_CHECK(ui.UiCommand(Export).text == std::wstring_view(L"Export..."));
     }
 };
 void RunMetricsViewTests() {

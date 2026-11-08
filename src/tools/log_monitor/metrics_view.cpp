@@ -182,19 +182,15 @@ void MonitorWindow::Impl::RebuildMetricRows() {
         metric_display_generation = generation;
     }
     RefreshMetricInstances();
+    const auto selection = MetricSelectionForView();
     std::vector<MetricTableRow> next;
     for (const auto& key : metrics.Dimensions()) {
-        if ((metric_instance_filter && (key.pid != metric_instance_filter->pid ||
-                key.instance_id != metric_instance_filter->metadata.instance_id)) ||
-            (metric_kind_filter && key.metric != *metric_kind_filter) ||
-            (metric_mode_filter && key.mode != *metric_mode_filter)) continue;
+        if (!selection.MatchesDimension(key)) continue;
         MetricSummary summary;
         CheckMetricResult(metrics.Snapshot(key, metric_window, summary), "Metric summary snapshot");
-        if (metric_outcome_filter && summary.Count(*metric_outcome_filter) == 0) continue;
+        if (!selection.MatchesSummary(summary)) continue;
         MetricHistogram timing;
-        if (!metric_outcome_filter || *metric_outcome_filter == metrics::Outcome::Success) timing = summary.success;
-        if (!metric_outcome_filter || *metric_outcome_filter == metrics::Outcome::Failure)
-            CheckMetricResult(timing.Merge(summary.failure), "Metric latency distribution merge");
+        CheckMetricResult(SelectMetricTiming(summary, selection.outcome, timing), "Metric latency distribution merge");
         MetricTableRow row;
         row.dimension = key;
         row.intents = summary.intents;
@@ -419,9 +415,49 @@ void MonitorWindow::Impl::UpdateMetricStatus() {
                 L"Start in Metrics view to capture Logs + Metrics; starting in other views captures Logs only."));
     ::SetWindowTextW(Child(MetricSummaryStatus), text.c_str());
     if (metrics_view) {
-        auto footer = std::wstring(Text(L"Metrics JSON 导出下一步提供；日志导出在日志视图。", L"Metrics JSON export deferred; log export is available in the log view."));
+        auto footer = std::wstring(Text(L"导出保存当前指标筛选的 JSON 快照；不包含原始日志或进程身份。",
+            L"Export saves a JSON snapshot of current metric filters; no raw logs or process identities."));
         if (!last_error.empty()) footer = std::wstring(Text(L"错误: ", L"ERROR: ")) + last_error;
         ::SetWindowTextW(Child(Status), footer.c_str());
     }
+}
+MetricExportSelection MonitorWindow::Impl::MetricSelectionForView() const noexcept {
+    MetricExportSelection selection;
+    selection.window = metric_window;
+    if (metric_instance_filter)
+        selection.instance = MetricInstanceRef{metric_instance_filter->pid, metric_instance_filter->metadata.instance_id};
+    selection.metric = metric_kind_filter;
+    selection.outcome = metric_outcome_filter;
+    selection.mode = metric_mode_filter;
+    return selection;
+}
+void MonitorWindow::Impl::ExportMetricsSnapshot(const dialog_detail::FileDialogApi& api) {
+    Tick();
+    RefreshMetricInstances();
+    const ULONG snapshot_error = ExportMetrics(metrics, MetricSelectionForView(), metric_export_snapshot);
+    if (snapshot_error != ERROR_SUCCESS) {
+        Failure(Text(L"生成指标 JSON 快照失败；指标统计仍保留", L"Cannot create Metrics JSON snapshot; statistics retained"), snapshot_error);
+        return;
+    }
+    std::array<wchar_t, kWin32PathBufferChars> path{};
+    wcscpy_s(path.data(), path.size(), L"qiqi-metrics.json");
+    const auto selection = dialog_detail::PromptForFile(hwnd,
+        Text(L"导出指标 JSON 快照", L"Export Metrics JSON snapshot"),
+        Text(L"UTF-8 指标 JSON (*.json)\0*.json\0所有文件\0*.*\0",
+            L"UTF-8 Metrics JSON (*.json)\0*.json\0All files\0*.*\0"),
+        path, dialog_detail::FileDialogMode::Save, L"json", api);
+    if (!selection) {
+        if (selection.status == dialog_detail::FileDialogStatus::Failed)
+            Failure(Text(L"选择指标导出文件失败；内存快照仍保留", L"Cannot select Metrics export file; snapshot retained"), selection.error);
+        return;
+    }
+    const ULONG error = WriteExport(path.data(), metric_export_snapshot);
+    if (error != ERROR_SUCCESS) {
+        Failure(Text(L"指标导出失败，目标文件可能不完整；内存快照仍保留",
+            L"Metrics export failed; target may be partial. Snapshot retained"), error);
+        return;
+    }
+    diagnostics.Record(4, L"Metrics JSON snapshot exported");
+    std::string{}.swap(metric_export_snapshot);
 }
 } // namespace qiqi::monitor

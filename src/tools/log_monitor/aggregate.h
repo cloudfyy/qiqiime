@@ -94,6 +94,9 @@ struct MetricProcessInstance {
 struct MetricAggregationStatus {
     uint64_t capture_generation = 0;
     std::optional<uint64_t> statistics_start_tick_ms;
+    std::optional<uint64_t> capture_start_tick_ms;
+    std::optional<uint64_t> capture_stop_tick_ms;
+    std::optional<uint64_t> latest_tick_ms;
     size_t instances = 0;
     size_t dimensions = 0;
     size_t pending = 0;

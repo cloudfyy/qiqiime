@@ -2,6 +2,7 @@ set(QIQI_MONITOR_SOURCES
     model.h model.cpp collector.h collector.cpp
     metric.h metric.cpp
     aggregate.h aggregate.cpp
+    export.h export.cpp
     permissions.h permissions.cpp
     window.h internal.h window.cpp
     ui.cpp view.cpp actions.cpp metrics_view.cpp

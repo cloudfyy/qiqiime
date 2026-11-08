@@ -1,6 +1,7 @@
 #pragma once
 #include "tools/log_monitor/metric.h"
 #include <cstring>
+#include <filesystem>
 
 namespace qiqi::monitor::metric_tests {
 inline constexpr GUID kInstance{1, 2, 3, {4, 5, 6, 7, 8, 9, 10, 11}};
@@ -32,4 +33,5 @@ inline MetricRecord Record(bool metadata = false) noexcept {
     return record;
 }
 void RunAggregationTests();
+void RunMetricExportTests(const std::filesystem::path& fixtures);
 } // namespace qiqi::monitor::metric_tests

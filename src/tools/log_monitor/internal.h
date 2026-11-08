@@ -3,6 +3,8 @@
 #include "tools/log_monitor/window.h"
 #include "tools/log_monitor/collector.h"
 #include "tools/log_monitor/aggregate.h"
+#include "tools/log_monitor/export.h"
+#include "common/dialog_util.h"
 #include "common/d2d_controls.h"
 #include "common/i18n.h"
 #include "common/logger.h"
@@ -80,6 +82,7 @@ struct MonitorWindow::Impl {
     bool updating_metric_rows = false;
     bool metric_display_active = false;
     std::wstring last_error;
+    std::string metric_export_snapshot;
     uint64_t selected = 0;
     unsigned int ticks = 0;
     bool paused = false;
@@ -193,6 +196,8 @@ struct MonitorWindow::Impl {
     void CopySelection();
     void ShowListContextMenu(POINT screen_pt);
     void ExportSnapshot();
+    MetricExportSelection MetricSelectionForView() const noexcept;
+    void ExportMetricsSnapshot(const dialog_detail::FileDialogApi& api = {});
     bool RecoverCapturePermission(const CaptureStartFailure& failure);
     void Command(int id, int notification);
     static LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
