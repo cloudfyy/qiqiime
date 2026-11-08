@@ -1,5 +1,5 @@
 #include "tools/dict_manager/internal.h"
-#include "common/about_dialog.h"
+#include "common/info_dialog.h"
 #include "common/dialog_util.h"
 #include "common/file_util.h"
 #include "common/theme.h"

@@ -1,9 +1,27 @@
 #pragma once
 #include <windows.h>
+#include <dwmapi.h>
 #include <optional>
 #include "common/scoped_handle.h"
 
 namespace qiqi {
+
+inline constexpr COLORREF kDarkWindowBg = RGB(32, 34, 38);
+inline constexpr COLORREF kLightSurfaceBg = RGB(248, 250, 253);
+inline constexpr COLORREF kDarkTextColor = RGB(238, 240, 245);
+inline constexpr COLORREF kLightTitleColor = RGB(24, 30, 42);
+inline constexpr COLORREF kDarkSecondaryTextColor = RGB(168, 176, 190);
+inline constexpr COLORREF kLightSecondaryTextColor = RGB(85, 95, 110);
+inline constexpr COLORREF kDarkDividerColor = RGB(64, 68, 78);
+inline constexpr COLORREF kLightDividerColor = RGB(220, 225, 232);
+inline constexpr COLORREF kDarkBodyTextColor = RGB(215, 220, 228);
+inline constexpr COLORREF kLightBodyTextColor = RGB(45, 52, 64);
+inline constexpr COLORREF kLightCaptionBg = RGB(243, 245, 249);
+inline constexpr COLORREF kLightTextColor = RGB(28, 32, 40);
+inline constexpr COLORREF kDarkWindowBorderColor = RGB(56, 60, 68);
+inline constexpr COLORREF kLightWindowBorderColor = RGB(212, 218, 228);
+inline constexpr COLORREF kDarkTaskbarIconColor = RGB(255, 255, 255);
+inline constexpr COLORREF kLightTaskbarIconColor = RGB(0, 0, 0);
 
 struct ThemePalette {
     bool is_dark = false;
@@ -19,23 +37,11 @@ struct ThemePalette {
     COLORREF tooltip_text = RGB(30, 35, 45);
 };
 
-inline constexpr ThemePalette kLightThemePalette = {
-    false,
-    RGB(246, 248, 252),
-    RGB(205, 212, 224),
-    RGB(30, 35, 45),
-    RGB(20, 90, 190),
-    RGB(35, 105, 200),
-    RGB(255, 255, 255),
-    RGB(226, 233, 246),
-    RGB(130, 142, 165),
-    RGB(255, 255, 255),
-    RGB(30, 35, 45)
-};
+inline constexpr ThemePalette kLightThemePalette{};
 
 inline constexpr ThemePalette kDarkThemePalette = {
     true,
-    RGB(32, 34, 38),
+    kDarkWindowBg,
     RGB(68, 72, 80),
     RGB(235, 238, 244),
     RGB(96, 170, 255),
@@ -44,10 +50,19 @@ inline constexpr ThemePalette kDarkThemePalette = {
     RGB(52, 56, 66),
     RGB(140, 148, 164),
     RGB(42, 45, 52),
-    RGB(238, 240, 245)
+    kDarkTextColor
 };
 
 namespace detail {
+inline constexpr WORD kSetPreferredAppModeOrdinal = 135;
+inline constexpr WORD kFlushMenuThemesOrdinal = 136;
+inline constexpr DWORD kLegacyImmersiveDarkModeAttribute = 19;
+
+enum class PreferredAppMode : int {
+    ForceDark = 2,
+    ForceLight = 3
+};
+
 inline std::optional<bool>& ThemeDarkOverrideStorage() noexcept {
     static std::optional<bool> override_val;
     return override_val;
@@ -119,7 +134,7 @@ inline COLORREF GetTaskbarIconColor() noexcept {
         (hc.dwFlags & HCF_HIGHCONTRASTON) != 0) {
         return ::GetSysColor(COLOR_BTNTEXT);
     }
-    return IsTaskbarDarkTheme() ? RGB(255, 255, 255) : RGB(0, 0, 0);
+    return IsTaskbarDarkTheme() ? kDarkTaskbarIconColor : kLightTaskbarIconColor;
 }
 
 constexpr const ThemePalette& GetThemePalette(bool is_dark) noexcept {
@@ -138,17 +153,17 @@ inline const ThemePalette& GetTaskbarThemePalette() noexcept {
 inline void ApplySystemThemeToMenuAndWindow(HWND hwnd, bool is_dark) noexcept {
     static const HMODULE uxtheme = ::LoadLibraryW(L"uxtheme.dll");
     if (uxtheme) {
-        // Ordinal 135: SetPreferredAppMode(int mode): 1 = AllowDark, 2 = ForceDark, 3 = ForceLight
+        // Undocumented uxtheme exports use the PreferredAppMode ABI.
         using SetPreferredAppModeFn = int(WINAPI*)(int);
-        // Ordinal 136: FlushMenuThemes()
         using FlushMenuThemesFn = void(WINAPI*)();
 
         const auto set_mode = reinterpret_cast<SetPreferredAppModeFn>(
-            ::GetProcAddress(uxtheme, MAKEINTRESOURCEA(135)));
+            ::GetProcAddress(uxtheme, MAKEINTRESOURCEA(detail::kSetPreferredAppModeOrdinal)));
         const auto flush_menus = reinterpret_cast<FlushMenuThemesFn>(
-            ::GetProcAddress(uxtheme, MAKEINTRESOURCEA(136)));
+            ::GetProcAddress(uxtheme, MAKEINTRESOURCEA(detail::kFlushMenuThemesOrdinal)));
         if (set_mode) {
-            set_mode(is_dark ? 2 : 3);
+            set_mode(static_cast<int>(is_dark ? detail::PreferredAppMode::ForceDark :
+                                               detail::PreferredAppMode::ForceLight));
         }
         if (flush_menus) {
             flush_menus();
@@ -162,27 +177,20 @@ inline void ApplySystemThemeToMenuAndWindow(HWND hwnd, bool is_dark) noexcept {
                 ::GetProcAddress(dwmapi, "DwmSetWindowAttribute"));
             if (set_attr) {
                 const BOOL dark_flag = is_dark ? TRUE : FALSE;
-                constexpr DWORD kDwmwaUseImmersiveDarkMode = 20;
-                constexpr DWORD kDwmwaUseImmersiveDarkModeOld = 19;
-                if (FAILED(set_attr(hwnd, kDwmwaUseImmersiveDarkMode, &dark_flag, sizeof(dark_flag)))) {
-                    set_attr(hwnd, kDwmwaUseImmersiveDarkModeOld, &dark_flag, sizeof(dark_flag));
+                if (FAILED(set_attr(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_flag, sizeof(dark_flag)))) {
+                    set_attr(hwnd, detail::kLegacyImmersiveDarkModeAttribute, &dark_flag, sizeof(dark_flag));
                 }
 
                 // Explicitly set caption and border color so dark title bar is guaranteed even on older Win10/11 builds
-                constexpr DWORD kDwmwaBorderColor = 34;
-                constexpr DWORD kDwmwaCaptionColor = 35;
-                constexpr DWORD kDwmwaTextColor = 36;
-                const COLORREF cap_color = is_dark ? RGB(32, 34, 38) : RGB(243, 245, 249);
-                const COLORREF txt_color = is_dark ? RGB(238, 240, 245) : RGB(28, 32, 40);
-                const COLORREF bdr_color = is_dark ? RGB(56, 60, 68) : RGB(212, 218, 228);
-                set_attr(hwnd, kDwmwaCaptionColor, &cap_color, sizeof(cap_color));
-                set_attr(hwnd, kDwmwaTextColor, &txt_color, sizeof(txt_color));
-                set_attr(hwnd, kDwmwaBorderColor, &bdr_color, sizeof(bdr_color));
+                const COLORREF cap_color = is_dark ? kDarkWindowBg : kLightCaptionBg;
+                const COLORREF txt_color = is_dark ? kDarkTextColor : kLightTextColor;
+                const COLORREF bdr_color = is_dark ? kDarkWindowBorderColor : kLightWindowBorderColor;
+                set_attr(hwnd, DWMWA_CAPTION_COLOR, &cap_color, sizeof(cap_color));
+                set_attr(hwnd, DWMWA_TEXT_COLOR, &txt_color, sizeof(txt_color));
+                set_attr(hwnd, DWMWA_BORDER_COLOR, &bdr_color, sizeof(bdr_color));
 
-                // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2
-                constexpr DWORD kDwmwaWindowCornerPreference = 33;
-                constexpr DWORD round_pref = 2;
-                set_attr(hwnd, kDwmwaWindowCornerPreference, &round_pref, sizeof(round_pref));
+                constexpr DWORD round_pref = DWMWCP_ROUND;
+                set_attr(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &round_pref, sizeof(round_pref));
             }
         }
     }

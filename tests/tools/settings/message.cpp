@@ -50,7 +50,7 @@ void CheckMessageText(HWND message, SettingsMessageKind kind, UiLanguage languag
     QIQI_TEST_CHECK(::GetObjectW(brush, sizeof(color), &color) == sizeof(color));
     QIQI_TEST_CHECK(color.lbColor == (IsSystemDarkTheme() ? RGB(43, 46, 52) : RGB(255, 255, 255)));
     QIQI_TEST_CHECK(::GetTextColor(dc.Get()) ==
-                    (IsSystemDarkTheme() ? RGB(238, 240, 245) : RGB(28, 32, 40)));
+                    (IsSystemDarkTheme() ? kDarkTextColor : RGB(28, 32, 40)));
 }
 
 void TestLiveThemeAndLanguage() {
@@ -77,9 +77,9 @@ void TestLiveThemeAndLanguage() {
                 ::SendMessageW(settings.Get(), event, 0, 0);
                 ::SendMessageW(about.Get(), event, 0, 0);
                 ::SendMessageW(message.Get(), event, 0, 0);
-                CheckBackground(settings.Get(), dark ? RGB(32, 34, 38) : RGB(243, 245, 249));
-                CheckBackground(about.Get(), dark ? RGB(32, 34, 38) : RGB(248, 250, 253));
-                CheckBackground(message.Get(), dark ? RGB(32, 34, 38) : RGB(243, 245, 249));
+                CheckBackground(settings.Get(), dark ? kDarkWindowBg : RGB(243, 245, 249));
+                CheckBackground(about.Get(), dark ? kDarkWindowBg : kLightSurfaceBg);
+                CheckBackground(message.Get(), dark ? kDarkWindowBg : RGB(243, 245, 249));
             }
             for (const WPARAM selection : {2u, 1u, 0u}) {
                 ::SendDlgItemMessageW(settings.Get(), settings_detail::kIdComboUiLang, CB_SETCURSEL, selection, 0);
@@ -225,7 +225,7 @@ void TestNonModalD2DToast() {
             QIQI_TEST_CHECK((::GetWindowLongPtrW(toast, GWL_EXSTYLE) & WS_EX_NOACTIVATE) != 0);
             QIQI_TEST_CHECK(::GetForegroundWindow() == foreground_before);
             QIQI_TEST_CHECK(g_com_object_count.load() == count_before + 1);
-            CheckBackground(toast, dark ? RGB(32, 34, 38) : RGB(243, 245, 249));
+            CheckBackground(toast, dark ? kDarkWindowBg : RGB(243, 245, 249));
             const UiLanguage changed_language =
                 language == UiLanguage::EnUs ? UiLanguage::ZhCn : UiLanguage::EnUs;
             UpdateSettingsToastLanguage(changed_language);
@@ -235,7 +235,7 @@ void TestNonModalD2DToast() {
             QIQI_TEST_CHECK(WindowText(toast) == changed_text);
             SetThemeDarkOverrideForTest(!dark);
             ::SendMessageW(toast, WM_THEMECHANGED, 0, 0);
-            CheckBackground(toast, dark ? RGB(243, 245, 249) : RGB(32, 34, 38));
+            CheckBackground(toast, dark ? RGB(243, 245, 249) : kDarkWindowBg);
             SetThemeDarkOverrideForTest(dark);
             ::SendMessageW(toast, WM_THEMECHANGED, 0, 0);
             ::SendMessageW(toast, WM_TIMER, 1, 0);

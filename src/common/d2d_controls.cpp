@@ -36,7 +36,7 @@ HBRUSH ApplyFluentControlColors(HDC dc, const FluentD2DThemeContext& theme, bool
         return ::GetSysColorBrush(input ? COLOR_WINDOW : COLOR_BTNFACE);
     }
     const bool dark = IsSystemDarkTheme();
-    ::SetTextColor(dc, dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
+    ::SetTextColor(dc, dark ? kDarkTextColor : RGB(28, 32, 40));
     if (input) {
         ::SetBkColor(dc, dark ? RGB(54, 58, 68) : RGB(255, 255, 255));
     } else {
@@ -116,7 +116,7 @@ void DrawFluentCardGroup(
     const auto card_brush = CreateSolidBrush(
         d2d.d2d_target.Get(), is_dark ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255));
     const auto border_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(64, 68, 78) : MakeD2DColor(222, 227, 236));
+        d2d.d2d_target.Get(), is_dark ? ColorRefToD2DColor(kDarkDividerColor) : MakeD2DColor(222, 227, 236));
     const auto accent_brush = CreateSolidBrush(
         d2d.d2d_target.Get(), is_dark ? MakeD2DColor(76, 160, 255) : MakeD2DColor(0, 103, 192));
     const float radius = d2d.ScaleF(8);
@@ -189,7 +189,7 @@ void DrawFluentPushButton(
     } else if (is_dark) {
         fill_col = is_pressed ? MakeD2DColor(48, 52, 60) : MakeD2DColor(56, 60, 70);
         border_col = MakeD2DColor(82, 88, 100);
-        text_col = MakeD2DColor(238, 240, 245);
+        text_col = ColorRefToD2DColor(kDarkTextColor);
     } else {
         fill_col = is_pressed ? MakeD2DColor(232, 236, 242) : MakeD2DColor(255, 255, 255);
         border_col = MakeD2DColor(204, 210, 220);
@@ -262,7 +262,7 @@ void DrawFluentToggleOrRadioRow(
     const auto text_brush = CreateSolidBrush(
         d2d.d2d_target.Get(),
         !is_enabled ? (is_dark ? MakeD2DColor(110, 116, 128) : MakeD2DColor(150, 156, 166))
-                    : (is_dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40)));
+                    : (is_dark ? ColorRefToD2DColor(kDarkTextColor) : MakeD2DColor(28, 32, 40)));
 
     float text_left = d2d.ScaleF(4);
     float text_right = w - d2d.ScaleF(4);
@@ -418,11 +418,11 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
     const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(box_rc, d2d.ScaleF(5), d2d.ScaleF(5));
 
     const auto fill_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(56, 60, 70) : MakeD2DColor(248, 250, 253));
+        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(56, 60, 70) : ColorRefToD2DColor(kLightSurfaceBg));
     const auto border_brush = CreateSolidBrush(
         d2d.d2d_target.Get(), is_dark ? MakeD2DColor(86, 92, 106) : MakeD2DColor(204, 210, 222));
     const auto txt_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40));
+        d2d.d2d_target.Get(), is_dark ? ColorRefToD2DColor(kDarkTextColor) : MakeD2DColor(28, 32, 40));
     const auto chev_brush = CreateSolidBrush(
         d2d.d2d_target.Get(), is_dark ? MakeD2DColor(186, 194, 208) : MakeD2DColor(96, 104, 118));
 
@@ -517,7 +517,7 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
     const D2D1_COLOR_F bg_col = is_selected
         ? (is_dark ? MakeD2DColor(0, 96, 180) : MakeD2DColor(220, 234, 252))
         : (is_dark ? MakeD2DColor(54, 58, 68) : MakeD2DColor(255, 255, 255));
-    const D2D1_COLOR_F txt_col = is_dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40);
+    const D2D1_COLOR_F txt_col = is_dark ? ColorRefToD2DColor(kDarkTextColor) : MakeD2DColor(28, 32, 40);
 
     const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem);
     if (!draw_guard) {

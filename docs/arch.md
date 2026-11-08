@@ -40,7 +40,7 @@
 1. **无 COM 依赖即可测试**：`qiqi_engine_test.exe` 可以直接验证所有按键与五笔上屏规则，无需先通过 `regsvr32` 注入宿主进程。
 2. **边界明确**：输入法 DLL 运行于资源管理器、浏览器、Office 等宿主进程；引擎不依赖 TSF COM 身份，但词库加载、缓存、用户词及词频同步仍可能执行 I/O，不能把静态库分离理解为“所有路径纯计算”或宿主 UI 不会阻塞的保证。
 
-源码按 [`src/common`](../src/common)、[`src/ime`](../src/ime)、[`src/tools/settings`](../src/tools/settings)、[`src/tools/log_monitor`](../src/tools/log_monitor)、[`src/tools/dict_manager`](../src/tools/dict_manager) 分层，测试采用对应布局。公共 D2D 控件、窗口辅助（[`window.h`](../src/common/window.h)）、菜单及工具条（[`command_ui.h`](../src/common/command_ui.h)）与关于/快捷键说明窗口（[`about_dialog.h`](../src/common/about_dialog.h)）由 `qiqi_common` 统一编译；设置窗口由 `qiqi_settings_ui` 统一编译，供独立设置程序和 IME 的进程内设置回退路径复用。每个模块及对应测试目录均有自己的 `CMakeLists.txt`，顶层文件只负责组织，新增工具使用独立的 `tools/<工具名>` 子目录。
+源码按 [`src/common`](../src/common)、[`src/ime`](../src/ime)、[`src/tools/settings`](../src/tools/settings)、[`src/tools/log_monitor`](../src/tools/log_monitor)、[`src/tools/dict_manager`](../src/tools/dict_manager) 分层，测试采用对应布局。公共 D2D 控件、窗口辅助（[`window.h`](../src/common/window.h)）、菜单及工具条（[`command_ui.h`](../src/common/command_ui.h)）与关于/快捷键说明窗口（[`info_dialog.h`](../src/common/info_dialog.h)）由 `qiqi_common` 统一编译；设置窗口由 `qiqi_settings_ui` 统一编译，供独立设置程序和 IME 的进程内设置回退路径复用。每个模块及对应测试目录均有自己的 `CMakeLists.txt`，顶层文件只负责组织，新增工具使用独立的 `tools/<工具名>` 子目录。
 
 ---
 
@@ -120,7 +120,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 - **多显示器与 Per-Monitor DPI（`monitor_dpi.h`）**：候选窗、浮动状态栏、Tooltip、设置及关于窗口复用显示器、DPI 与工作区帮助代码，按各自的窗口消息更新字体、布局和边界，支持负坐标显示器。实现这些分支不等于所有缩放、热插拔或宿主组合都已实测；保留具体测试范围与未覆盖项。
 - **4x4 超采样抗锯齿状态条图标与模块拆分（[`statusbar_icons.cpp`](../src/ime/ui/statusbar_icons.cpp) / [`statusbar_tooltip.cpp`](../src/ime/ui/statusbar_tooltip.cpp) / [`statusbar.cpp`](../src/ime/ui/statusbar.cpp)）**：使用有向距离场（SDF）+ 4x4 超采样实时生成 32 位预乘 ARGB `DIBSection` 位图，通过 `GdiAlphaBlend` 渲染半角月牙、全角圆环、中英文标点与八齿设置齿轮图标；悬停提示弹窗与状态栏主窗口及拖拽交互按职责分文件维护。
 
-- **设置窗口职责拆分**：[`window.cpp`](../src/tools/settings/window.cpp) 负责窗口创建、消息分派与命令处理；[`controls.cpp`](../src/tools/settings/controls.cpp) 负责控件布局、配置绑定、语言更新与卡片绘制；共享关于窗口由 [`common/about_dialog.cpp`](../src/common/about_dialog.cpp) 实现。内部上下文和控件 ID 集中在 [`internal.h`](../src/tools/settings/internal.h)，共享图标帮助代码及模态消息循环位于 [`common/dialog_util.h`](../src/common/dialog_util.h)。[`window.h`](../src/tools/settings/window.h) 提供公共接口，窗口在 `WM_NCDESTROY` 中回收 RAII 上下文。
+- **设置窗口职责拆分**：[`window.cpp`](../src/tools/settings/window.cpp) 负责窗口创建、消息分派与命令处理；[`controls.cpp`](../src/tools/settings/controls.cpp) 负责控件布局、配置绑定、语言更新与卡片绘制；共享关于/快捷键说明窗口由 [`common/info_dialog.cpp`](../src/common/info_dialog.cpp) 实现。内部上下文和控件 ID 集中在 [`internal.h`](../src/tools/settings/internal.h)，共享图标帮助代码及模态消息循环位于 [`common/dialog_util.h`](../src/common/dialog_util.h)。[`window.h`](../src/tools/settings/window.h) 提供公共接口，窗口在 `WM_NCDESTROY` 中回收 RAII 上下文。
 - **设置保存与通知**：设置程序与进程内设置回退共享单实例互斥与窗口唤醒逻辑：若设置窗口已打开，再次触发设置仅恢复并切到已有设置窗口（或其当前活动的子模态窗口）前台，不会启动第二个设置实例。用户在设置窗口确认时先持久化配置，再关闭窗口并发送 Global Compartment 通知。保存失败会保留当前编辑内容并显示本地化错误，取消不会将窗口中的编辑应用到绑定配置；通知失败则明确提示配置已保存但需要重新激活输入法，不回滚保存。语言栏快捷设置先保存配置副本；失败时保留原运行时状态且不广播，以非模态 D2D Toast 短暂提示，不抢焦点或阻断菜单操作。设置窗口打开期间同时订阅 `kGuidCompartmentConfigVersion` 并在 `WM_ACTIVATE` 时校验注册表配置序列号：外部配置变更按字段合并刷新窗口控件与界面语言，同时保留用户在窗口内尚未保存的修改。
 - **设置界面一致性**：设置、关于、保存失败及通知失败窗口均支持明暗主题刷新及中英文/跟随系统语言。提示窗口由 [`message.cpp`](../src/tools/settings/message.cpp) 统一实现，复用公共 D2D 卡片、按钮和控件创建函数，不再依赖原生 `MessageBox` 的主题和按钮语言。关于及提示窗口随所属设置窗口的语言预览刷新；启用保存模式时，预览不提前修改绑定配置。共享模态循环恢复所属窗口原有启用状态，并支持 Tab、Enter、Esc。
 - **本地化文字布局**：关于窗口的许可证区域与提示正文复用 [`common/dialog_util.h`](../src/common/dialog_util.h) 中的文本测量函数，按中英文测量结果预留空间，并在语言变更时刷新布局。

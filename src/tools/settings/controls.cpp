@@ -135,7 +135,7 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
             if (::GetWindow(owned, GW_OWNER) == change->owner) {
                 std::array<wchar_t, 128> name{};
                 ::GetClassNameW(owned, name.data(), gsl::narrow_cast<int>(name.size()));
-                if (std::wcscmp(name.data(), kAboutWndClass) == 0 ||
+                if (std::wcscmp(name.data(), kInfoWndClass) == 0 ||
                     std::wcscmp(name.data(), kSettingsMessageWndClass) == 0) {
                     ::SendMessageW(owned, kSettingsLanguageChangedMessage,
                                    static_cast<WPARAM>(change->language), 0);
@@ -194,7 +194,7 @@ void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const 
     if (!draw_guard) {
         return;
     }
-    ctx.d2d.d2d_target->Clear(is_dark ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
+    ctx.d2d.d2d_target->Clear(is_dark ? ColorRefToD2DColor(kDarkWindowBg) : MakeD2DColor(243, 245, 249));
 
     const std::array<FluentCardSpec, 4> cards = {{
         {D2D1::RectF(S(18),  S(16),  S(404), S(196)), L"词库方案",           L"Dictionary"},

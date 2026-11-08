@@ -19,8 +19,8 @@ configure_file(
 )
 
 set(QIQI_COMMON_SOURCES
-    about_dialog.cpp
-    about_dialog.h
+    info_dialog.cpp
+    info_dialog.h
     binary_codec.h
     com_object.h
     change_sync.cpp

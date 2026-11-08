@@ -474,7 +474,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                         const bool inside_card = (dis->CtlID == kIdBtnBrowsePrimaryDict);
                         const D2D1_COLOR_F outer_bg = inside_card
                             ? (IsSystemDarkTheme() ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255))
-                            : (IsSystemDarkTheme() ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
+                            : (IsSystemDarkTheme() ? ColorRefToD2DColor(kDarkWindowBg) : MakeD2DColor(243, 245, 249));
                         DrawFluentPushButton(*dis, ctx->d2d, dis->CtlID == kIdBtnOk, outer_bg);
                     } else {
                         const bool is_radio =

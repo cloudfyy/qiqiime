@@ -1564,7 +1564,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
             ::SetTimer(nullptr, 5, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
                 ::KillTimer(nullptr, id);
-                const HWND dlg = ::FindWindowW(kAboutWndClass, nullptr);
+                const HWND dlg = ::FindWindowW(kInfoWndClass, nullptr);
                 if (dlg) {
                     ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
                 }
@@ -1573,7 +1573,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
             ::SetTimer(nullptr, 5, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
                 ::KillTimer(nullptr, id);
-                const HWND dlg = ::FindWindowW(kAboutWndClass, nullptr);
+                const HWND dlg = ::FindWindowW(kInfoWndClass, nullptr);
                 if (dlg) {
                     ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
                 }

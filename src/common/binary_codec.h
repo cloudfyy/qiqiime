@@ -19,15 +19,18 @@ inline constexpr uint32_t kSyncJournalBinaryVer   = 1u;
 inline constexpr uint64_t kSourceMetaBinaryMagic  = 0x4154454D49514951ull; // "QIQIMETA" (source.meta)
 inline constexpr uint32_t kSourceMetaBinaryVer    = 1u;
 
+inline constexpr uint64_t kFnv1a64OffsetBasis = 14695981039346656037ull;
+inline constexpr uint64_t kFnv1a64Prime = 1099511628211ull;
+
 [[gsl::suppress("type.1")]]
 inline std::span<const uint8_t> AsByteSpan(std::string_view sv) noexcept {
     return std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(sv.data()), sv.size());
 }
 
 constexpr uint64_t ComputeFnv1a64(std::span<const uint8_t> bytes) noexcept {
-    uint64_t hash = 14695981039346656037ull;
+    uint64_t hash = kFnv1a64OffsetBasis;
     for (const uint8_t b : bytes) {
-        hash = (hash ^ b) * 1099511628211ull;
+        hash = (hash ^ b) * kFnv1a64Prime;
     }
     return hash;
 }

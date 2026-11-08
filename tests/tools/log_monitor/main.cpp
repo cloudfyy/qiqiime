@@ -402,7 +402,7 @@ void TestAboutDialogs() {
             const auto restore = gsl::finally([previous]() noexcept { current_about = previous; });
             const UINT_PTR timer =
                 ::SetTimer(window.Handle(), 2, 15, [](HWND timer_owner, UINT, UINT_PTR id, DWORD) noexcept {
-                    const HWND dialog = test::FindThreadWindowByClass(kAboutWndClass);
+                    const HWND dialog = test::FindThreadWindowByClass(kInfoWndClass);
                     if (!dialog)
                         return;
                     QIQI_TEST_CHECK(current_about != nullptr);
@@ -1013,7 +1013,7 @@ void TestDesktopIntegration() {
     for (const UINT message : {WM_THEMECHANGED, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WM_DWMCOLORIZATIONCOLORCHANGED}) {
         ::SendMessageW(window.Handle(), message, 0, 0);
         QIQI_TEST_CHECK(ListView_GetBkColor(list) == RGB(43, 46, 52));
-        QIQI_TEST_CHECK(ListView_GetTextColor(list) == RGB(238, 240, 245));
+        QIQI_TEST_CHECK(ListView_GetTextColor(list) == kDarkTextColor);
         QIQI_TEST_CHECK(CommandName(window, Clear) == L"清空");
         QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
     }

@@ -248,7 +248,7 @@ void TestSettingsDialogControls() {
                             reinterpret_cast<WPARAM>(lbl_dc.Get()),
                             reinterpret_cast<LPARAM>(lbl)) != 0);
         const COLORREF tc = ::GetTextColor(lbl_dc.Get());
-        QIQI_TEST_CHECK(tc == RGB(28, 32, 40) || tc == RGB(238, 240, 245));
+        QIQI_TEST_CHECK(tc == RGB(28, 32, 40) || tc == kDarkTextColor);
     }
 
     ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
@@ -295,7 +295,7 @@ void TestSettingsDialogControls() {
         // Test clicking the "About..." button (id=115) and "Shortcuts..." button (id=130) inside SettingsDialog
         ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
             ::KillTimer(nullptr, id);
-            const HWND about_dlg = FindThreadWindowByClass(kAboutWndClass);
+            const HWND about_dlg = FindThreadWindowByClass(kInfoWndClass);
             if (about_dlg) {
                 ::SendMessageW(about_dlg, WM_CLOSE, 0, 0);
             }
@@ -304,7 +304,7 @@ void TestSettingsDialogControls() {
 
         ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
             ::KillTimer(nullptr, id);
-            const HWND help_dlg = FindThreadWindowByClass(kAboutWndClass);
+            const HWND help_dlg = FindThreadWindowByClass(kInfoWndClass);
             if (help_dlg) {
                 ::SendMessageW(help_dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
             }
@@ -316,7 +316,7 @@ void TestSettingsDialogControls() {
         QIQI_TEST_CHECK(::SendMessageW(hwnd_null_cfg.Get(), WM_GETICON, ICON_SMALL, 0) != 0);
         ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
             ::KillTimer(nullptr, id);
-            const HWND about_dlg = FindThreadWindowByClass(kAboutWndClass);
+            const HWND about_dlg = FindThreadWindowByClass(kInfoWndClass);
             if (about_dlg) {
                 ::SendMessageW(about_dlg, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
             }
@@ -428,7 +428,7 @@ void TestSettingsDialogControls() {
 
     ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
-        const HWND dlg = FindThreadWindowByClass(kAboutWndClass);
+        const HWND dlg = FindThreadWindowByClass(kInfoWndClass);
         if (dlg) {
             ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
         }
@@ -460,7 +460,7 @@ void TestSettingsDialogControls() {
     }
     ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
-        const HWND dlg = FindThreadWindowByClass(kAboutWndClass);
+        const HWND dlg = FindThreadWindowByClass(kInfoWndClass);
         if (dlg) {
             ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
         }

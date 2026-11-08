@@ -1,6 +1,6 @@
 #pragma once
 #include <windows.h>
-#include "common/about_dialog.h"
+#include "common/info_dialog.h"
 #include "common/config.h"
 #include "common/scoped_handle.h"
 

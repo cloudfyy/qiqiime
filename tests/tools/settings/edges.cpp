@@ -214,7 +214,7 @@ void TestModalLoopTermination() {
             ::KillTimer(nullptr, id);
             if (const HWND window = FindThreadWindowByClass(kSettingsWndClass)) {
                 ::DestroyWindow(window);
-            } else if (const HWND about_window = FindThreadWindowByClass(kAboutWndClass)) {
+            } else if (const HWND about_window = FindThreadWindowByClass(kInfoWndClass)) {
                 ::DestroyWindow(about_window);
             }
             ::PostQuitMessage(91);

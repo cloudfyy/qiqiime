@@ -6,7 +6,7 @@
 
 namespace qiqi {
 
-// Settings and Log Monitor share the About UI; embedded-icon mode uses resource 1 from instance.
+// Shared About and Help UI; embedded-icon mode uses resource 1 from instance.
 ScopedWindow CreateAboutWindow(
     HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto, bool use_embedded_icon = false) noexcept;
 
@@ -14,7 +14,7 @@ ScopedWindow CreateAboutWindow(
 bool ShowAboutDialog(
     HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto, bool use_embedded_icon = false) noexcept;
 
-// Create or show modal Help & Keyboard Shortcuts dialog sharing the About dialog infrastructure.
+// Create or show modal Help & Keyboard Shortcuts dialog.
 ScopedWindow CreateHelpWindow(
     HINSTANCE instance, HWND parent, UiLanguage ui_language = UiLanguage::Auto, bool use_embedded_icon = false) noexcept;
 bool ShowHelpDialog(

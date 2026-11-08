@@ -97,7 +97,7 @@ void PaintMessage(HDC dc, const RECT& rect, const MessageContext& ctx) noexcept 
     if (!draw) return;
     const bool dark = IsSystemDarkTheme();
     ctx.d2d.d2d_target->Clear(
-        dark ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
+        dark ? ColorRefToD2DColor(kDarkWindowBg) : MakeD2DColor(243, 245, 249));
     const auto zh = GetMessageStrings(UiLanguage::ZhCn, ctx.kind);
     const auto en = GetMessageStrings(UiLanguage::EnUs, ctx.kind);
     const std::array<FluentCardSpec, 1> cards = {{
@@ -120,7 +120,7 @@ void PaintToast(HDC dc, const RECT& rect, const ToastContext& ctx) noexcept {
     }
     const bool dark = IsSystemDarkTheme();
     const auto scale = [&ctx](int px) noexcept { return ctx.d2d.ScaleF(px); };
-    ctx.d2d.d2d_target->Clear(dark ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
+    ctx.d2d.d2d_target->Clear(dark ? ColorRefToD2DColor(kDarkWindowBg) : MakeD2DColor(243, 245, 249));
     const std::array<FluentCardSpec, 1> cards = {{
         {D2D1::RectF(scale(8), scale(8), static_cast<float>(rect.right) - scale(8),
                      static_cast<float>(rect.bottom) - scale(8)), nullptr, nullptr}
@@ -128,7 +128,7 @@ void PaintToast(HDC dc, const RECT& rect, const ToastContext& ctx) noexcept {
     DrawFluentCardGroup(ctx.d2d, cards, false, dark);
     const auto text_brush = CreateSolidBrush(
         ctx.d2d.d2d_target.Get(),
-        dark ? MakeD2DColor(238, 240, 245) : MakeD2DColor(28, 32, 40));
+        dark ? ColorRefToD2DColor(kDarkTextColor) : MakeD2DColor(28, 32, 40));
     const wchar_t* const text = GetToastText(ctx.language, ctx.kind);
     if (ctx.d2d.fmt_body && text_brush && text) {
         ctx.d2d.d2d_target->DrawText(
@@ -213,14 +213,14 @@ LRESULT CALLBACK MessageWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
                 const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
                 if (item->CtlType == ODT_BUTTON) {
                     DrawFluentPushButton(*item, ctx->d2d, item->CtlID == IDOK,
-                        IsSystemDarkTheme() ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
+                        IsSystemDarkTheme() ? ColorRefToD2DColor(kDarkWindowBg) : MakeD2DColor(243, 245, 249));
                     return TRUE;
                 }
             }
             break;
         case WM_CTLCOLORSTATIC: {
             const auto dc = reinterpret_cast<HDC>(wparam);
-            ::SetTextColor(dc, IsSystemDarkTheme() ? RGB(238, 240, 245) : RGB(28, 32, 40));
+            ::SetTextColor(dc, IsSystemDarkTheme() ? kDarkTextColor : RGB(28, 32, 40));
             ::SetBkMode(dc, TRANSPARENT);
             return reinterpret_cast<LRESULT>(ctx->d2d.surface_brush.Get());
         }

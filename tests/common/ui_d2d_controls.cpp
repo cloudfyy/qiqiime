@@ -1,5 +1,5 @@
 #include "common/test_support.h"
-#include "common/about_dialog.h"
+#include "common/info_dialog.h"
 #include "common/dialog_util.h"
 #include "common/i18n.h"
 #include "common/monitor_dpi.h"
@@ -216,6 +216,16 @@ LRESULT CALLBACK ControlHostProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 }
 
 void TestReusableControls() {
+    static_assert(kDarkWindowBg == RGB(32, 34, 38));
+    static_assert(kLightSurfaceBg == RGB(248, 250, 253));
+    static_assert(kDarkTextColor == RGB(238, 240, 245));
+    static_assert(kLightTitleColor == RGB(24, 30, 42));
+    static_assert(kDarkSecondaryTextColor == RGB(168, 176, 190));
+    static_assert(kLightSecondaryTextColor == RGB(85, 95, 110));
+    static_assert(kDarkDividerColor == RGB(64, 68, 78));
+    static_assert(kLightDividerColor == RGB(220, 225, 232));
+    static_assert(kDarkBodyTextColor == RGB(215, 220, 228));
+    static_assert(kLightBodyTextColor == RGB(45, 52, 64));
     static_assert(!std::is_copy_constructible_v<FluentD2DThemeContext>);
     const auto original_theme = detail::ThemeDarkOverrideStorage();
     const auto restore_theme = gsl::finally([original_theme]() noexcept {
@@ -400,7 +410,7 @@ void TestReusableControls() {
         QIQI_TEST_CHECK(::GetPixel(dc.Get(), 100, 2) == surface);
 
         PaintFluentComboBoxFrame(combo, dc.Get(), d2d);
-        QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 4) == (dark ? RGB(56, 60, 70) : RGB(248, 250, 253)));
+        QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 4) == (dark ? RGB(56, 60, 70) : kLightSurfaceBg));
         dis.CtlType = ODT_COMBOBOX;
         dis.hwndItem = combo;
         dis.itemID = 1;
@@ -478,6 +488,80 @@ void TestReusableControls() {
     QIQI_TEST_CHECK(!::IsWindow(closing_parent.Get()) && !closing_state.d2d);
 }
 
+void TestInfoDialogLayout() {
+    auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
+    const auto restore_monitor = gsl::finally([&original_monitor]() noexcept {
+        SetMonitorMetricsOverrideForTest(std::move(original_monitor));
+    });
+    const HINSTANCE instance = ::GetModuleHandleW(nullptr);
+    for (const UINT dpi : {96u, 144u, 192u}) {
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-2560, -1440, 0, 0}, dpi});
+        const auto scale = [dpi](int px) { return ScalePxByDpi(px, dpi); };
+        for (const bool help : {false, true}) {
+            LONG previous_height = 0;
+            for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+                const ScopedWindow dialog(help ? CreateHelpWindow(instance, nullptr, language) :
+                                                 CreateAboutWindow(instance, nullptr, language));
+                QIQI_TEST_CHECK(dialog);
+                std::array<wchar_t, 64> class_name{};
+                QIQI_TEST_CHECK(::GetClassNameW(
+                    dialog.Get(), class_name.data(), gsl::narrow_cast<int>(class_name.size())) > 0);
+                QIQI_TEST_CHECK(std::wcscmp(class_name.data(), kInfoWndClass) == 0);
+                RECT client{};
+                QIQI_TEST_CHECK(::GetClientRect(dialog.Get(), &client));
+                QIQI_TEST_CHECK(client.right == scale(help ? 530 : 440));
+                if (previous_height != 0) QIQI_TEST_CHECK(client.bottom == previous_height);
+                previous_height = client.bottom;
+                const auto control_rect = [&dialog](int id) {
+                    const HWND control = ::GetDlgItem(dialog.Get(), id);
+                    QIQI_TEST_CHECK(control != nullptr);
+                    RECT rect{};
+                    QIQI_TEST_CHECK(::GetWindowRect(control, &rect));
+                    POINT origin{};
+                    QIQI_TEST_CHECK(::ClientToScreen(dialog.Get(), &origin));
+                    ::OffsetRect(&rect, -origin.x, -origin.y);
+                    return rect;
+                };
+                const RECT ok = control_rect(IDOK);
+                QIQI_TEST_CHECK(ok.right == client.right - scale(24));
+                QIQI_TEST_CHECK(ok.right - ok.left == scale(98));
+                QIQI_TEST_CHECK(ok.bottom - ok.top == scale(32));
+                QIQI_TEST_CHECK(client.bottom - ok.bottom == scale(14));
+                if (help) {
+                    QIQI_TEST_CHECK(::GetDlgItem(dialog.Get(), 201) == nullptr);
+                } else {
+                    const RECT github = control_rect(201);
+                    QIQI_TEST_CHECK(github.left == scale(24));
+                    QIQI_TEST_CHECK(github.right - github.left == scale(124));
+                    QIQI_TEST_CHECK(github.top == ok.top && github.bottom == ok.bottom);
+                    QIQI_TEST_CHECK(github.right < ok.left);
+                }
+                const auto font = reinterpret_cast<HFONT>(
+                    ::SendDlgItemMessageW(dialog.Get(), IDOK, WM_GETFONT, 0, 0));
+                QIQI_TEST_CHECK(font != nullptr);
+                const int text_width = client.right - 2 * scale(24);
+                int body_height = scale(94);
+                for (const UiLanguage measured_language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+                    const auto& strings = GetUiStrings(measured_language);
+                    const int measured = dialog_detail::MeasureDialogTextHeight(
+                        font, help ? strings.help_shortcuts_info : strings.about_license_info, text_width);
+                    QIQI_TEST_CHECK(measured > 0);
+                    body_height = std::max(body_height, measured);
+                }
+                const int header_bottom = scale(20) + scale(56);
+                const int separator_y = header_bottom + scale(16);
+                const int body_top = separator_y + scale(12);
+                QIQI_TEST_CHECK(ok.top == body_top + body_height + scale(12));
+                const RECT before_switch = ok;
+                ::SendMessageW(dialog.Get(), kSettingsLanguageChangedMessage,
+                               static_cast<WPARAM>(UiLanguage::EnUs), 0);
+                const RECT after_switch = control_rect(IDOK);
+                QIQI_TEST_CHECK(::EqualRect(&before_switch, &after_switch));
+            }
+        }
+    }
+}
+
 void TestCommonDialogsAndUtils() {
     const auto original_theme = detail::ThemeDarkOverrideStorage();
     auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
@@ -542,7 +626,7 @@ void TestCommonDialogsAndUtils() {
             SetThemeDarkOverrideForTest(dark);
             ::SendMessageW(about_zh.Get(), WM_THEMECHANGED, 0, 0);
             ::SendMessageW(about_zh.Get(), WM_PRINTCLIENT, reinterpret_cast<WPARAM>(mem_dc.Get()), PRF_CLIENT);
-            const COLORREF expected_bg = dark ? RGB(32, 34, 38) : RGB(248, 250, 253);
+            const COLORREF expected_bg = dark ? kDarkWindowBg : kLightSurfaceBg;
             QIQI_TEST_CHECK(::GetPixel(mem_dc.Get(), 10, 10) == expected_bg);
         }
 
@@ -555,7 +639,7 @@ void TestCommonDialogsAndUtils() {
     // Modal ShowAboutDialog execution
     ::SetTimer(nullptr, 9, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
         ::KillTimer(nullptr, id);
-        if (const HWND dlg = FindThreadWindowByClass(kAboutWndClass)) {
+        if (const HWND dlg = FindThreadWindowByClass(kInfoWndClass)) {
             ::SendMessageW(dlg, WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
         }
     });
@@ -567,6 +651,7 @@ void TestCommonDialogsAndUtils() {
 
 void RunD2DControlsTests() {
     TestReusableControls();
+    TestInfoDialogLayout();
     TestCommonDialogsAndUtils();
 }
 

@@ -157,7 +157,7 @@ inline bool ApplyToolWindowListAndControlsTheme(
         const COLORREF background =
             contrast ? ::GetSysColor(COLOR_WINDOW) : (dark ? RGB(43, 46, 52) : RGB(255, 255, 255));
         const COLORREF foreground =
-            contrast ? ::GetSysColor(COLOR_WINDOWTEXT) : (dark ? RGB(238, 240, 245) : RGB(28, 32, 40));
+            contrast ? ::GetSysColor(COLOR_WINDOWTEXT) : (dark ? kDarkTextColor : RGB(28, 32, 40));
         ListView_SetBkColor(list_hwnd, background);
         ListView_SetTextBkColor(list_hwnd, background);
         ListView_SetTextColor(list_hwnd, foreground);
@@ -206,7 +206,7 @@ inline std::optional<LRESULT> TryCustomDrawDarkListViewHeader(
         RECT label = draw.rc;
         label.left += theme.ScalePx(6);
         label.right -= theme.ScalePx(6);
-        ::SetTextColor(draw.hdc, RGB(238, 240, 245));
+        ::SetTextColor(draw.hdc, kDarkTextColor);
         ::SetBkMode(draw.hdc, TRANSPARENT);
         const UINT alignment =
             (item.fmt & HDF_RIGHT) ? DT_RIGHT : ((item.fmt & HDF_CENTER) ? DT_CENTER : DT_LEFT);
