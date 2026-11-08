@@ -76,7 +76,6 @@ struct MonitorWindow::Impl {
     MetricView metric_window = MetricView::Cumulative;
     uint64_t metric_display_tick_ms = 0;
     uint64_t metric_display_generation = 0;
-    bool capture_metrics = false;
     bool metrics_view = false;
     bool updating_metric_rows = false;
     bool metric_display_active = false;

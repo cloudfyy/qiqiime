@@ -12,6 +12,7 @@ namespace qiqi {
 namespace {
 constexpr int kToolbarHeight = 40;
 constexpr int kToolbarButtonSize = 36;
+constexpr int kToolbarGroupGap = 8;
 constexpr int kToolbarIconSize = 20;
 constexpr int kCompactIconSize = 16;
 constexpr int kCompactIconPadding = 4;
@@ -64,7 +65,7 @@ void ToolCommandUi::SetMenu(HWND window, std::span<const ToolMenu> menus) {
             if (!::AppendMenuW(popup.Get(), flags, command.id, command.id == 0 ? nullptr : command.text)) {
                 Fail("AppendMenuW", ::GetLastError());
             }
-            if (group.radio && command.id != 0) {
+            if ((group.radio || command.radio) && command.id != 0) {
                 MENUITEMINFOW info{};
                 info.cbSize = sizeof(info);
                 info.fMask = MIIM_FTYPE;
@@ -113,10 +114,12 @@ void ToolCommandUi::SetToolbar(HWND toolbar, std::span<const ToolCommand> comman
         TBBUTTON item{};
         item.iBitmap = I_IMAGENONE;
         item.idCommand = gsl::narrow_cast<int>(command.id);
-        item.fsState = (command.enabled ? TBSTATE_ENABLED : 0) | (command.checked ? TBSTATE_CHECKED : 0);
-        item.fsStyle = BTNS_BUTTON;
+        item.fsState = command.id == 0 ? 0 :
+            (command.enabled ? TBSTATE_ENABLED : 0) | (command.checked ? TBSTATE_CHECKED : 0);
+        item.fsStyle = command.id == 0 ? BTNS_SEP : command.radio ? BTNS_CHECKGROUP : BTNS_BUTTON;
+        if (command.id == 0) item.iBitmap = kToolbarGroupGap;
         item.dwData = std::to_underlying(command.icon);
-        item.iString = reinterpret_cast<INT_PTR>(command.text);
+        item.iString = command.id == 0 ? 0 : reinterpret_cast<INT_PTR>(command.text);
         if (!::SendMessageW(toolbar, TB_ADDBUTTONSW, 1, reinterpret_cast<LPARAM>(&item))) {
             Fail("TB_ADDBUTTONSW", ERROR_SUCCESS);
         }
@@ -154,6 +157,22 @@ int ToolCommandUi::LayoutToolbar(HWND toolbar, int width, const FluentD2DThemeCo
     const int size = theme.ScalePx(kToolbarButtonSize);
     ::SendMessageW(toolbar, TB_SETBUTTONSIZE, 0, MAKELPARAM(size, size));
     ::SendMessageW(toolbar, TB_SETBUTTONWIDTH, 0, MAKELPARAM(size, size));
+    const LRESULT count = ::SendMessageW(toolbar, TB_BUTTONCOUNT, 0, 0);
+    for (LRESULT i = 0; i < count; ++i) {
+        TBBUTTON button{};
+        if (!::SendMessageW(toolbar, TB_GETBUTTON, gsl::narrow_cast<WPARAM>(i), reinterpret_cast<LPARAM>(&button))) {
+            Report("TB_GETBUTTON(layout)", ERROR_NOT_FOUND);
+            continue;
+        }
+        if ((button.fsStyle & BTNS_SEP) != 0) {
+            TBBUTTONINFO separator{};
+            separator.cbSize = sizeof(separator);
+            separator.dwMask = TBIF_BYINDEX | TBIF_SIZE;
+            separator.cx = gsl::narrow_cast<WORD>(theme.ScalePx(kToolbarGroupGap));
+            if (!::SendMessageW(toolbar, TB_SETBUTTONINFOW, gsl::narrow_cast<WPARAM>(i), reinterpret_cast<LPARAM>(&separator)))
+                Report("TB_SETBUTTONINFOW(separator size)", ERROR_INVALID_DATA);
+        }
+    }
     ::SendMessageW(toolbar, TB_AUTOSIZE, 0, 0);
     RECT rect{};
     ::GetWindowRect(toolbar, &rect);
@@ -308,11 +327,6 @@ void ToolCommandUi::DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, 
         box(11, 8, 15, 20);
         box(17, 3, 21, 20);
         break;
-    case ToolIcon::CaptureMetrics:
-        box(3, 3, 14, 13);
-        path({{5, 8}, {8, 11}, {12, 5}});
-        path({{3, 19}, {8, 16}, {12, 20}, {18, 11}, {22, 15}});
-        break;
     default:
         Report("Unsupported command icon", ERROR_INVALID_PARAMETER);
         return;
@@ -338,11 +352,12 @@ LRESULT ToolCommandUi::DrawToolbar(NMCUSTOMDRAW& draw, const Toolbar& toolbar,
         return CDRF_DODEFAULT;
     TBBUTTONINFOW button{};
     button.cbSize = sizeof(button);
-    button.dwMask = TBIF_LPARAM;
+    button.dwMask = TBIF_LPARAM | TBIF_STYLE;
     if (::SendMessageW(toolbar.window, TB_GETBUTTONINFOW, draw.dwItemSpec, reinterpret_cast<LPARAM>(&button)) < 0) {
         Report("TB_GETBUTTONINFOW(draw)", ERROR_NOT_FOUND);
         return CDRF_DODEFAULT;
     }
+    if ((button.fsStyle & BTNS_SEP) != 0) return CDRF_DODEFAULT;
     const bool hot = (draw.uItemState & (CDIS_HOT | CDIS_SELECTED | CDIS_CHECKED)) != 0;
     const bool disabled = (draw.uItemState & CDIS_DISABLED) != 0;
     const COLORREF background =

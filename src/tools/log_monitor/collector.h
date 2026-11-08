@@ -68,6 +68,7 @@ public:
     bool Stop() noexcept;
     void PollLoss() noexcept;
     bool Running() const noexcept { return running_.load(); }
+    bool CollectingMetrics() const noexcept { return Running() && collect_metrics_; }
     std::wstring_view SessionName() const noexcept { return name_; }
     const std::optional<CaptureStartFailure>& LastStartFailure() const noexcept { return start_failure_; }
     std::atomic<uint64_t> decode_errors{0};

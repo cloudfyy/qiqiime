@@ -64,13 +64,18 @@ void MonitorWindow::Impl::ReportCommandError(void* context, const char* operatio
 
 const wchar_t* MonitorWindow::Impl::CommandText(ControlId id) const noexcept {
     switch (id) {
-    case Start: return collector.Running() ? Text(L"停止采集", L"Stop capture") : Text(L"开始采集", L"Start capture");
+    case Start:
+        if (collector.Running()) return collector.CollectingMetrics() ?
+            Text(L"停止采集 (Logs + Metrics)", L"Stop capture (Logs + Metrics)") :
+            Text(L"停止采集 (Logs)", L"Stop capture (Logs)");
+        return metrics_view ? Text(L"开始采集 (Logs + Metrics)", L"Start capture (Logs + Metrics)") :
+            Text(L"开始采集 (Logs)", L"Start capture (Logs)");
     case Pause: return paused ? Text(L"恢复自动滚动", L"Resume auto-scroll") : Text(L"暂停自动滚动", L"Pause auto-scroll");
     case Clear: return metrics_view ? Text(L"清空指标", L"Clear metrics") : Text(L"清空", L"Clear");
     case Copy: return Text(L"复制", L"Copy");
     case Export: return Text(L"导出...", L"Export...");
-    case Source: return metrics_view || diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics");
-    case CaptureMetrics: return Text(L"采集 Metrics", L"Capture Metrics");
+    case Source: return Text(L"输入法日志", L"IME events");
+    case DiagnosticsView: return Text(L"工具诊断", L"Diagnostics");
     case MetricsView: return Text(L"指标视图", L"Metrics view");
     case About: return Text(L"关于...", L"About...");
     case SelectAll: return Text(L"全选", L"Select All");
@@ -92,19 +97,20 @@ ToolCommand MonitorWindow::Impl::UiCommand(ControlId id) const noexcept {
     case Clear: icon = ToolIcon::Delete; break;
     case Copy: icon = ToolIcon::Copy; break;
     case Export: icon = ToolIcon::Save; break;
-    case Source: icon = metrics_view || diagnostic_view ? ToolIcon::Events : ToolIcon::Diagnostics; break;
-    case CaptureMetrics: icon = ToolIcon::CaptureMetrics; break;
+    case Source: icon = ToolIcon::Events; break;
+    case DiagnosticsView: icon = ToolIcon::Diagnostics; break;
     case MetricsView: icon = ToolIcon::Metrics; break;
     default: break;
     }
-    const bool checked = (id == Pause && paused) || (id == Source && diagnostic_view && !metrics_view) ||
-        (id == CaptureMetrics && capture_metrics) || (id == MetricsView && metrics_view) ||
+    const bool checked = (id == Start && collector.Running()) || (id == Pause && paused) ||
+        (id == Source && !diagnostic_view && !metrics_view) ||
+        (id == DiagnosticsView && diagnostic_view && !metrics_view) ||
+        (id == MetricsView && metrics_view) ||
         (id >= LanguageAuto && id <= LanguageEn &&
             std::to_underlying(id) - std::to_underlying(LanguageAuto) == std::to_underlying(ui_language));
     const auto* selected_event = id == FilterActivity ? FirstSelectedEvent() : nullptr;
     bool enabled = true;
     switch (id) {
-    case CaptureMetrics: enabled = !collector.Running(); break;
     case Export: case SelectAll: enabled = !metrics_view; break;
     case Copy: enabled = !metrics_view || metric_selected.has_value(); break;
     case FilterActivity:
@@ -113,14 +119,15 @@ ToolCommand MonitorWindow::Impl::UiCommand(ControlId id) const noexcept {
     case ClearActivity: enabled = !metrics_view && filter.activity_id.has_value(); break;
     default: break;
     }
-    return {gsl::narrow_cast<UINT>(std::to_underlying(id)), CommandText(id), icon, enabled, checked};
+    const bool radio = id == Source || id == DiagnosticsView || id == MetricsView;
+    return {gsl::narrow_cast<UINT>(std::to_underlying(id)), CommandText(id), icon, enabled, checked, radio};
 }
 
 void MonitorWindow::Impl::UpdateCommands() {
     const ToolCommand separator{};
     const std::array file{UiCommand(Start), UiCommand(Pause), separator, UiCommand(Export), separator, UiCommand(Exit)};
     const std::array edit{UiCommand(Copy), UiCommand(SelectAll), separator, UiCommand(Clear)};
-    const std::array view{UiCommand(Source), UiCommand(MetricsView), UiCommand(CaptureMetrics),
+    const std::array view{UiCommand(Source), UiCommand(MetricsView), UiCommand(DiagnosticsView),
         separator, UiCommand(FilterActivity), UiCommand(ClearActivity)};
     const std::array language{UiCommand(LanguageAuto), UiCommand(LanguageZh), UiCommand(LanguageEn)};
     const std::array help{UiCommand(About)};
@@ -132,7 +139,8 @@ void MonitorWindow::Impl::UpdateCommands() {
         ToolMenu{Text(L"帮助(&H)", L"&Help"), L'h', help}};
     command_ui.SetMenu(hwnd, menus);
     const std::array buttons{UiCommand(Start), UiCommand(Export), UiCommand(Clear),
-        UiCommand(Copy), UiCommand(Pause), UiCommand(Source), UiCommand(MetricsView), UiCommand(CaptureMetrics)};
+        UiCommand(Copy), UiCommand(Pause), separator, UiCommand(Source), UiCommand(MetricsView),
+        UiCommand(DiagnosticsView)};
     command_ui.SetToolbar(Child(Toolbar), buttons);
     command_state.reset();
     RefreshCommandState();
@@ -142,9 +150,9 @@ void MonitorWindow::Impl::RefreshCommandState() {
     const auto* event = FirstSelectedEvent();
     const std::array state{collector.Running(), paused, diagnostic_view,
         metrics_view ? SelectedMetricActivity() != GUID_NULL : event && event->activity_id != GUID_NULL,
-        filter.activity_id.has_value(), capture_metrics, metrics_view, metric_selected.has_value()};
+        filter.activity_id.has_value(), collector.CollectingMetrics(), metrics_view, metric_selected.has_value()};
     if (command_state == state) return;
-    for (const auto id : {Start, Pause, Source, FilterActivity, ClearActivity, CaptureMetrics, MetricsView, Export, Clear, SelectAll, Copy})
+    for (const auto id : {Start, Pause, Source, DiagnosticsView, FilterActivity, ClearActivity, MetricsView, Export, Clear, SelectAll, Copy})
         command_ui.UpdateCommand(hwnd, UiCommand(id));
     command_state = state;
 }

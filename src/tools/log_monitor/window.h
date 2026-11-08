@@ -11,9 +11,10 @@ enum class ControlId { Start = 100, Pause, Clear, Export, Source, About, Process
                  List, Details, Status, ProcessLabel, PidLabel, LevelLabel, SearchLabel,
                  DetailsSplitter, Copy = 121, CategoryLabel = 124, Category = 125,
                  Toolbar, LanguageAuto, LanguageZh, LanguageEn, Exit, SelectAll, FilterActivity, ClearActivity,
-                 CaptureMetrics = 160, MetricsView, MetricInstanceFilter, MetricKindFilter,
+                 MetricsView = 161, MetricInstanceFilter, MetricKindFilter,
                  MetricOutcomeFilter, MetricModeFilter, MetricWindowFilter, MetricList, MetricSummaryStatus,
-                 MetricInstanceLabel, MetricKindLabel, MetricOutcomeLabel, MetricModeLabel, MetricWindowLabel };
+                 MetricInstanceLabel, MetricKindLabel, MetricOutcomeLabel, MetricModeLabel, MetricWindowLabel,
+                 DiagnosticsView = 180 };
 
 class MonitorWindow final {
 public:

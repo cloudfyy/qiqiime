@@ -296,7 +296,7 @@ void MonitorWindow::Impl::Command(int id, int notification) {
     case Start:
         if (collector.Running()) {
             collector.Stop();
-        } else if (collector.Start(capture_metrics)) {
+        } else if (collector.Start(metrics_view)) {
             last_error.clear();
         } else if (const auto& failure = collector.LastStartFailure();
                    failure && RecoverCapturePermission(*failure)) {
@@ -304,15 +304,9 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         }
         Tick();
         break;
-    case CaptureMetrics:
-        if (collector.Running()) {
-            diagnostics.Record(3, L"Stop capture before changing Metrics mode", ERROR_INVALID_STATE);
-        } else {
-            capture_metrics = !capture_metrics;
-        }
-        UpdateStatus();
+    case MetricsView:
+        if (!metrics_view) ShowMetrics(true);
         break;
-    case MetricsView: ShowMetrics(!metrics_view); break;
     case Pause:
         paused = !paused;
         RefreshCommandState();
@@ -336,12 +330,13 @@ void MonitorWindow::Impl::Command(int id, int notification) {
     case Copy: CopySelection(); break;
     case Export: ExportSnapshot(); break;
     case Source:
-        if (metrics_view) {
-            diagnostic_view = false;
-            ShowMetrics(false);
+    case DiagnosticsView: {
+        const bool next_diagnostic = id == std::to_underlying(DiagnosticsView);
+        if (next_diagnostic == diagnostic_view) {
+            if (metrics_view) ShowMetrics(false);
             break;
         }
-        diagnostic_view = !diagnostic_view;
+        diagnostic_view = next_diagnostic;
         selected = 0;
         selected_ids.clear();
         ::SetWindowTextW(Child(Process), L"");
@@ -352,8 +347,9 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         ::SendMessageW(Child(Level), CB_SETCURSEL, 0, 0);
         ::SendMessageW(Child(Category), CB_SETCURSEL, 0, 0);
         Refilter();
-        UpdateStatus();
+        ShowMetrics(false);
         break;
+    }
     case About: {
         if (!ShowAboutDialog(instance, hwnd, ui_language, true)) {
             diagnostics.Record(2, L"About dialog creation or message loop did not complete");

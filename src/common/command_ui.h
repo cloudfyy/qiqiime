@@ -28,16 +28,16 @@ enum class ToolIcon {
     Diagnostics,
     Events,
     Edit,
-    Metrics,
-    CaptureMetrics
+    Metrics
 };
 
 struct ToolCommand {
-    UINT id = 0; // Zero denotes a menu separator.
+    UINT id = 0; // Zero denotes a menu or toolbar separator.
     const wchar_t* text = L"";
     ToolIcon icon = ToolIcon::None;
     bool enabled = true;
     bool checked = false;
+    bool radio = false;
 };
 
 struct ToolMenu {

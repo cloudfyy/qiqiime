@@ -410,9 +410,13 @@ void MonitorWindow::Impl::UpdateMetricStatus() {
         Text(L"ETW 丢失", L"ETW lost"), status.queue.events_lost, status.queue.buffers_lost,
         Text(L"队列丢弃", L"Queue dropped"), status.queue.queue_dropped,
         Text(L"聚合/待完成丢弃", L"Aggregation/pending dropped"), status.aggregation_dropped, status.pending_dropped,
-        capture_metrics ? Text(L"下次启动将采集 Logs + Metrics；停止后才能更改。", L"Next start captures Logs + Metrics; stop before changing.") :
-            Text(L"指标采集关闭：先停止，勾选“采集 Metrics”，再开始；仅切换视图不会开启采集。",
-                L"Metrics capture is off: stop, check Capture Metrics, then start; opening this view does not enable capture."));
+        collector.Running() ? collector.CollectingMetrics() ?
+            Text(L"当前采集 Logs + Metrics；切换视图不改变采集模式。",
+                L"Capturing Logs + Metrics; changing views does not change capture mode.") :
+            Text(L"当前只采集 Logs；请停止后在指标视图重新开始以采集 Metrics。",
+                L"Capturing Logs only; stop and restart in Metrics view to capture Metrics.") :
+            Text(L"在指标视图点击“开始采集”将采集 Logs + Metrics；其它视图启动只采集 Logs。",
+                L"Start in Metrics view to capture Logs + Metrics; starting in other views captures Logs only."));
     ::SetWindowTextW(Child(MetricSummaryStatus), text.c_str());
     if (metrics_view) {
         auto footer = std::wstring(Text(L"Metrics JSON 导出下一步提供；日志导出在日志视图。", L"Metrics JSON export deferred; log export is available in the log view."));
