@@ -1,5 +1,6 @@
 #include "common/test_support.h"
 #include "common/config.h"
+#include "common/command_ui.h"
 #include "common/d2d_controls.h"
 #include "common/file_util.h"
 #include "common/i18n.h"
@@ -155,10 +156,15 @@ void CheckLayout(const DictManagerWindow& window, UINT dpi) {
         QIQI_TEST_CHECK(MenuText(menu, id) == text.data());
         TBBUTTONINFO button{};
         button.cbSize = sizeof(button);
-        button.dwMask = TBIF_STYLE;
+        button.dwMask = TBIF_STYLE | TBIF_LPARAM;
         QIQI_TEST_CHECK(::SendMessageW(toolbar, TB_GETBUTTONINFOW,
             std::to_underlying(id), reinterpret_cast<LPARAM>(&button)) >= 0);
         QIQI_TEST_CHECK((button.fsStyle & (BTNS_SHOWTEXT | BTNS_AUTOSIZE)) == 0);
+        if (id == Export) {
+            QIQI_TEST_CHECK(gsl::narrow_cast<ToolIcon>(button.lParam) == ToolIcon::Save);
+        } else if (id == Import) {
+            QIQI_TEST_CHECK(gsl::narrow_cast<ToolIcon>(button.lParam) == ToolIcon::Import);
+        }
         std::array<wchar_t, 256> tooltip{};
         NMTBGETINFOTIPW tip{};
         tip.hdr.hwndFrom = toolbar;

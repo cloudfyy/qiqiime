@@ -28,8 +28,8 @@ void MonitorWindow::Impl::ReportCommandError(void* context, const char* operatio
 
 const wchar_t* MonitorWindow::Impl::CommandText(ControlId id) const noexcept {
     switch (id) {
-    case Start: return collector.Running() ? Text(L"停止采集", L"Stop") : Text(L"开始采集", L"Start");
-    case Pause: return paused ? Text(L"恢复滚动", L"Resume scroll") : Text(L"暂停滚动", L"Pause scroll");
+    case Start: return collector.Running() ? Text(L"停止采集", L"Stop capture") : Text(L"开始采集", L"Start capture");
+    case Pause: return paused ? Text(L"恢复自动滚动", L"Resume auto-scroll") : Text(L"暂停自动滚动", L"Pause auto-scroll");
     case Clear: return Text(L"清空", L"Clear");
     case Copy: return Text(L"复制", L"Copy");
     case Export: return Text(L"导出...", L"Export...");

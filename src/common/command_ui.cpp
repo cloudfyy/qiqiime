@@ -225,14 +225,17 @@ void ToolCommandUi::DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, 
         box(4, 8, 16, 21);
         path({{9, 8}, {9, 3}, {21, 3}, {21, 16}, {16, 16}});
         break;
-    case ToolIcon::Import:
     case ToolIcon::Export:
         path({{4, 16}, {4, 21}, {20, 21}, {20, 16}});
         path({{12, 3}, {12, 16}});
-        if (icon == ToolIcon::Import)
-            path({{7, 11}, {12, 16}, {17, 11}});
-        else
-            path({{7, 8}, {12, 3}, {17, 8}});
+        path({{7, 8}, {12, 3}, {17, 8}});
+        break;
+    case ToolIcon::Import:
+        path({{13, 3}, {21, 3}, {21, 21}, {13, 21}});
+        path({{13, 3}, {13, 7}});
+        path({{13, 17}, {13, 21}});
+        path({{2, 12}, {17, 12}});
+        path({{12, 7}, {17, 12}, {12, 17}});
         break;
     case ToolIcon::Save:
         path({{4, 3}, {17, 3}, {21, 7}, {21, 21}, {4, 21}, {4, 3}});
@@ -263,12 +266,18 @@ void ToolCommandUi::DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, 
         box(5, 5, 20, 20);
         break;
     case ToolIcon::Pause:
-        box(5, 4, 10, 21);
-        box(15, 4, 20, 21);
-        break;
     case ToolIcon::Resume:
-        path({{5, 4}, {17, 12}, {5, 20}, {5, 4}});
-        path({{21, 4}, {21, 20}});
+        box(3, 3, 14, 21);
+        path({{6, 8}, {11, 8}});
+        path({{6, 12}, {11, 12}});
+        path({{6, 16}, {9, 16}});
+        if (icon == ToolIcon::Pause) {
+            path({{18, 6}, {18, 18}});
+            path({{22, 6}, {22, 18}});
+        } else {
+            path({{20, 4}, {20, 19}});
+            path({{17, 16}, {20, 19}, {23, 16}});
+        }
         break;
     case ToolIcon::Diagnostics:
         box(3, 4, 22, 21);

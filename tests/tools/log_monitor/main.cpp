@@ -49,6 +49,47 @@ void Click(const MonitorWindow& window, ControlId id) {
     }
 }
 
+void TestScrollIcons() {
+    const ToolCommandUi commands(
+        +[](void*, const char*, ULONG) noexcept { QIQI_TEST_CHECK(false); }, nullptr);
+    const ScopedWindowDC screen(nullptr);
+    const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+    const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), 64, 64));
+    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(RGB(255, 255, 255)));
+    QIQI_TEST_CHECK(screen && dc && bitmap && background);
+    const ScopedSelectObject selected(dc.Get(), bitmap.Get());
+    QIQI_TEST_CHECK(selected);
+    constexpr RECT rect{0, 0, 64, 64};
+    constexpr std::array icons{ToolIcon::Stop, ToolIcon::Pause, ToolIcon::Resume};
+    for (const int size : {16, 20, 24, 32}) {
+        std::array<std::vector<uint8_t>, icons.size()> masks;
+        for (size_t index = 0; index < icons.size(); ++index) {
+            QIQI_TEST_CHECK(::FillRect(dc.Get(), &rect, background.Get()));
+            commands.DrawIcon(dc.Get(), rect, gsl::at(icons, index), size,
+                ::MulDiv(2, size, 20), RGB(0, 0, 0));
+            auto& mask = gsl::at(masks, index);
+            for (int y = 0; y < 64; ++y) {
+                for (int x = 0; x < 64; ++x) {
+                    const COLORREF pixel = ::GetPixel(dc.Get(), x, y);
+                    QIQI_TEST_CHECK(pixel == RGB(0, 0, 0) || pixel == RGB(255, 255, 255));
+                    mask.push_back(pixel == RGB(0, 0, 0));
+                }
+            }
+        }
+        for (size_t first = 0; first < masks.size(); ++first) {
+            for (size_t second = first + 1; second < masks.size(); ++second) {
+                size_t difference = 0;
+                for (size_t pixel = 0; pixel < gsl::at(masks, first).size(); ++pixel) {
+                    if (gsl::at(gsl::at(masks, first), pixel) != gsl::at(gsl::at(masks, second), pixel)) {
+                        ++difference;
+                    }
+                }
+                QIQI_TEST_CHECK(difference >= 10);
+            }
+        }
+    }
+}
+
 std::wstring CommandName(const MonitorWindow& window, ControlId id) {
     std::array<wchar_t, 256> text{};
     QIQI_TEST_CHECK(::GetMenuStringW(::GetMenu(window.Handle()), std::to_underlying(id), text.data(),
@@ -241,7 +282,7 @@ void TestMenusAndToolbar(const RECT& work_area) {
     SelectLanguage(window, UiLanguage::EnUs);
     Click(window, Pause);
     QIQI_TEST_CHECK(icon(Pause) == ToolIcon::Resume);
-    QIQI_TEST_CHECK(CommandName(window, Pause) == L"Resume scroll");
+    QIQI_TEST_CHECK(CommandName(window, Pause) == L"Resume auto-scroll");
     QIQI_TEST_CHECK((::SendMessageW(toolbar, TB_GETSTATE, std::to_underlying(Pause), 0) & TBSTATE_CHECKED) != 0);
     Click(window, Source);
     QIQI_TEST_CHECK(icon(Source) == ToolIcon::Events);
@@ -955,7 +996,7 @@ void TestDesktopIntegration() {
     QIQI_TEST_CHECK(CommandName(window, Clear) == L"清空");
     QIQI_TEST_CHECK(CommandName(window, Copy) == L"复制");
     QIQI_TEST_CHECK(CommandName(window, LanguageZh) == GetUiStrings(UiLanguage::ZhCn).dlg_lang_zh);
-    QIQI_TEST_CHECK(CommandName(window, Pause) == L"恢复滚动");
+    QIQI_TEST_CHECK(CommandName(window, Pause) == L"恢复自动滚动");
     QIQI_TEST_CHECK(CommandName(window, Source) == L"输入法日志");
     QIQI_TEST_CHECK(ControlText(window.Handle()).contains(L"奇奇日志监控"));
     QIQI_TEST_CHECK(ControlText(Child(window, Search)) == L"initialized");
@@ -1173,7 +1214,7 @@ int Integration(const wchar_t* peer) {
         QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr)));
         SelectLanguage(window, UiLanguage::EnUs);
         Click(window, Start);
-        QIQI_TEST_CHECK(CommandName(window, Start) == L"Stop");
+        QIQI_TEST_CHECK(CommandName(window, Start) == L"Stop capture");
         GUID gui_activity{};
         QIQI_TEST_CHECK(SUCCEEDED(::CoCreateGuid(&gui_activity)));
         log::WriteLogMessage(log::Level::info, "filter-parent",
@@ -1256,7 +1297,7 @@ int Integration(const wchar_t* peer) {
         SelectPid(window, second_child.dwProcessId);
         QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 2);
         Click(window, Start);
-        QIQI_TEST_CHECK(CommandName(window, Start) == L"Start");
+        QIQI_TEST_CHECK(CommandName(window, Start) == L"Start capture");
         Click(window, Clear);
         QIQI_TEST_CHECK(::SendMessageW(Child(window, Process), CB_GETCOUNT, 0, 0) == 0);
         QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) == 1);
@@ -1304,6 +1345,7 @@ int wmain(int argc, wchar_t* argv[]) {
     TestBuffersAndFilters();
     qiqi::monitor::permission_tests::RunPermissionRecoveryTests();
     TestExport();
+    TestScrollIcons();
     TestAboutDialogs();
     TestWindowAndVersion();
     TestMenusAndToolbar({0, 0, 3840, 2160});

@@ -79,7 +79,7 @@ ToolCommand DictManagerWindow::Impl::UiCommand(ControlId id) const noexcept {
     case Reload: icon = ToolIcon::Reload; break;
     case Copy: icon = ToolIcon::Copy; break;
     case Import: icon = ToolIcon::Import; break;
-    case Export: icon = ToolIcon::Export; break;
+    case Export: icon = ToolIcon::Save; break;
     case SaveWord: icon = ToolIcon::Save; break;
     case Pin: icon = ToolIcon::Pin; break;
     case Delete: icon = ToolIcon::Delete; break;
