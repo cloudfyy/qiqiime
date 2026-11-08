@@ -511,7 +511,7 @@ void TestModelAndCrossProcessSync() {
     });
 
     const auto user_dict = temp_dir / L"user_dict.txt";
-    const auto freq_file = temp_dir / L"phrase_freq.txt";
+    const auto freq_file = temp_dir / L"phrase_freq.qfreq";
     const auto import_file = temp_dir / L"import.txt";
     const auto export_file = temp_dir / L"export.txt";
 
@@ -1146,7 +1146,7 @@ void TestGuiWindow() {
     });
 
     const auto user_dict = temp_dir / L"user_dict.txt";
-    const auto freq_file = temp_dir / L"phrase_freq.txt";
+    const auto freq_file = temp_dir / L"phrase_freq.qfreq";
 
     DictManagerWindow window;
     QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr), user_dict, freq_file));
@@ -1317,7 +1317,7 @@ void TestInlineEditing() {
         std::filesystem::remove_all(temp_dir, ec);
     });
     const auto user_dict = temp_dir / L"user_dict.txt";
-    const auto freq_file = temp_dir / L"phrase_freq.txt";
+    const auto freq_file = temp_dir / L"phrase_freq.qfreq";
     std::string source = "abcd 原始词\n";
     for (int i = 0; i < 100; ++i)
         source += "zzzz 滚动测试词" + std::to_string(i) + "\n";

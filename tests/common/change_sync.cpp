@@ -248,7 +248,7 @@ void ProbeReader(const std::filesystem::path& directory, HANDLE ready) {
     QIQI_TEST_CHECK(!called && denied == Version{});
     QIQI_TEST_CHECK(Channel::Create(directory / L"forbidden", kSource) == E_ACCESSDENIED);
     const auto user_dict = directory / L"user_dict.txt";
-    const auto freq_file = directory / L"phrase_freq.txt";
+    const auto freq_file = directory / L"phrase_freq.qfreq";
     WubiEngine container_engine;
     container_engine.SetUserDictPath(user_dict);
     container_engine.SetPhraseFreqPath(freq_file);
@@ -335,7 +335,7 @@ void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
         FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
     QIQI_TEST_CHECK(lock);
     const auto user_dict = fixture.directory / L"user_dict.txt";
-    const auto freq_file = fixture.directory / L"phrase_freq.txt";
+    const auto freq_file = fixture.directory / L"phrase_freq.qfreq";
     WubiEngine host_engine;
     host_engine.SetUserDictPath(user_dict);
     host_engine.SetPhraseFreqPath(freq_file);

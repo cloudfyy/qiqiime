@@ -226,12 +226,18 @@ void TestFileUtilityBoundaries() {
         L"\\" + std::wstring(100, L'c');
     with_environment(L"LOCALAPPDATA", long_directory.c_str(), [&]() {
         QIQI_TEST_CHECK(GetAppDataDirectory() == std::filesystem::path(long_directory) / L"QiQiIME");
+        const auto freq_path = std::filesystem::path(long_directory) / L"QiQiIME" / L"phrase_freq.qfreq";
+        QIQI_TEST_CHECK(GetDefaultPhraseFreqPath() == freq_path);
+        QIQI_TEST_CHECK(GetSyncChannelDirectoryForFile(freq_path) ==
+            std::filesystem::path(freq_path.wstring() + L".sync"));
     });
     with_environment(L"LOCALAPPDATA", nullptr, [&]() {
         std::wstring temporary(32768, L'\0');
         const DWORD length = ::GetTempPathW(gsl::narrow_cast<DWORD>(temporary.size()), temporary.data());
         QIQI_TEST_CHECK(length > 0 && length < temporary.size());
         QIQI_TEST_CHECK(GetAppDataDirectory() == std::filesystem::path(temporary.data()) / L"QiQiIME");
+        QIQI_TEST_CHECK(GetDefaultPhraseFreqPath() ==
+            std::filesystem::path(temporary.data()) / L"QiQiIME" / L"phrase_freq.qfreq");
     });
 }
 

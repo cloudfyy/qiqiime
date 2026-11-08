@@ -263,7 +263,7 @@ std::filesystem::path GetDefaultUserDictPath() {
 }
 
 std::filesystem::path GetDefaultPhraseFreqPath() {
-    return ResolveDefaultUserFilePath(L"phrase_freq.txt");
+    return ResolveDefaultUserFilePath(L"phrase_freq.qfreq");
 }
 
 std::filesystem::path GetSyncChannelDirectoryForFile(const std::filesystem::path& file_path) {

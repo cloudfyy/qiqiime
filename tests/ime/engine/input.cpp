@@ -736,7 +736,7 @@ void TestNavigationSelectionAndReturnCommit() {
                     gsl::at(cands_single_fixed, 3) == L"字");
 
     // Selecting "词组甲" via VK_DOWN + VK_SPACE (CommitSelected) promotes "词组甲" back ahead of "词组乙" without duplication
-    const auto temp_freq_path = std::filesystem::temp_directory_path() / L"qiqiime_test_phrase_freq.txt";
+    const auto temp_freq_path = std::filesystem::temp_directory_path() / L"qiqiime_test_phrase_freq.qfreq";
     std::error_code freq_ec;
     std::filesystem::remove(temp_freq_path, freq_ec);
     engine.SetPhraseFreqPath(temp_freq_path);

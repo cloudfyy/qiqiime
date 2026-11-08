@@ -534,7 +534,7 @@ void TestCrossProcessDictAndPhraseFreqSync() {
     });
 
     const auto user_dict = base_dir / L"user_dict.txt";
-    const auto freq_file = base_dir / L"phrase_freq.txt";
+    const auto freq_file = base_dir / L"phrase_freq.qfreq";
 
     WubiEngine writer;
     WubiEngine reader;

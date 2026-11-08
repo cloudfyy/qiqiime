@@ -238,7 +238,7 @@ bool IsProcessAppContainer() noexcept;
 // Return default user custom dictionary path: %LOCALAPPDATA%\QiQiIME\user_dict.txt
 std::filesystem::path GetDefaultUserDictPath();
 
-// Return default user dynamic phrase frequency table path: %LOCALAPPDATA%\QiQiIME\phrase_freq.txt
+// Return default user dynamic phrase frequency table path: %LOCALAPPDATA%\QiQiIME\phrase_freq.qfreq
 std::filesystem::path GetDefaultPhraseFreqPath();
 
 // Return the dedicated cross-process synchronization channel directory for a given data file path.

@@ -29,7 +29,7 @@ QiQiIME 是 TSF 进程内 COM 组件。在允许加载该输入法的宿主中�
 
 #### 用户文件与注册表镜像
 - [`GetAppDataDirectory()`](../src/common/file_util.cpp) 从当前进程的 `LOCALAPPDATA` 解析用户数据路径。应用包、进程令牌和重定向机制可能影响实际路径与访问结果，不能固定推导为某个包的 `AC` 或 `LocalState` 目录。
-- 普通桌面进程通常使用 `%LOCALAPPDATA%\QiQiIME\user_dict.txt`、`phrase_freq.txt` 与 `cache\`；这不意味着 AppContainer 能访问同一目录，也不应通过开放整个用户目录权限解决。
+- 普通桌面进程通常使用 `%LOCALAPPDATA%\QiQiIME\user_dict.txt`、`phrase_freq.qfreq` 与 `cache\`；这不意味着 AppContainer 能访问同一目录，也不应通过开放整个用户目录权限解决。
 - [`config.cpp`](../src/common/config.cpp) 将设置保存在 `HKCU\Software\QiQiIME`，并尝试为 `S-1-15-2-1` 与 `S-1-15-2-2` 授予 `KEY_READ`。实际访问仍受令牌、有效 ACL 和系统策略约束；该读取授权不等于允许应用包写回共享设置。
 - 在线造词写入默认用户词表后，会尝试编译二进制镜像并写入注册表 `UserDictQdict`，镜像上限为 **512 KiB**。文件追加、缓存生成与注册表事务不是一个跨资源事务，不能保证三者同时成功。
 - 默认用户词表不存在时，[`LoadExternalDictionaryNextToDll`](../src/ime/tsf/tip_config.cpp) 才尝试读取注册表镜像；指定自定义用户词库路径时不走这一缺失文件回退。不能据此承诺所有沙箱中的用户词库实时双向同步。

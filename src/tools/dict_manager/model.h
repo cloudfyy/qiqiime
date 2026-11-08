@@ -11,7 +11,7 @@ namespace qiqi::dict_manager {
 
 enum class BackupConflictMode : uint8_t {
     Merge = 0,   // Keep existing user words/pins/blocks/frequencies and merge backup entries
-    Replace = 1, // Replace user_dict.txt and phrase_freq.txt completely with backup contents
+    Replace = 1, // Replace user_dict.txt and phrase_freq.qfreq completely with backup contents
 };
 
 struct BackupRestoreSummary {
