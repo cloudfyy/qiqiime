@@ -123,6 +123,26 @@ static_assert(sizeof(DictBinaryHeader) == 40);
 static_assert(sizeof(DictCodeIndex) == 12);
 static_assert(sizeof(DictWordSlice) == 8);
 
+class WubiMappedDict;
+
+enum class PrimaryDictValidationStatus : uint8_t {
+    Valid = 0,
+    EmptyPath,
+    FileNotFound,
+    AccessDeniedOrReadError,
+    InvalidFormatOrEmpty
+};
+
+struct PrimaryDictValidationResult {
+    PrimaryDictValidationStatus status = PrimaryDictValidationStatus::EmptyPath;
+    DWORD win32_error = ERROR_INVALID_PARAMETER;
+    std::shared_ptr<const WubiMappedDict> dictionary;
+
+    constexpr explicit operator bool() const noexcept {
+        return status == PrimaryDictValidationStatus::Valid && dictionary != nullptr;
+    }
+};
+
 // Read-only memory-mapped (MapViewOfFile) or flat-buffer Wubi dictionary.
 // OS pages in 4KB blocks on demand and shares physical memory across all processes.
 class WubiMappedDict final {
@@ -138,6 +158,11 @@ public:
     // Load from a .txt / .yaml / .qdict dictionary file, using or generating a memory-mapped .qdict cache.
     static std::shared_ptr<const WubiMappedDict> LoadFromTextOrCache(
         const std::filesystem::path& txt_path);
+
+    // Validate a user-selected primary dictionary file (.txt / .yaml / .qdict) without modifying the source file,
+    // ensuring it exists, is readable, and contains at least one valid Wubi 86 entry.
+    static PrimaryDictValidationResult ValidateAndLoadPrimaryDictionary(
+        const std::filesystem::path& dict_path);
 
     // Precompile a .txt / .yaml dictionary file directly to a .qdict binary image on disk.
     static bool CompileTextFileToQdict(

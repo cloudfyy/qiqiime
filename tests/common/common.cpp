@@ -504,10 +504,11 @@ void TestConfigFieldProjections() {
 }
 
 void TestDictionaryLoadPlans() {
-    for (const PrimaryDict primary : {PrimaryDict::BuiltinOnly, PrimaryDict::Jidian, PrimaryDict::Haifeng}) {
+    for (const PrimaryDict primary : {PrimaryDict::BuiltinOnly, PrimaryDict::Jidian, PrimaryDict::Haifeng, PrimaryDict::Custom}) {
         for (const bool extra : {false, true}) {
             const auto plan = GetBundledDictionaryLoadPlan(primary, extra);
-            const size_t expected_count = primary == PrimaryDict::BuiltinOnly ? 0u :
+            const size_t expected_count =
+                (primary == PrimaryDict::BuiltinOnly || primary == PrimaryDict::Custom) ? 0u :
                 (primary == PrimaryDict::Jidian && extra ? 2u : 1u);
             QIQI_TEST_CHECK(plan.size() == expected_count);
             if (!plan.empty()) {
@@ -521,7 +522,37 @@ void TestDictionaryLoadPlans() {
             }
         }
     }
+    QIQI_TEST_CHECK(PrimaryDictToString(PrimaryDict::Custom) == "custom");
     QIQI_TEST_CHECK(GetBundledDictionaryLoadPlan(static_cast<PrimaryDict>(99), true).empty());
+
+    // Test PrimaryDictPath registry persistence and MergeSettingsConfig primary_dict_path handling
+    const std::wstring subkey = L"Software\\QiQiIME_PrimaryDictPathTest_" + std::to_wstring(::GetCurrentProcessId());
+    const auto cleanup = gsl::finally([&]() noexcept {
+        std::ignore = ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+    });
+    QiQiConfig cfg;
+    cfg.primary_dict = PrimaryDict::Custom;
+    cfg.primary_dict_path = L"C:\\CustomDicts\\my_wubi86.txt";
+    QIQI_TEST_CHECK(SaveConfigToRegistry(cfg, subkey.c_str()));
+    QiQiConfig loaded;
+    QIQI_TEST_CHECK(LoadConfigFromRegistry(loaded, nullptr, subkey.c_str()));
+    QIQI_TEST_CHECK(loaded.primary_dict == PrimaryDict::Custom);
+    QIQI_TEST_CHECK(loaded.primary_dict_path == L"C:\\CustomDicts\\my_wubi86.txt");
+
+    QiQiConfig baseline;
+    baseline.primary_dict_path = L"baseline.txt";
+    QiQiConfig local = baseline;
+    QiQiConfig external = baseline;
+    external.primary_dict_path = L"external.txt";
+    auto merged_untouched = external;
+    MergeSettingsConfig(merged_untouched, baseline, local);
+    QIQI_TEST_CHECK(merged_untouched.primary_dict_path == L"external.txt");
+    local.primary_dict_path = L"local_custom.txt";
+    auto merged_edited = external;
+    MergeSettingsConfig(merged_edited, baseline, local);
+    QIQI_TEST_CHECK(merged_edited.primary_dict_path == L"local_custom.txt");
+    QIQI_TEST_CHECK(std::wcscmp(ResolveDictionaryPathDisplayText(L"", L"none"), L"none") == 0);
+    QIQI_TEST_CHECK(std::wcscmp(ResolveDictionaryPathDisplayText(local.primary_dict_path, L"none"), L"local_custom.txt") == 0);
 }
 
 void TestIniConfiguration() {

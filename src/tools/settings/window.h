@@ -12,6 +12,11 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept;
 // Populate an open settings window's controls from QiQiConfig.
 void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept;
 
+// Validate and apply a custom primary dictionary file path to an open settings window.
+// If invalid, displays SettingsMessageKind::InvalidPrimaryDict and preserves existing selection.
+bool SelectCustomPrimaryDictionaryInSettings(
+    HWND hwnd, const std::filesystem::path& file_path) noexcept;
+
 // If a Settings dialog window is already open, restore it (if minimized) and activate its
 // foreground target (either its active owned modal popup or the Settings window itself).
 bool ActivateExistingSettingsWindow() noexcept;
@@ -31,7 +36,8 @@ void ReportSettingsNotificationFailure(HWND parent, UiLanguage ui_language) noex
 enum class SettingsMessageKind {
     SaveFailure,
     NotificationFailure,
-    DictManagerLaunchFailure
+    DictManagerLaunchFailure,
+    InvalidPrimaryDict
 };
 
 enum class SettingsToastKind {

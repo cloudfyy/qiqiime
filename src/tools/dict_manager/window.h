@@ -28,6 +28,8 @@ enum class ControlId {
     Copy,
     Import,
     Export,
+    SelectPrimaryDict,
+    RestoreDefaultPrimaryDict,
     Backup,
     Restore,
     ClearFreq,

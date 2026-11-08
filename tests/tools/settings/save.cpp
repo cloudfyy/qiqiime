@@ -86,6 +86,27 @@ void TestSaveRetryAndCancel() {
         }
     }
 
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    {
+        QiQiConfig custom_cfg;
+        custom_cfg.primary_dict = PrimaryDict::Jidian;
+        custom_cfg.ui_language = UiLanguage::ZhCn;
+        QIQI_TEST_CHECK(SaveConfig(custom_cfg));
+        const uint64_t seq_before = QueryRegistryConfigSequence();
+        const ScopedWindow custom_hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &custom_cfg, true));
+        QIQI_TEST_CHECK(custom_hwnd);
+        QiQiConfig invalid_edit = custom_cfg;
+        invalid_edit.primary_dict = PrimaryDict::Custom;
+        invalid_edit.primary_dict_path = L"C:\\NonExistentDir\\missing_primary.txt";
+        WriteSettingsToWindowControls(custom_hwnd.Get(), invalid_edit);
+        WithDismissedMessage(GetUiStrings(UiLanguage::ZhCn).dlg_invalid_primary_dict, [&]() {
+            ::SendMessageW(custom_hwnd.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+        });
+        QIQI_TEST_CHECK(!GetContext(custom_hwnd.Get()).done && !GetContext(custom_hwnd.Get()).accepted);
+        QIQI_TEST_CHECK(custom_cfg.primary_dict == PrimaryDict::Jidian);
+        QIQI_TEST_CHECK(QueryRegistryConfigSequence() == seq_before);
+    }
+
     SetConfigRegistrySubKeyOverrideForTest(L"");
     QiQiConfig cfg;
     const ScopedWindow edit_only(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));

@@ -5,6 +5,7 @@
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/theme.h"
+#include "ime/engine/binary_dict.h"
 
 #include <commctrl.h>
 #include <shellapi.h>
@@ -43,6 +44,96 @@ namespace {
 
 void ShowSettingsSaveFailure(HWND hwnd, UiLanguage ui_language) noexcept {
     ShowSettingsMessage(hwnd, ui_language, SettingsMessageKind::SaveFailure);
+}
+
+void CheckPrimaryDictRadio(HWND hwnd, PrimaryDict dict) noexcept {
+    int target_id = kIdRadioJidian;
+    if (dict == PrimaryDict::Haifeng) {
+        target_id = kIdRadioHaifeng;
+    } else if (dict == PrimaryDict::BuiltinOnly) {
+        target_id = kIdRadioBuiltin;
+    } else if (dict == PrimaryDict::Custom) {
+        target_id = kIdRadioCustom;
+    }
+    for (const int id : {kIdRadioJidian, kIdRadioHaifeng, kIdRadioBuiltin, kIdRadioCustom}) {
+        ::CheckDlgButton(hwnd, id, id == target_id ? BST_CHECKED : BST_UNCHECKED);
+    }
+}
+
+std::filesystem::path GetSettingsModuleDirectory(const DialogContext& ctx) {
+    const std::filesystem::path mod_path =
+        GetModuleFilePath(ctx.instance ? ctx.instance : g_dll_instance);
+    return mod_path.empty() ? std::filesystem::path{} : mod_path.parent_path();
+}
+
+} // namespace
+
+bool SelectCustomPrimaryDictionaryInSettings(
+    HWND hwnd, const std::filesystem::path& file_path) noexcept {
+    if (!hwnd || !::IsWindow(hwnd)) {
+        return false;
+    }
+    auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (!ctx) {
+        return false;
+    }
+    const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, *ctx);
+    try {
+        const std::filesystem::path resolved =
+            ResolveConfiguredDictionaryPath(GetSettingsModuleDirectory(*ctx), file_path.wstring());
+        const PrimaryDictValidationResult validation =
+            WubiMappedDict::ValidateAndLoadPrimaryDictionary(resolved);
+        if (!validation) {
+            QIQI_LOG_CAT_WARN(
+                log::Keyword::Dictionary,
+                "Settings rejected invalid custom primary dictionary '{}' (status={}, error={})",
+                WideToUtf8(file_path.wstring()),
+                static_cast<unsigned int>(validation.status),
+                validation.win32_error);
+            CheckPrimaryDictRadio(hwnd, ctx->last_valid_primary_dict);
+            UpdateExtraDictCheckboxState(hwnd);
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+            ShowSettingsMessage(hwnd, lang, SettingsMessageKind::InvalidPrimaryDict);
+            return false;
+        }
+        ctx->custom_primary_dict_path = file_path.wstring();
+        ctx->last_valid_primary_dict = PrimaryDict::Custom;
+        CheckPrimaryDictRadio(hwnd, PrimaryDict::Custom);
+        const auto& str = GetUiStrings(lang);
+        ::SetDlgItemTextW(
+            hwnd,
+            kIdLblCustomPrimaryPath,
+            ResolveDictionaryPathDisplayText(ctx->custom_primary_dict_path, str.dlg_lbl_custom_dict_none));
+        UpdateExtraDictCheckboxState(hwnd);
+        ::InvalidateRect(hwnd, nullptr, FALSE);
+        return true;
+    } catch (...) {
+        QIQI_LOG_CAT_ERROR(
+            log::Keyword::Dictionary,
+            "SelectCustomPrimaryDictionaryInSettings failed with an exception");
+        CheckPrimaryDictRadio(hwnd, ctx->last_valid_primary_dict);
+        UpdateExtraDictCheckboxState(hwnd);
+        ::InvalidateRect(hwnd, nullptr, FALSE);
+        ShowSettingsMessage(hwnd, lang, SettingsMessageKind::InvalidPrimaryDict);
+        return false;
+    }
+}
+
+namespace {
+
+bool BrowseCustomPrimaryDictionary(HWND hwnd, const DialogContext& ctx) noexcept {
+    try {
+        const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
+        std::filesystem::path selected_path;
+        if (!dialog_detail::PromptForPrimaryDictionaryFile(
+                hwnd, lang, ctx.custom_primary_dict_path, selected_path)) {
+            return false;
+        }
+        return SelectCustomPrimaryDictionaryInSettings(hwnd, selected_path);
+    } catch (...) {
+        QIQI_LOG_CAT_ERROR(log::Keyword::UI, "BrowseCustomPrimaryDictionary failed with an exception");
+        return false;
+    }
 }
 
 void InitSettingsCompartmentSubscription(HWND hwnd, DialogContext& ctx) noexcept {
@@ -96,10 +187,33 @@ void InitSettingsCompartmentSubscription(HWND hwnd, DialogContext& ctx) noexcept
 void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
     switch (LOWORD(wparam)) {
         case kIdRadioJidian:
-        case kIdRadioHaifeng:
-        case kIdRadioBuiltin:
+            ctx.last_valid_primary_dict = PrimaryDict::Jidian;
             UpdateExtraDictCheckboxState(hwnd);
             ::InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        case kIdRadioHaifeng:
+            ctx.last_valid_primary_dict = PrimaryDict::Haifeng;
+            UpdateExtraDictCheckboxState(hwnd);
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        case kIdRadioBuiltin:
+            ctx.last_valid_primary_dict = PrimaryDict::BuiltinOnly;
+            UpdateExtraDictCheckboxState(hwnd);
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        case kIdRadioCustom:
+            if (ctx.custom_primary_dict_path.empty()) {
+                if (!BrowseCustomPrimaryDictionary(hwnd, ctx)) {
+                    CheckPrimaryDictRadio(hwnd, ctx.last_valid_primary_dict);
+                }
+            } else {
+                ctx.last_valid_primary_dict = PrimaryDict::Custom;
+            }
+            UpdateExtraDictCheckboxState(hwnd);
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+            return;
+        case kIdBtnBrowsePrimaryDict:
+            std::ignore = BrowseCustomPrimaryDictionary(hwnd, ctx);
             return;
         case kIdComboUiLang:
             if (HIWORD(wparam) == CBN_SELCHANGE) {
@@ -130,6 +244,23 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                         return;
                     }
                     ReadSettingsFromWindowControls(hwnd, edited);
+                    if (edited.primary_dict == PrimaryDict::Custom) {
+                        const std::filesystem::path resolved =
+                            ResolveConfiguredDictionaryPath(GetSettingsModuleDirectory(ctx), edited.primary_dict_path);
+                        const PrimaryDictValidationResult validation =
+                            WubiMappedDict::ValidateAndLoadPrimaryDictionary(resolved);
+                        if (!validation) {
+                            QIQI_LOG_CAT_WARN(
+                                log::Keyword::Dictionary,
+                                "Settings save blocked: custom primary dictionary '{}' invalid (status={}, error={})",
+                                WideToUtf8(edited.primary_dict_path),
+                                static_cast<unsigned int>(validation.status),
+                                validation.win32_error);
+                            ShowSettingsMessage(
+                                hwnd, GetSelectedUiLanguageFromCombo(hwnd, ctx), SettingsMessageKind::InvalidPrimaryDict);
+                            return;
+                        }
+                    }
                     if (!SaveConfig(edited)) {
                         QIQI_LOG_ERROR("Settings save failed; retaining edits for retry");
                         ShowSettingsSaveFailure(hwnd, edited.ui_language);
@@ -325,12 +456,17 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 const auto* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
                 if (dis->CtlType == ODT_BUTTON) {
                     if (dis->CtlID == kIdBtnAbout || dis->CtlID == kIdBtnDictManager ||
+                        dis->CtlID == kIdBtnHelp || dis->CtlID == kIdBtnBrowsePrimaryDict ||
                         dis->CtlID == kIdBtnOk || dis->CtlID == kIdBtnCancel) {
-                        DrawFluentPushButton(
-                            *dis, ctx->d2d, dis->CtlID == kIdBtnOk,
-                            IsSystemDarkTheme() ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
+                        const bool inside_card = (dis->CtlID == kIdBtnBrowsePrimaryDict);
+                        const D2D1_COLOR_F outer_bg = inside_card
+                            ? (IsSystemDarkTheme() ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255))
+                            : (IsSystemDarkTheme() ? MakeD2DColor(32, 34, 38) : MakeD2DColor(243, 245, 249));
+                        DrawFluentPushButton(*dis, ctx->d2d, dis->CtlID == kIdBtnOk, outer_bg);
                     } else {
-                        const bool is_radio = dis->CtlID >= kIdRadioJidian && dis->CtlID <= kIdRadioBuiltin;
+                        const bool is_radio =
+                            (dis->CtlID >= kIdRadioJidian && dis->CtlID <= kIdRadioBuiltin) ||
+                            dis->CtlID == kIdRadioCustom;
                         DrawFluentToggleOrRadioRow(*dis, ctx->d2d, is_radio);
                     }
                     return TRUE;
@@ -432,14 +568,16 @@ ScopedWindow CreateSettingsWindow(
     std::unique_ptr<DialogContext> ctx;
     try {
         ctx = std::make_unique<DialogContext>();
+        ctx->instance = instance;
+        ctx->config = bound_config;
+        if (bound_config) {
+            ctx->baseline_config = *bound_config;
+            ctx->custom_primary_dict_path = bound_config->primary_dict_path;
+            ctx->last_valid_primary_dict = bound_config->primary_dict;
+        }
     } catch (const std::bad_alloc&) {
         QIQI_LOG_ERROR("Settings dialog context allocation failed");
         return {};
-    }
-    ctx->instance = instance;
-    ctx->config = bound_config;
-    if (bound_config) {
-        ctx->baseline_config = *bound_config;
     }
     ctx->config_registry_sequence = QueryRegistryConfigSequence();
     ctx->save_on_accept = save_on_accept;

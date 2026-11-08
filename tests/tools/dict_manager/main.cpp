@@ -427,6 +427,37 @@ void TestDictionarySourceSelection() {
     QIQI_TEST_CHECK(std::ranges::none_of(missing.Records(), [](const DictRecord& record) {
         return record.source == DictEntrySource::PrimaryDict || record.source == DictEntrySource::ExtraDict;
     }));
+
+    // Verify custom primary dictionary selection, validation failure retention, and default restoration
+    const auto custom_valid = directory / L"custom_primary.txt";
+    const auto custom_invalid = directory / L"custom_empty.txt";
+    write(custom_valid, "gggg 自定义词管主词\n");
+    write(custom_invalid, "# no valid entries\n");
+
+    DictManagerModel custom_model;
+    custom_model.InitializePaths(module, {}, directory / L"missing-frequency.txt");
+    QIQI_TEST_CHECK(custom_model.SelectCustomPrimaryDictionary(custom_valid));
+    QIQI_TEST_CHECK(custom_model.ActivePrimaryDict() == PrimaryDict::Custom);
+    QIQI_TEST_CHECK(custom_model.ActivePrimaryDictPath() == custom_valid);
+    QIQI_TEST_CHECK(custom_model.UserEntryCount() == 1 && custom_model.SystemEntryCount() == 1);
+    QIQI_TEST_CHECK(std::ranges::any_of(custom_model.Records(), [](const DictRecord& record) {
+        return record.source == DictEntrySource::PrimaryDict && record.word == L"自定义词管主词";
+    }));
+
+    // Selecting an invalid file fails and preserves the currently active custom primary dictionary
+    QIQI_TEST_CHECK(!custom_model.SelectCustomPrimaryDictionary(custom_invalid));
+    QIQI_TEST_CHECK(custom_model.ActivePrimaryDict() == PrimaryDict::Custom);
+    QIQI_TEST_CHECK(std::ranges::any_of(custom_model.Records(), [](const DictRecord& record) {
+        return record.source == DictEntrySource::PrimaryDict && record.word == L"自定义词管主词";
+    }));
+
+    // Restoring default primary dictionary switches back to Jidian while keeping user words intact
+    QIQI_TEST_CHECK(custom_model.RestoreDefaultPrimaryDictionary());
+    QIQI_TEST_CHECK(custom_model.ActivePrimaryDict() == PrimaryDict::Jidian);
+    QIQI_TEST_CHECK(custom_model.UserEntryCount() == 1);
+    QIQI_TEST_CHECK(std::ranges::any_of(custom_model.Records(), [](const DictRecord& record) {
+        return record.source == DictEntrySource::PrimaryDict && record.word == L"计划极点";
+    }));
 }
 
 void TestModelAndCrossProcessSync() {

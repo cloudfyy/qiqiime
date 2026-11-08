@@ -36,57 +36,44 @@ constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
 } // namespace
 
 void QiQiTextService::LoadExternalDictionaryNextToDll() {
-    engine_.ClearExternalDictionaries();
     const std::filesystem::path module_path = GetModuleFilePath(g_dll_instance);
     if (module_path.empty()) {
+        engine_.ClearExternalDictionaries();
         QIQI_LOG_WARN("GetModuleFileNameW failed when locating external dictionaries");
         return;
     }
     const std::filesystem::path dll_dir = module_path.parent_path();
 
-    size_t primary_count = 0;
-    for (const auto& source : GetBundledDictionaryLoadPlan(config_.primary_dict, config_.enable_jidian_extra)) {
-        const auto path = ResolveBundledDataFile(dll_dir, source.file_name);
-        if (std::filesystem::exists(path) && engine_.LoadDictionaryFile(path)) {
-            ++primary_count;
-        }
-    }
-
-    bool loaded_any = (primary_count > 0);
-    if (!config_.user_dict_path.empty()) {
-        std::filesystem::path user_path(config_.user_dict_path);
-        if (user_path.is_relative()) {
-            user_path = ResolveBundledDataFile(dll_dir, config_.user_dict_path);
-        }
-        engine_.SetUserDictPath(user_path);
-        if (std::filesystem::exists(user_path)) {
-            loaded_any |= engine_.LoadDictionaryFile(user_path);
-            std::ignore = engine_.SynchronizeUserDictionary();
-        } else {
-            QIQI_LOG_WARN("Configured user dictionary '{}' does not exist",
-                          WideToUtf8(user_path.wstring()));
-        }
+    const PrimaryDictLoadSummary primary_summary =
+        engine_.LoadConfiguredPrimaryDictionaries(config_, dll_dir, true);
+    bool loaded_any = (primary_summary.loaded_count > 0);
+    const bool has_custom_user_path = !config_.user_dict_path.empty();
+    const std::filesystem::path user_path = has_custom_user_path
+        ? ResolveConfiguredDictionaryPath(dll_dir, config_.user_dict_path)
+        : GetDefaultUserDictPath();
+    engine_.SetUserDictPath(user_path);
+    if (std::filesystem::exists(user_path)) {
+        loaded_any |= engine_.LoadDictionaryFile(user_path);
+        std::ignore = engine_.SynchronizeUserDictionary();
+    } else if (has_custom_user_path) {
+        QIQI_LOG_WARN("Configured user dictionary '{}' does not exist",
+                      WideToUtf8(user_path.wstring()));
     } else {
-        const std::filesystem::path default_user_dict = GetDefaultUserDictPath();
-        engine_.SetUserDictPath(default_user_dict);
-        if (std::filesystem::exists(default_user_dict)) {
-            loaded_any |= engine_.LoadDictionaryFile(default_user_dict);
-            std::ignore = engine_.SynchronizeUserDictionary();
-        } else {
-            std::vector<uint8_t> reg_user_dict;
-            if (LoadUserDictBinaryFromRegistry(reg_user_dict)) {
-                loaded_any |= engine_.LoadDictionaryFromBinaryBuffer(std::move(reg_user_dict));
-            }
-            std::ignore = engine_.SynchronizeUserDictionary();
+        std::vector<uint8_t> reg_user_dict;
+        if (LoadUserDictBinaryFromRegistry(reg_user_dict)) {
+            loaded_any |= engine_.LoadDictionaryFromBinaryBuffer(std::move(reg_user_dict));
         }
+        std::ignore = engine_.SynchronizeUserDictionary();
     }
 
     if (!loaded_any && config_.primary_dict != PrimaryDict::BuiltinOnly) {
         QIQI_LOG_DEBUG("External dictionaries not found in '{}', using builtin dictionary only",
                        WideToUtf8(dll_dir.wstring()));
     } else {
-        QIQI_LOG_INFO("Dictionary initialization complete: {} external dictionary file(s) active",
-                      engine_.MappedDictionaryCount());
+        QIQI_LOG_INFO("Dictionary initialization complete: {} external dictionary file(s) active (primary={}, fallback={})",
+                      engine_.MappedDictionaryCount(),
+                      PrimaryDictToString(config_.primary_dict),
+                      primary_summary.used_fallback);
     }
 }
 

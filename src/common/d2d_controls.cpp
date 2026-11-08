@@ -597,7 +597,11 @@ LRESULT CALLBACK FluentToggleSubclassProc(
                     const int last_id = HIWORD(radio_range_pack);
                     for (int rid = first_id; rid <= last_id; ++rid) {
                         if (const HWND rctrl = ::GetDlgItem(parent, rid)) {
-                            ::SendMessageW(rctrl, BM_SETCHECK, (rid == id) ? BST_CHECKED : BST_UNCHECKED, 0);
+                            DWORD_PTR rref = 0;
+                            if (::GetWindowSubclass(rctrl, &FluentToggleSubclassProc, uIdSubclass, &rref) &&
+                                rref == dwRefData) {
+                                ::SendMessageW(rctrl, BM_SETCHECK, (rid == id) ? BST_CHECKED : BST_UNCHECKED, 0);
+                            }
                         }
                     }
                 } else {

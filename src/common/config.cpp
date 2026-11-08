@@ -302,6 +302,19 @@ std::filesystem::path ResolveBundledDataFile(
     return direct;
 }
 
+std::filesystem::path ResolveConfiguredDictionaryPath(
+    const std::filesystem::path& module_dir,
+    std::wstring_view configured_path) {
+    if (configured_path.empty()) {
+        return {};
+    }
+    std::filesystem::path resolved(configured_path);
+    if (resolved.is_relative() && !module_dir.empty()) {
+        resolved = ResolveBundledDataFile(module_dir, configured_path);
+    }
+    return resolved;
+}
+
 bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexcept {
     try {
         ScopedKernelTransaction txn;
@@ -320,7 +333,11 @@ bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexc
                     key.Get(), field.registry_key, gsl::narrow_cast<DWORD>(field.RegistryValue(config)));
             }
         });
-        if (!fields_saved || !WriteRegString(key.Get(), L"UserDictPath", config.user_dict_path)) return false;
+        if (!fields_saved ||
+            !WriteRegString(key.Get(), L"PrimaryDictPath", config.primary_dict_path) ||
+            !WriteRegString(key.Get(), L"UserDictPath", config.user_dict_path)) {
+            return false;
+        }
         if (!BumpRegistrySequence(key.Get())) {
             return false;
         }
@@ -369,6 +386,7 @@ bool LoadConfigFromRegistry(
                 std::ignore = field.Assign(cfg, dw);
             }
         });
+        std::ignore = ReadRegString(key.Get(), L"PrimaryDictPath", cfg.primary_dict_path);
         std::ignore = ReadRegString(key.Get(), L"UserDictPath", cfg.user_dict_path);
         out_config = std::move(cfg);
         return true;
@@ -385,6 +403,9 @@ void MergeSettingsConfig(
             external.*(field.member) = local.*(field.member);
         }
     });
+    if (local.primary_dict_path != baseline.primary_dict_path) {
+        external.primary_dict_path = local.primary_dict_path;
+    }
 }
 
 uint64_t QueryRegistryConfigSequence(const wchar_t* subkey) noexcept {

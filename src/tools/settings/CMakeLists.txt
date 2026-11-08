@@ -7,7 +7,7 @@ set(QIQI_SETTINGS_UI_SOURCES
 )
 add_library(qiqi_settings_ui STATIC ${QIQI_SETTINGS_UI_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_SETTINGS_UI_SOURCES})
-target_link_libraries(qiqi_settings_ui PUBLIC qiqi_common shell32)
+target_link_libraries(qiqi_settings_ui PUBLIC qiqi_common qiqi_engine shell32 comdlg32)
 
 set(QIQI_RESOURCE_FILE_TYPE VFT_APP)
 set(QIQI_RESOURCE_FILE_SUBTYPE 0x0L)

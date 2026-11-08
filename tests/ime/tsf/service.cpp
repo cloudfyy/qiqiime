@@ -629,6 +629,53 @@ void TestDictionaryRegistryFallback() {
         QIQI_TEST_CHECK((context->range_->text_ == L"镜像回退词") == !configured_path);
         QIQI_TEST_CHECK(service->Deactivate() == S_OK);
     }
+
+    // Verify QiQiTextService custom primary dictionary loading and hot-reload retention on invalid path
+    {
+        const auto custom_path = std::filesystem::temp_directory_path() /
+            (L"qiqi_tsf_custom_primary_" + std::to_wstring(::GetCurrentProcessId()) + L".txt");
+        auto custom_qdict = custom_path;
+        custom_qdict.replace_extension(L".qdict");
+        const auto cleanup_custom = gsl::finally([&]() noexcept {
+            WubiMappedDict::ClearProcessCache();
+            std::error_code ec;
+            std::filesystem::remove(custom_path, ec);
+            std::filesystem::remove(custom_qdict, ec);
+        });
+        {
+            std::ofstream out(custom_path, std::ios::binary | std::ios::trunc);
+            out << "xcvb 服务自定义词\n";
+        }
+        QiQiConfig config;
+        config.primary_dict = PrimaryDict::Custom;
+        config.primary_dict_path = custom_path.wstring();
+        config.auto_commit_4code = false;
+        config.user_dict_path = (GetDefaultUserDictPath().parent_path() / L"missing-explicit.txt").wstring();
+        QIQI_TEST_CHECK(SaveConfig(config));
+
+        auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        auto manager = MakeComObject<MockTfThreadMgr>();
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        auto context = MakeComObject<MockTfContext>();
+        BOOL eaten = FALSE;
+        for (const UINT key : std::array<UINT, 4>{'X', 'C', 'V', 'B'}) {
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+        }
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SPACE, 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(context->range_->text_ == L"服务自定义词");
+
+        // Hot-reload with missing custom path retains previously loaded custom dictionary
+        config.primary_dict_path = (custom_path.parent_path() / L"missing_custom_primary.txt").wstring();
+        QIQI_TEST_CHECK(SaveConfig(config));
+        QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+        context->range_->text_.clear();
+        for (const UINT key : std::array<UINT, 4>{'X', 'C', 'V', 'B'}) {
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+        }
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SPACE, 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(context->range_->text_ == L"服务自定义词");
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    }
 }
 
 void TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*> service) {

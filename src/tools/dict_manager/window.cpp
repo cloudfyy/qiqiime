@@ -1,5 +1,6 @@
 #include "tools/dict_manager/internal.h"
 #include "common/about_dialog.h"
+#include "common/dialog_util.h"
 #include "common/file_util.h"
 #include "common/theme.h"
 #include "common/window.h"
@@ -95,6 +96,8 @@ const wchar_t* DictManagerWindow::Impl::CommandText(ControlId id) const noexcept
     case Copy: return Text(L"复制", L"Copy");
     case Import: return Text(L"导入词库...", L"Import...");
     case Export: return Text(L"导出快照...", L"Export...");
+    case SelectPrimaryDict: return Text(L"选择自定义主词库...", L"Select Custom Primary Dict...");
+    case RestoreDefaultPrimaryDict: return Text(L"恢复默认主词库 (极点 86)", L"Restore Default Primary Dict (Jidian 86)");
     case Backup: return Text(L"备份全部...", L"Backup...");
     case Restore: return Text(L"恢复备份...", L"Restore...");
     case ClearFreq: return Text(L"重置词组排序", L"Reset Phrase Ordering");
@@ -125,7 +128,8 @@ const wchar_t* DictManagerWindow::Impl::MenuHeading(size_t index) const noexcept
 }
 
 void DictManagerWindow::Impl::UpdateCommands() {
-    const std::array file{UiCommand(Reload), UiCommand(Separator), UiCommand(Import), UiCommand(Export),
+    const std::array file{UiCommand(Reload), UiCommand(Separator), UiCommand(SelectPrimaryDict),
+        UiCommand(RestoreDefaultPrimaryDict), UiCommand(Separator), UiCommand(Import), UiCommand(Export),
         UiCommand(Separator), UiCommand(Backup), UiCommand(Restore), UiCommand(Separator), UiCommand(Exit)};
     const std::array edit{UiCommand(NewWord), UiCommand(SaveWord), UiCommand(CancelEdit), UiCommand(AutoCode),
         UiCommand(Separator), UiCommand(Copy), UiCommand(SelectAll), UiCommand(Pin), UiCommand(Delete),
@@ -582,6 +586,8 @@ bool DictManagerWindow::Impl::CanExecute(ControlId id) const noexcept {
         case CancelEdit: return editor.CanExecute(EditorCommand::Cancel);
         case AutoCode: return editor.CanExecute(EditorCommand::AutoCode);
         case Reload:
+        case SelectPrimaryDict:
+        case RestoreDefaultPrimaryDict:
         case Import:
         case Restore:
         case Pin:
@@ -593,7 +599,7 @@ bool DictManagerWindow::Impl::CanExecute(ControlId id) const noexcept {
 }
 
 void DictManagerWindow::Impl::UpdateCommandState() noexcept {
-    for (const auto id : {Reload, NewWord, Import, Restore, Pin, Delete, Promote, ClearFreq, SaveWord, CancelEdit, AutoCode}) {
+    for (const auto id : {Reload, NewWord, SelectPrimaryDict, RestoreDefaultPrimaryDict, Import, Restore, Pin, Delete, Promote, ClearFreq, SaveWord, CancelEdit, AutoCode}) {
         const bool enabled = CanExecute(id);
         ::EnableMenuItem(::GetMenu(hwnd), std::to_underlying(id), MF_BYCOMMAND | (enabled ? MF_ENABLED : MF_GRAYED));
         ::SendMessageW(Child(Toolbar), TB_ENABLEBUTTON, std::to_underlying(id), MAKELONG(enabled, 0));
@@ -749,6 +755,12 @@ void DictManagerWindow::Impl::UpdateStatus() {
         model.PhraseFreqCount(),
         Text(L"系统词库", L"System dict"),
         model.SystemEntryCount());
+    if (model.ActivePrimaryDict() == PrimaryDict::Custom && !model.ActivePrimaryDictPath().empty()) {
+        status += std::format(
+            L" | {}: {}",
+            Text(L"自定义主词库", L"Custom dict"),
+            model.ActivePrimaryDictPath().filename().wstring());
+    }
     if (!last_message.empty()) {
         status = last_message + L" | " + status;
     }
@@ -1051,6 +1063,46 @@ void DictManagerWindow::Impl::ShowListContextMenu(POINT screen_pt) {
     if (cmd) Command(cmd, 0);
 }
 
+void DictManagerWindow::Impl::SelectPrimaryDictDialog() {
+    std::filesystem::path selected;
+    if (!dialog_detail::PromptForPrimaryDictionaryFile(
+            hwnd, ui_language, model.ActivePrimaryDictPath().wstring(), selected)) {
+        return;
+    }
+    if (model.SelectCustomPrimaryDictionary(selected)) {
+        last_message = std::format(
+            L"{}: {}",
+            Text(L"已切换自定义主词库", L"Switched custom primary dictionary"),
+            selected.filename().wstring());
+        RebuildRows();
+        UpdateStatus();
+    } else {
+        last_message = Text(
+            L"所选主词库无效或无法读取，已保留当前词库",
+            L"Selected primary dictionary is invalid or unreadable; kept current dictionary");
+        UpdateStatus();
+        ::MessageBoxW(
+            hwnd,
+            GetUiStrings(ui_language).dlg_invalid_primary_dict,
+            Text(L"奇奇五笔词库管理", L"QiQiIME Dictionary Manager"),
+            MB_OK | MB_ICONWARNING);
+    }
+}
+
+void DictManagerWindow::Impl::ExecuteRestoreDefaultPrimaryDict() {
+    if (model.RestoreDefaultPrimaryDictionary()) {
+        last_message = Text(
+            L"已恢复默认主词库（极点五笔 86）",
+            L"Restored default primary dictionary (Jidian Wubi 86)");
+        RebuildRows();
+    } else {
+        last_message = Text(
+            L"恢复默认主词库失败",
+            L"Failed to restore default primary dictionary");
+    }
+    UpdateStatus();
+}
+
 void DictManagerWindow::Impl::ImportUserDictDialog() {
     std::array<wchar_t, 32768> path{};
     OPENFILENAMEW dialog{};
@@ -1190,6 +1242,12 @@ void DictManagerWindow::Impl::Command(int id, int notification) {
         break;
     case Exit:
         ::SendMessageW(hwnd, WM_CLOSE, 0, 0);
+        break;
+    case SelectPrimaryDict:
+        SelectPrimaryDictDialog();
+        break;
+    case RestoreDefaultPrimaryDict:
+        ExecuteRestoreDefaultPrimaryDict();
         break;
     case Import:
         ImportUserDictDialog();

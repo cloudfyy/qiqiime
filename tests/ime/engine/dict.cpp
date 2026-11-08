@@ -971,6 +971,102 @@ void TestPhraseFrequencySaveFailures() {
     }
 }
 
+void TestCustomPrimaryDictionaryAndFallback() {
+    const auto temp_dir = std::filesystem::temp_directory_path() /
+        (L"qiqi_custom_primary_dict_test_" + std::to_wstring(::GetCurrentProcessId()));
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir, ec);
+    std::filesystem::create_directories(temp_dir, ec);
+    const auto cleanup = gsl::finally([&temp_dir]() noexcept {
+        WubiMappedDict::ClearProcessCache();
+        std::error_code rm_ec;
+        std::filesystem::remove_all(temp_dir, rm_ec);
+    });
+
+    const auto bundled_jidian = temp_dir / L"wubi86_jidian.txt";
+    const auto custom_txt = temp_dir / L"my_custom_primary.txt";
+    const auto custom_qdict = temp_dir / L"standalone_custom.qdict";
+    const auto empty_txt = temp_dir / L"empty_dict.txt";
+    const auto invalid_txt = temp_dir / L"not_a_wubi_dict.txt";
+    const auto missing_txt = temp_dir / L"does_not_exist.txt";
+
+    constexpr std::string_view kBundledContent = "aaaa 极点默认词\n";
+    constexpr std::string_view kCustomContent =
+        "# Custom Wubi 86 primary dictionary\n"
+        "aaaa 自定义首选词 自定义次选词\n"
+        "bbbb 自定义专属词\n";
+    QIQI_TEST_CHECK(WriteFileAtomically(bundled_jidian, codec::AsByteSpan(kBundledContent)));
+    QIQI_TEST_CHECK(WriteFileAtomically(custom_txt, codec::AsByteSpan(kCustomContent)));
+    QIQI_TEST_CHECK(WriteFileAtomically(empty_txt, codec::AsByteSpan(std::string_view("# comments only\n"))));
+    QIQI_TEST_CHECK(WriteFileAtomically(invalid_txt, codec::AsByteSpan(std::string_view("123456789 987654321\n"))));
+    QIQI_TEST_CHECK(WubiMappedDict::CompileTextFileToQdict(custom_txt, custom_qdict));
+
+    // 1. ValidateAndLoadPrimaryDictionary failure and success cases
+    QIQI_TEST_CHECK(WubiMappedDict::ValidateAndLoadPrimaryDictionary({}).status ==
+                    PrimaryDictValidationStatus::EmptyPath);
+    QIQI_TEST_CHECK(WubiMappedDict::ValidateAndLoadPrimaryDictionary(missing_txt).status ==
+                    PrimaryDictValidationStatus::FileNotFound);
+    QIQI_TEST_CHECK(WubiMappedDict::ValidateAndLoadPrimaryDictionary(empty_txt).status ==
+                    PrimaryDictValidationStatus::InvalidFormatOrEmpty);
+    QIQI_TEST_CHECK(WubiMappedDict::ValidateAndLoadPrimaryDictionary(invalid_txt).status ==
+                    PrimaryDictValidationStatus::InvalidFormatOrEmpty);
+    {
+        const ScopedFileHandle locked(::CreateFileW(
+            custom_txt.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(locked.IsValid());
+        const auto locked_res = WubiMappedDict::ValidateAndLoadPrimaryDictionary(custom_txt);
+        QIQI_TEST_CHECK(!locked_res &&
+                        locked_res.status == PrimaryDictValidationStatus::AccessDeniedOrReadError);
+    }
+
+    const auto valid_txt_res = WubiMappedDict::ValidateAndLoadPrimaryDictionary(custom_txt);
+    QIQI_TEST_CHECK(valid_txt_res && valid_txt_res.dictionary->CodeCount() == 2 &&
+                    valid_txt_res.dictionary->WordCount() == 3);
+    const auto valid_qdict_res = WubiMappedDict::ValidateAndLoadPrimaryDictionary(custom_qdict);
+    QIQI_TEST_CHECK(valid_qdict_res && valid_qdict_res.dictionary->CodeCount() == 2 &&
+                    valid_qdict_res.dictionary->WordCount() == 3);
+
+    // 2. Priority verification: ^Pinned > PromotedPhrase > CustomPrimaryDict + UserDict, !Blocked excluded,
+    //    and custom primary dictionary file on disk is never modified.
+    WubiEngine engine;
+    QiQiConfig cfg;
+    cfg.primary_dict = PrimaryDict::Custom;
+    cfg.primary_dict_path = custom_txt.wstring();
+    cfg.dynamic_phrase_freq = true;
+    engine.ApplyConfig(cfg);
+    const auto load_summary = engine.LoadConfiguredPrimaryDictionaries(cfg, temp_dir, true);
+    QIQI_TEST_CHECK(SUCCEEDED(load_summary.hr) && !load_summary.used_fallback && load_summary.loaded_count == 1);
+
+    engine.AddEntry(L"aaaa", L"用户补充词");
+    engine.PinEntry(L"aaaa", L"手动置顶词");
+    engine.BlockEntry(L"aaaa", L"自定义次选词");
+    const auto exact = engine.LookupExact(L"aaaa");
+    QIQI_TEST_CHECK(exact.size() >= 3);
+    QIQI_TEST_CHECK(exact.at(0) == L"手动置顶词");
+    QIQI_TEST_CHECK(exact.at(1) == L"自定义首选词");
+    QIQI_TEST_CHECK(exact.at(2) == L"用户补充词");
+    QIQI_TEST_CHECK(std::ranges::find(exact, L"自定义次选词") == exact.end());
+
+    std::string after_custom_bytes;
+    QIQI_TEST_CHECK(ReadFileToUtf8String(custom_txt, after_custom_bytes) &&
+                    after_custom_bytes == kCustomContent);
+
+    // 3. Hot-reload failure retains previously active primary dictionary when retain_existing_on_custom_failure=true
+    cfg.primary_dict_path = missing_txt.wstring();
+    const auto retained_summary = engine.LoadConfiguredPrimaryDictionaries(cfg, temp_dir, true);
+    QIQI_TEST_CHECK(FAILED(retained_summary.hr) && retained_summary.used_fallback &&
+                    retained_summary.retained_previous);
+    const auto still_custom = engine.LookupExact(L"bbbb");
+    QIQI_TEST_CHECK(!still_custom.empty() && still_custom.front() == L"自定义专属词");
+
+    // 4. Fresh load failure falls back to bundled Jidian primary dictionary when retain_existing_on_custom_failure=false
+    const auto fallback_summary = engine.LoadConfiguredPrimaryDictionaries(cfg, temp_dir, false);
+    QIQI_TEST_CHECK(FAILED(fallback_summary.hr) && fallback_summary.used_fallback &&
+                    !fallback_summary.retained_previous);
+    const auto bundled_fallback = engine.LookupExact(L"aaaa");
+    QIQI_TEST_CHECK(std::ranges::find(bundled_fallback, L"极点默认词") != bundled_fallback.end());
+}
+
 } // namespace
 
 void RunEngineDictTests() {
@@ -980,6 +1076,7 @@ void RunEngineDictTests() {
     TestAddEntryAndLookupEdgeCases();
     TestExternalDictFile();
     TestCrossProcessDictAndPhraseFreqSync();
+    TestCustomPrimaryDictionaryAndFallback();
 }
 
 } // namespace qiqi::test

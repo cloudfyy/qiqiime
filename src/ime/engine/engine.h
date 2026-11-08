@@ -39,6 +39,15 @@ struct KeyProcessResult {
     bool trigger_key_sound = false;
 };
 
+struct PrimaryDictLoadSummary {
+    HRESULT hr = S_OK;
+    size_t loaded_count = 0;
+    bool used_fallback = false;
+    bool retained_previous = false;
+    std::shared_ptr<const WubiMappedDict> primary_dict;
+    std::shared_ptr<const WubiMappedDict> extra_dict;
+};
+
 class WubiEngine {
 public:
     static constexpr size_t kMaxCodeLength = 4;
@@ -51,9 +60,20 @@ public:
 
     // Load additional UTF-8 table file (format: code word1 word2 ...)
     bool LoadDictionaryFile(const std::filesystem::path& file_path);
+    // Attach an already-validated memory-mapped dictionary instance.
+    bool AttachMappedDictionary(std::shared_ptr<const WubiMappedDict> mapped);
+    // Load configured primary (bundled or custom) and optional extra dictionaries, with safe fallback on custom load failure.
+    PrimaryDictLoadSummary LoadConfiguredPrimaryDictionaries(
+        const QiQiConfig& config,
+        const std::filesystem::path& module_dir,
+        bool retain_existing_on_custom_failure = false);
     // Load additional dictionary from an in-memory .qdict binary buffer (e.g. UWP registry mirror)
     bool LoadDictionaryFromBinaryBuffer(std::vector<uint8_t> qdict_bytes);
-    void ClearExternalDictionaries() noexcept { mapped_dicts_.clear(); }
+    void ClearExternalDictionaries() noexcept {
+        mapped_dicts_.clear();
+        primary_mapped_dict_.reset();
+        extra_mapped_dict_.reset();
+    }
 
     // Add, remove, or modify an entry in the mutable user dictionary overlay.
     void AddEntry(std::wstring_view code, std::wstring_view word);
@@ -337,6 +357,8 @@ private:
     uint64_t phrase_freq_incremental_syncs_ = 0;
     uint64_t phrase_freq_snapshot_syncs_ = 0;
     std::vector<std::shared_ptr<const WubiMappedDict>> mapped_dicts_;
+    std::shared_ptr<const WubiMappedDict> primary_mapped_dict_;
+    std::shared_ptr<const WubiMappedDict> extra_mapped_dict_;
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;
     std::vector<std::wstring> all_display_candidates_;

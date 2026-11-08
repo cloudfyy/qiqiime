@@ -1,7 +1,11 @@
 #pragma once
 
 #include "common/win32_ui_util.h"
+#include "common/i18n.h"
 #include "common/logger.h"
+
+#include <commdlg.h>
+#include <filesystem>
 
 namespace qiqi::dialog_detail {
 
@@ -121,6 +125,38 @@ inline bool RunModalDialogLoop(HWND hwnd, const bool& done_flag, bool route_dial
         ::DispatchMessageW(&msg);
     }
     return ::IsWindow(hwnd) != FALSE;
+}
+
+inline bool PromptForPrimaryDictionaryFile(
+    HWND owner,
+    UiLanguage language,
+    std::wstring_view initial_path,
+    std::filesystem::path& out_selected_path) {
+    const auto& str = GetUiStrings(language);
+    std::array<wchar_t, 32768> path{};
+    if (!initial_path.empty() && initial_path.size() < path.size()) {
+        std::wmemcpy(path.data(), initial_path.data(), initial_path.size());
+    }
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = owner;
+    dialog.lpstrTitle = str.dlg_open_primary_dict_title;
+    dialog.lpstrFilter = str.dlg_open_primary_dict_filter;
+    dialog.lpstrFile = path.data();
+    dialog.nMaxFile = gsl::narrow_cast<DWORD>(path.size());
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!::GetOpenFileNameW(&dialog)) {
+        const DWORD dlg_err = ::CommDlgExtendedError();
+        if (dlg_err != 0) {
+            QIQI_LOG_CAT_WARN(
+                log::Keyword::UI,
+                "PromptForPrimaryDictionaryFile::GetOpenFileNameW failed (commdlg_error=0x{:08X})",
+                dlg_err);
+        }
+        return false;
+    }
+    out_selected_path = std::filesystem::path(path.data());
+    return !out_selected_path.empty();
 }
 
 } // namespace qiqi::dialog_detail

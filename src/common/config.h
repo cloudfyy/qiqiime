@@ -17,7 +17,8 @@ namespace qiqi {
 enum class PrimaryDict {
     Jidian,      // wubi86_jidian.txt (default)
     Haifeng,     // wubi86_haifeng.txt
-    BuiltinOnly  // Built-in core dictionary only
+    BuiltinOnly, // Built-in core dictionary only
+    Custom       // User-selected custom Wubi 86 primary dictionary file (primary_dict_path)
 };
 
 enum class UiLanguage {
@@ -38,6 +39,7 @@ struct QiQiConfig {
     // [dictionary]
     PrimaryDict primary_dict = PrimaryDict::Jidian;
     bool enable_jidian_extra = true;
+    std::wstring primary_dict_path;
     std::wstring user_dict_path;
 
     // [engine]
@@ -109,7 +111,7 @@ struct ConfigField {
 
 // Order and keys preserve the backup format; paths remain registry-only.
 inline constexpr auto kConfigFields = std::tuple{
-    ConfigField{"primary_dict", L"PrimaryDict", &QiQiConfig::primary_dict, 0, 2, true},
+    ConfigField{"primary_dict", L"PrimaryDict", &QiQiConfig::primary_dict, 0, 3, true},
     ConfigField{"enable_jidian_extra", L"EnableJidianExtra", &QiQiConfig::enable_jidian_extra, 0, 1, true},
     ConfigField{"page_size", L"PageSize", &QiQiConfig::page_size, 1, 9, true},
     ConfigField{"auto_commit_4code", L"AutoCommit4Code", &QiQiConfig::auto_commit_4code, 0, 1, true},
@@ -149,11 +151,12 @@ constexpr void ForEachConfigField(Visitor&& visitor)
 void MergeSettingsConfig(
     QiQiConfig& external, const QiQiConfig& baseline, const QiQiConfig& local) noexcept;
 
-// Return canonical string name of PrimaryDict ("jidian" | "haifeng" | "builtin").
+// Return canonical string name of PrimaryDict ("jidian" | "haifeng" | "builtin" | "custom").
 constexpr std::string_view PrimaryDictToString(PrimaryDict dict) noexcept {
     switch (dict) {
         case PrimaryDict::Haifeng:     return "haifeng";
         case PrimaryDict::BuiltinOnly: return "builtin";
+        case PrimaryDict::Custom:      return "custom";
         case PrimaryDict::Jidian:
         default:                       return "jidian";
     }
@@ -186,8 +189,21 @@ constexpr std::span<const DictionarySource> GetBundledDictionaryLoadPlan(
         case PrimaryDict::Jidian: return sources.first(enable_extra ? 2 : 1);
         case PrimaryDict::Haifeng: return sources.subspan(2, 1);
         case PrimaryDict::BuiltinOnly:
+        case PrimaryDict::Custom:
         default: return {};
     }
+}
+
+// Resolve a configured dictionary path (either absolute or relative to module_dir).
+std::filesystem::path ResolveConfiguredDictionaryPath(
+    const std::filesystem::path& module_dir,
+    std::wstring_view configured_path);
+
+// Return the display C-string for a configured dictionary path (or empty_placeholder when unset).
+constexpr const wchar_t* ResolveDictionaryPathDisplayText(
+    const std::wstring& configured_path,
+    const wchar_t* empty_placeholder) noexcept {
+    return configured_path.empty() ? empty_placeholder : configured_path.c_str();
 }
 
 // Default HKCU registry subkey for cross-process & UWP AppContainer configuration/user-dict synchronization.

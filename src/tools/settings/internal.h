@@ -39,6 +39,9 @@ constexpr int kIdBtnDictManager = 127;
 constexpr int kIdLblEnglishSwitch = 128;
 constexpr int kIdComboEnglishSwitch = 129;
 constexpr int kIdBtnHelp = 130;
+constexpr int kIdRadioCustom = 131;
+constexpr int kIdBtnBrowsePrimaryDict = 132;
+constexpr int kIdLblCustomPrimaryPath = 133;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 
@@ -66,6 +69,8 @@ struct DialogContext {
     HINSTANCE instance = nullptr;
     QiQiConfig* config = nullptr;
     QiQiConfig baseline_config{};
+    std::wstring custom_primary_dict_path;
+    PrimaryDict last_valid_primary_dict = PrimaryDict::Jidian;
     uint64_t config_registry_sequence = 0;
     bool controls_initialized = false;
     bool save_on_accept = false;

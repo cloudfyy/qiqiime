@@ -22,13 +22,15 @@ struct SettingsRadioBinding {
     PrimaryDict dict_value;
     const wchar_t* UiStrings::* label_field;
     int y_offset_px;
+    int width_px;
     DWORD extra_style;
 };
 
-constexpr std::array<SettingsRadioBinding, 3> kSettingsDictRadios = {{
-    {kIdRadioJidian,  PrimaryDict::Jidian,      &UiStrings::dlg_radio_jidian,   50, WS_GROUP},
-    {kIdRadioHaifeng, PrimaryDict::Haifeng,     &UiStrings::dlg_radio_haifeng, 106, 0},
-    {kIdRadioBuiltin, PrimaryDict::BuiltinOnly, &UiStrings::dlg_radio_builtin, 134, 0},
+constexpr std::array<SettingsRadioBinding, 4> kSettingsDictRadios = {{
+    {kIdRadioJidian,  PrimaryDict::Jidian,      &UiStrings::dlg_radio_jidian,   46, 360, WS_GROUP},
+    {kIdRadioHaifeng, PrimaryDict::Haifeng,     &UiStrings::dlg_radio_haifeng,  94, 360, 0},
+    {kIdRadioBuiltin, PrimaryDict::BuiltinOnly, &UiStrings::dlg_radio_builtin, 118, 360, 0},
+    {kIdRadioCustom,  PrimaryDict::Custom,      &UiStrings::dlg_radio_custom,  142, 268, 0},
 }};
 
 struct SettingsCheckboxBinding {
@@ -41,7 +43,7 @@ struct SettingsCheckboxBinding {
 };
 
 constexpr std::array<SettingsCheckboxBinding, 14> kSettingsCheckboxes = {{
-    {kIdChkExtraDict,      &QiQiConfig::enable_jidian_extra,          &UiStrings::dlg_chk_extra,             32,  78, 360},
+    {kIdChkExtraDict,      &QiQiConfig::enable_jidian_extra,          &UiStrings::dlg_chk_extra,             32,  70, 360},
     {kIdChkAutoCommit4,    &QiQiConfig::auto_commit_4code,            &UiStrings::dlg_chk_auto_commit4,      32, 232, 360},
     {kIdChkPushCommit5,    &QiQiConfig::push_commit_5th,              &UiStrings::dlg_chk_push_commit5,      32, 260, 360},
     {kIdChkQuickSelect,    &QiQiConfig::semicolon_quote_quick_select, &UiStrings::dlg_chk_quick_select,      32, 288, 360},
@@ -91,6 +93,11 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdLblUiLang, str.dlg_lbl_ui_lang);
     ::SetDlgItemTextW(hwnd, kIdLblUnderlineStyle, str.dlg_lbl_underline_style);
     ::SetDlgItemTextW(hwnd, kIdLblEnglishSwitch, str.dlg_lbl_english_switch);
+    ::SetDlgItemTextW(hwnd, kIdBtnBrowsePrimaryDict, str.dlg_btn_browse_dict);
+    ::SetDlgItemTextW(
+        hwnd,
+        kIdLblCustomPrimaryPath,
+        ResolveDictionaryPathDisplayText(ctx.custom_primary_dict_path, str.dlg_lbl_custom_dict_none));
     ::SetDlgItemTextW(hwnd, kIdBtnAbout, str.dlg_btn_about);
     ::SetDlgItemTextW(hwnd, kIdBtnDictManager, str.dlg_btn_dict_mgr);
     ::SetDlgItemTextW(hwnd, kIdBtnHelp, str.dlg_btn_help);
@@ -216,7 +223,7 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     const HFONT f = ctx.font.Get();
     const auto& str = GetUiStrings(ctx.config ? ctx.config->ui_language : UiLanguage::Auto);
 
-    constexpr DWORD_PTR radio_group = MAKELONG(kIdRadioJidian, kIdRadioBuiltin);
+    constexpr DWORD_PTR radio_group = MAKELONG(kIdRadioJidian, kIdRadioCustom);
     for (const auto& radio : kSettingsDictRadios) {
         CreateFluentChildControl(
             hwnd,
@@ -228,11 +235,18 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
             BS_AUTORADIOBUTTON | radio.extra_style,
             S(32),
             S(radio.y_offset_px),
-            S(360),
-            S(24),
+            S(radio.width_px),
+            S(22),
             radio.control_id,
             radio_group);
     }
+    CreateFluentChildControl(
+        hwnd, instance, f, &ctx.d2d, L"BUTTON", str.dlg_btn_browse_dict,
+        BS_OWNERDRAW | WS_TABSTOP, S(306), S(140), S(84), S(26), kIdBtnBrowsePrimaryDict);
+    CreateFluentChildControl(
+        hwnd, instance, f, &ctx.d2d, L"STATIC",
+        ResolveDictionaryPathDisplayText(ctx.custom_primary_dict_path, str.dlg_lbl_custom_dict_none),
+        SS_LEFTNOWORDWRAP | SS_PATHELLIPSIS, S(56), S(168), S(334), S(20), kIdLblCustomPrimaryPath);
 
     for (const auto& binding : kSettingsCheckboxes) {
         CreateFluentChildControl(
@@ -305,7 +319,13 @@ using namespace settings_detail;
 
 void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept {
     if (auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
-        ctx->baseline_config = config;
+        try {
+            ctx->baseline_config = config;
+            ctx->custom_primary_dict_path = config.primary_dict_path;
+        } catch (const std::bad_alloc&) {
+            QIQI_LOG_WARN("WriteSettingsToWindowControls: failed to copy configuration strings");
+        }
+        ctx->last_valid_primary_dict = config.primary_dict;
     }
     int checked_radio_id = kIdRadioJidian;
     for (const auto& radio : kSettingsDictRadios) {
@@ -314,7 +334,17 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
             break;
         }
     }
-    ::CheckRadioButton(hwnd, kIdRadioJidian, kIdRadioBuiltin, checked_radio_id);
+    for (const auto& radio : kSettingsDictRadios) {
+        ::CheckDlgButton(
+            hwnd,
+            radio.control_id,
+            (radio.control_id == checked_radio_id) ? BST_CHECKED : BST_UNCHECKED);
+    }
+    const auto& str = GetUiStrings(config.ui_language);
+    ::SetDlgItemTextW(
+        hwnd,
+        kIdLblCustomPrimaryPath,
+        ResolveDictionaryPathDisplayText(config.primary_dict_path, str.dlg_lbl_custom_dict_none));
 
     for (const auto& binding : kSettingsCheckboxes) {
         ::CheckDlgButton(
@@ -348,6 +378,13 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
         if (::IsDlgButtonChecked(hwnd, radio.control_id) == BST_CHECKED) {
             config.primary_dict = radio.dict_value;
             break;
+        }
+    }
+    if (const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+        try {
+            config.primary_dict_path = ctx->custom_primary_dict_path;
+        } catch (const std::bad_alloc&) {
+            QIQI_LOG_WARN("ReadSettingsFromWindowControls: custom_primary_dict_path copy failed");
         }
     }
 

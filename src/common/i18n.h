@@ -47,6 +47,12 @@ struct UiStrings {
     const wchar_t* dlg_radio_jidian;
     const wchar_t* dlg_radio_haifeng;
     const wchar_t* dlg_radio_builtin;
+    const wchar_t* dlg_radio_custom;
+    const wchar_t* dlg_btn_browse_dict;
+    const wchar_t* dlg_lbl_custom_dict_none;
+    const wchar_t* dlg_open_primary_dict_title;
+    const wchar_t* dlg_open_primary_dict_filter;
+    const wchar_t* dlg_invalid_primary_dict;
     const wchar_t* dlg_chk_extra;
     const wchar_t* dlg_chk_auto_commit4;
     const wchar_t* dlg_chk_push_commit5;
@@ -136,6 +142,12 @@ inline constexpr UiStrings kZhCnStrings = {
     L"极点五笔 86 核心词库",
     L"海峰五笔 86 超大字符集词库 (含生僻字)",
     L"仅使用内置精简保底词库",
+    L"自定义五笔 86 主词库文件",
+    L"浏览...",
+    L"尚未选择自定义主词库文件",
+    L"选择五笔 86 主词库文件 (UTF-8 / .qdict)",
+    L"五笔词库文件 (*.txt;*.yaml;*.yml;*.qdict)\0*.txt;*.yaml;*.yml;*.qdict\0所有文件 (*.*)\0*.*\0",
+    L"所选主词库文件不存在、无法读取或不包含有效的五笔 86 编码词条。请选择有效的 UTF-8 五笔 86 码表文件（.txt / .yaml）或编译后的 .qdict 词库文件。当前已保留原有词库配置。",
     L"启用极点现代扩展词库 (Extra)",
     L"四码唯一自动上屏",
     L"第五码自动顶字上屏",
@@ -242,6 +254,12 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Jidian Wubi 86 Core Dictionary",
     L"Haifeng Wubi 86 Extended CJK Dictionary",
     L"Built-in Minimal Fallback Dictionary Only",
+    L"Custom Wubi 86 Primary Dictionary File",
+    L"Browse...",
+    L"No custom primary dictionary selected",
+    L"Select Wubi 86 Primary Dictionary File (UTF-8 / .qdict)",
+    L"Wubi Dictionary (*.txt;*.yaml;*.yml;*.qdict)\0*.txt;*.yaml;*.yml;*.qdict\0All Files (*.*)\0*.*\0",
+    L"The selected primary dictionary file does not exist, cannot be read, or contains no valid Wubi 86 entries. Please select a valid UTF-8 Wubi 86 table (.txt / .yaml) or compiled .qdict file. The previous dictionary configuration has been retained.",
     L"Enable Jidian Extra Dictionary",
     L"Auto-commit unique 4-code word",
     L"Push-commit on 5th code key",

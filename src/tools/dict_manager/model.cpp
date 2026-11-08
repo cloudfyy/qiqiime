@@ -70,11 +70,7 @@ void DictManagerModel::InitializePaths(
     if (!user_dict_path.empty()) {
         user_dict_path_ = user_dict_path;
     } else if (!cfg.user_dict_path.empty()) {
-        std::filesystem::path configured(cfg.user_dict_path);
-        if (configured.is_relative() && !module_dir_.empty()) {
-            configured = ResolveBundledDataFile(module_dir_, cfg.user_dict_path);
-        }
-        user_dict_path_ = std::move(configured);
+        user_dict_path_ = ResolveConfiguredDictionaryPath(module_dir_, cfg.user_dict_path);
     } else {
         user_dict_path_ = GetDefaultUserDictPath();
     }
@@ -102,24 +98,19 @@ HRESULT DictManagerModel::ReloadAllResult() {
         if (ec) check(HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value())));
         return present && !ec;
     };
-    const auto load_dictionary = [this, &check, &exists](
-                                     const std::filesystem::path& path,
-                                     std::shared_ptr<const WubiMappedDict>& dictionary) {
-        if (!exists(path)) return;
-        dictionary = WubiMappedDict::LoadFromTextOrCache(path);
-        if (!dictionary || !engine_.LoadDictionaryFile(path)) check(E_FAIL);
-    };
 
     const QiQiConfig cfg = LoadConfig();
+    config_registry_sequence_ = QueryRegistryConfigSequence();
     engine_.ApplyConfig(cfg);
     engine_.SetDynamicPhraseFreq(true);
 
-    if (!module_dir_.empty()) {
-        for (const auto& source : GetBundledDictionaryLoadPlan(cfg.primary_dict, cfg.enable_jidian_extra)) {
-            load_dictionary(ResolveBundledDataFile(module_dir_, source.file_name),
-                source.role == DictionarySourceRole::Primary ? primary_dict_ : extra_dict_);
-        }
-    }
+    const PrimaryDictLoadSummary primary_summary =
+        engine_.LoadConfiguredPrimaryDictionaries(cfg, module_dir_, false);
+    primary_dict_ = primary_summary.primary_dict;
+    extra_dict_ = primary_summary.extra_dict;
+    active_primary_dict_ = primary_summary.used_fallback ? PrimaryDict::Jidian : cfg.primary_dict;
+    active_primary_dict_path_ = primary_dict_ ? primary_dict_->SourcePath() : std::filesystem::path{};
+    check(primary_summary.hr);
 
     engine_.SetUserDictPath(user_dict_path_);
     if (!user_dict_path_.empty()) {
@@ -167,6 +158,12 @@ HRESULT DictManagerModel::ReloadAllResult() {
 }
 
 bool DictManagerModel::PollExternalChanges() {
+    const uint64_t reg_seq = QueryRegistryConfigSequence();
+    if (reg_seq != 0 && reg_seq != config_registry_sequence_) {
+        ReloadAll();
+        return true;
+    }
+
     const uint64_t prev_user_inc = engine_.UserDictIncrementalSyncCount();
     const uint64_t prev_user_snap = engine_.UserDictSnapshotSyncCount();
     const uint64_t prev_freq_inc = engine_.PhraseFreqIncrementalSyncCount();
@@ -183,6 +180,56 @@ bool DictManagerModel::PollExternalChanges() {
         return true;
     }
     return false;
+}
+
+bool DictManagerModel::SelectCustomPrimaryDictionary(const std::filesystem::path& custom_path) {
+    return SUCCEEDED(SelectCustomPrimaryDictionaryResult(custom_path));
+}
+
+HRESULT DictManagerModel::SelectCustomPrimaryDictionaryResult(const std::filesystem::path& custom_path) {
+    const std::filesystem::path resolved =
+        ResolveConfiguredDictionaryPath(module_dir_, custom_path.wstring());
+    const PrimaryDictValidationResult validation =
+        WubiMappedDict::ValidateAndLoadPrimaryDictionary(resolved);
+    if (!validation) {
+        const DWORD err = validation.win32_error != ERROR_SUCCESS
+            ? validation.win32_error
+            : ERROR_INVALID_DATA;
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Dictionary,
+            "DictManagerModel::SelectCustomPrimaryDictionary rejected '{}' (status={}, error={})",
+            WideToUtf8(custom_path.wstring()),
+            static_cast<unsigned int>(validation.status),
+            err);
+        return HRESULT_FROM_WIN32(err);
+    }
+
+    QiQiConfig cfg = LoadConfig();
+    cfg.primary_dict = PrimaryDict::Custom;
+    cfg.primary_dict_path = custom_path.wstring();
+    if (!SaveConfig(cfg)) {
+        QIQI_LOG_CAT_ERROR(
+            log::Keyword::Dictionary,
+            "DictManagerModel::SelectCustomPrimaryDictionary failed to persist configuration");
+        return E_FAIL;
+    }
+    return ReloadAllResult();
+}
+
+bool DictManagerModel::RestoreDefaultPrimaryDictionary() {
+    return SUCCEEDED(RestoreDefaultPrimaryDictionaryResult());
+}
+
+HRESULT DictManagerModel::RestoreDefaultPrimaryDictionaryResult() {
+    QiQiConfig cfg = LoadConfig();
+    cfg.primary_dict = PrimaryDict::Jidian;
+    if (!SaveConfig(cfg)) {
+        QIQI_LOG_CAT_ERROR(
+            log::Keyword::Dictionary,
+            "DictManagerModel::RestoreDefaultPrimaryDictionary failed to persist configuration");
+        return E_FAIL;
+    }
+    return ReloadAllResult();
 }
 
 void DictManagerModel::RebuildRecords() {

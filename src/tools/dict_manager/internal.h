@@ -111,6 +111,8 @@ struct DictManagerWindow::Impl {
     void ExecuteClearFrequencies();
     void CopySelection();
     void ShowListContextMenu(POINT screen_pt);
+    void SelectPrimaryDictDialog();
+    void ExecuteRestoreDefaultPrimaryDict();
     void ImportUserDictDialog();
     void ExportSnapshotDialog();
     void BackupBundleDialog();

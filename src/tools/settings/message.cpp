@@ -50,6 +50,8 @@ MessageStrings GetMessageStrings(UiLanguage language, SettingsMessageKind kind) 
             return {str.dlg_title, str.dlg_notify_failed};
         case SettingsMessageKind::DictManagerLaunchFailure:
             return {str.dlg_title, str.dlg_dict_manager_launch_failed};
+        case SettingsMessageKind::InvalidPrimaryDict:
+            return {str.dlg_title, str.dlg_invalid_primary_dict};
         default:
             QIQI_LOG_ERROR("Unknown Settings message kind");
             return {};

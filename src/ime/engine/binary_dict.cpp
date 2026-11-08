@@ -562,11 +562,15 @@ bool WubiMappedDict::CompileTextFileToQdict(
 
 std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
     const std::filesystem::path& txt_path) {
+    if (txt_path.empty()) {
+        return nullptr;
+    }
     std::error_code ec;
+    const bool is_qdict_input = (_wcsicmp(txt_path.extension().c_str(), L".qdict") == 0);
     std::filesystem::path adjacent_qdict = txt_path;
     adjacent_qdict.replace_extension(L".qdict");
 
-    const bool txt_exists = std::filesystem::exists(txt_path, ec);
+    const bool txt_exists = !is_qdict_input && std::filesystem::exists(txt_path, ec);
     const bool qdict_exists = std::filesystem::exists(adjacent_qdict, ec);
     if (!txt_exists && !qdict_exists) {
         return nullptr;
@@ -678,6 +682,82 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
         g_process_dict_cache[canonical_key] = {src_size, src_mtime, dict};
     }
     return dict;
+}
+
+PrimaryDictValidationResult WubiMappedDict::ValidateAndLoadPrimaryDictionary(
+    const std::filesystem::path& dict_path) {
+    if (dict_path.empty()) {
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Dictionary,
+            "ValidateAndLoadPrimaryDictionary rejected empty path");
+        return {PrimaryDictValidationStatus::EmptyPath, ERROR_INVALID_PARAMETER, nullptr};
+    }
+
+    const auto probe_readable_file = [](const std::filesystem::path& path, DWORD& out_error) noexcept -> bool {
+        out_error = ERROR_SUCCESS;
+        const ScopedFileHandle file(::CreateFileW(
+            path.c_str(),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+            nullptr));
+        if (!file.IsValid()) {
+            out_error = ::GetLastError();
+            return false;
+        }
+        if (::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+            out_error = ERROR_BAD_FILE_TYPE;
+            return false;
+        }
+        return true;
+    };
+
+    DWORD open_error = ERROR_SUCCESS;
+    bool readable = probe_readable_file(dict_path, open_error);
+    if (!readable && _wcsicmp(dict_path.extension().c_str(), L".qdict") != 0) {
+        std::filesystem::path adjacent_qdict = dict_path;
+        adjacent_qdict.replace_extension(L".qdict");
+        DWORD qdict_error = ERROR_SUCCESS;
+        if (probe_readable_file(adjacent_qdict, qdict_error)) {
+            readable = true;
+            open_error = ERROR_SUCCESS;
+        }
+    }
+
+    if (!readable) {
+        const PrimaryDictValidationStatus status =
+            (open_error == ERROR_FILE_NOT_FOUND || open_error == ERROR_PATH_NOT_FOUND)
+                ? PrimaryDictValidationStatus::FileNotFound
+                : PrimaryDictValidationStatus::AccessDeniedOrReadError;
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Dictionary,
+            "ValidateAndLoadPrimaryDictionary: cannot open '{}' (status={}, error={})",
+            WideToUtf8(dict_path.wstring()),
+            static_cast<unsigned int>(status),
+            open_error);
+        return {status, open_error != ERROR_SUCCESS ? open_error : ERROR_FILE_NOT_FOUND, nullptr};
+    }
+
+    auto dict = LoadFromTextOrCache(dict_path);
+    if (!dict || dict->CodeCount() == 0 || dict->WordCount() == 0) {
+        InvalidateProcessCacheForPath(dict_path);
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Dictionary,
+            "ValidateAndLoadPrimaryDictionary: '{}' is invalid or contains zero valid Wubi 86 entries",
+            WideToUtf8(dict_path.wstring()));
+        return {PrimaryDictValidationStatus::InvalidFormatOrEmpty, ERROR_INVALID_DATA, nullptr};
+    }
+
+    QIQI_LOG_CAT_INFO(
+        log::Keyword::Dictionary,
+        "ValidateAndLoadPrimaryDictionary succeeded for '{}' (codes={}, words={}, mapped={})",
+        WideToUtf8(dict_path.wstring()),
+        dict->CodeCount(),
+        dict->WordCount(),
+        dict->IsMemoryMapped());
+    return {PrimaryDictValidationStatus::Valid, ERROR_SUCCESS, std::move(dict)};
 }
 
 } // namespace qiqi

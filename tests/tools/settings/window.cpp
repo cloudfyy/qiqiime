@@ -1,9 +1,12 @@
 #include "common/test_support.h"
+#include "common/binary_codec.h"
+#include "common/file_util.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/monitor_dpi.h"
 #include "common/theme.h"
 #include "common/win32_ui_util.h"
+#include "ime/engine/binary_dict.h"
 #include "tools/settings/internal.h"
 #include "tools/settings/window.h"
 
@@ -91,6 +94,43 @@ void TestSettingsDialogControls() {
     WriteSettingsToWindowControls(hwnd.Get(), cfg);
     ReadSettingsFromWindowControls(hwnd.Get(), read_back);
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::Auto);
+
+    // Test Custom primary dictionary selection and validation in Settings window
+    {
+        const auto temp_dir = std::filesystem::temp_directory_path() /
+            (L"qiqi_settings_custom_dict_" + std::to_wstring(::GetCurrentProcessId()));
+        std::error_code ec;
+        std::filesystem::remove_all(temp_dir, ec);
+        std::filesystem::create_directories(temp_dir, ec);
+        const auto cleanup_dir = gsl::finally([&temp_dir]() noexcept {
+            WubiMappedDict::ClearProcessCache();
+            std::error_code rm_ec;
+            std::filesystem::remove_all(temp_dir, rm_ec);
+        });
+        const auto valid_dict = temp_dir / L"custom_valid.txt";
+        const auto invalid_dict = temp_dir / L"custom_invalid.txt";
+        QIQI_TEST_CHECK(WriteFileAtomically(valid_dict, codec::AsByteSpan(std::string_view("aaaa 自定义设置词\n"))));
+        QIQI_TEST_CHECK(WriteFileAtomically(invalid_dict, codec::AsByteSpan(std::string_view("# empty\n"))));
+
+        cfg.primary_dict = PrimaryDict::Haifeng;
+        cfg.ui_language = UiLanguage::ZhCn;
+        WriteSettingsToWindowControls(hwnd.Get(), cfg);
+
+        // Selecting an invalid file shows InvalidPrimaryDict message and retains Haifeng
+        WithDismissedMessage(GetUiStrings(UiLanguage::ZhCn).dlg_invalid_primary_dict, [&]() {
+            QIQI_TEST_CHECK(!SelectCustomPrimaryDictionaryInSettings(hwnd.Get(), invalid_dict));
+        });
+        ReadSettingsFromWindowControls(hwnd.Get(), read_back);
+        QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Haifeng);
+        QIQI_TEST_CHECK(read_back.primary_dict_path.empty());
+
+        // Selecting a valid file switches to PrimaryDict::Custom, updates path, and disables ExtraDict checkbox
+        QIQI_TEST_CHECK(SelectCustomPrimaryDictionaryInSettings(hwnd.Get(), valid_dict));
+        ReadSettingsFromWindowControls(hwnd.Get(), read_back);
+        QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Custom);
+        QIQI_TEST_CHECK(read_back.primary_dict_path == valid_dict.wstring());
+        QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), 104)));
+    }
 
     // Test WM_CTLCOLORSTATIC brush/text styling on a static control (kIdLblPageSize = 122)
     {

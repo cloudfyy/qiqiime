@@ -84,6 +84,15 @@ public:
 
     const std::filesystem::path& UserDictPath() const noexcept { return user_dict_path_; }
     const std::filesystem::path& PhraseFreqPath() const noexcept { return phrase_freq_path_; }
+    PrimaryDict ActivePrimaryDict() const noexcept { return active_primary_dict_; }
+    const std::filesystem::path& ActivePrimaryDictPath() const noexcept { return active_primary_dict_path_; }
+
+    // Validate, persist, and switch to a user-selected custom Wubi 86 primary dictionary file,
+    // or restore the bundled default primary dictionary (retaining previous state on failure).
+    bool SelectCustomPrimaryDictionary(const std::filesystem::path& custom_path);
+    HRESULT SelectCustomPrimaryDictionaryResult(const std::filesystem::path& custom_path);
+    bool RestoreDefaultPrimaryDictionary();
+    HRESULT RestoreDefaultPrimaryDictionaryResult();
 
     const std::vector<DictRecord>& Records() const noexcept { return records_; }
     const DictRecord* FindById(uint64_t id) const noexcept;
@@ -145,6 +154,9 @@ private:
     std::filesystem::path phrase_freq_path_;
     std::shared_ptr<const WubiMappedDict> primary_dict_;
     std::shared_ptr<const WubiMappedDict> extra_dict_;
+    PrimaryDict active_primary_dict_ = PrimaryDict::Jidian;
+    std::filesystem::path active_primary_dict_path_;
+    uint64_t config_registry_sequence_ = 0;
     std::vector<DictRecord> records_;
     size_t user_entry_count_ = 0;
     size_t pinned_entry_count_ = 0;
