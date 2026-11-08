@@ -867,6 +867,15 @@ void TestScopedHandleTemplate() {
     {
         const ScopedGdiHandle<HFONT> ui_font = CreateUiFont(16, FW_MEDIUM);
         QIQI_TEST_CHECK(ui_font.IsValid());
+        NONCLIENTMETRICSW metrics{};
+        metrics.cbSize = sizeof(metrics);
+        QIQI_TEST_CHECK(::SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0));
+        LOGFONTW description{};
+        QIQI_TEST_CHECK(::GetObjectW(ui_font.Get(), sizeof(description), &description) == sizeof(description));
+        QIQI_TEST_CHECK(std::wcscmp(
+            std::data(description.lfFaceName), std::data(metrics.lfMessageFont.lfFaceName)) == 0);
+        QIQI_TEST_CHECK(description.lfHeight == -16 && description.lfWeight == FW_MEDIUM);
+        QIQI_TEST_CHECK(description.lfQuality == CLEARTYPE_QUALITY);
 
         const auto atomic_path = std::filesystem::temp_directory_path() / L"qiqiime_atomic_test.bin";
         const std::array<uint8_t, 4> payload{1, 2, 3, 4};

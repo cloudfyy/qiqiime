@@ -56,18 +56,22 @@ float FluentD2DThemeContext::ScaleF(int px) const noexcept {
 
 void FluentD2DThemeContext::Init(UINT monitor_dpi) noexcept {
     dpi = monitor_dpi > 0 ? monitor_dpi : 96u;
+    fmt_body.Reset();
+    fmt_caption.Reset();
+    fmt_btn.Reset();
     if (!CreateD2DDcTargetAndDWrite(d2d_factory, dwrite_factory, d2d_target)) {
         QIQI_LOG_ERROR("Fluent Direct2D/DirectWrite context creation failed");
     }
-    if (dwrite_factory) {
+    LOGFONTW system_font{};
+    if (dwrite_factory && TryGetSystemUiFont(system_font)) {
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
-            L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, ScaleF(14), L"zh-CN", fmt_body.Put()), "Fluent::CreateTextFormat(body)");
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
-            L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+            std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, ScaleF(12), L"zh-CN", fmt_caption.Put()), "Fluent::CreateTextFormat(caption)");
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
-            L"Microsoft YaHei UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+            std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, ScaleF(14), L"zh-CN", fmt_btn.Put()), "Fluent::CreateTextFormat(button)");
         if (!fmt_body || !fmt_caption || !fmt_btn) {
             QIQI_LOG_ERROR("Fluent DirectWrite text format creation failed");

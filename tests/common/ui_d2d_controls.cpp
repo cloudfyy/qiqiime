@@ -227,8 +227,29 @@ void TestReusableControls() {
     QIQI_TEST_CHECK(d2d.dpi == 96 && d2d.ScalePx(24) == 24);
     QIQI_TEST_CHECK(d2d.d2d_factory && d2d.dwrite_factory && d2d.d2d_target);
     QIQI_TEST_CHECK(d2d.fmt_body && d2d.fmt_caption && d2d.fmt_btn);
+    const auto check_fonts = [&d2d]() {
+        NONCLIENTMETRICSW metrics{};
+        metrics.cbSize = sizeof(metrics);
+        QIQI_TEST_CHECK(::SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0));
+        const std::array formats{d2d.fmt_body.Get(), d2d.fmt_caption.Get(), d2d.fmt_btn.Get()};
+        for (const auto format : formats) {
+            QIQI_TEST_CHECK(format != nullptr);
+            std::array<wchar_t, LF_FACESIZE> family{};
+            QIQI_TEST_CHECK(SUCCEEDED(format->GetFontFamilyName(
+                family.data(), gsl::narrow_cast<UINT32>(family.size()))));
+            QIQI_TEST_CHECK(std::wcscmp(family.data(), std::data(metrics.lfMessageFont.lfFaceName)) == 0);
+        }
+        QIQI_TEST_CHECK(d2d.fmt_body->GetFontSize() == d2d.ScaleF(14));
+        QIQI_TEST_CHECK(d2d.fmt_caption->GetFontSize() == d2d.ScaleF(12));
+        QIQI_TEST_CHECK(d2d.fmt_btn->GetFontSize() == d2d.ScaleF(14));
+        QIQI_TEST_CHECK(d2d.fmt_body->GetFontWeight() == DWRITE_FONT_WEIGHT_NORMAL);
+        QIQI_TEST_CHECK(d2d.fmt_caption->GetFontWeight() == DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        QIQI_TEST_CHECK(d2d.fmt_btn->GetFontWeight() == DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    };
+    check_fonts();
     QIQI_TEST_CHECK(d2d.fmt_btn->GetTextAlignment() == DWRITE_TEXT_ALIGNMENT_CENTER);
     d2d.Init(144);
+    check_fonts();
     QIQI_TEST_CHECK(d2d.ScalePx(24) == 36 && d2d.ScaleF(24) == 36.0f);
     QIQI_TEST_CHECK(d2d.fmt_body->GetFontSize() == d2d.ScaleF(14));
 

@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cwchar>
+#include <iterator>
 #include <limits>
 #include <span>
 #include <string>
@@ -270,15 +271,29 @@ inline bool DestroyWindowOnOwnerThread(ScopedWindow& window, std::string_view op
     return true;
 }
 
-// Create a Microsoft YaHei UI font scaled to the specified pixel height and weight.
+inline bool TryGetSystemUiFont(LOGFONTW& font) noexcept {
+    NONCLIENTMETRICSW metrics{};
+    metrics.cbSize = sizeof(metrics);
+    if (!::SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_ERROR("System UI font query failed (error={})", error);
+        return false;
+    }
+    font = metrics.lfMessageFont;
+    return true;
+}
+
+// Create a system UI font scaled to the specified pixel height and weight.
 inline ScopedGdiHandle<HFONT> CreateUiFont(
     int height_px, LONG weight = FW_NORMAL, BYTE quality = CLEARTYPE_QUALITY) noexcept {
+    LOGFONTW system_font{};
+    if (!TryGetSystemUiFont(system_font)) return {};
     LOGFONTW lf{};
     lf.lfHeight = -std::max(1, height_px);
     lf.lfWeight = weight;
     lf.lfCharSet = DEFAULT_CHARSET;
     lf.lfQuality = quality;
-    wcscpy_s(lf.lfFaceName, L"Microsoft YaHei UI");
+    wcscpy_s(lf.lfFaceName, std::data(system_font.lfFaceName));
     ScopedGdiHandle<HFONT> font(::CreateFontIndirectW(&lf));
     if (!font) {
         QIQI_LOG_WARN("CreateUiFont::CreateFontIndirectW failed");
