@@ -27,7 +27,9 @@ enum class ToolIcon {
     Resume,
     Diagnostics,
     Events,
-    Edit
+    Edit,
+    Metrics,
+    CaptureMetrics
 };
 
 struct ToolCommand {

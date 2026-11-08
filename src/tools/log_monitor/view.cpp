@@ -104,6 +104,10 @@ const Event* MonitorWindow::Impl::FirstSelectedEvent() const noexcept {
 }
 
 void MonitorWindow::Impl::SelectAllRows() {
+    if (metrics_view) {
+        diagnostics.Record(3, L"Metrics view uses single dimension selection", ERROR_NOT_SUPPORTED);
+        return;
+    }
     const HWND list = Child(List);
     if (rows.empty()) return;
     {
@@ -165,11 +169,15 @@ void MonitorWindow::Impl::Tick() {
         RefreshProcessChoices();
         if (changed || !process_choices_pending) RebuildRows();
     }
+    if (metrics_view && (::GetTickCount64() - metric_display_tick_ms >= kMetricDisplayRefreshIntervalMs ||
+            metrics.Status().capture_generation != metric_display_generation ||
+            metrics.Status().active != metric_display_active)) RebuildMetricRows();
     UpdateStatus();
 }
 
 void MonitorWindow::Impl::UpdateStatus() {
     RefreshCommandState();
+    if (metrics_view) { UpdateMetricStatus(); return; }
     auto status = std::format(
         L"{} | {}: {} / {} | {}: {} KiB | {}: {} | {}: {}/{} | {}: {} | {}: {}",
         collector.Running() ? Text(L"采集中", L"Capturing") : Text(L"已停止", L"Stopped"),
@@ -219,6 +227,7 @@ std::wstring MonitorWindow::Impl::Cell(const Event& event, int column) const {
 }
 
 void MonitorWindow::Impl::Notify(NMHDR& header) {
+    if (header.idFrom == gsl::narrow_cast<UINT_PTR>(std::to_underlying(MetricList))) { NotifyMetrics(header); return; }
     if (header.idFrom != gsl::narrow_cast<UINT_PTR>(std::to_underlying(List))) return;
     if (header.code == LVN_GETDISPINFOW) {
         auto& info = *reinterpret_cast<NMLVDISPINFOW*>(&header);
@@ -263,6 +272,11 @@ std::vector<Event> MonitorWindow::Impl::CollectSelectedEvents() const {
 }
 
 void MonitorWindow::Impl::UpdateDetails() {
+    if (metrics_view) {
+        const auto text = MetricDetails();
+        ::SetWindowTextW(Child(Details), text.c_str());
+        return;
+    }
     const auto items = CollectSelectedEvents();
     if (items.size() > 1) {
         std::wstring text = std::format(L"{}: {}\r\n", Text(L"已选择日志项", L"Selected entries"), items.size());

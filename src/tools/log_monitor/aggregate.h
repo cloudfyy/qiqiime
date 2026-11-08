@@ -20,6 +20,15 @@ inline constexpr uint64_t kKeyCallbackThresholdNs = 5'000'000;
 inline constexpr uint64_t kCandidateUpdateThresholdNs = 5'000'000;
 inline constexpr uint64_t kCandidateQueryThresholdNs = 2'000'000;
 inline constexpr uint64_t kCommitThresholdNs = 20'000'000;
+constexpr uint64_t MetricThresholdNs(metrics::Metric metric) noexcept {
+    switch (metric) {
+    case metrics::Metric::KeyCallback: return kKeyCallbackThresholdNs;
+    case metrics::Metric::CandidateUpdate: return kCandidateUpdateThresholdNs;
+    case metrics::Metric::CandidateQuery: return kCandidateQueryThresholdNs;
+    case metrics::Metric::Commit: return kCommitThresholdNs;
+    default: return 0;
+    }
+}
 
 enum class QuantileState { Value, Overflow, NoSamples, InsufficientSamples, InvalidPercentile };
 struct MetricQuantile {
@@ -78,6 +87,10 @@ struct MetricDimension {
 };
 
 enum class MetricView { Cumulative, Recent };
+struct MetricProcessInstance {
+    DWORD pid = 0;
+    MetricInstance metadata;
+};
 struct MetricAggregationStatus {
     uint64_t capture_generation = 0;
     std::optional<uint64_t> statistics_start_tick_ms;
@@ -118,6 +131,10 @@ public:
     void Clear() noexcept;
     ULONG UpdateQueueStatus(const MetricQueueStatus& status) noexcept;
     MetricAggregationStatus Status() const noexcept;
+    std::vector<MetricDimension> Dimensions() const;
+    std::vector<MetricProcessInstance> Instances() const;
+    GUID LatestActivity(const MetricDimension& dimension) const noexcept;
+    ULONG Snapshot(const MetricDimension& dimension, MetricView view, MetricSummary& result) const noexcept;
     std::optional<MetricSummary> Snapshot(const MetricDimension& dimension, MetricView view) const noexcept;
 private:
     struct Impl;

@@ -29,15 +29,6 @@ const auto& Bounds() noexcept {
     return bounds;
 }
 
-uint64_t Threshold(metrics::Metric metric) noexcept {
-    switch (metric) {
-    case metrics::Metric::KeyCallback: return kKeyCallbackThresholdNs;
-    case metrics::Metric::CandidateUpdate: return kCandidateUpdateThresholdNs;
-    case metrics::Metric::CandidateQuery: return kCandidateQueryThresholdNs;
-    case metrics::Metric::Commit: return kCommitThresholdNs;
-    default: return 0;
-    }
-}
 
 bool GuidLess(const GUID& left, const GUID& right) noexcept {
     return std::memcmp(&left, &right, sizeof(GUID)) < 0;
@@ -206,6 +197,7 @@ struct MetricAggregator::Impl {
     struct Dimension {
         explicit Dimension(std::pmr::memory_resource* resource) : seconds(resource) {}
         MetricSummary cumulative;
+        GUID latest_activity{};
         std::pmr::map<uint64_t, MetricSummary> seconds;
     };
     struct Operation {
@@ -366,8 +358,8 @@ struct MetricAggregator::Impl {
             const auto update = [&](MetricSummary& target) noexcept {
                 ++gsl::at(target.outcomes, std::to_underlying(outcome));
                 if (outcome != metrics::Outcome::Incomplete) ++target.observed_terminals;
-                if (outcome == metrics::Outcome::Success) std::ignore = target.success.Observe(*event.duration_ns, Threshold(event.metric));
-                if (outcome == metrics::Outcome::Failure) std::ignore = target.failure.Observe(*event.duration_ns, Threshold(event.metric));
+                if (outcome == metrics::Outcome::Success) std::ignore = target.success.Observe(*event.duration_ns, MetricThresholdNs(event.metric));
+                if (outcome == metrics::Outcome::Failure) std::ignore = target.failure.Observe(*event.duration_ns, MetricThresholdNs(event.metric));
             };
             update(summary);
             if (window) update(*window);
@@ -384,6 +376,7 @@ struct MetricAggregator::Impl {
             operation->second.closed = true;
         }
         status.remembered_operations = operations.size();
+        dimension->second.latest_activity = event.activity_id;
         committed = true;
         return ERROR_SUCCESS;
     }
@@ -462,19 +455,55 @@ MetricAggregationStatus MetricAggregator::Status() const noexcept {
     status.memory_bytes = impl_->budget.used;
     return status;
 }
-std::optional<MetricSummary> MetricAggregator::Snapshot(const MetricDimension& key, MetricView view) const noexcept {
-    if (!impl_) return std::nullopt;
+std::vector<MetricDimension> MetricAggregator::Dimensions() const {
+    std::vector<MetricDimension> result;
+    if (impl_) {
+        result.reserve(impl_->dimensions.size());
+        for (const auto& [key, dimension] : impl_->dimensions) {
+            std::ignore = dimension;
+            result.push_back(key);
+        }
+    }
+    return result;
+}
+std::vector<MetricProcessInstance> MetricAggregator::Instances() const {
+    std::vector<MetricProcessInstance> result;
+    if (impl_) {
+        result.reserve(impl_->status.instances);
+        for (const auto& instance : std::span(impl_->instances).first(impl_->status.instances))
+            result.push_back({instance.pid, instance.metadata});
+    }
+    return result;
+}
+GUID MetricAggregator::LatestActivity(const MetricDimension& key) const noexcept {
+    if (!impl_) return GUID_NULL;
+#pragma warning(suppress : 26447) // Ordered lookup allocates nothing and DimensionLess cannot throw.
+    const auto found = impl_->dimensions.find(key);
+    return found == impl_->dimensions.end() ? GUID_NULL : found->second.latest_activity;
+}
+ULONG MetricAggregator::Snapshot(const MetricDimension& key, MetricView view, MetricSummary& output) const noexcept {
+    if (!impl_) return ERROR_INVALID_STATE;
 #pragma warning(suppress : 26447) // Lookup allocates nothing and DimensionLess cannot throw.
     const auto dimension = impl_->dimensions.find(key);
-    if (dimension == impl_->dimensions.end()) return std::nullopt;
-    if (view == MetricView::Cumulative) return dimension->second.cumulative;
+    if (dimension == impl_->dimensions.end()) return ERROR_NOT_FOUND;
+    if (view == MetricView::Cumulative) {
+        output = dimension->second.cumulative;
+        return ERROR_SUCCESS;
+    }
     MetricSummary result;
     result.cumulative = false;
     for (const auto& [second, summary] : dimension->second.seconds) {
         std::ignore = second;
-        if (result.Merge(summary) != ERROR_SUCCESS) return std::nullopt;
+        const ULONG error = result.Merge(summary);
+        if (error != ERROR_SUCCESS) return error;
     }
     result.pending = dimension->second.cumulative.pending;
+    output = result;
+    return ERROR_SUCCESS;
+}
+std::optional<MetricSummary> MetricAggregator::Snapshot(const MetricDimension& key, MetricView view) const noexcept {
+    MetricSummary result;
+    if (Snapshot(key, view, result) != ERROR_SUCCESS) return std::nullopt;
     return result;
 }
 

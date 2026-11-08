@@ -41,6 +41,40 @@ void Start(MetricAggregator& aggregator) {
     QIQI_TEST_CHECK(aggregator.Consume(Record(true)) == ERROR_SUCCESS);
 }
 
+void TestEnumeration() {
+    MetricAggregator aggregator;
+    QIQI_TEST_CHECK(aggregator.Dimensions().empty() && aggregator.Instances().empty());
+    std::vector<MetricSummary> storage(1);
+    auto& output = storage.front();
+    output.intents = 42;
+    QIQI_TEST_CHECK(aggregator.Snapshot(Key(Sample(1)), MetricView::Recent, output) == ERROR_INVALID_STATE);
+    QIQI_TEST_CHECK(output.intents == 42);
+    Start(aggregator);
+    auto sample = Sample(1, 1);
+    std::get<metrics::Event>(sample.payload).activity_id = kInstance;
+    QIQI_TEST_CHECK(aggregator.Consume(sample) == ERROR_SUCCESS);
+    auto dimensions = aggregator.Dimensions();
+    auto instances = aggregator.Instances();
+    QIQI_TEST_CHECK(dimensions.size() == 1 && dimensions.front() == Key(sample));
+    QIQI_TEST_CHECK(instances.size() == 1 && instances.front().pid == 1);
+    QIQI_TEST_CHECK(instances.front().metadata.instance_id == kInstance);
+    QIQI_TEST_CHECK(aggregator.LatestActivity(dimensions.front()) == kInstance);
+    dimensions.front().pid = 999;
+    instances.front().metadata.build_version.front() = 'X';
+    QIQI_TEST_CHECK(aggregator.Dimensions().front().pid == 1);
+    QIQI_TEST_CHECK(aggregator.Instances().front().metadata.build_version.front() == 't');
+    QIQI_TEST_CHECK(aggregator.Snapshot(dimensions.front(), MetricView::Recent, output) == ERROR_NOT_FOUND);
+    QIQI_TEST_CHECK(output.intents == 42);
+    QIQI_TEST_CHECK(aggregator.Snapshot(Key(sample), MetricView::Cumulative, output) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(output.intents == 1);
+    QIQI_TEST_CHECK(aggregator.Snapshot(Key(sample), MetricView::Recent, output) == ERROR_SUCCESS && !output.cumulative);
+    aggregator.Clear();
+    QIQI_TEST_CHECK(aggregator.Dimensions().empty() && aggregator.Instances().size() == 1);
+    QIQI_TEST_CHECK(aggregator.LatestActivity(Key(sample)) == GUID_NULL);
+    QIQI_TEST_CHECK(aggregator.Consume(sample) == ERROR_ALREADY_EXISTS);
+    QIQI_TEST_CHECK(aggregator.BeginCapture(2) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(aggregator.Instances().empty() && aggregator.Dimensions().empty());
+}
 void TestHistogram() {
     std::vector<MetricHistogram> storage(6);
     const gsl::not_null<MetricHistogram*> histogram(&gsl::at(storage, 0));
@@ -362,6 +396,7 @@ void TestDiagnosticsAndDrain() {
 }
 } // namespace
 void RunAggregationTests() {
+    TestEnumeration();
     TestHistogram();
     TestOutcomesAndWindow();
     TestCorrelation();

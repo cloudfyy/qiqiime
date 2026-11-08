@@ -38,7 +38,7 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
         case WM_COMMAND: if (self->ready) self->Command(LOWORD(wparam), HIWORD(wparam)); return 0;
         case WM_NOTIFY: if (self->ready && lparam) self->Notify(*reinterpret_cast<NMHDR*>(lparam)); return 0;
         case WM_CONTEXTMENU:
-            if (self->ready && reinterpret_cast<HWND>(wparam) == self->Child(List)) {
+            if (self->ready && reinterpret_cast<HWND>(wparam) == self->Child(self->metrics_view ? MetricList : List)) {
                 self->ShowListContextMenu(PointFromLParam(lparam));
                 return 0;
             }
@@ -70,6 +70,9 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
             break;
         default: break;
         }
+    } catch (const std::bad_alloc&) {
+        self->diagnostics.Record(2, L"GUI allocation failed", ERROR_NOT_ENOUGH_MEMORY);
+        ::SetWindowTextW(self->Child(Status), self->Text(L"内存不足，请查看工具诊断。", L"Out of memory; see diagnostics."));
     } catch (const std::system_error& error) {
         self->diagnostics.Record(2, L"GUI/export system error", gsl::narrow_cast<ULONG>(error.code().value()));
         ::SetWindowTextW(self->Child(Status), self->Text(L"操作失败，请查看工具诊断；内存日志仍保留。", L"Operation failed; see diagnostics. Buffered records retained."));
@@ -81,7 +84,7 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
 }
 
 #pragma warning(suppress : 26455) // Allocation failures reach the executable's startup error dialog.
-MonitorWindow::MonitorWindow() : impl_(std::make_unique<Impl>()) { impl_->owner = this; }
+MonitorWindow::MonitorWindow(CaptureStartApi api) : impl_(std::make_unique<Impl>(api)) { impl_->owner = this; }
 MonitorWindow::~MonitorWindow() noexcept = default;
 
 bool MonitorWindow::Create(HINSTANCE instance) {

@@ -171,7 +171,7 @@ void TestMenusAndToolbar(const RECT& work_area) {
     MonitorWindow window;
     QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr)));
     const HWND toolbar = Child(window, Toolbar);
-    constexpr std::array commands{Start, Export, Clear, Copy, Pause, Source};
+    constexpr std::array commands{Start, Export, Clear, Copy, Pause, Source, MetricsView, CaptureMetrics};
     for (const UINT dpi : {96u, 120u, 144u, 192u}) {
         for (const int width : {760, 920, 1160}) {
             RECT proposed{0, 0, ScalePxByDpi(width, dpi), ScalePxByDpi(780, dpi)};
@@ -244,6 +244,7 @@ void TestMenusAndToolbar(const RECT& work_area) {
                     std::array<wchar_t, 64> name{};
                     ::GetClassNameW(child, name.data(), gsl::narrow_cast<int>(name.size()));
                     QIQI_TEST_CHECK(_wcsicmp(name.data(), L"BUTTON") != 0);
+                    if ((::GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE) == 0) continue;
                     RECT bounds{}, overlap{};
                     ::GetWindowRect(child, &bounds);
                     QIQI_TEST_CHECK(bounds.left >= client.left && bounds.top >= client.top &&
@@ -1227,6 +1228,10 @@ int Integration(const wchar_t* peer) {
         SelectLanguage(window, UiLanguage::EnUs);
         Click(window, Start);
         QIQI_TEST_CHECK(CommandName(window, Start) == L"Stop capture");
+        QIQI_TEST_CHECK((::GetMenuState(::GetMenu(window.Handle()), std::to_underlying(CaptureMetrics), MF_BYCOMMAND) & MF_GRAYED) != 0);
+        Click(window, CaptureMetrics);
+        QIQI_TEST_CHECK((::GetMenuState(::GetMenu(window.Handle()), std::to_underlying(CaptureMetrics), MF_BYCOMMAND) & MF_CHECKED) == 0);
+        QIQI_TEST_CHECK(CommandName(window, Start) == L"Stop capture");
         GUID gui_activity{};
         QIQI_TEST_CHECK(SUCCEEDED(::CoCreateGuid(&gui_activity)));
         log::WriteLogMessage(log::Level::info, "filter-parent",
@@ -1320,6 +1325,28 @@ int Integration(const wchar_t* peer) {
         SetProcessFilter(window, L"QiQiIMELogMonitor.exe");
         QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, Pid)));
         QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(::GetCurrentProcessId()));
+        Click(window, CaptureMetrics);
+        Click(window, MetricsView);
+        Click(window, Start);
+        QIQI_TEST_CHECK(CommandName(window, Start) == L"Stop capture");
+        {
+            metrics::Scope metric(metrics::Metric::FocusTotal, 1);
+            QIQI_TEST_CHECK(metric.Active());
+            metric.SetActivity(gui_activity);
+            metric.SetOutcome(metrics::Outcome::Success);
+        }
+        const HWND metric_list = Child(window, MetricList);
+        for (int i = 0; i < 50 && ListView_GetItemCount(metric_list) == 0; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+        }
+        QIQI_TEST_CHECK(ListView_GetItemCount(metric_list) == 1);
+        std::array<wchar_t, 128> metric_count{};
+        ListView_GetItemText(metric_list, 0, 6, metric_count.data(), gsl::narrow_cast<int>(metric_count.size()));
+        QIQI_TEST_CHECK(std::wstring_view(metric_count.data()) == L"1");
+        Click(window, Start);
+        QIQI_TEST_CHECK(CommandName(window, Start) == L"Start capture");
+        QIQI_TEST_CHECK(ControlText(Child(window, MetricSummaryStatus)).contains(L"Metrics frozen"));
     }
 
     QIQI_TEST_CHECK(collector.Start());
@@ -1333,6 +1360,8 @@ int Integration(const wchar_t* peer) {
     return 0;
 }
 } // namespace
+
+namespace qiqi::monitor { void RunMetricsViewTests(); }
 
 int wmain(int argc, wchar_t* argv[]) {
     QIQI_TEST_CHECK(argv != nullptr);
@@ -1360,6 +1389,7 @@ int wmain(int argc, wchar_t* argv[]) {
     TestScrollIcons();
     TestAboutDialogs();
     TestWindowAndVersion();
+    qiqi::monitor::RunMetricsViewTests();
     TestMenusAndToolbar({0, 0, 3840, 2160});
     TestMenusAndToolbar({0, 0, 1024, 728});
     TestDesktopIntegration();

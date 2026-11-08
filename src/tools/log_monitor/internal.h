@@ -23,8 +23,29 @@ inline constexpr int kMonitorMinimumDetailHeight = 60;
 inline constexpr int kMonitorDetailsFooterSpace = 50;
 inline constexpr int kMonitorLayoutReferenceDpi = 96;
 inline constexpr size_t kMonitorPreviewChars = 1024;
+inline constexpr std::array kMetricTableWidths{150, 130, 100, 100, 100, 80, 80, 80, 80, 90, 90,
+    90, 90, 90, 90, 90, 90, 110, 110, 110, 110, 110, 110, 110};
+inline constexpr std::array kMetricDisplayPercentiles{50u, 95u, 99u};
+inline constexpr UINT kMetricDisplayRefreshIntervalMs = 500;
+inline constexpr uint64_t kNanosecondsPerMillisecond = 1'000'000;
+inline constexpr int kMetricSummaryHeight = 126;
+
+struct MetricTableRow {
+    MetricDimension dimension;
+    uint64_t intents = 0;
+    uint64_t pending = 0;
+    std::array<uint64_t, 9> outcomes{};
+    std::optional<double> coverage;
+    std::optional<double> failure_rate;
+    std::array<MetricQuantile, kMetricDisplayPercentiles.size()> quantiles;
+    std::optional<uint64_t> maximum;
+    uint64_t samples = 0;
+    uint64_t over_threshold = 0;
+};
 
 struct MonitorWindow::Impl {
+#pragma warning(suppress : 26455) // Bounded queues allocate; failures reach the executable's startup diagnostics.
+    explicit Impl(CaptureStartApi api = {}) : collector(pending, diagnostics, api) {}
     Diagnostics diagnostics;
     EventQueue pending;
     Collector collector{pending, diagnostics};
@@ -36,7 +57,7 @@ struct MonitorWindow::Impl {
     ScopedIcon small_icon;
     ScopedIcon big_icon;
     ToolCommandUi command_ui{ReportCommandError, this};
-    std::optional<std::array<bool, 5>> command_state;
+    std::optional<std::array<bool, 8>> command_state;
     UiLanguage ui_language = UiLanguage::Auto;
     HINSTANCE instance = nullptr;
     HWND hwnd = nullptr;
@@ -45,6 +66,20 @@ struct MonitorWindow::Impl {
     std::vector<uint64_t> selected_ids;
     Filter filter;
     ProcessChoices process_choices;
+    std::vector<MetricProcessInstance> metric_instances;
+    std::vector<MetricTableRow> metric_rows;
+    std::optional<MetricDimension> metric_selected;
+    std::optional<MetricProcessInstance> metric_instance_filter;
+    std::optional<metrics::Metric> metric_kind_filter;
+    std::optional<metrics::Outcome> metric_outcome_filter;
+    std::optional<metrics::Mode> metric_mode_filter;
+    MetricView metric_window = MetricView::Cumulative;
+    uint64_t metric_display_tick_ms = 0;
+    uint64_t metric_display_generation = 0;
+    bool capture_metrics = false;
+    bool metrics_view = false;
+    bool updating_metric_rows = false;
+    bool metric_display_active = false;
     std::wstring last_error;
     uint64_t selected = 0;
     unsigned int ticks = 0;
@@ -139,6 +174,23 @@ struct MonitorWindow::Impl {
     void Notify(NMHDR& header);
     std::vector<Event> CollectSelectedEvents() const;
     void UpdateDetails();
+    bool CreateMetricControls();
+    void ApplyMetricLanguage();
+    void RefreshMetricInstances(bool force = false);
+    void RefilterMetrics();
+    void RebuildMetricRows();
+    void ShowMetrics(bool show);
+    void UpdateMetricStatus();
+    void NotifyMetrics(NMHDR& header);
+    void SyncMetricSelection();
+    std::array<const wchar_t*, kMetricTableWidths.size()> MetricColumns() const noexcept;
+    const wchar_t* MetricName(metrics::Metric metric) const noexcept;
+    const wchar_t* OutcomeName(metrics::Outcome outcome) const noexcept;
+    const wchar_t* ModeName(metrics::Mode mode) const noexcept;
+    std::wstring MetricCell(const MetricTableRow& row, int column) const;
+    std::wstring MetricDetails() const;
+    std::wstring MetricIntegrity() const;
+    GUID SelectedMetricActivity() const noexcept;
     void CopySelection();
     void ShowListContextMenu(POINT screen_pt);
     void ExportSnapshot();

@@ -130,6 +130,15 @@ LRESULT CALLBACK MonitorWindow::Impl::ListProcedure(HWND window, UINT message, W
 }
 
 void MonitorWindow::Impl::CopySelection() {
+    if (metrics_view) {
+        if (!metric_selected) {
+            diagnostics.Record(3, L"Copy metrics requires a selected dimension", ERROR_NOT_FOUND);
+            return;
+        }
+        const ULONG error = CopyTextToClipboard(hwnd, MetricDetails());
+        if (error != ERROR_SUCCESS) Failure(Text(L"复制指标失败", L"Copy metrics failed"), error);
+        return;
+    }
     const auto items = CollectSelectedEvents();
     if (items.empty()) return;
     const auto text = FormatEventsForClipboard(items);
@@ -142,19 +151,19 @@ void MonitorWindow::Impl::CopySelection() {
 }
 
 void MonitorWindow::Impl::ShowListContextMenu(POINT screen_pt) {
-    screen_pt = ResolveListViewContextMenuPoint(Child(List), screen_pt, theme);
+    screen_pt = ResolveListViewContextMenuPoint(Child(metrics_view ? MetricList : List), screen_pt, theme);
     const ScopedMenu menu(::CreatePopupMenu());
     if (!menu) {
         diagnostics.Record(2, L"CreatePopupMenu", ::GetLastError());
         return;
     }
     const auto* selected_event = FirstSelectedEvent();
-    const bool has_sel = selected_event != nullptr;
-    const bool has_rows = !rows.empty();
-    const bool has_activity = has_sel && selected_event->activity_id != GUID_NULL;
+    const bool has_sel = metrics_view ? metric_selected.has_value() : selected_event != nullptr;
+    const bool has_rows = !metrics_view && !rows.empty();
+    const bool has_activity = metrics_view ? SelectedMetricActivity() != GUID_NULL : has_sel && selected_event->activity_id != GUID_NULL;
     for (const auto& [id, enabled] : std::array{
              std::pair{Copy, has_sel}, std::pair{SelectAll, has_rows}, std::pair{FilterActivity, has_activity},
-             std::pair{ClearActivity, filter.activity_id.has_value()}}) {
+             std::pair{ClearActivity, !metrics_view && filter.activity_id.has_value()}}) {
         std::wstring text(CommandText(id));
         if (id == Copy) text += L"\tCtrl+C";
         if (id == SelectAll) text += L"\tCtrl+A";
@@ -169,6 +178,10 @@ void MonitorWindow::Impl::ShowListContextMenu(POINT screen_pt) {
 }
 
 void MonitorWindow::Impl::ExportSnapshot() {
+    if (metrics_view) {
+        diagnostics.Record(3, L"Metrics JSON export is not implemented; log export requires log view", ERROR_NOT_SUPPORTED);
+        return;
+    }
     std::vector<Event> snapshot;
     snapshot.reserve(rows.size());
     for (const uint64_t id : rows) if (const auto* event = Current().Find(id)) snapshot.push_back(*event);
@@ -243,6 +256,24 @@ void MonitorWindow::Impl::Command(int id, int notification) {
     case Exit: ::SendMessageW(hwnd, WM_CLOSE, 0, 0); break;
     case SelectAll: SelectAllRows(); break;
     case FilterActivity: {
+        if (metrics_view) {
+            const GUID activity = SelectedMetricActivity();
+            if (activity == GUID_NULL) {
+                diagnostics.Record(3, L"Metric activity is unavailable", ERROR_NOT_FOUND);
+                break;
+            }
+            diagnostic_view = false;
+            filter = {};
+            filter.activity_id = activity;
+            ::SetWindowTextW(Child(Process), L"");
+            ::SetWindowTextW(Child(Search), L"");
+            ::SendMessageW(Child(Level), CB_SETCURSEL, 0, 0);
+            ::SendMessageW(Child(Category), CB_SETCURSEL, 0, 0);
+            automatic_pid = false;
+            Refilter();
+            ShowMetrics(false);
+            break;
+        }
         const auto* event = FirstSelectedEvent();
         if (event && event->activity_id != GUID_NULL) {
             filter.activity_id = event->activity_id;
@@ -254,6 +285,10 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         break;
     }
     case ClearActivity:
+        if (metrics_view) {
+            diagnostics.Record(3, L"Clear activity filter requires log view", ERROR_NOT_SUPPORTED);
+            break;
+        }
         filter.activity_id.reset();
         Refilter();
         UpdateStatus();
@@ -261,7 +296,7 @@ void MonitorWindow::Impl::Command(int id, int notification) {
     case Start:
         if (collector.Running()) {
             collector.Stop();
-        } else if (collector.Start()) {
+        } else if (collector.Start(capture_metrics)) {
             last_error.clear();
         } else if (const auto& failure = collector.LastStartFailure();
                    failure && RecoverCapturePermission(*failure)) {
@@ -269,11 +304,28 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         }
         Tick();
         break;
+    case CaptureMetrics:
+        if (collector.Running()) {
+            diagnostics.Record(3, L"Stop capture before changing Metrics mode", ERROR_INVALID_STATE);
+        } else {
+            capture_metrics = !capture_metrics;
+        }
+        UpdateStatus();
+        break;
+    case MetricsView: ShowMetrics(!metrics_view); break;
     case Pause:
         paused = !paused;
         RefreshCommandState();
         break;
     case Clear:
+        if (metrics_view) {
+            Tick();
+            metrics.Clear();
+            metric_selected.reset();
+            RebuildMetricRows();
+            UpdateStatus();
+            break;
+        }
         Current().Clear();
         selected = 0;
         selected_ids.clear();
@@ -284,6 +336,11 @@ void MonitorWindow::Impl::Command(int id, int notification) {
     case Copy: CopySelection(); break;
     case Export: ExportSnapshot(); break;
     case Source:
+        if (metrics_view) {
+            diagnostic_view = false;
+            ShowMetrics(false);
+            break;
+        }
         diagnostic_view = !diagnostic_view;
         selected = 0;
         selected_ids.clear();
@@ -338,6 +395,10 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         break;
     case Level: if (notification == CBN_SELCHANGE) Refilter(); break;
     case Category: if (notification == CBN_SELCHANGE) Refilter(); break;
+    case MetricInstanceFilter: case MetricKindFilter: case MetricOutcomeFilter:
+    case MetricModeFilter: case MetricWindowFilter:
+        if (notification == CBN_SELCHANGE) RefilterMetrics();
+        break;
     case LanguageAuto:
     case LanguageZh:
     case LanguageEn:

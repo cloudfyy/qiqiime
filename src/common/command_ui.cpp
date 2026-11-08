@@ -302,6 +302,17 @@ void ToolCommandUi::DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, 
         path({{8, 12}, {17, 12}});
         path({{8, 16}, {14, 16}});
         break;
+    case ToolIcon::Metrics:
+        path({{2, 3}, {2, 22}, {23, 22}});
+        box(5, 13, 9, 20);
+        box(11, 8, 15, 20);
+        box(17, 3, 21, 20);
+        break;
+    case ToolIcon::CaptureMetrics:
+        box(3, 3, 14, 13);
+        path({{5, 8}, {8, 11}, {12, 5}});
+        path({{3, 19}, {8, 16}, {12, 20}, {18, 11}, {22, 15}});
+        break;
     default:
         Report("Unsupported command icon", ERROR_INVALID_PARAMETER);
         return;

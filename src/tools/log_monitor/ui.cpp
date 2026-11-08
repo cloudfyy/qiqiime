@@ -43,6 +43,12 @@ constexpr std::array kFilterSizes{
     FilterSize{LevelLabel, Level, 44, 110, false},
     FilterSize{CategoryLabel, Category, 72, 126, false},
     FilterSize{SearchLabel, Search, 68, 200, true}};
+constexpr std::array kMetricFilterSizes{
+    FilterSize{MetricInstanceLabel, MetricInstanceFilter, 68, 220, false},
+    FilterSize{MetricKindLabel, MetricKindFilter, 52, 150, false},
+    FilterSize{MetricOutcomeLabel, MetricOutcomeFilter, 68, 130, false},
+    FilterSize{MetricModeLabel, MetricModeFilter, 52, 140, false},
+    FilterSize{MetricWindowLabel, MetricWindowFilter, 68, 160, false}};
 }
 
 void MonitorWindow::Impl::ReportCommandError(void* context, const char* operation, ULONG error) noexcept {
@@ -60,10 +66,12 @@ const wchar_t* MonitorWindow::Impl::CommandText(ControlId id) const noexcept {
     switch (id) {
     case Start: return collector.Running() ? Text(L"停止采集", L"Stop capture") : Text(L"开始采集", L"Start capture");
     case Pause: return paused ? Text(L"恢复自动滚动", L"Resume auto-scroll") : Text(L"暂停自动滚动", L"Pause auto-scroll");
-    case Clear: return Text(L"清空", L"Clear");
+    case Clear: return metrics_view ? Text(L"清空指标", L"Clear metrics") : Text(L"清空", L"Clear");
     case Copy: return Text(L"复制", L"Copy");
     case Export: return Text(L"导出...", L"Export...");
-    case Source: return diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics");
+    case Source: return metrics_view || diagnostic_view ? Text(L"输入法日志", L"IME events") : Text(L"工具诊断", L"Diagnostics");
+    case CaptureMetrics: return Text(L"采集 Metrics", L"Capture Metrics");
+    case MetricsView: return Text(L"指标视图", L"Metrics view");
     case About: return Text(L"关于...", L"About...");
     case SelectAll: return Text(L"全选", L"Select All");
     case FilterActivity: return Text(L"按当前活动关联筛选", L"Filter by selected activity");
@@ -84,15 +92,27 @@ ToolCommand MonitorWindow::Impl::UiCommand(ControlId id) const noexcept {
     case Clear: icon = ToolIcon::Delete; break;
     case Copy: icon = ToolIcon::Copy; break;
     case Export: icon = ToolIcon::Save; break;
-    case Source: icon = diagnostic_view ? ToolIcon::Events : ToolIcon::Diagnostics; break;
+    case Source: icon = metrics_view || diagnostic_view ? ToolIcon::Events : ToolIcon::Diagnostics; break;
+    case CaptureMetrics: icon = ToolIcon::CaptureMetrics; break;
+    case MetricsView: icon = ToolIcon::Metrics; break;
     default: break;
     }
-    const bool checked = (id == Pause && paused) || (id == Source && diagnostic_view) ||
+    const bool checked = (id == Pause && paused) || (id == Source && diagnostic_view && !metrics_view) ||
+        (id == CaptureMetrics && capture_metrics) || (id == MetricsView && metrics_view) ||
         (id >= LanguageAuto && id <= LanguageEn &&
             std::to_underlying(id) - std::to_underlying(LanguageAuto) == std::to_underlying(ui_language));
     const auto* selected_event = id == FilterActivity ? FirstSelectedEvent() : nullptr;
-    const bool enabled = id == FilterActivity ? selected_event && selected_event->activity_id != GUID_NULL
-        : (id != ClearActivity || filter.activity_id.has_value());
+    bool enabled = true;
+    switch (id) {
+    case CaptureMetrics: enabled = !collector.Running(); break;
+    case Export: case SelectAll: enabled = !metrics_view; break;
+    case Copy: enabled = !metrics_view || metric_selected.has_value(); break;
+    case FilterActivity:
+        enabled = metrics_view ? SelectedMetricActivity() != GUID_NULL : selected_event && selected_event->activity_id != GUID_NULL;
+        break;
+    case ClearActivity: enabled = !metrics_view && filter.activity_id.has_value(); break;
+    default: break;
+    }
     return {gsl::narrow_cast<UINT>(std::to_underlying(id)), CommandText(id), icon, enabled, checked};
 }
 
@@ -100,7 +120,8 @@ void MonitorWindow::Impl::UpdateCommands() {
     const ToolCommand separator{};
     const std::array file{UiCommand(Start), UiCommand(Pause), separator, UiCommand(Export), separator, UiCommand(Exit)};
     const std::array edit{UiCommand(Copy), UiCommand(SelectAll), separator, UiCommand(Clear)};
-    const std::array view{UiCommand(Source), separator, UiCommand(FilterActivity), UiCommand(ClearActivity)};
+    const std::array view{UiCommand(Source), UiCommand(MetricsView), UiCommand(CaptureMetrics),
+        separator, UiCommand(FilterActivity), UiCommand(ClearActivity)};
     const std::array language{UiCommand(LanguageAuto), UiCommand(LanguageZh), UiCommand(LanguageEn)};
     const std::array help{UiCommand(About)};
     const std::array menus{
@@ -111,7 +132,7 @@ void MonitorWindow::Impl::UpdateCommands() {
         ToolMenu{Text(L"帮助(&H)", L"&Help"), L'h', help}};
     command_ui.SetMenu(hwnd, menus);
     const std::array buttons{UiCommand(Start), UiCommand(Export), UiCommand(Clear),
-        UiCommand(Copy), UiCommand(Pause), UiCommand(Source)};
+        UiCommand(Copy), UiCommand(Pause), UiCommand(Source), UiCommand(MetricsView), UiCommand(CaptureMetrics)};
     command_ui.SetToolbar(Child(Toolbar), buttons);
     command_state.reset();
     RefreshCommandState();
@@ -120,9 +141,11 @@ void MonitorWindow::Impl::UpdateCommands() {
 void MonitorWindow::Impl::RefreshCommandState() {
     const auto* event = FirstSelectedEvent();
     const std::array state{collector.Running(), paused, diagnostic_view,
-        event && event->activity_id != GUID_NULL, filter.activity_id.has_value()};
+        metrics_view ? SelectedMetricActivity() != GUID_NULL : event && event->activity_id != GUID_NULL,
+        filter.activity_id.has_value(), capture_metrics, metrics_view, metric_selected.has_value()};
     if (command_state == state) return;
-    for (const auto id : {Start, Pause, Source, FilterActivity, ClearActivity}) command_ui.UpdateCommand(hwnd, UiCommand(id));
+    for (const auto id : {Start, Pause, Source, FilterActivity, ClearActivity, CaptureMetrics, MetricsView, Export, Clear, SelectAll, Copy})
+        command_ui.UpdateCommand(hwnd, UiCommand(id));
     command_state = state;
 }
 
@@ -187,6 +210,7 @@ bool MonitorWindow::Impl::CreateControls() {
         Failure(L"ListView_InsertColumn", gsl::narrow_cast<ULONG>(columns_hr));
         return false;
     }
+    if (!CreateMetricControls()) return false;
     ready = true;
     UpdateIcons();
     ApplyLanguage();
@@ -226,10 +250,25 @@ void MonitorWindow::Impl::Layout() noexcept {
         filter_left = input_left + input_px + s(kFilterGroupGap);
     };
     for (const auto& filter_size : kFilterSizes) {
-        place_filter(filter_size.label, filter_size.input, filter_size.label_width,
-                     filter_size.input_width, filter_size.fill_row);
+        ::ShowWindow(Child(filter_size.label), metrics_view ? SW_HIDE : SW_SHOW);
+        ::ShowWindow(Child(filter_size.input), metrics_view ? SW_HIDE : SW_SHOW);
+        if (!metrics_view) place_filter(filter_size.label, filter_size.input, filter_size.label_width,
+            filter_size.input_width, filter_size.fill_row);
     }
-    const int top = filter_top + s(kFilterSectionHeight);
+    for (const auto& filter_size : kMetricFilterSizes) {
+        ::ShowWindow(Child(filter_size.label), metrics_view ? SW_SHOW : SW_HIDE);
+        ::ShowWindow(Child(filter_size.input), metrics_view ? SW_SHOW : SW_HIDE);
+        if (metrics_view) place_filter(filter_size.label, filter_size.input, filter_size.label_width,
+            filter_size.input_width, filter_size.fill_row);
+    }
+    ::ShowWindow(Child(List), metrics_view ? SW_HIDE : SW_SHOW);
+    ::ShowWindow(Child(MetricList), metrics_view ? SW_SHOW : SW_HIDE);
+    ::ShowWindow(Child(MetricSummaryStatus), metrics_view ? SW_SHOW : SW_HIDE);
+    int top = filter_top + s(kFilterSectionHeight);
+    if (metrics_view) {
+        move(MetricSummaryStatus, s(kWindowMargin), top, width - s(2 * kWindowMargin), s(kMetricSummaryHeight));
+        top += s(kMetricSummaryHeight);
+    }
     const int detail_limit_px = std::max(s(kMonitorMinimumDetailHeight),
         gsl::narrow_cast<int>(rect.bottom) - top - s(kMonitorDetailsFooterSpace) - s(kMinimumListHeight));
     detail_limit = std::max(kMonitorMinimumDetailHeight, gsl::narrow_cast<int>(
@@ -238,6 +277,7 @@ void MonitorWindow::Impl::Layout() noexcept {
         s(std::clamp(detail_height, kMonitorMinimumDetailHeight, detail_limit)), detail_limit_px);
     const int list_bottom = rect.bottom - detail - s(kMonitorDetailsFooterSpace);
     move(List, s(kWindowMargin), top, width - s(2 * kWindowMargin), list_bottom - top);
+    move(MetricList, s(kWindowMargin), top, width - s(2 * kWindowMargin), list_bottom - top);
     move(DetailsSplitter, s(kWindowMargin), list_bottom, width - s(2 * kWindowMargin), s(kSplitterHeight));
     move(Details, s(kWindowMargin), list_bottom + s(kSplitterHeight), width - s(2 * kWindowMargin), detail);
     move(Status, s(kWindowMargin), rect.bottom - s(kStatusBottomOffset), width - s(2 * kWindowMargin), s(kStatusHeight));
@@ -251,6 +291,10 @@ void MonitorWindow::Impl::UpdateTheme() noexcept {
     if (!ApplyToolWindowListAndControlsTheme(hwnd, Child(List), theme, controls)) {
         diagnostics.Record(3, L"SetWindowTheme(control/header)", ERROR_GEN_FAILURE);
     }
+    const std::array metric_controls{Child(MetricList), Child(MetricInstanceFilter), Child(MetricKindFilter),
+        Child(MetricOutcomeFilter), Child(MetricModeFilter), Child(MetricWindowFilter)};
+    if (!ApplyToolWindowListAndControlsTheme(hwnd, Child(MetricList), theme, metric_controls))
+        diagnostics.Record(3, L"SetWindowTheme(metric control/header)", ERROR_GEN_FAILURE);
     command_ui.ApplyTheme(hwnd);
 }
 
@@ -295,6 +339,8 @@ void MonitorWindow::Impl::ApplyLanguage() {
         column.pszText = text.data();
         ListView_SetColumn(Child(List), gsl::narrow_cast<int>(i), &column);
     }
+    ApplyMetricLanguage();
+    if (metrics_view) RebuildMetricRows();
     UpdateCommands();
     Layout();
     UpdateTheme();
@@ -324,7 +370,13 @@ void MonitorWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) noexcept {
             const int column = gsl::narrow_cast<int>(i);
             ListView_SetColumnWidth(Child(List), column, ::MulDiv(ListView_GetColumnWidth(Child(List), column), gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
         }
-        for (const auto id : {Process, Pid, Level, Category}) {
+        for (size_t i = 0; i < kMetricTableWidths.size(); ++i) {
+            const int column = gsl::narrow_cast<int>(i);
+            ListView_SetColumnWidth(Child(MetricList), column, ::MulDiv(ListView_GetColumnWidth(Child(MetricList), column),
+                gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
+        }
+        for (const auto id : {Process, Pid, Level, Category, MetricInstanceFilter, MetricKindFilter,
+                 MetricOutcomeFilter, MetricModeFilter, MetricWindowFilter}) {
             ::SendMessageW(Child(id), CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), theme.ScalePx(kFluentComboItemHeight));
             ::SendMessageW(Child(id), CB_SETITEMHEIGHT, 0, theme.ScalePx(kFluentComboItemHeight));
         }
