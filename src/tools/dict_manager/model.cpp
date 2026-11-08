@@ -191,6 +191,16 @@ HRESULT DictManagerModel::SelectCustomPrimaryDictionaryResult(const std::filesys
         ResolveConfiguredDictionaryPath(module_dir_, custom_path.wstring());
     const PrimaryDictValidationResult validation =
         WubiMappedDict::ValidateAndLoadPrimaryDictionary(resolved);
+    if (validation && validation.diagnostics.invalid_lines != 0) {
+        QIQI_LOG_CAT_WARN(log::Keyword::Dictionary,
+            "Custom dictionary selection requires partial-load confirmation");
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    return SelectValidatedCustomPrimaryDictionary(custom_path, validation);
+}
+
+HRESULT DictManagerModel::SelectValidatedCustomPrimaryDictionary(
+    const std::filesystem::path& custom_path, const PrimaryDictValidationResult& validation) {
     if (!validation) {
         const DWORD err = validation.win32_error != ERROR_SUCCESS
             ? validation.win32_error

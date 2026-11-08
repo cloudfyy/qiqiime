@@ -6,6 +6,7 @@
 #include "common/window.h"
 #include "common/version.h"
 #include "common/win32_ui_util.h"
+#include "tools/dictionary_validation.h"
 
 #include <gsl/gsl>
 #include <algorithm>
@@ -1069,7 +1070,11 @@ void DictManagerWindow::Impl::SelectPrimaryDictDialog() {
             hwnd, ui_language, model.ActivePrimaryDictPath().wstring(), selected)) {
         return;
     }
-    if (model.SelectCustomPrimaryDictionary(selected)) {
+    const auto validation = WubiMappedDict::ValidateAndLoadPrimaryDictionary(selected);
+    if (validation && !dictionary_ui::ConfirmPartialDictionary(hwnd, ui_language, validation)) {
+        return;
+    }
+    if (SUCCEEDED(model.SelectValidatedCustomPrimaryDictionary(selected, validation))) {
         last_message = std::format(
             L"{}: {}",
             Text(L"已切换自定义主词库", L"Switched custom primary dictionary"),

@@ -91,6 +91,8 @@ public:
     // or restore the bundled default primary dictionary (retaining previous state on failure).
     bool SelectCustomPrimaryDictionary(const std::filesystem::path& custom_path);
     HRESULT SelectCustomPrimaryDictionaryResult(const std::filesystem::path& custom_path);
+    HRESULT SelectValidatedCustomPrimaryDictionary(
+        const std::filesystem::path& custom_path, const PrimaryDictValidationResult& validation);
     bool RestoreDefaultPrimaryDictionary();
     HRESULT RestoreDefaultPrimaryDictionaryResult();
 

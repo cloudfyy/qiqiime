@@ -519,7 +519,8 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 - [x] **21. 本地备份与恢复（`local-config-dictionary-backup`）**：在 `QiQiIMEDictManager` 中提供配置（`[config]`）、用户词库（`[user_dict]`，含普通词、`^置顶词`、`!屏蔽词`）和动态词频（`[phrase_freq]`）的单文件可读备份包（`.qbak`，带 64 位 FNV-1a 校验头）导出与恢复；恢复前校验文件头与校验和，并支持选择「合并模式（保留现有词条）」或「覆盖模式（完全替换）」，恢复后自动通过 `change_sync` 同步本机实例。
 
 - [x] **62. 自定义主词库选择与管理（`custom-primary-dictionary-management`）**：已完成 `PrimaryDict::Custom`（`PrimaryDictPath`）配置持久化、共享校验加载（[`ValidateAndLoadPrimaryDictionary`](../src/ime/engine/binary_dict.h) 与 [`LoadConfiguredPrimaryDictionaries`](../src/ime/engine/engine.h)）、`QiQiIMESettings` 与 `QiQiIMEDictManager` 双图形入口、恢复默认极点 86 主词库及失败保留旧状态机制。
-  - 首期沿用当前五笔 86 编码与词库格式约束（`.txt` / `.yaml` / `.yml` / `.qdict`），提供主词库文件选择、有效性校验（非空且含有效五笔 86 编码词条）、切换及恢复随包默认词库；不改写用户选定的主词库源文件，不覆盖 `user_dict.txt` 个人词条。
+  - 格式支持 `.txt` / `.yaml` / `.yml` / `.qdict`。选择及设置确认时直接校验源文件：拒绝非法 UTF-8、损坏二进制和零有效词条；对无效编码、缺少词语、控制字符、无效权重/多余列、未结束的 YAML 头部给出有效/无效行统计及前 8 个错误的行号与原因，由用户确认是否仅加载有效部分，取消不切换或保存。共享解析器与双工具确认逻辑，诊断日志只记录计数、行号和原因枚举，不记录词条内容。格式校验不验证五笔 86 编码语义，也不提供完整 YAML 解析。
+  - 自定义文本主词库直接在内存中编译，显式 `.qdict` 只检查所选文件，旧缓存不能掩盖源文件缺失、非法 UTF-8 或损坏。随包词库继续使用原有缓存路径；自定义主词库运行期加载与主词库文件变更复用校验，非交互加载仅使用有效词条并记录诊断，无有效词条时保留旧主词库。不改写用户选定源文件，不覆盖 `user_dict.txt`。
   - 候选与规则优先级保持不变：`手动置顶(^)` > `动态词频(QPF1)` > `当前主词库(随包或自定义)` + `用户补充词库(user_dict.txt)` > `内置保底词库`，`!屏蔽词` 对所有词源全局生效。
   - 热重载或运行期若自定义主词库文件缺失、损坏或无权读取（例如在 Windows AppContainer 沙盒应用中访问未授予 `ALL APPLICATION PACKAGES` 读取权限的用户私有目录），显式记录 `Keyword::Dictionary` 警告日志并保留已激活的主词库（首次启动时回退随包极点 86 主词库），绝不静默清空可用词库。
 

@@ -125,18 +125,39 @@ static_assert(sizeof(DictWordSlice) == 8);
 
 class WubiMappedDict;
 
+enum class DictionaryLineError : uint8_t {
+    InvalidCode,
+    MissingWord,
+    InvalidCharacter,
+    InvalidWeight,
+    UnterminatedHeader
+};
+
+struct DictionaryLineIssue {
+    size_t line = 0;
+    DictionaryLineError error = DictionaryLineError::InvalidCode;
+};
+
+struct DictionaryTextDiagnostics {
+    size_t valid_lines = 0;
+    size_t invalid_lines = 0;
+    std::vector<DictionaryLineIssue> issues;
+};
+
 enum class PrimaryDictValidationStatus : uint8_t {
     Valid = 0,
     EmptyPath,
     FileNotFound,
     AccessDeniedOrReadError,
-    InvalidFormatOrEmpty
+    InvalidFormatOrEmpty,
+    InvalidUtf8
 };
 
 struct PrimaryDictValidationResult {
     PrimaryDictValidationStatus status = PrimaryDictValidationStatus::EmptyPath;
     DWORD win32_error = ERROR_INVALID_PARAMETER;
     std::shared_ptr<const WubiMappedDict> dictionary;
+    DictionaryTextDiagnostics diagnostics;
 
     constexpr explicit operator bool() const noexcept {
         return status == PrimaryDictValidationStatus::Valid && dictionary != nullptr;
@@ -160,7 +181,7 @@ public:
         const std::filesystem::path& txt_path);
 
     // Validate a user-selected primary dictionary file (.txt / .yaml / .qdict) without modifying the source file,
-    // ensuring it exists, is readable, and contains at least one valid Wubi 86 entry.
+    // Inspect the selected source, not a cache. Partial text errors are returned for caller confirmation.
     static PrimaryDictValidationResult ValidateAndLoadPrimaryDictionary(
         const std::filesystem::path& dict_path);
 
@@ -182,7 +203,8 @@ public:
     static void ParseTextDictEntries(
         std::wstring_view wide_content,
             std::map<uint32_t, std::vector<std::wstring>>& out_entries,
-            bool preserve_rule_markers = false);
+            bool preserve_rule_markers = false,
+            DictionaryTextDiagnostics* diagnostics = nullptr);
 
     // Compile an in-memory map (packed_code -> ordered words) into the unified flat binary table format
     // (DictBinaryHeader + DictCodeIndex[] + DictWordSlice[] + wchar_t[] pool with payload_checksum).

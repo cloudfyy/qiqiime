@@ -9,6 +9,7 @@
 #include "ime/engine/binary_dict.h"
 #include "tools/settings/internal.h"
 #include "tools/settings/window.h"
+#include "tools/dictionary_validation.h"
 
 #include <windows.h>
 #include <array>
@@ -19,6 +20,55 @@
 namespace qiqi::test {
 
 namespace {
+
+thread_local int dictionary_confirmation_button = IDCANCEL;
+thread_local bool dictionary_confirmation_seen = false;
+
+int WINAPI FailDictionaryDialog(HWND, LPCWSTR, LPCWSTR, UINT) noexcept {
+    ::SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+    return 0;
+}
+
+template <typename Action>
+void WithDictionaryConfirmation(int button, Action action) {
+    dictionary_confirmation_button = button;
+    dictionary_confirmation_seen = false;
+    const UINT_PTR timer = ::SetTimer(nullptr, 0, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+        const HWND dialog = FindThreadWindowByClass(L"#32770");
+        if (!dialog) {
+            return;
+        }
+        ::KillTimer(nullptr, id);
+        dictionary_confirmation_seen = true;
+        const HWND button = ::GetDlgItem(dialog, dictionary_confirmation_button);
+        QIQI_TEST_CHECK(button);
+        ::SendMessageW(button, BM_CLICK, 0, 0);
+    });
+    QIQI_TEST_CHECK(timer != 0);
+    const auto cleanup = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
+    action();
+    QIQI_TEST_CHECK(dictionary_confirmation_seen);
+}
+
+void TestDictionaryConfirmationText() {
+    std::map<uint32_t, std::vector<std::wstring>> entries;
+    entries[PackWubiCode(L"aaaa")] = {L"词"};
+    std::vector<uint8_t> binary;
+    WubiMappedDict::CompileEntriesToBinaryBuffer(entries, binary);
+    PrimaryDictValidationResult validation{
+        PrimaryDictValidationStatus::Valid, ERROR_SUCCESS,
+        WubiMappedDict::LoadFromBinaryBuffer(std::move(binary)),
+        {1, 10, {{2, DictionaryLineError::MissingWord}}}
+    };
+    const auto zh = dictionary_ui::ValidationDetails(validation, UiLanguage::ZhCn);
+    const auto en = dictionary_ui::ValidationDetails(validation, UiLanguage::EnUs);
+    QIQI_TEST_CHECK(zh.find(L"有效行：1。无效行：10。") != std::wstring::npos &&
+        zh.find(L"第 2 行：缺少词语") != std::wstring::npos);
+    QIQI_TEST_CHECK(en.find(L"Valid rows: 1. Invalid rows: 10.") != std::wstring::npos &&
+        en.find(L"Line 2: Missing word") != std::wstring::npos);
+    QIQI_TEST_CHECK(!dictionary_ui::ConfirmPartialDictionary(
+        nullptr, UiLanguage::ZhCn, validation, &FailDictionaryDialog));
+}
 
 void TestSettingsDialogControls() {
     const auto original_theme = detail::ThemeDarkOverrideStorage();
@@ -50,6 +100,7 @@ void TestSettingsDialogControls() {
     ReadSettingsFromWindowControls(hwnd.Get(), read_back);
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Haifeng);
     QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), 104)));
+
     QIQI_TEST_CHECK(!read_back.enable_jidian_extra);
     QIQI_TEST_CHECK(!read_back.auto_commit_4code);
     QIQI_TEST_CHECK(!read_back.push_commit_5th);
@@ -130,6 +181,60 @@ void TestSettingsDialogControls() {
         QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Custom);
         QIQI_TEST_CHECK(read_back.primary_dict_path == valid_dict.wstring());
         QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), 104)));
+        const auto partial_dict = temp_dir / L"custom_partial.txt";
+        QIQI_TEST_CHECK(WriteFileAtomically(partial_dict,
+            codec::AsByteSpan(std::string_view("bbbb 有效部分\n12345 67890\n"))));
+        WithDictionaryConfirmation(IDCANCEL, [&] {
+            QIQI_TEST_CHECK(!SelectCustomPrimaryDictionaryInSettings(hwnd.Get(), partial_dict));
+        });
+        ReadSettingsFromWindowControls(hwnd.Get(), read_back);
+        QIQI_TEST_CHECK(read_back.primary_dict_path == valid_dict.wstring());
+        WithDictionaryConfirmation(IDOK, [&] {
+            QIQI_TEST_CHECK(SelectCustomPrimaryDictionaryInSettings(hwnd.Get(), partial_dict));
+        });
+        ReadSettingsFromWindowControls(hwnd.Get(), read_back);
+        QIQI_TEST_CHECK(read_back.primary_dict_path == partial_dict.wstring());
+        WithDictionaryConfirmation(IDCANCEL, [&] {
+            ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+        });
+        const auto* context = reinterpret_cast<const settings_detail::DialogContext*>(
+            ::GetWindowLongPtrW(hwnd.Get(), GWLP_USERDATA));
+        QIQI_TEST_CHECK(context && !context->accepted && !context->done);
+        {
+            const std::wstring subkey = L"Software\\QiQiIME_PartialDictSaveTest_" +
+                std::to_wstring(::GetCurrentProcessId());
+            const wchar_t* previous_subkey = GetActiveConfigRegistrySubKey();
+            SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+            const auto restore_registry = gsl::finally([&]() noexcept {
+                SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
+                const LSTATUS result = ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+                QIQI_TEST_CHECK(result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND);
+            });
+            QiQiConfig stored;
+            stored.ui_language = UiLanguage::ZhCn;
+            QIQI_TEST_CHECK(SaveConfig(stored));
+            const auto sequence = QueryRegistryConfigSequence();
+            const ScopedWindow save_window(CreateSettingsWindow(
+                ::GetModuleHandleW(nullptr), nullptr, &stored, true));
+            QiQiConfig edit = stored;
+            edit.primary_dict = PrimaryDict::Custom;
+            edit.primary_dict_path = partial_dict.wstring();
+            WriteSettingsToWindowControls(save_window.Get(), edit);
+            WithDictionaryConfirmation(IDCANCEL, [&] {
+                ::SendMessageW(save_window.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+            });
+            QIQI_TEST_CHECK(stored.primary_dict == PrimaryDict::Jidian &&
+                QueryRegistryConfigSequence() == sequence);
+            WithDictionaryConfirmation(IDOK, [&] {
+                ::SendMessageW(save_window.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+            });
+            QIQI_TEST_CHECK(stored.primary_dict == PrimaryDict::Custom &&
+                stored.primary_dict_path == partial_dict.wstring());
+            QIQI_TEST_CHECK(LoadConfig().primary_dict_path == partial_dict.wstring());
+        }
+        cfg.primary_dict = PrimaryDict::Jidian;
+        cfg.primary_dict_path.clear();
+        WriteSettingsToWindowControls(hwnd.Get(), cfg);
     }
 
     // Test WM_CTLCOLORSTATIC brush/text styling on a static control (kIdLblPageSize = 122)
@@ -419,6 +524,7 @@ void TestSettingsWindowMonitorChanges() {
 } // namespace
 
 void RunSettingsDialogTests() {
+    TestDictionaryConfirmationText();
     TestSettingsDialogControls();
     TestSettingsWindowMonitorChanges();
 }

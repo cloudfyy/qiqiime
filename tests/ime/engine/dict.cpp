@@ -1025,6 +1025,76 @@ void TestCustomPrimaryDictionaryAndFallback() {
     const auto valid_qdict_res = WubiMappedDict::ValidateAndLoadPrimaryDictionary(custom_qdict);
     QIQI_TEST_CHECK(valid_qdict_res && valid_qdict_res.dictionary->CodeCount() == 2 &&
                     valid_qdict_res.dictionary->WordCount() == 3);
+    QIQI_TEST_CHECK(valid_txt_res.diagnostics.valid_lines == 2 &&
+        valid_txt_res.diagnostics.invalid_lines == 0);
+    QIQI_TEST_CHECK(valid_txt_res.dictionary->SourcePath() == custom_txt &&
+        !valid_txt_res.dictionary->IsSourceModified());
+    QIQI_TEST_CHECK(valid_qdict_res.dictionary->SourcePath() == custom_qdict &&
+        !valid_qdict_res.dictionary->IsSourceModified());
+
+    const auto partial_txt = temp_dir / L"partial.txt";
+    constexpr std::string_view partial_content =
+        "# comment\n"
+        "aaaa 有效词\n"
+        "abcde 12345\n"
+        "bbbb\n"
+        "反查词 cccc 100\n"
+        "错误词 dddd invalid-weight\n";
+    QIQI_TEST_CHECK(WriteFileAtomically(partial_txt, codec::AsByteSpan(partial_content)));
+    const auto partial = WubiMappedDict::ValidateAndLoadPrimaryDictionary(partial_txt);
+    QIQI_TEST_CHECK(partial && partial.diagnostics.valid_lines == 2 &&
+        partial.diagnostics.invalid_lines == 3 && partial.dictionary->WordCount() == 2);
+    QIQI_TEST_CHECK(partial.diagnostics.issues.at(0).line == 3 &&
+        partial.diagnostics.issues.at(0).error == DictionaryLineError::InvalidCode);
+    QIQI_TEST_CHECK(partial.diagnostics.issues.at(1).line == 4 &&
+        partial.diagnostics.issues.at(1).error == DictionaryLineError::MissingWord);
+    QIQI_TEST_CHECK(partial.diagnostics.issues.at(2).line == 6 &&
+        partial.diagnostics.issues.at(2).error == DictionaryLineError::InvalidWeight);
+    {
+        std::map<uint32_t, std::vector<std::wstring>> parsed;
+        DictionaryTextDiagnostics report;
+        WubiMappedDict::ParseTextDictEntries(
+            L"---\nname: test\n...\n词语 abcd 1.5\n", parsed, false, &report);
+        QIQI_TEST_CHECK(report.valid_lines == 1 && report.invalid_lines == 0 && parsed.size() == 1);
+        WubiMappedDict::ParseTextDictEntries(L"---\nname: test\n", parsed, false, &report);
+        QIQI_TEST_CHECK(parsed.empty() && report.invalid_lines == 1 &&
+            report.issues.at(0).error == DictionaryLineError::UnterminatedHeader);
+        std::wstring controls = L"aaaa ";
+        controls.push_back(L'\0');
+        controls += L"词\n";
+        WubiMappedDict::ParseTextDictEntries(controls, parsed, false, &report);
+        QIQI_TEST_CHECK(parsed.empty() && report.invalid_lines == 1 &&
+            report.issues.at(0).error == DictionaryLineError::InvalidCharacter);
+        WubiMappedDict::ParseTextDictEntries(
+            L"1 1\n2 2\n3 3\n4 4\n5 5\n6 6\n7 7\n8 8\n9 9\n", parsed, false, &report);
+        QIQI_TEST_CHECK(report.invalid_lines == 9 && report.issues.size() == 8);
+    }
+    const auto utf8_txt = temp_dir / L"invalid_utf8.txt";
+    const std::string bad_utf8 = std::string("aaaa ") + '\xC0' + '\xAF' + '\n';
+    QIQI_TEST_CHECK(WriteFileAtomically(utf8_txt, codec::AsByteSpan(bad_utf8)));
+    const auto utf8_validation = WubiMappedDict::ValidateAndLoadPrimaryDictionary(utf8_txt);
+    QIQI_TEST_CHECK(!utf8_validation && utf8_validation.status == PrimaryDictValidationStatus::InvalidUtf8 &&
+        utf8_validation.win32_error == ERROR_NO_UNICODE_TRANSLATION);
+    QIQI_TEST_CHECK(!WubiMappedDict::LoadFromTextOrCache(utf8_txt));
+    const auto bom_txt = temp_dir / L"bom.txt";
+    const std::string bom_text = std::string("\xEF\xBB\xBF") + "aaaa 词语\r\n";
+    QIQI_TEST_CHECK(WriteFileAtomically(bom_txt, codec::AsByteSpan(bom_text)));
+    QIQI_TEST_CHECK(WubiMappedDict::ValidateAndLoadPrimaryDictionary(bom_txt));
+
+    const auto cached_txt = temp_dir / L"cached.txt";
+    const auto cached_bin = temp_dir / L"cached.qdict";
+    QIQI_TEST_CHECK(WriteFileAtomically(cached_txt, codec::AsByteSpan(std::string_view("aaaa valid\n"))));
+    QIQI_TEST_CHECK(WubiMappedDict::CompileTextFileToQdict(cached_txt, cached_bin));
+    const auto original_time = std::filesystem::last_write_time(cached_txt);
+    QIQI_TEST_CHECK(WriteFileAtomically(cached_txt, codec::AsByteSpan(std::string_view("1234 56789\n"))));
+    std::filesystem::last_write_time(cached_txt, original_time);
+    QIQI_TEST_CHECK(!WubiMappedDict::ValidateAndLoadPrimaryDictionary(cached_txt));
+    QIQI_TEST_CHECK(std::filesystem::remove(cached_txt));
+    QIQI_TEST_CHECK(WubiMappedDict::ValidateAndLoadPrimaryDictionary(cached_txt).status ==
+        PrimaryDictValidationStatus::FileNotFound);
+    const auto corrupt_bin = temp_dir / L"corrupt.qdict";
+    QIQI_TEST_CHECK(WriteFileAtomically(corrupt_bin, codec::AsByteSpan(std::string_view("not a dictionary"))));
+    QIQI_TEST_CHECK(!WubiMappedDict::ValidateAndLoadPrimaryDictionary(corrupt_bin));
 
     // 2. Priority verification: ^Pinned > PromotedPhrase > CustomPrimaryDict + UserDict, !Blocked excluded,
     //    and custom primary dictionary file on disk is never modified.
@@ -1065,6 +1135,20 @@ void TestCustomPrimaryDictionaryAndFallback() {
                     !fallback_summary.retained_previous);
     const auto bundled_fallback = engine.LookupExact(L"aaaa");
     QIQI_TEST_CHECK(std::ranges::find(bundled_fallback, L"极点默认词") != bundled_fallback.end());
+
+    WubiEngine reload_engine;
+    reload_engine.SetUserDictPath(temp_dir / L"isolated_user.txt");
+    cfg.primary_dict_path = partial_txt.wstring();
+    QIQI_TEST_CHECK(SUCCEEDED(reload_engine.LoadConfiguredPrimaryDictionaries(cfg, temp_dir, false).hr));
+    QIQI_TEST_CHECK(WriteFileAtomically(partial_txt, codec::AsByteSpan(std::string_view("12345 67890\n"))));
+    std::ignore = reload_engine.SynchronizeCrossProcessChanges(sync::InputBoundary::NewInput);
+    QIQI_TEST_CHECK(!reload_engine.LookupExact(L"aaaa").empty());
+    QIQI_TEST_CHECK(WriteFileAtomically(partial_txt, codec::AsByteSpan(std::string_view("eeee 更新后的词条\n"))));
+    std::ignore = reload_engine.SynchronizeCrossProcessChanges(sync::InputBoundary::NewInput);
+    QIQI_TEST_CHECK(!reload_engine.LookupExact(L"eeee").empty());
+    cfg.primary_dict_path = missing_txt.wstring();
+    const auto retained_reload = reload_engine.LoadConfiguredPrimaryDictionaries(cfg, temp_dir, true);
+    QIQI_TEST_CHECK(retained_reload.retained_previous && !reload_engine.LookupExact(L"eeee").empty());
 }
 
 } // namespace

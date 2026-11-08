@@ -6,6 +6,7 @@
 #include "common/logger.h"
 #include "common/theme.h"
 #include "ime/engine/binary_dict.h"
+#include "tools/dictionary_validation.h"
 
 #include <commctrl.h>
 #include <shellapi.h>
@@ -66,6 +67,21 @@ std::filesystem::path GetSettingsModuleDirectory(const DialogContext& ctx) {
     return mod_path.empty() ? std::filesystem::path{} : mod_path.parent_path();
 }
 
+bool ValidateSettingsPrimaryDictionary(HWND hwnd, const DialogContext& ctx, const QiQiConfig& edited) {
+    if (edited.primary_dict != PrimaryDict::Custom) {
+        return true;
+    }
+    const auto resolved = ResolveConfiguredDictionaryPath(
+        GetSettingsModuleDirectory(ctx), edited.primary_dict_path);
+    const auto validation = WubiMappedDict::ValidateAndLoadPrimaryDictionary(resolved);
+    const UiLanguage language = GetSelectedUiLanguageFromCombo(hwnd, ctx);
+    if (!validation) {
+        ShowSettingsMessage(hwnd, language, SettingsMessageKind::InvalidPrimaryDict);
+        return false;
+    }
+    return dictionary_ui::ConfirmPartialDictionary(hwnd, language, validation);
+}
+
 } // namespace
 
 bool SelectCustomPrimaryDictionaryInSettings(
@@ -94,6 +110,12 @@ bool SelectCustomPrimaryDictionaryInSettings(
             UpdateExtraDictCheckboxState(hwnd);
             ::InvalidateRect(hwnd, nullptr, FALSE);
             ShowSettingsMessage(hwnd, lang, SettingsMessageKind::InvalidPrimaryDict);
+            return false;
+        }
+        if (!dictionary_ui::ConfirmPartialDictionary(hwnd, lang, validation)) {
+            CheckPrimaryDictRadio(hwnd, ctx->last_valid_primary_dict);
+            UpdateExtraDictCheckboxState(hwnd);
+            ::InvalidateRect(hwnd, nullptr, FALSE);
             return false;
         }
         ctx->custom_primary_dict_path = file_path.wstring();
@@ -244,22 +266,8 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                         return;
                     }
                     ReadSettingsFromWindowControls(hwnd, edited);
-                    if (edited.primary_dict == PrimaryDict::Custom) {
-                        const std::filesystem::path resolved =
-                            ResolveConfiguredDictionaryPath(GetSettingsModuleDirectory(ctx), edited.primary_dict_path);
-                        const PrimaryDictValidationResult validation =
-                            WubiMappedDict::ValidateAndLoadPrimaryDictionary(resolved);
-                        if (!validation) {
-                            QIQI_LOG_CAT_WARN(
-                                log::Keyword::Dictionary,
-                                "Settings save blocked: custom primary dictionary '{}' invalid (status={}, error={})",
-                                WideToUtf8(edited.primary_dict_path),
-                                static_cast<unsigned int>(validation.status),
-                                validation.win32_error);
-                            ShowSettingsMessage(
-                                hwnd, GetSelectedUiLanguageFromCombo(hwnd, ctx), SettingsMessageKind::InvalidPrimaryDict);
-                            return;
-                        }
+                    if (!ValidateSettingsPrimaryDictionary(hwnd, ctx, edited)) {
+                        return;
                     }
                     if (!SaveConfig(edited)) {
                         QIQI_LOG_ERROR("Settings save failed; retaining edits for retry");
@@ -270,8 +278,13 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                     ctx.baseline_config = edited;
                     *ctx.config = std::move(edited);
                 } else {
-                    ReadSettingsFromWindowControls(hwnd, *ctx.config);
-                    ctx.baseline_config = *ctx.config;
+                    QiQiConfig edited = *ctx.config;
+                    ReadSettingsFromWindowControls(hwnd, edited);
+                    if (!ValidateSettingsPrimaryDictionary(hwnd, ctx, edited)) {
+                        return;
+                    }
+                    ctx.baseline_config = edited;
+                    *ctx.config = std::move(edited);
                 }
             }
             ctx.accepted = true;

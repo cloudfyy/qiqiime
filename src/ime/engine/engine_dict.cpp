@@ -1581,7 +1581,17 @@ bool WubiEngine::SynchronizeCrossProcessChanges(sync::InputBoundary boundary) {
         if (mapped && mapped->IsSourceModified()) {
             const std::filesystem::path src_path = mapped->SourcePath();
             WubiMappedDict::InvalidateProcessCacheForPath(src_path);
-            if (auto reloaded = WubiMappedDict::LoadFromTextOrCache(src_path)) {
+            const bool primary = mapped == primary_mapped_dict_;
+            auto reloaded = primary
+                ? WubiMappedDict::ValidateAndLoadPrimaryDictionary(src_path).dictionary
+                : WubiMappedDict::LoadFromTextOrCache(src_path);
+            if (reloaded) {
+                if (mapped == primary_mapped_dict_) {
+                    primary_mapped_dict_ = reloaded;
+                }
+                if (mapped == extra_mapped_dict_) {
+                    extra_mapped_dict_ = reloaded;
+                }
                 mapped = std::move(reloaded);
             }
         }

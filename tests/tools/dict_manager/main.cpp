@@ -444,6 +444,22 @@ void TestDictionarySourceSelection() {
         return record.source == DictEntrySource::PrimaryDict && record.word == L"自定义词管主词";
     }));
 
+    const auto custom_partial = directory / L"custom_partial.txt";
+    write(custom_partial, "hhhh 部分有效词\n12345 67890\n");
+    const auto previous_sequence = QueryRegistryConfigSequence();
+    QIQI_TEST_CHECK(!custom_model.SelectCustomPrimaryDictionary(custom_partial));
+    QIQI_TEST_CHECK(QueryRegistryConfigSequence() == previous_sequence &&
+        custom_model.ActivePrimaryDictPath() == custom_valid);
+    const auto confirmed = WubiMappedDict::ValidateAndLoadPrimaryDictionary(custom_partial);
+    QIQI_TEST_CHECK(confirmed && confirmed.diagnostics.invalid_lines == 1);
+    QIQI_TEST_CHECK(SUCCEEDED(custom_model.SelectValidatedCustomPrimaryDictionary(custom_partial, confirmed)));
+    QIQI_TEST_CHECK(custom_model.ActivePrimaryDictPath() == custom_partial &&
+        custom_model.SystemEntryCount() == 1 && custom_model.UserEntryCount() == 1);
+    QIQI_TEST_CHECK(std::ranges::any_of(custom_model.Records(), [](const DictRecord& record) {
+        return record.source == DictEntrySource::PrimaryDict && record.word == L"部分有效词";
+    }));
+    QIQI_TEST_CHECK(custom_model.SelectCustomPrimaryDictionary(custom_valid));
+
     // Selecting an invalid file fails and preserves the currently active custom primary dictionary
     QIQI_TEST_CHECK(!custom_model.SelectCustomPrimaryDictionary(custom_invalid));
     QIQI_TEST_CHECK(custom_model.ActivePrimaryDict() == PrimaryDict::Custom);
