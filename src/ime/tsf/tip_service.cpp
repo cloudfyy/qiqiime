@@ -5,6 +5,7 @@
 #include "common/file_util.h"
 #include "common/guids.h"
 #include "common/logger.h"
+#include "common/metric.h"
 #include "common/version.h"
 
 #include <oleauto.h>
@@ -469,6 +470,22 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
     static std::atomic<uint64_t> focus_log_sequence{0};
     const GUID focus_act_id = log::CreateActivityId();
     const GUID prev_act = std::exchange(current_lifecycle_activity_, focus_act_id);
+    const auto metric_mode = has_focus ? metrics::Mode::FocusGained : metrics::Mode::FocusLost;
+    const auto metric_source = source == FocusNotificationSource::ThreadManager
+        ? metrics::Source::ThreadManager : metrics::Source::KeyEvent;
+    metrics::Scope focus_metric(metrics::Metric::FocusTotal, service_log_id_, metric_mode, metric_source);
+    focus_metric.SetActivity(focus_act_id, prev_act);
+    const auto current_outcome = [&]() noexcept {
+        if (!composition_lifecycle_.IsActive()) return metrics::Outcome::Cancelled;
+        return focus_revision == focus_revision_ ? metrics::Outcome::Success : metrics::Outcome::Stale;
+    };
+    const auto set_result = [&](metrics::Scope& scope, const ReloadResult& result) noexcept {
+        auto outcome = current_outcome();
+        if (outcome == metrics::Outcome::Success && !result.succeeded) outcome = metrics::Outcome::Failure;
+        scope.SetOutcome(outcome, FAILED(result.error) ? metrics::ErrorDomain::HResult : metrics::ErrorDomain::None,
+            FAILED(result.error) ? gsl::narrow_cast<uint32_t>(result.error) : 0);
+    };
+    ReloadResult result;
     const bool measure = log::ShouldLog(log::Level::debug, log::Keyword::Lifecycle);
     const auto started = measure ? Clock::now() : Clock::time_point{};
     const uint64_t event_id = measure ? focus_log_sequence.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
@@ -505,16 +522,40 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
     });
     if (!has_focus) {
         ResetCompositionAndUI();
-        if (!composition_lifecycle_.IsActive() || focus_revision != focus_revision_) return;
+        if (current_outcome() != metrics::Outcome::Success) {
+            set_result(focus_metric, result);
+            return;
+        }
         if (status_bar_) {
             status_bar_->Show(false);
         }
     } else {
         const auto reload_started = measure ? Clock::now() : Clock::time_point{};
-        ReloadConfigIfModified(event_id);
-        if (!composition_lifecycle_.IsActive() || focus_revision != focus_revision_) return;
+        {
+            metrics::Scope reload_metric(metrics::Metric::FocusReload, service_log_id_,
+                metric_mode, metric_source, focus_metric.OperationId());
+            reload_metric.SetActivity(focus_act_id, prev_act);
+            result = ReloadConfigIfModified(event_id);
+            set_result(reload_metric, result);
+        }
+        if (current_outcome() != metrics::Outcome::Success) {
+            set_result(focus_metric, result);
+            return;
+        }
         const auto reload_finished = measure ? Clock::now() : Clock::time_point{};
-        position_changed = SyncStatusBarPositionFromGlobalCompartment();
+        {
+            metrics::Scope position_metric(metrics::Metric::FocusPosition, service_log_id_,
+                metric_mode, metric_source, focus_metric.OperationId());
+            position_metric.SetActivity(focus_act_id, prev_act);
+            ReloadResult position_result;
+            position_result.Observe(SyncStatusBarPositionFromGlobalCompartment(&position_changed));
+            set_result(position_metric, position_result);
+            if (!position_result.succeeded) result.Fail(position_result.error);
+        }
+        if (current_outcome() != metrics::Outcome::Success) {
+            set_result(focus_metric, result);
+            return;
+        }
         if (measure) {
             reload_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(reload_finished - reload_started).count();
             position_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - reload_finished).count();
@@ -524,6 +565,7 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
         }
     }
     completed = true;
+    set_result(focus_metric, result);
 }
 
 STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* /*pdimPrevFocus*/) {

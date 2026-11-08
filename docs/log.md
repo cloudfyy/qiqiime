@@ -104,7 +104,7 @@ ETW 写入失败通过不递归的 `OutputDebugStringA` 输出 `EventWriteTransf
 
 当前图形设置界面没有日志级别控件。
 
-性能指标使用独立 `Metrics` Keyword（`0x0100`）和类型化 `QiQiMetric` / `QiQiMetricInstance` 事件，不受 `LogLevel`（包括 Off）过滤，只在相应 ETW 订阅启用时工作。当前已实现协议、门控与同步计时基础，尚未接入输入链路、指标聚合或指标页；日志监视器普通采集仅订阅 `Logs`（`0x00FF`），不会因为开始日志跟踪而自动开启指标。分类下拉框中的 Metrics 是分类映射，不是采集开关。采集期间的实例元数据通过启用回调或 `EVENT_CONTROL_CODE_CAPTURE_STATE` 请求获取；指标计时异常有独立计数，不递归写指标、不影响业务结果。
+性能指标使用独立 `Metrics` Keyword（`0x0100`）和类型化 `QiQiMetric` / `QiQiMetricInstance` 事件，不受 `LogLevel`（包括 Off）过滤，只在相应 ETW 订阅启用时工作。当前已实现协议、门控、同步计时、内部严格解码/独立队列及有界聚合，并接入焦点总耗时、重载、位置同步三段指标；尚无指标页或 GUI 指标采集开关。日志监视器普通采集仅订阅 `Logs`（`0x00FF`），不会因为开始日志跟踪而自动开启指标。分类下拉框中的 Metrics 是分类映射，不是采集开关。采集期间的实例元数据通过启用回调或 `EVENT_CONTROL_CODE_CAPTURE_STATE` 请求获取；指标计时异常有独立计数，不递归写指标、不影响业务结果。
 
 | LogLevel | 应用级别 | 建议用途 | ETW 事件 |
 |---|---|---|---|

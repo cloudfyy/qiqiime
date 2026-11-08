@@ -35,17 +35,20 @@ constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
 
 } // namespace
 
-void QiQiTextService::LoadExternalDictionaryNextToDll() {
+QiQiTextService::ReloadResult QiQiTextService::LoadExternalDictionaryNextToDll() {
+    ReloadResult result;
     const std::filesystem::path module_path = GetModuleFilePath(g_dll_instance);
     if (module_path.empty()) {
         engine_.ClearExternalDictionaries();
         QIQI_LOG_WARN("GetModuleFileNameW failed when locating external dictionaries");
-        return;
+        result.Fail();
+        return result;
     }
     const std::filesystem::path dll_dir = module_path.parent_path();
 
     const PrimaryDictLoadSummary primary_summary =
         engine_.LoadConfiguredPrimaryDictionaries(config_, dll_dir, true);
+    result.Observe(primary_summary.hr);
     bool loaded_any = (primary_summary.loaded_count > 0);
     const bool has_custom_user_path = !config_.user_dict_path.empty();
     const std::filesystem::path user_path = has_custom_user_path
@@ -53,17 +56,22 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
         : GetDefaultUserDictPath();
     engine_.SetUserDictPath(user_path);
     if (std::filesystem::exists(user_path)) {
-        loaded_any |= engine_.LoadDictionaryFile(user_path);
-        std::ignore = engine_.SynchronizeUserDictionary();
+        const bool loaded = engine_.LoadDictionaryFile(user_path);
+        loaded_any |= loaded;
+        if (!loaded) result.Fail();
+        result.Observe(engine_.SynchronizeUserDictionary());
     } else if (has_custom_user_path) {
+        result.Fail();
         QIQI_LOG_WARN("Configured user dictionary '{}' does not exist",
                       WideToUtf8(user_path.wstring()));
     } else {
         std::vector<uint8_t> reg_user_dict;
         if (LoadUserDictBinaryFromRegistry(reg_user_dict)) {
-            loaded_any |= engine_.LoadDictionaryFromBinaryBuffer(std::move(reg_user_dict));
+            const bool loaded = engine_.LoadDictionaryFromBinaryBuffer(std::move(reg_user_dict));
+            loaded_any |= loaded;
+            if (!loaded) result.Fail();
         }
-        std::ignore = engine_.SynchronizeUserDictionary();
+        result.Observe(engine_.SynchronizeUserDictionary());
     }
 
     if (!loaded_any && config_.primary_dict != PrimaryDict::BuiltinOnly) {
@@ -75,6 +83,7 @@ void QiQiTextService::LoadExternalDictionaryNextToDll() {
                       PrimaryDictToString(config_.primary_dict),
                       primary_summary.used_fallback);
     }
+    return result;
 }
 
 void QiQiTextService::InitCompartmentSinks() {
@@ -256,23 +265,28 @@ void QiQiTextService::SaveGlobalStatusBarPosition(POINT pos) noexcept {
     }
 }
 
-bool QiQiTextService::SyncStatusBarPositionFromGlobalCompartment() noexcept {
+HRESULT QiQiTextService::SyncStatusBarPositionFromGlobalCompartment(bool* changed) noexcept {
+    if (changed) *changed = false;
     if (!global_pos_comp_ || !status_bar_) {
-        return false;
+        return S_FALSE;
     }
+    const uint64_t revision = focus_revision_;
     constexpr LONG kUnsetSentinel = INT32_MIN;
-    const LONG packed = global_pos_comp_.ReadInt4(kUnsetSentinel);
+    LONG packed = kUnsetSentinel;
+    const HRESULT hr = global_pos_comp_.TryReadInt4(packed);
+    if (hr != S_OK) return hr;
+    if (revision != focus_revision_ || !status_bar_) return S_FALSE;
     if (packed == kUnsetSentinel || packed == 0) {
-        return false;
+        return S_FALSE;
     }
     const POINT shared_pos = UnpackLongToScreenPoint(packed);
     if (shared_pos.x != status_bar_->Position().x || shared_pos.y != status_bar_->Position().y) {
         status_bar_->SetPosition(shared_pos);
         QIQI_LOG_DEBUG("SyncStatusBarPositionFromGlobalCompartment: synced pos=({}, {})",
                        shared_pos.x, shared_pos.y);
-        return true;
+        if (changed) *changed = true;
     }
-    return false;
+    return S_OK;
 }
 
 void QiQiTextService::SyncEngineFromSystemCompartments(REFGUID changed_guid) {
@@ -587,7 +601,8 @@ void QiQiTextService::SyncTsfCompartments() {
     }
 }
 
-void QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
+QiQiTextService::ReloadResult QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
+    ReloadResult result;
     const bool trace = log::ShouldLog(log::Level::debug, log::Keyword::Config);
     const bool dictionary_modified = engine_.HasModifiedMappedDictionary();
     unsigned int dictionary_reload_calls = 0;
@@ -613,19 +628,23 @@ void QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
             &current_lifecycle_activity_,
             "Detected modified dictionary file on disk; hot-reloading external dictionaries");
         ++dictionary_reload_calls;
-        LoadExternalDictionaryNextToDll();
+        result = LoadExternalDictionaryNextToDll();
     } else {
-        std::ignore = engine_.SynchronizeUserDictionary();
+        result.Observe(engine_.SynchronizeUserDictionary());
     }
     if (config_.dynamic_phrase_freq) {
-        std::ignore = engine_.SynchronizePhraseFrequencies();
+        result.Observe(engine_.SynchronizePhraseFrequencies());
     }
 
     const uint64_t reg_seq = QueryRegistryConfigSequence();
     if (reg_seq == 0 || reg_seq == config_registry_sequence_) {
         config_status = reg_seq == 0 ? "sequence-unavailable" : "unchanged";
+        if (reg_seq == 0) {
+            result.Fail();
+            QIQI_LOG_WARN("ReloadConfigIfModified: configuration sequence unavailable");
+        }
         completed = true;
-        return;
+        return result;
     }
 
     QiQiConfig updated{};
@@ -636,10 +655,13 @@ void QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
         UpdateSettingsToastLanguage(config_.ui_language);
         ApplyDynamicEngineSettings();
         if (config_.dynamic_phrase_freq && !engine_.PhraseFreqPath().empty()) {
-            phrase_frequency_status = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath()) ? "loaded" : "load-failed";
+            const bool loaded = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
+            phrase_frequency_status = loaded ? "loaded" : "load-failed";
+            if (!loaded) result.Fail();
         }
         ++dictionary_reload_calls;
-        LoadExternalDictionaryNextToDll();
+        const auto dictionaries = LoadExternalDictionaryNextToDll();
+        if (!dictionaries.succeeded) result.Fail(dictionaries.error);
         SyncTsfCompartments();
         QIQI_LOG_ACT_INFO(
             log::Level::info,
@@ -648,8 +670,12 @@ void QiQiTextService::ReloadConfigIfModified(uint64_t focus_log_id) {
             "Hot-reloaded modified user configuration from HKCU\\Software\\QiQiIME (dict={}, mapped_dicts={})",
             PrimaryDictToString(config_.primary_dict),
             engine_.MappedDictionaryCount());
+    } else {
+        result.Fail();
+        QIQI_LOG_WARN("ReloadConfigIfModified: configuration load failed");
     }
     completed = true;
+    return result;
 }
 
 } // namespace qiqi

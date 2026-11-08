@@ -4,5 +4,6 @@
 
 namespace qiqi::test {
 using MetricEventObserver = ULONG (*)(EVENT_RECORD&);
-int RunMetricsEtwTest(MetricEventObserver observer = nullptr);
+using MetricCaptureAction = void (*)();
+int RunMetricsEtwTest(MetricEventObserver observer = nullptr, MetricCaptureAction action = nullptr);
 }

@@ -12,6 +12,7 @@
 namespace qiqi::test {
 void RunRestrictedInputContractTests();
 void RunRestrictedInputDiagnostics();
+int RunFocusMetricsEtwTest();
 }
 
 namespace {
@@ -121,6 +122,10 @@ int wmain(int argc, wchar_t* argv[]) {
     }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--etw-integration") {
         return qiqi::test::RunTsfEtwIntegrationTests();
+    }
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--focus-metrics-etw") {
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        return qiqi::test::RunFocusMetricsEtwTest();
     }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--test-hang-diagnostics-probe") {
         const qiqi::test::TsfTestTrace trace("hang-probe");

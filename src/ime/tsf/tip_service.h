@@ -107,6 +107,17 @@ public:
 
 private:
     enum class FocusNotificationSource { ThreadManager, KeyEvent };
+    struct ReloadResult {
+        bool succeeded = true;
+        HRESULT error = S_OK;
+        void Fail(HRESULT hr = S_OK) noexcept {
+            succeeded = false;
+            if (FAILED(hr) && SUCCEEDED(error)) error = hr;
+        }
+        void Observe(HRESULT hr) noexcept {
+            if (FAILED(hr)) Fail(hr);
+        }
+    };
     struct RegisteredPreservedKey {
         GUID guid{};
         TF_PRESERVEDKEY key{};
@@ -124,7 +135,7 @@ private:
     void UninitCompartmentSinks() noexcept;
     bool NotifyGlobalConfigChanged() noexcept;
     void SaveGlobalStatusBarPosition(POINT pos) noexcept;
-    bool SyncStatusBarPositionFromGlobalCompartment() noexcept;
+    HRESULT SyncStatusBarPositionFromGlobalCompartment(bool* changed = nullptr) noexcept;
     void SyncEngineFromSystemCompartments(REFGUID changed_guid);
     void UpdateUiIndicators();
     void HandleLangBarMenuAction(LangBarMenuId action_id);
@@ -137,7 +148,7 @@ private:
                              bool test_only) noexcept;
     bool PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts);
     void SyncSavedConfigChange(bool reload_dicts);
-    void LoadExternalDictionaryNextToDll();
+    ReloadResult LoadExternalDictionaryNextToDll();
 
     void ResetCompositionAndUI(bool try_host_cleanup = true);
     void SetUiPresentationEnabled(bool enabled) noexcept;
@@ -161,7 +172,7 @@ private:
     void ToggleModeAndFinishComposition(ITfContext* context);
     void SyncTsfCompartments();
     void ApplyDynamicEngineSettings() noexcept;
-    void ReloadConfigIfModified(uint64_t focus_log_id = 0);
+    ReloadResult ReloadConfigIfModified(uint64_t focus_log_id = 0);
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
     HRESULT ApplyCompositionEditInSession(TfEditCookie ec, const CompositionEditTask& task);
     void SyncCompositionUIInSession(

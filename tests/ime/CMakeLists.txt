@@ -81,6 +81,7 @@ set(QIQI_TSF_UI_IMPL_SOURCES
 add_executable(qiqi_tsf_ui_test
     ${QIQI_TSF_UI_TEST_SOURCES}
     ${QIQI_TSF_UI_IMPL_SOURCES}
+    "${PROJECT_SOURCE_DIR}/tests/common/etw.cpp"
 )
 if(MSVC)
     target_compile_options(qiqi_tsf_ui_test PRIVATE /Zi)
@@ -95,6 +96,7 @@ target_include_directories(qiqi_tsf_ui_test PRIVATE "${PROJECT_SOURCE_DIR}/tests
 target_link_libraries(qiqi_tsf_ui_test PRIVATE
     qiqi_engine
     qiqi_settings_ui
+    qiqi_log_monitor
     shell32
     ole32
     oleaut32
@@ -121,6 +123,8 @@ endforeach()
 add_dependencies(qiqi_tsf_ui_test qiqiime)
 add_test(NAME QiQiEtwIntegrationTest COMMAND qiqi_tsf_ui_test --etw-integration)
 set_tests_properties(QiQiEtwIntegrationTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+add_test(NAME QiQiFocusMetricsEtwTest COMMAND qiqi_tsf_ui_test --focus-metrics-etw)
+set_tests_properties(QiQiFocusMetricsEtwTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 90 RUN_SERIAL TRUE)
 
 add_executable(QiQiTsfTestHost WIN32
     tsf_test_host.cpp
@@ -134,5 +138,3 @@ target_link_libraries(QiQiTsfTestHost PRIVATE
     oleaut32
     uuid
 )
-
-

@@ -196,7 +196,7 @@ void WINAPI OnEvent(EVENT_RECORD* record) noexcept {
         if (name && *name == L"QiQiMetric") {
             metrics::Event event;
             error = DecodeMetric(*record, *info, metadata, event);
-            if (!error && capture->events.size() < 16) capture->events.push_back(event);
+            if (!error && capture->events.size() < 64) capture->events.push_back(event);
             else if (!error) error = ERROR_BUFFER_OVERFLOW;
         } else if (name && *name == L"QiQiMetricInstance") {
             Instance instance;
@@ -213,7 +213,7 @@ void WINAPI OnEvent(EVENT_RECORD* record) noexcept {
     }
 }
 
-int CaptureMetrics(MetricEventObserver observer) {
+int CaptureMetrics(MetricEventObserver observer, MetricCaptureAction action) {
     Check(!log::IsEtwProviderRegistered(), "Metrics query must not register the provider");
     const auto directory = std::filesystem::temp_directory_path() /
         std::format(L"qiqi-metrics-{}-{}", ::GetCurrentProcessId(), ::GetTickCount64());
@@ -257,62 +257,66 @@ int CaptureMetrics(MetricEventObserver observer) {
     Check(!log::MetricsEnabled(), "Ordinary log capture must not enable metrics");
     enable(std::to_underlying(log::Keyword::Metrics));
     Check(log::MetricsEnabled() && !log::ShouldLog(log::Level::info), "Metrics must be independent of LogLevel");
-    log::SetLevel(log::Level::info);
-    Check(!log::ShouldLog(log::Level::info, log::Keyword::Metrics), "Metrics keyword is reserved for typed events");
-    log::WriteLogMessage(log::Level::info, "forbidden-free-text", log::LogContext{log::Keyword::Metrics});
-    Check(metrics::Diagnostics().protocol == 1, "Reject free text under the Metrics keyword");
-    log::SetLevel(log::Level::off);
     const auto instance = metrics::ModuleInstance();
-    Check(SUCCEEDED(instance.error), "Metric instance identity");
-    const auto service = metrics::NextServiceId();
-    GUID activity_before{};
-    CheckStatus(::EventActivityIdControl(EVENT_ACTIVITY_CTRL_GET_ID, &activity_before), "Read ambient activity");
-    for (const auto outcome : {metrics::Outcome::Success, metrics::Outcome::Failure, metrics::Outcome::Incomplete}) {
-        metrics::Scope scope(metrics::Metric::FocusTotal, service);
-        if (outcome == metrics::Outcome::Failure) scope.SetOutcome(outcome,
-            metrics::ErrorDomain::HResult, gsl::narrow_cast<uint32_t>(E_ACCESSDENIED));
-        else if (outcome == metrics::Outcome::Success) scope.SetOutcome(outcome);
-    }
     metrics::Event event;
-    event.instance_id = instance.id;
-    event.capture_generation = log::MetricsCaptureGeneration();
-    event.activity_id = log::CreateActivityId();
-    event.related_activity_id = log::CreateActivityId();
-    event.service_id = service;
-    event.operation_id = metrics::NextOperationId();
-    event.phase = metrics::Phase::Begin;
-    event.outcome = metrics::Outcome::Unspecified;
-    metrics::Emit(event);
-    event.phase = metrics::Phase::End;
-    event.outcome = metrics::Outcome::Cancelled;
-    event.duration_ns = 1'000;
-    metrics::Emit(event);
-    const auto generation = log::MetricsCaptureGeneration();
-    enable(std::to_underlying(log::Keyword::Metrics), EVENT_CONTROL_CODE_CAPTURE_STATE);
-    Check(log::MetricsCaptureGeneration() == generation, "Capture-state metadata must not interrupt scopes");
-    {
-        const metrics::Scope interrupted(metrics::Metric::FocusTotal, service);
-        enable(0, EVENT_CONTROL_CODE_DISABLE_PROVIDER);
-        Check(!log::MetricsEnabled(), "Metrics disabled");
-        {
-            const metrics::Scope disabled(metrics::Metric::FocusTotal, service);
-            Check(!disabled.Active(), "Disabled scope");
+    if (action) {
+        action();
+    } else {
+        log::SetLevel(log::Level::info);
+        Check(!log::ShouldLog(log::Level::info, log::Keyword::Metrics), "Metrics keyword is reserved for typed events");
+        log::WriteLogMessage(log::Level::info, "forbidden-free-text", log::LogContext{log::Keyword::Metrics});
+        Check(metrics::Diagnostics().protocol == 1, "Reject free text under the Metrics keyword");
+        log::SetLevel(log::Level::off);
+        Check(SUCCEEDED(instance.error), "Metric instance identity");
+        const auto service = metrics::NextServiceId();
+        GUID activity_before{};
+        CheckStatus(::EventActivityIdControl(EVENT_ACTIVITY_CTRL_GET_ID, &activity_before), "Read ambient activity");
+        for (const auto outcome : {metrics::Outcome::Success, metrics::Outcome::Failure, metrics::Outcome::Incomplete}) {
+            metrics::Scope scope(metrics::Metric::FocusTotal, service);
+            if (outcome == metrics::Outcome::Failure) scope.SetOutcome(outcome,
+                metrics::ErrorDomain::HResult, gsl::narrow_cast<uint32_t>(E_ACCESSDENIED));
+            else if (outcome == metrics::Outcome::Success) scope.SetOutcome(outcome);
         }
-        enable(std::to_underlying(log::Keyword::Metrics));
+        event.instance_id = instance.id;
+        event.capture_generation = log::MetricsCaptureGeneration();
+        event.activity_id = log::CreateActivityId();
+        event.related_activity_id = log::CreateActivityId();
+        event.service_id = service;
+        event.operation_id = metrics::NextOperationId();
+        event.phase = metrics::Phase::Begin;
+        event.outcome = metrics::Outcome::Unspecified;
+        metrics::Emit(event);
+        event.phase = metrics::Phase::End;
+        event.outcome = metrics::Outcome::Cancelled;
+        event.duration_ns = 1'000;
+        metrics::Emit(event);
+        const auto generation = log::MetricsCaptureGeneration();
+        enable(std::to_underlying(log::Keyword::Metrics), EVENT_CONTROL_CODE_CAPTURE_STATE);
+        Check(log::MetricsCaptureGeneration() == generation, "Capture-state metadata must not interrupt scopes");
+        {
+            const metrics::Scope interrupted(metrics::Metric::FocusTotal, service);
+            enable(0, EVENT_CONTROL_CODE_DISABLE_PROVIDER);
+            Check(!log::MetricsEnabled(), "Metrics disabled");
+            {
+                const metrics::Scope disabled(metrics::Metric::FocusTotal, service);
+                Check(!disabled.Active(), "Disabled scope");
+            }
+            enable(std::to_underlying(log::Keyword::Metrics));
+        }
+        Check(metrics::Diagnostics().interrupted == 1, "Interrupted scope must not complete in the next capture");
+        metrics::Emit(event);
+        Check(metrics::Diagnostics().interrupted == 2, "Stale explicit end must not enter the next capture");
+        log::Shutdown();
+        Check(log::EnsureInitialized(), "Provider re-registration");
+        Check(metrics::ModuleInstance().id == instance.id, "Registration is not module reload");
+        {
+            metrics::Scope scope(metrics::Metric::FocusTotal, service);
+            scope.SetOutcome(metrics::Outcome::Success);
+        }
+        GUID activity_after{};
+        CheckStatus(::EventActivityIdControl(EVENT_ACTIVITY_CTRL_GET_ID, &activity_after), "Read ambient activity");
+        Check(activity_before == activity_after, "Metrics must not modify the implicit activity ID");
     }
-    Check(metrics::Diagnostics().interrupted == 1, "Interrupted scope must not complete in the next capture");
-    metrics::Emit(event);
-    Check(metrics::Diagnostics().interrupted == 2, "Stale explicit end must not enter the next capture");
-    log::Shutdown();
-    Check(log::EnsureInitialized(), "Provider re-registration");
-    Check(metrics::ModuleInstance().id == instance.id, "Registration is not module reload");
-    {
-        metrics::Scope scope(metrics::Metric::FocusTotal, service);
-        scope.SetOutcome(metrics::Outcome::Success);
-    }
-    GUID activity_after{};
-    CheckStatus(::EventActivityIdControl(EVENT_ACTIVITY_CTRL_GET_ID, &activity_after), "Read ambient activity");
-    Check(activity_before == activity_after, "Metrics must not modify the implicit activity ID");
     TraceProperties stop;
     stop.properties.Wnode.Guid = properties.properties.Wnode.Guid;
     stop.properties.LoggerNameOffset = 0;
@@ -337,6 +341,7 @@ int CaptureMetrics(MetricEventObserver observer) {
     });
     CheckStatus(::ProcessTrace(&reader, 1, nullptr, nullptr), "ProcessTrace");
     CheckStatus(capture.error, "Decode typed metric fields");
+    if (action) return 0;
     if (capture.events.size() != 6 || capture.instances.size() != 4) {
         std::cerr << "Observed metric events=" << capture.events.size()
                   << ", instance metadata events=" << capture.instances.size() << "\n";
@@ -373,9 +378,9 @@ int CaptureMetrics(MetricEventObserver observer) {
 }
 } // namespace
 
-int RunMetricsEtwTest(MetricEventObserver observer) {
+int RunMetricsEtwTest(MetricEventObserver observer, MetricCaptureAction action) {
     try {
-        return CaptureMetrics(observer);
+        return CaptureMetrics(observer, action);
     } catch (const std::exception& error) {
         std::cerr << "[FAIL] " << error.what() << "\n";
         return 1;

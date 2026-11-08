@@ -27,6 +27,29 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
+void TestCompartmentReadResults() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    auto compartment = MakeComObject<MockTfCompartment>(kGuidCompartmentStatusBarPos);
+    LONG value = 99;
+    QIQI_TEST_CHECK(TryReadCompartmentInt4(nullptr, value) == E_POINTER && value == 99);
+    compartment->value_vt_ = VT_EMPTY;
+    QIQI_TEST_CHECK(TryReadCompartmentInt4(compartment.Get(), value) == S_FALSE && value == 99);
+    compartment->value_vt_ = VT_UI4;
+    QIQI_TEST_CHECK(TryReadCompartmentInt4(compartment.Get(), value) ==
+        HRESULT_FROM_WIN32(ERROR_INVALID_DATA) && value == 99);
+    QIQI_TEST_CHECK(ReadCompartmentInt4(compartment.Get(), 17) == 17);
+    compartment->value_vt_ = VT_I4;
+    compartment->get_value_result_ = E_ACCESSDENIED;
+    QIQI_TEST_CHECK(TryReadCompartmentInt4(compartment.Get(), value) == E_ACCESSDENIED && value == 99);
+    QIQI_TEST_CHECK(ReadCompartmentInt4(compartment.Get(), 17) == 17);
+    compartment->get_value_result_ = S_OK;
+    compartment->last_val_ = 0;
+    QIQI_TEST_CHECK(TryReadCompartmentInt4(compartment.Get(), value) == S_OK && value == 0);
+    compartment->last_val_ = -5;
+    compartment->get_value_callback_ = [&]() { compartment.Reset(); };
+    QIQI_TEST_CHECK(TryReadCompartmentInt4(compartment.Get(), value) == S_OK && value == -5 && !compartment);
+}
+
 void TestLambdaEditSession() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     ITfEditSession** null_out = nullptr;
@@ -479,6 +502,7 @@ void TestEnableCurrentUserProfile() {
 } // namespace
 
 void RunTsfComTests() {
+    TestCompartmentReadResults();
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     RunCategoryManagerTests();
     TestLambdaEditSession();

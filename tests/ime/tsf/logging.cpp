@@ -4,13 +4,19 @@
 #include "common/config.h"
 #include "common/file_util.h"
 #include "common/logger.h"
+#include "common/etw.h"
+#include "tools/log_monitor/collector.h"
+#include "tools/log_monitor/aggregate.h"
 #include "common/scoped_handle.h"
 #include "mocks.h"
 
 #include <evntrace.h>
 #include <tdh.h>
 #include <filesystem>
+#include <cstdlib>
 #include <limits>
+#include <memory>
+#include <utility>
 #include <vector>
 
 namespace qiqi::test {
@@ -77,6 +83,84 @@ ComPtr<IClassFactory> GetImeFactory(HMODULE module) {
     ComPtr<IClassFactory> factory;
     QIQI_TEST_CHECK(get_class(kClsidQiQiTextService, IID_PPV_ARGS(&factory)) == S_OK);
     return factory;
+}
+
+thread_local monitor::MetricQueue* focus_metric_queue = nullptr;
+
+ULONG ObserveFocusMetric(EVENT_RECORD& record) {
+    monitor::MetricRecord decoded;
+    const ULONG error = monitor::DecodeMetricEvent(record, 1, decoded);
+    if (error != ERROR_SUCCESS) return error;
+    return focus_metric_queue->Push(decoded);
+}
+
+void ExerciseFocusMetrics() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        std::format(L"qiqi-focus-metrics-{}-{}", ::GetCurrentProcessId(), ::GetTickCount64());
+    QIQI_TEST_CHECK(std::filesystem::create_directory(directory));
+    wchar_t* previous_appdata = nullptr;
+    size_t previous_length = 0;
+    QIQI_TEST_CHECK(_wdupenv_s(&previous_appdata, &previous_length, L"LOCALAPPDATA") == 0);
+    const std::unique_ptr<wchar_t, decltype(&std::free)> appdata(previous_appdata, &std::free);
+    const QiQiConfig saved = LoadConfig(nullptr);
+    const auto restore = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(SaveConfigToRegistry(saved));
+        QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", appdata ? appdata.get() : L"") == 0);
+        std::error_code error;
+        std::filesystem::remove_all(directory, error);
+        QIQI_TEST_CHECK(!error);
+    });
+    QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", directory.c_str()) == 0);
+    QiQiConfig config{};
+    config.primary_dict = PrimaryDict::BuiltinOnly;
+    config.enable_jidian_extra = false;
+    config.dynamic_phrase_freq = false;
+    config.show_status_bar = true;
+    config.log_level = log::Level::off;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    const auto module = LoadImeModule();
+    const auto factory = GetImeFactory(module.Get());
+    ComPtr<ITfTextInputProcessorEx> service;
+    QIQI_TEST_CHECK(factory->CreateInstance(nullptr, IID_PPV_ARGS(&service)) == S_OK);
+    const auto manager = MakeComObject<MockTfThreadMgr>();
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
+    ComPtr<ITfKeyEventSink> keys;
+    ComPtr<ITfThreadMgrEventSink> documents;
+    QIQI_TEST_CHECK(service.As(&keys) == S_OK && service.As(&documents) == S_OK);
+    const auto document = MakeComObject<MockTfDocumentMgr>();
+    QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK);
+    QIQI_TEST_CHECK(manager->global_pos_compartment_);
+    manager->global_pos_compartment_->last_val_ = gsl::narrow_cast<LONG>(MAKELONG(137, 149));
+    QIQI_TEST_CHECK(documents->OnSetFocus(document.Get(), nullptr) == S_OK);
+    ++config.page_size;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK);
+    config.user_dict_path = (directory / L"missing.txt").wstring();
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK);
+    config.user_dict_path.clear();
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK);
+    const auto position = manager->global_pos_compartment_;
+    QIQI_TEST_CHECK(position);
+    position->get_value_result_ = E_ACCESSDENIED;
+    QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK);
+    position->get_value_result_ = S_OK;
+    bool nested = false;
+    position->get_value_callback_ = [&]() {
+        if (std::exchange(nested, true)) return;
+        QIQI_TEST_CHECK(keys->OnSetFocus(FALSE) == S_OK);
+    };
+    QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK && nested);
+    bool cancelled = false;
+    position->get_value_callback_ = [&]() {
+        if (std::exchange(cancelled, true)) return;
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    };
+    QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK && cancelled);
+    position->get_value_callback_ = {};
+    QIQI_TEST_CHECK(keys->OnSetFocus(TRUE) == S_OK);
 }
 
 struct HostProcess {
@@ -229,6 +313,83 @@ void ExerciseLoadedIme(QiQiConfig& config, bool multiple_instances) {
 }
 
 } // namespace
+
+int RunFocusMetricsEtwTest() {
+    monitor::MetricQueue queue;
+    QIQI_TEST_CHECK(queue.BeginCapture(1) == ERROR_SUCCESS);
+    focus_metric_queue = &queue;
+    const auto reset = gsl::finally([]() noexcept { focus_metric_queue = nullptr; });
+    const int result = RunMetricsEtwTest(ObserveFocusMetric, ExerciseFocusMetrics);
+    if (result != 0) return result;
+    queue.EndCapture();
+    const auto records = queue.Take();
+    monitor::MetricAggregator aggregator;
+    QIQI_TEST_CHECK(aggregator.BeginCapture(1) == ERROR_SUCCESS);
+    std::vector<metrics::Event> events;
+    GUID instance{};
+    uint64_t service_id = 0;
+    for (const auto& record : records) {
+        QIQI_TEST_CHECK(record.pid == ::GetCurrentProcessId());
+        QIQI_TEST_CHECK(aggregator.Consume(record) == ERROR_SUCCESS);
+        if (const auto* event = std::get_if<metrics::Event>(&record.payload)) {
+            QIQI_TEST_CHECK(event->phase == metrics::Phase::Complete && event->duration_ns.has_value());
+            QIQI_TEST_CHECK(event->operation_id != 0 && event->activity_id != GUID_NULL);
+            if (events.empty()) {
+                instance = event->instance_id;
+                service_id = event->service_id;
+            }
+            QIQI_TEST_CHECK(event->instance_id == instance && event->service_id == service_id);
+            events.push_back(*event);
+        }
+    }
+    QIQI_TEST_CHECK(instance != metrics::ModuleInstance().id && service_id != 0);
+    QIQI_TEST_CHECK(events.size() == 25);
+    size_t successes = 0;
+    size_t failures = 0;
+    size_t coded_failures = 0;
+    size_t stale = 0;
+    size_t cancelled = 0;
+    for (const auto& event : events) {
+        switch (event.outcome) {
+            case metrics::Outcome::Success: ++successes; break;
+            case metrics::Outcome::Failure:
+                ++failures;
+                if (event.error_domain == metrics::ErrorDomain::HResult) {
+                    ++coded_failures;
+                    QIQI_TEST_CHECK(event.error_code == gsl::narrow_cast<uint32_t>(E_ACCESSDENIED));
+                } else {
+                    QIQI_TEST_CHECK(event.error_domain == metrics::ErrorDomain::None && event.error_code == 0);
+                }
+                break;
+            case metrics::Outcome::Stale: ++stale; break;
+            case metrics::Outcome::Cancelled: ++cancelled; break;
+            default: QIQI_TEST_CHECK(false); break;
+        }
+        if (event.metric == metrics::Metric::FocusTotal) {
+            QIQI_TEST_CHECK(event.parent_operation_id == 0);
+        } else {
+            QIQI_TEST_CHECK(event.mode == metrics::Mode::FocusGained);
+            const auto parent = std::find_if(events.begin(), events.end(), [&](const auto& candidate) {
+                return candidate.operation_id == event.parent_operation_id;
+            });
+            QIQI_TEST_CHECK(parent != events.end() && parent->metric == metrics::Metric::FocusTotal &&
+                parent->source == event.source && parent->mode == event.mode &&
+                parent->activity_id == event.activity_id);
+        }
+    }
+    QIQI_TEST_CHECK(successes == 17 && failures == 4 && coded_failures == 2 && stale == 2 && cancelled == 2);
+    QIQI_TEST_CHECK(aggregator.Stop(::GetTickCount64()) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(aggregator.UpdateQueueStatus(queue.Status()) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(!aggregator.Status().incomplete && aggregator.Status().remembered_operations == 25);
+    const monitor::MetricDimension gained{::GetCurrentProcessId(), instance, service_id,
+        metrics::Metric::FocusTotal, metrics::Mode::FocusGained, metrics::Source::KeyEvent};
+    const auto summary = aggregator.Snapshot(gained, monitor::MetricView::Cumulative);
+    QIQI_TEST_CHECK(summary && summary->intents == 7 && summary->success.Samples() == 3 &&
+        summary->failure.Samples() == 2 && summary->Count(metrics::Outcome::Stale) == 1 &&
+        summary->Count(metrics::Outcome::Cancelled) == 1 && summary->FailureRate().has_value());
+    std::cout << "[PASS] Real IME DLL focus metrics -> TDH -> queue -> aggregation.\n";
+    return 0;
+}
 
 void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_directory) {
     QIQI_TEST_CHECK(!::IsDebuggerPresent());

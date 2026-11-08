@@ -177,7 +177,7 @@ ctest --preset x86-release --output-on-failure
 - `qiqi_common_test.exe`：公共基础模块与共享 D2D 控件测试（`QiQiCommonTest`）
 - `qiqi_change_sync_test.exe`：公共跨进程日志、并发写入与真实 AppContainer 只读同步测试（`QiQiChangeSyncTest`）
 - `qiqi_engine_test.exe`：五笔核心引擎测试（`QiQiEngineTest`）
-- `qiqi_tsf_ui_test.exe`：TSF COM 服务与 IME UI 测试（`QiQiTsfUiTest`）；`--etw-integration` 模式另注册为 `QiQiEtwIntegrationTest`
+- `qiqi_tsf_ui_test.exe`：TSF COM 服务与 IME UI 测试（`QiQiTsfUiTest`）；`--etw-integration` 模式另注册为 `QiQiEtwIntegrationTest`；`--focus-metrics-etw` 模式注册为 `QiQiFocusMetricsEtwTest`，使用私有 ETW 会话验证实际 IME DLL 的三段焦点指标、错误/重入/停用结果及生产解码→队列→聚合，不要求全局 ETW 会话权限，也不替代跨进程或外部开销验收。
 
 - `qiqi_settings_test.exe`：设置 / 关于窗口及配置边界测试（`QiQiSettingsTest`）；直接编译并调用独立程序的 `wWinMain`，在隔离注册表下验证首次启动实际创建可见窗口、再次启动恢复已最小化窗口、关闭后可重新启动，以及取消不保存配置。
 - `qiqi_log_monitor_test.exe`：监控器测试（`QiQiLogMonitorTest`）；`--integration` 模式另注册为 `QiQiLogMonitorIntegrationTest`

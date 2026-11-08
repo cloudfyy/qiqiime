@@ -175,15 +175,31 @@ constexpr VARIANT MakeInt4Variant(LONG val) noexcept {
 
 #pragma warning(push)
 #pragma warning(disable : 26447 26476)
-// Read a VT_I4 LONG value from a TSF ITfCompartment, returning default_val if unset or failed.
-inline LONG ReadCompartmentInt4(ITfCompartment* comp, LONG default_val = 0) noexcept {
+// S_FALSE means unset; unsuccessful reads leave value unchanged.
+inline HRESULT TryReadCompartmentInt4(ITfCompartment* comp, LONG& value) noexcept {
     if (!comp) {
-        return default_val;
+        std::ignore = log::CheckHResult(E_POINTER, "TryReadCompartmentInt4::compartment");
+        return E_POINTER;
     }
+    const Microsoft::WRL::ComPtr<ITfCompartment> owner(comp);
     VARIANT var{};
-    if (log::CheckHResult(comp->GetValue(&var), "ITfCompartment::GetValue", log::Level::debug) && var.vt == VT_I4) {
-        return var.lVal;
+    const auto clear = gsl::finally([&]() noexcept {
+        std::ignore = log::CheckHResult(::VariantClear(&var), "TryReadCompartmentInt4::VariantClear");
+    });
+    const HRESULT hr = owner->GetValue(&var);
+    if (!log::CheckHResult(hr, "ITfCompartment::GetValue", log::Level::debug)) return hr;
+    if (var.vt == VT_EMPTY) return S_FALSE;
+    if (var.vt != VT_I4) {
+        constexpr HRESULT invalid_type = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        std::ignore = log::CheckHResult(invalid_type, "TryReadCompartmentInt4::type");
+        return invalid_type;
     }
+    value = var.lVal;
+    return S_OK;
+}
+
+inline LONG ReadCompartmentInt4(ITfCompartment* comp, LONG default_val = 0) noexcept {
+    if (comp) std::ignore = TryReadCompartmentInt4(comp, default_val);
     return default_val;
 }
 
@@ -277,6 +293,10 @@ public:
 
     LONG ReadInt4(LONG default_val = 0) const noexcept {
         return ReadCompartmentInt4(comp_.Get(), default_val);
+    }
+
+    HRESULT TryReadInt4(LONG& value) const noexcept {
+        return TryReadCompartmentInt4(comp_.Get(), value);
     }
 
     HRESULT WriteInt4(TfClientId tid, LONG val) const noexcept {
