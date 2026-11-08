@@ -2,6 +2,7 @@
 #include "tools/log_monitor/permissions.h"
 #include "common/info_dialog.h"
 #include "common/dialog_util.h"
+#include "common/file_util.h"
 #include "common/theme.h"
 #include "common/window.h"
 #include "common/win32_ui_util.h"
@@ -174,7 +175,7 @@ void MonitorWindow::Impl::ExportSnapshot() {
         Text(L"导出当前筛选快照可能包含进程名、路径和输入内容。请在分享前检查并脱敏。继续？",
              L"Export may contain process names, paths and input content. Review/redact before sharing. Continue?"),
         Text(L"奇奇日志监控", L"QiQiIME Log Monitor"), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) return;
-    std::array<wchar_t, 32768> path{};
+    std::array<wchar_t, kWin32PathBufferChars> path{};
     wcscpy_s(path.data(), path.size(), diagnostic_view ? L"qiqi-monitor-diagnostics.log" : L"qiqi-ime-events.log");
     const auto selection = dialog_detail::PromptForFile(hwnd,
         Text(L"导出筛选快照", L"Export filtered snapshot"),

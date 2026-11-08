@@ -22,6 +22,7 @@ inline constexpr int kMonitorDefaultDetailLimit = 400;
 inline constexpr int kMonitorMinimumDetailHeight = 60;
 inline constexpr int kMonitorDetailsFooterSpace = 50;
 inline constexpr int kMonitorLayoutReferenceDpi = 96;
+inline constexpr size_t kMonitorPreviewChars = 1024;
 
 struct MonitorWindow::Impl {
     Diagnostics diagnostics;

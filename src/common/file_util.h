@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -7,6 +8,9 @@
 #include <string_view>
 
 namespace qiqi {
+
+// Shared UTF-16 buffer capacity including the terminator, not a universal path-length limit.
+inline constexpr std::size_t kWin32PathBufferChars = 32'768;
 
 // Convert wide string (UTF-16 on Windows) to UTF-8.
 std::string WideToUtf8(std::wstring_view wide) noexcept;

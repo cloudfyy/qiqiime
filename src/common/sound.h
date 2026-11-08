@@ -2,10 +2,12 @@
 #include <windows.h>
 #include <mmsystem.h>
 #include <gsl/gsl>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <span>
 
 #include "common/scoped_handle.h"
@@ -21,6 +23,28 @@ enum class SoundEffectKind {
 
 namespace detail {
 
+namespace wav_format {
+inline constexpr size_t kChunkIdBytes = 4;
+inline constexpr size_t kRiffSizeOffset = kChunkIdBytes;
+inline constexpr size_t kWaveFormatIdOffset = kRiffSizeOffset + sizeof(uint32_t);
+inline constexpr size_t kWaveFormatIdBytes = 2 * kChunkIdBytes;
+inline constexpr size_t kFormatSizeOffset = kWaveFormatIdOffset + kWaveFormatIdBytes;
+inline constexpr size_t kAudioFormatOffset = kFormatSizeOffset + sizeof(uint32_t);
+inline constexpr size_t kChannelsOffset = kAudioFormatOffset + sizeof(uint16_t);
+inline constexpr size_t kSampleRateOffset = kChannelsOffset + sizeof(uint16_t);
+inline constexpr size_t kByteRateOffset = kSampleRateOffset + sizeof(uint32_t);
+inline constexpr size_t kBlockAlignOffset = kByteRateOffset + sizeof(uint32_t);
+inline constexpr size_t kBitsPerSampleOffset = kBlockAlignOffset + sizeof(uint16_t);
+inline constexpr size_t kDataChunkOffset = kBitsPerSampleOffset + sizeof(uint16_t);
+inline constexpr size_t kDataSizeOffset = kDataChunkOffset + kChunkIdBytes;
+inline constexpr size_t kHeaderBytes = kDataSizeOffset + sizeof(uint32_t);
+inline constexpr uint32_t kFormatChunkBytes = 16;
+inline constexpr uint16_t kChannels = 1;
+inline constexpr uint16_t kBitsPerSample = 16;
+inline constexpr uint16_t kBlockAlign = kChannels * sizeof(int16_t);
+inline constexpr uint32_t kSampleRate = 44100;
+} // namespace wav_format
+
 inline SoundEffectKind& LastPlayedSoundStorage() noexcept {
     static SoundEffectKind last = SoundEffectKind::None;
     return last;
@@ -34,15 +58,15 @@ inline bool& MuteAudioOutputForTestStorage() noexcept {
 // Synthesize a 16-bit mono 44.1 kHz RIFF WAVE image in a fixed-size stack/static std::array
 // (zero heap allocation, noexcept, no try/catch needed).
 template <size_t NumSamples>
-std::array<uint8_t, 44 + NumSamples * sizeof(int16_t)> BuildStaticMonoWav(
+std::array<uint8_t, wav_format::kHeaderBytes + NumSamples * sizeof(int16_t)> BuildStaticMonoWav(
     double start_freq_hz,
     double end_freq_hz,
     double amplitude) noexcept {
-    constexpr uint32_t kSampleRate = 44100;
     constexpr uint32_t kDataBytes = gsl::narrow_cast<uint32_t>(NumSamples * sizeof(int16_t));
-    constexpr uint32_t kRiffSize = 36u + kDataBytes;
+    constexpr uint32_t kRiffSize = gsl::narrow_cast<uint32_t>(
+        wav_format::kHeaderBytes - wav_format::kWaveFormatIdOffset) + kDataBytes;
 
-    std::array<uint8_t, 44 + NumSamples * sizeof(int16_t)> wav{};
+    std::array<uint8_t, wav_format::kHeaderBytes + NumSamples * sizeof(int16_t)> wav{};
     auto write_u32 = [&wav](size_t offset, uint32_t val) noexcept {
         std::memcpy(&gsl::at(wav, offset), &val, sizeof(uint32_t));
     };
@@ -50,50 +74,64 @@ std::array<uint8_t, 44 + NumSamples * sizeof(int16_t)> BuildStaticMonoWav(
         std::memcpy(&gsl::at(wav, offset), &val, sizeof(uint16_t));
     };
 
-    // RIFF header
-    std::memcpy(wav.data(), "RIFF", 4);
-    write_u32(4, kRiffSize);
-    std::memcpy(&gsl::at(wav, 8), "WAVEfmt ", 8);
-    write_u32(16, 16);                              // PCM chunk size
-    write_u16(20, 1);                               // PCM format = 1
-    write_u16(22, 1);                               // Channels = 1 (mono)
-    write_u32(24, kSampleRate);                     // Sample rate
-    write_u32(28, kSampleRate * sizeof(int16_t));   // Byte rate
-    write_u16(32, sizeof(int16_t));                 // Block align
-    write_u16(34, 16);                              // Bits per sample
-    std::memcpy(&gsl::at(wav, 36), "data", 4);
-    write_u32(40, kDataBytes);
+    std::memcpy(wav.data(), "RIFF", wav_format::kChunkIdBytes);
+    write_u32(wav_format::kRiffSizeOffset, kRiffSize);
+    std::memcpy(&gsl::at(wav, wav_format::kWaveFormatIdOffset), "WAVEfmt ", wav_format::kWaveFormatIdBytes);
+    write_u32(wav_format::kFormatSizeOffset, wav_format::kFormatChunkBytes);
+    write_u16(wav_format::kAudioFormatOffset, WAVE_FORMAT_PCM);
+    write_u16(wav_format::kChannelsOffset, wav_format::kChannels);
+    write_u32(wav_format::kSampleRateOffset, wav_format::kSampleRate);
+    write_u32(wav_format::kByteRateOffset, wav_format::kSampleRate * wav_format::kBlockAlign);
+    write_u16(wav_format::kBlockAlignOffset, wav_format::kBlockAlign);
+    write_u16(wav_format::kBitsPerSampleOffset, wav_format::kBitsPerSample);
+    std::memcpy(&gsl::at(wav, wav_format::kDataChunkOffset), "data", wav_format::kChunkIdBytes);
+    write_u32(wav_format::kDataSizeOffset, kDataBytes);
 
     constexpr double kTwoPi = 6.28318530717958647692;
+    constexpr double kEnvelopeDecay = 4.5;
+    constexpr double kPcmMaximumMagnitude = static_cast<double>((std::numeric_limits<int16_t>::max)());
     double phase = 0.0;
     for (size_t i = 0; i < NumSamples; ++i) {
         const double progress = static_cast<double>(i) / static_cast<double>(NumSamples);
         const double freq = start_freq_hz + (end_freq_hz - start_freq_hz) * progress;
-        const double env = std::exp(-4.5 * progress) * (1.0 - progress);
+        const double env = std::exp(-kEnvelopeDecay * progress) * (1.0 - progress);
         const double sample_val = std::sin(phase) * amplitude * env;
-        phase += (kTwoPi * freq) / static_cast<double>(kSampleRate);
+        phase += (kTwoPi * freq) / static_cast<double>(wav_format::kSampleRate);
 
-        const auto pcm = gsl::narrow_cast<int16_t>(std::clamp(sample_val * 32767.0, -32767.0, 32767.0));
-        std::memcpy(&gsl::at(wav, 44 + i * sizeof(int16_t)), &pcm, sizeof(int16_t));
+        const auto pcm = gsl::narrow_cast<int16_t>(
+            std::clamp(sample_val * kPcmMaximumMagnitude, -kPcmMaximumMagnitude, kPcmMaximumMagnitude));
+        std::memcpy(&gsl::at(wav, wav_format::kHeaderBytes + i * sizeof(int16_t)), &pcm, sizeof(int16_t));
     }
     return wav;
 }
 
 inline std::span<const uint8_t> GetKeyClickWav() noexcept {
     // 14 ms @ 44.1 kHz = 617 samples (1,278 bytes in static storage)
-    static const auto wav = BuildStaticMonoWav<617>(1400.0, 320.0, 0.35);
+    constexpr size_t kSampleCount = 617;
+    constexpr double kStartFrequencyHz = 1400.0;
+    constexpr double kEndFrequencyHz = 320.0;
+    constexpr double kAmplitude = 0.35;
+    static const auto wav = BuildStaticMonoWav<kSampleCount>(kStartFrequencyHz, kEndFrequencyHz, kAmplitude);
     return wav;
 }
 
 inline std::span<const uint8_t> GetEmptyCodeBeepWav() noexcept {
     // 85 ms @ 44.1 kHz = 3,748 samples (7,540 bytes in static storage)
-    static const auto wav = BuildStaticMonoWav<3748>(720.0, 360.0, 0.55);
+    constexpr size_t kSampleCount = 3748;
+    constexpr double kStartFrequencyHz = 720.0;
+    constexpr double kEndFrequencyHz = 360.0;
+    constexpr double kAmplitude = 0.55;
+    static const auto wav = BuildStaticMonoWav<kSampleCount>(kStartFrequencyHz, kEndFrequencyHz, kAmplitude);
     return wav;
 }
 
 inline std::span<const uint8_t> GetDupCodeBeepWav() noexcept {
     // 45 ms @ 44.1 kHz = 1,984 samples (4,012 bytes in static storage, gentle upward chime)
-    static const auto wav = BuildStaticMonoWav<1984>(660.0, 880.0, 0.40);
+    constexpr size_t kSampleCount = 1984;
+    constexpr double kStartFrequencyHz = 660.0;
+    constexpr double kEndFrequencyHz = 880.0;
+    constexpr double kAmplitude = 0.40;
+    static const auto wav = BuildStaticMonoWav<kSampleCount>(kStartFrequencyHz, kEndFrequencyHz, kAmplitude);
     return wav;
 }
 

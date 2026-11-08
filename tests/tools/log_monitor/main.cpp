@@ -40,6 +40,7 @@ static_assert(kDiagnosticReportStride == 1024);
 static_assert(kMonitorRefreshTimerId == 1 && kMonitorRefreshIntervalMs == 100);
 static_assert(kMonitorLossPollIntervalMs == 1000 && kMonitorLossPollTicks == 10);
 static_assert(kMonitorMinimumDetailHeight == 60 && kMonitorDetailsFooterSpace == 50);
+static_assert(kMonitorPreviewChars == 1024);
 
 HWND Child(const MonitorWindow& window, ControlId id) noexcept {
     return ::GetDlgItem(window.Handle(), std::to_underlying(id));

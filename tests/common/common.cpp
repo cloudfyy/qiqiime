@@ -12,11 +12,15 @@
 #include "common/version.h"
 #include "common/win32_ui_util.h"
 
+#include <algorithm>
+#include <bit>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <limits>
+#include <span>
 #include <string>
 #include <tuple>
 #include <thread>
@@ -24,6 +28,8 @@
 namespace qiqi::test {
 
 namespace {
+
+static_assert(kWin32PathBufferChars == 32'768);
 
 std::atomic<ULONG> registration_error{ERROR_SUCCESS};
 std::atomic<unsigned int> registration_calls{0};
@@ -940,6 +946,50 @@ void TestScopedHandleTemplate() {
     }
 }
 
+void CheckStaticSoundWav(
+    std::span<const uint8_t> wav, size_t sample_count,
+    double start_frequency_hz, double end_frequency_hz, double amplitude) {
+    QIQI_TEST_CHECK(wav.size() == 44 + sample_count * 2);
+    codec::BinarySpanReader header(wav.first(44));
+    QIQI_TEST_CHECK(header.ReadLe32() == 0x46464952u); // RIFF
+    QIQI_TEST_CHECK(header.ReadLe32() == 36 + sample_count * 2);
+    QIQI_TEST_CHECK(header.ReadLe32() == 0x45564157u); // WAVE
+    QIQI_TEST_CHECK(header.ReadLe32() == 0x20746D66u); // fmt
+    QIQI_TEST_CHECK(header.ReadLe32() == 16);
+    QIQI_TEST_CHECK(header.ReadLeNumber(2) == 1);
+    QIQI_TEST_CHECK(header.ReadLeNumber(2) == 1);
+    QIQI_TEST_CHECK(header.ReadLe32() == 44100);
+    QIQI_TEST_CHECK(header.ReadLe32() == 88200);
+    QIQI_TEST_CHECK(header.ReadLeNumber(2) == 2);
+    QIQI_TEST_CHECK(header.ReadLeNumber(2) == 16);
+    QIQI_TEST_CHECK(header.ReadLe32() == 0x61746164u); // data
+    QIQI_TEST_CHECK(header.ReadLe32() == sample_count * 2);
+    QIQI_TEST_CHECK(header.Valid() && header.Empty());
+
+    // Keep the legacy waveform formula independent of production constants.
+    codec::BinarySpanReader samples(wav.subspan(44));
+    double phase = 0.0;
+    for (size_t i = 0; i < sample_count; ++i) {
+        const double progress = static_cast<double>(i) / static_cast<double>(sample_count);
+        const double frequency = start_frequency_hz + (end_frequency_hz - start_frequency_hz) * progress;
+        const double envelope = std::exp(-4.5 * progress) * (1.0 - progress);
+        const double value = std::sin(phase) * amplitude * envelope;
+        phase += (6.28318530717958647692 * frequency) / 44100.0;
+        const auto expected = gsl::narrow_cast<int16_t>(std::clamp(value * 32767.0, -32767.0, 32767.0));
+        const auto actual = std::bit_cast<int16_t>(gsl::narrow_cast<uint16_t>(samples.ReadLeNumber(2)));
+        QIQI_TEST_CHECK(actual == expected);
+    }
+    QIQI_TEST_CHECK(samples.Valid() && samples.Empty());
+}
+
+void TestStaticSoundWavs() {
+    CheckStaticSoundWav(qiqi::detail::GetKeyClickWav(), 617, 1400.0, 320.0, 0.35);
+    CheckStaticSoundWav(qiqi::detail::GetEmptyCodeBeepWav(), 3748, 720.0, 360.0, 0.55);
+    CheckStaticSoundWav(qiqi::detail::GetDupCodeBeepWav(), 1984, 660.0, 880.0, 0.40);
+    const auto empty_wav = qiqi::detail::BuildStaticMonoWav<0>(1400.0, 320.0, 0.35);
+    CheckStaticSoundWav(empty_wav, 0, 1400.0, 320.0, 0.35);
+}
+
 void TestI18nLocalization() {
     // 1. Direct language resolution
     QIQI_TEST_CHECK(ResolveUiLanguage(UiLanguage::ZhCn) == UiLanguage::ZhCn);
@@ -990,6 +1040,7 @@ void RunCommonTests() {
     TestDictionaryLoadPlans();
     TestIniConfiguration();
     TestScopedHandleTemplate();
+    TestStaticSoundWavs();
     TestI18nLocalization();
 }
 

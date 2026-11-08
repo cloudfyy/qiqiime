@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/win32_ui_util.h"
+#include "common/file_util.h"
 #include "common/i18n.h"
 #include "common/logger.h"
 
@@ -185,7 +186,7 @@ inline bool PromptForPrimaryDictionaryFile(
     std::wstring_view initial_path,
     std::filesystem::path& out_selected_path) {
     const auto& str = GetUiStrings(language);
-    std::array<wchar_t, 32768> path{};
+    std::array<wchar_t, kWin32PathBufferChars> path{};
     if (!initial_path.empty() && initial_path.size() < path.size()) {
         std::wmemcpy(path.data(), initial_path.data(), initial_path.size());
     }

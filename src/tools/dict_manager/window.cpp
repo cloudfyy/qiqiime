@@ -1103,7 +1103,7 @@ void DictManagerWindow::Impl::ExecuteRestoreDefaultPrimaryDict() {
 }
 
 void DictManagerWindow::Impl::ImportUserDictDialog() {
-    std::array<wchar_t, 32768> path{};
+    std::array<wchar_t, kWin32PathBufferChars> path{};
     if (!dialog_detail::PromptForFile(hwnd,
             Text(L"导入用户词库文件 (UTF-8)", L"Import User Dictionary File (UTF-8)"),
             Text(L"文本词库 (*.txt)\0*.txt\0所有文件\0*.*\0", L"Text Dictionary (*.txt)\0*.txt\0All files\0*.*\0"),
@@ -1119,7 +1119,7 @@ void DictManagerWindow::Impl::ImportUserDictDialog() {
 }
 
 void DictManagerWindow::Impl::ExportSnapshotDialog() {
-    std::array<wchar_t, 32768> path{};
+    std::array<wchar_t, kWin32PathBufferChars> path{};
     wcscpy_s(path.data(), path.size(), L"qiqi_user_dict_export.txt");
     if (!dialog_detail::PromptForFile(hwnd,
             Text(L"导出当前筛选词条 (UTF-8)", L"Export Filtered Entries (UTF-8)"),
@@ -1141,7 +1141,7 @@ void DictManagerWindow::Impl::ExportSnapshotDialog() {
 }
 
 void DictManagerWindow::Impl::BackupBundleDialog() {
-    std::array<wchar_t, 32768> path{};
+    std::array<wchar_t, kWin32PathBufferChars> path{};
     wcscpy_s(path.data(), path.size(), L"qiqiime_backup.qbak");
     if (!dialog_detail::PromptForFile(hwnd,
             Text(L"备份配置、用户词库与词组排序 (.qbak)", L"Backup Config, User Dict & Phrase Ordering (.qbak)"),
@@ -1157,7 +1157,7 @@ void DictManagerWindow::Impl::BackupBundleDialog() {
 }
 
 void DictManagerWindow::Impl::RestoreBundleDialog() {
-    std::array<wchar_t, 32768> path{};
+    std::array<wchar_t, kWin32PathBufferChars> path{};
     if (!dialog_detail::PromptForFile(hwnd,
             Text(L"选择要恢复的奇奇五笔备份 (.qbak)", L"Select QiQiIME Backup to Restore (.qbak)"),
             Text(L"奇奇五笔备份 (*.qbak)\0*.qbak\0所有文件\0*.*\0",

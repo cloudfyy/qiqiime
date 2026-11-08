@@ -209,7 +209,7 @@ std::wstring MonitorWindow::Impl::Cell(const Event& event, int column) const {
         return cell;
     }
     default: {
-        std::wstring preview = event.message.substr(0, 1024);
+        std::wstring preview = event.message.substr(0, kMonitorPreviewChars);
         std::replace(preview.begin(), preview.end(), L'\r', L' ');
         std::replace(preview.begin(), preview.end(), L'\n', L' ');
         std::replace(preview.begin(), preview.end(), L'\0', L'\x2400');

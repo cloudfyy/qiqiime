@@ -1,4 +1,5 @@
 #include "tools/log_monitor/permissions.h"
+#include "common/file_util.h"
 #include "common/scoped_handle.h"
 #include "common/version.h"
 
@@ -105,7 +106,7 @@ ULONG LaunchElevatedMonitor(HWND owner, gsl::not_null<decltype(&::ShellExecuteEx
     const HRESULT co_result = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(co_result)) return gsl::narrow_cast<ULONG>(co_result);
     const auto uninitialize = gsl::finally([]() noexcept { ::CoUninitialize(); });
-    std::wstring executable(32768, L'\0');
+    std::wstring executable(kWin32PathBufferChars, L'\0');
     const DWORD length = ::GetModuleFileNameW(nullptr, executable.data(), gsl::narrow_cast<DWORD>(executable.size()));
     if (!length) return ::GetLastError();
     if (length >= executable.size()) return ERROR_INSUFFICIENT_BUFFER;
