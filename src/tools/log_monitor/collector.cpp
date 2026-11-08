@@ -237,7 +237,7 @@ bool Collector::Start() {
     lost_baseline_ = events_lost.load();
     buffers_baseline_ = buffers_lost.load();
     error = api_.enable_trace(session_, &kImeProvider, EVENT_CONTROL_CODE_ENABLE_PROVIDER,
-        TRACE_LEVEL_VERBOSE, 0, 0, 1000, nullptr);
+        TRACE_LEVEL_VERBOSE, std::to_underlying(log::Keyword::Logs), 0, 1000, nullptr);
     if (error != ERROR_SUCCESS) {
         return FailStart(L"EnableTraceEx2(QiQiIME.TraceLogging)", error);
     }

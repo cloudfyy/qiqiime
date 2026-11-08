@@ -7,7 +7,12 @@
 #include <string_view>
 #include <utility>
 
+namespace qiqi::metrics { struct Event; }
+
 namespace qiqi::log {
+
+inline constexpr GUID kProviderId =
+    {0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x99}};
 
 enum class Level : uint8_t {
     trace = 0,
@@ -29,7 +34,9 @@ enum class Keyword : uint64_t {
     Sync        = 0x0020,
     UI          = 0x0040,
     Config      = 0x0080,
-    All         = 0x00FF
+    Metrics     = 0x0100,
+    Logs        = 0x00FF,
+    All         = 0x01FF
 };
 
 // Standard ETW opcodes matching WINEVENT_OPCODE_INFO / START / STOP.
@@ -56,6 +63,7 @@ constexpr Keyword NormalizeKeyword(Keyword keyword) noexcept {
         case Keyword::Sync:
         case Keyword::UI:
         case Keyword::Config:
+        case Keyword::Metrics:
             return keyword;
         default:
             return Keyword::General;
@@ -82,6 +90,7 @@ constexpr std::string_view KeywordTag(Keyword keyword) noexcept {
         case Keyword::Sync:        return "sync";
         case Keyword::UI:          return "ui";
         case Keyword::Config:      return "config";
+        case Keyword::Metrics:     return "metrics";
         case Keyword::General:
         default:                   return "general";
     }
@@ -97,6 +106,7 @@ constexpr std::wstring_view KeywordNameW( uint64_t keyword) noexcept {
         case std::to_underlying(Keyword::Sync):        return L"Sync";
         case std::to_underlying(Keyword::UI):          return L"UI";
         case std::to_underlying(Keyword::Config):      return L"Config";
+        case std::to_underlying(Keyword::Metrics):     return L"Metrics";
         default:                                       return L"General";
     }
 }
@@ -121,6 +131,12 @@ constexpr std::wstring_view OpcodeNameW(uint8_t opcode) noexcept {
 
 // Create a locally-unique activity ID without modifying the calling thread's implicit ETW activity ID.
 GUID CreateActivityId() noexcept;
+ULONG CreateActivityIdResult(GUID& id) noexcept;
+
+// Metrics are ETW-only, independent of LogLevel; these queries never initialize the provider.
+bool MetricsEnabled() noexcept;
+uint64_t MetricsCaptureGeneration() noexcept;
+void WriteMetric(const metrics::Event& event) noexcept;
 
 // Initialize the module's shared ETW TraceLogging provider and set the active log level.
 void InitLogger(Level level = Level::info) noexcept;

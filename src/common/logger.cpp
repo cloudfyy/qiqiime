@@ -3,15 +3,23 @@
 #include "common/etw_write.h"
 #include "common/file_util.h"
 #include "common/scoped_handle.h"
+#include "common/metrics.h"
+#include "common/version.h"
 
 #include <windows.h>
+#include <evntrace.h>
 
 namespace {
 ULONG WINAPI QiQiWriteEtwEvent(
     REGHANDLE provider, PCEVENT_DESCRIPTOR descriptor, LPCGUID activity, LPCGUID related,
     ULONG count, PEVENT_DATA_DESCRIPTOR data) noexcept {
-    return qiqi::log::detail::WriteEtwEvent(
+    const ULONG error = qiqi::log::detail::WriteEtwEvent(
         provider, descriptor, activity, related, count, data, ::EventWriteTransfer, ::OutputDebugStringA);
+    if (error != ERROR_SUCCESS && descriptor &&
+        (descriptor->Keyword & std::to_underlying(qiqi::log::Keyword::Metrics)) != 0) {
+        qiqi::metrics::RecordFailure(qiqi::metrics::FailureKind::Write, HRESULT_FROM_WIN32(error));
+    }
+    return error;
 }
 } // namespace
 
@@ -42,21 +50,71 @@ namespace qiqi::log {
 namespace {
 
 std::atomic<Level> g_log_level{Level::info};
+std::atomic<uint64_t> g_metrics_generation{0};
+std::atomic<bool> g_metric_metadata_pending{false};
+ULONG RegisterProvider() noexcept;
+void UnregisterProvider() noexcept;
+constinit detail::EtwRegistration g_provider_registration{RegisterProvider, UnregisterProvider};
+
+#pragma warning(push)
+#pragma warning(disable : 26447 26477 26812)
+void EmitMetricMetadata() noexcept {
+    const auto identity = metrics::ModuleInstance();
+    if (FAILED(identity.error)) {
+        metrics::RecordFailure(metrics::FailureKind::Identity, identity.error);
+        return;
+    }
+    const auto counts = metrics::Diagnostics();
+    TraceLoggingWrite(g_qiqi_etw_provider, "QiQiMetricInstance",
+        TraceLoggingLevel(WINEVENT_LEVEL_LOG_ALWAYS),
+        TraceLoggingKeyword(std::to_underlying(Keyword::Metrics)),
+        TraceLoggingUInt16(metrics::kSchemaVersion, "schema_version"),
+        TraceLoggingGuid(identity.id, "instance_id"),
+        TraceLoggingString(version::kFullVersion.data(), "build_version"),
+        TraceLoggingString(version::kArch.data(), "architecture"),
+        TraceLoggingUInt64(g_metrics_generation.load(), "capture_generation"),
+        TraceLoggingUInt64(counts.protocol, "protocol_errors"),
+        TraceLoggingUInt64(counts.clock, "clock_errors"),
+        TraceLoggingUInt64(counts.identity, "identity_errors"),
+        TraceLoggingUInt64(counts.write, "write_errors"),
+        TraceLoggingUInt64(counts.interrupted, "interrupted_samples"));
+}
+
+void FlushMetricMetadata() noexcept {
+    if (g_provider_registration.IsRegistered() && g_metric_metadata_pending.exchange(false) &&
+        ::TraceLoggingProviderEnabled(g_qiqi_etw_provider, 0, std::to_underlying(Keyword::Metrics))) {
+        EmitMetricMetadata();
+    }
+}
+
+void NTAPI OnProviderEnabled(LPCGUID, ULONG control, UCHAR, ULONGLONG, ULONGLONG,
+    PEVENT_FILTER_DESCRIPTOR, PVOID) noexcept {
+    const DWORD saved_error = ::GetLastError();
+    const auto restore = gsl::finally([saved_error]() noexcept { ::SetLastError(saved_error); });
+    if (control == EVENT_CONTROL_CODE_ENABLE_PROVIDER || control == EVENT_CONTROL_CODE_DISABLE_PROVIDER) {
+        ++g_metrics_generation;
+    }
+    if (control != EVENT_CONTROL_CODE_DISABLE_PROVIDER &&
+        ::TraceLoggingProviderEnabled(g_qiqi_etw_provider, 0, std::to_underlying(Keyword::Metrics))) {
+        // Registration callbacks can precede publication of the SDK registration handle.
+        g_metric_metadata_pending = true;
+        FlushMetricMetadata();
+    }
+}
+#pragma warning(pop)
 
 ULONG RegisterProvider() noexcept {
-    const ULONG error = ::TraceLoggingRegister(g_qiqi_etw_provider);
-    if (error != ERROR_SUCCESS) {
+    const HRESULT error = ::TraceLoggingRegisterEx(g_qiqi_etw_provider, OnProviderEnabled, nullptr);
+    if (FAILED(error)) {
         std::array<char, 128> message{};
         std::snprintf(message.data(), message.size(),
-                      "QiQiIME: TraceLoggingRegister failed (error=%lu)\n", error);
+                      "QiQiIME: TraceLoggingRegisterEx failed (hr=0x%08lX)\n", gsl::narrow_cast<unsigned long>(error));
         ::OutputDebugStringA(message.data());
     }
-    return error;
+    return gsl::narrow_cast<ULONG>(error);
 }
 
 void UnregisterProvider() noexcept { ::TraceLoggingUnregister(g_qiqi_etw_provider); }
-
-constinit detail::EtwRegistration g_provider_registration{RegisterProvider, UnregisterProvider};
 
 std::string_view GetProcessName() noexcept {
     static const std::string kProcName = []() noexcept -> std::string {
@@ -259,6 +317,8 @@ void EmitEtwTraceEvent(
             EmitEtwForKeyword<Keyword::Config>(
                 level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
             break;
+        case Keyword::Metrics:
+            return;
         case Keyword::General:
         default:
             EmitEtwForKeyword<Keyword::General>(
@@ -271,8 +331,13 @@ void EmitEtwTraceEvent(
 } // namespace
 
 GUID CreateActivityId() noexcept {
+    GUID id{};
+    return CreateActivityIdResult(id) == ERROR_SUCCESS ? id : GUID_NULL;
+}
+
+ULONG CreateActivityIdResult(GUID& id) noexcept {
     const DWORD saved_error = ::GetLastError();
-    GUID id = GUID_NULL;
+    id = GUID_NULL;
     const ULONG status = ::EventActivityIdControl(EVENT_ACTIVITY_CTRL_CREATE_ID, &id);
     ::SetLastError(saved_error);
     if (status != ERROR_SUCCESS) {
@@ -280,10 +345,62 @@ GUID CreateActivityId() noexcept {
         std::snprintf(message.data(), message.size(),
                       "QiQiIME: EventActivityIdControl(CREATE_ID) failed (error=%lu)\n", status);
         ::OutputDebugStringA(message.data());
-        return GUID_NULL;
+        return status;
     }
-    return id;
+    return ERROR_SUCCESS;
 }
+
+bool MetricsEnabled() noexcept {
+    return g_provider_registration.IsRegistered() &&
+        (::TraceLoggingProviderEnabled(g_qiqi_etw_provider, 0, std::to_underlying(Keyword::Metrics)) != FALSE);
+}
+
+uint64_t MetricsCaptureGeneration() noexcept { return g_metrics_generation.load(); }
+
+#pragma warning(push)
+#pragma warning(disable : 26447 26477 26812)
+void WriteMetric(const metrics::Event& event) noexcept {
+    if (!MetricsEnabled()) {
+        if (event.capture_generation != 0) metrics::RecordInterrupted();
+        return;
+    }
+    const DWORD saved_error = ::GetLastError();
+    const auto restore = gsl::finally([saved_error]() noexcept { ::SetLastError(saved_error); });
+    if (metrics::Validate(event) != metrics::ValidationError::None ||
+        event.instance_id != metrics::ModuleInstance().id) {
+        metrics::RecordFailure(metrics::FailureKind::Protocol, E_INVALIDARG);
+        return;
+    }
+    if (event.capture_generation != g_metrics_generation.load()) {
+        metrics::RecordInterrupted();
+        return;
+    }
+#define QIQI_METRIC_FIELDS \
+    TraceLoggingLevel(WINEVENT_LEVEL_LOG_ALWAYS), \
+    TraceLoggingKeyword(std::to_underlying(Keyword::Metrics)), \
+    TraceLoggingUInt16(event.schema_version, "schema_version"), \
+    TraceLoggingGuid(event.instance_id, "instance_id"), \
+    TraceLoggingUInt64(event.capture_generation, "capture_generation"), \
+    TraceLoggingUInt64(event.service_id, "service_id"), \
+    TraceLoggingUInt64(event.operation_id, "operation_id"), \
+    TraceLoggingUInt64(event.parent_operation_id, "parent_operation_id"), \
+    TraceLoggingUInt8(std::to_underlying(event.metric), "metric"), \
+    TraceLoggingUInt8(std::to_underlying(event.phase), "phase"), \
+    TraceLoggingUInt8(std::to_underlying(event.outcome), "outcome"), \
+    TraceLoggingUInt8(std::to_underlying(event.error_domain), "error_domain"), \
+    TraceLoggingUInt32(event.error_code, "error_code"), \
+    TraceLoggingUInt8(std::to_underlying(event.mode), "mode"), \
+    TraceLoggingUInt8(std::to_underlying(event.source), "source")
+    const GUID* const related = event.related_activity_id != GUID_NULL ? &event.related_activity_id : nullptr;
+    if (event.phase == metrics::Phase::Begin) {
+        TraceLoggingWriteActivity(g_qiqi_etw_provider, "QiQiMetric", &event.activity_id, related, QIQI_METRIC_FIELDS);
+    } else {
+        TraceLoggingWriteActivity(g_qiqi_etw_provider, "QiQiMetric", &event.activity_id, related, QIQI_METRIC_FIELDS,
+            TraceLoggingUInt64(*event.duration_ns, "duration_ns"));
+    }
+#undef QIQI_METRIC_FIELDS
+}
+#pragma warning(pop)
 
 void InitLogger(Level level) noexcept {
     g_log_level = level;
@@ -291,7 +408,9 @@ void InitLogger(Level level) noexcept {
 }
 
 bool EnsureInitialized() noexcept {
-    return g_provider_registration.EnsureRegistered() == ERROR_SUCCESS;
+    const ULONG error = g_provider_registration.EnsureRegistered();
+    if (error == ERROR_SUCCESS) FlushMetricMetadata();
+    return error == ERROR_SUCCESS;
 }
 
 Level GetLevel() noexcept {
@@ -328,6 +447,7 @@ bool IsLogSinkActive() noexcept {
 }
 
 bool ShouldLog(Level level, Keyword keyword) noexcept {
+    if (keyword == Keyword::Metrics) return false;
     const Level configured = GetLevel();
     if (level == Level::off || configured == Level::off) {
         return false;
@@ -336,6 +456,10 @@ bool ShouldLog(Level level, Keyword keyword) noexcept {
 }
 
 void WriteLogMessage(Level level, std::string_view message, const LogContext& context) noexcept {
+    if (context.keyword == Keyword::Metrics) {
+        metrics::RecordFailure(metrics::FailureKind::Protocol, E_INVALIDARG);
+        return;
+    }
     const Level configured = GetLevel();
     if (level == Level::off || configured == Level::off) {
         return;

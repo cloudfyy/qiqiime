@@ -249,7 +249,8 @@ void MonitorWindow::Impl::ApplyLanguage() {
         CategoryText(std::to_underlying(log::Keyword::Dictionary)),
         CategoryText(std::to_underlying(log::Keyword::Sync)),
         CategoryText(std::to_underlying(log::Keyword::UI)),
-        CategoryText(std::to_underlying(log::Keyword::Config))};
+        CategoryText(std::to_underlying(log::Keyword::Config)),
+        CategoryText(std::to_underlying(log::Keyword::Metrics))};
     replace(Category, categories);
     RefreshProcessChoices(true);
     const std::array<const wchar_t*, 7> columns{

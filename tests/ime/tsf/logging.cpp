@@ -327,7 +327,7 @@ int RunTsfEtwIntegrationTests() {
     enable.EnableFilterDesc = &filter;
     enable.FilterDescCount = 1;
     CheckEtwStatus(::EnableTraceEx2(session, &kProvider, EVENT_CONTROL_CODE_ENABLE_PROVIDER, TRACE_LEVEL_VERBOSE,
-                                   0, 0, 5'000, &enable), "EnableTraceEx2");
+                                   std::to_underlying(log::Keyword::Logs), 0, 5'000, &enable), "EnableTraceEx2");
     ResumeHost(early);
     FinishHost(early);
     FinishHost(late);

@@ -104,6 +104,8 @@ ETW 写入失败通过不递归的 `OutputDebugStringA` 输出 `EventWriteTransf
 
 当前图形设置界面没有日志级别控件。
 
+性能指标使用独立 `Metrics` Keyword（`0x0100`）和类型化 `QiQiMetric` / `QiQiMetricInstance` 事件，不受 `LogLevel`（包括 Off）过滤，只在相应 ETW 订阅启用时工作。当前已实现协议、门控与同步计时基础，尚未接入输入链路、指标聚合或指标页；日志监视器普通采集仅订阅 `Logs`（`0x00FF`），不会因为开始日志跟踪而自动开启指标。分类下拉框中的 Metrics 是分类映射，不是采集开关。采集期间的实例元数据通过启用回调或 `EVENT_CONTROL_CODE_CAPTURE_STATE` 请求获取；指标计时异常有独立计数，不递归写指标、不影响业务结果。
+
 | LogLevel | 应用级别 | 建议用途 | ETW 事件 |
 |---|---|---|---|
 | `0` | Trace | 短时间详细复现 | `QiQiLogVerbose` |
@@ -186,7 +188,7 @@ $sessionName = 'QiQiIME-' + [guid]::NewGuid().ToString('N')
 $traceFile = Join-Path $traceDirectory ($sessionName + '.etl')
 $provider = '{8E7B9D31-5A42-4C81-9F11-202610290099}'
 
-logman create trace $sessionName -p $provider 0xffffffffffffffff 5 -o $traceFile -f bincirc -max 64 -ets
+logman create trace $sessionName -p $provider 0x00ff 5 -o $traceFile -f bincirc -max 64 -ets
 if ($LASTEXITCODE -ne 0) {
     throw "启动 ETW 采集失败，logman 退出码：$LASTEXITCODE"
 }
@@ -199,7 +201,7 @@ Write-Host "输出文件：$traceFile"
 ```
 
 - `5` 是 ETW Verbose，不是注册表中的应用 Critical；两者数值含义不同。
-- `0xffffffffffffffff` 启用该 Provider 的全部关键字，不表示订阅所有 Provider。
+- `0x00ff` 仅启用该 Provider 的常规日志分类；`0x0100` 为独立指标分类。零掩码或全部关键字掩码会同时订阅指标，不要把它当作仅采集普通日志。
 - `-ets` 直接操作即时 ETW 会话，不建立持久化的数据收集器计划。
 - 查询成功仅证明会话存在；是否实际收到应用事件，需要在复现后打开 ETL 检查。
 - 环形文件达到上限后会覆盖较早事件，复现完成应及时停止。

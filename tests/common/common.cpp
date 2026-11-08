@@ -304,6 +304,11 @@ void TestEtwLogger() {
     static_assert(log::KeywordTag(log::Keyword::All) == "general");
     static_assert(log::KeywordNameW(std::to_underlying(log::Keyword::Sync)) == L"Sync");
     static_assert(log::KeywordNameW(0) == L"General");
+    static_assert(log::NormalizeKeyword(log::Keyword::Metrics) == log::Keyword::Metrics);
+    static_assert(log::KeywordTag(log::Keyword::Metrics) == "metrics");
+    static_assert(log::KeywordNameW(std::to_underlying(log::Keyword::Metrics)) == L"Metrics");
+    static_assert((std::to_underlying(log::Keyword::Logs) & std::to_underlying(log::Keyword::Metrics)) == 0);
+    static_assert((std::to_underlying(log::Keyword::All) & std::to_underlying(log::Keyword::Metrics)) != 0);
     static_assert(log::OpcodeTag(log::Opcode::Stop) == "stop");
     static_assert(log::OpcodeNameW(std::to_underlying(log::Opcode::Start)) == L"Start");
     static_assert(log::OpcodeNameW(99) == L"Info");

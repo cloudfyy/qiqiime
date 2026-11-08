@@ -726,7 +726,8 @@ void TestWindowAndVersion() {
     ::SendMessageW(Child(window, Pid), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Pid), CBN_SELCHANGE), 0);
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Pid), CBN_CLOSEUP), 0);
-    for (int col = 1; col <= 8; ++col) {
+    QIQI_TEST_CHECK(::SendMessageW(Child(window, Category), CB_GETCOUNT, 0, 0) == 10);
+    for (int col = 1; col <= 9; ++col) {
         ::SendMessageW(Child(window, Category), CB_SETCURSEL, col, 0);
         ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Category), CBN_SELCHANGE), 0);
     }

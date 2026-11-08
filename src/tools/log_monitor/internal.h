@@ -75,6 +75,7 @@ struct MonitorWindow::Impl {
         case std::to_underlying(log::Keyword::Sync):        return Text(L"跨进程同步", L"Sync");
         case std::to_underlying(log::Keyword::UI):          return Text(L"界面", L"UI");
         case std::to_underlying(log::Keyword::Config):      return Text(L"配置", L"Config");
+        case std::to_underlying(log::Keyword::Metrics):     return Text(L"性能指标", L"Metrics");
         default:                                            return Text(L"全部", L"All");
         }
     }
@@ -89,6 +90,7 @@ struct MonitorWindow::Impl {
         case 6: return std::to_underlying(log::Keyword::Sync);
         case 7: return std::to_underlying(log::Keyword::UI);
         case 8: return std::to_underlying(log::Keyword::Config);
+        case 9: return std::to_underlying(log::Keyword::Metrics);
         default: return 0;
         }
     }
