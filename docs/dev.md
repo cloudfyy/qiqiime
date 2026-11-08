@@ -472,6 +472,8 @@ cmake --build build\x64 --config Release --target lint
 - [`theme.h`](../src/common/theme.h) 集中定义 `kDarkWindowBg`、`kLightSurfaceBg`、`kDarkTextColor` 及信息对话框的标题、副标题、正文与分隔线颜色常量；GDI 直接使用 `COLORREF`，Direct2D 通过现有 `ColorRefToD2DColor` 转换。画刷仍由各绘制上下文的 RAII 对象持有，不共享全局 GDI 句柄。
 - 标题栏背景、文字、边框和任务栏图标使用语义颜色常量；uxtheme 导出序号及 `PreferredAppMode` 的私有 ABI 值集中命名。DWM 属性和圆角策略使用 Windows SDK 枚举，旧版深色属性 19 仅保留为具名兼容回退；浅色调色板直接采用 `ThemePalette` 默认值，避免维护两份相同色表。
 - 设置窗口的逻辑客户区、卡片、行距与控件矩形集中在 [`settings_layout`](../src/tools/settings/internal.h)；创建与 DPI 重定位使用相同定义，宽高先在逻辑坐标中计算再分别缩放，保留原有舍入。共享控件、工具栏、消息窗口与提示框的尺寸和间距采用各自具名常量，原有物理像素参数不改为逻辑像素；设置测试保留独立数值断言。
+- Fluent 正文字号（14）和下拉项高度（22）共用 [`d2d_controls.h`](../src/common/d2d_controls.h) 的定义，覆盖初始测量及 DPI 更新；设置窗口保留独立的 15/12 字号。窗口大小品牌图标（16/48）复用 [`win32_ui_util.h`](../src/common/win32_ui_util.h) 的逻辑尺寸，创建与 DPI 更新不维护重复值。下拉文本容量单独共享，按钮回退和标签容量仍分别命名；闭合框与下拉项原有 `<127` / `<128` 读取边界不合并，测试覆盖 126/127/128 字符。
+- 词库管理器的初始窗口尺寸、筛选栏起点/矩形、列表与状态栏间距、编辑图标和内嵌保存按钮尺寸集中在 [`dict_manager_layout`](../src/tools/dict_manager/internal.h)；500 ms 刷新定时器创建/销毁共用具名参数。快捷设置菜单在 [`popup_menu.cpp`](../src/ime/ui/popup_menu.cpp) 中命名字号、行高、边距、宽度预留和短工作区适配参数；分隔线的原有物理像素内缩/线宽与逻辑行高分开，保持工作区适配、焦点及字体生命周期行为。
 - 监控器普通日志、指标与自身诊断分别命名条数/字节预算；TDH 元数据和字符串解析上限仍按资源用途区分，不因数值相同而合并。刷新定时器的创建/销毁共用 ID 与 100 ms 周期，丢失轮询保持 1 秒；详情布局与鼠标/键盘调整共用最小高度和底部预留空间，不改变消息处理策略。
 - [`file_util.h`](../src/common/file_util.h) 定义共用的 `kWin32PathBufferChars`（32,768 个 UTF-16 单元，含终止符），用于文件对话框和监控器提升重启的固定路径缓冲；它不是所有 Windows 路径的通用长度保证，不替换已有动态扩容策略。日志列表的 1,024 单元预览长度单独命名，不与详情文本容量、字节预算或诊断报告步长合并。
 - [`sound.h`](../src/common/sound.h) 的 `wav_format` 从字段尺寸推导 WAV 头偏移和总长；PCM 格式使用 SDK 的 `WAVE_FORMAT_PCM`。音效的样本数、起止频率、振幅、包络衰减和 PCM 幅度边界具名化，保留 44.1 kHz、16 位单声道及原有波形。公共测试使用独立格式值和旧波形公式核对三种音效及空采样头；静态 WAV 存储和异步播放的模块 RAII 生命周期不变。

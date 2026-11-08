@@ -13,6 +13,7 @@
 #include "tools/dict_manager/model.h"
 #include "tools/dict_manager/editor.h"
 #include "tools/dict_manager/window.h"
+#include "tools/dict_manager/internal.h"
 
 #include <commctrl.h>
 #include <sddl.h>
@@ -27,6 +28,22 @@ namespace {
 using namespace qiqi;
 using namespace qiqi::dict_manager;
 using enum qiqi::dict_manager::ControlId;
+
+namespace layout = dict_manager_layout;
+static_assert(kRefreshTimerId == 1 && kRefreshIntervalMs == 500);
+static_assert(layout::kInitialWindowSize.cx == 1020 && layout::kInitialWindowSize.cy == 680);
+static_assert(layout::kSourceLabel.left == 12 && layout::kSourceLabel.top == 4 &&
+              layout::kSourceLabel.right == 68 && layout::kSourceLabel.bottom == 28);
+static_assert(layout::kSourceCombo.left == 72 && layout::kSourceCombo.top == 0 &&
+              layout::kSourceCombo.right == 237 && layout::kSourceCombo.bottom == 220);
+static_assert(layout::kSearchLabel.left == 250 && layout::kSearchLabel.top == 4 &&
+              layout::kSearchLabel.right == 314 && layout::kSearchLabel.bottom == 28);
+static_assert(layout::kSearchEditLeft == 318 && layout::kSearchEditRightReserve == 330);
+static_assert(layout::kSearchEditHeight == 28 && layout::kWindowMargin == 12);
+static_assert(layout::kFilterSectionHeight == 40 && layout::kListMinimumHeight == 80);
+static_assert(layout::kListBottomInset == 40 && layout::kStatusBottomOffset == 32 && layout::kStatusHeight == 24);
+static_assert(layout::kInlineSaveButtonSize == 26 && layout::kEditIconSize == 16);
+static_assert(layout::kEditIconPadding == 4 && layout::kEditIconStrokeWidth == 1 && layout::kEditorCellInsetPx == 1);
 
 HWND Child(const DictManagerWindow& window, ControlId id) noexcept {
     return ::GetDlgItem(window.Handle(), std::to_underlying(id));

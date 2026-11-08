@@ -680,6 +680,34 @@ void TestQuickSettingsMenuWorkArea() {
             QIQI_TEST_CHECK(::GetWindowRect(menu, &rect));
             QIQI_TEST_CHECK(rect.left >= -1280 && rect.top >= -720);
             QIQI_TEST_CHECK(rect.right <= 0 && rect.bottom <= 0);
+            const auto monitor = QueryMonitorForPoint(POINT{-1, -1}, menu);
+            const auto model = LangBarButton::BuildSharedMenuItems(LangBarState{});
+            int base_height = 8;
+            for (const auto& item : model) base_height += item.IsSeparator() ? 8 : 28;
+            const int available_height = std::max(1, gsl::narrow_cast<int>(
+                monitor.work_area.bottom - monitor.work_area.top) - 2);
+            const UINT expected_dpi = std::min(monitor.dpi, gsl::narrow_cast<UINT>(
+                std::max(1, ::MulDiv(std::max(1, available_height -
+                    gsl::narrow_cast<int>(model.size()) - 2), 96, base_height))));
+            int row_top = ScalePxByDpi(4, expected_dpi);
+            for (const auto& item : model) {
+                const int row_height = ScalePxByDpi(item.IsSeparator() ? 8 : 28, expected_dpi);
+                if (!item.IsSeparator()) {
+                    const HWND button = ::GetDlgItem(menu, gsl::narrow_cast<int>(std::to_underlying(item.id)));
+                    QIQI_TEST_CHECK(button);
+                    RECT button_rect{};
+                    QIQI_TEST_CHECK(::GetWindowRect(button, &button_rect));
+                    POINT origin{button_rect.left, button_rect.top};
+                    QIQI_TEST_CHECK(::ScreenToClient(menu, &origin));
+                    QIQI_TEST_CHECK(origin.x == 0 && origin.y == row_top);
+                    QIQI_TEST_CHECK(button_rect.bottom - button_rect.top == row_height);
+                    const auto font = reinterpret_cast<HFONT>(::SendMessageW(button, WM_GETFONT, 0, 0));
+                    LOGFONTW description{};
+                    QIQI_TEST_CHECK(::GetObjectW(font, sizeof(description), &description) == sizeof(description));
+                    QIQI_TEST_CHECK(description.lfHeight == -ScalePxByDpi(14, expected_dpi));
+                }
+                row_top += row_height;
+            }
             ::SendMessageW(menu, WM_CLOSE, 0, 0);
         });
         QIQI_TEST_CHECK(timer != 0);

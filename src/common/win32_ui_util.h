@@ -21,6 +21,9 @@
 
 namespace qiqi {
 
+inline constexpr int kSmallBrandIconSize = 16;
+inline constexpr int kLargeBrandIconSize = 48;
+
 struct WindowDcGuardTraits {
     using ContextType  = HWND;
     using ResourceType = HDC;

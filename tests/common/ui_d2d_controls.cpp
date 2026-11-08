@@ -14,6 +14,45 @@
 namespace qiqi::test {
 namespace {
 
+static_assert(kFluentBodyFontSize == 14 && kFluentComboItemHeight == 22);
+static_assert(kFluentComboTextCapacity == 128);
+static_assert(kSmallBrandIconSize == 16 && kLargeBrandIconSize == 48);
+
+LRESULT CALLBACK CountComboTextReads(
+    HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR, DWORD_PTR context) noexcept {
+    if (message == CB_GETLBTEXT) {
+        ++*reinterpret_cast<size_t*>(context);
+    }
+    return ::DefSubclassProc(hwnd, message, wparam, lparam);
+}
+
+void TestComboTextReadBounds(HWND combo, HDC dc, const FluentD2DThemeContext& d2d) {
+    constexpr UINT_PTR kReadObserverSubclassId = 2;
+    size_t reads = 0;
+    QIQI_TEST_CHECK(::SetWindowSubclass(
+        combo, CountComboTextReads, kReadObserverSubclassId, reinterpret_cast<DWORD_PTR>(&reads)));
+    const auto remove_observer = gsl::finally([combo]() noexcept {
+        ::RemoveWindowSubclass(combo, CountComboTextReads, kReadObserverSubclassId);
+    });
+    for (const size_t length : {126u, 127u, 128u}) {
+        const std::wstring text(length, L'x');
+        ::SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+        QIQI_TEST_CHECK(::SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str())) == 0);
+        QIQI_TEST_CHECK(::SendMessageW(combo, CB_SETCURSEL, 0, 0) == 0);
+        reads = 0;
+        PaintFluentComboBoxFrame(combo, dc, d2d);
+        QIQI_TEST_CHECK(reads == (length < 127 ? 1u : 0u));
+        DRAWITEMSTRUCT item{};
+        item.CtlType = ODT_COMBOBOX;
+        item.hwndItem = combo;
+        item.hDC = dc;
+        item.rcItem = {0, 0, 240, 32};
+        reads = 0;
+        DrawFluentComboBoxItem(item, d2d);
+        QIQI_TEST_CHECK(reads == (length < 128 ? 1u : 0u));
+    }
+}
+
 struct ControlHostState {
     int clicks = 0;
     LRESULT checked_on_click = BST_UNCHECKED;
@@ -471,6 +510,7 @@ void TestReusableControls() {
         DrawFluentComboBoxItem(dis, d2d);
     }
 
+    TestComboTextReadBounds(combo, dc.Get(), d2d);
     parent.Reset();
     QIQI_TEST_CHECK(!::IsWindow(toggle) && !::IsWindow(combo));
 

@@ -21,6 +21,7 @@
 
 namespace qiqi::dict_manager {
 using enum ControlId;
+namespace layout = dict_manager_layout;
 
 namespace {
 constexpr std::array toolbar_commands{
@@ -294,7 +295,7 @@ LRESULT CALLBACK DictManagerWindow::Impl::EditorProcedure(
 
 bool DictManagerWindow::Impl::CreateControls() {
     theme.Init(::GetDpiForWindow(hwnd));
-    font = CreateUiFont(theme.ScalePx(14));
+    font = CreateUiFont(theme.ScalePx(kFluentBodyFontSize));
     if (!font) {
         Failure(L"CreateUiFont", ::GetLastError());
         return false;
@@ -356,7 +357,7 @@ bool DictManagerWindow::Impl::CreateControls() {
     UpdateTheme();
     RebuildRows();
     UpdateStatus();
-    if (!::SetTimer(hwnd, 1, 500, nullptr)) {
+    if (!::SetTimer(hwnd, kRefreshTimerId, kRefreshIntervalMs, nullptr)) {
         Failure(L"SetTimer", ::GetLastError());
         return false;
     }
@@ -373,16 +374,24 @@ void DictManagerWindow::Impl::Layout() noexcept {
         ::MoveWindow(Child(id), x, y, std::max(1, w), std::max(1, h), TRUE);
     };
 
-    const int filter_top = command_ui.LayoutToolbar(Child(Toolbar), width, theme) + s(12);
-    move(SourceLabel, s(12), filter_top + s(4), s(56), s(24));
-    move(SourceCombo, s(72), filter_top, s(165), s(220));
-    move(SearchLabel, s(250), filter_top + s(4), s(64), s(24));
-    move(SearchEdit, s(318), filter_top, width - s(330), s(28));
+    const int filter_top = command_ui.LayoutToolbar(Child(Toolbar), width, theme) + s(layout::kWindowMargin);
+    const auto move_filter = [&](ControlId id, const RECT& logical) noexcept {
+        move(id, s(logical.left), filter_top + s(logical.top),
+             s(logical.right - logical.left), s(logical.bottom - logical.top));
+    };
+    move_filter(SourceLabel, layout::kSourceLabel);
+    move_filter(SourceCombo, layout::kSourceCombo);
+    move_filter(SearchLabel, layout::kSearchLabel);
+    move(SearchEdit, s(layout::kSearchEditLeft), filter_top,
+         width - s(layout::kSearchEditRightReserve), s(layout::kSearchEditHeight));
 
-    const int list_top = filter_top + s(40);
-    move(List, s(12), list_top, width - s(24), std::max(s(80), gsl::narrow_cast<int>(rect.bottom) - s(40) - list_top));
+    const int list_top = filter_top + s(layout::kFilterSectionHeight);
+    move(List, s(layout::kWindowMargin), list_top, width - s(2 * layout::kWindowMargin),
+         std::max(s(layout::kListMinimumHeight),
+                  gsl::narrow_cast<int>(rect.bottom) - s(layout::kListBottomInset) - list_top));
 
-    move(Status, s(12), rect.bottom - s(32), width - s(24), s(24));
+    move(Status, s(layout::kWindowMargin), rect.bottom - s(layout::kStatusBottomOffset),
+         width - s(2 * layout::kWindowMargin), s(layout::kStatusHeight));
     PositionEditor();
 }
 
@@ -459,7 +468,7 @@ void DictManagerWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) {
     const UINT previous = theme.dpi;
     if (dpi != previous) {
         theme.Init(dpi);
-        if (auto next_font = CreateUiFont(theme.ScalePx(14))) {
+        if (auto next_font = CreateUiFont(theme.ScalePx(kFluentBodyFontSize))) {
             ::EnumChildWindows(
                 hwnd,
                 [](HWND child, LPARAM handle) noexcept -> BOOL {
@@ -476,8 +485,8 @@ void DictManagerWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) {
                 ::MulDiv(ListView_GetColumnWidth(Child(List), i), gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
         }
         for (const auto id : {SourceCombo}) {
-            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), theme.ScalePx(22));
-            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, 0, theme.ScalePx(22));
+            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), theme.ScalePx(kFluentComboItemHeight));
+            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, 0, theme.ScalePx(kFluentComboItemHeight));
         }
         UpdateCommands();
         UpdateIcons();
@@ -641,13 +650,14 @@ void DictManagerWindow::Impl::PositionEditor() noexcept {
     for (size_t i = 0; i < controls.size(); ++i) {
         const auto& cell = gsl::at(cells, i);
         ::SetWindowPos(Child(gsl::at(controls, i)), nullptr,
-            cell.left + 1, cell.top + 1, std::max(1L, cell.right - cell.left - 2),
-            std::max(1L, cell.bottom - cell.top - 2), SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            cell.left + layout::kEditorCellInsetPx, cell.top + layout::kEditorCellInsetPx,
+            std::max(1L, cell.right - cell.left - 2 * layout::kEditorCellInsetPx),
+            std::max(1L, cell.bottom - cell.top - 2 * layout::kEditorCellInsetPx), SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
     const auto& action = cells.back();
-    const int size = std::max(1, std::min({theme.ScalePx(26),
-        gsl::narrow_cast<int>(action.right - action.left - 2),
-        gsl::narrow_cast<int>(action.bottom - action.top - 2)}));
+    const int size = std::max(1, std::min({theme.ScalePx(layout::kInlineSaveButtonSize),
+        gsl::narrow_cast<int>(action.right - action.left - 2 * layout::kEditorCellInsetPx),
+        gsl::narrow_cast<int>(action.bottom - action.top - 2 * layout::kEditorCellInsetPx)}));
     ::SendMessageW(Child(InlineSave), TB_SETBUTTONSIZE, 0, MAKELPARAM(size, size));
     ::SendMessageW(Child(InlineSave), TB_SETBUTTONWIDTH, 0, MAKELPARAM(size, size));
     ::SetWindowPos(Child(InlineSave), nullptr, action.left + (action.right - action.left - size) / 2,
@@ -803,11 +813,11 @@ LRESULT DictManagerWindow::Impl::Notify(NMHDR& header) {
                     return CDRF_DODEFAULT;
                 }
                 if (clipped == NULLREGION) return CDRF_DODEFAULT;
-                const int size = std::max(1, std::min({theme.ScalePx(16),
-                    gsl::narrow_cast<int>(cell.right - cell.left) - theme.ScalePx(4),
-                    gsl::narrow_cast<int>(cell.bottom - cell.top) - theme.ScalePx(4)}));
+                const int size = std::max(1, std::min({theme.ScalePx(layout::kEditIconSize),
+                    gsl::narrow_cast<int>(cell.right - cell.left) - theme.ScalePx(layout::kEditIconPadding),
+                    gsl::narrow_cast<int>(cell.bottom - cell.top) - theme.ScalePx(layout::kEditIconPadding)}));
                 command_ui.DrawIcon(draw.nmcd.hdc, cell, ToolIcon::Edit, size,
-                    std::max(1, theme.ScalePx(1)), ::GetTextColor(draw.nmcd.hdc));
+                    std::max(1, theme.ScalePx(layout::kEditIconStrokeWidth)), ::GetTextColor(draw.nmcd.hdc));
             }
         }
         return CDRF_DODEFAULT;
@@ -1342,7 +1352,7 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
             ::DestroyWindow(window);
             return 0;
         case WM_DESTROY:
-            ::KillTimer(window, 1);
+            ::KillTimer(window, kRefreshTimerId);
             ::PostQuitMessage(0);
             return 0;
         case WM_NCDESTROY:
@@ -1398,7 +1408,8 @@ bool DictManagerWindow::Create(
         version::kVersionW,
         version::kArchW);
     const auto monitor = QueryActiveMonitor(nullptr);
-    const auto rect = ComputeCenteredToolWindowRect(monitor, 1020, 680, monitor.dpi);
+    const auto rect = ComputeCenteredToolWindowRect(
+        monitor, layout::kInitialWindowSize.cx, layout::kInitialWindowSize.cy, monitor.dpi);
     window_.Reset(::CreateWindowExW(
         0,
         kWindowClass.data(),
@@ -1418,7 +1429,8 @@ bool DictManagerWindow::Create(
     }
     impl_->hwnd = window_.Get();
     if (!impl_->CreateControls()) return false;
-    impl_->UpdateDpi(impl_->theme.dpi, ComputeCenteredToolWindowRect(monitor, 1020, 680, impl_->theme.dpi));
+    impl_->UpdateDpi(impl_->theme.dpi, ComputeCenteredToolWindowRect(
+        monitor, layout::kInitialWindowSize.cx, layout::kInitialWindowSize.cy, impl_->theme.dpi));
     impl_->Layout();
     return true;
 }

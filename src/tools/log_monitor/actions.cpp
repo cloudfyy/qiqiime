@@ -17,6 +17,7 @@ namespace qiqi::monitor {
 using enum ControlId;
 namespace {
 constexpr int kDetailKeyboardResizeStep = 10;
+constexpr int kSplitterGripHeight = 2;
 }
 
 void MonitorWindow::Impl::ResizeDetails(int height) noexcept {
@@ -82,8 +83,8 @@ LRESULT CALLBACK MonitorWindow::Impl::SplitterProcedure(HWND window, UINT messag
                 self->theme.surface_brush.Get();
             ::FillRect(dc, &rect, background ? background : ::GetSysColorBrush(COLOR_BTNFACE));
             RECT line = rect;
-            line.top = (rect.bottom - self->theme.ScalePx(2)) / 2;
-            line.bottom = line.top + self->theme.ScalePx(2);
+            line.top = (rect.bottom - self->theme.ScalePx(kSplitterGripHeight)) / 2;
+            line.bottom = line.top + self->theme.ScalePx(kSplitterGripHeight);
             ::FillRect(dc, &line, ::GetSysColorBrush(
                 ::GetCapture() == window || ::GetFocus() == window ? COLOR_HIGHLIGHT : COLOR_3DSHADOW));
         });

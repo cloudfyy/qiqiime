@@ -37,8 +37,8 @@ inline bool UpdateWindowBrandIcons(
         return ScopedIcon(static_cast<HICON>(::LoadImageW(
             instance, MAKEINTRESOURCEW(1), IMAGE_ICON, theme.ScalePx(size), theme.ScalePx(size), LR_DEFAULTCOLOR)));
     };
-    auto loaded_small = load(16);
-    auto loaded_big = load(48);
+    auto loaded_small = load(kSmallBrandIconSize);
+    auto loaded_big = load(kLargeBrandIconSize);
     if (!loaded_small || !loaded_big) {
         return false;
     }
@@ -97,7 +97,7 @@ inline std::optional<LRESULT> HandleFluentToolWindowMessage(
     case WM_MEASUREITEM:
         if (lparam && reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->CtlType == ODT_COMBOBOX) {
             reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight =
-                gsl::narrow_cast<UINT>(theme.ScalePx(22));
+                gsl::narrow_cast<UINT>(theme.ScalePx(kFluentComboItemHeight));
             return TRUE;
         }
         break;

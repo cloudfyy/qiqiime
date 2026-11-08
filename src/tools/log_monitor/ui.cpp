@@ -28,6 +28,7 @@ constexpr int kSplitterHeight = 8;
 constexpr int kStatusBottomOffset = 30;
 constexpr int kStatusHeight = 24;
 constexpr WPARAM kDetailsTextLimitChars = 1024 * 1024;
+constexpr size_t kFilterControlTextCapacity = 128;
 constexpr std::array kLogColumnWidths{180, 140, 72, 72, 80, 145, 420};
 struct FilterSize {
     ControlId label;
@@ -46,7 +47,7 @@ constexpr std::array kFilterSizes{
 
 void MonitorWindow::Impl::ReportCommandError(void* context, const char* operation, ULONG error) noexcept {
     auto* self = static_cast<Impl*>(context);
-    std::array<wchar_t, 128> text{};
+    std::array<wchar_t, kFilterControlTextCapacity> text{};
     size_t count = 0;
     for (const char ch : std::string_view(operation)) {
         if (count == text.size() - 1) break;
@@ -144,7 +145,7 @@ bool MonitorWindow::Impl::Add(const wchar_t* cls, const wchar_t* text, DWORD sty
 
 bool MonitorWindow::Impl::CreateControls() {
     theme.Init(::GetDpiForWindow(hwnd));
-    font = CreateUiFont(theme.ScalePx(14));
+    font = CreateUiFont(theme.ScalePx(kFluentBodyFontSize));
     if (!font) {
         Failure(L"Create monitor font", ::GetLastError());
         return false;
@@ -309,7 +310,7 @@ void MonitorWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) noexcept {
     const UINT previous = theme.dpi;
     if (dpi != previous) {
         theme.Init(dpi);
-        auto next_font = CreateUiFont(theme.ScalePx(14));
+        auto next_font = CreateUiFont(theme.ScalePx(kFluentBodyFontSize));
         if (next_font) {
             ::EnumChildWindows(hwnd, [](HWND child, LPARAM handle) noexcept -> BOOL {
                 ::SendMessageW(child, WM_SETFONT, handle, TRUE);
@@ -319,12 +320,13 @@ void MonitorWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) noexcept {
         } else {
             diagnostics.Record(2, L"Recreate DPI fonts", ::GetLastError());
         }
-        for (int i = 0; i < 7; ++i) {
-            ListView_SetColumnWidth(Child(List), i, ::MulDiv(ListView_GetColumnWidth(Child(List), i), gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
+        for (size_t i = 0; i < kLogColumnWidths.size(); ++i) {
+            const int column = gsl::narrow_cast<int>(i);
+            ListView_SetColumnWidth(Child(List), column, ::MulDiv(ListView_GetColumnWidth(Child(List), column), gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
         }
         for (const auto id : {Process, Pid, Level, Category}) {
-            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), theme.ScalePx(22));
-            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, 0, theme.ScalePx(22));
+            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), theme.ScalePx(kFluentComboItemHeight));
+            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, 0, theme.ScalePx(kFluentComboItemHeight));
         }
         UpdateIcons();
     }

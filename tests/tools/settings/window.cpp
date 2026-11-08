@@ -60,6 +60,7 @@ static_assert(settings_geometry::kCustomRadioWidth == 268 && settings_geometry::
 static_assert(settings_geometry::kInputFirstRow == 232 && settings_geometry::kInputRowStep == 28);
 static_assert(settings_geometry::kSoundFirstRow == 238 && settings_geometry::kSoundRowStep == 34);
 static_assert(settings_geometry::kBoldUnderlineRow == 174);
+static_assert(settings_geometry::kFontSize == 15 && settings_geometry::kBoldFontSize == 12);
 
 thread_local int dictionary_confirmation_button = IDCANCEL;
 thread_local bool dictionary_confirmation_seen = false;

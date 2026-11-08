@@ -12,6 +12,35 @@
 
 namespace qiqi::dict_manager {
 
+inline constexpr UINT_PTR kRefreshTimerId = 1;
+inline constexpr UINT kRefreshIntervalMs = 500;
+
+namespace dict_manager_layout {
+inline constexpr SIZE kInitialWindowSize{1020, 680};
+inline constexpr int kWindowMargin = 12;
+inline constexpr int kControlGap = 4;
+inline constexpr int kLabelHeight = 24;
+inline constexpr RECT kSourceLabel{kWindowMargin, 4, kWindowMargin + 56, 4 + kLabelHeight};
+inline constexpr RECT kSourceCombo{
+    kSourceLabel.right + kControlGap, 0, kSourceLabel.right + kControlGap + 165, 220};
+inline constexpr RECT kSearchLabel{
+    kSourceCombo.right + 13, kSourceLabel.top,
+    kSourceCombo.right + 13 + 64, kSourceLabel.top + kLabelHeight};
+inline constexpr int kSearchEditLeft = kSearchLabel.right + kControlGap;
+inline constexpr int kSearchEditRightReserve = kSearchEditLeft + kWindowMargin;
+inline constexpr int kSearchEditHeight = 28;
+inline constexpr int kFilterSectionHeight = 40;
+inline constexpr int kListMinimumHeight = 80;
+inline constexpr int kListBottomInset = 40;
+inline constexpr int kStatusBottomOffset = 32;
+inline constexpr int kStatusHeight = 24;
+inline constexpr int kEditorCellInsetPx = 1;
+inline constexpr int kInlineSaveButtonSize = 26;
+inline constexpr int kEditIconSize = 16;
+inline constexpr int kEditIconPadding = 4;
+inline constexpr int kEditIconStrokeWidth = 1;
+} // namespace dict_manager_layout
+
 struct DictManagerWindow::Impl {
     DictManagerModel model;
     DictEditor editor;

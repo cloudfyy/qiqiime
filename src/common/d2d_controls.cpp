@@ -14,7 +14,9 @@
 namespace qiqi {
 namespace {
 std::optional<bool> high_contrast_override;
-constexpr int kBodyFontSize = 14;
+constexpr size_t kButtonTextCapacity = 64;
+constexpr size_t kFallbackButtonTextCapacity = 256;
+constexpr size_t kToggleLabelCapacity = 128;
 constexpr int kCaptionFontSize = 12;
 constexpr int kButtonFontSize = 14;
 constexpr int kCardCornerRadius = 8;
@@ -104,7 +106,7 @@ void FluentD2DThemeContext::Init(UINT monitor_dpi) noexcept {
     if (dwrite_factory && TryGetSystemUiFont(system_font)) {
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
             std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, ScaleF(kBodyFontSize), L"zh-CN", fmt_body.Put()), "Fluent::CreateTextFormat(body)");
+            DWRITE_FONT_STRETCH_NORMAL, ScaleF(kFluentBodyFontSize), L"zh-CN", fmt_body.Put()), "Fluent::CreateTextFormat(body)");
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
             std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, ScaleF(kCaptionFontSize), L"zh-CN", fmt_caption.Put()), "Fluent::CreateTextFormat(caption)");
@@ -205,7 +207,7 @@ void DrawFluentPushButton(
         ::DrawFrameControl(dis.hDC, &rect, DFC_BUTTON,
             DFCS_BUTTONPUSH | ((dis.itemState & ODS_SELECTED) ? DFCS_PUSHED : 0) |
             ((dis.itemState & ODS_DISABLED) ? DFCS_INACTIVE : 0));
-        std::array<wchar_t, 256> text{};
+        std::array<wchar_t, kFallbackButtonTextCapacity> text{};
         ::GetWindowTextW(dis.hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
         ::SetTextColor(dis.hDC, ::GetSysColor((dis.itemState & ODS_DISABLED) ? COLOR_GRAYTEXT : COLOR_BTNTEXT));
         ::SetBkMode(dis.hDC, TRANSPARENT);
@@ -258,7 +260,7 @@ void DrawFluentPushButton(
         d2d.d2d_target->DrawRoundedRectangle(rr, border_brush.Get(), 1.0f);
     }
 
-    std::array<wchar_t, 64> btn_text{};
+    std::array<wchar_t, kButtonTextCapacity> btn_text{};
     ::GetWindowTextW(dis.hwndItem, btn_text.data(), gsl::narrow_cast<int>(btn_text.size()));
     if (d2d.fmt_btn && txt_brush && gsl::at(btn_text, 0) != L'\0') {
         d2d.d2d_target->DrawTextW(
@@ -342,7 +344,7 @@ void DrawFluentToggleOrRadioRow(
         text_right = sw_left - d2d.ScaleF(kToggleLabelGap);
     }
 
-    std::array<wchar_t, 128> label_text{};
+    std::array<wchar_t, kToggleLabelCapacity> label_text{};
     ::GetWindowTextW(dis.hwndItem, label_text.data(), gsl::narrow_cast<int>(label_text.size()));
     if (d2d.fmt_body && text_brush && gsl::at(label_text, 0) != L'\0') {
         const D2D1_RECT_F txt_rc = D2D1::RectF(text_left, 0.0f, text_right, h);
@@ -478,9 +480,9 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
 
     const LRESULT cur_sel = ::SendMessageW(hwnd, CB_GETCURSEL, 0, 0);
     if (cur_sel >= 0 && d2d.fmt_body && txt_brush) {
-        std::array<wchar_t, 128> item_text{};
+        std::array<wchar_t, kFluentComboTextCapacity> item_text{};
         const LRESULT len = ::SendMessageW(hwnd, CB_GETLBTEXTLEN, gsl::narrow_cast<WPARAM>(cur_sel), 0);
-        if (len > 0 && len < 127) {
+        if (len > 0 && len < gsl::narrow_cast<LRESULT>(item_text.size() - 1)) {
             ::SendMessageW(
                 hwnd, CB_GETLBTEXT, gsl::narrow_cast<WPARAM>(cur_sel),
                 reinterpret_cast<LPARAM>(item_text.data()));
@@ -532,7 +534,7 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
     if (!dis.hDC || dis.itemID == std::numeric_limits<UINT>::max()) {
         return;
     }
-    std::array<wchar_t, 128> item_text{};
+    std::array<wchar_t, kFluentComboTextCapacity> item_text{};
     const LRESULT len = ::SendMessageW(dis.hwndItem, CB_GETLBTEXTLEN, dis.itemID, 0);
     if (len > 0 && len < gsl::narrow_cast<LRESULT>(item_text.size())) {
         ::SendMessageW(dis.hwndItem, CB_GETLBTEXT, dis.itemID, reinterpret_cast<LPARAM>(item_text.data()));

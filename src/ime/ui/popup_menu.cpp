@@ -13,6 +13,21 @@
 namespace qiqi {
 namespace {
 
+constexpr int kMenuFontSize = 14;
+constexpr int kMenuMinimumWidth = 240;
+constexpr int kMenuVerticalPadding = 4;
+constexpr int kMenuItemHeight = 28;
+constexpr int kMenuSeparatorHeight = 8;
+constexpr int kMenuTextWidthReserve = 60;
+constexpr int kMenuReferenceDpi = 96;
+constexpr int kWorkAreaBorderAllowancePx = 2;
+constexpr int kFitExtraAllowancePx = 2;
+constexpr int kTextLeadingPaddingDivisor = 4;
+constexpr int kTextTrailingPaddingDivisor = 2;
+constexpr int kSeparatorInsetPx = 8;
+constexpr int kSeparatorStrokeHeightPx = 1;
+constexpr size_t kMenuTextCapacity = 256;
+
 class QuickSettingsMenu final {
 public:
     QuickSettingsMenu(const LangBarState& state, POINT point, const LangBarButton::ActionCallback& callback,
@@ -110,23 +125,24 @@ private:
         model_ = LangBarButton::BuildSharedMenuItems(state_);
         const auto monitor = QueryMonitorForPoint(point_, hwnd_.Get());
         const int count = gsl::narrow_cast<int>(model_.size());
-        int base_height = 8;
+        int base_height = 2 * kMenuVerticalPadding;
         for (const auto& item : model_) {
-            base_height += item.IsSeparator() ? 8 : 28;
+            base_height += item.IsSeparator() ? kMenuSeparatorHeight : kMenuItemHeight;
         }
         const int available_height =
-            std::max(1, gsl::narrow_cast<int>(monitor.work_area.bottom - monitor.work_area.top) - 2);
+            std::max(1, gsl::narrow_cast<int>(monitor.work_area.bottom - monitor.work_area.top) - kWorkAreaBorderAllowancePx);
         // Fit all actions on short work areas even when the monitor uses large text scaling.
         const UINT layout_dpi = std::min(
             monitor.dpi,
-            gsl::narrow_cast<UINT>(std::max(1, ::MulDiv(std::max(1, available_height - count - 2), 96, base_height))));
+            gsl::narrow_cast<UINT>(std::max(1, ::MulDiv(
+                std::max(1, available_height - count - kFitExtraAllowancePx), kMenuReferenceDpi, base_height))));
         const auto scale = [layout_dpi](int px) { return ScalePxByDpi(px, layout_dpi); };
         NONCLIENTMETRICSW metrics{};
         metrics.cbSize = sizeof(metrics);
         if (!::SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) {
             return false;
         }
-        metrics.lfMenuFont.lfHeight = -scale(14);
+        metrics.lfMenuFont.lfHeight = -scale(kMenuFontSize);
         ScopedGdiHandle<HFONT> font;
         if (!font_ || std::memcmp(&font_description_, &metrics.lfMenuFont, sizeof(LOGFONTW)) != 0) {
             font.Reset(::CreateFontIndirectW(&metrics.lfMenuFont));
@@ -134,8 +150,8 @@ private:
                 return false;
             }
         }
-        int width = scale(240);
-        int y = scale(4);
+        int width = scale(kMenuMinimumWidth);
+        int y = scale(kMenuVerticalPadding);
         std::array<RECT, std::tuple_size_v<LangBarButton::MenuItems>> rows{};
         {
             const ScopedWindowDC dc(hwnd_.Get());
@@ -145,7 +161,7 @@ private:
             const ScopedSelectObject select_font(dc.Get(), font ? font.Get() : font_.Get());
             for (int i = 0; i < count; ++i) {
                 const auto& item = model_.at(gsl::narrow_cast<size_t>(i));
-                const int height = scale(item.IsSeparator() ? 8 : 28);
+                const int height = scale(item.IsSeparator() ? kMenuSeparatorHeight : kMenuItemHeight);
                 rows.at(gsl::narrow_cast<size_t>(i)) = RECT{0, y, 0, y + height};
                 y += height;
                 if (item.IsSeparator()) {
@@ -155,7 +171,7 @@ private:
                 if (!::GetTextExtentPoint32W(dc.Get(), item.text, gsl::narrow_cast<int>(wcslen(item.text)), &text_size)) {
                     return false;
                 }
-                width = std::max(width, gsl::narrow_cast<int>(text_size.cx) + scale(60));
+                width = std::max(width, gsl::narrow_cast<int>(text_size.cx) + scale(kMenuTextWidthReserve));
             }
         }
         for (const auto& item : model_) {
@@ -180,8 +196,9 @@ private:
             font_description_ = metrics.lfMenuFont;
         }
         rows_ = rows;
-        const int height = y + scale(4);
-        width = std::min(width, gsl::narrow_cast<int>(monitor.work_area.right - monitor.work_area.left) - 2);
+        const int height = y + scale(kMenuVerticalPadding);
+        width = std::min(width, gsl::narrow_cast<int>(
+            monitor.work_area.right - monitor.work_area.left) - kWorkAreaBorderAllowancePx);
         RECT outer{0, 0, width, height};
         ::AdjustWindowRectEx(&outer, WS_POPUP | WS_BORDER, FALSE, WS_EX_TOPMOST | WS_EX_TOOLWINDOW);
         POINT position = point_;
@@ -284,9 +301,9 @@ private:
         const ScopedSelectObject select_font(item.hDC, font_.Get());
         RECT text_rect = item.rcItem;
         const int gutter = item.rcItem.bottom - item.rcItem.top;
-        text_rect.left += gutter + gutter / 4;
-        text_rect.right -= gutter / 2;
-        std::array<wchar_t, 256> text{};
+        text_rect.left += gutter + gutter / kTextLeadingPaddingDivisor;
+        text_rect.right -= gutter / kTextTrailingPaddingDivisor;
+        std::array<wchar_t, kMenuTextCapacity> text{};
         ::GetWindowTextW(item.hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
         ::DrawTextW(item.hDC, text.data(), -1, &text_rect, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         const auto* menu_item = FindItem(item.CtlID);
@@ -311,7 +328,8 @@ private:
             }
             const RECT row = rows_.at(i);
             const int y = (row.top + row.bottom) / 2;
-            const RECT separator{rect.left + 8, y, rect.right - 8, y + 1};
+            const RECT separator{
+                rect.left + kSeparatorInsetPx, y, rect.right - kSeparatorInsetPx, y + kSeparatorStrokeHeightPx};
             ::FillRect(hdc, &separator, line.Get());
         }
     }

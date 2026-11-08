@@ -6,8 +6,13 @@
 
 #include <span>
 #include <optional>
+#include <cstddef>
 
 namespace qiqi {
+
+inline constexpr int kFluentBodyFontSize = 14;
+inline constexpr int kFluentComboItemHeight = 22;
+inline constexpr std::size_t kFluentComboTextCapacity = 128;
 
 bool IsHighContrastEnabled() noexcept;
 void SetHighContrastOverrideForTest(std::optional<bool> enabled) noexcept;

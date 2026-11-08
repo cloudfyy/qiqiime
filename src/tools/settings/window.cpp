@@ -386,10 +386,10 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
         }
 
         ctx.d2d.Init(effective_dpi);
-        ctx.font = CreateUiFont(ctx.d2d.ScalePx(15), FW_NORMAL, CLEARTYPE_QUALITY);
-        ctx.bold_font = CreateUiFont(ctx.d2d.ScalePx(12), FW_SEMIBOLD, CLEARTYPE_QUALITY);
-        ctx.icon_small = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(16), ctx.instance);
-        ctx.icon_big = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(48), ctx.instance);
+        ctx.font = CreateUiFont(ctx.d2d.ScalePx(settings_layout::kFontSize), FW_NORMAL, CLEARTYPE_QUALITY);
+        ctx.bold_font = CreateUiFont(ctx.d2d.ScalePx(settings_layout::kBoldFontSize), FW_SEMIBOLD, CLEARTYPE_QUALITY);
+        ctx.icon_small = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(kSmallBrandIconSize), ctx.instance);
+        ctx.icon_big = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(kLargeBrandIconSize), ctx.instance);
         if (!ctx.font || !ctx.bold_font || !ctx.icon_small || !ctx.icon_big) {
             QIQI_LOG_ERROR("Settings DPI update could not recreate scaled window resources");
         }
@@ -459,7 +459,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             if (lparam != 0) {
                 auto* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
                 if (mis->CtlType == ODT_COMBOBOX) {
-                    mis->itemHeight = gsl::narrow_cast<UINT>(ctx->d2d.ScalePx(22));
+                    mis->itemHeight = gsl::narrow_cast<UINT>(ctx->d2d.ScalePx(kFluentComboItemHeight));
                     return TRUE;
                 }
             }
@@ -601,10 +601,10 @@ ScopedWindow CreateSettingsWindow(
 
     ctx->d2d.Init(mon.dpi);
     const bool is_dark = IsSystemDarkTheme();
-    ctx->font = CreateUiFont(S(15), FW_NORMAL, CLEARTYPE_QUALITY);
-    ctx->bold_font = CreateUiFont(S(12), FW_SEMIBOLD, CLEARTYPE_QUALITY);
-    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(S(16), instance);
-    ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(S(48), instance);
+    ctx->font = CreateUiFont(S(settings_layout::kFontSize), FW_NORMAL, CLEARTYPE_QUALITY);
+    ctx->bold_font = CreateUiFont(S(settings_layout::kBoldFontSize), FW_SEMIBOLD, CLEARTYPE_QUALITY);
+    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(S(kSmallBrandIconSize), instance);
+    ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(S(kLargeBrandIconSize), instance);
 
     const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
 

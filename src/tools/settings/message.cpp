@@ -25,8 +25,6 @@ constexpr int kMessageButtonWidth = 100;
 constexpr int kMessageButtonHeight = 32;
 constexpr RECT kMessageCardInsets{18, 16, 18, 58};
 constexpr int kMessageFontSize = 14;
-constexpr int kMessageSmallIconSize = 16;
-constexpr int kMessageBigIconSize = 48;
 constexpr int kMessageMinimumBodyHeight = 48;
 constexpr int kToastWidth = 440;
 constexpr int kToastHeight = 88;
@@ -315,8 +313,8 @@ ScopedWindow CreateSettingsMessageWindow(
     ctx->d2d.Init(monitor.dpi);
     const auto scale = [dpi = monitor.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
     ctx->font = CreateUiFont(scale(kMessageFontSize), FW_NORMAL, CLEARTYPE_QUALITY);
-    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(scale(kMessageSmallIconSize), instance);
-    ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(scale(kMessageBigIconSize), instance);
+    ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(scale(kSmallBrandIconSize), instance);
+    ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(scale(kLargeBrandIconSize), instance);
     if (!ctx->font || !ctx->d2d.d2d_target || !ctx->d2d.surface_brush ||
         !ctx->d2d.fmt_caption || !ctx->d2d.fmt_btn) {
         QIQI_LOG_ERROR("Settings message drawing resources unavailable");

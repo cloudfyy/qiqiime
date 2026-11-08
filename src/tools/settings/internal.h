@@ -46,6 +46,8 @@ constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 
 namespace settings_layout {
+inline constexpr int kFontSize = 15;
+inline constexpr int kBoldFontSize = 12;
 inline constexpr SIZE kClientSize{820, 494};
 inline constexpr RECT kDictionaryCard{18, 16, 404, 196};
 inline constexpr RECT kInputCard{18, 206, 404, 434};
