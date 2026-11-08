@@ -104,19 +104,19 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 
 已发布的 [1.0-RC2 GitHub 预发布版](https://github.com/cloudfyy/qiqiime/releases/tag/v1.0.0-rc.2)标签为 `v1.0.0-rc.2`，对应源码提交 `1bfa057e9e7618e9f3ec4734b9a339415c05945d`；程序、MSI 和发行文件名使用 `VERSION` 中的内部数字版本 `0.99.1`。此前 `v1.0.0-rc.1` 对应 `0.99.0`；候选版不使用正式版的 `1.0.0`，以保留后续 MSI 升级顺序，不应将 `VERSION` 改为带 `-rc.2` 的标签字符串。GitHub Release 标记为 Pre-release，不作为正式最新版。已知限制及未完成验收见 [README](../README.md#10-rc2-预发布)。
 
-当前源码内部数字版本为 `0.99.3`，对应候选版标签 `v1.0.0-rc.4`。仅创建本地标签不代表已推送标签、发布 GitHub Release 或生成新安装包；RC2 标签及已有附件保持不变。
+当前源码内部数字版本为 `0.99.4`，对应候选版标签 `v1.0.0-rc.5`。仅创建本地标签不代表已推送标签、发布 GitHub Release 或生成新安装包；RC2 标签及已有附件保持不变。
 
 核对本地源码与 RC2 时，比较 `git rev-parse HEAD` 与远端标签对应的提交；只比较 `0.99.1` 或包名不足以确认源码一致。本地重建与 GitHub 构建即使来自同一提交，也不保证产物哈希相同。需要与远端完全一致的发行副本时，下载该 Release 的 MSI、运行组件 ZIP 和符号 ZIP，并核验 SHA-256；不要将本地构建的 PDB 与远端二进制混用。后续源码提交不会自动更新 RC2 标签或已有附件。
 
 生成的产物位于 `dist\`，文件名使用项目内部数字版本号：
 
-Release 构建保留优化并生成完整 PDB；打包时要求 DLL 和三个工具在 x64/x86 下的八个 PDB 全部存在，缺少任一文件即报错。另生成 `QiQiIME-v0.99.3-win-x64-x86-symbols.zip`，内部按 `x64`、`x86` 分目录；符号不放入 MSI 或运行组件 ZIP。Release Action 将该符号 ZIP 与 MSI、运行组件 ZIP 一并上传为 Actions artifact，并在发布 Release 时附加为资产。普通推送 `main` 不发布安装包或符号。
+Release 构建保留优化并生成完整 PDB；打包时要求 DLL 和三个工具在 x64/x86 下的八个 PDB 全部存在，缺少任一文件即报错。另生成 `QiQiIME-v0.99.4-win-x64-x86-symbols.zip`，内部按 `x64`、`x86` 分目录；符号不放入 MSI 或运行组件 ZIP。Release Action 将该符号 ZIP 与 MSI、运行组件 ZIP 一并上传为 Actions artifact，并在发布 Release 时附加为资产。普通推送 `main` 不发布安装包或符号。
 
 分析 dump 时必须使用同一次构建发布的二进制和 PDB，不能只按版本号或架构挑选符号。PDB 包含调试信息和可能的构建路径，发布前需确认可公开；测试日志、dump 与 watchdog 归档仍仅在本地保留。
 
-- **`dist\QiQiIME-v0.99.3-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
-- **`dist\QiQiIME-v0.99.3-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
-- **`dist\QiQiIME-v0.99.3-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
+- **`dist\QiQiIME-v0.99.4-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
+- **`dist\QiQiIME-v0.99.4-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
+- **`dist\QiQiIME-v0.99.4-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
 
 MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个工具入口，均启动安装目录下的 x64 程序，快捷方式不主动请求管理员权限：
 
@@ -133,7 +133,7 @@ MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个�
 日志采集若遇到权限不足，需按[日志监控指南](log.md)单独提升监控工具或配置 ETW 权限，不要提升输入法宿主。入口与中英文资源的静态回归检查已纳入 `QiQiInstallerShortcutsTest`；该检查不安装产品，不能替代实际安装、升级和卸载验证。
 
 ```text
-QiQiIME-v0.99.3-win-x64-x86/
+QiQiIME-v0.99.4-win-x64-x86/
 ├── x64/
 │   ├── qiqiime.dll             # 64 位 TSF 输入法组件
 │   ├── QiQiIMESettings.exe     # 64 位独立设置程序
