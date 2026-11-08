@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <format>
 #include <limits>
+#include <vector>
 
 namespace qiqi::monitor::metric_tests {
 namespace {
@@ -48,8 +49,161 @@ void SaveFixture(const std::filesystem::path& directory, const wchar_t* name, st
     QIQI_TEST_CHECK(!std::filesystem::exists(path));
     QIQI_TEST_CHECK(WriteExport(path.c_str(), bytes) == ERROR_SUCCESS);
 }
+void TestSelectionAndTiming() {
+    MetricAggregator aggregator;
+    std::string bytes = "retained";
+    const std::array invalid{
+        MetricExportSelection{.window = gsl::narrow_cast<MetricView>(2)},
+        MetricExportSelection{.instance = MetricInstanceRef{0, kInstance}},
+        MetricExportSelection{.instance = MetricInstanceRef{kExportPid, GUID_NULL}},
+        MetricExportSelection{.metric = gsl::narrow_cast<metrics::Metric>(0)},
+        MetricExportSelection{.metric = gsl::narrow_cast<metrics::Metric>(255)},
+        MetricExportSelection{.outcome = gsl::narrow_cast<metrics::Outcome>(255)},
+        MetricExportSelection{.mode = gsl::narrow_cast<metrics::Mode>(255)}};
+    for (const auto& selection : invalid) {
+        QIQI_TEST_CHECK(!selection.Valid());
+        QIQI_TEST_CHECK(ExportMetrics(aggregator, selection, bytes) == ERROR_INVALID_PARAMETER && bytes == "retained");
+    }
+    const MetricDimension dimension{kExportPid, kInstance, kExportService,
+        metrics::Metric::FocusTotal, metrics::Mode::Unspecified, metrics::Source::ThreadManager};
+    MetricExportSelection selection;
+    QIQI_TEST_CHECK(selection.Valid() && selection.MatchesDimension(dimension));
+    selection.instance = MetricInstanceRef{kExportPid, kSecondInstance};
+    QIQI_TEST_CHECK(!selection.MatchesDimension(dimension));
+    selection.instance = MetricInstanceRef{kExportPid + 1, kInstance};
+    QIQI_TEST_CHECK(!selection.MatchesDimension(dimension));
+    selection.instance = MetricInstanceRef{kExportPid, kInstance};
+    selection.metric = metrics::Metric::Cleanup;
+    QIQI_TEST_CHECK(!selection.MatchesDimension(dimension));
+    selection.metric = dimension.metric;
+    selection.mode = metrics::Mode::Popup;
+    QIQI_TEST_CHECK(!selection.MatchesDimension(dimension));
+    selection.mode = dimension.mode;
+    QIQI_TEST_CHECK(selection.MatchesDimension(dimension));
+
+    std::vector<MetricSummary> storage(1);
+    auto& summary = storage.front();
+    QIQI_TEST_CHECK(selection.MatchesSummary(summary));
+    selection.outcome = metrics::Outcome::Success;
+    QIQI_TEST_CHECK(!selection.MatchesSummary(summary));
+    gsl::at(summary.outcomes, std::to_underlying(metrics::Outcome::Success)) = 2;
+    gsl::at(summary.outcomes, std::to_underlying(metrics::Outcome::Failure)) = 1;
+    QIQI_TEST_CHECK(selection.MatchesSummary(summary));
+    QIQI_TEST_CHECK(summary.success.Observe(0) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(summary.success.Observe(7) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(summary.failure.Observe(11) == ERROR_SUCCESS);
+    MetricHistogram timing;
+    QIQI_TEST_CHECK(SelectMetricTiming(summary, std::nullopt, timing) == ERROR_SUCCESS && timing.Samples() == 3 && timing.Maximum() == 11);
+    QIQI_TEST_CHECK(SelectMetricTiming(summary, metrics::Outcome::Success, timing) == ERROR_SUCCESS && timing.Samples() == 2 && timing.Maximum() == 7);
+    QIQI_TEST_CHECK(SelectMetricTiming(summary, metrics::Outcome::Failure, timing) == ERROR_SUCCESS && timing.Samples() == 1 && timing.Maximum() == 11);
+    QIQI_TEST_CHECK(SelectMetricTiming(summary, gsl::narrow_cast<metrics::Outcome>(255), timing) == ERROR_INVALID_PARAMETER);
+    QIQI_TEST_CHECK(timing.Samples() == 1 && timing.Maximum() == 11);
+    QIQI_TEST_CHECK(SelectMetricTiming(summary, metrics::Outcome::Cancelled, timing) == ERROR_SUCCESS && timing.Samples() == 0 && !timing.Maximum());
+    uint64_t denominator = 42;
+    QIQI_TEST_CHECK(summary.FailureDenominator(denominator) == ERROR_SUCCESS && denominator == 3);
+    QIQI_TEST_CHECK(summary.FailureRate() == 1.0 / 3.0);
+    gsl::at(summary.outcomes, std::to_underlying(metrics::Outcome::Success)) = kExportService;
+    QIQI_TEST_CHECK(summary.FailureDenominator(denominator) == ERROR_ARITHMETIC_OVERFLOW && denominator == 3);
+    QIQI_TEST_CHECK(!summary.FailureRate());
+    summary = {};
+    QIQI_TEST_CHECK(summary.FailureDenominator(denominator) == ERROR_SUCCESS && denominator == 0 && !summary.FailureRate());
+    QIQI_TEST_CHECK(summary.success.Observe(7) == ERROR_SUCCESS);
+    for (unsigned int i = 0; i < 63; ++i) {
+        const auto previous = summary.success;
+        QIQI_TEST_CHECK(summary.success.Merge(previous) == ERROR_SUCCESS);
+    }
+    summary.failure = summary.success;
+    QIQI_TEST_CHECK(SelectMetricTiming(summary, std::nullopt, timing) == ERROR_ARITHMETIC_OVERFLOW);
+    QIQI_TEST_CHECK(timing.Samples() == 0 && !timing.Maximum());
+}
+void TestExportEdges() {
+    for (const auto character : {1, 9, 10, 13, 31, 127, 128}) {
+        auto invalid_metadata = ExportMetadata();
+        auto& metadata = std::get<MetricInstance>(invalid_metadata.payload);
+        metadata.build_version.front() = gsl::narrow_cast<char>(character);
+        QIQI_TEST_CHECK(!ValidMetricInstance(metadata));
+    }
+    MetricAggregator aggregator;
+    QIQI_TEST_CHECK(aggregator.BeginCapture(1) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(aggregator.Consume(ExportMetadata()) == ERROR_SUCCESS);
+    MetricExportSelection selection;
+    std::string bytes;
+    QIQI_TEST_CHECK(aggregator.Consume(ExportSample(1, 1000, metrics::Outcome::Cancelled)) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(ExportMetrics(aggregator, selection, bytes) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(bytes.contains("\"failure_rate\":{\"value\":null,\"numerator\":0,\"denominator\":0,\"state\":\"no_denominator\"}"));
+    selection.outcome = metrics::Outcome::Success;
+    QIQI_TEST_CHECK(ExportMetrics(aggregator, selection, bytes) == ERROR_SUCCESS && bytes.ends_with("\"dimensions\":[]}\n"));
+    selection.outcome.reset();
+    selection.mode = metrics::Mode::Popup;
+    QIQI_TEST_CHECK(ExportMetrics(aggregator, selection, bytes) == ERROR_SUCCESS && bytes.ends_with("\"dimensions\":[]}\n"));
+    selection.mode.reset();
+    selection.metric = metrics::Metric::Cleanup;
+    QIQI_TEST_CHECK(ExportMetrics(aggregator, selection, bytes) == ERROR_SUCCESS && bytes.ends_with("\"dimensions\":[]}\n"));
+    selection.metric.reset();
+    selection.window = MetricView::Recent;
+    QIQI_TEST_CHECK(aggregator.Advance(61'000) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(ExportMetrics(aggregator, selection, bytes) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(bytes.contains("\"intents\":0,\"observed_terminals\":0,\"pending_current\":0"));
+    QIQI_TEST_CHECK(bytes.contains("\"selected_timing\":{\"samples\":0"));
+    selection.window = MetricView::Cumulative;
+    for (uint64_t i = 0; i < 3; ++i) {
+        auto sample = ExportSample(i + 2, 61'000, metrics::Outcome::Success, kKeyCallbackThresholdNs + i - 1);
+        auto& event = std::get<metrics::Event>(sample.payload);
+        event.metric = metrics::Metric::KeyCallback;
+        event.mode = metrics::Mode::Popup;
+        event.source = metrics::Source::KeyEvent;
+        QIQI_TEST_CHECK(aggregator.Consume(sample) == ERROR_SUCCESS);
+    }
+    selection.metric = metrics::Metric::KeyCallback;
+    selection.mode = metrics::Mode::Popup;
+    selection.outcome = metrics::Outcome::Success;
+    QIQI_TEST_CHECK(ExportMetrics(aggregator, selection, bytes) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(bytes.contains("\"metric\":\"key_callback\",\"mode\":\"popup\",\"source\":\"key_event\""));
+    QIQI_TEST_CHECK(bytes.contains("\"over_threshold\":{\"count\":1,\"state\":\"value\"}"));
+    QIQI_TEST_CHECK(bytes.contains("\"over_threshold\":{\"count\":null,\"state\":\"no_samples\"}"));
+    QIQI_TEST_CHECK(bytes.contains("\"selected_timing\":{\"samples\":3"));
+    for (uint32_t code = 1; code <= kMetricMaxErrorCodes + 1; ++code) {
+        auto sample = ExportSample(gsl::narrow_cast<uint64_t>(code) + 10, 61'000, metrics::Outcome::Failure, 1);
+        auto& event = std::get<metrics::Event>(sample.payload);
+        event.error_domain = metrics::ErrorDomain::Win32;
+        event.error_code = code;
+        QIQI_TEST_CHECK(aggregator.Consume(sample) == ERROR_SUCCESS);
+    }
+    selection.metric = metrics::Metric::FocusTotal;
+    selection.mode = metrics::Mode::Unspecified;
+    selection.outcome = metrics::Outcome::Failure;
+    QIQI_TEST_CHECK(ExportMetrics(aggregator, selection, bytes) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(bytes.contains("\"errors\":[{\"domain\":\"win32\",\"code\":1,\"count\":1}"));
+    QIQI_TEST_CHECK(bytes.contains("\"code\":1,\"count\":1},{\"domain\":\"win32\",\"code\":2,\"count\":1}"));
+    QIQI_TEST_CHECK(bytes.contains("\"other_errors\":1"));
+    QIQI_TEST_CHECK(bytes.contains("\"error_codes_dropped\":1"));
+}
+void TestExportQuantileGates() {
+    MetricAggregator aggregator;
+    QIQI_TEST_CHECK(aggregator.BeginCapture(1) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(aggregator.Consume(ExportMetadata()) == ERROR_SUCCESS);
+    MetricExportSelection selection;
+    selection.outcome = metrics::Outcome::Success;
+    std::string bytes;
+    for (uint64_t samples = 1; samples <= kMetricP99MinimumSamples; ++samples) {
+        QIQI_TEST_CHECK(aggregator.Consume(ExportSample(samples, 1000, metrics::Outcome::Success, 0)) == ERROR_SUCCESS);
+        if (samples != kMetricP95MinimumSamples - 1 && samples != kMetricP95MinimumSamples &&
+            samples != kMetricP99MinimumSamples - 1 && samples != kMetricP99MinimumSamples) continue;
+        QIQI_TEST_CHECK(ExportMetrics(aggregator, selection, bytes) == ERROR_SUCCESS);
+        for (const auto percentile : {95u, 99u}) {
+            const auto minimum = percentile == 95 ? kMetricP95MinimumSamples : kMetricP99MinimumSamples;
+            QIQI_TEST_CHECK(bytes.contains(std::format("\"p{}\":{{\"value_ns\":{},\"state\":\"{}\",\"samples\":{}}}",
+                percentile, samples < minimum ? "null" : "0",
+                samples < minimum ? "insufficient_samples" : "value", samples)));
+        }
+        QIQI_TEST_CHECK(bytes.contains("\"maximum\":{\"value_ns\":0,\"state\":\"value\"}"));
+    }
+}
 }
 void RunMetricExportTests(const std::filesystem::path& fixtures) {
+    TestSelectionAndTiming();
+    TestExportEdges();
+    TestExportQuantileGates();
     MetricAggregator aggregator;
     MetricExportSelection selection;
     std::string bytes;

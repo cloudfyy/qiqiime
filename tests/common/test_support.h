@@ -67,6 +67,13 @@ struct MessageExpectation {
 
 inline thread_local MessageExpectation* current_message = nullptr;
 
+inline bool MessageTextMatches(HWND box) noexcept {
+    if (!current_message || !current_message->text) return false;
+    std::array<wchar_t, 512> text{};
+    if (::GetDlgItemTextW(box, 0xFFFF, text.data(), gsl::narrow_cast<int>(text.size())) <= 0) return false;
+    return std::wstring_view(text.data()) == current_message->text;
+}
+
 } // namespace message_box_detail
 
 template <typename Action>
@@ -80,10 +87,7 @@ void WithDismissedMessage(const wchar_t* expected, Action action) {
             return;
         }
         ::KillTimer(nullptr, id);
-        QIQI_TEST_CHECK(message_box_detail::current_message != nullptr);
-        std::array<wchar_t, 512> text{};
-        QIQI_TEST_CHECK(::GetDlgItemTextW(box, 0xFFFF, text.data(), gsl::narrow_cast<int>(text.size())) > 0);
-        QIQI_TEST_CHECK(std::wstring_view(text.data()) == message_box_detail::current_message->text);
+        QIQI_TEST_CHECK(message_box_detail::MessageTextMatches(box));
         message_box_detail::current_message->seen = true;
         const HWND button = ::FindWindowExW(box, nullptr, L"Button", nullptr);
         QIQI_TEST_CHECK(button != nullptr);
@@ -91,6 +95,33 @@ void WithDismissedMessage(const wchar_t* expected, Action action) {
     });
     QIQI_TEST_CHECK(timer != 0);
     const auto cancel_timer = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
+    action();
+    QIQI_TEST_CHECK(message.seen);
+}
+
+template <typename Action>
+void WithDismissedNativeMessage(const wchar_t* expected, Action action) {
+    message_box_detail::MessageExpectation message{expected};
+    auto* previous = std::exchange(message_box_detail::current_message, &message);
+    const auto restore = gsl::finally([previous]() noexcept { message_box_detail::current_message = previous; });
+    // Close native OK dialogs before activation instead of waiting for a timer.
+    const HHOOK hook = ::SetWindowsHookExW(WH_CBT, [](int code, WPARAM wparam, LPARAM lparam) noexcept -> LRESULT {
+        if (code == HCBT_ACTIVATE) {
+            const HWND box = reinterpret_cast<HWND>(wparam);
+            std::array<wchar_t, 32> name{};
+            QIQI_TEST_CHECK(::GetClassNameW(box, name.data(), gsl::narrow_cast<int>(name.size())) > 0);
+            if (std::wstring_view(name.data()) == L"#32770") {
+                QIQI_TEST_CHECK(message_box_detail::MessageTextMatches(box));
+                message_box_detail::current_message->seen = true;
+                QIQI_TEST_CHECK(::GetDlgItem(box, IDOK) != nullptr);
+                ::SendMessageW(box, WM_COMMAND, IDOK, 0);
+                return 1;
+            }
+        }
+        return ::CallNextHookEx(nullptr, code, wparam, lparam);
+    }, nullptr, ::GetCurrentThreadId());
+    QIQI_TEST_CHECK(hook != nullptr);
+    const auto unhook = gsl::finally([hook]() noexcept { QIQI_TEST_CHECK(::UnhookWindowsHookEx(hook)); });
     action();
     QIQI_TEST_CHECK(message.seen);
 }

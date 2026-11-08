@@ -211,6 +211,12 @@ Metrics JSON 由 [`export.h/.cpp`](../src/tools/log_monitor/export.cpp) 独立�
 
 JSON 交付的 x64/x86 Release 定向验证：`QiQiLogMonitorTest`、`QiQiMonitorMetricsTest`、`QiQiMonitorMetricsEtwTest` 各通过；全局 `QiQiLogMonitorIntegrationTest` 仍因权限跳过，不计作通过。九个 x64 生产快照另经 Python 标准 `json` 解析，核对精确整数、转义、字段结构、512 桶、最近秩及样本门槛、分母、别名/隐私和捕获生命周期。受影响目标 CppCoreCheck 无新增仓库规则告警（沿用 C26490 / 外部依赖排除策略）。
 
+JSON 复用审查将 GUI/导出的百分位列表集中到 `kMetricPercentiles`，将失败率分母及其溢出检查集中到 `MetricSummary::FailureDenominator`；零分母和溢出的现有显示语义不变，检查失败时输出保持不变。补充原生测试覆盖非法窗口/实例/指标/结果/模式、独立筛选无匹配、成功/失败/取消的耗时选择与合并溢出、99/100/999/1,000 样本门槛、阈值等值与超线、Win32 多错误码及“其他错误”、控制字符元数据拒绝、近期无样本，以及 GUI 生成快照失败时不打开保存对话框且保留原快照。
+
+使用已安装的 VS `Microsoft.CodeCoverage.Console` 静态原生插桩，仅向测试 EXE 临时添加 `/PROFILE`，并对独立 EXE/PDB 副本采集；不修改发布链接配置或插桩正在使用的程序。x64 指标与 GUI 回归的合并源行命中为导出器 231/235（98.3%），GUI `ExportMetricsSnapshot` 为 17/17 可执行行；这是优化 Release 的行覆盖率，不是全项目或分支覆盖率。未命中的四行涉及上游已拒绝的控制字符转义、分配失败捕获，以及优化后的错误列表分隔符行归属；多错误码分隔结果已有直接断言，不为提高数字增加生产故障注入入口。动态插桩崩溃及未带 `/PROFILE` 的空结果均未作为有效覆盖率报告。
+
+Metrics JSON 的三个预期错误弹框仅由回归主动触发：非法筛选（87）、模拟保存对话框失败（65535）和真实文件占用（32）。测试使用 [`WithDismissedNativeMessage`](../tests/common/test_support.h) 的当前线程 `WH_CBT` 钩子，在原生 OK 对话框激活前核对完整文案/错误码并同步关闭，不再等待可见窗口和定时器；钩子及期待状态由 RAII 恢复，另覆盖嵌套调用和 `IDOK` 返回。该行为仅限测试，正式程序仍显示错误并保留快照；已有设置自定义消息框继续使用原来的测试辅助路径。
+
 公共文件工具回归覆盖包含 NUL 的 UTF-8/UTF-16 转换、64 MiB 读取上限及超过上限一个字节、缺失文件、原子替换失败时原文件保留及临时文件清理、解除锁定后重试，以及超过 `MAX_PATH` 的 `LOCALAPPDATA`、缺失变量时的临时目录回退。目录查询根据 API 返回的所需容量重试，不把有效长路径当作缺失或使用截断结果。共享断言仍输出失败位置并非零退出，但关闭 CRT 的交互式 abort/WER 报告，避免失败测试等待桌面错误对话框。
 
 ### 3.3 组合组件与生命周期测试组织

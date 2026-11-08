@@ -16,6 +16,7 @@ inline constexpr size_t kMetricMaxErrorCodes = 32;
 inline constexpr uint64_t kMetricWindowSeconds = 60;
 inline constexpr uint64_t kMetricP95MinimumSamples = 100;
 inline constexpr uint64_t kMetricP99MinimumSamples = 1000;
+inline constexpr std::array kMetricPercentiles{50u, 95u, 99u};
 inline constexpr uint64_t kKeyCallbackThresholdNs = 5'000'000;
 inline constexpr uint64_t kCandidateUpdateThresholdNs = 5'000'000;
 inline constexpr uint64_t kCandidateQueryThresholdNs = 2'000'000;
@@ -71,6 +72,8 @@ struct MetricSummary {
     uint64_t other_errors = 0;
     bool cumulative = true;
     uint64_t Count(metrics::Outcome outcome) const noexcept;
+    // Overflow leaves result unchanged; zero is a valid denominator.
+    ULONG FailureDenominator(uint64_t& result) const noexcept;
     std::optional<double> FailureRate() const noexcept;
     std::optional<double> Coverage() const noexcept;
     ULONG Merge(const MetricSummary& other) noexcept;

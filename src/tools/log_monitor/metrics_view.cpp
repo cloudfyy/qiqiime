@@ -202,7 +202,7 @@ void MonitorWindow::Impl::RebuildMetricRows() {
         row.over_threshold = timing.OverThreshold();
         row.maximum = timing.Maximum();
         for (size_t i = 0; i < row.quantiles.size(); ++i)
-            gsl::at(row.quantiles, i) = timing.Quantile(gsl::at(kMetricDisplayPercentiles, i));
+            gsl::at(row.quantiles, i) = timing.Quantile(gsl::at(kMetricPercentiles, i));
         next.push_back(row);
     }
     updating_metric_rows = true;

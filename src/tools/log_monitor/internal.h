@@ -27,7 +27,6 @@ inline constexpr int kMonitorLayoutReferenceDpi = 96;
 inline constexpr size_t kMonitorPreviewChars = 1024;
 inline constexpr std::array kMetricTableWidths{150, 130, 100, 100, 100, 80, 80, 80, 80, 90, 90,
     90, 90, 90, 90, 90, 90, 110, 110, 110, 110, 110, 110, 110};
-inline constexpr std::array kMetricDisplayPercentiles{50u, 95u, 99u};
 inline constexpr UINT kMetricDisplayRefreshIntervalMs = 500;
 inline constexpr uint64_t kNanosecondsPerMillisecond = 1'000'000;
 inline constexpr int kMetricSummaryHeight = 126;
@@ -39,7 +38,7 @@ struct MetricTableRow {
     std::array<uint64_t, 9> outcomes{};
     std::optional<double> coverage;
     std::optional<double> failure_rate;
-    std::array<MetricQuantile, kMetricDisplayPercentiles.size()> quantiles;
+    std::array<MetricQuantile, kMetricPercentiles.size()> quantiles;
     std::optional<uint64_t> maximum;
     uint64_t samples = 0;
     uint64_t over_threshold = 0;

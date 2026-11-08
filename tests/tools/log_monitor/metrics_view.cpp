@@ -16,9 +16,10 @@ thread_local uint64_t enabled_keywords = 0;
 thread_local std::wstring export_path;
 thread_local bool cancel_export = false;
 thread_local DWORD export_dialog_error = ERROR_SUCCESS;
-thread_local DWORD expected_export_error = ERROR_SUCCESS;
+thread_local size_t export_save_calls = 0;
 thread_local MetricAggregator* clear_on_save = nullptr;
 BOOL WINAPI SaveMetricsFile(OPENFILENAMEW* dialog) {
+    ++export_save_calls;
     QIQI_TEST_CHECK(dialog != nullptr);
     QIQI_TEST_CHECK(std::wstring_view(dialog->lpstrDefExt) == L"json");
     QIQI_TEST_CHECK(std::wstring_view(dialog->lpstrFile) == L"qiqi-metrics.json");
@@ -286,29 +287,28 @@ struct MonitorWindowTestAccess {
         const auto expected_snapshot = ui.metric_export_snapshot;
         bool write_failure_seen = false;
         {
-            const UINT_PTR timer = ::SetTimer(nullptr, 0, 10, [](HWND, UINT, UINT_PTR, DWORD) {
-                const HWND box = test::FindThreadWindowByClass(L"#32770");
-                if (!box) return;
-                std::array<wchar_t, 512> text{};
-                QIQI_TEST_CHECK(::GetDlgItemTextW(box, 0xFFFF, text.data(), gsl::narrow_cast<int>(text.size())) > 0);
-                const std::wstring_view message(text.data());
-                QIQI_TEST_CHECK(message.contains(L"Snapshot retained") || message.contains(L"snapshot retained"));
-                QIQI_TEST_CHECK(message.contains(std::format(L"0x{:08X}", expected_export_error)));
-                ::SendMessageW(box, WM_COMMAND, IDOK, 0);
-            });
-            QIQI_TEST_CHECK(timer != 0);
-            const auto cleanup_timer = gsl::finally([timer]() noexcept { QIQI_TEST_CHECK(::KillTimer(nullptr, timer)); });
+            const auto original_kind = ui.metric_kind_filter;
+            const auto save_calls = export_save_calls;
+            ui.metric_kind_filter = gsl::narrow_cast<metrics::Metric>(0);
+            test::WithDismissedNativeMessage(
+                L"Cannot create Metrics JSON snapshot; statistics retained\r\nError=87 (0x00000057)",
+                [&] { ui.ExportMetricsSnapshot(file_api); });
+            ui.metric_kind_filter = original_kind;
+            QIQI_TEST_CHECK(export_save_calls == save_calls && ui.metric_export_snapshot == expected_snapshot);
+            QIQI_TEST_CHECK(ui.metrics.Status().dimensions != 0);
             export_dialog_error = CDERR_DIALOGFAILURE;
-            expected_export_error = export_dialog_error;
-            ui.ExportMetricsSnapshot(file_api);
+            test::WithDismissedNativeMessage(
+                L"Cannot select Metrics export file; snapshot retained\r\nError=65535 (0x0000FFFF)",
+                [&] { ui.ExportMetricsSnapshot(file_api); });
             export_dialog_error = ERROR_SUCCESS;
             QIQI_TEST_CHECK(ui.metric_export_snapshot == expected_snapshot && !std::filesystem::exists(export_file));
             cancel_export = false;
             QIQI_TEST_CHECK(WriteExport(export_file.c_str(), "original") == ERROR_SUCCESS);
             const ScopedFileHandle lock(::CreateFileW(export_file.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
             QIQI_TEST_CHECK(lock);
-            expected_export_error = ERROR_SHARING_VIOLATION;
-            ui.ExportMetricsSnapshot(file_api);
+            test::WithDismissedNativeMessage(
+                L"Metrics export failed; target may be partial. Snapshot retained\r\nError=32 (0x00000020)",
+                [&] { ui.ExportMetricsSnapshot(file_api); });
             write_failure_seen = ui.metric_export_snapshot == expected_snapshot;
         }
         QIQI_TEST_CHECK(write_failure_seen && ui.metrics.Status().dimensions != 0);
@@ -351,6 +351,12 @@ void RunMetricsViewTests() {
     SetMonitorMetricsOverrideForTest(MonitorMetrics{{0, 0, 3840, 2160}, 96});
     MonitorWindow window(CaptureStartApi{FakeStart, ObserveEnable, ::OpenTraceW});
     QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr)));
+    test::WithDismissedNativeMessage(L"Outer automatic dismissal", [&] {
+        test::WithDismissedNativeMessage(L"Inner automatic dismissal", [&] {
+            QIQI_TEST_CHECK(::MessageBoxW(window.Handle(), L"Inner automatic dismissal", L"Test", MB_OK) == IDOK);
+        });
+        QIQI_TEST_CHECK(::MessageBoxW(window.Handle(), L"Outer automatic dismissal", L"Test", MB_OK) == IDOK);
+    });
     MonitorWindowTestAccess::Exercise(window);
 }
 } // namespace qiqi::monitor

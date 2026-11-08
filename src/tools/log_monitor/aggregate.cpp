@@ -156,11 +156,17 @@ MetricQuantile MetricHistogram::Quantile(unsigned int percentile) const noexcept
 uint64_t MetricSummary::Count(metrics::Outcome outcome) const noexcept {
     return gsl::at(outcomes, std::to_underlying(outcome));
 }
-std::optional<double> MetricSummary::FailureRate() const noexcept {
+ULONG MetricSummary::FailureDenominator(uint64_t& result) const noexcept {
     const uint64_t success_count = Count(metrics::Outcome::Success);
     const uint64_t failure_count = Count(metrics::Outcome::Failure);
-    if (failure_count > (std::numeric_limits<uint64_t>::max)() - success_count || success_count + failure_count == 0) return std::nullopt;
-    return gsl::narrow_cast<double>(failure_count) / gsl::narrow_cast<double>(success_count + failure_count);
+    if (failure_count > (std::numeric_limits<uint64_t>::max)() - success_count) return ERROR_ARITHMETIC_OVERFLOW;
+    result = success_count + failure_count;
+    return ERROR_SUCCESS;
+}
+std::optional<double> MetricSummary::FailureRate() const noexcept {
+    uint64_t denominator = 0;
+    if (FailureDenominator(denominator) != ERROR_SUCCESS || denominator == 0) return std::nullopt;
+    return gsl::narrow_cast<double>(Count(metrics::Outcome::Failure)) / gsl::narrow_cast<double>(denominator);
 }
 std::optional<double> MetricSummary::Coverage() const noexcept {
     if (!cumulative || intents == 0 || observed_terminals > intents) return std::nullopt;

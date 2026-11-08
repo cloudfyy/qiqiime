@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <format>
-#include <limits>
 #include <new>
 
 namespace qiqi::monitor {
@@ -14,8 +13,6 @@ constexpr std::array kMetricNames{"focus_total", "focus_reload", "focus_position
     "candidate_query", "candidate_update", "commit", "cleanup"};
 constexpr std::array kModeNames{"unspecified", "popup", "ui_less", "focus_gained", "focus_lost"};
 constexpr std::array kSourceNames{"unspecified", "thread_manager", "key_event"};
-constexpr std::array kPercentiles{50u, 95u, 99u};
-constexpr uint64_t kMillisecondsPerSecond = 1000;
 struct JsonError { ULONG code; };
 void Check(ULONG error) {
     if (error != ERROR_SUCCESS) throw JsonError{error};
@@ -127,9 +124,9 @@ void WriteHistogram(JsonWriter& json, const MetricHistogram& histogram, uint64_t
     json.Append(",\"state\":");
     json.String(threshold == 0 ? "not_configured" : histogram.Samples() == 0 ? "no_samples" : "value");
     json.Append("},\"quantiles\":{");
-    for (size_t i = 0; i < kPercentiles.size(); ++i) {
+    for (size_t i = 0; i < kMetricPercentiles.size(); ++i) {
         if (i != 0) json.Append(",");
-        const auto percentile = gsl::at(kPercentiles, i);
+        const auto percentile = gsl::at(kMetricPercentiles, i);
         const auto value = histogram.Quantile(percentile);
         Check(value.state == QuantileState::InvalidPercentile ? ERROR_INVALID_DATA : ERROR_SUCCESS);
         json.String(std::format("p{}", percentile));
@@ -165,11 +162,10 @@ void WriteSummary(JsonWriter& json, const MetricSummary& summary) {
     json.Append("},\"failure_rate\":{\"value\":"); json.OptionalNumber(summary.FailureRate());
     json.Append(",\"numerator\":"); json.Number(summary.Count(metrics::Outcome::Failure));
     json.Append(",\"denominator\":");
-    const uint64_t success = summary.Count(metrics::Outcome::Success);
-    const uint64_t failure = summary.Count(metrics::Outcome::Failure);
-    Check(failure > (std::numeric_limits<uint64_t>::max)() - success ? ERROR_ARITHMETIC_OVERFLOW : ERROR_SUCCESS);
-    json.Number(success + failure);
-    json.Append(",\"state\":"); json.String(success + failure == 0 ? "no_denominator" : "value");
+    uint64_t denominator = 0;
+    Check(summary.FailureDenominator(denominator));
+    json.Number(denominator);
+    json.Append(",\"state\":"); json.String(denominator == 0 ? "no_denominator" : "value");
     json.Append("},\"errors\":[");
     Check(summary.error_count > summary.errors.size() ? ERROR_INVALID_DATA : ERROR_SUCCESS);
     bool first = true;
