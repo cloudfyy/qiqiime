@@ -1,4 +1,5 @@
-#include "common/metrics.h"
+#include "common/metric.h"
+#include "etw.h"
 #include "common/logger.h"
 #include "common/version.h"
 
@@ -105,6 +106,7 @@ struct Capture {
     std::vector<metrics::Event> events;
     std::vector<Instance> instances;
     ULONG error = ERROR_SUCCESS;
+    MetricEventObserver observer = nullptr;
 };
 
 ULONG DecodeMetric(EVENT_RECORD& record, const TRACE_EVENT_INFO& info, std::span<const BYTE> metadata,
@@ -204,13 +206,14 @@ void WINAPI OnEvent(EVENT_RECORD* record) noexcept {
         } else {
             error = ERROR_NOT_SUPPORTED;
         }
+        if (error == ERROR_SUCCESS && capture->observer) error = capture->observer(*record);
         capture->error = error;
     } catch (const std::bad_alloc&) {
         capture->error = ERROR_NOT_ENOUGH_MEMORY;
     }
 }
 
-int CaptureMetrics() {
+int CaptureMetrics(MetricEventObserver observer) {
     Check(!log::IsEtwProviderRegistered(), "Metrics query must not register the provider");
     const auto directory = std::filesystem::temp_directory_path() /
         std::format(L"qiqi-metrics-{}-{}", ::GetCurrentProcessId(), ::GetTickCount64());
@@ -319,6 +322,7 @@ int CaptureMetrics() {
     Check(stop.properties.EventsLost == 0 && stop.properties.LogBuffersLost == 0, "Loss-free test capture");
     std::wstring filename = file.wstring();
     Capture capture;
+    capture.observer = observer;
 #pragma warning(suppress : 26476) // ETW selects its callback union through ProcessTraceMode.
     EVENT_TRACE_LOGFILEW logfile{};
     logfile.LogFileName = filename.data();
@@ -369,9 +373,9 @@ int CaptureMetrics() {
 }
 } // namespace
 
-int RunMetricsEtwTest() {
+int RunMetricsEtwTest(MetricEventObserver observer) {
     try {
-        return CaptureMetrics();
+        return CaptureMetrics(observer);
     } catch (const std::exception& error) {
         std::cerr << "[FAIL] " << error.what() << "\n";
         return 1;

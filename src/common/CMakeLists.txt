@@ -36,8 +36,8 @@ set(QIQI_COMMON_SOURCES
     i18n.h
     logger.cpp
     logger.h
-    metrics.cpp
-    metrics.h
+    metric.cpp
+    metric.h
     monitor_dpi.h
     scoped_handle.h
     sound.h

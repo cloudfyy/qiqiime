@@ -21,7 +21,7 @@ target_link_libraries(qiqi_change_sync_test PRIVATE qiqi_engine qiqi_common ole3
 add_test(NAME QiQiChangeSyncTest COMMAND qiqi_change_sync_test)
 set_tests_properties(QiQiChangeSyncTest PROPERTIES TIMEOUT 90)
 
-add_executable(qiqi_metrics_test metrics.cpp metrics_etw.cpp)
+add_executable(qiqi_metrics_test metric.cpp etw.cpp)
 target_include_directories(qiqi_metrics_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
 target_link_libraries(qiqi_metrics_test PRIVATE qiqi_common tdh)
 add_test(NAME QiQiMetricsTest COMMAND qiqi_metrics_test)

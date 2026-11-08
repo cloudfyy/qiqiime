@@ -3,7 +3,7 @@
 #include "common/etw_write.h"
 #include "common/file_util.h"
 #include "common/scoped_handle.h"
-#include "common/metrics.h"
+#include "common/metric.h"
 #include "common/version.h"
 
 #include <windows.h>

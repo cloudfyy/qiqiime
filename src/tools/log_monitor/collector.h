@@ -1,8 +1,10 @@
 #pragma once
 
 #include "tools/log_monitor/model.h"
+#include "tools/log_monitor/metric.h"
 #include <evntrace.h>
 #include <evntcons.h>
+#include <tdh.h>
 #include <gsl/gsl>
 #include <atomic>
 #include <thread>
@@ -25,6 +27,15 @@ public:
 // Decode only our provider's known fields. The callback never retains EVENT_RECORD pointers.
 ULONG DecodeEvent(EVENT_RECORD& record, Event& event);
 
+struct MetricDecodeApi {
+    gsl::not_null<decltype(&::TdhGetEventInformation)> information = &::TdhGetEventInformation;
+    gsl::not_null<decltype(&::TdhGetPropertySize)> property_size = &::TdhGetPropertySize;
+    gsl::not_null<decltype(&::TdhGetProperty)> property = &::TdhGetProperty;
+};
+// Failed decoding leaves the destination unchanged; returned errors are actual TDH errors or protocol errors.
+ULONG DecodeMetricEvent(EVENT_RECORD& record, uint64_t capture_generation, MetricRecord& event,
+    MetricDecodeApi api = {});
+
 struct CaptureStartFailure {
     std::wstring_view operation;
     ULONG error = ERROR_SUCCESS;
@@ -41,14 +52,15 @@ struct CaptureStartApi {
 
 class Collector final {
 public:
-    Collector(EventQueue& queue, Diagnostics& diagnostics, CaptureStartApi api = {}) noexcept
+#pragma warning(suppress : 26455) // The independent bounded queue may allocate during monitor startup.
+    Collector(EventQueue& queue, Diagnostics& diagnostics, CaptureStartApi api = {})
         : queue_(queue), diagnostics_(diagnostics), api_(api) {}
     ~Collector() noexcept;
     Collector(const Collector&) = delete;
     Collector& operator=(const Collector&) = delete;
     Collector(Collector&&) = delete;
     Collector& operator=(Collector&&) = delete;
-    bool Start();
+    bool Start(bool collect_metrics = false);
     bool Stop() noexcept;
     void PollLoss() noexcept;
     bool Running() const noexcept { return running_.load(); }
@@ -58,6 +70,7 @@ public:
     std::atomic<uint64_t> events_lost{0};
     std::atomic<uint64_t> buffers_lost{0};
     std::atomic<uint64_t> allocation_errors{0};
+    MetricQueue metric_queue;
 private:
     static void WINAPI OnEvent(EVENT_RECORD* record) noexcept;
     void Consume() noexcept;
@@ -73,6 +86,8 @@ private:
     std::atomic<bool> running_{false};
     uint64_t lost_baseline_ = 0;
     uint64_t buffers_baseline_ = 0;
+    uint64_t metric_generation_ = 0;
+    bool collect_metrics_ = false;
 };
 
 } // namespace qiqi::monitor

@@ -181,6 +181,7 @@ ctest --preset x86-release --output-on-failure
 
 - `qiqi_settings_test.exe`：设置 / 关于窗口及配置边界测试（`QiQiSettingsTest`）；直接编译并调用独立程序的 `wWinMain`，在隔离注册表下验证首次启动实际创建可见窗口、再次启动恢复已最小化窗口、关闭后可重新启动，以及取消不保存配置。
 - `qiqi_log_monitor_test.exe`：监控器测试（`QiQiLogMonitorTest`）；`--integration` 模式另注册为 `QiQiLogMonitorIntegrationTest`
+- `qiqi_monitor_metrics_test.exe`：指标严格解码、独立有界队列、直方图/滑窗/异步关联及统一内存预算测试（`QiQiMonitorMetricsTest`）；`--etw` 模式另注册为 `QiQiMonitorMetricsEtwTest`，复用进程内私有 ETW 夹具验证生产解码器、队列和聚合，不等同于真实 IME DLL 或跨进程焦点链路验收。
 
 `--composition-lifecycle-tests` 模式注册为 `QiQiCompositionLifecycleTest`，运行组合组件及完整服务生命周期/按键回归（含既有编辑/清理与原生 TSF 测试），不运行独立菜单、候选窗和状态栏 UI 套件。该入口不替代完整 `QiQiTsfUiTest`；CTest 将它标为 `RUN_SERIAL`，避免与其他共享注册表/窗口测试并发。例如：`ctest --test-dir build\x64 -C Release -R '^QiQiCompositionLifecycleTest$' --repeat until-fail:2 --output-on-failure`，x86 替换目录即可。
 

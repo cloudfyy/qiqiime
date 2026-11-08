@@ -1,4 +1,4 @@
-#include "common/metrics.h"
+#include "common/metric.h"
 #include "common/logger.h"
 
 #include <array>

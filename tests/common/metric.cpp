@@ -1,6 +1,7 @@
 #include "common/test_support.h"
-#include "common/metrics.h"
+#include "common/metric.h"
 #include "common/logger.h"
+#include "etw.h"
 
 #include <limits>
 #include <stdexcept>
@@ -229,7 +230,6 @@ void RunMetricsTests() {
     TestClock();
     TestScopes();
 }
-int RunMetricsEtwTest();
 } // namespace qiqi::test
 
 int main(int argc, char** argv) {

@@ -2,6 +2,7 @@
 
 #include "tools/log_monitor/window.h"
 #include "tools/log_monitor/collector.h"
+#include "tools/log_monitor/aggregate.h"
 #include "common/d2d_controls.h"
 #include "common/i18n.h"
 #include "common/logger.h"
@@ -16,6 +17,7 @@ struct MonitorWindow::Impl {
     Diagnostics diagnostics;
     EventQueue pending;
     Collector collector{pending, diagnostics};
+    MetricAggregator metrics;
     EventBuffer events;
     EventBuffer tools{512, 1024 * 1024};
     FluentD2DThemeContext theme;

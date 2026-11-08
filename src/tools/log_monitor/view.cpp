@@ -154,6 +154,7 @@ void MonitorWindow::Impl::RebuildRows() {
 void MonitorWindow::Impl::Tick() {
     bool changed = false;
     for (auto& event : pending.Take()) { events.Push(std::move(event)); changed = true; }
+    DrainMetrics(collector.metric_queue, metrics, diagnostics, ::GetTickCount64());
     for (auto& event : diagnostics.queue.Take()) {
         if (event.level <= 2) last_error = event.message.substr(0, 512);
         tools.Push(std::move(event));

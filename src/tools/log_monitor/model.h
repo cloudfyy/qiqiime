@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/logger.h"
 #include <windows.h>
 #include <cguid.h>
 #include <cstdint>
@@ -13,8 +14,7 @@
 
 namespace qiqi::monitor {
 
-inline constexpr GUID kImeProvider =
-    {0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x99}};
+inline constexpr GUID kImeProvider = log::kProviderId;
 inline constexpr GUID kMonitorProvider =
     {0x6ab897b4, 0xd148, 0x4df9, {0x8e, 0xb7, 0x47, 0x90, 0xa2, 0x74, 0x95, 0x1e}};
 
