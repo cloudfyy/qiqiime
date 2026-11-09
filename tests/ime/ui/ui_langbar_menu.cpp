@@ -300,8 +300,8 @@ void TestImeBrandIcon() {
             visible_on_light += on_light + 40u <= 240u ? 1u : 0u;
         }
         QIQI_TEST_CHECK((pixels.front() >> 24u) == 0);
-        QIQI_TEST_CHECK((pixels[gsl::narrow_cast<size_t>(size - 1)] >> 24u) == 0);
-        QIQI_TEST_CHECK((pixels[pixels.size() - gsl::narrow_cast<size_t>(size)] >> 24u) == 0);
+        QIQI_TEST_CHECK((gsl::at(pixels, size - 1) >> 24u) == 0);
+        QIQI_TEST_CHECK((gsl::at(pixels, pixels.size() - gsl::narrow_cast<size_t>(size)) >> 24u) == 0);
         QIQI_TEST_CHECK((pixels.back() >> 24u) == 0);
         QIQI_TEST_CHECK(outline > 0 && white > pixels.size() / 12 &&
                         white < pixels.size() / 2 && translucent > 0);

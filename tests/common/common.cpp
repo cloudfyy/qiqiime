@@ -510,6 +510,8 @@ void TestConfigFieldProjections() {
                 QiQiConfig external = baseline;
                 if (local_changed) QIQI_TEST_CHECK(field.Assign(local, field.maximum));
                 if (external_changed) QIQI_TEST_CHECK(field.Assign(external, field.maximum));
+                QIQI_TEST_CHECK(field.HasSettingsChange(baseline, local) ==
+                                (field.settings_editable && local_changed));
                 local.user_dict_path = L"local.txt";
                 external.user_dict_path = L"external.txt";
                 auto merged = external;

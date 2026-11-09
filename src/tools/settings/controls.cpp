@@ -106,7 +106,7 @@ void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept {
     ReadSettingsFromWindowControls(hwnd, current);
     bool dirty = ctx.custom_primary_dict_path != ctx.baseline_config.primary_dict_path;
     ForEachConfigField([&](const auto& field) noexcept {
-        if (field.settings_editable && current.*(field.member) != ctx.baseline_config.*(field.member)) {
+        if (field.HasSettingsChange(ctx.baseline_config, current)) {
             dirty = true;
         }
     });

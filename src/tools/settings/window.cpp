@@ -265,36 +265,30 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
         }
         case kIdBtnOk: {
             if (ctx.config) {
-                if (ctx.save_on_accept) {
-                    QiQiConfig edited;
-                    try {
-                        edited = *ctx.config;
-                    } catch (const std::bad_alloc&) {
-                        QIQI_LOG_ERROR("Settings save could not copy configuration");
-                        ShowSettingsSaveFailure(hwnd, GetSelectedUiLanguageFromCombo(hwnd, ctx));
-                        return;
-                    }
+                QiQiConfig edited;
+                QiQiConfig baseline;
+                try {
+                    edited = *ctx.config;
                     ReadSettingsFromWindowControls(hwnd, edited);
-                    if (!ValidateSettingsPrimaryDictionary(hwnd, ctx, edited)) {
-                        return;
-                    }
-                    if (!SaveConfig(edited)) {
-                        QIQI_LOG_ERROR("Settings save failed; retaining edits for retry");
-                        ShowSettingsSaveFailure(hwnd, edited.ui_language);
-                        return;
-                    }
-                    ctx.config_registry_sequence = QueryRegistryConfigSequence();
-                    ctx.baseline_config = edited;
-                    *ctx.config = std::move(edited);
-                } else {
-                    QiQiConfig edited = *ctx.config;
-                    ReadSettingsFromWindowControls(hwnd, edited);
-                    if (!ValidateSettingsPrimaryDictionary(hwnd, ctx, edited)) {
-                        return;
-                    }
-                    ctx.baseline_config = edited;
-                    *ctx.config = std::move(edited);
+                    baseline = edited;
+                } catch (const std::bad_alloc&) {
+                    QIQI_LOG_ERROR("Settings save could not copy configuration");
+                    ShowSettingsSaveFailure(hwnd, GetSelectedUiLanguageFromCombo(hwnd, ctx));
+                    return;
                 }
+                if (!ValidateSettingsPrimaryDictionary(hwnd, ctx, edited)) {
+                    return;
+                }
+                if (ctx.save_on_accept && !SaveConfig(edited)) {
+                    QIQI_LOG_ERROR("Settings save failed; retaining edits for retry");
+                    ShowSettingsSaveFailure(hwnd, edited.ui_language);
+                    return;
+                }
+                if (ctx.save_on_accept) {
+                    ctx.config_registry_sequence = QueryRegistryConfigSequence();
+                }
+                ctx.baseline_config = std::move(baseline);
+                *ctx.config = std::move(edited);
             }
             ctx.accepted = true;
             ctx.done = true;

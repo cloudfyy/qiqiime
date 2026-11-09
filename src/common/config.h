@@ -78,6 +78,10 @@ struct ConfigField {
     uint64_t maximum;
     bool settings_editable;
 
+    constexpr bool HasSettingsChange(const QiQiConfig& baseline, const QiQiConfig& current) const noexcept {
+        return settings_editable && current.*member != baseline.*member;
+    }
+
     constexpr uint64_t Value(const QiQiConfig& config) const noexcept {
         if constexpr (std::is_enum_v<T>) {
             return static_cast<uint64_t>(config.*member);

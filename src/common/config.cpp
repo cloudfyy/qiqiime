@@ -418,7 +418,7 @@ bool LoadConfigFromRegistry(
 void MergeSettingsConfig(
     QiQiConfig& external, const QiQiConfig& baseline, const QiQiConfig& local) noexcept {
     ForEachConfigField([&](const auto& field) noexcept {
-        if (field.settings_editable && local.*(field.member) != baseline.*(field.member)) {
+        if (field.HasSettingsChange(baseline, local)) {
             external.*(field.member) = local.*(field.member);
         }
     });
