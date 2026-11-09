@@ -10,6 +10,7 @@
 #include <limits>
 #include <span>
 
+#include "common/logger.h"
 #include "common/scoped_handle.h"
 
 namespace qiqi {
@@ -106,11 +107,11 @@ std::array<uint8_t, wav_format::kHeaderBytes + NumSamples * sizeof(int16_t)> Bui
 }
 
 inline std::span<const uint8_t> GetKeyClickWav() noexcept {
-    // 14 ms @ 44.1 kHz = 617 samples (1,278 bytes in static storage)
-    constexpr size_t kSampleCount = 617;
+    // Keep the decaying click audible beyond the first few milliseconds.
+    constexpr size_t kSampleCount = 2646; // 60 ms at 44.1 kHz
     constexpr double kStartFrequencyHz = 1400.0;
     constexpr double kEndFrequencyHz = 320.0;
-    constexpr double kAmplitude = 0.35;
+    constexpr double kAmplitude = 0.55;
     static const auto wav = BuildStaticMonoWav<kSampleCount>(kStartFrequencyHz, kEndFrequencyHz, kAmplitude);
     return wav;
 }
@@ -139,7 +140,14 @@ inline std::span<const uint8_t> GetDupCodeBeepWav() noexcept {
 // 1. It is managed by RAII rather than a raw HMODULE;
 // 2. It stays alive across asynchronous SND_ASYNC playback without premature FreeLibrary.
 inline HMODULE GetWinmmModule() noexcept {
-    static const ScopedModule winmm(::LoadLibraryW(L"winmm.dll"));
+    static const ScopedModule winmm([]() noexcept {
+        const HMODULE module = ::LoadLibraryW(L"winmm.dll");
+        if (!module) {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_WARN("IME sound: LoadLibraryW(winmm.dll) failed (error={})", error);
+        }
+        return module;
+    }());
     return winmm.Get();
 }
 
@@ -177,10 +185,17 @@ inline void PlayImeSound(SoundEffectKind kind) noexcept {
         using PlaySoundWFn = BOOL(WINAPI*)(LPCWSTR, HMODULE, DWORD);
         const auto play_fn = reinterpret_cast<PlaySoundWFn>(::GetProcAddress(winmm, "PlaySoundW"));
         if (play_fn) {
-            play_fn(
+            const BOOL played = play_fn(
                 reinterpret_cast<LPCWSTR>(wav.data()),
                 nullptr,
                 SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+            if (!played) {
+                // PlaySoundW reports failure via BOOL, not GetLastError.
+                QIQI_LOG_WARN("IME sound: PlaySoundW returned FALSE (kind={})", static_cast<int>(kind));
+            }
+        } else {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_WARN("IME sound: GetProcAddress(PlaySoundW) failed (error={})", error);
         }
     }
 }

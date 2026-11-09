@@ -1021,7 +1021,22 @@ void CheckStaticSoundWav(
 }
 
 void TestStaticSoundWavs() {
-    CheckStaticSoundWav(qiqi::detail::GetKeyClickWav(), 617, 1400.0, 320.0, 0.35);
+    const auto key_click = qiqi::detail::GetKeyClickWav();
+    CheckStaticSoundWav(key_click, 2646, 1400.0, 320.0, 0.55);
+    // Guard against a nominally valid WAV whose energy dies out almost immediately.
+    constexpr size_t kStartSample = 441; // 10 ms
+    constexpr size_t kEndSample = 1764; // 40 ms
+    codec::BinarySpanReader audible_samples(
+        key_click.subspan(44 + kStartSample * 2, (kEndSample - kStartSample) * 2));
+    double energy = 0.0;
+    for (size_t i = kStartSample; i < kEndSample; ++i) {
+        const auto pcm = std::bit_cast<int16_t>(
+            gsl::narrow_cast<uint16_t>(audible_samples.ReadLeNumber(2)));
+        const double normalized = static_cast<double>(pcm) / 32767.0;
+        energy += normalized * normalized;
+    }
+    QIQI_TEST_CHECK(audible_samples.Valid() && audible_samples.Empty());
+    QIQI_TEST_CHECK(std::sqrt(energy / static_cast<double>(kEndSample - kStartSample)) >= 0.04);
     CheckStaticSoundWav(qiqi::detail::GetEmptyCodeBeepWav(), 3748, 720.0, 360.0, 0.55);
     CheckStaticSoundWav(qiqi::detail::GetDupCodeBeepWav(), 1984, 660.0, 880.0, 0.40);
     const auto empty_wav = qiqi::detail::BuildStaticMonoWav<0>(1400.0, 320.0, 0.35);
