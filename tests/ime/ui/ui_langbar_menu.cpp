@@ -277,20 +277,36 @@ void TestImeBrandIcon() {
         std::vector<uint32_t> pixels(gsl::narrow_cast<size_t>(size * size));
         QIQI_TEST_CHECK(::GetDIBits(dc.Get(), color.Get(), 0, gsl::narrow_cast<UINT>(size),
                                   pixels.data(), &bmi, DIB_RGB_COLORS) == size);
-        size_t black = 0;
+        size_t outline = 0;
         size_t white = 0;
+        size_t transparent = 0;
         size_t translucent = 0;
+        size_t visible_on_dark = 0;
+        size_t visible_on_light = 0;
         for (const uint32_t pixel : pixels) {
             const auto alpha = pixel >> 24u;
             const auto rgb = pixel & 0x00FFFFFFu;
             QIQI_TEST_CHECK(((rgb >> 16u) & 0xFFu) == ((rgb >> 8u) & 0xFFu) &&
                             ((rgb >> 8u) & 0xFFu) == (rgb & 0xFFu));
-            black += alpha == 255 && rgb == 0 ? 1u : 0u;
+            outline += alpha > 0 && alpha <= 128 && rgb == 0 ? 1u : 0u;
             white += alpha == 255 && rgb == 0x00FFFFFFu ? 1u : 0u;
+            transparent += alpha == 0 ? 1u : 0u;
             translucent += alpha > 0 && alpha < 255 ? 1u : 0u;
+            // GetDIBits exposes premultiplied channels; composite against both taskbar tones.
+            const auto gray = rgb & 0xFFu;
+            const auto on_dark = gray + (32u * (255u - alpha)) / 255u;
+            const auto on_light = gray + (240u * (255u - alpha)) / 255u;
+            visible_on_dark += on_dark >= 32u + 40u ? 1u : 0u;
+            visible_on_light += on_light + 40u <= 240u ? 1u : 0u;
         }
         QIQI_TEST_CHECK((pixels.front() >> 24u) == 0);
-        QIQI_TEST_CHECK(black > pixels.size() / 25 && white > pixels.size() / 12 && translucent > 0);
+        QIQI_TEST_CHECK((pixels[gsl::narrow_cast<size_t>(size - 1)] >> 24u) == 0);
+        QIQI_TEST_CHECK((pixels[pixels.size() - gsl::narrow_cast<size_t>(size)] >> 24u) == 0);
+        QIQI_TEST_CHECK((pixels.back() >> 24u) == 0);
+        QIQI_TEST_CHECK(outline > 0 && white > pixels.size() / 12 &&
+                        white < pixels.size() / 2 && translucent > 0);
+        QIQI_TEST_CHECK(transparent > pixels.size() / 5);
+        QIQI_TEST_CHECK(visible_on_dark > pixels.size() / 12 && visible_on_light > pixels.size() / 25);
     }
 }
 

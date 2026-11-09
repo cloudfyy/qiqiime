@@ -69,33 +69,23 @@ try {
             $settingsFrames.Add($stream.ToArray())
 
             $graphics.Clear([Drawing.Color]::Transparent)
-            $box = [Drawing.Drawing2D.GraphicsPath]::new()
             $border = [Drawing.Pen]::new([Drawing.Color]::FromArgb(128, 0, 0, 0),
-                [single][math]::Max(1, $size / 32))
+                [single](2 * [math]::Max(1, $size / 32)))
             try {
-                $inset = [single][math]::Max(1, $size * 0.04)
-                $edge = [single]($size - $inset)
-                $diameter = [single]($size * 0.32)
-                $box.AddArc($inset, $inset, $diameter, $diameter, 180, 90)
-                $box.AddLine([single]($inset + $diameter / 2), $inset, $edge, $inset)
-                $box.AddLine($edge, $inset, $edge, $edge)
-                $box.AddLine($edge, $edge, $inset, $edge)
-                $box.CloseFigure()
-                $graphics.FillPath([Drawing.Brushes]::White, $box)
-                $graphics.DrawPath($border, $box)
+                $border.LineJoin = [Drawing.Drawing2D.LineJoin]::Round
+                $transform.Reset()
+                $transform.Translate([single](-$size / 2), [single](-$size / 2))
+                $transform.Scale([single](0.80 / 0.90), [single](0.80 / 0.90),
+                    [Drawing.Drawing2D.MatrixOrder]::Append)
+                $transform.Translate([single]($size / 2), [single]($size / 2),
+                    [Drawing.Drawing2D.MatrixOrder]::Append)
+                $path.Transform($transform)
+                # Fill after stroking so only the outer half of the black outline remains.
+                $graphics.DrawPath($border, $path)
+                $graphics.FillPath([Drawing.Brushes]::White, $path)
             } finally {
                 $border.Dispose()
-                $box.Dispose()
             }
-
-            $transform.Reset()
-            $transform.Translate([single](-$size / 2), [single](-$size / 2))
-            $transform.Scale([single](0.72 / 0.90), [single](0.72 / 0.90),
-                [Drawing.Drawing2D.MatrixOrder]::Append)
-            $transform.Translate([single]($size / 2), [single]($size / 2),
-                [Drawing.Drawing2D.MatrixOrder]::Append)
-            $path.Transform($transform)
-            $graphics.FillPath([Drawing.Brushes]::Black, $path)
             $stream.SetLength(0)
             $bitmap.Save($stream, [Drawing.Imaging.ImageFormat]::Png)
             $imeFrames.Add($stream.ToArray())
@@ -109,7 +99,7 @@ try {
     }
     $imeOutput = Join-Path $repoRoot 'data\qiqiime.ico'
     Write-QiQiIcoFile -OutputPath $imeOutput -Frames $imeFrames
-    Write-Output "Generated $imeOutput (black glyph on white box, 16..256 pixels)."
+    Write-Output "Generated $imeOutput (transparent white glyph with black outline, 16..256 pixels)."
     if ($ImeOnly) { return }
 
     $settingsOutput = Join-Path $repoRoot 'data\qiqiime-settings.ico'
