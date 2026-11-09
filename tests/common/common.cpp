@@ -143,8 +143,8 @@ void TestEtwRegistrationLifetime() {
 }
 
 void TestVersionMechanism() {
-    static_assert(version::kCurrentVersion >= version::SemanticVersion{0, 8, 4});
-    static_assert(version::SemanticVersion{1, 0, 0} > version::kCurrentVersion);
+    static_assert(version::kCurrentVersion >= version::SemanticVersion{1, 0, 0});
+    static_assert(version::SemanticVersion{1, 0, 0} > version::SemanticVersion{0, 99, 7});
     QIQI_TEST_CHECK(!version::kVersion.empty());
     QIQI_TEST_CHECK(!version::kVersionW.empty());
     QIQI_TEST_CHECK(!version::kFullVersion.empty());
