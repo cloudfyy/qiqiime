@@ -89,6 +89,7 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
 }
 
 QiQiTextService::~QiQiTextService() noexcept {
+    DisconnectPasswordContext();
     if (candidate_ui_) {
         candidate_ui_->SetSelectCallback({});
         candidate_ui_->SetPageTurnCallback({});
@@ -203,6 +204,8 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     SetUiPresentationEnabled(true);
     if (activation_cancelled_) return cancel_activation();
     SyncTsfCompartments();
+    if (activation_cancelled_) return cancel_activation();
+    ObserveFocusedPasswordContext();
     if (activation_cancelled_) return cancel_activation();
     QIQI_LOG_ACT_STOP(
         log::Level::debug,
@@ -441,6 +444,7 @@ STDMETHODIMP QiQiTextService::OnInitDocumentMgr(ITfDocumentMgr* /*pdim*/) noexce
 }
 
 STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* pdim) {
+    if (pdim && pdim == password_document_) DisconnectPasswordContext();
     const bool related = composition_lifecycle_.IsActive() && MatchesCompositionDocument(pdim, composition_lifecycle_);
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
@@ -521,6 +525,7 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
         }
     });
     if (!has_focus) {
+        DisconnectPasswordContext();
         ResetCompositionAndUI();
         if (current_outcome() != metrics::Outcome::Success) {
             set_result(focus_metric, result);
@@ -574,10 +579,24 @@ STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentM
     if (!ReconcileDocumentTarget(pdimFocus, "focus")) return S_OK;
     if (!composition_lifecycle_.IsActive() || focus_revision != focus_revision_) return S_OK;
     HandleFocusChanged(pdimFocus != nullptr, FocusNotificationSource::ThreadManager);
+    if (!composition_lifecycle_.IsActive() || focus_revision_ != focus_revision + 1) return S_OK;
+    DisconnectPasswordContext();
+    if (!composition_lifecycle_.IsActive() || focus_revision_ != focus_revision + 1) return S_OK;
+    ObservePasswordDocument(pdimFocus);
     return S_OK;
 }
 
 STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
+    if (composition_lifecycle_.IsActive() && pic && password_document_) {
+        const uint64_t revision = password_context_revision_;
+        ComPtr<ITfDocumentMgr> document;
+        const HRESULT hr = pic->GetDocumentMgr(&document);
+        if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return S_OK;
+        if (log::CheckHResult(hr, "Password mode::OnPushContext::GetDocumentMgr", log::Level::debug) &&
+            document && document.Get() == password_document_) {
+            ObservePasswordDocument(document.Get());
+        }
+    }
     if (!composition_lifecycle_.IsActive() || !pic || !composition_lifecycle_.Context() || pic == composition_lifecycle_.Context().Get()) return S_OK;
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), composition_lifecycle_.Context().Get()};
     const auto context = composition_lifecycle_.Context();
@@ -605,6 +624,10 @@ STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
 }
 
 STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* pic) {
+    const ComPtr<ITfDocumentMgr> password_document(
+        pic && pic == password_context_.Get() ? password_document_ : nullptr);
+    const uint64_t password_revision = password_context_revision_ + 1;
+    if (password_document) DisconnectPasswordContext();
     if (pic) composition_lifecycle_.Cleanups().MarkContextRemoved(pic, current_lifecycle_activity_);
     const bool current = composition_lifecycle_.IsActive() && pic && pic == composition_lifecycle_.Context().Get();
     const bool preparing = composition_lifecycle_.IsActive() && pic && pic == preparing_input_context_.Get();
@@ -620,6 +643,10 @@ STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* pic) {
         ResetCompositionAndUI(false);
     } else if (preparing) {
         composition_lifecycle_.InvalidateContext();
+    }
+    if (password_document && composition_lifecycle_.IsActive() &&
+        password_revision == password_context_revision_ && !password_context_) {
+        ObservePasswordDocument(password_document.Get());
     }
     return S_OK;
 }

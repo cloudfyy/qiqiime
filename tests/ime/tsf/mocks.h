@@ -701,9 +701,21 @@ public:
             *pdwCookie = 203;
             return S_OK;
         }
+        if (IsEqualIID(riid, IID_ITfTextEditSink)) {
+            if (FAILED(punk->QueryInterface(IID_PPV_ARGS(&edit_sink_))) || !edit_sink_) {
+                return E_NOINTERFACE;
+            }
+            *pdwCookie = 204;
+            if (edit_advise_callback_) edit_advise_callback_();
+            return S_OK;
+        }
         return CONNECT_E_CANNOTCONNECT;
     }
     STDMETHODIMP UnadviseSink(DWORD cookie) override {
+        if (cookie == 204) {
+            edit_sink_.Reset();
+            return S_OK;
+        }
         if (cookie == 203) {
             status_sink_.Reset();
             return S_OK;
@@ -824,6 +836,8 @@ public:
     std::function<void(REFGUID)> app_property_callback_;
     bool allow_status_sink_ = false;
     ComPtr<ITfStatusSink> status_sink_;
+    ComPtr<ITfTextEditSink> edit_sink_;
+    std::function<void()> edit_advise_callback_;
 private:
     ULONG ref_ = 1;
     // The external queue holds contexts/sessions; a strong back-reference here would create a COM ownership cycle.
@@ -1012,7 +1026,12 @@ public:
     STDMETHODIMP Deactivate() noexcept override { return S_OK; }
     STDMETHODIMP CreateDocumentMgr(ITfDocumentMgr**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP EnumDocumentMgrs(IEnumTfDocumentMgrs**) noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP GetFocus(ITfDocumentMgr**) noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP GetFocus(ITfDocumentMgr** document) override {
+        if (!document) return E_INVALIDARG;
+        *document = focused_document_.Get();
+        if (*document) (*document)->AddRef();
+        return focused_document_ ? S_OK : E_NOTIMPL;
+    }
     STDMETHODIMP SetFocus(ITfDocumentMgr*) noexcept override { return S_OK; }
     STDMETHODIMP AssociateFocus(HWND, ITfDocumentMgr*, ITfDocumentMgr**) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP IsThreadFocus(BOOL* pfThreadFocus) noexcept override { if (pfThreadFocus) *pfThreadFocus = TRUE; return S_OK; }
@@ -1203,6 +1222,7 @@ public:
 
     ComPtr<MockTfCompartment> compartment_;
     ComPtr<MockTfCompartment> openclose_compartment_;
+    ComPtr<ITfDocumentMgr> focused_document_;
     ComPtr<MockTfCompartment> convmode_compartment_;
     ComPtr<MockTfCompartment> global_config_compartment_;
     ComPtr<MockTfCompartment> global_pos_compartment_;

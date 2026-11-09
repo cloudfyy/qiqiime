@@ -19,6 +19,15 @@
 namespace qiqi::test {
 namespace {
 
+LRESULT CALLBACK LosePasswordFocusSubclass(
+    HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR, DWORD_PTR data) {
+    if (message == EM_SETPASSWORDCHAR && wparam != 0) {
+        auto* const target = reinterpret_cast<QiQiTextService*>(data);
+        QIQI_TEST_CHECK(target->OnSetFocus(FALSE) == S_OK);
+    }
+    return ::DefSubclassProc(hwnd, message, wparam, lparam);
+}
+
 class ScopeOwner final : public ComObjectBase<ScopeOwner, ITfContextOwner, ITfInputScope> {
 public:
     STDMETHODIMP GetACPFromPoint(const POINT*, DWORD, LONG*) noexcept override { return E_NOTIMPL; }
@@ -297,6 +306,145 @@ void TestNativeEditStyles() {
 
 void TestUnifiedAccessPolicyAndEdgeCases() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    {
+        const qiqi::test::TsfTestCaseTrace mode_trace("password-mode.transitions");
+        const auto manager = MakeComObject<MockTfThreadMgr>();
+        const auto document = MakeComObject<MockTfDocumentMgr>();
+        const auto context = document->CreateTestContext();
+        const auto property = MakeComObject<MockInputScopeProperty>();
+        context->get_start_result_ = S_OK;
+        context->get_app_property_result_ = S_OK;
+        context->app_property_ = property;
+        property->scopes = {IS_DEFAULT};
+        const ScopedWindow window(::CreateWindowExW(
+            0, L"EDIT", L"", WS_POPUP | ES_AUTOHSCROLL, 0, 0, 200, 30,
+            nullptr, nullptr, g_dll_instance, nullptr));
+        QIQI_TEST_CHECK(window.IsValid());
+        context->view_->hwnd_ = window.Get();
+        QIQI_TEST_CHECK(document->Push(context.Get()) == S_OK);
+        const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        const auto deactivate = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        });
+        const auto check_mode = [&](bool chinese) {
+            QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == (chinese ? 1 : 0));
+            QIQI_TEST_CHECK(((manager->convmode_compartment_->last_val_ & TF_CONVERSIONMODE_NATIVE) != 0) == chinese);
+        };
+        QIQI_TEST_CHECK(service->OnSetFocus(document.Get(), nullptr) == S_OK);
+        check_mode(true);
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        const auto composition = context->last_composition_;
+        QIQI_TEST_CHECK(composition && context->edit_sink_);
+        ::SendMessageW(window.Get(), EM_SETPASSWORDCHAR, L'*', 0);
+        check_mode(false);
+        QIQI_TEST_CHECK(composition->ended_ && !context->layout_sink_);
+        QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
+        ::SendMessageW(window.Get(), EM_SETPASSWORDCHAR, L'*', 0);
+        ::SendMessageW(window.Get(), EM_SETPASSWORDCHAR, 0, 0);
+        check_mode(true);
+
+        for (const InputScope scope : {IS_PASSWORD, IS_NUMERIC_PASSWORD, IS_NUMERIC_PIN,
+                                       IS_ALPHANUMERIC_PIN, IS_ALPHANUMERIC_PIN_SET}) {
+            property->scopes = {scope};
+            const auto sink = context->edit_sink_;
+            QIQI_TEST_CHECK(sink->OnEndEdit(context.Get(), 1, nullptr) == S_OK);
+            check_mode(false);
+            QIQI_TEST_CHECK(sink->OnEndEdit(context.Get(), 1, nullptr) == S_OK);
+            check_mode(false);
+            property->get_scopes_result = E_ACCESSDENIED;
+            QIQI_TEST_CHECK(sink->OnEndEdit(context.Get(), 1, nullptr) == S_OK);
+            check_mode(false);
+            property->get_scopes_result = S_OK;
+            property->scopes = {IS_PRIVATE};
+            QIQI_TEST_CHECK(sink->OnEndEdit(context.Get(), 1, nullptr) == S_OK);
+            check_mode(true);
+        }
+        {
+            const auto modal = document->CreateTestContext();
+            const auto modal_property = MakeComObject<MockInputScopeProperty>();
+            modal_property->scopes = {IS_PASSWORD};
+            modal->get_start_result_ = S_OK;
+            modal->get_app_property_result_ = S_OK;
+            modal->app_property_ = modal_property;
+            document->events = service.Get();
+            const auto disconnect = gsl::finally([&]() noexcept { document->events = nullptr; });
+            QIQI_TEST_CHECK(document->Push(modal.Get()) == S_OK);
+            check_mode(false);
+            QIQI_TEST_CHECK(document->Pop(0) == S_OK);
+            check_mode(true);
+            QIQI_TEST_CHECK(!modal->edit_sink_ && context->edit_sink_);
+        }
+        ::SendMessageW(window.Get(), EM_SETREADONLY, TRUE, 0);
+        check_mode(true);
+        ::SendMessageW(window.Get(), EM_SETREADONLY, FALSE, 0);
+        QIQI_TEST_CHECK(service->OnPreservedKey(
+            context.Get(), kGuidPreservedKeyToggleMode, &eaten) == S_OK && eaten);
+        check_mode(false);
+        ::SendMessageW(window.Get(), EM_SETPASSWORDCHAR, L'*', 0);
+        ::SendMessageW(window.Get(), EM_SETPASSWORDCHAR, 0, 0);
+        check_mode(false);
+        QIQI_TEST_CHECK(service->OnPreservedKey(
+            context.Get(), kGuidPreservedKeyToggleMode, &eaten) == S_OK && eaten);
+        check_mode(true);
+
+        const auto other_document = MakeComObject<MockTfDocumentMgr>();
+        const auto other = other_document->CreateTestContext();
+        QIQI_TEST_CHECK(other_document->Push(other.Get()) == S_OK);
+        ::SendMessageW(window.Get(), EM_SETPASSWORDCHAR, L'*', 0);
+        check_mode(false);
+        QIQI_TEST_CHECK(service->OnSetFocus(other_document.Get(), document.Get()) == S_OK);
+        check_mode(true);
+        QIQI_TEST_CHECK(!context->edit_sink_);
+        ::SendMessageW(window.Get(), EM_SETPASSWORDCHAR, 0, 0);
+        check_mode(true);
+
+        {
+            QIQI_TEST_CHECK(::SetWindowSubclass(window.Get(), &LosePasswordFocusSubclass, 1,
+                                                reinterpret_cast<DWORD_PTR>(service.Get())));
+            const auto remove_subclass = gsl::finally([&]() noexcept {
+                QIQI_TEST_CHECK(::RemoveWindowSubclass(window.Get(), &LosePasswordFocusSubclass, 1));
+            });
+            QIQI_TEST_CHECK(service->OnSetFocus(document.Get(), other_document.Get()) == S_OK);
+            ::SendMessageW(window.Get(), EM_SETPASSWORDCHAR, L'*', 0);
+            check_mode(false);
+            QIQI_TEST_CHECK(!context->edit_sink_);
+            manager->focused_document_ = other_document;
+            QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
+            check_mode(true);
+        }
+
+        const auto queue = std::make_shared<MockEditSessionQueue>();
+        const auto delayed_document = MakeComObject<MockTfDocumentMgr>();
+        const auto delayed = delayed_document->CreateTestContext(queue);
+        delayed->get_start_result_ = S_OK;
+        delayed->get_app_property_result_ = S_OK;
+        delayed->app_property_ = property;
+        delayed->allow_sync_edit_sessions_ = false;
+        property->scopes = {IS_NUMERIC_PIN};
+        QIQI_TEST_CHECK(delayed_document->Push(delayed.Get()) == S_OK);
+        QIQI_TEST_CHECK(service->OnSetFocus(delayed_document.Get(), other_document.Get()) == S_OK);
+        QIQI_TEST_CHECK(queue->PendingCount() == 1);
+        QIQI_TEST_CHECK(service->OnSetFocus(other_document.Get(), delayed_document.Get()) == S_OK);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+        check_mode(true);
+        QIQI_TEST_CHECK(service->OnSetFocus(delayed_document.Get(), other_document.Get()) == S_OK);
+        QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+        check_mode(false);
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        QIQI_TEST_CHECK(!delayed->edit_sink_);
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        check_mode(true);
+        delayed->edit_advise_callback_ = [&]() {
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        };
+        QIQI_TEST_CHECK(service->OnSetFocus(delayed_document.Get(), nullptr) == S_OK);
+        QIQI_TEST_CHECK(!delayed->edit_sink_);
+        delayed->edit_advise_callback_ = {};
+    }
+
     // 1. Pure policy and multi-scope classification checks
     {
         constexpr std::array<InputScope, 2> mixed_pwd{{IS_DEFAULT, IS_NUMERIC_PIN}};

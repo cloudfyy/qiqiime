@@ -127,6 +127,11 @@ void QiQiTextService::InitCompartmentSinks() {
 }
 
 void QiQiTextService::UninitCompartmentSinks() noexcept {
+    DisconnectPasswordContext();
+    if (password_previous_chinese_) {
+        engine_.SetChineseMode(*password_previous_chinese_);
+        password_previous_chinese_.reset();
+    }
     DisconnectActiveContextAccessSinks();
     convmode_comp_.Reset();
     openclose_comp_.Reset();
@@ -176,11 +181,196 @@ void QiQiTextService::DisconnectActiveContextAccessSinks() noexcept {
 }
 
 STDMETHODIMP QiQiTextService::OnStatusChange(ITfContext* pic, DWORD /*dwFlags*/) {
+    if (pic && pic == password_context_.Get()) {
+        RefreshPasswordContext();
+    }
     if (!pic || !composition_lifecycle_.IsActive() || pic != composition_lifecycle_.Context().Get()) {
         return S_OK;
     }
     HandleActiveContextAccessChanged();
     return S_OK;
+}
+
+void QiQiTextService::DisconnectPasswordContext() noexcept {
+    ++password_context_revision_;
+    const HWND window = std::exchange(password_window_, nullptr);
+    password_document_ = nullptr;
+    const auto context = std::move(password_context_);
+    const auto sink = std::move(password_edit_sink_);
+    if (window && !::RemoveWindowSubclass(
+            window, &PasswordWindowSubclassProc, reinterpret_cast<UINT_PTR>(this))) {
+        QIQI_LOG_WARN("Password mode: RemoveWindowSubclass returned FALSE");
+    }
+}
+
+void QiQiTextService::ObserveFocusedPasswordContext() {
+    if (!composition_lifecycle_.IsActive() || !thread_mgr_) return;
+    const uint64_t revision = password_context_revision_;
+    const auto manager = thread_mgr_;
+    ComPtr<ITfDocumentMgr> document;
+    const HRESULT hr = manager->GetFocus(&document);
+    if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+    if (log::CheckHResult(hr, "Password mode::GetFocus", log::Level::debug)) {
+        ObservePasswordDocument(document.Get());
+    }
+}
+
+void QiQiTextService::ObservePasswordDocument(ITfDocumentMgr* document) {
+    const uint64_t revision = password_context_revision_;
+    const ComPtr<ITfDocumentMgr> owner(document);
+    if (!document) {
+        DisconnectPasswordContext();
+        return;
+    }
+    ComPtr<ITfContext> context;
+    const HRESULT hr = owner->GetTop(&context);
+    if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+    if (log::CheckHResult(hr, "Password mode::GetTop", log::Level::debug)) {
+        ObservePasswordContext(context.Get(), document);
+    } else {
+        DisconnectPasswordContext();
+    }
+}
+
+void QiQiTextService::ObservePasswordContext(ITfContext* context, ITfDocumentMgr* document) {
+    if (context == password_context_.Get()) {
+        if (context) RefreshPasswordContext();
+        return;
+    }
+    const uint64_t focus_revision = focus_revision_;
+    const uint64_t disconnected_revision = password_context_revision_ + 1;
+    DisconnectPasswordContext();
+    if (!context || !composition_lifecycle_.IsActive() || focus_revision != focus_revision_ ||
+        disconnected_revision != password_context_revision_) return;
+    password_context_ = context;
+    password_document_ = document;
+    const uint64_t revision = password_context_revision_;
+    const ComPtr<ITfContext> target(context);
+    auto connection = std::make_unique<ScopedTfSinkConnection>();
+    ITfTextEditSink* const sink = this;
+    std::ignore = connection->Advise(context, IID_ITfTextEditSink, sink);
+    if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+    password_edit_sink_ = std::move(connection);
+    ComPtr<ITfContextView> view;
+    const HRESULT view_hr = target->GetActiveView(&view);
+    if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+    if (log::CheckHResult(view_hr, "Password mode::GetActiveView", log::Level::debug) && view) {
+        HWND window = nullptr;
+        const HRESULT window_hr = view->GetWnd(&window);
+        if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+        if (log::CheckHResult(window_hr, "Password mode::GetWnd", log::Level::debug) &&
+            InspectConfirmedCurrentThreadEditWindow(window).is_native_edit) {
+            if (::SetWindowSubclass(window, &PasswordWindowSubclassProc,
+                                    reinterpret_cast<UINT_PTR>(this), reinterpret_cast<DWORD_PTR>(this))) {
+                password_window_ = window;
+            } else {
+                QIQI_LOG_WARN("Password mode: SetWindowSubclass returned FALSE");
+            }
+        }
+    }
+    RefreshPasswordContext();
+}
+
+LRESULT CALLBACK QiQiTextService::PasswordWindowSubclassProc(
+    HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data) {
+    auto* const service = reinterpret_cast<QiQiTextService*>(data);
+    const ComPtr<QiQiTextService> keep_alive(service);
+    // Native password changes can remove TSF focus inside DefSubclassProc.
+    if (service->password_window_ == hwnd &&
+        ((message == EM_SETPASSWORDCHAR && wparam != 0) ||
+         (message == WM_STYLECHANGED && InspectConfirmedCurrentThreadEditWindow(hwnd).is_password))) {
+        try {
+            service->UpdatePasswordMode(true);
+        } catch (const std::bad_alloc&) {
+            QIQI_LOG_ERROR("Password mode: allocation failed while entering native password state");
+        }
+    }
+    const LRESULT result = ::DefSubclassProc(hwnd, message, wparam, lparam);
+    if (message == WM_NCDESTROY) {
+        if (service->password_window_ == hwnd) service->password_window_ = nullptr;
+        std::ignore = ::RemoveWindowSubclass(hwnd, &PasswordWindowSubclassProc, id);
+    } else if (service->password_window_ == hwnd &&
+               (message == EM_SETPASSWORDCHAR || message == WM_STYLECHANGED)) {
+        try {
+            service->RefreshPasswordContext();
+        } catch (const std::bad_alloc&) {
+            QIQI_LOG_ERROR("Password mode: allocation failed while refreshing native edit state");
+        }
+    }
+    return result;
+}
+
+void QiQiTextService::RefreshPasswordContext() {
+    if (!password_context_ || !composition_lifecycle_.IsActive()) return;
+    const uint64_t revision = ++password_context_revision_;
+    if (InspectConfirmedCurrentThreadEditWindow(password_window_).is_password) {
+        UpdatePasswordMode(true);
+        return;
+    }
+    const auto target = password_context_;
+    const ComPtr<QiQiTextService> self(this);
+    const auto session = MakeComObject<LambdaEditSession>(
+        [self, target, revision](TfEditCookie cookie) -> HRESULT {
+            self->UpdatePasswordModeInSession(cookie, target.Get(), revision);
+            return S_OK;
+        });
+    HRESULT session_hr = S_OK;
+    HRESULT request_hr = target->RequestEditSession(
+        client_id_, session.Get(), TF_ES_SYNC | TF_ES_READ, &session_hr);
+    if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+    if (request_hr == TF_E_SYNCHRONOUS || request_hr == TF_E_LOCKED ||
+        (SUCCEEDED(request_hr) && (session_hr == TF_E_SYNCHRONOUS || session_hr == TF_E_LOCKED))) {
+        request_hr = target->RequestEditSession(
+            client_id_, session.Get(), TF_ES_ASYNCDONTCARE | TF_ES_READ, &session_hr);
+    }
+    if (log::CheckHResult(request_hr, "Password mode::RequestEditSession", log::Level::debug)) {
+        std::ignore = log::CheckHResult(session_hr, "Password mode::DoEditSession", log::Level::debug);
+    }
+}
+
+void QiQiTextService::UpdatePasswordModeInSession(
+    TfEditCookie cookie, ITfContext* context, uint64_t revision) {
+    const auto current = [this, context, revision]() noexcept {
+        return composition_lifecycle_.IsActive() && password_context_.Get() == context &&
+               password_context_revision_ == revision;
+    };
+    if (!current()) return;
+    if (InspectConfirmedCurrentThreadEditWindow(password_window_).is_password) {
+        UpdatePasswordMode(true);
+        return;
+    }
+    const auto scope = QueryContextInputScopeInSession(
+        cookie, gsl::not_null<ITfContext*>(context), current);
+    if (!current()) return;
+    if (scope.classification == InputScopeClassification::QueryError) {
+        std::ignore = log::CheckHResult(scope.hr, "Password mode::QueryContextInputScopeInSession");
+        return;
+    }
+    UpdatePasswordMode(scope.classification == InputScopeClassification::PasswordOrPin);
+}
+
+STDMETHODIMP QiQiTextService::OnEndEdit(ITfContext* context, TfEditCookie cookie, ITfEditRecord*) {
+    if (context && context == password_context_.Get() && composition_lifecycle_.IsActive()) {
+        UpdatePasswordModeInSession(cookie, context, ++password_context_revision_);
+    }
+    return S_OK;
+}
+
+void QiQiTextService::UpdatePasswordMode(bool password) {
+    if (password) {
+        if (!password_previous_chinese_) password_previous_chinese_ = engine_.IsChineseMode();
+        if (!engine_.IsChineseMode()) return;
+        engine_.SetChineseMode(false);
+        ResetCompositionAndUI();
+    } else {
+        if (!password_previous_chinese_) return;
+        const bool previous = *password_previous_chinese_;
+        password_previous_chinese_.reset();
+        engine_.SetChineseMode(previous);
+    }
+    if (!composition_lifecycle_.IsActive()) return;
+    QIQI_LOG_DEBUG("Password mode: temporary_english={}, chinese={}", password, engine_.IsChineseMode());
+    SyncTsfCompartments();
 }
 
 void QiQiTextService::PrefetchActiveContextInputScope(ITfContext* context) {
@@ -549,6 +739,7 @@ void QiQiTextService::UpdateUiIndicators() {
 }
 
 void QiQiTextService::SyncTsfCompartments() {
+    if (password_previous_chinese_) engine_.SetChineseMode(false);
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
         log::Keyword::Config,

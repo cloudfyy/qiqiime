@@ -460,10 +460,12 @@ void RunTsfDocumentLifecycleTests(
         } else {
             QIQI_TEST_CHECK(service->OnSetFocus(document_a.Get(), document_b.Get()) == S_OK);
             QIQI_TEST_CHECK(service->OnKeyDown(context_a.Get(), 'C', 0, &handled) == S_OK && handled);
-            QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 2).flags == (TF_ES_ASYNC | TF_ES_READWRITE));
+            QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 2).flags == (TF_ES_ASYNCDONTCARE | TF_ES_READ));
+            QIQI_TEST_CHECK(gsl::at(queue->PendingRequests(), 3).flags == (TF_ES_ASYNC | TF_ES_READWRITE));
             QIQI_TEST_CHECK(queue->RunNext() == S_OK && old_composition->ended_);
             const auto cleared_old_attribute = context_a->prop_->clear_calls_;
             QIQI_TEST_CHECK(queue->RunNext() == S_OK && context_b->start_composition_calls_ == 0);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK && context_a->last_composition_ == old_composition);
             QIQI_TEST_CHECK(queue->RunNext() == S_OK && context_a->range_->text_ == L"c");
             QIQI_TEST_CHECK(context_a->prop_->clear_calls_ == cleared_old_attribute);
             QIQI_TEST_CHECK(context_a->last_composition_ != old_composition);

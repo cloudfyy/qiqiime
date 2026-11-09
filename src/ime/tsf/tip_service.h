@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <commctrl.h>
 #include <ctffunc.h>
 #include <gsl/gsl>
 #include <msctf.h>
@@ -21,6 +22,7 @@
 #include "ime/ui/langbar_button.h"
 #include "ime/ui/statusbar.h"
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -36,6 +38,7 @@ class QiQiTextService final
           ITfKeyEventSink,
           ITfCompositionSink,
           ITfTextLayoutSink,
+          ITfTextEditSink,
           ITfStatusSink,
           ITfCompartmentEventSink,
           ITfFunctionProvider,
@@ -85,6 +88,8 @@ public:
 
     // ITfTextLayoutSink
     STDMETHODIMP OnLayoutChange(ITfContext* pic, TfLayoutCode lcode, ITfContextView* pView) override;
+
+    STDMETHODIMP OnEndEdit(ITfContext* context, TfEditCookie cookie, ITfEditRecord* record) override;
 
     // ITfStatusSink
     STDMETHODIMP OnStatusChange(ITfContext* pic, DWORD dwFlags) override;
@@ -167,6 +172,15 @@ private:
     void DisconnectActiveContextAccessSinks() noexcept;
     void PrefetchActiveContextInputScope(ITfContext* context);
     void HandleActiveContextAccessChanged();
+    void ObserveFocusedPasswordContext();
+    void ObservePasswordDocument(ITfDocumentMgr* document);
+    void ObservePasswordContext(ITfContext* context, ITfDocumentMgr* document);
+    void DisconnectPasswordContext() noexcept;
+    void RefreshPasswordContext();
+    void UpdatePasswordModeInSession(TfEditCookie cookie, ITfContext* context, uint64_t revision);
+    void UpdatePasswordMode(bool password);
+    static LRESULT CALLBACK PasswordWindowSubclassProc(
+        HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data);
     bool IsContextKeyboardDisabled(ITfContext* context) const noexcept;
     void SetChineseModeAndFinishComposition(ITfContext* context, bool enabled);
     void ToggleModeAndFinishComposition(ITfContext* context);
@@ -198,6 +212,12 @@ private:
     ScopedTfSinkConnection thread_mgr_sink_;
     ScopedTfSinkConnection text_layout_sink_;
     ScopedTfSinkConnection context_status_sink_;
+    ComPtr<ITfContext> password_context_;
+    ITfDocumentMgr* password_document_ = nullptr; // Identity only; valid while TSF owns the focused document.
+    std::unique_ptr<ScopedTfSinkConnection> password_edit_sink_;
+    HWND password_window_ = nullptr;
+    uint64_t password_context_revision_ = 0;
+    std::optional<bool> password_previous_chinese_;
     bool key_event_sink_registered_ = false;
     std::vector<RegisteredPreservedKey> registered_preserved_keys_;
     bool function_provider_registered_ = false;

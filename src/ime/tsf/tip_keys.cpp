@@ -103,6 +103,7 @@ bool QiQiTextService::HandleShiftTapKeyUp(std::string_view stage, uint32_t vk, c
 
 STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
     HandleFocusChanged(fForeground != FALSE, FocusNotificationSource::KeyEvent);
+    if (fForeground && !password_context_) ObserveFocusedPasswordContext();
     return S_OK;
 }
 
