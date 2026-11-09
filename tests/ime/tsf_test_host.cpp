@@ -393,7 +393,7 @@ bool CreateHostControls(HostAppState& app) noexcept {
             WS_EX_CLIENTEDGE, L"EDIT", field.initial_text,
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | field.extra_style,
             edit_x, y, edit_w, row_h, app.hwnd,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(std::to_underlying(field.id))),
+            reinterpret_cast<HMENU>(gsl::narrow_cast<INT_PTR>(std::to_underlying(field.id))),
             app.instance, nullptr);
         if (!ed) return false;
         ::SendMessageW(ed, WM_SETFONT, reinterpret_cast<WPARAM>(app.font.Get()), TRUE);
@@ -445,7 +445,7 @@ bool CreateHostControls(HostAppState& app) noexcept {
         HWND b = ::CreateWindowExW(
             0, L"BUTTON", btn.text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
             bx, y, bw, s(28), app.hwnd,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(std::to_underlying(btn.id))),
+            reinterpret_cast<HMENU>(gsl::narrow_cast<INT_PTR>(std::to_underlying(btn.id))),
             app.instance, nullptr);
         if (!b) return false;
         ::SendMessageW(b, WM_SETFONT, reinterpret_cast<WPARAM>(app.font.Get()), TRUE);
@@ -458,7 +458,7 @@ bool CreateHostControls(HostAppState& app) noexcept {
         WS_EX_CLIENTEDGE, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY,
         margin, y, total_content_w, inspector_h, app.hwnd,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(std::to_underlying(HostControlId::InspectorBox))),
+        reinterpret_cast<HMENU>(gsl::narrow_cast<INT_PTR>(std::to_underlying(HostControlId::InspectorBox))),
         app.instance, nullptr);
     if (!inspector) return false;
     ::SendMessageW(inspector, WM_SETFONT, reinterpret_cast<WPARAM>(app.mono_font.Get()), TRUE);

@@ -85,6 +85,7 @@
         <File Id="FileReadme" Source="$(var.StageDir)\README.md" />
         <File Id="FileDeployment" Source="$(var.StageDir)\deploy.md" />
         <File Id="FileLogging" Source="$(var.StageDir)\log.md" />
+        <File Id="FileReleaseNotes" Source="$(var.StageDir)\release-notes.md" />
       </Component>
 
       <Component Id="CmpStartMenuShortcuts" Directory="QiQiProgramMenuFolder"

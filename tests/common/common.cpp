@@ -728,6 +728,13 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() == unchanged);
     QIQI_TEST_CHECK(SaveConfig(reg_out));
     QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == S_OK && directory == shared_directory);
+    const std::filesystem::path maximum_path(L"C:\\" + std::wstring(2044, L'a'));
+    QIQI_TEST_CHECK(SaveUserDictSyncDirectory(maximum_path) == S_OK);
+    QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == S_OK && directory == maximum_path);
+    const auto maximum_sequence = QueryRegistryConfigSequence();
+    QIQI_TEST_CHECK(SaveUserDictSyncDirectory(std::filesystem::path(maximum_path.wstring() + L"a")) == E_INVALIDARG);
+    QIQI_TEST_CHECK(QueryRegistryConfigSequence() == maximum_sequence);
+    QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == S_OK && directory == maximum_path);
     QIQI_TEST_CHECK(SaveUserDictSyncDirectory({}) == S_OK);
     QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == S_OK && directory.empty());
     {
@@ -744,6 +751,9 @@ void TestIniConfiguration() {
             reinterpret_cast<const BYTE*>(relative.c_str()),
             gsl::narrow_cast<DWORD>((relative.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS);
         QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+        const uint64_t invalid_sequence = QueryRegistryConfigSequence();
+        QIQI_TEST_CHECK(SaveUserDictSyncDirectory(shared_directory) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+        QIQI_TEST_CHECK(QueryRegistryConfigSequence() == invalid_sequence);
     }
 }
 

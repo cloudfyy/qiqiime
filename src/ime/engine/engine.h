@@ -96,9 +96,7 @@ public:
             user_dict_path_ = std::move(path);
             user_dict_sync_version_ = {};
             if (user_dict_sharing_) {
-                dict_.clear();
-                pinned_entries_.clear();
-                removed_entries_.clear();
+                ClearUserDictionaryEntries();
             }
         }
     }
@@ -336,6 +334,7 @@ private:
     TransitionOutcome HandleDeleteOrBlockCandidate(const KeyInputContext& ctx);
 
     bool IsEntryRemoved(uint32_t packed_code, std::wstring_view word) const;
+    void ClearUserDictionaryEntries() noexcept;
     void SwapDictionaryState(WubiEngine& other) noexcept;
     bool CheckAndPublishExternalUserDictChanges(const std::filesystem::path& dict_path);
     template <typename FileMutator, typename MemoryMutator>

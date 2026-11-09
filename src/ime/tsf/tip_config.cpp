@@ -55,21 +55,24 @@ QiQiTextService::ReloadResult QiQiTextService::LoadExternalDictionaryNextToDll()
         ? ResolveConfiguredDictionaryPath(dll_dir, config_.user_dict_path)
         : GetDefaultUserDictPath();
     engine_.SetUserDictPath(user_path);
-    if (IsProcessAppContainer()) {
-        result.Observe(engine_.InitializeUserDictionarySharing());
-    } else if (std::filesystem::exists(user_path)) {
-        const bool loaded = engine_.LoadDictionaryFile(user_path);
-        loaded_any |= loaded;
-        if (!loaded) result.Fail();
-        result.Observe(engine_.InitializeUserDictionarySharing());
-    } else if (has_custom_user_path) {
-        result.Observe(engine_.InitializeUserDictionarySharing());
-        result.Fail();
-        QIQI_LOG_WARN("Configured user dictionary '{}' does not exist",
-                      WideToUtf8(user_path.wstring()));
-    } else {
-        result.Observe(engine_.InitializeUserDictionarySharing());
+    if (!IsProcessAppContainer()) {
+        std::error_code ec;
+        const bool exists = std::filesystem::exists(user_path, ec);
+        if (ec) {
+            const HRESULT hr = HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value()));
+            std::ignore = log::CheckHResult(hr, "LoadExternalDictionaryNextToDll::user dictionary");
+            result.Fail(hr);
+        } else if (exists) {
+            const bool loaded = engine_.LoadDictionaryFile(user_path);
+            loaded_any |= loaded;
+            if (!loaded) result.Fail();
+        } else if (has_custom_user_path) {
+            result.Fail();
+            QIQI_LOG_WARN("Configured user dictionary '{}' does not exist",
+                          WideToUtf8(user_path.wstring()));
+        }
     }
+    result.Observe(engine_.InitializeUserDictionarySharing());
 
     if (!loaded_any && config_.primary_dict != PrimaryDict::BuiltinOnly) {
         QIQI_LOG_DEBUG("External dictionaries not found in '{}', using builtin dictionary only",

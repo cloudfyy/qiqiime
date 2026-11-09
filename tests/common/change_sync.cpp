@@ -267,6 +267,18 @@ void ProbeReader(const std::filesystem::path& directory, const wchar_t* registry
     QIQI_TEST_CHECK(FAILED(missing_path_hr));
     QIQI_TEST_CHECK(container_engine.SynchronizeUserDictionary(InputBoundary::NewInput) == missing_path_hr);
     SetConfigRegistrySubKeyOverrideForTest(registry_subkey);
+    for (const auto& [name, expected] : std::array{
+        std::pair{L"MissingSnapshot", HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)},
+        std::pair{L"DeniedSnapshot", E_ACCESSDENIED},
+        std::pair{L"MissingJournal", HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)}}) {
+        const auto failure_subkey = std::wstring(registry_subkey) + L"\\" + name;
+        SetConfigRegistrySubKeyOverrideForTest(failure_subkey.c_str());
+        WubiEngine failed_reader;
+        QIQI_TEST_CHECK(failed_reader.InitializeUserDictionarySharing() == expected);
+        QIQI_TEST_CHECK(failed_reader.UserDictSyncVersion() == Version{});
+        QIQI_TEST_CHECK(failed_reader.UserDictionaryEntries().empty());
+    }
+    SetConfigRegistrySubKeyOverrideForTest(registry_subkey);
     QIQI_TEST_CHECK(container_engine.InitializeUserDictionarySharing() == S_OK);
     QIQI_TEST_CHECK(container_engine.SynchronizeCrossProcessChanges(InputBoundary::NewInput));
     QIQI_TEST_CHECK(container_engine.UserDictSnapshotSyncCount() == 1);
@@ -392,6 +404,23 @@ void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
     QIQI_TEST_CHECK(host_engine.InitializeUserDictionarySharing() == S_OK);
     QIQI_TEST_CHECK(::SetFileSecurityW(user_dict.c_str(),
         DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
+    for (const auto* name : {L"MissingSnapshot", L"DeniedSnapshot", L"MissingJournal"}) {
+        const auto source_path = fixture.directory / (std::wstring(name) + L".txt");
+        const auto channel_directory = GetSyncChannelDirectoryForFile(source_path);
+        WubiEngine failure_writer;
+        failure_writer.SetUserDictPath(source_path);
+        QIQI_TEST_CHECK(failure_writer.AddUserEntry(L"qwer", L"失败路径词"));
+        if (std::wstring_view(name) == L"MissingSnapshot") {
+            QIQI_TEST_CHECK(std::filesystem::remove(channel_directory / L"snapshot.txt"));
+        } else if (std::wstring_view(name) == L"DeniedSnapshot") {
+            QIQI_TEST_CHECK(::SetFileSecurityW((channel_directory / L"snapshot.txt").c_str(),
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
+        } else {
+            QIQI_TEST_CHECK(std::filesystem::remove(channel_directory / L"journal.bin"));
+        }
+        const auto failure_subkey = registry_subkey + L"\\" + name;
+        QIQI_TEST_CHECK(SaveUserDictSyncDirectory(channel_directory, failure_subkey.c_str()) == S_OK);
+    }
     for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) host_engine.ProcessKey(vk);
     QIQI_TEST_CHECK(host_engine.CommitCandidate(0).committed_text == L"短语一");
 

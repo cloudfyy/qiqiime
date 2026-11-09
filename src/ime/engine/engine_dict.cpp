@@ -132,7 +132,8 @@ std::string SerializeDictEntriesToUtf8(const std::map<uint32_t, std::vector<std:
 HRESULT ReadDictEntriesFromFileResult(
     const std::filesystem::path& file_path,
     std::map<uint32_t, std::vector<std::wstring>>& out_entries,
-    std::string* out_raw_utf8 = nullptr) {
+    std::string* out_raw_utf8 = nullptr,
+    bool allow_missing = true) {
     out_entries.clear();
     std::error_code ec;
     const bool exists = std::filesystem::exists(file_path, ec);
@@ -142,6 +143,11 @@ HRESULT ReadDictEntriesFromFileResult(
         return HRESULT_FROM_WIN32(ec.value());
     }
     if (!exists) {
+        if (!allow_missing) {
+            constexpr HRESULT hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+            std::ignore = log::CheckHResult(hr, "ReadDictEntriesFromFile::required snapshot");
+            return hr;
+        }
         if (out_raw_utf8) {
             out_raw_utf8->clear();
         }
@@ -1007,6 +1013,12 @@ bool WubiEngine::CheckAndPublishExternalUserDictChanges(const std::filesystem::p
     return false;
 }
 
+void WubiEngine::ClearUserDictionaryEntries() noexcept {
+    dict_.clear();
+    pinned_entries_.clear();
+    removed_entries_.clear();
+}
+
 HRESULT WubiEngine::InitializeUserDictionarySharing() {
     user_dict_sharing_ = true;
     if (IsProcessAppContainer()) {
@@ -1016,9 +1028,7 @@ HRESULT WubiEngine::InitializeUserDictionarySharing() {
         if (directory != shared_user_dict_directory_) {
             shared_user_dict_directory_ = std::move(directory);
             user_dict_sync_version_ = {};
-            dict_.clear();
-            pinned_entries_.clear();
-            removed_entries_.clear();
+            ClearUserDictionaryEntries();
         }
         if (FAILED(hr)) return hr;
         return SynchronizeUserDictionary(sync::InputBoundary::NewInput);
@@ -1049,9 +1059,7 @@ HRESULT WubiEngine::SynchronizeUserDictionary(sync::InputBoundary boundary) {
             return error;
         }
         if (!source_exists) {
-            dict_.clear();
-            pinned_entries_.clear();
-            removed_entries_.clear();
+            ClearUserDictionaryEntries();
             std::erase_if(mapped_dicts_, [&dict_path](const auto& dictionary) {
                 return dictionary && dictionary->SourcePath() == dict_path;
             });
@@ -1067,9 +1075,10 @@ HRESULT WubiEngine::SynchronizeUserDictionary(sync::InputBoundary boundary) {
         if (FAILED(publish_hr)) return publish_hr;
     }
     if (!std::filesystem::exists(channel_dir / L"journal.bin", ec)) {
-        if (ec) return HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value()));
-        if (shared_reader) return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
-        return S_OK;
+        const HRESULT hr = ec ? HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value())) :
+            (shared_reader ? HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) : S_OK);
+        std::ignore = log::CheckHResult(hr, "SynchronizeUserDictionary::journal");
+        return hr;
     }
     const sync::Source source{sync::DataType::Dictionary, kGuidSyncSourceDictionary};
     const sync::Channel channel(channel_dir, source);
@@ -1082,9 +1091,8 @@ HRESULT WubiEngine::SynchronizeUserDictionary(sync::InputBoundary boundary) {
             const std::filesystem::path snapshot_path = channel_dir / L"snapshot.txt";
             const std::filesystem::path read_path =
                 shared_reader || std::filesystem::exists(snapshot_path, ec) ? snapshot_path : dict_path;
-            if (!ReadDictEntriesFromFile(read_path, loaded)) {
-                return E_FAIL;
-            }
+            const HRESULT read_hr = ReadDictEntriesFromFileResult(read_path, loaded, nullptr, !shared_reader);
+            if (FAILED(read_hr)) return read_hr;
             WubiEngine staged;
             staged.promoted_phrases_ = promoted_phrases_;
             for (const auto& [packed, words] : loaded) {

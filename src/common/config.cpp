@@ -15,6 +15,8 @@ namespace qiqi {
 
 namespace {
 
+constexpr DWORD kMaxRegistryStringBytes = 4096;
+
 bool WriteRegDword(HKEY key, const wchar_t* name, DWORD val) noexcept {
     const LSTATUS error = ::RegSetValueExW(
         key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&val), sizeof(val));
@@ -56,11 +58,10 @@ bool WriteRegString(HKEY key, const wchar_t* name, std::wstring_view val) noexce
 HRESULT ReadRegStringResult(HKEY key, const wchar_t* name, std::wstring& out_val) {
     DWORD type = 0;
     DWORD cb = 0;
-    constexpr DWORD kMaxStringBytes = 4096;
     const LSTATUS size_error = ::RegQueryValueExW(key, name, nullptr, &type, nullptr, &cb);
     if (!CheckRegistryRead(size_error, "ReadRegString::RegQueryValueExW(size)"))
         return HRESULT_FROM_WIN32(size_error);
-    if (type != REG_SZ || cb < sizeof(wchar_t) || cb > kMaxStringBytes || cb % sizeof(wchar_t) != 0)
+    if (type != REG_SZ || cb < sizeof(wchar_t) || cb > kMaxRegistryStringBytes || cb % sizeof(wchar_t) != 0)
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     std::wstring buf(cb / sizeof(wchar_t), L'\0');
     const LSTATUS data_error = ::RegQueryValueExW(
@@ -220,7 +221,7 @@ ScopedRegKey OpenOrCreateConfigRegKey(
     return key;
 }
 
-bool BumpRegistrySequence(HKEY key) noexcept {
+HRESULT BumpRegistrySequenceResult(HKEY key) noexcept {
     uint64_t seq = 0;
     DWORD cb = sizeof(seq);
     DWORD type = 0;
@@ -237,9 +238,13 @@ bool BumpRegistrySequence(HKEY key) noexcept {
         sizeof(seq));
     if (result != ERROR_SUCCESS) {
         QIQI_LOG_ERROR("Failed to update registry configuration sequence (error={})", result);
-        return false;
+        return HRESULT_FROM_WIN32(result);
     }
-    return true;
+    return S_OK;
+}
+
+bool BumpRegistrySequence(HKEY key) noexcept {
+    return SUCCEEDED(BumpRegistrySequenceResult(key));
 }
 
 const wchar_t* g_config_reg_subkey_override = nullptr;
@@ -448,7 +453,7 @@ HRESULT SaveUserDictSyncDirectory(const std::filesystem::path& directory, const 
         if (IsProcessAppContainer()) return E_ACCESSDENIED;
         if (!directory.empty() && !directory.is_absolute()) return E_INVALIDARG;
         const std::wstring path = directory.wstring();
-        if ((path.size() + 1) * sizeof(wchar_t) > 4096) return E_INVALIDARG;
+        if ((path.size() + 1) * sizeof(wchar_t) > kMaxRegistryStringBytes) return E_INVALIDARG;
         ScopedKernelTransaction txn;
         if (!txn) return HRESULT_FROM_WIN32(txn.Error());
         LSTATUS open_error = ERROR_SUCCESS;
@@ -460,7 +465,8 @@ HRESULT SaveUserDictSyncDirectory(const std::filesystem::path& directory, const 
         if (FAILED(read_hr) && read_hr != HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) return read_hr;
         const HRESULT write_hr = WriteRegStringResult(key.Get(), L"UserDictSyncDirectory", path);
         if (FAILED(write_hr)) return write_hr;
-        if (!BumpRegistrySequence(key.Get())) return E_FAIL;
+        const HRESULT sequence_hr = BumpRegistrySequenceResult(key.Get());
+        if (FAILED(sequence_hr)) return sequence_hr;
         key.Reset();
         return txn.Commit() ? S_OK : HRESULT_FROM_WIN32(txn.Error());
     };

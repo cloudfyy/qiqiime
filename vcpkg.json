@@ -1,6 +1,6 @@
 {
   "name": "qiqiime",
-  "version-string": "0.9.5",
+  "version-string": "1.0.0",
   "dependencies": [
     "ms-gsl"
   ]

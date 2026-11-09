@@ -89,6 +89,7 @@ if ($Package) {
     Copy-Item (Join-Path $QiQiRepoRoot "README.md") -Destination $pkgDir
     Copy-Item (Join-Path $QiQiRepoRoot "docs\deploy.md") -Destination $pkgDir
     Copy-Item (Join-Path $QiQiRepoRoot "docs\log.md") -Destination $pkgDir
+    Copy-Item (Join-Path $QiQiRepoRoot "docs\release-notes.md") -Destination $pkgDir
 
     Compress-Archive -Path $pkgDir -DestinationPath $zipPath -Force
     $zipSizeKB = [math]::Round((Get-Item $zipPath).Length / 1KB, 1)
