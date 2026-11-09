@@ -157,6 +157,10 @@ void TestSettingsLiveLanguagePreservesControls() {
         ::GetDlgItemTextW(hwnd.Get(), kIdLblEnglishSwitch, switch_label.data(),
                          gsl::narrow_cast<int>(switch_label.size()));
         QIQI_TEST_CHECK(std::wstring(switch_label.data()) == str.dlg_lbl_english_switch);
+        std::array<wchar_t, 64> restore_label{};
+        ::GetDlgItemTextW(hwnd.Get(), kIdBtnRestoreDefaults, restore_label.data(),
+                         gsl::narrow_cast<int>(restore_label.size()));
+        QIQI_TEST_CHECK(std::wstring(restore_label.data()) == str.dlg_btn_restore_defaults);
         for (const WPARAM item : {0u, 1u}) {
             std::array<wchar_t, 128> text{};
             QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETLBTEXTLEN, item, 0) <

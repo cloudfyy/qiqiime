@@ -42,6 +42,7 @@ constexpr int kIdBtnHelp = 130;
 constexpr int kIdRadioCustom = 131;
 constexpr int kIdBtnBrowsePrimaryDict = 132;
 constexpr int kIdLblCustomPrimaryPath = 133;
+constexpr int kIdBtnRestoreDefaults = 134;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 
@@ -123,6 +124,9 @@ inline constexpr RECT kCancelButton{
 inline constexpr RECT kOkButton{
     kCancelButton.left - kButtonGap - kAcceptButtonWidth, kFooterTop,
     kCancelButton.left - kButtonGap, kFooterTop + kButtonHeight};
+inline constexpr RECT kRestoreDefaultsButton{
+    kHelpButton.right + kButtonGap, kFooterTop,
+    kOkButton.left - kButtonGap, kFooterTop + kButtonHeight};
 } // namespace settings_layout
 
 DWORD OpenDictionaryManager(
@@ -167,7 +171,7 @@ struct DialogContext {
 };
 
 UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept;
-void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept;
+void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_config = true) noexcept;
 void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcept;
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept;
 void UpdateExtraDictCheckboxState(HWND hwnd) noexcept;

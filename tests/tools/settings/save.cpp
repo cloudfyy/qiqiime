@@ -1,5 +1,6 @@
 #include "common/test_support.h"
 #include "common/i18n.h"
+#include "common/win32_ui_util.h"
 #include "tools/settings/internal.h"
 
 #include <array>
@@ -195,6 +196,137 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(cfg.primary_dict == PrimaryDict::Jidian && cfg.page_size == 5 && !cfg.enable_key_sound);
 }
 
+void TestRestoreDefaults() {
+    const std::wstring subkey =
+        L"Software\\QiQiIME_SettingsDefaultsTest_" + std::to_wstring(::GetCurrentProcessId());
+    const wchar_t* previous = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto cleanup = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        QIQI_TEST_CHECK(::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str()) == ERROR_SUCCESS);
+    });
+    const QiQiConfig defaults{};
+    const auto check_restored = [&defaults](const QiQiConfig& actual, const QiQiConfig& original) {
+        ForEachConfigField([&](const auto& field) {
+            QIQI_TEST_CHECK(field.Value(actual) ==
+                field.Value(field.settings_editable ? defaults : original));
+        });
+        QIQI_TEST_CHECK(actual.primary_dict_path.empty());
+        QIQI_TEST_CHECK(actual.user_dict_path == original.user_dict_path);
+    };
+    for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        for (const bool persist : {false, true}) {
+            for (const bool accept : {false, true}) {
+                QiQiConfig cfg;
+                ForEachConfigField([&](const auto& field) {
+                    QIQI_TEST_CHECK(field.Assign(cfg,
+                        field.Value(defaults) == field.minimum ? field.maximum : field.minimum));
+                });
+                cfg.ui_language = language;
+                cfg.primary_dict_path = L"preserved_custom_dictionary.txt";
+                cfg.user_dict_path = L"preserved_user_dictionary.txt";
+                const QiQiConfig original = cfg;
+                QIQI_TEST_CHECK(SaveConfig(cfg));
+                const auto before = QueryRegistryConfigSequence();
+                const ScopedWindow window(CreateSettingsWindow(
+                    ::GetModuleHandleW(nullptr), nullptr, &cfg, persist));
+                QIQI_TEST_CHECK(window);
+                std::array<wchar_t, 64> label{};
+                ::GetDlgItemTextW(window.Get(), kIdBtnRestoreDefaults, label.data(),
+                                 gsl::narrow_cast<int>(label.size()));
+                QIQI_TEST_CHECK(std::wstring(label.data()) == GetUiStrings(language).dlg_btn_restore_defaults);
+                {
+                    const HWND button = ::GetDlgItem(window.Get(), kIdBtnRestoreDefaults);
+                    QIQI_TEST_CHECK((::GetWindowLongPtrW(button, GWL_STYLE) & WS_TABSTOP) != 0);
+                    const ScopedWindowDC dc(button);
+                    const HFONT font = reinterpret_cast<HFONT>(::SendMessageW(button, WM_GETFONT, 0, 0));
+                    const ScopedSelectObject select_font(dc.Get(), font);
+                    SIZE text{};
+                    const std::wstring caption(label.data());
+                    QIQI_TEST_CHECK(::GetTextExtentPoint32W(
+                        dc.Get(), caption.c_str(), gsl::narrow_cast<int>(caption.size()), &text));
+                    RECT bounds{};
+                    QIQI_TEST_CHECK(::GetClientRect(button, &bounds));
+                    QIQI_TEST_CHECK(text.cx < bounds.right && text.cy < bounds.bottom);
+                }
+                ::SendDlgItemMessageW(window.Get(), kIdBtnRestoreDefaults, BM_CLICK, 0, 0);
+                ::SendDlgItemMessageW(window.Get(), kIdBtnRestoreDefaults, BM_CLICK, 0, 0);
+                const RECT suggested{100, 100, 1400, 900};
+                ::SendMessageW(window.Get(), WM_DPICHANGED, MAKEWPARAM(144, 144),
+                               reinterpret_cast<LPARAM>(&suggested));
+                QIQI_TEST_CHECK(!GetContext(window.Get()).done);
+                ForEachConfigField([&](const auto& field) {
+                    QIQI_TEST_CHECK(field.Value(cfg) == field.Value(original));
+                    QIQI_TEST_CHECK(field.Value(GetContext(window.Get()).baseline_config) == field.Value(original));
+                });
+                QIQI_TEST_CHECK(cfg.primary_dict_path == original.primary_dict_path);
+                QIQI_TEST_CHECK(GetContext(window.Get()).baseline_config.primary_dict_path == original.primary_dict_path);
+                QIQI_TEST_CHECK(QueryRegistryConfigSequence() == before);
+                QiQiConfig edited = cfg;
+                ReadSettingsFromWindowControls(window.Get(), edited);
+                check_restored(edited, original);
+                QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(window.Get(), kIdChkExtraDict)));
+                QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(window.Get(), kIdChkBoldUnderline)));
+                ::GetDlgItemTextW(window.Get(), kIdBtnRestoreDefaults, label.data(),
+                                 gsl::narrow_cast<int>(label.size()));
+                QIQI_TEST_CHECK(std::wstring(label.data()) ==
+                                GetUiStrings(UiLanguage::Auto).dlg_btn_restore_defaults);
+
+                if (persist && accept) {
+                    SetConfigRegistrySubKeyOverrideForTest(L"");
+                    WithDismissedMessage(GetUiStrings(UiLanguage::Auto).dlg_save_failed, [&] {
+                        ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+                    });
+                    QIQI_TEST_CHECK(!GetContext(window.Get()).done && !GetContext(window.Get()).accepted);
+                    ReadSettingsFromWindowControls(window.Get(), edited);
+                    check_restored(edited, original);
+                    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+                    QIQI_TEST_CHECK(QueryRegistryConfigSequence() == before);
+                }
+                ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(accept ? IDOK : IDCANCEL, BN_CLICKED), 0);
+                QIQI_TEST_CHECK(GetContext(window.Get()).done && GetContext(window.Get()).accepted == accept);
+                QiQiConfig stored;
+                QIQI_TEST_CHECK(LoadConfigFromRegistry(stored));
+                QIQI_TEST_CHECK(QueryRegistryConfigSequence() == before + (persist && accept ? 1 : 0));
+                if (accept) {
+                    check_restored(cfg, original);
+                }
+                ForEachConfigField([&](const auto& field) {
+                    if (!accept) QIQI_TEST_CHECK(field.Value(cfg) == field.Value(original));
+                    QIQI_TEST_CHECK(field.Value(stored) == field.Value(persist && accept ? cfg : original));
+                });
+                QIQI_TEST_CHECK(stored.user_dict_path == original.user_dict_path);
+                QIQI_TEST_CHECK(stored.primary_dict_path ==
+                                (persist && accept ? std::wstring{} : original.primary_dict_path));
+            }
+        }
+    }
+
+    QiQiConfig cfg;
+    cfg.page_size = 9;
+    cfg.primary_dict = PrimaryDict::Haifeng;
+    QIQI_TEST_CHECK(SaveConfig(cfg));
+    const ScopedWindow window(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg, true));
+    QIQI_TEST_CHECK(window);
+    ::SendDlgItemMessageW(window.Get(), kIdBtnRestoreDefaults, BM_CLICK, 0, 0);
+    QiQiConfig external = cfg;
+    external.page_size = 8;
+    external.primary_dict = PrimaryDict::BuiltinOnly;
+    external.user_dict_path = L"externally_updated_user_dictionary.txt";
+    QIQI_TEST_CHECK(SaveConfig(external));
+    ::SendMessageW(window.Get(), kSettingsExternalConfigChangedMessage, 0, 0);
+    QiQiConfig edited = cfg;
+    ReadSettingsFromWindowControls(window.Get(), edited);
+    QIQI_TEST_CHECK(edited.page_size == defaults.page_size && edited.primary_dict == defaults.primary_dict);
+    QIQI_TEST_CHECK(edited.user_dict_path == external.user_dict_path);
+    ::SendDlgItemMessageW(window.Get(), kIdComboPageSize, CB_SETCURSEL, 6, 0);
+    ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+    QIQI_TEST_CHECK(cfg.page_size == 7 && cfg.primary_dict == defaults.primary_dict);
+    QiQiConfig stored;
+    QIQI_TEST_CHECK(LoadConfigFromRegistry(stored) && stored.page_size == 7);
+    QIQI_TEST_CHECK(stored.user_dict_path == external.user_dict_path);
+}
+
 void TestSettingsFieldMergeMatrix() {
     const std::wstring subkey = L"Software\\QiQiIME_SettingsMatrix_" + std::to_wstring(::GetCurrentProcessId());
     const wchar_t* previous = GetActiveConfigRegistrySubKey();
@@ -243,6 +375,7 @@ void TestSettingsFieldMergeMatrix() {
 void RunSettingsSaveTests() {
     TestSaveRetryAndCancel();
     TestExternalConfigSyncWhileSettingsOpen();
+    TestRestoreDefaults();
     TestSettingsFieldMergeMatrix();
 }
 

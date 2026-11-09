@@ -84,6 +84,7 @@ struct UiStrings {
     const wchar_t* dlg_btn_about;
     const wchar_t* dlg_btn_dict_mgr;
     const wchar_t* dlg_btn_help;
+    const wchar_t* dlg_btn_restore_defaults;
     const wchar_t* dlg_btn_ok;
     const wchar_t* dlg_btn_cancel;
     const wchar_t* dlg_save_failed;
@@ -179,6 +180,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"关于...",
     L"词库与词频管理...",
     L"快捷键说明...",
+    L"恢复默认值",
     L"确定",
     L"取消",
     L"保存设置失败，请重试。",
@@ -291,6 +293,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"About...",
     L"Dictionary Manager...",
     L"Shortcuts...",
+    L"Restore defaults",
     L"OK",
     L"Cancel",
     L"Settings could not be saved. Your edits remain in this window. Please retry.",

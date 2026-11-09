@@ -40,6 +40,7 @@ constexpr std::array kSettingsLayoutRectCases{
     std::pair{settings_geometry::kAboutButton, RECT{18, 448, 122, 480}},
     std::pair{settings_geometry::kDictionaryManagerButton, RECT{132, 448, 288, 480}},
     std::pair{settings_geometry::kHelpButton, RECT{298, 448, 426, 480}},
+    std::pair{settings_geometry::kRestoreDefaultsButton, RECT{436, 448, 586, 480}},
     std::pair{settings_geometry::kOkButton, RECT{596, 448, 694, 480}},
     std::pair{settings_geometry::kCancelButton, RECT{704, 448, 802, 480}}};
 static_assert([]() constexpr noexcept {

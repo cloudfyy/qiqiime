@@ -254,6 +254,14 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             }
             ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
+        case kIdBtnRestoreDefaults: {
+            // Restored values are unsaved edits, not a new external-configuration baseline.
+            QiQiConfig baseline = std::move(ctx.baseline_config);
+            WriteSettingsToWindowControls(hwnd, QiQiConfig{});
+            ctx.baseline_config = std::move(baseline);
+            ApplyLiveSettingsLanguage(hwnd, ctx, false);
+            return;
+        }
         case kIdBtnOk: {
             if (ctx.config) {
                 if (ctx.save_on_accept) {
@@ -411,7 +419,7 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
         CreateSettingsControls(hwnd, ctx.instance, ctx);
         WriteSettingsToWindowControls(hwnd, current_config);
         ctx.baseline_config = baseline_config;
-        ApplyLiveSettingsLanguage(hwnd, ctx);
+        ApplyLiveSettingsLanguage(hwnd, ctx, false);
         if (focused_control_id != 0) {
             if (const HWND focused_control = ::GetDlgItem(hwnd, focused_control_id)) {
                 ::SetFocus(focused_control);
@@ -470,7 +478,8 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 const auto* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
                 if (dis->CtlType == ODT_BUTTON) {
                     if (dis->CtlID == kIdBtnAbout || dis->CtlID == kIdBtnDictManager ||
-                        dis->CtlID == kIdBtnHelp || dis->CtlID == kIdBtnBrowsePrimaryDict ||
+                        dis->CtlID == kIdBtnHelp || dis->CtlID == kIdBtnRestoreDefaults ||
+                        dis->CtlID == kIdBtnBrowsePrimaryDict ||
                         dis->CtlID == kIdBtnOk || dis->CtlID == kIdBtnCancel) {
                         const bool inside_card = (dis->CtlID == kIdBtnBrowsePrimaryDict);
                         const D2D1_COLOR_F outer_bg = inside_card

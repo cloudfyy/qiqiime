@@ -95,9 +95,9 @@ UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) n
     return ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
 }
 
-void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
+void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_config) noexcept {
     const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
-    if (ctx.config && !ctx.save_on_accept) {
+    if (update_bound_config && ctx.config && !ctx.save_on_accept) {
         ctx.config->ui_language = lang;
     }
     const auto& str = GetUiStrings(lang);
@@ -121,6 +121,7 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdBtnAbout, str.dlg_btn_about);
     ::SetDlgItemTextW(hwnd, kIdBtnDictManager, str.dlg_btn_dict_mgr);
     ::SetDlgItemTextW(hwnd, kIdBtnHelp, str.dlg_btn_help);
+    ::SetDlgItemTextW(hwnd, kIdBtnRestoreDefaults, str.dlg_btn_restore_defaults);
     ::SetDlgItemTextW(hwnd, kIdBtnOk, str.dlg_btn_ok);
     ::SetDlgItemTextW(hwnd, kIdBtnCancel, str.dlg_btn_cancel);
 
@@ -310,6 +311,8 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     create_control(L"BUTTON", str.dlg_btn_about, button_style, layout::kAboutButton, kIdBtnAbout);
     create_control(L"BUTTON", str.dlg_btn_dict_mgr, button_style, layout::kDictionaryManagerButton, kIdBtnDictManager);
     create_control(L"BUTTON", str.dlg_btn_help, button_style, layout::kHelpButton, kIdBtnHelp);
+    create_control(L"BUTTON", str.dlg_btn_restore_defaults, button_style,
+                   layout::kRestoreDefaultsButton, kIdBtnRestoreDefaults);
     create_control(L"BUTTON", str.dlg_btn_ok, button_style, layout::kOkButton, kIdBtnOk);
     create_control(L"BUTTON", str.dlg_btn_cancel, button_style, layout::kCancelButton, kIdBtnCancel);
 }
