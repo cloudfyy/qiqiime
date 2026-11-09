@@ -39,36 +39,45 @@ bool ReadRegDword(HKEY key, const wchar_t* name, DWORD& out_val) noexcept {
            type == REG_DWORD;
 }
 
-bool WriteRegString(HKEY key, const wchar_t* name, std::wstring_view val) noexcept {
+HRESULT WriteRegStringResult(HKEY key, const wchar_t* name, std::wstring_view val) noexcept {
     const DWORD cb = gsl::narrow_cast<DWORD>((val.size() + 1) * sizeof(wchar_t));
     const LSTATUS error = ::RegSetValueExW(
         key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(val.data()), cb);
     if (error != ERROR_SUCCESS) {
         QIQI_LOG_ERROR("WriteRegString::RegSetValueExW failed (error={})", error);
     }
-    return error == ERROR_SUCCESS;
+    return HRESULT_FROM_WIN32(error);
 }
 
-bool ReadRegString(HKEY key, const wchar_t* name, std::wstring& out_val) {
+bool WriteRegString(HKEY key, const wchar_t* name, std::wstring_view val) noexcept {
+    return SUCCEEDED(WriteRegStringResult(key, name, val));
+}
+
+HRESULT ReadRegStringResult(HKEY key, const wchar_t* name, std::wstring& out_val) {
     DWORD type = 0;
     DWORD cb = 0;
     constexpr DWORD kMaxStringBytes = 4096;
-    if (!CheckRegistryRead(::RegQueryValueExW(key, name, nullptr, &type, nullptr, &cb),
-                           "ReadRegString::RegQueryValueExW(size)") ||
-        type != REG_SZ || cb < sizeof(wchar_t) || cb > kMaxStringBytes) {
-        return false;
-    }
+    const LSTATUS size_error = ::RegQueryValueExW(key, name, nullptr, &type, nullptr, &cb);
+    if (!CheckRegistryRead(size_error, "ReadRegString::RegQueryValueExW(size)"))
+        return HRESULT_FROM_WIN32(size_error);
+    if (type != REG_SZ || cb < sizeof(wchar_t) || cb > kMaxStringBytes || cb % sizeof(wchar_t) != 0)
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     std::wstring buf(cb / sizeof(wchar_t), L'\0');
-    if (!CheckRegistryRead(::RegQueryValueExW(
-            key, name, nullptr, &type, reinterpret_cast<LPBYTE>(buf.data()), &cb),
-            "ReadRegString::RegQueryValueExW(data)")) {
-        return false;
-    }
+    const LSTATUS data_error = ::RegQueryValueExW(
+        key, name, nullptr, &type, reinterpret_cast<LPBYTE>(buf.data()), &cb);
+    if (!CheckRegistryRead(data_error, "ReadRegString::RegQueryValueExW(data)"))
+        return HRESULT_FROM_WIN32(data_error);
+    if (type != REG_SZ || cb % sizeof(wchar_t) != 0) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    buf.resize(cb / sizeof(wchar_t));
     while (!buf.empty() && buf.back() == L'\0') {
         buf.pop_back();
     }
     out_val = std::move(buf);
-    return true;
+    return S_OK;
+}
+
+bool ReadRegString(HKEY key, const wchar_t* name, std::wstring& out_val) {
+    return SUCCEEDED(ReadRegStringResult(key, name, out_val));
 }
 
 std::filesystem::path ResolveDefaultUserFilePath(std::wstring_view file_name) {
@@ -145,7 +154,8 @@ void GrantAppContainerReadAccessToKey(HKEY key) noexcept {
 }
 
 ScopedRegKey OpenOrCreateConfigRegKey(
-    const wchar_t* subkey, REGSAM access, HANDLE transaction = nullptr) noexcept {
+    const wchar_t* subkey, REGSAM access, HANDLE transaction = nullptr, LSTATUS* out_error = nullptr) noexcept {
+    if (out_error) *out_error = ERROR_INVALID_PARAMETER;
     if (!subkey) {
         subkey = GetActiveConfigRegistrySubKey();
     }
@@ -183,22 +193,26 @@ ScopedRegKey OpenOrCreateConfigRegKey(
         };
         const LSTATUS acl_error = create_key(access | WRITE_DAC | READ_CONTROL);
         if (acl_error == ERROR_SUCCESS) {
+            if (out_error) *out_error = ERROR_SUCCESS;
             GrantAppContainerReadAccessToKey(key.Get());
             return key;
         }
         QIQI_LOG_DEBUG("Config::RegCreateKey with ACL access failed; retrying basic access (error={})", acl_error);
         const LSTATUS error = create_key(access);
+        if (out_error) *out_error = error;
         if (error != ERROR_SUCCESS) {
             QIQI_LOG_ERROR("Config::RegCreateKey failed (error={})", error);
         }
     } else if (transaction != nullptr && transaction != INVALID_HANDLE_VALUE) {
         const LSTATUS error = ::RegOpenKeyTransactedW(
             HKEY_CURRENT_USER, subkey, 0, access, key.Put(), transaction, nullptr);
+        if (out_error) *out_error = error;
         if (error != ERROR_SUCCESS && error != ERROR_FILE_NOT_FOUND) {
             QIQI_LOG_WARN("Config::RegOpenKeyTransactedW failed (error={})", error);
         }
     } else {
         const LSTATUS error = ::RegOpenKeyExW(HKEY_CURRENT_USER, subkey, 0, access, key.Put());
+        if (out_error) *out_error = error;
         if (error != ERROR_SUCCESS && error != ERROR_FILE_NOT_FOUND) {
             QIQI_LOG_WARN("Config::RegOpenKeyExW failed (error={})", error);
         }
@@ -429,73 +443,48 @@ uint64_t QueryRegistryConfigSequence(const wchar_t* subkey) noexcept {
     return 0;
 }
 
-bool SaveUserDictBinaryToRegistry(
-    std::span<const uint8_t> qdict_bytes,
-    const wchar_t* subkey) noexcept {
-    try {
-        constexpr size_t kMaxRegDictBytes = 512 * 1024;
-        if (qdict_bytes.empty() || qdict_bytes.size() > kMaxRegDictBytes) {
-            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry: empty or oversize dictionary (bytes={})", qdict_bytes.size());
-            return false;
-        }
+HRESULT SaveUserDictSyncDirectory(const std::filesystem::path& directory, const wchar_t* subkey) {
+    const auto save = [&]() -> HRESULT {
+        if (IsProcessAppContainer()) return E_ACCESSDENIED;
+        if (!directory.empty() && !directory.is_absolute()) return E_INVALIDARG;
+        const std::wstring path = directory.wstring();
+        if ((path.size() + 1) * sizeof(wchar_t) > 4096) return E_INVALIDARG;
         ScopedKernelTransaction txn;
-        if (!txn) {
-            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry::CreateTransaction failed (error={})", txn.Error());
-            return false;
-        }
-        ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE, txn.Get());
-        if (!key) {
-            return false;
-        }
-        const LSTATUS error = ::RegSetValueExW(
-                key.Get(),
-                L"UserDictQdict",
-                0,
-                REG_BINARY,
-                qdict_bytes.data(),
-                gsl::narrow_cast<DWORD>(qdict_bytes.size()));
-        if (error != ERROR_SUCCESS) {
-            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry::RegSetValueExW failed (error={})", error);
-            return false;
-        }
-        if (!BumpRegistrySequence(key.Get())) {
-            return false;
-        }
+        if (!txn) return HRESULT_FROM_WIN32(txn.Error());
+        LSTATUS open_error = ERROR_SUCCESS;
+        ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE, txn.Get(), &open_error);
+        if (!key) return HRESULT_FROM_WIN32(open_error);
+        std::wstring previous;
+        const HRESULT read_hr = ReadRegStringResult(key.Get(), L"UserDictSyncDirectory", previous);
+        if (SUCCEEDED(read_hr) && previous == path) return S_OK;
+        if (FAILED(read_hr) && read_hr != HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) return read_hr;
+        const HRESULT write_hr = WriteRegStringResult(key.Get(), L"UserDictSyncDirectory", path);
+        if (FAILED(write_hr)) return write_hr;
+        if (!BumpRegistrySequence(key.Get())) return E_FAIL;
         key.Reset();
-        if (!txn.Commit()) {
-            QIQI_LOG_WARN("SaveUserDictBinaryToRegistry::CommitTransaction failed (error={})", txn.Error());
-            return false;
-        }
-        return true;
-    } catch (...) {
-        QIQI_LOG_ERROR("SaveUserDictBinaryToRegistry failed with a C++ exception");
-        return false;
-    }
+        return txn.Commit() ? S_OK : HRESULT_FROM_WIN32(txn.Error());
+    };
+    const HRESULT hr = save();
+    std::ignore = log::CheckHResult(hr, "SaveUserDictSyncDirectory");
+    return hr;
 }
 
-bool LoadUserDictBinaryFromRegistry(
-    std::vector<uint8_t>& out_qdict_bytes,
-    const wchar_t* subkey) {
-    const ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ);
-    if (!key) {
-        return false;
+HRESULT LoadUserDictSyncDirectory(std::filesystem::path& directory, const wchar_t* subkey) {
+    directory.clear();
+    LSTATUS open_error = ERROR_SUCCESS;
+    const ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ, nullptr, &open_error);
+    std::wstring path;
+    HRESULT hr = key ? ReadRegStringResult(key.Get(), L"UserDictSyncDirectory", path) :
+        HRESULT_FROM_WIN32(open_error);
+    if (SUCCEEDED(hr) && !path.empty()) {
+        directory = std::filesystem::path(path);
+        if (!directory.is_absolute()) {
+            directory.clear();
+            hr = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        }
     }
-    DWORD type = 0;
-    DWORD cb = 0;
-    constexpr DWORD kMaxRegDictBytes = 512 * 1024;
-    if (!CheckRegistryRead(::RegQueryValueExW(key.Get(), L"UserDictQdict", nullptr, &type, nullptr, &cb),
-                           "LoadUserDictBinaryFromRegistry::RegQueryValueExW(size)") ||
-        type != REG_BINARY || cb == 0 || cb > kMaxRegDictBytes) {
-        return false;
-    }
-    out_qdict_bytes.resize(cb);
-    return CheckRegistryRead(::RegQueryValueExW(
-               key.Get(),
-               L"UserDictQdict",
-               nullptr,
-               &type,
-               out_qdict_bytes.data(),
-               &cb), "LoadUserDictBinaryFromRegistry::RegQueryValueExW(data)");
+    std::ignore = log::CheckHResult(hr, "LoadUserDictSyncDirectory");
+    return hr;
 }
 
 bool SaveConfig(const QiQiConfig& config) noexcept {

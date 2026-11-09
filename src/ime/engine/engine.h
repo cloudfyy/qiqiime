@@ -67,7 +67,7 @@ public:
         const QiQiConfig& config,
         const std::filesystem::path& module_dir,
         bool retain_existing_on_custom_failure = false);
-    // Load additional dictionary from an in-memory .qdict binary buffer (e.g. UWP registry mirror)
+    // Load additional dictionary from an in-memory .qdict binary buffer.
     bool LoadDictionaryFromBinaryBuffer(std::vector<uint8_t> qdict_bytes);
     void ClearExternalDictionaries() noexcept {
         mapped_dicts_.clear();
@@ -95,9 +95,15 @@ public:
         if (user_dict_path_ != path) {
             user_dict_path_ = std::move(path);
             user_dict_sync_version_ = {};
+            if (user_dict_sharing_) {
+                dict_.clear();
+                pinned_entries_.clear();
+                removed_entries_.clear();
+            }
         }
     }
     const std::filesystem::path& UserDictPath() const noexcept { return user_dict_path_; }
+    HRESULT InitializeUserDictionarySharing();
 
     // Controlled user dictionary mutations (publish entry-level deltas and coordinate cross-process writes).
     bool AddUserPhrase(std::wstring_view phrase, const std::filesystem::path& user_dict_path = {});
@@ -349,6 +355,9 @@ private:
     std::map<uint32_t, std::vector<std::wstring>> removed_entries_;
     std::map<uint32_t, std::vector<std::wstring>> promoted_phrases_;
     std::filesystem::path user_dict_path_;
+    std::filesystem::path shared_user_dict_directory_;
+    bool user_dict_sharing_ = false;
+    HRESULT shared_user_dict_status_ = S_OK;
     std::filesystem::path phrase_freq_path_;
     sync::Version user_dict_sync_version_{};
     sync::Version phrase_freq_sync_version_{};

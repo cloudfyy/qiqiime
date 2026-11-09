@@ -223,14 +223,9 @@ bool LoadConfigFromRegistry(
 uint64_t QueryRegistryConfigSequence(
     const wchar_t* subkey = nullptr) noexcept;
 
-// Save or load compiled .qdict binary image for user_dict in HKCU\<subkey> so UWP AppContainer processes
-// can load user custom words without accessing %LOCALAPPDATA%.
-bool SaveUserDictBinaryToRegistry(
-    std::span<const uint8_t> qdict_bytes,
-    const wchar_t* subkey = nullptr) noexcept;
-bool LoadUserDictBinaryFromRegistry(
-    std::vector<uint8_t>& out_qdict_bytes,
-    const wchar_t* subkey = nullptr);
+// Publish only the desktop dictionary channel address, never dictionary contents.
+HRESULT SaveUserDictSyncDirectory(const std::filesystem::path& directory, const wchar_t* subkey = nullptr);
+HRESULT LoadUserDictSyncDirectory(std::filesystem::path& directory, const wchar_t* subkey = nullptr);
 
 // Return whether the current process is running inside a Windows AppContainer sandbox.
 bool IsProcessAppContainer() noexcept;

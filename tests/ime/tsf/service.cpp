@@ -498,6 +498,7 @@ void TestProcessDictCacheLifetime() {
         std::error_code ec;
         std::filesystem::remove(dict_path, ec);
         std::filesystem::remove(qdict_path, ec);
+        std::filesystem::remove_all(GetSyncChannelDirectoryForFile(dict_path), ec);
     });
     {
         std::ofstream out(dict_path, std::ios::binary | std::ios::trunc);
@@ -532,6 +533,9 @@ void TestProcessDictCacheLifetime() {
     auto service_b = MakeComObject<QiQiTextService>(g_dll_instance);
     auto manager_b = MakeComObject<MockTfThreadMgr>();
     QIQI_TEST_CHECK(service_a->Activate(manager_a.Get(), 1) == S_OK);
+    std::filesystem::path published_directory;
+    QIQI_TEST_CHECK(LoadUserDictSyncDirectory(published_directory) == S_OK &&
+        published_directory == GetSyncChannelDirectoryForFile(dict_path));
     QIQI_TEST_CHECK(service_b->Activate(manager_b.Get(), 2) == S_OK);
 
     // Deactivating service_a releases its own engine references, but preserves the process-wide dictionary cache
@@ -593,7 +597,7 @@ void TestProcessDictCacheLifetime() {
     QIQI_TEST_CHECK(WubiMappedDict::ProcessCacheSize() == 0 && weak_dict.expired());
 }
 
-void TestDictionaryRegistryFallback() {
+void TestDictionarySharingAndLegacyRegistryIgnored() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const std::wstring subkey = L"Software\\QiQiIME_DictFallback_" + std::to_wstring(::GetCurrentProcessId());
     const wchar_t* previous = GetActiveConfigRegistrySubKey();
@@ -608,7 +612,13 @@ void TestDictionaryRegistryFallback() {
     };
     std::vector<uint8_t> bytes;
     WubiMappedDict::CompileEntriesToBinaryBuffer(entries, bytes);
-    QIQI_TEST_CHECK(SaveUserDictBinaryToRegistry(bytes));
+    {
+        ScopedRegKey key;
+        QIQI_TEST_CHECK(::RegCreateKeyExW(HKEY_CURRENT_USER, subkey.c_str(), 0, nullptr, 0,
+            KEY_SET_VALUE, nullptr, key.Put(), nullptr) == ERROR_SUCCESS);
+        QIQI_TEST_CHECK(::RegSetValueExW(key.Get(), L"UserDictQdict", 0, REG_BINARY,
+            bytes.data(), gsl::narrow_cast<DWORD>(bytes.size())) == ERROR_SUCCESS);
+    }
     for (const bool configured_path : {false, true}) {
         QiQiConfig config;
         config.primary_dict = PrimaryDict::BuiltinOnly;
@@ -626,7 +636,9 @@ void TestDictionaryRegistryFallback() {
             QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
         }
         QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SPACE, 0, &eaten) == S_OK && eaten);
-        QIQI_TEST_CHECK((context->range_->text_ == L"镜像回退词") == !configured_path);
+        QIQI_TEST_CHECK(context->range_->text_ != L"镜像回退词");
+        std::filesystem::path directory;
+        QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == S_OK && directory.empty());
         QIQI_TEST_CHECK(service->Deactivate() == S_OK);
     }
 
@@ -999,7 +1011,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
 
     TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*>(service.Get()));
     TestProcessDictCacheLifetime();
-    TestDictionaryRegistryFallback();
+    TestDictionarySharingAndLegacyRegistryIgnored();
 
     // Activate success
     QIQI_TEST_CHECK(SUCCEEDED(service->Activate(mock_tm.Get(), 1)));

@@ -713,16 +713,38 @@ void TestIniConfiguration() {
     }
     QIQI_TEST_CHECK(LoadConfigFromRegistry(reg_out) && reg_out.commit_on_english_switch);
 
-    // Verify user_dict binary registry mirror round-trip and edge cases
-    std::vector<uint8_t> loaded_dict_bytes;
-    QIQI_TEST_CHECK(!LoadUserDictBinaryFromRegistry(loaded_dict_bytes));
-    QIQI_TEST_CHECK(!SaveUserDictBinaryToRegistry({}));
-    QIQI_TEST_CHECK(!SaveUserDictBinaryToRegistry(std::array<uint8_t, 4>{1, 2, 3, 4}, L""));
-    QIQI_TEST_CHECK(!LoadUserDictBinaryFromRegistry(loaded_dict_bytes, L""));
-    const std::array<uint8_t, 8> sample_qdict{0x51, 0x44, 0x43, 0x54, 1, 2, 3, 4};
-    QIQI_TEST_CHECK(SaveUserDictBinaryToRegistry(sample_qdict));
-    QIQI_TEST_CHECK(LoadUserDictBinaryFromRegistry(loaded_dict_bytes));
-    QIQI_TEST_CHECK(loaded_dict_bytes.size() == sample_qdict.size());
+    std::filesystem::path directory;
+    QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND));
+    QIQI_TEST_CHECK(SaveUserDictSyncDirectory(L"relative.sync") == E_INVALIDARG);
+    QIQI_TEST_CHECK(FAILED(SaveUserDictSyncDirectory({}, L"")));
+    QIQI_TEST_CHECK(FAILED(LoadUserDictSyncDirectory(directory, L"")));
+    const auto shared_directory = GetSyncChannelDirectoryForFile(GetDefaultUserDictPath());
+    const uint64_t before_path = QueryRegistryConfigSequence();
+    QIQI_TEST_CHECK(SaveUserDictSyncDirectory(shared_directory) == S_OK);
+    QIQI_TEST_CHECK(QueryRegistryConfigSequence() > before_path);
+    QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == S_OK && directory == shared_directory);
+    const uint64_t unchanged = QueryRegistryConfigSequence();
+    QIQI_TEST_CHECK(SaveUserDictSyncDirectory(shared_directory) == S_OK);
+    QIQI_TEST_CHECK(QueryRegistryConfigSequence() == unchanged);
+    QIQI_TEST_CHECK(SaveConfig(reg_out));
+    QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == S_OK && directory == shared_directory);
+    QIQI_TEST_CHECK(SaveUserDictSyncDirectory({}) == S_OK);
+    QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == S_OK && directory.empty());
+    {
+        ScopedRegKey key;
+        QIQI_TEST_CHECK(::RegOpenKeyExW(
+            HKEY_CURRENT_USER, kTestRegSubKey, 0, KEY_SET_VALUE, key.Put()) == ERROR_SUCCESS);
+        const std::wstring relative = L"relative.sync";
+        QIQI_TEST_CHECK(::RegSetValueExW(key.Get(), L"UserDictSyncDirectory", 0, REG_SZ,
+            reinterpret_cast<const BYTE*>(relative.c_str()),
+            gsl::narrow_cast<DWORD>((relative.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS);
+        QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+        QIQI_TEST_CHECK(directory.empty());
+        QIQI_TEST_CHECK(::RegSetValueExW(key.Get(), L"UserDictSyncDirectory", 0, REG_BINARY,
+            reinterpret_cast<const BYTE*>(relative.c_str()),
+            gsl::narrow_cast<DWORD>((relative.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS);
+        QIQI_TEST_CHECK(LoadUserDictSyncDirectory(directory) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+    }
 }
 
 void TestScopedHandleTemplate() {

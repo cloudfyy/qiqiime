@@ -226,12 +226,6 @@ HRESULT WriteUpdatedUserDictFiles(
     user_qdict_path.replace_extension(L".qdict");
     if (WubiMappedDict::CompileTextFileToQdict(dict_path, user_qdict_path)) {
         WubiMappedDict::InvalidateProcessCacheForPath(dict_path);
-        if (dict_path == GetDefaultUserDictPath()) {
-            std::string qdict_raw;
-            if (ReadFileToUtf8String(user_qdict_path, qdict_raw)) {
-                SaveUserDictBinaryToRegistry(codec::AsByteSpan(qdict_raw));
-            }
-        }
     }
     SourceMeta meta{};
     if (QueryFileSizeAndMtime(dict_path, meta.size, meta.mtime)) {
@@ -642,6 +636,10 @@ HRESULT WubiEngine::MutateUserDictionaryEntry(
         if (hr == S_OK || (reset_baseline && hr == S_FALSE)) {
             mutate_memory();
             user_dict_sync_version_ = reset_baseline ? sync::Version{} : committed;
+            if (user_dict_sharing_) {
+                const HRESULT publish_hr = SaveUserDictSyncDirectory(channel_dir);
+                if (FAILED(publish_hr)) return publish_hr;
+            }
             return S_OK;
         }
         if (hr != HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION) &&
@@ -1009,18 +1007,68 @@ bool WubiEngine::CheckAndPublishExternalUserDictChanges(const std::filesystem::p
     return false;
 }
 
+HRESULT WubiEngine::InitializeUserDictionarySharing() {
+    user_dict_sharing_ = true;
+    if (IsProcessAppContainer()) {
+        std::filesystem::path directory;
+        const HRESULT hr = LoadUserDictSyncDirectory(directory);
+        shared_user_dict_status_ = hr;
+        if (directory != shared_user_dict_directory_) {
+            shared_user_dict_directory_ = std::move(directory);
+            user_dict_sync_version_ = {};
+            dict_.clear();
+            pinned_entries_.clear();
+            removed_entries_.clear();
+        }
+        if (FAILED(hr)) return hr;
+        return SynchronizeUserDictionary(sync::InputBoundary::NewInput);
+    }
+    return SynchronizeUserDictionary(sync::InputBoundary::NewInput);
+}
+
 HRESULT WubiEngine::SynchronizeUserDictionary(sync::InputBoundary boundary) {
     if (boundary == sync::InputBoundary::Composing) {
         return S_FALSE;
     }
-    const std::filesystem::path dict_path = !user_dict_path_.empty() ? user_dict_path_ : GetDefaultUserDictPath();
-    if (dict_path.empty()) {
+    const bool shared_reader = user_dict_sharing_ && IsProcessAppContainer();
+    const std::filesystem::path dict_path = shared_reader ? std::filesystem::path{} :
+        (!user_dict_path_.empty() ? user_dict_path_ : GetDefaultUserDictPath());
+    if (shared_reader && shared_user_dict_directory_.empty()) return shared_user_dict_status_;
+    if (!shared_reader && dict_path.empty()) {
         return S_OK;
     }
-    std::ignore = CheckAndPublishExternalUserDictChanges(dict_path);
-    const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(dict_path);
+    if (!shared_reader) std::ignore = CheckAndPublishExternalUserDictChanges(dict_path);
+    const std::filesystem::path channel_dir = shared_reader ? shared_user_dict_directory_ :
+        GetSyncChannelDirectoryForFile(dict_path);
     std::error_code ec;
+    if (user_dict_sharing_ && !shared_reader) {
+        const bool source_exists = std::filesystem::exists(dict_path, ec);
+        if (ec) {
+            const HRESULT error = HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value()));
+            std::ignore = log::CheckHResult(error, "SynchronizeUserDictionary::source");
+            return error;
+        }
+        if (!source_exists) {
+            dict_.clear();
+            pinned_entries_.clear();
+            removed_entries_.clear();
+            std::erase_if(mapped_dicts_, [&dict_path](const auto& dictionary) {
+                return dictionary && dictionary->SourcePath() == dict_path;
+            });
+        }
+        const bool ready = source_exists && std::filesystem::exists(channel_dir / L"snapshot.txt", ec);
+        if (ec || (source_exists && !ready)) {
+            const HRESULT error = HRESULT_FROM_WIN32(ec ?
+                gsl::narrow_cast<DWORD>(ec.value()) : ERROR_FILE_NOT_FOUND);
+            std::ignore = log::CheckHResult(error, "SynchronizeUserDictionary::snapshot");
+            return error;
+        }
+        const HRESULT publish_hr = SaveUserDictSyncDirectory(ready ? channel_dir : std::filesystem::path{});
+        if (FAILED(publish_hr)) return publish_hr;
+    }
     if (!std::filesystem::exists(channel_dir / L"journal.bin", ec)) {
+        if (ec) return HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value()));
+        if (shared_reader) return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
         return S_OK;
     }
     const sync::Source source{sync::DataType::Dictionary, kGuidSyncSourceDictionary};
@@ -1033,7 +1081,7 @@ HRESULT WubiEngine::SynchronizeUserDictionary(sync::InputBoundary boundary) {
             std::map<uint32_t, std::vector<std::wstring>> loaded;
             const std::filesystem::path snapshot_path = channel_dir / L"snapshot.txt";
             const std::filesystem::path read_path =
-                std::filesystem::exists(snapshot_path, ec) ? snapshot_path : dict_path;
+                shared_reader || std::filesystem::exists(snapshot_path, ec) ? snapshot_path : dict_path;
             if (!ReadDictEntriesFromFile(read_path, loaded)) {
                 return E_FAIL;
             }
@@ -1053,7 +1101,7 @@ HRESULT WubiEngine::SynchronizeUserDictionary(sync::InputBoundary boundary) {
                 }
             }
             auto staged_mapped = mapped_dicts_;
-            if (!is_startup_sync) {
+            if (!is_startup_sync && !shared_reader) {
                 // Refresh any existing mapped view of `dict_path` in place when reloading after a remote change.
                 WubiMappedDict::InvalidateProcessCacheForPath(dict_path);
                 const std::wstring target_canon = std::filesystem::weakly_canonical(dict_path, ec).wstring();

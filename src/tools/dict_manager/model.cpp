@@ -67,6 +67,7 @@ void DictManagerModel::InitializePaths(
     const std::filesystem::path& phrase_freq_path) {
     module_dir_ = module_dir;
     const QiQiConfig cfg = LoadConfig();
+    publish_user_dict_directory_ = user_dict_path.empty();
     if (!user_dict_path.empty()) {
         user_dict_path_ = user_dict_path;
     } else if (!cfg.user_dict_path.empty()) {
@@ -100,7 +101,10 @@ HRESULT DictManagerModel::ReloadAllResult() {
     };
 
     const QiQiConfig cfg = LoadConfig();
-    config_registry_sequence_ = QueryRegistryConfigSequence();
+    if (publish_user_dict_directory_) {
+        user_dict_path_ = cfg.user_dict_path.empty() ? GetDefaultUserDictPath() :
+            ResolveConfiguredDictionaryPath(module_dir_, cfg.user_dict_path);
+    }
     engine_.ApplyConfig(cfg);
     engine_.SetDynamicPhraseFreq(true);
 
@@ -136,7 +140,8 @@ HRESULT DictManagerModel::ReloadAllResult() {
                 }
             }
         }
-        check(engine_.SynchronizeUserDictionary(sync::InputBoundary::NewInput));
+        check(publish_user_dict_directory_ ? engine_.InitializeUserDictionarySharing() :
+            engine_.SynchronizeUserDictionary(sync::InputBoundary::NewInput));
     }
 
     engine_.SetPhraseFreqPath(phrase_freq_path_);
@@ -146,6 +151,7 @@ HRESULT DictManagerModel::ReloadAllResult() {
     }
 
     RebuildRecords();
+    config_registry_sequence_ = QueryRegistryConfigSequence();
     QIQI_LOG_ACT_STOP(
         log::Level::info,
         log::Keyword::Dictionary,

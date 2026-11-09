@@ -153,6 +153,7 @@ private:
     WubiEngine engine_;
     std::filesystem::path module_dir_;
     std::filesystem::path user_dict_path_;
+    bool publish_user_dict_directory_ = false;
     std::filesystem::path phrase_freq_path_;
     std::shared_ptr<const WubiMappedDict> primary_dict_;
     std::shared_ptr<const WubiMappedDict> extra_dict_;

@@ -55,23 +55,20 @@ QiQiTextService::ReloadResult QiQiTextService::LoadExternalDictionaryNextToDll()
         ? ResolveConfiguredDictionaryPath(dll_dir, config_.user_dict_path)
         : GetDefaultUserDictPath();
     engine_.SetUserDictPath(user_path);
-    if (std::filesystem::exists(user_path)) {
+    if (IsProcessAppContainer()) {
+        result.Observe(engine_.InitializeUserDictionarySharing());
+    } else if (std::filesystem::exists(user_path)) {
         const bool loaded = engine_.LoadDictionaryFile(user_path);
         loaded_any |= loaded;
         if (!loaded) result.Fail();
-        result.Observe(engine_.SynchronizeUserDictionary());
+        result.Observe(engine_.InitializeUserDictionarySharing());
     } else if (has_custom_user_path) {
+        result.Observe(engine_.InitializeUserDictionarySharing());
         result.Fail();
         QIQI_LOG_WARN("Configured user dictionary '{}' does not exist",
                       WideToUtf8(user_path.wstring()));
     } else {
-        std::vector<uint8_t> reg_user_dict;
-        if (LoadUserDictBinaryFromRegistry(reg_user_dict)) {
-            const bool loaded = engine_.LoadDictionaryFromBinaryBuffer(std::move(reg_user_dict));
-            loaded_any |= loaded;
-            if (!loaded) result.Fail();
-        }
-        result.Observe(engine_.SynchronizeUserDictionary());
+        result.Observe(engine_.InitializeUserDictionarySharing());
     }
 
     if (!loaded_any && config_.primary_dict != PrimaryDict::BuiltinOnly) {
@@ -450,10 +447,10 @@ bool QiQiTextService::PersistAndSyncQuickConfigChange(QiQiConfig updated_config,
 }
 
 void QiQiTextService::SyncSavedConfigChange(bool reload_dicts) {
-    config_registry_sequence_ = QueryRegistryConfigSequence();
     if (reload_dicts) {
         LoadExternalDictionaryNextToDll();
     }
+    config_registry_sequence_ = QueryRegistryConfigSequence();
     SyncTsfCompartments();
 }
 

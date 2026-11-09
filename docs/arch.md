@@ -115,7 +115,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 生成 `.qdict` 缓存时，通过 `WriteFileAtomically` 以 `GENERIC_WRITE` + `dwShareMode = 0`（独占写）写入同目录临时文件 `.tmp.<pid>`（带 `gsl::finally` 异常/错误自动清理），完成后通过 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 原子替换目标文件。用户配置通过注册表事务保存，不写入 INI 文件。
 
 ### 2.7 全链路 RAII、多显示器 DPI 与矢量抗锯齿 UI（`src/common/` & `src/ime/ui/`）
-- **类型化 RAII（`ScopedHandle<Traits>`）**：使用移动语义包装器管理拥有的 Win32 内核句柄、KTM 注册表事务、文件映射视图、注册表键、GDI 对象、菜单、窗口与动态库；借用句柄和父窗口拥有的子控件遵循各自的所有权规则。`ScopedKernelTransaction` 未提交时在析构中回滚并关闭句柄。配置及用户词库注册表镜像分别以事务保存；用户词表追加、缓存替换和镜像保存不是一个跨文件/注册表事务，不能保证同时成功。
+- **类型化 RAII（`ScopedHandle<Traits>`）**：使用移动语义包装器管理拥有的 Win32 内核句柄、KTM 注册表事务、文件映射视图、注册表键、GDI 对象、菜单、窗口与动态库；借用句柄和父窗口拥有的子控件遵循各自的所有权规则。`ScopedKernelTransaction` 未提交时在析构中回滚并关闭句柄。配置及用户词库共享目录地址以事务保存；注册表不保存词库内容。用户词库文件、编译缓存和同步快照不是一个跨资源事务，不能保证同时成功。
 - **可复用 D2D 控件（[`d2d_controls.h`](../src/common/d2d_controls.h) / [`d2d_controls.cpp`](../src/common/d2d_controls.cpp)）**：头文件仅提供声明，实现集中管理 Fluent 卡片、主次按钮、开关、单选框与下拉框的绘制和子类化；设置页及关于页复用同一模块，不在控件层依赖业务控件 ID 或父窗口的 `GWLP_USERDATA` 类型。每个窗口组合一个 `FluentD2DThemeContext`，通过现有 RAII 包装器持有 D2D/DWrite/GDI 资源；控件创建失败时自动回收尚未移交的窗口并记录日志，成功后由父窗口销毁子控件。下拉框借用的上下文须保持地址稳定，且存活到子控件销毁之后；单选组由调用方通过 `MAKELONG(first_id, last_id)` 指定连续 ID 范围。父窗口将 `WM_DRAWITEM` 分派给相应绘制函数，主题变更时调用 `RefreshThemeBrushes()`；卡片绘制在调用方的 `ScopedD2DDcDraw` 会话内进行，其余控件自行管理绘制会话。
 - **多显示器与 Per-Monitor DPI（`monitor_dpi.h`）**：候选窗、浮动状态栏、Tooltip、设置及关于窗口复用显示器、DPI 与工作区帮助代码，按各自的窗口消息更新字体、布局和边界，支持负坐标显示器。实现这些分支不等于所有缩放、热插拔或宿主组合都已实测；保留具体测试范围与未覆盖项。
 - **4x4 超采样抗锯齿状态条图标与模块拆分（[`statusbar_icons.cpp`](../src/ime/ui/statusbar_icons.cpp) / [`statusbar_tooltip.cpp`](../src/ime/ui/statusbar_tooltip.cpp) / [`statusbar.cpp`](../src/ime/ui/statusbar.cpp)）**：使用有向距离场（SDF）+ 4x4 超采样实时生成 32 位预乘 ARGB `DIBSection` 位图，通过 `GdiAlphaBlend` 渲染半角月牙、全角圆环、中英文标点与八齿设置齿轮图标；悬停提示弹窗与状态栏主窗口及拖拽交互按职责分文件维护。
@@ -142,7 +142,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 
 2. **“一库一 `.qdict`”与自定义字库（`user_dict.txt`）同步机制**
    - **静态主/扩展词库**：三套随包词库各自编译为 `.qdict`，支持按需组合挂载。有效缓存可复用；缺失或过期时仍需解析编译，不给出未经测量的切换时限。
-   - **动态用户自造词与跨进程同步（`user_dict.txt`）**：受控编辑（`AddUserPhrase`、`AddUserEntry`、`RemoveUserEntry`、`ModifyUserEntry`）通过 [`common/change_sync`](../src/common/change_sync.h) 协调排他写入、发布词条级增量，并更新 `user_dict.qdict`、通道快照及默认路径下的注册表镜像。外部编辑器直接修改词库时，对比源文件元数据与内容哈希：`<= 16` 条且保持幸存词顺序的差异转换为增量记录发布，大规模替换或重排则旋转基线 GUID 触发全量快照重载。
+   - **动态用户自造词与跨进程同步（`user_dict.txt`）**：受控编辑（`AddUserPhrase`、`AddUserEntry`、`RemoveUserEntry`、`ModifyUserEntry`）通过 [`common/change_sync`](../src/common/change_sync.h) 协调排他写入、发布词条级增量，并更新 `user_dict.qdict` 和通道快照。词库文件是唯一权威来源。桌面 IME 和使用配置路径的词典管理器将只读通道的绝对地址发布到注册表 `UserDictSyncDirectory`，AppContainer 根据该地址读取快照/增量，不使用 `UserDictQdict` 镜像。外部编辑器直接修改词库时，对比源文件元数据与内容哈希：`<= 16` 条且保持幸存词顺序的差异转换为增量记录发布，大规模替换或重排则旋转基线 GUID 触发全量快照重载。
    - **安全输入边界应用（任务 39、40）**：实例在获得焦点或新一轮输入开始（`InputBoundary::NewInput`）时应用词库与词频更新，组合期间（`Composing`）暂缓，避免正在打字时候选重排。
 
 3. **深层 TSF 输入体验与宿主兼容机制**

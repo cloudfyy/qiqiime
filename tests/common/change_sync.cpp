@@ -221,8 +221,14 @@ void SendReady(HANDLE pipe) {
     QIQI_TEST_CHECK(::WriteFile(pipe, &ready, 1, &written, nullptr) && written == 1);
 }
 
-void ProbeReader(const std::filesystem::path& directory, HANDLE ready) {
+void ProbeReader(const std::filesystem::path& directory, const wchar_t* registry_subkey, HANDLE ready) {
     RequireAppContainerToken();
+    SetConfigRegistrySubKeyOverrideForTest(registry_subkey);
+    QIQI_TEST_CHECK(::SetEnvironmentVariableW(L"LOCALAPPDATA", L"C:\\QiQiContainerPrivate"));
+    std::filesystem::path discovered;
+    QIQI_TEST_CHECK(LoadUserDictSyncDirectory(discovered) == S_OK);
+    QIQI_TEST_CHECK(discovered == GetSyncChannelDirectoryForFile(directory / L"user_dict.txt"));
+    QIQI_TEST_CHECK(SaveUserDictSyncDirectory(discovered) == E_ACCESSDENIED);
     const auto path = directory / L"lock";
     const ScopedFileHandle reader(::CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
@@ -250,9 +256,18 @@ void ProbeReader(const std::filesystem::path& directory, HANDLE ready) {
     const auto user_dict = directory / L"user_dict.txt";
     const auto freq_file = directory / L"phrase_freq.qfreq";
     WubiEngine container_engine;
-    container_engine.SetUserDictPath(user_dict);
+    container_engine.SetUserDictPath(GetDefaultUserDictPath());
     container_engine.SetPhraseFreqPath(freq_file);
     container_engine.SetDynamicPhraseFreq(true);
+    std::string inaccessible_source;
+    QIQI_TEST_CHECK(!ReadFileToUtf8String(user_dict, inaccessible_source));
+    const auto missing_subkey = std::wstring(registry_subkey) + L"_missing";
+    SetConfigRegistrySubKeyOverrideForTest(missing_subkey.c_str());
+    const HRESULT missing_path_hr = container_engine.InitializeUserDictionarySharing();
+    QIQI_TEST_CHECK(FAILED(missing_path_hr));
+    QIQI_TEST_CHECK(container_engine.SynchronizeUserDictionary(InputBoundary::NewInput) == missing_path_hr);
+    SetConfigRegistrySubKeyOverrideForTest(registry_subkey);
+    QIQI_TEST_CHECK(container_engine.InitializeUserDictionarySharing() == S_OK);
     QIQI_TEST_CHECK(container_engine.SynchronizeCrossProcessChanges(InputBoundary::NewInput));
     QIQI_TEST_CHECK(container_engine.UserDictSnapshotSyncCount() == 1);
     QIQI_TEST_CHECK(container_engine.PhraseFreqSnapshotSyncCount() == 1);
@@ -298,6 +313,28 @@ void ProbeReader(const std::filesystem::path& directory, HANDLE ready) {
             const auto synced_qrst = container_engine.LookupExact(L"qrst");
             QIQI_TEST_CHECK(synced_qrst.size() == 2 && gsl::at(synced_qrst, 0) == L"短语二" &&
                             gsl::at(synced_qrst, 1) == L"短语一");
+            SendReady(ready);
+            while (::GetTickCount64() < deadline) {
+                if (::GetFileAttributesW((directory / L"switched").c_str()) != INVALID_FILE_ATTRIBUTES) {
+                    QIQI_TEST_CHECK(container_engine.InitializeUserDictionarySharing() == S_OK);
+                    QIQI_TEST_CHECK(container_engine.UserDictSnapshotSyncCount() == 2);
+                    QIQI_TEST_CHECK(container_engine.LookupExact(L"abcd").empty());
+                    const auto switched = container_engine.LookupExact(L"qwer");
+                    QIQI_TEST_CHECK(switched.size() == 1 && switched.front() == L"切换路径词");
+                    SendReady(ready);
+                    while (::GetTickCount64() < deadline) {
+                        if (::GetFileAttributesW((directory / L"cleared").c_str()) != INVALID_FILE_ATTRIBUTES) {
+                            QIQI_TEST_CHECK(container_engine.InitializeUserDictionarySharing() == S_OK);
+                            QIQI_TEST_CHECK(container_engine.LookupExact(L"qwer").empty());
+                            return;
+                        }
+                        ::Sleep(10);
+                    }
+                    QIQI_TEST_CHECK(false);
+                }
+                ::Sleep(10);
+            }
+            QIQI_TEST_CHECK(false);
             return;
         }
     }
@@ -323,6 +360,16 @@ void HoldReader(const std::filesystem::path& directory, std::wstring_view mode,
 
 void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
     Fixture fixture(L"appcontainer");
+    const auto registry_subkey = L"Software\\QiQiIME_SharedPath_" + GuidText();
+    SetConfigRegistrySubKeyOverrideForTest(registry_subkey.c_str());
+    const auto registry_cleanup = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(nullptr);
+        const LSTATUS error = ::RegDeleteTreeW(HKEY_CURRENT_USER, registry_subkey.c_str());
+        if (error != ERROR_SUCCESS) {
+            std::fprintf(stderr, "Test registry cleanup failed (error=%ld)\n", error);
+            std::abort();
+        }
+    });
     PSECURITY_DESCRIPTOR raw = nullptr;
     QIQI_TEST_CHECK(::ConvertStringSecurityDescriptorToSecurityDescriptorW(
         L"D:P(A;OICI;FA;;;OW)", SDDL_REVISION_1, &raw, nullptr));
@@ -342,13 +389,17 @@ void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
     host_engine.SetDynamicPhraseFreq(true);
     QIQI_TEST_CHECK(host_engine.AddUserEntry(L"qrst", L"短语一", user_dict));
     QIQI_TEST_CHECK(host_engine.AddUserEntry(L"qrst", L"短语二", user_dict));
+    QIQI_TEST_CHECK(host_engine.InitializeUserDictionarySharing() == S_OK);
+    QIQI_TEST_CHECK(::SetFileSecurityW(user_dict.c_str(),
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
     for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) host_engine.ProcessKey(vk);
     QIQI_TEST_CHECK(host_engine.CommitCandidate(0).committed_text == L"短语一");
 
     const auto executable = fixture.directory / L"reader.exe";
     std::filesystem::copy_file(peer.empty() ? GetModuleFilePath(nullptr) : peer, executable);
     WithAppContainerProfile([&](SECURITY_CAPABILITIES& capabilities) {
-        Child child(executable, L"--probe \"" + fixture.directory.wstring() + L"\"", &capabilities);
+        Child child(executable, L"--probe \"" + fixture.directory.wstring() + L"\" \"" +
+            registry_subkey + L"\"", &capabilities);
         child.AwaitReady();
         QIQI_TEST_CHECK(host_engine.AddUserEntry(L"abcd", L"容器增量词", user_dict));
         for (const uint32_t vk : {'Q', 'R', 'S', 'T'}) host_engine.ProcessKey(vk);
@@ -360,6 +411,18 @@ void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
         QIQI_TEST_CHECK(channel.Publish(batch.version, Operation::Add, kPayload, [&]() {
             return WriteFileAtomicallyResult(fixture.directory / L"published", kPayload);
         }, committed) == S_OK);
+        child.AwaitReady();
+        const auto alternate = fixture.directory / L"alternate.txt";
+        WubiEngine alternate_engine;
+        alternate_engine.SetUserDictPath(alternate);
+        QIQI_TEST_CHECK(alternate_engine.AddUserEntry(L"qwer", L"切换路径词"));
+        QIQI_TEST_CHECK(alternate_engine.InitializeUserDictionarySharing() == S_OK);
+        QIQI_TEST_CHECK(WriteFileAtomically(fixture.directory / L"switched", kPayload));
+        child.AwaitReady();
+        QIQI_TEST_CHECK(std::filesystem::remove(alternate));
+        QIQI_TEST_CHECK(alternate_engine.SynchronizeUserDictionary(InputBoundary::NewInput) == S_OK);
+        QIQI_TEST_CHECK(alternate_engine.LookupExact(L"qwer").empty());
+        QIQI_TEST_CHECK(WriteFileAtomically(fixture.directory / L"cleared", kPayload));
         child.Join();
     });
 }
@@ -769,9 +832,9 @@ int wmain(int argc, wchar_t** argv) try {
         HoldReader(gsl::at(arguments, 2), gsl::at(arguments, 3), release.Get(), ready.Get());
         return 0;
     }
-    if (arguments.size() == 4 && std::wstring_view(gsl::at(arguments, 1)) == L"--probe") {
-        const ScopedKernelHandle ready(reinterpret_cast<HANDLE>(_wcstoui64(gsl::at(arguments, 3), nullptr, 10)));
-        ProbeReader(gsl::at(arguments, 2), ready.Get());
+    if (arguments.size() == 5 && std::wstring_view(gsl::at(arguments, 1)) == L"--probe") {
+        const ScopedKernelHandle ready(reinterpret_cast<HANDLE>(_wcstoui64(gsl::at(arguments, 4), nullptr, 10)));
+        ProbeReader(gsl::at(arguments, 2), gsl::at(arguments, 3), ready.Get());
         return 0;
     }
     if (arguments.size() == 6 && std::wstring_view(gsl::at(arguments, 1)) == L"--writer") {

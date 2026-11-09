@@ -41,7 +41,6 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
     : service_log_id_(++next_service_log_id), composition_lifecycle_(service_log_id_) {
     std::ignore = log::EnsureInitialized();
     config_ = LoadConfig(instance);
-    config_registry_sequence_ = QueryRegistryConfigSequence();
     log::SetLevel(config_.log_level);
     engine_.ApplyConfig(config_);
     engine_.SetUserDictPath(GetDefaultUserDictPath());
@@ -86,6 +85,7 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
     });
     SetUiPresentationEnabled(false);
     LoadExternalDictionaryNextToDll();
+    config_registry_sequence_ = QueryRegistryConfigSequence();
 }
 
 QiQiTextService::~QiQiTextService() noexcept {
