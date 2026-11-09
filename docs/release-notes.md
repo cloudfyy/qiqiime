@@ -29,3 +29,20 @@
 - 真实发行包的全新安装、升级、卸载及用户数据保留需要独立环境验证；本次不在当前共享开发环境中自动执行这些操作，不将未执行的安装验收记为通过。
 
 安装步骤见[安装指南](https://github.com/cloudfyy/qiqiime/blob/1.0.0/docs/install.md)，部署与故障排查见[部署指南](https://github.com/cloudfyy/qiqiime/blob/1.0.0/docs/deploy.md)。二进制与 PDB 必须来自同一次构建。
+
+## 发布后核对（2026-11-09）
+
+- 正式标签固定于提交 `429ab221be14c149cf30729bd32e7859863ed020`；Release 非草稿、非 Pre-release，已设为最新版。后续文档提交不移动标签，也不回写已发布附件。
+- [正式发布流水线](https://github.com/cloudfyy/qiqiime/actions/runs/42575912339)成功：x64/x86 各 17/17 测试通过，无跳过，四个附件已发布。
+- [同提交 CI 与 Lint](https://github.com/cloudfyy/qiqiime/actions/runs/42575912570)成功：双架构完整测试通过，CppCoreCheck 门禁告警为 0，PSScriptAnalyzer Error 为 0。
+- 已下载并核对四个附件的 GitHub SHA-256；两个 MSI 的 ProductVersion 为 `1.0.0`，八个 PE 数字文件版本为 `1.0.0.0`、字符串版本为 `1.0.0+429ab22`，八组二进制/PDB 的 GUID 与 age 一致。运行组件 ZIP 和两个 MSI 均包含发布说明，MSI 仅作只读检查，没有实际安装。
+- 本机共享开发环境的并行回归出现失败；x64 失败项串行复测通过，但 x86 的 `QiQiTsfUiTest` 和 `QiQiCompositionLifecycleTest` 串行复测仍失败，包含超时和按键处理断言。保留诊断日志/dump，不将这些本地结果记为通过；远端成功不证明所有本地或实际宿主条件均已解决。前述 10 项通过记录来自先前词典共享专项质量检查阶段。
+
+### 正式附件 SHA-256
+
+| 附件 | SHA-256 |
+|---|---|
+| `QiQiIME-v1.0.0-win-x64-x86-en-US.msi` | `1ab78aa8013a289d9b76f80a574cc958cda155b403f066a1d25115fe28dcc7f2` |
+| `QiQiIME-v1.0.0-win-x64-x86-zh-CN.msi` | `8e1114cc99d0520fd997382ad038503c132558daedc422149d1bc67d2599240b` |
+| `QiQiIME-v1.0.0-win-x64-x86.zip` | `6036c5425191b234250af09556350940b6ee66a0c6bfd04ba6a2db6326186f7b` |
+| `QiQiIME-v1.0.0-win-x64-x86-symbols.zip` | `7b1605e3a5177fbd61af71866d733f3aba14978dbabe75451ba622186f176230` |
