@@ -182,6 +182,81 @@ void TestSettingsLiveLanguagePreservesControls() {
     QIQI_TEST_CHECK(::IsDlgButtonChecked(hwnd.Get(), kIdRadioHaifeng) == BST_UNCHECKED);
 }
 
+void TestSettingsDirtyTitle() {
+    for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        for (const bool persist : {false, true}) {
+            QiQiConfig cfg;
+            cfg.ui_language = language;
+            const ScopedWindow window(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg, persist));
+            QIQI_TEST_CHECK(window);
+            const auto check_title = [&](UiLanguage selected, bool dirty) {
+                std::array<wchar_t, 256> title{};
+                QIQI_TEST_CHECK(::GetWindowTextW(
+                    window.Get(), title.data(), gsl::narrow_cast<int>(title.size())) > 0);
+                QIQI_TEST_CHECK(std::wstring(title.data()) ==
+                    std::wstring(GetUiStrings(selected).dlg_title) + (dirty ? L" *" : L""));
+            };
+            const auto select_combo = [&](int id, WPARAM value) {
+                ::SendDlgItemMessageW(window.Get(), id, CB_SETCURSEL, value, 0);
+                ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE), 0);
+            };
+            check_title(language, false);
+            for (const auto& checkbox : kCheckboxCases) {
+                ::SendDlgItemMessageW(window.Get(), checkbox.id, BM_CLICK, 0, 0);
+                check_title(language, true);
+                ::SendDlgItemMessageW(window.Get(), checkbox.id, BM_CLICK, 0, 0);
+                check_title(language, false);
+            }
+            for (const int radio : {kIdRadioHaifeng, kIdRadioBuiltin}) {
+                ::SendDlgItemMessageW(window.Get(), radio, BM_CLICK, 0, 0);
+                check_title(language, true);
+                ::SendDlgItemMessageW(window.Get(), kIdRadioJidian, BM_CLICK, 0, 0);
+                check_title(language, false);
+            }
+            for (const int combo : {kIdComboPageSize, kIdComboUnderlineStyle, kIdComboEnglishSwitch}) {
+                const auto initial = ::SendDlgItemMessageW(window.Get(), combo, CB_GETCURSEL, 0, 0);
+                select_combo(combo, initial == 0 ? 1u : 0u);
+                check_title(language, true);
+                select_combo(combo, gsl::narrow_cast<WPARAM>(initial));
+                check_title(language, false);
+            }
+            const auto other_language = language == UiLanguage::ZhCn ? UiLanguage::EnUs : UiLanguage::ZhCn;
+            select_combo(kIdComboUiLang, other_language == UiLanguage::ZhCn ? 1u : 2u);
+            check_title(other_language, true);
+            select_combo(kIdComboUiLang, language == UiLanguage::ZhCn ? 1u : 2u);
+            check_title(language, false);
+
+            ::SendDlgItemMessageW(window.Get(), kIdChkKeySound, BM_CLICK, 0, 0);
+            ::SendDlgItemMessageW(window.Get(), kIdChkAutoCommit4, BM_CLICK, 0, 0);
+            ::SendDlgItemMessageW(window.Get(), kIdChkKeySound, BM_CLICK, 0, 0);
+            check_title(language, true);
+            for (const UINT event : {WM_THEMECHANGED, WM_SETTINGCHANGE}) {
+                ::SendMessageW(window.Get(), event, 0, 0);
+                check_title(language, true);
+            }
+            const RECT suggested{100, 100, 1400, 900};
+            ::SendMessageW(window.Get(), WM_DPICHANGED, MAKEWPARAM(144, 144),
+                           reinterpret_cast<LPARAM>(&suggested));
+            check_title(language, true);
+            ::SendDlgItemMessageW(window.Get(), kIdChkAutoCommit4, BM_CLICK, 0, 0);
+            check_title(language, false);
+            ::SendDlgItemMessageW(window.Get(), kIdBtnRestoreDefaults, BM_CLICK, 0, 0);
+            check_title(UiLanguage::Auto, true);
+            WriteSettingsToWindowControls(window.Get(), QiQiConfig{});
+            ::SendDlgItemMessageW(window.Get(), kIdChkKeySound, BM_CLICK, 0, 0);
+            check_title(UiLanguage::Auto, true);
+            ::SendDlgItemMessageW(window.Get(), kIdBtnRestoreDefaults, BM_CLICK, 0, 0);
+            check_title(UiLanguage::Auto, false);
+            QiQiConfig with_path;
+            with_path.primary_dict_path = L"previously_selected_primary.txt";
+            WriteSettingsToWindowControls(window.Get(), with_path);
+            check_title(UiLanguage::Auto, false);
+            ::SendDlgItemMessageW(window.Get(), kIdBtnRestoreDefaults, BM_CLICK, 0, 0);
+            check_title(UiLanguage::Auto, true);
+        }
+    }
+}
+
 void CheckQuitMessage(int exit_code) {
     MSG msg{};
     // WM_QUIT is synthesized only after higher-priority queued messages are removed.
@@ -239,6 +314,7 @@ void TestModalLoopTermination() {
 void RunSettingsDialogEdgeTests() {
     TestSettingsBindingBoundaries();
     TestSettingsLiveLanguagePreservesControls();
+    TestSettingsDirtyTitle();
     TestModalLoopTermination();
 }
 

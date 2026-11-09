@@ -95,6 +95,33 @@ UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) n
     return ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
 }
 
+void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept {
+    if (!ctx.controls_initialized) {
+        return;
+    }
+    QiQiConfig current;
+    ForEachConfigField([&](const auto& field) noexcept {
+        current.*(field.member) = ctx.baseline_config.*(field.member);
+    });
+    ReadSettingsFromWindowControls(hwnd, current);
+    bool dirty = ctx.custom_primary_dict_path != ctx.baseline_config.primary_dict_path;
+    ForEachConfigField([&](const auto& field) noexcept {
+        if (field.settings_editable && current.*(field.member) != ctx.baseline_config.*(field.member)) {
+            dirty = true;
+        }
+    });
+    const auto& str = GetUiStrings(current.ui_language);
+    std::array<wchar_t, 256> title{};
+    if (swprintf_s(title.data(), title.size(), L"%ls%ls", str.dlg_title, dirty ? L" *" : L"") < 0) {
+        QIQI_LOG_ERROR("Settings title formatting failed");
+        return;
+    }
+    if (!::SetWindowTextW(hwnd, title.data())) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("Settings title update failed (error={})", error);
+    }
+}
+
 void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_config) noexcept {
     const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
     if (update_bound_config && ctx.config && !ctx.save_on_accept) {
@@ -102,7 +129,6 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_
     }
     const auto& str = GetUiStrings(lang);
 
-    ::SetWindowTextW(hwnd, str.dlg_title);
     for (const auto& radio : kSettingsDictRadios) {
         ::SetDlgItemTextW(hwnd, radio.control_id, str.*(radio.label_field));
     }
@@ -165,6 +191,7 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_
             return TRUE;
         },
         reinterpret_cast<LPARAM>(&update));
+    UpdateSettingsWindowTitle(hwnd, ctx);
     ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
@@ -198,6 +225,7 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
     if (ui_lang_follows_external) {
         ApplyLiveSettingsLanguage(hwnd, ctx);
     } else {
+        UpdateSettingsWindowTitle(hwnd, ctx);
         ::InvalidateRect(hwnd, nullptr, TRUE);
     }
 }
@@ -376,6 +404,9 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
     ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_SETCURSEL,
         config.commit_on_english_switch ? 0 : 1, 0);
     UpdateExtraDictCheckboxState(hwnd);
+    if (const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+        UpdateSettingsWindowTitle(hwnd, *ctx);
+    }
 }
 
 void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {

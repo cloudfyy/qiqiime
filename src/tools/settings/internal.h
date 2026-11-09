@@ -171,6 +171,7 @@ struct DialogContext {
 };
 
 UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept;
+void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept;
 void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_config = true) noexcept;
 void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcept;
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept;

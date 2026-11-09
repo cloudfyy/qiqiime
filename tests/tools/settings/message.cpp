@@ -89,7 +89,8 @@ void TestLiveThemeAndLanguage() {
                     : (selection == 1 ? UiLanguage::ZhCn : UiLanguage::Auto);
                 CheckMessageText(message.Get(), kind, language);
                 const auto& str = GetUiStrings(language);
-                QIQI_TEST_CHECK(WindowText(settings.Get()) == str.dlg_title);
+                QIQI_TEST_CHECK(WindowText(settings.Get()) ==
+                    std::wstring(str.dlg_title) + (language == UiLanguage::ZhCn ? L"" : L" *"));
                 QIQI_TEST_CHECK(WindowText(about.Get()) == str.about_title);
                 QIQI_TEST_CHECK(WindowText(::GetDlgItem(about.Get(), 201)) == str.about_btn_github);
                 QIQI_TEST_CHECK(WindowText(::GetDlgItem(about.Get(), IDOK)) == str.dlg_btn_ok);

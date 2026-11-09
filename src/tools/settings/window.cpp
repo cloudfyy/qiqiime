@@ -127,6 +127,7 @@ bool SelectCustomPrimaryDictionaryInSettings(
             kIdLblCustomPrimaryPath,
             ResolveDictionaryPathDisplayText(ctx->custom_primary_dict_path, str.dlg_lbl_custom_dict_none));
         UpdateExtraDictCheckboxState(hwnd);
+        UpdateSettingsWindowTitle(hwnd, *ctx);
         ::InvalidateRect(hwnd, nullptr, FALSE);
         return true;
     } catch (...) {
@@ -527,9 +528,15 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         case kSettingsExternalConfigChangedMessage:
             SyncSettingsWindowFromExternalConfig(hwnd, *ctx);
             return 0;
-        case WM_COMMAND:
+        case WM_COMMAND: {
             HandleSettingsCommand(hwnd, wparam, *ctx);
+            const auto* current = reinterpret_cast<const DialogContext*>(
+                ::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+            if (current && current == ctx) {
+                UpdateSettingsWindowTitle(hwnd, *current);
+            }
             return 0;
+        }
         case WM_CLOSE:
             ctx->accepted = false;
             ctx->done = true;

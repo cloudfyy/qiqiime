@@ -219,6 +219,10 @@ void TestSettingsDialogControls() {
 
         // Selecting a valid file switches to PrimaryDict::Custom, updates path, and disables ExtraDict checkbox
         QIQI_TEST_CHECK(SelectCustomPrimaryDictionaryInSettings(hwnd.Get(), valid_dict));
+        std::array<wchar_t, 256> custom_title{};
+        ::GetWindowTextW(hwnd.Get(), custom_title.data(), gsl::narrow_cast<int>(custom_title.size()));
+        QIQI_TEST_CHECK(std::wstring(custom_title.data()) ==
+                        std::wstring(GetUiStrings(UiLanguage::ZhCn).dlg_title) + L" *");
         ReadSettingsFromWindowControls(hwnd.Get(), read_back);
         QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Custom);
         QIQI_TEST_CHECK(read_back.primary_dict_path == valid_dict.wstring());
@@ -327,7 +331,7 @@ void TestSettingsDialogControls() {
         ::SendDlgItemMessageW(hwnd_zh.Get(), 111, CB_SETCURSEL, 2, 0); // EnUs
         ::SendMessageW(hwnd_zh.Get(), WM_COMMAND, MAKEWPARAM(111, CBN_SELCHANGE), 0);
         ::GetWindowTextW(hwnd_zh.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
-        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"QiQi Wubi IME - Settings");
+        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"QiQi Wubi IME - Settings *");
 
         ::SendDlgItemMessageW(hwnd_zh.Get(), 111, CB_SETCURSEL, 1, 0); // ZhCn
         ::SendMessageW(hwnd_zh.Get(), WM_COMMAND, MAKEWPARAM(111, CBN_SELCHANGE), 0);

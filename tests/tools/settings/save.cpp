@@ -51,6 +51,9 @@ void TestSaveRetryAndCancel() {
                 ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
             });
             QIQI_TEST_CHECK(::IsWindow(hwnd.Get()) && !GetContext(hwnd.Get()).done);
+            std::array<wchar_t, 256> title{};
+            ::GetWindowTextW(hwnd.Get(), title.data(), gsl::narrow_cast<int>(title.size()));
+            QIQI_TEST_CHECK(std::wstring(title.data()) == std::wstring(GetUiStrings(language).dlg_title) + L" *");
             QIQI_TEST_CHECK(!GetContext(hwnd.Get()).accepted);
             QIQI_TEST_CHECK(cfg.primary_dict == PrimaryDict::Jidian && cfg.page_size == 5);
             QIQI_TEST_CHECK(!cfg.enable_key_sound && cfg.ui_language != language);
@@ -65,6 +68,9 @@ void TestSaveRetryAndCancel() {
             ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(cancel ? IDCANCEL : IDOK, BN_CLICKED), 0);
             QIQI_TEST_CHECK(GetContext(hwnd.Get()).done);
             QIQI_TEST_CHECK(GetContext(hwnd.Get()).accepted == !cancel);
+            ::GetWindowTextW(hwnd.Get(), title.data(), gsl::narrow_cast<int>(title.size()));
+            QIQI_TEST_CHECK(std::wstring(title.data()) ==
+                std::wstring(GetUiStrings(language).dlg_title) + (cancel ? L" *" : L""));
             QiQiConfig stored;
             QIQI_TEST_CHECK(LoadConfigFromRegistry(stored));
             QIQI_TEST_CHECK(QueryRegistryConfigSequence() == before + (cancel ? 0 : 1));
@@ -192,8 +198,14 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(read_back.commit_on_english_switch);
     QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
     ::GetWindowTextW(hwnd.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
-    QIQI_TEST_CHECK(std::wstring(title_buf.data()) == GetUiStrings(UiLanguage::ZhCn).dlg_title);
+    QIQI_TEST_CHECK(std::wstring(title_buf.data()) ==
+                    std::wstring(GetUiStrings(UiLanguage::ZhCn).dlg_title) + L" *");
     QIQI_TEST_CHECK(cfg.primary_dict == PrimaryDict::Jidian && cfg.page_size == 5 && !cfg.enable_key_sound);
+
+    QIQI_TEST_CHECK(SaveConfig(read_back));
+    ::SendMessageW(hwnd.Get(), kSettingsExternalConfigChangedMessage, 0, 0);
+    ::GetWindowTextW(hwnd.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
+    QIQI_TEST_CHECK(std::wstring(title_buf.data()) == GetUiStrings(UiLanguage::ZhCn).dlg_title);
 }
 
 void TestRestoreDefaults() {
