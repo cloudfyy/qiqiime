@@ -172,6 +172,7 @@ private:
     void DisconnectActiveContextAccessSinks() noexcept;
     void PrefetchActiveContextInputScope(ITfContext* context);
     void HandleActiveContextAccessChanged();
+    bool IsPasswordObservationCurrent(uint64_t revision) const noexcept;
     void ObserveFocusedPasswordContext();
     void ObservePasswordDocument(ITfDocumentMgr* document);
     void ObservePasswordContext(ITfContext* context, ITfDocumentMgr* document);

@@ -587,30 +587,31 @@ STDMETHODIMP QiQiTextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentM
 }
 
 STDMETHODIMP QiQiTextService::OnPushContext(ITfContext* pic) {
-    if (composition_lifecycle_.IsActive() && pic && password_document_) {
-        const uint64_t revision = password_context_revision_;
-        ComPtr<ITfDocumentMgr> document;
-        const HRESULT hr = pic->GetDocumentMgr(&document);
-        if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return S_OK;
-        if (log::CheckHResult(hr, "Password mode::OnPushContext::GetDocumentMgr", log::Level::debug) &&
-            document && document.Get() == password_document_) {
-            ObservePasswordDocument(document.Get());
-        }
-    }
-    if (!composition_lifecycle_.IsActive() || !pic || !composition_lifecycle_.Context() || pic == composition_lifecycle_.Context().Get()) return S_OK;
-    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), composition_lifecycle_.Context().Get()};
+    if (!composition_lifecycle_.IsActive() || !pic) return S_OK;
+    const bool observe_password = password_document_ != nullptr;
     const auto context = composition_lifecycle_.Context();
+    const bool reconcile_composition = context && pic != context.Get();
+    if (!observe_password && !reconcile_composition) return S_OK;
+    const uint64_t revision = password_context_revision_;
+    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.Get()};
     ComPtr<ITfDocumentMgr> document;
-    if (!log::CheckHResult(pic->GetDocumentMgr(&document), "OnPushContext::GetDocumentMgr") || !document) {
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::Lifecycle,
-            &current_lifecycle_activity_,
-            "TsfLifecycle(service={}, stage=context-push-unresolved)",
-            service_log_id_);
+    const HRESULT hr = pic->GetDocumentMgr(&document);
+    if (observe_password && !IsPasswordObservationCurrent(revision)) return S_OK;
+    if (!log::CheckHResult(hr, "OnPushContext::GetDocumentMgr") || !document) {
+        if (reconcile_composition) {
+            QIQI_LOG_ACT_INFO(
+                log::Level::debug,
+                log::Keyword::Lifecycle,
+                &current_lifecycle_activity_,
+                "TsfLifecycle(service={}, stage=context-push-unresolved)",
+                service_log_id_);
+        }
         return S_OK;
     }
-    if (!IsEditSessionCurrent(ticket)) return S_OK;
+    if (observe_password && document.Get() == password_document_) {
+        ObservePasswordDocument(document.Get());
+    }
+    if (!reconcile_composition || !IsEditSessionCurrent(ticket)) return S_OK;
     const bool related = MatchesCompositionDocument(document.Get(), composition_lifecycle_);
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
@@ -644,8 +645,7 @@ STDMETHODIMP QiQiTextService::OnPopContext(ITfContext* pic) {
     } else if (preparing) {
         composition_lifecycle_.InvalidateContext();
     }
-    if (password_document && composition_lifecycle_.IsActive() &&
-        password_revision == password_context_revision_ && !password_context_) {
+    if (password_document && IsPasswordObservationCurrent(password_revision) && !password_context_) {
         ObservePasswordDocument(password_document.Get());
     }
     return S_OK;

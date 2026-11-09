@@ -8,6 +8,8 @@
 
 焦点 context 的模式观察独立于组合生命周期：监听 `ITfTextEditSink` 的作用域更新，并仅对当前线程、已确认的原生编辑窗口监听 `EM_SETPASSWORDCHAR` / `WM_STYLECHANGED`，支持 11 号框运行中切换密码样式，不等待下一次按键。作用域读取只请求只读编辑会话，不读取正文；同步锁不可用时异步重试，陈旧回调通过 context 与修订号作废。失焦、context 移除和停用时解除观察；真实宿主是否提供有效作用域/焦点仍属于宿主契约，不能承诺任意自绘密码控件均可识别。
 
+复用检查后，观察修订有效性统一由专用辅助函数判断；`OnPushContext` 的密码观察与组合协调共享一次所属文档查询，但仍各自校验观察修订和组合票据，避免重入后使用旧目标。回归同时验证普通 context 入栈不取消已有组合，以及后续密码作用域切换和出栈恢复。
+
 本轮 x64/x86 Release 的 `QiQiTsfUiTest` 与 `QiQiCompositionLifecycleTest` 均通过；定向 CppCoreCheck 按既有规则排除 C26490 后，仓库源码诊断为 0。新增回归使用真实原生 `EDIT` 消息及模拟 TSF context，验证组合期间改为密码样式、五种密码/PIN 作用域、原中文/英文状态恢复、重复通知、作用域查询失败、context 栈切换、原生密码处理中的失焦、过期异步查询及订阅期间重入停用；同时检查 open/close 与 conversion compartment。未自动更新已安装 DLL、制作 MSI 或宣称真实宿主复测完成。
 
 **2026-11-07 实施更新（批次 A + 批次 B 已落地）**：已在 [`access_policy.h`](../src/ime/comp/access_policy.h)、[`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp)、[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp)、[`tip_config.cpp`](../src/ime/tsf/tip_config.cpp)、[`tip_service.cpp`](../src/ime/tsf/tip_service.cpp) 与 [`engine.cpp`](../src/ime/engine/engine.cpp) 中实现两层漏斗准入模型（`ContextFacts` → `AccessPolicy`）：统一覆盖四个按键入口、Shift 单击切换、全部四个保留快捷键、候选点击/翻页、模式切换、异步 `EditSession` / 布局回调复核、活动 context 的禁用 compartment 与 `ITfStatusSink` 动态通知，以及 `IS_PRIVATE` 无痕状态下的动态调频/置顶/屏蔽/剪贴板造词抑制。x64/x86 Release 下 `QiQiTsfUiTest`、`QiQiCompositionLifecycleTest`、`QiQiEngineTest` 与 `--restricted-input-diagnostics` 全部通过（排队后禁用 `composition_started=0`、禁用态 Shift/保留键/错误注入 `eaten=0`、未设置 `S_FALSE` `eaten=1`）。下方 2026-11-05 与研究阶段记录作为实施前基线保留，不将当时“未实现”的结论当作当前状态。

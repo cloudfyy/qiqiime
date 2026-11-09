@@ -365,12 +365,27 @@ void TestUnifiedAccessPolicyAndEdgeCases() {
         {
             const auto modal = document->CreateTestContext();
             const auto modal_property = MakeComObject<MockInputScopeProperty>();
-            modal_property->scopes = {IS_PASSWORD};
+            modal_property->scopes = {IS_DEFAULT};
             modal->get_start_result_ = S_OK;
             modal->get_app_property_result_ = S_OK;
             modal->app_property_ = modal_property;
             document->events = service.Get();
             const auto disconnect = gsl::finally([&]() noexcept { document->events = nullptr; });
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+            const auto active_composition = context->last_composition_;
+            const auto parent_queries = modal->get_document_calls_;
+            QIQI_TEST_CHECK(document->Push(modal.Get()) == S_OK);
+            // One ownership check in Push, one shared query in the service.
+            QIQI_TEST_CHECK(modal->get_document_calls_ == parent_queries + 2);
+            check_mode(true);
+            QIQI_TEST_CHECK(!active_composition->ended_);
+            modal_property->scopes = {IS_PASSWORD};
+            const auto modal_sink = modal->edit_sink_;
+            QIQI_TEST_CHECK(modal_sink->OnEndEdit(modal.Get(), 1, nullptr) == S_OK);
+            QIQI_TEST_CHECK(active_composition->ended_);
+            check_mode(false);
+            QIQI_TEST_CHECK(document->Pop(0) == S_OK);
+            check_mode(true);
             QIQI_TEST_CHECK(document->Push(modal.Get()) == S_OK);
             check_mode(false);
             QIQI_TEST_CHECK(document->Pop(0) == S_OK);

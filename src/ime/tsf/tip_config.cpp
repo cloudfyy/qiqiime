@@ -191,6 +191,10 @@ STDMETHODIMP QiQiTextService::OnStatusChange(ITfContext* pic, DWORD /*dwFlags*/)
     return S_OK;
 }
 
+bool QiQiTextService::IsPasswordObservationCurrent(uint64_t revision) const noexcept {
+    return composition_lifecycle_.IsActive() && password_context_revision_ == revision;
+}
+
 void QiQiTextService::DisconnectPasswordContext() noexcept {
     ++password_context_revision_;
     const HWND window = std::exchange(password_window_, nullptr);
@@ -209,7 +213,7 @@ void QiQiTextService::ObserveFocusedPasswordContext() {
     const auto manager = thread_mgr_;
     ComPtr<ITfDocumentMgr> document;
     const HRESULT hr = manager->GetFocus(&document);
-    if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+    if (!IsPasswordObservationCurrent(revision)) return;
     if (log::CheckHResult(hr, "Password mode::GetFocus", log::Level::debug)) {
         ObservePasswordDocument(document.Get());
     }
@@ -224,7 +228,7 @@ void QiQiTextService::ObservePasswordDocument(ITfDocumentMgr* document) {
     }
     ComPtr<ITfContext> context;
     const HRESULT hr = owner->GetTop(&context);
-    if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+    if (!IsPasswordObservationCurrent(revision)) return;
     if (log::CheckHResult(hr, "Password mode::GetTop", log::Level::debug)) {
         ObservePasswordContext(context.Get(), document);
     } else {
@@ -240,8 +244,8 @@ void QiQiTextService::ObservePasswordContext(ITfContext* context, ITfDocumentMgr
     const uint64_t focus_revision = focus_revision_;
     const uint64_t disconnected_revision = password_context_revision_ + 1;
     DisconnectPasswordContext();
-    if (!context || !composition_lifecycle_.IsActive() || focus_revision != focus_revision_ ||
-        disconnected_revision != password_context_revision_) return;
+    if (!context || !IsPasswordObservationCurrent(disconnected_revision) ||
+        focus_revision != focus_revision_) return;
     password_context_ = context;
     password_document_ = document;
     const uint64_t revision = password_context_revision_;
@@ -249,15 +253,15 @@ void QiQiTextService::ObservePasswordContext(ITfContext* context, ITfDocumentMgr
     auto connection = std::make_unique<ScopedTfSinkConnection>();
     ITfTextEditSink* const sink = this;
     std::ignore = connection->Advise(context, IID_ITfTextEditSink, sink);
-    if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+    if (!IsPasswordObservationCurrent(revision)) return;
     password_edit_sink_ = std::move(connection);
     ComPtr<ITfContextView> view;
     const HRESULT view_hr = target->GetActiveView(&view);
-    if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+    if (!IsPasswordObservationCurrent(revision)) return;
     if (log::CheckHResult(view_hr, "Password mode::GetActiveView", log::Level::debug) && view) {
         HWND window = nullptr;
         const HRESULT window_hr = view->GetWnd(&window);
-        if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+        if (!IsPasswordObservationCurrent(revision)) return;
         if (log::CheckHResult(window_hr, "Password mode::GetWnd", log::Level::debug) &&
             InspectConfirmedCurrentThreadEditWindow(window).is_native_edit) {
             if (::SetWindowSubclass(window, &PasswordWindowSubclassProc,
@@ -317,7 +321,7 @@ void QiQiTextService::RefreshPasswordContext() {
     HRESULT session_hr = S_OK;
     HRESULT request_hr = target->RequestEditSession(
         client_id_, session.Get(), TF_ES_SYNC | TF_ES_READ, &session_hr);
-    if (!composition_lifecycle_.IsActive() || revision != password_context_revision_) return;
+    if (!IsPasswordObservationCurrent(revision)) return;
     if (request_hr == TF_E_SYNCHRONOUS || request_hr == TF_E_LOCKED ||
         (SUCCEEDED(request_hr) && (session_hr == TF_E_SYNCHRONOUS || session_hr == TF_E_LOCKED))) {
         request_hr = target->RequestEditSession(
@@ -331,8 +335,7 @@ void QiQiTextService::RefreshPasswordContext() {
 void QiQiTextService::UpdatePasswordModeInSession(
     TfEditCookie cookie, ITfContext* context, uint64_t revision) {
     const auto current = [this, context, revision]() noexcept {
-        return composition_lifecycle_.IsActive() && password_context_.Get() == context &&
-               password_context_revision_ == revision;
+        return IsPasswordObservationCurrent(revision) && password_context_.Get() == context;
     };
     if (!current()) return;
     if (InspectConfirmedCurrentThreadEditWindow(password_window_).is_password) {
