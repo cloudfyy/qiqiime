@@ -3,6 +3,7 @@
 #include <exception>
 #include "common/i18n.h"
 
+#pragma warning(suppress : 26461) // Preserve the Win32 entry point's LPWSTR signature.
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command_line, int show) {
     ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     try {

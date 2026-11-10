@@ -3,6 +3,8 @@ target_include_directories(qiqi_log_monitor_test PRIVATE "${PROJECT_SOURCE_DIR}/
 target_link_libraries(qiqi_log_monitor_test PRIVATE qiqi_log_monitor version)
 add_dependencies(qiqi_log_monitor_test QiQiIMELogMonitor)
 add_test(NAME QiQiLogMonitorTest COMMAND qiqi_log_monitor_test)
+add_test(NAME QiQiLogMonitorStartupTest COMMAND qiqi_log_monitor_test --startup)
+set_tests_properties(QiQiLogMonitorStartupTest PROPERTIES TIMEOUT 45)
 add_test(NAME QiQiLogMonitorIntegrationTest COMMAND qiqi_log_monitor_test --integration)
 set_tests_properties(QiQiLogMonitorIntegrationTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 40)
 

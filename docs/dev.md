@@ -286,6 +286,13 @@ cmake --build build\x64 --config Release --target lint
 
 收集时串行运行完整 `ctest --test-dir build\x64 -C Debug --output-on-failure --parallel 1`，并单独运行双架构 Release 全套回归。Cobertura 的模块汇总会重复计算静态库源码；源码行覆盖率应按文件路径和行号去重，任一模块命中即视为覆盖。同样必须列出未出现在报告中的实现文件，不能只看已有模块的百分比。该工具导出的 `branch-rate` 不代表已经测得所有 C++ 分支覆盖率；真实宿主矩阵、权限及资源耗尽等边界仍需独立验证。
 
+#### 2026-11-10 日志监控提权重启定向核验
+
+- 使用 `ctest --preset x64-release -R '^QiQiLogMonitor(Test|StartupTest)$'` 运行日志监控完整回归与新增启动定向回归；x86 使用对应预设。两组回归复用提权启动断言，检查有/无父窗口时的启动错误及句柄释放，并覆盖有符号坐标边界、非法参数提示和 COM 模型冲突的原始 HRESULT。
+- 新增启动回归将提权请求生成的参数交给真实 `QiQiIMELogMonitor.exe`，逐个检查当前连接屏幕及离屏坐标回落，核对窗口所在屏幕和正常退出；测试使用线程级 Per-Monitor V2 DPI 上下文，并以 RAII 恢复。子进程由带 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job 管理，不自动操作真实 UAC。
+- 在独立 Debug EXE/PDB 副本上静态插桩并收集工具子进程，按源码文件与行号合并后，`LaunchElevatedMonitor` 为 **31/31**、`ParseMonitorStartupPoint` 为 **14/14**、`RunMonitor` 为 **12/12** 可执行行。三个实现文件分别为 [permissions.cpp](../src/tools/log_monitor/permissions.cpp) **112/114**、[window.cpp](../src/tools/log_monitor/window.cpp) **70/87**、[main.cpp](../src/tools/log_monitor/main.cpp) **4/8**；没有遗漏本轮指定的实现文件。这是定向源码行覆盖率，不是全仓或全分支覆盖率；分配异常、部分 Win32 API 失败及真实双屏 UAC 交互仍需独立验收。四个 EXE/PDB 副本在插桩恢复后均与未插桩构建的 SHA-256 一致，发布链接配置未改动。
+- 最终 x64 全仓 `lint` 通过：沿用 C26490 和外部依赖排除规则，仓库 CppCoreCheck 诊断为 **0**，PSScriptAnalyzer Error 为 **0**；x86 日志监控相关目标的定向 CppCoreCheck 亦通过。双架构上述两组 Release 回归均为 **2/2 通过**，未制作 MSI。
+
 #### 2026-11-06 全仓核验与边界回归
 
 基于 `f34fea3` 并包含本轮新增测试；生产代码未改动。x64/x86 全量 `lint` 均通过，自有源码非 C26490 诊断为 0，PSScriptAnalyzer Error 为 0；新增测试目标随后在两架构再次构建并通过 CoreCheck。
