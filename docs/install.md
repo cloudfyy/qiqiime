@@ -1,6 +1,6 @@
 # 奇奇五笔输入法安装指南
 
-本文面向从 GitHub 下载 MSI 安装包的用户，以补丁版 `1.0.2` 的文件名 `QiQiIME-v1.0.2-win-x64-x86-en-US.msi` 为例。Git 标签为 `v1.0.2`；请以[官方 Release 页面](https://github.com/cloudfyy/qiqiime/releases/tag/v1.0.2)实际可下载的附件为准，不要仅根据文件名判断来源或版本。标签存在不代表发布流程或安装验收已完成。
+本文面向从 GitHub 下载 MSI 安装包的用户，以补丁版 `1.0.3` 的文件名 `QiQiIME-v1.0.3-win-x64-x86-en-US.msi` 为例。Git 标签为 `v1.0.3`；请以[官方 Release 页面](https://github.com/cloudfyy/qiqiime/releases/tag/v1.0.3)实际可下载的附件为准，不要仅根据文件名判断来源或版本。标签存在不代表发布流程或安装验收已完成。
 
 ## 1. 安装前准备
 
@@ -24,7 +24,7 @@
 如发布页面提供 SHA-256 校验值，可在 PowerShell 中计算下载文件的哈希并逐字核对：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath "$env:USERPROFILE\Downloads\QiQiIME-v1.0.2-win-x64-x86-en-US.msi"
+Get-FileHash -Algorithm SHA256 -LiteralPath "$env:USERPROFILE\Downloads\QiQiIME-v1.0.3-win-x64-x86-en-US.msi"
 ```
 
 文件位于其他目录时请修改路径。仅计算哈希、不与可信来源提供的值比较，不能证明文件安全；本指南不提供该安装包的已验证哈希。
@@ -86,7 +86,7 @@ RC7 还包含自定义主词库选择校验、日志监控器的三组互斥视�
 确认安装包来源可信后，可在 PowerShell 中执行以下命令，生成 Windows Installer 详细日志。该命令会实际安装软件，并可能触发 UAC：
 
 ```powershell
-msiexec.exe /i "$env:USERPROFILE\Downloads\QiQiIME-v1.0.2-win-x64-x86-en-US.msi" /L*V "$env:TEMP\QiQiIME-install.log"
+msiexec.exe /i "$env:USERPROFILE\Downloads\QiQiIME-v1.0.3-win-x64-x86-en-US.msi" /L*V "$env:TEMP\QiQiIME-install.log"
 ```
 
 向项目反馈时，请提供 Windows 版本与架构、Release 标签、完整 MSI 文件名、首次安装还是升级，以及错误文字或截图。日志可能包含用户名和本机路径，分享前请检查并脱敏。
