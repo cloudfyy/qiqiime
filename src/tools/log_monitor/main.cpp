@@ -3,10 +3,10 @@
 #include <exception>
 #include "common/i18n.h"
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command_line, int show) {
     ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     try {
-        return qiqi::monitor::RunMonitor(instance, show);
+        return qiqi::monitor::RunMonitor(instance, show, command_line);
     } catch (const std::exception&) {
         ::MessageBoxW(nullptr, qiqi::ResolveUiLanguage(qiqi::UiLanguage::Auto) == qiqi::UiLanguage::EnUs ?
             L"Cannot initialize QiQiIME Log Monitor (allocation or system error)." :

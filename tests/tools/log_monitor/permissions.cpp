@@ -1,11 +1,16 @@
 #include "common/test_support.h"
 #include "common/file_util.h"
+#include "common/window.h"
 #include "tools/log_monitor/permissions.h"
+#include "tools/log_monitor/window.h"
 
 #include <commctrl.h>
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <format>
+#include <numeric>
+#include <vector>
 
 namespace qiqi::monitor::permission_tests {
 namespace {
@@ -14,6 +19,7 @@ thread_local ULONG enable_error = ERROR_SUCCESS;
 thread_local ULONG open_error = ERROR_SUCCESS;
 thread_local ULONG launch_error = ERROR_SUCCESS;
 thread_local HANDLE launched_process = nullptr;
+thread_local std::optional<POINT> launch_point;
 
 ULONG WINAPI StartCaptureSession(PTRACEHANDLE session, LPCWSTR name, PEVENT_TRACE_PROPERTIES properties) noexcept {
     if (start_error != ERROR_SUCCESS) return start_error;
@@ -38,7 +44,15 @@ BOOL WINAPI ExecuteElevated(SHELLEXECUTEINFOW* info) {
     QIQI_TEST_CHECK(info && info->cbSize == sizeof(*info));
     QIQI_TEST_CHECK(std::wstring_view(info->lpVerb) == L"runas");
     QIQI_TEST_CHECK(std::filesystem::path(info->lpFile) == GetModuleFilePath(nullptr));
-    QIQI_TEST_CHECK(info->lpParameters == nullptr && info->nShow == SW_SHOWNORMAL);
+    QIQI_TEST_CHECK(info->nShow == SW_SHOWNORMAL);
+    if (launch_point) {
+        QIQI_TEST_CHECK(info->lpParameters);
+        std::optional<POINT> parsed;
+        QIQI_TEST_CHECK(ParseMonitorStartupPoint(info->lpParameters, parsed) == ERROR_SUCCESS && parsed);
+        QIQI_TEST_CHECK(parsed->x == launch_point->x && parsed->y == launch_point->y);
+    } else {
+        QIQI_TEST_CHECK(info->lpParameters == nullptr);
+    }
     QIQI_TEST_CHECK((info->fMask & SEE_MASK_NOCLOSEPROCESS) != 0 &&
                     (info->fMask & SEE_MASK_NOASYNC) != 0 && (info->fMask & SEE_MASK_FLAG_NO_UI) != 0);
     if (launch_error != ERROR_SUCCESS) {
@@ -88,9 +102,69 @@ void CheckSessionStopped(std::wstring_view name) {
     QIQI_TEST_CHECK(::ControlTraceW(0, session_name.c_str(), &properties.trace,
                                   EVENT_TRACE_CONTROL_QUERY) == ERROR_WMI_INSTANCE_NOT_FOUND);
 }
+
+void TestStartupPointArguments() {
+    std::optional<POINT> point = POINT{1, 2};
+    for (const auto arguments : {L"", L" \t\r\n"}) {
+        QIQI_TEST_CHECK(ParseMonitorStartupPoint(arguments, point) == ERROR_SUCCESS && !point);
+    }
+    for (const POINT expected : {POINT{0, 0}, POINT{-1920, -1080}, POINT{2560, 1440},
+            POINT{LONG_MIN, LONG_MAX}}) {
+        const auto arguments = std::format(L"  --monitor-point {} {} \t", expected.x, expected.y);
+        QIQI_TEST_CHECK(ParseMonitorStartupPoint(arguments, point) == ERROR_SUCCESS && point);
+        QIQI_TEST_CHECK(point->x == expected.x && point->y == expected.y);
+    }
+    for (const auto arguments : {L"--monitor-point", L"--monitor-point 1", L"--monitor-point x 2",
+            L"--monitor-point 1 2 extra", L"--monitor-point 2147483648 0",
+            L"--monitor-point 0 -2147483649", L"--monitor-point 1 2.5", L"--monitor-point 1-2",
+            L"--unknown 1 2"}) {
+        point = POINT{1, 2};
+        QIQI_TEST_CHECK(ParseMonitorStartupPoint(arguments, point) == ERROR_INVALID_PARAMETER && !point);
+    }
+}
+
+void TestRestartMonitorPlacement() {
+    const auto restore = gsl::finally([]() noexcept {
+        launch_point.reset();
+        MSG message{};
+        while (::PeekMessageW(&message, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE)) {}
+    });
+    std::vector<HMONITOR> monitors;
+    QIQI_TEST_CHECK(::EnumDisplayMonitors(nullptr, nullptr,
+        [](HMONITOR monitor, HDC, LPRECT, LPARAM context) -> BOOL {
+            reinterpret_cast<std::vector<HMONITOR>*>(context)->push_back(monitor);
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&monitors)));
+    QIQI_TEST_CHECK(!monitors.empty());
+    for (const auto monitor : monitors) {
+        MONITORINFO metrics{};
+        metrics.cbSize = sizeof(metrics);
+        QIQI_TEST_CHECK(::GetMonitorInfoW(monitor, &metrics));
+        launch_point = POINT{std::midpoint(metrics.rcWork.left, metrics.rcWork.right),
+            std::midpoint(metrics.rcWork.top, metrics.rcWork.bottom)};
+        MonitorWindow window;
+        QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr), launch_point));
+        QIQI_TEST_CHECK(::MonitorFromWindow(window.Handle(), MONITOR_DEFAULTTONEAREST) == monitor);
+        RECT actual{};
+        QIQI_TEST_CHECK(::GetWindowRect(window.Handle(), &actual));
+        const auto expected = ComputeCenteredToolWindowRect(
+            QueryMonitorForPoint(*launch_point), 1160, 780, ::GetDpiForWindow(window.Handle()));
+        QIQI_TEST_CHECK(::EqualRect(&actual, &expected));
+        QIQI_TEST_CHECK(LaunchElevatedMonitor(window.Handle(), ExecuteElevated) == ERROR_SUCCESS);
+        DWORD flags = 0;
+        QIQI_TEST_CHECK(!::GetHandleInformation(launched_process, &flags) && ::GetLastError() == ERROR_INVALID_HANDLE);
+    }
+    const POINT disconnected_point{LONG_MIN, LONG_MIN};
+    MonitorWindow recovered;
+    QIQI_TEST_CHECK(recovered.Create(::GetModuleHandleW(nullptr), disconnected_point));
+    QIQI_TEST_CHECK(::MonitorFromWindow(recovered.Handle(), MONITOR_DEFAULTTONEAREST) ==
+        ::MonitorFromPoint(disconnected_point, MONITOR_DEFAULTTONEAREST));
+}
 } // namespace
 
 void RunPermissionRecoveryTests() {
+    TestStartupPointArguments();
+    TestRestartMonitorPlacement();
     CapturePermissions permissions;
     QIQI_TEST_CHECK(QueryCapturePermissions(permissions) == ERROR_SUCCESS);
     Diagnostics diagnostics;

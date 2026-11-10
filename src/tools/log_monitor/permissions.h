@@ -21,5 +21,6 @@ HRESULT ConfirmElevatedRestart(HWND owner, UiLanguage language, const CaptureSta
     bool& accepted, bool has_captured_logs = false);
 ULONG LaunchElevatedMonitor(HWND owner,
     gsl::not_null<decltype(&::ShellExecuteExW)> execute = &::ShellExecuteExW);
+ULONG ParseMonitorStartupPoint(std::wstring_view command_line, std::optional<POINT>& point);
 
 } // namespace qiqi::monitor

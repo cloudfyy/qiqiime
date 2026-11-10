@@ -6,7 +6,10 @@
 #include <commctrl.h>
 #include <objbase.h>
 #include <array>
+#include <cwctype>
 #include <format>
+#include <numeric>
+#include <sstream>
 
 namespace qiqi::monitor {
 namespace {
@@ -103,6 +106,17 @@ HRESULT ConfirmElevatedRestart(
 }
 
 ULONG LaunchElevatedMonitor(HWND owner, gsl::not_null<decltype(&::ShellExecuteExW)> execute) {
+    std::wstring parameters;
+    if (owner) {
+        const HMONITOR monitor = ::MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST);
+        if (!monitor) return ERROR_INVALID_MONITOR_HANDLE;
+        MONITORINFO metrics{};
+        metrics.cbSize = sizeof(metrics);
+        if (!::GetMonitorInfoW(monitor, &metrics)) return ::GetLastError();
+        const auto& work = metrics.rcWork;
+        parameters = std::format(L"--monitor-point {} {}",
+            std::midpoint(work.left, work.right), std::midpoint(work.top, work.bottom));
+    }
     const HRESULT co_result = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(co_result)) return gsl::narrow_cast<ULONG>(co_result);
     const auto uninitialize = gsl::finally([]() noexcept { ::CoUninitialize(); });
@@ -118,11 +132,29 @@ ULONG LaunchElevatedMonitor(HWND owner, gsl::not_null<decltype(&::ShellExecuteEx
     info.hwnd = owner;
     info.lpVerb = L"runas";
     info.lpFile = executable.c_str();
+    info.lpParameters = parameters.empty() ? nullptr : parameters.c_str();
     info.nShow = SW_SHOWNORMAL;
     const BOOL launched = execute(&info);
     const DWORD error = launched ? ERROR_SUCCESS : ::GetLastError();
     const ScopedKernelHandle process(info.hProcess);
     return error;
+}
+
+ULONG ParseMonitorStartupPoint(std::wstring_view command_line, std::optional<POINT>& point) {
+    point.reset();
+    std::wistringstream arguments{std::wstring(command_line)};
+    arguments >> std::ws;
+    if (arguments.eof()) return ERROR_SUCCESS;
+    std::wstring option;
+    POINT parsed{};
+    if (!(arguments >> option >> parsed.x) || option != L"--monitor-point" ||
+        !std::iswspace(arguments.peek()) || !(arguments >> parsed.y)) {
+        return ERROR_INVALID_PARAMETER;
+    }
+    arguments >> std::ws;
+    if (!arguments.eof()) return ERROR_INVALID_PARAMETER;
+    point = parsed;
+    return ERROR_SUCCESS;
 }
 
 } // namespace qiqi::monitor

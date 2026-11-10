@@ -87,7 +87,7 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
 MonitorWindow::MonitorWindow(CaptureStartApi api) : impl_(std::make_unique<Impl>(api)) { impl_->owner = this; }
 MonitorWindow::~MonitorWindow() noexcept = default;
 
-bool MonitorWindow::Create(HINSTANCE instance) {
+bool MonitorWindow::Create(HINSTANCE instance, std::optional<POINT> startup_point) {
     if (window_) return true;
     impl_->instance = instance;
     const INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
@@ -101,7 +101,7 @@ bool MonitorWindow::Create(HINSTANCE instance) {
         return false;
     }
     const auto title = FormatMonitorWindowTitle(impl_->ui_language);
-    const auto monitor = QueryActiveMonitor(nullptr);
+    const auto monitor = startup_point ? QueryMonitorForPoint(*startup_point) : QueryActiveMonitor(nullptr);
     const auto rect = ComputeCenteredToolWindowRect(monitor, 1160, 780, monitor.dpi);
     window_.Reset(::CreateWindowExW(0, kWindowClass.data(), title.c_str(), WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
@@ -118,9 +118,20 @@ bool MonitorWindow::Create(HINSTANCE instance) {
     return true;
 }
 
-int RunMonitor(HINSTANCE instance, int show) {
+int RunMonitor(HINSTANCE instance, int show, std::wstring_view command_line) {
+    std::optional<POINT> startup_point;
+    const ULONG error = ParseMonitorStartupPoint(command_line, startup_point);
+    if (error != ERROR_SUCCESS) {
+        const bool english = ResolveUiLanguage(UiLanguage::Auto) == UiLanguage::EnUs;
+        const auto message = std::format(L"{}\r\n{}={} (0x{:08X})",
+            english ? L"Invalid log monitor startup arguments." : L"日志监控启动参数无效。",
+            english ? L"Error" : L"错误码", error, error);
+        ::MessageBoxW(nullptr, message.c_str(),
+            english ? L"QiQiIME Log Monitor" : L"奇奇日志监控", MB_OK | MB_ICONERROR);
+        return 1;
+    }
     MonitorWindow window;
-    if (!window.Create(instance)) return 1;
+    if (!window.Create(instance, startup_point)) return 1;
     return RunToolWindowMessageLoop(window.Handle(), show);
 }
 

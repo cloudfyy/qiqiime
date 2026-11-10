@@ -3,6 +3,7 @@
 #include "common/scoped_handle.h"
 #include "tools/log_monitor/collector.h"
 #include <memory>
+#include <optional>
 #include <string_view>
 
 namespace qiqi::monitor {
@@ -24,7 +25,7 @@ public:
     MonitorWindow& operator=(const MonitorWindow&) = delete;
     MonitorWindow(MonitorWindow&&) = delete;
     MonitorWindow& operator=(MonitorWindow&&) = delete;
-    bool Create(HINSTANCE instance);
+    bool Create(HINSTANCE instance, std::optional<POINT> startup_point = std::nullopt);
     HWND Handle() const noexcept { return window_.Get(); }
 private:
     friend struct MonitorWindowTestAccess;
@@ -32,5 +33,5 @@ private:
     std::unique_ptr<Impl> impl_;
     ScopedWindow window_;
 };
-int RunMonitor(HINSTANCE instance, int show);
+int RunMonitor(HINSTANCE instance, int show, std::wstring_view command_line = {});
 } // namespace qiqi::monitor
