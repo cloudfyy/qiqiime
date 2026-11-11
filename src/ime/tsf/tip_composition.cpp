@@ -239,14 +239,29 @@ void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, gsl::not_null<
 
 void QiQiTextService::UpdateCandidateWindowPositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view) {
+    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
+    const auto composition = composition_lifecycle_.Composition();
+    const auto ui = candidate_ui_;
     UpdateCompositionLayoutPositionInSession(
-        ec, context, composition_lifecycle_, candidate_ui_.Get(), view, has_valid_caret_pos_,
+        ec, context, composition_lifecycle_, ui.Get(), view, has_valid_caret_pos_,
         service_log_id_, current_lifecycle_activity_,
         [this](EditSessionTicket ticket, const ITfComposition* composition) noexcept {
             return IsCompositionEditCurrent(ticket, composition);
         },
         [](RECT& rect) noexcept { return QueryGuiThreadOrCursorFallbackRect(rect); },
-        [this](const RECT& rect) { candidate_ui_->MoveWindowTo(rect); });
+        [this, &view, ticket, composition, ui](const RECT& rect) {
+            HWND host_window = nullptr;
+            if (view) {
+                const HRESULT window_hr = view->GetWnd(&host_window);
+                if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
+                if (!log::CheckHResult(window_hr, "CandidatePosition::GetWnd", log::Level::debug)) {
+                    host_window = nullptr;
+                }
+            }
+            if (!host_window) host_window = ::GetFocus();
+            if (!IsCompositionEditCurrent(ticket, composition.Get())) return;
+            ui->MoveWindowTo(rect, host_window);
+        });
 }
 
 void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot) {

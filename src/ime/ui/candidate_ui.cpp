@@ -6,6 +6,7 @@
 #include "ime/fsm/fsm.h"
 #include <gsl/gsl>
 #include <oleauto.h>
+#include <dwmapi.h>
 #include <algorithm>
 #include <cmath>
 #include <span>
@@ -215,6 +216,7 @@ STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
         if (EnsurePopupWindow()) {
             ::ShowWindow(hwnd_.Get(), SW_SHOWNOACTIVATE);
             ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
+            LogPopupVisibility();
         }
     } else if (hwnd_) {
         ::ShowWindow(hwnd_.Get(), SW_HIDE);
@@ -319,9 +321,23 @@ void CandidateUI::SetCandidates(std::wstring code,
     RefreshPopupLayout();
 }
 
-void CandidateUI::MoveWindowTo(const RECT& text_rect) {
+void CandidateUI::MoveWindowTo(const RECT& text_rect, HWND host_window) {
+    const HWND owner = host_window ? ::GetAncestor(host_window, GA_ROOT) : nullptr;
+    if (host_window && !owner) {
+        QIQI_LOG_WARN("CandidateUI::MoveWindowTo host window has no root; using unowned popup");
+    }
+    if (owner != popup_owner_ && hwnd_) {
+        // Establish the host relationship at creation, including for immersive hosts.
+        const BOOL was_shown = is_shown_;
+        if (!DestroyPopupWindow()) return;
+        is_shown_ = was_shown;
+    }
+    popup_owner_ = owner;
     text_rect_ = text_rect;
     RefreshPopupLayout();
+    if (is_shown_ && !hwnd_) {
+        std::ignore = Show(TRUE);
+    }
 }
 
 void CandidateUI::SetLayout(CandidateLayout layout) {
@@ -380,13 +396,17 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
     wc.lpszClassName = kCandidateWndClass;
     ::RegisterClassExW(&wc);
 
+    if (popup_owner_ && !::IsWindow(popup_owner_)) {
+        QIQI_LOG_WARN("CandidateUI::EnsurePopupWindow host window was destroyed; using unowned popup");
+        popup_owner_ = nullptr;
+    }
     hwnd_.Reset(::CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         kCandidateWndClass,
         L"",
         WS_POPUP | WS_BORDER,
         popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
-        nullptr, nullptr, instance_, this));
+        popup_owner_, nullptr, instance_, this));
 
     if (!hwnd_) {
         QIQI_LOG_ERROR("CandidateUI::EnsurePopupWindow CreateWindowExW failed (error={})", ::GetLastError());
@@ -395,6 +415,25 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
                        popup_pos_.x, popup_pos_.y, popup_width_, popup_height_, dpi_);
     }
     return hwnd_.IsValid();
+}
+
+void CandidateUI::LogPopupVisibility() const noexcept {
+    if (!log::ShouldLog(log::Level::debug) || !hwnd_) return;
+    WINDOWINFO info{};
+    info.cbSize = sizeof(info);
+    if (!::GetWindowInfo(hwnd_.Get(), &info)) {
+        QIQI_LOG_ERROR("CandidateUI::LogPopupVisibility GetWindowInfo failed (error={})", ::GetLastError());
+        return;
+    }
+    DWORD cloaked = 0;
+    const HRESULT cloak_hr = ::DwmGetWindowAttribute(hwnd_.Get(), DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
+    std::ignore = log::CheckHResult(cloak_hr, "CandidateUI::DwmGetWindowAttribute(DWMWA_CLOAKED)", log::Level::debug);
+    QIQI_LOG_DEBUG("CandidateVisibility(visible={}, topmost={}, has_owner={}, cloaked={}, cloak_hr=0x{:08x}, rect=({}, {}, {}, {}))",
+                   ::IsWindowVisible(hwnd_.Get()) != FALSE, (info.dwExStyle & WS_EX_TOPMOST) != 0,
+                   ::GetWindow(hwnd_.Get(), GW_OWNER) != nullptr,
+                   SUCCEEDED(cloak_hr) ? gsl::narrow_cast<int>(cloaked) : -1,
+                   gsl::narrow_cast<unsigned int>(cloak_hr),
+                   info.rcWindow.left, info.rcWindow.top, info.rcWindow.right, info.rcWindow.bottom);
 }
 
 bool CandidateUI::DestroyPopupWindow() noexcept {
@@ -578,6 +617,7 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             if (self->hwnd_.Get() == hwnd) {
                 std::ignore = self->hwnd_.Detach();
                 self->is_shown_ = FALSE;
+                self->popup_owner_ = nullptr;
             }
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         case WM_MOUSEACTIVATE:

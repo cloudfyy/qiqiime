@@ -11,7 +11,7 @@ namespace qiqi::test {
 void RunTsfLayoutQueryTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
-    enum class Boundary { View, Range, Extent };
+    enum class Boundary { View, Range, Extent, Owner };
     const auto objects_before = g_com_object_count.load();
     std::array<BYTE, 256> original_keyboard{};
     QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
@@ -20,9 +20,54 @@ void RunTsfLayoutQueryTests(
     });
     std::array<BYTE, 256> clean_keyboard{};
     QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+    {
+        const ScopedWindow first(::CreateWindowExW(
+            0, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400, nullptr, nullptr, g_dll_instance, nullptr));
+        const ScopedWindow second(::CreateWindowExW(
+            0, L"STATIC", L"", WS_POPUP, 200, 200, 600, 400, nullptr, nullptr, g_dll_instance, nullptr));
+        const ScopedWindow edit(::CreateWindowExW(
+            0, L"EDIT", L"", WS_CHILD, 0, 0, 100, 24, first.Get(), nullptr, g_dll_instance, nullptr));
+        QIQI_TEST_CHECK(first && second && edit);
+        const BOOL original_show = mock_tm->show_own_ui_;
+        const auto restore_show = gsl::finally([&]() noexcept { mock_tm->show_own_ui_ = original_show; });
+        for (const BOOL show : {TRUE, FALSE}) {
+            mock_tm->show_own_ui_ = show;
+            const auto context = MakeComObject<MockTfContext>();
+            context->view_->hwnd_ = edit.Get();
+            BOOL eaten = FALSE;
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+            const auto* const ui = dynamic_cast<const CandidateUI*>(mock_tm->last_ui_element_.Get());
+            QIQI_TEST_CHECK(ui);
+            if (show) {
+                QIQI_TEST_CHECK(ui->WindowHandle() && ::GetWindow(ui->WindowHandle(), GW_OWNER) == first.Get());
+            } else {
+                QIQI_TEST_CHECK(!ui->WindowHandle() || !::IsWindowVisible(ui->WindowHandle()));
+            }
+            const auto notification = MakeComObject<MockTfContextView>();
+            notification->hwnd_ = second.Get();
+            QIQI_TEST_CHECK(service->OnLayoutChange(context.Get(), TF_LC_CHANGE, notification.Get()) == S_OK);
+            if (show) {
+                QIQI_TEST_CHECK(ui->WindowHandle() && ::GetWindow(ui->WindowHandle(), GW_OWNER) == second.Get());
+            } else {
+                QIQI_TEST_CHECK(!ui->WindowHandle() || !::IsWindowVisible(ui->WindowHandle()));
+            }
+            notification->get_wnd_result_ = E_FAIL;
+            notification->hwnd_ = nullptr;
+            QIQI_TEST_CHECK(service->OnLayoutChange(context.Get(), TF_LC_CHANGE, notification.Get()) == S_OK);
+            if (show) {
+                const HWND focus_window = ::GetFocus();
+                QIQI_TEST_CHECK(ui->WindowHandle() && ::IsWindowVisible(ui->WindowHandle()) &&
+                                ::GetWindow(ui->WindowHandle(), GW_OWNER) ==
+                                    (focus_window ? ::GetAncestor(focus_window, GA_ROOT) : nullptr));
+            } else {
+                QIQI_TEST_CHECK(!ui->WindowHandle() || !::IsWindowVisible(ui->WindowHandle()));
+            }
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_ESCAPE, 0, &eaten) == S_OK && eaten);
+        }
+    }
     size_t cases = 0;
     for (const bool notified : {false, true}) {
-        for (const auto boundary : {Boundary::View, Boundary::Range, Boundary::Extent}) {
+        for (const auto boundary : {Boundary::View, Boundary::Range, Boundary::Extent, Boundary::Owner}) {
             if (notified && boundary == Boundary::View) continue;
             for (const bool reactivate : {false, true}) {
                 const auto context = MakeComObject<MockTfContext>();
@@ -53,23 +98,28 @@ void RunTsfLayoutQueryTests(
                     context->get_active_view_observer_ = {};
                     composition->get_range_callback_ = {};
                     queried_view->get_text_ext_callback_ = {};
+                    queried_view->get_wnd_callback_ = {};
                 });
                 if (boundary == Boundary::View) {
                     context->get_active_view_observer_ = [&](ITfContextView**) { callback(); };
                 } else if (boundary == Boundary::Range) {
                     composition->get_range_callback_ = callback;
-                } else {
+                } else if (boundary == Boundary::Extent) {
                     queried_view->get_text_ext_callback_ = callback;
+                } else {
+                    queried_view->get_wnd_callback_ = callback;
                 }
                 QIQI_TEST_CHECK(service->OnLayoutChange(
                     context.Get(), TF_LC_CHANGE, notified ? queried_view.Get() : nullptr) == S_OK);
                 context->get_active_view_observer_ = {};
                 composition->get_range_callback_ = {};
                 queried_view->get_text_ext_callback_ = {};
+                queried_view->get_wnd_callback_ = {};
                 QIQI_TEST_CHECK(callbacks == 1 && composition->ended_ && context->range_->text_ == L"a" &&
                                 context->get_active_view_calls_ == view_calls_before + (notified ? 0u : 1u) &&
                                 queried_view->get_text_ext_calls_ ==
-                                    extent_calls_before + (boundary == Boundary::Extent ? 1u : 0u));
+                                    extent_calls_before +
+                                        (boundary == Boundary::Extent || boundary == Boundary::Owner ? 1u : 0u));
                 if (reactivate) {
                     RECT after{};
                     QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &after) &&
@@ -88,7 +138,7 @@ void RunTsfLayoutQueryTests(
             }
         }
     }
-    QIQI_TEST_CHECK(cases == 10 && g_com_object_count.load() == objects_before);
+    QIQI_TEST_CHECK(cases == 14 && g_com_object_count.load() == objects_before);
 }
 
 void RunTsfLayoutSessionTests(

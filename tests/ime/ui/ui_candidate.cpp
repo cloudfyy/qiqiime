@@ -20,6 +20,55 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
+void TestCandidateHostOwnership() {
+    const TsfTestCaseTrace trace(__func__);
+    ScopedWindow first(::CreateWindowExW(
+        WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400,
+        nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+    const ScopedWindow second(::CreateWindowExW(
+        WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 200, 200, 600, 400,
+        nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+    const ScopedWindow edit(::CreateWindowExW(
+        0, L"EDIT", L"", WS_CHILD, 0, 0, 100, 24, first.Get(), nullptr, ::GetModuleHandleW(nullptr), nullptr));
+    QIQI_TEST_CHECK(first && second && edit);
+    const auto* const focus = ::GetFocus();
+    const auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+    ui->SetCandidates(L"ab", {L"one", L"two"}, 5, 0, 1);
+    ui->SetUiElementId(77);
+    const RECT caret{100, 100, 102, 124};
+    ui->MoveWindowTo(caret, edit.Get());
+    QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+    QIQI_TEST_CHECK(::GetWindow(ui->WindowHandle(), GW_OWNER) == first.Get());
+    ui->MoveWindowTo(caret, second.Get());
+    QIQI_TEST_CHECK(ui->WindowHandle() && ::GetWindow(ui->WindowHandle(), GW_OWNER) == second.Get());
+    QIQI_TEST_CHECK(::IsWindowVisible(ui->WindowHandle()) && ::GetFocus() == focus);
+    UINT selection = 0;
+    QIQI_TEST_CHECK(ui->GetSelection(&selection) == S_OK && selection == 1 && ui->UiElementId() == 77);
+    QIQI_TEST_CHECK(::SetWindowPos(second.Get(), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE));
+    bool above_owner = false;
+    for (HWND window = ::GetWindow(second.Get(), GW_HWNDPREV); window; window = ::GetWindow(window, GW_HWNDPREV)) {
+        if (window == ui->WindowHandle()) {
+            above_owner = true;
+            break;
+        }
+    }
+    QIQI_TEST_CHECK(above_owner);
+    ui->MoveWindowTo(caret);
+    QIQI_TEST_CHECK(ui->WindowHandle() && !::GetWindow(ui->WindowHandle(), GW_OWNER));
+    QIQI_TEST_CHECK(ui->Show(FALSE) == S_OK);
+    ui->MoveWindowTo(caret, first.Get());
+    BOOL shown = TRUE;
+    QIQI_TEST_CHECK(ui->IsShown(&shown) == S_OK && !shown && !ui->WindowHandle());
+    QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+    QIQI_TEST_CHECK(::GetWindow(ui->WindowHandle(), GW_OWNER) == first.Get());
+    first.Reset();
+    QIQI_TEST_CHECK(!ui->WindowHandle() && ui->IsShown(&shown) == S_OK && !shown);
+    ui->MoveWindowTo(caret, second.Get());
+    QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+    QIQI_TEST_CHECK(::GetWindow(ui->WindowHandle(), GW_OWNER) == second.Get());
+    QIQI_TEST_CHECK(ui->DestroyPopupWindow() && ::IsWindow(second.Get()) && ::GetFocus() == focus);
+}
+
 void TestCandidateLayouts() {
     const TsfTestCaseTrace trace(__func__);
     const std::optional<MonitorMetrics> previous_monitor = detail::MonitorMetricsOverrideStorage();
@@ -309,6 +358,7 @@ void RunCandidateUITests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestCandidateUI();
     TestCandidateLayouts();
+    TestCandidateHostOwnership();
 }
 
 } // namespace qiqi::test

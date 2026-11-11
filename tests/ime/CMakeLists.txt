@@ -97,6 +97,7 @@ target_link_libraries(qiqi_tsf_ui_test PRIVATE
     qiqi_engine
     qiqi_settings_ui
     qiqi_log_monitor
+    dwmapi
     shell32
     ole32
     oleaut32

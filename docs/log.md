@@ -63,6 +63,10 @@
 
 `CandidatePositionPopup` 记录传入矩形、屏幕边界约束后的目标位置、DPI 和实际窗口矩形；这些诊断不记录输入文字或裸 COM 地址。没有布局通知不能单凭候选停留推断旧回调复活；成功返回的零坐标也需结合宿主和屏幕位置判断，不直接认定是输入法或宿主的问题。
 
+窗口坐标在屏幕内但仍不可见时，继续核对 `BeginUIElement` 的 `show_own_ui` / `show_popup`，以及显示后的 `CandidateVisibility`：`visible` 是 Win32 可见状态，`topmost` 是置顶样式，`has_owner` 表示是否关联宿主窗口，`cloaked` 是 DWM 隐藏标志（`-1` 表示查询失败，具体 HRESULT 在 `cloak_hr`）。可见状态或置顶样式为真不等于用户一定能看到窗口；不要据此跳过遮挡或宿主显示层级排查，也不要强行取消 DWM 隐藏状态。
+
+自绘候选窗优先关联 `ITfContextView::GetWnd` 返回窗口的顶层宿主；宿主未提供窗口时使用当前线程的焦点窗口。关联变化时重建 popup，保留候选数据、选择、UIElement ID 和显示请求；重建不会激活窗口。`GetWnd` 返回后重新核对组合身份，避免宿主回调停用或切换输入目标后再应用旧窗口。宿主要求 UILess 时仍不显示自绘候选窗。
+
 布局回调保留宿主传入的 `ITfContextView`，在编辑会话内查询该 view；空 view 和普通输入更新仍通过 `GetActiveView` 查询。`query` 的 `notification_view` 标识查询来源；异步回调在上下文失效后不再查询旧 view。如果滚动时通知到达而该 view 持续成功返回相同矩形，应记录为坐标未更新，不能仅凭 API 成功判定真实宿主定位通过。
 
 ### FSM 状态转移诊断

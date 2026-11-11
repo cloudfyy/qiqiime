@@ -226,12 +226,14 @@ public:
         if (prc) *prc = {0, 0, 1920, 1080};
         return S_OK;
     }
-    STDMETHODIMP GetWnd(HWND* phwnd) noexcept override {
+    STDMETHODIMP GetWnd(HWND* phwnd) override {
+        if (get_wnd_callback_) get_wnd_callback_();
         if (phwnd) *phwnd = hwnd_;
         return get_wnd_result_;
     }
     HWND hwnd_ = nullptr;
     HRESULT get_wnd_result_ = S_OK;
+    std::function<void()> get_wnd_callback_;
     bool fail_get_text_ext_ = false;
     RECT text_ext_{100, 100, 140, 124};
     BOOL text_clipped_ = FALSE;

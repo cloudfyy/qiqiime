@@ -67,7 +67,7 @@ public:
                        size_t current_page,
                        size_t selected_in_page);
 
-    void MoveWindowTo(const RECT& text_rect);
+    void MoveWindowTo(const RECT& text_rect, HWND host_window = nullptr);
     void SetLayout(CandidateLayout layout);
     bool DestroyPopupWindow() noexcept;
     void SetPresentationEnabled(bool enabled) noexcept { presentation_enabled_ = enabled; }
@@ -97,6 +97,7 @@ private:
     void RefreshPopupLayout(UINT dpi = 0);
     void OnLeftButtonDown(POINT pt) const;
     bool EnsurePopupWindow() noexcept;
+    void LogPopupVisibility() const noexcept;
     bool PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const;
     void PaintPopup(HDC hdc, const RECT& client_rect) const;
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
@@ -113,6 +114,7 @@ private:
     BOOL is_shown_ = FALSE;
     bool presentation_enabled_ = true;
     bool destroying_window_ = false;
+    HWND popup_owner_ = nullptr; // Borrowed; only hwnd_ owns a window.
     DWORD ui_element_id_ = TF_INVALID_UIELEMENTID;
     DWORD updated_flags_ = TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION |
                            TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
