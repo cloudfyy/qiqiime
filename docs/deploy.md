@@ -83,6 +83,10 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 
 ---
 
+### 主分支菜单调整（2026-11-12，尚未打包）
+
+`v1.0.5` 标签之后的源码已精简输入法托盘及浮动状态栏的共用右键菜单：不再显示极点词库、海峰词库和扩展词库开关，请打开属性设置选择主词库及启用扩展词库；已有配置保持不变。日志监控器列表右键新增“清空”，行为与工具条、编辑菜单一致，详见[日志指南](log.md)。这些调整未包含在既有 `v1.0.5` 标签或此前生成的本地 MSI 中；需要包含这些改动的新构建，不要因数字版本相同就认定安装包内容相同。
+
 ## 3. 安装（注册）与自检
 
 通过 [scripts/register_ime.ps1](https://github.com/cloudfyy/qiqiime/blob/main/scripts/register_ime.ps1) 可完成 **产物完整性校验 -> 按系统位数注册 -> 注册表与 TSF Profile 核验**（脚本同时兼容源码 `build\` 目录与独立发行包目录）：
