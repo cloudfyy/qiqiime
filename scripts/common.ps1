@@ -144,6 +144,32 @@ function Get-QiQiComDllPath([ValidateSet("x64", "x86")][string]$Architecture) {
     }
 }
 
+function Build-QiQiMsiPackages(
+    [string]$WixExe,
+    [string]$StageDir,
+    [string]$Destination,
+    [string]$Version = (Get-QiQiVersion)
+) {
+    foreach ($arch in @("x64", "x86")) {
+        foreach ($loc in @(
+            @{ Culture = "zh-CN"; Lcid = "2052"; SummaryCp = "936" },
+            @{ Culture = "en-US"; Lcid = "1033"; SummaryCp = "1252" }
+        )) {
+            $msiPath = Join-Path $Destination "QiQiIME-v$Version-win-$arch-$($loc.Culture).msi"
+            $wxsPath = Join-Path $script:QiQiRepoRoot "installer\QiQiIME.wxs"
+            $wxlPath = Join-Path $script:QiQiRepoRoot "installer\$($loc.Culture).wxl"
+            & $WixExe build $wxsPath -loc $wxlPath -culture $loc.Culture -arch $arch -pdbtype none `
+                -d "ProductVersion=$Version" -d "ProductLcid=$($loc.Lcid)" `
+                -d "SummaryCodepage=$($loc.SummaryCp)" -d "StageDir=$StageDir" -o $msiPath
+            if ($LASTEXITCODE -ne 0) {
+                throw "WiX MSI build ($arch, $($loc.Culture)) failed with exit code $LASTEXITCODE"
+            }
+            $msiSizeKB = [math]::Round((Get-Item -LiteralPath $msiPath).Length / 1KB, 1)
+            Write-QiQiPass "Release MSI installer ($arch, $($loc.Culture)) created: $msiPath ($msiSizeKB KB)"
+        }
+    }
+}
+
 function Invoke-QiQiRegsvr32([string]$DllPath, [switch]$Is32Bit, [switch]$Unregister, [switch]$EnableCurrentUser) {
     $regsvr = Get-QiQiRegsvr32Path -Is32Bit:$Is32Bit
     $archLabel = if ($Is32Bit) { "x86" } else { "x64" }

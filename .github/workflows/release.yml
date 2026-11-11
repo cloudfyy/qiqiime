@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   package-and-release:
-    name: Package Dual-Arch ZIP, MSI Installers & PDB Symbols
+    name: Package Dual-Arch ZIP, x64/x86 MSI Installers & PDB Symbols
     runs-on: windows-latest
 
     steps:
@@ -32,7 +32,7 @@ jobs:
           dotnet tool install --global wix
           & "$env:USERPROFILE\.dotnet\tools\wix.exe" eula accept wix7 2>$null | Out-Null
 
-      - name: Build, test, and package (ZIP, MSI and symbols ZIP)
+      - name: Build, test, package and verify (ZIP, x64/x86 MSI and symbols ZIP)
         shell: pwsh
         run: |
           powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package

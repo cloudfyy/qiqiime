@@ -1,9 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <?if $(sys.BUILDARCH) = x64 ?>
+    <?define UpgradeCode = "8E7B9D31-5A42-4C81-9F11-202610299999" ?>
+    <?define ComponentGuidPrefix = "8E7B9D31-5A42-4C81-9F11-20261029" ?>
+    <?define ProgramFilesDirectory = "ProgramFiles64Folder" ?>
+    <?define NativeSystemDirectory = "System64Folder" ?>
+    <?define NativeDirectory = "DirX64" ?>
+    <?define NativeFileSuffix = "X64" ?>
+    <?define ShortcutBitness = "always64" ?>
+  <?elseif $(sys.BUILDARCH) = x86 ?>
+    <?define UpgradeCode = "8E7B9D31-5A42-4C81-9F11-202611119999" ?>
+    <?define ComponentGuidPrefix = "8E7B9D31-5A42-4C81-9F11-20261111" ?>
+    <?define ProgramFilesDirectory = "ProgramFilesFolder" ?>
+    <?define NativeSystemDirectory = "SystemFolder" ?>
+    <?define NativeDirectory = "DirX86" ?>
+    <?define NativeFileSuffix = "X86" ?>
+    <?define ShortcutBitness = "always32" ?>
+  <?else?>
+    <?error Unsupported MSI architecture ?>
+  <?endif?>
   <Package Name="!(loc.ProductName)"
            Manufacturer="cloudfyy"
            Version="$(var.ProductVersion)"
-           UpgradeCode="8E7B9D31-5A42-4C81-9F11-202610299999"
+           UpgradeCode="$(var.UpgradeCode)"
            Scope="perMachine"
            Language="$(var.ProductLcid)"
            Codepage="65001">
@@ -32,11 +51,16 @@
     <Property Id="REBOOT" Value="ReallySuppress" />
 
     <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeErrorMessage)" />
+    <?if $(sys.BUILDARCH) = x86 ?>
+      <Launch Condition="Installed OR NOT VersionNT64" Message="!(loc.X86Requires32BitWindows)" />
+    <?endif?>
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
-    <StandardDirectory Id="ProgramFiles64Folder">
+    <StandardDirectory Id="$(var.ProgramFilesDirectory)">
       <Directory Id="INSTALLFOLDER" Name="QiQiIME">
+        <?if $(sys.BUILDARCH) = x64 ?>
         <Directory Id="DirX64" Name="x64" />
+        <?endif?>
         <Directory Id="DirX86" Name="x86" />
         <Directory Id="DirData" Name="data" />
         <Directory Id="DirScripts" Name="scripts" />
@@ -49,15 +73,17 @@
 
     <ComponentGroup Id="ProductComponents">
       <!-- 64-bit TSF DLL and standalone GUI tools -->
+      <?if $(sys.BUILDARCH) = x64 ?>
       <Component Id="CmpDllX64" Directory="DirX64" Guid="8E7B9D31-5A42-4C81-9F11-202610290101">
         <File Id="FileDllX64" Source="$(var.StageDir)\x64\qiqiime.dll" KeyPath="yes" />
         <File Id="FileSettingsExeX64" Source="$(var.StageDir)\x64\QiQiIMESettings.exe" />
         <File Id="FileLogMonitorExeX64" Source="$(var.StageDir)\x64\QiQiIMELogMonitor.exe" />
         <File Id="FileDictManagerExeX64" Source="$(var.StageDir)\x64\QiQiIMEDictManager.exe" />
       </Component>
+      <?endif?>
 
-      <!-- 32-bit WOW64 TSF DLL and standalone GUI tools -->
-      <Component Id="CmpDllX86" Directory="DirX86" Guid="8E7B9D31-5A42-4C81-9F11-202610290102">
+      <!-- Native x86 or WOW64 TSF DLL and standalone GUI tools -->
+      <Component Id="CmpDllX86" Directory="DirX86" Guid="$(var.ComponentGuidPrefix)0102">
         <File Id="FileDllX86" Source="$(var.StageDir)\x86\qiqiime.dll" KeyPath="yes" />
         <File Id="FileSettingsExeX86" Source="$(var.StageDir)\x86\QiQiIMESettings.exe" />
         <File Id="FileLogMonitorExeX86" Source="$(var.StageDir)\x86\QiQiIMELogMonitor.exe" />
@@ -65,7 +91,7 @@
       </Component>
 
       <!-- Shared dictionaries (and cleanup rule for prebuilt .qdict binary caches generated during registration) -->
-      <Component Id="CmpSharedData" Directory="DirData" Guid="8E7B9D31-5A42-4C81-9F11-202610290103">
+      <Component Id="CmpSharedData" Directory="DirData" Guid="$(var.ComponentGuidPrefix)0103">
         <File Id="FileDictJidian" Source="$(var.StageDir)\data\wubi86_jidian.txt" KeyPath="yes" />
         <File Id="FileDictJidianExtra" Source="$(var.StageDir)\data\wubi86_jidian_extra.txt" />
         <File Id="FileDictHaifeng" Source="$(var.StageDir)\data\wubi86_haifeng.txt" />
@@ -73,14 +99,14 @@
       </Component>
 
       <!-- Management scripts -->
-      <Component Id="CmpScripts" Directory="DirScripts" Guid="8E7B9D31-5A42-4C81-9F11-202610290104">
+      <Component Id="CmpScripts" Directory="DirScripts" Guid="$(var.ComponentGuidPrefix)0104">
         <File Id="FileCommonPs1" Source="$(var.StageDir)\scripts\common.ps1" KeyPath="yes" />
         <File Id="FileRegisterPs1" Source="$(var.StageDir)\scripts\register_ime.ps1" />
         <File Id="FileUnregisterPs1" Source="$(var.StageDir)\scripts\unregister_ime.ps1" />
       </Component>
 
       <!-- License and documentation -->
-      <Component Id="CmpDocs" Directory="INSTALLFOLDER" Guid="8E7B9D31-5A42-4C81-9F11-202610290105">
+      <Component Id="CmpDocs" Directory="INSTALLFOLDER" Guid="$(var.ComponentGuidPrefix)0105">
         <File Id="FileLicense" Source="$(var.StageDir)\LICENSE" KeyPath="yes" />
         <File Id="FileReadme" Source="$(var.StageDir)\README.md" />
         <File Id="FileDeployment" Source="$(var.StageDir)\deploy.md" />
@@ -89,21 +115,21 @@
       </Component>
 
       <Component Id="CmpStartMenuShortcuts" Directory="QiQiProgramMenuFolder"
-                 Guid="8E7B9D31-5A42-4C81-9F11-202610290106" Bitness="always64">
+                 Guid="$(var.ComponentGuidPrefix)0106" Bitness="$(var.ShortcutBitness)">
         <Shortcut Id="SettingsShortcut"
                   Name="!(loc.SettingsShortcutName)"
                   Description="!(loc.SettingsShortcutDescription)"
-                  Target="[#FileSettingsExeX64]" WorkingDirectory="DirX64"
+                  Target="[#FileSettingsExe$(var.NativeFileSuffix)]" WorkingDirectory="$(var.NativeDirectory)"
                   Icon="ProductIcon" IconIndex="0" Advertise="no" />
         <Shortcut Id="DictManagerShortcut"
                   Name="!(loc.DictManagerShortcutName)"
                   Description="!(loc.DictManagerShortcutDescription)"
-                  Target="[#FileDictManagerExeX64]" WorkingDirectory="DirX64"
+                  Target="[#FileDictManagerExe$(var.NativeFileSuffix)]" WorkingDirectory="$(var.NativeDirectory)"
                   Icon="DictManagerIcon" IconIndex="0" Advertise="no" />
         <Shortcut Id="LogMonitorShortcut"
                   Name="!(loc.LogMonitorShortcutName)"
                   Description="!(loc.LogMonitorShortcutDescription)"
-                  Target="[#FileLogMonitorExeX64]" WorkingDirectory="DirX64"
+                  Target="[#FileLogMonitorExe$(var.NativeFileSuffix)]" WorkingDirectory="$(var.NativeDirectory)"
                   Icon="LogMonitorIcon" IconIndex="0" Advertise="no" />
         <RemoveFolder Id="RemoveQiQiProgramMenuFolder" On="uninstall" />
         <!-- HKMU resolves to HKLM for this per-machine package and satisfies ICE43. -->
@@ -121,16 +147,18 @@
                   Directory="INSTALLFOLDER"
                   Execute="deferred"
                   Impersonate="no"
-                  ExeCommand="[System64Folder]icacls.exe &quot;[INSTALLFOLDER].&quot; /grant &quot;*S-1-15-2-1:(OI)(CI)(RX)&quot; /grant &quot;*S-1-15-2-2:(OI)(CI)(RX)&quot; /Q"
+                  ExeCommand="[$(var.NativeSystemDirectory)]icacls.exe &quot;[INSTALLFOLDER].&quot; /grant &quot;*S-1-15-2-1:(OI)(CI)(RX)&quot; /grant &quot;*S-1-15-2-2:(OI)(CI)(RX)&quot; /Q"
                   Return="ignore" />
 
     <!-- Deferred elevated CustomActions to register/unregister x64 and x86 TSF Text Services -->
+    <?if $(sys.BUILDARCH) = x64 ?>
     <CustomAction Id="RegX64"
                   Directory="DirX64"
                   Execute="deferred"
                   Impersonate="no"
                   ExeCommand="[System64Folder]regsvr32.exe /s &quot;[DirX64]qiqiime.dll&quot;"
                   Return="check" />
+    <?endif?>
 
     <CustomAction Id="RegX86"
                   Directory="DirX86"
@@ -141,18 +169,18 @@
 
     <!-- Only enable the initiating user's profile; do not repeat machine registration. -->
     <CustomAction Id="EnableUserProfile"
-                  Directory="DirX64"
+                  Directory="$(var.NativeDirectory)"
                   Execute="deferred"
                   Impersonate="yes"
-                  ExeCommand="[System64Folder]regsvr32.exe /s /n /i:user &quot;[DirX64]qiqiime.dll&quot;"
+                  ExeCommand="[$(var.NativeSystemDirectory)]regsvr32.exe /s /n /i:user &quot;[$(var.NativeDirectory)]qiqiime.dll&quot;"
                   Return="check" />
 
     <!-- Deactivate the initiating user's TSF profile in their interactive session before InstallValidate checks file locks -->
     <CustomAction Id="DeactivateUserProfile"
-                  Directory="DirX64"
+                  Directory="$(var.NativeDirectory)"
                   Execute="immediate"
                   Impersonate="yes"
-                  ExeCommand="[System64Folder]regsvr32.exe /s /u /n /i:user &quot;[DirX64]qiqiime.dll&quot;"
+                  ExeCommand="[$(var.NativeSystemDirectory)]regsvr32.exe /s /u /n /i:user &quot;[$(var.NativeDirectory)]qiqiime.dll&quot;"
                   Return="ignore" />
 
     <CustomAction Id="UnregX86"
@@ -162,21 +190,29 @@
                   ExeCommand="[SystemFolder]regsvr32.exe /u /s &quot;[DirX86]qiqiime.dll&quot;"
                   Return="ignore" />
 
+    <?if $(sys.BUILDARCH) = x64 ?>
     <CustomAction Id="UnregX64"
                   Directory="DirX64"
                   Execute="deferred"
                   Impersonate="no"
                   ExeCommand="[System64Folder]regsvr32.exe /u /s &quot;[DirX64]qiqiime.dll&quot;"
                   Return="ignore" />
+    <?endif?>
 
     <InstallExecuteSequence>
       <Custom Action="DeactivateUserProfile" Before="InstallValidate" Condition="REMOVE=&quot;ALL&quot;" />
       <Custom Action="GrantAppContainerAcl" After="InstallFiles" Condition="NOT Installed OR REINSTALL" />
-      <Custom Action="RegX64" After="GrantAppContainerAcl" Condition="NOT Installed OR REINSTALL" />
-      <Custom Action="RegX86" After="RegX64" Condition="NOT Installed OR REINSTALL" />
+      <?if $(sys.BUILDARCH) = x64 ?>
+        <Custom Action="RegX64" After="GrantAppContainerAcl" Condition="NOT Installed OR REINSTALL" />
+        <Custom Action="RegX86" After="RegX64" Condition="NOT Installed OR REINSTALL" />
+      <?else?>
+        <Custom Action="RegX86" After="GrantAppContainerAcl" Condition="NOT Installed OR REINSTALL" />
+      <?endif?>
       <Custom Action="EnableUserProfile" After="RegX86" Condition="NOT Installed OR REINSTALL" />
       <Custom Action="UnregX86" After="InstallInitialize" Condition="REMOVE=&quot;ALL&quot;" />
-      <Custom Action="UnregX64" After="UnregX86" Condition="REMOVE=&quot;ALL&quot;" />
+      <?if $(sys.BUILDARCH) = x64 ?>
+        <Custom Action="UnregX64" After="UnregX86" Condition="REMOVE=&quot;ALL&quot;" />
+      <?endif?>
     </InstallExecuteSequence>
   </Package>
 </Wix>

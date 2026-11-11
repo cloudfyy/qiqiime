@@ -4,13 +4,13 @@
 
 从 GitHub 下载 MSI 的普通用户可先阅读[安装指南](install.md)，其中包含 SmartScreen 提示截图、安装与启用步骤。
 
-文档核对日期：**2026-11-11**。本次补丁发行数字版本为 `1.0.3`，Git 标签为 `v1.0.3`；标签、提交和附件的核对规则见第 4 节，升级变化见[发布说明](release-notes.md)。任务 36 的统一准入以及任务 47/R05 已按[最新任务记录](arch.md#当前执行优先级2026-11-07)收口，但不外推所有宿主均已逐项验证。注册/更新前备份用户数据，更新后确认实际加载身份；发行包的安装、升级、卸载验收仍需单独执行。
+文档核对日期：**2026-11-11**。本次补丁发行数字版本为 `1.0.4`，Git 标签为 `v1.0.4`；标签、提交和附件的核对规则见第 4 节，升级变化见[发布说明](release-notes.md)。任务 36 的统一准入以及任务 47/R05 已按[最新任务记录](arch.md#当前执行优先级2026-11-07)收口，但不外推所有宿主均已逐项验证。注册/更新前备份用户数据，更新后确认实际加载身份；发行包的安装、升级、卸载验收仍需单独执行。
 
 ---
 
 ## 1. 运行环境要求
 
-- **操作系统与架构**：目标平台为 Windows 10 22H2（x86 / x64）及 Windows 11 x64。`x86` DLL 可用于 32 位系统或 64 位系统的 WOW64 宿主；现有 MSI 仍为 x64 安装器，32 位 Windows 使用下文的脚本部署。项目未提供原生 ARM64 DLL，其他系统版本未纳入兼容性承诺；构建目标不等于所有宿主组合均已验证。
+- **操作系统与架构**：目标平台为 Windows 10 22H2（x86 / x64）及 Windows 11 x64。`x86` DLL 可用于 32 位系统或 64 位系统的 WOW64 宿主；MSI 按操作系统位数选择 x64 或 x86，x64 MSI 已包含 WOW64 支持。项目未提供原生 ARM64 DLL，其他系统版本未纳入兼容性承诺；构建目标不等于所有宿主组合均已验证。
 - **运行库**：Release 构建采用 `/MT` 静态链接 MSVC CRT，不需要额外安装 VC++ Redistributable；这不等于没有系统 DLL 或运行环境依赖。
 - **系统组件**：依赖 Windows TSF（`msctf.dll`）、Direct2D / DirectWrite 等系统组件。
 - **权限要求**：
@@ -52,6 +52,8 @@
 
 ### 2.1 Windows 10 22H2 32 位部署
 
+使用新增流程生成的 `QiQiIME-v<版本>-win-x86-zh-CN.msi` 或 `win-x86-en-US.msi` 可直接安装；这类包仅适用于 32 位 Windows，64 位系统必须使用 x64 MSI，不能另装 x86 MSI。开始菜单启动 x86 工具，安装目录使用系统的 32 位 `Program Files\QiQiIME`。也可按下面步骤部署源码构建或 ZIP。
+
 在 64 位开发机交叉编译，开发工具本身不要求能在 32 位目标机运行：
 
 ```powershell
@@ -73,9 +75,11 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 
 编译时明确设置 Windows 10 API 基线（`WINVER` / `_WIN32_WINNT=0x0A00`）。Windows 11 的圆角、标题栏/边框自定义颜色属于可选外观，Windows 10 不保证这些效果；主题、输入及工具逻辑不依赖它们成功。
 
-**验证边界**：开发机为 Windows 11 x64，x86 自动测试在 WOW64 下运行，脚本回归模拟 32 位系统架构选择；这些结果不能替代 Windows 10 22H2 x86 实测。目标机还需验证注册、Win+Space 切换、记事本组合/候选/上屏、密码框临时英文、三个工具的启动/保存/词库同步及注销。历史 Release 附件和现有 x64 MSI 不因本次源码变更而获得 32 位系统安装支持。
+**验证边界**：开发机为 Windows 11 x64，x86 自动测试在 WOW64 下运行，脚本回归模拟 32 位系统架构选择；这些结果不能替代 Windows 10 22H2 x86 实测。目标机还需验证全新安装、升级、Win+Space 切换、记事本组合/候选/上屏、密码框临时英文、三个工具的启动/保存/词库同步、卸载及用户数据保留。历史 Release 附件和 x64 MSI 不因本次源码变更而获得 32 位系统安装支持。
 
-2026-11-11 本机验证：x86/x64 Release 全量构建成功；x86 CTest 17 项通过、2 项 ETW 集成因采集权限不足跳过（不计通过），x64 公共模块、引擎、TSF、设置、独立工具及架构脚本 6 项定向回归通过。架构脚本在 Windows PowerShell 5.1、PowerShell 7 及真实 32 位 PowerShell 下通过；真实双架构产物 `-VerifyOnly` 检查通过。未执行系统注册/卸载，未生成 MSI。
+2026-11-11 初始脚本适配验证：x86/x64 Release 全量构建成功；x86 CTest 17 项通过、2 项 ETW 集成因采集权限不足跳过（不计通过），x64 公共模块、引擎、TSF、设置、独立工具及架构脚本 6 项定向回归通过。架构脚本在 Windows PowerShell 5.1、PowerShell 7 及真实 32 位 PowerShell 下通过；真实双架构产物 `-VerifyOnly` 检查通过。该阶段未执行系统注册/卸载，未生成 MSI。
+
+后续 MSI 流程验证：使用真实构建产物在临时目录成功生成 x64/x86 中英文共四个 MSI，通过实际安装数据库核对包平台、文件集合、组件位数、升级标识、快捷方式、注册/注销顺序及 x86 系统位数限制；未执行安装，临时验证包不作为正式发布附件。
 
 ---
 
@@ -106,7 +110,7 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 
 ### 当前用户启用与旧版本修复
 
-MSI 先以系统身份注册双架构 DLL，再尝试以安装发起用户身份启用语言配置，覆盖旧版本卸载留下的用户级 `Enable=0`，但不主动切换当前输入法。卸载在 `InstallValidate` 前尝试按会话停用该配置，不主动持久化用户级禁用标记；同时配置 Restart Manager、禁用自动关闭宿主进程，并设置 `MSIFASTINSTALL=7` 以减少部分安装开销。这些设置不能保证没有文件占用、扫描等待、重启要求或升级失败。
+MSI 先以系统身份注册 DLL（x64 包为双架构，x86 包仅为 x86），再尝试以安装发起用户身份启用语言配置，覆盖旧版本卸载留下的用户级 `Enable=0`，但不主动切换当前输入法。卸载在 `InstallValidate` 前尝试按会话停用该配置，不主动持久化用户级禁用标记；同时配置 Restart Manager、禁用自动关闭宿主进程，并设置 `MSIFASTINSTALL=7` 以减少部分安装开销。这些设置不能保证没有文件占用、扫描等待、重启要求或升级失败。
 
 如果以其他管理员账户安装，或通过 SYSTEM 静默部署，不能据此保证当前桌面用户已启用。安装后，请由实际使用输入法的账户在普通 PowerShell 窗口运行以下命令（无需管理员权限；使用包含此修复的新版本 DLL 和脚本）：
 
@@ -120,7 +124,7 @@ powershell -ExecutionPolicy Bypass -File "C:\Program Files\QiQiIME\scripts\regis
 
 ## 4. 生成独立发行包（`.msi` 安装包与 `.zip` 压缩包）
 
-在源码仓库中显式运行以下打包命令，会编译并测试双架构，然后生成 ZIP；仅在找到 WiX CLI 时另生成中英文 MSI，否则报告跳过 MSI 的警告。日常构建无需加 `-Package`：
+在源码仓库中显式运行以下打包命令，会编译并测试双架构，然后生成 ZIP；仅在找到 WiX CLI 时另生成 x64/x86 各自的中英文 MSI（共四个），否则报告跳过 MSI 的警告。日常构建无需加 `-Package`：
 
 普通代码/文档更新不自动制作 MSI，也不因 R05 重构完成就推定现有发行文件已更新。测试的逐函数日志、dump、归档 EXE/PDB 留在本地构建目录，不进入发行包；测试要求的 SDK cdb 是开发依赖，不是终端用户运行依赖。清理构建目录前先保留需要排查的证据，见[测试取证说明](log.md#64-自动测试逐函数日志与挂起-dump)。
 
@@ -129,23 +133,25 @@ powershell -ExecutionPolicy Bypass -File "C:\Program Files\QiQiIME\scripts\regis
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
-本次正式标签为 [`v1.0.3`](https://github.com/cloudfyy/qiqiime/tree/v1.0.3)，程序、MSI 和发行文件名使用 `VERSION` 中的数字版本 `1.0.3`。下载以 [1.0.3 Release 页面](https://github.com/cloudfyy/qiqiime/releases/tag/v1.0.3)实际提供的附件为准，不把标签存在视为发布成功。发布工作流从标签提交构建、运行双架构完整测试、打包并上传附件。
+本次正式标签为 [`v1.0.4`](https://github.com/cloudfyy/qiqiime/tree/v1.0.4)，程序、MSI 和发行文件名使用 `VERSION` 中的数字版本 `1.0.4`。下载以 [1.0.4 Release 页面](https://github.com/cloudfyy/qiqiime/releases/tag/v1.0.4)实际提供的附件为准，不把标签存在视为发布成功。发布工作流从标签提交构建、运行双架构完整测试、打包并上传附件。
 
 正式 GitHub Release 不标记为 Pre-release，并设置为最新版。历史候选版使用低于 `1.0.0` 的数字版本，保留 MSI 升级顺序；历史标签及已有附件不随源码或文档更新而改变。已知限制见 [README](../README.md#当前发布状态)。
 
-核对本地源码与正式发行时，比较 `git rev-parse HEAD` 与远端 `v1.0.3` 标签对应的提交；只比较 `1.0.3` 或包名不足以确认源码一致。本地重建与 GitHub 构建即使来自同一提交，也不保证产物哈希相同。需要与远端完全一致的发行副本时，下载该 Release 的 MSI、运行组件 ZIP 和符号 ZIP；有可信来源提供的 SHA-256 时逐项核验。不要将本地构建的 PDB 与远端二进制混用。后续文档提交也不会回写已发布包内的文档。
+核对本地源码与正式发行时，比较 `git rev-parse HEAD` 与远端 `v1.0.4` 标签对应的提交；只比较 `1.0.4` 或包名不足以确认源码一致。本地重建与 GitHub 构建即使来自同一提交，也不保证产物哈希相同。需要与远端完全一致的发行副本时，下载该 Release 的 MSI、运行组件 ZIP 和符号 ZIP；有可信来源提供的 SHA-256 时逐项核验。不要将本地构建的 PDB 与远端二进制混用。后续文档提交也不会回写已发布包内的文档。
 
 显式打包后产物位于 `dist\`，文件名使用项目内部数字版本号；以下为当前源码的命名示例，不表示这些包已经生成或发布：
 
-Release 构建保留优化并生成完整 PDB；打包时要求 DLL 和三个工具在 x64/x86 下的八个 PDB 全部存在，缺少任一文件即报错。另生成 `QiQiIME-v1.0.3-win-x64-x86-symbols.zip`，内部按 `x64`、`x86` 分目录；符号不放入 MSI 或运行组件 ZIP。Release Action 将该符号 ZIP 与 MSI、运行组件 ZIP 一并上传为 Actions artifact，并在发布 Release 时附加为资产。普通推送 `main` 不发布安装包或符号。
+Release 构建保留优化并生成完整 PDB；打包时要求 DLL 和三个工具在 x64/x86 下的八个 PDB 全部存在，缺少任一文件即报错。另生成 `QiQiIME-v1.0.4-win-x64-x86-symbols.zip`，内部按 `x64`、`x86` 分目录；符号不放入 MSI 或运行组件 ZIP。Release Action 将该符号 ZIP 与 MSI、运行组件 ZIP 一并上传为 Actions artifact，并在发布 Release 时附加为资产。普通推送 `main` 不发布安装包或符号。
 
 分析 dump 时必须使用同一次构建发布的二进制和 PDB，不能只按版本号或架构挑选符号。PDB 包含调试信息和可能的构建路径，发布前需确认可公开；测试日志、dump 与 watchdog 归档仍仅在本地保留。
 
-- **`dist\QiQiIME-v1.0.3-win-x64-x86-zh-CN.msi`**：简体中文版 Windows MSI 安装包。
-- **`dist\QiQiIME-v1.0.3-win-x64-x86-en-US.msi`**：英文版 Windows MSI。两个 MSI 共享 `UpgradeCode`，默认安装根目录为 `C:\Program Files\QiQiIME`；DLL 分别位于其 `x64`、`x86` 子目录。安装器提供注册、升级与卸载流程，实际成功与否以安装结果为准，不保证无缝升级。
-- **`dist\QiQiIME-v1.0.3-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
+- **`dist\QiQiIME-v1.0.4-win-x64-zh-CN.msi` / `win-x64-en-US.msi`**：64 位 Windows 的中英文安装包，仍包含 x64 和 x86（WOW64）运行组件，默认安装根目录为 `C:\Program Files\QiQiIME`。
+- **`dist\QiQiIME-v1.0.4-win-x86-zh-CN.msi` / `win-x86-en-US.msi`**：32 位 Windows 的中英文安装包，仅包含 x86 运行组件与共享词库，默认使用 32 位系统的 `Program Files\QiQiIME`。
+- **`dist\QiQiIME-v1.0.4-win-x64-x86.zip`**：需解压后注册的压缩包，结构如下。双架构共用 `data` 词库，用户配置仍在注册表，不存于 `data`。
 
-MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个工具入口，均启动安装目录下的 x64 程序，快捷方式不主动请求管理员权限：
+只有 MSI 文件名按目标系统区分为 `x64` 和 `x86`；双架构运行 ZIP、符号 ZIP 的名称保持不变。x64 MSI 保留原 `UpgradeCode` 和组件 GUID，重命名不会另建产品升级系列；x86 使用独立 `UpgradeCode` 和组件 GUID，每个架构的中英文包共享升级身份。升级仍需更高的数字版本，同版本重新打包不视为升级。历史 `win-x64-x86-*.msi` 文件不重命名，已发布附件不自动替换。
+
+MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个工具入口，启动与安装包架构匹配的程序（x64 包启动 x64 工具，x86 包启动 x86 工具），快捷方式不主动请求管理员权限：
 
 | 简体中文 MSI | 英文 MSI |
 |---|---|
@@ -161,10 +167,10 @@ MSI 在所有用户的开始菜单中创建 `QiQiIME` 文件夹，包含三个�
 
 标题末尾的 `*` 表示窗口中存在尚未保存的设置（包括界面语言预览及恢复默认值）。改回已保存的值后标记自动消失；保存失败时继续保留。外部配置同步、主题和 DPI 切换不会丢失标记，收到外部更新后按新的已保存配置重新判断。
 
-日志采集若遇到权限不足，需按[日志监控指南](log.md)单独提升监控工具或配置 ETW 权限，不要提升输入法宿主。入口与中英文资源的静态回归检查已纳入 `QiQiInstallerShortcutsTest`；该检查不安装产品，不能替代实际安装、升级和卸载验证。
+日志采集若遇到权限不足，需按[日志监控指南](log.md)单独提升监控工具或配置 ETW 权限，不要提升输入法宿主。入口与中英文资源的静态回归检查已纳入 `QiQiInstallerShortcutsTest`。显式打包还调用 `tests\installer\packages.ps1`，核对四个 MSI 的实际数据库；缺少包或结构不符时打包失败，Release 工作流不会继续上传。两种检查均不安装产品，不能替代实际安装、升级和卸载验证。
 
 ```text
-QiQiIME-v1.0.3-win-x64-x86/
+QiQiIME-v1.0.4-win-x64-x86/
 ├── x64/
 │   ├── qiqiime.dll             # 64 位 TSF 输入法组件
 │   ├── QiQiIMESettings.exe     # 64 位独立设置程序
@@ -198,12 +204,12 @@ powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate
 
 ### 4.1 1.0 正式发行包核对
 
-正式标签 `v1.0.3` 固定于本次发行提交，不移动 `v1.0.2`、`v1.0.1`、`1.0.0`、RC7 或其他历史标签。发行包应按以下步骤核对；没有实际安装证据的项目不记为已通过：
+正式标签 `v1.0.4` 固定于本次发行提交，不移动 `v1.0.3`、`v1.0.2`、`v1.0.1`、`1.0.0`、RC7 或其他历史标签。发行包应按以下步骤核对；没有实际安装证据的项目不记为已通过：
 
-- 确认 `v1.0.3` Release 工作流的双架构完整构建、测试、打包及上传成功；跳过的测试单独记录，不计作通过。检查中英文 MSI、运行组件 ZIP 和配套 PDB ZIP 均可下载。
+- 确认 `v1.0.4` Release 工作流的双架构完整构建、测试、打包及上传成功；跳过的测试单独记录，不计作通过。检查 x64/x86 中英文共四个 MSI、运行组件 ZIP 和配套 PDB ZIP 均可下载。
 - 使用实际下载的附件做一次发行包冒烟：全新安装、从旧候选版升级、重新打开宿主后基本输入和三个工具启动正常；核对设置、用户词库、置顶/屏蔽及 `.qbak` 备份恢复。旧调频文件不自动迁移，按[升级注意事项](release-notes.md#升级注意事项)单独处理，不能宣称旧排序自动保留。
 - 卸载后核对程序、开始菜单入口及输入法注册的清理，明确哪些用户数据按既有策略保留。此操作需独立测试环境或用户确认，不在日常开发中自动卸载产品。
-- 核对 `VERSION`、MSI ProductVersion 和八个运行组件的数字版本均为 `1.0.3`（PE 数字文件版本为 `1.0.3.0`），Release 关联标签准确为 `v1.0.3`，不标记为 Pre-release；源码、附件和 PDB 的构建身份保持一致。
+- 核对 `VERSION`、MSI ProductVersion 和八个运行组件的数字版本均为 `1.0.4`（PE 数字文件版本为 `1.0.4.0`），Release 关联标签准确为 `v1.0.4`，不标记为 Pre-release；源码、附件和 PDB 的构建身份保持一致。
 
 任务 36、47 与 R05 已按现有证据收口，不重复要求其整套人工清单。上述发行包核对也不表示所有宿主/密码控件、原生 ARM64、Windows 登录或安全桌面已支持。Metrics 更广链路和完整性能预算、拼音及其他规划扩展不与普通桌面 1.0 发布捆绑，未实现能力不得写入发行承诺。
 

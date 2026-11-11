@@ -19,27 +19,29 @@ Assert-True ($null -ne $folder -and $folder.Name -eq "QiQiIME") "Missing stable 
 $component = $package.SelectSingleNode("w:ComponentGroup[@Id='ProductComponents']/w:Component[@Id='CmpStartMenuShortcuts']", $ns)
 Assert-True ($null -ne $component) "Missing start menu component."
 Assert-True ($null -ne $package.SelectSingleNode("w:Feature/w:ComponentGroupRef[@Id='ProductComponents']", $ns)) "Start menu component is not included in the product feature."
-Assert-True ($component.Directory -eq $folder.Id -and $component.Bitness -eq "always64") "Incorrect shortcut component directory or bitness."
+Assert-True ($component.Directory -eq $folder.Id -and $component.Bitness -eq '$(var.ShortcutBitness)') "Incorrect shortcut component directory or bitness."
 $keyPath = $component.SelectSingleNode("w:RegistryValue[@KeyPath='yes']", $ns)
 Assert-True ($null -ne $keyPath -and $keyPath.Root -eq "HKMU") "Non-advertised shortcuts require an ICE43-compatible key path; HKMU resolves to HKLM in this per-machine package."
 Assert-True ($null -ne $component.SelectSingleNode("w:RemoveFolder[@On='uninstall']", $ns)) "The empty start menu folder must be removed on uninstall."
 Assert-True (@($component.SelectNodes("w:RemoveFile|w:RemoveRegistryKey", $ns)).Count -eq 0) "Shortcut cleanup must not delete user files or registry keys."
 
 $expected = @(
-    @{ Id = "SettingsShortcut"; File = "FileSettingsExeX64"; Exe = "QiQiIMESettings.exe"; Icon = "ProductIcon" },
-    @{ Id = "DictManagerShortcut"; File = "FileDictManagerExeX64"; Exe = "QiQiIMEDictManager.exe"; Icon = "DictManagerIcon" },
-    @{ Id = "LogMonitorShortcut"; File = "FileLogMonitorExeX64"; Exe = "QiQiIMELogMonitor.exe"; Icon = "LogMonitorIcon" }
+    @{ Id = "SettingsShortcut"; File = "FileSettingsExe"; Exe = "QiQiIMESettings.exe"; Icon = "ProductIcon" },
+    @{ Id = "DictManagerShortcut"; File = "FileDictManagerExe"; Exe = "QiQiIMEDictManager.exe"; Icon = "DictManagerIcon" },
+    @{ Id = "LogMonitorShortcut"; File = "FileLogMonitorExe"; Exe = "QiQiIMELogMonitor.exe"; Icon = "LogMonitorIcon" }
 )
 Assert-True (@($component.SelectNodes("w:Shortcut", $ns)).Count -eq $expected.Count) "Expected exactly three tool shortcuts."
 foreach ($entry in $expected) {
     $shortcut = $component.SelectSingleNode("w:Shortcut[@Id='$($entry.Id)']", $ns)
     Assert-True ($null -ne $shortcut) "Missing shortcut $($entry.Id)."
-    Assert-True ($shortcut.Target -eq "[#$($entry.File)]") "Shortcut $($entry.Id) must target the x64 tool file."
-    Assert-True ($shortcut.WorkingDirectory -eq "DirX64" -and $shortcut.Advertise -eq "no") "Shortcut $($entry.Id) must launch the tool directly with the x64 working directory."
+    Assert-True ($shortcut.Target -eq ('[#' + $entry.File + '$(var.NativeFileSuffix)]')) "Shortcut $($entry.Id) must target the native tool file."
+    Assert-True ($shortcut.WorkingDirectory -eq '$(var.NativeDirectory)' -and $shortcut.Advertise -eq "no") "Shortcut $($entry.Id) must launch the native tool directly."
     Assert-True ($shortcut.Name -eq "!(loc.$($entry.Id)Name)" -and $shortcut.Description -eq "!(loc.$($entry.Id)Description)") "Shortcut $($entry.Id) must use localized name and description."
     Assert-True ($shortcut.Icon -eq $entry.Icon -and $shortcut.IconIndex -eq "0") "Incorrect icon for $($entry.Id)."
-    $file = $package.SelectSingleNode("w:ComponentGroup/w:Component[@Directory='DirX64']/w:File[@Id='$($entry.File)']", $ns)
-    Assert-True ($null -ne $file -and $file.Source.EndsWith("\x64\$($entry.Exe)")) "Shortcut target $($entry.File) is not packaged from x64."
+    foreach ($arch in @("x64", "x86")) {
+        $file = $package.SelectSingleNode("w:ComponentGroup/w:Component/w:File[@Id='$($entry.File)$($arch.ToUpperInvariant())']", $ns)
+        Assert-True ($null -ne $file -and $file.Source.EndsWith("\$arch\$($entry.Exe)")) "Shortcut target $($entry.File) is not packaged from $arch."
+    }
     $icon = $package.SelectSingleNode("w:Icon[@Id='$($entry.Icon)']", $ns)
     Assert-True ($null -ne $icon -and (Test-Path -LiteralPath (Join-Path $repoRoot $icon.SourceFile))) "Missing icon source for $($entry.Id)."
 }

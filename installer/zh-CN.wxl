@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="zh-CN">
   <String Id="ProductName" Value="奇奇五笔输入法 (QiQi Wubi IME)" />
-  <String Id="SummaryDescription" Value="奇奇五笔输入法 (QiQi Wubi 86 TSF IME - x64 &amp; x86) v$(var.ProductVersion)" />
+  <String Id="SummaryDescription" Value="奇奇五笔输入法 (QiQi Wubi 86 TSF IME - $(sys.BUILDARCH)) v$(var.ProductVersion)" />
+  <String Id="X86Requires32BitWindows" Value="此 x86 安装包仅适用于 32 位 Windows。64 位 Windows 请使用 x64 安装包，其中已包含对 32 位应用的支持。" />
   <String Id="SummaryComments" Value="Copyright (C) 2026 cloudfyy. 开源许可: 主程序 GPL-3.0; 极点五笔词库 Apache-2.0; 海峰五笔词库 BSD-3-Clause." />
   <String Id="SummaryKeywords" Value="QiQiIME, 奇奇五笔, Wubi, 五笔输入法, TSF, Input Method, GPL-3.0" />
   <String Id="DowngradeErrorMessage" Value="已安装更新版本的奇奇五笔输入法 (QiQi Wubi IME)。" />
