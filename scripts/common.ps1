@@ -60,7 +60,16 @@ function Get-QiQiBuildTargets {
     )
 }
 
-function Resolve-QiQiDllPaths([string]$Config = "Release", [string]$BaseDir = $script:QiQiRepoRoot) {
+function Get-QiQiRuntimeArchitectures([bool]$Is64BitOperatingSystem = [Environment]::Is64BitOperatingSystem) {
+    if ($Is64BitOperatingSystem) { return @("x64", "x86") }
+    return @("x86")
+}
+
+function Resolve-QiQiDllPaths(
+    [string]$Config = "Release",
+    [string]$BaseDir = $script:QiQiRepoRoot,
+    [bool]$Is64BitOperatingSystem = [Environment]::Is64BitOperatingSystem
+) {
     $x64Candidates = @(
         (Join-Path $BaseDir "build\x64\$Config\qiqiime.dll"),
         (Join-Path $BaseDir "build\$Config\qiqiime.dll"),
@@ -71,7 +80,7 @@ function Resolve-QiQiDllPaths([string]$Config = "Release", [string]$BaseDir = $s
         (Join-Path $BaseDir "x86\qiqiime.dll")
     )
     return @{
-        X64 = ($x64Candidates | Where-Object { Test-Path $_ } | Select-Object -First 1)
+        X64 = $(if ($Is64BitOperatingSystem) { $x64Candidates | Where-Object { Test-Path $_ } | Select-Object -First 1 })
         X86 = ($x86Candidates | Where-Object { Test-Path $_ } | Select-Object -First 1)
         ExpectedX64 = $x64Candidates[0]
         ExpectedX86 = $x86Candidates[0]
@@ -98,13 +107,46 @@ function Copy-QiQiSymbols([hashtable]$Dlls, [string]$Destination) {
     }
 }
 
-function Invoke-QiQiRegsvr32([string]$DllPath, [switch]$Is32Bit, [switch]$Unregister, [switch]$EnableCurrentUser) {
-    $regsvr = if ($Is32Bit -and [Environment]::Is64BitOperatingSystem) {
+function Get-QiQiRegsvr32Path(
+    [switch]$Is32Bit,
+    [bool]$Is64BitOperatingSystem = [Environment]::Is64BitOperatingSystem,
+    [bool]$Is64BitProcess = [Environment]::Is64BitProcess
+) {
+    if (-not $Is32Bit -and -not $Is64BitOperatingSystem) {
+        throw "Cannot register an x64 DLL on 32-bit Windows."
+    }
+    if ($Is32Bit -and $Is64BitOperatingSystem) {
         Join-Path $env:SystemRoot "SysWOW64\regsvr32.exe"
+    } elseif ($Is64BitOperatingSystem -and -not $Is64BitProcess) {
+        Join-Path $env:SystemRoot "Sysnative\regsvr32.exe"
     } else {
         Join-Path $env:SystemRoot "System32\regsvr32.exe"
     }
-    $archLabel = if ($Is32Bit) { "x86 (WOW64)" } else { "x64" }
+}
+
+function Get-QiQiComDllPath([ValidateSet("x64", "x86")][string]$Architecture) {
+    $view = if ($Architecture -eq "x64") {
+        [Microsoft.Win32.RegistryView]::Registry64
+    } else {
+        [Microsoft.Win32.RegistryView]::Registry32
+    }
+    $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
+    try {
+        $key = $baseKey.OpenSubKey("SOFTWARE\Classes\CLSID\$script:QiQiClsid\InProcServer32")
+        if ($null -eq $key) { return $null }
+        try {
+            return $key.GetValue("", "")
+        } finally {
+            $key.Dispose()
+        }
+    } finally {
+        $baseKey.Dispose()
+    }
+}
+
+function Invoke-QiQiRegsvr32([string]$DllPath, [switch]$Is32Bit, [switch]$Unregister, [switch]$EnableCurrentUser) {
+    $regsvr = Get-QiQiRegsvr32Path -Is32Bit:$Is32Bit
+    $archLabel = if ($Is32Bit) { "x86" } else { "x64" }
     if ($EnableCurrentUser) {
         Write-Host "  Enabling current user's TSF profile: $DllPath"
         & $regsvr /s /n /i:user $DllPath
@@ -121,11 +163,12 @@ function Invoke-QiQiRegsvr32([string]$DllPath, [switch]$Is32Bit, [switch]$Unregi
     }
 }
 
-function Test-QiQiRuntimeFiles([hashtable]$Dlls) {
-    foreach ($archInfo in @(
-        @{ Name = "x64"; Dll = $Dlls.X64; Expected = $Dlls.ExpectedX64 },
-        @{ Name = "x86"; Dll = $Dlls.X86; Expected = $Dlls.ExpectedX86 }
-    )) {
+function Test-QiQiRuntimeFiles(
+    [hashtable]$Dlls,
+    [bool]$Is64BitOperatingSystem = [Environment]::Is64BitOperatingSystem
+) {
+    foreach ($arch in (Get-QiQiRuntimeArchitectures -Is64BitOperatingSystem $Is64BitOperatingSystem)) {
+        $archInfo = @{ Name = $arch; Dll = $Dlls[$arch]; Expected = $Dlls["Expected$arch"] }
         if (-not $archInfo.Dll) {
             throw "Missing $($archInfo.Name) DLL: $($archInfo.Expected) (run scripts\build_all.ps1 first)"
         }

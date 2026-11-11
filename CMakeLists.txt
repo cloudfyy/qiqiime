@@ -80,7 +80,10 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_compile_definitions(UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+add_compile_definitions(
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
+    WINVER=0x0A00 _WIN32_WINNT=0x0A00
+)
 
 if(MSVC)
     # Statically link the MSVC C/C++ runtime (/MT, /MTd) so qiqiime.dll has zero external VC++ Redistributable dependencies.

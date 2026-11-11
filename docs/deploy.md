@@ -1,16 +1,16 @@
 # 奇奇五笔 (QiQiIME) 部署、安装与运维指南
 
-本文档介绍如何在 Windows 11 x64 环境中部署、安装（注册）、打包分发、升级与卸载 **奇奇五笔输入法（QiQiIME）**。
+本文档介绍如何在 Windows 10 22H2（x86 / x64）及 Windows 11 x64 环境中部署、安装（注册）、打包分发、升级与卸载 **奇奇五笔输入法（QiQiIME）**。
 
 从 GitHub 下载 MSI 的普通用户可先阅读[安装指南](install.md)，其中包含 SmartScreen 提示截图、安装与启用步骤。
 
-文档核对日期：**2026-11-10**。本次补丁发行数字版本为 `1.0.3`，Git 标签为 `v1.0.3`；标签、提交和附件的核对规则见第 4 节，升级变化见[发布说明](release-notes.md)。任务 36 的统一准入以及任务 47/R05 已按[最新任务记录](arch.md#当前执行优先级2026-11-07)收口，但不外推所有宿主均已逐项验证。注册/更新前备份用户数据，更新后确认实际加载身份；发行包的安装、升级、卸载验收仍需单独执行。
+文档核对日期：**2026-11-11**。本次补丁发行数字版本为 `1.0.3`，Git 标签为 `v1.0.3`；标签、提交和附件的核对规则见第 4 节，升级变化见[发布说明](release-notes.md)。任务 36 的统一准入以及任务 47/R05 已按[最新任务记录](arch.md#当前执行优先级2026-11-07)收口，但不外推所有宿主均已逐项验证。注册/更新前备份用户数据，更新后确认实际加载身份；发行包的安装、升级、卸载验收仍需单独执行。
 
 ---
 
 ## 1. 运行环境要求
 
-- **操作系统与架构**：目标平台为 Windows 11 x64；当前双架构发行包及 MSI 面向该平台，`x86` DLL 仅用于其中的 32 位 WOW64 宿主，不代表支持 32 位操作系统。项目未提供原生 ARM64 DLL，其他操作系统未纳入兼容性承诺；这些构建目标不等于所有宿主组合均已验证。
+- **操作系统与架构**：目标平台为 Windows 10 22H2（x86 / x64）及 Windows 11 x64。`x86` DLL 可用于 32 位系统或 64 位系统的 WOW64 宿主；现有 MSI 仍为 x64 安装器，32 位 Windows 使用下文的脚本部署。项目未提供原生 ARM64 DLL，其他系统版本未纳入兼容性承诺；构建目标不等于所有宿主组合均已验证。
 - **运行库**：Release 构建采用 `/MT` 静态链接 MSVC CRT，不需要额外安装 VC++ Redistributable；这不等于没有系统 DLL 或运行环境依赖。
 - **系统组件**：依赖 Windows TSF（`msctf.dll`）、Direct2D / DirectWrite 等系统组件。
 - **权限要求**：
@@ -50,11 +50,38 @@
 
 > **重要提示**：TSF 从注册表记录的绝对路径加载 DLL。注册后不要移动或删除运行目录；需要迁移时先注销，再在新位置重新注册。ZIP 分发也不是免注册的便携运行方式。
 
+### 2.1 Windows 10 22H2 32 位部署
+
+在 64 位开发机交叉编译，开发工具本身不要求能在 32 位目标机运行：
+
+```powershell
+cmake --preset x86
+cmake --build --preset x86-release
+ctest --preset x86-release
+```
+
+将 `build\x86\Release` 下的 DLL 和三个工具复制到目标机固定目录的 `x86` 子目录，将三套词库复制到同级 `data`，并将 `scripts\common.ps1`、`scripts\register_ime.ps1`、`scripts\unregister_ime.ps1` 放入同级 `scripts`。也可使用包含本次修复的完整双架构 ZIP；32 位系统会忽略其中的 x64 文件。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -VerifyOnly
+powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate -LaunchNotepad
+# 需要卸载时运行；不删除用户数据
+powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
+```
+
+32 位系统只检查/注册 x86 组件，使用 `System32\regsvr32.exe` 和原生 `HKLM\SOFTWARE\Classes\CLSID`，不访问 `SysWOW64`，不要求 x64 文件。64 位系统仍要求双架构；即使从 32 位 PowerShell 运行，也分别使用正确的注册工具及显式注册表视图。
+
+编译时明确设置 Windows 10 API 基线（`WINVER` / `_WIN32_WINNT=0x0A00`）。Windows 11 的圆角、标题栏/边框自定义颜色属于可选外观，Windows 10 不保证这些效果；主题、输入及工具逻辑不依赖它们成功。
+
+**验证边界**：开发机为 Windows 11 x64，x86 自动测试在 WOW64 下运行，脚本回归模拟 32 位系统架构选择；这些结果不能替代 Windows 10 22H2 x86 实测。目标机还需验证注册、Win+Space 切换、记事本组合/候选/上屏、密码框临时英文、三个工具的启动/保存/词库同步及注销。历史 Release 附件和现有 x64 MSI 不因本次源码变更而获得 32 位系统安装支持。
+
+2026-11-11 本机验证：x86/x64 Release 全量构建成功；x86 CTest 17 项通过、2 项 ETW 集成因采集权限不足跳过（不计通过），x64 公共模块、引擎、TSF、设置、独立工具及架构脚本 6 项定向回归通过。架构脚本在 Windows PowerShell 5.1、PowerShell 7 及真实 32 位 PowerShell 下通过；真实双架构产物 `-VerifyOnly` 检查通过。未执行系统注册/卸载，未生成 MSI。
+
 ---
 
 ## 3. 安装（注册）与自检
 
-通过 [scripts/register_ime.ps1](https://github.com/cloudfyy/qiqiime/blob/main/scripts/register_ime.ps1) 可完成 **产物完整性校验 -> 双架构注册 -> 注册表与 TSF Profile 核验**（脚本同时兼容源码 `build\` 目录与独立发行包目录）：
+通过 [scripts/register_ime.ps1](https://github.com/cloudfyy/qiqiime/blob/main/scripts/register_ime.ps1) 可完成 **产物完整性校验 -> 按系统位数注册 -> 注册表与 TSF Profile 核验**（脚本同时兼容源码 `build\` 目录与独立发行包目录）：
 
 脚本不编译源码，需先完成构建或解压完整发行包。注册时会尝试预编译随包词库缓存，并为部署目录授予 AppContainer 读取/执行权限；失败以诊断为准，不保证所有沙箱宿主均可访问。
 

@@ -1,6 +1,6 @@
 # 奇奇五笔输入法 (QiQi Wubi IME)
 
-**奇奇五笔（QiQiIME）** 是一款面向 Windows 11 x64 的 **86 版五笔输入法**，基于 Windows 原生 **TSF（Text Services Framework）** 与 **C++** 构建，提供 `x64` 与 `x86`（WOW64 应用）组件。
+**奇奇五笔（QiQiIME）** 是一款面向 Windows 10 22H2（x86 / x64）及 Windows 11 x64 的 **86 版五笔输入法**，基于 Windows 原生 **TSF（Text Services Framework）** 与 **C++** 构建，提供 `x64` 与 `x86`（32 位系统及 WOW64 应用）组件。
 
 外部词库优先采用只读内存映射，并在同一进程内复用缓存，以减少重复加载；引擎、候选列表和界面仍会使用堆内存。当前宿主验证情况及边界见[真实宿主测试记录](./docs/hosts.md#8-2026-11-03-人工测试结果)。
 
@@ -102,7 +102,7 @@
 
 | 项目 | 最低 / 推荐要求 |
 |---|---|
-| **操作系统** | 目标系统为 Windows 11 x64；`x86` 组件仅用于其中的 32 位 WOW64 应用，不代表支持 32 位操作系统；未提供原生 ARM64 组件，其他操作系统未纳入兼容性承诺 |
+| **操作系统** | Windows 10 22H2（x86 / x64）或 Windows 11 x64；32 位系统使用 x86 组件及注册脚本，现有 MSI 仅适用于 x64 系统；未提供原生 ARM64 组件。目标机实测边界见[部署指南](./docs/deploy.md#21-windows-10-22h2-32-位部署) |
 | **运行库依赖** | Release 构建静态链接 MSVC 运行库（`/MT`），无需另装 VC++ Redistributable；仍依赖 Windows 系统组件 |
 | **图形与文本组件** | Windows 原生 TSF（`msctf.dll`）、GDI / Direct2D / DirectWrite（系统自带，无需额外安装任何第三方框架） |
 | **磁盘占用** | 随发行包所含架构、工具、词库及生成的 `.qdict` 缓存变化，以实际安装和缓存目录大小为准 |
@@ -126,12 +126,12 @@
 
 从 GitHub 下载 MSI 的用户请先阅读[安装指南（含 SmartScreen 截图与操作步骤）](./docs/install.md)。
 
-从源码安装时，须先按[开发指南](./docs/dev.md)完成双架构 Release 构建；注册脚本只检查和注册已有产物，不会自动编译。若所用发行版本提供 `.msi`，可直接运行安装程序；使用 ZIP 包时先完整解压并保留目录结构。
+从源码安装时，须先按[开发指南](./docs/dev.md)完成 Release 构建（32 位目标系统只需 x86）；注册脚本只检查和注册已有产物，不会自动编译。64 位系统可使用所用发行版本提供的 `.msi`；32 位系统使用包含本次兼容性修复的 ZIP 或源码构建，不使用现有 x64 MSI。ZIP 包须完整解压并保留目录结构，历史发布附件不会随源码更新。
 
 以下命令在已构建的项目根目录或解压后的发行包根目录运行：
 
 ```powershell
-# 一键校验产物、自动弹出 UAC 提权注册 x64+x86 输入法并打开记事本试用
+# 按系统位数校验并注册输入法（64 位系统为 x64+x86，32 位系统仅 x86）
 powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate -LaunchNotepad
 
 # 注销输入法的 COM 与 TSF 注册；此脚本不删除用户配置、词库或安装文件

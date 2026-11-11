@@ -1,4 +1,4 @@
-# Register and verify QiQi Wubi IME (TSF) for both x64 and x86 (WOW64)
+# Register and verify native x86 Windows or x64 Windows with x86 (WOW64) hosts.
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1 -AutoElevate -LaunchNotepad
@@ -38,7 +38,7 @@ Assert-QiQiAdminOrElevate -ScriptPath $PSCommandPath -ForwardArgs $forwardArgs -
 Write-QiQiStep "Granting AppContainer (UWP) Read/Execute ACLs on Build & Data Directories"
 Grant-QiQiAppContainerReadExecute -Dlls $dlls
 
-Write-QiQiStep "Registering TSF Text Service (x64 + x86 WOW64)"
+Write-QiQiStep "Registering TSF Text Service ($(Get-QiQiRuntimeArchitectures))"
 if ($dlls.X64 -and [Environment]::Is64BitOperatingSystem) {
     Invoke-QiQiRegsvr32 -DllPath $dlls.X64
 }
@@ -47,18 +47,12 @@ if ($dlls.X86) {
 }
 
 Write-QiQiStep "Verifying COM CLSID & TSF LanguageProfile in Registry"
-$clsid64Path = "HKLM:\SOFTWARE\Classes\CLSID\$QiQiClsid\InProcServer32"
-if (-not (Test-Path $clsid64Path)) {
-    throw "64-bit COM CLSID key not found: $clsid64Path"
-}
-Write-QiQiPass "64-bit COM InProcServer32 verified: $((Get-ItemProperty -Path $clsid64Path).'(default)')"
-
-if ([Environment]::Is64BitOperatingSystem) {
-    $clsid32Path = "HKLM:\SOFTWARE\Classes\WOW6432Node\CLSID\$QiQiClsid\InProcServer32"
-    if (-not (Test-Path $clsid32Path)) {
-        throw "32-bit WOW64 COM CLSID key not found: $clsid32Path"
+foreach ($arch in (Get-QiQiRuntimeArchitectures)) {
+    $registeredDll = Get-QiQiComDllPath -Architecture $arch
+    if ($registeredDll -ne $dlls[$arch]) {
+        throw "$arch COM InProcServer32 mismatch: expected '$($dlls[$arch])', found '$registeredDll'."
     }
-    Write-QiQiPass "32-bit WOW64 COM InProcServer32 verified: $((Get-ItemProperty -Path $clsid32Path).'(default)')"
+    Write-QiQiPass "$arch COM InProcServer32 verified: $registeredDll"
 }
 
 $tipProfilePath = "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$QiQiClsid\LanguageProfile\0x00000804\$QiQiProfileGuid"

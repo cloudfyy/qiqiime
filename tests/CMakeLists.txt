@@ -8,3 +8,8 @@ add_test(NAME QiQiInstallerShortcutsTest
         -NoLogo -NoProfile -ExecutionPolicy Bypass
         -File "${CMAKE_CURRENT_SOURCE_DIR}/installer/shortcuts.ps1"
 )
+add_test(NAME QiQiRuntimeArchitectureTest
+    COMMAND "${QIQI_POWERSHELL_EXECUTABLE}"
+        -NoLogo -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/installer/runtime.ps1"
+)
