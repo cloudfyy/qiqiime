@@ -114,8 +114,15 @@ void ClickRowEdit(const DictManagerWindow& window, int row) {
 void CheckLayout(const DictManagerWindow& window, UINT dpi) {
     QIQI_TEST_CHECK(Header_GetItemCount(ListView_GetHeader(Child(window, List))) ==
         std::to_underlying(ColumnId::Count));
-    QIQI_TEST_CHECK(ListView_GetColumnWidth(Child(window, List), std::to_underlying(ColumnId::Edit)) ==
-        ScalePxByDpi(40, dpi));
+    const int edit_width = ListView_GetColumnWidth(Child(window, List), std::to_underlying(ColumnId::Edit));
+    const int expected_edit_width = ScalePxByDpi(40, dpi);
+    if (edit_width != expected_edit_width) {
+        std::cerr << std::format(
+            "[DPI] Edit column mismatch: requested={}, window={}, list={}, width={}, expected={}\n",
+            dpi, ::GetDpiForWindow(window.Handle()), ::GetDpiForWindow(Child(window, List)),
+            edit_width, expected_edit_width);
+    }
+    QIQI_TEST_CHECK(edit_width == expected_edit_width);
     constexpr std::array labels{SourceLabel, SearchLabel};
     for (const auto id : labels) {
         const HWND child = Child(window, id);
@@ -1148,6 +1155,29 @@ void TestGuiWindow() {
     const auto user_dict = temp_dir / L"user_dict.txt";
     const auto freq_file = temp_dir / L"phrase_freq.qfreq";
 
+    {
+        DictManagerWindow native_window;
+        QIQI_TEST_CHECK(native_window.Create(::GetModuleHandleW(nullptr), user_dict, freq_file));
+        QIQI_TEST_CHECK(::AreDpiAwarenessContextsEqual(
+            ::GetWindowDpiAwarenessContext(native_window.Handle()), DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
+        CheckLayout(native_window, ::GetDpiForWindow(native_window.Handle()));
+        for (const auto language : {LanguageEn, LanguageZh, LanguageAuto}) {
+            InvokeCommand(native_window, language);
+            for (const UINT message : {WM_THEMECHANGED, WM_DISPLAYCHANGE}) {
+                ::SendMessageW(native_window.Handle(), message, 0, 0);
+                CheckLayout(native_window, ::GetDpiForWindow(native_window.Handle()));
+            }
+        }
+    }
+    DrainQuitMessages();
+
+    // Keep native per-monitor corrections out of the synthetic DPI matrix.
+    const auto previous_dpi_context = ::SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
+    QIQI_TEST_CHECK(previous_dpi_context);
+    const auto restore_dpi_context = gsl::finally([previous_dpi_context]() noexcept {
+        QIQI_TEST_CHECK(::SetThreadDpiAwarenessContext(previous_dpi_context));
+    });
+
     DictManagerWindow window;
     QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr), user_dict, freq_file));
     QIQI_TEST_CHECK(::IsWindow(window.Handle()));
@@ -1955,7 +1985,9 @@ int main() {
     TestModelAndCrossProcessSync();
     TestBackupRestoreResults();
     TestEditorState();
+    const auto original_dpi_context = ::GetThreadDpiAwarenessContext();
     TestGuiWindow();
+    QIQI_TEST_CHECK(::AreDpiAwarenessContextsEqual(::GetThreadDpiAwarenessContext(), original_dpi_context));
     TestInlineEditing();
     std::cout << "[PASS] QiQiDictManagerTest\n";
     return 0;
