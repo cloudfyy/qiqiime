@@ -163,7 +163,7 @@ void MonitorWindow::Impl::ShowListContextMenu(POINT screen_pt) {
     const bool has_activity = metrics_view ? SelectedMetricActivity() != GUID_NULL : has_sel && selected_event->activity_id != GUID_NULL;
     for (const auto& [id, enabled] : std::array{
              std::pair{Copy, has_sel}, std::pair{SelectAll, has_rows}, std::pair{FilterActivity, has_activity},
-             std::pair{ClearActivity, !metrics_view && filter.activity_id.has_value()}}) {
+             std::pair{ClearActivity, !metrics_view && filter.activity_id.has_value()}, std::pair{Clear, true}}) {
         std::wstring text(CommandText(id));
         if (id == Copy) text += L"\tCtrl+C";
         if (id == SelectAll) text += L"\tCtrl+A";

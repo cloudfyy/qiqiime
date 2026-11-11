@@ -212,7 +212,7 @@ void TestStatusBarUI() {
     ScopedGdiHandle<HBRUSH> menu_brush;
     ScopedMenu popup_menu = bar.BuildContextMenu(menu_brush);
     QIQI_TEST_CHECK(popup_menu.IsValid() && menu_brush.IsValid());
-    QIQI_TEST_CHECK(::GetMenuItemCount(popup_menu.Get()) == 13); // 11 items + 2 separators
+    QIQI_TEST_CHECK(::GetMenuItemCount(popup_menu.Get()) == 9);
     QIQI_TEST_CHECK((::GetMenuState(popup_menu.Get(),
         static_cast<UINT>(LangBarMenuId::ToggleStatusBar), MF_BYCOMMAND) & MF_CHECKED) != 0);
 
@@ -339,14 +339,10 @@ void TestStatusBarContextMenuState() {
                     bool checked;
                     bool enabled;
                 };
-                const bool is_jidian = dict == PrimaryDict::Jidian;
-                const std::array<ExpectedItem, 11> items{{
+                const std::array<ExpectedItem, 8> items{{
                     {LangBarMenuId::ToggleChinese, strings.menu_toggle_chinese, enabled, true},
                     {LangBarMenuId::ToggleFullWidth, strings.menu_toggle_full_width, enabled, true},
                     {LangBarMenuId::TogglePunctuation, strings.menu_toggle_punct, enabled, true},
-                    {LangBarMenuId::DictJidian, strings.menu_dict_jidian, is_jidian, true},
-                    {LangBarMenuId::DictHaifeng, strings.menu_dict_haifeng, dict == PrimaryDict::Haifeng, true},
-                    {LangBarMenuId::ToggleExtraDict, strings.menu_toggle_extra_dict, is_jidian && enabled, is_jidian},
                     {LangBarMenuId::ToggleStatusBar, strings.menu_toggle_status_bar, false, true},
                     {LangBarMenuId::ToggleUiLanguage, strings.menu_toggle_ui_lang, false, true},
                     {LangBarMenuId::OpenSettings, strings.menu_open_settings, false, true},
@@ -357,9 +353,13 @@ void TestStatusBarContextMenuState() {
                 ScopedGdiHandle<HBRUSH> brush;
                 ScopedMenu menu = bar.BuildContextMenu(brush);
                 QIQI_TEST_CHECK(menu.IsValid() && brush.IsValid());
-                QIQI_TEST_CHECK(::GetMenuItemCount(menu.Get()) == 13);
+                QIQI_TEST_CHECK(::GetMenuItemCount(menu.Get()) == 9);
                 QIQI_TEST_CHECK((::GetMenuState(menu.Get(), 3, MF_BYPOSITION) & MF_SEPARATOR) != 0);
-                QIQI_TEST_CHECK((::GetMenuState(menu.Get(), 7, MF_BYPOSITION) & MF_SEPARATOR) != 0);
+                for (const auto id : {LangBarMenuId::DictJidian, LangBarMenuId::DictHaifeng,
+                                      LangBarMenuId::ToggleExtraDict}) {
+                    QIQI_TEST_CHECK(::GetMenuState(menu.Get(), static_cast<UINT>(id), MF_BYCOMMAND) ==
+                                    static_cast<UINT>(-1));
+                }
                 for (const auto& item : items) {
                     const UINT flags = ::GetMenuState(menu.Get(), static_cast<UINT>(item.id), MF_BYCOMMAND);
                     QIQI_TEST_CHECK(flags != static_cast<UINT>(-1));

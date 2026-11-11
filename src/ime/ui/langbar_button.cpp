@@ -65,15 +65,10 @@ void AppendWin32PopupItem(
 
 LangBarButton::MenuItems LangBarButton::BuildSharedMenuItems(const LangBarState& state) noexcept {
     const auto& str = GetUiStrings(state.ui_language);
-    const bool is_jidian = state.primary_dict == PrimaryDict::Jidian;
     return {{
         {LangBarMenuId::ToggleChinese, str.menu_toggle_chinese, state.chinese_mode},
         {LangBarMenuId::ToggleFullWidth, str.menu_toggle_full_width, state.full_width},
         {LangBarMenuId::TogglePunctuation, str.menu_toggle_punct, state.chinese_punct},
-        {},
-        {LangBarMenuId::DictJidian, str.menu_dict_jidian, is_jidian},
-        {LangBarMenuId::DictHaifeng, str.menu_dict_haifeng, state.primary_dict == PrimaryDict::Haifeng},
-        {LangBarMenuId::ToggleExtraDict, str.menu_toggle_extra_dict, is_jidian && state.enable_jidian_extra, is_jidian},
         {},
         {LangBarMenuId::ToggleStatusBar, str.menu_toggle_status_bar, state.show_status_bar},
         {LangBarMenuId::ToggleUiLanguage, str.menu_toggle_ui_lang},

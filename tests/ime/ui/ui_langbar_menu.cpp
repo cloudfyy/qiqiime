@@ -194,7 +194,7 @@ void TestLangBarButton() {
     QIQI_TEST_CHECK(btn->InitMenu(nullptr) == E_INVALIDARG);
     MockTfMenu menu_zh;
     QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_zh)));
-    QIQI_TEST_CHECK(menu_zh.item_ids_.size() == 11 && menu_zh.separators_ == 2);
+    QIQI_TEST_CHECK(menu_zh.item_ids_.size() == 8 && menu_zh.separators_ == 1);
     QIQI_TEST_CHECK(!menu_zh.item_texts_.empty() &&
                     menu_zh.item_texts_.front().find(L"中文输入模式") != std::wstring::npos);
 
@@ -210,7 +210,7 @@ void TestLangBarButton() {
                     std::wstring(tooltip.Get()).find(L"Left-click") != std::wstring::npos);
     MockTfMenu menu_en;
     QIQI_TEST_CHECK(SUCCEEDED(btn->InitMenu(&menu_en)));
-    QIQI_TEST_CHECK(menu_en.item_ids_.size() == 11 && menu_en.separators_ == 2);
+    QIQI_TEST_CHECK(menu_en.item_ids_.size() == 8 && menu_en.separators_ == 1);
     QIQI_TEST_CHECK(!menu_en.item_texts_.empty() &&
                     menu_en.item_texts_.front().find(L"Chinese Input Mode") != std::wstring::npos);
 
@@ -410,7 +410,7 @@ void TestSharedMenuItems() {
                 button->UpdateState(state);
                 MockTfMenu tsf_menu;
                 QIQI_TEST_CHECK(button->InitMenu(&tsf_menu) == S_OK);
-                QIQI_TEST_CHECK(tsf_menu.separators_ == 2);
+                QIQI_TEST_CHECK(tsf_menu.separators_ == 1);
                 size_t command_index = 0;
                 for (size_t i = 0; i < items.size(); ++i) {
                     const auto& item = items.at(i);
@@ -419,6 +419,9 @@ void TestSharedMenuItems() {
                     if (item.IsSeparator()) {
                         continue;
                     }
+                    QIQI_TEST_CHECK(item.id != LangBarMenuId::DictJidian &&
+                                    item.id != LangBarMenuId::DictHaifeng &&
+                                    item.id != LangBarMenuId::ToggleExtraDict);
                     QIQI_TEST_CHECK(::GetMenuItemID(menu.Get(), gsl::narrow_cast<int>(i)) == static_cast<UINT>(item.id));
                     QIQI_TEST_CHECK(((flags & MF_CHECKED) != 0) == item.checked);
                     QIQI_TEST_CHECK(((flags & (MF_DISABLED | MF_GRAYED)) == 0) == item.enabled);
@@ -452,9 +455,7 @@ void TestQuickSettingsMenu() {
         const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
             const HWND menu = FindQuickSettingsMenu();
             QIQI_TEST_CHECK(menu != nullptr && ::IsWindowVisible(menu));
-            static constexpr std::array commands{LangBarMenuId::ToggleChinese,     LangBarMenuId::DictHaifeng,
-                                                 LangBarMenuId::ToggleExtraDict,   LangBarMenuId::DictJidian,
-                                                 LangBarMenuId::ToggleExtraDict,   LangBarMenuId::ToggleFullWidth,
+            static constexpr std::array commands{LangBarMenuId::ToggleChinese,     LangBarMenuId::ToggleFullWidth,
                                                  LangBarMenuId::TogglePunctuation, LangBarMenuId::ToggleStatusBar,
                                                  LangBarMenuId::ToggleUiLanguage,  LangBarMenuId::OpenSettings};
             const HWND original = menu;
@@ -467,15 +468,7 @@ void TestQuickSettingsMenu() {
             } else {
                 QIQI_TEST_CHECK(!::IsWindowVisible(original));
             }
-            if (step == 1) {
-                QIQI_TEST_CHECK(
-                    !::IsWindowEnabled(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::ToggleExtraDict))));
-            }
-            if (step == 3) {
-                QIQI_TEST_CHECK(
-                    ::IsWindowEnabled(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::ToggleExtraDict))));
-            }
-            if (step == 8) {
+            if (step == 4) {
                 std::array<wchar_t, 256> label{};
                 ::GetDlgItemTextW(menu, static_cast<int>(LangBarMenuId::ToggleChinese), label.data(),
                                   gsl::narrow_cast<int>(label.size()));
@@ -493,15 +486,6 @@ void TestQuickSettingsMenu() {
             switch (action) {
                 case LangBarMenuId::ToggleChinese:
                     state.chinese_mode = !state.chinese_mode;
-                    break;
-                case LangBarMenuId::DictHaifeng:
-                    state.primary_dict = PrimaryDict::Haifeng;
-                    break;
-                case LangBarMenuId::DictJidian:
-                    state.primary_dict = PrimaryDict::Jidian;
-                    break;
-                case LangBarMenuId::ToggleExtraDict:
-                    state.enable_jidian_extra = !state.enable_jidian_extra;
                     break;
                 case LangBarMenuId::ToggleFullWidth:
                     state.full_width = !state.full_width;
@@ -524,9 +508,9 @@ void TestQuickSettingsMenu() {
             }
         });
         ::KillTimer(nullptr, timer);
-        QIQI_TEST_CHECK(actions.size() == 9);
+        QIQI_TEST_CHECK(actions.size() == 6);
         QIQI_TEST_CHECK(!state.chinese_mode && state.full_width && !state.chinese_punct);
-        QIQI_TEST_CHECK(state.primary_dict == PrimaryDict::Jidian && !state.enable_jidian_extra);
+        QIQI_TEST_CHECK(state.primary_dict == PrimaryDict::Jidian && state.enable_jidian_extra);
         QIQI_TEST_CHECK(state.show_status_bar && state.ui_language == UiLanguage::EnUs);
         QIQI_TEST_CHECK(closed_before_opening_window);
         QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
@@ -769,7 +753,7 @@ void TestQuickSettingsMenuCommandValidation() {
     }
 }
 
-void TestQuickSettingsMenuDisabledNavigation() {
+void TestQuickSettingsMenuNavigation() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static int step = 0;
     step = 0;
@@ -778,8 +762,8 @@ void TestQuickSettingsMenuDisabledNavigation() {
         QIQI_TEST_CHECK(menu && ::IsWindowVisible(menu));
         switch (step++) {
             case 0:
-                QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::ToggleExtraDict))));
-                ::SetFocus(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::DictHaifeng)));
+                QIQI_TEST_CHECK(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::ToggleExtraDict)) == nullptr);
+                ::SetFocus(::GetDlgItem(menu, static_cast<int>(LangBarMenuId::TogglePunctuation)));
                 ::PostMessageW(::GetFocus(), WM_KEYDOWN, VK_DOWN, 0);
                 break;
             case 1:
@@ -787,7 +771,7 @@ void TestQuickSettingsMenuDisabledNavigation() {
                 ::PostMessageW(::GetFocus(), WM_KEYDOWN, VK_UP, 0);
                 break;
             case 2:
-                QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == static_cast<int>(LangBarMenuId::DictHaifeng));
+                QIQI_TEST_CHECK(::GetDlgCtrlID(::GetFocus()) == static_cast<int>(LangBarMenuId::TogglePunctuation));
                 ::PostMessageW(::GetFocus(), WM_KEYDOWN, VK_TAB, 0);
                 break;
             default:
@@ -960,7 +944,7 @@ void RunLangBarMenuTests() {
     TestQuickSettingsMenuKeyboardAndDismissal();
     TestQuickSettingsMenuWorkArea();
     TestQuickSettingsMenuCommandValidation();
-    TestQuickSettingsMenuDisabledNavigation();
+    TestQuickSettingsMenuNavigation();
     TestQuickSettingsMenuLivePainting();
     TestQuickSettingsMenuQuitMessage();
     TestQuickSettingsMenuFocusRestoration();

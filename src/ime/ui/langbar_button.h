@@ -57,7 +57,7 @@ class LangBarButton final
     : public ComObjectBase<LangBarButton, ITfLangBarItemButton, ITfSource> {
 public:
     using ActionCallback = std::function<void(LangBarMenuId action_id)>;
-    using MenuItems = std::array<LangBarMenuItem, 13>;
+    using MenuItems = std::array<LangBarMenuItem, 9>;
 
     explicit LangBarButton(ActionCallback cb = {}) noexcept;
     ~LangBarButton() noexcept = default;
