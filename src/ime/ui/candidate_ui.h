@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <atomic>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -67,6 +68,7 @@ public:
                        size_t selected_in_page);
 
     void MoveWindowTo(const RECT& text_rect);
+    void SetLayout(CandidateLayout layout);
     bool DestroyPopupWindow() noexcept;
     void SetPresentationEnabled(bool enabled) noexcept { presentation_enabled_ = enabled; }
 
@@ -92,6 +94,7 @@ private:
     std::wstring FormatHeaderText() const;
     std::wstring FormatCandidateLabel(size_t index_in_page, std::wstring_view candidate_text) const;
     void RecalculatePopupLayout();
+    void RefreshPopupLayout(UINT dpi = 0);
     void OnLeftButtonDown(POINT pt) const;
     bool EnsurePopupWindow() noexcept;
     bool PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const;
@@ -123,6 +126,8 @@ private:
     size_t current_page_ = 0;
     size_t selected_in_page_ = 0;
     POINT popup_pos_{100, 100};
+    std::optional<RECT> text_rect_;
+    CandidateLayout layout_ = CandidateLayout::Horizontal;
     UiLanguage ui_language_ = UiLanguage::Auto;
     SelectCallback select_callback_;
     PageTurnCallback page_turn_callback_;

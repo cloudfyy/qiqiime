@@ -122,28 +122,41 @@ void CandidateUI::RecalculatePopupLayout() {
     const int item_gap = ScaleByDpi(16);
     const int row2_top = ScaleByDpi(32);
     const int row2_bottom = ScaleByDpi(kPopupHeight - 4);
+    const int row_height = row2_bottom - row2_top;
+    const bool vertical = layout_ == CandidateLayout::Vertical;
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
     const int nav_reserve_cx = (total_pages > 1) ? ScaleByDpi(52) : 0;
 
     const int header_cx = MeasureTextWidth(screen_dc.Get(), FormatHeaderText());
 
     int cursor_x = margin_x;
+    int widest_item = 0;
     const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
     for (size_t i = start; i < end; ++i) {
         const size_t idx_in_page = i - start;
         const std::wstring label = FormatCandidateLabel(idx_in_page, gsl::at(all_candidates_, i));
 
         const int item_cx = MeasureTextWidth(screen_dc.Get(), label);
-        const RECT hit_rc{cursor_x, row2_top, cursor_x + item_cx, row2_bottom};
+        const int row_top = vertical ? row2_top + gsl::narrow_cast<int>(idx_in_page) * row_height : row2_top;
+        const int item_left = vertical ? margin_x : cursor_x;
+        const RECT hit_rc{item_left, row_top, item_left + item_cx, row_top + row_height};
         candidate_hit_rects_.push_back(hit_rc);
         cursor_x += item_cx + item_gap;
+        widest_item = std::max(widest_item, item_cx);
     }
 
     const int content_width = std::max<int>(
         header_cx + margin_x * 2 + nav_reserve_cx,
-        cursor_x + margin_x + nav_reserve_cx);
+        vertical ? widest_item + margin_x * 2 : cursor_x + margin_x + nav_reserve_cx);
     popup_width_ = std::max(ScaleByDpi(kPopupWidth), content_width);
-    popup_height_ = ScaleByDpi(kPopupHeight);
+    popup_height_ = vertical
+        ? row2_top + gsl::narrow_cast<int>(std::max<size_t>(1, end - start)) * row_height + ScaleByDpi(4)
+        : ScaleByDpi(kPopupHeight);
+    if (vertical) {
+        for (auto& rect : candidate_hit_rects_) {
+            rect.right = popup_width_ - margin_x;
+        }
+    }
 
     if (total_pages > 1) {
         const int btn_w = ScaleByDpi(20);
@@ -152,8 +165,10 @@ void CandidateUI::RecalculatePopupLayout() {
         const int next_left = next_right - btn_w;
         const int prev_right = next_left - btn_gap;
         const int prev_left = prev_right - btn_w;
-        prev_page_hit_rect_ = RECT{prev_left, row2_top, prev_right, row2_bottom};
-        next_page_hit_rect_ = RECT{next_left, row2_top, next_right, row2_bottom};
+        const int nav_top = vertical ? ScaleByDpi(6) : row2_top;
+        const int nav_bottom = vertical ? ScaleByDpi(30) : row2_bottom;
+        prev_page_hit_rect_ = RECT{prev_left, nav_top, prev_right, nav_bottom};
+        next_page_hit_rect_ = RECT{next_left, nav_top, next_right, nav_bottom};
     }
 }
 
@@ -301,31 +316,34 @@ void CandidateUI::SetCandidates(std::wstring code,
     updated_flags_ = TF_CLUIE_COUNT | TF_CLUIE_SELECTION | TF_CLUIE_STRING |
                      TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
 
-    RecalculatePopupLayout();
-    if (is_shown_ && EnsurePopupWindow()) {
-        ::SetWindowPos(hwnd_.Get(), HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
-                       SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
-    }
+    RefreshPopupLayout();
 }
 
 void CandidateUI::MoveWindowTo(const RECT& text_rect) {
-    popup_pos_.x = text_rect.left;
-    popup_pos_.y = text_rect.bottom + 4;
+    text_rect_ = text_rect;
+    RefreshPopupLayout();
+}
 
-    const MonitorMetrics mon = QueryMonitorForPoint(popup_pos_, hwnd_.Get());
-    if (mon.dpi != dpi_) {
-        UpdateDpiAndFont(mon.dpi);
-        RecalculatePopupLayout();
-    }
+void CandidateUI::SetLayout(CandidateLayout layout) {
+    if (layout_ == layout) return;
+    layout_ = layout;
+    RefreshPopupLayout();
+}
 
-    // Flip above composition text if popup would overflow bottom of target monitor's work area
-    if (popup_pos_.y + popup_height_ > mon.work_area.bottom) {
-        popup_pos_.y = text_rect.top - popup_height_ - 4;
+void CandidateUI::RefreshPopupLayout(UINT dpi) {
+    const POINT anchor = text_rect_
+        ? POINT{text_rect_->left, text_rect_->bottom + 4}
+        : popup_pos_;
+    const MonitorMetrics mon = QueryMonitorForPoint(anchor, hwnd_.Get());
+    UpdateDpiAndFont(dpi > 0 ? dpi : mon.dpi);
+    RecalculatePopupLayout();
+    popup_pos_ = anchor;
+    if (text_rect_ && popup_pos_.y + popup_height_ > mon.work_area.bottom) {
+        popup_pos_.y = text_rect_->top - popup_height_ - 4;
     }
-    // Clamp all 4 edges (left/top/right/bottom, including negative multi-monitor coordinates)
     popup_pos_ = ClampPointToWorkArea(popup_pos_, popup_width_, popup_height_, mon.work_area);
 
+    const RECT text_rect = text_rect_.value_or(RECT{anchor.x, anchor.y, anchor.x, anchor.y});
     QIQI_LOG_DEBUG("CandidatePositionPopup(stage=move, rect=({}, {}, {}, {}), target=({}, {}), size={}x{}, dpi={}, has_window={}, shown={})",
                    text_rect.left, text_rect.top, text_rect.right, text_rect.bottom,
                    popup_pos_.x, popup_pos_.y, popup_width_, popup_height_, dpi_, hwnd_.Get() != nullptr, is_shown_ != FALSE);
@@ -342,6 +360,7 @@ void CandidateUI::MoveWindowTo(const RECT& text_rect) {
                 QIQI_LOG_ERROR("CandidatePositionPopup::GetWindowRect failed (error={})", ::GetLastError());
             }
         }
+        ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
     }
 }
 
@@ -517,7 +536,7 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
     ::SetTextColor(hdc, palette.text_accent);
     ::DrawTextW(hdc, header.c_str(), -1, &top_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-    // Line 2: Horizontal candidates positioned using pre-measured hit rects
+    // Both layouts paint and hit-test the same measured rectangles.
     const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
     if (start >= end) {
         RECT bottom_rect = {ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
@@ -567,26 +586,16 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             self->OnLeftButtonDown(PointFromLParam(lparam));
             return 0;
         case WM_DPICHANGED:
-            self->UpdateDpiAndFont(HIWORD(wparam));
-            self->RecalculatePopupLayout();
-            if (lparam != 0) {
+            if (!self->text_rect_ && lparam != 0) {
                 const auto* suggested = reinterpret_cast<const RECT*>(lparam);
                 self->popup_pos_.x = suggested->left;
                 self->popup_pos_.y = suggested->top;
-                ::SetWindowPos(
-                    hwnd,
-                    HWND_TOPMOST,
-                    self->popup_pos_.x,
-                    self->popup_pos_.y,
-                    self->popup_width_,
-                    self->popup_height_,
-                    SWP_NOACTIVATE | (self->is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
             }
+            self->RefreshPopupLayout(HIWORD(wparam));
             return 0;
         case WM_SETTINGCHANGE:
         case WM_THEMECHANGED:
-            self->RecalculatePopupLayout();
-            ::InvalidateRect(hwnd, nullptr, TRUE);
+            self->RefreshPopupLayout();
             return 0;
         case WM_PAINT:
             return PaintWindowClient(hwnd, [self](HDC hdc, const RECT& rc) { self->PaintPopup(hdc, rc); });

@@ -42,6 +42,7 @@ void TestModeSwitchCompositionPolicy(
     });
     QiQiConfig config = original_config;
     config.commit_on_english_switch = commit;
+    config.candidate_layout = CandidateLayout::Horizontal;
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
     QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
     std::array<BYTE, 256> original_keyboard{};
@@ -73,6 +74,20 @@ void TestModeSwitchCompositionPolicy(
                 if (queue) QIQI_TEST_CHECK(queue->RunNext() == S_OK);
                 const auto composition = context->last_composition_;
                 QIQI_TEST_CHECK(composition && !composition->ended_);
+                if (cases == 1) {
+                    const auto element = manager->last_ui_element_;
+                    const auto* const ui = dynamic_cast<const CandidateUI*>(element.Get());
+                    QIQI_TEST_CHECK(ui && ui->WindowHandle());
+                    const int horizontal_height = ui->CurrentHeight();
+                    config.candidate_layout = CandidateLayout::Vertical;
+                    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+                    QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+                    QIQI_TEST_CHECK(ui->CurrentHeight() > horizontal_height && !composition->ended_);
+                    config.candidate_layout = CandidateLayout::Horizontal;
+                    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+                    QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+                    QIQI_TEST_CHECK(ui->CurrentHeight() == horizontal_height && !composition->ended_);
+                }
                 composition->end_callback_ = [&](TfEditCookie) {
                     BOOL nested_eaten = TRUE;
                     QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), 'D', 0, &nested_eaten) == S_OK &&

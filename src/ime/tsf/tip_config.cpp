@@ -739,6 +739,9 @@ void QiQiTextService::UpdateUiIndicators() {
     if (status_bar_ && thread_mgr_) {
         status_bar_->UpdateState(lb_state);
     }
+    if (const auto candidate_ui = candidate_ui_) {
+        candidate_ui->SetLayout(config_.candidate_layout);
+    }
 }
 
 void QiQiTextService::SyncTsfCompartments() {

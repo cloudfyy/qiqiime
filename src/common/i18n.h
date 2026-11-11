@@ -70,6 +70,8 @@ struct UiStrings {
     const wchar_t* dlg_chk_clear_empty4;
     const wchar_t* dlg_chk_key_sound;
     const wchar_t* dlg_lbl_page_size;
+    const wchar_t* dlg_candidate_horizontal;
+    const wchar_t* dlg_candidate_vertical;
     const wchar_t* dlg_lbl_ui_lang;
     const wchar_t* dlg_lang_auto;
     const wchar_t* dlg_lang_zh;
@@ -165,7 +167,9 @@ inline constexpr UiStrings kZhCnStrings = {
     L"四码重码时发出提示音",
     L"空码时自动清空输入",
     L"启用打字按键音效",
-    L"每页候选词数量:",
+    L"每页候选 / 排列:",
+    L"横排",
+    L"竖排",
     L"界面语言 (Language):",
     L"跟随系统 (Auto)",
     L"简体中文 (zh-CN)",
@@ -278,7 +282,9 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Chime on duplicate 4-letter code",
     L"Auto-clear input when no code matches",
     L"Enable typing key sound effects",
-    L"Candidates per page:",
+    L"Page size / layout:",
+    L"Horizontal",
+    L"Vertical",
     L"UI Language:",
     L"System Default (Auto)",
     L"Simplified Chinese (zh-CN)",

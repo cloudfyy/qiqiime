@@ -35,6 +35,11 @@ enum class CompositionUnderlineStyle {
     None      // TF_LS_NONE
 };
 
+enum class CandidateLayout {
+    Horizontal,
+    Vertical
+};
+
 struct QiQiConfig {
     // [dictionary]
     PrimaryDict primary_dict = PrimaryDict::Jidian;
@@ -44,6 +49,7 @@ struct QiQiConfig {
 
     // [engine]
     size_t page_size = 5;
+    CandidateLayout candidate_layout = CandidateLayout::Horizontal;
     bool auto_commit_4code = true;
     bool push_commit_5th = true;
     bool semicolon_quote_quick_select = true;
@@ -118,6 +124,7 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"primary_dict", L"PrimaryDict", &QiQiConfig::primary_dict, 0, 3, true},
     ConfigField{"enable_jidian_extra", L"EnableJidianExtra", &QiQiConfig::enable_jidian_extra, 0, 1, true},
     ConfigField{"page_size", L"PageSize", &QiQiConfig::page_size, 1, 9, true},
+    ConfigField{"candidate_layout", L"CandidateLayout", &QiQiConfig::candidate_layout, 0, 1, true},
     ConfigField{"auto_commit_4code", L"AutoCommit4Code", &QiQiConfig::auto_commit_4code, 0, 1, true},
     ConfigField{"push_commit_5th", L"PushCommit5th", &QiQiConfig::push_commit_5th, 0, 1, true},
     ConfigField{"semicolon_quote_quick_select", L"SemicolonQuoteQuickSelect", &QiQiConfig::semicolon_quote_quick_select, 0, 1, true},

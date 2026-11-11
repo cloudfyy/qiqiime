@@ -9,6 +9,7 @@
 #include <oleauto.h>
 #include <wrl/client.h>
 #include <gsl/gsl>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -18,6 +19,90 @@ namespace qiqi::test {
 using Microsoft::WRL::ComPtr;
 
 namespace {
+
+void TestCandidateLayouts() {
+    const TsfTestCaseTrace trace(__func__);
+    const std::optional<MonitorMetrics> previous_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto restore_monitor = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(previous_monitor);
+    });
+    const std::vector<std::wstring> candidates = {L"第一", L"第二", L"第三", L"第四", L"第五", L"第六", L"第七"};
+    for (const bool gdi : {false, true}) {
+        for (const UINT dpi : {96u, 144u}) {
+            const RECT work{-2400, -1600, 0, 0};
+            SetMonitorMetricsOverrideForTest(MonitorMetrics{work, dpi});
+            auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+            if (gdi) ui->DisableDirect2DForTest();
+            const RECT caret{-80, -80, -78, -60};
+            ui->MoveWindowTo(caret);
+            ui->SetCandidates(L"abcd", candidates, 5, 0, 2);
+            QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK && ui->WindowHandle());
+            const auto check_bounds = [&]() {
+                RECT actual{};
+                QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &actual));
+                QIQI_TEST_CHECK(actual.left >= work.left && actual.top >= work.top &&
+                                actual.right <= work.right && actual.bottom <= work.bottom);
+                QIQI_TEST_CHECK(actual.bottom <= caret.top);
+            };
+            const int horizontal_height = ui->CurrentHeight();
+            ui->SetLayout(CandidateLayout::Vertical);
+            ui->SetLayout(CandidateLayout::Vertical);
+            QIQI_TEST_CHECK(ui->CurrentHeight() > horizontal_height);
+            check_bounds();
+            UINT selection = 0;
+            QIQI_TEST_CHECK(ui->GetSelection(&selection) == S_OK && selection == 2);
+            size_t clicked = 99;
+            ui->SetSelectCallback([&](size_t index) { clicked = index; });
+            for (size_t i = 0; i < 5; ++i) {
+                ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON,
+                    MAKELPARAM(ScalePxByDpi(20, dpi),
+                               ScalePxByDpi(46 + gsl::narrow_cast<int>(i) * 28, dpi)));
+                QIQI_TEST_CHECK(clicked == i);
+            }
+            int direction = 0;
+            ui->SetPageTurnCallback([&](bool next) { direction = next ? 1 : -1; });
+            const auto click = [&](const RECT& rect) {
+                ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON,
+                    MAKELPARAM((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2));
+            };
+            click(ui->PrevPageButtonRect());
+            QIQI_TEST_CHECK(direction == 0);
+            click(ui->NextPageButtonRect());
+            QIQI_TEST_CHECK(direction == 1);
+            ::UpdateWindow(ui->WindowHandle());
+            ui->SetCandidates(L"abcd", candidates, 5, 1, 1);
+            QIQI_TEST_CHECK(ui->GetSelection(&selection) == S_OK && selection == 6);
+            direction = 0;
+            click(ui->NextPageButtonRect());
+            QIQI_TEST_CHECK(direction == 0);
+            click(ui->PrevPageButtonRect());
+            QIQI_TEST_CHECK(direction == -1);
+            ::UpdateWindow(ui->WindowHandle());
+            check_bounds();
+            ui->SetCandidates(L"xy", {}, 5, 0, 0);
+            ::UpdateWindow(ui->WindowHandle());
+            QIQI_TEST_CHECK(ui->PrevPageButtonRect().right == 0 && ui->CurrentHeight() == horizontal_height);
+            ui->SetLayout(CandidateLayout::Horizontal);
+            ui->SetCandidates(L"abcd", candidates, 5, 0, 0);
+            std::vector<std::wstring> longer = candidates;
+            gsl::at(longer, 0) = L"候选内容更新后窗口变宽仍需留在当前显示器";
+            ui->SetCandidates(L"abcd", longer, 5, 0, 0);
+            check_bounds();
+            const RECT suggested{-20, -20, 300, 300};
+            ::SendMessageW(ui->WindowHandle(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi),
+                reinterpret_cast<LPARAM>(&suggested));
+            for (const UINT event : {WM_THEMECHANGED, WM_SETTINGCHANGE}) {
+                ::SendMessageW(ui->WindowHandle(), event, 0, 0);
+                check_bounds();
+            }
+            ui->SetLayout(CandidateLayout::Vertical);
+            ::SendMessageW(ui->WindowHandle(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi),
+                reinterpret_cast<LPARAM>(&suggested));
+            check_bounds();
+            ::UpdateWindow(ui->WindowHandle());
+        }
+    }
+}
 
 void TestCandidateUI() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
@@ -223,6 +308,7 @@ void TestCandidateUI() {
 void RunCandidateUITests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestCandidateUI();
+    TestCandidateLayouts();
 }
 
 } // namespace qiqi::test

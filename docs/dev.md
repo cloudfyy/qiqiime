@@ -288,6 +288,28 @@ cmake --build build\x64 --config Release --target lint
 
 收集时串行运行完整 `ctest --test-dir build\x64 -C Debug --output-on-failure --parallel 1`，并单独运行双架构 Release 全套回归。Cobertura 的模块汇总会重复计算静态库源码；源码行覆盖率应按文件路径和行号去重，任一模块命中即视为覆盖。同样必须列出未出现在报告中的实现文件，不能只看已有模块的百分比。该工具导出的 `branch-rate` 不代表已经测得所有 C++ 分支覆盖率；真实宿主矩阵、权限及资源耗尽等边界仍需独立验证。
 
+#### 2026-11-11 候选横排 / 竖排定向核验
+
+- 设置、注册表、字段级合并及 `.qbak` 备份恢复复用 `kConfigFields` 描述表；两种排列复用候选测量、命中矩形、绘制及翻页逻辑。内容、排列、DPI 和主题更新共用重新定位入口，不复制两套窗口实现。
+- 新回归覆盖横竖排切换、逐行鼠标选词、首尾页按钮、空页与末页、Direct2D / GDI 绘制、负坐标显示器、96 / 144 DPI、变宽 / 变高后工作区限制，以及组合中保存配置后的即时切换。设置回归覆盖双语切换保留选项、非法选择、脏标记、保存失败重试 / 取消、默认值与外部合并。
+- x64 的公共模块、设置、完整 TSF/UI、组合生命周期四项 Release 回归通过；x86 加上词库管理器共五项通过。x64 词库管理器全套仍在 `CheckLayout` 的编辑列 DPI 宽度断言失败；使用未修改的 HEAD 源码、同一依赖及词库独立构建后同样复现，不在本轮修改范围内。该断言之前执行的备份恢复用例已完成，不能将整套测试标为通过。
+- 使用隔离的 x64 Debug EXE/PDB 副本及 `/PROFILE /INCREMENTAL:NO` 静态插桩，设置和完整 TSF/UI 两套均通过。按文件与行号去重后：
+
+  | 源码 / 函数 | 可执行源行命中 |
+  | --- | --- |
+  | 候选窗 `candidate_ui.cpp` | 357/385（92.7%） |
+  | `RecalculatePopupLayout` | 49/52（94.2%） |
+  | `SetLayout` | 5/5（100%） |
+  | `SetCandidates` / `MoveWindowTo` | 9/9、4/4（100%） |
+  | `RefreshPopupLayout` | 16/22（72.7%） |
+  | `UpdateUiIndicators` | 18/18（100%） |
+  | 设置绑定 `controls.cpp` | 241/256（94.1%） |
+  | `CreateSettingsControls` / `ApplyLiveSettingsLanguage` | 47/47、41/41（100%） |
+  | `WriteSettingsToWindowControls` / `ReadSettingsFromWindowControls` | 31/34、32/35（91.2%、91.4%） |
+
+  布局计算未命中的三行是 DC 与 DirectWrite 同时不可用的资源失败回退；重新定位未命中的六行属于调试日志及窗口位置查询失败诊断。设置读写的缺口是字符串复制分配失败的捕获与日志。未为提高数字添加生产故障注入接口。这是定向源行覆盖率，不是全仓或分支覆盖率；优化 Release 导出遗漏部分内联布局函数的结果未用于上述统计。插桩恢复后所有副本的 SHA-256 与原始 EXE/PDB 一致。
+- 双架构相关目标的 CppCoreCheck 按现有 C26490 / 外部依赖排除规则均为零仓库诊断；已检查 RAII、强引用与回调重入、代码复用及新增行为覆盖。未制作 MSI，未安装或注册输入法；Win10 真机、多显示器交互及超大内容溢出仍需独立验收。
+
 #### 2026-11-10 日志监控提权重启定向核验
 
 - 使用 `ctest --preset x64-release -R '^QiQiLogMonitor(Test|StartupTest)$'` 运行日志监控完整回归与新增启动定向回归；x86 使用对应预设。两组回归复用提权启动断言，检查有/无父窗口时的启动错误及句柄释放，并覆盖有符号坐标边界、非法参数提示和 COM 模型冲突的原始 HRESULT。

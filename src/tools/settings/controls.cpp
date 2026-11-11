@@ -170,6 +170,10 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_
         str.dlg_english_switch_commit, str.dlg_english_switch_clear
     };
     replace_combo_items(kIdComboEnglishSwitch, english_switch_items);
+    const std::array<const wchar_t*, 2> candidate_layout_items = {
+        str.dlg_candidate_horizontal, str.dlg_candidate_vertical
+    };
+    replace_combo_items(kIdComboCandidateLayout, candidate_layout_items);
 
     struct LanguageUpdate {
         HWND owner;
@@ -305,6 +309,13 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETMINVISIBLE, kPageSizeLabels.size(), 0);
     std::ignore = log::CheckHResult(ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboPageSize), kPageSizeLabels),
         "Settings::ReplaceComboBoxItems(page size)");
+    const HWND candidate_layout_combo = create_control(
+        L"COMBOBOX", L"", combo_style, layout::kCandidateLayoutCombo, kIdComboCandidateLayout);
+    const std::array<const wchar_t*, 2> candidate_layout_items = {
+        str.dlg_candidate_horizontal, str.dlg_candidate_vertical
+    };
+    std::ignore = log::CheckHResult(ReplaceComboBoxItems(candidate_layout_combo, candidate_layout_items),
+        "Settings::ReplaceComboBoxItems(candidate layout)");
 
     create_control(L"STATIC", str.dlg_lbl_ui_lang, 0, layout::kLanguageLabel, kIdLblUiLang);
     create_control(L"COMBOBOX", L"", combo_style, layout::kLanguageCombo, kIdComboUiLang);
@@ -389,6 +400,8 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
 
     const int idx = gsl::narrow_cast<int>(std::clamp<size_t>(config.page_size, 1, 9) - 1);
     ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(idx), 0);
+    ::SendDlgItemMessageW(hwnd, kIdComboCandidateLayout, CB_SETCURSEL,
+        config.candidate_layout == CandidateLayout::Vertical ? 1 : 0, 0);
 
     const int lang_idx = (config.ui_language == UiLanguage::ZhCn)
         ? 1
@@ -432,6 +445,10 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     const LRESULT sel = ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_GETCURSEL, 0, 0);
     if (sel >= 0 && sel < 9) {
         config.page_size = gsl::narrow_cast<size_t>(sel + 1);
+    }
+    const LRESULT layout_sel = ::SendDlgItemMessageW(hwnd, kIdComboCandidateLayout, CB_GETCURSEL, 0, 0);
+    if (layout_sel == 0 || layout_sel == 1) {
+        config.candidate_layout = static_cast<CandidateLayout>(layout_sel);
     }
 
     const LRESULT lang_sel = ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_GETCURSEL, 0, 0);

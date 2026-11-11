@@ -439,9 +439,10 @@ void TestEtwLogger() {
 }
 
 void TestConfigFieldProjections() {
-    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 24> expected_keys{{
+    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 25> expected_keys{{
         {"primary_dict", L"PrimaryDict"}, {"enable_jidian_extra", L"EnableJidianExtra"},
-        {"page_size", L"PageSize"}, {"auto_commit_4code", L"AutoCommit4Code"},
+        {"page_size", L"PageSize"}, {"candidate_layout", L"CandidateLayout"},
+        {"auto_commit_4code", L"AutoCommit4Code"},
         {"push_commit_5th", L"PushCommit5th"}, {"semicolon_quote_quick_select", L"SemicolonQuoteQuickSelect"},
         {"show_code_hint", L"ShowCodeHint"}, {"enable_z_temp_english", L"EnableZTempEnglish"},
         {"dynamic_phrase_freq", L"DynamicPhraseFreq"}, {"default_chinese_mode", L"DefaultChineseMode"},
@@ -453,8 +454,8 @@ void TestConfigFieldProjections() {
         {"ui_language", L"UiLanguage"}, {"underline_style", L"UnderlineStyle"},
         {"bold_underline", L"BoldUnderline"}, {"log_level", L"LogLevel"}
     }};
-    constexpr std::array<std::string_view, 19> editable_keys{
-        "primary_dict", "enable_jidian_extra", "page_size", "auto_commit_4code",
+    constexpr std::array<std::string_view, 20> editable_keys{
+        "primary_dict", "enable_jidian_extra", "page_size", "candidate_layout", "auto_commit_4code",
         "push_commit_5th", "semicolon_quote_quick_select", "show_code_hint", "dynamic_phrase_freq",
         "shift_toggle_mode", "commit_on_english_switch", "show_status_bar", "beep_on_empty_4code",
         "beep_on_dup_4code", "clear_on_empty_4code", "enable_key_sound", "up_down_page_turn",

@@ -47,6 +47,13 @@ void TestSettingsBindingBoundaries() {
     QIQI_TEST_CHECK(hwnd);
     QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCOUNT, 0, 0) == 2);
     QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCURSEL, 0, 0) == 0);
+    for (const auto layout : {CandidateLayout::Horizontal, CandidateLayout::Vertical}) {
+        cfg.candidate_layout = layout;
+        WriteSettingsToWindowControls(hwnd.Get(), cfg);
+        QiQiConfig read_layout;
+        ReadSettingsFromWindowControls(hwnd.Get(), read_layout);
+        QIQI_TEST_CHECK(read_layout.candidate_layout == layout);
+    }
     for (const auto& selected : kCheckboxCases) {
         cfg.*(selected.field) = true;
         WriteSettingsToWindowControls(hwnd.Get(), cfg);
@@ -74,15 +81,18 @@ void TestSettingsBindingBoundaries() {
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboUnderlineStyle, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     ::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
+    ::SendDlgItemMessageW(hwnd.Get(), kIdComboCandidateLayout, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(-1), 0);
     QiQiConfig actual;
     actual.page_size = 7;
     actual.ui_language = UiLanguage::EnUs;
     actual.underline_style = CompositionUnderlineStyle::Squiggle;
     actual.commit_on_english_switch = false;
+    actual.candidate_layout = CandidateLayout::Vertical;
     ReadSettingsFromWindowControls(hwnd.Get(), actual);
     QIQI_TEST_CHECK(actual.page_size == 7 && actual.ui_language == UiLanguage::EnUs &&
                     actual.underline_style == CompositionUnderlineStyle::Squiggle);
     QIQI_TEST_CHECK(!actual.commit_on_english_switch);
+    QIQI_TEST_CHECK(actual.candidate_layout == CandidateLayout::Vertical);
     for (const bool commit : {true, false}) {
         cfg.commit_on_english_switch = commit;
         WriteSettingsToWindowControls(hwnd.Get(), cfg);
@@ -133,6 +143,7 @@ void TestSettingsLiveLanguagePreservesControls() {
     cfg.page_size = 9;
     cfg.ui_language = UiLanguage::ZhCn;
     cfg.commit_on_english_switch = false;
+    cfg.candidate_layout = CandidateLayout::Vertical;
     const ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
     QIQI_TEST_CHECK(hwnd);
     ::SendDlgItemMessageW(hwnd.Get(), kIdRadioHaifeng, BM_CLICK, 0, 0);
@@ -152,6 +163,7 @@ void TestSettingsLiveLanguagePreservesControls() {
         QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_GETCOUNT, 0, 0) == 9);
         QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCOUNT, 0, 0) == 2);
         QIQI_TEST_CHECK(!actual.commit_on_english_switch);
+        QIQI_TEST_CHECK(actual.candidate_layout == CandidateLayout::Vertical);
         const auto& str = GetUiStrings(actual.ui_language);
         std::array<wchar_t, 128> switch_label{};
         ::GetDlgItemTextW(hwnd.Get(), kIdLblEnglishSwitch, switch_label.data(),
@@ -169,6 +181,12 @@ void TestSettingsLiveLanguagePreservesControls() {
                                                  reinterpret_cast<LPARAM>(text.data())) != CB_ERR);
             QIQI_TEST_CHECK(std::wstring(text.data()) ==
                             (item == 0 ? str.dlg_english_switch_commit : str.dlg_english_switch_clear));
+            QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboCandidateLayout, CB_GETLBTEXTLEN, item, 0) <
+                            gsl::narrow_cast<LRESULT>(text.size()));
+            QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboCandidateLayout, CB_GETLBTEXT, item,
+                                                 reinterpret_cast<LPARAM>(text.data())) != CB_ERR);
+            QIQI_TEST_CHECK(std::wstring(text.data()) ==
+                            (item == 0 ? str.dlg_candidate_horizontal : str.dlg_candidate_vertical));
         }
         for (const auto& test : kCheckboxCases) {
             QIQI_TEST_CHECK((actual.*(test.field)) == (cfg.*(test.field)));
@@ -213,7 +231,8 @@ void TestSettingsDirtyTitle() {
                 ::SendDlgItemMessageW(window.Get(), kIdRadioJidian, BM_CLICK, 0, 0);
                 check_title(language, false);
             }
-            for (const int combo : {kIdComboPageSize, kIdComboUnderlineStyle, kIdComboEnglishSwitch}) {
+            for (const int combo : {kIdComboPageSize, kIdComboCandidateLayout,
+                                   kIdComboUnderlineStyle, kIdComboEnglishSwitch}) {
                 const auto initial = ::SendDlgItemMessageW(window.Get(), combo, CB_GETCURSEL, 0, 0);
                 select_combo(combo, initial == 0 ? 1u : 0u);
                 check_title(language, true);

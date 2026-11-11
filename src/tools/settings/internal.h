@@ -43,6 +43,7 @@ constexpr int kIdRadioCustom = 131;
 constexpr int kIdBtnBrowsePrimaryDict = 132;
 constexpr int kIdLblCustomPrimaryPath = 133;
 constexpr int kIdBtnRestoreDefaults = 134;
+constexpr int kIdComboCandidateLayout = 135;
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 
@@ -91,6 +92,9 @@ inline constexpr RECT kPageSizeLabel{
 inline constexpr RECT kPageSizeCombo{
     kComboLeft, kAppearanceFirstRow - kComboLabelInset, kComboLeft + 80,
     kAppearanceFirstRow - kComboLabelInset + 260};
+inline constexpr RECT kCandidateLayoutCombo{
+    kComboLeft + 90, kPageSizeCombo.top, kComboLeft + kComboWidth,
+    kPageSizeCombo.top + 160};
 inline constexpr RECT kLanguageLabel{
     kRightColumn, kAppearanceFirstRow + kAppearanceRowStep,
     kRightColumn + kLabelWidth, kAppearanceFirstRow + kAppearanceRowStep + kCheckboxHeight};
