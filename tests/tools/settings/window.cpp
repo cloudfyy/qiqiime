@@ -29,13 +29,13 @@ constexpr std::array kSettingsLayoutRectCases{
     std::pair{settings_geometry::kSoundCard, RECT{416, 206, 802, 434}},
     std::pair{settings_geometry::kBrowseDictionary, RECT{306, 140, 390, 166}},
     std::pair{settings_geometry::kDictionaryPath, RECT{56, 168, 390, 188}},
-    std::pair{settings_geometry::kPageSizeLabel, RECT{430, 78, 586, 102}},
+    std::pair{settings_geometry::kPageSizeLabel, RECT{434, 78, 586, 102}},
     std::pair{settings_geometry::kPageSizeCombo, RECT{588, 74, 668, 334}},
-    std::pair{settings_geometry::kLanguageLabel, RECT{430, 112, 586, 136}},
+    std::pair{settings_geometry::kLanguageLabel, RECT{434, 112, 586, 136}},
     std::pair{settings_geometry::kLanguageCombo, RECT{588, 108, 788, 308}},
-    std::pair{settings_geometry::kUnderlineLabel, RECT{430, 146, 586, 170}},
+    std::pair{settings_geometry::kUnderlineLabel, RECT{434, 146, 586, 170}},
     std::pair{settings_geometry::kUnderlineCombo, RECT{588, 142, 788, 362}},
-    std::pair{settings_geometry::kEnglishSwitchLabel, RECT{430, 378, 586, 402}},
+    std::pair{settings_geometry::kEnglishSwitchLabel, RECT{434, 378, 586, 402}},
     std::pair{settings_geometry::kEnglishSwitchCombo, RECT{588, 374, 788, 534}},
     std::pair{settings_geometry::kAboutButton, RECT{18, 448, 122, 480}},
     std::pair{settings_geometry::kDictionaryManagerButton, RECT{132, 448, 288, 480}},
@@ -514,6 +514,38 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(ShowHelpDialog(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
 }
 
+void TestSettingsTextAlignment() {
+    using namespace settings_detail;
+    auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
+    const auto restore_monitor = gsl::finally([&original_monitor]() noexcept {
+        SetMonitorMetricsOverrideForTest(std::move(original_monitor));
+    });
+    constexpr std::array aligned_rows{
+        std::pair{kIdLblPageSize, kIdChkStatusBar},
+        std::pair{kIdLblUiLang, kIdChkStatusBar},
+        std::pair{kIdLblUnderlineStyle, kIdChkBoldUnderline},
+        std::pair{kIdLblEnglishSwitch, kIdChkKeySound}};
+    for (const auto language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 3840, 2160}, 96});
+        QiQiConfig config;
+        config.ui_language = language;
+        const ScopedWindow dialog(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config));
+        QIQI_TEST_CHECK(dialog);
+        for (const UINT dpi : {96u, 120u, 144u, 192u}) {
+            SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 3840, 2160}, dpi});
+            const RECT suggested{0, 0, ScalePxByDpi(820, dpi), ScalePxByDpi(494, dpi)};
+            ::SendMessageW(dialog.Get(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi),
+                           reinterpret_cast<LPARAM>(&suggested));
+            for (const auto& [label_id, toggle_id] : aligned_rows) {
+                RECT label{}, toggle{};
+                QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(dialog.Get(), label_id), &label));
+                QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(dialog.Get(), toggle_id), &toggle));
+                QIQI_TEST_CHECK(label.left == toggle.left + ScalePxByDpi(kFluentToggleTextInset, dpi));
+            }
+        }
+    }
+}
+
 void TestSettingsWindowMonitorChanges() {
     auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
     const auto restore_monitor = gsl::finally([&original_monitor]() noexcept {
@@ -572,6 +604,7 @@ void TestSettingsWindowMonitorChanges() {
 void RunSettingsDialogTests() {
     TestDictionaryConfirmationText();
     TestSettingsDialogControls();
+    TestSettingsTextAlignment();
     TestSettingsWindowMonitorChanges();
 }
 

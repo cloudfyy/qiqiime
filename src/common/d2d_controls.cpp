@@ -27,7 +27,6 @@ constexpr int kCardHeaderTopOffset = 9;
 constexpr int kCardHeaderRightInset = 12;
 constexpr int kCardHeaderBottomOffset = 29;
 constexpr int kButtonCornerRadius = 6;
-constexpr int kToggleTextInset = 4;
 constexpr int kRadioOuterRadius = 8;
 constexpr int kRadioCenterX = 10;
 constexpr int kRadioInnerRadius = 4;
@@ -306,8 +305,8 @@ void DrawFluentToggleOrRadioRow(
         !is_enabled ? (is_dark ? MakeD2DColor(110, 116, 128) : MakeD2DColor(150, 156, 166))
                     : ColorRefToD2DColor(is_dark ? kDarkTextColor : kLightTextColor));
 
-    float text_left = d2d.ScaleF(kToggleTextInset);
-    float text_right = w - d2d.ScaleF(kToggleTextInset);
+    float text_left = d2d.ScaleF(kFluentToggleTextInset);
+    float text_right = w - d2d.ScaleF(kFluentToggleTextInset);
 
     if (is_radio) {
         const float r_outer = d2d.ScaleF(kRadioOuterRadius);

@@ -58,6 +58,7 @@ inline constexpr RECT kSoundCard{416, 206, 802, 434};
 inline constexpr int kControlInset = 14;
 inline constexpr int kLeftColumn = kDictionaryCard.left + kControlInset;
 inline constexpr int kRightColumn = kAppearanceCard.left + kControlInset;
+inline constexpr int kRightLabelLeft = kRightColumn + kFluentToggleTextInset;
 inline constexpr int kOptionWidth = 360;
 inline constexpr int kRadioHeight = 22;
 inline constexpr int kCheckboxHeight = 24;
@@ -88,7 +89,7 @@ inline constexpr RECT kDictionaryPath{
     kLeftColumn + kDictionaryRowStep, kCustomRow + 26,
     kDictionaryCard.right - kControlInset, kCustomRow + 26 + 20};
 inline constexpr RECT kPageSizeLabel{
-    kRightColumn, kAppearanceFirstRow, kRightColumn + kLabelWidth, kAppearanceFirstRow + kCheckboxHeight};
+    kRightLabelLeft, kAppearanceFirstRow, kRightColumn + kLabelWidth, kAppearanceFirstRow + kCheckboxHeight};
 inline constexpr RECT kPageSizeCombo{
     kComboLeft, kAppearanceFirstRow - kComboLabelInset, kComboLeft + 80,
     kAppearanceFirstRow - kComboLabelInset + 260};
@@ -96,20 +97,20 @@ inline constexpr RECT kCandidateLayoutCombo{
     kComboLeft + 90, kPageSizeCombo.top, kComboLeft + kComboWidth,
     kPageSizeCombo.top + 160};
 inline constexpr RECT kLanguageLabel{
-    kRightColumn, kAppearanceFirstRow + kAppearanceRowStep,
+    kRightLabelLeft, kAppearanceFirstRow + kAppearanceRowStep,
     kRightColumn + kLabelWidth, kAppearanceFirstRow + kAppearanceRowStep + kCheckboxHeight};
 inline constexpr RECT kLanguageCombo{
     kComboLeft, kLanguageLabel.top - kComboLabelInset, kComboLeft + kComboWidth,
     kLanguageLabel.top - kComboLabelInset + 200};
 inline constexpr RECT kUnderlineLabel{
-    kRightColumn, kLanguageLabel.top + kAppearanceRowStep,
+    kRightLabelLeft, kLanguageLabel.top + kAppearanceRowStep,
     kRightColumn + kLabelWidth, kLanguageLabel.top + kAppearanceRowStep + kCheckboxHeight};
 inline constexpr RECT kUnderlineCombo{
     kComboLeft, kUnderlineLabel.top - kComboLabelInset, kComboLeft + kComboWidth,
     kUnderlineLabel.top - kComboLabelInset + 220};
 inline constexpr int kBoldUnderlineRow = kUnderlineCombo.top + 32;
 inline constexpr RECT kEnglishSwitchLabel{
-    kRightColumn, kSoundFirstRow + 4 * kSoundRowStep + kComboLabelInset,
+    kRightLabelLeft, kSoundFirstRow + 4 * kSoundRowStep + kComboLabelInset,
     kRightColumn + kLabelWidth, kSoundFirstRow + 4 * kSoundRowStep + kComboLabelInset + kCheckboxHeight};
 inline constexpr RECT kEnglishSwitchCombo{
     kComboLeft, kEnglishSwitchLabel.top - kComboLabelInset, kComboLeft + kComboWidth,
