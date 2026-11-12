@@ -1,5 +1,7 @@
 # QiQiIME 1.0.6 补丁版
 
+项目政策：[Privacy policy / 隐私政策](https://github.com/cloudfyy/qiqiime/blob/main/PRIVACY.md) · [Code signing policy](https://github.com/cloudfyy/qiqiime/blob/main/CODE_SIGNING.md) · [第三方许可](https://github.com/cloudfyy/qiqiime/blob/main/THIRD_PARTY_NOTICES.md)。当前政策文档不改变历史标签或附件，也不证明附件已签名；实际状态须核对下载文件。
+
 数字版本：`1.0.6`；发行标签：`v1.0.6`。以下改动于 2026-11-12 在 `v1.0.5` 标签之后合入，不包含在该标签或此前生成的本地 1.0.5 安装包中；历史标签与附件保持不变。
 
 ## 本次主要更新

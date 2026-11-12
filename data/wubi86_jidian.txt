@@ -1,9 +1,32 @@
 # 极点五笔 86 核心主词库 (wubi86_jidian)
 # 说明: 转换自 wubi86_jidian.dict.yaml，包含国标单字、一二三级简码及经典常用词组
 # 上游项目: KyleBing/rime-wubi86-jidian (https://github.com/KyleBing/rime-wubi86-jidian)
-# 原始文件: https://github.com/KyleBing/rime-wubi86-jidian/blob/master/wubi86_jidian.dict.yaml
-# 开源协议: Apache License 2.0 (https://github.com/KyleBing/rime-wubi86-jidian/blob/master/LICENSE)
+# 可复现上游版本: 18a6016c3d08a20f713f8f8e1791a2e79e0be081 (词库 version: 4.3)
+# 原始文件: https://github.com/KyleBing/rime-wubi86-jidian/blob/18a6016c3d08a20f713f8f8e1791a2e79e0be081/wubi86_jidian.dict.yaml
+# 归属: Kyle Bing 及上游词库贡献者；本文件为 QiQiIME 转换版本
+# 开源协议: Apache License 2.0 (随包全文: licenses/Apache-2.0.txt)
+# 许可依据: https://github.com/KyleBing/rime-wubi86-jidian/blob/18a6016c3d08a20f713f8f8e1791a2e79e0be081/LICENSE
+# 上游 SHA-256: 89df3685e4a0c3d319a1c56a3a64e3df4ee3bfa3ba3892a6dadc77b21c989c5b
+# 转换核对: 固定版本重建后词条及顺序完全匹配；不声称原始下载提交已记录
+# 过滤、去重与排序规则: 见 THIRD_PARTY_NOTICES.md；复核脚本: scripts/verify_jidian_provenance.ps1
 # 格式说明: 编码 词条1 [词条2 ...] (按词频权重降序排列)
+#
+# Jidian Wubi 86 core dictionary (QiQiIME conversion)
+# SPDX-License-Identifier: Apache-2.0
+# Attribution: Kyle Bing and the upstream dictionary contributors.
+# Upstream: https://github.com/KyleBing/rime-wubi86-jidian
+# Pinned revision: 18a6016c3d08a20f713f8f8e1791a2e79e0be081; YAML version: 4.3.
+# Source: https://github.com/KyleBing/rime-wubi86-jidian/blob/18a6016c3d08a20f713f8f8e1791a2e79e0be081/wubi86_jidian.dict.yaml
+# Source SHA-256: 89df3685e4a0c3d319a1c56a3a64e3df4ee3bfa3ba3892a6dadc77b21c989c5b
+# License: Apache License 2.0; complete text: licenses/Apache-2.0.txt.
+# License source: https://github.com/KyleBing/rime-wubi86-jidian/blob/18a6016c3d08a20f713f8f8e1791a2e79e0be081/LICENSE
+# Modified by QiQiIME: converted Rime YAML to UTF-8 code-to-phrase rows;
+# filtered unsupported rows, deduplicated phrases, and sorted by code and weight.
+# Format: code phrase1 [phrase2 ...], candidates in descending weight order.
+# Verification: all data rows and candidate order exactly match reconstruction
+# from the pinned snapshot; the original download commit was not recorded.
+# Full conversion rules and provenance: THIRD_PARTY_NOTICES.md.
+# Offline verifier (source checkout): scripts/verify_jidian_provenance.ps1.
 
 a 工 戈
 aa 式 戒

@@ -85,11 +85,7 @@ if ($Package) {
     Copy-Item (Join-Path $PSScriptRoot "common.ps1") -Destination (Join-Path $pkgDir "scripts\common.ps1")
     Copy-Item (Join-Path $PSScriptRoot "register_ime.ps1") -Destination (Join-Path $pkgDir "scripts\register_ime.ps1")
     Copy-Item (Join-Path $PSScriptRoot "unregister_ime.ps1") -Destination (Join-Path $pkgDir "scripts\unregister_ime.ps1")
-    Copy-Item (Join-Path $QiQiRepoRoot "LICENSE") -Destination $pkgDir
-    Copy-Item (Join-Path $QiQiRepoRoot "README.md") -Destination $pkgDir
-    Copy-Item (Join-Path $QiQiRepoRoot "docs\deploy.md") -Destination $pkgDir
-    Copy-Item (Join-Path $QiQiRepoRoot "docs\log.md") -Destination $pkgDir
-    Copy-Item (Join-Path $QiQiRepoRoot "docs\release-notes.md") -Destination $pkgDir
+    Copy-QiQiReleaseDocumentation -Destination $pkgDir
 
     Compress-Archive -Path $pkgDir -DestinationPath $zipPath -Force
     $zipSizeKB = [math]::Round((Get-Item $zipPath).Length / 1KB, 1)

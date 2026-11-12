@@ -107,6 +107,40 @@ function Copy-QiQiSymbols([hashtable]$Dlls, [string]$Destination) {
     }
 }
 
+function Copy-QiQiReleaseDocumentation(
+    [string]$Destination,
+    [string]$SourceDirectory = $script:QiQiRepoRoot
+) {
+    foreach ($relativePath in @(
+        "LICENSE",
+        "README.md",
+        "README.zh-CN.md",
+        "PRIVACY.md",
+        "CODE_SIGNING.md",
+        "THIRD_PARTY_NOTICES.md",
+        "docs\deploy.md",
+        "docs\log.md",
+        "docs\release-notes.md",
+        "licenses\Apache-2.0.txt",
+        "licenses\rime-wubi86-jidian-MIT.txt",
+        "licenses\wubi-haifeng-BSD-3-Clause.txt",
+        "licenses\microsoft-gsl-MIT.txt"
+    )) {
+        $source = Join-Path $SourceDirectory $relativePath
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "Missing release documentation: $source"
+        }
+        $targetRelativePath = if ($relativePath.StartsWith("docs\", [StringComparison]::Ordinal)) {
+            Split-Path -Leaf $relativePath
+        } else {
+            $relativePath
+        }
+        $target = Join-Path $Destination $targetRelativePath
+        New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+        Copy-Item -LiteralPath $source -Destination $target
+    }
+}
+
 function Get-QiQiRegsvr32Path(
     [switch]$Is32Bit,
     [bool]$Is64BitOperatingSystem = [Environment]::Is64BitOperatingSystem,

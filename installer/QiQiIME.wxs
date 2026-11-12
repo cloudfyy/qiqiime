@@ -64,6 +64,7 @@
         <Directory Id="DirX86" Name="x86" />
         <Directory Id="DirData" Name="data" />
         <Directory Id="DirScripts" Name="scripts" />
+        <Directory Id="DirLicenses" Name="licenses" />
       </Directory>
     </StandardDirectory>
 
@@ -109,9 +110,20 @@
       <Component Id="CmpDocs" Directory="INSTALLFOLDER" Guid="$(var.ComponentGuidPrefix)0105">
         <File Id="FileLicense" Source="$(var.StageDir)\LICENSE" KeyPath="yes" />
         <File Id="FileReadme" Source="$(var.StageDir)\README.md" />
+        <File Id="FileReadmeChinese" Source="$(var.StageDir)\README.zh-CN.md" />
+        <File Id="FilePrivacy" Source="$(var.StageDir)\PRIVACY.md" />
+        <File Id="FileCodeSigning" Source="$(var.StageDir)\CODE_SIGNING.md" />
+        <File Id="FileThirdPartyNotices" Source="$(var.StageDir)\THIRD_PARTY_NOTICES.md" />
         <File Id="FileDeployment" Source="$(var.StageDir)\deploy.md" />
         <File Id="FileLogging" Source="$(var.StageDir)\log.md" />
         <File Id="FileReleaseNotes" Source="$(var.StageDir)\release-notes.md" />
+      </Component>
+
+      <Component Id="CmpLicenses" Directory="DirLicenses" Guid="$(var.ComponentGuidPrefix)0107">
+        <File Id="FileApacheLicense" Source="$(var.StageDir)\licenses\Apache-2.0.txt" KeyPath="yes" />
+        <File Id="FileJidianMitLicense" Source="$(var.StageDir)\licenses\rime-wubi86-jidian-MIT.txt" />
+        <File Id="FileHaifengLicense" Source="$(var.StageDir)\licenses\wubi-haifeng-BSD-3-Clause.txt" />
+        <File Id="FileGslLicense" Source="$(var.StageDir)\licenses\microsoft-gsl-MIT.txt" />
       </Component>
 
       <Component Id="CmpStartMenuShortcuts" Directory="QiQiProgramMenuFolder"

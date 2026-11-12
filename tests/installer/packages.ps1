@@ -88,13 +88,26 @@ try {
                         "CmpScripts" { "0104" }
                         "CmpDocs" { "0105" }
                         "CmpStartMenuShortcuts" { "0106" }
+                        "CmpLicenses" { "0107" }
                         default { throw "Unexpected component: $($component.Component)" }
                     }
                     Assert-True ($component.ComponentId -eq "{8E7B9D31-5A42-4C81-9F11-$guidPrefix$suffix}") "Component upgrade identity changed in $path"
                 }
                 $files = @(Read-MsiTable $database "File" @("File", "Component_", "FileName"))
-                $expectedFileCount = if ($arch -eq "x64") { 19 } else { 15 }
+                $expectedFileCount = if ($arch -eq "x64") { 27 } else { 23 }
                 Assert-True ($files.Count -eq $expectedFileCount) "Unexpected payload count in $path"
+                $documentation = @($files | Where-Object { $_.Component_ -eq "CmpDocs" } | ForEach-Object { $_.FileName.Split('|')[-1] })
+                foreach ($name in @("LICENSE", "README.md", "README.zh-CN.md", "PRIVACY.md", "CODE_SIGNING.md", "THIRD_PARTY_NOTICES.md", "deploy.md", "log.md", "release-notes.md")) {
+                    Assert-True ($name -in $documentation) "Missing documentation $name in $path"
+                }
+                $licenseDirectory = @($directories | Where-Object { $_.Directory -eq "DirLicenses" })
+                Assert-True ($licenseDirectory.Count -eq 1 -and $licenseDirectory[0].Directory_Parent -eq "INSTALLFOLDER") "Incorrect license directory in $path"
+                $licenseComponent = @($components | Where-Object { $_.Component -eq "CmpLicenses" })
+                Assert-True ($licenseComponent.Count -eq 1 -and $licenseComponent[0].Directory_ -eq "DirLicenses") "Incorrect license component in $path"
+                $licenses = @($files | Where-Object { $_.Component_ -eq "CmpLicenses" } | ForEach-Object { $_.FileName.Split('|')[-1] })
+                foreach ($name in @("Apache-2.0.txt", "rime-wubi86-jidian-MIT.txt", "wubi-haifeng-BSD-3-Clause.txt", "microsoft-gsl-MIT.txt")) {
+                    Assert-True ($name -in $licenses) "Missing third-party license $name in $path"
+                }
                 foreach ($payloadArch in $(if ($arch -eq "x64") { @("X64", "X86") } else { @("X86") })) {
                     $payload = @($files | Where-Object { $_.Component_ -eq "CmpDll$payloadArch" })
                     Assert-True ($payload.Count -eq 4) "Missing runtime files in $path"

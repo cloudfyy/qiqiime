@@ -139,7 +139,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 
 本次正式标签为 [`v1.0.4`](https://github.com/cloudfyy/qiqiime/tree/v1.0.4)，程序、MSI 和发行文件名使用 `VERSION` 中的数字版本 `1.0.4`。下载以 [1.0.4 Release 页面](https://github.com/cloudfyy/qiqiime/releases/tag/v1.0.4)实际提供的附件为准，不把标签存在视为发布成功。发布工作流从标签提交构建、运行双架构完整测试、打包并上传附件。
 
-正式 GitHub Release 不标记为 Pre-release，并设置为最新版。历史候选版使用低于 `1.0.0` 的数字版本，保留 MSI 升级顺序；历史标签及已有附件不随源码或文档更新而改变。已知限制见 [README](../README.md#当前发布状态)。
+正式 GitHub Release 不标记为 Pre-release，并设置为最新版。历史候选版使用低于 `1.0.0` 的数字版本，保留 MSI 升级顺序；历史标签及已有附件不随源码或文档更新而改变。已知限制见[中文 README](../README.zh-CN.md#当前发布状态)。
 
 核对本地源码与正式发行时，比较 `git rev-parse HEAD` 与远端 `v1.0.4` 标签对应的提交；只比较 `1.0.4` 或包名不足以确认源码一致。本地重建与 GitHub 构建即使来自同一提交，也不保证产物哈希相同。需要与远端完全一致的发行副本时，下载该 Release 的 MSI、运行组件 ZIP 和符号 ZIP；有可信来源提供的 SHA-256 时逐项核验。不要将本地构建的 PDB 与远端二进制混用。后续文档提交也不会回写已发布包内的文档。
 
@@ -200,11 +200,20 @@ QiQiIME-v1.0.4-win-x64-x86/
 │   ├── register_ime.ps1        # 安装注册脚本
 │   └── unregister_ime.ps1      # 注销 COM/TSF 注册的脚本，不删除安装目录
 ├── LICENSE                     # GPL-3.0 许可证
-├── README.md                   # 功能与使用说明
+├── README.md                   # English overview（默认入口）
+├── README.zh-CN.md             # 中文功能与使用说明
+├── PRIVACY.md                  # 隐私政策
+├── CODE_SIGNING.md             # Code signing policy（当前尚未接入）
+├── THIRD_PARTY_NOTICES.md       # 第三方来源、许可及追溯说明
+├── licenses/                   # 第三方完整许可文本
 ├── deploy.md                   # 部署与安装说明
 ├── log.md                      # 应用日志与实时监控工具指南
 └── release-notes.md             # 正式版本发布与升级说明
 ```
+
+政策、英文说明及第三方许可文件由本次源码改动纳入后续显式打包，不补写到历史附件。
+文档暂存和 MSI 源清单的一致性检查包含在 `QiQiInstallerShortcutsTest` 中，无需生成 MSI；
+实际包仍由显式打包时的安装数据库检查验证。
 
 终端用户解压到固定目录后，从解压目录运行以下命令注册；解压到 `Program Files` 本身也需要管理员权限。请检查脚本结果，注册后保持目录位置不变：
 

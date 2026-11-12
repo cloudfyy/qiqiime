@@ -77,3 +77,4 @@ foreach ($culture in @("zh-CN", "en-US")) {
 
 Write-Host "Installer shortcuts and both language resources passed."
 & (Join-Path $PSScriptRoot "symbols.ps1")
+& (Join-Path $PSScriptRoot "documentation.ps1")
