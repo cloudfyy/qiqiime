@@ -41,7 +41,7 @@ HWND Child(const DictManagerWindow& window, ControlId id) noexcept;
 RECT ToolbarItemRect(const DictManagerWindow& window, ControlId id);
 void InvokeCommand(const DictManagerWindow& window, ControlId id, bool toolbar = false);
 std::wstring MenuText(HMENU menu, ControlId id);
-std::wstring ControlText(HWND hwnd);
+using qiqi::test::ControlText;
 void DrainQuitMessages() noexcept;
 void ClickRowEdit(const DictManagerWindow& window, int row);
 void CheckLayout(const DictManagerWindow& window, UINT dpi);

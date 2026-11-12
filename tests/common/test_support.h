@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <utility>
 #include "common/guids.h"
@@ -38,6 +39,19 @@ inline void ReportTestFailure(const char* file, int line, const char* expression
     } while (false)
 
 namespace qiqi::test {
+
+inline std::wstring ControlText(HWND control) {
+    QIQI_TEST_CHECK(::IsWindow(control));
+    ::SetLastError(ERROR_SUCCESS);
+    const int length = ::GetWindowTextLengthW(control);
+    QIQI_TEST_CHECK(length != 0 || ::GetLastError() == ERROR_SUCCESS);
+    std::wstring text(gsl::narrow_cast<size_t>(length) + 1, L'\0');
+    ::SetLastError(ERROR_SUCCESS);
+    const int copied = ::GetWindowTextW(control, text.data(), gsl::narrow_cast<int>(text.size()));
+    QIQI_TEST_CHECK(copied != 0 || ::GetLastError() == ERROR_SUCCESS);
+    text.resize(gsl::narrow_cast<size_t>(copied));
+    return text;
+}
 
 inline HWND FindThreadWindowByClass(std::wstring_view class_name) noexcept {
     struct SearchCtx {

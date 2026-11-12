@@ -17,6 +17,20 @@
 namespace qiqi::test {
 namespace {
 
+void TestControlText() {
+    const ScopedWindow control(::CreateWindowExW(
+        0, L"EDIT", L"", WS_POPUP, 0, 0, 200, 30, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+    QIQI_TEST_CHECK(control.IsValid());
+    QIQI_TEST_CHECK(ControlText(control.Get()).empty());
+    const std::wstring long_text = std::wstring(2048, L'x') + L"\u4e2d\U0001f600";
+    QIQI_TEST_CHECK(::SetWindowTextW(control.Get(), long_text.c_str()));
+    QIQI_TEST_CHECK(ControlText(control.Get()) == long_text);
+    QIQI_TEST_CHECK(::SetWindowTextW(control.Get(), L"short"));
+    QIQI_TEST_CHECK(ControlText(control.Get()) == L"short");
+    QIQI_TEST_CHECK(::SetWindowTextW(control.Get(), L""));
+    QIQI_TEST_CHECK(ControlText(control.Get()).empty());
+}
+
 static_assert(kFluentBodyFontSize == 14 && kFluentComboItemHeight == 22);
 static_assert(kFluentComboTextCapacity == 128);
 static_assert(kSmallBrandIconSize == 16 && kLargeBrandIconSize == 48);
@@ -695,6 +709,7 @@ void TestCommonDialogsAndUtils() {
 } // namespace
 
 void RunD2DControlsTests() {
+    TestControlText();
     TestReusableControls();
     TestInfoDialogLayout();
     TestCommonDialogsAndUtils();

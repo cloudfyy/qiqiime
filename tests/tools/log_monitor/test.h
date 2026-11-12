@@ -48,7 +48,7 @@ void SetProcessFilter(const MonitorWindow& window, const wchar_t* name);
 void SelectPid(const MonitorWindow& window, DWORD pid);
 LRESULT CALLBACK SimulateOpenDropdown(HWND control, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
                                       DWORD_PTR) noexcept;
-std::wstring ControlText(HWND hwnd);
+using qiqi::test::ControlText;
 void SelectLanguage(const MonitorWindow& window, UiLanguage language) noexcept;
 void CheckComboEditFont(HWND combo, UINT dpi);
 std::wstring ReadClipboardText(HWND owner = nullptr);

@@ -15,9 +15,9 @@ namespace qiqi::test {
 namespace {
 
 std::wstring WindowText(HWND hwnd) {
-    std::array<wchar_t, 1024> text{};
-    QIQI_TEST_CHECK(hwnd && ::GetWindowTextW(hwnd, text.data(), gsl::narrow_cast<int>(text.size())) > 0);
-    return text.data();
+    auto text = ControlText(hwnd);
+    QIQI_TEST_CHECK(!text.empty());
+    return text;
 }
 
 void CheckBackground(HWND hwnd, COLORREF expected) {

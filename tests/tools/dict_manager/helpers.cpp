@@ -37,13 +37,6 @@ std::wstring MenuText(HMENU menu, ControlId id) {
     return text.data();
 }
 
-std::wstring ControlText(HWND hwnd) {
-    std::wstring text(gsl::narrow_cast<size_t>(::GetWindowTextLengthW(hwnd)) + 1, L'\0');
-    const int copied = ::GetWindowTextW(hwnd, text.data(), gsl::narrow_cast<int>(text.size()));
-    text.resize(gsl::narrow_cast<size_t>(copied));
-    return text;
-}
-
 void DrainQuitMessages() noexcept {
     MSG msg{};
     while (::PeekMessageW(&msg, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE)) {
