@@ -15,6 +15,28 @@
 namespace qiqi::test {
 namespace {
 
+void TestFallbackCaretDpiScaling() {
+    const TsfTestCaseTrace trace(__func__);
+    struct Case {
+        UINT dpi;
+        RECT cursor_rect;
+        RECT focused_rect;
+    };
+    constexpr std::array cases{
+        Case{96, {-1500, -800, -1498, -780}, {-1480, -776, -1478, -756}},
+        Case{120, {-1500, -800, -1497, -775}, {-1475, -770, -1472, -745}},
+        Case{144, {-1500, -800, -1497, -770}, {-1470, -764, -1467, -734}},
+        Case{192, {-1500, -800, -1496, -760}, {-1460, -752, -1456, -712}},
+        Case{0, {-1500, -800, -1498, -780}, {-1480, -776, -1478, -756}},
+    };
+    for (const auto& test : cases) {
+        const RECT cursor_rect = ComputeFallbackCaretRect(POINT{-1500, -800}, test.dpi);
+        const RECT focused_rect = ComputeFocusedWindowFallbackCaretRect(RECT{-1500, -800, -900, -400}, test.dpi);
+        QIQI_TEST_CHECK(::EqualRect(&cursor_rect, &test.cursor_rect));
+        QIQI_TEST_CHECK(::EqualRect(&focused_rect, &test.focused_rect));
+    }
+}
+
 void TestLayoutQueryBoundaries() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Scenario {
@@ -449,6 +471,7 @@ void TestLayoutSessionRequests() {
 
 void RunTsfCompositionLayoutTests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    TestFallbackCaretDpiScaling();
     TestLayoutQueryBoundaries();
     TestLayoutQueryResourceLifetime();
     TestLayoutTaskSnapshot();

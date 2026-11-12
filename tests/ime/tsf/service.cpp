@@ -17,6 +17,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <regex>
 #include <thread>
 #include <tuple>
@@ -1272,23 +1273,42 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         ::EmptyClipboard();
     }
     QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyAddUserWord, &eaten)) && eaten == TRUE);
-    {
+    for (const bool deny_open : {false, true}) {
+        const TsfTestCaseTrace clipboard_trace(deny_open ? "clipboard.lock-open-denied" : "clipboard.lock-open-success");
         const ScopedWindow lock_owner(::CreateWindowExW(
             0, L"STATIC", L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
-        std::atomic<bool> locked{false};
+        QIQI_TEST_CHECK(lock_owner);
+        std::optional<ScopedClipboard> blocking_clipboard;
+        if (deny_open) {
+            blocking_clipboard.emplace(nullptr);
+            QIQI_TEST_CHECK(blocking_clipboard->IsOpen());
+        }
+        std::atomic<bool> ready{false};
         std::atomic<bool> release{false};
+        DWORD open_error = ERROR_SUCCESS;
         std::jthread locker([&]() {
-            if (::OpenClipboard(lock_owner.Get())) {
-                locked.store(true);
-                locked.notify_all();
+            const ScopedClipboard clipboard(lock_owner.Get());
+            open_error = clipboard.Error();
+            ready.store(true);
+            ready.notify_all();
+            if (clipboard) {
                 release.wait(false);
-                ::CloseClipboard();
             }
         });
-        locked.wait(false);
-        QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyAddUserWord, &eaten)) && eaten == TRUE);
-        release.store(true);
-        release.notify_all();
+        const auto release_locker = gsl::finally([&]() noexcept {
+            release.store(true);
+            release.notify_all();
+        });
+        ready.wait(false);
+        if (deny_open) {
+            QIQI_TEST_CHECK(open_error == ERROR_ACCESS_DENIED);
+        } else {
+            if (open_error != ERROR_SUCCESS) {
+                std::cerr << "Opening the clipboard in the test locker failed (error=" << open_error << ").\n";
+            }
+            QIQI_TEST_CHECK(open_error == ERROR_SUCCESS);
+            QIQI_TEST_CHECK(SUCCEEDED(key_sink->OnPreservedKey(mock_ctx.Get(), kGuidPreservedKeyAddUserWord, &eaten)) && eaten == TRUE);
+        }
     }
 
     // Start composing again, then test mouse page-turn chevron click and candidate selection on CandidateUI

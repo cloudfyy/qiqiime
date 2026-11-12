@@ -8,15 +8,11 @@
 #include "ime/comp/update.h"
 #include "ime/tsf/edit_session.h"
 #include "common/logger.h"
+#include "common/monitor_dpi.h"
 
 namespace qiqi {
 
 namespace {
-
-constexpr LONG kFallbackFocusOffsetXPx = 20;
-constexpr LONG kFallbackFocusOffsetYPx = 24;
-constexpr LONG kFallbackCaretWidthPx = 2;
-constexpr LONG kFallbackCaretHeightPx = 20;
 
 bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
     GUITHREADINFO gti{};
@@ -33,18 +29,16 @@ bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
         if (gti.hwndFocus) {
             RECT focus_rc{};
             if (::GetWindowRect(gti.hwndFocus, &focus_rc)) {
-                const LONG left = focus_rc.left + kFallbackFocusOffsetXPx;
-                const LONG top = focus_rc.top + kFallbackFocusOffsetYPx;
-                out_rc = RECT{left, top, left + kFallbackCaretWidthPx, top + kFallbackCaretHeightPx};
+                const auto monitor = QueryMonitorForPoint(POINT{focus_rc.left, focus_rc.top}, gti.hwndFocus);
+                out_rc = ComputeFocusedWindowFallbackCaretRect(focus_rc, monitor.dpi);
                 return true;
             }
         }
     }
     POINT cursor_pt{};
     if (::GetCursorPos(&cursor_pt)) {
-        out_rc = RECT{
-            cursor_pt.x, cursor_pt.y,
-            cursor_pt.x + kFallbackCaretWidthPx, cursor_pt.y + kFallbackCaretHeightPx};
+        const auto monitor = QueryMonitorForPoint(cursor_pt);
+        out_rc = ComputeFallbackCaretRect(cursor_pt, monitor.dpi);
         return true;
     }
     return false;

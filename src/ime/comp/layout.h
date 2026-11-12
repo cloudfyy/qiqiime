@@ -1,5 +1,6 @@
 #pragma once
 #include "common/logger.h"
+#include "common/monitor_dpi.h"
 #include "ime/comp/state.h"
 #include "ime/tsf/edit_session.h"
 #include <cstdint>
@@ -11,6 +12,23 @@
 namespace qiqi {
 
 class CandidateUI;
+
+[[nodiscard]] inline RECT ComputeFallbackCaretRect(POINT origin, UINT dpi) noexcept {
+    constexpr int kCaretWidth = 2;
+    constexpr int kCaretHeight = 20;
+    return {
+        origin.x, origin.y,
+        origin.x + ScalePxByDpi(kCaretWidth, dpi), origin.y + ScalePxByDpi(kCaretHeight, dpi)};
+}
+
+[[nodiscard]] inline RECT ComputeFocusedWindowFallbackCaretRect(const RECT& window_rect, UINT dpi) noexcept {
+    constexpr int kFocusOffsetX = 20;
+    constexpr int kFocusOffsetY = 24;
+    const POINT origin{
+        window_rect.left + ScalePxByDpi(kFocusOffsetX, dpi),
+        window_rect.top + ScalePxByDpi(kFocusOffsetY, dpi)};
+    return ComputeFallbackCaretRect(origin, dpi);
+}
 
 template <typename HasUI, typename Request>
 HRESULT EnterCompositionLayoutNotification(

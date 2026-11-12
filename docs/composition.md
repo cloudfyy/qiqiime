@@ -528,8 +528,8 @@ is released before that composition reference, with the view parameter last.
 The lifetime mocks destroy composition, range, then view because the composition
 also owns the range. No cookie or callback escapes the synchronous query.
 Raw rectangles and clipping outputs are unchanged, including zero or inverted
-rectangles. The service retains the actual window movement, GUI/cursor query
-algorithm and all coordinate/DPI policy.
+rectangles. The service retains actual window movement, GUI/cursor queries and
+monitor selection; the helpers below compute only synthetic fallback geometry.
 
 [`ApplyCompositionLayoutPosition`](../src/ime/comp/layout.h) now applies the
 query's original result protocol while borrowing that query and the live caret
@@ -540,10 +540,34 @@ fallback only when the current flag is false; successful fallback moves without
 automatically making that flag true. Failure, including failure with rectangle
 output, logs unchanged positioning without movement.
 
-The GUI/cursor fallback uses a shared synthetic caret size of 2 by 20 screen
-pixels. The focused-window fallback offsets its origin by 20 pixels horizontally
-and 24 pixels vertically. These values are named constants in
-[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp).
+The GUI/cursor fallback uses a shared synthetic caret size of 2 by 20 pixels
+at 96 DPI. The focused-window fallback offsets its origin by 20 pixels
+horizontally and 24 pixels vertically at 96 DPI. The geometry helpers in
+[`layout.h`](../src/ime/comp/layout.h) scale these offsets and dimensions using
+`ScalePxByDpi`. The service selects the monitor at the focused window's top-left
+or the cursor's screen position, respectively. Screen-coordinate origins and
+real GUI/TSF caret rectangles are not scaled again. The candidate popup's fixed
+4-pixel caret gap and existing work-area clamping remain unchanged.
+
+[`TestLayoutFallbackDpiRouting`](../tests/ime/tsf/service_layout.cpp) exercises
+the actual service with a focused Win32 window and a real GUI caret at
+96/120/144/192 DPI. Its 12 cases check scaled focused-window fallback,
+unscaled GUI caret positioning, and TSF rectangle precedence even when a GUI
+caret exists. Monitor overrides, focus, caret lifetime and presentation state
+are restored with RAII. The geometry tests additionally check negative screen
+origins, 125% rounding and the existing zero-DPI fallback.
+
+The targeted x64 Debug coverage check used Visual Studio's bundled static
+native instrumentation on isolated EXE/PDB copies. Source lines were deduplicated
+by file and line number. The initial full suite covered 183/199 executable lines
+in `tip_composition.cpp`; the composition lifecycle suite with the added routing
+cases covered 193/199 (96.98%). `layout.h` covered 88/88 lines, and the GUI/cursor
+fallback query covered 22/23 lines. The remaining query line is the final failure
+return when no GUI/cursor position is available. The other five uncovered service
+lines are access/stale-ticket guards and the absent-candidate-UI early return.
+These are source-line results for these two files, not project-wide or branch
+coverage. No production failure-injection API was added. The successful final
+collection restored both copied EXE/PDB hashes to their pre-instrumentation values.
 
 Clipped, zero or inverted rectangles gain no extra gate or normalization.
 The original callbacks execute synchronously, with no added identity check or

@@ -223,6 +223,7 @@ Metrics JSON 的三个预期错误弹框仅由回归主动触发：非法筛选�
 
 ### 3.3 组合组件与生命周期测试组织
 
+- **剪贴板占用夹具**：后台线程使用 `ScopedClipboard` 管理打开/关闭，无论打开成功还是失败都发布就绪通知；主线程核对实际 Win32 错误码，失败时明确诊断，不再永久等待只在成功时发送的通知。释放通知通过 RAII 保证先于线程 join；回归同时验证成功占用和主线程已持有剪贴板时的拒绝访问路径。
 - **保留超时排查日志**：完整 `QiQiTsfUiTest` 和定向 `QiQiCompositionLifecycleTest` 使用 [`TsfTestTrace`](../tests/ime/tsf/test_trace.h)，每次运行写入独立文件并同步输出阶段到 stderr。CTest 下分别保存在 `build\x64\tests\ime\test-logs` 与 `build\x86\tests\ime\test-logs`；直接启动 EXE 时保存在当前工作目录的 `test-logs`。文件名含模式、UTC 时间、PID 和单调时钟，追加打开，不覆盖旧文件、不自动清理；删除构建目录前请先备份需要保留的日志。
 - **阶段与失败证据**：全量/定向分别记录 30/25 个阶段的 `BEGIN`/`END`、单调时钟/耗时、线程和 Shift/Ctrl/Alt/CapsLock 原始状态；包含组合组件、服务按键、准备、布局、清理、原生 TSF 及焦点性能阶段。每行立即 flush，超时或 abort 后可从最后一个未配对的 `BEGIN` 缩小范围。[`共享断言`](../tests/common/test_support.h) 同时保留失败文件/行号/表达式与失败后采样的修饰键状态；不记录输入文本，不修改/清除按键状态。这些采样不是导致历史失败的直接证明。
 - **逐测试函数耗时**：[`TsfTestCaseTrace`](../tests/ime/tsf/test_trace.h) 为具名测试函数及子套件记录 `CASE-BEGIN`/`CASE-END`，包含单调时钟、毫秒耗时、线程、修饰键及异常展开标志；在函数其他局部对象析构后结束计时。嵌套调用分别计时，不自动为每个断言或矩阵迭代建记录；激活边界矩阵显式记录 54 行，切英文策略矩阵记录 120 行，另有 9 个 context push 场景及无效 client 的回滚/重试标签。标签不包含输入文字，最后未配对的开始记录可定位未返回的场景。未启用保留日志的专项诊断/ETW 模式不输出这些记录。

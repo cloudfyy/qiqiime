@@ -1,5 +1,6 @@
 #include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
+#include "common/monitor_dpi.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/service_lifecycle.h"
 #include "ime/tsf/tip_service.h"
@@ -7,6 +8,80 @@
 #include <memory>
 
 namespace qiqi::test {
+namespace {
+
+void TestLayoutFallbackDpiRouting(
+    gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    const TsfTestCaseTrace trace(__func__);
+    const ScopedWindow host(::CreateWindowExW(
+        0, L"STATIC", L"", WS_POPUP, -800, -400, 600, 400,
+        nullptr, nullptr, g_dll_instance, nullptr));
+    QIQI_TEST_CHECK(host);
+    const HWND previous_focus = ::GetFocus();
+    const auto restore_focus = gsl::finally([previous_focus]() noexcept {
+        ::SetFocus(previous_focus && ::IsWindow(previous_focus) ? previous_focus : nullptr);
+    });
+    ::SetFocus(host.Get());
+    GUITHREADINFO info{};
+    info.cbSize = sizeof(info);
+    QIQI_TEST_CHECK(::GetGUIThreadInfo(::GetCurrentThreadId(), &info) &&
+                    info.hwndFocus == host.Get() && !info.hwndCaret);
+    RECT host_rect{};
+    QIQI_TEST_CHECK(::GetWindowRect(host.Get(), &host_rect));
+    const auto previous_monitor = detail::MonitorMetricsOverrideStorage();
+    const BOOL previous_show = mock_tm->show_own_ui_;
+    const auto restore_state = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(previous_monitor);
+        mock_tm->show_own_ui_ = previous_show;
+    });
+    mock_tm->show_own_ui_ = TRUE;
+    struct DpiCase {
+        UINT dpi;
+        LONG focus_offset_x;
+        LONG focus_caret_bottom;
+    };
+    constexpr std::array cases{
+        DpiCase{96, 20, 44}, DpiCase{120, 25, 55},
+        DpiCase{144, 30, 66}, DpiCase{192, 40, 88},
+    };
+    enum class PositionSource { FocusWindow, GuiCaret, TsfCaret };
+    for (const auto& test : cases) {
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{{-4000, -3000, 4000, 3000}, test.dpi});
+        for (const auto source : {PositionSource::FocusWindow, PositionSource::GuiCaret, PositionSource::TsfCaret}) {
+            const bool has_gui_caret = source != PositionSource::FocusWindow;
+            if (has_gui_caret) {
+                QIQI_TEST_CHECK(::CreateCaret(host.Get(), nullptr, 3, 17));
+            }
+            const auto destroy_caret = gsl::finally([has_gui_caret]() noexcept {
+                if (has_gui_caret) QIQI_TEST_CHECK(::DestroyCaret());
+            });
+            if (has_gui_caret) QIQI_TEST_CHECK(::SetCaretPos(11, 13));
+            const auto context = MakeComObject<MockTfContext>();
+            context->view_->hwnd_ = host.Get();
+            context->view_->fail_get_text_ext_ = source != PositionSource::TsfCaret;
+            context->view_->text_ext_ = {-1200, -700, -1197, -683};
+            BOOL eaten = FALSE;
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+            const auto* const ui = dynamic_cast<const CandidateUI*>(mock_tm->last_ui_element_.Get());
+            QIQI_TEST_CHECK(ui && ui->WindowHandle() && ::IsWindowVisible(ui->WindowHandle()));
+            POINT expected{host_rect.left + test.focus_offset_x, host_rect.top + test.focus_caret_bottom + 4};
+            if (source == PositionSource::GuiCaret) {
+                expected = {11, 13};
+                QIQI_TEST_CHECK(::ClientToScreen(host.Get(), &expected));
+                expected.y += 17 + 4;
+            } else if (source == PositionSource::TsfCaret) {
+                expected = {-1200, -683 + 4};
+            }
+            RECT actual{};
+            QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &actual));
+            QIQI_TEST_CHECK(actual.left == expected.x && actual.top == expected.y);
+            QIQI_TEST_CHECK(ui->CurrentHeight() == ScalePxByDpi(CandidateUI::kPopupHeight, test.dpi));
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_ESCAPE, 0, &eaten) == S_OK && eaten);
+        }
+    }
+}
+
+} // namespace
 
 void RunTsfLayoutQueryTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
@@ -20,6 +95,7 @@ void RunTsfLayoutQueryTests(
     });
     std::array<BYTE, 256> clean_keyboard{};
     QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+    TestLayoutFallbackDpiRouting(service, mock_tm);
     {
         const ScopedWindow first(::CreateWindowExW(
             0, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400, nullptr, nullptr, g_dll_instance, nullptr));
