@@ -14,6 +14,23 @@ namespace qiqi {
 
 namespace {
 
+constexpr int kStatusFontHeight = 18;
+constexpr int kTooltipFontHeight = 13;
+constexpr int kInitialWorkAreaMargin = 24;
+constexpr int kDraggableMargin = 3;
+constexpr int kMinimumDraggableMarginPx = 2;
+constexpr int kCornerDiameter = 10;
+constexpr int kBorderStrokePx = 1;
+constexpr int kGripPillWidth = 4;
+constexpr int kMinimumGripPillWidthPx = 3;
+constexpr int kGripPillHeight = 16;
+constexpr int kMinimumGripPillHeightPx = 12;
+constexpr int kCellVerticalInsetPx = 2;
+constexpr int kCellTrailingInsetPx = 1;
+constexpr int kGripDividerVerticalInsetPx = 2;
+constexpr int kDragThreshold = 4;
+constexpr int kMinimumDragThresholdPx = 3;
+
 using SelectTextFn = const wchar_t*(*)(const LangBarState& st, const UiStrings& str) noexcept;
 using SelectIconFn = StatusBarIconKind(*)(const LangBarState& st) noexcept;
 
@@ -106,8 +123,8 @@ void StatusBarUI::UpdateDpiAndFonts(UINT new_dpi) noexcept {
     }
     dpi_ = effective_dpi;
 
-    font_ = CreateUiFont(ScaleByDpi(18), FW_MEDIUM);
-    tooltip_font_ = CreateUiFont(ScaleByDpi(13), FW_NORMAL);
+    font_ = CreateUiFont(ScaleByDpi(kStatusFontHeight), FW_MEDIUM);
+    tooltip_font_ = CreateUiFont(ScaleByDpi(kTooltipFontHeight), FW_NORMAL);
 
     RebuildIconBitmaps(GetCurrentThemePalette().text_primary);
 }
@@ -170,8 +187,8 @@ bool StatusBarUI::EnsureBarWindow() noexcept {
     if (!pos_initialized_) {
         const MonitorMetrics active_mon = QueryActiveMonitor();
         UpdateDpiAndFonts(active_mon.dpi);
-        pos_.x = active_mon.work_area.right - CurrentWidth() - ScaleByDpi(24);
-        pos_.y = active_mon.work_area.bottom - CurrentHeight() - ScaleByDpi(24);
+        pos_.x = active_mon.work_area.right - CurrentWidth() - ScaleByDpi(kInitialWorkAreaMargin);
+        pos_.y = active_mon.work_area.bottom - CurrentHeight() - ScaleByDpi(kInitialWorkAreaMargin);
         pos_ = ClampPointToWorkArea(pos_, CurrentWidth(), CurrentHeight(), active_mon.work_area);
         pos_initialized_ = true;
     } else {
@@ -230,7 +247,7 @@ bool StatusBarUI::IsDraggableBlankPoint(POINT client_pt) const noexcept {
         return false;
     }
     const int buttons_offset = ScaleByDpi(kButtonsOffset);
-    const int v_margin = std::max(2, ScaleByDpi(3));
+    const int v_margin = std::max(kMinimumDraggableMarginPx, ScaleByDpi(kDraggableMargin));
     if (client_pt.x < buttons_offset || client_pt.y < v_margin || client_pt.y >= bar_h - v_margin) {
         return true;
     }
@@ -241,7 +258,7 @@ bool StatusBarUI::IsDraggableBlankPoint(POINT client_pt) const noexcept {
         return true;
     }
     const int in_cell_x = rel_x % cell_w;
-    const int pad_x = std::max(2, ScaleByDpi(3));
+    const int pad_x = std::max(kMinimumDraggableMarginPx, ScaleByDpi(kDraggableMargin));
     return in_cell_x < pad_x || in_cell_x >= (cell_w - pad_x);
 }
 
@@ -281,10 +298,10 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) noexcept {
     const int grip_w = ScaleByDpi(kGripWidth);
     const int buttons_offset = ScaleByDpi(kButtonsOffset);
     const int cell_w = ScaleByDpi(kCellWidth);
-    const int corner_r = ScaleByDpi(10);
+    const int corner_r = ScaleByDpi(kCornerDiameter);
 
     const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.window_bg));
-    const ScopedGdiHandle<HPEN> border_pen(::CreatePen(PS_SOLID, 1, palette.border_color));
+    const ScopedGdiHandle<HPEN> border_pen(::CreatePen(PS_SOLID, kBorderStrokePx, palette.border_color));
     ::FillRect(hdc, &client_rect, bg_brush.Get());
     {
         const ScopedSelectObject sel_pen(hdc, border_pen.Get());
@@ -296,19 +313,19 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) noexcept {
     //    Draw centered vertical rounded pill bar (|) + 1px vertical divider line on its right edge
     {
         const ScopedGdiHandle<HBRUSH> pill_brush(::CreateSolidBrush(palette.grip_dot));
-        const ScopedGdiHandle<HPEN> pill_pen(::CreatePen(PS_SOLID, 1, palette.grip_dot));
+        const ScopedGdiHandle<HPEN> pill_pen(::CreatePen(PS_SOLID, kBorderStrokePx, palette.grip_dot));
         const ScopedSelectObject sel_pill_pen(hdc, pill_pen.Get());
         const ScopedSelectObject sel_pill_brush(hdc, pill_brush.Get());
-        const int pill_w = std::max(3, ScaleByDpi(4));
-        const int pill_h = std::max(12, ScaleByDpi(16));
+        const int pill_w = std::max(kMinimumGripPillWidthPx, ScaleByDpi(kGripPillWidth));
+        const int pill_h = std::max(kMinimumGripPillHeightPx, ScaleByDpi(kGripPillHeight));
         const int pill_left = (grip_w - pill_w) / 2;
         const int pill_top = (client_rect.bottom - pill_h) / 2;
         ::RoundRect(hdc, pill_left, pill_top, pill_left + pill_w, pill_top + pill_h, pill_w, pill_w);
     }
     {
         const ScopedSelectObject sel_div_pen(hdc, border_pen.Get());
-        ::MoveToEx(hdc, grip_w - 1, 2, nullptr);
-        ::LineTo(hdc, grip_w - 1, client_rect.bottom - 2);
+        ::MoveToEx(hdc, grip_w - kBorderStrokePx, kGripDividerVerticalInsetPx, nullptr);
+        ::LineTo(hdc, grip_w - kBorderStrokePx, client_rect.bottom - kGripDividerVerticalInsetPx);
     }
 
     const ScopedSelectObject sel_font(hdc, font_.Get());
@@ -326,7 +343,9 @@ void StatusBarUI::PaintBar(HDC hdc, const RECT& client_rect) noexcept {
     ::SetTextColor(hdc, palette.text_primary);
     for (int i = 0; i < kCellCount; ++i) {
         const int left = buttons_offset + i * cell_w;
-        RECT cell_rc{left, 2, left + cell_w - 1, client_rect.bottom - 2};
+        RECT cell_rc{
+            left, kCellVerticalInsetPx,
+            left + cell_w - kCellTrailingInsetPx, client_rect.bottom - kCellVerticalInsetPx};
         if (hovered_zone_ == i + 1) {
             ::FillRect(hdc, &cell_rc, hover_brush.Get());
         }
@@ -347,7 +366,7 @@ void StatusBarUI::OnMouseMove(POINT pt) {
         ::ClientToScreen(hwnd_.Get(), &screen_pt);
         const int dx = screen_pt.x - drag_start_screen_.x;
         const int dy = screen_pt.y - drag_start_screen_.y;
-        const int drag_threshold = std::max(3, ScaleByDpi(4));
+        const int drag_threshold = std::max(kMinimumDragThresholdPx, ScaleByDpi(kDragThreshold));
         if (!is_dragging_ && (std::abs(dx) >= drag_threshold || std::abs(dy) >= drag_threshold)) {
             is_dragging_ = true;
             hovered_zone_ = -1;

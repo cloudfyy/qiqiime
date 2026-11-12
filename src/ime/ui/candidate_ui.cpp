@@ -14,6 +14,26 @@
 namespace qiqi {
 namespace {
 constexpr float kTextMeasurementWidth = 4096.0f;
+constexpr int kGdiFontHeight = 18;
+constexpr int kDirectWriteFontSize = 16;
+constexpr int kFallbackCharacterWidth = 12;
+constexpr int kHorizontalMargin = 10;
+constexpr int kCandidateGap = 16;
+constexpr int kHeaderTop = 6;
+constexpr int kHeaderBottom = 30;
+constexpr int kCandidateRowTop = 32;
+constexpr int kBottomPadding = 4;
+constexpr int kNavigationWidthReserve = 52;
+constexpr int kPageButtonWidth = 20;
+constexpr int kPageButtonGap = 4;
+constexpr int kTextOverhangAllowance = 8;
+constexpr int kCaretGapPx = 4;
+constexpr float kDisabledChevronOpacity = 0.55f;
+constexpr float kChevronMinimumStrokePx = 1.4f;
+constexpr int kChevronStrokeWidth = 2;
+constexpr float kChevronStrokeScale = 0.85f;
+constexpr int kChevronArmHeight = 4;
+constexpr float kChevronArmWidthRatio = 0.55f;
 }
 
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
@@ -40,7 +60,7 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
     dpi_ = effective_dpi;
     popup_height_ = ScaleByDpi(kPopupHeight);
 
-    font_ = CreateUiFont(ScaleByDpi(18), FW_NORMAL);
+    font_ = CreateUiFont(ScaleByDpi(kGdiFontHeight), FW_NORMAL);
 
     if (dwrite_factory_) {
         if (log::CheckHResult(dwrite_factory_->CreateTextFormat(
@@ -49,7 +69,7 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
                 DWRITE_FONT_WEIGHT_NORMAL,
                 DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL,
-                static_cast<float>(ScaleByDpi(16)),
+                static_cast<float>(ScaleByDpi(kDirectWriteFontSize)),
                 L"zh-CN",
                 dwrite_text_format_.Put()), "CandidateUI::CreateTextFormat") &&
             dwrite_text_format_) {
@@ -88,7 +108,7 @@ int CandidateUI::MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const
             return sz.cx;
         }
     }
-    return gsl::narrow_cast<int>(text.size()) * ScaleByDpi(12);
+    return gsl::narrow_cast<int>(text.size()) * ScaleByDpi(kFallbackCharacterWidth);
 }
 
 std::wstring CandidateUI::FormatHeaderText() const {
@@ -119,14 +139,14 @@ void CandidateUI::RecalculatePopupLayout() {
 
     const ScopedSelectObject sel_font(screen_dc.Get(), font_.Get());
 
-    const int margin_x = ScaleByDpi(10);
-    const int item_gap = ScaleByDpi(16);
-    const int row2_top = ScaleByDpi(32);
-    const int row2_bottom = ScaleByDpi(kPopupHeight - 4);
+    const int margin_x = ScaleByDpi(kHorizontalMargin);
+    const int item_gap = ScaleByDpi(kCandidateGap);
+    const int row2_top = ScaleByDpi(kCandidateRowTop);
+    const int row2_bottom = ScaleByDpi(kPopupHeight - kBottomPadding);
     const int row_height = row2_bottom - row2_top;
     const bool vertical = layout_ == CandidateLayout::Vertical;
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    const int nav_reserve_cx = (total_pages > 1) ? ScaleByDpi(52) : 0;
+    const int nav_reserve_cx = (total_pages > 1) ? ScaleByDpi(kNavigationWidthReserve) : 0;
 
     const int header_cx = MeasureTextWidth(screen_dc.Get(), FormatHeaderText());
 
@@ -154,7 +174,7 @@ void CandidateUI::RecalculatePopupLayout() {
         vertical ? widest_item + margin_x * 2 : cursor_x + margin_x + nav_reserve_cx);
     popup_width_ = vertical ? content_width : std::max(ScaleByDpi(kPopupWidth), content_width);
     popup_height_ = vertical
-        ? row2_top + gsl::narrow_cast<int>(std::max<size_t>(1, end - start)) * row_height + ScaleByDpi(4)
+        ? row2_top + gsl::narrow_cast<int>(std::max<size_t>(1, end - start)) * row_height + ScaleByDpi(kBottomPadding)
         : ScaleByDpi(kPopupHeight);
     if (vertical) {
         for (auto& rect : candidate_hit_rects_) {
@@ -163,14 +183,14 @@ void CandidateUI::RecalculatePopupLayout() {
     }
 
     if (total_pages > 1) {
-        const int btn_w = ScaleByDpi(20);
-        const int btn_gap = ScaleByDpi(4);
+        const int btn_w = ScaleByDpi(kPageButtonWidth);
+        const int btn_gap = ScaleByDpi(kPageButtonGap);
         const int next_right = popup_width_ - margin_x;
         const int next_left = next_right - btn_w;
         const int prev_right = next_left - btn_gap;
         const int prev_left = prev_right - btn_w;
-        const int nav_top = vertical ? ScaleByDpi(6) : row2_top;
-        const int nav_bottom = vertical ? ScaleByDpi(30) : row2_bottom;
+        const int nav_top = vertical ? ScaleByDpi(kHeaderTop) : row2_top;
+        const int nav_bottom = vertical ? ScaleByDpi(kHeaderBottom) : row2_bottom;
         prev_page_hit_rect_ = RECT{prev_left, nav_top, prev_right, nav_bottom};
         next_page_hit_rect_ = RECT{next_left, nav_top, next_right, nav_bottom};
     }
@@ -351,14 +371,14 @@ void CandidateUI::SetLayout(CandidateLayout layout) {
 
 void CandidateUI::RefreshPopupLayout(UINT dpi) {
     const POINT anchor = text_rect_
-        ? POINT{text_rect_->left, text_rect_->bottom + 4}
+        ? POINT{text_rect_->left, text_rect_->bottom + kCaretGapPx}
         : popup_pos_;
     const MonitorMetrics mon = QueryMonitorForPoint(anchor, hwnd_.Get());
     UpdateDpiAndFont(dpi > 0 ? dpi : mon.dpi);
     RecalculatePopupLayout();
     popup_pos_ = anchor;
     if (text_rect_ && popup_pos_.y + popup_height_ > mon.work_area.bottom) {
-        popup_pos_.y = text_rect_->top - popup_height_ - 4;
+        popup_pos_.y = text_rect_->top - popup_height_ - kCaretGapPx;
     }
     popup_pos_ = ClampPointToWorkArea(popup_pos_, popup_width_, popup_height_, mon.work_area);
 
@@ -471,10 +491,10 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
         const auto& str = GetUiStrings(ui_language_);
         const std::wstring header = FormatHeaderText();
         const D2D1_RECT_F top_rc = D2D1::RectF(
-            static_cast<float>(ScaleByDpi(10)),
-            static_cast<float>(ScaleByDpi(6)),
-            static_cast<float>(client_rect.right - ScaleByDpi(10)),
-            static_cast<float>(ScaleByDpi(30)));
+            static_cast<float>(ScaleByDpi(kHorizontalMargin)),
+            static_cast<float>(ScaleByDpi(kHeaderTop)),
+            static_cast<float>(client_rect.right - ScaleByDpi(kHorizontalMargin)),
+            static_cast<float>(ScaleByDpi(kHeaderBottom)));
         d2d_dc_target_->DrawTextW(
             header.c_str(),
             gsl::narrow_cast<UINT32>(header.size()),
@@ -486,10 +506,10 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
         const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
         if (start >= end) {
             const D2D1_RECT_F empty_rc = D2D1::RectF(
-                static_cast<float>(ScaleByDpi(10)),
-                static_cast<float>(ScaleByDpi(32)),
-                static_cast<float>(client_rect.right - ScaleByDpi(10)),
-                static_cast<float>(client_rect.bottom - ScaleByDpi(4)));
+                static_cast<float>(ScaleByDpi(kHorizontalMargin)),
+                static_cast<float>(ScaleByDpi(kCandidateRowTop)),
+                static_cast<float>(client_rect.right - ScaleByDpi(kHorizontalMargin)),
+                static_cast<float>(client_rect.bottom - ScaleByDpi(kBottomPadding)));
             d2d_dc_target_->DrawTextW(
                 str.candidate_empty,
                 gsl::narrow_cast<UINT32>(wcslen(str.candidate_empty)),
@@ -504,11 +524,12 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
 
                 const RECT item_rc = (idx_in_page < candidate_hit_rects_.size())
                     ? gsl::at(candidate_hit_rects_, idx_in_page)
-                    : RECT{ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
+                    : RECT{ScaleByDpi(kHorizontalMargin), ScaleByDpi(kCandidateRowTop),
+                           client_rect.right - ScaleByDpi(kHorizontalMargin), client_rect.bottom - ScaleByDpi(kBottomPadding)};
                 const D2D1_RECT_F d2d_rc = D2D1::RectF(
                     static_cast<float>(item_rc.left),
                     static_cast<float>(item_rc.top),
-                    static_cast<float>(item_rc.right + ScaleByDpi(8)),
+                    static_cast<float>(item_rc.right + ScaleByDpi(kTextOverhangAllowance)),
                     static_cast<float>(item_rc.bottom));
                 d2d_dc_target_->DrawTextW(
                     label.c_str(),
@@ -522,9 +543,10 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
             const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
             if (total_pages > 1) {
                 const auto disabled_brush = CreateSolidBrush(
-                    d2d_dc_target_.Get(), ColorRefToD2DColor(palette.grip_dot, 0.55f));
-                const float stroke_w = std::max(1.4f, static_cast<float>(ScaleByDpi(2)) * 0.85f);
-                const float arm = static_cast<float>(ScaleByDpi(4));
+                    d2d_dc_target_.Get(), ColorRefToD2DColor(palette.grip_dot, kDisabledChevronOpacity));
+                const float stroke_w = std::max(
+                    kChevronMinimumStrokePx, static_cast<float>(ScaleByDpi(kChevronStrokeWidth)) * kChevronStrokeScale);
+                const float arm = static_cast<float>(ScaleByDpi(kChevronArmHeight));
                 const auto draw_chevron = [&](const RECT& btn_rc, bool is_next, bool enabled) noexcept {
                     ID2D1SolidColorBrush* const br = enabled ? accent_brush.Get() : disabled_brush.Get();
                     if (!br) {
@@ -532,7 +554,7 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
                     }
                     const float cx = static_cast<float>(btn_rc.left + btn_rc.right) * 0.5f;
                     const float cy = static_cast<float>(btn_rc.top + btn_rc.bottom) * 0.5f;
-                    const float dx = is_next ? arm * 0.55f : -arm * 0.55f;
+                    const float dx = is_next ? arm * kChevronArmWidthRatio : -arm * kChevronArmWidthRatio;
                     d2d_dc_target_->DrawLine(
                         D2D1::Point2F(cx - dx, cy - arm),
                         D2D1::Point2F(cx + dx, cy),
@@ -574,14 +596,18 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
     // Line 1: Wubi code + page indicator
     const auto& str = GetUiStrings(ui_language_);
     const std::wstring header = FormatHeaderText();
-    RECT top_rect = {ScaleByDpi(10), ScaleByDpi(6), client_rect.right - ScaleByDpi(10), ScaleByDpi(30)};
+    RECT top_rect = {
+        ScaleByDpi(kHorizontalMargin), ScaleByDpi(kHeaderTop),
+        client_rect.right - ScaleByDpi(kHorizontalMargin), ScaleByDpi(kHeaderBottom)};
     ::SetTextColor(hdc, palette.text_accent);
     ::DrawTextW(hdc, header.c_str(), -1, &top_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
     // Both layouts paint and hit-test the same measured rectangles.
     const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
     if (start >= end) {
-        RECT bottom_rect = {ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
+        RECT bottom_rect = {
+            ScaleByDpi(kHorizontalMargin), ScaleByDpi(kCandidateRowTop),
+            client_rect.right - ScaleByDpi(kHorizontalMargin), client_rect.bottom - ScaleByDpi(kBottomPadding)};
         ::SetTextColor(hdc, palette.text_primary);
         ::DrawTextW(hdc, str.candidate_empty, -1, &bottom_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
         return;
@@ -593,7 +619,8 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
 
         RECT item_rc = (idx_in_page < candidate_hit_rects_.size())
             ? gsl::at(candidate_hit_rects_, idx_in_page)
-            : RECT{ScaleByDpi(10), ScaleByDpi(32), client_rect.right - ScaleByDpi(10), client_rect.bottom - ScaleByDpi(4)};
+            : RECT{ScaleByDpi(kHorizontalMargin), ScaleByDpi(kCandidateRowTop),
+                   client_rect.right - ScaleByDpi(kHorizontalMargin), client_rect.bottom - ScaleByDpi(kBottomPadding)};
         ::SetTextColor(hdc, idx_in_page == selected_in_page_ ? palette.text_accent : palette.text_primary);
         ::DrawTextW(hdc, label.c_str(), -1, &item_rc, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOCLIP);
     }

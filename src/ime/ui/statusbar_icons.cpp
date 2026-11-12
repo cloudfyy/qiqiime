@@ -13,6 +13,8 @@ namespace qiqi {
 namespace {
 
 constexpr double kIconStroke = 0.135;
+constexpr int kIconSize = 20;
+constexpr int kMinimumIconSizePx = 12;
 
 // Signed distance to a line segment [a, b] in normalized [-1, 1] icon coordinates.
 double DistToSegment(double px, double py, double ax, double ay, double bx, double by) noexcept {
@@ -111,7 +113,7 @@ static_assert(AllIconHitTestersBound(), "Every StatusBarIconKind must have a non
 // Create a 32-bit premultiplied ARGB DIB section rendered with 4x4 supersampled anti-aliasing.
 ScopedGdiHandle<HBITMAP> CreateAntialiasedIconBitmap(
     StatusBarIconKind kind, int icon_px, COLORREF fg_color) noexcept {
-    const int sz = std::max(12, icon_px);
+    const int sz = std::max(kMinimumIconSizePx, icon_px);
     BITMAPINFO bmi{};
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth = sz;
@@ -174,7 +176,7 @@ bool StatusBarUI::HitTestStatusBarIcon(StatusBarIconKind kind, double nx, double
 }
 
 void StatusBarUI::RebuildIconBitmaps(COLORREF fg_color) noexcept {
-    const int target_px = ScaleByDpi(20);
+    const int target_px = ScaleByDpi(kIconSize);
     if (gsl::at(icon_bitmaps_, 0).IsValid() && icon_px_ == target_px && icon_fg_color_ == fg_color) {
         return;
     }
