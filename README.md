@@ -127,7 +127,11 @@ for tests and build details.
 
 ## License and third-party material
 
-QiQiIME is licensed under [GNU GPL v3](LICENSE). Dictionaries and third-party
+QiQiIME's original code is licensed under [GNU GPL version 3 or any later version](LICENSE)
+(`GPL-3.0-or-later`). Original source files, tests, scripts, and comment-capable
+build files identify their copyright and license with SPDX headers. JSON
+configuration files remain covered by this project-level license without adding
+invalid JSON comments. Dictionaries and third-party
 code retain their own licenses; see [Third-party notices](THIRD_PARTY_NOTICES.md)
 and the complete texts in [licenses](licenses/).
 Both Jidian conversions exactly match a pinned Apache-2.0 upstream snapshot;

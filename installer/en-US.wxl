@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SPDX-FileCopyrightText: 2026 cloudfyy
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
 <WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="en-US">
   <String Id="ProductName" Value="QiQi Wubi IME" />
   <String Id="SummaryDescription" Value="QiQi Wubi 86 TSF Input Method Editor ($(sys.BUILDARCH)) v$(var.ProductVersion)" />
   <String Id="X86Requires32BitWindows" Value="This x86 installer requires 32-bit Windows. On 64-bit Windows, use the x64 installer, which includes support for 32-bit applications." />
-  <String Id="SummaryComments" Value="Copyright (C) 2026 cloudfyy. Licenses: Core GPL-3.0; Jidian Wubi Dict Apache-2.0; Haifeng Wubi Dict BSD-3-Clause." />
-  <String Id="SummaryKeywords" Value="QiQiIME, QiQi Wubi, Wubi, TSF, Input Method, IME, GPL-3.0" />
+  <String Id="SummaryComments" Value="Copyright (C) 2026 cloudfyy. Licenses: Core GPL-3.0-or-later; Jidian Wubi Dict Apache-2.0; Haifeng Wubi Dict BSD-3-Clause." />
+  <String Id="SummaryKeywords" Value="QiQiIME, QiQi Wubi, Wubi, TSF, Input Method, IME, GPL-3.0-or-later" />
   <String Id="DowngradeErrorMessage" Value="A newer version of QiQi Wubi IME is already installed." />
   <String Id="FeatureTitle" Value="QiQi Wubi 86 Input Method" />
   <String Id="SettingsShortcutName" Value="QiQiIME Settings" />

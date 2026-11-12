@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/comp/target.h"

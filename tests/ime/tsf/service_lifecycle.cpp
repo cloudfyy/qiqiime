@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/tip_service.h"

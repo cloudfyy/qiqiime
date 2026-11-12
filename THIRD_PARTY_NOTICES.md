@@ -1,6 +1,7 @@
 # Third-party notices / 第三方许可声明
 
-QiQiIME's own code is distributed under [GNU GPL v3](LICENSE). This does not
+QiQiIME's own code is distributed under
+[GNU GPL version 3 or any later version](LICENSE) (`GPL-3.0-or-later`). This does not
 replace the licenses or copyright notices of the materials below. The complete
 third-party license texts accompany distributions in [licenses](licenses/).
 

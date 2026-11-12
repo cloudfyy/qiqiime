@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 set(QIQI_MONITOR_SOURCES
     model.h model.cpp collector.h collector.cpp
     metric.h metric.cpp

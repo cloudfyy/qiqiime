@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Shared helper functions and constants for QiQi Wubi IME (奇奇五笔) PowerShell scripts
 
 $ErrorActionPreference = "Stop"

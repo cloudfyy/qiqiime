@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "tools/log_monitor/metric.h"
 #include <algorithm>
 #include <new>

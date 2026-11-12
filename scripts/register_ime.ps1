@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Register and verify native x86 Windows or x64 Windows with x86 (WOW64) hosts.
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\register_ime.ps1

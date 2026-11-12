@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "tools/log_monitor/internal.h"
 #include "common/window.h"
 #include "common/win32_ui_util.h"

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 set(QIQI_ENGINE_SOURCES
     engine/binary_dict.cpp
     engine/binary_dict.h

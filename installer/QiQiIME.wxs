@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SPDX-FileCopyrightText: 2026 cloudfyy
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?if $(sys.BUILDARCH) = x64 ?>
     <?define UpgradeCode = "8E7B9D31-5A42-4C81-9F11-202610299999" ?>

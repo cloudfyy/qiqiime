@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 set(QIQI_DICT_MANAGER_SOURCES
     model.h model.cpp
     editor.h editor.cpp

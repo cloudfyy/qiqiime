@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include <winresrc.h>
 
 #pragma code_page(65001)
@@ -38,7 +41,7 @@ BEGIN
             VALUE "FileDescription", "@QIQI_RESOURCE_DESCRIPTION@"
             VALUE "FileVersion", "@QIQIIME_FULL_VERSION@"
             VALUE "InternalName", "@QIQI_RESOURCE_FILENAME@"
-            VALUE "LegalCopyright", "Copyright (C) 2026 cloudfyy. Released under the GPL License."
+            VALUE "LegalCopyright", "Copyright (C) 2026 cloudfyy. Released under GPL-3.0-or-later."
             VALUE "LegalTrademarks", "奇奇五笔 (QiQiIME)"
             VALUE "OriginalFilename", "@QIQI_RESOURCE_FILENAME@"
             VALUE "ProductName", "奇奇五笔 (QiQi Wubi IME)"
@@ -51,7 +54,7 @@ BEGIN
             VALUE "FileDescription", "@QIQI_RESOURCE_DESCRIPTION@"
             VALUE "FileVersion", "@QIQIIME_FULL_VERSION@"
             VALUE "InternalName", "@QIQI_RESOURCE_FILENAME@"
-            VALUE "LegalCopyright", "Copyright (C) 2026 cloudfyy. Released under the GPL License."
+            VALUE "LegalCopyright", "Copyright (C) 2026 cloudfyy. Released under GPL-3.0-or-later."
             VALUE "LegalTrademarks", "奇奇五笔 (QiQiIME)"
             VALUE "OriginalFilename", "@QIQI_RESOURCE_FILENAME@"
             VALUE "ProductName", "奇奇五笔 (QiQi Wubi IME)"

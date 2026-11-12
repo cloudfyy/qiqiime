@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "tools/settings/window.h"
 #include "common/d2d_controls.h"
 #include "common/dialog_util.h"

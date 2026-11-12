@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 set(QIQIIME_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 
 add_subdirectory(common)

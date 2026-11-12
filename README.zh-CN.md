@@ -173,7 +173,7 @@ powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1 -AutoElevate
 
 ## 5. 开源许可协议与词库致谢（License & Third-Party Notices）
 
-本项目（**奇奇五笔 / QiQiIME**，作者：`cloudfyy`）采用 **[GNU General Public License v3.0 (GPL-3.0)](./LICENSE)** 开源发布。
+本项目（**奇奇五笔 / QiQiIME**，作者：`cloudfyy`）的原创代码采用 **[GNU General Public License 第 3 版或任何后续版本](./LICENSE)**（`GPL-3.0-or-later`）开源发布。原创源文件、测试、脚本及支持注释的构建文件使用 SPDX 头部声明版权与许可；JSON 配置由项目级许可覆盖，不插入非法注释。第三方材料仍遵循各自许可。
 
 本项目在 `data/` 目录下收录并转换了以下合法开源的 86 五笔词库码表，特此向原作者及维护社区致谢，并严格遵循各自的开源许可协议：
 

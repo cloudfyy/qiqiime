@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 set(QIQI_RESOURCE_FILE_TYPE VFT_DLL)
 set(QIQI_RESOURCE_FILE_SUBTYPE VFT2_DRV_INPUTMETHOD)
 set(QIQI_RESOURCE_FILENAME "qiqiime.dll")

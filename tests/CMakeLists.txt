@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 add_subdirectory(common)
 add_subdirectory(ime)
 add_subdirectory(tools)

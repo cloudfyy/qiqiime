@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Build, test, and optionally package both x64 and x86 (Win32) architectures for QiQi Wubi IME
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1

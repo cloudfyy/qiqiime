@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "ime/engine/engine.h"
 #include "ime/engine/default_dict.h"
 #include "common/logger.h"

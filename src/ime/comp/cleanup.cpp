@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "ime/comp/cleanup.h"
 #include "ime/comp/attribute.h"
 #include "ime/tsf/edit_session.h"

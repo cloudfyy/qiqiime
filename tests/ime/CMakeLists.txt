@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 set(QIQI_ENGINE_TEST_SOURCES
     engine/dict.cpp
     engine/input.cpp

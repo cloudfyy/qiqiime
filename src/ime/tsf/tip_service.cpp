@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "ime/tsf/tip_service.h"
 #include "ime/tsf/category_manager.h"
 #include "ime/tsf/display_attribute.h"

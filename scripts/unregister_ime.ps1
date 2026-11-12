@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Unregister QiQi Wubi IME (TSF) for both x86 and x64 and verify removal
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\unregister_ime.ps1

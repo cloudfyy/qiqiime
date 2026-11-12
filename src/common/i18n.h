@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #pragma once
 #include <windows.h>
 #include <gsl/gsl>
@@ -199,7 +202,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"奇奇五笔 (QiQi Wubi IME)",
     L"版本: v",
     L"开源许可协议 (Licenses):\n"
-    L"• 奇奇五笔 (QiQiIME) 主程序 (cloudfyy): GPL License\n"
+    L"• 奇奇五笔 (QiQiIME) 主程序 (cloudfyy): GPL-3.0-or-later\n"
     L"• 极点五笔 86 词库 (KyleBing): Apache License 2.0\n"
     L"• 海峰五笔 86 词库 (孙海峰): BSD 3-Clause License",
     L"访问 GitHub",
@@ -314,7 +317,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"QiQi Wubi IME",
     L"Version: v",
     L"Open Source Licenses:\n"
-    L"• QiQi Wubi IME Core (cloudfyy): GPL License\n"
+    L"• QiQi Wubi IME Core (cloudfyy): GPL-3.0-or-later\n"
     L"• Jidian Wubi 86 Dict (KyleBing): Apache License 2.0\n"
     L"• Haifeng Wubi 86 Dict (SUN Haifeng): BSD 3-Clause License",
     L"Visit GitHub",

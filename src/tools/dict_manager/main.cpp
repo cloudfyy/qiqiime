@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "tools/dict_manager/window.h"
 #include "common/i18n.h"
 #include "common/logger.h"
