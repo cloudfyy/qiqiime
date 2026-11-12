@@ -5,6 +5,11 @@ set(QIQI_COMMON_TEST_SOURCES
     test_support.h
     common.cpp
     common_main.cpp
+    core/test.h
+    core/config.cpp
+    core/files.cpp
+    core/logger.cpp
+    core/resources.cpp
     ui_d2d_controls.cpp
 )
 add_executable(qiqi_common_test ${QIQI_COMMON_TEST_SOURCES})

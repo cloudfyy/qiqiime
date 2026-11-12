@@ -1,7 +1,20 @@
 # SPDX-FileCopyrightText: 2026 cloudfyy
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-add_executable(qiqi_log_monitor_test main.cpp permissions.cpp metrics_view.cpp "${CMAKE_BINARY_DIR}/generated/tools/log_monitor/version.rc")
+add_executable(qiqi_log_monitor_test
+    main.cpp
+    test.h
+    about.cpp
+    desktop.cpp
+    helpers.cpp
+    integration.cpp
+    menus.cpp
+    model.cpp
+    version.cpp
+    permissions.cpp
+    metrics_view.cpp
+    "${CMAKE_BINARY_DIR}/generated/tools/log_monitor/version.rc"
+)
 target_include_directories(qiqi_log_monitor_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
 target_link_libraries(qiqi_log_monitor_test PRIVATE qiqi_log_monitor version)
 add_dependencies(qiqi_log_monitor_test QiQiIMELogMonitor)

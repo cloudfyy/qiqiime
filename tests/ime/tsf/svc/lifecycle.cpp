@@ -4,7 +4,7 @@
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/tsf/tip_service.h"
-#include "ime/tsf/service_lifecycle.h"
+#include "ime/tsf/svc/lifecycle.h"
 #include "ime/tsf/test_trace.h"
 
 namespace qiqi::test {

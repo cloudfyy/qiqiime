@@ -411,7 +411,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 
   - [`CompositionEditScope / ExecuteCompositionEditInSession`](../src/ime/comp/edit.h) 以 RAII 配对任务活动 ID 的切换/恢复，并按原顺序执行票据与清理屏障检查、丢弃/再排队/执行分流；失效任务不查询或裁剪登记。服务提供原快照再排队、实际动作、后续身份复核及 UI 回调；没有新增事件队列或改变 FSM。
 
-  - [`真实服务开始回归`](../tests/ime/tsf/service_reentrancy.cpp) 已扩展为 5 组当前目标恢复及 38 组开始重入，覆盖成功/失败与空/非空输出、旧清理和新组合隔离；原 91 组编辑及 4 组清除重入保持不变，双架构重复回归通过。该阶段只补集成覆盖，未改生产行为。
+  - [`真实服务开始回归`](../tests/ime/tsf/svc/reentrancy.cpp) 已扩展为 5 组当前目标恢复及 38 组开始重入，覆盖成功/失败与空/非空输出、旧清理和新组合隔离；原 91 组编辑及 4 组清除重入保持不变，双架构重复回归通过。该阶段只补集成覆盖，未改生产行为。
 
   - [`CompositionLifecycleState`](../src/ime/comp/state.h) 已联合持有激活标记、epoch、当前组合、原清理协调器及活动 context/document，保持原 COM/登记析构顺序和逐步失效/释放位置；不可复制或移动，重激活不替换实时 epoch 存储或清理编号。新增 56 组身份和资源/释放/独立清理测试；定向组合生命周期入口及完整 TSF/UI 回归均通过双架构。目标准备、激活/重置与 UI 的跨阶段协调仍在服务，完整 R05 和真实宿主验收未完成。
 
@@ -463,7 +463,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 
   - [`文档身份/目标协调`](../src/ime/comp/target.h) 已集中原文档指针/规范 `IUnknown` 比较、top/base 双查询、票据复核、modal 覆盖保留及预测重置票据；服务保留焦点版本、配置/状态栏和实际引擎/UI 重置。新增 [`64 组身份、123 组协调及 4 组释放/异常回归`](../tests/ime/comp/target.cpp)，验证实际 QI 次数/短路、查询失败不跳过另一查询及 base/top/context 释放顺序；实际 helper/回调展开与原完整服务及声明一致。双架构 DLL/测试 CoreCheck、完整与定向回归通过；FSM、激活/停用、定位/显示许可不变，整体 R05 和真实宿主验收仍未完成。
 
-  - [`激活/停用交接`](../src/ime/tsf/tip_service.cpp) 已增加激活 RAII 门禁、幂等取消和延迟清理，保留正在返回的登记所有权，避免丢失 key/sink/cookie；取消期间立即拒绝输入且阻止后续初始化/compartment 写入。新增 [`57 组边界回归`](../tests/ime/tsf/service_windows.cpp)，覆盖 16 个登记/读写点、必需登记失败、异常后显式停用重试及释放最后调用方引用；原失败基线和新增测试预期修正记录均保留。剩余验收为真实宿主交互，不继续扩张内部协调器抽象。
+  - [`激活/停用交接`](../src/ime/tsf/tip_service.cpp) 已增加激活 RAII 门禁、幂等取消和延迟清理，保留正在返回的登记所有权，避免丢失 key/sink/cookie；取消期间立即拒绝输入且阻止后续初始化/compartment 写入。新增 [`57 组边界回归`](../tests/ime/tsf/svc/windows.cpp)，覆盖 16 个登记/读写点、必需登记失败、异常后显式停用重试及释放最后调用方引用；原失败基线和新增测试预期修正记录均保留。剩余验收为真实宿主交互，不继续扩张内部协调器抽象。
 
 #### 已知兼容性问题：Explorer 文件列表输入定位
 - 2026-11-05 在 Explorer 文件列表获得焦点、使用奇奇中文输入时，观察到字母组合小窗及候选窗位于屏幕左上角；移动 Explorer 窗口后仍可复现。用户报告微软输入法也有同类现象，但不据此直接认定宿主根因。

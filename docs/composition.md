@@ -549,7 +549,7 @@ or the cursor's screen position, respectively. Screen-coordinate origins and
 real GUI/TSF caret rectangles are not scaled again. The candidate popup's fixed
 4-pixel caret gap and existing work-area clamping remain unchanged.
 
-[`TestLayoutFallbackDpiRouting`](../tests/ime/tsf/service_layout.cpp) exercises
+[`TestLayoutFallbackDpiRouting`](../tests/ime/tsf/svc/layout.cpp) exercises
 the actual service with a focused Win32 window and a real GUI caret at
 96/120/144/192 DPI. Its 12 cases check scaled focused-window fallback,
 unscaled GUI caret positioning, and TSF rectangle precedence even when a GUI
@@ -892,7 +892,7 @@ All records retain the existing service/cleanup correlation scheme:
 
 The [real-host test record](hosts.md) includes partial manual feedback from 2026-11-03. It is not a completed compatibility matrix or proof that every UWP/AppContainer host is supported; task 47 remains open.
 
-The [service start regressions](../tests/ime/tsf/service_reentrancy.cpp) exercise
+The [service start regressions](../tests/ime/tsf/svc/reentrancy.cpp) exercise
 five start outcomes through the real service: `S_OK`, `S_FALSE`, failure with a
 composition, successful null output, and failed null output. Five current-target
 cases check recovery of the original engine snapshot and immunity to a late
@@ -1027,7 +1027,7 @@ The [target component tests](../tests/ime/comp/target.cpp) add 35 document-resul
 subscription-result, and invalidation-boundary cases plus two exception/resource
 unwind cases. They check exact call order, predicted tickets, strong-reference
 counts, and move-only stateful callbacks. Eight
-[real-service preparation cases](../tests/ime/tsf/service_target.cpp) exercise
+[real-service preparation cases](../tests/ime/tsf/svc/target.cpp) exercise
 document-query and layout-advise reentrancy with continued preparation, focus
 loss, target removal, or deactivation. Nested input and activation cannot
 interleave, late subscriptions are withdrawn, same-target input avoids a
@@ -1046,7 +1046,7 @@ The [presentation components](../tests/ime/comp/presentation.cpp) add 50 cases:
 updates, eight host-permission/presentation gates, six End ownership paths, and
 one late-manager lookup. Checks include exact IDs, shared stateful predicates,
 reference counts and actual popup visibility. Ten
-[service presentation cases](../tests/ime/tsf/service_presentation.cpp) combine
+[service presentation cases](../tests/ime/tsf/svc/presentation.cpp) combine
 five HRESULT/ID outcomes with deactivation or different-manager reactivation
 inside Begin, verifying old/new ID isolation and continued new-target input.
 
@@ -1063,7 +1063,7 @@ notification/active views, HRESULT and null/non-null output combinations,
 `S_FALSE`, clipped/zero/inverted rectangles, epoch invalidation and same-epoch
 composition replacement. Six lifetime cases verify range ownership through
 caller UI work and reference-release order on current, stale and no-layout
-results. Ten [service layout cases](../tests/ime/tsf/service_layout.cpp) inject
+results. Ten [service layout cases](../tests/ime/tsf/svc/layout.cpp) inject
 deactivation or reactivation at view/range/extent boundaries, checking exact
 query counts, view routing, replacement-popup isolation and continued input.
 These mock regressions do not certify positioning in real hosts.
@@ -1090,7 +1090,7 @@ The [edit request tests](../tests/ime/comp/edit.cpp) add 80 cases crossing eight
 cleanup states with ten request/callback outcomes. They check exact read/write
 and timing flags, client IDs, registry pruning, synchronous/deferred entry,
 immutable snapshots, rejection and abandonment. Fourteen
-[service write-request cases](../tests/ime/tsf/service_deferred.cpp) cover
+[service write-request cases](../tests/ime/tsf/svc/deferred.cpp) cover
 immediate, host-deferred and pending-cleanup modes, including `S_FALSE`, request
 failure, read-only rejection and asynchronous rejection. A pending cleanup
 forces queuing even when the mock host would otherwise execute immediately;
@@ -1105,7 +1105,7 @@ cases. They check exact call order, zero extra checks, cookie/target forwarding,
 borrowed result/text identity and activity restoration by the original edit
 scope. The mutable alias used by the read-timing fixture verifies the helper's
 read point; it does not change the production task's immutable snapshot policy.
-Twelve [service action cases](../tests/ime/tsf/service_action.cpp) cover ordinary
+Twelve [service action cases](../tests/ime/tsf/svc/action.cpp) cover ordinary
 commit, cancel and fifth-code commit-and-restart during continued activation,
 deactivation, reactivation or same-epoch replacement. They verify that stale
 action completion cannot end replacement UI or overwrite its preedit, while
@@ -1117,7 +1117,7 @@ Presentation synchronization adds 17
 composition, empty/non-empty preedit and invalidation combinations plus five
 exception boundaries. Checks cover exact order, zero additional checks,
 borrowed snapshot/text identity and composition reference counts through
-publication and exit. Six [service cases](../tests/ime/tsf/service_action.cpp)
+publication and exit. Six [service cases](../tests/ime/tsf/svc/action.cpp)
 inject deactivation, reactivation or same-epoch replacement during update or
 positioning. The old synchronization cannot publish additional candidate work
 or overwrite replacement text; fresh input continues normally.
@@ -1137,7 +1137,7 @@ UI suites. It uses `RUN_SERIAL` and retains the same native TSF, cleanup, and
 reentrancy assertions. It supplements, rather than replaces, `QiQiTsfUiTest`;
 a focused pass must not be reported as a full GUI-suite pass.
 
-[`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) retains the ordered entry point for the deferred, document/context, window, reentrancy, cleanup, and native TSF suites under [`tests/ime/tsf`](../tests/ime/tsf); independent composition component tests mirror the production module under [`tests/ime/comp`](../tests/ime/comp). Together with [`service.cpp`](../tests/ime/tsf/service.cpp), they cover deferred mock scheduling, failure injection, reentrancy, host termination, reactivation isolation, and COM reference release. The [real Windows TSF private-document tests](../tests/ime/tsf/service_native.cpp) trigger synchronous rejection inside a layout notification, then use a bounded message pump to verify asynchronous completion. They check preserved text, composition enumeration, both property types, and isolation of the new composition, without changing user focus or activating the system TIP.
+[`service_lifecycle.cpp`](../tests/ime/tsf/svc/lifecycle.cpp) retains the ordered entry point for the deferred, document/context, window, reentrancy, cleanup, and native TSF suites under [`tests/ime/tsf`](../tests/ime/tsf); independent composition component tests mirror the production module under [`tests/ime/comp`](../tests/ime/comp). Together with [`service.cpp`](../tests/ime/tsf/svc/main.cpp), they cover deferred mock scheduling, failure injection, reentrancy, host termination, reactivation isolation, and COM reference release. The [real Windows TSF private-document tests](../tests/ime/tsf/svc/native.cpp) trigger synchronous rejection inside a layout notification, then use a bounded message pump to verify asynchronous completion. They check preserved text, composition enumeration, both property types, and isolation of the new composition, without changing user focus or activating the system TIP.
 
 An owned debug child process captures actual `OutputDebugString` messages. Assertions cover ID correlation, synchronous callback entry before request return, asynchronous queue acceptance before execution, forced asynchronous writes, skipping after early host termination, request rejection, no retry for read-only access, queued-request abandonment, accurate callback-exit reporting despite API failures, stale application requests, and Info/Off filtering. Synthetic text includes a marker that must never appear in output. These tests add no production sink, use no `Sleep`, and do not replace debugger-free ETW integration tests against the real DLL.
 

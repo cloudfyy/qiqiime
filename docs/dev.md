@@ -132,13 +132,24 @@ qiqiime/
         │   └── message.cpp # 各设置窗口的主题、语言、提示框键盘及模态行为测试
         ├── log_monitor/
         │   ├── CMakeLists.txt  # qiqi_log_monitor_test
-        │   └── main.cpp        # 实时日志监控模型、GUI、版本与 ETW 集成测试
+        │   ├── main.cpp        # 入口及命令行模式分发
+        │   ├── model.cpp       # 缓冲、筛选与日志导出
+        │   ├── menus.cpp       # 菜单、工具栏与滚动图标
+        │   ├── desktop.cpp     # 桌面集成与布局
+        │   └── integration.cpp # 跨进程 ETW 集成
         └── dict_manager/
             ├── CMakeLists.txt  # qiqi_dict_manager_test
-            └── main.cpp        # 词库与词频管理模型、跨进程同步、GUI 与版本测试
+            ├── main.cpp        # 有序测试入口
+            ├── model.cpp       # 词库选择与跨进程同步
+            ├── backup.cpp      # 备份恢复与失败保证
+            ├── editor.cpp      # 编辑状态
+            ├── inline.cpp      # 行内编辑、DPI 与草稿保留
+            └── layout.cpp      # 布局与命令外观
 ```
 
 源码与测试目录保持相同的模块布局。模块的 `CMakeLists.txt` 在顶层工程中定义独立目标，可通过 `cmake --build --preset x64-release --target <目标名>` 按目标构建。新增工具时，在 `src/tools/<工具名>` 与 `tests/tools/<工具名>` 分别添加自己的 `CMakeLists.txt`，并由各自的 `tools/CMakeLists.txt` 注册。
+
+较大的公共测试按配置、文件/句柄、日志和资源拆分到 `tests/common/core/`；字典引擎测试放在 `tests/ime/engine/dict/`，服务按键、词库和焦点诊断放在 `tests/ime/tsf/svc/`。各目录的 `test.h` 声明内部测试及共享辅助函数，原入口只负责保持执行顺序，不包含其他 `.cpp`。TSF Mock 按范围、上下文、文档、线程管理器和注册接口拆分到 `tests/ime/tsf/mock/`，原 `mocks.h` 保留聚合入口；共享类型只有一份定义。单个联动场景保留原有局部 RAII 作用域，不为压缩行数切断状态与释放顺序。
 
 ---
 
@@ -233,7 +244,7 @@ Metrics JSON 的三个预期错误弹框仅由回归主动触发：非法筛选�
 - **隔离取证验证**：`-Mode probe` 先在约 5 秒完成一个测试，再故意挂起；x64/x86 实测均在约第 65 秒取证、第 90 秒终止，确认按最后完成结果而非总时长 60 秒触发。两份 dump 均加载匹配的私有 PDB，并通过线程栈定位到模拟的 `Sleep(INFINITE)`；系统符号缺失告警明确保留。probe 非零退出是预期结果，不代表正常套件通过，也不解释历史偶发挂起的原因。
 - [`src/ime/comp`](../src/ime/comp) 集中组合相关组件，文件使用 `attribute`、`cleanup`、`edit`、`finish`、`layout`、`presentation`、`range`、`start`、`state`、`target`、`update` 短名。生命周期状态、目标/文档、内部编辑与清理、呈现/布局协议已完成提取；[`src/ime/tsf`](../src/ime/tsf) 有意保留 COM 身份、激活/停用、焦点/配置及实际引擎/Shift-tap/UI 副作用。职责及释放顺序见[模块索引](composition.md#current-module-map)，不再以继续添加包装函数判断 R05 完成。
 - [`tests/ime/comp`](../tests/ime/comp) 镜像组件目录，分别保留编辑票据/任务、清理、范围写入及开始准备测试；共享 Mock 仍在 [`mocks.h`](../tests/ime/tsf/mocks.h)。
-- [`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) 仅保留有序入口，依次调用[延迟会话](../tests/ime/tsf/service_deferred.cpp)、[上下文/文档](../tests/ime/tsf/service_context.cpp)、[窗口生命周期](../tests/ime/tsf/service_windows.cpp)、[重入](../tests/ime/tsf/service_reentrancy.cpp)、[服务清理](../tests/ime/tsf/service_cleanup.cpp)及[原生 TSF](../tests/ime/tsf/service_native.cpp)测试。组件测试仍在原窗口测试的配置/键盘快照之前运行；入口的 key/composition sink 强引用保留到全部子套件返回，各测试块的局部 COM/RAII 作用域不变。
+- [`service_lifecycle.cpp`](../tests/ime/tsf/svc/lifecycle.cpp) 仅保留有序入口，依次调用[延迟会话](../tests/ime/tsf/svc/deferred.cpp)、[上下文/文档](../tests/ime/tsf/svc/context.cpp)、[窗口生命周期](../tests/ime/tsf/svc/windows.cpp)、[重入](../tests/ime/tsf/svc/reentrancy.cpp)、[服务清理](../tests/ime/tsf/svc/cleanup.cpp)及[原生 TSF](../tests/ime/tsf/svc/native.cpp)测试。组件测试仍在原窗口测试的配置/键盘快照之前运行；入口的 key/composition sink 强引用保留到全部子套件返回，各测试块的局部 COM/RAII 作用域不变。
 
 使用测试名而非序号选择测试；“测试 5/6”只是当前配置中的序号。关闭其他会改写共享测试状态的测试，执行真实 TSF/GUI 回归期间暂停键盘和鼠标操作。两个架构顺序执行，不同时启动：
 
@@ -419,7 +430,7 @@ cmake --build build\x64 --config Release --target lint
 - 测试持有调度器，并将同一调度器传给需要验证的上下文；`PendingCount`/`PendingRequests` 检查待执行请求与目标，`RunNext(cookie)` 按 FIFO 执行一个请求并返回真实回调 HRESULT，默认 cookie 为 1。`ClearForCleanup` 仅用于显式测试清理。入队、运行和清理须在创建线程进行，错误线程或空队列执行会返回错误并记录诊断。
 - 调度器强引用待执行上下文与会话，上下文仅弱引用调度器，避免 Context→Session→Context 引用环。运行前先移出请求，局部强引用保证回调期间对象存活，并允许重入入队；清理或销毁调度器释放待处理请求。回调不得强捕获拥有它的调度器，避免另一个引用环；已过期的调度器不能静默退回立即执行。
 - Windows SDK 的 `TF_ES_ASYNCDONTCARE` 为 **0**，不是独立位。Mock 校验同步/异步冲突、访问模式和未知位；成功异步请求返回外层 `S_OK`、内层 `TF_S_ASYNC`。同步拒绝和只读读写拒绝分别返回内层 `TF_E_SYNCHRONOUS`、`TS_E_READONLY`；只读上下文仍允许读请求。这是最小请求标志与结果模型，不是完整 TSF 锁、编辑权限或 cookie 校验器。
-- [`com.cpp`](../tests/ime/tsf/com.cpp) 覆盖默认兼容性、FIFO、请求元数据、同步优先、失败注入、回调失败后继续执行、重入及引用释放；[`service_lifecycle.cpp`](../tests/ime/tsf/service_lifecycle.cpp) 调度真实生产写回调和布局读回调，覆盖停用/重新激活后执行、输入上下文变化及旧队列保留。
+- [`com.cpp`](../tests/ime/tsf/com.cpp) 覆盖默认兼容性、FIFO、请求元数据、同步优先、失败注入、回调失败后继续执行、重入及引用释放；[`service_lifecycle.cpp`](../tests/ime/tsf/svc/lifecycle.cpp) 调度真实生产写回调和布局读回调，覆盖停用/重新激活后执行、输入上下文变化及旧队列保留。
 - Mock 不理解激活周期，不自动丢弃过期任务，也不将旧回调可能修改文档的行为定义为正确。任务 43 已在生产回调中实现并断言过期任务不得写文档、创建组合或恢复 UI；任务 44 处理主动结束宿主组合。任务 42 本身不修改生产代码。
 - 验证：x64/x86 Release 的 `QiQiTsfUiTest`、`QiQiEtwIntegrationTest` 均通过，ETW 未跳过；定向运行使用 `ctest --test-dir build\x64 -C Release -R '^(QiQiTsfUiTest|QiQiEtwIntegrationTest)$' --output-on-failure --timeout 120`，x86 替换为 `build\x86`。x64 测试目标同时执行 CppCoreCheck，新增 Mock 与测试没有新增诊断。
 
@@ -429,7 +440,7 @@ cmake --build build\x64 --config Release --target lint
 - [`ApplyEngineResult` 与 `OnLayoutChange`](../src/ime/tsf/tip_composition.cpp) 在提交请求前保存周期，回调开始处通过同一检查核对激活状态、两个周期和目标上下文。强引用只保证对象存活，不代表目标仍有效；同一 COM 指针重新激活或 A→B→A 后，旧快照也必须失效。预期丢弃返回 `S_OK`，调试日志仅记录周期与激活状态，不输出输入文本，也不伪造失败 HRESULT。
 - `ResetContextAndUI` 在 COM 清理前使上下文周期失效并清空活动目标，统一注销布局订阅、释放本地组合和结束候选 UI；现有的焦点丢失、宿主终止和停用重置复用它。切换输入上下文也使用该清理，避免新目标沿用旧组合范围；处理已生成的引擎结果时不额外重置引擎。提交请求前再次检查目标切换过程中是否发生重入失效。
 - 布局通知只接受当前活动上下文，执行过期读回调时不查询旧视图。调度器仍保留旧请求并实际调用其生产回调，屏障不依赖 Mock 过滤；同周期的多个写入快照保持 FIFO，不按每个按键递增周期。
-- [`生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 通过实际文本、写入/组合创建/视图查询与 UI 调用次数验证：停用及失败激活后执行旧任务、同一上下文重新激活、焦点重置、A→B→A、宿主终止、过期提交/取消，以及旧布局读任务遇到新组合。另验证正常 FIFO 更新、提交、下一次组合和延迟布局读，不只检查回调返回成功。
+- [`生命周期测试`](../tests/ime/tsf/svc/lifecycle.cpp) 通过实际文本、写入/组合创建/视图查询与 UI 调用次数验证：停用及失败激活后执行旧任务、同一上下文重新激活、焦点重置、A→B→A、宿主终止、过期提交/取消，以及旧布局读任务遇到新组合。另验证正常 FIFO 更新、提交、下一次组合和延迟布局读，不只检查回调返回成功。
 - 验证：x64/x86 Release 的 `QiQiTsfUiTest`、`QiQiEtwIntegrationTest` 均通过，ETW 未跳过；x64 生产与测试目标执行 CppCoreCheck，修复新增的 const 正确性诊断后无新增告警。仍保留既有告警，不扩大豁免范围。
 - 范围：本任务覆盖现有重置入口及输入上下文周期，不建立文档管理器列表。后续任务 45 补充文档/栈通知，并修正“生成引擎结果后才切换目标”的跨输入框携带问题，详见下文 5.8；任务 44 已补充停用时的同步清理及受控异步补救。本地释放组合不等于已正确结束宿主组合，受控测试也不替代浏览器/UWP 的真实宿主验证。
 
@@ -442,7 +453,7 @@ cmake --build build\x64 --config Release --target lint
 - 同一上下文有待处理清理时，新业务写请求强制使用 `TF_ES_ASYNC`，避免默认同步优先越过旧清理；TSF 的异步 FIFO 先结束旧组合，再创建新组合。其他上下文不受此调度限制。原业务回调仍检查任务 43 的激活/上下文周期，只有独立旧组合清理不依赖当前激活周期。
 - [`OnCompositionTerminated`](../src/ime/tsf/tip_composition.cpp) 区分当前、待清理及旧组合。宿主提前终止待清理组合时，使用通知的写 cookie 清理旧范围并标记终止，之后旧回调直接退出，不能清除新组合属性；清理过程中发生终止也不重复结束。非当前组合通知不重置新组合/UI。停用期间重入停用不重复清理，重入激活记录并返回 `E_UNEXPECTED`，外层结束后正常激活可继续。
 - 只读、断开、请求拒绝及宿主范围/属性/结束 API 失败都记录实际 HRESULT，不无限重试或强行越过权限。读会话内升级写权限也不能假定异步就会成功。属性或范围清理失败不阻止在有效权限下尝试结束组合；停用返回 `S_OK` 或排队返回 `TF_S_ASYNC` 都不等于宿主清理已成功。这些不可恢复情形可能保留宿主组合/属性，应从诊断识别，不宣称所有宿主都能结束。
-- [`Mock 回归测试`](../tests/ime/tsf/service_lifecycle.cpp) 覆盖同步和异步 flags、保留文字、失败注入、重复停用、部分激活失败回滚、清理期间重入、旧组合通知、异步请求失败/断开、同一上下文重新激活及宿主提前终止；断言旧回调不调用 UI、不误清新属性，并检查释放外部服务引用后清理仍可完成、COM 对象计数恢复。
+- [`Mock 回归测试`](../tests/ime/tsf/svc/lifecycle.cpp) 覆盖同步和异步 flags、保留文字、失败注入、重复停用、部分激活失败回滚、清理期间重入、旧组合通知、异步请求失败/断开、同一上下文重新激活及宿主提前终止；断言旧回调不调用 UI、不误清新属性，并检查释放外部服务引用后清理仍可完成、COM 对象计数恢复。
 - 同一测试建立真实 Windows TSF 管理器及私有文档，使用 `TF_TMAE_NOACTIVATETIP` 禁止激活系统 TIP，不切换用户焦点。通过真实布局通知触发同步拒绝，验证通知内组合仍存在、通知返回后异步清理完成；枚举宿主组合和属性范围，断言保留文本、`GUID_PROP_COMPOSING` 与 `GUID_PROP_ATTRIBUTE` 消失。另验证立即重新激活后旧清理先于新写入，新的组合范围仅含新文字且属性保留；以有界消息泵等待真实异步处理，不用 `Sleep`。
 - 真实 TSF 文档验证不同于 ETW 日志采集，不替代浏览器/UWP 实际宿主验证；任务 41 的窗口销毁后续已由 5.10 完成，任务 45 的文档/上下文栈处理见下文 5.8。
 - 验证：x64/x86 Release 的 `QiQiTsfUiTest`（含上述真实 TSF 文档测试）、`QiQiEtwIntegrationTest` 均通过，未跳过；定向 CppCoreCheck 修复新增非空类型约束并复用现有 VARIANT 初始化帮助函数后无新增告警。清理请求完成和被调度器放弃两条路径均检查 COM 对象计数恢复。
@@ -501,14 +512,14 @@ cmake --build build\x64 --config Release --target lint
 - 复核微软 `SampleIME` 与 `Weasel`：`SampleIME` 在 `InitPreservedKey`/`UninitPreservedKey` 中忽略 `PreserveKey`/`UnpreserveKey` 的返回值并按表全量注销，`Weasel` 的 `_InitPreservedKey` 位于 `#if 0` 且注销为空；两者均不适合作为所有权与失败处理模型。
 - [`QiQiTextService`](../src/ime/tsf/tip_service.h) 新增 `key_event_sink_registered_` 与 `registered_preserved_keys_`：[`InitKeyEventSink`](../src/ime/tsf/tip_service.cpp) 在 `AdviseKeyEventSink` 成功后标记键盘监听已注册，并仅将返回成功（`SUCCEEDED`）的 `(GUID, TF_PRESERVEDKEY)` 记入本激活周期持有列表。
 - 区分 `TF_E_ALREADY_EXISTS`（警告记录已注册并跳过本次所有权）与其他失败（记录操作与实际 `HRESULT`），不先注销或覆盖已有注册。[`UninitKeyEventSink`](../src/ime/tsf/tip_service.cpp) 先移出并清空本周期持有状态，仅对持有项调用 `UnpreserveKey`（失败记录 `vkey`/`mod` 与 `HRESULT`）、仅在监听已注册时调用 `UnadviseKeyEventSink`，保证部分激活回滚、重复停用、注销失败或 `ITfKeystrokeMgr` 查询失败后的状态一致与可再次激活。
-- [`service.cpp`](../tests/ime/tsf/service.cpp) 覆盖全部成功、查询/监听注册失败回滚、`TF_E_ALREADY_EXISTS` 与 `E_OUTOFMEMORY` 部分成功、全部保留键失败、重复停用、注销失败、`ITfKeystrokeMgr` 注销查询失败后重新激活，以及自有调试子进程对实际 `OutputDebugString` 警告消息的校验；现有快捷键行为保持不变。
+- [`service.cpp`](../tests/ime/tsf/svc/main.cpp) 覆盖全部成功、查询/监听注册失败回滚、`TF_E_ALREADY_EXISTS` 与 `E_OUTOFMEMORY` 部分成功、全部保留键失败、重复停用、注销失败、`ITfKeystrokeMgr` 注销查询失败后重新激活，以及自有调试子进程对实际 `OutputDebugString` 警告消息的校验；现有快捷键行为保持不变。
 
 ### 5.11 进程词库缓存生命周期（任务 52）
 
 - 评估结论：`g_process_dict_cache` 以规范化路径缓存 `(src_size, src_mtime, std::shared_ptr<const WubiMappedDict>)`。虽然清空该映射不会使其他实例已持有的 `shared_ptr` 悬空，但在每个实例 `Deactivate` 时调用 `WubiMappedDict::ClearProcessCache()` 会使同进程后续激活、实例重载或新实例无法命中内存缓存，被迫重新打开并映射 `.qdict` 文件。
 - 调整策略：[`QiQiTextService::Deactivate`](../src/ime/tsf/tip_service.cpp) 仅调用 `engine_.ClearExternalDictionaries()` 释放当前服务实例持有的词库引用，不再清空进程级缓存；进程缓存随模块生命周期在 [`DllMain`](../src/ime/tsf/dllmain.cpp) 动态卸载（`DLL_PROCESS_DETACH` 且 `lpReserved == nullptr`）时统一清理，运行期词库文件修改则由 `LoadFromTextOrCache` 的文件大小与最后修改时间比对自动更新。
 - 关联修正：`ActivateEx` 原先仅在 `config_.primary_dict != PrimaryDict::BuiltinOnly` 时恢复被 `Deactivate` 清空的外部词库，导致 `BuiltinOnly` 配置下停用后重新激活丢失已配置的外部用户词库；现统一在 `engine_.MappedDictionaryCount() == 0` 时调用 `LoadExternalDictionaryNextToDll()`（直接命中进程级缓存）。
-- 验证：[`dict.cpp`](../tests/ime/engine/dict.cpp) 与 [`service.cpp`](../tests/ime/tsf/service.cpp) 验证多实例指针级复用、停用一个实例后进程缓存保留且另一实例及再次激活实例（含 `BuiltinOnly` 用户词库）候选查询正常、显式 `ClearProcessCache` 不影响在用 `shared_ptr`，以及所有实例与缓存释放后 `weak_ptr` 过期（底层映射资源释放）。
+- 验证：[`dict.cpp`](../tests/ime/engine/dict.cpp) 与 [`service.cpp`](../tests/ime/tsf/svc/main.cpp) 验证多实例指针级复用、停用一个实例后进程缓存保留且另一实例及再次激活实例（含 `BuiltinOnly` 用户词库）候选查询正常、显式 `ClearProcessCache` 不影响在用 `shared_ptr`，以及所有实例与缓存释放后 `weak_ptr` 过期（底层映射资源释放）。
 
 ### 5.12 类别管理器创建与模块引用（任务 53）
 
@@ -610,7 +621,7 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **格式边界不变**：布尔读取兼容非零值；注册表保存页大小时钳制到 1–9，加载缺失/非法标量时保留默认值；备份恢复拒绝已知字段的非法数值，忽略未知数字键。备份键顺序及校验格式不变。
 - **只合并可编辑字段**：[`MergeSettingsConfig`](../src/common/config.cpp) 在外部配置副本上覆盖相对基线确已修改的可编辑标量；不分配内存、不复制路径。窗口实际控件绑定、读写、布局及语言刷新继续由 [`controls.cpp`](../src/tools/settings/controls.cpp) 维护。增加控件时同步检查投影标志和真实窗口矩阵，不扩大隐藏字段的编辑范围。
 - **选择与执行分离**：[`GetBundledDictionaryLoadPlan`](../src/common/config.h) 只返回自带主词库、扩展词库的角色、文件名及加载顺序；三种主词库与扩展开关共有六种组合。IME 和工具分别执行，继续复用 `ResolveBundledDataFile` 的路径查找和现有映射缓存；用户来源及 IME 注册表回退不搬入纯计划。
-- **验证入口**：[`公共测试`](../tests/common/common.cpp) 检查格式键集合、注册表策略、逐字段合并和计划矩阵；[`设置测试`](../tests/tools/settings/save.cpp) 覆盖 19 个可编辑字段各自的干净/已编辑窗口；[`词库工具测试`](../tests/tools/dict_manager/main.cpp) 覆盖备份投影及来源/顺序、相对用户路径、缺失文件和缓存复用；[`TSF 测试`](../tests/ime/tsf/service.cpp) 保留用户来源回退与生命周期验证，不替代真实 AppContainer 或宿主验收。
+- **验证入口**：[`公共测试`](../tests/common/common.cpp) 检查格式键集合、注册表策略、逐字段合并和计划矩阵；[`设置测试`](../tests/tools/settings/save.cpp) 覆盖 19 个可编辑字段各自的干净/已编辑窗口；[`词库工具测试`](../tests/tools/dict_manager/main.cpp) 覆盖备份投影及来源/顺序、相对用户路径、缺失文件和缓存复用；[`TSF 测试`](../tests/ime/tsf/svc/main.cpp) 保留用户来源回退与生命周期验证，不替代真实 AppContainer 或宿主验收。
 
 ### 5.18 词库编辑草稿与窗口边界（R02）
 
@@ -625,7 +636,7 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **票据是非拥有快照**：[`EditSessionTicket`](../src/ime/tsf/edit_session.h) 配对激活/上下文 epoch 与原始目标身份，只比较值，不执行 COM 调用。异步回调仍必须捕获原有 context/service/view 强引用；会话内操作继续保留组合强引用和组合身份复核。不要把裸目标指针当成所有者，也不要在宿主重入后重新捕获 epoch 来“更新”旧任务的票据。
 - **验证不只是指针相等**：[`IsEditSessionCurrent`](../src/ime/tsf/tip_composition.cpp) 还要求服务激活且不在重置中。保持原有宿主调用前后的检查位置，不把检查缩减到回调入口。A-B-A 必须因 epoch 不同而拒绝；空目标票据仅用于输入目标准备/文档切换后的内部重置检查，不授予编辑权限。
 - **清理不能按当前票据取消**：[`CompositionCleanup`](../src/ime/comp/cleanup.h) 独立拥有旧组合及其资源，保留移除、宿主终止、开始/完成状态和同 context 的写入屏障。Deactivate 使旧编辑失效，但旧清理仍可完成；未执行请求被丢弃时保留原诊断并释放引用，不宣称宿主清理成功。不要复用旧编辑 cookie，也不要把 STA 操作转移到后台线程。
-- **回归与范围**：[`生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 覆盖票据匹配矩阵、旧布局/提交/取消回调与跨激活清理/新写入交错，以及未执行队列释放后的对象计数。继续保留同步/异步清理、宿主终止和 UI 注册重入测试；宿主 `BeginUIElement` 许可、FSM 与定位策略不变，完整协调器提取尚未实施。
+- **回归与范围**：[`生命周期测试`](../tests/ime/tsf/svc/lifecycle.cpp) 覆盖票据匹配矩阵、旧布局/提交/取消回调与跨激活清理/新写入交错，以及未执行队列释放后的对象计数。继续保留同步/异步清理、宿主终止和 UI 注册重入测试；宿主 `BeginUIElement` 许可、FSM 与定位策略不变，完整协调器提取尚未实施。
 
 ### 5.20 TSF 清理登记边界（R05 第二步）
 
@@ -639,7 +650,7 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **任务与目标不可分离**：[`CompositionEditTask`](../src/ime/comp/edit.h) 拥有 context、完整结果副本、原票据和活动 ID，构造时以 GSL 前置条件要求非空 context 且目标匹配。通过只读访问器消费，复制/移动构造传递，不在已发布任务上赋值改写；移动后的源对象不再执行。任务不持有服务或编辑 cookie，回调仍单独强持有服务。
 - **先捕获再请求**：[`ApplyEngineResult`](../src/ime/tsf/tip_composition.cpp) 保留原有强引用获取、epoch 捕获和结果复制时机；请求标志仍在原位置根据清理屏障决定。只把原回调体移入 `ApplyCompositionEditInSession`，不挪动票据验证、清理判断、提交/取消区别或宿主调用后的复核。
 - **再排队保留快照**：清理仍未完成时，不执行当前写入，而是将该任务的结果重新排队；不要重新读取引擎来构造替代结果，也不能把旧编辑 cookie 带给后续会话。活动 ID 仍按原作用域恢复，失效任务仍按既有诊断跳过。
-- **验证与范围**：[`任务与生命周期测试`](../tests/ime/tsf/service_lifecycle.cpp) 比较四类动作的 12 个结果字段，覆盖复制/移动、生产者结束后的延迟访问及清理中重入再排队的 FIFO 快照。布局读取、独立清理回调、宿主 UI 许可及 FSM 不变；本步不等于已完成整个生命周期协调器。
+- **验证与范围**：[`任务与生命周期测试`](../tests/ime/tsf/svc/lifecycle.cpp) 比较四类动作的 12 个结果字段，覆盖复制/移动、生产者结束后的延迟访问及清理中重入再排队的 FIFO 快照。布局读取、独立清理回调、宿主 UI 许可及 FSM 不变；本步不等于已完成整个生命周期协调器。
 
 ### 5.22 TSF 独立清理执行与属性复核（R05 第四步）
 
@@ -705,14 +716,14 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 - **仅收拢宿主操作与最终复核**：[`ClearTerminatedCompositionInSession`](../src/ime/comp/finish.h) 获取原组合范围、复用属性清除 helper，并返回原最终身份复核结果；不写文本、不再次结束已终止的组合、不调度清理或重置引擎/UI。范围/属性/清除失败保留原 HRESULT 诊断及仍可按身份复核执行服务重置的策略。
 - **拥有范围而非提前释放**：`CompositionTerminationResult` 保留取得的 range，服务将它留到原 if 作用域结束，仍按 range、原组合、context 的顺序释放。`may_reset` 不代表属性清除成功，也不能由 range 非空推导；仅供服务立即决定是否继续原重置路径，不能跨后续宿主调用缓存复用。
 - **门面与重置仍在服务**：[`OnCompositionTerminated`](../src/ime/tsf/tip_composition.cpp) 保留已登记清理优先、无关组合忽略、空通知及缺少活动 context 的原路径；仍先捕获票据/context 强引用并移走当前组合，再调用 helper。实际引擎/UI 重置仍在服务，生命周期日志及 FSM 不变。
-- **验证**：[`宿主终止单元回归`](../tests/ime/comp/finish.cpp) 新增 17 种失败/空返回/失效条件 × 3 种文本，共 51 组，检查完整宿主/复核顺序、允许重置与资源存在性的独立关系、范围在最终复核及返回值作用域内的引用数、原文本不变和无额外结束/写入。另扩展[服务重入矩阵](../tests/ime/tsf/service_reentrancy.cpp)，在范围获取、属性查询及属性清除期间先取消旧引擎状态再输入，验证同 context/epoch 的新组合及 UI 不被旧终止流程覆盖；矩阵精确增加为 89 组。x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。完整 R05 仍未完成，未重跑全仓测试或新增真实宿主验收。
+- **验证**：[`宿主终止单元回归`](../tests/ime/comp/finish.cpp) 新增 17 种失败/空返回/失效条件 × 3 种文本，共 51 组，检查完整宿主/复核顺序、允许重置与资源存在性的独立关系、范围在最终复核及返回值作用域内的引用数、原文本不变和无额外结束/写入。另扩展[服务重入矩阵](../tests/ime/tsf/svc/reentrancy.cpp)，在范围获取、属性查询及属性清除期间先取消旧引擎状态再输入，验证同 context/epoch 的新组合及 UI 不被旧终止流程覆盖；矩阵精确增加为 89 组。x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。完整 R05 仍未完成，未重跑全仓测试或新增真实宿主验收。
 
 ### 5.31 TSF 现有组合更新与属性发布（R05 第十三步）
 
 - **收拢整个更新序列**：[`UpdateCompositionInSession`](../src/ime/comp/update.h) 以强引用捕获并返回原组合，集中范围获取、既有文本/光标 helper 及可选显示属性写入；原各宿主边界后的身份复核、失败后的继续/停止策略及范围/属性局部作用域不变。服务原 `SetRangeTextAndCollapseCaret` 包装已移除，但保留既有范围 helper 的诊断操作名；第八步描述的是当时的包装边界。
 - **保持读取与复核时点**：属性 atom 以同步借用引用传入，在文本/光标完成后判断有效性、属性查询及原身份复核后再读取写入值，不提前快照或追加复核。属性写入后仍由服务原调用方验证返回组合后再发布布局/UI；开始、未发布记录、组合字段发布和引擎/UI 决策仍在服务。
 - **错误保持可见**：保留原 HRESULT 诊断及尽力更新策略；成功但无范围/属性时新增明确警告。更新 helper 不保存 cookie/借用引用/检查器，不请求会话、不开始或结束组合，也不清除属性。
-- **验证**：[`更新回归`](../tests/ime/comp/update.cpp) 的 28 种正常/失败/空返回/身份失效条件 × ASCII、空及含 NUL/中文/代理对文本，共 84 组；另有 5 组实时 atom 读取和 3 组外部组合引用在宿主调用中释放的寿命测试。逐项验证宿主/复核序列、UTF-16 长度、selection、`VT_I4` 参数和范围/属性/返回组合引用释放；[服务矩阵](../tests/ime/tsf/service_reentrancy.cpp) 新增属性查询/写入中的同 context/epoch 替换，精确增加为 91 组。x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。完整 R05 仍未完成，FSM、宿主显示许可及定位算法不变。
+- **验证**：[`更新回归`](../tests/ime/comp/update.cpp) 的 28 种正常/失败/空返回/身份失效条件 × ASCII、空及含 NUL/中文/代理对文本，共 84 组；另有 5 组实时 atom 读取和 3 组外部组合引用在宿主调用中释放的寿命测试。逐项验证宿主/复核序列、UTF-16 长度、selection、`VT_I4` 参数和范围/属性/返回组合引用释放；[服务矩阵](../tests/ime/tsf/svc/reentrancy.cpp) 新增属性查询/写入中的同 context/epoch 替换，精确增加为 91 组。x64/x86 构建、CppCoreCheck 及串行 TSF/UI 测试通过。完整 R05 仍未完成，FSM、宿主显示许可及定位算法不变。
 
 ### 5.32 TSF 组合开始尝试与结果所有权（R05 第十四步）
 
@@ -730,11 +741,11 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 
 ### 5.34 TSF 开始工作流的真实服务阶段回归（R05 第十六步）
 
-- **先补集成覆盖，不再机械增加 helper**：本步仅扩展[`真实服务重入测试`](../tests/ime/tsf/service_reentrancy.cpp)，不改生产代码、FSM 或调度。共用五种开始结果：`S_OK`、`S_FALSE`、失败但有组合、成功但无组合、失败且无组合。
+- **先补集成覆盖，不再机械增加 helper**：本步仅扩展[`真实服务重入测试`](../tests/ime/tsf/svc/reentrancy.cpp)，不改生产代码、FSM 或调度。共用五种开始结果：`S_OK`、`S_FALSE`、失败但有组合、成功但无组合、失败且无组合。
 - **当前任务的恢复**：新增 5 组原目标恢复场景，验证成功 HRESULT 不限于 `S_OK`，失败/空返回不写入旧文本，随后输入仍保留原引擎快照并写入 `ab`、`abc`。当前失败但返回非空组合仍遵守既有“不自动结束该结果”策略；恢复后的迟到旧组合终止不能清除新组合、改变 UI 或重置引擎。
 - **跨生命周期的开始结果**：原 8 组开始重入扩展到精确 38 组，覆盖停用、同 context 重激活、切换目标、移除与宿主终止，交叉同步/异步清理。空返回没有可通知终止的组合，跳过该无意义组合；实际移除仍保留。验证失败非空结果也进入过期清理、空结果不制造清理、旧文本从未写入、旧清理不触碰新 UI/文本，以及同步/异步清理使用自己的 cookie 而非原写入 cookie。原 91 组编辑边界及 4 组属性清除重入矩阵不变。
 - **审计与验证**：保留配置、键盘、文档事件解绑和服务停用的 RAII，旧 context 的开始回调在排队任务继续执行前解除，完整矩阵后 COM 对象计数恢复。x64/x86 构建与 CppCoreCheck 通过，修正新增 cookie 断言的有符号/无符号警告；两个架构的 `QiQiTsfUiTest` 均通过 CTest 的 `--repeat until-fail:2` 连续重复验证。
-- **异常记录与边界**：首次 x64 运行已通过新增生命周期矩阵，随后在[`既有 Shift 按键回归`](../tests/ime/tsf/service.cpp) 的 `OnKeyUp` 断言失败；后续 x64 单次及连续两次、x86 连续两次通过，尚未确认首次失败根因，不据此宣称已修复。未扩展运行其他 CTest 套件、构建 MSI 或新增真实宿主验收。
+- **异常记录与边界**：首次 x64 运行已通过新增生命周期矩阵，随后在[`既有 Shift 按键回归`](../tests/ime/tsf/svc/main.cpp) 的 `OnKeyUp` 断言失败；后续 x64 单次及连续两次、x86 连续两次通过，尚未确认首次失败根因，不据此宣称已修复。未扩展运行其他 CTest 套件、构建 MSI 或新增真实宿主验收。
 - **下一边界**：独立宿主操作、开始/更新/结束、编辑任务与入口屏障已可单测；当前组合字段、epoch、活动 context/document 的联合所有权以及激活/目标/UI 协调仍在服务。后续应先评估该联合状态边界，而不是继续逐函数搬迁；完整 R05 继续保持未完成。
 
 ### 5.35 TSF 生命周期联合状态所有权（R05 第十七步）
@@ -749,7 +760,7 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 
 - **让状态所有者维护重置协议**：[`CompositionContextResetScope`](../src/ime/comp/state.h) 借用不可移动的生命周期状态，在构造时先推进 context epoch，再判断是否已有重置；包括嵌套尝试在内，每次进入都使旧票据失效。仅最外层取得 `Entered()`，负责置位并在正常、提前返回或异常退出时恢复重置标记，不回滚 epoch。状态的 `IsCurrent(ticket)` 直接检查自身重置状态，不再依赖服务传入另一个布尔值。
 - **保持服务副作用边界**：服务仍按原顺序执行实际清理、COM 释放、订阅断开和 UI 重置；作用域不触碰这些资源或清理登记。激活/准备重入保护和准备中目标仍在服务。三个服务实现反向归一后与上一步一致，未移动诊断、宿主调用或身份复核位置；FSM、错误策略与显示许可不变。
-- **补足 RAII 与真实服务覆盖**：[`状态测试`](../tests/ime/comp/state.cpp) 的原 56 组身份矩阵改用真实重置作用域，另加 36 组激活/目标/嵌套深度/退出方式组合，验证标记恢复、epoch 持续推进、资源与登记不变及无宿主调用。[`服务重入测试`](../tests/ime/tsf/service_reentrancy.cpp) 新增 1 层/3 层嵌套焦点丢失两组场景，验证不重复清理/UI、重置期间拒绝输入和重激活、结束后可开始新组合；既有矩阵保留。
+- **补足 RAII 与真实服务覆盖**：[`状态测试`](../tests/ime/comp/state.cpp) 的原 56 组身份矩阵改用真实重置作用域，另加 36 组激活/目标/嵌套深度/退出方式组合，验证标记恢复、epoch 持续推进、资源与登记不变及无宿主调用。[`服务重入测试`](../tests/ime/tsf/svc/reentrancy.cpp) 新增 1 层/3 层嵌套焦点丢失两组场景，验证不重复清理/UI、重置期间拒绝输入和重激活、结束后可开始新组合；既有矩阵保留。
 - **验证与边界**：x64/x86 IME DLL/测试构建、CppCoreCheck、完整 `QiQiTsfUiTest` 及定向 `QiQiCompositionLifecycleTest` 均通过；修正测试的 epoch 引用和算术宽度诊断，自有源码无新增非 C26490 警告。完成 RAII、复用、Core Guidelines/GSL 及缺失覆盖检查；未运行其他套件、制作 MSI 或新增真实宿主验收。实际目标准备/激活/清理/UI 跨阶段协调仍在服务，完整 R05 未完成。
 - **额外复跑异常**：一次 x64 定向测试超过四分钟未退出，已终止该次自有测试进程树；无输出可定位具体阶段，根因未确认。未放宽断言或修改无关代码，随后以每个测试 90 秒超时串行重跑，双架构完整及定向测试全部通过；不将后续通过等同于修复挂起。
 
@@ -757,49 +768,49 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 
 - **提取完整的同步准备流程**：[`PrepareCompositionTarget`](../src/ime/comp/target.h) 集中准备中目标的强引用/RAII、预期重置票据、重置回调、父文档查询、目标/文档发布、布局订阅及订阅返回后的失效撤销。服务继续负责不可用/同目标入口、活动 ID 切换与恢复，以及实际引擎/UI 重置；准备中目标仍存于原服务成员位置，不改 COM 成员析构顺序。
 - **保持检查和失败语义**：重置、文档查询、订阅后分别复核原票据，预绑定阶段仍使用空目标。文档失败/空返回和布局订阅失败仍记录真实 HRESULT、遵守原“不单独阻止当前目标输入”策略；过期目标不发布或撤销迟到订阅，不把订阅成功当作编辑许可。新 helper 反向归一后与原准备代码一致，反向恢复委派后的服务其余源码亦完全一致。
-- **组件与真实服务回归**：[`目标组件测试`](../tests/ime/comp/target.cpp) 新增 35 组文档成功/失败与空/非空结果、订阅结果及三个失效边界组合；验证调用顺序、票据、引用数和无编辑操作，使用不可复制、有状态的回调。另有 2 组重置/查询异常退出，验证文档先释放、准备标记先于最后 context 引用清除。[`服务准备测试`](../tests/ime/tsf/service_target.cpp) 新增 8 组查询/订阅期间的继续、焦点丢失、移除和停用，验证嵌套键盘/激活拒绝、无迟到订阅、同目标不重复准备及新目标恢复。
+- **组件与真实服务回归**：[`目标组件测试`](../tests/ime/comp/target.cpp) 新增 35 组文档成功/失败与空/非空结果、订阅结果及三个失效边界组合；验证调用顺序、票据、引用数和无编辑操作，使用不可复制、有状态的回调。另有 2 组重置/查询异常退出，验证文档先释放、准备标记先于最后 context 引用清除。[`服务准备测试`](../tests/ime/tsf/svc/target.cpp) 新增 8 组查询/订阅期间的继续、焦点丢失、移除和停用，验证嵌套键盘/激活拒绝、无迟到订阅、同目标不重复准备及新目标恢复。
 - **验证与边界**：x64/x86 IME DLL/测试构建及 CppCoreCheck 通过，自有源码无新增非 C26490 诊断；每个测试设置 90 秒超时，双架构完整 TSF/UI 与定向生命周期最终均通过。首次 x64 全套在既有菜单前台窗口断言失败，位于新增组件/服务测试之前，根因未确认，未放宽断言或修改菜单实现。完成 RAII、DRY、Core Guidelines/GSL 及缺失覆盖检查；未运行其他套件、制作 MSI 或新增真实宿主验收。激活/停用、准备入口与引擎/UI 的跨阶段协调仍在服务，完整 R05 保持未完成。
 
 ### 5.38 TSF 候选 UI 发布与撤销协议（R05 第二十步）
 
 - **分离完整 UI 注册协议**：[`PresentCompositionCandidates` / `EndCompositionCandidatePresentation`](../src/ime/comp/presentation.h) 收拢候选快照发布、管理器查询、开始/更新、过期开始回收及结束流程；服务保留入口门禁、原票据及目标强引用、显示总开关与实际调用时机。布局通知、候选定位/回退算法、FSM 和宿主显示许可不变。
 - **保持实时读取与旧管理器所有权**：`CandidateUI` 只在服务构造时赋值，可借用稳定对象；管理器通过 getter 在原查询点读取，不提前拍快照，激活标志仍按原位置实时读取。结束前先强持有原管理器，再清除共享 ID 和隐藏 UI；过期开始只通过捕获的旧 UI 管理器回收其成功且有效的 ID，不清除后来发布的新 ID。两个 helper 反向归一后与原协议一致，恢复委派后的整个组合服务源码亦一致；原 `As` 等价为相同位置的 `QueryInterface`，未新增 COM 引用。
-- **组件与真实服务覆盖**：[`组件测试`](../tests/ime/comp/presentation.cpp) 新增 50 组：23 组开始结果/复核边界、6 组管理器不可用、6 组现有 ID 更新、8 组宿主许可/总开关、6 组结束所有权及 1 组延迟管理器读取，验证不可复制的有状态谓词、引用数、真实 popup 可见性和错误后的 ID 隔离。[`服务测试`](../tests/ime/tsf/service_presentation.cpp) 新增 10 组开始回调内停用/换管理器重激活，交叉五种 HRESULT/ID 输出，验证同数字 ID 不跨管理器误结束、旧任务不更新新 UI，以及新组合继续为 `cd`。
+- **组件与真实服务覆盖**：[`组件测试`](../tests/ime/comp/presentation.cpp) 新增 50 组：23 组开始结果/复核边界、6 组管理器不可用、6 组现有 ID 更新、8 组宿主许可/总开关、6 组结束所有权及 1 组延迟管理器读取，验证不可复制的有状态谓词、引用数、真实 popup 可见性和错误后的 ID 隔离。[`服务测试`](../tests/ime/tsf/svc/presentation.cpp) 新增 10 组开始回调内停用/换管理器重激活，交叉五种 HRESULT/ID 输出，验证同数字 ID 不跨管理器误结束、旧任务不更新新 UI，以及新组合继续为 `cd`。
 - **验证与边界**：x64/x86 IME DLL/测试构建、CppCoreCheck、完整 TSF/UI 和定向生命周期均通过（每测试 90 秒超时）。借用接口与延迟 getter 消除新增智能指针参数诊断，不抑制警告；自有源码无新增非 C26490 诊断。完成 RAII、DRY、Core Guidelines/GSL 与缺失覆盖检查；未运行其他套件、制作 MSI 或新增真实宿主验收。激活/停用、准备入口、布局/定位与 UI 的跨阶段协调仍在服务，整体 R05 未完成。
 
 ### 5.39 TSF 组合布局查询（R05 第二十一步）
 
 - **提取查询而非定位策略**：[`QueryCompositionLayoutInSession`](../src/ime/comp/layout.h) 收拢通知 view/活动 view、组合范围、文本矩形查询及原身份复核和 HRESULT 日志。通知 view 优先，短路顺序和最终复核位置不变；`current` 与查询成功独立，失效结果不能进入服务定位分支。服务保留原入口、票据和组合强引用，以及 caret 状态、窗口移动与 GUI/光标回退。
 - **保留资源作用域和原始结果**：查询结果持有 range 到调用方 UI 工作结束，原 view 参数和组合快照仍由服务持有，不保存 edit cookie 或回调。退出时先释放查询的 range 引用，再释放组合快照，最后释放 view 参数；mock 组合自身也拥有 range，故最终对象析构顺序为组合、range、view。矩形、clipped、零/倒置坐标、DPI 和回退规则不作归一或策略调整。反向归一证明查询调用/检查/日志及其余组合服务代码与上一提交一致。
-- **补 35 + 6 + 10 组回归**：[`组件测试`](../tests/ime/comp/layout.cpp) 覆盖成功/失败、空/非空输出、`S_FALSE`、矩形形状、各查询边界失效，以及同 epoch 替换组合；6 组资源测试验证结果持有与释放顺序。[`真实服务测试`](../tests/ime/tsf/service_layout.cpp) 新增 10 组通知/活动 view 查询期间停用或重激活，检查旧结果不移动新 popup、查询次数、停用输入拒绝和新组合继续。
+- **补 35 + 6 + 10 组回归**：[`组件测试`](../tests/ime/comp/layout.cpp) 覆盖成功/失败、空/非空输出、`S_FALSE`、矩形形状、各查询边界失效，以及同 epoch 替换组合；6 组资源测试验证结果持有与释放顺序。[`真实服务测试`](../tests/ime/tsf/svc/layout.cpp) 新增 10 组通知/活动 view 查询期间停用或重激活，检查旧结果不移动新 popup、查询次数、停用输入拒绝和新组合继续。
 - **验证与边界**：最终二进制的 x64/x86 完整 TSF/UI 分别通过（33.31s / 20.68s），定向生命周期分别通过（16.74s / 20.51s）；按架构串行、每测试 90 秒超时。双架构 IME DLL/测试构建及 CppCoreCheck 通过，自有源码无新增非 C26490 诊断。复测期间既有按键/Shift 断言多次失败，具体位置见[复查记录](review.md)，有界重跑后通过；根因未确认，不宣称已修复，也未放宽断言或修改无关实现。已检查 RAII、DRY、Core Guidelines/GSL 和缺失覆盖；未运行其他套件、制作 MSI 或新增真实宿主验收。布局通知调度、定位策略及跨阶段协调仍在服务，整体 R05 未完成。
 
 ### 5.40 TSF 布局通知任务与会话协议（R05 第二十二步）
 
 - **归拢布局任务和回调入口**：[`CompositionLayoutTask`](../src/ime/comp/layout.h) 拥有通知 context、可空 view、原票据和活动 ID，不拥有服务、组合或 edit cookie；服务继续保留原本地强引用、自身回调强引用和通知入口门禁。`ExecuteCompositionLayoutInSession` 配对活动 ID 切换/恢复，在原位置验证票据并记录回调日志，然后调用服务定位入口；失效早退、嵌套和异常退出都恢复原活动 ID。
 - **保持读请求与查询时点**：`RequestCompositionLayoutSession` 使用原 `TF_ES_ASYNCDONTCARE | TF_ES_READ`，保留 request/session HRESULT、请求返回后日志和“request 成功才检查 session”规则，不重试或增加写入清理屏障。通知任务不拍组合快照；同 epoch/context 的组合被替换时，仍在回调执行时查询当前组合，进入查询后才使用原组合身份屏障。两个协议反向归一与上一提交一致，服务其余代码不变；FSM、坐标/回退、显示许可和宿主调度策略不变。
-- **补 46 + 14 组回归**：[`布局组件测试`](../tests/ime/comp/layout.cpp) 新增 4 组可空 view 的复制/移动及释放、22 组身份/活动 ID/嵌套/异常、20 组同步/延迟请求结果和队列放弃；验证真实 read 标志、只读 context 可读、通知 view 持有，以及不可复制的有状态回调。[`服务布局测试`](../tests/ime/tsf/service_layout.cpp) 新增 12 组延迟期间继续/焦点丢失/重激活/换目标/同 epoch 组合替换/放弃，另有 2 组外部引用释放后的失效执行或队列放弃，验证服务、context 和 view 最终释放。mock 默认行为不变，只扩展显式 `S_FALSE` 请求结果及排队策略控制。
+- **补 46 + 14 组回归**：[`布局组件测试`](../tests/ime/comp/layout.cpp) 新增 4 组可空 view 的复制/移动及释放、22 组身份/活动 ID/嵌套/异常、20 组同步/延迟请求结果和队列放弃；验证真实 read 标志、只读 context 可读、通知 view 持有，以及不可复制的有状态回调。[`服务布局测试`](../tests/ime/tsf/svc/layout.cpp) 新增 12 组延迟期间继续/焦点丢失/重激活/换目标/同 epoch 组合替换/放弃，另有 2 组外部引用释放后的失效执行或队列放弃，验证服务、context 和 view 最终释放。mock 默认行为不变，只扩展显式 `S_FALSE` 请求结果及排队策略控制。
 - **验证与边界**：x64/x86 IME DLL/测试构建及 CppCoreCheck 通过，自有源码无新增非 C26490 诊断；构造函数按实际无抛出操作声明 `noexcept`，未抑制新增警告。最终完整 TSF/UI 通过（15.50s / 18.28s），定向生命周期通过（11.98s / 12.53s），跨架构串行、每测试 90 秒超时。早期 x64 定向在既有 Shift 断言失败，最终 x64 完整首次在既有菜单可见性断言失败；位置和有界重跑见[复查记录](review.md)，根因未确认，不宣称已修复，未放宽断言。已检查 RAII、DRY、Core Guidelines/GSL 和缺失覆盖；未运行其他套件、制作 MSI 或新增真实宿主验收。通知门禁、服务持有和定位/激活/准备/UI 的跨阶段协调仍在服务，整体 R05 未完成。
 
 ### 5.41 TSF 组合写请求协议（R05 第二十三步）
 
 - **将读写请求归入编辑模块**：[`RequestCompositionEditSession`](../src/ime/comp/edit.h) 收拢原待清理查询、请求标志选择、`RequestEditSession` 和失败诊断。服务保留未准备目标门禁、context/自身强引用、原 `CompositionEditTask` 快照及回调；实际取消/提交/更新、入口裁决、重排队和 UI 协调不迁移。
 - **保持两道清理屏障及结果语义**：请求参数构造时仍由原 `HasPending` 查询/裁剪同 context 的记录，有未发布或普通清理时使用 `TF_ES_ASYNC | TF_ES_READWRITE`，否则使用 `TF_ES_ASYNCDONTCARE | TF_ES_READWRITE`。回调内 `CompositionEditScope` 的票据检查与第二次清理屏障不变；helper 不新增票据检查、重试或等待。session HRESULT 初始值、原 `FAILED(req_hr) || FAILED(session_hr)` 和真实错误值日志保持不变，不把同步/异步请求成功当作编辑完成。反向归一证明请求协议及其余组合服务代码不变，仅增加直接 helper include；FSM 和宿主调度策略不变。
-- **补 80 + 14 组回归**：[`编辑组件测试`](../tests/ime/comp/edit.cpp) 交叉 8 种清理状态与 10 种请求/回调结果，检查强制异步、过期登记裁剪、完整标志/client ID、同步/延迟时点、快照、只读拒绝和队列放弃。[`服务请求测试`](../tests/ime/tsf/service_deferred.cpp) 新增 14 组即时/宿主延迟/待清理模式，验证请求失败、只读及异步拒绝不写入，有清理时不能即时越过旧组合，以及恢复后的完整引擎快照；不重处理按键或改变失败后的引擎策略。
+- **补 80 + 14 组回归**：[`编辑组件测试`](../tests/ime/comp/edit.cpp) 交叉 8 种清理状态与 10 种请求/回调结果，检查强制异步、过期登记裁剪、完整标志/client ID、同步/延迟时点、快照、只读拒绝和队列放弃。[`服务请求测试`](../tests/ime/tsf/svc/deferred.cpp) 新增 14 组即时/宿主延迟/待清理模式，验证请求失败、只读及异步拒绝不写入，有清理时不能即时越过旧组合，以及恢复后的完整引擎快照；不重处理按键或改变失败后的引擎策略。
 - **验证与边界**：x64/x86 IME DLL/测试构建和 CppCoreCheck 通过，自有源码无新增非 C26490 诊断；测试队列计数在相加前使用 `size_t`，修正 x64 算术宽度警告而非抑制诊断。最终完整 TSF/UI 通过（16.22s / 20.49s），定向生命周期通过（14.99s / 13.84s），跨架构串行、每测试 90 秒超时。x64 完整首轮在既有菜单动作数量断言失败，单项有界重跑通过；位置见[复查记录](review.md)，根因未确认，未放宽断言或修改菜单代码，不宣称已修复。已检查 RAII、DRY、Core Guidelines/GSL 和缺失覆盖；未运行其他套件、制作 MSI 或新增真实宿主验收。实际编辑分派、组合/UI 同步和跨阶段协调仍在服务，整体 R05 未完成。
 
 ### 5.42 TSF 编辑动作与 UI 收尾协议（R05 第二十四步）
 
 - **提取动作协议而非引擎决策**：[`ApplyCompositionEditActionInSession`](../src/ime/comp/edit.h) 收拢已通过入口检查后的取消、提交、提交后继续组合、状态更新和无动作分支；服务继续执行真实动作、布局/候选同步，以及入口票据/清理检查与重排队。helper 同步借用结果、context 和回调，不持有服务或保存 cookie，不重新处理按键或增加 FSM 事件。
 - **保持身份屏障与读取顺序**：取消后仅原空组合身份仍当前才结束 UI；提交后先复核原空组合身份，再按原位置读取后续 preedit，选择同步新组合或结束 UI。状态更新仍直接进入原同步流程，无动作仍不操作；未追加入口/动作后的复核。生产结果仍由不可变任务快照提供，真实宿主失败诊断和 HRESULT 返回保持原规则。反向归一证明动作分支、cookie/目标传递、读取/复核/UI 时点及其他组合服务源码不变。
-- **补 52 + 12 组回归并分开测试文件**：[`动作组件测试`](../tests/ime/comp/edit_action.cpp) 新增 32 组动作/文本形状/当前性矩阵、16 组嵌套/异常边界与 4 组提交后 preedit 读取时点；验证精确调用轨迹、原结果/文本借用、不复制的有状态回调和原活动作用域恢复。[`服务动作测试`](../tests/ime/tsf/service_action.cpp) 新增 12 组提交/取消/第五码提交后续写，交叉继续、停用、重激活与同 epoch 组合替换，验证旧动作不结束新 UI、不覆写新 preedit，及第五码保留原 UI 注册后继续输入。两组测试接入既有完整/定向入口，不继续扩大原编辑/重入测试文件。
+- **补 52 + 12 组回归并分开测试文件**：[`动作组件测试`](../tests/ime/comp/edit_action.cpp) 新增 32 组动作/文本形状/当前性矩阵、16 组嵌套/异常边界与 4 组提交后 preedit 读取时点；验证精确调用轨迹、原结果/文本借用、不复制的有状态回调和原活动作用域恢复。[`服务动作测试`](../tests/ime/tsf/svc/action.cpp) 新增 12 组提交/取消/第五码提交后续写，交叉继续、停用、重激活与同 epoch 组合替换，验证旧动作不结束新 UI、不覆写新 preedit，及第五码保留原 UI 注册后继续输入。两组测试接入既有完整/定向入口，不继续扩大原编辑/重入测试文件。
 - **验证与边界**：x64/x86 IME DLL/测试构建和 CppCoreCheck 通过，自有源码无新增非 C26490 诊断；测试 UI 只观察，改为 const 指针，未抑制诊断。最终在用户确认暂停键盘/窗口操作后，完整 TSF/UI 通过（21.39s / 22.72s），定向生命周期通过（15.46s / 17.83s），跨架构串行、每测试 90 秒超时。此前两轮在不同既有菜单/按键断言失败，其中一次明确记录 Alt 按下状态；完整位置见[复查记录](review.md)，不能据此解释所有失败或宣称已修复。未清空系统按键、放宽断言或修改无关代码。已检查 RAII、DRY、Core Guidelines/GSL 和缺失覆盖；未运行其他套件、制作 MSI 或新增真实宿主验收。实际动作执行、组合/UI 同步和跨阶段协调仍在服务，整体 R05 未完成。
 
 ### 5.43 TSF 组合与候选呈现同步（R05 第二十五步）
 
 - **归拢更新/定位/发布协议**：[`SyncCompositionPresentationInSession`](../src/ime/comp/presentation.h) 持有开始/更新返回的原组合，按原顺序执行组合身份复核、定位、第二次组合身份复核和候选发布。服务保留原票据和真实开始/更新、定位与候选入口；helper 同步借用结果、context 和回调，不存 cookie 或新增调度。
 - **保留空返回和强引用作用域**：返回组合可为空，仍由原身份谓词裁决，不另加非空/空 preedit 门禁或编造成功。非空组合强引用跨越定位和候选发布，早退或异常时按原作用域释放；不提前丢弃返回结果，也不重读服务组合槽替代原身份。反向归一证明两次复核、原调用顺序及其余组合服务代码一致。显示许可、定位/回退、FSM、错误策略与活动 ID 作用域不变。
-- **补 17 + 6 组回归**：[`呈现组件测试`](../tests/ime/comp/presentation.cpp) 新增 12 组空/非空组合、空/非空 preedit 和两处失效矩阵，以及 5 组异常边界，验证调用轨迹、精确引用数、原文本/结果借用和最终释放。[`服务同步测试`](../tests/ime/tsf/service_action.cpp) 新增 6 组更新/定位回调内停用、重激活或同 epoch 替换，验证旧同步不追加候选操作、不覆写替代 preedit，并可继续为 `cd`。既有动作、布局查询与发布矩阵保留。
+- **补 17 + 6 组回归**：[`呈现组件测试`](../tests/ime/comp/presentation.cpp) 新增 12 组空/非空组合、空/非空 preedit 和两处失效矩阵，以及 5 组异常边界，验证调用轨迹、精确引用数、原文本/结果借用和最终释放。[`服务同步测试`](../tests/ime/tsf/svc/action.cpp) 新增 6 组更新/定位回调内停用、重激活或同 epoch 替换，验证旧同步不追加候选操作、不覆写替代 preedit，并可继续为 `cd`。既有动作、布局查询与发布矩阵保留。
 - **验证与边界**：x64/x86 IME DLL/测试构建和 CppCoreCheck 通过，自有源码无新增非 C26490 诊断。协调安静复测后，完整 TSF/UI 最终通过（26.41s / 22.73s），定向生命周期通过（19.83s / 19.76s），跨架构串行、每测试 90 秒超时。x86 完整首轮达到超时（CTest 报告 89.85s），无输出可定位阶段，单项有界重跑通过；不扩大超时、不放宽断言，不将重跑视为挂起修复。已检查 RAII、DRY、Core Guidelines/GSL 和缺失覆盖；未运行其他套件、制作 MSI 或新增真实宿主验收。实际宿主编辑、定位/候选策略及激活/准备协调仍在服务，整体 R05 未完成。
 
 ### 5.44 TSF 组合开始、发布与更新（R05 第二十六步）
@@ -918,6 +929,6 @@ ctest --preset x64-release -R '^QiQiChangeSyncTest$' --output-on-failure
 
 - **先复现入口缺口再修复**：最小服务测试证实 `PreserveKey` 重入 `Deactivate` 后，旧外层激活仍成功，x64 定向 7.02s 在新增断言失败。用户同意将此路径定义为取消：激活中拒绝嵌套激活（`E_UNEXPECTED`），停用令外层最终返回 `E_ABORT`；正常必需登记失败保留 `E_FAIL`，原宿主/清理 HRESULT 独立诊断。
 - **完成登记所有权后统一清理**：[`激活/停用实现`](../src/ime/tsf/tip_service.cpp) 用 RAII 恢复过渡标志，自身强引用跨越回调、清理和标志恢复。取消立即关闭活跃/UI 许可并失效票据，重复取消幂等；当前登记协议返回并记录 cookie/key/provider/item/compartment 所有权后，使用仍有效的 manager/client ID 执行原停用。后续初始化、preserved key 和 [`compartment 绑定/写入`](../src/ime/tsf/tip_config.cpp) 停止，不将迟到成功当作激活成功。C++ 异常仍传播，测试验证显式停用后可重试。
-- **57 组交接覆盖**：[`服务窗口/生命周期测试`](../tests/ime/tsf/service_windows.cpp) 新增 16 个登记/读写点与嵌套激活、取消/重复取消、必需登记失败共 54 组，另有异常恢复及两个释放最后调用方引用的场景。验证每个实际成功登记只清理一次、取消后不吃键或继续写 compartment、新激活可重新输入；矩阵每行单独计时，原日志和 dump 均保留。
+- **57 组交接覆盖**：[`服务窗口/生命周期测试`](../tests/ime/tsf/svc/windows.cpp) 新增 16 个登记/读写点与嵌套激活、取消/重复取消、必需登记失败共 54 组，另有异常恢复及两个释放最后调用方引用的场景。验证每个实际成功登记只清理一次、取消后不吃键或继续写 compartment、新激活可重新输入；矩阵每行单独计时，原日志和 dump 均保留。
 - **验证记录**：双架构 DLL/测试构建及 CppCoreCheck 通过，自有源码无新增非 C26490 诊断。首轮 x64 完整/定向在新增固定解除次数预期失败（14.85s / 12.69s）；提前取消尚未登记 key sink，改为核对实际成功登记数，未修改生产行为。最终 x64 完整/定向 22.90s / 18.56s、x86 25.08s / 18.71s 通过，无超时；90 秒进程上限、150 秒外层预算及保留证据策略不变。
 - **明确收口而非无限拆分**：非取消路径的完整配置/服务实现逆向归一与原宿主顺序一致，原 COM 成员顺序保持；有意新增的行为仅为过渡门禁/取消、必要自身保活及失败诊断。RAII、复用、Core Guidelines/GSL 和覆盖检查完成，FSM、焦点版本、中英更新顺序、定位及显示许可不变。R05 代码边界及双架构自动验收已收口，整体勾选仍待既定真实宿主人工验收；不再计划微小包装或万能协调器，未制作 MSI。

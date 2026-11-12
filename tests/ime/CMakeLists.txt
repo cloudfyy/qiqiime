@@ -3,6 +3,11 @@
 
 set(QIQI_ENGINE_TEST_SOURCES
     engine/dict.cpp
+    engine/dict/test.h
+    engine/dict/binary.cpp
+    engine/dict/external.cpp
+    engine/dict/lookup.cpp
+    engine/dict/sync.cpp
     engine/input.cpp
     engine/modes_punct.cpp
     engine_main.cpp
@@ -41,24 +46,36 @@ set(QIQI_TSF_UI_TEST_SOURCES
     comp/termination_route.cpp
     comp/update.cpp
     tsf/mocks.h
+    tsf/mock/base.h
+    tsf/mock/compartment.h
+    tsf/mock/context.h
+    tsf/mock/document.h
+    tsf/mock/profile.h
+    tsf/mock/range.h
+    tsf/mock/thread.h
     tsf/test_trace.h
     tsf/com.cpp
     tsf/category_manager.cpp
     tsf/logging.cpp
     tsf/restricted_input.cpp
-    tsf/service.cpp
-    tsf/service_action.cpp
-    tsf/service_lifecycle.h
-    tsf/service_lifecycle.cpp
-    tsf/service_cleanup.cpp
-    tsf/service_context.cpp
-    tsf/service_layout.cpp
-    tsf/service_deferred.cpp
-    tsf/service_native.cpp
-    tsf/service_presentation.cpp
-    tsf/service_reentrancy.cpp
-    tsf/service_target.cpp
-    tsf/service_windows.cpp
+    tsf/svc/main.cpp
+    tsf/svc/test.h
+    tsf/svc/dict.cpp
+    tsf/svc/flow.cpp
+    tsf/svc/focus.cpp
+    tsf/svc/keys.cpp
+    tsf/svc/action.cpp
+    tsf/svc/lifecycle.h
+    tsf/svc/lifecycle.cpp
+    tsf/svc/cleanup.cpp
+    tsf/svc/context.cpp
+    tsf/svc/layout.cpp
+    tsf/svc/deferred.cpp
+    tsf/svc/native.cpp
+    tsf/svc/presentation.cpp
+    tsf/svc/reentrancy.cpp
+    tsf/svc/target.cpp
+    tsf/svc/windows.cpp
     ui/ui_candidate.cpp
     ui/ui_langbar_menu.cpp
     ui/ui_statusbar.cpp
