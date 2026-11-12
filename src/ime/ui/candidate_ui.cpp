@@ -133,6 +133,9 @@ void CandidateUI::RecalculatePopupLayout() {
     int cursor_x = margin_x;
     int widest_item = 0;
     const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
+    if (vertical && start >= end) {
+        widest_item = MeasureTextWidth(screen_dc.Get(), GetUiStrings(ui_language_).candidate_empty);
+    }
     for (size_t i = start; i < end; ++i) {
         const size_t idx_in_page = i - start;
         const std::wstring label = FormatCandidateLabel(idx_in_page, gsl::at(all_candidates_, i));
@@ -149,7 +152,7 @@ void CandidateUI::RecalculatePopupLayout() {
     const int content_width = std::max<int>(
         header_cx + margin_x * 2 + nav_reserve_cx,
         vertical ? widest_item + margin_x * 2 : cursor_x + margin_x + nav_reserve_cx);
-    popup_width_ = std::max(ScaleByDpi(kPopupWidth), content_width);
+    popup_width_ = vertical ? content_width : std::max(ScaleByDpi(kPopupWidth), content_width);
     popup_height_ = vertical
         ? row2_top + gsl::narrow_cast<int>(std::max<size_t>(1, end - start)) * row_height + ScaleByDpi(4)
         : ScaleByDpi(kPopupHeight);
