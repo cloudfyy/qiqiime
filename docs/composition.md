@@ -540,6 +540,11 @@ fallback only when the current flag is false; successful fallback moves without
 automatically making that flag true. Failure, including failure with rectangle
 output, logs unchanged positioning without movement.
 
+The GUI/cursor fallback uses a shared synthetic caret size of 2 by 20 screen
+pixels. The focused-window fallback offsets its origin by 20 pixels horizontally
+and 24 pixels vertically. These values are named constants in
+[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp).
+
 Clipped, zero or inverted rectangles gain no extra gate or normalization.
 The original callbacks execute synchronously, with no added identity check or
 state write afterward. Changes to the live flag inside callbacks survive.

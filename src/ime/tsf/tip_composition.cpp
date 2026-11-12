@@ -13,6 +13,11 @@ namespace qiqi {
 
 namespace {
 
+constexpr LONG kFallbackFocusOffsetXPx = 20;
+constexpr LONG kFallbackFocusOffsetYPx = 24;
+constexpr LONG kFallbackCaretWidthPx = 2;
+constexpr LONG kFallbackCaretHeightPx = 20;
+
 bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
     GUITHREADINFO gti{};
     gti.cbSize = sizeof(gti);
@@ -28,14 +33,18 @@ bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
         if (gti.hwndFocus) {
             RECT focus_rc{};
             if (::GetWindowRect(gti.hwndFocus, &focus_rc)) {
-                out_rc = RECT{focus_rc.left + 20, focus_rc.top + 24, focus_rc.left + 22, focus_rc.top + 44};
+                const LONG left = focus_rc.left + kFallbackFocusOffsetXPx;
+                const LONG top = focus_rc.top + kFallbackFocusOffsetYPx;
+                out_rc = RECT{left, top, left + kFallbackCaretWidthPx, top + kFallbackCaretHeightPx};
                 return true;
             }
         }
     }
     POINT cursor_pt{};
     if (::GetCursorPos(&cursor_pt)) {
-        out_rc = RECT{cursor_pt.x, cursor_pt.y, cursor_pt.x + 2, cursor_pt.y + 20};
+        out_rc = RECT{
+            cursor_pt.x, cursor_pt.y,
+            cursor_pt.x + kFallbackCaretWidthPx, cursor_pt.y + kFallbackCaretHeightPx};
         return true;
     }
     return false;
