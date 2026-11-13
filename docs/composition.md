@@ -335,7 +335,7 @@ RAII releases captured resources when execution finishes or TSF abandons the req
 | `async_requested` | Recovery was attempted, not necessarily accepted/executed |
 | `context_removed` | No further edits are permitted on the captured removed target |
 
-Expired/finished records are pruned when queried. `tracked_cleanups` is a weak
+Expired/finished records are pruned when queried. `cleanup_registry_slots` is a weak
 container slot count, not the number of pending or successful requests.
 `released` is emitted before member COM references are destroyed.
 

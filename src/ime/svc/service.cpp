@@ -296,7 +296,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
         log::Level::debug,
         log::Keyword::Lifecycle,
         &act_id,
-        "TsfLifecycle(service={}, stage=deactivate-local-complete, activation={}, context={}, tracked_cleanups={})",
+        "TsfLifecycle(service={}, stage=deactivate-local-complete, activation={}, context={}, cleanup_registry_slots={})",
         service_log_id_,
         composition_lifecycle_.Epoch().activation,
         composition_lifecycle_.Epoch().context,
