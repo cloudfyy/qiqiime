@@ -430,22 +430,38 @@ thread manager/client state, and clears external dictionaries without waiting
 for queued cleanup. A host can abandon a request or deny a write lock.
 `Deactivate == S_OK`, callback exit, and `finished` do not certify host cleanup.
 
-### 4.1 Native Windows and Retained UI Objects
+### 4.1 Destroying UI Windows While Retaining UI Objects
 
-Disable presentation before teardown. Retire the candidate element ID, destroy
-the candidate popup, status tooltip, and status bar on their owning thread, then
-release TSF registrations. Native failure retains the handle for a possible
-owner-thread retry while the remaining TSF teardown continues.
+A native window (identified by an `HWND`) is distinct from the C++/COM UI object
+that manages it. Deactivation destroys the candidate popup, status tooltip, and
+status bar windows, but retains UI objects for reuse when the service is
+activated again. Retaining an object does not keep its window open.
 
-`WM_NCDESTROY` clears only the matching stored handle. Wrong-thread destruction
-is rejected with real diagnostics; final destruction is not marshalled to an
-arbitrary thread. `Deactivate` returns `E_FAIL` on native window-destruction
-failure, separately from host composition/UI-element results.
+Teardown follows this order:
 
-Retained UI objects stay allocated for reactivation but cannot reopen inactive
-windows: candidate `Show(TRUE)` returns `S_FALSE` and `IsShown` reports false
-while presentation is disabled. Final service destruction disconnects callbacks
-capturing the service. Independent cleanup cannot recreate UI.
+1. Disable presentation so reentrant callbacks cannot reopen the UI.
+2. Retire the candidate UI element ID and destroy each native window on the
+   thread that created it.
+3. Release TSF registrations and continue the remaining service teardown.
+
+Window destruction must not silently lose ownership:
+
+- Destruction from the wrong thread is rejected and the actual failure is logged;
+  final destruction is not redirected to an arbitrary thread.
+- If destruction fails, retain the window handle so the owning thread can retry.
+  The remaining TSF teardown still proceeds, but `Deactivate` returns `E_FAIL`
+  for the native window-destruction failure. This result is separate from
+  whether host composition cleanup or TSF UI-element operations succeeded.
+- When `WM_NCDESTROY` arrives, clear the stored handle only if it matches the
+  window being destroyed; do not clear a replacement window's handle.
+
+While presentation is disabled, retained UI objects cannot reopen windows.
+The candidate UI's `Show(TRUE)` returns `S_FALSE`, and `IsShown` reports false.
+Independent cleanup of an old composition cannot recreate UI.
+
+When the service itself is finally destroyed, disconnect UI callbacks that
+capture the service so retained UI objects cannot call back into a destroyed
+service.
 
 ## 5. Key Execution Sequences
 
@@ -464,9 +480,24 @@ Capture/request evidence is needed to distinguish rejection from abandonment.
 
 ### 5.3 Immediate Reactivation on the Same Context
 
-`TF_ES_ASYNCDONTCARE` is zero and permits synchronous execution. A new synchronous
-write can overtake an old queued cleanup, so explicitly queue new writes behind
-matching unfinished cleanup. Other contexts are unaffected.
+Local deactivation can finish while cleanup of the old composition is still
+queued in TSF. The same service instance may then be reactivated on the same
+`ITfContext` and receive new input before that cleanup runs. Old cleanup and new
+input would both modify the same document, so their execution order matters:
+the old cleanup must not run after the new composition has already been created
+or updated and interfere with its display attributes or composition state.
+
+`TF_ES_ASYNCDONTCARE` is zero; it lets TSF choose synchronous or asynchronous
+execution rather than requiring queuing. A new write requested with this flag
+could therefore execute immediately, ahead of the old queued cleanup.
+
+To prevent that ordering, the IME checks for unfinished cleanup associated with
+the target context. If one exists, it requests the new write with `TF_ES_ASYNC`
+so it can run after the old cleanup. Cleanup on a different context does not
+force this new write to be asynchronous.
+
+The following sequence shows the ordinary case: TSF accepts both asynchronous
+requests and executes them in queue order, with the old cleanup first.
 
 ```mermaid
 sequenceDiagram
@@ -485,11 +516,21 @@ sequenceDiagram
     Service->>Document: Start or update new composition
 ```
 
-This sequence assumes accepted asynchronous FIFO scheduling, a current new ticket,
-and no intervening removal/termination. If reactivation occurs inside an
-outstanding `StartComposition`, a new callback can precede the late cleanup.
-The execution-side check requeues the **same snapshot** behind it; it does not
-process the key again or advance the FSM.
+The diagram also assumes the new edit ticket remains current and no context
+removal or host termination intervenes. Queuing alone is not sufficient for
+every reentrant sequence. For example:
+
+1. An old `StartComposition` call is still in progress.
+2. The host reenters the IME, which deactivates, reactivates, and queues a new
+   write on the same context.
+3. The old `StartComposition` returns a stale but still-live composition. Only
+   now can the IME schedule cleanup for that result, behind the new write.
+
+For this reason, each new edit callback checks again for matching unfinished
+cleanup before modifying the document. If cleanup is still pending, the callback
+requeues the **same captured edit snapshot** behind it instead of applying the
+edit. It does not process the key again or advance the input state machine.
+If the edit ticket is no longer current, the callback discards the task instead.
 
 ### 5.4 Early Host Termination of the Old Composition
 
