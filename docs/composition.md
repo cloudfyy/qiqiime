@@ -170,6 +170,32 @@ operations and only end UI or start a following composition if still current.
 and activity. Deferred service callbacks retain the service separately; the task
 itself owns neither a service nor an edit cookie.
 
+For example, consider an update of composition C1 in input field A:
+
+1. The callback updates C1's preedit text, then checks that C1 is still current.
+2. While querying its position, a host call reenters the service and replaces C1
+   with C2 in the same field.
+3. Identity checks stop the old positioning work and candidate publication.
+   C1's callback must not move or overwrite C2's candidate UI, even if the input
+   context and version counters still match.
+
+Similarly, a commit of C1 may reenter the host while ending the composition.
+If a new composition C2 becomes current during that call, the old commit path
+must not close C2's candidate UI or start C1's follow-on composition. The guarded
+continuation stops; any host edits already completed are not rolled back.
+
+For deferred ownership, suppose the engine produces result R and TSF queues the
+edit callback. The task keeps A's context alive, stores a fixed copy of R, and
+records the ticket and diagnostic activity ID. Later engine changes cannot rewrite
+that copy. The enclosing callback separately holds a strong service reference,
+so the service also remains allocated while that callback is retained. Neither
+reference guarantees that the request is still valid.
+
+When TSF invokes the callback, it supplies the edit cookie for that session.
+If the result must be requeued behind cleanup, the retry uses the same result but
+waits for TSF to supply a cookie for the retry's own session. It never saves the
+first cookie for later use; the task does not own or retain that permission.
+
 In the [service adapter](../src/ime/svc/composition.cpp#L166),
 `ApplyCompositionEditInSession` coordinates stale rejection, cleanup requeueing,
 and execution. `ApplyAdmittedCompositionEditInSession` handles the execution path:
@@ -183,11 +209,35 @@ Invalidate the context epoch before teardown can reenter. Every
 Only the outer entered scope performs cleanup/local teardown and clears the reset
 flag on exit. A nested reset invalidates work without repeating teardown.
 
+For example, resetting A advances its context version from 5 to 6 before calling
+the host to clean up the old composition. A queued request holding version 5 is
+already invalid if the host invokes it during cleanup. If that host call reenters
+the service and requests another reset, the nested scope advances the version to
+7, sees that resetting is already in progress, and skips duplicate teardown.
+Exiting the nested scope leaves the resetting flag set. Only the outer scope
+finishes local teardown and clears that flag; requests holding either version 5
+or 6 remain invalid afterward.
+
 For a new input target, retain its pending context, reset the old target, query
 its parent, publish the new context/document, and connect subscriptions.
 Check the predicted ticket after reset and after reentrant host calls. Withdraw
 a subscription published after invalidation. A Pop of the pending context must
 cancel preparation even before the context is published.
+
+For example, when moving from A to B, the service first retains B as the pending
+target, then resets A. The predicted ticket describes the context version expected
+after that reset; it is checked along with preparation state before proceeding.
+The service queries B's parent document manager, stores B and its document as the
+current target, and registers the relevant event listeners. Here, "publish" means
+updating local service state, not sending data to another process or the network.
+
+If a host call removes B with `Pop` while B is still pending, preparation is
+cancelled even though B has not yet become the current target. A strong reference
+can keep B allocated, but cannot make the removed context valid again. Likewise,
+if registration returns after preparation has been invalidated, the service
+withdraws that newly registered listener rather than leaving a stale binding.
+These checks prevent an interrupted preparation from later installing B or its
+listeners as if nothing had changed.
 
 Missing parent/layout information has its diagnosed existing nonfatal policy;
 it does not fabricate a relationship or grant write access. The actual session
@@ -195,10 +245,27 @@ request still determines access.
 
 ### 2.1 In-Flight Host Calls
 
+The [reentrancy-safe host-operation implementation plan](reentrancy-plan.md)
+proposes reusable checked identities and an incremental migration. It does not
+replace the current checks or imply that the proposed guards are implemented.
+
 Range lookup, text/selection changes, property calls, and termination can reenter
 the service. Retain the original composition and recheck epoch/target/composition
 at the existing operation boundaries. A successful entry check is insufficient.
 These checks cannot undo a host call that has already started.
+
+For example, an update callback checks that composition C1 in input field A is
+current, then calls the host to write its preedit text. Before that call returns,
+the host calls back into the service and terminates C1 or switches the input
+target to B. The original update callback then resumes, but its successful entry
+check is no longer enough: it must recheck the ticket and captured composition
+before changing the selection, positioning candidates, or publishing UI.
+
+Keeping a strong reference to C1 makes it safe to retain that object through the
+call; it does not make C1 current again. If the check now fails, the callback stops
+the remaining work. Any text change the host already performed during the first
+call is not automatically undone. This is why checks belong at the individual
+host-operation boundaries, rather than only at the callback's entry.
 
 Update returns the captured composition so subsequent positioning and publication
 use the same identity. A null expected composition can match an empty slot;

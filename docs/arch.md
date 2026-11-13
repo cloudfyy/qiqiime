@@ -386,6 +386,16 @@ commitment or a dated execution order:
 
 ### Tracked follow-up
 
+- [ ] Measure input-path allocation pressure and deferred edit-session retention.
+  Count allocations and allocated bytes per key/edit request, including result
+  snapshot copies and stored callbacks; measure snapshot size and requeue counts.
+  Track pending edit-session count and retained-byte peaks under normal and slow
+  host delivery. Measure heap usage after sustained input and queue drainage to
+  distinguish temporary retention, leaks, allocator caching, and fragmentation.
+  Compare metrics-disabled and metrics-enabled runs to quantify measurement
+  overhead. Use evidence before changing snapshot ownership, callback storage,
+  or introducing object pools; do not record input text or candidate contents.
+
 - [ ] Add configurable hotkeys and selectable Haifeng/Jidian key presets.
   Verify the default bindings against documented versions before defining the
   presets, and confirm whether they cover shortcuts only or broader key behavior.
