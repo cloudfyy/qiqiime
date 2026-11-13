@@ -7,7 +7,7 @@ namespace qiqi {
 
 STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
     HandleFocusChanged(fForeground != FALSE, FocusNotificationSource::KeyEvent);
-    if (fForeground && !password_context_) ObserveFocusedPasswordContext();
+    if (fForeground && !password_context_)  ObserveFocusedPasswordContext();
     return S_OK;
 }
 
