@@ -155,17 +155,71 @@ before starting D. Use this order:
 | Order | Work | Prerequisite and completion gate |
 | --- | --- | --- |
 | 1 | Establish guards and a small migration pilot (A/B; completed) | Existing diagnostics and ownership semantics reused; x64/x86 lifecycle and UI tests pass |
-| 2 | Inventory remaining reentrant boundaries and classify protocols (C) | Record original identity, dependent continuation, failure policy and ownership; distinguish ordinary edits from start/finish, preparation and cleanup |
-| 3 | Mark the already-reviewed pilot methods (D) | Step 2 supplies precise marker rules; mark only methods whose required protection is understood |
+| 2 | Inventory remaining reentrant boundaries and classify protocols (C; scoped inventory completed below) | Record original identity, dependent continuation, failure policy and ownership; distinguish ordinary edits from start/finish, preparation and cleanup |
+| 3 | Mark the already-reviewed pilot methods (D; initial eight markers added) | Step 2 supplies precise marker rules; mark only methods whose required protection is understood |
 | 4 | Implement protection-presence checking and run in report-only CI (D) | Step 3 supplies real fixtures; recognize protected-helper delegation and report parse/configuration failures |
 | 5 | Extend guard reuse to compatible remaining sites (C) | Step 4 reports omissions; each migration preserves protocol and release order and passes focused reentrancy tests |
 | 6 | Enable blocking CI for verified presence rules (D) | Step 4 fixtures and step 5 migrations demonstrate acceptable false-positive behavior; unsupported protocols remain explicit |
 | 7 | Add high-confidence boundary/control-flow rules (E) | Reviewed call inventory, guard semantics and helper summaries are stable; add negative/positive fixtures before making each rule blocking |
 
-The next action is step 2, not a broad mechanical guard rewrite or immediate
+The next action is step 4, not a broad mechanical guard rewrite or immediate
 full control-flow analyzer. Steps 5 and 6 cover only protocols whose rules have
 been verified; do not delay useful pilot checks until every specialized protocol
 has been generalized. Runtime reentrancy tests remain a gate throughout.
+
+### Scoped host-boundary inventory (step 2)
+
+The inventory covers composition editing, layout/presentation, target preparation,
+cleanup, and the access queries they depend on. It is not a complete audit of all
+TSF, configuration, activation, or native-window code. Each row records current
+behavior, not a request to insert checks mechanically after every instruction.
+
+| Operation | Host boundary and dependent continuation | Original identity and ownership | Error policy / classification |
+| --- | --- | --- | --- |
+| [EnterCompositionEditRequest / RequestCompositionEditSession](../src/ime/comp/edit.h) | `RequestEditSession` may deliver synchronously; later callbacks validate before editing | Task owns context/result; callback owns service; ticket captured before request | Log actual request/session HRESULTs; no automatic request-failure retry. Context admission plus request protocol |
+| [ExecuteCompositionEditInSession](../src/ime/comp/edit.h) | Check ticket before pending cleanup; requeue the result or delegate execution | Original task and activity scope remain alive throughout callback | Stale/requeue returns do not mean edits succeeded. Context-protected delegation |
+| [ApplyAdmittedCompositionEditInSession](../src/ime/svc/composition.cpp) | Access queries can reset state; recheck before/after deferred promotion and action dispatch | Fixed ticket in context guard; context/service retained by enclosing callback | Preserve `can_input`/`can_learn` policy and skip semantics. `context` |
+| [UpdateCompositionInSession / WriteCompositionTextAndCaret](../src/ime/comp/update.h) | `GetRange`, `SetText`, `Clone`, `Collapse`, `SetSelection`, `GetProperty`, `SetValue`; recheck before subsequent mutations | Composition guard retains original object; local range/property/caret owners; helper receives the same guard predicate | Range/clone failures stop their path; text/caret/attribute best-effort behavior remains. `composition` delegation |
+| [ClearCompositionDisplayAttribute](../src/ime/comp/attribute.h) | Check before `GetProperty`, then before `Clear`; caller checks before its continuation | Local property owner; context/range and validity predicate supplied by caller | Return real HRESULT, diagnose missing property; stale uses `S_FALSE`. Shared helper for composition and independent-cleanup policies |
+| [PrepareCompositionStart / BeginCompositionInSession](../src/ime/comp/start.h) | QI, query-only insertion and `StartComposition`; validate prepared outputs and resolve reentrant termination before publication | Original ticket and expected empty slot; preparation resources and tracked unpublished result | Distinguish failed/null/stale/terminated results and cleanup handoff. Specialized start protocol; not a plain `composition` marker |
+| [SyncCompositionPresentationInSession](../src/ime/comp/presentation.h) | Update returns original object; check before position and again before candidate publication | Returned composition moved into a guard; outer context predicate stays fixed | Preserve update result/failure behavior; no blanket non-null guard. `composition` |
+| [QueryCompositionLayoutInSession / UpdateCompositionLayoutPositionInSession](../src/ime/comp/layout.h) | `GetActiveView`, `GetRange`, `GetTextExt`; invalidation prevents positioning and fallback publication | Original composition guard, ticket, retained view and returned range | Preserve optional-position/fallback diagnostics and real errors. `composition` delegation |
+| [UpdateCandidateWindowPositionInSession](../src/ime/svc/composition.cpp) | `GetWnd` and position helper can reenter; recheck before moving the captured UI | Fixed context guard, original composition owner and captured UI; view borrowed only synchronously | Failed window lookup keeps diagnosed fallback policy. `composition` |
+| [PresentCompositionCandidates / BeginOrUpdateCandidateUI](../src/ime/comp/presentation.h) | Manager QI and `BeginUIElement`; check before publish/update, withdraw a stale returned element ID | Outer adapter has fixed ticket; local UI-manager owner and returned ID; outer composition checks remain separate | Preserve popup/UILess and manager-failure fallback; stale successful registration needs compensation. Context protection plus UI-registration protocol |
+| [EndCompositionCandidatePresentation](../src/ime/comp/presentation.h) | Hide/detach old element ID before manager QI / `EndUIElement`; no late overwrite of current ID | Capture old manager and numeric ID before host calls | Diagnose HRESULT; do not recapture replacement manager/ID. Specialized retirement protocol |
+| [FinishCompositionInSession / FinishOrInsertCompositionInSession](../src/ime/comp/finish.h) | Guard range/text/attribute/caret steps; detach old state before `EndComposition` | Retained original context/composition/range; caller's fixed ticket | Preserve best-effort failures and explicit transition from old composition to expected empty slot. Specialized finish protocol |
+| [InsertCommittedTextInSession](../src/ime/comp/finish.h) | QI, check expected empty state, then final `InsertTextAtSelection` | Local insertion/range owners; caller retains context and expected-empty predicate | Empty text is a no-op; diagnose insertion failure; no following dependent mutation. Finish helper, not context-only |
+| [HandleCompositionTermination / CompleteCurrentCompositionTermination](../src/ime/comp/finish.h) | Route tracked old notifications first; detach current composition before range/property cleanup; check before reset | Captured context, old composition and returned range; ticket plus expected empty slot | Ignore unrelated old notifications; preserve cleanup routing and reset rules. Specialized termination protocol |
+| [PrepareCompositionTarget](../src/ime/comp/target.h) | Reset, `GetDocumentMgr`, sink `Advise`; validate predicted ticket and withdraw registration after invalidation | Pending context owner, local parent document, post-reset ticket and sink cookie | Missing parent/layout connection keeps diagnosed nonfatal policy; pending Pop cancels. Specialized preparation protocol |
+| [MatchesCompositionDocument / ReconcileCompositionDocumentTarget](../src/ime/comp/target.h) | COM identity queries; `GetTop`/`GetBase` read group, then validate before reset or document assignment | Captured original context/ticket and local top/base identities | Diagnose actual errors; preserve existing grouped-query order. Document reconciliation, requires dedicated summary |
+| [ReadFastContextFacts / QueryContextInputScopeInSession](../src/ime/comp/access_policy.h) | Compartment/status/view/property/scope queries; caller-supplied validity checks gate use of facts | Local COM/VARIANT/scope-array owners; context/cache ticket supplied by access facade | Preserve Unknown vs QueryError and optional-signal policy; release boundaries can reenter. Read-only query protocol, not a composition guard |
+| [RequestCompositionCleanup / ExecuteCompositionCleanup](../src/ime/comp/cleanup.cpp) | `GetRange`, sync/async requests, attribute clear and `EndComposition`; recheck termination/removal before continuing | Shared captured-old cleanup record owns context/composition/range; registry does not own callback lifetime | Retry only synchronous-access refusal under existing conditions; log real errors and finish evidence. Independent `cleanup` |
+| [HandleCompositionCleanupTermination](../src/ime/comp/cleanup.cpp) | Record termination before clearing attributes; distinguish unpublished start records from scheduled cleanup | Find and retain matching old cleanup record; no current-service equality requirement | Avoid duplicate clear/end work; preserve removed-context checks. Independent `cleanup` with start-record special case |
+
+#### Eligibility and retained exceptions
+
+- Mark ordinary context/composition pilot adapters and their reviewed protected
+  helpers now. Existing strong owners and error semantics remain unchanged.
+- Do not require a composition guard in access queries or a current-service guard
+  in old cleanup. `ClearCompositionDisplayAttribute` remains multi-policy.
+- Do not add a plain marker to start, finish, termination, preparation or UI
+  retirement until the checker can represent their explicit identity transitions.
+- Terminal calls may have no further dependent mutation; still diagnose their
+  results. COM outputs and local-reference destruction remain ownership boundaries,
+  not places to invent success or silently refresh the original ticket.
+- `GetTop`/`GetBase` and compartment fact reads retain their existing grouped-query
+  contracts; the checker needs reviewed helper summaries, not an indiscriminate
+  "one guard immediately after every COM call" rule.
+
+Existing evidence includes [reentrant edit/start cases](../tests/ime/svc/reentrancy.cpp),
+[start publication](../tests/ime/comp/start_update.cpp),
+[target preparation/reconciliation](../tests/ime/comp/target.cpp),
+[presentation](../tests/ime/comp/presentation.cpp),
+[layout](../tests/ime/comp/layout.cpp),
+[cleanup](../tests/ime/comp/cleanup.cpp), and
+[edit execution routes](../tests/ime/comp/edit_execution.cpp).
+These tests are prior behavior evidence, not proof that an unimplemented static
+checker has verified every boundary.
 
 ### Phase A: characterize and introduce the guards (pilot completed)
 
@@ -201,7 +255,7 @@ The pilot has migrated update-to-position-to-publication and layout identity
 plumbing. It does not claim a completed audit of all TSF/UI calls, and deliberately
 does not unify start publication, finish transitions, target preparation or cleanup.
 
-### Phase D: mark protected methods and report missing guards (planned)
+### Phase D: mark protected methods and report missing guards (markers piloted; checker planned)
 
 Use structured source comments immediately above function declarations or
 definitions. The comments describe the required protection, not whether the
@@ -220,6 +274,21 @@ Use one applicable marker per function:
 | `context` | Original-ticket context checks |
 | `composition` | Original-ticket and expected-composition checks, including explicitly expected empty state |
 | `cleanup` | Independent captured-object termination/removal checks, not current-service activation checks |
+
+The initial markers are on definitions only; declarations inherit the same
+symbol's classification. The checker must associate declarations and definitions,
+not require duplicate comments:
+
+| Marked definition | Category | Protection the first-stage checker must recognize |
+| --- | --- | --- |
+| [ApplyCompositionEditInSession](../src/ime/svc/composition.cpp#L167) | `context` | Delegation to `ExecuteCompositionEditInSession` with original-ticket validity callback |
+| [ApplyAdmittedCompositionEditInSession](../src/ime/svc/composition.cpp) | `context` | Local `ContextEditGuard`, access/promotion checkpoints and protected action dispatch |
+| [SyncCompositionUIInSession](../src/ime/svc/composition.cpp) | `composition` | Fixed context guard delegates to guarded `SyncCompositionPresentationInSession` |
+| [UpdateCandidateWindowPositionInSession](../src/ime/svc/composition.cpp) | `composition` | Local fixed context/composition guards plus protected layout helper |
+| [BeginOrUpdateCandidateUI](../src/ime/svc/composition.cpp) | `context` | `EnterCompositionCandidatePresentation` supplies ticket; `PresentCompositionCandidates` receives original-ticket validity callback |
+| [UpdateCompositionInSession](../src/ime/comp/update.h) | `composition` | Local `CompositionEditGuard`, reused by text/caret helper |
+| [SyncCompositionPresentationInSession](../src/ime/comp/presentation.h) | `composition` | Returned composition retained in local guard before position/publication |
+| [UpdateCompositionLayoutPositionInSession](../src/ime/comp/layout.h) | `composition` | Local composition guard passed to query helper |
 
 Start with methods that call the host and then continue dependent work. Keep
 start/finish identity transitions and pending preparation explicit; do not force

@@ -25,6 +25,7 @@ void EnterCompositionCandidatePresentation(
     present(ticket);
 }
 
+// qiqi-reentrancy: composition
 template <typename UpdateComposition, typename IsCurrent, typename Position, typename Present>
 void SyncCompositionPresentationInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot,

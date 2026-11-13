@@ -196,7 +196,7 @@ If the result must be requeued behind cleanup, the retry uses the same result bu
 waits for TSF to supply a cookie for the retry's own session. It never saves the
 first cookie for later use; the task does not own or retain that permission.
 
-In the [service adapter](../src/ime/svc/composition.cpp#L166),
+In the [service adapter](../src/ime/svc/composition.cpp#L167),
 `ApplyCompositionEditInSession` coordinates stale rejection, cleanup requeueing,
 and execution. `ApplyAdmittedCompositionEditInSession` handles the execution path:
 session access checks, deferred phrase promotion, and action dispatch. Admission

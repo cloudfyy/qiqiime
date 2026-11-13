@@ -163,6 +163,7 @@ void QiQiTextService::ApplyEngineResult(ITfContext* context, const KeyProcessRes
         });
 }
 
+// qiqi-reentrancy: context
 HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const CompositionEditTask& task) {
     return ExecuteCompositionEditInSession(
         ec, task, current_lifecycle_activity_, composition_lifecycle_.Cleanups(), service_log_id_,
@@ -174,6 +175,7 @@ HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const Co
         });
 }
 
+// qiqi-reentrancy: context
 HRESULT QiQiTextService::ApplyAdmittedCompositionEditInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context,
     const KeyProcessResult& result, EditSessionTicket ticket) {
@@ -201,6 +203,7 @@ HRESULT QiQiTextService::ApplyAdmittedCompositionEditInSession(
         [this] { EndCandidateUI(); });
 }
 
+// qiqi-reentrancy: composition
 void QiQiTextService::SyncCompositionUIInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot) {
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
@@ -252,6 +255,7 @@ void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, gsl::not_null<
         });
 }
 
+// qiqi-reentrancy: composition
 void QiQiTextService::UpdateCandidateWindowPositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view) {
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
@@ -284,6 +288,7 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
         });
 }
 
+// qiqi-reentrancy: context
 void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot) {
     EnterCompositionCandidatePresentation(
         candidate_ui_.Get(), thread_mgr_.Get(), composition_lifecycle_,

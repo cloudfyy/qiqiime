@@ -12,6 +12,7 @@
 namespace qiqi {
 
 // Keep the captured composition alive through host calls and return it for the caller's UI checks.
+// qiqi-reentrancy: composition
 template <typename IsCurrent>
 [[nodiscard]] Microsoft::WRL::ComPtr<ITfComposition> UpdateCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context,

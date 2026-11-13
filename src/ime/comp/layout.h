@@ -200,6 +200,7 @@ void ApplyCompositionLayoutPosition(
     }
 }
 
+// qiqi-reentrancy: composition
 template <typename IsCurrent, typename QueryFallback, typename MoveWindow>
 void UpdateCompositionLayoutPositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const CompositionLifecycleState& state,
