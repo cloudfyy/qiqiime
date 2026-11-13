@@ -19,6 +19,7 @@ class CompositionLifecycleState {
 public:
     explicit CompositionLifecycleState(uint64_t service_id) noexcept : cleanups_(service_id) {}
     ~CompositionLifecycleState() = default;
+    // Callbacks and reset scopes borrow this state; its address must remain stable.
     CompositionLifecycleState(const CompositionLifecycleState&) = delete;
     CompositionLifecycleState& operator=(const CompositionLifecycleState&) = delete;
     CompositionLifecycleState(CompositionLifecycleState&&) = delete;
@@ -58,7 +59,10 @@ private:
     EditSessionEpoch epoch_;
     bool active_ = false;
     bool resetting_context_ = false;
-    // Keep the original COM/bookkeeping destruction order: document, context, cleanups, composition.
+    // Declaration order is a lifetime contract; do not reorder these four members.
+    // Reverse destruction releases document, context, cleanups, then composition.
+    // COM Release may reenter; later-destroyed members must remain alive during earlier releases.
+    // TestLifecycleStateReleaseOrder guards COM release order in tests/ime/comp/state.cpp.
     Microsoft::WRL::ComPtr<ITfComposition> composition_;
     CompositionCleanupCoordinator cleanups_;
     Microsoft::WRL::ComPtr<ITfContext> context_;
