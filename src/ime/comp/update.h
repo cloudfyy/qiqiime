@@ -4,6 +4,8 @@
 #pragma once
 #include "common/com_object.h"
 #include "ime/comp/range.h"
+#include "ime/comp/state.h"
+#include <functional>
 #include <string_view>
 #include <utility>
 
@@ -13,23 +15,21 @@ namespace qiqi {
 template <typename IsCurrent>
 [[nodiscard]] Microsoft::WRL::ComPtr<ITfComposition> UpdateCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context,
-    const Microsoft::WRL::ComPtr<ITfComposition> composition, std::wstring_view text,
+    Microsoft::WRL::ComPtr<ITfComposition> composition, std::wstring_view text,
     const TfGuidAtom& attribute_atom, IsCurrent is_current) {
     Expects(composition != nullptr);
+    const CompositionEditGuard guard(std::move(composition), std::ref(is_current));
     Microsoft::WRL::ComPtr<ITfRange> range;
-    const HRESULT range_hr = composition->GetRange(&range);
+    const HRESULT range_hr = guard.Composition()->GetRange(&range);
     const bool got_range = log::CheckHResult(range_hr, "StartOrUpdateComposition::GetRange");
     if (got_range && !range) {
         QIQI_LOG_WARN("StartOrUpdateComposition::GetRange returned no range (hr=0x{:08x})",
                       gsl::narrow_cast<unsigned int>(range_hr));
     }
-    if (!got_range || !range) return composition;
-    const auto current = [&]() noexcept(noexcept(is_current(composition.Get()))) {
-        return is_current(composition.Get());
-    };
-    if (!current()) return composition;
-    WriteCompositionTextAndCaret(ec, context, range.Get(), text, current);
-    if (!current()) return composition;
+    if (!got_range || !range) return guard.Composition();
+    if (!guard.Current()) return guard.Composition();
+    WriteCompositionTextAndCaret(ec, context, range.Get(), text, std::ref(guard));
+    if (!guard.Current()) return guard.Composition();
 
     // Read the live atom after text/caret edits and again after the property call.
     if (attribute_atom != TF_INVALID_GUIDATOM) {
@@ -42,13 +42,13 @@ template <typename IsCurrent>
                           gsl::narrow_cast<unsigned int>(property_hr));
         }
         if (got_property && property) {
-            if (!current()) return composition;
+            if (!guard.Current()) return guard.Composition();
             const VARIANT value = MakeInt4Variant(gsl::narrow_cast<LONG>(attribute_atom));
             std::ignore = log::CheckHResult(
                 property->SetValue(ec, range.Get(), &value), "StartOrUpdateComposition::SetValue(GUID_PROP_ATTRIBUTE)");
         }
     }
-    return composition;
+    return guard.Composition();
 }
 
 } // namespace qiqi

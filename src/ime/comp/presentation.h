@@ -29,10 +29,11 @@ template <typename UpdateComposition, typename IsCurrent, typename Position, typ
 void SyncCompositionPresentationInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot,
     UpdateComposition update_composition, IsCurrent is_current, Position position, Present present) {
-    const auto composition = update_composition(ec, context, snapshot.composition_text);
-    if (!is_current(composition.Get())) return;
+    const CompositionEditGuard guard(
+        update_composition(ec, context, snapshot.composition_text), std::ref(is_current));
+    if (!guard.Current()) return;
     position(ec, context);
-    if (!is_current(composition.Get())) return;
+    if (!guard.Current()) return;
     present(snapshot);
 }
 

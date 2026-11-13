@@ -2,8 +2,18 @@
 
 ## Status and goal
 
-This is a proposed implementation plan, not a description of completed changes.
-The current checks remain in place until each migration is verified.
+The checked-identity pilot is implemented; the broader migration remains a plan.
+Existing validity checks, diagnostics, and host-operation checkpoints are reused.
+
+Completed pilot:
+
+- Fixed-ticket context checks in admitted editing and update/start adapters.
+- Retained-composition checks in update, layout and candidate publication.
+- Focused tests for replacement, expected empty state, invalidated versions, and
+  original-composition retention.
+
+Start-result publication, commit/cancel, pending target preparation and independent
+cleanup still use their existing specialized protocols.
 
 The goal is to make input state safe during same-thread host reentrancy and reduce
 the chance of capturing the wrong state, omitting a check, or touching a replacement
@@ -49,28 +59,38 @@ not a universal wrapper for every COM method.
 7. Strong-reference destruction can itself reenter. Preserve existing reference
    release boundaries and member destruction order during migration.
 
-## 3. Proposed checked-identity objects
+## 3. Checked-identity objects
 
-Introduce two small synchronous guard types alongside the lifecycle checks in
-[state.h](../src/ime/comp/state.h). Names below are proposed APIs:
+The pilot adds two small synchronous guard types alongside the lifecycle checks in
+[state.h](../src/ime/comp/state.h):
 
 | Type | Captured identity | What `Current()` checks |
 | --- | --- | --- |
-| `ContextEditGuard` | Original ticket and retained context | Existing active/reset, version and target checks |
-| `CompositionEditGuard` | Context identity plus retained expected composition, possibly null | Context validity and exact expected composition |
+| [ContextEditGuard](../src/ime/comp/state.h#L127) | Original ticket; borrows lifecycle state and diagnostic activity | Existing active/reset, version and target checks; explicit composition checks use the same ticket |
+| [CompositionEditGuard](../src/ime/comp/state.h#L154) | Retained expected composition, possibly null, and typed validity callback | Calls the existing predicate with that fixed composition |
 
 Both guards expose `[[nodiscard]] bool Current() const` and reuse the existing
-diagnostic helpers. They must not silently recapture state or perform host cleanup.
-Use explicit constructors/factories to distinguish context-only checks from an
-expected empty composition; do not encode both meanings with one nullable argument.
+diagnostic helpers/predicates. `CompositionEditGuard` is also callable so existing
+templated helpers accept it through `std::ref` without new type erasure.
+`ContextEditGuard::Current()` is context-only;
+`CurrentComposition(nullptr)` explicitly checks an expected empty composition.
+Neither guard silently recaptures versions or performs host cleanup.
+
+The implementation deliberately reuses the caller's existing context owner,
+rather than adding context `AddRef`/`Release` calls at every guard checkpoint.
+The service/task must retain that original context for the synchronous operation.
+The composition guard receives the existing composition owner by move where
+possible, preserving its original release boundary. Its typed predicate can borrow
+the enclosing context guard; both must remain within the synchronous scope.
 
 Implementation constraints:
 
 - Use value snapshots for epochs/tickets, not references to live counters.
-- Borrow the stable lifecycle owner only within the synchronous call. The
+- Borrow the stable lifecycle owner and activity only within the synchronous call. The
   enclosing service callback retains the service; guards do not add a self-cycle.
-- Prefer existing retained `ComPtr` owners when passing context/composition into
-  a guard. Audit additional `AddRef`/`Release` and their timing rather than
+- Keep the original context alive through its existing `ComPtr` owner and move
+  existing composition ownership into a guard where possible. Audit
+  `AddRef`/`Release` and their timing rather than
   assuming reference-count operations are harmless.
 - Do not let guards escape into deferred tasks. Tasks continue to own their
   existing snapshots and references; create guards inside the delivered callback.
@@ -127,7 +147,7 @@ the same call, result, ownership and failure semantics.
 
 ## 5. Incremental implementation
 
-### Phase A: characterize and introduce the guards
+### Phase A: characterize and introduce the guards (pilot completed)
 
 - Inventory checkpoints in range, attributes, start, finish, layout and
   presentation: original identity, host call, subsequent dependent mutation,
@@ -137,7 +157,7 @@ the same call, result, ownership and failure semantics.
 - Implement the two guards and delegate validity/logging to existing helpers.
 - Do not change scheduling, edit-result ownership or cleanup protocols.
 
-### Phase B: migrate a small pilot
+### Phase B: migrate a small pilot (implemented)
 
 - Start with the composition-update adapter and text/caret helper.
 - Replace repeated capture plumbing with one explicit guard per operation.
@@ -147,7 +167,7 @@ the same call, result, ownership and failure semantics.
 - Stop and revise the abstraction if it increases captures, reference retention,
   special-case flags or indirection rather than reducing them.
 
-### Phase C: extend only where the pilot fits
+### Phase C: extend only where the pilot fits (partially implemented)
 
 - Migrate update-to-position-to-publication checks and compatible attribute
   operations.
@@ -157,10 +177,16 @@ the same call, result, ownership and failure semantics.
 - Add short comments only at intentional exceptions and identity transitions.
 - Update [composition contracts](composition.md) with the final API and examples.
 
+The pilot has migrated update-to-position-to-publication and layout identity
+plumbing. It does not claim a completed audit of all TSF/UI calls, and deliberately
+does not unify start publication, finish transitions, target preparation or cleanup.
+
 ## 6. Validation and acceptance
 
 Use [existing reentrancy cases](../tests/ime/svc/reentrancy.cpp),
 [composition tests](../tests/ime/comp), and lifecycle ownership tests.
+The pilot adds [TestCapturedEditGuards](../tests/ime/comp/state.cpp#L150) for its
+new fixed-identity and ownership behavior.
 Keep runs on each architecture sequential and retain diagnostic logs.
 
 | Scenario | Required observation |

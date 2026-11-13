@@ -210,13 +210,14 @@ void UpdateCompositionLayoutPositionInSession(
         return;
     }
     const EditSessionTicket ticket{state.Epoch(), context.get()};
-    const auto composition = state.Composition();
-    const auto query = QueryCompositionLayoutInSession(
-        ec, context, gsl::not_null<ITfComposition*>(composition.Get()), view, has_valid_caret_pos,
-        ticket.epoch, service_id, activity,
-        [&is_current, ticket, &composition]() noexcept(noexcept(is_current(ticket, composition.Get()))) {
-            return is_current(ticket, composition.Get());
+    const CompositionEditGuard guard(
+        state.Composition(),
+        [&is_current, ticket](const ITfComposition* composition) noexcept(noexcept(is_current(ticket, composition))) {
+            return is_current(ticket, composition);
         });
+    const auto query = QueryCompositionLayoutInSession(
+        ec, context, gsl::not_null<ITfComposition*>(guard.Composition().Get()), view, has_valid_caret_pos,
+        ticket.epoch, service_id, activity, std::ref(guard));
     ApplyCompositionLayoutPosition(
         query, has_valid_caret_pos, ticket.epoch, service_id, activity,
         std::ref(query_fallback), std::ref(move_window));

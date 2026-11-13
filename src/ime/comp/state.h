@@ -123,6 +123,56 @@ inline bool CheckCompositionEditCurrent(
     return false;
 }
 
+// Synchronous identity only; the caller retains the service and original context.
+class ContextEditGuard {
+public:
+    ContextEditGuard(
+        const CompositionLifecycleState& state, EditSessionTicket ticket,
+        uint64_t service_id, const GUID& activity) noexcept
+        : state_(state), ticket_(ticket), service_id_(service_id), activity_(activity) {}
+    ContextEditGuard(const ContextEditGuard&) = delete;
+    ContextEditGuard& operator=(const ContextEditGuard&) = delete;
+    ContextEditGuard(ContextEditGuard&&) = delete;
+    ContextEditGuard& operator=(ContextEditGuard&&) = delete;
+
+    [[nodiscard]] bool Current() const noexcept {
+        return CheckCompositionEditSessionCurrent(state_, ticket_, service_id_, activity_);
+    }
+    [[nodiscard]] bool CurrentComposition(const ITfComposition* expected) const noexcept {
+        return CheckCompositionEditCurrent(state_, ticket_, expected, service_id_, activity_);
+    }
+
+private:
+    const CompositionLifecycleState& state_;
+    const EditSessionTicket ticket_;
+    const uint64_t service_id_;
+    const GUID& activity_;
+};
+
+// Retains one fixed composition, including an explicitly expected empty slot.
+template <typename IsCurrent>
+class CompositionEditGuard {
+public:
+    CompositionEditGuard(Microsoft::WRL::ComPtr<ITfComposition> composition, IsCurrent is_current)
+        : composition_(std::move(composition)), is_current_(std::move(is_current)) {}
+    CompositionEditGuard(const CompositionEditGuard&) = delete;
+    CompositionEditGuard& operator=(const CompositionEditGuard&) = delete;
+    CompositionEditGuard(CompositionEditGuard&&) = delete;
+    CompositionEditGuard& operator=(CompositionEditGuard&&) = delete;
+
+    [[nodiscard]] bool Current() const noexcept(noexcept(is_current_(composition_.Get()))) {
+        return is_current_(composition_.Get());
+    }
+    [[nodiscard]] bool operator()() const noexcept(noexcept(Current())) { return Current(); }
+    [[nodiscard]] const Microsoft::WRL::ComPtr<ITfComposition>& Composition() const noexcept {
+        return composition_;
+    }
+
+private:
+    Microsoft::WRL::ComPtr<ITfComposition> composition_;
+    IsCurrent is_current_;
+};
+
 inline void ScheduleCurrentCompositionCleanup(
     CompositionLifecycleState& state, const TfClientId& client_id, uint64_t service_id, const GUID& activity) {
     if (!state.Composition()) {

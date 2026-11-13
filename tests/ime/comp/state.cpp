@@ -147,6 +147,57 @@ void TestLifecycleStateResources() {
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
+void TestCapturedEditGuards() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const auto objects_before = g_com_object_count.load();
+    {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto next_context = MakeComObject<MockTfContext>();
+        CompositionLifecycleState state(111);
+        state.SetActive(true);
+        state.SetContext(context);
+        const EditSessionTicket ticket{state.Epoch(), context.Get()};
+        const ContextEditGuard context_guard(state, ticket, 111, GUID_NULL);
+        const auto check_composition = [&context_guard](const ITfComposition* composition) noexcept {
+            return context_guard.CurrentComposition(composition);
+        };
+        const CompositionEditGuard empty_guard(ComPtr<ITfComposition>{}, check_composition);
+        QIQI_TEST_CHECK(context_guard.Current() && empty_guard.Current());
+        auto original = MakeComObject<MockTfComposition>(context->range_);
+        bool released = false;
+        original->release_observer_ = [&]() noexcept { released = true; };
+        state.SetComposition(original);
+        {
+            const CompositionEditGuard original_guard(ComPtr<ITfComposition>(original), check_composition);
+            original.Reset();
+            QIQI_TEST_CHECK(context_guard.Current() && !empty_guard.Current() && original_guard.Current());
+            state.SetComposition(MakeComObject<MockTfComposition>(context->range_));
+            QIQI_TEST_CHECK(context_guard.Current() && !original_guard.Current() && !released);
+            state.ClearComposition();
+            QIQI_TEST_CHECK(empty_guard.Current() && !original_guard.Current() && !released);
+            state.SetActive(false);
+            QIQI_TEST_CHECK(!context_guard.Current() && !empty_guard.Current());
+            state.SetActive(true);
+            {
+                const CompositionContextResetScope reset(state);
+                QIQI_TEST_CHECK(!context_guard.Current() && !empty_guard.Current());
+            }
+            state.SetContext(next_context);
+            state.InvalidateContext();
+            state.SetContext(context);
+            QIQI_TEST_CHECK(state.Context().Get() == ticket.target &&
+                            !context_guard.Current() && !empty_guard.Current());
+        }
+        QIQI_TEST_CHECK(released && context->request_edit_session_calls_ == 0 &&
+                        context->range_->set_text_calls_ == 0);
+        const ContextEditGuard activation_guard(state, {state.Epoch(), context.Get()}, 111, GUID_NULL);
+        QIQI_TEST_CHECK(activation_guard.Current());
+        state.InvalidateActivation();
+        QIQI_TEST_CHECK(!activation_guard.Current());
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 void TestLifecycleStateReleaseOrder() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Released { Context, Composition };
@@ -305,6 +356,7 @@ void RunTsfCompositionStateTests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestLifecycleStateIdentity();
     TestLifecycleStateResources();
+    TestCapturedEditGuards();
     TestLifecycleStateReleaseOrder();
     TestLifecycleStateDetachedCleanup();
     TestLifecycleContextResetScopes();

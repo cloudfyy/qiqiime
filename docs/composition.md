@@ -76,7 +76,7 @@ address for the service lifetime. Preserve member order
 context, cleanup bookkeeping, then composition.
 
 Deleted copy/move operations enforce address stability.
-[`TestLifecycleStateReleaseOrder`](../tests/ime/comp/state.cpp#L150) checks the
+[`TestLifecycleStateReleaseOrder`](../tests/ime/comp/state.cpp#L201) checks the
 observable COM release order; keep the declaration-order contract documented in
 [`CompositionLifecycleState`](../src/ime/comp/state.h#L18) when changing members.
 
@@ -246,8 +246,11 @@ request still determines access.
 ### 2.1 In-Flight Host Calls
 
 The [reentrancy-safe host-operation implementation plan](reentrancy-plan.md)
-proposes reusable checked identities and an incremental migration. It does not
-replace the current checks or imply that the proposed guards are implemented.
+tracks the incremental migration. The update/layout/presentation pilot now uses
+[`ContextEditGuard`](../src/ime/comp/state.h#L127) to fix the original ticket and
+[`CompositionEditGuard`](../src/ime/comp/state.h#L154) to retain and check one
+composition. Both reuse the existing checks; checkpoints still belong at the
+individual host-operation boundaries.
 
 Range lookup, text/selection changes, property calls, and termination can reenter
 the service. Retain the original composition and recheck epoch/target/composition
