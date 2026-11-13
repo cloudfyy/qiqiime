@@ -337,7 +337,8 @@ RAII releases captured resources when execution finishes or TSF abandons the req
 
 Expired/finished records are pruned when queried. `cleanup_registry_slots` is a weak
 container slot count, not the number of pending or successful requests.
-`released` is emitted before member COM references are destroyed.
+`record-destroying` marks entry into the record destructor, before member COM
+references are released.
 
 ### Unpublished composition starts
 
@@ -429,8 +430,8 @@ interleave. Do not require `sync-result` to precede `callback-enter`.
 ### 5.2 Synchronous Rejection and Asynchronous Recovery
 
 An accepted recovery request can execute after local deactivation returns.
-`released(started=false, finished=false)` means neither execution nor termination
-handling was observed before record release, not successful cleanup.
+`record-destroying(started=false, finished=false)` means neither execution nor
+termination handling was observed before record destruction began, not successful cleanup.
 Capture/request evidence is needed to distinguish rejection from abandonment.
 
 ### 5.3 Immediate Reactivation on the Same Context
@@ -584,7 +585,7 @@ Capture Verbose for detailed stages; application Off suppresses ordinary events.
 | `write-forced-async` | Pending old cleanup forced an application write to queue |
 | `context-removed`, `skip-removed-context`, `skip-end-after-context-removal` | Removal forbids remaining edits |
 | `skip-request-invalidated` | Range lookup invalidated cleanup before a request |
-| `released` | Pre-member-destruction snapshot, not complete destruction or cleanup |
+| `record-destroying` | Record destructor entered; member COM references have not yet been released |
 
 Important lifecycle stages include `stale-edit-skipped`,
 `replaced-composition-edit-skipped`, `composition-start-write-deferred`,

@@ -188,15 +188,15 @@ void TestFocusPerformanceLogs() {
     QIQI_TEST_CHECK(find_stage(2, L"end-composition") == cleanup_records.size());
     check_stage(3, L"async-rejected, hr=0x80070005");
     QIQI_TEST_CHECK(find_stage(3, L"callback-enter") == cleanup_records.size());
-    const auto released = check_stage(4, L"released");
-    QIQI_TEST_CHECK(gsl::at(cleanup_records, released).contains(L"async_requested=true, started=false, finished=false"));
+    const auto destroying = check_stage(4, L"record-destroying");
+    QIQI_TEST_CHECK(gsl::at(cleanup_records, destroying).contains(L"async_requested=true, started=false, finished=false"));
     QIQI_TEST_CHECK(find_stage(4, L"callback-enter") == cleanup_records.size());
     check_stage(5, L"sync-failed-no-fallback");
     QIQI_TEST_CHECK(find_stage(5, L"async-request") == cleanup_records.size());
     QIQI_TEST_CHECK(find_stage(5, L"callback-enter") == cleanup_records.size());
     check_stage(6, L"attribute-clear, hr=0x80004005");
     check_stage(6, L"end-composition, hr=0x80070005");
-    const auto failed_callback = check_stage(6, L"released");
+    const auto failed_callback = check_stage(6, L"record-destroying");
     QIQI_TEST_CHECK(gsl::at(cleanup_records, failed_callback).contains(L"started=true, finished=true"));
     QIQI_TEST_CHECK(std::any_of(lifecycle_records.begin(), lifecycle_records.end(), [](const auto& record) {
         return record.contains(L"stage=stale-edit-skipped") &&

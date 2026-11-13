@@ -195,7 +195,7 @@
 | `stale-edit-skipped`、`replaced-composition-edit-skipped` | 旧任务被拒绝是预期保护，不是失败 |
 | `write-forced-async`、`write-requeued-behind-cleanup` | 新写入等待旧清理；结合后续实际输入结果判断 |
 | `context-removed`、`skip-removed-context` | 已移除目标不得继续编辑；不要求为它新申请清理写权限 |
-| `callback-exit`、`released`、`cleanup_registry_slots` | 不单独证明清理 API 成功、请求全部完成或完全无泄漏 |
+| `callback-exit`、`record-destroying`、`cleanup_registry_slots` | 不单独证明清理 API 成功、请求全部完成或完全无泄漏；`record-destroying` 仅表示进入记录析构函数，成员 COM 引用尚未释放 |
 
 不同宿主可以走同步清理、异步补救、宿主主动终止或上下文移除路径，不要求所有用例出现同一套日志。
 

@@ -15,7 +15,7 @@ CompositionCleanup::~CompositionCleanup() noexcept {
     QIQI_LOG_CTX(
         log::Level::debug,
         (log::LogContext{log::Keyword::Composition, opcode, &activity_id, nullptr}),
-        "TsfCleanup(service={}, cleanup={}, stage=released, async_requested={}, started={}, finished={}, terminated={}, context_removed={})",
+        "TsfCleanup(service={}, cleanup={}, stage=record-destroying, async_requested={}, started={}, finished={}, terminated={}, context_removed={})",
         service_id, id, async_requested, started, finished, terminated, context_removed);
 }
 
