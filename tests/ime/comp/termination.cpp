@@ -138,9 +138,10 @@ void TestTerminationCompletion() {
 
 void TestTerminationReleaseReentrancy() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
-    enum class Effect { None, Replace, Switch, Reactivate };
+    enum class Effect { None, Replace, Switch, Reactivate, SwitchBack, FailedRangeReplace };
     const auto objects_before = g_com_object_count.load();
-    for (const auto effect : {Effect::None, Effect::Replace, Effect::Switch, Effect::Reactivate}) {
+    for (const auto effect : {Effect::None, Effect::Replace, Effect::Switch, Effect::Reactivate,
+                             Effect::SwitchBack, Effect::FailedRangeReplace}) {
         const auto context = MakeComObject<MockTfContext>();
         const auto next_context = MakeComObject<MockTfContext>();
         const auto replacement = MakeComObject<MockTfComposition>(next_context->range_);
@@ -150,12 +151,17 @@ void TestTerminationReleaseReentrancy() {
         context->range_->text_ = L"preedit";
         bool released = false;
         auto composition = MakeComObject<MockTfComposition>(context->range_);
+        composition->fail_get_range_ = effect == Effect::FailedRangeReplace;
         composition->release_observer_ = [&]() noexcept {
             released = true;
             if (effect == Effect::None) return;
-            if (effect == Effect::Switch) {
+            if (effect == Effect::Switch || effect == Effect::SwitchBack) {
                 state.InvalidateContext();
                 state.SetContext(next_context);
+                if (effect == Effect::SwitchBack) {
+                    state.InvalidateContext();
+                    state.SetContext(context);
+                }
             } else if (effect == Effect::Reactivate) {
                 state.SetActive(false);
                 state.InvalidateActivation();

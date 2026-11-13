@@ -2,8 +2,9 @@
 
 ## Status and goal
 
-The checked-identity pilot is implemented; the broader migration remains a plan.
+The scoped checked-identity migration and specialized-protocol review are implemented.
 Existing validity checks, diagnostics, and host-operation checkpoints are reused.
+Final dual-architecture tests, lint and measured native coverage remain release gates.
 
 AST-based checking and its CI targets are deferred because their tooling/setup
 cost is outside the current scope. Do not install LLVM development components or
@@ -29,6 +30,16 @@ the old composition must survive the old callback.
 Start publication now also retains its published object across preparation
 teardown and validates it before updating; a second regression prevents old
 input from being redirected to a replacement published during that teardown.
+
+Completed non-AST work:
+
+- Commit/cancel guard reuse with unchanged detach-before-end and expected-empty rules.
+- Review of start/finish, pending target preparation and independent old cleanup;
+  preparation cancellation, stale subscription withdrawal and independent cleanup
+  retain their existing protocols.
+- Release-boundary regressions for same-context replacement, activation changes,
+  context switches including A-to-B-to-A, and failed range lookup.
+- Existing host-order, reference-count and exception-unwind assertions remain gates.
 
 The goal is to make input state safe during same-thread host reentrancy and reduce
 the chance of capturing the wrong state, omitting a check, or touching a replacement
@@ -173,14 +184,14 @@ before starting D. Use this order:
 | 2 | Inventory remaining reentrant boundaries and classify protocols (C; scoped inventory completed below) | Record original identity, dependent continuation, failure policy and ownership; distinguish ordinary edits from start/finish, preparation and cleanup |
 | 3 | Mark the already-reviewed pilot methods (D; initial eight markers added) | Step 2 supplies precise marker rules; mark only methods whose required protection is understood |
 | 4 | Protection-presence checker and report-only CI (D; deferred) | Not required for the remaining guard migration |
-| 5 | Extend guard reuse to compatible remaining sites (C; next) | Use the step 2 inventory and manual review; each migration preserves protocol and release order and passes focused reentrancy tests |
+| 5 | Extend guard reuse to compatible remaining sites (C; implemented) | Compatible commit/cancel sites migrated; specialized release gaps fixed and covered by focused reentrancy tests |
 | 6 | Blocking CI for presence rules (D; deferred) | Requires resuming and validating the checker first |
 | 7 | Boundary/control-flow analysis (E; deferred) | Requires a separately approved tooling effort |
 
-The next action is step 5, using the inventory rather than depending on a checker.
-Migrate compatible repeated capture/check plumbing first, then review specialized
-start/finish, preparation and cleanup protocols without forcing a shared guard
-where validity rules differ. Runtime reentrancy tests remain a gate throughout.
+Step 5 uses the inventory rather than depending on a checker. Compatible repeated
+capture/check plumbing is migrated; specialized start/finish, preparation and
+cleanup protocols keep distinct validity rules. Runtime reentrancy tests remain
+a gate throughout; the inventory is not a whole-repository safety certification.
 
 ### Scoped host-boundary inventory (step 2)
 

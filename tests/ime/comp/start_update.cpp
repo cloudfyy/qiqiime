@@ -164,9 +164,11 @@ void TestStartPublicationAndUpdate() {
 
 void TestStartPreparationReleaseReentrancy() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    enum class Effect { Replace, Switch, Deactivate, SwitchBack };
     const auto objects_before = g_com_object_count.load();
-    {
+    for (const auto effect : {Effect::Replace, Effect::Switch, Effect::Deactivate, Effect::SwitchBack}) {
         const auto context = MakeComObject<MockTfContext>();
+        const auto next_context = MakeComObject<MockTfContext>();
         const auto replacement_range = MakeComObject<MockTfRange>();
         replacement_range->text_ = L"replacement";
         const auto replacement = MakeComObject<MockTfComposition>(replacement_range);
@@ -178,9 +180,21 @@ void TestStartPreparationReleaseReentrancy() {
         bool released = false;
         context->range_->release_observer_ = [&]() noexcept {
             released = true;
+            if (effect == Effect::Switch || effect == Effect::SwitchBack) {
+                state.InvalidateContext();
+                state.SetContext(next_context);
+                if (effect == Effect::SwitchBack) {
+                    state.InvalidateContext();
+                    state.SetContext(context);
+                }
+            } else if (effect == Effect::Deactivate) {
+                state.SetActive(false);
+                state.InvalidateActivation();
+            }
             state.SetComposition(replacement);
         };
         context->start_composition_callback_ = [&] {
+            // The query-only range dies during preparation teardown, not inside StartComposition.
             const auto published_range = MakeComObject<MockTfRange>();
             published_range->text_ = L"published";
             context->last_composition_->range_ = published_range;
@@ -195,6 +209,8 @@ void TestStartPreparationReleaseReentrancy() {
             [] { QIQI_TEST_CHECK(false); });
         QIQI_TEST_CHECK(released && result.Get() == context->last_composition_.Get() &&
                         state.Composition().Get() == replacement.Get() &&
+                        state.Context().Get() == (effect == Effect::Switch ? next_context.Get() : context.Get()) &&
+                        state.IsActive() == (effect != Effect::Deactivate) &&
                         context->last_composition_->get_range_calls_ == 0 && replacement->get_range_calls_ == 0 &&
                         context->range_->text_ == L"published" && context->range_->set_text_calls_ == 0 &&
                         replacement_range->text_ == L"replacement" && replacement_range->set_text_calls_ == 0 &&
