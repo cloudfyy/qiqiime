@@ -68,6 +68,6 @@ QiQiIME 是 TSF 进程内 COM 组件。在允许加载该输入法的宿主中�
 ## 4. 参考资料
 
 - [Microsoft：AppContainer isolation](https://learn.microsoft.com/en-us/windows/win32/secauthz/appcontainer-isolation)
-- [部署与运行数据目录](deploy.md)
+- [用户数据与权限说明](../PRIVACY.md)
 - [日志权限、生命周期及监控](log.md)
 - [当前架构与后续任务](arch.md)

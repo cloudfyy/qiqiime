@@ -13,7 +13,7 @@ $expected = @(
     "PRIVACY.md",
     "CODE_SIGNING.md",
     "THIRD_PARTY_NOTICES.md",
-    "deploy.md",
+    "install.md",
     "log.md",
     "release-notes.md",
     "licenses\Apache-2.0.txt",
@@ -27,7 +27,7 @@ try {
     $actual = @(Get-ChildItem -LiteralPath $destination -Recurse -File)
     if ($actual.Count -ne $expected.Count) { throw "Unexpected number of staged documentation files." }
     foreach ($relativePath in $expected) {
-        $sourceRelativePath = if ($relativePath -in @("deploy.md", "log.md", "release-notes.md")) {
+        $sourceRelativePath = if ($relativePath -in @("install.md", "log.md", "release-notes.md")) {
             "docs\$relativePath"
         } else {
             $relativePath
@@ -69,7 +69,7 @@ try {
 
     $sourceFixture = Join-Path $fixture "source"
     foreach ($relativePath in $expected) {
-        $sourceRelativePath = if ($relativePath -in @("deploy.md", "log.md", "release-notes.md")) {
+        $sourceRelativePath = if ($relativePath -in @("install.md", "log.md", "release-notes.md")) {
             "docs\$relativePath"
         } else {
             $relativePath

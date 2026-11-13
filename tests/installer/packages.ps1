@@ -100,7 +100,7 @@ try {
                 $expectedFileCount = if ($arch -eq "x64") { 27 } else { 23 }
                 Assert-True ($files.Count -eq $expectedFileCount) "Unexpected payload count in $path"
                 $documentation = @($files | Where-Object { $_.Component_ -eq "CmpDocs" } | ForEach-Object { $_.FileName.Split('|')[-1] })
-                foreach ($name in @("LICENSE", "README.md", "README.zh-CN.md", "PRIVACY.md", "CODE_SIGNING.md", "THIRD_PARTY_NOTICES.md", "deploy.md", "log.md", "release-notes.md")) {
+                foreach ($name in @("LICENSE", "README.md", "README.zh-CN.md", "PRIVACY.md", "CODE_SIGNING.md", "THIRD_PARTY_NOTICES.md", "install.md", "log.md", "release-notes.md")) {
                     Assert-True ($name -in $documentation) "Missing documentation $name in $path"
                 }
                 $licenseDirectory = @($directories | Where-Object { $_.Directory -eq "DirLicenses" })

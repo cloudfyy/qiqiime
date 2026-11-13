@@ -121,7 +121,7 @@ function Copy-QiQiReleaseDocumentation(
         "PRIVACY.md",
         "CODE_SIGNING.md",
         "THIRD_PARTY_NOTICES.md",
-        "docs\deploy.md",
+        "docs\install.md",
         "docs\log.md",
         "docs\release-notes.md",
         "licenses\Apache-2.0.txt",

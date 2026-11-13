@@ -55,7 +55,7 @@ also depends on parent-directory permissions and the host token.
 
 Installation registers COM/TSF components and attempts to grant the application
 package groups read/execute access to the installation directory. See the
-[deployment guide](https://github.com/cloudfyy/qiqiime/blob/main/docs/deploy.md)
+[installation guide](https://github.com/cloudfyy/qiqiime/blob/main/docs/install.md)
 for details and limitations.
 
 ## Diagnostics and voluntary sharing

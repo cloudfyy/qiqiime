@@ -118,8 +118,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
-For source/ZIP registration, deployment, and removal, follow the
-[deployment guide](https://github.com/cloudfyy/qiqiime/blob/main/docs/deploy.md).
+For MSI downloads, installation, upgrades, removal, and common questions, follow the
+[installation guide](https://github.com/cloudfyy/qiqiime/blob/main/docs/install.md).
 Do not move a registered DLL or use manual registration scripts to uninstall an
 MSI-managed installation. See the
 [development guide](https://github.com/cloudfyy/qiqiime/blob/main/docs/dev.md)

@@ -48,7 +48,7 @@ qiqiime/
 │   ├── review.md       # 【实施记录】当前 R01–R06 状态、逐批验证与原始初评
 │   ├── restricted.md   # 【禁输入研究】已知缺口与未接入生产的准入方案
 │   ├── uwp.md          # 【兼容边界】AppContainer 权限与未完成验收
-│   └── deploy.md       # 【部署文档】注册、发行包、升级与卸载
+│   └── install.md      # 【用户指南】MSI 下载、安装与常见问题
 ├── installer/
 │   ├── QiQiIME.wxs             # WiX Toolset (v4+) Windows Installer (.msi) 安装包配置
 │   ├── zh-CN.wxl               # 简体中文 (LCID 2052) MSI 本地化词条
@@ -165,7 +165,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
-MSI 文件名为 `QiQiIME-v<版本>-win-<x64或x86>-<zh-CN或en-US>.msi`，x64 包仍包含 WOW64 组件，x86 包仅面向 32 位系统；运行组件和符号 ZIP 仍使用 `win-x64-x86` 名称。打包后自动运行 `tests\installer\packages.ps1` 核对四个实际 MSI 的平台、组件/升级身份、文件、快捷方式和注册顺序；普通 CTest 不制作 MSI。真实安装与升级验收仍需在目标系统执行，见[部署指南](deploy.md#4-生成独立发行包msi-安装包与-zip-压缩包)。
+MSI 文件名为 `QiQiIME-v<版本>-win-<x64或x86>-<zh-CN或en-US>.msi`，x64 包仍包含 WOW64 组件，x86 包仅面向 32 位系统；运行组件和符号 ZIP 仍使用 `win-x64-x86` 名称。打包后自动运行 `tests\installer\packages.ps1` 核对四个实际 MSI 的平台、组件/升级身份、文件、快捷方式和注册顺序；普通 CTest 不制作 MSI。真实安装与升级验收仍需在目标系统执行，用户操作见[安装指南](install.md)。
 
 普通代码或文档改动不制作 MSI；保留日志与 dump 不属于发行包内容。`-Package` 会替换同版本的发行目录/包，需要保留的旧发行物应另行备份，测试证据在构建目录下另行保管。
 

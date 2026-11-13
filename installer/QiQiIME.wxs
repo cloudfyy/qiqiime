@@ -144,7 +144,7 @@
         <File Id="FilePrivacy" Source="$(var.StageDir)\PRIVACY.md" />
         <File Id="FileCodeSigning" Source="$(var.StageDir)\CODE_SIGNING.md" />
         <File Id="FileThirdPartyNotices" Source="$(var.StageDir)\THIRD_PARTY_NOTICES.md" />
-        <File Id="FileDeployment" Source="$(var.StageDir)\deploy.md" />
+        <File Id="FileDeployment" Source="$(var.StageDir)\install.md" />
         <File Id="FileLogging" Source="$(var.StageDir)\log.md" />
         <File Id="FileReleaseNotes" Source="$(var.StageDir)\release-notes.md" />
       </Component>
