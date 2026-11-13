@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 set(QIQI_SETTINGS_UI_SOURCES
+    cleanup.cpp
+    cleanup.h
     message.cpp
     window.cpp
     window.h

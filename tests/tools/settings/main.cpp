@@ -9,6 +9,8 @@
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE prev_instance, LPWSTR cmd_line, int show_cmd);
 
+namespace qiqi::test { void RunSettingsCleanupTests(); }
+
 namespace {
 
 thread_local bool startup_window_seen = false;
@@ -134,6 +136,7 @@ int main() {
 
     TestStandaloneSettingsStartup();
     TestStandaloneRestoreDefaults();
+    qiqi::test::RunSettingsCleanupTests();
     qiqi::test::RunSettingsVersionTests();
     qiqi::test::RunSettingsSaveTests();
     qiqi::test::RunSettingsMessageTests();

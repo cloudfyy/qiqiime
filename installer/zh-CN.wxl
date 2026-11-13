@@ -11,6 +11,11 @@
   <String Id="SummaryKeywords" Value="QiQiIME, 奇奇五笔, Wubi, 五笔输入法, TSF, Input Method, GPL-3.0-or-later" />
   <String Id="DowngradeErrorMessage" Value="已安装更新版本的奇奇五笔输入法 (QiQi Wubi IME)。" />
   <String Id="FeatureTitle" Value="奇奇五笔输入法 (QiQi Wubi 86)" />
+  <String Id="UninstallDescription" Value="即将卸载奇奇五笔输入法。默认保留个人设置和用户词库，便于以后重新安装。" />
+  <String Id="RemoveUserData" Value="同时删除当前用户的配置和默认用户词库（默认不删除）" />
+  <String Id="RemoveUserDataWarning" Value="勾选后将不可恢复地删除当前用户配置、默认词库、词频及已知缓存/同步文件。自定义路径、导出、备份和其他用户的数据保留。请先关闭使用输入法的应用并备份。" />
+  <String Id="UninstallButton" Value="卸载" />
+  <String Id="CancelButton" Value="取消" />
   <String Id="SettingsShortcutName" Value="奇奇五笔设置" />
   <String Id="SettingsShortcutDescription" Value="配置奇奇五笔输入法。" />
   <String Id="DictManagerShortcutName" Value="奇奇五笔词典管理器" />

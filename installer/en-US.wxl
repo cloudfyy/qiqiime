@@ -11,6 +11,11 @@
   <String Id="SummaryKeywords" Value="QiQiIME, QiQi Wubi, Wubi, TSF, Input Method, IME, GPL-3.0-or-later" />
   <String Id="DowngradeErrorMessage" Value="A newer version of QiQi Wubi IME is already installed." />
   <String Id="FeatureTitle" Value="QiQi Wubi 86 Input Method" />
+  <String Id="UninstallDescription" Value="QiQi Wubi IME will be removed. Personal settings and user dictionaries are kept by default for future installations." />
+  <String Id="RemoveUserData" Value="Also delete this user's settings and default user dictionary" />
+  <String Id="RemoveUserDataWarning" Value="Selected data is deleted permanently: this user's settings, default dictionary, frequencies and known cache/sync files. Custom paths, exports, backups and other users are preserved. Close IME applications and back up first." />
+  <String Id="UninstallButton" Value="Uninstall" />
+  <String Id="CancelButton" Value="Cancel" />
   <String Id="SettingsShortcutName" Value="QiQiIME Settings" />
   <String Id="SettingsShortcutDescription" Value="Configure QiQi Wubi IME." />
   <String Id="DictManagerShortcutName" Value="QiQiIME Dict Manager" />

@@ -3,6 +3,7 @@
 
 set(QIQI_SETTINGS_TEST_SOURCES
     main.cpp
+    cleanup.cpp
     window.cpp
     edges.cpp
     version.cpp

@@ -134,8 +134,19 @@ try {
                     Assert-True ($shortcut.Target -eq "[#$fileId]" -and $shortcut.WkDir -eq $nativeDirectory) "Shortcut must launch the native tool in $path"
                 }
 
-                $actions = @(Read-MsiTable $database "CustomAction" @("Action", "Source", "Target"))
+                $actions = @(Read-MsiTable $database "CustomAction" @("Action", "Type", "Source", "Target"))
                 $sequence = @(Read-MsiTable $database "InstallExecuteSequence" @("Action", "Condition", "Sequence"))
+                Assert-True (-not $properties.ContainsKey("QIQI_REMOVE_USER_DATA")) "User data deletion must not be enabled by default."
+                Assert-True ("QIQI_REMOVE_USER_DATA" -in $properties.SecureCustomProperties.Split(';')) "Uninstall consent must reach the execute sequence."
+                $cleanup = @($actions | Where-Object { $_.Action -eq "RemoveUserData" })
+                Assert-True ($cleanup.Count -eq 1 -and $cleanup[0].Source -eq "UserDataCleaner" -and $cleanup[0].Target -eq "--remove-user-data") "Missing cached cleanup executable."
+                Assert-True (([int]$cleanup[0].Type -band 3584) -eq 1536) "Cleanup must be impersonated commit, not elevated or deferred."
+                $cleanupSequence = @($sequence | Where-Object { $_.Action -eq "RemoveUserData" })
+                Assert-True ($cleanupSequence.Count -eq 1 -and $cleanupSequence[0].Condition -eq 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND QIQI_REMOVE_USER_DATA="1"') "Cleanup must be opt-in uninstall only."
+                $controls = @(Read-MsiTable $database "Control" @("Dialog_", "Type", "Property"))
+                Assert-True (@($controls | Where-Object { $_.Dialog_ -eq "UninstallDataDlg" -and $_.Type -eq "CheckBox" -and $_.Property -eq "QIQI_REMOVE_USER_DATA" }).Count -eq 1) "Missing uninstall checkbox."
+                $uiSequence = @(Read-MsiTable $database "InstallUISequence" @("Action", "Condition", "Sequence"))
+                Assert-True (@($uiSequence | Where-Object { $_.Action -eq "UninstallDataDlg" -and $_.Condition -eq 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE' }).Count -eq 1) "Missing uninstall-only prompt."
                 foreach ($id in @("RegX86", "UnregX86", "EnableUserProfile", "DeactivateUserProfile", "GrantAppContainerAcl")) {
                     Assert-True (@($actions | Where-Object { $_.Action -eq $id }).Count -eq 1) "Missing action $id in $path"
                 }
@@ -152,6 +163,7 @@ try {
                 }
                 $ordered = @{}
                 foreach ($row in $sequence) { $ordered[$row.Action] = [int]$row.Sequence }
+                Assert-True ($ordered.RemoveFiles -lt $ordered.RemoveUserData -and $ordered.RemoveUserData -lt $ordered.InstallFinalize) "Cleanup must be scheduled after file removal and before commit."
                 Assert-True ($ordered.GrantAppContainerAcl -lt $ordered.RegX86 -and $ordered.RegX86 -lt $ordered.EnableUserProfile) "Registration order changed in $path"
                 Assert-True ($ordered.DeactivateUserProfile -lt $ordered.InstallValidate) "Profile must deactivate before lock checks."
                 Assert-True ($ordered.InstallInitialize -lt $ordered.UnregX86) "Unregister must run inside the install transaction."

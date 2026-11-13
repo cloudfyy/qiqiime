@@ -53,6 +53,32 @@
     <Property Id="MSIDISABLERMRESTART" Value="1" />
     <Property Id="MSIFASTINSTALL" Value="7" />
     <Property Id="REBOOT" Value="ReallySuppress" />
+    <Property Id="QIQI_REMOVE_USER_DATA" Secure="yes" />
+
+    <UI>
+      <TextStyle Id="UninstallFont" FaceName="Segoe UI" Size="9" />
+      <Property Id="DefaultUIFont" Value="UninstallFont" />
+      <Dialog Id="UninstallDataDlg" Width="370" Height="220" Title="!(loc.ProductName)">
+        <Control Id="Description" Type="Text" X="20" Y="20" Width="330" Height="45"
+                 Text="!(loc.UninstallDescription)" />
+        <Control Id="RemoveData" Type="CheckBox" X="20" Y="75" Width="330" Height="30"
+                 Property="QIQI_REMOVE_USER_DATA" CheckBoxValue="1" Text="!(loc.RemoveUserData)" />
+        <Control Id="Warning" Type="Text" X="20" Y="115" Width="330" Height="50"
+                 Text="!(loc.RemoveUserDataWarning)" />
+        <Control Id="Remove" Type="PushButton" X="200" Y="185" Width="75" Height="23"
+                 Default="yes" Text="!(loc.UninstallButton)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="280" Y="185" Width="70" Height="23"
+                 Cancel="yes" Text="!(loc.CancelButton)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+    </UI>
+    <InstallUISequence>
+      <Show Dialog="UninstallDataDlg" Before="ExecuteAction"
+            Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallUISequence>
 
     <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeErrorMessage)" />
     <?if $(sys.BUILDARCH) = x86 ?>
@@ -206,6 +232,15 @@
                   ExeCommand="[SystemFolder]regsvr32.exe /u /s &quot;[DirX86]qiqiime.dll&quot;"
                   Return="ignore" />
 
+    <!-- A cached embedded EXE remains available after RemoveFiles; never run cleanup as SYSTEM. -->
+    <Binary Id="UserDataCleaner" SourceFile="$(var.StageDir)\$(var.NativeFileSuffix)\QiQiIMESettings.exe" />
+    <CustomAction Id="RemoveUserData"
+                  BinaryRef="UserDataCleaner"
+                  Execute="commit"
+                  Impersonate="yes"
+                  ExeCommand="--remove-user-data"
+                  Return="check" />
+
     <?if $(sys.BUILDARCH) = x64 ?>
     <CustomAction Id="UnregX64"
                   Directory="DirX64"
@@ -216,6 +251,8 @@
     <?endif?>
 
     <InstallExecuteSequence>
+      <Custom Action="RemoveUserData" Before="InstallFinalize"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND QIQI_REMOVE_USER_DATA=&quot;1&quot;" />
       <Custom Action="DeactivateUserProfile" Before="InstallValidate" Condition="REMOVE=&quot;ALL&quot;" />
       <Custom Action="GrantAppContainerAcl" After="InstallFiles" Condition="NOT Installed OR REINSTALL" />
       <?if $(sys.BUILDARCH) = x64 ?>

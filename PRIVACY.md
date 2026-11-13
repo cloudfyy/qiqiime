@@ -79,11 +79,26 @@ For capture controls, see the
 
 ## Retention and removal
 
-MSI uninstall removes the managed application files and input-method registration,
-but does not intentionally erase personal settings under `HKCU\Software\QiQiIME`,
-default local user data, custom dictionaries outside the installation directory,
-or separately saved exports/backups. Manual unregistration does not delete the
-deployment directory or user data.
+MSI uninstall removes the managed application files and input-method registration.
+Personal settings and user data are **kept by default**. Interactive uninstall
+offers one unchecked option to also delete the initiating user's settings under
+`HKCU\Software\QiQiIME`, default `user_dict.txt` / `user_dict.qdict` /
+`phrase_freq.qfreq` files under the Windows Local AppData `QiQiIME` directory,
+and known snapshot, cache, journal, metadata and lock files in their `.sync`
+directories. Selecting it and confirming uninstall authorizes permanent deletion
+at successful uninstall commit; it is not offered during upgrade removal.
+
+Cleanup does not read custom paths from settings, scan other Windows users, or
+recursively delete directories. Custom dictionaries, exports, backups and
+unrecognized files are preserved, including such files inside the default data
+directory. Reparse points (including junctions/symlinks) at the data directory,
+sync directories or targeted files are refused. Locked or inaccessible data
+can remain; a cleanup error is reported rather than silently treated as success.
+Close applications using the IME and back up first; applications left running
+can recreate data. Removal is not secure disk erasure and cannot remove external
+copies. Quiet/basic-UI uninstall preserves data unless explicitly invoked with
+`QIQI_REMOVE_USER_DATA=1`. Manual unregistration does not delete the deployment
+directory or user data.
 
 After uninstalling and closing affected applications, you can separately remove
 your own remaining settings, data, synchronization directories, caches, and
@@ -108,5 +123,7 @@ before release. This policy does not certify third-party services or operating-s
   密码/PIN 和私密输入识别受宿主限制，敏感场景请使用系统键盘布局等已验证方式。
 - 日志监控、导出和反馈由用户发起，不自动上传；日志、测试 dump、用户词库及备份
   分享前必须检查脱敏。用户选择网盘或网络路径产生的数据传输由相应服务处理。
-- 卸载默认保留个人设置及安装目录外的用户数据、导出和备份；需清除时自行核对路径，
-  先备份再删除。完整的数据类别、权限、保留规则和第三方边界见上文。
+- 卸载默认保留个人设置和用户数据；可勾选一个默认未选中的选项，同时清理当前用户配置、
+  默认词库/词频及已知缓存和同步文件。自定义路径、导出、备份、其他账户及未知文件保留；
+  升级不清理，静默卸载也默认保留。先关闭使用输入法的应用并备份；占用或权限问题会报告
+  失败且可能留下部分数据，不等同于安全擦除。完整的数据类别和权限边界见上文。
