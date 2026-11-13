@@ -80,15 +80,17 @@ Deleted copy/move operations enforce address stability.
 observable COM release order; keep the declaration-order contract documented in
 [`CompositionLifecycleState`](../src/ime/comp/state.h#L18) when changing members.
 
-| Check | Why it matters |
+| What must still be true before editing | Why it matters |
 | --- | --- |
-| Active and not resetting | A live service can still be inside teardown |
-| Activation epoch | Reactivating the same instance must not revive old requests |
-| Context epoch | An A-to-B-to-A switch must not revive old requests |
-| Captured target | Work belongs to its original context |
-| Captured composition identity, where applicable | Same-context, same-epoch replacement is still a different composition |
+| The service is active and no context reset is in progress | An allocated service object may already be inactive or resetting |
+| The request belongs to the current activation | Deactivating and reactivating the service must not revive requests from the previous activation |
+| The input context has not been invalidated since the request | Switching A-to-B-to-A must not revive an old request, even when the context pointer matches again |
+| The request's original input context is still the current target | Use the context captured for this request, not a replacement input field |
+| The original composition has not been replaced, if the operation uses one | A new composition in the same input field must not be updated or ended by an old composition's callback |
 
-An edit ticket contains both epochs and the target. Epochs are not per-key
+An edit ticket stores activation and context version counters (called epochs)
+and the original target. Operations on an existing composition also check its
+captured object identity. Epochs are not per-key
 sequence numbers: valid writes in one epoch retain normal FIFO behavior.
 Check the ticket before inspecting pending cleanup. Expected stale rejection
 returns `S_OK` with a skip diagnostic, not a fabricated host-edit success.
