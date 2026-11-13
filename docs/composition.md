@@ -534,21 +534,40 @@ If the edit ticket is no longer current, the callback discards the task instead.
 
 ### 5.4 Early Host Termination of the Old Composition
 
-Route notifications through cleanup bookkeeping before current application state:
+The host can terminate a composition before the IME's queued cleanup runs, or
+reenter the IME with `OnCompositionTerminated` while cleanup is executing a host
+call. The notification means the host has already terminated that composition;
+the IME must not call `EndComposition` on it again.
+
+The notified composition is not necessarily the service's current composition.
+For example, cleanup for old composition A may still be queued after the service
+has reactivated and started composition B. A termination notification for A must
+update A's cleanup record, not reset B.
+
+Therefore, first look for the notified composition in the tracked cleanup
+records, including unpublished starts. Only if no record matches should the IME
+compare the notification with the current composition and handle current-state
+termination. Match the composition object, not just its context: old and new
+compositions can belong to the same context.
 
 | Identity/state | Action |
 | --- | --- |
-| Old queued cleanup | Mark terminated; clear the old attribute with the notification cookie if clearing has not started; mark unstarted work finished |
-| Cleanup executing inside property lookup | Clear once with the notification cookie; the outer call skips its now-stale clear/end |
-| Cleanup already inside actual `Clear` | Do not clear again; skip subsequent end after termination |
-| Current composition | Detach it, clear its attribute, then reset only if ticket and expected empty slot still match |
-| Unpublished start | Mark terminated; never publish or explicitly end the late result |
-| Unrelated old composition | Ignore; never reset a replacement |
+| Old cleanup is still queued | Mark the record terminated. If its context has not been removed and a range is available, clear the old display attribute unless clearing has already started. Mark the unstarted cleanup finished; a later callback skips host edits. |
+| Cleanup is inside property lookup, before the actual attribute `Clear` | Mark terminated and, if the context remains valid, clear the available old range's attribute using the notification cookie. When the outer cleanup resumes, its validity check prevents a duplicate clear and subsequent `EndComposition`. |
+| Cleanup has already entered the actual attribute `Clear` | Mark terminated, but do not start another clear. When the in-flight clear returns, skip `EndComposition`. |
+| The notified object is the current composition | Detach it from current state and clear its attribute. Reset local state only if the original edit ticket is still current and the composition slot remains empty; reentrant work may have installed a replacement. |
+| The object belongs to an unpublished `StartComposition` attempt | Mark the starting record terminated and finished. When the host call returns, discard the result without publishing it or calling `EndComposition`. |
+| The object matches neither a tracked record nor the current composition | Ignore the unrelated old notification; leave the current composition unchanged. |
 
-Duplicate notifications do not repeat clearing. The notification supplies the
-cookie; do not request another edit session or end an already-terminated object.
-Current-termination attribute failures are diagnosed but do not suppress an
-otherwise still-current local reset.
+Attribute clearing in the notification handler uses the edit cookie supplied by
+`OnCompositionTerminated`; it does not request another edit session. Duplicate
+notifications do not restart attribute clearing, and a removed context must not
+be edited.
+
+If clearing the current composition's attribute fails, log the actual failure.
+That failure alone does not prevent resetting local state, provided the ticket
+and empty-slot checks still pass. Neither an attribute failure nor a duplicate
+notification justifies ending an already-terminated composition again.
 
 ## 6. Reentrancy Rules
 
