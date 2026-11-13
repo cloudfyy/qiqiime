@@ -97,8 +97,12 @@ can remain; a cleanup error is reported rather than silently treated as success.
 Close applications using the IME and back up first; applications left running
 can recreate data. Removal is not secure disk erasure and cannot remove external
 copies. Quiet/basic-UI uninstall preserves data unless explicitly invoked with
-`QIQI_REMOVE_USER_DATA=1`. Manual unregistration does not delete the deployment
-directory or user data.
+`QIQI_REMOVE_USER_DATA=1`. ZIP/manual unregistration also keeps user data by
+default. Newer `unregister_ime.ps1` scripts support an explicit `-RemoveUserData`
+switch for the same limited cleanup after successful unregistration. Cleanup
+runs as the initiating account, not the administrator account supplied to UAC.
+The switch authorizes deletion without another prompt. The deployment directory
+is not deleted. Older release ZIPs may not support this switch.
 
 After uninstalling and closing affected applications, you can separately remove
 your own remaining settings, data, synchronization directories, caches, and
@@ -125,5 +129,7 @@ before release. This policy does not certify third-party services or operating-s
   分享前必须检查脱敏。用户选择网盘或网络路径产生的数据传输由相应服务处理。
 - 卸载默认保留个人设置和用户数据；可勾选一个默认未选中的选项，同时清理当前用户配置、
   默认词库/词频及已知缓存和同步文件。自定义路径、导出、备份、其他账户及未知文件保留；
-  升级不清理，静默卸载也默认保留。先关闭使用输入法的应用并备份；占用或权限问题会报告
+  升级不清理，静默卸载也默认保留。新版 ZIP 注销脚本可显式加 `-RemoveUserData`，
+  在注销成功后以发起账户清理相同范围的数据，不再询问，也不删除程序目录。
+  先关闭使用输入法的应用并备份；占用或权限问题会报告
   失败且可能留下部分数据，不等同于安全擦除。完整的数据类别和权限边界见上文。

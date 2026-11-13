@@ -291,7 +291,12 @@ function Grant-QiQiAppContainerReadExecute([hashtable]$Dlls) {
     }
 }
 
-function Assert-QiQiAdminOrElevate([string]$ScriptPath, [string[]]$ForwardArgs, [switch]$AutoElevate) {
+function Assert-QiQiAdminOrElevate(
+    [string]$ScriptPath,
+    [string[]]$ForwardArgs,
+    [switch]$AutoElevate,
+    [switch]$ReturnAfterElevation
+) {
     if (Test-QiQiAdmin) {
         return
     }
@@ -299,6 +304,12 @@ function Assert-QiQiAdminOrElevate([string]$ScriptPath, [string[]]$ForwardArgs, 
         Write-Host "  Requesting Administrator privileges via UAC..." -ForegroundColor Yellow
         $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$ScriptPath`"") + $ForwardArgs
         $proc = Start-Process powershell.exe -Verb RunAs -ArgumentList $argList -Wait -PassThru
+        if ($ReturnAfterElevation) {
+            if ($proc.ExitCode -ne 0) {
+                throw "Elevated operation failed, exit code: $($proc.ExitCode)"
+            }
+            return $true
+        }
         exit $proc.ExitCode
     }
     Write-QiQiWarn "Current shell is NOT running as Administrator."

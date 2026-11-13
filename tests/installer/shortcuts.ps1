@@ -82,3 +82,4 @@ Write-Host "Installer shortcuts and both language resources passed."
 & (Join-Path $PSScriptRoot "symbols.ps1")
 & (Join-Path $PSScriptRoot "documentation.ps1")
 & (Join-Path $PSScriptRoot "cleanup.ps1")
+& (Join-Path $PSScriptRoot "unregister.ps1")

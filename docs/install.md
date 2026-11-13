@@ -134,3 +134,58 @@ Defender 明确报告恶意软件时，请停止安装。如果没有继续按�
 - 出错步骤、提示文字或截图。
 
 反馈前遮盖用户名、私人路径和其他个人信息；不要公开上传个人词库、备份或未经检查的日志。
+
+## 6. 可选：ZIP 手动部署
+
+普通用户仍推荐 MSI。`QiQiIME-v<版本>-win-x64-x86.zip` 是完整程序包，
+包含两种架构的程序、词库和部署脚本，**不是源码包，也不是解压即用的绿色版**。
+请勿与 MSI 安装混用，也不要用这些脚本卸载 MSI 安装的版本。
+
+### 安装
+
+1. 从官方发布页面下载上述 ZIP，完整解压到一个以后不再移动的本地目录。
+   不要在压缩包内直接运行程序。
+2. 打开解压后的根目录（能看到 `scripts`、`x64`、`x86` 和 `data`），
+   在资源管理器地址栏输入 `powershell` 并回车。
+3. 运行以下命令，按提示授权管理员权限：
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\register_ime.ps1 -AutoElevate
+   ```
+
+4. 重新打开应用，按 **Win + Space** 选择奇奇五笔。
+   工具可在对应系统架构的目录中直接打开，例如 64 位系统的 `x64\QiQiIMESettings.exe`。
+   ZIP 部署不会创建 MSI 的开始菜单快捷方式。
+
+注册后不要移动或删除该目录；如需换位置，先注销，再从新位置重新注册。
+
+### 卸载：默认保留个人数据
+
+先备份，切换到其他输入法并关闭相关应用。在同一个解压根目录打开 PowerShell，运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\unregister_ime.ps1 -AutoElevate
+```
+
+此命令只注销输入法，**不删除个人配置和词库，也不会删除解压目录**。
+注销成功并关闭相关应用后，可以自行删除程序目录；如有文件占用，先重启电脑。
+删除前检查目录内是否放了个人词库或备份。
+
+### 卸载并删除当前用户的默认数据
+
+确定不再需要默认数据，并已备份时，明确加上 **`-RemoveUserData`**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\unregister_ime.ps1 -AutoElevate -RemoveUserData
+```
+
+只有注销成功后才清理数据。删除范围与前面的 MSI 清理选项相同：
+发起脚本的当前用户配置、默认词库、词频及已知缓存、同步文件；
+不删除自定义路径中的词库、导出、备份或其他用户的数据。
+请从自己的 PowerShell 窗口运行；即使授权时使用另一管理员账户，清理仍在发起账户下执行。
+
+这是不可撤销的删除，不会再次询问。清理失败会报告错误，部分数据可能保留；
+程序解压目录仍需自行删除。
+
+**`-RemoveUserData` 仅适用于包含此功能的新版 ZIP。**
+历史 Release 附件不会随文档更新；旧脚本没有此参数时，请勿照此命令执行。
