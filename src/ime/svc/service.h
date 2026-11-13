@@ -167,6 +167,7 @@ private:
     void HandlePreservedKey(ITfContext* context, REFGUID guid, gsl::not_null<BOOL*> eaten);
     void LogShiftTap(std::string_view stage, uint32_t vk, const ITfContext* context,
                      bool eaten, std::string_view reason) const noexcept;
+    bool CheckShiftContextAccess(ITfContext* context, std::string_view stage, uint32_t vk);
     void TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, ITfContext* context,
                              LPARAM flags) noexcept;
     bool HandleShiftTapKeyUp(std::string_view stage, uint32_t vk, const ITfContext* context,

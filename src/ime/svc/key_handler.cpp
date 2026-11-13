@@ -143,22 +143,28 @@ void QiQiTextService::HandleTestKeyDown(
     *pfEaten = eat_key ? TRUE : FALSE;
 }
 
+bool QiQiTextService::CheckShiftContextAccess(
+    ITfContext* context, std::string_view stage, uint32_t vk) {
+    ITfContext* const effective_ctx = context ? context : composition_lifecycle_.Context().Get();
+    if (effective_ctx) {
+        const AccessPolicy policy = EvaluateContextAccess(effective_ctx, true);
+        if (!policy.can_input) {
+            LogShiftTap(stage, vk, context, false, "keyboard-disabled");
+            shift_tap_.Reset();
+            return false;
+        }
+    }
+    return true;
+}
+
 void QiQiTextService::HandleKeyDown(
     ITfContext* pic, const KeyEvent& key, gsl::not_null<BOOL*> pfEaten) {
     const auto [vk, shift, ctrl, alt, caps, flags] = key;
     if (IsShiftVirtualKey(vk)) {
-        ITfContext* const shift_ctx = pic ? pic : composition_lifecycle_.Context().Get();
-        if (shift_ctx) {
-            const AccessPolicy shift_policy = EvaluateContextAccess(shift_ctx, true);
-            if (!shift_policy.can_input) {
-                LogShiftTap("OnKeyDown", vk, pic, false, "keyboard-disabled");
-                shift_tap_.Reset();
-                *pfEaten = FALSE;
-                return;
-            }
+        if (CheckShiftContextAccess(pic, "OnKeyDown", vk)) {
+            // Hosts may dispatch directly, without the test callback. Do not bind a context for Shift.
+            TrackShiftTapKeyDown("OnKeyDown", vk, pic, flags);
         }
-        // Hosts may dispatch directly, without the test callback. Do not bind a context for Shift.
-        TrackShiftTapKeyDown("OnKeyDown", vk, pic, flags);
         *pfEaten = FALSE;
         return;
     }
@@ -230,16 +236,9 @@ void QiQiTextService::HandleTestKeyUp(
 
 void QiQiTextService::HandleKeyUp(
     ITfContext* pic, uint32_t vk, gsl::not_null<BOOL*> pfEaten) {
-    if (IsShiftVirtualKey(vk)) {
-        if (ITfContext* const effective_ctx = pic ? pic : composition_lifecycle_.Context().Get()) {
-            const AccessPolicy policy = EvaluateContextAccess(effective_ctx, true);
-            if (!policy.can_input) {
-                LogShiftTap("OnKeyUp", vk, pic, false, "keyboard-disabled");
-                shift_tap_.Reset();
-                *pfEaten = FALSE;
-                return;
-            }
-        }
+    if (IsShiftVirtualKey(vk) && !CheckShiftContextAccess(pic, "OnKeyUp", vk)) {
+        *pfEaten = FALSE;
+        return;
     }
     if (HandleShiftTapKeyUp("OnKeyUp", vk, pic, false)) {
         *pfEaten = TRUE;

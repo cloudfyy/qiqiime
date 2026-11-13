@@ -58,6 +58,40 @@ Important TSF contracts:
 Detection must not call `GetText`, inspect passwords/clipboard data, scan other
 processes, attach input queues, or guess from a process-name blacklist.
 
+## Local input admission and diagnostics
+
+[GetInputBlockReason](../src/ime/svc/context_access.cpp) checks only local service
+state; it neither queries the host nor resets composition. Its priority is:
+
+| Reason | Local condition |
+| --- | --- |
+| `inactive` | Service is not active |
+| `resetting` | Context reset is in progress |
+| `preparing` | An input target is being prepared |
+| `none` | No local lifecycle gate blocks input |
+
+These conditions can overlap. The reason is a derived decision, not a replacement
+for lifecycle flags or a new engine state. Key handling, context-query admission,
+and dynamic access updates share this check. `InputBlockReasonToString` supplies
+the diagnostic labels from the same result.
+
+For ordinary test key-down, missing context takes precedence (`no-context`).
+After the context query returns, local state is checked again; if no local gate
+blocks input but access was denied, the label is `keyboard-disabled`. This label
+covers access-policy rejection, not just the keyboard-disabled compartment.
+The Shift candidate is cancelled and the key passes through on rejection.
+Shift tracking retains its existing contextless behavior; it does not bind a
+target merely to track a tap.
+
+Actual Shift key-down and key-up share `CheckShiftContextAccess`: resolve the
+incoming or active context, evaluate access with reset enforcement, and log and
+cancel the tap on rejection. Each callback checks independently. Test callbacks
+retain their non-resetting context query; they do not use this enforcing helper.
+
+Do not retain a local admission result across host calls. It does not replace
+context policy, lifecycle-ticket checks, or the separate checks before and after
+input-target preparation.
+
 ## Lifecycle and persistence boundaries
 
 Fast checks collect context compartments, status, and reliable native-window
