@@ -170,28 +170,34 @@ HRESULT QiQiTextService::ApplyCompositionEditInSession(TfEditCookie ec, const Co
         [this](ITfContext* context, const KeyProcessResult& result) { ApplyEngineResult(context, result); },
         [this](TfEditCookie cookie, gsl::not_null<ITfContext*> context,
                const KeyProcessResult& result, EditSessionTicket ticket) {
-            const AccessPolicy policy = EvaluateContextAccessInSession(cookie, context, ticket, true);
-            if (!policy.can_input || !IsEditSessionCurrent(ticket)) {
-                return S_OK;
-            }
-            engine_.ApplyDeferredPhrasePromotion(result, policy.can_learn);
-            if (!IsEditSessionCurrent(ticket)) {
-                return S_OK;
-            }
-            return ApplyCompositionEditActionInSession(
-                cookie, context, result,
-                [this, ticket]() noexcept { return IsCompositionEditCurrent(ticket, nullptr); },
-                [this](TfEditCookie cancel_cookie, gsl::not_null<ITfContext*> target) {
-                    CancelCompositionInSession(cancel_cookie, target);
-                },
-                [this](TfEditCookie commit_cookie, gsl::not_null<ITfContext*> target, const std::wstring& text) {
-                    CommitAndEndCompositionInSession(commit_cookie, target, text);
-                },
-                [this](TfEditCookie sync_cookie, gsl::not_null<ITfContext*> target, const KeyProcessResult& snapshot) {
-                    SyncCompositionUIInSession(sync_cookie, target, snapshot);
-                },
-                [this] { EndCandidateUI(); });
+            return ApplyAdmittedCompositionEditInSession(cookie, context, result, ticket);
         });
+}
+
+HRESULT QiQiTextService::ApplyAdmittedCompositionEditInSession(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context,
+    const KeyProcessResult& result, EditSessionTicket ticket) {
+    const AccessPolicy policy = EvaluateContextAccessInSession(ec, context, ticket, true);
+    if (!policy.can_input || !IsEditSessionCurrent(ticket)) {
+        return S_OK;
+    }
+    engine_.ApplyDeferredPhrasePromotion(result, policy.can_learn);
+    if (!IsEditSessionCurrent(ticket)) {
+        return S_OK;
+    }
+    return ApplyCompositionEditActionInSession(
+        ec, context, result,
+        [this, ticket]() noexcept { return IsCompositionEditCurrent(ticket, nullptr); },
+        [this](TfEditCookie cancel_cookie, gsl::not_null<ITfContext*> target) {
+            CancelCompositionInSession(cancel_cookie, target);
+        },
+        [this](TfEditCookie commit_cookie, gsl::not_null<ITfContext*> target, const std::wstring& text) {
+            CommitAndEndCompositionInSession(commit_cookie, target, text);
+        },
+        [this](TfEditCookie sync_cookie, gsl::not_null<ITfContext*> target, const KeyProcessResult& snapshot) {
+            SyncCompositionUIInSession(sync_cookie, target, snapshot);
+        },
+        [this] { EndCandidateUI(); });
 }
 
 void QiQiTextService::SyncCompositionUIInSession(

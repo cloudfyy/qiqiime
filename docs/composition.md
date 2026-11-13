@@ -137,6 +137,31 @@ does not prove callback delivery or successful host edits.
 Requeueing re-enters request admission and captures a new task for the
 same result; it does not run the engine again.
 
+For example, the user types `a` in input field A. The engine processes this key
+once and produces result R: the new preedit text and candidates. The service then
+requests permission to apply R to A's document:
+
+- **Immediate callback:** TSF calls the edit callback before the request function
+  returns, supplying a write cookie. The callback checks validity before editing.
+- **Deferred callback:** TSF queues the callback and returns first. Accepting this
+  request does not mean R is already visible. When the callback eventually runs,
+  it receives a write cookie and performs the same checks. If the user has switched
+  to B in the meantime, the stale callback skips the edit.
+- **Rejected or undelivered request:** the callback never runs, so this request
+  makes no document edit. Do not report successful editing merely because a
+  request was made or accepted.
+
+If A still has an old composition waiting for cleanup when the callback runs,
+the callback resubmits R and returns without applying it. The retry goes through
+request admission again and requests an explicitly asynchronous session while
+cleanup remains pending. After cleanup finishes, a delivered, still-valid retry
+can apply R. It must not feed `a` into the engine again: doing so could append a
+second `a` and produce a different result.
+
+In short: **request accepted, callback executed, and document edit succeeded are
+three different facts**. A write cookie permits editing during that callback; it
+does not guarantee the request is still current or that the host operation succeeds.
+
 The last two nodes summarize action-specific paths, not unconditional success.
 Composition updates check the captured composition identity before positioning
 and again before publishing candidates. Commit/cancel paths guard their host
@@ -144,6 +169,12 @@ operations and only end UI or start a following composition if still current.
 `CompositionEditTask` owns its context, immutable `KeyProcessResult`, ticket,
 and activity. Deferred service callbacks retain the service separately; the task
 itself owns neither a service nor an edit cookie.
+
+In the [service adapter](../src/ime/svc/composition.cpp#L166),
+`ApplyCompositionEditInSession` coordinates stale rejection, cleanup requeueing,
+and execution. `ApplyAdmittedCompositionEditInSession` handles the execution path:
+session access checks, deferred phrase promotion, and action dispatch. Admission
+does not replace the access and ticket checks inside that execution path.
 
 ### Reset and preparation
 

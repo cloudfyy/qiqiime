@@ -214,6 +214,9 @@ private:
     ReloadResult ReloadConfigIfModified(uint64_t focus_log_id = 0);
     void ApplyEngineResult(ITfContext* context, const KeyProcessResult& result);
     HRESULT ApplyCompositionEditInSession(TfEditCookie ec, const CompositionEditTask& task);
+    HRESULT ApplyAdmittedCompositionEditInSession(
+        TfEditCookie ec, gsl::not_null<ITfContext*> context,
+        const KeyProcessResult& result, EditSessionTicket ticket);
     void SyncCompositionUIInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot);
     ComPtr<ITfComposition> StartOrUpdateCompositionInSession(
