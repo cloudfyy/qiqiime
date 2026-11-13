@@ -277,7 +277,7 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM l
         return S_OK;
     }
     const AccessPolicy initial_policy = EvaluateContextAccess(pic, true);
-    if (shift_tap_.IsCandidate()) 
+    if (shift_tap_.IsCandidate())
         LogShiftTap("OnKeyDown", 0, pic, false, "other-key-cancelled");
     shift_tap_.Reset();
     if (!initial_policy.can_input) {
