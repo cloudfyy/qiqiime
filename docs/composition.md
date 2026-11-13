@@ -357,9 +357,13 @@ resolution. Resolution can itself reenter while scheduling old cleanup.
 
 ## 4. Deactivation Algorithm and Request Results
 
-Normal deactivation marks application state inactive, disables presentation, and
+Normal deactivation marks the IME service inactive, disables presentation, and
 advances the activation epoch before handing off the old composition. Cleanup
-tries synchronous write access first and never blocks the message pump.
+first requests a synchronous read/write edit session: if granted, TSF runs the
+cleanup callback before `RequestEditSession` returns. The IME does not wait or
+pump messages to force a queued cleanup to complete.
+
+**Old Composition Cleanup During Deactivation**
 
 ```mermaid
 flowchart TD
@@ -370,7 +374,7 @@ flowchart TD
     Range --> Connected{"Still connected and not host-terminated?"}
     Connected -->|No| Skip["Skip new request"]
     Connected -->|Yes| Sync["Request SYNC plus READWRITE"]
-    Sync --> Recover{"Controlled async recovery eligible?"}
+    Sync --> Recover{"Synchronous access refused and target still valid?<br/>See all retry conditions below"}
     Recover -->|Yes| Async["Request ASYNC plus READWRITE once"]
     Recover -->|No| Result["Inspect request and session results"]
     Async --> Result
@@ -379,18 +383,37 @@ flowchart TD
     Result --> Local
 ```
 
-Recovery is eligible **only** when the outer request succeeded, `session_hr` is
-`TF_E_SYNCHRONOUS`, the callback has not started, the host has not terminated the
-composition, and the context has not been removed. Other failures do not trigger
-unbounded retries or an attempt to bypass read-only access.
+`RequestEditSession` reports two separate HRESULTs:
+
+- `request_hr` is the return value of the request itself.
+- `session_hr` is an output parameter reporting the edit callback's result or
+  why the requested session could not run, or indicating asynchronous queuing.
+
+`TF_E_SYNCHRONOUS` in `session_hr` means TSF could not grant the requested
+**synchronous** session at that time. It does not mean the cleanup callback ran
+and failed, and it does not automatically queue an asynchronous session.
+
+The IME explicitly submits one new request with `TF_ES_ASYNC | TF_ES_READWRITE`
+**only if all** of these conditions hold after the synchronous request returns:
+
+- `request_hr` succeeded.
+- `session_hr == TF_E_SYNCHRONOUS`.
+- The cleanup callback has not started.
+- The host has not terminated the captured composition.
+- The captured context has not been removed.
+
+This asynchronous request asks TSF to run cleanup later when write access is
+available; it can still be rejected. No other failure triggers this retry.
+In particular, read-only refusal is not retried asynchronously to bypass access
+restrictions, and there is no retry loop.
 
 | `request_hr` | `session_hr` | Interpretation |
 | --- | --- | --- |
-| Success | Callback result | It may already have run synchronously; inspect individual operations |
-| Success | `TF_E_SYNCHRONOUS` | Try controlled recovery only under the conditions above |
-| Success | `TF_S_ASYNC` | Queued, not completed |
-| Failure | Any value | Request failed; initialized inner output proves no execution |
-| Success | `TS_E_READONLY` or another failure | Diagnose the actual failure; no generic async bypass |
+| Success | Callback result | The callback ran; inspect its result and individual cleanup operations |
+| Success | `TF_E_SYNCHRONOUS` | Synchronous access was refused; submit one asynchronous request only if all conditions above hold |
+| Success | `TF_S_ASYNC` | The asynchronous request was queued, not completed |
+| Failure | Any value | The request failed; do not treat the inner output as evidence of callback execution |
+| Success | `TS_E_READONLY` or another failure to obtain the session | Log the failure; do not retry asynchronously |
 
 The callback clears the old display attribute, then ends the old composition.
 Range/attribute failure does not prevent best-effort termination unless removal
