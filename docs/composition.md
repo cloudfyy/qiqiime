@@ -393,19 +393,24 @@ flowchart TD
 **synchronous** session at that time. It does not mean the cleanup callback ran
 and failed, and it does not automatically queue an asynchronous session.
 
-The IME explicitly submits one new request with `TF_ES_ASYNC | TF_ES_READWRITE`
-**only if all** of these conditions hold after the synchronous request returns:
+After the synchronous request returns, the IME submits **one asynchronous
+read/write request** (`TF_ES_ASYNC | TF_ES_READWRITE`) only when all five checks
+below pass:
 
-- `request_hr` succeeded.
-- `session_hr == TF_E_SYNCHRONOUS`.
-- The cleanup callback has not started.
-- The host has not terminated the captured composition.
-- The captured context has not been removed.
+1. `request_hr` succeeded: the request itself did not fail.
+2. `session_hr == TF_E_SYNCHRONOUS`: TSF could not run the session synchronously.
+3. The cleanup callback has not started: do not submit duplicate cleanup work.
+4. The host has not terminated the captured composition: it still needs cleanup.
+5. The captured context has not been removed: it remains a valid cleanup target.
 
-This asynchronous request asks TSF to run cleanup later when write access is
-available; it can still be rejected. No other failure triggers this retry.
-In particular, read-only refusal is not retried asynchronously to bypass access
-restrictions, and there is no retry loop.
+The new request lets TSF defer cleanup until write access is available. It can
+still fail; acceptance means queued, not completed. The IME does not wait for it
+or retry it again.
+
+If any check fails, the IME does not submit this asynchronous request. Other
+failures are logged rather than retried. In particular, `TS_E_READONLY` means
+write access was denied; changing the request from synchronous to asynchronous
+is not a way to bypass that restriction.
 
 | `request_hr` | `session_hr` | Interpretation |
 | --- | --- | --- |
