@@ -22,7 +22,7 @@ The service deliberately retains activation/deactivation, focus/configuration,
 and real engine/window effects. Synchronous helpers borrow callbacks and state;
 they do not retain edit cookies or introduce a universal event queue.
 
-## 1. Two Separate Problems
+## 1. Application Work vs. Old-Composition Cleanup
 
 | Work | Required behavior after invalidation |
 | --- | --- |
@@ -37,6 +37,36 @@ A strong COM reference prevents destruction, not stale execution. Releasing
 Focus-loss/deactivation cleanup **preserves preedit text**. It does not commit a
 candidate, delete text, recreate a composition, or restore UI. `Deactivate`
 returns synchronously while host cleanup can remain queued.
+
+### Example: switching from input field A to B
+
+Suppose A contains underlined preedit text and a candidate-update callback is
+queued. Before it runs, the user moves focus to B. The callback is now stale:
+its work belongs to A, not B. A captured COM reference keeps A's old object alive,
+but does not authorize the callback to update either field or reopen candidate UI.
+
+There are also two different kinds of "release": releasing a local
+`ITfComposition` reference only drops ownership; it does not tell the host to end
+the composition. The host can still retain composing state and display attributes
+on A's text. A TSF write cookie is permission to edit the document, not an ordinary
+object reference. Independent cleanup uses that permission and the captured old
+objects to clear `GUID_PROP_ATTRIBUTE` and call `EndComposition`, which ends the
+old composing state (`GUID_PROP_COMPOSING`). If the host terminates the old
+composition first, its termination notification provides the completion evidence.
+Neither path commits a selected candidate into B or deletes A's preedit text.
+
+```mermaid
+flowchart TD
+    Switch["Focus moves from A to B"] --> OldWork["Queued input update belongs to A"]
+    OldWork --> Reject["Reject stale update: do not touch B or its UI"]
+    Switch --> Cleanup["Independent cleanup retains A's old objects"]
+    Cleanup --> Grant["Request edit session; TSF grants a valid write cookie"]
+    Grant --> Finish["Clear old display attributes and call EndComposition"]
+    Finish --> Check["Check actual results; a request alone is not completion"]
+    Cleanup --> Host["Alternatively, host ends the old composition"]
+    Host --> Notify["Observe termination notification for the old composition"]
+    Release["Release local COM reference"] -.-> Ownership["Drop a reference only: not a host cleanup operation"]
+```
 
 ## 2. Application Edit-Session Barrier
 
