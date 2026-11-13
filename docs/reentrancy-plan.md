@@ -22,6 +22,13 @@ cleanup still use their existing specialized protocols.
 Commit/cancel adapters now also reuse fixed-ticket context guards and the shared
 composition guard for original-object ownership. Their detach-before-end,
 expected-empty continuation, HRESULT and caret behavior remain unchanged.
+Specialized-protocol review also adds a post-release checkpoint before a
+current-composition termination resets local state. A regression demonstrates
+that a replacement, switched target, or new activation created while releasing
+the old composition must survive the old callback.
+Start publication now also retains its published object across preparation
+teardown and validates it before updating; a second regression prevents old
+input from being redirected to a replacement published during that teardown.
 
 The goal is to make input state safe during same-thread host reentrancy and reduce
 the chance of capturing the wrong state, omitting a check, or touching a replacement

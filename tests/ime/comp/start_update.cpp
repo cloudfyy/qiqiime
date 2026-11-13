@@ -127,7 +127,7 @@ void TestStartPublicationAndUpdate() {
             const bool terminated = kind == Kind::TerminatedCurrent || kind == Kind::TerminatedStale ||
                 kind == Kind::TerminatedReplace;
             const unsigned int expected_checks = (existing || kind == Kind::PreparationFailure ? 0u : 4u) +
-                (terminated ? 1u : 0u) + update_checks;
+                (terminated ? 1u : 0u) + (returns_composition && !existing ? 1u : 0u) + update_checks;
             QIQI_TEST_CHECK(checks_seen == expected_checks && resets_seen == (kind == Kind::TerminatedCurrent ? 1u : 0u) &&
                             result.Get() == (returns_composition ? context->last_composition_.Get() : nullptr) &&
                             context->start_composition_calls_ == (existing || kind == Kind::PreparationFailure ? 0u : 1u) &&
@@ -160,6 +160,47 @@ void TestStartPublicationAndUpdate() {
         }
     }
     QIQI_TEST_CHECK(cases == 34 && g_com_object_count.load() == objects_before);
+}
+
+void TestStartPreparationReleaseReentrancy() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const auto objects_before = g_com_object_count.load();
+    {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto replacement_range = MakeComObject<MockTfRange>();
+        replacement_range->text_ = L"replacement";
+        const auto replacement = MakeComObject<MockTfComposition>(replacement_range);
+        CompositionLifecycleState state(431);
+        state.SetActive(true);
+        state.SetContext(context);
+        const auto sink = MakeComObject<StartUpdateSink>(state);
+        const EditSessionTicket ticket{state.Epoch(), context.Get()};
+        bool released = false;
+        context->range_->release_observer_ = [&]() noexcept {
+            released = true;
+            state.SetComposition(replacement);
+        };
+        context->start_composition_callback_ = [&] {
+            const auto published_range = MakeComObject<MockTfRange>();
+            published_range->text_ = L"published";
+            context->last_composition_->range_ = published_range;
+            context->range_ = published_range;
+        };
+        const auto result = EnsureAndUpdateCompositionInSession(
+            439, context.Get(), sink.Get(), state, 23, ticket.epoch, GUID_NULL,
+            std::wstring{L"old input"}, TF_INVALID_GUIDATOM,
+            [&](const ITfComposition* composition) noexcept {
+                return state.IsCurrent(ticket) && state.Composition().Get() == composition;
+            },
+            [] { QIQI_TEST_CHECK(false); });
+        QIQI_TEST_CHECK(released && result.Get() == context->last_composition_.Get() &&
+                        state.Composition().Get() == replacement.Get() &&
+                        context->last_composition_->get_range_calls_ == 0 && replacement->get_range_calls_ == 0 &&
+                        context->range_->text_ == L"published" && context->range_->set_text_calls_ == 0 &&
+                        replacement_range->text_ == L"replacement" && replacement_range->set_text_calls_ == 0 &&
+                        context->set_selection_calls_ == 0 && context->prop_->set_calls_ == 0);
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
 void TestStartUpdateExceptionOwnership() {
@@ -227,6 +268,7 @@ void TestStartUpdateExceptionOwnership() {
 void RunTsfCompositionStartUpdateTests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestStartPublicationAndUpdate();
+    TestStartPreparationReleaseReentrancy();
     TestStartUpdateExceptionOwnership();
 }
 

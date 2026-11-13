@@ -46,16 +46,20 @@ HRESULT CompleteCurrentCompositionTermination(
     IsCurrent is_current, Reset reset) {
     if (notification && state.Context()) {
         const EditSessionTicket ticket{state.Epoch(), state.Context().Get()};
-        const Microsoft::WRL::ComPtr<ITfContext> context_holder = state.Context();
-        const Microsoft::WRL::ComPtr<ITfComposition> composition_holder = state.TakeComposition();
-        const auto terminated = ClearTerminatedCompositionInSession(
-            ec, context_holder.Get(), composition_holder.Get(),
-            [&is_current, ticket]() noexcept(noexcept(is_current(ticket))) {
-                return is_current(ticket);
-            });
-        if (!terminated.may_reset) {
-            return S_OK;
+        {
+            const Microsoft::WRL::ComPtr<ITfContext> context_holder = state.Context();
+            const Microsoft::WRL::ComPtr<ITfComposition> composition_holder = state.TakeComposition();
+            const auto terminated = ClearTerminatedCompositionInSession(
+                ec, context_holder.Get(), composition_holder.Get(),
+                [&is_current, ticket]() noexcept(noexcept(is_current(ticket))) {
+                    return is_current(ticket);
+                });
+            if (!terminated.may_reset) {
+                return S_OK;
+            }
         }
+        // Releasing branch-local COM owners can reenter before the reset.
+        if (!is_current(ticket)) return S_OK;
     }
     reset();
     return S_OK;

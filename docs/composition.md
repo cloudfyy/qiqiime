@@ -257,6 +257,15 @@ the service. Retain the original composition and recheck epoch/target/compositio
 at the existing operation boundaries. A successful entry check is insufficient.
 These checks cannot undo a host call that has already started.
 
+Current-composition termination releases its branch-local range/composition/context
+owners before resetting local state. That release is also a reentrancy boundary:
+recheck the original ticket and expected empty composition after the owners are
+released, so a replacement created during `Release` is not cleared by the old reset.
+Start publication likewise captures the newly published composition before
+releasing preparation resources, then checks that exact object with the original
+ticket before querying/updating it. A replacement created during preparation
+teardown must not become the target of the old input.
+
 For example, an update callback checks that composition C1 in input field A is
 current, then calls the host to write its preedit text. Before that call returns,
 the host calls back into the service and terminates C1 or switches the input

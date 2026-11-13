@@ -74,7 +74,9 @@ void TestTerminationCompletion() {
                 [&, checks = std::make_unique<unsigned int>(0)](EditSessionTicket ticket) {
                     checks_seen = ++*checks;
                     events.push_back(Event::Check);
-                    const ULONG references = got_range ? 3UL : 2UL;
+                    const ULONG composition_refs = composition->AddRef();
+                    composition->Release();
+                    const ULONG references = got_range && composition_refs == 3 ? 3UL : 2UL;
                     QIQI_TEST_CHECK(ticket.target == original.target && ticket.epoch.context == original.epoch.context &&
                                     ticket.epoch.activation == original.epoch.activation &&
                                     context->range_->AddRef() == references + 1 &&
@@ -112,6 +114,9 @@ void TestTerminationCompletion() {
             unsigned int expected_checks = 0;
             unsigned int expected_resets = 0;
             unsigned int expected_clears = 0;
+            if (queried && expected.back() == Event::Reset) {
+                expected.insert(expected.end() - 1, Event::Check);
+            }
             for (const auto event : expected) {
                 if (event == Event::Check) ++expected_checks;
                 if (event == Event::Reset) ++expected_resets;
@@ -129,6 +134,57 @@ void TestTerminationCompletion() {
         }
     }
     QIQI_TEST_CHECK(cases == 24 && g_com_object_count.load() == objects_before);
+}
+
+void TestTerminationReleaseReentrancy() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    enum class Effect { None, Replace, Switch, Reactivate };
+    const auto objects_before = g_com_object_count.load();
+    for (const auto effect : {Effect::None, Effect::Replace, Effect::Switch, Effect::Reactivate}) {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto next_context = MakeComObject<MockTfContext>();
+        const auto replacement = MakeComObject<MockTfComposition>(next_context->range_);
+        CompositionLifecycleState state(551);
+        state.SetActive(true);
+        state.SetContext(context);
+        context->range_->text_ = L"preedit";
+        bool released = false;
+        auto composition = MakeComObject<MockTfComposition>(context->range_);
+        composition->release_observer_ = [&]() noexcept {
+            released = true;
+            if (effect == Effect::None) return;
+            if (effect == Effect::Switch) {
+                state.InvalidateContext();
+                state.SetContext(next_context);
+            } else if (effect == Effect::Reactivate) {
+                state.SetActive(false);
+                state.InvalidateActivation();
+                state.SetActive(true);
+            }
+            state.SetComposition(replacement);
+        };
+        const ITfComposition* const notification = composition.Get();
+        state.SetComposition(std::move(composition));
+        unsigned int resets = 0;
+        QIQI_TEST_CHECK(CompleteCurrentCompositionTermination(
+            553, notification, state,
+            [&](EditSessionTicket ticket) noexcept {
+                return state.IsCurrent(ticket) && !state.Composition();
+            },
+            [&] {
+                QIQI_TEST_CHECK(released);
+                ++resets;
+                state.InvalidateContext();
+                state.ClearContext();
+                state.ClearComposition();
+            }) == S_OK);
+        QIQI_TEST_CHECK(released && resets == (effect == Effect::None ? 1u : 0u) &&
+                        state.Composition().Get() == (effect == Effect::None ? nullptr : replacement.Get()) &&
+                        state.Context().Get() == (effect == Effect::None ? nullptr :
+                            effect == Effect::Switch ? next_context.Get() : context.Get()) &&
+                        context->range_->text_ == L"preedit" && context->range_->set_text_calls_ == 0);
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
 void TestTerminationCompletionExceptions() {
@@ -175,6 +231,7 @@ void TestTerminationCompletionExceptions() {
 void RunTsfCompositionTerminationTests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestTerminationCompletion();
+    TestTerminationReleaseReentrancy();
     TestTerminationCompletionExceptions();
     RunTsfCompositionTerminationRouteTests();
 }

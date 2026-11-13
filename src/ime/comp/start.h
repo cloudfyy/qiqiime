@@ -96,24 +96,30 @@ template <typename IsCurrent, typename Reset>
     CompositionLifecycleState& state, TfClientId client_id, const EditSessionEpoch& attempted_epoch,
     const GUID& lifecycle_activity, const std::wstring& text, const TfGuidAtom& attribute_atom,
     IsCurrent is_current, Reset reset) {
-    if (!state.Composition()) {
-        const auto attempt = BeginCompositionInSession(
-            ec, context, sink, state.Cleanups(), client_id, attempted_epoch,
-            state.Epoch(), lifecycle_activity,
-            [&is_current]() noexcept(noexcept(is_current(nullptr))) {
-                return is_current(nullptr);
-            });
-        if (attempt.disposition != CompositionStartDisposition::Publish) {
-            if (attempt.disposition == CompositionStartDisposition::Terminated && is_current(nullptr)) {
-                reset();
+    Microsoft::WRL::ComPtr<ITfComposition> composition = state.Composition();
+    if (!composition) {
+        {
+            const auto attempt = BeginCompositionInSession(
+                ec, context, sink, state.Cleanups(), client_id, attempted_epoch,
+                state.Epoch(), lifecycle_activity,
+                [&is_current]() noexcept(noexcept(is_current(nullptr))) {
+                    return is_current(nullptr);
+                });
+            if (attempt.disposition != CompositionStartDisposition::Publish) {
+                if (attempt.disposition == CompositionStartDisposition::Terminated && is_current(nullptr)) {
+                    reset();
+                }
+                return {};
             }
-            return {};
+            state.SetComposition(std::move(attempt.starting->composition));
+            composition = state.Composition();
         }
-        state.SetComposition(std::move(attempt.starting->composition));
+        // Preparation releases may replace the published composition before updating it.
+        if (!is_current(composition.Get())) return composition;
     }
 
     return UpdateCompositionInSession(
-        ec, context, state.Composition(), text, attribute_atom, std::ref(is_current));
+        ec, context, std::move(composition), text, attribute_atom, std::ref(is_current));
 }
 
 } // namespace qiqi

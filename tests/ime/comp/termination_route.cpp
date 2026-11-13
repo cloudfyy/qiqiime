@@ -76,7 +76,7 @@ void RunTsfCompositionTerminationRouteTests() {
             const bool current_query = route == Route::Current || route == Route::ExpiredStarting;
             const bool direct_reset = route == Route::NullCurrent || route == Route::NullEmpty || route == Route::MissingContext;
             const bool reset = direct_reset || (current_query && active);
-            QIQI_TEST_CHECK(result == S_OK && checks_seen == (current_query ? (active ? 3u : 2u) : 0u) &&
+            QIQI_TEST_CHECK(result == S_OK && checks_seen == (current_query ? (active ? 4u : 2u) : 0u) &&
                             resets_seen == (reset ? 1u : 0u) && clear_callbacks == (current_query && active ? 1u : 0u) &&
                             state.IsActive() == active && state.Epoch().context == (reset ? 1u : 0u) &&
                             context->range_->text_ == L"current" && context->range_->set_text_calls_ == 0 &&
