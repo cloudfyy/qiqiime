@@ -139,20 +139,17 @@ template <typename IsCurrent>
 void FinishOrInsertCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, CompositionLifecycleState& state,
     bool& has_valid_caret_pos, CompositionFinishKind kind, std::wstring_view text, IsCurrent is_current) {
-    const auto composition = state.Composition();
-    const auto current = [&is_current, &composition]() noexcept(noexcept(is_current(composition.Get()))) {
-        return is_current(composition.Get());
-    };
-    if (!composition) {
+    const CompositionEditGuard guard(state.Composition(), std::ref(is_current));
+    if (!guard.Composition()) {
         if (kind == CompositionFinishKind::Cancel) {
             has_valid_caret_pos = false;
             return;
         }
-        InsertCommittedTextInSession(ec, context, text, std::ref(current));
+        InsertCommittedTextInSession(ec, context, text, std::ref(guard));
         return;
     }
     FinishCompositionInSession(
-        ec, context, composition.Get(), kind, text, std::ref(current),
+        ec, context, guard.Composition().Get(), kind, text, std::ref(guard),
         [&state, &has_valid_caret_pos]() noexcept {
             state.ClearComposition();
             has_valid_caret_pos = false;

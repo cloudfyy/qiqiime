@@ -239,19 +239,21 @@ ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(
 void QiQiTextService::CommitAndEndCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text) {
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
+    const ContextEditGuard guard(composition_lifecycle_, ticket, service_log_id_, current_lifecycle_activity_);
     FinishOrInsertCompositionInSession(
         ec, context, composition_lifecycle_, has_valid_caret_pos_, CompositionFinishKind::Commit, committed_text,
-        [this, ticket](const ITfComposition* composition) noexcept {
-            return IsCompositionEditCurrent(ticket, composition);
+        [&guard](const ITfComposition* composition) noexcept {
+            return guard.CurrentComposition(composition);
         });
 }
 
 void QiQiTextService::CancelCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context) {
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
+    const ContextEditGuard guard(composition_lifecycle_, ticket, service_log_id_, current_lifecycle_activity_);
     FinishOrInsertCompositionInSession(
         ec, context, composition_lifecycle_, has_valid_caret_pos_, CompositionFinishKind::Cancel, {},
-        [this, ticket](const ITfComposition* composition) noexcept {
-            return IsCompositionEditCurrent(ticket, composition);
+        [&guard](const ITfComposition* composition) noexcept {
+            return guard.CurrentComposition(composition);
         });
 }
 

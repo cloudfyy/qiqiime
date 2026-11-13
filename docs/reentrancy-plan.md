@@ -5,6 +5,11 @@
 The checked-identity pilot is implemented; the broader migration remains a plan.
 Existing validity checks, diagnostics, and host-operation checkpoints are reused.
 
+AST-based checking and its CI targets are deferred because their tooling/setup
+cost is outside the current scope. Do not install LLVM development components or
+implement the checker for this plan now. Existing markers remain descriptive
+comments; runtime tests and manual boundary review remain the verification gates.
+
 Completed pilot:
 
 - Fixed-ticket context checks in admitted editing and update/start adapters.
@@ -14,6 +19,9 @@ Completed pilot:
 
 Start-result publication, commit/cancel, pending target preparation and independent
 cleanup still use their existing specialized protocols.
+Commit/cancel adapters now also reuse fixed-ticket context guards and the shared
+composition guard for original-object ownership. Their detach-before-end,
+expected-empty continuation, HRESULT and caret behavior remain unchanged.
 
 The goal is to make input state safe during same-thread host reentrancy and reduce
 the chance of capturing the wrong state, omitting a check, or touching a replacement
@@ -157,15 +165,15 @@ before starting D. Use this order:
 | 1 | Establish guards and a small migration pilot (A/B; completed) | Existing diagnostics and ownership semantics reused; x64/x86 lifecycle and UI tests pass |
 | 2 | Inventory remaining reentrant boundaries and classify protocols (C; scoped inventory completed below) | Record original identity, dependent continuation, failure policy and ownership; distinguish ordinary edits from start/finish, preparation and cleanup |
 | 3 | Mark the already-reviewed pilot methods (D; initial eight markers added) | Step 2 supplies precise marker rules; mark only methods whose required protection is understood |
-| 4 | Implement protection-presence checking and run in report-only CI (D) | Step 3 supplies real fixtures; recognize protected-helper delegation and report parse/configuration failures |
-| 5 | Extend guard reuse to compatible remaining sites (C) | Step 4 reports omissions; each migration preserves protocol and release order and passes focused reentrancy tests |
-| 6 | Enable blocking CI for verified presence rules (D) | Step 4 fixtures and step 5 migrations demonstrate acceptable false-positive behavior; unsupported protocols remain explicit |
-| 7 | Add high-confidence boundary/control-flow rules (E) | Reviewed call inventory, guard semantics and helper summaries are stable; add negative/positive fixtures before making each rule blocking |
+| 4 | Protection-presence checker and report-only CI (D; deferred) | Not required for the remaining guard migration |
+| 5 | Extend guard reuse to compatible remaining sites (C; next) | Use the step 2 inventory and manual review; each migration preserves protocol and release order and passes focused reentrancy tests |
+| 6 | Blocking CI for presence rules (D; deferred) | Requires resuming and validating the checker first |
+| 7 | Boundary/control-flow analysis (E; deferred) | Requires a separately approved tooling effort |
 
-The next action is step 4, not a broad mechanical guard rewrite or immediate
-full control-flow analyzer. Steps 5 and 6 cover only protocols whose rules have
-been verified; do not delay useful pilot checks until every specialized protocol
-has been generalized. Runtime reentrancy tests remain a gate throughout.
+The next action is step 5, using the inventory rather than depending on a checker.
+Migrate compatible repeated capture/check plumbing first, then review specialized
+start/finish, preparation and cleanup protocols without forcing a shared guard
+where validity rules differ. Runtime reentrancy tests remain a gate throughout.
 
 ### Scoped host-boundary inventory (step 2)
 
@@ -255,7 +263,9 @@ The pilot has migrated update-to-position-to-publication and layout identity
 plumbing. It does not claim a completed audit of all TSF/UI calls, and deliberately
 does not unify start publication, finish transitions, target preparation or cleanup.
 
-### Phase D: mark protected methods and report missing guards (markers piloted; checker planned)
+### Phase D: mark protected methods and report missing guards (markers piloted; checker deferred)
+
+The checker work below is retained as a future design reference, not active work.
 
 Use structured source comments immediately above function declarations or
 definitions. The comments describe the required protection, not whether the
@@ -316,7 +326,7 @@ checkpoint placement, find every unmarked method that needs protection, or
 establish that all execution paths are safe. C++ contracts alone cannot enforce
 the source-level obligation to call a guard.
 
-### Phase E: check reentrant boundaries and continuation paths (planned)
+### Phase E: check reentrant boundaries and continuation paths (deferred)
 
 Extend the validated checker incrementally with AST/control-flow analysis:
 
