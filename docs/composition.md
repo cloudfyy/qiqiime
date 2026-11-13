@@ -1,1205 +1,564 @@
-# TSF Composition Lifecycle, Deactivation Cleanup, and Diagnostics
+# TSF Composition Lifecycle
 
-This document explains the invariants, ownership, reentrancy, and debugging workflow
-for tasks 41 and 43 through 46 and the completed code-side R05 refactoring.
-Current contracts were checked against code baseline `a911cbd` on 2026-11-06.
-The COM facade lives in
-[`tip_service.cpp`](../src/ime/tsf/tip_service.cpp),
-[`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp), and
-[`tip_service.h`](../src/ime/tsf/tip_service.h).
-Internal state and protocols live in [`ime/comp`](../src/ime/comp), not solely
-in those facade files. For logging configuration, ETW sessions, and capture
-tools, see the [logging guide](log.md); retained test timing, PDBs and the
-60/90/150-second watchdog budgets are documented in the
-[development guide](dev.md#tsf-hang-diagnostics).
-
-**Status:** R05's internal boundaries and dual-architecture automated acceptance
-are complete. Activation/deactivation, focus/configuration and actual engine,
-Shift-tap and UI effects intentionally stay in the service. No universal
-coordinator or additional mechanical extraction is required. The overall R05
-checkbox remains open for [real-host acceptance](hosts.md#11-r05-重构后人工验收2026-11-06-待执行);
-the historical caret, Explorer-positioning and intermittent-hang reports have
-not been diagnosed or certified fixed.
+This guide describes the current composition, edit-session, cleanup, and UI
+contracts. The diagrams show control flow and ownership, not additional threads
+or a proposed coordinator. Use the [logging guide](log.md) for capture and the
+[development guide](dev.md#tsf-hang-diagnostics) for tests and hang diagnostics.
 
 ## Current Module Map
 
-| Surface | Implementation | Ownership / responsibility |
-|---|---|---|
-| COM facade | [`tip_service.h`](../src/ime/tsf/tip_service.h), [`tip_service.cpp`](../src/ime/tsf/tip_service.cpp), [`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp), [`tip_config.cpp`](../src/ime/tsf/tip_config.cpp), [`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp) | COM identity, registration, activation cancellation, focus/configuration, entry gates and real effect adapters |
-| Lifecycle state / reset | [`state.h`](../src/ime/comp/state.h) | Stable, nonmovable owner; epochs, active/reset flags, composition, cleanup coordinator, context and parent |
-| Input target / document | [`target.h`](../src/ime/comp/target.h) | Synchronous preparation, canonical document identity, top/base reconciliation and preserved reset/current checkpoints |
-| Application edits | [`edit.h`](../src/ime/comp/edit.h), [`edit_session.h`](../src/ime/tsf/edit_session.h) | Immutable task snapshot, request and execution protocols, activity scope, tickets and existing cleanup barrier |
-| Start / update / finish | [`start.h`](../src/ime/comp/start.h), [`update.h`](../src/ime/comp/update.h), [`finish.h`](../src/ime/comp/finish.h) | Host-call sequencing, publication, identity checks, commit/cancel and termination routing |
-| Range / attribute | [`range.h`](../src/ime/comp/range.h), [`attribute.h`](../src/ime/comp/attribute.h) | Guarded text/range/selection operations and display-attribute work under the granted cookie |
-| Independent old cleanup | [`cleanup.h`](../src/ime/comp/cleanup.h), [`cleanup.cpp`](../src/ime/comp/cleanup.cpp) | Captured old-object ownership, strong session/weak registry, request recovery and removal/termination barriers |
-| Candidate presentation / layout | [`presentation.h`](../src/ime/comp/presentation.h), [`layout.h`](../src/ime/comp/layout.h) | Registration/withdrawal and layout protocols; actual windows remain in [`ime/ui`](../src/ime/ui), host display permission is unchanged |
+| Surface | Implementation | Responsibility |
+| --- | --- | --- |
+| COM service | [service](../src/ime/tsf/tip_service.cpp), [keys](../src/ime/tsf/tip_keys.cpp), [configuration](../src/ime/tsf/tip_config.cpp), [composition facade](../src/ime/tsf/tip_composition.cpp) | COM identity, activation/focus, registration, entry gates, actual engine/UI effects |
+| State and reset | [state.h](../src/ime/comp/state.h) | Epochs, active/reset flags, current composition/context/document, cleanup coordinator |
+| Input target | [target.h](../src/ime/comp/target.h), [access_policy.h](../src/ime/comp/access_policy.h) | Target preparation, document identity/reconciliation, restricted-input facts and policy |
+| Application edits | [edit.h](../src/ime/comp/edit.h), [edit_session.h](../src/ime/tsf/edit_session.h) | Immutable result snapshots, tickets, request/execution gates, activity scopes |
+| Start/update/finish | [start.h](../src/ime/comp/start.h), [update.h](../src/ime/comp/update.h), [finish.h](../src/ime/comp/finish.h) | Host-call order, publication, commit/cancel, termination routing |
+| Text and attributes | [range.h](../src/ime/comp/range.h), [attribute.h](../src/ime/comp/attribute.h) | Guarded range/text/selection and display-attribute operations |
+| Old-composition cleanup | [cleanup.h](../src/ime/comp/cleanup.h), [cleanup.cpp](../src/ime/comp/cleanup.cpp) | Independent captured ownership, weak registry, recovery and removal barriers |
+| Presentation/layout | [presentation.h](../src/ime/comp/presentation.h), [layout.h](../src/ime/comp/layout.h), [native UI](../src/ime/ui) | UI registration/withdrawal, guarded positioning, actual window resources |
 
-Component regressions mirror these boundaries in [`tests/ime/comp`](../tests/ime/comp).
-[`tests/ime/tsf`](../tests/ime/tsf) retains the full service, native-TSF and
-reentrant-host tests. Section 9 records incremental coverage, not a new
-whole-repository run or real-host result; the [historical automatic snapshot](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#34-r05-最新自动验收快照2026-11-06)
-identifies the final run and its scope.
+The service deliberately retains activation/deactivation, focus/configuration,
+and real engine/window effects. Synchronous helpers borrow callbacks and state;
+they do not retain edit cookies or introduce a universal event queue.
 
 ## 1. Two Separate Problems
 
-1. **Reject stale application callbacks (task 43).** Write, commit, cancel, and layout-read requests may execute after deactivation, reset, or a context switch. A strong COM reference prevents destruction; it does not prove that the request is still valid.
-2. **Explicitly finish the old host composition (task 44).** Releasing the local `ITfComposition` reference does not end a TSF composition. The host's `GUID_PROP_COMPOSING` must be removed through `EndComposition` with a valid write cookie, or through host termination. The service must also clear `GUID_PROP_ATTRIBUTE` on the old range.
+| Work | Required behavior after invalidation |
+| --- | --- |
+| Application update, commit, cancel, or layout callback | Reject stale work; do not modify a replacement target or UI |
+| Independent cleanup of an old composition | May still execute after deactivation, using only captured old objects |
 
-These paths cannot share a blanket "return when stale" rule. Application callbacks must stop, but independent cleanup of an old composition must remain executable after deactivation. Cleanup may operate only on the captured old objects; it must not change text, recreate compositions, or restore candidate UI.
+A strong COM reference prevents destruction, not stale execution. Releasing
+`ITfComposition` locally does not call `EndComposition` or remove the host's
+`GUID_PROP_COMPOSING`. Cleanup needs a valid write cookie to clear
+`GUID_PROP_ATTRIBUTE` and end that composition, or a host termination notification.
 
-The implementation **preserves preedit text** and only ends the composition and clears its display attribute. `Deactivate` returns synchronously, but host cleanup may finish later. Returning `S_OK` is not a guarantee that host cleanup has completed.
+Focus-loss/deactivation cleanup **preserves preedit text**. It does not commit a
+candidate, delete text, recreate a composition, or restore UI. `Deactivate`
+returns synchronously while host cleanup can remain queued.
 
 ## 2. Application Edit-Session Barrier
 
-Each service owns a noncopyable, nonmovable
-[`CompositionLifecycleState`](../src/ime/comp/state.h), which maintains:
+`CompositionLifecycleState` is noncopyable/nonmovable and stays at the same
+address for the service lifetime. Preserve member order
+`composition, cleanups, context, document`: reverse destruction releases document,
+context, cleanup bookkeeping, then composition.
 
-| State | Purpose |
-|---|---|
-| `IsActive()` | Whether application callbacks may currently execute |
-| `IsResettingContext()` | Whether an outer context-reset scope is still executing; application edits and reactivation are rejected |
-| `Epoch().activation` | Incremented on valid activation attempts and deactivation, so reactivating the same service cannot revive old requests |
-| `Epoch().context` | Incremented before context reset, so an A-to-B-to-A switch cannot revive old requests |
-| `Context()` | The current input target; pointer equality does not replace epoch checks |
-| `Document()` / `Composition()` | Strong references to the active parent and current host composition |
-| `Cleanups()` | The same cleanup coordinator and diagnostic sequence across activations |
+| Check | Why it matters |
+| --- | --- |
+| Active and not resetting | A live service can still be inside teardown |
+| Activation epoch | Reactivating the same instance must not revive old requests |
+| Context epoch | An A-to-B-to-A switch must not revive old requests |
+| Captured target | Work belongs to its original context |
+| Captured composition identity, where applicable | Same-context, same-epoch replacement is still a different composition |
 
-The state owner preserves the original member-release order: document, context,
-cleanup bookkeeping, then composition. Its individual mutation methods retain
-the original assignment/move/release operations; they do not bundle a transition,
-implicitly invalidate epochs, reset unrelated fields, or call `EndComposition`.
-This includes allowing the original temporary states during reentrant teardown.
-The service still orders invalidation before host calls, owns activation and
-the pending preparation context, wires the shared preparation entry protocol, and decides when to
-publish/reset UI.
-The owner stays at the same address for the service lifetime, so live epoch
-references and detached cleanup bookkeeping are not replaced on reactivation.
+An edit ticket contains both epochs and the target. Epochs are not per-key
+sequence numbers: valid writes in one epoch retain normal FIFO behavior.
+Check the ticket before inspecting pending cleanup. Expected stale rejection
+returns `S_OK` with a skip diagnostic, not a fabricated host-edit success.
 
-`ApplyEngineResult` and layout callbacks capture the epoch and target. Before executing, `IsEditSessionCurrent` checks activation state, both epoch counters, and the context. Expected stale-request rejection returns `S_OK` and logs `stale-edit-skipped`; it is not an API failure.
+### Edit admission and execution
 
-[`CheckCompositionEditSessionCurrent / CheckCompositionEditCurrent`](../src/ime/comp/state.h)
-now own the original const-state checks and diagnostics behind the service's
-same-named entry points. Composition identity is checked only after the ticket
-passes, preserving the stale-ticket versus replaced-composition diagnostic order.
-A null expected composition matches an empty current slot; no extra non-null
-gate is added. These synchronous helpers retain no references, initialize no
-logging provider and perform no host calls or state mutation.
+```mermaid
+flowchart TD
+    Key["Actual key-down"] --> Prepare["Check access and prepare target"]
+    Prepare --> Ready{"Target accepted?"}
+    Ready -->|No| Decline["Do not consume this action"]
+    Ready -->|Yes| Engine["Process key once and capture result"]
+    Engine --> Request["Request write session: explicit ASYNC if cleanup pending"]
+    Request --> Grant["TSF delivers callback with write cookie"]
+    Grant --> Current{"Ticket still current?"}
+    Current -->|No| Discard["Discard stale callback"]
+    Current -->|Yes| Pending{"Old cleanup pending on this context?"}
+    Pending -->|Yes| Requeue["Resubmit the same result; do not process key again"]
+    Requeue --> Request
+    Pending -->|No| Access["Recheck access policy and ticket in session"]
+    Access --> Allowed{"Input still allowed?"}
+    Allowed -->|No| SkipEdit["Skip deferred edit"]
+    Allowed -->|Yes| Edit["Run guarded host edits"]
+    Edit --> Publish["Recheck captured identity before positioning and UI publication"]
+```
 
-`ResetContextAndUI` invalidates the old context **before** removing COM subscriptions, releasing the composition, or clearing UI. After switching targets, the caller checks for reentrant invalidation again before submitting a new request. An epoch is not a per-key sequence number: normal writes within one epoch still execute in FIFO order, rather than retaining only the latest write.
+The diagram assumes TSF delivers the request. Rejection or abandonment does not
+enter the callback and must not be presented as successful editing.
+`CompositionEditTask` owns its context, immutable `KeyProcessResult`, ticket,
+and activity. Deferred service callbacks retain the service separately; the task
+itself owns neither a service nor an edit cookie.
 
-[`CompositionContextResetScope`](../src/ime/comp/state.h) borrows the state owner,
-which must outlive the noncopyable, nonmovable scope. Every entry invalidates the
-context epoch before checking for an existing reset, including nested attempts.
-Only the outer scope returns `Entered() == true`; nested callers return without
-repeating teardown. The entered scope restores the reset flag on normal, early,
-and exceptional exit without rolling back the epoch. It does not release COM
-references, mutate cleanup records, or call the host/UI. `IsCurrent(ticket)`
-checks the owner's own reset flag.
+### Reset and preparation
 
-[`ResetCompositionContextAndUI`](../src/ime/comp/state.h) now owns the original
-log/scope/cleanup-choice/teardown sequence around that scope. The service
-provides its real cleanup and UI callbacks, while retaining engine/Shift-tap
-reset and activation/preparation entry policy. An entered reset invokes cleanup
-only on the original host-cleanup path, then clears context, document, caret
-validity and composition, resets the layout connection, and finally ends UI.
-Removal still requests no new host edit session.
+Invalidate the context epoch before teardown can reenter. Every
+`CompositionContextResetScope` entry advances it, including nested attempts.
+Only the outer entered scope performs cleanup/local teardown and clears the reset
+flag on exit. A nested reset invalidates work without repeating teardown.
 
-The outer reset flag spans all cleanup, COM release, subscription and UI work.
-Nested attempts advance the context epoch but repeat none of that work.
-Exceptions propagate, restoring the flag without undoing the epoch or earlier
-steps. No additional active-state/identity gate, retry or post-UI reset is added.
-The helper synchronously borrows state, caret flag, layout connection and
-callbacks; it retains no service or edit cookie.
+For a new input target, retain its pending context, reset the old target, query
+its parent, publish the new context/document, and connect subscriptions.
+Check the predicted ticket after reset and after reentrant host calls. Withdraw
+a subscription published after invalidation. A Pop of the pending context must
+cancel preparation even before the context is published.
 
-[`PrepareCompositionInputTarget`](../src/ime/comp/target.h) joins the shared
-entry/activity protocol to the actual preparation workflow. It borrows the
-original state, pending slot and layout connection, and passes single reset/current
-callback instances by reference; the service retains actual engine/UI reset and
-identity diagnostics. It adds no host operation, identity check or cleanup policy.
-
-[`PrepareCompositionTarget`](../src/ime/comp/target.h) runs the synchronous
-new-target workflow after the shared entry gates and activity switch. It
-holds the original context reference and the service's pending-target slot,
-predicts the next context epoch with a null target, invokes the original reset,
-and rechecks the ticket after reset and after `GetDocumentMgr`. Only then does
-it publish context/document, retarget the ticket, and advise the layout sink.
-The final ticket check withdraws a subscription published after a reentrant
-invalidation. The same predicate instance handles all three checks.
-
-Document-query failure or null output and layout-subscription failure retain
-the original diagnostics and nonfatal policy when the ticket is still current;
-they do not independently reject input or grant edit permission. A non-null
-document returned with a failure HRESULT is retained just as before. On exit,
-the temporary document releases before the pending-target slot is cleared,
-then the local context holder releases, all before the outer entry helper restores its
-activity. The helper borrows state, pending storage, and sink connections only
-for this call; it does not retain callbacks or an edit cookie. The service keeps
-the actual engine/UI reset policy and callback wiring.
-
-[`MatchesCompositionDocument`](../src/ime/comp/target.h) owns the original
-document pointer fast path and canonical `IUnknown` comparison. Missing
-documents reject before querying; identical interface pointers need no query.
-Otherwise the current identity is queried before the incoming identity, with
-the same failure short circuit and HRESULT diagnostic labels. This helper is
-identity-only: activation gates remain at the notification entry points.
-
-[`ReconcileCompositionDocumentTarget`](../src/ime/comp/target.h) retains the
-original context and ticket, queries both `GetTop` and `GetBase` even when the
-first fails, reports both results, then rechecks the ticket. Both queries must
-succeed and either returned interface pointer must match the captured context
-to retain the target, including a base context covered by a modal top context.
-Otherwise the original reset callback runs with the predicted next context epoch
-and null target, followed by the original check. Missing current context or
-document remains a no-op success. Query owners release base, top, then the
-captured context on return or exception. The service retains actual engine/UI
-reset, focus revision/configuration/status-bar policy and activation/deactivation;
-no extra post-host check or scheduling policy is introduced.
-
-[`EnterCompositionTargetPreparation`](../src/ime/comp/target.h) owns the original
-entry sequence: missing/inactive/resetting/preparing targets are rejected with
-the original diagnostic before the same-target fast path. Only a new target
-creates and switches activity ID, invokes the original preparation
-callback, and restores the saved activity on all exits. It adds no host operation
-or identity check and preserves the callback's boolean result or exception.
-The pending pointer is non-owning and used only by the initial gate, before any
-host call; the real preparation still owns the pending slot and retained context.
-Nested accepted entry restores its parent's activity, while rejected entry leaves
-activity untouched. Real preparation owners release before activity restoration.
-
-[`CompositionEditTask`](../src/ime/comp/edit.h) owns the captured context, immutable
-result snapshot, original ticket, and activity ID. Its synchronous
-`CompositionEditScope` borrows that task and the service's activity slot: both must
-outlive the scope. It switches to the task activity on entry and restores the
-previous activity on every exit, including nested callbacks and early returns.
-The scope cannot be copied or moved and retains no service or edit cookie.
-
-The scope's `Check` first invokes the original ticket predicate. A stale task
-returns `Discard` without querying or pruning cleanup records. Only a current
-task checks the existing same-context cleanup barrier: unfinished unpublished or
-ordinary cleanup returns `Requeue`; otherwise it returns `Execute`.
-[`ExecuteCompositionEditInSession`](../src/ime/comp/edit.h) owns that scope and
-the discard/requeue/execute routing. It logs the original requeue diagnostic and
-invokes the service's original snapshot-resubmission callback, or constructs the
-non-null context and invokes the original action/UI callback. It borrows the task
-and callbacks synchronously, preserves execution results and exceptions, and
-restores activity after callback completion even with nesting or activity mutation.
-The scope's `Check` itself makes no host call or request.
-`Execute` is only an entry decision, not a replacement for the
-identity checks between subsequent host calls.
-
-`RequestCompositionEditSession` now owns the original write-request protocol.
-It queries the same cleanup coordinator while constructing the request
-arguments, including the existing pruning and stage diagnostics. Matching
-unfinished unpublished or scheduled cleanup selects
-`TF_ES_ASYNC | TF_ES_READWRITE`; otherwise it uses
-`TF_ES_ASYNCDONTCARE | TF_ES_READWRITE`.
-[`EnterCompositionEditRequest`](../src/ime/comp/edit.h) now owns the original
-null/inactive/resetting/preparing/target-mismatch gates and skip diagnostic.
-Only an accepted target gains a strong context owner and original ticket before
-the service's request callback runs. The preparing pointer is sampled before
-host calls and is not retained. The service callback keeps original service
-ownership, activity creation, captured task and session/request wiring; its local
-owners release before the entry's context owner, including exceptional exit.
-The callback's second
-cleanup check and original-snapshot requeue remain separate and unchanged.
-The helper adds no ticket check, wait, retry or cookie ownership.
-
-The initialized session result and original
-`FAILED(req_hr) || FAILED(session_hr)` diagnostic condition retain both actual
-HRESULTs. Accepted asynchronous requests do not certify callback execution or
-successful editing. A rejected request does not reset or reprocess the engine;
-subsequent input still applies the complete captured result under the original
-policy.
-
-`ApplyCompositionEditActionInSession` selects the action sequence after those
-entry checks. It synchronously borrows the original result, target and callbacks;
-it retains no service or cookie. Cancel runs before the original empty-composition
-identity check and ends UI only if that check succeeds. Commit likewise checks
-the original empty-composition identity after the actual commit, then reads
-the follow-up preedit at its original point to choose synchronization or UI end.
-Update calls the service's original synchronization workflow directly, and
-pass-through has no action. The helper adds no entry or post-update checks.
-The production snapshot remains immutable, and real host operations and their
-failure diagnostics still run in the service and existing components.
-
-`SyncCompositionPresentationInSession` owns the original
-start/update -> identity check -> position -> identity check -> publication
-sequence. The service keeps the original ticket and executes the real callbacks.
-The returned composition reference survives both positioning and publication,
-including early or exceptional exit. It may be null: the original identity
-predicate still decides whether to proceed, without added null/preedit gates.
-The second check uses that same returned composition, not a refreshed service
-slot. The helper retains no cookie, adds no scheduling or activity scope, and
-does not alter UI permissions, position fallback or failure diagnostics.
+Missing parent/layout information has its diagnosed existing nonfatal policy;
+it does not fabricate a relationship or grant write access. The actual session
+request still determines access.
 
 ### 2.1 In-Flight Host Calls
 
-Entry checks alone are insufficient. `GetRange`, text writes, range cloning and
-collapse, selection changes, property lookup/updates, and composition termination
-can reenter the service. Application edits strongly retain their original
-composition and check `IsCompositionEditCurrent` between host operations. This
-checks the epoch, context, and actual composition identity. A replacement
-composition in the same context and epoch must not inherit the old operation.
+Range lookup, text/selection changes, property calls, and termination can reenter
+the service. Retain the original composition and recheck epoch/target/composition
+at the existing operation boundaries. A successful entry check is insufficient.
+These checks cannot undo a host call that has already started.
 
-The update helper returns its captured composition so layout and candidate UI
-publication can use the same identity barrier. Layout reads also recheck identity
-between host calls. Commit/cancel detach the old shared composition and retire
-its caret state **before** calling its captured `EndComposition`; a new composition
-created inside that call must remain owned and visible when the old call returns.
+Update returns the captured composition so subsequent positioning and publication
+use the same identity. A null expected composition can match an empty slot;
+do not add a blanket non-null requirement.
 
-These barriers cannot undo a host call that has already started. Tests inject
-callbacks after observable text/selection/property writes and require that no
-subsequent stale operation occur after invalidation.
+Commit clears attributes, writes committed text, collapses the caret, and ends
+the composition. Cancel clears preedit text and ends it without the commit
+attribute/selection sequence. Ordinary range/attribute/text failures remain
+diagnosed best-effort paths when identity is current; invalidation stops later work.
 
-[`FinishCompositionInSession`](../src/ime/comp/finish.h) shares the synchronous
-ending sequence, not the policy of commit and cancel. Commit clears the display
-attribute, replaces the text, and collapses the caret through the existing range
-helper. Cancel only writes an empty string; it does not clear attributes or set
-selection. Failed or empty range retrieval still permits best-effort termination
-when the original identity is current, as do ordinary property/text/caret failures.
-Invalidation stops the remaining operations at the original check boundaries.
-
-[`FinishOrInsertCompositionInSession`](../src/ime/comp/finish.h) now borrows
-the state owner and caret-validity flag, captures the original strong composition
-reference, and selects those same finish/direct-insertion paths. The service
-keeps its original ticket and identity predicate; every check uses the captured
-composition, never a refreshed state slot. One predicate instance serves all
-synchronous host boundaries, including noncopyable stateful predicates.
-
-With no composition, cancel only clears the caret-validity flag, without a
-ticket check or host call. Commit uses the original direct-insertion helper:
-empty text leaves the caret unchanged, and nonempty text follows its existing
-interface/identity/insert sequence. With a composition, the original pre-end
-callback clears the shared composition first and the caret flag second.
-The workflow adds no post-end state writes, scheduling, cookie retention or
-new identity checks.
-
-The finishing workflow retains the original composition strongly and supplies
-the state detachment callback. The helper holds the acquired range through `EndComposition`
-and performs no additional checks or state changes after detachment/termination.
-This preserves a new composition and caret state created by a reentrant end call,
-including when ending the old composition fails. The separate
-[`InsertCommittedTextInSession`](../src/ime/comp/finish.h) handles direct commits:
-empty text does nothing; nonempty text queries the insertion interface, checks
-identity, and inserts without creating a composition, clearing attributes, or
-adjusting selection. Neither helper stores an edit cookie or schedules work.
-
-[`HandleCompositionTermination`](../src/ime/comp/finish.h) first gives the cleanup
-coordinator the host-termination notification, then ignores unrelated non-null
-notifications, and emits the original current-notification diagnostic.
-The service retains the COM entry and actual identity/reset callbacks.
-[`CompleteCurrentCompositionTermination`](../src/ime/comp/finish.h)
-then captures the original ticket/context and detaches the old composition
-before querying the host. [`ClearTerminatedCompositionInSession`](../src/ime/comp/finish.h)
-then obtains the old range, clears only its display attribute with the existing
-identity checks, and performs the final reset-eligibility check. It never writes
-text, ends the already-terminated composition, or resets the engine/UI.
-Its `CompositionTerminationResult` retains the range through the caller's original
-scope, preserving release order: range, old composition, then context.
-`may_reset` is an immediate identity-check result, not a cleanup-success flag or
-permission to reuse after further host calls. A range/property/clear failure is
-diagnosed but still allows the original service reset when identity remains valid.
-A replacement composition created in the same context and epoch must suppress
-that reset just as an epoch change does.
-
-Completion releases the branch-local range, composition and context owners
-before invoking the service's actual reset callback. Null notification or
-missing context follows the original direct-reset route, without attribute
-queries or added identity gates. The same synchronous identity predicate is
-borrowed through every original check, including move-only predicates.
-Exceptions propagate with original owners released; no edit cookie, service
-or callback is retained. The service remains responsible for notification
-routing and the actual engine/UI reset.
-
-[`UpdateCompositionInSession`](../src/ime/comp/update.h) owns the captured
-composition through range lookup, the existing text/caret helper, and optional
-display-attribute publication, then returns that same composition for the
-service's layout/UI identity checks. It does not publish shared composition
-state, reset the engine, begin/end a composition, or request a new edit session.
-Range and property lifetimes follow the original local scopes, including early
-returns after invalidation. Failure/null range results return the captured
-composition without an additional helper identity check; caret/property failures
-retain their original best-effort behavior. There is no new check after
-`SetValue`; the service's existing caller check still protects UI publication.
-
-The attribute atom is borrowed by reference for this synchronous call, not
-snapshotted at entry: its validity is read after text/caret edits, and its actual
-value is read again after property lookup and identity validation. This preserves
-updates made during host reentrancy, including the original behavior when an atom
-becomes invalid after entering the attribute branch. Neither the atom reference
-nor the identity predicate is retained after return.
+Before calling captured `EndComposition`, detach the old shared composition and
+retire its caret state. Do not write shared state after the call: a reentrant
+replacement must survive even if ending the old composition fails.
+Direct insertion with no composition uses the existing insertion interface;
+empty text is a no-op and must not create a composition.
 
 ### 2.2 Keyboard Event State
 
-`OnTestKeyDown` and `OnKeyDown` sample modifiers and CapsLock before querying
-compartments or preparing a new target. Host calls may pump newer keyboard
-messages; their state must apply to the next event, not retroactively to the
-event currently being processed. Preflight also snapshots the mouse-button state
-used by Shift-tap tracking. This changes neither the engine transition table nor
-normal FIFO ordering.
+Test/actual key-down snapshots modifiers, CapsLock, and relevant mouse-button
+state before compartment queries or target preparation. Host calls can pump newer
+messages; newer state belongs to the next event, not the current one.
+
+Test-key prediction remains read-only. A new target uses the shared reset preview,
+not a live engine reset. Actual key-down must still prepare and validate its target.
 
 ## 3. Cleanup State and Strong/Weak Ownership
 
-[`ScheduleCurrentCompositionCleanup`](../src/ime/comp/state.h) now owns the
-current-composition handoff. An empty slot keeps the original `cleanup-not-needed`
-diagnostic and returns without registering or requesting cleanup. Otherwise it
-moves the original composition to the existing coordinator, using the original
-context, client ID, live epoch and activity arguments. It neither changes the
-target/epoch/UI nor adds an active-state or application identity check.
-Borrowed state/client/activity references do not escape; queued work retains
-the existing independent cleanup record and captured request parameters.
+Handoff detaches the current composition into an independent record containing
+the old context/composition/range and diagnostics. Register that record before
+range lookup or session requests: both can reenter.
 
-The coordinator retrieves the captured composition's range **before** requesting
-an edit session. Request failure, read-only rejection and asynchronous acceptance
-can therefore follow an already completed range query; its callback can replace
-application state before queuing. Later cleanup still targets only the captured
-old objects. Missing context/client ID is diagnosed under the original policy,
-without fabricating successful termination. Handoff itself does not certify
-host cleanup or edit permission.
-
-```text
-Pending TSF request --strong--> LambdaEditSession --strong--> CompositionCleanup
-                                                               |--strong--> old ITfContext
-                                                               |--strong--> old ITfComposition
-                                                               `--strong--> old ITfRange (if available)
-QiQiTextService --------------------weak--------------------> CompositionCleanup
-Old composition --possibly strong--> composition sink (service instance)
+```mermaid
+flowchart LR
+    Service["QiQiTextService"] -->|owns| State["Lifecycle state and coordinator"]
+    State -.->|weak registry entry| Cleanup["CompositionCleanup"]
+    Host["Pending TSF request"] -->|strong| Session["LambdaEditSession"]
+    Session -->|strong capture| Cleanup
+    Cleanup -->|strong| Context["Old context"]
+    Cleanup -->|strong| Composition["Old composition"]
+    Cleanup -->|strong if available| Range["Old range"]
+    Composition -.->|may retain its sink| Service
 ```
 
-The cleanup callback captures only `cleanup`, not the service, thread manager, or new context directly. The service stores only weak references to cleanup states, avoiding a strong-reference cycle between the service and its cleanup tasks. A composition may still retain the service through its sink. "No direct service capture" does not mean the service must be destroyed when deactivation returns.
+The cleanup callback captures the record, not the service, manager, or new target.
+The registry is weak to avoid a service-owned cleanup cycle. The composition can
+still retain its service sink; deactivation need not destroy the service.
+RAII releases captured resources when execution finishes or TSF abandons the request.
 
-`Deactivate` releases its reference to the thread manager received by `Activate` before returning. It does not wait for asynchronous callbacks, start a worker thread, or block the message pump. Captured state is released through RAII after the request executes or the host releases it. The diagnostic destructor logs `released` before member COM references are destroyed.
+| Record flag | Meaning, not a success claim |
+| --- | --- |
+| `started` | Cleanup callback entered |
+| `attribute_clear_started` | Actual property `Clear` began; prevents duplicate clearing |
+| `finished` | Callback exited, termination handled unstarted work, removal invalidated it, or request failed |
+| `terminated` | Host reported old-composition termination; do not end it again |
+| `async_requested` | Recovery was attempted, not necessarily accepted/executed |
+| `context_removed` | No further edits are permitted on the captured removed target |
 
-| Cleanup state | Exact meaning |
-|---|---|
-| `started` | The cleanup edit callback has entered; host termination notifications do not set it |
-| `attribute_clear_started` | The actual `ITfProperty::Clear` call has begun, not merely property lookup; prevents duplicate clearing during reentrancy |
-| `finished` | The edit callback has exited, host termination has handled a task that had not started, or context removal has invalidated cleanup; **this does not mean attribute clearing or composition termination succeeded** |
-| `terminated` | The host has reported termination of the old composition; do not call `EndComposition` again |
-| `async_requested` | An asynchronous request has been attempted, not necessarily accepted or executed |
-| `context_removed` | A Pop/uninitialization notification removed the captured context; skip further edits even if an old callback is later delivered |
+Expired/finished records are pruned when queried. `tracked_cleanups` is a weak
+container slot count, not the number of pending or successful requests.
+`released` is emitted before member COM references are destroyed.
 
-The service removes expired or finished weak references when adding or querying tasks. `tracked_cleanups` is only the number of entries in the weak-reference container at that moment. It may include finished or expired entries and is not a pending-request count.
+### Unpublished composition starts
 
-An unpublished `StartComposition` result is temporarily tracked in the same weak
-container with `id == 0`, a captured context, and the host's output composition.
-This is not a scheduled cleanup and consumes no cleanup diagnostic ID. Removal
-and host termination observed before `StartComposition` returns invalidate that
-result. A late, still-connected live composition is handed to independent cleanup
-with its captured client ID; it must not replace the new shared composition.
+`StartComposition` uses a temporary record with `id == 0`, registered before the
+host call. It is not a scheduled cleanup and consumes no cleanup diagnostic ID.
+Removal/termination can invalidate the result before the host call returns.
 
-[`CompositionCleanupCoordinator::ResolveStarting`](../src/ime/comp/cleanup.cpp)
-resolves that unpublished result after the begin helper diagnoses the start HRESULT,
-marks the record finished, and checks the original ticket, in that order.
-`Publish` requires a successful result, a non-null composition, and a still-current,
-connected, unterminated record. Stale live results use the existing independent
-cleanup path even if the start HRESULT failed. The resolver owns a strong record
-reference across scheduling and reads its termination flag afterward because
-scheduling can reenter. `Discard` does not certify cleanup success; `Terminated`
-only tells the service to recheck its ticket before resetting the engine/UI.
-Successful starts returning no composition are diagnosed with their original HRESULT.
+Publish only a successful, non-null, current, connected, unterminated result.
+Hand a stale but still-live connected result to independent cleanup, including
+a stale non-null result returned with a failure HRESULT. Do not publish it over
+a replacement. Current failed starts retain their existing discard policy;
+discard does not certify termination.
 
-[`BeginCompositionInSession`](../src/ime/comp/start.h) combines preparation,
-unpublished registration, the host start call, its HRESULT diagnostic, the finished
-mark, the original identity check, and that resolver, in the original order.
-Its owning `CompositionStartAttempt` retains partial or complete preparation
-resources and the starting record through the caller's original branch scope.
-The record releases before the preparation interfaces/range, just as the original
-locals did. Unready preparation returns without registering or starting.
-
-Preparation and the post-start check use the same predicate instance, including
-stateful, noncopyable predicates. Epoch/activity references remain live across
-synchronous host reentrancy; neither those references, the predicate, nor the edit
-cookie are retained in the attempt. Extracting the workflow does not add a
-cleanup policy for a current failed start that happens to return a composition.
-
-[`EnsureAndUpdateCompositionInSession`](../src/ime/comp/start.h) now owns the
-original begin-result -> publication -> update glue. It borrows the lifecycle
-state and synchronously uses the same identity predicate for preparation,
-resolution, termination-reset authorization and actual composition updates.
-Only `Terminated` followed by the original empty-composition identity check
-invokes the service's real reset callback. `Publish` moves the accepted composition
-into the state owner. The attempt, starting record and preparation resources
-release at the end of the original branch, before update's first `GetRange`.
-An existing composition bypasses Begin without an extra entry check.
-
-The service retains its original ticket and client-ID snapshot. Epoch/activity
-references and the attribute atom remain live across host callbacks; the helper
-retains none of those references or an edit cookie. Update owns and returns the
-captured composition even if range retrieval fails or same-epoch replacement
-makes it stale. Publication is not rolled back by update failure, and the original
-later presentation checks still decide whether UI work may continue.
+Keep preparation interfaces/range and the starting record alive through result
+resolution. Resolution can itself reenter while scheduling old cleanup.
 
 ## 4. Deactivation Algorithm and Request Results
 
-During an in-flight `ActivateEx`, deactivation first cancels that attempt rather
-than dismantling a half-published registration. It marks application state
-inactive, disables UI presentation, and invalidates the activation epoch.
-Repeated cancellation is idempotent. The current registration protocol may
-publish its result, so ownership of a successful late sink, preserved key,
-function provider, language-bar item or compartment subscription is recorded.
-Activation then stops before the next setup stage and runs the normal teardown
-below with the original manager and client ID still available. The outer
-activation reports `E_ABORT`; a failing host call and any cleanup failure retain
-their own HRESULT diagnostics. Cancellation during compartment synchronization
-also stops subsequent writes.
+Normal deactivation marks application state inactive, disables presentation, and
+advances the activation epoch before handing off the old composition. Cleanup
+tries synchronous write access first and never blocks the message pump.
 
-Accepted activation holds the service itself until activity and transition
-guards have unwound, including when a host callback releases the last caller
-reference. Nested activation returns `E_UNEXPECTED`; normal required-sink
-initialization failure still returns `E_FAIL`. The activation/cancellation flags
-restore on every exit. A C++ exception is not swallowed or converted into a
-successful activation; recovery tests explicitly deactivate before retrying.
-Normal, uncancelled registration order and optional-failure policies are
-unchanged. Activation/deactivation, focus/configuration policy and real engine/UI
-side effects intentionally remain in the COM facade, not a universal event queue.
+```mermaid
+flowchart TD
+    Capture["Capture old composition"] --> Available{"Context and client ID available?"}
+    Available -->|No| Unavailable["Diagnose unavailable cleanup"]
+    Available -->|Yes| Track["Track cleanup before host calls"]
+    Track --> Range["Get old range"]
+    Range --> Connected{"Still connected and not host-terminated?"}
+    Connected -->|No| Skip["Skip new request"]
+    Connected -->|Yes| Sync["Request SYNC plus READWRITE"]
+    Sync --> Recover{"Controlled async recovery eligible?"}
+    Recover -->|Yes| Async["Request ASYNC plus READWRITE once"]
+    Recover -->|No| Result["Inspect request and session results"]
+    Async --> Result
+    Skip --> Local["Continue local teardown without waiting"]
+    Unavailable --> Local
+    Result --> Local
+```
 
-1. Set `deactivating_`, invalidate application activation state, and increment the activation epoch.
-2. Transfer the current composition into independent state, capturing the old context, range, and diagnostic IDs.
-3. Request `TF_ES_SYNC | TF_ES_READWRITE`. The callback clears the display attribute first, then calls `EndComposition` on the old composition.
-4. Request `TF_ES_ASYNC | TF_ES_READWRITE` on the same cleanup session **only if** the outer request succeeded, the session result is `TF_E_SYNCHRONOUS`, the callback has not started, the host has not terminated the composition, and the captured context has not been removed.
-5. Without waiting for asynchronous completion, reset the local engine, context, candidate UI, subscriptions, and thread-manager reference.
+Recovery is eligible **only** when the outer request succeeded, `session_hr` is
+`TF_E_SYNCHRONOUS`, the callback has not started, the host has not terminated the
+composition, and the context has not been removed. Other failures do not trigger
+unbounded retries or an attempt to bypass read-only access.
 
-Requests have two result layers; inspect both:
+| `request_hr` | `session_hr` | Interpretation |
+| --- | --- | --- |
+| Success | Callback result | It may already have run synchronously; inspect individual operations |
+| Success | `TF_E_SYNCHRONOUS` | Try controlled recovery only under the conditions above |
+| Success | `TF_S_ASYNC` | Queued, not completed |
+| Failure | Any value | Request failed; initialized inner output proves no execution |
+| Success | `TS_E_READONLY` or another failure | Diagnose the actual failure; no generic async bypass |
 
-| Outer `request_hr` | Inner `session_hr` | Meaning and handling |
-|---|---|---|
-| Success | Synchronous callback result | The callback executed; inspect individual API results in the stage logs |
-| Success | `TF_E_SYNCHRONOUS` | Synchronous write access is unavailable here; attempt asynchronous recovery only under the conditions above |
-| Success | `TF_S_ASYNC` | Queued only; execution may happen later |
-| Failure | Any value | The outer request failed; an initialized inner result is not evidence of execution |
-| Success | Failure such as `TS_E_READONLY` | Write access is unavailable; do not retry indefinitely or use asynchronous requests to bypass access restrictions |
+The callback clears the old display attribute, then ends the old composition.
+Range/attribute failure does not prevent best-effort termination unless removal
+or host termination invalidates it. Thus termination can succeed while an
+attribute remains. With no range, there is no attribute-clear call.
 
-TSF may reject synchronous read/write sessions during notifications such as layout changes, as specified by the API. An asynchronous request can execute after the notification returns. However, attempting to upgrade read access to write access inside a read session may cause even the asynchronous request to fail. Unrecoverable disconnection, read-only access, or request rejection can leave host composition state or attributes behind. Preserve actual HRESULTs; do not report complete cleanup in these cases.
+Local teardown resets state/UI, unadvises subscriptions, releases the original
+thread manager/client state, and clears external dictionaries without waiting
+for queued cleanup. A host can abandon a request or deny a write lock.
+`Deactivate == S_OK`, callback exit, and `finished` do not certify host cleanup.
 
-If range retrieval or attribute clearing fails, cleanup still attempts to end the composition. Consequently, composition termination can succeed while the display attribute remains. Callback exit does not imply complete success. Without a range, there is no `attribute-clear` stage.
+### 4.1 Native Windows and Retained UI Objects
 
-### 4.1 Native Windows and Retained UI Objects (Task 41)
+Disable presentation before teardown. Retire the candidate element ID, destroy
+the candidate popup, status tooltip, and status bar on their owning thread, then
+release TSF registrations. Native failure retains the handle for a possible
+owner-thread retry while the remaining TSF teardown continues.
 
-Deactivation releases native UI resources even when queued sessions, the host, or
-external clients still retain COM references. The candidate and status-bar objects
-remain allocated for reactivation; their candidate-selection, paging, menu, and
-position callbacks are not disconnected merely because the service is inactive.
+`WM_NCDESTROY` clears only the matching stored handle. Wrong-thread destruction
+is rejected with real diagnostics; final destruction is not marshalled to an
+arbitrary thread. `Deactivate` returns `E_FAIL` on native window-destruction
+failure, separately from host composition/UI-element results.
 
-The local teardown order is:
-
-1. Disable presentation on both UI objects and invalidate the activation epoch.
-2. Reset composition/context state using the cleanup algorithm above. Invalidate
-   the published candidate UI-element ID and attempt `EndUIElement`.
-3. Destroy the candidate popup, status-bar tooltip, and status bar on their owning
-   UI thread. Release status-bar capture/drag state and clear hover/tooltip state.
-4. Unadvise TSF subscriptions and release the thread manager and dictionaries.
-
-Independent asynchronous composition cleanup can still finish after window
-destruction. This does not delay `Deactivate` or permit the cleanup to restore UI.
-An in-flight `BeginUIElement` has no published ID yet: its late successful ID is
-ended through the captured old manager after the host call returns.
-
-UI objects start presentation-disabled when owned by a service. Successful
-activation enables them again; standalone UI objects retain their previous
-default behavior. While disabled or destroying a window, candidate `Show(TRUE)`
-returns `S_FALSE`, reports `IsShown == FALSE`, and does not create a popup.
-Status-bar and tooltip creation/show paths obey the same presentation gate.
-Thus even a host-retained candidate interface cannot reopen an inactive service's
-window. Final service destruction also disconnects candidate callbacks that
-capture the service.
-
-`BeginOrUpdateCandidateUI` validates the captured epoch/context after host calls
-and before publishing an ID or showing/updating UI. A stale begin retires only
-its provisional ID; it must not overwrite or hide a reactivated service's UI.
-`EndCandidateUI` invalidates the shared ID before calling the host and performs
-no shared-state reset after `EndUIElement` returns. Nested teardown therefore
-cannot end the same published ID twice or erase a newer registration.
-
-Candidate-position queries also retain the old composition and recheck the
-epoch/context around host calls before updating caret state or moving a window.
-A regression reproduced an old `GetTextExt` result moving a replacement popup
-after reentrant deactivation/reactivation; the result must instead be discarded.
-
-[`QueryCompositionLayoutInSession`](../src/ime/comp/layout.h) now owns this
-view/range/text-extent query protocol, preserving short-circuit host calls,
-identity checks and HRESULT diagnostics. A supplied notification view takes
-precedence over the active view. The final `current` check is independent of
-query success and also rejects composition replacement within the same epoch.
-The result owns its range through the caller's UI work; the shared positioning
-wrapper retains the original composition snapshot, and the service owns the view
-parameter. The query range reference
-is released before that composition reference, with the view parameter last.
-The lifetime mocks destroy composition, range, then view because the composition
-also owns the range. No cookie or callback escapes the synchronous query.
-Raw rectangles and clipping outputs are unchanged, including zero or inverted
-rectangles. The service retains actual window movement, GUI/cursor queries and
-monitor selection; the helpers below compute only synthetic fallback geometry.
-
-[`ApplyCompositionLayoutPosition`](../src/ime/comp/layout.h) now applies the
-query's original result protocol while borrowing that query and the live caret
-flag. A stale query does nothing, even if it obtained a rectangle. Successful
-TSF positioning sets the caret-validity flag before moving to the unmodified
-rectangle. An unsuccessful query calls the service's original GUI/cursor
-fallback only when the current flag is false; successful fallback moves without
-automatically making that flag true. Failure, including failure with rectangle
-output, logs unchanged positioning without movement.
-
-The GUI/cursor fallback uses a shared synthetic caret size of 2 by 20 pixels
-at 96 DPI. The focused-window fallback offsets its origin by 20 pixels
-horizontally and 24 pixels vertically at 96 DPI. The geometry helpers in
-[`layout.h`](../src/ime/comp/layout.h) scale these offsets and dimensions using
-`ScalePxByDpi`. The service selects the monitor at the focused window's top-left
-or the cursor's screen position, respectively. Screen-coordinate origins and
-real GUI/TSF caret rectangles are not scaled again. The candidate popup's fixed
-4-pixel caret gap and existing work-area clamping remain unchanged.
-
-[`TestLayoutFallbackDpiRouting`](../tests/ime/tsf/svc/layout.cpp) exercises
-the actual service with a focused Win32 window and a real GUI caret at
-96/120/144/192 DPI. Its 12 cases check scaled focused-window fallback,
-unscaled GUI caret positioning, and TSF rectangle precedence even when a GUI
-caret exists. Monitor overrides, focus, caret lifetime and presentation state
-are restored with RAII. The geometry tests additionally check negative screen
-origins, 125% rounding and the existing zero-DPI fallback.
-
-The targeted x64 Debug coverage check used Visual Studio's bundled static
-native instrumentation on isolated EXE/PDB copies. Source lines were deduplicated
-by file and line number. The initial full suite covered 183/199 executable lines
-in `tip_composition.cpp`; the composition lifecycle suite with the added routing
-cases covered 193/199 (96.98%). `layout.h` covered 88/88 lines, and the GUI/cursor
-fallback query covered 22/23 lines. The remaining query line is the final failure
-return when no GUI/cursor position is available. The other five uncovered service
-lines are access/stale-ticket guards and the absent-candidate-UI early return.
-These are source-line results for these two files, not project-wide or branch
-coverage. No production failure-injection API was added. The successful final
-collection restored both copied EXE/PDB hashes to their pre-instrumentation values.
-
-Clipped, zero or inverted rectangles gain no extra gate or normalization.
-The original callbacks execute synchronously, with no added identity check or
-state write afterward. Changes to the live flag inside callbacks survive.
-The original query range, composition and service view owners span the window
-work and release in their original order. This helper copies only the rectangle,
-not the owning query; it retains no service, callback, flag reference or cookie.
-
-[`UpdateCompositionLayoutPositionInSession`](../src/ime/comp/layout.h) owns the
-original composition/UI gate, ticket/composition capture and query-to-position
-handoff. It borrows the service's view parameter by reference, so any active-view
-lookup updates that same owner without an extra copy or early release. The
-original composition and query remain alive through fallback/window callbacks
-and release before the service's view parameter. Service callbacks keep the
-original identity, GUI/cursor and live UI movement operations. There is no added
-active/resetting gate, identity check or state write after fallback or movement.
-Move-only callbacks are synchronously borrowed; exceptions propagate.
-
-[`EnterCompositionLayoutNotification`](../src/ime/comp/layout.h) creates the
-original notification activity and emits its diagnostic before the original
-CHANGE/non-null/active/current-target/composition/UI gates. UI availability is
-read live at both original boundaries, not snapshotted before activity creation.
-There is no added resetting-state gate or lifecycle-activity-slot restoration.
-Only accepted notifications invoke the service's original context/view/self,
-ticket/task/session acquisition and read-request callback. The entry itself
-retains no COM object or edit cookie; callback exceptions propagate.
-
-`CompositionLayoutTask` owns the notification context, optional view, ticket and
-activity ID for deferred layout callbacks, but not a service, composition or
-edit cookie. The service retains its original local references and its strong
-callback reference. `ExecuteCompositionLayoutInSession` restores the previous
-activity ID on stale, normal, nested and exceptional exits, and preserves the
-original ticket-check/log/position-update order. Layout tasks deliberately do
-not freeze the composition at notification time: a same-epoch replacement is
-queried as the current composition when the callback runs. The query itself
-then retains and checks that composition as described above.
-
-`RequestCompositionLayoutSession` preserves `TF_ES_ASYNCDONTCARE | TF_ES_READ`,
-the initialized session result, the request-return log and actual HRESULTs.
-Session-result diagnostics run only after a successful request, including
-`S_FALSE`; there is no added retry, write barrier or new queue. The callback
-may run synchronously before the request returns. `OnLayoutChange` still
-returns `S_OK` after diagnostics; that does not certify request or query success.
-
-The shared Win32 destruction helper validates window ownership before calling
-`DestroyWindow`. Wrong-thread calls are rejected and logged with owner/current
-thread IDs; native failures retain the handle for an owner-thread retry and log
-the actual Win32 error. `WM_NCDESTROY` detaches the matching stored handle,
-including external native destruction, preventing reuse of a stale HWND.
-The destructor retains the same idempotent cleanup as a final safeguard.
-
-`Deactivate` returns `E_FAIL` if native UI destruction fails, while continuing
-the remaining local TSF teardown. `S_OK` means local window teardown succeeded;
-it still does not certify successful host composition cleanup or successful host
-UI-element deregistration. `TsfLifecycle(..., stage=ui-windows-destroyed, ...)`
-reports separate candidate/status destruction results, not host cleanup results.
-`ui-begin-stale` identifies a late host registration result and its provisional
-ID; `ui-end` records logical ID retirement and whether an old manager is retained.
-The normal TSF STA/UI-thread contract remains required: this implementation does
-not marshal final destruction to another thread or promise safe final release
-from an arbitrary worker thread.
+Retained UI objects stay allocated for reactivation but cannot reopen inactive
+windows: candidate `Show(TRUE)` returns `S_FALSE` and `IsShown` reports false
+while presentation is disabled. Final service destruction disconnects callbacks
+capturing the service. Independent cleanup cannot recreate UI.
 
 ## 5. Key Execution Sequences
 
 ### 5.1 Synchronous Success
 
-```text
-Deactivate -> invalidate old application requests -> sync-request
-  -> callback-enter -> attribute-clear -> end-composition -> callback-exit
-  -> sync-result -> release cleanup state -> finish local cleanup -> return
-```
-
-A synchronous callback runs before `RequestEditSession` returns, so `callback-enter` normally precedes `sync-result`. `EndComposition` may also reenter a host termination notification. Do not assume stage logs can never interleave.
+A synchronous cleanup callback enters before `RequestEditSession` returns.
+Attribute clearing, `EndComposition`, and host termination notifications can
+interleave. Do not require `sync-result` to precede `callback-enter`.
 
 ### 5.2 Synchronous Rejection and Asynchronous Recovery
 
-```text
-Deactivate -> sync-result(TF_E_SYNCHRONOUS)
-  -> async-request -> async-result(queued=true)
-  -> finish local cleanup -> return
-Later, TSF -> callback-enter -> attribute-clear -> end-composition -> callback-exit -> released
-```
-
-A host may abandon a queued request. `released(started=false, finished=false)` means neither callback execution nor termination handling was observed before state release. Check request results to distinguish rejection from acceptance without execution. This is not a cleanup-success event.
+An accepted recovery request can execute after local deactivation returns.
+`released(started=false, finished=false)` means neither execution nor termination
+handling was observed before record release, not successful cleanup.
+Capture/request evidence is needed to distinguish rejection from abandonment.
 
 ### 5.3 Immediate Reactivation on the Same Context
 
-The default `TF_ES_ASYNCDONTCARE` value is **0**, not a separate flag bit. It permits synchronous execution. Synchronous requests may take priority over queued asynchronous requests, so merely queuing the old cleanup is insufficient:
+`TF_ES_ASYNCDONTCARE` is zero and permits synchronous execution. A new synchronous
+write can overtake an old queued cleanup, so explicitly queue new writes behind
+matching unfinished cleanup. Other contexts are unaffected.
 
-```text
-Old cleanup queued -> Deactivate returns -> reactivate on the same context
-  -> new application write finds unfinished cleanup -> write-forced-async
-  -> new write uses TF_ES_ASYNC and queues behind old cleanup
-  -> end old composition / clear old attribute -> execute new write / create new composition
+```mermaid
+sequenceDiagram
+    participant Service as Same service instance
+    participant TSF as TSF scheduler
+    participant Cleanup as Captured old cleanup
+    participant Document as Host document
+    Service->>TSF: Request synchronous old cleanup
+    TSF-->>Service: request success, session TF_E_SYNCHRONOUS
+    Service->>TSF: Queue old cleanup with TF_ES_ASYNC
+    Service->>Service: Finish local deactivation, then reactivate
+    Service->>TSF: Queue new write explicitly behind cleanup
+    TSF->>Cleanup: Execute with granted write cookie
+    Cleanup->>Document: Clear old attribute and end old composition
+    TSF->>Service: Execute new write with a new valid ticket
+    Service->>Document: Start or update new composition
 ```
 
-Other contexts are unaffected. Normal write callbacks still pass the epoch barrier; old-composition cleanup intentionally does not. Do not "simplify" this by allowing the new write to execute synchronously, or by making cleanup use the service's current composition or range.
-
-If reactivation occurs inside an outstanding `StartComposition`, a new write can
-already be queued before the late old result is available for cleanup. Its edit
-callback checks again for matching unfinished cleanup and resubmits the captured
-result using explicit `TF_ES_ASYNC`, behind that cleanup. It does not process the
-key again or advance the FSM. Under asynchronous FIFO ordering:
-
-```text
-new write -> requeue behind cleanup -> old cleanup -> new write
-```
+This sequence assumes accepted asynchronous FIFO scheduling, a current new ticket,
+and no intervening removal/termination. If reactivation occurs inside an
+outstanding `StartComposition`, a new callback can precede the late cleanup.
+The execution-side check requeues the **same snapshot** behind it; it does not
+process the key again or advance the FSM.
 
 ### 5.4 Early Host Termination of the Old Composition
 
-`OnCompositionTerminated` distinguishes composition identities:
+Route notifications through cleanup bookkeeping before current application state:
 
-- **Old composition awaiting cleanup:** set `terminated`. If attribute clearing has not started and the range is available, clear the old attribute using the notification's write cookie. If the callback has not started, also set `finished`. The later edit callback logs `skip-host-terminated` without clearing attributes or ending the composition again.
-- **Old composition whose cleanup is executing:** set `terminated`. Termination inside `GetProperty` still clears the attribute with the notification's write cookie, because `started` alone does not mean `Clear` has begun. Termination inside the actual `Clear` call does not clear again. The outer property lookup rechecks termination/removal and skips its stale clear and subsequent `EndComposition`.
-- **Current composition:** detach it, clear its attribute, recheck epochs and the expected empty composition slot after reentrancy, then reset the engine, context, and UI. A replacement must not be reset.
-- **Unpublished composition being started:** mark the temporary state terminated; do not publish or explicitly end the late result.
-- **Neither current nor awaiting cleanup:** ignore the old notification; it must not reset the new composition or UI.
+| Identity/state | Action |
+| --- | --- |
+| Old queued cleanup | Mark terminated; clear the old attribute with the notification cookie if clearing has not started; mark unstarted work finished |
+| Cleanup executing inside property lookup | Clear once with the notification cookie; the outer call skips its now-stale clear/end |
+| Cleanup already inside actual `Clear` | Do not clear again; skip subsequent end after termination |
+| Current composition | Detach it, clear its attribute, then reset only if ticket and expected empty slot still match |
+| Unpublished start | Mark terminated; never publish or explicitly end the late result |
+| Unrelated old composition | Ignore; never reset a replacement |
 
-Duplicate old notifications do not clear attributes again. The host notification supplies a valid cookie, so no additional edit session is needed. The host handles termination semantics; the service only clears the display attribute.
+Duplicate notifications do not repeat clearing. The notification supplies the
+cookie; do not request another edit session or end an already-terminated object.
+Current-termination attribute failures are diagnosed but do not suppress an
+otherwise still-current local reset.
 
 ## 6. Reentrancy Rules
 
-- Reentrant `Deactivate` during deactivation returns `S_OK` and logs `deactivate-reentrant`. It must not move the composition or release resources again.
-- Reentrant `ActivateEx` during activation or deactivation returns the actual `E_UNEXPECTED` and logs the failure. `Deactivate` during activation requests cancellation; the outer activation drains its current registration, tears down and returns `E_ABORT`. Normal activation is allowed after that outer transition completes.
-- Attribute clearing and composition termination can both trigger COM reentrancy. Do not blindly operate on the service's current state after either call. Independent cleanup always uses old captured state.
-- RAII resets `deactivating_` and sets `finished` when the callback exits. Do not introduce message-pump waits, background threads, or host edit API calls without a valid write cookie.
-- Context reset and input binding have their own RAII guards. Reentrant input during either transition is not consumed, and activation during a lifecycle transition returns `E_UNEXPECTED`. A notification during document queries or layout-sink registration invalidates the outer attempt; it cannot bind a stale target or publish an orphaned subscription.
-- Focus UI processing also checks a per-service focus revision. A newer reentrant focus notification supersedes the older one. Context removal alone does not supersede focus loss, so removal during cleanup must not prevent the status bar from being hidden.
+### Activation cancellation
+
+Do not dismantle a registration before its in-flight call publishes ownership.
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Service as QiQiTextService
+    participant Host as TSF host
+    Caller->>Service: ActivateEx
+    Service->>Host: Register sink or other resource
+    Host->>Service: Reentrant Deactivate
+    Service->>Service: Mark cancelled, invalidate epoch, disable presentation
+    Service-->>Host: S_OK, cancellation requested
+    Host-->>Service: Registration returns
+    Service->>Service: Record any successful late ownership
+    Service->>Host: Normal teardown of recorded resources
+    Service-->>Caller: E_ABORT
+```
+
+Accepted activation retains the service until activity/transition guards unwind.
+Repeated cancellation is idempotent. Cancellation stops later setup and
+compartment writes; failures retain their own HRESULTs alongside `E_ABORT`.
+
+- Nested activation during activation/deactivation/reset/preparation returns
+  `E_UNEXPECTED`. Missing manager returns `E_INVALIDARG`; required-sink failure
+  follows the diagnosed rollback path and returns `E_FAIL`.
+- Reentrant deactivation during deactivation returns `S_OK` without repeating
+  resource transfer or teardown.
+- Reset and preparation reject reentrant input. The outer reset flag spans COM
+  release, subscriptions, cleanup, and UI work.
+- RAII restores activity/transition flags on early and exceptional exits.
+  Internal helper exceptions are not converted to successful work.
+- Focus revision prevents older reentrant focus processing from overriding newer
+  focus state. Context removal alone must not suppress focus-loss hiding.
+- Never wait for queued cleanup, add a worker thread to perform TSF edits, or
+  retain a granted cookie beyond its session.
 
 ### 6.1 Candidate UI Registration and Withdrawal
 
-[`PresentCompositionCandidates`](../src/ime/comp/presentation.h) owns the
-synchronous snapshot/manager/Begin/Update protocol.
-[`EnterCompositionCandidatePresentation`](../src/ime/comp/presentation.h)
-now owns the original UI/manager/context/active/resetting entry gates, ticket
-capture and strong target reference around the service's actual presentation
-callback. The initial UI/manager pointers are non-owning availability guards,
-read before host operations, not frozen presentation targets. The context owner
-outlives callback-local resources and releases even on exceptional exit.
-There is no added composition-presence gate, post-callback check or state write.
-`CandidateUI` is assigned only in the service constructor, so the helper borrows
-that stable object. A getter reads the live thread manager at the original query
-boundary after the first ticket check; it does not eagerly copy a manager.
-The same predicate instance handles the original checks after snapshot update,
-manager query, Begin, and Show, where applicable.
+| Operation | Required publication/ownership rule |
+| --- | --- |
+| Begin | Capture the manager, negotiate host display permission, then check the original ticket before publishing its returned ID |
+| Late stale Begin | End a valid successful provisional ID through the captured old manager, never a replacement manager |
+| End | Capture the old manager, invalidate the shared ID and hide UI before calling the host; perform no shared reset afterward |
+| Manager/Begin failure | Preserve diagnostics and existing popup fallback, still gated by presentation permission |
 
-A stale successful Begin with a valid ID is ended through the captured old
-`ITfUIElementMgr`. It does not clear a subsequently published ID or query a new
-manager to end the same number. Failed Begin/manager queries retain the original
-diagnosed popup fallback, still subject to the presentation-enabled gate.
-Successful negotiation retains `show_own_ui` and activation-flag policy.
-Unusual success-with-invalid-ID and failure-with-ID outputs keep the existing
-handling; tests for them are not proof that the host registered an element.
+Different managers can reuse numeric element IDs. Matching a number is not
+matching ownership. Reentrant Begin/End must not deregister or hide newer UI.
+Respect the host's `show_own_ui`/UILess decision; failed registration is not proof
+that a host element exists.
 
-`EndCompositionCandidatePresentation` first captures the old thread manager,
-then detaches the shared element ID and hides UI before querying/ending through
-that manager. A reentrant replacement may reuse the numeric ID without being
-cleared afterward. Actual End failures remain diagnosed; this protocol adds no
-retry. All local manager references release before the service's original target
-holder. No geometry, GUI/cursor fallback, display-permission or FSM rule changes.
+### 6.2 Layout and Positioning
+
+A deferred layout task owns its context, optional notification view, ticket,
+and activity, but not a composition. On execution, query the current composition
+for that still-valid epoch, retain it through positioning, and reject replacement
+between view/range/extent calls. A supplied notification view takes precedence.
+
+Read sessions use `TF_ES_ASYNCDONTCARE | TF_ES_READ`; no cleanup-write barrier or
+new queue is introduced. Access is rechecked in the callback. `OnLayoutChange`
+returning `S_OK` does not certify successful query or movement.
+
+Discard stale rectangles even when the query succeeded. Preserve raw TSF
+coordinates, clipping, and zero/inverted rectangles; do not add normalization
+as an undocumented lifecycle change. Real screen coordinates are not DPI-scaled
+again; synthetic GUI/cursor fallback geometry is.
+
+Successful TSF positioning sets caret validity before movement. Fallback is
+attempted only without a valid prior caret; successful fallback does not
+automatically set that flag. Window movement remains a service/UI effect.
+See [position diagnostics](log.md#candidate-positioning) for real-host analysis.
 
 ## 7. Log Protocol and Troubleshooting
 
-Logs use the existing TraceLogging **`message` string**, not new ETW payload fields. ETW event headers provide PID, TID, timestamp, and level. Debugger output uses the same messages. Detailed stages are visible at Debug/Trace; actual failures also produce Warn records with the real HRESULT.
+Lifecycle records use the ordinary TraceLogging `message` string; they are not
+typed Metrics fields. ETW headers supply PID/TID/time/level and activity metadata.
+Capture Verbose for detailed stages; application Off suppresses ordinary events.
 
-- `TsfLifecycle(service=..., stage=...)`: activation, deactivation, context reset, stale callbacks, and ordinary host termination.
-- `TsfCleanup(service=..., cleanup=..., stage=...)`: the full trace of one independent old-composition cleanup.
-- `service` is an atomically allocated service-instance ID within the loaded module. `cleanup` increments within that service instance. Correlate by **PID + module-load lifetime + service + cleanup**. IDs may restart after module unload/reload; do not merge records across module-load lifetimes using numeric IDs alone.
-- `activation` and `context` are epochs at the time of logging. In `stale-edit-skipped`, the value before the slash is the request snapshot; the value after it is current. `context_before/after` are epochs before/after reset, **not pointers or COM object IDs**. Cleanup is created after deactivation invalidates application requests, so `created.activation` is the new deactivation epoch, not the original input request's snapshot.
-- Do not log input text, keys, candidates, range contents, or raw COM addresses. IDs do not change ownership, and diagnostics introduce no production test interface.
+- `TsfLifecycle(service=..., stage=...)` tracks activation, reset, ordinary
+  termination, and stale application work.
+- `TsfCleanup(service=..., cleanup=..., stage=...)` tracks one independent cleanup.
+- Correlate **PID + module-load lifetime + service + cleanup** and activities.
+  Numeric IDs can restart after module reload.
+- Epochs before/after reset are not pointers. In stale diagnostics, values before
+  the slash are captured and after it are current.
+- A cleanup's creation epoch can be the invalidated deactivation epoch, not the
+  original input request's epoch. IDs do not grant execution permission.
 
-| `TsfCleanup.stage` | Diagnostic meaning |
-|---|---|
-| `created`, `unavailable`, `get-range` | Capture of the old composition, missing context/client ID, and range-query result |
-| `sync-request`, `sync-result` | Flags, actual outer/inner HRESULTs, and callback/host-termination state when the request returns |
-| `async-request`, `async-result` | Recovery attempt and queue acceptance; `queued=true` is not completion |
-| `sync-failed-no-fallback`, `async-rejected` | No recovery attempted, or asynchronous rejection; Warn preserves the decisive actual HRESULT |
-| `callback-enter`, `callback-exit` | Actual execution entry/exit; exit does not claim API success |
-| `attribute-clear`, `end-composition` | Two independent API results; inspect both |
-| `host-terminated`, `host-attribute-clear` | Early host termination, including duplicate-notification and callback-start state |
-| `skip-host-terminated`, `skip-end-after-host-termination` | Expected prevention of duplicate edits/termination, not cleanup failure |
-| `write-forced-async` | Which old cleanup caused a new write to require asynchronous scheduling |
-| `context-removed`, `skip-removed-context`, `skip-end-after-context-removal` | A removed context invalidated previously queued cleanup; no further attribute or termination calls are made after observing removal |
-| `skip-request-invalidated` | Range retrieval reentered termination/removal; do not submit a new edit-session request for the invalidated cleanup |
-| `released` | State snapshot at the start of destruction; not proof that all COM objects are destroyed or cleanup succeeded |
+| Cleanup stages | What to inspect |
+| --- | --- |
+| `created`, `unavailable`, `get-range` | Captured objects and real acquisition results |
+| `sync-request`, `sync-result` | Flags, both HRESULTs, callback/termination state |
+| `async-request`, `async-result` | Recovery attempt and queue acceptance, not completion |
+| `sync-failed-no-fallback`, `async-rejected` | Decisive failure and why no recovery completed |
+| `callback-enter`, `callback-exit` | Actual callback lifetime, not host-operation success |
+| `attribute-clear`, `end-composition` | Independent API results; either can fail |
+| `host-terminated`, `host-attribute-clear` | Host-cookie handling and duplicate suppression |
+| `skip-host-terminated`, `skip-end-after-host-termination` | Prevention of duplicate termination |
+| `write-forced-async` | Pending old cleanup forced an application write to queue |
+| `context-removed`, `skip-removed-context`, `skip-end-after-context-removal` | Removal forbids remaining edits |
+| `skip-request-invalidated` | Range lookup invalidated cleanup before a request |
+| `released` | Pre-member-destruction snapshot, not complete destruction or cleanup |
 
-Additional `TsfLifecycle.stage` values include `replaced-composition-edit-skipped`
-(same epoch, different composition), `composition-start-write-deferred`,
+Important lifecycle stages include `stale-edit-skipped`,
+`replaced-composition-edit-skipped`, `composition-start-write-deferred`,
 `composition-start-terminated`, `composition-start-removed`,
-`stale-composition-start`, and `write-requeued-behind-cleanup`. These expose
-logical outcomes without logging input text, key values, or COM addresses.
+`stale-composition-start`, `write-requeued-behind-cleanup`, `ui-begin-stale`,
+`ui-end`, and `ui-windows-destroyed`.
 
-For a recoverable synchronous rejection, filtering by the same IDs should show:
+When troubleshooting:
 
-```text
-TsfCleanup(service=1, cleanup=2, stage=sync-result, request_hr=0x00000000, session_hr=..., started=false, terminated=false)
-TsfCleanup(service=1, cleanup=2, stage=async-result, request_hr=0x00000000, session_hr=..., queued=true)
-TsfCleanup(service=1, cleanup=2, stage=callback-enter, async_requested=true, terminated=false, has_range=true)
-TsfCleanup(service=1, cleanup=2, stage=attribute-clear, hr=0x00000000)
-TsfCleanup(service=1, cleanup=2, stage=end-composition, hr=0x00000000)
-TsfCleanup(service=1, cleanup=2, stage=callback-exit, terminated=false)
-```
+1. **Queued but no entry:** inspect capture loss/filtering, request results,
+   message pumping, and release state. Missing events prove neither success nor leak.
+2. **Attributes remain:** inspect range, attribute clear, and end independently;
+   callback exit is insufficient.
+3. **Replacement text/UI is damaged:** compare epochs/composition identity,
+   forced-async/requeue stages, old cleanup, and captured UI-manager ownership.
+4. **Fresh input is skipped:** locate the invalidating reset/removal/deactivation
+   and compare captured/current tickets.
 
-Other stages are omitted from this example. Actual logs retain full hexadecimal HRESULTs.
-
-1. **Queued, but no callback entry:** first confirm capture is still active, the log level has not changed, and the host thread is pumping messages. Then inspect `released`. Missing events alone prove neither a leak nor success.
-2. **Callback ran, but attributes remain:** check `get-range`, `attribute-clear`, and `end-composition` separately. Do not rely on `callback-exit` or `finished`.
-3. **New attributes disappear after reactivation:** inspect the old IDs' `write-forced-async`, termination, and skip stages. Compare new epochs to determine whether FIFO was broken or new objects were used by old cleanup.
-4. **Expected new input is discarded:** inspect snapshot/current epochs, `active`, and `target_matches` in `stale-edit-skipped`. Look backward for the corresponding `context-reset` or deactivation.
-5. **No stage records at Info/Off:** this is normal filtering. Temporarily enable Debug and a receiver as described in the [logging guide](log.md), then restore configuration after capture.
+Preserve real HRESULT/Win32 domains and both request/session results.
+`S_FALSE`/`TF_S_ASYNC` are not failures or completion guarantees.
+Do not record input, key values, candidates, range text, or raw COM addresses.
 
 ## 8. Document and Context Notifications
 
 ### 8.1 Context Is Still the Input Identity
 
-`composition_lifecycle_.Context()` is the input target.
-`composition_lifecycle_.Document()` caches only that context's parent, obtained
-during input binding; the former standalone `active_context_` and
-`active_document_` service members no longer exist. This is not a document
-registry, focus history, or list of every document in the process. The cached
-parent makes uninitialization recognizable even when the context's
-`GetDocumentMgr` already fails after disconnection. Both references are released
-on reset/deactivation. [`MatchesCompositionDocument`](../src/ime/comp/target.h)
-uses the interface-pointer fast path, then current-before-incoming canonical
-`IUnknown` identity queries. Identity matching itself adds no activation gate;
-notification entries retain that policy.
+The current context is the input target; its cached parent is not a document
+registry or focus history. Retaining the parent permits uninitialization matching
+after the disconnected context's parent query fails. Document matching uses an
+interface-pointer fast path, then canonical `IUnknown` identity.
 
-`OnInitDocumentMgr` owns no document-wide resources and remains a no-op. Notifications do not proactively bind a new input target; the next actual key-down binds its context.
+`OnInitDocumentMgr` owns no document-wide resources and remains a no-op.
+Notifications do not proactively bind a target; actual input prepares it.
 
 ### 8.2 Reconciling Focus and Stack Changes
 
-The service's `ReconcileDocumentTarget` adapts
-[`ReconcileCompositionDocumentTarget`](../src/ime/comp/target.h), which queries
-the incoming document's `GetTop` and `GetBase`:
+For document-target reconciliation, retain the original context and ticket,
+query both `GetTop` and `GetBase`, diagnose both results, then recheck:
 
-| Relationship | Action |
-|---|---|
-| Current context is the top | Retain the current composition and epoch |
-| Current context is the base, covered by a secondary/modal context | Retain the main composition; a modal push alone is not target invalidation |
-| Neither top nor base is current, or a stack query fails | Invalidate old application requests and reset the old target, attempting authorized host cleanup |
-| A query reenters deactivation/reset and changes the captured epoch | Return `false`; the outer focus notification must not continue with stale state |
+```mermaid
+flowchart TD
+    Query["Query top and base of the incoming document"] --> Current{"Original ticket still current?"}
+    Current -->|No| Stop["Stop stale reconciliation"]
+    Current -->|Yes| Match{"Both queries succeeded and current context is top or base?"}
+    Match -->|Yes| Retain["Retain target and composition"]
+    Match -->|No| Reset["Invalidate target and attempt authorized old cleanup"]
+    Reset --> Check["Recheck predicted post-reset ticket"]
+```
 
-Both queries execute even if `GetTop` fails; both actual HRESULTs are diagnosed
-before the original ticket check. The captured original context stays alive
-until top/base references release. A reset is checked against the predicted next
-context epoch with a null target, rather than a newly captured post-reset ticket.
+A main/base context covered by a modal top context remains valid. Preservation
+does not authorize processing a key for that modal target. An actual key for a
+different context still uses explicit preparation.
 
-`OnPushContext` first checks the pushed context's parent. An unrelated document cannot reset current input. A related push uses the same reconciliation logic as focus changes. No Push/Pop is initiated from these callbacks, and no callback order beyond the API's guarantees is assumed.
-
-`OnPopContext` compares the removed context itself, not just its document. Popping an unrelated context or the modal context above the current main context does not reset current input. Removing the actual input context does. `OnUninitDocumentMgr` resets only when the cached parent matches. Repeated notifications are harmless after the active relationship has been cleared.
-
-Preserving the main composition on a modal notification is not a request to process keys for the modal UI. Existing requests still require a TSF-granted edit cookie and the epoch barrier. If an actual key-down arrives for a different context, it follows the explicit input-target transition described below.
+Related Push notifications use this reconciliation; unrelated documents are
+ignored. Pop compares the removed context itself: unrelated/modal Pop does not
+reset the main target. Uninitialization matches its cached parent. Repeated
+notifications become harmless after the relationship has been cleared.
 
 ### 8.3 Reset Before Processing a New Target's Key
 
-Previously, `ApplyEngineResult` noticed context changes only after `engine_.ProcessKey` had already run. Consequently, Backspace in a fresh context could operate on the previous context's engine composition. Merely choosing a new COM range did not prevent that cross-target carryover.
+Prepare the new target **before** interpreting its key. Reset the old engine and
+invalidate its work, arrange connected-target cleanup, then bind/check the new
+context and subscriptions. Do not commit the old target's raw code into the new
+target. A fresh-target Backspace must not operate on the previous composition.
 
-`PrepareInputContext` now runs before processing an actual key-down, and before contextual mode-toggle commit:
+Reset preview and actual reset share engine classification: composing Chinese
+states become Idle, English remains English, and width/punctuation are retained.
+Deferred host cleanup must not keep the new target's FSM composing.
 
-1. Reject missing/inactive targets and reentrant transitions without consuming the key.
-2. When the target differs, reset the old engine and invalidate its epoch **before** interpreting the new key.
-3. Reuse the old-composition cleanup path, preserving its preedit text rather than deleting it.
-4. Capture the new parent document and attach the layout sink. Recheck epochs after reentrant COM calls, and remove a subscription published after an invalidating notification.
-5. Only then process the key and submit its result for the prepared context.
+For ordinary user-requested Chinese-to-English switches,
+`CommitOnEnglishSwitch` defaults to true: commit raw preedit literally, including
+the temporary-English `z` guide, without selecting a Chinese candidate.
+False cancels only current preedit. Both switch the engine to English before
+submitting captured host work, preventing reentrant resubmission. Escape and
+temporary-English Space/Enter retain their own rules.
 
-The preparation guard retains the pending context, not just a Boolean flag. A matching `OnPopContext` during `GetDocumentMgr` invalidates the epoch even before the lifecycle state's context is assigned, so the outer operation declines the key without attaching a sink or requesting an edit session. Unrelated removals do not cancel preparation. RAII releases the pending reference on every exit.
-
-`ApplyEngineResult` no longer switches targets after the fact. UI/configuration callbacks can submit results only for an already prepared current context. Backspace in a fresh context is therefore passed through when its engine has no composition, instead of creating text derived from the previous context.
-
-Switching from Chinese to English with Shift, Ctrl+Space, the language/status bar,
-or either system mode compartment follows `commit_on_english_switch`. Its default,
-`true`, commits the current raw code, preserving the preedit literally, including
-a temporary-English `z` guide; it does not select a Chinese candidate. `false`
-cancels only the current composition and clears its preedit, not previously
-committed text. Escape still cancels, and Space/Enter in temporary English still
-omit its guide. The setting is persisted as `CommitOnEnglishSwitch` (DWORD 1/0),
-defaults to commit when absent, and participates in live configuration sync and
-dictionary-manager backup/restore.
-
-Both policies use the existing application edit-session path and FIFO ordering.
-Commit clears display attributes, collapses the caret and ends the composition;
-cancel removes the composition text and ends the composition. Switching targets
-first resets the engine, so an old target's code is never committed into a new
-target. The policy does not apply to focus-loss/deactivation cleanup.
-
-This option changes the host edit action, not the key FSM's state transition:
-both policies call `SetChineseMode(false)`, clearing engine composition data and
-entering `English` before submitting the captured host edit. A synchronous
-`EndComposition` callback therefore observes English key prediction, and a
-reentrant system-mode notification cannot resubmit the old raw code. Switching
-back enters `Idle`; width and punctuation settings
-are retained. No new key event, transition-table entry or engine state is needed.
-Regression tests cover both policies across idle, all four Wubi composing states
-and temporary English, in half/full-width modes.
-
-`OnTestKeyDown` must predict that same boundary without performing it. For the current context it uses `ShouldEatKey`; for a different context it uses the read-only `ShouldEatKeyAfterReset`. Both routes share the configured key classifier and transition table. The preview does not bind contexts, reset the live engine, end host compositions, or request edit sessions; the existing Shift-tap tracking remains separate. Missing/inactive targets and reentrant reset/binding are declined. A positive prediction is not an edit-permission grant: the actual callback still prepares and rechecks its target.
-
-These lifecycle and epoch checks do not classify every password, read-only, or otherwise restricted input field. The existing disabled-compartment checks are not a unified policy across every key and asynchronous callback; that policy remains separate task 36 research.
-
-The engine's seven states and sixteen key-event categories are unchanged. Lifecycle reset is external to the key transition table. `StateAfterCompositionReset`, shared by actual reset and preview, maps Chinese composing states (including `TempEnglish`) to `Idle`, leaves `Idle` unchanged, and preserves `English`. Full-width and punctuation modes are retained. A deferred old-host cleanup must not keep the new target's FSM in a composing state.
-
-The shared reset path also fixes a second gap in task 43: context switching and focus loss previously released the local composition reference without explicitly ending the host composition. Connected-target resets now use `ScheduleCompositionCleanup`, the same synchronous attempt and controlled asynchronous recovery used by deactivation. If focus returns to the same context before old cleanup executes, `HasPendingCompositionCleanup` still forces the new write behind it.
+This option is not focus-loss/deactivation cleanup policy. Restricted-target
+handling follows the implemented [access policy](restricted.md), including
+password/PIN temporary English and private-scope persistence suppression.
+Epoch checks do not replace access checks, and neither guarantees recognition
+of every custom control.
 
 ### 8.4 Removal Is Not a New Write Opportunity
 
-Pop and document-uninitialization handling use `ResetCompositionAndUI(false)`. They invalidate callbacks, release local context/document/composition references, detach subscriptions, and end candidate UI **without requesting a new edit session**. Removal does not prove that editing access remains available. Any remaining host termination belongs to TSF/the host; local release is not logged as successful `EndComposition`.
+Current Pop/uninitialization resets with `try_host_cleanup=false`: invalidate
+callbacks, release local relationships, detach subscriptions, and end candidate
+UI **without requesting a new edit session**. Local release is not successful
+host termination.
 
-Removal also marks matching independent cleanup states with `context_removed` and `finished`. A cleanup request accepted before removal may still be delivered by a scheduler; it logs `skip-removed-context` rather than clearing attributes or ending the old composition. Removal during attribute clearing prevents the subsequent `EndComposition` call. Old host termination notifications must not clear a newly bound composition.
+Mark matching cleanup records removed/finished. Previously accepted callbacks
+can still arrive but must skip edits. Removal during attribute clearing prevents
+the subsequent end call; old termination cannot reset a newly bound composition.
 
 ### 8.5 Additional Diagnostic Fields
 
-All records retain the existing service/cleanup correlation scheme:
-
-- `document-target`: `source=focus|push`, `retained`, and `covered_by_modal` explain why the current target was retained or reset.
-- `document-uninit`: `related` says whether the cached parent matched.
-- `context-push`: `related` distinguishes current-document stack changes from unrelated notifications.
-- `context-pop`: `current` identifies removal of the actual input target; `preparing` identifies a target still being bound.
-- `context-reset`: `try_host_cleanup=false` identifies the removal path; `cleanup-skipped-removed-context` explicitly reports local release without claiming host termination.
-- `input-document-unavailable` preserves the actual parent-query HRESULT. Editing is not assumed to succeed: the subsequent edit-session request still determines access, while no parent relationship is fabricated.
+`document-target` reports focus/push source, retention, and modal coverage.
+`document-uninit`/`context-push` identify related parents; `context-pop` separates
+current and pending preparation targets. `context-reset` records cleanup policy,
+and `cleanup-skipped-removed-context` distinguishes local release from host work.
+`input-document-unavailable` retains the real parent-query HRESULT.
 
 ## 9. Validation and Remaining Boundaries
 
-The [real-host test record](hosts.md) includes partial manual feedback from 2026-11-03. It is not a completed compatibility matrix or proof that every UWP/AppContainer host is supported; task 47 remains open.
+Run both architectures' `QiQiCompositionLifecycleTest` and `QiQiTsfUiTest`
+sequentially using the [development commands](dev.md#focused-tests).
+The focused lifecycle suite excludes standalone UI suites; it supplements,
+not replaces, the full TSF/UI test.
 
-The [service start regressions](../tests/ime/tsf/svc/reentrancy.cpp) exercise
-five start outcomes through the real service: `S_OK`, `S_FALSE`, failure with a
-composition, successful null output, and failed null output. Five current-target
-cases check recovery of the original engine snapshot and immunity to a late
-termination from a failed, unpublished result. The start-reentrancy matrix has
-38 cases spanning deactivation, same-context reactivation, target switches,
-removal, and host termination with synchronous/asynchronous cleanup where
-applicable. Null outputs do not fabricate host termination notifications.
-Checks cover cleanup of stale non-null results even after failure, no cleanup
-for null results, unchanged new-target UI/text, and cleanup's own edit cookie.
-These are mock-host outcome injections, not evidence that a specific real host
-returns a non-null composition on failure.
+Assert actual text, property state, composition identity, subscriptions,
+UI-manager/element ownership, API ordering, and COM reference recovery.
+Return codes or formatted logs alone are insufficient.
 
-The existing 91 edit-boundary and four cleanup-reentrancy cases remain intact.
-That earlier test stage added tests, not production behavior: it did not change the existing
-policy for a current failed start with non-null output. The current composition,
-epochs, context/document, and cleanup coordinator now share the state owner
-described above. Subsequent R05 stages completed the target, edit, start/finish,
-presentation and layout protocol boundaries shown in the current module map.
-Activation, actual teardown callbacks and engine/UI policy remain intentionally
-in the service; their presence is not unfinished coordinator extraction.
+### 9.1 Regression Inventory
 
-The [start/update component tests](../tests/ime/comp/start_update.cpp) add
-34 cases crossing empty/nonempty input with existing/new compositions, start
-HRESULT/null outputs, preparation failure, stale cleanup, termination/reset
-decisions, same-epoch replacement, range failure before/after publication and
-an atom changed during Start. They verify exact identity-check counts, published
-and returned identities, move-only predicates/reset callbacks, preparation release
-before update, retained references and cleanup's original client ID/edit cookie.
-Four additional exception cases cover post-start identity, update range/identity
-and termination reset; exceptions propagate while original owners release.
-These run through the existing start entry in both full and focused test modes.
+| Contract | Representative existing tests |
+| --- | --- |
+| Epoch/reset ownership and nesting | [state](../tests/ime/comp/state.cpp), [context reset](../tests/ime/comp/context_reset.cpp) |
+| Immutable snapshots, request flags, requeue and activity scopes | [edit execution](../tests/ime/comp/edit_execution.cpp), [requests](../tests/ime/comp/edit.cpp), [service deferred work](../tests/ime/tsf/svc/deferred.cpp) |
+| New-target preparation, parent identity, modal/removal reentrancy | [target](../tests/ime/comp/target.cpp), [service target](../tests/ime/tsf/svc/target.cpp), [native documents](../tests/ime/tsf/svc/native.cpp) |
+| Late starts, same-epoch replacement, commit/cancel and termination | [start/update](../tests/ime/comp/start_update.cpp), [finish state](../tests/ime/comp/finish_state.cpp), [termination routing](../tests/ime/comp/termination_route.cpp), [service reentrancy](../tests/ime/tsf/svc/reentrancy.cpp) |
+| Captured cleanup, failure/removal, abandonment and owner release | [handoff](../tests/ime/comp/cleanup_handoff.cpp), [service lifecycle](../tests/ime/tsf/svc/lifecycle.cpp) |
+| Retained windows and old/new manager isolation | [presentation](../tests/ime/comp/presentation.cpp), [service presentation](../tests/ime/tsf/svc/presentation.cpp), [service windows](../tests/ime/tsf/svc/windows.cpp) |
+| Layout lifetime, stale rectangles and DPI routing | [layout](../tests/ime/comp/layout.cpp), [position](../tests/ime/comp/layout_position.cpp), [service layout](../tests/ime/tsf/svc/layout.cpp) |
+| Access policy and restricted-target transitions | [restricted input](../tests/ime/tsf/restricted_input.cpp) |
 
-The [edit-execution tests](../tests/ime/comp/edit_execution.cpp) add 64
-current/stale, eight-cleanup-state and four-action combinations. They verify
-ticket-before-registry ordering, discard without pruning, pending requeue versus
-finished/expired/removed/terminated pruning, original snapshot address,
-ticket/cookie, move-only callbacks, precise references and return propagation.
-Three identity/requeue/execute exception cases and one nested execution case
-check owner preservation and activity restoration after callback mutation.
-The original 224 scope cases and real-service requeue/action regressions remain.
+Mocks provide deterministic failures and reentrant boundaries, not evidence that
+every real host behaves that way. Private native TSF documents validate actual
+API lock/notification behavior without activating the system TIP.
+Debugger/ETW tests validate diagnostics separately from functional results.
 
-The [edit-entry tests](../tests/ime/comp/edit_entry.cpp) add 48
-active/resetting/preparing/bound-target and null/same/other-target combinations.
-They check gate rejection without callbacks or host operations, captured
-ticket/context, move-only callbacks and precise reference counts. Four normal,
-exception, nested and deferred-owner cases release the caller's owners during
-the callback and verify context survival until callback exit, original tickets
-after nested invalidation, and immutable snapshots retained by deferred tasks.
-The original request/outcome, scope/execution and real-service matrices remain.
-
-The [identity tests](../tests/ime/comp/identity.cpp) add 96 combinations of active
-state, reset scope, bound target, ticket validity, current composition presence
-and null/original/replacement identity. They check results, unchanged ownership
-and state, precise reference counts and zero host operations. The existing
-56-case ticket matrix also checks the new diagnostic entry directly; all original
-service identity/reentrancy call sites remain unchanged.
-
-The [termination-completion tests](../tests/ime/comp/termination.cpp) add 24
-empty/nonempty-preedit and outcome/reentrancy combinations. They verify normal
-and inactive behavior, range/property/clear failures, same-epoch replacement at
-range/property/clear, epoch invalidation, null notification and absent context.
-Checks lock exact traces, original ticket/cookie, strong references and release
-before the real reset callback, with no host EndComposition or text writes.
-Three range/identity/reset exception cases verify propagation and owner release.
-Original low-level termination and real-service reentrancy matrices remain.
-
-The [termination-route tests](../tests/ime/comp/termination_route.cpp) add 20
-active/inactive combinations with current, null/current, null/empty, missing
-context, unrelated, starting/current, starting/other, scheduled, removed and
-expired weak-record notifications. They verify coordinator-first routing even
-when a starting record overlaps the current slot, duplicate consumption without
-application callbacks or repeated attribute clearing, and deferred delivery
-without ending the already-terminated composition. Checks cover the original
-cookie, identity/reset counts, state/epoch, unchanged text and final COM counts.
-Move-only callbacks are synchronously borrowed by the completion helper.
-
-The [finish-state tests](../tests/ime/comp/finish_state.cpp) add 60 cases:
-commit/cancel and three text shapes (empty, ordinary, embedded null/surrogate pair)
-cross ten composition states/outcomes. They check exact host/identity traces,
-no-composition behavior, captured identities, range/finish errors, same-epoch
-replacement at range/text/end, pre-end state/caret retirement, and strong
-composition/range reference counts. Eight range/check/text/end exception cases
-verify propagation and unchanged or detached state with original owners released.
-The original low-level finish/direct-insert fault matrices and real-service
-action/handoff regressions remain in both test modes.
-
-The [state tests](../tests/ime/comp/state.cpp) use real reset scopes in the
-56-case identity matrix. Another 36 cases cross active/inactive state,
-bound/unbound targets, nested depths 0/1/3, and normal/early/exceptional exit;
-they check epoch advancement, flag restoration, unchanged ownership/records,
-and absence of host operations. Two real-service cases inject one or three
-nested focus-loss resets during old cleanup: input and activation are rejected
-until the outer reset finishes, cleanup/UI are not repeated, and a fresh
-composition works afterward.
-
-The [context-reset tests](../tests/ime/comp/context_reset.cpp) add 32
-active/cleanup/composition/layout-connection/nested combinations using the real
-cleanup coordinator and scoped connection. They verify exact cleanup/UI traces,
-edit cookie, attribute clearing, retained references and no text write.
-Six cleanup/UI callback cases cover one/three nested attempts or exceptions;
-four last-owner cases check precise context/composition/range final releases
-and document lifetime through its existing weak parent link. Connected layout
-sources retain the context until subscription reset, after document/composition
-release; an unconnected context releases earlier. UI remains the final step.
-
-The [cleanup-handoff tests](../tests/ime/comp/cleanup_handoff.cpp) add 24
-active/composition/request-condition cases covering immediate/deferred cleanup,
-request rejection, read-only access and unavailable client/context. They check
-the pre-request range query, exact flags/client ID/edit cookie, current-slot
-transfer, retained references and unchanged preedit. Twelve range/attribute/end
-reentrancy cases cross synchronous/deferred execution with same-epoch replacement
-or context-epoch invalidation; old cleanup cannot modify the replacement.
-Existing reset and state-owner-destruction tests now use the same handoff helper,
-including cleanup executing after the state owner has been destroyed.
-
-The [target-entry tests](../tests/ime/comp/target_entry.cpp) add 48
-active/resetting/preparing/target-kind/preparation-result combinations and four
-normal/failure/exception/nested activity cases. They check unavailable-before-same
-ordering, zero preparation callbacks on gate/fast-path returns, precise activity
-restoration even after callback mutation, preparing-target reentry rejection,
-unchanged state and no extra COM references.
-
-The [integrated target tests](../tests/ime/comp/target.cpp) add 32
-active/resetting/pending and null/same/other/unbound-target cases, executing the
-actual reset, document query and layout subscription. They verify fast-path
-short-circuiting, activity restoration, original predicted tickets and all three
-identity checks. Two added reset/document unwind variants reuse the original
-release fixture, proving pending cleanup and final context release happen before
-entry activity restoration.
-
-The [target component tests](../tests/ime/comp/target.cpp) add 35 document-result,
-subscription-result, and invalidation-boundary cases plus two exception/resource
-unwind cases. They check exact call order, predicted tickets, strong-reference
-counts, and move-only stateful callbacks. Eight
-[real-service preparation cases](../tests/ime/tsf/svc/target.cpp) exercise
-document-query and layout-advise reentrancy with continued preparation, focus
-loss, target removal, or deactivation. Nested input and activation cannot
-interleave, late subscriptions are withdrawn, same-target input avoids a
-second preparation, and a fresh target remains usable.
-
-The [presentation-entry tests](../tests/ime/comp/presentation_entry.cpp) add
-64 UI/manager/bound/active/resetting/composition-presence cases. They verify
-gate rejection without UI/host work, original tickets, precise context references
-and no extra UI/manager ownership. Four normal/exception/nested/same-epoch
-replacement cases release caller ownership during the callback, checking final
-context release after callback exit and preservation of replacement state.
-Original presentation permissions, failures, live-manager and service tests remain.
-
-The [presentation components](../tests/ime/comp/presentation.cpp) add 50 cases:
-23 Begin outcome/check boundaries, six unavailable-manager paths, six existing-ID
-updates, eight host-permission/presentation gates, six End ownership paths, and
-one late-manager lookup. Checks include exact IDs, shared stateful predicates,
-reference counts and actual popup visibility. Ten
-[service presentation cases](../tests/ime/tsf/svc/presentation.cpp) combine
-five HRESULT/ID outcomes with deactivation or different-manager reactivation
-inside Begin, verifying old/new ID isolation and continued new-target input.
-
-The [layout-entry tests](../tests/ime/comp/layout_entry.cpp) add 288 combinations
-of three notification codes, null/same/other targets and active/bound/composing/
-UI/resetting flags. They verify diagnostic-before-gate UI reads, short-circuit
-counts, unchanged state/epoch, precise references and no host operations.
-Four normal/exception/nested/live-UI-change cases check distinct activity IDs,
-live gate reads and no added lifecycle-slot restoration. Existing layout tasks,
-requests, query/position and real-service regressions remain.
-
-The [layout component tests](../tests/ime/comp/layout.cpp) add 35 cases for
-notification/active views, HRESULT and null/non-null output combinations,
-`S_FALSE`, clipped/zero/inverted rectangles, epoch invalidation and same-epoch
-composition replacement. Six lifetime cases verify range ownership through
-caller UI work and reference-release order on current, stale and no-layout
-results. Ten [service layout cases](../tests/ime/tsf/svc/layout.cpp) inject
-deactivation or reactivation at view/range/extent boundaries, checking exact
-query counts, view routing, replacement-popup isolation and continued input.
-These mock regressions do not certify positioning in real hosts.
-
-The [layout-update tests](../tests/ime/comp/layout_update.cpp) add 80 combinations
-of UI/composition availability, previous caret position and ten outcomes:
-normal, no layout, failed fallback, failed/null range, inactive/resetting,
-replacement during range query/movement, and missing notification view. They
-check exact identity/range/fallback/move counts, view acquisition and replacement
-state preservation. Three identity/fallback/movement exception cases verify
-old composition/range ownership through callbacks and retention of the service
-view parameter. Existing query, rectangle, callback and service coverage remains.
-
-The [layout-position tests](../tests/ime/comp/layout_position.cpp) add 72
-current/result/history/fallback/raw-rectangle combinations, all with clipped
-output, checking exact call sequences, move-only callbacks, flag timing and
-unchanged query ownership/shape. Nine callback-boundary cases exercise live
-flag mutation on successful/failed fallback and movement, nested application,
-fallback/movement exceptions, precise range references and final release.
-They preserve the original rules rather than introducing a new real-host
-positioning fix.
-
-The [edit request tests](../tests/ime/comp/edit.cpp) add 80 cases crossing eight
-cleanup states with ten request/callback outcomes. They check exact read/write
-and timing flags, client IDs, registry pruning, synchronous/deferred entry,
-immutable snapshots, rejection and abandonment. Fourteen
-[service write-request cases](../tests/ime/tsf/svc/deferred.cpp) cover
-immediate, host-deferred and pending-cleanup modes, including `S_FALSE`, request
-failure, read-only rejection and asynchronous rejection. A pending cleanup
-forces queuing even when the mock host would otherwise execute immediately;
-old cleanup completes before new text is written, and subsequent successful
-input restores the complete engine snapshot without processing a key twice.
-These mock controls do not certify real-host lock or edit-permission behavior.
-
-The [action component tests](../tests/ime/comp/edit_action.cpp) add 32 cases
-crossing four actions, committed/preedit text shapes and post-action identity,
-16 nested/exceptional callback-boundary cases and four post-commit preedit-read
-cases. They check exact call order, zero extra checks, cookie/target forwarding,
-borrowed result/text identity and activity restoration by the original edit
-scope. The mutable alias used by the read-timing fixture verifies the helper's
-read point; it does not change the production task's immutable snapshot policy.
-Twelve [service action cases](../tests/ime/tsf/svc/action.cpp) cover ordinary
-commit, cancel and fifth-code commit-and-restart during continued activation,
-deactivation, reactivation or same-epoch replacement. They verify that stale
-action completion cannot end replacement UI or overwrite its preedit, while
-ordinary fifth-code handoff retains the original UI registration and accepts
-subsequent input.
-
-Presentation synchronization adds 17
-[component cases](../tests/ime/comp/presentation.cpp): twelve null/non-null
-composition, empty/non-empty preedit and invalidation combinations plus five
-exception boundaries. Checks cover exact order, zero additional checks,
-borrowed snapshot/text identity and composition reference counts through
-publication and exit. Six [service cases](../tests/ime/tsf/svc/action.cpp)
-inject deactivation, reactivation or same-epoch replacement during update or
-positioning. The old synchronization cannot publish additional candidate work
-or overwrite replacement text; fresh input continues normally.
-
-The layout session extraction adds another 46 component cases: four
-snapshot/copy/move/resource cases, 22 identity/activity/nesting/exception cases
-and 20 request-result/timing/read-only/abandonment cases. Fourteen additional
-service cases cover twelve deferred current/stale/replacement/abandonment
-combinations and two retained-service execution/abandonment paths after all
-external references are released. They verify notification-view lifetime,
-query counts, current-composition selection, input recovery and final COM
-object-count restoration. Existing query tests remain unchanged.
-
-`QiQiCompositionLifecycleTest` runs composition components and the complete
-service lifecycle/key-flow tests without the standalone popup/candidate/status
-UI suites. It uses `RUN_SERIAL` and retains the same native TSF, cleanup, and
-reentrancy assertions. It supplements, rather than replaces, `QiQiTsfUiTest`;
-a focused pass must not be reported as a full GUI-suite pass.
-
-[`service_lifecycle.cpp`](../tests/ime/tsf/svc/lifecycle.cpp) retains the ordered entry point for the deferred, document/context, window, reentrancy, cleanup, and native TSF suites under [`tests/ime/tsf`](../tests/ime/tsf); independent composition component tests mirror the production module under [`tests/ime/comp`](../tests/ime/comp). Together with [`service.cpp`](../tests/ime/tsf/svc/main.cpp), they cover deferred mock scheduling, failure injection, reentrancy, host termination, reactivation isolation, and COM reference release. The [real Windows TSF private-document tests](../tests/ime/tsf/svc/native.cpp) trigger synchronous rejection inside a layout notification, then use a bounded message pump to verify asynchronous completion. They check preserved text, composition enumeration, both property types, and isolation of the new composition, without changing user focus or activating the system TIP.
-
-An owned debug child process captures actual `OutputDebugString` messages. Assertions cover ID correlation, synchronous callback entry before request return, asynchronous queue acceptance before execution, forced asynchronous writes, skipping after early host termination, request rejection, no retry for read-only access, queued-request abandonment, accurate callback-exit reporting despite API failures, stale application requests, and Info/Off filtering. Synthetic text includes a marker that must never appear in output. These tests add no production sink, use no `Sleep`, and do not replace debugger-free ETW integration tests against the real DLL.
-
-Task 45 adds scoped document mocks with a weak context-to-parent link, preserving ownership without a mock document/context cycle. Tests verify focus changes, unchanged/modal targets, unrelated Pop/uninitialization, disconnection before notification, query failure, query reentrancy, old layout/write callbacks, A-to-B-to-A asynchronous cleanup ordering, removal of a context whose cleanup is already queued, and COM object-count recovery. Existing tests that passed a fabricated `ITfDocumentMgr*` are replaced with actual mock document objects.
-
-Real private TSF documents also forward actual Push/Pop/uninitialization notifications into the service through an owned, scoped event-sink connection. Assertions cover preservation of the main composition across modal Push/Pop, old host cleanup on a non-null document switch, fresh composition contents in the second document, and UI termination on full context removal. The test does not call native `SetFocus`, activate the system TIP, or assume a fixed notification order. Captured debug-child logs additionally assert modal-retention and non-current-pop fields.
-
-The post-0.9.19 coverage review adds direct assertions for removal during parent lookup, unrelated removal during binding, layout-sink publication after reentrant invalidation, layout subscription rejection, different document interface pointers sharing canonical `IUnknown` identity, identity-query rejection, `GetBase` failure, and removal inside attribute clearing before `EndComposition`. A dedicated service with an isolated status-bar configuration checks actual window visibility: ordinary removal must not suppress focus-loss hiding, a newer reentrant focus gain must remain visible, and focus loss during document reconciliation must not be overwritten. Configuration, subscriptions, and service ownership are restored with RAII, and COM object counts must recover.
-
-The parent-lookup removal test failed against the pre-review code, which continued binding an already removed target. Retaining the pending context in the preparation guard closes that gap. This is branch/behavior coverage, not a measured coverage percentage or proof of arbitrary host callback orderings. The existing Shift-tap integration case still uses the real 350 ms deadline; its thread keyboard state is reset immediately before the sequence to reduce ambient-state interference without relaxing production timing.
-
-FSM boundary regressions compare reset previews for all seven valid engine states, both width modes, all sixteen modifier combinations, and virtual keys 0 through 255. They also assert preservation of the live raw code, candidates, page, and selection. TSF tests exercise old/new-context predictions in Wubi and temporary English composition, Shift/CapsLock, English/full-width mode retention, inactive/null targets, and reset/binding reentrancy. Preflight alone must leave host text, composition ownership, subscriptions, and edit-request counts unchanged; continued input in the old target and actual input in the new target verify that prediction did not mutate the engine.
-See the [development guide](dev.md) for targeted test commands; validate both architectures. Browser/UWP host compatibility is not certified, and successful host cleanup is not guaranteed for read-only, disconnected, or rejected requests.
-
-Task 41 regressions observe actual native destruction while the service and host
-UI references remain alive, verify composition/UI-end ordering and owner-thread
-execution, and exercise tooltip/capture cleanup, repeated deactivation,
-activation rollback, reactivation callbacks, stale queued layout/write/cleanup
-requests, UILess mode, and retained UI after final service release. Reentrant
-begin/end calls must not publish stale IDs, double-end an ID, or hide newer UI.
-Replacement managers deliberately reuse the same numeric UI ID to verify that
-old-manager cleanup cannot deregister the replacement manager's element.
-Standalone UI regressions cover external native destruction, recreation, and
-wrong-thread rejection followed by owner-thread cleanup.
-
-### 9.1 Regression Inventory (Task 46)
-
-The matrix consolidates existing regressions rather than claiming they are all
-new. Tests assert actual text, API call counts, composition identities, layout
-subscriptions, UI registration, and COM object-count recovery, not just `S_OK`.
-
-| Surface | Covered scenarios | Evidence |
-|---|---|---|
-| Queued application edits | Update/commit/cancel/layout after deactivation, focus reset, reactivation, and A-to-B-to-A; valid FIFO updates remain ordered | External `MockEditSessionQueue` and document/UI call counters |
-| Activation and teardown | Repeated deactivation, activation rollback, retained host/UI references, later reactivation | Existing lifecycle tests and native HWND destruction observations |
-| Document/context notifications | Modal retention, unrelated notifications, current Pop/uninitialization, disconnected parent, binding/query reentrancy, subscription rejection | Scoped document mocks and real private TSF documents |
-| Independent cleanup | Sync success, controlled async fallback, rejection/read-only/disconnection, early/duplicate host termination, abandoned queues, removal after acceptance | Existing failure matrix, host properties, and debug-child stage assertions |
-| UI lifetime and reentrancy | Real window destruction, owner-thread checks, Begin/End reentrancy, replacement manager with reused numeric ID, stale position results | Task 41 regressions |
-| In-flight application edits | 84 update/commit/cancel/host-termination boundary/transition combinations, plus two same-context continuations inside old `EndComposition` | 86 cases in `TestReentrantCompositionEdits` |
-| Late composition start | Deactivation, same-context reactivation, target switch with sync/async cleanup; removal and host termination | Eight start-result cases with bounded FIFO execution |
-| Cleanup property lookup | Sync/async cleanup interrupted by removal or host termination before actual attribute clearing | Four cases; no removed-context edits, exactly one host-cookie clear |
-| Same-epoch replacement | Commit and start a replacement inside old range lookup or layout lookup | Two cases; no later old edits or UI updates |
-| Keyboard state reentrancy | New Ctrl state injected during target cleanup and compartment lookup | Two key-entry cases; current event keeps its snapshot, next event observes Ctrl |
-
-The added lifecycle matrix has explicit 86/8/4 case-count assertions. Its two
-same-epoch replacement cases and two keyboard-state regressions are additional
-to those 98 cases. Plain-key fixtures isolate and restore thread keyboard state;
-modifier-specific tests retain their intentional state and the real Shift-tap
-deadline. This inventory is not a measured coverage percentage.
-
-Task 47 still requires actual VS Code/browser focus and UI validation. Mock and
-private-document tests are not proof of arbitrary host callback orderings,
-successful cleanup without write access, or certification of the entire
-document/window lifecycle.
+[Real-host feedback](hosts.md#12-2026-11-07-用户确认任务-47-与-r05-完成)
+reports normal operation and closes the prior R05/host task. It does not supply
+every host/version/scenario result or establish the root cause of historical
+caret, positioning, or intermittent-hang reports. Retain those evidence boundaries
+without treating old task checkboxes as current implementation status.
+Read-only, disconnected, abandoned, or rejected edits can still prevent full host
+cleanup. No universal browser/UWP or arbitrary-thread destruction guarantee is made.
 
 ## 10. Official References
 
-- [ITfContext::RequestEditSession](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcontext-requesteditsession): synchronous/asynchronous flags, locks, and two-layer results.
-- [ITfComposition::EndComposition](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcomposition-endcomposition): write cookies and composition termination.
-- [ITfTextInputProcessor::Deactivate](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itftextinputprocessor-deactivate): deactivation and thread-manager reference release.
+- [ITfContext::RequestEditSession](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcontext-requesteditsession): flags, locks, and two-layer results.
+- [ITfComposition::EndComposition](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcomposition-endcomposition): granted write cookies and termination.
+- [ITfTextInputProcessor::Deactivate](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itftextinputprocessor-deactivate): thread-manager reference release.
 - [ITfCompositionSink::OnCompositionTerminated](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcompositionsink-oncompositionterminated): host termination notifications.
-- [ITfContextOwnerServices::OnLayoutChange](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfcontextownerservices-onlayoutchange): the layout notification entry point used by real-document tests.
-- [ITfDocumentMgr::Push](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-push): primary/modal contexts, the two-context limit, and notification semantics.
-- [ITfDocumentMgr::Pop](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-pop): removal, uninitialization, same-thread requirements, and reentrancy restrictions.
-- [ITfThreadMgrEventSink::OnSetFocus](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfthreadmgreventsink-onsetfocus): focused and previously focused documents.
+- [ITfDocumentMgr::Push](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-push) and [Pop](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-pop): primary/modal contexts and removal constraints.
+- [ITfThreadMgrEventSink::OnSetFocus](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfthreadmgreventsink-onsetfocus): document focus notifications.

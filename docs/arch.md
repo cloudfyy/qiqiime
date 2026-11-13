@@ -1,561 +1,345 @@
-# 奇奇五笔输入法 (QiQiIME) 架构与设计说明
+# QiQiIME Architecture
 
-当前架构核对日期：**2026-11-06**，对应代码基线 `a911cbd`；验收状态更新：**2026-11-07**。本文前两节说明当前职责；后续任务及逐步实施记录保留历史状态。R05 **代码边界与自动验收已完成，用户已确认真实宿主测试正常并收口**，不再以提取一个总协调类为完成条件。阅读入口：[组合协议](composition.md)、[构建与诊断](dev.md)、[人工验收记录](hosts.md#12-2026-11-07-用户确认任务-47-与-r05-完成)、[实施记录](review.md)。
+This guide describes the current Windows TSF implementation, module boundaries,
+input/data flows, and remaining limitations. It is not a task execution log.
+Detailed lifecycle, capture, measurement, and host evidence belong in the
+[composition](composition.md), [logging](log.md), [metrics](metrics.md), and
+[host](hosts.md) guides.
 
-## 1. 架构分层
+## 1. Runtime and Build Boundaries
 
-```text
-+-----------------------------------------------------------------------+
-| 宿主应用 (Win32 Edit / Chromium / Electron / Office / 全屏游戏)        |
-+-----------------------------------------------------------------------+
-                                   ▲
-                                   │ TSF COM 接口 (msctf.dll)
-                                   ▼
-+-----------------------------------------------------------------------+
-| TSF 前端与 UI 交互层 (qiqiime.dll)                                    |
-|  - QiQiTextService  : ITfTextInputProcessorEx, ITfThreadMgrEventSink  |
-|                     , ITfKeyEventSink, ITfCompositionSink             |
-|                     , ITfFunctionProvider, ITfFnConfigure             |
-|                     , ITfDisplayAttributeProvider                     |
-|  - LambdaEditSession: ITfEditSession                                  |
-|  - CandidateUI      : ITfCandidateListUIElement + 无焦点候选弹窗      |
-|  - LangBarButton    : ITfLangBarItemButton + ITfSource (托盘按钮/菜单)|
-|  - StatusBarUI      : 4x4 超采样 ARGB 抗锯齿浮动状态条 + Tooltip      |
-|  - Settings / About : 属性设置窗口 + 关于奇奇五笔窗口 (RAII 托管)     |
-|  - ime/comp         : 票据/状态、目标、编辑、清理、呈现/布局协议     |
-|    COM 身份与激活/焦点/配置策略留在服务，实际 UI 留在 ime/ui         |
-+-----------------------------------------------------------------------+
-                                   ▲
-                                   │ 纯 C++ 数据结构 (KeyProcessResult)
-                                   ▼
-+-----------------------------------------------------------------------+
-| 五笔核心引擎与基础层 (qiqi_engine.lib)                                |
-|  - WubiEngine       : 静态分派 + 运行时 FSM、四码上屏、空码清屏、顶字 |
-|  - WubiMappedDict   : 4 字节紧凑编码索引 + 只读按需分页内存映射 (.qdict)|
-|  - Common           : HKCU 注册表事务配置、ETW TraceLogging 日志、ScopedHandle RAII |
-+-----------------------------------------------------------------------+
+QiQiIME is an in-process TSF COM DLL. Each host process owns its IME instances,
+engine state, COM objects, windows, and module-scoped diagnostics. There is no
+separate IME daemon or cross-process pointer sharing.
+
+```mermaid
+flowchart TD
+    Host["Host application and Windows TSF"] --> Service["QiQiTextService COM facade"]
+    Service --> Composition["Composition and edit-session protocols"]
+    Service --> Engine["WubiEngine: static dispatch and runtime FSM"]
+    Service --> UI["Candidate, language-bar, and status UI"]
+    Composition -->|granted edit cookie| Host
+    Composition --> Common["Common configuration, files, synchronization, and diagnostics"]
+    Engine --> Common
+    UI --> Common
+    Tools["Separate settings, dictionary-manager, and log-monitor processes"] --> Common
 ```
 
-之所以将 `qiqi_engine` 拆分为独立的静态库：
-1. **无 COM 依赖即可测试**：`qiqi_engine_test.exe` 可以直接验证所有按键与五笔上屏规则，无需先通过 `regsvr32` 注入宿主进程。
-2. **边界明确**：输入法 DLL 运行于资源管理器、浏览器、Office 等宿主进程；引擎不依赖 TSF COM 身份，但词库加载、缓存、用户词及词频同步仍可能执行 I/O，不能把静态库分离理解为“所有路径纯计算”或宿主 UI 不会阻塞的保证。
-
-源码按 [`src/common`](../src/common)、[`src/ime`](../src/ime)、[`src/tools/settings`](../src/tools/settings)、[`src/tools/log_monitor`](../src/tools/log_monitor)、[`src/tools/dict_manager`](../src/tools/dict_manager) 分层，测试采用对应布局。公共 D2D 控件、窗口辅助（[`window.h`](../src/common/window.h)）、菜单及工具条（[`command_ui.h`](../src/common/command_ui.h)）与关于/快捷键说明窗口（[`info_dialog.h`](../src/common/info_dialog.h)）由 `qiqi_common` 统一编译；设置窗口由 `qiqi_settings_ui` 统一编译，供独立设置程序和 IME 的进程内设置回退路径复用。每个模块及对应测试目录均有自己的 `CMakeLists.txt`，顶层文件只负责组织，新增工具使用独立的 `tools/<工具名>` 子目录。
-
----
-
-## 2. 关键子系统与安全设计
-
-### 2.1 注册阶段（`src/ime/tsf/register.cpp`）
-- **COM InProcServer32（支持 `x64` + `x86` WOW64 双视图）**：注册 `kClsidQiQiTextService`，线程模型为 `Apartment`（STA）。在 64 位 Windows 上分别通过 `System32\regsvr32.exe` 与 `SysWOW64\regsvr32.exe` 注册 `x64` 与 `x86` DLL，其中 WOW64 进程自动检测已存在的 64 位注册项并避免覆盖全局共享的 TSF Language Profile。
-- **Language Profile**：通过 `ITfInputProcessorProfiles::AddLanguageProfile` 注册到 `zh-CN` (`0x0804`)。
-- **Categories（`ITfCategoryMgr`）**：
-  - `GUID_TFCAT_TIP_KEYBOARD`：声明为键盘输入法。
-  - `GUID_TFCAT_TIPCAP_UIELEMENTENABLED`：声明支持 `ITfUIElementMgr`，使支持 TSF UILess 的全屏游戏能够激活输入法并接管候选框渲染。
-  - `GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER`：声明提供组合串虚线下划线显示属性。
-  - `GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT` / `GUID_TFCAT_TIPCAP_COMLESS`：声明现代应用及无需 COM 激活的能力，不代表所有宿主已验收。
-  - 不再声明 `GUID_TFCAT_TIPCAP_SECUREMODE`。注册及卸载时检查并撤销旧版遗留分类，包括保留原生 Profile 的 WOW64 路径；查询或撤销失败保留 HRESULT 并返回失败，卸载仍继续其余清理。安全桌面支持由任务 61 单独评估。
-
-### 2.2 激活、生命周期与模块职责拆分（`src/ime/tsf/`）
-- `QiQiTextService` 的实现按职责拆分为四个文件：
-  - [`tip_service.cpp`](../src/ime/tsf/tip_service.cpp)：实例构造/析构、`ActivateEx`/`Deactivate`、TSF 事件接收器注册、`ITfThreadMgrEventSink`、`ITfFunctionProvider` 与 `ITfDisplayAttributeProvider`。
-  - [`tip_keys.cpp`](../src/ime/tsf/tip_keys.cpp)：`ITfKeyEventSink` 按键测试与处理、保留快捷键（`OnPreservedKey`）、`Shift` 轻按中英切换防误触、`Caps Lock` 处理与按键诊断日志。
-  - [`tip_composition.cpp`](../src/ime/tsf/tip_composition.cpp)：组合/布局 COM 通知及编辑、目标准备、候选呈现/定位的服务适配；向组合模块提供实际引擎、Shift-tap、UI 与重置回调，不再独占全部内部工作流。
-  - [`tip_config.cpp`](../src/ime/tsf/tip_config.cpp)：词库文件加载、TSF Global/System Compartment 同步、语言栏菜单动作分派、`ITfFnConfigure::Show` 设置启动与配置热重载。
-- 实现 `ITfTextInputProcessorEx::ActivateEx`，记录宿主进程名、`client_id` 与 `dwFlags`（包含是否处于 `TF_TMAE_UIELEMENTENABLEDONLY` UILess 模式）。
-- 挂载 `ITfThreadMgrEventSink`、`ITfKeyEventSink`、`ITfFunctionProvider` 与 `ITfLangBarItemButton`，并注册保留热键（`Ctrl+Space` 中英切换、`Shift+Space` 全半角切换、`Ctrl+.` 中英标点切换、`Ctrl+=` 快捷造词）。
-- **激活是可取消的过渡**：接受的激活强持有服务，直至活动 ID 与过渡标志守卫恢复；嵌套激活返回 `E_UNEXPECTED`。激活内重入 `Deactivate` 立即关闭业务/UI 许可并使票据失效，但等待在途登记发布所有权后才统一停用，外层返回 `E_ABORT`；重复取消幂等。非取消的必需 sink 初始化失败仍为 `E_FAIL`，具体宿主/清理错误分别诊断，异常不静默转换为成功。
-
-组合模块的现行职责如下；完整调用顺序与重入检查见[组合生命周期说明](composition.md#current-module-map)。
-
-| 边界 | 所有者 / 实现 | 不应迁入的职责 |
-|---|---|---|
-| 激活/上下文 epoch、当前组合/context/父文档、清理登记 | [`state.h`](../src/ime/comp/state.h)、[`cleanup.h`](../src/ime/comp/cleanup.h)；状态对象不可复制或移动，反向销毁顺序为文档、context、清理登记、组合 | COM 服务身份、激活策略、引擎 FSM |
-| 目标准备、文档规范身份与 top/base 协调 | [`target.h`](../src/ime/comp/target.h)；保留 modal 覆盖的主 context，实际重置由服务回调 | 文档注册表、焦点历史、主动绑定所有通知目标 |
-| 编辑快照、请求/执行、开始/更新/结束、范围/属性 | [`edit.h`](../src/ime/comp/edit.h)、[`start.h`](../src/ime/comp/start.h)、[`update.h`](../src/ime/comp/update.h)、[`finish.h`](../src/ime/comp/finish.h)、[`range.h`](../src/ime/comp/range.h)、[`attribute.h`](../src/ime/comp/attribute.h) | 新的调度队列、每键 epoch、失败即成功的兜底 |
-| 候选注册/撤销与布局查询/发布协议 | [`presentation.h`](../src/ime/comp/presentation.h)、[`layout.h`](../src/ime/comp/layout.h) | 自绘窗口实现、宿主显示许可、强制绕过 UILess 的弹窗 |
-
-状态持有强引用只解决存活，不证明请求仍有效。业务编辑复核激活/context 票据及组合身份；旧组合独立清理可在停用后继续，但只能操作捕获的旧对象。每次嵌套 reset 都递增 context epoch，只有进入的最外层作用域执行并结束重置。上述协议不改变有效编辑 FIFO、清理屏障、候选显示许可或 FSM。
-
-### 2.3 按键处理与编辑会话（`OnTestKeyDown` -> `OnKeyDown` -> `RequestEditSession`）
-TSF 的按键处理分为两步：
-1. `OnTestKeyDown`：仅询问输入法**是否打算消费该按键**。当前 context 使用 `engine_.ShouldEatKey(...)`；不同 context 使用只读的 `ShouldEatKeyAfterReset(...)`，按实际目标切换后将采用的状态预测，不把旧组合的选词/退格语义带到新输入框。空 context、未激活或重入生命周期转换不消费。预判不绑定 context、不清理宿主组合、不申请编辑会话，也不推进 FSM；原有 Shift 轻触跟踪独立保留。
-2. `OnKeyDown`：Shift 与 `OnTestKeyDown` 共用轻触跟踪，不吞按下事件、不绑定上下文；宿主省略测试回调时仍可建立候选，同时收到两个回调时保留原始计时。其他按键先取消 Shift 候选，再通过 `PrepareInputContext` 准备目标、必要时重置旧引擎并失效旧周期，再推进 `WubiEngine` 的静态分派与运行时有限状态机（[`ime/fsm/fsm.h`](../src/ime/fsm/fsm.h) 为聚合入口；状态/事件定义、按键映射、分派规则和分页辅助分别位于同目录的 `types.h`、`key_mapping.h`、`transitions.h`、`pagination.h`），得到 `KeyProcessResult`（`UpdateState` / `Commit` / `Cancel`），触发音效（若启用了按键音或空码提示音），然后通过 `ITfContext::RequestEditSession` 提交 `LambdaEditSession`。预判成功不保证编辑权限，实际回调仍复核状态。
-
-编译期生成的 7 状态 × 18 按键事件表只选择 `TransitionOp` 和吞键策略，不包含预设目标状态。运行时处理器根据词库和配置返回 `TransitionOutcome { next_state, result }`，公共执行入口统一应用最终状态；处理器只修改组合数据，不直接赋值 `state_` 或调用生命周期 `Reset`。四码唯一上屏、空码清除、五码顶字开关及无效选词等分支显式返回真实终态，不额外查词预测终态。若执行异常，RAII 清理复位组合、记录错误并继续传播原异常。`ShouldEatKey` / `ShouldEatKeyAfterReset` 仍只读分类和静态分派，不查词、不执行状态转移；引擎完成不等于宿主编辑会话已完成。
-
-上下文切换、失焦、移除和停用是 FSM 外部的生命周期事件，不加入现有 7 状态 × 18 按键事件表。`Reset` 与只读预判共用 `StateAfterCompositionReset`：中文组合态（含临时英文）回到 `Idle`，`English` 保持不变；全半角及标点模式不被目标切换改写。旧宿主组合的同步/异步清理独立于新目标的引擎状态，不能用“仍有待清理宿主组合”推断 FSM 仍在组合态。
-
-候选鼠标点击直接调用 `WubiEngine::CommitCandidate(index_in_page)`，不模拟数字按键；普通五笔的数字选词复用同一内部提交处理器，两条路径都只经公共执行入口应用一次最终状态，并保留动态词频调整。临时英文模式下，键盘数字仍追加到正文，点击候选则提交去掉引导 `z` 的正文（只有引导时提交 `z`），不追加候选序号，也不参与五笔词频调整。
-
-Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理候选标记、原始按下时间和诊断序号，不加入五笔 FSM。跟踪器只使用调用方传入的时刻与 Ctrl/Alt/鼠标状态，TSF 层负责读取系统状态和生命周期门禁；测试松键与实际松键共用判定入口，预判通过不消耗候选，实际松键先复位再执行模式切换。阈值仍为 350 ms（等于阈值有效），双按下回调和自动重复不延长原计时，自动重复不能独立建立候选。拒绝或超时可保留原时间供诊断，实际松键及生命周期重置清除计时但保留序号。
-
-在 `DoEditSession(TfEditCookie ec)` 内完成：
-- **新建或更新组合串**：`ITfInsertAtSelection::InsertTextAtSelection` + `ITfContextComposition::StartComposition` + `ITfRange::SetText` + 设置 `GUID_PROP_ATTRIBUTE` 下划线显示属性。
-- **上屏并结束组合**：清除显示属性、将范围文本替换为最终汉字、折叠选区到末尾、调用 `ITfComposition::EndComposition`。
-- **查询光标坐标**：通过 `ITfContextView::GetTextExt` 获取组合范围的屏幕矩形，移动候选框并做多显示器工作区边界裁剪。
-
-### 2.4 异常处理与宿主兼容（`OnCompositionTerminated` / `OnSetFocus`）
-宿主终止组合、焦点或文档目标变化时，可能通过以下接口通知服务；具体回调取决于宿主，不能假定每次鼠标点击或 DOM 重绘都会触发相同通知：
-- `ITfCompositionSink::OnCompositionTerminated`
-- `ITfThreadMgrEventSink::OnSetFocus`
-
-当前组合被宿主终止、实际输入目标变化或失焦时，`QiQiTextService` 按生命周期规则重置引擎与本地 UI，并在适用时安排旧宿主组合清理；本地清理完成不等于宿主异步清理完成。同文档的模态上下文入栈和无关通知不应直接清掉主组合，详见[生命周期契约](composition.md)。配置保存在 `HKCU\Software\QiQiIME`；设置程序保存后递增注册表配置序列并发送 TSF Global Compartment 通知，实例收到通知或 `OnSetFocus` 时按需检查和重载，通知失败另行诊断。
-
-### 2.5 桌面弹窗与游戏 UILess 双模式（`src/ime/ui/candidate_ui.cpp`）
-首次注册候选 UI 时调用 `ITfUIElementMgr::BeginUIElement(candidate_ui_, &show_own_ui, &id)`，后续通过 `UpdateUIElement` 更新：
-- 若宿主返回 `show_own_ui == TRUE`，按展示开关显示自带的 `WS_EX_TOPMOST | WS_EX_NOACTIVATE` 候选窗口。
-- 若宿主返回 `show_own_ui == FALSE`，不显示自带弹窗，向宿主提供 `ITfCandidateListUIElement` 接口及更新通知。这是宿主接管 UI 的机制，不仅限于游戏，也不代表所有全屏游戏已兼容；实际验证范围见[宿主测试记录](hosts.md)。
-
-### 2.6 内存映射词库与最小权限安全模型（`src/ime/engine/binary_dict.cpp` & `src/common/file_util.cpp`）
-- **映射内容与隐私边界**：`.qdict` 包含所编译词库的索引（`DictBinaryHeader` + `DictCodeIndex` + `DictWordSlice` + `wchar_t` 字符池），不保存逐键输入状态；但用户词库生成的 `.qdict` 会包含用户词条，不能当作不含隐私的数据。映射对象未命名（`lpName == nullptr`），不等于绕过文件权限或加密内容。
-- **只读访问与文件替换（`FILE_SHARE_READ | FILE_SHARE_DELETE`）**：
-  - 映射读取 `.qdict` 时，仅申请 `GENERIC_READ`，共享模式不允许普通并发原地写入，同时允许兼容的目录项替换。`MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 用于替换缓存文件；这些机制不保证消除存储故障或所有 `STATUS_IN_PAGE_ERROR`。
-  - 已建立的映射保留旧文件视图；焦点检查通过 `HasModifiedMappedDictionary()` 检测源文件大小/时间戳变化后尝试重载，不保证任意文件变更立即生效。打开文件还使用 `SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS` 与 `FILE_TYPE_DISK` 校验，限制非磁盘文件误用；这不是对所有攻击或宿主条件的安全保证。
-  - 生成 `.qdict` 缓存时，通过 `WriteFileAtomically` 以 `GENERIC_WRITE` + `dwShareMode = 0`（独占写）写入同目录临时文件 `.tmp.<pid>`（带 `gsl::finally` 异常/错误自动清理），完成后通过 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 原子替换目标文件。用户配置通过注册表事务保存，不写入 INI 文件。
-
-### 2.7 全链路 RAII、多显示器 DPI 与矢量抗锯齿 UI（`src/common/` & `src/ime/ui/`）
-- **类型化 RAII（`ScopedHandle<Traits>`）**：使用移动语义包装器管理拥有的 Win32 内核句柄、KTM 注册表事务、文件映射视图、注册表键、GDI 对象、菜单、窗口与动态库；借用句柄和父窗口拥有的子控件遵循各自的所有权规则。`ScopedKernelTransaction` 未提交时在析构中回滚并关闭句柄。配置及用户词库共享目录地址以事务保存；注册表不保存词库内容。用户词库文件、编译缓存和同步快照不是一个跨资源事务，不能保证同时成功。
-- **可复用 D2D 控件（[`d2d_controls.h`](../src/common/d2d_controls.h) / [`d2d_controls.cpp`](../src/common/d2d_controls.cpp)）**：头文件仅提供声明，实现集中管理 Fluent 卡片、主次按钮、开关、单选框与下拉框的绘制和子类化；设置页及关于页复用同一模块，不在控件层依赖业务控件 ID 或父窗口的 `GWLP_USERDATA` 类型。每个窗口组合一个 `FluentD2DThemeContext`，通过现有 RAII 包装器持有 D2D/DWrite/GDI 资源；控件创建失败时自动回收尚未移交的窗口并记录日志，成功后由父窗口销毁子控件。下拉框借用的上下文须保持地址稳定，且存活到子控件销毁之后；单选组由调用方通过 `MAKELONG(first_id, last_id)` 指定连续 ID 范围。父窗口将 `WM_DRAWITEM` 分派给相应绘制函数，主题变更时调用 `RefreshThemeBrushes()`；卡片绘制在调用方的 `ScopedD2DDcDraw` 会话内进行，其余控件自行管理绘制会话。
-- **多显示器与 Per-Monitor DPI（`monitor_dpi.h`）**：候选窗、浮动状态栏、Tooltip、设置及关于窗口复用显示器、DPI 与工作区帮助代码，按各自的窗口消息更新字体、布局和边界，支持负坐标显示器。实现这些分支不等于所有缩放、热插拔或宿主组合都已实测；保留具体测试范围与未覆盖项。
-- **UI 布局常量**：候选窗的测量、命中区域及 Direct2D/GDI 绘制共用文件内具名布局常量；状态栏的边距、图标尺寸和拖拽阈值同样按语义命名。经 `ScaleByDpi` 缩放的基准尺寸与带 `Px` 后缀的固定像素值分开维护，候选窗与光标的间距仍为固定 4 像素，不因常量提取改变 DPI 行为。快捷菜单及 Tooltip 保留各自已有的布局常量，不按数值相同合并不同用途的参数。
-- **4x4 超采样抗锯齿状态条图标与模块拆分（[`statusbar_icons.cpp`](../src/ime/ui/statusbar_icons.cpp) / [`statusbar_tooltip.cpp`](../src/ime/ui/statusbar_tooltip.cpp) / [`statusbar.cpp`](../src/ime/ui/statusbar.cpp)）**：使用有向距离场（SDF）+ 4x4 超采样实时生成 32 位预乘 ARGB `DIBSection` 位图，通过 `GdiAlphaBlend` 渲染半角月牙、全角圆环、中英文标点与八齿设置齿轮图标；悬停提示弹窗与状态栏主窗口及拖拽交互按职责分文件维护。
-
-- **设置窗口职责拆分**：[`window.cpp`](../src/tools/settings/window.cpp) 负责窗口创建、消息分派与命令处理；[`controls.cpp`](../src/tools/settings/controls.cpp) 负责控件布局、配置绑定、语言更新与卡片绘制；共享关于/快捷键说明窗口由 [`common/info_dialog.cpp`](../src/common/info_dialog.cpp) 实现。内部上下文和控件 ID 集中在 [`internal.h`](../src/tools/settings/internal.h)，共享图标帮助代码及模态消息循环位于 [`common/dialog_util.h`](../src/common/dialog_util.h)。[`window.h`](../src/tools/settings/window.h) 提供公共接口，窗口在 `WM_NCDESTROY` 中回收 RAII 上下文。
-- **设置保存与通知**：设置程序与进程内设置回退共享单实例互斥与窗口唤醒逻辑：若设置窗口已打开，再次触发设置仅恢复并切到已有设置窗口（或其当前活动的子模态窗口）前台，不会启动第二个设置实例。用户在设置窗口确认时先持久化配置，再关闭窗口并发送 Global Compartment 通知。保存失败会保留当前编辑内容并显示本地化错误，取消不会将窗口中的编辑应用到绑定配置；通知失败则明确提示配置已保存但需要重新激活输入法，不回滚保存。语言栏快捷设置先保存配置副本；失败时保留原运行时状态且不广播，以非模态 D2D Toast 短暂提示，不抢焦点或阻断菜单操作。设置窗口打开期间同时订阅 `kGuidCompartmentConfigVersion` 并在 `WM_ACTIVATE` 时校验注册表配置序列号：外部配置变更按字段合并刷新窗口控件与界面语言，同时保留用户在窗口内尚未保存的修改。
-- **设置界面一致性**：设置、关于、保存失败及通知失败窗口均支持明暗主题刷新及中英文/跟随系统语言。提示窗口由 [`message.cpp`](../src/tools/settings/message.cpp) 统一实现，复用公共 D2D 卡片、按钮和控件创建函数，不再依赖原生 `MessageBox` 的主题和按钮语言。关于及提示窗口随所属设置窗口的语言预览刷新；启用保存模式时，预览不提前修改绑定配置。共享模态循环恢复所属窗口原有启用状态，并支持 Tab、Enter、Esc。
-- **本地化文字布局**：关于窗口的许可证区域与提示正文复用 [`common/dialog_util.h`](../src/common/dialog_util.h) 中的文本测量函数，按中英文测量结果预留空间，并在语言变更时刷新布局。
-- **工具窗口与文件选择复用**：词典管理器与日志监视器复用 [`common/dialog_util.h`](../src/common/dialog_util.h) 的窗口类注册；设置的主词典选择及两个工具的导入、导出、备份、恢复共用 Open/Save 文件对话框初始化。保留各自标题、过滤器、默认文件名、扩展名与日志导出隐私确认，区分取消和真实 `CommDlgExtendedError`，不记录文件路径。两工具的列表列初始化共用 [`common/win32_ui_util.h`](../src/common/win32_ui_util.h)，统一 DPI 缩放和参数检查；列插入失败返回 `E_FAIL`，不猜测没有错误码约定的 ListView API 是否内存不足。
-- **UTF-8 转换复用与策略边界**：[`common/file_util.cpp`](../src/common/file_util.cpp) 的 `Utf8ToWideResult` 集中执行两遍 Win32 转换，默认严格拒绝无效 UTF-8，返回真实 HRESULT，失败不改写输出；既有 `Utf8ToWide` 包装器显式选择替换策略以保持兼容。词典验证仍在其边界去除 BOM 并严格解码，不改变其他词典解析、缓存或 TSF 所有权策略。
-
-- **控件交互与退出边界**：开关和单选框仅在有效按下后的释放事件中切换，取消点击或孤立的释放事件不改变状态。下拉框在下游消息处理返回后重新确认子类化上下文仍有效，避免回调销毁控件后访问已释放资源。模态消息循环保留并重新投递 `WM_QUIT`，遇到消息读取错误或窗口被外部销毁时返回失败，不再访问已回收的窗口上下文。
-
-### 2.8 多进程词库同步、动态字库切换与深层 TSF 健壮性设计
-
-1. **配置变更通知与状态共享（TSF Global Compartment `ITfCompartmentEventSink`，`tsf-global-compartment-bus`）**
-   - 彻底移除基于 `FindWindowExW` + `kConfigChangedBroadcastMsg` 的 Win32 窗口广播。
-   - 通过 `ITfThreadMgr::GetGlobalCompartment()` 订阅 TSF 全局 Compartment：
-     - **配置/词库版本号 (`kGuidCompartmentConfigVersion`)**：配置修改、词库切换或在线造词（`Ctrl+=`）后尝试递增版本号，通过 `ITfCompartmentEventSink::OnChange` 通知订阅实例检查重载。失败需诊断，不能承诺所有进程立即或毫秒级更新；焦点检查仍用于按需发现变化。
-     - **浮动状态栏坐标跨进程记忆 (`kGuidCompartmentStatusBarPos`)**：用户在进程 A 拖动 `StatusBarUI` 后，将坐标打包写入 Global Compartment；当焦点切换到进程 B 时，浮动状态条直接出现在用户刚刚拖到的位置，不再跳回右下角默认位置。
-   - **配置作用域**：`QiQiConfig` 中保存到 `HKCU\Software\QiQiIME` 的词库选择、输入行为、默认中英/全半角/标点模式、界面语言、状态栏显示、声音及日志选项均为当前用户的全局持久设置。独立设置程序、进程内设置窗口和语言栏快捷设置在保存后都会递增配置版本并广播；其他活动输入法实例据此重载。配置中的模式项是新会话默认值，不会覆盖其他会话当前正在使用的输入模式。
-   - **会话状态**：当前中英模式由 `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` 表示，全半角和标点模式由 `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION` 表示，按 TSF 线程同步；组合串、候选列表、页码和选择位置属于当前输入会话的运行时状态，不写入用户全局配置。状态栏坐标则是单独的全局 Compartment 状态。
-   - **系统 Compartment 双向监听 (`tsf-bidirectional-compartment-sync`)**：同时在 `ITfCompartmentEventSink` 中监听 `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` 与 `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION`，当外部（如 Windows 系统托盘指示器或宿主应用）修改输入模式时，反向同步回 `WubiEngine` 与状态栏。
-
-2. **“一库一 `.qdict`”与自定义字库（`user_dict.txt`）同步机制**
-   - **静态主/扩展词库**：三套随包词库各自编译为 `.qdict`，支持按需组合挂载。有效缓存可复用；缺失或过期时仍需解析编译，不给出未经测量的切换时限。
-   - **动态用户自造词与跨进程同步（`user_dict.txt`）**：受控编辑（`AddUserPhrase`、`AddUserEntry`、`RemoveUserEntry`、`ModifyUserEntry`）通过 [`common/change_sync`](../src/common/change_sync.h) 协调排他写入、发布词条级增量，并更新 `user_dict.qdict` 和通道快照。词库文件是唯一权威来源。桌面 IME 和使用配置路径的词典管理器将只读通道的绝对地址发布到注册表 `UserDictSyncDirectory`，AppContainer 根据该地址读取快照/增量，不使用 `UserDictQdict` 镜像。外部编辑器直接修改词库时，对比源文件元数据与内容哈希：`<= 16` 条且保持幸存词顺序的差异转换为增量记录发布，大规模替换或重排则旋转基线 GUID 触发全量快照重载。
-   - **安全输入边界应用（任务 39、40）**：实例在获得焦点或新一轮输入开始（`InputBoundary::NewInput`）时应用词库与词频更新，组合期间（`Composing`）暂缓，避免正在打字时候选重排。
-
-3. **深层 TSF 输入体验与宿主兼容机制**
-   - **异步排版光标跟随（`ITfTextLayoutSink` + Caret 兜底，`tsf-text-layout-sink-caret`）**：针对 Chromium / VS Code / WPF / Word 等异步排版宿主在首键插入组合串时 `GetTextExt` 返回 `TS_E_NOLAYOUT` 的情况，通过 `ITfTextLayoutSink::OnLayoutChange` 在宿主完成排版后立即刷新候选窗位置，并以 `GetGUIThreadInfo`（`rcCaret`）/ 焦点窗口坐标兜底，避免候选窗跳至 `(0, 0)`。
-   - **Shift 键中英切换防误触（`shift-tap-anti-mistrigger`）**：记录 `VK_SHIFT` 按下时间戳（`GetTickCount64()`）并检测鼠标按键状态（`VK_LBUTTON` / `VK_RBUTTON` / `VK_MBUTTON`），仅当单按时长 `<= 350ms` 且期间无鼠标点击与其它按键时才触发中英切换，防止 `Shift+Click` 选区或长按 `Shift` 误切模式。
-   - **数字小键盘支持（`numpad-and-composing-digits`）**：在静态按键分类、运行时 FSM 与全角模式中支持 `VK_NUMPAD0..9` 与 `VK_DECIMAL`，防止组合态下按小键盘数字穿透破坏正在输入的编码串。
-   - **禁用标志与受限上下文统一准入（`tsf-disabled-context-awareness`）**：通过 [`access_policy.h`](../src/ime/comp/access_policy.h) 的两层漏斗模型（`ContextFacts` → `AccessPolicy`）汇总 context 级 `GUID_COMPARTMENT_KEYBOARD_DISABLED`、`GUID_COMPARTMENT_EMPTYCONTEXT`、`TF_SD_READONLY`、已确认本线程原生 `EDIT` 样式（`ES_PASSWORD` / `ES_READONLY`）及会话内 `ITfInputScope`，统一覆盖四个按键入口、Shift 切换、保留快捷键、候选操作、模式切换与异步 `EditSession` 复核，并在 `IS_PRIVATE` 场景下抑制动态调频与造词副作用；无可靠信号的自绘控件边界及真实宿主验证要求见[受限输入说明](restricted.md)。
-   - **异步 EditSession 状态快照隔离（`async-editsession-snapshot`）**：在 `KeyProcessResult` 中携带自包含的候选/分页快照传入 `LambdaEditSession`，避免 `TF_ES_ASYNCDONTCARE` 异步执行时读取到超前或滞后的引擎状态。
-   - **词组排序持久化与跨进程同步（`persist-dynamic-phrase-freq`）**：启用 `dynamic_phrase_freq` 后，显式选中的词组按最近选择顺序提升，单字候选保留原位置，不是累计次数排名。排序采用带 FNV-1a 校验的 `QPF1` 二进制格式保存（兼容读取旧版 UTF-8 文本格式），并通过任务 39、40 的公共同步通道协调跨进程写入与 `Operation::Reorder` 增量同步；AppContainer 实例保持只读同步。
-
----
-
-## 3. 已完成特性清单与后续扩展
-
-### 已完成（v0.8.4）
-- [x] **1. 完整中文标点与智能配对引号（`paired-quotes-punct`）**
-- [x] **2. 候选框自适应宽度、多显示器 Per-Monitor DPI 缩放与鼠标点击选词（`candidate-dpi-autosize`）**
-- [x] **3. 语言栏托盘按钮与右键菜单（`langbar-tray-menu`）**
-- [x] **4. 系统设置接入、属性设置窗口与“关于奇奇五笔”对话框（`system-settings-config-ui`）**
-- [x] **5. 4x4 超采样抗锯齿浮动状态条、悬停 Tooltip 与深浅色系统主题适配（`status-bar-ui`）**
-- [x] **6. 组合串虚线下划线显示属性（`tsf-display-attributes`）**
-- [x] **7. `z` 万能键编码反查提示（`wildcard-code-hint`）**
-- [x] **8. 组合态大写字母顶字上屏、四码空码自动清屏（`clear_on_empty_4code`）与内置 WAV 音效（`sound.h`）**
-- [x] **9. 注册表配置与内存映射词库最小权限访问、事务/文件替换及带进程名的结构化排障日志**
-
-### 待办与后续扩展（TODO）
-
-#### 当前执行优先级（2026-11-07）
-
-以下表格是所有未完成任务的统一排期入口，覆盖数字任务及 R05；下方原分组标题、历史执行顺序和记录保留作背景，不再代表当前排期。P0–P3 是工程执行优先级，不是漏洞等级；已完成任务不重新排期，文档排期不表示已实施。
-
-原则：先补可靠性与隐私边界证据，再做用户可直接受益的核心能力，最后考虑复杂扩展。相同优先级按表内顺序推进；顺序是资源安排，不自动构成技术依赖。
-
-**P0 研究进展（2026-11-07）**：任务 36、47、R05 的[研究报告](p0-research.md)已完成官方契约复核、当前路径检查及双架构禁输入诊断/生命周期定向回归。统一准入尚未实现，ETW 集成因采集权限不足跳过，真实宿主矩阵未执行；三项均保留未完成，不把研究完成等同于生产验收通过。
-
-**后续用户确认（2026-11-07）**：用户确认“47和R05已测试过了,工作正常.有问题再说”，随后任务 36 完成两层漏斗准入实现并通过双架构自动回归与独立 `QiQiTsfTestHost.exe` 手工验证，三项 P0 均已收口并移出未完成队列；保留研究时点的证据边界，不补写未提供的宿主版本、用例次数或日志。
-
-| 顺序 | 优先级 | 任务 | 排序理由与推进条件 |
-|---|---|---|---|
-| 5 | P1 | 63：监控阶段一 A/B，协议与核心五类 | 建立可量化性能基线和失败口径；先做协议/解码/聚合，再接链路和指标页 |
-| 6 | P1 | 27：自定义快捷键与标点映射 | 高频操作收益明显；复用任务 36 已核实的输入门禁，做好冲突检测、恢复默认和组合态回归 |
-| 7 | P1 | 26：候选匹配与排序策略 | 改善日常选词，但必须保持默认固定词序；先验证与自定义主词库、置顶/屏蔽及调频的组合 |
-| 8 | P1 | 22：临时拼音输入 | 为偶尔不会拆码的字提供受控补救，优先于完整混输，保护现有 `z` 英文和通配行为 |
-| 9 | P1 | 23：拼音反查与五笔查询工具 | 帮助回到五笔输入，可与任务 22 共享适用的查询数据；不强制依赖临时拼音入口完成 |
-| 10 | P2 | 63：监控阶段二，扩展诊断 | 核心采集稳定后扩展词库、UI、布局和生命周期指标，不先做大而全的面板 |
-| 11 | P2 | 25：单字模式与字符集筛选 | 在候选策略口径明确后提供可选筛选，不丢失已有生僻字能力 |
-| 12 | P2 | 24：简繁输出切换 | 需求清晰，但需处理一对多映射与候选语义，避免把繁体词库当成转换实现 |
-| 13 | P2 | 28：自定义短语与便捷输入 | 在快捷键/编码冲突和词库角色明确后推进，首期聚焦静态短语，不捆绑全部动态扩展 |
-| 14 | P2 | 29：候选窗口个性化 | 可提升可读性与适配性，但不得削弱主题、高对比度、DPI 和字体回退 |
-| 15 | P2 | 30：符号输入面板 | 属于便利功能，复用现有 Unicode 渲染，排在输入可靠性及核心查询之后 |
-| 16 | P3 | 63：监控阶段三，资源与长期趋势 | 依赖可用聚合和稳定采集；宿主整体资源难直接归因，后置避免过早建设趋势平台 |
-| 17 | P3 | 33：98 版与其他编码方案 | 需明确编码、主词库和个人数据隔离，不能仅替换词库；任务 62 不等待本项 |
-| 18 | P3 | 32：五笔拼音混输与纯拼音模式 | 在临时拼音经验基础上重新评估产品定位、候选优先级和性能成本，不默认扩展 |
-| 19 | P3 | 31：智能造词与词语联想 | 隐私、误学习和固定词序影响较大，先评估再决定，默认关闭 |
-| 20 | P3 | 34：跨设备配置与词库同步 | 引入授权、冲突、隐私和长期服务成本；不与已完成的本机跨进程同步混为一谈 |
-| 21 | P3 | 61：Windows 登录与安全桌面输入支持评估 | 非日常宿主能力，必须独立虚拟机验收和恢复通道；继续保持未验收能力不声明，不阻塞普通桌面功能 |
-| 22 | P3 | 35：皮肤扩展与附加工具 | 与轻量纯五笔定位关联较弱，仅按明确需求选择实施，不承诺整包必做 |
-
-执行约束：
-
-- 任务 36 与 47 可交错取证；一旦发现输入泄露、错误上屏、崩溃或数据丢失等有证据的缺陷，先修复再继续功能扩展。
-- 任务 47/R05 已按用户实际测试确认收口，不依赖新增监控；原有验证清单作为后续问题复现参考，不再要求为关闭任务重复执行。
-- 任务 63 各阶段按一 A → 一 B → 二 → 三推进；与任务 62 无硬依赖，若后者出现无法定位的性能问题，可提前完成最小测量链路。
-- 任务 61 排后的是新增安全桌面支持评估；现有能力声明撤销、禁输入保护或注册迁移若发现回归，按 P0 处理，不因本表延后修复。
-- 本表只调整执行优先级，不扩大格式兼容承诺、不改变默认输入行为、不自动勾选完成项。
-
-#### P0：核心日常打字高频增强
-- [x] **10. 分号 `;` / 单引号 `'` 二、三级候选快捷上屏（`semicolon-quote-quick-select`）**：在组合态（`Composing1..4`）下支持通过 `;` 键直接上屏第 2 候选词、`'` 键直接上屏第 3 候选词（由配置项开关控制）。
-- [x] **11. 四码重码提示音（`dup-4code-beep`）**：当开启 `auto_commit_4code` 且输入满 4 码存在多个精确匹配重码时，提供可选的轻微提示音，提醒盲打用户当前有重码需选词。
-- [x] **12. 编码渐进提示 / 简码反查提示（`prefix-code-hint`）**：在输入 1~3 码时，可选在前缀匹配的候选字词旁显示剩余后缀编码提示（如 `1.你(~i)`），辅助记忆简码与全码。
-
-#### P1：进阶输入能力
-- [x] **13. 在线快捷造词与自动取码（`online-user-word-creation`）**：按五笔 86 标准构词规则（双字词 2+2、三字词 1+1+2、多字词 1+1+1+末）自动计算新词编码并追加写入 `%LOCALAPPDATA%\QiQiIME\user_dict.txt`。
-- [x] **14. 临时英文 / 网址 / 路径引导输入模式（`temp-english-guide-mode`）**：在中文空闲态下通过引导键直接输入一串包含大小写字母或符号的英文字符串（回车/空格上屏），无需频繁来回切换中英状态。
-
-#### P2：渲染与词频体验打磨
-- [x] **15. Direct2D / DirectWrite 渲染与生僻字/彩色 Emoji 字体回退（`directwrite-font-fallback`）**：候选窗使用 `Direct2D` + `DirectWrite` 并开启 `D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT`。实际生僻字覆盖、彩色字形和 Emoji 展示取决于系统及可用字体，不保证 CJK 扩展区或所有彩色符号完整显示。
-- [x] **16. 可选词组动态调频（`optional-dynamic-phrase-freq`）**：默认保持五笔固定词序以保障盲打肌肉记忆，同时提供可选的“仅重码词组动态调频（单字固定不调频）”开关。
-- [x] **17. 独立发行包与 MSI 安装包打包（`release-packaging-script`）**：通过 `scripts/build_all.ps1 -Package` 配合 `installer/QiQiIME.wxs` 将 `x64`/`x86` 双架构 DLL、共享 `data/` 词库、注册/卸载脚本与许可证一键打包生成 `.msi` 安装包与 `.zip` 便携包到 `dist/` 目录。
-
-### 功能差距
-
-以下为待开发或待评估能力，不代表已经实现。优先补齐轻量纯五笔的日常体验；竞品历史资料中的功能仅作为需求参考，不作为当前版本可用性或性能结论。
-
-#### 首要代码审查待办：TSF 生命周期、诊断与性能
-
-以下待办由代码阅读发现的问题及待验证风险整理，未勾选项尚未实施；静态风险不等于真实宿主中已经复现的故障。保存于本架构文档，供后续会话继续执行。与下方任务 41 协调 UI 清理方案，不重复实现，也不在存在过期回调时仅提前销毁窗口。
-
-**进度说明：任务 39、40 的跨进程同步闭环及任务 41–59 的对应代码、工具或验收工作已完成；原任务 38（独立词频查看/编辑工具）已合并入任务 18/19。任务 36 已于 2026-11-05 启动，完成官方契约研究和双架构本地实验，生产方案及真实宿主矩阵待验证。任务 47 与 R05 于 2026-11-07 按用户测试正常的确认收口，后续有问题再跟进；不外推所有宿主或分支均有逐项证据。现有禁用标志检查也不等同于完整密码框识别。**
-
-**首要执行：全仓库失败诊断**
-
-- [x] **49. 全仓库失败日志审计（`audit-failure-log-error-codes`）**
-  - 全面扫描生产代码，不限当前文件或 TSF：覆盖 IME 引擎/UI、公共组件、配置/文件操作、安装注册和各工具程序；测试及第三方依赖用于理解与验证，不修改第三方代码。
-  - 查找已有失败日志缺错误码、返回值被忽略及失败未记录的路径；先区分应修复、预期可选探测/回退、无需错误码和需进一步确认，不机械添加日志。
-  - 已知案例：[`tip_service.cpp`](../src/ime/tsf/tip_service.cpp) 的 `RegisterGUID`、`AdviseSingleSink`、`UnadviseSingleSink`、语言栏 `AddItem`/`RemoveItem` 及相应接口查询。跟踪成功注册/添加状态，区分无需清理与真正注销失败。
-  - 保存真实返回值，记录操作名、必要的非敏感上下文及错误码。COM 沿用 `hr=0x{:08x}` 与 `gsl::narrow_cast<unsigned int>`；仅在 Win32 API 约定使用 `GetLastError` 时，于失败后立即捕获，不能替代 HRESULT 或输出陈旧错误。
-  - 合理区分回退诊断与最终失败级别，不记录用户输入或敏感数据，不造成按键日志刷屏，不改变既有业务行为。
-  - 分批修复并记录覆盖范围与剩余项，补充失败注入测试，验证错误码来源、操作上下文及正常行为；不能仅修复当前文件就宣布完成。与任务 48、53 协调避免重复实现。
-  - 审计范围、修复项、验证方式及独立生命周期剩余项见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#53-失败日志审计范围任务-49)；后续代码沿用该失败诊断规范。
-
-**P0：先建立测试能力，再修复过期任务**
-
-- [x] **55. 修复 IME 日志初始化循环依赖（`ime-etw-logger-bootstrap`）**
-  - 原 [`Log`](../src/common/logger.h) 在 Provider 尚未注册时通过 `IsLogSinkActive` 提前返回，而注册发生在尚未进入的 `WriteLogMessage` 路径中；IME 未主动初始化，导致仅开启 ETW 采集、未附加调试器时可能始终没有日志。任务 49 遗漏了这一初始化缺陷。
-  - 在正常服务激活路径、首条需要记录的消息之前明确初始化日志，不依赖调试器启动日志通路；避免在 `DllMain` 的加载器锁内注册或执行复杂初始化。
-  - 覆盖首次激活，以及停用后重新激活；与任务 51 的进程共享日志生命周期协调，停用一个服务实例不得破坏其他实例的日志能力，不重复实现关闭策略。
-  - 保留应用日志级别、无接收方时的低开销、真实注册错误码及不递归失败兜底，不记录用户输入或敏感数据。
-  - 补充无调试器且 ETW 会话已启动、应用启动后才启用采集、停用/重新激活、多实例、注册失败及日志 Off 的测试；实际采集验证应确认包含目标宿主 PID 和预期消息，不能仅检查会话存在。
-  - 已在服务构造入口（配置/词库初始化之前）与激活路径主动幂等注册，分离注册与设置日志级别，移除日志写入/查询的隐式注册及 `DllMain` 的格式化日志；与任务 51 一并完成模块生命周期清理。
-  - 双架构普通测试及真实 DLL、无调试器、多进程 ETW 采集通过，包含晚启动采集、停用/重新激活、模块重载、Off 及目标 PID/预期消息/零丢失校验；同步核心注入注册失败与并发初始化。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#54-日志初始化与生命周期验证任务-5551)和[日志指南](log.md#provider-lifecycle)，不宣称浏览器/UWP 全面兼容性已验证。
-
-- [x] **42. 延迟编辑会话测试能力（`tsf-deferred-session-test-support`）**
-  - 扩展现有立即执行回调的编辑会话 Mock，支持排队及手动执行；模拟停用、重新激活和上下文变化后才执行旧任务的时序。
-  - 先建立可暴露问题的测试，再实施任务 43、44；不要用同步 Mock 的成功结果代替异步生命周期验证。
-  - 已增加外部拥有的 FIFO 调度器，保留默认立即执行，覆盖同步优先、异步返回值、请求/回调失败、只读限制、重入及 COM 引用释放；停用/重新激活和上下文变化后的真实写回调、布局读回调可手动运行。
-  - x64/x86 的 TSF/UI 与真实 ETW 集成测试通过；仅扩展测试能力，不修改生产代码或自动过滤旧任务。调度器所有权与使用边界见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#55-延迟编辑会话测试任务-42)。
-- [x] **43. 阻止过期异步编辑任务（`tsf-stale-edit-sessions`）**
-  - 对 [`ApplyEngineResult` 与 `OnLayoutChange`](../src/ime/tsf/tip_composition.cpp) 的编辑会话校验激活周期及输入上下文周期；停用或输入目标失效后，旧任务不得写文档、创建组合或恢复 UI。
-  - 仅检查是否激活或 `ComPtr` 非空不够：重新激活后旧任务仍属于旧周期，对象存活也不代表仍是有效输入目标。
-  - 依赖任务 42；确保新周期的正常输入不受影响。
-  - 已为写入及布局读回调捕获服务实例的激活/上下文周期，在回调开始处统一校验；停用先关闭有效激活状态，现有重置入口及输入目标切换先使旧任务失效，再清理本地状态。过期任务返回 `S_OK` 并记录不含输入内容的调试诊断，不访问文档或恢复 UI。
-  - 上下文切换不再沿用旧组合范围；x64/x86 的 TSF/UI、真实 ETW 测试通过，覆盖同一 COM 上下文重新激活、焦点重置、A→B→A、宿主终止、旧提交/取消/布局任务及正常 FIFO。验证范围与任务 44、45 的边界见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#56-过期编辑会话屏障任务-43)。
-
-**P1：组合、上下文与真实宿主验证**
-
-- [x] **44. 停用时正确结束宿主组合（`tsf-end-composition-on-deactivate`）**
-  - 状态机、所有权、关键时序及可关联的详细调试日志见[组合生命周期设计与排障](composition.md)。
-  - 原 [`Deactivate`](../src/ime/tsf/tip_service.cpp) 调用的本地重置仅释放 `composition_` 引用，不等于调用 `EndComposition`。
-  - 区分宿主已经终止组合与 IME 主动取消；在有效编辑会话中处理需要主动结束的组合，再清理相关状态和显示属性。
-  - 处理编辑权限不可用、请求失败、回调重入、部分初始化失败及重复停用；不在无有效编辑权限时强行修改文档。
-  - 依赖任务 42，与任务 41 的窗口销毁流程协调。
-  - 已按确认策略保留预编辑文字，在同步读写编辑会话中清除显示属性并结束捕获的宿主组合；拒绝重入激活，重复停用不重复结束。宿主终止当前组合时使用其提供的写 cookie 清理属性，不再主动结束；旧组合通知不重置新组合。
-  - 已按更新确认的策略，在 `TF_E_SYNCHRONOUS` 且回调未执行时申请受控异步清理；独立状态只操作旧组合和范围，同一上下文的新写请求强制异步排在旧清理之后，不恢复 UI、不保留线程管理器引用。宿主提前终止旧组合时后续回调退出，避免误清新组合属性。
-  - 真实私有 TSF 文档验证布局通知内同步拒绝、返回后异步清理、组合枚举及组合/显示属性移除、保留文本和重新激活后的新组合隔离。只读/断开/请求拒绝等仍明确记录并安全清理本地资源；不将 `S_OK` 或排队成功当成所有宿主均能结束的保证。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#57-停用组合清理与受控异步补救任务-44)。
-  - x64/x86 的 TSF/UI（包含真实 TSF 文档测试）及 ETW 集成测试均通过，定向 CppCoreCheck 无新增告警；实际浏览器/UWP 宿主兼容性仍需单独验证。
-- [x] **45. 文档及上下文生命周期处理（`tsf-document-context-lifecycle`）**
-  - 继续以 `ITfContext` 为核心，不建立不必要的文档管理器列表。`OnInitDocumentMgr` 无文档级资源时可保持空实现。
-  - `OnUninitDocumentMgr` 判断是否关联当前上下文；`OnSetFocus` 比较实际输入目标，而不只是判断文档指针非空。
-  - `OnPushContext` 判断上下文用途及关联关系，不能无条件取消主组合；`OnPopContext` 判断弹出的是不是当前上下文，非当前上下文通知不得清理当前输入。
-  - 统一旧任务失效、订阅注销及组合/UI 清理流程；出栈或文档解除初始化时不假定仍能取得编辑权限。
-  - **官方背景**：上下文栈最多两个；第一个为主文档上下文，通常只有它。文本服务可为模态 UI（官方例子为候选列表）压入第二个上下文，结束后弹出并恢复主上下文。普通窗口切换或候选窗显示不必然触发 `Push`/`Pop`，正常模态入栈不等于主组合失效。
-  - 首次入栈会触发 `OnInitDocumentMgr` 及 `OnPushContext`；移除最后一个上下文会触发 `OnUninitDocumentMgr`。实现及 Mock 应核对具体通知时机，不将此描述当作回调顺序，也不把解除初始化等同于 COM 对象析构。
-  - `Pop(0)` 只弹出栈顶，不能移除唯一的主上下文；`Pop(TF_POPF_ALL)` 仅用于文档解除初始化，清空上下文并终止文本服务 UI。`Push`/`Pop` 必须同线程，不能在 `Pop` 期间重入 `Push`/`Pop`。
-  - 依赖任务 43、44。官方依据：[Push](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-push)、[Pop](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-pop)。
-  - 已按活动 context 缓存单个所属文档并实现焦点/栈关联判断；正常模态入栈保留主组合，无关通知不清理当前输入。当前 context 移除只清本地资源，不请求写权限，并使匹配的已排队旧清理失效。
-  - 同时修正任务 43/44 的关联缺口：在引擎处理新目标按键之前重置旧目标；连接中的目标切换/失焦复用宿主组合清理，A→B→A 的新写仍排在旧清理之后；范围查询重入移除后不再提交清理请求。
-  - x64/x86 TSF/UI、真实私有 TSF 文档通知及 ETW 集成测试均通过，定向 CppCoreCheck 无新增诊断。实现、日志和验证边界见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#58-文档及上下文生命周期任务-45)及[英文设计](composition.md#8-document-and-context-notifications)；不替代浏览器/UWP 实际宿主验证。
-- [x] **46. 生命周期回归测试（`tsf-lifecycle-regression-tests`）**
-  - 依赖任务 43、44、45，利用任务 42 的延迟执行能力验证：提交后停用、停用后重新激活、输入目标变化及过期任务执行。
-  - 覆盖停用时仍有组合、宿主提前终止、重复停用、激活失败回滚、文档解除初始化及上下文出入栈。
-  - 验证正常模态入栈不误取消主组合，非当前文档/上下文通知不干扰当前输入，旧任务不写文档、不恢复 UI，引用及订阅正确释放。
-  - 按官方 API 语义模拟通知，不能仅用普通窗口切换替代上下文栈测试。
-  - 已盘点既有回归并建立[覆盖矩阵](composition.md#91-regression-inventory-task-46)：新增 86 个执行中编辑/宿主终止、8 个迟到组合创建、4 个清理属性查询用例，另补同周期替换组合及按键状态重入各 2 例。
-  - 先用失败测试复现再修正旧编辑在宿主调用返回后继续执行、宿主终止发生在属性查询中导致漏清、同周期替换组合后旧 UI 继续刷新，以及目标清理/compartment 查询改变当前按键修饰状态。迟到组合复用独立清理，新写必要时重新排到旧清理后，不改 FSM 表或同周期 FIFO。
-  - x64/x86 Release TSF/UI 与 ETW 各连续通过 2 次，引擎回归通过；双架构定向 CppCoreCheck 修正新增 const 诊断后仅保留既有告警。验证边界见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#59-生命周期回归矩阵任务-46)，真实宿主显示验证仍由任务 47 完成。
-
-**P1：注册所有权、全仓库日志与性能**
-
-- [x] **48. 保留键注册与注销生命周期（`tsf-preserved-key-registration-lifetime`）**
-  - 保留现有快捷键方案，逐键记录本激活周期成功注册的 GUID 与 `TF_PRESERVEDKEY`；停用或初始化失败回滚时只注销本周期成功注册项，同时跟踪键盘监听注册状态。
-  - 区分 `TF_E_ALREADY_EXISTS` 与其他失败，记录实际 `HRESULT`；不强行覆盖、先注销已有注册，或将重复注册视为本次取得所有权。注销失败不得静默丢失状态和诊断。
-  - `PreserveKey` 是 TSF 保留键机制，不是 `RegisterHotKey` 全局热键。重复注册返回值不能单独证明其他输入法占用同一组合键；注册成功也不代表没有应用/系统快捷键语义冲突，后者需另行验证，不能擅自新增抢键策略。
-  - 测试全部成功、单项重复/其他失败、部分成功回滚、重复停用、重新激活及注销失败，保持原快捷键行为。
-  - 参考源码：微软 [SampleIME](https://github.com/microsoft/Windows-classic-samples/blob/main/Samples/IME/cpp/SampleIME/CompositionProcessorEngine.cpp) 未逐次检查注册返回值，注销按表进行，不宜照搬错误处理；[Weasel](https://github.com/rime/weasel/blob/master/WeaselTSF/KeyEventSink.cpp) 当前注册代码位于 `#if 0`，初始化直接成功，注销为空。实施前复核源码，不能据此泛化所有输入法行为。
-  - 官方依据：[PreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-preservekey)、[UnpreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-unpreservekey)。
-  - 已在 `QiQiTextService` 逐键记录本激活周期成功注册的 `(GUID, TF_PRESERVEDKEY)` 并独立跟踪 `key_event_sink_registered_`；`Deactivate` 或初始化失败回滚时只对本周期成功项调用 `UnpreserveKey`，只在 `AdviseKeyEventSink` 成功后调用 `UnadviseKeyEventSink`。
-  - 复核了微软 SampleIME（忽略 `PreserveKey`/`UnpreserveKey` 返回值且按静态表全量注销）与 Weasel（保留键注册位于 `#if 0`、注销为空），未照搬其实现；显式区分 `TF_E_ALREADY_EXISTS`（记录跳过所有权）与其他失败，注销时逐键记录 `vkey`/`mod` 与真实 `HRESULT`，并在操作前清空本地持有表保证重复停用幂等。
-  - x64/x86 Release TSF/UI 与 ETW 集成测试通过，自有调试子进程验证重复注册、其他失败与注销失败日志；定向 CppCoreCheck 无新增告警。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#510-保留键与键盘监听所有权生命周期任务-48)。
-- [x] **50. 焦点处理性能埋点（`tsf-focus-performance-instrumentation`）**
-  - 对 [`HandleFocusChanged`](../src/ime/tsf/tip_service.cpp) 的 `ReloadConfigIfModified`、`SyncStatusBarPositionFromGlobalCompartment` 分别测量耗时，并记录焦点处理总耗时及两类通知来源。
-  - 区分配置/词库无变化检查与实际重载，识别重复通知、同次词库与配置变化导致的重复加载；记录重载结果及非敏感计数。
-  - 复用现有计时/日志机制；如无则用单调高精度时钟（如 `std::chrono::steady_clock`），单位明确，精度能观察轻量检查。
-  - 详细埋点采用调试/跟踪级别，减少日志关闭时开销及生产刷屏，不记录用户文本或敏感路径，不新增吞异常或成功形状的失败结果。
-  - 验证无变化、配置变化、词库变化、两者同时变化、位置相同/变化及两种焦点通知；在真实宿主测量后再决定优化。不在本项擅自增加阈值、改变重载策略或把 TSF/UI 对象移到后台线程。
-  - 已实现 Debug 级别 `FocusPerformance` 与关联的重载详情，采用单调时钟整数纳秒，保留同次双重载，并记录配置/词频结果、词库调用次数及映射数量。详细日志关闭或没有接收方时不读取计时时钟；失去焦点仅测量既有清理路径。
-  - 双架构构建与 TSF/UI 测试通过；自有调试子进程直接验证实际日志、计时形状、所需变化分支及 Info/Off 过滤。真实宿主测量留作后续优化依据，操作步骤见[日志指南](log.md#focus-timing)；不宣称已完成宿主性能优化。
-
-**P2：共享资源与命名**
-
-- [x] **51. 共享日志关闭时机（`tsf-shared-logger-lifetime`）**
-  - 已移除 `Deactivate` 的 `log::Shutdown`，Provider 按进程内模块生命周期共享、正常卸载时统一清理；不同进程独立，不使用跨进程锁或引用计数。
-  - 初始化序列化且成功后才发布注册状态；稳定日志路径不获取应用锁，模块清理要求调用者结束，不在加载器锁内初始化或获取初始化锁。未初始化和重复清理不触发注册。
-  - 与任务 55 同批验证：普通测试断言停用/重新激活保留共享 Provider 与 Off；真实 DLL 多实例、多进程 ETW 采集验证停用一个实例或退出一个进程不影响其他实例/进程，详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#54-日志初始化与生命周期验证任务-5551)。
-- [x] **52. 进程词库缓存清理时机（`tsf-process-dict-cache-lifetime`）**
-  - 评估每个 `Deactivate` 调用 `ClearProcessCache` 是否造成多实例后续重复加载，按共享资源生命周期决定清理策略。
-  - 其他实例持有的 `shared_ptr` 不因清空缓存而悬空；重点验证共享复用、内存释放及停用一个实例后其他实例查询正常，不将性能风险误报成已确认的悬空引用。
-  - 已移除 [`QiQiTextService::Deactivate`](../src/ime/tsf/tip_service.cpp) 中的 `WubiMappedDict::ClearProcessCache()`：停用仅通过 `engine_.ClearExternalDictionaries()` 释放本实例的 `shared_ptr<const WubiMappedDict>`，进程级 `g_process_dict_cache` 由模块生命周期管理（[`DllMain`](../src/ime/tsf/dllmain.cpp) 动态卸载时清理，文件修改时按大小/时间戳自动更新替换）。
-  - 同时修正 `ActivateEx` 在 `PrimaryDict::BuiltinOnly` 模式下停用后重新激活漏重新挂载用户词库的问题（统一在 `engine_.MappedDictionaryCount() == 0` 时调用 `LoadExternalDictionaryNextToDll` 复用进程缓存）。
-  - 引擎与 TSF 测试共同验证：同进程多实例共享同一 `WubiMappedDict` 实例、停用一个实例不清空进程缓存且其他实例与重新激活实例查询正常（含 `BuiltinOnly` + 用户词库）、显式清空缓存不会使已持有的 `shared_ptr` 悬空，且所有持有者与缓存释放后底层对象归零销毁。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#511-进程词库缓存生命周期任务-52)。
-- [x] **53. 类别管理器创建及 DLL 生命周期（`tsf-category-manager-creation-lifetime`）**
-  - 背景：先用 `GetModuleHandleW`/`GetProcAddress` 动态调用 `TF_CreateCategoryMgr`，未取得接口则回退 `CoCreateInstance`；两条创建路径都忽略 HRESULT，仅检查指针，`RegisterGUID` 日志也缺错误码。
-  - 官方说明导出函数可在不初始化 COM 时创建类别管理器，调用线程必须维护对象引用计数；局部 `ComPtr` 管理接口是合理的。文档没有要求导出优先、COM 回退的固定顺序。
-  - `GetModuleHandleW` 不增加 DLL 引用计数，官方建议 `GetModuleHandleEx` 避免卸载竞态；尚未证明当前激活场景实际会发生，应先核实宿主兼容性和模块生命周期依据。
-  - 不凭推测删回退。若保留动态路径，复用 RAII 模块资源机制，保障调用及接口使用期间模块存活，接口先释放、持有的模块引用后释放；借用的 `GetModuleHandleW` 句柄不得 `FreeLibrary`。
-  - 保存并诊断创建、回退及注册的实际 HRESULT；不能在宿主线程擅自初始化/反初始化 COM。只有证实 COM 路径足够可靠后再评估简化。
-  - 覆盖导出成功/不可用、导出失败后 COM 成功、全部创建失败及注册失败；保留失败不终止激活的既有行为，验证目标宿主兼容性。
-  - 官方依据：[TF_CreateCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-tf_createcategorymgr)、[GetModuleHandleW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew)、[ITfCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr)。
-  - 已保留导出优先/COM 回退路径，改用 `GetModuleHandleExW(0, ...)` 与现有 `ScopedModule` 持有引用，局部 COM 接口先于模块释放；各失败阶段记录对应错误码，不修改宿主 COM 初始化状态，注册失败仍不阻止激活。
-  - 双架构 TSF/UI 与 ETW 测试通过；新增失败分支、释放顺序、未初始化 COM 线程上的原生导出及真实 COM 回退测试。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#512-类别管理器创建与模块引用任务-53)，真实宿主交互验证继续由任务 47 跟进。
-- [x] **56. 独立实时日志监控工具（`realtime-etw-log-monitor`）**
-  - 执行顺序：紧接任务 53；依赖任务 55、51（均已完成）。
-  - 为日常开发和用户问题复现提供按需启动的轻量工具，避免每次附加调试器或打开 WPA；作为可选诊断程序，不随 IME 常驻，不替代 WPA 的完整离线分析能力。
-  - 沿用无调试器正常注册和按模块清理的策略，工具不能靠附加调试器掩盖初始化问题。
-  - 直接消费 `QiQiIME.TraceLogging` 的实时 ETW 事件，并按自描述元数据解码 `process`、`message` 和事件头；复用现有 Provider，不新增文本文件轮询、宿主注入或第二套日志传输。
-  - 已确定使用 GUI，独立程序必须带版本号。复用根 `VERSION`、生成的 `common/version.h` 与 `version.rc.in`，沿用设置程序的 CMake 资源生成方式，设置独立 EXE 名称/描述及 `VFT_APP`；标题显示版本，关于信息和导出头包含完整版本、构建标识及工具架构。不复制维护第二套版本常量，也不以工具架构推断事件来源架构。
-  - 推荐界面采用原生 Win32 窗口与现有 D2D 皮肤混合：工具栏按钮、筛选框复用 `CreateFluentChildControl`、`FluentD2DThemeContext`，主题、DPI、字体及句柄管理复用 `common` 帮助代码；大量日志行用原生 `ListView` 的 `LVS_OWNERDATA` 虚拟列表，不重写 D2D 表格、滚动条、选择与键盘导航。高对比度优先系统可读性，不引入新 UI 框架，也不直接依赖设置窗口的内部状态。
-  - 界面设计：顶部开始/停止、暂停滚动、清空、导出、关于；第二行进程名、PID、级别与消息文本筛选；中部列出时间、进程、PID、TID、级别、消息；底部可调整高度的只读详情区和采集状态、缓冲用量、丢失/淘汰及解码失败计数。暂停滚动不停止采集，停止后保留已有记录；导出明确针对当前筛选快照并先提示环境信息检查。
-  - 区分显示过滤与应用日志级别，不承诺显示已在应用侧被过滤的消息。当前 Provider 将 Trace/Debug 合并为 ETW Verbose、Error/Critical 合并为 ETW Error；第一版按实际 ETW 级别显示和筛选，不虚构原始级别。
-  - 尽量复用 [`logging.cpp`](../tests/ime/tsf/logging.cpp) 已验证的 Provider 过滤、TDH 解码与会话清理经验；目前它是离线 ETL 测试，不可直接当实时采集器。只在实际复用时提取无测试断言的最小公共逻辑，生产程序不依赖测试代码。
-  - 采集与解码在后台执行，使用按条数及字节数有界的缓冲，UI 批量刷新；筛选和详情基于稳定事件标识，淘汰时不留下悬空引用。监控器自身诊断显示在状态区，避免逐事件日志或解码错误日志回流导致自激。第一版不同时实现 CLI。
-  - 使用有界事件缓冲和批量显示，明确报告丢失事件、解码失败、权限不足及会话创建/停止错误；按采集 API 的权限要求运行工具，不提升被测宿主权限，只清理本工具拥有的会话与资源。
-  - 验证多宿主与 x64/x86 事件、无调试器、晚启动监控、进程退出/重新启动、高频事件、缓冲溢出、暂停/恢复及退出清理；导出前提供敏感环境信息检查，不默认长期写盘或上传日志。
-  - 完成后更新[日志监控指南](log.md)，提供操作步骤。
-  - 已实现 [`QiQiIMELogMonitor`](../src/tools/log_monitor/CMakeLists.txt)：共享版本资源、后台实时采集/TDH 解码、原生多选虚拟列表、稳定 ID、筛选、详情高度滑块、暂停滚动、有界缓冲、单选/多选完整日志项剪贴板复制和带隐私确认的 UTF-8 快照导出。提取并在设置程序共用控件颜色及高对比度/原生按钮回退，不依赖设置窗口内部状态。
-  - 自身诊断使用独立的 `QiQiIME.LogMonitor` Provider、有界视图与导出来源，不重发采集消息；状态区分别显示 ETW 丢失、本地淘汰、解码和内存异常。启动异常使用 RAII 回滚，停止失败保留自有会话供重试；同步等待 Provider 启用，避免晚启动采集丢失首条消息。
-  - 桌面增强：独立 16–256 像素品牌窗口图标（去除与标题栏/关于框重复的客户区图标与说明文字）、系统深浅色/高对比度及变更通知、运行时中英/自动语言；不修改 IME 配置，不增加托盘通知。共享控件回退及工作区矩形帮助代码，支持跨屏 DPI、负坐标、普通窗口拔屏恢复和窄窗口布局。
-  - x64/x86 的模型/GUI/版本/导出、实时多进程 ETW、Common、Settings、TSF/UI 及原有 ETW 回归通过，新增 ETW 测试未跳过；两个方向的跨架构采集与真实 GUI 收到事件、正常退出均验证通过。覆盖中文、内嵌 NUL、时间/级别、Provider 重注册、高频溢出、会话清理、主题/语言状态保留、深色表头像素及模拟显示器变化；真实双屏 150%→100% 移动另行通过。定向 CppCoreCheck 无新增监控器告警，详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#513-实时日志监控工具任务-56)。完整真实高对比度、热插拔/最大化/最小化及浏览器/UWP 矩阵不据此宣称全面验证。
-- [x] **57. 日志监控器默认级别与输入法输出级别脱节修复（`log-monitor-effective-level-sync`）**
-  - 问题现象：`QiQiIMELogMonitor` 界面默认 `Level` 显示为 `All`（且 ETW 会话启用了 `TRACE_LEVEL_VERBOSE`），但输入法侧 [`Log`](../src/common/logger.h) 被进程内 `g_log_level`（默认注册表 `LogLevel=2` 即 `Info`）提前拦截，导致用户在监控器看到 `Level = All` 却完全收不到 `Debug`/`Trace`（`Verbose`）级别日志。
-  - 修复方案：新增 `log::ShouldLog(Level)` 并在 `Log`、`WriteLogMessage`、焦点计时、配置热重载及 `LogShiftTap` 中统一复用；当 `LogLevel != Off` 时，按活跃 ETW 会话请求的级别（`TraceLoggingProviderEnabled(g_qiqi_etw_provider, etw_level, 0)`）直接放行 ETW 事件，同时保留 `LogLevel` 对附加调试器 `OutputDebugString` 的阈值控制及 `LogLevel=Off` 的总开关语义，使监控器开始采集即可实时收到 `Debug`/`Trace`（`Verbose`）诊断日志而无需手改注册表或重启宿主。
-- [x] **58. 修复英文模式下 Shift 无法切回中文及 Ctrl+Space Compartment 写入失败（`tsf-shift-toggle-and-compartment-sync`）**
-  - 问题现象：
-    1. 按 `Ctrl+Space` 触发外部 TSF Compartment 变更后，[`SyncEngineFromSystemCompartments`](../src/ime/tsf/tip_config.cpp) 在 `OnChange` 回调栈中反调 [`SyncTsfCompartments`](../src/ime/tsf/tip_config.cpp)，导致 `ITfCompartment::SetValue failed (hr=0x8000ffff)`（`E_UNEXPECTED`）。
-    2. 最初怀疑英文模式下 `OPENCLOSE=0` 影响 Shift 派发；实际 VS Code 日志显示宿主直接调用 `OnKeyDown` / `OnKeyUp`，省略测试回调，而 Shift 候选仅在 `OnTestKeyDown` 建立，导致 `attempt=0`、释放时始终 `no-candidate`。两种按下入口已共用跟踪逻辑，重复回调保留原始计时。
-  - 修复目标：
-    1. 收到外部 `OnChange` 时避免在通知回调内对同一 Compartment 重复回写相同值，消除 `0x8000ffff` 警告。
-    2. 核实并修复 TSF 下中英文切换与 `GUID_COMPARTMENT_KEYBOARD_OPENCLOSE` / `GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION` 及 `Shift` 按键监听的协同关系，确保在中文与英文模式下按 `Shift` 或 `Ctrl+Space` 均可双向稳定切换且任务栏状态同步。
-  - 验证结果：双架构构建及回归测试通过；2026-11-03 用户确认任务 58 已正常，按上述目标完成验收。
-- [x] **59. ETW 结构化分类（Keywords）、操作阶段（Opcode）与异步活动关联（ActivityId）（`etw-keywords-opcode-activity-correlation`）**
-  - 在 [`logger.h`](../src/common/logger.h) / [`logger.cpp`](../src/common/logger.cpp) 中定义非零 `Keyword` 位掩码（`General`、`Lifecycle`、`Input`、`Composition`、`Dictionary`、`Sync`、`UI`、`Config`）、`Opcode`（`Info`、`Start`、`Stop`）、`LogContext` 与 `CreateActivityId()`。
-  - 使用 `TraceLoggingWriteActivity` 显式写入 `ActivityId` 与可选 `RelatedActivityId`；无活动事件显式写入 `GUID_NULL`，不修改或拾取宿主线程隐式 TLS `ActivityId`。`ShouldLog` 按 `(Level, Keyword)` 短路过滤。
-  - 为 TSF 组合清理（`CompositionCleanup`）、编辑会话（`RequestEditSession` / `LambdaEditSession`）、服务激活/停用/焦点切换、跨进程同步（`change_sync::Channel`）与词库加载接入分类、起止阶段及跨异步回调保持的 `ActivityId` / `RelatedActivityId`。
-  - 升级 `QiQiIMELogMonitor` 解码 `Keyword`、`Opcode`、`ActivityId` 与扩展头中的 `RelatedActivityId`，支持按分类与活动关联筛选、显示、复制及导出；x64/x86 单元测试与真实无调试器 ETW 集成测试验证通过。
-- [x] **47. 真实宿主生命周期验证（`tsf-real-host-lifecycle-tests`）**
-  - 2026-11-07 用户确认任务 47 和 R05 已测试、工作正常，按此收口，后续有问题再跟进。记录见[用户验收确认](hosts.md#12-2026-11-07-用户确认任务-47-与-r05-完成)；既有步骤与历史证据保留，不补写未提供的测试细节。
-  - 在 VS Code 与浏览器中验证组合期间失焦、停用、重新激活后的组合文本、下划线及候选窗口清理。
-  - 检查 UI 是否残留或被旧任务重新显示，记录可复现步骤、宿主条件和验证结果；配合单元测试，不以 Mock 代替真实显示验证。
-  - 依赖任务 43、44、45。
-- [x] **54. 明确显示属性注册命名（`tsf-display-attribute-registration-name`）**
-  - 已统一为 `RegisterCompositionDisplayAttributeAtom`，同步声明、定义、调用、日志及直接相关文档引用；双架构构建与 TSF/UI 测试验证既有行为。类别管理器创建/回退及模块引用随后由任务 53 完成，保留注册失败不终止激活的策略；真实宿主边界仍由任务 47 跟进。
-  - 保留 [`display_attribute.cpp`](../src/ime/tsf/display_attribute.cpp)、[`display_attribute.h`](../src/ime/tsf/display_attribute.h) 及其类名；它们对应 TSF 正式接口，暂不进行收益有限的批量改名。
-
-#### 设计模式优化待办（2026-11-05）
-
-来源：[设计模式优化扫描报告](review.md)。R01、R06 已完成有界一致性修正；R03、R04 已完成配置投影与共享加载计划；R02 已分离编辑草稿状态，均通过双架构定向回归。R05 的内部组合协议与服务适配边界、双架构自动验收已收口，2026-11-07 用户确认实际测试正常，整体标记完成；不计划再引入总协调类或通用事件队列。P1 表示可靠性优先级，不是安全漏洞评级，不据此宣称复现过生产数据丢失。
-
-**P1：先验证并修复失败一致性**
-
-- [x] **R01. 分阶段备份恢复与显式恢复结果**：已分离完整解析校验、恢复计划和实际写入，区分完整成功、部分完成与失败，保留首次错误及独立刷新错误；检查 Replace 中间刷新和最终刷新，避免 UI 将部分写入或不完整视图提示为成功。配置拒绝、锁定文件/通道、逐项写入及刷新失败回归在 x64/x86 通过；跨资源回滚仍单独评估，不承诺原子性。
-- [x] **R06. 同步批次采用候选快照事务**：已在候选状态应用完整批次，成功后交换发布四类词条及所需映射；七类非法后项、重复失败、快照失败/恢复及正常同步回归在 x64/x86 通过，比较状态、已应用版本和成功计数。必要词频镜像错误不再被忽略；整体 Store/Facade 拆分后置，不承诺通道间全局事务。
-
-**P2：按边界逐步重构**
-
-- [x] **R02. 词库编辑采用 Presentation Model 与显式草稿状态**：已用独立 `DictEditor` 表达浏览、新建及已有词条草稿，集中命令可用性、脏状态、自动/手动编码和保存动作；保留原记录来源/编码/词条身份，窗口继续管理 HWND、布局、通知重入及 IME 组合态。纯状态与真实窗口回归覆盖切换、未修改保存、失败保留、外部删除不复活、手动改码和组合态 Enter/Esc，x64/x86 通过；未增加撤销/重做。
-- [x] **R03. 统一类型化配置描述与投影**：已用成员指针描述统一 24 个标量的注册表、备份键和范围，设置仅合并 19 个可编辑字段；保留现有格式、默认值、布尔非零兼容、页大小钳制和路径排除范围。字段集合、注册表/备份往返及 38 组真实窗口合并矩阵在 x64/x86 通过；未引入反射框架或迁移控件布局。
-- [x] **R04. 提取共享的纯词库加载计划**：IME 与工具共用自带主词库/扩展的角色及顺序计划，用户来源、相对路径、诊断和 IME 注册表回退仍由执行端处理。六种组合、来源展示、缺失词库、缓存复用及默认/显式用户路径回退差异回归在 x64/x86 通过；未改授权策略或宣称性能改善。
-- [x] **R05. 提取 TSF 组合生命周期协调边界（代码、自动验收及用户测试确认已收口）**：[`生命周期状态/票据`](../src/ime/comp/state.h)、[`清理协调器`](../src/ime/comp/cleanup.h)、[`编辑任务/请求`](../src/ime/comp/edit.h) 及开始/更新/结束、目标/文档、呈现/布局协议已归入组合模块。服务保留 COM 身份和适配、激活/停用、焦点/配置以及实际引擎/Shift-tap/UI 副作用，这是有意保留的边界，不再以增加总协调类或微小包装函数作为完成条件。收口检查复现并修复既有激活取消被覆盖问题：嵌套激活拒绝，停用先请求取消，当前登记结果发布后统一清理，外层返回真实 `E_ABORT`，强持有服务跨越回调和标志恢复；正常宿主调用顺序、清理屏障、显示许可和 FSM 不变。双架构 DLL/测试 CoreCheck、完整及定向回归通过；2026-11-07 用户确认任务 47/R05 已测试且工作正常，整体标记完成，后续问题另行跟进，不宣称已定位历史偶发挂起或光标偏移的根因。
-
-  - **以下为按实施顺序保留的历史记录**：其中“未完成”“下一步”描述当时批次，不覆盖上方当前结论。当时自动结果见[历史自动验收记录](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#34-r05-最新自动验收快照2026-11-06)，用户确认见[宿主记录](hosts.md#12-2026-11-07-用户确认任务-47-与-r05-完成)。
-
-  - 当前组合的宿主终止已由 [`HandleCompositionTermination / CompleteCurrentCompositionTermination`](../src/ime/comp/finish.h) 收拢通知分流、先移走当前组合、范围/属性清除与最终复核；range/旧组合/context 在实际重置前释放，服务保留 COM 入口与真实身份/引擎/UI 重置回调。同 context/epoch 替换和资源释放顺序已有独立及服务回归。
-
-  - [`UpdateCompositionInSession`](../src/ime/comp/update.h) 已集中现有组合的范围、文本/光标和属性更新，强持有并返回原组合用于服务 UI 复核；保持 atom 的原实时读取点、宿主调用/复核和资源作用域。开始工作流已收拢到 [`BeginCompositionInSession`](../src/ime/comp/start.h)，开始到共享组合发布/更新的衔接也已归入同模块；激活/目标入口和实际重置仍由服务协调，整体 R05 未完成。
-
-  - [`CompositionEditScope / ExecuteCompositionEditInSession`](../src/ime/comp/edit.h) 以 RAII 配对任务活动 ID 的切换/恢复，并按原顺序执行票据与清理屏障检查、丢弃/再排队/执行分流；失效任务不查询或裁剪登记。服务提供原快照再排队、实际动作、后续身份复核及 UI 回调；没有新增事件队列或改变 FSM。
-
-  - [`真实服务开始回归`](../tests/ime/tsf/svc/reentrancy.cpp) 已扩展为 5 组当前目标恢复及 38 组开始重入，覆盖成功/失败与空/非空输出、旧清理和新组合隔离；原 91 组编辑及 4 组清除重入保持不变，双架构重复回归通过。该阶段只补集成覆盖，未改生产行为。
-
-  - [`CompositionLifecycleState`](../src/ime/comp/state.h) 已联合持有激活标记、epoch、当前组合、原清理协调器及活动 context/document，保持原 COM/登记析构顺序和逐步失效/释放位置；不可复制或移动，重激活不替换实时 epoch 存储或清理编号。新增 56 组身份和资源/释放/独立清理测试；定向组合生命周期入口及完整 TSF/UI 回归均通过双架构。目标准备、激活/重置与 UI 的跨阶段协调仍在服务，完整 R05 和真实宿主验收未完成。
-
-  - [`CompositionContextResetScope`](../src/ime/comp/state.h) 已将重置标记和“先使 epoch 失效、仅外层执行清理”的 RAII 协议归入状态所有者；嵌套仍失效，正常/提前/异常退出恢复标记但不回滚 epoch。原 56 组身份测试改接真实作用域，新增 36 组作用域及 2 组服务嵌套重置回归；双架构分析、定向与完整 TSF/UI 均通过。实际清理、订阅和 UI 顺序，以及激活/准备保护仍由服务协调，整体 R05 不勾选完成。
-
-  - [`PrepareCompositionTarget`](../src/ime/comp/target.h) 已收拢新目标的强引用/准备中标记、重置与父文档查询、目标发布和布局订阅流程，保留三次原票据复核及迟到订阅撤销；服务保留入口门禁、同目标快路径、活动作用域与实际引擎/UI 重置。新增 35 组组件边界、2 组异常资源及 8 组真实服务准备回归，双架构分析与完整/定向测试最终通过；既有菜单前台断言的一次失败如实记录。激活/停用、准备入口与引擎/UI 跨阶段协调尚在服务，整体 R05 未完成。
-
-  - [`候选发布/撤销协议`](../src/ime/comp/presentation.h) 已收拢快照、UI 管理器查询、Begin/Update、过期注册回收及 End；保留原门禁/票据和目标强引用、延迟管理器读取、旧管理器持有与 ID 先移除顺序。新增 50 组组件及 10 组真实服务回归，双架构分析与完整/定向测试通过；布局/候选定位、显示许可和 FSM 不变，跨阶段协调及整体 R05 仍未完成。
-
-  - [`组合布局查询`](../src/ime/comp/layout.h) 已收拢通知/活动 view、range 和文本矩形查询，保持原短路调用、身份复核及日志；结果拥有 range 到调用方 UI 工作结束，服务保留原组合/view 作用域和 caret、移动/回退决策。新增 35 组边界、6 组资源及 10 组真实服务回归，双架构分析与完整/定向测试最终通过；复测期间既有按键/Shift 断言失败及重跑情况见[复查记录](review.md)，根因未确认。坐标/clipped/DPI、定位算法、FSM 和显示许可未变，整体 R05 仍未完成。
-
-  - [`布局通知任务与会话协议`](../src/ime/comp/layout.h) 已收拢拥有 context/可空 view 的任务、活动 ID 作用域、票据检查及 read 请求诊断；保留原通知门禁、服务强引用、调度标志与查询时点。新增 46 组组件和 14 组服务回归，双架构分析与完整/定向测试最终通过，既有 Shift/菜单断言的失败及重跑如实记录。排队任务不冻结组合，当前票据仍在回调中查询当前组合；定位、FSM、显示许可不变，跨阶段协调与整体 R05 仍未完成。
-
-  - [`组合写请求协议`](../src/ime/comp/edit.h) 已收拢原清理记录查询、强制异步/默认读写标志和 request/session 失败诊断；服务保留门禁、强引用、任务快照及实际编辑/UI 分派，回调内第二道清理屏障和重排队不变。新增 80 组组件与 14 组服务回归，双架构分析与完整/定向测试最终通过；既有菜单动作断言失败及有界重跑如实记录。FSM、宿主调度与失败后的引擎策略不变，整体 R05 仍未完成。
-
-  - [`编辑动作/UI 收尾协议`](../src/ime/comp/edit.h) 已收拢已通过入口检查的动作分支及取消/提交后身份复核、提交后 preedit 读取和 UI 收尾选择；服务保留实际动作、同步与重排队，更新不追加检查，FSM 不变。新增 52 组组件和 12 组服务回归，双架构分析及协调安静复测的完整/定向测试通过；此前既有菜单/按键失败和一次 Alt 状态观察如实记录，不宣称全部根因已定位。实际组合/UI 跨阶段协调仍在服务，整体 R05 未完成。
-
-  - [`组合/候选呈现同步`](../src/ime/comp/presentation.h) 已收拢开始/更新、两次原组合身份复核、定位及候选发布的同步协议，保留返回组合的原强引用作用域、可空结果和服务实际副作用。新增 17 组组件与 6 组服务回归，双架构分析及完整/定向测试最终通过；x86 完整首轮无输出超时与单项重跑如实记录，不宣称修复挂起。FSM、定位与显示许可不变，整体 R05 仍未完成。
-
-  - [`开始/发布/更新衔接`](../src/ime/comp/start.h) 已复用原状态所有者和 Begin/Update，收拢开始结果分流、终止后的原身份复核与实际重置回调、接受组合移动发布，准备资源仍先于更新范围查询释放。新增 [`34 组矩阵及 4 组异常回归`](../tests/ime/comp/start_update.cpp)，复用真实服务 5/38 组开始覆盖；双架构分析与完整/定向测试通过。已有组合不增入口复核，失败输出策略、实时 atom、FSM 和定位/显示许可不变；服务仍负责实际重置与激活/准备/UI 跨阶段协调，整体 R05 未完成。
-
-  - [`提交/取消状态与结束衔接`](../src/ime/comp/finish.h) 已集中原组合强引用、无组合的取消/直接提交分流，以及先解除共享组合/光标状态再结束捕获组合的回调；服务保留原票据和身份谓词。新增 [`60 组矩阵与 8 组异常回归`](../tests/ime/comp/finish_state.cpp)，双架构分析及完整/定向测试通过，原结束/插入失败和真实服务动作/续写重入矩阵保留。无新入口/结束后复核、调度或错误策略，结束重入生成的新状态不被旧收尾覆盖；FSM、定位和许可不变，实际重置/激活/准备/UI 跨阶段协调及整体 R05 仍未完成。
-
-  - [`布局结果定位/回退分流`](../src/ime/comp/layout.h) 已收拢原查询 current 门禁、成功查询设光标标志/移动、无历史位置的回退及未变日志；服务保留组合/view/query 强引用和真实 GUI/cursor、窗口操作，坐标/DPI 算法不变。新增 [`72 组矩阵与 9 组回调/资源边界`](../tests/ime/comp/layout_position.cpp)，双架构分析及完整/定向测试通过，既有布局查询/会话和真实服务矩阵保留。回退不自动设有效标志，clipped/零/反向矩形不增门禁，原回调后不追加身份检查或状态覆写；FSM、显示许可和整体 R05 未完成边界不变，不宣称修复 Explorer/Copilot 定位问题。
-
-  - [`上下文重置资源/UI 收尾`](../src/ime/comp/state.h) 已复用原重置作用域，收拢日志、清理决策、context/document/光标/组合释放、布局撤销及 UI 回调，保留嵌套仅失效 epoch 和原异常边界。新增 [`32 组矩阵、6 组回调及 4 组最终释放回归`](../tests/ime/comp/context_reset.cpp)，双架构分析和完整/定向测试通过；真实清理/订阅与原两组服务嵌套重置覆盖保留。移除路径不申请新宿主写入，FSM、定位/许可和失败策略不变；引擎/Shift-tap、实际清理/UI 操作与激活/准备入口仍在服务，整体 R05 未完成。
-
-  - [`当前组合清理转交`](../src/ime/comp/state.h) 已收拢原空组合诊断与移动到独立协调器的入口，保留 context/client ID/epoch/activity 参数、原同步/受控异步和不可用/失败策略。新增 [`24 组结果与 12 组重入回归`](../tests/ime/comp/cleanup_handoff.cpp)，既有重置及状态销毁后的独立清理测试改接共享入口，双架构分析和完整/定向测试通过。原范围查询先于会话申请，首轮新测试的时序预期错误已据实纠正，不改变生产行为；FSM、定位、许可不变，宿主终止/引擎/UI/激活准备跨阶段协调及整体 R05 仍未完成。
-
-  - [`当前宿主终止收尾`](../src/ime/comp/finish.h) 已收拢原票据/context/组合捕获、属性清理后身份复核及重置衔接，range/旧组合/context 仍先于实际重置释放；服务保留登记/无关通知路由、诊断和引擎/UI 操作。新增 [`24 组矩阵与 3 组异常回归`](../tests/ime/comp/termination.cpp)，双架构分析与完整/定向测试通过，原底层和真实服务终止/重入覆盖保留。空通知/context 分支、失败裁决、FSM、定位/许可不变；通知路由/引擎/UI/激活准备跨阶段协调及整体 R05 仍未完成。
-
-  - [`票据/组合身份诊断`](../src/ime/comp/state.h) 已复用 const 状态校验，归拢原过期/替换日志和先票据后组合的短路顺序，原服务 façade、全部复核点和空组合身份语义保留。新增 [`96 组身份回归`](../tests/ime/comp/identity.cpp)，原 56 组票据矩阵补验新入口；双架构分析及完整/定向测试通过。不增加宿主访问、状态变更或日志初始化，FSM、定位/许可和整体 R05 未完成边界不变。
-
-  - [`目标准备入口协议`](../src/ime/comp/target.h) 已收拢原不可用门禁/诊断、同目标快路径及新目标活动 ID 创建/恢复，服务仍接线真实准备/重置/身份回调。新增 [`48 组门禁与 4 组活动/嵌套回归`](../tests/ime/comp/target_entry.cpp)，双架构分析及完整/定向测试通过；原准备组件与真实服务重入矩阵保留。准备中 guard 仅初始读取非拥有指针，不增宿主调用或强引用，活动在准备资源释放后恢复；FSM、定位/许可和整体 R05 未完成边界不变。
-
-  - [`宿主终止通知路由`](../src/ime/comp/finish.h) 保持协调器优先、无关通知短路和原当前诊断/收尾接线。新增 [`20 组路由回归`](../tests/ime/comp/termination_route.cpp)，覆盖未发布记录与当前槽重合、过期弱记录、空通知/context、排队/移除和重复通知；双架构分析及完整/定向测试通过，实际 helper 展开与原完整服务一致。FSM、定位/许可和失败策略不变，实际引擎/UI 与激活/准备跨阶段协调及整体 R05 仍未完成。
-
-  - [`编辑会话执行分流`](../src/ime/comp/edit.h) 已集中原活动作用域、过期丢弃、清理屏障及原日志/快照再排队，服务保留原身份与动作/UI 接线。新增 [`64 组矩阵与 4 组异常/嵌套回归`](../tests/ime/comp/edit_execution.cpp)，双架构分析和完整/定向测试通过；原作用域、请求、动作及真实服务矩阵保留。无额外 COM/快照复制，实际 helper/回调展开与原完整服务一致，FSM、定位/许可与整体 R05 未完成边界不变。
-
-  - [`编辑请求入口`](../src/ime/comp/edit.h) 已收拢原不可用门禁/诊断及通过后的 context/票据捕获，服务保留实际自身引用、活动/任务/会话创建和原请求接线。新增 [`48 组门禁与 4 组所有权回归`](../tests/ime/comp/edit_entry.cpp)，双架构分析及完整/定向测试通过，实际 helper/回调展开与原完整服务一致。非拥有准备 guard 在宿主操作前读取，context 跨回调持有、晚于回调资源释放；FSM、定位/许可与整体 R05 未完成边界不变。
-
-  - [`布局通知入口`](../src/ime/comp/layout.h) 已集中原通知活动、诊断及 CHANGE/目标/活跃/组合/UI 门禁，服务保留原 COM/任务/会话和读请求回调，实时 UI 读取位置及获取/释放顺序不变。新增 [`288 组门禁与 4 组回调回归`](../tests/ime/comp/layout_entry.cpp)，双架构分析与完整/定向测试通过，实际 helper/回调展开与原完整服务一致。不新增重置标志门禁或生命周期活动恢复，FSM、定位/许可和整体 R05 未完成边界不变；不宣称修复 Explorer/Copilot 光标问题。
-
-  - [`候选发布入口`](../src/ime/comp/presentation.h) 已集中原 UI/管理器/context/活跃/重置门禁、票据和 context 强引用，服务保留实时发布回调，不增加组合门禁、UI/管理器持有或后续状态写入。新增 [`64 组矩阵与 4 组所有权回归`](../tests/ime/comp/presentation_entry.cpp)，双架构分析及完整/定向测试通过，实际 helper/回调展开与原完整服务一致；本轮 x86 完整首跑无输出超时、安静重跑通过，未定位挂起用例或放宽断言，不宣称消除偶发超时。FSM、定位/许可及整体 R05 未完成边界不变。
-
-  - [`布局查询到定位衔接`](../src/ime/comp/layout.h) 已集中原组合/UI 门禁、票据/组合强引用及既有查询/定位协议，服务保留 view 参数与真实 GUI/cursor/移动回调。新增 [`80 组矩阵与 3 组异常/所有权回归`](../tests/ime/comp/layout_update.cpp)，双架构分析和完整/定向测试通过，实际 helper/回调展开与原完整服务一致。旧组合/query 跨定位持有并先于服务 view 释放；FSM、定位/DPI/许可和整体 R05 未完成边界不变，不宣称修复真实宿主光标问题或此前偶发超时。
-
-  - [`准备入口/工作流衔接`](../src/ime/comp/target.h) 已共享原门禁/活动与真实准备的完整接线，服务保留原重置/身份回调。新增 [`32 组集成矩阵及 2 组入口异常变体`](../tests/ime/comp/target.cpp)，复用既有 fixture 验证 pending/context 在活动恢复前释放，实际 helper/回调展开与原完整服务一致。双架构分析及完整/定向测试最终通过；本轮 x86 定向两次超时、临时阶段定位通过但未复现、撤回后按键断言失败及用户暂停文档操作后通过均如实记录，不宣称已解决所有失败根因。FSM、定位/许可和整体 R05 未完成边界不变。
-
-  - [`文档身份/目标协调`](../src/ime/comp/target.h) 已集中原文档指针/规范 `IUnknown` 比较、top/base 双查询、票据复核、modal 覆盖保留及预测重置票据；服务保留焦点版本、配置/状态栏和实际引擎/UI 重置。新增 [`64 组身份、123 组协调及 4 组释放/异常回归`](../tests/ime/comp/target.cpp)，验证实际 QI 次数/短路、查询失败不跳过另一查询及 base/top/context 释放顺序；实际 helper/回调展开与原完整服务及声明一致。双架构 DLL/测试 CoreCheck、完整与定向回归通过；FSM、激活/停用、定位/显示许可不变，整体 R05 和真实宿主验收仍未完成。
-
-  - [`激活/停用交接`](../src/ime/tsf/tip_service.cpp) 已增加激活 RAII 门禁、幂等取消和延迟清理，保留正在返回的登记所有权，避免丢失 key/sink/cookie；取消期间立即拒绝输入且阻止后续初始化/compartment 写入。新增 [`57 组边界回归`](../tests/ime/tsf/svc/windows.cpp)，覆盖 16 个登记/读写点、必需登记失败、异常后显式停用重试及释放最后调用方引用；原失败基线和新增测试预期修正记录均保留。剩余验收为真实宿主交互，不继续扩张内部协调器抽象。
-
-#### 已知兼容性问题：Explorer 文件列表输入定位
-- 2026-11-05 在 Explorer 文件列表获得焦点、使用奇奇中文输入时，观察到字母组合小窗及候选窗位于屏幕左上角；移动 Explorer 窗口后仍可复现。用户报告微软输入法也有同类现象，但不据此直接认定宿主根因。
-- 已确认 Explorer 加载 `0.9.32+7556636`。本地时间 07:26:17 的定位日志先返回零高度文本矩形 `(1919,1127,1920,1127)`，随后持续成功返回 `(13,9,24,38)` 等左上角矩形，宽度随输入变化；奇奇候选实际位于 `(13,42)`。布局通知与回调正常执行，直接原因是候选跟随 TSF 提供的左上角组合范围，而非仅有全零矩形或缺少布局通知。TSF 为何提供该位置及字母组合小窗的归属尚未确认。
-- 暂时保留现状，不做 Explorer 特判，不禁用文件列表的中文键入定位。不能仅凭左上角坐标判断异常；鼠标锚定、选中文件项锚定或单独移动候选都存在交互及兼容性代价，尚无已验证的通用整体方案。本问题与安全模式能力声明无关。
-- 零高度矩形可另行评估通用定位健壮性处理，但不作为本问题的完整修复；任何后续方案均需分别验证字母组合小窗与奇奇自绘候选窗。日志采集与定位字段见[日志指南](log.md#candidate-positioning)。
-
-#### 已完成的代码质量检查
-- [x] **0. 全量代码质量检查与测试补全（`code-audit-and-test-completion`）**：对全仓（`common`、`engine`、`tsf`、`ui`、`settings`）执行代码质量扫描（RAII 合规、代码复用/DRY、C++ Core Guidelines & GSL 最佳实践、异常与边界安全），并补全遗漏的单元测试分支。
-
-#### P0：TSF 停用阶段资源清理
-- [x] **41. 提前销毁停用服务的 UI 窗口（`tsf-deactivate-ui-cleanup`）**：将状态栏与候选窗口的销毁提前到 `QiQiTextService::Deactivate()`，不再仅隐藏窗口并等待 COM 引用计数归零后析构。
-  - 保留 UI 对象与回调以支持再次激活；先结束组合和 TSF UI 元素，再销毁窗口，并在所属 UI 线程完成清理。
-  - 析构保留幂等兜底，复用现有 RAII 清理机制，移除无意义的空 `catch (...)`，避免静默吞错。
-  - 补充停用后对象仍被引用、重复停用、激活失败回滚、再次激活及异步 EditSession 的生命周期回归测试。
-  - 已补展示开关、Begin/End 注册重入及旧位置查询屏障、`WM_NCDESTROY` 句柄清理与可报告失败的所属线程销毁；实际 HWND 回归检查销毁顺序、提示窗/捕获清理、不同 manager 复用相同 UI ID 的隔离及最终外部引用安全。双架构 Release 的 TSF/UI 与 ETW 测试各连续通过 2 次，定向 CppCoreCheck 保留既有告警、无新增诊断。详见[英文生命周期文档](composition.md)；完整矩阵与真实宿主仍由任务 46、47 验证。
-
-#### 已完成：禁输入场景识别与统一准入
-- [x] **36. 密码框与禁输入上下文识别研究与实施（`restricted-input-context-research`）**：已完成官方契约研究、两层漏斗准入模型（[`access_policy.h`](../src/ime/comp/access_policy.h)：`ContextFacts` → `AccessPolicy`）实施、双架构自动回归及独立手工测试程序 [`QiQiTsfTestHost.exe`](../tests/ime/tsf_test_host.cpp) 验证。
-  - 2026-11-05 阶段性结果见[研究阶段记录](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/restricted.md)：当时核实 context 级 compartment、只读状态、输入作用域及原生 EDIT 样式，新增 x64/x86 原生契约测试与显式诊断入口，复现 Shift/保留键、禁用后排队编辑及查询失败处理的缺口。该记录仅代表研究时点；当前实现与边界见[受限输入说明](restricted.md)。
-  - 核实 `GUID_COMPARTMENT_KEYBOARD_DISABLED`、`GUID_COMPARTMENT_EMPTYCONTEXT` 的官方语义、上下文/线程作用域及宿主设置行为，研究标志缺失或查询失败时的处理。
-  - 评估 Win32 `ES_PASSWORD`、TSF 输入作用域及宿主提供的其他禁输入信号的适用范围和局限，不读取密码内容，不将只读、数字或英文输入框一律判定为密码框。
-  - 检查按键按下、释放、保留快捷键、焦点切换及异步 EditSession 的一致性；研究进入禁输入场景时组合串、候选窗口和 Shift 切换状态的安全清理，避免旧组合内容提交到新控件。
-  - 验证禁输入时按键放行、按键日志/造词/词频学习不处理敏感输入；定义可诊断但不记录输入内容的异常处理。
-  - 建立 Win32 密码/只读控件、浏览器密码框、Chromium/VS Code、WPF、UWP 和游戏聊天/非聊天场景的测试矩阵，覆盖焦点切换、标志变化、查询失败与普通输入回归。
-  - 产出带官方资料依据、可复现测试结果、检测边界和实施建议的研究结论；明确无法可靠识别的自绘控件，不承诺所有宿主都可检测。
-
-#### 待办：Windows 登录与安全桌面输入
-- [ ] **61. Windows 登录与安全桌面输入支持评估（`windows-logon-secure-desktop-input`）**：独立于任务 36 的普通宿主密码框研究，先核实安全桌面契约和支持边界，再决定是否实现及恢复安全模式能力声明。
-  - 已先撤下 `GUID_TFCAT_TIPCAP_SECUREMODE` 声明，并补充旧版残留分类的注册迁移及卸载清理；本次没有修改本机注册状态。后续仍需复核 `ActivateEx` 对安全模式的处理，能力声明不等于已通过登录界面验收，不仅靠注册标志宣称支持。
-  - 区分用户名等普通文本目标与密码/PIN 目标；尊重宿主禁输入信号，敏感目标放行按键，不读取正文或剪贴板，不造词、不学习、不记录输入。
-  - 若决定支持，设计独立受限运行模式：仅使用可信只读词库，不加载个人词库、不启动设置等外部工具、不进行跨桌面同步；验证初始化、组合清理、停用与异常处理。
-  - 在具备快照及恢复通道的虚拟机中，分别验证首次登录、锁屏解锁、密码/PIN 和 UAC 凭据提示；记录 Windows 版本、实际架构、激活标志、宿主条件及脱敏结果，不在日常主力机器上先修改登录默认输入法。
-  - 始终保留系统键盘布局、微软输入法或 Windows Hello 等可用的系统登录/恢复方式；未验收前不推荐将奇奇设为登录默认输入法，不将 Windows 登录支持扩展为 BitLocker 等启动前界面支持。
-
-#### P0：词库管理与候选控制
-- [x] **39. 公共跨进程变更同步机制（`cross-process-change-sync`）**：公共层及独立验证已完成；任务 40 再依次接入词库和词频文件，保留各自的数据处理逻辑，不把公共层完成等同于实际文件已经同步。
-  - 普通应用可发布更新；容器类应用只接收通知并只读同步，验证通知对象及数据访问权限，避免依赖仅进程范围的 TSF Global Compartment 广播。
-  - 支持按数据类型、数据源和递增版本识别变更，并通过增量记录传递新增、修改、删除或调序操作，使已同步实例仅应用变化，不必每次读取全量数据；通知唤醒与可追溯的增量记录分离，具体传输和存储方案在实现前验证。
-  - 检测版本缺口、增量记录过期和基线不匹配；启动或无法增量恢复时使用全量快照，不能仅靠可能丢失的通知保证一致性。
-  - 获得焦点时补偿检查版本，在新一轮输入时应用更新，避免正在输入时候选突然重排；验证并发写入、漏通知、晚启动、进程退出及容器只读同步。
-  - 实现为 [`common/change_sync`](../src/common/change_sync.h)：按类型与源 GUID 绑定通道，基线 GUID 加递增序号识别变更；有界日志与目录唤醒分离，文件锁及预期版本检查防止旧实例盲写。源数据读改写回调与日志提交处于同一个排他锁内，未完成写入通过新基线要求全量恢复。
-  - `Synchronize` 在组合期间返回暂缓，仅在新输入边界调用业务快照/增量回调；只有回调返回 `S_OK` 才推进本地版本。全量快照、增量正文校验和焦点/按键入口由任务 40 的适配层提供。
-  - x64/x86 独立回归及两个方向的混合架构进程验证通过，包含真实 AppContainer 的通知、读取、共享读锁及拒绝写入，不只使用 Mock。测试同时覆盖记录/字节过期、漏通知、晚启动、回调失败/异常、日志损坏、源写入后提交失败与写进程中途退出。协议限制、权限及失败边界见[开发说明](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#514-公共跨进程变更同步任务-39)。
-- [x] **40. 词库与词频文件接入跨进程同步（`cross-process-dictionary-phrase-frequency-sync`）**：依赖任务 39，已完成词库文件与词频文件跨进程同步接入及验证。
-  - 词库文件：
-    - 受控编辑（`AddUserPhrase`、`AddUserEntry`、`RemoveUserEntry`、`ModifyUserEntry`）发布词条级增量（`Add` / `Remove` / `Modify`），同步更新内存覆盖层、`.qdict` 并使同路径进程缓存失效。
-    - 外部编辑器修改文件时，通过 `source.meta`（文件大小、时间戳与 FNV-1a 内容哈希）检测变化；`<= 16` 条且未改变幸存词顺序的差异生成增量记录发布，否则旋转通道基线 GUID 明确触发全量快照重载。
-  - 词频文件：普通应用中的 IME 动态协调写盘，容器类应用中的 IME 只接收变更并只读同步，不写盘。
-    - 词频文件升级为带 64 位 FNV-1a 校验的 `QPF1` 二进制格式，同时兼容读取旧版 UTF-8 文本格式。
-    - 跨进程写入前先同步远端未应用增量再发布 `Operation::Reorder` 并更新快照，避免旧实例覆盖其他实例的新调序记录。
-    - 已验证普通应用之间、跨架构进程之间及普通应用到真实 AppContainer 子进程的词库与词频增量/快照同步。
-- [x] **18. 图形化词库管理（`dictionary-management-ui`）**：已实现独立词库与词频管理工具 [`QiQiIMEDictManager`](../src/tools/dict_manager/CMakeLists.txt)，并支持从 `QiQiIMESettings` 一键启动；复用现有 `common`（Fluent D2D 主题、DPI、多语言、关于弹窗、ETW 结构化日志）与 `qiqi_engine`（用户词表、五笔 86 自动取码、`QPF1` 动态词频），提供词条搜索/编码反查、新增、编码/词条编辑、删除、动态词频置顶/清空、批量导入导出与分类词库筛选，所有变更通过 `change_sync` 实时同步到本机输入法实例。
-- [x] **19. 候选词手动调序（`manual-candidate-order`）**：支持在组合输入态按 `Ctrl+1..9` 将对应候选词固定置顶（或在 `QiQiIMEDictManager` 中一键固定置顶/取消置顶），以 `^词条` 规则持久化于 `user_dict.txt` 并通过 `change_sync` 跨进程增量同步；手动置顶词始终排在同码候选首位，与可选动态调频（`QPF1`）明确区分且互不覆盖，默认继续保持固定词序。
-- [x] **20. 候选词删除与屏蔽（`candidate-delete-blocklist`）**：支持在组合输入态按 `Ctrl+Delete`（针对当前选中候选）或 `Ctrl+Shift+1..9`（针对指定序号候选）执行快捷删除/屏蔽：自动区分删除用户词与屏蔽系统词（以 `!词条` 持久化于 `user_dict.txt` 且不编译入正向 `.qdict` 词表），并在 `QiQiIMEDictManager` 中支持筛选查看「已屏蔽词 (!)」与批量恢复/删除。
-- [x] **21. 本地备份与恢复（`local-config-dictionary-backup`）**：在 `QiQiIMEDictManager` 中提供配置（`[config]`）、用户词库（`[user_dict]`，含普通词、`^置顶词`、`!屏蔽词`）和动态词频（`[phrase_freq]`）的单文件可读备份包（`.qbak`，带 64 位 FNV-1a 校验头）导出与恢复；恢复前校验文件头与校验和，并支持选择「合并模式（保留现有词条）」或「覆盖模式（完全替换）」，恢复后自动通过 `change_sync` 同步本机实例。
-
-- [x] **62. 自定义主词库选择与管理（`custom-primary-dictionary-management`）**：已完成 `PrimaryDict::Custom`（`PrimaryDictPath`）配置持久化、共享校验加载（[`ValidateAndLoadPrimaryDictionary`](../src/ime/engine/binary_dict.h) 与 [`LoadConfiguredPrimaryDictionaries`](../src/ime/engine/engine.h)）、`QiQiIMESettings` 与 `QiQiIMEDictManager` 双图形入口、恢复默认极点 86 主词库及失败保留旧状态机制。
-  - 格式支持 `.txt` / `.yaml` / `.yml` / `.qdict`。选择及设置确认时直接校验源文件：拒绝非法 UTF-8、损坏二进制和零有效词条；对无效编码、缺少词语、控制字符、无效权重/多余列、未结束的 YAML 头部给出有效/无效行统计及前 8 个错误的行号与原因，由用户确认是否仅加载有效部分，取消不切换或保存。共享解析器与双工具确认逻辑，诊断日志只记录计数、行号和原因枚举，不记录词条内容。格式校验不验证五笔 86 编码语义，也不提供完整 YAML 解析。
-  - 自定义文本主词库直接在内存中编译，显式 `.qdict` 只检查所选文件，旧缓存不能掩盖源文件缺失、非法 UTF-8 或损坏。随包词库继续使用原有缓存路径；自定义主词库运行期加载与主词库文件变更复用校验，非交互加载仅使用有效词条并记录诊断，无有效词条时保留旧主词库。不改写用户选定源文件，不覆盖 `user_dict.txt`。
-  - 候选与规则优先级保持不变：`手动置顶(^)` > `动态词频(QPF1)` > `当前主词库(随包或自定义)` + `用户补充词库(user_dict.txt)` > `内置保底词库`，`!屏蔽词` 对所有词源全局生效。
-  - 热重载或运行期若自定义主词库文件缺失、损坏或无权读取（例如在 Windows AppContainer 沙盒应用中访问未授予 `ALL APPLICATION PACKAGES` 读取权限的用户私有目录），显式记录 `Keyword::Dictionary` 警告日志并保留已激活的主词库（首次启动时回退随包极点 86 主词库），绝不静默清空可用词库。
-
-#### 待办：性能与稳定性指标监控
-- [ ] **63. 本地性能与稳定性指标监控（`local-performance-stability-metrics`）**：按[指标指南](metrics.md)继续建设；类型化协议、独立 Metrics 门控、同步 RAII 计时、严格解码/独立队列、有界聚合、三段焦点埋点、指标视图及版本化 JSON 导出已实现。
-  - 当前能力与数据口径见[实现状态](metrics.md#current-implementation)。聚合采用惰性分配及统一 64 MiB 预算；指标视图支持筛选、累计/最近 60 秒窗口及独立导出。
-  - [剩余验收](metrics.md#validation-and-remaining-work)：更广业务埋点、跨进程链路、按键及正常/慢实时消费者、反复开关和完整开销预算。已有焦点基准不等同于稳定达标；资源采样与长期趋势尚未实现。
-  - 阶段二（P2）：扩展词库加载、UI/布局回退、生命周期诊断及自绘耗时，基于真实基线校准阈值。
-  - 阶段三（P3）：由独立监控器采样选定宿主进程资源并展示长期趋势，明确宿主整体与输入法归因的区别。
-  - 默认关闭、仅本地采集，不记录输入正文或按键序列，不接入云端；采集缺口、失败和未完成结果必须显式展示，不冒充成功统计。
-
-#### P1：拼音辅助与汉字筛选
-- [ ] **22. 临时拼音输入（`temp-pinyin-input`）**：在纯五笔模式下按需进入拼音辅助输入，完成后返回五笔；与现有首码 `z` 临时英文及后续 `z` 通配查询保持兼容。
-- [ ] **23. 拼音反查与五笔查询工具（`pinyin-wubi-lookup`）**：通过拼音或汉字查询五笔编码，复用现有编码查询能力，并提供字根表、口诀和可选拆分辅助。
-- [ ] **24. 简繁输出切换（`simplified-traditional-output`）**：支持简体编码输出繁体及简繁切换，明确一对多转换的候选处理；不将词库含繁体字等同于转换能力。
-- [ ] **25. 单字模式与字符集筛选（`single-character-charset-filter`）**：提供仅单字、常用字优先和大字符集检索选项，保持已有生僻字输入能力。
-- [ ] **26. 候选匹配与排序策略（`candidate-ranking-options`）**：补充全码才显示词组、字词优先、简码置后/隐藏、累计频次或最近输入优先等可选策略；默认不改变现有盲打词序。
-
-#### P2：输入习惯与界面设置
-- [ ] **27. 自定义快捷键与标点映射（`custom-hotkeys-punctuation`）**：允许编辑模式切换、翻页、候选操作和工具快捷键及标点映射，检测冲突并提供恢复默认。
-- [ ] **28. 自定义短语与便捷输入（`custom-phrases-quick-input`）**：提供独立短语编辑及快捷编码，支持多行、空格、日期/时间、数字与金额等按需扩展的输入能力。
-- [ ] **29. 候选窗口个性化（`candidate-appearance-options`）**：提供字体、字号、颜色和横排/竖排设置，继续兼容系统深浅色、高对比度、多显示器 DPI 和字体回退。
-- [ ] **30. 符号输入面板（`symbol-input-panel`）**：提供分类符号和常用字符选择，复用现有 Unicode 与彩色 Emoji 渲染能力。
-
-#### P3：按产品定位评估的扩展
-- [ ] **31. 智能造词与词语联想（`smart-phrase-learning`）**：评估连续输入生成临时词、用户确认后保存、误造词撤销和后续词语联想；默认关闭，避免影响固定词序及采集敏感输入。
-- [ ] **32. 五笔拼音混输与纯拼音模式（`wubi-pinyin-mixed-mode`）**：在临时拼音能力基础上评估完整混输、纯拼音、简拼及模糊音，明确候选优先级与性能预算。
-- [ ] **33. 98 版与其他编码方案（`additional-code-schemes`）**：评估码表、造词规则和用户词库隔离，避免仅替换主词库导致编码方案混用。
-- [ ] **34. 跨设备配置与词库同步（`cross-device-sync`）**：本地备份成熟后再评估账号或用户指定存储的同步，明确隐私授权、离线行为、冲突解决和服务维护成本；与现有本机跨进程同步区分。
-- [ ] **35. 皮肤扩展与附加工具（`optional-skins-tools`）**：评估可选皮肤、软键盘、输入统计及更新提示；截图、账号等级等非核心功能暂不列为必做，避免偏离轻量纯五笔定位。
-- [x] **60. 调试模式与高频测试下的剪贴板打开失败专项排查（`clipboard-debug-failure-investigation`）**：已定位并修复三个根因：
-  1. 远程桌面客户端（`msrdc.exe`）与 `explorer.exe` 监听 `WM_CLIPBOARDUPDATE` 并异步短暂打开剪贴板，导致紧接 `SetClipboardData` 后的下一次 `OpenClipboard` 偶发返回 `ERROR_ACCESS_DENIED (5)`；
-  2. `tests/tools/log_monitor/main.cpp` 为填充诊断队列连续调用了 450 次真实剪贴板写入（已改为通过诊断通知填充，不再连续轰炸系统剪贴板）；
-  3. 测试销毁窗口后未排空线程队列中的 `WM_QUIT`，导致后续弹窗立即中止返回。
-  - 修复保持 `ScopedClipboard` 单次无阻塞语义，仅在高层复制入口 [`CopyTextToClipboard`](../src/common/win32_ui_util.h) 与测试读取辅助中对跨线程/跨进程 `ERROR_ACCESS_DENIED` 做有界短退避（同线程持有时立即失败返回，避免自锁等待）。
+The shared code in this diagram is statically linked into each consuming binary;
+it does not imply shared mutable runtime objects.
+
+| Build target | Source | Responsibility |
+| --- | --- | --- |
+| `qiqi_common` | [common](../src/common) | Configuration, files/codecs, sync, ETW, RAII, theme/DPI and shared controls |
+| `qiqi_engine` | [engine](../src/ime/engine), [FSM](../src/ime/fsm) | Wubi rules, lookup, candidates, user dictionaries and phrase ordering |
+| `qiqiime` | [TSF](../src/ime/tsf), [composition](../src/ime/comp), [IME UI](../src/ime/ui) | COM service and actual host edits/presentation |
+| `qiqi_settings_ui` | [settings](../src/tools/settings) | Shared settings window used by the EXE and in-process fallback |
+| Standalone tools | [tools](../src/tools) | `QiQiIMESettings`, `QiQiIMEDictManager`, `QiQiIMELogMonitor` |
+
+Engine tests do not require TIP registration or a COM host. The engine still
+depends on Windows/common code and can perform dictionary/configuration I/O;
+static-library separation is not a pure-computation or nonblocking guarantee.
+Tests mirror production module boundaries. Build commands are in the
+[development guide](dev.md#build-and-test).
+
+## 2. TSF Registration and Service Lifetime
+
+[Registration](../src/ime/tsf/register.cpp) publishes an Apartment-threaded
+in-process server and a `zh-CN` language profile (`0x0804`). x64 and x86 use their
+corresponding registry views; WOW64 registration preserves an existing native
+profile rather than overwriting shared TSF profile state.
+
+The service declares keyboard, UI-element, display-attribute, immersive, and
+COM-less categories. Those declarations are capabilities, not real-host
+certification. Secure-mode capability is not declared; registration/unregistration
+also remove its legacy category. Windows login/secure-desktop support remains
+outside the verified scope.
+
+The COM facade is split by responsibility:
+
+- [tip_service.cpp](../src/ime/tsf/tip_service.cpp): construction, activation,
+  teardown, registrations, thread-manager notifications and providers.
+- [tip_keys.cpp](../src/ime/tsf/tip_keys.cpp): key testing/handling, preserved keys,
+  Shift tracking, and input admission.
+- [tip_composition.cpp](../src/ime/tsf/tip_composition.cpp): composition/layout
+  adapters, target preparation, captured edits and presentation callbacks.
+- [tip_config.cpp](../src/ime/tsf/tip_config.cpp): loading/reload, compartments,
+  mode observation, language-bar actions and settings launch.
+
+Activation is cancellable. Reentrant deactivation invalidates input/UI permission
+and requests cancellation without waiting. After the in-flight registration
+publishes ownership, the outer activation tears down and returns `E_ABORT`.
+Nested activation is rejected.
+Accepted activation retains the service through guard restoration.
+
+Composition state has a stable nonmovable owner, activation/context epochs, and
+captured-object identity checks. Stale application callbacks stop, while
+independent old-composition cleanup can run after local deactivation. Cleanup
+preserves preedit and never edits a replacement target or restores UI.
+Host write permission, local completion, and successful host cleanup are separate
+results. See the [lifecycle diagrams and contracts](composition.md).
+
+## 3. Input Processing and the FSM
+
+### Prediction versus execution
+
+`OnTestKeyDown` predicts consumption without binding a target, querying candidates,
+advancing the engine, or requesting an edit session. A different target uses
+`ShouldEatKeyAfterReset`; the current one uses `ShouldEatKey`.
+
+Actual key-down checks access and prepares the target before processing the key.
+Modifiers/CapsLock and relevant mouse state are captured before reentrant host
+calls. `WubiEngine` produces a self-contained `KeyProcessResult`; a deferred edit
+owns that immutable snapshot rather than reading later engine state.
+Prediction is not a write-permission grant.
+
+### Static dispatch, dynamic outcomes
+
+[FSM types](../src/ime/fsm/types.h) define seven engine states: English, Idle,
+Composing1 through Composing4, and TempEnglish. Eighteen key-event categories map
+to transition operations through the [shared rules](../src/ime/fsm/transitions.h).
+The table chooses operation/consumption policy, not a predetermined next state.
+
+Runtime handlers return `TransitionOutcome { next_state, result }`. The common
+execution entry applies the final state once, after actual lookup/configuration
+decisions. Handlers do not assign lifecycle state or predict outcomes by performing
+extra lookups. Exceptions reset composition data, diagnose failure, and propagate.
+
+Focus/context removal/deactivation are external lifecycle events, not added key
+categories. Reset and prediction share `StateAfterCompositionReset`: Chinese
+composition returns to Idle, English remains English, and width/punctuation survive.
+
+Candidate clicks call `CommitCandidate` directly, not simulated digit keys.
+Ordinary digit selection shares its commit logic. Temporary English digits append
+text; candidate clicks commit the temporary text without adding a candidate number.
+Shift taps use [ShiftTapTracker](../src/ime/tsf/shift_tap.h), outside the Wubi FSM:
+the 350 ms deadline, original press time, modifiers/mouse cancellation, and
+test/actual release checks are shared.
+
+### Host effects and restrictions
+
+Inside a TSF-granted session, the facade starts/updates composition, applies text
+and display attributes, commits/cancels, and positions candidate UI. Ticket and
+composition identity checks protect reentrant boundaries. Same-context old
+cleanup forces new writes to queue; execution rechecks that barrier without
+processing a key twice.
+
+[ContextFacts and AccessPolicy](../src/ime/comp/access_policy.h) apply across
+keyboard, preserved keys, candidate actions, mode changes, and queued edit/layout
+work. Recognized password/PIN targets temporarily use English and restore the
+previous mode; private scopes permit input but suppress learning/persistence.
+Unknown optional signals do not certify safety. See
+[restricted-input behavior](restricted.md) for contracts and host limits.
+
+## 4. Dictionaries and Candidate Ordering
+
+The engine combines selected bundled/custom primary dictionaries, optional
+extensions, user entries, and an embedded fallback. Default ordering remains
+predictable; optional phrase promotion is based on recent explicit selection,
+not an accumulated usage-count ranking. Single-character candidates are not
+dynamically promoted.
+
+Pinned entries take priority over optional dynamic phrase order and ordinary
+dictionary results. Suppression applies across sources. User-file rules preserve
+ordinary entries, `^` pins, and `!` suppressed entries; suppressed entries are
+not compiled as positive candidates.
+
+### Loading and validation
+
+[Binary dictionary loading](../src/ime/engine/binary_dict.h) supports UTF-8 text,
+the supported Rime-style YAML subset, and `.qdict`. Validation distinguishes
+invalid encoding, malformed binary data, invalid rows, and empty usable content.
+It is not a full YAML parser or proof of Wubi-code semantics.
+
+Custom text dictionaries compile in memory. Explicit custom `.qdict` files are
+validated directly: an old cache must not conceal a missing/corrupt chosen source.
+Runtime failure preserves the active primary dictionary; first-use failure can
+fall back to the bundled default. Tools and the IME share the load plan/validation,
+while source/path resolution and actual effects stay in their adapters.
+
+Bundled dictionaries can use adjacent or local compiled caches. Cache validity
+checks format and source metadata; cache creation still needs access and can fail.
+Read-only mappings use anonymous mapping objects and file-sharing rules that
+permit compatible replacement, not arbitrary concurrent in-place writes.
+Existing views can retain old file data until a checked reload.
+
+Mapped pages can be shared, but per-process objects and allocations remain.
+Compiled user dictionaries contain personal phrases; mapping anonymity is not
+encryption or an access-control bypass. Temporary-file replacement and registry
+transactions do not form a cross-resource transaction.
+
+### Authoritative files and synchronization
+
+The user dictionary file is authoritative. [change_sync](../src/common/change_sync.h)
+coordinates file locks, expected versions, bounded journals, baseline identities,
+and snapshot recovery. Directory notifications are wakeups, not authoritative
+state or guaranteed delivery.
+
+```mermaid
+flowchart TD
+    Writer["Desktop IME or dictionary manager"] -->|locked source update| File["Authoritative user dictionary"]
+    File -->|derived snapshot| Channel["Versioned read-only sharing channel"]
+    Writer -->|publish increments| Channel
+    Writer -->|publish absolute channel address| Registry["HKCU UserDictSyncDirectory and ConfigSequence"]
+    Registry --> Reader["IME readers discover the configured channel"]
+    Channel -->|snapshot or journal| Reader
+    Reader --> Boundary{"Safe input boundary?"}
+    Boundary -->|Composing| Defer["Defer candidate changes"]
+    Boundary -->|Non-composing focus or new input| Apply["Validate batch and publish candidate state"]
+```
+
+Desktop writers publish `UserDictSyncDirectory` transactionally.
+AppContainer readers use that absolute address rather than their own
+`LOCALAPPDATA` or the private source file. Explicitly empty publication means no
+shared user dictionary; invalid/inaccessible publication is a diagnosed failure.
+Source content, compiled caches, and channel files are not atomically committed
+as one resource.
+
+Version gaps, expired records, and baseline changes require snapshot recovery.
+External source edits can produce bounded increments when order is preserved;
+large replacement/reordering establishes a new baseline. Failed batch application
+must not publish partially applied candidate state or advance a successful version.
+Configuration/dictionary updates do not promise immediate cross-process visibility.
+
+Phrase ordering uses checksummed `QPF1` storage, with legacy text reading retained.
+Desktop processes coordinate writes; AppContainer processes remain read-only.
+Apply dictionary/ordering updates at safe focus/new-input boundaries, not in the
+middle of composition.
+
+## 5. Configuration and Runtime State
+
+| Scope | Examples and mechanism |
+| --- | --- |
+| Per-user persistent configuration | Dictionary choices, input defaults, UI language, visibility, sounds; `HKCU\Software\QiQiIME` |
+| TSF thread/session mode | Open/close, width and punctuation through system compartments |
+| Current input | Preedit, candidates, page/selection, target and epochs; not global configuration |
+| Shared transient UI state | Status-bar coordinates through a dedicated global compartment |
+
+Typed member descriptors share registry/backup keys and value constraints;
+settings use their editable-field projection. Configuration defaults do not
+overwrite another live session's current mode.
+
+Save configuration before notifying instances. `ConfigSequence` and TSF global
+compartments prompt reload; focus checks compensate for missed notifications.
+System mode compartments are also observed in the reverse direction to update
+the engine and UI. These signals are not durable dictionary-change journals.
+
+Settings failures retain edits and report the real error. Notification failure
+reports "saved but not propagated" rather than rolling back a completed save.
+Open settings merge external field changes without discarding local unsaved edits.
+The shared settings window owns its single-instance mutex; EXE/IME callers do not
+pre-create it.
+
+## 6. UI and Standalone Tools
+
+Candidate presentation negotiates `ITfUIElementMgr::BeginUIElement`.
+`show_own_ui=true` permits the nonactivating popup; false supplies candidate data
+for host rendering instead. UILess is not limited to games and is not a guarantee
+that every game accepts the IME.
+
+Capture the old manager when retiring an element ID. A reentrant replacement can
+reuse its numeric ID; old teardown must not end newer UI. Disabled presentation
+prevents retained UI interfaces from reopening inactive windows. Native destruction
+is owner-thread work, with `WM_NCDESTROY` clearing matching handles.
+
+Layout uses TSF text extents, guarded layout notifications, and existing GUI/cursor
+fallback. Real screen coordinates are not scaled twice; synthetic geometry uses
+monitor DPI. Preserve work-area clamping, negative monitor coordinates, theme/high
+contrast behavior, and raw TSF rectangles unless an intentional change is tested.
+
+Candidate text uses Direct2D/DirectWrite with the existing GDI fallback. Rare
+characters and color glyphs depend on installed fonts/platform support.
+Status icons/tooltips and settings controls share common RAII/theme/DPI helpers.
+Parent-owned controls and borrowed drawing/subclass contexts retain their explicit
+lifetime rules; numerical constants with different meanings are not merged.
+
+| Tool | Current role |
+| --- | --- |
+| Settings | Configuration drafts, validated save, live merge, theme/language preview |
+| Dictionary manager | Search/code lookup, entries/pins/suppression, phrase ordering, import/export, local backup/restore |
+| Log monitor | Ordinary ETW events, Metrics and own diagnostics views, filtered export |
+
+Tools reuse window/dialog/control helpers while retaining their own models and
+commands. Dictionary editing has explicit browse/new/edit draft states; failed
+save preserves the draft and does not revive an externally deleted entry.
+Backup restore separates validation/planning from per-resource writes and reports
+partial success/failure; it does not promise global rollback.
+
+Modal loops preserve `WM_QUIT`, owner enable state, and cancellation/error
+distinctions. Clipboard backoff is bounded at suitable high-level copy/read
+boundaries; it does not make low-level clipboard ownership blocking or infallible.
+
+## 7. Diagnostics and Access Boundaries
+
+Production diagnostics are ETW and debugger output, not an automatically written
+text log. Initialize the provider outside `DllMain`; it is module-scoped and
+survives individual service deactivation. Queries/writes do not implicitly
+register it. Preserve actual HRESULT/Win32 domains; queue acceptance and callback
+exit are not host-operation success.
+
+Metrics use a separate explicit keyword subscription, independent of ordinary
+log level. Typed protocol, bounded aggregation, Metrics view, and JSON export are
+implemented; production samples currently cover three focus segments only.
+Broader instrumentation and full overhead acceptance remain incomplete.
+See [capture](log.md) and [measurement semantics](metrics.md).
+
+The DLL inherits host permissions. Registration/shared data can grant read access
+to the two application-package groups, not individual application identities;
+qualifying other apps may read exposed settings/phrases. No sandbox bypass or
+blanket profile access is provided. See [AppContainer](uwp.md) and
+[privacy](../PRIVACY.md).
+
+Do not emit input text, clipboard data, candidate phrases, key sequences, or raw
+object addresses. Diagnostic exports and dumps still require review/redaction.
+Controlled tests are not universal host certification.
+
+## 8. Compatibility and Remaining Work
+
+### Explorer file-list positioning
+
+Reported Explorer file-list input can place both the composition window and
+QiQiIME candidate popup near the screen's top-left. Recorded layout callbacks
+ran and TSF returned top-left text extents, explaining why the candidate followed
+those coordinates. This does not establish why TSF supplied them or who owns
+every visible composition window.
+
+The current behavior is retained: no Explorer-specific bypass or disabled
+file-list input. Zero-height rectangle handling alone is not a complete fix;
+any change must validate the composition window and candidate popup separately.
+[Historical observations](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/arch.md#已知兼容性问题explorer-文件列表输入定位)
+and [position diagnostics](log.md#candidate-positioning) preserve the evidence.
+
+### Validation boundary
+
+User feedback closes the earlier lifecycle/host tasks, not every application's
+version/scenario matrix. Historical caret-offset, positioning, and intermittent
+hang reports are not thereby root-caused. Preserve observed failures and use
+specific new evidence for follow-up; do not reopen completed refactors merely to
+add another coordinator. Current test entry points are in
+[development](dev.md#focused-tests) and [composition validation](composition.md#9-validation-and-remaining-boundaries).
+
+### Unimplemented or evaluation-only extensions
+
+The following remain separate from current behavior; this is not a release
+commitment or a dated execution order:
+
+| Area | Remaining scope |
+| --- | --- |
+| Metrics | Key/candidate/commit/cleanup instrumentation, controlled realtime/cross-process overhead, optional resource/trend sampling |
+| Shortcut and ranking options | User-editable hotkeys/punctuation and additional candidate ordering policies, preserving fixed-order defaults |
+| Pinyin assistance | Temporary pinyin, pinyin-assisted lookup/radical aids; full mixed/pinyin modes require separate product evaluation |
+| Character selection | Simplified/traditional conversion, character-set/single-character filters |
+| Convenience input | Dedicated phrase/templates, symbol panel, additional appearance controls |
+| Learning and coding schemes | Smart continuous phrase learning and Wubi 98/other schemes with explicit data/rule isolation |
+| Cross-device/optional tools | Authorized conflict-aware device sync, optional skins/tools; local cross-process sync is already implemented |
+| Login/secure desktop | Separate contract/design/VM recovery validation; capability flags alone cannot establish support |
+
+## Further Reading
+
+- [Composition lifecycle](composition.md): tickets, captured cleanup, reentrancy, UI and notification diagrams.
+- [Restricted input](restricted.md): recognized password/PIN and private-scope behavior.
+- [AppContainer](uwp.md): actual token, access and synchronization constraints.
+- [Logging](log.md) and [metrics](metrics.md): capture, protocol, export and measurement limits.
+- [Development](dev.md): build/test/quality/release workflow.
+- [Installation](install.md): MSI and registered ZIP deployment; the ZIP is not an unregistered portable IME.
+- [Release notes](release-notes.md) and [host evidence](hosts.md): historical changes and observed compatibility.
