@@ -44,7 +44,7 @@ Tests mirror production module boundaries. Build commands are in the
 
 ## 2. TSF Registration and Service Lifetime
 
-[Registration](../src/ime/tsf/register.cpp) publishes an Apartment-threaded
+[Registration](../src/ime/tsf/register.cpp#L326) publishes an Apartment-threaded
 in-process server and a `zh-CN` language profile (`0x0804`). x64 and x86 use their
 corresponding registry views; WOW64 registration preserves an existing native
 profile rather than overwriting shared TSF profile state.
@@ -59,17 +59,17 @@ The COM facade is grouped in [svc](../src/ime/svc) and split by responsibility.
 Its [tests](../tests/ime/svc) mirror that boundary. Registration and reusable TSF
 helpers remain in the sibling [tsf](../src/ime/tsf) folder:
 
-- [service.cpp](../src/ime/svc/service.cpp): construction, activation,
+- [service.cpp](../src/ime/svc/service.cpp#L43): construction, activation,
   teardown, registrations, thread-manager notifications and providers.
-- [keys.cpp](../src/ime/svc/keys.cpp): key testing/handling, preserved keys,
+- [keys.cpp](../src/ime/svc/keys.cpp#L14): key testing/handling, preserved keys,
   parameter validation and TSF callback adaptation.
-- [key_handler.cpp](../src/ime/svc/key_handler.cpp): input coordination,
+- [key_handler.cpp](../src/ime/svc/key_handler.cpp#L115): input coordination,
   Shift tracking, engine dispatch and preserved-key actions.
-- [context_access.cpp](../src/ime/svc/context_access.cpp): shared context
+- [context_access.cpp](../src/ime/svc/context_access.cpp#L56): shared context
   fact queries, access policy evaluation, cache updates and reset enforcement.
-- [composition.cpp](../src/ime/svc/composition.cpp): composition/layout
+- [composition.cpp](../src/ime/svc/composition.cpp#L54): composition/layout
   adapters, target preparation, captured edits and presentation callbacks.
-- [config.cpp](../src/ime/svc/config.cpp): loading/reload, compartments,
+- [config.cpp](../src/ime/svc/config.cpp#L41): loading/reload, compartments,
   mode observation, language-bar actions and settings launch.
 
 Activation is cancellable. Reentrant deactivation invalidates input/UI permission
@@ -93,7 +93,7 @@ For ordinary key-down input, deciding whether to handle a key is separate from
 processing it and writing the result into the application's input field:
 
 1. **Determine whether the IME should handle the key
-   ([`OnTestKeyDown`](../src/ime/svc/keys.cpp)).**
+   ([`OnTestKeyDown`](../src/ime/svc/keys.cpp#L14)).**
    TSF asks whether the IME intends to handle the key instead of passing it
    directly to the application. This callback does not bind an input context,
    look up candidates, advance the engine state, or request a document edit.
@@ -105,9 +105,9 @@ processing it and writing the result into the application's input field:
    the old composition. That is only a prediction: it does not actually clear
    the composition or bind the new context.
 
-2. **Process the key ([`OnKeyDown`](../src/ime/svc/keys.cpp)).**
+2. **Process the key ([`OnKeyDown`](../src/ime/svc/keys.cpp#L22)).**
    Both key-down callbacks use
-   [`ReadKeyEvent`](../src/ime/svc/key_handler.cpp) to capture
+   [`ReadKeyEvent`](../src/ime/svc/key_handler.cpp#L41) to capture
    the virtual-key code and Shift, Ctrl, Alt, and CapsLock state at entry.
    Calls into the application can dispatch newer keyboard messages or reenter
    the service, so later processing must use the state captured for this key.
@@ -120,7 +120,8 @@ processing it and writing the result into the application's input field:
    are separate operations behind the access facade; prediction queries do not
    reset composition. The coordinator retains the original `pfEaten` write
    timing before host edits, including the CapsLock pass-through path.
-   Local input admission uses `GetInputBlockReason`: inactive, resetting, then
+   Local input admission uses
+   [`GetInputBlockReason`](../src/ime/svc/context_access.cpp#L8): inactive, resetting, then
    preparing. Diagnostics share that result instead of repeating conditions.
    Missing-context and context-access rejection remain separate; local state
    is queried again after host calls, never cached across reentrant boundaries.
@@ -134,7 +135,7 @@ processing it and writing the result into the application's input field:
    owns this result snapshot even if it runs later, rather than rereading engine
    state that a subsequent key may already have changed.
 
-Returning `TRUE` from [`OnTestKeyDown`](../src/ime/svc/keys.cpp)
+Returning `TRUE` from [`OnTestKeyDown`](../src/ime/svc/keys.cpp#L14)
 only indicates that the IME intends to
 handle the key. It does not grant permission to change the application's text.
 The actual document edit still requires a TSF-granted edit session and checks
@@ -142,9 +143,9 @@ that its captured target and lifecycle ticket remain valid.
 
 ### Static dispatch, dynamic outcomes
 
-[FSM types](../src/ime/fsm/types.h) define seven engine states: English, Idle,
+[FSM types](../src/ime/fsm/types.h#L11) define seven engine states: English, Idle,
 Composing1 through Composing4, and TempEnglish. Eighteen key-event categories map
-to transition operations through the [shared rules](../src/ime/fsm/transitions.h).
+to transition operations through the [shared rules](../src/ime/fsm/transitions.h#L13).
 The table chooses operation/consumption policy, not a predetermined next state.
 
 Runtime handlers return `TransitionOutcome { next_state, result }`. The common
@@ -153,13 +154,14 @@ decisions. Handlers do not assign lifecycle state or predict outcomes by perform
 extra lookups. Exceptions reset composition data, diagnose failure, and propagate.
 
 Focus/context removal/deactivation are external lifecycle events, not added key
-categories. Reset and prediction share `StateAfterCompositionReset`: Chinese
+categories. Reset and prediction share
+[`StateAfterCompositionReset`](../src/ime/fsm/types.h#L78): Chinese
 composition returns to Idle, English remains English, and width/punctuation survive.
 
 Candidate clicks call `CommitCandidate` directly, not simulated digit keys.
 Ordinary digit selection shares its commit logic. Temporary English digits append
 text; candidate clicks commit the temporary text without adding a candidate number.
-Shift taps use [ShiftTapTracker](../src/ime/tsf/shift_tap.h), outside the Wubi FSM:
+Shift taps use [ShiftTapTracker](../src/ime/tsf/shift_tap.h#L15), outside the Wubi FSM:
 the 350 ms deadline, original press time, modifiers/mouse cancellation, and
 test/actual release checks are shared.
 
@@ -171,7 +173,8 @@ composition identity checks protect reentrant boundaries. Same-context old
 cleanup forces new writes to queue; execution rechecks that barrier without
 processing a key twice.
 
-[ContextFacts and AccessPolicy](../src/ime/comp/access_policy.h) apply across
+[ContextFacts](../src/ime/comp/access_policy.h#L54) and
+[AccessPolicy](../src/ime/comp/access_policy.h#L79) apply across
 keyboard, preserved keys, candidate actions, mode changes, and queued edit/layout
 work. Recognized password/PIN targets temporarily use English and restore the
 previous mode; private scopes permit input but suppress learning/persistence.
@@ -193,7 +196,7 @@ not compiled as positive candidates.
 
 ### Loading and validation
 
-[Binary dictionary loading](../src/ime/engine/binary_dict.h) supports UTF-8 text,
+[Binary dictionary loading](../src/ime/engine/binary_dict.h#L183) supports UTF-8 text,
 the supported Rime-style YAML subset, and `.qdict`. Validation distinguishes
 invalid encoding, malformed binary data, invalid rows, and empty usable content.
 It is not a full YAML parser or proof of Wubi-code semantics.
@@ -217,7 +220,7 @@ transactions do not form a cross-resource transaction.
 
 ### Authoritative files and synchronization
 
-The user dictionary file is authoritative. [change_sync](../src/common/change_sync.h)
+The user dictionary file is authoritative. [change_sync](../src/common/change_sync.h#L46)
 coordinates file locks, expected versions, bounded journals, baseline identities,
 and snapshot recovery. Directory notifications are wakeups, not authoritative
 state or guaranteed delivery.
@@ -380,6 +383,16 @@ commitment or a dated execution order:
 | Learning and coding schemes | Smart continuous phrase learning and Wubi 98/other schemes with explicit data/rule isolation |
 | Cross-device/optional tools | Authorized conflict-aware device sync, optional skins/tools; local cross-process sync is already implemented |
 | Login/secure desktop | Separate contract/design/VM recovery validation; capability flags alone cannot establish support |
+
+### Tracked follow-up
+
+- [ ] Add configurable hotkeys and selectable Haifeng/Jidian key presets.
+  Verify the default bindings against documented versions before defining the
+  presets, and confirm whether they cover shortcuts only or broader key behavior.
+  Let users select a preset in settings and customize individual bindings.
+  Validate conflicts, persist configuration, and safely replace registered TSF
+  preserved keys when settings change. Preserve current defaults and restricted
+  input behavior; add focused configuration, registration, and key-handling tests.
 
 ## Further Reading
 
