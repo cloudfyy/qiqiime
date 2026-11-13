@@ -39,11 +39,13 @@ set(QIQIIME_SOURCES
     tsf/register.h
     tsf/register.cpp
     tsf/shift_tap.h
-    tsf/tip_service.h
-    tsf/tip_service.cpp
-    tsf/tip_keys.cpp
-    tsf/tip_composition.cpp
-    tsf/tip_config.cpp
+    svc/service.h
+    svc/service.cpp
+    svc/keys.cpp
+    svc/key_handler.cpp
+    svc/context_access.cpp
+    svc/composition.cpp
+    svc/config.cpp
     tsf/display_attribute.h
     tsf/display_attribute.cpp
     tsf/edit_session.h

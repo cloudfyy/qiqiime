@@ -9,7 +9,7 @@ or a proposed coordinator. Use the [logging guide](log.md) for capture and the
 
 | Surface | Implementation | Responsibility |
 | --- | --- | --- |
-| COM service | [service](../src/ime/tsf/tip_service.cpp), [keys](../src/ime/tsf/tip_keys.cpp), [configuration](../src/ime/tsf/tip_config.cpp), [composition facade](../src/ime/tsf/tip_composition.cpp) | COM identity, activation/focus, registration, entry gates, actual engine/UI effects |
+| COM service | [service](../src/ime/svc/service.cpp), [keys](../src/ime/svc/keys.cpp), [input coordinator](../src/ime/svc/key_handler.cpp), [context access](../src/ime/svc/context_access.cpp), [configuration](../src/ime/svc/config.cpp), [composition facade](../src/ime/svc/composition.cpp) | COM identity, activation/focus, registration, entry gates, actual engine/UI effects |
 | State and reset | [state.h](../src/ime/comp/state.h) | Epochs, active/reset flags, current composition/context/document, cleanup coordinator |
 | Input target | [target.h](../src/ime/comp/target.h), [access_policy.h](../src/ime/comp/access_policy.h) | Target preparation, document identity/reconciliation, restricted-input facts and policy |
 | Application edits | [edit.h](../src/ime/comp/edit.h), [edit_session.h](../src/ime/tsf/edit_session.h) | Immutable result snapshots, tickets, request/execution gates, activity scopes |
@@ -533,12 +533,12 @@ Return codes or formatted logs alone are insufficient.
 | Contract | Representative existing tests |
 | --- | --- |
 | Epoch/reset ownership and nesting | [state](../tests/ime/comp/state.cpp), [context reset](../tests/ime/comp/context_reset.cpp) |
-| Immutable snapshots, request flags, requeue and activity scopes | [edit execution](../tests/ime/comp/edit_execution.cpp), [requests](../tests/ime/comp/edit.cpp), [service deferred work](../tests/ime/tsf/svc/deferred.cpp) |
-| New-target preparation, parent identity, modal/removal reentrancy | [target](../tests/ime/comp/target.cpp), [service target](../tests/ime/tsf/svc/target.cpp), [native documents](../tests/ime/tsf/svc/native.cpp) |
-| Late starts, same-epoch replacement, commit/cancel and termination | [start/update](../tests/ime/comp/start_update.cpp), [finish state](../tests/ime/comp/finish_state.cpp), [termination routing](../tests/ime/comp/termination_route.cpp), [service reentrancy](../tests/ime/tsf/svc/reentrancy.cpp) |
-| Captured cleanup, failure/removal, abandonment and owner release | [handoff](../tests/ime/comp/cleanup_handoff.cpp), [service lifecycle](../tests/ime/tsf/svc/lifecycle.cpp) |
-| Retained windows and old/new manager isolation | [presentation](../tests/ime/comp/presentation.cpp), [service presentation](../tests/ime/tsf/svc/presentation.cpp), [service windows](../tests/ime/tsf/svc/windows.cpp) |
-| Layout lifetime, stale rectangles and DPI routing | [layout](../tests/ime/comp/layout.cpp), [position](../tests/ime/comp/layout_position.cpp), [service layout](../tests/ime/tsf/svc/layout.cpp) |
+| Immutable snapshots, request flags, requeue and activity scopes | [edit execution](../tests/ime/comp/edit_execution.cpp), [requests](../tests/ime/comp/edit.cpp), [service deferred work](../tests/ime/svc/deferred.cpp) |
+| New-target preparation, parent identity, modal/removal reentrancy | [target](../tests/ime/comp/target.cpp), [service target](../tests/ime/svc/target.cpp), [native documents](../tests/ime/svc/native.cpp) |
+| Late starts, same-epoch replacement, commit/cancel and termination | [start/update](../tests/ime/comp/start_update.cpp), [finish state](../tests/ime/comp/finish_state.cpp), [termination routing](../tests/ime/comp/termination_route.cpp), [service reentrancy](../tests/ime/svc/reentrancy.cpp) |
+| Captured cleanup, failure/removal, abandonment and owner release | [handoff](../tests/ime/comp/cleanup_handoff.cpp), [service lifecycle](../tests/ime/svc/lifecycle.cpp) |
+| Retained windows and old/new manager isolation | [presentation](../tests/ime/comp/presentation.cpp), [service presentation](../tests/ime/svc/presentation.cpp), [service windows](../tests/ime/svc/windows.cpp) |
+| Layout lifetime, stale rectangles and DPI routing | [layout](../tests/ime/comp/layout.cpp), [position](../tests/ime/comp/layout_position.cpp), [service layout](../tests/ime/svc/layout.cpp) |
 | Access policy and restricted-target transitions | [restricted input](../tests/ime/tsf/restricted_input.cpp) |
 
 Mocks provide deterministic failures and reentrant boundaries, not evidence that

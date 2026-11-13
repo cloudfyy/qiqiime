@@ -82,10 +82,11 @@ captured old context/composition; context removal is not a new edit opportunity.
 Host refusal to clear attributes or end composition must retain its actual error,
 not be reported as successful cleanup.
 
-Implementation entry points are [key handling](../src/ime/tsf/tip_keys.cpp),
-[composition edits](../src/ime/tsf/tip_composition.cpp),
-[mode observation](../src/ime/tsf/tip_config.cpp), and
-[service lifecycle](../src/ime/tsf/tip_service.cpp).
+Implementation entry points are [key handling](../src/ime/svc/key_handler.cpp),
+[context access](../src/ime/svc/context_access.cpp),
+[composition edits](../src/ime/svc/composition.cpp),
+[mode observation](../src/ime/svc/config.cpp), and
+[service lifecycle](../src/ime/svc/service.cpp).
 See the [composition contracts](composition.md) for reentrancy and cleanup.
 
 ## Validation

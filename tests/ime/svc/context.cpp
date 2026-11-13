@@ -4,8 +4,8 @@
 #include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
-#include "ime/tsf/tip_service.h"
-#include "ime/tsf/svc/lifecycle.h"
+#include "ime/svc/service.h"
+#include "ime/svc/lifecycle.h"
 #include <array>
 #include <format>
 #include <iostream>
@@ -93,6 +93,43 @@ void TestAdditionalContextLifecycleCoverage(gsl::not_null<QiQiTextService*> serv
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestPushedContextResolution(service);
     const auto objects_before = g_com_object_count.load();
+    enum class AccessChange { Disabled, ReadOnly, QueryError };
+    for (const auto change : {AccessChange::Disabled, AccessChange::ReadOnly, AccessChange::QueryError}) {
+        const qiqi::test::TsfTestCaseTrace case_trace(
+            std::format("input-access.changed-during-preparation-{}", std::to_underlying(change)));
+        const auto context = MakeComObject<MockTfContext>();
+        const auto reset = gsl::finally([&]() noexcept {
+            context->layout_advise_callback_ = {};
+            context->disabled_compartment_->last_val_ = 0;
+            context->status_read_only_ = false;
+            context->get_status_result_ = S_OK;
+            QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+        });
+        bool changed = false;
+        context->layout_advise_callback_ = [&] {
+            changed = true;
+            switch (change) {
+                case AccessChange::Disabled:
+                    context->disabled_compartment_->last_val_ = 1;
+                    break;
+                case AccessChange::ReadOnly:
+                    context->status_read_only_ = true;
+                    break;
+                case AccessChange::QueryError:
+                    context->get_status_result_ = E_ACCESSDENIED;
+                    break;
+            }
+        };
+        BOOL eaten = TRUE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(changed && context->range_->text_.empty() && context->start_composition_calls_ == 0);
+        context->layout_advise_callback_ = {};
+        context->disabled_compartment_->last_val_ = 0;
+        context->status_read_only_ = false;
+        context->get_status_result_ = S_OK;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && eaten);
+        QIQI_TEST_CHECK(context->range_->text_ == L"b");
+    }
     for (const bool remove_target : {false, true}) {
         auto document = MakeComObject<MockTfDocumentMgr>();
         auto context = document->CreateTestContext();

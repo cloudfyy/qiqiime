@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ime/tsf/svc/test.h"
+#include "ime/svc/test.h"
 
 namespace qiqi::test::service_cases {
 
@@ -285,6 +285,25 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_CONTROL, 0, &eaten) == S_OK && !eaten);
     QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
     QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 1);
+
+    for (const bool test_only : {false, true}) {
+        const qiqi::test::TsfTestCaseTrace case_trace(
+            test_only ? "shift-letter.test-cancels" : "shift-letter.direct-cancels");
+        QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+        auto keyboard = clean_kb_state;
+        gsl::at(keyboard, VK_SHIFT) = 0x80;
+        QIQI_TEST_CHECK(::SetKeyboardState(keyboard.data()));
+        if (test_only) {
+            QIQI_TEST_CHECK(key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten) == S_OK);
+        } else {
+            QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), 'A', 0, &eaten) == S_OK);
+        }
+        QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
+        QIQI_TEST_CHECK(key_sink->OnTestKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(mock_tm->openclose_compartment_->last_val_ == 1);
+        QIQI_TEST_CHECK(key_sink->OnSetFocus(FALSE) == S_OK);
+    }
 
     QIQI_TEST_CHECK(key_sink->OnTestKeyDown(mock_ctx.Get(), VK_SHIFT, 0, &eaten) == S_OK && !eaten);
     ::Sleep(220);

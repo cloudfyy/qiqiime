@@ -32,7 +32,7 @@ it does not imply shared mutable runtime objects.
 | --- | --- | --- |
 | `qiqi_common` | [common](../src/common) | Configuration, files/codecs, sync, ETW, RAII, theme/DPI and shared controls |
 | `qiqi_engine` | [engine](../src/ime/engine), [FSM](../src/ime/fsm) | Wubi rules, lookup, candidates, user dictionaries and phrase ordering |
-| `qiqiime` | [TSF](../src/ime/tsf), [composition](../src/ime/comp), [IME UI](../src/ime/ui) | COM service and actual host edits/presentation |
+| `qiqiime` | [service](../src/ime/svc), [TSF](../src/ime/tsf), [composition](../src/ime/comp), [IME UI](../src/ime/ui) | COM service and actual host edits/presentation |
 | `qiqi_settings_ui` | [settings](../src/tools/settings) | Shared settings window used by the EXE and in-process fallback |
 | Standalone tools | [tools](../src/tools) | `QiQiIMESettings`, `QiQiIMEDictManager`, `QiQiIMELogMonitor` |
 
@@ -55,15 +55,21 @@ certification. Secure-mode capability is not declared; registration/unregistrati
 also remove its legacy category. Windows login/secure-desktop support remains
 outside the verified scope.
 
-The COM facade is split by responsibility:
+The COM facade is grouped in [svc](../src/ime/svc) and split by responsibility.
+Its [tests](../tests/ime/svc) mirror that boundary. Registration and reusable TSF
+helpers remain in the sibling [tsf](../src/ime/tsf) folder:
 
-- [tip_service.cpp](../src/ime/tsf/tip_service.cpp): construction, activation,
+- [service.cpp](../src/ime/svc/service.cpp): construction, activation,
   teardown, registrations, thread-manager notifications and providers.
-- [tip_keys.cpp](../src/ime/tsf/tip_keys.cpp): key testing/handling, preserved keys,
-  Shift tracking, and input admission.
-- [tip_composition.cpp](../src/ime/tsf/tip_composition.cpp): composition/layout
+- [keys.cpp](../src/ime/svc/keys.cpp): key testing/handling, preserved keys,
+  parameter validation and TSF callback adaptation.
+- [key_handler.cpp](../src/ime/svc/key_handler.cpp): input coordination,
+  Shift tracking, engine dispatch and preserved-key actions.
+- [context_access.cpp](../src/ime/svc/context_access.cpp): shared context
+  fact queries, access policy evaluation, cache updates and reset enforcement.
+- [composition.cpp](../src/ime/svc/composition.cpp): composition/layout
   adapters, target preparation, captured edits and presentation callbacks.
-- [tip_config.cpp](../src/ime/tsf/tip_config.cpp): loading/reload, compartments,
+- [config.cpp](../src/ime/svc/config.cpp): loading/reload, compartments,
   mode observation, language-bar actions and settings launch.
 
 Activation is cancellable. Reentrant deactivation invalidates input/UI permission
@@ -87,7 +93,7 @@ For ordinary key-down input, deciding whether to handle a key is separate from
 processing it and writing the result into the application's input field:
 
 1. **Determine whether the IME should handle the key
-   ([`OnTestKeyDown`](../src/ime/tsf/tip_keys.cpp#L226)).**
+   ([`OnTestKeyDown`](../src/ime/svc/keys.cpp)).**
    TSF asks whether the IME intends to handle the key instead of passing it
    directly to the application. This callback does not bind an input context,
    look up candidates, advance the engine state, or request a document edit.
@@ -99,26 +105,32 @@ processing it and writing the result into the application's input field:
    the old composition. That is only a prediction: it does not actually clear
    the composition or bind the new context.
 
-2. **Process the key ([`OnKeyDown`](../src/ime/tsf/tip_keys.cpp#L257)).**
-   Both key-down callbacks use the inline
-   [`GetKeyAndModifierState`](../src/ime/tsf/tip_keys.cpp#L43) helper to capture
+2. **Process the key ([`OnKeyDown`](../src/ime/svc/keys.cpp)).**
+   Both key-down callbacks use
+   [`ReadKeyEvent`](../src/ime/svc/key_handler.cpp) to capture
    the virtual-key code and Shift, Ctrl, Alt, and CapsLock state at entry.
    Calls into the application can dispatch newer keyboard messages or reenter
    the service, so later processing must use the state captured for this key.
-   The callback checks whether input is allowed in the target context, calls
-   [`PrepareInputContext`](../src/ime/tsf/tip_composition.cpp#L123),
+   The callback delegates to the input coordinator, which checks whether input
+   is allowed in the target context, calls
+   [`PrepareInputContext`](../src/ime/svc/composition.cpp#L123),
    and checks access again before processing the key.
+   These checks remain separate: preparation can reenter the host and change
+   context state or available scope facts. Context queries and reset enforcement
+   are separate operations behind the access facade; prediction queries do not
+   reset composition. The coordinator retains the original `pfEaten` write
+   timing before host edits, including the CapsLock pass-through path.
 
 3. **Use this key's result when editing the document.**
    [`WubiEngine`](../src/ime/engine/engine.h#L54) returns a
    [`KeyProcessResult`](../src/ime/engine/engine.h#L28) containing the committed text,
    composition text, candidate lists, and other presentation data for this key.
    The edit session created by
-   [`ApplyEngineResult`](../src/ime/tsf/tip_composition.cpp#L148)
+   [`ApplyEngineResult`](../src/ime/svc/composition.cpp#L148)
    owns this result snapshot even if it runs later, rather than rereading engine
    state that a subsequent key may already have changed.
 
-Returning `TRUE` from [`OnTestKeyDown`](../src/ime/tsf/tip_keys.cpp#L226)
+Returning `TRUE` from [`OnTestKeyDown`](../src/ime/svc/keys.cpp)
 only indicates that the IME intends to
 handle the key. It does not grant permission to change the application's text.
 The actual document edit still requires a TSF-granted edit session and checks

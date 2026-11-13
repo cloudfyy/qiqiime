@@ -7,7 +7,7 @@
 #include "common/logger.h"
 #include "ime/tsf/class_factory.h"
 #include "ime/tsf/register.h"
-#include "ime/tsf/tip_service.h"
+#include "ime/svc/service.h"
 
 namespace qiqi {
 HINSTANCE g_dll_instance = nullptr;

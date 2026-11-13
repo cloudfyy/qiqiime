@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ime/tsf/tip_service.h"
+#include "ime/svc/service.h"
 #include "ime/tsf/edit_session.h"
 #include "common/file_util.h"
 #include "common/guids.h"
@@ -32,29 +32,22 @@ bool IsCapsLockOn() noexcept {
     return (::GetKeyState(VK_CAPITAL) & 0x0001) != 0;
 }
 
-struct KeyAndModifierState {
-    uint32_t vk = 0;
-    bool shift = false;
-    bool ctrl = false;
-    bool alt = false;
-    bool caps = false;
-};
+constexpr bool IsShiftVirtualKey(uint32_t vk) noexcept {
+    return vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT;
+}
 
-inline KeyAndModifierState GetKeyAndModifierState(WPARAM key) noexcept {
+} // namespace
+
+QiQiTextService::KeyEvent QiQiTextService::ReadKeyEvent(WPARAM key, LPARAM flags) noexcept {
     return {
         .vk = gsl::narrow_cast<uint32_t>(key),
         .shift = IsKeyDown(VK_SHIFT),
         .ctrl = IsKeyDown(VK_CONTROL),
         .alt = IsKeyDown(VK_MENU),
         .caps = IsCapsLockOn(),
+        .flags = flags,
     };
 }
-
-constexpr bool IsShiftVirtualKey(uint32_t vk) noexcept {
-    return vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT;
-}
-
-} // namespace
 
 void QiQiTextService::LogShiftTap(std::string_view stage, uint32_t vk, const ITfContext* context,
                                  bool eaten, std::string_view reason) const noexcept {
@@ -72,7 +65,6 @@ void QiQiTextService::LogShiftTap(std::string_view stage, uint32_t vk, const ITf
         IsKeyDown(VK_SHIFT), IsKeyDown(VK_CONTROL), IsKeyDown(VK_MENU), IsAnyMouseButtonDown());
 }
 
-// ITfKeyEventSink
 void QiQiTextService::TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, ITfContext* context,
                                          LPARAM flags) noexcept {
     const bool is_auto_repeat = (flags & (1LL << 30)) != 0;
@@ -122,116 +114,13 @@ bool QiQiTextService::HandleShiftTapKeyUp(std::string_view stage, uint32_t vk, c
     return reason == nullptr;
 }
 
-STDMETHODIMP QiQiTextService::OnSetFocus(BOOL fForeground) {
-    HandleFocusChanged(fForeground != FALSE, FocusNotificationSource::KeyEvent);
-    if (fForeground && !password_context_) ObserveFocusedPasswordContext();
-    return S_OK;
-}
-
-AccessPolicy QiQiTextService::EvaluateContextAccess(ITfContext* context, bool enforce_reset) {
-    if (!context || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() ||
-        preparing_input_context_) {
-        return {.can_input = false, .can_learn = false, .should_reset_active = false};
-    }
-    const ComPtr<ITfContext> ctx_holder(context);
-    const bool is_active_target = (context == composition_lifecycle_.Context().Get());
-    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context};
-    const InputScopeClassification cached_scope = is_active_target
-        ? context_access_.CachedScopeFor(ticket)
-        : InputScopeClassification::Unknown;
-
-    const ContextFacts facts = ReadFastContextFacts(
-        ctx_holder.Get(), cached_scope,
-        [this, is_active_target, ticket]() noexcept {
-            return composition_lifecycle_.IsActive() && !composition_lifecycle_.IsResettingContext() &&
-                   !preparing_input_context_ &&
-                   (!is_active_target || composition_lifecycle_.IsCurrent(ticket));
-        });
-    const AccessPolicy policy = EvaluatePolicy(facts);
-    context_access_.LogIfChanged(service_log_id_, current_lifecycle_activity_, facts, policy);
-
-    if (enforce_reset && policy.should_reset_active) {
-        if (is_active_target || engine_.IsComposing() || composition_lifecycle_.Composition() ||
-            shift_tap_.IsCandidate()) {
-            ResetCompositionAndUI();
-        } else {
-            composition_lifecycle_.InvalidateContext();
-        }
-    }
-    return policy;
-}
-
-AccessPolicy QiQiTextService::EvaluateContextAccessInSession(
-    TfEditCookie ec, gsl::not_null<ITfContext*> context, EditSessionTicket ticket, bool enforce_reset) {
-    if (!IsEditSessionCurrent(ticket)) {
-        return {.can_input = false, .can_learn = false, .should_reset_active = false};
-    }
-    const bool query_wnd = context_access_.NeedsWindowQuery(ticket);
-    const uint64_t rev = context_access_.Revision();
-    ContextFacts facts = ReadFastContextFacts(
-        context.get(), context_access_.CachedScopeFor(ticket),
-        [this, ticket]() noexcept { return IsEditSessionCurrent(ticket); }, query_wnd);
-    if (!IsEditSessionCurrent(ticket)) {
-        return {.can_input = false, .can_learn = false, .should_reset_active = false};
-    }
-    if (query_wnd && !facts.HasError()) {
-        context_access_.UpdateWindowFacts(
-            ticket, rev, facts.is_native_password_edit, facts.is_native_readonly_edit);
-    } else {
-        context_access_.ApplyCachedWindowFacts(ticket, facts);
-    }
-    if (!facts.HasError() && !facts.IsBlocked() && context_access_.NeedsScopeQuery(ticket)) {
-        const InputScopeQueryResult scope_res = QueryContextInputScopeInSession(
-            ec, context, [this, ticket]() noexcept { return IsEditSessionCurrent(ticket); });
-        if (!IsEditSessionCurrent(ticket)) {
-            return {.can_input = false, .can_learn = false, .should_reset_active = false};
-        }
-        context_access_.UpdateScopeResult(ticket, rev, scope_res);
-        facts.scope_state = scope_res.classification;
-        if (scope_res.classification == InputScopeClassification::QueryError) {
-            facts.has_query_error = true;
-            facts.stage = scope_res.stage;
-            facts.error_hr = scope_res.hr;
-            facts.error_vt = scope_res.vt;
-        }
-    }
-    const AccessPolicy policy = EvaluatePolicy(facts);
-    context_access_.LogIfChanged(service_log_id_, current_lifecycle_activity_, facts, policy);
-    if (enforce_reset && policy.should_reset_active && IsEditSessionCurrent(ticket)) {
-        ResetCompositionAndUI();
-    }
-    return policy;
-}
-
-bool QiQiTextService::IsContextKeyboardDisabled(ITfContext* context) const noexcept {
-    if (!context || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() ||
-        preparing_input_context_) {
-        return true;
-    }
-    const bool is_active_target = (context == composition_lifecycle_.Context().Get());
-    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context};
-    const InputScopeClassification cached_scope = is_active_target
-        ? context_access_.CachedScopeFor(ticket)
-        : InputScopeClassification::Unknown;
-    const ContextFacts facts = ReadFastContextFacts(
-        context, cached_scope,
-        [this, is_active_target, ticket]() noexcept {
-            return composition_lifecycle_.IsActive() && !composition_lifecycle_.IsResettingContext() &&
-                   !preparing_input_context_ &&
-                   (!is_active_target || composition_lifecycle_.IsCurrent(ticket));
-        });
-    return !EvaluatePolicy(facts).can_input;
-}
-
-STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* pfEaten) noexcept {
-    if (!pfEaten) {
-        return E_INVALIDARG;
-    }
-    const auto [vk, shift, ctrl, alt, caps] = GetKeyAndModifierState(wParam);
+void QiQiTextService::HandleTestKeyDown(
+    ITfContext* pic, const KeyEvent& key, gsl::not_null<BOOL*> pfEaten) noexcept {
+    const auto [vk, shift, ctrl, alt, caps, flags] = key;
     if (IsShiftVirtualKey(vk)) {
-        TrackShiftTapKeyDown("OnTestKeyDown", vk, pic, lParam);
+        TrackShiftTapKeyDown("OnTestKeyDown", vk, pic, flags);
         *pfEaten = FALSE;
-        return S_OK;
+        return;
     }
     const bool keyboard_disabled = IsContextKeyboardDisabled(pic);
     if (!pic || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() || preparing_input_context_ || keyboard_disabled) {
@@ -242,7 +131,7 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
         }
         shift_tap_.Reset();
         *pfEaten = FALSE;
-        return S_OK;
+        return;
     }
     if (shift_tap_.IsCandidate()) LogShiftTap("OnTestKeyDown", 0, pic, false, "other-key-cancelled");
     shift_tap_.Reset();
@@ -251,15 +140,11 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
         ? engine_.ShouldEatKey(vk, shift, ctrl, alt, caps)
         : engine_.ShouldEatKeyAfterReset(vk, shift, ctrl, alt, caps);
     *pfEaten = eat_key ? TRUE : FALSE;
-    return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* pfEaten) {
-    if (!pfEaten) {
-        return E_INVALIDARG;
-    }
-    // Host calls during target preparation can pump a newer keyboard message.
-    const auto [vk, shift, ctrl, alt, caps] = GetKeyAndModifierState(wParam);
+void QiQiTextService::HandleKeyDown(
+    ITfContext* pic, const KeyEvent& key, gsl::not_null<BOOL*> pfEaten) {
+    const auto [vk, shift, ctrl, alt, caps, flags] = key;
     if (IsShiftVirtualKey(vk)) {
         ITfContext* const shift_ctx = pic ? pic : composition_lifecycle_.Context().Get();
         if (shift_ctx) {
@@ -268,13 +153,13 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM l
                 LogShiftTap("OnKeyDown", vk, pic, false, "keyboard-disabled");
                 shift_tap_.Reset();
                 *pfEaten = FALSE;
-                return S_OK;
+                return;
             }
         }
         // Hosts may dispatch directly, without the test callback. Do not bind a context for Shift.
-        TrackShiftTapKeyDown("OnKeyDown", vk, pic, lParam);
+        TrackShiftTapKeyDown("OnKeyDown", vk, pic, flags);
         *pfEaten = FALSE;
-        return S_OK;
+        return;
     }
     const AccessPolicy initial_policy = EvaluateContextAccess(pic, true);
     if (shift_tap_.IsCandidate())
@@ -282,16 +167,16 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM l
     shift_tap_.Reset();
     if (!initial_policy.can_input) {
         *pfEaten = FALSE;
-        return S_OK;
+        return;
     }
     if (!PrepareInputContext(pic)) {
         *pfEaten = FALSE;
-        return S_OK;
+        return;
     }
     const AccessPolicy active_policy = EvaluateContextAccess(pic, true);
     if (!active_policy.can_input) {
         *pfEaten = FALSE;
-        return S_OK;
+        return;
     }
 
     if (!engine_.IsComposing()) {
@@ -307,12 +192,12 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM l
         if (pic && result.action != KeyActionType::PassThrough) {
             ApplyEngineResult(pic, result);
         }
-        return S_OK;
+        return;
     }
 
     if (!engine_.ShouldEatKey(vk, shift, ctrl, alt, caps)) {
         *pfEaten = FALSE;
-        return S_OK;
+        return;
     }
 
     *pfEaten = TRUE;
@@ -328,30 +213,22 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM l
     if (pic && result.action != KeyActionType::PassThrough) {
         ApplyEngineResult(pic, result);
     }
-    return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnTestKeyUp(ITfContext* pic, WPARAM wParam, LPARAM /*lParam*/, BOOL* pfEaten) noexcept {
-    if (!pfEaten) {
-        return E_INVALIDARG;
-    }
-    const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
+void QiQiTextService::HandleTestKeyUp(
+    ITfContext* pic, uint32_t vk, gsl::not_null<BOOL*> pfEaten) noexcept {
     ITfContext* const effective_ctx = pic ? pic : composition_lifecycle_.Context().Get();
     if (IsShiftVirtualKey(vk) && effective_ctx && IsContextKeyboardDisabled(effective_ctx)) {
         LogShiftTap("OnTestKeyUp", vk, pic, false, "keyboard-disabled");
         shift_tap_.Reset();
         *pfEaten = FALSE;
-        return S_OK;
+        return;
     }
     *pfEaten = HandleShiftTapKeyUp("OnTestKeyUp", vk, pic, true) ? TRUE : FALSE;
-    return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM /*lParam*/, BOOL* pfEaten) {
-    if (!pfEaten) {
-        return E_INVALIDARG;
-    }
-    const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
+void QiQiTextService::HandleKeyUp(
+    ITfContext* pic, uint32_t vk, gsl::not_null<BOOL*> pfEaten) {
     if (IsShiftVirtualKey(vk)) {
         if (ITfContext* const effective_ctx = pic ? pic : composition_lifecycle_.Context().Get()) {
             const AccessPolicy policy = EvaluateContextAccess(effective_ctx, true);
@@ -359,7 +236,7 @@ STDMETHODIMP QiQiTextService::OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM /*l
                 LogShiftTap("OnKeyUp", vk, pic, false, "keyboard-disabled");
                 shift_tap_.Reset();
                 *pfEaten = FALSE;
-                return S_OK;
+                return;
             }
         }
     }
@@ -367,20 +244,17 @@ STDMETHODIMP QiQiTextService::OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM /*l
         *pfEaten = TRUE;
         ToggleModeAndFinishComposition(pic);
         LogShiftTap("OnKeyUp", vk, pic, true, "toggle-complete");
-        return S_OK;
+        return;
     }
     *pfEaten = FALSE;
-    return S_OK;
 }
 
-STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOOL* pfEaten) {
-    if (!pfEaten) {
-        return E_INVALIDARG;
-    }
+void QiQiTextService::HandlePreservedKey(
+    ITfContext* pic, REFGUID rguid, gsl::not_null<BOOL*> pfEaten) {
     if (!composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() ||
         preparing_input_context_) {
         *pfEaten = FALSE;
-        return S_OK;
+        return;
     }
     ITfContext* const target = pic ? pic : composition_lifecycle_.Context().Get();
     AccessPolicy policy{.can_input = true, .can_learn = true, .should_reset_active = false};
@@ -388,32 +262,32 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
         policy = EvaluateContextAccess(target, true);
         if (!policy.can_input) {
             *pfEaten = FALSE;
-            return S_OK;
+            return;
         }
     }
     if (IsEqualGUID(rguid, kGuidPreservedKeyToggleMode)) {
         *pfEaten = TRUE;
         ToggleModeAndFinishComposition(target);
-        return S_OK;
+        return;
     }
     if (IsEqualGUID(rguid, kGuidPreservedKeyToggleFullWidth)) {
         *pfEaten = TRUE;
         engine_.ToggleFullWidthMode();
         SyncTsfCompartments();
         QIQI_LOG_INFO("Full-width mode toggled: {}", engine_.IsFullWidthMode() ? "FullWidth" : "HalfWidth");
-        return S_OK;
+        return;
     }
     if (IsEqualGUID(rguid, kGuidPreservedKeyTogglePunctuation)) {
         *pfEaten = TRUE;
         engine_.ToggleChinesePunctuation();
         SyncTsfCompartments();
         QIQI_LOG_INFO("Punctuation mode toggled: {}", engine_.IsChinesePunctuation() ? "Chinese" : "English");
-        return S_OK;
+        return;
     }
     if (IsEqualGUID(rguid, kGuidPreservedKeyAddUserWord)) {
         if (!policy.can_learn) {
             *pfEaten = FALSE;
-            return S_OK;
+            return;
         }
         *pfEaten = TRUE;
         if (const ScopedClipboard clip{}; clip.IsOpen()) {
@@ -438,10 +312,9 @@ STDMETHODIMP QiQiTextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOO
         } else {
             QIQI_LOG_WARN("OnPreservedKey(AddUserWord): OpenClipboard failed (error={})", clip.Error());
         }
-        return S_OK;
+        return;
     }
     *pfEaten = FALSE;
-    return S_OK;
 }
 
 void QiQiTextService::SetChineseModeAndFinishComposition(ITfContext* context, bool enabled) {

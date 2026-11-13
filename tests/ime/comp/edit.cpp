@@ -4,7 +4,7 @@
 #include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "ime/tsf/mocks.h"
-#include "ime/tsf/tip_service.h"
+#include "ime/svc/service.h"
 #include "ime/comp/tests.h"
 #include "ime/comp/edit.h"
 #include "ime/tsf/edit_session.h"

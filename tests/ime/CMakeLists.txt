@@ -58,24 +58,24 @@ set(QIQI_TSF_UI_TEST_SOURCES
     tsf/category_manager.cpp
     tsf/logging.cpp
     tsf/restricted_input.cpp
-    tsf/svc/main.cpp
-    tsf/svc/test.h
-    tsf/svc/dict.cpp
-    tsf/svc/flow.cpp
-    tsf/svc/focus.cpp
-    tsf/svc/keys.cpp
-    tsf/svc/action.cpp
-    tsf/svc/lifecycle.h
-    tsf/svc/lifecycle.cpp
-    tsf/svc/cleanup.cpp
-    tsf/svc/context.cpp
-    tsf/svc/layout.cpp
-    tsf/svc/deferred.cpp
-    tsf/svc/native.cpp
-    tsf/svc/presentation.cpp
-    tsf/svc/reentrancy.cpp
-    tsf/svc/target.cpp
-    tsf/svc/windows.cpp
+    svc/main.cpp
+    svc/test.h
+    svc/dict.cpp
+    svc/flow.cpp
+    svc/focus.cpp
+    svc/keys.cpp
+    svc/action.cpp
+    svc/lifecycle.h
+    svc/lifecycle.cpp
+    svc/cleanup.cpp
+    svc/context.cpp
+    svc/layout.cpp
+    svc/deferred.cpp
+    svc/native.cpp
+    svc/presentation.cpp
+    svc/reentrancy.cpp
+    svc/target.cpp
+    svc/windows.cpp
     ui/ui_candidate.cpp
     ui/ui_langbar_menu.cpp
     ui/ui_statusbar.cpp
@@ -86,10 +86,12 @@ set(QIQI_TSF_UI_IMPL_SOURCES
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/dllmain.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/class_factory.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/register.cpp"
-    "${PROJECT_SOURCE_DIR}/src/ime/tsf/tip_service.cpp"
-    "${PROJECT_SOURCE_DIR}/src/ime/tsf/tip_keys.cpp"
-    "${PROJECT_SOURCE_DIR}/src/ime/tsf/tip_composition.cpp"
-    "${PROJECT_SOURCE_DIR}/src/ime/tsf/tip_config.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/svc/service.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/svc/keys.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/svc/key_handler.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/svc/context_access.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/svc/composition.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/svc/config.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/display_attribute.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/candidate_ui.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/langbar_button.cpp"

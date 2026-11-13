@@ -115,6 +115,14 @@ public:
 
 private:
     enum class FocusNotificationSource { ThreadManager, KeyEvent };
+    struct KeyEvent {
+        uint32_t vk = 0;
+        bool shift = false;
+        bool ctrl = false;
+        bool alt = false;
+        bool caps = false;
+        LPARAM flags = 0;
+    };
     struct ReloadResult {
         bool succeeded = true;
         HRESULT error = S_OK;
@@ -148,6 +156,12 @@ private:
     void UpdateUiIndicators();
     void HandleLangBarMenuAction(LangBarMenuId action_id);
     void HandleFocusChanged(bool has_focus, FocusNotificationSource source);
+    static KeyEvent ReadKeyEvent(WPARAM key, LPARAM flags) noexcept;
+    void HandleTestKeyDown(ITfContext* context, const KeyEvent& key, gsl::not_null<BOOL*> eaten) noexcept;
+    void HandleKeyDown(ITfContext* context, const KeyEvent& key, gsl::not_null<BOOL*> eaten);
+    void HandleTestKeyUp(ITfContext* context, uint32_t vk, gsl::not_null<BOOL*> eaten) noexcept;
+    void HandleKeyUp(ITfContext* context, uint32_t vk, gsl::not_null<BOOL*> eaten);
+    void HandlePreservedKey(ITfContext* context, REFGUID guid, gsl::not_null<BOOL*> eaten);
     void LogShiftTap(std::string_view stage, uint32_t vk, const ITfContext* context,
                      bool eaten, std::string_view reason) const noexcept;
     void TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, ITfContext* context,
@@ -171,6 +185,9 @@ private:
     AccessPolicy EvaluateContextAccess(ITfContext* context, bool enforce_reset = true);
     AccessPolicy EvaluateContextAccessInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, EditSessionTicket ticket, bool enforce_reset = true);
+    bool CanQueryContextAccess(ITfContext* context) const noexcept;
+    ContextFacts ReadContextAccessFacts(gsl::not_null<ITfContext*> context, bool is_active_target) const noexcept;
+    void EnforceContextAccessPolicy(const AccessPolicy& policy, bool is_active_target);
     void ConnectActiveContextAccessSinks(ITfContext* context);
     void DisconnectActiveContextAccessSinks() noexcept;
     void PrefetchActiveContextInputScope(ITfContext* context);

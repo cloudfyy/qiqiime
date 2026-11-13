@@ -8,7 +8,7 @@
 #include "common/file_util.h"
 #include "ime/comp/access_policy.h"
 #include "ime/tsf/edit_session.h"
-#include "ime/tsf/tip_service.h"
+#include "ime/svc/service.h"
 
 #include <initguid.h>
 #include <inputscope.h>
