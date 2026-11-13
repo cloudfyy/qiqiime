@@ -75,6 +75,11 @@ address for the service lifetime. Preserve member order
 `composition, cleanups, context, document`: reverse destruction releases document,
 context, cleanup bookkeeping, then composition.
 
+Deleted copy/move operations enforce address stability.
+[`TestLifecycleStateReleaseOrder`](../tests/ime/comp/state.cpp#L150) checks the
+observable COM release order; keep the declaration-order contract documented in
+[`CompositionLifecycleState`](../src/ime/comp/state.h#L18) when changing members.
+
 | Check | Why it matters |
 | --- | --- |
 | Active and not resetting | A live service can still be inside teardown |
