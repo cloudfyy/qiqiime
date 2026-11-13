@@ -19,7 +19,7 @@ QiQiIME 是 TSF 进程内 COM 组件。在允许加载该输入法的宿主中�
 | **TSF 类别声明** | [`register.cpp`](../src/ime/tsf/register.cpp) | 声明 `GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT` 与 `GUID_TFCAT_TIPCAP_COMLESS`；实际激活仍取决于宿主支持、注册状态和 DLL 访问权限。 |
 | **只读匿名文件映射** | [`binary_dict.cpp`](../src/ime/engine/binary_dict.cpp) | 以 `GENERIC_READ`、`FILE_SHARE_READ \| FILE_SHARE_DELETE` 打开文件，创建 `PAGE_READONLY` 匿名映射；这些标志不授予额外文件访问权，也不保证映射一定成功。 |
 | **内存缓冲回退** | [`binary_dict.cpp`](../src/ime/engine/binary_dict.cpp) | 文本读取及二进制编译成功、但缓存无法映射时，可保留堆内存中的 `fallback_buffer_`。源文件不可读、编译失败或内存不足时仍可能加载失败，不保证零堆占用或绝不丢失词库能力。 |
-| **ETW 日志** | [`logger.cpp`](../src/common/logger.cpp) | 使用 `QiQiIME.TraceLogging`，不依赖 spdlog 或自动写入文本日志。注册/写入可能失败，按实际错误码诊断；采集控制权限与宿主写事件权限不能混为一谈。 |
+| **ETW 日志** | [`logger.cpp`](../src/common/logger.cpp) | 使用 `QiQiIME.TraceLogging` 输出诊断事件。注册/写入可能失败，按实际错误码诊断；采集控制权限与宿主写事件权限不能混为一谈。 |
 | **注册期词库预编译** | [`register.cpp`](../src/ime/tsf/register.cpp) | 注册时尝试为三套随包词库生成同目录 `.qdict`，卸载注册时尝试清理；源文件或权限问题可能导致预编译失败。 |
 | **开发目录读取权限** | [`register_ime.ps1`](../scripts/register_ime.ps1)、[`common.ps1`](../scripts/common.ps1) | 注册脚本已对所需产物及数据目录配置应用包读取/执行权限；结果应检查实际 ACL，不能因位于 `Program Files` 就假定任何宿主均可访问。 |
 

@@ -243,7 +243,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 保存真实返回值，记录操作名、必要的非敏感上下文及错误码。COM 沿用 `hr=0x{:08x}` 与 `gsl::narrow_cast<unsigned int>`；仅在 Win32 API 约定使用 `GetLastError` 时，于失败后立即捕获，不能替代 HRESULT 或输出陈旧错误。
   - 合理区分回退诊断与最终失败级别，不记录用户输入或敏感数据，不造成按键日志刷屏，不改变既有业务行为。
   - 分批修复并记录覆盖范围与剩余项，补充失败注入测试，验证错误码来源、操作上下文及正常行为；不能仅修复当前文件就宣布完成。与任务 48、53 协调避免重复实现。
-  - 审计范围、修复项、验证方式及独立生命周期剩余项见[开发文档](dev.md#53-失败日志审计范围任务-49)；后续代码沿用该失败诊断规范。
+  - 审计范围、修复项、验证方式及独立生命周期剩余项见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#53-失败日志审计范围任务-49)；后续代码沿用该失败诊断规范。
 
 **P0：先建立测试能力，再修复过期任务**
 
@@ -254,19 +254,19 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 保留应用日志级别、无接收方时的低开销、真实注册错误码及不递归失败兜底，不记录用户输入或敏感数据。
   - 补充无调试器且 ETW 会话已启动、应用启动后才启用采集、停用/重新激活、多实例、注册失败及日志 Off 的测试；实际采集验证应确认包含目标宿主 PID 和预期消息，不能仅检查会话存在。
   - 已在服务构造入口（配置/词库初始化之前）与激活路径主动幂等注册，分离注册与设置日志级别，移除日志写入/查询的隐式注册及 `DllMain` 的格式化日志；与任务 51 一并完成模块生命周期清理。
-  - 双架构普通测试及真实 DLL、无调试器、多进程 ETW 采集通过，包含晚启动采集、停用/重新激活、模块重载、Off 及目标 PID/预期消息/零丢失校验；同步核心注入注册失败与并发初始化。详见[开发文档](dev.md#54-日志初始化与生命周期验证任务-5551)和[日志指南](log.md#初始化与共享生命周期)，不宣称浏览器/UWP 全面兼容性已验证。
+  - 双架构普通测试及真实 DLL、无调试器、多进程 ETW 采集通过，包含晚启动采集、停用/重新激活、模块重载、Off 及目标 PID/预期消息/零丢失校验；同步核心注入注册失败与并发初始化。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#54-日志初始化与生命周期验证任务-5551)和[日志指南](log.md#初始化与共享生命周期)，不宣称浏览器/UWP 全面兼容性已验证。
 
 - [x] **42. 延迟编辑会话测试能力（`tsf-deferred-session-test-support`）**
   - 扩展现有立即执行回调的编辑会话 Mock，支持排队及手动执行；模拟停用、重新激活和上下文变化后才执行旧任务的时序。
   - 先建立可暴露问题的测试，再实施任务 43、44；不要用同步 Mock 的成功结果代替异步生命周期验证。
   - 已增加外部拥有的 FIFO 调度器，保留默认立即执行，覆盖同步优先、异步返回值、请求/回调失败、只读限制、重入及 COM 引用释放；停用/重新激活和上下文变化后的真实写回调、布局读回调可手动运行。
-  - x64/x86 的 TSF/UI 与真实 ETW 集成测试通过；仅扩展测试能力，不修改生产代码或自动过滤旧任务。调度器所有权与使用边界见[开发文档](dev.md#55-延迟编辑会话测试任务-42)。
+  - x64/x86 的 TSF/UI 与真实 ETW 集成测试通过；仅扩展测试能力，不修改生产代码或自动过滤旧任务。调度器所有权与使用边界见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#55-延迟编辑会话测试任务-42)。
 - [x] **43. 阻止过期异步编辑任务（`tsf-stale-edit-sessions`）**
   - 对 [`ApplyEngineResult` 与 `OnLayoutChange`](../src/ime/tsf/tip_composition.cpp) 的编辑会话校验激活周期及输入上下文周期；停用或输入目标失效后，旧任务不得写文档、创建组合或恢复 UI。
   - 仅检查是否激活或 `ComPtr` 非空不够：重新激活后旧任务仍属于旧周期，对象存活也不代表仍是有效输入目标。
   - 依赖任务 42；确保新周期的正常输入不受影响。
   - 已为写入及布局读回调捕获服务实例的激活/上下文周期，在回调开始处统一校验；停用先关闭有效激活状态，现有重置入口及输入目标切换先使旧任务失效，再清理本地状态。过期任务返回 `S_OK` 并记录不含输入内容的调试诊断，不访问文档或恢复 UI。
-  - 上下文切换不再沿用旧组合范围；x64/x86 的 TSF/UI、真实 ETW 测试通过，覆盖同一 COM 上下文重新激活、焦点重置、A→B→A、宿主终止、旧提交/取消/布局任务及正常 FIFO。验证范围与任务 44、45 的边界见[开发文档](dev.md#56-过期编辑会话屏障任务-43)。
+  - 上下文切换不再沿用旧组合范围；x64/x86 的 TSF/UI、真实 ETW 测试通过，覆盖同一 COM 上下文重新激活、焦点重置、A→B→A、宿主终止、旧提交/取消/布局任务及正常 FIFO。验证范围与任务 44、45 的边界见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#56-过期编辑会话屏障任务-43)。
 
 **P1：组合、上下文与真实宿主验证**
 
@@ -278,7 +278,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 依赖任务 42，与任务 41 的窗口销毁流程协调。
   - 已按确认策略保留预编辑文字，在同步读写编辑会话中清除显示属性并结束捕获的宿主组合；拒绝重入激活，重复停用不重复结束。宿主终止当前组合时使用其提供的写 cookie 清理属性，不再主动结束；旧组合通知不重置新组合。
   - 已按更新确认的策略，在 `TF_E_SYNCHRONOUS` 且回调未执行时申请受控异步清理；独立状态只操作旧组合和范围，同一上下文的新写请求强制异步排在旧清理之后，不恢复 UI、不保留线程管理器引用。宿主提前终止旧组合时后续回调退出，避免误清新组合属性。
-  - 真实私有 TSF 文档验证布局通知内同步拒绝、返回后异步清理、组合枚举及组合/显示属性移除、保留文本和重新激活后的新组合隔离。只读/断开/请求拒绝等仍明确记录并安全清理本地资源；不将 `S_OK` 或排队成功当成所有宿主均能结束的保证。详见[开发文档](dev.md#57-停用组合清理与受控异步补救任务-44)。
+  - 真实私有 TSF 文档验证布局通知内同步拒绝、返回后异步清理、组合枚举及组合/显示属性移除、保留文本和重新激活后的新组合隔离。只读/断开/请求拒绝等仍明确记录并安全清理本地资源；不将 `S_OK` 或排队成功当成所有宿主均能结束的保证。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#57-停用组合清理与受控异步补救任务-44)。
   - x64/x86 的 TSF/UI（包含真实 TSF 文档测试）及 ETW 集成测试均通过，定向 CppCoreCheck 无新增告警；实际浏览器/UWP 宿主兼容性仍需单独验证。
 - [x] **45. 文档及上下文生命周期处理（`tsf-document-context-lifecycle`）**
   - 继续以 `ITfContext` 为核心，不建立不必要的文档管理器列表。`OnInitDocumentMgr` 无文档级资源时可保持空实现。
@@ -291,7 +291,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 依赖任务 43、44。官方依据：[Push](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-push)、[Pop](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfdocumentmgr-pop)。
   - 已按活动 context 缓存单个所属文档并实现焦点/栈关联判断；正常模态入栈保留主组合，无关通知不清理当前输入。当前 context 移除只清本地资源，不请求写权限，并使匹配的已排队旧清理失效。
   - 同时修正任务 43/44 的关联缺口：在引擎处理新目标按键之前重置旧目标；连接中的目标切换/失焦复用宿主组合清理，A→B→A 的新写仍排在旧清理之后；范围查询重入移除后不再提交清理请求。
-  - x64/x86 TSF/UI、真实私有 TSF 文档通知及 ETW 集成测试均通过，定向 CppCoreCheck 无新增诊断。实现、日志和验证边界见[开发文档](dev.md#58-文档及上下文生命周期任务-45)及[英文设计](composition.md#8-document-and-context-notifications)；不替代浏览器/UWP 实际宿主验证。
+  - x64/x86 TSF/UI、真实私有 TSF 文档通知及 ETW 集成测试均通过，定向 CppCoreCheck 无新增诊断。实现、日志和验证边界见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#58-文档及上下文生命周期任务-45)及[英文设计](composition.md#8-document-and-context-notifications)；不替代浏览器/UWP 实际宿主验证。
 - [x] **46. 生命周期回归测试（`tsf-lifecycle-regression-tests`）**
   - 依赖任务 43、44、45，利用任务 42 的延迟执行能力验证：提交后停用、停用后重新激活、输入目标变化及过期任务执行。
   - 覆盖停用时仍有组合、宿主提前终止、重复停用、激活失败回滚、文档解除初始化及上下文出入栈。
@@ -299,7 +299,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 按官方 API 语义模拟通知，不能仅用普通窗口切换替代上下文栈测试。
   - 已盘点既有回归并建立[覆盖矩阵](composition.md#91-regression-inventory-task-46)：新增 86 个执行中编辑/宿主终止、8 个迟到组合创建、4 个清理属性查询用例，另补同周期替换组合及按键状态重入各 2 例。
   - 先用失败测试复现再修正旧编辑在宿主调用返回后继续执行、宿主终止发生在属性查询中导致漏清、同周期替换组合后旧 UI 继续刷新，以及目标清理/compartment 查询改变当前按键修饰状态。迟到组合复用独立清理，新写必要时重新排到旧清理后，不改 FSM 表或同周期 FIFO。
-  - x64/x86 Release TSF/UI 与 ETW 各连续通过 2 次，引擎回归通过；双架构定向 CppCoreCheck 修正新增 const 诊断后仅保留既有告警。验证边界见[开发文档](dev.md#59-生命周期回归矩阵任务-46)，真实宿主显示验证仍由任务 47 完成。
+  - x64/x86 Release TSF/UI 与 ETW 各连续通过 2 次，引擎回归通过；双架构定向 CppCoreCheck 修正新增 const 诊断后仅保留既有告警。验证边界见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#59-生命周期回归矩阵任务-46)，真实宿主显示验证仍由任务 47 完成。
 
 **P1：注册所有权、全仓库日志与性能**
 
@@ -312,7 +312,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 官方依据：[PreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-preservekey)、[UnpreserveKey](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeystrokemgr-unpreservekey)。
   - 已在 `QiQiTextService` 逐键记录本激活周期成功注册的 `(GUID, TF_PRESERVEDKEY)` 并独立跟踪 `key_event_sink_registered_`；`Deactivate` 或初始化失败回滚时只对本周期成功项调用 `UnpreserveKey`，只在 `AdviseKeyEventSink` 成功后调用 `UnadviseKeyEventSink`。
   - 复核了微软 SampleIME（忽略 `PreserveKey`/`UnpreserveKey` 返回值且按静态表全量注销）与 Weasel（保留键注册位于 `#if 0`、注销为空），未照搬其实现；显式区分 `TF_E_ALREADY_EXISTS`（记录跳过所有权）与其他失败，注销时逐键记录 `vkey`/`mod` 与真实 `HRESULT`，并在操作前清空本地持有表保证重复停用幂等。
-  - x64/x86 Release TSF/UI 与 ETW 集成测试通过，自有调试子进程验证重复注册、其他失败与注销失败日志；定向 CppCoreCheck 无新增告警。详见[开发文档](dev.md#510-保留键与键盘监听所有权生命周期任务-48)。
+  - x64/x86 Release TSF/UI 与 ETW 集成测试通过，自有调试子进程验证重复注册、其他失败与注销失败日志；定向 CppCoreCheck 无新增告警。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#510-保留键与键盘监听所有权生命周期任务-48)。
 - [x] **50. 焦点处理性能埋点（`tsf-focus-performance-instrumentation`）**
   - 对 [`HandleFocusChanged`](../src/ime/tsf/tip_service.cpp) 的 `ReloadConfigIfModified`、`SyncStatusBarPositionFromGlobalCompartment` 分别测量耗时，并记录焦点处理总耗时及两类通知来源。
   - 区分配置/词库无变化检查与实际重载，识别重复通知、同次词库与配置变化导致的重复加载；记录重载结果及非敏感计数。
@@ -327,13 +327,13 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 - [x] **51. 共享日志关闭时机（`tsf-shared-logger-lifetime`）**
   - 已移除 `Deactivate` 的 `log::Shutdown`，Provider 按进程内模块生命周期共享、正常卸载时统一清理；不同进程独立，不使用跨进程锁或引用计数。
   - 初始化序列化且成功后才发布注册状态；稳定日志路径不获取应用锁，模块清理要求调用者结束，不在加载器锁内初始化或获取初始化锁。未初始化和重复清理不触发注册。
-  - 与任务 55 同批验证：普通测试断言停用/重新激活保留共享 Provider 与 Off；真实 DLL 多实例、多进程 ETW 采集验证停用一个实例或退出一个进程不影响其他实例/进程，详见[开发文档](dev.md#54-日志初始化与生命周期验证任务-5551)。
+  - 与任务 55 同批验证：普通测试断言停用/重新激活保留共享 Provider 与 Off；真实 DLL 多实例、多进程 ETW 采集验证停用一个实例或退出一个进程不影响其他实例/进程，详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#54-日志初始化与生命周期验证任务-5551)。
 - [x] **52. 进程词库缓存清理时机（`tsf-process-dict-cache-lifetime`）**
   - 评估每个 `Deactivate` 调用 `ClearProcessCache` 是否造成多实例后续重复加载，按共享资源生命周期决定清理策略。
   - 其他实例持有的 `shared_ptr` 不因清空缓存而悬空；重点验证共享复用、内存释放及停用一个实例后其他实例查询正常，不将性能风险误报成已确认的悬空引用。
   - 已移除 [`QiQiTextService::Deactivate`](../src/ime/tsf/tip_service.cpp) 中的 `WubiMappedDict::ClearProcessCache()`：停用仅通过 `engine_.ClearExternalDictionaries()` 释放本实例的 `shared_ptr<const WubiMappedDict>`，进程级 `g_process_dict_cache` 由模块生命周期管理（[`DllMain`](../src/ime/tsf/dllmain.cpp) 动态卸载时清理，文件修改时按大小/时间戳自动更新替换）。
   - 同时修正 `ActivateEx` 在 `PrimaryDict::BuiltinOnly` 模式下停用后重新激活漏重新挂载用户词库的问题（统一在 `engine_.MappedDictionaryCount() == 0` 时调用 `LoadExternalDictionaryNextToDll` 复用进程缓存）。
-  - 引擎与 TSF 测试共同验证：同进程多实例共享同一 `WubiMappedDict` 实例、停用一个实例不清空进程缓存且其他实例与重新激活实例查询正常（含 `BuiltinOnly` + 用户词库）、显式清空缓存不会使已持有的 `shared_ptr` 悬空，且所有持有者与缓存释放后底层对象归零销毁。详见[开发文档](dev.md#511-进程词库缓存生命周期任务-52)。
+  - 引擎与 TSF 测试共同验证：同进程多实例共享同一 `WubiMappedDict` 实例、停用一个实例不清空进程缓存且其他实例与重新激活实例查询正常（含 `BuiltinOnly` + 用户词库）、显式清空缓存不会使已持有的 `shared_ptr` 悬空，且所有持有者与缓存释放后底层对象归零销毁。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#511-进程词库缓存生命周期任务-52)。
 - [x] **53. 类别管理器创建及 DLL 生命周期（`tsf-category-manager-creation-lifetime`）**
   - 背景：先用 `GetModuleHandleW`/`GetProcAddress` 动态调用 `TF_CreateCategoryMgr`，未取得接口则回退 `CoCreateInstance`；两条创建路径都忽略 HRESULT，仅检查指针，`RegisterGUID` 日志也缺错误码。
   - 官方说明导出函数可在不初始化 COM 时创建类别管理器，调用线程必须维护对象引用计数；局部 `ComPtr` 管理接口是合理的。文档没有要求导出优先、COM 回退的固定顺序。
@@ -343,7 +343,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 覆盖导出成功/不可用、导出失败后 COM 成功、全部创建失败及注册失败；保留失败不终止激活的既有行为，验证目标宿主兼容性。
   - 官方依据：[TF_CreateCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-tf_createcategorymgr)、[GetModuleHandleW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew)、[ITfCategoryMgr](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nn-msctf-itfcategorymgr)。
   - 已保留导出优先/COM 回退路径，改用 `GetModuleHandleExW(0, ...)` 与现有 `ScopedModule` 持有引用，局部 COM 接口先于模块释放；各失败阶段记录对应错误码，不修改宿主 COM 初始化状态，注册失败仍不阻止激活。
-  - 双架构 TSF/UI 与 ETW 测试通过；新增失败分支、释放顺序、未初始化 COM 线程上的原生导出及真实 COM 回退测试。详见[开发文档](dev.md#512-类别管理器创建与模块引用任务-53)，真实宿主交互验证继续由任务 47 跟进。
+  - 双架构 TSF/UI 与 ETW 测试通过；新增失败分支、释放顺序、未初始化 COM 线程上的原生导出及真实 COM 回退测试。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#512-类别管理器创建与模块引用任务-53)，真实宿主交互验证继续由任务 47 跟进。
 - [x] **56. 独立实时日志监控工具（`realtime-etw-log-monitor`）**
   - 执行顺序：紧接任务 53；依赖任务 55、51（均已完成）。
   - 为日常开发和用户问题复现提供按需启动的轻量工具，避免每次附加调试器或打开 WPA；作为可选诊断程序，不随 IME 常驻，不替代 WPA 的完整离线分析能力。
@@ -361,7 +361,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 已实现 [`QiQiIMELogMonitor`](../src/tools/log_monitor/CMakeLists.txt)：共享版本资源、后台实时采集/TDH 解码、原生多选虚拟列表、稳定 ID、筛选、详情高度滑块、暂停滚动、有界缓冲、单选/多选完整日志项剪贴板复制和带隐私确认的 UTF-8 快照导出。提取并在设置程序共用控件颜色及高对比度/原生按钮回退，不依赖设置窗口内部状态。
   - 自身诊断使用独立的 `QiQiIME.LogMonitor` Provider、有界视图与导出来源，不重发采集消息；状态区分别显示 ETW 丢失、本地淘汰、解码和内存异常。启动异常使用 RAII 回滚，停止失败保留自有会话供重试；同步等待 Provider 启用，避免晚启动采集丢失首条消息。
   - 桌面增强：独立 16–256 像素品牌窗口图标（去除与标题栏/关于框重复的客户区图标与说明文字）、系统深浅色/高对比度及变更通知、运行时中英/自动语言；不修改 IME 配置，不增加托盘通知。共享控件回退及工作区矩形帮助代码，支持跨屏 DPI、负坐标、普通窗口拔屏恢复和窄窗口布局。
-  - x64/x86 的模型/GUI/版本/导出、实时多进程 ETW、Common、Settings、TSF/UI 及原有 ETW 回归通过，新增 ETW 测试未跳过；两个方向的跨架构采集与真实 GUI 收到事件、正常退出均验证通过。覆盖中文、内嵌 NUL、时间/级别、Provider 重注册、高频溢出、会话清理、主题/语言状态保留、深色表头像素及模拟显示器变化；真实双屏 150%→100% 移动另行通过。定向 CppCoreCheck 无新增监控器告警，详见[开发文档](dev.md#513-实时日志监控工具任务-56)。完整真实高对比度、热插拔/最大化/最小化及浏览器/UWP 矩阵不据此宣称全面验证。
+  - x64/x86 的模型/GUI/版本/导出、实时多进程 ETW、Common、Settings、TSF/UI 及原有 ETW 回归通过，新增 ETW 测试未跳过；两个方向的跨架构采集与真实 GUI 收到事件、正常退出均验证通过。覆盖中文、内嵌 NUL、时间/级别、Provider 重注册、高频溢出、会话清理、主题/语言状态保留、深色表头像素及模拟显示器变化；真实双屏 150%→100% 移动另行通过。定向 CppCoreCheck 无新增监控器告警，详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#513-实时日志监控工具任务-56)。完整真实高对比度、热插拔/最大化/最小化及浏览器/UWP 矩阵不据此宣称全面验证。
 - [x] **57. 日志监控器默认级别与输入法输出级别脱节修复（`log-monitor-effective-level-sync`）**
   - 问题现象：`QiQiIMELogMonitor` 界面默认 `Level` 显示为 `All`（且 ETW 会话启用了 `TRACE_LEVEL_VERBOSE`），但输入法侧 [`Log`](../src/common/logger.h) 被进程内 `g_log_level`（默认注册表 `LogLevel=2` 即 `Info`）提前拦截，导致用户在监控器看到 `Level = All` 却完全收不到 `Debug`/`Trace`（`Verbose`）级别日志。
   - 修复方案：新增 `log::ShouldLog(Level)` 并在 `Log`、`WriteLogMessage`、焦点计时、配置热重载及 `LogShiftTap` 中统一复用；当 `LogLevel != Off` 时，按活跃 ETW 会话请求的级别（`TraceLoggingProviderEnabled(g_qiqi_etw_provider, etw_level, 0)`）直接放行 ETW 事件，同时保留 `LogLevel` 对附加调试器 `OutputDebugString` 的阈值控制及 `LogLevel=Off` 的总开关语义，使监控器开始采集即可实时收到 `Debug`/`Trace`（`Verbose`）诊断日志而无需手改注册表或重启宿主。
@@ -403,7 +403,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 - [x] **R04. 提取共享的纯词库加载计划**：IME 与工具共用自带主词库/扩展的角色及顺序计划，用户来源、相对路径、诊断和 IME 注册表回退仍由执行端处理。六种组合、来源展示、缺失词库、缓存复用及默认/显式用户路径回退差异回归在 x64/x86 通过；未改授权策略或宣称性能改善。
 - [x] **R05. 提取 TSF 组合生命周期协调边界（代码、自动验收及用户测试确认已收口）**：[`生命周期状态/票据`](../src/ime/comp/state.h)、[`清理协调器`](../src/ime/comp/cleanup.h)、[`编辑任务/请求`](../src/ime/comp/edit.h) 及开始/更新/结束、目标/文档、呈现/布局协议已归入组合模块。服务保留 COM 身份和适配、激活/停用、焦点/配置以及实际引擎/Shift-tap/UI 副作用，这是有意保留的边界，不再以增加总协调类或微小包装函数作为完成条件。收口检查复现并修复既有激活取消被覆盖问题：嵌套激活拒绝，停用先请求取消，当前登记结果发布后统一清理，外层返回真实 `E_ABORT`，强持有服务跨越回调和标志恢复；正常宿主调用顺序、清理屏障、显示许可和 FSM 不变。双架构 DLL/测试 CoreCheck、完整及定向回归通过；2026-11-07 用户确认任务 47/R05 已测试且工作正常，整体标记完成，后续问题另行跟进，不宣称已定位历史偶发挂起或光标偏移的根因。
 
-  - **以下为按实施顺序保留的历史记录**：其中“未完成”“下一步”描述当时批次，不覆盖上方当前结论。最新自动结果见[开发指南](dev.md#34-r05-最新自动验收快照2026-11-06)，用户确认见[宿主记录](hosts.md#12-2026-11-07-用户确认任务-47-与-r05-完成)。
+  - **以下为按实施顺序保留的历史记录**：其中“未完成”“下一步”描述当时批次，不覆盖上方当前结论。当时自动结果见[历史自动验收记录](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#34-r05-最新自动验收快照2026-11-06)，用户确认见[宿主记录](hosts.md#12-2026-11-07-用户确认任务-47-与-r05-完成)。
 
   - 当前组合的宿主终止已由 [`HandleCompositionTermination / CompleteCurrentCompositionTermination`](../src/ime/comp/finish.h) 收拢通知分流、先移走当前组合、范围/属性清除与最终复核；range/旧组合/context 在实际重置前释放，服务保留 COM 入口与真实身份/引擎/UI 重置回调。同 context/epoch 替换和资源释放顺序已有独立及服务回归。
 
@@ -507,7 +507,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 获得焦点时补偿检查版本，在新一轮输入时应用更新，避免正在输入时候选突然重排；验证并发写入、漏通知、晚启动、进程退出及容器只读同步。
   - 实现为 [`common/change_sync`](../src/common/change_sync.h)：按类型与源 GUID 绑定通道，基线 GUID 加递增序号识别变更；有界日志与目录唤醒分离，文件锁及预期版本检查防止旧实例盲写。源数据读改写回调与日志提交处于同一个排他锁内，未完成写入通过新基线要求全量恢复。
   - `Synchronize` 在组合期间返回暂缓，仅在新输入边界调用业务快照/增量回调；只有回调返回 `S_OK` 才推进本地版本。全量快照、增量正文校验和焦点/按键入口由任务 40 的适配层提供。
-  - x64/x86 独立回归及两个方向的混合架构进程验证通过，包含真实 AppContainer 的通知、读取、共享读锁及拒绝写入，不只使用 Mock。测试同时覆盖记录/字节过期、漏通知、晚启动、回调失败/异常、日志损坏、源写入后提交失败与写进程中途退出。协议限制、权限及失败边界见[开发说明](dev.md#514-公共跨进程变更同步任务-39)。
+  - x64/x86 独立回归及两个方向的混合架构进程验证通过，包含真实 AppContainer 的通知、读取、共享读锁及拒绝写入，不只使用 Mock。测试同时覆盖记录/字节过期、漏通知、晚启动、回调失败/异常、日志损坏、源写入后提交失败与写进程中途退出。协议限制、权限及失败边界见[开发说明](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#514-公共跨进程变更同步任务-39)。
 - [x] **40. 词库与词频文件接入跨进程同步（`cross-process-dictionary-phrase-frequency-sync`）**：依赖任务 39，已完成词库文件与词频文件跨进程同步接入及验证。
   - 词库文件：
     - 受控编辑（`AddUserPhrase`、`AddUserEntry`、`RemoveUserEntry`、`ModifyUserEntry`）发布词条级增量（`Add` / `Remove` / `Modify`），同步更新内存覆盖层、`.qdict` 并使同路径进程缓存失效。

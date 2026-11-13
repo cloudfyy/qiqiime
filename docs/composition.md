@@ -11,7 +11,7 @@ Internal state and protocols live in [`ime/comp`](../src/ime/comp), not solely
 in those facade files. For logging configuration, ETW sessions, and capture
 tools, see the [logging guide](log.md); retained test timing, PDBs and the
 60/90/150-second watchdog budgets are documented in the
-[development guide](dev.md#33-组合组件与生命周期测试组织).
+[development guide](dev.md#tsf-hang-diagnostics).
 
 **Status:** R05's internal boundaries and dual-architecture automated acceptance
 are complete. Activation/deactivation, focus/configuration and actual engine,
@@ -37,7 +37,7 @@ not been diagnosed or certified fixed.
 Component regressions mirror these boundaries in [`tests/ime/comp`](../tests/ime/comp).
 [`tests/ime/tsf`](../tests/ime/tsf) retains the full service, native-TSF and
 reentrant-host tests. Section 9 records incremental coverage, not a new
-whole-repository run or real-host result; the [latest automatic snapshot](dev.md#34-r05-最新自动验收快照2026-11-06)
+whole-repository run or real-host result; the [historical automatic snapshot](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#34-r05-最新自动验收快照2026-11-06)
 identifies the final run and its scope.
 
 ## 1. Two Separate Problems
