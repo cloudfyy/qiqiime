@@ -29,7 +29,8 @@ claim of complete C++26 support. Release binaries statically link the MSVC runti
 | [src/common](../src/common) | Configuration, files, RAII wrappers, logging, metrics, and shared UI helpers. |
 | [src/ime/engine](../src/ime/engine), [src/ime/fsm](../src/ime/fsm) | Dictionaries, input state, and key dispatch. |
 | [src/ime/comp](../src/ime/comp) | Composition state, edit/cleanup protocols, presentation, and layout. |
-| [src/ime/tsf](../src/ime/tsf), [src/ime/ui](../src/ime/ui) | COM/TSF integration, lifecycle adapters, and native windows. |
+| [src/ime/svc](../src/ime/svc) | COM service, key coordination, context access, and lifecycle adapters. |
+| [src/ime/tsf](../src/ime/tsf), [src/ime/ui](../src/ime/ui) | TSF registration/helpers and native windows. |
 | [src/tools](../src/tools) | Standalone settings, dictionary manager, and log monitor. |
 | [tests](../tests) | Tests mirroring production modules, plus installer and script checks. |
 | [scripts](../scripts), [installer](../installer) | Build, lint, registration, and release packaging. |
@@ -37,7 +38,7 @@ claim of complete C++26 support. Release binaries statically link the MSVC runti
 
 Each module owns its CMake source list. Keep related test suites in short,
 thematic files: common tests use `tests\common\core`, dictionary tests use
-`tests\ime\engine\dict`, and TSF service tests use `tests\ime\tsf\svc`.
+`tests\ime\engine\dict`, and TSF service tests use [tests/ime/svc](../tests/ime/svc).
 TSF mocks live in `tests\ime\tsf\mock`, with `mocks.h` as the aggregate header.
 Share helpers through headers; do not include test `.cpp` files.
 
