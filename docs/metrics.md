@@ -1,381 +1,195 @@
-# 输入法性能与稳定性监控方案
-
-状态：阶段一 A 的协议、独立门控、同步 RAII 计时、严格解码/独立队列、有界聚合、三段焦点埋点、指标 GUI 和独立 Metrics JSON 导出已实现；外部焦点基准已运行。完整开销预算、跨进程验收及更广业务链路尚未完成。下文未注明已实现的能力仍是实施要求，不表示当前产品已经具备完整性能监控。
-
-## 1. 目标与范围
-
-采用“本地、显式开启、分阶段建设”的方式，优先回答：
-
-1. 输入慢在按键回调、词库查询、编辑会话等待，还是候选呈现？
-2. 上屏失败是真正的写入失败，还是排队、取消、过期任务或清理失败？
-3. 切换焦点、配置重载、词库重载是否引入长尾延迟？
-4. 长时间运行后是否出现资源增长，以及采集结果是否完整？
-
-本方案不接入云端，不自动上传，不记录用户输入内容，不新增宿主内后台采样线程。首期不统计输入速度、首选率、纠错率、用户词频、按键序列或词条热度，不建立用户画像。
-
-指标采集、展示与导出复用现有 LogMonitor。本方案不提供 PerfMon 接入或自定义性能计数器，也不为此新增后台采集程序、Windows 服务或计数器安装注册。
-
-## 2. 现状与复用点
-
-| 已有基础 | 代码或文档 | 本方案的使用方式 |
-|---|---|---|
-| 模块级 ETW、级别与分类过滤、显式活动关联 | [logger.h](../src/common/logger.h)、[logger.cpp](../src/common/logger.cpp) | 复用 Provider、注册生命周期、错误诊断和显式 ActivityId，不操作宿主线程隐式活动 ID |
-| 焦点分段计时 | [tip_service.cpp](../src/ime/tsf/tip_service.cpp)、[日志指南](log.md#61-焦点处理耗时任务-50) | 保留现有日志；新增类型化指标，不依赖解析旧消息 |
-| 编辑请求、回调、提交与清理边界 | [tip_composition.cpp](../src/ime/tsf/tip_composition.cpp)、[组合协议](composition.md) | 在实际操作处报告结果，沿用票据、重入及生命周期约束 |
-| 实时采集与丢失计数 | [collector.h](../src/tools/log_monitor/collector.h) | 复用采集线程和权限流程，补充指标事件解码 |
-| 有界日志缓冲和队列 | [model.h](../src/tools/log_monitor/model.h) | 复用有界设计；指标统计与日志展示缓冲分离 |
-| 自绘候选窗与 UILess 支持 | [candidate_ui.h](../src/ime/ui/candidate_ui.h) | 区分输入法自身呈现和宿主接管呈现，不虚报用户可见延迟 |
-
-现有通用日志事件主要承载 `message` 文本，监控器的事件模型也以日志展示为主；不能直接当作类型化指标数据库。当前文档描述的焦点测量已有实现，但完整的输入链路百分位、指标聚合页和趋势采样尚需开发。
-
-## 3. 指标口径
-
-### 3.1 第一阶段：核心五类
-
-所有耗时使用同一进程内的单调时钟测量，事件字段统一使用整数纳秒，界面显示毫秒。每次操作只产生一个终态；成功、失败、取消、过期和未完成分别统计。
-
-| 指标 | 起止边界 | 统计与限制 |
-|---|---|---|
-| 按键处理 `key_callback` | `OnKeyDown` 入口至该回调退出 | 按已处理、未处理、拒绝及失败分类；`OnTestKeyDown` 如需测量另立指标，不与实际处理重复计数 |
-| 候选查询 `candidate_query` | 引擎执行一次候选查询前至结果构建结束 | 包含结果合并和排序；查询失败与合法空结果分开，排除纯翻页和选择移动；缓存细分留待后续 |
-| 候选更新 `candidate_update` | 输入法开始应用一次候选快照至数据、布局和更新请求完成 | 不是屏幕显示完成时间；`popup` 与 `uiless` 分组，宿主接管时只报告数据交付结果 |
-| 上屏 `commit` | 接受一次上屏意图至实际写入路径的终态 | 分解编辑会话等待与执行耗时，写入失败和结束组合失败独立报告 |
-| 组合清理 `cleanup` | 登记一次清理任务至明确终态 | 属性清理与结束组合分别报告；异步排队、回调退出和本地停用完成均不等于宿主清理成功 |
-| 焦点处理 `focus` | 单次焦点通知处理入口至退出 | 复用 `reload`、`position`、`total` 分段，区分来源、获得/失去焦点、配置/词库是否变化 |
-
-“核心五类”中的候选类包含查询和更新两个指标，不能合并后掩盖瓶颈。
-
-#### 上屏与异步任务
-
-- 为一次上屏意图分配 `operation_id`，重试和异步执行沿用该 ID；实际重试次数作为独立计数，不重复计入上屏意图分母。
-- `request_hr` 与 `session_hr` 分别保留；`TF_S_ASYNC` 只表示排队，`S_FALSE` 不自动视为失败，也不自动证明文本已写入。
-- 写入成功必须来自具体写入操作及其约定的结果，不能以外层函数返回或析构 scope 的执行推断。
-- 任务因焦点变化或票据失效而放弃，记为 `cancelled` 或 `stale`，不得当作写入失败。
-- 监控器中途启动、停止或丢事件形成的缺口记为 `incomplete`，不得补成成功或超时失败。
-- `commit_failure_rate = 明确写入失败数 / (明确写入成功数 + 明确写入失败数)`；同时展示意图总数、拒绝数、取消数、过期数、未完成数和结果覆盖率。
-- 结果覆盖率为具有明确终态的意图数除以观察到的意图数；采集缺口存在时标记为部分观测，不据此推算真实整体失败率。
-- 文本已写入但结束组合失败时，上屏写入记成功、组合结束记失败，保留共同关联 ID。
-
-首期等待超过 1 秒仅标记“等待较久”，不干预任务、不取消任务、不宣称宿主已挂起。没有后续回调的任务保持待定，采集结束后显示未完成。
-
-#### 百分位与样本
-
-- 成功耗时与失败耗时分开统计，成功视图显示数量、P50/P95/P99、最大值和超阈值数。
-- 不将取消、未完成或零填充值放入成功耗时分布；合法零耗时可以计入。
-- P95 至少 100 个有效样本、P99 至少 1,000 个有效样本；不足时显示“样本不足”，仍显示样本数和最大值。
-- 失败率分母为零时显示“无有效结果”，不是 `0%`。
-- 各进程/阶段合并时先合并计数与直方图，禁止平均各自的百分位或失败率。
-
-### 3.2 第二阶段：词库、UI 与稳定性
-
-| 方向 | 指标 | 边界 |
-|---|---|---|
-| 词库 | 加载/重载次数、耗时、失败率、映射数量、空候选率 | 冷启动和热重载分组；文件不存在、损坏、读取失败分开；不记录路径、编码或词条 |
-| UI | 布局查询失败/不可用次数、位置回退次数、Direct2D/GDI 回退次数、窗口创建失败 | `TS_E_NOLAYOUT` 单独统计，不一律认定为错误；不能仅靠回退推断屏幕错位 |
-| 生命周期 | 激活/停用次数、失败、重入拒绝、激活取消、异步任务积压 | 正常取消与实际失败分离，不延长 COM 对象寿命以便统计 |
-| 错误分类 | 按有限操作枚举和真实 HRESULT/Win32 错误码汇总 | 仅在 API 约定有效时读取错误码，无扩展错误码时使用显式结果枚举 |
-| 候选绘制 | 自绘窗口绘制耗时及更新到首次关联绘制完成的时间 | 处理合并绘制、隐藏和失效快照；只能称“输入法绘制完成”，不等于屏幕扫描输出 |
-
-崩溃率不从“最后一条日志没有结束”推算。崩溃、死锁和调用栈继续依靠匹配符号、dump、WPR/WPA 与既有测试 watchdog；未来若接入崩溃数据，需要另行确定证据来源和有效分母。
-
-### 3.3 第三阶段：资源与趋势
-
-由独立监控器针对用户选定的进程采样，默认间隔 5 秒；不在 IME DLL 内启动轮询线程：
-
-- CPU：进程 CPU 时间增量除以墙钟时间及逻辑处理器数，显示机器容量归一化后的百分比。
-- 内存：私有字节和工作集分别展示，不混称输入法内存。
-- 对象：进程句柄、GDI 对象、USER 对象计数。
-- 趋势：每分钟的计数增量、P95/P99、资源峰值和资源增长趋势。
-- 资源数据必须标注“宿主进程整体，不能直接归因于输入法”；通过开关输入法的同负载对照和调用栈进一步定位。
-- 进程退出、访问被拒绝、句柄失效均展示明确状态，不用零值代替；PID 与进程创建时间绑定，防止 PID 复用串线。
-
-不在采样中枚举窗口标题、文档名、URL、命令行或其他应用内容。
-
-## 4. 事件与埋点设计
-
-### 4.1 类型化协议
-
-在现有 `QiQiIME.TraceLogging` Provider 下新增专用指标事件，不从自由文本提取数字。拟新增独立 `Metrics` Keyword；需同步扩展分类枚举、规范化、名称映射、`All` 掩码、监控器筛选和测试，不能只在写入端增加一个常量。
-
-最小协议：
-
-| 字段 | 含义 |
-|---|---|
-| `schema_version` | 指标协议版本，首版为 1 |
-| `instance_id` | 进程内模块加载实例 GUID，避免模块重载后编号冲突 |
-| `capture_generation` | 提供程序启停/更新代际；用于识别入口与写事件之间的切换，不等同于监控器自己的捕获代际 |
-| `service_id`、`operation_id`、`parent_operation_id` | 数值关联 ID，不记录地址、COM 指针或宿主文档标识 |
-| `metric`、`phase`、`outcome` | 有限枚举；阶段为 `begin`、`end` 或 `complete` |
-| `duration_ns` | 已完成阶段的单调时钟耗时；未结束阶段不提供伪造耗时 |
-| `error_domain`、`error_code` | 无错误、HRESULT、Win32 等明确域及真实代码 |
-| `mode`、`source` | 有限枚举，例如 popup/uiless、焦点来源，不使用任意文本 |
-
-PID/TID、事件时间和显式 ActivityId/RelatedActivityId 复用 ETW 元数据。构建版本和 x86/x64 由捕获开始时的元数据事件提供；提供程序在启用时应支持请求当前实例元数据，不能只在 DLL 启动时发一次。元数据不可用时显示未知版本，不猜测宿主架构。
-
-同步阶段优先发一条带耗时的 `complete`，减少事件数；异步意图发 `begin` 和唯一的 `end`。异步结束事件自身携带总耗时和结果，避免只能靠两条 ETW 墙钟时间相减。
-
-未知协议版本或字段缺失保留可诊断记录，但不进入统计；解码失败数单独展示。旧日志 Provider 和通用日志事件保持兼容。
-
-### 4.2 启用、所有权与开销
-
-- 指标页的“启用指标采集”是独立、默认关闭的显式选项；启用 ETW `Metrics` Keyword 时才测量，不以普通日志级别开关意外改变样本覆盖。
-- 专用指标写入路径检查 Provider 和 Keyword 是否启用，不受普通 `LogLevel` 过滤；该行为须在设置和日志文档中说明。旧日志的级别规则保持不变。
-- 未开启时不读取计时时钟、不格式化消息、不分配关联 GUID；开关读取本身也必须纳入关闭态基准。
-- 一次操作入口固定是否采样。中途关闭时不强行发送终态；中途开启不制造缺失起点的操作。监控器通过采集代际和不完整状态处理边界。
-- 首期显式采集期间不做随机抽样，保证失败率口径；事件压力过大时先标记数据不完整，不静默降采样。
-- 同步 scope 使用小型 RAII 计时辅助，结果必须显式设置；异常退出记为异常/未完成而不是默认成功。
-- 异步计时状态附着已有任务所有权，不保存裸指针、不另建跨进程任务表、不为统计延长服务对象寿命。
-- 不改 TSF 回调线程、任务顺序、重入守卫和编辑票据，不为采集失败阻断输入；采集失败有独立诊断计数，不递归写指标。
-- 计时器不可用或转换溢出时报告计时错误并排除样本；不回退到非单调墙钟或零耗时。
-
-## 5. 聚合、界面与导出
-
-### 5.1 有界聚合
-
-- ETW 回调只校验、解码和入队，不访问 UI、不做磁盘 I/O；在监控器消费批次时聚合，最多每秒刷新一次界面。
-- 默认显示最近 60 秒和本次采集累计两种视图；保留 60 个一秒桶，使用监控器单调接收时间划窗，避免系统校时影响淘汰。它表示接收窗口，不冒充精确事件发生窗口。
-- 每个耗时直方图固定 512 桶，范围 0 至 60 秒：单独零值桶，其余按对数区间划分，超范围有溢出桶。百分位取对应桶上界并标注近似；保存精确最大值。溢出百分位显示 `>60s`。
-- 关联键为捕获代际、PID、`instance_id`、`service_id`、`operation_id`；时间本身不作为唯一标识。
-- 最多 32 个进程实例、每实例 16 个服务、每服务 16 个指标维度组合；最多 4,096 个待定异步操作，总聚合内存预算 64 MiB。分配前统一预算检查，先达到的上限生效。
-- 超限拒绝新增维度或待定项，增加 `aggregation_dropped`，标记区间不完整；不得阻塞输入线程、无限扩容或悄悄把不同指标合并。
-- 错误码维度最多保存每个操作指标维度组合 32 个独立代码，超出进入“其他错误”发生次数计数并保留受现有日志缓冲约束的诊断，不形成无限维度。
-- 原始日志缓冲淘汰不撤销已聚合样本；采集队列在聚合前丢弃则影响统计完整性。两者在界面和导出中分开。
-- 不按 PID 重启或模块重载自动合并趋势；实例退出后保留到用户清空或本次捕获结束。
-
-### 5.2 指标页
-
-复用现有监控工具窗口，新增“指标”视图，不另建常驻程序。支持按进程实例、指标、结果和呈现模式筛选：
-
-- 顶部：采集状态、时间窗口、样本数、完整性状态、丢失计数、协议版本。
-- 核心表：次数、成功/失败/取消/过期/待定/未完成、结果覆盖率、P50/P95/P99、最大值、超阈值数。
-- 明细：编辑会话等待/执行、焦点分段、具体错误码及相关活动日志。
-- 开始新捕获建立新代际；“清空指标”重置指标窗口并记录新统计起点，不清空原始日志或伪装重置 ETW 累计丢失数。
-- 停止采集后冻结统计，未终结任务转为未完成；暂停滚动仅影响展示，不停止采集或聚合。
-- 指标的进程/指标/结果筛选只作用于指标视图，不因日志消息或级别筛选变化而删除统计样本。
-- 全部文案支持现有中英文、主题、高对比度和 DPI 行为。
-
-### 5.3 完整性与导出
-
-分别展示 ETW 事件/缓冲丢失、采集队列淘汰、解码错误、分配失败、聚合拒绝和待定表溢出。无法定位具体受影响指标时，保守标记整个捕获代际不完整；后续窗口不自动恢复为“完整”，开启新捕获后才重置。
-
-指标单独导出版本化 UTF-8 JSON，包含：工具/协议版本、捕获起止、窗口口径、筛选、实例信息、计数分母、直方图定义、近似百分位、阈值配置和完整性状态。不与现有日志导出格式混写；未达到样本门槛或无有效结果的值使用 `null` 并附状态，不写零。
-
-默认导出不包含进程名，仅用本次捕获的实例别名；不包含原始日志、路径或输入数据。详细时间线和原始日志仍走独立导出及隐私确认。文件写入失败明确报告真实错误并保留内存快照，不提示成功。
-
-## 6. 初始阈值与性能预算
-
-以下是待实测校准的工程目标，不是已有性能承诺，也不作为不同硬件间的绝对排名：
-
-| 指标 | 初始关注线 | 解读 |
-|---|---|---|
-| 已处理按键回调 | P95 > 5 ms 或 P99 > 16 ms | 输入线程同步处理过慢 |
-| 热态候选查询 | P95 > 2 ms | 独立检查词库和结果构建 |
-| 候选数据与布局更新 | P95 > 5 ms | 不包含宿主绘制和屏幕显示 |
-| 上屏意图到成功写入 | P95 > 20 ms | 同时查看排队与执行分段 |
-| 无配置/词库变化的获得焦点处理 | P95 > 5 ms | 冷加载和实际重载另表，不混合 |
-| 明确写入/清理失败 | 任意一次 | 显示诊断，不自动恢复或修改宿主行为 |
-
-单次超线保留计数；窗口告警只在达到相应样本门槛后判断。数据不完整时只能显示“观测到超线”，不能判定通过 SLA。不增加弹窗、声音或输入阻断。
-
-埋点预算通过 Release 对照测量：
-
-- 相对同一源码基线，关闭指标时按键回调 P95 增量不超过 `max(基线 P95 的 1%, 5 us)`。
-- 开启指标且消费者正常接收时，P95 增量不超过 `max(基线 P95 的 5%, 50 us)`。
-- 同机、同宿主、同配置、同词库预热，关闭其他详细日志，交替执行 5 组对照；每组至少 10,000 次固定测试操作，报告各组原始值及增量中位数。
-- 开销必须由测试侧外层计时或独立性能工具测量，不能只使用埋点自身的内部时长证明没有开销。
-- 无消费者、正常消费者、慢消费者和反复开关分别验证；内存受第 5 节预算约束，停用后不得保留服务/上下文引用。
-
-若预算不达标，优先减少重复事件和热路径分配；不能通过丢弃慢样本、过滤失败、换统计分母或隐式抽样达标。
-
-## 7. 隐私与安全边界
-
-- 允许：耗时、计数、有限状态、错误码、构建版本、架构及本次捕获内关联 ID。
-- 禁止：字符、原始编码、候选词、上屏正文、虚拟键码/扫描码序列、剪贴板、窗口标题、文档/URL、词库完整路径、内存地址和持久化用户标识。
-- 关联 ID 不跨进程重启持久化；实时精细时间线本身可能暴露行为节奏，采集须显式开启，分享前仍需确认。
-- 不读取密码内容；受限输入路径沿用既有准入逻辑，埋点不得为“观察”绕过输入限制。禁止将本方案表述为已经补齐受限输入识别能力，相关边界见[禁输入研究](restricted.md)。
-- 沿用监控器现有权限确认，不提升被测宿主，不自动修改 ETW ACL、用户组或策略。
-- 与现有详细日志并行采集时，其隐私风险仍按[日志指南](log.md)处理；新指标不含正文不等于旧日志可直接分享。
-
-## 8. 实施顺序与验收
-
-### 阶段一 A：协议和采集基础
-
-交付：专用 Keyword、类型化事件、启用门控、RAII 计时辅助、解码、直方图和有界关联表；先接入已有焦点计时路径验证链路。
-
-验收：
-
-- 人工构造事件，验证整数类型、单位、未知版本、字段缺失、非法枚举、溢出和错误域。
-- 固定输入分布验证桶计数、最近秩百分位所落桶、零值、长尾、溢出、样本门槛；验证合并直方图而非平均百分位。
-- 覆盖采集开关、失败诊断、PID 复用、模块重载、上限和队列丢失；不完整样本不冒充成功。
-- 普通日志格式、日志级别、原有分类筛选及日志导出保持兼容。
-
-#### 阶段一 A 的执行拆分（2026-11-08）
-
-状态：前五步已实现基础代码与定向测试，焦点试点已接入三段同步指标及真实 DLL 私有 ETW 验证；第六步的外部开销预算和跨进程验收尚未完成。按任务队列先做阶段一 A，不一次性交付完整监控面板。
-
-首批交付（2026-11-08）：[`metric.h`](../src/common/metric.h) / [`metric.cpp`](../src/common/metric.cpp) 固定 schema 1、有限枚举、数值关联 ID、错误域和整数纳秒。同步 `Scope` 不默认成功，异常退出记录 `Exception`，未设置结果记录 `Incomplete`；关闭时不读 QPC、不创建实例 GUID 或操作 ID。以提供程序启停/更新代际排除跨边界样本，计时失败排除样本；`QueryPerformance*` 未约定扩展错误码，不读取可能无关的 `GetLastError`。转换使用整数溢出检查，不回退墙钟或零值。
-
-[`logger.cpp`](../src/common/logger.cpp) 通过专用 `Metrics`（`0x0100`）输出 `QiQiMetric` 和 `QiQiMetricInstance`，独立于 `LogLevel`；常规 `Logs`（`0x00FF`）及其格式不变。实例元数据包含版本、架构、实例 GUID、提供程序代际和模块生命周期内的诊断累计快照；采集器后续需按实例及起始快照计算增量，不能把它们当作本次捕获的计数。启用或 capture-state 请求触发元数据，注册早期回调先登记待发送状态，注册所有权发布后才写事件。ActivityId/RelatedActivityId 通过 ETW 元数据传递，不修改线程隐式 ActivityId，也不保存业务对象指针。
-
-日志监视器默认打开输入法日志视图，普通跟踪明确排除 Metrics，分类列表中的 Metrics 不代表已启用指标；GUI 统一开始/停止按钮按启动时视图选择模式，指标视图启动才采集 Logs + Metrics。运行中切换视图不改变会话模式，按钮提示反映实际采集模式。[`metric.cpp` 测试](../tests/common/metric.cpp) 检查关闭态、显式结果、非法协议、时钟失败/倒退/溢出和启停边界；[`etw.cpp` 测试](../tests/common/etw.cpp) 使用进程内私有 ETW 会话验证真实整数类型、GUID、字段形状、错误码、元数据请求与重新注册。该测试不等同于跨进程/真实 IME DLL 焦点链路或性能开销验收；这些仍在焦点试点中验证。
-
-第 4 步：[`collector.cpp`](../src/tools/log_monitor/collector.cpp) 复用 TDH 元数据读取，严格区分 `QiQiMetric` / `QiQiMetricInstance` 与普通日志，核验字段集合、类型、大小、版本、枚举、错误域及 ActivityId 元数据；失败保留真实 TDH 错误且不修改输出。`Collector::Start(true)` 显式订阅 Logs + Metrics，并在打开读取器后请求实例元数据；请求失败保留真实错误并标记不完整，不伪造元数据。默认 `Start()` 仍只采集普通日志；GUI 仅在指标视图启动采集时调用指标入口，切换模式需要先停止再启动。
-
-[`metric.h`](../src/tools/log_monitor/metric.h) 的独立队列默认最多 2,000 条、4 MiB 固定记录载荷，最多跟踪 32 个 PID/模块实例。监控器捕获代际与提供程序代际分开保存；没有已入队的匹配实例元数据、旧代际或未知代际样本不进入队列。队列满时拒绝新增记录并标记捕获不完整；若新代际元数据入队失败，不继续接纳该实例的旧代际样本。日志清空/过滤/滚动不操作指标队列，停止保留数据，新指标捕获重置队列与捕获局部诊断。源诊断仍保留为模块生命周期快照，不冒充本次计数；非零源快照保守标记不完整，聚合器从本次首次实例快照开始计算增量。
-
-[`监控器指标测试`](../tests/tools/log_monitor/metric.cpp) 覆盖合成 TDH 成功/失败、非法字段与队列上限、并发入队、代际切换、缺失/丢失元数据、模块重载、独立日志队列和完整性状态；复用原生私有 ETW 夹具，将真实 6 条指标和 4 条实例元数据交给生产解码器、队列和聚合器，验证 5 个操作意图及成功/失败/取消/未完成统计。指标页面另见 [`metrics_view.cpp`](../src/tools/log_monitor/metrics_view.cpp) 及[操作步骤](log.md#metrics-指标跟踪)。
-
-第 4 步定向验收：x64/x86 的指标协议、私有 ETW、监控器 UI、严格解码及独立队列测试通过；受影响目标的 CppCoreCheck 无仓库规则告警。普通日志全局 ETW 集成测试因 `StartTraceW` 返回 `ERROR_ACCESS_DENIED`（5）按既有规则跳过，不计作跨进程验收通过；未提升宿主或修改权限。最终改动后重跑两架构的监控器 UI、解码/队列及私有 ETW 测试均通过。
-
-第 5 步：[`aggregate.h`](../src/tools/log_monitor/aggregate.h) / [`aggregate.cpp`](../src/tools/log_monitor/aggregate.cpp) 提供 512 桶直方图、精确最大值、P50/P95/P99 门槛、成功/失败分布与有限错误码字典；无样本的最大值、百分位和无分母失败率没有伪造零值。有限桶上界按几何级数向上取整并保证至少增加 1 ns，零值独立，最后有限上界为 60 秒，另有超范围桶。关注线只用于有明确口径的按键/查询/候选更新/上屏，暂不将“无重载焦点”关注线套在缺少冷热标记的通用焦点样本上。
-
-聚合容量、接收窗口秒数、P95/P99 样本门槛和各操作关注线使用 [`aggregate.h`](../src/tools/log_monitor/aggregate.h) 中的语义常量；指标队列和实例字符串容量位于 [`metric.h`](../src/tools/log_monitor/metric.h)，自身诊断预算与报告步长位于 [`collector.h`](../src/tools/log_monitor/collector.h)。本次常量整理保留既有数值、预算和默认采集策略，不代表完成后续性能验收。
-
-累计与最近 60 个接收秒桶分离，按监控器接收时间淘汰；窗口合并计数和直方图而不是平均百分位，停止后冻结。窗口意图与终态可能来自不同操作批次，因此结果覆盖率只对累计口径计算，窗口待定数是当前待定总量。`Clear()` 清空统计维度并记录新的接收统计起点，不清空日志或捕获累计丢失/诊断，也不让旧操作终态重新计数。
-
-异步关联使用捕获代际/PID/模块实例/服务/操作 ID；重复起点或终态不重复计数，缺少起点的终态记未完成而非成功；提供程序代际变化或停止时，待定项转为未完成。已见操作键保留到本次捕获结束以防晚到重复事件，**不通过淘汰历史键放行重复样本**。历史键与直方图、秒桶共同使用 PMR 的统一 64 MiB 申请预算，包含固定聚合状态及共享桶边界的保守计量；不是进程 RSS 指标。预算在每次申请前检查，失败回滚新维度/秒桶/操作节点，拒绝新样本并标记不完整。32 实例、每实例 16 服务、每服务 16 维度、4,096 待定项和每维度 32 错误码的上限分别检查；先达到的限制生效。
-
-`DrainMetrics` 已接入监控器消费批次，与日志过滤、清空和暂停滚动无关；关闭指标时不建立聚合对象。它复核批次接收时间并在停止的队列完全排空后才冻结，避免最后一条回调与消费/停止竞态漏计。实例诊断增量不重复累计相同快照；倒退或溢出快照明确拒绝。
-
-第 5 步定向验收：x64/x86 的直方图边界、样本门槛、滑窗边界、异步重复/缺口/代际、各容量上限、真实 64 MiB 申请预算与失败回滚、并发消费/停止以及私有 ETW 解码→队列→聚合测试通过；受影响目标 CppCoreCheck 无仓库规则告警。x64 指标单元与私有 ETW 测试另各重复 3 次通过。期间一次既有监控器测试的剪贴板断言失败，独立复测及最终两架构整组复测通过，原因未确定。普通日志全局 ETW 集成仍因访问被拒绝跳过，不作为真实 DLL/跨进程或外部开销预算验收。
-
-第 6 步焦点埋点：[`HandleFocusChanged`](../src/ime/tsf/tip_service.cpp) 输出 `FocusTotal`，获得焦点时另输出 `FocusReload` 和 `FocusPosition`。复用现有服务数值 ID 与焦点 ActivityId，子项以父操作 ID 关联；携带 ThreadManager/KeyEvent 来源和获得/失去焦点模式，不记录输入、路径或业务指针。关闭 Metrics 时沿用 `Scope` 的无 QPC/操作 ID 分配路径，原有焦点调试日志继续保留。
-
-结果不以“位置没变化”推断失败，也不把完成回调等同于异步宿主清理或屏幕呈现成功。重载汇总主词库及跨进程同步的真实 HRESULT；仅返回布尔值的加载失败记 `Failure` / `ErrorDomain::None` / `0`，不伪造错误码或读取无关的 `GetLastError`。位置读取复用新增的 `TryReadCompartmentInt4`：未设置返回 `S_FALSE`，失败保留真实 HRESULT，输出保持不变，COM 与 VARIANT 生命周期由 RAII 管理。停用期间退出记 `Cancelled`，重入更新焦点代际后退出记 `Stale`；异常仍由 `Scope` 自动记 `Exception`。
-
-[`真实焦点测试`](../tests/ime/tsf/logging.cpp) 复用私有 ETW 夹具，动态加载实际 `qiqiime.dll`，经过 COM 接口触发 ThreadManager/KeyEvent 焦点、配置重载、位置变化、缺失自定义用户词库、位置读取拒绝、重入失焦与停用。关闭常规日志时仍验证 25 个同步样本：成功 17、失败 4、过时 2、取消 2；检查 DLL/测试 EXE 实例隔离、父子关联、真实错误码，并送入生产 TDH 解码、独立队列和聚合器，按维度核对意图与直方图。该进程内验证不替代跨进程或外部开销预算验收。
-
-第 6 步焦点埋点交付的定向验收：最终 x64/x86 的协议、私有 ETW、完整 TSF/UI 回归、真实 DLL 焦点、生产指标解码/队列/聚合测试各 6/6 通过，受影响目标 CppCoreCheck 无仓库规则告警；新增 COM 读取测试覆盖未设置、非法类型、真实失败、输出保持与重入释放所有者。真实 DLL 焦点捕获没有因全局会话权限跳过。该轮未运行外部基准，不能由这些样本的内部耗时推断关闭/开启状态的开销预算已达标；后续外部测量见下节。
-
-#### Metrics GUI 交付（2026-11-08）
-
-独立指标视图、实例/指标/结果/模式筛选和累计/最近 60 秒窗口已接入生产窗口。输入法日志、工具诊断和指标视图为一组互斥按钮；采集共用开始/停止按钮，指标视图启动才启用 Metrics，运行中切换视图不改变模式。成功与失败直方图按所选结果合并，不平均百分位；结果筛选不改写完整维度的计数分母。百分位保留上界/溢出/无样本/样本不足状态；近期覆盖率为 N/A，待完成为当前值。明细包含实例版本/架构、真实错误码、最近活动关联及队列/聚合/源诊断。清空和暂停不干扰原始日志，停止冻结统计。
-
-聚合器提供有界、独立拥有的实例/维度枚举和保留真实 ULONG 的快照接口。GUI 只缓存轻量统计行，最多对应 8,192 个维度，不为每行保留完整直方图；仅显示指标视图时最多每 500 ms 重建呈现行，聚合始终每 100 ms 消费。控件和呈现快照内存不属于聚合器的 64 MiB 预算，不表示进程 RSS 上限或性能预算已达标。每个维度仅保留最近活动 GUID，不保存活动时间线；活动日志仍受日志级别及原始缓冲影响。
-
-指标视图的导出入口输出独立 Metrics JSON，不导出隐藏日志；全选仍禁用，复制仅包含所选指标及完整性明细。当前焦点三段以外的业务埋点和编辑会话等待/执行仍待后续建设，不显示不存在的样本。
-
-定向验证：x64/x86 Release 的监控器、指标测试、共享控件和词库管理器目标编译通过，CppCoreCheck 无新增仓库规则告警（按既有策略排除 C26490 及外部依赖告警）。两架构相关 9 项各 8 通过、1 跳过、0 失败；跳过项为全局 `QiQiLogMonitorIntegrationTest`，因 `StartTraceW` 返回 `ERROR_ACCESS_DENIED`（5），其中新增的真实 GUI Metrics 会话用例因此未执行，不算跨进程验收。私有 ETW 和实际 DLL 焦点回归通过；新增合成原生 GUI 测试覆盖默认关键词选择、维度筛选隔离、百分位状态、错误码、选中行保留、清空/暂停/冻结、新代次、中英文、主题/高对比度、DPI 可见控件边界和顶部文字可读性。
-
-#### Metrics JSON 格式与导出
-
-在指标视图点击 **导出指标 JSON / Export Metrics JSON**。[`导出器`](../src/tools/log_monitor/export.cpp) 在打开保存对话框前生成独立拥有的快照；采集、暂停、停止及对话框期间的聚合变化不会改写该快照。普通日志导出格式和隐私确认不变。
-
-- 根对象以 `format: "qiqiime.metrics"`、`format_version: 1` 标识格式，`tool` 和 `protocol_version` 分别记录工具与事件协议版本。无采集、无样本或筛选无匹配项时也可导出有效空快照。
-- `capture` 保存捕获代际及活动状态。`observed_start_receive_tick_ms` 为聚合器首次观测到的接收时钟，`snapshot_receive_tick_ms` 为最后推进的接收时钟，停止时记录 `observed_stop_receive_tick_ms`；尚未观测时为 `null`。这些不是 UTC 或精确的 ETW API 启停时刻。清空后的 `statistics_start_receive_tick_ms` 独立于捕获起止。
-- `window` 声明累计或最近 60 秒、接收时钟、当前秒及前 59 秒的桶规则和冻结状态。待定数始终是当前值；近期覆盖率为 `null` / `not_applicable`，不以窗口内终结除以窗口内意图。
-- `filters` 保存当前实例、指标、结果和模式选择。结果筛选只选择维度及 `selected_timing`，不改写该维度完整计数。`coverage` 明确为实际观测终结数 / 意图数；`failure_rate` 为失败数 /（成功数 + 失败数），均附分子、分母及状态。停止时推断的未完成结果不是实际观测终结事件，因此结果计数之和不一定等于 `observed_terminals`。
-- 每个维度导出成功、失败及选中结果三个直方图。`histogram_definition` 给出纳秒单位、512 个桶上界、零值桶、最终溢出桶、最近秩桶上界算法及 P50/P95/P99 的 1/100/1,000 样本门槛。百分位使用 `value` / `overflow` / `no_samples` / `insufficient_samples` 状态；后三者的数值为 `null`。精确最大值不受 60 秒桶上限截断。
-- `thresholds_ns` 记录配置阈值；未配置为 `null`，超线统计状态为 `not_configured`；配置阈值但无样本为 `no_samples`。没有有效分母时比率为 `null` / `no_denominator`，不写伪造的零。
-- `instances` 用本次捕获的 `instance-1` 等稳定别名，保留构建版本、架构、协议和源诊断计数，不导出 PID、模块/活动 GUID、进程名、原始日志、输入或路径字段。`integrity` 保留队列、ETW 丢失、聚合拒绝及源诊断增量；无已检测丢失不等于完整性保证。
-- 计数、服务 ID、错误码及纳秒值为精确 JSON 整数，包括完整 `uint64_t`。读取端须支持该范围；JavaScript `Number` 超过 `2^53-1` 不能精确表示，不能据此认为导出器已舍入。
-- 序列化载荷另限 64 MiB，超限返回真实错误并保留原快照。此上限在聚合预算之外，不是进程 RSS 上限。取消或选文件/写入失败保留内存快照及统计；写入检查实际字节数并刷新文件，失败明确提示目标可能不完整，不承诺原子替换。成功后释放快照。
-
-原生 [`JSON 回归`](../tests/tools/log_monitor/export.cpp) 覆盖精确整数、转义、别名、筛选、空值状态、输出边界、停止/清空/新代次和真实文件占用错误；GUI 回归覆盖取消、选文件错误、写入失败保留及保存对话框期间清空不改变待保存快照。`qiqi_monitor_metrics_test --json-fixtures <已存在目录>` 另生成九个独立快照，供标准 JSON 解析器检查字段结构、桶计数及百分位；目标文件已存在时拒绝覆盖。
-
-#### 外部焦点基准进度（2026-11-08）
-
-[`focus_benchmark.ps1`](../tests/ime/focus_benchmark.ps1) 使用同一测试 EXE，每个变体启动独立进程，动态加载实际 DLL；同配置、内置词库、无变更获得焦点、UI 与常规日志关闭，预热 1,000 次后从调用方用 QPC 计时 10,000 次，记录最近秩 P50/P95/P99 与精确最大值。每轮交替执行 5 组基线、关闭态和私有 ETL 开启态，保留各组原始值，不过滤慢样本。
-
-同源码基线通过 `QIQI_METRICS_BENCHMARK_BASELINE=ON` 将 `Scope` 捕获状态编译为恒关闭，从基线移除门控/计时/事件工作，其他配置、读取和焦点行为保持相同；仅用于对照。默认选项为 OFF；基线输出 `qiqiime_metrics_baseline.dll`，版本带 `.metrics-baseline`，不生成测试目标，禁止安装或分发，不覆盖正常 DLL。脚本核验 PE 架构和版本、记录 DLL/EXE SHA-256，并拒绝覆盖已有结果。
-
-私有 ETL 模式是在写入结束后解码，不是实时正常/慢消费者。每组核对 33,000 个成功事件（包含预热），使用生产解码和聚合器验证完整性，检查 ETW 丢失；事件内部耗时不用于外部基准。**该测试是无变更焦点调用，不是已处理按键回调，不能代替第 6 节按键及实时消费者预算验收。**
-
-两轮使用同一批二进制，原始 P95 如下（单位 us；每行各变体 10,000 次）：
-
-| 架构 | 轮次/组 | 基线 | 关闭 | 私有 ETL |
-|---|---|---:|---:|---:|
-| x64 | 1/1 | 128.2 | 121.9 | 119.9 |
-| x64 | 1/2 | 120.8 | 118.6 | 142.2 |
-| x64 | 1/3 | 159.3 | 123.2 | 149.5 |
-| x64 | 1/4 | 159.5 | 134.4 | 170.9 |
-| x64 | 1/5 | 122.6 | 121.1 | 123.0 |
-| x64 | 2/1 | 145.0 | 126.5 | 121.2 |
-| x64 | 2/2 | 157.0 | 136.7 | 155.2 |
-| x64 | 2/3 | 132.1 | 120.2 | 130.3 |
-| x64 | 2/4 | 159.5 | 123.8 | 140.8 |
-| x64 | 2/5 | 126.9 | 134.3 | 129.4 |
-| x86 | 1/1 | 186.3 | 219.7 | 188.0 |
-| x86 | 1/2 | 191.3 | 206.8 | 167.2 |
-| x86 | 1/3 | 165.3 | 174.0 | 192.1 |
-| x86 | 1/4 | 175.5 | 167.7 | 156.0 |
-| x86 | 1/5 | 164.0 | 167.4 | 170.4 |
-| x86 | 2/1 | 160.1 | 161.3 | 172.8 |
-| x86 | 2/2 | 146.8 | 146.7 | 219.5 |
-| x86 | 2/3 | 172.0 | 152.7 | 161.3 |
-| x86 | 2/4 | 158.0 | 156.9 | 166.9 |
-| x86 | 2/5 | 149.3 | 148.9 | 152.8 |
-
-x86 首轮关闭态增量中位数 **+8.7 us，超过 5 us 参考预算**；不改代码复测为 -0.4 us。两轮全部 10 组的增量中位数：x64 关闭 -15.2 us / 私有 ETL -1.8 us；x86 关闭 +0.55 us / 私有 ETL +4.95 us。负增量不作为性能改善证据；共享开发环境的组间波动明显，原因尚未确定，不能只挑复测或合并结果宣布稳定达标。JSON 明确保留 `acceptance_complete=false`。后续仍需受控环境的按键、正常/慢实时消费者、反复开关及跨进程对照。
-
-基准代码最终验证：x64/x86 各 6 项定向功能测试通过，受影响目标 CppCoreCheck 无仓库规则告警；PowerShell 语法、严格结果字段/整数/样本数/事件数核验及非法模式拒绝通过。两架构全局 ETW 集成复测仍因 `StartTraceW error=5` 跳过，没有提升权限；不计作跨进程验收通过。
-
-Metrics 为类型化事件保留，普通诊断事件入口不能使用该分类；直接误用会记录协议诊断，不输出正文。每个样本携带入口时的提供程序代际，退出和写入时复核；后续独立消费还必须核对实例元数据及事件代际，以排除门控检查到 ETW 写入之间的切换竞态，不能把旧代际样本归入新捕获。
-
-评估：复杂度中高。可复用现有 ETW 生命周期、监控器采集线程、权限处理和焦点计时，但不能从非结构化诊断消息可靠推导百分位或失败率。主要风险是异步终态重复计数、关闭态热路径开销及采集缺口被误报为成功。
-
-| 步骤 | 工作 | 交付与边界 |
-|---|---|---|
-| 1 | 固定类型化协议 | 共享指标、阶段、结果、错误域及关联 ID 定义；明确整数纳秒、协议版本和实例元数据，不解析旧日志字符串 |
-| 2 | 扩展独立 `Metrics` Keyword 和启用门控 | 默认关闭，同步更新分类映射、掩码、筛选和测试；专用指标不受普通日志级别过滤，未启用时不计时、不格式化、不分配关联 GUID |
-| 3 | 实现同步 RAII 计时辅助 | 结果必须显式设置，退出不默认算成功；计时失败排除样本并保留诊断，不改变业务执行结果 |
-| 4 | 扩展监控器解码和独立指标队列 | 复用现有采集与权限流程；未知版本、字段缺失或非法枚举不进入统计，保留诊断；旧日志格式不变 |
-| 5 | 实现直方图、滑窗及有界异步关联表 | 提供计数、近似百分位、精确最大值和完整性状态；先用合成事件覆盖异步关联，不接入上屏或组合清理生命周期 |
-| 6 | 仅接入已有焦点处理链路 | 验证真实 DLL → ETW → 解码 → 聚合全过程，先证实基础设施，再进入阶段一 B |
-
-内存实现约束：第 5 节的维度上限是独立限制，不代表可在 64 MiB 内同时铺满。60 秒滑窗、512 桶及成功/失败分布若按全部维度预分配，会远超预算。采用惰性分配、统一预算检查，先达到的上限生效；拒绝新增项时记录丢弃并标记不完整，不无限扩容或合并不同维度掩盖超限。
-
-指标统计与原始日志展示缓冲分离。日志筛选、清空和暂停滚动不能改变统计样本；阶段一 A 不新增完整指标页，先通过测试及内部聚合结果验证链路。
-
-验收重点：
-
-- x64/x86 Release 协议、解码、聚合与真实 DLL 的 ETW 链路测试；不能只验证格式化字符串。
-- 未知版本、非法字段、零耗时、长尾、样本不足、开关边界、实例重载、关联上限、队列丢失和溢出。
-- 旧日志、级别规则、分类筛选和日志导出行为保持兼容。
-- 指标不包含输入正文、编码、词条、路径或指针；受限输入仍沿用既有准入逻辑。
-- 用测试侧外部计时验证关闭态和开启态开销，沿用第 6 节的对照方法与预算，不用埋点自身证明无开销。
-
-通过阶段一 A 后再接入按键、候选查询/更新、上屏和清理，交付指标视图与版本化 JSON 导出。宿主资源采样及长期趋势不纳入本轮。
-
-### 阶段一 B：核心五类与指标页
-
-交付：按键、候选、上屏、清理、焦点全链路，结果分类、分段统计、指标视图和 JSON 导出。
-
-验收：
-
-- 一次成功/失败/取消/过期意图各只计一次，覆盖同步完成、异步回调、重试、重入、异常退出、半途启停和停止时待定任务。
-- 模拟实际写入失败、仅结束组合失败、清理部分失败及请求成功但回调未执行，逐项核对分母和终态。
-- popup/uiless、空候选、隐藏窗口、纯翻页、自动上屏和直接插入路径不误计或漏计。
-- Mock 验证字段和结果；真实 DLL 的 ETW 集成测试验证开启/关闭、跨架构采集及真实事件解码，不能只测格式化字符串。
-- 在记事本、一个 Chromium 输入框和一个 VS Code/Electron 输入框执行固定测试场景，记录版本、宿主、架构、模式及完整性；真实宿主测试不能由 Mock 替代。
-- 用专门合成的测试输入验证指标事件和指标导出中不出现测试正文、编码或路径。
-- 达到第 6 节开销预算，完成 x64/x86 Release 定向测试。未通过前不进入默认发布能力。
-
-### 阶段二：扩展诊断
-
-交付：词库加载/重载、布局与渲染回退、激活/停用和自绘耗时；根据阶段一真实基线校准阈值。
-
-验收：冷/热词库、损坏/缺失、配置和词库同时变化、无布局、GDI 回退、跨 DPI、UILess 分别验证；正常回退不计为输入失败。不存在屏幕级证据时不得展示“用户可见端到端延迟”。
-
-### 阶段三：资源与趋势
-
-交付：监控器进程采样、分钟趋势和受控长时间运行报告。
-
-验收：
-
-- 采样访问失败、进程退出/PID 复用、CPU 分母、暂停/清空、采样预算均有测试。
-- 自有测试宿主执行至少 1 小时重复输入、焦点切换和激活/停用，在预热后每 100 轮回到空闲状态，比较句柄/GDI/USER 计数；连续三轮空闲基线增长即标记待调查，不以工作集波动单独认定泄漏。
-- 记录监控器自身 CPU/内存及实际丢失数，证明趋势展示不会依赖无限保留事件。
-- 真实应用的资源增长只能作为线索；报告必须标注宿主整体与输入法归因的区别。
-
-## 9. 相关修改面与维护要求
-
-实施时按职责修改，避免引入通用遥测框架或重复 Provider：
-
-- 公共日志：扩展 [logger.h](../src/common/logger.h) / [logger.cpp](../src/common/logger.cpp) 的指标事件入口及分类。
-- 热路径：[tip_keys.cpp](../src/ime/tsf/tip_keys.cpp)、[tip_composition.cpp](../src/ime/tsf/tip_composition.cpp)、[engine.cpp](../src/ime/engine/engine.cpp) 及实际查询实现；写入/清理结果在 [comp](../src/ime/comp) 的真实操作点产生，不只包裹外层 facade。
-- 监控器：[collector.h](../src/tools/log_monitor/collector.h) 的解码入口及 [model.h](../src/tools/log_monitor/model.h) 的模型；聚合模块独立于列表展示，UI 沿用现有窗口分工。
-- 测试：复用 [公共测试](../tests/common)、[IME 测试](../tests/ime) 和 [监控器测试](../tests/tools/log_monitor)，新增小范围测试后再跑相关集成测试。
-- 文档：实现各阶段后同步更新 [日志指南](log.md)、[开发文档](dev.md) 及必要的 [宿主验收](hosts.md)，明确哪些能力已经落地。
-
-每阶段完成时检查 RAII、共享逻辑复用、C++ Core Guidelines/GSL 和遗漏测试。失败必须保留真实诊断；计数器、关联表或计时辅助不得改变现有输入行为。只有文档变更时不要求构建，也不生成 MSI。
+# Local Performance Metrics
+
+## Current implementation
+
+Metrics are local, explicitly enabled, and consumed by `QiQiIMELogMonitor.exe`.
+The implementation includes typed ETW events, gated RAII timing, strict decoding,
+an independent bounded queue, aggregation, a Metrics view, and JSON export.
+
+Production instrumentation currently covers **FocusTotal**, **FocusReload**, and
+**FocusPosition**. Protocol support for key callbacks, candidate queries/updates,
+commit, and cleanup does not mean those paths emit production samples.
+There is no host-resource polling service or long-term trend collector.
+Full instrumentation-overhead and cross-process acceptance remain incomplete.
+
+To collect, stop capture, select **Metrics view**, and start **Logs + Metrics**.
+Switching views while running does not change the subscription.
+See the [logging guide](log.md#metrics-capture) for operating details.
+
+## Protocol and instrumentation
+
+The [shared protocol](../src/common/metric.h) uses schema version 1 and the existing
+`QiQiIME.TraceLogging` provider:
+
+| Event or keyword | Purpose |
+| --- | --- |
+| `QiQiMetric` | Typed measurement, not parsed diagnostic message text |
+| `QiQiMetricInstance` | Module identity, build/architecture, provider generation, diagnostic snapshot |
+| `Metrics = 0x0100` | Explicit metrics subscription |
+| `Logs = 0x00FF` | Ordinary diagnostics only |
+
+Metrics are independent of ordinary `LogLevel`, including Off. Without a metrics
+subscription, synchronous scopes do not read the timing clock or allocate an
+operation ID/instance GUID; the enable-state check still has a cost.
+
+Each measurement carries:
+
+- `schema_version`, module `instance_id`, and provider `capture_generation`;
+- numeric `service_id`, `operation_id`, and `parent_operation_id`;
+- finite `metric`, `phase`, `outcome`, `mode`, and `source` enums;
+- integer `duration_ns` when applicable;
+- explicit `error_domain` and actual `error_code`;
+- PID/TID, event time, and explicit activity/related activity from ETW metadata.
+
+The monitor's capture generation is separate from the provider's generation.
+Module metadata is requested when capture starts; missing, mismatched, or stale
+metadata must not be replaced with guessed architecture or version information.
+Unknown versions, malformed types, invalid enums, and missing fields are rejected
+from statistics with separate diagnostics.
+
+### Timing and outcomes
+
+[Scope](../src/common/metric.h) uses a monotonic clock and checked integer
+nanosecond conversion. Callers explicitly set outcomes: destruction is not
+implicit success. Unset results become `Incomplete`; exceptional exits become
+`Exception`. Timing failure excludes the sample rather than fabricating zero.
+
+Synchronous work uses `Complete`; asynchronous protocols use `Begin` and one
+`End` with a stable operation ID. Distinguish success, failure, cancellation,
+staleness, rejection, unhandled work, and incomplete observation.
+Changing subscription mid-operation invalidates the sampled generation.
+
+Do not change TSF threading, request order, lifetime, or input behavior to collect
+metrics. Actual host writes, attribute clearing, and composition termination need
+their own results; outer callback success or queue acceptance is insufficient.
+
+## Aggregation semantics
+
+[Aggregation](../src/tools/log_monitor/aggregate.h) is independent of the displayed
+log buffer. Clearing/filtering logs or pausing auto-scroll does not alter samples.
+The ETW callback validates and queues; the monitor consumes batches separately.
+
+- Durations use 512 histogram buckets: a zero bucket, geometric finite bounds
+  through 60 seconds, and an overflow bucket. Maximum duration remains exact.
+- Percentiles use nearest-rank bucket upper bounds, not exact durations. P50 needs
+  one sample, P95 needs 100, and P99 needs 1,000. Missing/insufficient samples and
+  overflow have explicit states, not fabricated zero values.
+- Success and failure timing distributions are separate. Merge counts and
+  histograms before computing percentiles; do not average percentiles or rates.
+- Failure rate is `failure / (success + failure)`. No denominator is not `0%`.
+- Cumulative coverage is observed terminal events divided by observed intents.
+  Stop-inferred incomplete operations are not observed terminal events.
+- Recent statistics use the monitor's receive clock: the current second and
+  previous 59 seconds. This is not an exact ETW event-time window. Recent coverage
+  is not applicable; pending operations always show the current count.
+- Stopping drains the queue, freezes windows, and marks pending work incomplete.
+  Clearing metrics starts a new statistics interval without resetting capture
+  loss counters or allowing late old terminals to count again.
+
+Operation keys include capture generation, PID, module instance, service, and
+operation ID. Duplicate events do not count twice. Remembered keys remain for
+the capture so eviction cannot silently admit late duplicates.
+
+### Storage limits and integrity
+
+| Resource | Current limit |
+| --- | --- |
+| Metrics queue | 2,000 records / 4 MiB |
+| Module instances | 32 |
+| Services per instance | 16 |
+| Dimensions per service | 16 |
+| Pending asynchronous operations | 4,096 |
+| Error codes per dimension | 32, then an "other errors" count |
+| Aggregator allocation budget | 64 MiB |
+
+Limits apply independently; the 64 MiB budget does not allow every dimension to
+be fully populated at once. Histograms/window buckets are allocated lazily.
+GUI rows, export snapshots, and serialized output are outside this aggregation
+budget; it is not a process working-set limit.
+
+Show ETW event/buffer loss, queue rejection, decode/protocol errors, allocation
+failure, aggregation rejection, and provider diagnostic deltas separately.
+Unattributed loss conservatively marks the capture incomplete. Clearing the
+display does not make it complete; no detected loss is not proof of completeness.
+
+Current threshold presets are 5 ms for key callback and candidate update, 2 ms
+for candidate query, and 20 ms for commit. Generic focus samples have no threshold
+because they do not distinguish hot checks from actual reloads.
+These are engineering attention lines, not performance guarantees.
+
+## JSON export
+
+From Metrics view, export a versioned UTF-8 snapshot. The
+[exporter](../src/tools/log_monitor/export.cpp) owns the snapshot before showing
+the save dialog, so ongoing capture/clear operations cannot rewrite it.
+Empty captures and filters with no matches still produce valid empty snapshots.
+
+| Root field | Meaning |
+| --- | --- |
+| `format`, `format_version` | `"qiqiime.metrics"`, format version 1 |
+| `tool`, `protocol_version` | Exporting tool and event schema versions |
+| `capture` | Capture generation/state and observed receive-clock boundaries |
+| `window` | Cumulative/recent selection, receive-clock rules, frozen state |
+| `filters` | Instance, metric, outcome, and mode selection |
+| `histogram_definition` | Nanosecond units, bucket bounds, overflow and percentile rules |
+| `thresholds_ns` | Configured attention thresholds; unconfigured values are `null` |
+| `instances` | Capture-local aliases, build/architecture, protocol and diagnostics |
+| `dimensions` | Per-dimension counts, coverage, errors, and timing distributions |
+| `integrity` | Loss, rejection, generation, and source diagnostic information |
+
+Receive ticks are not UTC or exact ETW API start/stop times. The statistics start
+after a clear is separate from capture start. Outcome filtering selects timing
+distributions without rewriting a dimension's complete count denominators.
+
+No sample, insufficient sample, overflow, unconfigured threshold, and missing
+denominator use explicit states and `null`, not invented values. Successful and
+failed histograms plus the selected timing distribution are exported separately.
+
+Counts, service IDs, error codes, and nanoseconds are exact JSON integers,
+including `uint64_t`. Readers must preserve them; JavaScript `Number` cannot
+exactly represent integers above `2^53-1`.
+
+Instances use aliases such as `instance-1`. Export does not include raw logs,
+PID, module/activity GUIDs, process names, input text, or private paths.
+This does not sanitize an ordinary diagnostic export made separately.
+
+Serialized output has its own 64 MiB limit. Cancellation, serialization, or write
+failure preserves the in-memory snapshot/statistics and reports the real error.
+A failed target file can be incomplete; saving is not an atomic replacement.
+
+## Validation and remaining work
+
+Relevant suites are `QiQiMetricsTest`, `QiQiMetricsEtwTest`,
+`QiQiMonitorMetricsTest`, `QiQiMonitorMetricsEtwTest`, and `QiQiFocusMetricsEtwTest`.
+They exercise protocol validation, actual ETW field types, real DLL focus events,
+decode/queue/aggregation, limits, and lifecycle boundaries. GUI checks are also
+part of `QiQiLogMonitorTest`.
+
+The metrics test executable supports `--json-fixtures <existing-directory>` for
+independent JSON-parser checks and refuses to overwrite existing fixtures.
+Run both architectures sequentially; permission-skipped integration tests are
+not passing cross-process acceptance.
+
+The [focus benchmark](../tests/ime/focus_benchmark.ps1) uses an external caller
+clock and same-source inert-instrumentation baseline. It measures unchanged focus
+handling, not handled keys. Private ETL capture followed by decoding is not a
+normal or slow realtime consumer. Setup is in the
+[development guide](dev.md#focus-performance-benchmarks).
+
+Outstanding work includes broader production instrumentation, real-host and
+cross-process scenarios, normal/slow consumer and repeated-toggle overhead
+measurement, and any future resource/trend sampling. Existing focus-only results
+do not establish a stable whole-pipeline performance budget. Never discard slow
+samples, change denominators, or silently sample events to claim compliance.
+
+## Privacy and maintenance
+
+Record only timings, counters, finite state, actual errors, build/architecture,
+and capture-local correlation. Do not record text, codes, candidates, key
+sequences, clipboard contents, titles, URLs, dictionary paths, or raw pointers.
+Explicit capture can still reveal activity timing; review data before sharing.
+
+Use the existing provider, permissions flow, and input-access policy. Do not
+elevate tested hosts, bypass [restricted input](restricted.md), or add sampling
+threads inside the IME. When extending metrics, update protocol/decoder,
+aggregation, GUI/export semantics, and focused tests together.

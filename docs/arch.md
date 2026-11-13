@@ -150,7 +150,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
    - **异步排版光标跟随（`ITfTextLayoutSink` + Caret 兜底，`tsf-text-layout-sink-caret`）**：针对 Chromium / VS Code / WPF / Word 等异步排版宿主在首键插入组合串时 `GetTextExt` 返回 `TS_E_NOLAYOUT` 的情况，通过 `ITfTextLayoutSink::OnLayoutChange` 在宿主完成排版后立即刷新候选窗位置，并以 `GetGUIThreadInfo`（`rcCaret`）/ 焦点窗口坐标兜底，避免候选窗跳至 `(0, 0)`。
    - **Shift 键中英切换防误触（`shift-tap-anti-mistrigger`）**：记录 `VK_SHIFT` 按下时间戳（`GetTickCount64()`）并检测鼠标按键状态（`VK_LBUTTON` / `VK_RBUTTON` / `VK_MBUTTON`），仅当单按时长 `<= 350ms` 且期间无鼠标点击与其它按键时才触发中英切换，防止 `Shift+Click` 选区或长按 `Shift` 误切模式。
    - **数字小键盘支持（`numpad-and-composing-digits`）**：在静态按键分类、运行时 FSM 与全角模式中支持 `VK_NUMPAD0..9` 与 `VK_DECIMAL`，防止组合态下按小键盘数字穿透破坏正在输入的编码串。
-   - **禁用标志与受限上下文统一准入（`tsf-disabled-context-awareness`）**：通过 [`access_policy.h`](../src/ime/comp/access_policy.h) 的两层漏斗模型（`ContextFacts` → `AccessPolicy`）汇总 context 级 `GUID_COMPARTMENT_KEYBOARD_DISABLED`、`GUID_COMPARTMENT_EMPTYCONTEXT`、`TF_SD_READONLY`、已确认本线程原生 `EDIT` 样式（`ES_PASSWORD` / `ES_READONLY`）及会话内 `ITfInputScope`，统一覆盖四个按键入口、Shift 切换、保留快捷键、候选操作、模式切换与异步 `EditSession` 复核，并在 `IS_PRIVATE` 场景下抑制动态调频与造词副作用；无可靠信号的自绘控件边界及真实宿主矩阵见[禁输入研究](restricted.md)。
+   - **禁用标志与受限上下文统一准入（`tsf-disabled-context-awareness`）**：通过 [`access_policy.h`](../src/ime/comp/access_policy.h) 的两层漏斗模型（`ContextFacts` → `AccessPolicy`）汇总 context 级 `GUID_COMPARTMENT_KEYBOARD_DISABLED`、`GUID_COMPARTMENT_EMPTYCONTEXT`、`TF_SD_READONLY`、已确认本线程原生 `EDIT` 样式（`ES_PASSWORD` / `ES_READONLY`）及会话内 `ITfInputScope`，统一覆盖四个按键入口、Shift 切换、保留快捷键、候选操作、模式切换与异步 `EditSession` 复核，并在 `IS_PRIVATE` 场景下抑制动态调频与造词副作用；无可靠信号的自绘控件边界及真实宿主验证要求见[受限输入说明](restricted.md)。
    - **异步 EditSession 状态快照隔离（`async-editsession-snapshot`）**：在 `KeyProcessResult` 中携带自包含的候选/分页快照传入 `LambdaEditSession`，避免 `TF_ES_ASYNCDONTCARE` 异步执行时读取到超前或滞后的引擎状态。
    - **词组排序持久化与跨进程同步（`persist-dynamic-phrase-freq`）**：启用 `dynamic_phrase_freq` 后，显式选中的词组按最近选择顺序提升，单字候选保留原位置，不是累计次数排名。排序采用带 FNV-1a 校验的 `QPF1` 二进制格式保存（兼容读取旧版 UTF-8 文本格式），并通过任务 39、40 的公共同步通道协调跨进程写入与 `Operation::Reorder` 增量同步；AppContainer 实例保持只读同步。
 
@@ -254,7 +254,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 保留应用日志级别、无接收方时的低开销、真实注册错误码及不递归失败兜底，不记录用户输入或敏感数据。
   - 补充无调试器且 ETW 会话已启动、应用启动后才启用采集、停用/重新激活、多实例、注册失败及日志 Off 的测试；实际采集验证应确认包含目标宿主 PID 和预期消息，不能仅检查会话存在。
   - 已在服务构造入口（配置/词库初始化之前）与激活路径主动幂等注册，分离注册与设置日志级别，移除日志写入/查询的隐式注册及 `DllMain` 的格式化日志；与任务 51 一并完成模块生命周期清理。
-  - 双架构普通测试及真实 DLL、无调试器、多进程 ETW 采集通过，包含晚启动采集、停用/重新激活、模块重载、Off 及目标 PID/预期消息/零丢失校验；同步核心注入注册失败与并发初始化。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#54-日志初始化与生命周期验证任务-5551)和[日志指南](log.md#初始化与共享生命周期)，不宣称浏览器/UWP 全面兼容性已验证。
+  - 双架构普通测试及真实 DLL、无调试器、多进程 ETW 采集通过，包含晚启动采集、停用/重新激活、模块重载、Off 及目标 PID/预期消息/零丢失校验；同步核心注入注册失败与并发初始化。详见[开发文档](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/dev.md#54-日志初始化与生命周期验证任务-5551)和[日志指南](log.md#provider-lifecycle)，不宣称浏览器/UWP 全面兼容性已验证。
 
 - [x] **42. 延迟编辑会话测试能力（`tsf-deferred-session-test-support`）**
   - 扩展现有立即执行回调的编辑会话 Mock，支持排队及手动执行；模拟停用、重新激活和上下文变化后才执行旧任务的时序。
@@ -320,7 +320,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 详细埋点采用调试/跟踪级别，减少日志关闭时开销及生产刷屏，不记录用户文本或敏感路径，不新增吞异常或成功形状的失败结果。
   - 验证无变化、配置变化、词库变化、两者同时变化、位置相同/变化及两种焦点通知；在真实宿主测量后再决定优化。不在本项擅自增加阈值、改变重载策略或把 TSF/UI 对象移到后台线程。
   - 已实现 Debug 级别 `FocusPerformance` 与关联的重载详情，采用单调时钟整数纳秒，保留同次双重载，并记录配置/词频结果、词库调用次数及映射数量。详细日志关闭或没有接收方时不读取计时时钟；失去焦点仅测量既有清理路径。
-  - 双架构构建与 TSF/UI 测试通过；自有调试子进程直接验证实际日志、计时形状、所需变化分支及 Info/Off 过滤。真实宿主测量留作后续优化依据，操作步骤见[日志指南](log.md#61-焦点处理耗时任务-50)；不宣称已完成宿主性能优化。
+  - 双架构构建与 TSF/UI 测试通过；自有调试子进程直接验证实际日志、计时形状、所需变化分支及 Info/Off 过滤。真实宿主测量留作后续优化依据，操作步骤见[日志指南](log.md#focus-timing)；不宣称已完成宿主性能优化。
 
 **P2：共享资源与命名**
 
@@ -469,7 +469,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 - 2026-11-05 在 Explorer 文件列表获得焦点、使用奇奇中文输入时，观察到字母组合小窗及候选窗位于屏幕左上角；移动 Explorer 窗口后仍可复现。用户报告微软输入法也有同类现象，但不据此直接认定宿主根因。
 - 已确认 Explorer 加载 `0.9.32+7556636`。本地时间 07:26:17 的定位日志先返回零高度文本矩形 `(1919,1127,1920,1127)`，随后持续成功返回 `(13,9,24,38)` 等左上角矩形，宽度随输入变化；奇奇候选实际位于 `(13,42)`。布局通知与回调正常执行，直接原因是候选跟随 TSF 提供的左上角组合范围，而非仅有全零矩形或缺少布局通知。TSF 为何提供该位置及字母组合小窗的归属尚未确认。
 - 暂时保留现状，不做 Explorer 特判，不禁用文件列表的中文键入定位。不能仅凭左上角坐标判断异常；鼠标锚定、选中文件项锚定或单独移动候选都存在交互及兼容性代价，尚无已验证的通用整体方案。本问题与安全模式能力声明无关。
-- 零高度矩形可另行评估通用定位健壮性处理，但不作为本问题的完整修复；任何后续方案均需分别验证字母组合小窗与奇奇自绘候选窗。日志采集与定位字段见[日志指南](log.md#候选窗口定位诊断)。
+- 零高度矩形可另行评估通用定位健壮性处理，但不作为本问题的完整修复；任何后续方案均需分别验证字母组合小窗与奇奇自绘候选窗。日志采集与定位字段见[日志指南](log.md#candidate-positioning)。
 
 #### 已完成的代码质量检查
 - [x] **0. 全量代码质量检查与测试补全（`code-audit-and-test-completion`）**：对全仓（`common`、`engine`、`tsf`、`ui`、`settings`）执行代码质量扫描（RAII 合规、代码复用/DRY、C++ Core Guidelines & GSL 最佳实践、异常与边界安全），并补全遗漏的单元测试分支。
@@ -483,7 +483,7 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
 
 #### 已完成：禁输入场景识别与统一准入
 - [x] **36. 密码框与禁输入上下文识别研究与实施（`restricted-input-context-research`）**：已完成官方契约研究、两层漏斗准入模型（[`access_policy.h`](../src/ime/comp/access_policy.h)：`ContextFacts` → `AccessPolicy`）实施、双架构自动回归及独立手工测试程序 [`QiQiTsfTestHost.exe`](../tests/ime/tsf_test_host.cpp) 验证。
-  - 2026-11-05 阶段性结果见[研究结论与验证矩阵](restricted.md)：核实 context 级 compartment、只读状态、输入作用域及原生 EDIT 样式；新增 x64/x86 原生契约测试与显式诊断入口，复现 Shift/保留键、禁用后排队编辑及查询失败处理的缺口。本轮未改变生产输入行为，真实宿主矩阵未完成，不勾选完成。
+  - 2026-11-05 阶段性结果见[研究阶段记录](https://github.com/cloudfyy/qiqiime/blob/v1.0.7/docs/restricted.md)：当时核实 context 级 compartment、只读状态、输入作用域及原生 EDIT 样式，新增 x64/x86 原生契约测试与显式诊断入口，复现 Shift/保留键、禁用后排队编辑及查询失败处理的缺口。该记录仅代表研究时点；当前实现与边界见[受限输入说明](restricted.md)。
   - 核实 `GUID_COMPARTMENT_KEYBOARD_DISABLED`、`GUID_COMPARTMENT_EMPTYCONTEXT` 的官方语义、上下文/线程作用域及宿主设置行为，研究标志缺失或查询失败时的处理。
   - 评估 Win32 `ES_PASSWORD`、TSF 输入作用域及宿主提供的其他禁输入信号的适用范围和局限，不读取密码内容，不将只读、数字或英文输入框一律判定为密码框。
   - 检查按键按下、释放、保留快捷键、焦点切换及异步 EditSession 的一致性；研究进入禁输入场景时组合串、候选窗口和 Shift 切换状态的安全清理，避免旧组合内容提交到新控件。
@@ -528,9 +528,9 @@ Shift 轻触由独立的 [`ShiftTapTracker`](../src/ime/tsf/shift_tap.h) 管理�
   - 热重载或运行期若自定义主词库文件缺失、损坏或无权读取（例如在 Windows AppContainer 沙盒应用中访问未授予 `ALL APPLICATION PACKAGES` 读取权限的用户私有目录），显式记录 `Keyword::Dictionary` 警告日志并保留已激活的主词库（首次启动时回退随包极点 86 主词库），绝不静默清空可用词库。
 
 #### 待办：性能与稳定性指标监控
-- [ ] **63. 本地性能与稳定性指标监控（`local-performance-stability-metrics`）**：按[监控方案](metrics.md)分阶段实施；阶段一 A 的协议、独立 Metrics 门控、同步 RAII 计时、严格解码/独立队列、有界聚合和三段焦点埋点已实现，更广的业务链路和指标页尚未完成。
-  - 阶段一 A/B（P1）：类型化 ETW 指标协议、显式启用门控、有界聚合、核心五类链路、指标页及导出；完成耗时/失败口径、隐私检查、开销预算与 x64/x86 验收。
-  - 近期先实施[阶段一 A 的执行拆分（2026-11-08）](metrics.md#阶段一-a-的执行拆分2026-11-08)：前五步基础代码已交付，第六步已接入焦点总耗时/重载/位置同步及真实 DLL 私有 ETW→生产解码/队列/聚合测试。外部焦点基准已完成 x64/x86 两轮各 5 组同源码对照；x86 首轮关闭态超参考预算、复测波动明显，保留全部原始值，未宣告稳定达标。惰性分配并统一约束 64 MiB 预算；首轮不改上屏/清理生命周期，不做完整指标页、资源采样或长期趋势。跨进程链路、按键及正常/慢实时消费者、反复开关和完整开销预算验收待后续完成。
+- [ ] **63. 本地性能与稳定性指标监控（`local-performance-stability-metrics`）**：按[指标指南](metrics.md)继续建设；类型化协议、独立 Metrics 门控、同步 RAII 计时、严格解码/独立队列、有界聚合、三段焦点埋点、指标视图及版本化 JSON 导出已实现。
+  - 当前能力与数据口径见[实现状态](metrics.md#current-implementation)。聚合采用惰性分配及统一 64 MiB 预算；指标视图支持筛选、累计/最近 60 秒窗口及独立导出。
+  - [剩余验收](metrics.md#validation-and-remaining-work)：更广业务埋点、跨进程链路、按键及正常/慢实时消费者、反复开关和完整开销预算。已有焦点基准不等同于稳定达标；资源采样与长期趋势尚未实现。
   - 阶段二（P2）：扩展词库加载、UI/布局回退、生命周期诊断及自绘耗时，基于真实基线校准阈值。
   - 阶段三（P3）：由独立监控器采样选定宿主进程资源并展示长期趋势，明确宿主整体与输入法归因的区别。
   - 默认关闭、仅本地采集，不记录输入正文或按键序列，不接入云端；采集缺口、失败和未完成结果必须显式展示，不冒充成功统计。

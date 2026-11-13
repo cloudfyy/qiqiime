@@ -26,7 +26,8 @@ provided. Release builds statically link the MSVC runtime.
 
 Read the [installation guide](https://github.com/cloudfyy/qiqiime/blob/main/docs/install.md)
 and [release notes](https://github.com/cloudfyy/qiqiime/blob/main/docs/release-notes.md)
-before installing or upgrading. Most detailed technical guides are currently in Chinese.
+before installing or upgrading. The development, logging, metrics, restricted-input,
+and AppContainer guides are available in English.
 
 ## Features
 

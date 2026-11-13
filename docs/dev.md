@@ -124,7 +124,7 @@ CTest launches the full and focused TSF suites through
 
 Preserve failure evidence before deleting build directories. Dumps can contain
 sensitive process memory: keep them local and review them before sharing.
-See the [logging guide](log.md#64-自动测试逐函数日志与挂起-dump) for interpretation.
+See the [logging guide](log.md#test-hang-diagnostics) for interpretation.
 
 ## Code quality and lint
 
@@ -183,7 +183,7 @@ cmake --build build\metrics-baseline\x64 --config Release --target qiqiime
 
 For x86, use the corresponding paths and `-A Win32`. Use a new output file for
 each run. Never install or distribute the `.metrics-baseline` DLL.
-Measurement limits and interpretation belong in the [metrics design](metrics.md).
+Measurement limits and interpretation belong in the [metrics guide](metrics.md).
 
 ## Diagnostics
 
