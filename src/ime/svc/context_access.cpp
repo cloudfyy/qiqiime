@@ -5,9 +5,28 @@
 
 namespace qiqi {
 
+QiQiTextService::InputBlockReason QiQiTextService::GetInputBlockReason() const noexcept {
+    if (!composition_lifecycle_.IsActive()) return InputBlockReason::Inactive;
+    if (composition_lifecycle_.IsResettingContext()) return InputBlockReason::Resetting;
+    if (preparing_input_context_) return InputBlockReason::Preparing;
+    return InputBlockReason::None;
+}
+
+std::string_view QiQiTextService::InputBlockReasonToString(InputBlockReason reason) noexcept {
+    switch (reason) {
+        case InputBlockReason::None: return "none";
+        case InputBlockReason::Inactive: return "inactive";
+        case InputBlockReason::Resetting: return "resetting";
+        case InputBlockReason::Preparing: return "preparing";
+        case InputBlockReason::NoContext: return "no-context";
+        case InputBlockReason::KeyboardDisabled: return "keyboard-disabled";
+    }
+    Expects(false);
+    return {};
+}
+
 bool QiQiTextService::CanQueryContextAccess(ITfContext* context) const noexcept {
-    return context && composition_lifecycle_.IsActive() && !composition_lifecycle_.IsResettingContext() &&
-           !preparing_input_context_;
+    return context && GetInputBlockReason() == InputBlockReason::None;
 }
 
 ContextFacts QiQiTextService::ReadContextAccessFacts(
@@ -19,8 +38,7 @@ ContextFacts QiQiTextService::ReadContextAccessFacts(
     return ReadFastContextFacts(
         context.get(), cached_scope,
         [this, is_active_target, ticket]() noexcept {
-            return composition_lifecycle_.IsActive() && !composition_lifecycle_.IsResettingContext() &&
-                   !preparing_input_context_ &&
+            return GetInputBlockReason() == InputBlockReason::None &&
                    (!is_active_target || composition_lifecycle_.IsCurrent(ticket));
         });
 }

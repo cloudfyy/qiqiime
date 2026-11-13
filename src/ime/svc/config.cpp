@@ -380,8 +380,7 @@ void QiQiTextService::UpdatePasswordMode(bool password) {
 }
 
 void QiQiTextService::PrefetchActiveContextInputScope(ITfContext* context) {
-    if (!context || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() ||
-        preparing_input_context_ || client_id_ == TF_CLIENTID_NULL) {
+    if (!CanQueryContextAccess(context) || client_id_ == TF_CLIENTID_NULL) {
         return;
     }
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context};
@@ -416,8 +415,7 @@ void QiQiTextService::PrefetchActiveContextInputScope(ITfContext* context) {
 }
 
 void QiQiTextService::HandleActiveContextAccessChanged() {
-    if (!composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() ||
-        preparing_input_context_) {
+    if (GetInputBlockReason() != InputBlockReason::None) {
         return;
     }
     context_access_.OnDynamicStateChanged();

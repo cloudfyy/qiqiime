@@ -115,6 +115,9 @@ public:
 
 private:
     enum class FocusNotificationSource { ThreadManager, KeyEvent };
+    enum class InputBlockReason { None, Inactive, Resetting, Preparing, NoContext, KeyboardDisabled };
+    InputBlockReason GetInputBlockReason() const noexcept;
+    static std::string_view InputBlockReasonToString(InputBlockReason reason) noexcept;
     struct KeyEvent {
         uint32_t vk = 0;
         bool shift = false;

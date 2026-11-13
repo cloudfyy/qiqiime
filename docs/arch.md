@@ -120,6 +120,10 @@ processing it and writing the result into the application's input field:
    are separate operations behind the access facade; prediction queries do not
    reset composition. The coordinator retains the original `pfEaten` write
    timing before host edits, including the CapsLock pass-through path.
+   Local input admission uses `GetInputBlockReason`: inactive, resetting, then
+   preparing. Diagnostics share that result instead of repeating conditions.
+   Missing-context and context-access rejection remain separate; local state
+   is queried again after host calls, never cached across reentrant boundaries.
 
 3. **Use this key's result when editing the document.**
    [`WubiEngine`](../src/ime/engine/engine.h#L54) returns a

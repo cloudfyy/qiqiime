@@ -71,8 +71,8 @@ void QiQiTextService::TrackShiftTapKeyDown(std::string_view stage, uint32_t vk, 
     const auto modifiers = ReadShiftTapModifiers();
     const char* reason = nullptr;
     ITfContext* const effective_ctx = context ? context : composition_lifecycle_.Context().Get();
-    if (!composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() || preparing_input_context_) {
-        reason = !composition_lifecycle_.IsActive() ? "inactive" : composition_lifecycle_.IsResettingContext() ? "resetting" : "preparing";
+    if (const auto blocked = GetInputBlockReason(); blocked != InputBlockReason::None) {
+        reason = InputBlockReasonToString(blocked).data();
         shift_tap_.Reset();
     } else if (effective_ctx && IsContextKeyboardDisabled(effective_ctx)) {
         reason = "keyboard-disabled";
@@ -95,10 +95,8 @@ bool QiQiTextService::HandleShiftTapKeyUp(std::string_view stage, uint32_t vk, c
         if (!test_only) shift_tap_.Reset();
         return false;
     }
-    if (!composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() || preparing_input_context_) {
-        LogShiftTap(stage, vk, context, false,
-                    !composition_lifecycle_.IsActive() ? "inactive" :
-                    composition_lifecycle_.IsResettingContext() ? "resetting" : "preparing");
+    if (const auto blocked = GetInputBlockReason(); blocked != InputBlockReason::None) {
+        LogShiftTap(stage, vk, context, false, InputBlockReasonToString(blocked));
         shift_tap_.Reset();
         return false;
     }
@@ -123,11 +121,14 @@ void QiQiTextService::HandleTestKeyDown(
         return;
     }
     const bool keyboard_disabled = IsContextKeyboardDisabled(pic);
-    if (!pic || !composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() || preparing_input_context_ || keyboard_disabled) {
+    // Context queries can reenter; read local state after the host returns.
+    auto blocked = pic ? GetInputBlockReason() : InputBlockReason::NoContext;
+    if (blocked == InputBlockReason::None && keyboard_disabled) {
+        blocked = InputBlockReason::KeyboardDisabled;
+    }
+    if (blocked != InputBlockReason::None) {
         if (shift_tap_.IsCandidate()) {
-            LogShiftTap("OnTestKeyDown", vk, pic, false,
-                        !pic ? "no-context" : !composition_lifecycle_.IsActive() ? "inactive" : composition_lifecycle_.IsResettingContext() ? "resetting" :
-                        preparing_input_context_ ? "preparing" : "keyboard-disabled");
+            LogShiftTap("OnTestKeyDown", vk, pic, false, InputBlockReasonToString(blocked));
         }
         shift_tap_.Reset();
         *pfEaten = FALSE;
@@ -251,8 +252,7 @@ void QiQiTextService::HandleKeyUp(
 
 void QiQiTextService::HandlePreservedKey(
     ITfContext* pic, REFGUID rguid, gsl::not_null<BOOL*> pfEaten) {
-    if (!composition_lifecycle_.IsActive() || composition_lifecycle_.IsResettingContext() ||
-        preparing_input_context_) {
+    if (GetInputBlockReason() != InputBlockReason::None) {
         *pfEaten = FALSE;
         return;
     }
