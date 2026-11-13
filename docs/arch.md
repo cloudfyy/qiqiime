@@ -87,7 +87,7 @@ For ordinary key-down input, deciding whether to handle a key is separate from
 processing it and writing the result into the application's input field:
 
 1. **Determine whether the IME should handle the key
-   ([`OnTestKeyDown`](../src/ime/tsf/tip_keys.cpp#L208)).**
+   ([`OnTestKeyDown`](../src/ime/tsf/tip_keys.cpp#L226)).**
    TSF asks whether the IME intends to handle the key instead of passing it
    directly to the application. This callback does not bind an input context,
    look up candidates, advance the engine state, or request a document edit.
@@ -99,8 +99,10 @@ processing it and writing the result into the application's input field:
    the old composition. That is only a prediction: it does not actually clear
    the composition or bind the new context.
 
-2. **Process the key ([`OnKeyDown`](../src/ime/tsf/tip_keys.cpp#L243)).**
-   The actual callback first records Shift, Ctrl, Alt, and CapsLock state.
+2. **Process the key ([`OnKeyDown`](../src/ime/tsf/tip_keys.cpp#L257)).**
+   Both key-down callbacks use the inline
+   [`GetKeyAndModifierState`](../src/ime/tsf/tip_keys.cpp#L43) helper to capture
+   the virtual-key code and Shift, Ctrl, Alt, and CapsLock state at entry.
    Calls into the application can dispatch newer keyboard messages or reenter
    the service, so later processing must use the state captured for this key.
    The callback checks whether input is allowed in the target context, calls
@@ -116,7 +118,7 @@ processing it and writing the result into the application's input field:
    owns this result snapshot even if it runs later, rather than rereading engine
    state that a subsequent key may already have changed.
 
-Returning `TRUE` from [`OnTestKeyDown`](../src/ime/tsf/tip_keys.cpp#L208)
+Returning `TRUE` from [`OnTestKeyDown`](../src/ime/tsf/tip_keys.cpp#L226)
 only indicates that the IME intends to
 handle the key. It does not grant permission to change the application's text.
 The actual document edit still requires a TSF-granted edit session and checks

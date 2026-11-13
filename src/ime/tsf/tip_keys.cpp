@@ -32,6 +32,24 @@ bool IsCapsLockOn() noexcept {
     return (::GetKeyState(VK_CAPITAL) & 0x0001) != 0;
 }
 
+struct KeyAndModifierState {
+    uint32_t vk = 0;
+    bool shift = false;
+    bool ctrl = false;
+    bool alt = false;
+    bool caps = false;
+};
+
+inline KeyAndModifierState GetKeyAndModifierState(WPARAM key) noexcept {
+    return {
+        .vk = gsl::narrow_cast<uint32_t>(key),
+        .shift = IsKeyDown(VK_SHIFT),
+        .ctrl = IsKeyDown(VK_CONTROL),
+        .alt = IsKeyDown(VK_MENU),
+        .caps = IsCapsLockOn(),
+    };
+}
+
 constexpr bool IsShiftVirtualKey(uint32_t vk) noexcept {
     return vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT;
 }
@@ -209,11 +227,7 @@ STDMETHODIMP QiQiTextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPAR
     if (!pfEaten) {
         return E_INVALIDARG;
     }
-    const bool shift = IsKeyDown(VK_SHIFT);
-    const bool ctrl = IsKeyDown(VK_CONTROL);
-    const bool alt = IsKeyDown(VK_MENU);
-    const bool caps = IsCapsLockOn();
-    const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
+    const auto [vk, shift, ctrl, alt, caps] = GetKeyAndModifierState(wParam);
     if (IsShiftVirtualKey(vk)) {
         TrackShiftTapKeyDown("OnTestKeyDown", vk, pic, lParam);
         *pfEaten = FALSE;
@@ -245,11 +259,7 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM l
         return E_INVALIDARG;
     }
     // Host calls during target preparation can pump a newer keyboard message.
-    const bool shift = IsKeyDown(VK_SHIFT);
-    const bool caps = IsCapsLockOn();
-    const bool ctrl = IsKeyDown(VK_CONTROL);
-    const bool alt = IsKeyDown(VK_MENU);
-    const uint32_t vk = gsl::narrow_cast<uint32_t>(wParam);
+    const auto [vk, shift, ctrl, alt, caps] = GetKeyAndModifierState(wParam);
     if (IsShiftVirtualKey(vk)) {
         ITfContext* const shift_ctx = pic ? pic : composition_lifecycle_.Context().Get();
         if (shift_ctx) {
@@ -267,7 +277,8 @@ STDMETHODIMP QiQiTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM l
         return S_OK;
     }
     const AccessPolicy initial_policy = EvaluateContextAccess(pic, true);
-    if (shift_tap_.IsCandidate()) LogShiftTap("OnKeyDown", 0, pic, false, "other-key-cancelled");
+    if (shift_tap_.IsCandidate()) 
+        LogShiftTap("OnKeyDown", 0, pic, false, "other-key-cancelled");
     shift_tap_.Reset();
     if (!initial_policy.can_input) {
         *pfEaten = FALSE;
