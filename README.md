@@ -8,6 +8,8 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
+The current source version is **1.0.7**, with release tag
+[`v1.0.7`](https://github.com/cloudfyy/qiqiime/releases/tag/v1.0.7).
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
 
@@ -40,6 +42,9 @@ before installing or upgrading. Most detailed technical guides are currently in 
   floating status bar, with DPI, theme, and high-contrast support.
 - Standalone settings, dictionary manager, and local ETW log-monitor tools.
   Settings and tool interfaces support Simplified Chinese and English.
+- Uninstall keeps personal data by default. MSI uninstall offers an optional
+  cleanup checkbox; ZIP unregistration supports explicit `-RemoveUserData`.
+  Both preserve custom dictionaries, exports, backups, and other users' data.
 - Local dictionary and configuration sharing between desktop and AppContainer
   instances; this is **not cloud synchronization**.
 
