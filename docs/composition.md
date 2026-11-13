@@ -99,26 +99,48 @@ returns `S_OK` with a skip diagnostic, not a fabricated host-edit success.
 
 ```mermaid
 flowchart TD
-    Key["Actual key-down"] --> Prepare["Check access and prepare target"]
-    Prepare --> Ready{"Target accepted?"}
+    Key["Ordinary key-down: check access, prepare target, then recheck access"] --> Ready{"Input target allowed and prepared?"}
     Ready -->|No| Decline["Do not consume this action"]
-    Ready -->|Yes| Engine["Process key once and capture result"]
-    Engine --> Request["Request write session: explicit ASYNC if cleanup pending"]
+    Ready -->|Yes| Handle{"Engine intends to handle this key?"}
+    Handle -->|No| Decline
+    Handle -->|Yes| Engine["Mark key consumed; process once and capture result"]
+    Engine --> Result{"Result requires an edit?"}
+    Result -->|No| NoEdit["No edit session requested"]
+    Result -->|Yes| Admit{"Service active, not resetting/preparing, and original context current?"}
+    Admit -->|No| SkipRequest["Skip edit request; do not change the earlier key-consumption decision"]
+    Admit -->|Yes| Capture["Capture context, result snapshot, and current version ticket"]
+    Capture --> Request["Request read/write session: explicit ASYNC if cleanup pending"]
     Request --> Grant["TSF delivers callback with write cookie"]
-    Grant --> Current{"Ticket still current?"}
+    Grant --> Current{"Activation/context versions and original target still current?"}
     Current -->|No| Discard["Discard stale callback"]
     Current -->|Yes| Pending{"Old cleanup pending on this context?"}
     Pending -->|Yes| Requeue["Resubmit the same result; do not process key again"]
-    Requeue --> Request
+    Requeue --> Admit
     Pending -->|No| Access["Recheck access policy and ticket in session"]
     Access --> Allowed{"Input still allowed?"}
     Allowed -->|No| SkipEdit["Skip deferred edit"]
-    Allowed -->|Yes| Edit["Run guarded host edits"]
-    Edit --> Publish["Recheck captured identity before positioning and UI publication"]
+    Allowed -->|Yes| Promotion["Apply deferred phrase promotion; recheck ticket"]
+    Promotion --> Valid{"Ticket still current?"}
+    Valid -->|No| SkipEdit
+    Valid -->|Yes| Edit["Dispatch guarded cancel, commit, or composition update"]
+    Edit --> UI["End candidate UI, or update composition and candidates, as the result requires"]
 ```
 
-The diagram assumes TSF delivers the request. Rejection or abandonment does not
-enter the callback and must not be presented as successful editing.
+This diagram covers ordinary key-down input. Shift tracking and CapsLock's
+commit-with-pass-through path are separate. A skipped or failed edit does not
+undo the key-consumption decision made before requesting host edits.
+
+The request-to-callback edge assumes TSF delivers the request; delivery may be
+synchronous or deferred when no explicit ASYNC is required. Rejection or
+abandonment must not be presented as successful editing; request acceptance alone
+does not prove callback delivery or successful host edits.
+Requeueing re-enters request admission and captures a new task for the
+same result; it does not run the engine again.
+
+The last two nodes summarize action-specific paths, not unconditional success.
+Composition updates check the captured composition identity before positioning
+and again before publishing candidates. Commit/cancel paths guard their host
+operations and only end UI or start a following composition if still current.
 `CompositionEditTask` owns its context, immutable `KeyProcessResult`, ticket,
 and activity. Deferred service callbacks retain the service separately; the task
 itself owns neither a service nor an edit cookie.
