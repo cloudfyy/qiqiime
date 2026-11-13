@@ -25,7 +25,7 @@ std::string_view QiQiTextService::InputBlockReasonToString(InputBlockReason reas
     return {};
 }
 
-bool QiQiTextService::CanQueryContextAccess(ITfContext* context) const noexcept {
+bool QiQiTextService::CanQueryContextAccess(const ITfContext* context) const noexcept {
     return context && GetInputBlockReason() == InputBlockReason::None;
 }
 

@@ -379,21 +379,21 @@ void QiQiTextService::UpdatePasswordMode(bool password) {
     SyncTsfCompartments();
 }
 
-void QiQiTextService::PrefetchActiveContextInputScope(ITfContext* context) {
-    if (!CanQueryContextAccess(context) || client_id_ == TF_CLIENTID_NULL) {
+void QiQiTextService::PrefetchActiveContextInputScope(gsl::not_null<ITfContext*> context) {
+    if (!CanQueryContextAccess(context.get()) || client_id_ == TF_CLIENTID_NULL) {
         return;
     }
-    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context};
+    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
     if (!IsEditSessionCurrent(ticket) || !context_access_.NeedsScopeQuery(ticket)) {
         return;
     }
     const ContextFacts fast_facts = ReadFastContextFacts(
-        context, InputScopeClassification::Unknown,
+        context.get(), InputScopeClassification::Unknown,
         [this, ticket]() noexcept { return IsEditSessionCurrent(ticket); });
     if (!IsEditSessionCurrent(ticket) || fast_facts.HasError() || fast_facts.IsBlocked()) {
         return;
     }
-    ComPtr<ITfContext> ctx_holder(context);
+    ComPtr<ITfContext> ctx_holder(context.get());
     ComPtr<QiQiTextService> self_holder(this);
     const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
         [self_holder, ctx_holder, ticket](TfEditCookie ec) -> HRESULT {
@@ -428,7 +428,7 @@ void QiQiTextService::HandleActiveContextAccessChanged() {
     if (ITfContext* const active_ctx = composition_lifecycle_.Context().Get()) {
         const AccessPolicy policy = EvaluateContextAccess(active_ctx, true);
         if (policy.can_input && composition_lifecycle_.Context().Get() == active_ctx) {
-            PrefetchActiveContextInputScope(active_ctx);
+            PrefetchActiveContextInputScope(gsl::not_null<ITfContext*>(active_ctx));
         }
     }
 }

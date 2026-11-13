@@ -189,12 +189,12 @@ private:
     AccessPolicy EvaluateContextAccess(ITfContext* context, bool enforce_reset = true);
     AccessPolicy EvaluateContextAccessInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, EditSessionTicket ticket, bool enforce_reset = true);
-    bool CanQueryContextAccess(ITfContext* context) const noexcept;
+    bool CanQueryContextAccess(const ITfContext* context) const noexcept;
     ContextFacts ReadContextAccessFacts(gsl::not_null<ITfContext*> context, bool is_active_target) const noexcept;
     void EnforceContextAccessPolicy(const AccessPolicy& policy, bool is_active_target);
     void ConnectActiveContextAccessSinks(ITfContext* context);
     void DisconnectActiveContextAccessSinks() noexcept;
-    void PrefetchActiveContextInputScope(ITfContext* context);
+    void PrefetchActiveContextInputScope(gsl::not_null<ITfContext*> context);
     void HandleActiveContextAccessChanged();
     bool IsPasswordObservationCurrent(uint64_t revision) const noexcept;
     void ObserveFocusedPasswordContext();
