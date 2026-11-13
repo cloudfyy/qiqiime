@@ -83,15 +83,44 @@ results. See the [lifecycle diagrams and contracts](composition.md).
 
 ### Prediction versus execution
 
-`OnTestKeyDown` predicts consumption without binding a target, querying candidates,
-advancing the engine, or requesting an edit session. A different target uses
-`ShouldEatKeyAfterReset`; the current one uses `ShouldEatKey`.
+For ordinary key-down input, deciding whether to handle a key is separate from
+processing it and writing the result into the application's input field:
 
-Actual key-down checks access and prepares the target before processing the key.
-Modifiers/CapsLock and relevant mouse state are captured before reentrant host
-calls. `WubiEngine` produces a self-contained `KeyProcessResult`; a deferred edit
-owns that immutable snapshot rather than reading later engine state.
-Prediction is not a write-permission grant.
+1. **Determine whether the IME should handle the key
+   ([`OnTestKeyDown`](../src/ime/tsf/tip_keys.cpp#L208)).**
+   TSF asks whether the IME intends to handle the key instead of passing it
+   directly to the application. This callback does not bind an input context,
+   look up candidates, advance the engine state, or request a document edit.
+   If the incoming `ITfContext` is the current input context,
+   [`ShouldEatKey`](../src/ime/engine/engine.cpp#L214)
+   checks the current engine state. If it is a different context,
+   [`ShouldEatKeyAfterReset`](../src/ime/engine/engine.cpp#L219)
+   checks the state the engine would have after clearing
+   the old composition. That is only a prediction: it does not actually clear
+   the composition or bind the new context.
+
+2. **Process the key ([`OnKeyDown`](../src/ime/tsf/tip_keys.cpp#L243)).**
+   The actual callback first records Shift, Ctrl, Alt, and CapsLock state.
+   Calls into the application can dispatch newer keyboard messages or reenter
+   the service, so later processing must use the state captured for this key.
+   The callback checks whether input is allowed in the target context, calls
+   [`PrepareInputContext`](../src/ime/tsf/tip_composition.cpp#L123),
+   and checks access again before processing the key.
+
+3. **Use this key's result when editing the document.**
+   [`WubiEngine`](../src/ime/engine/engine.h#L54) returns a
+   [`KeyProcessResult`](../src/ime/engine/engine.h#L28) containing the committed text,
+   composition text, candidate lists, and other presentation data for this key.
+   The edit session created by
+   [`ApplyEngineResult`](../src/ime/tsf/tip_composition.cpp#L148)
+   owns this result snapshot even if it runs later, rather than rereading engine
+   state that a subsequent key may already have changed.
+
+Returning `TRUE` from [`OnTestKeyDown`](../src/ime/tsf/tip_keys.cpp#L208)
+only indicates that the IME intends to
+handle the key. It does not grant permission to change the application's text.
+The actual document edit still requires a TSF-granted edit session and checks
+that its captured target and lifecycle ticket remain valid.
 
 ### Static dispatch, dynamic outcomes
 
