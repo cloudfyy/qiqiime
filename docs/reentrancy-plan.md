@@ -147,6 +147,26 @@ the same call, result, ownership and failure semantics.
 
 ## 5. Incremental implementation
 
+### Execution order and prerequisites
+
+Phase labels group related work; they are not a requirement to finish all of C
+before starting D. Use this order:
+
+| Order | Work | Prerequisite and completion gate |
+| --- | --- | --- |
+| 1 | Establish guards and a small migration pilot (A/B; completed) | Existing diagnostics and ownership semantics reused; x64/x86 lifecycle and UI tests pass |
+| 2 | Inventory remaining reentrant boundaries and classify protocols (C) | Record original identity, dependent continuation, failure policy and ownership; distinguish ordinary edits from start/finish, preparation and cleanup |
+| 3 | Mark the already-reviewed pilot methods (D) | Step 2 supplies precise marker rules; mark only methods whose required protection is understood |
+| 4 | Implement protection-presence checking and run in report-only CI (D) | Step 3 supplies real fixtures; recognize protected-helper delegation and report parse/configuration failures |
+| 5 | Extend guard reuse to compatible remaining sites (C) | Step 4 reports omissions; each migration preserves protocol and release order and passes focused reentrancy tests |
+| 6 | Enable blocking CI for verified presence rules (D) | Step 4 fixtures and step 5 migrations demonstrate acceptable false-positive behavior; unsupported protocols remain explicit |
+| 7 | Add high-confidence boundary/control-flow rules (E) | Reviewed call inventory, guard semantics and helper summaries are stable; add negative/positive fixtures before making each rule blocking |
+
+The next action is step 2, not a broad mechanical guard rewrite or immediate
+full control-flow analyzer. Steps 5 and 6 cover only protocols whose rules have
+been verified; do not delay useful pilot checks until every specialized protocol
+has been generalized. Runtime reentrancy tests remain a gate throughout.
+
 ### Phase A: characterize and introduce the guards (pilot completed)
 
 - Inventory checkpoints in range, attributes, start, finish, layout and
@@ -181,6 +201,71 @@ The pilot has migrated update-to-position-to-publication and layout identity
 plumbing. It does not claim a completed audit of all TSF/UI calls, and deliberately
 does not unify start publication, finish transitions, target preparation or cleanup.
 
+### Phase D: mark protected methods and report missing guards (planned)
+
+Use structured source comments immediately above function declarations or
+definitions. The comments describe the required protection, not whether the
+function itself is a callback:
+
+```cpp
+// qiqi-reentrancy: context
+// qiqi-reentrancy: composition
+// qiqi-reentrancy: cleanup
+```
+
+Use one applicable marker per function:
+
+| Marker | Required protection |
+| --- | --- |
+| `context` | Original-ticket context checks |
+| `composition` | Original-ticket and expected-composition checks, including explicitly expected empty state |
+| `cleanup` | Independent captured-object termination/removal checks, not current-service activation checks |
+
+Start with methods that call the host and then continue dependent work. Keep
+start/finish identity transitions and pending preparation explicit; do not force
+them into an inaccurate marker just to satisfy the checker. Define additional
+protocol-specific markers only when their checks can be specified precisely.
+
+Implement a checker that associates comments with actual C++ function symbols
+and definitions. Prefer the project's existing tooling when applicable; otherwise
+evaluate an AST-based tool using the real compile configuration, including
+templates and declaration-to-definition association. Do not claim semantic
+validation from a regex search for a method name or `guard.Current()`.
+
+First-stage checks:
+
+- Reject unknown marker values and conflicting declaration/definition markers.
+- Report a marked method without the corresponding guard/check mechanism.
+- Recognize explicit delegation to a reviewed protected helper, including typed
+  predicates, rather than requiring redundant local guard construction.
+- Report source location, protection category and the missing requirement.
+- Integrate the checker into CI after a small, verified pilot. Parse/configuration
+  failures must be reported as failures, not an empty successful scan.
+
+This first stage verifies declared protection presence only. It cannot prove
+checkpoint placement, find every unmarked method that needs protection, or
+establish that all execution paths are safe. C++ contracts alone cannot enforce
+the source-level obligation to call a guard.
+
+### Phase E: check reentrant boundaries and continuation paths (planned)
+
+Extend the validated checker incrementally with AST/control-flow analysis:
+
+- Maintain a reviewed inventory of potentially reentrant host calls and helper
+  summaries; do not assume every local instruction can reenter.
+- Identify dependent document, selection and UI mutations after those calls.
+- Report continuations not gated by a successful original-identity check.
+- Flag replacing the original ticket with current versions after a host call
+  when that replacement is used to authorize old work.
+- Model valid early exits, protected helper delegation and explicit start/finish
+  identity transitions. Independent cleanup retains its own validity rules.
+
+Do not treat any nearby guard call as sufficient: its result must control the
+relevant continuation and use the correct original identity. Introduce hard CI
+failures only for high-confidence rules supported by representative fixtures.
+Unsupported analysis must remain explicit, not be reported as proof of safety.
+Reentrancy-injection tests remain necessary even after static checking is added.
+
 ## 6. Validation and acceptance
 
 Use [existing reentrancy cases](../tests/ime/svc/reentrancy.cpp),
@@ -213,6 +298,14 @@ The change is accepted only when required boundaries have observable tests:
 inject reentrancy at a boundary, snapshot the replacement state, and verify that
 the old continuation performs no forbidden later mutations. Existing tests that
 already prove a boundary need not be duplicated.
+
+For the marker/checker work, add focused fixtures for missing protection,
+incorrect guard category, ignored check results, and conflicting markers.
+Include valid helper delegation, expected empty slots, cleanup, and start/finish
+transitions to prevent false positives. Boundary-analysis fixtures must distinguish
+an entry-only check from a valid post-call check and detect recaptured versions
+used to authorize an old continuation. Test parser/configuration failures and CI
+exit status. A passing presence check must never be labeled full reentrancy safety.
 
 Memory improvements are not an acceptance claim for this refactor. Use the
 [allocation/retention metrics follow-up](arch.md#tracked-follow-up) before
