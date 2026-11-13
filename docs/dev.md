@@ -163,7 +163,12 @@ PDBs and isolated binary copies. Static native instrumentation needs suitable
 `/PROFILE /INCREMENTAL:NO` linking; do not change production release flags or
 instrument installed binaries. Enable child-process collection when testing tools.
 
-Run coverage tests serially. Limit source reporting to `src`, merge duplicate
+Run coverage tests serially. Include test translation units during collection
+when they instantiate production templates; apply the `src` filter when reporting.
+Optimized native line tables may attribute inlined work to callers. Keep the
+boundary-test evidence and disclose unmapped checkpoints rather than claiming
+complete helper coverage from a covered caller.
+Merge duplicate
 static-library lines by source path and line number, and list production files
 missing from the report. State the configuration, source revision, and measured
 scope. Line coverage is not branch coverage or real-host certification.

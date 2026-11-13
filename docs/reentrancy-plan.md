@@ -4,7 +4,8 @@
 
 The scoped checked-identity migration and specialized-protocol review are implemented.
 Existing validity checks, diagnostics, and host-operation checkpoints are reused.
-Final dual-architecture tests, lint and measured native coverage remain release gates.
+Local dual-architecture tests, lint and native coverage checks are complete,
+with permission skips and optimized-line mapping limits recorded below.
 
 AST-based checking and its CI targets are deferred because their tooling/setup
 cost is outside the current scope. Do not install LLVM development components or
@@ -407,3 +408,27 @@ exit status. A passing presence check must never be labeled full reentrancy safe
 Memory improvements are not an acceptance claim for this refactor. Use the
 [allocation/retention metrics follow-up](arch.md#tracked-follow-up) before
 optimizing snapshot storage or pooling edit sessions.
+
+### Completed local quality checks
+
+The functional source at `2e73191` passes x64 and x86 Release CTest with
+17 passed and two ETW permission skips per architecture. Both lint targets
+complete with zero repository CppCoreCheck warnings and zero Error-level
+PSScriptAnalyzer findings. The first x86 run had clipboard-access failures and
+a lifecycle timeout; it was not counted as passing. After the user confirmed
+unlocking the desktop, the full rerun passed apart from the same permission skips.
+
+Installed Visual Studio Enterprise native coverage, using an isolated x64
+Release `/PROFILE /INCREMENTAL:NO` build and serial child-process collection,
+measures 9,749 / 11,294 unique production source lines (86.32%). All production
+`.cpp` files are represented; 17 headers have no reported line denominator.
+Duplicate static-library source lines are merged by path and line number.
+All 99 normal/isolated EXE, DLL and PDB hashes match their pre-collection values.
+
+`start.h` has 46 / 46 measured lines. `finish.h` has 36 / 53; the post-release
+checkpoint at line 62 has no direct optimized-line hit even though its regression
+has 23 / 23 measured caller lines, a matching `CASE-END`, and a hit in the
+instantiated callback. A stricter per-source-line assertion therefore failed;
+retain that measurement gap rather than relabeling the helper fully covered.
+Both release-boundary regressions failed before their fixes and pass afterward.
+This is line coverage, not branch coverage or real-host/installer certification.
