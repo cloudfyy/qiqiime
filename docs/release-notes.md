@@ -17,6 +17,52 @@
 - 上述定向和历史回归不替代标签提交的双架构完整构建、测试，也不代表真实宿主、安装或升级已验收。
 - 本机不制作或安装 MSI，不修改已安装输入法注册。发布工作流会生成 MSI、ZIP 和匹配符号；其成功状态和实际附件以 [v1.0.9 Release](https://github.com/cloudfyy/qiqiime/releases/tag/v1.0.9) 为准。推送标签不等于附件已经发布，二进制与 PDB 必须来自同一次构建。
 
+## English
+
+Numeric version: `1.0.9`; release tag: `v1.0.9`. The Release workflow builds,
+tests, and packages the tagged source. The actual release assets are authoritative.
+
+### Changes
+
+- **ETW-only ordinary logging:** removed ordinary debugger log output and the
+  `LogLevel` configuration. ETW sessions select capture levels and categories.
+  Legacy registry `LogLevel` and backup `log_level` entries are ignored and no
+  longer exported; manual deletion is unnecessary.
+- **Independent Metrics:** metrics still require a separate subscription; their
+  protocol and behavior are unchanged. Logging/metrics infrastructure failures
+  retain nonrecursive emergency debugger diagnostics.
+- **Composition lifecycle documentation:** added a contents list and clarified
+  composition creation, deactivation and asynchronous cleanup, immediate
+  reactivation, early host termination, candidate UI registration/withdrawal,
+  positioning, context transitions, and their reentrancy boundaries.
+- **Diagnostics and test isolation:** logging tests reuse private ETW capture
+  for level/keyword filters, late enable, module lifetime, legacy configuration,
+  and reentrant formatting. Layout fallback tests explicitly establish a
+  no-caret condition and log focus/caret state instead of relying on prior GUI state.
+
+### Validation and release boundaries
+
+- The full x64 Release build and x86 common-library build completed without
+  warnings. Eleven targeted x64 tests passed; the user subsequently ran the two
+  initially permission-skipped global ETW integration tests successfully.
+- The user's x86 ordinary run passed 16 tests and failed TSF/UI because a native
+  caret already existed. After explicit caret initialization, that test passed
+  on rerun; both global ETW integration tests also passed. All 19 x86 tests have
+  passing records, not a single uninterrupted full-suite pass.
+- After the version bump, both architectures' IME and three tools built without
+  warnings; all eight binaries have numeric file/product version `1.0.9.0`.
+  The x64 common, TSF/UI, installer-source, and architecture checks passed 4/4;
+  x86 common, installer-source, and architecture checks passed 3/3. This also
+  verified the caret-fixture fix on x64. Local build hashes precede the release
+  commit and do not identify a tag build.
+- These targeted and historical results do not replace full testing of the
+  tagged commit or certify real-host, installation, or upgrade behavior.
+- No local MSI packaging/installation or installed IME registration changes were
+  performed. The workflow produces MSI, ZIP, and matching symbols; see the
+  [v1.0.9 Release](https://github.com/cloudfyy/qiqiime/releases/tag/v1.0.9) for
+  actual workflow results and assets. A pushed tag alone does not prove asset
+  publication. Binaries and PDBs must come from the same build.
+
 ---
 
 # QiQiIME 1.0.8 补丁版

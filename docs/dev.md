@@ -262,6 +262,10 @@ section from the release notes. The complete history remains in the repository.
 [release_notes.ps1](../scripts/release_notes.ps1) generates this body from the
 version, tag, and actual package filenames; missing or duplicate version sections
 fail publication rather than including unrelated history.
+Write the default Chinese notes first and add their translation under
+`## English` within the same version section. Release pages show Chinese
+downloads and notes by default, with English downloads and notes inside a
+collapsed `English` section. Missing or empty translations fail generation.
 
 ## Design references
 

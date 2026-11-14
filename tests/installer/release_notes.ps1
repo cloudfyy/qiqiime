@@ -11,7 +11,8 @@ $directory = Join-Path ([IO.Path]::GetTempPath()) ('QiQiReleaseNotes-' + [guid]:
 $notesPath = Join-Path $directory 'notes.md'
 $outputPath = Join-Path $directory 'body.md'
 try {
-    [IO.File]::WriteAllText($notesPath, "# QiQiIME 2.0.0 Patch`n`nCurrent changes.`n`n---`n`n# QiQiIME 1.0.9 Patch`n`nOld changes.`n")
+    $fixture = "# QiQiIME 2.0.0 Patch`n`nCurrent changes.`n`n## English`n`nTranslated changes.`n`n---`n`n# QiQiIME 1.0.9 Patch`n`nOld changes.`n"
+    [IO.File]::WriteAllText($notesPath, $fixture)
     $parameters = @{
         NotesPath = $notesPath
         Version = '2.0.0'
@@ -22,10 +23,16 @@ try {
     }
     & $script @parameters
     $body = [IO.File]::ReadAllText($outputPath)
-    if (-not $body.StartsWith('## Downloads') -or -not $body.Contains('Current changes.') -or
+    if (-not $body.StartsWith('## ') -or $body.StartsWith('## Downloads') -or -not $body.Contains('Current changes.') -or
         $body.Contains('Old changes.') -or $body.Contains('# QiQiIME 1.0.9') -or
         $body -match '(?m)^---\s*$') {
         throw 'Release body must put downloads first and include only the selected version.'
+    }
+    $collapsedStart = $body.IndexOf("<details>`n<summary>English</summary>")
+    if ($collapsedStart -lt $body.IndexOf('Current changes.') -or
+        $body.IndexOf('Translated changes.') -lt $collapsedStart -or
+        -not $body.TrimEnd().EndsWith('</details>') -or $body -match '<details\s+open') {
+        throw 'Chinese must be visible by default and the English translation must be collapsed.'
     }
     foreach ($asset in $parameters.AssetNames) {
         if (-not $body.Contains("https://github.com/cloudfyy/qiqiime/releases/download/v2.0.0-rc.1/$asset")) {
@@ -50,7 +57,14 @@ try {
         $rejected = $true
     }
     if (-not $rejected) { throw 'Duplicate version sections must be rejected.' }
-    Write-Host '[PASS] Current-version release notes, download links, and missing/duplicate section checks.'
+    [IO.File]::WriteAllText($notesPath, $fixture.Replace('## English', '## Missing translation'))
+    $rejected = $false
+    try { & $script @parameters } catch {
+        if ($_.Exception.Message -notlike 'Expected exactly one English translation*') { throw }
+        $rejected = $true
+    }
+    if (-not $rejected) { throw 'Missing English translations must be rejected.' }
+    Write-Host '[PASS] Bilingual current-version notes, Chinese default, download links, and invalid section checks.'
 } finally {
     Remove-Item -LiteralPath $notesPath -Force -ErrorAction Stop
     if (Test-Path -LiteralPath $outputPath) { Remove-Item -LiteralPath $outputPath -Force -ErrorAction Stop }

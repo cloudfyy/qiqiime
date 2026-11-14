@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 cloudfyy
+﻿# SPDX-FileCopyrightText: 2026 cloudfyy
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 [CmdletBinding()]
@@ -38,24 +38,52 @@ foreach ($heading in $headings) {
 }
 $section = $notes.Substring($start, $end - $start).Trim()
 $section = [regex]::Replace($section, '\r?\n---\s*$', '').TrimEnd()
+$englishHeadings = [regex]::Matches($section, '(?m)^## English\r?$')
+if ($englishHeadings.Count -ne 1) {
+    throw "Expected exactly one English translation for version $Version; found $($englishHeadings.Count)."
+}
+$englishHeading = $englishHeadings[0]
+$chineseSection = $section.Substring(0, $englishHeading.Index).TrimEnd()
+$englishSection = $section.Substring($englishHeading.Index + $englishHeading.Length).Trim()
+if ([string]::IsNullOrWhiteSpace($englishSection)) {
+    throw "English translation for version $Version is empty."
+}
 $releaseUrl = "https://github.com/$Repository"
 $encodedTag = [uri]::EscapeDataString($Tag)
-$lines = @('## Downloads', '')
+$downloads = @()
 foreach ($name in ($AssetNames | Sort-Object -Unique)) {
     if ([string]::IsNullOrWhiteSpace($name) -or [IO.Path]::GetFileName($name) -ne $name -or
         $name -notmatch '\.(msi|zip)$') {
         throw "Invalid release asset name: $name"
     }
     $encodedName = [uri]::EscapeDataString($name)
-    $lines += "- [$name]($releaseUrl/releases/download/$encodedTag/$encodedName)"
+    $downloads += "- [$name]($releaseUrl/releases/download/$encodedTag/$encodedName)"
 }
-$lines += @(
+$lines = @('## 下载', '') + $downloads + @(
+    '',
+    '请按 Windows 系统架构选择 MSI：x64 安装包包含 WOW64 支持；x86 安装包用于 32 位 Windows。',
+    '双架构 ZIP 用于手动部署；symbols ZIP 为调试符号，普通用户无需下载。',
+    '',
+    "[安装指南]($releaseUrl/blob/$encodedTag/docs/install.md) | [完整版本历史]($releaseUrl/blob/$encodedTag/docs/release-notes.md)",
+    '',
+    $chineseSection,
+    '',
+    '<details>',
+    '<summary>English</summary>',
+    '',
+    '## Downloads',
+    ''
+) + $downloads + @(
     '',
     'Choose the MSI by operating-system architecture: x64 includes WOW64 support; x86 is for 32-bit Windows.',
     'The dual-architecture ZIP is for manual deployment; the symbols ZIP is for debugging.',
     '',
     "[Installation guide]($releaseUrl/blob/$encodedTag/docs/install.md) | [Full release history]($releaseUrl/blob/$encodedTag/docs/release-notes.md)",
     '',
-    $section
+    "# QiQiIME $Version",
+    '',
+    $englishSection,
+    '',
+    '</details>'
 )
 [IO.File]::WriteAllText($OutputPath, ($lines -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
