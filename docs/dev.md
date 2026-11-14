@@ -276,8 +276,9 @@ for version-specific instructions.
 
 ## Project website (GitHub Pages)
 
-The lightweight [website](../site/index.html) has four static pages: overview,
-installation, development, and feedback. It has no package dependencies or frontend
+The lightweight [website](../site/index.html) has four content pages: overview,
+installation, development, and feedback, plus a custom [404 page](../site/404.html).
+It has no package dependencies or frontend
 compilation step, and does not change the IME's build or release packaging.
 Downloads remain on GitHub Releases.
 `site/package.json` only declares ES-module syntax for shared JavaScript; no
@@ -297,10 +298,34 @@ JavaScript. Visitors fetch only the static metadata, not the GitHub API.
 Content is Chinese by default. Put English translations on leaf elements using
 `data-en` and on accessible labels using `data-en-label`. The shared script selects
 English with `?lang=en` and carries it through internal `data-site-link` navigation.
+All pages load `site.js` as an ES module; the download module imports its shared
+language state and locale, so initialization runs once without ordering-dependent
+globals. Keep shared page interactions there rather than adding inline scripts.
 It does not store a language preference or collect analytics. Without JavaScript,
-the Chinese content and navigation remain usable. Keep all local URLs relative
-so the site works under `/qiqiime/`. Detailed technical documentation stays in the
+the Chinese content and navigation remain usable. Keep ordinary page URLs relative
+so the site works under `/qiqiime/`. The 404 page is the exception: its assets and
+recovery links must start with `/qiqiime/` because GitHub serves it at the missing
+URL, including nested paths. It has no active navigation item, canonical URL, or
+automatic redirect, and uses `noindex, follow`.
+Detailed technical documentation stays in the
 repository rather than being duplicated on the site.
+
+Each content page has an absolute production canonical URL, Open Graph summaries,
+and a summary-card hint. Canonical and `og:url` values omit language queries;
+the homepage canonical is the project root, not `index.html`.
+Use `data-en-content` for English metadata, alongside the existing localized title.
+English Open Graph titles and descriptions reuse the translated document title
+and description instead of carrying duplicate translations. Keep their default
+Chinese values in HTML for crawlers and visitors without JavaScript.
+English requires JavaScript: crawlers and share previews that do not execute it see
+the default Chinese metadata even for `?lang=en`. Do not advertise separate
+`hreflang` pages until independently renderable translations exist.
+Keep [sitemap.xml](../site/sitemap.xml) in sync with canonical content URLs;
+exclude the 404 page and query variants. Each content page links to this sitemap,
+which can also be submitted to a search engine's webmaster tools.
+No project-level `robots.txt` is provided: crawlers read `/robots.txt` at the
+origin root, not `/qiqiime/robots.txt`, and this project deployment does not own
+that root.
 
 The overview's software screenshots live in `site/assets/images/`: `candidate.png`,
 `settings.png`, and `dict-manager.png`. They are actual application captures, not
@@ -330,6 +355,10 @@ python -m http.server 8000 --bind 127.0.0.1 --directory site
 ```
 
 Open `http://127.0.0.1:8000/` for the preview; stop the server with Ctrl+C.
+This simple server does not emulate GitHub's 404 fallback or `/qiqiime/` mount.
+When changing the 404 page, also test a nested missing URL under that mount,
+confirm the HTTP status stays 404, and check its assets, both languages, and
+recovery links. The actual Pages fallback must be checked after deployment.
 Check both languages, mobile navigation, and command-copy success/failure in a
 browser when changing site behavior. Also check all four direct MSI links and the
 visible failure state when `release.json` is missing or invalid. Generated release

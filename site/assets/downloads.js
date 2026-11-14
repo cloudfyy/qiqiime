@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { validateReleaseData } from "./release-data.js";
+import { english, locale } from "./site.js";
 
-const english = new URLSearchParams(location.search).get("lang") === "en";
 const panel = document.getElementById("latest-release");
 const status = document.getElementById("release-status");
 
@@ -30,18 +30,17 @@ async function loadDownloads() {
   const installers = new Map(release.installers.map((installer) => [
     `${installer.architecture}/${installer.language}`, installer,
   ]));
-  const preferredLanguage = english ? "en-US" : "zh-CN";
   document.querySelectorAll("[data-installer]").forEach((link) => {
     const installer = installers.get(link.dataset.installer);
     link.href = installer.url;
-    link.classList.toggle("secondary", installer.language !== preferredLanguage);
-    if (installer.language === preferredLanguage) {
+    link.classList.toggle("secondary", installer.language !== locale);
+    if (installer.language === locale) {
       link.parentElement.prepend(link);
     }
   });
   document.getElementById("release-version").textContent = release.tag;
   document.getElementById("latest-release-link").href = release.releaseUrl;
-  const date = new Intl.DateTimeFormat(english ? "en-US" : "zh-CN", {
+  const date = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium", timeZone: "UTC",
   }).format(new Date(release.publishedAt));
   status.textContent = english ? `Published ${date}` : `发布于 ${date}`;

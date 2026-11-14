@@ -1,10 +1,16 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-"use strict";
+export const english = new URLSearchParams(location.search).get("lang") === "en";
+export const locale = english ? "en-US" : "zh-CN";
 
-const english = new URLSearchParams(location.search).get("lang") === "en";
 document.documentElement.lang = english ? "en" : "zh-CN";
+
+function withLanguage(href, language) {
+  const url = new URL(href, location.href);
+  url.searchParams.set("lang", language);
+  return url.href;
+}
 
 if (english) {
   document.querySelectorAll("[data-en]").forEach((element) => {
@@ -13,18 +19,26 @@ if (english) {
   document.querySelectorAll("[data-en-label]").forEach((element) => {
     element.setAttribute("aria-label", element.dataset.enLabel);
   });
+  document.querySelectorAll("meta[data-en-content]").forEach((element) => {
+    element.setAttribute("content", element.dataset.enContent);
+  });
+  for (const [property, content] of [
+    ["og:title", document.title],
+    ["og:description", document.querySelector('meta[name="description"]')?.content],
+  ]) {
+    const meta = document.querySelector(`meta[property="${property}"]`);
+    if (meta) {
+      meta.content = content;
+    }
+  }
   document.querySelectorAll("a[data-site-link]").forEach((link) => {
-    const url = new URL(link.getAttribute("href"), location.href);
-    url.searchParams.set("lang", "en");
-    link.href = url.href;
+    link.href = withLanguage(link.getAttribute("href"), "en");
   });
 }
 
 const languageLink = document.getElementById("language-switch");
 if (languageLink) {
-  const url = new URL(location.href);
-  url.searchParams.set("lang", english ? "zh-CN" : "en");
-  languageLink.href = url.href;
+  languageLink.href = withLanguage(location.href, english ? "zh-CN" : "en");
   languageLink.textContent = english ? "简体中文" : "EN";
   languageLink.setAttribute("lang", english ? "zh-CN" : "en");
   languageLink.setAttribute("aria-label", english ? "切换到简体中文" : "Switch to English");
