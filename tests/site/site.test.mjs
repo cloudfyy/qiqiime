@@ -65,3 +65,21 @@ test("navigation remains usable without JavaScript", () => {
     }
   }
 });
+
+test("software screenshots have full-size accessible links and accurate image dimensions", async () => {
+  const screenshots = [...documents.values()].flatMap((html) =>
+    [...html.matchAll(/<figure\b[^>]*class="[^"]*\bsoftware-shot\b[^"]*"[^>]*>([\s\S]*?)<\/figure>/g)],
+  );
+  assert.ok(screenshots.length > 0, "missing software screenshots");
+  for (const [, figure] of screenshots) {
+    const image = figure.match(/<img\b[^>]*src="([^"]+)"[^>]*width="(\d+)"[^>]*height="(\d+)"[^>]*>/);
+    assert.ok(image, "screenshot must declare intrinsic dimensions");
+    const [, source, width, height] = image;
+    assert.ok(figure.includes(`href="${source}"`), `${source}: missing full-size link`);
+    assert.match(figure, /<a\b[^>]*aria-label="[^"]+"[^>]*data-en-label="[^"]+"/, `${source}: missing localized link description`);
+    const png = await readFile(path.join(root, source));
+    assert.equal(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", `${source}: not a PNG image`);
+    assert.equal(png.readUInt32BE(16), Number(width), `${source}: incorrect width`);
+    assert.equal(png.readUInt32BE(20), Number(height), `${source}: incorrect height`);
+  }
+});

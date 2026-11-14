@@ -58,8 +58,34 @@ cd qiqiime</code></pre></div>
       <p id="copy-status" class="status" role="status" aria-live="polite"></p>
       <div class="notice"><p data-en="GUI/TSF tests share desktop and single-instance state: run architectures sequentially and avoid keyboard/mouse interaction during those tests. A skipped ETW test due to permissions is not a pass.">GUI / TSF 测试共享桌面与单实例状态：请顺序运行双架构测试，测试期间避免键鼠操作。因权限跳过的 ETW 测试不等于通过。</p></div>
     </section>
+    <section class="content-section" aria-labelledby="log-monitor-title">
+      <p class="kicker">03 / LOCAL DIAGNOSTICS</p>
+      <h2 id="log-monitor-title" data-en="Meet QiQi Log Monitor.">用日志监控器，看清问题现场。</h2>
+      <p data-en="QiQiIMELogMonitor.exe is a standalone tool for local Windows ETW diagnostics. Filter captured events by process, PID, level, category, or message; inspect event details and export a filtered snapshot without attaching a debugger.">QiQiIMELogMonitor.exe 是独立的本地 Windows ETW 诊断工具。无需附加调试器，即可按进程、PID、级别、分类或消息筛选已采集事件，查看详情并导出筛选后的快照。</p>
+      <ol class="steps">
+        <li><div><h3 data-en="Start capture before reproducing">先开始采集，再复现问题</h3><p data-en="Open Log Monitor, select IME events, and start capture. Only events emitted while capture is enabled are received; earlier activity is not replayed.">打开日志监控器，选择输入法事件并开始采集，再到出现问题的应用中复现。只能接收采集开启期间产生的事件，不会回放此前的日志。</p></div></li>
+        <li><div><h3 data-en="Elevate only if ETW reports insufficient permissions">仅在权限不足时，选择管理员重启</h3><p data-en="Start with ordinary permissions. If Windows denies ETW capture, the monitor offers an optional administrator restart; you may cancel. Export any existing records first: logs, filters, and capture state are not transferred. After restarting, click Start capture again. Do not elevate the tested app just to collect diagnostics.">先以普通权限启动。若 Windows 拒绝 ETW 采集，工具会提供可取消的管理员重启选项。如已有记录，请先导出：日志、筛选条件和采集状态不会随重启转移。重启后需再次点击开始采集，不要仅为诊断而提升被测应用的权限。</p></div></li>
+        <li><div><h3 data-en="Filter, inspect, then stop and export">筛选、查看，再停止并导出</h3><p data-en="Use the filters to narrow the captured events and select a row for details. Stop capture after reproducing the issue, then review and redact any export before sharing it.">通过筛选条件缩小事件范围，选择记录查看详情。复现后停止采集，导出内容需经检查和脱敏后再分享。</p></div></li>
+      </ol>
+      <div class="grid two software-shots">
+        <figure class="card software-shot">
+          <a href="assets/images/log-monitor-zh.png" aria-label="查看中文日志监控器大图：事件筛选、日志列表、详情面板和采集状态。" data-en-label="View Log Monitor in Chinese: event filters, log list, details pane, and capture status."><img src="assets/images/log-monitor-zh.png" width="1146" height="745" loading="lazy" alt=""></a>
+          <figcaption><h3 data-en="Chinese interface">中文界面</h3><p data-en="The empty log view before capture starts. Filters, event details, and capture/loss counters are kept in one window.">开始采集前的空日志视图。筛选条件、事件详情及采集与丢失计数集中在一个窗口中。</p></figcaption>
+        </figure>
+        <figure class="card software-shot">
+          <a href="assets/images/log-monitor-en.png" aria-label="查看英文日志监控器大图：标题显示管理员状态，采集仍处于停止状态。" data-en-label="View Log Monitor in English: the title indicates administrator privileges, while capture is still stopped."><img src="assets/images/log-monitor-en.png" width="1139" height="768" loading="lazy" alt=""></a>
+          <figcaption><h3 data-en="English interface and privilege status">英文界面与权限状态</h3><p data-en="The title identifies an elevated window. Administrator privileges do not start capture automatically; the status bar still shows Stopped.">标题标明当前窗口的管理员状态。提权不会自动开始采集，底部状态栏仍显示已停止。</p></figcaption>
+        </figure>
+        <figure class="card software-shot wide">
+          <a href="assets/images/log-monitor-permission.png" aria-label="查看权限不足提示大图：可选择以管理员身份重新启动，也可取消。" data-en-label="View the insufficient-permissions prompt: restart as administrator or cancel."><img src="assets/images/log-monitor-permission.png" width="558" height="164" loading="lazy" alt=""></a>
+          <figcaption><h3 data-en="A prompt, not a mandatory launch requirement">权限提示，不是启动前提</h3><p data-en="This prompt appears when ETW reports a permission failure. A successful restart opens a new window; start capture there again.">仅在 ETW 报告权限不足时出现此提示。成功重启后会打开新窗口，需要在新窗口中再次开始采集。</p></figcaption>
+        </figure>
+      </div>
+      <div class="notice"><p data-en="Capture and export stay local and do not automatically upload anything to the project. Logs can contain process names, paths, and sensitive context. Use non-sensitive reproduction text and review/redact exports before sharing them in a public issue.">采集和导出均在本地进行，不会自动上传给项目。日志可能包含进程名称、路径及敏感上下文；请使用不含隐私的示例文字复现，公开反馈前先检查并脱敏导出文件。</p></div>
+      <div class="actions"><a class="button secondary" href="https://github.com/cloudfyy/qiqiime/blob/main/docs/log.md" data-en="Full Log Monitor guide →">完整日志监控指南 →</a><a href="feedback.html#privacy-title" data-site-link data-en="Sharing diagnostics safely">安全分享诊断信息</a></div>
+    </section>
     <section class="content-section" aria-labelledby="map-title">
-      <p class="kicker">03 / FIND YOUR WAY</p>
+      <p class="kicker">04 / FIND YOUR WAY</p>
       <h2 id="map-title" data-en="A map of the project.">读懂项目，从这些入口开始。</h2>
       <div class="grid two" style="margin-top:25px">
         <article class="card"><h3 data-en="Architecture & lifecycles">架构与生命周期</h3><ul class="link-list">

@@ -84,6 +84,12 @@ nav a[aria-current="page"] { color: var(--green); box-shadow: inset 0 -2px var(-
 .card-number { color: var(--green); font: .8rem Consolas, monospace; margin-bottom: 28px; display: block; }
 .card p { font-size: .93rem; color: var(--muted); margin-top: 15px; }
 .card a.more { display: inline-block; margin-top: 20px; font-size: .9rem; font-weight: 600; }
+.software-shots { align-items: start; }
+.software-shot { margin: 0; min-width: 0; }
+.software-shot.wide { grid-column: 1 / -1; }
+.software-shot > a { display: block; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.software-shot img { display: block; max-width: 100%; height: auto; margin-inline: auto; }
+.software-shot figcaption { margin-top: 22px; }
 .band { background: var(--green); color: white; border-radius: var(--radius); padding: 40px; display: flex; justify-content: space-between; gap: 30px; align-items: center; }
 .band p { color: #d2e6d9; margin-top: 12px; max-width: 62ch; }
 .band .button { background: var(--lime); color: #19362a; border-color: var(--lime); flex-shrink: 0; }

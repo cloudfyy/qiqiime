@@ -299,6 +299,22 @@ the Chinese content and navigation remain usable. Keep all local URLs relative
 so the site works under `/qiqiime/`. Detailed technical documentation stays in the
 repository rather than being duplicated on the site.
 
+The overview's software screenshots live in `site/assets/images/`: `candidate.png`,
+`settings.png`, and `dict-manager.png`. They are actual application captures, not
+the hero's separately labeled illustration. Only unused space below the candidate
+window is cropped. Keep screenshots free of personal paths, private entries,
+desktop content, and text/EXIF metadata. Use neutral examples, preserve the
+displayed UI, and update image dimensions and bilingual captions/accessible link
+labels when replacing them. Each image links to its full-size asset without
+requiring JavaScript.
+
+The developer page introduces Log Monitor with `log-monitor-zh.png`,
+`log-monitor-en.png`, and `log-monitor-permission.png`. Keep its capture and
+optional administrator-restart instructions aligned with [the logging guide](log.md):
+start with ordinary permissions, elevate only after an ETW permission failure,
+and restart capture explicitly in the new window. Use empty or sanitized
+diagnostic screenshots; never publish unreviewed captured events.
+
 To check or preview locally with Node.js 22+ and Python 3 available:
 
 ```powershell
