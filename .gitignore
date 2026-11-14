@@ -26,3 +26,6 @@ cmake-build-*/
 *.exe
 *.log
 *.qdict
+
+# Generated website download metadata
+/site/release.json

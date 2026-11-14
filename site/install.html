@@ -11,6 +11,7 @@
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/style.css">
   <script src="assets/site.js" defer></script>
+  <script src="assets/downloads.js" type="module"></script>
 </head>
 <body>
   <a class="skip" href="#main" data-en="Skip to content">跳到正文</a>
@@ -24,18 +25,42 @@
       <a id="language-switch" class="language" href="?lang=en" lang="en" aria-label="Switch to English">EN</a>
     </nav>
   </div></header>
-  <noscript><span class="noscript">当前显示中文静态内容；切换语言需要启用 JavaScript。English translation requires JavaScript.</span></noscript>
+  <noscript><span class="noscript">语言切换和快捷下载需要 JavaScript；仍可通过下方官方发布页下载。English translation and quick downloads require JavaScript; use the official release link below.</span></noscript>
   <main id="main" class="wrap">
     <header class="page-hero">
       <p class="eyebrow">DOWNLOAD & INSTALL</p>
       <h1 data-en="A few steps. Then, just type.">几步安装，开始输入。</h1>
       <p class="lead" data-en="Use the official MSI installer. It installs and registers the input method for you, without manual deployment scripts.">推荐使用官方 MSI 安装包。安装程序会完成安装与输入法添加，无需手动运行部署脚本。</p>
       <div class="actions">
-        <a class="button" href="https://github.com/cloudfyy/qiqiime/releases/latest"><span data-en="Get the latest release">获取最新正式版</span><span aria-hidden="true">↗</span></a>
+        <a id="latest-release-link" class="button" href="https://github.com/cloudfyy/qiqiime/releases/latest"><span data-en="Official release & notes">官方发布页与更新说明</span><span aria-hidden="true">↗</span></a>
         <a class="button secondary" href="https://github.com/cloudfyy/qiqiime/releases" data-en="All releases">所有版本</a>
       </div>
       <p class="hero-note" data-en="Downloads open on GitHub. Packages are hosted in Releases, not on this website.">点击后前往 GitHub 下载。安装文件托管于 Releases，不在本站重复存放。</p>
     </header>
+    <section id="latest-release" class="release-panel" aria-labelledby="latest-release-title" aria-busy="true">
+      <div class="section-head">
+        <div><p class="kicker">LATEST STABLE</p><h2 id="latest-release-title"><span data-en="Latest stable release">最新正式版</span> <span id="release-version"></span></h2></div>
+        <p id="release-status" role="status" data-en="Loading quick downloads. You can also use the official release page above.">正在读取快捷下载信息，也可使用上方官方发布页。</p>
+      </div>
+      <div id="release-downloads" class="grid two" hidden>
+        <article class="card">
+          <h3 data-en="64-bit Windows · x64">64 位 Windows · x64</h3>
+          <p data-en="Windows 11 x64 / Windows 10 22H2 x64. Includes support for 32-bit apps.">Windows 11 x64 / Windows 10 22H2 x64，已包含对 32 位应用的支持。</p>
+          <div class="actions installer-links">
+            <a class="button" data-installer="x64/zh-CN" data-en="Chinese installer">中文安装包</a>
+            <a class="button secondary" data-installer="x64/en-US" data-en="English installer">英文安装包</a>
+          </div>
+        </article>
+        <article class="card">
+          <h3 data-en="32-bit Windows · x86">32 位 Windows · x86</h3>
+          <p data-en="Windows 10 22H2 x86 only. Do not select this package for 64-bit Windows.">仅适用于 Windows 10 22H2 x86；64 位 Windows 请选择 x64 包。</p>
+          <div class="actions installer-links">
+            <a class="button" data-installer="x86/zh-CN" data-en="Chinese installer">中文安装包</a>
+            <a class="button secondary" data-installer="x86/en-US" data-en="English installer">英文安装包</a>
+          </div>
+        </article>
+      </div>
+    </section>
     <section class="content-section" aria-labelledby="choose-title">
       <p class="kicker">01 / CHOOSE YOUR PACKAGE</p>
       <h2 id="choose-title" data-en="Choose by your Windows architecture.">按 Windows 系统位数选择。</h2>

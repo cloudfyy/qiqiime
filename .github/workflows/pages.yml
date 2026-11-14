@@ -9,12 +9,14 @@ on:
     paths:
       - 'site/**'
       - 'tests/site/**'
+      - 'scripts/site_release.mjs'
       - '.github/workflows/pages.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'site/**'
       - 'tests/site/**'
+      - 'scripts/site_release.mjs'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -35,9 +37,18 @@ jobs:
         with:
           node-version: '22'
       - name: Check JavaScript syntax
-        run: node --check site/assets/site.js
+        run: |
+          node --check site/assets/site.js
+          node --check site/assets/downloads.js
       - name: Check site links and translations
-        run: node --test tests/site/site.test.mjs
+        run: node --test tests/site/site.test.mjs tests/site/release.test.mjs
+      - name: Generate latest stable release downloads
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$RUNNER_TEMP/latest-release.json"
+          node scripts/site_release.mjs "$RUNNER_TEMP/latest-release.json" site/release.json
       - name: Upload website only
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3

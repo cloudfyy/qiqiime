@@ -95,6 +95,12 @@ nav a[aria-current="page"] { color: var(--green); box-shadow: inset 0 -2px var(-
 .page-hero { padding-block: 64px 43px; max-width: 800px; }
 .page-hero h1 { font-size: clamp(2.2rem, 4.5vw, 3.4rem); }
 .page-hero .lead { max-width: 65ch; margin-top: 22px; }
+.release-panel { margin-block: 10px 24px; padding: 28px; border: 1px solid #b7cfc1; border-radius: var(--radius); background: var(--mint); }
+.release-panel .section-head { align-items: center; margin-bottom: 20px; }
+.release-panel .section-head > p { font-size: .85rem; }
+.release-panel h2 { font-size: clamp(1.5rem, 3vw, 2rem); }
+#release-downloads[hidden] { display: none; }
+.installer-links .button { font-size: .9rem; padding: 10px 16px; }
 .notice { border-left: 3px solid var(--green); background: var(--mint); border-radius: 0 12px 12px 0; padding: 18px 22px; font-size: .9rem; margin-block: 25px; }
 .notice p + p { margin-top: 8px; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 15px; margin-block: 25px; }

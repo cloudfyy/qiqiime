@@ -274,10 +274,22 @@ for version-specific instructions.
 ## Project website (GitHub Pages)
 
 The lightweight [website](../site/index.html) has four static pages: overview,
-installation, development, and feedback. It has no package dependencies or build
-step, and does not change the IME's build or release packaging. Downloads remain
-on GitHub Releases; the website links to the latest published release rather than
-hard-coding installer versions.
+installation, development, and feedback. It has no package dependencies or frontend
+compilation step, and does not change the IME's build or release packaging.
+Downloads remain on GitHub Releases.
+`site/package.json` only declares ES-module syntax for shared JavaScript; no
+`npm install` is required.
+
+Before deploying, the Website workflow reads GitHub's latest stable release and
+runs [site_release.mjs](../scripts/site_release.mjs) to generate ignored
+`site/release.json`. The installation page shows the actual tag, publication date,
+and x64/x86 Chinese/English MSI links from that metadata, not from `VERSION` or
+guessed filenames. All four installers must be fully uploaded and match the
+release's repository, tag, and version; missing or invalid data fails deployment
+instead of publishing broken buttons. The browser independently validates the
+metadata. Fetch/validation failures are visible and keep quick-download buttons
+hidden; the ordinary official Release links remain usable, including without
+JavaScript. Visitors fetch only the static metadata, not the GitHub API.
 
 Content is Chinese by default. Put English translations on leaf elements using
 `data-en` and on accessible labels using `data-en-label`. The shared script selects
@@ -291,19 +303,32 @@ To check or preview locally with Node.js 22+ and Python 3 available:
 
 ```powershell
 node --check site\assets\site.js
-node --test tests\site\site.test.mjs
+node --test tests\site\site.test.mjs tests\site\release.test.mjs
+gh api repos/cloudfyy/qiqiime/releases/latest | Set-Content -Encoding utf8 "$env:TEMP\qiqi-latest-release.json"
+node scripts\site_release.mjs "$env:TEMP\qiqi-latest-release.json" site\release.json
+Remove-Item -LiteralPath "$env:TEMP\qiqi-latest-release.json"
 python -m http.server 8000 --bind 127.0.0.1 --directory site
 ```
 
 Open `http://127.0.0.1:8000/` for the preview; stop the server with Ctrl+C.
 Check both languages, mobile navigation, and command-copy success/failure in a
-browser when changing site behavior.
+browser when changing site behavior. Also check all four direct MSI links and the
+visible failure state when `release.json` is missing or invalid. Generated release
+metadata is not committed; regenerate it to preview current downloads locally.
 
 The [Website workflow](../.github/workflows/pages.yml) checks site changes on pull
 requests and uploads only `site` for deployment after changes reach `main`.
 Before the first deployment, a maintainer must select **Settings → Pages →
 Build and deployment → Source: GitHub Actions**. Push the workflow and site, then
 check the Website Actions run; it can also be started manually on `main`.
+After a successful stable publication, the Release workflow explicitly dispatches
+Website on `main` to refresh download metadata. This uses a separate job with only
+`actions: write`; normal website checks and IME packaging gain no extra permissions.
+The dispatch is necessary because publication using `GITHUB_TOKEN` does not
+normally trigger another workflow's release event. Prereleases and package-only
+runs do not refresh stable downloads. If a release is created/edited manually or
+the refresh dispatch fails, run Website manually on `main`; no rebuilding or
+re-uploading installer assets is needed.
 The expected public URL is `https://cloudfyy.github.io/qiqiime/`. Do not announce
 it as live until the Pages deployment succeeds. GitHub Pages serves static files;
 issue submissions and downloads continue to use GitHub.
