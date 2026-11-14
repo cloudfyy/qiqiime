@@ -761,20 +761,56 @@ Do not record input, key values, candidates, range text, or raw COM addresses.
 
 ## 8. Document and Context Notifications
 
-### 8.1 Context Is Still the Input Identity
+### 8.1 The Context Identifies the Input Target
 
-The current context is the input target; its cached parent is not a document
-registry or focus history. Retaining the parent permits uninitialization matching
-after the disconnected context's parent query fails. Document matching uses an
-interface-pointer fast path, then canonical `IUnknown` identity.
+The IME binds input to a specific `ITfContext`, not just to its parent
+`ITfDocumentMgr`. A document manager can contain multiple contexts, so sharing
+the same parent does not make two contexts interchangeable input targets.
 
-`OnInitDocumentMgr` owns no document-wide resources and remains a no-op.
-Notifications do not proactively bind a target; actual input prepares it.
+The service also retains the current context's parent document manager for
+matching document notifications. For example, `OnUninitDocumentMgr` supplies a
+document manager rather than a context. The service must determine whether that
+document manager is the parent of its current input target. By then, the context
+may already be disconnected and querying its parent may fail; the cached parent
+allows the service to recognize the relationship without querying it again.
+
+This cached reference describes the current target's parent only. It is not a
+registry of all documents, a history of focused documents, or a substitute for
+the context when deciding where input belongs.
+
+To compare document managers, first check whether their interface pointers are
+equal. If not, compare their canonical `IUnknown` identities: different interface
+addresses can still refer to the same COM object.
+
+`OnInitDocumentMgr` remains a no-op because the service owns no document-wide
+resources to initialize. A document initialization or other notification does
+not itself bind a new input target. The IME prepares and validates the target
+context when it actually handles input for that context.
 
 ### 8.2 Reconciling Focus and Stack Changes
 
-For document-target reconciliation, retain the original context and ticket,
-query both `GetTop` and `GetBase`, diagnose both results, then recheck:
+A document manager maintains a stack of contexts. A temporary or modal context
+can become the top context while the main editing context remains at the base.
+A focus or stack notification therefore does not automatically mean that the
+IME's current input target has disappeared or that its composition must end.
+
+When checking whether the current target still belongs to the incoming document,
+retain the original context and its edit ticket, then query both `GetTop` and
+`GetBase`. Diagnose each query's result. These host calls can reenter the IME,
+so check the original ticket again before acting on their results:
+
+- If the ticket is stale, stop. A newer operation has changed the state, and this
+  notification must not reset or restore it.
+- If both queries succeeded and the original context matches either the top or
+  base context, retain the input target and its composition.
+- Otherwise, invalidate the old target and attempt old-composition cleanup where
+  host access is permitted.
+
+Resetting the target can itself reenter. After reset, check the expected
+post-reset ticket before continuing, rather than assuming no newer state was
+installed during teardown.
+
+The diagram summarizes this check; it does not bind a new input target.
 
 ```mermaid
 flowchart TD
@@ -786,38 +822,65 @@ flowchart TD
     Reset --> Check["Recheck predicted post-reset ticket"]
 ```
 
-A main/base context covered by a modal top context remains valid. Preservation
-does not authorize processing a key for that modal target. An actual key for a
-different context still uses explicit preparation.
+For example, pushing a modal context above the main/base context need not discard
+the main context's composition. Retaining that target does **not** authorize the
+IME to process the modal context's keys as main-context input. An actual key for
+a different context still requires explicit preparation of that target.
 
-Related Push notifications use this reconciliation; unrelated documents are
-ignored. Pop compares the removed context itself: unrelated/modal Pop does not
-reset the main target. Uninitialization matches its cached parent. Repeated
-notifications become harmless after the relationship has been cleared.
+Different notifications supply different evidence:
+
+- **Push:** for a document related to the current target, use the top/base check
+  above. Ignore pushes on unrelated documents.
+- **Pop:** compare the context actually removed with the current target.
+  Removing an unrelated context or a modal context above the main target must
+  not reset the main target.
+- **Document uninitialization:** compare the notified document manager with the
+  cached parent of the current target.
+
+Once the target relationship has been cleared, repeated notifications for that
+old relationship must not reset a replacement target.
 
 ### 8.3 Reset Before Processing a New Target's Key
 
-Prepare the new target **before** interpreting its key. Reset the old engine and
-invalidate its work, arrange connected-target cleanup, then bind/check the new
-context and subscriptions. Do not commit the old target's raw code into the new
-target. A fresh-target Backspace must not operate on the previous composition.
+A key can arrive for a different `ITfContext` while the engine still holds
+preedit state from the previous target. The IME must prepare the new target
+**before interpreting that key**. Otherwise, a Backspace in input field B could
+modify the engine's unfinished composition from field A, or A's raw input could
+be submitted to B.
 
-Reset preview and actual reset share engine classification: composing Chinese
-states become Idle, English remains English, and width/punctuation are retained.
-Deferred host cleanup must not keep the new target's FSM composing.
+When the input target changes, use this order:
 
-For ordinary user-requested Chinese-to-English switches,
-`CommitOnEnglishSwitch` defaults to true: commit raw preedit literally, including
-the temporary-English `z` guide, without selecting a Chinese candidate.
-False cancels only current preedit. Both switch the engine to English before
-submitting captured host work, preventing reentrant resubmission. Escape and
-temporary-English Space/Enter retain their own rules.
+1. Reset the old engine state and invalidate callbacks belonging to the old
+   target.
+2. Arrange cleanup of the old composition if its context is still connected
+   and host access permits cleanup.
+3. Bind and validate the new context and its subscriptions.
+4. Only after preparation succeeds, interpret the key for the new target.
 
-This option is not focus-loss/deactivation cleanup policy. Restricted-target
-handling follows the implemented [access policy](restricted.md), including
-password/PIN temporary English and private-scope persistence suppression.
-Epoch checks do not replace access checks, and neither guarantees recognition
-of every custom control.
+Local engine reset does not wait for deferred host cleanup. Chinese composing
+states become Idle immediately; English mode remains English, and full-width
+and punctuation settings are retained. The reset preview uses the same state
+classification as the actual reset, so key handling predicts the same mode
+that preparation will establish. Pending cleanup for A must not leave B's input
+state machine composing A's text.
+
+**Changing targets is not the same as a user-requested Chinese-to-English switch.**
+The `CommitOnEnglishSwitch` option applies to an ordinary user-requested mode
+switch, not to focus-loss or deactivation cleanup:
+
+- The default, `true`, submits the raw preedit literally, including the
+  temporary-English `z` guide, rather than selecting a Chinese candidate.
+- `false` cancels only the current preedit instead.
+- In either case, switch the engine to English before submitting the captured
+  host work, so a reentrant callback cannot submit the same preedit again.
+- Escape and temporary-English Space/Enter keep their separate handling rules.
+
+Preparing a new target must also apply the implemented
+[access policy](restricted.md). This includes temporary English mode for
+password/PIN targets and suppression of persistence in private scopes.
+An epoch check establishes that work is still current; it does not establish
+permission to input or learn. Access checks remain necessary, and neither
+mechanism guarantees recognition of every custom control.
 
 ### 8.4 Removal Is Not a New Write Opportunity
 
