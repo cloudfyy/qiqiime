@@ -2,6 +2,5 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="17" fill="#165c49"/>
-  <path d="M17 19h30v24H17zm6 6v12h18V25z" fill="#fff" fill-rule="evenodd"/>
-  <path d="M29 11h6v43h-6z" fill="#fff"/>
+  <text x="32" y="46" text-anchor="middle" font-family="'Microsoft YaHei', sans-serif" font-size="44" fill="#fff">奇</text>
 </svg>
