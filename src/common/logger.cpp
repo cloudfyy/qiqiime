@@ -4,8 +4,6 @@
 #include "common/logger.h"
 #include "common/etw_registration.h"
 #include "common/etw_write.h"
-#include "common/file_util.h"
-#include "common/scoped_handle.h"
 #include "common/metric.h"
 #include "common/version.h"
 
@@ -36,7 +34,6 @@ ULONG WINAPI QiQiWriteEtwEvent(
 #include <array>
 #include <cstdio>
 #include <cwchar>
-#include <format>
 
 // Windows ETW TraceLogging Provider for QiQiIME: {8E7B9D31-5A42-4C81-9F11-202610290099}
 // Works inside UWP/AppContainer/Low-Integrity sandboxes without filesystem permissions, with low idle overhead.
@@ -52,7 +49,6 @@ namespace qiqi::log {
 
 namespace {
 
-std::atomic<Level> g_log_level{Level::info};
 std::atomic<uint64_t> g_metrics_generation{0};
 std::atomic<bool> g_metric_metadata_pending{false};
 ULONG RegisterProvider() noexcept;
@@ -148,19 +144,6 @@ std::string_view GetProcessName() noexcept {
     return kProcName;
 }
 
-constexpr std::string_view LevelTag(Level level) noexcept {
-    switch (level) {
-        case Level::trace:    return "trace";
-        case Level::debug:    return "debug";
-        case Level::info:     return "info";
-        case Level::warn:     return "warning";
-        case Level::err:      return "error";
-        case Level::critical: return "critical";
-        case Level::off:
-        default:              return "off";
-    }
-}
-
 constexpr UCHAR ToEtwLevel(Level level) noexcept {
     switch (level) {
         case Level::trace:
@@ -183,13 +166,6 @@ bool IsEtwEnabledForLevel(Level level, Keyword keyword) noexcept {
            g_provider_registration.IsRegistered() &&
            (::TraceLoggingProviderEnabled(
                 g_qiqi_etw_provider, etw_level, std::to_underlying(norm_kw)) != FALSE);
-}
-
-bool IsDebuggerEnabledForLevel(Level level, Level configured_level) noexcept {
-    return level != Level::off &&
-           configured_level != Level::off &&
-           level >= configured_level &&
-           (::IsDebuggerPresent() != FALSE);
 }
 
 template <Keyword Kw, Opcode Op>
@@ -405,8 +381,7 @@ void WriteMetric(const metrics::Event& event) noexcept {
 }
 #pragma warning(pop)
 
-void InitLogger(Level level) noexcept {
-    g_log_level = level;
+void InitLogger() noexcept {
     std::ignore = EnsureInitialized();
 }
 
@@ -414,14 +389,6 @@ bool EnsureInitialized() noexcept {
     const ULONG error = g_provider_registration.EnsureRegistered();
     if (error == ERROR_SUCCESS) FlushMetricMetadata();
     return error == ERROR_SUCCESS;
-}
-
-Level GetLevel() noexcept {
-    return g_log_level.load();
-}
-
-void SetLevel(Level level) noexcept {
-    g_log_level = level;
 }
 
 bool CheckHResult(int32_t hr, std::string_view operation, Level level, const LogContext& context) noexcept {
@@ -444,18 +411,13 @@ bool IsEtwProviderRegistered() noexcept {
 }
 
 bool IsLogSinkActive() noexcept {
-    return (g_provider_registration.IsRegistered() &&
-            (::TraceLoggingProviderEnabled(g_qiqi_etw_provider, 0, 0) != FALSE)) ||
-           (::IsDebuggerPresent() != FALSE);
+    return g_provider_registration.IsRegistered() &&
+           (::TraceLoggingProviderEnabled(g_qiqi_etw_provider, 0, 0) != FALSE);
 }
 
 bool ShouldLog(Level level, Keyword keyword) noexcept {
     if (keyword == Keyword::Metrics) return false;
-    const Level configured = GetLevel();
-    if (level == Level::off || configured == Level::off) {
-        return false;
-    }
-    return IsEtwEnabledForLevel(level, keyword) || IsDebuggerEnabledForLevel(level, configured);
+    return IsEtwEnabledForLevel(level, keyword);
 }
 
 void WriteLogMessage(Level level, std::string_view message, const LogContext& context) noexcept {
@@ -463,46 +425,12 @@ void WriteLogMessage(Level level, std::string_view message, const LogContext& co
         metrics::RecordFailure(metrics::FailureKind::Protocol, E_INVALIDARG);
         return;
     }
-    const Level configured = GetLevel();
-    if (level == Level::off || configured == Level::off) {
-        return;
-    }
-    const bool emit_etw = IsEtwEnabledForLevel(level, context.keyword);
-    const bool emit_debugger = IsDebuggerEnabledForLevel(level, configured);
-    if (!emit_etw && !emit_debugger) {
+    if (!IsEtwEnabledForLevel(level, context.keyword)) {
         return;
     }
     const std::string_view proc_name = GetProcessName();
 
-    if (emit_etw) {
-        EmitEtwTraceEvent(level, proc_name, message, context);
-    }
-
-    // 2. Output to debugger only when attached and within configured level (avoids kernel exception overhead in normal typing)
-    if (emit_debugger) {
-        try {
-            const std::string line = std::format(
-                "[{}] [{}] [{}:{}] {}\r\n",
-                proc_name,
-                LevelTag(level),
-                KeywordTag(context.keyword),
-                OpcodeTag(context.opcode),
-                message);
-            const int chars = ::MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, nullptr, 0);
-            if (chars > 0) {
-                std::wstring wide_line(gsl::narrow_cast<size_t>(chars), L'\0');
-                if (::MultiByteToWideChar(CP_UTF8, 0, line.c_str(), -1, wide_line.data(), chars) > 0) {
-                    ::OutputDebugStringW(wide_line.c_str());
-                } else {
-                    ReportLoggingFailure();
-                }
-            } else {
-                ReportLoggingFailure();
-            }
-        } catch (...) {
-            ReportLoggingFailure();
-        }
-    }
+    EmitEtwTraceEvent(level, proc_name, message, context);
 }
 
 void Shutdown() noexcept {

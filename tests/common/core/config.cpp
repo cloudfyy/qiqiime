@@ -6,7 +6,7 @@
 namespace qiqi::test::common_cases {
 
 void TestConfigFieldProjections() {
-    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 25> expected_keys{{
+    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 24> expected_keys{{
         {"primary_dict", L"PrimaryDict"}, {"enable_jidian_extra", L"EnableJidianExtra"},
         {"page_size", L"PageSize"}, {"candidate_layout", L"CandidateLayout"},
         {"auto_commit_4code", L"AutoCommit4Code"},
@@ -19,7 +19,7 @@ void TestConfigFieldProjections() {
         {"beep_on_dup_4code", L"BeepOnDup4Code"}, {"clear_on_empty_4code", L"ClearOnEmpty4Code"},
         {"enable_key_sound", L"EnableKeySound"}, {"up_down_page_turn", L"UpDownPageTurn"},
         {"ui_language", L"UiLanguage"}, {"underline_style", L"UnderlineStyle"},
-        {"bold_underline", L"BoldUnderline"}, {"log_level", L"LogLevel"}
+        {"bold_underline", L"BoldUnderline"}
     }};
     constexpr std::array<std::string_view, 20> editable_keys{
         "primary_dict", "enable_jidian_extra", "page_size", "candidate_layout", "auto_commit_4code",
@@ -240,7 +240,6 @@ void TestIniConfiguration() {
     custom_reg_cfg.ui_language = UiLanguage::EnUs;
     custom_reg_cfg.underline_style = CompositionUnderlineStyle::Squiggle;
     custom_reg_cfg.bold_underline = true;
-    custom_reg_cfg.log_level = log::Level::debug;
 
     QIQI_TEST_CHECK(SaveConfig(custom_reg_cfg));
     uint64_t seq_after_save = 0;
@@ -270,7 +269,6 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(reg_out.ui_language == UiLanguage::EnUs);
     QIQI_TEST_CHECK(reg_out.underline_style == CompositionUnderlineStyle::Squiggle);
     QIQI_TEST_CHECK(reg_out.bold_underline);
-    QIQI_TEST_CHECK(reg_out.log_level == log::Level::debug);
 
     const QiQiConfig reloaded = LoadConfig(nullptr);
     QIQI_TEST_CHECK(reloaded.page_size == 8 && reloaded.primary_dict == PrimaryDict::Haifeng);

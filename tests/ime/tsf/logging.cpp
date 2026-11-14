@@ -120,7 +120,6 @@ public:
         config.enable_jidian_extra = false;
         config.dynamic_phrase_freq = false;
         config.show_status_bar = show_status_bar;
-        config.log_level = log::Level::off;
         QIQI_TEST_CHECK(SaveConfigToRegistry(config));
     }
     ~FocusTestEnvironment() noexcept {
@@ -378,7 +377,7 @@ void ExerciseLoadedIme(QiQiConfig& config, bool multiple_instances) {
         QIQI_TEST_CHECK(first->Activate(first_manager.Get(), 1) == S_OK);
         QIQI_TEST_CHECK(first_keys->OnSetFocus(TRUE) == S_OK);
 
-        config.log_level = log::Level::off;
+        ++config.page_size;
         QIQI_TEST_CHECK(SaveConfigToRegistry(config));
         QIQI_TEST_CHECK(first_keys->OnSetFocus(TRUE) == S_OK);
         QIQI_TEST_CHECK(second_keys->OnSetFocus(TRUE) == S_OK);
@@ -545,10 +544,10 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
     QiQiConfig config{};
     config.primary_dict = PrimaryDict::BuiltinOnly;
     config.enable_jidian_extra = false;
-    // Keep default log_level (Level::info) to verify that an active ETW session requesting TRACE_LEVEL_VERBOSE
-    // receives Debug/Verbose events without requiring a manual registry LogLevel=1 override.
-    QIQI_TEST_CHECK(config.log_level == log::Level::info);
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    const DWORD legacy_off = std::to_underlying(log::Level::off);
+    QIQI_TEST_CHECK(::RegSetKeyValueW(HKEY_CURRENT_USER, GetActiveConfigRegistrySubKey(), L"LogLevel",
+        REG_DWORD, &legacy_off, sizeof(legacy_off)) == ERROR_SUCCESS);
 
     // Load/construct before signalling readiness, so the parent can start ETW after initialization.
     {
@@ -560,7 +559,6 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
         QIQI_TEST_CHECK(::WaitForSingleObject(proceed.Get(), 30'000) == WAIT_OBJECT_0);
         ExerciseLoadedIme(config, true);
     }
-    config.log_level = log::Level::info;
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
     ExerciseLoadedIme(config, false);
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
@@ -700,13 +698,13 @@ int RunTsfEtwIntegrationTests() {
             ++focus_count;
             after_instance_deactivation |= record.message.contains("id=2,");
             after_reactivation |= record.message.contains("id=3,");
-            after_module_reload |= focus_count == 4 && record.message.contains("id=1,");
+            after_module_reload |= focus_count == 7 && record.message.contains("id=1,");
         }
-        QIQI_TEST_CHECK(focus_count == 4 && after_instance_deactivation && after_reactivation && after_module_reload);
+        QIQI_TEST_CHECK(focus_count == 7 && after_instance_deactivation && after_reactivation && after_module_reload);
         QIQI_TEST_CHECK(saw_cleanup_start && saw_cleanup_async && saw_cleanup_stop && cleanup_related != GUID_NULL);
     }
     std::cout << "[PASS] ETW captured real IME DLL events without a debugger from PIDs "
-              << late.pid << " and " << early.pid << "; late enable, instance/module lifetime and Off verified.\n";
+              << late.pid << " and " << early.pid << "; late enable, instance/module lifetime and ignored legacy LogLevel verified.\n";
     return 0;
 }
 

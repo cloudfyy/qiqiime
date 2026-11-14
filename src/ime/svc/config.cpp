@@ -612,7 +612,6 @@ STDMETHODIMP QiQiTextService::GetDisplayName(BSTR* pbstrName) noexcept {
 }
 
 void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
-    log::SetLevel(config_.log_level);
     engine_.SetPageSize(config_.page_size);
     engine_.SetAutoCommit4Code(config_.auto_commit_4code);
     engine_.SetPushCommit5th(config_.push_commit_5th);

@@ -21,8 +21,8 @@ int wmain(int argc, wchar_t* argv[]) {
         return RunMonitor(::GetModuleHandleW(nullptr), SW_SHOWNORMAL);
     }
     if (args.size() >= 2 && std::wstring_view(gsl::at(args, 1)) == L"--emit") {
-        qiqi::log::InitLogger(qiqi::log::Level::info);
-        QIQI_LOG_CAT_DEBUG(qiqi::log::Keyword::Lifecycle, "child-debug-default-info");
+        qiqi::log::InitLogger();
+        QIQI_LOG_CAT_DEBUG(qiqi::log::Keyword::Lifecycle, "child-debug-session-controlled");
         qiqi::log::WriteLogMessage(qiqi::log::Level::info, "child-emitter");
         qiqi::log::Shutdown();
         return 0;

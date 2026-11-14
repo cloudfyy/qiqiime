@@ -9,9 +9,7 @@ int Integration(const wchar_t* peer) {
     Diagnostics diagnostics;
     EventQueue queue{32, 128 * 1024};
     Collector collector(queue, diagnostics);
-    // Initialize with default Level::info to verify that Collector's TRACE_LEVEL_VERBOSE session
-    // receives Debug/Trace events without requiring SetLevel(Level::trace/debug).
-    log::InitLogger(log::Level::info);
+    log::InitLogger();
     const auto shutdown = gsl::finally([]() noexcept { log::Shutdown(); });
     if (!collector.Start()) {
         const auto errors = diagnostics.queue.Take();
@@ -28,7 +26,7 @@ int Integration(const wchar_t* peer) {
         log::Level::info,
         marker,
         log::LogContext{log::Keyword::Sync, log::Opcode::Start, &child_act, &parent_act});
-    QIQI_LOG_ACT_STOP(log::Level::debug, log::Keyword::Sync, &child_act, "monitor-verbose-with-default-info-level");
+    QIQI_LOG_ACT_STOP(log::Level::debug, log::Keyword::Sync, &child_act, "monitor-session-verbose");
     diagnostics.Record(2, L"MONITOR_ONLY_SENTINEL", ERROR_INVALID_DATA);
     log::Shutdown();
     QIQI_TEST_CHECK(log::EnsureInitialized());
@@ -54,13 +52,13 @@ int Integration(const wchar_t* peer) {
             return event.message == Utf8ToWide(marker);
         });
         const bool own_verbose = std::any_of(received.begin(), received.end(), [](const Event& event) {
-            return event.message == L"monitor-verbose-with-default-info-level" && event.level == 5;
+            return event.message == L"monitor-session-verbose" && event.level == 5;
         });
         const bool remote = std::any_of(received.begin(), received.end(), [&](const Event& event) {
             return event.pid == process.dwProcessId && event.message == L"child-emitter";
         });
         const bool remote_verbose = std::any_of(received.begin(), received.end(), [&](const Event& event) {
-            return event.pid == process.dwProcessId && event.message == L"child-debug-default-info" && event.level == 5;
+            return event.pid == process.dwProcessId && event.message == L"child-debug-session-controlled" && event.level == 5;
         });
         if (own && own_verbose && remote && remote_verbose) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -87,7 +85,7 @@ int Integration(const wchar_t* peer) {
     QIQI_TEST_CHECK(own->name == L"QiQiLogInfo");
     QIQI_TEST_CHECK(own->time <= MakeEvent().time && MakeEvent().time - own->time < 60ULL * 10'000'000);
     QIQI_TEST_CHECK(std::any_of(received.begin(), received.end(), [&](const Event& event) {
-        return event.message == L"monitor-verbose-with-default-info-level" && event.level == 5 &&
+        return event.message == L"monitor-session-verbose" && event.level == 5 &&
                event.keyword == std::to_underlying(log::Keyword::Sync) &&
                event.opcode == std::to_underlying(log::Opcode::Stop) &&
                event.activity_id == child_act && event.related_activity_id == GUID_NULL &&
@@ -100,7 +98,7 @@ int Integration(const wchar_t* peer) {
                event.activity_id == GUID_NULL;
     }));
     QIQI_TEST_CHECK(std::any_of(received.begin(), received.end(), [&](const Event& event) {
-        return event.pid == process.dwProcessId && event.message == L"child-debug-default-info" &&
+        return event.pid == process.dwProcessId && event.message == L"child-debug-session-controlled" &&
                event.level == 5 && event.keyword == std::to_underlying(log::Keyword::Lifecycle) &&
                event.name == L"QiQiLogVerbose";
     }));

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/svc/test.h"
+#include "common/logger.h"
 
 namespace qiqi::test::service_cases {
 
@@ -222,13 +223,10 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         auto peer = MakeComObject<QiQiTextService>(g_dll_instance);
         auto peer_manager = MakeComObject<MockTfThreadMgr>();
         QIQI_TEST_CHECK(peer->Activate(peer_manager.Get(), 2) == S_OK);
-        const auto previous_level = log::GetLevel();
-        const auto restore_level = gsl::finally([previous_level]() noexcept { log::SetLevel(previous_level); });
-        log::SetLevel(log::Level::off);
         QIQI_TEST_CHECK(peer->Deactivate() == S_OK);
         QIQI_TEST_CHECK(log::IsEtwProviderRegistered());
         QIQI_TEST_CHECK(peer->Activate(peer_manager.Get(), 2) == S_OK);
-        QIQI_TEST_CHECK(log::GetLevel() == log::Level::off);
+        QIQI_TEST_CHECK(log::IsEtwProviderRegistered());
         QIQI_TEST_CHECK(peer->Deactivate() == S_OK);
         QIQI_TEST_CHECK(log::IsEtwProviderRegistered());
     }

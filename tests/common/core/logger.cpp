@@ -2,6 +2,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/core/test.h"
+#include "common/etw.h"
+
+namespace qiqi::test {
+struct ReentrantLogValue {
+    int* formatted;
+};
+}
+
+template <>
+struct std::formatter<qiqi::test::ReentrantLogValue> : std::formatter<std::string_view> {
+    auto format(const qiqi::test::ReentrantLogValue& value, std::format_context& context) const {
+        ++*value.formatted;
+        QIQI_LOG_INFO("Nested formatter log");
+        return std::formatter<std::string_view>::format("formatted payload", context);
+    }
+};
 
 namespace qiqi::test::common_cases {
 
@@ -121,11 +137,10 @@ void TestEtwLogger() {
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
     log::Shutdown();
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
-    log::SetLevel(log::Level::debug);
     QIQI_LOG_DEBUG("Logging does not initialize the provider");
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
     QIQI_TEST_CHECK(log::EnsureInitialized());
-    QIQI_TEST_CHECK(log::IsEtwProviderRegistered() && log::GetLevel() == log::Level::debug);
+    QIQI_TEST_CHECK(log::IsEtwProviderRegistered());
 
     // 2. Test WideToUtf8, Utf8ToWide, and GetModuleFilePath
     QIQI_TEST_CHECK(WideToUtf8(L"").empty());
@@ -163,12 +178,45 @@ void TestEtwLogger() {
     QIQI_TEST_CHECK(LoadAppIconOrBrandFallback(nullptr, 24, 1, false).IsValid());
     QIQI_TEST_CHECK(LoadAppIconOrBrandFallback(::GetModuleHandleW(nullptr), 24, 9999, true).IsValid());
 
-    // 3. Test Pure Lock-Free ETW Logger (InitLogger, SetLevel, GetLevel, IsLogSinkActive, WriteLogMessage)
-    log::InitLogger(log::Level::info);
-    QIQI_TEST_CHECK(log::GetLevel() == log::Level::info);
-    std::ignore = log::IsLogSinkActive();
-    log::SetLevel(log::Level::trace);
-    QIQI_TEST_CHECK(log::GetLevel() == log::Level::trace);
+    // Session level and keyword filters gate formatting, including reentrant formatters.
+    log::InitLogger();
+    QIQI_TEST_CHECK(!log::IsLogSinkActive());
+    int formatted = 0;
+    QIQI_LOG_INFO("No session {}", ReentrantLogValue{&formatted});
+    QIQI_TEST_CHECK(formatted == 0);
+    const auto captured = CaptureLogEvents([&](TRACEHANDLE session) {
+        SetLogCaptureFilter(session, TRACE_LEVEL_INFORMATION, log::Keyword::General);
+        QIQI_TEST_CHECK(log::IsLogSinkActive() && log::ShouldLog(log::Level::info));
+        QIQI_TEST_CHECK(!log::ShouldLog(log::Level::debug));
+        QIQI_LOG_DEBUG("Filtered level {}", ReentrantLogValue{&formatted});
+        QIQI_LOG_INFO("Outer formatter {}", ReentrantLogValue{&formatted});
+        QIQI_TEST_CHECK(formatted == 1);
+        QIQI_LOG_CRITICAL("Critical session event");
+        SetLogCaptureFilter(session, TRACE_LEVEL_VERBOSE, log::Keyword::Sync);
+        QIQI_TEST_CHECK(log::ShouldLog(log::Level::trace, log::Keyword::Sync));
+        QIQI_TEST_CHECK(!log::ShouldLog(log::Level::info, log::Keyword::General));
+        QIQI_LOG_INFO("Filtered keyword {}", ReentrantLogValue{&formatted});
+        QIQI_LOG_CAT_TRACE(log::Keyword::Sync, "Session trace");
+        QIQI_LOG_CAT_DEBUG(log::Keyword::Sync, "Session debug");
+        QIQI_TEST_CHECK(!log::ShouldLog(log::Level::off, log::Keyword::Sync));
+        log::WriteLogMessage(log::Level::off, "Off entry", log::LogContext{log::Keyword::Sync});
+        DisableLogCapture(session);
+        QIQI_TEST_CHECK(!log::IsLogSinkActive() && !log::ShouldLog(log::Level::critical));
+        QIQI_LOG_INFO("Disabled session {}", ReentrantLogValue{&formatted});
+        QIQI_TEST_CHECK(formatted == 1);
+    });
+    QIQI_TEST_CHECK(captured.size() == 5);
+    constexpr std::array<std::string_view, 5> messages{
+        "Nested formatter log", "Outer formatter formatted payload", "Critical session event",
+        "Session trace", "Session debug"};
+    for (size_t i = 0; i < messages.size(); ++i) {
+        const auto& event = gsl::at(captured, i);
+        QIQI_TEST_CHECK(event.message == gsl::at(messages, i));
+        QIQI_TEST_CHECK(event.keyword == std::to_underlying(
+            i < 3 ? log::Keyword::General : log::Keyword::Sync));
+        QIQI_TEST_CHECK(event.level == (i < 2 ? TRACE_LEVEL_INFORMATION :
+            i == 2 ? TRACE_LEVEL_ERROR : TRACE_LEVEL_VERBOSE));
+    }
 
     QIQI_LOG_TRACE("Trace message");
     QIQI_LOG_DEBUG("Debug message");
@@ -236,7 +284,6 @@ void TestEtwLogger() {
         QIQI_LOG_ACT_STOP(log::Level::warn, kw, &act_a, "Activity stop {}", log::KeywordTag(kw));
     }
 
-    log::SetLevel(log::Level::off);
     QIQI_TEST_CHECK(!log::ShouldLog(log::Level::critical, log::Keyword::Lifecycle) &&
                     !log::ShouldLog(log::Level::info, log::Keyword::Sync) &&
                     !log::ShouldLog(log::Level::trace) && !log::ShouldLog(log::Level::off));
@@ -250,9 +297,8 @@ void TestEtwLogger() {
         log::Level::warn,
         log::LogContext{log::Keyword::Composition, log::Opcode::Info, &act_a, &act_b}));
     QIQI_TEST_CHECK(::GetLastError() == ERROR_ACCESS_DENIED);
-    QIQI_LOG_INFO("Suppressed when level is off");
+    QIQI_LOG_INFO("Suppressed without an ETW session");
     log::WriteLogMessage(log::Level::off, "Suppressed off write");
-    log::SetLevel(log::Level::info);
     QIQI_TEST_CHECK(!log::ShouldLog(log::Level::off));
     ::SetLastError(ERROR_SHARING_VIOLATION);
     QIQI_TEST_CHECK(!log::CheckHResult(E_FAIL, "failed operation", log::Level::err));
@@ -307,9 +353,8 @@ void TestEtwLogger() {
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
     log::Shutdown();
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
-    log::SetLevel(log::Level::off);
     QIQI_TEST_CHECK(log::EnsureInitialized());
-    QIQI_TEST_CHECK(log::IsEtwProviderRegistered() && log::GetLevel() == log::Level::off);
+    QIQI_TEST_CHECK(log::IsEtwProviderRegistered());
     log::InitLogger();
 }
 

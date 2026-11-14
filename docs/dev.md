@@ -193,7 +193,7 @@ Measurement limits and interpretation belong in the [metrics guide](metrics.md).
 
 ## Diagnostics
 
-Production diagnostics use local ETW and debugger output. Capture and filtering instructions are in the
+Production diagnostics use local ETW. Capture and filtering instructions are in the
 [logging guide](log.md); data-handling boundaries are in the
 [privacy policy](../PRIVACY.md).
 

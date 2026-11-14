@@ -321,14 +321,14 @@ boundaries; it does not make low-level clipboard ownership blocking or infallibl
 
 ## 7. Diagnostics and Access Boundaries
 
-Production diagnostics are ETW and debugger output, not an automatically written
+Production diagnostics are ETW events, not an automatically written
 text log. Initialize the provider outside `DllMain`; it is module-scoped and
 survives individual service deactivation. Queries/writes do not implicitly
 register it. Preserve actual HRESULT/Win32 domains; queue acceptance and callback
 exit are not host-operation success.
 
 Metrics use a separate explicit keyword subscription, independent of ordinary
-log level. Typed protocol, bounded aggregation, Metrics view, and JSON export are
+log capture. Typed protocol, bounded aggregation, Metrics view, and JSON export are
 implemented; production samples currently cover three focus segments only.
 Broader instrumentation and full overhead acceptance remain incomplete.
 See [capture](log.md) and [measurement semantics](metrics.md).

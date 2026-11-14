@@ -219,27 +219,24 @@ void WINAPI OnEvent(EVENT_RECORD* record) noexcept {
     }
 }
 
-int CaptureMetrics(MetricEventObserver observer, MetricCaptureAction action) {
-    Check(!log::IsEtwProviderRegistered(), "Metrics query must not register the provider");
-    const auto directory = std::filesystem::temp_directory_path() /
-        std::format(L"qiqi-metrics-{}-{}", ::GetCurrentProcessId(), ::GetTickCount64());
-    Check(std::filesystem::create_directory(directory), "Create metrics test directory");
+int CaptureEtw(const std::function<void(TRACEHANDLE)>& action, PEVENT_RECORD_CALLBACK callback, void* context) {
+    const auto directory = std::filesystem::current_path() /
+        std::format(L"qiqi-etw-{}-{}", ::GetCurrentProcessId(), ::GetTickCount64());
+    Check(std::filesystem::create_directory(directory), "Create ETW test directory");
     const auto file = directory / L"capture.etl";
     const auto cleanup_files = gsl::finally([&]() noexcept {
         RemoveTestPath(file);
         RemoveTestPath(directory);
     });
-    const auto name = std::format(L"QiQiIME.Metrics.Test.{}.{}", ::GetCurrentProcessId(), ::GetTickCount64());
+    const auto name = std::format(L"QiQiIME.Test.{}.{}", ::GetCurrentProcessId(), ::GetTickCount64());
     TraceProperties properties;
-    Check(log::EnsureInitialized(), "Register metrics provider");
-    const auto shutdown = gsl::finally([]() noexcept { log::Shutdown(); });
     properties.properties.Wnode.Guid = log::CreateActivityId();
     Check(wcscpy_s(properties.name.data(), properties.name.size(), name.c_str()) == 0, "Trace name");
     Check(wcscpy_s(properties.file.data(), properties.file.size(), file.c_str()) == 0, "Trace file");
     TRACEHANDLE session = 0;
     const ULONG start_error = ::StartTraceW(&session, name.c_str(), &properties.properties);
     if (start_error == ERROR_ACCESS_DENIED || start_error == ERROR_PRIVILEGE_NOT_HELD) {
-        std::cerr << "[SKIP] Metrics ETW access denied (error=" << start_error << ")\n";
+        std::cerr << "[SKIP] Private ETW access denied (error=" << start_error << ")\n";
         return 77;
     }
     CheckStatus(start_error, "StartTraceW");
@@ -251,10 +248,36 @@ int CaptureMetrics(MetricEventObserver observer, MetricCaptureAction action) {
             stop.properties.LoggerNameOffset = 0;
             stop.properties.LogFileNameOffset = 0;
             const ULONG error = ::ControlTraceW(session, name.c_str(), &stop.properties, EVENT_TRACE_CONTROL_STOP);
-            if (error) std::cerr << "Metrics session cleanup failed (error=" << error << ")\n";
+            if (error) std::cerr << "ETW session cleanup failed (error=" << error << ")\n";
         }
     });
-    log::SetLevel(log::Level::off);
+    action(session);
+    TraceProperties stop;
+    stop.properties.Wnode.Guid = properties.properties.Wnode.Guid;
+    stop.properties.LoggerNameOffset = 0;
+    stop.properties.LogFileNameOffset = 0;
+    CheckStatus(::ControlTraceW(session, name.c_str(), &stop.properties, EVENT_TRACE_CONTROL_STOP), "Stop ETW session");
+    stopped = true;
+    Check(stop.properties.EventsLost == 0 && stop.properties.LogBuffersLost == 0, "Loss-free test capture");
+    std::wstring filename = file.wstring();
+#pragma warning(suppress : 26476) // ETW selects its callback union through ProcessTraceMode.
+    EVENT_TRACE_LOGFILEW logfile{};
+    logfile.LogFileName = filename.data();
+    logfile.ProcessTraceMode = PROCESS_TRACE_MODE_EVENT_RECORD;
+    logfile.EventRecordCallback = callback;
+    logfile.Context = context;
+    TRACEHANDLE reader = ::OpenTraceW(&logfile);
+    if (reader == INVALID_PROCESSTRACE_HANDLE) CheckStatus(::GetLastError(), "OpenTraceW");
+    const auto close_reader = gsl::finally([reader]() noexcept {
+        const ULONG error = ::CloseTrace(reader);
+        if (error) std::cerr << "CloseTrace failed (error=" << error << ")\n";
+    });
+    CheckStatus(::ProcessTrace(&reader, 1, nullptr, nullptr), "ProcessTrace");
+    return 0;
+}
+
+void ExerciseMetrics(TRACEHANDLE session, MetricCaptureAction action,
+    metrics::InstanceIdentity& instance, metrics::Event& event) {
     const auto enable = [&](uint64_t keyword, ULONG control = EVENT_CONTROL_CODE_ENABLE_PROVIDER) {
         CheckStatus(::EnableTraceEx2(session, &log::kProviderId, control, TRACE_LEVEL_VERBOSE,
             keyword, 0, 1000, nullptr), "EnableTraceEx2");
@@ -262,17 +285,14 @@ int CaptureMetrics(MetricEventObserver observer, MetricCaptureAction action) {
     enable(std::to_underlying(log::Keyword::Logs));
     Check(!log::MetricsEnabled(), "Ordinary log capture must not enable metrics");
     enable(std::to_underlying(log::Keyword::Metrics));
-    Check(log::MetricsEnabled() && !log::ShouldLog(log::Level::info), "Metrics must be independent of LogLevel");
-    const auto instance = metrics::ModuleInstance();
-    metrics::Event event;
+    Check(log::MetricsEnabled() && !log::ShouldLog(log::Level::info), "Metrics-only capture excludes ordinary logs");
+    instance = metrics::ModuleInstance();
     if (action) {
         action();
     } else {
-        log::SetLevel(log::Level::info);
         Check(!log::ShouldLog(log::Level::info, log::Keyword::Metrics), "Metrics keyword is reserved for typed events");
         log::WriteLogMessage(log::Level::info, "forbidden-free-text", log::LogContext{log::Keyword::Metrics});
         Check(metrics::Diagnostics().protocol == 1, "Reject free text under the Metrics keyword");
-        log::SetLevel(log::Level::off);
         Check(SUCCEEDED(instance.error), "Metric instance identity");
         const auto service = metrics::NextServiceId();
         GUID activity_before{};
@@ -323,30 +343,21 @@ int CaptureMetrics(MetricEventObserver observer, MetricCaptureAction action) {
         CheckStatus(::EventActivityIdControl(EVENT_ACTIVITY_CTRL_GET_ID, &activity_after), "Read ambient activity");
         Check(activity_before == activity_after, "Metrics must not modify the implicit activity ID");
     }
-    TraceProperties stop;
-    stop.properties.Wnode.Guid = properties.properties.Wnode.Guid;
-    stop.properties.LoggerNameOffset = 0;
-    stop.properties.LogFileNameOffset = 0;
-    CheckStatus(::ControlTraceW(session, name.c_str(), &stop.properties, EVENT_TRACE_CONTROL_STOP), "Stop metrics session");
-    stopped = true;
-    Check(stop.properties.EventsLost == 0 && stop.properties.LogBuffersLost == 0, "Loss-free test capture");
-    std::wstring filename = file.wstring();
+}
+
+int CaptureMetrics(MetricEventObserver observer, MetricCaptureAction action) {
+    Check(!log::IsEtwProviderRegistered(), "Metrics query must not register the provider");
+    Check(log::EnsureInitialized(), "Register metrics provider");
+    const auto shutdown = gsl::finally([]() noexcept { log::Shutdown(); });
     Capture capture;
     capture.observer = observer;
     capture.retain_events = action == nullptr;
-#pragma warning(suppress : 26476) // ETW selects its callback union through ProcessTraceMode.
-    EVENT_TRACE_LOGFILEW logfile{};
-    logfile.LogFileName = filename.data();
-    logfile.ProcessTraceMode = PROCESS_TRACE_MODE_EVENT_RECORD;
-    logfile.EventRecordCallback = OnEvent;
-    logfile.Context = &capture;
-    TRACEHANDLE reader = ::OpenTraceW(&logfile);
-    if (reader == INVALID_PROCESSTRACE_HANDLE) CheckStatus(::GetLastError(), "OpenTraceW");
-    const auto close_reader = gsl::finally([reader]() noexcept {
-        const ULONG error = ::CloseTrace(reader);
-        if (error) std::cerr << "CloseTrace failed (error=" << error << ")\n";
-    });
-    CheckStatus(::ProcessTrace(&reader, 1, nullptr, nullptr), "ProcessTrace");
+    metrics::InstanceIdentity instance{};
+    metrics::Event event;
+    const int result = CaptureEtw([&](TRACEHANDLE session) {
+        ExerciseMetrics(session, action, instance, event);
+    }, OnEvent, &capture);
+    if (result != 0) return result;
     CheckStatus(capture.error, "Decode typed metric fields");
     if (action) return 0;
     if (capture.events.size() != 6 || capture.instances.size() != 4) {
@@ -383,7 +394,74 @@ int CaptureMetrics(MetricEventObserver observer, MetricCaptureAction action) {
     std::cout << "[PASS] Real typed ETW metrics and capture-state metadata.\n";
     return 0;
 }
+
+struct LogCapture {
+    std::vector<LogEvent> events;
+    ULONG error = ERROR_SUCCESS;
+};
+
+void WINAPI OnLogEvent(EVENT_RECORD* record) noexcept {
+    if (!record || record->EventHeader.ProviderId != log::kProviderId) return;
+    auto* capture = static_cast<LogCapture*>(record->UserContext);
+    if (!capture || capture->error != ERROR_SUCCESS) return;
+    try {
+        if (record->EventHeader.ProcessId != ::GetCurrentProcessId() ||
+            (record->EventHeader.EventDescriptor.Keyword & std::to_underlying(log::Keyword::Logs)) == 0) {
+            capture->error = ERROR_INVALID_DATA;
+            return;
+        }
+        PROPERTY_DATA_DESCRIPTOR property{};
+        property.PropertyName = reinterpret_cast<ULONGLONG>(L"message");
+        property.ArrayIndex = (std::numeric_limits<ULONG>::max)();
+        ULONG size = 0;
+        capture->error = ::TdhGetPropertySize(record, 0, nullptr, 1, &property, &size);
+        if (capture->error != ERROR_SUCCESS) return;
+        if (size < sizeof(USHORT) || size > 65536) {
+            capture->error = ERROR_INVALID_DATA;
+            return;
+        }
+        std::string message(size, '\0');
+        capture->error = ::TdhGetProperty(record, 0, nullptr, 1, &property, size,
+            reinterpret_cast<BYTE*>(message.data()));
+        if (capture->error != ERROR_SUCCESS) return;
+        USHORT length = 0;
+        std::memcpy(&length, message.data(), sizeof(length));
+        if (length > message.size() - sizeof(length)) {
+            capture->error = ERROR_INVALID_DATA;
+            return;
+        }
+        message.erase(0, sizeof(length));
+        message.resize(length);
+        capture->events.push_back({record->EventHeader.ProcessId,
+            record->EventHeader.EventDescriptor.Level, record->EventHeader.EventDescriptor.Keyword,
+            std::move(message)});
+    } catch (const std::bad_alloc&) {
+        capture->error = ERROR_NOT_ENOUGH_MEMORY;
+    }
+}
 } // namespace
+
+void SetLogCaptureFilter(TRACEHANDLE session, UCHAR level, log::Keyword keywords) {
+    CheckStatus(::EnableTraceEx2(session, &log::kProviderId, EVENT_CONTROL_CODE_ENABLE_PROVIDER,
+        level, std::to_underlying(keywords), 0, 1000, nullptr), "Enable log capture");
+}
+
+void DisableLogCapture(TRACEHANDLE session) {
+    CheckStatus(::EnableTraceEx2(session, &log::kProviderId, EVENT_CONTROL_CODE_DISABLE_PROVIDER,
+        0, 0, 0, 1000, nullptr), "Disable log capture");
+}
+
+std::vector<LogEvent> CaptureLogEvents(const std::function<void(TRACEHANDLE)>& action) {
+    Check(log::EnsureInitialized(), "Register log provider");
+    LogCapture capture;
+    const int result = CaptureEtw([&](TRACEHANDLE session) {
+        SetLogCaptureFilter(session, TRACE_LEVEL_VERBOSE);
+        action(session);
+    }, OnLogEvent, &capture);
+    Check(result == 0, "Private log ETW capture is required");
+    CheckStatus(capture.error, "Decode log fields");
+    return std::move(capture.events);
+}
 
 int RunMetricsEtwTest(MetricEventObserver observer, MetricCaptureAction action) {
     try {

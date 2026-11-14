@@ -1,6 +1,6 @@
 # Logging and Troubleshooting
 
-QiQiIME emits local ETW TraceLogging events and native debugger output.
+QiQiIME emits ordinary diagnostic logs as local ETW TraceLogging events.
 Use `QiQiIMELogMonitor.exe` for interactive capture, or ETW tools for offline
 analysis. The monitor does not import ETL files or retained test logs.
 For instrumentation rules, see the [development guide](dev.md#diagnostics).
@@ -95,58 +95,35 @@ The DLL runs inside the host, not a separate IME process. Identify the actual
 host PID: browsers and Electron applications can have multiple similar processes.
 The settings tool is a separate `QiQiIMESettings.exe` process.
 
-## Application log level
+## Capture level and categories
 
-An active ETW session requests its own event level. Unless application
-`LogLevel` is **Off**, Verbose capture can receive detailed events without
-changing the registry or restarting the host.
+Ordinary logs are ETW-only. Each capture session chooses its event level and
+keyword categories; the IME has no separate log-level setting or Off switch.
+To obtain detailed events, enable Verbose capture in the monitor or ETW tool.
+No registry change or host restart is required.
 
-The DWORD `HKCU\Software\QiQiIME\LogLevel` controls the ordinary debugger threshold
-and the Off switch. There is no log-level control in the settings GUI.
+| Log entry level | ETW mapping |
+| --- | --- |
+| Trace | Verbose |
+| Debug | Verbose |
+| Info | Informational |
+| Warn | Warning |
+| Error | Error |
+| Critical | Error |
 
-| Value | Application level | ETW mapping |
-| --- | --- | --- |
-| 0 | Trace | Verbose |
-| 1 | Debug | Verbose |
-| 2 | Info, default | Informational |
-| 3 | Warn | Warning |
-| 4 | Error | Error |
-| 5 | Critical | Error |
-| 6 | Off | Ordinary events disabled |
+The former `HKCU\Software\QiQiIME\LogLevel` value is no longer read or saved.
+Existing registry values and old backups containing `log_level` are ignored;
+they do not affect capture.
 
-Typed metrics are independent of this setting, including Off, and require their
-own keyword subscription. Selecting a display category does not enable capture.
+Without an enabled ETW subscription, ordinary messages are not formatted or
+emitted, even if a debugger is attached. Stop the capture session to stop that
+session's collection; other sessions can independently remain active.
+Only low-level failures of logging/metrics infrastructure retain emergency
+debugger diagnostics, since reporting those through the failing ETW path could
+recurse or lose the failure.
 
-To adjust debugger verbosity, first save a valid configuration in Settings.
-Run the following in the tested user's PowerShell, not a different administrator's
-HKCU, and keep the window open so the original value can be restored:
-
-```powershell
-$configKey = 'HKCU:\Software\QiQiIME'
-$config = Get-ItemProperty -Path $configKey -ErrorAction Stop
-if (-not $config.ConfigSequence) { throw 'Save a valid configuration in Settings first.' }
-$previousLogLevel = $config.PSObject.Properties['LogLevel']
-New-ItemProperty -Path $configKey -Name LogLevel -PropertyType DWord -Value 1 -Force -ErrorAction Stop
-```
-
-Restart the tested application to read the change. Afterwards, restore the value
-in the same shell and restart the application again:
-
-```powershell
-if ($null -ne $previousLogLevel) {
-    Set-ItemProperty -Path $configKey -Name LogLevel -Value $previousLogLevel.Value -ErrorAction Stop
-} else {
-    Remove-ItemProperty -Path $configKey -Name LogLevel -ErrorAction Stop
-}
-```
-
-## Native debugger
-
-Attach Visual Studio to the actual host PID using **Native** code debugging.
-Open **Output > Debug**, reproduce the issue, then **Detach All** rather than
-terminating the user's application. Use Debug/Trace application verbosity when
-needed. Ordinary debugger output requires `IsDebuggerPresent()`; opening DebugView
-alone does not satisfy that condition.
+Typed metrics retain their separate keyword subscription and are not enabled
+by ordinary log capture. Selecting a display category does not enable capture.
 
 ## Offline ETW capture
 
@@ -264,7 +241,7 @@ Setup and commands are in the [development guide](dev.md#tsf-hang-diagnostics).
 ## Troubleshooting
 
 - **No events:** check the loaded DLL, actual host PID, registration, subscription,
-  Off setting, capture state, and monitor diagnostics. Session existence alone
+  capture state, and monitor diagnostics. Session existence alone
   does not prove that events arrived.
 - **Access denied:** retain the failing API and actual HRESULT/Win32 code.
   `hr=0x80070005` and `error=5` use different error domains.

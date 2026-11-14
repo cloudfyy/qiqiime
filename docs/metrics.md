@@ -28,7 +28,7 @@ The [shared protocol](../src/common/metric.h) uses schema version 1 and the exis
 | `Metrics = 0x0100` | Explicit metrics subscription |
 | `Logs = 0x00FF` | Ordinary diagnostics only |
 
-Metrics are independent of ordinary `LogLevel`, including Off. Without a metrics
+Metrics require a separate subscription from ordinary logs. Without a metrics
 subscription, synchronous scopes do not read the timing clock or allocate an
 operation ID/instance GUID; the enable-state check still has a cost.
 

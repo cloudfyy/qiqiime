@@ -44,7 +44,6 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
     : service_log_id_(++next_service_log_id), composition_lifecycle_(service_log_id_) {
     std::ignore = log::EnsureInitialized();
     config_ = LoadConfig(instance);
-    log::SetLevel(config_.log_level);
     engine_.ApplyConfig(config_);
     engine_.SetUserDictPath(GetDefaultUserDictPath());
     engine_.SetPhraseFreqPath(GetDefaultPhraseFreqPath());

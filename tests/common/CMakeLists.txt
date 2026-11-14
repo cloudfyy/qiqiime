@@ -10,6 +10,7 @@ set(QIQI_COMMON_TEST_SOURCES
     core/files.cpp
     core/logger.cpp
     core/resources.cpp
+    etw.cpp
     ui_d2d_controls.cpp
 )
 add_executable(qiqi_common_test ${QIQI_COMMON_TEST_SOURCES})
@@ -20,6 +21,7 @@ target_link_libraries(qiqi_common_test PRIVATE
     ole32
     oleaut32
     uuid
+    tdh
 )
 add_test(NAME QiQiCommonTest COMMAND qiqi_common_test)
 

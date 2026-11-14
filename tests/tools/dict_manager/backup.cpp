@@ -66,7 +66,8 @@ void TestBackupRestoreResults() {
         QIQI_TEST_CHECK(SaveConfig(expected));
         QIQI_TEST_CHECK(model.CreateBackupBundle(backup));
         const auto bytes = read_file(backup);
-        QIQI_TEST_CHECK(!bytes.contains("user_dict_path") && !bytes.contains("not-in-backup.txt"));
+        QIQI_TEST_CHECK(!bytes.contains("user_dict_path") && !bytes.contains("not-in-backup.txt") &&
+            !bytes.contains("log_level"));
         size_t position = bytes.find("[config]\n");
         ForEachConfigField([&](const auto& field) {
             const auto line = std::format("{}={}\n", field.backup_key, field.Value(expected));
@@ -102,6 +103,18 @@ void TestBackupRestoreResults() {
     });
     WriteRestoreBundle(backup, "[config]\nfuture_numeric_key=123\n");
     QIQI_TEST_CHECK(model.RestoreBackupBundle(backup, BackupConflictMode::Merge).status == BackupRestoreStatus::Success);
+    for (const unsigned int legacy_level : {6u, 255u}) {
+        QiQiConfig expected = LoadConfig();
+        expected.page_size = 7;
+        WriteRestoreBundle(backup, std::format("[config]\nlog_level={}\npage_size=7\n", legacy_level));
+        QIQI_TEST_CHECK(model.RestoreBackupBundle(backup, BackupConflictMode::Merge).status == BackupRestoreStatus::Success);
+        const auto restored = LoadConfig();
+        ForEachConfigField([&](const auto& field) {
+            QIQI_TEST_CHECK(field.Value(restored) == field.Value(expected));
+        });
+        QIQI_TEST_CHECK(model.CreateBackupBundle(backup));
+        QIQI_TEST_CHECK(!read_file(backup).contains("log_level"));
+    }
 
     // Checksummed malformed later input must not apply earlier configuration or dictionary lines.
     reset();

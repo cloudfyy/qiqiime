@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/svc/test.h"
+#include "common/etw.h"
 
 namespace qiqi::test {
+
+void ExerciseTsfFocusDiagnostics(TRACEHANDLE session);
 
 namespace {
 class DiagnosticLangBarSink final : public ComObjectBase<DiagnosticLangBarSink, ITfLangBarItemSink> {
@@ -18,16 +21,9 @@ namespace service_cases {
 
 void TestFocusPerformanceLogs() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
-    const auto executable = GetModuleFilePath(nullptr);
-    QIQI_TEST_CHECK(!executable.empty());
-    std::wstring command = L"\"" + executable.wstring() + L"\" --tsf-focus-diagnostics";
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION info{};
-    QIQI_TEST_CHECK(::CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
-                                    DEBUG_ONLY_THIS_PROCESS, nullptr, nullptr, &startup, &info));
-    const ScopedKernelHandle process(info.hProcess);
-    const ScopedKernelHandle thread(info.hThread);
+    const auto events = CaptureLogEvents(ExerciseTsfFocusDiagnostics);
+    QIQI_TEST_CHECK(!log::IsLogSinkActive());
+    QIQI_TEST_CHECK(!log::ShouldLog(log::Level::info));
     std::vector<std::wstring> focus_records;
     std::vector<std::wstring> reload_records;
     std::vector<std::wstring> cleanup_records;
@@ -38,67 +34,35 @@ void TestFocusPerformanceLogs() {
     std::vector<std::wstring> fsm_records;
     bool checking_shift_filter = false;
     bool checking_fsm = false;
-    bool exited = false;
-    while (!exited) {
-        DEBUG_EVENT event{};
-        QIQI_TEST_CHECK(::WaitForDebugEventEx(&event, 30'000));
-        DWORD continuation = DBG_CONTINUE;
-        if (event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT) {
-            const ScopedFileHandle image(event.u.CreateProcessInfo.hFile);
-        } else if (event.dwDebugEventCode == LOAD_DLL_DEBUG_EVENT) {
-            const ScopedFileHandle image(event.u.LoadDll.hFile);
-        } else if (event.dwDebugEventCode == OUTPUT_DEBUG_STRING_EVENT) {
-            const auto& output = event.u.DebugString;
-            SIZE_T read = 0;
-            std::wstring message;
-            if (output.fUnicode) {
-                QIQI_TEST_CHECK(output.nDebugStringLength % sizeof(wchar_t) == 0);
-                message.resize(output.nDebugStringLength / sizeof(wchar_t));
-                QIQI_TEST_CHECK(::ReadProcessMemory(process.Get(), output.lpDebugStringData, message.data(),
-                                                    message.size() * sizeof(wchar_t), &read));
-                QIQI_TEST_CHECK(read == message.size() * sizeof(wchar_t));
-            } else {
-                std::string bytes(output.nDebugStringLength, '\0');
-                QIQI_TEST_CHECK(::ReadProcessMemory(process.Get(), output.lpDebugStringData, bytes.data(),
-                                                    bytes.size(), &read));
-                QIQI_TEST_CHECK(read == bytes.size());
-                message.assign(bytes.begin(), bytes.end());
-            }
-            QIQI_TEST_CHECK(!message.contains(L"SENSITIVE_DIAGNOSTIC_SENTINEL"));
-            if (message.contains(L"FsmDiagnostics(begin)")) checking_fsm = true;
-            if (message.contains(L"FsmDiagnostics(end)")) checking_fsm = false;
-            if (checking_fsm && message.contains(L"FSM transition:")) {
-                fsm_records.push_back(message);
-            }
-            if (message.contains(L"ShiftLogFilter(begin)")) checking_shift_filter = true;
-            if (message.contains(L"ShiftLogFilter(end)")) checking_shift_filter = false;
-            const bool shift_diagnostic = message.contains(L"ShiftTap(") || message.contains(L"ShiftTapContext(");
-            const bool indicator_diagnostic = message.contains(L"SyncTsfCompartments(") ||
-                                               message.contains(L"LangBarButton::");
-            if (checking_shift_filter) QIQI_TEST_CHECK(!shift_diagnostic && !indicator_diagnostic);
-            if (shift_diagnostic) shift_records.push_back(message);
-            if (indicator_diagnostic) indicator_records.push_back(message);
-            if (message.contains(L"FocusPerformance(")) focus_records.push_back(message);
-            if (message.contains(L"ReloadConfigIfModified(focus_id=")) reload_records.push_back(message);
-            if (message.contains(L"TsfCleanup(")) cleanup_records.push_back(message);
-            if (message.contains(L"TsfLifecycle(")) lifecycle_records.push_back(message);
-            if (message.contains(L"InitKeyEventSink: PreserveKey") ||
-                message.contains(L"UninitKeyEventSink: UnpreserveKey") ||
-                message.contains(L"UninitKeyEventSink::UnadviseKeyEventSink")) {
-                preserved_key_records.push_back(message);
-            }
-        } else if (event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT) {
-            if (event.u.Exception.ExceptionRecord.ExceptionCode != EXCEPTION_BREAKPOINT) {
-                continuation = DBG_EXCEPTION_NOT_HANDLED;
-            }
-        } else if (event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT) {
-            QIQI_TEST_CHECK(event.u.ExitProcess.dwExitCode == 0);
-            exited = true;
+    for (const auto& event : events) {
+        const auto message = Utf8ToWide(event.message);
+        QIQI_TEST_CHECK(event.pid == ::GetCurrentProcessId());
+        QIQI_TEST_CHECK(!message.contains(L"SENSITIVE_DIAGNOSTIC_SENTINEL"));
+        if (message.contains(L"FsmDiagnostics(begin)")) checking_fsm = true;
+        if (message.contains(L"FsmDiagnostics(end)")) checking_fsm = false;
+        if (checking_fsm && message.contains(L"FSM transition:")) {
+            fsm_records.push_back(message);
         }
-        QIQI_TEST_CHECK(::ContinueDebugEvent(event.dwProcessId, event.dwThreadId, continuation));
+        if (message.contains(L"ShiftLogFilter(begin)")) checking_shift_filter = true;
+        if (message.contains(L"ShiftLogFilter(end)")) checking_shift_filter = false;
+        const bool shift_diagnostic = message.contains(L"ShiftTap(") || message.contains(L"ShiftTapContext(");
+        const bool indicator_diagnostic = message.contains(L"SyncTsfCompartments(") ||
+                                           message.contains(L"LangBarButton::");
+        if (checking_shift_filter) QIQI_TEST_CHECK(!shift_diagnostic && !indicator_diagnostic);
+        if (shift_diagnostic) shift_records.push_back(message);
+        if (indicator_diagnostic) indicator_records.push_back(message);
+        if (message.contains(L"FocusPerformance(")) focus_records.push_back(message);
+        if (message.contains(L"ReloadConfigIfModified(focus_id=")) reload_records.push_back(message);
+        if (message.contains(L"TsfCleanup(")) cleanup_records.push_back(message);
+        if (message.contains(L"TsfLifecycle(")) lifecycle_records.push_back(message);
+        if (message.contains(L"InitKeyEventSink: PreserveKey") ||
+            message.contains(L"UninitKeyEventSink: UnpreserveKey") ||
+            message.contains(L"UninitKeyEventSink::UnadviseKeyEventSink")) {
+            preserved_key_records.push_back(message);
+        }
     }
 
-    // Observe actual logger output without adding a production test sink or changing ETW initialization.
+    // Observe real ETW events, including when the test runner has an attached debugger.
     QIQI_TEST_CHECK(focus_records.size() == 12 && reload_records.size() == 10);
     const std::wregex durations(LR"(reload_ns=([0-9]+), position_ns=([0-9]+), total_ns=([0-9]+))");
     for (size_t i = 0; i < focus_records.size(); ++i) {
@@ -154,7 +118,7 @@ void TestFocusPerformanceLogs() {
         const auto key = identity.str();
         if (std::find(identities.begin(), identities.end(), key) == identities.end()) identities.push_back(key);
     }
-    // Seven Debug scenarios; the following Info/Off scenarios must produce no cleanup diagnostics.
+    // The following Info-only/disabled ETW scenarios must produce no cleanup diagnostics.
     QIQI_TEST_CHECK(identities.size() == 7);
     const auto find_stage = [&](size_t scenario, std::wstring_view stage) {
         for (size_t i = 0; i < cleanup_records.size(); ++i) {
@@ -291,11 +255,15 @@ void TestFocusPerformanceLogs() {
 
 } // namespace service_cases
 
-void RunTsfFocusDiagnosticsScenario() {
-    QIQI_TEST_CHECK(::IsDebuggerPresent());
+void ExerciseTsfFocusDiagnostics(TRACEHANDLE session) {
+    std::array<BYTE, 256> previous_keyboard{};
+    QIQI_TEST_CHECK(::GetKeyboardState(previous_keyboard.data()));
+    const auto restore_keyboard = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(::SetKeyboardState(previous_keyboard.data()));
+    });
     const auto subkey = std::format(L"Software\\QiQiIME_FocusTest_{}", ::GetCurrentProcessId());
     SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
-    const auto directory = std::filesystem::temp_directory_path() /
+    const auto directory = std::filesystem::current_path() /
                            std::format(L"QiQiIME_FocusTest_{}", ::GetCurrentProcessId());
     QIQI_TEST_CHECK(std::filesystem::create_directory(directory));
     wchar_t* previous_appdata = nullptr;
@@ -327,8 +295,10 @@ void RunTsfFocusDiagnosticsScenario() {
     config.primary_dict = PrimaryDict::BuiltinOnly;
     config.enable_jidian_extra = false;
     config.user_dict_path = dictionary.wstring();
-    config.log_level = log::Level::debug;
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    const DWORD legacy_off = std::to_underlying(log::Level::off);
+    QIQI_TEST_CHECK(::RegSetKeyValueW(HKEY_CURRENT_USER, subkey.c_str(), L"LogLevel",
+        REG_DWORD, &legacy_off, sizeof(legacy_off)) == ERROR_SUCCESS);
     auto service = MakeComObject<QiQiTextService>(g_dll_instance);
     auto manager = MakeComObject<MockTfThreadMgr>();
     ComPtr<ITfThreadMgr> document_manager_factory;
@@ -374,23 +344,24 @@ void RunTsfFocusDiagnosticsScenario() {
         });
         QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
     }
-    for (const auto level : {log::Level::info, log::Level::off}) {
-        log::SetLevel(level);
+    for (const bool enabled : {true, false}) {
+        if (enabled) SetLogCaptureFilter(session, TRACE_LEVEL_INFORMATION);
+        else DisableLogCapture(session);
         QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
         QIQI_TEST_CHECK(service->OnSetFocus(document.Get(), nullptr) == S_OK);
     }
 
     std::array<BYTE, 256> keyboard{};
     QIQI_TEST_CHECK(::SetKeyboardState(keyboard.data()));
-    log::SetLevel(log::Level::debug);
+    SetLogCaptureFilter(session, TRACE_LEVEL_VERBOSE);
     QIQI_TEST_CHECK(service->Deactivate() == S_OK);
     for (int scenario = 0; scenario < 9; ++scenario) {
         auto queue = std::make_shared<MockEditSessionQueue>();
         auto composition_document = MakeComObject<MockTfDocumentMgr>();
         auto context = composition_document->CreateTestContext(queue);
         QIQI_TEST_CHECK(composition_document->Push(context.Get()) == S_OK);
-        if (scenario == 7) log::SetLevel(log::Level::info);
-        if (scenario == 8) log::SetLevel(log::Level::off);
+        if (scenario == 7) SetLogCaptureFilter(session, TRACE_LEVEL_INFORMATION);
+        if (scenario == 8) DisableLogCapture(session);
         QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
         BOOL eaten = FALSE;
         QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
@@ -426,7 +397,7 @@ void RunTsfFocusDiagnosticsScenario() {
         }
     }
 
-    log::SetLevel(log::Level::debug);
+    SetLogCaptureFilter(session, TRACE_LEVEL_VERBOSE);
     manager->preserve_key_callback_ = [](TfClientId, REFGUID rguid, const TF_PRESERVEDKEY&) -> HRESULT {
         if (IsEqualGUID(rguid, kGuidPreservedKeyToggleMode)) return TF_E_ALREADY_EXISTS;
         if (IsEqualGUID(rguid, kGuidPreservedKeyTogglePunctuation)) return E_OUTOFMEMORY;
@@ -513,12 +484,13 @@ void RunTsfFocusDiagnosticsScenario() {
     QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 1);
 
     QIQI_LOG_INFO("ShiftLogFilter(begin)");
-    for (const auto level : {log::Level::info, log::Level::off}) {
-        log::SetLevel(level);
+    for (const bool enabled : {true, false}) {
+        if (enabled) SetLogCaptureFilter(session, TRACE_LEVEL_INFORMATION);
+        else DisableLogCapture(session);
         press_shift(VK_SHIFT);
         release_shift(VK_SHIFT, true);
     }
-    log::SetLevel(log::Level::debug);
+    SetLogCaptureFilter(session, TRACE_LEVEL_VERBOSE);
     QIQI_LOG_INFO("ShiftLogFilter(end)");
     QIQI_TEST_CHECK(manager->openclose_compartment_->last_val_ == 1);
     QIQI_TEST_CHECK(button_source->UnadviseSink(cookie) == S_OK);
@@ -539,9 +511,6 @@ void RunTsfFocusDiagnosticsScenario() {
     QIQI_TEST_CHECK(disabled_service->OnKeyDown(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
     QIQI_TEST_CHECK(disabled_service->OnKeyUp(nullptr, VK_SHIFT, 0, &eaten) == S_OK && !eaten);
 
-    const auto previous_level = log::GetLevel();
-    const auto restore_level = gsl::finally([previous_level]() noexcept { log::SetLevel(previous_level); });
-    log::SetLevel(log::Level::trace);
     QIQI_LOG_INFO("FsmDiagnostics(begin)");
     WubiEngine engine;
     engine.AddEntry(L"abcd", L"SENSITIVE_DIAGNOSTIC_SENTINEL");
@@ -570,13 +539,19 @@ void RunTsfFocusDiagnosticsScenario() {
     QIQI_TEST_CHECK(cancel_guide.action == KeyActionType::Cancel && engine.State() == EngineState::Idle);
     QIQI_TEST_CHECK(engine.ProcessKey(VK_F1).action == KeyActionType::PassThrough);
 
-    for (const auto level : {log::Level::info, log::Level::off}) {
-        log::SetLevel(level);
+    for (const bool enabled : {true, false}) {
+        if (enabled) SetLogCaptureFilter(session, TRACE_LEVEL_INFORMATION);
+        else DisableLogCapture(session);
         QIQI_TEST_CHECK(engine.ProcessKey('A').action == KeyActionType::UpdateState);
         QIQI_TEST_CHECK(engine.ProcessKey(VK_ESCAPE).action == KeyActionType::Cancel);
     }
-    log::SetLevel(log::Level::trace);
+    SetLogCaptureFilter(session, TRACE_LEVEL_VERBOSE);
     QIQI_LOG_INFO("FsmDiagnostics(end)");
+}
+
+void RunTsfFocusDiagnosticsScenario() {
+    service_cases::TestFocusPerformanceLogs();
+    QIQI_TEST_CHECK(::IsDebuggerPresent());
 }
 
 } // namespace qiqi::test

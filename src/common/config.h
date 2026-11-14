@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include <windows.h>
 #include <array>
 #include <algorithm>
 #include <cstdint>
@@ -13,7 +14,6 @@
 #include <tuple>
 #include <type_traits>
 #include <vector>
-#include "common/logger.h"
 
 namespace qiqi {
 
@@ -73,9 +73,6 @@ struct QiQiConfig {
     UiLanguage ui_language = UiLanguage::Auto;
     CompositionUnderlineStyle underline_style = CompositionUnderlineStyle::Dot;
     bool bold_underline = false;
-
-    // [log]
-    log::Level log_level = log::Level::info;
 };
 
 template <typename T>
@@ -147,8 +144,7 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"up_down_page_turn", L"UpDownPageTurn", &QiQiConfig::up_down_page_turn, 0, 1, true},
     ConfigField{"ui_language", L"UiLanguage", &QiQiConfig::ui_language, 0, 2, true},
     ConfigField{"underline_style", L"UnderlineStyle", &QiQiConfig::underline_style, 0, 4, true},
-    ConfigField{"bold_underline", L"BoldUnderline", &QiQiConfig::bold_underline, 0, 1, true},
-    ConfigField{"log_level", L"LogLevel", &QiQiConfig::log_level, 0, 6, false}
+    ConfigField{"bold_underline", L"BoldUnderline", &QiQiConfig::bold_underline, 0, 1, true}
 };
 
 template <typename Visitor>

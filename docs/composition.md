@@ -745,7 +745,7 @@ See [position diagnostics](log.md#candidate-positioning) for real-host analysis.
 
 Lifecycle records use the ordinary TraceLogging `message` string; they are not
 typed Metrics fields. ETW headers supply PID/TID/time/level and activity metadata.
-Capture Verbose for detailed stages; application Off suppresses ordinary events.
+Capture Verbose for detailed stages; the ETW session controls log levels and categories.
 
 - `TsfLifecycle(service=..., stage=...)` tracks activation, reset, ordinary
   termination, and stale application work.

@@ -136,31 +136,27 @@ constexpr std::wstring_view OpcodeNameW(uint8_t opcode) noexcept {
 GUID CreateActivityId() noexcept;
 ULONG CreateActivityIdResult(GUID& id) noexcept;
 
-// Metrics are ETW-only, independent of LogLevel; these queries never initialize the provider.
+// Metrics require their own ETW keyword subscription; these queries never initialize the provider.
 bool MetricsEnabled() noexcept;
 uint64_t MetricsCaptureGeneration() noexcept;
 void WriteMetric(const metrics::Event& event) noexcept;
 
-// Initialize the module's shared ETW TraceLogging provider and set the active log level.
-void InitLogger(Level level = Level::info) noexcept;
+// Initialize the module's shared ETW TraceLogging provider.
+void InitLogger() noexcept;
 
-// Register once per module, outside DllMain, without changing the shared log level. Failure is diagnosed.
+// Register once per module, outside DllMain. Failure is diagnosed.
 bool EnsureInitialized() noexcept;
-
-// Query or dynamically change the active log level.
-Level GetLevel() noexcept;
-void SetLevel(Level level) noexcept;
 
 // Query registration without initializing or changing provider state.
 bool IsEtwProviderRegistered() noexcept;
 
-// Return whether any log consumer (active ETW session or attached debugger) is currently listening.
+// Return whether an ETW session is currently listening.
 bool IsLogSinkActive() noexcept;
 
-// Return whether a log entry at `level` and `keyword` should be formatted and emitted for any active sink.
+// Return whether an ETW session enables the entry's level and keyword.
 bool ShouldLog(Level level, Keyword keyword = Keyword::General) noexcept;
 
-// Emit a pre-formatted UTF-8 log entry to Windows ETW TraceLogging (and debugger when attached).
+// Emit a pre-formatted UTF-8 log entry to Windows ETW TraceLogging.
 void WriteLogMessage(Level level, std::string_view message, const LogContext& context = {}) noexcept;
 
 // Preserve the result of a COM operation while diagnosing only failed HRESULTs.
