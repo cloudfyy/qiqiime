@@ -29,3 +29,7 @@ cmake-build-*/
 
 # Generated website download metadata
 /site/release.json
+
+# Website browser-test dependencies and diagnostics
+/tests/site/node_modules/
+/tests/site/test-results/

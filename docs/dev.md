@@ -281,8 +281,9 @@ installation, development, and feedback, plus a custom [404 page](../site/404.ht
 It has no package dependencies or frontend
 compilation step, and does not change the IME's build or release packaging.
 Downloads remain on GitHub Releases.
-`site/package.json` only declares ES-module syntax for shared JavaScript; no
-`npm install` is required.
+`site/package.json` only declares ES-module syntax for shared JavaScript; the
+website itself requires no `npm install`. Browser-test-only dependencies and their
+lockfile live separately in `tests/site/` and are never uploaded with `site/`.
 
 Before deploying, the Website workflow reads GitHub's latest stable release and
 runs [site_release.mjs](../scripts/site_release.mjs) to generate ignored
@@ -364,8 +365,33 @@ browser when changing site behavior. Also check all four direct MSI links and th
 visible failure state when `release.json` is missing or invalid. Generated release
 metadata is not committed; regenerate it to preview current downloads locally.
 
+For the automated Chromium checks, use Node.js 22+ and npm from the repository root:
+
+```powershell
+npm ci --prefix tests\site
+Push-Location tests\site
+npx playwright install --only-shell chromium
+npm run test:browser
+Pop-Location
+```
+
+Playwright owns the loopback-only test server at `http://127.0.0.1:4173/qiqiime/`,
+including nested custom 404 responses and JavaScript MIME types. Do not start it
+manually for the test run; an occupied port fails instead of reusing an unrelated
+server. It emulates Pages routing, not the actual deployed GitHub service.
+Desktop (1440px) and mobile (320px) checks cover both languages, metadata,
+navigation, screenshot loading, horizontal overflow, installer URLs and keyboard
+order, failed/malformed/invalid/aborted downloads, clipboard success/failure, and
+404 keyboard recovery. A JavaScript-disabled check preserves the Chinese fallback.
+Release fixtures reuse the static tests' data and the production metadata generator;
+tests do not query GitHub or download installers, and block external requests.
+Clipboard tests use a stub and never change the real clipboard.
+
 The [Website workflow](../.github/workflows/pages.yml) checks site changes on pull
 requests and uploads only `site` for deployment after changes reach `main`.
+It runs the Chromium suite before generating production metadata or uploading the
+website; failed browser checks block deployment. On failure it retains traces and
+screenshots from `tests/site/test-results/` as an Actions artifact for seven days.
 The separate [CI & Lint workflow](../.github/workflows/ci.yml) skips automatic
 runs when all changed paths belong to `site/`, `tests/site/`, `docs/`, the two
 root READMEs, `scripts/site_release.mjs`, or the Website workflow itself. Website

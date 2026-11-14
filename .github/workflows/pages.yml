@@ -31,17 +31,36 @@ jobs:
   check:
     name: Check static website
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/site/package-lock.json
       - name: Check JavaScript syntax
         run: |
           node --check site/assets/site.js
           node --check site/assets/downloads.js
       - name: Check site links and translations
         run: node --test tests/site/site.test.mjs tests/site/release.test.mjs
+      - name: Install browser test dependencies
+        run: npm ci --prefix tests/site
+      - name: Install Chromium
+        working-directory: tests/site
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Check browser interactions
+        working-directory: tests/site
+        run: npm run test:browser
+      - name: Upload browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-browser-failures
+          path: tests/site/test-results
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Generate latest stable release downloads
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
