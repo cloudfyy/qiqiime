@@ -267,6 +267,43 @@ Write the default Chinese notes first and add their translation under
 downloads and notes by default, with English downloads and notes inside a
 collapsed `English` section. Missing or empty translations fail generation.
 
+## Project website (GitHub Pages)
+
+The lightweight [website](../site/index.html) has four static pages: overview,
+installation, development, and feedback. It has no package dependencies or build
+step, and does not change the IME's build or release packaging. Downloads remain
+on GitHub Releases; the website links to the latest published release rather than
+hard-coding installer versions.
+
+Content is Chinese by default. Put English translations on leaf elements using
+`data-en` and on accessible labels using `data-en-label`. The shared script selects
+English with `?lang=en` and carries it through internal `data-site-link` navigation.
+It does not store a language preference or collect analytics. Without JavaScript,
+the Chinese content and navigation remain usable. Keep all local URLs relative
+so the site works under `/qiqiime/`. Detailed technical documentation stays in the
+repository rather than being duplicated on the site.
+
+To check or preview locally with Node.js 22+ and Python 3 available:
+
+```powershell
+node --check site\assets\site.js
+node --test tests\site\site.test.mjs
+python -m http.server 8000 --bind 127.0.0.1 --directory site
+```
+
+Open `http://127.0.0.1:8000/` for the preview; stop the server with Ctrl+C.
+Check both languages, mobile navigation, and command-copy success/failure in a
+browser when changing site behavior.
+
+The [Website workflow](../.github/workflows/pages.yml) checks site changes on pull
+requests and uploads only `site` for deployment after changes reach `main`.
+Before the first deployment, a maintainer must select **Settings → Pages →
+Build and deployment → Source: GitHub Actions**. Push the workflow and site, then
+check the Website Actions run; it can also be started manually on `main`.
+The expected public URL is `https://cloudfyy.github.io/qiqiime/`. Do not announce
+it as live until the Pages deployment succeeds. GitHub Pages serves static files;
+issue submissions and downloads continue to use GitHub.
+
 ## Design references
 
 - [Architecture](arch.md): subsystem overview.
