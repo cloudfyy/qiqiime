@@ -296,7 +296,7 @@ void ExerciseTsfFocusDiagnostics(TRACEHANDLE session) {
     config.enable_jidian_extra = false;
     config.user_dict_path = dictionary.wstring();
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
-    const DWORD legacy_off = std::to_underlying(log::Level::off);
+    constexpr DWORD legacy_off = std::to_underlying(log::Level::off);
     QIQI_TEST_CHECK(::RegSetKeyValueW(HKEY_CURRENT_USER, subkey.c_str(), L"LogLevel",
         REG_DWORD, &legacy_off, sizeof(legacy_off)) == ERROR_SUCCESS);
     auto service = MakeComObject<QiQiTextService>(g_dll_instance);

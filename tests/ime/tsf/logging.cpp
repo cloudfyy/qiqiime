@@ -545,7 +545,7 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
     config.primary_dict = PrimaryDict::BuiltinOnly;
     config.enable_jidian_extra = false;
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
-    const DWORD legacy_off = std::to_underlying(log::Level::off);
+    constexpr DWORD legacy_off = std::to_underlying(log::Level::off);
     QIQI_TEST_CHECK(::RegSetKeyValueW(HKEY_CURRENT_USER, GetActiveConfigRegistrySubKey(), L"LogLevel",
         REG_DWORD, &legacy_off, sizeof(legacy_off)) == ERROR_SUCCESS);
 
