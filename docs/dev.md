@@ -311,6 +311,20 @@ automatic redirect, and uses `noindex, follow`.
 Detailed technical documentation stays in the
 repository rather than being duplicated on the site.
 
+The shared [display module](../site/assets/appearance.js) adds the same bilingual
+display controls to all five pages; do not duplicate them in individual HTML files.
+The original light style remains the default. Visitors can choose dark, high
+contrast, or system-following colors and 100/125/150/200% text. Easy reading
+initially raises smaller text to 150%, enlarges primary targets to at least 44 CSS
+pixels, uses single-column layouts, and hides only decorative elements, not
+functional content. Text size remains independently adjustable afterward.
+The browser's forced-color mode and reduced-motion preference remain authoritative.
+Only display preferences are saved in local storage (`qiqi-display-v1`), never
+sent to the project. Storage/validation failures show a visible message and keep
+the current page usable; the reset button removes only that preference key.
+Default Chinese HTML/navigation still work without JavaScript; display controls
+require it. Desktop appearance settings are separate and not changed by the site.
+
 Each content page has an absolute production canonical URL, Open Graph summaries,
 and a summary-card hint. Canonical and `og:url` values omit language queries;
 the homepage canonical is the project root, not `index.html`.
@@ -348,7 +362,7 @@ To check or preview locally with Node.js 22+ and Python 3 available:
 
 ```powershell
 node --check site\assets\site.js
-node --test tests\site\site.test.mjs tests\site\release.test.mjs
+node --test tests\site\site.test.mjs tests\site\release.test.mjs tests\site\appearance.test.mjs
 gh api repos/cloudfyy/qiqiime/releases/latest | Set-Content -Encoding utf8 "$env:TEMP\qiqi-latest-release.json"
 node scripts\site_release.mjs "$env:TEMP\qiqi-latest-release.json" site\release.json
 Remove-Item -LiteralPath "$env:TEMP\qiqi-latest-release.json"
@@ -386,6 +400,10 @@ order, failed/malformed/invalid/aborted downloads, clipboard success/failure, an
 Release fixtures reuse the static tests' data and the production metadata generator;
 tests do not query GitHub or download installers, and block external requests.
 Clipboard tests use a stub and never change the real clipboard.
+Display checks measure text contrast (at least 7:1 in high-contrast mode), 44px
+primary targets in easy reading, and reflow at every supported text size on all
+pages. They also cover preference persistence/reset, storage failures, system
+color changes, forced colors, keyboard focus, and reduced motion.
 
 The [Website workflow](../.github/workflows/pages.yml) checks site changes on pull
 requests and uploads only `site` for deployment after changes reach `main`.

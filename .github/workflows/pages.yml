@@ -43,8 +43,9 @@ jobs:
         run: |
           node --check site/assets/site.js
           node --check site/assets/downloads.js
+          node --check site/assets/appearance.js
       - name: Check site links and translations
-        run: node --test tests/site/site.test.mjs tests/site/release.test.mjs
+        run: node --test tests/site/site.test.mjs tests/site/release.test.mjs tests/site/appearance.test.mjs
       - name: Install browser test dependencies
         run: npm ci --prefix tests/site
       - name: Install Chromium

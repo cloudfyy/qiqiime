@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { initializeAppearance } from "./appearance.js";
+
 export const english = new URLSearchParams(location.search).get("lang") === "en";
 export const locale = english ? "en-US" : "zh-CN";
 
@@ -61,4 +63,7 @@ document.querySelectorAll("[data-copy-target]").forEach((button) => {
         : "复制失败，请选中命令并手动复制。";
     }
   });
+
 });
+
+initializeAppearance(english);

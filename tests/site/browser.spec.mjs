@@ -6,6 +6,17 @@ import { createReleaseData } from "../../scripts/site_release.mjs";
 import { releaseFixture } from "./fixtures.mjs";
 
 const release = createReleaseData(releaseFixture());
+function contrastRatio(foreground, background) {
+  const luminance = (color) => {
+    const channels = color.match(/[\d.]+/g).slice(0, 3).map((value) => {
+      const component = Number(value) / 255;
+      return component <= 0.04045 ? component / 12.92 : ((component + 0.055) / 1.055) ** 2.4;
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
 const test = base.extend({
   page: async ({ page, baseURL }, use) => {
     const errors = [];
@@ -23,6 +34,90 @@ const test = base.extend({
 for (const language of ["zh-CN", "en"]) {
   const english = language === "en";
   test.describe(language, () => {
+    test("themes preserve readable contrast and follow system changes only when selected", async ({ page }) => {
+      await page.goto(`index.html?lang=${language}`);
+      await page.locator(".appearance-details summary").click();
+      await expect(page.locator("#appearance-theme")).toHaveAccessibleName(english ? "Theme" : "界面主题");
+      for (const theme of ["light", "dark", "contrast"]) {
+        await page.locator("#appearance-theme").selectOption(theme);
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+        await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+        const samples = await page.evaluate(() => {
+          const sample = (selector, background) => ({
+            selector,
+            foreground: getComputedStyle(document.querySelector(selector)).color,
+            background: getComputedStyle(document.querySelector(background)).backgroundColor,
+          });
+          return [
+            sample("body", "body"), sample(".hero-note", "body"),
+            sample("nav a", ".header"), sample(".card p", ".card"),
+            sample(".actions .button", ".actions .button"),
+            sample(".band p", ".band"), sample(".band .button", ".band .button"),
+          ];
+        });
+        for (const sample of samples) {
+          expect(contrastRatio(sample.foreground, sample.background), `${theme}: ${sample.selector}`)
+            .toBeGreaterThanOrEqual(theme === "contrast" ? 7 : 4.5);
+        }
+      }
+      await page.emulateMedia({ colorScheme: "dark" });
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "contrast");
+      await page.locator("#appearance-theme").selectOption("system");
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+      await page.emulateMedia({ colorScheme: "light" });
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    });
+
+    test("easy reading and 200 percent text keep controls usable and persist across pages", async ({ page }) => {
+      await page.goto(`index.html?lang=${language}`);
+      await page.locator("#easy-reading").focus();
+      await page.keyboard.press("Space");
+      await expect(page.locator("#easy-reading")).toBeChecked();
+      await expect(page.locator("html")).toHaveAttribute("data-font-scale", "150");
+      await expect(page.locator(".demo")).toBeHidden();
+      for (const button of await page.locator("a.button:visible").all()) {
+        const bounds = await button.boundingBox();
+        expect(bounds.width).toBeGreaterThanOrEqual(44);
+        expect(bounds.height).toBeGreaterThanOrEqual(44);
+      }
+      const focused = await page.locator("#easy-reading").evaluate((input) => {
+        const style = getComputedStyle(input);
+        return { width: parseFloat(style.outlineWidth), style: style.outlineStyle };
+      });
+      expect(focused.width).toBeGreaterThanOrEqual(3);
+      expect(focused.style).toBe("solid");
+      await page.locator(".appearance-details summary").click();
+      await page.locator("#appearance-theme").selectOption("contrast");
+      for (const scale of ["100", "125", "150", "200"]) {
+        await page.locator("#appearance-scale").selectOption(scale);
+        for (const name of ["index.html", "install.html", "develop.html", "feedback.html", "missing/deep/page"]) {
+          await page.goto(`${name}?lang=${language}`);
+          await expect(page.locator("html")).toHaveAttribute("data-font-scale", scale);
+          expect(await page.locator("html").evaluate((root) => parseFloat(getComputedStyle(root).fontSize)))
+            .toBe(Number(scale) * 0.16);
+          await expect(page.locator("html")).toHaveAttribute("data-theme", "contrast");
+          await expect(page.locator("#easy-reading")).toBeChecked();
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        }
+        await page.locator(".appearance-details summary").click();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        for (const control of await page.locator(".appearance-options select, .appearance-options button").all()) {
+          const bounds = await control.boundingBox();
+          expect(bounds.height).toBeGreaterThanOrEqual(44);
+          expect(bounds.x).toBeGreaterThanOrEqual(0);
+          expect(bounds.x + bounds.width).toBeLessThanOrEqual(page.viewportSize().width);
+        }
+      }
+      await page.reload();
+      await expect(page.locator("html")).toHaveAttribute("data-font-scale", "200");
+      await page.locator(".appearance-details summary").click();
+      await page.locator("#appearance-reset").click();
+      await expect(page.locator("html")).toHaveAttribute("data-font-scale", "100");
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+      await expect(page.locator("#easy-reading")).not.toBeChecked();
+      expect(await page.evaluate(() => localStorage.getItem("qiqi-display-v1"))).toBeNull();
+    });
+
     test("navigation, translated metadata, screenshots, and viewport layout", async ({ page, baseURL }) => {
       for (const name of ["index.html", "install.html", "develop.html", "feedback.html"]) {
         const response = await page.goto(`${name}?source=test&lang=${language}#main`);
@@ -152,6 +247,68 @@ for (const language of ["zh-CN", "en"]) {
     });
   });
 }
+
+test("enlarged text also reflows without enabling easy reading", async ({ page }) => {
+  await page.goto("index.html?lang=en");
+  await page.locator(".appearance-details summary").click();
+  for (const scale of ["125", "150", "200"]) {
+    await page.locator("#appearance-scale").selectOption(scale);
+    for (const name of ["index.html", "install.html", "develop.html", "feedback.html", "missing/deep/page"]) {
+      await page.goto(`${name}?lang=en`);
+      await expect(page.locator("#easy-reading")).not.toBeChecked();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+    await page.locator(".appearance-details summary").click();
+  }
+});
+
+test("OS forced colors and reduced motion take priority over display preferences", async ({ page }) => {
+  await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+  await page.goto("index.html?lang=en");
+  await page.locator(".appearance-details summary").click();
+  await page.locator("#appearance-theme").selectOption("dark");
+  const state = await page.locator("body").evaluate((body) => {
+    const sample = document.createElement("span");
+    sample.style.backgroundColor = "Canvas";
+    sample.style.color = "CanvasText";
+    body.append(sample);
+    const colors = {
+      background: getComputedStyle(body).backgroundColor,
+      expectedBackground: getComputedStyle(sample).backgroundColor,
+      foreground: getComputedStyle(body).color,
+      expectedForeground: getComputedStyle(sample).color,
+      adjustment: getComputedStyle(body).forcedColorAdjust,
+      transition: getComputedStyle(document.querySelector(".button")).transitionDuration,
+    };
+    sample.remove();
+    return colors;
+  });
+  expect(state.background).toBe(state.expectedBackground);
+  expect(state.foreground).toBe(state.expectedForeground);
+  expect(state.adjustment).toBe("auto");
+  expect(state.transition).toBe("0s");
+});
+
+test("corrupt stored display preferences produce a visible default-state warning", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("qiqi-display-v1", "{"));
+  await page.goto("index.html?lang=en");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(page.locator("#appearance-status")).toContainText("could not be read");
+  await page.locator("#easy-reading").check();
+  await expect(page.locator("html")).toHaveAttribute("data-easy", "true");
+  await expect(page.locator("#appearance-status")).toContainText("saved in this browser");
+});
+
+test("blocked storage does not prevent display changes and explicitly reports lost persistence", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(window, "localStorage", {
+    get() { throw new DOMException("Simulated storage denial", "SecurityError"); },
+  }));
+  await page.goto("index.html?lang=en");
+  await expect(page.locator("#appearance-status")).toContainText("could not be read");
+  await page.locator("#easy-reading").check();
+  await expect(page.locator("html")).toHaveAttribute("data-font-scale", "150");
+  await expect(page.locator("#appearance-status")).toContainText("could not be saved");
+});
 
 test.describe("without JavaScript", () => {
   test.use({ javaScriptEnabled: false });
