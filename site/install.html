@@ -75,7 +75,30 @@
     <section class="content-section" aria-labelledby="faq-title">
       <p class="kicker">04 / A LITTLE HELP</p>
       <h2 id="faq-title" data-en="Common questions.">常见问题，先看这里。</h2>
-      <details><summary data-en="A download or Windows security warning appeared.">下载或打开时出现安全提示？</summary><p data-en="A reputation warning is neither a malware detection nor proof of safety. Verify the official source and filename first. Do not disable antivirus or SmartScreen. Stop if malware is detected, a checksum differs, or organizational policy blocks installation; see the full installation guide for details.">信誉提示不等于已检测到病毒，也不能证明文件安全。先核对官方来源和文件名；不要关闭防病毒软件或 SmartScreen。遇到恶意软件告警、校验不一致或组织策略限制时停止安装，详细处理方法见完整安装指南。</p><p><a href="https://github.com/cloudfyy/qiqiime/blob/main/docs/install.md" data-en="Read the full installation guide →">阅读完整安装指南 →</a></p></details>
+      <details>
+        <summary data-en="A download or Windows security warning appeared.">下载或打开时出现安全提示？</summary>
+        <p data-en="A reputation warning is neither a malware detection nor proof of safety. Verify the official source and filename first. Do not disable antivirus or SmartScreen. Stop if malware is detected, a checksum differs, or organizational policy blocks installation; see the full installation guide for details.">信誉提示不等于已检测到病毒，也不能证明文件安全。先核对官方来源和文件名；不要关闭防病毒软件或 SmartScreen。遇到恶意软件告警、校验不一致或组织策略限制时停止安装，详细处理方法见完整安装指南。</p>
+        <p data-en="If Edge says the installer isn't commonly downloaded, continue only after confirming that you trust the official file and there is no malware alert. These screenshots show an older Chinese Edge interface and QiQi version; get the current package from Releases, not the version shown in the pictures.">若 Edge 提示“通常不会下载”，仅在确认信任官方文件且没有恶意软件告警时，才考虑按以下图示继续。截图使用旧版中文 Edge 和旧版安装包，仅作界面示意；请从 Releases 下载当前版本，不要照图中的版本号下载。</p>
+        <div class="grid two download-shots">
+          <figure class="download-shot">
+            <img src="assets/images/edge-download-warning.png" width="358" height="150" loading="lazy" alt="">
+            <figcaption data-en="1. Press Ctrl + J to open Downloads and find the installer with the reputation warning.">1. 按 Ctrl + J 打开下载列表，找到提示“通常不会下载”的安装包。</figcaption>
+          </figure>
+          <figure class="download-shot">
+            <img src="assets/images/edge-download-keep.png" width="425" height="313" loading="lazy" alt="">
+            <figcaption data-en="2. Open the … menu beside that file and choose Keep (保留), not the menu for the whole Downloads panel.">2. 打开该文件右侧的「…」菜单，选择「保留」，不是整个下载面板的菜单。</figcaption>
+          </figure>
+          <figure class="download-shot">
+            <img src="assets/images/edge-download-confirm.png" width="345" height="367" loading="lazy" alt="">
+            <figcaption data-en="3. In the confirmation dialog, verify the filename and source again. Open the arrow beside Delete (删除).">3. 在确认框中再次核对文件名与来源，点击「删除」旁的向下箭头。</figcaption>
+          </figure>
+          <figure class="download-shot">
+            <img src="assets/images/edge-download-keep-anyway.png" width="349" height="393" loading="lazy" alt="">
+            <figcaption data-en="4. Choose Keep anyway (仍然保留). If the option is unavailable due to device policy, contact your administrator rather than bypassing it.">4. 选择「仍然保留」。若设备策略不提供继续选项，请联系管理员，不要绕过限制。</figcaption>
+          </figure>
+        </div>
+        <p><a href="https://github.com/cloudfyy/qiqiime/blob/main/docs/install.md" data-en="Read the full installation guide →">阅读完整安装指南 →</a></p>
+      </details>
       <details><summary data-en="QiQi is missing from Win + Space.">Win + Space 中没有奇奇五笔？</summary><p data-en="Reopen the app first. In Windows language settings, check the keyboards for Chinese (Simplified, China) and add QiQi if needed. If another administrator installed it, your account may need to add the keyboard too. Save work and sign out or restart if necessary.">先重新打开应用。再到 Windows 语言设置中检查「中文（简体，中国）」的键盘，按需添加奇奇五笔。若由其他管理员代为安装，当前账户也可能需要单独添加；必要时保存工作后注销或重启。</p></details>
       <details><summary data-en="Why am I still typing English?">为什么输入的还是英文字母？</summary><p data-en="Confirm that QiQi is selected, then press Shift to switch to Chinese. Recognized password/PIN fields temporarily use English; recognition depends on the host app. Switch manually if a special field is not recognized.">先确认已选中奇奇五笔，再按 Shift 切到中文模式。识别到密码或 PIN 输入框时会临时使用英文；识别依赖宿主应用，特殊输入框未被识别时请手动切换。</p></details>
       <details><summary data-en="Can I install the ZIP instead?">可以用 ZIP 手动部署吗？</summary><p data-en="Yes, but the ZIP is not a portable, unzip-and-run app. Registration and a permanent directory are required. Do not mix ZIP deployment with MSI installation or use ZIP scripts to uninstall an MSI. Follow the full guide.">可以，但 ZIP 不是解压即用的绿色版，需要注册并保留固定程序目录。不要与 MSI 安装混用，也不要用 ZIP 脚本卸载 MSI 版本。请按完整指南操作。</p></details>

@@ -111,6 +111,10 @@ tr:last-child td { border-bottom: 0; }
 details { border-bottom: 1px solid var(--line); padding-block: 19px; }
 summary { font-weight: 600; cursor: pointer; padding-right: 15px; }
 details p { color: var(--muted); font-size: .93rem; margin-top: 15px; max-width: 85ch; }
+.download-shots { margin-top: 22px; align-items: start; }
+.download-shot { margin: 0; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: white; }
+.download-shot img { display: block; max-width: 100%; height: auto; margin-inline: auto; }
+.download-shot figcaption { margin-top: 16px; color: var(--muted); font-size: .87rem; }
 .code-block { background: #192e28; color: #e2eddf; border-radius: 14px; margin-top: 22px; overflow: hidden; }
 .code-top { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-bottom: 1px solid #ffffff20; font-size: .75rem; color: #b6ccbc; }
 .copy { background: transparent; border: 1px solid #779b84; color: #e2eddf; border-radius: 5px; padding: 3px 10px; cursor: pointer; }

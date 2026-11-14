@@ -82,6 +82,16 @@
 
 不同 Edge 版本的文字可能略有差异；注意操作的是该文件的菜单，而不是整个下载面板的菜单。
 
+以下为旧版中文 Edge 与旧版安装包的界面示意。请从官方发布页面下载当前版本，
+不要按截图中的版本号下载。
+
+| 下载提示与操作 | 截图 |
+|---|---|
+| 打开下载列表，找到“通常不会下载”的文件 | ![Edge 下载信誉提示](https://raw.githubusercontent.com/cloudfyy/qiqiime/main/site/assets/images/edge-download-warning.png) |
+| 打开该文件的 `…` 菜单，选择“保留” | ![Edge 文件菜单中的保留选项](https://raw.githubusercontent.com/cloudfyy/qiqiime/main/site/assets/images/edge-download-keep.png) |
+| 再次核对文件名与来源，点击“删除”旁的向下箭头 | ![Edge 下载确认框](https://raw.githubusercontent.com/cloudfyy/qiqiime/main/site/assets/images/edge-download-confirm.png) |
+| 确认信任且没有恶意软件告警时，选择“仍然保留” | ![Edge 确认框中的仍然保留选项](https://raw.githubusercontent.com/cloudfyy/qiqiime/main/site/assets/images/edge-download-keep-anyway.png) |
+
 **Windows 提示“已保护你的电脑”**
 
 ![Windows SmartScreen 提示窗口](https://raw.githubusercontent.com/cloudfyy/qiqiime/main/docs/images/installation-smartscreen.png)
