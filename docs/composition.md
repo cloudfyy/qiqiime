@@ -663,23 +663,48 @@ window when the host has chosen to handle presentation.
 
 ### 6.2 Layout and Positioning
 
-A deferred layout task owns its context, optional notification view, ticket,
-and activity, but not a composition. On execution, query the current composition
-for that still-valid epoch, retain it through positioning, and reject replacement
-between view/range/extent calls. A supplied notification view takes precedence.
+Layout work queries the host for the composition's screen position so the IME
+can place its candidate window. A layout notification may be handled later, and
+host calls made during positioning can reenter the IME. By the time a query
+returns, focus or the current composition may have changed. A successful query
+therefore does not by itself make the returned rectangle safe to use.
 
-Read sessions use `TF_ES_ASYNCDONTCARE | TF_ES_READ`; no cleanup-write barrier or
-new queue is introduced. Access is rechecked in the callback. `OnLayoutChange`
-returning `S_OK` does not certify successful query or movement.
+**Keep the task tied to valid state:**
 
-Discard stale rectangles even when the query succeeded. Preserve raw TSF
-coordinates, clipping, and zero/inverted rectangles; do not add normalization
-as an undocumented lifecycle change. Real screen coordinates are not DPI-scaled
-again; synthetic GUI/cursor fallback geometry is.
+1. A deferred layout task retains its context, any view supplied by the
+   notification, its edit ticket, and its logging activity. It does not capture
+   the composition that happened to be current when the task was created.
+2. When the task executes, recheck access and ticket validity, then obtain the
+   current composition for that still-valid activation/context epoch. Retain
+   that composition through positioning.
+3. Prefer the notification's view when one was supplied. Between host calls that
+   obtain the view, range, and text extent, check that the task is still current
+   and the composition has not been replaced.
+4. If those checks fail, discard the result even if the host query succeeded.
+   Never position a replacement composition's UI using an old rectangle.
 
-Successful TSF positioning sets caret validity before movement. Fallback is
-attempted only without a valid prior caret; successful fallback does not
-automatically set that flag. Window movement remains a service/UI effect.
+**Request read access, not a document write:**
+
+Position queries use `TF_ES_ASYNCDONTCARE | TF_ES_READ`, allowing TSF to execute
+the read session synchronously or asynchronously. They do not use the
+cleanup-write barrier described above, and no separate layout queue is added.
+`OnLayoutChange` returning `S_OK` does not prove that the later query or window
+movement succeeded.
+
+**Preserve coordinate and fallback behavior:**
+
+- Keep TSF's raw coordinates, clipping information, and zero-sized or inverted
+  rectangles. Lifecycle checks must not silently introduce rectangle
+  normalization.
+- Real screen coordinates are not DPI-scaled again. Synthetic geometry used by
+  the GUI/cursor fallback follows its DPI-scaling rules instead.
+- On the successful TSF-positioning path, mark the caret position valid before
+  moving the window.
+- Try fallback positioning only when there is no valid prior caret position.
+  A successful fallback does not automatically set the caret-validity flag;
+  fallback placement is not equivalent to obtaining a valid TSF caret position.
+
+The service/UI code remains responsible for moving the actual window.
 See [position diagnostics](log.md#candidate-positioning) for real-host analysis.
 
 ## 7. Log Protocol and Troubleshooting
