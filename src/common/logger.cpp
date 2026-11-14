@@ -5,6 +5,7 @@
 #include "common/etw_registration.h"
 #include "common/etw_write.h"
 #include "common/metric.h"
+#include "common/scoped_handle.h"
 #include "common/version.h"
 
 #include <windows.h>
@@ -88,8 +89,7 @@ void FlushMetricMetadata() noexcept {
 
 void NTAPI OnProviderEnabled(LPCGUID, ULONG control, UCHAR, ULONGLONG, ULONGLONG,
     PEVENT_FILTER_DESCRIPTOR, PVOID) noexcept {
-    const DWORD saved_error = ::GetLastError();
-    const auto restore = gsl::finally([saved_error]() noexcept { ::SetLastError(saved_error); });
+    const ScopedLastErrorRestore preserve_error;
     if (control == EVENT_CONTROL_CODE_ENABLE_PROVIDER || control == EVENT_CONTROL_CODE_DISABLE_PROVIDER) {
         ++g_metrics_generation;
     }
@@ -315,18 +315,7 @@ GUID CreateActivityId() noexcept {
 }
 
 ULONG CreateActivityIdResult(GUID& id) noexcept {
-    const DWORD saved_error = ::GetLastError();
-    id = GUID_NULL;
-    const ULONG status = ::EventActivityIdControl(EVENT_ACTIVITY_CTRL_CREATE_ID, &id);
-    ::SetLastError(saved_error);
-    if (status != ERROR_SUCCESS) {
-        std::array<char, 128> message{};
-        std::snprintf(message.data(), message.size(),
-                      "QiQiIME: EventActivityIdControl(CREATE_ID) failed (error=%lu)\n", status);
-        ::OutputDebugStringA(message.data());
-        return status;
-    }
-    return ERROR_SUCCESS;
+    return detail::CreateEtwActivityId(id, ::EventActivityIdControl, ::OutputDebugStringA);
 }
 
 bool MetricsEnabled() noexcept {
@@ -343,8 +332,7 @@ void WriteMetric(const metrics::Event& event) noexcept {
         if (event.capture_generation != 0) metrics::RecordInterrupted();
         return;
     }
-    const DWORD saved_error = ::GetLastError();
-    const auto restore = gsl::finally([saved_error]() noexcept { ::SetLastError(saved_error); });
+    const ScopedLastErrorRestore preserve_error;
     if (metrics::Validate(event) != metrics::ValidationError::None ||
         event.instance_id != metrics::ModuleInstance().id) {
         metrics::RecordFailure(metrics::FailureKind::Protocol, E_INVALIDARG);
@@ -396,9 +384,8 @@ bool CheckHResult(int32_t hr, std::string_view operation, Level level, const Log
         return true;
     }
 
-    const DWORD error = ::GetLastError();
+    const ScopedLastErrorRestore preserve_error;
     LogWithContext(level, context, "{} failed (hr=0x{:08x})", operation, gsl::narrow_cast<unsigned int>(hr));
-    ::SetLastError(error);
     return false;
 }
 

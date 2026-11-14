@@ -135,7 +135,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
         std::array<wchar_t, 32> name{};
         ::GetClassNameW(child, name.data(), gsl::narrow_cast<int>(name.size()));
         if (std::wcscmp(name.data(), UPDOWN_CLASSW) == 0 &&
-            !::SetWindowSubclass(child, SettingsTabSubclass, 4, static_cast<DWORD_PTR>(data))) {
+            !::SetWindowSubclass(child, SettingsTabSubclass, 4, gsl::narrow_cast<DWORD_PTR>(data))) {
             QIQI_LOG_WARN("Settings tab scroll subclass installation failed (error={})", ::GetLastError());
         }
         return TRUE;

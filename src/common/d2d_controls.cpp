@@ -77,7 +77,9 @@ void AppendDisabledSuffix(std::array<wchar_t, N>& text, const wchar_t* suffix) n
         QIQI_LOG_WARN("Fluent disabled-status label exceeds text buffer");
         return;
     }
-    std::copy_n(suffix, extra + 1, text.data() + length);
+    const std::span<const wchar_t> source(suffix, extra + 1);
+    const auto destination = std::span(text).subspan(length, extra + 1);
+    std::copy(source.begin(), source.end(), destination.begin());
 }
 }
 

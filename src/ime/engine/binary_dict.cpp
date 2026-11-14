@@ -23,22 +23,6 @@ struct ProcessDictCacheEntry {
 std::mutex g_dict_cache_mutex;
 std::map<std::wstring, ProcessDictCacheEntry> g_process_dict_cache;
 
-constexpr bool IsWubiCodeChar(wchar_t ch) noexcept {
-    return (ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z');
-}
-
-constexpr bool IsWubiCodeToken(std::wstring_view token) noexcept {
-    if (token.empty() || token.size() > 4) {
-        return false;
-    }
-    for (const wchar_t ch : token) {
-        if (!IsWubiCodeChar(ch)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 constexpr std::wstring_view NextToken(std::wstring_view& line) noexcept {
     while (!line.empty() && (line.front() == L' ' || line.front() == L'\t' || line.front() == L'\r')) {
         line.remove_prefix(1);
@@ -317,7 +301,7 @@ void WubiMappedDict::ParseTextDictEntries(
         AppendUniqueWord(out_entries[packed], word_tok);
     };
 
-        if (IsWubiCodeToken(first)) {
+        if (PackWubiCode(first) != 0) {
             bool has_word = false;
             for (std::wstring_view word = NextToken(line); !word.empty(); word = NextToken(line)) {
                 if (word == L"^" || word == L"!") {
@@ -333,7 +317,7 @@ void WubiMappedDict::ParseTextDictEntries(
             }
         } else if (!preserve_rule_markers) {
             const std::wstring_view second = NextToken(line);
-            if (IsWubiCodeToken(second)) {
+            if (PackWubiCode(second) != 0) {
                 const std::wstring_view weight = NextToken(line);
                 if (!weight.empty() &&
                     (weight.find_first_not_of(L"0123456789.") != std::wstring_view::npos ||

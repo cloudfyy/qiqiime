@@ -90,6 +90,9 @@ module share registration; different processes have independent state.
 `Deactivate` does not unregister it. Queries and writes do not initialize it
 implicitly. Registration failure may prevent ETW output; inspect the
 nonrecursive debugger fallback rather than assuming that no events means success.
+ETW write and activity-ID creation failures report their actual API status through
+that fallback. Shared last-error RAII preserves the caller's `GetLastError()` even
+when failure reporting itself changes the thread's error state.
 
 The DLL runs inside the host, not a separate IME process. Identify the actual
 host PID: browsers and Electron applications can have multiple similar processes.

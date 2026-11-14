@@ -41,6 +41,9 @@ thematic files: common tests use `tests\common\core`, dictionary tests use
 `tests\ime\engine\dict`, and TSF service tests use [tests/ime/svc](../tests/ime/svc).
 TSF mocks live in `tests\ime\tsf\mock`, with `mocks.h` as the aggregate header.
 Share helpers through headers; do not include test `.cpp` files.
+Use distinct test-entry basenames when a target also compiles the production entry
+point (for example `settings_main.cpp` versus `main.cpp`), avoiding collisions in
+MSVC module-dependency scan output.
 
 ## Build and test
 

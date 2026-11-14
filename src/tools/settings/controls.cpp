@@ -614,7 +614,7 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
             S(rect.left), S(rect.top), S(rect.right - rect.left), S(rect.bottom - rect.top), id, group);
     };
 
-    INITCOMMONCONTROLSEX common_controls{sizeof(INITCOMMONCONTROLSEX), ICC_TAB_CLASSES | ICC_BAR_CLASSES};
+    const INITCOMMONCONTROLSEX common_controls{sizeof(INITCOMMONCONTROLSEX), ICC_TAB_CLASSES | ICC_BAR_CLASSES};
     if (!::InitCommonControlsEx(&common_controls)) {
         QIQI_LOG_ERROR("Settings tab/scrollbar class initialization failed");
     }

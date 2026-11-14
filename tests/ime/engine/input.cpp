@@ -6,6 +6,7 @@
 
 #include <windows.h>
 #include <array>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -80,6 +81,15 @@ void TestCompileTimeFsmTransitions() {
     static_assert(ComputePageRange(7, 5, 0) == std::pair<size_t, size_t>{0, 5});
     static_assert(ComputePageRange(7, 5, 1) == std::pair<size_t, size_t>{5, 7});
     static_assert(ComputePageRange(7, 5, 2) == std::pair<size_t, size_t>{0, 0});
+    constexpr size_t max_items = (std::numeric_limits<size_t>::max)();
+    static_assert(ComputeTotalPages(max_items, 2) == max_items / 2 + 1);
+    static_assert(ComputeTotalPages(max_items, max_items) == 1);
+    static_assert(ComputePageRange(max_items, 2, max_items / 2) ==
+        std::pair<size_t, size_t>{max_items - 1, max_items});
+    static_assert(ComputePageRange(7, max_items, 0) == std::pair<size_t, size_t>{0, 7});
+    static_assert(ComputePageRange(7, 2, max_items / 2 + 1) ==
+        std::pair<size_t, size_t>{0, 0});
+    static_assert(ComputePageRange(7, 0, max_items) == std::pair<size_t, size_t>{0, 0});
     static_assert(!LookupTransition(EngineState::Count, KeyEventKind::CodeChar).eat_key);
     static_assert(!LookupTransition(EngineState::Idle, KeyEventKind::Count).eat_key);
     QIQI_TEST_CHECK(!LookupTransition(EngineState::Count, KeyEventKind::CodeChar).eat_key);

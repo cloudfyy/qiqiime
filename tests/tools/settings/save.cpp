@@ -362,17 +362,25 @@ void TestSettingsFieldMergeMatrix() {
         QIQI_TEST_CHECK(::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str()) == ERROR_SUCCESS);
     });
     size_t cases = 0;
+    const auto normalize_dependencies = [](QiQiConfig& config) {
+        if (config.primary_dict != PrimaryDict::Jidian) config.enable_jidian_extra = false;
+        if (config.easy_reading && config.ui_text_scale < UiTextScale::Percent150) {
+            config.ui_text_scale = UiTextScale::Percent150;
+        }
+    };
     ForEachConfigField([&](const auto& field) {
         if (!field.settings_editable) return;
         for (const bool dirty : {false, true}) {
             QiQiConfig baseline;
             QIQI_TEST_CHECK(field.Assign(baseline, field.minimum));
+            normalize_dependencies(baseline);
             QiQiConfig config = baseline;
             QIQI_TEST_CHECK(SaveConfig(config));
             const ScopedWindow window(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config, true));
             QIQI_TEST_CHECK(window);
             QiQiConfig local = baseline;
             if (dirty) QIQI_TEST_CHECK(field.Assign(local, field.maximum));
+            normalize_dependencies(local);
             WriteSettingsToWindowControls(window.Get(), local);
             GetContext(window.Get()).baseline_config = baseline;
             QiQiConfig external = baseline;
@@ -381,13 +389,19 @@ void TestSettingsFieldMergeMatrix() {
                     other.Value(baseline) == other.maximum ? other.minimum : other.maximum));
             });
             external.user_dict_path = L"external-matrix.txt";
+            QiQiConfig expected = external;
+            ForEachConfigField([&](const auto& other) {
+                if (other.settings_editable && other.Value(local) != other.Value(baseline)) {
+                    QIQI_TEST_CHECK(other.Assign(expected, other.Value(local)));
+                }
+            });
+            normalize_dependencies(expected);
             QIQI_TEST_CHECK(SaveConfig(external));
             ::SendMessageW(window.Get(), kSettingsExternalConfigChangedMessage, 0, 0);
             QiQiConfig actual = config;
             ReadSettingsFromWindowControls(window.Get(), actual);
             ForEachConfigField([&](const auto& other) {
-                QIQI_TEST_CHECK(other.Value(actual) ==
-                    (dirty && other.backup_key == field.backup_key ? field.Value(local) : other.Value(external)));
+                QIQI_TEST_CHECK(other.Value(actual) == other.Value(expected));
             });
             QIQI_TEST_CHECK(config.user_dict_path == external.user_dict_path);
             ++cases;

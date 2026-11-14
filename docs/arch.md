@@ -246,6 +246,9 @@ Source content, compiled caches, and channel files are not atomically committed
 as one resource.
 
 Version gaps, expired records, and baseline changes require snapshot recovery.
+Dictionary and phrase-frequency delta strings are bounded by the channel's
+64-KiB payload ceiling, not an independent phrase-length limit; valid words
+longer than 64 UTF-16 code units must synchronize incrementally as well.
 External source edits can produce bounded increments when order is preserved;
 large replacement/reordering establishes a new baseline. Failed batch application
 must not publish partially applied candidate state or advance a successful version.
@@ -451,6 +454,16 @@ commitment or a dated execution order:
   Validate conflicts, persist configuration, and safely replace registered TSF
   preserved keys when settings change. Preserve current defaults and restricted
   input behavior; add focused configuration, registration, and key-handling tests.
+
+- [ ] Long-term, deferred: show candidate-specific Wubi root-code hints.
+  Display the roots used to encode each candidate beside its label, including
+  roots selected by phrase-coding rules rather than full decomposition of every
+  character. This is not a keyboard root chart or stroke animation. Before
+  implementation, verify redistribution licenses for decomposition data and
+  root fonts, Wubi 86 consistency with active dictionaries, and handling of
+  short codes and identification codes. Add an optional display setting and
+  validate rendering and hint accuracy when this task is scheduled; do not
+  import data or implement the feature yet.
 
 ## Further Reading
 

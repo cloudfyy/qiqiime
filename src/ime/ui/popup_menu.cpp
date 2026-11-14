@@ -274,10 +274,7 @@ private:
     static ThemePalette Palette() noexcept {
         ThemePalette palette = GetTaskbarThemePalette();
         palette.text_accent = palette.text_primary;
-        HIGHCONTRASTW contrast{};
-        contrast.cbSize = sizeof(contrast);
-        if (::SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
-            (contrast.dwFlags & HCF_HIGHCONTRASTON)) {
+        if (IsHighContrastEnabled()) {
             palette.window_bg = ::GetSysColor(COLOR_MENU);
             palette.text_primary = ::GetSysColor(COLOR_MENUTEXT);
             palette.text_accent = ::GetSysColor(COLOR_HIGHLIGHTTEXT);

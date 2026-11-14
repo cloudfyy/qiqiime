@@ -478,7 +478,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             }
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         case kSettingsCyclePage: {
-            const int count = static_cast<int>(SettingsPage::Count);
+            constexpr int count = static_cast<int>(SettingsPage::Count);
             const int next = (static_cast<int>(ctx->active_page) + (wparam ? count - 1 : 1)) % count;
             SelectSettingsPage(hwnd, *ctx, static_cast<SettingsPage>(next));
             return 0;

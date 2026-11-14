@@ -18,6 +18,10 @@ namespace qiqi {
 
 namespace {
 
+constexpr size_t kMaxDeltaWordChars = sync::Channel::kMaxPayloadBytes / sizeof(uint16_t);
+constexpr int kMaxSyncPublishAttempts = 16;
+constexpr size_t kMaxIncrementalDictDiffOperations = 16;
+
 std::vector<std::wstring_view> SplitUtf16Codepoints(std::wstring_view text) {
     std::vector<std::wstring_view> chars;
     size_t i = 0;
@@ -55,10 +59,10 @@ bool DecodeDictEntryDelta(
     std::wstring& out_new_word) {
     codec::BinarySpanReader reader(change.payload);
     out_packed_code = reader.ReadLe32();
-    out_word = reader.ReadWString(64);
+    out_word = reader.ReadWString(kMaxDeltaWordChars);
     out_new_word.clear();
     if (change.operation == sync::Operation::Modify) {
-        out_new_word = reader.ReadWString(64);
+        out_new_word = reader.ReadWString(kMaxDeltaWordChars);
         if (out_new_word.empty()) {
             return false;
         }
@@ -254,7 +258,7 @@ bool ComputeBoundedDictDiff(
     const std::map<uint32_t, std::vector<std::wstring>>& old_entries,
     const std::map<uint32_t, std::vector<std::wstring>>& new_entries,
     std::vector<DictDiffOp>& out_ops,
-    size_t max_ops = 16) {
+    size_t max_ops = kMaxIncrementalDictDiffOperations) {
     out_ops.clear();
     auto it_old = old_entries.begin();
     auto it_new = new_entries.begin();
@@ -618,7 +622,7 @@ HRESULT WubiEngine::MutateUserDictionaryEntry(
     if (FAILED(create_hr)) return create_hr;
     const sync::Channel channel(channel_dir, source);
     const std::vector<uint8_t> payload = EncodeDictEntryDelta(packed, word, new_word);
-    for (int attempt = 0; attempt < 16; ++attempt) {
+    for (int attempt = 0; attempt < kMaxSyncPublishAttempts; ++attempt) {
         std::ignore = SynchronizeUserDictionary(sync::InputBoundary::NewInput);
         sync::Batch current_batch;
         const HRESULT read_hr = channel.Read(user_dict_sync_version_, current_batch);
@@ -1367,7 +1371,7 @@ bool WubiEngine::PromoteUserPhraseFrequency(
     }
     const sync::Channel channel(channel_dir, source);
     const std::vector<uint8_t> payload = EncodeDictEntryDelta(packed, word);
-    for (int attempt = 0; attempt < 16; ++attempt) {
+    for (int attempt = 0; attempt < kMaxSyncPublishAttempts; ++attempt) {
         std::ignore = SynchronizePhraseFrequencies(sync::InputBoundary::NewInput);
         PromotePhraseInMap(promoted_phrases_, packed, word);
         sync::Batch current_batch;
@@ -1426,7 +1430,7 @@ bool WubiEngine::RemovePhraseFrequency(
     }
     const sync::Channel channel(channel_dir, source);
     const std::vector<uint8_t> payload = EncodeDictEntryDelta(packed, word);
-    for (int attempt = 0; attempt < 16; ++attempt) {
+    for (int attempt = 0; attempt < kMaxSyncPublishAttempts; ++attempt) {
         std::ignore = SynchronizePhraseFrequencies(sync::InputBoundary::NewInput);
         if (!EraseWordFromCodeMap(promoted_phrases_, packed, word)) {
             return false;

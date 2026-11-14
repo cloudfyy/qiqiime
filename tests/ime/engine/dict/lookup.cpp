@@ -169,6 +169,12 @@ void TestCustomPrimaryDictionaryAndFallback() {
         QIQI_TEST_CHECK(parsed.empty() && report.invalid_lines == 1 &&
             report.issues.at(0).error == DictionaryLineError::InvalidCharacter);
         WubiMappedDict::ParseTextDictEntries(
+            L"AbCd 大写码\n反查词 EfGh 1.5\nabcde 长码\n含数字 ab1 2\n",
+            parsed, false, &report);
+        QIQI_TEST_CHECK(report.valid_lines == 2 && report.invalid_lines == 2 && parsed.size() == 2);
+        QIQI_TEST_CHECK(parsed.at(PackWubiCode(L"abcd")) == std::vector<std::wstring>{L"大写码"});
+        QIQI_TEST_CHECK(parsed.at(PackWubiCode(L"efgh")) == std::vector<std::wstring>{L"反查词"});
+        WubiMappedDict::ParseTextDictEntries(
             L"1 1\n2 2\n3 3\n4 4\n5 5\n6 6\n7 7\n8 8\n9 9\n", parsed, false, &report);
         QIQI_TEST_CHECK(report.invalid_lines == 9 && report.issues.size() == 8);
     }

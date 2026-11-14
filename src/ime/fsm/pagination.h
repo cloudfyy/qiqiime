@@ -13,16 +13,16 @@ constexpr std::size_t ComputeTotalPages(std::size_t total_items, std::size_t pag
     if (total_items == 0 || page_size == 0) {
         return 0;
     }
-    return (total_items + page_size - 1) / page_size;
+    return total_items / page_size + (total_items % page_size != 0 ? 1 : 0);
 }
 
 constexpr std::pair<std::size_t, std::size_t> ComputePageRange(
     std::size_t total_items, std::size_t page_size, std::size_t current_page) noexcept {
-    const std::size_t start = current_page * page_size;
-    if (start >= total_items || page_size == 0) {
+    if (page_size == 0 || current_page >= ComputeTotalPages(total_items, page_size)) {
         return {0, 0};
     }
-    return {start, std::min(start + page_size, total_items)};
+    const std::size_t start = current_page * page_size;
+    return {start, start + std::min(page_size, total_items - start)};
 }
 
 } // namespace qiqi

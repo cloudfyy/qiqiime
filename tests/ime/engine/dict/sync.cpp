@@ -237,6 +237,48 @@ void TestCrossProcessDictAndPhraseFreqSync() {
     QIQI_TEST_CHECK(pin_writer.UnblockSystemEntry(L"a", L"工"));
     QIQI_TEST_CHECK(pin_reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
     QIQI_TEST_CHECK(!pin_reader.LookupExact(L"a").empty() && pin_reader.LookupExact(L"a").front() == L"工");
+
+    // Long words accepted by the writer must remain valid incremental delta payloads.
+    const auto long_user_dict = base_dir / L"long_user_dict.txt";
+    const auto long_freq_file = base_dir / L"long_phrase_freq.qfreq";
+    WubiEngine long_writer;
+    WubiEngine long_reader;
+    long_writer.SetUserDictPath(long_user_dict);
+    long_reader.SetUserDictPath(long_user_dict);
+    const std::wstring long_word(65, L'词');
+    const std::wstring replacement(80, L'改');
+    QIQI_TEST_CHECK(long_writer.AddUserEntry(L"zzzz", L"初始词"));
+    QIQI_TEST_CHECK(long_reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(long_writer.AddUserEntry(L"zzzz", long_word));
+    QIQI_TEST_CHECK(long_reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(long_reader.LookupExact(L"zzzz") ==
+        (std::vector<std::wstring>{L"初始词", long_word}));
+    QIQI_TEST_CHECK(long_writer.ModifyUserEntry(L"zzzz", long_word, replacement));
+    QIQI_TEST_CHECK(long_reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(long_reader.LookupExact(L"zzzz") ==
+        (std::vector<std::wstring>{L"初始词", replacement}));
+    QIQI_TEST_CHECK(long_writer.RemoveUserEntry(L"zzzz", replacement));
+    QIQI_TEST_CHECK(long_reader.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(long_reader.LookupExact(L"zzzz") == std::vector<std::wstring>{L"初始词"});
+    QIQI_TEST_CHECK(long_reader.UserDictSnapshotSyncCount() == 1 &&
+        long_reader.UserDictIncrementalSyncCount() == 3);
+
+    long_writer.SetPhraseFreqPath(long_freq_file);
+    long_reader.SetPhraseFreqPath(long_freq_file);
+    long_writer.SetDynamicPhraseFreq(true);
+    long_reader.SetDynamicPhraseFreq(true);
+    long_writer.AddEntry(L"zzzz", long_word);
+    long_reader.AddEntry(L"zzzz", long_word);
+    QIQI_TEST_CHECK(long_writer.PromoteUserPhraseFrequency(L"zzzz", L"初始词"));
+    QIQI_TEST_CHECK(long_reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(long_writer.PromoteUserPhraseFrequency(L"zzzz", long_word));
+    QIQI_TEST_CHECK(long_reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(long_reader.LookupExact(L"zzzz").front() == long_word);
+    QIQI_TEST_CHECK(long_writer.RemovePhraseFrequency(L"zzzz", long_word));
+    QIQI_TEST_CHECK(long_reader.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
+    QIQI_TEST_CHECK(long_reader.LookupExact(L"zzzz").front() == L"初始词");
+    QIQI_TEST_CHECK(long_reader.PhraseFreqSnapshotSyncCount() == 1 &&
+        long_reader.PhraseFreqIncrementalSyncCount() == 2);
 }
 
 void TestSyncFailureAtomicity() {

@@ -55,7 +55,7 @@ struct SelectObjectGuardTraits {
     using ContextType  = HDC;
     using ResourceType = HGDIOBJ;
     static constexpr HGDIOBJ Invalid() noexcept { return nullptr; }
-    static constexpr bool IsValid(HGDIOBJ obj) noexcept { return obj != nullptr; }
+    static bool IsValid(HGDIOBJ obj) noexcept { return obj != nullptr && obj != HGDI_ERROR; }
     static HGDIOBJ Acquire(HDC hdc, HGDIOBJ new_obj) noexcept {
         return (hdc && new_obj) ? ::SelectObject(hdc, new_obj) : nullptr;
     }

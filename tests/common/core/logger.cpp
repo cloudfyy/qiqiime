@@ -62,6 +62,13 @@ void WINAPI CollectWriteFailure(LPCSTR message) {
     ::SetLastError(ERROR_ACCESS_DENIED);
 }
 
+ULONG WINAPI CreateTestActivityId(ULONG control, LPGUID id) {
+    QIQI_TEST_CHECK(control == EVENT_ACTIVITY_CTRL_CREATE_ID && id && *id == GUID_NULL);
+    id->Data1 = 1;
+    ::SetLastError(ERROR_INVALID_DATA);
+    return write_error;
+}
+
 void TestEtwWriteDiagnostics() {
     const DWORD saved_error = ::GetLastError();
     const auto restore_error = gsl::finally([saved_error]() noexcept { ::SetLastError(saved_error); });
@@ -86,6 +93,22 @@ void TestEtwWriteDiagnostics() {
         }
     }
     QIQI_TEST_CHECK(write_calls == 4 && write_reports == 3);
+    write_reports = 0;
+    for (const ULONG error : {ERROR_SUCCESS, ERROR_NOT_ENOUGH_MEMORY, ERROR_ACCESS_DENIED}) {
+        write_error = error;
+        GUID id{};
+        id.Data1 = 2;
+        ::SetLastError(ERROR_FILE_NOT_FOUND);
+        QIQI_TEST_CHECK(log::detail::CreateEtwActivityId(id, CreateTestActivityId, CollectWriteFailure) == error);
+        QIQI_TEST_CHECK(::GetLastError() == ERROR_FILE_NOT_FOUND && id.Data1 == 1);
+        if (error != ERROR_SUCCESS) {
+            QIQI_TEST_CHECK(std::string_view(write_report.data()) ==
+                std::format("QiQiIME: EventActivityIdControl(CREATE_ID) failed (error={})\n", error));
+        } else {
+            QIQI_TEST_CHECK(write_reports == 0);
+        }
+    }
+    QIQI_TEST_CHECK(write_reports == 2);
 }
 
 void TestEtwRegistrationLifetime() {

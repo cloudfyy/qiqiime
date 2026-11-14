@@ -320,7 +320,7 @@ void TestSettingsDialogControls() {
                             reinterpret_cast<WPARAM>(lbl_dc.Get()),
                             reinterpret_cast<LPARAM>(lbl)) != 0);
         const COLORREF tc = ::GetTextColor(lbl_dc.Get());
-        QIQI_TEST_CHECK(tc == RGB(28, 32, 40) || tc == kDarkTextColor);
+        QIQI_TEST_CHECK(tc == ResolveDisplayAppearance(GetDisplayPreferences(cfg)).palette.text_primary);
     }
 
     ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED), 0);
@@ -737,7 +737,7 @@ void TestSettingsDisplayPreview() {
     QIQI_TEST_CHECK(::SendDlgItemMessageW(dialog.Get(), kIdComboUiTheme, CB_GETCOUNT, 0, 0) == 4);
     QIQI_TEST_CHECK(::SendDlgItemMessageW(dialog.Get(), kIdComboUiTextScale, CB_GETCOUNT, 0, 0) == 4);
     const auto select = [&](int id, int value) {
-        ::SendDlgItemMessageW(dialog.Get(), id, CB_SETCURSEL, static_cast<WPARAM>(value), 0);
+        ::SendDlgItemMessageW(dialog.Get(), id, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(value), 0);
         ::SendMessageW(dialog.Get(), WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE), 0);
     };
     QiQiConfig edited;
@@ -749,6 +749,8 @@ void TestSettingsDisplayPreview() {
         QIQI_TEST_CHECK(config.ui_theme == UiTheme::System);
         QIQI_TEST_CHECK(context->active_page == SettingsPage::Display);
         ::SendMessageW(tabs, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(painted.Get()), PRF_CLIENT);
+        // TCM_GETITEMRECT writes through LPARAM; CppCoreCheck cannot see that mutation.
+#pragma warning(suppress : 26496)
         RECT unselected{}, selected{};
         QIQI_TEST_CHECK(::SendMessageW(tabs, TCM_GETITEMRECT, 0, reinterpret_cast<LPARAM>(&unselected)));
         QIQI_TEST_CHECK(::SendMessageW(tabs, TCM_GETITEMRECT, static_cast<WPARAM>(SettingsPage::Display),
@@ -818,7 +820,7 @@ void TestSettingsDisplayPreview() {
     QIQI_TEST_CHECK(GetDisplayPreferences(config) == DisplayPreferences{});
     ::SendMessageW(accepted.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
     QIQI_TEST_CHECK(config.ui_theme == UiTheme::Dark &&
-                    config.ui_text_scale == UiTextScale::Percent125 && config.easy_reading);
+                    config.ui_text_scale == UiTextScale::Percent150 && config.easy_reading);
 }
 
 void TestSettingsAccessibleLayout() {

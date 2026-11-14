@@ -80,7 +80,7 @@ void TestLiveThemeAndLanguage() {
                 ::SendMessageW(settings.Get(), event, 0, 0);
                 ::SendMessageW(about.Get(), event, 0, 0);
                 ::SendMessageW(message.Get(), event, 0, 0);
-                CheckBackground(settings.Get(), dark ? kDarkWindowBg : RGB(243, 245, 249));
+                CheckBackground(settings.Get(), GetThemePalette(dark).window_bg);
                 CheckBackground(about.Get(), dark ? kDarkWindowBg : kLightSurfaceBg);
                 CheckBackground(message.Get(), dark ? kDarkWindowBg : RGB(243, 245, 249));
             }

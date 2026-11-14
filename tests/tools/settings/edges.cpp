@@ -192,7 +192,8 @@ void TestSettingsLiveLanguagePreservesControls() {
                             (item == 0 ? str.dlg_candidate_horizontal : str.dlg_candidate_vertical));
         }
         for (const auto& test : kCheckboxCases) {
-            QIQI_TEST_CHECK((actual.*(test.field)) == (cfg.*(test.field)));
+            const bool expected = test.id != kIdChkExtraDict && (cfg.*(test.field));
+            QIQI_TEST_CHECK((actual.*(test.field)) == expected);
             std::array<wchar_t, 256> label{};
             ::GetDlgItemTextW(hwnd.Get(), test.id, label.data(), gsl::narrow_cast<int>(label.size()));
             QIQI_TEST_CHECK(std::wstring(label.data()) == str.*(test.label));
@@ -232,6 +233,9 @@ void TestSettingsDirtyTitle() {
                 ::SendDlgItemMessageW(window.Get(), radio, BM_CLICK, 0, 0);
                 check_title(language, true);
                 ::SendDlgItemMessageW(window.Get(), kIdRadioJidian, BM_CLICK, 0, 0);
+                check_title(language, true);
+                QIQI_TEST_CHECK(::IsDlgButtonChecked(window.Get(), kIdChkExtraDict) == BST_UNCHECKED);
+                ::SendDlgItemMessageW(window.Get(), kIdChkExtraDict, BM_CLICK, 0, 0);
                 check_title(language, false);
             }
             for (const int combo : {kIdComboPageSize, kIdComboCandidateLayout,

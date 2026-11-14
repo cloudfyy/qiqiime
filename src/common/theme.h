@@ -214,10 +214,7 @@ inline bool IsTaskbarDarkTheme() noexcept {
 }
 
 inline COLORREF GetTaskbarIconColor() noexcept {
-    HIGHCONTRASTW hc{};
-    hc.cbSize = sizeof(hc);
-    if (::SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0) &&
-        (hc.dwFlags & HCF_HIGHCONTRASTON) != 0) {
+    if (IsHighContrastEnabled()) {
         return ::GetSysColor(COLOR_BTNTEXT);
     }
     return IsTaskbarDarkTheme() ? kDarkTaskbarIconColor : kLightTaskbarIconColor;

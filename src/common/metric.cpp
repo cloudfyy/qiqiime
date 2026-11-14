@@ -3,6 +3,7 @@
 
 #include "common/metric.h"
 #include "common/logger.h"
+#include "common/scoped_handle.h"
 
 #include <array>
 #include <atomic>
@@ -127,8 +128,7 @@ DiagnosticCounts Diagnostics() noexcept {
 }
 
 void RecordFailure(FailureKind kind, HRESULT error) noexcept {
-    const DWORD saved_error = ::GetLastError();
-    const auto restore = gsl::finally([saved_error]() noexcept { ::SetLastError(saved_error); });
+    const ScopedLastErrorRestore preserve_error;
     ++gsl::at(failures, std::to_underlying(kind));
     std::array<char, 128> message{};
     std::snprintf(message.data(), message.size(), "QiQiIME: metric failure (kind=%u, hr=0x%08lX)\n",
@@ -149,8 +149,7 @@ Scope::Scope(Metric metric, uint64_t service_id, Mode mode, Source source,
     const CaptureState capture = api_.capture();
 #endif
     if (!capture.enabled) return;
-    const DWORD saved_error = ::GetLastError();
-    const auto restore = gsl::finally([saved_error]() noexcept { ::SetLastError(saved_error); });
+    const ScopedLastErrorRestore preserve_error;
     const auto identity = api_.instance();
     if (FAILED(identity.error)) {
         RecordFailure(FailureKind::Identity, identity.error);
@@ -180,8 +179,7 @@ Scope::Scope(Metric metric, uint64_t service_id, Mode mode, Source source,
 
 Scope::~Scope() noexcept {
     if (!active_) return;
-    const DWORD saved_error = ::GetLastError();
-    const auto restore = gsl::finally([saved_error]() noexcept { ::SetLastError(saved_error); });
+    const ScopedLastErrorRestore preserve_error;
     if (!CaptureUnchanged()) {
         RecordInterrupted();
         return;

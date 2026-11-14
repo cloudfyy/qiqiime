@@ -78,7 +78,7 @@ void TestCandidateDisplayPreferences() {
                 const auto& appearance = ui->Appearance();
                 QIQI_TEST_CHECK(appearance.high_contrast == (theme == UiTheme::HighContrast));
                 QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == appearance.palette.window_bg);
-                for (const RECT rect : {ui->CandidateRect(0), ui->CandidateRect(1),
+                for (const RECT& rect : {ui->CandidateRect(0), ui->CandidateRect(1),
                                         ui->PrevPageButtonRect(), ui->NextPageButtonRect()}) {
                     QIQI_TEST_CHECK(rect.right - rect.left >= ScalePxByDpi(44, dpi));
                     QIQI_TEST_CHECK(rect.bottom - rect.top >= ScalePxByDpi(44, dpi));

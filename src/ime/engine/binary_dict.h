@@ -27,9 +27,9 @@ inline void AppendUniqueWord(std::vector<std::wstring>& list, std::wstring_view 
     }
 }
 
-// Pack 1..4 lowercase Wubi letters ('a'..'z') into a big-endian uint32_t.
+// Pack 1..4 ASCII Wubi letters into a big-endian uint32_t, normalizing uppercase to lowercase.
 // Numeric comparison on the returned uint32_t is identical to lexicographical order.
-// Returns 0 if the code is empty, longer than 4 chars, or contains non-'a'..'z' characters.
+// Returns 0 if the code is empty, longer than 4 chars, or contains non-ASCII-letter characters.
 constexpr uint32_t PackWubiCode(std::wstring_view code) noexcept {
     if (code.empty() || code.size() > 4) {
         return 0;

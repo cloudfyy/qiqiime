@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 set(QIQI_SETTINGS_TEST_SOURCES
-    main.cpp
+    settings_main.cpp
     cleanup.cpp
     window.cpp
     edges.cpp

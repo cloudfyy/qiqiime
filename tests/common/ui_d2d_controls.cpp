@@ -18,10 +18,33 @@
 namespace qiqi::test {
 namespace {
 
+struct FailedSelectObjectTraits : SelectObjectGuardTraits {
+    inline static unsigned int releases = 0;
+    static HGDIOBJ Acquire(HDC, HGDIOBJ) noexcept {
+        ::SetLastError(ERROR_INVALID_HANDLE);
+        return HGDI_ERROR;
+    }
+    static void Release(HDC, HGDIOBJ) noexcept { ++releases; }
+};
+
+void TestFailedGdiSelection() {
+    const ScopedLastErrorRestore preserve_error;
+    FailedSelectObjectTraits::releases = 0;
+    {
+        const ScopedContextGuard<FailedSelectObjectTraits> selection(nullptr, nullptr);
+        QIQI_TEST_CHECK(!selection.IsValid() && selection.Error() == ERROR_INVALID_HANDLE);
+        ::SetLastError(ERROR_ACCESS_DENIED);
+    }
+    QIQI_TEST_CHECK(FailedSelectObjectTraits::releases == 0);
+    QIQI_TEST_CHECK(::GetLastError() == ERROR_ACCESS_DENIED);
+}
+
 void TestDisplayPreferences() {
     const auto original_theme = detail::ThemeDarkOverrideStorage();
-    const auto restore = gsl::finally([original_theme]() noexcept {
+    const auto original_taskbar = detail::TaskbarDarkOverrideStorage();
+    const auto restore = gsl::finally([original_theme, original_taskbar]() noexcept {
         SetThemeDarkOverrideForTest(original_theme);
+        SetTaskbarDarkOverrideForTest(original_taskbar);
         SetHighContrastOverrideForTest(std::nullopt);
     });
     SetHighContrastOverrideForTest(false);
@@ -35,6 +58,8 @@ void TestDisplayPreferences() {
     };
     for (const bool dark : {false, true}) {
         SetThemeDarkOverrideForTest(dark);
+        SetTaskbarDarkOverrideForTest(!dark);
+        QIQI_TEST_CHECK(GetTaskbarIconColor() == (!dark ? kDarkTaskbarIconColor : kLightTaskbarIconColor));
         QIQI_TEST_CHECK(ResolveDisplayAppearance({}).palette.is_dark == dark);
         QIQI_TEST_CHECK(!ResolveDisplayAppearance({UiTheme::Light}).palette.is_dark);
         QIQI_TEST_CHECK(ResolveDisplayAppearance({UiTheme::Dark}).palette.is_dark);
@@ -61,6 +86,7 @@ void TestDisplayPreferences() {
         QIQI_TEST_CHECK(ScaleDisplayPx(100, 192, scale) == TextScalePercent(scale) * 2);
     }
     SetHighContrastOverrideForTest(true);
+    QIQI_TEST_CHECK(GetTaskbarIconColor() == ::GetSysColor(COLOR_BTNTEXT));
     for (const UiTheme theme : {UiTheme::System, UiTheme::Light, UiTheme::Dark, UiTheme::HighContrast}) {
         const auto appearance = ResolveDisplayAppearance({theme});
         QIQI_TEST_CHECK(appearance.high_contrast && appearance.system_high_contrast);
@@ -652,6 +678,8 @@ void TestReusableControls() {
                 d2d.d2d_target->FillRectangle(D2D1::RectF(30, 30, 50, 50), blue.Get());
             }
             QIQI_TEST_CHECK(SUCCEEDED(end_hr));
+            // GetPixel returns CLR_INVALID outside the DC clip; inspect the underlying bitmap.
+            QIQI_TEST_CHECK(::SelectClipRgn(dc.Get(), nullptr) != ERROR);
             QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 10) == RGB(255, 0, 255));
             QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 90) == RGB(255, 0, 255));
             QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 50) == RGB(0, 255, 0));
@@ -848,6 +876,7 @@ void TestCommonDialogsAndUtils() {
 } // namespace
 
 void RunD2DControlsTests() {
+    TestFailedGdiSelection();
     TestDisplayPreferences();
     TestControlText();
     TestReusableControls();
