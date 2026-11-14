@@ -18,7 +18,15 @@ try {
         Version = '2.0.0'
         Tag = 'v2.0.0-rc.1'
         Repository = 'cloudfyy/qiqiime'
-        AssetNames = @('QiQiIME-v2.0.0-win-x64-zh-CN.msi', 'QiQiIME-v2.0.0-win-x64-x86.zip')
+        AssetNames = @(
+            'QiQiIME-v2.0.0-win-x64-x86.zip',
+            'QiQiIME-v2.0.0-win-x86-zh-CN.msi',
+            'QiQiIME-v2.0.0-win-x64-x86-symbols.zip',
+            'QiQiIME-v2.0.0-win-x64-zh-CN.msi',
+            'QiQiIME-v2.0.0-win-x86-en-US.msi',
+            'QiQiIME-v2.0.0-win-x64-en-US.msi',
+            'QiQiIME-v2.0.0-win-x64-zh-CN.msi'
+        )
         OutputPath = $outputPath
     }
     & $script @parameters
@@ -36,6 +44,28 @@ try {
     }
     $visibleBody = $body.Substring(0, $collapsedStart)
     $englishBody = $body.Substring($collapsedStart)
+    $expectedMsiAssets = @(
+        'QiQiIME-v2.0.0-win-x64-en-US.msi',
+        'QiQiIME-v2.0.0-win-x64-zh-CN.msi',
+        'QiQiIME-v2.0.0-win-x86-en-US.msi',
+        'QiQiIME-v2.0.0-win-x86-zh-CN.msi'
+    )
+    $expectedZipAssets = @(
+        'QiQiIME-v2.0.0-win-x64-x86-symbols.zip',
+        'QiQiIME-v2.0.0-win-x64-x86.zip'
+    )
+    foreach ($section in @($visibleBody, $englishBody)) {
+        $actualAssets = @([regex]::Matches($section, '(?m)^- \[([^\]]+)\]\(') | ForEach-Object {
+            $_.Groups[1].Value
+        })
+        $actualMsiAssets = @($actualAssets | Select-Object -First $expectedMsiAssets.Count)
+        $actualZipAssets = @($actualAssets | Select-Object -Skip $expectedMsiAssets.Count)
+        if ($actualAssets.Count -ne ($expectedMsiAssets.Count + $expectedZipAssets.Count) -or
+            ($actualMsiAssets -join "`n") -cne ($expectedMsiAssets -join "`n") -or
+            @(Compare-Object -ReferenceObject $expectedZipAssets -DifferenceObject $actualZipAssets -CaseSensitive).Count -ne 0) {
+            throw 'Both download lists must contain unique MSI links first, then all ZIP links without changing filenames.'
+        }
+    }
     foreach ($page in @('', 'install.html')) {
         if (-not $visibleBody.Contains("](https://cloudfyy.github.io/qiqiime/$page)") -or
             -not $englishBody.Contains("](https://cloudfyy.github.io/qiqiime/${page}?lang=en)")) {
@@ -81,7 +111,7 @@ try {
         $rejected = $true
     }
     if (-not $rejected) { throw 'Missing English translations must be rejected.' }
-    Write-Host '[PASS] Bilingual current-version notes, website entries, download links, and invalid section checks.'
+    Write-Host '[PASS] Bilingual current-version notes, website entries, MSI-first downloads, and invalid section checks.'
 } finally {
     Remove-Item -LiteralPath $notesPath -Force -ErrorAction Stop
     if (Test-Path -LiteralPath $outputPath) { Remove-Item -LiteralPath $outputPath -Force -ErrorAction Stop }

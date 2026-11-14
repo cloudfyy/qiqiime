@@ -262,6 +262,9 @@ section from the release notes. The complete history remains in the repository.
 [release_notes.ps1](../scripts/release_notes.ps1) generates this body from the
 version, tag, and actual package filenames; missing or duplicate version sections
 fail publication rather than including unrelated history.
+Both download lists put all MSI installers before ZIP archives, sorting filenames
+within each group and preserving the exact attachment names and tagged URLs.
+This controls the body links, not GitHub's separate Assets list ordering.
 Write the default Chinese notes first and add their translation under
 `## English` within the same version section. Release pages show Chinese
 downloads and notes by default, with English downloads and notes inside a

@@ -53,7 +53,12 @@ $repositoryParts = $Repository.Split('/')
 $websiteUrl = "https://$($repositoryParts[0]).github.io/$($repositoryParts[1])/"
 $encodedTag = [uri]::EscapeDataString($Tag)
 $downloads = @()
-foreach ($name in ($AssetNames | Sort-Object -Unique)) {
+$orderedAssets = $AssetNames | Sort-Object -Unique -Property @{
+    Expression = { $_ -notmatch '\.msi$' }
+}, @{
+    Expression = { $_ }
+}
+foreach ($name in $orderedAssets) {
     if ([string]::IsNullOrWhiteSpace($name) -or [IO.Path]::GetFileName($name) -ne $name -or
         $name -notmatch '\.(msi|zip)$') {
         throw "Invalid release asset name: $name"
