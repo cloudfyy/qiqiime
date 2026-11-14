@@ -334,6 +334,16 @@ metadata is not committed; regenerate it to preview current downloads locally.
 
 The [Website workflow](../.github/workflows/pages.yml) checks site changes on pull
 requests and uploads only `site` for deployment after changes reach `main`.
+The separate [CI & Lint workflow](../.github/workflows/ci.yml) skips automatic
+runs when all changed paths belong to `site/`, `tests/site/`, `docs/`, the two
+root READMEs, `scripts/site_release.mjs`, or the Website workflow itself. Website
+checks still run for website source, tests, generator, or workflow changes.
+Any other changed path, including native source/tests, build scripts, dependencies,
+and CI/Release workflows, retains the full x64/x86 build, tests, and lint.
+Mixed changes also run full CI; `workflow_dispatch` always remains available.
+Do not require this path-filtered workflow as a PR status check without adding
+an always-running gate: a workflow skipped by path filtering can leave a
+required check pending.
 Before the first deployment, a maintainer must select **Settings → Pages →
 Build and deployment → Source: GitHub Actions**. Push the workflow and site, then
 check the Website Actions run; it can also be started manually on `main`.

@@ -6,8 +6,24 @@ name: CI & Lint
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'site/**'
+      - 'tests/site/**'
+      - 'scripts/site_release.mjs'
+      - '.github/workflows/pages.yml'
+      - 'docs/**'
+      - 'README.md'
+      - 'README.zh-CN.md'
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - 'site/**'
+      - 'tests/site/**'
+      - 'scripts/site_release.mjs'
+      - '.github/workflows/pages.yml'
+      - 'docs/**'
+      - 'README.md'
+      - 'README.zh-CN.md'
   workflow_dispatch:
 
 permissions:
