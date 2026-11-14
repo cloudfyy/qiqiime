@@ -573,7 +573,18 @@ notification justifies ending an already-terminated composition again.
 
 ### Activation cancellation
 
-Do not dismantle a registration before its in-flight call publishes ownership.
+During activation, a host registration call can reenter `Deactivate` before
+returning its result. At that point, the service may not yet have recorded the
+registration cookie or interface needed to undo a successful registration.
+Tearing down immediately could miss that registration: the call might then
+return successfully after cleanup has already finished.
+
+Instead, reentrant `Deactivate` marks activation cancelled, invalidates the
+activation epoch, and disables presentation, but defers resource teardown.
+After the outstanding registration call returns, activation first records any
+resource successfully acquired by that call. It then stops further setup and
+runs normal teardown, which can now release that resource along with the others.
+The outer `ActivateEx` returns `E_ABORT`.
 
 ```mermaid
 sequenceDiagram
@@ -586,7 +597,7 @@ sequenceDiagram
     Service->>Service: Mark cancelled, invalidate epoch, disable presentation
     Service-->>Host: S_OK, cancellation requested
     Host-->>Service: Registration returns
-    Service->>Service: Record any successful late ownership
+    Service->>Service: Record registration cookie/interface if registration succeeded
     Service->>Host: Normal teardown of recorded resources
     Service-->>Caller: E_ABORT
 ```
@@ -611,17 +622,44 @@ compartment writes; failures retain their own HRESULTs alongside `E_ABORT`.
 
 ### 6.1 Candidate UI Registration and Withdrawal
 
-| Operation | Required publication/ownership rule |
-| --- | --- |
-| Begin | Capture the manager, negotiate host display permission, then check the original ticket before publishing its returned ID |
-| Late stale Begin | End a valid successful provisional ID through the captured old manager, never a replacement manager |
-| End | Capture the old manager, invalidate the shared ID and hide UI before calling the host; perform no shared reset afterward |
-| Manager/Begin failure | Preserve diagnostics and existing popup fallback, still gated by presentation permission |
+Candidate UI registration means registering a candidate UI element with the TSF
+UI element manager, not registering the IME DLL. A successful registration
+returns an element ID belonging to that manager. The host also decides whether
+the IME should show its own candidate window or leave presentation to the host.
 
-Different managers can reuse numeric element IDs. Matching a number is not
-matching ownership. Reentrant Begin/End must not deregister or hide newer UI.
-Respect the host's `show_own_ui`/UILess decision; failed registration is not proof
-that a host element exists.
+Both registration (`Begin`) and withdrawal (`End`) call the host and can reenter
+the IME. By the time either call returns, a newer candidate UI registration may
+already exist. The returning old operation must not overwrite, unregister, or
+hide that newer UI.
+
+**When registering candidate UI:**
+
+1. Retain the manager used for this registration and negotiate whether the host
+   permits the IME to display its own UI.
+2. After `Begin` returns, check that the original edit ticket is still current
+   before storing the returned element ID as the current registration.
+3. If registration succeeded with a valid ID but the ticket is now stale,
+   withdraw that provisional registration through the retained old manager.
+   Do not use a replacement manager to withdraw it.
+
+**When withdrawing candidate UI:**
+
+1. Retain the old manager and element ID.
+2. Invalidate the shared current element ID and hide the UI before calling the
+   host to withdraw the old registration.
+3. After the host call returns, do not clear shared registration state or hide
+   UI again. Reentrant work may have installed a new registration and shown its
+   UI during that call.
+
+An element ID is not globally unique: different managers can return the same
+number. The manager and its element ID identify the registration together;
+matching the number alone does not establish ownership.
+
+If obtaining the manager or beginning registration fails, log the actual failure
+and preserve the existing candidate-popup fallback, subject to presentation
+permission. Failure is not evidence that a host UI element was registered.
+Respect the host's `show_own_ui`/UILess decision rather than showing the IME's own
+window when the host has chosen to handle presentation.
 
 ### 6.2 Layout and Positioning
 
