@@ -8,6 +8,7 @@
 #include "ime/svc/lifecycle.h"
 #include "ime/svc/service.h"
 #include <array>
+#include <format>
 #include <memory>
 
 namespace qiqi::test {
@@ -24,11 +25,58 @@ void TestLayoutFallbackDpiRouting(
     const auto restore_focus = gsl::finally([previous_focus]() noexcept {
         ::SetFocus(previous_focus && ::IsWindow(previous_focus) ? previous_focus : nullptr);
     });
-    ::SetFocus(host.Get());
+    GUITHREADINFO before{};
+    before.cbSize = sizeof(before);
+    ::SetLastError(ERROR_SUCCESS);
+    const BOOL before_ok = ::GetGUIThreadInfo(::GetCurrentThreadId(), &before);
+    const DWORD before_error = before_ok ? ERROR_SUCCESS : ::GetLastError();
+    ::SetLastError(ERROR_SUCCESS);
+    const HWND returned_focus = ::SetFocus(host.Get());
+    const DWORD set_focus_error = ::GetLastError();
+    const HWND focus_after = ::GetFocus();
+    const HWND active_after = ::GetActiveWindow();
+    const HWND foreground_after = ::GetForegroundWindow();
     GUITHREADINFO info{};
     info.cbSize = sizeof(info);
-    QIQI_TEST_CHECK(::GetGUIThreadInfo(::GetCurrentThreadId(), &info) &&
-                    info.hwndFocus == host.Get() && !info.hwndCaret);
+    ::SetLastError(ERROR_SUCCESS);
+    const BOOL info_ok = ::GetGUIThreadInfo(::GetCurrentThreadId(), &info);
+    const DWORD info_error = info_ok ? ERROR_SUCCESS : ::GetLastError();
+    // SetFocus returns the previous focus, so a null return alone does not establish failure.
+    const auto setup_message = std::format(
+        "[LAYOUT-SETUP] thread={}, host={}, previous_focus={}, "
+        "before_gui_ok={}, before_gui_error={}, before_gui_focus={}, before_gui_caret={}, "
+        "set_focus_return={}, set_focus_last_error={}, focus_after={}, active_after={}, foreground_after={}, "
+        "gui_ok={}, gui_error={}, gui_focus={}, gui_caret={}, gui_active={}, gui_flags=0x{:x}",
+        ::GetCurrentThreadId(), static_cast<const void*>(host.Get()), static_cast<const void*>(previous_focus),
+        before_ok, before_error, static_cast<const void*>(before.hwndFocus), static_cast<const void*>(before.hwndCaret),
+        static_cast<const void*>(returned_focus), set_focus_error, static_cast<const void*>(focus_after),
+        static_cast<const void*>(active_after), static_cast<const void*>(foreground_after),
+        info_ok, info_error, static_cast<const void*>(info.hwndFocus), static_cast<const void*>(info.hwndCaret),
+        static_cast<const void*>(info.hwndActive), info.flags);
+    std::cerr << setup_message << std::endl;
+    if (retained_failure_log) {
+        *retained_failure_log << setup_message << std::endl;
+        QIQI_TEST_CHECK(retained_failure_log->good());
+    }
+    QIQI_TEST_CHECK(info_ok);
+    QIQI_TEST_CHECK(focus_after == host.Get());
+    QIQI_TEST_CHECK(info.hwndFocus == host.Get());
+    // Replace any pre-existing queue caret with one owned by this fixture before clearing it.
+    {
+        QIQI_TEST_CHECK(::CreateCaret(host.Get(), nullptr, 3, 17));
+        const auto destroy_caret = gsl::finally([]() noexcept {
+            QIQI_TEST_CHECK(::DestroyCaret());
+        });
+        GUITHREADINFO owned{};
+        owned.cbSize = sizeof(owned);
+        QIQI_TEST_CHECK(::GetGUIThreadInfo(::GetCurrentThreadId(), &owned));
+        QIQI_TEST_CHECK(owned.hwndCaret == host.Get());
+    }
+    info = {};
+    info.cbSize = sizeof(info);
+    QIQI_TEST_CHECK(::GetGUIThreadInfo(::GetCurrentThreadId(), &info));
+    QIQI_TEST_CHECK(info.hwndFocus == host.Get());
+    QIQI_TEST_CHECK(!info.hwndCaret);
     RECT host_rect{};
     QIQI_TEST_CHECK(::GetWindowRect(host.Get(), &host_rect));
     const auto previous_monitor = detail::MonitorMetricsOverrideStorage();
