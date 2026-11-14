@@ -36,8 +36,8 @@ event source's architecture.
    an incomplete target file.
 
 The original monitor stays open if administrator restart fails. After a successful
-restart, the new window opens on the
-original monitor's screen where possible; logs, filters, and capture state are
+restart, the new window preserves the selected UI language (including Follow
+Windows) and opens on the original monitor's screen where possible; logs, filters, and capture state are
 not transferred. Export first, then restart capture. Do not elevate the tested
 application or change user groups/ETW ACLs merely to obtain diagnostics.
 

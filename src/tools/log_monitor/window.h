@@ -4,6 +4,7 @@
 #pragma once
 
 #include "common/scoped_handle.h"
+#include "common/config.h"
 #include "tools/log_monitor/collector.h"
 #include <memory>
 #include <optional>
@@ -28,7 +29,8 @@ public:
     MonitorWindow& operator=(const MonitorWindow&) = delete;
     MonitorWindow(MonitorWindow&&) = delete;
     MonitorWindow& operator=(MonitorWindow&&) = delete;
-    bool Create(HINSTANCE instance, std::optional<POINT> startup_point = std::nullopt);
+    bool Create(HINSTANCE instance, std::optional<POINT> startup_point = std::nullopt,
+        UiLanguage language = UiLanguage::Auto);
     HWND Handle() const noexcept { return window_.Get(); }
 private:
     friend struct MonitorWindowTestAccess;

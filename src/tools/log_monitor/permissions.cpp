@@ -8,15 +8,21 @@
 
 #include <commctrl.h>
 #include <objbase.h>
+#include <algorithm>
 #include <array>
 #include <cwctype>
 #include <format>
 #include <numeric>
 #include <sstream>
+#include <utility>
 
 namespace qiqi::monitor {
 namespace {
 std::optional<bool> g_elevated_override_for_test;
+constexpr std::array kStartupLanguages{
+    std::pair{UiLanguage::Auto, std::wstring_view{L"auto"}},
+    std::pair{UiLanguage::ZhCn, std::wstring_view{L"zh-CN"}},
+    std::pair{UiLanguage::EnUs, std::wstring_view{L"en-US"}}};
 
 HRESULT CALLBACK MarkElevatedRestartButton(HWND window, UINT notification, WPARAM, LPARAM, LONG_PTR) noexcept {
     if (notification == TDN_CREATED) {
@@ -108,8 +114,10 @@ HRESULT ConfirmElevatedRestart(
     return result;
 }
 
-ULONG LaunchElevatedMonitor(HWND owner, gsl::not_null<decltype(&::ShellExecuteExW)> execute) {
-    std::wstring parameters;
+ULONG LaunchElevatedMonitor(HWND owner, UiLanguage language, gsl::not_null<decltype(&::ShellExecuteExW)> execute) {
+    const auto selected = std::ranges::find(kStartupLanguages, language, &decltype(kStartupLanguages)::value_type::first);
+    if (selected == kStartupLanguages.end()) return ERROR_INVALID_PARAMETER;
+    std::wstring parameters = std::format(L"--ui-language {}", selected->second);
     if (owner) {
         const HMONITOR monitor = ::MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST);
         if (!monitor) return ERROR_INVALID_MONITOR_HANDLE;
@@ -117,7 +125,7 @@ ULONG LaunchElevatedMonitor(HWND owner, gsl::not_null<decltype(&::ShellExecuteEx
         metrics.cbSize = sizeof(metrics);
         if (!::GetMonitorInfoW(monitor, &metrics)) return ::GetLastError();
         const auto& work = metrics.rcWork;
-        parameters = std::format(L"--monitor-point {} {}",
+        parameters += std::format(L" --monitor-point {} {}",
             std::midpoint(work.left, work.right), std::midpoint(work.top, work.bottom));
     }
     const HRESULT co_result = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
@@ -135,7 +143,7 @@ ULONG LaunchElevatedMonitor(HWND owner, gsl::not_null<decltype(&::ShellExecuteEx
     info.hwnd = owner;
     info.lpVerb = L"runas";
     info.lpFile = executable.c_str();
-    info.lpParameters = parameters.empty() ? nullptr : parameters.c_str();
+    info.lpParameters = parameters.c_str();
     info.nShow = SW_SHOWNORMAL;
     const BOOL launched = execute(&info);
     const DWORD error = launched ? ERROR_SUCCESS : ::GetLastError();
@@ -143,20 +151,35 @@ ULONG LaunchElevatedMonitor(HWND owner, gsl::not_null<decltype(&::ShellExecuteEx
     return error;
 }
 
-ULONG ParseMonitorStartupPoint(std::wstring_view command_line, std::optional<POINT>& point) {
-    point.reset();
+ULONG ParseMonitorStartupArguments(std::wstring_view command_line, MonitorStartupOptions& options) {
+    options = {};
+    MonitorStartupOptions parsed;
+    bool has_language = false;
     std::wistringstream arguments{std::wstring(command_line)};
-    arguments >> std::ws;
-    if (arguments.eof()) return ERROR_SUCCESS;
-    std::wstring option;
-    POINT parsed{};
-    if (!(arguments >> option >> parsed.x) || option != L"--monitor-point" ||
-        !std::iswspace(arguments.peek()) || !(arguments >> parsed.y)) {
-        return ERROR_INVALID_PARAMETER;
+    for (arguments >> std::ws; !arguments.eof(); arguments >> std::ws) {
+        std::wstring option;
+        if (!(arguments >> option)) return ERROR_INVALID_PARAMETER;
+        if (option == L"--monitor-point") {
+            POINT point{};
+            if (parsed.point || !(arguments >> point.x) ||
+                !std::iswspace(arguments.peek()) || !(arguments >> point.y)) {
+                return ERROR_INVALID_PARAMETER;
+            }
+            parsed.point = point;
+        } else if (option == L"--ui-language") {
+            std::wstring language;
+            if (has_language || !(arguments >> language)) return ERROR_INVALID_PARAMETER;
+            const auto selected = std::ranges::find(
+                kStartupLanguages, std::wstring_view{language}, &decltype(kStartupLanguages)::value_type::second);
+            if (selected == kStartupLanguages.end()) return ERROR_INVALID_PARAMETER;
+            parsed.language = selected->first;
+            has_language = true;
+        } else {
+            return ERROR_INVALID_PARAMETER;
+        }
+        if (!arguments.eof() && !std::iswspace(arguments.peek())) return ERROR_INVALID_PARAMETER;
     }
-    arguments >> std::ws;
-    if (!arguments.eof()) return ERROR_INVALID_PARAMETER;
-    point = parsed;
+    options = parsed;
     return ERROR_SUCCESS;
 }
 

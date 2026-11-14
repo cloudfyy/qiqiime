@@ -25,6 +25,7 @@ thread_local ULONG open_error = ERROR_SUCCESS;
 thread_local ULONG launch_error = ERROR_SUCCESS;
 thread_local HANDLE launched_process = nullptr;
 thread_local std::optional<POINT> launch_point;
+thread_local UiLanguage launch_language = UiLanguage::Auto;
 thread_local std::wstring launch_parameters;
 
 ULONG WINAPI StartCaptureSession(PTRACEHANDLE session, LPCWSTR name, PEVENT_TRACE_PROPERTIES properties) noexcept {
@@ -51,16 +52,12 @@ BOOL WINAPI ExecuteElevated(SHELLEXECUTEINFOW* info) {
     QIQI_TEST_CHECK(std::wstring_view(info->lpVerb) == L"runas");
     QIQI_TEST_CHECK(std::filesystem::path(info->lpFile) == GetModuleFilePath(nullptr));
     QIQI_TEST_CHECK(info->nShow == SW_SHOWNORMAL);
-    if (launch_point) {
-        QIQI_TEST_CHECK(info->lpParameters);
-        launch_parameters = info->lpParameters;
-        std::optional<POINT> parsed;
-        QIQI_TEST_CHECK(ParseMonitorStartupPoint(info->lpParameters, parsed) == ERROR_SUCCESS && parsed);
-        QIQI_TEST_CHECK(parsed->x == launch_point->x && parsed->y == launch_point->y);
-    } else {
-        QIQI_TEST_CHECK(info->lpParameters == nullptr);
-        launch_parameters.clear();
-    }
+    QIQI_TEST_CHECK(info->lpParameters);
+    launch_parameters = info->lpParameters;
+    MonitorStartupOptions parsed;
+    QIQI_TEST_CHECK(ParseMonitorStartupArguments(info->lpParameters, parsed) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(parsed.language == launch_language && parsed.point.has_value() == launch_point.has_value());
+    if (launch_point) QIQI_TEST_CHECK(parsed.point->x == launch_point->x && parsed.point->y == launch_point->y);
     QIQI_TEST_CHECK((info->fMask & SEE_MASK_NOCLOSEPROCESS) != 0 &&
                     (info->fMask & SEE_MASK_NOASYNC) != 0 && (info->fMask & SEE_MASK_FLAG_NO_UI) != 0);
     if (launch_error != ERROR_SUCCESS) {
@@ -73,10 +70,14 @@ BOOL WINAPI ExecuteElevated(SHELLEXECUTEINFOW* info) {
     return TRUE;
 }
 
-void CheckElevatedLaunch(HWND owner, ULONG error) {
+void CheckElevatedLaunch(HWND owner, ULONG error, UiLanguage language = UiLanguage::Auto) {
     const ULONG previous = std::exchange(launch_error, error);
-    const auto restore = gsl::finally([previous]() noexcept { launch_error = previous; });
-    QIQI_TEST_CHECK(LaunchElevatedMonitor(owner, ExecuteElevated) == error);
+    const auto previous_language = std::exchange(launch_language, language);
+    const auto restore = gsl::finally([previous, previous_language]() noexcept {
+        launch_error = previous;
+        launch_language = previous_language;
+    });
+    QIQI_TEST_CHECK(LaunchElevatedMonitor(owner, language, ExecuteElevated) == error);
     if (error == ERROR_SUCCESS) {
         DWORD flags = 0;
         QIQI_TEST_CHECK(!::GetHandleInformation(launched_process, &flags) && ::GetLastError() == ERROR_INVALID_HANDLE);
@@ -122,30 +123,46 @@ void CheckSessionStopped(std::wstring_view name) {
 }
 
 void TestStartupPointArguments() {
-    std::optional<POINT> point = POINT{1, 2};
+    MonitorStartupOptions options{POINT{1, 2}, UiLanguage::EnUs};
     for (const auto arguments : {L"", L" \t\r\n"}) {
-        QIQI_TEST_CHECK(ParseMonitorStartupPoint(arguments, point) == ERROR_SUCCESS && !point);
+        QIQI_TEST_CHECK(ParseMonitorStartupArguments(arguments, options) == ERROR_SUCCESS && !options.point);
+        QIQI_TEST_CHECK(options.language == UiLanguage::Auto);
     }
     for (const POINT expected : {POINT{0, 0}, POINT{-1920, -1080}, POINT{2560, 1440},
             POINT{LONG_MIN, LONG_MAX}, POINT{LONG_MAX, LONG_MIN}}) {
         const auto arguments = std::format(L"  --monitor-point {} {} \t", expected.x, expected.y);
-        QIQI_TEST_CHECK(ParseMonitorStartupPoint(arguments, point) == ERROR_SUCCESS && point);
-        QIQI_TEST_CHECK(point->x == expected.x && point->y == expected.y);
+        QIQI_TEST_CHECK(ParseMonitorStartupArguments(arguments, options) == ERROR_SUCCESS && options.point);
+        QIQI_TEST_CHECK(options.point->x == expected.x && options.point->y == expected.y);
     }
-    QIQI_TEST_CHECK(ParseMonitorStartupPoint(L"--monitor-point\t+1\r\n-2", point) == ERROR_SUCCESS && point);
-    QIQI_TEST_CHECK(point->x == 1 && point->y == -2);
+    QIQI_TEST_CHECK(ParseMonitorStartupArguments(L"--monitor-point\t+1\r\n-2", options) == ERROR_SUCCESS && options.point);
+    QIQI_TEST_CHECK(options.point->x == 1 && options.point->y == -2);
+    for (const auto& [language, name] : std::array{
+             std::pair{UiLanguage::Auto, L"auto"}, std::pair{UiLanguage::ZhCn, L"zh-CN"},
+             std::pair{UiLanguage::EnUs, L"en-US"}}) {
+        QIQI_TEST_CHECK(ParseMonitorStartupArguments(std::format(L"--ui-language {}", name), options) == ERROR_SUCCESS);
+        QIQI_TEST_CHECK(options.language == language && !options.point);
+        for (const auto& arguments : {std::format(L"--ui-language {} --monitor-point -1 2", name),
+                 std::format(L"--monitor-point -1 2 --ui-language {} \t", name)}) {
+            QIQI_TEST_CHECK(ParseMonitorStartupArguments(arguments, options) == ERROR_SUCCESS && options.point);
+            QIQI_TEST_CHECK(options.language == language && options.point->x == -1 && options.point->y == 2);
+        }
+    }
     for (const auto arguments : {L"--monitor-point", L"--monitor-point 1", L"--monitor-point x 2",
             L"--monitor-point 1 x", L"--monitor-point 1.5 2", L"--monitor-point 1 2 --monitor-point 3 4",
             L"--monitor-point 1 2 extra", L"--monitor-point 2147483648 0",
             L"--monitor-point -2147483649 0", L"--monitor-point 0 2147483648",
             L"--monitor-point 0 -2147483649", L"--monitor-point 1 2.5", L"--monitor-point 1-2",
-            L"--unknown 1 2"}) {
-        point = POINT{1, 2};
-        QIQI_TEST_CHECK(ParseMonitorStartupPoint(arguments, point) == ERROR_INVALID_PARAMETER && !point);
+            L"--unknown 1 2", L"--ui-language", L"--ui-language fr-FR", L"--ui-language en-US extra",
+            L"--ui-language auto --ui-language en-US", L"--monitor-point 1 2--ui-language en-US",
+            L"--ui-language en-US --monitor-point 1", L"--monitor-point 1 2 --ui-language unknown"}) {
+        options = {POINT{1, 2}, UiLanguage::EnUs};
+        QIQI_TEST_CHECK(ParseMonitorStartupArguments(arguments, options) == ERROR_INVALID_PARAMETER && !options.point);
+        QIQI_TEST_CHECK(options.language == UiLanguage::Auto);
     }
 }
 
-void TestStartupProcess(std::wstring_view parameters, gsl::not_null<HMONITOR> monitor) {
+void TestStartupProcess(std::wstring_view parameters, gsl::not_null<HMONITOR> monitor,
+    UiLanguage language = UiLanguage::Auto) {
     const ScopedKernelHandle job(::CreateJobObjectW(nullptr, nullptr));
     QIQI_TEST_CHECK(job);
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
@@ -177,6 +194,15 @@ void TestStartupProcess(std::wstring_view parameters, gsl::not_null<HMONITOR> mo
     }, reinterpret_cast<LPARAM>(&window));
     QIQI_TEST_CHECK(window && ::IsWindowVisible(window));
     QIQI_TEST_CHECK(::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) == monitor.get());
+    QIQI_TEST_CHECK(qiqi::test::ControlText(window) == FormatMonitorWindowTitle(language));
+    const HMENU menu = ::GetMenu(window);
+    QIQI_TEST_CHECK(menu);
+    for (const auto id : {ControlId::LanguageAuto, ControlId::LanguageZh, ControlId::LanguageEn}) {
+        const auto state = ::GetMenuState(menu, std::to_underlying(id), MF_BYCOMMAND);
+        QIQI_TEST_CHECK(state != UINT_MAX);
+        QIQI_TEST_CHECK(((state & MF_CHECKED) != 0) ==
+            (std::to_underlying(id) - std::to_underlying(ControlId::LanguageAuto) == std::to_underlying(language)));
+    }
     QIQI_TEST_CHECK(::PostMessageW(window, WM_CLOSE, 0, 0));
     QIQI_TEST_CHECK(::WaitForSingleObject(child.Get(), 10'000) == WAIT_OBJECT_0);
     DWORD exit = 1;
@@ -211,10 +237,12 @@ void TestRestartMonitorPlacement() {
         const auto expected = ComputeCenteredToolWindowRect(
             QueryMonitorForPoint(*launch_point), 1160, 780, ::GetDpiForWindow(window.Handle()));
         QIQI_TEST_CHECK(::EqualRect(&actual, &expected));
-        for (const ULONG error : {ERROR_CANCELLED, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS}) {
-            CheckElevatedLaunch(window.Handle(), error);
+        for (const auto language : {UiLanguage::Auto, UiLanguage::ZhCn, UiLanguage::EnUs}) {
+            for (const ULONG error : {ERROR_CANCELLED, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS}) {
+                CheckElevatedLaunch(window.Handle(), error, language);
+            }
+            TestStartupProcess(launch_parameters, monitor, language);
         }
-        TestStartupProcess(launch_parameters, monitor);
     }
     const POINT disconnected_point{LONG_MIN, LONG_MIN};
     MonitorWindow recovered;
@@ -298,12 +326,15 @@ void RunPermissionRecoveryTests() {
             }
         }
     }
-    for (const ULONG error : {ERROR_CANCELLED, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS}) {
-        CheckElevatedLaunch(nullptr, error);
+    for (const auto language : {UiLanguage::Auto, UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        for (const ULONG error : {ERROR_CANCELLED, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS}) {
+            CheckElevatedLaunch(nullptr, error, language);
+        }
     }
     QIQI_TEST_CHECK(SUCCEEDED(::CoInitializeEx(nullptr, COINIT_MULTITHREADED)));
     const auto uninitialize = gsl::finally([]() noexcept { ::CoUninitialize(); });
-    QIQI_TEST_CHECK(LaunchElevatedMonitor(nullptr, ExecuteElevated) == gsl::narrow_cast<ULONG>(RPC_E_CHANGED_MODE));
+    QIQI_TEST_CHECK(LaunchElevatedMonitor(nullptr, UiLanguage::Auto, ExecuteElevated) ==
+        gsl::narrow_cast<ULONG>(RPC_E_CHANGED_MODE));
 }
 
 void RunCaptureStartupRollbackTests() {

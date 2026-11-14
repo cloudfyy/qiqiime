@@ -90,9 +90,10 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
 MonitorWindow::MonitorWindow(CaptureStartApi api) : impl_(std::make_unique<Impl>(api)) { impl_->owner = this; }
 MonitorWindow::~MonitorWindow() noexcept = default;
 
-bool MonitorWindow::Create(HINSTANCE instance, std::optional<POINT> startup_point) {
+bool MonitorWindow::Create(HINSTANCE instance, std::optional<POINT> startup_point, UiLanguage language) {
     if (window_) return true;
     impl_->instance = instance;
+    impl_->ui_language = language;
     const INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     if (!::InitCommonControlsEx(&controls)) {
         impl_->Failure(L"InitCommonControlsEx", ERROR_DLL_INIT_FAILED);
@@ -122,8 +123,8 @@ bool MonitorWindow::Create(HINSTANCE instance, std::optional<POINT> startup_poin
 }
 
 int RunMonitor(HINSTANCE instance, int show, std::wstring_view command_line) {
-    std::optional<POINT> startup_point;
-    const ULONG error = ParseMonitorStartupPoint(command_line, startup_point);
+    MonitorStartupOptions startup;
+    const ULONG error = ParseMonitorStartupArguments(command_line, startup);
     if (error != ERROR_SUCCESS) {
         const bool english = ResolveUiLanguage(UiLanguage::Auto) == UiLanguage::EnUs;
         const auto message = std::format(L"{}\r\n{}={} (0x{:08X})",
@@ -134,7 +135,7 @@ int RunMonitor(HINSTANCE instance, int show, std::wstring_view command_line) {
         return 1;
     }
     MonitorWindow window;
-    if (!window.Create(instance, startup_point)) return 1;
+    if (!window.Create(instance, startup.point, startup.language)) return 1;
     return RunToolWindowMessageLoop(window.Handle(), show);
 }
 

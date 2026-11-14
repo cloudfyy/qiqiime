@@ -22,8 +22,12 @@ std::wstring FormatMonitorWindowTitle(UiLanguage language, bool elevated = IsMon
 std::wstring CapturePermissionMessage(UiLanguage language, bool has_captured_logs);
 HRESULT ConfirmElevatedRestart(HWND owner, UiLanguage language, const CaptureStartFailure& failure,
     bool& accepted, bool has_captured_logs = false);
-ULONG LaunchElevatedMonitor(HWND owner,
+ULONG LaunchElevatedMonitor(HWND owner, UiLanguage language,
     gsl::not_null<decltype(&::ShellExecuteExW)> execute = &::ShellExecuteExW);
-ULONG ParseMonitorStartupPoint(std::wstring_view command_line, std::optional<POINT>& point);
+struct MonitorStartupOptions {
+    std::optional<POINT> point;
+    UiLanguage language = UiLanguage::Auto;
+};
+ULONG ParseMonitorStartupArguments(std::wstring_view command_line, MonitorStartupOptions& options);
 
 } // namespace qiqi::monitor

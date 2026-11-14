@@ -239,7 +239,7 @@ bool MonitorWindow::Impl::RecoverCapturePermission(const CaptureStartFailure& fa
         return false;
     }
     if (!collector.Stop()) return false;
-    const ULONG error = LaunchElevatedMonitor(hwnd);
+    const ULONG error = LaunchElevatedMonitor(hwnd, ui_language);
     if (error == ERROR_CANCELLED) {
         diagnostics.Record(3, L"Elevated restart cancelled by Windows; original monitor and buffered logs retained", error);
         return false;
