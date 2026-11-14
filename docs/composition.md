@@ -5,6 +5,40 @@ contracts. The diagrams show control flow and ownership, not additional threads
 or a proposed coordinator. Use the [logging guide](log.md) for capture and the
 [development guide](dev.md#tsf-hang-diagnostics) for tests and hang diagnostics.
 
+## Contents
+
+- [Current Module Map](#current-module-map)
+- [1. Application Work vs. Old-Composition Cleanup](#1-application-work-vs-old-composition-cleanup)
+  - [Example: switching from input field A to B](#example-switching-from-input-field-a-to-b)
+- [2. Application Edit-Session Barrier](#2-application-edit-session-barrier)
+  - [Edit admission and execution](#edit-admission-and-execution)
+  - [Reset and preparation](#reset-and-preparation)
+  - [2.1 In-Flight Host Calls](#21-in-flight-host-calls)
+  - [2.2 Keyboard Event State](#22-keyboard-event-state)
+- [3. Cleanup State and Strong/Weak Ownership](#3-cleanup-state-and-strongweak-ownership)
+  - [Unpublished composition starts](#unpublished-composition-starts)
+- [4. Deactivation Algorithm and Request Results](#4-deactivation-algorithm-and-request-results)
+  - [4.1 Destroying UI Windows While Retaining UI Objects](#41-destroying-ui-windows-while-retaining-ui-objects)
+- [5. Key Execution Sequences](#5-key-execution-sequences)
+  - [5.1 Synchronous Success](#51-synchronous-success)
+  - [5.2 Synchronous Rejection and Asynchronous Recovery](#52-synchronous-rejection-and-asynchronous-recovery)
+  - [5.3 Immediate Reactivation on the Same Context](#53-immediate-reactivation-on-the-same-context)
+  - [5.4 Early Host Termination of the Old Composition](#54-early-host-termination-of-the-old-composition)
+- [6. Reentrancy Rules](#6-reentrancy-rules)
+  - [Activation cancellation](#activation-cancellation)
+  - [6.1 Candidate UI Registration and Withdrawal](#61-candidate-ui-registration-and-withdrawal)
+  - [6.2 Layout and Positioning](#62-layout-and-positioning)
+- [7. Log Protocol and Troubleshooting](#7-log-protocol-and-troubleshooting)
+- [8. Document and Context Notifications](#8-document-and-context-notifications)
+  - [8.1 The Context Identifies the Input Target](#81-the-context-identifies-the-input-target)
+  - [8.2 Reconciling Focus and Stack Changes](#82-reconciling-focus-and-stack-changes)
+  - [8.3 Reset Before Processing a New Target's Key](#83-reset-before-processing-a-new-targets-key)
+  - [8.4 Removal Is Not a New Write Opportunity](#84-removal-is-not-a-new-write-opportunity)
+  - [8.5 Additional Diagnostic Fields](#85-additional-diagnostic-fields)
+- [9. Validation and Remaining Boundaries](#9-validation-and-remaining-boundaries)
+  - [9.1 Regression Inventory](#91-regression-inventory)
+- [10. Official References](#10-official-references)
+
 ## Current Module Map
 
 | Surface | Implementation | Responsibility |
