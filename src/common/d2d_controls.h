@@ -6,6 +6,7 @@
 #include "common/config.h"
 #include "common/d2d_util.h"
 #include "common/monitor_dpi.h"
+#include "common/theme.h"
 
 #include <span>
 #include <optional>
@@ -29,6 +30,9 @@ struct FluentCardSpec {
 
 struct FluentD2DThemeContext {
     UINT dpi = 96;
+    DisplayPreferences display_preferences{};
+    DisplayAppearance appearance{};
+    bool clip_controls_to_dc = false;
     ScopedD2DFactory d2d_factory;
     ScopedDWriteFactory dwrite_factory;
     ScopedD2DDcTarget d2d_target;
@@ -40,6 +44,8 @@ struct FluentD2DThemeContext {
 
     int ScalePx(int px) const noexcept;
     float ScaleF(int px) const noexcept;
+    int ScaleDipPx(int px) const noexcept { return ScalePxByDpi(px, dpi); }
+    void SetDisplayPreferences(DisplayPreferences preferences) noexcept;
     void Init(UINT monitor_dpi) noexcept;
     void RefreshThemeBrushes() noexcept;
 };
@@ -58,15 +64,17 @@ void DrawFluentPushButton(
     const DRAWITEMSTRUCT& dis,
     const FluentD2DThemeContext& d2d,
     bool is_primary,
-    D2D1_COLOR_F outer_bg) noexcept;
+    D2D1_COLOR_F outer_bg, const wchar_t* disabled_suffix = nullptr) noexcept;
 
 void DrawFluentToggleOrRadioRow(
     const DRAWITEMSTRUCT& dis,
     const FluentD2DThemeContext& d2d,
-    bool is_radio) noexcept;
+    bool is_radio, const wchar_t* disabled_suffix = nullptr) noexcept;
 
 void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d2d) noexcept;
-void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeContext& d2d) noexcept;
+void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeContext& d2d,
+                           bool disabled = false, const wchar_t* disabled_suffix = nullptr) noexcept;
+RECT FluentToggleBounds(const RECT& row, const FluentD2DThemeContext& d2d) noexcept;
 void DrawFluentUnderlineStylePreview(
     const FluentD2DThemeContext& d2d,
     CompositionUnderlineStyle style,

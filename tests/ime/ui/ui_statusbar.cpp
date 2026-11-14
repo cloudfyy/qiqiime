@@ -466,7 +466,28 @@ void TestMultiMonitorAndPerMonitorDpi() {
     // Move near bottom-right of secondary monitor -> should flip above and clamp within [-1920..0, -1080..0]
     const RECT near_bottom_right{-50, -20, -10, -2};
     cand_ui->MoveWindowTo(near_bottom_right);
-    QIQI_TEST_CHECK(cand_ui->CurrentHeight() == ScalePxByDpi(CandidateUI::kPopupHeight, 144));
+    const auto check_candidate_bounds = [&](UINT dpi) {
+        RECT window{};
+        RECT client{};
+        QIQI_TEST_CHECK(::GetWindowRect(cand_ui->WindowHandle(), &window));
+        QIQI_TEST_CHECK(::GetClientRect(cand_ui->WindowHandle(), &client));
+        QIQI_TEST_CHECK(window.right - window.left == cand_ui->CurrentWidth() &&
+                        window.bottom - window.top == cand_ui->CurrentHeight());
+        QIQI_TEST_CHECK(window.left >= secondary_mon.work_area.left &&
+                        window.right <= secondary_mon.work_area.right &&
+                        window.top >= secondary_mon.work_area.top && window.bottom <= near_bottom_right.top);
+        QIQI_TEST_CHECK(cand_ui->CurrentWidth() >= ScalePxByDpi(CandidateUI::kPopupWidth, dpi));
+        QIQI_TEST_CHECK(cand_ui->ContentHeight() == cand_ui->CurrentHeight() && cand_ui->ScrollOffset() == 0);
+        for (size_t i = 0; i < 3; ++i) {
+            const RECT item = cand_ui->CandidateRect(i);
+            QIQI_TEST_CHECK(item.left >= client.left && item.top >= client.top &&
+                            item.right <= client.right && item.bottom <= client.bottom &&
+                            item.right > item.left && item.bottom > item.top);
+        }
+    };
+    check_candidate_bounds(144);
+    const int candidate_width_144 = cand_ui->CurrentWidth();
+    const int candidate_height_144 = cand_ui->CurrentHeight();
 
     // Also test WM_DPICHANGED with suggested RECT* on CandidateUI
     RECT suggested_cand{-1500, -800, -1000, -700};
@@ -476,7 +497,9 @@ void TestMultiMonitorAndPerMonitorDpi() {
             WM_DPICHANGED,
             MAKEWPARAM(192, 192),
             reinterpret_cast<LPARAM>(&suggested_cand));
-        QIQI_TEST_CHECK(cand_ui->CurrentHeight() == ScalePxByDpi(CandidateUI::kPopupHeight, 192));
+        check_candidate_bounds(192);
+        QIQI_TEST_CHECK(cand_ui->CurrentWidth() > candidate_width_144 &&
+                        cand_ui->CurrentHeight() > candidate_height_144);
     }
     cand_ui->DestroyPopupWindow();
     QIQI_TEST_CHECK(cand_ui.Detach()->Release() == 0);

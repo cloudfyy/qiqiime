@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <array>
 #include <cwchar>
+#include <string_view>
+#include "tools/settings/layout.h"
 
 namespace qiqi::settings_detail {
 namespace {
@@ -21,6 +23,81 @@ namespace layout = settings_layout;
 constexpr std::array<const wchar_t*, 9> kPageSizeLabels = {
     L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9"
 };
+
+struct DisplayLabels {
+    const wchar_t* theme;
+    const wchar_t* scale;
+    const wchar_t* easy;
+    const wchar_t* explanation;
+    const wchar_t* preview;
+    std::array<const wchar_t*, 4> themes;
+};
+constexpr DisplayLabels kDisplayZh{
+    L"主题", L"文字大小", L"关怀模式",
+    L"系统高对比度已启用，将优先使用 Windows 配色。",
+    L"候选窗预览\nwubi\n1 五笔\n2 输入\n3 你好\n上一页 / 下一页",
+    {L"跟随系统", L"明亮", L"深色", L"高对比度"}};
+constexpr DisplayLabels kDisplayEn{
+    L"Theme", L"Text size", L"Comfort mode",
+    L"Windows high contrast is active and overrides the selected theme.",
+    L"Candidate preview\nwubi\n1 五笔\n2 输入\n3 你好\nPrevious / Next",
+    {L"Follow Windows", L"Light", L"Dark", L"High contrast"}};
+constexpr std::array<const wchar_t*, 4> kTextScaleLabels{L"100%", L"125%", L"150%", L"200%"};
+
+const DisplayLabels& DisplayText(HWND hwnd, const DialogContext& ctx) noexcept {
+    return ResolveUiLanguage(GetSelectedUiLanguageFromCombo(hwnd, ctx)) == UiLanguage::EnUs
+        ? kDisplayEn : kDisplayZh;
+}
+
+LRESULT CALLBACK ScrollFocusSubclass(
+    HWND child, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) noexcept {
+    if (::GetDlgCtrlID(child) == kIdChkEasyReading &&
+        (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK || message == WM_LBUTTONUP)) {
+        const auto* ctx = reinterpret_cast<const DialogContext*>(
+            ::GetWindowLongPtrW(::GetParent(child), GWLP_USERDATA));
+        RECT client{};
+        if (!ctx || !::GetClientRect(child, &client)) {
+            QIQI_LOG_WARN("Settings comfort-mode hit bounds unavailable");
+            return 0;
+        }
+        const RECT toggle = FluentToggleBounds(client, ctx->d2d);
+        const POINT point = PointFromLParam(lparam);
+        if (!::PtInRect(&toggle, point)) {
+            if (message == WM_LBUTTONUP) ::SendMessageW(child, WM_CANCELMODE, 0, 0);
+            return 0;
+        }
+    }
+    if (::GetDlgCtrlID(child) == kIdComboUiTextScale && message == CB_SETCURSEL &&
+        wparam < static_cast<WPARAM>(UiTextScale::Percent150) &&
+        ::IsDlgButtonChecked(::GetParent(child), kIdChkEasyReading) == BST_CHECKED) {
+        return CB_ERR;
+    }
+    if (message == WM_KEYDOWN && wparam == VK_TAB) {
+        if ((::GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+            return ::SendMessageW(::GetParent(child), kSettingsCyclePage,
+                (::GetKeyState(VK_SHIFT) & 0x8000) != 0 ? 1 : 0, 0);
+        }
+        ::SetFocus(::GetNextDlgTabItem(::GetParent(child), child, (::GetKeyState(VK_SHIFT) & 0x8000) != 0));
+        return 0;
+    }
+    if (message == WM_KEYDOWN && (wparam == VK_RETURN || wparam == VK_ESCAPE)) {
+        std::array<wchar_t, 32> name{};
+        ::GetClassNameW(child, name.data(), gsl::narrow_cast<int>(name.size()));
+        if (_wcsicmp(name.data(), L"COMBOBOX") != 0 || !::SendMessageW(child, CB_GETDROPPEDSTATE, 0, 0)) {
+            const int command = wparam == VK_ESCAPE ? IDCANCEL :
+                (_wcsicmp(name.data(), L"BUTTON") == 0 ? ::GetDlgCtrlID(child) : IDOK);
+            return ::SendMessageW(::GetParent(child), WM_COMMAND, MAKEWPARAM(command, BN_CLICKED), 0);
+        }
+    }
+    if (message == WM_SETFOCUS) {
+        ::SendMessageW(::GetParent(child), kSettingsEnsureFocusVisible, reinterpret_cast<WPARAM>(child), 0);
+    } else if (message == WM_MOUSEWHEEL) {
+        return ::SendMessageW(::GetParent(child), message, wparam, lparam);
+    } else if (message == WM_NCDESTROY) {
+        ::RemoveWindowSubclass(child, ScrollFocusSubclass, id);
+    }
+    return ::DefSubclassProc(child, message, wparam, lparam);
+}
 
 struct SettingsRadioBinding {
     int control_id;
@@ -83,6 +160,254 @@ constexpr std::array<SettingsCheckboxBinding, 14> kSettingsCheckboxes = {{
 }};
 
 } // namespace
+
+void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept {
+    const auto& text = DisplayText(hwnd, ctx);
+    ::SetDlgItemTextW(hwnd, kIdLblUiTheme, text.theme);
+    ::SetDlgItemTextW(hwnd, kIdLblUiTextScale, text.scale);
+    ::SetDlgItemTextW(hwnd, kIdChkEasyReading, text.easy);
+    ::SetDlgItemTextW(hwnd, kIdDisplayExplanation, text.explanation);
+    ::SetDlgItemTextW(hwnd, kIdCandidatePreview, text.preview);
+    std::ignore = log::CheckHResult(
+        ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTheme), text.themes),
+        "Settings::ReplaceComboBoxItems(theme)");
+    UpdateSettingsTabLabels(hwnd, ctx);
+}
+
+void UpdateSettingsTabLabels(HWND hwnd, const DialogContext& ctx) noexcept {
+    const HWND tabs = ::GetDlgItem(hwnd, kIdSettingsTabs);
+    if (!tabs) return;
+    const bool english = ResolveUiLanguage(GetSelectedUiLanguageFromCombo(hwnd, ctx)) == UiLanguage::EnUs;
+    const LRESULT count = ::SendMessageW(tabs, TCM_GETITEMCOUNT, 0, 0);
+    for (size_t index = 0; index < kSettingsPageLabels.size(); ++index) {
+        const auto& label = gsl::at(kSettingsPageLabels, index);
+        std::array<wchar_t, 64> text{};
+        wcscpy_s(text.data(), text.size(), english ? label.en : label.zh);
+        TCITEMW item{};
+        item.mask = TCIF_TEXT;
+        item.pszText = text.data();
+        const bool insert = gsl::narrow_cast<LRESULT>(index) >= count;
+        const LRESULT result = ::SendMessageW(tabs, insert ? TCM_INSERTITEMW : TCM_SETITEMW,
+            index, reinterpret_cast<LPARAM>(&item));
+        if ((insert && result == -1) || (!insert && !result)) {
+            QIQI_LOG_WARN("Settings tab {} label update failed", index);
+        }
+    }
+    ::SendMessageW(tabs, TCM_SETCURSEL, static_cast<WPARAM>(ctx.active_page), 0);
+}
+
+namespace {
+
+void PaintSettingsTabs(HWND hwnd, HDC dc, const DialogContext& ctx) noexcept {
+    RECT client{};
+    if (!dc || !::GetClientRect(hwnd, &client)) return;
+    const ScopedSaveDC saved(dc);
+    const ScopedSelectObject font(dc, ctx.font.Get());
+    const auto& palette = ctx.d2d.appearance.palette;
+    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(palette.window_bg));
+    const ScopedGdiHandle<HBRUSH> selected(::CreateSolidBrush(palette.selection_bg));
+    const ScopedGdiHandle<HBRUSH> border(::CreateSolidBrush(palette.border_color));
+    if (!background || !selected || !border) {
+        QIQI_LOG_WARN("Settings tab brush creation failed (error={})", ::GetLastError());
+        return;
+    }
+    ::FillRect(dc, &client, background.Get());
+    ::SetBkMode(dc, TRANSPARENT);
+    const bool english = ResolveUiLanguage(GetSelectedUiLanguageFromCombo(::GetParent(hwnd), ctx)) == UiLanguage::EnUs;
+    for (size_t index = 0; index < kSettingsPageLabels.size(); ++index) {
+        RECT bounds{};
+        if (!::SendMessageW(hwnd, TCM_GETITEMRECT, index, reinterpret_cast<LPARAM>(&bounds))) {
+            QIQI_LOG_WARN("Settings tab {} bounds query failed", index);
+            continue;
+        }
+        const bool active = index == static_cast<size_t>(ctx.active_page);
+        ::FillRect(dc, &bounds, active ? selected.Get() : background.Get());
+        ::FrameRect(dc, &bounds, border.Get());
+        ::SetTextColor(dc, active ? palette.selection_text : palette.text_primary);
+        const auto& label = gsl::at(kSettingsPageLabels, index);
+        ::DrawTextW(dc, english ? label.en : label.zh, -1, &bounds, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        if (active && ::GetFocus() == hwnd) {
+            ::InflateRect(&bounds, -ctx.d2d.ScaleDipPx(3), -ctx.d2d.ScaleDipPx(3));
+            ::DrawFocusRect(dc, &bounds);
+        }
+    }
+}
+
+void PaintSettingsTabScroll(HWND hwnd, HDC dc, const DialogContext& ctx) noexcept {
+    RECT bounds{};
+    if (!dc || !::GetClientRect(hwnd, &bounds)) return;
+    const auto& palette = ctx.d2d.appearance.palette;
+    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(palette.window_bg));
+    const ScopedGdiHandle<HPEN> pen(::CreatePen(PS_SOLID, ctx.d2d.ScaleDipPx(2), palette.text_primary));
+    if (!background || !pen) {
+        QIQI_LOG_WARN("Settings tab scroll resources unavailable (error={})", ::GetLastError());
+        return;
+    }
+    const ScopedSelectObject selected(dc, pen.Get());
+    ::FillRect(dc, &bounds, background.Get());
+    const int half = bounds.right / 2;
+    const int y = bounds.bottom / 2;
+    const int offset = std::max(2, std::min(half, gsl::narrow_cast<int>(bounds.bottom)) / 5);
+    for (const int direction : {-1, 1}) {
+        const int x = direction < 0 ? half / 2 : half + half / 2;
+        ::MoveToEx(dc, x - direction * offset, y - offset, nullptr);
+        ::LineTo(dc, x + direction * offset, y);
+        ::LineTo(dc, x - direction * offset, y + offset);
+    }
+}
+
+} // namespace
+
+LRESULT CALLBACK SettingsTabSubclass(
+    HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data) noexcept {
+    const auto* ctx = reinterpret_cast<const DialogContext*>(data);
+    switch (message) {
+        case TCM_SETCURSEL: {
+            const LRESULT result = ::DefSubclassProc(hwnd, message, wparam, lparam);
+            // Native accessibility selection changes the index without TCN_SELCHANGE.
+            if (id == 3 && wparam < static_cast<WPARAM>(SettingsPage::Count) &&
+                wparam != static_cast<WPARAM>(ctx->active_page)) {
+                NMHDR notification{hwnd, kIdSettingsTabs, TCN_SELCHANGE};
+                ::SendMessageW(::GetParent(hwnd), WM_NOTIFY, kIdSettingsTabs,
+                               reinterpret_cast<LPARAM>(&notification));
+            }
+            return result;
+        }
+        case WM_ERASEBKGND: return 1;
+        case WM_PAINT: {
+            const ScopedPaintDC paint(hwnd);
+            if (id == 4) PaintSettingsTabScroll(hwnd, paint.Get(), *ctx);
+            else PaintSettingsTabs(hwnd, paint.Get(), *ctx);
+            return 0;
+        }
+        case WM_PRINTCLIENT:
+            if (id == 4) PaintSettingsTabScroll(hwnd, reinterpret_cast<HDC>(wparam), *ctx);
+            else PaintSettingsTabs(hwnd, reinterpret_cast<HDC>(wparam), *ctx);
+            return 0;
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+            break;
+        case WM_NCDESTROY:
+            ::RemoveWindowSubclass(hwnd, SettingsTabSubclass, id);
+            break;
+        default: break;
+    }
+    return ::DefSubclassProc(hwnd, message, wparam, lparam);
+}
+
+void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept {
+    QiQiConfig edited;
+    ReadSettingsFromWindowControls(hwnd, edited);
+    ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_SETCURSEL,
+                         static_cast<WPARAM>(edited.ui_text_scale), 0);
+    ctx.preview_theme = edited.ui_theme;
+    ctx.preview_scale = edited.ui_text_scale;
+    ctx.preview_easy_reading = edited.easy_reading;
+    ctx.d2d.SetDisplayPreferences({ctx.preview_theme, ctx.preview_scale, ctx.preview_easy_reading});
+    ApplyDisplayThemeToWindow(hwnd, ctx.d2d.appearance);
+    auto font = CreateUiFont(ctx.d2d.ScalePx(settings_layout::kFontSize),
+                             FW_NORMAL, CLEARTYPE_QUALITY);
+    if (font) {
+        ::EnumChildWindows(hwnd, [](HWND child, LPARAM handle) noexcept -> BOOL {
+            ::SendMessageW(child, WM_SETFONT, gsl::narrow_cast<WPARAM>(handle), FALSE);
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(font.Get()));
+        ctx.font = std::move(font);
+    } else {
+        QIQI_LOG_ERROR("Settings preview font creation failed (error={})", ::GetLastError());
+    }
+    UpdateSettingsDisplayLabels(hwnd, ctx);
+    LayoutSettingsControls(hwnd, ctx);
+    EnsureSettingsControlVisible(hwnd, ::GetFocus(), ctx);
+    ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+}
+
+namespace {
+
+template <typename PaintItem>
+int LayoutCandidatePreview(HDC dc, HWND preview, int width, const DialogContext& ctx, PaintItem paint_item) noexcept {
+    const ScopedSelectObject font(dc, ctx.font.Get());
+    const int inset = ctx.d2d.ScaleDipPx(12);
+    const int padding = ctx.d2d.ScaleDipPx(4);
+    const int gap = ctx.d2d.ScaleDipPx(8);
+    const int available = std::max(1, width - 2 * inset);
+    const int right = inset + available;
+    int x = inset;
+    int y = gap;
+    int row_bottom = y;
+    std::array<wchar_t, 256> label{};
+    const int length = ::GetWindowTextW(preview, label.data(), gsl::narrow_cast<int>(label.size()));
+    std::wstring_view remaining(label.data(), gsl::narrow_cast<size_t>(length));
+    int index = 0;
+    while (!remaining.empty()) {
+        const size_t newline = remaining.find(L'\n');
+        const std::wstring_view line(remaining.data(),
+            newline == std::wstring_view::npos ? remaining.size() : newline);
+        RECT measured{0, 0, std::max(1, available - 2 * padding), 0};
+        if (!::DrawTextW(dc, line.data(), gsl::narrow_cast<int>(line.size()), &measured,
+                         DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX)) {
+            QIQI_LOG_WARN("Settings preview text measurement failed");
+            return 0;
+        }
+        const int item_width = std::min(available, gsl::narrow_cast<int>(measured.right) + 2 * padding);
+        if (index == 1 || (x > inset && x + item_width > right)) {
+            y = row_bottom + padding;
+            x = inset;
+        }
+        if (index == 5) x = std::max(x, right - item_width);
+        const RECT bounds{x, y, x + item_width, y + measured.bottom + 2 * padding};
+        paint_item(line, bounds, index == 2);
+        row_bottom = std::max(row_bottom, gsl::narrow_cast<int>(bounds.bottom));
+        x = bounds.right + gap;
+        remaining.remove_prefix(newline == std::wstring_view::npos ? remaining.size() : newline + 1);
+        ++index;
+    }
+    return row_bottom + gap;
+}
+
+} // namespace
+
+int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogContext& ctx) noexcept {
+    const ScopedWindowDC dc(preview);
+    if (!dc) {
+        QIQI_LOG_WARN("Settings preview measurement DC acquisition failed");
+        return 0;
+    }
+    return LayoutCandidatePreview(dc.Get(), preview, width, ctx,
+        [](std::wstring_view, const RECT&, bool) noexcept {});
+}
+
+void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept {
+    const auto& palette = ctx.d2d.appearance.palette;
+    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(palette.window_bg));
+    const ScopedGdiHandle<HBRUSH> selection(::CreateSolidBrush(palette.selection_bg));
+    if (!background || !selection) {
+        QIQI_LOG_WARN("Settings preview brush creation failed (error={})", ::GetLastError());
+        return;
+    }
+    ::FillRect(item.hDC, &item.rcItem, background.Get());
+    ::FrameRect(item.hDC, &item.rcItem, selection.Get());
+    ::SetBkMode(item.hDC, TRANSPARENT);
+    const ScopedGdiHandle<HBRUSH> focus(::CreateSolidBrush(palette.focus_color));
+    if (!focus) {
+        QIQI_LOG_WARN("Settings preview focus brush creation failed (error={})", ::GetLastError());
+        return;
+    }
+    LayoutCandidatePreview(item.hDC, item.hwndItem, item.rcItem.right - item.rcItem.left, ctx,
+        [&](std::wstring_view line, const RECT& bounds, bool selected) noexcept {
+            RECT row = bounds;
+            ::OffsetRect(&row, item.rcItem.left, item.rcItem.top);
+            if (selected) {
+                ::FillRect(item.hDC, &row, selection.Get());
+                ::FrameRect(item.hDC, &row, focus.Get());
+            }
+            ::SetTextColor(item.hDC, selected ? palette.selection_text : palette.text_primary);
+            ::InflateRect(&row, -ctx.d2d.ScaleDipPx(4), -ctx.d2d.ScaleDipPx(4));
+            ::DrawTextW(item.hDC, line.data(), gsl::narrow_cast<int>(line.size()),
+                        &row, DT_WORDBREAK | DT_NOPREFIX);
+        });
+}
 
 UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept {
     const LRESULT lang_sel = ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_GETCURSEL, 0, 0);
@@ -177,6 +502,7 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_
         str.dlg_candidate_horizontal, str.dlg_candidate_vertical
     };
     replace_combo_items(kIdComboCandidateLayout, candidate_layout_items);
+    UpdateSettingsDisplayLabels(hwnd, ctx);
 
     struct LanguageUpdate {
         HWND owner;
@@ -199,6 +525,7 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_
         },
         reinterpret_cast<LPARAM>(&update));
     UpdateSettingsWindowTitle(hwnd, ctx);
+    LayoutSettingsControls(hwnd, ctx);
     ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
@@ -229,6 +556,11 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
 
     WriteSettingsToWindowControls(hwnd, merged_ui_cfg);
     ctx.baseline_config = external_cfg;
+    ctx.baseline_config.enable_jidian_extra =
+        external_cfg.primary_dict == PrimaryDict::Jidian && external_cfg.enable_jidian_extra;
+    if (external_cfg.easy_reading) {
+        ctx.baseline_config.ui_text_scale = std::max(external_cfg.ui_text_scale, UiTextScale::Percent150);
+    }
     if (ui_lang_follows_external) {
         ApplyLiveSettingsLanguage(hwnd, ctx);
     } else {
@@ -238,36 +570,26 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
 }
 
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept {
-    if (!ctx.d2d.d2d_target) {
+    std::ignore = hwnd;
+    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(ctx.d2d.appearance.palette.window_bg));
+    if (!background) {
+        QIQI_LOG_WARN("Settings background brush creation failed (error={})", ::GetLastError());
         return;
     }
-    const bool is_dark = IsSystemDarkTheme();
-    const auto S = [&ctx](int px) noexcept { return ctx.d2d.ScaleF(px); };
-    const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
-    const bool is_en = (ResolveUiLanguage(lang) == UiLanguage::EnUs);
-
-    const ScopedD2DDcDraw draw_guard(ctx.d2d.d2d_target.Get(), hdc, client_rc);
-    if (!draw_guard) {
-        return;
-    }
-    ctx.d2d.d2d_target->Clear(ColorRefToD2DColor(is_dark ? kDarkWindowBg : kLightCaptionBg));
-
-    const auto card_rect = [&S](const RECT& rect) noexcept {
-        return D2D1::RectF(S(rect.left), S(rect.top), S(rect.right), S(rect.bottom));
-    };
-    const std::array<FluentCardSpec, 4> cards = {{
-        {card_rect(layout::kDictionaryCard), L"词库方案", L"Dictionary"},
-        {card_rect(layout::kInputCard), L"编码与上屏习惯", L"Input & Commit Behavior"},
-        {card_rect(layout::kAppearanceCard), L"界面与外观", L"Appearance & Display"},
-        {card_rect(layout::kSoundCard), L"提示音与反馈", L"Sound & Feedback"},
-    }};
-    DrawFluentCardGroup(ctx.d2d, cards, is_en, is_dark);
+    ::FillRect(hdc, &client_rc, background.Get());
+    if (ctx.d2d.surface_brush) ::FillRect(hdc, &ctx.page_bounds, ctx.d2d.surface_brush.Get());
 }
 
 void UpdateExtraDictCheckboxState(HWND hwnd) noexcept {
     const bool is_jidian = (::IsDlgButtonChecked(hwnd, kIdRadioJidian) == BST_CHECKED);
     if (const HWND chk = ::GetDlgItem(hwnd, kIdChkExtraDict)) {
+        if (!is_jidian) {
+            ::CheckDlgButton(hwnd, kIdChkExtraDict, BST_UNCHECKED);
+        }
         ::EnableWindow(chk, is_jidian ? TRUE : FALSE);
+    }
+    if (const HWND browse = ::GetDlgItem(hwnd, kIdBtnBrowsePrimaryDict)) {
+        ::EnableWindow(browse, ::IsDlgButtonChecked(hwnd, kIdRadioCustom) == BST_CHECKED);
     }
     const LRESULT underline_sel = ::SendDlgItemMessageW(hwnd, kIdComboUnderlineStyle, CB_GETCURSEL, 0, 0);
     const bool has_underline =
@@ -283,10 +605,25 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     const auto& str = GetUiStrings(ctx.config ? ctx.config->ui_language : UiLanguage::Auto);
     const auto create_control = [&](const wchar_t* cls, const wchar_t* text, DWORD style,
                                     const RECT& rect, int id, DWORD_PTR group = 0) noexcept {
+        // Route page labels through the same viewport clipping as other owner-drawn controls.
+        if (_wcsicmp(cls, L"STATIC") == 0) {
+            style = (style & ~SS_TYPEMASK) | SS_OWNERDRAW;
+        }
         return CreateFluentChildControl(
             hwnd, instance, f, &ctx.d2d, cls, text, style,
             S(rect.left), S(rect.top), S(rect.right - rect.left), S(rect.bottom - rect.top), id, group);
     };
+
+    INITCOMMONCONTROLSEX common_controls{sizeof(INITCOMMONCONTROLSEX), ICC_TAB_CLASSES | ICC_BAR_CLASSES};
+    if (!::InitCommonControlsEx(&common_controls)) {
+        QIQI_LOG_ERROR("Settings tab/scrollbar class initialization failed");
+    }
+    const HWND tabs = create_control(WC_TABCONTROLW, L"", TCS_FIXEDWIDTH | WS_TABSTOP,
+                                    RECT{0, 0, 100, 40}, kIdSettingsTabs);
+    if (tabs && !::SetWindowSubclass(tabs, SettingsTabSubclass, 3, reinterpret_cast<DWORD_PTR>(&ctx))) {
+        QIQI_LOG_ERROR("Settings tab subclass installation failed (error={})", ::GetLastError());
+    }
+    create_control(L"SCROLLBAR", L"", SBS_VERT, RECT{0, 0, 20, 100}, kIdPageScroll);
 
     constexpr DWORD_PTR radio_group = MAKELONG(kIdRadioJidian, kIdRadioCustom);
     for (const auto& radio : kSettingsDictRadios) {
@@ -298,7 +635,7 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
                    layout::kBrowseDictionary, kIdBtnBrowsePrimaryDict);
     create_control(L"STATIC",
         ResolveDictionaryPathDisplayText(ctx.custom_primary_dict_path, str.dlg_lbl_custom_dict_none),
-        SS_LEFTNOWORDWRAP | SS_PATHELLIPSIS, layout::kDictionaryPath, kIdLblCustomPrimaryPath);
+        SS_LEFT, layout::kDictionaryPath, kIdLblCustomPrimaryPath);
 
     for (const auto& binding : kSettingsCheckboxes) {
         create_control(L"BUTTON", str.*(binding.label_field), BS_AUTOCHECKBOX,
@@ -357,6 +694,24 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
                    layout::kRestoreDefaultsButton, kIdBtnRestoreDefaults);
     create_control(L"BUTTON", str.dlg_btn_ok, button_style, layout::kOkButton, kIdBtnOk);
     create_control(L"BUTTON", str.dlg_btn_cancel, button_style, layout::kCancelButton, kIdBtnCancel);
+    const RECT initial{0, 0, 100, 40};
+    create_control(L"STATIC", L"", 0, initial, kIdLblUiTheme);
+    create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboUiTheme);
+    create_control(L"STATIC", L"", 0, initial, kIdLblUiTextScale);
+    create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboUiTextScale);
+    create_control(L"BUTTON", L"", BS_AUTOCHECKBOX, initial, kIdChkEasyReading);
+    create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdCandidatePreview);
+    create_control(L"STATIC", L"", 0, initial, kIdDisplayExplanation);
+    std::ignore = log::CheckHResult(
+        ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTextScale), kTextScaleLabels),
+        "Settings::ReplaceComboBoxItems(text scale)");
+    UpdateSettingsDisplayLabels(hwnd, ctx);
+    ::EnumChildWindows(hwnd, [](HWND child, LPARAM) noexcept -> BOOL {
+        if (!::SetWindowSubclass(child, ScrollFocusSubclass, 1, 0)) {
+            QIQI_LOG_WARN("Settings focus subclass failed (error={})", ::GetLastError());
+        }
+        return TRUE;
+    }, 0);
 }
 
 } // namespace qiqi::settings_detail
@@ -369,6 +724,12 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
     if (auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
         try {
             ctx->baseline_config = config;
+            // Inactive legacy Extra preferences must not make a freshly loaded window dirty.
+            ctx->baseline_config.enable_jidian_extra =
+                config.primary_dict == PrimaryDict::Jidian && config.enable_jidian_extra;
+            if (config.easy_reading) {
+                ctx->baseline_config.ui_text_scale = std::max(config.ui_text_scale, UiTextScale::Percent150);
+            }
             ctx->custom_primary_dict_path = config.primary_dict_path;
         } catch (const std::bad_alloc&) {
             QIQI_LOG_WARN("WriteSettingsToWindowControls: failed to copy configuration strings");
@@ -419,8 +780,14 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
         hwnd, kIdComboUnderlineStyle, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(underline_idx), 0);
     ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_SETCURSEL,
         config.commit_on_english_switch ? 0 : 1, 0);
+    ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_SETCURSEL, static_cast<WPARAM>(config.ui_theme), 0);
+    ::CheckDlgButton(hwnd, kIdChkEasyReading, config.easy_reading ? BST_CHECKED : BST_UNCHECKED);
+    const UiTextScale scale = config.easy_reading
+        ? std::max(config.ui_text_scale, UiTextScale::Percent150) : config.ui_text_scale;
+    ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_SETCURSEL, static_cast<WPARAM>(scale), 0);
     UpdateExtraDictCheckboxState(hwnd);
-    if (const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+    if (auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+        ApplySettingsDisplayPreview(hwnd, *ctx);
         UpdateSettingsWindowTitle(hwnd, *ctx);
     }
 }
@@ -471,6 +838,14 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     const LRESULT english_switch_sel = ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_GETCURSEL, 0, 0);
     if (english_switch_sel == 0 || english_switch_sel == 1) {
         config.commit_on_english_switch = (english_switch_sel == 0);
+    }
+    const LRESULT theme = ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_GETCURSEL, 0, 0);
+    const LRESULT scale = ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_GETCURSEL, 0, 0);
+    if (theme >= 0 && theme < 4) config.ui_theme = static_cast<UiTheme>(theme);
+    if (scale >= 0 && scale < 4) config.ui_text_scale = static_cast<UiTextScale>(scale);
+    config.easy_reading = ::IsDlgButtonChecked(hwnd, kIdChkEasyReading) == BST_CHECKED;
+    if (config.easy_reading && config.ui_text_scale < UiTextScale::Percent150) {
+        config.ui_text_scale = UiTextScale::Percent150;
     }
 }
 

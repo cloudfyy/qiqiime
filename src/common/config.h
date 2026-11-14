@@ -43,6 +43,26 @@ enum class CandidateLayout {
     Vertical
 };
 
+enum class UiTheme { System, Light, Dark, HighContrast };
+enum class UiTextScale { Percent100, Percent125, Percent150, Percent200 };
+
+struct DisplayPreferences {
+    UiTheme theme = UiTheme::System;
+    UiTextScale text_scale = UiTextScale::Percent100;
+    bool easy_reading = false;
+
+    bool operator==(const DisplayPreferences&) const noexcept = default;
+};
+
+constexpr int TextScalePercent(UiTextScale scale) noexcept {
+    switch (scale) {
+        case UiTextScale::Percent125: return 125;
+        case UiTextScale::Percent150: return 150;
+        case UiTextScale::Percent200: return 200;
+        default: return 100;
+    }
+}
+
 struct QiQiConfig {
     // [dictionary]
     PrimaryDict primary_dict = PrimaryDict::Jidian;
@@ -73,7 +93,14 @@ struct QiQiConfig {
     UiLanguage ui_language = UiLanguage::Auto;
     CompositionUnderlineStyle underline_style = CompositionUnderlineStyle::Dot;
     bool bold_underline = false;
+    UiTheme ui_theme = UiTheme::System;
+    UiTextScale ui_text_scale = UiTextScale::Percent100;
+    bool easy_reading = false;
 };
+
+constexpr DisplayPreferences GetDisplayPreferences(const QiQiConfig& config) noexcept {
+    return {config.ui_theme, config.ui_text_scale, config.easy_reading};
+}
 
 template <typename T>
 struct ConfigField {
@@ -144,7 +171,10 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"up_down_page_turn", L"UpDownPageTurn", &QiQiConfig::up_down_page_turn, 0, 1, true},
     ConfigField{"ui_language", L"UiLanguage", &QiQiConfig::ui_language, 0, 2, true},
     ConfigField{"underline_style", L"UnderlineStyle", &QiQiConfig::underline_style, 0, 4, true},
-    ConfigField{"bold_underline", L"BoldUnderline", &QiQiConfig::bold_underline, 0, 1, true}
+    ConfigField{"bold_underline", L"BoldUnderline", &QiQiConfig::bold_underline, 0, 1, true},
+    ConfigField{"ui_theme", L"UiTheme", &QiQiConfig::ui_theme, 0, 3, true},
+    ConfigField{"ui_text_scale", L"UiTextScale", &QiQiConfig::ui_text_scale, 0, 3, true},
+    ConfigField{"easy_reading", L"EasyReading", &QiQiConfig::easy_reading, 0, 1, true}
 };
 
 template <typename Visitor>

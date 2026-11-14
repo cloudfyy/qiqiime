@@ -386,6 +386,54 @@ commitment or a dated execution order:
 
 ### Tracked follow-up
 
+- [ ] High priority: add an independent prefix-completion setting.
+  Preserve the current enabled default. When disabled, show only exact code
+  matches while retaining valid short-code candidates. Persist the setting,
+  expose it in the settings UI, and add focused lookup/configuration tests.
+  Prioritize this task over the short-code and single-character controls below.
+
+- [ ] Lower priority: add short-code control / full-code practice mode.
+  Confirm the intended behavior before implementation, including whether
+  incomplete-code hints remain visible and how custom short codes are handled.
+  If full-code-only mode is chosen, prevent short-code commits through every
+  selection path and identify actual complete codes rather than requiring four
+  letters universally. Keep this separate from prefix completion, preserve
+  dictionary files, and add focused lookup and commit-path tests.
+
+- [ ] Lower priority: add an optional single-character-only candidate mode.
+  Keep the mode disabled by default. Filter multi-character Wubi dictionary
+  candidates without modifying dictionary files or affecting punctuation and
+  temporary English. Confirm how user-defined phrases are handled before
+  implementation. Keep this independent of short-code control, prefix completion,
+  dynamic phrase ordering, and automatic phrase creation. Persist the setting,
+  expose it in the settings UI, and add focused filtering and commit tests,
+  including the effect on unique full-code auto-commit.
+
+- [ ] Add an optional CapsLock Chinese/English mode-switch setting.
+  Preserve CapsLock English pass-through as the default. Reuse the shared mode
+  switching path and intercept CapsLock in the optional mode so switching does
+  not also toggle the OS uppercase lock. Confirm pending-composition behavior
+  and handling of an already-enabled OS CapsLock state before implementation.
+  Persist the setting and expose it in the settings UI. Keep TSF compartments
+  and mode indicators synchronized, preserve restricted-input behavior, and
+  add focused tests for prediction callbacks, key repeat, composition handling,
+  and both CapsLock modes.
+
+- [ ] Add a persisted three-option Space/Enter behavior setting for Wubi composition.
+  Expose mutually exclusive options in the settings UI with these labels:
+  - "空格选字，回车输出编码" (default): Space commits the highlighted
+    candidate; Enter commits the raw code.
+  - "空格选字，回车清码": Space commits the highlighted candidate;
+    Enter cancels the current composition.
+  - "回车选字，空格清码": Enter commits the highlighted candidate;
+    Space cancels the current composition.
+  Preserve existing defaults, including the current empty-code clearing option.
+  Define no-candidate behavior and interaction with that option before
+  implementation. Keep Esc cancellation, temporary English, and keys outside
+  Wubi composition unchanged. Add focused configuration, prediction, and
+  key-handling tests for all three options, including highlighted selection
+  and no-candidate cases.
+
 - [ ] Measure input-path allocation pressure and deferred edit-session retention.
   Count allocations and allocated bytes per key/edit request, including result
   snapshot copies and stored callbacks; measure snapshot size and requeue counts.

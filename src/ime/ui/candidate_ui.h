@@ -4,6 +4,7 @@
 #pragma once
 #include <windows.h>
 #include <msctf.h>
+#include <gsl/gsl>
 #include <wrl/client.h>
 #include <atomic>
 #include <functional>
@@ -16,6 +17,7 @@
 #include "common/d2d_util.h"
 #include "common/monitor_dpi.h"
 #include "common/scoped_handle.h"
+#include "common/theme.h"
 #include "common/win32_ui_util.h"
 
 namespace qiqi {
@@ -72,16 +74,26 @@ public:
 
     void MoveWindowTo(const RECT& text_rect, HWND host_window = nullptr);
     void SetLayout(CandidateLayout layout);
+    void SetDisplayPreferences(DisplayPreferences preferences);
+    void SetDisplayPreferences(UiTheme theme, UiTextScale scale, bool easy_reading) {
+        SetDisplayPreferences(DisplayPreferences{theme, scale, easy_reading});
+    }
+    const DisplayAppearance& Appearance() const noexcept { return appearance_; }
     bool DestroyPopupWindow() noexcept;
     void SetPresentationEnabled(bool enabled) noexcept { presentation_enabled_ = enabled; }
 
     void SetSelectCallback(SelectCallback cb) noexcept { select_callback_ = std::move(cb); }
     void SetPageTurnCallback(PageTurnCallback cb) noexcept { page_turn_callback_ = std::move(cb); }
-    void SetUiLanguage(UiLanguage lang) noexcept { ui_language_ = lang; }
+    void SetUiLanguage(UiLanguage lang);
     int CurrentWidth() const noexcept { return popup_width_; }
     int CurrentHeight() const noexcept { return popup_height_; }
-    RECT PrevPageButtonRect() const noexcept { return prev_page_hit_rect_; }
-    RECT NextPageButtonRect() const noexcept { return next_page_hit_rect_; }
+    RECT PrevPageButtonRect() const noexcept { return ViewportRect(prev_page_hit_rect_); }
+    RECT NextPageButtonRect() const noexcept { return ViewportRect(next_page_hit_rect_); }
+    RECT CandidateRect(size_t index) const noexcept {
+        return index < candidate_hit_rects_.size() ? ViewportRect(gsl::at(candidate_hit_rects_, index)) : RECT{};
+    }
+    int ContentHeight() const noexcept { return content_height_; }
+    int ScrollOffset() const noexcept { return scroll_offset_; }
     HWND WindowHandle() const noexcept { return hwnd_.Get(); }
 
     DWORD UiElementId() const noexcept { return ui_element_id_; }
@@ -90,14 +102,28 @@ public:
     void DisableDirect2DForTest() noexcept { d2d_dc_target_.Reset(); }
 
 private:
+    struct PaintItem {
+        RECT rect{};
+        std::wstring text;
+        bool selected = false;
+        bool accent = false;
+        bool enabled = true;
+        bool centered = false;
+    };
+    std::vector<PaintItem> BuildPaintItems() const;
     int ScaleByDpi(int px) const noexcept { return ScalePxByDpi(px, dpi_); }
+    int ScaleText(int px) const noexcept { return ScaleDisplayPx(px, dpi_, preferences_.text_scale); }
     void InitDirect2DAndDirectWrite() noexcept;
     void UpdateDpiAndFont(UINT new_dpi) noexcept;
     int MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const noexcept;
+    std::wstring WrapText(HDC dc, std::wstring_view text, int width) const;
     std::wstring FormatHeaderText() const;
     std::wstring FormatCandidateLabel(size_t index_in_page, std::wstring_view candidate_text) const;
     void RecalculatePopupLayout();
     void RefreshPopupLayout(UINT dpi = 0);
+    RECT ViewportRect(RECT rect) const noexcept;
+    void ScrollContent(int position);
+    void UpdateScrollBar() const noexcept;
     void OnLeftButtonDown(POINT pt) const;
     bool EnsurePopupWindow() noexcept;
     void LogPopupVisibility() const noexcept;
@@ -125,8 +151,25 @@ private:
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;
     std::vector<RECT> candidate_hit_rects_;
+    std::vector<std::wstring> candidate_labels_;
+    std::wstring header_label_;
+    std::wstring prev_page_label_;
+    std::wstring next_page_label_;
+    std::wstring empty_label_;
+    RECT empty_rect_{};
+    RECT header_rect_{};
     RECT prev_page_hit_rect_{};
     RECT next_page_hit_rect_{};
+    int available_width_ = 1280;
+    int available_height_ = 720;
+    int content_height_ = kPopupHeight;
+    int scroll_offset_ = 0;
+    int wheel_delta_ = 0;
+    int line_height_ = 24;
+    int content_width_ = kPopupWidth;
+    int font_scale_percent_ = 0;
+    DisplayPreferences preferences_{};
+    DisplayAppearance appearance_{};
     size_t page_size_ = 5;
     size_t current_page_ = 0;
     size_t selected_in_page_ = 0;

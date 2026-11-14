@@ -8,6 +8,7 @@
 #include "common/win32_ui_util.h"
 
 #include <commctrl.h>
+#include <algorithm>
 #include <array>
 #include <gsl/gsl>
 #include <cwchar>
@@ -28,7 +29,6 @@ constexpr int kCardAccentRadius = 2;
 constexpr int kCardHeaderLeftInset = 24;
 constexpr int kCardHeaderTopOffset = 9;
 constexpr int kCardHeaderRightInset = 12;
-constexpr int kCardHeaderBottomOffset = 29;
 constexpr int kButtonCornerRadius = 6;
 constexpr int kRadioOuterRadius = 8;
 constexpr int kRadioCenterX = 10;
@@ -56,6 +56,29 @@ constexpr int kComboItemPreviewLeftInset = 68;
 constexpr int kComboItemPreviewRightInset = 10;
 constexpr float kComboItemTextLeftInsetPx = 6.0f;
 constexpr float kComboItemTextRightInsetPx = 4.0f;
+
+ScopedGdiHandle<HBRUSH> CreateThemeBrush(COLORREF color) noexcept {
+    ScopedGdiHandle<HBRUSH> brush(::CreateSolidBrush(color));
+    if (!brush) QIQI_LOG_ERROR("Fluent CreateSolidBrush failed (error={})", ::GetLastError());
+    return brush;
+}
+
+COLORREF DisabledControlText(const FluentD2DThemeContext& theme) noexcept {
+    if (theme.appearance.system_high_contrast) return ::GetSysColor(COLOR_GRAYTEXT);
+    return theme.appearance.high_contrast ? theme.appearance.palette.text_secondary : RGB(145, 145, 145);
+}
+
+template <size_t N>
+void AppendDisabledSuffix(std::array<wchar_t, N>& text, const wchar_t* suffix) noexcept {
+    if (!suffix) return;
+    const size_t length = std::wcslen(text.data());
+    const size_t extra = std::wcslen(suffix);
+    if (length + extra >= N) {
+        QIQI_LOG_WARN("Fluent disabled-status label exceeds text buffer");
+        return;
+    }
+    std::copy_n(suffix, extra + 1, text.data() + length);
+}
 }
 
 void SetHighContrastOverrideForTest(std::optional<bool> enabled) noexcept {
@@ -77,10 +100,10 @@ HBRUSH ApplyFluentControlColors(HDC dc, const FluentD2DThemeContext& theme, bool
         ::SetBkMode(dc, input ? OPAQUE : TRANSPARENT);
         return ::GetSysColorBrush(input ? COLOR_WINDOW : COLOR_BTNFACE);
     }
-    const bool dark = IsSystemDarkTheme();
-    ::SetTextColor(dc, dark ? kDarkTextColor : kLightTextColor);
+    const auto& palette = theme.appearance.palette;
+    ::SetTextColor(dc, palette.text_primary);
     if (input) {
-        ::SetBkColor(dc, dark ? RGB(54, 58, 68) : RGB(255, 255, 255));
+        ::SetBkColor(dc, palette.input_bg);
     } else {
         ::SetBkMode(dc, TRANSPARENT);
     }
@@ -89,11 +112,20 @@ HBRUSH ApplyFluentControlColors(HDC dc, const FluentD2DThemeContext& theme, bool
 }
 
 int FluentD2DThemeContext::ScalePx(int px) const noexcept {
-    return ScalePxByDpi(px, dpi);
+    return ScaleDisplayPx(px, dpi, display_preferences.text_scale);
 }
 
 float FluentD2DThemeContext::ScaleF(int px) const noexcept {
     return static_cast<float>(ScalePx(px));
+}
+
+void FluentD2DThemeContext::SetDisplayPreferences(DisplayPreferences preferences) noexcept {
+    if (display_preferences == preferences) {
+        RefreshThemeBrushes();
+        return;
+    }
+    display_preferences = preferences;
+    Init(dpi);
 }
 
 void FluentD2DThemeContext::Init(UINT monitor_dpi) noexcept {
@@ -121,7 +153,7 @@ void FluentD2DThemeContext::Init(UINT monitor_dpi) noexcept {
         if (fmt_body) {
             std::ignore = log::CheckHResult(fmt_body->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
                                            "Fluent::SetParagraphAlignment(body)");
-            std::ignore = log::CheckHResult(fmt_body->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP),
+            std::ignore = log::CheckHResult(fmt_body->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP),
                                            "Fluent::SetWordWrapping(body)");
         }
         if (fmt_btn) {
@@ -129,7 +161,7 @@ void FluentD2DThemeContext::Init(UINT monitor_dpi) noexcept {
                                            "Fluent::SetTextAlignment(button)");
             std::ignore = log::CheckHResult(fmt_btn->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
                                            "Fluent::SetParagraphAlignment(button)");
-            std::ignore = log::CheckHResult(fmt_btn->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP),
+            std::ignore = log::CheckHResult(fmt_btn->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP),
                                            "Fluent::SetWordWrapping(button)");
         }
     }
@@ -137,30 +169,26 @@ void FluentD2DThemeContext::Init(UINT monitor_dpi) noexcept {
 }
 
 void FluentD2DThemeContext::RefreshThemeBrushes() noexcept {
-    const bool is_dark = IsSystemDarkTheme();
-    surface_brush.Reset(::CreateSolidBrush(IsHighContrastEnabled() ? ::GetSysColor(COLOR_BTNFACE) :
-        (is_dark ? RGB(43, 46, 52) : RGB(255, 255, 255))));
-    input_brush.Reset(::CreateSolidBrush(IsHighContrastEnabled() ? ::GetSysColor(COLOR_WINDOW) :
-        (is_dark ? RGB(54, 58, 68) : RGB(255, 255, 255))));
-    if (!surface_brush || !input_brush) {
-        QIQI_LOG_ERROR("Fluent theme brush creation failed (error={})", ::GetLastError());
-    }
+    appearance = ResolveDisplayAppearance(display_preferences);
+    surface_brush = CreateThemeBrush(appearance.palette.surface_bg);
+    input_brush = CreateThemeBrush(appearance.palette.input_bg);
 }
 
 void DrawFluentCardGroup(
     const FluentD2DThemeContext& d2d,
     std::span<const FluentCardSpec> cards,
     bool is_en,
-    bool is_dark) noexcept {
+    bool /*is_dark*/) noexcept {
     if (!d2d.d2d_target) {
         return;
     }
+    const auto& palette = d2d.appearance.palette;
     const auto card_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255));
+        d2d.d2d_target.Get(), ColorRefToD2DColor(palette.surface_bg));
     const auto border_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? ColorRefToD2DColor(kDarkDividerColor) : MakeD2DColor(222, 227, 236));
+        d2d.d2d_target.Get(), ColorRefToD2DColor(palette.border_color));
     const auto accent_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(76, 160, 255) : MakeD2DColor(0, 103, 192));
+        d2d.d2d_target.Get(), ColorRefToD2DColor(palette.text_accent));
     const float radius = d2d.ScaleF(kCardCornerRadius);
 
     for (const auto& card : cards) {
@@ -184,8 +212,10 @@ void DrawFluentCardGroup(
             const wchar_t* hdr = is_en ? card.title_en : card.title_zh;
             if (hdr) {
                 const D2D1_RECT_F hdr_rc = D2D1::RectF(
-                    card.rect.left + d2d.ScaleF(kCardHeaderLeftInset), card.rect.top + d2d.ScaleF(kCardHeaderTopOffset),
-                    card.rect.right - d2d.ScaleF(kCardHeaderRightInset), card.rect.top + d2d.ScaleF(kCardHeaderBottomOffset));
+                    card.rect.left + static_cast<float>(d2d.ScaleDipPx(kCardHeaderLeftInset)),
+                    card.rect.top + static_cast<float>(d2d.ScaleDipPx(kCardHeaderTopOffset)),
+                    card.rect.right - static_cast<float>(d2d.ScaleDipPx(kCardHeaderRightInset)),
+                    card.rect.bottom - static_cast<float>(d2d.ScaleDipPx(kCardHeaderRightInset)));
                 d2d.d2d_target->DrawTextW(
                     hdr, gsl::narrow_cast<UINT32>(wcslen(hdr)), d2d.fmt_caption.Get(), hdr_rc, accent_brush.Get());
             }
@@ -197,31 +227,38 @@ void DrawFluentPushButton(
     const DRAWITEMSTRUCT& dis,
     const FluentD2DThemeContext& d2d,
     bool is_primary,
-    D2D1_COLOR_F outer_bg) noexcept {
+    D2D1_COLOR_F outer_bg, const wchar_t* disabled_suffix) noexcept {
     if (!dis.hDC) {
         return;
     }
-    if (IsHighContrastEnabled() || !d2d.d2d_target || !d2d.fmt_btn) {
+    const auto& palette = d2d.appearance.palette;
+    const bool is_enabled = ::IsWindowEnabled(dis.hwndItem) != FALSE;
+    const COLORREF disabled_text = DisabledControlText(d2d);
+    if (d2d.appearance.system_high_contrast || !d2d.d2d_target || !d2d.fmt_btn) {
         const ScopedSaveDC saved(dis.hDC);
         const auto font = reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0));
         const ScopedSelectObject selected_font(dis.hDC, font);
         RECT rect = dis.rcItem;
-        ::DrawFrameControl(dis.hDC, &rect, DFC_BUTTON,
-            DFCS_BUTTONPUSH | ((dis.itemState & ODS_SELECTED) ? DFCS_PUSHED : 0) |
-            ((dis.itemState & ODS_DISABLED) ? DFCS_INACTIVE : 0));
+        const auto background = CreateThemeBrush(is_primary && is_enabled ? palette.selection_bg : palette.surface_bg);
+        const auto border = CreateThemeBrush(palette.border_color);
+        if (background) ::FillRect(dis.hDC, &rect, background.Get());
+        if (border && (is_enabled || !d2d.appearance.high_contrast)) ::FrameRect(dis.hDC, &rect, border.Get());
         std::array<wchar_t, kFallbackButtonTextCapacity> text{};
         ::GetWindowTextW(dis.hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
-        ::SetTextColor(dis.hDC, ::GetSysColor((dis.itemState & ODS_DISABLED) ? COLOR_GRAYTEXT : COLOR_BTNTEXT));
+        if (!is_enabled && d2d.appearance.high_contrast) AppendDisabledSuffix(text, disabled_suffix);
+        ::SetTextColor(dis.hDC, !is_enabled ? disabled_text :
+            (is_primary ? palette.selection_text : palette.text_primary));
         ::SetBkMode(dis.hDC, TRANSPARENT);
-        ::DrawTextW(dis.hDC, text.data(), -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        if (dis.itemState & ODS_FOCUS) {
+        ::InflateRect(&rect, -4, -4);
+        ::DrawTextW(dis.hDC, text.data(), -1, &rect, DT_CENTER | DT_WORDBREAK);
+        if (is_enabled && (dis.itemState & ODS_FOCUS)) {
             ::InflateRect(&rect, -3, -3);
             ::DrawFocusRect(dis.hDC, &rect);
         }
         return;
     }
-    const bool is_dark = IsSystemDarkTheme();
-    const bool is_pressed = (dis.itemState & ODS_SELECTED) != 0;
+    const bool is_dark = palette.is_dark;
+    const bool is_pressed = is_enabled && (dis.itemState & ODS_SELECTED) != 0;
 
     D2D1_COLOR_F fill_col{};
     D2D1_COLOR_F border_col{};
@@ -239,6 +276,16 @@ void DrawFluentPushButton(
         border_col = MakeD2DColor(204, 210, 220);
         text_col = ColorRefToD2DColor(kLightTextColor);
     }
+    if (d2d.appearance.high_contrast) {
+        fill_col = ColorRefToD2DColor(is_primary ? palette.selection_bg : palette.surface_bg);
+        border_col = ColorRefToD2DColor(palette.border_color);
+        text_col = ColorRefToD2DColor(is_primary ? palette.selection_text : palette.text_primary);
+    }
+    if (!is_enabled) {
+        fill_col = ColorRefToD2DColor(palette.surface_bg);
+        border_col = ColorRefToD2DColor(palette.border_color);
+        text_col = ColorRefToD2DColor(disabled_text);
+    }
 
     const D2D1_RECT_F rc = D2D1::RectF(
         1.0f, 1.0f,
@@ -246,7 +293,7 @@ void DrawFluentPushButton(
         static_cast<float>(dis.rcItem.bottom - dis.rcItem.top) - 1.0f);
     const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(rc, d2d.ScaleF(kButtonCornerRadius), d2d.ScaleF(kButtonCornerRadius));
 
-    const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem);
+    const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem, nullptr, d2d.clip_controls_to_dc);
     if (!draw_guard) {
         return;
     }
@@ -258,12 +305,13 @@ void DrawFluentPushButton(
     if (fill_brush) {
         d2d.d2d_target->FillRoundedRectangle(rr, fill_brush.Get());
     }
-    if (border_brush) {
+    if (border_brush && (is_enabled || !d2d.appearance.high_contrast)) {
         d2d.d2d_target->DrawRoundedRectangle(rr, border_brush.Get(), 1.0f);
     }
 
     std::array<wchar_t, kButtonTextCapacity> btn_text{};
     ::GetWindowTextW(dis.hwndItem, btn_text.data(), gsl::narrow_cast<int>(btn_text.size()));
+    if (!is_enabled && d2d.appearance.high_contrast) AppendDisabledSuffix(btn_text, disabled_suffix);
     if (d2d.fmt_btn && txt_brush && gsl::at(btn_text, 0) != L'\0') {
         d2d.d2d_target->DrawTextW(
             btn_text.data(),
@@ -272,41 +320,80 @@ void DrawFluentPushButton(
             rc,
             txt_brush.Get());
     }
+    if (is_enabled && (dis.itemState & ODS_FOCUS) != 0 && border_brush) {
+        const auto focus = CreateSolidBrush(d2d.d2d_target.Get(), ColorRefToD2DColor(palette.focus_color));
+        if (focus) d2d.d2d_target->DrawRectangle(D2D1::RectF(4, 4, rc.right - 3, rc.bottom - 3), focus.Get(), 2);
+    }
+}
+
+RECT FluentToggleBounds(const RECT& row, const FluentD2DThemeContext& d2d) noexcept {
+    const int center = row.top + (row.bottom - row.top) / 2;
+    if (!d2d.d2d_target || !d2d.fmt_body || d2d.appearance.system_high_contrast) {
+        const int size = d2d.ScalePx(18);
+        return RECT{row.left, center - size / 2, row.left + size, center - size / 2 + size};
+    }
+    const int right = row.right - d2d.ScalePx(kToggleRightInset);
+    const int radius = d2d.ScalePx(kToggleTrackRadius);
+    return RECT{right - d2d.ScalePx(kToggleTrackWidth), center - radius, right, center + radius};
 }
 
 void DrawFluentToggleOrRadioRow(
     const DRAWITEMSTRUCT& dis,
     const FluentD2DThemeContext& d2d,
-    bool is_radio) noexcept {
-    if (!d2d.d2d_target || !dis.hDC) {
+    bool is_radio, const wchar_t* disabled_suffix) noexcept {
+    if (!dis.hDC) {
         return;
     }
-    const bool is_dark = IsSystemDarkTheme();
+    const auto& palette = d2d.appearance.palette;
     const bool is_checked = (::SendMessageW(dis.hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED);
     const bool is_enabled = (::IsWindowEnabled(dis.hwndItem) != FALSE);
+    const COLORREF disabled_text = DisabledControlText(d2d);
+    if (!d2d.d2d_target || !d2d.fmt_body || d2d.appearance.system_high_contrast) {
+        const ScopedSaveDC saved(dis.hDC);
+        const ScopedSelectObject font(dis.hDC, reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0)));
+        const auto background = CreateThemeBrush(palette.surface_bg);
+        const auto border = CreateThemeBrush(is_enabled ? palette.text_primary : disabled_text);
+        if (background) ::FillRect(dis.hDC, &dis.rcItem, background.Get());
+        RECT mark = dis.rcItem;
+        mark.right = mark.left + d2d.ScalePx(18);
+        mark.top += std::max(0L, (mark.bottom - mark.top - d2d.ScalePx(18)) / 2);
+        mark.bottom = mark.top + d2d.ScalePx(18);
+        if (!is_radio) mark = FluentToggleBounds(dis.rcItem, d2d);
+        if (border && (is_enabled || !d2d.appearance.high_contrast)) ::FrameRect(dis.hDC, &mark, border.Get());
+        ::SetTextColor(dis.hDC, is_enabled ? palette.text_primary : disabled_text);
+        ::SetBkMode(dis.hDC, TRANSPARENT);
+        if (is_checked) ::DrawTextW(dis.hDC, L"X", 1, &mark, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        std::array<wchar_t, kToggleLabelCapacity> text{};
+        ::GetWindowTextW(dis.hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
+        if (!is_enabled && d2d.appearance.high_contrast) AppendDisabledSuffix(text, disabled_suffix);
+        RECT label = dis.rcItem;
+        label.left += d2d.ScalePx(26);
+        ::DrawTextW(dis.hDC, text.data(), -1, &label, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+        if ((dis.itemState & ODS_FOCUS) != 0) ::DrawFocusRect(dis.hDC, &dis.rcItem);
+        return;
+    }
 
-    const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem);
+    const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem, nullptr, d2d.clip_controls_to_dc);
     if (!draw_guard) {
         return;
     }
-    d2d.d2d_target->Clear(is_dark ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255));
+    d2d.d2d_target->Clear(ColorRefToD2DColor(palette.surface_bg));
 
     const float h = static_cast<float>(dis.rcItem.bottom - dis.rcItem.top);
     const float w = static_cast<float>(dis.rcItem.right - dis.rcItem.left);
     const float cy = h * 0.5f;
 
     const auto accent_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(76, 160, 255) : MakeD2DColor(0, 103, 192));
+        d2d.d2d_target.Get(), ColorRefToD2DColor(is_enabled ? palette.text_accent : disabled_text));
     const auto border_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(130, 138, 152) : MakeD2DColor(138, 146, 158));
+        d2d.d2d_target.Get(), ColorRefToD2DColor(is_enabled ? palette.border_color : disabled_text));
     const auto knob_brush = CreateSolidBrush(
         d2d.d2d_target.Get(),
-        is_checked ? MakeD2DColor(255, 255, 255)
-                   : (is_dark ? MakeD2DColor(186, 194, 206) : MakeD2DColor(96, 104, 118)));
+        ColorRefToD2DColor(!is_enabled ? disabled_text :
+            (is_checked ? palette.selection_text : palette.text_secondary)));
     const auto text_brush = CreateSolidBrush(
         d2d.d2d_target.Get(),
-        !is_enabled ? (is_dark ? MakeD2DColor(110, 116, 128) : MakeD2DColor(150, 156, 166))
-                    : ColorRefToD2DColor(is_dark ? kDarkTextColor : kLightTextColor));
+        ColorRefToD2DColor(is_enabled ? palette.text_primary : disabled_text));
 
     float text_left = d2d.ScaleF(kFluentToggleTextInset);
     float text_right = w - d2d.ScaleF(kFluentToggleTextInset);
@@ -321,19 +408,21 @@ void DrawFluentToggleOrRadioRow(
                     D2D1::Ellipse(D2D1::Point2F(d2d.ScaleF(kRadioCenterX), cy),
                                   d2d.ScaleF(kRadioInnerRadius), d2d.ScaleF(kRadioInnerRadius)), knob_brush.Get());
             }
-        } else if (border_brush) {
+        } else if (border_brush && (is_enabled || !d2d.appearance.high_contrast)) {
             d2d.d2d_target->DrawEllipse(outer, border_brush.Get(), 1.5f);
         }
         text_left = d2d.ScaleF(kRadioTextInset);
     } else {
-        const float sw_right = w - d2d.ScaleF(kToggleRightInset);
-        const float sw_left = sw_right - d2d.ScaleF(kToggleTrackWidth);
+        const RECT bounds = FluentToggleBounds(
+            RECT{0, 0, dis.rcItem.right - dis.rcItem.left, dis.rcItem.bottom - dis.rcItem.top}, d2d);
+        const float sw_right = static_cast<float>(bounds.right);
+        const float sw_left = static_cast<float>(bounds.left);
         const D2D1_ROUNDED_RECT track = D2D1::RoundedRect(
             D2D1::RectF(sw_left, cy - d2d.ScaleF(kToggleTrackRadius), sw_right, cy + d2d.ScaleF(kToggleTrackRadius)),
             d2d.ScaleF(kToggleTrackRadius), d2d.ScaleF(kToggleTrackRadius));
         if (is_checked && accent_brush) {
             d2d.d2d_target->FillRoundedRectangle(track, accent_brush.Get());
-        } else if (border_brush) {
+        } else if (border_brush && (is_enabled || !d2d.appearance.high_contrast)) {
             d2d.d2d_target->DrawRoundedRectangle(track, border_brush.Get(), 1.4f);
         }
         const float knob_x = is_checked ? (sw_right - d2d.ScaleF(kToggleTrackRadius)) :
@@ -348,6 +437,7 @@ void DrawFluentToggleOrRadioRow(
 
     std::array<wchar_t, kToggleLabelCapacity> label_text{};
     ::GetWindowTextW(dis.hwndItem, label_text.data(), gsl::narrow_cast<int>(label_text.size()));
+    if (!is_enabled && d2d.appearance.high_contrast) AppendDisabledSuffix(label_text, disabled_suffix);
     if (d2d.fmt_body && text_brush && gsl::at(label_text, 0) != L'\0') {
         const D2D1_RECT_F txt_rc = D2D1::RectF(text_left, 0.0f, text_right, h);
         d2d.d2d_target->DrawTextW(
@@ -357,6 +447,10 @@ void DrawFluentToggleOrRadioRow(
             txt_rc,
             text_brush.Get(),
             D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+    }
+    if ((dis.itemState & ODS_FOCUS) != 0) {
+        const auto focus = CreateSolidBrush(d2d.d2d_target.Get(), ColorRefToD2DColor(palette.focus_color));
+        if (focus) d2d.d2d_target->DrawRectangle(D2D1::RectF(1, 1, w - 1, h - 1), focus.Get(), 2);
     }
 }
 
@@ -450,14 +544,37 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
         return;
     }
     RECT rc{};
-    ::GetClientRect(hwnd, &rc);
-    const bool is_dark = IsSystemDarkTheme();
+    if (!::GetClientRect(hwnd, &rc)) {
+        QIQI_LOG_WARN("Fluent combo client bounds query failed (error={})", ::GetLastError());
+        return;
+    }
+    const ScopedSaveDC saved(hdc);
+    if (!saved) {
+        QIQI_LOG_WARN("Fluent combo drawing DC save failed");
+        return;
+    }
+    if (d2d.clip_controls_to_dc) {
+        RECT window_clip{};
+        // GetDC and owner-draw notifications need not carry the window's scrolling region.
+        const int region = ::GetWindowRgnBox(hwnd, &window_clip);
+        if (region == NULLREGION) return;
+        if (region != ERROR) {
+            const int clip = ::IntersectClipRect(hdc, window_clip.left, window_clip.top,
+                                                window_clip.right, window_clip.bottom);
+            if (clip == ERROR) {
+                QIQI_LOG_WARN("Fluent combo window-region clipping failed");
+                return;
+            }
+            if (clip == NULLREGION) return;
+        }
+    }
+    const auto& palette = d2d.appearance.palette;
 
-    const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), hdc, rc);
+    const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), hdc, rc, nullptr, d2d.clip_controls_to_dc);
     if (!draw_guard) {
         return;
     }
-    d2d.d2d_target->Clear(is_dark ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255));
+    d2d.d2d_target->Clear(ColorRefToD2DColor(palette.surface_bg));
 
     const float w = static_cast<float>(rc.right - rc.left);
     const float h = static_cast<float>(rc.bottom - rc.top);
@@ -465,13 +582,14 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
     const D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(box_rc, d2d.ScaleF(kComboCornerRadius), d2d.ScaleF(kComboCornerRadius));
 
     const auto fill_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(56, 60, 70) : ColorRefToD2DColor(kLightSurfaceBg));
+        d2d.d2d_target.Get(), ColorRefToD2DColor(d2d.appearance.high_contrast ? palette.input_bg :
+            (palette.is_dark ? RGB(56, 60, 70) : kLightSurfaceBg)));
     const auto border_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(86, 92, 106) : MakeD2DColor(204, 210, 222));
+        d2d.d2d_target.Get(), ColorRefToD2DColor(palette.border_color));
     const auto txt_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), ColorRefToD2DColor(is_dark ? kDarkTextColor : kLightTextColor));
+        d2d.d2d_target.Get(), ColorRefToD2DColor(palette.text_primary));
     const auto chev_brush = CreateSolidBrush(
-        d2d.d2d_target.Get(), is_dark ? MakeD2DColor(186, 194, 208) : MakeD2DColor(96, 104, 118));
+        d2d.d2d_target.Get(), ColorRefToD2DColor(palette.text_secondary));
 
     if (fill_brush) {
         d2d.d2d_target->FillRoundedRectangle(rr, fill_brush.Get());
@@ -503,7 +621,7 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
                 txt_brush.Get(),
                 D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | D2D1_DRAW_TEXT_OPTIONS_CLIP);
             if (has_preview) {
-                const D2D1_COLOR_F accent_col = is_dark ? MakeD2DColor(96, 178, 255) : MakeD2DColor(0, 103, 192);
+                const D2D1_COLOR_F accent_col = ColorRefToD2DColor(palette.text_accent);
                 DrawFluentUnderlineStylePreview(
                     d2d,
                     preview_style,
@@ -532,7 +650,8 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
     }
 }
 
-void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeContext& d2d) noexcept {
+void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeContext& d2d,
+                           bool disabled, const wchar_t* disabled_suffix) noexcept {
     if (!dis.hDC || dis.itemID == std::numeric_limits<UINT>::max()) {
         return;
     }
@@ -541,18 +660,22 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
     if (len > 0 && len < gsl::narrow_cast<LRESULT>(item_text.size())) {
         ::SendMessageW(dis.hwndItem, CB_GETLBTEXT, dis.itemID, reinterpret_cast<LPARAM>(item_text.data()));
     }
-    if (IsHighContrastEnabled() || !d2d.d2d_target || !d2d.fmt_body) {
+    const auto& palette = d2d.appearance.palette;
+    if (disabled && d2d.appearance.high_contrast) AppendDisabledSuffix(item_text, disabled_suffix);
+    const COLORREF disabled_text = DisabledControlText(d2d);
+    if (d2d.appearance.system_high_contrast || !d2d.d2d_target || !d2d.fmt_body) {
         const ScopedSaveDC saved(dis.hDC);
         const auto font = reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0));
         const ScopedSelectObject selected_font(dis.hDC, font);
-        const bool selected = (dis.itemState & ODS_SELECTED) != 0;
-        ::FillRect(dis.hDC, &dis.rcItem, ::GetSysColorBrush(selected ? COLOR_HIGHLIGHT : COLOR_WINDOW));
-        ::SetTextColor(dis.hDC, ::GetSysColor(selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT));
+        const bool selected = !disabled && (dis.itemState & ODS_SELECTED) != 0;
+        const auto background = CreateThemeBrush(selected ? palette.selection_bg : palette.input_bg);
+        if (background) ::FillRect(dis.hDC, &dis.rcItem, background.Get());
+        ::SetTextColor(dis.hDC, disabled ? disabled_text : (selected ? palette.selection_text : palette.text_primary));
         ::SetBkMode(dis.hDC, TRANSPARENT);
         RECT text = dis.rcItem;
         text.left += d2d.ScalePx(kComboFallbackTextInset);
         ::DrawTextW(dis.hDC, item_text.data(), -1, &text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-        if (dis.itemState & ODS_FOCUS) ::DrawFocusRect(dis.hDC, &dis.rcItem);
+        if (!disabled && (dis.itemState & ODS_FOCUS)) ::DrawFocusRect(dis.hDC, &dis.rcItem);
         return;
     }
     if ((dis.itemState & ODS_COMBOBOXEDIT) != 0) {
@@ -560,15 +683,16 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
         PaintFluentComboBoxFrame(dis.hwndItem, full_dc.Get(), d2d);
         return;
     }
-    const bool is_dark = IsSystemDarkTheme();
-    const bool is_selected = (dis.itemState & ODS_SELECTED) != 0;
+    const bool is_selected = !disabled && (dis.itemState & ODS_SELECTED) != 0;
 
-    const D2D1_COLOR_F bg_col = is_selected
-        ? (is_dark ? MakeD2DColor(0, 96, 180) : MakeD2DColor(220, 234, 252))
-        : (is_dark ? MakeD2DColor(54, 58, 68) : MakeD2DColor(255, 255, 255));
-    const D2D1_COLOR_F txt_col = ColorRefToD2DColor(is_dark ? kDarkTextColor : kLightTextColor);
+    const COLORREF selection_bg = d2d.appearance.high_contrast ? palette.selection_bg :
+        (palette.is_dark ? RGB(0, 96, 180) : RGB(220, 234, 252));
+    const D2D1_COLOR_F bg_col = ColorRefToD2DColor(is_selected ? selection_bg : palette.input_bg);
+    const D2D1_COLOR_F txt_col = ColorRefToD2DColor(
+        disabled ? disabled_text :
+        (is_selected && d2d.appearance.high_contrast ? palette.selection_text : palette.text_primary));
 
-    const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem);
+    const ScopedD2DDcDraw draw_guard(d2d.d2d_target.Get(), dis.hDC, dis.rcItem, nullptr, d2d.clip_controls_to_dc);
     if (!draw_guard) {
         return;
     }
@@ -596,7 +720,7 @@ void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeConte
         if (has_preview) {
             const D2D1_COLOR_F line_col = is_selected
                 ? txt_col
-                : (is_dark ? MakeD2DColor(96, 178, 255) : MakeD2DColor(0, 103, 192));
+                : ColorRefToD2DColor(palette.text_accent);
             DrawFluentUnderlineStylePreview(
                 d2d,
                 preview_style,
@@ -678,7 +802,7 @@ LRESULT CALLBACK FluentToggleSubclassProc(
 LRESULT CALLBACK FluentComboBoxSubclassProc(
     HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) noexcept {
     const auto* d2d = reinterpret_cast<const FluentD2DThemeContext*>(dwRefData);
-    const bool fluent = d2d && d2d->d2d_target && d2d->fmt_body && !IsHighContrastEnabled();
+    const bool fluent = d2d && d2d->d2d_target && d2d->fmt_body && !d2d->appearance.system_high_contrast;
     switch (msg) {
         case WM_ERASEBKGND:
             if (fluent) return 1;
@@ -701,8 +825,7 @@ LRESULT CALLBACK FluentComboBoxSubclassProc(
             // A parent notification may destroy the child and its borrowed context.
             if (::GetWindowSubclass(hwnd, &FluentComboBoxSubclassProc, uIdSubclass, &current_ref) &&
                 current_ref == dwRefData && fluent) {
-                const ScopedWindowDC dc(hwnd);
-                PaintFluentComboBoxFrame(hwnd, dc.Get(), *d2d);
+                ::InvalidateRect(hwnd, nullptr, FALSE);
             }
             return res;
         }

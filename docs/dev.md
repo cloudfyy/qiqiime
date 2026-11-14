@@ -218,6 +218,85 @@ Production diagnostics use local ETW. Capture and filtering instructions are in 
 
 ## Versions and release packaging
 
+### Shared desktop appearance
+
+Desktop usage and supported surfaces are documented in
+[display and easy reading](accessibility.md); implementation decisions are in the
+[desktop plan](desktop-accessibility-plan.md).
+`QiQiConfig`/`kConfigFields` are the only persistence/merge/backup field mechanism:
+
+| Backup key | Registry DWORD | Values |
+|---|---|---|
+| `ui_theme` | `UiTheme` | 0 system (default), 1 light, 2 dark, 3 app high contrast |
+| `ui_text_scale` | `UiTextScale` | 0=100% (default), 1=125%, 2=150%, 3=200% |
+| `easy_reading` | `EasyReading` | 0 off (default), 1 on |
+
+`DisplayPreferences` is a value snapshot. `ResolveDisplayAppearance` resolves
+Windows high contrast before the selected theme; its palette supplies D2D/GDI
+colors including selection foreground/background. Use `ScaleDisplayPx` for
+text-scaled dimensions, and ordinary DPI-only scaling for minimum DIP targets.
+Do not double-apply DPI or change test overrides to set production preferences.
+`FluentD2DThemeContext` owns scaled text resources and brushes via existing RAII.
+Theme changes refresh cached colors; font-scale changes also rebuild fonts and
+layouts. Do not query the registry in each paint call.
+
+Settings reuses the existing controls and bindings across five categorized tabs.
+The native tab control retains its accessible names and arrow-key selection;
+its strip and overflow arrows paint with the shared appearance palette.
+Ctrl+Tab / Ctrl+Shift+Tab cycle pages. Only active-page controls are visible and
+focusable; page scroll offsets and unsaved values survive page/theme/language
+changes. Layout measures actual closed combo heights, clips scrolling content
+(including owner drawing), follows keyboard focus, and fixes OK/Cancel outside
+the page viewport. Labels/fields reflow vertically for narrow or enlarged text.
+Combo fields use a fixed, DPI/text-scaled base width and align to the page's
+right edge; page size and layout share one row. About, Shortcuts, Restore defaults,
+OK and Cancel share a fixed footer on every page; narrow/enlarged layouts use two
+footer rows. Treat all five as footer controls for painting and focus scrolling.
+Browse and Dictionary Manager sit beside the custom-dictionary radio (below it
+when space is insufficient); Browse is enabled only while Custom is selected.
+Radio commands explicitly synchronize the checked scheme before updating dependent
+controls. Selecting Custom does not open the picker; only Browse does, and OK
+still validates the selected file. Extra is visually nested under Jidian Core and
+enabled only for that scheme; selecting another dictionary clears its check state.
+Restore defaults is the sole reset action and includes display preferences. Disabled
+Fluent buttons/toggles use inactive styling as well as native disabled state.
+Preview measurement and painting share a horizontal,
+wrapping item layout. During scrolling, keep existing window clips until new
+positions are installed, disable bitmap copying/redrawing while moving controls,
+then invalidate the complete page and children together to avoid stale pixels.
+Combo frame drawing also intersects the assigned window region, including
+owner-draw/GetDC paths; selection and pointer events invalidate instead of painting
+synchronously. Display-preview font changes defer repaint until layout finishes.
+Settings static labels are owner-drawn through the parent's viewport clip too,
+so scrolled labels cannot paint over the tab strip during text/font updates.
+High-contrast disabled Settings buttons/toggles add a localized Unavailable line
+and omit the outer border; layout reserves the additional line. Disabled size
+items append an inline Unavailable status rather than relying on color alone.
+Settings enables `clip_controls_to_dc`: DC render sessions bind only the visible
+clip rectangle and translate drawing coordinates without changing layout.
+The RAII guard restores the previous transform. This bounds the Direct2D copy
+itself; a GDI clip or window region alone is not sufficient. Other Fluent
+surfaces retain the default rendering behavior.
+Display edits preview locally and remain unsaved until acceptance.
+The desktop `easy_reading` field is presented as Comfort mode / 关怀模式.
+While enabled, text sizes below 150% are disabled in Settings; loaded legacy
+combinations preview at 150% without mutating the bound config before acceptance.
+Disabling the mode retains text size. Only the painted switch accepts mouse clicks
+for this mode; keyboard activation remains supported. Drawing and hit testing
+reuse `FluentToggleBounds`, including the high-contrast fallback.
+Preserve baseline/local/external field merging. Candidate measurement, hit testing,
+selection and painting share the same rectangles in both D2D and GDI paths.
+Do not change engine pagination to accommodate screen space.
+
+The IME runs inside host processes. Use the window-only
+`ApplyDisplayThemeToWindow` for these surfaces; do not introduce calls that set a
+process-wide preferred app theme and recolor host menus. Host-rendered TSF UI is
+outside our appearance control. The independent settings do not yet apply to
+all other native tools or dialogs. Add regression cases to the existing common,
+settings and TSF/UI runners rather than adding a second UI test framework.
+
+### Version source
+
 [VERSION](../VERSION) is the numeric version source. CMake configuration generates
 `build\<arch>\generated\common\version.h` and per-product `version.rc` files
 from the shared templates. The IME DLL and all three tools carry the same numeric

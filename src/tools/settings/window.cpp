@@ -12,7 +12,9 @@
 #include "tools/dictionary_validation.h"
 
 #include <commctrl.h>
+#include <windowsx.h>
 #include <shellapi.h>
+#include <algorithm>
 #include <gsl/gsl>
 #include <memory>
 #include <new>
@@ -213,37 +215,58 @@ void InitSettingsCompartmentSubscription(HWND hwnd, DialogContext& ctx) noexcept
 void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
     switch (LOWORD(wparam)) {
         case kIdRadioJidian:
+            CheckPrimaryDictRadio(hwnd, PrimaryDict::Jidian);
             ctx.last_valid_primary_dict = PrimaryDict::Jidian;
             UpdateExtraDictCheckboxState(hwnd);
             ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
         case kIdRadioHaifeng:
+            CheckPrimaryDictRadio(hwnd, PrimaryDict::Haifeng);
             ctx.last_valid_primary_dict = PrimaryDict::Haifeng;
             UpdateExtraDictCheckboxState(hwnd);
             ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
         case kIdRadioBuiltin:
+            CheckPrimaryDictRadio(hwnd, PrimaryDict::BuiltinOnly);
             ctx.last_valid_primary_dict = PrimaryDict::BuiltinOnly;
             UpdateExtraDictCheckboxState(hwnd);
             ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
         case kIdRadioCustom:
-            if (ctx.custom_primary_dict_path.empty()) {
-                if (!BrowseCustomPrimaryDictionary(hwnd, ctx)) {
-                    CheckPrimaryDictRadio(hwnd, ctx.last_valid_primary_dict);
-                }
-            } else {
-                ctx.last_valid_primary_dict = PrimaryDict::Custom;
-            }
+            CheckPrimaryDictRadio(hwnd, PrimaryDict::Custom);
+            ctx.last_valid_primary_dict = PrimaryDict::Custom;
             UpdateExtraDictCheckboxState(hwnd);
             ::InvalidateRect(hwnd, nullptr, FALSE);
             return;
         case kIdBtnBrowsePrimaryDict:
+            if (::IsDlgButtonChecked(hwnd, kIdRadioCustom) != BST_CHECKED) {
+                QIQI_LOG_DEBUG("Settings ignored Browse command without a selected custom dictionary");
+                return;
+            }
             std::ignore = BrowseCustomPrimaryDictionary(hwnd, ctx);
             return;
         case kIdComboUiLang:
             if (HIWORD(wparam) == CBN_SELCHANGE) {
                 ApplyLiveSettingsLanguage(hwnd, ctx);
+            }
+            return;
+        case kIdChkEasyReading:
+            if (HIWORD(wparam) == BN_CLICKED) {
+                ApplySettingsDisplayPreview(hwnd, ctx);
+            }
+            return;
+        case kIdComboUiTheme:
+            if (HIWORD(wparam) == CBN_SELCHANGE) ApplySettingsDisplayPreview(hwnd, ctx);
+            return;
+        case kIdComboUiTextScale:
+            if (HIWORD(wparam) == CBN_SELCHANGE) {
+                if (::IsDlgButtonChecked(hwnd, kIdChkEasyReading) == BST_CHECKED &&
+                    ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_GETCURSEL, 0, 0) <
+                        static_cast<LRESULT>(UiTextScale::Percent150)) {
+                    ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_SETCURSEL,
+                        static_cast<WPARAM>(std::max(ctx.preview_scale, UiTextScale::Percent150)), 0);
+                }
+                ApplySettingsDisplayPreview(hwnd, ctx);
             }
             return;
         case kIdComboUnderlineStyle:
@@ -368,8 +391,8 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
         target_rect.top + (target_rect.bottom - target_rect.top) / 2
     };
     const MonitorMetrics monitor = QueryMonitorForPoint(center, hwnd);
-    const int width = target_rect.right - target_rect.left;
-    const int height = target_rect.bottom - target_rect.top;
+    const int width = std::min(target_rect.right - target_rect.left, monitor.work_area.right - monitor.work_area.left);
+    const int height = std::min(target_rect.bottom - target_rect.top, monitor.work_area.bottom - monitor.work_area.top);
     const POINT position = ClampPointToWorkArea(
         POINT{target_rect.left, target_rect.top}, width, height, monitor.work_area);
     target_rect.left = position.x;
@@ -425,6 +448,7 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
         }
     }
 
+    LayoutSettingsControls(hwnd, ctx);
     ::InvalidateRect(hwnd, nullptr, TRUE);
     ::UpdateWindow(hwnd);
 }
@@ -435,6 +459,65 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
     switch (msg) {
+        case WM_GETMINMAXINFO:
+            if (lparam != 0) {
+                auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+                info->ptMinTrackSize = POINT{ctx->d2d.ScaleDipPx(320), ctx->d2d.ScaleDipPx(280)};
+            }
+            return 0;
+        case WM_NOTIFY:
+            if (lparam != 0) {
+                const auto* notification = reinterpret_cast<const NMHDR*>(lparam);
+                if (notification->idFrom == kIdSettingsTabs && notification->code == TCN_SELCHANGE) {
+                    const LRESULT selection = ::SendDlgItemMessageW(hwnd, kIdSettingsTabs, TCM_GETCURSEL, 0, 0);
+                    if (selection >= 0 && selection < static_cast<LRESULT>(SettingsPage::Count)) {
+                        SelectSettingsPage(hwnd, *ctx, static_cast<SettingsPage>(selection));
+                    }
+                    return 0;
+                }
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+        case kSettingsCyclePage: {
+            const int count = static_cast<int>(SettingsPage::Count);
+            const int next = (static_cast<int>(ctx->active_page) + (wparam ? count - 1 : 1)) % count;
+            SelectSettingsPage(hwnd, *ctx, static_cast<SettingsPage>(next));
+            return 0;
+        }
+        case WM_SIZE:
+            LayoutSettingsControls(hwnd, *ctx);
+            return 0;
+        case kSettingsEnsureFocusVisible:
+            EnsureSettingsControlVisible(hwnd, reinterpret_cast<HWND>(wparam), *ctx);
+            return 0;
+        case WM_MOUSEWHEEL:
+            ctx->scroll_offset = std::clamp(
+                ctx->scroll_offset - GET_WHEEL_DELTA_WPARAM(wparam) * ctx->d2d.ScalePx(48) / WHEEL_DELTA,
+                0, std::max(0, ctx->content_height - ctx->viewport_height));
+            LayoutSettingsControls(hwnd, *ctx);
+            return 0;
+        case WM_VSCROLL: {
+            SCROLLINFO info{};
+            info.cbSize = sizeof(info);
+            info.fMask = SIF_ALL;
+            if (!::GetScrollInfo(::GetDlgItem(hwnd, kIdPageScroll), SB_CTL, &info)) {
+                QIQI_LOG_WARN("Settings page scroll query failed (error={})", ::GetLastError());
+                return 0;
+            }
+            int position = ctx->scroll_offset;
+            switch (LOWORD(wparam)) {
+                case SB_LINEUP: position -= ctx->d2d.ScalePx(44); break;
+                case SB_LINEDOWN: position += ctx->d2d.ScalePx(44); break;
+                case SB_PAGEUP: position -= ctx->viewport_height; break;
+                case SB_PAGEDOWN: position += ctx->viewport_height; break;
+                case SB_TOP: position = 0; break;
+                case SB_BOTTOM: position = ctx->content_height; break;
+                case SB_THUMBTRACK: position = info.nTrackPos; break;
+                default: return 0;
+            }
+            ctx->scroll_offset = std::clamp(position, 0, std::max(0, ctx->content_height - ctx->viewport_height));
+            LayoutSettingsControls(hwnd, *ctx);
+            return 0;
+        }
         case WM_DPICHANGED:
             UpdateSettingsWindowForMonitor(
                 hwnd, *ctx, HIWORD(wparam), reinterpret_cast<const RECT*>(lparam));
@@ -465,7 +548,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             if (lparam != 0) {
                 auto* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
                 if (mis->CtlType == ODT_COMBOBOX) {
-                    mis->itemHeight = gsl::narrow_cast<UINT>(ctx->d2d.ScalePx(kFluentComboItemHeight));
+                    mis->itemHeight = gsl::narrow_cast<UINT>(ctx->d2d.ScalePx(44));
                     return TRUE;
                 }
             }
@@ -474,26 +557,76 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         case WM_DRAWITEM: {
             if (lparam != 0) {
                 const auto* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
+                const ScopedSaveDC saved(dis->hDC);
+                if (!saved) {
+                    QIQI_LOG_WARN("Settings owner-draw DC save failed");
+                    return TRUE;
+                }
+                if (!IsSettingsFooterControl(gsl::narrow_cast<int>(dis->CtlID)) && dis->CtlType != ODT_COMBOBOX) {
+                    RECT bounds{};
+                    if (!::GetWindowRect(dis->hwndItem, &bounds)) {
+                        QIQI_LOG_WARN("Settings owner-draw bounds query failed (error={})", ::GetLastError());
+                        return TRUE;
+                    }
+                    ::MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT*>(&bounds), 2);
+                    const int clip = ::IntersectClipRect(dis->hDC,
+                        ctx->page_bounds.left - bounds.left, ctx->page_bounds.top - bounds.top,
+                        ctx->page_bounds.right - bounds.left, ctx->page_bounds.bottom - bounds.top);
+                    if (clip == ERROR) {
+                        QIQI_LOG_WARN("Settings owner-draw clipping failed");
+                        return TRUE;
+                    }
+                    if (clip == NULLREGION) return TRUE;
+                }
+                if (dis->CtlID == kIdCandidatePreview) {
+                    DrawSettingsCandidatePreview(*dis, *ctx);
+                    return TRUE;
+                }
+                if (dis->CtlType == ODT_STATIC) {
+                    const ScopedSelectObject selected_font(dis->hDC, ctx->font.Get());
+                    const HBRUSH background = ApplyFluentControlColors(dis->hDC, ctx->d2d, false);
+                    if (!background) {
+                        QIQI_LOG_WARN("Settings label background brush unavailable");
+                        return TRUE;
+                    }
+                    ::FillRect(dis->hDC, &dis->rcItem, background);
+                    std::array<wchar_t, 1024> text{};
+                    const int length = ::GetWindowTextW(
+                        dis->hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
+                    RECT bounds = dis->rcItem;
+                    if (length > 0 && !::DrawTextW(dis->hDC, text.data(), length, &bounds,
+                                                  DT_LEFT | DT_WORDBREAK | DT_NOPREFIX)) {
+                        QIQI_LOG_WARN("Settings label {} drawing failed", dis->CtlID);
+                    }
+                    return TRUE;
+                }
                 if (dis->CtlType == ODT_BUTTON) {
+                    const bool english = ResolveUiLanguage(GetSelectedUiLanguageFromCombo(hwnd, *ctx)) == UiLanguage::EnUs;
+                    const wchar_t* disabled_suffix = english ? L"\nUnavailable" : L"\n不可用";
                     if (dis->CtlID == kIdBtnAbout || dis->CtlID == kIdBtnDictManager ||
                         dis->CtlID == kIdBtnHelp || dis->CtlID == kIdBtnRestoreDefaults ||
                         dis->CtlID == kIdBtnBrowsePrimaryDict ||
                         dis->CtlID == kIdBtnOk || dis->CtlID == kIdBtnCancel) {
-                        const bool inside_card = (dis->CtlID == kIdBtnBrowsePrimaryDict);
-                        const D2D1_COLOR_F outer_bg = inside_card
-                            ? (IsSystemDarkTheme() ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255))
-                            : ColorRefToD2DColor(IsSystemDarkTheme() ? kDarkWindowBg : kLightCaptionBg);
-                        DrawFluentPushButton(*dis, ctx->d2d, dis->CtlID == kIdBtnOk, outer_bg);
+                        const bool page_button = !IsSettingsFooterControl(gsl::narrow_cast<int>(dis->CtlID));
+                        const D2D1_COLOR_F outer_bg = ColorRefToD2DColor(page_button
+                            ? ctx->d2d.appearance.palette.surface_bg
+                            : ctx->d2d.appearance.palette.window_bg);
+                        DrawFluentPushButton(*dis, ctx->d2d, dis->CtlID == kIdBtnOk, outer_bg, disabled_suffix);
                     } else {
                         const bool is_radio =
                             (dis->CtlID >= kIdRadioJidian && dis->CtlID <= kIdRadioBuiltin) ||
                             dis->CtlID == kIdRadioCustom;
-                        DrawFluentToggleOrRadioRow(*dis, ctx->d2d, is_radio);
+                        DrawFluentToggleOrRadioRow(*dis, ctx->d2d, is_radio, disabled_suffix);
                     }
                     return TRUE;
                 }
                 if (dis->CtlType == ODT_COMBOBOX) {
-                    DrawFluentComboBoxItem(*dis, ctx->d2d);
+                    const bool disabled = dis->CtlID == kIdComboUiTextScale &&
+                        dis->itemID < static_cast<UINT>(UiTextScale::Percent150) &&
+                        ::IsDlgButtonChecked(hwnd, kIdChkEasyReading) == BST_CHECKED;
+                    const bool english = ResolveUiLanguage(GetSelectedUiLanguageFromCombo(hwnd, *ctx)) == UiLanguage::EnUs;
+                    DrawFluentComboBoxItem(*dis, ctx->d2d, disabled,
+                                          english ? L" - Unavailable" : L" - 不可用");
                     return TRUE;
                 }
             }
@@ -511,9 +644,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         }
         case WM_SETTINGCHANGE:
         case WM_THEMECHANGED: {
-            const bool is_dark = IsSystemDarkTheme();
-            ctx->d2d.RefreshThemeBrushes();
-            ApplySystemThemeToMenuAndWindow(hwnd, is_dark);
+            ApplySettingsDisplayPreview(hwnd, *ctx);
             ApplyLiveSettingsLanguage(hwnd, *ctx);
             return 0;
         }
@@ -613,7 +744,7 @@ ScopedWindow CreateSettingsWindow(
     const auto S = [dpi = mon.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
 
     ctx->d2d.Init(mon.dpi);
-    const bool is_dark = IsSystemDarkTheme();
+    ctx->d2d.clip_controls_to_dc = true;
     ctx->font = CreateUiFont(S(settings_layout::kFontSize), FW_NORMAL, CLEARTYPE_QUALITY);
     ctx->bold_font = CreateUiFont(S(settings_layout::kBoldFontSize), FW_SEMIBOLD, CLEARTYPE_QUALITY);
     ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(S(kSmallBrandIconSize), instance);
@@ -621,13 +752,14 @@ ScopedWindow CreateSettingsWindow(
 
     const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
 
-    constexpr DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
+    constexpr DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |
+        WS_THICKFRAME | WS_CLIPCHILDREN;
     constexpr DWORD wnd_ex_style = WS_EX_APPWINDOW;
     const RECT bounds = ComputeCenteredWindowBounds(
         S(settings_layout::kClientSize.cx), S(settings_layout::kClientSize.cy),
         wnd_style, wnd_ex_style, mon.work_area);
-    const int dlg_w = bounds.right - bounds.left;
-    const int dlg_h = bounds.bottom - bounds.top;
+    const int dlg_w = std::min(bounds.right - bounds.left, mon.work_area.right - mon.work_area.left);
+    const int dlg_h = std::min(bounds.bottom - bounds.top, mon.work_area.bottom - mon.work_area.top);
 
     ScopedWindow hwnd(::CreateWindowExW(
         wnd_ex_style,
@@ -640,7 +772,6 @@ ScopedWindow CreateSettingsWindow(
         QIQI_LOG_ERROR("CreateSettingsWindow CreateWindowExW failed (error={})", ::GetLastError());
         return {};
     }
-    ApplySystemThemeToMenuAndWindow(hwnd.Get(), is_dark);
     QIQI_LOG_DEBUG("SettingsWindow created (pos=({}, {}), size={}x{}, dpi={})",
                    bounds.left, bounds.top, dlg_w, dlg_h, mon.dpi);
     const gsl::not_null<DialogContext*> owned_ctx(ctx.release());
@@ -652,7 +783,8 @@ ScopedWindow CreateSettingsWindow(
         WriteSettingsToWindowControls(hwnd.Get(), *bound_config);
     }
     InitSettingsCompartmentSubscription(hwnd.Get(), *owned_ctx);
-    ApplySystemThemeToMenuAndWindow(hwnd.Get(), is_dark);
+    if (!bound_config) WriteSettingsToWindowControls(hwnd.Get(), QiQiConfig{});
+    LayoutSettingsControls(hwnd.Get(), *owned_ctx);
     return hwnd;
 }
 

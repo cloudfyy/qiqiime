@@ -12,34 +12,24 @@
 #include <dwmapi.h>
 #include <algorithm>
 #include <cmath>
-#include <span>
 
 namespace qiqi {
 namespace {
 constexpr float kTextMeasurementWidth = 4096.0f;
 constexpr int kGdiFontHeight = 18;
-constexpr int kDirectWriteFontSize = 16;
 constexpr int kFallbackCharacterWidth = 12;
 constexpr int kHorizontalMargin = 10;
 constexpr int kCandidateGap = 16;
 constexpr int kHeaderTop = 6;
-constexpr int kHeaderBottom = 30;
 constexpr int kCandidateRowTop = 32;
 constexpr int kBottomPadding = 4;
-constexpr int kNavigationWidthReserve = 52;
 constexpr int kPageButtonWidth = 20;
 constexpr int kPageButtonGap = 4;
-constexpr int kTextOverhangAllowance = 8;
 constexpr int kCaretGapPx = 4;
-constexpr float kDisabledChevronOpacity = 0.55f;
-constexpr float kChevronMinimumStrokePx = 1.4f;
-constexpr int kChevronStrokeWidth = 2;
-constexpr float kChevronStrokeScale = 0.85f;
-constexpr int kChevronArmHeight = 4;
-constexpr float kChevronArmWidthRatio = 0.55f;
 }
 
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
+    appearance_ = ResolveDisplayAppearance(preferences_);
     InitDirect2DAndDirectWrite();
     UpdateDpiAndFont(96);
 }
@@ -57,28 +47,38 @@ void CandidateUI::InitDirect2DAndDirectWrite() noexcept {
 
 void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
     const UINT effective_dpi = new_dpi > 0 ? new_dpi : 96u;
-    if (font_.IsValid() && dpi_ == effective_dpi && dwrite_text_format_) {
+    const int text_scale_percent = TextScalePercent(preferences_.text_scale);
+    if (font_.IsValid() && dpi_ == effective_dpi && font_scale_percent_ == text_scale_percent) {
         return;
     }
     dpi_ = effective_dpi;
+    font_scale_percent_ = text_scale_percent;
     popup_height_ = ScaleByDpi(kPopupHeight);
 
-    font_ = CreateUiFont(ScaleByDpi(kGdiFontHeight), FW_NORMAL);
+    font_ = CreateUiFont(ScaleText(kGdiFontHeight), FW_NORMAL);
+    const ScopedWindowDC dc(hwnd_.Get());
+    const ScopedSelectObject select_font(dc.Get(), font_.Get());
+    TEXTMETRICW metrics{};
+    line_height_ = dc && ::GetTextMetricsW(dc.Get(), &metrics)
+        ? std::max(ScaleText(24), gsl::narrow_cast<int>(metrics.tmHeight + metrics.tmExternalLeading))
+        : ScaleText(24);
 
     if (dwrite_factory_) {
+        LOGFONTW font_details{};
+        std::ignore = ::GetObjectW(font_.Get(), sizeof(font_details), &font_details);
         if (log::CheckHResult(dwrite_factory_->CreateTextFormat(
-                L"Microsoft YaHei UI",
+                gsl::at(font_details.lfFaceName, 0) ? std::data(font_details.lfFaceName) : L"Microsoft YaHei UI",
                 nullptr,
                 DWRITE_FONT_WEIGHT_NORMAL,
                 DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL,
-                static_cast<float>(ScaleByDpi(kDirectWriteFontSize)),
+                static_cast<float>(ScaleText(kGdiFontHeight)),
                 L"zh-CN",
                 dwrite_text_format_.Put()), "CandidateUI::CreateTextFormat") &&
             dwrite_text_format_) {
             std::ignore = log::CheckHResult(dwrite_text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP),
                                            "CandidateUI::SetWordWrapping");
-            std::ignore = log::CheckHResult(dwrite_text_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
+            std::ignore = log::CheckHResult(dwrite_text_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR),
                                            "CandidateUI::SetParagraphAlignment");
         }
     }
@@ -88,6 +88,7 @@ int CandidateUI::MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const
     if (text.empty()) {
         return 0;
     }
+    int width = 0;
     if (dwrite_factory_ && dwrite_text_format_) {
         ScopedDWriteTextLayout layout;
         if (log::CheckHResult(dwrite_factory_->CreateTextLayout(
@@ -100,7 +101,7 @@ int CandidateUI::MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const
             layout) {
             DWRITE_TEXT_METRICS metrics{};
             if (log::CheckHResult(layout->GetMetrics(&metrics), "CandidateUI::GetMetrics", log::Level::debug)) {
-                return gsl::narrow_cast<int>(std::ceil(metrics.widthIncludingTrailingWhitespace));
+                width = gsl::narrow_cast<int>(std::ceil(metrics.widthIncludingTrailingWhitespace));
             }
         }
     }
@@ -108,10 +109,38 @@ int CandidateUI::MeasureTextWidth(HDC fallback_dc, std::wstring_view text) const
         SIZE sz{};
         if (::GetTextExtentPoint32W(
                 fallback_dc, text.data(), gsl::narrow_cast<int>(text.size()), &sz)) {
-            return sz.cx;
+            return std::max(width, gsl::narrow_cast<int>(sz.cx));
         }
     }
-    return gsl::narrow_cast<int>(text.size()) * ScaleByDpi(kFallbackCharacterWidth);
+    return std::max(width, gsl::narrow_cast<int>(text.size()) * ScaleText(kFallbackCharacterWidth));
+}
+
+std::wstring CandidateUI::WrapText(HDC dc, std::wstring_view text, int width) const {
+    std::wstring wrapped;
+    while (!text.empty()) {
+        const size_t newline = text.find(L'\n');
+        const size_t limit = newline == std::wstring_view::npos ? text.size() : newline;
+        size_t low = 0;
+        size_t high = limit;
+        while (low < high) {
+            const size_t middle = low + (high - low + 1) / 2;
+            if (MeasureTextWidth(dc, text.substr(0, middle)) <= width) low = middle;
+            else high = middle - 1;
+        }
+        size_t count = std::max<size_t>(1, low);
+        count = std::min(count, text.size());
+        if (count < text.size() && IS_HIGH_SURROGATE(gsl::at(text, count - 1)) && IS_LOW_SURROGATE(gsl::at(text, count))) {
+            count = count > 1 ? count - 1 : std::min<size_t>(2, text.size());
+        }
+        if (limit == 0) count = 0;
+        wrapped.append(text.substr(0, count));
+        text.remove_prefix(count);
+        if (!text.empty()) {
+            wrapped += L'\n';
+            if (text.front() == L'\n') text.remove_prefix(1);
+        }
+    }
+    return wrapped;
 }
 
 std::wstring CandidateUI::FormatHeaderText() const {
@@ -131,75 +160,116 @@ std::wstring CandidateUI::FormatCandidateLabel(size_t index_in_page, std::wstrin
 
 void CandidateUI::RecalculatePopupLayout() {
     candidate_hit_rects_.clear();
+    candidate_labels_.clear();
     prev_page_hit_rect_ = {};
     next_page_hit_rect_ = {};
     const ScopedWindowDC screen_dc(hwnd_.Get());
-    if (!screen_dc && !dwrite_text_format_) {
-        popup_width_ = ScaleByDpi(kPopupWidth);
-        popup_height_ = ScaleByDpi(kPopupHeight);
-        return;
-    }
-
     const ScopedSelectObject sel_font(screen_dc.Get(), font_.Get());
 
-    const int margin_x = ScaleByDpi(kHorizontalMargin);
+    const int margin_x = std::min(ScaleByDpi(kHorizontalMargin), std::max(0, available_width_ / 8));
     const int item_gap = ScaleByDpi(kCandidateGap);
-    const int row2_top = ScaleByDpi(kCandidateRowTop);
-    const int row2_bottom = ScaleByDpi(kPopupHeight - kBottomPadding);
-    const int row_height = row2_bottom - row2_top;
+    const int padding = ScaleByDpi(preferences_.easy_reading ? 8 : 2);
+    const int vertical_padding = ScaleByDpi(preferences_.easy_reading ? 8 : 1);
+    const int row_height = std::max(line_height_ + vertical_padding * 2, ScaleByDpi(preferences_.easy_reading ? 44 : 28));
     const bool vertical = layout_ == CandidateLayout::Vertical;
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    const int nav_reserve_cx = (total_pages > 1) ? ScaleByDpi(kNavigationWidthReserve) : 0;
-
-    const int header_cx = MeasureTextWidth(screen_dc.Get(), FormatHeaderText());
-
-    int cursor_x = margin_x;
-    int widest_item = 0;
+    const bool english = ResolveUiLanguage(ui_language_) == UiLanguage::EnUs;
+    const std::wstring_view previous_text = preferences_.easy_reading ? (english ? L"Previous" : L"上一页") : L"‹";
+    const std::wstring_view next_text = preferences_.easy_reading ? (english ? L"Next" : L"下一页") : L"›";
+    const int button_width = preferences_.easy_reading
+        ? std::max(ScaleByDpi(44), MeasureTextWidth(screen_dc.Get(), english ? L"Previous" : L"上一页") + padding * 2)
+        : ScaleByDpi(kPageButtonWidth);
+    const int button_gap = ScaleByDpi(kPageButtonGap);
+    const int navigation_width = total_pages > 1 ? button_width * 2 + button_gap : 0;
+    const int header_width = MeasureTextWidth(screen_dc.Get(), FormatHeaderText());
+    int natural_width = header_width + navigation_width + margin_x * 2 + (navigation_width ? item_gap : 0);
+    int candidate_width = vertical ? 0 : margin_x;
     const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
-    if (vertical && start >= end) {
-        widest_item = MeasureTextWidth(screen_dc.Get(), GetUiStrings(ui_language_).candidate_empty);
-    }
     for (size_t i = start; i < end; ++i) {
-        const size_t idx_in_page = i - start;
-        const std::wstring label = FormatCandidateLabel(idx_in_page, gsl::at(all_candidates_, i));
-
-        const int item_cx = MeasureTextWidth(screen_dc.Get(), label);
-        const int row_top = vertical ? row2_top + gsl::narrow_cast<int>(idx_in_page) * row_height : row2_top;
-        const int item_left = vertical ? margin_x : cursor_x;
-        const RECT hit_rc{item_left, row_top, item_left + item_cx, row_top + row_height};
-        candidate_hit_rects_.push_back(hit_rc);
-        cursor_x += item_cx + item_gap;
-        widest_item = std::max(widest_item, item_cx);
+        const int width = std::max(MeasureTextWidth(screen_dc.Get(), FormatCandidateLabel(i - start, gsl::at(all_candidates_, i))) + padding * 2,
+                                   ScaleByDpi(preferences_.easy_reading ? 44 : 0));
+        candidate_width = vertical ? std::max(candidate_width, width) : candidate_width + width + item_gap;
     }
+    if (start >= end) candidate_width = MeasureTextWidth(screen_dc.Get(), GetUiStrings(ui_language_).candidate_empty);
+    natural_width = std::max(natural_width, candidate_width + margin_x * 2);
+    if (!vertical) natural_width = std::max(ScaleByDpi(kPopupWidth), natural_width);
+    popup_width_ = std::clamp(natural_width, 1, available_width_);
 
-    const int content_width = std::max<int>(
-        header_cx + margin_x * 2 + nav_reserve_cx,
-        vertical ? widest_item + margin_x * 2 : cursor_x + margin_x + nav_reserve_cx);
-    popup_width_ = vertical ? content_width : std::max(ScaleByDpi(kPopupWidth), content_width);
-    popup_height_ = vertical
-        ? row2_top + gsl::narrow_cast<int>(std::max<size_t>(1, end - start)) * row_height + ScaleByDpi(kBottomPadding)
-        : ScaleByDpi(kPopupHeight);
-    if (vertical) {
-        for (auto& rect : candidate_hit_rects_) {
-            rect.right = popup_width_ - margin_x;
+    // A second pass reserves the native scrollbar before wrapping, not after sizing.
+    for (const int pass : {0, 1}) {
+        const int scrollbar = pass == 1 ? ::GetSystemMetricsForDpi(SM_CXVSCROLL, dpi_) : 0;
+        content_width_ = std::max(1, popup_width_ - scrollbar);
+        const int inner_width = std::max(1, content_width_ - margin_x * 2);
+        const int nav_top = ScaleByDpi(kHeaderTop);
+        const bool nav_same_row = navigation_width > 0 && navigation_width + item_gap < inner_width;
+        const int header_available = nav_same_row ? inner_width - navigation_width - item_gap : inner_width;
+        header_label_ = WrapText(screen_dc.Get(), FormatHeaderText(), header_available);
+        const int header_height = (gsl::narrow_cast<int>(std::count(header_label_.begin(), header_label_.end(), L'\n')) + 1) * line_height_;
+        header_rect_ = {margin_x, nav_top, margin_x + header_available, nav_top + header_height};
+        int row_top = std::max(ScaleByDpi(kCandidateRowTop), nav_top + header_height + vertical_padding);
+        if (navigation_width) {
+            const int top = nav_same_row ? nav_top : row_top;
+            const bool stacked = navigation_width > inner_width;
+            const int actual_button_width = stacked ? inner_width : button_width;
+            const int right = content_width_ - margin_x;
+            prev_page_label_ = WrapText(screen_dc.Get(), previous_text, std::max(1, actual_button_width - padding * 2));
+            next_page_label_ = WrapText(screen_dc.Get(), next_text, std::max(1, actual_button_width - padding * 2));
+            const int label_lines = 1 + std::max(
+                gsl::narrow_cast<int>(std::count(prev_page_label_.begin(), prev_page_label_.end(), L'\n')),
+                gsl::narrow_cast<int>(std::count(next_page_label_.begin(), next_page_label_.end(), L'\n')));
+            const int navigation_height = preferences_.easy_reading
+                ? std::max(row_height, label_lines * line_height_ + padding * 2) : line_height_;
+            const int next_top = stacked ? top + navigation_height + vertical_padding : top;
+            next_page_hit_rect_ = {right - actual_button_width, next_top, right, next_top + navigation_height};
+            const int previous_right = stacked ? right : right - actual_button_width - button_gap;
+            prev_page_hit_rect_ = {previous_right - actual_button_width, top, previous_right, top + navigation_height};
+            row_top = std::max(row_top, next_top + navigation_height + vertical_padding);
+        }
+        candidate_hit_rects_.clear();
+        candidate_labels_.clear();
+        int cursor_x = margin_x;
+        int row_bottom = row_top + row_height;
+        for (size_t i = start; i < end; ++i) {
+            const std::wstring label = FormatCandidateLabel(i - start, gsl::at(all_candidates_, i));
+            const int width = vertical ? inner_width : std::min(inner_width,
+                std::max(MeasureTextWidth(screen_dc.Get(), label) + padding * 2, ScaleByDpi(preferences_.easy_reading ? 44 : 0)));
+            if (cursor_x > margin_x && (vertical || cursor_x + width > content_width_ - margin_x)) {
+                row_top = row_bottom;
+                cursor_x = margin_x;
+            }
+            std::wstring wrapped = WrapText(screen_dc.Get(), label, std::max(1, width - padding * 2));
+            const int lines = gsl::narrow_cast<int>(std::count(wrapped.begin(), wrapped.end(), L'\n')) + 1;
+            const int height = std::max(row_height, lines * line_height_ + vertical_padding * 2);
+            candidate_hit_rects_.push_back(RECT{cursor_x, row_top, cursor_x + width, row_top + height});
+            candidate_labels_.push_back(std::move(wrapped));
+            row_bottom = std::max(row_bottom, row_top + height);
+            cursor_x += width + item_gap;
+        }
+        if (start >= end) {
+            empty_label_ = WrapText(screen_dc.Get(), GetUiStrings(ui_language_).candidate_empty, inner_width);
+            const int empty_height = std::max(row_height,
+                (gsl::narrow_cast<int>(std::count(empty_label_.begin(), empty_label_.end(), L'\n')) + 1) * line_height_ + vertical_padding * 2);
+            empty_rect_ = {margin_x, row_top, margin_x + inner_width, row_top + empty_height};
+            row_bottom = row_top + empty_height;
+        }
+        content_height_ = std::max(ScaleByDpi(kPopupHeight), row_bottom + ScaleByDpi(kBottomPadding));
+        popup_height_ = std::min(content_height_, available_height_);
+        if (content_height_ <= available_height_ || pass == 1) break;
+    }
+    scroll_offset_ = std::clamp(scroll_offset_, 0, std::max(0, content_height_ - popup_height_));
+    if (selected_in_page_ < candidate_hit_rects_.size()) {
+        const RECT selected = gsl::at(candidate_hit_rects_, selected_in_page_);
+        if (selected.top < scroll_offset_ || selected.bottom - selected.top > popup_height_) {
+            scroll_offset_ = selected.top;
+        } else if (selected.bottom > scroll_offset_ + popup_height_) {
+            scroll_offset_ = selected.bottom - popup_height_;
         }
     }
-
-    if (total_pages > 1) {
-        const int btn_w = ScaleByDpi(kPageButtonWidth);
-        const int btn_gap = ScaleByDpi(kPageButtonGap);
-        const int next_right = popup_width_ - margin_x;
-        const int next_left = next_right - btn_w;
-        const int prev_right = next_left - btn_gap;
-        const int prev_left = prev_right - btn_w;
-        const int nav_top = vertical ? ScaleByDpi(kHeaderTop) : row2_top;
-        const int nav_bottom = vertical ? ScaleByDpi(kHeaderBottom) : row2_bottom;
-        prev_page_hit_rect_ = RECT{prev_left, nav_top, prev_right, nav_bottom};
-        next_page_hit_rect_ = RECT{next_left, nav_top, next_right, nav_bottom};
-    }
+    scroll_offset_ = std::clamp(scroll_offset_, 0, std::max(0, content_height_ - popup_height_));
 }
 
 void CandidateUI::OnLeftButtonDown(POINT pt) const {
+    pt.y += scroll_offset_;
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
     if (total_pages > 1 && page_turn_callback_) {
         if (current_page_ > 0 && ::PtInRect(&prev_page_hit_rect_, pt)) {
@@ -372,11 +442,56 @@ void CandidateUI::SetLayout(CandidateLayout layout) {
     RefreshPopupLayout();
 }
 
+void CandidateUI::SetDisplayPreferences(DisplayPreferences preferences) {
+    if (preferences_ == preferences) return;
+    preferences_ = preferences;
+    appearance_ = ResolveDisplayAppearance(preferences_);
+    RefreshPopupLayout();
+    if (hwnd_) ApplyDisplayThemeToWindow(hwnd_.Get(), appearance_);
+}
+
+void CandidateUI::SetUiLanguage(UiLanguage lang) {
+    if (ui_language_ == lang) return;
+    ui_language_ = lang;
+    RefreshPopupLayout();
+}
+
+RECT CandidateUI::ViewportRect(RECT rect) const noexcept {
+    if (rect.right > rect.left) ::OffsetRect(&rect, 0, -scroll_offset_);
+    return rect;
+}
+
+void CandidateUI::UpdateScrollBar() const noexcept {
+    if (!hwnd_) return;
+    if (content_height_ <= popup_height_) {
+        ::ShowScrollBar(hwnd_.Get(), SB_VERT, FALSE);
+        return;
+    }
+    SCROLLINFO info{};
+    info.cbSize = sizeof(info);
+    info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+    info.nMin = 0;
+    info.nMax = std::max(0, content_height_ - 1);
+    info.nPage = gsl::narrow_cast<UINT>(popup_height_);
+    info.nPos = scroll_offset_;
+    ::SetScrollInfo(hwnd_.Get(), SB_VERT, &info, TRUE);
+}
+
+void CandidateUI::ScrollContent(int position) {
+    const int next = std::clamp(position, 0, std::max(0, content_height_ - popup_height_));
+    if (scroll_offset_ == next) return;
+    scroll_offset_ = next;
+    UpdateScrollBar();
+    if (hwnd_) ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
+}
+
 void CandidateUI::RefreshPopupLayout(UINT dpi) {
     const POINT anchor = text_rect_
         ? POINT{text_rect_->left, text_rect_->bottom + kCaretGapPx}
         : popup_pos_;
     const MonitorMetrics mon = QueryMonitorForPoint(anchor, hwnd_.Get());
+    available_width_ = std::max(1L, mon.work_area.right - mon.work_area.left);
+    available_height_ = std::max(1L, mon.work_area.bottom - mon.work_area.top);
     UpdateDpiAndFont(dpi > 0 ? dpi : mon.dpi);
     RecalculatePopupLayout();
     popup_pos_ = anchor;
@@ -390,8 +505,11 @@ void CandidateUI::RefreshPopupLayout(UINT dpi) {
                    text_rect.left, text_rect.top, text_rect.right, text_rect.bottom,
                    popup_pos_.x, popup_pos_.y, popup_width_, popup_height_, dpi_, hwnd_.Get() != nullptr, is_shown_ != FALSE);
     if (hwnd_) {
+        const LONG_PTR style = ::GetWindowLongPtrW(hwnd_.Get(), GWL_STYLE);
+        const LONG_PTR desired_style = content_height_ > popup_height_ ? style | WS_VSCROLL : style & ~WS_VSCROLL;
+        if (style != desired_style) ::SetWindowLongPtrW(hwnd_.Get(), GWL_STYLE, desired_style);
         if (!::SetWindowPos(hwnd_.Get(), HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
-                            SWP_NOACTIVATE | (is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW))) {
+                            SWP_NOACTIVATE | SWP_FRAMECHANGED | (is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW))) {
             QIQI_LOG_ERROR("CandidatePositionPopup::SetWindowPos failed (error={})", ::GetLastError());
         } else if (log::ShouldLog(log::Level::debug)) {
             RECT actual{};
@@ -402,6 +520,7 @@ void CandidateUI::RefreshPopupLayout(UINT dpi) {
                 QIQI_LOG_ERROR("CandidatePositionPopup::GetWindowRect failed (error={})", ::GetLastError());
             }
         }
+        UpdateScrollBar();
         ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
     }
 }
@@ -430,13 +549,15 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         kCandidateWndClass,
         L"",
-        WS_POPUP | WS_BORDER,
+        WS_POPUP | (content_height_ > popup_height_ ? WS_VSCROLL : 0),
         popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
         popup_owner_, nullptr, instance_, this));
 
     if (!hwnd_) {
         QIQI_LOG_ERROR("CandidateUI::EnsurePopupWindow CreateWindowExW failed (error={})", ::GetLastError());
     } else {
+        ApplyDisplayThemeToWindow(hwnd_.Get(), appearance_);
+        UpdateScrollBar();
         QIQI_LOG_DEBUG("CandidateUI popup window created (pos=({}, {}), size={}x{}, dpi={})",
                        popup_pos_.x, popup_pos_.y, popup_width_, popup_height_, dpi_);
     }
@@ -471,110 +592,78 @@ bool CandidateUI::DestroyPopupWindow() noexcept {
     return DestroyWindowOnOwnerThread(hwnd_, "CandidateUI::DestroyPopupWindow");
 }
 
+std::vector<CandidateUI::PaintItem> CandidateUI::BuildPaintItems() const {
+    std::vector<PaintItem> items;
+    items.push_back({ViewportRect(header_rect_), header_label_, false, true});
+    for (size_t i = 0; i < candidate_labels_.size(); ++i) {
+        items.push_back({ViewportRect(gsl::at(candidate_hit_rects_, i)), gsl::at(candidate_labels_, i),
+                         i == selected_in_page_});
+    }
+    if (candidate_labels_.empty()) {
+        items.push_back({ViewportRect(empty_rect_), empty_label_});
+    }
+    if (ComputeTotalPages(all_candidates_.size(), page_size_) > 1) {
+        items.push_back({PrevPageButtonRect(), prev_page_label_,
+                         false, true, current_page_ > 0, true});
+        items.push_back({NextPageButtonRect(), next_page_label_,
+                         false, true, current_page_ + 1 < ComputeTotalPages(all_candidates_.size(), page_size_), true});
+    }
+    return items;
+}
+
 bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
-    if (!hdc || !d2d_dc_target_ || !dwrite_text_format_) {
-        return false;
-    }
-
-    const auto& palette = GetCurrentThemePalette();
-    const auto accent_brush = CreateSolidBrush(d2d_dc_target_.Get(), ColorRefToD2DColor(palette.text_accent));
-    const auto primary_brush = CreateSolidBrush(d2d_dc_target_.Get(), ColorRefToD2DColor(palette.text_primary));
-    if (!accent_brush || !primary_brush) {
-        return false;
-    }
-
+    if (!hdc || !d2d_dc_target_ || !dwrite_text_format_) return false;
+    const ScopedSelectObject select_font(hdc, font_.Get());
+    const auto& palette = appearance_.palette;
+    const auto brush = CreateSolidBrush(d2d_dc_target_.Get(), ColorRefToD2DColor(palette.text_primary));
+    if (!brush) return false;
+    const auto as_d2d = [](const RECT& rect) noexcept {
+        return D2D1::RectF(static_cast<float>(rect.left), static_cast<float>(rect.top),
+                           static_cast<float>(rect.right), static_cast<float>(rect.bottom));
+    };
     HRESULT end_hr = S_OK;
     {
         const ScopedD2DDcDraw draw_guard(d2d_dc_target_.Get(), hdc, client_rect, &end_hr);
-        if (!draw_guard) {
-            return false;
-        }
+        if (!draw_guard) return false;
         d2d_dc_target_->Clear(ColorRefToD2DColor(palette.window_bg));
-
-        const auto& str = GetUiStrings(ui_language_);
-        const std::wstring header = FormatHeaderText();
-        const D2D1_RECT_F top_rc = D2D1::RectF(
-            static_cast<float>(ScaleByDpi(kHorizontalMargin)),
-            static_cast<float>(ScaleByDpi(kHeaderTop)),
-            static_cast<float>(client_rect.right - ScaleByDpi(kHorizontalMargin)),
-            static_cast<float>(ScaleByDpi(kHeaderBottom)));
-        d2d_dc_target_->DrawTextW(
-            header.c_str(),
-            gsl::narrow_cast<UINT32>(header.size()),
-            dwrite_text_format_.Get(),
-            top_rc,
-            accent_brush.Get(),
-            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-
-        const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
-        if (start >= end) {
-            const D2D1_RECT_F empty_rc = D2D1::RectF(
-                static_cast<float>(ScaleByDpi(kHorizontalMargin)),
-                static_cast<float>(ScaleByDpi(kCandidateRowTop)),
-                static_cast<float>(client_rect.right - ScaleByDpi(kHorizontalMargin)),
-                static_cast<float>(client_rect.bottom - ScaleByDpi(kBottomPadding)));
-            d2d_dc_target_->DrawTextW(
-                str.candidate_empty,
-                gsl::narrow_cast<UINT32>(wcslen(str.candidate_empty)),
-                dwrite_text_format_.Get(),
-                empty_rc,
-                primary_brush.Get(),
-                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-        } else {
-            for (size_t i = start; i < end; ++i) {
-                const size_t idx_in_page = i - start;
-                const std::wstring label = FormatCandidateLabel(idx_in_page, gsl::at(all_candidates_, i));
-
-                const RECT item_rc = (idx_in_page < candidate_hit_rects_.size())
-                    ? gsl::at(candidate_hit_rects_, idx_in_page)
-                    : RECT{ScaleByDpi(kHorizontalMargin), ScaleByDpi(kCandidateRowTop),
-                           client_rect.right - ScaleByDpi(kHorizontalMargin), client_rect.bottom - ScaleByDpi(kBottomPadding)};
-                const D2D1_RECT_F d2d_rc = D2D1::RectF(
-                    static_cast<float>(item_rc.left),
-                    static_cast<float>(item_rc.top),
-                    static_cast<float>(item_rc.right + ScaleByDpi(kTextOverhangAllowance)),
-                    static_cast<float>(item_rc.bottom));
-                d2d_dc_target_->DrawTextW(
-                    label.c_str(),
-                    gsl::narrow_cast<UINT32>(label.size()),
-                    dwrite_text_format_.Get(),
-                    d2d_rc,
-                    (idx_in_page == selected_in_page_) ? accent_brush.Get() : primary_brush.Get(),
-                    D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+        for (const PaintItem& item : BuildPaintItems()) {
+            if (item.rect.bottom <= 0 || item.rect.top >= client_rect.bottom) continue;
+            if (item.selected) {
+                brush->SetColor(ColorRefToD2DColor(palette.selection_bg));
+                d2d_dc_target_->FillRectangle(as_d2d(item.rect), brush.Get());
+                brush->SetColor(ColorRefToD2DColor(palette.focus_color));
+                d2d_dc_target_->DrawRectangle(as_d2d(item.rect), brush.Get(), static_cast<float>(ScaleByDpi(2)));
             }
-
-            const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-            if (total_pages > 1) {
-                const auto disabled_brush = CreateSolidBrush(
-                    d2d_dc_target_.Get(), ColorRefToD2DColor(palette.grip_dot, kDisabledChevronOpacity));
-                const float stroke_w = std::max(
-                    kChevronMinimumStrokePx, static_cast<float>(ScaleByDpi(kChevronStrokeWidth)) * kChevronStrokeScale);
-                const float arm = static_cast<float>(ScaleByDpi(kChevronArmHeight));
-                const auto draw_chevron = [&](const RECT& btn_rc, bool is_next, bool enabled) noexcept {
-                    ID2D1SolidColorBrush* const br = enabled ? accent_brush.Get() : disabled_brush.Get();
-                    if (!br) {
-                        return;
-                    }
-                    const float cx = static_cast<float>(btn_rc.left + btn_rc.right) * 0.5f;
-                    const float cy = static_cast<float>(btn_rc.top + btn_rc.bottom) * 0.5f;
-                    const float dx = is_next ? arm * kChevronArmWidthRatio : -arm * kChevronArmWidthRatio;
-                    d2d_dc_target_->DrawLine(
-                        D2D1::Point2F(cx - dx, cy - arm),
-                        D2D1::Point2F(cx + dx, cy),
-                        br,
-                        stroke_w);
-                    d2d_dc_target_->DrawLine(
-                        D2D1::Point2F(cx + dx, cy),
-                        D2D1::Point2F(cx - dx, cy + arm),
-                        br,
-                        stroke_w);
-                };
-                draw_chevron(prev_page_hit_rect_, false, current_page_ > 0);
-                draw_chevron(next_page_hit_rect_, true, current_page_ + 1 < total_pages);
+            const COLORREF color = item.selected ? palette.selection_text : !item.enabled ? palette.text_secondary
+                : item.accent ? palette.text_accent : palette.text_primary;
+            brush->SetColor(ColorRefToD2DColor(color));
+            const int padding = item.accent ? 0 : ScaleByDpi(preferences_.easy_reading ? 8 : 2);
+            const int vertical_padding = item.accent ? 0 : ScaleByDpi(preferences_.easy_reading ? 8 : 1);
+            int top = item.rect.top + vertical_padding;
+            if (item.centered) {
+                const int lines = gsl::narrow_cast<int>(std::count(item.text.begin(), item.text.end(), L'\n')) + 1;
+                top += std::max(0, (gsl::narrow_cast<int>(item.rect.bottom - item.rect.top) - lines * line_height_) / 2);
             }
+            std::wstring_view remaining = item.text;
+            do {
+                const size_t end = remaining.find(L'\n');
+                const std::wstring_view line = remaining.substr(0, end);
+                RECT line_rect{item.rect.left + padding, top, item.rect.right - padding, top + line_height_};
+                if (item.centered) {
+                    line_rect.left += std::max(0, (gsl::narrow_cast<int>(line_rect.right - line_rect.left) -
+                        MeasureTextWidth(hdc, line)) / 2);
+                }
+                d2d_dc_target_->DrawTextW(line.data(), gsl::narrow_cast<UINT32>(line.size()),
+                    dwrite_text_format_.Get(), as_d2d(line_rect), brush.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                if (end == std::wstring_view::npos) break;
+                remaining.remove_prefix(end + 1);
+                top += line_height_;
+            } while (!remaining.empty());
         }
+        brush->SetColor(ColorRefToD2DColor(palette.border_color));
+        d2d_dc_target_->DrawRectangle(D2D1::RectF(0.5f, 0.5f, static_cast<float>(client_rect.right) - 0.5f,
+            static_cast<float>(client_rect.bottom) - 0.5f), brush.Get());
     }
-
     if (FAILED(end_hr)) {
         QIQI_LOG_WARN("CandidateUI::PaintPopupDirect2D EndDraw failed (hr=0x{:08x}); falling back to GDI rendering",
                       gsl::narrow_cast<unsigned int>(end_hr));
@@ -585,58 +674,48 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
 }
 
 void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
-    if (PaintPopupDirect2D(hdc, client_rect)) {
-        return;
-    }
+    if (PaintPopupDirect2D(hdc, client_rect)) return;
     const ScopedSaveDC save_dc(hdc);
-    const auto& palette = GetCurrentThemePalette();
-    const ScopedGdiHandle<HBRUSH> bg_brush(::CreateSolidBrush(palette.window_bg));
-    ::FillRect(hdc, &client_rect, bg_brush.Get());
-
-    const ScopedSelectObject sel_font(hdc, font_.Get());
+    const auto& palette = appearance_.palette;
+    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(palette.window_bg));
+    const ScopedGdiHandle<HBRUSH> selection(::CreateSolidBrush(palette.selection_bg));
+    const ScopedGdiHandle<HBRUSH> outline(::CreateSolidBrush(palette.focus_color));
+    const ScopedGdiHandle<HBRUSH> border(::CreateSolidBrush(palette.border_color));
+    ::FillRect(hdc, &client_rect, background.Get());
+    const ScopedSelectObject select_font(hdc, font_.Get());
     ::SetBkMode(hdc, TRANSPARENT);
-
-    // Line 1: Wubi code + page indicator
-    const auto& str = GetUiStrings(ui_language_);
-    const std::wstring header = FormatHeaderText();
-    RECT top_rect = {
-        ScaleByDpi(kHorizontalMargin), ScaleByDpi(kHeaderTop),
-        client_rect.right - ScaleByDpi(kHorizontalMargin), ScaleByDpi(kHeaderBottom)};
-    ::SetTextColor(hdc, palette.text_accent);
-    ::DrawTextW(hdc, header.c_str(), -1, &top_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-
-    // Both layouts paint and hit-test the same measured rectangles.
-    const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
-    if (start >= end) {
-        RECT bottom_rect = {
-            ScaleByDpi(kHorizontalMargin), ScaleByDpi(kCandidateRowTop),
-            client_rect.right - ScaleByDpi(kHorizontalMargin), client_rect.bottom - ScaleByDpi(kBottomPadding)};
-        ::SetTextColor(hdc, palette.text_primary);
-        ::DrawTextW(hdc, str.candidate_empty, -1, &bottom_rect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-        return;
+    for (const PaintItem& item : BuildPaintItems()) {
+        if (item.rect.bottom <= 0 || item.rect.top >= client_rect.bottom) continue;
+        if (item.selected) {
+            ::FillRect(hdc, &item.rect, selection.Get());
+            RECT frame = item.rect;
+            for (int i = 0; i < ScaleByDpi(2); ++i) {
+                ::FrameRect(hdc, &frame, outline.Get());
+                ::InflateRect(&frame, -1, -1);
+            }
+        }
+        ::SetTextColor(hdc, item.selected ? palette.selection_text :
+            !item.enabled ? palette.text_secondary : item.accent ? palette.text_accent : palette.text_primary);
+        const int padding = item.accent ? 0 : ScaleByDpi(preferences_.easy_reading ? 8 : 2);
+        const int vertical_padding = item.accent ? 0 : ScaleByDpi(preferences_.easy_reading ? 8 : 1);
+        int top = item.rect.top + vertical_padding;
+        if (item.centered) {
+            const int lines = gsl::narrow_cast<int>(std::count(item.text.begin(), item.text.end(), L'\n')) + 1;
+            top += std::max(0, (gsl::narrow_cast<int>(item.rect.bottom - item.rect.top) - lines * line_height_) / 2);
+        }
+        std::wstring_view remaining = item.text;
+        do {
+            const size_t end = remaining.find(L'\n');
+            const std::wstring_view line = remaining.substr(0, end);
+            RECT line_rect{item.rect.left + padding, top, item.rect.right - padding, top + line_height_};
+            ::DrawTextW(hdc, line.data(), gsl::narrow_cast<int>(line.size()), &line_rect,
+                        DT_SINGLELINE | DT_NOPREFIX | (item.centered ? DT_CENTER : DT_LEFT));
+            if (end == std::wstring_view::npos) break;
+            remaining.remove_prefix(end + 1);
+            top += line_height_;
+        } while (!remaining.empty());
     }
-
-    for (size_t i = start; i < end; ++i) {
-        const size_t idx_in_page = i - start;
-        const std::wstring label = FormatCandidateLabel(idx_in_page, gsl::at(all_candidates_, i));
-
-        RECT item_rc = (idx_in_page < candidate_hit_rects_.size())
-            ? gsl::at(candidate_hit_rects_, idx_in_page)
-            : RECT{ScaleByDpi(kHorizontalMargin), ScaleByDpi(kCandidateRowTop),
-                   client_rect.right - ScaleByDpi(kHorizontalMargin), client_rect.bottom - ScaleByDpi(kBottomPadding)};
-        ::SetTextColor(hdc, idx_in_page == selected_in_page_ ? palette.text_accent : palette.text_primary);
-        ::DrawTextW(hdc, label.c_str(), -1, &item_rc, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOCLIP);
-    }
-
-    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    if (total_pages > 1) {
-        RECT prev_rc = prev_page_hit_rect_;
-        RECT next_rc = next_page_hit_rect_;
-        ::SetTextColor(hdc, current_page_ > 0 ? palette.text_accent : palette.grip_dot);
-        ::DrawTextW(hdc, L"‹", -1, &prev_rc, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-        ::SetTextColor(hdc, (current_page_ + 1 < total_pages) ? palette.text_accent : palette.grip_dot);
-        ::DrawTextW(hdc, L"›", -1, &next_rc, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-    }
+    ::FrameRect(hdc, &client_rect, border.Get());
 }
 
 LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -658,6 +737,35 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         case WM_LBUTTONDOWN:
             self->OnLeftButtonDown(PointFromLParam(lparam));
             return 0;
+        case WM_MOUSEWHEEL: {
+            self->wheel_delta_ += GET_WHEEL_DELTA_WPARAM(wparam);
+            const int steps = self->wheel_delta_ / WHEEL_DELTA;
+            self->wheel_delta_ %= WHEEL_DELTA;
+            self->ScrollContent(self->scroll_offset_ - steps * self->line_height_ * 3);
+            return 0;
+        }
+        case WM_VSCROLL: {
+            int position = self->scroll_offset_;
+            switch (LOWORD(wparam)) {
+                case SB_TOP: position = 0; break;
+                case SB_BOTTOM: position = self->content_height_; break;
+                case SB_LINEUP: position -= self->line_height_; break;
+                case SB_LINEDOWN: position += self->line_height_; break;
+                case SB_PAGEUP: position -= self->popup_height_; break;
+                case SB_PAGEDOWN: position += self->popup_height_; break;
+                case SB_THUMBTRACK:
+                case SB_THUMBPOSITION: {
+                    SCROLLINFO info{};
+                    info.cbSize = sizeof(info);
+                    info.fMask = SIF_TRACKPOS;
+                    if (::GetScrollInfo(hwnd, SB_VERT, &info)) position = info.nTrackPos;
+                    break;
+                }
+                default: break;
+            }
+            self->ScrollContent(position);
+            return 0;
+        }
         case WM_DPICHANGED:
             if (!self->text_rect_ && lparam != 0) {
                 const auto* suggested = reinterpret_cast<const RECT*>(lparam);
@@ -668,10 +776,17 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             return 0;
         case WM_SETTINGCHANGE:
         case WM_THEMECHANGED:
+            self->appearance_ = ResolveDisplayAppearance(self->preferences_);
             self->RefreshPopupLayout();
+            ApplyDisplayThemeToWindow(hwnd, self->appearance_);
             return 0;
         case WM_PAINT:
             return PaintWindowClient(hwnd, [self](HDC hdc, const RECT& rc) { self->PaintPopup(hdc, rc); });
+        case WM_PRINTCLIENT: {
+            RECT rect{};
+            if (wparam && ::GetClientRect(hwnd, &rect)) self->PaintPopup(reinterpret_cast<HDC>(wparam), rect);
+            return 0;
+        }
         default:
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }

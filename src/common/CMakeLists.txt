@@ -78,5 +78,6 @@ target_link_libraries(qiqi_common PUBLIC
     uxtheme
     d2d1
     dwrite
+    dwmapi
     shell32
 )

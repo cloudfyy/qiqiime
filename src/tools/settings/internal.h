@@ -11,6 +11,8 @@
 #include <shellapi.h>
 #include <filesystem>
 #include <wrl/client.h>
+#include <array>
+#include <span>
 
 namespace qiqi::settings_detail {
 
@@ -47,6 +49,64 @@ constexpr int kIdBtnBrowsePrimaryDict = 132;
 constexpr int kIdLblCustomPrimaryPath = 133;
 constexpr int kIdBtnRestoreDefaults = 134;
 constexpr int kIdComboCandidateLayout = 135;
+constexpr int kIdComboUiTheme = 136;
+constexpr int kIdComboUiTextScale = 137;
+constexpr int kIdChkEasyReading = 138;
+constexpr int kIdLblUiTheme = 140;
+constexpr int kIdLblUiTextScale = 141;
+constexpr int kIdCandidatePreview = 142;
+constexpr int kIdDisplayExplanation = 143;
+constexpr int kIdSettingsTabs = 144;
+constexpr int kIdPageScroll = 145;
+constexpr UINT kSettingsEnsureFocusVisible = WM_APP + 93;
+constexpr UINT kSettingsCyclePage = WM_APP + 94;
+enum class SettingsPage { Input, Dictionary, Candidates, Display, Feedback, Count };
+struct SettingsPageLabel {
+    const wchar_t* zh;
+    const wchar_t* en;
+};
+inline constexpr std::array<SettingsPageLabel, 5> kSettingsPageLabels{{
+    {L"输入习惯", L"Input"},
+    {L"词库", L"Dictionary"},
+    {L"候选窗口", L"Candidates"},
+    {L"显示", L"Display"},
+    {L"声音与反馈", L"Feedback"},
+}};
+inline constexpr std::array kSettingsInputControls{
+    kIdChkAutoCommit4, kIdChkPushCommit5, kIdChkQuickSelect, kIdChkDynamicFreq,
+    kIdChkShiftToggle, kIdLblEnglishSwitch, kIdComboEnglishSwitch};
+inline constexpr std::array kSettingsDictionaryControls{
+    kIdRadioJidian, kIdChkExtraDict, kIdRadioHaifeng, kIdRadioBuiltin,
+    kIdRadioCustom, kIdBtnBrowsePrimaryDict, kIdBtnDictManager, kIdLblCustomPrimaryPath};
+inline constexpr std::array kSettingsFooterControls{
+    kIdBtnAbout, kIdBtnHelp, kIdBtnRestoreDefaults, IDOK, IDCANCEL};
+
+constexpr bool IsSettingsFooterControl(int id) noexcept {
+    for (const int footer_id : kSettingsFooterControls) {
+        if (footer_id == id) return true;
+    }
+    return false;
+}
+inline constexpr std::array kSettingsCandidateControls{
+    kIdLblPageSize, kIdComboPageSize, kIdComboCandidateLayout, kIdChkCodeHint,
+    kIdChkUpDownPageTurn, kIdLblUnderlineStyle, kIdComboUnderlineStyle, kIdChkBoldUnderline};
+inline constexpr std::array kSettingsDisplayControls{
+    kIdLblUiTheme, kIdComboUiTheme, kIdChkEasyReading, kIdLblUiTextScale, kIdComboUiTextScale,
+    kIdLblUiLang, kIdComboUiLang, kIdDisplayExplanation,
+    kIdChkStatusBar, kIdCandidatePreview};
+inline constexpr std::array kSettingsFeedbackControls{
+    kIdChkBeepEmpty4, kIdChkBeepDup4, kIdChkClearEmpty4, kIdChkKeySound};
+
+constexpr std::span<const int> SettingsPageControls(SettingsPage page) noexcept {
+    switch (page) {
+        case SettingsPage::Input: return kSettingsInputControls;
+        case SettingsPage::Dictionary: return kSettingsDictionaryControls;
+        case SettingsPage::Candidates: return kSettingsCandidateControls;
+        case SettingsPage::Display: return kSettingsDisplayControls;
+        case SettingsPage::Feedback: return kSettingsFeedbackControls;
+        default: return {};
+    }
+}
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 
@@ -168,6 +228,16 @@ struct DialogContext {
     bool save_on_accept = false;
     bool accepted = false;
     bool done = false;
+    UiTheme preview_theme = UiTheme::System;
+    UiTextScale preview_scale = UiTextScale::Percent100;
+    bool preview_easy_reading = false;
+    int scroll_offset = 0;
+    int content_height = 0;
+    int viewport_height = 0;
+    bool laying_out = false;
+    SettingsPage active_page = SettingsPage::Input;
+    std::array<int, kSettingsPageLabels.size()> page_scroll_offsets{};
+    RECT page_bounds{};
     ScopedGdiHandle<HFONT> font;
     ScopedGdiHandle<HFONT> bold_font;
     ScopedIcon icon_small;
@@ -185,5 +255,15 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept;
 void UpdateExtraDictCheckboxState(HWND hwnd) noexcept;
 void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& ctx) noexcept;
+void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept;
+void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept;
+void EnsureSettingsControlVisible(HWND hwnd, HWND child, DialogContext& ctx) noexcept;
+void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept;
+void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept;
+int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogContext& ctx) noexcept;
+void UpdateSettingsTabLabels(HWND hwnd, const DialogContext& ctx) noexcept;
+void SelectSettingsPage(HWND hwnd, DialogContext& ctx, SettingsPage page) noexcept;
+LRESULT CALLBACK SettingsTabSubclass(
+    HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data) noexcept;
 
 } // namespace qiqi::settings_detail

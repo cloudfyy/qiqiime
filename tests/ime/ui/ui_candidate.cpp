@@ -6,6 +6,7 @@
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/monitor_dpi.h"
+#include "common/d2d_controls.h"
 #include "ime/ui/candidate_ui.h"
 
 #include <windows.h>
@@ -22,6 +23,159 @@ namespace qiqi::test {
 using Microsoft::WRL::ComPtr;
 
 namespace {
+
+COLORREF PaintCandidatePixel(const CandidateUI& ui, POINT point) {
+    const ScopedWindowDC screen(nullptr);
+    const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+    const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), ui.CurrentWidth(), ui.CurrentHeight()));
+    QIQI_TEST_CHECK(screen && dc && bitmap);
+    const ScopedSelectObject select_bitmap(dc.Get(), bitmap.Get());
+    ::SendMessageW(ui.WindowHandle(), WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc.Get()), PRF_CLIENT);
+    return ::GetPixel(dc.Get(), point.x, point.y);
+}
+
+void TestCandidateDisplayPreferences() {
+    const TsfTestCaseTrace trace(__func__);
+    // Keep an independent snapshot: the test changes the override's backing storage.
+    const std::optional<MonitorMetrics> previous_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto previous_theme = detail::ThemeDarkOverrideStorage();
+    const auto restore = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(previous_monitor);
+        SetThemeDarkOverrideForTest(previous_theme);
+        SetHighContrastOverrideForTest(std::nullopt);
+    });
+    SetHighContrastOverrideForTest(false);
+    SetThemeDarkOverrideForTest(false);
+    for (const bool gdi : {false, true}) {
+        for (const UINT dpi : {96u, 144u, 192u}) {
+            SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1600, 1200}, dpi});
+            const auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+            if (gdi) ui->DisableDirect2DForTest();
+            ui->SetLayout(CandidateLayout::Vertical);
+            ui->SetUiLanguage(UiLanguage::EnUs);
+            ui->SetCandidates(L"abc", {L"One", L"Two", L"Three"}, 2, 0, 1);
+            ui->MoveWindowTo(RECT{10, 10, 12, 30});
+            QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+            const auto* const focus = ::GetFocus();
+            const int normal_height = ui->CandidateRect(0).bottom - ui->CandidateRect(0).top;
+            const int normal_width = ui->CurrentWidth();
+            const int normal_popup_height = ui->CurrentHeight();
+            int previous_height = 0;
+            for (const auto scale : {UiTextScale::Percent100, UiTextScale::Percent125,
+                                     UiTextScale::Percent150, UiTextScale::Percent200}) {
+                ui->SetDisplayPreferences(UiTheme::Light, scale, false);
+                const RECT item = ui->CandidateRect(0);
+                QIQI_TEST_CHECK(item.bottom - item.top > previous_height);
+                if (scale == UiTextScale::Percent100) {
+                    QIQI_TEST_CHECK(ui->CurrentWidth() == normal_width &&
+                                    ui->CurrentHeight() == normal_popup_height &&
+                                    item.bottom - item.top == normal_height);
+                }
+                previous_height = item.bottom - item.top;
+            }
+            for (const auto theme : {UiTheme::System, UiTheme::Light, UiTheme::Dark, UiTheme::HighContrast}) {
+                ui->SetDisplayPreferences(theme, UiTextScale::Percent150, true);
+                const auto& appearance = ui->Appearance();
+                QIQI_TEST_CHECK(appearance.high_contrast == (theme == UiTheme::HighContrast));
+                QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == appearance.palette.window_bg);
+                for (const RECT rect : {ui->CandidateRect(0), ui->CandidateRect(1),
+                                        ui->PrevPageButtonRect(), ui->NextPageButtonRect()}) {
+                    QIQI_TEST_CHECK(rect.right - rect.left >= ScalePxByDpi(44, dpi));
+                    QIQI_TEST_CHECK(rect.bottom - rect.top >= ScalePxByDpi(44, dpi));
+                }
+                const RECT selected = ui->CandidateRect(1);
+                QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{selected.left + ScalePxByDpi(3, dpi),
+                    selected.bottom - ScalePxByDpi(3, dpi)}) == appearance.palette.selection_bg);
+                QIQI_TEST_CHECK(::GetFocus() == focus);
+            }
+            ui->SetDisplayPreferences(UiTheme::Dark, UiTextScale::Percent100, false);
+            QIQI_TEST_CHECK(ui->CandidateRect(0).bottom - ui->CandidateRect(0).top == normal_height);
+            SetHighContrastOverrideForTest(true);
+            ::SendMessageW(ui->WindowHandle(), WM_SETTINGCHANGE, 0, 0);
+            QIQI_TEST_CHECK(ui->Appearance().system_high_contrast);
+            QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == ::GetSysColor(COLOR_WINDOW));
+            SetHighContrastOverrideForTest(false);
+            ::SendMessageW(ui->WindowHandle(), WM_THEMECHANGED, 0, 0);
+            QIQI_TEST_CHECK(!ui->Appearance().high_contrast && ui->Appearance().palette.is_dark);
+            ui->SetDisplayPreferences(UiTheme::System, UiTextScale::Percent100, false);
+            SetThemeDarkOverrideForTest(true);
+            ::SendMessageW(ui->WindowHandle(), WM_THEMECHANGED, 0, 0);
+            QIQI_TEST_CHECK(ui->Appearance().palette.is_dark);
+            SetThemeDarkOverrideForTest(false);
+            UINT selection = 0;
+            UINT page_count = 0;
+            QIQI_TEST_CHECK(ui->GetSelection(&selection) == S_OK && selection == 1);
+            QIQI_TEST_CHECK(ui->GetPageIndex(nullptr, 0, &page_count) == S_OK && page_count == 2);
+            if (gdi) QIQI_TEST_CHECK(!ui->IsDirectWriteActive());
+        }
+    }
+}
+
+void TestCandidateConstrainedViewport() {
+    const TsfTestCaseTrace trace(__func__);
+    // Keep an independent snapshot: the test changes the override's backing storage.
+    const std::optional<MonitorMetrics> previous_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto restore = gsl::finally([&]() noexcept { SetMonitorMetricsOverrideForTest(previous_monitor); });
+    const RECT work{-320, -180, 0, 0};
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{work, 96});
+    for (const bool gdi : {false, true}) {
+        const auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+        if (gdi) ui->DisableDirect2DForTest();
+        ui->SetDisplayPreferences(UiTheme::HighContrast, UiTextScale::Percent200, true);
+        const std::vector<std::wstring> candidates{
+            std::wstring(80, L'长') + L"𠀀🚀", L"第二项", L"第三项", L"第四项", L"第五项",
+            L"第六项", L"第七项", L"第八项", L"末项"};
+        ui->SetCandidates(L"abcd", candidates, 9, 0, 8);
+        ui->MoveWindowTo(RECT{-10, -20, -8, -5});
+        QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+        RECT actual{};
+        QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &actual));
+        QIQI_TEST_CHECK(actual.left >= work.left && actual.top >= work.top &&
+                        actual.right <= work.right && actual.bottom <= work.bottom);
+        QIQI_TEST_CHECK(ui->ContentHeight() > ui->CurrentHeight() && ui->ScrollOffset() > 0);
+        QIQI_TEST_CHECK((::GetWindowLongPtrW(ui->WindowHandle(), GWL_STYLE) & WS_VSCROLL) != 0);
+        const RECT selected = ui->CandidateRect(8);
+        QIQI_TEST_CHECK(selected.top >= 0 && selected.bottom <= ui->CurrentHeight());
+        QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{selected.left + 3, selected.bottom - 3}) ==
+                        ui->Appearance().palette.selection_bg);
+        if (!gdi) {
+            const int content_height = ui->ContentHeight();
+            ui->DisableDirect2DForTest();
+            ui->SetCandidates(L"abcd", candidates, 9, 0, 8);
+            const RECT fallback = ui->CandidateRect(8);
+            QIQI_TEST_CHECK(::EqualRect(&selected, &fallback) && ui->ContentHeight() == content_height);
+        }
+        size_t clicked = 99;
+        ui->SetSelectCallback([&](size_t index) { clicked = index; });
+        ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON,
+            MAKELPARAM((selected.left + selected.right) / 2, (selected.top + selected.bottom) / 2));
+        QIQI_TEST_CHECK(clicked == 8);
+        ::SendMessageW(ui->WindowHandle(), WM_VSCROLL, SB_TOP, 0);
+        QIQI_TEST_CHECK(ui->ScrollOffset() == 0);
+        const RECT first = ui->CandidateRect(0);
+        QIQI_TEST_CHECK(first.bottom - first.top > ui->CurrentHeight());
+        ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON,
+            MAKELPARAM(gsl::narrow_cast<LONGLONG>(first.left) + 20, gsl::narrow_cast<LONGLONG>(first.top) + 20));
+        QIQI_TEST_CHECK(clicked == 0);
+        ::SendMessageW(ui->WindowHandle(), WM_VSCROLL, SB_BOTTOM, 0);
+        const int bottom = ui->ScrollOffset();
+        ::SendMessageW(ui->WindowHandle(), WM_MOUSEWHEEL, MAKEWPARAM(0, WHEEL_DELTA), 0);
+        QIQI_TEST_CHECK(ui->ScrollOffset() < bottom);
+        ui->SetCandidates(L"abcd", candidates, 9, 0, 8);
+        QIQI_TEST_CHECK(ui->CandidateRect(8).bottom <= ui->CurrentHeight());
+        UINT count = 0;
+        UINT pages = 0;
+        QIQI_TEST_CHECK(ui->GetCount(&count) == S_OK && count == 9);
+        QIQI_TEST_CHECK(ui->GetPageIndex(nullptr, 0, &pages) == S_OK && pages == 1);
+        for (UINT i = 0; i < count; ++i) {
+            ScopedBstr text;
+            QIQI_TEST_CHECK(ui->GetString(i, text.Put()) == S_OK && std::wstring(text.Get()) == gsl::at(candidates, i));
+        }
+        ui->SetCandidates(L"a", {L"一", L"二", L"三", L"四", L"五"}, 9, 0, 0);
+        QIQI_TEST_CHECK(ui->CandidateRect(4).top > ui->CandidateRect(0).top);
+        ::UpdateWindow(ui->WindowHandle());
+    }
+}
 
 void TestCandidateHostOwnership() {
     const TsfTestCaseTrace trace(__func__);
@@ -119,9 +273,9 @@ void TestCandidateLayouts() {
             size_t clicked = 99;
             ui->SetSelectCallback([&](size_t index) { clicked = index; });
             for (size_t i = 0; i < 5; ++i) {
+                const RECT rect = ui->CandidateRect(i);
                 ::SendMessageW(ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON,
-                    MAKELPARAM(ScalePxByDpi(20, dpi),
-                               ScalePxByDpi(46 + gsl::narrow_cast<int>(i) * 28, dpi)));
+                    MAKELPARAM((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2));
                 QIQI_TEST_CHECK(clicked == i);
             }
             int direction = 0;
@@ -382,6 +536,8 @@ void RunCandidateUITests() {
     TestCandidateUI();
     TestCandidateLayouts();
     TestCandidateHostOwnership();
+    TestCandidateDisplayPreferences();
+    TestCandidateConstrainedViewport();
 }
 
 } // namespace qiqi::test

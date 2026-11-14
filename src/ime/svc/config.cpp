@@ -740,6 +740,7 @@ void QiQiTextService::UpdateUiIndicators() {
         status_bar_->UpdateState(lb_state);
     }
     if (const auto candidate_ui = candidate_ui_) {
+        candidate_ui->SetDisplayPreferences(GetDisplayPreferences(config_));
         candidate_ui->SetLayout(config_.candidate_layout);
     }
 }

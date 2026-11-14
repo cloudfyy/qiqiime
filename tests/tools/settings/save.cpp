@@ -181,6 +181,7 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(!read_back.commit_on_english_switch);
     QIQI_TEST_CHECK(read_back.candidate_layout == CandidateLayout::Vertical);
     QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
+    QIQI_TEST_CHECK(!read_back.enable_jidian_extra);
     std::array<wchar_t, 128> title_buf{};
     ::GetWindowTextW(hwnd.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
     QIQI_TEST_CHECK(std::wstring(title_buf.data()) == GetUiStrings(UiLanguage::EnUs).dlg_title);
@@ -392,7 +393,7 @@ void TestSettingsFieldMergeMatrix() {
             ++cases;
         }
     });
-    QIQI_TEST_CHECK(cases == 40);
+    QIQI_TEST_CHECK(cases == 46);
 }
 
 } // namespace

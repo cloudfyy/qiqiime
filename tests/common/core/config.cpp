@@ -6,7 +6,7 @@
 namespace qiqi::test::common_cases {
 
 void TestConfigFieldProjections() {
-    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 24> expected_keys{{
+    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 27> expected_keys{{
         {"primary_dict", L"PrimaryDict"}, {"enable_jidian_extra", L"EnableJidianExtra"},
         {"page_size", L"PageSize"}, {"candidate_layout", L"CandidateLayout"},
         {"auto_commit_4code", L"AutoCommit4Code"},
@@ -19,14 +19,15 @@ void TestConfigFieldProjections() {
         {"beep_on_dup_4code", L"BeepOnDup4Code"}, {"clear_on_empty_4code", L"ClearOnEmpty4Code"},
         {"enable_key_sound", L"EnableKeySound"}, {"up_down_page_turn", L"UpDownPageTurn"},
         {"ui_language", L"UiLanguage"}, {"underline_style", L"UnderlineStyle"},
-        {"bold_underline", L"BoldUnderline"}
+        {"bold_underline", L"BoldUnderline"}, {"ui_theme", L"UiTheme"},
+        {"ui_text_scale", L"UiTextScale"}, {"easy_reading", L"EasyReading"}
     }};
-    constexpr std::array<std::string_view, 20> editable_keys{
+    constexpr std::array<std::string_view, 23> editable_keys{
         "primary_dict", "enable_jidian_extra", "page_size", "candidate_layout", "auto_commit_4code",
         "push_commit_5th", "semicolon_quote_quick_select", "show_code_hint", "dynamic_phrase_freq",
         "shift_toggle_mode", "commit_on_english_switch", "show_status_bar", "beep_on_empty_4code",
         "beep_on_dup_4code", "clear_on_empty_4code", "enable_key_sound", "up_down_page_turn",
-        "ui_language", "underline_style", "bold_underline"
+        "ui_language", "underline_style", "bold_underline", "ui_theme", "ui_text_scale", "easy_reading"
     };
     const std::wstring subkey = L"Software\\QiQiIME_ConfigFields_" + std::to_wstring(::GetCurrentProcessId());
     const auto cleanup = gsl::finally([&]() noexcept {

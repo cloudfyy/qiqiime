@@ -6,6 +6,8 @@
 #include <dwmapi.h>
 #include <optional>
 #include "common/scoped_handle.h"
+#include "common/config.h"
+#include "common/logger.h"
 
 namespace qiqi {
 
@@ -38,6 +40,12 @@ struct ThemePalette {
     COLORREF grip_dot = RGB(130, 142, 165);
     COLORREF tooltip_bg = RGB(255, 255, 255);
     COLORREF tooltip_text = RGB(30, 35, 45);
+    COLORREF surface_bg = RGB(255, 255, 255);
+    COLORREF input_bg = RGB(255, 255, 255);
+    COLORREF text_secondary = kLightSecondaryTextColor;
+    COLORREF selection_bg = RGB(20, 90, 190);
+    COLORREF selection_text = RGB(255, 255, 255);
+    COLORREF focus_color = RGB(20, 90, 190);
 };
 
 inline constexpr ThemePalette kLightThemePalette{};
@@ -53,8 +61,83 @@ inline constexpr ThemePalette kDarkThemePalette = {
     RGB(52, 56, 66),
     RGB(140, 148, 164),
     RGB(42, 45, 52),
-    kDarkTextColor
+    kDarkTextColor,
+    RGB(43, 46, 52),
+    RGB(54, 58, 68),
+    kDarkSecondaryTextColor,
+    RGB(18, 60, 110),
+    RGB(255, 255, 255),
+    RGB(150, 200, 255)
 };
+
+inline constexpr ThemePalette kHighContrastThemePalette{
+    true, RGB(0, 0, 0), RGB(255, 255, 255), RGB(255, 255, 255),
+    RGB(255, 255, 0), RGB(255, 255, 0), RGB(0, 0, 0), RGB(35, 35, 35),
+    RGB(255, 255, 255), RGB(0, 0, 0), RGB(255, 255, 255),
+    RGB(0, 0, 0), RGB(0, 0, 0), RGB(255, 255, 255),
+    RGB(255, 255, 0), RGB(0, 0, 0), RGB(255, 255, 0)
+};
+
+bool IsHighContrastEnabled() noexcept;
+inline bool IsSystemDarkTheme() noexcept;
+constexpr const ThemePalette& GetThemePalette(bool is_dark) noexcept;
+
+struct DisplayAppearance {
+    ThemePalette palette{};
+    bool high_contrast = false;
+    bool system_high_contrast = false;
+};
+
+inline DisplayAppearance ResolveDisplayAppearance(const DisplayPreferences& preferences) noexcept {
+    if (IsHighContrastEnabled()) {
+        ThemePalette palette;
+        palette.window_bg = ::GetSysColor(COLOR_WINDOW);
+        palette.surface_bg = ::GetSysColor(COLOR_BTNFACE);
+        palette.input_bg = ::GetSysColor(COLOR_WINDOW);
+        palette.border_color = ::GetSysColor(COLOR_WINDOWTEXT);
+        palette.text_primary = ::GetSysColor(COLOR_WINDOWTEXT);
+        palette.text_secondary = palette.text_primary;
+        palette.text_accent = palette.text_primary;
+        palette.logo_bg = ::GetSysColor(COLOR_HIGHLIGHT);
+        palette.logo_text = ::GetSysColor(COLOR_HIGHLIGHTTEXT);
+        palette.hover_bg = palette.logo_bg;
+        palette.grip_dot = palette.text_primary;
+        palette.tooltip_bg = palette.window_bg;
+        palette.tooltip_text = palette.text_primary;
+        palette.selection_bg = palette.logo_bg;
+        palette.selection_text = palette.logo_text;
+        palette.focus_color = palette.text_primary;
+        return {palette, true, true};
+    }
+    if (preferences.theme == UiTheme::HighContrast) return {kHighContrastThemePalette, true, false};
+    const bool dark = preferences.theme == UiTheme::Dark ||
+        (preferences.theme == UiTheme::System && IsSystemDarkTheme());
+    return {GetThemePalette(dark), false, false};
+}
+
+inline int ScaleDisplayPx(int px, UINT dpi, UiTextScale scale) noexcept {
+    return ::MulDiv(px, gsl::narrow_cast<int>((dpi > 0 ? dpi : 96u) *
+        gsl::narrow_cast<UINT>(TextScalePercent(scale))), 9600);
+}
+
+inline void ApplyDisplayThemeToWindow(HWND hwnd, const DisplayAppearance& appearance) noexcept {
+    const auto set_attribute = [hwnd](DWORD attribute, COLORREF value) noexcept {
+        return ::DwmSetWindowAttribute(hwnd, attribute, &value, sizeof(value));
+    };
+    const BOOL dark = appearance.palette.is_dark ? TRUE : FALSE;
+    std::ignore = log::CheckHResult(
+        ::DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark)),
+        "Display::SetImmersiveDarkMode", log::Level::debug);
+    const COLORREF caption = appearance.high_contrast ? DWMWA_COLOR_DEFAULT : appearance.palette.window_bg;
+    const COLORREF text = appearance.high_contrast ? DWMWA_COLOR_DEFAULT : appearance.palette.text_primary;
+    std::ignore = log::CheckHResult(set_attribute(DWMWA_CAPTION_COLOR, caption),
+        "Display::SetCaptionColor", log::Level::debug);
+    std::ignore = log::CheckHResult(set_attribute(DWMWA_TEXT_COLOR, text),
+        "Display::SetCaptionTextColor", log::Level::debug);
+    std::ignore = log::CheckHResult(set_attribute(DWMWA_BORDER_COLOR,
+        appearance.high_contrast ? DWMWA_COLOR_DEFAULT : appearance.palette.border_color),
+        "Display::SetBorderColor", log::Level::debug);
+}
 
 namespace detail {
 inline constexpr WORD kSetPreferredAppModeOrdinal = 135;

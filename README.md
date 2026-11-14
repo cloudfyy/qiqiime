@@ -46,6 +46,10 @@ and AppContainer guides are available in English.
   floating status bar, with DPI, theme, and high-contrast support.
 - Standalone settings, dictionary manager, and local ETW log-monitor tools.
   Settings and tool interfaces support Simplified Chinese and English.
+- Selectable system/light/dark/high-contrast themes and 100–200% text for Settings
+  and the IME-drawn candidate popup, plus easy reading with larger targets.
+  Other desktop tools have not all adopted these preferences yet.
+  See [display and accessibility](docs/accessibility.md) for scope and controls.
 - Uninstall keeps personal data by default. MSI uninstall offers an optional
   cleanup checkbox; ZIP unregistration supports explicit `-RemoveUserData`.
   Both preserve custom dictionaries, exports, backups, and other users' data.

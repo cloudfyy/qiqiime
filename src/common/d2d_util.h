@@ -94,25 +94,56 @@ inline ScopedD2DBrush CreateSolidBrush(
 // ScopedContextGuard traits for ID2D1DCRenderTarget::BindDC + BeginDraw / EndDraw.
 struct D2DDcDrawGuardTraits {
     using ContextType  = ID2D1DCRenderTarget*;
-    using ResourceType = HRESULT*;
-    static constexpr HRESULT* Invalid() noexcept { return nullptr; }
-    static constexpr bool IsValid(const HRESULT* marker) noexcept { return marker != nullptr; }
-    static HRESULT* Acquire(
-        ID2D1DCRenderTarget* target, HDC hdc, const RECT& rc, HRESULT* out_end_hr = nullptr) noexcept {
-        if (!target || !hdc || !log::CheckHResult(target->BindDC(hdc, &rc),
+    struct ResourceType {
+        HRESULT* end_hr = nullptr;
+        D2D1_MATRIX_3X2_F transform{};
+        bool translated = false;
+    };
+    static constexpr ResourceType Invalid() noexcept { return {}; }
+    static constexpr bool IsValid(const ResourceType& state) noexcept { return state.end_hr != nullptr; }
+    static ResourceType Acquire(
+        ID2D1DCRenderTarget* target, HDC hdc, const RECT& rc, HRESULT* out_end_hr = nullptr,
+        bool clip_to_dc = false) noexcept {
+        if (!target || !hdc) return {};
+        RECT bound = rc;
+        if (clip_to_dc) {
+            RECT clip{};
+            const int region = ::GetClipBox(hdc, &clip);
+            if (region == ERROR) {
+                QIQI_LOG_WARN("D2D DC clipping bounds query failed");
+                return {};
+            }
+            if (region == NULLREGION || !::IntersectRect(&bound, &rc, &clip)) return {};
+        }
+        if (!log::CheckHResult(target->BindDC(hdc, &bound),
                                                 "ID2D1DCRenderTarget::BindDC", log::Level::debug)) {
-            return nullptr;
+            return {};
         }
         target->BeginDraw();
         static HRESULT s_dummy_hr = S_OK;
-        return out_end_hr ? out_end_hr : &s_dummy_hr;
+        ResourceType state{};
+        state.end_hr = out_end_hr ? out_end_hr : &s_dummy_hr;
+        if (bound.left != rc.left || bound.top != rc.top) {
+            target->GetTransform(&state.transform);
+            D2D1_MATRIX_3X2_F translated = state.transform;
+            float dpi_x = 0;
+            float dpi_y = 0;
+            target->GetDpi(&dpi_x, &dpi_y);
+            // EndDraw copies the bound rectangle; DC clipping alone cannot constrain that copy.
+            translated._31 += static_cast<float>(rc.left - bound.left) * 96.0f / dpi_x;
+            translated._32 += static_cast<float>(rc.top - bound.top) * 96.0f / dpi_y;
+            target->SetTransform(translated);
+            state.translated = true;
+        }
+        return state;
     }
-    static void Release(ID2D1DCRenderTarget* target, HRESULT* out_end_hr) noexcept {
+    static void Release(ID2D1DCRenderTarget* target, const ResourceType& state) noexcept {
         if (target) {
+            if (state.translated) target->SetTransform(state.transform);
             const HRESULT hr = target->EndDraw();
             std::ignore = log::CheckHResult(hr, "ID2D1RenderTarget::EndDraw", log::Level::debug);
-            if (out_end_hr) {
-                *out_end_hr = hr;
+            if (state.end_hr) {
+                *state.end_hr = hr;
             }
         }
     }

@@ -13,9 +13,61 @@
 #include <commctrl.h>
 #include <memory>
 #include <type_traits>
+#include <cmath>
 
 namespace qiqi::test {
 namespace {
+
+void TestDisplayPreferences() {
+    const auto original_theme = detail::ThemeDarkOverrideStorage();
+    const auto restore = gsl::finally([original_theme]() noexcept {
+        SetThemeDarkOverrideForTest(original_theme);
+        SetHighContrastOverrideForTest(std::nullopt);
+    });
+    SetHighContrastOverrideForTest(false);
+    const auto luminance = [](COLORREF color) {
+        const auto channel = [](BYTE value) {
+            const double component = static_cast<double>(value) / 255.0;
+            return component <= 0.04045 ? component / 12.92 : std::pow((component + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * channel(GetRValue(color)) + 0.7152 * channel(GetGValue(color)) +
+               0.0722 * channel(GetBValue(color));
+    };
+    for (const bool dark : {false, true}) {
+        SetThemeDarkOverrideForTest(dark);
+        QIQI_TEST_CHECK(ResolveDisplayAppearance({}).palette.is_dark == dark);
+        QIQI_TEST_CHECK(!ResolveDisplayAppearance({UiTheme::Light}).palette.is_dark);
+        QIQI_TEST_CHECK(ResolveDisplayAppearance({UiTheme::Dark}).palette.is_dark);
+        const auto contrast = ResolveDisplayAppearance({UiTheme::HighContrast});
+        QIQI_TEST_CHECK(contrast.high_contrast && !contrast.system_high_contrast);
+        const auto& palette = contrast.palette;
+        for (const auto& [text, background] : {
+                 std::pair{palette.text_primary, palette.window_bg},
+                 std::pair{palette.text_secondary, palette.surface_bg},
+                 std::pair{palette.text_accent, palette.window_bg},
+                 std::pair{palette.selection_text, palette.selection_bg}}) {
+            const double first = luminance(text), second = luminance(background);
+            QIQI_TEST_CHECK((std::max(first, second) + 0.05) / (std::min(first, second) + 0.05) >= 7.0);
+        }
+    }
+    FluentD2DThemeContext context;
+    context.Init(144);
+    context.SetDisplayPreferences({UiTheme::HighContrast, UiTextScale::Percent200, true});
+    QIQI_TEST_CHECK(context.dpi == 144 && context.ScalePx(14) == 42 && context.ScaleDipPx(44) == 66);
+    QIQI_TEST_CHECK(context.fmt_body && context.fmt_body->GetFontSize() == 42.0f);
+    QIQI_TEST_CHECK(context.appearance.high_contrast);
+    for (const UiTextScale scale : {UiTextScale::Percent100, UiTextScale::Percent125,
+                                    UiTextScale::Percent150, UiTextScale::Percent200}) {
+        QIQI_TEST_CHECK(ScaleDisplayPx(100, 192, scale) == TextScalePercent(scale) * 2);
+    }
+    SetHighContrastOverrideForTest(true);
+    for (const UiTheme theme : {UiTheme::System, UiTheme::Light, UiTheme::Dark, UiTheme::HighContrast}) {
+        const auto appearance = ResolveDisplayAppearance({theme});
+        QIQI_TEST_CHECK(appearance.high_contrast && appearance.system_high_contrast);
+        QIQI_TEST_CHECK(appearance.palette.text_primary == ::GetSysColor(COLOR_WINDOWTEXT));
+        QIQI_TEST_CHECK(appearance.palette.selection_text == ::GetSysColor(COLOR_HIGHLIGHTTEXT));
+    }
+}
 
 void TestControlText() {
     const ScopedWindow control(::CreateWindowExW(
@@ -460,15 +512,61 @@ void TestReusableControls() {
                 QIQI_TEST_CHECK(::GetPixel(dc.Get(), 20, 16) == fill);
             }
         }
+        {
+            ::EnableWindow(action, FALSE);
+            const auto reenable = gsl::finally([action]() noexcept { ::EnableWindow(action, TRUE); });
+            dis.itemState = ODS_DISABLED | ODS_SELECTED;
+            for (const bool primary : {false, true}) {
+                DrawFluentPushButton(dis, d2d, primary, MakeD2DColor(1, 2, 3));
+                QIQI_TEST_CHECK(::GetPixel(dc.Get(), 20, 16) == d2d.appearance.palette.surface_bg);
+            }
+        }
+        dis.itemState = 0;
         dis.hwndItem = toggle;
         DrawFluentToggleOrRadioRow(dis, d2d, false);
         QIQI_TEST_CHECK(::GetPixel(dc.Get(), 100, 2) == surface);
+        {
+            ::EnableWindow(toggle, FALSE);
+            const auto reenable = gsl::finally([toggle]() noexcept { ::EnableWindow(toggle, TRUE); });
+            ::SendMessageW(toggle, BM_SETCHECK, BST_UNCHECKED, 0);
+            DrawFluentToggleOrRadioRow(dis, d2d, false);
+            const RECT track = FluentToggleBounds(dis.rcItem, d2d);
+            const int radius = (track.bottom - track.top) / 2;
+            const COLORREF knob = ::GetPixel(dc.Get(), track.left + radius,
+                                             (track.top + track.bottom) / 2);
+            QIQI_TEST_CHECK(GetRValue(knob) == GetGValue(knob) && GetGValue(knob) == GetBValue(knob));
+            QIQI_TEST_CHECK(knob != surface && knob != d2d.appearance.palette.text_primary);
+        }
         dis.hwndItem = radio_b;
         DrawFluentToggleOrRadioRow(dis, d2d, true);
         QIQI_TEST_CHECK(::GetPixel(dc.Get(), 100, 2) == surface);
 
         PaintFluentComboBoxFrame(combo, dc.Get(), d2d);
         QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 4) == (dark ? RGB(56, 60, 70) : kLightSurfaceBg));
+        {
+            const bool previous_clip = d2d.clip_controls_to_dc;
+            const auto restore_clip = gsl::finally([&]() noexcept {
+                d2d.clip_controls_to_dc = previous_clip;
+                ::SetWindowRgn(combo, nullptr, FALSE);
+            });
+            d2d.clip_controls_to_dc = true;
+            RECT client{};
+            QIQI_TEST_CHECK(::GetClientRect(combo, &client));
+            const int clip_top = client.bottom / 2;
+            const ScopedGdiHandle<HBRUSH> untouched(::CreateSolidBrush(RGB(255, 0, 255)));
+            QIQI_TEST_CHECK(untouched);
+            for (const bool empty : {false, true}) {
+                ::FillRect(dc.Get(), &client, untouched.Get());
+                ScopedGdiHandle<HRGN> region(::CreateRectRgn(
+                    0, empty ? client.bottom : clip_top, client.right, client.bottom));
+                QIQI_TEST_CHECK(region && ::SetWindowRgn(combo, region.Get(), FALSE));
+                std::ignore = region.Detach();
+                PaintFluentComboBoxFrame(combo, dc.Get(), d2d);
+                QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 4) == RGB(255, 0, 255));
+                QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, client.bottom - 4) ==
+                    (empty ? RGB(255, 0, 255) : (dark ? RGB(56, 60, 70) : kLightSurfaceBg)));
+            }
+        }
         dis.CtlType = ODT_COMBOBOX;
         dis.hwndItem = combo;
         dis.itemID = 1;
@@ -480,6 +578,9 @@ void TestReusableControls() {
                 : (dark ? RGB(54, 58, 68) : RGB(255, 255, 255));
             QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 4) == fill);
         }
+        dis.itemState = ODS_SELECTED | ODS_FOCUS;
+        DrawFluentComboBoxItem(dis, d2d, true);
+        QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 4) == d2d.appearance.palette.input_bg);
         {
             SetHighContrastOverrideForTest(true);
             const auto restore_contrast = gsl::finally([&d2d]() noexcept {
@@ -495,6 +596,16 @@ void TestReusableControls() {
             DrawFluentComboBoxItem(dis, d2d);
             QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 4) == ::GetSysColor(COLOR_HIGHLIGHT));
             QIQI_TEST_CHECK(::GetTextColor(dc.Get()) == text_color);
+            {
+                ::EnableWindow(action, FALSE);
+                const auto reenable = gsl::finally([action]() noexcept { ::EnableWindow(action, TRUE); });
+                DRAWITEMSTRUCT button = dis;
+                button.CtlType = ODT_BUTTON;
+                button.hwndItem = action;
+                button.itemState = ODS_DISABLED;
+                DrawFluentPushButton(button, d2d, false, ColorRefToD2DColor(surface), L"\nUnavailable");
+                QIQI_TEST_CHECK(::GetPixel(dc.Get(), 0, 16) == d2d.appearance.palette.surface_bg);
+            }
         }
 
         const RECT rect{0, 0, 240, 100};
@@ -521,6 +632,34 @@ void TestReusableControls() {
         }
         QIQI_TEST_CHECK(SUCCEEDED(end_hr));
         QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 70) == surface);
+
+        {
+            const ScopedSaveDC saved(dc.Get());
+            const ScopedGdiHandle<HBRUSH> untouched(::CreateSolidBrush(RGB(255, 0, 255)));
+            QIQI_TEST_CHECK(untouched);
+            ::FillRect(dc.Get(), &rect, untouched.Get());
+            QIQI_TEST_CHECK(::IntersectClipRect(dc.Get(), 15, 20, 225, 80) != ERROR);
+            D2D1_MATRIX_3X2_F original{};
+            d2d.d2d_target->GetTransform(&original);
+            const auto restore_transform = gsl::finally([&]() noexcept { d2d.d2d_target->SetTransform(original); });
+            d2d.d2d_target->SetTransform(D2D1::Matrix3x2F::Translation(4, 5));
+            {
+                const ScopedD2DDcDraw draw(d2d.d2d_target.Get(), dc.Get(), rect, &end_hr, true);
+                QIQI_TEST_CHECK(draw);
+                d2d.d2d_target->Clear(MakeD2DColor(0, 255, 0));
+                const auto blue = CreateSolidBrush(d2d.d2d_target.Get(), MakeD2DColor(0, 0, 255));
+                QIQI_TEST_CHECK(blue);
+                d2d.d2d_target->FillRectangle(D2D1::RectF(30, 30, 50, 50), blue.Get());
+            }
+            QIQI_TEST_CHECK(SUCCEEDED(end_hr));
+            QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 10) == RGB(255, 0, 255));
+            QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 90) == RGB(255, 0, 255));
+            QIQI_TEST_CHECK(::GetPixel(dc.Get(), 120, 50) == RGB(0, 255, 0));
+            QIQI_TEST_CHECK(::GetPixel(dc.Get(), 35, 36) == RGB(0, 0, 255));
+            D2D1_MATRIX_3X2_F restored{};
+            d2d.d2d_target->GetTransform(&restored);
+            QIQI_TEST_CHECK(restored._31 == 4 && restored._32 == 5);
+        }
 
         EnableFluentUnderlineComboPreview(combo, 502);
         PaintFluentComboBoxFrame(combo, dc.Get(), d2d);
@@ -709,6 +848,7 @@ void TestCommonDialogsAndUtils() {
 } // namespace
 
 void RunD2DControlsTests() {
+    TestDisplayPreferences();
     TestControlText();
     TestReusableControls();
     TestInfoDialogLayout();
