@@ -2,6 +2,9 @@
 
 简体中文 | [English](README.md)
 
+[项目官网](https://cloudfyy.github.io/qiqiime/) |
+[下载安装](https://cloudfyy.github.io/qiqiime/install.html)
+
 **奇奇五笔（QiQiIME）** 是一款面向 Windows 10 22H2（x86 / x64）及 Windows 11 x64 的 **86 版五笔输入法**，基于 Windows 原生 **TSF（Text Services Framework）** 与 **C++** 构建，提供 `x64` 与 `x86`（32 位系统及 WOW64 应用）组件。
 
 外部词库优先采用只读内存映射，并在同一进程内复用缓存，以减少重复加载；引擎、候选列表和界面仍会使用堆内存。当前宿主验证情况及边界见[真实宿主测试记录](./docs/hosts.md#8-2026-11-03-人工测试结果)。

@@ -2,6 +2,9 @@
 
 English | [简体中文](README.zh-CN.md)
 
+[Website](https://cloudfyy.github.io/qiqiime/?lang=en) |
+[Download & install](https://cloudfyy.github.io/qiqiime/install.html?lang=en)
+
 QiQiIME is an open-source **Wubi 86** input method for Windows, built in C++ on
 the native Text Services Framework (TSF).
 

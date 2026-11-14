@@ -34,6 +34,14 @@ try {
         -not $body.TrimEnd().EndsWith('</details>') -or $body -match '<details\s+open') {
         throw 'Chinese must be visible by default and the English translation must be collapsed.'
     }
+    $visibleBody = $body.Substring(0, $collapsedStart)
+    $englishBody = $body.Substring($collapsedStart)
+    foreach ($page in @('', 'install.html')) {
+        if (-not $visibleBody.Contains("](https://cloudfyy.github.io/qiqiime/$page)") -or
+            -not $englishBody.Contains("](https://cloudfyy.github.io/qiqiime/${page}?lang=en)")) {
+            throw "Missing language-specific website entry: $page"
+        }
+    }
     foreach ($asset in $parameters.AssetNames) {
         if (-not $body.Contains("https://github.com/cloudfyy/qiqiime/releases/download/v2.0.0-rc.1/$asset")) {
             throw "Missing exact tagged asset URL: $asset"
@@ -42,6 +50,15 @@ try {
     if (-not $body.Contains('/blob/v2.0.0-rc.1/docs/release-notes.md')) {
         throw 'Missing tag-specific full history link.'
     }
+    $parameters.Repository = 'example/project'
+    & $script @parameters
+    $otherRepositoryBody = [IO.File]::ReadAllText($outputPath)
+    if (-not $otherRepositoryBody.Contains('](https://example.github.io/project/)') -or
+        -not $otherRepositoryBody.Contains('](https://example.github.io/project/install.html?lang=en)') -or
+        $otherRepositoryBody.Contains('cloudfyy.github.io')) {
+        throw 'Website entries must use the selected repository.'
+    }
+    $parameters.Repository = 'cloudfyy/qiqiime'
     $parameters.Version = '3.0.0'
     $rejected = $false
     try { & $script @parameters } catch {
@@ -64,7 +81,7 @@ try {
         $rejected = $true
     }
     if (-not $rejected) { throw 'Missing English translations must be rejected.' }
-    Write-Host '[PASS] Bilingual current-version notes, Chinese default, download links, and invalid section checks.'
+    Write-Host '[PASS] Bilingual current-version notes, website entries, download links, and invalid section checks.'
 } finally {
     Remove-Item -LiteralPath $notesPath -Force -ErrorAction Stop
     if (Test-Path -LiteralPath $outputPath) { Remove-Item -LiteralPath $outputPath -Force -ErrorAction Stop }

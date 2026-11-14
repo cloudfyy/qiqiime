@@ -49,6 +49,8 @@ if ([string]::IsNullOrWhiteSpace($englishSection)) {
     throw "English translation for version $Version is empty."
 }
 $releaseUrl = "https://github.com/$Repository"
+$repositoryParts = $Repository.Split('/')
+$websiteUrl = "https://$($repositoryParts[0]).github.io/$($repositoryParts[1])/"
 $encodedTag = [uri]::EscapeDataString($Tag)
 $downloads = @()
 foreach ($name in ($AssetNames | Sort-Object -Unique)) {
@@ -59,7 +61,12 @@ foreach ($name in ($AssetNames | Sort-Object -Unique)) {
     $encodedName = [uri]::EscapeDataString($name)
     $downloads += "- [$name]($releaseUrl/releases/download/$encodedTag/$encodedName)"
 }
-$lines = @('## 下载', '') + $downloads + @(
+$lines = @(
+    '## 下载',
+    '',
+    "[项目官网]($websiteUrl) | [下载安装](${websiteUrl}install.html)",
+    ''
+) + $downloads + @(
     '',
     '请按 Windows 系统架构选择 MSI：x64 安装包包含 WOW64 支持；x86 安装包用于 32 位 Windows。',
     '双架构 ZIP 用于手动部署；symbols ZIP 为调试符号，普通用户无需下载。',
@@ -72,6 +79,8 @@ $lines = @('## 下载', '') + $downloads + @(
     '<summary>English</summary>',
     '',
     '## Downloads',
+    '',
+    "[Website](${websiteUrl}?lang=en) | [Download & install](${websiteUrl}install.html?lang=en)",
     ''
 ) + $downloads + @(
     '',

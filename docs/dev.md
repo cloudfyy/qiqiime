@@ -266,6 +266,10 @@ Write the default Chinese notes first and add their translation under
 `## English` within the same version section. Release pages show Chinese
 downloads and notes by default, with English downloads and notes inside a
 collapsed `English` section. Missing or empty translations fail generation.
+Both languages include links to the project's standard GitHub Pages overview and
+installation page, with `?lang=en` for English. These are live introductory pages;
+the existing tag-specific installation guide and history links remain available
+for version-specific instructions.
 
 ## Project website (GitHub Pages)
 
