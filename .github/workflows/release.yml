@@ -58,6 +58,18 @@ jobs:
             dist/*.zip
           if-no-files-found: error
 
+      - name: Prepare current-version release notes and download links
+        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.tag_name != ''
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag_name || github.ref_name }}
+        run: |
+          $assets = @(Get-ChildItem -LiteralPath dist -File | Where-Object { $_.Extension -in '.msi', '.zip' } | Select-Object -ExpandProperty Name)
+          & .\scripts\release_notes.ps1 -NotesPath docs\release-notes.md `
+            -Version (Get-Content VERSION -Raw).Trim() -Tag $env:RELEASE_TAG `
+            -Repository $env:GITHUB_REPOSITORY -AssetNames $assets `
+            -OutputPath (Join-Path $env:RUNNER_TEMP 'qiqi-release-notes.md')
+
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.tag_name != ''
         uses: softprops/action-gh-release@v2
@@ -66,8 +78,8 @@ jobs:
           name: "奇奇五笔 (QiQi Wubi IME) ${{ github.event.inputs.tag_name || github.ref_name }}"
           prerelease: ${{ contains(github.event.inputs.tag_name || github.ref_name, '-') }}
           make_latest: ${{ contains(github.event.inputs.tag_name || github.ref_name, '-') && 'false' || 'true' }}
-          body_path: docs/release-notes.md
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/qiqi-release-notes.md
+          generate_release_notes: false
           files: |
             dist/*.msi
             dist/*.zip

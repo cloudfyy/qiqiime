@@ -257,6 +257,11 @@ Update the current README references and release notes when changing versions.
 The [Release workflow](../.github/workflows/release.yml) builds, tests, and packages
 tagged commits before uploading assets. Pushing a tag is not proof of publication
 or code signing; check the workflow and [signing policy](../CODE_SIGNING.md).
+Release pages contain download links followed by only the matching version's
+section from the release notes. The complete history remains in the repository.
+[release_notes.ps1](../scripts/release_notes.ps1) generates this body from the
+version, tag, and actual package filenames; missing or duplicate version sections
+fail publication rather than including unrelated history.
 
 ## Design references
 
