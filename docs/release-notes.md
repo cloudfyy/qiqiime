@@ -1,3 +1,62 @@
+# QiQiIME 1.1.0
+
+数字版本：`1.1.0`；预期发行标签：`v1.1.0`。本次更新源码版本、文档和网站，不创建标签或安装包；下载仍以 Release 页面实际提供的附件为准。
+
+## 本次主要更新
+
+- **统一显示偏好**：设置、输入法自绘候选窗、词库管理器和日志监控器主窗口及自绘菜单支持主题、100%～200% 字号与关怀模式。两个工具读取设置中已保存的偏好，Windows 系统高对比度优先；宿主或系统接管的界面仍由其控制。
+- **改善设置与工具布局**：设置按 Tab 分组，支持大字号下的换行与滚动；修复菜单字体变化后的原生尺寸缓存，避免长菜单文字裁切。开关的键盘焦点提示局限于开关本体附近，不再围住整行。
+- **修复配置读取副作用**：注册表只读查询不再被共享的 `READ_CONTROL` 权限位误判为写入，不创建缺失的键或修改现有 DACL。保存失败保留真实 HRESULT 诊断。
+- **完善回归与项目入口**：补充真实弹出菜单尺寸、焦点绘制、只读配置副作用与可见页面 DPI 布局测试；桌面测试使用隔离配置。仓库 README 默认中文，保留英文入口，网站提供双语说明。
+
+## 验证与发布边界
+
+- 版本更新前，x64/x86 Release 完整回归各 **18 项通过、0 项失败、2 项 ETW 权限跳过**；跳过不计通过。
+- 版本更新后，双架构输入法和三个工具均重新构建成功，八个运行组件的数字文件/产品版本均为 `1.1.0.0`。x64 发布说明、安装器与运行架构定向回归 **3/3 通过**，发行文档检查通过；网站单元测试 **13/13**、浏览器回归 **38/38** 通过。本地字符串版本的提交号来自版本提交之前，不是标签构建身份。
+- 本次版本更新不安装软件、不制作 MSI、不修改已安装输入法注册。源码版本及本地回归不代表标签构建、真实宿主、安装或升级已验收。
+- 独立配置 JSON 导出/导入、ZIP 完整备份和皮肤仍是后续规划，不属于本次已实现能力。
+
+## English
+
+Numeric version: `1.1.0`; planned release tag: `v1.1.0`. This update changes
+the source version, documentation, and website without creating a tag or
+installers. Downloads still use actually published Release assets.
+
+### Changes
+
+- **Shared display preferences:** themes, 100–200% text, and Comfort mode for
+  Settings, the IME-drawn candidate popup, both desktop tool main windows, and
+  custom menus. Tools use saved Settings preferences; Windows high contrast
+  takes precedence. Host/system-rendered UI remains outside our control.
+- **Settings and tool layout:** grouped tabs, large-text wrapping and scrolling,
+  native menu-size cache refresh to prevent clipped labels, and localized toggle
+  focus cues instead of a full-row outline.
+- **Side-effect-free registry reads:** read access no longer triggers key
+  creation or DACL changes through the shared `READ_CONTROL` permission bit.
+  Save failures retain their actual HRESULT diagnostics.
+- **Regression coverage and project entry points:** real popup measurements,
+  focus rendering, read-only registry behavior, visible-page DPI layout, and
+  isolated desktop configuration. Chinese is the default README, with an
+  English alternative and bilingual website content.
+
+### Validation and release boundaries
+
+- Before this version update, full x64/x86 Release regression runs each had
+  **18 passed, 0 failed, and 2 permission-skipped ETW tests**; skips are not passes.
+- After the update, both architectures' IME and three tools rebuilt successfully;
+  all eight binaries have numeric file/product version `1.1.0.0`. The x64
+  release-notes, installer-source, and runtime-architecture checks passed 3/3;
+  release documentation checks passed. Website unit tests passed 13/13 and
+  browser tests passed 38/38. Local string-version hashes precede the version
+  commit and do not identify a tag build.
+- No local installation, MSI packaging, or installed IME registration changes.
+  Source versions and local tests do not certify a tag build, real hosts,
+  installation, or upgrades.
+- Standalone configuration JSON transfer, complete ZIP backups, and skins
+  remain planned rather than implemented features.
+
+---
+
 # QiQiIME 1.0.9 补丁版
 
 数字版本：`1.0.9`；发行标签：`v1.0.9`。标签推送后由 Release 工作流构建、测试和打包；实际附件以对应 Release 页面为准。

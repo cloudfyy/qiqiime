@@ -11,7 +11,8 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The current source version is **1.0.9**, with release tag `v1.0.9`.
+The current source version is **1.1.0**, with planned release tag `v1.1.0`.
+This version update does not create a release tag or installers.
 Pushing the tag starts the Release workflow to build, test, and package the release.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
@@ -46,9 +47,11 @@ and AppContainer guides are available in English.
   floating status bar, with DPI, theme, and high-contrast support.
 - Standalone settings, dictionary manager, and local ETW log-monitor tools.
   Settings and tool interfaces support Simplified Chinese and English.
-- Selectable system/light/dark/high-contrast themes and 100–200% text for Settings
-  and the IME-drawn candidate popup, plus easy reading with larger targets.
-  Other desktop tools have not all adopted these preferences yet.
+- Selectable system/light/dark/high-contrast themes and 100–200% text for Settings,
+  the IME-drawn candidate popup, Dictionary Manager and Log Monitor main windows,
+  and custom menus, plus Comfort mode with larger targets.
+  Both tools follow saved Settings preferences; host/system-rendered UI remains
+  outside our appearance control.
   See [display and accessibility](docs/accessibility.md) for scope and controls.
 - Uninstall keeps personal data by default. MSI uninstall offers an optional
   cleanup checkbox; ZIP unregistration supports explicit `-RemoveUserData`.
