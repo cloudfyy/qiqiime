@@ -65,7 +65,7 @@ public:
     using MenuItems = std::array<LangBarMenuItem, 9>;
 
     explicit LangBarButton(ActionCallback cb = {}) noexcept;
-    ~LangBarButton() noexcept = default;
+    ~LangBarButton() noexcept;
 
     bool QueryAdditionalInterfaces(REFIID riid, void** ppvObj) noexcept {
         return MatchBaseInterfaces<ITfLangBarItemButton, ITfLangBarItem>(riid, ppvObj);
@@ -118,12 +118,17 @@ public:
 
 private:
     static ScopedIcon CreateTextIcon(wchar_t ch) noexcept;
+    HRESULT StartThemeNotifications() noexcept;
+    void StopThemeNotifications() noexcept;
+    static LRESULT CALLBACK ThemeWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
     HRESULT NotifyUpdate(DWORD flags) noexcept;
 
     const uint64_t log_id_;
     ComPtr<ITfLangBarItemSink> sink_;
     DWORD sink_cookie_ = 0;
     bool visible_ = true;
+    ScopedWindow theme_window_;
+    bool theme_update_pending_ = false;
     LangBarState state_{};
     ActionCallback action_callback_;
 };

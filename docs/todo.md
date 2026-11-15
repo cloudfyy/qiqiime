@@ -24,10 +24,118 @@ display custom skins.
 ## Tracked follow-up
 
 - [ ] Investigate taskbar input-indicator disappearance and theme-aware icons.
-  Follow the [research and validation order](input-indicator.md): diagnose the
-  missing Chinese/English state icon first, validate monochrome TEXTCOLORICON
-  behavior in the real Shell next, and investigate the registered brand icon
-  separately. Keep the current brand colors unchanged pending validation.
+  Follow the [research and validation record](input-indicator.md). The registered
+  brand resource now uses the documented white box, black glyph, and 1px
+  half-opaque black frame; its DLL resource ID and registration index are unchanged.
+  Validate the updated brand in the actual taskbar and Win+Space switcher,
+  including light/dark/high-contrast backgrounds, DPI, focus changes, and IME
+  switching. Mode-icon theme refresh and disappearance remain separate checks.
+  The prepared transparent black/white assets are not registered brand icons.
+  Do not treat fixed-color contrast designs, resource generation, or the
+  unsuccessful public `SetIcon`/`SetIconMode` probe as proof of automatic
+  brand-color inversion.
+
+- [ ] Audit and validate compatibility with the Windows-style Shell.
+  Existing TSF, `UIELEMENTENABLED`, and `IMMERSIVESUPPORT` registration is
+  a starting point, not proof of complete compatibility. Check the actual
+  taskbar/Win+Space experience, focus and IME switching, desktop and
+  AppContainer/restricted hosts, DPI, and supported Windows versions.
+  Record real-host results separately from unit tests and category declarations.
+
+- [ ] Harden candidate owned-window handling for missing or stale host HWNDs.
+  The normal `ITfContextView::GetWnd` -> Win32 `::GetFocus()` fallback,
+  root-window ownership, and owner-switch/lifetime tests already exist.
+  Production presentation can still fall back to an unowned popup when no
+  valid root owner is available or the owner is destroyed before creation.
+  Define a safe hide/defer/retry policy instead, preserving composition and
+  explicit diagnostics. Add focused tests for successful-but-null GetWnd,
+  failed GetWnd with null focus, invalid root HWNDs, and owner destruction
+  between lookup and window creation. Do not confuse Win32 `::GetFocus()`
+  (HWND) with `ITfThreadMgr::GetFocus` (document manager).
+
+- [ ] Implement candidate-window integration with
+  [light-dismiss surfaces](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-candidate-window-interaction-with-light-dismiss-surfaces).
+  Send the required WinEvents via `NotifyWinEvent` or an equivalent supported
+  mechanism: `EVENT_OBJECT_IME_SHOW` when the candidate UI becomes visible,
+  `EVENT_OBJECT_IME_HIDE` when it is hidden, and `EVENT_OBJECT_IME_CHANGE`
+  when it moves or changes size. Tie notifications to actual window transitions,
+  including DPI/layout changes and destruction; avoid duplicates and do not
+  announce visible UI in UILess mode or after failed window creation.
+  Validate HWND/object/child identifiers, event ordering, and lifetime with
+  scoped automated event hooks, then test interaction with real transient
+  surfaces. Hiding on focus loss alone does not satisfy this contract.
+
+- [ ] Audit IME DPI scaling against the
+  [desktop-application DPI requirements](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#dpi-scaling-support-for-desktop-applications).
+  Existing monitor-DPI queries and scaling helpers are a baseline, not a
+  completed conformance check. Ensure the IME DLL inherits the host's DPI
+  awareness: audit its embedded manifest, process-level awareness setters,
+  and reachable shared code. Review and justify any temporary thread-DPI
+  overrides, restoring the host context on every exit and reentrant path.
+  Keep standalone tool EXEs' DPI policies separate from the in-process IME.
+  Verify candidate/status/menu UI, fonts, icons, geometry, and hit testing
+  across DPI-unaware, system-aware, and per-monitor-aware v1/v2 hosts.
+  Check TSF caret extents and Win32 fallback coordinate virtualization,
+  GetDpiForMonitor/GetDpiForWindow selection, error/fallback diagnostics,
+  and avoidance of double scaling. Cover mixed-DPI monitor transitions,
+  dynamic DPI changes, negative coordinates, and 100/125/150/175/200% scales
+  with focused regressions and real-host validation on x64/x86.
+
+- [ ] Audit and complete
+  [IME candidate-list accessibility for Narrator](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-accessibility).
+  Set `UIA_AutomationIdPropertyId` to exactly `IME_Candidate_Window` for
+  conversion lists or `IME_Prediction_Window` for prediction lists, according
+  to the actual list type. Raise `UIA_MenuOpenedEventId` and
+  `UIA_MenuClosedEventId` when the list actually appears and disappears.
+  On selection changes, raise `UIA_SelectionItem_ElementSelectedEventId`
+  for the selected item and expose its
+  `UIA_SelectionItemIsSelectedPropertyId` as TRUE; clear stale selections.
+  Each item's `UIA_NamePropertyId` must be its candidate text, with optional
+  disambiguation in `UIA_HelpTextPropertyId`, not a replacement name.
+  Cover keyboard selection, paging, candidate updates, hiding/destruction,
+  and UILess coordination without announcing nonexistent native UI.
+  These UIA events do not replace the IME light-dismiss WinEvents above.
+  Add property/event regressions using synthetic candidates and manual
+  Narrator validation; do not capture real input or candidate text in logs.
+
+- [ ] Complete and validate TSF UILess-mode conformance.
+  The current candidate UI implements basic `ITfCandidateListUIElement`
+  and `ITfUIElementMgr` negotiation, but the full contract still needs review.
+  Cover host-controlled visibility, Begin/Update/End lifecycle, initial and
+  subsequent update flags, and association with the active document.
+  Do not show an unnegotiated popup when UILess forbids it or when the
+  manager/BeginUIElement negotiation fails. Preserve actual HRESULT diagnostics
+  and add focused failure-path/reentrancy tests plus real UILess-host validation.
+
+- [ ] Implement and validate the Windows IME search-integration APIs.
+  Neither `ITfFnSearchCandidateProvider` nor
+  `ITfIntegratableCandidateListUIElement` is currently implemented.
+  Expose the search provider through `ITfFunctionProvider::GetFunction`;
+  provide candidates without modifying live composition or generating input
+  events, and explicitly define `SetResult` learning/privacy behavior.
+  Expose the integratable interface on the candidate UI and support its
+  integration style, selection, keyboard, numbering, and finalization contract;
+  review the companion `ITfCandidateListUIElementBehavior` requirements.
+  Add COM/interface, candidate-result, and lifecycle regressions, then validate
+  supported integrated search controls. Ordinary typing into a search box is
+  not proof of search integration; do not log real queries or candidate text.
+
+- [ ] Add automated conformance tests for
+  [Microsoft's IME icon requirements](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-icons).
+  Cover both brand and mode icons, not only the current theme assets:
+  - Require ICO frames for at least 16, 20, 24, 32, 40, and 48px; every
+    supplied resolution must be 32-bit with an alpha channel.
+  - Require black/white artwork, permitting neutral grayscale antialiasing
+    and alpha edges but rejecting colored pixels.
+  - Brand icons: white box, black glyph, and a 1px black outer stroke at
+    50% opacity. Clarify applicability of the guideline's "new" variant
+    and test its upper-left rounded corner where applicable.
+  - Mode icons: white glyph with a 1px black outer stroke at 50% opacity.
+  - Measure geometry, stroke width/opacity, clipping, and contrast on light
+    and dark backgrounds; do not substitute loose visibility counts for
+    the required output shape or silently accept theme-aware deviations.
+  - Check source ICOs and the icons actually embedded/returned by the IME
+    DLL on x64/x86. Keep standalone tool icons outside these IME-only rules.
 
 - [ ] Replace the custom backup format and add standalone configuration export/import.
   Use UTF-8 JSON (`.json`) for configuration, with explicit `format` and `version`,

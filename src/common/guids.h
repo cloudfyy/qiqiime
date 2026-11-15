@@ -16,6 +16,7 @@ extern std::atomic<long> g_com_object_count;
 inline constexpr const wchar_t* kCandidateWndClass = L"QiQiIMECandidatePopupClass";
 inline constexpr const wchar_t* kStatusBarWndClass = L"QiQiIMEStatusBarPopupClass";
 inline constexpr const wchar_t* kStatusBarTooltipWndClass = L"QiQiIMEStatusBarTooltipClass";
+inline constexpr const wchar_t* kLangBarThemeWndClass = L"QiQiIMELangBarThemeClass";
 inline constexpr const wchar_t* kSettingsWndClass = L"QiQiIMESettingsDialogClass";
 inline constexpr const wchar_t* kInfoWndClass = L"QiQiIMEInfoDialogClass";
 inline constexpr const wchar_t* kSettingsMessageWndClass = L"QiQiIMESettingsMessageClass";

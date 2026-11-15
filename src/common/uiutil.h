@@ -416,7 +416,8 @@ inline bool SetFluentListRowHeight(
 }
 
 // Create a 32-bit ARGB transparent HICON containing a single centered glyph (no solid background fill).
-inline ScopedIcon CreateTransparentGlyphIcon(wchar_t ch, int size_px, COLORREF text_color) noexcept {
+inline ScopedIcon CreateTransparentGlyphIcon(
+    wchar_t ch, int size_px, COLORREF text_color, LONG weight = FW_SEMIBOLD) noexcept {
     const int sz = std::max(16, size_px);
     const ScopedWindowDC screen_dc(nullptr);
     if (!screen_dc) {
@@ -450,16 +451,40 @@ inline ScopedIcon CreateTransparentGlyphIcon(wchar_t ch, int size_px, COLORREF t
 
     {
         const ScopedSelectObject sel_bmp(mem_dc.Get(), color_bmp.Get());
-        const ScopedGdiHandle<HFONT> font = CreateUiFont(sz - 2, FW_SEMIBOLD, ANTIALIASED_QUALITY);
+        const ScopedGdiHandle<HFONT> font = CreateUiFont(sz - 2, weight, ANTIALIASED_QUALITY);
+        if (!sel_bmp || !font) {
+            QIQI_LOG_WARN("CreateTransparentGlyphIcon: glyph drawing resources unavailable");
+            return {};
+        }
         const ScopedSelectObject sel_font(mem_dc.Get(), font.Get());
+        if (!sel_font) {
+            QIQI_LOG_WARN("CreateTransparentGlyphIcon: font selection failed");
+            return {};
+        }
 
         RECT rc{0, 0, sz, sz};
-        ::SetBkMode(mem_dc.Get(), TRANSPARENT);
-        ::SetTextColor(mem_dc.Get(), RGB(255, 255, 255));
+        if (!::SetBkMode(mem_dc.Get(), TRANSPARENT) ||
+            ::SetTextColor(mem_dc.Get(), RGB(255, 255, 255)) == CLR_INVALID) {
+            QIQI_LOG_WARN("CreateTransparentGlyphIcon: text drawing setup failed");
+            return {};
+        }
         const std::array<wchar_t, 2> text = {ch, L'\0'};
-        ::DrawTextW(mem_dc.Get(), text.data(), 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        if (!::DrawTextW(mem_dc.Get(), text.data(), 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE)) {
+            QIQI_LOG_WARN("CreateTransparentGlyphIcon: glyph drawing failed");
+            return {};
+        }
     }
-    ::GdiFlush();
+    if (!::GdiFlush()) {
+        QIQI_LOG_WARN("CreateTransparentGlyphIcon: GdiFlush failed");
+        return {};
+    }
+    {
+        const ScopedSelectObject sel_mask(mem_dc.Get(), mask_bmp.Get());
+        if (!sel_mask || !::PatBlt(mem_dc.Get(), 0, 0, sz, sz, BLACKNESS)) {
+            QIQI_LOG_WARN("CreateTransparentGlyphIcon: alpha icon mask initialization failed");
+            return {};
+        }
+    }
 
     // Convert grayscale glyph intensity into 32-bit premultiplied ARGB with transparent background
     const uint32_t r_fg = GetRValue(text_color);

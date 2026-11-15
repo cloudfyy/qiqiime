@@ -22,6 +22,7 @@ constexpr GUID kGuidLbiInputMode = {
 };
 
 constexpr DWORD kLangBarSinkCookie = 1;
+constexpr UINT kRefreshThemeMessage = WM_APP;
 std::atomic<uint64_t> next_langbar_log_id{0};
 
 void AddMenuEntry(ITfMenu* menu, LangBarMenuId id, const wchar_t* text, bool checked = false, bool enabled = true) {
@@ -113,6 +114,10 @@ ScopedMenu LangBarButton::BuildSharedPopupMenu(
 LangBarButton::LangBarButton(ActionCallback cb) noexcept
     : log_id_(++next_langbar_log_id), action_callback_(std::move(cb)) {}
 
+LangBarButton::~LangBarButton() noexcept {
+    StopThemeNotifications();
+}
+
 STDMETHODIMP LangBarButton::GetInfo(TF_LANGBARITEMINFO* pInfo) noexcept {
     if (!pInfo) {
         return E_INVALIDARG;
@@ -120,8 +125,7 @@ STDMETHODIMP LangBarButton::GetInfo(TF_LANGBARITEMINFO* pInfo) noexcept {
     const auto& str = GetUiStrings(state_.ui_language);
     pInfo->clsidService = kClsidQiQiTextService;
     pInfo->guidItem = kGuidLbiInputMode;
-    pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_BTN_MENU | TF_LBI_STYLE_SHOWNINTRAY |
-                     TF_LBI_STYLE_TEXTCOLORICON;
+    pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_BTN_MENU | TF_LBI_STYLE_SHOWNINTRAY;
     pInfo->ulSort = 0;
     wcscpy_s(pInfo->szDescription, str.langbar_desc);
     QIQI_LOG_DEBUG("LangBarButton::GetInfo(item={}, style=0x{:x}, visible={})",
@@ -243,6 +247,8 @@ STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCo
     if (!log::CheckHResult(hr, "LangBarButton::QueryInterface(ITfLangBarItemSink)")) {
         return hr;
     }
+    hr = StartThemeNotifications();
+    if (FAILED(hr)) return hr;
     sink_ = std::move(sink);
     sink_cookie_ = kLangBarSinkCookie;
     *pdwCookie = sink_cookie_;
@@ -257,6 +263,7 @@ STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) {
     const ComPtr<LangBarButton> self_holder(this);
     ComPtr<ITfLangBarItemSink> sink = std::move(sink_);
     sink_cookie_ = 0;
+    StopThemeNotifications();
     QIQI_LOG_DEBUG("LangBarButton::UnadviseSink(connected=false) item={}, cookie={}", log_id_, dwCookie);
     return S_OK;
 }
@@ -289,51 +296,91 @@ void LangBarButton::Disconnect() noexcept {
     visible_ = false;
     ComPtr<ITfLangBarItemSink> sink = std::move(sink_);
     sink_cookie_ = 0;
+    StopThemeNotifications();
     QIQI_LOG_DEBUG("LangBarButton::Disconnect(item={}, had_sink={})", log_id_, sink != nullptr);
 }
 
 ScopedIcon LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
     const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
-    const ScopedMemoryDC dc(::CreateCompatibleDC(nullptr));
-    const ScopedGdiHandle<HBITMAP> mask(::CreateBitmap(size, size * 2, 1, 1, nullptr));
-    const auto font = CreateUiFont(size - 2, FW_SEMIBOLD, NONANTIALIASED_QUALITY);
-    if (!dc || !mask || !font) {
-        QIQI_LOG_WARN("LangBarButton::CreateTextIcon failed to allocate monochrome drawing resources");
-        return {};
-    }
-    {
-        const ScopedSelectObject select_mask(dc.Get(), mask.Get());
-        const ScopedSelectObject select_font(dc.Get(), font.Get());
-        if (!select_mask || !select_font) {
-            QIQI_LOG_WARN("LangBarButton::CreateTextIcon failed to select monochrome drawing resources");
-            return {};
-        }
-        // A monochrome HICON has stacked AND/XOR masks, with no color bitmap.
-        // AND=1/XOR=0 is transparent; AND=0/XOR=0 is a black theme-color glyph.
-        if (!::PatBlt(dc.Get(), 0, 0, size, size, WHITENESS) ||
-            !::PatBlt(dc.Get(), 0, size, size, size, BLACKNESS) ||
-            ::SetBkMode(dc.Get(), TRANSPARENT) == 0 ||
-            ::SetTextColor(dc.Get(), RGB(0, 0, 0)) == CLR_INVALID) {
-            QIQI_LOG_WARN("LangBarButton::CreateTextIcon failed to initialize monochrome masks");
-            return {};
-        }
-        RECT rect{0, 0, size, size};
-        const std::array<wchar_t, 2> text{ch, L'\0'};
-        if (!::DrawTextW(dc.Get(), text.data(), 1, &rect,
-                         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX)) {
-            QIQI_LOG_WARN("LangBarButton::CreateTextIcon failed to draw monochrome glyph");
-            return {};
-        }
-    }
-    ICONINFO info{};
-    info.fIcon = TRUE;
-    info.hbmMask = mask.Get();
-    ScopedIcon icon(::CreateIconIndirect(&info));
-    if (!icon) {
+    return CreateTransparentGlyphIcon(ch, size, GetTaskbarIconColor(), FW_NORMAL);
+}
+
+HRESULT LangBarButton::StartThemeNotifications() noexcept {
+    if (theme_window_) return S_OK;
+    const HINSTANCE instance = g_dll_instance ? g_dll_instance : ::GetModuleHandleW(nullptr);
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = &LangBarButton::ThemeWndProc;
+    wc.hInstance = instance;
+    wc.lpszClassName = kLangBarThemeWndClass;
+    if (!::RegisterClassExW(&wc)) {
         const DWORD error = ::GetLastError();
-        QIQI_LOG_WARN("LangBarButton::CreateTextIcon::CreateIconIndirect failed (error={})", error);
+        if (error != ERROR_CLASS_ALREADY_EXISTS) {
+            QIQI_LOG_WARN("LangBarButton::RegisterClassExW(theme) failed (error={})", error);
+            return HRESULT_FROM_WIN32(error);
+        }
     }
-    return icon;
+    // Message-only windows do not receive system theme broadcasts.
+    theme_window_.Reset(::CreateWindowExW(
+        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kLangBarThemeWndClass, L"", WS_POPUP,
+        0, 0, 0, 0, nullptr, nullptr, instance, this));
+    if (!theme_window_) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("LangBarButton::CreateWindowExW(theme) failed (error={})", error);
+        return HRESULT_FROM_WIN32(error);
+    }
+    return S_OK;
+}
+
+void LangBarButton::StopThemeNotifications() noexcept {
+    std::ignore = DestroyWindowOnOwnerThread(theme_window_, "LangBarButton::DestroyThemeWindow");
+    theme_update_pending_ = false;
+}
+
+LRESULT CALLBACK LangBarButton::ThemeWndProc(
+    HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+    if (message == WM_NCCREATE) {
+        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lparam);
+        ::SetLastError(ERROR_SUCCESS);
+        if (!::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams))) {
+            const DWORD error = ::GetLastError();
+            if (error != ERROR_SUCCESS) {
+                QIQI_LOG_WARN("LangBarButton::SetWindowLongPtrW(theme) failed (error={})", error);
+                return FALSE;
+            }
+        }
+    }
+    auto* button = reinterpret_cast<LangBarButton*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (button) {
+        switch (message) {
+        case WM_NCDESTROY:
+            ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            if (button->theme_window_.Get() == hwnd) std::ignore = button->theme_window_.Detach();
+            break;
+        case WM_SETTINGCHANGE:
+        case WM_THEMECHANGED:
+        case WM_SYSCOLORCHANGE:
+            // Let the Shell finish its broadcast before calling its TSF sink.
+            if (!button->theme_update_pending_) {
+                if (::PostMessageW(hwnd, kRefreshThemeMessage, 0, 0)) {
+                    button->theme_update_pending_ = true;
+                } else {
+                    const DWORD error = ::GetLastError();
+                    QIQI_LOG_WARN("LangBarButton::PostMessageW(theme) failed (error={})", error);
+                }
+            }
+            return 0;
+        case kRefreshThemeMessage: {
+            const ComPtr<LangBarButton> self_holder(button);
+            button->theme_update_pending_ = false;
+            std::ignore = button->NotifyUpdate(TF_LBI_ICON);
+            return 0;
+        }
+        default:
+            break;
+        }
+    }
+    return ::DefWindowProcW(hwnd, message, wparam, lparam);
 }
 
 } // namespace qiqi

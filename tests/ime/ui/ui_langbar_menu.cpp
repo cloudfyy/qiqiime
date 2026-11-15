@@ -83,6 +83,7 @@ public:
     STDMETHODIMP OnUpdate(DWORD dwFlags) noexcept override {
         last_update_flags_ = dwFlags;
         ++update_count_;
+        if (callback) callback();
         return update_result_;
     }
 
@@ -90,6 +91,7 @@ public:
     unsigned int update_count_ = 0;
     HRESULT query_result_ = S_OK;
     HRESULT update_result_ = S_OK;
+    std::function<void()> callback;
 };
 
 class ReentrantLangBarItemSink final
@@ -143,7 +145,7 @@ void TestLangBarButton() {
     TF_LANGBARITEMINFO info{};
     QIQI_TEST_CHECK(SUCCEEDED(btn->GetInfo(&info)));
     QIQI_TEST_CHECK(IsEqualCLSID(info.clsidService, kClsidQiQiTextService));
-    QIQI_TEST_CHECK((info.dwStyle & TF_LBI_STYLE_TEXTCOLORICON) != 0);
+    QIQI_TEST_CHECK((info.dwStyle & TF_LBI_STYLE_TEXTCOLORICON) == 0);
 
     QIQI_TEST_CHECK(btn->GetStatus(nullptr) == E_INVALIDARG);
     DWORD status = 99;
@@ -358,21 +360,28 @@ void TestImeBrandIcon() {
         std::vector<uint32_t> pixels(gsl::narrow_cast<size_t>(size * size));
         QIQI_TEST_CHECK(::GetDIBits(dc.Get(), color.Get(), 0, gsl::narrow_cast<UINT>(size),
                                   pixels.data(), &bmi, DIB_RGB_COLORS) == size);
-        size_t outline = 0;
+        size_t black = 0;
         size_t white = 0;
-        size_t transparent = 0;
-        size_t translucent = 0;
+        size_t antialiased = 0;
         size_t visible_on_dark = 0;
         size_t visible_on_light = 0;
-        for (const uint32_t pixel : pixels) {
+        const auto width = gsl::narrow_cast<size_t>(size);
+        for (size_t i = 0; i < pixels.size(); ++i) {
+            const uint32_t pixel = gsl::at(pixels, i);
             const auto alpha = pixel >> 24u;
             const auto rgb = pixel & 0x00FFFFFFu;
             QIQI_TEST_CHECK(((rgb >> 16u) & 0xFFu) == ((rgb >> 8u) & 0xFFu) &&
                             ((rgb >> 8u) & 0xFFu) == (rgb & 0xFFu));
-            outline += alpha > 0 && alpha <= 128 && rgb == 0 ? 1u : 0u;
-            white += alpha == 255 && rgb == 0x00FFFFFFu ? 1u : 0u;
-            transparent += alpha == 0 ? 1u : 0u;
-            translucent += alpha > 0 && alpha < 255 ? 1u : 0u;
+            const size_t x = i % width;
+            const size_t y = i / width;
+            if (x == 0 || y == 0 || x == width - 1 || y == width - 1) {
+                QIQI_TEST_CHECK(alpha == 128 && rgb == 0);
+            } else {
+                QIQI_TEST_CHECK(alpha == 255);
+                if (rgb == 0) ++black;
+                else if (rgb == 0x00FFFFFFu) ++white;
+                else ++antialiased;
+            }
             // GetDIBits exposes premultiplied channels; composite against both taskbar tones.
             const auto gray = rgb & 0xFFu;
             const auto on_dark = gray + (32u * (255u - alpha)) / 255u;
@@ -380,15 +389,43 @@ void TestImeBrandIcon() {
             visible_on_dark += on_dark >= 32u + 40u ? 1u : 0u;
             visible_on_light += on_light + 40u <= 240u ? 1u : 0u;
         }
-        QIQI_TEST_CHECK((pixels.front() >> 24u) == 0);
-        QIQI_TEST_CHECK((gsl::at(pixels, size - 1) >> 24u) == 0);
-        QIQI_TEST_CHECK((gsl::at(pixels, pixels.size() - gsl::narrow_cast<size_t>(size)) >> 24u) == 0);
-        QIQI_TEST_CHECK((pixels.back() >> 24u) == 0);
-        QIQI_TEST_CHECK(outline > 0 && white > pixels.size() / 12 &&
-                        white < pixels.size() / 2 && translucent > 0);
-        QIQI_TEST_CHECK(transparent > pixels.size() / 5);
-        QIQI_TEST_CHECK(visible_on_dark > pixels.size() / 12 && visible_on_light > pixels.size() / 25);
+        QIQI_TEST_CHECK(black > pixels.size() / 12 && black < pixels.size() / 2);
+        QIQI_TEST_CHECK(gsl::at(pixels, width + 1) == 0xFFFFFFFFu);
+        QIQI_TEST_CHECK(gsl::at(pixels, width * 2 - 2) == 0xFFFFFFFFu);
+        QIQI_TEST_CHECK(white > 0 && antialiased > 0);
+        QIQI_TEST_CHECK(visible_on_dark > pixels.size() / 4 && visible_on_light > pixels.size() / 12);
     }
+}
+
+std::vector<uint32_t> ReadIconPixels(HICON icon, int size) {
+    ICONINFO info{};
+    QIQI_TEST_CHECK(::GetIconInfo(icon, &info));
+    const ScopedGdiHandle<HBITMAP> mask(info.hbmMask);
+    const ScopedGdiHandle<HBITMAP> color(info.hbmColor);
+    QIQI_TEST_CHECK(mask.IsValid() && color.IsValid());
+    BITMAP bitmap{};
+    QIQI_TEST_CHECK(::GetObjectW(color.Get(), sizeof(bitmap), &bitmap) == sizeof(bitmap));
+    QIQI_TEST_CHECK(bitmap.bmBitsPixel == 32 && bitmap.bmPlanes == 1 &&
+                    bitmap.bmWidth == size && bitmap.bmHeight == size);
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = size;
+    bmi.bmiHeader.biHeight = -size;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    std::vector<uint32_t> pixels(gsl::narrow_cast<size_t>(size) * gsl::narrow_cast<size_t>(size));
+    const ScopedWindowDC dc(nullptr);
+    QIQI_TEST_CHECK(::GetDIBits(dc.Get(), color.Get(), 0, gsl::narrow_cast<UINT>(size),
+                              pixels.data(), &bmi, DIB_RGB_COLORS) == size);
+    return pixels;
+}
+
+std::vector<uint32_t> ReadTaskbarIconPixels(LangBarButton& button) {
+    ScopedIcon icon;
+    QIQI_TEST_CHECK(button.GetIcon(icon.Put()) == S_OK);
+    const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
+    return ReadIconPixels(icon.Get(), size);
 }
 
 void TestTaskbarThemeIcons() {
@@ -397,8 +434,9 @@ void TestTaskbarThemeIcons() {
         SetThemeDarkOverrideForTest(std::nullopt);
         SetTaskbarDarkOverrideForTest(std::nullopt);
     });
-    std::array<std::vector<uint32_t>, 2> reference_masks;
+    std::array<std::vector<uint32_t>, 2> reference_alpha;
     for (const bool app_dark : {false, true}) {
+        const ComPtr<LangBarButton> button = MakeComObject<LangBarButton>();
         for (const bool taskbar_dark : {false, true}) {
             SetThemeDarkOverrideForTest(app_dark);
             SetTaskbarDarkOverrideForTest(taskbar_dark);
@@ -406,66 +444,144 @@ void TestTaskbarThemeIcons() {
             QIQI_TEST_CHECK(IsTaskbarDarkTheme() == taskbar_dark);
             QIQI_TEST_CHECK(GetTaskbarIconColor() == (taskbar_dark ? RGB(255, 255, 255) : RGB(0, 0, 0)));
 
-            const ComPtr<LangBarButton> button = MakeComObject<LangBarButton>();
             TF_LANGBARITEMINFO item_info{};
             QIQI_TEST_CHECK(button->GetInfo(&item_info) == S_OK);
-            QIQI_TEST_CHECK((item_info.dwStyle & TF_LBI_STYLE_TEXTCOLORICON) != 0);
+            QIQI_TEST_CHECK((item_info.dwStyle & TF_LBI_STYLE_TEXTCOLORICON) == 0);
 
             for (const bool chinese : {false, true}) {
                 LangBarState state{};
                 state.chinese_mode = chinese;
                 button->UpdateState(state);
-                ScopedIcon icon;
-                QIQI_TEST_CHECK(button->GetIcon(icon.Put()) == S_OK);
-                ICONINFO info{};
-                QIQI_TEST_CHECK(::GetIconInfo(icon.Get(), &info));
-                const ScopedGdiHandle<HBITMAP> mask(info.hbmMask);
-                const ScopedGdiHandle<HBITMAP> color(info.hbmColor);
-                QIQI_TEST_CHECK(mask.IsValid() && !color.IsValid());
-                BITMAP bitmap{};
-                QIQI_TEST_CHECK(::GetObjectW(mask.Get(), sizeof(bitmap), &bitmap) == sizeof(bitmap));
+                auto pixels = ReadTaskbarIconPixels(*button.Get());
                 const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
-                QIQI_TEST_CHECK(bitmap.bmBitsPixel == 1 && bitmap.bmPlanes == 1 &&
-                                bitmap.bmWidth == size && bitmap.bmHeight == size * 2);
-
-                BITMAPINFO bmi{};
-                bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-                bmi.bmiHeader.biWidth = bitmap.bmWidth;
-                bmi.bmiHeader.biHeight = -bitmap.bmHeight;
-                bmi.bmiHeader.biPlanes = 1;
-                bmi.bmiHeader.biBitCount = 32;
-                bmi.bmiHeader.biCompression = BI_RGB;
-                std::vector<uint32_t> pixels(
-                    gsl::narrow_cast<size_t>(bitmap.bmWidth) * gsl::narrow_cast<size_t>(bitmap.bmHeight));
-                const ScopedWindowDC screen_dc(nullptr);
-                QIQI_TEST_CHECK(::GetDIBits(
-                    screen_dc.Get(), mask.Get(), 0, gsl::narrow_cast<UINT>(bitmap.bmHeight),
-                    pixels.data(), &bmi, DIB_RGB_COLORS) == bitmap.bmHeight);
+                const ScopedIcon semibold = CreateTransparentGlyphIcon(
+                    chinese ? L'中' : L'英', size, GetTaskbarIconColor(), FW_SEMIBOLD);
+                QIQI_TEST_CHECK(semibold.IsValid());
+                const auto semibold_pixels = ReadIconPixels(semibold.Get(), size);
 
                 int glyph_pixels = 0;
                 int transparent_pixels = 0;
-                const size_t area = gsl::narrow_cast<size_t>(size) * gsl::narrow_cast<size_t>(size);
-                for (size_t i = 0; i < area; ++i) {
-                    const uint32_t px = gsl::at(pixels, i);
+                uint64_t alpha_coverage = 0;
+                for (uint32_t& px : pixels) {
+                    const uint32_t alpha = px >> 24u;
+                    alpha_coverage += alpha;
                     const uint32_t rgb = px & 0x00FFFFFFu;
-                    QIQI_TEST_CHECK((gsl::at(pixels, i + area) & 0x00FFFFFFu) == 0);
-                    if (rgb == 0x00FFFFFFu) {
+                    const COLORREF foreground = GetTaskbarIconColor();
+                    const uint32_t expected_rgb =
+                        ((GetRValue(foreground) * alpha / 255u) << 16u) |
+                        ((GetGValue(foreground) * alpha / 255u) << 8u) |
+                        (GetBValue(foreground) * alpha / 255u);
+                    QIQI_TEST_CHECK(rgb == expected_rgb);
+                    if (alpha == 0) {
                         ++transparent_pixels;
                     } else {
-                        QIQI_TEST_CHECK(rgb == 0);
                         ++glyph_pixels;
                     }
+                    px = alpha;
                 }
+                uint64_t semibold_coverage = 0;
+                for (const uint32_t px : semibold_pixels) semibold_coverage += px >> 24u;
+                QIQI_TEST_CHECK(alpha_coverage < semibold_coverage);
                 QIQI_TEST_CHECK(glyph_pixels >= 10);
                 QIQI_TEST_CHECK(transparent_pixels > glyph_pixels);
-                QIQI_TEST_CHECK((pixels.front() & 0x00FFFFFFu) == 0x00FFFFFFu);
-                auto& reference = gsl::at(reference_masks, chinese ? 1u : 0u);
+                QIQI_TEST_CHECK(pixels.front() == 0 && pixels.back() == 0);
+                QIQI_TEST_CHECK(gsl::at(pixels, size - 1) == 0 &&
+                                gsl::at(pixels, pixels.size() - gsl::narrow_cast<size_t>(size)) == 0);
+                QIQI_TEST_CHECK(std::ranges::count(pixels, 255u) >= 10);
+                auto& reference = gsl::at(reference_alpha, chinese ? 1u : 0u);
                 if (reference.empty()) reference = pixels;
                 else QIQI_TEST_CHECK(reference == pixels);
             }
         }
     }
-    QIQI_TEST_CHECK(gsl::at(reference_masks, 0) != gsl::at(reference_masks, 1));
+    QIQI_TEST_CHECK(gsl::at(reference_alpha, 0) != gsl::at(reference_alpha, 1));
+}
+
+void TestLangBarThemeNotifications() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const auto objects_before = g_com_object_count.load();
+    const auto original_theme = detail::ThemeDarkOverrideStorage();
+    const auto original_taskbar_theme = detail::TaskbarDarkOverrideStorage();
+    const auto restore_overrides = gsl::finally([&]() noexcept {
+        SetThemeDarkOverrideForTest(original_theme);
+        SetTaskbarDarkOverrideForTest(original_taskbar_theme);
+    });
+    const auto dispatch_refresh = [](HWND window) {
+        MSG message{};
+        QIQI_TEST_CHECK(::PeekMessageW(&message, window, WM_APP, WM_APP, PM_REMOVE));
+        ::DispatchMessageW(&message);
+        QIQI_TEST_CHECK(!::PeekMessageW(&message, window, WM_APP, WM_APP, PM_REMOVE));
+    };
+    const auto find_window = [] {
+        const HWND window = FindThreadWindowByClass(kLangBarThemeWndClass);
+        QIQI_TEST_CHECK(window != nullptr && !::IsWindowVisible(window));
+        QIQI_TEST_CHECK(::GetAncestor(window, GA_ROOT) == window);
+        QIQI_TEST_CHECK(::GetParent(window) == nullptr);
+        return window;
+    };
+    MockLangBarItemSink sink;
+    auto button = MakeComObject<LangBarButton>();
+    sink.callback = [&] {
+        const auto pixels = ReadTaskbarIconPixels(*button.Get());
+        const COLORREF foreground = GetTaskbarIconColor();
+        const uint32_t opaque_foreground = 0xFF000000u |
+            (gsl::narrow_cast<uint32_t>(GetRValue(foreground)) << 16u) |
+            (gsl::narrow_cast<uint32_t>(GetGValue(foreground)) << 8u) |
+            GetBValue(foreground);
+        QIQI_TEST_CHECK(std::ranges::count(pixels, opaque_foreground) >= 10);
+    };
+    DWORD cookie = 0;
+    QIQI_TEST_CHECK(button->AdviseSink(IID_ITfLangBarItemSink, &sink, &cookie) == S_OK);
+    HWND window = find_window();
+    for (const bool dark : {false, true, false}) {
+        SetThemeDarkOverrideForTest(!dark);
+        SetTaskbarDarkOverrideForTest(dark);
+        for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED, WM_SYSCOLORCHANGE}) {
+            const auto count = sink.update_count_;
+            ::SendMessageW(window, message, 0, 0);
+            ::SendMessageW(window, message, 0, 0);
+            QIQI_TEST_CHECK(sink.update_count_ == count);
+            dispatch_refresh(window);
+            QIQI_TEST_CHECK(sink.update_count_ == count + 1 && sink.last_update_flags_ == TF_LBI_ICON);
+            QIQI_TEST_CHECK(button->State().chinese_mode);
+        }
+    }
+    sink.update_result_ = E_ACCESSDENIED;
+    ::SendMessageW(window, WM_THEMECHANGED, 0, 0);
+    dispatch_refresh(window);
+    sink.update_result_ = S_OK;
+    const auto count = sink.update_count_;
+    ::SendMessageW(window, WM_THEMECHANGED, 0, 0);
+    dispatch_refresh(window);
+    QIQI_TEST_CHECK(sink.update_count_ == count + 1);
+    ::SendMessageW(window, WM_THEMECHANGED, 0, 0);
+    QIQI_TEST_CHECK(button->UnadviseSink(cookie) == S_OK);
+    QIQI_TEST_CHECK(!::IsWindow(window));
+    QIQI_TEST_CHECK(button->AdviseSink(IID_ITfLangBarItemSink, &sink, &cookie) == S_OK);
+    window = find_window();
+    ::SendMessageW(window, WM_THEMECHANGED, 0, 0);
+    dispatch_refresh(window);
+    QIQI_TEST_CHECK(sink.update_count_ == count + 2);
+    button.Reset();
+    QIQI_TEST_CHECK(!::IsWindow(window));
+
+    for (const bool disconnect : {false, true}) {
+        bool sink_destroyed = false;
+        auto reentrant_sink = MakeComObject<ReentrantLangBarItemSink>(sink_destroyed);
+        button = MakeComObject<LangBarButton>();
+        QIQI_TEST_CHECK(button->AdviseSink(IID_ITfLangBarItemSink, reentrant_sink.Get(), &cookie) == S_OK);
+        window = find_window();
+        reentrant_sink->callback = [&] {
+            if (disconnect) button->Disconnect();
+            else QIQI_TEST_CHECK(button->UnadviseSink(cookie) == S_OK);
+            reentrant_sink.Reset();
+            button.Reset();
+        };
+        ::SendMessageW(window, WM_THEMECHANGED, 0, 0);
+        dispatch_refresh(window);
+        QIQI_TEST_CHECK(!button && !reentrant_sink && sink_destroyed && !::IsWindow(window));
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
 void TestSharedMenuItems() {
@@ -1183,6 +1299,7 @@ void RunLangBarMenuTests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestImeBrandIcon();
     TestTaskbarThemeIcons();
+    TestLangBarThemeNotifications();
     TestSharedMenuItems();
     TestQuickSettingsMenu();
     TestQuickSettingsMenuResourceLifetime();

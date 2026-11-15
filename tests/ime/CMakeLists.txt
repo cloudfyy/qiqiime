@@ -127,6 +127,9 @@ target_link_libraries(qiqi_tsf_ui_test PRIVATE
     tdh
 )
 find_program(QIQI_TEST_POWERSHELL NAMES pwsh powershell REQUIRED)
+add_test(NAME QiQiImeIconAssetsTest
+    COMMAND "${QIQI_TEST_POWERSHELL}" -NoLogo -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/icons.ps1")
 find_program(QIQI_TEST_CDB NAMES cdb
     PATHS "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/Debuggers/${QIQIIME_ARCH_NAME}"
     NO_DEFAULT_PATH REQUIRED)

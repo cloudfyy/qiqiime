@@ -43,9 +43,13 @@ $brandBrush = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(35, 105, 200))
 $monitorBgBrush = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(24, 34, 48))
 $monitorHeaderBrush = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(35, 105, 200))
 try {
-    # IME branding stays legible on both taskbar themes without changing the registered icon.
+    # Keep the registered brand icon separate from the theme-specific assets.
     $settingsFrames = [Collections.Generic.List[byte[]]]::new()
     $imeFrames = [Collections.Generic.List[byte[]]]::new()
+    $themeIcons = @(
+        @{ File = 'qiqiime-light.ico'; Channel = 0; Frames = [Collections.Generic.List[byte[]]]::new() },
+        @{ File = 'qiqiime-dark.ico'; Channel = 255; Frames = [Collections.Generic.List[byte[]]]::new() }
+    )
     foreach ($size in $sizes) {
         $bitmap = [Drawing.Bitmap]::new($size, $size, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $graphics = [Drawing.Graphics]::FromImage($bitmap)
@@ -71,27 +75,43 @@ try {
             $bitmap.Save($stream, [Drawing.Imaging.ImageFormat]::Png)
             $settingsFrames.Add($stream.ToArray())
 
-            $graphics.Clear([Drawing.Color]::Transparent)
-            $border = [Drawing.Pen]::new([Drawing.Color]::FromArgb(128, 0, 0, 0),
-                [single](2 * [math]::Max(1, $size / 32)))
-            try {
-                $border.LineJoin = [Drawing.Drawing2D.LineJoin]::Round
-                $transform.Reset()
-                $transform.Translate([single](-$size / 2), [single](-$size / 2))
-                $transform.Scale([single](0.80 / 0.90), [single](0.80 / 0.90),
-                    [Drawing.Drawing2D.MatrixOrder]::Append)
-                $transform.Translate([single]($size / 2), [single]($size / 2),
-                    [Drawing.Drawing2D.MatrixOrder]::Append)
-                $path.Transform($transform)
-                # Fill after stroking so only the outer half of the black outline remains.
-                $graphics.DrawPath($border, $path)
-                $graphics.FillPath([Drawing.Brushes]::White, $path)
-            } finally {
-                $border.Dispose()
-            }
+            $transform.Reset()
+            $transform.Translate([single](-$size / 2), [single](-$size / 2))
+            $transform.Scale([single](0.80 / 0.90), [single](0.80 / 0.90),
+                [Drawing.Drawing2D.MatrixOrder]::Append)
+            $transform.Translate([single]($size / 2), [single]($size / 2),
+                [Drawing.Drawing2D.MatrixOrder]::Append)
+            $path.Transform($transform)
+            $graphics.Clear([Drawing.Color]::FromArgb(128, 0, 0, 0))
+            # Pixel-align the one-pixel frame; antialias only the glyph.
+            $graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::None
+            $graphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::None
+            $graphics.FillRectangle([Drawing.Brushes]::White, 1, 1, ($size - 2), ($size - 2))
+            $graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            $graphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            $graphics.FillPath([Drawing.Brushes]::Black, $path)
             $stream.SetLength(0)
             $bitmap.Save($stream, [Drawing.Imaging.ImageFormat]::Png)
             $imeFrames.Add($stream.ToArray())
+            $graphics.Clear([Drawing.Color]::Transparent)
+            $graphics.FillPath([Drawing.Brushes]::Black, $path)
+            $graphics.Flush([Drawing.Drawing2D.FlushIntention]::Sync)
+            # Share coverage and write exact channels to avoid GDI+ white-edge rounding.
+            foreach ($themeIcon in $themeIcons) {
+                for ($y = 0; $y -lt $size; $y++) {
+                    for ($x = 0; $x -lt $size; $x++) {
+                        $pixel = $bitmap.GetPixel($x, $y)
+                        if ($pixel.A -gt 0 -and ($pixel.R -ne $themeIcon.Channel -or
+                            $pixel.G -ne $themeIcon.Channel -or $pixel.B -ne $themeIcon.Channel)) {
+                            $bitmap.SetPixel($x, $y, [Drawing.Color]::FromArgb(
+                                $pixel.A, $themeIcon.Channel, $themeIcon.Channel, $themeIcon.Channel))
+                        }
+                    }
+                }
+                $stream.SetLength(0)
+                $bitmap.Save($stream, [Drawing.Imaging.ImageFormat]::Png)
+                $themeIcon.Frames.Add($stream.ToArray())
+            }
         } finally {
             $stream.Dispose()
             $transform.Dispose()
@@ -102,7 +122,12 @@ try {
     }
     $imeOutput = Join-Path $repoRoot 'data\qiqiime.ico'
     Write-QiQiIcoFile -OutputPath $imeOutput -Frames $imeFrames
-    Write-Output "Generated $imeOutput (transparent white glyph with black outline, 16..256 pixels)."
+    Write-Output "Generated $imeOutput (white box, black glyph, 1px half-opaque black frame, 16..256 pixels)."
+    foreach ($themeIcon in $themeIcons) {
+        $themeOutput = Join-Path (Join-Path $repoRoot 'data') $themeIcon.File
+        Write-QiQiIcoFile -OutputPath $themeOutput -Frames $themeIcon.Frames
+        Write-Output "Generated $themeOutput (transparent theme glyph without outline, 16..256 pixels)."
+    }
     if ($ImeOnly) { return }
 
     $settingsOutput = Join-Path $repoRoot 'data\qiqiime-settings.ico'
