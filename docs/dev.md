@@ -113,6 +113,9 @@ Normal unit-test and desktop modes use isolated registry configuration, not
 the user's saved preferences. Configuration-save failures report the actual
 HRESULT, facility, and code; do not infer their cause from `GetLastError()`
 after a bool-returning configuration API.
+The common configuration regression verifies that registry-only reads neither
+create missing keys nor modify existing DACLs. Default initialization belongs
+to `LoadConfig`, not the registry-only read helpers.
 
 ### TSF hang diagnostics
 

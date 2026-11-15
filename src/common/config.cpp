@@ -164,7 +164,7 @@ ScopedRegKey OpenOrCreateConfigRegKey(
         return {};
     }
     ScopedRegKey key;
-    if ((access & KEY_WRITE) != 0) {
+    if ((access & (KEY_SET_VALUE | KEY_CREATE_SUB_KEY)) != 0) {
         DWORD disp = 0;
         const auto create_key = [&](REGSAM sam) noexcept -> LSTATUS {
             if (transaction != nullptr && transaction != INVALID_HANDLE_VALUE) {

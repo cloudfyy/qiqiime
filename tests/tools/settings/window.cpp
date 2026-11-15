@@ -663,6 +663,10 @@ void TestSettingsWindowMonitorChanges() {
 
     const HWND page_size_combo = ::GetDlgItem(dialog.Get(), settings_detail::kIdComboPageSize);
     QIQI_TEST_CHECK(page_size_combo != nullptr);
+    auto* context = reinterpret_cast<settings_detail::DialogContext*>(
+        ::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
+    QIQI_TEST_CHECK(context);
+    settings_detail::SelectSettingsPage(dialog.Get(), *context, settings_detail::SettingsPage::Candidates);
     POINT combo_origin{};
     ::ClientToScreen(dialog.Get(), &combo_origin);
     RECT combo_rect{};

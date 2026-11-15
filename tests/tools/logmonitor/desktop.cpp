@@ -8,7 +8,8 @@ namespace qiqi::monitor::tests {
 void TestDisplayPreferences(const MonitorWindow& window) {
     QiQiConfig config = LoadConfig();
     const auto* previous = GetActiveConfigRegistrySubKey();
-    const auto subkey = std::format(L"Software\\QiQiIME\\Tests\\MonitorDisplay_{}", ::GetCurrentProcessId());
+    const auto subkey = std::format(L"Software\\QiQiIME_Test_MonitorDisplay_{}_{}",
+        ::GetCurrentProcessId(), ::GetTickCount64());
     SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
     const auto restore = gsl::finally([&]() noexcept {
         SetConfigRegistrySubKeyOverrideForTest(previous);

@@ -203,6 +203,27 @@ void TestIniConfiguration() {
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() == 0);
     QiQiConfig reg_out{};
     QIQI_TEST_CHECK(!LoadConfigFromRegistry(reg_out));
+    {
+        ScopedRegKey key;
+        QIQI_TEST_CHECK(::RegOpenKeyExW(HKEY_CURRENT_USER, kTestRegSubKey, 0, KEY_READ, key.Put()) ==
+            ERROR_FILE_NOT_FOUND);
+        QIQI_TEST_CHECK(::RegCreateKeyExW(HKEY_CURRENT_USER, kTestRegSubKey, 0, nullptr,
+            REG_OPTION_NON_VOLATILE, KEY_READ, nullptr, key.Put(), nullptr) == ERROR_SUCCESS);
+        const auto read_security = [&]() {
+            DWORD size = 0;
+            QIQI_TEST_CHECK(::RegGetKeySecurity(key.Get(), DACL_SECURITY_INFORMATION, nullptr, &size) ==
+                ERROR_INSUFFICIENT_BUFFER);
+            std::vector<BYTE> security(size);
+            QIQI_TEST_CHECK(::RegGetKeySecurity(key.Get(), DACL_SECURITY_INFORMATION, security.data(), &size) ==
+                ERROR_SUCCESS);
+            security.resize(size);
+            return security;
+        };
+        const auto security = read_security();
+        QIQI_TEST_CHECK(QueryRegistryConfigSequence() == 0);
+        QIQI_TEST_CHECK(!LoadConfigFromRegistry(reg_out));
+        QIQI_TEST_CHECK(read_security() == security);
+    }
     QIQI_TEST_CHECK(!SaveConfigToRegistry(reg_out, L""));
     QIQI_TEST_CHECK(SaveConfigToRegistryResult(reg_out, L"") == E_INVALIDARG);
     QIQI_TEST_CHECK(!LoadConfigFromRegistry(reg_out, nullptr, L""));
