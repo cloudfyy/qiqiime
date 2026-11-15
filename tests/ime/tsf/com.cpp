@@ -5,10 +5,10 @@
 #include "common/test_support.h"
 #include "mocks.h"
 #include "common/guids.h"
-#include "common/scoped_handle.h"
+#include "common/RAII.h"
 #include "common/logger.h"
-#include "ime/tsf/class_factory.h"
-#include "ime/tsf/edit_session.h"
+#include "ime/tsf/classfactory.h"
+#include "ime/tsf/editsession.h"
 #include "ime/tsf/register.h"
 
 #include <windows.h>

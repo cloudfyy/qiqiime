@@ -1,0 +1,873 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "ime/engine/dict.h"
+#include "common/fileutil.h"
+#include "common/logger.h"
+
+#include <algorithm>
+#include <cstring>
+#include <map>
+#include <mutex>
+
+namespace qiqi {
+
+namespace {
+
+struct ProcessDictCacheEntry {
+    uint64_t src_size = 0;
+    uint64_t src_mtime = 0;
+    std::shared_ptr<const WubiMappedDict> dict;
+};
+
+std::mutex g_dict_cache_mutex;
+std::map<std::wstring, ProcessDictCacheEntry> g_process_dict_cache;
+
+constexpr std::wstring_view NextToken(std::wstring_view& line) noexcept {
+    while (!line.empty() && (line.front() == L' ' || line.front() == L'\t' || line.front() == L'\r')) {
+        line.remove_prefix(1);
+    }
+    if (line.empty()) {
+        return {};
+    }
+    size_t pos = 0;
+    while (pos < line.size()) {
+        const wchar_t ch = gsl::at(line, pos);
+        if (ch == L' ' || ch == L'\t' || ch == L'\r') {
+            break;
+        }
+        ++pos;
+    }
+    const std::wstring_view token = line.substr(0, pos);
+    line.remove_prefix(pos);
+    return token;
+}
+
+DWORD DecodeDictionaryUtf8(std::string_view raw, std::wstring& decoded) {
+    const HRESULT result = Utf8ToWideResult(StripUtf8Bom(raw), decoded);
+    if (SUCCEEDED(result)) return ERROR_SUCCESS;
+    return HRESULT_FACILITY(result) == FACILITY_WIN32
+        ? gsl::narrow_cast<DWORD>(HRESULT_CODE(result)) : ERROR_GEN_FAILURE;
+}
+
+bool ParseTextDictIntoBinaryBuffer(
+    const std::filesystem::path& txt_path,
+    uint64_t src_size,
+    uint64_t src_mtime,
+    std::vector<uint8_t>& out_buffer) {
+    std::string raw_utf8;
+    if (!ReadFileToUtf8String(txt_path, raw_utf8)) {
+        return false;
+    }
+
+    std::wstring wide_content;
+    const DWORD decode_error = DecodeDictionaryUtf8(raw_utf8, wide_content);
+    if (decode_error != ERROR_SUCCESS) {
+        QIQI_LOG_CAT_WARN(log::Keyword::Dictionary,
+            "Dictionary UTF-8 decoding failed (error={})", decode_error);
+        return false;
+    }
+    std::map<uint32_t, std::vector<std::wstring>> grouped;
+    DictionaryTextDiagnostics diagnostics;
+    WubiMappedDict::ParseTextDictEntries(wide_content, grouped, false, &diagnostics);
+    if (diagnostics.invalid_lines != 0) {
+        QIQI_LOG_CAT_WARN(log::Keyword::Dictionary,
+            "Dictionary compilation skipped invalid rows (valid_lines={}, invalid_lines={})",
+            diagnostics.valid_lines, diagnostics.invalid_lines);
+    }
+    WubiMappedDict::CompileEntriesToBinaryBuffer(
+        grouped, out_buffer, codec::kDictBinaryMagic, codec::kDictBinaryVersion, src_size, src_mtime);
+    return true;
+}
+
+[[gsl::suppress("type.1")]]
+bool ValidateBinaryTableViews(
+    std::span<const uint8_t> buffer,
+    uint32_t expected_magic,
+    uint32_t expected_version,
+    uint64_t expected_src_size,
+    uint64_t expected_src_mtime,
+    std::span<const DictCodeIndex>& out_code_index,
+    std::span<const DictWordSlice>& out_word_slices,
+    std::span<const wchar_t>& out_char_pool) noexcept {
+    if (buffer.size() < sizeof(DictBinaryHeader)) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: buffer size ({} bytes) smaller than DictBinaryHeader", buffer.size());
+        return false;
+    }
+    const auto* hdr = reinterpret_cast<const DictBinaryHeader*>(buffer.data());
+    if (hdr->magic != expected_magic || hdr->version != expected_version) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: invalid or outdated header (magic=0x{:08X}, version={})",
+                      hdr->magic, hdr->version);
+        return false;
+    }
+    if (expected_src_size != 0 && hdr->source_size != expected_src_size) {
+        QIQI_LOG_DEBUG("ValidateBinaryTableViews: source_size mismatch (cached={}, current={})",
+                       hdr->source_size, expected_src_size);
+        return false;
+    }
+    if (expected_src_mtime != 0 && hdr->source_mtime != 0 && hdr->source_mtime != expected_src_mtime) {
+        QIQI_LOG_DEBUG("ValidateBinaryTableViews: source_mtime mismatch (cached={}, current={})",
+                       hdr->source_mtime, expected_src_mtime);
+        return false;
+    }
+
+    size_t remaining_bytes = buffer.size() - sizeof(DictBinaryHeader);
+    if (hdr->code_count > remaining_bytes / sizeof(DictCodeIndex)) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: invalid code index count ({})", hdr->code_count);
+        return false;
+    }
+    const size_t codes_bytes = gsl::narrow_cast<size_t>(hdr->code_count) * sizeof(DictCodeIndex);
+    remaining_bytes -= codes_bytes;
+    if (hdr->word_count > remaining_bytes / sizeof(DictWordSlice)) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: invalid word slice count ({})", hdr->word_count);
+        return false;
+    }
+    const size_t words_bytes = gsl::narrow_cast<size_t>(hdr->word_count) * sizeof(DictWordSlice);
+    remaining_bytes -= words_bytes;
+    if (hdr->char_count > remaining_bytes / sizeof(wchar_t)) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: invalid character pool count ({})", hdr->char_count);
+        return false;
+    }
+    const size_t chars_bytes = gsl::narrow_cast<size_t>(hdr->char_count) * sizeof(wchar_t);
+    const size_t payload_bytes = codes_bytes + words_bytes + chars_bytes;
+    if (remaining_bytes != chars_bytes) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: trailing bytes mismatch");
+        return false;
+    }
+    const uint32_t expected_checksum = codec::ComputeFnv1a32(
+        buffer.subspan(sizeof(DictBinaryHeader), payload_bytes));
+    if (hdr->payload_checksum != expected_checksum) {
+        QIQI_LOG_WARN("ValidateBinaryTableViews: payload checksum mismatch (header=0x{:08X}, computed=0x{:08X})",
+                      hdr->payload_checksum, expected_checksum);
+        return false;
+    }
+
+    const auto codes_span = buffer.subspan(sizeof(DictBinaryHeader), codes_bytes);
+    const auto words_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes, words_bytes);
+    const auto chars_span = buffer.subspan(sizeof(DictBinaryHeader) + codes_bytes + words_bytes, chars_bytes);
+
+    const auto code_index = std::span<const DictCodeIndex>(
+        reinterpret_cast<const DictCodeIndex*>(codes_span.data()), hdr->code_count);
+    const auto word_slices = std::span<const DictWordSlice>(
+        reinterpret_cast<const DictWordSlice*>(words_span.data()), hdr->word_count);
+    const auto char_pool = std::span<const wchar_t>(
+        reinterpret_cast<const wchar_t*>(chars_span.data()), hdr->char_count);
+
+    uint32_t previous_code = 0;
+    for (const DictCodeIndex& entry : code_index) {
+        if (entry.packed_code == 0 || entry.packed_code <= previous_code ||
+            entry.word_count == 0 || entry.first_word_idx > word_slices.size() ||
+            entry.word_count > word_slices.size() - entry.first_word_idx) {
+            QIQI_LOG_WARN("ValidateBinaryTableViews: invalid code index entry");
+            return false;
+        }
+
+        bool padding_started = false;
+        for (size_t i = 0; i < sizeof(entry.packed_code); ++i) {
+            const uint32_t code_byte = (entry.packed_code >> ((3 - i) * 8)) & 0xFFu;
+            if (code_byte == 0) {
+                padding_started = true;
+            } else if (padding_started || code_byte > 26) {
+                QIQI_LOG_WARN("ValidateBinaryTableViews: invalid packed Wubi code");
+                return false;
+            }
+        }
+        previous_code = entry.packed_code;
+    }
+
+    for (const DictWordSlice& slice : word_slices) {
+        if (slice.char_length == 0 || slice.char_offset > char_pool.size() ||
+            slice.char_length > char_pool.size() - slice.char_offset) {
+            QIQI_LOG_WARN("ValidateBinaryTableViews: invalid word slice");
+            return false;
+        }
+    }
+
+    out_code_index = code_index;
+    out_word_slices = word_slices;
+    out_char_pool = char_pool;
+    return true;
+}
+
+} // namespace
+
+void WubiMappedDict::ClearProcessCache() noexcept {
+    try {
+        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+        g_process_dict_cache.clear();
+    } catch (...) {
+        QIQI_LOG_ERROR("ClearProcessCache failed with a C++ exception");
+    }
+}
+
+void WubiMappedDict::InvalidateProcessCacheForPath(const std::filesystem::path& txt_path) noexcept {
+    try {
+        if (txt_path.empty()) {
+            return;
+        }
+        std::error_code ec;
+        std::filesystem::path adjacent_qdict = txt_path;
+        adjacent_qdict.replace_extension(L".qdict");
+        const std::wstring key_txt = std::filesystem::weakly_canonical(txt_path, ec).wstring();
+        const std::wstring key_qdict = std::filesystem::weakly_canonical(adjacent_qdict, ec).wstring();
+        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+        g_process_dict_cache.erase(key_txt);
+        g_process_dict_cache.erase(key_qdict);
+    } catch (...) {
+        QIQI_LOG_ERROR("InvalidateProcessCacheForPath failed with a C++ exception");
+    }
+}
+
+void WubiMappedDict::ParseTextDictEntries(
+    std::wstring_view wide_content,
+    std::map<uint32_t, std::vector<std::wstring>>& out_entries,
+    bool preserve_rule_markers,
+    DictionaryTextDiagnostics* diagnostics) {
+    out_entries.clear();
+    if (diagnostics) {
+        *diagnostics = {};
+    }
+    std::wstring_view content_view(wide_content);
+    bool in_yaml_header = false;
+    size_t line_number = 0;
+    size_t header_line = 0;
+    const auto report = [diagnostics](size_t line, DictionaryLineError error) {
+        if (diagnostics) {
+            ++diagnostics->invalid_lines;
+            if (diagnostics->issues.size() < 8) {
+                diagnostics->issues.push_back({line, error});
+            }
+        }
+    };
+
+    while (!content_view.empty()) {
+    const size_t nl = content_view.find(L'\n');
+    std::wstring_view line = (nl == std::wstring_view::npos)
+        ? content_view
+        : content_view.substr(0, nl);
+    content_view.remove_prefix(nl == std::wstring_view::npos ? content_view.size() : nl + 1);
+    ++line_number;
+    if (std::ranges::any_of(line, [](wchar_t ch) {
+            return (ch < L' ' && ch != L'\t' && ch != L'\r') || ch == L'\x7F';
+        })) {
+        report(line_number, DictionaryLineError::InvalidCharacter);
+        continue;
+    }
+
+    const std::wstring_view first = NextToken(line);
+    if (first.empty() || first.starts_with(L'#')) {
+        continue;
+    }
+    if (first == L"---") {
+        in_yaml_header = true;
+        header_line = line_number;
+        continue;
+    }
+    if (in_yaml_header) {
+        if (first == L"...") {
+            in_yaml_header = false;
+        }
+        continue;
+    }
+
+    auto add_to_group = [&out_entries, preserve_rule_markers](
+                            std::wstring_view code_tok, std::wstring_view word_tok) {
+        const uint32_t packed = PackWubiCode(code_tok);
+        if (packed == 0 || word_tok.empty()) {
+            return;
+        }
+        if (preserve_rule_markers) {
+            if ((word_tok == L"^") || (word_tok == L"!")) {
+                return;
+            }
+            AppendUniqueWord(out_entries[packed], word_tok);
+            return;
+        }
+        // Skip blocklist markers ("!word") when building positive binary lookup tables (.qdict).
+        if (word_tok.starts_with(L'!')) {
+            return;
+        }
+        // Strip manual pin prefix ("^word") and place pinned words ahead of normal words for the code.
+        if (word_tok.starts_with(L'^')) {
+            word_tok.remove_prefix(1);
+            if (word_tok.empty()) {
+                return;
+            }
+            auto& list = out_entries[packed];
+            std::erase(list, word_tok);
+            list.insert(list.begin(), std::wstring(word_tok));
+            return;
+        }
+        AppendUniqueWord(out_entries[packed], word_tok);
+    };
+
+        if (PackWubiCode(first) != 0) {
+            bool has_word = false;
+            for (std::wstring_view word = NextToken(line); !word.empty(); word = NextToken(line)) {
+                if (word == L"^" || word == L"!") {
+                    continue;
+                }
+                has_word = true;
+                add_to_group(first, word);
+            }
+            if (!has_word) {
+                report(line_number, DictionaryLineError::MissingWord);
+            } else if (diagnostics) {
+                ++diagnostics->valid_lines;
+            }
+        } else if (!preserve_rule_markers) {
+            const std::wstring_view second = NextToken(line);
+            if (PackWubiCode(second) != 0) {
+                const std::wstring_view weight = NextToken(line);
+                if (!weight.empty() &&
+                    (weight.find_first_not_of(L"0123456789.") != std::wstring_view::npos ||
+                     weight.find_first_of(L"0123456789") == std::wstring_view::npos ||
+                     std::ranges::count(weight, L'.') > 1 || !NextToken(line).empty())) {
+                    report(line_number, DictionaryLineError::InvalidWeight);
+                    continue;
+                }
+                add_to_group(second, first);
+                if (diagnostics) {
+                    ++diagnostics->valid_lines;
+                }
+            } else {
+                report(line_number, DictionaryLineError::InvalidCode);
+            }
+        }
+    }
+    if (in_yaml_header) {
+        report(header_line, DictionaryLineError::UnterminatedHeader);
+    }
+}
+
+void WubiMappedDict::CompileEntriesToBinaryBuffer(
+    const std::map<uint32_t, std::vector<std::wstring>>& entries,
+    std::vector<uint8_t>& out_buffer,
+    uint32_t magic,
+    uint32_t version,
+    uint64_t src_size,
+    uint64_t src_mtime) {
+    std::vector<DictCodeIndex> code_indices;
+    code_indices.reserve(entries.size());
+    std::vector<DictWordSlice> word_slices;
+    std::wstring char_pool;
+
+    for (const auto& [packed_code, words] : entries) {
+        if (packed_code == 0 || words.empty()) {
+            continue;
+        }
+        DictCodeIndex ci{};
+        ci.packed_code = packed_code;
+        ci.first_word_idx = gsl::narrow_cast<uint32_t>(word_slices.size());
+        ci.word_count = 0;
+        for (const auto& word : words) {
+            if (word.empty()) {
+                continue;
+            }
+            DictWordSlice ws{};
+            ws.char_offset = gsl::narrow_cast<uint32_t>(char_pool.size());
+            ws.char_length = gsl::narrow_cast<uint32_t>(word.size());
+            word_slices.push_back(ws);
+            char_pool.append(word);
+            ++ci.word_count;
+        }
+        if (ci.word_count > 0) {
+            code_indices.push_back(ci);
+        }
+    }
+
+    DictBinaryHeader hdr{};
+    hdr.magic = magic;
+    hdr.version = version;
+    hdr.source_size = src_size;
+    hdr.source_mtime = src_mtime;
+    hdr.code_count = gsl::narrow_cast<uint32_t>(code_indices.size());
+    hdr.word_count = gsl::narrow_cast<uint32_t>(word_slices.size());
+    hdr.char_count = gsl::narrow_cast<uint32_t>(char_pool.size());
+
+    const size_t codes_bytes = code_indices.size() * sizeof(DictCodeIndex);
+    const size_t words_bytes = word_slices.size() * sizeof(DictWordSlice);
+    const size_t chars_bytes = char_pool.size() * sizeof(wchar_t);
+    const size_t total_bytes = sizeof(DictBinaryHeader) + codes_bytes + words_bytes + chars_bytes;
+
+    out_buffer.resize(total_bytes);
+    std::span<uint8_t> out_span(out_buffer);
+    out_span = out_span.subspan(sizeof(hdr));
+    if (codes_bytes > 0) {
+        std::memcpy(out_span.data(), code_indices.data(), codes_bytes);
+        out_span = out_span.subspan(codes_bytes);
+    }
+    if (words_bytes > 0) {
+        std::memcpy(out_span.data(), word_slices.data(), words_bytes);
+        out_span = out_span.subspan(words_bytes);
+    }
+    if (chars_bytes > 0) {
+        std::memcpy(out_span.data(), char_pool.data(), chars_bytes);
+    }
+    hdr.payload_checksum = codec::ComputeFnv1a32(
+        std::span<const uint8_t>(out_buffer).subspan(sizeof(DictBinaryHeader)));
+    std::memcpy(out_buffer.data(), &hdr, sizeof(hdr));
+}
+
+bool WubiMappedDict::DecodeBinaryBufferToEntries(
+    std::span<const uint8_t> buffer,
+    std::map<uint32_t, std::vector<std::wstring>>& out_entries,
+    uint32_t expected_magic,
+    uint32_t expected_version) {
+    std::span<const DictCodeIndex> code_index;
+    std::span<const DictWordSlice> word_slices;
+    std::span<const wchar_t> char_pool;
+    if (!ValidateBinaryTableViews(
+            buffer, expected_magic, expected_version, 0, 0, code_index, word_slices, char_pool)) {
+        return false;
+    }
+    std::map<uint32_t, std::vector<std::wstring>> decoded;
+    for (const DictCodeIndex& entry : code_index) {
+        auto& list = decoded[entry.packed_code];
+        const size_t end_idx = gsl::narrow_cast<size_t>(entry.first_word_idx) + entry.word_count;
+        for (size_t i = entry.first_word_idx; i < end_idx; ++i) {
+            const DictWordSlice& slice = gsl::at(word_slices, i);
+            const auto sub = char_pool.subspan(slice.char_offset, slice.char_length);
+            AppendUniqueWord(list, std::wstring_view(sub.data(), sub.size()));
+        }
+    }
+    out_entries = std::move(decoded);
+    return true;
+}
+
+size_t WubiMappedDict::ProcessCacheSize() noexcept {
+    try {
+        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+        return g_process_dict_cache.size();
+    } catch (...) {
+        QIQI_LOG_ERROR("ProcessCacheSize failed with a C++ exception");
+        return 0;
+    }
+}
+
+void WubiMappedDict::ResetViews() noexcept {
+    code_index_ = {};
+    word_slices_ = {};
+    char_pool_ = {};
+    mapped_view_.Reset();
+    mapping_handle_.Reset();
+    file_handle_.Reset();
+}
+
+bool WubiMappedDict::BindBufferView(
+    std::span<const uint8_t> buffer,
+    uint64_t expected_src_size,
+    uint64_t expected_src_mtime) noexcept {
+    return ValidateBinaryTableViews(
+        buffer,
+        codec::kDictBinaryMagic,
+        codec::kDictBinaryVersion,
+        expected_src_size,
+        expected_src_mtime,
+        code_index_,
+        word_slices_,
+        char_pool_);
+}
+
+bool WubiMappedDict::OpenMappedFile(
+    const std::filesystem::path& bin_path,
+    uint64_t expected_src_size,
+    uint64_t expected_src_mtime) noexcept {
+    ResetViews();
+
+    // Open with least privilege:
+    // - GENERIC_READ only (no write/execute)
+    // - FILE_SHARE_READ | FILE_SHARE_DELETE: disallows concurrent in-place write/truncation while mapped
+    //   (preventing STATUS_IN_PAGE_ERROR), while allowing another process to atomically replace the cache
+    //   directory entry via WriteFileAtomically (MoveFileExW MOVEFILE_REPLACE_EXISTING) when .txt is updated.
+    // - SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS to prevent named-pipe token impersonation
+    ScopedFileHandle file(::CreateFileW(
+        bin_path.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+        nullptr));
+    if (!file.IsValid()) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_DEBUG("OpenMappedFile::CreateFileW failed (error={})", error);
+        return false;
+    }
+    if (::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+        QIQI_LOG_WARN("OpenMappedFile: cache is not a disk file");
+        return false;
+    }
+
+    LARGE_INTEGER file_size{};
+    constexpr LONGLONG kMaxDictBytes = 128LL * 1024LL * 1024LL; // 128 MB upper bound
+    if (!::GetFileSizeEx(file.Get(), &file_size)) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("OpenMappedFile::GetFileSizeEx failed (error={})", error);
+        return false;
+    }
+    if (file_size.QuadPart < gsl::narrow_cast<LONGLONG>(sizeof(DictBinaryHeader)) ||
+        file_size.QuadPart > kMaxDictBytes) {
+        QIQI_LOG_WARN("OpenMappedFile: invalid cache file size ({} bytes)", file_size.QuadPart);
+        return false;
+    }
+
+    // Unnamed (anonymous) read-only file mapping (lpName == nullptr, PAGE_READONLY)
+    ScopedKernelHandle mapping(::CreateFileMappingW(
+        file.Get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
+    if (!mapping.IsValid()) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("OpenMappedFile::CreateFileMappingW failed (error={})", error);
+        return false;
+    }
+
+    // Map with FILE_MAP_READ only
+    ScopedMappedView view(::MapViewOfFile(mapping.Get(), FILE_MAP_READ, 0, 0, 0));
+    if (!view.IsValid()) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("OpenMappedFile::MapViewOfFile failed (error={})", error);
+        return false;
+    }
+
+    const std::span<const uint8_t> mapped_span(
+        static_cast<const uint8_t*>(view.Get()),
+        gsl::narrow_cast<size_t>(file_size.QuadPart));
+    if (!BindBufferView(mapped_span, expected_src_size, expected_src_mtime)) {
+        QIQI_LOG_DEBUG("OpenMappedFile: cache header/timestamp mismatch for '{}', will rebuild",
+                       WideToUtf8(bin_path.native()));
+        return false;
+    }
+
+    // Keep `file_handle_` open with FILE_SHARE_READ to lock the backing file against concurrent
+    // write/truncation while mapped; `mapping_handle_` can be released immediately or retained.
+    file_handle_ = std::move(file);
+    mapping_handle_ = std::move(mapping);
+    mapped_view_ = std::move(view);
+    return true;
+}
+
+bool WubiMappedDict::IsSourceModified() const noexcept {
+    try {
+        if (source_path_.empty()) {
+            return false;
+        }
+        std::error_code ec;
+        if (!std::filesystem::exists(source_path_, ec)) {
+            if (ec) {
+                QIQI_LOG_DEBUG("IsSourceModified::exists failed (error={})", ec.value());
+            }
+            return false;
+        }
+        const uint64_t cur_size = std::filesystem::file_size(source_path_, ec);
+        if (ec) {
+            QIQI_LOG_DEBUG("IsSourceModified::file_size failed (error={})", ec.value());
+            return false;
+        }
+        const uint64_t cur_mtime = gsl::narrow_cast<uint64_t>(
+            std::filesystem::last_write_time(source_path_, ec).time_since_epoch().count());
+        if (ec) {
+            QIQI_LOG_DEBUG("IsSourceModified::last_write_time failed (error={})", ec.value());
+            return false;
+        }
+        return (cur_size != loaded_src_size_) || (cur_mtime != loaded_src_mtime_);
+    } catch (...) {
+        QIQI_LOG_ERROR("IsSourceModified failed with a C++ exception");
+        return false;
+    }
+}
+
+std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromBinaryBuffer(
+    std::vector<uint8_t> bin_buffer) {
+    auto dict = std::make_shared<WubiMappedDict>();
+    dict->fallback_buffer_ = std::move(bin_buffer);
+    if (!dict->BindBufferView(dict->fallback_buffer_, 0, 0)) {
+        return nullptr;
+    }
+    return dict;
+}
+
+bool WubiMappedDict::CompileTextFileToQdict(
+    const std::filesystem::path& txt_path,
+    const std::filesystem::path& out_qdict_path) {
+    std::error_code ec;
+    if (!std::filesystem::exists(txt_path, ec)) {
+        if (ec) {
+            QIQI_LOG_WARN("CompileTextFileToQdict::exists failed (error={})", ec.value());
+        }
+        return false;
+    }
+    const uint64_t src_size = std::filesystem::file_size(txt_path, ec);
+    if (ec) {
+        QIQI_LOG_WARN("CompileTextFileToQdict::file_size failed (error={})", ec.value());
+        return false;
+    }
+    const uint64_t src_mtime = gsl::narrow_cast<uint64_t>(
+        std::filesystem::last_write_time(txt_path, ec).time_since_epoch().count());
+    if (ec) {
+        QIQI_LOG_WARN("CompileTextFileToQdict::last_write_time failed (error={})", ec.value());
+        return false;
+    }
+    std::vector<uint8_t> bin_buffer;
+    if (!ParseTextDictIntoBinaryBuffer(txt_path, src_size, src_mtime, bin_buffer)) {
+        return false;
+    }
+    return WriteFileAtomically(out_qdict_path, bin_buffer);
+}
+
+std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
+    const std::filesystem::path& txt_path) {
+    if (txt_path.empty()) {
+        return nullptr;
+    }
+    std::error_code ec;
+    const bool is_qdict_input = (_wcsicmp(txt_path.extension().c_str(), L".qdict") == 0);
+    std::filesystem::path adjacent_qdict = txt_path;
+    adjacent_qdict.replace_extension(L".qdict");
+
+    const bool txt_exists = !is_qdict_input && std::filesystem::exists(txt_path, ec);
+    const bool qdict_exists = std::filesystem::exists(adjacent_qdict, ec);
+    if (!txt_exists && !qdict_exists) {
+        return nullptr;
+    }
+
+    const uint64_t src_size = txt_exists ? std::filesystem::file_size(txt_path, ec) : 0;
+    const uint64_t src_mtime = txt_exists
+        ? gsl::narrow_cast<uint64_t>(std::filesystem::last_write_time(txt_path, ec).time_since_epoch().count())
+        : gsl::narrow_cast<uint64_t>(std::filesystem::last_write_time(adjacent_qdict, ec).time_since_epoch().count());
+    const std::wstring canonical_key =
+        std::filesystem::weakly_canonical(txt_exists ? txt_path : adjacent_qdict, ec).wstring();
+
+    {
+        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+        const auto it = g_process_dict_cache.find(canonical_key);
+        if (it != g_process_dict_cache.end() &&
+            it->second.src_size == src_size &&
+            it->second.src_mtime == src_mtime &&
+            it->second.dict) {
+            QIQI_LOG_CAT_DEBUG(log::Keyword::Dictionary, "In-process dictionary cache hit for '{}'", WideToUtf8(canonical_key));
+            return it->second.dict;
+        }
+    }
+
+    const GUID dict_act_id = log::CreateActivityId();
+    auto dict = std::make_shared<WubiMappedDict>();
+    dict->source_path_ = txt_exists ? txt_path : adjacent_qdict;
+    dict->loaded_src_size_ = src_size;
+    dict->loaded_src_mtime_ = src_mtime;
+
+    std::filesystem::path fallback_cache;
+    if (const std::filesystem::path app_dir = GetAppDataDirectory(); !app_dir.empty()) {
+        const std::filesystem::path cache_dir = app_dir / L"cache";
+        std::filesystem::create_directories(cache_dir, ec);
+        if (!ec) {
+            fallback_cache = cache_dir / (txt_path.stem().wstring() + L".qdict");
+        }
+    }
+
+    // 1. Try mapping existing binary cache directly (prefer adjacent .qdict, then fallback %LOCALAPPDATA%\cache\.qdict)
+    for (const auto& candidate : {adjacent_qdict, fallback_cache}) {
+        if (is_qdict_input && candidate != adjacent_qdict) {
+            continue;
+        }
+        if (!candidate.empty() && std::filesystem::exists(candidate, ec) &&
+            dict->OpenMappedFile(candidate, src_size, txt_exists ? src_mtime : 0)) {
+            QIQI_LOG_ACT_STOP(
+                log::Level::info,
+                log::Keyword::Dictionary,
+                &dict_act_id,
+                "Mapped binary dictionary cache '{}' ({} codes, {} words)",
+                WideToUtf8(candidate.wstring()),
+                dict->CodeCount(),
+                dict->WordCount());
+            std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+            g_process_dict_cache[canonical_key] = {src_size, src_mtime, dict};
+            return dict;
+        }
+    }
+
+    if (!txt_exists) {
+        return nullptr;
+    }
+
+    // 2. Parse text dictionary and compile binary image
+    QIQI_LOG_ACT_START(
+        log::Level::debug,
+        log::Keyword::Dictionary,
+        &dict_act_id,
+        nullptr,
+        "Compiling text dictionary '{}'",
+        WideToUtf8(txt_path.wstring()));
+    std::vector<uint8_t> bin_buffer;
+    if (!ParseTextDictIntoBinaryBuffer(txt_path, src_size, src_mtime, bin_buffer)) {
+        return nullptr;
+    }
+
+    // Write binary cache to disk atomically via an exclusive-write temporary file + MoveFileExW
+    // (try adjacent .qdict first; if read-only such as Program Files, write to fallback %LOCALAPPDATA%\cache\.qdict).
+    std::filesystem::path written_cache = adjacent_qdict;
+    if (!WriteFileAtomically(written_cache, bin_buffer) && !fallback_cache.empty()) {
+        written_cache = fallback_cache;
+        std::ignore = WriteFileAtomically(written_cache, bin_buffer);
+    }
+
+    if (!dict->OpenMappedFile(written_cache, src_size, src_mtime)) {
+        // Fallback to flat in-memory buffer if file mapping is unavailable in sandbox
+        QIQI_LOG_ACT_INFO(
+            log::Level::warn,
+            log::Keyword::Dictionary,
+            &dict_act_id,
+            "Falling back to in-memory dictionary buffer for '{}'",
+            WideToUtf8(txt_path.wstring()));
+        dict->fallback_buffer_ = std::move(bin_buffer);
+        if (!dict->BindBufferView(dict->fallback_buffer_, src_size, src_mtime)) {
+            return nullptr;
+        }
+    }
+
+    QIQI_LOG_ACT_STOP(
+        log::Level::info,
+        log::Keyword::Dictionary,
+        &dict_act_id,
+        "Compiled & mapped dictionary '{}' -> '{}' ({} codes, {} words)",
+        WideToUtf8(txt_path.wstring()),
+        WideToUtf8(written_cache.wstring()),
+        dict->CodeCount(),
+        dict->WordCount());
+
+    {
+        std::lock_guard<std::mutex> lock(g_dict_cache_mutex);
+        g_process_dict_cache[canonical_key] = {src_size, src_mtime, dict};
+    }
+    return dict;
+}
+
+PrimaryDictValidationResult WubiMappedDict::ValidateAndLoadPrimaryDictionary(
+    const std::filesystem::path& dict_path) {
+    if (dict_path.empty()) {
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Dictionary,
+            "ValidateAndLoadPrimaryDictionary rejected empty path");
+        return {PrimaryDictValidationStatus::EmptyPath, ERROR_INVALID_PARAMETER, nullptr};
+    }
+
+    const auto probe_readable_file = [](const std::filesystem::path& path, DWORD& out_error) noexcept -> bool {
+        out_error = ERROR_SUCCESS;
+        const ScopedFileHandle file(::CreateFileW(
+            path.c_str(),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+            nullptr));
+        if (!file.IsValid()) {
+            out_error = ::GetLastError();
+            return false;
+        }
+        if (::GetFileType(file.Get()) != FILE_TYPE_DISK) {
+            out_error = ERROR_BAD_FILE_TYPE;
+            return false;
+        }
+        return true;
+    };
+
+    DWORD open_error = ERROR_SUCCESS;
+    const bool readable = probe_readable_file(dict_path, open_error);
+
+    if (!readable) {
+        const PrimaryDictValidationStatus status =
+            (open_error == ERROR_FILE_NOT_FOUND || open_error == ERROR_PATH_NOT_FOUND)
+                ? PrimaryDictValidationStatus::FileNotFound
+                : PrimaryDictValidationStatus::AccessDeniedOrReadError;
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Dictionary,
+            "ValidateAndLoadPrimaryDictionary: cannot open '{}' (status={}, error={})",
+            WideToUtf8(dict_path.wstring()),
+            static_cast<unsigned int>(status),
+            open_error);
+        return {status, open_error != ERROR_SUCCESS ? open_error : ERROR_FILE_NOT_FOUND, nullptr};
+    }
+
+    std::shared_ptr<const WubiMappedDict> dict;
+    DictionaryTextDiagnostics diagnostics;
+    std::error_code stat_error;
+    const auto source_time = std::filesystem::last_write_time(dict_path, stat_error);
+    if (stat_error) {
+        QIQI_LOG_CAT_WARN(log::Keyword::Dictionary,
+            "Selected dictionary metadata query failed (error={})", stat_error.value());
+        return {PrimaryDictValidationStatus::AccessDeniedOrReadError,
+            gsl::narrow_cast<DWORD>(stat_error.value()), nullptr};
+    }
+    const uint64_t source_mtime = gsl::narrow_cast<uint64_t>(source_time.time_since_epoch().count());
+    if (_wcsicmp(dict_path.extension().c_str(), L".qdict") != 0) {
+        std::string raw;
+        const HRESULT read_hr = ReadFileToUtf8StringResult(dict_path, raw);
+        if (FAILED(read_hr)) {
+            QIQI_LOG_CAT_WARN(log::Keyword::Dictionary,
+                "Selected dictionary read failed (hr=0x{:08X})", static_cast<uint32_t>(read_hr));
+            return {PrimaryDictValidationStatus::AccessDeniedOrReadError,
+                HRESULT_FACILITY(read_hr) == FACILITY_WIN32
+                    ? gsl::narrow_cast<DWORD>(HRESULT_CODE(read_hr)) : ERROR_READ_FAULT, nullptr};
+        }
+        std::wstring decoded;
+        const DWORD error = DecodeDictionaryUtf8(raw, decoded);
+        if (error != ERROR_SUCCESS) {
+            QIQI_LOG_CAT_WARN(log::Keyword::Dictionary,
+                "Selected dictionary UTF-8 decoding failed (error={})", error);
+            return {PrimaryDictValidationStatus::InvalidUtf8, error, nullptr};
+        }
+        std::map<uint32_t, std::vector<std::wstring>> entries;
+        ParseTextDictEntries(decoded, entries, false, &diagnostics);
+        std::vector<uint8_t> buffer;
+        CompileEntriesToBinaryBuffer(entries, buffer);
+        auto selected = std::make_shared<WubiMappedDict>();
+        selected->source_path_ = dict_path;
+        selected->loaded_src_size_ = raw.size();
+        selected->loaded_src_mtime_ = source_mtime;
+        selected->fallback_buffer_ = std::move(buffer);
+        if (selected->BindBufferView(selected->fallback_buffer_, 0, 0)) {
+            dict = std::move(selected);
+        }
+        QIQI_LOG_CAT_INFO(log::Keyword::Dictionary,
+            "Selected dictionary text validation: valid_lines={}, invalid_lines={}",
+            diagnostics.valid_lines, diagnostics.invalid_lines);
+        for (const auto& issue : diagnostics.issues) {
+            QIQI_LOG_CAT_WARN(log::Keyword::Dictionary,
+                "Dictionary line rejected (line={}, reason={})", issue.line, std::to_underlying(issue.error));
+        }
+    } else {
+        auto selected = std::make_shared<WubiMappedDict>();
+        if (selected->OpenMappedFile(dict_path, 0, 0)) {
+            selected->source_path_ = dict_path;
+            selected->loaded_src_size_ = std::filesystem::file_size(dict_path, stat_error);
+            selected->loaded_src_mtime_ = source_mtime;
+            if (stat_error) {
+                QIQI_LOG_CAT_WARN(log::Keyword::Dictionary,
+                    "Selected binary dictionary size query failed (error={})", stat_error.value());
+                return {PrimaryDictValidationStatus::AccessDeniedOrReadError,
+                    gsl::narrow_cast<DWORD>(stat_error.value()), nullptr};
+            }
+            dict = std::move(selected);
+        }
+    }
+    if (!dict || dict->CodeCount() == 0 || dict->WordCount() == 0) {
+        InvalidateProcessCacheForPath(dict_path);
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Dictionary,
+            "ValidateAndLoadPrimaryDictionary: '{}' is invalid or contains zero valid entries",
+            WideToUtf8(dict_path.wstring()));
+        return {PrimaryDictValidationStatus::InvalidFormatOrEmpty, ERROR_INVALID_DATA, nullptr,
+            std::move(diagnostics)};
+    }
+
+    QIQI_LOG_CAT_INFO(
+        log::Keyword::Dictionary,
+        "ValidateAndLoadPrimaryDictionary succeeded for '{}' (codes={}, words={}, mapped={})",
+        WideToUtf8(dict_path.wstring()),
+        dict->CodeCount(),
+        dict->WordCount(),
+        dict->IsMemoryMapped());
+    return {PrimaryDictValidationStatus::Valid, ERROR_SUCCESS, std::move(dict), std::move(diagnostics)};
+}
+
+} // namespace qiqi

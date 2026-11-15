@@ -43,10 +43,10 @@ or a proposed coordinator. Use the [logging guide](log.md) for capture and the
 
 | Surface | Implementation | Responsibility |
 | --- | --- | --- |
-| COM service | [service](../src/ime/svc/service.cpp), [keys](../src/ime/svc/keys.cpp), [input coordinator](../src/ime/svc/key_handler.cpp), [context access](../src/ime/svc/context_access.cpp), [configuration](../src/ime/svc/config.cpp), [composition facade](../src/ime/svc/composition.cpp) | COM identity, activation/focus, registration, entry gates, actual engine/UI effects |
+| COM service | [service](../src/ime/svc/service.cpp), [keys](../src/ime/svc/keys.cpp), [input coordinator](../src/ime/svc/keyhandler.cpp), [context access](../src/ime/svc/ctxaccess.cpp), [configuration](../src/ime/svc/config.cpp), [composition facade](../src/ime/svc/composition.cpp) | COM identity, activation/focus, registration, entry gates, actual engine/UI effects |
 | State and reset | [state.h](../src/ime/comp/state.h) | Epochs, active/reset flags, current composition/context/document, cleanup coordinator |
-| Input target | [target.h](../src/ime/comp/target.h), [access_policy.h](../src/ime/comp/access_policy.h) | Target preparation, document identity/reconciliation, restricted-input facts and policy |
-| Application edits | [edit.h](../src/ime/comp/edit.h), [edit_session.h](../src/ime/tsf/edit_session.h) | Immutable result snapshots, tickets, request/execution gates, activity scopes |
+| Input target | [target.h](../src/ime/comp/target.h), [policy.h](../src/ime/comp/policy.h) | Target preparation, document identity/reconciliation, restricted-input facts and policy |
+| Application edits | [edit.h](../src/ime/comp/edit.h), [editsession.h](../src/ime/tsf/editsession.h) | Immutable result snapshots, tickets, request/execution gates, activity scopes |
 | Start/update/finish | [start.h](../src/ime/comp/start.h), [update.h](../src/ime/comp/update.h), [finish.h](../src/ime/comp/finish.h) | Host-call order, publication, commit/cancel, termination routing |
 | Text and attributes | [range.h](../src/ime/comp/range.h), [attribute.h](../src/ime/comp/attribute.h) | Guarded range/text/selection and display-attribute operations |
 | Old-composition cleanup | [cleanup.h](../src/ime/comp/cleanup.h), [cleanup.cpp](../src/ime/comp/cleanup.cpp) | Independent captured ownership, weak registry, recovery and removal barriers |

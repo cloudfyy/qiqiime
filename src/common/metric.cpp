@@ -3,7 +3,7 @@
 
 #include "common/metric.h"
 #include "common/logger.h"
-#include "common/scoped_handle.h"
+#include "common/RAII.h"
 
 #include <array>
 #include <atomic>

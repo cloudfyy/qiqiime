@@ -63,9 +63,9 @@ helpers remain in the sibling [tsf](../src/ime/tsf) folder:
   teardown, registrations, thread-manager notifications and providers.
 - [keys.cpp](../src/ime/svc/keys.cpp#L14): key testing/handling, preserved keys,
   parameter validation and TSF callback adaptation.
-- [key_handler.cpp](../src/ime/svc/key_handler.cpp#L115): input coordination,
+- [keyhandler.cpp](../src/ime/svc/keyhandler.cpp#L115): input coordination,
   Shift tracking, engine dispatch and preserved-key actions.
-- [context_access.cpp](../src/ime/svc/context_access.cpp#L56): shared context
+- [ctxaccess.cpp](../src/ime/svc/ctxaccess.cpp#L56): shared context
   fact queries, access policy evaluation, cache updates and reset enforcement.
 - [composition.cpp](../src/ime/svc/composition.cpp#L54): composition/layout
   adapters, target preparation, captured edits and presentation callbacks.
@@ -107,7 +107,7 @@ processing it and writing the result into the application's input field:
 
 2. **Process the key ([`OnKeyDown`](../src/ime/svc/keys.cpp#L22)).**
    Both key-down callbacks use
-   [`ReadKeyEvent`](../src/ime/svc/key_handler.cpp#L41) to capture
+   [`ReadKeyEvent`](../src/ime/svc/keyhandler.cpp#L41) to capture
    the virtual-key code and Shift, Ctrl, Alt, and CapsLock state at entry.
    Calls into the application can dispatch newer keyboard messages or reenter
    the service, so later processing must use the state captured for this key.
@@ -121,7 +121,7 @@ processing it and writing the result into the application's input field:
    reset composition. The coordinator retains the original `pfEaten` write
    timing before host edits, including the CapsLock pass-through path.
    Local input admission uses
-   [`GetInputBlockReason`](../src/ime/svc/context_access.cpp#L8): inactive, resetting, then
+   [`GetInputBlockReason`](../src/ime/svc/ctxaccess.cpp#L8): inactive, resetting, then
    preparing. Diagnostics share that result instead of repeating conditions.
    Missing-context and context-access rejection remain separate; local state
    is queried again after host calls, never cached across reentrant boundaries.
@@ -161,7 +161,7 @@ composition returns to Idle, English remains English, and width/punctuation surv
 Candidate clicks call `CommitCandidate` directly, not simulated digit keys.
 Ordinary digit selection shares its commit logic. Temporary English digits append
 text; candidate clicks commit the temporary text without adding a candidate number.
-Shift taps use [ShiftTapTracker](../src/ime/tsf/shift_tap.h#L15), outside the Wubi FSM:
+Shift taps use [ShiftTapTracker](../src/ime/tsf/shifttap.h#L15), outside the Wubi FSM:
 the 350 ms deadline, original press time, modifiers/mouse cancellation, and
 test/actual release checks are shared.
 
@@ -173,8 +173,8 @@ composition identity checks protect reentrant boundaries. Same-context old
 cleanup forces new writes to queue; execution rechecks that barrier without
 processing a key twice.
 
-[ContextFacts](../src/ime/comp/access_policy.h#L54) and
-[AccessPolicy](../src/ime/comp/access_policy.h#L79) apply across
+[ContextFacts](../src/ime/comp/policy.h#L54) and
+[AccessPolicy](../src/ime/comp/policy.h#L79) apply across
 keyboard, preserved keys, candidate actions, mode changes, and queued edit/layout
 work. Recognized password/PIN targets temporarily use English and restore the
 previous mode; private scopes permit input but suppress learning/persistence.
@@ -196,10 +196,14 @@ not compiled as positive candidates.
 
 ### Loading and validation
 
-[Binary dictionary loading](../src/ime/engine/binary_dict.h#L183) supports UTF-8 text,
+[Binary dictionary loading](../src/ime/engine/dict.h#L183) supports UTF-8 text,
 the supported Rime-style YAML subset, and `.qdict`. Validation distinguishes
 invalid encoding, malformed binary data, invalid rows, and empty usable content.
 It is not a full YAML parser or proof of Wubi-code semantics.
+
+Mapped-dictionary exact, prefix, wildcard, and reverse lookup implementations
+share [dictutil.cpp](../src/ime/engine/dictutil.cpp) with engine dictionary
+utilities; loading and mapping remain in [dict.cpp](../src/ime/engine/dict.cpp).
 
 Custom text dictionaries compile in memory. Explicit custom `.qdict` files are
 validated directly: an old cache must not conceal a missing/corrupt chosen source.
@@ -220,7 +224,7 @@ transactions do not form a cross-resource transaction.
 
 ### Authoritative files and synchronization
 
-The user dictionary file is authoritative. [change_sync](../src/common/change_sync.h#L46)
+The user dictionary file is authoritative. [change_sync](../src/common/changesync.h#L46)
 coordinates file locks, expected versions, bounded journals, baseline identities,
 and snapshot recovery. Directory notifications are wakeups, not authoritative
 state or guaranteed delivery.

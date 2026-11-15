@@ -4,7 +4,7 @@
 #pragma once
 
 #include "common/test_support.h"
-#include "common/file_util.h"
+#include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/logger.h"
 #include "ime/engine/engine.h"

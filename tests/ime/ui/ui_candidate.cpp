@@ -5,9 +5,9 @@
 #include "common/test_support.h"
 #include "common/guids.h"
 #include "common/i18n.h"
-#include "common/monitor_dpi.h"
-#include "common/d2d_controls.h"
-#include "ime/ui/candidate_ui.h"
+#include "common/dpi.h"
+#include "common/controls.h"
+#include "ime/ui/candobj.h"
 
 #include <windows.h>
 #include <oleauto.h>

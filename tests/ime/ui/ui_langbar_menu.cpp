@@ -3,12 +3,12 @@
 
 #include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
-#include "common/file_util.h"
+#include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
-#include "common/monitor_dpi.h"
+#include "common/dpi.h"
 #include "common/theme.h"
-#include "ime/ui/langbar_button.h"
+#include "ime/ui/fltbarbtn.h"
 
 #include <windows.h>
 #include <commctrl.h>
@@ -756,6 +756,109 @@ void TestQuickSettingsMenuCommandValidation() {
     }
 }
 
+void TestQuickSettingsMenuComfortScrolling() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
+    const auto restore_monitor = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(std::move(original_monitor));
+    });
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-1280, -320, 0, 0}, 144});
+    for (const auto scale : {UiTextScale::Percent150, UiTextScale::Percent200}) {
+        for (const auto theme : {UiTheme::Light, UiTheme::Dark, UiTheme::HighContrast}) {
+            static DisplayPreferences display{};
+            display = DisplayPreferences{theme, scale, true};
+            static int step = 0;
+            step = 0;
+            static LONG first_top = 0;
+            const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
+                const HWND menu = FindQuickSettingsMenu();
+                QIQI_TEST_CHECK(menu && ::IsWindowVisible(menu));
+                const HWND first = ::GetDlgItem(menu, static_cast<int>(LangBarMenuId::ToggleChinese));
+                const HWND last = ::GetDlgItem(menu, static_cast<int>(LangBarMenuId::OpenAbout));
+                RECT client{};
+                RECT first_rect{};
+                RECT last_rect{};
+                QIQI_TEST_CHECK(::GetClientRect(menu, &client));
+                QIQI_TEST_CHECK(::GetWindowRect(first, &first_rect));
+                QIQI_TEST_CHECK(::GetWindowRect(last, &last_rect));
+                POINT first_origin{first_rect.left, first_rect.top};
+                POINT last_origin{last_rect.left, last_rect.top};
+                QIQI_TEST_CHECK(::ScreenToClient(menu, &first_origin));
+                QIQI_TEST_CHECK(::ScreenToClient(menu, &last_origin));
+                switch (step++) {
+                    case 0: {
+                        RECT menu_rect{};
+                        QIQI_TEST_CHECK(::GetWindowRect(menu, &menu_rect));
+                        QIQI_TEST_CHECK(menu_rect.top >= -320 && menu_rect.bottom <= 0);
+                        QIQI_TEST_CHECK(menu_rect.left >= -1280 && menu_rect.right <= 0);
+                        const auto font = reinterpret_cast<HFONT>(::SendMessageW(first, WM_GETFONT, 0, 0));
+                        LOGFONTW description{};
+                        QIQI_TEST_CHECK(::GetObjectW(font, sizeof(description), &description) == sizeof(description));
+                        QIQI_TEST_CHECK(description.lfHeight == -ScaleDisplayPx(14, 144, display.text_scale));
+                        QIQI_TEST_CHECK(first_rect.bottom - first_rect.top == ScaleDisplayPx(44, 144, display.text_scale));
+                        QIQI_TEST_CHECK(first_rect.bottom - first_rect.top >= ScalePxByDpi(44, 144));
+                        std::array<wchar_t, 256> label{};
+                        ::GetWindowTextW(first, label.data(), gsl::narrow_cast<int>(label.size()));
+                        QIQI_TEST_CHECK(std::wstring_view(label.data()).find(L"Ctrl") == std::wstring_view::npos);
+                        const ScopedWindowDC screen;
+                        const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+                        const int row_width = first_rect.right - first_rect.left;
+                        const int row_height = first_rect.bottom - first_rect.top;
+                        const ScopedGdiHandle<HBITMAP> bitmap(
+                            ::CreateCompatibleBitmap(screen.Get(), row_width, row_height));
+                        QIQI_TEST_CHECK(screen && dc && bitmap);
+                        const ScopedSelectObject select_bitmap(dc.Get(), bitmap.Get());
+                        DRAWITEMSTRUCT draw{};
+                        draw.CtlType = ODT_BUTTON;
+                        draw.CtlID = static_cast<UINT>(LangBarMenuId::ToggleChinese);
+                        draw.hwndItem = first;
+                        draw.hDC = dc.Get();
+                        draw.rcItem = RECT{0, 0, row_width, row_height};
+                        ::SendMessageW(menu, WM_DRAWITEM, draw.CtlID, reinterpret_cast<LPARAM>(&draw));
+                        const auto appearance = ResolveDisplayAppearance(display);
+                        QIQI_TEST_CHECK(::GetPixel(dc.Get(), row_width - 2, row_height / 2) == (appearance.system_high_contrast ?
+                            ::GetSysColor(COLOR_MENU) : appearance.palette.window_bg));
+                        const HWND scrollbar = ::FindWindowExW(menu, nullptr, L"SCROLLBAR", nullptr);
+                        QIQI_TEST_CHECK(scrollbar && ::IsWindowVisible(scrollbar));
+                        ::SendMessageW(menu, WM_VSCROLL, SB_BOTTOM, reinterpret_cast<LPARAM>(scrollbar));
+                        ::PostMessageW(first, WM_KEYDOWN, VK_UP, 0);
+                        break;
+                    }
+                    case 1:
+                        QIQI_TEST_CHECK(::GetFocus() == last);
+                        QIQI_TEST_CHECK(last_origin.y >= 0 &&
+                            last_origin.y + last_rect.bottom - last_rect.top <= client.bottom);
+                        ::PostMessageW(last, WM_KEYDOWN, VK_DOWN, 0);
+                        break;
+                    case 2:
+                        QIQI_TEST_CHECK(::GetFocus() == first);
+                        QIQI_TEST_CHECK(first_origin.y >= 0 &&
+                            first_origin.y + first_rect.bottom - first_rect.top <= client.bottom);
+                        first_top = first_origin.y;
+                        ::PostMessageW(menu, WM_MOUSEWHEEL,
+                            MAKEWPARAM(0, gsl::narrow_cast<WORD>(-WHEEL_DELTA)), 0);
+                        break;
+                    default: {
+                        QIQI_TEST_CHECK(first_origin.y < first_top);
+                        RECT clip{};
+                        QIQI_TEST_CHECK(::GetWindowRgnBox(first, &clip) != ERROR && clip.top > 0);
+                        ::KillTimer(nullptr, id);
+                        ::SendMessageW(menu, WM_CLOSE, 0, 0);
+                        break;
+                    }
+                }
+            });
+            QIQI_TEST_CHECK(timer != 0);
+            const auto cancel_timer = gsl::finally([&]() { ::KillTimer(nullptr, timer); });
+            LangBarState state{};
+            state.display = display;
+            LangBarButton::ShowSharedPopupMenu(state, POINT{-1, -1}, [](LangBarMenuId) {
+                QIQI_TEST_CHECK(false);
+            }, true);
+        }
+    }
+}
+
 void TestQuickSettingsMenuNavigation() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     static int step = 0;
@@ -837,9 +940,9 @@ void TestQuickSettingsMenuLivePainting() {
         SetTaskbarDarkOverrideForTest(original_taskbar);
     });
     for (const bool dark : {false, true}) {
-        // Verify quick settings menu follows taskbar theme even when app theme differs.
-        SetThemeDarkOverrideForTest(!dark);
-        SetTaskbarDarkOverrideForTest(dark);
+        // System preference follows the application theme, independently of the taskbar theme.
+        SetThemeDarkOverrideForTest(dark);
+        SetTaskbarDarkOverrideForTest(!dark);
         static bool updated_dark = false;
         updated_dark = !dark;
         const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
@@ -855,7 +958,7 @@ void TestQuickSettingsMenuLivePainting() {
                            MAKEWPARAM(static_cast<UINT>(LangBarMenuId::ToggleChinese), BN_CLICKED), 0);
             QIQI_TEST_CHECK(::IsWindowVisible(menu));
             QIQI_TEST_CHECK(CountQuickSettingsCheckPixels(menu) == 0);
-            SetTaskbarDarkOverrideForTest(updated_dark);
+            SetThemeDarkOverrideForTest(updated_dark);
             for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
                 ::SendMessageW(menu, message, 0, 0);
                 ::RedrawWindow(menu, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
@@ -946,6 +1049,7 @@ void RunLangBarMenuTests() {
     TestQuickSettingsMenuResourceLifetime();
     TestQuickSettingsMenuKeyboardAndDismissal();
     TestQuickSettingsMenuWorkArea();
+    TestQuickSettingsMenuComfortScrolling();
     TestQuickSettingsMenuCommandValidation();
     TestQuickSettingsMenuNavigation();
     TestQuickSettingsMenuLivePainting();

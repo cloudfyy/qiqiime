@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/test_support.h"
-#include "common/dialog_util.h"
+#include "common/dlgutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "tools/settings/internal.h"

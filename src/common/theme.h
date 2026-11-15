@@ -5,7 +5,7 @@
 #include <windows.h>
 #include <dwmapi.h>
 #include <optional>
-#include "common/scoped_handle.h"
+#include "common/RAII.h"
 #include "common/config.h"
 #include "common/logger.h"
 

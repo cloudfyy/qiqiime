@@ -3,13 +3,13 @@
 
 #include "ime/tsf/register.h"
 #include "common/config.h"
-#include "common/file_util.h"
+#include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
-#include "common/scoped_handle.h"
+#include "common/RAII.h"
 #include "common/version.h"
-#include "ime/engine/binary_dict.h"
+#include "ime/engine/dict.h"
 
 #include <gsl/gsl>
 #include <msctf.h>

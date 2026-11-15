@@ -3,9 +3,9 @@
 
 #pragma once
 #include "common/logger.h"
-#include "common/monitor_dpi.h"
+#include "common/dpi.h"
 #include "ime/comp/state.h"
-#include "ime/tsf/edit_session.h"
+#include "ime/tsf/editsession.h"
 #include <cstdint>
 #include <functional>
 #include <gsl/gsl>

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/test_support.h"
-#include "common/file_util.h"
-#include "common/scoped_handle.h"
+#include "common/fileutil.h"
+#include "common/RAII.h"
 #include "common/version.h"
 
 #include <winver.h>

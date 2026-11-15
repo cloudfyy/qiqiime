@@ -7,7 +7,7 @@
 #include "ime/comp/cleanup.h"
 #include "ime/comp/start.h"
 #include "ime/comp/tests.h"
-#include "ime/tsf/edit_session.h"
+#include "ime/tsf/editsession.h"
 #include <algorithm>
 #include <array>
 #include <memory>

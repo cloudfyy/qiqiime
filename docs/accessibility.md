@@ -54,13 +54,19 @@ Extra 缩进显示在 Jidian Core 下，并注明依赖关系：只有选中 Cor
 选择移动时自动显示当前项；不通过偷偷缩小字号或丢弃候选适配屏幕。
 候选窗不激活，不抢走正在输入的应用焦点。选中项同时使用背景/边框提示。
 
+输入法右键快捷菜单、词库管理器和 Log Monitor 的菜单栏、下拉菜单及右键菜单
+使用已保存的主题、文字大小和关怀模式。关怀模式下菜单操作项至少高 44 DIP；
+输入法菜单在小工作区保留大字号，通过滚轮、滚动条及方向键/Tab 滚动，
+焦点项自动进入可见区。右键菜单不再显示快捷键提示，快捷键本身仍然有效。
+
 ### 范围与限制
 
-- 本批桌面显示偏好适用于**设置窗口和输入法自绘候选窗**。
-  词库管理器、Log Monitor、浮动状态条及其他对话框尚未全部接入，
+- 本批桌面显示偏好适用于**设置窗口、输入法自绘候选窗和上述应用菜单**。
+  词库管理器和 Log Monitor 的窗口正文/工具栏、浮动状态条及其他对话框尚未全部接入，
   不能视为全软件的独立主题改造已完成。
 - 设置中的候选预览是本地样式示例，不启动真实输入组合。
 - 宿主接管 TSF 无界面模式候选展示时，外观由宿主决定。
+- Windows/宿主绘制的 TSF 语言栏菜单及系统对话框，不由应用控制字号和行高。
 - 高对比度自动检查针对应用配色的正文、次要及选中文字与背景，
   目标至少 7:1；系统高对比度按系统颜色绘制，不擅自替换用户配色。
 - 保留现有键盘选词及快捷键；这不等于全面读屏认证或所有宿主的人工验收。
@@ -98,10 +104,19 @@ engine page size, or the user's horizontal/vertical preference. The popup does
 not activate or steal the host's input focus. Selection is not indicated by
 text color alone.
 
-This phase covers Settings and the IME's own candidate popup, **not all desktop
-tools**. Dictionary Manager, Log Monitor, the floating status bar, and other
-dialogs have not all adopted these independent preferences. Host-rendered TSF
-candidate interfaces remain host-controlled. App high-contrast text targets
+The IME's right-click quick menu and Dictionary Manager/Log Monitor menu bars,
+drop-down menus, and context menus use saved theme, text size, and Comfort mode.
+Comfort-mode action rows are at least 44 DIP high. The IME menu preserves enlarged
+text on short work areas and supports a scrollbar, wheel, arrows, and Tab, with
+focused actions scrolled into view. Context-menu shortcut hints are removed;
+the shortcuts themselves are unchanged.
+
+This phase covers Settings, the IME's own candidate popup, and these app-owned
+menus, **not all desktop windows**. Dictionary Manager/Log Monitor window content
+and toolbars, the floating status bar, and other dialogs have not all adopted
+these independent preferences. Host-rendered TSF candidate interfaces and
+language-bar menus, as well as system dialogs, remain host-controlled.
+App high-contrast text targets
 7:1 contrast; Windows high contrast uses system colors. This is not a claim of
 complete screen-reader certification or real-host acceptance.
 

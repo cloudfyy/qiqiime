@@ -5,9 +5,9 @@
 #include "common/test_support.h"
 #include "mocks.h"
 #include "common/config.h"
-#include "common/file_util.h"
-#include "ime/comp/access_policy.h"
-#include "ime/tsf/edit_session.h"
+#include "common/fileutil.h"
+#include "ime/comp/policy.h"
+#include "ime/tsf/editsession.h"
 #include "ime/svc/service.h"
 
 #include <initguid.h>

@@ -2,18 +2,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 set(QIQI_ENGINE_SOURCES
-    engine/binary_dict.cpp
-    engine/binary_dict.h
-    engine/binary_dict_lookup.cpp
+    engine/dict.cpp
+    engine/dict.h
     fsm/fsm.h
-    fsm/key_mapping.h
+    fsm/keymap.h
     fsm/pagination.h
     fsm/transitions.h
     fsm/types.h
     engine/engine.cpp
-    engine/engine_dict.cpp
+    engine/dictutil.cpp
     engine/engine.h
-    engine/default_dict.h
+    engine/builtindict.h
 )
 add_library(qiqi_engine STATIC ${QIQI_ENGINE_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_ENGINE_SOURCES})
@@ -21,9 +20,9 @@ target_link_libraries(qiqi_engine PUBLIC qiqi_common)
 
 set(QIQIIME_SOURCES
     tsf/dllmain.cpp
-    tsf/class_factory.h
-    tsf/class_factory.cpp
-    tsf/category_manager.h
+    tsf/classfactory.h
+    tsf/classfactory.cpp
+    tsf/catmgr.h
     comp/attribute.h
     comp/cleanup.h
     comp/cleanup.cpp
@@ -38,27 +37,27 @@ set(QIQIIME_SOURCES
     comp/update.h
     tsf/register.h
     tsf/register.cpp
-    tsf/shift_tap.h
+    tsf/shifttap.h
     svc/service.h
     svc/service.cpp
     svc/keys.cpp
-    svc/key_handler.cpp
-    svc/context_access.cpp
+    svc/keyhandler.cpp
+    svc/ctxaccess.cpp
     svc/composition.cpp
     svc/config.cpp
-    tsf/display_attribute.h
-    tsf/display_attribute.cpp
-    tsf/edit_session.h
+    tsf/dispattr.h
+    tsf/dispattr.cpp
+    tsf/editsession.h
     tsf/qiqiime.def
-    ui/candidate_ui.h
-    ui/candidate_ui.cpp
-    ui/langbar_button.h
-    ui/langbar_button.cpp
-    ui/popup_menu.cpp
+    ui/candobj.h
+    ui/candobj.cpp
+    ui/fltbarbtn.h
+    ui/fltbarbtn.cpp
+    ui/ctxmenu.cpp
     ui/statusbar.h
     ui/statusbar.cpp
-    ui/statusbar_icons.cpp
-    ui/statusbar_tooltip.cpp
+    ui/icons.cpp
+    ui/tooltips.cpp
 )
 add_library(qiqiime SHARED
     ${QIQIIME_SOURCES}

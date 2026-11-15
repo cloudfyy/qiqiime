@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/svc/service.h"
-#include "ime/tsf/category_manager.h"
-#include "ime/tsf/display_attribute.h"
+#include "ime/tsf/catmgr.h"
+#include "ime/tsf/dispattr.h"
 #include "ime/comp/target.h"
-#include "common/file_util.h"
+#include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/logger.h"
 #include "common/metric.h"

@@ -6,7 +6,7 @@
 #include "ime/comp/layout.h"
 #include "ime/comp/tests.h"
 #include "ime/tsf/mocks.h"
-#include "ime/ui/candidate_ui.h"
+#include "ime/ui/candobj.h"
 #include <memory>
 #include <optional>
 #include <stdexcept>

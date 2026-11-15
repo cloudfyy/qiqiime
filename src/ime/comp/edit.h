@@ -5,7 +5,7 @@
 #include "ime/comp/cleanup.h"
 #include "ime/comp/state.h"
 #include "ime/engine/engine.h"
-#include "ime/tsf/edit_session.h"
+#include "ime/tsf/editsession.h"
 #include <functional>
 #include <gsl/gsl>
 #include <wrl/client.h>

@@ -16,7 +16,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "common/com_object.h"
+#include "common/comobj.h"
 #include "common/guids.h"
 #include "common/logger.h"
 

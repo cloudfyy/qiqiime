@@ -4,7 +4,7 @@
 #include "common/test_support.h"
 #include "common/i18n.h"
 #include "common/theme.h"
-#include "common/win32_ui_util.h"
+#include "common/uiutil.h"
 #include "tools/settings/internal.h"
 
 #include <commctrl.h>

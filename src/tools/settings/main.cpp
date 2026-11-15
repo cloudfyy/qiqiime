@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "common/com_object.h"
+#include "common/comobj.h"
 #include "common/config.h"
 #include "common/guids.h"
 #include "common/logger.h"

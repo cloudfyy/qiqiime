@@ -11,18 +11,18 @@
 #include <atomic>
 #include <cstdint>
 
-#include "common/com_object.h"
+#include "common/comobj.h"
 #include "common/config.h"
 #include "common/guids.h"
 #include "ime/engine/engine.h"
-#include "ime/comp/access_policy.h"
+#include "ime/comp/policy.h"
 #include "ime/comp/cleanup.h"
 #include "ime/comp/edit.h"
 #include "ime/comp/state.h"
-#include "ime/tsf/edit_session.h"
-#include "ime/tsf/shift_tap.h"
-#include "ime/ui/candidate_ui.h"
-#include "ime/ui/langbar_button.h"
+#include "ime/tsf/editsession.h"
+#include "ime/tsf/shifttap.h"
+#include "ime/ui/candobj.h"
+#include "ime/ui/fltbarbtn.h"
 #include "ime/ui/statusbar.h"
 #include <memory>
 #include <optional>

@@ -3,7 +3,7 @@
 
 #include "ime/svc/service.h"
 #include "tools/settings/window.h"
-#include "common/file_util.h"
+#include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
@@ -729,6 +729,7 @@ void QiQiTextService::UpdateUiIndicators() {
     lb_state.primary_dict = config_.primary_dict;
     lb_state.enable_jidian_extra = config_.enable_jidian_extra;
     lb_state.ui_language = config_.ui_language;
+    lb_state.display = GetDisplayPreferences(config_);
 
     if (candidate_ui_) {
         candidate_ui_->SetUiLanguage(config_.ui_language);

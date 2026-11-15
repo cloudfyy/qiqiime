@@ -19,7 +19,7 @@ validation, and secure-desktop/login support is not claimed.
 
 ## Signals and policy
 
-[ContextFacts and EvaluatePolicy](../src/ime/comp/access_policy.h) separate fact
+[ContextFacts and EvaluatePolicy](../src/ime/comp/policy.h) separate fact
 collection from the pure policy decision:
 
 | Condition | Input | Learning/persistence | Reset active state |
@@ -60,7 +60,7 @@ processes, attach input queues, or guess from a process-name blacklist.
 
 ## Local input admission and diagnostics
 
-[GetInputBlockReason](../src/ime/svc/context_access.cpp) checks only local service
+[GetInputBlockReason](../src/ime/svc/ctxaccess.cpp) checks only local service
 state; it neither queries the host nor resets composition. Its priority is:
 
 | Reason | Local condition |
@@ -116,8 +116,8 @@ captured old context/composition; context removal is not a new edit opportunity.
 Host refusal to clear attributes or end composition must retain its actual error,
 not be reported as successful cleanup.
 
-Implementation entry points are [key handling](../src/ime/svc/key_handler.cpp),
-[context access](../src/ime/svc/context_access.cpp),
+Implementation entry points are [key handling](../src/ime/svc/keyhandler.cpp),
+[context access](../src/ime/svc/ctxaccess.cpp),
 [composition edits](../src/ime/svc/composition.cpp),
 [mode observation](../src/ime/svc/config.cpp), and
 [service lifecycle](../src/ime/svc/service.cpp).

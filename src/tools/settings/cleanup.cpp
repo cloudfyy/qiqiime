@@ -3,7 +3,7 @@
 
 #include "tools/settings/cleanup.h"
 #include "common/logger.h"
-#include "common/scoped_handle.h"
+#include "common/RAII.h"
 
 #include <shlobj.h>
 #include <gsl/gsl>

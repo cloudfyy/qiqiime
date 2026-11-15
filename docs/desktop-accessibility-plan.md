@@ -167,8 +167,8 @@ TSF 无界面模式中，候选内容和分页仍通过既有接口交给宿主�
 
 - [配置字段与合并入口](../src/common/config.h)
 - [现有主题与进程级菜单模式处理](../src/common/theme.h)
-- [共享 D2D 控件与主题上下文](../src/common/d2d_controls.h)
+- [共享 D2D 控件与主题上下文](../src/common/controls.h)
 - [设置固定布局及编辑上下文](../src/tools/settings/internal.h)
 - [设置保存、取消和主题消息](../src/tools/settings/window.cpp)
-- [候选窗接口及资源所有权](../src/ime/ui/candidate_ui.h)
-- [候选窗字体、布局、定位与绘制](../src/ime/ui/candidate_ui.cpp)
+- [候选窗接口及资源所有权](../src/ime/ui/candobj.h)
+- [候选窗字体、布局、定位与绘制](../src/ime/ui/candobj.cpp)

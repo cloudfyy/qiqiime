@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/config.h"
-#include "common/file_util.h"
+#include "common/fileutil.h"
 #include "common/logger.h"
-#include "common/scoped_handle.h"
+#include "common/RAII.h"
 
 #include <windows.h>
 #include <aclapi.h>

@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "common/com_object.h"
-#include "common/file_util.h"
-#include "common/scoped_handle.h"
+#include "common/comobj.h"
+#include "common/fileutil.h"
+#include "common/RAII.h"
 #include "common/version.h"
 #include "common/window.h"
-#include "common/win32_ui_util.h"
-#include "ime/comp/access_policy.h"
-#include "ime/tsf/edit_session.h"
+#include "common/uiutil.h"
+#include "ime/comp/policy.h"
+#include "ime/tsf/editsession.h"
 
 #include <windows.h>
 #include <commctrl.h>

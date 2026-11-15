@@ -1,0 +1,103 @@
+// SPDX-FileCopyrightText: 2026 cloudfyy
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "common/config.h"
+#include "common/ctrlutil.h"
+#include "common/dpi.h"
+#include "common/theme.h"
+
+#include <span>
+#include <optional>
+#include <cstddef>
+
+namespace qiqi {
+
+inline constexpr int kFluentBodyFontSize = 14;
+inline constexpr int kFluentComboItemHeight = 22;
+inline constexpr int kFluentToggleTextInset = 4;
+inline constexpr std::size_t kFluentComboTextCapacity = 128;
+
+bool IsHighContrastEnabled() noexcept;
+void SetHighContrastOverrideForTest(std::optional<bool> enabled) noexcept;
+
+struct FluentCardSpec {
+    D2D1_RECT_F rect{};
+    const wchar_t* title_zh = nullptr;
+    const wchar_t* title_en = nullptr;
+};
+
+struct FluentD2DThemeContext {
+    UINT dpi = 96;
+    DisplayPreferences display_preferences{};
+    DisplayAppearance appearance{};
+    bool clip_controls_to_dc = false;
+    ScopedD2DFactory d2d_factory;
+    ScopedDWriteFactory dwrite_factory;
+    ScopedD2DDcTarget d2d_target;
+    ScopedDWriteTextFormat fmt_body;
+    ScopedDWriteTextFormat fmt_caption;
+    ScopedDWriteTextFormat fmt_btn;
+    ScopedGdiHandle<HBRUSH> surface_brush;
+    ScopedGdiHandle<HBRUSH> input_brush;
+
+    int ScalePx(int px) const noexcept;
+    float ScaleF(int px) const noexcept;
+    int ScaleDipPx(int px) const noexcept { return ScalePxByDpi(px, dpi); }
+    void SetDisplayPreferences(DisplayPreferences preferences) noexcept;
+    void Init(UINT monitor_dpi) noexcept;
+    void RefreshThemeBrushes() noexcept;
+};
+
+// Shared WM_CTLCOLOR handling; input=false is for labels/buttons.
+HBRUSH ApplyFluentControlColors(HDC dc, const FluentD2DThemeContext& theme, bool input) noexcept;
+
+// Draws into an already active ScopedD2DDcDraw session.
+void DrawFluentCardGroup(
+    const FluentD2DThemeContext& d2d,
+    std::span<const FluentCardSpec> cards,
+    bool is_en,
+    bool is_dark) noexcept;
+
+void DrawFluentPushButton(
+    const DRAWITEMSTRUCT& dis,
+    const FluentD2DThemeContext& d2d,
+    bool is_primary,
+    D2D1_COLOR_F outer_bg, const wchar_t* disabled_suffix = nullptr) noexcept;
+
+void DrawFluentToggleOrRadioRow(
+    const DRAWITEMSTRUCT& dis,
+    const FluentD2DThemeContext& d2d,
+    bool is_radio, const wchar_t* disabled_suffix = nullptr) noexcept;
+
+void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d2d) noexcept;
+void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeContext& d2d,
+                           bool disabled = false, const wchar_t* disabled_suffix = nullptr) noexcept;
+RECT FluentToggleBounds(const RECT& row, const FluentD2DThemeContext& d2d) noexcept;
+void DrawFluentUnderlineStylePreview(
+    const FluentD2DThemeContext& d2d,
+    CompositionUnderlineStyle style,
+    bool bold_line,
+    const D2D1_RECT_F& sample_rect,
+    const D2D1_COLOR_F& color) noexcept;
+void EnableFluentUnderlineComboPreview(HWND combo_hwnd, int bold_checkbox_id) noexcept;
+
+// The parent owns the returned child. A combo's context must outlive the child
+// and stay at the same address. Radio groups use MAKELONG(first_id, last_id).
+HWND CreateFluentChildControl(
+    HWND parent,
+    HINSTANCE inst,
+    HFONT font,
+    const FluentD2DThemeContext* d2d_ctx,
+    const wchar_t* cls,
+    const wchar_t* text,
+    DWORD style,
+    int x,
+    int y,
+    int w,
+    int h,
+    int id,
+    DWORD_PTR radio_group_range = 0) noexcept;
+
+} // namespace qiqi

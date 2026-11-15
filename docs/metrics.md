@@ -65,7 +65,7 @@ their own results; outer callback success or queue acceptance is insufficient.
 
 ## Aggregation semantics
 
-[Aggregation](../src/tools/log_monitor/aggregate.h) is independent of the displayed
+[Aggregation](../src/tools/logmonitor/aggregate.h) is independent of the displayed
 log buffer. Clearing/filtering logs or pausing auto-scroll does not alter samples.
 The ETW callback validates and queues; the monitor consumes batches separately.
 
@@ -120,7 +120,7 @@ These are engineering attention lines, not performance guarantees.
 ## JSON export
 
 From Metrics view, export a versioned UTF-8 snapshot. The
-[exporter](../src/tools/log_monitor/export.cpp) owns the snapshot before showing
+[exporter](../src/tools/logmonitor/export.cpp) owns the snapshot before showing
 the save dialog, so ongoing capture/clear operations cannot rewrite it.
 Empty captures and filters with no matches still produce valid empty snapshots.
 

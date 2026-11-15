@@ -3,7 +3,7 @@
 
 #include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
-#include "common/monitor_dpi.h"
+#include "common/dpi.h"
 #include "ime/tsf/mocks.h"
 #include "ime/svc/lifecycle.h"
 #include "ime/svc/service.h"

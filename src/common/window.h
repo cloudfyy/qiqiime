@@ -3,9 +3,9 @@
 
 #pragma once
 
-#include "common/d2d_controls.h"
+#include "common/controls.h"
 #include "common/theme.h"
-#include "common/win32_ui_util.h"
+#include "common/uiutil.h"
 
 #include <commctrl.h>
 #include <uxtheme.h>

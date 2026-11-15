@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "common/com_object.h"
+#include "common/comobj.h"
 #include "ime/comp/range.h"
 #include "ime/comp/state.h"
 #include <functional>

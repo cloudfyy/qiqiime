@@ -11,9 +11,9 @@
 #include <optional>
 #include <cstdint>
 
-#include "common/change_sync.h"
+#include "common/changesync.h"
 #include "common/config.h"
-#include "ime/engine/binary_dict.h"
+#include "ime/engine/dict.h"
 #include "ime/fsm/fsm.h"
 
 namespace qiqi {

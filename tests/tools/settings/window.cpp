@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/test_support.h"
-#include "common/binary_codec.h"
-#include "common/file_util.h"
+#include "common/dictcodec.h"
+#include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
-#include "common/monitor_dpi.h"
+#include "common/dpi.h"
 #include "common/theme.h"
-#include "common/win32_ui_util.h"
-#include "ime/engine/binary_dict.h"
+#include "common/uiutil.h"
+#include "ime/engine/dict.h"
 #include "tools/settings/internal.h"
 #include "tools/settings/window.h"
-#include "tools/dictionary_validation.h"
+#include "tools/dictmgr/util.h"
 
 #include <windows.h>
 #include <array>

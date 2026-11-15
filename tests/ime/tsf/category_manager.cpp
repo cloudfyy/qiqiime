@@ -4,7 +4,7 @@
 #include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "mocks.h"
-#include "ime/tsf/category_manager.h"
+#include "ime/tsf/catmgr.h"
 
 #include <thread>
 

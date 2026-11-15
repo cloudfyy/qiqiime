@@ -6,7 +6,7 @@
 #include "ime/tsf/mocks.h"
 #include "ime/svc/service.h"
 #include "ime/svc/lifecycle.h"
-#include "common/file_util.h"
+#include "common/fileutil.h"
 #include <array>
 #include <iostream>
 #include <memory>

@@ -4,18 +4,18 @@
 #pragma once
 
 #include "common/test_support.h"
-#include "common/binary_codec.h"
-#include "common/com_object.h"
+#include "common/dictcodec.h"
+#include "common/comobj.h"
 #include "common/config.h"
-#include "common/file_util.h"
+#include "common/fileutil.h"
 #include "common/i18n.h"
 #include "common/logger.h"
-#include "common/etw_registration.h"
-#include "common/etw_write.h"
-#include "common/scoped_handle.h"
+#include "common/etwreg.h"
+#include "common/etwwrite.h"
+#include "common/RAII.h"
 #include "common/sound.h"
 #include "common/version.h"
-#include "common/win32_ui_util.h"
+#include "common/uiutil.h"
 
 #include <algorithm>
 #include <bit>

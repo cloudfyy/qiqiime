@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "common/com_object.h"
+#include "common/comobj.h"
 #include "common/logger.h"
 #include "ime/comp/cleanup.h"
-#include "ime/tsf/edit_session.h"
+#include "ime/tsf/editsession.h"
 #include <wrl/client.h>
 #include <cstdint>
 #include <utility>

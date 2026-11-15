@@ -4,8 +4,8 @@
 #pragma once
 
 #include "tools/settings/window.h"
-#include "common/com_object.h"
-#include "common/d2d_controls.h"
+#include "common/comobj.h"
+#include "common/controls.h"
 #include "common/guids.h"
 #include <msctf.h>
 #include <shellapi.h>

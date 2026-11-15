@@ -22,38 +22,38 @@ configure_file(
 )
 
 set(QIQI_COMMON_SOURCES
-    info_dialog.cpp
-    info_dialog.h
-    binary_codec.h
-    com_object.h
-    change_sync.cpp
-    change_sync.h
+    dialog.cpp
+    dialog.h
+    dictcodec.h
+    comobj.h
+    changesync.cpp
+    changesync.h
     config.cpp
     config.h
-    d2d_controls.cpp
-    d2d_controls.h
-    d2d_util.h
-    dialog_util.h
-    etw_registration.h
-    etw_write.h
-    file_util.cpp
-    file_util.h
+    controls.cpp
+    controls.h
+    ctrlutil.h
+    dlgutil.h
+    etwreg.h
+    etwwrite.h
+    fileutil.cpp
+    fileutil.h
     guids.h
     i18n.h
     logger.cpp
     logger.h
     metric.cpp
     metric.h
-    monitor_dpi.h
-    scoped_handle.h
+    dpi.h
+    RAII.h
     sound.h
     theme.h
     window.h
-    command_ui.cpp
-    command_ui.h
+    toolbar.cpp
+    toolbar.h
     version.h.in
     version.rc.in
-    win32_ui_util.h
+    uiutil.h
 )
 add_library(qiqi_common STATIC
     ${QIQI_COMMON_SOURCES}

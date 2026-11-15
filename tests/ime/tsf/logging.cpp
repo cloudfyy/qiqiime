@@ -3,14 +3,14 @@
 
 #include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
-#include "common/com_object.h"
+#include "common/comobj.h"
 #include "common/config.h"
-#include "common/file_util.h"
+#include "common/fileutil.h"
 #include "common/logger.h"
 #include "common/etw.h"
-#include "tools/log_monitor/collector.h"
-#include "tools/log_monitor/aggregate.h"
-#include "common/scoped_handle.h"
+#include "tools/logmonitor/collector.h"
+#include "tools/logmonitor/aggregate.h"
+#include "common/RAII.h"
 #include "mocks.h"
 
 #include <evntrace.h>

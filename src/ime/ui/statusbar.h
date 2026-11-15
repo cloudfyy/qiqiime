@@ -8,9 +8,9 @@
 #include <functional>
 #include <string>
 
-#include "common/scoped_handle.h"
-#include "common/win32_ui_util.h"
-#include "ime/ui/langbar_button.h"
+#include "common/RAII.h"
+#include "common/uiutil.h"
+#include "ime/ui/fltbarbtn.h"
 
 namespace qiqi {
 

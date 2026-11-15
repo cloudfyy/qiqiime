@@ -5,7 +5,7 @@
 #include <string_view>
 #include "common/guids.h"
 #include "common/logger.h"
-#include "ime/tsf/class_factory.h"
+#include "ime/tsf/classfactory.h"
 #include "ime/tsf/register.h"
 #include "ime/svc/service.h"
 

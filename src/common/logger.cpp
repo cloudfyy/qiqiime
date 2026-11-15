@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/logger.h"
-#include "common/etw_registration.h"
-#include "common/etw_write.h"
+#include "common/etwreg.h"
+#include "common/etwwrite.h"
 #include "common/metric.h"
-#include "common/scoped_handle.h"
+#include "common/RAII.h"
 #include "common/version.h"
 
 #include <windows.h>

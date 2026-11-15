@@ -7,7 +7,7 @@
 #include "ime/svc/service.h"
 #include "ime/svc/lifecycle.h"
 #include "common/guids.h"
-#include "ime/tsf/edit_session.h"
+#include "ime/tsf/editsession.h"
 #include <iostream>
 #include <tuple>
 

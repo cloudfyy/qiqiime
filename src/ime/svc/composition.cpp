@@ -9,9 +9,9 @@
 #include "ime/comp/start.h"
 #include "ime/comp/target.h"
 #include "ime/comp/update.h"
-#include "ime/tsf/edit_session.h"
+#include "ime/tsf/editsession.h"
 #include "common/logger.h"
-#include "common/monitor_dpi.h"
+#include "common/dpi.h"
 
 namespace qiqi {
 

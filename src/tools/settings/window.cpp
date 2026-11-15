@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/settings/internal.h"
-#include "common/dialog_util.h"
-#include "common/file_util.h"
+#include "common/dlgutil.h"
+#include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/theme.h"
-#include "ime/engine/binary_dict.h"
-#include "tools/dictionary_validation.h"
+#include "ime/engine/dict.h"
+#include "tools/dictmgr/util.h"
 
 #include <commctrl.h>
 #include <windowsx.h>

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/engine/engine.h"
-#include "ime/engine/default_dict.h"
+#include "ime/engine/builtindict.h"
 #include "common/logger.h"
 
 #include <windows.h>

@@ -5,7 +5,7 @@
 #include "common/i18n.h"
 #include "common/guids.h"
 #include "common/theme.h"
-#include "common/win32_ui_util.h"
+#include "common/uiutil.h"
 
 #include <commctrl.h>
 #include <gsl/gsl>

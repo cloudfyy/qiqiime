@@ -14,7 +14,7 @@
 #include <span>
 
 #include "common/logger.h"
-#include "common/scoped_handle.h"
+#include "common/RAII.h"
 
 namespace qiqi {
 

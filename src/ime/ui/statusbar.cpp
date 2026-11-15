@@ -5,7 +5,7 @@
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
-#include "common/monitor_dpi.h"
+#include "common/dpi.h"
 #include "common/theme.h"
 
 #include <gsl/gsl>

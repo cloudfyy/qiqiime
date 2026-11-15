@@ -5,8 +5,8 @@
 #include "common/logger.h"
 #include "ime/comp/state.h"
 #include "ime/engine/engine.h"
-#include "ime/tsf/edit_session.h"
-#include "ime/ui/candidate_ui.h"
+#include "ime/tsf/editsession.h"
+#include "ime/ui/candobj.h"
 #include <cstdint>
 #include <tuple>
 #include <wrl/client.h>

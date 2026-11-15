@@ -48,7 +48,7 @@ rather than opening the desktop source file or creating a separate local channel
 An explicitly empty address means no shared user dictionary; inaccessible or
 invalid metadata/snapshots must be diagnosed, not silently treated as success.
 
-[change_sync](../src/common/change_sync.h) separates directory wakeups from the
+[change_sync](../src/common/changesync.h) separates directory wakeups from the
 persistent journal, version checks, and file-lock coordination. Notifications
 alone are not reliable state. Global TSF compartments and registry sequences
 trigger configuration reloads; delivery failure or focus-dependent checks can
@@ -99,4 +99,4 @@ Review paths and exported diagnostics for personal information before sharing.
 - [AppContainer isolation](https://learn.microsoft.com/en-us/windows/win32/secauthz/appcontainer-isolation)
 - [Installation](install.md)
 - [Configuration and sharing implementation](../src/common/config.cpp)
-- [Dictionary synchronization implementation](../src/ime/engine/engine_dict.cpp)
+- [Dictionary synchronization implementation](../src/ime/engine/dictutil.cpp)

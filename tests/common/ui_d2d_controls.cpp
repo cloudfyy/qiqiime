@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/test_support.h"
-#include "common/info_dialog.h"
-#include "common/dialog_util.h"
+#include "common/dialog.h"
+#include "common/dlgutil.h"
 #include "common/i18n.h"
-#include "common/monitor_dpi.h"
+#include "common/dpi.h"
 #include "common/theme.h"
-#include "common/win32_ui_util.h"
-#include "common/d2d_controls.h"
+#include "common/uiutil.h"
+#include "common/controls.h"
 
 #include <commctrl.h>
 #include <memory>

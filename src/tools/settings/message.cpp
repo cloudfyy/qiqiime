@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/settings/window.h"
-#include "common/d2d_controls.h"
-#include "common/dialog_util.h"
+#include "common/controls.h"
+#include "common/dlgutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/theme.h"

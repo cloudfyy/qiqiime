@@ -5,10 +5,10 @@
 #include "common/test_support.h"
 #include "common/guids.h"
 #include "common/i18n.h"
-#include "common/monitor_dpi.h"
+#include "common/dpi.h"
 #include "common/theme.h"
-#include "ime/ui/candidate_ui.h"
-#include "ime/ui/langbar_button.h"
+#include "ime/ui/candobj.h"
+#include "ime/ui/fltbarbtn.h"
 #include "tools/settings/window.h"
 #include "ime/ui/statusbar.h"
 
