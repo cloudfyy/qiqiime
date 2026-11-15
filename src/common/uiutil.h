@@ -21,6 +21,7 @@
 #include "common/RAII.h"
 #include "common/logger.h"
 #include "common/dpi.h"
+#include "common/controls.h"
 
 namespace qiqi {
 
@@ -67,7 +68,8 @@ using ScopedSaveDC       = ScopedContextGuard<SaveDcGuardTraits>;
 using ScopedSelectObject = ScopedContextGuard<SelectObjectGuardTraits>;
 
 inline HRESULT InsertListViewColumns(
-    HWND list, std::span<const wchar_t* const> labels, std::span<const int> widths, UINT dpi) {
+    HWND list, std::span<const wchar_t* const> labels, std::span<const int> widths, UINT dpi,
+    UiTextScale scale = UiTextScale::Percent100) {
     if (!::IsWindow(list)) return HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
     std::array<wchar_t, 64> name{};
     if (!::GetClassNameW(list, name.data(), gsl::narrow_cast<int>(name.size()))) {
@@ -85,10 +87,16 @@ inline HRESULT InsertListViewColumns(
         column.mask = LVCF_TEXT | LVCF_WIDTH;
         std::wstring text(gsl::at(labels, i));
         column.pszText = text.data();
-        column.cx = ScalePxByDpi(gsl::at(widths, i), dpi);
+        column.cx = ScaleDisplayPx(gsl::at(widths, i), dpi, scale);
         if (ListView_InsertColumn(list, gsl::narrow_cast<int>(i), &column) < 0) return E_FAIL;
     }
     return S_OK;
+}
+
+inline HRESULT InsertListViewColumns(
+    HWND list, std::span<const wchar_t* const> labels, std::span<const int> widths,
+    const FluentD2DThemeContext& theme) {
+    return InsertListViewColumns(list, labels, widths, theme.dpi, theme.display_preferences.text_scale);
 }
 
 // Replace an unsorted string combo's items, preserving the index or selecting the first item.
@@ -305,6 +313,106 @@ inline ScopedGdiHandle<HFONT> CreateUiFont(
         QIQI_LOG_WARN("CreateUiFont::CreateFontIndirectW failed");
     }
     return font;
+}
+
+inline bool UpdateToolWindowDisplay(
+    HWND window, FluentD2DThemeContext& theme, ScopedGdiHandle<HFONT>& font,
+    DisplayPreferences preferences, UINT dpi, std::span<const HWND> lists) noexcept {
+    preferences = NormalizeDisplayPreferences(preferences);
+    constexpr int kColumnScaleReferenceDip = 100;
+    const int previous_scale = theme.ScalePx(kColumnScaleReferenceDip);
+    const int next_scale = ScaleDisplayPx(kColumnScaleReferenceDip, dpi, preferences.text_scale);
+    const int next = ScaleDisplayPx(kFluentBodyFontSize, dpi, preferences.text_scale);
+    const bool change = !font || theme.display_preferences != preferences || theme.dpi != dpi;
+    if (!change) {
+        for (const HWND list : lists) {
+            ::SendMessageW(ListView_GetHeader(list), WM_SETFONT, reinterpret_cast<WPARAM>(font.Get()), FALSE);
+        }
+        theme.RefreshThemeBrushes();
+        return true;
+    }
+    auto next_font = CreateUiFont(next);
+    if (!next_font) {
+        QIQI_LOG_ERROR("Tool display font update failed (error={})", ::GetLastError());
+        return false;
+    }
+    theme.SetDisplayPreferences(preferences);
+    if (theme.dpi != dpi) theme.Init(dpi);
+    ::SendMessageW(window, WM_SETFONT, reinterpret_cast<WPARAM>(next_font.Get()), FALSE);
+    ::EnumChildWindows(window, [](HWND child, LPARAM handle) noexcept -> BOOL {
+        ::SendMessageW(child, WM_SETFONT, handle, FALSE);
+        std::array<wchar_t, 64> name{};
+        if (::GetClassNameW(child, name.data(), gsl::narrow_cast<int>(name.size())) == 0) {
+            QIQI_LOG_WARN("Tool font target class query failed (error={})", ::GetLastError());
+        } else if (_wcsicmp(name.data(), TOOLBARCLASSNAMEW) == 0) {
+            const auto tooltip = reinterpret_cast<HWND>(::SendMessageW(child, TB_GETTOOLTIPS, 0, 0));
+            if (tooltip) ::SendMessageW(tooltip, WM_SETFONT, handle, FALSE);
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(next_font.Get()));
+    for (const HWND list : lists) {
+        ::SendMessageW(ListView_GetHeader(list), WM_SETFONT, reinterpret_cast<WPARAM>(next_font.Get()), FALSE);
+    }
+    font = std::move(next_font);
+    if (previous_scale != next_scale) {
+        for (const HWND list : lists) {
+            const int count = Header_GetItemCount(ListView_GetHeader(list));
+            for (int column = 0; column < count; ++column) {
+                const int width = ListView_GetColumnWidth(list, column);
+                if (!ListView_SetColumnWidth(list, column, ::MulDiv(width, next_scale, previous_scale))) {
+                    QIQI_LOG_WARN("Tool list column rescaling failed (column={})", column);
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+inline void SetFluentComboHeights(HWND combo, const FluentD2DThemeContext& theme) noexcept {
+    const int height = FluentControlHeight(theme, kFluentComboItemHeight);
+    if (::SendMessageW(combo, CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), height) == CB_ERR ||
+        ::SendMessageW(combo, CB_SETITEMHEIGHT, 0, height) == CB_ERR) {
+        QIQI_LOG_WARN("Tool combo height update failed");
+    }
+}
+
+inline bool SetFluentListRowHeight(
+    HWND list, const FluentD2DThemeContext& theme, ScopedImageList& images) noexcept {
+    const auto* const current = ListView_GetImageList(list, LVSIL_SMALL);
+    if (current && current != images.Get()) {
+        QIQI_LOG_ERROR("Tool row height cannot replace an externally owned image list");
+        return false;
+    }
+    if (!theme.display_preferences.easy_reading) {
+        if (current) ListView_SetImageList(list, nullptr, LVSIL_SMALL);
+        images.Reset();
+        return true;
+    }
+    const int height = FluentControlHeight(theme, kFluentComboItemHeight);
+    int image_width = 0;
+    int image_height = 0;
+    if (images) {
+        if (!::ImageList_GetIconSize(images.Get(), &image_width, &image_height)) {
+            QIQI_LOG_ERROR("Tool row-height image-list size query failed");
+            return false;
+        }
+        if (image_height == height) return true;
+    }
+    ScopedImageList next(::ImageList_Create(1, height, ILC_COLOR32, 1, 0));
+    if (!next) {
+        QIQI_LOG_ERROR("Tool row-height image list creation failed (error={})", ::GetLastError());
+        return false;
+    }
+    ::SetLastError(ERROR_SUCCESS);
+    const LONG_PTR style = ::GetWindowLongPtrW(list, GWL_STYLE);
+    if (!::SetWindowLongPtrW(list, GWL_STYLE, style | LVS_SHAREIMAGELISTS) && ::GetLastError() != ERROR_SUCCESS) {
+        QIQI_LOG_ERROR("Tool shared image-list style update failed (error={})", ::GetLastError());
+        return false;
+    }
+    ListView_SetImageList(list, next.Get(), LVSIL_SMALL);
+    images = std::move(next);
+    return true;
 }
 
 // Create a 32-bit ARGB transparent HICON containing a single centered glyph (no solid background fill).

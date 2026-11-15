@@ -108,7 +108,7 @@ bool MonitorWindow::Impl::CreateMetricControls() {
         Failure(L"SetWindowSubclass(metric list header)", ERROR_NOT_ENOUGH_MEMORY);
         return false;
     }
-    const HRESULT error = InsertListViewColumns(Child(MetricList), MetricColumns(), kMetricTableWidths, theme.dpi);
+    const HRESULT error = InsertListViewColumns(Child(MetricList), MetricColumns(), kMetricTableWidths, theme);
     if (FAILED(error)) {
         Failure(L"Insert metric list columns", gsl::narrow_cast<ULONG>(error));
         return false;

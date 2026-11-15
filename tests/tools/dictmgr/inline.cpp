@@ -6,6 +6,16 @@
 namespace qiqi::dict_manager::tests {
 
 void TestInlineEditing() {
+    const auto display_subkey = L"Software\\QiQiIME\\Tests\\DictManagerInlineDisplay_" +
+        std::to_wstring(::GetCurrentProcessId());
+    const wchar_t* previous_subkey = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(display_subkey.c_str());
+    const auto restore_display = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, display_subkey.c_str());
+        SetThemeDarkOverrideForTest(std::nullopt);
+    });
+    QIQI_TEST_CHECK(SaveFixtureConfig(QiQiConfig{}, display_subkey));
     const auto restore_monitor = gsl::finally([]() noexcept { SetMonitorMetricsOverrideForTest(std::nullopt); });
     const auto temp_dir =
         std::filesystem::temp_directory_path() / (L"qiqi_dict_inline_" + std::to_wstring(::GetCurrentProcessId()));
@@ -293,6 +303,7 @@ void TestInlineEditing() {
         check_position(0);
     }
     SetThemeDarkOverrideForTest(std::nullopt);
+    ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
     QIQI_TEST_CHECK(peer.AddUserEntry(L"aaaa", L"外部新增词"));
     InvokeCommand(window, SaveWord, true);
     QIQI_TEST_CHECK(!visible(EditWordInput) && ::IsWindowEnabled(Child(window, SearchEdit)));

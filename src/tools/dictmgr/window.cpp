@@ -297,6 +297,7 @@ LRESULT CALLBACK DictManagerWindow::Impl::EditorProcedure(
 }
 
 bool DictManagerWindow::Impl::CreateControls() {
+    theme.SetDisplayPreferences(NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig())));
     theme.Init(::GetDpiForWindow(hwnd));
     font = CreateUiFont(theme.ScalePx(kFluentBodyFontSize));
     if (!font) {
@@ -341,13 +342,15 @@ bool DictManagerWindow::Impl::CreateControls() {
         Text(L"数据来源", L"Source"),
         Text(L"同码顺位", L"Rank"), Text(L"操作", L"Action")};
     constexpr std::array widths{40, 120, 320, 180, 76, 52};
-    const HRESULT columns_hr = InsertListViewColumns(Child(List), columns, widths, theme.dpi);
+    const HRESULT columns_hr = InsertListViewColumns(Child(List), columns, widths, theme);
     if (FAILED(columns_hr)) {
         Failure(L"ListView_InsertColumn", gsl::narrow_cast<ULONG>(columns_hr));
         return false;
     }
 
     ready = true;
+    ::SendMessageW(ListView_GetHeader(Child(List)), WM_SETFONT, reinterpret_cast<WPARAM>(font.Get()), FALSE);
+    UpdateDisplayTargets();
     UpdateIcons();
     ApplyLanguage();
     const LRESULT source_selection = ::SendMessageW(
@@ -368,32 +371,63 @@ bool DictManagerWindow::Impl::CreateControls() {
 }
 
 void DictManagerWindow::Impl::Layout() noexcept {
-    if (!ready) return;
+    if (!ready || updating_layout) return;
+    updating_layout = true;
+    const auto restore = gsl::finally([this]() noexcept { updating_layout = false; });
     RECT rect{};
     ::GetClientRect(hwnd, &rect);
     const auto s = [this](int value) noexcept { return theme.ScalePx(value); };
     const int width = rect.right;
     const auto move = [&](ControlId id, int x, int y, int w, int h) noexcept {
-        ::MoveWindow(Child(id), x, y, std::max(1, w), std::max(1, h), TRUE);
+        viewport.Move(Child(id), x, y, std::max(1, w), std::max(1, h));
     };
 
-    const int filter_top = command_ui.LayoutToolbar(Child(Toolbar), width, theme) + s(layout::kWindowMargin);
-    const auto move_filter = [&](ControlId id, const RECT& logical) noexcept {
-        move(id, s(logical.left), filter_top + s(logical.top),
-             s(logical.right - logical.left), s(logical.bottom - logical.top));
-    };
-    move_filter(SourceLabel, layout::kSourceLabel);
-    move_filter(SourceCombo, layout::kSourceCombo);
-    move_filter(SearchLabel, layout::kSearchLabel);
-    move(SearchEdit, s(layout::kSearchEditLeft), filter_top,
-         width - s(layout::kSearchEditRightReserve), s(layout::kSearchEditHeight));
+    const int margin = s(layout::kWindowMargin);
+    const int gap = s(theme.display_preferences.easy_reading
+        ? layout::kComfortControlGap : layout::kControlGap);
+    const int available = std::max(1, width - 2 * margin);
+    const int toolbar_height = command_ui.LayoutToolbar(Child(Toolbar), width, theme);
+    const int filter_top = toolbar_height + margin;
+    const int label_height = s(layout::kLabelHeight);
+    const int source_label_width = s(layout::kSourceLabelWidth);
+    const int search_label_width = s(layout::kSearchLabelWidth);
+    const int source_width = s(layout::kSourceComboWidth);
+    const int input_height = FluentControlHeight(theme, layout::kSearchEditHeight);
+    RECT combo{};
+    ::GetWindowRect(Child(SourceCombo), &combo);
+    const int row_height = std::max({input_height, label_height,
+        gsl::narrow_cast<int>(combo.bottom - combo.top)});
+    int source_y = filter_top;
+    const bool stack_source = available < source_label_width + gap + source_width;
+    const int source_label_y = source_y + (stack_source ? 0 : (row_height - label_height) / 2);
+    if (stack_source) source_y += label_height + gap;
+    const int source_x = stack_source ? margin : margin + source_label_width + gap;
+    const int source_bottom = source_y + row_height;
+    const int search_x = source_x + source_width + s(layout::kFilterGroupGap);
+    const bool wrap_search = stack_source ||
+        width - margin - search_x < search_label_width + gap + s(layout::kSearchMinimumWidth);
+    int search_y = wrap_search ? source_bottom + gap : filter_top;
+    const int search_left = wrap_search ? margin : search_x;
+    const bool stack_search = width - margin - search_left <
+        search_label_width + gap + s(layout::kSearchMinimumWidth);
+    const int search_label_y = search_y + (stack_search ? 0 : (row_height - label_height) / 2);
+    if (stack_search) search_y += label_height + gap;
+    const int input_left = stack_search ? margin : search_left + search_label_width + gap;
 
-    const int list_top = filter_top + s(layout::kFilterSectionHeight);
+    const int list_top = std::max(source_bottom, search_y + row_height) + gap;
+    const int content_height = std::max(gsl::narrow_cast<int>(rect.bottom),
+        list_top + s(layout::kListMinimumHeight + layout::kListBottomInset));
+    viewport.Configure(hwnd, content_height, rect.bottom);
+    move(Toolbar, 0, 0, width, toolbar_height);
+    move(SourceLabel, margin, source_label_y, std::min(source_label_width, available), label_height);
+    move(SourceCombo, source_x, source_y,
+        std::min(source_width, std::max(1, width - margin - source_x)), s(layout::kComboDropDownHeight));
+    move(SearchLabel, search_left, search_label_y, std::min(search_label_width, available), label_height);
+    move(SearchEdit, input_left, search_y, width - margin - input_left, input_height);
     move(List, s(layout::kWindowMargin), list_top, width - s(2 * layout::kWindowMargin),
-         std::max(s(layout::kListMinimumHeight),
-                  gsl::narrow_cast<int>(rect.bottom) - s(layout::kListBottomInset) - list_top));
+         content_height - s(layout::kListBottomInset) - list_top);
 
-    move(Status, s(layout::kWindowMargin), rect.bottom - s(layout::kStatusBottomOffset),
+    move(Status, s(layout::kWindowMargin), content_height - s(layout::kStatusBottomOffset),
          width - s(2 * layout::kWindowMargin), s(layout::kStatusHeight));
     PositionEditor();
 }
@@ -405,7 +439,31 @@ void DictManagerWindow::Impl::UpdateTheme() noexcept {
         Child(SearchEdit),
         Child(EditWordInput), Child(EditCodeInput)};
     std::ignore = ApplyToolWindowListAndControlsTheme(hwnd, Child(List), theme, controls);
-    command_ui.ApplyTheme(hwnd);
+    command_ui.ApplyTheme(hwnd, theme);
+}
+
+bool DictManagerWindow::Impl::UpdateDisplay(DisplayPreferences preferences, UINT dpi) noexcept {
+    const std::array lists{Child(List)};
+    if (!UpdateToolWindowDisplay(hwnd, theme, font, preferences, dpi, lists)) return false;
+    UpdateDisplayTargets();
+    UpdateIcons();
+    Layout();
+    UpdateTheme();
+    return true;
+}
+
+void DictManagerWindow::Impl::UpdateDisplayTargets() noexcept {
+    std::ignore = SetFluentListRowHeight(Child(List), theme, row_images);
+    SetFluentComboHeights(Child(SourceCombo), theme);
+    if (theme.display_preferences.easy_reading) {
+        const int target = theme.ScaleDipPx(kComfortMinimumTargetDip);
+        for (const auto column : {ColumnId::Edit, ColumnId::Code, ColumnId::Word, ColumnId::Action}) {
+            const int index = std::to_underlying(column);
+            if (ListView_GetColumnWidth(Child(List), index) < target) {
+                ListView_SetColumnWidth(Child(List), index, target);
+            }
+        }
+    }
 }
 
 void DictManagerWindow::Impl::ApplyLanguage() {
@@ -466,34 +524,9 @@ void DictManagerWindow::Impl::ApplyLanguage() {
     ::InvalidateRect(Child(List), nullptr, FALSE);
 }
 
-void DictManagerWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) {
+void DictManagerWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) noexcept {
     if (!ready) return;
-    const UINT previous = theme.dpi;
-    if (dpi != previous) {
-        theme.Init(dpi);
-        if (auto next_font = CreateUiFont(theme.ScalePx(kFluentBodyFontSize))) {
-            ::EnumChildWindows(
-                hwnd,
-                [](HWND child, LPARAM handle) noexcept -> BOOL {
-                    ::SendMessageW(child, WM_SETFONT, handle, TRUE);
-                    return TRUE;
-                },
-                reinterpret_cast<LPARAM>(next_font.Get()));
-            font = std::move(next_font);
-        }
-        for (int i = 0; i < std::to_underlying(ColumnId::Count); ++i) {
-            ListView_SetColumnWidth(
-                Child(List),
-                i,
-                ::MulDiv(ListView_GetColumnWidth(Child(List), i), gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
-        }
-        for (const auto id : {SourceCombo}) {
-            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), theme.ScalePx(kFluentComboItemHeight));
-            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, 0, theme.ScalePx(kFluentComboItemHeight));
-        }
-        UpdateCommands();
-        UpdateIcons();
-    }
+    std::ignore = UpdateDisplay(GetDisplayPreferences(LoadConfig()), dpi);
     const POINT center{
         proposed.left + (proposed.right - proposed.left) / 2,
         proposed.top + (proposed.bottom - proposed.top) / 2};
@@ -505,7 +538,7 @@ void DictManagerWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) {
     UpdateTheme();
 }
 
-void DictManagerWindow::Impl::RecoverDisplay() {
+void DictManagerWindow::Impl::RecoverDisplay() noexcept {
     if (!ready || ::IsIconic(hwnd) || ::IsZoomed(hwnd)) return;
     RECT rect{};
     if (!::GetWindowRect(hwnd, &rect)) return;
@@ -650,17 +683,18 @@ void DictManagerWindow::Impl::PositionEditor() noexcept {
         ::MapWindowPoints(list, hwnd, reinterpret_cast<POINT*>(&cell), 2);
     }
     constexpr std::array controls{EditCodeInput, EditWordInput};
+    const int inset = theme.display_preferences.easy_reading ? 0 : layout::kEditorCellInsetPx;
     for (size_t i = 0; i < controls.size(); ++i) {
         const auto& cell = gsl::at(cells, i);
         ::SetWindowPos(Child(gsl::at(controls, i)), nullptr,
-            cell.left + layout::kEditorCellInsetPx, cell.top + layout::kEditorCellInsetPx,
-            std::max(1L, cell.right - cell.left - 2 * layout::kEditorCellInsetPx),
-            std::max(1L, cell.bottom - cell.top - 2 * layout::kEditorCellInsetPx), SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            cell.left + inset, cell.top + inset,
+            std::max(1L, cell.right - cell.left - 2 * inset),
+            std::max(1L, cell.bottom - cell.top - 2 * inset), SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
     const auto& action = cells.back();
-    const int size = std::max(1, std::min({theme.ScalePx(layout::kInlineSaveButtonSize),
-        gsl::narrow_cast<int>(action.right - action.left - 2 * layout::kEditorCellInsetPx),
-        gsl::narrow_cast<int>(action.bottom - action.top - 2 * layout::kEditorCellInsetPx)}));
+    const int size = std::max(1, std::min({FluentControlHeight(theme, layout::kInlineSaveButtonSize),
+        gsl::narrow_cast<int>(action.right - action.left - 2 * inset),
+        gsl::narrow_cast<int>(action.bottom - action.top - 2 * inset)}));
     ::SendMessageW(Child(InlineSave), TB_SETBUTTONSIZE, 0, MAKELPARAM(size, size));
     ::SendMessageW(Child(InlineSave), TB_SETBUTTONWIDTH, 0, MAKELPARAM(size, size));
     ::SetWindowPos(Child(InlineSave), nullptr, action.left + (action.right - action.left - size) / 2,
@@ -740,6 +774,10 @@ void DictManagerWindow::Impl::CancelEditing(bool focus_list) {
 }
 
 void DictManagerWindow::Impl::Tick() {
+    const auto preferences = NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig()));
+    if (preferences != theme.display_preferences) {
+        std::ignore = UpdateDisplay(preferences, theme.dpi);
+    }
     if (editor.Active()) return;
     if (model.PollExternalChanges()) {
         RebuildRows();
@@ -1300,12 +1338,16 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
     auto* self = BindOrGetWindowUserData<Impl>(window, message, lparam);
     if (!self || message == WM_NCCREATE) return ::DefWindowProcW(window, message, wparam, lparam);
     try {
+        if (self->viewport.Handle(window, message, wparam, lparam, self->theme)) {
+            self->Layout();
+            if (message == WM_VSCROLL || message == WM_MOUSEWHEEL) return 0;
+        }
         if (const auto handled = self->command_ui.HandleMessage(window, message, wparam, lparam, self->font.Get(), self->theme)) {
             return *handled;
         }
         if (const auto handled = HandleFluentToolWindowMessage(
                 window, message, wparam, lparam, self->theme,
-                0, 920, 560)) {
+                0, layout::kMinimumWindowWidth, layout::kMinimumWindowHeight)) {
             return *handled;
         }
         switch (message) {
@@ -1408,7 +1450,7 @@ bool DictManagerWindow::Create(
         0,
         kWindowClass.data(),
         title.c_str(),
-        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_VSCROLL,
         rect.left,
         rect.top,
         rect.right - rect.left,

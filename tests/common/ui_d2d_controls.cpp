@@ -8,6 +8,7 @@
 #include "common/dpi.h"
 #include "common/theme.h"
 #include "common/uiutil.h"
+#include "common/window.h"
 #include "common/controls.h"
 
 #include <commctrl.h>
@@ -430,6 +431,29 @@ void TestReusableControls() {
     TestComboItemReplacement(combo, label);
     TestFileDialogs(parent.Get());
     TestListViewColumns(parent.Get(), label);
+    {
+        ScopedGdiHandle<HRGN> region(::CreateRectRgn(0, 0, 240, 32));
+        QIQI_TEST_CHECK(region && ::SetWindowRgn(combo, region.Get(), FALSE));
+        std::ignore = region.Detach();
+        const auto remove_region = gsl::finally([combo]() noexcept { ::SetWindowRgn(combo, nullptr, FALSE); });
+        const ScopedWindowDC screen(nullptr);
+        const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+        const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), 240, 160));
+        const ScopedSelectObject selected(dc.Get(), bitmap.Get());
+        QIQI_TEST_CHECK(screen && dc && bitmap && selected);
+        const RECT bounds{0, 0, 240, 160};
+        const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(RGB(255, 0, 255)));
+        QIQI_TEST_CHECK(background && ::FillRect(dc.Get(), &bounds, background.Get()));
+        DRAWITEMSTRUCT item{};
+        item.CtlType = ODT_COMBOBOX;
+        item.hwndItem = combo;
+        item.hDC = dc.Get();
+        item.itemID = 0;
+        item.rcItem = {0, 80, 240, 112};
+        QIQI_TEST_CHECK(HandleFluentToolWindowMessage(parent.Get(), WM_DRAWITEM, 0,
+            reinterpret_cast<LPARAM>(&item), d2d, 501));
+        QIQI_TEST_CHECK(::GetPixel(dc.Get(), 1, 90) != RGB(255, 0, 255));
+    }
     const HWND sorted = create(L"COMBOBOX", CBS_DROPDOWNLIST | CBS_SORT, 505);
     const HWND item_data = create(L"COMBOBOX", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED, 506);
     const std::array labels{L"Item"};

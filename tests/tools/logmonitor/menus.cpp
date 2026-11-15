@@ -334,6 +334,16 @@ void TestMenusAndToolbar(const RECT& work_area) {
                     if ((::GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE) == 0) continue;
                     RECT bounds{}, overlap{};
                     ::GetWindowRect(child, &bounds);
+                    const ScopedGdiHandle<HRGN> region(::CreateRectRgn(0, 0, 0, 0));
+                    QIQI_TEST_CHECK(region && ::GetWindowRgn(child, region.Get()) != ERROR);
+                    RECT clipped{};
+                    QIQI_TEST_CHECK(::GetRgnBox(region.Get(), &clipped) != ERROR);
+                    clipped = {bounds.left + clipped.left, bounds.top + clipped.top,
+                        bounds.left + clipped.right, bounds.top + clipped.bottom};
+                    if (bounds.bottom > client.bottom || bounds.top < client.top) {
+                        QIQI_TEST_CHECK((::GetWindowLongPtrW(window.Handle(), GWL_STYLE) & WS_VSCROLL) != 0);
+                    }
+                    if (!::IntersectRect(&bounds, &bounds, &clipped)) continue;
                     QIQI_TEST_CHECK(bounds.left >= client.left && bounds.top >= client.top &&
                                     bounds.right <= client.right && bounds.bottom <= client.bottom);
                     for (const auto& other : controls)

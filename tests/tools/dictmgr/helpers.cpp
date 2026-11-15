@@ -5,6 +5,24 @@
 
 namespace qiqi::dict_manager::tests {
 
+bool SaveFixtureConfig(const QiQiConfig& config, std::wstring_view expected_subkey) {
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) == expected_subkey);
+    ::SetLastError(ERROR_SUCCESS);
+    const bool saved = SaveConfig(config);
+    const DWORD error = ::GetLastError();
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) == expected_subkey);
+    if (!saved) {
+        HKEY key = nullptr;
+        const LSTATUS open_error = ::RegOpenKeyExW(HKEY_CURRENT_USER,
+            GetActiveConfigRegistrySubKey(), 0, KEY_READ | KEY_WRITE, &key);
+        if (key) ::RegCloseKey(key);
+        std::wcerr << L"SaveConfig fixture failure: test key=" << expected_subkey
+                   << L", GetLastError(non-contractual)=" << error
+                   << L", RegOpenKeyEx=" << open_error << L'\n';
+    }
+    return saved;
+}
+
 HWND Child(const DictManagerWindow& window, ControlId id) noexcept {
     return ::GetDlgItem(window.Handle(), std::to_underlying(id));
 }

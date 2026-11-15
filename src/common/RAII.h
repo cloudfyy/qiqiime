@@ -4,6 +4,7 @@
 #pragma once
 #include <windows.h>
 #include <ktmw32.h>
+#include <commctrl.h>
 #include <oleauto.h>
 #include <utility>
 
@@ -117,6 +118,7 @@ using ScopedMemoryDC     = ScopedHandle<NullHandleTraits<HDC, &::DeleteDC>>;
 using ScopedIcon         = ScopedHandle<NullHandleTraits<HICON, &::DestroyIcon>>;
 using ScopedBstr         = ScopedHandle<NullHandleTraits<BSTR, &::SysFreeString>>;
 using ScopedMenu         = ScopedHandle<NullHandleTraits<HMENU, &::DestroyMenu>>;
+using ScopedImageList    = ScopedHandle<NullHandleTraits<HIMAGELIST, &::ImageList_Destroy>>;
 using ScopedModule       = ScopedHandle<NullHandleTraits<HMODULE, &::FreeLibrary>>;
 using ScopedWindow       = ScopedHandle<WindowTraits>;
 

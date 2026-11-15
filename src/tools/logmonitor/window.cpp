@@ -27,12 +27,16 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
     auto* self = BindOrGetWindowUserData<Impl>(window, message, lparam);
     if (!self || message == WM_NCCREATE) return ::DefWindowProcW(window, message, wparam, lparam);
     try {
+        if (self->viewport.Handle(window, message, wparam, lparam, self->theme)) {
+            self->Layout();
+            if (message == WM_VSCROLL || message == WM_MOUSEWHEEL) return 0;
+        }
         if (const auto handled = self->command_ui.HandleMessage(window, message, wparam, lparam, self->font.Get(), self->theme)) {
             return *handled;
         }
         if (const auto handled = HandleFluentToolWindowMessage(
                 window, message, wparam, lparam, self->theme,
-                0, 760, 560)) {
+                0, kMonitorMinimumWindowSize.cx, kMonitorMinimumWindowSize.cy)) {
             return *handled;
         }
         switch (message) {
@@ -54,6 +58,7 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
             self->RecoverDisplay();
             return 0;
         case WM_SETTINGCHANGE:
+            self->RefreshDisplay();
             if (wparam == SPI_SETWORKAREA) self->RecoverDisplay();
             if (self->ready && self->ui_language == UiLanguage::Auto) self->ApplyLanguage();
             [[fallthrough]];
@@ -106,8 +111,8 @@ bool MonitorWindow::Create(HINSTANCE instance, std::optional<POINT> startup_poin
     }
     const auto title = FormatMonitorWindowTitle(impl_->ui_language);
     const auto monitor = startup_point ? QueryMonitorForPoint(*startup_point) : QueryActiveMonitor(nullptr);
-    const auto rect = ComputeCenteredToolWindowRect(monitor, 1160, 780, monitor.dpi);
-    window_.Reset(::CreateWindowExW(0, kWindowClass.data(), title.c_str(), WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+    const auto rect = ComputeCenteredToolWindowRect(monitor, kMonitorInitialWindowSize.cx, kMonitorInitialWindowSize.cy, monitor.dpi);
+    window_.Reset(::CreateWindowExW(0, kWindowClass.data(), title.c_str(), WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_VSCROLL,
         rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
         nullptr, nullptr, instance, impl_.get()));
     if (!window_) {
@@ -116,7 +121,8 @@ bool MonitorWindow::Create(HINSTANCE instance, std::optional<POINT> startup_poin
     }
     impl_->hwnd = window_.Get();
     if (!impl_->CreateControls()) return false;
-    impl_->UpdateDpi(impl_->theme.dpi, ComputeCenteredToolWindowRect(monitor, 1160, 780, impl_->theme.dpi));
+    impl_->UpdateDpi(impl_->theme.dpi, ComputeCenteredToolWindowRect(monitor,
+        kMonitorInitialWindowSize.cx, kMonitorInitialWindowSize.cy, impl_->theme.dpi));
     impl_->Layout();
     impl_->Tick();
     return true;

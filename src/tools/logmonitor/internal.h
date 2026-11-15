@@ -12,6 +12,7 @@
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/toolbar.h"
+#include "common/window.h"
 
 #include <commctrl.h>
 #include <array>
@@ -26,6 +27,7 @@ inline constexpr int kMonitorDefaultDetailHeight = 130;
 inline constexpr int kMonitorDefaultDetailLimit = 400;
 inline constexpr int kMonitorMinimumDetailHeight = 60;
 inline constexpr int kMonitorDetailsFooterSpace = 50;
+inline constexpr int kMonitorSplitterHeight = 8;
 inline constexpr int kMonitorLayoutReferenceDpi = 96;
 inline constexpr size_t kMonitorPreviewChars = 1024;
 inline constexpr std::array kMetricTableWidths{150, 130, 100, 100, 100, 80, 80, 80, 80, 90, 90,
@@ -33,6 +35,8 @@ inline constexpr std::array kMetricTableWidths{150, 130, 100, 100, 100, 80, 80, 
 inline constexpr UINT kMetricDisplayRefreshIntervalMs = 500;
 inline constexpr uint64_t kNanosecondsPerMillisecond = 1'000'000;
 inline constexpr int kMetricSummaryHeight = 126;
+inline constexpr SIZE kMonitorInitialWindowSize{1160, 780};
+inline constexpr SIZE kMonitorMinimumWindowSize{760, 560};
 
 struct MetricTableRow {
     MetricDimension dimension;
@@ -58,6 +62,9 @@ struct MonitorWindow::Impl {
     EventBuffer tools{kDiagnosticMaxRecords, kDiagnosticMaxBytes};
     FluentD2DThemeContext theme;
     ScopedGdiHandle<HFONT> font;
+    ScopedImageList list_row_images;
+    ScopedImageList metric_row_images;
+    FluentToolWindowViewport viewport;
     ScopedIcon small_icon;
     ScopedIcon big_icon;
     ToolCommandUi command_ui{ReportCommandError, this};
@@ -92,6 +99,7 @@ struct MonitorWindow::Impl {
     bool ready = false;
     bool updating_rows = false;
     bool updating_display = false;
+    bool updating_layout = false;
     bool updating_filters = false;
     bool automatic_pid = false;
     bool process_choices_pending = false;
@@ -164,6 +172,7 @@ struct MonitorWindow::Impl {
     void RefreshCommandState();
     void Layout() noexcept;
     void UpdateTheme() noexcept;
+    void RefreshDisplay() noexcept;
     void ApplyLanguage();
     void UpdateDpi(UINT dpi, const RECT& proposed) noexcept;
     void RecoverDisplay() noexcept;

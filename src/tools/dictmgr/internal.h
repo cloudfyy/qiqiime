@@ -10,6 +10,7 @@
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/toolbar.h"
+#include "common/window.h"
 
 #include <commctrl.h>
 
@@ -22,6 +23,15 @@ namespace dict_manager_layout {
 inline constexpr SIZE kInitialWindowSize{1020, 680};
 inline constexpr int kWindowMargin = 12;
 inline constexpr int kControlGap = 4;
+inline constexpr int kComfortControlGap = 8;
+inline constexpr int kFilterGroupGap = 13;
+inline constexpr int kSourceLabelWidth = 56;
+inline constexpr int kSourceComboWidth = 165;
+inline constexpr int kComboDropDownHeight = 220;
+inline constexpr int kSearchLabelWidth = 64;
+inline constexpr int kSearchMinimumWidth = 120;
+inline constexpr int kMinimumWindowWidth = 920;
+inline constexpr int kMinimumWindowHeight = 560;
 inline constexpr int kLabelHeight = 24;
 inline constexpr RECT kSourceLabel{kWindowMargin, 4, kWindowMargin + 56, 4 + kLabelHeight};
 inline constexpr RECT kSourceCombo{
@@ -49,6 +59,8 @@ struct DictManagerWindow::Impl {
     DictEditor editor;
     FluentD2DThemeContext theme;
     ScopedGdiHandle<HFONT> font;
+    ScopedImageList row_images;
+    FluentToolWindowViewport viewport;
     ScopedIcon small_icon;
     ScopedIcon big_icon;
     ToolCommandUi command_ui{ReportCommandError, this};
@@ -62,6 +74,7 @@ struct DictManagerWindow::Impl {
     DictFilter filter{};
     std::wstring last_message;
     bool ready = false;
+    bool updating_layout = false;
     bool updating_rows = false;
     bool updating_filters = false;
     bool updating_editor = false;
@@ -115,9 +128,11 @@ struct DictManagerWindow::Impl {
     const wchar_t* MenuHeading(size_t index) const noexcept;
     void Layout() noexcept;
     void UpdateTheme() noexcept;
+    bool UpdateDisplay(DisplayPreferences preferences, UINT dpi) noexcept;
+    void UpdateDisplayTargets() noexcept;
     void ApplyLanguage();
-    void UpdateDpi(UINT dpi, const RECT& proposed);
-    void RecoverDisplay();
+    void UpdateDpi(UINT dpi, const RECT& proposed) noexcept;
+    void RecoverDisplay() noexcept;
     void Refilter();
     void SyncSelectionFromList();
     void SelectAllRows();

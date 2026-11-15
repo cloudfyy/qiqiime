@@ -66,7 +66,7 @@ class ToolCommandUi final {
     void SetToolbar(HWND toolbar, std::span<const ToolCommand> commands);
     void UpdateCommand(HWND window, const ToolCommand& command);
     int LayoutToolbar(HWND toolbar, int width, const FluentD2DThemeContext& theme) const noexcept;
-    void ApplyTheme(HWND window) noexcept;
+    void ApplyTheme(HWND window, const FluentD2DThemeContext& theme) noexcept;
     void DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, int stroke, COLORREF color) const noexcept;
     std::optional<LRESULT> HandleMessage(HWND window, UINT message, WPARAM wparam, LPARAM lparam, HFONT font,
                                          const FluentD2DThemeContext& theme);

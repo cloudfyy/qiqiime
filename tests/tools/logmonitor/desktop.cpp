@@ -5,6 +5,120 @@
 
 namespace qiqi::monitor::tests {
 
+void TestDisplayPreferences(const MonitorWindow& window) {
+    QiQiConfig config = LoadConfig();
+    const auto* previous = GetActiveConfigRegistrySubKey();
+    const auto subkey = std::format(L"Software\\QiQiIME\\Tests\\MonitorDisplay_{}", ::GetCurrentProcessId());
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto restore = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+        SetHighContrastOverrideForTest(false);
+        SetMonitorMetricsOverrideForTest(std::nullopt);
+        ::SendMessageW(window.Handle(), WM_SETTINGCHANGE, 0, 0);
+    });
+    config.ui_theme = UiTheme::Light;
+    config.ui_text_scale = UiTextScale::Percent100;
+    config.easy_reading = false;
+    QIQI_TEST_CHECK(SaveConfig(config));
+    ::SendMessageW(window.Handle(), WM_SETTINGCHANGE, 0, 0);
+    const HWND list = Child(window, List);
+    const int count = ListView_GetItemCount(list);
+    const int selected = ListView_GetNextItem(list, -1, LVNI_SELECTED);
+    const auto search = ControlText(Child(window, Search));
+    const auto details = ControlText(Child(window, Details));
+    const auto pid = ControlText(Child(window, Pid));
+    const auto level = ::SendMessageW(Child(window, Level), CB_GETCURSEL, 0, 0);
+    QIQI_TEST_CHECK(ListView_SetColumnWidth(list, 0, 137));
+    const UINT dpi = ::GetDpiForWindow(window.Handle());
+    const auto font_size = [](HWND control) {
+        LOGFONTW font{};
+        const auto handle = reinterpret_cast<HFONT>(::SendMessageW(control, WM_GETFONT, 0, 0));
+        QIQI_TEST_CHECK(::GetObjectW(handle, sizeof(font), &font) == sizeof(font));
+        return std::abs(font.lfHeight);
+    };
+    UiTextScale previous_scale = UiTextScale::Percent100;
+    for (const auto& preferences : std::array{
+        DisplayPreferences{UiTheme::Light, UiTextScale::Percent150, true},
+        DisplayPreferences{UiTheme::Dark, UiTextScale::Percent200, true},
+        DisplayPreferences{UiTheme::HighContrast, UiTextScale::Percent200, false}}) {
+        const int old_width = ListView_GetColumnWidth(list, 0);
+        const int old_font_size = font_size(list);
+        config.ui_theme = preferences.theme;
+        config.ui_text_scale = preferences.text_scale;
+        config.easy_reading = preferences.easy_reading;
+        ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+        QIQI_TEST_CHECK(font_size(list) == old_font_size);
+        QIQI_TEST_CHECK(SaveConfig(config));
+        ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+        for (const auto id : {List, MetricList, Search, Process, Details, Toolbar}) {
+            QIQI_TEST_CHECK(font_size(Child(window, id)) ==
+                ScaleDisplayPx(kFluentBodyFontSize, dpi, preferences.text_scale));
+        }
+        QIQI_TEST_CHECK(::SendMessageW(ListView_GetHeader(list), WM_GETFONT, 0, 0) ==
+            ::SendMessageW(list, WM_GETFONT, 0, 0));
+        QIQI_TEST_CHECK(ListView_GetColumnWidth(list, 0) ==
+            ::MulDiv(old_width, TextScalePercent(preferences.text_scale), TextScalePercent(previous_scale)));
+        previous_scale = preferences.text_scale;
+        const auto appearance = ResolveDisplayAppearance(preferences);
+        QIQI_TEST_CHECK(ListView_GetBkColor(list) == appearance.palette.input_bg);
+        QIQI_TEST_CHECK(ListView_GetTextColor(list) == appearance.palette.text_primary);
+        if (preferences.easy_reading) {
+            RECT row{}, input{};
+#pragma warning(suppress : 26496) // TB_GETRECT writes through LPARAM.
+            RECT button{};
+#pragma warning(suppress : 26477) // The Windows ListView macro has a NULL fallback.
+            QIQI_TEST_CHECK(ListView_GetSubItemRect(list, selected, 0, LVIR_BOUNDS, &row));
+            QIQI_TEST_CHECK(row.bottom - row.top >= ScalePxByDpi(kComfortMinimumTargetDip, dpi));
+            QIQI_TEST_CHECK(::GetWindowRect(Child(window, Search), &input));
+            QIQI_TEST_CHECK(input.bottom - input.top >= ScalePxByDpi(kComfortMinimumTargetDip, dpi));
+            QIQI_TEST_CHECK(::SendMessageW(Child(window, Level), CB_GETITEMHEIGHT,
+                gsl::narrow_cast<WPARAM>(-1), 0) >= ScalePxByDpi(kComfortMinimumTargetDip, dpi));
+            QIQI_TEST_CHECK(::SendMessageW(Child(window, Toolbar), TB_GETRECT, std::to_underlying(Copy),
+                reinterpret_cast<LPARAM>(&button)));
+            QIQI_TEST_CHECK(button.bottom - button.top >= ScalePxByDpi(kComfortMinimumTargetDip, dpi));
+            QIQI_TEST_CHECK(::SendMessageW(Child(window, Toolbar), TB_GETTEXTROWS, 0, 0) == 1);
+        }
+        QIQI_TEST_CHECK(ListView_GetItemCount(list) == count);
+        QIQI_TEST_CHECK(ListView_GetNextItem(list, -1, LVNI_SELECTED) == selected);
+        QIQI_TEST_CHECK(ControlText(Child(window, Search)) == search);
+        QIQI_TEST_CHECK(ControlText(Child(window, Details)) == details);
+        QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == pid);
+        QIQI_TEST_CHECK(::SendMessageW(Child(window, Level), CB_GETCURSEL, 0, 0) == level);
+    }
+    SetHighContrastOverrideForTest(true);
+    ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
+    QIQI_TEST_CHECK(ListView_GetTextColor(list) == ::GetSysColor(COLOR_WINDOWTEXT));
+    QIQI_TEST_CHECK(ListView_GetBkColor(list) == ::GetSysColor(COLOR_WINDOW));
+    SetHighContrastOverrideForTest(false);
+    config.easy_reading = true;
+    QIQI_TEST_CHECK(SaveConfig(config));
+    ::SendMessageW(window.Handle(), WM_SETTINGCHANGE, 0, 0);
+    RECT original{};
+    QIQI_TEST_CHECK(::GetWindowRect(window.Handle(), &original));
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{{0, 0, 420, 300}, dpi});
+    QIQI_TEST_CHECK(::SetWindowPos(window.Handle(), nullptr, 0, 0, 420, 300,
+        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE));
+    SCROLLINFO scroll{};
+    scroll.cbSize = sizeof(scroll);
+    scroll.fMask = SIF_ALL;
+    QIQI_TEST_CHECK(::GetScrollInfo(window.Handle(), SB_VERT, &scroll));
+    QIQI_TEST_CHECK(scroll.nMax > gsl::narrow_cast<int>(scroll.nPage));
+    ::SendMessageW(window.Handle(), WM_VSCROLL, SB_BOTTOM, 0);
+    QIQI_TEST_CHECK(::GetScrollInfo(window.Handle(), SB_VERT, &scroll) && scroll.nPos > 0);
+    RECT input{}, client{};
+    QIQI_TEST_CHECK(::GetWindowRect(Child(window, Search), &input));
+    ::SendMessageW(window.Handle(), WM_COMMAND,
+        MAKEWPARAM(std::to_underlying(Search), EN_SETFOCUS), reinterpret_cast<LPARAM>(Child(window, Search)));
+    QIQI_TEST_CHECK(::GetWindowRect(Child(window, Search), &input));
+    QIQI_TEST_CHECK(::GetClientRect(window.Handle(), &client));
+    ::MapWindowPoints(window.Handle(), nullptr, reinterpret_cast<POINT*>(&client), 2);
+    QIQI_TEST_CHECK(input.top >= client.top && input.bottom <= client.bottom);
+    SetMonitorMetricsOverrideForTest(std::nullopt);
+    QIQI_TEST_CHECK(::SetWindowPos(window.Handle(), nullptr, original.left, original.top,
+        original.right - original.left, original.bottom - original.top, SWP_NOZORDER | SWP_NOACTIVATE));
+}
+
 void TestDetailsSplitter(const MonitorWindow& window) {
     const HWND splitter = Child(window, DetailsSplitter);
     const HWND list = Child(window, List);
@@ -108,6 +222,7 @@ void TestDesktopIntegration() {
     ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Level), CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
     ListView_SetItemState(list, 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+    TestDisplayPreferences(window);
     Click(window, Copy);
     const auto single_copied = ReadClipboardText(window.Handle());
     QIQI_TEST_CHECK(single_copied.contains(L"Monitor initialized") && single_copied.contains(L"PID="));
@@ -218,8 +333,8 @@ void TestDesktopIntegration() {
     SetThemeDarkOverrideForTest(true);
     for (const UINT message : {WM_THEMECHANGED, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE, WM_DWMCOLORIZATIONCOLORCHANGED}) {
         ::SendMessageW(window.Handle(), message, 0, 0);
-        QIQI_TEST_CHECK(ListView_GetBkColor(list) == RGB(43, 46, 52));
-        QIQI_TEST_CHECK(ListView_GetTextColor(list) == kDarkTextColor);
+        QIQI_TEST_CHECK(ListView_GetBkColor(list) == kDarkThemePalette.input_bg);
+        QIQI_TEST_CHECK(ListView_GetTextColor(list) == kDarkThemePalette.text_primary);
         QIQI_TEST_CHECK(CommandName(window, Clear) == L"清空");
         QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
     }
@@ -231,7 +346,7 @@ void TestDesktopIntegration() {
     SetHighContrastOverrideForTest(false);
     SetThemeDarkOverrideForTest(false);
     ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
-    QIQI_TEST_CHECK(ListView_GetBkColor(list) == RGB(255, 255, 255));
+    QIQI_TEST_CHECK(ListView_GetBkColor(list) == kLightThemePalette.input_bg);
     SelectLanguage(window, UiLanguage::Auto);
     QIQI_TEST_CHECK(CommandName(window, LanguageAuto) == GetUiStrings(UiLanguage::Auto).dlg_lang_auto);
     QIQI_TEST_CHECK(CommandName(window, Clear) ==

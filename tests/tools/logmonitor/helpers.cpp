@@ -106,7 +106,7 @@ void TestDarkHeader(HWND list) {
     const ScopedSelectObject selected(dc.Get(), bitmap.Get());
     ::SendMessageW(header, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc.Get()), PRF_CLIENT);
     const int width = ListView_GetColumnWidth(list, 0);
-    QIQI_TEST_CHECK(::GetPixel(dc.Get(), width / 2, 2) == RGB(54, 58, 66));
+    QIQI_TEST_CHECK(::GetPixel(dc.Get(), width / 2, 2) == kDarkThemePalette.surface_bg);
     bool readable_text = false;
     for (int y = 3; y < rect.bottom - 3 && !readable_text; ++y) {
         for (int x = 6; x < width - 6; ++x) {

@@ -59,10 +59,19 @@ Extra 缩进显示在 Jidian Core 下，并注明依赖关系：只有选中 Cor
 输入法菜单在小工作区保留大字号，通过滚轮、滚动条及方向键/Tab 滚动，
 焦点项自动进入可见区。右键菜单不再显示快捷键提示，快捷键本身仍然有效。
 
+词库管理器和 Log Monitor 的窗口正文、工具栏、筛选框、列表及详情区
+也使用已保存的显示偏好；设置预览或取消不改变工具窗口。
+窗口通过已有定时器检测保存后的变化，不重建业务控件，保留编辑草稿、
+筛选、列表选择和用户调整的列宽比例。
+关怀模式下工具栏显示操作文字，列表行、下拉选项及主要操作区至少高 44 DIP。
+空间不足时筛选项换行，窗口提供纵向滚动与焦点自动显露，
+不通过缩小字号适配小工作区。
+
 ### 范围与限制
 
-- 本批桌面显示偏好适用于**设置窗口、输入法自绘候选窗和上述应用菜单**。
-  词库管理器和 Log Monitor 的窗口正文/工具栏、浮动状态条及其他对话框尚未全部接入，
+- 本批桌面显示偏好适用于**设置窗口、输入法自绘候选窗、词库管理器、
+  Log Monitor 主窗口及上述应用菜单**。
+  浮动状态条及其他对话框尚未全部接入，
   不能视为全软件的独立主题改造已完成。
 - 设置中的候选预览是本地样式示例，不启动真实输入组合。
 - 宿主接管 TSF 无界面模式候选展示时，外观由宿主决定。
@@ -111,10 +120,18 @@ text on short work areas and supports a scrollbar, wheel, arrows, and Tab, with
 focused actions scrolled into view. Context-menu shortcut hints are removed;
 the shortcuts themselves are unchanged.
 
-This phase covers Settings, the IME's own candidate popup, and these app-owned
-menus, **not all desktop windows**. Dictionary Manager/Log Monitor window content
-and toolbars, the floating status bar, and other dialogs have not all adopted
-these independent preferences. Host-rendered TSF candidate interfaces and
+Dictionary Manager and Log Monitor also apply saved preferences to their main
+window content, toolbars, filters, lists, and details. Unsaved Settings previews
+do not change these tools. Their existing timers detect saved changes without
+recreating business controls, preserving drafts, filters, selection, and custom
+column-width proportions. Comfort mode adds toolbar labels and a minimum 44 DIP
+height for rows, combo items, and primary targets. Filters wrap and short windows
+scroll vertically, revealing focused controls without reducing text size.
+
+This phase covers Settings, the IME's own candidate popup, both tool main windows,
+and these app-owned menus, **not all desktop windows**. The floating status bar
+and other dialogs have not all adopted these independent preferences.
+Host-rendered TSF candidate interfaces and
 language-bar menus, as well as system dialogs, remain host-controlled.
 App high-contrast text targets
 7:1 contrast; Windows high contrast uses system colors. This is not a claim of

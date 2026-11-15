@@ -159,6 +159,7 @@ void MonitorWindow::Impl::RebuildRows() {
 }
 
 void MonitorWindow::Impl::Tick() {
+    RefreshDisplay();
     bool changed = false;
     for (auto& event : pending.Take()) { events.Push(std::move(event)); changed = true; }
     DrainMetrics(collector.metric_queue, metrics, diagnostics, ::GetTickCount64());

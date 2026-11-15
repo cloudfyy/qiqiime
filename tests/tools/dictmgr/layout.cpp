@@ -24,14 +24,7 @@ void CheckLayout(const DictManagerWindow& window, UINT dpi) {
     QIQI_TEST_CHECK(Header_GetItemCount(ListView_GetHeader(Child(window, List))) ==
         std::to_underlying(ColumnId::Count));
     const int edit_width = ListView_GetColumnWidth(Child(window, List), std::to_underlying(ColumnId::Edit));
-    const int expected_edit_width = ScalePxByDpi(40, dpi);
-    if (edit_width != expected_edit_width) {
-        std::cerr << std::format(
-            "[DPI] Edit column mismatch: requested={}, window={}, list={}, width={}, expected={}\n",
-            dpi, ::GetDpiForWindow(window.Handle()), ::GetDpiForWindow(Child(window, List)),
-            edit_width, expected_edit_width);
-    }
-    QIQI_TEST_CHECK(edit_width == expected_edit_width);
+    QIQI_TEST_CHECK(edit_width == ScalePxByDpi(40, dpi));
     constexpr std::array labels{SourceLabel, SearchLabel};
     for (const auto id : labels) {
         const HWND child = Child(window, id);
@@ -187,6 +180,9 @@ void CheckCommandAppearance(const DictManagerWindow& window, UINT dpi, bool dark
     }
     QIQI_TEST_CHECK(edit_ink > 10);
     const auto& palette = GetThemePalette(dark);
+    FluentD2DThemeContext expected_theme;
+    expected_theme.appearance = ResolveDisplayAppearance(
+        NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig())));
     NMTBCUSTOMDRAW toolbar{};
     toolbar.nmcd.hdr.hwndFrom = Child(window, Toolbar);
     toolbar.nmcd.hdr.idFrom = std::to_underlying(Toolbar);
@@ -209,7 +205,7 @@ void CheckCommandAppearance(const DictManagerWindow& window, UINT dpi, bool dark
             : (hot ? palette.hover_bg : palette.window_bg);
         const COLORREF foreground = contrast
             ? ::GetSysColor((state & CDIS_DISABLED) ? COLOR_GRAYTEXT : (hot ? COLOR_HIGHLIGHTTEXT : COLOR_BTNTEXT))
-            : ((state & CDIS_DISABLED) ? palette.grip_dot : palette.text_primary);
+            : ((state & CDIS_DISABLED) ? DisabledControlText(expected_theme) : palette.text_primary);
         std::vector<uint64_t> shapes;
         for (const auto id : commands) {
             toolbar.nmcd.hdr.hwndFrom = Child(window, id == SaveWord ? InlineSave : Toolbar);

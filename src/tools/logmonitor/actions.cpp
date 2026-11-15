@@ -57,9 +57,12 @@ LRESULT CALLBACK MonitorWindow::Impl::SplitterProcedure(HWND window, UINT messag
                 self->diagnostics.Record(2, L"Get details splitter layout bounds", ::GetLastError());
                 return 0;
             }
-            const int height = rect.bottom - self->theme.ScalePx(kMonitorDetailsFooterSpace) -
-                (point.y - self->splitter_drag_offset);
-            self->ResizeDetails(::MulDiv(height, kMonitorLayoutReferenceDpi, gsl::narrow_cast<int>(self->theme.dpi)));
+            const int footer = self->theme.ScalePx(kMonitorDetailsFooterSpace) +
+                FluentControlHeight(self->theme, kMonitorSplitterHeight) - self->theme.ScalePx(kMonitorSplitterHeight);
+            const int height = self->viewport.ContentHeight() - footer -
+                (point.y + self->viewport.Offset() - self->splitter_drag_offset);
+            self->ResizeDetails(::MulDiv(height, kMonitorMinimumDetailHeight,
+                self->theme.ScalePx(kMonitorMinimumDetailHeight)));
         }
         return 0;
     case WM_LBUTTONUP:

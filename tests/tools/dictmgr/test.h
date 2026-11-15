@@ -38,6 +38,7 @@ using enum qiqi::dict_manager::ControlId;
 namespace layout = dict_manager_layout;
 
 HWND Child(const DictManagerWindow& window, ControlId id) noexcept;
+bool SaveFixtureConfig(const QiQiConfig& config, std::wstring_view expected_subkey);
 RECT ToolbarItemRect(const DictManagerWindow& window, ControlId id);
 void InvokeCommand(const DictManagerWindow& window, ControlId id, bool toolbar = false);
 std::wstring MenuText(HMENU menu, ControlId id);

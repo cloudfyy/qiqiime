@@ -27,7 +27,9 @@ constexpr int kMenuPaddingX = 20;
 constexpr int kMenuPaddingY = 8;
 constexpr int kMenuCheckGutter = 28;
 constexpr int kMenuSeparatorHeight = 12;
-constexpr int kComfortMenuTarget = 44;
+constexpr int kComfortMenuTarget = kComfortMinimumTargetDip;
+constexpr int kToolbarTextGap = 8;
+constexpr size_t kToolbarTextCapacity = 256;
 constexpr int kMaxTooltipWidthPx = 400;
 }
 
@@ -183,10 +185,16 @@ void ToolCommandUi::UpdateCommand(HWND window, const ToolCommand& command) {
 }
 
 int ToolCommandUi::LayoutToolbar(HWND toolbar, int width, const FluentD2DThemeContext& theme) const noexcept {
-    ::MoveWindow(toolbar, 0, 0, width, theme.ScalePx(kToolbarHeight), TRUE);
-    const int size = theme.ScalePx(kToolbarButtonSize);
+    ::MoveWindow(toolbar, 0, 0, width, FluentControlHeight(theme, kToolbarHeight), TRUE);
+    const int size = FluentControlHeight(theme, kToolbarButtonSize);
     ::SendMessageW(toolbar, TB_SETBUTTONSIZE, 0, MAKELPARAM(size, size));
-    ::SendMessageW(toolbar, TB_SETBUTTONWIDTH, 0, MAKELPARAM(size, size));
+    const auto found = std::ranges::find(toolbars_, toolbar, &Toolbar::window);
+    const bool show_text = theme.display_preferences.easy_reading &&
+        found != toolbars_.end() && !found->compact;
+    ::SendMessageW(toolbar, TB_SETMAXTEXTROWS, show_text ? 1 : 0, 0);
+    ::SendMessageW(toolbar, TB_SETBUTTONWIDTH, 0, MAKELPARAM(size, show_text ? std::max(size, width) : size));
+    const ScopedWindowDC dc(toolbar);
+    const ScopedSelectObject font(dc.Get(), reinterpret_cast<HFONT>(::SendMessageW(toolbar, WM_GETFONT, 0, 0)));
     const LRESULT count = ::SendMessageW(toolbar, TB_BUTTONCOUNT, 0, 0);
     for (LRESULT i = 0; i < count; ++i) {
         TBBUTTON button{};
@@ -201,19 +209,47 @@ int ToolCommandUi::LayoutToolbar(HWND toolbar, int width, const FluentD2DThemeCo
             separator.cx = gsl::narrow_cast<WORD>(theme.ScalePx(kToolbarGroupGap));
             if (!::SendMessageW(toolbar, TB_SETBUTTONINFOW, gsl::narrow_cast<WPARAM>(i), reinterpret_cast<LPARAM>(&separator)))
                 Report("TB_SETBUTTONINFOW(separator size)", ERROR_INVALID_DATA);
+        } else {
+            TBBUTTONINFOW info{};
+            info.cbSize = sizeof(info);
+            info.dwMask = TBIF_SIZE | TBIF_STYLE;
+            info.fsStyle = gsl::narrow_cast<BYTE>(show_text ?
+                button.fsStyle | BTNS_SHOWTEXT : button.fsStyle & ~BTNS_SHOWTEXT);
+            int button_width = size;
+            if (show_text) {
+                std::array<wchar_t, kToolbarTextCapacity> text{};
+                TBBUTTONINFOW label{};
+                label.cbSize = sizeof(label);
+                label.dwMask = TBIF_TEXT;
+                label.pszText = text.data();
+                label.cchText = gsl::narrow_cast<int>(text.size());
+                SIZE extent{};
+                if (::SendMessageW(toolbar, TB_GETBUTTONINFOW, button.idCommand, reinterpret_cast<LPARAM>(&label)) < 0 ||
+                    !::GetTextExtentPoint32W(dc.Get(), text.data(), gsl::narrow_cast<int>(std::wcslen(text.data())), &extent)) {
+                    Report("Measure toolbar command");
+                } else {
+                    button_width = std::max(size, std::min(width, gsl::narrow_cast<int>(extent.cx) +
+                        theme.ScalePx(kToolbarIconSize + 3 * kToolbarTextGap)));
+                }
+            }
+            info.cx = gsl::narrow_cast<WORD>(button_width);
+            if (!::SendMessageW(toolbar, TB_SETBUTTONINFOW, button.idCommand, reinterpret_cast<LPARAM>(&info))) {
+                Report("TB_SETBUTTONINFOW(command size)", ERROR_INVALID_DATA);
+            }
         }
     }
+    ::SendMessageW(toolbar, TB_SETBUTTONSIZE, 0, MAKELPARAM(size, size));
     ::SendMessageW(toolbar, TB_AUTOSIZE, 0, 0);
     RECT rect{};
     ::GetWindowRect(toolbar, &rect);
     return rect.bottom - rect.top;
 }
 
-void ToolCommandUi::ApplyTheme(HWND window) noexcept {
+void ToolCommandUi::ApplyTheme(HWND window, const FluentD2DThemeContext& theme) noexcept {
     RefreshMenuAppearance(window, ::GetDpiForWindow(window));
     ApplyMenuBackground(::GetMenu(window));
-    const bool contrast = IsHighContrastEnabled();
-    const auto& palette = GetCurrentThemePalette();
+    const bool contrast = theme.appearance.system_high_contrast;
+    const auto& palette = theme.appearance.palette;
     ::DrawMenuBar(window);
     for (const auto& toolbar : toolbars_) {
         ::InvalidateRect(toolbar.window, nullptr, TRUE);
@@ -357,8 +393,8 @@ void ToolCommandUi::DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, 
 LRESULT ToolCommandUi::DrawToolbar(NMCUSTOMDRAW& draw, const Toolbar& toolbar,
                                    const FluentD2DThemeContext& theme) const noexcept {
     const ScopedSaveDC save(draw.hdc);
-    const bool contrast = IsHighContrastEnabled();
-    const auto& palette = GetCurrentThemePalette();
+    const bool contrast = theme.appearance.system_high_contrast;
+    const auto& palette = theme.appearance.palette;
     const auto fill = [&](const RECT& rect, COLORREF color) noexcept {
         ::SetDCBrushColor(draw.hdc, color);
         ::FillRect(draw.hdc, &rect, static_cast<HBRUSH>(::GetStockObject(DC_BRUSH)));
@@ -383,14 +419,44 @@ LRESULT ToolCommandUi::DrawToolbar(NMCUSTOMDRAW& draw, const Toolbar& toolbar,
         contrast ? ::GetSysColor(hot ? COLOR_HIGHLIGHT : COLOR_BTNFACE) : (hot ? palette.hover_bg : palette.window_bg);
     const COLORREF foreground =
         contrast ? ::GetSysColor(disabled ? COLOR_GRAYTEXT : (hot ? COLOR_HIGHLIGHTTEXT : COLOR_BTNTEXT))
-                 : (disabled ? palette.grip_dot : palette.text_primary);
+                 : (disabled ? DisabledControlText(theme) :
+                    (hot && theme.appearance.high_contrast ? palette.selection_text : palette.text_primary));
     fill(draw.rc, background);
     const int size = toolbar.compact
                          ? std::max(1, std::min(theme.ScalePx(kCompactIconSize),
                                                 gsl::narrow_cast<int>(draw.rc.bottom - draw.rc.top) - theme.ScalePx(kCompactIconPadding)))
                          : theme.ScalePx(kToolbarIconSize);
-    DrawIcon(draw.hdc, draw.rc, gsl::narrow_cast<ToolIcon>(button.lParam), size,
+    RECT icon_rect = draw.rc;
+    const bool show_text = theme.display_preferences.easy_reading && !toolbar.compact;
+    if (show_text) {
+        icon_rect.left += theme.ScalePx(kToolbarTextGap);
+        icon_rect.right = icon_rect.left + size;
+        std::array<wchar_t, kToolbarTextCapacity> text{};
+        TBBUTTONINFOW label{};
+        label.cbSize = sizeof(label);
+        label.dwMask = TBIF_TEXT;
+        label.pszText = text.data();
+        label.cchText = gsl::narrow_cast<int>(text.size());
+        if (::SendMessageW(toolbar.window, TB_GETBUTTONINFOW, draw.dwItemSpec, reinterpret_cast<LPARAM>(&label)) >= 0) {
+            RECT text_rect = draw.rc;
+            text_rect.left = icon_rect.right + theme.ScalePx(kToolbarTextGap);
+            text_rect.right -= theme.ScalePx(kToolbarTextGap);
+            const ScopedSelectObject selected_font(draw.hdc,
+                reinterpret_cast<HFONT>(::SendMessageW(toolbar.window, WM_GETFONT, 0, 0)));
+            ::SetTextColor(draw.hdc, foreground);
+            ::SetBkMode(draw.hdc, TRANSPARENT);
+            ::DrawTextW(draw.hdc, text.data(), -1, &text_rect, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+        } else {
+            Report("TB_GETBUTTONINFOW(command text)", ERROR_INVALID_DATA);
+        }
+    }
+    DrawIcon(draw.hdc, icon_rect, gsl::narrow_cast<ToolIcon>(button.lParam), size,
              std::max(1, theme.ScalePx(toolbar.compact ? kCompactIconStroke : kToolbarIconStroke)), foreground);
+    if (disabled && theme.appearance.high_contrast) {
+        ::SetTextColor(draw.hdc, foreground);
+        ::SetBkMode(draw.hdc, TRANSPARENT);
+        ::DrawTextW(draw.hdc, L"\x00D7", 1, &icon_rect, DT_SINGLELINE | DT_RIGHT | DT_TOP);
+    }
     if (draw.uItemState & CDIS_FOCUS) {
         RECT focus = draw.rc;
         ::InflateRect(&focus, -kFocusInsetPx, -kFocusInsetPx);
@@ -404,7 +470,7 @@ int ToolCommandUi::MenuScale(int px) const noexcept {
 }
 
 void ToolCommandUi::RefreshMenuAppearance(HWND window, UINT dpi) noexcept {
-    const auto preferences = GetDisplayPreferences(LoadConfig());
+    const auto preferences = NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig()));
     dpi = dpi ? dpi : 96u;
     if (!menu_font_ || preferences != menu_preferences_ || dpi != menu_dpi_) {
         auto font = CreateUiFont(ScaleDisplayPx(kFluentBodyFontSize, dpi, preferences.text_scale));

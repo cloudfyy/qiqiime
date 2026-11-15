@@ -63,11 +63,6 @@ ScopedGdiHandle<HBRUSH> CreateThemeBrush(COLORREF color) noexcept {
     return brush;
 }
 
-COLORREF DisabledControlText(const FluentD2DThemeContext& theme) noexcept {
-    if (theme.appearance.system_high_contrast) return ::GetSysColor(COLOR_GRAYTEXT);
-    return theme.appearance.high_contrast ? theme.appearance.palette.text_secondary : RGB(145, 145, 145);
-}
-
 template <size_t N>
 void AppendDisabledSuffix(std::array<wchar_t, N>& text, const wchar_t* suffix) noexcept {
     if (!suffix) return;
@@ -81,6 +76,11 @@ void AppendDisabledSuffix(std::array<wchar_t, N>& text, const wchar_t* suffix) n
     const auto destination = std::span(text).subspan(length, extra + 1);
     std::copy(source.begin(), source.end(), destination.begin());
 }
+}
+
+COLORREF DisabledControlText(const FluentD2DThemeContext& theme) noexcept {
+    if (theme.appearance.system_high_contrast) return ::GetSysColor(COLOR_GRAYTEXT);
+    return theme.appearance.high_contrast ? theme.appearance.palette.text_secondary : RGB(145, 145, 145);
 }
 
 void SetHighContrastOverrideForTest(std::optional<bool> enabled) noexcept {

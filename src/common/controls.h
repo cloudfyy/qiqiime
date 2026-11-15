@@ -9,6 +9,7 @@
 #include "common/theme.h"
 
 #include <span>
+#include <algorithm>
 #include <optional>
 #include <cstddef>
 
@@ -18,6 +19,15 @@ inline constexpr int kFluentBodyFontSize = 14;
 inline constexpr int kFluentComboItemHeight = 22;
 inline constexpr int kFluentToggleTextInset = 4;
 inline constexpr std::size_t kFluentComboTextCapacity = 128;
+inline constexpr int kComfortMinimumTargetDip = 44;
+inline constexpr int kComfortMinimumTextPercent = 150;
+
+constexpr DisplayPreferences NormalizeDisplayPreferences(DisplayPreferences preferences) noexcept {
+    if (preferences.easy_reading && TextScalePercent(preferences.text_scale) < kComfortMinimumTextPercent) {
+        preferences.text_scale = UiTextScale::Percent150;
+    }
+    return preferences;
+}
 
 bool IsHighContrastEnabled() noexcept;
 void SetHighContrastOverrideForTest(std::optional<bool> enabled) noexcept;
@@ -49,6 +59,12 @@ struct FluentD2DThemeContext {
     void Init(UINT monitor_dpi) noexcept;
     void RefreshThemeBrushes() noexcept;
 };
+
+inline int FluentControlHeight(const FluentD2DThemeContext& theme, int normal_height) noexcept {
+    return std::max(theme.ScalePx(normal_height), theme.display_preferences.easy_reading ?
+        theme.ScaleDipPx(kComfortMinimumTargetDip) : 0);
+}
+COLORREF DisabledControlText(const FluentD2DThemeContext& theme) noexcept;
 
 // Shared WM_CTLCOLOR handling; input=false is for labels/buttons.
 HBRUSH ApplyFluentControlColors(HDC dc, const FluentD2DThemeContext& theme, bool input) noexcept;

@@ -27,7 +27,6 @@ constexpr int kFilterDropdownHeight = 240;
 constexpr int kFilterGroupGap = 10;
 constexpr int kFilterSectionHeight = 42;
 constexpr int kMinimumListHeight = 60;
-constexpr int kSplitterHeight = 8;
 constexpr int kStatusBottomOffset = 30;
 constexpr int kStatusHeight = 24;
 constexpr WPARAM kDetailsTextLimitChars = 1024 * 1024;
@@ -179,6 +178,7 @@ bool MonitorWindow::Impl::Add(const wchar_t* cls, const wchar_t* text, DWORD sty
 
 bool MonitorWindow::Impl::CreateControls() {
     theme.Init(::GetDpiForWindow(hwnd));
+    theme.SetDisplayPreferences(NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig())));
     font = CreateUiFont(theme.ScalePx(kFluentBodyFontSize));
     if (!font) {
         Failure(L"Create monitor font", ::GetLastError());
@@ -216,12 +216,18 @@ bool MonitorWindow::Impl::CreateControls() {
     std::array<const wchar_t*, 7> columns{
         Text(L"时间 (UTC)", L"Time (UTC)"), Text(L"进程", L"Process"), L"PID", L"TID",
         Text(L"级别", L"Level"), Text(L"分类 / 阶段", L"Category / Stage"), Text(L"消息", L"Message")};
-    const HRESULT columns_hr = InsertListViewColumns(Child(List), columns, kLogColumnWidths, theme.dpi);
+    const HRESULT columns_hr = InsertListViewColumns(Child(List), columns, kLogColumnWidths, theme);
     if (FAILED(columns_hr)) {
         Failure(L"ListView_InsertColumn", gsl::narrow_cast<ULONG>(columns_hr));
         return false;
     }
     if (!CreateMetricControls()) return false;
+    if (!SetFluentListRowHeight(Child(List), theme, list_row_images) ||
+        !SetFluentListRowHeight(Child(MetricList), theme, metric_row_images)) return false;
+    for (const auto id : {Process, Pid, Level, Category, MetricInstanceFilter, MetricKindFilter,
+            MetricOutcomeFilter, MetricModeFilter, MetricWindowFilter}) {
+        SetFluentComboHeights(Child(id), theme);
+    }
     ready = true;
     UpdateIcons();
     ApplyLanguage();
@@ -234,15 +240,25 @@ bool MonitorWindow::Impl::CreateControls() {
 }
 
 void MonitorWindow::Impl::Layout() noexcept {
-    if (!ready) return;
+    if (!ready || updating_layout || ::IsIconic(hwnd)) return;
+    updating_layout = true;
+    const auto restore = gsl::finally([this]() noexcept { updating_layout = false; });
     RECT rect{};
     ::GetClientRect(hwnd, &rect);
     const auto s = [this](int value) noexcept { return theme.ScalePx(value); };
     const int width = rect.right;
+    constexpr auto fixed_controls = std::array{
+        Toolbar, MetricSummaryStatus, List, MetricList, DetailsSplitter, Details, Status};
+    std::array<std::pair<ControlId, RECT>,
+        (kFilterSizes.size() + kMetricFilterSizes.size()) * 2 + fixed_controls.size()> placements{};
+    size_t placement_count = 0;
     const auto move = [&](ControlId id, int x, int y, int w, int h) noexcept {
-        ::MoveWindow(Child(id), x, y, std::max(1, w), std::max(1, h), TRUE);
+        gsl::at(placements, placement_count++) = {id, {x, y, x + std::max(1, w), y + std::max(1, h)}};
     };
-    int filter_top = command_ui.LayoutToolbar(Child(Toolbar), width, theme) + s(kWindowMargin);
+    const int toolbar_height = command_ui.LayoutToolbar(Child(Toolbar), width, theme);
+    int filter_top = toolbar_height + s(kWindowMargin);
+    const int input_height = FluentControlHeight(theme, kSearchHeight);
+    const int row_stride = std::max(s(kFilterRowStride), input_height + s(kFilterGroupGap));
     int filter_left = s(kWindowMargin);
     const auto place_filter = [&](ControlId label, ControlId input, int label_width, int input_width,
                                   bool fill_row = false) noexcept {
@@ -251,13 +267,18 @@ void MonitorWindow::Impl::Layout() noexcept {
         if (filter_left > s(kWindowMargin) &&
             filter_left + label_px + s(kFilterControlGap) + input_px > width - s(kWindowMargin)) {
             filter_left = s(kWindowMargin);
-            filter_top += s(kFilterRowStride);
+            filter_top += row_stride;
         }
-        move(label, filter_left, filter_top + s(kFilterControlGap), label_px, s(kFilterLabelHeight));
-        const int input_left = filter_left + label_px + s(kFilterControlGap);
+        const bool stacked = width - s(kWindowMargin) - filter_left - label_px -
+            s(kFilterControlGap) < theme.ScaleDipPx(kComfortMinimumTargetDip);
+        move(label, filter_left, filter_top + s(kFilterControlGap),
+            std::min(label_px, width - s(kWindowMargin) - filter_left), s(kFilterLabelHeight));
+        if (stacked) filter_top += s(kFilterLabelHeight + kFilterControlGap);
+        const int input_left = stacked ? filter_left : filter_left + label_px + s(kFilterControlGap);
         move(input, input_left, filter_top,
-             fill_row ? width - s(kWindowMargin) - input_left : input_px,
-             s(fill_row ? kSearchHeight : kFilterDropdownHeight));
+             fill_row ? width - s(kWindowMargin) - input_left :
+                std::min(input_px, width - s(kWindowMargin) - input_left),
+             fill_row ? input_height : s(kFilterDropdownHeight));
         filter_left = input_left + input_px + s(kFilterGroupGap);
     };
     for (const auto& filter_size : kFilterSizes) {
@@ -275,23 +296,34 @@ void MonitorWindow::Impl::Layout() noexcept {
     ::ShowWindow(Child(List), metrics_view ? SW_HIDE : SW_SHOW);
     ::ShowWindow(Child(MetricList), metrics_view ? SW_SHOW : SW_HIDE);
     ::ShowWindow(Child(MetricSummaryStatus), metrics_view ? SW_SHOW : SW_HIDE);
-    int top = filter_top + s(kFilterSectionHeight);
+    int top = filter_top + std::max(s(kFilterSectionHeight), input_height + s(kFilterGroupGap));
     if (metrics_view) {
         move(MetricSummaryStatus, s(kWindowMargin), top, width - s(2 * kWindowMargin), s(kMetricSummaryHeight));
         top += s(kMetricSummaryHeight);
     }
+    const int splitter_height = FluentControlHeight(theme, kMonitorSplitterHeight);
+    const int footer = s(kMonitorDetailsFooterSpace) + splitter_height - s(kMonitorSplitterHeight);
+    const int content_height = std::max(gsl::narrow_cast<int>(rect.bottom),
+        top + s(kMinimumListHeight + kMonitorMinimumDetailHeight) + footer);
+    viewport.Configure(hwnd, content_height, rect.bottom);
+    move(Toolbar, 0, 0, width, toolbar_height);
     const int detail_limit_px = std::max(s(kMonitorMinimumDetailHeight),
-        gsl::narrow_cast<int>(rect.bottom) - top - s(kMonitorDetailsFooterSpace) - s(kMinimumListHeight));
-    detail_limit = std::max(kMonitorMinimumDetailHeight, gsl::narrow_cast<int>(
-        gsl::narrow_cast<int64_t>(detail_limit_px) * kMonitorLayoutReferenceDpi / theme.dpi));
+        content_height - top - footer - s(kMinimumListHeight));
+    detail_limit = std::max(kMonitorMinimumDetailHeight,
+        ::MulDiv(detail_limit_px, kMonitorMinimumDetailHeight, s(kMonitorMinimumDetailHeight)));
     const int detail = std::min(
         s(std::clamp(detail_height, kMonitorMinimumDetailHeight, detail_limit)), detail_limit_px);
-    const int list_bottom = rect.bottom - detail - s(kMonitorDetailsFooterSpace);
+    const int list_bottom = content_height - detail - footer;
     move(List, s(kWindowMargin), top, width - s(2 * kWindowMargin), list_bottom - top);
     move(MetricList, s(kWindowMargin), top, width - s(2 * kWindowMargin), list_bottom - top);
-    move(DetailsSplitter, s(kWindowMargin), list_bottom, width - s(2 * kWindowMargin), s(kSplitterHeight));
-    move(Details, s(kWindowMargin), list_bottom + s(kSplitterHeight), width - s(2 * kWindowMargin), detail);
-    move(Status, s(kWindowMargin), rect.bottom - s(kStatusBottomOffset), width - s(2 * kWindowMargin), s(kStatusHeight));
+    move(DetailsSplitter, s(kWindowMargin), list_bottom, width - s(2 * kWindowMargin), splitter_height);
+    move(Details, s(kWindowMargin), list_bottom + splitter_height, width - s(2 * kWindowMargin), detail);
+    move(Status, s(kWindowMargin), content_height - s(kStatusBottomOffset),
+        width - s(2 * kWindowMargin), s(kStatusHeight));
+    for (const auto& [id, bounds] : std::span(placements).first(placement_count)) {
+        viewport.Move(Child(id), bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+    }
+    ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
 void MonitorWindow::Impl::UpdateTheme() noexcept {
@@ -306,7 +338,25 @@ void MonitorWindow::Impl::UpdateTheme() noexcept {
         Child(MetricOutcomeFilter), Child(MetricModeFilter), Child(MetricWindowFilter)};
     if (!ApplyToolWindowListAndControlsTheme(hwnd, Child(MetricList), theme, metric_controls))
         diagnostics.Record(3, L"SetWindowTheme(metric control/header)", ERROR_GEN_FAILURE);
-    command_ui.ApplyTheme(hwnd);
+    command_ui.ApplyTheme(hwnd, theme);
+}
+
+void MonitorWindow::Impl::RefreshDisplay() noexcept {
+    if (!ready || updating_display) return;
+    const auto preferences = NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig()));
+    if (preferences == theme.display_preferences) return;
+    updating_display = true;
+    const auto restore = gsl::finally([this]() noexcept { updating_display = false; });
+    const auto lists = std::array{Child(List), Child(MetricList)};
+    if (!UpdateToolWindowDisplay(hwnd, theme, font, preferences, theme.dpi, lists)) return;
+    if (!SetFluentListRowHeight(Child(List), theme, list_row_images) ||
+        !SetFluentListRowHeight(Child(MetricList), theme, metric_row_images)) return;
+    for (const auto id : {Process, Pid, Level, Category, MetricInstanceFilter, MetricKindFilter,
+            MetricOutcomeFilter, MetricModeFilter, MetricWindowFilter}) {
+        SetFluentComboHeights(Child(id), theme);
+    }
+    Layout();
+    UpdateTheme();
 }
 
 void MonitorWindow::Impl::ApplyLanguage() {
@@ -364,35 +414,15 @@ void MonitorWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) noexcept {
     if (!ready || updating_display) return;
     updating_display = true;
     const auto restore = gsl::finally([this]() noexcept { updating_display = false; });
-    const UINT previous = theme.dpi;
-    if (dpi != previous) {
-        theme.Init(dpi);
-        auto next_font = CreateUiFont(theme.ScalePx(kFluentBodyFontSize));
-        if (next_font) {
-            ::EnumChildWindows(hwnd, [](HWND child, LPARAM handle) noexcept -> BOOL {
-                ::SendMessageW(child, WM_SETFONT, handle, TRUE);
-                return TRUE;
-            }, reinterpret_cast<LPARAM>(next_font.Get()));
-            font = std::move(next_font);
-        } else {
-            diagnostics.Record(2, L"Recreate DPI fonts", ::GetLastError());
-        }
-        for (size_t i = 0; i < kLogColumnWidths.size(); ++i) {
-            const int column = gsl::narrow_cast<int>(i);
-            ListView_SetColumnWidth(Child(List), column, ::MulDiv(ListView_GetColumnWidth(Child(List), column), gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
-        }
-        for (size_t i = 0; i < kMetricTableWidths.size(); ++i) {
-            const int column = gsl::narrow_cast<int>(i);
-            ListView_SetColumnWidth(Child(MetricList), column, ::MulDiv(ListView_GetColumnWidth(Child(MetricList), column),
-                gsl::narrow_cast<int>(dpi), gsl::narrow_cast<int>(previous)));
-        }
+    const auto lists = std::array{Child(List), Child(MetricList)};
+    if (!UpdateToolWindowDisplay(hwnd, theme, font, GetDisplayPreferences(LoadConfig()), dpi, lists)) return;
+    if (!SetFluentListRowHeight(Child(List), theme, list_row_images) ||
+        !SetFluentListRowHeight(Child(MetricList), theme, metric_row_images)) return;
         for (const auto id : {Process, Pid, Level, Category, MetricInstanceFilter, MetricKindFilter,
                  MetricOutcomeFilter, MetricModeFilter, MetricWindowFilter}) {
-            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, gsl::narrow_cast<WPARAM>(-1), theme.ScalePx(kFluentComboItemHeight));
-            ::SendMessageW(Child(id), CB_SETITEMHEIGHT, 0, theme.ScalePx(kFluentComboItemHeight));
+            SetFluentComboHeights(Child(id), theme);
         }
         UpdateIcons();
-    }
     const POINT center{proposed.left + (proposed.right - proposed.left) / 2, proposed.top + (proposed.bottom - proposed.top) / 2};
     const auto monitor = QueryMonitorForPoint(center, hwnd);
     const RECT rect = ClampWindowRectToWorkArea(proposed, monitor.work_area);

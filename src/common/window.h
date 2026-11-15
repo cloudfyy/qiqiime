@@ -8,6 +8,7 @@
 #include "common/uiutil.h"
 
 #include <commctrl.h>
+#include <windowsx.h>
 #include <uxtheme.h>
 #include <gsl/gsl>
 #include <algorithm>
@@ -38,7 +39,7 @@ inline bool UpdateWindowBrandIcons(
     ScopedIcon& out_big_icon) noexcept {
     const auto load = [&](int size) noexcept {
         return ScopedIcon(static_cast<HICON>(::LoadImageW(
-            instance, MAKEINTRESOURCEW(1), IMAGE_ICON, theme.ScalePx(size), theme.ScalePx(size), LR_DEFAULTCOLOR)));
+            instance, MAKEINTRESOURCEW(1), IMAGE_ICON, theme.ScaleDipPx(size), theme.ScaleDipPx(size), LR_DEFAULTCOLOR)));
     };
     auto loaded_small = load(kSmallBrandIconSize);
     auto loaded_big = load(kLargeBrandIconSize);
@@ -67,6 +68,112 @@ inline RECT ComputeCenteredToolWindowRect(
     return RECT{left, top, left + width, top + height};
 }
 
+class FluentToolWindowViewport final {
+public:
+    int ContentHeight() const noexcept { return content_height_; }
+    int Offset() const noexcept { return offset_; }
+    void Configure(HWND window, int content_height, int viewport_height) noexcept {
+        content_height_ = std::max({content_height, viewport_height, 1});
+        viewport_height_ = std::max(1, viewport_height);
+        offset_ = std::clamp(offset_, 0, std::max(0, content_height_ - viewport_height_));
+        const bool scrollable = content_height_ > viewport_height_;
+        const bool visible = (::GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL) != 0;
+        ::ShowScrollBar(window, SB_VERT, scrollable);
+        SCROLLINFO info{};
+        info.cbSize = sizeof(info);
+        info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+        info.nMax = content_height_ - 1;
+        info.nPage = gsl::narrow_cast<UINT>(viewport_height_);
+        info.nPos = offset_;
+        ::SetScrollInfo(window, SB_VERT, &info, TRUE);
+        if (visible != scrollable && !::PostMessageW(window, WM_SIZE, 0, 0)) {
+            QIQI_LOG_WARN("Tool viewport relayout notification failed (error={})", ::GetLastError());
+        }
+    }
+
+    void Move(HWND child, int x, int y, int width, int height) const noexcept {
+        width = std::max(1, width);
+        height = std::max(1, height);
+        const int top = y - offset_;
+        if (!::SetWindowPos(child, nullptr, x, top, width, height,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOREDRAW)) {
+            QIQI_LOG_WARN("Tool viewport child positioning failed (error={})", ::GetLastError());
+            return;
+        }
+        ScopedGdiHandle<HRGN> region(::CreateRectRgn(0, std::clamp(-top, 0, height),
+            width, std::clamp(viewport_height_ - top, 0, height)));
+        if (!region || !::SetWindowRgn(child, region.Get(), FALSE)) {
+            QIQI_LOG_WARN("Tool viewport child clipping failed (error={})", ::GetLastError());
+            return;
+        }
+        std::ignore = region.Detach();
+    }
+
+    bool Handle(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
+        const FluentD2DThemeContext& theme) noexcept {
+        int next = offset_;
+        if (message == WM_VSCROLL && lparam == 0) {
+            const int line = FluentControlHeight(theme, kFluentComboItemHeight);
+            switch (LOWORD(wparam)) {
+            case SB_LINEUP: next -= line; break;
+            case SB_LINEDOWN: next += line; break;
+            case SB_PAGEUP: next -= viewport_height_; break;
+            case SB_PAGEDOWN: next += viewport_height_; break;
+            case SB_TOP: next = 0; break;
+            case SB_BOTTOM: next = content_height_; break;
+            case SB_THUMBTRACK:
+            case SB_THUMBPOSITION: {
+                SCROLLINFO info{};
+                info.cbSize = sizeof(info);
+                info.fMask = SIF_TRACKPOS;
+                if (::GetScrollInfo(window, SB_VERT, &info)) next = info.nTrackPos;
+                else QIQI_LOG_WARN("Tool viewport scrollbar query failed (error={})", ::GetLastError());
+                break;
+            }
+            default: break;
+            }
+        } else if (message == WM_MOUSEWHEEL) {
+            next -= ::MulDiv(GET_WHEEL_DELTA_WPARAM(wparam),
+                FluentControlHeight(theme, kFluentComboItemHeight), WHEEL_DELTA);
+        } else {
+            HWND child = nullptr;
+            if (message == WM_COMMAND &&
+                (HIWORD(wparam) == EN_SETFOCUS || HIWORD(wparam) == CBN_SETFOCUS)) {
+                child = reinterpret_cast<HWND>(lparam);
+            } else if (message == WM_NOTIFY && lparam) {
+                const auto& header = *reinterpret_cast<const NMHDR*>(lparam);
+                if (header.code == NM_SETFOCUS) child = header.hwndFrom;
+            }
+            if (child && ::IsChild(window, child)) {
+                RECT rect{};
+                if (!::GetWindowRect(child, &rect)) {
+                    QIQI_LOG_WARN("Tool focused control bounds query failed (error={})", ::GetLastError());
+                    return false;
+                }
+                ::SetLastError(ERROR_SUCCESS);
+                if (!::MapWindowPoints(nullptr, window, reinterpret_cast<POINT*>(&rect), 2) &&
+                    ::GetLastError() != ERROR_SUCCESS) {
+                    QIQI_LOG_WARN("Tool focused control coordinate mapping failed (error={})", ::GetLastError());
+                    return false;
+                }
+                if (rect.top < 0) next += rect.top;
+                else if (rect.bottom > viewport_height_) {
+                    next += std::min(rect.top, rect.bottom - viewport_height_);
+                }
+            }
+        }
+        next = std::clamp(next, 0, std::max(0, content_height_ - viewport_height_));
+        if (next == offset_) return false;
+        offset_ = next;
+        return true;
+    }
+
+private:
+    int offset_ = 0;
+    int content_height_ = 0;
+    int viewport_height_ = 1;
+};
+
 // Handle standard Fluent D2D owner-draw, control color, background erase, and min-track-size messages
 // shared across standalone tool windows. Returns std::nullopt if the message should be handled by the caller.
 [[gsl::suppress("type.1")]]
@@ -83,6 +190,19 @@ inline std::optional<LRESULT> HandleFluentToolWindowMessage(
     case WM_DRAWITEM:
         if (lparam) {
             const auto& item = *reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
+            const ScopedSaveDC saved(item.hDC);
+            const ScopedGdiHandle<HRGN> region(::CreateRectRgn(0, 0, 0, 0));
+            if (!saved || !region) {
+                QIQI_LOG_WARN("Tool control drawing state creation failed (error={})", ::GetLastError());
+                return TRUE;
+            }
+            const bool popup_item = item.CtlType == ODT_COMBOBOX && item.itemID != gsl::narrow_cast<UINT>(-1);
+            if (!popup_item && ::GetWindowRgn(item.hwndItem, region.Get()) != ERROR) {
+                if (::ExtSelectClipRgn(item.hDC, region.Get(), RGN_AND) == ERROR) {
+                    QIQI_LOG_WARN("Tool control drawing clip failed (error={})", ::GetLastError());
+                    return TRUE;
+                }
+            }
             if (item.CtlType == ODT_COMBOBOX) {
                 DrawFluentComboBoxItem(item, theme);
                 return TRUE;
@@ -92,7 +212,7 @@ inline std::optional<LRESULT> HandleFluentToolWindowMessage(
                     item,
                     theme,
                     item.CtlID == primary_button_id,
-                    IsSystemDarkTheme() ? MakeD2DColor(43, 46, 52) : MakeD2DColor(255, 255, 255));
+                    ColorRefToD2DColor(theme.appearance.palette.input_bg));
                 return TRUE;
             }
         }
@@ -100,7 +220,7 @@ inline std::optional<LRESULT> HandleFluentToolWindowMessage(
     case WM_MEASUREITEM:
         if (lparam && reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->CtlType == ODT_COMBOBOX) {
             reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight =
-                gsl::narrow_cast<UINT>(theme.ScalePx(kFluentComboItemHeight));
+                gsl::narrow_cast<UINT>(FluentControlHeight(theme, kFluentComboItemHeight));
             return TRUE;
         }
         break;
@@ -141,9 +261,9 @@ inline bool ApplyToolWindowListAndControlsTheme(
     FluentD2DThemeContext& theme,
     std::span<const HWND> themed_controls) noexcept {
     theme.RefreshThemeBrushes();
-    const bool contrast = IsHighContrastEnabled();
-    const bool dark = !contrast && IsSystemDarkTheme();
-    ApplySystemThemeToMenuAndWindow(hwnd, dark);
+    const bool contrast = theme.appearance.system_high_contrast;
+    const bool dark = !contrast && theme.appearance.palette.is_dark;
+    ApplyDisplayThemeToWindow(hwnd, theme.appearance);
     bool all_ok = true;
     for (const HWND ctrl : themed_controls) {
         if (ctrl && FAILED(::SetWindowTheme(ctrl, contrast ? nullptr : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr))) {
@@ -157,10 +277,8 @@ inline bool ApplyToolWindowListAndControlsTheme(
                 nullptr))) {
             all_ok = false;
         }
-        const COLORREF background =
-            contrast ? ::GetSysColor(COLOR_WINDOW) : (dark ? RGB(43, 46, 52) : RGB(255, 255, 255));
-        const COLORREF foreground =
-            contrast ? ::GetSysColor(COLOR_WINDOWTEXT) : (dark ? kDarkTextColor : kLightTextColor);
+        const COLORREF background = theme.appearance.palette.input_bg;
+        const COLORREF foreground = theme.appearance.palette.text_primary;
         ListView_SetBkColor(list_hwnd, background);
         ListView_SetTextBkColor(list_hwnd, background);
         ListView_SetTextColor(list_hwnd, foreground);
@@ -178,7 +296,8 @@ inline std::optional<LRESULT> TryCustomDrawDarkListViewHeader(
     const FluentD2DThemeContext& theme,
     bool* out_header_read_failed = nullptr) noexcept {
     if (out_header_read_failed) *out_header_read_failed = false;
-    if (!lparam || IsHighContrastEnabled() || !IsSystemDarkTheme()) {
+    if (!lparam || theme.appearance.system_high_contrast ||
+        (!theme.appearance.palette.is_dark && !theme.appearance.high_contrast)) {
         return std::nullopt;
     }
     const auto& notification = *reinterpret_cast<const NMHDR*>(lparam);
@@ -201,15 +320,19 @@ inline std::optional<LRESULT> TryCustomDrawDarkListViewHeader(
         }
         const ScopedSaveDC saved(draw.hdc);
         const ScopedSelectObject selected_font(draw.hdc, font);
-        ::SetDCBrushColor(draw.hdc, (draw.uItemState & CDIS_HOT) ? RGB(66, 70, 78) : RGB(54, 58, 66));
-        const auto brush = ::GetSysColorBrush(COLOR_WINDOWFRAME);
+        ::SetDCBrushColor(draw.hdc, (draw.uItemState & CDIS_HOT) ?
+            theme.appearance.palette.hover_bg : theme.appearance.palette.surface_bg);
+        constexpr int kHeaderBorderWidthDip = 1;
+        constexpr int kHeaderTextPaddingDip = 6;
         ::FillRect(draw.hdc, &draw.rc, static_cast<HBRUSH>(::GetStockObject(DC_BRUSH)));
-        const RECT border{draw.rc.right - 1, draw.rc.top, draw.rc.right, draw.rc.bottom};
-        ::FillRect(draw.hdc, &border, brush);
+        const RECT border{draw.rc.right - theme.ScaleDipPx(kHeaderBorderWidthDip),
+            draw.rc.top, draw.rc.right, draw.rc.bottom};
+        ::SetDCBrushColor(draw.hdc, theme.appearance.palette.border_color);
+        ::FillRect(draw.hdc, &border, static_cast<HBRUSH>(::GetStockObject(DC_BRUSH)));
         RECT label = draw.rc;
-        label.left += theme.ScalePx(6);
-        label.right -= theme.ScalePx(6);
-        ::SetTextColor(draw.hdc, kDarkTextColor);
+        label.left += theme.ScalePx(kHeaderTextPaddingDip);
+        label.right -= theme.ScalePx(kHeaderTextPaddingDip);
+        ::SetTextColor(draw.hdc, theme.appearance.palette.text_primary);
         ::SetBkMode(draw.hdc, TRANSPARENT);
         const UINT alignment =
             (item.fmt & HDF_RIGHT) ? DT_RIGHT : ((item.fmt & HDF_CENTER) ? DT_CENTER : DT_LEFT);

@@ -5,7 +5,186 @@
 
 namespace qiqi::dict_manager::tests {
 
+namespace {
+void TestSavedDisplayPreferences() {
+    const auto subkey = L"Software\\QiQiIME\\Tests\\DictManagerDisplay_" +
+        std::to_wstring(::GetCurrentProcessId());
+    const wchar_t* previous_subkey = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    SetThemeDarkOverrideForTest(true);
+    SetHighContrastOverrideForTest(false);
+    const auto directory = std::filesystem::current_path() /
+        (L"dictmgr-display-test-" + std::to_wstring(::GetCurrentProcessId()));
+    const auto cleanup = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
+        SetThemeDarkOverrideForTest(std::nullopt);
+        SetHighContrastOverrideForTest(std::nullopt);
+        SetMonitorMetricsOverrideForTest(std::nullopt);
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+        std::error_code error;
+        std::filesystem::remove_all(directory, error);
+        DrainQuitMessages();
+    });
+    std::filesystem::create_directories(directory);
+    QiQiConfig saved;
+    saved.ui_theme = UiTheme::Light;
+    saved.ui_text_scale = UiTextScale::Percent125;
+    saved.easy_reading = true;
+    QIQI_TEST_CHECK(SaveFixtureConfig(saved, subkey));
+    DictManagerWindow window;
+    QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr),
+        directory / L"user_dict.txt", directory / L"phrase_freq.qfreq"));
+    const HWND list = Child(window, List);
+    const UINT dpi = ::GetDpiForWindow(window.Handle());
+    const auto check_font = [&](UiTextScale scale) {
+        const int expected = ScaleDisplayPx(kFluentBodyFontSize, dpi, scale);
+        for (const HWND control : {Child(window, Toolbar), Child(window, SourceCombo),
+                 Child(window, SearchEdit), list, ListView_GetHeader(list),
+                 Child(window, EditWordInput), Child(window, EditCodeInput), Child(window, Status)}) {
+            LOGFONTW font{};
+            const auto handle = reinterpret_cast<HFONT>(::SendMessageW(control, WM_GETFONT, 0, 0));
+            QIQI_TEST_CHECK(::GetObjectW(handle, sizeof(font), &font) == sizeof(font));
+            QIQI_TEST_CHECK(-font.lfHeight == expected);
+        }
+    };
+    check_font(NormalizeDisplayPreferences(GetDisplayPreferences(saved)).text_scale);
+    QIQI_TEST_CHECK(GetDisplayPreferences(LoadConfig()) == GetDisplayPreferences(saved));
+    QIQI_TEST_CHECK(ListView_GetBkColor(list) == GetThemePalette(false).input_bg);
+    const int target = ScalePxByDpi(kComfortMinimumTargetDip, dpi);
+    RECT search{}, combo{};
+    QIQI_TEST_CHECK(::GetWindowRect(Child(window, SearchEdit), &search));
+    QIQI_TEST_CHECK(::GetWindowRect(Child(window, SourceCombo), &combo));
+    QIQI_TEST_CHECK(search.bottom - search.top >= target);
+    QIQI_TEST_CHECK(combo.bottom - combo.top >= target);
+    const auto reload = ToolbarItemRect(window, Reload);
+    QIQI_TEST_CHECK(reload.right - reload.left >= target && reload.bottom - reload.top >= target);
+
+    InvokeCommand(window, NewWord);
+    ::SetWindowTextW(Child(window, EditWordInput), L"未保存词条");
+    ::SetWindowTextW(Child(window, EditCodeInput), L"abcd");
+    ::SendMessageW(Child(window, EditCodeInput), EM_SETSEL, 1, 3);
+    const int count = ListView_GetItemCount(list);
+    const int selected = ListView_GetNextItem(list, -1, LVNI_SELECTED);
+    ListView_SetColumnWidth(list, std::to_underlying(ColumnId::Word), ScalePxByDpi(250, dpi));
+    const int custom_width = ListView_GetColumnWidth(list, std::to_underlying(ColumnId::Word));
+    const auto poll = [&]() {
+        ::SendMessageW(window.Handle(), WM_TIMER, kRefreshTimerId, 0);
+    };
+    auto unsaved_settings = saved;
+    unsaved_settings.ui_theme = UiTheme::Dark;
+    unsaved_settings.ui_text_scale = UiTextScale::Percent200;
+    // A cancelled settings draft never reaches the saved configuration.
+    QIQI_TEST_CHECK(GetDisplayPreferences(unsaved_settings) != GetDisplayPreferences(LoadConfig()));
+    poll();
+    ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
+    check_font(NormalizeDisplayPreferences(GetDisplayPreferences(saved)).text_scale);
+    QIQI_TEST_CHECK(ListView_GetBkColor(list) == GetThemePalette(false).input_bg);
+
+    SetThemeDarkOverrideForTest(false);
+    for (const auto scale : {UiTextScale::Percent150, UiTextScale::Percent200, UiTextScale::Percent100}) {
+        constexpr int kColumnScaleReferenceDip = 100;
+        const int previous_scale = ScaleDisplayPx(kColumnScaleReferenceDip, dpi,
+            NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig())).text_scale);
+        saved.ui_text_scale = scale;
+        saved.ui_theme = UiTheme::Dark;
+        QIQI_TEST_CHECK(SaveFixtureConfig(saved, subkey));
+        const int old_width = ListView_GetColumnWidth(list, std::to_underlying(ColumnId::Word));
+        poll();
+        check_font(NormalizeDisplayPreferences(GetDisplayPreferences(saved)).text_scale);
+        const int next_scale = ScaleDisplayPx(kColumnScaleReferenceDip, dpi,
+            NormalizeDisplayPreferences(GetDisplayPreferences(saved)).text_scale);
+        QIQI_TEST_CHECK(ListView_GetColumnWidth(list, std::to_underlying(ColumnId::Word)) ==
+            ::MulDiv(old_width, next_scale, previous_scale));
+        QIQI_TEST_CHECK(ListView_GetBkColor(list) == GetThemePalette(true).input_bg);
+        QIQI_TEST_CHECK(ListView_GetItemCount(list) == count);
+        QIQI_TEST_CHECK(ListView_GetNextItem(list, -1, LVNI_SELECTED) == selected);
+        QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"未保存词条");
+        QIQI_TEST_CHECK(ControlText(Child(window, EditCodeInput)) == L"abcd");
+        DWORD start{}, end{};
+        ::SendMessageW(Child(window, EditCodeInput), EM_GETSEL,
+            reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+        QIQI_TEST_CHECK(start == 1 && end == 3);
+        RECT row{};
+#pragma warning(suppress : 26477) // ListView_GetItemRect expands to a null-pointer check.
+        QIQI_TEST_CHECK(ListView_GetItemRect(list, selected, &row, LVIR_BOUNDS));
+        QIQI_TEST_CHECK(row.bottom - row.top >= target);
+    }
+    QIQI_TEST_CHECK(custom_width > target);
+    QIQI_TEST_CHECK(::SetWindowPos(window.Handle(), nullptr, 0, 0,
+        ScalePxByDpi(1400, dpi), ScalePxByDpi(680, dpi), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE));
+    for (const auto control : {EditWordInput, EditCodeInput, InlineSave}) {
+        RECT bounds{};
+        QIQI_TEST_CHECK((::GetWindowLongPtrW(Child(window, control), GWL_STYLE) & WS_VISIBLE) != 0);
+        QIQI_TEST_CHECK(::GetWindowRect(Child(window, control), &bounds));
+        QIQI_TEST_CHECK(bounds.bottom - bounds.top >= target);
+        if (control == InlineSave) {
+#pragma warning(suppress : 26496) // TB_GETRECT writes through LPARAM.
+            RECT button{};
+            QIQI_TEST_CHECK(::SendMessageW(Child(window, InlineSave), TB_GETRECT,
+                std::to_underlying(SaveWord), reinterpret_cast<LPARAM>(&button)));
+            QIQI_TEST_CHECK(button.right - button.left >= target && button.bottom - button.top >= target);
+        }
+    }
+    SetHighContrastOverrideForTest(true);
+    ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);
+    QIQI_TEST_CHECK(ListView_GetBkColor(list) == ::GetSysColor(COLOR_WINDOW));
+    SetHighContrastOverrideForTest(false);
+    saved.ui_theme = UiTheme::HighContrast;
+    QIQI_TEST_CHECK(SaveFixtureConfig(saved, subkey));
+    poll();
+    check_font(NormalizeDisplayPreferences(GetDisplayPreferences(saved)).text_scale);
+    QIQI_TEST_CHECK(ListView_GetBkColor(list) == ResolveDisplayAppearance(GetDisplayPreferences(saved)).palette.input_bg);
+
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{
+        {0, 0, ScalePxByDpi(440, dpi), ScalePxByDpi(680, dpi)}, dpi});
+    QIQI_TEST_CHECK(::SetWindowPos(window.Handle(), nullptr, 0, 0,
+        ScalePxByDpi(440, dpi), ScalePxByDpi(680, dpi), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE));
+    RECT source{}, search_label{}, list_rect{}, client{};
+    QIQI_TEST_CHECK(::GetWindowRect(Child(window, SourceCombo), &source));
+    QIQI_TEST_CHECK(::GetWindowRect(Child(window, SearchLabel), &search_label));
+    QIQI_TEST_CHECK(::GetWindowRect(Child(window, SearchEdit), &search));
+    QIQI_TEST_CHECK(::GetWindowRect(list, &list_rect));
+    QIQI_TEST_CHECK(search_label.top >= source.bottom);
+    QIQI_TEST_CHECK(list_rect.top >= search.bottom);
+    QIQI_TEST_CHECK(::GetClientRect(window.Handle(), &client));
+    POINT origin{};
+    QIQI_TEST_CHECK(::ClientToScreen(window.Handle(), &origin));
+    QIQI_TEST_CHECK(search.right <= origin.x + client.right);
+    check_font(NormalizeDisplayPreferences(GetDisplayPreferences(saved)).text_scale);
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{
+        {0, 0, ScalePxByDpi(440, dpi), ScalePxByDpi(240, dpi)}, dpi});
+    QIQI_TEST_CHECK(::SetWindowPos(window.Handle(), nullptr, 0, 0,
+        ScalePxByDpi(440, dpi), ScalePxByDpi(240, dpi), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE));
+    SCROLLINFO scroll{};
+    scroll.cbSize = sizeof(scroll);
+    scroll.fMask = SIF_RANGE | SIF_PAGE;
+    QIQI_TEST_CHECK(::GetScrollInfo(window.Handle(), SB_VERT, &scroll));
+    QIQI_TEST_CHECK(scroll.nMax >= gsl::narrow_cast<int>(scroll.nPage));
+    ::SendMessageW(window.Handle(), WM_VSCROLL, SB_BOTTOM, 0);
+    RECT status{};
+    QIQI_TEST_CHECK(::GetWindowRect(Child(window, Status), &status));
+    QIQI_TEST_CHECK(::GetClientRect(window.Handle(), &client));
+    QIQI_TEST_CHECK(::ClientToScreen(window.Handle(), &origin));
+    QIQI_TEST_CHECK(status.bottom <= origin.y + client.bottom);
+    QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"未保存词条");
+    saved.easy_reading = false;
+    QIQI_TEST_CHECK(SaveFixtureConfig(saved, subkey));
+    poll();
+    QIQI_TEST_CHECK(!ListView_GetImageList(list, LVSIL_SMALL));
+    check_font(saved.ui_text_scale);
+}
+} // namespace
+
 void TestGuiWindow() {
+    const auto display_subkey = L"Software\\QiQiIME\\Tests\\DictManagerGuiDisplay_" +
+        std::to_wstring(::GetCurrentProcessId());
+    const wchar_t* previous_subkey = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(display_subkey.c_str());
+    const auto cleanup_display = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, display_subkey.c_str());
+    });
+    QIQI_TEST_CHECK(SaveFixtureConfig(QiQiConfig{}, display_subkey));
     const auto temp_dir = std::filesystem::temp_directory_path() /
         (L"qiqi_dict_mgr_gui_" + std::to_wstring(::GetCurrentProcessId()));
     std::error_code ec;
@@ -116,6 +295,8 @@ void TestGuiWindow() {
     QIQI_TEST_CHECK(::SendMessageW(Child(window, SourceCombo), CB_GETCURSEL, 0, 0) == 1);
     QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
     ExerciseGuiCommands(window);
+    TestSavedDisplayPreferences();
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) == display_subkey);
 }
 
 } // namespace qiqi::dict_manager::tests

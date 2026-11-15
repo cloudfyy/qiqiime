@@ -226,6 +226,13 @@ struct MonitorWindowTestAccess {
                 if ((::GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE) == 0) continue;
                 RECT rect_child{};
                 ::GetWindowRect(child, &rect_child);
+                if (!(rect_child.left >= client.left && rect_child.top >= client.top &&
+                    rect_child.right <= client.right && rect_child.bottom <= client.bottom)) {
+                    std::cerr << "Metric layout: dpi=" << dpi << ", control=" << ::GetDlgCtrlID(child)
+                        << ", child=" << rect_child.left << ',' << rect_child.top << ','
+                        << rect_child.right << ',' << rect_child.bottom << ", client="
+                        << client.left << ',' << client.top << ',' << client.right << ',' << client.bottom << '\n';
+                }
                 QIQI_TEST_CHECK(rect_child.left >= client.left && rect_child.top >= client.top &&
                     rect_child.right <= client.right && rect_child.bottom <= client.bottom);
                 for (const auto& other : bounds) {
