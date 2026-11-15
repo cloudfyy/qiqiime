@@ -15,7 +15,7 @@ notes. A tag, successful build, checksum, or this document is not a signature.
 
 | Role | Current status |
 | --- | --- |
-| Project maintainer | [cloudfyy](https://github.com/cloudfyy), as identified in the [Chinese README](README.zh-CN.md) |
+| Project maintainer | [cloudfyy](https://github.com/cloudfyy), as identified in the [Chinese README](README.md) |
 | Authors with direct write access | Must be confirmed against repository permissions before signing is enabled |
 | Reviewers of external contributions | Must be designated by the maintainer before signing is enabled |
 | Release-signing approvers | Not configured; must be designated before signing is enabled |

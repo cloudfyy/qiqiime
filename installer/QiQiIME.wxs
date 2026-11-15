@@ -140,7 +140,7 @@
       <Component Id="CmpDocs" Directory="INSTALLFOLDER" Guid="$(var.ComponentGuidPrefix)0105">
         <File Id="FileLicense" Source="$(var.StageDir)\LICENSE" KeyPath="yes" />
         <File Id="FileReadme" Source="$(var.StageDir)\README.md" />
-        <File Id="FileReadmeChinese" Source="$(var.StageDir)\README.zh-CN.md" />
+        <File Id="FileReadmeEnglish" Source="$(var.StageDir)\README.en.md" />
         <File Id="FilePrivacy" Source="$(var.StageDir)\PRIVACY.md" />
         <File Id="FileCodeSigning" Source="$(var.StageDir)\CODE_SIGNING.md" />
         <File Id="FileThirdPartyNotices" Source="$(var.StageDir)\THIRD_PARTY_NOTICES.md" />

@@ -9,7 +9,7 @@ $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ("qiqi-documentation-" + 
 $expected = @(
     "LICENSE",
     "README.md",
-    "README.zh-CN.md",
+    "README.en.md",
     "PRIVACY.md",
     "CODE_SIGNING.md",
     "THIRD_PARTY_NOTICES.md",
