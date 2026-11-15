@@ -33,6 +33,7 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     push_commit_5th_ = cfg.push_commit_5th;
     semicolon_quote_quick_select_ = cfg.semicolon_quote_quick_select;
     show_code_hint_ = cfg.show_code_hint;
+    enable_code_completion_ = cfg.enable_code_completion;
     enable_z_temp_english_ = cfg.enable_z_temp_english;
     dynamic_phrase_freq_ = cfg.dynamic_phrase_freq;
     beep_on_empty_4code_ = cfg.beep_on_empty_4code;

@@ -5,6 +5,46 @@
 
 namespace qiqi::test::dict_cases {
 
+void TestCodeCompletionLookup() {
+    WubiEngine engine;
+    const std::map<uint32_t, std::vector<std::wstring>> entries{
+        {PackWubiCode(L"x"), {L"一简"}},
+        {PackWubiCode(L"xx"), {L"二简"}},
+        {PackWubiCode(L"xxy"), {L"三简"}},
+        {PackWubiCode(L"xxya"), {L"映射全码"}}
+    };
+    std::vector<uint8_t> bytes;
+    WubiMappedDict::CompileEntriesToBinaryBuffer(entries, bytes);
+    QIQI_TEST_CHECK(engine.LoadDictionaryFromBinaryBuffer(std::move(bytes)));
+    engine.AddEntry(L"xxyb", L"用户全码");
+
+    const auto wildcard = engine.LookupCandidates(L"xxz");
+    for (const bool enabled : {true, false, true}) {
+        QiQiConfig config;
+        config.enable_code_completion = enabled;
+        engine.ApplyConfig(config);
+        for (const std::wstring_view code : {L"x", L"xx", L"xxy", L"wq"}) {
+            std::vector<std::wstring> labels{L"stale"};
+            const auto candidates = engine.LookupCandidates(code, &labels);
+            const auto exact = engine.LookupExact(code);
+            QIQI_TEST_CHECK(!exact.empty());
+            if (enabled) {
+                QIQI_TEST_CHECK(candidates.size() > exact.size());
+                QIQI_TEST_CHECK(std::equal(exact.begin(), exact.end(), candidates.begin()));
+                QIQI_TEST_CHECK(std::ranges::any_of(labels, [](const std::wstring& label) {
+                    return label.contains(L"(~");
+                }));
+            } else {
+                QIQI_TEST_CHECK(candidates == exact && labels == exact);
+            }
+        }
+        QIQI_TEST_CHECK(engine.LookupCandidates(L"xxz") == wildcard);
+        QIQI_TEST_CHECK(engine.LookupCandidates(L"xxya") == engine.LookupExact(L"xxya"));
+    }
+    engine.SetEnableCodeCompletion(false);
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"xxyb") == std::vector<std::wstring>{L"用户全码"});
+}
+
 void TestAddEntryAndLookupEdgeCases() {
     WubiEngine engine;
     QIQI_TEST_CHECK(!engine.IsComposing());

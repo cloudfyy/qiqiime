@@ -1950,7 +1950,7 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(
     if (out_display_labels) {
         *out_display_labels = results;
     }
-    if (results.size() >= kMaxCandidateResults) {
+    if (!enable_code_completion_ || results.size() >= kMaxCandidateResults) {
         return results;
     }
 

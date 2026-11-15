@@ -46,7 +46,8 @@ display custom skins.
   tests for manual edits, partial imports, duplicate/unknown keys, cancellation,
   and preservation of existing settings on failure.
 
-- [ ] High priority: add an independent prefix-completion setting.
+- [x] High priority: add an independent prefix-completion setting.
+  Use "编码补全" / "Code completion" as the Chinese / English UI labels.
   Preserve the current enabled default. When disabled, show only exact code
   matches while retaining valid short-code candidates. Persist the setting,
   expose it in the settings UI, and add focused lookup/configuration tests.

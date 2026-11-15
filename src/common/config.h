@@ -77,6 +77,7 @@ struct QiQiConfig {
     bool push_commit_5th = true;
     bool semicolon_quote_quick_select = true;
     bool show_code_hint = true;
+    bool enable_code_completion = true;
     bool enable_z_temp_english = true;
     bool dynamic_phrase_freq = false;
     bool default_chinese_mode = true;
@@ -174,7 +175,8 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"bold_underline", L"BoldUnderline", &QiQiConfig::bold_underline, 0, 1, true},
     ConfigField{"ui_theme", L"UiTheme", &QiQiConfig::ui_theme, 0, 3, true},
     ConfigField{"ui_text_scale", L"UiTextScale", &QiQiConfig::ui_text_scale, 0, 3, true},
-    ConfigField{"easy_reading", L"EasyReading", &QiQiConfig::easy_reading, 0, 1, true}
+    ConfigField{"easy_reading", L"EasyReading", &QiQiConfig::easy_reading, 0, 1, true},
+    ConfigField{"enable_code_completion", L"EnableCodeCompletion", &QiQiConfig::enable_code_completion, 0, 1, true}
 };
 
 template <typename Visitor>

@@ -221,6 +221,8 @@ public:
     void SetSemicolonQuoteQuickSelect(bool enabled) noexcept { semicolon_quote_quick_select_ = enabled; }
     bool ShowCodeHint() const noexcept { return show_code_hint_; }
     void SetShowCodeHint(bool enabled) noexcept { show_code_hint_ = enabled; }
+    bool EnableCodeCompletion() const noexcept { return enable_code_completion_; }
+    void SetEnableCodeCompletion(bool enabled) noexcept { enable_code_completion_ = enabled; }
     bool EnableZTempEnglish() const noexcept { return enable_z_temp_english_; }
     void SetEnableZTempEnglish(bool enabled) noexcept { enable_z_temp_english_ = enabled; }
     bool DynamicPhraseFreq() const noexcept { return dynamic_phrase_freq_; }
@@ -272,7 +274,7 @@ public:
     // Apply a deferred phrase promotion after host edit session access is confirmed.
     void ApplyDeferredPhrasePromotion(const KeyProcessResult& result, bool allow_learn = true);
 
-    // Exact + prefix lookup for a Wubi code (optionally populating progressive/wildcard display labels)
+    // Exact lookup with optional code completion; wildcard queries remain independent.
     std::vector<std::wstring> LookupCandidates(
         std::wstring_view code, std::vector<std::wstring>* out_display_labels = nullptr) const;
     std::vector<std::wstring> LookupExact(std::wstring_view code) const;
@@ -380,6 +382,7 @@ private:
     bool push_commit_5th_ = true;
     bool semicolon_quote_quick_select_ = true;
     bool show_code_hint_ = true;
+    bool enable_code_completion_ = true;
     bool enable_z_temp_english_ = true;
     bool dynamic_phrase_freq_ = false;
     bool beep_on_empty_4code_ = true;

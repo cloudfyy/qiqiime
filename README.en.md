@@ -95,6 +95,11 @@ not guaranteed in every host. Use a system keyboard layout or another verified
 input method for sensitive fields. Windows sign-in and the secure desktop are
 outside the verified support scope.
 
+**Code completion** (`enable_code_completion`) is enabled by default. Disable it
+on the settings window's **Candidates** page to show only exact code matches,
+including valid one-, two-, and three-letter short codes. This option is independent
+of progressive code hints and does not change `z` wildcard queries or temporary English.
+
 ## Privacy
 
 Typing and dictionary lookup run locally. The current application does not

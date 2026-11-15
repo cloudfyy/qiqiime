@@ -33,6 +33,7 @@ namespace qiqi::test::service_cases {
 void TestModeSwitchCompositionPolicy(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> manager, bool commit);
 void TestShiftTapTracking();
+void TestCodeCompletionConfigReload();
 void TestFocusPerformanceLogs();
 void TestProcessDictCacheLifetime();
 void TestDictionarySharingAndLegacyRegistryIgnored();

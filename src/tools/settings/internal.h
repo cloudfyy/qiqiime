@@ -58,6 +58,7 @@ constexpr int kIdCandidatePreview = 142;
 constexpr int kIdDisplayExplanation = 143;
 constexpr int kIdSettingsTabs = 144;
 constexpr int kIdPageScroll = 145;
+constexpr int kIdChkCodeCompletion = 146;
 constexpr UINT kSettingsEnsureFocusVisible = WM_APP + 93;
 constexpr UINT kSettingsCyclePage = WM_APP + 94;
 enum class SettingsPage { Input, Dictionary, Candidates, Display, Feedback, Count };
@@ -88,7 +89,7 @@ constexpr bool IsSettingsFooterControl(int id) noexcept {
     return false;
 }
 inline constexpr std::array kSettingsCandidateControls{
-    kIdLblPageSize, kIdComboPageSize, kIdComboCandidateLayout, kIdChkCodeHint,
+    kIdLblPageSize, kIdComboPageSize, kIdComboCandidateLayout, kIdChkCodeCompletion, kIdChkCodeHint,
     kIdChkUpDownPageTurn, kIdLblUnderlineStyle, kIdComboUnderlineStyle, kIdChkBoldUnderline};
 inline constexpr std::array kSettingsDisplayControls{
     kIdLblUiTheme, kIdComboUiTheme, kIdChkEasyReading, kIdLblUiTextScale, kIdComboUiTextScale,

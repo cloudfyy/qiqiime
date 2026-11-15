@@ -5,6 +5,53 @@
 
 namespace qiqi::test::service_cases {
 
+void TestCodeCompletionConfigReload() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const QiQiConfig original = LoadConfig();
+    const auto restore_config = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(SaveConfigToRegistry(original));
+    });
+    QiQiConfig config = original;
+    config.primary_dict = PrimaryDict::BuiltinOnly;
+    config.user_dict_path.clear();
+    config.default_chinese_mode = true;
+    config.default_full_width = false;
+    config.show_status_bar = false;
+    QIQI_TEST_CHECK(SaveConfig(config));
+    std::array<BYTE, 256> original_keyboard{};
+    QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
+    const auto restore_keyboard = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(::SetKeyboardState(original_keyboard.data()));
+    });
+    std::array<BYTE, 256> clean_keyboard{};
+    QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+    auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+    auto manager = MakeComObject<MockTfThreadMgr>();
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    const auto deactivate = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    });
+    WubiEngine expected;
+    for (const bool enabled : {false, true}) {
+        config.enable_code_completion = enabled;
+        QIQI_TEST_CHECK(SaveConfig(config));
+        QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+        expected.ApplyConfig(config);
+        auto context = MakeComObject<MockTfContext>();
+        BOOL eaten = FALSE;
+        for (const UINT key : {'W', 'Q'}) {
+            QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+        }
+        ComPtr<ITfCandidateListUIElement> candidates;
+        QIQI_TEST_CHECK(manager->last_ui_element_.As(&candidates) == S_OK && candidates);
+        UINT count = 0;
+        QIQI_TEST_CHECK(candidates->GetCount(&count) == S_OK);
+        QIQI_TEST_CHECK(count == expected.LookupCandidates(L"wq").size());
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_ESCAPE, 0, &eaten) == S_OK && eaten);
+    }
+}
+
 void TestModeSwitchCompositionPolicy(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> manager, bool commit) {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);

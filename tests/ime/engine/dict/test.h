@@ -35,6 +35,7 @@ void TestPhraseFrequencySaveFailures();
 void TestSyncFailureAtomicity();
 void TestBinaryDictBufferValidation();
 void TestAddEntryAndLookupEdgeCases();
+void TestCodeCompletionLookup();
 void TestExternalDictFile();
 void TestCrossProcessDictAndPhraseFreqSync();
 void TestCustomPrimaryDictionaryAndFallback();

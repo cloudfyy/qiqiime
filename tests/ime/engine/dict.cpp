@@ -11,6 +11,7 @@ void RunEngineDictTests() {
     TestSyncFailureAtomicity();
     TestBinaryDictBufferValidation();
     TestAddEntryAndLookupEdgeCases();
+    TestCodeCompletionLookup();
     TestExternalDictFile();
     TestCrossProcessDictAndPhraseFreqSync();
     TestCustomPrimaryDictionaryAndFallback();
