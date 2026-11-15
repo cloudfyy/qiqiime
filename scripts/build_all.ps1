@@ -71,12 +71,12 @@ if ($Package) {
         @{ Dir = (Split-Path -Parent $dlls.X64); Dest = (Join-Path $pkgDir "x64") },
         @{ Dir = (Split-Path -Parent $dlls.X86); Dest = (Join-Path $pkgDir "x86") }
     )) {
-        foreach ($exeName in $QiQiToolExeNames) {
-            $exePath = Join-Path $archPair.Dir $exeName
-            if (-not (Test-Path $exePath)) {
-                throw "Missing tool executable for packaging: $exePath"
+        foreach ($binaryName in ($QiQiToolExeNames + @("QiQiIMEInstallerActions.dll"))) {
+            $binaryPath = Join-Path $archPair.Dir $binaryName
+            if (-not (Test-Path $binaryPath)) {
+                throw "Missing tool or installer binary for packaging: $binaryPath"
             }
-            Copy-Item $exePath -Destination (Join-Path $archPair.Dest $exeName)
+            Copy-Item $binaryPath -Destination (Join-Path $archPair.Dest $binaryName)
         }
     }
 

@@ -93,6 +93,7 @@ Repeat with the x86 preset and build directory. Use
 | Desktop tools | `QiQiSettingsTest`, `QiQiDictManagerTest`, `QiQiLogMonitorTest`, `QiQiLogMonitorStartupTest`, `QiQiStandaloneToolsTest` |
 | Metrics | `QiQiMetricsTest`, `QiQiMonitorMetricsTest` |
 | Installer sources and runtime layout | `QiQiInstallerShortcutsTest`, `QiQiRuntimeArchitectureTest` |
+| Installer basic/reduced uninstall consent | `QiQiInstallerActionsTest` |
 
 Additional ETW test modes appear in the CTest listing. Global ETW integration
 tests can return skip code 77 when capture permissions are unavailable; a skip
@@ -339,6 +340,17 @@ When MSI files are generated, [packages.ps1](../tests/installer/packages.ps1)
 checks their databases for architecture, upgrade/component identity, payload,
 shortcuts, and registration order. Ordinary CTest checks sources without creating
 MSI files; it does not certify real installation or upgrade behavior.
+
+The MSI embeds a native `QiQiIMEInstallerActions.dll` for the basic/reduced-UI
+uninstall consent prompt; the DLL is not installed as a runtime file.
+`QiQiInstallerActionsTest` uses an isolated, unregistered MSI fixture and a
+restricted package handle to test Yes/No/Cancel, default retention, UI-level
+and upgrade guards, Chinese/English Unicode message formatting, and diagnostics without installing/uninstalling anything
+or deleting real user data. The full authored MSI UI keeps its unchecked
+checkbox; silent uninstall prompts are intentionally suppressed.
+Packaging stages the native action DLL and retains its matching PDB alongside
+the other symbols. These tests do not certify the actual Windows Settings
+uninstall entry point; validate that flow with the newly installed package.
 
 Packaging replaces same-version output paths under `dist`. Preserve any previous
 artifacts you need. Do not include test logs, dumps, or instrumented binaries.

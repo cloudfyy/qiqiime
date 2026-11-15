@@ -99,7 +99,7 @@ function Copy-QiQiSymbols([hashtable]$Dlls, [string]$Destination) {
         $sourceDir = Split-Path -Parent $dll
         $targetDir = Join-Path $Destination $arch
         New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-        foreach ($binary in (@("qiqiime.dll") + $script:QiQiToolExeNames)) {
+        foreach ($binary in (@("qiqiime.dll", "QiQiIMEInstallerActions.dll") + $script:QiQiToolExeNames)) {
             $pdbName = [System.IO.Path]::ChangeExtension($binary, ".pdb")
             $pdbPath = Join-Path $sourceDir $pdbName
             if (-not (Test-Path -LiteralPath $pdbPath -PathType Leaf)) {

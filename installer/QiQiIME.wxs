@@ -54,6 +54,7 @@
     <Property Id="MSIFASTINSTALL" Value="7" />
     <Property Id="REBOOT" Value="ReallySuppress" />
     <Property Id="QIQI_REMOVE_USER_DATA" Secure="yes" />
+    <Property Id="QIQI_REMOVE_USER_DATA_PROMPT" Value="!(loc.RemoveUserDataPrompt)" />
 
     <UI>
       <TextStyle Id="UninstallFont" FaceName="Segoe UI" Size="9" />
@@ -233,6 +234,13 @@
                   Return="ignore" />
 
     <!-- A cached embedded EXE remains available after RemoveFiles; never run cleanup as SYSTEM. -->
+    <Binary Id="InstallerActions" SourceFile="$(var.StageDir)\$(var.NativeFileSuffix)\QiQiIMEInstallerActions.dll" />
+    <CustomAction Id="PromptRemoveUserData"
+                  BinaryRef="InstallerActions"
+                  DllEntry="PromptRemoveUserData"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="check" />
     <Binary Id="UserDataCleaner" SourceFile="$(var.StageDir)\$(var.NativeFileSuffix)\QiQiIMESettings.exe" />
     <CustomAction Id="RemoveUserData"
                   BinaryRef="UserDataCleaner"
@@ -251,6 +259,8 @@
     <?endif?>
 
     <InstallExecuteSequence>
+      <Custom Action="PromptRemoveUserData" Before="DeactivateUserProfile"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND UILevel &gt;= 3 AND UILevel &lt; 5 AND NOT QIQI_REMOVE_USER_DATA" />
       <Custom Action="RemoveUserData" Before="InstallFinalize"
               Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND QIQI_REMOVE_USER_DATA=&quot;1&quot;" />
       <Custom Action="DeactivateUserProfile" Before="InstallValidate" Condition="REMOVE=&quot;ALL&quot;" />

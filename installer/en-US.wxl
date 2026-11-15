@@ -14,6 +14,7 @@
   <String Id="UninstallDescription" Value="QiQi Wubi IME will be removed. Personal settings and user dictionaries are kept by default for future installations." />
   <String Id="RemoveUserData" Value="Also delete this user's settings and default user dictionary" />
   <String Id="RemoveUserDataWarning" Value="Selected data is deleted permanently: this user's settings, default dictionary, frequencies and known cache/sync files. Custom paths, exports, backups and other users are preserved. Close IME applications and back up first." />
+  <String Id="RemoveUserDataPrompt" Value="Also delete this user's settings and default user dictionary when uninstalling QiQi Wubi IME?&#13;&#10;&#13;&#10;No (default): uninstall the program and keep personal data.&#13;&#10;Yes: permanently delete this user's settings, default dictionary, frequencies and known cache/sync files. Custom paths, exports, backups and other users are preserved. Back up first.&#13;&#10;Cancel: stop the uninstall." />
   <String Id="UninstallButton" Value="Uninstall" />
   <String Id="CancelButton" Value="Cancel" />
   <String Id="SettingsShortcutName" Value="QiQiIME Settings" />

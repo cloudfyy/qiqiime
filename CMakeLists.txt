@@ -122,6 +122,7 @@ find_package(Microsoft.GSL CONFIG REQUIRED)
 enable_testing()
 add_subdirectory(src)
 if(NOT QIQI_METRICS_BENCHMARK_BASELINE)
+    add_subdirectory(installer)
     add_subdirectory(tests)
 endif()
 

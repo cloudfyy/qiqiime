@@ -12,7 +12,7 @@ try {
         $dir = Join-Path $fixture "source\$arch"
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
         $dlls[$arch] = Join-Path $dir "qiqiime.dll"
-        foreach ($binary in (@("qiqiime.dll") + $QiQiToolExeNames)) {
+        foreach ($binary in (@("qiqiime.dll", "QiQiIMEInstallerActions.dll") + $QiQiToolExeNames)) {
             $pdb = Join-Path $dir ([System.IO.Path]::ChangeExtension($binary, ".pdb"))
             [System.IO.File]::WriteAllText($pdb, "$arch-$binary")
         }
@@ -20,9 +20,9 @@ try {
     $destination = Join-Path $fixture "symbols"
     Copy-QiQiSymbols -Dlls $dlls -Destination $destination
     $files = @(Get-ChildItem -LiteralPath $destination -Recurse -File)
-    if ($files.Count -ne 8) { throw "Expected eight product PDB files." }
+    if ($files.Count -ne 10) { throw "Expected ten runtime/installer PDB files." }
     foreach ($arch in @("x64", "x86")) {
-        foreach ($binary in (@("qiqiime.dll") + $QiQiToolExeNames)) {
+        foreach ($binary in (@("qiqiime.dll", "QiQiIMEInstallerActions.dll") + $QiQiToolExeNames)) {
             $name = [System.IO.Path]::ChangeExtension($binary, ".pdb")
             $actual = [System.IO.File]::ReadAllText((Join-Path $destination "$arch\$name"))
             if ($actual -ne "$arch-$binary") { throw "Incorrect symbol copy: $arch $name" }
