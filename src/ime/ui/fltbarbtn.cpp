@@ -6,7 +6,6 @@
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/RAII.h"
-#include "common/theme.h"
 
 #include <gsl/gsl>
 #include <oleauto.h>
@@ -121,7 +120,8 @@ STDMETHODIMP LangBarButton::GetInfo(TF_LANGBARITEMINFO* pInfo) noexcept {
     const auto& str = GetUiStrings(state_.ui_language);
     pInfo->clsidService = kClsidQiQiTextService;
     pInfo->guidItem = kGuidLbiInputMode;
-    pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_BTN_MENU | TF_LBI_STYLE_SHOWNINTRAY;
+    pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_BTN_MENU | TF_LBI_STYLE_SHOWNINTRAY |
+                     TF_LBI_STYLE_TEXTCOLORICON;
     pInfo->ulSort = 0;
     wcscpy_s(pInfo->szDescription, str.langbar_desc);
     QIQI_LOG_DEBUG("LangBarButton::GetInfo(item={}, style=0x{:x}, visible={})",
@@ -294,7 +294,46 @@ void LangBarButton::Disconnect() noexcept {
 
 ScopedIcon LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
     const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
-    return CreateTransparentGlyphIcon(ch, size, GetTaskbarIconColor());
+    const ScopedMemoryDC dc(::CreateCompatibleDC(nullptr));
+    const ScopedGdiHandle<HBITMAP> mask(::CreateBitmap(size, size * 2, 1, 1, nullptr));
+    const auto font = CreateUiFont(size - 2, FW_SEMIBOLD, NONANTIALIASED_QUALITY);
+    if (!dc || !mask || !font) {
+        QIQI_LOG_WARN("LangBarButton::CreateTextIcon failed to allocate monochrome drawing resources");
+        return {};
+    }
+    {
+        const ScopedSelectObject select_mask(dc.Get(), mask.Get());
+        const ScopedSelectObject select_font(dc.Get(), font.Get());
+        if (!select_mask || !select_font) {
+            QIQI_LOG_WARN("LangBarButton::CreateTextIcon failed to select monochrome drawing resources");
+            return {};
+        }
+        // A monochrome HICON has stacked AND/XOR masks, with no color bitmap.
+        // AND=1/XOR=0 is transparent; AND=0/XOR=0 is a black theme-color glyph.
+        if (!::PatBlt(dc.Get(), 0, 0, size, size, WHITENESS) ||
+            !::PatBlt(dc.Get(), 0, size, size, size, BLACKNESS) ||
+            ::SetBkMode(dc.Get(), TRANSPARENT) == 0 ||
+            ::SetTextColor(dc.Get(), RGB(0, 0, 0)) == CLR_INVALID) {
+            QIQI_LOG_WARN("LangBarButton::CreateTextIcon failed to initialize monochrome masks");
+            return {};
+        }
+        RECT rect{0, 0, size, size};
+        const std::array<wchar_t, 2> text{ch, L'\0'};
+        if (!::DrawTextW(dc.Get(), text.data(), 1, &rect,
+                         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX)) {
+            QIQI_LOG_WARN("LangBarButton::CreateTextIcon failed to draw monochrome glyph");
+            return {};
+        }
+    }
+    ICONINFO info{};
+    info.fIcon = TRUE;
+    info.hbmMask = mask.Get();
+    ScopedIcon icon(::CreateIconIndirect(&info));
+    if (!icon) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("LangBarButton::CreateTextIcon::CreateIconIndirect failed (error={})", error);
+    }
+    return icon;
 }
 
 } // namespace qiqi
