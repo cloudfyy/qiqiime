@@ -12,8 +12,7 @@ on:
       - 'scripts/site_release.mjs'
       - '.github/workflows/pages.yml'
       - 'docs/**'
-      - 'README.md'
-      - 'README.en.md'
+      - '**/*.md'
   pull_request:
     branches: [ main ]
     paths-ignore:
@@ -22,8 +21,7 @@ on:
       - 'scripts/site_release.mjs'
       - '.github/workflows/pages.yml'
       - 'docs/**'
-      - 'README.md'
-      - 'README.en.md'
+      - '**/*.md'
   workflow_dispatch:
 
 permissions:

@@ -346,6 +346,10 @@ For documentation/license payload changes, keep staging, WiX, and installer test
 consistent.
 
 Update the current README references and release notes when changing versions.
+The CI & Lint workflow skips push/PR changes limited to Markdown documentation,
+the `docs/` directory, or the website's separately tested files. Mixed changes
+that include code, build scripts, workflow configuration, or `VERSION` still
+run the code checks. Manual CI runs and release-tag validation remain available.
 The [Release workflow](../.github/workflows/release.yml) builds, tests, and packages
 tagged commits before uploading assets. Pushing a tag is not proof of publication
 or code signing; check the workflow and [signing policy](../CODE_SIGNING.md).
