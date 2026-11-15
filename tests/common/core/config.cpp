@@ -137,7 +137,7 @@ void TestDictionaryLoadPlans() {
     QiQiConfig cfg;
     cfg.primary_dict = PrimaryDict::Custom;
     cfg.primary_dict_path = L"C:\\CustomDicts\\my_wubi86.txt";
-    QIQI_TEST_CHECK(SaveConfigToRegistry(cfg, subkey.c_str()));
+    QIQI_TEST_CHECK(SaveConfigToRegistryResult(cfg, subkey.c_str()) == S_OK);
     QiQiConfig loaded;
     QIQI_TEST_CHECK(LoadConfigFromRegistry(loaded, nullptr, subkey.c_str()));
     QIQI_TEST_CHECK(loaded.primary_dict == PrimaryDict::Custom);
@@ -204,6 +204,7 @@ void TestIniConfiguration() {
     QiQiConfig reg_out{};
     QIQI_TEST_CHECK(!LoadConfigFromRegistry(reg_out));
     QIQI_TEST_CHECK(!SaveConfigToRegistry(reg_out, L""));
+    QIQI_TEST_CHECK(SaveConfigToRegistryResult(reg_out, L"") == E_INVALIDARG);
     QIQI_TEST_CHECK(!LoadConfigFromRegistry(reg_out, nullptr, L""));
     QIQI_TEST_CHECK(QueryRegistryConfigSequence(L"") == 0);
 

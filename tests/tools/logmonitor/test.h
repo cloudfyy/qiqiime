@@ -17,6 +17,7 @@
 #include "tools/logmonitor/internal.h"
 #include "tools/logmonitor/permissions.h"
 #include "tools/logmonitor/window.h"
+#include "support.h"
 
 #include <commctrl.h>
 #include <winver.h>
@@ -50,6 +51,7 @@ LRESULT CALLBACK SimulateOpenDropdown(HWND control, UINT message, WPARAM wparam,
                                       DWORD_PTR) noexcept;
 using qiqi::test::ControlText;
 void SelectLanguage(const MonitorWindow& window, UiLanguage language) noexcept;
+void CheckSaveConfig(const QiQiConfig& config);
 void CheckComboEditFont(HWND combo, UINT dpi);
 std::wstring ReadClipboardText(HWND owner = nullptr);
 void TestDarkHeader(HWND list);
@@ -57,6 +59,7 @@ int IconWidth(HICON icon);
 Event MakeEvent(std::wstring text = L"message");
 void TestScrollIcons();
 void TestMenusAndToolbar(const RECT& work_area);
+void TestPopupMenuLayout();
 void TestAboutDialogs();
 void TestBuffersAndFilters();
 void TestExport();

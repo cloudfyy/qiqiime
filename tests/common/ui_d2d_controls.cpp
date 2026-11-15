@@ -576,6 +576,52 @@ void TestReusableControls() {
         DrawFluentToggleOrRadioRow(dis, d2d, false);
         QIQI_TEST_CHECK(::GetPixel(dc.Get(), 100, 2) == surface);
         {
+            const auto preferences = d2d.display_preferences;
+            const auto restore_preferences = gsl::finally([&]() noexcept {
+                d2d.SetDisplayPreferences(preferences);
+            });
+            d2d.SetDisplayPreferences({dark ? UiTheme::Dark : UiTheme::Light, UiTextScale::Percent150, true});
+            auto focused = dis;
+            focused.rcItem.bottom = FluentControlHeight(d2d, 32);
+            const auto check_focus = [&]() {
+                focused.itemState = 0;
+                DrawFluentToggleOrRadioRow(focused, d2d, false);
+                std::vector<COLORREF> pixels;
+                for (int y = 0; y < focused.rcItem.bottom; ++y)
+                    for (int x = 0; x < focused.rcItem.right; ++x)
+                        pixels.push_back(::GetPixel(dc.Get(), x, y));
+                RECT allowed = FluentToggleBounds(focused.rcItem, d2d);
+                constexpr int kFocusOutlineAllowance = 4;
+                ::InflateRect(&allowed, d2d.ScalePx(kFocusOutlineAllowance), d2d.ScalePx(kFocusOutlineAllowance));
+                focused.itemState = ODS_FOCUS;
+                DrawFluentToggleOrRadioRow(focused, d2d, false);
+                bool visible_focus = false;
+                size_t index = 0;
+                for (int y = 0; y < focused.rcItem.bottom; ++y) {
+                    for (int x = 0; x < focused.rcItem.right; ++x, ++index) {
+                        if (::GetPixel(dc.Get(), x, y) == gsl::at(pixels, index)) continue;
+                        QIQI_TEST_CHECK(::PtInRect(&allowed, POINT{x, y}));
+                        visible_focus = true;
+                    }
+                }
+                QIQI_TEST_CHECK(visible_focus);
+                focused.itemState = ODS_FOCUS | ODS_NOFOCUSRECT;
+                DrawFluentToggleOrRadioRow(focused, d2d, false);
+                index = 0;
+                for (int y = 0; y < focused.rcItem.bottom; ++y)
+                    for (int x = 0; x < focused.rcItem.right; ++x, ++index)
+                        QIQI_TEST_CHECK(::GetPixel(dc.Get(), x, y) == gsl::at(pixels, index));
+            };
+            check_focus();
+            SetHighContrastOverrideForTest(true);
+            const auto restore_contrast = gsl::finally([&]() noexcept {
+                SetHighContrastOverrideForTest(std::nullopt);
+                d2d.RefreshThemeBrushes();
+            });
+            d2d.RefreshThemeBrushes();
+            check_focus();
+        }
+        {
             ::EnableWindow(toggle, FALSE);
             const auto reenable = gsl::finally([toggle]() noexcept { ::EnableWindow(toggle, TRUE); });
             ::SendMessageW(toggle, BM_SETCHECK, BST_UNCHECKED, 0);

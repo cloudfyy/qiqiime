@@ -93,6 +93,7 @@ class ToolCommandUi final {
     const MenuItem* FindMenuItem(ULONG_PTR data) const noexcept;
     void RefreshMenuAppearance(HWND window, UINT dpi) noexcept;
     void ApplyMenuBackground(HMENU menu) noexcept;
+    void InvalidateMenuMeasurements(const MenuItems& items) noexcept;
     int MenuScale(int px) const noexcept;
     LRESULT MeasureMenuItem(HWND window, MEASUREITEMSTRUCT& measure, const MenuItem& item) const noexcept;
     LRESULT DrawMenuItem(const DRAWITEMSTRUCT& draw, const MenuItem& item) const noexcept;

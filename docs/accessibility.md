@@ -48,6 +48,7 @@ Extra 缩进显示在 Jidian Core 下，并注明依赖关系：只有选中 Cor
 移除其外框；禁用字号项追加同样的状态提示，保持系统配色及文字可读性。
 可使用 Tab/Shift+Tab 移动焦点，空格操作开关，方向键选择下拉项；
 焦点进入屏外控件时自动滚动。易读主要操作目标不小于 44×44 DIP。
+开关的焦点提示仅围绕开关本体，不包围整行标签。
 
 候选窗对长候选换行；横排空间不足时按候选项换行，不改变候选顺序、
 编号、配置的横/竖排或引擎页大小。工作区过小时提供页内滚动，
@@ -56,6 +57,7 @@ Extra 缩进显示在 Jidian Core 下，并注明依赖关系：只有选中 Cor
 
 输入法右键快捷菜单、词库管理器和 Log Monitor 的菜单栏、下拉菜单及右键菜单
 使用已保存的主题、文字大小和关怀模式。关怀模式下菜单操作项至少高 44 DIP；
+字号变化时重新测量已存在的原生菜单，避免使用旧尺寸裁切文字。
 输入法菜单在小工作区保留大字号，通过滚轮、滚动条及方向键/Tab 滚动，
 焦点项自动进入可见区。右键菜单不再显示快捷键提示，快捷键本身仍然有效。
 
@@ -107,6 +109,7 @@ theme, with Windows high contrast taking precedence. Use the arrows or
 Ctrl+Tab / Ctrl+Shift+Tab when enlarged labels do not fit. Only the active page
 scrolls; switching preserves unsaved edits and each page's scroll position.
 Keyboard focus scrolls into view while OK/Cancel remain visible.
+Toggle focus indicators surround the switch itself, not the entire label row.
 Easy-reading primary targets are at least 44×44 DIP. Candidate text wraps and
 overflow can scroll within a page, without changing candidate order, numbering,
 engine page size, or the user's horizontal/vertical preference. The popup does
@@ -115,6 +118,7 @@ text color alone.
 
 The IME's right-click quick menu and Dictionary Manager/Log Monitor menu bars,
 drop-down menus, and context menus use saved theme, text size, and Comfort mode.
+Existing native menus are remeasured when their font changes, avoiding stale-size text clipping.
 Comfort-mode action rows are at least 44 DIP high. The IME menu preserves enlarged
 text on short work areas and supports a scrollbar, wheel, arrows, and Tab, with
 focused actions scrolled into view. Context-menu shortcut hints are removed;

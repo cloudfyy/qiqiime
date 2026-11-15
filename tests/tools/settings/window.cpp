@@ -565,57 +565,73 @@ void TestSettingsTextAlignment() {
         };
         for (const UINT dpi : {96u, 120u, 144u, 192u}) {
             SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 3840, 2160}, dpi});
-            const RECT suggested{0, 0, ScalePxByDpi(820, dpi), ScalePxByDpi(494, dpi)};
-            ::SendMessageW(dialog.Get(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi),
-                           reinterpret_cast<LPARAM>(&suggested));
-            for (const auto& [label_id, toggle_id] : aligned_rows) {
-                auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
-                const SettingsPage page = label_id == kIdLblUiLang ? SettingsPage::Display :
-                    label_id == kIdLblEnglishSwitch ? SettingsPage::Input : SettingsPage::Candidates;
-                SelectSettingsPage(dialog.Get(), *context, page);
-                RECT label{}, toggle{};
-                QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(dialog.Get(), label_id), &label));
-                QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(dialog.Get(), toggle_id), &toggle));
-                if (label.right <= toggle.left) {
-                    QIQI_TEST_CHECK(label.top == toggle.top);
-                } else {
-                    QIQI_TEST_CHECK(label.left == toggle.left);
-                    QIQI_TEST_CHECK(label.bottom <= toggle.top);
+            for (const int width : {820, 620}) {
+                const RECT suggested{0, 0, ScalePxByDpi(width, dpi), ScalePxByDpi(494, dpi)};
+                ::SendMessageW(dialog.Get(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&suggested));
+                for (const auto &[label_id, toggle_id] : aligned_rows) {
+                    auto *context = reinterpret_cast<DialogContext *>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
+                    const SettingsPage page = label_id == kIdLblUiLang          ? SettingsPage::Display
+                                              : label_id == kIdLblEnglishSwitch ? SettingsPage::Input
+                                                                                : SettingsPage::Candidates;
+                    SelectSettingsPage(dialog.Get(), *context, page);
+                    RECT label{}, toggle{};
+                    QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(dialog.Get(), label_id), &label));
+                    QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(dialog.Get(), toggle_id), &toggle));
+                    if (label.right <= toggle.left) {
+                        QIQI_TEST_CHECK(label.top == toggle.top);
+                    } else {
+                        QIQI_TEST_CHECK(label.left == toggle.left);
+                        QIQI_TEST_CHECK(label.bottom <= toggle.top);
+                    }
                 }
+                auto *context = reinterpret_cast<DialogContext *>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
+                const int control_right = context->page_bounds.right - context->d2d.ScaleDipPx(16);
+                SelectSettingsPage(dialog.Get(), *context, SettingsPage::Input);
+                const RECT help = bounds(kIdBtnHelp);
+                const RECT about = bounds(kIdBtnAbout);
+                const RECT restore = bounds(kIdBtnRestoreDefaults);
+                QIQI_TEST_CHECK(help.top == about.top && about.top == restore.top);
+                QIQI_TEST_CHECK(about.right <= help.left && help.right <= restore.left);
+                const RECT ok = bounds(IDOK);
+                const RECT cancel = bounds(IDCANCEL);
+                QIQI_TEST_CHECK(ok.top == cancel.top && ok.right <= cancel.left);
+                QIQI_TEST_CHECK(restore.top <= ok.top);
+                if (restore.top == ok.top)
+                    QIQI_TEST_CHECK(restore.right < ok.left);
+                else
+                    QIQI_TEST_CHECK(restore.bottom <= ok.top);
+                RECT client{};
+                QIQI_TEST_CHECK(::GetClientRect(dialog.Get(), &client));
+                QIQI_TEST_CHECK(about.left >= client.left && cancel.right <= client.right);
+                QIQI_TEST_CHECK(ok.bottom <= client.bottom && cancel.bottom <= client.bottom);
+                QIQI_TEST_CHECK(help.top >= context->page_bounds.bottom);
+                QIQI_TEST_CHECK(bounds(kIdComboEnglishSwitch).right == control_right);
+                QIQI_TEST_CHECK(restore.right - restore.left < (control_right - context->page_bounds.left) / 2);
+                SelectSettingsPage(dialog.Get(), *context, SettingsPage::Dictionary);
+                const RECT browse = bounds(kIdBtnBrowsePrimaryDict);
+                const RECT manager = bounds(kIdBtnDictManager);
+                QIQI_TEST_CHECK(bounds(kIdChkExtraDict).left > bounds(kIdRadioJidian).left);
+                QIQI_TEST_CHECK(bounds(kIdChkExtraDict).top >= bounds(kIdRadioJidian).bottom);
+                QIQI_TEST_CHECK(browse.top == manager.top && browse.right <= manager.left);
+                const RECT custom = bounds(kIdRadioCustom);
+                if (custom.top == browse.top)
+                    QIQI_TEST_CHECK(custom.right <= browse.left);
+                else
+                    QIQI_TEST_CHECK(custom.bottom <= browse.top);
+                QIQI_TEST_CHECK(manager.right == control_right);
+                SelectSettingsPage(dialog.Get(), *context, SettingsPage::Candidates);
+                const RECT size = bounds(kIdComboPageSize);
+                const RECT layout = bounds(kIdComboCandidateLayout);
+                QIQI_TEST_CHECK(size.top == layout.top && size.right < layout.left);
+                QIQI_TEST_CHECK(layout.right == control_right);
+                QIQI_TEST_CHECK(bounds(kIdComboUnderlineStyle).right == control_right);
+                SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
+                QIQI_TEST_CHECK(bounds(kIdComboUiTheme).right == control_right);
+                QIQI_TEST_CHECK(bounds(kIdComboUiTextScale).right == control_right);
+                QIQI_TEST_CHECK(bounds(kIdComboUiLang).right == control_right);
+                QIQI_TEST_CHECK(bounds(kIdCandidatePreview).bottom - bounds(kIdCandidatePreview).top <
+                                ScalePxByDpi(150, dpi));
             }
-            auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
-            const int control_right = context->page_bounds.right - context->d2d.ScaleDipPx(16);
-            SelectSettingsPage(dialog.Get(), *context, SettingsPage::Input);
-            const RECT help = bounds(kIdBtnHelp);
-            const RECT about = bounds(kIdBtnAbout);
-            const RECT restore = bounds(kIdBtnRestoreDefaults);
-            QIQI_TEST_CHECK(help.top == about.top && about.top == restore.top);
-            QIQI_TEST_CHECK(about.right <= help.left && help.right <= restore.left);
-            QIQI_TEST_CHECK(restore.top == bounds(IDOK).top && restore.top == bounds(IDCANCEL).top);
-            QIQI_TEST_CHECK(restore.right < bounds(IDOK).left);
-            QIQI_TEST_CHECK(help.top >= context->page_bounds.bottom);
-            QIQI_TEST_CHECK(bounds(kIdComboEnglishSwitch).right == control_right);
-            QIQI_TEST_CHECK(restore.right - restore.left < (control_right - context->page_bounds.left) / 2);
-            SelectSettingsPage(dialog.Get(), *context, SettingsPage::Dictionary);
-            const RECT browse = bounds(kIdBtnBrowsePrimaryDict);
-            const RECT manager = bounds(kIdBtnDictManager);
-            QIQI_TEST_CHECK(bounds(kIdChkExtraDict).left > bounds(kIdRadioJidian).left);
-            QIQI_TEST_CHECK(bounds(kIdChkExtraDict).top >= bounds(kIdRadioJidian).bottom);
-            QIQI_TEST_CHECK(browse.top == manager.top && browse.right <= manager.left);
-            QIQI_TEST_CHECK(bounds(kIdRadioCustom).top == browse.top);
-            QIQI_TEST_CHECK(bounds(kIdRadioCustom).right <= browse.left);
-            QIQI_TEST_CHECK(manager.right == control_right);
-            SelectSettingsPage(dialog.Get(), *context, SettingsPage::Candidates);
-            const RECT size = bounds(kIdComboPageSize);
-            const RECT layout = bounds(kIdComboCandidateLayout);
-            QIQI_TEST_CHECK(size.top == layout.top && size.right < layout.left);
-            QIQI_TEST_CHECK(layout.right == control_right);
-            QIQI_TEST_CHECK(bounds(kIdComboUnderlineStyle).right == control_right);
-            SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
-            QIQI_TEST_CHECK(bounds(kIdComboUiTheme).right == control_right);
-            QIQI_TEST_CHECK(bounds(kIdComboUiTextScale).right == control_right);
-            QIQI_TEST_CHECK(bounds(kIdComboUiLang).right == control_right);
-            QIQI_TEST_CHECK(bounds(kIdCandidatePreview).bottom - bounds(kIdCandidatePreview).top < ScalePxByDpi(150, dpi));
         }
     }
 }

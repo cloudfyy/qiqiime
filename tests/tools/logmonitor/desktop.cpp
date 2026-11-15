@@ -20,7 +20,7 @@ void TestDisplayPreferences(const MonitorWindow& window) {
     config.ui_theme = UiTheme::Light;
     config.ui_text_scale = UiTextScale::Percent100;
     config.easy_reading = false;
-    QIQI_TEST_CHECK(SaveConfig(config));
+    CheckSaveConfig(config);
     ::SendMessageW(window.Handle(), WM_SETTINGCHANGE, 0, 0);
     const HWND list = Child(window, List);
     const int count = ListView_GetItemCount(list);
@@ -49,7 +49,7 @@ void TestDisplayPreferences(const MonitorWindow& window) {
         config.easy_reading = preferences.easy_reading;
         ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
         QIQI_TEST_CHECK(font_size(list) == old_font_size);
-        QIQI_TEST_CHECK(SaveConfig(config));
+        CheckSaveConfig(config);
         ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
         for (const auto id : {List, MetricList, Search, Process, Details, Toolbar}) {
             QIQI_TEST_CHECK(font_size(Child(window, id)) ==
@@ -92,7 +92,7 @@ void TestDisplayPreferences(const MonitorWindow& window) {
     QIQI_TEST_CHECK(ListView_GetBkColor(list) == ::GetSysColor(COLOR_WINDOW));
     SetHighContrastOverrideForTest(false);
     config.easy_reading = true;
-    QIQI_TEST_CHECK(SaveConfig(config));
+    CheckSaveConfig(config);
     ::SendMessageW(window.Handle(), WM_SETTINGCHANGE, 0, 0);
     RECT original{};
     QIQI_TEST_CHECK(::GetWindowRect(window.Handle(), &original));

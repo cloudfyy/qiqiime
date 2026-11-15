@@ -12,6 +12,7 @@
 #include <gsl/gsl>
 #include <algorithm>
 #include <array>
+#include <new>
 #include <string>
 
 namespace qiqi {
@@ -20,13 +21,13 @@ namespace {
 
 constexpr DWORD kMaxRegistryStringBytes = 4096;
 
-bool WriteRegDword(HKEY key, const wchar_t* name, DWORD val) noexcept {
+HRESULT WriteRegDwordResult(HKEY key, const wchar_t* name, DWORD val) noexcept {
     const LSTATUS error = ::RegSetValueExW(
         key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&val), sizeof(val));
     if (error != ERROR_SUCCESS) {
         QIQI_LOG_ERROR("WriteRegDword::RegSetValueExW failed (error={})", error);
     }
-    return error == ERROR_SUCCESS;
+    return HRESULT_FROM_WIN32(error);
 }
 
 bool CheckRegistryRead(LSTATUS error, std::string_view operation) noexcept {
@@ -52,10 +53,6 @@ HRESULT WriteRegStringResult(HKEY key, const wchar_t* name, std::wstring_view va
         QIQI_LOG_ERROR("WriteRegString::RegSetValueExW failed (error={})", error);
     }
     return HRESULT_FROM_WIN32(error);
-}
-
-bool WriteRegString(HKEY key, const wchar_t* name, std::wstring_view val) noexcept {
-    return SUCCEEDED(WriteRegStringResult(key, name, val));
 }
 
 HRESULT ReadRegStringResult(HKEY key, const wchar_t* name, std::wstring& out_val) {
@@ -246,10 +243,6 @@ HRESULT BumpRegistrySequenceResult(HKEY key) noexcept {
     return S_OK;
 }
 
-bool BumpRegistrySequence(HKEY key) noexcept {
-    return SUCCEEDED(BumpRegistrySequenceResult(key));
-}
-
 const wchar_t* g_config_reg_subkey_override = nullptr;
 
 } // namespace
@@ -337,42 +330,50 @@ std::filesystem::path ResolveConfiguredDictionaryPath(
     return resolved;
 }
 
-bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexcept {
+HRESULT SaveConfigToRegistryResult(const QiQiConfig& config, const wchar_t* subkey) noexcept {
     try {
         ScopedKernelTransaction txn;
         if (!txn) {
             QIQI_LOG_ERROR("Failed to create registry transaction (error={})", txn.Error());
-            return false;
+            return HRESULT_FROM_WIN32(txn.Error());
         }
-        ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE, txn.Get());
+        LSTATUS open_error = ERROR_SUCCESS;
+        ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ | KEY_WRITE, txn.Get(), &open_error);
         if (!key) {
-            return false;
+            QIQI_LOG_ERROR("SaveConfigToRegistry::OpenOrCreateConfigRegKey failed (error={})", open_error);
+            return HRESULT_FROM_WIN32(open_error);
         }
-        bool fields_saved = true;
+        HRESULT result = S_OK;
         ForEachConfigField([&](const auto& field) {
-            if (fields_saved) {
-                fields_saved = WriteRegDword(
+            if (SUCCEEDED(result)) {
+                result = WriteRegDwordResult(
                     key.Get(), field.registry_key, gsl::narrow_cast<DWORD>(field.RegistryValue(config)));
             }
         });
-        if (!fields_saved ||
-            !WriteRegString(key.Get(), L"PrimaryDictPath", config.primary_dict_path) ||
-            !WriteRegString(key.Get(), L"UserDictPath", config.user_dict_path)) {
-            return false;
-        }
-        if (!BumpRegistrySequence(key.Get())) {
-            return false;
-        }
+        if (FAILED(result)) return result;
+        result = WriteRegStringResult(key.Get(), L"PrimaryDictPath", config.primary_dict_path);
+        if (FAILED(result)) return result;
+        result = WriteRegStringResult(key.Get(), L"UserDictPath", config.user_dict_path);
+        if (FAILED(result)) return result;
+        result = BumpRegistrySequenceResult(key.Get());
+        if (FAILED(result)) return result;
         key.Reset();
         if (!txn.Commit()) {
             QIQI_LOG_ERROR("SaveConfigToRegistry::CommitTransaction failed (error={})", txn.Error());
-            return false;
+            return HRESULT_FROM_WIN32(txn.Error());
         }
-        return true;
+        return S_OK;
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR("SaveConfigToRegistry allocation failed");
+        return E_OUTOFMEMORY;
     } catch (...) {
         QIQI_LOG_ERROR("SaveConfigToRegistry failed with a C++ exception");
-        return false;
+        return E_FAIL;
     }
+}
+
+bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexcept {
+    return SUCCEEDED(SaveConfigToRegistryResult(config, subkey));
 }
 
 bool LoadConfigFromRegistry(

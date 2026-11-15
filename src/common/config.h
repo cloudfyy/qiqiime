@@ -253,6 +253,10 @@ const wchar_t* GetActiveConfigRegistrySubKey() noexcept;
 
 // Save or load QiQiConfig as native REG_DWORD / REG_SZ values in HKCU\<subkey>
 // (grants S-1-15-2-1 / S-1-15-2-2 KEY_READ for UWP AppContainer).
+// The result variant retains Win32 failure codes; the bool variant preserves existing callers.
+HRESULT SaveConfigToRegistryResult(
+    const QiQiConfig& config,
+    const wchar_t* subkey = nullptr) noexcept;
 bool SaveConfigToRegistry(
     const QiQiConfig& config,
     const wchar_t* subkey = nullptr) noexcept;

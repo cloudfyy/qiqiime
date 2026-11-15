@@ -39,6 +39,7 @@ constexpr int kToggleTrackWidth = 36;
 constexpr int kToggleTrackRadius = 9;
 constexpr int kToggleKnobRadius = 6;
 constexpr int kToggleLabelGap = 8;
+constexpr int kToggleFocusPadding = 2;
 constexpr int kUnderlineBaselineOffset = 1;
 constexpr int kUnderlineDotStep = 3;
 constexpr int kComboCornerRadius = 5;
@@ -350,6 +351,14 @@ void DrawFluentToggleOrRadioRow(
     const bool is_checked = (::SendMessageW(dis.hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED);
     const bool is_enabled = (::IsWindowEnabled(dis.hwndItem) != FALSE);
     const COLORREF disabled_text = DisabledControlText(d2d);
+    RECT focus_bounds = dis.rcItem;
+    if (!is_radio) {
+        focus_bounds = FluentToggleBounds(dis.rcItem, d2d);
+        const int padding = d2d.ScalePx(kToggleFocusPadding);
+        ::InflateRect(&focus_bounds, padding, padding);
+        ::IntersectRect(&focus_bounds, &focus_bounds, &dis.rcItem);
+    }
+    const bool show_focus = (dis.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS;
     if (!d2d.d2d_target || !d2d.fmt_body || d2d.appearance.system_high_contrast) {
         const ScopedSaveDC saved(dis.hDC);
         const ScopedSelectObject font(dis.hDC, reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0)));
@@ -371,7 +380,7 @@ void DrawFluentToggleOrRadioRow(
         RECT label = dis.rcItem;
         label.left += d2d.ScalePx(26);
         ::DrawTextW(dis.hDC, text.data(), -1, &label, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
-        if ((dis.itemState & ODS_FOCUS) != 0) ::DrawFocusRect(dis.hDC, &dis.rcItem);
+        if (show_focus) ::DrawFocusRect(dis.hDC, &focus_bounds);
         return;
     }
 
@@ -450,9 +459,17 @@ void DrawFluentToggleOrRadioRow(
             text_brush.Get(),
             D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
     }
-    if ((dis.itemState & ODS_FOCUS) != 0) {
+    if (show_focus) {
         const auto focus = CreateSolidBrush(d2d.d2d_target.Get(), ColorRefToD2DColor(palette.focus_color));
-        if (focus) d2d.d2d_target->DrawRectangle(D2D1::RectF(1, 1, w - 1, h - 1), focus.Get(), 2);
+        if (focus) {
+            if (is_radio) d2d.d2d_target->DrawRectangle(D2D1::RectF(1, 1, w - 1, h - 1), focus.Get(), 2);
+            else d2d.d2d_target->DrawRoundedRectangle(D2D1::RoundedRect(
+                D2D1::RectF(static_cast<float>(focus_bounds.left - dis.rcItem.left),
+                    static_cast<float>(focus_bounds.top - dis.rcItem.top),
+                    static_cast<float>(focus_bounds.right - dis.rcItem.left),
+                    static_cast<float>(focus_bounds.bottom - dis.rcItem.top)),
+                d2d.ScaleF(kToggleTrackRadius), d2d.ScaleF(kToggleTrackRadius)), focus.Get(), 2);
+        }
     }
 }
 

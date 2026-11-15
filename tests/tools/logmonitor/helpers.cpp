@@ -56,6 +56,14 @@ void SelectLanguage(const MonitorWindow& window, UiLanguage language) noexcept {
     ::SendMessageW(window.Handle(), WM_COMMAND, id, 0);
 }
 
+void CheckSaveConfig(const QiQiConfig& config) {
+    const HRESULT result = SaveConfigToRegistryResult(config);
+    if (FAILED(result))
+        std::cerr << "SaveConfigToRegistry failed: HRESULT=" << result
+            << ", facility=" << HRESULT_FACILITY(result) << ", code=" << HRESULT_CODE(result) << std::endl;
+    QIQI_TEST_CHECK(SUCCEEDED(result));
+}
+
 void CheckComboEditFont(HWND combo, UINT dpi) {
     COMBOBOXINFO info{};
     info.cbSize = sizeof(info);

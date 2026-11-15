@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/test_support.h"
+#include "common/config.h"
 #include "common/fileutil.h"
 #include "common/window.h"
 #include "tools/logmonitor/permissions.h"
@@ -210,6 +211,14 @@ void TestStartupProcess(std::wstring_view parameters, gsl::not_null<HMONITOR> mo
 }
 
 void TestRestartMonitorPlacement() {
+    const auto subkey = std::format(L"Software\\QiQiIME_Test_MonitorPlacement_{}_{}",
+        ::GetCurrentProcessId(), ::GetTickCount64());
+    const auto* previous = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto restore_config = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+    });
     const auto restore = gsl::finally([]() noexcept {
         launch_point.reset();
         launch_parameters.clear();

@@ -8,6 +8,10 @@ using namespace qiqi::monitor::tests;
 int wmain(int argc, wchar_t* argv[]) {
     QIQI_TEST_CHECK(argv != nullptr);
     const std::span<wchar_t*> args(argv, gsl::narrow_cast<size_t>(argc));
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--menu-layout") {
+        TestPopupMenuLayout();
+        return 0;
+    }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--startup") {
         qiqi::monitor::permission_tests::RunMonitorStartupTests();
         std::cout << "[PASS] Log monitor startup tests\n";
@@ -30,12 +34,26 @@ int wmain(int argc, wchar_t* argv[]) {
     if (args.size() >= 2 && std::wstring_view(gsl::at(args, 1)) == L"--integration") {
         return Integration(args.size() == 3 ? gsl::at(args, 2) : nullptr);
     }
+    const auto subkey = std::format(L"Software\\QiQiIME_Test_LogMonitor_{}_{}",
+        ::GetCurrentProcessId(), ::GetTickCount64());
+    const auto* previous = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto restore_config = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+    });
+    CheckSaveConfig(QiQiConfig{});
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--desktop") {
+        TestDesktopIntegration();
+        return 0;
+    }
     TestBuffersAndFilters();
     qiqi::monitor::permission_tests::RunMonitorStartupTests();
     qiqi::monitor::permission_tests::RunPermissionRecoveryTests();
     TestExport();
     TestScrollIcons();
     TestAboutDialogs();
+    TestPopupMenuLayout();
     TestWindowAndVersion();
     qiqi::monitor::RunMetricsViewTests();
     TestMenusAndToolbar({0, 0, 3840, 2160});

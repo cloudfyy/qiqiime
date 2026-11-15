@@ -107,6 +107,13 @@ Tests must isolate configuration, files, and owned child processes. Do not run
 production registration or data-removal commands as a substitute for tests.
 For manual compatibility checks, use the [host test guide](hosts.md).
 
+The Log Monitor test runner also accepts `--menu-layout` (real popup geometry
+after 100/150/200% font changes) and `--desktop` (desktop appearance regression).
+Normal unit-test and desktop modes use isolated registry configuration, not
+the user's saved preferences. Configuration-save failures report the actual
+HRESULT, facility, and code; do not infer their cause from `GetLastError()`
+after a bool-returning configuration API.
+
 ### TSF hang diagnostics
 
 CTest launches the full and focused TSF suites through

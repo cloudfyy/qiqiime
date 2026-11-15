@@ -472,14 +472,22 @@ int ToolCommandUi::MenuScale(int px) const noexcept {
 void ToolCommandUi::RefreshMenuAppearance(HWND window, UINT dpi) noexcept {
     const auto preferences = NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig()));
     dpi = dpi ? dpi : 96u;
+    bool font_changed = false;
     if (!menu_font_ || preferences != menu_preferences_ || dpi != menu_dpi_) {
         auto font = CreateUiFont(ScaleDisplayPx(kFluentBodyFontSize, dpi, preferences.text_scale));
-        if (font) menu_font_ = std::move(font);
+        if (font) {
+            menu_font_ = std::move(font);
+            font_changed = true;
+        }
         else Report("CreateUiFont(menu)");
     }
     menu_preferences_ = preferences;
     menu_dpi_ = dpi;
     menu_appearance_ = ResolveDisplayAppearance(preferences);
+    if (font_changed) {
+        InvalidateMenuMeasurements(menu_items_);
+        if (context_items_) InvalidateMenuMeasurements(*context_items_);
+    }
     MONITORINFO monitor{};
     monitor.cbSize = sizeof(monitor);
     if (::GetMonitorInfoW(::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
@@ -497,6 +505,39 @@ void ToolCommandUi::RefreshMenuAppearance(HWND window, UINT dpi) noexcept {
                 ApplyMenuBackground(item->menu);
         }
     } else Report("CreateSolidBrush(menu)");
+}
+
+void ToolCommandUi::InvalidateMenuMeasurements(const MenuItems& items) noexcept {
+    for (const auto& item : items) {
+        const int count = ::GetMenuItemCount(item->menu);
+        if (count < 0) {
+            Report("GetMenuItemCount", ::GetLastError());
+            continue;
+        }
+        for (int index = 0; index < count; ++index) {
+            MENUITEMINFOW info{};
+            info.cbSize = sizeof(info);
+            info.fMask = MIIM_FTYPE | MIIM_SUBMENU | MIIM_ID | MIIM_STATE | MIIM_DATA;
+            const auto position = gsl::narrow_cast<UINT>(index);
+            if (!::GetMenuItemInfoW(item->menu, position, TRUE, &info)) {
+                Report("GetMenuItemInfoW(measurements)", ::GetLastError());
+                break;
+            }
+            if (info.dwItemData != reinterpret_cast<ULONG_PTR>(item.get())) continue;
+            info.fMask |= MIIM_STRING;
+            info.dwTypeData = item->text.data();
+            // Recreate the native item to discard cached dimensions, preserving its submenu and state.
+            if (!::RemoveMenu(item->menu, position, MF_BYPOSITION)) {
+                Report("RemoveMenu(measurements)", ::GetLastError());
+                break;
+            }
+            ScopedMenu submenu(info.hSubMenu);
+            if (!::InsertMenuItemW(item->menu, position, TRUE, &info))
+                Report("InsertMenuItemW(measurements)", ::GetLastError());
+            else std::ignore = submenu.Detach();
+            break;
+        }
+    }
 }
 
 void ToolCommandUi::ApplyMenuBackground(HMENU menu) noexcept {

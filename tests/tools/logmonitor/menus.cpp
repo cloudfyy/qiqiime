@@ -12,6 +12,30 @@ struct ContextMenuCheck {
     std::wstring select_all_label;
 };
 
+struct PopupLayoutCheck {
+    HMENU menu = nullptr;
+    UINT width = 0;
+    UINT height = 0;
+    bool seen = false;
+    RECT bounds{};
+    bool bounds_valid = false;
+    bool cancel_posted = false;
+};
+
+LRESULT CALLBACK CheckPopupLayout(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
+    DWORD_PTR context) noexcept {
+    auto& check = *reinterpret_cast<PopupLayoutCheck*>(context);
+    if (message == WM_DRAWITEM && lparam) {
+        const auto& draw = *reinterpret_cast<const DRAWITEMSTRUCT*>(lparam);
+        if (draw.CtlType == ODT_MENU && reinterpret_cast<HMENU>(draw.hwndItem) == check.menu && !check.seen) {
+            check.bounds_valid = ::GetMenuItemRect(window, check.menu, 0, &check.bounds) != FALSE;
+            check.seen = true;
+            check.cancel_posted = ::PostMessageW(window, WM_CANCELMODE, 0, 0) != FALSE;
+        }
+    }
+    return ::DefSubclassProc(window, message, wparam, lparam);
+}
+
 LRESULT CALLBACK CheckContextLabels(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR,
                                     DWORD_PTR context) {
     if (message == WM_DRAWITEM && lparam) {
@@ -39,6 +63,88 @@ LRESULT CALLBACK CheckContextLabels(HWND window, UINT message, WPARAM wparam, LP
     }
     return ::DefSubclassProc(window, message, wparam, lparam);
 }
+}
+
+void TestPopupMenuLayout() {
+    const auto subkey = std::format(L"Software\\QiQiIME_Test_PopupLayout_{}_{}",
+        ::GetCurrentProcessId(), ::GetTickCount64());
+    const auto* previous = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto restore = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+        MSG message{};
+        while (::PeekMessageW(&message, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE)) {}
+    });
+    QiQiConfig config;
+    CheckSaveConfig(config);
+    MonitorWindow window;
+    QIQI_TEST_CHECK(window.Create(::GetModuleHandleW(nullptr)));
+    SelectLanguage(window, UiLanguage::EnUs);
+    ::ShowWindow(window.Handle(), SW_SHOWNOACTIVATE);
+    config = LoadConfig();
+    constexpr int kLanguageMenuIndex = 3;
+    const HMENU popup = ::GetSubMenu(::GetMenu(window.Handle()), kLanguageMenuIndex);
+    QIQI_TEST_CHECK(popup);
+    PopupLayoutCheck check{popup};
+    constexpr UINT_PTR kLayoutSubclass = 0x504c;
+    constexpr UINT_PTR kCancelTimer = 3;
+    constexpr UINT kCancelTimeoutMs = 1000;
+    QIQI_TEST_CHECK(::SetWindowSubclass(window.Handle(), CheckPopupLayout, kLayoutSubclass,
+        reinterpret_cast<DWORD_PTR>(&check)));
+    const auto remove_subclass = gsl::finally([&]() noexcept {
+        ::RemoveWindowSubclass(window.Handle(), CheckPopupLayout, kLayoutSubclass);
+    });
+    for (const auto scale : {UiTextScale::Percent100, UiTextScale::Percent150, UiTextScale::Percent200}) {
+        config.ui_text_scale = scale;
+        config.easy_reading = scale != UiTextScale::Percent100;
+        CheckSaveConfig(config);
+        ::SendMessageW(window.Handle(), WM_TIMER, kMonitorRefreshTimerId, 0);
+        QIQI_TEST_CHECK(::GetSubMenu(::GetMenu(window.Handle()), kLanguageMenuIndex) == popup);
+        ::SendMessageW(window.Handle(), WM_ENTERMENULOOP, FALSE, 0);
+        check.width = 0;
+        check.height = 0;
+        check.seen = false;
+        check.bounds_valid = false;
+        check.cancel_posted = false;
+        for (UINT index = 0; index < 3; ++index) {
+            MENUITEMINFOW item{};
+            item.cbSize = sizeof(item);
+            item.fMask = MIIM_DATA | MIIM_FTYPE | MIIM_STATE;
+            QIQI_TEST_CHECK(::GetMenuItemInfoW(popup, index, TRUE, &item));
+            QIQI_TEST_CHECK((item.fType & MFT_OWNERDRAW) != 0);
+            QIQI_TEST_CHECK((item.fType & MFT_RADIOCHECK) != 0);
+            QIQI_TEST_CHECK(((item.fState & MFS_CHECKED) != 0) ==
+                (index == gsl::narrow_cast<UINT>(std::to_underlying(UiLanguage::EnUs))));
+            MEASUREITEMSTRUCT measure{};
+            measure.CtlType = ODT_MENU;
+            measure.itemData = item.dwItemData;
+            QIQI_TEST_CHECK(::SendMessageW(window.Handle(), WM_MEASUREITEM, 0, reinterpret_cast<LPARAM>(&measure)));
+            check.width = std::max(check.width, measure.itemWidth);
+            check.height = std::max(check.height, measure.itemHeight);
+        }
+        QIQI_TEST_CHECK(::SetTimer(window.Handle(), kCancelTimer, kCancelTimeoutMs,
+            [](HWND owner, UINT, UINT_PTR id, DWORD) noexcept {
+                ::KillTimer(owner, id);
+                ::PostMessageW(owner, WM_CANCELMODE, 0, 0);
+            }));
+        const auto cancel_timer = gsl::finally([&]() noexcept { ::KillTimer(window.Handle(), kCancelTimer); });
+        ::SetLastError(ERROR_SUCCESS);
+        const auto result = ::TrackPopupMenu(popup, TPM_RETURNCMD | TPM_NONOTIFY,
+            100, 100, 0, window.Handle(), nullptr);
+        if (!check.seen)
+            std::cerr << "Popup did not draw: result=" << result << ", error=" << ::GetLastError() << '\n';
+        QIQI_TEST_CHECK(check.seen);
+        QIQI_TEST_CHECK(check.bounds_valid);
+        QIQI_TEST_CHECK(check.cancel_posted);
+        const auto& bounds = check.bounds;
+        if (bounds.right - bounds.left < gsl::narrow_cast<int>(check.width) ||
+            bounds.bottom - bounds.top < gsl::narrow_cast<int>(check.height))
+            std::cerr << "Popup layout: actual=" << bounds.right - bounds.left << 'x'
+                << bounds.bottom - bounds.top << ", measured=" << check.width << 'x' << check.height << '\n';
+        QIQI_TEST_CHECK(bounds.right - bounds.left >= gsl::narrow_cast<int>(check.width));
+        QIQI_TEST_CHECK(bounds.bottom - bounds.top >= gsl::narrow_cast<int>(check.height));
+    }
 }
 
 void TestScrollIcons() {
@@ -334,16 +440,12 @@ void TestMenusAndToolbar(const RECT& work_area) {
                     if ((::GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE) == 0) continue;
                     RECT bounds{}, overlap{};
                     ::GetWindowRect(child, &bounds);
-                    const ScopedGdiHandle<HRGN> region(::CreateRectRgn(0, 0, 0, 0));
-                    QIQI_TEST_CHECK(region && ::GetWindowRgn(child, region.Get()) != ERROR);
-                    RECT clipped{};
-                    QIQI_TEST_CHECK(::GetRgnBox(region.Get(), &clipped) != ERROR);
-                    clipped = {bounds.left + clipped.left, bounds.top + clipped.top,
-                        bounds.left + clipped.right, bounds.top + clipped.bottom};
                     if (bounds.bottom > client.bottom || bounds.top < client.top) {
                         QIQI_TEST_CHECK((::GetWindowLongPtrW(window.Handle(), GWL_STYLE) & WS_VSCROLL) != 0);
                     }
-                    if (!::IntersectRect(&bounds, &bounds, &clipped)) continue;
+                    const auto visible = ClippedControlBounds(child);
+                    if (!visible) continue;
+                    bounds = *visible;
                     QIQI_TEST_CHECK(bounds.left >= client.left && bounds.top >= client.top &&
                                     bounds.right <= client.right && bounds.bottom <= client.bottom);
                     for (const auto& other : controls)

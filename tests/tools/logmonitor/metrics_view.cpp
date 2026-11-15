@@ -211,6 +211,7 @@ struct MonitorWindowTestAccess {
         for (const UINT dpi : {96u, 144u, 192u}) {
             RECT rect{0, 0, ScalePxByDpi(760, dpi), ScalePxByDpi(560, dpi)};
             ::SendMessageW(handle, WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&rect));
+            tests::FlushToolWindowLayout(handle);
             QIQI_TEST_CHECK(::SendMessageW(ui.Child(MetricModeFilter), CB_GETITEMHEIGHT, 0, 0) ==
                 ScalePxByDpi(kFluentComboItemHeight, dpi));
             QIQI_TEST_CHECK(ListView_GetColumnWidth(list, 0) == ScalePxByDpi(kMetricTableWidths.front(), dpi));
@@ -224,8 +225,9 @@ struct MonitorWindowTestAccess {
             std::vector<RECT> bounds;
             for (HWND child = ::GetWindow(handle, GW_CHILD); child; child = ::GetWindow(child, GW_HWNDNEXT)) {
                 if ((::GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE) == 0) continue;
-                RECT rect_child{};
-                ::GetWindowRect(child, &rect_child);
+                const auto visible = tests::ClippedControlBounds(child);
+                if (!visible) continue;
+                const RECT rect_child = *visible;
                 if (!(rect_child.left >= client.left && rect_child.top >= client.top &&
                     rect_child.right <= client.right && rect_child.bottom <= client.bottom)) {
                     std::cerr << "Metric layout: dpi=" << dpi << ", control=" << ::GetDlgCtrlID(child)
