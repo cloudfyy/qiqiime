@@ -393,6 +393,29 @@ commitment or a dated execution order:
 
 ### Tracked follow-up
 
+- [ ] Replace the custom backup format and add standalone configuration export/import.
+  Use UTF-8 JSON (`.json`) for configuration, with explicit `format` and `version`,
+  native boolean/numeric values, and stable string enum names. Use ZIP (`.zip`)
+  for complete backups containing configuration JSON, user dictionary, phrase
+  ordering data, and any selected custom primary dictionary. Do not export
+  machine-specific absolute paths; restore bundled files using portable references.
+  No compatibility with the existing backup format is required. Validate the
+  entire input before applying changes, and explicitly report write failures
+  or partial restoration rather than claiming success. Reuse shared configuration
+  field definitions and file helpers, remove the superseded custom parser, and
+  add focused round-trip, malformed-input, validation, and failure-path tests.
+  Allow users to edit configuration JSON manually; do not require a checksum.
+  Treat imports as untrusted input: strictly validate types, ranges, enum names,
+  format/version, and reject unknown fields and duplicate keys with actionable
+  field-specific errors. Missing settings retain their current values, allowing
+  partial configuration imports. Only explicitly supported settings may be
+  imported, never arbitrary registry keys or machine-specific paths. Show a
+  change summary and require confirmation before saving. Validation failure or
+  cancellation must leave the current configuration unchanged; failed saves must
+  preserve the original configuration and report the actual error. Include focused
+  tests for manual edits, partial imports, duplicate/unknown keys, cancellation,
+  and preservation of existing settings on failure.
+
 - [ ] High priority: add an independent prefix-completion setting.
   Preserve the current enabled default. When disabled, show only exact code
   matches while retaining valid short-code candidates. Persist the setting,
