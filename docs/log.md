@@ -128,6 +128,41 @@ recurse or lose the failure.
 Typed metrics retain their separate keyword subscription and are not enabled
 by ordinary log capture. Selecting a display category does not enable capture.
 
+<a id="taskbar-input-indicator"></a>
+
+## Taskbar input indicator
+
+For a missing Chinese/English taskbar icon, capture **IME events** at Verbose
+level with all ordinary categories enabled. Use a blank input target, record
+the host/DLL version, architecture and disappearance time, then reproduce
+focus changes, switching to another IME and switching back. Do not collect
+real input text or restart shared system processes merely for diagnosis.
+
+Filter messages by `LangBarRegistration` and `LangBarButton::`, keeping the
+related `ActivateEx`, `Deactivate` and focus events. Registration records
+include `service` and `item` IDs; button records use the same `item` ID.
+These IDs are module-local, so also match PID/TID, time and lifecycle activity.
+
+- `stage=query-add` / `stage=add`: interface query and AddItem results,
+  including whether local ownership was acquired and activation cancelled.
+- `stage=query-remove` / `stage=remove`: interface query and RemoveItem results.
+  A failed removal does not prove the host released the item; local callback
+  disconnection is separate from successful host removal.
+- `GetInfo`, `GetStatus`, `Show`: style, hidden state and visibility requests.
+- `AdviseSink`, `UnadviseSink`, `Disconnect`: notification connection lifecycle.
+- `OnUpdate`: notification flags, HRESULT and connection state after the call;
+  `sink=false, skipped=true` means no notification subscriber, not a successful
+  Shell repaint.
+- `GetIcon`, `GetText`: whether the host requested the state icon/text and
+  whether generation succeeded.
+
+HRESULTs are recorded without replacing the actual failure with a generic
+code. A successful AddItem, OnUpdate or GetIcon alone does not prove the Shell
+displayed the icon. Compare the sequence with the real taskbar observation;
+do not infer cache corruption or fix it by repeatedly removing/adding items
+without evidence. The registered brand icon and `Win+Space` list follow a
+different path; see the [research and validation plan](input-indicator.md).
+
 ## Offline ETW capture
 
 `logman.exe` is included with Windows. Use a shell with ETW control permission;

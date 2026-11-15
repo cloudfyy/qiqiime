@@ -23,6 +23,7 @@ constexpr GUID kGuidLbiInputMode = {
 };
 
 constexpr DWORD kLangBarSinkCookie = 1;
+std::atomic<uint64_t> next_langbar_log_id{0};
 
 void AddMenuEntry(ITfMenu* menu, LangBarMenuId id, const wchar_t* text, bool checked = false, bool enabled = true) {
     if (!menu || !text) {
@@ -111,7 +112,7 @@ ScopedMenu LangBarButton::BuildSharedPopupMenu(
 }
 
 LangBarButton::LangBarButton(ActionCallback cb) noexcept
-    : action_callback_(std::move(cb)) {}
+    : log_id_(++next_langbar_log_id), action_callback_(std::move(cb)) {}
 
 STDMETHODIMP LangBarButton::GetInfo(TF_LANGBARITEMINFO* pInfo) noexcept {
     if (!pInfo) {
@@ -123,6 +124,8 @@ STDMETHODIMP LangBarButton::GetInfo(TF_LANGBARITEMINFO* pInfo) noexcept {
     pInfo->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_BTN_MENU | TF_LBI_STYLE_SHOWNINTRAY;
     pInfo->ulSort = 0;
     wcscpy_s(pInfo->szDescription, str.langbar_desc);
+    QIQI_LOG_DEBUG("LangBarButton::GetInfo(item={}, style=0x{:x}, visible={})",
+                   log_id_, pInfo->dwStyle, visible_);
     return S_OK;
 }
 
@@ -130,12 +133,21 @@ STDMETHODIMP LangBarButton::GetStatus(DWORD* pdwStatus) noexcept {
     if (!pdwStatus) {
         return E_INVALIDARG;
     }
-    *pdwStatus = 0;
+    *pdwStatus = visible_ ? 0 : TF_LBI_STATUS_HIDDEN;
+    QIQI_LOG_DEBUG("LangBarButton::GetStatus(item={}, status=0x{:x}, sink={})",
+                   log_id_, *pdwStatus, sink_ != nullptr);
     return S_OK;
 }
 
-STDMETHODIMP LangBarButton::Show(BOOL /*fShow*/) noexcept {
-    return S_OK;
+STDMETHODIMP LangBarButton::Show(BOOL fShow) noexcept {
+    const bool visible = fShow != FALSE;
+    QIQI_LOG_DEBUG("LangBarButton::Show(item={}, visible_before={}, visible_after={}, sink={})",
+                   log_id_, visible_, visible, sink_ != nullptr);
+    if (visible_ == visible) {
+        return S_OK;
+    }
+    visible_ = visible;
+    return NotifyUpdate(TF_LBI_STATUS);
 }
 
 STDMETHODIMP LangBarButton::GetTooltipString(BSTR* pbstrToolTip) noexcept {
@@ -144,19 +156,22 @@ STDMETHODIMP LangBarButton::GetTooltipString(BSTR* pbstrToolTip) noexcept {
 }
 
 STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT* /*prcArea*/) {
+    const ComPtr<LangBarButton> self_holder(this);
     if (!action_callback_) {
         return S_OK;
     }
     if (click == TF_LBI_CLK_LEFT) {
-        action_callback_(LangBarMenuId::ToggleChinese);
-        return S_OK;
+        return OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleChinese));
     }
     if (click == TF_LBI_CLK_RIGHT) {
         if (pt.x == 0 && pt.y == 0) {
             ::GetCursorPos(&pt);
         }
-        action_callback_(LangBarMenuId::SyncMenuState);
-        ShowSharedPopupMenu(state_, pt, action_callback_, true);
+        std::ignore = OnMenuSelect(static_cast<UINT>(LangBarMenuId::SyncMenuState));
+        if (!action_callback_) return S_OK;
+        ShowSharedPopupMenu(state_, pt, [self_holder](LangBarMenuId id) {
+            std::ignore = self_holder->OnMenuSelect(static_cast<UINT>(id));
+        }, true);
     }
     return S_OK;
 }
@@ -165,9 +180,8 @@ STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
     if (!pMenu) {
         return E_INVALIDARG;
     }
-    if (action_callback_) {
-        action_callback_(LangBarMenuId::SyncMenuState);
-    }
+    const ComPtr<LangBarButton> self_holder(this);
+    std::ignore = OnMenuSelect(static_cast<UINT>(LangBarMenuId::SyncMenuState));
     for (const auto& item : BuildSharedMenuItems(state_)) {
         if (item.IsSeparator()) {
             AddMenuSeparator(pMenu);
@@ -179,8 +193,9 @@ STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
 }
 
 STDMETHODIMP LangBarButton::OnMenuSelect(UINT wID) {
-    if (action_callback_) {
-        action_callback_(static_cast<LangBarMenuId>(wID));
+    const ComPtr<LangBarButton> self_holder(this);
+    if (const auto callback = action_callback_) {
+        callback(static_cast<LangBarMenuId>(wID));
     }
     return S_OK;
 }
@@ -192,17 +207,19 @@ STDMETHODIMP LangBarButton::GetIcon(HICON* phIcon) noexcept {
     ScopedIcon icon = CreateTextIcon(state_.chinese_mode ? L'中' : L'英');
     *phIcon = icon.Detach();
     if (!*phIcon) {
-        QIQI_LOG_WARN("LangBarButton::GetIcon failed to create taskbar glyph icon");
+        QIQI_LOG_WARN("LangBarButton::GetIcon failed to create taskbar glyph icon (item={}, hr=0x{:08x}, visible={})",
+                      log_id_, gsl::narrow_cast<unsigned int>(E_FAIL), visible_);
         return E_FAIL;
     }
-    QIQI_LOG_DEBUG("LangBarButton::GetIcon(chinese={}, created=true)", state_.chinese_mode);
+    QIQI_LOG_DEBUG("LangBarButton::GetIcon(chinese={}, created=true) item={}, visible={}",
+                   state_.chinese_mode, log_id_, visible_);
     return S_OK;
 }
 
 STDMETHODIMP LangBarButton::GetText(BSTR* pbstrText) noexcept {
     const HRESULT hr = CopyToBstr(state_.chinese_mode ? L"中" : L"英", pbstrText);
-    QIQI_LOG_DEBUG("LangBarButton::GetText(chinese={}, hr=0x{:08x})",
-                   state_.chinese_mode, gsl::narrow_cast<unsigned int>(hr));
+    QIQI_LOG_DEBUG("LangBarButton::GetText(chinese={}, hr=0x{:08x}) item={}",
+                   state_.chinese_mode, gsl::narrow_cast<unsigned int>(hr), log_id_);
     std::ignore = log::CheckHResult(hr, "LangBarButton::GetText");
     return hr;
 }
@@ -217,13 +234,19 @@ STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCo
     if (sink_) {
         return CONNECT_E_ADVISELIMIT;
     }
-    if (!log::CheckHResult(punk->QueryInterface(IID_PPV_ARGS(&sink_)),
-                          "LangBarButton::QueryInterface(ITfLangBarItemSink)", log::Level::debug) || !sink_) {
-        return E_NOINTERFACE;
+    const ComPtr<LangBarButton> self_holder(this);
+    ComPtr<ITfLangBarItemSink> sink;
+    HRESULT hr = punk->QueryInterface(IID_PPV_ARGS(&sink));
+    if (SUCCEEDED(hr) && !sink) hr = E_UNEXPECTED;
+    QIQI_LOG_DEBUG("LangBarButton::AdviseSink(item={}, hr=0x{:08x})",
+                   log_id_, gsl::narrow_cast<unsigned int>(hr));
+    if (!log::CheckHResult(hr, "LangBarButton::QueryInterface(ITfLangBarItemSink)")) {
+        return hr;
     }
+    sink_ = std::move(sink);
     sink_cookie_ = kLangBarSinkCookie;
     *pdwCookie = sink_cookie_;
-    QIQI_LOG_DEBUG("LangBarButton::AdviseSink(connected=true)");
+    QIQI_LOG_DEBUG("LangBarButton::AdviseSink(connected=true) item={}, cookie={}", log_id_, sink_cookie_);
     return S_OK;
 }
 
@@ -231,22 +254,42 @@ STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) {
     if (!sink_ || dwCookie != sink_cookie_) {
         return CONNECT_E_NOCONNECTION;
     }
-    sink_.Reset();
+    const ComPtr<LangBarButton> self_holder(this);
+    ComPtr<ITfLangBarItemSink> sink = std::move(sink_);
     sink_cookie_ = 0;
-    QIQI_LOG_DEBUG("LangBarButton::UnadviseSink(connected=false)");
+    QIQI_LOG_DEBUG("LangBarButton::UnadviseSink(connected=false) item={}, cookie={}", log_id_, dwCookie);
     return S_OK;
 }
 
 void LangBarButton::UpdateState(const LangBarState& state) {
-    QIQI_LOG_DEBUG("LangBarButton::UpdateState(chinese_before={}, chinese_after={}, sink={})",
-                   state_.chinese_mode, state.chinese_mode, sink_ != nullptr);
+    QIQI_LOG_DEBUG("LangBarButton::UpdateState(chinese_before={}, chinese_after={}, sink={}) item={}, visible={}",
+                   state_.chinese_mode, state.chinese_mode, sink_ != nullptr, log_id_, visible_);
     state_ = state;
-    if (sink_) {
-        const HRESULT hr = sink_->OnUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP);
-        std::ignore = log::CheckHResult(hr, "LangBarButton::OnUpdate");
-        QIQI_LOG_DEBUG("LangBarButton::OnUpdate(chinese={}, hr=0x{:08x})",
-                       state_.chinese_mode, gsl::narrow_cast<unsigned int>(hr));
+    std::ignore = NotifyUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP);
+}
+
+HRESULT LangBarButton::NotifyUpdate(DWORD flags) noexcept {
+    const ComPtr<LangBarButton> self_holder(this);
+    const ComPtr<ITfLangBarItemSink> sink = sink_;
+    if (!sink) {
+        QIQI_LOG_DEBUG("LangBarButton::OnUpdate(item={}, flags=0x{:x}, sink=false, skipped=true)",
+                       log_id_, flags);
+        return S_OK;
     }
+    const HRESULT hr = sink->OnUpdate(flags);
+    std::ignore = log::CheckHResult(hr, "LangBarButton::OnUpdate");
+    QIQI_LOG_DEBUG("LangBarButton::OnUpdate(chinese={}, hr=0x{:08x}) item={}, flags=0x{:x}, visible={}, connected_after={}",
+                   state_.chinese_mode, gsl::narrow_cast<unsigned int>(hr), log_id_, flags, visible_, sink_ != nullptr);
+    return hr;
+}
+
+void LangBarButton::Disconnect() noexcept {
+    const ComPtr<LangBarButton> self_holder(this);
+    action_callback_ = {};
+    visible_ = false;
+    ComPtr<ITfLangBarItemSink> sink = std::move(sink_);
+    sink_cookie_ = 0;
+    QIQI_LOG_DEBUG("LangBarButton::Disconnect(item={}, had_sink={})", log_id_, sink != nullptr);
 }
 
 ScopedIcon LangBarButton::CreateTextIcon(wchar_t ch) noexcept {

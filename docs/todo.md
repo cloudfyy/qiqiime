@@ -23,6 +23,12 @@ display custom skins.
 
 ## Tracked follow-up
 
+- [ ] Investigate taskbar input-indicator disappearance and theme-aware icons.
+  Follow the [research and validation order](input-indicator.md): diagnose the
+  missing Chinese/English state icon first, validate monochrome TEXTCOLORICON
+  behavior in the real Shell next, and investigate the registered brand icon
+  separately. Keep the current brand colors unchanged pending validation.
+
 - [ ] Replace the custom backup format and add standalone configuration export/import.
   Use UTF-8 JSON (`.json`) for configuration, with explicit `format` and `version`,
   native boolean/numeric values, and stable string enum names. Use ZIP (`.zip`)

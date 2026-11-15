@@ -76,9 +76,6 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
             }
         }
     });
-    langbar_btn_ = MakeComObject<LangBarButton>([this](LangBarMenuId action_id) {
-        HandleLangBarMenuAction(action_id);
-    });
     status_bar_ = std::make_unique<StatusBarUI>(instance, [this](LangBarMenuId action_id) {
         HandleLangBarMenuAction(action_id);
     });
@@ -92,6 +89,7 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
 
 QiQiTextService::~QiQiTextService() noexcept {
     DisconnectPasswordContext();
+    if (langbar_btn_) langbar_btn_->Disconnect();
     if (candidate_ui_) {
         candidate_ui_->SetSelectCallback({});
         candidate_ui_->SetPageTurnCallback({});
@@ -419,23 +417,51 @@ void QiQiTextService::UninitFunctionProvider() {
 }
 
 void QiQiTextService::InitLangBarItem() {
-    if (!thread_mgr_ || !langbar_btn_) {
+    if (!thread_mgr_) {
         return;
     }
+    if (langbar_btn_) langbar_btn_->Disconnect();
+    langbar_btn_ = MakeComObject<LangBarButton>([this](LangBarMenuId action_id) {
+        const ComPtr<QiQiTextService> self_holder(this);
+        HandleLangBarMenuAction(action_id);
+    });
     ComPtr<ITfLangBarItemMgr> lb_mgr;
-    if (log::CheckHResult(thread_mgr_.As(&lb_mgr), "InitLangBarItem::QueryInterface(ITfLangBarItemMgr)") &&
+    HRESULT hr = thread_mgr_.As(&lb_mgr);
+    if (SUCCEEDED(hr) && !lb_mgr) hr = E_UNEXPECTED;
+    QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+        "LangBarRegistration(service={}, item={}, stage=query-add, hr=0x{:08x})",
+        service_log_id_, langbar_btn_->LogId(), gsl::narrow_cast<unsigned int>(hr));
+    if (log::CheckHResult(hr, "InitLangBarItem::QueryInterface(ITfLangBarItemMgr)") &&
         lb_mgr && !activation_cancelled_) {
-        langbar_item_added_ = log::CheckHResult(lb_mgr->AddItem(langbar_btn_.Get()), "InitLangBarItem::AddItem");
+        hr = lb_mgr->AddItem(langbar_btn_.Get());
+        langbar_item_added_ = log::CheckHResult(hr, "InitLangBarItem::AddItem");
+        QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+            "LangBarRegistration(service={}, item={}, stage=add, hr=0x{:08x}, added={}, cancelled={})",
+            service_log_id_, langbar_btn_->LogId(), gsl::narrow_cast<unsigned int>(hr),
+            langbar_item_added_, activation_cancelled_);
+        if (langbar_item_added_ && !activation_cancelled_) {
+            std::ignore = log::CheckHResult(langbar_btn_->Show(TRUE), "InitLangBarItem::Show");
+        }
     }
 }
 
 void QiQiTextService::UninitLangBarItem() {
+    if (langbar_btn_) langbar_btn_->Disconnect();
     if (!langbar_item_added_ || !thread_mgr_ || !langbar_btn_) {
         return;
     }
     ComPtr<ITfLangBarItemMgr> lb_mgr;
-    if (log::CheckHResult(thread_mgr_.As(&lb_mgr), "UninitLangBarItem::QueryInterface(ITfLangBarItemMgr)") && lb_mgr) {
-        std::ignore = log::CheckHResult(lb_mgr->RemoveItem(langbar_btn_.Get()), "UninitLangBarItem::RemoveItem");
+    HRESULT hr = thread_mgr_.As(&lb_mgr);
+    if (SUCCEEDED(hr) && !lb_mgr) hr = E_UNEXPECTED;
+    QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+        "LangBarRegistration(service={}, item={}, stage=query-remove, hr=0x{:08x})",
+        service_log_id_, langbar_btn_->LogId(), gsl::narrow_cast<unsigned int>(hr));
+    if (log::CheckHResult(hr, "UninitLangBarItem::QueryInterface(ITfLangBarItemMgr)") && lb_mgr) {
+        hr = lb_mgr->RemoveItem(langbar_btn_.Get());
+        std::ignore = log::CheckHResult(hr, "UninitLangBarItem::RemoveItem");
+        QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+            "LangBarRegistration(service={}, item={}, stage=remove, hr=0x{:08x}, remove_succeeded={})",
+            service_log_id_, langbar_btn_->LogId(), gsl::narrow_cast<unsigned int>(hr), SUCCEEDED(hr));
     }
     langbar_item_added_ = false;
 }

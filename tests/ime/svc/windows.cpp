@@ -210,6 +210,60 @@ void TestActivationTransitionBoundaries() {
     QIQI_TEST_CHECK(cases == 57 && g_com_object_count.load() == objects_before);
 }
 
+void TestLangBarRegistrationLifetime() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const QiQiConfig saved_config = LoadConfig(g_dll_instance);
+    auto config = saved_config;
+    config.show_status_bar = false;
+    config.default_chinese_mode = true;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    const auto restore_config = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(SaveConfigToRegistry(saved_config)); });
+    const auto objects_before = g_com_object_count.load();
+    for (const bool query_fails : {false, true}) {
+        const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        const auto manager = MakeComObject<MockTfThreadMgr>();
+        const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
+        if (query_fails) manager->langbar_query_result_ = E_ACCESSDENIED;
+        else manager->add_item_result_ = E_OUTOFMEMORY;
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        QIQI_TEST_CHECK(!manager->langbar_item_ && manager->add_item_calls_ == (query_fails ? 0u : 1u));
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK && manager->remove_item_calls_ == 0);
+        manager->langbar_query_result_ = S_OK;
+        manager->add_item_result_ = S_OK;
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 2) == S_OK && manager->langbar_item_);
+        DWORD status = TF_LBI_STATUS_HIDDEN;
+        QIQI_TEST_CHECK(manager->langbar_item_->GetStatus(&status) == S_OK && status == 0);
+    }
+    for (const bool query_fails : {false, true}) {
+        auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        const auto manager = MakeComObject<MockTfThreadMgr>();
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        ComPtr<ITfLangBarItemButton> old_button;
+        QIQI_TEST_CHECK(manager->langbar_item_.As(&old_button) == S_OK);
+        if (query_fails) manager->langbar_query_result_ = E_ACCESSDENIED;
+        else manager->remove_item_result_ = E_ACCESSDENIED;
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK && manager->langbar_item_);
+        DWORD status = 0;
+        QIQI_TEST_CHECK(old_button->GetStatus(&status) == S_OK && status == TF_LBI_STATUS_HIDDEN);
+        manager->langbar_query_result_ = S_OK;
+        manager->remove_item_result_ = S_OK;
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 2) == S_OK);
+        ComPtr<ITfLangBarItemButton> new_button;
+        QIQI_TEST_CHECK(manager->langbar_item_.As(&new_button) == S_OK && new_button.Get() != old_button.Get());
+        QIQI_TEST_CHECK(old_button->OnClick(TF_LBI_CLK_LEFT, POINT{}, nullptr) == S_OK);
+        QIQI_TEST_CHECK(old_button->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleFullWidth)) == S_OK);
+        ScopedBstr text;
+        QIQI_TEST_CHECK(new_button->GetText(text.Put()) == S_OK && std::wstring_view(text.Get()) == L"中");
+        QIQI_TEST_CHECK(new_button->OnClick(TF_LBI_CLK_LEFT, POINT{}, nullptr) == S_OK);
+        QIQI_TEST_CHECK(new_button->GetText(text.Put()) == S_OK && std::wstring_view(text.Get()) == L"英");
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        service.Reset();
+        QIQI_TEST_CHECK(old_button->OnClick(TF_LBI_CLK_LEFT, POINT{}, nullptr) == S_OK);
+        QIQI_TEST_CHECK(new_button->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleFullWidth)) == S_OK);
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 struct UiWindowDestructionProbe {
     gsl::not_null<QiQiTextService*> service;
     gsl::not_null<MockTfThreadMgr*> manager;
@@ -239,6 +293,7 @@ struct UiWindowDestructionProbe {
 void TestDeactivationWindowLifecycle() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestActivationTransitionBoundaries();
+    TestLangBarRegistrationLifetime();
     RunTsfCompositionEditTests();
     RunTsfCompositionCleanupTests();
     std::array<BYTE, 256> original_keyboard{};

@@ -66,6 +66,10 @@ class MockLangBarItemSink final : public ITfLangBarItemSink {
 public:
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
         if (!ppvObj) return E_INVALIDARG;
+        if (FAILED(query_result_)) {
+            *ppvObj = nullptr;
+            return query_result_;
+        }
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfLangBarItemSink)) {
             *ppvObj = static_cast<ITfLangBarItemSink*>(this);
             AddRef();
@@ -78,10 +82,33 @@ public:
     STDMETHODIMP_(ULONG) Release() noexcept override { return 1; }
     STDMETHODIMP OnUpdate(DWORD dwFlags) noexcept override {
         last_update_flags_ = dwFlags;
-        return S_OK;
+        ++update_count_;
+        return update_result_;
     }
 
     DWORD last_update_flags_ = 0;
+    unsigned int update_count_ = 0;
+    HRESULT query_result_ = S_OK;
+    HRESULT update_result_ = S_OK;
+};
+
+class ReentrantLangBarItemSink final
+    : public ComObjectBase<ReentrantLangBarItemSink, ITfLangBarItemSink> {
+public:
+    explicit ReentrantLangBarItemSink(bool& destroyed) noexcept : destroyed_(destroyed) {}
+    ~ReentrantLangBarItemSink() noexcept { destroyed_ = true; }
+
+    STDMETHODIMP OnUpdate(DWORD flags) override {
+        QIQI_TEST_CHECK(flags != 0);
+        callback();
+        QIQI_TEST_CHECK(!destroyed_);
+        return S_OK;
+    }
+
+    std::function<void()> callback;
+
+private:
+    bool& destroyed_;
 };
 
 HWND FindQuickSettingsMenu() noexcept {
@@ -171,17 +198,30 @@ void TestLangBarButton() {
 
     // AdviseSink / UpdateState / UnadviseSink
     MockLangBarItemSink sink;
+    MockLangBarItemSink denied_sink;
+    denied_sink.query_result_ = E_ACCESSDENIED;
     DWORD cookie = 0;
     QIQI_TEST_CHECK(lb_src->AdviseSink(IID_ITfLangBarItemSink, nullptr, &cookie) == E_INVALIDARG);
     QIQI_TEST_CHECK(lb_src->AdviseSink(IID_IUnknown, &sink, &cookie) == CONNECT_E_CANNOTCONNECT);
+    QIQI_TEST_CHECK(lb_src->AdviseSink(IID_ITfLangBarItemSink, &denied_sink, &cookie) == E_ACCESSDENIED);
     QIQI_TEST_CHECK(SUCCEEDED(lb_src->AdviseSink(IID_ITfLangBarItemSink, &sink, &cookie)) && cookie != 0);
     QIQI_TEST_CHECK(lb_src->AdviseSink(IID_ITfLangBarItemSink, &sink, &cookie) == CONNECT_E_ADVISELIMIT);
 
+    QIQI_TEST_CHECK(btn->Show(FALSE) == S_OK);
+    QIQI_TEST_CHECK(btn->GetStatus(&status) == S_OK && status == TF_LBI_STATUS_HIDDEN);
+    QIQI_TEST_CHECK(sink.last_update_flags_ == TF_LBI_STATUS && sink.update_count_ == 1);
+    QIQI_TEST_CHECK(btn->Show(FALSE) == S_OK && sink.update_count_ == 1);
     LangBarState st{};
     st.chinese_mode = false;
     btn->UpdateState(st);
-    QIQI_TEST_CHECK(sink.last_update_flags_ != 0);
+    QIQI_TEST_CHECK(sink.last_update_flags_ == (TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP));
+    QIQI_TEST_CHECK(btn->GetStatus(&status) == S_OK && status == TF_LBI_STATUS_HIDDEN);
     QIQI_TEST_CHECK(SUCCEEDED(btn->GetText(text.Put())) && std::wstring(text.Get()) == L"英");
+    sink.update_result_ = E_ACCESSDENIED;
+    QIQI_TEST_CHECK(btn->Show(TRUE) == E_ACCESSDENIED);
+    QIQI_TEST_CHECK(btn->GetStatus(&status) == S_OK && status == 0);
+    sink.update_result_ = S_OK;
+    QIQI_TEST_CHECK(btn->Show(FALSE) == S_OK && btn->Show(TRUE) == S_OK);
 
     QIQI_TEST_CHECK(lb_src->UnadviseSink(9999) == CONNECT_E_NOCONNECTION);
     QIQI_TEST_CHECK(SUCCEEDED(lb_src->UnadviseSink(cookie)));
@@ -250,6 +290,44 @@ void TestLangBarButton() {
     lb_src.Reset();
     lb_btn.Reset();
     QIQI_TEST_CHECK(btn.Detach()->Release() == 0);
+}
+
+void TestLangBarReentrantNotifications() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const auto objects_before = g_com_object_count.load();
+    for (const bool visibility_update : {false, true}) {
+        bool sink_destroyed = false;
+        auto button = MakeComObject<LangBarButton>();
+        auto sink = MakeComObject<ReentrantLangBarItemSink>(sink_destroyed);
+        DWORD cookie = 0;
+        QIQI_TEST_CHECK(button->AdviseSink(IID_ITfLangBarItemSink, sink.Get(), &cookie) == S_OK);
+        sink->callback = [&] {
+            QIQI_TEST_CHECK(button->UnadviseSink(cookie) == S_OK);
+            sink.Reset();
+            button.Reset();
+            QIQI_TEST_CHECK(!sink_destroyed);
+        };
+        if (visibility_update) {
+            QIQI_TEST_CHECK(button->Show(FALSE) == S_OK);
+        } else {
+            LangBarState state{};
+            state.chinese_mode = false;
+            button->UpdateState(state);
+        }
+        QIQI_TEST_CHECK(!button && !sink && sink_destroyed);
+    }
+    {
+        ComPtr<LangBarButton> button;
+        unsigned int calls = 0;
+        button = MakeComObject<LangBarButton>([&](LangBarMenuId) {
+            ++calls;
+            button->Disconnect();
+            button.Reset();
+        });
+        QIQI_TEST_CHECK(button->OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleChinese)) == S_OK);
+        QIQI_TEST_CHECK(calls == 1 && !button);
+    }
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
 void TestImeBrandIcon() {
@@ -1120,6 +1198,7 @@ void RunLangBarMenuTests() {
     TestQuickSettingsMenuQuitMessage();
     TestQuickSettingsMenuFocusRestoration();
     TestLangBarButton();
+    TestLangBarReentrantNotifications();
 }
 
 } // namespace qiqi::test

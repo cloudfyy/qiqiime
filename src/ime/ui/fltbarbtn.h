@@ -9,6 +9,7 @@
 #include <wrl/client.h>
 #include <atomic>
 #include <array>
+#include <cstdint>
 #include <functional>
 
 #include "common/comobj.h"
@@ -88,7 +89,9 @@ public:
     STDMETHODIMP UnadviseSink(DWORD dwCookie) override;
 
     void UpdateState(const LangBarState& state);
+    void Disconnect() noexcept;
     const LangBarState& State() const noexcept { return state_; }
+    uint64_t LogId() const noexcept { return log_id_; }
 
     static MenuItems BuildSharedMenuItems(const LangBarState& state) noexcept;
     // The returned menu must be destroyed before out_bg_brush.
@@ -115,9 +118,12 @@ public:
 
 private:
     static ScopedIcon CreateTextIcon(wchar_t ch) noexcept;
+    HRESULT NotifyUpdate(DWORD flags) noexcept;
 
+    const uint64_t log_id_;
     ComPtr<ITfLangBarItemSink> sink_;
     DWORD sink_cookie_ = 0;
+    bool visible_ = true;
     LangBarState state_{};
     ActionCallback action_callback_;
 };

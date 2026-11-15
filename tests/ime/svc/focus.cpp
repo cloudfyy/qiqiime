@@ -31,6 +31,7 @@ void TestFocusPerformanceLogs() {
     std::vector<std::wstring> preserved_key_records;
     std::vector<std::wstring> shift_records;
     std::vector<std::wstring> indicator_records;
+    std::vector<std::wstring> registration_records;
     std::vector<std::wstring> fsm_records;
     bool checking_shift_filter = false;
     bool checking_fsm = false;
@@ -51,6 +52,7 @@ void TestFocusPerformanceLogs() {
         if (checking_shift_filter) QIQI_TEST_CHECK(!shift_diagnostic && !indicator_diagnostic);
         if (shift_diagnostic) shift_records.push_back(message);
         if (indicator_diagnostic) indicator_records.push_back(message);
+        if (message.contains(L"LangBarRegistration(")) registration_records.push_back(message);
         if (message.contains(L"FocusPerformance(")) focus_records.push_back(message);
         if (message.contains(L"ReloadConfigIfModified(focus_id=")) reload_records.push_back(message);
         if (message.contains(L"TsfCleanup(")) cleanup_records.push_back(message);
@@ -229,6 +231,13 @@ void TestFocusPerformanceLogs() {
     }
     QIQI_TEST_CHECK(!checking_shift_filter);
     QIQI_TEST_CHECK(!checking_fsm);
+    for (const auto* expected : {L"stage=query-add, hr=0x80070005",
+                                 L"stage=add, hr=0x8007000e, added=false",
+                                 L"stage=remove, hr=0x80070005, remove_succeeded=false"}) {
+        QIQI_TEST_CHECK(std::any_of(registration_records.begin(), registration_records.end(), [&](const auto& record) {
+            return record.contains(expected) && record.contains(L"service=") && record.contains(L"item=");
+        }));
+    }
     constexpr std::array<std::wstring_view, 16> expected_fsm = {
         L"state_before=1 -> op=1 state_after=2",
         L"state_before=2 -> op=1 state_after=3",
@@ -412,6 +421,19 @@ void ExerciseTsfFocusDiagnostics(TRACEHANDLE session) {
     manager->preserve_key_callback_ = {};
     manager->unpreserve_key_callback_ = {};
     manager->unadvise_key_sink_result_ = S_OK;
+
+    manager->langbar_query_result_ = E_ACCESSDENIED;
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    manager->langbar_query_result_ = S_OK;
+    manager->add_item_result_ = E_OUTOFMEMORY;
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    manager->add_item_result_ = S_OK;
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    manager->remove_item_result_ = E_ACCESSDENIED;
+    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    manager->remove_item_result_ = S_OK;
 
     QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
     auto shift_context = MakeComObject<MockTfContext>();

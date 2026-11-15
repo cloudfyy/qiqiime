@@ -40,6 +40,10 @@ public:
         } else if (IsEqualIID(riid, IID_ITfCompartmentMgr)) {
             *ppvObj = static_cast<ITfCompartmentMgr*>(this);
         } else if (IsEqualIID(riid, IID_ITfLangBarItemMgr)) {
+            if (FAILED(langbar_query_result_)) {
+                *ppvObj = nullptr;
+                return langbar_query_result_;
+            }
             *ppvObj = static_cast<ITfLangBarItemMgr*>(this);
         } else {
             *ppvObj = nullptr;
@@ -239,6 +243,7 @@ public:
     STDMETHODIMP AdviseItemsSink(ULONG, ITfLangBarItemSink**, const GUID*, DWORD*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP UnadviseItemsSink(ULONG, DWORD*) noexcept override { return E_NOTIMPL; }
     STDMETHODIMP AddItem(ITfLangBarItem* punk) override {
+        ++add_item_calls_;
         if (activation_callback_) activation_callback_(ActivationStage::LangBar);
         if (FAILED(add_item_result_)) return add_item_result_;
         langbar_item_ = punk;
@@ -246,6 +251,7 @@ public:
     }
     STDMETHODIMP RemoveItem(ITfLangBarItem*) override {
         ++remove_item_calls_;
+        if (FAILED(remove_item_result_)) return remove_item_result_;
         langbar_item_.Reset();
         return remove_item_result_;
     }
@@ -303,9 +309,11 @@ public:
     HRESULT single_sink_result_ = S_OK;
     HRESULT unadvise_single_result_ = S_OK;
     HRESULT add_item_result_ = S_OK;
+    HRESULT langbar_query_result_ = S_OK;
     HRESULT remove_item_result_ = S_OK;
     unsigned int unadvise_single_calls_ = 0;
     unsigned int remove_item_calls_ = 0;
+    unsigned int add_item_calls_ = 0;
     BOOL show_own_ui_ = TRUE;
 private:
     ULONG ref_ = 1;
