@@ -981,6 +981,69 @@ void TestQuickSettingsMenuLivePainting() {
     }
 }
 
+void TestQuickSettingsMenuLiteralAmpersand() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    LangBarState state{};
+    state.ui_language = UiLanguage::EnUs;
+    state.display.theme = UiTheme::Light;
+    const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
+        ::KillTimer(nullptr, id);
+        const HWND menu = FindQuickSettingsMenu();
+        QIQI_TEST_CHECK(menu && ::IsWindowVisible(menu));
+        const HWND button = ::GetDlgItem(menu, static_cast<int>(LangBarMenuId::OpenHelp));
+        RECT rect{};
+        QIQI_TEST_CHECK(button && ::GetClientRect(button, &rect));
+        const ScopedWindowDC screen;
+        const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+        const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), rect.right, rect.bottom));
+        QIQI_TEST_CHECK(screen && dc && bitmap);
+        const ScopedSelectObject select_bitmap(dc.Get(), bitmap.Get());
+        DRAWITEMSTRUCT draw{};
+        draw.CtlType = ODT_BUTTON;
+        draw.CtlID = static_cast<UINT>(LangBarMenuId::OpenHelp);
+        draw.hwndItem = button;
+        draw.hDC = dc.Get();
+        draw.rcItem = rect;
+        ::SendMessageW(menu, WM_DRAWITEM, draw.CtlID, reinterpret_cast<LPARAM>(&draw));
+        const auto pixels = [&]() {
+            std::vector<COLORREF> result;
+            result.reserve(gsl::narrow_cast<size_t>(rect.right * rect.bottom));
+            for (int y = 0; y < rect.bottom; ++y) {
+                for (int x = 0; x < rect.right; ++x) {
+                    const COLORREF pixel = ::GetPixel(dc.Get(), x, y);
+                    QIQI_TEST_CHECK(pixel != CLR_INVALID);
+                    result.push_back(pixel);
+                }
+            }
+            return result;
+        };
+        const auto actual = pixels();
+        const auto appearance = ResolveDisplayAppearance({UiTheme::Light});
+        const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(appearance.palette.window_bg));
+        QIQI_TEST_CHECK(background && ::FillRect(dc.Get(), &rect, background.Get()));
+        ::SetBkMode(dc.Get(), TRANSPARENT);
+        ::SetTextColor(dc.Get(), appearance.palette.text_primary);
+        const auto font = reinterpret_cast<HFONT>(::SendMessageW(button, WM_GETFONT, 0, 0));
+        const ScopedSelectObject select_font(dc.Get(), font);
+        RECT text_rect = rect;
+        text_rect.left += rect.bottom + rect.bottom / 4;
+        text_rect.right -= rect.bottom / 2;
+        QIQI_TEST_CHECK(::DrawTextW(dc.Get(), GetUiStrings(UiLanguage::EnUs).menu_open_help, -1, &text_rect,
+            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX));
+        QIQI_TEST_CHECK(actual == pixels());
+        QIQI_TEST_CHECK(::FillRect(dc.Get(), &rect, background.Get()));
+        QIQI_TEST_CHECK(::DrawTextW(dc.Get(), GetUiStrings(UiLanguage::EnUs).menu_open_help, -1, &text_rect,
+            DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS));
+        QIQI_TEST_CHECK(actual != pixels());
+        ::SendMessageW(menu, WM_CLOSE, 0, 0);
+    });
+    QIQI_TEST_CHECK(timer != 0);
+    const auto cancel_timer = gsl::finally([&]() { ::KillTimer(nullptr, timer); });
+    LangBarButton::ShowSharedPopupMenu(state, POINT{200, 200}, [](LangBarMenuId) {
+        QIQI_TEST_CHECK(false);
+    });
+}
+
 void TestQuickSettingsMenuQuitMessage() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
@@ -1053,6 +1116,7 @@ void RunLangBarMenuTests() {
     TestQuickSettingsMenuCommandValidation();
     TestQuickSettingsMenuNavigation();
     TestQuickSettingsMenuLivePainting();
+    TestQuickSettingsMenuLiteralAmpersand();
     TestQuickSettingsMenuQuitMessage();
     TestQuickSettingsMenuFocusRestoration();
     TestLangBarButton();

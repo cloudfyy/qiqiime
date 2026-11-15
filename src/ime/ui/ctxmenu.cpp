@@ -406,7 +406,8 @@ private:
         text_rect.right -= gutter / kTextTrailingPaddingDivisor;
         std::array<wchar_t, kMenuTextCapacity> text{};
         ::GetWindowTextW(item.hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
-        ::DrawTextW(item.hDC, text.data(), -1, &text_rect, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+        ::DrawTextW(item.hDC, text.data(), -1, &text_rect,
+                    DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
         const auto* menu_item = FindItem(item.CtlID);
         if (menu_item && menu_item->checked) {
             RECT check = item.rcItem;
