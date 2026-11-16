@@ -67,6 +67,13 @@ public:
     explicit LangBarButton(ActionCallback cb = {}) noexcept;
     ~LangBarButton() noexcept;
 
+    LangBarButton(const LangBarButton&) = delete;
+#pragma warning(suppress : 26456) // The base assignment operators are also deleted.
+    LangBarButton& operator=(const LangBarButton&) = delete;
+    LangBarButton(LangBarButton&&) = delete;
+#pragma warning(suppress : 26456)
+    LangBarButton& operator=(LangBarButton&&) = delete;
+
     bool QueryAdditionalInterfaces(REFIID riid, void** ppvObj) noexcept {
         return MatchBaseInterfaces<ITfLangBarItemButton, ITfLangBarItem>(riid, ppvObj);
     }
@@ -86,9 +93,9 @@ public:
 
     // ITfSource
     STDMETHODIMP AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCookie) override;
-    STDMETHODIMP UnadviseSink(DWORD dwCookie) override;
+    STDMETHODIMP UnadviseSink(DWORD dwCookie) noexcept override;
 
-    void UpdateState(const LangBarState& state);
+    void UpdateState(const LangBarState& state) noexcept;
     void Disconnect() noexcept;
     const LangBarState& State() const noexcept { return state_; }
     uint64_t LogId() const noexcept { return log_id_; }

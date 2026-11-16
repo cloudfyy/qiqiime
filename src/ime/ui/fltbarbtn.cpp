@@ -256,7 +256,7 @@ STDMETHODIMP LangBarButton::AdviseSink(REFIID riid, IUnknown* punk, DWORD* pdwCo
     return S_OK;
 }
 
-STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) {
+STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) noexcept {
     if (!sink_ || dwCookie != sink_cookie_) {
         return CONNECT_E_NOCONNECTION;
     }
@@ -268,7 +268,7 @@ STDMETHODIMP LangBarButton::UnadviseSink(DWORD dwCookie) {
     return S_OK;
 }
 
-void LangBarButton::UpdateState(const LangBarState& state) {
+void LangBarButton::UpdateState(const LangBarState& state) noexcept {
     QIQI_LOG_DEBUG("LangBarButton::UpdateState(chinese_before={}, chinese_after={}, sink={}) item={}, visible={}",
                    state_.chinese_mode, state.chinese_mode, sink_ != nullptr, log_id_, visible_);
     state_ = state;
@@ -283,6 +283,7 @@ HRESULT LangBarButton::NotifyUpdate(DWORD flags) noexcept {
                        log_id_, flags);
         return S_OK;
     }
+#pragma warning(suppress : 26447) // COM sinks report failure through HRESULT, not C++ exceptions.
     const HRESULT hr = sink->OnUpdate(flags);
     std::ignore = log::CheckHResult(hr, "LangBarButton::OnUpdate");
     QIQI_LOG_DEBUG("LangBarButton::OnUpdate(chinese={}, hr=0x{:08x}) item={}, flags=0x{:x}, visible={}, connected_after={}",

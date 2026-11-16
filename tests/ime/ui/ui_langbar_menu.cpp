@@ -80,7 +80,7 @@ public:
     }
     STDMETHODIMP_(ULONG) AddRef() noexcept override { return 1; }
     STDMETHODIMP_(ULONG) Release() noexcept override { return 1; }
-    STDMETHODIMP OnUpdate(DWORD dwFlags) noexcept override {
+    STDMETHODIMP OnUpdate(DWORD dwFlags) override {
         last_update_flags_ = dwFlags;
         ++update_count_;
         if (callback) callback();
@@ -99,6 +99,13 @@ class ReentrantLangBarItemSink final
 public:
     explicit ReentrantLangBarItemSink(bool& destroyed) noexcept : destroyed_(destroyed) {}
     ~ReentrantLangBarItemSink() noexcept { destroyed_ = true; }
+
+    ReentrantLangBarItemSink(const ReentrantLangBarItemSink&) = delete;
+#pragma warning(suppress : 26456) // The base assignment operators are also deleted.
+    ReentrantLangBarItemSink& operator=(const ReentrantLangBarItemSink&) = delete;
+    ReentrantLangBarItemSink(ReentrantLangBarItemSink&&) = delete;
+#pragma warning(suppress : 26456)
+    ReentrantLangBarItemSink& operator=(ReentrantLangBarItemSink&&) = delete;
 
     STDMETHODIMP OnUpdate(DWORD flags) override {
         QIQI_TEST_CHECK(flags != 0);
