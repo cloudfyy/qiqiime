@@ -10,7 +10,10 @@
 - **候选窗统一使用 App mode**：跟随系统时，候选窗及设置内的候选预览使用 Windows 的应用明暗偏好，不探测宿主是否属于 Windows 系统界面。自绘快捷菜单继续使用 Windows mode；手选主题和 Windows 高对比度优先级不变。系统界面识别及特例保留为 TODO，不包含皮肤运行时实现。
 - **统一未完成输入的处理**：将选项改为“未完成输入的处理”，提供“原始编码上屏”和“清除未完成输入”。切换英文模式与通过 `Win+Space` 等入口切换输入法／键盘布局遵循同一配置；通过 TSF 通知和停用清理处理，不拦截系统快捷键。保留现有配置键、默认值与备份兼容性，只操作仍由输入法拥有的组合范围，不追删宿主已经结束组合的正文。
 - **修复服务回归测试的配置隔离**：输入法切换和编码补全测试移入已有的私有注册表、临时数据目录 fixture，并在写配置前拒绝生产配置键。断言失败会直接终止进程，不能用真实配置的快照／RAII 恢复代替隔离。
-- **新增离线 Shell 检查清单**：提供本地 HTML 测试页，支持草稿保存和 Markdown 报告导出，不上传测试结果。检查清单不代表所有 Shell 宿主已经验收。
+- **修复共享 COM sink 的重入清理**：注销前先移出旧 source/cookie 的所有权，避免重复注销或误清除重入时建立的新连接，并补充嵌套清理与重新连接的回归。
+- **隔离同名字典的回退缓存**：不能在源文件旁写缓存时，回退缓存名使用规范化源路径身份，避免不同目录中同名、同尺寸、同修改时间的字典串用缓存；复用已有哈希机制，旧的歧义缓存不再读取，不主动删除。
+- **扩展焦点测试隔离**：焦点指标测试与基准的配置写入同时隔离测试 EXE 和加载的 DLL，补充私有配置哨兵及异常展开回归；不依赖恢复真实用户偏好。
+- **新增离线 Shell 检查清单**：提供本地 HTML 测试页，支持草稿保存和 Markdown 报告导出，不上传测试结果；主题检查预期与候选窗及预览使用 App mode 的策略保持一致。检查清单不代表所有 Shell 宿主已经验收。
 
 ## 迁移与验证边界
 
@@ -46,8 +49,18 @@ tagged CI validation, and actually published download assets.
   tests now use the existing private-registry/temporary-data fixture and reject
   the production configuration key. Aborting assertions bypass RAII cleanup,
   so saving/restoring real preferences is not isolation.
+- **Reentrant COM sink teardown:** detach the old source/cookie ownership before
+  unadvising, preventing duplicate teardown and preserving connections created
+  by reentrant callbacks. Add nested-reset and reconnect regressions.
+- **Source-specific fallback dictionary caches:** reuse canonical source identity
+  and existing hashing to separate same-named, equal-metadata dictionaries in
+  different directories. Ambiguous legacy fallback caches are ignored, not deleted.
+- **Isolated focus tests:** focus metrics tests and benchmarks isolate configuration
+  in both the test EXE and loaded DLL, with private sentinel and exception-unwinding
+  regressions rather than restoration of real user preferences.
 - **Offline Shell checklist:** a local HTML page saves drafts and exports
-  Markdown reports without uploading results; it does not certify every host.
+  Markdown reports without uploading results. Theme expectations match candidate/
+  preview App-mode behavior; the checklist does not certify every host.
 
 ### Migration and validation boundaries
 

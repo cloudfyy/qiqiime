@@ -21,6 +21,7 @@
 #include <limits>
 #include <memory>
 #include <new>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -104,12 +105,39 @@ struct FocusBenchmarkState {
 };
 thread_local FocusBenchmarkState* focus_benchmark = nullptr;
 
+class FocusTestRegistry final {
+public:
+    explicit FocusTestRegistry(std::wstring name, HKEY parent = HKEY_CURRENT_USER)
+        : name_(L"Software\\" + std::move(name)), parent_(parent) {
+        DWORD disposition = 0;
+        QIQI_TEST_CHECK(::RegCreateKeyExW(parent_, name_.c_str(), 0, nullptr, REG_OPTION_NON_VOLATILE,
+            KEY_ALL_ACCESS, nullptr, key_.Put(), &disposition) == ERROR_SUCCESS);
+        QIQI_TEST_CHECK(disposition == REG_CREATED_NEW_KEY);
+        QIQI_TEST_CHECK(::RegOverridePredefKey(HKEY_CURRENT_USER, key_.Get()) == ERROR_SUCCESS);
+    }
+    ~FocusTestRegistry() noexcept {
+        QIQI_TEST_CHECK_CLEANUP(::RegOverridePredefKey(HKEY_CURRENT_USER,
+            parent_ == HKEY_CURRENT_USER ? nullptr : parent_) == ERROR_SUCCESS);
+        key_.Reset();
+        QIQI_TEST_CHECK_CLEANUP(::RegDeleteTreeW(parent_, name_.c_str()) == ERROR_SUCCESS);
+    }
+    FocusTestRegistry(const FocusTestRegistry&) = delete;
+    FocusTestRegistry& operator=(const FocusTestRegistry&) = delete;
+    FocusTestRegistry(FocusTestRegistry&&) = delete;
+    FocusTestRegistry& operator=(FocusTestRegistry&&) = delete;
+    HKEY Get() const noexcept { return key_.Get(); }
+private:
+    const std::wstring name_;
+    const HKEY parent_; // A nested regression fixture borrows its outer fixture's key.
+    ScopedRegKey key_;
+};
+
 class FocusTestEnvironment final {
 public:
-    explicit FocusTestEnvironment(bool show_status_bar)
-        : directory(std::filesystem::temp_directory_path() /
+    explicit FocusTestEnvironment(bool show_status_bar, HKEY registry_parent = HKEY_CURRENT_USER)
+        : directory(std::filesystem::current_path() /
             std::format(L"qiqi-focus-test-{}-{}", ::GetCurrentProcessId(), ::GetTickCount64())),
-          saved_(LoadConfig(nullptr)) {
+          registry_(directory.filename().wstring(), registry_parent) {
         QIQI_TEST_CHECK(std::filesystem::create_directory(directory));
         wchar_t* previous = nullptr;
         size_t length = 0;
@@ -123,10 +151,6 @@ public:
         QIQI_TEST_CHECK(SaveConfigToRegistry(config));
     }
     ~FocusTestEnvironment() noexcept {
-        if (!SaveConfigToRegistry(saved_)) {
-            std::fputs("[FAIL] Restoring focus test configuration failed.\n", stderr);
-            std::abort();
-        }
         const int environment_error = _wputenv_s(L"LOCALAPPDATA", appdata_ ? appdata_.get() : L"");
         if (environment_error != 0) {
             std::fprintf(stderr, "[FAIL] Restoring focus test environment failed (error=%d).\n", environment_error);
@@ -154,7 +178,7 @@ public:
     const std::filesystem::path directory;
     QiQiConfig config{};
 private:
-    const QiQiConfig saved_;
+    const FocusTestRegistry registry_;
     std::unique_ptr<wchar_t, decltype(&std::free)> appdata_{nullptr, &std::free};
 };
 
@@ -402,6 +426,55 @@ void ExerciseLoadedIme(QiQiConfig& config, bool multiple_instances) {
 }
 
 } // namespace
+
+void RunFocusEnvironmentIsolationTest() {
+    const TsfTestCaseTrace trace(__func__);
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) == kDefaultConfigRegSubKey);
+    const FocusTestRegistry outer(std::format(
+        L"QiQiIME_FocusIsolationTest_{}_{}", ::GetCurrentProcessId(), ::GetTickCount64()));
+    QiQiConfig sentinel;
+    sentinel.page_size = 9;
+    sentinel.underline_style = CompositionUnderlineStyle::Solid;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(sentinel));
+    ScopedRegKey sentinel_key;
+    QIQI_TEST_CHECK(::RegOpenKeyExW(outer.Get(), kDefaultConfigRegSubKey, 0,
+        KEY_READ, sentinel_key.Put()) == ERROR_SUCCESS);
+    const auto check_sentinel = [&]() {
+        DWORD page_size = 0;
+        DWORD bytes = sizeof(page_size);
+        QIQI_TEST_CHECK(::RegGetValueW(sentinel_key.Get(), nullptr, L"PageSize", RRF_RT_REG_DWORD,
+            nullptr, &page_size, &bytes) == ERROR_SUCCESS && page_size == sentinel.page_size);
+    };
+    for (const bool fail : {false, true}) {
+        bool caught = false;
+        try {
+            FocusTestEnvironment environment(false, outer.Get());
+            check_sentinel();
+            QiQiConfig active;
+            QIQI_TEST_CHECK(LoadConfigFromRegistry(active) && active.page_size == environment.config.page_size);
+            environment.config.underline_style = CompositionUnderlineStyle::None;
+            QIQI_TEST_CHECK(SaveConfigToRegistry(environment.config));
+            const auto module = LoadImeModule();
+            const auto factory = GetImeFactory(module.Get());
+            ComPtr<ITfDisplayAttributeProvider> provider;
+            QIQI_TEST_CHECK(factory->CreateInstance(nullptr, IID_PPV_ARGS(&provider)) == S_OK);
+            ComPtr<ITfDisplayAttributeInfo> info;
+            QIQI_TEST_CHECK(provider->GetDisplayAttributeInfo(kGuidDisplayAttributeInput, &info) == S_OK && info);
+            TF_DISPLAYATTRIBUTE attribute{};
+            QIQI_TEST_CHECK(info->GetAttributeInfo(&attribute) == S_OK && attribute.lsStyle == TF_LS_NONE);
+            check_sentinel();
+            if (fail) throw std::runtime_error("injected focus fixture failure");
+        } catch (const std::runtime_error& error) {
+            QIQI_TEST_CHECK(std::string_view(error.what()) == "injected focus fixture failure");
+            caught = true;
+        }
+        QIQI_TEST_CHECK(caught == fail);
+        check_sentinel();
+        QiQiConfig restored;
+        QIQI_TEST_CHECK(LoadConfigFromRegistry(restored) && restored.page_size == sentinel.page_size);
+    }
+    std::cout << "[PASS] Focus fixtures isolate the executable and loaded DLL, including failure unwinding.\n";
+}
 
 int RunFocusBenchmark(const std::filesystem::path& dll, std::wstring_view mode) {
     if (mode != L"off" && mode != L"file") {

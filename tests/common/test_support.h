@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <gsl/gsl>
 #include <array>
+#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -16,16 +17,65 @@ namespace qiqi::test {
 // Borrowed from the TSF runner; other test executables keep stderr-only diagnostics.
 inline std::ostream* retained_failure_log = nullptr;
 
+inline void WriteTestFailureLine(
+    std::ostream& output, const char* file, int line, const char* expression, bool keyboard_state) {
+    output << "[FAIL] " << file << ":" << line << ": " << expression;
+    if (keyboard_state) {
+        output << ", shift=" << ::GetKeyState(VK_SHIFT)
+               << ", ctrl=" << ::GetKeyState(VK_CONTROL)
+               << ", alt=" << ::GetKeyState(VK_MENU)
+               << ", caps=" << ::GetKeyState(VK_CAPITAL);
+    }
+    output << std::endl;
+}
+
 inline void ReportTestFailure(const char* file, int line, const char* expression) {
-    std::cerr << "[FAIL] " << file << ":" << line << ": " << expression << std::endl;
+    WriteTestFailureLine(std::cerr, file, line, expression, false);
     if (retained_failure_log) {
-        *retained_failure_log << "[FAIL] " << file << ":" << line << ": " << expression
-                              << ", shift=" << ::GetKeyState(VK_SHIFT)
-                              << ", ctrl=" << ::GetKeyState(VK_CONTROL)
-                              << ", alt=" << ::GetKeyState(VK_MENU)
-                              << ", caps=" << ::GetKeyState(VK_CAPITAL) << std::endl;
+        WriteTestFailureLine(*retained_failure_log, file, line, expression, true);
         if (!*retained_failure_log) std::cerr << "[FAIL] Writing retained test failure log failed." << std::endl;
     }
+}
+
+inline void ReportTestCleanupFailure(const char* file, int line, const char* expression) noexcept {
+    const auto fallback = [file, line, expression]() noexcept {
+        std::fprintf(stderr, "[FAIL] %s:%d: %s\n", file, line, expression);
+        std::fflush(stderr);
+    };
+    // A streambuf may throw any exception; diagnostics must still reach the assertion's abort.
+    try {
+        WriteTestFailureLine(std::cerr, file, line, expression, false);
+        if (!std::cerr) fallback();
+    } catch (...) {
+        fallback();
+    }
+    if (!retained_failure_log) return;
+    bool retained_failed = false;
+    try {
+        WriteTestFailureLine(*retained_failure_log, file, line, expression, true);
+        retained_failed = !*retained_failure_log;
+    } catch (...) {
+        retained_failed = true;
+    }
+    if (retained_failed) {
+        constexpr const char* message = "[FAIL] Writing retained test failure log failed.\n";
+        const auto fallback_retained = [message]() noexcept {
+            std::fputs(message, stderr);
+            std::fflush(stderr);
+        };
+        try {
+            std::cerr << message << std::flush;
+            if (!std::cerr) fallback_retained();
+        } catch (...) {
+            fallback_retained();
+        }
+    }
+}
+
+[[noreturn]] inline void FailTestCleanup(const char* file, int line, const char* expression) noexcept {
+    ReportTestCleanupFailure(file, line, expression);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    std::abort();
 }
 } // namespace qiqi::test
 
@@ -35,6 +85,13 @@ inline void ReportTestFailure(const char* file, int line, const char* expression
             ::qiqi::test::ReportTestFailure(__FILE__, __LINE__, #expr);                          \
             _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);                         \
             std::abort();                                                                       \
+        }                                                                                       \
+    } while (false)
+
+#define QIQI_TEST_CHECK_CLEANUP(expr)                                                            \
+    do {                                                                                        \
+        if (!(expr)) {                                                                          \
+            ::qiqi::test::FailTestCleanup(__FILE__, __LINE__, #expr);                            \
         }                                                                                       \
     } while (false)
 

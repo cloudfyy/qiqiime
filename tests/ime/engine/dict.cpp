@@ -13,6 +13,7 @@ void RunEngineDictTests() {
     TestAddEntryAndLookupEdgeCases();
     TestCodeCompletionLookup();
     TestExternalDictFile();
+    TestFallbackCacheSourceIsolation();
     TestCrossProcessDictAndPhraseFreqSync();
     TestCustomPrimaryDictionaryAndFallback();
 }

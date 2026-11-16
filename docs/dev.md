@@ -154,6 +154,14 @@ existing lifecycle fixture's private registry key and temporary `LOCALAPPDATA`.
 Their entry guards reject the production configuration key before loading or
 saving settings. Snapshot/restore of real preferences is not isolation:
 `QIQI_TEST_CHECK` aborts on failure, so RAII cleanup cannot restore those values.
+Focus metrics and benchmark fixtures redirect `HKEY_CURRENT_USER` to a newly
+created disposable key before any configuration access, and use private
+`LOCALAPPDATA` directories under the test working directory. Process-wide
+redirection isolates both the test executable and the loaded IME DLL; a
+module-local configuration-key override alone would not isolate that DLL.
+`QiQiFocusEnvironmentTest` verifies both modules against synthetic sentinel
+configuration, including failure unwinding, without requiring ETW capture or
+native TSF activation. Keep these process-wide fixtures serial.
 For manual compatibility checks, use the [host test guide](hosts.md).
 
 The Log Monitor test runner also accepts `--menu-layout` (real popup geometry

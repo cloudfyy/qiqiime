@@ -72,7 +72,9 @@ public:
         return S_OK;
     }
     STDMETHODIMP UnadviseSink(DWORD) override {
+        ++unadvise_calls_;
         sink_.Reset();
+        if (unadvise_callback_) unadvise_callback_();
         return S_OK;
     }
 
@@ -82,7 +84,9 @@ public:
     HRESULT get_value_result_ = S_OK;
     bool fail_set_value_ = false;
     unsigned int set_value_calls_ = 0;
+    unsigned int unadvise_calls_ = 0;
     std::function<void()> advise_callback_;
+    std::function<void()> unadvise_callback_;
     std::function<void()> set_value_callback_;
     std::function<void()> get_value_callback_;
     ComPtr<ITfCompartmentEventSink> sink_;

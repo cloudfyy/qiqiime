@@ -249,11 +249,11 @@ public:
     }
 
     void Reset() noexcept {
-        if (source_ && cookie_ != TF_INVALID_COOKIE) {
-            std::ignore = log::CheckHResult(source_->UnadviseSink(cookie_), "ITfSource::UnadviseSink");
+        const auto source = std::move(source_);
+        const DWORD cookie = std::exchange(cookie_, TF_INVALID_COOKIE);
+        if (source && cookie != TF_INVALID_COOKIE) {
+            std::ignore = log::CheckHResult(source->UnadviseSink(cookie), "ITfSource::UnadviseSink");
         }
-        source_.Reset();
-        cookie_ = TF_INVALID_COOKIE;
     }
 
     bool IsConnected() const noexcept { return source_ != nullptr && cookie_ != TF_INVALID_COOKIE; }
@@ -290,8 +290,8 @@ public:
     }
 
     void Reset() noexcept {
+        const auto compartment = std::move(comp_);
         sink_conn_.Reset();
-        comp_.Reset();
     }
 
     LONG ReadInt4(LONG default_val = 0) const noexcept {

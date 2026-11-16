@@ -3,9 +3,80 @@
 
 #include "ime/engine/dict/test.h"
 
+#include <cstdio>
+#include <cstdlib>
+#include <memory>
+#include <new>
+#include <string_view>
+#include <utility>
+
 namespace qiqi::test::dict_cases {
+namespace {
+
+class DictionaryCacheEnvironment final {
+public:
+    explicit DictionaryCacheEnvironment(std::wstring_view purpose)
+        : directory(std::filesystem::current_path() /
+            (L"qiqi-dict-cache-" + std::wstring(purpose) + L"-" + std::to_wstring(::GetCurrentProcessId()) +
+             L"-" + std::to_wstring(::GetTickCount64()))) {
+        QIQI_TEST_CHECK(std::filesystem::create_directory(directory));
+        wchar_t* previous = nullptr;
+        size_t length = 0;
+        QIQI_TEST_CHECK(_wdupenv_s(&previous, &length, L"LOCALAPPDATA") == 0);
+        appdata_.reset(previous);
+        QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", directory.c_str()) == 0);
+    }
+    ~DictionaryCacheEnvironment() noexcept {
+        WubiMappedDict::ClearProcessCache();
+        QIQI_TEST_CHECK_CLEANUP(_wputenv_s(L"LOCALAPPDATA", appdata_ ? appdata_.get() : L"") == 0);
+        std::error_code error;
+        try {
+            std::filesystem::remove_all(directory, error);
+        } catch (const std::bad_alloc&) {
+            std::fputs("[FAIL] Dictionary cache fixture cleanup allocation failed.\n", stderr);
+            std::abort();
+        }
+        QIQI_TEST_CHECK_CLEANUP(!error);
+    }
+    DictionaryCacheEnvironment(const DictionaryCacheEnvironment&) = delete;
+    DictionaryCacheEnvironment& operator=(const DictionaryCacheEnvironment&) = delete;
+    DictionaryCacheEnvironment(DictionaryCacheEnvironment&&) = delete;
+    DictionaryCacheEnvironment& operator=(DictionaryCacheEnvironment&&) = delete;
+    const std::filesystem::path directory;
+private:
+    std::unique_ptr<wchar_t, decltype(&std::free)> appdata_{nullptr, &std::free};
+};
+
+} // namespace
+
+void TestFallbackCacheSourceIsolation() {
+    const DictionaryCacheEnvironment environment(L"source-isolation");
+    const auto first = environment.directory / L"first" / L"same.txt";
+    const auto second = environment.directory / L"second" / L"same.txt";
+    QIQI_TEST_CHECK(WriteFileAtomically(first, codec::AsByteSpan("aaaa first\n")));
+    QIQI_TEST_CHECK(WriteFileAtomically(second, codec::AsByteSpan("aaaa other\n")));
+    QIQI_TEST_CHECK(std::filesystem::file_size(first) == std::filesystem::file_size(second));
+    std::filesystem::last_write_time(second, std::filesystem::last_write_time(first));
+    for (const auto& source : {first, second}) {
+        auto adjacent = source;
+        adjacent.replace_extension(L".qdict");
+        QIQI_TEST_CHECK(std::filesystem::create_directory(adjacent));
+    }
+    for (int pass = 0; pass < 2; ++pass) {
+        WubiMappedDict::ClearProcessCache();
+        for (const auto& [source, expected] : {
+                 std::pair{first, L"first"}, std::pair{second, L"other"}}) {
+            const auto dictionary = WubiMappedDict::LoadFromTextOrCache(source);
+            QIQI_TEST_CHECK(dictionary && dictionary->IsMemoryMapped());
+            std::vector<std::wstring> words;
+            dictionary->LookupExact(PackWubiCode(L"aaaa"), words);
+            QIQI_TEST_CHECK(words.size() == 1 && words.front() == expected);
+        }
+    }
+}
 
 void TestExternalDictFile() {
+    const DictionaryCacheEnvironment environment(L"external");
     WubiEngine engine;
 
     // 1. Non-existent file returns false
@@ -30,9 +101,6 @@ void TestExternalDictFile() {
     }
     // Pre-create a full-size cache with matching source metadata and an invalid index entry.
     WubiMappedDict::ClearProcessCache();
-    const auto fallback_cache = GetAppDataDirectory() / L"cache" / L"qiqiime_test_dict.qdict";
-    std::error_code cache_ec;
-    std::filesystem::remove(fallback_cache, cache_ec);
     QIQI_TEST_CHECK(WriteInvalidIndexQdictCache(temp_dict, adjacent_qdict));
     QIQI_TEST_CHECK(engine.LoadDictionaryFile(temp_dict));
     const auto rebuilt_zzzz = engine.LookupExact(L"zzzz");
@@ -152,7 +220,6 @@ void TestExternalDictFile() {
     std::error_code ec;
     std::filesystem::remove(temp_dict, ec);
     std::filesystem::remove(adjacent_qdict, ec);
-    std::filesystem::remove(GetAppDataDirectory() / L"cache" / L"qiqiime_test_dict.qdict", ec);
 
     // 3. Load bundled dictionaries (wubi86_jidian.txt, wubi86_jidian_extra.txt, wubi86_haifeng.txt)
     const std::filesystem::path exe_path = GetModuleFilePath(nullptr);

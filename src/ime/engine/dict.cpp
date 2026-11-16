@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <format>
 #include <map>
 #include <mutex>
 
@@ -660,7 +661,11 @@ std::shared_ptr<const WubiMappedDict> WubiMappedDict::LoadFromTextOrCache(
         const std::filesystem::path cache_dir = app_dir / L"cache";
         std::filesystem::create_directories(cache_dir, ec);
         if (!ec) {
-            fallback_cache = cache_dir / (txt_path.stem().wstring() + L".qdict");
+            // Equal stems and source timestamps do not identify the same dictionary.
+            std::vector<uint8_t> source_identity;
+            codec::AppendWString(source_identity, canonical_key);
+            fallback_cache = cache_dir / std::format(L"{}-{:016X}.qdict", txt_path.stem().wstring(),
+                codec::ComputeFnv1a64(source_identity));
         }
     }
 

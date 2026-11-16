@@ -30,6 +30,57 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
+class CompartmentTestSink final : public ComObjectBase<CompartmentTestSink, ITfCompartmentEventSink> {
+public:
+    STDMETHODIMP OnChange(REFGUID) noexcept override { return S_OK; }
+};
+
+void TestSinkConnectionReentrantReset() {
+    const TsfTestCaseTrace trace(__func__);
+    const auto first = MakeComObject<MockTfCompartment>();
+    const auto second = MakeComObject<MockTfCompartment>();
+    const auto sink = MakeComObject<CompartmentTestSink>();
+    ScopedTfSinkConnection connection;
+    QIQI_TEST_CHECK(connection.Advise(
+        static_cast<ITfCompartment*>(first.Get()), IID_ITfCompartmentEventSink, sink.Get()));
+    first->unadvise_callback_ = [&]() {
+        QIQI_TEST_CHECK(!connection.IsConnected() && first->unadvise_calls_ == 1);
+        connection.Reset();
+    };
+    connection.Reset();
+    connection.Reset();
+    QIQI_TEST_CHECK(first->unadvise_calls_ == 1 && !first->sink_ && !connection.IsConnected());
+
+    QIQI_TEST_CHECK(connection.Advise(
+        static_cast<ITfCompartment*>(first.Get()), IID_ITfCompartmentEventSink, sink.Get()));
+    first->unadvise_callback_ = [&]() {
+        QIQI_TEST_CHECK(!connection.IsConnected() && first->unadvise_calls_ == 2);
+        QIQI_TEST_CHECK(connection.Advise(
+            static_cast<ITfCompartment*>(second.Get()), IID_ITfCompartmentEventSink, sink.Get()));
+    };
+    connection.Reset();
+    QIQI_TEST_CHECK(connection.IsConnected() && !first->sink_ && second->sink_);
+    connection.Reset();
+    QIQI_TEST_CHECK(!connection.IsConnected() && !second->sink_ && second->unadvise_calls_ == 1);
+    first->unadvise_callback_ = {};
+
+    const auto first_manager = MakeComObject<MockTfThreadMgr>();
+    const auto second_manager = MakeComObject<MockTfThreadMgr>();
+    ScopedTfCompartment compartment;
+    QIQI_TEST_CHECK(compartment.Bind(first_manager.Get(), GUID_NULL, sink.Get()));
+    first_manager->compartment_->unadvise_callback_ = [&]() {
+        QIQI_TEST_CHECK(!compartment);
+        QIQI_TEST_CHECK(compartment.Bind(second_manager.Get(), GUID_NULL, sink.Get()));
+    };
+    compartment.Reset();
+    QIQI_TEST_CHECK(compartment.Get() == second_manager->compartment_.Get() &&
+                    second_manager->compartment_->sink_);
+    compartment.Reset();
+    QIQI_TEST_CHECK(!compartment && !second_manager->compartment_->sink_ &&
+                    second_manager->compartment_->unadvise_calls_ == 1);
+    first_manager->compartment_->unadvise_callback_ = {};
+}
+
 void TestCompartmentReadResults() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     auto compartment = MakeComObject<MockTfCompartment>(kGuidCompartmentStatusBarPos);
@@ -506,6 +557,7 @@ void TestEnableCurrentUserProfile() {
 
 void RunTsfComTests() {
     TestCompartmentReadResults();
+    TestSinkConnectionReentrantReset();
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     RunCategoryManagerTests();
     TestLambdaEditSession();

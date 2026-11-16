@@ -37,6 +37,7 @@ void TestBinaryDictBufferValidation();
 void TestAddEntryAndLookupEdgeCases();
 void TestCodeCompletionLookup();
 void TestExternalDictFile();
+void TestFallbackCacheSourceIsolation();
 void TestCrossProcessDictAndPhraseFreqSync();
 void TestCustomPrimaryDictionaryAndFallback();
 bool WriteInvalidIndexQdictCache(
