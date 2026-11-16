@@ -120,6 +120,15 @@ source revision, applicable license/notices, and conversion changes together.
   [licenses/microsoft-gsl-MIT.txt](licenses/microsoft-gsl-MIT.txt).
   The text was checked against the locally installed vcpkg package's copyright file.
 
+## JSON for Modern C++
+
+- Upstream: [nlohmann/json](https://github.com/nlohmann/json).
+- Dependency: `nlohmann-json` in the vcpkg manifest, used for configuration JSON.
+- Attribution: `Copyright (c) 2013-2025 Niels Lohmann`.
+- License: **MIT**, reproduced in
+  [licenses/nlohmann-json-MIT.txt](licenses/nlohmann-json-MIT.txt).
+  The text is preserved from the installed vcpkg package's copyright file.
+
 ## Build tools and platform components
 
 Windows components, MSVC, CMake, vcpkg, WiX, GitHub Actions, and signing services

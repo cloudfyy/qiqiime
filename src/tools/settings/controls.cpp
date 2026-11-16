@@ -163,6 +163,37 @@ constexpr std::array<SettingsCheckboxBinding, 15> kSettingsCheckboxes = {{
 
 } // namespace
 
+const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage language) noexcept {
+    const auto& str = GetUiStrings(language);
+    const wchar_t* label = nullptr;
+    ForEachConfigField([&](const auto& field) noexcept {
+        using T = std::remove_cvref_t<decltype(QiQiConfig{}.*(field.member))>;
+        if constexpr (std::is_same_v<T, bool>) {
+            if (key == field.backup_key) {
+                for (const auto& binding : kSettingsCheckboxes) {
+                    if (binding.config_field == field.member) label = str.*(binding.label_field);
+                }
+            }
+        }
+    });
+    if (label) return label;
+    if (key == "primary_dict")
+        return ResolveUiLanguage(language) == UiLanguage::EnUs ? L"Primary dictionary" : L"主词库";
+    if (key == "page_size" || key == "candidate_layout") return str.dlg_lbl_page_size;
+    if (key == "ui_language") return str.dlg_lbl_ui_lang;
+    if (key == "underline_style") return str.dlg_lbl_underline_style;
+    if (key == "commit_on_english_switch") return str.dlg_lbl_english_switch;
+    const bool english = ResolveUiLanguage(language) == UiLanguage::EnUs;
+    if (key == "ui_theme") return english ? kDisplayEn.theme : kDisplayZh.theme;
+    if (key == "ui_text_scale") return english ? kDisplayEn.scale : kDisplayZh.scale;
+    if (key == "easy_reading") return english ? kDisplayEn.easy : kDisplayZh.easy;
+    if (key == "enable_z_temp_english") return english ? L"Temporary English input" : L"临时英文输入";
+    if (key == "default_chinese_mode") return english ? L"Default Chinese mode" : L"默认中文模式";
+    if (key == "default_full_width") return english ? L"Default full width" : L"默认全角模式";
+    if (key == "default_chinese_punct") return english ? L"Default Chinese punctuation" : L"默认中文标点";
+    return nullptr;
+}
+
 void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept {
     const auto& text = DisplayText(hwnd, ctx);
     ::SetDlgItemTextW(hwnd, kIdLblUiTheme, text.theme);
@@ -438,7 +469,8 @@ void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept {
     ReadSettingsFromWindowControls(hwnd, current);
     bool dirty = ctx.custom_primary_dict_path != ctx.baseline_config.primary_dict_path;
     ForEachConfigField([&](const auto& field) noexcept {
-        if (field.HasSettingsChange(ctx.baseline_config, current)) {
+        if (field.HasSettingsChange(ctx.baseline_config, current) ||
+            (ctx.imported_config && field.Value(ctx.baseline_config) != field.Value(current))) {
             dirty = true;
         }
     });
@@ -480,6 +512,8 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_
     ::SetDlgItemTextW(hwnd, kIdBtnDictManager, str.dlg_btn_dict_mgr);
     ::SetDlgItemTextW(hwnd, kIdBtnHelp, str.dlg_btn_help);
     ::SetDlgItemTextW(hwnd, kIdBtnRestoreDefaults, str.dlg_btn_restore_defaults);
+    ::SetDlgItemTextW(hwnd, kIdBtnImportConfig, str.dlg_btn_import_config);
+    ::SetDlgItemTextW(hwnd, kIdBtnExportConfig, str.dlg_btn_export_config);
     ::SetDlgItemTextW(hwnd, kIdBtnOk, str.dlg_btn_ok);
     ::SetDlgItemTextW(hwnd, kIdBtnCancel, str.dlg_btn_cancel);
 
@@ -534,6 +568,7 @@ void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_
 }
 
 void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcept {
+    if (ctx.transfer_in_progress) return;
     const uint64_t reg_seq = QueryRegistryConfigSequence();
     if (reg_seq == 0 || reg_seq == ctx.config_registry_sequence) {
         return;
@@ -550,6 +585,13 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
 
     QiQiConfig merged_ui_cfg = external_cfg;
     MergeSettingsConfig(merged_ui_cfg, ctx.baseline_config, current_ui_cfg);
+    if (ctx.imported_config) {
+        ForEachConfigField([&](const auto& field) noexcept {
+            if (!field.settings_editable && field.Value(ctx.baseline_config) != field.Value(current_ui_cfg))
+                merged_ui_cfg.*(field.member) = current_ui_cfg.*(field.member);
+            ctx.imported_config.value().*(field.member) = merged_ui_cfg.*(field.member);
+        });
+    }
     const bool ui_lang_follows_external =
         (current_ui_cfg.ui_language == ctx.baseline_config.ui_language);
 
@@ -699,6 +741,8 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     create_control(L"BUTTON", str.dlg_btn_ok, button_style, layout::kOkButton, kIdBtnOk);
     create_control(L"BUTTON", str.dlg_btn_cancel, button_style, layout::kCancelButton, kIdBtnCancel);
     const RECT initial{0, 0, 100, 40};
+    create_control(L"BUTTON", str.dlg_btn_import_config, button_style, initial, kIdBtnImportConfig);
+    create_control(L"BUTTON", str.dlg_btn_export_config, button_style, initial, kIdBtnExportConfig);
     create_control(L"STATIC", L"", 0, initial, kIdLblUiTheme);
     create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboUiTheme);
     create_control(L"STATIC", L"", 0, initial, kIdLblUiTextScale);
@@ -725,18 +769,30 @@ namespace qiqi {
 using namespace settings_detail;
 
 void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept {
+    std::ignore = log::CheckHResult(
+        WriteSettingsToWindowControlsResult(hwnd, config), "WriteSettingsToWindowControls");
+}
+
+HRESULT WriteSettingsToWindowControlsResult(HWND hwnd, const QiQiConfig& config) noexcept {
+    if (!::IsWindow(hwnd)) {
+        QIQI_LOG_WARN("WriteSettingsToWindowControls requires a valid window");
+        return E_INVALIDARG;
+    }
     if (auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
         try {
-            ctx->baseline_config = config;
+            QiQiConfig baseline = config;
+            std::wstring custom_path = config.primary_dict_path;
             // Inactive legacy Extra preferences must not make a freshly loaded window dirty.
-            ctx->baseline_config.enable_jidian_extra =
+            baseline.enable_jidian_extra =
                 config.primary_dict == PrimaryDict::Jidian && config.enable_jidian_extra;
             if (config.easy_reading) {
-                ctx->baseline_config.ui_text_scale = std::max(config.ui_text_scale, UiTextScale::Percent150);
+                baseline.ui_text_scale = std::max(config.ui_text_scale, UiTextScale::Percent150);
             }
-            ctx->custom_primary_dict_path = config.primary_dict_path;
+            ctx->baseline_config = std::move(baseline);
+            ctx->custom_primary_dict_path = std::move(custom_path);
         } catch (const std::bad_alloc&) {
             QIQI_LOG_WARN("WriteSettingsToWindowControls: failed to copy configuration strings");
+            return E_OUTOFMEMORY;
         }
         ctx->last_valid_primary_dict = config.primary_dict;
     }
@@ -794,6 +850,7 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
         ApplySettingsDisplayPreview(hwnd, *ctx);
         UpdateSettingsWindowTitle(hwnd, *ctx);
     }
+    return S_OK;
 }
 
 void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
@@ -805,6 +862,12 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
         }
     }
     if (const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+        if (ctx->imported_config) {
+            ForEachConfigField([&](const auto& field) noexcept {
+                if (!field.settings_editable)
+                    config.*(field.member) = ctx->imported_config.value().*(field.member);
+            });
+        }
         try {
             config.primary_dict_path = ctx->custom_primary_dict_path;
         } catch (const std::bad_alloc&) {
@@ -814,6 +877,11 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
 
     for (const auto& binding : kSettingsCheckboxes) {
         config.*(binding.config_field) = (::IsDlgButtonChecked(hwnd, binding.control_id) == BST_CHECKED);
+    }
+    if (const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        ctx && ctx->imported_config && config.primary_dict == ctx->imported_config->primary_dict &&
+        config.primary_dict != PrimaryDict::Jidian) {
+        config.enable_jidian_extra = ctx->imported_config->enable_jidian_extra;
     }
 
     const LRESULT sel = ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_GETCURSEL, 0, 0);

@@ -127,7 +127,8 @@ function Copy-QiQiReleaseDocumentation(
         "licenses\Apache-2.0.txt",
         "licenses\rime-wubi86-jidian-MIT.txt",
         "licenses\wubi-haifeng-BSD-3-Clause.txt",
-        "licenses\microsoft-gsl-MIT.txt"
+        "licenses\microsoft-gsl-MIT.txt",
+        "licenses\nlohmann-json-MIT.txt"
     )) {
         $source = Join-Path $SourceDirectory $relativePath
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {

@@ -2,8 +2,123 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/core/test.h"
+#include "common/config_json.h"
 
 namespace qiqi::test::common_cases {
+
+void TestConfigJson() {
+    QiQiConfig baseline;
+    baseline.primary_dict_path = L"local_primary.txt";
+    baseline.user_dict_path = L"local_user.txt";
+    baseline.ui_text_scale = UiTextScale::Percent200;
+    const auto check_equal = [](const QiQiConfig& left, const QiQiConfig& right) {
+        ForEachConfigField([&](const auto& field) { QIQI_TEST_CHECK(field.Value(left) == field.Value(right)); });
+        QIQI_TEST_CHECK(left.primary_dict_path == right.primary_dict_path);
+        QIQI_TEST_CHECK(left.user_dict_path == right.user_dict_path);
+    };
+    QiQiConfig source;
+    ForEachConfigField([&](const auto& field) { QIQI_TEST_CHECK(field.Assign(source, field.maximum)); });
+    source.primary_dict_path = L"C:\\private\\source.txt";
+    source.user_dict_path = L"C:\\private\\words.txt";
+    ConfigJsonError error;
+    std::string json;
+    QIQI_TEST_CHECK(SerializeConfigJson(source, json, error) == S_OK);
+    QIQI_TEST_CHECK(json.find("\"format\": \"qiqiime-config\"") != std::string::npos);
+    QIQI_TEST_CHECK(json.find("\"version\": 1") != std::string::npos);
+    QIQI_TEST_CHECK(json.find("\"enable_code_completion\": true") != std::string::npos);
+    QIQI_TEST_CHECK(json.find("\"page_size\": 9") != std::string::npos);
+    QIQI_TEST_CHECK(json.find("\"ui_theme\": \"high_contrast\"") != std::string::npos);
+    QIQI_TEST_CHECK(json.find("\"ui_text_scale\": \"200%\"") != std::string::npos);
+    QIQI_TEST_CHECK(json.find("path") == std::string::npos && json.find("private") == std::string::npos);
+    QiQiConfig result;
+    QIQI_TEST_CHECK(ParseConfigJson(json, baseline, result, error) == S_OK);
+    source.primary_dict_path = baseline.primary_dict_path;
+    source.user_dict_path = baseline.user_dict_path;
+    check_equal(result, source);
+    const auto document = [](std::string_view settings) {
+        return std::string(R"({"format":"qiqiime-config","version":1,"settings":{)") +
+            std::string(settings) + "}}";
+    };
+    for (const auto prefix : {std::string{}, std::string{"\xEF\xBB\xBF"}}) {
+        QIQI_TEST_CHECK(ParseConfigJson(prefix + document(R"("page_size":7,"enable_code_completion":false)"),
+            baseline, result, error) == S_OK);
+        auto expected = baseline;
+        expected.page_size = 7;
+        expected.enable_code_completion = false;
+        check_equal(result, expected);
+        QIQI_TEST_CHECK(ParseConfigJson(document(""), baseline, result, error) == S_OK);
+        check_equal(result, baseline);
+    }
+    ForEachConfigField([&](const auto& field) {
+        for (uint64_t value = field.minimum; value <= field.maximum; ++value) {
+            auto candidate = baseline;
+            QIQI_TEST_CHECK(field.Assign(candidate, value));
+            QIQI_TEST_CHECK(SerializeConfigJson(candidate, json, error) == S_OK);
+            QIQI_TEST_CHECK(ParseConfigJson(json, baseline, result, error) == S_OK);
+            check_equal(result, candidate);
+        }
+    });
+    struct InvalidCase {
+        std::string_view settings;
+        ConfigJsonIssue issue;
+        std::string_view field;
+    };
+    constexpr std::array cases{
+        InvalidCase{R"("page_size":0)", ConfigJsonIssue::OutOfRange, "settings.page_size"},
+        InvalidCase{R"("page_size":10)", ConfigJsonIssue::OutOfRange, "settings.page_size"},
+        InvalidCase{R"("page_size":-1)", ConfigJsonIssue::OutOfRange, "settings.page_size"},
+        InvalidCase{R"("page_size":1e999)", ConfigJsonIssue::OutOfRange, "settings.page_size"},
+        InvalidCase{R"("page_size":5.0)", ConfigJsonIssue::InvalidType, "settings.page_size"},
+        InvalidCase{R"("page_size":"5")", ConfigJsonIssue::InvalidType, "settings.page_size"},
+        InvalidCase{R"("enable_code_completion":1)", ConfigJsonIssue::InvalidType, "settings.enable_code_completion"},
+        InvalidCase{R"("ui_theme":1)", ConfigJsonIssue::InvalidType, "settings.ui_theme"},
+        InvalidCase{R"("ui_theme":"Dark")", ConfigJsonIssue::InvalidEnum, "settings.ui_theme"},
+        InvalidCase{R"("ui_theme":null)", ConfigJsonIssue::InvalidType, "settings.ui_theme"},
+        InvalidCase{R"("page_size":7,"page_size":8)", ConfigJsonIssue::DuplicateField, "settings.page_size"},
+        InvalidCase{R"("ui_theme":"dark","\u0075i_theme":"light")", ConfigJsonIssue::DuplicateField, "settings.ui_theme"},
+        InvalidCase{R"("user_dict_path":"C:\\words.txt")", ConfigJsonIssue::UnknownField, "settings.user_dict_path"},
+        InvalidCase{R"("PrimaryDict":0)", ConfigJsonIssue::UnknownField, "settings.PrimaryDict"},
+        InvalidCase{R"("ui_theme":{})", ConfigJsonIssue::InvalidType, "settings.ui_theme"},
+        InvalidCase{R"("page_size":[])", ConfigJsonIssue::InvalidType, "settings.page_size"},
+        InvalidCase{R"("easy_reading":true,"ui_text_scale":"100%")", ConfigJsonIssue::ComfortScaleRequired, "settings.ui_text_scale"}
+    };
+    for (const auto& invalid : cases) {
+        result = baseline;
+        QIQI_TEST_CHECK(FAILED(ParseConfigJson(document(invalid.settings), baseline, result, error)));
+        QIQI_TEST_CHECK(error.issue == invalid.issue && error.field == invalid.field);
+        check_equal(result, baseline);
+    }
+    for (const auto invalid : {
+        R"({"format":"other","version":1,"settings":{}})",
+        R"({"format":"qiqiime-config","version":2,"settings":{}})",
+        R"({"format":"qiqiime-config","version":1.0,"settings":{}})",
+        R"({"format":"qiqiime-config","version":1,"settings":{},"extra":true})",
+        R"({"format":"qiqiime-config","format":"qiqiime-config","version":1,"settings":{}})",
+        R"({"format":"qiqiime-config","version":1})",
+        R"({"format":"qiqiime-config","version":1,"settings":false})",
+        R"({"format":"qiqiime-config","version":1,"settings":{}} trailing)",
+        R"({"format":"qiqiime-config","version":1,"settings":{"page_size":5,}})",
+        R"({"format":"qiqiime-config","version":1,"settings":{"page_size":1e999}})",
+        "null", "[]", "{\"", "\xFF"}) {
+        result = baseline;
+        QIQI_TEST_CHECK(FAILED(ParseConfigJson(invalid, baseline, result, error)));
+        check_equal(result, baseline);
+    }
+    auto no_dictionary = baseline;
+    no_dictionary.primary_dict_path.clear();
+    QIQI_TEST_CHECK(FAILED(ParseConfigJson(document(R"("primary_dict":"custom")"), no_dictionary, result, error)));
+    QIQI_TEST_CHECK(error.issue == ConfigJsonIssue::CustomDictionaryRequired);
+    auto oversized = document("");
+    oversized.resize(kMaxConfigJsonBytes + 1, ' ');
+    QIQI_TEST_CHECK(FAILED(ParseConfigJson(oversized, baseline, result, error)));
+    QIQI_TEST_CHECK(error.issue == ConfigJsonIssue::TooLarge);
+    oversized.resize(kMaxConfigJsonBytes);
+    QIQI_TEST_CHECK(ParseConfigJson(oversized, baseline, result, error) == S_OK);
+    baseline.page_size = 0;
+    json = "unchanged";
+    QIQI_TEST_CHECK(FAILED(SerializeConfigJson(baseline, json, error)));
+    QIQI_TEST_CHECK(json == "unchanged" && error.field == "settings.page_size");
+}
 
 void TestConfigFieldProjections() {
     constexpr std::array<std::pair<std::string_view, std::wstring_view>, 28> expected_keys{{

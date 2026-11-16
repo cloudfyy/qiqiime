@@ -68,6 +68,8 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             case IDOK:
             case IDCANCEL: dips = 104; break;
             case kIdBtnRestoreDefaults: dips = 156; break;
+            case kIdBtnImportConfig:
+            case kIdBtnExportConfig: dips = 156; break;
             case kIdBtnBrowsePrimaryDict: dips = 104; break;
             case kIdBtnDictManager: dips = 180; break;
             default: return 0;

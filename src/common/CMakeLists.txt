@@ -30,6 +30,8 @@ set(QIQI_COMMON_SOURCES
     changesync.h
     config.cpp
     config.h
+    config_json.cpp
+    config_json.h
     controls.cpp
     controls.h
     ctrlutil.h
@@ -81,3 +83,4 @@ target_link_libraries(qiqi_common PUBLIC
     dwmapi
     shell32
 )
+target_link_libraries(qiqi_common PRIVATE nlohmann_json::nlohmann_json)

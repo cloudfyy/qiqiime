@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/settings/internal.h"
+#include "tools/settings/transfer.h"
 #include "common/dlgutil.h"
 #include "common/fileutil.h"
 #include "common/guids.h"
@@ -213,6 +214,12 @@ void InitSettingsCompartmentSubscription(HWND hwnd, DialogContext& ctx) noexcept
 }
 
 void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
+    if (ctx.transfer_in_progress) return;
+    if (ctx.imported_config &&
+        (LOWORD(wparam) == kIdRadioHaifeng || LOWORD(wparam) == kIdRadioBuiltin ||
+         LOWORD(wparam) == kIdRadioCustom)) {
+        ctx.imported_config->enable_jidian_extra = false;
+    }
     switch (LOWORD(wparam)) {
         case kIdRadioJidian:
             CheckPrimaryDictRadio(hwnd, PrimaryDict::Jidian);
@@ -289,6 +296,10 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             ApplyLiveSettingsLanguage(hwnd, ctx, false);
             return;
         }
+        case kIdBtnImportConfig:
+        case kIdBtnExportConfig:
+            PromptSettingsConfigTransfer(hwnd, LOWORD(wparam) == kIdBtnImportConfig);
+            return;
         case kIdBtnOk: {
             if (ctx.config) {
                 QiQiConfig edited;
@@ -305,10 +316,21 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                 if (!ValidateSettingsPrimaryDictionary(hwnd, ctx, edited)) {
                     return;
                 }
-                if (ctx.save_on_accept && !SaveConfig(edited)) {
-                    QIQI_LOG_ERROR("Settings save failed; retaining edits for retry");
-                    ShowSettingsSaveFailure(hwnd, edited.ui_language);
-                    return;
+                if (ctx.save_on_accept) {
+                    const HRESULT saved = SaveConfigToRegistryResult(edited);
+                    if (FAILED(saved)) {
+                        QIQI_LOG_ERROR("Settings save failed; retaining edits for retry (hr=0x{:08X})",
+                            static_cast<unsigned long>(saved));
+                        if (ctx.imported_config) {
+                            const auto message = FormatConfigJsonError({}, saved, edited.ui_language);
+                            if (!::MessageBoxW(hwnd, message.c_str(), GetUiStrings(edited.ui_language).dlg_title,
+                                MB_OK | MB_ICONERROR))
+                                QIQI_LOG_ERROR("Imported settings save error dialog failed (error={})", ::GetLastError());
+                        } else {
+                            ShowSettingsSaveFailure(hwnd, edited.ui_language);
+                        }
+                        return;
+                    }
                 }
                 if (ctx.save_on_accept) {
                     ctx.config_registry_sequence = QueryRegistryConfigSequence();
@@ -603,8 +625,10 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 if (dis->CtlType == ODT_BUTTON) {
                     const bool english = ResolveUiLanguage(GetSelectedUiLanguageFromCombo(hwnd, *ctx)) == UiLanguage::EnUs;
                     const wchar_t* disabled_suffix = english ? L"\nUnavailable" : L"\n不可用";
-                    if (dis->CtlID == kIdBtnAbout || dis->CtlID == kIdBtnDictManager ||
+                    if (IsSettingsFooterControl(gsl::narrow_cast<int>(dis->CtlID)) ||
+                        dis->CtlID == kIdBtnDictManager ||
                         dis->CtlID == kIdBtnHelp || dis->CtlID == kIdBtnRestoreDefaults ||
+                        dis->CtlID == kIdBtnImportConfig || dis->CtlID == kIdBtnExportConfig ||
                         dis->CtlID == kIdBtnBrowsePrimaryDict ||
                         dis->CtlID == kIdBtnOk || dis->CtlID == kIdBtnCancel) {
                         const bool page_button = !IsSettingsFooterControl(gsl::narrow_cast<int>(dis->CtlID));

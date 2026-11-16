@@ -143,7 +143,8 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
     return SUCCEEDED(ReadFileToUtf8StringResult(file_path, out_content));
 }
 
-HRESULT ReadFileToUtf8StringResult(const std::filesystem::path& file_path, std::string& out_content) {
+HRESULT ReadFileToUtf8StringResult(
+    const std::filesystem::path& file_path, std::string& out_content, size_t max_bytes) {
     // Open with least privilege: read-only access, read-only sharing, anonymous SQOS to prevent pipe impersonation,
     // and verify the target is a regular disk file.
     const ScopedFileHandle file(::CreateFileW(
@@ -172,7 +173,8 @@ HRESULT ReadFileToUtf8StringResult(const std::filesystem::path& file_path, std::
         return HRESULT_FROM_WIN32(error);
     }
     if (file_size.QuadPart < 0 ||
-        file_size.QuadPart > kMaxAllowedReadBytes) {
+        file_size.QuadPart > kMaxAllowedReadBytes ||
+        gsl::narrow_cast<uint64_t>(file_size.QuadPart) > max_bytes) {
         QIQI_LOG_WARN("ReadFileToUtf8String: invalid or oversize file ({} bytes)", file_size.QuadPart);
         return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
     }

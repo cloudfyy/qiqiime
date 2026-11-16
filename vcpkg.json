@@ -2,6 +2,7 @@
   "name": "qiqiime",
   "version-string": "1.0.0",
   "dependencies": [
-    "ms-gsl"
+    "ms-gsl",
+    "nlohmann-json"
   ]
 }

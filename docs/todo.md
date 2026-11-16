@@ -48,7 +48,7 @@ Windows high contrast retain their existing precedence.
 
 ## Tracked follow-up
 
-- [ ] Investigate taskbar input-indicator disappearance and theme-aware icons.
+- [ ] Deferred: Investigate taskbar input-indicator disappearance and theme-aware icons.
   Follow the [research and validation record](input-indicator.md). The registered
   brand resource now uses the documented white box, black glyph, and 1px
   half-opaque black frame; its DLL resource ID and registration index are unchanged.
@@ -162,7 +162,16 @@ Windows high contrast retain their existing precedence.
   - Check source ICOs and the icons actually embedded/returned by the IME
     DLL on x64/x86. Keep standalone tool icons outside these IME-only rules.
 
-- [ ] Replace the custom backup format and add standalone configuration export/import.
+- [x] Add standalone configuration JSON export/import.
+  Available on the existing Dictionary settings page, with an independent modal
+  change preview and no new tab. Confirmed imports remain unsaved edits until
+  Settings OK; cancellation or failed persistence preserves the saved configuration.
+  Support partial imports, native scalar types and stable enum names; reject
+  duplicate/unknown fields, invalid UTF-8/JSON, types, ranges, and format/version.
+  Keep local paths and dictionary contents outside the JSON. See the
+  [configuration transfer guide](accessibility.md#配置-json-导入与导出).
+
+- [ ] Replace the custom backup format with ZIP complete backups.
   Use UTF-8 JSON (`.json`) for configuration, with explicit `format` and `version`,
   native boolean/numeric values, and stable string enum names. Use ZIP (`.zip`)
   for complete backups containing configuration JSON, user dictionary, phrase

@@ -9,7 +9,10 @@
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE prev_instance, LPWSTR cmd_line, int show_cmd);
 
-namespace qiqi::test { void RunSettingsCleanupTests(); }
+namespace qiqi::test {
+void RunSettingsCleanupTests();
+void RunSettingsTransferTests();
+}
 
 namespace {
 
@@ -139,6 +142,7 @@ int main() {
     qiqi::test::RunSettingsCleanupTests();
     qiqi::test::RunSettingsVersionTests();
     qiqi::test::RunSettingsSaveTests();
+    qiqi::test::RunSettingsTransferTests();
     qiqi::test::RunSettingsMessageTests();
     qiqi::test::RunSettingsDialogTests();
     qiqi::test::RunSettingsDialogEdgeTests();

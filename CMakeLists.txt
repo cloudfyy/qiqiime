@@ -30,9 +30,11 @@ file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" QIQIIME_VERSION_RAW LIMIT_COU
 string(STRIP "${QIQIIME_VERSION_RAW}" QIQIIME_VERSION_STRING)
 
 # Skip redundant vcpkg manifest install on incremental CMake re-runs when packages are already installed
-if(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/share/Microsoft.GSL")
+if(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/share/Microsoft.GSL"
+   AND EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/share/nlohmann_json")
     set(VCPKG_MANIFEST_INSTALL OFF)
-elseif(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows/share/Microsoft.GSL")
+elseif(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows/share/Microsoft.GSL"
+       AND EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows/share/nlohmann_json")
     set(VCPKG_MANIFEST_INSTALL OFF)
 endif()
 
@@ -117,6 +119,7 @@ endif()
 
 # Dependencies managed via vcpkg (vcpkg.json)
 find_package(Microsoft.GSL CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # Build source and test subdirectories
 enable_testing()

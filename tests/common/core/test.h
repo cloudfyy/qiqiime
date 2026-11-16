@@ -38,6 +38,7 @@ void TestEtwLogger();
 void TestFileUtilityBoundaries();
 void TestVersionMechanism();
 void TestConfigFieldProjections();
+void TestConfigJson();
 void TestDictionaryLoadPlans();
 void TestIniConfiguration();
 void TestScopedHandleTemplate();

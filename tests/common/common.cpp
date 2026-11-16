@@ -13,6 +13,7 @@ void RunCommonTests() {
     TestFileUtilityBoundaries();
     TestVersionMechanism();
     TestConfigFieldProjections();
+    TestConfigJson();
     TestDictionaryLoadPlans();
     TestIniConfiguration();
     TestScopedHandleTemplate();

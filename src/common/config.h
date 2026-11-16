@@ -147,7 +147,8 @@ struct ConfigField {
     }
 };
 
-// Order and keys preserve the backup format; paths remain registry-only.
+// Shared scalar field metadata; order and keys also preserve the legacy backup format.
+// Machine-specific paths remain registry-only.
 inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"primary_dict", L"PrimaryDict", &QiQiConfig::primary_dict, 0, 3, true},
     ConfigField{"enable_jidian_extra", L"EnableJidianExtra", &QiQiConfig::enable_jidian_extra, 0, 1, true},

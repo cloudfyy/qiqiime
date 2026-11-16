@@ -13,6 +13,7 @@
 #include <wrl/client.h>
 #include <array>
 #include <span>
+#include <optional>
 
 namespace qiqi::settings_detail {
 
@@ -59,6 +60,8 @@ constexpr int kIdDisplayExplanation = 143;
 constexpr int kIdSettingsTabs = 144;
 constexpr int kIdPageScroll = 145;
 constexpr int kIdChkCodeCompletion = 146;
+constexpr int kIdBtnImportConfig = 147;
+constexpr int kIdBtnExportConfig = 148;
 constexpr UINT kSettingsEnsureFocusVisible = WM_APP + 93;
 constexpr UINT kSettingsCyclePage = WM_APP + 94;
 enum class SettingsPage { Input, Dictionary, Candidates, Display, Feedback, Count };
@@ -78,7 +81,8 @@ inline constexpr std::array kSettingsInputControls{
     kIdChkShiftToggle, kIdLblEnglishSwitch, kIdComboEnglishSwitch};
 inline constexpr std::array kSettingsDictionaryControls{
     kIdRadioJidian, kIdChkExtraDict, kIdRadioHaifeng, kIdRadioBuiltin,
-    kIdRadioCustom, kIdBtnBrowsePrimaryDict, kIdBtnDictManager, kIdLblCustomPrimaryPath};
+    kIdRadioCustom, kIdBtnBrowsePrimaryDict, kIdBtnDictManager, kIdLblCustomPrimaryPath,
+    kIdBtnImportConfig, kIdBtnExportConfig};
 inline constexpr std::array kSettingsFooterControls{
     kIdBtnAbout, kIdBtnHelp, kIdBtnRestoreDefaults, IDOK, IDCANCEL};
 
@@ -222,6 +226,8 @@ struct DialogContext {
     HINSTANCE instance = nullptr;
     QiQiConfig* config = nullptr;
     QiQiConfig baseline_config{};
+    std::optional<QiQiConfig> imported_config;
+    bool transfer_in_progress = false;
     std::wstring custom_primary_dict_path;
     PrimaryDict last_valid_primary_dict = PrimaryDict::Jidian;
     uint64_t config_registry_sequence = 0;
@@ -252,6 +258,7 @@ struct DialogContext {
 
 UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept;
 void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept;
+const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage language) noexcept;
 void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_config = true) noexcept;
 void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcept;
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept;

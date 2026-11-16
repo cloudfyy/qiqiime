@@ -108,7 +108,7 @@ try {
                 $licenseComponent = @($components | Where-Object { $_.Component -eq "CmpLicenses" })
                 Assert-True ($licenseComponent.Count -eq 1 -and $licenseComponent[0].Directory_ -eq "DirLicenses") "Incorrect license component in $path"
                 $licenses = @($files | Where-Object { $_.Component_ -eq "CmpLicenses" } | ForEach-Object { $_.FileName.Split('|')[-1] })
-                foreach ($name in @("Apache-2.0.txt", "rime-wubi86-jidian-MIT.txt", "wubi-haifeng-BSD-3-Clause.txt", "microsoft-gsl-MIT.txt")) {
+                foreach ($name in @("Apache-2.0.txt", "rime-wubi86-jidian-MIT.txt", "wubi-haifeng-BSD-3-Clause.txt", "microsoft-gsl-MIT.txt", "nlohmann-json-MIT.txt")) {
                     Assert-True ($name -in $licenses) "Missing third-party license $name in $path"
                 }
                 foreach ($payloadArch in $(if ($arch -eq "x64") { @("X64", "X86") } else { @("X86") })) {

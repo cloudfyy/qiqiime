@@ -49,6 +49,14 @@ MSVC module-dependency scan output.
 
 ## Build and test
 
+The vcpkg manifest includes Microsoft GSL and the header-only `nlohmann-json`
+parser. Configuration transfer reuses `kConfigFields`, atomic file writes,
+and registry transactions; JSON is an exchange format, not a replacement
+configuration store. Keep transferred scalar fields separate from local paths.
+Duplicate JSON keys (including escaped spellings) must be rejected before a
+parsed object can overwrite them. Tests use isolated registry keys and files;
+the Settings import preview stages edits and never saves on its own.
+
 From the repository root, build and test both native architectures sequentially:
 
 ```powershell

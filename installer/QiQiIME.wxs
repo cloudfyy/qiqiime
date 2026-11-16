@@ -155,6 +155,7 @@
         <File Id="FileJidianMitLicense" Source="$(var.StageDir)\licenses\rime-wubi86-jidian-MIT.txt" />
         <File Id="FileHaifengLicense" Source="$(var.StageDir)\licenses\wubi-haifeng-BSD-3-Clause.txt" />
         <File Id="FileGslLicense" Source="$(var.StageDir)\licenses\microsoft-gsl-MIT.txt" />
+        <File Id="FileJsonLicense" Source="$(var.StageDir)\licenses\nlohmann-json-MIT.txt" />
       </Component>
 
       <Component Id="CmpStartMenuShortcuts" Directory="QiQiProgramMenuFolder"

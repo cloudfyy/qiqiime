@@ -9,6 +9,7 @@ set(QIQI_SETTINGS_TEST_SOURCES
     version.cpp
     save.cpp
     message.cpp
+    transfer.cpp
 )
 add_executable(qiqi_settings_test
     ${QIQI_SETTINGS_TEST_SOURCES}

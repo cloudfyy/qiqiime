@@ -9,6 +9,8 @@ set(QIQI_SETTINGS_UI_SOURCES
     window.h
     controls.cpp
     internal.h
+    transfer.cpp
+    transfer.h
 )
 add_library(qiqi_settings_ui STATIC ${QIQI_SETTINGS_UI_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_SETTINGS_UI_SOURCES})

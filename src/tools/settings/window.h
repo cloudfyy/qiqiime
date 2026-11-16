@@ -14,6 +14,7 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept;
 
 // Populate an open settings window's controls from QiQiConfig.
 void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept;
+HRESULT WriteSettingsToWindowControlsResult(HWND hwnd, const QiQiConfig& config) noexcept;
 
 // Validate and apply a custom primary dictionary file path to an open settings window.
 // If invalid, displays SettingsMessageKind::InvalidPrimaryDict and preserves existing selection.
