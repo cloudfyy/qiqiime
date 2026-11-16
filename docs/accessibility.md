@@ -23,7 +23,8 @@ Windows 11 和 Windows 10 1903 及后续版本均支持分开的 **Windows mode*
 | 界面 | 主题来源 |
 |---|---|
 | 设置、词库管理器、Log Monitor 等独立工具及其菜单 | App mode（`AppsUseLightTheme`） |
-| 输入法自绘候选窗、输入法自绘右键菜单、设置内的候选样式预览 | Windows mode（`SystemUsesLightTheme`） |
+| 输入法自绘候选窗、设置内的候选样式预览 | App mode（`AppsUseLightTheme`） |
+| 输入法自绘右键菜单 | Windows mode（`SystemUsesLightTheme`） |
 | 浮动状态条本体及其 Tooltip | App mode（`AppsUseLightTheme`） |
 
 由输入法打开的设置等工具仍按工具规则处理；状态条打开的自绘右键菜单
@@ -31,6 +32,8 @@ Windows 11 和 Windows 10 1903 及后续版本均支持分开的 **Windows mode*
 Windows 系统高对比度仍优先。任务栏“中/英”模式图标继续独立跟随 Windows mode，
 不随手选界面主题改变；品牌图标和宿主接管的界面不属于此自动配色承诺。
 两项注册表设置见[微软设置参考](https://learn.microsoft.com/windows/apps/develop/settings/settings-common#personalization---colors)。
+候选窗当前不区分普通应用与 Windows 系统输入界面，均使用 App mode；
+系统界面识别及 Windows mode 特例保留为后续 TODO，不按进程名推测宿主主题。
 
 关怀模式开启时字号只能选择 150% 或 200%，100%/125% 灰显不可选。
 关闭关怀模式后恢复所有字号选项，保留当前字号。文字区域不切换模式；
@@ -161,9 +164,10 @@ No Windows setting is changed.
 Windows 11 and Windows 10 version 1903 or later support independent Windows mode
 and App mode. With Follow Windows selected, standalone tools and their menus use
 App mode (`AppsUseLightTheme`), as do the floating status bar and its tooltips.
-The IME's own candidate popup, custom quick menu, and candidate-style Settings
-preview use Windows mode (`SystemUsesLightTheme`). Tools opened by the IME still
-use App mode; a quick menu opened from the status bar still uses Windows mode.
+The IME's own candidate popup and candidate-style Settings preview also use
+App mode. The custom quick menu retains Windows mode (`SystemUsesLightTheme`),
+including when opened from the status bar. Candidates do not currently detect
+Windows system surfaces; host detection and Windows-mode exceptions are deferred.
 Explicit Light, Dark, and app High contrast choices retain their existing behavior,
 and Windows high contrast overrides both sources. Taskbar mode icons independently
 follow Windows mode; this does not promise automatic branding-icon recoloring or

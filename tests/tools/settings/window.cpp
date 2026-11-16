@@ -786,20 +786,22 @@ void TestSettingsDisplayPreview() {
         item.hDC = preview_dc.Get();
         item.rcItem = preview_bounds;
         for (const bool app_dark : {false, true}) {
-            SetThemeDarkOverrideForTest(app_dark);
-            SetTaskbarDarkOverrideForTest(!app_dark);
-            for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
-                ::SendMessageW(dialog.Get(), message, 0, 0);
-                QIQI_TEST_CHECK(context->d2d.appearance.palette.is_dark == app_dark);
-                ::SendMessageW(tabs, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(painted.Get()), PRF_CLIENT);
-                // TCM_GETITEMRECT writes through LPARAM.
+            for (const bool windows_dark : {false, true}) {
+                SetThemeDarkOverrideForTest(app_dark);
+                SetTaskbarDarkOverrideForTest(windows_dark);
+                for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
+                    ::SendMessageW(dialog.Get(), message, 0, 0);
+                    QIQI_TEST_CHECK(context->d2d.appearance.palette.is_dark == app_dark);
+                    ::SendMessageW(tabs, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(painted.Get()), PRF_CLIENT);
+                    // TCM_GETITEMRECT writes through LPARAM.
 #pragma warning(suppress : 26496)
-                RECT unselected{};
-                QIQI_TEST_CHECK(::SendMessageW(tabs, TCM_GETITEMRECT, 0, reinterpret_cast<LPARAM>(&unselected)));
-                QIQI_TEST_CHECK(::GetPixel(painted.Get(), unselected.left + 4, unselected.top + 4) ==
-                                GetThemePalette(app_dark).window_bg);
-                ::SendMessageW(dialog.Get(), WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item));
-                QIQI_TEST_CHECK(::GetPixel(preview_dc.Get(), 2, 2) == GetThemePalette(!app_dark).window_bg);
+                    RECT unselected{};
+                    QIQI_TEST_CHECK(::SendMessageW(tabs, TCM_GETITEMRECT, 0, reinterpret_cast<LPARAM>(&unselected)));
+                    QIQI_TEST_CHECK(::GetPixel(painted.Get(), unselected.left + 4, unselected.top + 4) ==
+                                    GetThemePalette(app_dark).window_bg);
+                    ::SendMessageW(dialog.Get(), WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item));
+                    QIQI_TEST_CHECK(::GetPixel(preview_dc.Get(), 2, 2) == GetThemePalette(app_dark).window_bg);
+                }
             }
         }
         SetHighContrastOverrideForTest(true);

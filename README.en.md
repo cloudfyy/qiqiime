@@ -48,8 +48,9 @@ and AppContainer guides are available in English.
   focus loss is unchanged. Host-finalized text is not deleted retroactively.
 - Horizontal or vertical candidates, a language-bar/tray menu, and an optional
   floating status bar, with DPI, theme, and high-contrast support.
-  When following the system, candidates and IME custom menus use Windows mode;
-  standalone tools and the floating status bar use App mode.
+  When following the system, candidates and their Settings preview use App mode,
+  as do standalone tools and the floating status bar. IME custom menus retain
+  Windows mode. Windows system-surface detection is deferred.
 - Standalone settings, dictionary manager, and local ETW log-monitor tools.
   Settings and tool interfaces support Simplified Chinese and English.
 - Selectable system/light/dark/high-contrast themes and 100–200% text for Settings,

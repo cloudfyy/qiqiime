@@ -148,8 +148,8 @@ void TestCandidateDisplayPreferences() {
             ui->SetCandidates(L"abc", {L"One", L"Two", L"Three"}, 2, 0, 1);
             ui->MoveWindowTo(RECT{10, 10, 12, 30});
             QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
-            QIQI_TEST_CHECK(ui->Appearance().palette.is_dark);
-            QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == kDarkThemePalette.window_bg);
+            QIQI_TEST_CHECK(!ui->Appearance().palette.is_dark);
+            QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == kLightThemePalette.window_bg);
             const auto* const focus = ::GetFocus();
             const int normal_height = ui->CandidateRect(0).bottom - ui->CandidateRect(0).top;
             const int normal_width = ui->CurrentWidth();
@@ -171,7 +171,8 @@ void TestCandidateDisplayPreferences() {
                 ui->SetDisplayPreferences(theme, UiTextScale::Percent150, true);
                 const auto& appearance = ui->Appearance();
                 QIQI_TEST_CHECK(appearance.high_contrast == (theme == UiTheme::HighContrast));
-                QIQI_TEST_CHECK(appearance.palette.is_dark == (theme != UiTheme::Light));
+                QIQI_TEST_CHECK(appearance.palette.is_dark ==
+                                (theme == UiTheme::Dark || theme == UiTheme::HighContrast));
                 QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == appearance.palette.window_bg);
                 for (const RECT& rect : {ui->CandidateRect(0), ui->CandidateRect(1),
                                         ui->PrevPageButtonRect(), ui->NextPageButtonRect()}) {
@@ -194,18 +195,16 @@ void TestCandidateDisplayPreferences() {
             QIQI_TEST_CHECK(!ui->Appearance().high_contrast && ui->Appearance().palette.is_dark);
             ui->SetDisplayPreferences(UiTheme::System, UiTextScale::Percent100, false);
             for (const bool app_dark : {false, true}) {
-                SetThemeDarkOverrideForTest(app_dark);
-                SetTaskbarDarkOverrideForTest(!app_dark);
-                ::SendMessageW(ui->WindowHandle(), WM_SETTINGCHANGE, 0, 0);
-                QIQI_TEST_CHECK(ui->Appearance().palette.is_dark == !app_dark);
-                QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == GetThemePalette(!app_dark).window_bg);
-                SetThemeDarkOverrideForTest(!app_dark);
-                ::SendMessageW(ui->WindowHandle(), WM_THEMECHANGED, 0, 0);
-                QIQI_TEST_CHECK(ui->Appearance().palette.is_dark == !app_dark);
-                SetTaskbarDarkOverrideForTest(app_dark);
-                ::SendMessageW(ui->WindowHandle(), WM_THEMECHANGED, 0, 0);
-                QIQI_TEST_CHECK(ui->Appearance().palette.is_dark == app_dark);
-                QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == GetThemePalette(app_dark).window_bg);
+                for (const bool windows_dark : {false, true}) {
+                    SetThemeDarkOverrideForTest(app_dark);
+                    SetTaskbarDarkOverrideForTest(windows_dark);
+                    for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
+                        ::SendMessageW(ui->WindowHandle(), message, 0, 0);
+                        QIQI_TEST_CHECK(ui->Appearance().palette.is_dark == app_dark);
+                        QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) ==
+                                        GetThemePalette(app_dark).window_bg);
+                    }
+                }
             }
             SetThemeDarkOverrideForTest(false);
             SetTaskbarDarkOverrideForTest(true);

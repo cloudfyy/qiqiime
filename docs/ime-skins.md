@@ -154,8 +154,10 @@ A01～A06、B01～B15 仅用于本稿图例对照，不是配置格式或最终�
 
 1. **先配色，后材质**：一期二十一套均提供纯色的明暗配置。
    B08～B15 以相应色系表达风格，渐变与材质后续再评估，不依赖背景图片。
-2. **不改变主题边界**：候选窗、自绘菜单与候选预览使用 Windows mode；
-   tools、浮动状态条本体与 Tooltip 使用 App mode。皮肤不能给 tools 套上候选配色。
+2. **区分现状与后续适配**：候选窗及候选预览自动来源统一使用 App mode；
+   系统输入界面识别及 Windows mode 特例暂缓为 TODO，见第 8.2 节。
+   自绘菜单仍按既有 Windows mode 规则；tools、浮动状态条本体与 Tooltip
+   仍用 App mode。皮肤不能给 tools 套上候选配色。
 3. **保持独立偏好**：皮肤独立保存，不借用主题或关怀模式字段。
    Windows 系统高对比度必须覆盖皮肤，手选高对比度保持既有语义。
    二十一套全部采用浅/深双变体，不存在只有一版的皮肤。
@@ -241,7 +243,7 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 - 主题模式、皮肤、字号和关怀模式分别保存；皮肤选项使用稳定标识，
   不把中文名或英文名直接当持久化键。A/B 编号仍只是本稿对照编号。
 - **已确认**：命名皮肤是色彩家族，提供浅/深两份变体；
-  自动模式按既有 Windows mode 来源选择变体，手选明亮/深色固定选择相应变体。
+  自动模式按下述界面规则选择来源，手选明亮/深色固定选择相应变体。
   一期为二十一套皮肤、四十二份配色，所有候选元素的必需颜色字段均显式配置。
 - 无论选择哪套皮肤，Windows 系统高对比度始终优先；
   手选高对比度保持既有含义。进入高对比度时保留皮肤选择，退出后恢复。
@@ -257,12 +259,49 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 | 手选高对比度 | 使用现有应用高对比度配色，暂时忽略皮肤 |
 | 手选明亮 | 使用当前皮肤的 Light 变体 |
 | 手选深色 | 使用当前皮肤的 Dark 变体 |
-| 跟随系统 | 按 Windows mode 选择当前皮肤的 Light / Dark 变体 |
+| 跟随系统 | 候选窗及候选预览统一使用 App mode；自绘菜单保留既有 Windows mode 规则 |
 
 当前皮肤为“默认”时，明暗解析仍相同，颜色则使用现有默认调色板。
 模式切换不更改皮肤标识，皮肤切换不更改模式；进入高对比度仍保存两项选择，
 退出后按既有模式和同一皮肤恢复。tools、状态条与 Tooltip 不接入这些候选配色，
 自动主题仍各自使用 App mode。
+
+#### 候选窗自动来源：统一 App mode，系统界面适配暂缓
+
+**2026-11-16 调整**：当前源码将候选窗及候选预览统一改为 App mode，
+不实施 Windows 系统界面探测。系统输入界面的 Windows mode 特例保留为
+[后续 TODO](todo.md#deferred-candidate-host-adaptation)，不属于本次实现。
+此处描述当前源码，既有发布版不会自动改变。手选主题、高对比度、
+皮肤标识及菜单策略不变。
+
+| 当前输入位置 | 候选窗自动来源 |
+|---|---|
+| 普通应用，包括记事本、浏览器等 | App mode |
+| 文件资源管理器地址栏、搜索框、文件重命名 | App mode |
+| 任务栏搜索、开始菜单搜索等系统输入界面 | App mode，当前不启用宿主特例 |
+| 未知宿主或窗口为空 | App mode，不进行身份探测 |
+
+当前候选预览同样使用 App mode，不改变设置窗口的主题偏好，也不在输入或
+绘制路径增加窗口关系查询、进程遍历、签名验证或 UI Automation。
+
+后续系统界面适配的约束（TODO，本次不实施）：
+
+- 先使用 App mode，仅对小范围、明确验证的系统输入界面启用 Windows mode 特例；
+  以当前 TSF 输入上下文关联的实际界面为依据，不把“Windows 组件”当主题分类。
+- **不能仅按进程名、微软签名、商店来源、AppContainer 或 IMMERSIVEMODE 判断**。
+  `explorer.exe` 同时承载资源管理器和任务栏相关界面，不能按整个进程一刀切，
+  更不能把资源管理器搜索框误当任务栏搜索。
+- 每条特例记录适用系统版本、界面识别依据及实机验证结果。识别不足时仍用
+  App mode；失败路径保留非敏感诊断，不记录输入、窗口标题等私人内容。
+- 上下文/宿主切换后重新确定来源，避免沿用上一个界面的判断。
+  不以瞬时前台窗口或鼠标位置代替实际输入上下文，也不在每次绘制时反复探测。
+- 如以后增加系统场景预览，应复用目标场景的来源解析；普通应用场景用 App mode。
+  不把设置窗口本身是系统/普通进程作为预览场景判断依据。
+- 任务栏输入指示器打开的菜单仍用 Windows mode；tools、状态条本体和 Tooltip
+  仍按原 App mode 规则。该候选策略不扩展到这些界面。
+- **App mode 是 Windows 的应用明暗偏好，不是任意应用自己的实际主题**。
+  应用内部手选的深色主题可能与 App mode 不同；不承诺通用读取或精准跟随。
+  系统升级后的新界面也不自动视为已支持特例。
 
 设置预览可以同时展示同一皮肤的明亮/深色两版，但不能为了展示另一版
 回写主题模式或保存尚未确认的编辑。使用者仍只有“主题模式”和“皮肤”两个独立选择。
@@ -357,6 +396,7 @@ UTF-16LE BOM，含一个目录、二十一个皮肤和四十二份变体，合�
 
 验收应同时覆盖可读性和输入行为：所有接入元素的普通/选中/禁用状态、
 四种 Windows/App mode 组合、系统及手选高对比度、横竖排和长候选、
+普通应用与特定系统输入界面的来源切换、资源管理器不误判、未知宿主默认 App mode、
 多页与首末页禁用按钮、DPI/文字缩放/关怀模式、小工作区滚动、
 设置预览/取消/保存，以及 Direct2D/GDI 一致性。
 换肤期间选择、分页、输入焦点和组合必须保持；日志不得记录真实输入或候选文本。
@@ -390,12 +430,22 @@ Keep semantic color roles shared without conflating hover, selection, checked,
 disabled, and keyboard-focus states. A default skin, stable identifiers, built-in
 palettes, and thread-local redraw through existing configuration notifications
 are recommended. System high contrast overrides all skin choices; app high contrast
-also bypasses skins. Explicit Light/Dark selects that variant, while system-following
-candidate popups, quick menus, and candidate previews use Windows mode.
+also bypasses skins. Explicit Light/Dark selects that variant. Current source
+uses App mode for all candidate popups and candidate previews, including File
+Explorer and system search surfaces. Windows system-surface detection and
+Windows-mode exceptions are deferred TODO work; no host probe is added to the
+input or paint paths. Future exceptions must positively identify and validate
+the actual input surface, never classify an entire process by its name,
+Microsoft signature, AppContainer identity or immersive flag: explorer.exe also
+hosts ordinary File Explorer UI. Uncertain identities must retain App mode.
+Custom quick menus retain their existing Windows-mode rule. This describes
+current source, not a retroactive change to published releases.
 Default skin retains the existing palette.
 Mode changes retain the skin ID, and skin changes retain the mode; both choices
 survive temporary high contrast. Tools/status/tooltips retain their separate App-mode
 behavior. Extra surface scope and material effects remain separate decisions.
+App mode means the Windows application preference, not an arbitrary application's
+own per-window theme. Universal host-theme detection is not promised.
 Skin changes must preserve input
 focus, composition, pagination, and the existing Direct2D/GDI failure diagnostics.
 

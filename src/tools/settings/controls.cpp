@@ -339,7 +339,7 @@ void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept {
     ctx.preview_easy_reading = edited.easy_reading;
     const auto preferences = GetDisplayPreferences(edited);
     ctx.d2d.SetDisplayPreferences(preferences);
-    ctx.candidate_preview_palette = ResolveDisplayAppearance(preferences, SystemThemeSource::Windows).palette;
+    ctx.candidate_preview_palette = ResolveDisplayAppearance(preferences, SystemThemeSource::App).palette;
     ApplyDisplayThemeToWindow(hwnd, ctx.d2d.appearance);
     auto font = CreateUiFont(ctx.d2d.ScalePx(settings_layout::kFontSize),
                              FW_NORMAL, CLEARTYPE_QUALITY);

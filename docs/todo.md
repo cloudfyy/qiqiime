@@ -17,8 +17,10 @@
 - [x] Confirm [theme-combination rules](ime-skins.md#82-皮肤选项与主题模式):
   theme chooses brightness; skin chooses color family. Windows high contrast
   takes precedence, then app high contrast; both bypass skins without clearing
-  the selection. Explicit Light/Dark selects that variant; automatic candidate
-  surfaces follow Windows mode. Default skin preserves existing colors.
+  the selection. Explicit Light/Dark selects that variant. The approved candidate
+  automatic-source policy now uniformly uses App mode, including File Explorer
+  and system search surfaces. Host detection and Windows-mode exceptions are
+  deferred below. Default skin preserves existing colors.
 
 ### Phase 1: Implement the complete pure-color skin feature
 
@@ -52,6 +54,10 @@ each behavior change rather than postponing all testing until the final gate.
   Theme changes retain the skin ID; skin changes retain the theme. Preserve
   both preferences across high-contrast entry/exit. Reuse shared color resolution
   for candidate UI, the IME custom quick menu and candidate-style preview.
+- [x] Use App mode for the candidate popup and candidate-style preview in all
+  hosts, without adding Windows system-surface detection. Keep custom quick
+  menus on their existing Windows-mode rule. Manual themes/high contrast stay
+  unchanged. This source-policy change does not implement the skin loader.
 - [ ] Apply every required candidate color in Direct2D and GDI: bottom surface,
   outer border, code title/page information, ordinary candidate text, selected
   row background/text/border, empty-message text, and enabled/disabled page text.
@@ -88,6 +94,8 @@ each behavior change rather than postponing all testing until the final gate.
   border for that measurement. Preserve the existing app high-contrast 7:1
   target and Windows system-color behavior.
 - [ ] Cover all four Windows/App mode combinations, explicit Light/Dark,
+  candidate/preview App-mode behavior independent of host identity, unchanged
+  Windows-mode custom menus,
   system/app high-contrast entry/exit, horizontal/vertical layout, long
   candidates, paging, DPI/text scaling, Comfort mode, clipping and small-work-area
   scrolling. Run affected x64/x86 builds, focused suites and existing C++ quality
@@ -106,10 +114,27 @@ each behavior change rather than postponing all testing until the final gate.
   hover/pressed states and native scrollbar adaptation; these require additional
   drawing/state/accessibility work, not just more palette entries.
 
+### Deferred candidate host adaptation
+
+- [ ] Evaluate Windows-mode exceptions for positively identified and real-host-
+  validated taskbar/Start search or other specific system input surfaces.
+  Current candidates and previews uniformly use App mode; no detection is
+  implemented in this change. Classify the actual TSF context's UI, never an
+  entire process solely by executable name, Microsoft signature, AppContainer
+  identity or immersive flags. File Explorer address/search/rename fields and
+  unknown/null contexts must remain on App mode. Document supported Windows
+  versions, identification evidence and real-host results for every exception.
+  Cache outside Paint and invalidate on context/host changes; reuse existing
+  window information, bound probes, and avoid per-keystroke process/signature/
+  UI Automation work. Diagnose actual detection failures without input text or
+  window titles. App mode is not an application's private per-window theme.
+  Validate source-switch correctness and detection counts/timings before enabling
+  any exception.
+
 Standalone tools and their menus, the floating status bar and its tooltips do
-not adopt candidate skins; their automatic themes remain on App mode. Candidate
-UI, IME custom menus and candidate previews remain on Windows mode in automatic
-theme mode. Do not recolor taskbar brand/mode icons, host composition text/
+not adopt candidate skins; their automatic themes remain on App mode. Candidates
+and their previews currently use App mode in all hosts. Custom quick menus
+keep their existing Windows-mode rule. Do not recolor taskbar brand/mode icons, host composition text/
 underlines, system dialogs, Windows-hosted TSF menus or host-rendered UILess
 candidates. Skin editors, external images/scripts/skin packs, and additional
 status-bar/tooltip skin support require separate design approval.

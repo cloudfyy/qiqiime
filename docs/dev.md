@@ -332,11 +332,12 @@ Desktop usage and supported surfaces are documented in
 `DisplayPreferences` is a value snapshot. `ResolveDisplayAppearance` resolves
 Windows high contrast before the selected theme; its palette supplies D2D/GDI
 colors including selection foreground/background. Its `SystemThemeSource` argument
-selects only the automatic source: App mode is the default for standalone tools;
-candidate popups and IME custom quick menus explicitly select Windows mode.
-The floating status bar and its tooltips continue using App mode. Settings caches
-a separate Windows-mode palette for its candidate-style preview without recoloring
-the tool window. Both sources preserve explicit Light/Dark/High contrast choices,
+selects only the automatic source: candidate popups, their Settings preview,
+standalone tools, the floating status bar and its tooltips use App mode.
+IME custom quick menus retain Windows mode. Settings caches a separate preview
+palette without changing the tool window's preferences. Candidate system-surface
+detection and Windows-mode exceptions are deferred; no host probe is added to
+the input or paint paths. Both sources preserve explicit Light/Dark/High contrast choices,
 and refresh on `WM_SETTINGCHANGE`/`WM_THEMECHANGED`. Use `ScaleDisplayPx` for
 text-scaled dimensions, and ordinary DPI-only scaling for minimum DIP targets.
 Do not double-apply DPI or change test overrides to set production preferences.
