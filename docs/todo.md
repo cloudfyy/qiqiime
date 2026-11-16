@@ -2,49 +2,117 @@
 
 ## IME skins
 
-Design catalog: [skin appearance, bilingual names, and illustrations](ime-skins.md).
-Phase 1 is now explicitly scoped to all 21 skins with 42 Light/Dark variants.
-The [complete palette data and state diagrams](ime-skin-palettes.md) and
-[registry design template](ime-skins.reg) define all required candidate colors.
-The [element scope and refresh design](ime-skins.md#7-哪些界面元素可以支持皮肤)
-recommends candidate regions, the IME quick menu, and preview first; additional
-hover/pressed states, native scrollbar adaptation, and status-bar/tooltip skins
-remain separate design decisions.
+### Confirmed design (complete; runtime implementation still pending)
 
-- [ ] Phase 1: Add all 21 named skins with Light/Dark variants (42 palettes).
-  Explicitly configure background, border, code title, candidate text,
-  selection background/text/border, empty text, and enabled/disabled page text.
-  Theme chooses brightness; skin chooses color family.
-- [ ] Add a persisted IME skin option independent of theme mode and Comfort
-  mode, preserving compatibility with existing configurations. Windows system
-  high contrast must override the selected skin; app high contrast bypasses it too.
-  Explicit Light/Dark chooses the corresponding skin variant; automatic candidate
-  surfaces follow Windows mode. Keep the same skin ID across theme changes and
-  retain both preferences when entering/exiting high contrast. Default skin keeps
-  existing colors. See the [confirmed combination rules](ime-skins.md#82-皮肤选项与主题模式).
-- [ ] Implement the [registry catalog contract](ime-skins.md#84-注册表配置契约):
-  stable skin ID separate from versioned paired definitions; validate all required
-  REG_DWORD RGB24 fields; stage a complete catalog before switching ActiveCatalog.
-  Reuse configuration notifications, preserve old state on failure, and keep IME
-  reads side-effect-free. The design template is not yet imported or implemented.
-- [ ] Add skin selection and preview to display settings. Share palette
-  resolution between the preview, candidate window, and IME custom context
-  menu; do not recolor standalone tool windows.
-- [ ] Validate configuration round trips, all 42 variants and their complete
-  first/last/empty candidate states, DPI, text scaling,
-  Comfort mode, high contrast, clipping, and scrolling. Add focused tests and
-  update related documentation while preserving candidate selection and paging.
-- [ ] Phase 2, after Phase 1 validation: Add rounded corners, subtle separators,
-  and ordinary shadows with consistent Direct2D and GDI fallback behavior.
-  Validate window boundaries and hit testing. Colored glow is deferred.
+- [x] Define all 21 bilingual skin names, each Chinese name having two characters,
+  and all 42 Light/Dark palettes. See the [design catalog](ime-skins.md).
+- [x] Complete the [per-skin colors and state diagrams](ime-skin-palettes.md):
+  background, outer border, code title, candidate text, selected background/text/
+  border, empty-message text, and enabled/disabled page text. Illustrate first
+  page, last page, and empty candidates for both variants of every skin.
+- [x] Provide the [registry design template](ime-skins.reg): 21 stable skin IDs,
+  42 complete variants, and 13 explicit color fields per variant (546 values).
+  Check data/diagram consistency and design contrast. This does not mean the
+  registry template has been imported or that a skin loader exists.
+- [x] Confirm [theme-combination rules](ime-skins.md#82-皮肤选项与主题模式):
+  theme chooses brightness; skin chooses color family. Windows high contrast
+  takes precedence, then app high contrast; both bypass skins without clearing
+  the selection. Explicit Light/Dark selects that variant; automatic candidate
+  surfaces follow Windows mode. Default skin preserves existing colors.
 
-Windows-hosted TSF menus remain system-controlled and are not guaranteed to
-display custom skins.
+### Phase 1: Implement the complete pure-color skin feature
 
-Preserve the system-following split when adding skins: candidate UI, IME custom
-menus, and candidate-style previews use Windows mode; standalone tool windows,
-the floating status bar, and its tooltips use App mode. Explicit themes and
-Windows high contrast retain their existing precedence.
+Execute the following dependent steps in order; add focused regressions with
+each behavior change rather than postponing all testing until the final gate.
+
+- [ ] Implement the [registry catalog contract](ime-skins.md#84-注册表配置契约).
+  Store `ImeSkinId` as REG_SZ, separate from versioned `Skins\Catalogs`
+  definitions and `Skins\ActiveCatalog`. Use REG_SZ for names/identifiers and
+  REG_DWORD for schema/order and all 13 RGB24 roles; no packed REG_BINARY
+  structure or serialized whole-skin string. Colors are `0x00RRGGBB` with a
+  zero high byte, not COLORREF's channel order; convert explicitly for rendering.
+  Keep the documented stable IDs and bilingual names, not A/B figure numbers
+  or translated display names, as persistence identities.
+- [ ] Initialize the 21 complete Light/Dark definitions through the desktop
+  settings flow, preserving existing catalogs and user preferences. IME reads
+  must not create missing keys, change ACLs, or bypass restricted-host access.
+  Validate schema, encoding, names/order, both variants, all required field
+  types/ranges and contrast before publishing a value snapshot. Do not mix
+  incomplete skins with fields from another palette. Diagnose real API failures
+  and malformed configuration explicitly.
+- [ ] Publish catalog updates by staging and validating a new complete catalog
+  before switching `ActiveCatalog` and issuing the existing configuration
+  notification. On write/validation failure, preserve the old catalog, skin
+  selection and effective colors; do not automatically delete catalogs that
+  existing readers may still use. Resolve/copy colors outside Paint and cache
+  the validated snapshot instead of querying registry fields during drawing.
+- [ ] Add `ImeSkinId` to the shared configuration field and synchronization
+  mechanisms. Default missing legacy selections to `default`; reject invalid
+  selections on save. Keep skin, theme, text scale and Comfort mode independent.
+  Theme changes retain the skin ID; skin changes retain the theme. Preserve
+  both preferences across high-contrast entry/exit. Reuse shared color resolution
+  for candidate UI, the IME custom quick menu and candidate-style preview.
+- [ ] Apply every required candidate color in Direct2D and GDI: bottom surface,
+  outer border, code title/page information, ordinary candidate text, selected
+  row background/text/border, empty-message text, and enabled/disabled page text.
+  Keep `EmptyText`, `PageEnabledText` and `PageDisabledText` explicitly defined
+  even when values equal other roles. Keep candidate numbers the same color as
+  their row in Phase 1. Empty candidates must have no fake selection or paging.
+- [ ] Apply the same skin family to the IME custom quick menu: background,
+  border, text, hover/current item, check marks, disabled state, separators and
+  keyboard-focus cues. Keep hover, checked and focus states distinct. Do not
+  reuse candidate-selection text or title accents indiscriminately for menus.
+  Leave native scrollbars system-rendered in Phase 1.
+- [ ] Add a default entry plus all 21 bilingual choices to display settings.
+  Preview the edited selection without starting composition or recoloring the
+  settings window. Preview must obey high-contrast priority, including when
+  showing Light/Dark pairs. Save through the existing acceptance/notification
+  flow; cancellation must not persist display edits, and failed saves must
+  preserve stored values and report the actual error.
+- [ ] Refresh on saved configuration and system theme/high-contrast changes on
+  each window's owning thread. Color-only updates must not steal focus, clear
+  composition, change selection, repaginate or move the input caret. Do not set
+  the host process's preferred theme. Preserve Direct2D failure diagnostics
+  and equivalent pure-color GDI fallback behavior.
+
+### Phase 1 acceptance
+
+- [ ] Verify all 42 variants and 546 explicit fields against the design data,
+  including RGB24 conversion, isolated-registry round trips, missing/invalid
+  IDs, wrong types/ranges/schema, missing Light/Dark roles, denied reads/writes,
+  staged-update failure, and configuration notification/snapshot refresh.
+- [ ] Verify first/last/empty candidate states, code title and paging colors,
+  selected border, menu hover/check/disabled/focus states, and preview/save/
+  cancel behavior. Check text roles at least 4.5:1 and selected-border versus
+  ordinary background at least 3:1; do not substitute the decorative outer
+  border for that measurement. Preserve the existing app high-contrast 7:1
+  target and Windows system-color behavior.
+- [ ] Cover all four Windows/App mode combinations, explicit Light/Dark,
+  system/app high-contrast entry/exit, horizontal/vertical layout, long
+  candidates, paging, DPI/text scaling, Comfort mode, clipping and small-work-area
+  scrolling. Run affected x64/x86 builds, focused suites and existing C++ quality
+  checks; separately record real-host checks, including restricted hosts and
+  host-rendered UILess UI. Do not log real input or candidate text.
+- [ ] Update user/developer documentation to distinguish implemented surfaces
+  from design-only features; automated color checks do not certify all hosts
+  or accessibility. Do not generate MSI packages unless explicitly requested.
+
+### Phase 2 and exclusions
+
+- [ ] After Phase 1 acceptance, design/validate gradients, rounded corners,
+  subtle separators and ordinary shadows with consistent Direct2D/GDI behavior,
+  window bounds and hit testing. Colored glow remains deferred.
+- [ ] Separately evaluate candidate-number/hint colors, candidate page-button
+  hover/pressed states and native scrollbar adaptation; these require additional
+  drawing/state/accessibility work, not just more palette entries.
+
+Standalone tools and their menus, the floating status bar and its tooltips do
+not adopt candidate skins; their automatic themes remain on App mode. Candidate
+UI, IME custom menus and candidate previews remain on Windows mode in automatic
+theme mode. Do not recolor taskbar brand/mode icons, host composition text/
+underlines, system dialogs, Windows-hosted TSF menus or host-rendered UILess
+candidates. Skin editors, external images/scripts/skin packs, and additional
+status-bar/tooltip skin support require separate design approval.
 
 ## Tracked follow-up
 
