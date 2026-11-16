@@ -141,6 +141,44 @@ status-bar/tooltip skin support require separate design approval.
 
 ## Tracked follow-up
 
+- [ ] Fix MSI uninstall failure when optional current-user data cleanup encounters
+  a mapped user-dictionary cache (reported in 1.1.1 on 2026-11-16).
+  ETW recorded `Uninstall::RemoveDataFile` returning `0x80070005`; the
+  `RemoveUserData` action exited with code 1, causing MSI error 1722, final
+  status 1603, and rollback. Read-only inspection found the remaining
+  `user_dict.qdict` in use by multiple hosts; an isolated reproduction of the
+  current deletion API failed while mapped and succeeded after unmapping.
+  This concerns the personal user dictionary/cache, not the three bundled
+  default dictionaries (`wubi86_jidian.txt`, `wubi86_jidian_extra.txt`, and
+  `wubi86_haifeng.txt`): normal MSI uninstall removes those bundled files
+  regardless of the personal-data option. Keep that payload removal separate
+  from opt-in personal-data cleanup; do not expand deletion to custom
+  dictionaries, exports, backups, or other users' data.
+  Agreed plan: attempt immediate cleanup first. For a cache still mapped/in
+  use, safely rename it to a unique pending-deletion name without replacing
+  another file, then use an appropriately elevated operation to call
+  [`MoveFileExW`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw)
+  with a null destination and `MOVEFILE_DELAY_UNTIL_REBOOT`. Schedule only
+  that isolated old cache, never its reusable original pathname, so reinstall
+  or resumed use before reboot cannot cause newly created user data to be
+  deleted. Preserve initiating-user ownership and path/reparse-point checks
+  across elevation; do not resolve personal data from the elevated account.
+  No resident cleanup process or routine manual deletion should be required.
+  Distinguish files actually deleted, deletion successfully scheduled, and
+  incomplete cleanup; successful scheduling is not proof of boot-time deletion.
+  Clearly tell the user when program removal is complete but personal-data
+  cleanup requires a restart. Report rename/scheduling failures explicitly
+  rather than claiming success or rolling back the entire uninstall solely
+  because optional cache cleanup is incomplete. Do not treat every access-denied
+  error as a mapped-file failure or weaken permission/path validation.
+  Preserve actual HRESULT/Win32 diagnostics without logging dictionary contents
+  or private paths. Add isolated immediate/mapped deletion, rename/scheduling
+  failure, reboot-pending reporting, original-path reuse, partial-cleanup, and
+  default-data-retention regressions. Use fixtures or mocked scheduling, not
+  real reboot deletion of personal files; preserve no-cleanup defaults and
+  upgrade guards. MSI rollback must not imply deleted personal data was
+  restored. This is tracked work only, not an implemented fix.
+
 - [ ] Deferred: Investigate taskbar input-indicator disappearance and theme-aware icons.
   Follow the [research and validation record](input-indicator.md). The registered
   brand resource now uses the documented white box, black glyph, and 1px

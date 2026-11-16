@@ -1,3 +1,76 @@
+# 未发布更新（2026-11-16）
+
+以下为主分支中尚未发布的改动。源码数字版本保持 `1.1.1`，本轮不创建新发行标签，
+不制作安装包，也不改变已有 `v1.1.1` 附件。下次发版时再确定版本号；
+届时仍以标签 CI 的验证结果和 Release 页面实际提供的附件为准。
+
+## 本次主要更新
+
+- **改善候选窗重绘**：减少移动及内容刷新时不必要的窗口框架、显隐和滚动条更新；Direct2D 与 GDI 均先完成离屏整帧绘制，再复制到可见区域，避免背景擦除及分步绘制造成的中间画面。保留资源失败时的真实错误诊断，不以降低输入响应速度掩盖闪烁。
+- **候选窗统一使用 App mode**：跟随系统时，候选窗及设置内的候选预览使用 Windows 的应用明暗偏好，不探测宿主是否属于 Windows 系统界面。自绘快捷菜单继续使用 Windows mode；手选主题和 Windows 高对比度优先级不变。系统界面识别及特例保留为 TODO，不包含皮肤运行时实现。
+- **统一未完成输入的处理**：将选项改为“未完成输入的处理”，提供“原始编码上屏”和“清除未完成输入”。切换英文模式与通过 `Win+Space` 等入口切换输入法／键盘布局遵循同一配置；通过 TSF 通知和停用清理处理，不拦截系统快捷键。保留现有配置键、默认值与备份兼容性，只操作仍由输入法拥有的组合范围，不追删宿主已经结束组合的正文。
+- **修复服务回归测试的配置隔离**：输入法切换和编码补全测试移入已有的私有注册表、临时数据目录 fixture，并在写配置前拒绝生产配置键。断言失败会直接终止进程，不能用真实配置的快照／RAII 恢复代替隔离。
+- **新增离线 Shell 检查清单**：提供本地 HTML 测试页，支持草稿保存和 Markdown 报告导出，不上传测试结果。检查清单不代表所有 Shell 宿主已经验收。
+
+## 迁移与验证边界
+
+- 本轮改动不自动重置个人配置。如果曾运行旧开发测试并出现常用字缺失，请在设置中检查主词库选项：“仅内置”是小型回退词库，不是完整的极点／海峰主词库。
+- 相关 x64/x86 构建的 CppCoreCheck 项目告警为 **0**（沿用已有排除规则）。App mode 改动阶段，双架构 TSF/UI 与设置回归均通过；测试隔离修复后，两项相关配置用例在双架构通过，但最后完整生命周期回归仍在原生 TSF `ActivateEx` 检查处失败，未计通过。回归期间偏好及用户词库内容未变，配置序号增加的来源尚未确定；失败日志保留。
+- 后续决定发版时，Release 工作流必须针对新标签重新构建、测试，成功后才发布中英文 x64/x86 MSI、双架构 ZIP 和匹配符号。标签存在不等于发布或安装验收完成，早先本地构建也不代表将来的标签构建身份。
+- 本机不制作或安装 MSI，不修改已安装输入法注册。自动化的窗口消息和像素检查不替代同屏拖动、快速输入、真实宿主、安装或升级验收。
+
+## English
+
+These main-branch changes are unreleased. The numeric source version remains
+`1.1.1`; this update creates no new release tag or installers and does not change
+the existing `v1.1.1` assets. A future release needs a separately chosen version,
+tagged CI validation, and actually published download assets.
+
+### Changes
+
+- **Candidate repaint improvements:** avoid redundant frame, visibility, and
+  scrollbar updates. Both Direct2D and GDI finish an offscreen frame before
+  copying it to the visible client area, without throttling input. Resource
+  failures retain their actual diagnostics.
+- **App-mode candidates:** automatic candidate and Settings-preview colors use
+  the Windows application preference in every host. No Windows system-surface
+  detection is performed; detection and exceptions remain TODO work. IME custom
+  menus retain Windows mode, and explicit themes/high-contrast precedence stay
+  unchanged. Skin runtime support is not included.
+- **Unified unfinished-input policy:** Commit raw code or Discard unfinished
+  input applies to English-mode switches and IME/keyboard-layout switches.
+  TSF notifications and deactivation cleanup implement the policy without
+  intercepting Win+Space. Existing keys/defaults remain compatible, and
+  host-finalized ordinary text is never deleted retroactively.
+- **Isolated service regressions:** configuration-writing switch/completion
+  tests now use the existing private-registry/temporary-data fixture and reject
+  the production configuration key. Aborting assertions bypass RAII cleanup,
+  so saving/restoring real preferences is not isolation.
+- **Offline Shell checklist:** a local HTML page saves drafts and exports
+  Markdown reports without uploading results; it does not certify every host.
+
+### Migration and validation boundaries
+
+- These changes do not reset personal preferences. If common characters disappeared
+  after running older development tests, check the selected primary dictionary:
+  Builtin only is a small fallback, not the complete Jidian or Haifeng dictionary.
+- Affected x64/x86 builds had zero project CoreCheck diagnostics under existing
+  exclusions. Both TSF/UI and Settings suites passed during the App-mode change.
+  After the isolation fix, both relevant configuration cases passed on each
+  architecture, but the final complete lifecycle suites failed at the native
+  TSF ActivateEx check and are not counted as passes. Preferences and user
+  dictionary contents were unchanged; the cause of an increased configuration
+  sequence remains unconfirmed. Failure logs are retained.
+- For a future release, CI must rebuild and test its new tag before publishing bilingual x64/x86
+  MSI installers, the dual-architecture ZIP, and matching symbols. A tag alone
+  does not certify publication or installation; earlier local binaries do not
+  identify a future tag build.
+- No local MSI packaging, installation, or installed IME registration changes.
+  Message/pixel regressions do not replace real-host dragging, rapid typing,
+  installation, or upgrade verification.
+
+---
+
 # QiQiIME 1.1.1 补丁版
 
 数字版本：`1.1.1`；发行标签：`v1.1.1`。标签推送后由 Release 工作流构建、测试和打包；下载以 Release 页面实际提供的附件为准。
