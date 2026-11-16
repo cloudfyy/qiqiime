@@ -2,16 +2,36 @@
 
 ## IME skins
 
-- [ ] Phase 1: Add six original color palettes inspired by the candidate-window
-  samples in `C:\temp\imeui-sample`: gold/lime, gray/black, teal, charcoal/blue,
-  mustard/pink, and light green/dark green. Adjust text colors for readability.
+Design catalog: [skin appearance, bilingual names, and illustrations](ime-skins.md).
+Phase 1 is now explicitly scoped to all 21 skins with 42 Light/Dark variants.
+The [complete palette data and state diagrams](ime-skin-palettes.md) and
+[registry design template](ime-skins.reg) define all required candidate colors.
+The [element scope and refresh design](ime-skins.md#7-哪些界面元素可以支持皮肤)
+recommends candidate regions, the IME quick menu, and preview first; additional
+hover/pressed states, native scrollbar adaptation, and status-bar/tooltip skins
+remain separate design decisions.
+
+- [ ] Phase 1: Add all 21 named skins with Light/Dark variants (42 palettes).
+  Explicitly configure background, border, code title, candidate text,
+  selection background/text/border, empty text, and enabled/disabled page text.
+  Theme chooses brightness; skin chooses color family.
 - [ ] Add a persisted IME skin option independent of theme mode and Comfort
   mode, preserving compatibility with existing configurations. Windows system
-  high contrast must override the selected skin.
+  high contrast must override the selected skin; app high contrast bypasses it too.
+  Explicit Light/Dark chooses the corresponding skin variant; automatic candidate
+  surfaces follow Windows mode. Keep the same skin ID across theme changes and
+  retain both preferences when entering/exiting high contrast. Default skin keeps
+  existing colors. See the [confirmed combination rules](ime-skins.md#82-皮肤选项与主题模式).
+- [ ] Implement the [registry catalog contract](ime-skins.md#84-注册表配置契约):
+  stable skin ID separate from versioned paired definitions; validate all required
+  REG_DWORD RGB24 fields; stage a complete catalog before switching ActiveCatalog.
+  Reuse configuration notifications, preserve old state on failure, and keep IME
+  reads side-effect-free. The design template is not yet imported or implemented.
 - [ ] Add skin selection and preview to display settings. Share palette
   resolution between the preview, candidate window, and IME custom context
   menu; do not recolor standalone tool windows.
-- [ ] Validate configuration round trips, all six palettes, DPI, text scaling,
+- [ ] Validate configuration round trips, all 42 variants and their complete
+  first/last/empty candidate states, DPI, text scaling,
   Comfort mode, high contrast, clipping, and scrolling. Add focused tests and
   update related documentation while preserving candidate selection and paging.
 - [ ] Phase 2, after Phase 1 validation: Add rounded corners, subtle separators,
