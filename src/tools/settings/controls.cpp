@@ -306,7 +306,9 @@ void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept {
     ctx.preview_theme = edited.ui_theme;
     ctx.preview_scale = edited.ui_text_scale;
     ctx.preview_easy_reading = edited.easy_reading;
-    ctx.d2d.SetDisplayPreferences({ctx.preview_theme, ctx.preview_scale, ctx.preview_easy_reading});
+    const auto preferences = GetDisplayPreferences(edited);
+    ctx.d2d.SetDisplayPreferences(preferences);
+    ctx.candidate_preview_palette = ResolveDisplayAppearance(preferences, SystemThemeSource::Windows).palette;
     ApplyDisplayThemeToWindow(hwnd, ctx.d2d.appearance);
     auto font = CreateUiFont(ctx.d2d.ScalePx(settings_layout::kFontSize),
                              FW_NORMAL, CLEARTYPE_QUALITY);
@@ -381,7 +383,7 @@ int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogC
 }
 
 void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept {
-    const auto& palette = ctx.d2d.appearance.palette;
+    const auto& palette = ctx.candidate_preview_palette;
     const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(palette.window_bg));
     const ScopedGdiHandle<HBRUSH> selection(::CreateSolidBrush(palette.selection_bg));
     if (!background || !selection) {

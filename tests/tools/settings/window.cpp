@@ -738,6 +738,16 @@ void TestSettingsLabelViewportClipping() {
 
 void TestSettingsDisplayPreview() {
     using namespace settings_detail;
+    const auto original_theme = detail::ThemeDarkOverrideStorage();
+    const auto original_taskbar = detail::TaskbarDarkOverrideStorage();
+    const auto restore_theme = gsl::finally([&]() noexcept {
+        SetThemeDarkOverrideForTest(original_theme);
+        SetTaskbarDarkOverrideForTest(original_taskbar);
+        SetHighContrastOverrideForTest(std::nullopt);
+    });
+    SetHighContrastOverrideForTest(false);
+    SetThemeDarkOverrideForTest(false);
+    SetTaskbarDarkOverrideForTest(true);
     QiQiConfig config;
     config.ui_language = UiLanguage::EnUs;
     config.page_size = 8;
@@ -760,6 +770,46 @@ void TestSettingsDisplayPreview() {
         ::SendDlgItemMessageW(dialog.Get(), id, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(value), 0);
         ::SendMessageW(dialog.Get(), WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE), 0);
     };
+    {
+        const HWND preview = ::GetDlgItem(dialog.Get(), kIdCandidatePreview);
+        RECT preview_bounds{};
+        QIQI_TEST_CHECK(::GetClientRect(preview, &preview_bounds));
+        const ScopedMemoryDC preview_dc(::CreateCompatibleDC(tab_dc.Get()));
+        const ScopedGdiHandle<HBITMAP> preview_bitmap(::CreateCompatibleBitmap(
+            tab_dc.Get(), preview_bounds.right, preview_bounds.bottom));
+        QIQI_TEST_CHECK(preview_dc && preview_bitmap);
+        const ScopedSelectObject select_preview_bitmap(preview_dc.Get(), preview_bitmap.Get());
+        DRAWITEMSTRUCT item{};
+        item.CtlType = ODT_STATIC;
+        item.CtlID = kIdCandidatePreview;
+        item.hwndItem = preview;
+        item.hDC = preview_dc.Get();
+        item.rcItem = preview_bounds;
+        for (const bool app_dark : {false, true}) {
+            SetThemeDarkOverrideForTest(app_dark);
+            SetTaskbarDarkOverrideForTest(!app_dark);
+            for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
+                ::SendMessageW(dialog.Get(), message, 0, 0);
+                QIQI_TEST_CHECK(context->d2d.appearance.palette.is_dark == app_dark);
+                ::SendMessageW(tabs, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(painted.Get()), PRF_CLIENT);
+                // TCM_GETITEMRECT writes through LPARAM.
+#pragma warning(suppress : 26496)
+                RECT unselected{};
+                QIQI_TEST_CHECK(::SendMessageW(tabs, TCM_GETITEMRECT, 0, reinterpret_cast<LPARAM>(&unselected)));
+                QIQI_TEST_CHECK(::GetPixel(painted.Get(), unselected.left + 4, unselected.top + 4) ==
+                                GetThemePalette(app_dark).window_bg);
+                ::SendMessageW(dialog.Get(), WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item));
+                QIQI_TEST_CHECK(::GetPixel(preview_dc.Get(), 2, 2) == GetThemePalette(!app_dark).window_bg);
+            }
+        }
+        SetHighContrastOverrideForTest(true);
+        ::SendMessageW(dialog.Get(), WM_SETTINGCHANGE, 0, 0);
+        QIQI_TEST_CHECK(context->d2d.appearance.system_high_contrast);
+        ::SendMessageW(dialog.Get(), WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item));
+        QIQI_TEST_CHECK(::GetPixel(preview_dc.Get(), 2, 2) == ::GetSysColor(COLOR_WINDOW));
+        SetHighContrastOverrideForTest(false);
+        ::SendMessageW(dialog.Get(), WM_THEMECHANGED, 0, 0);
+    }
     QiQiConfig edited;
     for (const UiTheme theme : {UiTheme::System, UiTheme::Light, UiTheme::Dark, UiTheme::HighContrast}) {
         select(kIdComboUiTheme, static_cast<int>(theme));

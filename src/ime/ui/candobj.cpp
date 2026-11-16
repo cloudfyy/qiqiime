@@ -29,7 +29,7 @@ constexpr int kCaretGapPx = 4;
 }
 
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
-    appearance_ = ResolveDisplayAppearance(preferences_);
+    appearance_ = ResolveDisplayAppearance(preferences_, SystemThemeSource::Windows);
     InitDirect2DAndDirectWrite();
     UpdateDpiAndFont(96);
 }
@@ -445,7 +445,7 @@ void CandidateUI::SetLayout(CandidateLayout layout) {
 void CandidateUI::SetDisplayPreferences(DisplayPreferences preferences) {
     if (preferences_ == preferences) return;
     preferences_ = preferences;
-    appearance_ = ResolveDisplayAppearance(preferences_);
+    appearance_ = ResolveDisplayAppearance(preferences_, SystemThemeSource::Windows);
     RefreshPopupLayout();
     if (hwnd_) ApplyDisplayThemeToWindow(hwnd_.Get(), appearance_);
 }
@@ -776,7 +776,7 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             return 0;
         case WM_SETTINGCHANGE:
         case WM_THEMECHANGED:
-            self->appearance_ = ResolveDisplayAppearance(self->preferences_);
+            self->appearance_ = ResolveDisplayAppearance(self->preferences_, SystemThemeSource::Windows);
             self->RefreshPopupLayout();
             ApplyDisplayThemeToWindow(hwnd, self->appearance_);
             return 0;

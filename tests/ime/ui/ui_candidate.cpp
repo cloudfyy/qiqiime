@@ -39,13 +39,16 @@ void TestCandidateDisplayPreferences() {
     // Keep an independent snapshot: the test changes the override's backing storage.
     const std::optional<MonitorMetrics> previous_monitor = detail::MonitorMetricsOverrideStorage();
     const auto previous_theme = detail::ThemeDarkOverrideStorage();
+    const auto previous_taskbar = detail::TaskbarDarkOverrideStorage();
     const auto restore = gsl::finally([&]() noexcept {
         SetMonitorMetricsOverrideForTest(previous_monitor);
         SetThemeDarkOverrideForTest(previous_theme);
+        SetTaskbarDarkOverrideForTest(previous_taskbar);
         SetHighContrastOverrideForTest(std::nullopt);
     });
     SetHighContrastOverrideForTest(false);
     SetThemeDarkOverrideForTest(false);
+    SetTaskbarDarkOverrideForTest(true);
     for (const bool gdi : {false, true}) {
         for (const UINT dpi : {96u, 144u, 192u}) {
             SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1600, 1200}, dpi});
@@ -56,6 +59,8 @@ void TestCandidateDisplayPreferences() {
             ui->SetCandidates(L"abc", {L"One", L"Two", L"Three"}, 2, 0, 1);
             ui->MoveWindowTo(RECT{10, 10, 12, 30});
             QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+            QIQI_TEST_CHECK(ui->Appearance().palette.is_dark);
+            QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == kDarkThemePalette.window_bg);
             const auto* const focus = ::GetFocus();
             const int normal_height = ui->CandidateRect(0).bottom - ui->CandidateRect(0).top;
             const int normal_width = ui->CurrentWidth();
@@ -77,6 +82,7 @@ void TestCandidateDisplayPreferences() {
                 ui->SetDisplayPreferences(theme, UiTextScale::Percent150, true);
                 const auto& appearance = ui->Appearance();
                 QIQI_TEST_CHECK(appearance.high_contrast == (theme == UiTheme::HighContrast));
+                QIQI_TEST_CHECK(appearance.palette.is_dark == (theme != UiTheme::Light));
                 QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == appearance.palette.window_bg);
                 for (const RECT& rect : {ui->CandidateRect(0), ui->CandidateRect(1),
                                         ui->PrevPageButtonRect(), ui->NextPageButtonRect()}) {
@@ -98,10 +104,23 @@ void TestCandidateDisplayPreferences() {
             ::SendMessageW(ui->WindowHandle(), WM_THEMECHANGED, 0, 0);
             QIQI_TEST_CHECK(!ui->Appearance().high_contrast && ui->Appearance().palette.is_dark);
             ui->SetDisplayPreferences(UiTheme::System, UiTextScale::Percent100, false);
-            SetThemeDarkOverrideForTest(true);
-            ::SendMessageW(ui->WindowHandle(), WM_THEMECHANGED, 0, 0);
-            QIQI_TEST_CHECK(ui->Appearance().palette.is_dark);
+            for (const bool app_dark : {false, true}) {
+                SetThemeDarkOverrideForTest(app_dark);
+                SetTaskbarDarkOverrideForTest(!app_dark);
+                ::SendMessageW(ui->WindowHandle(), WM_SETTINGCHANGE, 0, 0);
+                QIQI_TEST_CHECK(ui->Appearance().palette.is_dark == !app_dark);
+                QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == GetThemePalette(!app_dark).window_bg);
+                SetThemeDarkOverrideForTest(!app_dark);
+                ::SendMessageW(ui->WindowHandle(), WM_THEMECHANGED, 0, 0);
+                QIQI_TEST_CHECK(ui->Appearance().palette.is_dark == !app_dark);
+                SetTaskbarDarkOverrideForTest(app_dark);
+                ::SendMessageW(ui->WindowHandle(), WM_THEMECHANGED, 0, 0);
+                QIQI_TEST_CHECK(ui->Appearance().palette.is_dark == app_dark);
+                QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == GetThemePalette(app_dark).window_bg);
+            }
             SetThemeDarkOverrideForTest(false);
+            SetTaskbarDarkOverrideForTest(true);
+            QIQI_TEST_CHECK(::GetFocus() == focus);
             UINT selection = 0;
             UINT page_count = 0;
             QIQI_TEST_CHECK(ui->GetSelection(&selection) == S_OK && selection == 1);

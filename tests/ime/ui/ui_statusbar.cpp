@@ -37,6 +37,12 @@ void CloseQuickSettingsMenu() {
 
 void TestStatusBarUI() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const auto original_theme = detail::ThemeDarkOverrideStorage();
+    const auto original_taskbar = detail::TaskbarDarkOverrideStorage();
+    const auto restore_theme = gsl::finally([&]() noexcept {
+        SetThemeDarkOverrideForTest(original_theme);
+        SetTaskbarDarkOverrideForTest(original_taskbar);
+    });
     // Load uxtheme.dll, dwmapi.dll, and shcore.dll via ScopedModule RAII in the test process
     const ScopedModule uxtheme_mod(::LoadLibraryW(L"uxtheme.dll"));
     const ScopedModule dwmapi_mod(::LoadLibraryW(L"dwmapi.dll"));
@@ -254,6 +260,18 @@ void TestStatusBarUI() {
         ::DispatchMessageW(&msg);
     }
 
+    for (const bool app_dark : {false, true}) {
+        SetThemeDarkOverrideForTest(app_dark);
+        SetTaskbarDarkOverrideForTest(!app_dark);
+        for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
+            ::SendMessageW(bar.WindowHandle(), message, 0, 0);
+            ::RedrawWindow(bar.WindowHandle(), nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+            RECT client{};
+            QIQI_TEST_CHECK(::GetClientRect(bar.WindowHandle(), &client));
+            const ScopedWindowDC dc(bar.WindowHandle());
+            QIQI_TEST_CHECK(::GetPixel(dc.Get(), 2, client.bottom / 2) == GetThemePalette(app_dark).window_bg);
+        }
+    }
     SetThemeDarkOverrideForTest(std::nullopt);
     st.show_status_bar = false;
     bar.UpdateState(st);

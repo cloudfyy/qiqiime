@@ -45,6 +45,8 @@ and AppContainer guides are available in English.
 - Chinese/English, full-width/half-width, and Chinese/English punctuation modes.
 - Horizontal or vertical candidates, a language-bar/tray menu, and an optional
   floating status bar, with DPI, theme, and high-contrast support.
+  When following the system, candidates and IME custom menus use Windows mode;
+  standalone tools and the floating status bar use App mode.
 - Standalone settings, dictionary manager, and local ETW log-monitor tools.
   Settings and tool interfaces support Simplified Chinese and English.
 - Selectable system/light/dark/high-contrast themes and 100–200% text for Settings,

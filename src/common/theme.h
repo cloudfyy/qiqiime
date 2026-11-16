@@ -80,7 +80,10 @@ inline constexpr ThemePalette kHighContrastThemePalette{
 
 bool IsHighContrastEnabled() noexcept;
 inline bool IsSystemDarkTheme() noexcept;
+inline bool IsTaskbarDarkTheme() noexcept;
 constexpr const ThemePalette& GetThemePalette(bool is_dark) noexcept;
+
+enum class SystemThemeSource { App, Windows };
 
 struct DisplayAppearance {
     ThemePalette palette{};
@@ -88,7 +91,8 @@ struct DisplayAppearance {
     bool system_high_contrast = false;
 };
 
-inline DisplayAppearance ResolveDisplayAppearance(const DisplayPreferences& preferences) noexcept {
+inline DisplayAppearance ResolveDisplayAppearance(
+    const DisplayPreferences& preferences, SystemThemeSource source = SystemThemeSource::App) noexcept {
     if (IsHighContrastEnabled()) {
         ThemePalette palette;
         palette.window_bg = ::GetSysColor(COLOR_WINDOW);
@@ -111,7 +115,8 @@ inline DisplayAppearance ResolveDisplayAppearance(const DisplayPreferences& pref
     }
     if (preferences.theme == UiTheme::HighContrast) return {kHighContrastThemePalette, true, false};
     const bool dark = preferences.theme == UiTheme::Dark ||
-        (preferences.theme == UiTheme::System && IsSystemDarkTheme());
+        (preferences.theme == UiTheme::System &&
+         (source == SystemThemeSource::Windows ? IsTaskbarDarkTheme() : IsSystemDarkTheme()));
     return {GetThemePalette(dark), false, false};
 }
 

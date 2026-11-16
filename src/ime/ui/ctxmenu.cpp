@@ -66,7 +66,8 @@ public:
                     ::SetForegroundWindow(previous_focus);
                 }
             });
-            ApplyDisplayThemeToWindow(hwnd_.Get(), ResolveDisplayAppearance(state_.display));
+            ApplyDisplayThemeToWindow(hwnd_.Get(),
+                ResolveDisplayAppearance(state_.display, SystemThemeSource::Windows));
             ::ShowWindow(hwnd_.Get(), SW_SHOW);
             ::SetForegroundWindow(hwnd_.Get());
             ::SetFocus(hwnd_.Get());
@@ -312,7 +313,7 @@ private:
     }
 
     ThemePalette Palette() const noexcept {
-        ThemePalette palette = ResolveDisplayAppearance(state_.display).palette;
+        ThemePalette palette = ResolveDisplayAppearance(state_.display, SystemThemeSource::Windows).palette;
         palette.text_accent = palette.text_primary;
         if (IsHighContrastEnabled()) {
             palette.window_bg = ::GetSysColor(COLOR_MENU);
@@ -495,7 +496,8 @@ private:
                     ::ShowWindow(hwnd, SW_HIDE);
                     return 0;
                 }
-                ApplyDisplayThemeToWindow(hwnd, ResolveDisplayAppearance(self->state_.display));
+                ApplyDisplayThemeToWindow(hwnd,
+                    ResolveDisplayAppearance(self->state_.display, SystemThemeSource::Windows));
                 ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
                 return 0;
             case WM_ERASEBKGND:

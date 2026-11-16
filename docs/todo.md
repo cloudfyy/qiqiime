@@ -21,6 +21,11 @@
 Windows-hosted TSF menus remain system-controlled and are not guaranteed to
 display custom skins.
 
+Preserve the system-following split when adding skins: candidate UI, IME custom
+menus, and candidate-style previews use Windows mode; standalone tool windows,
+the floating status bar, and its tooltips use App mode. Explicit themes and
+Windows high contrast retain their existing precedence.
+
 ## Tracked follow-up
 
 - [ ] Investigate taskbar input-indicator disappearance and theme-aware icons.

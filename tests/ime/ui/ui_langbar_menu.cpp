@@ -639,8 +639,15 @@ void TestSharedMenuItems() {
 
 void TestQuickSettingsMenu() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const auto original_theme = detail::ThemeDarkOverrideStorage();
+    const auto original_taskbar = detail::TaskbarDarkOverrideStorage();
+    const auto restore_theme = gsl::finally([&]() noexcept {
+        SetThemeDarkOverrideForTest(original_theme);
+        SetTaskbarDarkOverrideForTest(original_taskbar);
+    });
     for (const bool dark : {false, true}) {
         SetThemeDarkOverrideForTest(dark);
+        SetTaskbarDarkOverrideForTest(!dark);
         LangBarState state{};
         state.ui_language = UiLanguage::ZhCn;
         std::vector<LangBarMenuId> actions;
@@ -671,7 +678,7 @@ void TestQuickSettingsMenu() {
                 ::SendMessageW(menu, WM_THEMECHANGED, 0, 0);
                 ::RedrawWindow(menu, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
                 const ScopedWindowDC dc(menu);
-                QIQI_TEST_CHECK(::GetPixel(dc.Get(), 1, 1) == GetCurrentThemePalette().window_bg);
+                QIQI_TEST_CHECK(::GetPixel(dc.Get(), 1, 1) == GetTaskbarThemePalette().window_bg);
             }
             ++step;
         });
@@ -1132,11 +1139,10 @@ void TestQuickSettingsMenuLivePainting() {
         SetTaskbarDarkOverrideForTest(original_taskbar);
     });
     for (const bool dark : {false, true}) {
-        // System preference follows the application theme, independently of the taskbar theme.
         SetThemeDarkOverrideForTest(dark);
         SetTaskbarDarkOverrideForTest(!dark);
         static bool updated_dark = false;
-        updated_dark = !dark;
+        updated_dark = dark;
         const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
             ::KillTimer(nullptr, id);
             const HWND menu = FindQuickSettingsMenu();
@@ -1150,7 +1156,14 @@ void TestQuickSettingsMenuLivePainting() {
                            MAKEWPARAM(static_cast<UINT>(LangBarMenuId::ToggleChinese), BN_CLICKED), 0);
             QIQI_TEST_CHECK(::IsWindowVisible(menu));
             QIQI_TEST_CHECK(CountQuickSettingsCheckPixels(menu) == 0);
-            SetThemeDarkOverrideForTest(updated_dark);
+            SetThemeDarkOverrideForTest(!updated_dark);
+            for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
+                ::SendMessageW(menu, message, 0, 0);
+                ::RedrawWindow(menu, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+                const ScopedWindowDC dc(menu);
+                QIQI_TEST_CHECK(::GetPixel(dc.Get(), 1, 1) == GetThemePalette(!updated_dark).window_bg);
+            }
+            SetTaskbarDarkOverrideForTest(updated_dark);
             for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
                 ::SendMessageW(menu, message, 0, 0);
                 ::RedrawWindow(menu, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);

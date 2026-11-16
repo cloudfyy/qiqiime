@@ -62,8 +62,13 @@ void TestDisplayPreferences() {
         SetTaskbarDarkOverrideForTest(!dark);
         QIQI_TEST_CHECK(GetTaskbarIconColor() == (!dark ? kDarkTaskbarIconColor : kLightTaskbarIconColor));
         QIQI_TEST_CHECK(ResolveDisplayAppearance({}).palette.is_dark == dark);
-        QIQI_TEST_CHECK(!ResolveDisplayAppearance({UiTheme::Light}).palette.is_dark);
-        QIQI_TEST_CHECK(ResolveDisplayAppearance({UiTheme::Dark}).palette.is_dark);
+        QIQI_TEST_CHECK(ResolveDisplayAppearance({}, SystemThemeSource::Windows).palette.is_dark == !dark);
+        for (const auto source : {SystemThemeSource::App, SystemThemeSource::Windows}) {
+            QIQI_TEST_CHECK(!ResolveDisplayAppearance({UiTheme::Light}, source).palette.is_dark);
+            QIQI_TEST_CHECK(ResolveDisplayAppearance({UiTheme::Dark}, source).palette.is_dark);
+            const auto explicit_contrast = ResolveDisplayAppearance({UiTheme::HighContrast}, source);
+            QIQI_TEST_CHECK(explicit_contrast.high_contrast && !explicit_contrast.system_high_contrast);
+        }
         const auto contrast = ResolveDisplayAppearance({UiTheme::HighContrast});
         QIQI_TEST_CHECK(contrast.high_contrast && !contrast.system_high_contrast);
         const auto& palette = contrast.palette;
@@ -89,10 +94,12 @@ void TestDisplayPreferences() {
     SetHighContrastOverrideForTest(true);
     QIQI_TEST_CHECK(GetTaskbarIconColor() == ::GetSysColor(COLOR_BTNTEXT));
     for (const UiTheme theme : {UiTheme::System, UiTheme::Light, UiTheme::Dark, UiTheme::HighContrast}) {
-        const auto appearance = ResolveDisplayAppearance({theme});
-        QIQI_TEST_CHECK(appearance.high_contrast && appearance.system_high_contrast);
-        QIQI_TEST_CHECK(appearance.palette.text_primary == ::GetSysColor(COLOR_WINDOWTEXT));
-        QIQI_TEST_CHECK(appearance.palette.selection_text == ::GetSysColor(COLOR_HIGHLIGHTTEXT));
+        for (const auto& appearance : {ResolveDisplayAppearance({theme}),
+                                      ResolveDisplayAppearance({theme}, SystemThemeSource::Windows)}) {
+            QIQI_TEST_CHECK(appearance.high_contrast && appearance.system_high_contrast);
+            QIQI_TEST_CHECK(appearance.palette.text_primary == ::GetSysColor(COLOR_WINDOWTEXT));
+            QIQI_TEST_CHECK(appearance.palette.selection_text == ::GetSysColor(COLOR_HIGHLIGHTTEXT));
+        }
     }
 }
 

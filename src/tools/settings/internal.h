@@ -232,6 +232,7 @@ struct DialogContext {
     UiTheme preview_theme = UiTheme::System;
     UiTextScale preview_scale = UiTextScale::Percent100;
     bool preview_easy_reading = false;
+    ThemePalette candidate_preview_palette{};
     int scroll_offset = 0;
     int content_height = 0;
     int viewport_height = 0;
