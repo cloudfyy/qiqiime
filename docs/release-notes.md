@@ -1,3 +1,62 @@
+# QiQiIME 1.1.1 补丁版
+
+数字版本：`1.1.1`；发行标签：`v1.1.1`。标签推送后由 Release 工作流构建、测试和打包；下载以 Release 页面实际提供的附件为准。
+
+## 本次主要更新
+
+- **区分两种系统主题来源**：跟随系统时，输入法自绘候选窗、自绘右键菜单及设置内候选样式预览使用 Windows mode；独立工具窗口及其菜单、浮动状态条本体和 Tooltip 使用 App mode。支持两种模式使用相反的明暗配色。
+- **保持主题优先级与预览一致**：明亮、深色及手选高对比度的行为不变，Windows 系统高对比度仍优先；候选预览单独解析配色，不因 Windows mode 改变设置窗口的 App mode 配色。
+- **完善语言栏质量约束**：显式禁止 COM 对象复制和移动，修正无异常声明，并保留真实 HRESULT 失败诊断、通知失败后的恢复及重入回调中的对象生命周期。SDK COM 调用及不可调用的已删除赋值声明沿用仓库的局部分析例外，不提高全局告警基线。
+
+## 验证与发布边界
+
+- 主题来源拆分后的 x64/x86 公共、TSF/UI、设置、词库管理器和日志监控器回归各 **5/5 通过**。告警修复后的双架构相关目标 CppCoreCheck 项目告警为 **0**（沿用已有排除规则），两种架构的 TSF/UI 回归均通过。
+- 版本递增后，双架构相关目标重新构建成功，八个运行组件的数字文件/产品版本均为 `1.1.1.0`；网站单元测试 **16/16**、浏览器回归 **42/42** 通过。本地 x64 TSF/UI 两次回归读到 Shift 按下并失败，用户确认期间操作电脑；保留失败日志，不计通过，标签 CI 仍负责完整原生回归。
+- 标签提交由 Release 工作流重新构建、测试，并生成中英文 x64/x86 MSI、双架构 ZIP 和匹配符号。推送标签不等于附件已发布；本地版本更新前的构建身份不代表标签构建。
+- 本机不制作或安装 MSI，不修改已安装输入法注册。自动回归不替代真实宿主、安装或升级验收，也不承诺品牌图标自动反色或宿主绘制界面的配色。
+
+## English
+
+Numeric version: `1.1.1`; release tag: `v1.1.1`. The Release workflow builds,
+tests, and packages the tagged source. Downloads use actually published assets.
+
+### Changes
+
+- **Independent theme sources:** when following the system, the IME's own
+  candidate popup, custom quick menu, and candidate-style Settings preview use
+  Windows mode. Standalone tools and their menus, the floating status bar, and
+  its tooltips use App mode, including opposite light/dark combinations.
+- **Preserved precedence and accurate previews:** explicit Light, Dark, and app
+  High contrast keep their existing behavior, with Windows high contrast taking
+  precedence. The preview's separate palette does not recolor the Settings window.
+- **Language-bar quality contracts:** explicit noncopyable/nonmovable COM
+  objects and corrected exception specifications preserve actual HRESULT
+  diagnostics, notification recovery, and reentrant callback lifetimes.
+  SDK COM calls and unusable deleted assignment declarations use the repository's
+  narrowly scoped analysis exceptions without raising the global warning baseline.
+
+### Validation and release boundaries
+
+- Theme-source regressions passed all five common, TSF/UI, Settings, Dictionary
+  Manager, and Log Monitor suites on each architecture. After the warning fixes,
+  affected x64/x86 CppCoreCheck builds had zero project diagnostics under existing
+  exclusions, and both TSF/UI suites passed.
+- After the version bump, affected targets rebuilt on both architectures and all
+  eight runtime components have numeric file/product version `1.1.1.0`. Website
+  unit tests passed 16/16 and browser checks 42/42. Two local x64 TSF/UI runs failed
+  with Shift reported down; desktop interaction during the runs was confirmed.
+  Failure logs are retained, neither run counts as a pass, and tagged CI must
+  complete the full native regressions.
+- Release CI rebuilds and tests the tag before producing bilingual x64/x86 MSI
+  installers, the dual-architecture ZIP, and matching symbols. A pushed tag does
+  not mean assets have been published; earlier local binaries do not identify
+  a tag build.
+- No local MSI packaging, installation, or installed IME registration changes.
+  Automated checks do not certify real hosts, installation, or upgrades, nor
+  automatic branding-icon recoloring or host-rendered UI themes.
+
+---
+
 # QiQiIME 1.1.0
 
 数字版本：`1.1.0`；预期发行标签：`v1.1.0`。本次更新源码版本、文档和网站，不创建标签或安装包；下载仍以 Release 页面实际提供的附件为准。

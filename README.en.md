@@ -11,8 +11,7 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The current source version is **1.1.0**, with planned release tag `v1.1.0`.
-This version update does not create a release tag or installers.
+The current source version is **1.1.1**, with release tag `v1.1.1`.
 Pushing the tag starts the Release workflow to build, test, and package the release.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
