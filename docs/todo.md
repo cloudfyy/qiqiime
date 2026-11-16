@@ -129,6 +129,7 @@ status-bar/tooltip skin support require separate design approval.
   brand-color inversion.
 
 - [ ] Audit and validate compatibility with the Windows-style Shell.
+  Record manual results using the [offline interactive checklist](shell-checklist.html).
   Existing TSF, `UIELEMENTENABLED`, and `IMMERSIVESUPPORT` registration is
   a starting point, not proof of complete compatibility. Check the actual
   taskbar/Win+Space experience, focus and IME switching, desktop and

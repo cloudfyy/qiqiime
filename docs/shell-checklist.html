@@ -1,0 +1,369 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: 2026 cloudfyy -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Windows Shell 实机测试清单 · QiQiIME</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#f3f5f8; --surface:#fff; --text:#192536; --muted:#526174; --border:#9aabba; --accent:#175da5; --soft:#e9f1fb; --danger:#a42d26; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 system-ui,"Microsoft YaHei",sans-serif; }
+    main { max-width:1080px; margin:auto; padding:24px 20px 70px; }
+    h1 { font-size:clamp(24px,4vw,36px); margin:0 0 8px; line-height:1.35; }
+    h2 { font-size:21px; margin:0 0 12px; }
+    p { margin:8px 0 14px; }
+    a { color:var(--accent); }
+    .muted, .hint { color:var(--muted); }
+    .panel, .group { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; margin-top:20px; }
+    .notice { padding:12px 16px; background:var(--soft); border-left:4px solid var(--accent); }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 20px; }
+    .wide { grid-column:1/-1; }
+    label { cursor:pointer; }
+    .field { display:block; font-weight:600; }
+    input[type=text], input[type=date], select, textarea { display:block; width:100%; margin-top:5px; padding:9px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); font:inherit; }
+    textarea { min-height:82px; resize:vertical; }
+    button, .download { display:inline-block; min-height:44px; padding:9px 16px; border:1px solid var(--accent); border-radius:6px; background:var(--accent); color:#fff; font:inherit; font-weight:600; text-decoration:none; cursor:pointer; }
+    button.secondary { background:var(--surface); color:var(--accent); }
+    button.danger { background:var(--surface); color:var(--danger); border-color:var(--danger); }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    :focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; align-items:center; }
+    .summary { font-weight:650; }
+    progress { width:100%; height:18px; accent-color:var(--accent); }
+    .case { border-top:1px solid var(--border); margin-top:16px; padding-top:16px; }
+    .case h3 { font-size:17px; margin:0 0 4px; }
+    .case p { margin:4px 0 10px; }
+    fieldset { border:0; margin:0; padding:0; }
+    legend { color:var(--muted); font-size:14px; margin-bottom:5px; }
+    .choices { display:flex; gap:10px; flex-wrap:wrap; }
+    .choice { display:inline-flex; align-items:center; gap:7px; padding:6px 12px; min-height:44px; border:1px solid var(--border); border-radius:6px; }
+    .choice:has(input:checked) { background:var(--soft); border-color:var(--accent); font-weight:650; }
+    input[type=radio] { width:18px; height:18px; accent-color:var(--accent); }
+    .case[data-result=fail] h3 { color:var(--danger); }
+    details { margin-top:8px; }
+    summary { cursor:pointer; min-height:36px; }
+    #storage-warning { color:var(--danger); border:1px solid var(--danger); padding:12px; margin-top:12px; }
+    #report { min-height:320px; font:14px/1.6 ui-monospace,monospace; }
+    [hidden] { display:none !important; }
+    @media (max-width:560px) { main { padding:16px 12px 40px; } .panel,.group { padding:14px; } .grid { grid-template-columns:1fr; } }
+    @media (prefers-color-scheme:dark) { :root { --bg:#17212c; --surface:#222f3e; --text:#edf3fa; --muted:#bfccdb; --border:#8394a7; --accent:#9bcaff; --soft:#30445b; --danger:#ffb4aa; } button,.download { color:#17212c; } }
+    @media (forced-colors:active) { .choice:has(input:checked) { outline:2px solid Highlight; } }
+    @media print { body { background:#fff; color:#000; } .toolbar,#storage-status,#storage-warning { display:none; } .panel,.group { break-inside:avoid; border-color:#555; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="muted">QiQiIME · 人工验收 / Manual validation</p>
+    <h1>Windows Shell 实机测试清单</h1>
+    <p>逐项选择“通过 / 失败 / 未测”，再导出报告。一份记录对应一组系统、版本和测试环境；换环境前请先导出，再清空开始新一轮。</p>
+    <p class="notice">本页不联网、不上传数据，也不自动执行测试。草稿只尝试保存在当前浏览器中；清理浏览器数据、更换浏览器或移动文件可能丢失草稿，请及时导出。不要填写账号、密码、真实输入或其他敏感内容。</p>
+    <noscript><p class="notice">请允许本地页面运行 JavaScript 后使用交互清单；本页不需要服务器或网络。</p></noscript>
+  </header>
+  <section class="panel" aria-labelledby="environment-title">
+    <h2 id="environment-title">1. 测试环境</h2>
+    <div class="grid" id="environment">
+      <label class="field">测试日期<input type="date" id="test-date" data-env="date"></label>
+      <label class="field">奇奇实际加载版本<input type="text" data-env="version" placeholder="版本号、构建提交号" maxlength="160"></label>
+      <label class="field">Windows 版本<input type="text" data-env="windows" placeholder="例如 Windows 11 24H2，OS build…" maxlength="160"></label>
+      <label class="field">系统架构<select data-env="architecture"><option value="">请选择</option><option>x64</option><option>x86</option><option>其他 / 未确认</option></select></label>
+      <label class="field">宿主架构<select data-env="hostArchitecture"><option value="">请选择</option><option>x64</option><option>x86 / WOW64</option><option>混合（见备注）</option><option>未确认</option></select></label>
+      <label class="field">屏幕与缩放<input type="text" data-env="display" placeholder="例如 单屏 150%；双屏 100% / 150%" maxlength="240"></label>
+      <label class="field">Windows mode / App mode<input type="text" data-env="theme" placeholder="例如 Windows 深色 / App 浅色" maxlength="160"></label>
+      <label class="field">输入法显示设置<input type="text" data-env="settings" placeholder="跟随系统、横/竖排、字号、关怀模式、状态条" maxlength="240"></label>
+      <label class="field wide">应用与输入入口<input type="text" data-env="hosts" placeholder="列出应用名、版本及任务栏/开始菜单搜索等入口；不填私人文档标题" maxlength="500"></label>
+      <label class="field wide">环境备注<textarea data-env="notes" placeholder="受限宿主身份未确认时写“未知”；记录需要恢复的原设置，不填敏感内容。" maxlength="2000"></textarea></label>
+    </div>
+  </section>
+  <section class="panel" aria-labelledby="progress-title">
+    <h2 id="progress-title">2. 检查结果</h2>
+    <p class="summary" id="counts" role="status" aria-live="polite"></p>
+    <progress id="progress" value="0" max="1" aria-label="已测项目比例"></progress>
+    <p class="hint">“已测”包含通过与失败，不能当作全部通过。不适用或未覆盖的项目保留“未测”，并在备注中说明原因。</p>
+    <p id="storage-status" role="status"></p>
+    <p id="storage-warning" role="alert" hidden></p>
+    <div class="toolbar">
+      <button id="generate" type="button" disabled>生成测试报告</button>
+      <button id="reset" type="button" class="danger" disabled>清空本轮记录</button>
+    </div>
+  </section>
+  <div id="checklist"></div>
+  <section class="panel" id="report-section" aria-labelledby="report-title" hidden>
+    <h2 id="report-title">3. 测试报告</h2>
+    <p>报告包含环境、全部结果和备注。请检查内容后下载；也可以全选下方文本复制保存。结果有变动时需重新生成。</p>
+    <textarea id="report" readonly aria-label="Markdown 测试报告"></textarea>
+    <div class="toolbar"><a id="download" class="download" download="qiqi-shell-report.md">下载 Markdown 报告</a></div>
+  </section>
+  <footer class="panel">
+    <strong>判断边界</strong>
+    <p>品牌图标只检查显示和可读性，不要求自动反色。焦点切换时宿主可能提交或取消组合；重点记录残留、重复上屏或失去输入能力，不能仅凭普通文字保留判失败。Microsoft Store 来源不证明 AppContainer 身份。该清单不替代 UILess、辅助功能等专项验证。</p>
+    <p>优先测试“输入指示器”“两个搜索入口”和“焦点切换”。建议后续分别覆盖 Win10 x86、Win10 x64、Win11 x64，以及 64 位系统中的 32 位宿主。</p>
+  </footer>
+</main>
+<script>
+"use strict";
+(() => {
+  const key = "qiqiime.shell-checklist.v1";
+  const resultLabels = { untested: "未测", pass: "通过", fail: "失败" };
+  const groups = [
+    { title: "测试准备", items: [
+      ["prepare-version", "确认加载的是待测版本", "更新后重新打开被测应用，记录实际加载版本；不要批量强制结束其他应用。"],
+      ["prepare-input", "准备无隐私测试内容", "使用临时空白输入框，并准备能稳定显示组合及多页候选的编码。"],
+      ["prepare-settings", "记录原设置", "先关闭关怀模式，主题设为跟随系统；记录原配置，结束后恢复。"]
+    ] },
+    { title: "输入指示器与输入法切换", items: [
+      ["indicator", "任务栏图标显示正确", "品牌图标和中/英模式指示正常、可辨认；品牌图标不要求自动反色。"],
+      ["mode", "中英文切换一致", "切换中英文后，指示器与实际输入状态一致。"],
+      ["switcher", "Win+Space 列表正确", "奇奇名称和图标显示正确，能选择进入。"],
+      ["switch-idle", "空闲时切出再切回", "没有组合时切换到另一输入法，再切回，新输入正常。"],
+      ["switch-composing", "组合期间切换输入法", "保留未提交编码时切出，旧候选不残留；切回后新输入正常。"],
+      ["switch-repeat", "连续切换约十次", "无图标丢失、重复候选、卡死或崩溃。"]
+    ] },
+    ...["任务栏搜索", "开始菜单搜索"].map((host, index) => ({
+      title: host,
+      items: [
+        ["visible", "候选可见且位置合理", "输入编码，候选不被遮挡、不跑到屏幕角落。"],
+        ["layout", "横排与竖排", "分别测试两种布局，无文字裁切或异常遮挡。"],
+        ["commit", "键盘选词", "分别用数字键、空格选词，提交内容正确且不重复。"],
+        ["paging", "翻页与后续页选词", "上一页、下一页正常，能选择后续页候选。"],
+        ["click", "鼠标选词", "点击候选后提交正确，搜索框仍能继续输入。"],
+        ["cancel", "Esc 取消组合", "候选正确关闭，后续输入正常。"],
+        ["dismiss", "关闭后重新打开", "点击搜索区域外关闭后候选不残留，再打开搜索仍可输入。"]
+      ].map(([id, title, detail]) => [`search-${index}-${id}`, title, detail])
+    })),
+    { title: "焦点与窗口生命周期", items: [
+      ["focus-away", "组合期间 Alt+Tab", "切到另一应用，旧候选不悬留在新应用上。"],
+      ["focus-back", "返回原应用", "可再次正常输入，无旧组合污染或重复上屏。"],
+      ["close-window", "关闭正在输入的窗口", "组合期间关闭窗口，无残留候选、崩溃或卡死。"],
+      ["focus-fields", "两个输入框之间切换", "候选位置跟随当前目标，旧操作不影响另一个输入框。"],
+      ["focus-mode", "跨应用模式显示", "中/英状态符合现有设置，图标与实际行为一致。"]
+    ] },
+    { title: "主题、DPI 与其他宿主", items: [
+      ["theme-dark-shell", "Windows 深色 / App 浅色", "跟随系统时，候选和自绘菜单跟 Windows；tools 和状态条本体跟 App。"],
+      ["theme-light-shell", "Windows 浅色 / App 深色", "使用相反的组合，界面仍各自跟随对应来源。"],
+      ["theme-live", "输入期间切换明暗", "配色正确刷新，不丢编码，不改变候选选中项。"],
+      ["high-contrast", "系统高对比度进入及退出", "启用后文字和选中状态可辨认，退出后恢复原主题。"],
+      ["dpi", "常用缩放比例", "候选、菜单和翻页按钮没有裁切，点击区域正确。"],
+      ["dpi-monitors", "不同 DPI 显示器之间移动", "如有双屏，移动应用并继续输入，检查候选位置和点击；无此环境则未测。"],
+      ["desktop", "普通桌面应用", "完成输入、选词、翻页与输入法切换，在备注中记录应用名。"],
+      ["modern", "现代应用", "完成相同操作并记录应用名；不要根据来源推断其为 AppContainer。"],
+      ["restricted", "已确认的受限宿主", "仅在能确认身份时记录 AppContainer/受限宿主结果，否则保留未测并说明。"],
+      ["uiless", "宿主接管候选展示", "如遇宿主自行绘制候选，检查输入与选词，不要求显示奇奇自绘皮肤；不代表完整 UILess 认证。"]
+    ] }
+  ];
+  const items = groups.flatMap(group => group.items);
+  const fields = [...document.querySelectorAll("[data-env]")];
+  const envKeys = fields.map(field => field.dataset.env);
+  const blank = () => ({
+    schemaVersion: 1,
+    environment: Object.fromEntries(envKeys.map(name => [name, ""])),
+    results: Object.fromEntries(items.map(([id]) => [id, { result: "untested", note: "" }]))
+  });
+  let state = blank();
+  let persistenceBlocked = false;
+  let downloadUrl = null;
+  const warning = document.getElementById("storage-warning");
+  const storageStatus = document.getElementById("storage-status");
+  const rows = new Map();
+  function showWarning(message, error) {
+    warning.textContent = message;
+    warning.hidden = false;
+    storageStatus.textContent = "当前结果仍在页面中；请生成报告并手动保存。";
+    console.error(message, error);
+  }
+  function validateDraft(value) {
+    if (!value || value.schemaVersion !== 1 || !value.environment || !value.results) {
+      throw new Error("草稿格式或版本不受支持");
+    }
+    for (const field of fields) {
+      const text = value.environment[field.dataset.env];
+      if (typeof text !== "string" || text.length > (field.maxLength > 0 ? field.maxLength : 240)) {
+        throw new Error("草稿环境字段无效");
+      }
+      if (field.tagName === "SELECT" && ![...field.options].some(option => option.value === text)) {
+        throw new Error("草稿选项无效");
+      }
+      if (field.type === "date" && text && !/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+        throw new Error("草稿日期无效");
+      }
+    }
+    for (const [id] of items) {
+      const item = value.results[id];
+      if (!item || !Object.hasOwn(resultLabels, item.result) || typeof item.note !== "string" || item.note.length > 2000) {
+        throw new Error("草稿测试结果无效");
+      }
+    }
+    return value;
+  }
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved !== null) state = validateDraft(JSON.parse(saved));
+    storageStatus.textContent = saved === null ? "尚无本地草稿；修改后会尝试自动保存。" : "已恢复本地草稿，请核对测试环境。";
+  } catch (error) {
+    persistenceBlocked = true;
+    showWarning("无法读取本地草稿，或草稿已损坏。未覆盖旧记录；可导出当前结果后用“清空本轮记录”重置。", error);
+  }
+  const container = document.getElementById("checklist");
+  for (const group of groups) {
+    const section = document.createElement("section");
+    section.className = "group";
+    const heading = document.createElement("h2");
+    heading.textContent = group.title;
+    section.append(heading);
+    for (const [id, title, detail] of group.items) {
+      const row = document.createElement("article");
+      row.className = "case";
+      row.dataset.id = id;
+      const h3 = document.createElement("h3");
+      h3.textContent = title;
+      const hint = document.createElement("p");
+      hint.textContent = detail;
+      const fieldset = document.createElement("fieldset");
+      const legend = document.createElement("legend");
+      legend.textContent = `${title}：测试结果`;
+      fieldset.append(legend);
+      const choices = document.createElement("div");
+      choices.className = "choices";
+      for (const [value, text] of Object.entries(resultLabels)) {
+        const label = document.createElement("label");
+        label.className = "choice";
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = id;
+        input.value = value;
+        label.append(input, document.createTextNode(text));
+        choices.append(label);
+      }
+      fieldset.append(choices);
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "备注 / 复现步骤";
+      const label = document.createElement("label");
+      label.textContent = `${title}：备注`;
+      const note = document.createElement("textarea");
+      note.maxLength = 2000;
+      note.placeholder = "应用/入口、操作步骤、预期与实际、是否每次出现；未测请说明原因。";
+      label.append(note);
+      details.append(summary, label);
+      row.append(h3, hint, fieldset, details);
+      section.append(row);
+      rows.set(id, { row, note, details, inputs: [...choices.querySelectorAll("input")] });
+    }
+    container.append(section);
+  }
+  function invalidateReport() {
+    document.getElementById("report-section").hidden = true;
+    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    downloadUrl = null;
+    document.getElementById("download").removeAttribute("href");
+  }
+  function updateCounts() {
+    const passed = items.filter(([id]) => state.results[id].result === "pass").length;
+    const failed = items.filter(([id]) => state.results[id].result === "fail").length;
+    const total = items.length;
+    document.getElementById("counts").textContent = `已测 ${passed + failed} / ${total} · 通过 ${passed} · 失败 ${failed} · 未测 ${total - passed - failed}`;
+    const progress = document.getElementById("progress");
+    progress.max = total;
+    progress.value = passed + failed;
+  }
+  function populate() {
+    fields.forEach(field => { field.value = state.environment[field.dataset.env]; });
+    for (const [id, controls] of rows) {
+      const value = state.results[id];
+      controls.row.dataset.result = value.result;
+      controls.inputs.forEach(input => { input.checked = input.value === value.result; });
+      controls.note.value = value.note;
+      controls.details.open = value.result === "fail" || Boolean(value.note);
+    }
+    updateCounts();
+  }
+  function save() {
+    invalidateReport();
+    if (persistenceBlocked) return;
+    try {
+      localStorage.setItem(key, JSON.stringify(state));
+      storageStatus.textContent = `已保存到本浏览器（${new Date().toLocaleTimeString()}）；请及时导出备份。`;
+      warning.hidden = true;
+    } catch (error) {
+      showWarning("本地保存失败，可能被浏览器禁止或空间不足。当前修改尚未持久保存，请导出报告。", error);
+    }
+  }
+  for (const field of fields) {
+    field.addEventListener("input", () => {
+      state.environment[field.dataset.env] = field.value;
+      save();
+    });
+  }
+  for (const [id, controls] of rows) {
+    for (const input of controls.inputs) {
+      input.addEventListener("change", () => {
+        state.results[id].result = input.value;
+        controls.row.dataset.result = input.value;
+        if (input.value === "fail") controls.details.open = true;
+        updateCounts();
+        save();
+      });
+    }
+    controls.note.addEventListener("input", () => {
+      state.results[id].note = controls.note.value;
+      save();
+    });
+  }
+  const inline = text => String(text).replace(/\r?\n/g, " ").replace(/[\\`*_{}[\]<>#|]/g, "\\$&");
+  function reportText() {
+    const lines = ["# QiQiIME Windows Shell 实机测试报告", "", `生成时间：${new Date().toLocaleString()}`, "",
+      document.getElementById("counts").textContent, "", "未测不计通过；此记录为人工结果，不代表完整兼容性或无障碍认证。", "", "## 环境", ""];
+    for (const field of fields) {
+      const label = field.parentElement.firstChild.textContent.trim();
+      lines.push(`- ${label}：${inline(state.environment[field.dataset.env] || "未填写")}`);
+    }
+    for (const group of groups) {
+      lines.push("", `## ${group.title}`, "");
+      for (const [id, title, detail] of group.items) {
+        const item = state.results[id];
+        lines.push(`- **${resultLabels[item.result]}** ${title}`, `  - 检查要求：${detail}`);
+        if (item.note) lines.push(...item.note.split(/\r?\n/).map(line => `  > ${inline(line)}`));
+      }
+    }
+    return `${lines.join("\n")}\n`;
+  }
+  document.getElementById("generate").addEventListener("click", () => {
+    invalidateReport();
+    document.getElementById("report").value = reportText();
+    document.getElementById("report-section").hidden = false;
+    try {
+      downloadUrl = URL.createObjectURL(new Blob([document.getElementById("report").value], { type: "text/markdown;charset=utf-8" }));
+      const link = document.getElementById("download");
+      link.href = downloadUrl;
+      link.download = `qiqi-shell-report-${state.environment.date || "undated"}.md`;
+    } catch (error) {
+      showWarning("无法创建下载文件，请复制下方报告文本保存。", error);
+    }
+    document.getElementById("report").focus();
+  });
+  document.getElementById("reset").addEventListener("click", () => {
+    if (!confirm("确定清空本轮环境、结果和备注？请先导出需要保留的报告。")) return;
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      showWarning("无法删除本地草稿，未清空当前记录。请先导出，再检查浏览器存储设置。", error);
+      return;
+    }
+    state = blank();
+    persistenceBlocked = false;
+    warning.hidden = true;
+    storageStatus.textContent = "已清空本轮记录，可以开始新环境的测试。";
+    invalidateReport();
+    populate();
+    document.getElementById("test-date").focus();
+  });
+  populate();
+  document.getElementById("generate").disabled = false;
+  document.getElementById("reset").disabled = false;
+})();
+</script>
+</body>
+</html>
