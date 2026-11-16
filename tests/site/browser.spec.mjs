@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { test as base, expect } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { createReleaseData } from "../../scripts/site_release.mjs";
 import { releaseFixture } from "./fixtures.mjs";
 
@@ -18,16 +21,29 @@ function contrastRatio(foreground, background) {
   return (values[0] + 0.05) / (values[1] + 0.05);
 }
 const test = base.extend({
-  page: async ({ page, baseURL }, use) => {
+  page: async ({ page, baseURL, javaScriptEnabled }, use, testInfo) => {
     const errors = [];
+    const coverageDirectory = process.env.QIQI_SITE_COVERAGE_DIR;
+    const collectCoverage = Boolean(coverageDirectory) && javaScriptEnabled !== false;
+    if (collectCoverage) await page.coverage.startJSCoverage({ resetOnNavigation: false });
     page.on("pageerror", (error) => errors.push(error.message));
     await page.route("**/*", (route) =>
       new URL(route.request().url()).origin === new URL(baseURL).origin
         ? route.continue()
         : route.abort("blockedbyclient"));
     await page.route(new URL("release.json", baseURL).href, (route) => route.fulfill({ json: release }));
-    await use(page);
-    expect(errors, "unexpected page JavaScript errors").toEqual([]);
+    try {
+      await use(page);
+      expect(errors, "unexpected page JavaScript errors").toEqual([]);
+    } finally {
+      if (collectCoverage) {
+        const entries = await page.coverage.stopJSCoverage();
+        await mkdir(coverageDirectory, { recursive: true });
+        await writeFile(path.join(coverageDirectory, `${randomUUID()}.json`), JSON.stringify({
+          project: testInfo.project.name, title: testInfo.title, entries,
+        }));
+      }
+    }
   },
 });
 
@@ -116,6 +132,30 @@ for (const language of ["zh-CN", "en"]) {
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
       await expect(page.locator("#easy-reading")).not.toBeChecked();
       expect(await page.evaluate(() => localStorage.getItem("qiqi-display-v1"))).toBeNull();
+    });
+
+    test("a failed storage reset applies defaults without claiming they were saved", async ({ page }) => {
+      const saved = { theme: "dark", scale: 200, easy: true };
+      await page.addInitScript((preferences) => {
+        localStorage.setItem("qiqi-display-v1", JSON.stringify(preferences));
+        const remove = Storage.prototype.removeItem;
+        Storage.prototype.removeItem = function (key) {
+          if (key === "qiqi-display-v1") throw new DOMException("Simulated reset denial", "SecurityError");
+          return remove.call(this, key);
+        };
+      }, saved);
+      await page.goto(`index.html?lang=${language}`);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+      await expect(page.locator("html")).toHaveAttribute("data-font-scale", "200");
+      await page.locator(".appearance-details summary").click();
+      await page.locator("#appearance-reset").click();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+      await expect(page.locator("html")).toHaveAttribute("data-font-scale", "100");
+      await expect(page.locator("#easy-reading")).not.toBeChecked();
+      await expect(page.locator("#appearance-status")).toHaveText(english
+        ? "Display preferences applied but could not be saved; they may be lost when you reopen the page."
+        : "显示设置已生效，但无法保存；重新打开页面后可能丢失。");
+      expect(await page.evaluate(() => JSON.parse(localStorage.getItem("qiqi-display-v1")))).toEqual(saved);
     });
 
     test("navigation, translated metadata, screenshots, and viewport layout", async ({ page, baseURL }) => {
@@ -223,6 +263,12 @@ for (const language of ["zh-CN", "en"]) {
         .toEqual([await page.locator("#clone-command").textContent()]);
       await page.evaluate(() => { window.rejectCopy = true; });
       await page.locator('[data-copy-target="build-command"]').click();
+      await expect(page.locator("#copy-status")).toHaveText(english
+        ? "Copy failed. Select the command and copy it manually."
+        : "复制失败，请选中命令并手动复制。");
+      expect(await page.evaluate(() => window.copyAttempts.length)).toBe(2);
+      await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { value: undefined }));
+      await page.locator('[data-copy-target="clone-command"]').click();
       await expect(page.locator("#copy-status")).toHaveText(english
         ? "Copy failed. Select the command and copy it manually."
         : "复制失败，请选中命令并手动复制。");

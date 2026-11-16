@@ -195,6 +195,8 @@ int wmain() {
     QIQI_TEST_CHECK(::MsiOpenPackageExW(path.c_str(), MSIOPENPACKAGEFLAGS_IGNOREMACHINESTATE, &install) == ERROR_SUCCESS);
     ui.install = install;
     TestPrompt(install, ui);
+    const auto prompts = ui.prompts;
+    QIQI_TEST_CHECK(PromptRemoveUserData(0) == ERROR_INSTALL_FAILURE && ui.prompts == prompts);
     std::cout << "[PASS] Uninstall basic/reduced prompt, default retention, cancellation and guards.\n";
     return 0;
 }

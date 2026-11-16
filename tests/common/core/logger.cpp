@@ -185,6 +185,9 @@ void TestEtwLogger() {
         QIQI_TEST_CHECK(Utf8ToWideResult(malformed, decoded, Utf8ErrorPolicy::Replace) == S_OK);
         QIQI_TEST_CHECK(decoded == L"\uFFFD(" && Utf8ToWide(malformed) == decoded);
         QIQI_TEST_CHECK(Utf8ToWideResult("", decoded) == S_OK && decoded.empty());
+        decoded = L"unchanged";
+        QIQI_TEST_CHECK(Utf8ToWideResult("text", decoded, static_cast<Utf8ErrorPolicy>(-1)) == E_INVALIDARG);
+        QIQI_TEST_CHECK(decoded == L"unchanged");
     }
     QIQI_TEST_CHECK(!GetModuleFilePath(nullptr).empty());
     QIQI_TEST_CHECK(GetModuleFilePath(reinterpret_cast<void*>(0x12345678)).empty());
@@ -345,6 +348,7 @@ void TestEtwLogger() {
             QIQI_TEST_CHECK(WriteFileAtomicallyResult(empty_file, oversize_span) == E_INVALIDARG);
         }
         QIQI_TEST_CHECK(WriteFileAtomicallyResult(empty_file / L"nested.txt", std::span(&dummy_byte, 1)) != S_OK);
+        QIQI_TEST_CHECK(ReadFileToUtf8String(empty_file, empty_content) && empty_content.empty());
         QIQI_TEST_CHECK(GetSyncChannelDirectoryForFile({}).empty());
         // Test BinarySpanReader out-of-bounds branches (ReadLeNumber, ReadBytes, ReadWString)
         constexpr std::array<uint8_t, 2> short_buf{1, 2};

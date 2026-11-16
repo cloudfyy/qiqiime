@@ -59,6 +59,20 @@ void TestFileUtilityBoundaries() {
     }
     QIQI_TEST_CHECK(WriteFileAtomicallyResult(path, replacement) == S_OK);
     QIQI_TEST_CHECK(ReadFileToUtf8String(path, content) && content == "new");
+    {
+        const std::filesystem::path temporary =
+            path.wstring() + L".tmp." + std::to_wstring(::GetCurrentProcessId());
+        QIQI_TEST_CHECK(std::filesystem::create_directory(temporary));
+        const auto remove_blocker = gsl::finally([&]() {
+            QIQI_TEST_CHECK(std::filesystem::remove(temporary));
+        });
+        QIQI_TEST_CHECK(WriteFileAtomicallyResult(path, original) == E_ACCESSDENIED);
+        QIQI_TEST_CHECK(std::filesystem::is_directory(temporary));
+        QIQI_TEST_CHECK(ReadFileToUtf8String(path, content) && content == "new");
+    }
+    content = "unchanged";
+    QIQI_TEST_CHECK(ReadFileToUtf8StringResult(L"NUL", content) == E_INVALIDARG);
+    QIQI_TEST_CHECK(content == "unchanged");
 
     const auto with_environment = [](const wchar_t* name, const wchar_t* value, const auto& action) {
         std::wstring previous(32768, L'\0');

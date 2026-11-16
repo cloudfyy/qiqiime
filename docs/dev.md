@@ -17,6 +17,7 @@ Use a Windows x64 development machine to build both architectures.
 | CMake | 4.4.4 or newer. |
 | vcpkg | The bundled Visual Studio installation or a checkout selected by `VCPKG_ROOT`. Manifest mode provides Microsoft GSL. |
 | PowerShell | Windows PowerShell 5.1 or PowerShell 7+. Full script lint additionally requires PSScriptAnalyzer in the PowerShell edition selected by CMake. |
+| Website testing only | Node.js 22+ and npm; Chromium and the locked Playwright dependencies in `tests/site` for browser checks. The production website needs no dependency installation or compilation. |
 | Packaging only | .NET SDK 8.0+ and WiX CLI v4/v7+. WiX 7 requires accepting its EULA. |
 
 The project requests C++26 draft mode through `/std:c++latest`; this is not a
@@ -33,6 +34,7 @@ claim of complete C++26 support. Release binaries statically link the MSVC runti
 | [src/ime/tsf](../src/ime/tsf), [src/ime/ui](../src/ime/ui) | TSF registration/helpers and native windows. |
 | [src/tools](../src/tools) | Standalone settings, dictionary manager, and log monitor. |
 | [tests](../tests) | Tests mirroring production modules, plus installer and script checks. |
+| [site](../site), [tests/site](../tests/site) | Static bilingual website, Node checks, and Chromium browser regressions. |
 | [scripts](../scripts), [installer](../installer) | Build, lint, registration, and release packaging. |
 | [data](../data), [licenses](../licenses) | Bundled dictionaries/assets and third-party license texts. |
 
@@ -47,7 +49,7 @@ MSVC module-dependency scan output.
 
 ## Build and test
 
-From the repository root, build and test both architectures sequentially:
+From the repository root, build and test both native architectures sequentially:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
@@ -55,6 +57,39 @@ powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
 
 The default configuration is Release. Use `-Config Debug` for Debug.
 The command does not create installers unless `-Package` is supplied.
+It does not run the website's Node or Chromium tests; those are separate gates.
+
+### Required validation by change scope
+
+Choose tests from the changed behavior and its dependent callers, not just the
+language or file extension. Add focused regressions for behavior introduced or
+fixed by the change; keep existing assertions and failure diagnostics intact.
+
+| Change | Required validation |
+| --- | --- |
+| Native C++ source, headers, or embedded resources | Build affected targets and run their CTest suites on x64 and x86, sequentially. Run full native suites for cross-cutting changes or when targeted failures require wider validation; use the existing C++ quality checks. |
+| Installer authoring, build/deployment/release scripts | Run the related installer/script fixture tests and Error-level PSScriptAnalyzer in the appropriate PowerShell host. Build/test both architectures when native actions or runtime payloads change. Use isolated fixtures, not a real installation, registration, uninstallation, or user-data deletion. |
+| Website source/assets, website tests, release-data generator, or Website workflow | Run the website JavaScript syntax checks, all three Node test files, and the Chromium suite described below. Keep these checks separate from native CTest results. |
+| Markdown-only documentation with no behavior or executable examples changed | Check affected links and consistency; no native rebuild or browser run is required. Validate changed executable examples with the relevant tool when feasible. |
+| Mixed changes | Run the union of the applicable checks; a passing native suite does not excuse a failing website suite or vice versa. |
+
+For website changes, check both Chinese and English, desktop and mobile layouts,
+keyboard navigation, and the JavaScript-disabled fallback. Add regressions for
+the affected interactions, storage/clipboard failures, or download metadata
+contracts rather than relying only on HTML text checks. Website presentation,
+content, screenshots, and download instructions must remain consistent when a
+native feature or release contract changes; if that requires site edits, run
+the website gates too.
+
+A requested **whole-repository test or coverage run** must include full x64/x86
+native suites, website Node tests, Chromium tests, and existing safe
+installer/script fixtures. Report each result separately, including skips,
+permission limits, unavailable tools, and tests not run. An unavailable tool or
+skipped integration test is not a pass. Do not retry until green without
+retaining failed attempts and explaining what was checked or changed.
+CI path filters do not replace these local change-scope decisions. Native-only
+changes do not require browser tests unless they affect the website contract;
+website-only changes do not require rebuilding the IME.
 
 For individual architectures:
 
@@ -170,7 +205,18 @@ The PowerShell gate checks Error-level PSScriptAnalyzer findings in `scripts`
 and `tests`. If the module is missing, the script warns and checks AST syntax
 instead; that fallback is not a completed PSScriptAnalyzer run.
 
-### Native coverage
+### Coverage across runtimes
+
+Collect coverage when requested or needed to locate meaningful missing tests,
+not as a mandatory expensive rerun after every edit. A whole-repository report
+must identify the measured production files, architectures, configuration,
+revision, test results, and remaining gaps. Publish native executable-line,
+JavaScript line/range/function, and PowerShell command metrics separately;
+do not combine them into one percentage or claim branch coverage from a
+format's placeholder branch rate. List unmeasured files and explain exclusions
+instead of counting missing mappings or unimplemented TODO features as covered.
+
+#### Native C++
 
 Use Visual Studio Enterprise's `Microsoft.CodeCoverage.Console` with matching
 PDBs and isolated binary copies. Static native instrumentation needs suitable
@@ -178,7 +224,8 @@ PDBs and isolated binary copies. Static native instrumentation needs suitable
 instrument installed binaries. Enable child-process collection when testing tools.
 
 Run coverage tests serially. Include test translation units during collection
-when they instantiate production templates; apply the `src` filter when reporting.
+when they instantiate production templates; apply the production-source filter
+(`src` and native `installer` actions) when reporting.
 Optimized native line tables may attribute inlined work to callers. Keep the
 boundary-test evidence and disclose unmapped checkpoints rather than claiming
 complete helper coverage from a covered caller.
@@ -188,6 +235,35 @@ missing from the report. State the configuration, source revision, and measured
 scope. Line coverage is not branch coverage or real-host certification.
 Verify that instrumentation restores the original binaries/PDBs, and never
 package instrumented outputs.
+
+Allow the native coverage collector to finish even when its child test fails:
+retain the test's exit status and stderr, then verify every original binary
+and PDB. If collection is interrupted, use the official `uninstrument`
+command on only the isolated copies and compare with the saved hashes before
+reusing that tree. A later successful rerun does not erase the earlier failure.
+
+#### Website and PowerShell
+
+The site tests can collect local V8 evidence without new packages:
+
+```powershell
+node --test --experimental-test-coverage tests\site\site.test.mjs tests\site\release.test.mjs tests\site\appearance.test.mjs
+$previousCoverageDirectory = $env:QIQI_SITE_COVERAGE_DIR
+$env:QIQI_SITE_COVERAGE_DIR = Join-Path $env:TEMP "qiqi-site-coverage"
+Push-Location tests\site
+try { npm run test:browser } finally {
+    Pop-Location
+    $env:QIQI_SITE_COVERAGE_DIR = $previousCoverageDirectory
+}
+```
+
+The optional browser fixture records Chromium JavaScript ranges per test and
+does not enable the debugger in JavaScript-disabled contexts. Navigation can
+limit attribution of callbacks from earlier documents; retain behavior
+assertions and do not equate V8 ranges with native line or branch coverage.
+Pester coverage of safe PowerShell fixtures is command coverage, a separate
+metric. Do not execute real registration, installation, uninstallation or
+data removal merely to increase coverage.
 
 ### Focus performance benchmarks
 
@@ -470,6 +546,10 @@ To check or preview locally with Node.js 22+ and Python 3 available:
 
 ```powershell
 node --check site\assets\site.js
+node --check site\assets\appearance.js
+node --check site\assets\downloads.js
+node --check site\assets\release-data.js
+node --check scripts\site_release.mjs
 node --test tests\site\site.test.mjs tests\site\release.test.mjs tests\site\appearance.test.mjs
 gh api repos/cloudfyy/qiqiime/releases/latest | Set-Content -Encoding utf8 "$env:TEMP\qiqi-latest-release.json"
 node scripts\site_release.mjs "$env:TEMP\qiqi-latest-release.json" site\release.json
@@ -487,14 +567,20 @@ browser when changing site behavior. Also check all four direct MSI links and th
 visible failure state when `release.json` is missing or invalid. Generated release
 metadata is not committed; regenerate it to preview current downloads locally.
 
-For the automated Chromium checks, use Node.js 22+ and npm from the repository root:
+For the automated Chromium checks, use Node.js 22+ and npm from the repository
+root. Set up the locked test dependencies and browser on first use, after a
+lockfile change, or when the chosen test command reports a missing dependency:
 
 ```powershell
 npm ci --prefix tests\site
 Push-Location tests\site
-npx playwright install --only-shell chromium
-npm run test:browser
-Pop-Location
+try { npx playwright install --only-shell chromium } finally { Pop-Location }
+```
+
+For subsequent runs, reuse the installed dependencies and browser:
+
+```powershell
+npm --prefix tests\site run test:browser
 ```
 
 Playwright owns the loopback-only test server at `http://127.0.0.1:4173/qiqiime/`,

@@ -111,7 +111,28 @@ try {
         $rejected = $true
     }
     if (-not $rejected) { throw 'Missing English translations must be rejected.' }
-    Write-Host '[PASS] Bilingual current-version notes, website entries, MSI-first downloads, and invalid section checks.'
+    $previousOutput = [IO.File]::ReadAllText($outputPath)
+    [IO.File]::WriteAllText($notesPath, $fixture.Replace('Translated changes.', ''))
+    $rejected = $false
+    try { & $script @parameters } catch {
+        if ($_.Exception.Message -notlike 'English translation*is empty.') { throw }
+        $rejected = $true
+    }
+    if (-not $rejected) { throw 'An empty English translation must not replace the previous release output.' }
+    [IO.File]::WriteAllText($notesPath, $fixture)
+    foreach ($asset in @(' ', '..\outside.zip', 'C:\outside.msi', 'installer.exe')) {
+        $parameters.AssetNames = @($asset)
+        $rejected = $false
+        try { & $script @parameters } catch {
+            if ($_.Exception.Message -notlike 'Invalid release asset name:*') { throw }
+            $rejected = $true
+        }
+        if (-not $rejected) { throw "Invalid release asset must be rejected: $asset" }
+        if ([IO.File]::ReadAllText($outputPath) -cne $previousOutput) {
+            throw 'Invalid release notes or asset names must leave the previous output unchanged.'
+        }
+    }
+    Write-Host '[PASS] Bilingual notes, exact downloads, invalid sections/assets, and previous-output preservation.'
 } finally {
     Remove-Item -LiteralPath $notesPath -Force -ErrorAction Stop
     if (Test-Path -LiteralPath $outputPath) { Remove-Item -LiteralPath $outputPath -Force -ErrorAction Stop }
