@@ -58,8 +58,9 @@ STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfC
         [this] { ResetCompositionAndUI(); });
 }
 
-void QiQiTextService::ScheduleCompositionCleanup() {
-    ScheduleCurrentCompositionCleanup(composition_lifecycle_, client_id_, service_log_id_, current_lifecycle_activity_);
+void QiQiTextService::ScheduleCompositionCleanup(CompositionCleanupMode mode) {
+    ScheduleCurrentCompositionCleanup(composition_lifecycle_, client_id_, service_log_id_,
+                                      current_lifecycle_activity_, mode);
 }
 
 // ITfTextLayoutSink: called when an async host (Chromium/VS Code/WPF/Word) updates its text layout
@@ -95,7 +96,14 @@ STDMETHODIMP QiQiTextService::OnLayoutChange(
     });
 }
 
-void QiQiTextService::ResetCompositionAndUI(bool try_host_cleanup) {
+void QiQiTextService::ResetCompositionForInputMethodSwitch() {
+    QIQI_LOG_CAT_DEBUG(log::Keyword::Composition,
+        "Unfinished input on input-method switch: preserve_text={}", config_.commit_on_english_switch);
+    ResetCompositionAndUI(true, config_.commit_on_english_switch
+        ? CompositionCleanupMode::PreserveText : CompositionCleanupMode::DiscardText);
+}
+
+void QiQiTextService::ResetCompositionAndUI(bool try_host_cleanup, CompositionCleanupMode mode) {
     if (!preparing_input_context_) {
         if (shift_tap_.IsCandidate()) {
             LogShiftTap("ResetCompositionAndUI", 0, composition_lifecycle_.Context().Get(), false, "context-reset-cancelled");
@@ -103,16 +111,16 @@ void QiQiTextService::ResetCompositionAndUI(bool try_host_cleanup) {
         shift_tap_.Reset();
     }
     engine_.Reset();
-    ResetContextAndUI(try_host_cleanup);
+    ResetContextAndUI(try_host_cleanup, mode);
 }
 
-void QiQiTextService::ResetContextAndUI(bool try_host_cleanup) {
+void QiQiTextService::ResetContextAndUI(bool try_host_cleanup, CompositionCleanupMode mode) {
     DisconnectActiveContextAccessSinks();
     context_access_.Reset();
     ResetCompositionContextAndUI(
         composition_lifecycle_, try_host_cleanup, has_valid_caret_pos_, text_layout_sink_,
         service_log_id_, current_lifecycle_activity_,
-        [this] { ScheduleCompositionCleanup(); },
+        [this, mode] { ScheduleCompositionCleanup(mode); },
         [this] { EndCandidateUI(); });
 }
 

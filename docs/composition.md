@@ -454,7 +454,30 @@ is not a way to bypass that restriction.
 | Failure | Any value | The request failed; do not treat the inner output as evidence of callback execution |
 | Success | `TS_E_READONLY` or another failure to obtain the session | Log the failure; do not retry asynchronously |
 
-The callback clears the old display attribute, then ends the old composition.
+For a confirmed input-method/profile switch or service deactivation, the
+`commit_on_english_switch` preference also controls unfinished input: preserve
+the existing preedit text (default) or delete only the captured, still-owned
+composition range under a granted write cookie. Preserving it must not insert
+the raw code a second time. Ordinary focus-loss cleanup retains its existing
+preserve-text policy. The persisted field/registry names stay unchanged.
+
+The service subscribes to `ITfInputProcessorProfileActivationSink` on the thread
+manager. Own-profile deactivation or activation of another keyboard TIP/layout
+invalidates old work and hides UI even when the COM service is not immediately
+deactivated. Speech/handwriting and unrelated deactivation notifications are
+ignored. A profile-sink registration failure is diagnosed and activation is
+unwound; registration participates in the existing reentrant activation-cancel
+ownership protocol. The implementation does not intercept Win+Space.
+
+The callback applies the captured discard policy if requested, clears the old
+display attribute, then ends the old composition. Text deletion is attempted at
+most once, including reentrant host termination; a failed deletion retains its
+actual HRESULT even if best-effort termination succeeds. Removed or already
+host-terminated contexts are not edited. If the host or ordinary focus cleanup
+has already finalized the composition before the switch notification, there is
+no longer an owned range to cancel: do not delete surrounding ordinary text or
+promise that every host's earlier commit can be reversed.
+
 Range/attribute failure does not prevent best-effort termination unless removal
 or host termination invalidates it. Thus termination can succeed while an
 attribute remains. With no range, there is no attribute-clear call.

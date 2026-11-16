@@ -9,6 +9,17 @@
 
 namespace qiqi {
 
+namespace {
+HRESULT DiscardCleanupText(CompositionCleanup& cleanup, TfEditCookie ec) {
+    if (cleanup.mode != CompositionCleanupMode::DiscardText || cleanup.text_clear_started ||
+        cleanup.context_removed) return S_OK;
+    cleanup.text_clear_started = true;
+    const HRESULT hr = cleanup.range ? cleanup.range->SetText(ec, 0, L"", 0) : E_UNEXPECTED;
+    cleanup.LogResult("discard-unfinished-text", hr);
+    return hr;
+}
+} // namespace
+
 CompositionCleanup::~CompositionCleanup() noexcept {
     if (id == 0) return;
     const log::Opcode opcode = finished ? log::Opcode::Info : log::Opcode::Stop;
@@ -67,7 +78,8 @@ HRESULT ExecuteCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, T
             cleanup->service_id, cleanup->id);
         return S_OK;
     }
-    if (cleanup->range) {
+    const HRESULT discard_hr = DiscardCleanupText(*cleanup, ec);
+    if (cleanup->range && !cleanup->terminated && !cleanup->context_removed) {
         const HRESULT clear_hr = ClearCompositionDisplayAttribute(
             ec, gsl::not_null<ITfContext*>(cleanup->context.Get()),
             gsl::not_null<ITfRange*>(cleanup->range.Get()),
@@ -83,14 +95,14 @@ HRESULT ExecuteCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, T
             "TsfCleanup(service={}, cleanup={}, stage={})",
             cleanup->service_id, cleanup->id,
             cleanup->context_removed ? "skip-end-after-context-removal" : "skip-end-after-host-termination");
-        return S_OK;
+        return FAILED(discard_hr) ? discard_hr : S_OK;
     }
     const HRESULT hr = cleanup->composition->EndComposition(ec);
     cleanup->LogResult("end-composition", hr);
     std::ignore = log::CheckHResult(
         hr, "DeactivateComposition::EndComposition", log::Level::warn,
         log::LogContext{log::Keyword::Composition, log::Opcode::Info, &cleanup->activity_id, nullptr});
-    return hr;
+    return FAILED(discard_hr) ? discard_hr : hr;
 }
 
 void RequestCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, TfClientId client_id) {
@@ -212,6 +224,9 @@ bool HandleCompositionCleanupTermination(
     if (cleanup->terminated) return true;
     cleanup->terminated = true;
     if (cleanup->context_removed) return true;
+    // The host may terminate during GetRange/SetText or while an edit request is queued.
+    // Only an explicitly requested discard may delete this still-owned composition range.
+    std::ignore = DiscardCleanupText(*cleanup, ec);
     if (!cleanup->attribute_clear_started && cleanup->range) {
         const HRESULT clear_hr = ClearCompositionDisplayAttribute(
             ec, gsl::not_null<ITfContext*>(cleanup->context.Get()), gsl::not_null<ITfRange*>(cleanup->range.Get()),
@@ -307,12 +322,14 @@ CompositionStartDisposition CompositionCleanupCoordinator::ResolveStarting(
 
 void CompositionCleanupCoordinator::Schedule(
     Microsoft::WRL::ComPtr<ITfContext> context, Microsoft::WRL::ComPtr<ITfComposition> composition,
-    TfClientId client_id, const EditSessionEpoch& epoch, const GUID& lifecycle_activity) {
+    TfClientId client_id, const EditSessionEpoch& epoch, const GUID& lifecycle_activity,
+    CompositionCleanupMode mode) {
     const auto cleanup = std::make_shared<CompositionCleanup>();
     cleanup->service_id = service_id_;
     cleanup->id = ++next_cleanup_id_;
     cleanup->activity_id = log::CreateActivityId();
     cleanup->parent_activity_id = lifecycle_activity;
+    cleanup->mode = mode;
     QIQI_LOG_ACT_START(
         log::Level::debug,
         log::Keyword::Composition,

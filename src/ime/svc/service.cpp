@@ -135,6 +135,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
     const ComPtr<QiQiTextService> self_holder(this);
     activating_ = true;
     activation_cancelled_ = false;
+    profile_deactivated_ = false;
     const auto finish_activation = gsl::finally([this]() noexcept {
         activating_ = false;
         activation_cancelled_ = false;
@@ -186,6 +187,17 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
             "QiQiTextService::ActivateEx failed to initialize TSF event sinks");
         activating_ = false;
         std::ignore = log::CheckHResult(Deactivate(), "ActivateEx::Deactivate(failed)");
+        return E_FAIL;
+    }
+    ITfInputProcessorProfileActivationSink* const profile_notifications = this;
+    const bool profile_ready = profile_sink_.Advise(
+        thread_mgr_.Get(), IID_ITfInputProcessorProfileActivationSink,
+        profile_notifications);
+    if (activation_cancelled_) return cancel_activation();
+    if (!profile_ready) {
+        QIQI_LOG_ERROR("ActivateEx: failed to initialize active language profile notifications");
+        activating_ = false;
+        std::ignore = log::CheckHResult(Deactivate(), "ActivateEx::Deactivate(profile-sink-failed)");
         return E_FAIL;
     }
     RegisterCompositionDisplayAttributeAtom();
@@ -273,7 +285,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
         &act_id,
         "QiQiTextService::Deactivate(client_id={})",
         client_id_);
-    ResetCompositionAndUI();
+    ResetCompositionForInputMethodSwitch();
     if (status_bar_) {
         status_bar_->Show(false);
     }
@@ -283,6 +295,7 @@ STDMETHODIMP QiQiTextService::Deactivate() {
     UninitLangBarItem();
     UninitFunctionProvider();
     UninitKeyEventSink();
+    profile_sink_.Reset();
     thread_mgr_sink_.Reset();
 
     thread_mgr_.Reset();
@@ -464,6 +477,38 @@ void QiQiTextService::UninitLangBarItem() {
             service_log_id_, langbar_btn_->LogId(), gsl::narrow_cast<unsigned int>(hr), SUCCEEDED(hr));
     }
     langbar_item_added_ = false;
+}
+
+STDMETHODIMP QiQiTextService::OnActivated(
+    DWORD type, LANGID /*language*/, REFCLSID clsid, REFGUID category,
+    REFGUID profile, HKL /*layout*/, DWORD flags) {
+    if (type != TF_PROFILETYPE_INPUTPROCESSOR && type != TF_PROFILETYPE_KEYBOARDLAYOUT) return S_OK;
+    if (type == TF_PROFILETYPE_INPUTPROCESSOR && !IsEqualGUID(category, GUID_TFCAT_TIP_KEYBOARD)) return S_OK;
+    const bool own_profile = type == TF_PROFILETYPE_INPUTPROCESSOR &&
+        IsEqualCLSID(clsid, kClsidQiQiTextService) && IsEqualGUID(profile, kGuidProfileWubi86);
+    const bool activated = (flags & TF_IPSINK_FLAG_ACTIVE) != 0;
+    if (!own_profile && !activated) return S_OK;
+    const bool selected = own_profile && activated;
+    const ComPtr<QiQiTextService> self_holder(this);
+    if (activating_) return selected ? S_OK : Deactivate();
+    if (deactivating_ || !thread_mgr_ || client_id_ == TF_CLIENTID_NULL) return S_OK;
+    if (selected) {
+        if (!profile_deactivated_) return S_OK;
+        profile_deactivated_ = false;
+        composition_lifecycle_.SetActive(true);
+        SetUiPresentationEnabled(true);
+        SyncTsfCompartments();
+        if (composition_lifecycle_.IsActive()) ObserveFocusedPasswordContext();
+    } else {
+        if (profile_deactivated_ || !composition_lifecycle_.IsActive()) return S_OK;
+        profile_deactivated_ = true;
+        composition_lifecycle_.SetActive(false);
+        composition_lifecycle_.InvalidateActivation();
+        SetUiPresentationEnabled(false);
+        ResetCompositionForInputMethodSwitch();
+        if (profile_deactivated_ && status_bar_) status_bar_->Show(false);
+    }
+    return S_OK;
 }
 
 // ITfThreadMgrEventSink

@@ -16,7 +16,7 @@ class MockTfThreadMgr final
       public ITfCompartmentMgr,
       public ITfLangBarItemMgr {
 public:
-    enum class ActivationStage { ThreadSink, KeySink, FunctionProvider, LangBar, GlobalCompartments };
+    enum class ActivationStage { ThreadSink, KeySink, FunctionProvider, LangBar, GlobalCompartments, ProfileSink };
     // This mock allocates its compartment dependency, so construction can throw std::bad_alloc.
 #pragma warning(suppress : 26455)
     MockTfThreadMgr() : compartment_(MakeComObject<MockTfCompartment>()) {}
@@ -86,14 +86,28 @@ public:
     }
 
     // ITfSource
-    STDMETHODIMP AdviseSink(REFIID, IUnknown*, DWORD* pdwCookie) override {
+    STDMETHODIMP AdviseSink(REFIID riid, IUnknown* sink, DWORD* pdwCookie) override {
+        if (IsEqualIID(riid, IID_ITfInputProcessorProfileActivationSink)) {
+            if (!sink || !pdwCookie) return E_INVALIDARG;
+            ++advise_profile_sink_calls_;
+            if (activation_callback_) activation_callback_(ActivationStage::ProfileSink);
+            if (fail_profile_sink_) return E_ACCESSDENIED;
+            const HRESULT hr = sink->QueryInterface(IID_PPV_ARGS(&profile_sink_));
+            if (SUCCEEDED(hr)) *pdwCookie = 43;
+            return hr;
+        }
         ++advise_thread_sink_calls_;
         if (activation_callback_) activation_callback_(ActivationStage::ThreadSink);
         if (fail_advise_) return E_FAIL;
         if (pdwCookie) *pdwCookie = 42;
         return S_OK;
     }
-    STDMETHODIMP UnadviseSink(DWORD) noexcept override {
+    STDMETHODIMP UnadviseSink(DWORD cookie) override {
+        if (cookie == 43) {
+            ++unadvise_profile_sink_calls_;
+            profile_sink_.Reset();
+            return S_OK;
+        }
         ++unadvise_thread_sink_calls_;
         return S_OK;
     }
@@ -270,6 +284,10 @@ public:
     ComPtr<MockTfCompartment> global_pos_compartment_;
     ComPtr<IUnknown> single_sink_;
     ComPtr<ITfKeyEventSink> key_event_sink_;
+    ComPtr<ITfInputProcessorProfileActivationSink> profile_sink_;
+    unsigned int advise_profile_sink_calls_ = 0;
+    unsigned int unadvise_profile_sink_calls_ = 0;
+    bool fail_profile_sink_ = false;
     TfClientId key_sink_client_id_ = TF_CLIENTID_NULL;
     TfClientId last_unadvised_key_sink_client_id_ = TF_CLIENTID_NULL;
     unsigned int advise_key_sink_calls_ = 0;

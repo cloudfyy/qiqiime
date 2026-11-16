@@ -38,6 +38,7 @@ class QiQiTextService final
           QiQiTextService,
           ITfTextInputProcessorEx,
           ITfThreadMgrEventSink,
+          ITfInputProcessorProfileActivationSink,
           ITfKeyEventSink,
           ITfCompositionSink,
           ITfTextLayoutSink,
@@ -77,6 +78,10 @@ public:
     STDMETHODIMP OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr* pdimPrevFocus) override;
     STDMETHODIMP OnPushContext(ITfContext* pic) override;
     STDMETHODIMP OnPopContext(ITfContext* pic) override;
+
+    // ITfInputProcessorProfileActivationSink
+    STDMETHODIMP OnActivated(DWORD type, LANGID language, REFCLSID clsid, REFGUID category,
+                            REFGUID profile, HKL layout, DWORD flags) override;
 
     // ITfKeyEventSink
     STDMETHODIMP OnSetFocus(BOOL fForeground) override;
@@ -176,11 +181,14 @@ private:
     void SyncSavedConfigChange(bool reload_dicts);
     ReloadResult LoadExternalDictionaryNextToDll();
 
-    void ResetCompositionAndUI(bool try_host_cleanup = true);
+    void ResetCompositionAndUI(bool try_host_cleanup = true,
+        CompositionCleanupMode mode = CompositionCleanupMode::PreserveText);
+    void ResetCompositionForInputMethodSwitch();
     void SetUiPresentationEnabled(bool enabled) noexcept;
     bool DestroyUIWindows() noexcept;
-    void ScheduleCompositionCleanup();
-    void ResetContextAndUI(bool try_host_cleanup = true);
+    void ScheduleCompositionCleanup(CompositionCleanupMode mode = CompositionCleanupMode::PreserveText);
+    void ResetContextAndUI(bool try_host_cleanup = true,
+        CompositionCleanupMode mode = CompositionCleanupMode::PreserveText);
     bool PrepareInputContext(ITfContext* context);
     bool ReconcileDocumentTarget(ITfDocumentMgr* document, std::string_view source);
     bool IsEditSessionCurrent(EditSessionTicket ticket) const noexcept;
@@ -236,8 +244,10 @@ private:
     bool activating_ = false;
     bool activation_cancelled_ = false;
     bool deactivating_ = false;
+    bool profile_deactivated_ = false;
     ComPtr<ITfContext> preparing_input_context_;
     ScopedTfSinkConnection thread_mgr_sink_;
+    ScopedTfSinkConnection profile_sink_;
     ScopedTfSinkConnection text_layout_sink_;
     ScopedTfSinkConnection context_status_sink_;
     ComPtr<ITfContext> password_context_;

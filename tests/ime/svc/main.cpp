@@ -9,6 +9,7 @@ void RunTsfServiceTests() {
     using namespace service_cases;
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     RunTsfTestStage("service.shift", TestShiftTapTracking);
+    RunTsfTestStage("service.input-method-switch", TestInputMethodSwitchCompositionPolicy);
     RunTsfTestStage("service.code-completion", TestCodeCompletionConfigReload);
     RunTsfTestStage("service.key-flow", TestQiQiTextServiceLifecycleAndKeyFlow);
     RunTsfTestStage("service.focus-performance", TestFocusPerformanceLogs);

@@ -23,13 +23,14 @@ namespace {
 void TestActivationTransitionBoundaries() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Boundary {
-        ThreadSink, KeySink, FirstKey, SecondKey, ThirdKey, FourthKey, FunctionProvider, LangBar,
+        ThreadSink, KeySink, ProfileSink, FirstKey, SecondKey, ThirdKey, FourthKey, FunctionProvider, LangBar,
         OpenBind, ConversionBind, GlobalManager, ConfigBind, PositionBind, PositionRead, OpenWrite, ConversionWrite
     };
     enum class Action { NestedActivation, Cancel, CancelTwice };
     using Stage = MockTfThreadMgr::ActivationStage;
     constexpr std::array stages{
         std::pair{Boundary::ThreadSink, Stage::ThreadSink}, std::pair{Boundary::KeySink, Stage::KeySink},
+        std::pair{Boundary::ProfileSink, Stage::ProfileSink},
         std::pair{Boundary::FunctionProvider, Stage::FunctionProvider}, std::pair{Boundary::LangBar, Stage::LangBar},
         std::pair{Boundary::GlobalManager, Stage::GlobalCompartments},
     };
@@ -44,12 +45,13 @@ void TestActivationTransitionBoundaries() {
     const auto objects_before = g_com_object_count.load();
     size_t cases = 0;
     for (const auto boundary : {
-             Boundary::ThreadSink, Boundary::KeySink, Boundary::FirstKey, Boundary::SecondKey,
+             Boundary::ThreadSink, Boundary::KeySink, Boundary::ProfileSink, Boundary::FirstKey, Boundary::SecondKey,
              Boundary::ThirdKey, Boundary::FourthKey, Boundary::FunctionProvider, Boundary::LangBar,
              Boundary::OpenBind, Boundary::ConversionBind, Boundary::GlobalManager, Boundary::ConfigBind,
              Boundary::PositionBind, Boundary::PositionRead, Boundary::OpenWrite, Boundary::ConversionWrite}) {
         for (const bool host_fails : {false, true}) {
-            if (host_fails && boundary != Boundary::ThreadSink && boundary != Boundary::KeySink) continue;
+            if (host_fails && boundary != Boundary::ThreadSink && boundary != Boundary::KeySink &&
+                boundary != Boundary::ProfileSink) continue;
             for (const auto action : {Action::NestedActivation, Action::Cancel, Action::CancelTwice}) {
                 const auto case_name = std::format(
                     "activation.boundary-{}.action-{}.host-fails-{}",
@@ -127,6 +129,7 @@ void TestActivationTransitionBoundaries() {
                 };
                 manager->fail_advise_ = host_fails && boundary == Boundary::ThreadSink;
                 manager->fail_key_sink_ = host_fails && boundary == Boundary::KeySink;
+                manager->fail_profile_sink_ = host_fails && boundary == Boundary::ProfileSink;
                 const HRESULT result = service->Activate(manager.Get(), 1);
                 const HRESULT expected = action == Action::NestedActivation ? (host_fails ? E_FAIL : S_OK) : E_ABORT;
                 QIQI_TEST_CHECK(entered && result == expected);
@@ -147,6 +150,7 @@ void TestActivationTransitionBoundaries() {
                 }
                 manager->fail_advise_ = false;
                 manager->fail_key_sink_ = false;
+                manager->fail_profile_sink_ = false;
                 QIQI_TEST_CHECK(service->Activate(manager.Get(), 3) == S_OK);
                 BOOL eaten = FALSE;
                 QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && eaten);
@@ -207,7 +211,7 @@ void TestActivationTransitionBoundaries() {
                         !manager->langbar_item_ && manager->preserved_keys_.empty());
         ++cases;
     }
-    QIQI_TEST_CHECK(cases == 57 && g_com_object_count.load() == objects_before);
+    QIQI_TEST_CHECK(cases == 63 && g_com_object_count.load() == objects_before);
 }
 
 void TestLangBarRegistrationLifetime() {

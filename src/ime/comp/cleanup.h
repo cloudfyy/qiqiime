@@ -18,6 +18,8 @@ namespace qiqi {
 
 struct EditSessionEpoch;
 
+enum class CompositionCleanupMode { PreserveText, DiscardText };
+
 struct CompositionCleanup {
     CompositionCleanup() = default;
     ~CompositionCleanup() noexcept;
@@ -39,9 +41,11 @@ struct CompositionCleanup {
     bool terminated = false;
     bool async_requested = false;
     bool context_removed = false;
+    CompositionCleanupMode mode = CompositionCleanupMode::PreserveText;
+    bool text_clear_started = false;
 };
 
-// Best-effort end: attribute failures are logged; when attempted, return EndComposition's HRESULT.
+// Best-effort end: attribute failures are logged; discard failure takes precedence over EndComposition's HRESULT.
 HRESULT ExecuteCompositionCleanup(std::shared_ptr<CompositionCleanup> cleanup, TfEditCookie ec);
 
 // Register the record before calling: GetRange and RequestEditSession can reenter the service.
@@ -93,7 +97,8 @@ public:
         const EditSessionEpoch& attempted_epoch, const EditSessionEpoch& current_epoch, const GUID& lifecycle_activity);
     void Schedule(
         Microsoft::WRL::ComPtr<ITfContext> context, Microsoft::WRL::ComPtr<ITfComposition> composition,
-        TfClientId client_id, const EditSessionEpoch& epoch, const GUID& lifecycle_activity);
+        TfClientId client_id, const EditSessionEpoch& epoch, const GUID& lifecycle_activity,
+        CompositionCleanupMode mode = CompositionCleanupMode::PreserveText);
     [[nodiscard]] bool HasPending(const ITfContext* context, const GUID& lifecycle_activity) noexcept;
     void MarkContextRemoved(const ITfContext* context, const GUID& lifecycle_activity) const noexcept;
     [[nodiscard]] bool HandleTermination(

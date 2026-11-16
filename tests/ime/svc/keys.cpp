@@ -180,6 +180,145 @@ void TestModeSwitchCompositionPolicy(
     QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
 }
 
+void TestInputMethodSwitchCompositionPolicy() {
+    const TsfTestCaseTrace trace(__func__);
+    const QiQiConfig original = LoadConfig();
+    const auto restore_config = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(SaveConfigToRegistry(original));
+    });
+    std::array<BYTE, 256> original_keyboard{};
+    QIQI_TEST_CHECK(::GetKeyboardState(original_keyboard.data()));
+    const auto restore_keyboard = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(::SetKeyboardState(original_keyboard.data()));
+    });
+    std::array<BYTE, 256> clean_keyboard{};
+    QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+    enum class SwitchExit { Deactivation, OwnProfile, OtherProfile, KeyboardLayout };
+    for (const bool commit : {false, true}) {
+        auto config = original;
+        config.commit_on_english_switch = commit;
+        config.default_chinese_mode = true;
+        config.default_full_width = false;
+        config.primary_dict = PrimaryDict::BuiltinOnly;
+        config.show_status_bar = false;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+        for (const bool deferred : {false, true}) {
+            for (const auto method : {SwitchExit::Deactivation, SwitchExit::OwnProfile,
+                                      SwitchExit::OtherProfile, SwitchExit::KeyboardLayout}) {
+                for (const auto* code : {L"ab", L"zhello"}) {
+                    const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+                    const auto manager = MakeComObject<MockTfThreadMgr>();
+                    manager->show_own_ui_ = FALSE;
+                    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK && manager->profile_sink_);
+                    const auto deactivate = gsl::finally([&]() noexcept {
+                        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+                    });
+                    const auto queue = deferred ? std::make_shared<MockEditSessionQueue>() : nullptr;
+                    const auto context = MakeComObject<MockTfContext>(queue);
+                    BOOL eaten = FALSE;
+                    for (const wchar_t key : std::wstring_view(code)) {
+                        QIQI_TEST_CHECK(service->OnKeyDown(
+                            context.Get(), gsl::narrow_cast<WPARAM>(key - L'a' + L'A'), 0, &eaten) == S_OK && eaten);
+                    }
+                    if (queue) {
+                        while (queue->PendingCount()) QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+                    }
+                    const auto composition = context->last_composition_;
+                    QIQI_TEST_CHECK(composition && !composition->ended_ && context->range_->text_ == code);
+                    const auto sink = manager->profile_sink_;
+                    const auto notify = [&](REFCLSID clsid, REFGUID profile, DWORD flags) {
+                        return sink->OnActivated(TF_PROFILETYPE_INPUTPROCESSOR, 0, clsid,
+                                                 GUID_TFCAT_TIP_KEYBOARD, profile, nullptr, flags);
+                    };
+                    QIQI_TEST_CHECK(notify(CLSID_NULL, GUID_NULL, 0) == S_OK);
+                    QIQI_TEST_CHECK(notify(kClsidQiQiTextService, kGuidCandidateUIElement, 0) == S_OK);
+                    QIQI_TEST_CHECK(sink->OnActivated(TF_PROFILETYPE_INPUTPROCESSOR, 0, CLSID_NULL,
+                        GUID_TFCAT_TIP_SPEECH, GUID_NULL, nullptr, TF_IPSINK_FLAG_ACTIVE) == S_OK);
+                    QIQI_TEST_CHECK(!composition->ended_ && context->range_->text_ == code);
+                    const auto writes_before = context->range_->set_text_calls_;
+                    context->allow_sync_edit_sessions_ = !deferred;
+                    if (method != SwitchExit::Deactivation) {
+                        if (method == SwitchExit::OwnProfile) {
+                            QIQI_TEST_CHECK(notify(kClsidQiQiTextService, kGuidProfileWubi86, 0) == S_OK);
+                        } else if (method == SwitchExit::OtherProfile) {
+                            QIQI_TEST_CHECK(notify(CLSID_NULL, kGuidCandidateUIElement, TF_IPSINK_FLAG_ACTIVE) == S_OK);
+                        } else {
+                            QIQI_TEST_CHECK(sink->OnActivated(TF_PROFILETYPE_KEYBOARDLAYOUT, 0,
+                                CLSID_NULL, GUID_NULL, GUID_NULL, nullptr, TF_IPSINK_FLAG_ACTIVE) == S_OK);
+                        }
+                        QIQI_TEST_CHECK(notify(kClsidQiQiTextService, kGuidProfileWubi86, 0) == S_OK);
+                    } else {
+                        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+                        QIQI_TEST_CHECK(!manager->profile_sink_ && manager->unadvise_profile_sink_calls_ == 1);
+                    }
+                    QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'C', 0, &eaten) == S_OK && !eaten);
+                    if (queue) {
+                        QIQI_TEST_CHECK(queue->PendingCount() == 1 && !composition->ended_ &&
+                                        context->range_->text_ == code);
+                        while (queue->PendingCount()) QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+                    }
+                    QIQI_TEST_CHECK(context->range_->text_ == (commit ? std::wstring(code) : L""));
+                    QIQI_TEST_CHECK(context->range_->set_text_calls_ == writes_before + (commit ? 0u : 1u));
+                    QIQI_TEST_CHECK(composition->ended_ && composition->end_composition_calls_ == 1);
+                    if (method != SwitchExit::Deactivation) {
+                        QIQI_TEST_CHECK(notify(kClsidQiQiTextService, kGuidProfileWubi86, TF_IPSINK_FLAG_ACTIVE) == S_OK);
+                        const auto next = MakeComObject<MockTfContext>();
+                        QIQI_TEST_CHECK(service->OnKeyDown(next.Get(), 'D', 0, &eaten) == S_OK && eaten);
+                        QIQI_TEST_CHECK(next->range_->text_ == L"d");
+                    }
+                    QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+                    QIQI_TEST_CHECK(context->range_->set_text_calls_ == writes_before + (commit ? 0u : 1u));
+                    QIQI_TEST_CHECK(service->Activate(manager.Get(), 2) == S_OK);
+                    const auto next = MakeComObject<MockTfContext>();
+                    QIQI_TEST_CHECK(service->OnKeyDown(next.Get(), 'D', 0, &eaten) == S_OK && eaten);
+                    QIQI_TEST_CHECK(next->range_->text_ == L"d");
+                    QIQI_TEST_CHECK(context->range_->text_ == (commit ? std::wstring(code) : L""));
+                }
+            }
+        }
+        if (!commit) {
+           const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+           const auto manager = MakeComObject<MockTfThreadMgr>();
+           manager->show_own_ui_ = FALSE;
+           QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+           const auto deactivate = gsl::finally([&]() noexcept {
+               QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+           });
+           const auto queue = std::make_shared<MockEditSessionQueue>();
+           const auto context = MakeComObject<MockTfContext>(queue);
+           BOOL eaten = FALSE;
+           QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+           QIQI_TEST_CHECK(queue->RunNext() == S_OK && context->range_->text_ == L"a");
+           const auto old_composition = context->last_composition_;
+           const auto sink = manager->profile_sink_;
+           context->allow_sync_edit_sessions_ = false;
+           QIQI_TEST_CHECK(sink->OnActivated(TF_PROFILETYPE_INPUTPROCESSOR, 0, kClsidQiQiTextService,
+               GUID_TFCAT_TIP_KEYBOARD, kGuidProfileWubi86, nullptr, 0) == S_OK);
+           QIQI_TEST_CHECK(queue->PendingCount() == 1 && !old_composition->ended_);
+           QIQI_TEST_CHECK(sink->OnActivated(TF_PROFILETYPE_INPUTPROCESSOR, 0, kClsidQiQiTextService,
+               GUID_TFCAT_TIP_KEYBOARD, kGuidProfileWubi86, nullptr, TF_IPSINK_FLAG_ACTIVE) == S_OK);
+           QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && eaten);
+           QIQI_TEST_CHECK(queue->PendingCount() == 2 && context->range_->text_ == L"a");
+           QIQI_TEST_CHECK(queue->RunNext(89) == S_OK && queue->PendingCount() == 1);
+           QIQI_TEST_CHECK(old_composition->ended_ && old_composition->end_composition_calls_ == 1 &&
+                           context->range_->text_.empty());
+           QIQI_TEST_CHECK(queue->RunNext(97) == S_OK && queue->PendingCount() == 0);
+           const auto new_composition = context->last_composition_;
+           QIQI_TEST_CHECK(new_composition.Get() != old_composition.Get() &&
+                           !new_composition->ended_ && context->range_->text_ == L"b");
+           QIQI_TEST_CHECK(service->Deactivate() == S_OK && queue->PendingCount() == 1);
+           QIQI_TEST_CHECK(queue->RunNext() == S_OK && queue->PendingCount() == 0);
+           QIQI_TEST_CHECK(new_composition->ended_ && context->range_->text_.empty());
+        }
+    }
+    const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+    const auto manager = MakeComObject<MockTfThreadMgr>();
+    manager->fail_profile_sink_ = true;
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == E_FAIL);
+    QIQI_TEST_CHECK(!manager->key_event_sink_ && !manager->profile_sink_ &&
+                    manager->preserved_keys_.empty() && manager->unadvise_thread_sink_calls_ == 1);
+}
+
 void TestShiftTapTracking() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     ShiftTapTracker tracker;

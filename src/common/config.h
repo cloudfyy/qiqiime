@@ -84,6 +84,7 @@ struct QiQiConfig {
     bool default_full_width = false;
     bool default_chinese_punct = true;
     bool shift_toggle_mode = true;
+    // Keep the persisted key for compatibility; also applies when switching away from this IME.
     bool commit_on_english_switch = true;
     bool show_status_bar = false;
     bool beep_on_empty_4code = true;

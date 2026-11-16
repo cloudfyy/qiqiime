@@ -174,7 +174,8 @@ private:
 };
 
 inline void ScheduleCurrentCompositionCleanup(
-    CompositionLifecycleState& state, const TfClientId& client_id, uint64_t service_id, const GUID& activity) {
+    CompositionLifecycleState& state, const TfClientId& client_id, uint64_t service_id, const GUID& activity,
+    CompositionCleanupMode mode = CompositionCleanupMode::PreserveText) {
     if (!state.Composition()) {
         QIQI_LOG_ACT_INFO(
             log::Level::debug,
@@ -185,7 +186,7 @@ inline void ScheduleCurrentCompositionCleanup(
         return;
     }
     state.Cleanups().Schedule(
-        state.Context(), state.TakeComposition(), client_id, state.Epoch(), activity);
+        state.Context(), state.TakeComposition(), client_id, state.Epoch(), activity, mode);
 }
 
 template <typename ScheduleCleanup, typename EndUI>

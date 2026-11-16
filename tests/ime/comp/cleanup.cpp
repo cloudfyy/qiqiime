@@ -208,6 +208,62 @@ void TestCompositionCleanupExecution() {
     }
 }
 
+void TestCompositionCleanupDiscard() {
+    const TsfTestCaseTrace trace(__func__);
+    for (const bool discard : {false, true}) {
+        for (const bool fail : {false, true}) {
+            const auto context = MakeComObject<MockTfContext>();
+            context->range_->text_ = L"unfinished";
+            context->range_->set_text_result_ = fail ? E_ACCESSDENIED : S_OK;
+            const auto composition = MakeComObject<MockTfComposition>(context->range_);
+            const auto cleanup = std::make_shared<CompositionCleanup>();
+            cleanup->context = context;
+            cleanup->composition = composition;
+            cleanup->range = context->range_;
+            cleanup->mode = discard ? CompositionCleanupMode::DiscardText : CompositionCleanupMode::PreserveText;
+            QIQI_TEST_CHECK(ExecuteCompositionCleanup(cleanup, 83) == (discard && fail ? E_ACCESSDENIED : S_OK));
+            QIQI_TEST_CHECK(context->range_->text_ == (discard && !fail ? L"" : L"unfinished"));
+            QIQI_TEST_CHECK(context->range_->set_text_calls_ == (discard ? 1u : 0u));
+            QIQI_TEST_CHECK(composition->end_composition_calls_ == 1);
+        }
+    }
+    for (const bool removed : {false, true}) {
+        const auto context = MakeComObject<MockTfContext>();
+        context->range_->text_ = L"host-owned";
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        const auto cleanup = std::make_shared<CompositionCleanup>();
+        cleanup->context = context;
+        cleanup->composition = composition;
+        cleanup->range = context->range_;
+        cleanup->mode = CompositionCleanupMode::DiscardText;
+        cleanup->context_removed = removed;
+        cleanup->terminated = !removed;
+        QIQI_TEST_CHECK(ExecuteCompositionCleanup(cleanup, 83) == S_OK);
+        QIQI_TEST_CHECK(context->range_->text_ == L"host-owned" && context->range_->set_text_calls_ == 0);
+    }
+    {
+        const auto context = MakeComObject<MockTfContext>();
+        context->range_->text_ = L"unfinished";
+        const auto composition = MakeComObject<MockTfComposition>(context->range_);
+        const auto cleanup = std::make_shared<CompositionCleanup>();
+        cleanup->context = context;
+        cleanup->composition = composition;
+        cleanup->range = context->range_;
+        cleanup->mode = CompositionCleanupMode::DiscardText;
+        cleanup->id = 1;
+        CompositionCleanupRegistry registry;
+        registry.Track(cleanup);
+        context->range_->set_text_callback_ = [&]() {
+            QIQI_TEST_CHECK(HandleCompositionCleanupTermination(registry, 83, composition.Get(), 0, GUID_NULL));
+        };
+        QIQI_TEST_CHECK(ExecuteCompositionCleanup(cleanup, 83) == S_OK);
+        QIQI_TEST_CHECK(context->range_->text_.empty() && context->range_->set_text_calls_ == 1);
+        QIQI_TEST_CHECK(composition->end_composition_calls_ == 0 && cleanup->terminated);
+        QIQI_TEST_CHECK(context->prop_->clear_calls_ == 1 && context->prop_->last_clear_cookie_ == 83);
+        context->range_->set_text_callback_ = {};
+    }
+}
+
 void TestCompositionCleanupRequests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Invalidation { None, Removed, Terminated };
@@ -621,6 +677,7 @@ void RunTsfCompositionCleanupTests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestCompositionCleanupRegistry();
     TestCompositionCleanupExecution();
+    TestCompositionCleanupDiscard();
     TestCompositionCleanupRequests();
     TestCompositionCleanupTermination();
     TestCompositionCleanupCoordinator();
