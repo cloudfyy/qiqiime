@@ -149,6 +149,11 @@ rather than replaces, the full `QiQiTsfUiTest`.
 
 Tests must isolate configuration, files, and owned child processes. Do not run
 production registration or data-removal commands as a substitute for tests.
+Service input-method-switch and code-completion regressions run inside the
+existing lifecycle fixture's private registry key and temporary `LOCALAPPDATA`.
+Their entry guards reject the production configuration key before loading or
+saving settings. Snapshot/restore of real preferences is not isolation:
+`QIQI_TEST_CHECK` aborts on failure, so RAII cleanup cannot restore those values.
 For manual compatibility checks, use the [host test guide](hosts.md).
 
 The Log Monitor test runner also accepts `--menu-layout` (real popup geometry

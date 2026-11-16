@@ -7,6 +7,7 @@ namespace qiqi::test::service_cases {
 
 void TestCodeCompletionConfigReload() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) != kDefaultConfigRegSubKey);
     const QiQiConfig original = LoadConfig();
     const auto restore_config = gsl::finally([&]() noexcept {
         QIQI_TEST_CHECK(SaveConfigToRegistry(original));
@@ -182,6 +183,7 @@ void TestModeSwitchCompositionPolicy(
 
 void TestInputMethodSwitchCompositionPolicy() {
     const TsfTestCaseTrace trace(__func__);
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) != kDefaultConfigRegSubKey);
     const QiQiConfig original = LoadConfig();
     const auto restore_config = gsl::finally([&]() noexcept {
         QIQI_TEST_CHECK(SaveConfigToRegistry(original));

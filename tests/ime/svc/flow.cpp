@@ -36,6 +36,9 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     SetMuteAudioOutputForTest(true);
     ResetLastPlayedSoundForTest();
 
+    RunTsfTestStage("service.input-method-switch", TestInputMethodSwitchCompositionPolicy);
+    RunTsfTestStage("service.code-completion", TestCodeCompletionConfigReload);
+
     auto service = MakeComObject<QiQiTextService>(g_dll_instance);
 
     // QueryInterface coverage for all supported interfaces
