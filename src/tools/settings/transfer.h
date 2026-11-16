@@ -4,7 +4,7 @@
 #pragma once
 
 #include "tools/settings/window.h"
-#include "common/config_json.h"
+#include "common/cfgjson.h"
 #include "common/dlgutil.h"
 
 namespace qiqi::settings_detail {

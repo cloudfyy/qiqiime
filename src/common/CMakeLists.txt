@@ -30,8 +30,8 @@ set(QIQI_COMMON_SOURCES
     changesync.h
     config.cpp
     config.h
-    config_json.cpp
-    config_json.h
+    cfgjson.cpp
+    cfgjson.h
     controls.cpp
     controls.h
     ctrlutil.h

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "common/config_json.h"
+#include "common/cfgjson.h"
 #include "common/fileutil.h"
 #include "common/logger.h"
 

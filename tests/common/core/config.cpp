@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/core/test.h"
-#include "common/config_json.h"
+#include "common/cfgjson.h"
 
 namespace qiqi::test::common_cases {
 
