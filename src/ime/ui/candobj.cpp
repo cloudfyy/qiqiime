@@ -310,8 +310,10 @@ STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
     is_shown_ = bShow;
     if (bShow) {
         if (EnsurePopupWindow()) {
-            ::ShowWindow(hwnd_.Get(), SW_SHOWNOACTIVATE);
-            ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
+            if (!::IsWindowVisible(hwnd_.Get())) {
+                ::ShowWindow(hwnd_.Get(), SW_SHOWNOACTIVATE);
+                ::InvalidateRect(hwnd_.Get(), nullptr, FALSE);
+            }
             LogPopupVisibility();
         }
     } else if (hwnd_) {
@@ -464,7 +466,6 @@ RECT CandidateUI::ViewportRect(RECT rect) const noexcept {
 void CandidateUI::UpdateScrollBar() const noexcept {
     if (!hwnd_) return;
     if (content_height_ <= popup_height_) {
-        ::ShowScrollBar(hwnd_.Get(), SB_VERT, FALSE);
         return;
     }
     SCROLLINFO info{};
@@ -474,6 +475,15 @@ void CandidateUI::UpdateScrollBar() const noexcept {
     info.nMax = std::max(0, content_height_ - 1);
     info.nPage = gsl::narrow_cast<UINT>(popup_height_);
     info.nPos = scroll_offset_;
+    SCROLLINFO current{};
+    current.cbSize = sizeof(current);
+    current.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+    if (::GetScrollInfo(hwnd_.Get(), SB_VERT, &current)) {
+        if (current.nMin == info.nMin && current.nMax == info.nMax &&
+            current.nPage == info.nPage && current.nPos == info.nPos) return;
+    } else {
+        QIQI_LOG_WARN("CandidateUI::GetScrollInfo failed (error={})", ::GetLastError());
+    }
     ::SetScrollInfo(hwnd_.Get(), SB_VERT, &info, TRUE);
 }
 
@@ -482,7 +492,7 @@ void CandidateUI::ScrollContent(int position) {
     if (scroll_offset_ == next) return;
     scroll_offset_ = next;
     UpdateScrollBar();
-    if (hwnd_) ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
+    if (hwnd_) ::InvalidateRect(hwnd_.Get(), nullptr, FALSE);
 }
 
 void CandidateUI::RefreshPopupLayout(UINT dpi) {
@@ -507,9 +517,28 @@ void CandidateUI::RefreshPopupLayout(UINT dpi) {
     if (hwnd_) {
         const LONG_PTR style = ::GetWindowLongPtrW(hwnd_.Get(), GWL_STYLE);
         const LONG_PTR desired_style = content_height_ > popup_height_ ? style | WS_VSCROLL : style & ~WS_VSCROLL;
-        if (style != desired_style) ::SetWindowLongPtrW(hwnd_.Get(), GWL_STYLE, desired_style);
-        if (!::SetWindowPos(hwnd_.Get(), HWND_TOPMOST, popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
-                            SWP_NOACTIVATE | SWP_FRAMECHANGED | (is_shown_ ? SWP_SHOWWINDOW : SWP_HIDEWINDOW))) {
+        UINT flags = SWP_NOACTIVATE | SWP_NOZORDER;
+        if (style != desired_style) {
+            ::SetLastError(ERROR_SUCCESS);
+            if (!::SetWindowLongPtrW(hwnd_.Get(), GWL_STYLE, desired_style) &&
+                ::GetLastError() != ERROR_SUCCESS) {
+                QIQI_LOG_ERROR("CandidateUI::SetWindowLongPtrW(style) failed (error={})", ::GetLastError());
+                return;
+            }
+            flags |= SWP_FRAMECHANGED;
+        }
+        RECT current{};
+        if (::GetWindowRect(hwnd_.Get(), &current)) {
+            if (current.left == popup_pos_.x && current.top == popup_pos_.y) flags |= SWP_NOMOVE;
+            if (current.right - current.left == popup_width_ &&
+                current.bottom - current.top == popup_height_) flags |= SWP_NOSIZE;
+        } else {
+            QIQI_LOG_WARN("CandidateUI::GetWindowRect failed (error={})", ::GetLastError());
+        }
+        const bool update_window = (flags & SWP_FRAMECHANGED) ||
+            !(flags & SWP_NOMOVE) || !(flags & SWP_NOSIZE);
+        if (update_window && !::SetWindowPos(hwnd_.Get(), nullptr, popup_pos_.x, popup_pos_.y,
+                                            popup_width_, popup_height_, flags)) {
             QIQI_LOG_ERROR("CandidatePositionPopup::SetWindowPos failed (error={})", ::GetLastError());
         } else if (log::ShouldLog(log::Level::debug)) {
             RECT actual{};
@@ -521,7 +550,7 @@ void CandidateUI::RefreshPopupLayout(UINT dpi) {
             }
         }
         UpdateScrollBar();
-        ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
+        ::InvalidateRect(hwnd_.Get(), nullptr, FALSE);
     }
 }
 
@@ -537,7 +566,6 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
     wc.lpfnWndProc = &CandidateUI::WndProc;
     wc.hInstance = instance_;
     wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     wc.lpszClassName = kCandidateWndClass;
     ::RegisterClassExW(&wc);
 
@@ -674,6 +702,37 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
 }
 
 void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
+    const int width = client_rect.right - client_rect.left;
+    const int height = client_rect.bottom - client_rect.top;
+    if (width <= 0 || height <= 0) return;
+    const ScopedMemoryDC buffer(::CreateCompatibleDC(hdc));
+    if (!buffer) {
+        QIQI_LOG_WARN("CandidateUI::CreateCompatibleDC failed (error={}); painting without buffer", ::GetLastError());
+        PaintPopupContent(hdc, client_rect);
+        return;
+    }
+    const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(hdc, width, height));
+    if (!bitmap) {
+        QIQI_LOG_WARN("CandidateUI::CreateCompatibleBitmap failed (error={}); painting without buffer", ::GetLastError());
+        PaintPopupContent(hdc, client_rect);
+        return;
+    }
+    const ScopedSelectObject select_bitmap(buffer.Get(), bitmap.Get());
+    if (!select_bitmap) {
+        QIQI_LOG_WARN("CandidateUI::SelectObject(buffer) failed (error={}); painting without buffer", select_bitmap.Error());
+        PaintPopupContent(hdc, client_rect);
+        return;
+    }
+    // Both renderers finish the complete frame before touching the visible DC.
+    PaintPopupContent(buffer.Get(), client_rect);
+    if (!::BitBlt(hdc, client_rect.left, client_rect.top, width, height,
+                  buffer.Get(), client_rect.left, client_rect.top, SRCCOPY)) {
+        QIQI_LOG_WARN("CandidateUI::BitBlt failed (error={}); painting without buffer", ::GetLastError());
+        PaintPopupContent(hdc, client_rect);
+    }
+}
+
+void CandidateUI::PaintPopupContent(HDC hdc, const RECT& client_rect) const {
     if (PaintPopupDirect2D(hdc, client_rect)) return;
     const ScopedSaveDC save_dc(hdc);
     const auto& palette = appearance_.palette;
@@ -780,6 +839,8 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             self->RefreshPopupLayout();
             ApplyDisplayThemeToWindow(hwnd, self->appearance_);
             return 0;
+        case WM_ERASEBKGND:
+            return 1;
         case WM_PAINT:
             return PaintWindowClient(hwnd, [self](HDC hdc, const RECT& rc) { self->PaintPopup(hdc, rc); });
         case WM_PRINTCLIENT: {

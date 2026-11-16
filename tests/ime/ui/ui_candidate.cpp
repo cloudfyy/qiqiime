@@ -10,6 +10,7 @@
 #include "ime/ui/candobj.h"
 
 #include <windows.h>
+#include <commctrl.h>
 #include <oleauto.h>
 #include <wrl/client.h>
 #include <gsl/gsl>
@@ -32,6 +33,94 @@ COLORREF PaintCandidatePixel(const CandidateUI& ui, POINT point) {
     const ScopedSelectObject select_bitmap(dc.Get(), bitmap.Get());
     ::SendMessageW(ui.WindowHandle(), WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc.Get()), PRF_CLIENT);
     return ::GetPixel(dc.Get(), point.x, point.y);
+}
+
+struct CandidateRefreshTrace {
+    unsigned int frame_changes = 0;
+    unsigned int visibility_changes = 0;
+    unsigned int position_changes = 0;
+};
+
+LRESULT CALLBACK ObserveCandidateRefresh(
+    HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR, DWORD_PTR data) noexcept {
+    auto& trace = *reinterpret_cast<CandidateRefreshTrace*>(data);
+    if (message == WM_WINDOWPOSCHANGING && lparam) {
+        const auto& position = *reinterpret_cast<const WINDOWPOS*>(lparam);
+        ++trace.position_changes;
+        if (position.flags & SWP_FRAMECHANGED) ++trace.frame_changes;
+        if (position.flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW)) ++trace.visibility_changes;
+    }
+    return ::DefSubclassProc(hwnd, message, wparam, lparam);
+}
+
+void TestCandidateStableRepainting() {
+    const TsfTestCaseTrace trace(__func__);
+    const std::optional<MonitorMetrics> previous_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto restore_monitor = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(previous_monitor);
+    });
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1600, 1200}, 144});
+    for (const bool gdi : {false, true}) {
+        const auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+        if (gdi) ui->DisableDirect2DForTest();
+        ui->SetDisplayPreferences(UiTheme::Dark, UiTextScale::Percent100, false);
+        ui->SetLayout(CandidateLayout::Vertical);
+        ui->SetCandidates(L"ab", {L"One", L"Two", L"Three"}, 3, 0, 0);
+        ui->MoveWindowTo(RECT{100, 100, 102, 120});
+        QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+        const HWND window = ui->WindowHandle();
+        ::UpdateWindow(window);
+        const auto* const focus = ::GetFocus();
+#pragma warning(suppress : 26496) // The window subclass updates this through DWORD_PTR.
+        CandidateRefreshTrace refresh;
+        QIQI_TEST_CHECK(::SetWindowSubclass(window, ObserveCandidateRefresh, 1,
+                                            reinterpret_cast<DWORD_PTR>(&refresh)));
+        const auto remove_observer = gsl::finally([window]() noexcept {
+            ::RemoveWindowSubclass(window, ObserveCandidateRefresh, 1);
+        });
+        QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+        QIQI_TEST_CHECK(!::GetUpdateRect(window, nullptr, FALSE));
+        QIQI_TEST_CHECK(refresh.position_changes == 0);
+        for (int step = 0; step < 16; ++step) {
+            ui->MoveWindowTo(RECT{100 + step, 100, 102 + step, 120});
+            ui->SetCandidates(step % 2 ? L"ac" : L"ab", {L"One", L"Two", L"Three"},
+                              3, 0, gsl::narrow_cast<size_t>(step % 3));
+            QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+            ::UpdateWindow(window);
+            QIQI_TEST_CHECK(ui->WindowHandle() == window && ::IsWindowVisible(window));
+            const RECT selected = ui->CandidateRect(gsl::narrow_cast<size_t>(step % 3));
+            QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{selected.left + 5, selected.bottom - 5}) ==
+                            ui->Appearance().palette.selection_bg);
+        }
+        QIQI_TEST_CHECK(refresh.position_changes > 0);
+        QIQI_TEST_CHECK(refresh.frame_changes == 0 && refresh.visibility_changes == 0);
+        QIQI_TEST_CHECK(::GetFocus() == focus);
+        const ScopedWindowDC screen;
+        const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+        const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), ui->CurrentWidth(), ui->CurrentHeight()));
+        QIQI_TEST_CHECK(screen && dc && bitmap);
+        const ScopedSelectObject select_bitmap(dc.Get(), bitmap.Get());
+        constexpr COLORREF sentinel = RGB(255, 0, 255);
+        QIQI_TEST_CHECK(::SetPixelV(dc.Get(), 2, 2, sentinel));
+        QIQI_TEST_CHECK(::SendMessageW(window, WM_ERASEBKGND, reinterpret_cast<WPARAM>(dc.Get()), 0) == 1);
+        QIQI_TEST_CHECK(::GetPixel(dc.Get(), 2, 2) == sentinel);
+        ::SendMessageW(window, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc.Get()), PRF_CLIENT);
+        QIQI_TEST_CHECK(::GetPixel(dc.Get(), 2, 2) == ui->Appearance().palette.window_bg);
+
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 320, 180}, 144});
+        ui->SetDisplayPreferences(UiTheme::Dark, UiTextScale::Percent200, true);
+        ui->SetCandidates(L"abcd", std::vector<std::wstring>(9, L"Long candidate for a constrained work area"), 9, 0, 8);
+        QIQI_TEST_CHECK((::GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL) != 0);
+        QIQI_TEST_CHECK(refresh.frame_changes > 0);
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1600, 1200}, 144});
+        ui->SetDisplayPreferences(UiTheme::Dark, UiTextScale::Percent100, false);
+        ui->SetCandidates(L"ab", {L"One"}, 3, 0, 0);
+        QIQI_TEST_CHECK((::GetWindowLongPtrW(window, GWL_STYLE) & WS_VSCROLL) == 0);
+        QIQI_TEST_CHECK(ui->WindowHandle() == window && ::IsWindowVisible(window));
+        QIQI_TEST_CHECK(ui->Show(FALSE) == S_OK);
+        ui->MoveWindowTo(RECT{200, 100, 202, 120});
+        QIQI_TEST_CHECK(!::IsWindowVisible(window));
+    }
 }
 
 void TestCandidateDisplayPreferences() {
@@ -552,6 +641,7 @@ void TestCandidateUI() {
 
 void RunCandidateUITests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    TestCandidateStableRepainting();
     TestCandidateUI();
     TestCandidateLayouts();
     TestCandidateHostOwnership();

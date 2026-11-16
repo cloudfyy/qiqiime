@@ -128,6 +128,7 @@ private:
     bool EnsurePopupWindow() noexcept;
     void LogPopupVisibility() const noexcept;
     bool PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const;
+    void PaintPopupContent(HDC hdc, const RECT& client_rect) const;
     void PaintPopup(HDC hdc, const RECT& client_rect) const;
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
