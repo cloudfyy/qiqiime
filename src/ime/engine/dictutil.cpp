@@ -1499,41 +1499,54 @@ bool WubiEngine::PromoteUserPhraseFrequency(
     std::wstring_view code,
     std::wstring_view word,
     const std::filesystem::path& file_path) {
+    return SUCCEEDED(PromoteUserPhraseFrequencyResult(code, word, file_path));
+}
+
+HRESULT WubiEngine::PromoteUserPhraseFrequencyResult(
+    std::wstring_view code,
+    std::wstring_view word,
+    const std::filesystem::path& file_path) {
     if (SplitUtf16Codepoints(word).size() < 2) {
-        return false;
+        std::ignore = log::CheckHResult(E_INVALIDARG, "PromoteUserPhraseFrequency phrase length");
+        return E_INVALIDARG;
     }
     const uint32_t packed = PackWubiCode(code);
     if (packed == 0) {
-        return false;
+        std::ignore = log::CheckHResult(E_INVALIDARG, "PromoteUserPhraseFrequency code");
+        return E_INVALIDARG;
     }
     const std::filesystem::path target_path = !file_path.empty() ? file_path : phrase_freq_path_;
     if (target_path.empty()) {
         PromotePhraseInMap(promoted_phrases_, packed, word);
-        return true;
+        return S_OK;
     }
     if (IsProcessAppContainer()) {
         PromotePhraseInMap(promoted_phrases_, packed, word);
-        return false;
+        return E_ACCESSDENIED;
     }
     SetPhraseFreqPath(target_path);
 
     const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(target_path);
     const sync::Source source{sync::DataType::PhraseFrequency, kGuidSyncSourcePhraseFrequency};
-    if (FAILED(sync::Channel::Create(channel_dir, source))) {
+    const HRESULT create_hr = sync::Channel::Create(channel_dir, source);
+    if (FAILED(create_hr)) {
         PromotePhraseInMap(promoted_phrases_, packed, word);
         if (!SavePhraseFrequencies(target_path)) {
             QIQI_LOG_CAT_WARN(log::Keyword::Dictionary, "PromoteUserPhraseFrequency: in-memory order updated but persistence failed");
-            return false;
+            return create_hr;
         }
-        return true;
+        return S_OK;
     }
     const sync::Channel channel(channel_dir, source);
     const std::vector<uint8_t> payload = EncodeDictEntryDelta(packed, word);
+    HRESULT last_error = HRESULT_FROM_WIN32(ERROR_RETRY);
     for (int attempt = 0; attempt < kMaxSyncPublishAttempts; ++attempt) {
         std::ignore = SynchronizePhraseFrequencies(sync::InputBoundary::NewInput);
         PromotePhraseInMap(promoted_phrases_, packed, word);
         sync::Batch current_batch;
-        if (FAILED(channel.Read(phrase_freq_sync_version_, current_batch))) {
+        const HRESULT read_hr = channel.Read(phrase_freq_sync_version_, current_batch);
+        if (FAILED(read_hr)) {
+            last_error = read_hr;
             break;
         }
         sync::Version committed{};
@@ -1552,16 +1565,19 @@ bool WubiEngine::PromoteUserPhraseFrequency(
             committed);
         if (hr == S_OK) {
             phrase_freq_sync_version_ = committed;
-            return true;
+            return S_OK;
         }
+        last_error = FAILED(hr) ? hr : E_UNEXPECTED;
         if (hr != HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION) &&
             hr != HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH)) {
             break;
         }
         ::SwitchToThread();
     }
-    QIQI_LOG_CAT_WARN(log::Keyword::Dictionary, "PromoteUserPhraseFrequency: in-memory order updated but coordinated persistence failed");
-    return false;
+    QIQI_LOG_CAT_WARN(log::Keyword::Dictionary,
+        "PromoteUserPhraseFrequency: in-memory order updated but coordinated persistence failed (hr=0x{:08x})",
+        gsl::narrow_cast<unsigned int>(last_error));
+    return last_error;
 }
 
 bool WubiEngine::RemovePhraseFrequency(

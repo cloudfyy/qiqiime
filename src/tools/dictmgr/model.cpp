@@ -921,12 +921,13 @@ BackupRestoreResult DictManagerModel::RestoreBackupBundle(
         const std::wstring code = UnpackWubiCode(packed);
         for (auto it = words.rbegin(); it != words.rend(); ++it) {
             result.effects_possible = true;
-            if (engine_.PromoteUserPhraseFrequency(code, *it, phrase_freq_path_)) {
+            const HRESULT error = engine_.PromoteUserPhraseFrequencyResult(code, *it, phrase_freq_path_);
+            if (SUCCEEDED(error)) {
                 ++result.summary.phrase_freq_applied;
                 ++result.operations_succeeded;
             } else {
                 ++result.summary.phrase_freq_failed;
-                fail(BackupRestoreStage::PhraseFrequency, E_FAIL);
+                fail(BackupRestoreStage::PhraseFrequency, error);
             }
         }
     }

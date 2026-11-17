@@ -53,6 +53,9 @@ void TestBackupRestoreResults() {
         QIQI_TEST_CHECK(ReadFileToUtf8String(path, bytes));
         return bytes;
     };
+    const auto sharing_failure = [](HRESULT error) {
+        return error == E_ACCESSDENIED || error == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION);
+    };
     const std::string full_body =
         "[config]\npage_size=7\n[user_dict]\nabcd 新增词条\n[phrase_freq]\nabcd 新增词组\n";
 
@@ -269,12 +272,28 @@ void TestBackupRestoreResults() {
         QIQI_TEST_CHECK(locked);
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.stage == BackupRestoreStage::PhraseFrequency);
+        QIQI_TEST_CHECK(sharing_failure(result.error));
         QIQI_TEST_CHECK(result.summary.user_entries_applied == 1 && result.summary.user_entries_failed == 0);
         QIQI_TEST_CHECK(result.summary.phrase_freq_applied == 0 && result.summary.phrase_freq_failed == 1);
         QIQI_TEST_CHECK(!result.summary.config_restored && LoadConfig().page_size == 3);
         QIQI_TEST_CHECK(has_word(DictEntrySource::UserDict, L"新增词条"));
         QIQI_TEST_CHECK(!has_word(DictEntrySource::PhraseFreq, L"新增词组"));
         QIQI_TEST_CHECK(has_word(DictEntrySource::PhraseFreq, L"原有词组"));
+    }
+
+    reset();
+    WriteRestoreBundle(backup, "[phrase_freq]\nabcd 新增词组\n");
+    {
+        const auto locked = lock_file(GetSyncChannelDirectoryForFile(frequency) / L"writer.lock");
+        QIQI_TEST_CHECK(locked);
+        const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
+        QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.effects_possible);
+        QIQI_TEST_CHECK(result.stage == BackupRestoreStage::PhraseFrequency);
+        QIQI_TEST_CHECK(result.error == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION));
+        QIQI_TEST_CHECK(result.operations_succeeded == 0 && result.operations_failed == 1);
+        QIQI_TEST_CHECK(result.summary.phrase_freq_applied == 0 && result.summary.phrase_freq_failed == 1);
+        QIQI_TEST_CHECK(result.refresh_error == S_OK);
+        QIQI_TEST_CHECK(FormatBackupRestoreMessage(result, UiLanguage::EnUs).contains(L"0x80070020"));
     }
 
     // Missing optional sources remain a valid, empty view and need not be created by Merge.
@@ -342,7 +361,7 @@ void TestBackupRestoreResults() {
         QIQI_TEST_CHECK(unreadable_user && unwritable_frequency);
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.effects_possible);
-        QIQI_TEST_CHECK(result.stage == BackupRestoreStage::PhraseFrequency && result.error == E_FAIL);
+        QIQI_TEST_CHECK(result.stage == BackupRestoreStage::PhraseFrequency && sharing_failure(result.error));
         QIQI_TEST_CHECK(result.refresh_error == E_FAIL && result.operations_failed == 2);
         QIQI_TEST_CHECK(result.operations_succeeded == 0 && result.summary.phrase_freq_failed == 1);
         QIQI_TEST_CHECK(!has_word(DictEntrySource::PhraseFreq, L"新增词组"));

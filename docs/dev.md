@@ -208,7 +208,14 @@ create missing keys nor modify existing DACLs. Default initialization belongs
 to `LoadConfig`, not the registry-only read helpers.
 Backup-restore success regressions print the conflict mode and the existing
 structured result (stage, stored HRESULT, operation counts and refresh failure)
-before asserting success. Preserve the failed fixture and logs when an
+before asserting success. Phrase-order restore failures preserve the engine's
+channel creation/read/publish HRESULT instead of replacing it with `E_FAIL`;
+if channel creation and the existing direct-save fallback both fail, the
+original channel-creation error is retained. The boolean promotion API keeps its
+existing success/failure behavior. A private `writer.lock` sharing-denial
+regression verifies the exact HRESULT, partial-result counts and formatted
+message. Restore is not retried as a whole after partially applied changes.
+Preserve the failed fixture and logs when an
 intermittent failure cannot be reproduced; a later passing run is not a fix.
 
 ### TSF hang diagnostics

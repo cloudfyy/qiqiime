@@ -169,6 +169,10 @@ public:
         std::wstring_view code,
         std::wstring_view word,
         const std::filesystem::path& file_path = {});
+    HRESULT PromoteUserPhraseFrequencyResult(
+        std::wstring_view code,
+        std::wstring_view word,
+        const std::filesystem::path& file_path = {});
     bool RemovePhraseFrequency(
         std::wstring_view code,
         std::wstring_view word,
