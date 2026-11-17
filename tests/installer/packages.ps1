@@ -97,8 +97,8 @@ try {
                     Assert-True ($component.ComponentId -eq "{8E7B9D31-5A42-4C81-9F11-$guidPrefix$suffix}") "Component upgrade identity changed in $path"
                 }
                 $files = @(Read-MsiTable $database "File" @("File", "Component_", "FileName"))
-                $expectedFileCount = if ($arch -eq "x64") { 27 } else { 23 }
-                Assert-True ($files.Count -eq $expectedFileCount) "Unexpected payload count in $path"
+                $expectedFileCount = if ($arch -eq "x64") { 28 } else { 24 }
+                Assert-True ($files.Count -eq $expectedFileCount) "Unexpected payload count in ${path}: expected $expectedFileCount, found $($files.Count)."
                 $documentation = @($files | Where-Object { $_.Component_ -eq "CmpDocs" } | ForEach-Object { $_.FileName.Split('|')[-1] })
                 foreach ($name in @("LICENSE", "README.md", "README.en.md", "PRIVACY.md", "CODE_SIGNING.md", "THIRD_PARTY_NOTICES.md", "install.md", "log.md", "release-notes.md")) {
                     Assert-True ($name -in $documentation) "Missing documentation $name in $path"

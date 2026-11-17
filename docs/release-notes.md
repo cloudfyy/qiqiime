@@ -14,6 +14,7 @@
 - **隔离同名字典的回退缓存**：不能在源文件旁写缓存时，回退缓存名使用规范化源路径身份，避免不同目录中同名、同尺寸、同修改时间的字典串用缓存；复用已有哈希机制，旧的歧义缓存不再读取，不主动删除。
 - **扩展焦点测试隔离**：焦点指标测试与基准的配置写入同时隔离测试 EXE 和加载的 DLL，补充私有配置哨兵及异常展开回归；不依赖恢复真实用户偏好。
 - **重做 MSI 卸载向导**：配置、当前用户词典数据独立选择，默认均保留；提供卸载进度和完成结果。被映射的旧缓存安全隔离后登记重启删除，明确区分立即清理、待重启和未完成；安装前检查本产品上次卸载的待重启状态，重启后核验清理结果再放行。外部源词库、导出、备份及其他用户数据保留，三个随附默认词库仍随程序移除。该流程需新的 MSI，不会改变既有 `v1.1.1` 缓存包。
+- **修正 MSI 打包校验数量**：文件数量断言补计 JSON 库许可证，x64 为 28 项、x86 为 24 项；数量不符时同时报告预期值和实际值。此修正不改变 MSI 内容。
 - **新增离线 Shell 检查清单**：提供本地 HTML 测试页，支持草稿保存和 Markdown 报告导出，不上传测试结果；主题检查预期与候选窗及预览使用 App mode 的策略保持一致。检查清单不代表所有 Shell 宿主已经验收。
 
 ## 迁移与验证边界
@@ -66,6 +67,9 @@ tagged CI validation, and actually published download assets.
   dictionaries, exports, backups and other users are preserved; bundled payload
   dictionaries are still removed normally. This requires a new MSI and does not
   update the cached uninstall logic of existing `v1.1.1` packages.
+- **MSI payload validation:** count the JSON library license in the expected
+  payload (28 files for x64, 24 for x86) and report expected/actual counts on
+  mismatch. This correction does not change MSI contents.
 - **Offline Shell checklist:** a local HTML page saves drafts and exports
   Markdown reports without uploading results. Theme expectations match candidate/
   preview App-mode behavior; the checklist does not certify every host.
