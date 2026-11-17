@@ -20,7 +20,7 @@ namespace {
 bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
     GUITHREADINFO gti{};
     gti.cbSize = sizeof(gti);
-    if (::GetGUIThreadInfo(::GetCurrentThreadId(), &gti)) {
+    if (QueryLayoutGuiThreadInfo(gti)) {
         if (gti.hwndCaret && (gti.rcCaret.right > gti.rcCaret.left || gti.rcCaret.bottom > gti.rcCaret.top)) {
             POINT top_left{gti.rcCaret.left, gti.rcCaret.top};
             POINT bottom_right{gti.rcCaret.right, gti.rcCaret.bottom};

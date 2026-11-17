@@ -144,6 +144,11 @@ is not a pass. Private-session ETW tests do not replace global or real-host test
 
 Run the two architectures sequentially. GUI/TSF suites share desktop and
 single-instance state; avoid keyboard/mouse interaction during those tests.
+The layout fallback/DPI regression injects a thread-local `GUITHREADINFO`
+snapshot while retaining real host-window coordinate conversion and candidate
+position assertions. It must not create/destroy the desktop caret or assume
+`DestroyCaret` removes another thread's caret from a shared input queue.
+The override is restored on scope exit; normal layout queries still read Windows.
 `QiQiCompositionLifecycleTest` omits standalone UI suites and supplements,
 rather than replaces, the full `QiQiTsfUiTest`.
 

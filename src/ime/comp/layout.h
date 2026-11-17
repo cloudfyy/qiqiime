@@ -9,12 +9,32 @@
 #include <cstdint>
 #include <functional>
 #include <gsl/gsl>
+#include <optional>
 #include <wrl/client.h>
 #include <utility>
 
 namespace qiqi {
 
 class CandidateUI;
+
+namespace detail {
+inline std::optional<GUITHREADINFO>& LayoutGuiThreadInfoOverrideStorage() noexcept {
+    static thread_local std::optional<GUITHREADINFO> snapshot;
+    return snapshot;
+}
+} // namespace detail
+
+inline void SetLayoutGuiThreadInfoOverrideForTest(std::optional<GUITHREADINFO> snapshot) noexcept {
+    detail::LayoutGuiThreadInfoOverrideStorage() = snapshot;
+}
+
+inline BOOL QueryLayoutGuiThreadInfo(GUITHREADINFO& info) noexcept {
+    if (const auto& snapshot = detail::LayoutGuiThreadInfoOverrideStorage()) {
+        info = *snapshot;
+        return TRUE;
+    }
+    return ::GetGUIThreadInfo(::GetCurrentThreadId(), &info);
+}
 
 [[nodiscard]] inline RECT ComputeFallbackCaretRect(POINT origin, UINT dpi) noexcept {
     constexpr int kCaretWidth = 2;
