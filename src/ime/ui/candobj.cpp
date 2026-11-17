@@ -35,7 +35,13 @@ CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
 }
 
 CandidateUI::~CandidateUI() noexcept {
+    destroying_object_ = true;
     std::ignore = DestroyPopupWindow();
+}
+
+ComPtr<CandidateUI> CandidateUI::RetainForWindowOperation() noexcept {
+    if (destroying_object_) return {};
+    return ComPtr<CandidateUI>(this);
 }
 
 void CandidateUI::InitDirect2DAndDirectWrite() noexcept {
@@ -305,6 +311,7 @@ STDMETHODIMP CandidateUI::GetGUID(GUID* pguid) noexcept {
 }
 
 STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
+    const auto keep_alive = RetainForWindowOperation();
     const bool blocked = bShow && (!presentation_enabled_ || destroying_window_);
     if (blocked) bShow = FALSE;
     is_shown_ = bShow;
@@ -420,6 +427,7 @@ void CandidateUI::SetCandidates(std::wstring code,
 }
 
 void CandidateUI::MoveWindowTo(const RECT& text_rect, HWND host_window) {
+    const auto keep_alive = RetainForWindowOperation();
     const HWND owner = host_window ? ::GetAncestor(host_window, GA_ROOT) : nullptr;
     if (host_window && !owner) {
         QIQI_LOG_WARN("CandidateUI::MoveWindowTo host window has no root; using unowned popup");
@@ -445,6 +453,7 @@ void CandidateUI::SetLayout(CandidateLayout layout) {
 }
 
 void CandidateUI::SetDisplayPreferences(DisplayPreferences preferences) {
+    const auto keep_alive = RetainForWindowOperation();
     if (preferences_ == preferences) return;
     preferences_ = preferences;
     appearance_ = ResolveDisplayAppearance(preferences_, SystemThemeSource::App);
@@ -496,6 +505,7 @@ void CandidateUI::ScrollContent(int position) {
 }
 
 void CandidateUI::RefreshPopupLayout(UINT dpi) {
+    const auto keep_alive = RetainForWindowOperation();
     const POINT anchor = text_rect_
         ? POINT{text_rect_->left, text_rect_->bottom + kCaretGapPx}
         : popup_pos_;
@@ -592,6 +602,33 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
     return hwnd_.IsValid();
 }
 
+void CandidateUI::NotifyPopupWindowState(HWND window, bool destroyed) noexcept {
+    DWORD event = EVENT_OBJECT_IME_HIDE;
+    if (destroyed || !::IsWindowVisible(window)) {
+        if (!announced_popup_rect_) return;
+        announced_popup_rect_.reset();
+    } else {
+        RECT rect{};
+        if (!::GetWindowRect(window, &rect)) {
+            QIQI_LOG_ERROR("CandidateUI::NotifyPopupWindowState GetWindowRect failed (error={})",
+                           ::GetLastError());
+            return;
+        }
+        if (!announced_popup_rect_) {
+            event = EVENT_OBJECT_IME_SHOW;
+        } else if (!::EqualRect(&rect, &*announced_popup_rect_)) {
+            event = EVENT_OBJECT_IME_CHANGE;
+        } else {
+            return;
+        }
+        announced_popup_rect_ = rect;
+    }
+    // In-context WinEvent clients may reenter before NotifyWinEvent returns.
+    QIQI_LOG_CAT_DEBUG(log::Keyword::UI, "CandidateImeEvent(event=0x{:04x}, object={}, child={})",
+                       event, OBJID_CLIENT, CHILDID_SELF);
+    ::NotifyWinEvent(event, window, OBJID_CLIENT, CHILDID_SELF);
+}
+
 void CandidateUI::LogPopupVisibility() const noexcept {
     if (!log::ShouldLog(log::Level::debug) || !hwnd_) return;
     WINDOWINFO info{};
@@ -614,6 +651,7 @@ void CandidateUI::LogPopupVisibility() const noexcept {
 bool CandidateUI::DestroyPopupWindow() noexcept {
     if (destroying_window_) return true;
     if (!CheckWindowOwnerThread(hwnd_.Get(), "CandidateUI::DestroyPopupWindow")) return false;
+    const auto keep_alive = RetainForWindowOperation();
     destroying_window_ = true;
     const auto finish = gsl::finally([this]() noexcept { destroying_window_ = false; });
     is_shown_ = FALSE;
@@ -782,6 +820,7 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     if (!self || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
+    const auto keep_alive = self->RetainForWindowOperation();
 
     switch (msg) {
         case WM_NCDESTROY:
@@ -789,8 +828,14 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
                 std::ignore = self->hwnd_.Detach();
                 self->is_shown_ = FALSE;
                 self->popup_owner_ = nullptr;
+                self->NotifyPopupWindowState(hwnd, true);
             }
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+        case WM_WINDOWPOSCHANGED: {
+            const LRESULT result = ::DefWindowProcW(hwnd, msg, wparam, lparam);
+            if (self->hwnd_.Get() == hwnd) self->NotifyPopupWindowState(hwnd);
+            return result;
+        }
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
         case WM_LBUTTONDOWN:

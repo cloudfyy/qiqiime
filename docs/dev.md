@@ -171,6 +171,19 @@ snapshot while retaining real host-window coordinate conversion and candidate
 position assertions. It must not create/destroy the desktop caret or assume
 `DestroyCaret` removes another thread's caret from a shared input queue.
 The override is restored on scope exit; normal layout queries still read Windows.
+Candidate popup light-dismiss regressions use a scoped, current-process/thread
+WinEvent hook to check native IME show/hide/change ordering and HWND/object/child
+identifiers. They cover repeated calls, unchanged and hidden geometry, movement,
+layout/DPI resizing, externally destroyed windows, destructor teardown,
+presentation-disabled UI and production-presenter negotiation with a mocked
+UILess host. The hook is removed before its capture state dies.
+Synchronous teardown-subclass regressions release the last external UI owner
+during explicit HWND destruction and reenter display/show methods during the
+object destructor. They verify that callbacks cannot free an active cleanup
+scope or resurrect a destructing object, and that COM-object counts return to
+their baseline after native window teardown.
+Real SearchHost interaction and taskbar relocation still require host testing;
+these notifications do not change caret-coordinate or popup-placement policy.
 `QiQiCompositionLifecycleTest` omits standalone UI suites and supplements,
 rather than replaces, the full `QiQiTsfUiTest`.
 

@@ -110,6 +110,7 @@ private:
         bool enabled = true;
         bool centered = false;
     };
+    [[nodiscard]] ComPtr<CandidateUI> RetainForWindowOperation() noexcept;
     std::vector<PaintItem> BuildPaintItems() const;
     int ScaleByDpi(int px) const noexcept { return ScalePxByDpi(px, dpi_); }
     int ScaleText(int px) const noexcept { return ScaleDisplayPx(px, dpi_, preferences_.text_scale); }
@@ -126,6 +127,7 @@ private:
     void UpdateScrollBar() const noexcept;
     void OnLeftButtonDown(POINT pt) const;
     bool EnsurePopupWindow() noexcept;
+    void NotifyPopupWindowState(HWND window, bool destroyed = false) noexcept;
     void LogPopupVisibility() const noexcept;
     bool PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const;
     void PaintPopupContent(HDC hdc, const RECT& client_rect) const;
@@ -143,6 +145,7 @@ private:
     int popup_height_ = kPopupHeight;
     BOOL is_shown_ = FALSE;
     bool presentation_enabled_ = true;
+    bool destroying_object_ = false;
     bool destroying_window_ = false;
     HWND popup_owner_ = nullptr; // Borrowed; only hwnd_ owns a window.
     DWORD ui_element_id_ = TF_INVALID_UIELEMENTID;
@@ -176,6 +179,7 @@ private:
     size_t selected_in_page_ = 0;
     POINT popup_pos_{100, 100};
     std::optional<RECT> text_rect_;
+    std::optional<RECT> announced_popup_rect_;
     CandidateLayout layout_ = CandidateLayout::Horizontal;
     UiLanguage ui_language_ = UiLanguage::Auto;
     SelectCallback select_callback_;

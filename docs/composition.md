@@ -764,6 +764,27 @@ movement succeeded.
 The service/UI code remains responsible for moving the actual window.
 See [position diagnostics](log.md#candidate-positioning) for real-host analysis.
 
+**Native candidate popup light-dismiss notifications:**
+
+The popup reports actual visibility and geometry transitions through
+`NotifyWinEvent`, using its own HWND, `OBJID_CLIENT`, and `CHILDID_SELF`.
+`EVENT_OBJECT_IME_SHOW` follows becoming visible; `EVENT_OBJECT_IME_HIDE` follows
+hiding or native destruction; `EVENT_OBJECT_IME_CHANGE` follows a visible
+window's changed screen rectangle, including layout/DPI resizing. Repeated
+show/hide calls, unchanged geometry, and hidden-window staging do not duplicate
+events. A blocked or uncreated popup cannot announce visible UI in UILess mode.
+The published state is updated before notification because in-context listeners
+can reenter. Window operations share one COM-retention helper: explicit HWND
+teardown remains retained through native callbacks and cleanup-flag restoration,
+even if a callback releases the last external owner. Only entry into the C++
+destructor suppresses retention, preventing object resurrection during
+destructor-owned window teardown. The cleanup-flag scope ends before the final
+strong reference is released.
+
+These are IME-to-Shell notifications, not a replacement for TSF layout queries.
+Automated native-event coverage does not certify taskbar-search positioning
+after a taskbar move; that real-host scenario remains a separate validation.
+
 ## 7. Log Protocol and Troubleshooting
 
 Lifecycle records use the ordinary TraceLogging `message` string; they are not

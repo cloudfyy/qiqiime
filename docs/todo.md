@@ -282,17 +282,22 @@ status-bar/tooltip skin support require separate design approval.
   between lookup and window creation. Do not confuse Win32 `::GetFocus()`
   (HWND) with `ITfThreadMgr::GetFocus` (document manager).
 
-- [ ] Implement candidate-window integration with
+- [x] Implement candidate-window notifications for
   [light-dismiss surfaces](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-candidate-window-interaction-with-light-dismiss-surfaces).
-  Send the required WinEvents via `NotifyWinEvent` or an equivalent supported
-  mechanism: `EVENT_OBJECT_IME_SHOW` when the candidate UI becomes visible,
-  `EVENT_OBJECT_IME_HIDE` when it is hidden, and `EVENT_OBJECT_IME_CHANGE`
-  when it moves or changes size. Tie notifications to actual window transitions,
-  including DPI/layout changes and destruction; avoid duplicates and do not
-  announce visible UI in UILess mode or after failed window creation.
-  Validate HWND/object/child identifiers, event ordering, and lifetime with
-  scoped automated event hooks, then test interaction with real transient
-  surfaces. Hiding on focus loss alone does not satisfy this contract.
+  The native popup sends `EVENT_OBJECT_IME_SHOW`, `EVENT_OBJECT_IME_HIDE`, and
+  `EVENT_OBJECT_IME_CHANGE` through `NotifyWinEvent` with its HWND,
+  `OBJID_CLIENT`, and `CHILDID_SELF`. Notifications follow actual visibility and
+  geometry, including layout/DPI changes and native destruction; unchanged
+  state and hidden staging do not generate duplicates. Scoped native-event
+  regressions cover ordering, identifiers and teardown. UILess/blocked or
+  uncreated native UI does not announce a visible popup.
+
+- [ ] Validate candidate light-dismiss integration with real transient surfaces.
+  Recheck SearchHost while composing and moving the taskbar between bottom,
+  top, left and right, including mixed-DPI displays and without refocusing.
+  Record the IME WinEvents, TSF text rectangles and actual popup rectangles.
+  Do not treat the automated notification contract as proof that stale host
+  caret coordinates or taskbar-search placement are fixed.
 
 - [ ] Audit IME DPI scaling against the
   [desktop-application DPI requirements](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#dpi-scaling-support-for-desktop-applications).
