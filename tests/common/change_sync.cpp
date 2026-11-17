@@ -12,10 +12,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <format>
 #include <new>
 #include <span>
+#include <sstream>
 #include <string>
 #include <stdexcept>
 #include <vector>
@@ -23,7 +25,10 @@
 // Unlike abort, unwinding also removes the persistent test AppContainer profile.
 #undef QIQI_TEST_CHECK
 #define QIQI_TEST_CHECK(expr) do { \
-    if (!(expr)) throw std::runtime_error(std::format("{}:{}: {}", __FILE__, __LINE__, #expr)); \
+    if (!(expr)) { \
+        ::qiqi::test::ReportTestCleanupFailure(__FILE__, __LINE__, #expr); \
+        throw std::runtime_error(std::format("{}:{}: {}", __FILE__, __LINE__, #expr)); \
+    } \
 } while (false)
 
 namespace {
@@ -34,6 +39,64 @@ constexpr DWORD kTimeout = 15000;
 constexpr Source kSource{DataType::Dictionary,
     {0x815eaa57, 0x5676, 0x41fb, {0xaf, 0x9b, 0x41, 0x89, 0x11, 0x68, 0xc3, 0x17}}};
 constexpr std::array<uint8_t, 5> kPayload{'d', 'e', 'l', 't', 'a'};
+
+class TestStage final {
+public:
+    explicit TestStage(const char* name) noexcept : name_(name), started_(::GetTickCount64()) {
+        Write("CASE-BEGIN");
+    }
+    ~TestStage() noexcept { Write("CASE-END"); }
+    TestStage(const TestStage&) = delete;
+    TestStage& operator=(const TestStage&) = delete;
+    TestStage(TestStage&&) = delete;
+    TestStage& operator=(TestStage&&) = delete;
+
+private:
+    void Write(const char* event) const noexcept {
+        const ScopedLastErrorRestore preserve_error;
+        std::fprintf(stderr, "[%s] %s, pid=%lu, elapsed_ms=%llu, unwinding=%d\n",
+            event, name_, ::GetCurrentProcessId(), ::GetTickCount64() - started_,
+            std::uncaught_exceptions() != 0);
+        std::fflush(stderr);
+    }
+    const char* const name_;
+    const ULONGLONG started_;
+};
+
+void ReportDirectoryCleanupFailure(const std::filesystem::path& directory,
+                                   const std::error_code& error, FILE* output = stderr) {
+    std::fprintf(output,
+        "[CLEANUP-FAIL] pid=%lu, directory=\"%s\", category=%s, error=%d, unwinding=%d\n",
+        ::GetCurrentProcessId(), WideToUtf8(directory.native()).c_str(), error.category().name(), error.value(),
+        std::uncaught_exceptions() != 0);
+    std::fflush(output);
+
+    // Probe delete access without deleting or following reparse points; this is not the original error.
+    const auto probe = [output](const std::filesystem::path& path) {
+        const ScopedFileHandle handle(::CreateFileW(path.c_str(), DELETE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        const DWORD probe_error = handle ? ERROR_SUCCESS : ::GetLastError();
+        std::fprintf(output, "[CLEANUP-PROBE] pid=%lu, path=\"%s\", delete_open_error=%lu\n",
+            ::GetCurrentProcessId(), WideToUtf8(path.native()).c_str(), probe_error);
+        std::fflush(output);
+    };
+    probe(directory);
+    std::error_code enumeration_error;
+    std::filesystem::recursive_directory_iterator entry(directory, enumeration_error);
+    const std::filesystem::recursive_directory_iterator end;
+    while (!enumeration_error && entry != end) {
+        probe(entry->path());
+        entry.increment(enumeration_error);
+    }
+    if (enumeration_error) {
+        std::fprintf(output,
+            "[CLEANUP-ENUMERATION-FAIL] pid=%lu, directory=\"%s\", category=%s, error=%d\n",
+            ::GetCurrentProcessId(), WideToUtf8(directory.native()).c_str(), enumeration_error.category().name(),
+            enumeration_error.value());
+        std::fflush(output);
+    }
+}
 
 std::wstring GuidText() {
     GUID id{};
@@ -47,19 +110,30 @@ class Fixture final {
 public:
     explicit Fixture(std::wstring_view purpose) : directory(std::filesystem::temp_directory_path() /
         (L"QiQiSync-" + std::wstring(purpose) + L"-" + GuidText())) {
+        std::fprintf(stderr, "[FIXTURE-BEGIN] pid=%lu, directory=\"%s\"\n",
+            ::GetCurrentProcessId(), WideToUtf8(directory.native()).c_str());
+        std::fflush(stderr);
         QIQI_TEST_CHECK(Channel::Create(directory, kSource) == S_OK);
     }
 
     ~Fixture() {
         try {
+            std::fprintf(stderr, "[CLEANUP-BEGIN] pid=%lu, directory=\"%s\", unwinding=%d\n",
+                ::GetCurrentProcessId(), WideToUtf8(directory.native()).c_str(), std::uncaught_exceptions() != 0);
+            std::fflush(stderr);
             std::error_code error;
             std::filesystem::remove_all(directory, error);
             if (error) {
-                std::fprintf(stderr, "Test directory cleanup failed (error=%d)\n", error.value());
+                ReportDirectoryCleanupFailure(directory, error);
                 std::abort();
             }
+            std::fprintf(stderr, "[CLEANUP-END] pid=%lu, directory=\"%s\"\n",
+                ::GetCurrentProcessId(), WideToUtf8(directory.native()).c_str());
+            std::fflush(stderr);
         } catch (const std::bad_alloc&) {
-            std::fputs("Test directory cleanup ran out of memory.\n", stderr);
+            std::fprintf(stderr, "Test directory cleanup ran out of memory (pid=%lu, directory=\"%ls\").\n",
+                ::GetCurrentProcessId(), directory.c_str());
+            std::fflush(stderr);
             std::abort();
         }
     }
@@ -70,6 +144,67 @@ public:
     Fixture& operator=(Fixture&&) = delete;
     const std::filesystem::path directory;
 };
+
+void TestFailureDiagnostics() {
+    const TestStage stage(__func__);
+    std::ostringstream assertion_output;
+    bool logged_before_cleanup = false;
+    bool caught_assertion = false;
+    {
+        auto* const previous = std::cerr.rdbuf(assertion_output.rdbuf());
+        const auto restore = gsl::finally([&]() noexcept { std::cerr.rdbuf(previous); });
+        try {
+            const auto cleanup = gsl::finally([&]() noexcept {
+                logged_before_cleanup = std::uncaught_exceptions() != 0 &&
+                    assertion_output.view().find("[FAIL]") != std::string_view::npos;
+            });
+            QIQI_TEST_CHECK(false && "diagnostic assertion probe");
+        } catch (const std::runtime_error& error) {
+            caught_assertion = true;
+            QIQI_TEST_CHECK(std::string_view(error.what()).find(
+                "diagnostic assertion probe") != std::string_view::npos);
+        }
+    }
+    QIQI_TEST_CHECK(caught_assertion && logged_before_cleanup);
+    QIQI_TEST_CHECK(assertion_output.view().find(
+        "false && \"diagnostic assertion probe\"") != std::string_view::npos);
+
+    Fixture fixture(L"cleanup-diagnostics");
+    const auto locked_path = fixture.directory / L"held-open-\u6d4b\u8bd5";
+    ScopedFileHandle locked(::CreateFileW(locked_path.c_str(), GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+    QIQI_TEST_CHECK(locked);
+    std::error_code error;
+    std::filesystem::remove_all(fixture.directory, error);
+    QIQI_TEST_CHECK(error == std::error_code(ERROR_SHARING_VIOLATION, std::system_category()));
+    FILE* raw_output = nullptr;
+    QIQI_TEST_CHECK(::tmpfile_s(&raw_output) == 0);
+    const ScopedHandle<NullHandleTraits<FILE*, &std::fclose>> output(raw_output);
+    QIQI_TEST_CHECK(output);
+    ReportDirectoryCleanupFailure(fixture.directory, error, output.Get());
+    QIQI_TEST_CHECK(std::fseek(output.Get(), 0, SEEK_SET) == 0);
+    std::string diagnostic;
+    std::array<char, 1024> buffer{};
+    for (;;) {
+        const size_t count = std::fread(buffer.data(), 1, buffer.size(), output.Get());
+        diagnostic.append(buffer.data(), count);
+        if (count < buffer.size()) {
+            QIQI_TEST_CHECK(std::ferror(output.Get()) == 0 && std::feof(output.Get()) != 0);
+            break;
+        }
+    }
+    QIQI_TEST_CHECK(diagnostic.find("[CLEANUP-FAIL]") != std::string::npos);
+    QIQI_TEST_CHECK(diagnostic.find("error=32") != std::string::npos);
+    const auto expected_path = WideToUtf8(locked_path.native());
+    QIQI_TEST_CHECK(!expected_path.empty());
+    const auto path_position = diagnostic.find(expected_path);
+    QIQI_TEST_CHECK(path_position != std::string::npos);
+    const auto line_end = diagnostic.find('\n', path_position);
+    QIQI_TEST_CHECK(diagnostic.substr(path_position, line_end - path_position).find(
+        "delete_open_error=32") != std::string::npos);
+    QIQI_TEST_CHECK(std::filesystem::exists(locked_path));
+    locked.Reset();
+}
 
 struct AttributeListTraits {
     using HandleType = LPPROC_THREAD_ATTRIBUTE_LIST;
@@ -118,18 +253,24 @@ public:
         if (!created) std::cerr << "CreateProcessW error=" << ::GetLastError() << "\n";
         QIQI_TEST_CHECK(created);
         process_.Reset(process.hProcess);
+        pid_ = process.dwProcessId;
         const ScopedKernelHandle thread(process.hThread);
         bool assigned = false;
         const auto stop_unassigned = gsl::finally([&]() noexcept {
             if (!assigned && !::TerminateProcess(process_.Get(), ERROR_PROCESS_ABORTED)) {
                 const DWORD error = ::GetLastError();
-                std::fprintf(stderr, "Unassigned test child termination failed (error=%lu)\n", error);
+                std::fprintf(stderr, "Unassigned test child termination failed (pid=%lu, error=%lu)\n",
+                    pid_, error);
+                std::fflush(stderr);
             }
         });
         QIQI_TEST_CHECK(::AssignProcessToJobObject(job_.Get(), process_.Get()));
         assigned = true;
         QIQI_TEST_CHECK(::ResumeThread(thread.Get()) != MAXDWORD);
         write_.Reset();
+        std::fprintf(stderr, "[CHILD-START] parent_pid=%lu, pid=%lu, executable=\"%s\"\n",
+            ::GetCurrentProcessId(), pid_, WideToUtf8(executable.native()).c_str());
+        std::fflush(stderr);
     }
 
     Child(const Child&) = delete;
@@ -142,12 +283,19 @@ public:
         const DWORD wait = ::WaitForSingleObject(process_.Get(), kTimeout);
         if (wait != WAIT_OBJECT_0) {
             const DWORD error = wait == WAIT_FAILED ? ::GetLastError() : ERROR_TIMEOUT;
-            std::fprintf(stderr, "Test child cleanup failed (wait=%lu, error=%lu)\n", wait, error);
+            std::fprintf(stderr, "Test child cleanup failed (pid=%lu, wait=%lu, error=%lu, unwinding=%d)\n",
+                pid_, wait, error, std::uncaught_exceptions() != 0);
+            std::fflush(stderr);
             std::abort();
         }
+        std::fprintf(stderr, "[CHILD-CLEANUP-END] parent_pid=%lu, pid=%lu, unwinding=%d\n",
+            ::GetCurrentProcessId(), pid_, std::uncaught_exceptions() != 0);
+        std::fflush(stderr);
     }
 
     void AwaitReady() const {
+        std::fprintf(stderr, "[CHILD-READY-WAIT] parent_pid=%lu, pid=%lu\n", ::GetCurrentProcessId(), pid_);
+        std::fflush(stderr);
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kTimeout);
         DWORD available = 0;
         while (std::chrono::steady_clock::now() < deadline) {
@@ -165,16 +313,19 @@ public:
 
     void Join() const {
         const DWORD wait = ::WaitForSingleObject(process_.Get(), kTimeout);
-        const DWORD error = wait == WAIT_FAILED ? ::GetLastError() : ERROR_SUCCESS;
+        const DWORD error = wait == WAIT_FAILED ? ::GetLastError() :
+            wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : ERROR_SUCCESS;
         if (wait != WAIT_OBJECT_0) {
             std::cerr << std::format(
                 "[CHILD-WAIT] pid={}, wait={}, error={}, budget_ms={}\n",
-                ::GetProcessId(process_.Get()), wait, error, kTimeout);
+                pid_, wait, error, kTimeout);
         }
         QIQI_TEST_CHECK(wait == WAIT_OBJECT_0);
         DWORD code = MAXDWORD;
         QIQI_TEST_CHECK(::GetExitCodeProcess(process_.Get(), &code));
-        if (code) std::cerr << "Child exit code=" << code << "\n";
+        std::fprintf(stderr, "[CHILD-END] parent_pid=%lu, pid=%lu, exit_code=0x%08lX\n",
+            ::GetCurrentProcessId(), pid_, code);
+        std::fflush(stderr);
         QIQI_TEST_CHECK(code == 0);
     }
 
@@ -188,6 +339,7 @@ private:
     ScopedKernelHandle write_;
     ScopedKernelHandle job_;
     ScopedKernelHandle process_;
+    DWORD pid_ = 0;
 };
 
 template <typename Action>
@@ -202,8 +354,9 @@ void WithAppContainerProfile(const Action& action) {
         ::FreeSid(sid);
         const HRESULT hr = ::DeleteAppContainerProfile(name.c_str());
         if (FAILED(hr)) {
-            std::fprintf(stderr, "Test AppContainer profile cleanup failed (hr=0x%08lx)\n",
-                         gsl::narrow_cast<unsigned long>(hr));
+            std::fprintf(stderr, "Test AppContainer profile cleanup failed (pid=%lu, hr=0x%08lx)\n",
+                         ::GetCurrentProcessId(), gsl::narrow_cast<unsigned long>(hr));
+            std::fflush(stderr);
             std::abort();
         }
     });
@@ -232,6 +385,7 @@ void SendReady(HANDLE pipe) {
 }
 
 void ProbeReader(const std::filesystem::path& directory, const wchar_t* registry_subkey, HANDLE ready) {
+    const TestStage stage(__func__);
     RequireAppContainerToken();
     SetConfigRegistrySubKeyOverrideForTest(registry_subkey);
     QIQI_TEST_CHECK(::SetEnvironmentVariableW(L"LOCALAPPDATA", L"C:\\QiQiContainerPrivate"));
@@ -365,6 +519,7 @@ void ProbeReader(const std::filesystem::path& directory, const wchar_t* registry
 
 void HoldReader(const std::filesystem::path& directory, std::wstring_view mode,
                 HANDLE release, HANDLE ready) {
+    const TestStage stage(__func__);
     RequireAppContainerToken();
     QIQI_TEST_CHECK(mode == L"deny-write" || mode == L"shared-lock" || mode == L"deny-delete");
     const auto path = directory / (mode == L"deny-delete" ? L"journal.bin" : L"writer.lock");
@@ -381,6 +536,7 @@ void HoldReader(const std::filesystem::path& directory, std::wstring_view mode,
 }
 
 void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
+    const TestStage stage(__func__);
     Fixture fixture(L"appcontainer");
     const auto registry_subkey = L"Software\\QiQiIME_SharedPath_" + GuidText();
     SetConfigRegistrySubKeyOverrideForTest(registry_subkey.c_str());
@@ -388,7 +544,9 @@ void TestAppContainerTransport(const std::filesystem::path& peer = {}) {
         SetConfigRegistrySubKeyOverrideForTest(nullptr);
         const LSTATUS error = ::RegDeleteTreeW(HKEY_CURRENT_USER, registry_subkey.c_str());
         if (error != ERROR_SUCCESS) {
-            std::fprintf(stderr, "Test registry cleanup failed (error=%ld)\n", error);
+            std::fprintf(stderr, "Test registry cleanup failed (pid=%lu, error=%ld)\n",
+                ::GetCurrentProcessId(), error);
+            std::fflush(stderr);
             std::abort();
         }
     });
@@ -473,6 +631,7 @@ Version Current(const Channel& channel) {
 }
 
 void TestReaderInterferenceCharacterization(const std::filesystem::path& peer = {}) {
+    const TestStage stage(__func__);
     WithAppContainerProfile([&](SECURITY_CAPABILITIES& capabilities) {
         for (const std::wstring_view mode : {L"deny-write", L"shared-lock", L"deny-delete"}) {
             Fixture fixture(mode);
@@ -550,6 +709,7 @@ void TestReaderInterferenceCharacterization(const std::filesystem::path& peer = 
 }
 
 void TestJournal() {
+    const TestStage stage(__func__);
     Fixture fixture(L"journal");
     Channel channel(fixture.directory, kSource);
     QIQI_TEST_CHECK(Channel::Create(fixture.directory, kSource) == S_OK);
@@ -644,6 +804,7 @@ void TestJournal() {
 }
 
 void TestRetentionAndCorruption() {
+    const TestStage stage(__func__);
     Fixture fixture(L"retention");
     Channel channel(fixture.directory, kSource);
     const Version start = Current(channel);
@@ -722,6 +883,7 @@ void TestRetentionAndCorruption() {
 }
 
 void Writer(const std::filesystem::path& directory, size_t count, HANDLE start, HANDLE ready) {
+    const TestStage stage(__func__);
     Channel channel(directory, kSource);
     SendReady(ready);
     QIQI_TEST_CHECK(::WaitForSingleObject(start, kTimeout) == WAIT_OBJECT_0);
@@ -766,6 +928,7 @@ void Writer(const std::filesystem::path& directory, size_t count, HANDLE start, 
 }
 
 void TestConcurrentWriters(const std::filesystem::path& peer = {}) {
+    const TestStage stage(__func__);
     Fixture fixture(L"writers");
     Channel late(fixture.directory, kSource);
     const Version before = Current(late);
@@ -810,6 +973,7 @@ void TestConcurrentWriters(const std::filesystem::path& peer = {}) {
 }
 
 void CrashWriter(const std::filesystem::path& directory, HANDLE ready) {
+    const TestStage stage(__func__);
     Channel channel(directory, kSource);
     Version committed;
     QIQI_TEST_CHECK(channel.Publish(Current(channel), Operation::Add, kPayload, [&]() -> HRESULT {
@@ -821,6 +985,7 @@ void CrashWriter(const std::filesystem::path& directory, HANDLE ready) {
 }
 
 void TestWriterExit() {
+    const TestStage stage(__func__);
     Fixture fixture(L"exit");
     Channel channel(fixture.directory, kSource);
     const Version before = Current(channel);
@@ -846,6 +1011,7 @@ void TestWriterExit() {
 }
 
 void TestCommitFailure() {
+    const TestStage stage(__func__);
     Fixture fixture(L"commit-failure");
     Channel channel(fixture.directory, kSource);
     const Version before = Current(channel);
@@ -905,6 +1071,7 @@ int wmain(int argc, wchar_t** argv) try {
         CrashWriter(gsl::at(arguments, 2), ready.Get());
         return 0;
     }
+    TestFailureDiagnostics();
     TestJournal();
     TestRetentionAndCorruption();
     TestConcurrentWriters();

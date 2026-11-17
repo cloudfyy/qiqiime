@@ -152,6 +152,14 @@ ChangeSync concurrent-writer diagnostics retain completed writes, elapsed time,
 lock/revision conflict counts and the last HRESULT. The 30-writes-per-child
 assertions and original timeout budgets remain unchanged; a passing rerun does
 not explain an earlier deadline failure.
+ChangeSync assertions are flushed before exception unwinding so cleanup aborts
+cannot hide the original check. Stage, fixture and child-process markers include
+PIDs; cleanup failures report the directory, original error category/code and
+unwinding state, then probe delete access for remaining entries without deleting
+them. Probe errors are separate observations, not the original removal error or
+proof of which process owns a conflicting handle. Enumeration failures are also
+reported. Cleanup still fails immediately; no retries or timeout increases are
+introduced.
 The layout fallback/DPI regression injects a thread-local `GUITHREADINFO`
 snapshot while retaining real host-window coordinate conversion and candidate
 position assertions. It must not create/destroy the desktop caret or assume
