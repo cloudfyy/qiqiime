@@ -18,6 +18,7 @@
 - **修正卸载选择页的窗口归属**：关联同产品的可见 MSI 对话框，避免选择页被进度窗遮挡；使用正常模态关系，不设全局置顶。完成提示以十六进制显示 HRESULT。
 - **补充清理失败操作诊断**：持久化并显示首个失败操作及原始 HRESULT，兼容缺少该字段的旧记录；增加真实 ACL 校验逻辑及配置子键拒删的隔离回归，细分配置打开、链接检查、枚举和删除操作。
 - **修复词库管理器界面测试的配置污染**：显示测试的只读注册表键不再位于真实配置树下，改用独立的 GUID 测试键和受检清理。旧测试残留的只读子键未授予 DELETE 权限，会使卸载配置清理返回 `0x80070005`；本次修复防止新增残留，不自动接管或删除已有键，也不绕过卸载权限保护。
+- **完善并发与剪贴板测试诊断**：ChangeSync 子进程记录完成数量、耗时、争用次数和实际 HRESULT，不放宽写入数量或超时。剪贴板测试准备阶段复用有界争用处理，故意持锁的拒绝访问断言仍直接调用原 API，不通过重试掩盖；准备失败记录占用方 PID／线程，不读取剪贴板内容。
 - **隔离布局回退测试的系统光标状态**：DPI／定位回归使用线程局部 GUI 状态快照，避免把共享输入队列中其他窗口的 caret 当成测试失败。保留真实窗口坐标、候选位置及 TSF 优先级断言，不改变正常输入法的 Windows 状态查询。
 - **新增离线 Shell 检查清单**：提供本地 HTML 测试页，支持草稿保存和 Markdown 报告导出，不上传测试结果；主题检查预期与候选窗及预览使用 App mode 的策略保持一致。检查清单不代表所有 Shell 宿主已经验收。
 
@@ -86,6 +87,10 @@ tagged CI validation, and actually published download assets.
   An orphan from the old test lacks DELETE permission and caused uninstall
   cleanup to return `0x80070005`. This prevents new pollution; it does not
   silently take ownership of or remove existing keys or bypass cleanup security.
+- **Concurrency and clipboard test diagnostics:** report writer progress,
+  contention and actual HRESULTs without relaxing write counts or deadlines.
+  Clipboard setup reuses bounded contention handling; expected-denial probes
+  retain direct API calls. Failed setup reports holder PID/TID, never content.
 - **Isolated layout fallback regression:** inject thread-local GUI snapshots
   rather than assuming a shared input queue has no external caret. Real window
   coordinates, candidate positions and TSF precedence remain asserted; normal

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "test.h"
+#include "common/clipboard.h"
 
 namespace qiqi::monitor::tests {
 
@@ -82,25 +83,14 @@ void CheckComboEditFont(HWND combo, UINT dpi) {
 }
 
 std::wstring ReadClipboardText(HWND owner) {
-    for (int attempt = 0; attempt < 25; ++attempt) {
-        const ScopedClipboard clip(owner);
-        if (!clip.IsOpen()) {
-            const HWND clip_owner = ::GetOpenClipboardWindow();
-            const DWORD holder_tid = clip_owner ? ::GetWindowThreadProcessId(clip_owner, nullptr) : 0;
-            if (clip.Error() == ERROR_ACCESS_DENIED && holder_tid != ::GetCurrentThreadId()) {
-                ::Sleep(2);
-                continue;
-            }
-        }
-        QIQI_TEST_CHECK(clip.IsOpen());
-        const HANDLE data = ::GetClipboardData(CF_UNICODETEXT);
-        QIQI_TEST_CHECK(data != nullptr);
-        const ScopedGlobalLock<wchar_t> lock(data);
-        QIQI_TEST_CHECK(lock.IsValid());
-        return std::wstring(lock.Get());
-    }
-    QIQI_TEST_CHECK(false);
-    return {};
+    const qiqi::test::ScopedTestClipboard clip(owner);
+    if (!clip) qiqi::test::ReportClipboardSetupFailure(clip.Error());
+    QIQI_TEST_CHECK(clip.IsOpen());
+    const HANDLE data = ::GetClipboardData(CF_UNICODETEXT);
+    QIQI_TEST_CHECK(data != nullptr);
+    const ScopedGlobalLock<wchar_t> lock(data);
+    QIQI_TEST_CHECK(lock.IsValid());
+    return std::wstring(lock.Get());
 }
 
 void TestDarkHeader(HWND list) {

@@ -164,7 +164,14 @@ public:
     }
 
     void Join() const {
-        QIQI_TEST_CHECK(::WaitForSingleObject(process_.Get(), kTimeout) == WAIT_OBJECT_0);
+        const DWORD wait = ::WaitForSingleObject(process_.Get(), kTimeout);
+        const DWORD error = wait == WAIT_FAILED ? ::GetLastError() : ERROR_SUCCESS;
+        if (wait != WAIT_OBJECT_0) {
+            std::cerr << std::format(
+                "[CHILD-WAIT] pid={}, wait={}, error={}, budget_ms={}\n",
+                ::GetProcessId(process_.Get()), wait, error, kTimeout);
+        }
+        QIQI_TEST_CHECK(wait == WAIT_OBJECT_0);
         DWORD code = MAXDWORD;
         QIQI_TEST_CHECK(::GetExitCodeProcess(process_.Get(), &code));
         if (code) std::cerr << "Child exit code=" << code << "\n";
@@ -718,8 +725,12 @@ void Writer(const std::filesystem::path& directory, size_t count, HANDLE start, 
     Channel channel(directory, kSource);
     SendReady(ready);
     QIQI_TEST_CHECK(::WaitForSingleObject(start, kTimeout) == WAIT_OBJECT_0);
-    const auto deadline = ::GetTickCount64() + kTimeout;
+    const auto started = ::GetTickCount64();
+    const auto deadline = started + kTimeout;
     size_t done = 0;
+    size_t lock_conflicts = 0;
+    size_t revision_conflicts = 0;
+    HRESULT last_error = S_OK;
     while (done < count && ::GetTickCount64() < deadline) {
         Batch batch;
         HRESULT hr = channel.Read({}, batch);
@@ -733,11 +744,24 @@ void Writer(const std::filesystem::path& directory, size_t count, HANDLE start, 
                 return WriteFileAtomicallyResult(directory / L"counter", bytes);
             }, committed);
         }
+        last_error = hr;
         if (hr == S_OK) ++done;
-        else QIQI_TEST_CHECK(hr == HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION) ||
-                             hr == HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH));
+        else {
+            if (hr == HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION)) ++lock_conflicts;
+            else if (hr == HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH)) ++revision_conflicts;
+            else {
+                std::cerr << std::format("[WRITER-ERROR] pid={}, completed={}, HRESULT=0x{:08X}\n",
+                    ::GetCurrentProcessId(), done, gsl::narrow_cast<uint32_t>(hr));
+            }
+            QIQI_TEST_CHECK(hr == HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION) ||
+                            hr == HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH));
+        }
         ::SwitchToThread();
     }
+    std::cerr << std::format(
+        "[WRITER-END] pid={}, completed={}/{}, elapsed_ms={}, lock_conflicts={}, revision_conflicts={}, last_hresult=0x{:08X}\n",
+        ::GetCurrentProcessId(), done, count, ::GetTickCount64() - started,
+        lock_conflicts, revision_conflicts, gsl::narrow_cast<uint32_t>(last_error));
     QIQI_TEST_CHECK(done == count);
 }
 

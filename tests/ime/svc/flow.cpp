@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/svc/test.h"
+#include "common/clipboard.h"
 #include "common/logger.h"
 
 namespace qiqi::test::service_cases {
@@ -484,21 +485,29 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         const ScopedWindow lock_owner(::CreateWindowExW(
             0, L"STATIC", L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
         QIQI_TEST_CHECK(lock_owner);
-        std::optional<ScopedClipboard> blocking_clipboard;
+        std::optional<ScopedTestClipboard> blocking_clipboard;
         if (deny_open) {
             blocking_clipboard.emplace(nullptr);
+            if (!blocking_clipboard->IsOpen()) ReportClipboardSetupFailure(blocking_clipboard->Error());
             QIQI_TEST_CHECK(blocking_clipboard->IsOpen());
         }
         std::atomic<bool> ready{false};
         std::atomic<bool> release{false};
         DWORD open_error = ERROR_SUCCESS;
         std::jthread locker([&]() {
-            const ScopedClipboard clipboard(lock_owner.Get());
-            open_error = clipboard.Error();
-            ready.store(true);
-            ready.notify_all();
-            if (clipboard) {
-                release.wait(false);
+            const auto hold = [&](const auto& clipboard) {
+                open_error = clipboard.Error();
+                if (!deny_open && !clipboard) ReportClipboardSetupFailure(open_error);
+                ready.store(true);
+                ready.notify_all();
+                if (clipboard) release.wait(false);
+            };
+            if (deny_open) {
+                const ScopedClipboard clipboard(lock_owner.Get());
+                hold(clipboard);
+            } else {
+                const ScopedTestClipboard clipboard(lock_owner.Get());
+                hold(clipboard);
             }
         });
         const auto release_locker = gsl::finally([&]() noexcept {

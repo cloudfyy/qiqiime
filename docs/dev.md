@@ -144,6 +144,13 @@ is not a pass. Private-session ETW tests do not replace global or real-host test
 
 Run the two architectures sequentially. GUI/TSF suites share desktop and
 single-instance state; avoid keyboard/mouse interaction during those tests.
+Clipboard fixture acquisition shares a bounded access-denied contention helper
+with Log Monitor tests. Expected-denial probes still call `ScopedClipboard`
+directly without retry; exhausted setup logs the holder PID/TID without content.
+ChangeSync concurrent-writer diagnostics retain completed writes, elapsed time,
+lock/revision conflict counts and the last HRESULT. The 30-writes-per-child
+assertions and original timeout budgets remain unchanged; a passing rerun does
+not explain an earlier deadline failure.
 The layout fallback/DPI regression injects a thread-local `GUITHREADINFO`
 snapshot while retaining real host-window coordinate conversion and candidate
 position assertions. It must not create/destroy the desktop caret or assume
