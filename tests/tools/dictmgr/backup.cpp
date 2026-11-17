@@ -375,6 +375,11 @@ void TestBackupRestoreResults() {
         WriteRestoreBundle(backup, full_body +
             "[user_dict]\nabcd ^置顶词条 !屏蔽词条\n");
         const auto result = model.RestoreBackupBundle(backup, mode);
+        if (result.status != BackupRestoreStatus::Success || result.stage != BackupRestoreStage::Complete) {
+            std::wcerr << L"Backup restore fixture mode="
+                       << (mode == BackupConflictMode::Merge ? L"merge" : L"replace")
+                       << L": " << FormatBackupRestoreMessage(result, UiLanguage::EnUs) << std::endl;
+        }
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Success && result.stage == BackupRestoreStage::Complete);
         QIQI_TEST_CHECK(result.refresh_error == S_OK);
         QIQI_TEST_CHECK(result.error == S_OK && result.operations_failed == 0);

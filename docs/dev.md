@@ -178,6 +178,10 @@ after a bool-returning configuration API.
 The common configuration regression verifies that registry-only reads neither
 create missing keys nor modify existing DACLs. Default initialization belongs
 to `LoadConfig`, not the registry-only read helpers.
+Backup-restore success regressions print the conflict mode and the existing
+structured result (stage, stored HRESULT, operation counts and refresh failure)
+before asserting success. Preserve the failed fixture and logs when an
+intermittent failure cannot be reproduced; a later passing run is not a fix.
 
 ### TSF hang diagnostics
 
