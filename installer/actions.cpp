@@ -11,6 +11,7 @@
 #include <gsl/gsl>
 #include <array>
 #include <algorithm>
+#include <format>
 #include <new>
 #include <span>
 #include <system_error>
@@ -122,12 +123,18 @@ UINT Message(MSIHANDLE install, const wchar_t* property, UINT style, const Clean
     std::wstring text;
     const HRESULT hr = Property(install, property, text);
     if (FAILED(hr) || text.empty()) return ReportFailure(install, L"LocalizedMessage", FAILED(hr) ? hr : E_INVALIDARG);
-    PMSIHANDLE record = ::MsiCreateRecord(3);
+    PMSIHANDLE record = ::MsiCreateRecord(4);
     if (!record) return ReportFailure(install, L"MsiCreateRecord", E_OUTOFMEMORY);
     UINT error = ::MsiRecordSetStringW(record, 0, text.c_str());
     if (error == ERROR_SUCCESS) error = ::MsiRecordSetInteger(record, 1, gsl::narrow<int>(result.deleted));
     if (error == ERROR_SUCCESS) error = ::MsiRecordSetInteger(record, 2, gsl::narrow<int>(result.scheduled));
-    if (error == ERROR_SUCCESS) error = ::MsiRecordSetInteger(record, 3, result.error);
+    if (error == ERROR_SUCCESS) {
+        const auto code = std::format(L"0x{:08X}", gsl::narrow_cast<uint32_t>(result.error));
+        error = ::MsiRecordSetStringW(record, 3, code.c_str());
+    }
+    if (error == ERROR_SUCCESS) {
+        error = ::MsiRecordSetStringW(record, 4, CleanupOperationName(result.operation));
+    }
     if (error != ERROR_SUCCESS) return ReportFailure(install, L"MsiRecordSet", HRESULT_FROM_WIN32(error));
     const int delivered = ::MsiProcessMessage(install, static_cast<INSTALLMESSAGE>(style), record);
     return delivered == -1 ? ReportFailure(install, L"MsiProcessMessage", E_FAIL) : ERROR_SUCCESS;
@@ -249,8 +256,14 @@ extern "C" UINT __stdcall ChooseUninstallData(MSIHANDLE install) noexcept {
             if (SUCCEEDED(hr) && field.second->empty()) hr = E_INVALIDARG;
         }
         if (FAILED(hr)) return ReportFailure(install, L"WizardProperties", hr);
+        std::wstring product_name;
+        hr = Property(install, L"ProductName", product_name);
+        if (FAILED(hr) || product_name.empty()) {
+            return ReportFailure(install, L"WizardProductName", FAILED(hr) ? hr : E_INVALIDARG);
+        }
         bool accepted = false;
-        hr = ShowDataChoices(text, choices.configuration, choices.dictionaries, accepted);
+        hr = ShowDataChoices(text, choices.configuration, choices.dictionaries, accepted,
+            FindInstallerOwner(product_name.c_str()));
         if (FAILED(hr)) return ReportFailure(install, L"ShowDataChoices", hr);
         if (!accepted) return ERROR_INSTALL_USEREXIT;
         hr = SetProperty(install, L"QIQI_REMOVE_CONFIGURATION", choices.configuration ? L"1" : L"0");
@@ -302,7 +315,10 @@ extern "C" UINT __stdcall ExecuteCleanup(MSIHANDLE install) noexcept {
         hr = DetectProgramRestart(directory, program_restart);
         if (FAILED(hr)) return ReportFailure(install, L"PendingProgramFiles", hr);
         const CleanupResult result = PerformCleanup(request, program_restart);
-        return FAILED(result.error) ? ReportFailure(install, L"PersonalDataCleanup", result.error) : ERROR_SUCCESS;
+        if (FAILED(result.error)) {
+            return ReportFailure(install, CleanupOperationName(result.operation), result.error);
+        }
+        return ERROR_SUCCESS;
     });
 }
 
@@ -336,7 +352,10 @@ extern "C" UINT __stdcall CompleteUninstall(MSIHANDLE install) noexcept {
                 (FAILED(result.error) ? MB_ICONWARNING : MB_ICONINFORMATION) : INSTALLMESSAGE_INFO, result);
         if (delivered != ERROR_SUCCESS) return delivered;
         // This action runs after InstallFinalize: report partial cleanup without undoing program removal.
-        return FAILED(result.error) ? ReportFailure(install, L"IncompleteCleanup", result.error) : ERROR_SUCCESS;
+        if (FAILED(result.error)) {
+            return ReportFailure(install, CleanupOperationName(result.operation), result.error);
+        }
+        return ERROR_SUCCESS;
     });
 }
 

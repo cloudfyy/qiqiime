@@ -124,11 +124,22 @@ private:
 
 } // namespace
 
-HRESULT ShowDataChoices(const WizardText& text, bool& configuration, bool& dictionaries, bool& accepted) {
+HWND FindInstallerOwner(const wchar_t* product_name) noexcept {
+    if (!product_name || !*product_name) return nullptr;
+    HWND previous = nullptr;
+    while (const HWND candidate = ::FindWindowExW(nullptr, previous, L"MsiDialogCloseClass", product_name)) {
+        if (::IsWindowVisible(candidate)) return candidate;
+        previous = candidate;
+    }
+    return nullptr;
+}
+
+HRESULT ShowDataChoices(const WizardText& text, bool& configuration, bool& dictionaries,
+                        bool& accepted, HWND owner) {
     DialogState state{text, configuration, dictionaries};
     const DialogTemplate dialog(420, 238);
     ::SetLastError(ERROR_SUCCESS);
-    const INT_PTR result = ::DialogBoxIndirectParamW(nullptr, dialog.Get(), nullptr,
+    const INT_PTR result = ::DialogBoxIndirectParamW(nullptr, dialog.Get(), owner,
         DialogProcedure, reinterpret_cast<LPARAM>(&state));
     accepted = result == IDOK;
     if (FAILED(state.error)) return state.error;

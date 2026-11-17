@@ -458,6 +458,14 @@ The MSI embeds `QiQiIMEInstallerActions.dll`, not a runtime installation file.
 Interactive uninstall uses one native data-choice page for full/basic/reduced
 entry points, followed by MSI progress and a post-commit result. Configuration
 and managed dictionary data are independent default-retained choices.
+The native choice dialog uses the visible MSI dialog for the matching product
+as its owner when present, preserving modal disable/restore and owned-window
+stacking instead of forcing a permanently topmost window. Completion messages
+format HRESULTs in hexadecimal and include the first failing cleanup operation.
+The protected result stores this operation separately from the original HRESULT;
+older jobs without that field remain readable and report an unknown operation.
+Tests exercise the production ACL validator with private security descriptors,
+not only the sandbox path that deliberately bypasses machine ownership checks.
 The elevated commit backend validates the initiating `UserSID` and its registered
 profile instead of using SYSTEM's or the UAC administrator's Local AppData.
 It isolates mapped old caches before scheduling restart deletion and stores

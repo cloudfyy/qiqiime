@@ -21,6 +21,8 @@ struct WizardText {
     std::wstring cancel;
 };
 
-HRESULT ShowDataChoices(const WizardText& text, bool& configuration, bool& dictionaries, bool& accepted);
+HWND FindInstallerOwner(const wchar_t* product_name) noexcept;
+HRESULT ShowDataChoices(const WizardText& text, bool& configuration, bool& dictionaries,
+                        bool& accepted, HWND owner = nullptr);
 
 } // namespace qiqi::installer

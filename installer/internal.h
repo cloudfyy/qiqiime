@@ -27,4 +27,7 @@ HRESULT ReadCleanupResult(const CleanupRequest& request, CleanupResult& result,
     const CleanupSandbox& sandbox);
 HRESULT CheckPendingCleanup(PendingState& state, const CleanupSandbox& sandbox);
 
+// Shared with production; does not bypass ownership or DACL checks for tests.
+HRESULT ValidateQuarantineSecurityDescriptor(PSECURITY_DESCRIPTOR descriptor, bool volume_root) noexcept;
+
 } // namespace qiqi::installer::detail

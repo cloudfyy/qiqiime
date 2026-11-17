@@ -6,9 +6,11 @@
 #include "common/RAII.h"
 #include "common/test_support.h"
 
+#include <aclapi.h>
 #include <objbase.h>
 #include <sddl.h>
 #include <winioctl.h>
+#include <gsl/gsl>
 #include <algorithm>
 #include <array>
 #include <string_view>
@@ -172,7 +174,8 @@ struct Fixture {
         installer::CleanupResult result;
         QIQI_TEST_CHECK(backend::ReadCleanupResult(request, result, sandbox) == S_OK);
         QIQI_TEST_CHECK(result.error == expected.error && result.deleted == expected.deleted &&
-            result.scheduled == expected.scheduled && result.restart_required == expected.restart_required);
+            result.scheduled == expected.scheduled && result.restart_required == expected.restart_required &&
+            result.operation == expected.operation);
     }
 };
 
@@ -286,6 +289,9 @@ void SchedulerAndPersistenceFailures() {
         const auto request = fixture.Request(false, true);
         const auto result = backend::PerformCleanup(request, fixture.sandbox);
         QIQI_TEST_CHECK(result.error == failure && result.scheduled == 0 && !result.restart_required);
+        QIQI_TEST_CHECK(result.operation == (fail_persistence
+            ? installer::CleanupOperation::persist_pending_target
+            : installer::CleanupOperation::schedule_reboot_delete));
         fixture.Stored(request, result);
         if (fail_persistence) {
             QIQI_TEST_CHECK(fixture.scheduled.empty() && std::filesystem::exists(original));
@@ -299,6 +305,124 @@ void SchedulerAndPersistenceFailures() {
             fixture.Pending(installer::PendingState::clear);
         }
     }
+}
+
+void OperationDiagnostics() {
+    Fixture fixture{Guid()};
+    const auto outside = fixture.base / L"outside.txt";
+    Write(outside);
+    const auto linked = fixture.data / L"user_dict.txt";
+    QIQI_TEST_CHECK(::CreateHardLinkW(linked.c_str(), outside.c_str(), nullptr));
+    const auto cache = fixture.data / L"cache" / L"wubi86_jidian.qdict";
+    Mapping mapping(cache);
+    fixture.scheduler_error = HRESULT_FROM_WIN32(ERROR_PRIVILEGE_NOT_HELD);
+    const auto request = fixture.Request(false, true);
+    const auto result = backend::PerformCleanup(request, fixture.sandbox);
+    // A later failure must not replace the first HRESULT or its operation.
+    QIQI_TEST_CHECK(result.error == E_ACCESSDENIED &&
+        result.operation == installer::CleanupOperation::verify_source_file);
+    QIQI_TEST_CHECK(result.scheduled == 0 && fixture.scheduled.size() == 1 &&
+        std::filesystem::exists(linked) && !std::filesystem::exists(cache));
+    fixture.Stored(request, result);
+    const auto repeated = backend::PerformCleanup(request, fixture.sandbox);
+    QIQI_TEST_CHECK(repeated.error == result.error && repeated.operation == result.operation &&
+        fixture.scheduled.size() == 1);
+
+    ScopedRegKey job;
+    QIQI_TEST_CHECK(::RegOpenKeyExW(fixture.machine.Get(),
+        (L"State\\Jobs\\" + request.transaction).c_str(), 0, KEY_ALL_ACCESS, job.Put()) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(::RegDeleteValueW(job.Get(), L"Operation") == ERROR_SUCCESS);
+    installer::CleanupResult legacy;
+    QIQI_TEST_CHECK(backend::ReadCleanupResult(request, legacy, fixture.sandbox) == S_OK);
+    QIQI_TEST_CHECK(legacy.error == result.error && legacy.operation == installer::CleanupOperation::unknown);
+    Text(job.Get(), L"Operation", L"not a number");
+    QIQI_TEST_CHECK(backend::ReadCleanupResult(request, legacy, fixture.sandbox) ==
+        HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+    constexpr DWORD invalid = MAXDWORD;
+    QIQI_TEST_CHECK(::RegSetValueExW(job.Get(), L"Operation", 0, REG_DWORD,
+        reinterpret_cast<const BYTE*>(&invalid), sizeof(invalid)) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(backend::ReadCleanupResult(request, legacy, fixture.sandbox) ==
+        HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+}
+
+void QuarantineCreationDenied() {
+    Fixture fixture{Guid()};
+    const auto original = fixture.data / L"cache" / L"wubi86_jidian.qdict";
+    Mapping mapping(original);
+    auto directory = fixture.base.wstring();
+    PACL previous = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    QIQI_TEST_CHECK(::GetNamedSecurityInfoW(directory.data(), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION, nullptr, nullptr, &previous, nullptr, &descriptor) == ERROR_SUCCESS);
+    const ScopedLocalAlloc release_descriptor(descriptor);
+    PSID sid = nullptr;
+    QIQI_TEST_CHECK(::ConvertStringSidToSidW(fixture.sid.c_str(), &sid));
+    const ScopedLocalAlloc release_sid(sid);
+    EXPLICIT_ACCESSW denied{};
+    denied.grfAccessPermissions = FILE_ADD_SUBDIRECTORY;
+    denied.grfAccessMode = DENY_ACCESS;
+    denied.grfInheritance = NO_INHERITANCE;
+    denied.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    denied.Trustee.TrusteeType = TRUSTEE_IS_USER;
+    denied.Trustee.ptstrName = static_cast<LPWSTR>(sid);
+    PACL restricted = nullptr;
+    QIQI_TEST_CHECK(::SetEntriesInAclW(1, &denied, previous, &restricted) == ERROR_SUCCESS);
+    const ScopedLocalAlloc release_acl(restricted);
+    QIQI_TEST_CHECK(::SetNamedSecurityInfoW(directory.data(), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION, nullptr, nullptr, restricted, nullptr) == ERROR_SUCCESS);
+    const auto restore = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK_CLEANUP(::SetNamedSecurityInfoW(directory.data(), SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION, nullptr, nullptr, previous, nullptr) == ERROR_SUCCESS);
+    });
+
+    const auto request = fixture.Request(false, true);
+    const auto result = backend::PerformCleanup(request, fixture.sandbox);
+    QIQI_TEST_CHECK(result.error == E_ACCESSDENIED &&
+        result.operation == installer::CleanupOperation::create_quarantine_directory);
+    QIQI_TEST_CHECK(result.scheduled == 0 && !result.restart_required && fixture.scheduled.empty() &&
+        std::filesystem::exists(original) && !std::filesystem::exists(fixture.sandbox.quarantine_root));
+    fixture.Stored(request, result);
+    fixture.Pending(installer::PendingState::clear);
+}
+
+void ProductionQuarantineSecurity() {
+    constexpr std::wstring_view machine =
+        L"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
+    const auto validate = [](const std::wstring& sddl, bool volume_root, HRESULT expected) {
+        PSECURITY_DESCRIPTOR descriptor = nullptr;
+        QIQI_TEST_CHECK(::ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.c_str(), SDDL_REVISION_1, &descriptor, nullptr));
+        const ScopedLocalAlloc release(descriptor);
+        QIQI_TEST_CHECK(backend::ValidateQuarantineSecurityDescriptor(descriptor, volume_root) == expected);
+    };
+    validate(std::wstring(machine) + L"(A;CI;0x001200A0;;;BU)", false, S_OK);
+    validate(std::wstring(machine) + L"(A;CI;0x001200A1;;;BU)", false, E_ACCESSDENIED);
+    validate(L"O:BAG:BAD:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", false, E_ACCESSDENIED);
+    validate(std::wstring(machine) + L"(A;;0x4;;;AU)(A;OICIIO;FA;;;AU)", true, S_OK);
+    validate(std::wstring(machine) + L"(A;;0x40;;;AU)", true, E_ACCESSDENIED);
+    validate(L"O:S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
+        L"D:PAI(A;;LC;;;AU)(A;OICIIO;SDGXGWGR;;;AU)(A;OICI;FA;;;SY)"
+        L"(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)"
+        L"(A;;0x1000a1;;;S-1-15-3-1)", true, S_OK);
+
+    Fixture fixture{Guid()};
+    const auto path = fixture.base / L"UntrustedQuarantine";
+    const std::wstring security = L"O:" + fixture.sid + L"D:P(A;;FA;;;" + fixture.sid + L")";
+    PSECURITY_DESCRIPTOR supplied = nullptr;
+    QIQI_TEST_CHECK(::ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        security.c_str(), SDDL_REVISION_1, &supplied, nullptr));
+    const ScopedLocalAlloc release_supplied(supplied);
+    SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), supplied, FALSE};
+    QIQI_TEST_CHECK(::CreateDirectoryW(path.c_str(), &attributes));
+    const ScopedFileHandle directory(::CreateFileW(path.c_str(), READ_CONTROL, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    QIQI_TEST_CHECK(directory);
+    PSECURITY_DESCRIPTOR actual = nullptr;
+    QIQI_TEST_CHECK(::GetSecurityInfo(directory.Get(), SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, nullptr, nullptr, &actual) == ERROR_SUCCESS);
+    const ScopedLocalAlloc release_actual(actual);
+    QIQI_TEST_CHECK(backend::ValidateQuarantineSecurityDescriptor(actual, false) == E_ACCESSDENIED);
 }
 
 void UnsafeFilesAndPaths() {
@@ -416,6 +540,7 @@ void UnsafeQuarantineParents() {
         Junction(link, outside);
         const auto result = backend::PerformCleanup(request, fixture.sandbox);
         QIQI_TEST_CHECK(result.error == E_ACCESSDENIED && result.scheduled == 0 && !result.restart_required);
+        QIQI_TEST_CHECK(result.operation == installer::CleanupOperation::verify_quarantine_directory);
         QIQI_TEST_CHECK(fixture.scheduled.empty() && std::filesystem::exists(original));
         QIQI_TEST_CHECK(std::filesystem::exists(outside / L"keep.txt"));
         fixture.Stored(request, result);
@@ -466,6 +591,9 @@ void RunInstallerCleanupTestsImpl() {
     MappedCacheAndBoots();
     BootOnlyRestart();
     SchedulerAndPersistenceFailures();
+    OperationDiagnostics();
+    QuarantineCreationDenied();
+    ProductionQuarantineSecurity();
     UnsafeFilesAndPaths();
     UnsafeQuarantineParents();
     TamperedStateAndReadErrors();

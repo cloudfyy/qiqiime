@@ -21,7 +21,7 @@
   <String Id="ContinueButton" Value="继续卸载" />
   <String Id="UninstallComplete" Value="卸载完成。未选择删除的个人数据已保留。已立即清理 [1] 项；无需重启清理。" />
   <String Id="UninstallRestart" Value="程序已卸载。已清理 [1] 项，需要重启删除 [2] 项；系统文件也可能需要重启释放。请保存工作并选择 Windows“重启”。重启并完成后才能重新安装奇奇五笔。" />
-  <String Id="UninstallIncomplete" Value="程序卸载已提交，但个人数据清理未全部完成。已删除[1] 项，需要重启删除 [2] 项，错误 HRESULT：[3]。" />
+  <String Id="UninstallIncomplete" Value="程序卸载已提交，但个人数据清理未全部完成。已删除 [1] 项，需要重启删除 [2] 项；失败操作：[4]，HRESULT：[3]。请保留 MSI 日志，不要把此结果当作全部数据已删除。" />
   <String Id="UninstallFailed" Value="卸载未能正常完成。请保留 MSI 日志排查；程序文件可能已回滚，但已经删除的个人数据不保证恢复。不要直接删除安装目录。" />
   <String Id="InstallRestart" Value="奇奇五笔上次卸载的清理仍等待本次系统启动结束。请保存工作并使用 Windows“重启”，完成后再安装；" />
   <String Id="InstallIncomplete" Value="无法确认奇奇五笔上次卸载的数据清理已完成，暂不能安装。可能有重启后仍残留的待删文件，或无法读取清理状态。请保留日志并排查权限或残留，不要反复重启或直接删除状态记录。" />

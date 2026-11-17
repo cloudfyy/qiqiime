@@ -183,12 +183,16 @@ struct DialogDriver {
     bool dictionaries;
     bool cancel;
     bool clicked = false;
+    HWND owner = nullptr;
 };
 
 BOOL CALLBACK DriveDialog(HWND window, LPARAM parameter) {
     using namespace qiqi::installer;
     auto& driver = *reinterpret_cast<DialogDriver*>(parameter);
     if (!::GetDlgItem(window, kConfigurationControl) || !::GetDlgItem(window, kDictionariesControl)) return TRUE;
+    QIQI_TEST_CHECK(::GetWindow(window, GW_OWNER) == driver.owner);
+    if (driver.owner) QIQI_TEST_CHECK(!::IsWindowEnabled(driver.owner));
+    QIQI_TEST_CHECK((::GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) == 0);
     QIQI_TEST_CHECK(::IsDlgButtonChecked(window, kConfigurationControl) == BST_UNCHECKED);
     QIQI_TEST_CHECK(::IsDlgButtonChecked(window, kDictionariesControl) == BST_UNCHECKED);
     if (driver.configuration) ::SendDlgItemMessageW(window, kConfigurationControl, BM_CLICK, 0, 0);
@@ -199,11 +203,12 @@ BOOL CALLBACK DriveDialog(HWND window, LPARAM parameter) {
 }
 
 template<typename Show>
-void WithDialogDriver(unsigned int choice, Show&& show) {
+void WithDialogDriver(unsigned int choice, Show&& show, HWND owner = nullptr) {
     const DWORD thread = ::GetCurrentThreadId();
     std::atomic<bool> stop{false};
-    const std::jthread automation([&stop, thread, choice]() {
-        DialogDriver driver{(choice & 1u) != 0, (choice & 2u) != 0, choice == 4u};
+    const bool owner_enabled = !owner || ::IsWindowEnabled(owner) != FALSE;
+    const std::jthread automation([&stop, thread, choice, owner]() {
+        DialogDriver driver{(choice & 1u) != 0, (choice & 2u) != 0, choice == 4u, false, owner};
         for (unsigned int attempt = 0; attempt < 1000 && !stop.load() && !driver.clicked; ++attempt) {
             ::EnumThreadWindows(thread, DriveDialog, reinterpret_cast<LPARAM>(&driver));
             ::Sleep(10);
@@ -212,6 +217,7 @@ void WithDialogDriver(unsigned int choice, Show&& show) {
     });
     show();
     stop.store(true);
+    if (owner) QIQI_TEST_CHECK((::IsWindowEnabled(owner) != FALSE) == owner_enabled);
 }
 
 void TestWizard() {
@@ -235,6 +241,42 @@ void TestWizard() {
             QIQI_TEST_CHECK(configuration == ((choice & 1u) != 0) && dictionaries == ((choice & 2u) != 0));
         }
     }
+}
+
+void TestWizardOwnership() {
+    using namespace qiqi::installer;
+    constexpr const wchar_t* product = L"QiQiIME synthetic installer ownership";
+    WNDCLASSW type{};
+    type.lpfnWndProc = ::DefWindowProcW;
+    type.hInstance = ::GetModuleHandleW(nullptr);
+    type.lpszClassName = L"MsiDialogCloseClass";
+    const ATOM atom = ::RegisterClassW(&type);
+    QIQI_TEST_CHECK(atom);
+    const auto unregister = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK_CLEANUP(::UnregisterClassW(type.lpszClassName, type.hInstance));
+    });
+    const qiqi::ScopedWindow unrelated(::CreateWindowExW(0, type.lpszClassName,
+        L"Another product", WS_POPUP | WS_VISIBLE, 0, 0, 100, 100, nullptr, nullptr, type.hInstance, nullptr));
+    const qiqi::ScopedWindow owner(::CreateWindowExW(0, type.lpszClassName,
+        product, WS_POPUP | WS_VISIBLE, 0, 0, 200, 150, nullptr, nullptr, type.hInstance, nullptr));
+    QIQI_TEST_CHECK(unrelated && owner);
+    QIQI_TEST_CHECK(FindInstallerOwner(product) == owner.Get());
+    QIQI_TEST_CHECK(!FindInstallerOwner(L"Missing installer") && !FindInstallerOwner(L""));
+    const WizardText text{L"Wizard ownership", L"Select data", L"Settings", L"Dictionaries",
+        L"Back up first.", L"Start", L"Cancel"};
+    for (const bool initially_enabled : {false, true}) {
+        ::EnableWindow(owner.Get(), initially_enabled);
+        for (const unsigned int choice : {0u, 4u}) {
+            bool configuration = false, dictionaries = false, accepted = false;
+            WithDialogDriver(choice, [&]() {
+                QIQI_TEST_CHECK(ShowDataChoices(text, configuration, dictionaries, accepted,
+                    FindInstallerOwner(product)) == S_OK);
+            }, owner.Get());
+            QIQI_TEST_CHECK(accepted == (choice != 4u) && ::IsWindowEnabled(unrelated.Get()));
+        }
+    }
+    ::ShowWindow(owner.Get(), SW_HIDE);
+    QIQI_TEST_CHECK(!FindInstallerOwner(product));
 }
 
 void SetWizardProperties(MSIHANDLE install, const wchar_t* title) {
@@ -328,6 +370,7 @@ int wmain() {
     const auto prompts = ui.prompts;
     QIQI_TEST_CHECK(ChooseUninstallData(0) == ERROR_INSTALL_FAILURE && ui.prompts == prompts);
     TestWizard();
+    TestWizardOwnership();
     TestWizardAction(install);
     TestExportedWizardAction(install);
     RunInstallerCleanupTests();

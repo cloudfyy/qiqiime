@@ -47,8 +47,16 @@ constexpr bool Missing(DWORD error) noexcept {
 
 HRESULT LastError() noexcept { return HRESULT_FROM_WIN32(::GetLastError()); }
 
-void Record(HRESULT error, CleanupResult& result) noexcept {
-    if (FAILED(error) && SUCCEEDED(result.error)) result.error = error;
+void Record(HRESULT error, CleanupResult& result,
+    CleanupOperation operation) noexcept {
+    if (FAILED(error) && SUCCEEDED(result.error)) {
+        result.error = error;
+        result.operation = operation;
+    }
+}
+
+void Trace(CleanupOperation* operation, CleanupOperation current) noexcept {
+    if (operation) *operation = current;
 }
 
 bool ValidGuid(const wchar_t* text) noexcept {
@@ -213,6 +221,8 @@ HRESULT SaveResult(HKEY job, const CleanupResult& result) noexcept {
     if (FAILED(error)) return error;
     error = SetNumber(job, L"Error", gsl::narrow_cast<DWORD>(result.error));
     if (FAILED(error)) return error;
+    error = SetNumber(job, L"Operation", static_cast<DWORD>(result.operation));
+    if (FAILED(error)) return error;
     error = SetNumber(job, L"Deleted", result.deleted);
     if (FAILED(error)) return error;
     error = SetNumber(job, L"Scheduled", result.scheduled);
@@ -231,7 +241,7 @@ HRESULT LoadResult(HKEY job, CleanupResult& result) noexcept {
     error = ReadNumber(job, L"Complete", complete);
     if (FAILED(error)) return error;
     if (complete != 1) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    DWORD stored_error = 0, deleted = 0, scheduled = 0, restart = 0;
+    DWORD stored_error = 0, deleted = 0, scheduled = 0, restart = 0, operation = 0;
     error = ReadNumber(job, L"Error", stored_error);
     if (FAILED(error)) return error;
     error = ReadNumber(job, L"Deleted", deleted);
@@ -240,11 +250,18 @@ HRESULT LoadResult(HKEY job, CleanupResult& result) noexcept {
     if (FAILED(error)) return error;
     error = ReadNumber(job, L"RestartRequired", restart);
     if (FAILED(error)) return error;
+    error = ReadNumber(job, L"Operation", operation);
+    // Older version-1 jobs did not persist an operation.
+    if (error == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) operation = 0;
+    else if (FAILED(error)) return error;
     if (restart > 1 || (scheduled != 0 && restart == 0) ||
+        operation > static_cast<DWORD>(CleanupOperation::generate_quarantine_name) ||
+        (stored_error == S_OK && operation != 0) ||
         (stored_error != S_OK && SUCCEEDED(gsl::narrow_cast<HRESULT>(stored_error)))) {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    result = {gsl::narrow_cast<HRESULT>(stored_error), deleted, scheduled, restart != 0};
+    result = {gsl::narrow_cast<HRESULT>(stored_error), deleted, scheduled, restart != 0,
+        static_cast<CleanupOperation>(operation)};
     return S_OK;
 }
 
@@ -326,7 +343,8 @@ struct PinnedDirectory {
 };
 
 HRESULT PinDirectory(const std::filesystem::path& path, const std::filesystem::path& profile,
-    PSID user, PinnedDirectory& pinned) {
+    PSID user, PinnedDirectory& pinned, CleanupOperation* operation = nullptr) {
+    Trace(operation, CleanupOperation::open_source_directory);
     const std::wstring text = path.wstring();
     if (!ValidLocalPath(text)) return E_INVALIDARG;
     pinned.path = path;
@@ -340,11 +358,13 @@ HRESULT PinDirectory(const std::filesystem::path& path, const std::filesystem::p
             const DWORD error = ::GetLastError();
             return Missing(error) ? S_FALSE : HRESULT_FROM_WIN32(error);
         }
+        Trace(operation, CleanupOperation::verify_source_directory);
         const HRESULT verified = VerifyFile(directory.Get(), true,
             part.size() >= profile.wstring().size() ? user : nullptr);
         if (FAILED(verified)) return verified;
         pinned.handles.push_back(std::move(directory));
         if (end == text.size()) break;
+        Trace(operation, CleanupOperation::open_source_directory);
         end = text.find(L'\\', end + 1);
         if (end == std::wstring::npos) end = text.size();
     }
@@ -359,16 +379,14 @@ bool ValidVolumeName(const std::wstring& text) noexcept {
     return ValidGuid(guid.data());
 }
 
-HRESULT QuarantineSecurity(HANDLE directory, const Context& context, bool volume_root) noexcept {
-    if (context.sandbox) return S_OK;
+HRESULT ValidateQuarantineDescriptor(PSECURITY_DESCRIPTOR descriptor, bool volume_root) noexcept {
+    if (!descriptor || !::IsValidSecurityDescriptor(descriptor)) return E_ACCESSDENIED;
     PSID owner = nullptr;
     PACL acl = nullptr;
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    const DWORD status = ::GetSecurityInfo(directory, SE_FILE_OBJECT,
-        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &owner, nullptr, &acl, nullptr, &descriptor);
-    const ScopedLocalAlloc release(descriptor);
-    if (status != ERROR_SUCCESS) return HRESULT_FROM_WIN32(status);
-    if (!acl || !::IsValidAcl(acl)) return E_ACCESSDENIED;
+    BOOL present = FALSE, defaulted = FALSE;
+    if (!::GetSecurityDescriptorOwner(descriptor, &owner, &defaulted)) return LastError();
+    if (!::GetSecurityDescriptorDacl(descriptor, &present, &acl, &defaulted)) return LastError();
+    if (!present || !acl || !::IsValidAcl(acl)) return E_ACCESSDENIED;
     ScopedLocalAlloc servicing;
     if (volume_root) {
         PSID sid = nullptr;
@@ -409,6 +427,16 @@ HRESULT QuarantineSecurity(HANDLE directory, const Context& context, bool volume
     return S_OK;
 }
 
+HRESULT QuarantineSecurity(HANDLE directory, const Context& context, bool volume_root) noexcept {
+    if (context.sandbox) return S_OK;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const DWORD status = ::GetSecurityInfo(directory, SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, nullptr, &descriptor);
+    const ScopedLocalAlloc release(descriptor);
+    return status == ERROR_SUCCESS
+        ? ValidateQuarantineDescriptor(descriptor, volume_root) : HRESULT_FROM_WIN32(status);
+}
+
 struct Quarantine {
     std::filesystem::path root;
     std::filesystem::path parent;
@@ -421,7 +449,8 @@ struct Quarantine {
 };
 
 HRESULT LocateQuarantine(const CleanupRequest& request, const std::filesystem::path& profile,
-    const Context& context, Quarantine& quarantine) {
+    const Context& context, Quarantine& quarantine, CleanupOperation* operation = nullptr) {
+    Trace(operation, CleanupOperation::open_volume_root);
     const auto volume_root = profile.root_path();
     if (!ValidLocalPath(profile.wstring()) || volume_root.wstring().size() != 3) return E_INVALIDARG;
     quarantine.volume.Reset(::CreateFileW(NativePath(volume_root).c_str(),
@@ -429,12 +458,15 @@ HRESULT LocateQuarantine(const CleanupRequest& request, const std::filesystem::p
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     if (!quarantine.volume) return LastError();
     BY_HANDLE_FILE_INFORMATION identity{};
+    Trace(operation, CleanupOperation::verify_volume_root);
     HRESULT error = VerifyFile(quarantine.volume.Get(), true, nullptr, &identity);
     if (FAILED(error)) return error;
+    Trace(operation, CleanupOperation::verify_volume_security);
     error = QuarantineSecurity(quarantine.volume.Get(), context, true);
     if (FAILED(error)) return error;
     quarantine.serial = identity.dwVolumeSerialNumber;
     std::array<wchar_t, MAX_PATH> name{};
+    Trace(operation, CleanupOperation::read_volume_name);
     if (!::GetVolumeNameForVolumeMountPointW(volume_root.c_str(), name.data(),
         gsl::narrow_cast<DWORD>(name.size()))) return LastError();
     quarantine.volume_name = name.data();
@@ -455,8 +487,9 @@ HRESULT LocateQuarantine(const CleanupRequest& request, const std::filesystem::p
 }
 
 HRESULT PinQuarantineDirectory(const std::filesystem::path& path, const Context& context,
-    DWORD volume_serial, bool create, PinnedDirectory& pins) {
+    DWORD volume_serial, bool create, PinnedDirectory& pins, CleanupOperation* operation) {
     if (create) {
+        Trace(operation, CleanupOperation::create_quarantine_directory);
         PSECURITY_DESCRIPTOR descriptor = nullptr;
         if (!context.sandbox &&
             !::ConvertStringSecurityDescriptorToSecurityDescriptorW(kQuarantineSecurity.data(),
@@ -468,18 +501,25 @@ HRESULT PinQuarantineDirectory(const std::filesystem::path& path, const Context&
             if (error != ERROR_ALREADY_EXISTS) return HRESULT_FROM_WIN32(error);
         }
     }
-    const HRESULT opened = PinDirectory(path, {}, nullptr, pins);
+    CleanupOperation pin_operation = CleanupOperation::unknown;
+    const HRESULT opened = PinDirectory(path, {}, nullptr, pins, &pin_operation);
+    Trace(operation, pin_operation == CleanupOperation::verify_source_directory
+        ? CleanupOperation::verify_quarantine_directory : CleanupOperation::open_quarantine_directory);
     if (opened != S_OK) return opened;
+    Trace(operation, CleanupOperation::verify_quarantine_directory);
     BY_HANDLE_FILE_INFORMATION identity{};
     if (!::GetFileInformationByHandle(pins.handles.back().Get(), &identity)) return LastError();
     if (identity.dwVolumeSerialNumber != volume_serial) return HRESULT_FROM_WIN32(ERROR_NOT_SAME_DEVICE);
     return QuarantineSecurity(pins.handles.back().Get(), context, false);
 }
 
-HRESULT PinQuarantine(Quarantine& quarantine, const Context& context, bool create) {
-    const HRESULT error = PinQuarantineDirectory(quarantine.root, context, quarantine.serial, create, quarantine.root_pins);
+HRESULT PinQuarantine(Quarantine& quarantine, const Context& context, bool create,
+    CleanupOperation* operation = nullptr) {
+    const HRESULT error = PinQuarantineDirectory(quarantine.root, context, quarantine.serial, create,
+        quarantine.root_pins, operation);
     if (error != S_OK) return error;
-    return PinQuarantineDirectory(quarantine.parent, context, quarantine.serial, create, quarantine.parent_pins);
+    return PinQuarantineDirectory(quarantine.parent, context, quarantine.serial, create,
+        quarantine.parent_pins, operation);
 }
 
 HRESULT BootToken(const Context& context, HKEY root, bool create, std::wstring& token) {
@@ -526,25 +566,31 @@ struct Operation {
     std::filesystem::path profile;
     PSID user;
     CleanupResult& result;
+    CleanupOperation current = CleanupOperation::unknown;
 };
 
 HRESULT DeferFile(Operation& operation, HANDLE file, const BY_HANDLE_FILE_INFORMATION& identity) {
     if (operation.context.sandbox && !operation.context.sandbox->schedule) return E_INVALIDARG;
     Quarantine quarantine;
-    HRESULT error = LocateQuarantine(operation.request, operation.profile, operation.context, quarantine);
+    HRESULT error = LocateQuarantine(operation.request, operation.profile, operation.context, quarantine,
+        &operation.current);
     if (FAILED(error)) return error;
+    operation.current = CleanupOperation::verify_volume_root;
     if (quarantine.serial != identity.dwVolumeSerialNumber) return HRESULT_FROM_WIN32(ERROR_NOT_SAME_DEVICE);
-    error = PinQuarantine(quarantine, operation.context, true);
+    error = PinQuarantine(quarantine, operation.context, true, &operation.current);
     if (error != S_OK) return error == S_FALSE ? HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND) : error;
     std::wstring id;
+    operation.current = CleanupOperation::generate_quarantine_name;
     error = NewGuid(id);
     if (FAILED(error)) return error;
     const std::wstring leaf = id + L".pending";
     const auto target = quarantine.parent / leaf;
     const auto scheduled_target = quarantine.scheduled_parent / leaf;
     std::wstring boot;
+    operation.current = CleanupOperation::boot_session;
     error = BootToken(operation.context, operation.root, true, boot);
     if (FAILED(error)) return error;
+    operation.current = CleanupOperation::persist_pending_target;
     if (operation.context.sandbox && operation.context.sandbox->before_pending_persist) {
         error = operation.context.sandbox->before_pending_persist();
         if (FAILED(error)) return error;
@@ -571,10 +617,12 @@ HRESULT DeferFile(Operation& operation, HANDLE file, const BY_HANDLE_FILE_INFORM
     }
     error = Flush(pending.Get());
     if (FAILED(error)) return error;
+    operation.current = CleanupOperation::rename_to_quarantine;
     error = RenameFile(file, target);
     if (FAILED(error)) return error;
     // Keep status 0 until dispatch succeeds. A crash or persistence failure in
     // this window is incomplete, not evidence that reboot will finish the job.
+    operation.current = CleanupOperation::schedule_reboot_delete;
     const HRESULT scheduled = operation.context.sandbox
         ? operation.context.sandbox->schedule(scheduled_target)
         : (::MoveFileExW(scheduled_target.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT) ? S_OK : LastError());
@@ -584,11 +632,13 @@ HRESULT DeferFile(Operation& operation, HANDLE file, const BY_HANDLE_FILE_INFORM
     }
     error = SetNumber(pending.Get(), L"Status", SUCCEEDED(scheduled) ? 2 : 3);
     if (SUCCEEDED(error)) error = Flush(pending.Get());
+    if (SUCCEEDED(scheduled)) operation.current = CleanupOperation::persist_pending_target;
     return FAILED(scheduled) ? scheduled : error;
 }
 
 HRESULT RemoveFile(Operation& operation, const PinnedDirectory& parent, const wchar_t* leaf) {
     const auto path = parent.path / leaf;
+    operation.current = CleanupOperation::open_source_file;
     const ScopedFileHandle file(::CreateFileW(NativePath(path).c_str(),
         DELETE | FILE_READ_ATTRIBUTES | READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE,
         nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr));
@@ -597,9 +647,11 @@ HRESULT RemoveFile(Operation& operation, const PinnedDirectory& parent, const wc
         return Missing(error) ? S_OK : HRESULT_FROM_WIN32(error);
     }
     BY_HANDLE_FILE_INFORMATION identity{};
+    operation.current = CleanupOperation::verify_source_file;
     HRESULT error = VerifyFile(file.Get(), false, operation.user, &identity);
     if (FAILED(error)) return error;
     FILE_DISPOSITION_INFO disposition{TRUE};
+    operation.current = CleanupOperation::delete_source_file;
     if (::SetFileInformationByHandle(file.Get(), FileDispositionInfo, &disposition, sizeof(disposition))) {
         ++operation.result.deleted;
         return S_OK;
@@ -609,6 +661,7 @@ HRESULT RemoveFile(Operation& operation, const PinnedDirectory& parent, const wc
     // directory, hard-link and reparse cases were rejected before this fallback.
     if (deletion_error != ERROR_USER_MAPPED_FILE && deletion_error != ERROR_SHARING_VIOLATION &&
         deletion_error != ERROR_ACCESS_DENIED) return HRESULT_FROM_WIN32(deletion_error);
+    operation.current = CleanupOperation::verify_source_file;
     error = VerifyFile(file.Get(), false, operation.user);
     if (FAILED(error)) return error;
     return DeferFile(operation, file.Get(), identity);
@@ -617,20 +670,23 @@ HRESULT RemoveFile(Operation& operation, const PinnedDirectory& parent, const wc
 void RemoveData(Operation& operation) {
     const auto directory = operation.profile / L"AppData" / L"Local" / L"QiQiIME";
     PinnedDirectory root;
-    const HRESULT opened = PinDirectory(directory, operation.profile, operation.user, root);
-    Record(opened, operation.result);
+    const HRESULT opened = PinDirectory(directory, operation.profile, operation.user, root, &operation.current);
+    Record(opened, operation.result, operation.current);
     if (opened != S_OK) return;
     for (const auto* name : dictionary_files::kUserFiles) {
-        Record(RemoveFile(operation, root, name), operation.result);
+        const HRESULT error = RemoveFile(operation, root, name);
+        Record(error, operation.result, operation.current);
     }
     const auto remove_directory = [&](const wchar_t* name, bool cache) {
         PinnedDirectory child;
-        const HRESULT error = PinDirectory(directory / name, operation.profile, operation.user, child);
-        Record(error, operation.result);
+        const HRESULT error = PinDirectory(directory / name, operation.profile, operation.user, child,
+            &operation.current);
+        Record(error, operation.result, operation.current);
         if (error != S_OK) return;
         if (!cache) {
             for (const auto* file : dictionary_files::kSyncFiles) {
-                Record(RemoveFile(operation, child, file), operation.result);
+                const HRESULT removed = RemoveFile(operation, child, file);
+                Record(removed, operation.result, operation.current);
             }
             return;
         }
@@ -638,22 +694,25 @@ void RemoveData(Operation& operation) {
         const HANDLE search = ::FindFirstFileW(NativePath(child.path / L"*").c_str(), &found);
         if (search == INVALID_HANDLE_VALUE) {
             const DWORD find_error = ::GetLastError();
-            if (!Missing(find_error)) Record(HRESULT_FROM_WIN32(find_error), operation.result);
+            if (!Missing(find_error)) Record(HRESULT_FROM_WIN32(find_error), operation.result,
+                CleanupOperation::enumerate_cache);
             return;
         }
         const auto close = gsl::finally([search]() noexcept { ::FindClose(search); });
         DWORD count = 0;
         do {
             if (++count > kMaximumEntries) {
-                Record(HRESULT_FROM_WIN32(ERROR_BUFFER_OVERFLOW), operation.result);
+                Record(HRESULT_FROM_WIN32(ERROR_BUFFER_OVERFLOW), operation.result,
+                    CleanupOperation::enumerate_cache);
                 break;
             }
             if (dictionary_files::IsCompiledCache(std::data(found.cFileName))) {
-                Record(RemoveFile(operation, child, std::data(found.cFileName)), operation.result);
+                const HRESULT removed = RemoveFile(operation, child, std::data(found.cFileName));
+                Record(removed, operation.result, operation.current);
             }
         } while (::FindNextFileW(search, &found));
         if (count <= kMaximumEntries && ::GetLastError() != ERROR_NO_MORE_FILES) {
-            Record(LastError(), operation.result);
+            Record(LastError(), operation.result, CleanupOperation::enumerate_cache);
         }
     };
     for (const auto* name : dictionary_files::kSyncDirectories) remove_directory(name, false);
@@ -738,52 +797,58 @@ HRESULT OpenJob(const CleanupRequest& request, const Context& context,
 
 CleanupResult Perform(const CleanupRequest& request, const Context& context, bool system_restart_required) {
     CleanupResult result;
-    result.error = ValidateRequest(request);
+    Record(ValidateRequest(request), result, CleanupOperation::validate_request);
     if (FAILED(result.error)) return result;
     ScopedRegKey root, jobs, job;
-    Record(CreateKey(context.Machine(), context.StatePath(), context, root, true), result);
+    Record(CreateKey(context.Machine(), context.StatePath(), context, root, true), result,
+        CleanupOperation::open_state);
     if (FAILED(result.error)) return result;
-    Record(CreateKey(root.Get(), L"Jobs", context, jobs), result);
+    Record(CreateKey(root.Get(), L"Jobs", context, jobs), result, CleanupOperation::open_job);
     if (FAILED(result.error)) return result;
     DWORD disposition = 0;
     Record(CreateKey(jobs.Get(), request.transaction.c_str(), context, job, false,
-        REG_OPTION_NON_VOLATILE, &disposition), result);
+        REG_OPTION_NON_VOLATILE, &disposition), result, CleanupOperation::open_job);
     if (FAILED(result.error)) return result;
     if (disposition == REG_OPENED_EXISTING_KEY) {
         std::wstring sid;
-        Record(ReadText(job.Get(), L"SID", sid), result);
-        if (SUCCEEDED(result.error) && sid != request.sid) result.error = E_ACCESSDENIED;
-        if (SUCCEEDED(result.error)) Record(LoadResult(job.Get(), result), result);
+        Record(ReadText(job.Get(), L"SID", sid), result, CleanupOperation::read_job);
+        if (SUCCEEDED(result.error) && sid != request.sid) {
+            Record(E_ACCESSDENIED, result, CleanupOperation::read_job);
+        }
+        if (SUCCEEDED(result.error)) Record(LoadResult(job.Get(), result), result, CleanupOperation::read_job);
         return result;
     }
-    Record(SetText(job.Get(), L"SID", request.sid), result);
-    Record(SetNumber(job.Get(), L"Version", 1), result);
-    Record(SetNumber(job.Get(), L"Complete", 0), result);
-    Record(SetNumber(job.Get(), L"SystemRestartRequired", system_restart_required ? 1 : 0), result);
+    Record(SetText(job.Get(), L"SID", request.sid), result, CleanupOperation::persist_job);
+    Record(SetNumber(job.Get(), L"Version", 1), result, CleanupOperation::persist_job);
+    Record(SetNumber(job.Get(), L"Complete", 0), result, CleanupOperation::persist_job);
+    Record(SetNumber(job.Get(), L"SystemRestartRequired", system_restart_required ? 1 : 0), result,
+        CleanupOperation::persist_job);
     if (FAILED(result.error)) return result;
     if (system_restart_required) {
         result.restart_required = true;
         std::wstring boot;
-        Record(BootToken(context, root.Get(), true, boot), result);
-        if (SUCCEEDED(result.error)) Record(SetText(job.Get(), L"BootToken", boot), result);
-        if (SUCCEEDED(result.error)) Record(Flush(job.Get()), result);
+        Record(BootToken(context, root.Get(), true, boot), result, CleanupOperation::boot_session);
+        if (SUCCEEDED(result.error)) Record(SetText(job.Get(), L"BootToken", boot), result,
+            CleanupOperation::persist_job);
+        if (SUCCEEDED(result.error)) Record(Flush(job.Get()), result, CleanupOperation::persist_job);
         if (FAILED(result.error)) {
-            Record(SaveResult(job.Get(), result), result);
+            Record(SaveResult(job.Get(), result), result, CleanupOperation::persist_result);
             return result;
         }
     }
-    if (request.configuration) Record(RemoveConfiguration(request, context), result);
+    if (request.configuration) Record(RemoveConfiguration(request, context), result,
+        CleanupOperation::remove_configuration);
     if (request.dictionaries) {
         std::filesystem::path profile;
         const HRESULT resolved = ResolveProfile(request, context, profile);
-        Record(resolved, result);
+        Record(resolved, result, CleanupOperation::resolve_profile);
         if (SUCCEEDED(resolved)) {
             const HRESULT persisted = SetText(job.Get(), L"Profile", profile.wstring());
-            Record(persisted, result);
+            Record(persisted, result, CleanupOperation::persist_job);
             if (SUCCEEDED(persisted)) {
                 ScopedLocalAlloc user;
                 const HRESULT parsed = SidFromString(request.sid, user);
-                Record(parsed, result);
+                Record(parsed, result, CleanupOperation::validate_request);
                 if (SUCCEEDED(parsed)) {
                     Operation operation{request, context, root.Get(), job.Get(), profile, user.Get(), result};
                     RemoveData(operation);
@@ -791,7 +856,7 @@ CleanupResult Perform(const CleanupRequest& request, const Context& context, boo
             }
         }
     }
-    Record(SaveResult(job.Get(), result), result);
+    Record(SaveResult(job.Get(), result), result, CleanupOperation::persist_result);
     return result;
 }
 
@@ -944,6 +1009,39 @@ HRESULT ValidateRequest(const CleanupRequest& request) noexcept {
     return SidFromString(request.sid, sid);
 }
 
+const wchar_t* CleanupOperationName(CleanupOperation operation) noexcept {
+    switch (operation) {
+    case CleanupOperation::unknown: return L"unknown";
+    case CleanupOperation::validate_request: return L"validate-request";
+    case CleanupOperation::open_state: return L"open-state-registry";
+    case CleanupOperation::open_job: return L"open-job-registry";
+    case CleanupOperation::read_job: return L"read-job-registry";
+    case CleanupOperation::persist_job: return L"persist-job-registry";
+    case CleanupOperation::remove_configuration: return L"remove-configuration-registry";
+    case CleanupOperation::resolve_profile: return L"resolve-profile-registry";
+    case CleanupOperation::open_source_directory: return L"CreateFileW(source-directory)";
+    case CleanupOperation::verify_source_directory: return L"verify-source-directory";
+    case CleanupOperation::enumerate_cache: return L"FindFirstFileW/FindNextFileW(cache)";
+    case CleanupOperation::open_source_file: return L"CreateFileW(source-file)";
+    case CleanupOperation::verify_source_file: return L"verify-source-file";
+    case CleanupOperation::delete_source_file: return L"SetFileInformationByHandle(FileDispositionInfo)";
+    case CleanupOperation::open_volume_root: return L"CreateFileW(volume-root)";
+    case CleanupOperation::verify_volume_root: return L"verify-volume-root";
+    case CleanupOperation::verify_volume_security: return L"verify-volume-root-security";
+    case CleanupOperation::read_volume_name: return L"GetVolumeNameForVolumeMountPointW";
+    case CleanupOperation::create_quarantine_directory: return L"CreateDirectoryW(quarantine)";
+    case CleanupOperation::open_quarantine_directory: return L"CreateFileW(quarantine-directory)";
+    case CleanupOperation::verify_quarantine_directory: return L"verify-quarantine-directory";
+    case CleanupOperation::boot_session: return L"boot-session-registry";
+    case CleanupOperation::persist_pending_target: return L"persist-pending-target-registry";
+    case CleanupOperation::rename_to_quarantine: return L"SetFileInformationByHandle(FileRenameInfo)";
+    case CleanupOperation::schedule_reboot_delete: return L"MoveFileExW(delay-until-reboot)";
+    case CleanupOperation::persist_result: return L"persist-cleanup-result-registry";
+    case CleanupOperation::generate_quarantine_name: return L"CoCreateGuid(quarantine-name)";
+    }
+    return L"unknown";
+}
+
 CleanupResult PerformCleanup(const CleanupRequest& request, bool system_restart_required) {
     return Perform(request, {}, system_restart_required);
 }
@@ -970,6 +1068,10 @@ HRESULT detail::ReadCleanupResult(const CleanupRequest& request, CleanupResult& 
 
 HRESULT detail::CheckPendingCleanup(PendingState& state, const CleanupSandbox& sandbox) {
     return CheckPending(state, {&sandbox});
+}
+
+HRESULT detail::ValidateQuarantineSecurityDescriptor(PSECURITY_DESCRIPTOR descriptor, bool volume_root) noexcept {
+    return ValidateQuarantineDescriptor(descriptor, volume_root);
 }
 
 } // namespace qiqi::installer
