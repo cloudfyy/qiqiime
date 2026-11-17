@@ -445,13 +445,37 @@ checks their databases for architecture, upgrade/component identity, payload,
 shortcuts, and registration order. Ordinary CTest checks sources without creating
 MSI files; it does not certify real installation or upgrade behavior.
 
-The MSI embeds a native `QiQiIMEInstallerActions.dll` for the basic/reduced-UI
-uninstall consent prompt; the DLL is not installed as a runtime file.
-`QiQiInstallerActionsTest` uses an isolated, unregistered MSI fixture and a
-restricted package handle to test Yes/No/Cancel, default retention, UI-level
-and upgrade guards, Chinese/English Unicode message formatting, and diagnostics without installing/uninstalling anything
-or deleting real user data. The full authored MSI UI keeps its unchecked
-checkbox; silent uninstall prompts are intentionally suppressed.
+The MSI embeds `QiQiIMEInstallerActions.dll`, not a runtime installation file.
+Interactive uninstall uses one native data-choice page for full/basic/reduced
+entry points, followed by MSI progress and a post-commit result. Configuration
+and managed dictionary data are independent default-retained choices.
+The elevated commit backend validates the initiating `UserSID` and its registered
+profile instead of using SYSTEM's or the UAC administrator's Local AppData.
+It isolates mapped old caches before scheduling restart deletion and stores
+product-specific operational state separately from removable preferences.
+The install gate runs before related-product discovery or file/registry changes,
+and does not confuse unrelated pending-reboot flags with QiQi cleanup.
+The cleanup commit action logs its actual failure without aborting program removal;
+the post-`InstallFinalize` action reports incomplete cleanup and fails the final
+result without rolling back already committed removal. Never treat MSI rollback
+as restoration of deleted user data.
+
+`QiQiInstallerActionsTest` uses an isolated, unregistered MSI fixture and private
+filesystem/registry roots. It tests option compatibility, serialization and
+UI/upgrade guards, automates the two-choice dialog in Chinese/English, and uses
+injected reboot scheduling/boot identity for cleanup and install-gate regressions.
+It also loads the real action DLL and calls its UI-only export with the restricted
+fixture handle. `MSIOPENPACKAGEFLAGS_IGNOREMACHINESTATE` deliberately forbids
+executing DLL actions via `MsiDoAction`; this is not bypassed or counted as a
+successful real MSI execution. Settings/full/basic/reduced entry points, elevated
+completion and actual reboot deletion still require a dedicated installation host.
+Tests must never invoke real HKLM cleanup, reboot scheduling or installed-product
+actions. The legacy Settings EXE cleanup remains the separate ZIP path.
+Both paths share the managed data/synchronization catalog in
+[dictfiles.h](../src/common/dictfiles.h), but retain their different
+execution privileges and safety policies. Installer MSI records use the SDK's
+`PMSIHANDLE` RAII; the nonthrowing failure-reporting boundary uses `gsl::finally`
+because the SDK wrapper does not declare its conversions nonthrowing.
 Packaging stages the native action DLL and retains its matching PDB alongside
 the other symbols. These tests do not certify the actual Windows Settings
 uninstall entry point; validate that flow with the newly installed package.

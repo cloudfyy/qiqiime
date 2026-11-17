@@ -137,26 +137,28 @@ try {
                 $actions = @(Read-MsiTable $database "CustomAction" @("Action", "Type", "Source", "Target"))
                 $sequence = @(Read-MsiTable $database "InstallExecuteSequence" @("Action", "Condition", "Sequence"))
                 Assert-True (-not $properties.ContainsKey("QIQI_REMOVE_USER_DATA")) "User data deletion must not be enabled by default."
-                Assert-True ("QIQI_REMOVE_USER_DATA" -in $properties.SecureCustomProperties.Split(';')) "Uninstall consent must reach the execute sequence."
-                $cleanup = @($actions | Where-Object { $_.Action -eq "RemoveUserData" })
-                Assert-True ($cleanup.Count -eq 1 -and $cleanup[0].Source -eq "UserDataCleaner" -and $cleanup[0].Target -eq "--remove-user-data") "Missing cached cleanup executable."
-                Assert-True (([int]$cleanup[0].Type -band 3584) -eq 1536) "Cleanup must be impersonated commit, not elevated or deferred."
-                $cleanupSequence = @($sequence | Where-Object { $_.Action -eq "RemoveUserData" })
-                Assert-True ($cleanupSequence.Count -eq 1 -and $cleanupSequence[0].Condition -eq 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND QIQI_REMOVE_USER_DATA="1"') "Cleanup must be opt-in uninstall only."
-                $prompt = @($actions | Where-Object { $_.Action -eq "PromptRemoveUserData" })
+                foreach ($choice in @("QIQI_REMOVE_USER_DATA", "QIQI_REMOVE_CONFIGURATION", "QIQI_REMOVE_DICTIONARIES")) {
+                    Assert-True (-not $properties.ContainsKey($choice)) "Cleanup options must retain data by default."
+                    Assert-True ($choice -in $properties.SecureCustomProperties.Split(';')) "Uninstall consent must reach the execute sequence."
+                }
+                $cleanup = @($actions | Where-Object { $_.Action -eq "ExecuteCleanup" })
+                Assert-True ($cleanup.Count -eq 1 -and $cleanup[0].Source -eq "InstallerActions" -and $cleanup[0].Target -eq "ExecuteCleanup") "Missing embedded cleanup action."
+                Assert-True (([int]$cleanup[0].Type -band 3584) -eq 3584 -and ([int]$cleanup[0].Type -band 64) -ne 0) "Cleanup must be elevated commit without rollback on incomplete cleanup."
+                $cleanupSequence = @($sequence | Where-Object { $_.Action -eq "ExecuteCleanup" })
+                Assert-True ($cleanupSequence.Count -eq 1 -and $cleanupSequence[0].Condition -eq 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND ExecuteCleanup') "Cleanup must be explicit uninstall with a prepared request."
+                $prompt = @($actions | Where-Object { $_.Action -eq "ChooseUninstallData" })
                 Assert-True ($prompt.Count -eq 1 -and [int]$prompt[0].Type -eq 1 -and
-                    $prompt[0].Source -eq "InstallerActions" -and $prompt[0].Target -eq "PromptRemoveUserData") "Missing immediate native MSI prompt action."
-                $promptSequence = @($sequence | Where-Object { $_.Action -eq "PromptRemoveUserData" })
+                    $prompt[0].Source -eq "InstallerActions" -and $prompt[0].Target -eq "ChooseUninstallData") "Missing immediate native MSI wizard action."
+                $promptSequence = @($sequence | Where-Object { $_.Action -eq "ChooseUninstallData" })
                 Assert-True ($promptSequence.Count -eq 1 -and
-                    $promptSequence[0].Condition -eq 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND UILevel >= 3 AND UILevel < 5 AND NOT QIQI_REMOVE_USER_DATA') "Basic/reduced prompt must exclude quiet/full UI, upgrades and explicit property choices."
-                Assert-True ($properties.ContainsKey("QIQI_REMOVE_USER_DATA_PROMPT") -and
-                    -not [string]::IsNullOrWhiteSpace($properties.QIQI_REMOVE_USER_DATA_PROMPT)) "Missing localized basic/reduced uninstall prompt."
+                    $promptSequence[0].Condition -eq 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE') "Wizard must exclude upgrades and non-uninstall operations."
+                Assert-True ($properties.ContainsKey("QIQI_WIZARD_CONFIGURATION") -and $properties.ContainsKey("QIQI_WIZARD_DICTIONARIES")) "Missing localized independent uninstall choices."
                 $binaryRows = @(Read-MsiTable $database "Binary" @("Name"))
                 Assert-True (@($binaryRows | Where-Object { $_.Name -eq "InstallerActions" }).Count -eq 1) "Prompt DLL must be embedded in the MSI."
                 $controls = @(Read-MsiTable $database "Control" @("Dialog_", "Type", "Property"))
-                Assert-True (@($controls | Where-Object { $_.Dialog_ -eq "UninstallDataDlg" -and $_.Type -eq "CheckBox" -and $_.Property -eq "QIQI_REMOVE_USER_DATA" }).Count -eq 1) "Missing uninstall checkbox."
+                Assert-True (@($controls | Where-Object { $_.Dialog_ -eq "UninstallProgressDlg" -and $_.Type -eq "ProgressBar" }).Count -eq 1) "Missing full-UI uninstall progress."
                 $uiSequence = @(Read-MsiTable $database "InstallUISequence" @("Action", "Condition", "Sequence"))
-                Assert-True (@($uiSequence | Where-Object { $_.Action -eq "UninstallDataDlg" -and $_.Condition -eq 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE' }).Count -eq 1) "Missing uninstall-only prompt."
+                Assert-True (@($uiSequence | Where-Object { $_.Action -eq "ChooseUninstallData" -and $_.Condition -eq 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE' }).Count -eq 1) "Missing full-UI uninstall choices."
                 foreach ($id in @("RegX86", "UnregX86", "EnableUserProfile", "DeactivateUserProfile", "GrantAppContainerAcl")) {
                     Assert-True (@($actions | Where-Object { $_.Action -eq $id }).Count -eq 1) "Missing action $id in $path"
                 }
@@ -173,10 +175,12 @@ try {
                 }
                 $ordered = @{}
                 foreach ($row in $sequence) { $ordered[$row.Action] = [int]$row.Sequence }
-                Assert-True ($ordered.RemoveFiles -lt $ordered.RemoveUserData -and $ordered.RemoveUserData -lt $ordered.InstallFinalize) "Cleanup must be scheduled after file removal and before commit."
+                Assert-True ($ordered.RemoveFiles -lt $ordered.ExecuteCleanup -and $ordered.ExecuteCleanup -lt $ordered.InstallFinalize) "Cleanup must be scheduled after file removal and before commit."
+                Assert-True ($ordered.InstallFinalize -lt $ordered.CompleteUninstall) "Cleanup results must be reported after commit."
+                Assert-True ($ordered.CheckInstallPendingCleanup -lt $ordered.FindRelatedProducts) "Restart gate must precede upgrade detection/removal."
                 Assert-True ($ordered.GrantAppContainerAcl -lt $ordered.RegX86 -and $ordered.RegX86 -lt $ordered.EnableUserProfile) "Registration order changed in $path"
                 Assert-True ($ordered.DeactivateUserProfile -lt $ordered.InstallValidate) "Profile must deactivate before lock checks."
-                Assert-True ($ordered.PromptRemoveUserData -lt $ordered.DeactivateUserProfile) "Ask before changing the user's active input profile."
+                Assert-True ($ordered.ChooseUninstallData -lt $ordered.PrepareUninstall -and $ordered.PrepareUninstall -lt $ordered.DeactivateUserProfile) "Ask before changing the user's active input profile."
                 Assert-True ($ordered.InstallInitialize -lt $ordered.UnregX86) "Unregister must run inside the install transaction."
                 if ($arch -eq "x64") {
                     Assert-True ($ordered.GrantAppContainerAcl -lt $ordered.RegX64 -and $ordered.RegX64 -lt $ordered.RegX86) "x64 must register before WOW64."

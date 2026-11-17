@@ -54,30 +54,70 @@
     <Property Id="MSIFASTINSTALL" Value="7" />
     <Property Id="REBOOT" Value="ReallySuppress" />
     <Property Id="QIQI_REMOVE_USER_DATA" Secure="yes" />
-    <Property Id="QIQI_REMOVE_USER_DATA_PROMPT" Value="!(loc.RemoveUserDataPrompt)" />
+    <Property Id="QIQI_REMOVE_CONFIGURATION" Secure="yes" />
+    <Property Id="QIQI_REMOVE_DICTIONARIES" Secure="yes" />
+    <Property Id="QIQI_WIZARD_SHOWN" Secure="yes" />
+    <Property Id="ExecuteCleanup" Hidden="yes" />
+    <Property Id="QiQiCleanupTransaction" Hidden="yes" />
+    <Property Id="UserSID" Hidden="yes" />
+    <Property Id="QIQI_WIZARD_TITLE" Value="!(loc.WizardTitle)" />
+    <Property Id="QIQI_WIZARD_DESCRIPTION" Value="!(loc.UninstallDescription)" />
+    <Property Id="QIQI_WIZARD_CONFIGURATION" Value="!(loc.RemoveConfiguration)" />
+    <Property Id="QIQI_WIZARD_DICTIONARIES" Value="!(loc.RemoveDictionaries)" />
+    <Property Id="QIQI_WIZARD_WARNING" Value="!(loc.RemoveUserDataWarning)" />
+    <Property Id="QIQI_WIZARD_REMOVE" Value="!(loc.UninstallButton)" />
+    <Property Id="QIQI_WIZARD_CANCEL" Value="!(loc.CancelButton)" />
+    <Property Id="QIQI_COMPLETE_SUCCESS" Value="!(loc.UninstallComplete)" />
+    <Property Id="QIQI_COMPLETE_RESTART" Value="!(loc.UninstallRestart)" />
+    <Property Id="QIQI_COMPLETE_INCOMPLETE" Value="!(loc.UninstallIncomplete)" />
+    <Property Id="QIQI_INSTALL_RESTART" Value="!(loc.InstallRestart)" />
+    <Property Id="QIQI_INSTALL_INCOMPLETE" Value="!(loc.InstallIncomplete)" />
 
     <UI>
       <TextStyle Id="UninstallFont" FaceName="Segoe UI" Size="9" />
       <Property Id="DefaultUIFont" Value="UninstallFont" />
-      <Dialog Id="UninstallDataDlg" Width="370" Height="220" Title="!(loc.ProductName)">
-        <Control Id="Description" Type="Text" X="20" Y="20" Width="330" Height="45"
-                 Text="!(loc.UninstallDescription)" />
-        <Control Id="RemoveData" Type="CheckBox" X="20" Y="75" Width="330" Height="30"
-                 Property="QIQI_REMOVE_USER_DATA" CheckBoxValue="1" Text="!(loc.RemoveUserData)" />
-        <Control Id="Warning" Type="Text" X="20" Y="115" Width="330" Height="50"
-                 Text="!(loc.RemoveUserDataWarning)" />
-        <Control Id="Remove" Type="PushButton" X="200" Y="185" Width="75" Height="23"
-                 Default="yes" Text="!(loc.UninstallButton)">
+      <Dialog Id="UninstallProgressDlg" Width="370" Height="180" Modeless="yes" Title="!(loc.WizardTitle)">
+        <Control Id="Description" Type="Text" X="20" Y="20" Width="330" Height="35"
+                 Text="!(loc.UninstallProgress)" />
+        <Control Id="ActionText" Type="Text" X="20" Y="65" Width="330" Height="25">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
+        <Control Id="Progress" Type="ProgressBar" X="20" Y="105" Width="330" Height="15" ProgressBlocks="yes">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="275" Y="140" Width="75" Height="23"
+                 Default="yes" Cancel="yes" Text="!(loc.CancelButton)">
+          <Publish Event="SpawnDialog" Value="CancelUninstallDlg" />
+        </Control>
+      </Dialog>
+      <Dialog Id="CancelUninstallDlg" Width="320" Height="150" Title="!(loc.WizardTitle)">
+        <Control Id="Description" Type="Text" X="20" Y="20" Width="280" Height="65"
+                 Text="!(loc.CancelUninstall)" />
+        <Control Id="Continue" Type="PushButton" X="125" Y="110" Width="85" Height="23"
+                 Default="yes" Cancel="yes" Text="!(loc.ContinueButton)">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
-        <Control Id="Cancel" Type="PushButton" X="280" Y="185" Width="70" Height="23"
-                 Cancel="yes" Text="!(loc.CancelButton)">
+        <Control Id="Stop" Type="PushButton" X="220" Y="110" Width="80" Height="23"
+                 Text="!(loc.CancelButton)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+      <Dialog Id="UninstallFailedDlg" Width="370" Height="180" Title="!(loc.WizardTitle)">
+        <Control Id="Description" Type="Text" X="20" Y="20" Width="330" Height="100"
+                 Text="!(loc.UninstallFailed)" />
+        <Control Id="Close" Type="PushButton" X="275" Y="140" Width="75" Height="23"
+                 Default="yes" Cancel="yes" Text="!(loc.CloseButton)">
           <Publish Event="EndDialog" Value="Exit" />
         </Control>
       </Dialog>
     </UI>
     <InstallUISequence>
-      <Show Dialog="UninstallDataDlg" Before="ExecuteAction"
+      <Custom Action="CheckInstallPendingCleanup" Before="FindRelatedProducts" Condition="NOT (REMOVE=&quot;ALL&quot;)" />
+      <Custom Action="ChooseUninstallData" Before="UninstallProgressDlg"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Show Dialog="UninstallProgressDlg" Before="ExecuteAction"
+            Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Show Dialog="UninstallFailedDlg" OnExit="error"
             Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallUISequence>
 
@@ -234,21 +274,28 @@
                   ExeCommand="[SystemFolder]regsvr32.exe /u /s &quot;[DirX86]qiqiime.dll&quot;"
                   Return="ignore" />
 
-    <!-- A cached embedded EXE remains available after RemoveFiles; never run cleanup as SYSTEM. -->
+    <!-- The elevated backend resolves the initiating UserSID, never SYSTEM's profile.
+         Only validated managed files may be removed; completion reports partial cleanup after commit. -->
     <Binary Id="InstallerActions" SourceFile="$(var.StageDir)\$(var.NativeFileSuffix)\QiQiIMEInstallerActions.dll" />
-    <CustomAction Id="PromptRemoveUserData"
+    <CustomAction Id="ChooseUninstallData"
                   BinaryRef="InstallerActions"
-                  DllEntry="PromptRemoveUserData"
+                  DllEntry="ChooseUninstallData"
                   Execute="immediate"
                   Impersonate="yes"
                   Return="check" />
-    <Binary Id="UserDataCleaner" SourceFile="$(var.StageDir)\$(var.NativeFileSuffix)\QiQiIMESettings.exe" />
-    <CustomAction Id="RemoveUserData"
-                  BinaryRef="UserDataCleaner"
+    <CustomAction Id="PrepareUninstall" BinaryRef="InstallerActions" DllEntry="PrepareUninstall"
+                  Execute="immediate" Return="check" />
+    <CustomAction Id="ExecuteCleanup"
+                  BinaryRef="InstallerActions"
+                  DllEntry="ExecuteCleanup"
                   Execute="commit"
-                  Impersonate="yes"
-                  ExeCommand="--remove-user-data"
-                  Return="check" />
+                  Impersonate="no"
+                  HideTarget="yes"
+                  Return="ignore" />
+    <CustomAction Id="CompleteUninstall" BinaryRef="InstallerActions" DllEntry="CompleteUninstall"
+                  Execute="immediate" Return="check" />
+    <CustomAction Id="CheckInstallPendingCleanup" BinaryRef="InstallerActions" DllEntry="CheckInstallPendingCleanup"
+                  Execute="immediate" Return="check" />
 
     <?if $(sys.BUILDARCH) = x64 ?>
     <CustomAction Id="UnregX64"
@@ -260,10 +307,15 @@
     <?endif?>
 
     <InstallExecuteSequence>
-      <Custom Action="PromptRemoveUserData" Before="DeactivateUserProfile"
-              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND UILevel &gt;= 3 AND UILevel &lt; 5 AND NOT QIQI_REMOVE_USER_DATA" />
-      <Custom Action="RemoveUserData" Before="InstallFinalize"
-              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND QIQI_REMOVE_USER_DATA=&quot;1&quot;" />
+      <Custom Action="CheckInstallPendingCleanup" Before="FindRelatedProducts" Condition="NOT (REMOVE=&quot;ALL&quot;)" />
+      <Custom Action="ChooseUninstallData" Before="PrepareUninstall"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="PrepareUninstall" Before="DeactivateUserProfile"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="ExecuteCleanup" Before="InstallFinalize"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND ExecuteCleanup" />
+      <Custom Action="CompleteUninstall" After="InstallFinalize"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="DeactivateUserProfile" Before="InstallValidate" Condition="REMOVE=&quot;ALL&quot;" />
       <Custom Action="GrantAppContainerAcl" After="InstallFiles" Condition="NOT Installed OR REINSTALL" />
       <?if $(sys.BUILDARCH) = x64 ?>

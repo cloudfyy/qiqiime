@@ -143,6 +143,11 @@ status-bar/tooltip skin support require separate design approval.
 
 - [ ] Fix MSI uninstall failure when optional current-user data cleanup encounters
   a mapped user-dictionary cache (reported in 1.1.1 on 2026-11-16).
+  Main-branch implementation now includes the two-choice wizard, protected
+  same-volume quarantine, boot-session gate, and isolated regressions.
+  Keep this item open until real Windows Settings/full/basic/reduced entry,
+  elevated completion and actual reboot/reinstall are validated on a dedicated
+  machine. No MSI was generated or installed for the source/fixture checks.
   ETW recorded `Uninstall::RemoveDataFile` returning `0x80070005`; the
   `RemoveUserData` action exited with code 1, causing MSI error 1722, final
   status 1603, and rollback. Read-only inspection found the remaining
@@ -151,9 +156,38 @@ status-bar/tooltip skin support require separate design approval.
   This concerns the personal user dictionary/cache, not the three bundled
   default dictionaries (`wubi86_jidian.txt`, `wubi86_jidian_extra.txt`, and
   `wubi86_haifeng.txt`): normal MSI uninstall removes those bundled files
-  regardless of the personal-data option. Keep that payload removal separate
-  from opt-in personal-data cleanup; do not expand deletion to custom
-  dictionaries, exports, backups, or other users' data.
+  regardless of the personal-data options. Keep that payload removal separate
+  from two independent, unchecked-by-default uninstall choices:
+  1. Delete the initiating user's configuration only; preserve dictionary data.
+  2. Delete the initiating user's QiQi-managed dictionary data: the personal
+     user dictionary, known compiled dictionary caches, phrase-frequency data,
+     and known synchronization files; preserve configuration unless option 1
+     is also selected.
+  Compiled caches here include known QiQi-generated caches of bundled
+  dictionaries in current-user managed locations, not just `user_dict.qdict`.
+  Preserve external/custom-path source dictionaries, exports, backups,
+  unrecognized files, and other users' data. Do not scan drives or delete by
+  extension alone. Capture and validate cleanup locations before deleting
+  configuration so either choice and their combination remain correct.
+  Implement an interactive uninstall wizard with three stages:
+  1. Data choices: show the two independent options above on the first page,
+     explain the default retention and irreversible deletion scope, and let
+     the user cancel before deactivation, unregistration, or data deletion.
+  2. Uninstall progress: start only after explicit confirmation; remove the
+     program and perform only the selected personal-data cleanup, retaining
+     the choices throughout the operation.
+  3. Completion: distinguish program removal failure from successful removal
+     with complete, reboot-pending, or incomplete personal-data cleanup.
+     When a restart is required, explain why and prompt the user to save work
+     and restart Windows; do not force an immediate restart or require routine
+     manual file deletion.
+  Cover interactive entry from Windows Settings as well as MSI maintenance,
+  not just the authored full-UI dialog. Provide Chinese/English text and
+  verify the actual full/basic/reduced entry flows. Silent install/uninstall
+  must not show a wizard; retain explicit choices, the same safety checks,
+  accurate logs, and documented success/restart-required/failure exit statuses.
+  Define backward compatibility for `QIQI_REMOVE_USER_DATA`. Upgrade removal
+  must not opt in to either choice.
   Agreed plan: attempt immediate cleanup first. For a cache still mapped/in
   use, safely rename it to a unique pending-deletion name without replacing
   another file, then use an appropriately elevated operation to call
@@ -167,17 +201,40 @@ status-bar/tooltip skin support require separate design approval.
   Distinguish files actually deleted, deletion successfully scheduled, and
   incomplete cleanup; successful scheduling is not proof of boot-time deletion.
   Clearly tell the user when program removal is complete but personal-data
-  cleanup requires a restart. Report rename/scheduling failures explicitly
-  rather than claiming success or rolling back the entire uninstall solely
-  because optional cache cleanup is incomplete. Do not treat every access-denied
-  error as a mapped-file failure or weaken permission/path validation.
+  cleanup requires a restart; do not force an immediate restart.
+  Persist this product's pending-restart state separately from removable user
+  preferences and MSI-owned files, so uninstall and option 1 cannot erase it.
+  Keep the initiating-user identity, validated pending-deletion targets, and
+  reliable boot identity sufficient for the next installer to check the state
+  across elevation, architecture, and UI-language changes.
+  Before a subsequent install changes files or registration, check pending
+  state left by QiQi uninstall. If the required system restart has not occurred,
+  explain why and block installation until the user restarts Windows; cover
+  full/basic UI and silent installs with explicit diagnostics and a documented
+  non-success exit status. Logging off is not a system restart, and unrelated
+  software's generic pending-reboot flags must not alone block QiQi installation.
+  After a verified restart, validate the isolated pending targets are gone
+  before clearing the marker and permitting installation. If cleanup is still
+  incomplete, report the actual problem and preserve the state rather than
+  claiming success or repeatedly demanding restarts without diagnosis.
+  Report rename/scheduling/state-persistence failures explicitly rather than
+  claiming success or rolling back the entire uninstall solely because optional
+  cache cleanup is incomplete. Do not treat every access-denied error as a
+  mapped-file failure or weaken permission/path validation.
   Preserve actual HRESULT/Win32 diagnostics without logging dictionary contents
   or private paths. Add isolated immediate/mapped deletion, rename/scheduling
-  failure, reboot-pending reporting, original-path reuse, partial-cleanup, and
-  default-data-retention regressions. Use fixtures or mocked scheduling, not
-  real reboot deletion of personal files; preserve no-cleanup defaults and
-  upgrade guards. MSI rollback must not imply deleted personal data was
-  restored. This is tracked work only, not an implemented fix.
+  failure, reboot-pending reporting, original-path reuse, partial-cleanup,
+  all four configuration/dictionary option combinations, and preservation of
+  external source dictionaries/backups and default-retained personal data.
+  Cover same-boot installation refusal, verified-restart cleanup checks,
+  pending-state survival after configuration deletion, unrelated pending-reboot
+  flags, marker read/write failures, first-page defaults and pre-execution
+  cancellation, choice preservation, completion/restart messages, and actual
+  Settings/full/basic/reduced/silent and Chinese/English installer paths.
+  Use fixtures or mocked scheduling/boot identity, not real reboot deletion
+  of personal files; preserve upgrade guards. MSI rollback must not imply
+  deleted personal data was restored. The implementation is unreleased and does
+  not change any already installed `v1.1.1` package's cached uninstall sequence.
 
 - [ ] Deferred: Investigate taskbar input-indicator disappearance and theme-aware icons.
   Follow the [research and validation record](input-indicator.md). The registered

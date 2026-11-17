@@ -11,11 +11,22 @@
   <String Id="SummaryKeywords" Value="QiQiIME, 奇奇五笔, Wubi, 五笔输入法, TSF, Input Method, GPL-3.0-or-later" />
   <String Id="DowngradeErrorMessage" Value="已安装更新版本的奇奇五笔输入法 (QiQi Wubi IME)。" />
   <String Id="FeatureTitle" Value="奇奇五笔输入法 (QiQi Wubi 86)" />
-  <String Id="UninstallDescription" Value="即将卸载奇奇五笔输入法。默认保留个人设置和用户词库，便于以后重新安装。" />
-  <String Id="RemoveUserData" Value="同时删除当前用户的配置和默认用户词库（默认不删除）" />
-  <String Id="RemoveUserDataWarning" Value="勾选后将不可恢复地删除当前用户配置、默认词库、词频及已知缓存/同步文件。自定义路径、导出、备份和其他用户的数据保留。请先关闭使用输入法的应用并备份。" />
-  <String Id="RemoveUserDataPrompt" Value="卸载奇奇五笔时，是否同时删除当前用户的配置和默认用户词库？&#13;&#10;&#13;&#10;默认选择“否”：卸载程序，保留个人数据。&#13;&#10;选择“是”会永久删除当前用户配置、默认词库、词频及已知缓存/同步文件；自定义路径、导出、备份和其他用户的数据保留。请先备份。&#13;&#10;选择“取消”将停止卸载。" />
-  <String Id="UninstallButton" Value="卸载" />
+  <String Id="WizardTitle" Value="奇奇五笔卸载向导" />
+  <String Id="UninstallDescription" Value="第一步：选择要删除的个人数据。" />
+  <String Id="RemoveConfiguration" Value="删除当前用户配置" />
+  <String Id="RemoveDictionaries" Value="删除当前用户词典数据：用户自定义词库、编译缓存、词频和同步文件" />
+  <String Id="RemoveUserDataWarning" Value="勾选的数据将永久删除，请先备份并关闭使用输入法的应用。被占用的缓存可能需要重启后清理。" />
+  <String Id="UninstallProgress" Value="第二步：正在卸载程序并处理所选内容，请稍候。" />
+  <String Id="CancelUninstall" Value="停止卸载？已删除的个人数据不能依靠安装回滚恢复。若仍在卸载，请尽量等待完成。" />
+  <String Id="ContinueButton" Value="继续卸载" />
+  <String Id="UninstallComplete" Value="卸载完成。未选择删除的个人数据已保留。已立即清理 [1] 项；无需重启清理。" />
+  <String Id="UninstallRestart" Value="程序已卸载。已清理 [1] 项，需要重启删除 [2] 项；系统文件也可能需要重启释放。请保存工作并选择 Windows“重启”。重启并完成后才能重新安装奇奇五笔。" />
+  <String Id="UninstallIncomplete" Value="程序卸载已提交，但个人数据清理未全部完成。已删除[1] 项，需要重启删除 [2] 项，错误 HRESULT：[3]。" />
+  <String Id="UninstallFailed" Value="卸载未能正常完成。请保留 MSI 日志排查；程序文件可能已回滚，但已经删除的个人数据不保证恢复。不要直接删除安装目录。" />
+  <String Id="InstallRestart" Value="奇奇五笔上次卸载的清理仍等待本次系统启动结束。请保存工作并使用 Windows“重启”，完成后再安装；" />
+  <String Id="InstallIncomplete" Value="无法确认奇奇五笔上次卸载的数据清理已完成，暂不能安装。可能有重启后仍残留的待删文件，或无法读取清理状态。请保留日志并排查权限或残留，不要反复重启或直接删除状态记录。" />
+  <String Id="UninstallButton" Value="开始卸载" />
+  <String Id="CloseButton" Value="关闭" />
   <String Id="CancelButton" Value="取消" />
   <String Id="SettingsShortcutName" Value="奇奇五笔设置" />
   <String Id="SettingsShortcutDescription" Value="配置奇奇五笔输入法。" />

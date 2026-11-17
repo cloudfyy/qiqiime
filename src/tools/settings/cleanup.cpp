@@ -4,6 +4,7 @@
 #include "tools/settings/cleanup.h"
 #include "common/logger.h"
 #include "common/RAII.h"
+#include "common/dictfiles.h"
 
 #include <shlobj.h>
 #include <gsl/gsl>
@@ -54,8 +55,7 @@ HRESULT RemoveSyncData(const std::filesystem::path& directory) {
     const HRESULT opened = OpenDataItem(directory, true, false, folder);
     if (opened != S_OK) return opened;
     HRESULT result = S_OK;
-    for (const auto* name : {L"snapshot.txt", L"snapshot.qdict", L"snapshot.qfreq",
-                            L"source.meta", L"journal.bin", L"writer.lock"}) {
+    for (const auto* name : dictionary_files::kSyncFiles) {
         RecordFailure(RemoveDataFile(directory / name), "Uninstall::RemoveSyncFile", result);
     }
     // Keep the directory itself and unrecognized files (including backups); do not recurse.
@@ -74,10 +74,10 @@ HRESULT detail::RemoveUserDataAt(const std::filesystem::path& directory, const w
     const HRESULT opened = OpenDataItem(directory, true, false, folder);
     RecordFailure(opened, "Uninstall::OpenDataDirectory", result);
     if (opened == S_OK) {
-        for (const auto* name : {L"user_dict.txt", L"user_dict.qdict", L"phrase_freq.qfreq"}) {
+        for (const auto* name : dictionary_files::kUserFiles) {
             RecordFailure(RemoveDataFile(directory / name), "Uninstall::RemoveDataFile", result);
         }
-        for (const auto* name : {L"user_dict.txt.sync", L"phrase_freq.qfreq.sync"}) {
+        for (const auto* name : dictionary_files::kSyncDirectories) {
             RecordFailure(RemoveSyncData(directory / name), "Uninstall::RemoveSyncData", result);
         }
     }

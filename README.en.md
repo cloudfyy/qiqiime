@@ -61,9 +61,11 @@ and AppContainer guides are available in English.
   Both tools follow saved Settings preferences; host/system-rendered UI remains
   outside our appearance control.
   See [display and accessibility](docs/accessibility.md) for scope and controls.
-- Uninstall keeps personal data by default. MSI uninstall offers an optional
-  cleanup checkbox; ZIP unregistration supports explicit `-RemoveUserData`.
-  Both preserve custom dictionaries, exports, backups, and other users' data.
+- Uninstall keeps personal data by default. The unreleased MSI wizard separates
+  settings and dictionary-data choices, reports restart-pending cleanup, and
+  checks it before reinstalling. ZIP retains its existing `-RemoveUserData`
+  cleanup. External source dictionaries, exports, backups and other users'
+  data are preserved; see the [installation guide](docs/install.md).
 - Local dictionary and configuration sharing between desktop and AppContainer
   instances; this is **not cloud synchronization**.
 

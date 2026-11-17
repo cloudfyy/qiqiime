@@ -81,12 +81,15 @@ For capture controls, see the
 
 MSI uninstall removes the managed application files and input-method registration.
 Personal settings and user data are **kept by default**. Interactive uninstall
-offers one unchecked option to also delete the initiating user's settings under
-`HKCU\Software\QiQiIME`, default `user_dict.txt` / `user_dict.qdict` /
-`phrase_freq.qfreq` files under the Windows Local AppData `QiQiIME` directory,
-and known snapshot, cache, journal, metadata and lock files in their `.sync`
-directories. Selecting it and confirming uninstall authorizes permanent deletion
-at successful uninstall commit; it is not offered during upgrade removal.
+in the unreleased wizard has two independent, initially unchecked choices:
+delete the initiating user's settings under `HKCU\Software\QiQiIME`, and/or delete
+their managed dictionary data. The latter includes default `user_dict.txt` /
+`user_dict.qdict` / `phrase_freq.qfreq` files in the default profile's Local AppData
+`QiQiIME` directory, known generated dictionary caches, and known snapshot,
+journal, metadata and lock files in the default `.sync` directories. Selecting
+and confirming authorizes permanent deletion at uninstall commit; upgrade removal
+does not opt into either choice. The three bundled dictionaries in the program
+directory are ordinary application payload and are always removed.
 
 Cleanup does not read custom paths from settings, scan other Windows users, or
 recursively delete directories. Custom dictionaries, exports, backups and
@@ -94,13 +97,26 @@ unrecognized files are preserved, including such files inside the default data
 directory. Reparse points (including junctions/symlinks) at the data directory,
 sync directories or targeted files are refused. Locked or inaccessible data
 can remain; a cleanup error is reported rather than silently treated as success.
+Mapped old caches can be moved into a protected same-volume pending-deletion
+location and queued for deletion by Windows at restart. This retains the old
+data locally until deletion actually occurs; it is not secure erasure. A
+machine-protected operational record, separate from removable preferences,
+retains the initiating user identity, isolated pending targets, cleanup outcome
+and boot-session state. It prevents reinstall before the required restart and
+verification. Registration of a deletion is not proof the file has been deleted.
 Close applications using the IME and back up first; applications left running
 can recreate data. Removal is not secure disk erasure and cannot remove external
-copies. Quiet/basic-UI uninstall preserves data unless explicitly invoked with
-`QIQI_REMOVE_USER_DATA=1`. ZIP/manual unregistration also keeps user data by
+copies. Quiet uninstall preserves data unless explicitly invoked with
+`QIQI_REMOVE_CONFIGURATION=1` and/or `QIQI_REMOVE_DICTIONARIES=1`.
+Legacy `QIQI_REMOVE_USER_DATA=1` selects both, unless overridden by an explicit
+new option. Interactive full/basic/reduced entry points use the wizard.
+ZIP/manual unregistration also keeps user data by
 default. Newer `unregister_ime.ps1` scripts support an explicit `-RemoveUserData`
-switch for the same limited cleanup after successful unregistration. Cleanup
-runs as the initiating account, not the administrator account supplied to UAC.
+switch for the existing default-file cleanup after successful unregistration;
+ZIP cleanup does not implement the MSI wizard or reboot scheduling. ZIP cleanup
+runs as the initiating account. The MSI backend is elevated only for validated
+initiating-user cleanup, protected state and reboot scheduling; it resolves the
+initiating user's profile, not the administrator account supplied to UAC.
 The switch authorizes deletion without another prompt. The deployment directory
 is not deleted. Older release ZIPs may not support this switch.
 
@@ -127,9 +143,12 @@ before release. This policy does not certify third-party services or operating-s
   密码/PIN 和私密输入识别受宿主限制，敏感场景请使用系统键盘布局等已验证方式。
 - 日志监控、导出和反馈由用户发起，不自动上传；日志、测试 dump、用户词库及备份
   分享前必须检查脱敏。用户选择网盘或网络路径产生的数据传输由相应服务处理。
-- 卸载默认保留个人设置和用户数据；可勾选一个默认未选中的选项，同时清理当前用户配置、
-  默认词库/词频及已知缓存和同步文件。自定义路径、导出、备份、其他账户及未知文件保留；
-  升级不清理，静默卸载也默认保留。新版 ZIP 注销脚本可显式加 `-RemoveUserData`，
-  在注销成功后以发起账户清理相同范围的数据，不再询问，也不删除程序目录。
+- 卸载默认保留个人设置和用户数据；未发布的向导把配置、词典数据分成两个默认未选中
+  的选项，词典数据包含默认用户词库、词频及已知编译缓存和同步文件。
+  外部源词库、导出、备份、其他账户及未知文件保留；升级不清理，静默卸载也默认保留。
+  被占用的旧缓存可隔离后登记重启删除；受保护的本机操作状态记录身份、待删目标及启动会话，
+  在所需重启和清理核验前阻止重装，不上传这些信息。新版 ZIP 注销脚本可显式加 `-RemoveUserData`，
+  在注销成功后以发起账户清理既有默认文件范围，不再询问，也不删除程序目录；
+  ZIP 不包含 MSI 向导和重启删除机制。
   先关闭使用输入法的应用并备份；占用或权限问题会报告
   失败且可能留下部分数据，不等同于安全擦除。完整的数据类别和权限边界见上文。

@@ -11,11 +11,22 @@
   <String Id="SummaryKeywords" Value="QiQiIME, QiQi Wubi, Wubi, TSF, Input Method, IME, GPL-3.0-or-later" />
   <String Id="DowngradeErrorMessage" Value="A newer version of QiQi Wubi IME is already installed." />
   <String Id="FeatureTitle" Value="QiQi Wubi 86 Input Method" />
-  <String Id="UninstallDescription" Value="QiQi Wubi IME will be removed. Personal settings and user dictionaries are kept by default for future installations." />
-  <String Id="RemoveUserData" Value="Also delete this user's settings and default user dictionary" />
-  <String Id="RemoveUserDataWarning" Value="Selected data is deleted permanently: this user's settings, default dictionary, frequencies and known cache/sync files. Custom paths, exports, backups and other users are preserved. Close IME applications and back up first." />
-  <String Id="RemoveUserDataPrompt" Value="Also delete this user's settings and default user dictionary when uninstalling QiQi Wubi IME?&#13;&#10;&#13;&#10;No (default): uninstall the program and keep personal data.&#13;&#10;Yes: permanently delete this user's settings, default dictionary, frequencies and known cache/sync files. Custom paths, exports, backups and other users are preserved. Back up first.&#13;&#10;Cancel: stop the uninstall." />
-  <String Id="UninstallButton" Value="Uninstall" />
+  <String Id="WizardTitle" Value="QiQiIME Uninstall Wizard" />
+  <String Id="UninstallDescription" Value="Step 1: Choose personal data to delete." />
+  <String Id="RemoveConfiguration" Value="Delete this user's settings" />
+  <String Id="RemoveDictionaries" Value="Delete this user's dictionary data: user dictionary, known compiled caches, frequencies and sync files" />
+  <String Id="RemoveUserDataWarning" Value="Selected data is permanently deleted. Back up and close IME first. In-use old caches may need a restart to finish cleanup; no immediate restart is forced." />
+  <String Id="UninstallProgress" Value="Step 2: Removing the program and processing selected data. Please wait." />
+  <String Id="CancelUninstall" Value="Stop uninstalling? Installer rollback cannot restore personal data that has already been deleted. If uninstall is still progressing, allow it to finish if possible." />
+  <String Id="ContinueButton" Value="Continue" />
+  <String Id="UninstallComplete" Value="Uninstall complete. Unselected personal data was kept. Items cleaned: [1]. No cleanup restart is required." />
+  <String Id="UninstallRestart" Value="The program was removed. Items cleaned: [1]; queued for deletion at restart: [2]. Save your work and choose Windows Restart. QiQiIME cannot be installed again until the restart and cleanup are complete." />
+  <String Id="UninstallIncomplete" Value="Program removal was committed, but personal-data cleanup is incomplete. Items cleaned: [1]; queued for restart: [2]; HRESULT: [3]. Keep the MSI log. Restart first if items are queued. Do not assume all data was deleted or manually remove registry records." />
+  <String Id="UninstallFailed" Value="Uninstall did not finish normally. Keep the MSI log for diagnosis. Program files may have rolled back, but deleted personal data is not guaranteed to be restored. Do not manually delete the installation directory." />
+  <String Id="InstallRestart" Value="Cleanup from the previous QiQiIME uninstall is still pending in this Windows boot session. Save your work, choose Windows Restart, then install again. Signing out or closing setup is not a restart." />
+  <String Id="InstallIncomplete" Value="Setup cannot verify that the previous QiQiIME cleanup completed. Pending files may remain after restart, or cleanup state cannot be read. Keep the log and resolve the reported permissions or residual-file problem. Do not repeatedly restart or manually delete cleanup records." />
+  <String Id="UninstallButton" Value="Start uninstall" />
+  <String Id="CloseButton" Value="Close" />
   <String Id="CancelButton" Value="Cancel" />
   <String Id="SettingsShortcutName" Value="QiQiIME Settings" />
   <String Id="SettingsShortcutDescription" Value="Configure QiQi Wubi IME." />

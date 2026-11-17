@@ -25,6 +25,7 @@ set(QIQI_COMMON_SOURCES
     dialog.cpp
     dialog.h
     dictcodec.h
+    dictfiles.h
     comobj.h
     changesync.cpp
     changesync.h

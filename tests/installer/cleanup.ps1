@@ -9,69 +9,63 @@ $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $ns = [System.Xml.XmlNamespaceManager]::new($source.NameTable)
 $ns.AddNamespace('w', 'http://wixtoolset.org/schemas/v4/wxs')
 $package = $source.SelectSingleNode('/w:Wix/w:Package', $ns)
-$property = $package.SelectSingleNode("w:Property[@Id='QIQI_REMOVE_USER_DATA']", $ns)
-if ($null -eq $property -or $property.HasAttribute('Value') -or $property.Secure -ne 'yes') {
-    throw 'User data removal must be opt-in, unchecked by default, and passed securely to execute sequence.'
-}
-$checkbox = $package.SelectSingleNode("w:UI/w:Dialog[@Id='UninstallDataDlg']/w:Control[@Type='CheckBox']", $ns)
-if ($null -eq $checkbox -or $checkbox.Property -ne 'QIQI_REMOVE_USER_DATA' -or $checkbox.CheckBoxValue -ne '1') {
-    throw 'Uninstall must offer one explicit data removal checkbox.'
-}
-$show = $package.SelectSingleNode("w:InstallUISequence/w:Show[@Dialog='UninstallDataDlg']", $ns)
-$promptCondition = 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND UILevel >= 3 AND UILevel < 5 AND NOT QIQI_REMOVE_USER_DATA'
-$prompt = $package.SelectSingleNode("w:InstallExecuteSequence/w:Custom[@Action='PromptRemoveUserData']", $ns)
-if ($null -eq $prompt -or $prompt.Before -ne 'DeactivateUserProfile' -or
-    $prompt.Condition -ne $promptCondition) {
-    throw 'Basic/reduced uninstall must prompt before deactivation, excluding silent/full UI, upgrades and explicit command-line choices.'
-}
-$promptAction = $package.SelectSingleNode("w:CustomAction[@Id='PromptRemoveUserData']", $ns)
-if ($null -eq $promptAction -or $promptAction.BinaryRef -ne 'InstallerActions' -or
-    $promptAction.DllEntry -ne 'PromptRemoveUserData' -or $promptAction.Execute -ne 'immediate' -or
-    $promptAction.Impersonate -ne 'yes' -or $promptAction.Return -ne 'check') {
-    throw 'The fallback prompt must be a synchronous immediate MSI action with checked cancellation/errors.'
-}
-$promptBinary = $package.SelectSingleNode("w:Binary[@Id='InstallerActions']", $ns)
-if ($null -eq $promptBinary -or
-    $promptBinary.SourceFile -ne '$(var.StageDir)\$(var.NativeFileSuffix)\QiQiIMEInstallerActions.dll') {
-    throw 'The fallback prompt must be embedded and use the native installer-action DLL.'
-}
-$promptText = $package.SelectSingleNode("w:Property[@Id='QIQI_REMOVE_USER_DATA_PROMPT']", $ns)
-if ($null -eq $promptText -or $promptText.Value -ne '!(loc.RemoveUserDataPrompt)') {
-    throw 'The basic/reduced uninstall confirmation must use package-localized text.'
-}
-$localizedPrompts = @{}
-foreach ($culture in @('zh-CN', 'en-US')) {
-    [xml]$localization = Get-Content -LiteralPath (Join-Path $root "installer\$culture.wxl") -Raw -Encoding UTF8
-    $localNs = [System.Xml.XmlNamespaceManager]::new($localization.NameTable)
-    $localNs.AddNamespace('l', 'http://wixtoolset.org/schemas/v4/wxl')
-    $texts = @($localization.SelectNodes("/l:WixLocalization/l:String[@Id='RemoveUserDataPrompt']", $localNs))
-    if ($texts.Count -ne 1 -or [string]::IsNullOrWhiteSpace($texts[0].Value)) {
-        throw "Missing or duplicate uninstall confirmation translation: $culture"
+foreach ($name in @('QIQI_REMOVE_USER_DATA', 'QIQI_REMOVE_CONFIGURATION', 'QIQI_REMOVE_DICTIONARIES')) {
+    $property = $package.SelectSingleNode("w:Property[@Id='$name']", $ns)
+    if ($null -eq $property -or $property.HasAttribute('Value') -or $property.Secure -ne 'yes') {
+        throw "Personal-data selection must be explicit, default-retained and secure: $name"
     }
-    $localizedPrompts[$culture] = $texts[0].Value
 }
-if ($localizedPrompts['zh-CN'] -notmatch '\p{IsCJKUnifiedIdeographs}' -or
-    $localizedPrompts['en-US'] -notmatch '[A-Za-z]' -or
-    $localizedPrompts['en-US'] -match '\p{IsCJKUnifiedIdeographs}' -or
-    $localizedPrompts['zh-CN'] -eq $localizedPrompts['en-US']) {
-    throw 'The uninstall confirmation must provide distinct Chinese and English translations.'
+$uninstall = 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE'
+$execute = $package.SelectSingleNode("w:CustomAction[@Id='ExecuteCleanup']", $ns)
+if ($null -eq $execute -or $execute.BinaryRef -ne 'InstallerActions' -or
+    $execute.DllEntry -ne 'ExecuteCleanup' -or $execute.Execute -ne 'commit' -or
+    $execute.Impersonate -ne 'no' -or $execute.Return -ne 'ignore' -or $execute.HideTarget -ne 'yes') {
+    throw 'Validated initiating-user cleanup must run at elevated commit without rolling back program removal.'
 }
-$remove = $package.SelectSingleNode("w:InstallExecuteSequence/w:Custom[@Action='RemoveUserData']", $ns)
-if ($null -eq $show -or $show.Before -ne 'ExecuteAction' -or
-    $show.Condition -ne 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE') {
-    throw 'Prompt must be limited to explicit uninstall, before execution, never upgrade removal.'
+$cleanupSequence = $package.SelectSingleNode("w:InstallExecuteSequence/w:Custom[@Action='ExecuteCleanup']", $ns)
+if ($null -eq $cleanupSequence -or $cleanupSequence.Before -ne 'InstallFinalize' -or
+    $cleanupSequence.Condition -ne "$uninstall AND ExecuteCleanup") {
+    throw 'Cleanup must be limited to explicit uninstall and a freshly prepared request.'
 }
-if ($null -eq $remove -or $remove.Before -ne 'InstallFinalize' -or
-    $remove.Condition -ne 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND QIQI_REMOVE_USER_DATA="1"') {
-    throw 'Data removal must require explicit opt-in and exclude installation, repair and upgrade.'
+foreach ($entry in @(
+    @{ Action = 'ChooseUninstallData'; Before = 'PrepareUninstall' },
+    @{ Action = 'PrepareUninstall'; Before = 'DeactivateUserProfile' }
+)) {
+    $row = $package.SelectSingleNode("w:InstallExecuteSequence/w:Custom[@Action='$($entry.Action)']", $ns)
+    if ($null -eq $row -or $row.Before -ne $entry.Before -or $row.Condition -ne $uninstall) {
+        throw 'Confirm choices and prepare the validated request before deactivation or any removal.'
+    }
 }
-$action = $package.SelectSingleNode("w:CustomAction[@Id='RemoveUserData']", $ns)
-if ($action.Execute -ne 'commit' -or $action.Impersonate -ne 'yes' -or $action.Return -ne 'check' -or
-    $action.BinaryRef -ne 'UserDataCleaner' -or $action.ExeCommand -ne '--remove-user-data') {
-    throw 'Cleanup must use an embedded EXE at successful commit, as the initiating user, with checked errors.'
+$complete = $package.SelectSingleNode("w:InstallExecuteSequence/w:Custom[@Action='CompleteUninstall']", $ns)
+if ($null -eq $complete -or $complete.After -ne 'InstallFinalize' -or $complete.Condition -ne $uninstall) {
+    throw 'Incomplete cleanup must be reported after commit, never cause rollback of program removal.'
 }
-$binary = $package.SelectSingleNode("w:Binary[@Id='UserDataCleaner']", $ns)
-if ($null -eq $binary -or $binary.SourceFile -ne '$(var.StageDir)\$(var.NativeFileSuffix)\QiQiIMESettings.exe') {
-    throw 'Cleanup must retain the native executable independently of installed files.'
+foreach ($sequence in @('InstallUISequence', 'InstallExecuteSequence')) {
+    $gate = $package.SelectSingleNode("w:$sequence/w:Custom[@Action='CheckInstallPendingCleanup']", $ns)
+    if ($null -eq $gate -or $gate.Before -ne 'FindRelatedProducts' -or $gate.Condition -ne 'NOT (REMOVE="ALL")') {
+        throw 'The pending-cleanup gate must precede upgrade discovery/removal and any installation changes.'
+    }
 }
-Write-Host 'Uninstall data retention defaults, full/basic/reduced prompts, opt-in and upgrade guards passed.'
+$wizard = $package.SelectSingleNode("w:InstallUISequence/w:Custom[@Action='ChooseUninstallData']", $ns)
+$progress = $package.SelectSingleNode("w:InstallUISequence/w:Show[@Dialog='UninstallProgressDlg']", $ns)
+if ($null -eq $wizard -or $wizard.Before -ne 'UninstallProgressDlg' -or $wizard.Condition -ne $uninstall -or
+    $null -eq $progress -or $progress.Before -ne 'ExecuteAction' -or $progress.Condition -ne $uninstall) {
+    throw 'Full UI must show choices before progress, with the same explicit-uninstall guards.'
+}
+$binary = $package.SelectSingleNode("w:Binary[@Id='InstallerActions']", $ns)
+if ($null -eq $binary -or $binary.SourceFile -ne '$(var.StageDir)\$(var.NativeFileSuffix)\QiQiIMEInstallerActions.dll') {
+    throw 'Wizard and cleanup actions must remain embedded after installed files are removed.'
+}
+if ($package.SelectSingleNode("w:Binary[@Id='UserDataCleaner']", $ns)) {
+    throw 'MSI must not invoke the legacy Settings EXE cleanup that lacks restart handling.'
+}
+$propertyIds = @('QIQI_WIZARD_TITLE', 'QIQI_WIZARD_DESCRIPTION', 'QIQI_WIZARD_CONFIGURATION',
+    'QIQI_WIZARD_DICTIONARIES', 'QIQI_WIZARD_WARNING', 'QIQI_COMPLETE_SUCCESS',
+    'QIQI_COMPLETE_RESTART', 'QIQI_COMPLETE_INCOMPLETE', 'QIQI_INSTALL_RESTART', 'QIQI_INSTALL_INCOMPLETE')
+foreach ($id in $propertyIds) {
+    $text = $package.SelectSingleNode("w:Property[@Id='$id']", $ns)
+    if ($null -eq $text -or $text.Value -notmatch '^!\(loc\.[^)]+\)$') {
+        throw "Wizard and completion diagnostics must be package-localized: $id"
+    }
+}
+Write-Host 'Uninstall wizard, independent retention defaults, elevated validated cleanup, completion and restart gates passed.'
