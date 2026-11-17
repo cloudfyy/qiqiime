@@ -175,6 +175,12 @@ Normal unit-test and desktop modes use isolated registry configuration, not
 the user's saved preferences. Configuration-save failures report the actual
 HRESULT, facility, and code; do not infer their cause from `GetLastError()`
 after a bool-returning configuration API.
+Dictionary Manager display fixtures use GUID-named keys outside
+`Software\QiQiIME`, with explicit private-key permissions and checked teardown.
+A read-only test descendant under the real configuration tree can block its
+uninstall deletion even by an elevated action. Aborting assertions must leave
+only independent disposable keys, not production descendants; historical
+orphans require separately authorized, narrowly scoped cleanup.
 The common configuration regression verifies that registry-only reads neither
 create missing keys nor modify existing DACLs. Default initialization belongs
 to `LoadConfig`, not the registry-only read helpers.

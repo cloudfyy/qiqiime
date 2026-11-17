@@ -45,6 +45,10 @@ enum class CleanupOperation : DWORD {
     schedule_reboot_delete,
     persist_result,
     generate_quarantine_name,
+    open_configuration_key,
+    check_configuration_link,
+    enumerate_configuration_keys,
+    delete_configuration_key,
 };
 
 struct CleanupResult {

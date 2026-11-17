@@ -6,13 +6,9 @@
 namespace qiqi::dict_manager::tests {
 
 void TestInlineEditing() {
-    const auto display_subkey = L"Software\\QiQiIME\\Tests\\DictManagerInlineDisplay_" +
-        std::to_wstring(::GetCurrentProcessId());
-    const wchar_t* previous_subkey = GetActiveConfigRegistrySubKey();
-    SetConfigRegistrySubKeyOverrideForTest(display_subkey.c_str());
-    const auto restore_display = gsl::finally([&]() noexcept {
-        SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
-        ::RegDeleteTreeW(HKEY_CURRENT_USER, display_subkey.c_str());
+    ConfigRegistryFixture registry;
+    const auto& display_subkey = registry.Subkey();
+    const auto restore_display = gsl::finally([]() noexcept {
         SetThemeDarkOverrideForTest(std::nullopt);
     });
     QIQI_TEST_CHECK(SaveFixtureConfig(QiQiConfig{}, display_subkey));

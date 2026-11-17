@@ -255,7 +255,7 @@ HRESULT LoadResult(HKEY job, CleanupResult& result) noexcept {
     if (error == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) operation = 0;
     else if (FAILED(error)) return error;
     if (restart > 1 || (scheduled != 0 && restart == 0) ||
-        operation > static_cast<DWORD>(CleanupOperation::generate_quarantine_name) ||
+        operation > static_cast<DWORD>(CleanupOperation::delete_configuration_key) ||
         (stored_error == S_OK && operation != 0) ||
         (stored_error != S_OK && SUCCEEDED(gsl::narrow_cast<HRESULT>(stored_error)))) {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
@@ -726,26 +726,31 @@ HRESULT RejectRegistryLink(HKEY key) noexcept {
     return status == ERROR_SUCCESS && type == REG_LINK ? E_ACCESSDENIED : S_OK;
 }
 
-HRESULT RemoveRegistryTree(HKEY key, DWORD& remaining) {
+HRESULT RemoveRegistryTree(HKEY key, DWORD& remaining, CleanupOperation& operation) {
+    operation = CleanupOperation::check_configuration_link;
     const HRESULT verified = RejectRegistryLink(key);
     if (FAILED(verified)) return verified;
+    operation = CleanupOperation::enumerate_configuration_keys;
     if (remaining == 0) return HRESULT_FROM_WIN32(ERROR_BUFFER_OVERFLOW);
     --remaining;
     for (;;) {
+        operation = CleanupOperation::enumerate_configuration_keys;
         std::array<wchar_t, 256> name{};
         DWORD length = gsl::narrow_cast<DWORD>(name.size());
         const LSTATUS status = ::RegEnumKeyExW(key, 0, name.data(), &length, nullptr, nullptr, nullptr, nullptr);
         if (status == ERROR_NO_MORE_ITEMS) break;
         if (status != ERROR_SUCCESS) return HRESULT_FROM_WIN32(status);
         ScopedRegKey child;
+        operation = CleanupOperation::open_configuration_key;
         const LSTATUS opened = ::RegOpenKeyExW(key, name.data(), REG_OPTION_OPEN_LINK,
             KEY_READ | DELETE | KEY_WOW64_64KEY, child.Put());
         if (opened != ERROR_SUCCESS) return HRESULT_FROM_WIN32(opened);
-        const HRESULT error = RemoveRegistryTree(child.Get(), remaining);
+        const HRESULT error = RemoveRegistryTree(child.Get(), remaining, operation);
         if (FAILED(error)) return error;
     }
     // Unlike a recursive pathname API, NtDeleteKey deletes this exact opened
     // object even if the user concurrently renames/replaces one of its ancestors.
+    operation = CleanupOperation::delete_configuration_key;
     using DeleteKey = LONG (NTAPI*)(HANDLE);
     const HMODULE module = ::GetModuleHandleW(L"ntdll.dll");
     if (!module) return LastError();
@@ -755,28 +760,34 @@ HRESULT RemoveRegistryTree(HKEY key, DWORD& remaining) {
     return status < 0 ? HRESULT_FROM_NT(status) : S_OK;
 }
 
-HRESULT RemoveConfiguration(const CleanupRequest& request, const Context& context) {
+HRESULT RemoveConfiguration(const CleanupRequest& request, const Context& context,
+    CleanupOperation& operation) {
     // Opening the exact user hive also distinguishes "not loaded" from an empty
     // configuration; silently treating an unavailable hive as clean would lie.
     ScopedRegKey user;
+    operation = CleanupOperation::open_configuration_key;
     const LSTATUS opened = ::RegOpenKeyExW(context.Users(), request.sid.c_str(), REG_OPTION_OPEN_LINK,
         KEY_READ | KEY_WOW64_64KEY, user.Put());
     if (opened != ERROR_SUCCESS) return HRESULT_FROM_WIN32(opened);
+    operation = CleanupOperation::check_configuration_link;
     HRESULT error = RejectRegistryLink(user.Get());
     if (FAILED(error)) return error;
     ScopedRegKey software, preferences;
+    operation = CleanupOperation::open_configuration_key;
     LSTATUS status = ::RegOpenKeyExW(user.Get(), L"Software", REG_OPTION_OPEN_LINK,
         KEY_READ | KEY_WOW64_64KEY, software.Put());
     if (Missing(status)) return S_OK;
     if (status != ERROR_SUCCESS) return HRESULT_FROM_WIN32(status);
+    operation = CleanupOperation::check_configuration_link;
     error = RejectRegistryLink(software.Get());
     if (FAILED(error)) return error;
+    operation = CleanupOperation::open_configuration_key;
     status = ::RegOpenKeyExW(software.Get(), L"QiQiIME", REG_OPTION_OPEN_LINK,
         KEY_READ | DELETE | KEY_WOW64_64KEY, preferences.Put());
     if (Missing(status)) return S_OK;
     if (status != ERROR_SUCCESS) return HRESULT_FROM_WIN32(status);
     DWORD remaining = kMaximumEntries;
-    return RemoveRegistryTree(preferences.Get(), remaining);
+    return RemoveRegistryTree(preferences.Get(), remaining, operation);
 }
 
 HRESULT OpenJob(const CleanupRequest& request, const Context& context,
@@ -836,8 +847,11 @@ CleanupResult Perform(const CleanupRequest& request, const Context& context, boo
             return result;
         }
     }
-    if (request.configuration) Record(RemoveConfiguration(request, context), result,
-        CleanupOperation::remove_configuration);
+    if (request.configuration) {
+        CleanupOperation operation = CleanupOperation::remove_configuration;
+        const HRESULT error = RemoveConfiguration(request, context, operation);
+        Record(error, result, operation);
+    }
     if (request.dictionaries) {
         std::filesystem::path profile;
         const HRESULT resolved = ResolveProfile(request, context, profile);
@@ -1038,6 +1052,10 @@ const wchar_t* CleanupOperationName(CleanupOperation operation) noexcept {
     case CleanupOperation::schedule_reboot_delete: return L"MoveFileExW(delay-until-reboot)";
     case CleanupOperation::persist_result: return L"persist-cleanup-result-registry";
     case CleanupOperation::generate_quarantine_name: return L"CoCreateGuid(quarantine-name)";
+    case CleanupOperation::open_configuration_key: return L"RegOpenKeyExW(configuration)";
+    case CleanupOperation::check_configuration_link: return L"RegQueryValueExW(configuration-link)";
+    case CleanupOperation::enumerate_configuration_keys: return L"RegEnumKeyExW(configuration)";
+    case CleanupOperation::delete_configuration_key: return L"NtDeleteKey(configuration)";
     }
     return L"unknown";
 }

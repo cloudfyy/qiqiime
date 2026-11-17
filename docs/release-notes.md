@@ -16,7 +16,8 @@
 - **重做 MSI 卸载向导**：配置、当前用户词典数据独立选择，默认均保留；提供卸载进度和完成结果。被映射的旧缓存安全隔离后登记重启删除，明确区分立即清理、待重启和未完成；安装前检查本产品上次卸载的待重启状态，重启后核验清理结果再放行。外部源词库、导出、备份及其他用户数据保留，三个随附默认词库仍随程序移除。该流程需新的 MSI，不会改变既有 `v1.1.1` 缓存包。
 - **修正 MSI 打包校验数量**：文件数量断言补计 JSON 库许可证，x64 为 28 项、x86 为 24 项；数量不符时同时报告预期值和实际值。此修正不改变 MSI 内容。
 - **修正卸载选择页的窗口归属**：关联同产品的可见 MSI 对话框，避免选择页被进度窗遮挡；使用正常模态关系，不设全局置顶。完成提示以十六进制显示 HRESULT。
-- **补充清理失败操作诊断**：持久化并显示首个失败操作及原始 HRESULT，兼容缺少该字段的旧记录；增加真实 ACL 校验逻辑的隔离回归。实际卸载的 `0x80070005` 尚未定位到具体操作，不将诊断增强计为清理故障已修复。
+- **补充清理失败操作诊断**：持久化并显示首个失败操作及原始 HRESULT，兼容缺少该字段的旧记录；增加真实 ACL 校验逻辑及配置子键拒删的隔离回归，细分配置打开、链接检查、枚举和删除操作。
+- **修复词库管理器界面测试的配置污染**：显示测试的只读注册表键不再位于真实配置树下，改用独立的 GUID 测试键和受检清理。旧测试残留的只读子键未授予 DELETE 权限，会使卸载配置清理返回 `0x80070005`；本次修复防止新增残留，不自动接管或删除已有键，也不绕过卸载权限保护。
 - **隔离布局回退测试的系统光标状态**：DPI／定位回归使用线程局部 GUI 状态快照，避免把共享输入队列中其他窗口的 caret 当成测试失败。保留真实窗口坐标、候选位置及 TSF 优先级断言，不改变正常输入法的 Windows 状态查询。
 - **新增离线 Shell 检查清单**：提供本地 HTML 测试页，支持草稿保存和 Markdown 报告导出，不上传测试结果；主题检查预期与候选窗及预览使用 App mode 的策略保持一致。检查清单不代表所有 Shell 宿主已经验收。
 
@@ -78,8 +79,13 @@ tagged CI validation, and actually published download assets.
   window. Completion diagnostics display hexadecimal HRESULTs.
 - **Cleanup failure diagnostics:** retain the first failed operation with its
   original HRESULT, read legacy result records, and test the production ACL
-  validator in isolation. The reported real-uninstall `0x80070005` remains
-  unlocalized; improved diagnostics are not a claimed cleanup fix.
+  validator and denied configuration deletion in isolation. Distinguish key
+  opening, link checks, enumeration and deletion.
+- **Isolated Dictionary Manager display tests:** use independent GUID registry
+  keys and checked teardown instead of read-only keys under real preferences.
+  An orphan from the old test lacks DELETE permission and caused uninstall
+  cleanup to return `0x80070005`. This prevents new pollution; it does not
+  silently take ownership of or remove existing keys or bypass cleanup security.
 - **Isolated layout fallback regression:** inject thread-local GUI snapshots
   rather than assuming a shared input queue has no external caret. Real window
   coordinates, candidate positions and TSF precedence remain asserted; normal

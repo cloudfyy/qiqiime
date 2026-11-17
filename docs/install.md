@@ -175,6 +175,135 @@ Defender 明确报告恶意软件时，请停止安装。如果没有继续按�
 建议定期在词典管理器中备份，并把备份和自定义词库放在程序安装目录之外。
 不要直接修改安装目录中随程序提供的词库。
 
+### 安装问题排查：收集 MSI 日志
+
+下面两个脚本用于**重现安装或卸载并收集详细日志，不是只读检查**。
+请先备份个人词库、保存工作、切换其他输入法并关闭相关应用，再以管理员身份打开
+PowerShell，复制需要的一个脚本执行。不要同时运行两个脚本，也不要在另一个安装
+尚未结束时运行。只使用确认来自官方或自己可信构建的 MSI，不要关闭安全软件或绕过组织策略。
+
+- 日志使用不同的唯一文件名，保存在当前账户的临时目录，不覆盖之前的日志。
+- 不会自动重启；脚本不会删除注册表、修改权限或绕过安装器的版本／待重启检查。
+- 日志只能记录本次操作，不能补回之前没有采集的日志；不要为了采日志反复触发数据删除。
+- MSI 和 ZIP 部署不要混用；以下卸载脚本不适用于 ZIP 手动部署。
+
+#### 安装日志采集
+
+按提示输入 MSI 完整路径，例如下载目录中的中文或英文安装包；
+路径含空格或通过“复制文件地址”得到的两端引号均可。
+脚本会实际启动所选包的安装流程；已安装时也可能进入升级或维护流程。
+
+```powershell
+$ErrorActionPreference = 'Stop'
+
+$msi = (Read-Host '请输入可信 MSI 文件的完整路径').Trim().Trim('"')
+$package = Get-Item -LiteralPath $msi -ErrorAction Stop
+if ($package.PSIsContainer -or $package.Extension -ine '.msi') {
+    throw '请选择一个 MSI 文件，脚本未执行安装。'
+}
+
+$log = Join-Path $env:TEMP (
+    'QiQiIME-install-{0}-{1}.log' -f
+        (Get-Date -Format 'yyyyMMdd-HHmmssfff'), [guid]::NewGuid().ToString('N')
+)
+$msiexec = Join-Path $env:SystemRoot 'System32\msiexec.exe'
+$p = Start-Process -FilePath $msiexec -Wait -PassThru -ArgumentList (
+    "/i `"$($package.FullName)`" /norestart /L*V! `"$log`""
+)
+
+"退出码：$($p.ExitCode)"
+"日志位置：$log"
+if (-not (Test-Path -LiteralPath $log -PathType Leaf)) {
+    throw '安装器未生成日志，请保留上面的退出码和启动错误。'
+}
+notepad.exe "$log"
+```
+
+#### 卸载日志采集
+
+脚本自动查找机器级 MSI 安装记录，不硬编码会随安装包变化的产品代码；
+没有记录或发现多个目标时会停止，不会重新安装，也不会任选一个卸载。
+使用基础交互界面（`/qb`），以便重现 Windows“设置”常见的卸载入口行为。
+**是否删除个人数据仍由安装器中的选择决定，勾选会实际删除所选数据。**
+为复现清理失败，保持与失败时相同的选择，不额外设置绕过清理的参数。
+
+```powershell
+$ErrorActionPreference = 'Stop'
+
+$roots = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+)
+$apps = @(
+    foreach ($root in $roots) {
+        if (Test-Path -LiteralPath $root) {
+            Get-ItemProperty -Path "$root\*" -ErrorAction Stop |
+                Where-Object {
+                    $_.PSObject.Properties['DisplayName'] -and
+                    $_.PSObject.Properties['WindowsInstaller'] -and
+                    $_.DisplayName -match 'QiQi|奇奇' -and
+                    $_.WindowsInstaller -eq 1
+                }
+        }
+    }
+)
+
+if ($apps.Count -eq 0) {
+    throw '没有找到已安装的奇奇 MSI。若已卸载，无法补采之前的日志；不要为此反复安装卸载。'
+}
+if ($apps.Count -ne 1) {
+    $apps | Select-Object DisplayName, DisplayVersion, PSChildName | Format-Table
+    throw '发现多个安装记录，请先确认目标，脚本未执行卸载。'
+}
+$product = $apps[0].PSChildName
+if ($product -notmatch '^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$') {
+    throw '安装记录不是有效的 MSI 产品代码，停止操作。'
+}
+
+$log = Join-Path $env:TEMP (
+    'QiQiIME-uninstall-{0}-{1}.log' -f
+        (Get-Date -Format 'yyyyMMdd-HHmmssfff'), [guid]::NewGuid().ToString('N')
+)
+$msiexec = Join-Path $env:SystemRoot 'System32\msiexec.exe'
+$p = Start-Process -FilePath $msiexec -Wait -PassThru -ArgumentList (
+    "/x $product /qb /norestart /L*V! `"$log`""
+)
+
+"退出码：$($p.ExitCode)"
+"日志位置：$log"
+if (-not (Test-Path -LiteralPath $log -PathType Leaf)) {
+    throw '安装器未生成日志，请保留上面的退出码和启动错误。'
+}
+notepad.exe "$log"
+```
+
+#### 日志和退出码怎么看
+
+关闭提示并等待脚本结束后，保留退出码、日志路径和错误截图。常见退出码：
+
+| 退出码 | 含义 |
+|---|---|
+| `0` | 本次操作完成 |
+| `3010` | 操作完成，但需要重启；请先保存工作 |
+| `1602` | 操作被取消，结合日志确认取消位置 |
+| `1603` | 通用失败；查看更早的具体操作／HRESULT，不能仅凭它判断程序是否已经移除 |
+| `1605` | 目标产品当前未安装，可能安装记录已经发生变化 |
+| `1618` | 另一个安装事务正在运行，等待其结束，不要强杀安装器 |
+
+使用同一个 PowerShell 窗口，可定位错误上下文：
+
+```powershell
+Select-String -LiteralPath $log -Pattern 'QiQiIME installer:', 'Return value 3', 'Error 1722', 'Error 1723' -Context 20,5
+```
+
+优先查看首个实际失败操作；清理故障要保留操作名称、HRESULT、已清理和待重启数量。
+若日志已说明清理动作具有足够权限，但删除配置仍返回 `0x80070005`，不能简单归因于
+“没有用管理员运行”：具体注册表子键仍可能没有授予删除权限。请保留操作名称和日志，
+不要为消除报错而重置整个用户注册表的权限、强制接管所有子键或关闭安全保护。
+**程序卸载已提交后的清理失败不代表程序文件回滚；登记重启删除也不代表已经删掉。**
+反馈日志路径和相关错误段即可，分享前遮盖用户名、私人路径和其他个人信息，
+不要公开上传未经检查的完整日志、词库或备份。
+
 ### 仍然无法安装或使用，如何反馈？
 
 请在[项目 Issues](https://github.com/cloudfyy/qiqiime/issues)中说明：

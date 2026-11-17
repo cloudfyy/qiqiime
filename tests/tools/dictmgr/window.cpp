@@ -7,20 +7,16 @@ namespace qiqi::dict_manager::tests {
 
 namespace {
 void TestSavedDisplayPreferences() {
-    const auto subkey = L"Software\\QiQiIME\\Tests\\DictManagerDisplay_" +
-        std::to_wstring(::GetCurrentProcessId());
-    const wchar_t* previous_subkey = GetActiveConfigRegistrySubKey();
-    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    ConfigRegistryFixture registry;
+    const auto& subkey = registry.Subkey();
     SetThemeDarkOverrideForTest(true);
     SetHighContrastOverrideForTest(false);
     const auto directory = std::filesystem::current_path() /
         (L"dictmgr-display-test-" + std::to_wstring(::GetCurrentProcessId()));
     const auto cleanup = gsl::finally([&]() noexcept {
-        SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
         SetThemeDarkOverrideForTest(std::nullopt);
         SetHighContrastOverrideForTest(std::nullopt);
         SetMonitorMetricsOverrideForTest(std::nullopt);
-        ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
         std::error_code error;
         std::filesystem::remove_all(directory, error);
         DrainQuitMessages();
@@ -176,14 +172,9 @@ void TestSavedDisplayPreferences() {
 } // namespace
 
 void TestGuiWindow() {
-    const auto display_subkey = L"Software\\QiQiIME\\Tests\\DictManagerGuiDisplay_" +
-        std::to_wstring(::GetCurrentProcessId());
-    const wchar_t* previous_subkey = GetActiveConfigRegistrySubKey();
-    SetConfigRegistrySubKeyOverrideForTest(display_subkey.c_str());
-    const auto cleanup_display = gsl::finally([&]() noexcept {
-        SetConfigRegistrySubKeyOverrideForTest(previous_subkey);
-        ::RegDeleteTreeW(HKEY_CURRENT_USER, display_subkey.c_str());
-    });
+    TestConfigRegistryIsolation();
+    ConfigRegistryFixture registry;
+    const auto& display_subkey = registry.Subkey();
     QIQI_TEST_CHECK(SaveFixtureConfig(QiQiConfig{}, display_subkey));
     const auto temp_dir = std::filesystem::temp_directory_path() /
         (L"qiqi_dict_mgr_gui_" + std::to_wstring(::GetCurrentProcessId()));

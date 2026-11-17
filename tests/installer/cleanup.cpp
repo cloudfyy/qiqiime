@@ -345,6 +345,48 @@ void OperationDiagnostics() {
         HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
 }
 
+void ConfigurationDeleteAccessDenied() {
+    Fixture fixture{Guid()};
+    const auto path = fixture.sid + L"\\Software\\QiQiIME\\Nested";
+    ScopedRegKey restricted;
+    QIQI_TEST_CHECK(::RegOpenKeyExW(fixture.users.Get(), path.c_str(), REG_OPTION_OPEN_LINK,
+        KEY_ALL_ACCESS, restricted.Put()) == ERROR_SUCCESS);
+    PSECURITY_DESCRIPTOR previous = nullptr;
+    QIQI_TEST_CHECK(::GetSecurityInfo(restricted.Get(), SE_REGISTRY_KEY,
+        DACL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, nullptr, &previous) == ERROR_SUCCESS);
+    const ScopedLocalAlloc release_previous(previous);
+    SECURITY_DESCRIPTOR_CONTROL control{};
+    DWORD revision = 0;
+    QIQI_TEST_CHECK(::GetSecurityDescriptorControl(previous, &control, &revision));
+    const SECURITY_INFORMATION restore_flags = DACL_SECURITY_INFORMATION |
+        ((control & SE_DACL_PROTECTED) ? PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION);
+    PSECURITY_DESCRIPTOR readonly = nullptr;
+    const std::wstring security = L"D:P(A;OICI;KR;;;" + fixture.sid + L")";
+    QIQI_TEST_CHECK(::ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        security.c_str(), SDDL_REVISION_1, &readonly, nullptr));
+    const ScopedLocalAlloc release_readonly(readonly);
+    QIQI_TEST_CHECK(::RegSetKeySecurity(restricted.Get(),
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, readonly) == ERROR_SUCCESS);
+    const auto restore = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK_CLEANUP(::RegSetKeySecurity(restricted.Get(), restore_flags, previous) == ERROR_SUCCESS);
+    });
+
+    ScopedRegKey readable, deletion;
+    QIQI_TEST_CHECK(::RegOpenKeyExW(fixture.users.Get(), path.c_str(), REG_OPTION_OPEN_LINK,
+        KEY_READ, readable.Put()) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(::RegOpenKeyExW(fixture.users.Get(), path.c_str(), REG_OPTION_OPEN_LINK,
+        KEY_READ | DELETE, deletion.Put()) == ERROR_ACCESS_DENIED);
+    const auto request = fixture.Request(true, false);
+    const auto result = backend::PerformCleanup(request, fixture.sandbox);
+    QIQI_TEST_CHECK(result.error == E_ACCESSDENIED &&
+        result.operation == installer::CleanupOperation::open_configuration_key);
+    QIQI_TEST_CHECK(result.deleted == 0 && result.scheduled == 0 && !result.restart_required &&
+        fixture.scheduled.empty() && fixture.HasConfiguration());
+    QIQI_TEST_CHECK(::RegQueryValueExW(restricted.Get(), L"Synthetic", nullptr,
+        nullptr, nullptr, nullptr) == ERROR_SUCCESS);
+    fixture.Stored(request, result);
+}
+
 void QuarantineCreationDenied() {
     Fixture fixture{Guid()};
     const auto original = fixture.data / L"cache" / L"wubi86_jidian.qdict";
@@ -592,6 +634,7 @@ void RunInstallerCleanupTestsImpl() {
     BootOnlyRestart();
     SchedulerAndPersistenceFailures();
     OperationDiagnostics();
+    ConfigurationDeleteAccessDenied();
     QuarantineCreationDenied();
     ProductionQuarantineSecurity();
     UnsafeFilesAndPaths();

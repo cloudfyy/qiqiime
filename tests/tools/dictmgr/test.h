@@ -37,8 +37,26 @@ using enum qiqi::dict_manager::ControlId;
 
 namespace layout = dict_manager_layout;
 
+class ConfigRegistryFixture final {
+public:
+    ConfigRegistryFixture();
+    ~ConfigRegistryFixture() noexcept;
+    ConfigRegistryFixture(const ConfigRegistryFixture&) = delete;
+    ConfigRegistryFixture& operator=(const ConfigRegistryFixture&) = delete;
+    ConfigRegistryFixture(ConfigRegistryFixture&&) = delete;
+    ConfigRegistryFixture& operator=(ConfigRegistryFixture&&) = delete;
+
+    const std::wstring& Subkey() const noexcept { return subkey_; }
+    HKEY Get() const noexcept { return key_.Get(); }
+private:
+    std::wstring subkey_;
+    const wchar_t* previous_;
+    ScopedRegKey key_;
+};
+
 HWND Child(const DictManagerWindow& window, ControlId id) noexcept;
 bool SaveFixtureConfig(const QiQiConfig& config, std::wstring_view expected_subkey);
+void TestConfigRegistryIsolation();
 RECT ToolbarItemRect(const DictManagerWindow& window, ControlId id);
 void InvokeCommand(const DictManagerWindow& window, ControlId id, bool toolbar = false);
 std::wstring MenuText(HMENU menu, ControlId id);
