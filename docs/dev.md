@@ -158,8 +158,14 @@ PIDs; cleanup failures report the directory, original error category/code and
 unwinding state, then probe delete access for remaining entries without deleting
 them. Probe errors are separate observations, not the original removal error or
 proof of which process owns a conflicting handle. Enumeration failures are also
-reported. Cleanup still fails immediately; no retries or timeout increases are
-introduced.
+reported. After child teardown, fixture cleanup retries only
+`ERROR_SHARING_VIOLATION`, with 50 ms pauses in a 2-second retry window, to tolerate
+temporary locks on copied AppContainer reader executables. Each retry and the
+recovery/exhaustion result retain the error codes and elapsed time. Other errors
+fail immediately; a persistent conflict still reports the remaining entries and
+aborts. Child/writer timeouts and the CTest timeout are unchanged. Regressions
+cover a real conflicting file handle released after the first failure, a
+conflict held through the retry deadline, and a non-sharing error without retry.
 The layout fallback/DPI regression injects a thread-local `GUITHREADINFO`
 snapshot while retaining real host-window coordinate conversion and candidate
 position assertions. It must not create/destroy the desktop caret or assume

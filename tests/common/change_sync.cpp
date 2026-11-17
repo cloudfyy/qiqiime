@@ -36,6 +36,8 @@ using namespace qiqi;
 using namespace qiqi::sync;
 
 constexpr DWORD kTimeout = 15000;
+constexpr DWORD kCleanupRetryBudget = 2000;
+constexpr DWORD kCleanupRetryDelay = 50;
 constexpr Source kSource{DataType::Dictionary,
     {0x815eaa57, 0x5676, 0x41fb, {0xaf, 0x9b, 0x41, 0x89, 0x11, 0x68, 0xc3, 0x17}}};
 constexpr std::array<uint8_t, 5> kPayload{'d', 'e', 'l', 't', 'a'};
@@ -62,6 +64,39 @@ private:
     const char* const name_;
     const ULONGLONG started_;
 };
+
+template <typename Pause>
+std::error_code RemoveDirectoryWithSharingRetry(
+    const std::filesystem::path& directory, DWORD budget_ms, Pause pause) {
+    const auto started = ::GetTickCount64();
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+    const auto first_error = error;
+    size_t attempts = 1;
+    while (error == std::error_code(ERROR_SHARING_VIOLATION, std::system_category())) {
+        const auto elapsed = ::GetTickCount64() - started;
+        if (elapsed >= budget_ms) break;
+        std::fprintf(stderr,
+            "[CLEANUP-RETRY] pid=%lu, directory=\"%s\", attempts=%zu, error=%d, elapsed_ms=%llu, budget_ms=%lu\n",
+            ::GetCurrentProcessId(), WideToUtf8(directory.native()).c_str(), attempts, error.value(),
+            elapsed, budget_ms);
+        std::fflush(stderr);
+        pause(gsl::narrow_cast<DWORD>(std::min<ULONGLONG>(kCleanupRetryDelay, budget_ms - elapsed)));
+        if (::GetTickCount64() - started >= budget_ms) break;
+        ++attempts;
+        std::filesystem::remove_all(directory, error);
+    }
+    if (first_error) {
+        std::fprintf(stderr,
+            "[%s] pid=%lu, directory=\"%s\", attempts=%zu, first_error=%d, category=%s, last_error=%d, "
+            "elapsed_ms=%llu, budget_ms=%lu\n",
+            error ? "CLEANUP-RETRY-STOP" : "CLEANUP-RECOVERED", ::GetCurrentProcessId(),
+            WideToUtf8(directory.native()).c_str(), attempts, first_error.value(), error.category().name(),
+            error.value(), ::GetTickCount64() - started, budget_ms);
+        std::fflush(stderr);
+    }
+    return error;
+}
 
 void ReportDirectoryCleanupFailure(const std::filesystem::path& directory,
                                    const std::error_code& error, FILE* output = stderr) {
@@ -121,8 +156,7 @@ public:
             std::fprintf(stderr, "[CLEANUP-BEGIN] pid=%lu, directory=\"%s\", unwinding=%d\n",
                 ::GetCurrentProcessId(), WideToUtf8(directory.native()).c_str(), std::uncaught_exceptions() != 0);
             std::fflush(stderr);
-            std::error_code error;
-            std::filesystem::remove_all(directory, error);
+            const auto error = RemoveDirectoryWithSharingRetry(directory, kCleanupRetryBudget, ::Sleep);
             if (error) {
                 ReportDirectoryCleanupFailure(directory, error);
                 std::abort();
@@ -204,6 +238,60 @@ void TestFailureDiagnostics() {
         "delete_open_error=32") != std::string::npos);
     QIQI_TEST_CHECK(std::filesystem::exists(locked_path));
     locked.Reset();
+}
+
+void TestDirectoryCleanupRetry() {
+    const TestStage stage(__func__);
+    Fixture fixture(L"cleanup-retry");
+    const auto locked_path = fixture.directory / L"held-open";
+    ScopedFileHandle locked(::CreateFileW(locked_path.c_str(), GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+    QIQI_TEST_CHECK(locked);
+
+    constexpr DWORD budget = 100;
+    const auto started = ::GetTickCount64();
+    const auto blocked = RemoveDirectoryWithSharingRetry(fixture.directory, budget, ::Sleep);
+    QIQI_TEST_CHECK(blocked == std::error_code(ERROR_SHARING_VIOLATION, std::system_category()));
+    QIQI_TEST_CHECK(::GetTickCount64() - started >= budget);
+    QIQI_TEST_CHECK(std::filesystem::exists(locked_path));
+
+    {
+        DWORD size = 0;
+        const BOOL queried = ::GetFileSecurityW(
+            fixture.directory.c_str(), DACL_SECURITY_INFORMATION, nullptr, 0, &size);
+        const DWORD query_error = queried ? ERROR_SUCCESS : ::GetLastError();
+        QIQI_TEST_CHECK(!queried && query_error == ERROR_INSUFFICIENT_BUFFER && size != 0);
+        std::vector<uint8_t> original_security(size);
+        QIQI_TEST_CHECK(::GetFileSecurityW(fixture.directory.c_str(), DACL_SECURITY_INFORMATION,
+            original_security.data(), size, &size));
+        PSECURITY_DESCRIPTOR raw = nullptr;
+        QIQI_TEST_CHECK(::ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:P(D;;FR;;;WD)(A;;FA;;;OW)", SDDL_REVISION_1, &raw, nullptr));
+        const ScopedLocalAlloc denied_security(raw);
+        const auto restore = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK_CLEANUP(::SetFileSecurityW(fixture.directory.c_str(),
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, original_security.data()));
+        });
+        QIQI_TEST_CHECK(::SetFileSecurityW(fixture.directory.c_str(),
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
+        bool unexpected_pause = false;
+        const auto denied = RemoveDirectoryWithSharingRetry(fixture.directory, budget, [&](DWORD delay) {
+            unexpected_pause = true;
+            ::Sleep(delay);
+        });
+        QIQI_TEST_CHECK(denied == std::error_code(ERROR_ACCESS_DENIED, std::system_category()));
+        QIQI_TEST_CHECK(!unexpected_pause);
+    }
+
+    bool released_after_conflict = false;
+    const auto recovered = RemoveDirectoryWithSharingRetry(
+        fixture.directory, kCleanupRetryBudget, [&](DWORD delay) {
+            locked.Reset();
+            released_after_conflict = true;
+            ::Sleep(delay);
+        });
+    QIQI_TEST_CHECK(released_after_conflict && !recovered);
+    QIQI_TEST_CHECK(!std::filesystem::exists(fixture.directory));
 }
 
 struct AttributeListTraits {
@@ -1072,6 +1160,7 @@ int wmain(int argc, wchar_t** argv) try {
         return 0;
     }
     TestFailureDiagnostics();
+    TestDirectoryCleanupRetry();
     TestJournal();
     TestRetentionAndCorruption();
     TestConcurrentWriters();
