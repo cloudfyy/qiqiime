@@ -7,6 +7,8 @@
 
 namespace qiqi::dict_manager::tests {
 
+// Building the isolated registry subkey allocates and can throw std::bad_alloc.
+#pragma warning(suppress : 26455)
 ConfigRegistryFixture::ConfigRegistryFixture() : previous_(GetActiveConfigRegistrySubKey()) {
     GUID id{};
     QIQI_TEST_CHECK(SUCCEEDED(::CoCreateGuid(&id)));
