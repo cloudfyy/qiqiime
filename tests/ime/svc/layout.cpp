@@ -79,6 +79,154 @@ void TestLayoutFallbackDpiRouting(
     }
 }
 
+void TestFirstKeyLayoutRefresh(
+    gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    const TsfTestCaseTrace trace(__func__);
+    const auto previous_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto previous_gui = detail::LayoutGuiThreadInfoOverrideStorage();
+    const BOOL previous_show = mock_tm->show_own_ui_;
+    const auto restore = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(previous_monitor);
+        SetLayoutGuiThreadInfoOverrideForTest(previous_gui);
+        mock_tm->show_own_ui_ = previous_show;
+    });
+    const ScopedWindow host(::CreateWindowExW(
+        0, L"STATIC", L"", WS_POPUP, 0, 0, 860, 940, nullptr, nullptr, g_dll_instance, nullptr));
+    QIQI_TEST_CHECK(host);
+    struct Case {
+        MonitorMetrics monitor;
+        RECT stale;
+        RECT settled;
+        POINT expected;
+    };
+    constexpr std::array cases{
+        Case{{{1920, 48, 3840, 1080}, 96}, {2412, 904, 2413, 923},
+             {2412, 14, 2413, 33}, {2412, 48}},
+        Case{{{72, 0, 1920, 1200}, 144}, {-1012, 90, -1011, 118},
+             {206, 90, 207, 118}, {206, 122}},
+        Case{{{-1920, 0, -72, 1200}, 144}, {14, 90, 15, 118},
+             {-1600, 90, -1599, 118}, {-1600, 122}},
+    };
+    enum class Mode { Refresh, GuiCaret, Uiless };
+    for (const auto& test : cases) {
+        SetMonitorMetricsOverrideForTest(test.monitor);
+        for (const auto mode : {Mode::Refresh, Mode::GuiCaret, Mode::Uiless}) {
+            GUITHREADINFO gui{};
+            gui.cbSize = sizeof(gui);
+            gui.hwndFocus = host.Get();
+            if (mode == Mode::GuiCaret) {
+                gui.hwndCaret = host.Get();
+                gui.rcCaret = {11, 13, 14, 30};
+            }
+            SetLayoutGuiThreadInfoOverrideForTest(gui);
+            mock_tm->show_own_ui_ = mode != Mode::Uiless;
+            const auto queue = std::make_shared<MockEditSessionQueue>();
+            const auto context = MakeComObject<MockTfContext>(queue);
+            context->SetDeferredEditSessions(false);
+            context->view_->hwnd_ = host.Get();
+            context->view_->text_ext_ = test.stale;
+            BOOL eaten = FALSE;
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+            const auto* const ui = dynamic_cast<const CandidateUI*>(mock_tm->last_ui_element_.Get());
+            QIQI_TEST_CHECK(ui && context->range_->text_ == L"a");
+            if (mode == Mode::Refresh) {
+                QIQI_TEST_CHECK(queue->PendingCount() == 1);
+                QIQI_TEST_CHECK(queue->PendingRequests().front().flags == (TF_ES_ASYNC | TF_ES_READ));
+                const auto writes = context->range_->set_text_calls_;
+                const auto queries = context->view_->get_text_ext_calls_;
+                context->view_->text_ext_ = test.settled;
+                QIQI_TEST_CHECK(queue->RunNext(271) == S_OK && queue->PendingCount() == 0);
+                QIQI_TEST_CHECK(context->view_->get_text_ext_calls_ == queries + 1);
+                QIQI_TEST_CHECK(context->range_->text_ == L"a" && context->range_->set_text_calls_ == writes);
+                RECT actual{};
+                QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &actual));
+                QIQI_TEST_CHECK(actual.left == test.expected.x && actual.top == test.expected.y);
+                QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && eaten);
+                QIQI_TEST_CHECK(queue->PendingCount() == 0 && context->range_->text_ == L"ab");
+            } else {
+                QIQI_TEST_CHECK(queue->PendingCount() == 0);
+            }
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_ESCAPE, 0, &eaten) == S_OK && eaten);
+        }
+    }
+}
+
+void TestFirstKeyLayoutRefreshLifecycle(
+    gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    const TsfTestCaseTrace trace(__func__);
+    const auto previous_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto previous_gui = detail::LayoutGuiThreadInfoOverrideStorage();
+    const BOOL previous_show = mock_tm->show_own_ui_;
+    const auto restore = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(previous_monitor);
+        SetLayoutGuiThreadInfoOverrideForTest(previous_gui);
+        mock_tm->show_own_ui_ = previous_show;
+    });
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{{0, 48, 1920, 1080}, 96});
+    const ScopedWindow host(::CreateWindowExW(
+        0, L"STATIC", L"", WS_POPUP, 0, 0, 860, 940, nullptr, nullptr, g_dll_instance, nullptr));
+    QIQI_TEST_CHECK(host);
+    GUITHREADINFO gui{};
+    gui.cbSize = sizeof(gui);
+    gui.hwndFocus = host.Get();
+    SetLayoutGuiThreadInfoOverrideForTest(gui);
+    mock_tm->show_own_ui_ = TRUE;
+    enum class Transition { FocusLost, Reactivate, SwitchContext, ReplaceComposition, Abandon, Reject, NoLayout };
+    for (const auto transition : {Transition::FocusLost, Transition::Reactivate, Transition::SwitchContext,
+             Transition::ReplaceComposition, Transition::Abandon, Transition::Reject, Transition::NoLayout}) {
+        const auto queue = std::make_shared<MockEditSessionQueue>();
+        const auto context = MakeComObject<MockTfContext>(queue);
+        context->SetDeferredEditSessions(false);
+        context->view_->hwnd_ = host.Get();
+        context->view_->text_ext_ = {200, 904, 201, 923};
+        if (transition == Transition::Reject) context->async_edit_session_result_ = E_ACCESSDENIED;
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        const auto original = context->last_composition_;
+        QIQI_TEST_CHECK(queue->PendingCount() == (transition == Transition::Reject ? 0u : 1u));
+        if (transition == Transition::FocusLost) {
+            QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+        } else if (transition == Transition::Reactivate) {
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK && service->Activate(mock_tm.get(), 1) == S_OK);
+        } else if (transition == Transition::SwitchContext) {
+            const auto replacement = MakeComObject<MockTfContext>();
+            QIQI_TEST_CHECK(service->OnKeyDown(replacement.Get(), 'B', 0, &eaten) == S_OK && eaten);
+        } else if (transition == Transition::ReplaceComposition) {
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SPACE, 0, &eaten) == S_OK && eaten);
+            context->view_->text_ext_ = {400, 200, 401, 219};
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(context->last_composition_ != original && queue->PendingCount() == 2);
+        } else if (transition == Transition::NoLayout) {
+            context->view_->fail_get_text_ext_ = true;
+        }
+        const auto* const ui = dynamic_cast<const CandidateUI*>(mock_tm->last_ui_element_.Get());
+        QIQI_TEST_CHECK(ui);
+        const HWND window = ui->WindowHandle();
+        RECT before{};
+        if (window) QIQI_TEST_CHECK(::GetWindowRect(window, &before));
+        const auto queries = context->view_->get_text_ext_calls_;
+        const auto writes = context->range_->set_text_calls_;
+        if (transition == Transition::Abandon) {
+            QIQI_TEST_CHECK(queue->ClearForCleanup() == S_OK);
+        } else if (transition != Transition::Reject) {
+            QIQI_TEST_CHECK(queue->RunNext(283) == S_OK);
+        }
+        QIQI_TEST_CHECK(context->view_->get_text_ext_calls_ ==
+            queries + (transition == Transition::NoLayout ? 1u : 0u));
+        QIQI_TEST_CHECK(context->range_->set_text_calls_ == writes);
+        QIQI_TEST_CHECK(ui->WindowHandle() == window);
+        if (window) {
+            RECT after{};
+            QIQI_TEST_CHECK(::GetWindowRect(window, &after) && ::EqualRect(&before, &after));
+        }
+        if (transition == Transition::ReplaceComposition) {
+            QIQI_TEST_CHECK(queue->PendingCount() == 1 && queue->RunNext(293) == S_OK);
+        }
+        QIQI_TEST_CHECK(queue->PendingCount() == 0);
+        QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+    }
+}
+
 } // namespace
 
 void RunTsfLayoutQueryTests(
@@ -93,6 +241,8 @@ void RunTsfLayoutQueryTests(
     });
     std::array<BYTE, 256> clean_keyboard{};
     QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+    TestFirstKeyLayoutRefresh(service, mock_tm);
+    TestFirstKeyLayoutRefreshLifecycle(service, mock_tm);
     TestLayoutFallbackDpiRouting(service, mock_tm);
     {
         const ScopedWindow first(::CreateWindowExW(

@@ -748,6 +748,19 @@ cleanup-write barrier described above, and no separate layout queue is added.
 `OnLayoutChange` returning `S_OK` does not prove that the later query or window
 movement succeeded.
 
+For the first update of a native, visible composition in the currently focused
+root window without a Win32 caret, a successful initial extent is confirmed once
+with `TF_ES_ASYNC | TF_ES_READ`. A windowless text store can return `S_OK` with
+its previous layout while the initial write session is still running, without
+issuing a later layout notification. The strict asynchronous confirmation lets
+that write session end before querying again, without waiting for a second key.
+It is not a timer or polling loop. The task retains the original composition as
+well as the service/context; activation, context and composition identity are
+checked before querying and again after access-policy checks. A rejected or
+failed confirmation is diagnosed and preserves the existing popup position.
+Native-caret, fallback-only and host-rendered UILess paths do not request this
+extra session. Normal layout notifications still resolve the current composition.
+
 **Preserve coordinate and fallback behavior:**
 
 - Keep TSF's raw coordinates, clipping information, and zero-sized or inverted

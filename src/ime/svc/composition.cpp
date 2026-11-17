@@ -47,6 +47,24 @@ bool QueryGuiThreadOrCursorFallbackRect(RECT& out_rc) noexcept {
     return false;
 }
 
+bool NeedsPostEditLayoutRefresh(const CandidateUI& ui) noexcept {
+    const HWND popup = ui.WindowHandle();
+    if (!popup || !::IsWindowVisible(popup)) return false;
+    GUITHREADINFO gui{};
+    gui.cbSize = sizeof(gui);
+    if (!QueryLayoutGuiThreadInfo(gui)) {
+        QIQI_LOG_CAT_DEBUG(log::Keyword::UI, "CandidatePosition::GetGUIThreadInfo failed (error={})",
+                           ::GetLastError());
+        return false;
+    }
+    const HWND focus_root = gui.hwndFocus ? ::GetAncestor(gui.hwndFocus, GA_ROOT) : nullptr;
+    const bool owner_matches_focus = focus_root && focus_root == ::GetWindow(popup, GW_OWNER);
+    QIQI_LOG_CAT_DEBUG(log::Keyword::UI,
+        "CandidatePosition(stage=initial-layout-eligibility, has_native_caret={}, owner_matches_focus={})",
+        gui.hwndCaret != nullptr, owner_matches_focus);
+    return !gui.hwndCaret && owner_matches_focus;
+}
+
 } // namespace
 
 // ITfCompositionSink: called when the host application forcefully terminates composition
@@ -70,30 +88,37 @@ STDMETHODIMP QiQiTextService::OnLayoutChange(
         pic, lcode, composition_lifecycle_, service_log_id_, current_lifecycle_activity_,
         [this]() noexcept { return candidate_ui_ != nullptr; },
         [this, pic, pView](const GUID& layout_act_id) {
-            ComPtr<ITfContext> ctx_holder(pic);
-            const ComPtr<ITfContextView> view_holder(pView);
-            ComPtr<QiQiTextService> self_holder(this);
-            const EditSessionTicket ticket{composition_lifecycle_.Epoch(), ctx_holder.Get()};
-            const ComPtr<LambdaEditSession> session = MakeComObject<LambdaEditSession>(
-                [self_holder, task = CompositionLayoutTask(ctx_holder, view_holder, ticket, layout_act_id)](TfEditCookie ec) -> HRESULT {
-                return ExecuteCompositionLayoutInSession(
-                    ec, task, self_holder->current_lifecycle_activity_, self_holder->service_log_id_,
-                    [&self_holder](EditSessionTicket expected) noexcept {
-                        return self_holder->IsEditSessionCurrent(expected);
-                    },
-                    [&self_holder](TfEditCookie cookie, gsl::not_null<ITfContext*> context, const ComPtr<ITfContextView>& view) {
-                        const EditSessionTicket layout_ticket{self_holder->composition_lifecycle_.Epoch(), context.get()};
-                        const AccessPolicy policy = self_holder->EvaluateContextAccessInSession(cookie, context, layout_ticket, true);
-                        if (!policy.can_input || !self_holder->IsEditSessionCurrent(layout_ticket)) {
-                            return;
-                        }
-                        self_holder->UpdateCandidateWindowPositionInSession(cookie, context, view);
-                    });
-            });
-            RequestCompositionLayoutSession(
-                gsl::not_null<ITfContext*>(pic), gsl::not_null<ITfEditSession*>(session.Get()),
-                client_id_, ticket, service_log_id_, layout_act_id);
+            RequestCandidateWindowLayout(gsl::not_null<ITfContext*>(pic), ComPtr<ITfContextView>(pView), layout_act_id);
     });
+}
+
+void QiQiTextService::RequestCandidateWindowLayout(
+    gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view, const GUID& activity,
+    ComPtr<ITfComposition> expected_composition) {
+    const ComPtr<ITfContext> target(context.get());
+    const ComPtr<QiQiTextService> self(this);
+    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
+    const bool defer = expected_composition != nullptr;
+    const auto session = MakeComObject<LambdaEditSession>(
+        [self, task = CompositionLayoutTask(target, std::move(view), ticket, activity),
+         expected_composition = std::move(expected_composition)](TfEditCookie ec) -> HRESULT {
+            const auto is_current = [&](EditSessionTicket expected) noexcept {
+                return expected_composition ?
+                    self->IsCompositionEditCurrent(expected, expected_composition.Get()) :
+                    self->IsEditSessionCurrent(expected);
+            };
+            return ExecuteCompositionLayoutInSession(
+                ec, task, self->current_lifecycle_activity_, self->service_log_id_, is_current,
+                [&self, &is_current, &task](TfEditCookie cookie, gsl::not_null<ITfContext*> target_context,
+                                           const ComPtr<ITfContextView>& target_view) {
+                    const AccessPolicy policy = self->EvaluateContextAccessInSession(
+                        cookie, target_context, task.Ticket(), true);
+                    if (!policy.can_input || !is_current(task.Ticket())) return;
+                    self->UpdateCandidateWindowPositionInSession(cookie, target_context, target_view);
+                });
+        });
+    RequestCompositionLayoutSession(
+        context, gsl::not_null<ITfEditSession*>(session.Get()), client_id_, ticket, service_log_id_, activity, defer);
 }
 
 void QiQiTextService::ResetCompositionForInputMethodSwitch() {
@@ -216,6 +241,7 @@ void QiQiTextService::SyncCompositionUIInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, const KeyProcessResult& snapshot) {
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
     const ContextEditGuard guard(composition_lifecycle_, ticket, service_log_id_, current_lifecycle_activity_);
+    const bool first_update = !composition_lifecycle_.Composition();
     SyncCompositionPresentationInSession(
         ec, context, snapshot,
         [this](TfEditCookie cookie, gsl::not_null<ITfContext*> target, const std::wstring& text) {
@@ -227,7 +253,18 @@ void QiQiTextService::SyncCompositionUIInSession(
         [this](TfEditCookie cookie, gsl::not_null<ITfContext*> target) {
             UpdateCandidateWindowPositionInSession(cookie, target);
         },
-        [this](const KeyProcessResult& result) { BeginOrUpdateCandidateUI(result); });
+        [this, &guard, context, first_update](const KeyProcessResult& result) {
+            const auto composition = composition_lifecycle_.Composition();
+            BeginOrUpdateCandidateUI(result);
+            if (!first_update || !composition || !guard.CurrentComposition(composition.Get()) ||
+                !has_valid_caret_pos_ || !candidate_ui_ || !NeedsPostEditLayoutRefresh(*candidate_ui_.Get())) return;
+            // Some windowless text stores report the previous layout until this write session ends.
+            const GUID activity = log::CreateActivityId();
+            QIQI_LOG_ACT_START(log::Level::debug, log::Keyword::UI, &activity, &current_lifecycle_activity_,
+                "CandidatePosition(service={}, stage=initial-layout-recheck, activation={}, context={})",
+                service_log_id_, composition_lifecycle_.Epoch().activation, composition_lifecycle_.Epoch().context);
+            RequestCandidateWindowLayout(context, {}, activity, composition);
+        });
 }
 
 ComPtr<ITfComposition> QiQiTextService::StartOrUpdateCompositionInSession(

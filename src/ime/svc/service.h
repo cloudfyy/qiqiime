@@ -231,6 +231,9 @@ private:
         TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& text);
     void CommitAndEndCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context, const std::wstring& committed_text);
     void CancelCompositionInSession(TfEditCookie ec, gsl::not_null<ITfContext*> context);
+    void RequestCandidateWindowLayout(
+        gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view, const GUID& activity,
+        ComPtr<ITfComposition> expected_composition = {});
     void UpdateCandidateWindowPositionInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view = {});
 

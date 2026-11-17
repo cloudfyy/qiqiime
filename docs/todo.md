@@ -298,6 +298,9 @@ status-bar/tooltip skin support require separate design approval.
   Record the IME WinEvents, TSF text rectangles and actual popup rectangles.
   Do not treat the automated notification contract as proof that stale host
   caret coordinates or taskbar-search placement are fixed.
+  The first-key stale-extent path now requests one guarded asynchronous
+  confirmation for a visible native popup without a Win32 caret. Automated
+  moved-work-area and stale-task regressions do not replace this host check.
 
 - [ ] Audit IME DPI scaling against the
   [desktop-application DPI requirements](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#dpi-scaling-support-for-desktop-applications).

@@ -216,6 +216,16 @@ by PID/TID, service, activation, and context. Check layout subscription/notifica
 request versus callback execution, queried rectangles, DPI, fallback, and final
 window position.
 
+`stage=initial-layout-recheck` identifies the one-shot confirmation for a
+first-key native popup without a Win32 caret. The preceding
+`initial-layout-eligibility` record identifies native-caret and focused-owner
+gating without recording input. Correlate the recheck activity with
+`stage=layout-request, deferred=true` and the later `layout-callback` /
+`query-result`; the request uses strictly asynchronous read access. Verify that
+the second rectangle actually changes to the current input position without
+another key. A successful request alone, IME show/hide WinEvents, or a later
+second-key correction does not prove that the first-key position was fixed.
+
 `visible`, `topmost`, and `has_owner` do not prove that the user can see the window.
 `cloaked=-1` denotes a failed DWM query; inspect `cloak_hr`. Respect the host's
 UILess decision. A layout notification returning unchanged coordinates is not

@@ -127,17 +127,18 @@ HRESULT ExecuteCompositionLayoutInSession(
 
 inline void RequestCompositionLayoutSession(
     gsl::not_null<ITfContext*> context, gsl::not_null<ITfEditSession*> session, TfClientId client_id,
-    EditSessionTicket ticket, uint64_t service_id, const GUID& layout_act_id) {
+    EditSessionTicket ticket, uint64_t service_id, const GUID& layout_act_id, bool defer = false) {
     HRESULT session_hr = S_OK;
+    const DWORD flags = TF_ES_READ | (defer ? TF_ES_ASYNC : TF_ES_ASYNCDONTCARE);
     const HRESULT request_hr = context->RequestEditSession(
-        client_id, session.get(), TF_ES_ASYNCDONTCARE | TF_ES_READ, &session_hr);
+        client_id, session.get(), flags, &session_hr);
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
         log::Keyword::UI,
         &layout_act_id,
-        "CandidatePosition(service={}, stage=layout-request, activation={}, context={}, request_hr=0x{:08x}, session_hr=0x{:08x})",
+        "CandidatePosition(service={}, stage=layout-request, activation={}, context={}, request_hr=0x{:08x}, session_hr=0x{:08x}, deferred={})",
         service_id, ticket.epoch.activation, ticket.epoch.context,
-        gsl::narrow_cast<unsigned int>(request_hr), gsl::narrow_cast<unsigned int>(session_hr));
+        gsl::narrow_cast<unsigned int>(request_hr), gsl::narrow_cast<unsigned int>(session_hr), defer);
     const log::LogContext layout_ctx{log::Keyword::UI, log::Opcode::Info, &layout_act_id, nullptr};
     std::ignore = log::CheckHResult(request_hr, "OnLayoutChange::RequestEditSession", log::Level::debug, layout_ctx);
     if (SUCCEEDED(request_hr)) {

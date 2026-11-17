@@ -171,6 +171,15 @@ snapshot while retaining real host-window coordinate conversion and candidate
 position assertions. It must not create/destroy the desktop caret or assume
 `DestroyCaret` removes another thread's caret from a shared input queue.
 The override is restored on scope exit; normal layout queries still read Windows.
+First-key positioning regressions model a windowless text store returning a
+successful old extent until the initial write session ends. Under top/left/right
+work areas (including mixed DPI and negative coordinates), a single strict
+asynchronous read must move the native popup to the settled extent without
+another key or a layout notification. The tests retain stale/settled rectangles,
+check actual HWND coordinates, and cover one-shot scheduling, native-caret/UILess
+exclusion, focus/deactivation/context/composition replacement, abandonment,
+request rejection and a failed requery. This models the captured SearchHost
+behavior, not a substitute for rechecking the loaded DLL in that host.
 Candidate popup light-dismiss regressions use a scoped, current-process/thread
 WinEvent hook to check native IME show/hide/change ordering and HWND/object/child
 identifiers. They cover repeated calls, unchanged and hidden geometry, movement,
