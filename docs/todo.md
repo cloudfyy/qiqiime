@@ -141,6 +141,21 @@ status-bar/tooltip skin support require separate design approval.
 
 ## Tracked follow-up
 
+- [ ] High priority: fix intermittent Log Monitor status-text flicker.
+  Reported on 2026-11-17; code inspection found that the 100 ms refresh timer
+  unconditionally calls `UpdateStatus`, including while capture is stopped.
+  The ordinary `STATIC` footer receives `SetWindowTextW` even when its text
+  is unchanged; Metrics view also repeatedly sets its summary and footer.
+  Confirm the repaint path at runtime, then update these controls only when
+  their displayed text changes, without reducing capture/drain frequency.
+  If changed-text updates still flicker, investigate local buffered painting
+  rather than forcing whole-window redraws. Add focused regressions proving
+  unchanged ticks send no redundant text updates and real status/error,
+  language, and view changes remain visible. Verify idle, active and stopped
+  capture in Logs, diagnostics and Metrics views, including theme/DPI changes.
+  This is tracked work only; the reported flicker has not yet been reproduced
+  at runtime or fixed.
+
 - [ ] Fix MSI uninstall failure when optional current-user data cleanup encounters
   a mapped user-dictionary cache (reported in 1.1.1 on 2026-11-16).
   Main-branch implementation now includes the two-choice wizard, protected
