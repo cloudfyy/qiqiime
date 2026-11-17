@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 cloudfyy
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-name: CI & Lint
+name: CI
 
 on:
   push:
@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   build-test-lint:
-    name: Build (x64 & x86), Unit Tests & Core Guidelines/GSL Lint
+    name: Build (x64 & x86) and Unit Tests
     runs-on: windows-latest
 
     steps:
@@ -45,13 +45,15 @@ jobs:
             C:\Users\runneradmin\AppData\Local\vcpkg\archives
           key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
 
+      - name: Test nightly report logic
+        shell: pwsh
+        run: node --test tests\ci\nightly_lint_report.test.mjs
+
+      - name: Test lint output handling with fixtures
+        shell: pwsh
+        run: .\tests\ci\lint_output.ps1
+
       - name: Build and run unit tests (x64 & x86)
         shell: pwsh
         run: |
           powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
-
-      - name: Run C++ and PowerShell lint
-        shell: pwsh
-        run: |
-          Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
-          cmake --build build\x64 --config Release --target lint

@@ -7,10 +7,15 @@ param(
     [string]$BuildDirectory,
 
     [Parameter(Mandatory = $true)]
-    [string]$Configuration
+    [string]$Configuration,
+
+    [string]$OutputDirectory
 )
 
 $ErrorActionPreference = 'Stop'
+if ($OutputDirectory) {
+    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+}
 
 $buildArguments = @(
     '--build', $BuildDirectory,
@@ -25,19 +30,27 @@ $buildArguments = @(
 Write-Host 'Running MSVC CppCoreCheck (C++ Core Guidelines and GSL rules)...'
 $buildOutput = @(& cmake @buildArguments 2>&1)
 $buildExitCode = $LASTEXITCODE
+if ($OutputDirectory) {
+    $buildOutput | Out-File -LiteralPath (Join-Path $OutputDirectory 'cppcorecheck.log') -Encoding utf8
+}
 if ($buildExitCode -ne 0) {
     $buildOutput | Select-Object -Last 80 | ForEach-Object { Write-Output $_ }
     throw "CppCoreCheck build failed with exit code $buildExitCode."
 }
 
+$repositoryRoot = [regex]::Escape((Split-Path -Parent $PSScriptRoot))
+$projectWarningPattern = "(?i)^\s*(?:\d+>)?$repositoryRoot[\\/](?:src|tests|installer)[\\/].*warning C\d+:"
 $cppWarnings = @(
     $buildOutput |
         Where-Object {
-            "$_" -match '(?i)[\\/](?:src|tests)[\\/].*warning C\d+:' -and
+            "$_" -match $projectWarningPattern -and
             "$_" -notmatch 'C26490'
         } |
         Sort-Object -Unique
 )
+if ($OutputDirectory) {
+    $cppWarnings | Out-File -LiteralPath (Join-Path $OutputDirectory 'project-warnings.log') -Encoding utf8
+}
 $baselineWarningCount = 0
 if ($cppWarnings.Count -gt $baselineWarningCount) {
     Write-Host 'CppCoreCheck findings exceed the reviewed baseline:' -ForegroundColor Red
@@ -76,6 +89,9 @@ $scriptIssues = @(
         Invoke-ScriptAnalyzer -Path $scriptPath -Recurse -Severity Error
     }
 )
+if ($OutputDirectory) {
+    $scriptIssues | Format-List * | Out-File -LiteralPath (Join-Path $OutputDirectory 'powershell-issues.log') -Encoding utf8
+}
 if ($scriptIssues.Count -gt 0) {
     $scriptIssues | Format-Table -AutoSize | Out-String | Write-Host
     throw "PSScriptAnalyzer reported $($scriptIssues.Count) error(s)."

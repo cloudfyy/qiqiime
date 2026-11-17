@@ -21,6 +21,7 @@
 - **完善并发与剪贴板测试诊断**：ChangeSync 子进程记录完成数量、耗时、争用次数和实际 HRESULT，不放宽写入数量或超时。剪贴板测试准备阶段复用有界争用处理，故意持锁的拒绝访问断言仍直接调用原 API，不通过重试掩盖；准备失败记录占用方 PID／线程，不读取剪贴板内容。
 - **隔离布局回退测试的系统光标状态**：DPI／定位回归使用线程局部 GUI 状态快照，避免把共享输入队列中其他窗口的 caret 当成测试失败。保留真实窗口坐标、候选位置及 TSF 优先级断言，不改变正常输入法的 Windows 状态查询。
 - **新增离线 Shell 检查清单**：提供本地 HTML 测试页，支持草稿保存和 Markdown 报告导出，不上传测试结果；主题检查预期与候选窗及预览使用 App mode 的策略保持一致。检查清单不代表所有 Shell 宿主已经验收。
+- **Lint 移至夜间云端**：北京时间每日 03:30 分别运行 x64／x86 分析，日志与报告保留 14 天；08:30 在固定 Issue 提及维护者检查当日报告。日常 push／PR 保留构建与测试，不再执行耗时 lint，本地也不运行 lint；缺失、未完成或失败的检查不会标为通过。
 
 ## 迁移与验证边界
 
@@ -98,6 +99,10 @@ tagged CI validation, and actually published download assets.
 - **Offline Shell checklist:** a local HTML page saves drafts and exports
   Markdown reports without uploading results. Theme expectations match candidate/
   preview App-mode behavior; the checklist does not certify every host.
+- **Cloud-only nightly lint:** analyze x64/x86 daily at 03:30 UTC+8, retain
+  reports for 14 days, and mention the maintainer in a fixed issue at 08:30.
+  Push/PR builds and tests remain; expensive lint moves out of daytime CI and
+  local work. Missing, unfinished or failed checks are never marked passed.
 
 ### Migration and validation boundaries
 

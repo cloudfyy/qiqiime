@@ -16,8 +16,8 @@ Use a Windows x64 development machine to build both architectures.
 | SDK Debugging Tools | Both `Debuggers\x64\cdb.exe` and `Debuggers\x86\cdb.exe`. CMake requires the debugger matching each test architecture. SDK headers alone are not sufficient. |
 | CMake | 4.4.4 or newer. |
 | vcpkg | The bundled Visual Studio installation or a checkout selected by `VCPKG_ROOT`. Manifest mode provides Microsoft GSL. |
-| PowerShell | Windows PowerShell 5.1 or PowerShell 7+. Full script lint additionally requires PSScriptAnalyzer in the PowerShell edition selected by CMake. |
-| Website testing only | Node.js 22+ and npm; Chromium and the locked Playwright dependencies in `tests/site` for browser checks. The production website needs no dependency installation or compilation. |
+| PowerShell | Windows PowerShell 5.1 or PowerShell 7+. Cloud lint installs PSScriptAnalyzer on the runner; local lint is not part of this repository's workflow. |
+| JavaScript tests | Node.js 22+ for the CI report and website tests; npm, Chromium and the locked Playwright dependencies in `tests/site` for browser checks. The production website needs no dependency installation or compilation. |
 | Packaging only | .NET SDK 8.0+ and WiX CLI v4/v7+. WiX 7 requires accepting its EULA. |
 
 The project requests C++26 draft mode through `/std:c++latest`; this is not a
@@ -75,8 +75,9 @@ fixed by the change; keep existing assertions and failure diagnostics intact.
 
 | Change | Required validation |
 | --- | --- |
-| Native C++ source, headers, or embedded resources | Build affected targets and run their CTest suites on x64 and x86, sequentially. Run full native suites for cross-cutting changes or when targeted failures require wider validation; use the existing C++ quality checks. |
-| Installer authoring, build/deployment/release scripts | Run the related installer/script fixture tests and Error-level PSScriptAnalyzer in the appropriate PowerShell host. Build/test both architectures when native actions or runtime payloads change. Use isolated fixtures, not a real installation, registration, uninstallation, or user-data deletion. |
+| Native C++ source, headers, or embedded resources | Build affected targets and run their CTest suites on x64 and x86, sequentially. Run full native suites for cross-cutting changes or when targeted failures require wider validation. Review C++ quality checks in cloud Nightly Lint, not locally. |
+| Installer authoring, build/deployment/release scripts | Run related installer/script fixture tests; review Error-level PSScriptAnalyzer in cloud Nightly Lint. Build/test both architectures when native actions or runtime payloads change. Use isolated fixtures, not a real installation, registration, uninstallation, or user-data deletion. |
+| Nightly workflow or report logic | Run the focused Node report tests and synthetic log fixtures below; validate workflow YAML and verify cloud execution and reminder delivery. Do not run local lint. |
 | Website source/assets, website tests, release-data generator, or Website workflow | Run the website JavaScript syntax checks, all three Node test files, and the Chromium suite described below. Keep these checks separate from native CTest results. |
 | Markdown-only documentation with no behavior or executable examples changed | Check affected links and consistency; no native rebuild or browser run is required. Validate changed executable examples with the relevant tool when feasible. |
 | Mixed changes | Run the union of the applicable checks; a passing native suite does not excuse a failing website suite or vice versa. |
@@ -231,22 +232,42 @@ See the [logging guide](log.md#test-hang-diagnostics) for interpretation.
 - Preserve SPDX headers and third-party notices. Licensing and dictionary
   provenance are documented in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 
-Install PSScriptAnalyzer in the PowerShell edition selected by CMake if needed,
-then run lint from a configured Visual Studio build:
+Do not run lint locally. Push/PR [CI](../.github/workflows/ci.yml) retains
+both native builds and unit tests; the expensive analysis runs separately in
+[Nightly Lint](../.github/workflows/nightly-lint.yml):
 
-```powershell
-Install-Module -Name PSScriptAnalyzer -Scope CurrentUser
-cmake --build build\x64 --config Release --target lint
-cmake --build build\x86 --config Release --target lint
-```
+- Daily **03:30 Asia/Shanghai (UTC+8)**: analyze the default branch on Windows
+  for **x64 and x86**. The workflow can also be started in GitHub Actions with
+  `task: lint`; no installer is built and unit tests are not rerun by this job.
+- Each architecture retains configure output, full compiler output, lint
+  transcript, findings and a result JSON as downloadable Actions artifacts
+  for **14 days**, including failed checks. Setup failures can leave some logs
+  absent; the step outcomes and Actions job logs identify the failure.
+- Daily **08:30 UTC+8**: post an `@cloudfyy` reminder in
+  [Nightly lint reports (#1)](https://github.com/cloudfyy/qiqiime/issues/1).
+  The comment links today's run and reports both architectures. Missing,
+  unfinished, cancelled or failed checks are never reported as a pass.
+  Manual `task: remind` updates the same day's bot comment instead of duplicating
+  it. Close the tracking issue to pause comments; reopen it to resume.
+- GitHub schedules can be delayed. Notification delivery depends on the user's
+  GitHub mention/notification settings, not a local desktop alarm. Public-repo
+  schedules may be disabled after 60 days without repository activity; re-enable
+  the workflow in Actions if necessary.
 
 [lint.ps1](../scripts/lint.ps1) rebuilds `ALL_BUILD` with CppCoreCheck. Repository
-source/test warnings have a zero baseline, with the existing C26490 and
+source, test and native installer warnings have a zero baseline, with the existing C26490 and
 external-dependency exclusions. Normal compilation also enables `/W4`.
 
 The PowerShell gate checks Error-level PSScriptAnalyzer findings in `scripts`
-and `tests`. If the module is missing, the script warns and checks AST syntax
-instead; that fallback is not a completed PSScriptAnalyzer run.
+and `tests`. The nightly job requires a successful PSScriptAnalyzer import;
+the script's legacy syntax-only fallback is not accepted as a nightly lint run.
+Report logic and synthetic log fixtures can be tested locally without running
+a compiler analysis or PSScriptAnalyzer:
+
+```powershell
+node --test tests\ci\nightly_lint_report.test.mjs
+pwsh -NoProfile -File tests\ci\lint_output.ps1
+```
 
 ### Coverage across runtimes
 

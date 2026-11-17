@@ -1,0 +1,148 @@
+# SPDX-FileCopyrightText: 2026 cloudfyy
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Nightly Lint
+run-name: ${{ (github.event.schedule == '30 0 * * *' || inputs.task == 'remind') && 'Morning lint report reminder' || 'Nightly lint report' }}
+
+on:
+  schedule:
+    # Asia/Shanghai (UTC+8): 03:30 lint, 08:30 reminder.
+    - cron: '30 19 * * *'
+    - cron: '30 0 * * *'
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Task to run
+        required: true
+        type: choice
+        options: [lint, remind]
+        default: lint
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-lint-${{ github.ref }}-${{ github.event.schedule == '30 0 * * *' || inputs.task == 'remind' }}
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    if: github.event.schedule == '30 19 * * *' || (github.event_name == 'workflow_dispatch' && inputs.task == 'lint')
+    name: Lint (${{ matrix.arch }})
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Initialize report directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Path 'lint-reports\${{ matrix.arch }}' -Force | Out-Null
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/${{ matrix.arch }}/vcpkg_installed
+            C:\Users\runneradmin\AppData\Local\vcpkg\archives
+          key: nightly-vcpkg-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+      - name: Require PowerShell analyzer
+        id: analyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+            Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
+          }
+          Import-Module PSScriptAnalyzer -ErrorAction Stop
+      - name: Configure
+        id: configure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          & cmake --preset '${{ matrix.arch }}' 2>&1 |
+            Tee-Object -FilePath 'lint-reports\${{ matrix.arch }}\configure.log'
+          if ($LASTEXITCODE -ne 0) { throw "Configuration failed: $LASTEXITCODE" }
+      - name: Run CppCoreCheck and PowerShell lint
+        id: lint
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -LiteralPath 'lint-reports\${{ matrix.arch }}\lint.log'
+          try {
+            Import-Module PSScriptAnalyzer -ErrorAction Stop
+            & .\scripts\lint.ps1 -BuildDirectory 'build\${{ matrix.arch }}' -Configuration Release `
+              -OutputDirectory 'lint-reports\${{ matrix.arch }}'
+          } finally {
+            Stop-Transcript
+          }
+      - name: Summarize checks
+        if: always()
+        shell: pwsh
+        env:
+          ANALYZER_OUTCOME: ${{ steps.analyzer.outcome }}
+          CONFIGURE_OUTCOME: ${{ steps.configure.outcome }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $directory = 'lint-reports\${{ matrix.arch }}'
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          $runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          [ordered]@{
+            architecture = '${{ matrix.arch }}'
+            revision = $env:GITHUB_SHA
+            analyzer = $env:ANALYZER_OUTCOME
+            configure = $env:CONFIGURE_OUTCOME
+            lint = $env:LINT_OUTCOME
+            run = $runUrl
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $directory 'result.json') -Encoding utf8
+          @(
+            '## Lint (${{ matrix.arch }})'
+            "- Commit: $env:GITHUB_SHA"
+            "- Analyzer setup: $env:ANALYZER_OUTCOME"
+            "- Configure: $env:CONFIGURE_OUTCOME"
+            "- Lint: $env:LINT_OUTCOME"
+            "- Full logs and report artifacts: $runUrl"
+            '- Scope: CppCoreCheck and PowerShell lint; no unit tests or packaging.'
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-lint-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: lint-reports/${{ matrix.arch }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  remind:
+    name: Morning report reminder
+    if: >-
+      (github.event.schedule == '30 0 * * *' ||
+       (github.event_name == 'workflow_dispatch' && inputs.task == 'remind')) &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test report logic
+        run: node --test tests/ci/nightly_lint_report.test.mjs
+      - name: Remind report owner
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { notifyMorningReport } = await import(
+              `${process.env.GITHUB_WORKSPACE}/scripts/nightly_lint_report.mjs`);
+            await notifyMorningReport({
+              github, context, core, issueNumber: 1, recipient: 'cloudfyy',
+            });
