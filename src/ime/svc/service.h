@@ -236,7 +236,8 @@ private:
         ComPtr<ITfComposition> expected_composition = {});
     void RefreshCandidateLayoutOnKeyRelease(ITfContext* context, uint32_t key) noexcept;
     bool TraceCandidateInputGeometryInSession(
-        TfEditCookie ec, gsl::not_null<ITfContext*> context, std::string_view stage);
+        TfEditCookie ec, gsl::not_null<ITfContext*> context, std::string_view stage,
+        ITfContextView* notification_view = nullptr);
     void UpdateCandidateWindowPositionInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view = {});
 

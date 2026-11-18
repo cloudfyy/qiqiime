@@ -796,7 +796,19 @@ UI/Verbose-only `CandidateGeometry` probes compare selection/display/window
 geometry before and after the first edit and during confirmation, including the
 release-triggered read. No taskbar
 direction offsets, guessed foreground-window corrections, polling or additional
-delays are introduced; the real-host issue remains open.
+delays are introduced. The user reports the initial taskbar Search positioning
+now works, but left/right taskbars still show an intermittent cross-display
+failure within one continuing composition. In the 2026-11-18 capture, the popup
+first moves to the right-display extent at x=2057; 34 ms later another layout
+query returns x=839 and moves it back to the left display. A subsequent key
+queries the active view and repeats x=839. The capture does not include view or
+host geometry at those later queries, so neither a stale notification view nor
+an active-view coordinate transform has been established as the cause.
+Diagnostic geometry now also covers ongoing layout notifications and composition
+updates, comparing the active and supplied views and window DPI. Positioning a
+composition that remains active must not clear its text. Existing focus-loss,
+window-dismissal and composition-cleanup behavior remains unchanged; Weasel is
+a positioning reference, not a replacement lifecycle policy.
 
 **Preserve coordinate and fallback behavior:**
 

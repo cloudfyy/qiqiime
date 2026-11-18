@@ -4,10 +4,12 @@
 #include "ime/tsf/test_trace.h"
 #include "common/test_support.h"
 #include "common/dpi.h"
+#include "common/etw.h"
 #include "ime/tsf/mocks.h"
 #include "ime/svc/lifecycle.h"
 #include "ime/svc/service.h"
 #include "ime/comp/layout.h"
+#include <algorithm>
 #include <array>
 #include <memory>
 
@@ -281,6 +283,61 @@ void TestFirstKeyLayoutRefreshLifecycle(
     }
 }
 
+void TestOngoingLayoutGeometryDiagnostics(
+    gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm) {
+    const TsfTestCaseTrace trace(__func__);
+    for (const bool invalidate : {false, true}) {
+        const auto context = MakeComObject<MockTfContext>();
+        const auto notified = MakeComObject<MockTfContextView>();
+        context->view_->text_ext_ = {2057, 130, 2063, 149};
+        notified->text_ext_ = {839, 130, 845, 149};
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        const auto composition = context->last_composition_;
+        context->return_selection_range_ = true;
+        const auto writes = context->range_->set_text_calls_;
+        const auto selections = context->set_selection_calls_;
+        bool invalidated = false;
+        const auto restore_callback = gsl::finally([&]() noexcept { notified->get_wnd_callback_ = {}; });
+        if (invalidate) {
+            notified->get_wnd_callback_ = [&] {
+                invalidated = true;
+                QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+            };
+        }
+        const auto events = CaptureLogEvents([&](TRACEHANDLE) {
+            QIQI_TEST_CHECK(service->OnLayoutChange(context.Get(), TF_LC_CHANGE, notified.Get()) == S_OK);
+            if (invalidate) {
+                const auto* const ui = dynamic_cast<const CandidateUI*>(mock_tm->last_ui_element_.Get());
+                QIQI_TEST_CHECK(invalidated && ui && (!ui->WindowHandle() || !::IsWindowVisible(ui->WindowHandle())));
+                QIQI_TEST_CHECK(notified->get_text_ext_calls_ == 0);
+                return;
+            }
+            QIQI_TEST_CHECK(context->last_composition_ == composition && !composition->ended_);
+            QIQI_TEST_CHECK(context->range_->text_ == L"a" && context->range_->set_text_calls_ == writes);
+            QIQI_TEST_CHECK(context->set_selection_calls_ == selections);
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(context->last_composition_ == composition && context->range_->text_ == L"ab");
+        });
+        if (!invalidate) {
+            const auto observed = [&](std::string_view stage, std::string_view source, std::string_view value) {
+                return std::ranges::any_of(events, [&](const LogEvent& event) {
+                    return event.message.contains(stage) && event.message.contains(source) && event.message.contains(value);
+                });
+            };
+            QIQI_TEST_CHECK(observed("stage=layout-notification-read", "source=active-view,",
+                "has_notification_view=true, same_as_notification=false"));
+            QIQI_TEST_CHECK(observed("stage=layout-notification-read", "source=selection-extent,",
+                "rect=(2057, 130, 2063, 149)"));
+            QIQI_TEST_CHECK(observed("stage=layout-notification-read", "source=notification-selection-extent,",
+                "rect=(839, 130, 845, 149)"));
+            QIQI_TEST_CHECK(observed("stage=composition-update-read", "source=selection-extent,",
+                "rect=(2057, 130, 2063, 149)"));
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_ESCAPE, 0, &eaten) == S_OK && eaten);
+        }
+    }
+}
+
 } // namespace
 
 void RunTsfLayoutQueryTests(
@@ -546,6 +603,6 @@ void RunTsfLayoutSessionTests(
         }
         QIQI_TEST_CHECK(g_com_object_count.load() == initial_objects);
     }
+    TestOngoingLayoutGeometryDiagnostics(service, mock_tm);
 }
-
 } // namespace qiqi::test

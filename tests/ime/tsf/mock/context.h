@@ -304,7 +304,17 @@ public:
         if (pfWriteSession) *pfWriteSession = TRUE;
         return S_OK;
     }
-    STDMETHODIMP GetSelection(TfEditCookie, ULONG, ULONG, TF_SELECTION*, ULONG*) noexcept override { return S_OK; }
+    STDMETHODIMP GetSelection(TfEditCookie, ULONG, ULONG count, TF_SELECTION* selection, ULONG* fetched) noexcept override {
+        if (!selection || !fetched || count == 0) return E_INVALIDARG;
+        *fetched = 0;
+        if (return_selection_range_) {
+            *selection = {};
+            selection->range = range_.Get();
+            selection->range->AddRef();
+            *fetched = 1;
+        }
+        return S_OK;
+    }
     STDMETHODIMP SetSelection(TfEditCookie ec, ULONG count, const TF_SELECTION* selection) override {
         ++set_selection_calls_;
         if (selection_observer_) selection_observer_(ec, count, selection);
@@ -522,6 +532,7 @@ public:
     unsigned int start_composition_calls_ = 0;
     std::move_only_function<void() noexcept> release_observer_;
     unsigned int set_selection_calls_ = 0;
+    bool return_selection_range_ = false;
     HRESULT set_selection_result_ = S_OK;
     std::function<void(TfEditCookie, ULONG, const TF_SELECTION*)> selection_observer_;
     std::function<void()> set_selection_callback_;

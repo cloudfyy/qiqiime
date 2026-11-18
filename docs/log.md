@@ -223,11 +223,19 @@ document selection. Check the first query's raw rectangle against the input
 field before relying on any asynchronous confirmation or work-area clamping.
 
 When UI/Verbose capture is enabled, `CandidateGeometry` compares
-`before-first-edit`, `after-first-edit` and `post-edit-read` stages. It records
+`before-first-edit`, `after-first-edit`, `post-edit-read`,
+`layout-notification-read` and `composition-update-read` stages. It records
 the current TSF selection extent, display-surface extent, view/focus window
-bounds and actual HRESULT/Win32 errors, never selected text or candidate
+bounds, window DPI and actual HRESULT/Win32 errors, never selected text or candidate
 contents. These diagnostic-only queries do not replace the position source;
 each COM boundary rechecks the context and composition before continuing.
+For a layout notification, `has_notification_view` and `same_as_notification`
+compare the supplied view pointer with the context's current active view.
+Different views get separate `notification-*` geometry alongside the active
+view's geometry. This is diagnostic pointer equality, not COM identity validation.
+Capture the whole cross-display switch without clearing the composition: a
+correct move followed by a later incorrect notification must be correlated with
+both views and the actual host window, not diagnosed from the first key alone.
 
 `stage=initial-layout-recheck` identifies the one-shot confirmation for a
 first-key native popup without a Win32 caret. The preceding

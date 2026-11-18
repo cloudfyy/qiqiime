@@ -188,6 +188,10 @@ first key is released. Test-key-up and direct-key-up paths must both correct the
 actual popup without a second input key, duplicate release requests, text writes,
 selection changes or altered eaten flags. Release tasks get the same stale
 activation/context/composition, abandonment, rejection and failed-requery cases.
+Ongoing-layout diagnostic regressions use private current-process ETW to
+distinguish active-view and notification-view extents while retaining the same
+composition text. A diagnostic view call that reenters focus loss must prevent
+further stale queries or window placement.
 These modeled cases do not replace
 rechecking the loaded DLL in SearchHost; the captured repeated full-range
 failure disproves any assumption that an asynchronous callback alone is enough.

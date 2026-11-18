@@ -116,8 +116,10 @@ void QiQiTextService::RequestCandidateWindowLayout(
                     const AccessPolicy policy = self->EvaluateContextAccessInSession(
                         cookie, target_context, task.Ticket(), true);
                     if (!policy.can_input || !is_current(task.Ticket())) return;
-                    if (expected_composition &&
-                        !self->TraceCandidateInputGeometryInSession(cookie, target_context, "post-edit-read")) return;
+                    if (!self->TraceCandidateInputGeometryInSession(
+                            cookie, target_context,
+                            expected_composition ? "post-edit-read" : "layout-notification-read",
+                            target_view.Get())) return;
                     self->UpdateCandidateWindowPositionInSession(cookie, target_context, target_view);
                 });
         });
@@ -149,7 +151,8 @@ void QiQiTextService::RefreshCandidateLayoutOnKeyRelease(ITfContext* context, ui
 }
 
 bool QiQiTextService::TraceCandidateInputGeometryInSession(
-    TfEditCookie ec, gsl::not_null<ITfContext*> context, std::string_view stage) {
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, std::string_view stage,
+    ITfContextView* notification_view) {
     if (!log::ShouldLog(log::Level::debug, log::Keyword::UI)) return true;
     const ComPtr<ITfContext> target(context.get());
     const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
@@ -172,10 +175,11 @@ bool QiQiTextService::TraceCandidateInputGeometryInSession(
         RECT rect{};
         const BOOL got_rect = window && ::GetWindowRect(window, &rect);
         const DWORD error = window && !got_rect ? ::GetLastError() : ERROR_SUCCESS;
+        const UINT dpi = got_rect ? ::GetDpiForWindow(window) : 0;
         QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
-            "CandidateGeometry(service={}, stage={}, source={}, has_window={}, queried={}, error={}, rect=({}, {}, {}, {}))",
+            "CandidateGeometry(service={}, stage={}, source={}, has_window={}, queried={}, error={}, dpi={}, rect=({}, {}, {}, {}))",
             service_log_id_, stage, source, window != nullptr, got_rect != FALSE, error,
-            rect.left, rect.top, rect.right, rect.bottom);
+            dpi, rect.left, rect.top, rect.right, rect.bottom);
     };
     const auto trace_rect = [&](std::string_view source, HRESULT hr, const RECT& rect, BOOL clipped = FALSE) {
         QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
@@ -198,25 +202,35 @@ bool QiQiTextService::TraceCandidateInputGeometryInSession(
     ComPtr<ITfContextView> view;
     const HRESULT view_hr = context->GetActiveView(&view);
     QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
-        "CandidateGeometry(service={}, stage={}, source=active-view, hr=0x{:08x}, has_view={})",
-        service_log_id_, stage, gsl::narrow_cast<unsigned int>(view_hr), view != nullptr);
+        "CandidateGeometry(service={}, stage={}, source=active-view, hr=0x{:08x}, has_view={}, "
+        "has_notification_view={}, same_as_notification={})",
+        service_log_id_, stage, gsl::narrow_cast<unsigned int>(view_hr), view != nullptr,
+        notification_view != nullptr, notification_view && notification_view == view.Get());
     if (!guard.Current()) return false;
-    if (FAILED(view_hr) || !view) return true;
-    RECT screen{};
-    const HRESULT screen_hr = view->GetScreenExt(&screen);
-    trace_rect("view-screen", screen_hr, screen);
-    if (!guard.Current()) return false;
-    HWND window = nullptr;
-    const HRESULT window_hr = view->GetWnd(&window);
-    QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
-        "CandidateGeometry(service={}, stage={}, source=view-window, hr=0x{:08x}, has_window={})",
-        service_log_id_, stage, gsl::narrow_cast<unsigned int>(window_hr), window != nullptr);
-    if (!guard.Current()) return false;
-    if (SUCCEEDED(window_hr)) trace_window("view-window-bounds", window);
-    RECT rect{};
-    BOOL clipped = FALSE;
-    const HRESULT extent_hr = view->GetTextExt(ec, selection_range.Get(), &rect, &clipped);
-    trace_rect("selection-extent", extent_hr, rect, clipped);
+    const auto trace_view = [&](gsl::not_null<ITfContextView*> diagnostic_view, bool notified) {
+        RECT screen{};
+        const HRESULT screen_hr = diagnostic_view->GetScreenExt(&screen);
+        trace_rect(notified ? "notification-view-screen" : "view-screen", screen_hr, screen);
+        if (!guard.Current()) return false;
+        HWND window = nullptr;
+        const HRESULT window_hr = diagnostic_view->GetWnd(&window);
+        QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+            "CandidateGeometry(service={}, stage={}, source={}, hr=0x{:08x}, has_window={})",
+            service_log_id_, stage, notified ? "notification-view-window" : "view-window",
+            gsl::narrow_cast<unsigned int>(window_hr), window != nullptr);
+        if (!guard.Current()) return false;
+        if (SUCCEEDED(window_hr)) {
+            trace_window(notified ? "notification-view-window-bounds" : "view-window-bounds", window);
+        }
+        RECT rect{};
+        BOOL clipped = FALSE;
+        const HRESULT extent_hr = diagnostic_view->GetTextExt(ec, selection_range.Get(), &rect, &clipped);
+        trace_rect(notified ? "notification-selection-extent" : "selection-extent", extent_hr, rect, clipped);
+        return guard.Current();
+    };
+    if (SUCCEEDED(view_hr) && view && !trace_view(gsl::not_null<ITfContextView*>(view.Get()), false)) return false;
+    if (notification_view && notification_view != view.Get() &&
+        !trace_view(gsl::not_null<ITfContextView*>(notification_view), true)) return false;
     return guard.Current();
 }
 
@@ -358,7 +372,8 @@ void QiQiTextService::SyncCompositionUIInSession(
         [&guard](const ITfComposition* composition) noexcept {
             return guard.CurrentComposition(composition);
         },
-        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> target) {
+        [this, first_update](TfEditCookie cookie, gsl::not_null<ITfContext*> target) {
+            if (!first_update && !TraceCandidateInputGeometryInSession(cookie, target, "composition-update-read")) return;
             UpdateCandidateWindowPositionInSession(cookie, target);
         },
         [this, &guard, context, first_update](const KeyProcessResult& result) {
