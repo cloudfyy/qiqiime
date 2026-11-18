@@ -47,7 +47,8 @@ and AppContainer guides are available in English.
 - **Unfinished input:** Commit raw code (default) or Discard unfinished input
   applies when leaving an input field or window, switching to English mode,
   or switching to another IME or keyboard layout. Only the still-owned
-  composition range is affected. Host-finalized text is not deleted retroactively.
+  composition range is affected. Host-first termination applies the same policy
+  inside its authorized TSF callback; ordinary text is not deleted afterward.
 - Horizontal or vertical candidates, a language-bar/tray menu, and an optional
   floating status bar, with DPI, theme, and high-contrast support.
   When following the system, candidates and their Settings preview use App mode,

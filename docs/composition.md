@@ -68,9 +68,10 @@ A strong COM reference prevents destruction, not stale execution. Releasing
 `GUID_PROP_COMPOSING`. Cleanup needs a valid write cookie to clear
 `GUID_PROP_ATTRIBUTE` and end that composition, or a host termination notification.
 
-Focus-loss/deactivation cleanup **preserves preedit text**. It does not commit a
-candidate, delete text, recreate a composition, or restore UI. `Deactivate`
-returns synchronously while host cleanup can remain queued.
+Focus-loss/deactivation cleanup follows the unfinished-input preference:
+**preserve preedit text by default**, or discard its still-owned range when
+requested. It never commits a selected candidate, recreates a composition, or
+restores UI. `Deactivate` returns synchronously while host cleanup can remain queued.
 
 ### Example: switching from input field A to B
 
@@ -87,7 +88,8 @@ object reference. Independent cleanup uses that permission and the captured old
 objects to clear `GUID_PROP_ATTRIBUTE` and call `EndComposition`, which ends the
 old composing state (`GUID_PROP_COMPOSING`). If the host terminates the old
 composition first, its termination notification provides the completion evidence.
-Neither path commits a selected candidate into B or deletes A's preedit text.
+Neither path commits a selected candidate into B. Deleting A's preedit requires
+the discard preference and the write permission granted for that composition.
 
 ```mermaid
 flowchart TD
@@ -473,11 +475,15 @@ ownership protocol. The implementation does not intercept Win+Space.
 The callback applies the captured discard policy if requested, clears the old
 display attribute, then ends the old composition. Text deletion is attempted at
 most once, including reentrant host termination; a failed deletion retains its
-actual HRESULT even if best-effort termination succeeds. Removed or already
-host-terminated contexts are not edited. If the host or ordinary focus cleanup
-has already finalized the composition before the switch notification, there is
-no longer an owned range to cancel: do not delete surrounding ordinary text or
-promise that every host's earlier commit can be reversed.
+actual HRESULT even if best-effort termination succeeds. Removed contexts and
+later callbacks for already-terminated compositions are not edited. Host-first
+termination has a separate authorized boundary: when `OnCompositionTerminated`
+matches the current composition, apply the same policy with its supplied write
+cookie before resetting local state. TSF explicitly permits erasing the
+composition during this callback, even when focus notifications have not arrived.
+Do not call `EndComposition` again or queue a later text deletion. After the
+notification is handled, there is no longer an owned range to cancel: never
+delete surrounding ordinary text or promise to reverse an earlier host commit.
 
 Range/attribute failure does not prevent best-effort termination unless removal
 or host termination invalidates it. Thus termination can succeed while an
@@ -613,7 +619,7 @@ compositions can belong to the same context.
 | Old cleanup is still queued | Mark the record terminated. If its context has not been removed and a range is available, clear the old display attribute unless clearing has already started. Mark the unstarted cleanup finished; a later callback skips host edits. |
 | Cleanup is inside property lookup, before the actual attribute `Clear` | Mark terminated and, if the context remains valid, clear the available old range's attribute using the notification cookie. When the outer cleanup resumes, its validity check prevents a duplicate clear and subsequent `EndComposition`. |
 | Cleanup has already entered the actual attribute `Clear` | Mark terminated, but do not start another clear. When the in-flight clear returns, skip `EndComposition`. |
-| The notified object is the current composition | Detach it from current state and clear its attribute. Reset local state only if the original edit ticket is still current and the composition slot remains empty; reentrant work may have installed a replacement. |
+| The notified object is the current composition | Detach it from current state, apply the unfinished-input preference using the callback's write cookie, and clear its attribute. Reset local state only if the original edit ticket is still current and the composition slot remains empty; reentrant work may have installed a replacement. Preserve the actual discard/range failure HRESULT. |
 | The object belongs to an unpublished `StartComposition` attempt | Mark the starting record terminated and finished. When the host call returns, discard the result without publishing it or calling `EndComposition`. |
 | The object matches neither a tracked record nor the current composition | Ignore the unrelated old notification; leave the current composition unchanged. |
 

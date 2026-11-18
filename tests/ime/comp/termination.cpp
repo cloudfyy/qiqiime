@@ -136,6 +136,71 @@ void TestTerminationCompletion() {
     QIQI_TEST_CHECK(cases == 24 && g_com_object_count.load() == objects_before);
 }
 
+void TestTerminationDiscardPolicy() {
+    const TsfTestCaseTrace trace(__func__);
+    enum class Outcome { Normal, Empty, Denied, RangeFailure, NullRange, Inactive, StaleRange, ReplaceRange, ReplaceWrite, Duplicate };
+    for (const bool discard : {false, true}) {
+        for (const auto outcome : {Outcome::Normal, Outcome::Empty, Outcome::Denied, Outcome::RangeFailure,
+                                  Outcome::NullRange, Outcome::Inactive, Outcome::StaleRange,
+                                  Outcome::ReplaceRange, Outcome::ReplaceWrite, Outcome::Duplicate}) {
+            const auto context = MakeComObject<MockTfContext>();
+            context->range_->text_ = outcome == Outcome::Empty ? L"" : L"preedit";
+            context->range_->set_text_result_ = outcome == Outcome::Denied ? E_ACCESSDENIED : S_OK;
+            const auto composition = MakeComObject<MockTfComposition>(context->range_);
+            const auto replacement_range = MakeComObject<MockTfRange>();
+            replacement_range->text_ = L"replacement";
+            const auto replacement = MakeComObject<MockTfComposition>(replacement_range);
+            composition->get_range_result_ = outcome == Outcome::RangeFailure ? E_ACCESSDENIED : S_OK;
+            composition->return_null_range_ = outcome == Outcome::NullRange;
+            CompositionLifecycleState state(571);
+            state.SetActive(outcome != Outcome::Inactive);
+            state.SetContext(context);
+            state.SetComposition(composition);
+            composition->get_range_callback_ = [&] {
+                if (outcome == Outcome::StaleRange) state.InvalidateContext();
+                if (outcome == Outcome::ReplaceRange) state.SetComposition(replacement);
+            };
+            const auto is_current = [&](EditSessionTicket ticket) noexcept {
+                return state.IsCurrent(ticket) && !state.Composition();
+            };
+            unsigned int resets = 0;
+            const auto reset = [&] {
+                ++resets;
+                state.InvalidateContext();
+                state.ClearContext();
+                state.ClearComposition();
+            };
+            context->range_->set_text_callback_ = [&] {
+                if (outcome == Outcome::ReplaceWrite) state.SetComposition(replacement);
+                if (outcome == Outcome::Duplicate) {
+                    QIQI_TEST_CHECK(HandleCompositionTermination(
+                        577, composition.Get(), state, 571, GUID_NULL, is_current, reset,
+                        CompositionCleanupMode::DiscardText) == S_OK);
+                }
+            };
+            const HRESULT expected_hr = !discard ? S_OK :
+                outcome == Outcome::Denied || outcome == Outcome::RangeFailure ? E_ACCESSDENIED :
+                outcome == Outcome::NullRange ? E_UNEXPECTED : S_OK;
+            QIQI_TEST_CHECK(HandleCompositionTermination(
+                577, composition.Get(), state, 571, GUID_NULL, is_current, reset,
+                discard ? CompositionCleanupMode::DiscardText : CompositionCleanupMode::PreserveText) == expected_hr);
+            const bool writes = discard && outcome != Outcome::RangeFailure && outcome != Outcome::NullRange &&
+                outcome != Outcome::Inactive && outcome != Outcome::StaleRange && outcome != Outcome::ReplaceRange;
+            const bool replaced = outcome == Outcome::ReplaceRange || (writes && outcome == Outcome::ReplaceWrite);
+            const bool reset_expected = !replaced && outcome != Outcome::Inactive && outcome != Outcome::StaleRange;
+            QIQI_TEST_CHECK(context->range_->set_text_calls_ == (writes ? 1u : 0u));
+            QIQI_TEST_CHECK(context->range_->text_ ==
+                (outcome == Outcome::Empty || (writes && outcome != Outcome::Denied) ? L"" : L"preedit"));
+            if (writes) QIQI_TEST_CHECK(context->range_->last_set_text_cookie_ == 577);
+            QIQI_TEST_CHECK(resets == (reset_expected ? 1u : 0u) &&
+                            state.Composition().Get() == (replaced ? replacement.Get() : nullptr));
+            QIQI_TEST_CHECK(replacement_range->text_ == L"replacement" && replacement_range->set_text_calls_ == 0 &&
+                            composition->end_composition_calls_ == 0 && context->request_edit_session_calls_ == 0);
+            context->range_->set_text_callback_ = {};
+        }
+    }
+}
+
 void TestTerminationReleaseReentrancy() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     enum class Effect { None, Replace, Switch, Reactivate, SwitchBack, FailedRangeReplace };
@@ -237,6 +302,7 @@ void TestTerminationCompletionExceptions() {
 void RunTsfCompositionTerminationTests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     TestTerminationCompletion();
+    TestTerminationDiscardPolicy();
     TestTerminationReleaseReentrancy();
     TestTerminationCompletionExceptions();
     RunTsfCompositionTerminationRouteTests();

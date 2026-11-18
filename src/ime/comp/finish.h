@@ -17,23 +17,35 @@ enum class CompositionFinishKind { Commit, Cancel };
 struct CompositionTerminationResult {
     Microsoft::WRL::ComPtr<ITfRange> range;
     bool may_reset = false;
+    HRESULT text_hr = S_OK;
 };
 
 template <typename IsCurrent>
 [[nodiscard]] CompositionTerminationResult ClearTerminatedCompositionInSession(
     TfEditCookie ec, gsl::not_null<ITfContext*> context, gsl::not_null<ITfComposition*> composition,
-    IsCurrent is_current) {
+    IsCurrent is_current, CompositionCleanupMode mode = CompositionCleanupMode::PreserveText) {
     CompositionTerminationResult result;
     const HRESULT range_hr = composition->GetRange(&result.range);
     if (log::CheckHResult(range_hr, "HostTermination::GetRange")) {
         if (result.range) {
+            if (mode == CompositionCleanupMode::DiscardText) {
+                if (!is_current()) return result;
+                result.text_hr = result.range->SetText(ec, 0, L"", 0);
+                QIQI_LOG_CAT_DEBUG(log::Keyword::Composition,
+                    "HostTermination(stage=discard-unfinished-text, hr=0x{:08x})",
+                    gsl::narrow_cast<unsigned int>(result.text_hr));
+                std::ignore = log::CheckHResult(result.text_hr, "HostTermination::DiscardUnfinishedText");
+            }
             std::ignore = ClearCompositionDisplayAttribute(ec, context, result.range.Get(), is_current);
         } else {
             QIQI_LOG_CAT_WARN(
                 log::Keyword::Composition,
                 "HostTermination::GetRange returned no range (hr=0x{:08x})",
                 gsl::narrow_cast<unsigned int>(range_hr));
+            if (mode == CompositionCleanupMode::DiscardText) result.text_hr = E_UNEXPECTED;
         }
+    } else if (mode == CompositionCleanupMode::DiscardText) {
+        result.text_hr = range_hr;
     }
     result.may_reset = is_current();
     return result;
@@ -43,7 +55,8 @@ template <typename IsCurrent>
 template <typename IsCurrent, typename Reset>
 HRESULT CompleteCurrentCompositionTermination(
     TfEditCookie ec, const ITfComposition* notification, CompositionLifecycleState& state,
-    IsCurrent is_current, Reset reset) {
+    IsCurrent is_current, Reset reset, CompositionCleanupMode mode = CompositionCleanupMode::PreserveText) {
+    HRESULT text_hr = S_OK;
     if (notification && state.Context()) {
         const EditSessionTicket ticket{state.Epoch(), state.Context().Get()};
         {
@@ -53,22 +66,24 @@ HRESULT CompleteCurrentCompositionTermination(
                 ec, context_holder.Get(), composition_holder.Get(),
                 [&is_current, ticket]() noexcept(noexcept(is_current(ticket))) {
                     return is_current(ticket);
-                });
+                }, mode);
+            text_hr = terminated.text_hr;
             if (!terminated.may_reset) {
-                return S_OK;
+                return text_hr;
             }
         }
         // Releasing branch-local COM owners can reenter before the reset.
-        if (!is_current(ticket)) return S_OK;
+        if (!is_current(ticket)) return text_hr;
     }
     reset();
-    return S_OK;
+    return text_hr;
 }
 
 template <typename IsCurrent, typename Reset>
 HRESULT HandleCompositionTermination(
     TfEditCookie ec, const ITfComposition* notification, CompositionLifecycleState& state,
-    uint64_t service_id, const GUID& activity, IsCurrent is_current, Reset reset) {
+    uint64_t service_id, const GUID& activity, IsCurrent is_current, Reset reset,
+    CompositionCleanupMode mode = CompositionCleanupMode::PreserveText) {
     if (state.Cleanups().HandleTermination(ec, notification, activity)) {
         return S_OK;
     }
@@ -85,10 +100,11 @@ HRESULT HandleCompositionTermination(
         log::Level::debug,
         log::Keyword::Lifecycle,
         &activity,
-        "TsfLifecycle(service={}, stage=host-terminated-current, activation={}, context={}, has_composition={})",
-        service_id, state.Epoch().activation, state.Epoch().context, state.Composition() != nullptr);
+        "TsfLifecycle(service={}, stage=host-terminated-current, activation={}, context={}, has_composition={}, discard_text={})",
+        service_id, state.Epoch().activation, state.Epoch().context, state.Composition() != nullptr,
+        mode == CompositionCleanupMode::DiscardText);
     return CompleteCurrentCompositionTermination(
-        ec, notification, state, std::ref(is_current), std::ref(reset));
+        ec, notification, state, std::ref(is_current), std::ref(reset), mode);
 }
 
 // The caller retains the context/composition and detaches current state in before_end.

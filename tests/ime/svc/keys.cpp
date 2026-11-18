@@ -328,7 +328,7 @@ void TestFocusChangeCompositionPolicy() {
     const auto restore_config = gsl::finally([&]() noexcept {
         QIQI_TEST_CHECK(SaveConfigToRegistry(original));
     });
-    enum class FocusChange { Window, NoDocument, OtherDocument, OtherInputTarget };
+    enum class FocusChange { Window, NoDocument, OtherDocument, OtherInputTarget, HostFirstWindow, HostFirstDocument };
     for (const bool commit : {false, true}) {
         auto config = original;
         config.commit_on_english_switch = commit;
@@ -337,7 +337,8 @@ void TestFocusChangeCompositionPolicy() {
         config.show_status_bar = false;
         QIQI_TEST_CHECK(SaveConfigToRegistry(config));
         for (const auto change : {FocusChange::Window, FocusChange::NoDocument,
-                                  FocusChange::OtherDocument, FocusChange::OtherInputTarget}) {
+                                  FocusChange::OtherDocument, FocusChange::OtherInputTarget,
+                                  FocusChange::HostFirstWindow, FocusChange::HostFirstDocument}) {
             const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
             const auto manager = MakeComObject<MockTfThreadMgr>();
             manager->show_own_ui_ = FALSE;
@@ -361,15 +362,24 @@ void TestFocusChangeCompositionPolicy() {
             QIQI_TEST_CHECK(composition && old_ui && !composition->ended_);
             QIQI_TEST_CHECK(service->OnSetFocus(old_document.Get(), old_document.Get()) == S_OK);
             QIQI_TEST_CHECK(!composition->ended_ && old_context->range_->set_text_calls_ == writes);
+            const bool host_first = change == FocusChange::HostFirstWindow || change == FocusChange::HostFirstDocument;
+            if (host_first) {
+                QIQI_TEST_CHECK(composition->NotifyHostTermination(613) == S_OK);
+                QIQI_TEST_CHECK(old_context->range_->text_ == (commit ? L"a" : L""));
+                QIQI_TEST_CHECK(old_context->range_->set_text_calls_ == writes + (commit ? 0u : 1u));
+                QIQI_TEST_CHECK(queue->PendingCount() == 0 && composition->end_composition_calls_ == 0);
+            }
             old_context->allow_sync_edit_sessions_ = change != FocusChange::Window;
             switch (change) {
                 case FocusChange::Window:
+                case FocusChange::HostFirstWindow:
                     QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
                     break;
                 case FocusChange::NoDocument:
                     QIQI_TEST_CHECK(service->OnSetFocus(nullptr, old_document.Get()) == S_OK);
                     break;
                 case FocusChange::OtherDocument:
+                case FocusChange::HostFirstDocument:
                     QIQI_TEST_CHECK(service->OnSetFocus(new_document.Get(), old_document.Get()) == S_OK);
                     break;
                 case FocusChange::OtherInputTarget:
@@ -384,7 +394,13 @@ void TestFocusChangeCompositionPolicy() {
             }
             QIQI_TEST_CHECK(old_context->range_->text_ == (commit ? L"a" : L""));
             QIQI_TEST_CHECK(old_context->range_->set_text_calls_ == writes + (commit ? 0u : 1u));
-            QIQI_TEST_CHECK(composition->ended_ && composition->end_composition_calls_ == 1);
+            QIQI_TEST_CHECK(composition->ended_ && composition->end_composition_calls_ == (host_first ? 0u : 1u));
+            if (host_first) {
+                old_context->range_->text_ = L"host-finalized";
+                QIQI_TEST_CHECK(service->OnCompositionTerminated(617, composition.Get()) == S_OK);
+                QIQI_TEST_CHECK(old_context->range_->text_ == L"host-finalized" &&
+                                old_context->range_->set_text_calls_ == writes + (commit ? 0u : 1u));
+            }
             if (change == FocusChange::OtherInputTarget) {
                 QIQI_TEST_CHECK(queue->RunNext() == S_OK && new_context->range_->text_ == L"b");
             }

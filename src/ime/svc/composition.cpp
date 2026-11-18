@@ -71,10 +71,11 @@ bool NeedsPostEditLayoutRefresh(const CandidateUI& ui) noexcept {
 // ITfCompositionSink: called when the host application forcefully terminates composition
 // (e.g. user clicked elsewhere, switched Excel cell, or DOM re-rendered)
 STDMETHODIMP QiQiTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfComposition* pComposition) {
+    const ComPtr<QiQiTextService> self_holder(this);
     return HandleCompositionTermination(
         ecWrite, pComposition, composition_lifecycle_, service_log_id_, current_lifecycle_activity_,
         [this](EditSessionTicket ticket) noexcept { return IsCompositionEditCurrent(ticket, nullptr); },
-        [this] { ResetCompositionAndUI(); });
+        [this] { ResetCompositionAndUI(); }, UnfinishedInputCleanupMode());
 }
 
 void QiQiTextService::ScheduleCompositionCleanup(CompositionCleanupMode mode) {
