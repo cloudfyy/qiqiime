@@ -3,9 +3,67 @@
 
 #include "test.h"
 
-namespace qiqi::monitor::tests {
+#include <format>
+#include <sstream>
+#include <stdexcept>
 
-int Integration(const wchar_t* peer) {
+// Abort would bypass the owned real-time ETW sessions' destructors.
+#undef QIQI_TEST_CHECK
+#define QIQI_TEST_CHECK(expr) do { \
+    if (!(expr)) { \
+        ::qiqi::test::ReportTestCleanupFailure(__FILE__, __LINE__, #expr); \
+        throw std::runtime_error(std::format("{}:{}: {}", __FILE__, __LINE__, #expr)); \
+    } \
+} while (false)
+
+namespace qiqi::monitor::tests {
+namespace {
+
+void CheckSession(const std::wstring& name, ULONG expected) {
+    struct Properties {
+        EVENT_TRACE_PROPERTIES trace{};
+        std::array<wchar_t, 256> name{};
+    } query;
+    query.trace.Wnode.BufferSize = sizeof(query);
+    query.trace.LoggerNameOffset = offsetof(Properties, name);
+    const ULONG error = ::ControlTraceW(0, name.c_str(), &query.trace, EVENT_TRACE_CONTROL_QUERY);
+    if (error != expected) {
+        std::wcerr << L"ControlTraceW(QUERY " << name << L"): error=" << error
+                   << L", expected=" << expected << std::endl;
+    }
+    QIQI_TEST_CHECK(error == expected);
+}
+
+void TestCaptureFailureUnwind(EventQueue& queue, Diagnostics& diagnostics) {
+    Collector independent(queue, diagnostics);
+    QIQI_TEST_CHECK(independent.Start());
+    const std::wstring independent_session(independent.SessionName());
+    std::wstring failed_session;
+    std::ostringstream failure_output;
+    bool failure_seen = false;
+    try {
+        auto* const previous = std::cerr.rdbuf(failure_output.rdbuf());
+        const auto restore = gsl::finally([previous]() noexcept { std::cerr.rdbuf(previous); });
+        Collector failing(queue, diagnostics);
+        QIQI_TEST_CHECK(failing.Start());
+        failed_session = failing.SessionName();
+        QIQI_TEST_CHECK(failing.Start(true));
+    } catch (const std::runtime_error& error) {
+        if (!std::string_view(error.what()).contains("failing.Start(true)")) {
+            std::cerr << failure_output.str();
+            throw;
+        }
+        failure_seen = true;
+    }
+    QIQI_TEST_CHECK(failure_seen && failure_output.str().contains("failing.Start(true)"));
+    CheckSession(failed_session, ERROR_WMI_INSTANCE_NOT_FOUND);
+    CheckSession(independent_session, ERROR_SUCCESS);
+    QIQI_TEST_CHECK(independent.Stop());
+}
+
+} // namespace
+
+int Integration(const wchar_t* peer) try {
     Diagnostics diagnostics;
     EventQueue queue{32, 128 * 1024};
     Collector collector(queue, diagnostics);
@@ -105,13 +163,7 @@ int Integration(const wchar_t* peer) {
     QIQI_TEST_CHECK(std::none_of(received.begin(), received.end(), [](const Event& event) {
         return event.message.contains(L"MONITOR_ONLY_SENTINEL");
     }));
-    struct Properties {
-        EVENT_TRACE_PROPERTIES trace{};
-        std::array<wchar_t, 256> name{};
-    } query;
-    query.trace.Wnode.BufferSize = sizeof(query);
-    query.trace.LoggerNameOffset = offsetof(Properties, name);
-    QIQI_TEST_CHECK(::ControlTraceW(0, session_name.c_str(), &query.trace, EVENT_TRACE_CONTROL_QUERY) == ERROR_WMI_INSTANCE_NOT_FOUND);
+    CheckSession(session_name, ERROR_WMI_INSTANCE_NOT_FOUND);
     QIQI_TEST_CHECK(std::any_of(received.begin(), received.end(), [](const Event& event) {
         return event.message == L"after provider re-registration" && event.level == 3;
     }));
@@ -129,8 +181,7 @@ int Integration(const wchar_t* peer) {
         QIQI_TEST_CHECK(CommandName(window, Start) == L"Stop capture (Logs)");
         GUID gui_activity{};
         QIQI_TEST_CHECK(SUCCEEDED(::CoCreateGuid(&gui_activity)));
-        log::WriteLogMessage(log::Level::info, "filter-parent",
-            log::LogContext{log::Keyword::Sync, log::Opcode::Start, &gui_activity});
+        log::WriteLogMessage(log::Level::info, "filter-preface");
         SetProcessFilter(window, own->process.c_str());
         const auto parent_pid = std::to_wstring(::GetCurrentProcessId());
         for (int i = 0; i < 50 && ControlText(Child(window, Pid)) != parent_pid; ++i) {
@@ -147,7 +198,23 @@ int Integration(const wchar_t* peer) {
         ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Process), CBN_SELCHANGE), 0);
         QIQI_TEST_CHECK(ControlText(Child(window, Process)) == own->process);
         ::SetWindowTextW(Child(window, Search), L"filter-parent");
-        QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 1);
+        QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
+        log::WriteLogMessage(log::Level::info, "filter-parent",
+            log::LogContext{log::Keyword::Sync, log::Opcode::Start, &gui_activity});
+        for (int i = 0; i < 50 && ListView_GetItemCount(Child(window, List)) != 1; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+        }
+        const int rows = ListView_GetItemCount(Child(window, List));
+        if (rows != 1) {
+            std::wcerr << L"Target log readiness: expected_rows=1, rows=" << rows
+                       << L", pid_choices=" << ::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0)
+                       << L", selected_pid=" << ControlText(Child(window, Pid))
+                       << L", expected_pid=" << parent_pid
+                       << L", metrics_enabled=" << log::MetricsEnabled()
+                       << L", logs_enabled=" << log::ShouldLog(log::Level::info) << std::endl;
+        }
+        QIQI_TEST_CHECK(rows == 1);
         ListView_SetItemState(Child(window, List), 0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         QIQI_TEST_CHECK((::GetMenuState(::GetMenu(window.Handle()), std::to_underlying(FilterActivity), MF_BYCOMMAND) & MF_GRAYED) == 0);
         Click(window, FilterActivity);
@@ -256,8 +323,12 @@ int Integration(const wchar_t* peer) {
     QIQI_TEST_CHECK(collector.Stop());
     QIQI_TEST_CHECK(collector.decode_errors == 0);
     QIQI_TEST_CHECK(collector.Stop());
+    TestCaptureFailureUnwind(queue, diagnostics);
     qiqi::monitor::permission_tests::RunCaptureStartupRollbackTests();
     return 0;
+} catch (const std::exception& error) {
+    std::cerr << "[FAIL] Log monitor integration: " << error.what() << std::endl;
+    return 1;
 }
 
 } // namespace qiqi::monitor::tests

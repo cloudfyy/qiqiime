@@ -142,6 +142,14 @@ Repeat with the x86 preset and build directory. Use
 Additional ETW test modes appear in the CTest listing. Global ETW integration
 tests can return skip code 77 when capture permissions are unavailable; a skip
 is not a pass. Private-session ETW tests do not replace global or real-host tests.
+Log Monitor integration waits for the synthetic target log itself, not just its
+PID appearing in the filter, within a bounded five-second window; exact row and
+filter assertions remain required. Its checks report failures before exception
+unwinding releases owned ETW sessions and returns a nonzero result. A controlled
+capture-mode failure verifies that the failed scope's session disappears while
+an independent session remains active. Metrics-only failures report provider
+registration, metrics/log enablement, capture generation, and the requested
+session/keywords; these observations do not by themselves prove a leaked session.
 
 Run the two architectures sequentially. GUI/TSF suites share desktop and
 single-instance state; avoid keyboard/mouse interaction during those tests.

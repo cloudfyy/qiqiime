@@ -285,7 +285,16 @@ void ExerciseMetrics(TRACEHANDLE session, MetricCaptureAction action,
     enable(std::to_underlying(log::Keyword::Logs));
     Check(!log::MetricsEnabled(), "Ordinary log capture must not enable metrics");
     enable(std::to_underlying(log::Keyword::Metrics));
-    Check(log::MetricsEnabled() && !log::ShouldLog(log::Level::info), "Metrics-only capture excludes ordinary logs");
+    const bool metrics_enabled = log::MetricsEnabled();
+    const bool logs_enabled = log::ShouldLog(log::Level::info);
+    if (!metrics_enabled || logs_enabled) {
+        std::cerr << "Metrics-only capture state: registered=" << log::IsEtwProviderRegistered()
+                  << ", metrics_enabled=" << metrics_enabled << ", logs_enabled=" << logs_enabled
+                  << ", capture_generation=" << log::MetricsCaptureGeneration()
+                  << ", session=" << session
+                  << ", requested_keywords=" << std::to_underlying(log::Keyword::Metrics) << std::endl;
+    }
+    Check(metrics_enabled && !logs_enabled, "Metrics-only capture excludes ordinary logs");
     instance = metrics::ModuleInstance();
     if (action) {
         action();
