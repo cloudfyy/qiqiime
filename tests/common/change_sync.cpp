@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/test_support.h"
+#include "common/cleanup.h"
 #include "common/fileutil.h"
 #include "common/RAII.h"
 #include "common/changesync.h"
@@ -34,10 +35,10 @@
 namespace {
 using namespace qiqi;
 using namespace qiqi::sync;
+using qiqi::test::RemoveDirectoryWithSharingRetry;
 
 constexpr DWORD kTimeout = 15000;
 constexpr DWORD kCleanupRetryBudget = 2000;
-constexpr DWORD kCleanupRetryDelay = 50;
 constexpr Source kSource{DataType::Dictionary,
     {0x815eaa57, 0x5676, 0x41fb, {0xaf, 0x9b, 0x41, 0x89, 0x11, 0x68, 0xc3, 0x17}}};
 constexpr std::array<uint8_t, 5> kPayload{'d', 'e', 'l', 't', 'a'};
@@ -64,39 +65,6 @@ private:
     const char* const name_;
     const ULONGLONG started_;
 };
-
-template <typename Pause>
-std::error_code RemoveDirectoryWithSharingRetry(
-    const std::filesystem::path& directory, DWORD budget_ms, Pause pause) {
-    const auto started = ::GetTickCount64();
-    std::error_code error;
-    std::filesystem::remove_all(directory, error);
-    const auto first_error = error;
-    size_t attempts = 1;
-    while (error == std::error_code(ERROR_SHARING_VIOLATION, std::system_category())) {
-        const auto elapsed = ::GetTickCount64() - started;
-        if (elapsed >= budget_ms) break;
-        std::fprintf(stderr,
-            "[CLEANUP-RETRY] pid=%lu, directory=\"%s\", attempts=%zu, error=%d, elapsed_ms=%llu, budget_ms=%lu\n",
-            ::GetCurrentProcessId(), WideToUtf8(directory.native()).c_str(), attempts, error.value(),
-            elapsed, budget_ms);
-        std::fflush(stderr);
-        pause(gsl::narrow_cast<DWORD>(std::min<ULONGLONG>(kCleanupRetryDelay, budget_ms - elapsed)));
-        if (::GetTickCount64() - started >= budget_ms) break;
-        ++attempts;
-        std::filesystem::remove_all(directory, error);
-    }
-    if (first_error) {
-        std::fprintf(stderr,
-            "[%s] pid=%lu, directory=\"%s\", attempts=%zu, first_error=%d, category=%s, last_error=%d, "
-            "elapsed_ms=%llu, budget_ms=%lu\n",
-            error ? "CLEANUP-RETRY-STOP" : "CLEANUP-RECOVERED", ::GetCurrentProcessId(),
-            WideToUtf8(directory.native()).c_str(), attempts, first_error.value(), error.category().name(),
-            error.value(), ::GetTickCount64() - started, budget_ms);
-        std::fflush(stderr);
-    }
-    return error;
-}
 
 void ReportDirectoryCleanupFailure(const std::filesystem::path& directory,
                                    const std::error_code& error, FILE* output = stderr) {

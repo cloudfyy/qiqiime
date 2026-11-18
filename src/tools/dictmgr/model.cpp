@@ -471,13 +471,16 @@ bool DictManagerModel::DeleteOrBlockEntry(std::wstring_view code, std::wstring_v
 }
 
 bool DictManagerModel::PromotePhraseFrequency(std::wstring_view code, std::wstring_view word) {
+    return SUCCEEDED(PromotePhraseFrequencyResult(code, word));
+}
+
+HRESULT DictManagerModel::PromotePhraseFrequencyResult(std::wstring_view code, std::wstring_view word) {
     const std::wstring norm_code = NormalizeAsciiLower(code);
     const std::wstring norm_word = TrimWhitespace(word);
-    if (!engine_.PromoteUserPhraseFrequency(norm_code, norm_word, phrase_freq_path_)) {
-        return false;
-    }
+    const HRESULT hr = engine_.PromoteUserPhraseFrequencyResult(norm_code, norm_word, phrase_freq_path_);
+    if (FAILED(hr)) return hr;
     RebuildRecords();
-    return true;
+    return hr;
 }
 
 bool DictManagerModel::RemovePhraseFrequency(std::wstring_view code, std::wstring_view word) {
@@ -888,13 +891,13 @@ BackupRestoreResult DictManagerModel::RestoreBackupBundle(
         if (!refresh()) return finish(false);
     }
 
-    const auto user_operation = [&result, &fail](bool succeeded) {
-        if (succeeded) {
+    const auto user_operation = [&result, &fail](HRESULT error) {
+        if (SUCCEEDED(error)) {
             ++result.summary.user_entries_applied;
             ++result.operations_succeeded;
         } else {
             ++result.summary.user_entries_failed;
-            fail(BackupRestoreStage::UserDictionary, E_FAIL);
+            fail(BackupRestoreStage::UserDictionary, error);
         }
     };
     for (const auto& [packed, words] : plan.user_entries) {
@@ -904,15 +907,15 @@ BackupRestoreResult DictManagerModel::RestoreBackupBundle(
                 continue;
             }
             result.effects_possible = true;
-            user_operation(engine_.AddUserEntry(code, w, user_dict_path_));
+            user_operation(engine_.AddUserEntryResult(code, w, user_dict_path_));
         }
         for (auto it = words.rbegin(); it != words.rend(); ++it) {
             if (it->starts_with(L'^')) {
                 result.effects_possible = true;
-                user_operation(engine_.PinUserEntry(code, std::wstring_view(*it).substr(1), user_dict_path_));
+                user_operation(engine_.PinUserEntryResult(code, std::wstring_view(*it).substr(1), user_dict_path_));
             } else if (it->starts_with(L'!')) {
                 result.effects_possible = true;
-                user_operation(engine_.BlockSystemEntry(code, std::wstring_view(*it).substr(1), user_dict_path_));
+                user_operation(engine_.BlockSystemEntryResult(code, std::wstring_view(*it).substr(1), user_dict_path_));
             }
         }
     }

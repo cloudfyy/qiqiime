@@ -12,6 +12,7 @@
 #include "ime/tsf/editsession.h"
 #include "common/logger.h"
 #include "common/dpi.h"
+#include <new>
 
 namespace qiqi {
 
@@ -109,16 +110,114 @@ void QiQiTextService::RequestCandidateWindowLayout(
             };
             return ExecuteCompositionLayoutInSession(
                 ec, task, self->current_lifecycle_activity_, self->service_log_id_, is_current,
-                [&self, &is_current, &task](TfEditCookie cookie, gsl::not_null<ITfContext*> target_context,
-                                           const ComPtr<ITfContextView>& target_view) {
+                [&self, &is_current, &task, &expected_composition](
+                    TfEditCookie cookie, gsl::not_null<ITfContext*> target_context,
+                    const ComPtr<ITfContextView>& target_view) {
                     const AccessPolicy policy = self->EvaluateContextAccessInSession(
                         cookie, target_context, task.Ticket(), true);
                     if (!policy.can_input || !is_current(task.Ticket())) return;
+                    if (expected_composition &&
+                        !self->TraceCandidateInputGeometryInSession(cookie, target_context, "post-edit-read")) return;
                     self->UpdateCandidateWindowPositionInSession(cookie, target_context, target_view);
                 });
         });
     RequestCompositionLayoutSession(
         context, gsl::not_null<ITfEditSession*>(session.Get()), client_id_, ticket, service_log_id_, activity, defer);
+}
+
+void QiQiTextService::RefreshCandidateLayoutOnKeyRelease(ITfContext* context, uint32_t key) noexcept {
+    if (!initial_layout_key_release_key_ || key != initial_layout_key_release_key_ || !context ||
+        context != composition_lifecycle_.Context().Get() || GetInputBlockReason() != InputBlockReason::None) return;
+    const ComPtr<QiQiTextService> self(this);
+    const auto composition = composition_lifecycle_.Composition();
+    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context};
+    initial_layout_key_release_key_ = 0;
+    if (!composition || !candidate_ui_ || !has_valid_caret_pos_ ||
+        !NeedsPostEditLayoutRefresh(*candidate_ui_.Get()) ||
+        !IsCompositionEditCurrent(ticket, composition.Get())) return;
+    try {
+        const GUID activity = log::CreateActivityId();
+        QIQI_LOG_ACT_START(log::Level::debug, log::Keyword::UI, &activity, &current_lifecycle_activity_,
+            "CandidatePosition(service={}, stage=initial-key-release-recheck, activation={}, context={})",
+            service_log_id_, ticket.epoch.activation, ticket.epoch.context);
+        RequestCandidateWindowLayout(gsl::not_null<ITfContext*>(context), {}, activity, composition);
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_CAT_ERROR(log::Keyword::UI,
+            "CandidatePosition::KeyReleaseRequest allocation failed (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
+    }
+}
+
+bool QiQiTextService::TraceCandidateInputGeometryInSession(
+    TfEditCookie ec, gsl::not_null<ITfContext*> context, std::string_view stage) {
+    if (!log::ShouldLog(log::Level::debug, log::Keyword::UI)) return true;
+    const ComPtr<ITfContext> target(context.get());
+    const EditSessionTicket ticket{composition_lifecycle_.Epoch(), context.get()};
+    const CompositionEditGuard guard(composition_lifecycle_.Composition(),
+        [this, ticket](const ITfComposition* composition) noexcept {
+            return IsCompositionEditCurrent(ticket, composition);
+        });
+    if (!guard.Current()) return false;
+    TF_SELECTION selection{};
+    ULONG fetched = 0;
+    const HRESULT selection_hr = context->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &selection, &fetched);
+    ComPtr<ITfRange> selection_range;
+    selection_range.Attach(selection.range);
+    QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+        "CandidateGeometry(service={}, stage={}, source=selection, hr=0x{:08x}, fetched={}, has_range={})",
+        service_log_id_, stage, gsl::narrow_cast<unsigned int>(selection_hr), fetched, selection_range != nullptr);
+    if (!guard.Current()) return false;
+    if (FAILED(selection_hr) || fetched != 1 || !selection_range) return true;
+    const auto trace_window = [&](std::string_view source, HWND window) {
+        RECT rect{};
+        const BOOL got_rect = window && ::GetWindowRect(window, &rect);
+        const DWORD error = window && !got_rect ? ::GetLastError() : ERROR_SUCCESS;
+        QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+            "CandidateGeometry(service={}, stage={}, source={}, has_window={}, queried={}, error={}, rect=({}, {}, {}, {}))",
+            service_log_id_, stage, source, window != nullptr, got_rect != FALSE, error,
+            rect.left, rect.top, rect.right, rect.bottom);
+    };
+    const auto trace_rect = [&](std::string_view source, HRESULT hr, const RECT& rect, BOOL clipped = FALSE) {
+        QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+            "CandidateGeometry(service={}, stage={}, source={}, hr=0x{:08x}, rect=({}, {}, {}, {}), clipped={})",
+            service_log_id_, stage, source, gsl::narrow_cast<unsigned int>(hr),
+            rect.left, rect.top, rect.right, rect.bottom, clipped != FALSE);
+    };
+    GUITHREADINFO gui{};
+    gui.cbSize = sizeof(gui);
+    const BOOL got_gui = QueryLayoutGuiThreadInfo(gui);
+    const DWORD gui_error = got_gui ? ERROR_SUCCESS : ::GetLastError();
+    QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+        "CandidateGeometry(service={}, stage={}, source=gui-thread, queried={}, error={}, has_native_caret={})",
+        service_log_id_, stage, got_gui != FALSE, gui_error, gui.hwndCaret != nullptr);
+    if (got_gui) {
+        trace_window("focus-window", gui.hwndFocus);
+        trace_window("active-window", gui.hwndActive);
+    }
+    if (!guard.Current()) return false;
+    ComPtr<ITfContextView> view;
+    const HRESULT view_hr = context->GetActiveView(&view);
+    QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+        "CandidateGeometry(service={}, stage={}, source=active-view, hr=0x{:08x}, has_view={})",
+        service_log_id_, stage, gsl::narrow_cast<unsigned int>(view_hr), view != nullptr);
+    if (!guard.Current()) return false;
+    if (FAILED(view_hr) || !view) return true;
+    RECT screen{};
+    const HRESULT screen_hr = view->GetScreenExt(&screen);
+    trace_rect("view-screen", screen_hr, screen);
+    if (!guard.Current()) return false;
+    HWND window = nullptr;
+    const HRESULT window_hr = view->GetWnd(&window);
+    QIQI_LOG_ACT_INFO(log::Level::debug, log::Keyword::UI, &current_lifecycle_activity_,
+        "CandidateGeometry(service={}, stage={}, source=view-window, hr=0x{:08x}, has_window={})",
+        service_log_id_, stage, gsl::narrow_cast<unsigned int>(window_hr), window != nullptr);
+    if (!guard.Current()) return false;
+    if (SUCCEEDED(window_hr)) trace_window("view-window-bounds", window);
+    RECT rect{};
+    BOOL clipped = FALSE;
+    const HRESULT extent_hr = view->GetTextExt(ec, selection_range.Get(), &rect, &clipped);
+    trace_rect("selection-extent", extent_hr, rect, clipped);
+    return guard.Current();
 }
 
 void QiQiTextService::ResetCompositionForInputMethodSwitch() {
@@ -140,6 +239,7 @@ void QiQiTextService::ResetCompositionAndUI(bool try_host_cleanup, CompositionCl
 }
 
 void QiQiTextService::ResetContextAndUI(bool try_host_cleanup, CompositionCleanupMode mode) {
+    initial_layout_key_release_key_ = 0;
     DisconnectActiveContextAccessSinks();
     context_access_.Reset();
     ResetCompositionContextAndUI(
@@ -244,8 +344,16 @@ void QiQiTextService::SyncCompositionUIInSession(
     const bool first_update = !composition_lifecycle_.Composition();
     SyncCompositionPresentationInSession(
         ec, context, snapshot,
-        [this](TfEditCookie cookie, gsl::not_null<ITfContext*> target, const std::wstring& text) {
-            return StartOrUpdateCompositionInSession(cookie, target, text);
+        [this, &guard, first_update](
+            TfEditCookie cookie, gsl::not_null<ITfContext*> target, const std::wstring& text) {
+            if (first_update && !TraceCandidateInputGeometryInSession(cookie, target, "before-first-edit")) {
+                return ComPtr<ITfComposition>{};
+            }
+            auto composition = StartOrUpdateCompositionInSession(cookie, target, text);
+            if (first_update && composition && guard.CurrentComposition(composition.Get())) {
+                std::ignore = TraceCandidateInputGeometryInSession(cookie, target, "after-first-edit");
+            }
+            return composition;
         },
         [&guard](const ITfComposition* composition) noexcept {
             return guard.CurrentComposition(composition);
@@ -258,6 +366,9 @@ void QiQiTextService::SyncCompositionUIInSession(
             BeginOrUpdateCandidateUI(result);
             if (!first_update || !composition || !guard.CurrentComposition(composition.Get()) ||
                 !has_valid_caret_pos_ || !candidate_ui_ || !NeedsPostEditLayoutRefresh(*candidate_ui_.Get())) return;
+            const wchar_t first_key = result.composition_text.empty() ? L'\0' : result.composition_text.front();
+            initial_layout_key_release_key_ = first_key >= L'a' && first_key <= L'z'
+                ? gsl::narrow_cast<uint32_t>(first_key - L'a' + L'A') : 0;
             // Some windowless text stores report the previous layout until this write session ends.
             const GUID activity = log::CreateActivityId();
             QIQI_LOG_ACT_START(log::Level::debug, log::Keyword::UI, &activity, &current_lifecycle_activity_,
@@ -348,6 +459,7 @@ void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot)
 }
 
 void QiQiTextService::EndCandidateUI() {
+    initial_layout_key_release_key_ = 0;
     if (!candidate_ui_) {
         return;
     }

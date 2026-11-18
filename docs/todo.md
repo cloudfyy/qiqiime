@@ -299,8 +299,16 @@ status-bar/tooltip skin support require separate design approval.
   Do not treat the automated notification contract as proof that stale host
   caret coordinates or taskbar-search placement are fixed.
   The first-key stale-extent path now requests one guarded asynchronous
-  confirmation for a visible native popup without a Win32 caret. Automated
-  moved-work-area and stale-task regressions do not replace this host check.
+  confirmation for a visible native popup without a Win32 caret. Captured
+  confirmation callbacks still returned stale whole-composition coordinates.
+  Position queries now use a clone collapsed to the composition start, following
+  the reviewed Weasel approach without modifying the original range/selection.
+  A later marked capture showed that collapsed-start and selection/display
+  extents can all remain stale before and after the first edit. One matching
+  first-key release now triggers an additional guarded read, following Weasel's
+  release-stage update boundary without modifying key handling or adding timers.
+  Automated moved-work-area and stale-task regressions do not replace this host
+  check.
 
 - [ ] Audit IME DPI scaling against the
   [desktop-application DPI requirements](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#dpi-scaling-support-for-desktop-applications).

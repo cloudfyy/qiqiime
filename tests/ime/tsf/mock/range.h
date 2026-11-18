@@ -4,6 +4,7 @@
 #pragma once
 
 #include "base.h"
+#include <optional>
 
 namespace qiqi::test {
 
@@ -37,6 +38,7 @@ public:
         last_set_text_length_ = cch;
         if (SUCCEEDED(set_text_result_) && pch && cch >= 0) {
             text_.assign(pch, gsl::narrow_cast<size_t>(cch));
+            collapsed_anchor_.reset();
         }
         if (set_text_callback_) set_text_callback_();
         return set_text_result_;
@@ -55,6 +57,7 @@ public:
         return S_OK;
     }
     STDMETHODIMP Collapse(TfEditCookie ec, TfAnchor anchor) override {
+        if (SUCCEEDED(collapse_result_)) collapsed_anchor_ = anchor;
         if (collapse_observer_) collapse_observer_(ec, anchor);
         if (collapse_callback_) collapse_callback_();
         return collapse_result_;
@@ -73,6 +76,7 @@ public:
         if (SUCCEEDED(clone_result_) && !return_null_clone_) {
             auto clone = MakeComObject<MockTfRange>();
             clone->text_ = text_;
+            clone->collapsed_anchor_ = collapsed_anchor_;
             clone->collapse_callback_ = collapse_callback_;
             clone->collapse_observer_ = collapse_observer_;
             clone->collapse_result_ = collapse_result_;
@@ -84,6 +88,7 @@ public:
     STDMETHODIMP GetContext(ITfContext**) noexcept override { return E_NOTIMPL; }
 
     std::wstring text_;
+    std::optional<TfAnchor> collapsed_anchor_;
     unsigned int set_text_calls_ = 0;
     unsigned int clone_calls_ = 0;
     TfEditCookie last_set_text_cookie_ = 0;

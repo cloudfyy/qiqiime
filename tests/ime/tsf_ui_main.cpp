@@ -17,6 +17,7 @@
 #include <io.h>
 
 namespace qiqi::test {
+void RunTsfCandidateLayoutTests();
 void RunRestrictedInputContractTests();
 void RunRestrictedInputDiagnostics();
 int RunFocusMetricsEtwTest();
@@ -272,6 +273,13 @@ int wmain(int argc, wchar_t* argv[]) {
             ::Sleep(5000);
         });
         qiqi::test::RunTsfTestStage("watchdog.hang-probe", [] { ::Sleep(INFINITE); });
+        return 0;
+    }
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--candidate-layout-tests") {
+        const qiqi::test::TsfTestTrace trace("candidate-layout");
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        qiqi::test::RunTsfCandidateLayoutTests();
+        std::cout << "[PASS] QiQi candidate layout tests succeeded.\n";
         return 0;
     }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--composition-lifecycle-tests") {

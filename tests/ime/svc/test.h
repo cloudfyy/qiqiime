@@ -39,6 +39,6 @@ void TestFocusPerformanceLogs();
 void TestProcessDictCacheLifetime();
 void TestDictionarySharingAndLegacyRegistryIgnored();
 void TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*> service);
-void TestQiQiTextServiceLifecycleAndKeyFlow();
+void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only = false);
 
 } // namespace qiqi::test::service_cases

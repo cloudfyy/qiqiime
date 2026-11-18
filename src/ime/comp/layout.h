@@ -146,9 +146,10 @@ inline void RequestCompositionLayoutSession(
     }
 }
 
-// Keep the range alive through the caller's UI work; the caller owns the composition and view.
+// Retain both ranges through UI work; collapsing the clone must not move the composition or selection.
 struct CompositionLayoutQuery {
     Microsoft::WRL::ComPtr<ITfRange> range;
+    Microsoft::WRL::ComPtr<ITfRange> caret_range;
     RECT rect{};
     BOOL clipped = FALSE;
     bool got_position = false;
@@ -168,20 +169,32 @@ template <typename IsCurrent>
         &activity,
         "CandidatePosition(service={}, stage=query, activation={}, context={}, had_position={}, notification_view={})",
         service_id, attempted_epoch.activation, attempted_epoch.context, had_position, notification_view);
-    query.got_position =
+    const bool got_range =
         (view || log::CheckHResult(context->GetActiveView(&view), "CandidatePosition::GetActiveView", log::Level::debug)) && view &&
         is_current() &&
         log::CheckHResult(composition->GetRange(&query.range), "CandidatePosition::GetRange", log::Level::debug) && query.range &&
-        is_current() &&
-        log::CheckHResult(view->GetTextExt(ec, query.range.Get(), &query.rect, &query.clipped),
-                         "CandidatePosition::GetTextExt", log::Level::trace);
+        is_current();
+    if (got_range) {
+        const HRESULT clone_hr = query.range->Clone(&query.caret_range);
+        const bool cloned = log::CheckHResult(clone_hr, "CandidatePosition::CloneRange", log::Level::debug);
+        if (cloned && !query.caret_range) {
+            QIQI_LOG_CAT_WARN(log::Keyword::UI, "CandidatePosition::CloneRange returned no range (hr=0x{:08x})",
+                              gsl::narrow_cast<unsigned int>(clone_hr));
+        }
+        query.got_position = cloned && query.caret_range && is_current() &&
+            log::CheckHResult(query.caret_range->Collapse(ec, TF_ANCHOR_START),
+                             "CandidatePosition::CollapseToStart", log::Level::debug) &&
+            is_current() &&
+            log::CheckHResult(view->GetTextExt(ec, query.caret_range.Get(), &query.rect, &query.clipped),
+                             "CandidatePosition::GetTextExt", log::Level::trace);
+    }
     query.current = is_current();
     if (!query.current) return query;
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
         log::Keyword::UI,
         &activity,
-        "CandidatePosition(service={}, stage=query-result, activation={}, context={}, success={}, rect=({}, {}, {}, {}), clipped={}, had_position={})",
+        "CandidatePosition(service={}, stage=query-result, activation={}, context={}, success={}, rect=({}, {}, {}, {}), clipped={}, had_position={}, range=composition-start)",
         service_id, attempted_epoch.activation, attempted_epoch.context, query.got_position,
         query.rect.left, query.rect.top, query.rect.right, query.rect.bottom, query.clipped != FALSE, had_position);
     return query;

@@ -234,6 +234,9 @@ private:
     void RequestCandidateWindowLayout(
         gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view, const GUID& activity,
         ComPtr<ITfComposition> expected_composition = {});
+    void RefreshCandidateLayoutOnKeyRelease(ITfContext* context, uint32_t key) noexcept;
+    bool TraceCandidateInputGeometryInSession(
+        TfEditCookie ec, gsl::not_null<ITfContext*> context, std::string_view stage);
     void UpdateCandidateWindowPositionInSession(
         TfEditCookie ec, gsl::not_null<ITfContext*> context, ComPtr<ITfContextView> view = {});
 
@@ -273,6 +276,7 @@ private:
     TfGuidAtom display_attribute_atom_ = TF_INVALID_GUIDATOM;
     bool syncing_compartments_ = false;
     bool has_valid_caret_pos_ = false;
+    uint32_t initial_layout_key_release_key_ = 0;
     bool has_logged_focus_state_ = false;
     bool last_logged_focus_state_ = false;
     uint64_t focus_revision_ = 0;

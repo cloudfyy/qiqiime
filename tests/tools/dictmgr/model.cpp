@@ -190,7 +190,7 @@ void TestModelAndCrossProcessSync() {
 
     // Phrase frequency promotion, removal, and clearing synced to peer WubiEngine
     QIQI_TEST_CHECK(!model.PromotePhraseFrequency(L"abcd", L"单"));
-    QIQI_TEST_CHECK(model.PromotePhraseFrequency(L"abcd", L"管理词改"));
+    QIQI_TEST_CHECK(model.PromotePhraseFrequencyResult(L" ABCD ", L" 管理词改 ") == S_OK);
     QIQI_TEST_CHECK(model.PromotePhraseFrequency(L"abcd", L"高频词组"));
     QIQI_TEST_CHECK(model.PhraseFreqCount() == 2);
     QIQI_TEST_CHECK(peer_engine.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);

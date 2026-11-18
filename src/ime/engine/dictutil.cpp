@@ -922,11 +922,17 @@ bool WubiEngine::PinUserEntry(
     std::wstring_view code,
     std::wstring_view word,
     const std::filesystem::path& user_dict_path) {
+    return SUCCEEDED(PinUserEntryResult(code, word, user_dict_path));
+}
+
+HRESULT WubiEngine::PinUserEntryResult(
+    std::wstring_view code, std::wstring_view word, const std::filesystem::path& user_dict_path) {
     if (word.empty()) {
-        return false;
+        std::ignore = log::CheckHResult(E_INVALIDARG, "PinUserEntry word");
+        return E_INVALIDARG;
     }
     const std::wstring pinned_token = L"^" + std::wstring(word);
-    return SUCCEEDED(MutateUserDictionaryEntry(
+    return MutateUserDictionaryEntry(
         code,
         pinned_token,
         {},
@@ -938,7 +944,7 @@ bool WubiEngine::PinUserEntry(
             auto& list = file_entries[packed];
             list.insert(list.begin(), pinned_token);
         },
-        [this, code, word]() { PinEntry(code, word); }));
+        [this, code, word]() { PinEntry(code, word); });
 }
 
 bool WubiEngine::UnpinUserEntry(
@@ -968,11 +974,17 @@ bool WubiEngine::BlockSystemEntry(
     std::wstring_view code,
     std::wstring_view word,
     const std::filesystem::path& user_dict_path) {
+    return SUCCEEDED(BlockSystemEntryResult(code, word, user_dict_path));
+}
+
+HRESULT WubiEngine::BlockSystemEntryResult(
+    std::wstring_view code, std::wstring_view word, const std::filesystem::path& user_dict_path) {
     if (word.empty()) {
-        return false;
+        std::ignore = log::CheckHResult(E_INVALIDARG, "BlockSystemEntry word");
+        return E_INVALIDARG;
     }
     const std::wstring block_token = L"!" + std::wstring(word);
-    return SUCCEEDED(MutateUserDictionaryEntry(
+    return MutateUserDictionaryEntry(
         code,
         block_token,
         {},
@@ -983,7 +995,7 @@ bool WubiEngine::BlockSystemEntry(
             EraseWordFromCodeMap(file_entries, packed, L"^" + std::wstring(word));
             AppendUniqueWord(file_entries[packed], block_token);
         },
-        [this, code, word]() { BlockEntry(code, word); }));
+        [this, code, word]() { BlockEntry(code, word); });
 }
 
 bool WubiEngine::UnblockSystemEntry(

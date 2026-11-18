@@ -138,6 +138,9 @@ public:
         std::wstring_view code,
         std::wstring_view word,
         const std::filesystem::path& user_dict_path = {});
+    HRESULT PinUserEntryResult(
+        std::wstring_view code, std::wstring_view word,
+        const std::filesystem::path& user_dict_path = {});
     bool UnpinUserEntry(
         std::wstring_view code,
         std::wstring_view word,
@@ -145,6 +148,9 @@ public:
     bool BlockSystemEntry(
         std::wstring_view code,
         std::wstring_view word,
+        const std::filesystem::path& user_dict_path = {});
+    HRESULT BlockSystemEntryResult(
+        std::wstring_view code, std::wstring_view word,
         const std::filesystem::path& user_dict_path = {});
     bool UnblockSystemEntry(
         std::wstring_view code,

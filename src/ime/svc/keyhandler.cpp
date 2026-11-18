@@ -232,6 +232,7 @@ void QiQiTextService::HandleTestKeyUp(
         return;
     }
     *pfEaten = HandleShiftTapKeyUp("OnTestKeyUp", vk, pic, true) ? TRUE : FALSE;
+    RefreshCandidateLayoutOnKeyRelease(pic, vk);
 }
 
 void QiQiTextService::HandleKeyUp(
@@ -247,6 +248,7 @@ void QiQiTextService::HandleKeyUp(
         return;
     }
     *pfEaten = FALSE;
+    RefreshCandidateLayoutOnKeyRelease(pic, vk);
 }
 
 void QiQiTextService::HandlePreservedKey(

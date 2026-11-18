@@ -735,8 +735,9 @@ therefore does not by itself make the returned rectangle safe to use.
    current composition for that still-valid activation/context epoch. Retain
    that composition through positioning.
 3. Prefer the notification's view when one was supplied. Between host calls that
-   obtain the view, range, and text extent, check that the task is still current
-   and the composition has not been replaced.
+   obtain the view/range, clone/collapse the query range, and obtain its text
+   extent, check that the task is still current and the composition has not
+   been replaced.
 4. If those checks fail, discard the result even if the host query succeeded.
    Never position a replacement composition's UI using an old rectangle.
 
@@ -761,10 +762,46 @@ failed confirmation is diagnosed and preserves the existing popup position.
 Native-caret, fallback-only and host-rendered UILess paths do not request this
 extra session. Normal layout notifications still resolve the current composition.
 
+The first composition key's release triggers one additional asynchronous
+read for the same windowless/native-popup case. The captured SearchHost failure
+keeps its selection, display surface and composition extent stale even through
+the post-edit confirmation. Weasel also refreshes on release through its
+[key-event pipeline](https://github.com/rime/weasel/blob/f96ed24a8a535961b6ffc7160d98851a69cee4f8/WeaselTSF/KeyEventSink.cpp).
+Both `OnTestKeyUp` and direct `OnKeyUp` use one consuming helper, so receiving
+both does not duplicate the release request. The stored matching key is UI
+refresh state, not FSM state; it is cleared before scheduling and on context
+reset/UI end, and is never logged. Unrelated or later keys cannot consume it.
+Key-eaten flags, engine transitions, text and selection are unchanged. The
+deferred request retains and validates the original composition just like the
+post-edit confirmation. Neither confirmation polls or adds a timer.
+
+**Query an insertion point, not the whole composition's bounding box:**
+
+Clone the composition range and collapse the clone to `TF_ANCHOR_START` before
+`GetTextExt`. Retain both ranges through positioning; never collapse the original
+range or change the selection to obtain coordinates. This anchors the candidate
+window to the composition's first insertion point instead of the bounding box
+of all composed text. Clone/collapse failures retain their HRESULT diagnostics
+and follow the existing position/fallback policy.
+
+The same insertion-point query is used in
+[Weasel 0.16.3](https://github.com/rime/weasel/blob/0.16.3/WeaselTSF/Composition.cpp)
+and [the reviewed upstream revision](https://github.com/rime/weasel/blob/f96ed24a8a535961b6ffc7160d98851a69cee4f8/WeaselTSF/Composition.cpp).
+The 2026-11-18 SearchHost capture confirms that querying the entire composition
+again in the asynchronous callback can return exactly the same stale rectangle.
+A later post-login capture, with `range=composition-start` present, also
+confirmed stale insertion-point coordinates. Neither the extra session nor
+range collapse is sufficient evidence of a corrected SearchHost layout.
+UI/Verbose-only `CandidateGeometry` probes compare selection/display/window
+geometry before and after the first edit and during confirmation, including the
+release-triggered read. No taskbar
+direction offsets, guessed foreground-window corrections, polling or additional
+delays are introduced; the real-host issue remains open.
+
 **Preserve coordinate and fallback behavior:**
 
-- Keep TSF's raw coordinates, clipping information, and zero-sized or inverted
-  rectangles. Lifecycle checks must not silently introduce rectangle
+- Keep the insertion-point query's raw coordinates, clipping information, and
+  zero-sized or inverted rectangles. Lifecycle checks must not introduce rectangle
   normalization.
 - Real screen coordinates are not DPI-scaled again. Synthetic geometry used by
   the GUI/cursor fallback follows its DPI-scaling rules instead.

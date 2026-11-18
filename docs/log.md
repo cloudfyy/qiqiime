@@ -216,6 +216,19 @@ by PID/TID, service, activation, and context. Check layout subscription/notifica
 request versus callback execution, queried rectangles, DPI, fallback, and final
 window position.
 
+`query-result` includes `range=composition-start` when the queried extent comes
+from a cloned range collapsed to the start, not from the entire composition.
+Clone/collapse failures are separately diagnosed and never reposition the
+document selection. Check the first query's raw rectangle against the input
+field before relying on any asynchronous confirmation or work-area clamping.
+
+When UI/Verbose capture is enabled, `CandidateGeometry` compares
+`before-first-edit`, `after-first-edit` and `post-edit-read` stages. It records
+the current TSF selection extent, display-surface extent, view/focus window
+bounds and actual HRESULT/Win32 errors, never selected text or candidate
+contents. These diagnostic-only queries do not replace the position source;
+each COM boundary rechecks the context and composition before continuing.
+
 `stage=initial-layout-recheck` identifies the one-shot confirmation for a
 first-key native popup without a Win32 caret. The preceding
 `initial-layout-eligibility` record identifies native-caret and focused-owner
@@ -225,6 +238,13 @@ gating without recording input. Correlate the recheck activity with
 the second rectangle actually changes to the current input position without
 another key. A successful request alone, IME show/hide WinEvents, or a later
 second-key correction does not prove that the first-key position was fixed.
+
+`stage=initial-key-release-recheck` identifies the separate, one-shot request
+after release of the first composition key. It uses the same strict read-only
+request and original-composition guards. Compare its subsequent `CandidateGeometry`
+and `query-result` with the earlier post-edit confirmation: the SearchHost capture
+shows that selection and display extents can already be stale before any text
+write. No key value, input or candidate text is included in this stage record.
 
 `visible`, `topmost`, and `has_owner` do not prove that the user can see the window.
 `cloaked=-1` denotes a failed DWM query; inspect `cloak_hr`. Respect the host's

@@ -100,6 +100,8 @@ void TestFirstKeyLayoutRefresh(
         POINT expected;
     };
     constexpr std::array cases{
+        Case{{{1920, 0, 3840, 1032}, 96}, {2452, 177, 2452, 196},
+             {2412, 1046, 2412, 1065}, {2412, 968}},
         Case{{{1920, 48, 3840, 1080}, 96}, {2412, 904, 2413, 923},
              {2412, 14, 2413, 33}, {2412, 48}},
         Case{{{72, 0, 1920, 1200}, 144}, {-1012, 90, -1011, 118},
@@ -107,10 +109,11 @@ void TestFirstKeyLayoutRefresh(
         Case{{{-1920, 0, -72, 1200}, 144}, {14, 90, 15, 118},
              {-1600, 90, -1599, 118}, {-1600, 122}},
     };
-    enum class Mode { Refresh, GuiCaret, Uiless };
+    enum class Mode { Refresh, GuiCaret, Uiless, CompositionStart, KeyRelease, DirectKeyRelease };
     for (const auto& test : cases) {
         SetMonitorMetricsOverrideForTest(test.monitor);
-        for (const auto mode : {Mode::Refresh, Mode::GuiCaret, Mode::Uiless}) {
+        for (const auto mode : {Mode::Refresh, Mode::GuiCaret, Mode::Uiless, Mode::CompositionStart,
+                 Mode::KeyRelease, Mode::DirectKeyRelease}) {
             GUITHREADINFO gui{};
             gui.cbSize = sizeof(gui);
             gui.hwndFocus = host.Get();
@@ -125,25 +128,60 @@ void TestFirstKeyLayoutRefresh(
             context->SetDeferredEditSessions(false);
             context->view_->hwnd_ = host.Get();
             context->view_->text_ext_ = test.stale;
+            if (mode == Mode::CompositionStart) {
+                context->view_->get_text_ext_observer_ = [&](TfEditCookie, ITfRange* range, RECT*, BOOL*) {
+                    const auto* const queried_range = dynamic_cast<const MockTfRange*>(range);
+                    QIQI_TEST_CHECK(queried_range);
+                    context->view_->text_ext_ = queried_range->collapsed_anchor_ == TF_ANCHOR_START
+                        ? test.settled : test.stale;
+                };
+            }
             BOOL eaten = FALSE;
             QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
             const auto* const ui = dynamic_cast<const CandidateUI*>(mock_tm->last_ui_element_.Get());
             QIQI_TEST_CHECK(ui && context->range_->text_ == L"a");
-            if (mode == Mode::Refresh) {
+            const bool key_release = mode == Mode::KeyRelease || mode == Mode::DirectKeyRelease;
+            if (mode == Mode::Refresh || mode == Mode::CompositionStart || key_release) {
+                if (mode == Mode::CompositionStart) {
+                    RECT first{};
+                    QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &first));
+                    QIQI_TEST_CHECK(first.left == test.expected.x && first.top == test.expected.y);
+                    QIQI_TEST_CHECK(!context->range_->collapsed_anchor_);
+                }
                 QIQI_TEST_CHECK(queue->PendingCount() == 1);
                 QIQI_TEST_CHECK(queue->PendingRequests().front().flags == (TF_ES_ASYNC | TF_ES_READ));
                 const auto writes = context->range_->set_text_calls_;
+                const auto selections = context->set_selection_calls_;
                 const auto queries = context->view_->get_text_ext_calls_;
-                context->view_->text_ext_ = test.settled;
+                if (!key_release) context->view_->text_ext_ = test.settled;
                 QIQI_TEST_CHECK(queue->RunNext(271) == S_OK && queue->PendingCount() == 0);
                 QIQI_TEST_CHECK(context->view_->get_text_ext_calls_ == queries + 1);
+                if (key_release) {
+                    context->view_->text_ext_ = test.settled;
+                    if (mode == Mode::KeyRelease) {
+                        QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+                    } else {
+                        QIQI_TEST_CHECK(service->OnKeyUp(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+                    }
+                    QIQI_TEST_CHECK(queue->PendingCount() == 1);
+                    QIQI_TEST_CHECK(queue->PendingRequests().front().flags == (TF_ES_ASYNC | TF_ES_READ));
+                    QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+                    QIQI_TEST_CHECK(service->OnKeyUp(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+                    QIQI_TEST_CHECK(queue->PendingCount() == 1);
+                    QIQI_TEST_CHECK(queue->RunNext(277) == S_OK && queue->PendingCount() == 0);
+                }
                 QIQI_TEST_CHECK(context->range_->text_ == L"a" && context->range_->set_text_calls_ == writes);
+                QIQI_TEST_CHECK(context->set_selection_calls_ == selections && !context->range_->collapsed_anchor_);
                 RECT actual{};
                 QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &actual));
                 QIQI_TEST_CHECK(actual.left == test.expected.x && actual.top == test.expected.y);
                 QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && eaten);
+                QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
+                QIQI_TEST_CHECK(service->OnKeyUp(context.Get(), 'B', 0, &eaten) == S_OK && !eaten);
                 QIQI_TEST_CHECK(queue->PendingCount() == 0 && context->range_->text_ == L"ab");
             } else {
+                QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+                QIQI_TEST_CHECK(service->OnKeyUp(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
                 QIQI_TEST_CHECK(queue->PendingCount() == 0);
             }
             QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_ESCAPE, 0, &eaten) == S_OK && eaten);
@@ -172,8 +210,8 @@ void TestFirstKeyLayoutRefreshLifecycle(
     SetLayoutGuiThreadInfoOverrideForTest(gui);
     mock_tm->show_own_ui_ = TRUE;
     enum class Transition { FocusLost, Reactivate, SwitchContext, ReplaceComposition, Abandon, Reject, NoLayout };
-    for (const auto transition : {Transition::FocusLost, Transition::Reactivate, Transition::SwitchContext,
-             Transition::ReplaceComposition, Transition::Abandon, Transition::Reject, Transition::NoLayout}) {
+    const auto exercise = [&](Transition transition, bool key_release) {
+        const TsfTestCaseTrace trigger_trace(key_release ? "layout.initial-key-release" : "layout.initial-post-edit");
         const auto queue = std::make_shared<MockEditSessionQueue>();
         const auto context = MakeComObject<MockTfContext>(queue);
         context->SetDeferredEditSessions(false);
@@ -184,6 +222,13 @@ void TestFirstKeyLayoutRefreshLifecycle(
         QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
         const auto original = context->last_composition_;
         QIQI_TEST_CHECK(queue->PendingCount() == (transition == Transition::Reject ? 0u : 1u));
+        if (key_release) {
+            if (transition != Transition::Reject) {
+                QIQI_TEST_CHECK(queue->RunNext(281) == S_OK && queue->PendingCount() == 0);
+            }
+            QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+            QIQI_TEST_CHECK(queue->PendingCount() == (transition == Transition::Reject ? 0u : 1u));
+        }
         if (transition == Transition::FocusLost) {
             QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
         } else if (transition == Transition::Reactivate) {
@@ -196,6 +241,8 @@ void TestFirstKeyLayoutRefreshLifecycle(
             context->view_->text_ext_ = {400, 200, 401, 219};
             QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'B', 0, &eaten) == S_OK && eaten);
             QIQI_TEST_CHECK(context->last_composition_ != original && queue->PendingCount() == 2);
+            QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+            QIQI_TEST_CHECK(queue->PendingCount() == 2);
         } else if (transition == Transition::NoLayout) {
             context->view_->fail_get_text_ext_ = true;
         }
@@ -224,6 +271,13 @@ void TestFirstKeyLayoutRefreshLifecycle(
         }
         QIQI_TEST_CHECK(queue->PendingCount() == 0);
         QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+        QIQI_TEST_CHECK(service->OnTestKeyUp(context.Get(), 'A', 0, &eaten) == S_OK && !eaten);
+        QIQI_TEST_CHECK(queue->PendingCount() == 0);
+    };
+    for (const auto transition : {Transition::FocusLost, Transition::Reactivate, Transition::SwitchContext,
+             Transition::ReplaceComposition, Transition::Abandon, Transition::Reject, Transition::NoLayout}) {
+        exercise(transition, false);
+        exercise(transition, true);
     }
 }
 
@@ -393,7 +447,9 @@ void RunTsfLayoutSessionTests(
             unsigned int notification_queries = 0;
             bool notification_released = false;
             view->get_text_ext_observer_ = [&](TfEditCookie ec, ITfRange* range, RECT*, BOOL*) {
-                QIQI_TEST_CHECK(ec == 263 && range == context->range_.Get());
+                const auto* const caret_range = dynamic_cast<const MockTfRange*>(range);
+                QIQI_TEST_CHECK(ec == 263 && caret_range && range != context->range_.Get());
+                QIQI_TEST_CHECK(caret_range->collapsed_anchor_ == TF_ANCHOR_START);
                 ++notification_queries;
             };
             view->release_observer_ = [&]() noexcept { notification_released = true; };

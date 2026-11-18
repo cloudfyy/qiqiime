@@ -171,15 +171,32 @@ snapshot while retaining real host-window coordinate conversion and candidate
 position assertions. It must not create/destroy the desktop caret or assume
 `DestroyCaret` removes another thread's caret from a shared input queue.
 The override is restored on scope exit; normal layout queries still read Windows.
-First-key positioning regressions model a windowless text store returning a
-successful old extent until the initial write session ends. Under top/left/right
-work areas (including mixed DPI and negative coordinates), a single strict
-asynchronous read must move the native popup to the settled extent without
-another key or a layout notification. The tests retain stale/settled rectangles,
-check actual HWND coordinates, and cover one-shot scheduling, native-caret/UILess
+First-key positioning regressions cover two independent text-store behaviors:
+an old extent that settles after the write session, and a whole-composition
+extent that stays stale across repeated queries while the collapsed start
+returns the current insertion point. Under top/left/right work areas (including
+mixed DPI and negative coordinates), the latter must place the native popup
+correctly on the first key, before the queued confirmation runs, without
+changing the original range, selection or text. The tests retain stale/current
+rectangles and check actual HWND coordinates. Query tests cover clone/collapse
+failure, null clone output, reentrant invalidation/replacement, and both ranges'
+lifetimes. Existing cases retain one-shot scheduling, native-caret/UILess
 exclusion, focus/deactivation/context/composition replacement, abandonment,
-request rejection and a failed requery. This models the captured SearchHost
-behavior, not a substitute for rechecking the loaded DLL in that host.
+request rejection and failed requery checks. Additional cases keep the selection
+and extent stale even in the post-edit read, then settle them only when the
+first key is released. Test-key-up and direct-key-up paths must both correct the
+actual popup without a second input key, duplicate release requests, text writes,
+selection changes or altered eaten flags. Release tasks get the same stale
+activation/context/composition, abandonment, rejection and failed-requery cases.
+These modeled cases do not replace
+rechecking the loaded DLL in SearchHost; the captured repeated full-range
+failure disproves any assumption that an asynchronous callback alone is enough.
+The existing TSF test executable accepts `--candidate-layout-tests` to run the
+layout-query/session stages inside the same private registry and `LOCALAPPDATA`
+fixture, without unrelated native/Shift tests preceding them. From the repository
+root, run `.\build\x64\Release\qiqi_tsf_ui_test.exe --candidate-layout-tests`
+(or x86). It retains its own `candidate-layout` log under `test-logs`; it does not
+replace a failed full or focused CTest result.
 Candidate popup light-dismiss regressions use a scoped, current-process/thread
 WinEvent hook to check native IME show/hide/change ordering and HWND/object/child
 identifiers. They cover repeated calls, unchanged and hidden geometry, movement,
@@ -230,13 +247,33 @@ create missing keys nor modify existing DACLs. Default initialization belongs
 to `LoadConfig`, not the registry-only read helpers.
 Backup-restore success regressions print the conflict mode and the existing
 structured result (stage, stored HRESULT, operation counts and refresh failure)
-before asserting success. Phrase-order restore failures preserve the engine's
+before asserting success. User-word, pin, suppression and phrase-order restore
+failures preserve the engine's
 channel creation/read/publish HRESULT instead of replacing it with `E_FAIL`;
 if channel creation and the existing direct-save fallback both fail, the
 original channel-creation error is retained. The boolean promotion API keeps its
 existing success/failure behavior. A private `writer.lock` sharing-denial
 regression verifies the exact HRESULT, partial-result counts and formatted
 message. Restore is not retried as a whole after partially applied changes.
+Production file sharing, handle lifetime and retry policies remain unchanged;
+access-denied or sharing failures retain their real HRESULT and partial result
+rather than being hidden or converted to success.
+The backup fixture uses the existing private, current-process ETW capture for
+the whole scenario. Unexpected assertions are flushed before unwinding; the
+last 80 low-level events are printed before a nonzero exit, and the failed data
+directory is retained. Registry overrides are unwound. This captures failures
+in fixture/bundle writes as well as restore itself, without requiring the user
+to run Log Monitor or capturing input from other processes.
+Reset/final cleanup shares ChangeSync's 2-second, sharing-violation-only cleanup
+helper and diagnostics; it never retries a partially applied restore.
+`qiqi_dict_manager_test.exe --backup-restore-test` runs this private scenario
+without the unrelated GUI suites; it does not replace full-suite validation.
+Fixture setup also uses the model's HRESULT-preserving phrase-promotion API.
+An unexpected initialization failure flushes `FIXTURE-FAIL` with its reset
+number, PID, private directory and original HRESULT before exiting with failure; do not
+infer the code from `GetLastError()` after a boolean call or retry the reset
+until it passes. Model regressions verify normalized successful promotion and
+a real `writer.lock` sharing denial without rebuilding the displayed records.
 Preserve the failed fixture and logs when an
 intermittent failure cannot be reproduced; a later passing run is not a fix.
 
@@ -516,6 +553,13 @@ Only generate release packages when explicitly needed:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
+
+Confirmed filesystem access/sharing or cleanup failures in tests (Win32 5/32)
+need not block a requested manual packaging run. Retain the failed test result,
+logs and failed fixture, and identify the exception when reporting the package;
+do not label the test as passed. This is a reviewed manual workflow exception,
+not an automatic waiver in [build_all.ps1](../scripts/build_all.ps1) or CI.
+Other build/test failures and installer validation failures remain blocking.
 
 The script first builds and tests both architectures, then stages:
 

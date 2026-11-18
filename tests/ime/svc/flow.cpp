@@ -7,7 +7,7 @@
 
 namespace qiqi::test::service_cases {
 
-void TestQiQiTextServiceLifecycleAndKeyFlow() {
+void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only) {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     constexpr const wchar_t* kTsfTestRegSubKey = L"Software\\QiQiIME_TsfUnitTest";
     ::RegDeleteTreeW(HKEY_CURRENT_USER, kTsfTestRegSubKey);
@@ -36,6 +36,22 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
     ::SetKeyboardState(clean_kb_state.data());
     SetMuteAudioOutputForTest(true);
     ResetLastPlayedSoundForTest();
+
+    if (layout_only) {
+        QiQiConfig config;
+        config.primary_dict = PrimaryDict::BuiltinOnly;
+        config.show_status_bar = false;
+        QIQI_TEST_CHECK(SaveConfig(config));
+        const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        const auto manager = MakeComObject<MockTfThreadMgr>();
+        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        const auto deactivate = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+        });
+        RunTsfTestStage("lifecycle.layout-query", [&] { RunTsfLayoutQueryTests(service.Get(), manager.Get()); });
+        RunTsfTestStage("lifecycle.layout-session", [&] { RunTsfLayoutSessionTests(service.Get(), manager.Get()); });
+        return;
+    }
 
     RunTsfTestStage("service.input-method-switch", TestInputMethodSwitchCompositionPolicy);
     RunTsfTestStage("service.code-completion", TestCodeCompletionConfigReload);

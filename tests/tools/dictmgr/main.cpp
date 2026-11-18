@@ -5,8 +5,13 @@
 
 using namespace qiqi::dict_manager::tests;
 
-int main() {
+int main(int argc, char** argv) try {
     ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    if (argc == 2 && std::string_view(argv[1]) == "--backup-restore-test") {
+        TestBackupRestoreResults();
+        std::cout << "[PASS] QiQi backup restore tests\n";
+        return 0;
+    }
     TestVersionResource();
     TestSmartSearch();
     TestDictionarySourceSelection();
@@ -19,4 +24,7 @@ int main() {
     TestInlineEditing();
     std::cout << "[PASS] QiQiDictManagerTest\n";
     return 0;
+} catch (const std::exception& error) {
+    std::fprintf(stderr, "[FAIL] %s\n", error.what());
+    return 1;
 }

@@ -45,14 +45,17 @@ void TestLayoutQueryBoundaries() {
     enum class Scenario {
         Normal, ViewFailure, ViewNull, ViewSFalse, ViewFailedOutput,
         RangeFailure, RangeNull, RangeSFalse, RangeFailedOutput,
+        CloneFailure, CloneNull, CollapseFailure, StaleClone, StaleCollapse, ReplacedClone, ReplacedCollapse,
         ExtNoLayout, ExtFailureOutput, ExtSFalse, Clipped, EmptyRect, InvertedRect,
         StaleView, StaleRange, StaleExtent, ReplacedRange, ReplacedExtent,
     };
-    enum class Step { View, Check, Range, Extent };
+    enum class Step { View, Check, Range, Clone, Collapse, Extent };
     constexpr std::array scenarios{
         Scenario::Normal, Scenario::ViewFailure, Scenario::ViewNull, Scenario::ViewSFalse,
         Scenario::ViewFailedOutput, Scenario::RangeFailure, Scenario::RangeNull,
         Scenario::RangeSFalse, Scenario::RangeFailedOutput, Scenario::ExtNoLayout,
+        Scenario::CloneFailure, Scenario::CloneNull, Scenario::CollapseFailure,
+        Scenario::StaleClone, Scenario::StaleCollapse, Scenario::ReplacedClone, Scenario::ReplacedCollapse,
         Scenario::ExtFailureOutput, Scenario::ExtSFalse, Scenario::Clipped, Scenario::EmptyRect,
         Scenario::InvertedRect, Scenario::StaleView, Scenario::StaleRange, Scenario::StaleExtent,
         Scenario::ReplacedRange, Scenario::ReplacedExtent,
@@ -66,6 +69,10 @@ void TestLayoutQueryBoundaries() {
             if (notified && view_scenario) continue;
             const auto context = MakeComObject<MockTfContext>();
             const auto composition = MakeComObject<MockTfComposition>(context->range_);
+            context->range_->text_ = L"abcd";
+            context->range_->clone_result_ = scenario == Scenario::CloneFailure ? E_ACCESSDENIED : S_OK;
+            context->range_->return_null_clone_ = scenario == Scenario::CloneNull;
+            context->range_->collapse_result_ = scenario == Scenario::CollapseFailure ? E_ACCESSDENIED : S_OK;
             const auto selected_view = notified ? MakeComObject<MockTfContextView>() : context->view_;
             selected_view->text_ext_ = notified ? RECT{300, 310, 340, 334} : RECT{100, 110, 140, 134};
             ComPtr<ITfContextView> view;
@@ -105,8 +112,21 @@ void TestLayoutQueryBoundaries() {
                 if (scenario == Scenario::StaleRange) state.InvalidateContext();
                 if (scenario == Scenario::ReplacedRange) replace_composition();
             };
+            context->range_->clone_callback_ = [&] {
+                trace.push_back(Step::Clone);
+                if (scenario == Scenario::StaleClone) state.InvalidateContext();
+                if (scenario == Scenario::ReplacedClone) replace_composition();
+            };
+            context->range_->collapse_observer_ = [&](TfEditCookie ec, TfAnchor anchor) {
+                QIQI_TEST_CHECK(ec == 181 && anchor == TF_ANCHOR_START);
+                trace.push_back(Step::Collapse);
+                if (scenario == Scenario::StaleCollapse) state.InvalidateContext();
+                if (scenario == Scenario::ReplacedCollapse) replace_composition();
+            };
             selected_view->get_text_ext_observer_ = [&](TfEditCookie ec, ITfRange* range, RECT* rect, BOOL* clipped) {
-                QIQI_TEST_CHECK(ec == 181 && range == context->range_.Get() && rect && clipped);
+                const auto* const caret_range = dynamic_cast<const MockTfRange*>(range);
+                QIQI_TEST_CHECK(ec == 181 && caret_range && range != context->range_.Get() && rect && clipped);
+                QIQI_TEST_CHECK(caret_range->collapsed_anchor_ == TF_ANCHOR_START && caret_range->text_ == L"abcd");
                 trace.push_back(Step::Extent);
                 if (scenario == Scenario::StaleExtent) state.InvalidateContext();
                 if (scenario == Scenario::ReplacedExtent) replace_composition();
@@ -125,22 +145,37 @@ void TestLayoutQueryBoundaries() {
             const bool range_called = view_ok && scenario != Scenario::StaleView;
             const bool range_output = range_called && scenario != Scenario::RangeFailure && scenario != Scenario::RangeNull;
             const bool range_ok = range_output && scenario != Scenario::RangeFailedOutput;
-            const bool extent_called = range_ok && scenario != Scenario::StaleRange && scenario != Scenario::ReplacedRange;
+            const bool clone_called = range_ok && scenario != Scenario::StaleRange && scenario != Scenario::ReplacedRange;
+            const bool clone_ok = clone_called && scenario != Scenario::CloneFailure && scenario != Scenario::CloneNull;
+            const bool collapse_called = clone_ok && scenario != Scenario::StaleClone && scenario != Scenario::ReplacedClone;
+            const bool collapse_ok = collapse_called && scenario != Scenario::CollapseFailure;
+            const bool extent_called = collapse_ok && scenario != Scenario::StaleCollapse && scenario != Scenario::ReplacedCollapse;
             const bool positioned = extent_called && scenario != Scenario::ExtNoLayout && scenario != Scenario::ExtFailureOutput;
-            const bool replaced = scenario == Scenario::ReplacedRange || scenario == Scenario::ReplacedExtent;
+            const bool replaced = scenario == Scenario::ReplacedRange || scenario == Scenario::ReplacedExtent ||
+                scenario == Scenario::ReplacedClone || scenario == Scenario::ReplacedCollapse;
             const bool current = scenario != Scenario::StaleView && scenario != Scenario::StaleRange &&
-                scenario != Scenario::StaleExtent && !replaced;
+                scenario != Scenario::StaleExtent && scenario != Scenario::StaleClone &&
+                scenario != Scenario::StaleCollapse && !replaced;
             std::vector<Step> expected;
             if (!notified) expected.push_back(Step::View);
             if (view_ok) expected.push_back(Step::Check);
             if (range_called) expected.push_back(Step::Range);
             if (range_ok) expected.push_back(Step::Check);
+            if (clone_called) expected.push_back(Step::Clone);
+            if (clone_ok) expected.push_back(Step::Check);
+            if (collapse_called) expected.push_back(Step::Collapse);
+            if (collapse_ok) expected.push_back(Step::Check);
             if (extent_called) expected.push_back(Step::Extent);
             expected.push_back(Step::Check);
             QIQI_TEST_CHECK(trace == expected && query.current == current && query.got_position == positioned);
-            QIQI_TEST_CHECK(checks_seen == (1u + (view_ok ? 1u : 0u) + (range_ok ? 1u : 0u)) &&
+            QIQI_TEST_CHECK(checks_seen ==
+                                (1u + (view_ok ? 1u : 0u) + (range_ok ? 1u : 0u) +
+                                 (clone_ok ? 1u : 0u) + (collapse_ok ? 1u : 0u)) &&
                             query.range.Get() == (range_output ? context->range_.Get() : nullptr) &&
                             view.Get() == (view_output ? selected_view.Get() : nullptr));
+            QIQI_TEST_CHECK((query.caret_range != nullptr) == clone_ok);
+            QIQI_TEST_CHECK(!context->range_->collapsed_anchor_ && context->range_->text_ == L"abcd");
+            QIQI_TEST_CHECK(context->range_->clone_calls_ == (clone_called ? 1u : 0u));
             const bool extent_output = extent_called && scenario != Scenario::ExtNoLayout;
             const RECT expected_rect = extent_output ? selected_view->text_ext_ : RECT{};
             QIQI_TEST_CHECK(query.rect.left == expected_rect.left && query.rect.top == expected_rect.top &&
@@ -166,7 +201,7 @@ void TestLayoutQueryBoundaries() {
             ++cases;
         }
     }
-    QIQI_TEST_CHECK(cases == 35 && g_com_object_count.load() == objects_before);
+    QIQI_TEST_CHECK(cases == 49 && g_com_object_count.load() == objects_before);
 }
 
 void TestLayoutQueryResourceLifetime() {
@@ -183,6 +218,7 @@ void TestLayoutQueryResourceLifetime() {
             auto original = MakeComObject<MockTfComposition>(context->range_);
             const gsl::not_null<MockTfRange*> range(context->range_.Get());
             bool current = true;
+            bool caret_released = false;
             original->release_observer_ = [&]() noexcept {
                 QIQI_TEST_CHECK(count == 0 && range->AddRef() == 2 && range->Release() == 1);
                 gsl::at(released, count++) = Released::Composition;
@@ -199,6 +235,11 @@ void TestLayoutQueryResourceLifetime() {
                 if (kind == Kind::StaleRange) current = false;
             };
             context->view_->fail_get_text_ext_ = kind == Kind::NoLayout;
+            context->view_->get_text_ext_observer_ = [&](TfEditCookie, ITfRange* queried, RECT*, BOOL*) {
+                auto* const caret_range = dynamic_cast<MockTfRange*>(queried);
+                QIQI_TEST_CHECK(caret_range && caret_range != range.get());
+                caret_range->release_observer_ = [&]() noexcept { caret_released = true; };
+            };
             ComPtr<ITfContextView> view;
             if (notified) view = context->view_;
             {
@@ -210,10 +251,12 @@ void TestLayoutQueryResourceLifetime() {
                 context.Reset();
                 QIQI_TEST_CHECK(query.range.Get() == range.get() && query.current == current &&
                                 query.got_position == (kind == Kind::Current) && count == 0);
+                QIQI_TEST_CHECK(!caret_released);
                 QIQI_TEST_CHECK(range->AddRef() == 3 && range->Release() == 2 &&
                                 view->AddRef() == 2 && view->Release() == 1);
             }
             QIQI_TEST_CHECK(count == 2);
+            QIQI_TEST_CHECK(caret_released == (kind != Kind::StaleRange));
             view.Reset();
             QIQI_TEST_CHECK(count == 3 && (released == std::array{
                 Released::Composition, Released::Range, Released::View}));

@@ -83,7 +83,9 @@ void TestLayoutUpdateBranches() {
                     const bool fallback = entered && !stale && query_failed && !had_position;
                     const bool moved = entered && !stale && (!query_failed || (fallback && outcome != Outcome::FallbackFailure));
                     const bool replaced = entered && (outcome == Outcome::MoveReplacement || outcome == Outcome::ReplaceRange);
-                    QIQI_TEST_CHECK(checks_seen == (entered ? (stale_initial || range_failed ? 2u : 3u) : 0u) &&
+                    const unsigned int expected_checks = !entered ? 0u :
+                        stale_initial || range_failed ? 2u : outcome == Outcome::ReplaceRange ? 3u : 5u;
+                    QIQI_TEST_CHECK(checks_seen == expected_checks &&
                                     fallbacks_seen == (fallback ? 1u : 0u) && moves_seen == (moved ? 1u : 0u) &&
                                     has_position == (entered && outcome == Outcome::MoveReplacement ? false :
                                                      had_position || (entered && !stale && !query_failed)) &&
@@ -137,7 +139,7 @@ void TestLayoutUpdateOwners() {
                 },
                 [&](RECT&) {
                     ++callbacks;
-                    QIQI_TEST_CHECK(boundary == 1 && checks == 3 && !released && !range_released && !has_position);
+                    QIQI_TEST_CHECK(boundary == 1 && checks == 5 && !released && !range_released && !has_position);
                     state.ClearComposition();
                     composition.Reset();
                     context->range_.Reset();
@@ -147,7 +149,7 @@ void TestLayoutUpdateOwners() {
                 },
                 [&](const RECT&) {
                     ++callbacks;
-                    QIQI_TEST_CHECK(boundary == 2 && checks == 3 && !released && !range_released && has_position);
+                    QIQI_TEST_CHECK(boundary == 2 && checks == 5 && !released && !range_released && has_position);
                     state.ClearComposition();
                     composition.Reset();
                     context->range_.Reset();
@@ -158,7 +160,7 @@ void TestLayoutUpdateOwners() {
             caught = true;
         }
         QIQI_TEST_CHECK(caught && released && callbacks == (boundary == 0 ? 0u : 1u) &&
-                        checks == (boundary == 0 ? 1u : 3u) && range_released == (boundary != 0) &&
+                        checks == (boundary == 0 ? 1u : 5u) && range_released == (boundary != 0) &&
                         !state.Composition() && !composition && has_position == (boundary == 2) &&
                         view.Get() == context->view_.Get() && context->request_edit_session_calls_ == 0);
     }

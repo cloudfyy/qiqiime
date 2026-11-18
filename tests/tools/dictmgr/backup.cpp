@@ -2,8 +2,29 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "test.h"
+#include "common/etw.h"
+#include "common/cleanup.h"
+#include <exception>
+#include <stdexcept>
+
+#undef QIQI_TEST_CHECK
+#define QIQI_TEST_CHECK(expr) do { \
+    if (!(expr)) { \
+        ::qiqi::test::ReportTestCleanupFailure(__FILE__, __LINE__, #expr); \
+        throw std::runtime_error(std::format("{}:{}: {}", __FILE__, __LINE__, #expr)); \
+    } \
+} while (false)
 
 namespace qiqi::dict_manager::tests {
+
+namespace {
+void PrintRestoreFixtureTrace(std::span<const qiqi::test::LogEvent> events) {
+    for (const auto& event : events) {
+        std::cerr << "[RESTORE-TRACE] " << event.message << '\n';
+    }
+    std::cerr << std::flush;
+}
+} // namespace
 
 void WriteRestoreBundle(const std::filesystem::path& path, std::string_view body) {
     const auto bytes = std::format("# QIQIIME_BACKUP_V1\n# checksum_fnv1a64={:016X}\n{}",
@@ -11,24 +32,41 @@ void WriteRestoreBundle(const std::filesystem::path& path, std::string_view body
     QIQI_TEST_CHECK(WriteFileAtomically(path, codec::AsByteSpan(bytes)));
 }
 
-void TestBackupRestoreResults() {
+namespace {
+void RunBackupRestoreResults() {
     const auto directory = std::filesystem::current_path() /
         (L"qiqi_restore_results_" + std::to_wstring(::GetCurrentProcessId()));
     const std::wstring subkey = L"Software\\QiQiIME_RestoreResults_" + std::to_wstring(::GetCurrentProcessId());
     const auto cleanup = gsl::finally([&]() noexcept {
         SetConfigRegistrySubKeyOverrideForTest(nullptr);
         ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
-        std::error_code ec;
-        std::filesystem::remove_all(directory, ec);
+        if (std::uncaught_exceptions() != 0) {
+            std::fprintf(stderr, "[FIXTURE-RETAINED] pid=%lu, directory=\"%ls\"\n",
+                ::GetCurrentProcessId(), directory.c_str());
+            std::fflush(stderr);
+            return;
+        }
+        const auto ec = qiqi::test::RemoveDirectoryWithSharingRetry(directory, 2000, ::Sleep);
+        if (ec) {
+            std::fprintf(stderr, "[FIXTURE-CLEANUP-FAIL] error=%d, directory=\"%ls\"\n",
+                ec.value(), directory.c_str());
+            std::fflush(stderr);
+            QIQI_TEST_CHECK_CLEANUP(!ec);
+        }
     });
     SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
     const auto user = directory / L"user.txt";
     const auto frequency = directory / L"frequency.txt";
     const auto backup = directory / L"restore.qbak";
     DictManagerModel model;
+    size_t reset_count = 0;
     const auto reset = [&]() {
-        std::error_code ec;
-        std::filesystem::remove_all(directory, ec);
+        ++reset_count;
+        const auto ec = qiqi::test::RemoveDirectoryWithSharingRetry(directory, 2000, ::Sleep);
+        if (ec) {
+            std::cerr << std::format("[FIXTURE-FAIL] stage=reset-directory, reset={}, error={}, directory=\"{}\"\n",
+                reset_count, ec.value(), WideToUtf8(directory.native())) << std::flush;
+        }
         QIQI_TEST_CHECK(!ec);
         QIQI_TEST_CHECK(std::filesystem::create_directories(directory));
         QiQiConfig config;
@@ -37,7 +75,14 @@ void TestBackupRestoreResults() {
         QIQI_TEST_CHECK(SaveConfig(config));
         model.InitializePaths({}, user, frequency);
         QIQI_TEST_CHECK(model.AddOrUpdateUserEntry(L"zzzz", L"原有词条"));
-        QIQI_TEST_CHECK(model.PromotePhraseFrequency(L"zzzz", L"原有词组"));
+        const HRESULT frequency_hr = model.PromotePhraseFrequencyResult(L"zzzz", L"原有词组");
+        if (FAILED(frequency_hr)) {
+            std::cerr << std::format(
+                "[FIXTURE-FAIL] stage=initial-phrase-promotion, reset={}, pid={}, hr=0x{:08X}, directory=\"{}\"\n",
+                reset_count, ::GetCurrentProcessId(), gsl::narrow_cast<uint32_t>(frequency_hr),
+                WideToUtf8(directory.native())) << std::flush;
+        }
+        QIQI_TEST_CHECK(frequency_hr == S_OK);
     };
     const auto has_word = [&](DictEntrySource source, std::wstring_view word) {
         return std::ranges::any_of(model.Records(), [=](const DictRecord& record) {
@@ -245,7 +290,7 @@ void TestBackupRestoreResults() {
         QIQI_TEST_CHECK(locked);
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial);
-        QIQI_TEST_CHECK(result.stage == BackupRestoreStage::UserDictionary && result.error == E_FAIL);
+        QIQI_TEST_CHECK(result.stage == BackupRestoreStage::UserDictionary && sharing_failure(result.error));
         QIQI_TEST_CHECK(result.summary.user_entries_applied == 0 && result.summary.user_entries_failed == 1);
         QIQI_TEST_CHECK(result.summary.phrase_freq_applied == 1 && result.summary.phrase_freq_failed == 0);
         QIQI_TEST_CHECK(result.operations_succeeded == 1 && result.operations_failed == 1);
@@ -286,12 +331,32 @@ void TestBackupRestoreResults() {
     {
         const auto locked = lock_file(GetSyncChannelDirectoryForFile(frequency) / L"writer.lock");
         QIQI_TEST_CHECK(locked);
+        const auto count = model.PhraseFreqCount();
+        QIQI_TEST_CHECK(model.PromotePhraseFrequencyResult(L" ABCD ", L" 新增词组 ") ==
+            HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION));
+        QIQI_TEST_CHECK(model.PhraseFreqCount() == count);
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.effects_possible);
         QIQI_TEST_CHECK(result.stage == BackupRestoreStage::PhraseFrequency);
         QIQI_TEST_CHECK(result.error == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION));
         QIQI_TEST_CHECK(result.operations_succeeded == 0 && result.operations_failed == 1);
         QIQI_TEST_CHECK(result.summary.phrase_freq_applied == 0 && result.summary.phrase_freq_failed == 1);
+        QIQI_TEST_CHECK(result.refresh_error == S_OK);
+        QIQI_TEST_CHECK(FormatBackupRestoreMessage(result, UiLanguage::EnUs).contains(L"0x80070020"));
+    }
+
+    for (const auto* body : {"[user_dict]\nabcd 新增词条\n", "[user_dict]\nabcd ^置顶词条\n",
+                            "[user_dict]\nabcd !屏蔽词条\n"}) {
+        reset();
+        WriteRestoreBundle(backup, body);
+        const auto locked = lock_file(GetSyncChannelDirectoryForFile(user) / L"writer.lock");
+        QIQI_TEST_CHECK(locked);
+        const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
+        QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.effects_possible);
+        QIQI_TEST_CHECK(result.stage == BackupRestoreStage::UserDictionary);
+        QIQI_TEST_CHECK(result.error == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION));
+        QIQI_TEST_CHECK(result.summary.user_entries_applied == 0 && result.summary.user_entries_failed == 1);
+        QIQI_TEST_CHECK(result.operations_succeeded == 0 && result.operations_failed == 1);
         QIQI_TEST_CHECK(result.refresh_error == S_OK);
         QIQI_TEST_CHECK(FormatBackupRestoreMessage(result, UiLanguage::EnUs).contains(L"0x80070020"));
     }
@@ -438,6 +503,22 @@ void TestBackupRestoreResults() {
     message_result.refresh_error = S_OK;
     QIQI_TEST_CHECK(FormatBackupRestoreMessage(message_result, UiLanguage::EnUs).contains(L"Backup restored"));
     QIQI_TEST_CHECK(FormatBackupRestoreMessage(message_result, UiLanguage::ZhCn).contains(L"已恢复备份"));
+}
+} // namespace
+
+void TestBackupRestoreResults() {
+    std::exception_ptr failure;
+    const auto events = qiqi::test::CaptureLogEvents([&](TRACEHANDLE) {
+        try {
+            RunBackupRestoreResults();
+        } catch (const std::exception&) {
+            failure = std::current_exception();
+        }
+    });
+    if (failure) {
+        PrintRestoreFixtureTrace(std::span(events).last(std::min<size_t>(80, events.size())));
+        std::rethrow_exception(failure);
+    }
 }
 
 } // namespace qiqi::dict_manager::tests

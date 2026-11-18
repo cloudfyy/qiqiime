@@ -130,6 +130,7 @@ public:
 
     // Dynamic phrase frequency operations (coordinated via change_sync)
     bool PromotePhraseFrequency(std::wstring_view code, std::wstring_view word);
+    HRESULT PromotePhraseFrequencyResult(std::wstring_view code, std::wstring_view word);
     bool RemovePhraseFrequency(std::wstring_view code, std::wstring_view word);
     bool ClearAllPhraseFrequencies();
 
