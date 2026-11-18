@@ -11,10 +11,10 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The source version remains **1.1.1**, with unreleased main-branch changes recorded
-in the [release notes](docs/release-notes.md). The existing `v1.1.1` tag stays at
-its historical commit. This update does not bump the version, create a new tag,
-or package installers; the new changes are not part of the existing tag's assets.
+The source version is **1.1.2**, with release tag `v1.1.2` and changes recorded
+in the [release notes](docs/release-notes.md). Release CI rebuilds, tests, and
+packages the tagged source. Historical tags and assets remain unchanged;
+the new changes are not part of the existing `v1.1.1` assets.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
 
@@ -62,7 +62,7 @@ and AppContainer guides are available in English.
   Both tools follow saved Settings preferences; host/system-rendered UI remains
   outside our appearance control.
   See [display and accessibility](docs/accessibility.md) for scope and controls.
-- Uninstall keeps personal data by default. The unreleased MSI wizard separates
+- Uninstall keeps personal data by default. The 1.1.2 MSI wizard separates
   settings and dictionary-data choices, reports restart-pending cleanup, and
   checks it before reinstalling. ZIP retains its existing `-RemoveUserData`
   cleanup. External source dictionaries, exports, backups and other users'

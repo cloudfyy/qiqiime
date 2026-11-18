@@ -1,14 +1,16 @@
-# 未发布更新（2026-11-16）
+# QiQiIME 1.1.2 补丁版
 
-以下为主分支中尚未发布的改动。源码数字版本保持 `1.1.1`，本轮不创建新发行标签，
-不制作安装包，也不改变已有 `v1.1.1` 附件。下次发版时再确定版本号；
-届时仍以标签 CI 的验证结果和 Release 页面实际提供的附件为准。
+数字版本：`1.1.2`；发行标签：`v1.1.2`（2026-11-18）。标签提交由 Release
+工作流重新构建、测试和打包；下载以 Release 页面实际提供的附件为准。
+已有 `v1.1.1` 标签及附件不变，创建新标签不表示构建、发布或安装验收已完成。
 
 ## 本次主要更新
 
 - **改善候选窗重绘**：减少移动及内容刷新时不必要的窗口框架、显隐和滚动条更新；Direct2D 与 GDI 均先完成离屏整帧绘制，再复制到可见区域，避免背景擦除及分步绘制造成的中间画面。保留资源失败时的真实错误诊断，不以降低输入响应速度掩盖闪烁。
 - **候选窗统一使用 App mode**：跟随系统时，候选窗及设置内的候选预览使用 Windows 的应用明暗偏好，不探测宿主是否属于 Windows 系统界面。自绘快捷菜单继续使用 Windows mode；手选主题和 Windows 高对比度优先级不变。系统界面识别及特例保留为 TODO，不包含皮肤运行时实现。
-- **统一未完成输入的处理**：将选项改为“未完成输入的处理”，提供“原始编码上屏”和“清除未完成输入”。切换英文模式与通过 `Win+Space` 等入口切换输入法／键盘布局遵循同一配置；通过 TSF 通知和停用清理处理，不拦截系统快捷键。保留现有配置键、默认值与备份兼容性，只操作仍由输入法拥有的组合范围，不追删宿主已经结束组合的正文。
+- **统一未完成输入的处理**：将选项改为“未完成输入的处理”，提供“原始编码上屏”和“清除未完成输入”。切换英文模式、离开输入框或窗口，以及通过 `Win+Space` 等入口切换输入法／键盘布局遵循同一配置；通过 TSF 通知、停用清理和宿主终止回调授予的写权限处理，不拦截系统快捷键。保留现有配置键、默认值与备份兼容性，只操作仍由输入法拥有的组合范围，不追删宿主已经结束组合的正文。
+- **JSON 配置导入导出与草稿隔离**：新增 JSON 配置导入导出；导入、恢复默认值及主题／DPI 刷新共用不改写已接受配置的草稿渲染路径。未保存的语言选择不会提前写回调用方或注册表，取消保留原配置。
+- **完善候选定位与诊断**：补充首个组合编辑后的候选位置复核，以及跨屏布局更新的分段诊断；保留目标、组合和 epoch 校验，不增加按键延迟。改进候选窗转换时的 Shell 通知和失败诊断，不将自动化定位结果外推为所有宿主已验收。
 - **修复服务回归测试的配置隔离**：输入法切换和编码补全测试移入已有的私有注册表、临时数据目录 fixture，并在写配置前拒绝生产配置键。断言失败会直接终止进程，不能用真实配置的快照／RAII 恢复代替隔离。
 - **修复共享 COM sink 的重入清理**：注销前先移出旧 source/cookie 的所有权，避免重复注销或误清除重入时建立的新连接，并补充嵌套清理与重新连接的回归。
 - **隔离同名字典的回退缓存**：不能在源文件旁写缓存时，回退缓存名使用规范化源路径身份，避免不同目录中同名、同尺寸、同修改时间的字典串用缓存；复用已有哈希机制，旧的歧义缓存不再读取，不主动删除。
@@ -17,6 +19,7 @@
 - **修正 MSI 打包校验数量**：文件数量断言补计 JSON 库许可证，x64 为 28 项、x86 为 24 项；数量不符时同时报告预期值和实际值。此修正不改变 MSI 内容。
 - **修正卸载选择页的窗口归属**：关联同产品的可见 MSI 对话框，避免选择页被进度窗遮挡；使用正常模态关系，不设全局置顶。完成提示以十六进制显示 HRESULT。
 - **补充清理失败操作诊断**：持久化并显示首个失败操作及原始 HRESULT，兼容缺少该字段的旧记录；增加真实 ACL 校验逻辑及配置子键拒删的隔离回归，细分配置打开、链接检查、枚举和删除操作。
+- **修复卸载清理边界**：默认保留个人数据时允许 SYSTEM 发起静默卸载，选择任一删除选项时仍拒绝服务账户。待重启隔离文件按受保护记录中的原始卷身份核验，不依赖仍然存在且未迁移的用户配置文件；完成标志不能代替实际剩余文件检查。
 - **修复词库管理器界面测试的配置污染**：显示测试的只读注册表键不再位于真实配置树下，改用独立的 GUID 测试键和受检清理。旧测试残留的只读子键未授予 DELETE 权限，会使卸载配置清理返回 `0x80070005`；本次修复防止新增残留，不自动接管或删除已有键，也不绕过卸载权限保护。
 - **完善并发与剪贴板测试诊断**：ChangeSync 子进程记录完成数量、耗时、争用次数和实际 HRESULT，不放宽写入数量或超时。剪贴板测试准备阶段复用有界争用处理，故意持锁的拒绝访问断言仍直接调用原 API，不通过重试掩盖；准备失败记录占用方 PID／线程，不读取剪贴板内容。
 - **隔离布局回退测试的系统光标状态**：DPI／定位回归使用线程局部 GUI 状态快照，避免把共享输入队列中其他窗口的 caret 当成测试失败。保留真实窗口坐标、候选位置及 TSF 优先级断言，不改变正常输入法的 Windows 状态查询。
@@ -26,16 +29,17 @@
 ## 迁移与验证边界
 
 - 本轮改动不自动重置个人配置。如果曾运行旧开发测试并出现常用字缺失，请在设置中检查主词库选项：“仅内置”是小型回退词库，不是完整的极点／海峰主词库。
-- 相关 x64/x86 构建的 CppCoreCheck 项目告警为 **0**（沿用已有排除规则）。App mode 改动阶段，双架构 TSF/UI 与设置回归均通过；测试隔离修复后，两项相关配置用例在双架构通过，但最后完整生命周期回归仍在原生 TSF `ActivateEx` 检查处失败，未计通过。回归期间偏好及用户词库内容未变，配置序号增加的来源尚未确定；失败日志保留。
-- 后续决定发版时，Release 工作流必须针对新标签重新构建、测试，成功后才发布中英文 x64/x86 MSI、双架构 ZIP 和匹配符号。标签存在不等于发布或安装验收完成，早先本地构建也不代表将来的标签构建身份。
+- 版本升级前，相关安装器、设置与组合生命周期目标在 x64/x86 均构建成功；双架构安装器／设置测试及 x86 生命周期测试共 **5/6 通过**。x64 生命周期复测失败时记录到 Shift／Alt 按下状态，不计通过，失败日志保留。早期配置隔离排查中，偏好及用户词库内容未变，但配置序号增加的来源尚未确定。
+- VS Code 聊天输入框与编辑器之间切换时，清除未完成输入后仍可能留下正文；日志监视器状态文字闪烁也仍待排查。SYSTEM 静默卸载、占用缓存隔离、真实重启／重装及配置文件迁移／删除仍需专用真机验收，详见[待办](todo.md)。皮肤方案与注册表模板仅完成设计，不包含皮肤运行时功能。
+- Release 工作流必须针对 `v1.1.2` 重新构建、测试，成功后才发布中英文 x64/x86 MSI、双架构 ZIP 和匹配符号。标签存在不等于发布或安装验收完成，早先本地构建也不代表标签构建身份。
 - 本机不制作或安装 MSI，不修改已安装输入法注册。自动化的窗口消息和像素检查不替代同屏拖动、快速输入、真实宿主、安装或升级验收。
 
 ## English
 
-These main-branch changes are unreleased. The numeric source version remains
-`1.1.1`; this update creates no new release tag or installers and does not change
-the existing `v1.1.1` assets. A future release needs a separately chosen version,
-tagged CI validation, and actually published download assets.
+Numeric version: `1.1.2`; release tag: `v1.1.2` (2026-11-18). Release CI rebuilds,
+tests, and packages the tagged source. Downloads use actually published assets.
+The existing `v1.1.1` tag and assets remain unchanged; creating a new tag alone
+does not certify its build, publication, or installation.
 
 ### Changes
 
@@ -49,10 +53,20 @@ tagged CI validation, and actually published download assets.
   menus retain Windows mode, and explicit themes/high-contrast precedence stay
   unchanged. Skin runtime support is not included.
 - **Unified unfinished-input policy:** Commit raw code or Discard unfinished
-  input applies to English-mode switches and IME/keyboard-layout switches.
-  TSF notifications and deactivation cleanup implement the policy without
-  intercepting Win+Space. Existing keys/defaults remain compatible, and
-  host-finalized ordinary text is never deleted retroactively.
+  input applies to English-mode switches, leaving an input field or window,
+  and IME/keyboard-layout switches. TSF notifications, deactivation cleanup,
+  and the write authority supplied by host-termination callbacks implement the
+  policy without intercepting Win+Space. Existing keys/defaults remain compatible,
+  and host-finalized ordinary text is never deleted retroactively.
+- **JSON configuration transfer and isolated drafts:** add JSON import/export
+  and share non-committing draft rendering for import, Restore Defaults, and
+  theme/DPI refresh. Unsaved language choices do not leak into the caller's
+  configuration or registry; cancellation preserves accepted preferences.
+- **Candidate positioning and diagnostics:** recheck position after the first
+  composition edit and add staged cross-display layout diagnostics. Preserve
+  target/composition/epoch checks without input delays. Improve Shell transition
+  notifications and failure diagnostics; automated positioning tests do not
+  certify every host.
 - **Isolated service regressions:** configuration-writing switch/completion
   tests now use the existing private-registry/temporary-data fixture and reject
   the production configuration key. Aborting assertions bypass RAII cleanup,
@@ -83,6 +97,11 @@ tagged CI validation, and actually published download assets.
   original HRESULT, read legacy result records, and test the production ACL
   validator and denied configuration deletion in isolation. Distinguish key
   opening, link checks, enumeration and deletion.
+- **Uninstall cleanup boundaries:** allow SYSTEM-initiated silent uninstall
+  with personal-data retention, while rejecting service identities if either
+  deletion option is selected. Verify pending quarantine files against the
+  original protected volume identity even after profile relocation or removal;
+  a completion flag does not replace checking for remaining files.
 - **Isolated Dictionary Manager display tests:** use independent GUID registry
   keys and checked teardown instead of read-only keys under real preferences.
   An orphan from the old test lacks DELETE permission and caused uninstall
@@ -109,17 +128,22 @@ tagged CI validation, and actually published download assets.
 - These changes do not reset personal preferences. If common characters disappeared
   after running older development tests, check the selected primary dictionary:
   Builtin only is a small fallback, not the complete Jidian or Haifeng dictionary.
-- Affected x64/x86 builds had zero project CoreCheck diagnostics under existing
-  exclusions. Both TSF/UI and Settings suites passed during the App-mode change.
-  After the isolation fix, both relevant configuration cases passed on each
-  architecture, but the final complete lifecycle suites failed at the native
-  TSF ActivateEx check and are not counted as passes. Preferences and user
-  dictionary contents were unchanged; the cause of an increased configuration
-  sequence remains unconfirmed. Failure logs are retained.
-- For a future release, CI must rebuild and test its new tag before publishing bilingual x64/x86
-  MSI installers, the dual-architecture ZIP, and matching symbols. A tag alone
+- Before the version bump, affected installer, Settings, and composition-lifecycle
+  targets built on both architectures. Installer/Settings tests on both plus the
+  x86 lifecycle test passed: **5/6** suites. The x64 lifecycle retests failed with
+  Shift/Alt reported down and are not counted as passes; logs are retained.
+  Earlier isolation investigations left preferences and user dictionaries
+  unchanged, but the cause of an increased configuration sequence remains unconfirmed.
+- Switching between VS Code chat and editor fields may still leave unfinished
+  input as ordinary text despite Discard being selected; Log Monitor status-text
+  flicker also remains under investigation. SYSTEM silent uninstall, mapped-cache
+  quarantine, actual reboot/reinstall, and profile relocation/removal still need
+  dedicated-machine checks; see the [TODO list](todo.md). Skin palettes and registry
+  templates are design-only, not a skin runtime.
+- CI must rebuild and test `v1.1.2` before publishing bilingual x64/x86 MSI
+  installers, the dual-architecture ZIP, and matching symbols. A tag alone
   does not certify publication or installation; earlier local binaries do not
-  identify a future tag build.
+  identify the tag build.
 - No local MSI packaging, installation, or installed IME registration changes.
   Message/pixel regressions do not replace real-host dragging, rapid typing,
   installation, or upgrade verification.
