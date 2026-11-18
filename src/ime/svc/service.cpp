@@ -536,7 +536,7 @@ STDMETHODIMP QiQiTextService::OnUninitDocumentMgr(ITfDocumentMgr* pdim) {
 bool QiQiTextService::ReconcileDocumentTarget(ITfDocumentMgr* document, std::string_view source) {
     return ReconcileCompositionDocumentTarget(
         document, source, composition_lifecycle_, service_log_id_, current_lifecycle_activity_,
-        [this] { ResetCompositionAndUI(); },
+        [this] { ResetCompositionAndUI(true, UnfinishedInputCleanupMode()); },
         [this](EditSessionTicket ticket) noexcept { return IsEditSessionCurrent(ticket); });
 }
 
@@ -599,7 +599,7 @@ void QiQiTextService::HandleFocusChanged(bool has_focus, FocusNotificationSource
     });
     if (!has_focus) {
         DisconnectPasswordContext();
-        ResetCompositionAndUI();
+        ResetCompositionAndUI(true, UnfinishedInputCleanupMode());
         if (current_outcome() != metrics::Outcome::Success) {
             set_result(focus_metric, result);
             return;

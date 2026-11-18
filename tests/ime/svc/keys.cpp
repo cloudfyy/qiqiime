@@ -321,6 +321,78 @@ void TestInputMethodSwitchCompositionPolicy() {
                     manager->preserved_keys_.empty() && manager->unadvise_thread_sink_calls_ == 1);
 }
 
+void TestFocusChangeCompositionPolicy() {
+    const TsfTestCaseTrace trace(__func__);
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) != kDefaultConfigRegSubKey);
+    const QiQiConfig original = LoadConfig();
+    const auto restore_config = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(SaveConfigToRegistry(original));
+    });
+    enum class FocusChange { Window, NoDocument, OtherDocument, OtherInputTarget };
+    for (const bool commit : {false, true}) {
+        auto config = original;
+        config.commit_on_english_switch = commit;
+        config.default_chinese_mode = true;
+        config.primary_dict = PrimaryDict::BuiltinOnly;
+        config.show_status_bar = false;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+        for (const auto change : {FocusChange::Window, FocusChange::NoDocument,
+                                  FocusChange::OtherDocument, FocusChange::OtherInputTarget}) {
+            const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+            const auto manager = MakeComObject<MockTfThreadMgr>();
+            manager->show_own_ui_ = FALSE;
+            QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+            const auto deactivate = gsl::finally([&]() noexcept {
+                QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+            });
+            const auto queue = std::make_shared<MockEditSessionQueue>();
+            const auto old_document = MakeComObject<MockTfDocumentMgr>();
+            const auto new_document = MakeComObject<MockTfDocumentMgr>();
+            const auto old_context = old_document->CreateTestContext(queue);
+            const auto new_context = new_document->CreateTestContext(queue);
+            QIQI_TEST_CHECK(old_document->Push(old_context.Get()) == S_OK);
+            QIQI_TEST_CHECK(new_document->Push(new_context.Get()) == S_OK);
+            BOOL eaten = FALSE;
+            QIQI_TEST_CHECK(service->OnKeyDown(old_context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(queue->RunNext() == S_OK && old_context->range_->text_ == L"a");
+            const auto composition = old_context->last_composition_;
+            const auto writes = old_context->range_->set_text_calls_;
+            const auto old_ui = manager->last_ui_element_;
+            QIQI_TEST_CHECK(composition && old_ui && !composition->ended_);
+            QIQI_TEST_CHECK(service->OnSetFocus(old_document.Get(), old_document.Get()) == S_OK);
+            QIQI_TEST_CHECK(!composition->ended_ && old_context->range_->set_text_calls_ == writes);
+            old_context->allow_sync_edit_sessions_ = change != FocusChange::Window;
+            switch (change) {
+                case FocusChange::Window:
+                    QIQI_TEST_CHECK(service->OnSetFocus(FALSE) == S_OK);
+                    break;
+                case FocusChange::NoDocument:
+                    QIQI_TEST_CHECK(service->OnSetFocus(nullptr, old_document.Get()) == S_OK);
+                    break;
+                case FocusChange::OtherDocument:
+                    QIQI_TEST_CHECK(service->OnSetFocus(new_document.Get(), old_document.Get()) == S_OK);
+                    break;
+                case FocusChange::OtherInputTarget:
+                    QIQI_TEST_CHECK(service->OnKeyDown(new_context.Get(), 'B', 0, &eaten) == S_OK && eaten);
+                    break;
+            }
+            BOOL shown = TRUE;
+            QIQI_TEST_CHECK(old_ui->IsShown(&shown) == S_OK && !shown);
+            if (change == FocusChange::Window) {
+                QIQI_TEST_CHECK(queue->PendingCount() == 1 && !composition->ended_);
+                QIQI_TEST_CHECK(queue->RunNext() == S_OK);
+            }
+            QIQI_TEST_CHECK(old_context->range_->text_ == (commit ? L"a" : L""));
+            QIQI_TEST_CHECK(old_context->range_->set_text_calls_ == writes + (commit ? 0u : 1u));
+            QIQI_TEST_CHECK(composition->ended_ && composition->end_composition_calls_ == 1);
+            if (change == FocusChange::OtherInputTarget) {
+                QIQI_TEST_CHECK(queue->RunNext() == S_OK && new_context->range_->text_ == L"b");
+            }
+            QIQI_TEST_CHECK(queue->PendingCount() == 0);
+        }
+    }
+}
+
 void TestShiftTapTracking() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     ShiftTapTracker tracker;

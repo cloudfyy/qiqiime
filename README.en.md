@@ -45,9 +45,9 @@ and AppContainer guides are available in English.
   clearing, wildcard lookup, code hints, and a `z`-prefixed temporary English mode.
 - Chinese/English, full-width/half-width, and Chinese/English punctuation modes.
 - **Unfinished input:** Commit raw code (default) or Discard unfinished input
-  applies both when switching to English mode and switching to another IME or
-  keyboard layout. Only the still-owned composition range is affected; ordinary
-  focus loss is unchanged. Host-finalized text is not deleted retroactively.
+  applies when leaving an input field or window, switching to English mode,
+  or switching to another IME or keyboard layout. Only the still-owned
+  composition range is affected. Host-finalized text is not deleted retroactively.
 - Horizontal or vertical candidates, a language-bar/tray menu, and an optional
   floating status bar, with DPI, theme, and high-contrast support.
   When following the system, candidates and their Settings preview use App mode,

@@ -183,6 +183,7 @@ private:
 
     void ResetCompositionAndUI(bool try_host_cleanup = true,
         CompositionCleanupMode mode = CompositionCleanupMode::PreserveText);
+    [[nodiscard]] CompositionCleanupMode UnfinishedInputCleanupMode() const noexcept;
     void ResetCompositionForInputMethodSwitch();
     void SetUiPresentationEnabled(bool enabled) noexcept;
     bool DestroyUIWindows() noexcept;

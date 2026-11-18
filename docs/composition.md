@@ -454,12 +454,13 @@ is not a way to bypass that restriction.
 | Failure | Any value | The request failed; do not treat the inner output as evidence of callback execution |
 | Success | `TS_E_READONLY` or another failure to obtain the session | Log the failure; do not retry asynchronously |
 
-For a confirmed input-method/profile switch or service deactivation, the
-`commit_on_english_switch` preference also controls unfinished input: preserve
-the existing preedit text (default) or delete only the captured, still-owned
-composition range under a granted write cookie. Preserving it must not insert
-the raw code a second time. Ordinary focus-loss cleanup retains its existing
-preserve-text policy. The persisted field/registry names stay unchanged.
+When the input field or window loses focus, the input target changes, the
+input method/profile switches, or the service deactivates, cleanup respects
+`commit_on_english_switch`: preserve the existing preedit text (default) or
+delete only the captured, still-owned composition range under a granted write
+cookie. A focus notification that retains the same target does not end the
+composition. Preserving it must not insert the raw code a second time. The
+persisted field/registry names stay unchanged.
 
 The service subscribes to `ITfInputProcessorProfileActivationSink` on the thread
 manager. Own-profile deactivation or activation of another keyboard TIP/layout
@@ -1005,8 +1006,8 @@ that preparation will establish. Pending cleanup for A must not leave B's input
 state machine composing A's text.
 
 **Changing targets is not the same as a user-requested Chinese-to-English switch.**
-The `CommitOnEnglishSwitch` option applies to an ordinary user-requested mode
-switch, not to focus-loss or deactivation cleanup:
+Both follow the `CommitOnEnglishSwitch` preference, but an ordinary
+user-requested mode switch has these additional rules:
 
 - The default, `true`, submits the raw preedit literally, including the
   temporary-English `z` guide, rather than selecting a Chinese candidate.

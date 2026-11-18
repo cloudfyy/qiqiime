@@ -234,11 +234,15 @@ bool QiQiTextService::TraceCandidateInputGeometryInSession(
     return guard.Current();
 }
 
+CompositionCleanupMode QiQiTextService::UnfinishedInputCleanupMode() const noexcept {
+    return config_.commit_on_english_switch
+        ? CompositionCleanupMode::PreserveText : CompositionCleanupMode::DiscardText;
+}
+
 void QiQiTextService::ResetCompositionForInputMethodSwitch() {
     QIQI_LOG_CAT_DEBUG(log::Keyword::Composition,
         "Unfinished input on input-method switch: preserve_text={}", config_.commit_on_english_switch);
-    ResetCompositionAndUI(true, config_.commit_on_english_switch
-        ? CompositionCleanupMode::PreserveText : CompositionCleanupMode::DiscardText);
+    ResetCompositionAndUI(true, UnfinishedInputCleanupMode());
 }
 
 void QiQiTextService::ResetCompositionAndUI(bool try_host_cleanup, CompositionCleanupMode mode) {
@@ -272,7 +276,7 @@ bool QiQiTextService::PrepareInputContext(ITfContext* context) {
     if (!PrepareCompositionInputTarget(
             context, composition_lifecycle_, preparing_input_context_, text_layout_sink_,
             gsl::not_null<ITfTextLayoutSink*>(this), service_log_id_, current_lifecycle_activity_,
-            [this] { ResetCompositionAndUI(); },
+            [this] { ResetCompositionAndUI(true, UnfinishedInputCleanupMode()); },
             [this](EditSessionTicket ticket) noexcept { return IsEditSessionCurrent(ticket); })) {
         return false;
     }

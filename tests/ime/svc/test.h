@@ -34,6 +34,7 @@ void TestModeSwitchCompositionPolicy(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> manager, bool commit);
 void TestShiftTapTracking();
 void TestInputMethodSwitchCompositionPolicy();
+void TestFocusChangeCompositionPolicy();
 void TestCodeCompletionConfigReload();
 void TestFocusPerformanceLogs();
 void TestProcessDictCacheLifetime();

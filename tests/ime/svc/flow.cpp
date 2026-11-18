@@ -54,6 +54,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only) {
     }
 
     RunTsfTestStage("service.input-method-switch", TestInputMethodSwitchCompositionPolicy);
+    RunTsfTestStage("service.focus-change-policy", TestFocusChangeCompositionPolicy);
     RunTsfTestStage("service.code-completion", TestCodeCompletionConfigReload);
 
     auto service = MakeComObject<QiQiTextService>(g_dll_instance);
