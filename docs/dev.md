@@ -192,6 +192,10 @@ Ongoing-layout diagnostic regressions use private current-process ETW to
 distinguish active-view and notification-view extents while retaining the same
 composition text. A diagnostic view call that reenters focus loss must prevent
 further stale queries or window placement.
+Focus log IDs are process-wide, not private-capture-local. The focus diagnostics
+test derives its first captured ID, checks consecutive IDs and correlates reload
+records with them; it must not assume numbering starts at one. Both full and
+focused service suites repeat the capture in-process to cover this ordering.
 These modeled cases do not replace
 rechecking the loaded DLL in SearchHost; the captured repeated full-range
 failure disproves any assumption that an asynchronous callback alone is enough.

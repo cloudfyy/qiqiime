@@ -11,6 +11,7 @@ void RunTsfServiceTests() {
     RunTsfTestStage("service.shift", TestShiftTapTracking);
     RunTsfTestStage("service.key-flow", [] { TestQiQiTextServiceLifecycleAndKeyFlow(); });
     RunTsfTestStage("service.focus-performance", TestFocusPerformanceLogs);
+    RunTsfTestStage("service.focus-performance-repeat", TestFocusPerformanceLogs);
 }
 
 void RunTsfCandidateLayoutTests() {

@@ -66,10 +66,15 @@ void TestFocusPerformanceLogs() {
 
     // Observe real ETW events, including when the test runner has an attached debugger.
     QIQI_TEST_CHECK(focus_records.size() == 12 && reload_records.size() == 10);
+    const std::wregex focus_identity(LR"(FocusPerformance\(id=([0-9]+),)");
+    std::wsmatch first_identity;
+    QIQI_TEST_CHECK(std::regex_search(focus_records.front(), first_identity, focus_identity));
+    const auto first_focus_id = std::stoull(first_identity.str(1));
+    QIQI_TEST_CHECK(first_focus_id > 0);
     const std::wregex durations(LR"(reload_ns=([0-9]+), position_ns=([0-9]+), total_ns=([0-9]+))");
     for (size_t i = 0; i < focus_records.size(); ++i) {
         const auto& record = gsl::at(focus_records, i);
-        QIQI_TEST_CHECK(record.contains(std::format(L"FocusPerformance(id={}, ", i + 1)));
+        QIQI_TEST_CHECK(record.contains(std::format(L"FocusPerformance(id={}, ", first_focus_id + i)));
         QIQI_TEST_CHECK(record.contains(L"completed=true)"));
         std::wsmatch match;
         QIQI_TEST_CHECK(std::regex_search(record, match, durations));
@@ -97,18 +102,21 @@ void TestFocusPerformanceLogs() {
         const auto& record = gsl::at(reload_records, i);
         const bool config_changed = i == 4 || i == 6;
         const bool dictionary_changed = i == 5 || i == 6;
-        QIQI_TEST_CHECK(record.contains(std::format(L"focus_id={}, config_status={}", i + 1,
+        QIQI_TEST_CHECK(record.contains(std::format(L"focus_id={}, config_status={}", first_focus_id + i,
                                                    config_changed ? L"loaded" : L"unchanged")));
         QIQI_TEST_CHECK(record.contains(std::format(L"dictionary_modified={}, dictionary_reload_calls={}",
                                                    dictionary_changed, static_cast<unsigned int>(config_changed) +
                                                    static_cast<unsigned int>(dictionary_changed))));
         QIQI_TEST_CHECK(record.contains(L"mapped_dicts=1, phrase_frequency_status=not-requested, completed=true)"));
     }
-    QIQI_TEST_CHECK(gsl::at(reload_records, 7).contains(L"focus_id=10, config_status=loaded"));
+    QIQI_TEST_CHECK(gsl::at(reload_records, 7).contains(
+        std::format(L"focus_id={}, config_status=loaded", first_focus_id + 9)));
     QIQI_TEST_CHECK(gsl::at(reload_records, 7).contains(L"phrase_frequency_status=load-failed, completed=true"));
-    QIQI_TEST_CHECK(gsl::at(reload_records, 8).contains(L"focus_id=11, config_status=loaded"));
+    QIQI_TEST_CHECK(gsl::at(reload_records, 8).contains(
+        std::format(L"focus_id={}, config_status=loaded", first_focus_id + 10)));
     QIQI_TEST_CHECK(gsl::at(reload_records, 8).contains(L"phrase_frequency_status=loaded, completed=true"));
-    QIQI_TEST_CHECK(gsl::at(reload_records, 9).contains(L"focus_id=12, config_status=sequence-unavailable"));
+    QIQI_TEST_CHECK(gsl::at(reload_records, 9).contains(
+        std::format(L"focus_id={}, config_status=sequence-unavailable", first_focus_id + 11)));
     QIQI_TEST_CHECK(gsl::at(reload_records, 9).contains(L"dictionary_reload_calls=0"));
 
     QIQI_TEST_CHECK(!cleanup_records.empty());
