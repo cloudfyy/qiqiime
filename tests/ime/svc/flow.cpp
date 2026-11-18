@@ -9,28 +9,29 @@ namespace qiqi::test::service_cases {
 
 void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only) {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
-    constexpr const wchar_t* kTsfTestRegSubKey = L"Software\\QiQiIME_TsfUnitTest";
-    ::RegDeleteTreeW(HKEY_CURRENT_USER, kTsfTestRegSubKey);
-    SetConfigRegistrySubKeyOverrideForTest(kTsfTestRegSubKey);
+    const auto suffix = std::to_wstring(::GetCurrentProcessId()) + L"_" + std::to_wstring(::GetTickCount64());
+    const std::wstring subkey = L"Software\\QiQiIME_TsfUnitTest_" + suffix;
+    const wchar_t* outer_config_subkey = GetActiveConfigRegistrySubKey();
 
     wchar_t* orig_localappdata = nullptr;
     size_t orig_len = 0;
-    std::ignore = _wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA");
+    QIQI_TEST_CHECK(_wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA") == 0);
     const std::unique_ptr<wchar_t, decltype(&std::free)> orig_localappdata_owner(
         orig_localappdata, &std::free);
-    std::error_code appdata_ec;
-    const auto temp_appdata = std::filesystem::temp_directory_path() / L"QiQiIME_TsfTestAppData";
-    std::filesystem::remove_all(temp_appdata, appdata_ec);
-    _wputenv_s(L"LOCALAPPDATA", temp_appdata.wstring().c_str());
+    const auto temp_appdata = std::filesystem::temp_directory_path() / (L"QiQiIME_TsfTestAppData_" + suffix);
+    QIQI_TEST_CHECK(std::filesystem::create_directory(temp_appdata));
     const auto restore_appdata = gsl::finally([&]() noexcept {
-        SetConfigRegistrySubKeyOverrideForTest(nullptr);
-        ::RegDeleteTreeW(HKEY_CURRENT_USER, kTsfTestRegSubKey);
-        if (orig_localappdata_owner) {
-            _wputenv_s(L"LOCALAPPDATA", orig_localappdata_owner.get());
-        }
+        SetConfigRegistrySubKeyOverrideForTest(outer_config_subkey);
+        const auto status = ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
+        QIQI_TEST_CHECK_CLEANUP(status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND);
+        QIQI_TEST_CHECK_CLEANUP(_wputenv_s(L"LOCALAPPDATA",
+            orig_localappdata_owner ? orig_localappdata_owner.get() : L"") == 0);
         std::error_code clean_ec;
         std::filesystem::remove_all(temp_appdata, clean_ec);
+        QIQI_TEST_CHECK_CLEANUP(!clean_ec);
     });
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", temp_appdata.c_str()) == 0);
 
     std::array<BYTE, 256> clean_kb_state{};
     ::SetKeyboardState(clean_kb_state.data());

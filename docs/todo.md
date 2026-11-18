@@ -1,5 +1,95 @@
 # TODO
 
+## Code review follow-up (2026-11-18)
+
+These are tracked findings and proposals. Completed code changes are marked
+below; dedicated runtime reproduction,
+especially MSI uninstall/reinstall, is still required. Fix boundary regressions
+first, then consolidate exit policy/test isolation, and only afterward consider
+layout/painting refactors. Keep changes small and independently verifiable.
+
+### High priority: boundary regressions
+
+- [x] Allow service SIDs for default-retention machine uninstall without
+  authorizing personal-data deletion. The automated installer test covers
+  LocalSystem with both options off, including reboot bookkeeping, and rejects
+  service SIDs when either deletion option is selected.
+- [x] Verify recorded quarantine targets independently of the current
+  ProfileList entry. The pending check uses the protected job's original volume
+  location and still validates volume, path, ACL, reparse and file identities.
+  Tests cover remaining and removed targets after profile relocation/deletion;
+  `Complete=1` alone does not clear pending work.
+- [x] Keep unpublished Settings language changes out of the caller config.
+  [Transfer tests](../tests/tools/settings/transfer.cpp) cover Import and
+  Restore Defaults, both refresh messages, and Cancel without changing the
+  caller's configuration or saved registry values.
+- [ ] On a dedicated test machine, verify real SYSTEM-initiated silent
+  uninstall with both options off, and real reboot/reinstall with quarantined
+  files and a removed or relocated profile. The x64/x86 automated installer
+  tests do not replace these checks.
+
+### Targeted design consolidation
+
+- [ ] High priority: centralize composition exit policy as a small immutable
+  value plus the existing coordinator, rather than adding a class hierarchy.
+  Review [current termination](../src/ime/comp/finish.h),
+  [captured cleanup](../src/ime/comp/cleanup.cpp), and
+  [service exit entries](../src/ime/svc/composition.cpp). Make exit reason,
+  preserve/discard policy, write authority, and operation results explicit.
+  Preserve three distinct paths: active cleanup may request a write session
+  and call `EndComposition`; host termination may erase only within its supplied
+  callback cookie and must not end again; removed contexts permit no edits.
+  Retain epoch/composition guards, at-most-once operations, actual HRESULTs,
+  deferred-record ownership, and COM release/reentrancy ordering. Do not force
+  all three mechanisms into one unconditional cleanup pipeline.
+- [x] High priority: separate Settings baseline loading, draft rendering, and
+  acceptance/persistence. Add a narrowly scoped draft-render operation shared
+  by import, Restore Defaults, and DPI recreation, with a non-mutating language
+  renderer also used by theme refresh. Draft rendering changes neither
+  `baseline_config` nor the caller's bound configuration; only explicit
+  load/accept operations may replace their respective state. Remove duplicated
+  baseline save/restore around control population in
+  [transfer](../src/tools/settings/transfer.cpp) and
+  [window handling](../src/tools/settings/window.cpp). Preserve validation,
+  confirmation, cancellation, save-failure, preview, and notification behavior.
+- [ ] High priority: keep installer cleanup policy/plan, execution outcome,
+  diagnostic history, and remaining work separate, using plain records and
+  functions. Validate a deletable user identity only for selected per-user
+  cleanup; machine reboot bookkeeping is independent. Persist self-contained
+  quarantine identities sufficient for later pending checks without requiring
+  a live original profile. Use the two installer findings above as acceptance
+  cases; preserve all existing consent, identity, path, and upgrade protections.
+- [x] Isolate the [service fixture](../tests/ime/svc/flow.cpp) with per-run
+  registry keys and temporary directories, restoring prior overrides and
+  environment values while keeping the borrowed subkey string alive.
+- [ ] Medium priority: consolidate repeated test registry/environment setup
+  using the existing [ConfigRegistryFixture](../tests/tools/dictmgr/helpers.cpp)
+  approach where appropriate. Isolate every module accessing configuration
+  before constructing services or loading the tested DLL. Aborting assertions
+  bypass destructors: safety must come from isolation, never from restoring
+  real preferences.
+- [ ] Medium priority: build on the existing
+  [CompositionLayoutTask and query/result split](../src/ime/comp/layout.h) to
+  clarify first-edit and matching-key-release rechecks. Separate bounded
+  diagnostic probing from [presentation orchestration](../src/ime/svc/composition.cpp).
+  Retain one-shot scheduling, target/composition/epoch checks, and diagnostics
+  inside valid TSF read sessions. Do not retain edit cookies, move host COM
+  queries to background threads, or add input delays/debounce timers.
+- [ ] Lower priority: extend the existing
+  [BuildPaintItems model](../src/ime/ui/candobj.cpp) to share text-line geometry,
+  padding, and color-role selection between Direct2D and GDI. Preserve complete
+  offscreen frames, renderer fallback diagnostics, clipping, focus, selection,
+  and paging. Prefer small shared traversal/model helpers over renderer class
+  hierarchies. Measure before adding persistent buffers, caches, or object pools.
+
+Refactoring constraints: do not expand the engine's key-processing FSM for TSF
+lifecycle concerns, collapse legitimately overlapping lifecycle flags into one
+flat state, or introduce a global event bus. Preserve `CompositionLifecycleState`
+member destruction order and CandidateUI's distinct object/HWND teardown rules.
+Add focused regressions with each change; use affected x64/x86 builds/tests and
+the existing cloud lint workflow, not a new local full-lint pass. Static review
+and modeled tests do not certify real hosts or installer upgrade/reboot flows.
+
 ## IME skins
 
 ### Confirmed design (complete; runtime implementation still pending)
@@ -140,6 +230,26 @@ candidates. Skin editors, external images/scripts/skin packs, and additional
 status-bar/tooltip skin support require separate design approval.
 
 ## Tracked follow-up
+
+- [ ] High priority: investigate unfinished code becoming ordinary text when
+  switching between VS Code's chat input and code editor in either direction
+  with **Discard unfinished input** enabled. Switching to another application
+  cleared the preedit in the same retest. The VS Code trace shows termination
+  of the current composition while the window still has focus and a successful
+  `SetText` call; success does not prove that the original input field changed.
+  1. Reproduce both in-window directions and compare them with switching to
+     another application. Use one unfinished key in a scratch field and note
+     whether it remains as ordinary text after returning.
+  2. At [the termination callback](../src/ime/comp/finish.h), correlate focus
+     and context events and check whether the owned range is already empty
+     before deletion and whether it is empty afterward. Record only range
+     state and HRESULTs, not input text. If the range clears but the field
+     does not, trace when the host confirms the composition and applies the
+     TSF edit to the original input field.
+  3. If a safe fix is possible while the composition is still owned, add a
+     focused regression and retest both settings in VS Code and Notepad.
+     Preserve candidate dismissal and never simulate Backspace or delete
+     already committed text.
 
 - [ ] High priority: fix intermittent Log Monitor status-text flicker.
   Reported on 2026-11-17; code inspection found that the 100 ms refresh timer

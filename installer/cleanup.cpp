@@ -87,14 +87,15 @@ HRESULT NewGuid(std::wstring& text) {
     return S_OK;
 }
 
-HRESULT SidFromString(const std::wstring& text, ScopedLocalAlloc& storage) noexcept {
+HRESULT SidFromString(const std::wstring& text, ScopedLocalAlloc& storage,
+    bool require_personal_identity = true) noexcept {
     PSID sid = nullptr;
     if (!::ConvertStringSidToSidW(text.c_str(), &sid)) return LastError();
     storage.Reset(sid);
-    if (!::IsValidSid(sid) ||
+    if (!::IsValidSid(sid) || (require_personal_identity && (
         ::IsWellKnownSid(sid, WinLocalSystemSid) ||
         ::IsWellKnownSid(sid, WinLocalServiceSid) ||
-        ::IsWellKnownSid(sid, WinNetworkServiceSid)) return E_INVALIDARG;
+        ::IsWellKnownSid(sid, WinNetworkServiceSid)))) return E_INVALIDARG;
     LPWSTR canonical = nullptr;
     if (!::ConvertSidToStringSidW(sid, &canonical)) return LastError();
     const ScopedLocalAlloc release(canonical);
@@ -910,17 +911,15 @@ HRESULT CheckTarget(HKEY pending, const std::wstring& id, const CleanupRequest& 
     error = SidFromString(request.sid, sid);
     if (FAILED(error)) return error;
     Quarantine quarantine;
-    // The source profile was pinned and ownership-checked during elevated
-    // isolation. A later caller need not have access to that private profile:
-    // ProfileList binds the expected volume, and only the protected quarantine
-    // is traversed here (including when checking another user's fulfilled job).
+    // The protected job records the original profile volume; pending checks
+    // traverse only the verified quarantine, not the current user profile.
     error = LocateQuarantine(request, profile, context, quarantine);
     if (FAILED(error)) return error;
     if (stored_volume != quarantine.volume_name || volume != quarantine.serial) return E_ACCESSDENIED;
     const auto leaf = id + L".pending";
     const auto expected = quarantine.scheduled_parent / leaf;
     // Never open a registry-supplied path. Require the exact generated grammar
-    // and current trusted profile volume, then use the independently built path.
+    // and verified volume identity, then use the independently built path.
     if (stored_path != expected.wstring()) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     error = PinQuarantine(quarantine, context, false);
     if (error == S_FALSE) return S_OK;
@@ -993,13 +992,11 @@ HRESULT CheckPending(PendingState& state, const Context& context) {
         error = EnumerateKeys(targets.Get(), entries);
         if (FAILED(error)) return error;
         if (entries.empty()) continue;
-        std::filesystem::path profile;
-        error = ResolveProfile(request, context, profile);
-        if (FAILED(error)) return error;
         std::wstring stored_profile;
         error = ReadText(job.Get(), L"Profile", stored_profile);
         if (FAILED(error)) return error;
-        if (_wcsicmp(stored_profile.c_str(), profile.c_str())) return E_ACCESSDENIED;
+        if (!ValidLocalPath(stored_profile)) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+        const std::filesystem::path profile(stored_profile);
         for (const auto& entry : entries) {
             if (!ValidGuid(entry.c_str())) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
             ScopedRegKey target;
@@ -1020,7 +1017,7 @@ HRESULT ValidateRequest(const CleanupRequest& request) noexcept {
         request.sid.find(L'\0') != std::wstring::npos ||
         request.transaction.size() != 38 || !ValidGuid(request.transaction.c_str())) return E_INVALIDARG;
     ScopedLocalAlloc sid;
-    return SidFromString(request.sid, sid);
+    return SidFromString(request.sid, sid, request.configuration || request.dictionaries);
 }
 
 const wchar_t* CleanupOperationName(CleanupOperation operation) noexcept {

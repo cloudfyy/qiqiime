@@ -334,13 +334,11 @@ HRESULT ImportSettingsConfiguration(HWND hwnd, const std::filesystem::path& path
         if (SUCCEEDED(result)) {
             result = ConfirmImport(hwnd, current, candidate, language);
             if (result == S_OK && Context(hwnd) == ctx && !ctx->done) {
-                auto baseline = ctx->baseline_config;
                 std::optional<QiQiConfig> imported(std::move(candidate));
-                result = WriteSettingsToWindowControlsResult(hwnd, imported.value());
+                result = RenderSettingsDraft(hwnd, *ctx, imported.value());
                 if (SUCCEEDED(result)) {
                     ctx->imported_config = std::move(imported);
-                    ctx->baseline_config = std::move(baseline);
-                    ApplyLiveSettingsLanguage(hwnd, *ctx, false);
+                    UpdateSettingsWindowTitle(hwnd, *ctx);
                 }
             } else if (result == S_OK) {
                 result = E_ABORT;

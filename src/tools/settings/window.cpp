@@ -254,7 +254,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             return;
         case kIdComboUiLang:
             if (HIWORD(wparam) == CBN_SELCHANGE) {
-                ApplyLiveSettingsLanguage(hwnd, ctx);
+                RenderSettingsLanguage(hwnd, ctx);
             }
             return;
         case kIdChkEasyReading:
@@ -290,10 +290,8 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             return;
         case kIdBtnRestoreDefaults: {
             // Restored values are unsaved edits, not a new external-configuration baseline.
-            QiQiConfig baseline = std::move(ctx.baseline_config);
-            WriteSettingsToWindowControls(hwnd, QiQiConfig{});
-            ctx.baseline_config = std::move(baseline);
-            ApplyLiveSettingsLanguage(hwnd, ctx, false);
+            std::ignore = log::CheckHResult(RenderSettingsDraft(hwnd, ctx, QiQiConfig{}),
+                                           "Settings::RestoreDefaults");
             return;
         }
         case kIdBtnImportConfig:
@@ -424,7 +422,6 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
 
     const bool dpi_changed = ctx.d2d.dpi != effective_dpi;
     QiQiConfig current_config = ctx.config ? *ctx.config : ctx.baseline_config;
-    const QiQiConfig baseline_config = ctx.baseline_config;
     int focused_control_id = 0;
     if (dpi_changed) {
         if (ctx.controls_initialized) {
@@ -460,9 +457,7 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
 
     if (dpi_changed && ctx.controls_initialized) {
         CreateSettingsControls(hwnd, ctx.instance, ctx);
-        WriteSettingsToWindowControls(hwnd, current_config);
-        ctx.baseline_config = baseline_config;
-        ApplyLiveSettingsLanguage(hwnd, ctx, false);
+        std::ignore = log::CheckHResult(RenderSettingsDraft(hwnd, ctx, current_config), "Settings::DpiChange");
         if (focused_control_id != 0) {
             if (const HWND focused_control = ::GetDlgItem(hwnd, focused_control_id)) {
                 ::SetFocus(focused_control);
@@ -669,7 +664,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         case WM_SETTINGCHANGE:
         case WM_THEMECHANGED: {
             ApplySettingsDisplayPreview(hwnd, *ctx);
-            ApplyLiveSettingsLanguage(hwnd, *ctx);
+            RenderSettingsLanguage(hwnd, *ctx);
             return 0;
         }
         case WM_ACTIVATE:

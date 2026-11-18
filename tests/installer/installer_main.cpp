@@ -133,7 +133,13 @@ void TestChoicesAndSerialization(MSIHANDLE install, const UiState& ui) {
             QIQI_TEST_CHECK(request.transaction == GetProperty(install, L"QiQiCleanupTransaction"));
         }
     }
+    ResetUninstall(install);
+    SetProperty(install, L"UserSID", L"S-1-5-18");
+    const auto prompts = ui.prompts;
+    QIQI_TEST_CHECK(PrepareUninstall(install) == ERROR_SUCCESS && ui.prompts == prompts);
     CleanupRequest request;
+    QIQI_TEST_CHECK(ParseCleanupRequest(GetProperty(install, L"ExecuteCleanup"), request) == S_OK);
+    QIQI_TEST_CHECK(request.sid == L"S-1-5-18" && !request.configuration && !request.dictionaries);
     QIQI_TEST_CHECK(ParseCleanupChoices(L"", L"", L"", request) == S_OK);
     QIQI_TEST_CHECK(!request.configuration && !request.dictionaries);
     QIQI_TEST_CHECK(ParseCleanupChoices(L"1", L"", L"", request) == S_OK);
@@ -160,8 +166,8 @@ void TestChoicesAndSerialization(MSIHANDLE install, const UiState& ui) {
     }
 
     ResetUninstall(install);
-    const auto prompts = ui.prompts;
-    QIQI_TEST_CHECK(ChooseUninstallData(install) == ERROR_SUCCESS && ui.prompts == prompts);
+    const auto prompts_before_choose = ui.prompts;
+    QIQI_TEST_CHECK(ChooseUninstallData(install) == ERROR_SUCCESS && ui.prompts == prompts_before_choose);
     for (const auto& skip : {std::pair{L"UPGRADINGPRODUCTCODE", L"{00000000-0000-0000-0000-000000000001}"},
                             std::pair{L"Installed", L""}, std::pair{L"REMOVE", L""}}) {
         ResetUninstall(install);

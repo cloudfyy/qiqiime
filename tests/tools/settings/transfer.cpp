@@ -138,6 +138,36 @@ void TestTransferFlow() {
     });
     constexpr std::string_view partial =
         R"({"format":"qiqiime-config","version":1,"settings":{"page_size":7,"enable_code_completion":false,"default_chinese_mode":false}})";
+    constexpr std::string_view language_only =
+        R"({"format":"qiqiime-config","version":1,"settings":{"ui_language":"en-US"}})";
+    QIQI_TEST_CHECK(WriteFileAtomically(input, codec::AsByteSpan(language_only)));
+    for (const bool import : {true, false}) {
+        QiQiConfig config;
+        config.ui_language = UiLanguage::ZhCn;
+        QIQI_TEST_CHECK(SaveConfig(config));
+        const auto sequence = QueryRegistryConfigSequence();
+        const ScopedWindow window(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config, false));
+        QIQI_TEST_CHECK(window);
+        const auto expected = import ? UiLanguage::EnUs : QiQiConfig{}.ui_language;
+        if (import) {
+            auto draft = config;
+            draft.ui_language = expected;
+            WithPreview(window.Get(), config, draft, config.ui_language, true, [&]() {
+                QIQI_TEST_CHECK(ImportSettingsConfiguration(window.Get(), input) == S_OK);
+            });
+        } else {
+            ::SendMessageW(window.Get(), WM_COMMAND, kIdBtnRestoreDefaults, 0);
+        }
+        for (const auto message : {WM_THEMECHANGED, WM_SETTINGCHANGE}) {
+            ::SendMessageW(window.Get(), message, 0, 0);
+            QiQiConfig draft = config;
+            ReadSettingsFromWindowControls(window.Get(), draft);
+            QIQI_TEST_CHECK(draft.ui_language == expected && config.ui_language == UiLanguage::ZhCn);
+        }
+        ::SendMessageW(window.Get(), WM_COMMAND, IDCANCEL, 0);
+        QIQI_TEST_CHECK(config.ui_language == UiLanguage::ZhCn);
+        QIQI_TEST_CHECK(QueryRegistryConfigSequence() == sequence && LoadConfig().ui_language == UiLanguage::ZhCn);
+    }
     QIQI_TEST_CHECK(WriteFileAtomically(input, codec::AsByteSpan(partial)));
     for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
         for (const bool confirm : {false, true}) {

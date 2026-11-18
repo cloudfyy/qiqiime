@@ -258,8 +258,11 @@ void MappedCacheAndBoots() {
     Write(original);
     mapping.Close();
     fixture.sandbox.boot_session = Guid();
+    fixture.SetProfile((fixture.base / L"relocated").wstring());
     fixture.Pending(installer::PendingState::incomplete);
     QIQI_TEST_CHECK(std::filesystem::remove(isolated));
+    QIQI_TEST_CHECK(::RegDeleteTreeW(fixture.machine.Get(),
+        (L"ProfileList\\" + fixture.sid).c_str()) == ERROR_SUCCESS);
     fixture.Pending(installer::PendingState::clear);
     QIQI_TEST_CHECK(std::filesystem::exists(original));
     fixture.Stored(request, result);
@@ -267,7 +270,8 @@ void MappedCacheAndBoots() {
 
 void BootOnlyRestart() {
     Fixture fixture{Guid()};
-    const auto request = fixture.Request(false, false);
+    auto request = fixture.Request(false, false);
+    request.sid = L"S-1-5-18";
     const auto result = backend::PerformCleanup(request, fixture.sandbox, true);
     QIQI_TEST_CHECK(result.error == S_OK && result.deleted == 0 && result.scheduled == 0 && result.restart_required);
     QIQI_TEST_CHECK(fixture.scheduled.empty() && fixture.HasConfiguration());
@@ -616,9 +620,19 @@ void RunInstallerCleanupTestsImpl() {
     Fixture validation{Guid()};
     auto request = validation.Request(false, false);
     QIQI_TEST_CHECK(installer::ValidateRequest(request) == S_OK);
-    for (const auto* sid : {L"", L"not-a-sid", L"S-1-5-18", L"S-1-5-19", L"S-1-5-20"}) {
+    for (const auto* sid : {L"", L"not-a-sid"}) {
         request.sid = sid;
         QIQI_TEST_CHECK(FAILED(installer::ValidateRequest(request)));
+    }
+    for (const auto* sid : {L"S-1-5-18", L"S-1-5-19", L"S-1-5-20"}) {
+        request.sid = sid;
+        QIQI_TEST_CHECK(installer::ValidateRequest(request) == S_OK);
+        request.configuration = true;
+        QIQI_TEST_CHECK(FAILED(installer::ValidateRequest(request)));
+        request.configuration = false;
+        request.dictionaries = true;
+        QIQI_TEST_CHECK(FAILED(installer::ValidateRequest(request)));
+        request.dictionaries = false;
     }
     request.sid = validation.sid;
     for (const auto* transaction : {L"", L"not-a-guid", L"{00000000-0000-0000-0000-000000000000}"}) {

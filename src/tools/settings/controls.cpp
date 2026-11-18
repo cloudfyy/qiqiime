@@ -486,11 +486,8 @@ void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept {
     }
 }
 
-void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_config) noexcept {
+void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
-    if (update_bound_config && ctx.config && !ctx.save_on_accept) {
-        ctx.config->ui_language = lang;
-    }
     const auto& str = GetUiStrings(lang);
 
     for (const auto& radio : kSettingsDictRadios) {
@@ -592,27 +589,19 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
             ctx.imported_config.value().*(field.member) = merged_ui_cfg.*(field.member);
         });
     }
-    const bool ui_lang_follows_external =
-        (current_ui_cfg.ui_language == ctx.baseline_config.ui_language);
-
     ctx.config_registry_sequence = loaded_seq;
     if (ctx.config) {
         *ctx.config = external_cfg;
     }
 
-    WriteSettingsToWindowControls(hwnd, merged_ui_cfg);
+    if (!log::CheckHResult(RenderSettingsDraft(hwnd, ctx, merged_ui_cfg), "SyncSettingsWindowFromExternalConfig")) return;
     ctx.baseline_config = external_cfg;
     ctx.baseline_config.enable_jidian_extra =
         external_cfg.primary_dict == PrimaryDict::Jidian && external_cfg.enable_jidian_extra;
     if (external_cfg.easy_reading) {
         ctx.baseline_config.ui_text_scale = std::max(external_cfg.ui_text_scale, UiTextScale::Percent150);
     }
-    if (ui_lang_follows_external) {
-        ApplyLiveSettingsLanguage(hwnd, ctx);
-    } else {
-        UpdateSettingsWindowTitle(hwnd, ctx);
-        ::InvalidateRect(hwnd, nullptr, TRUE);
-    }
+    UpdateSettingsWindowTitle(hwnd, ctx);
 }
 
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept {
@@ -773,22 +762,23 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
         WriteSettingsToWindowControlsResult(hwnd, config), "WriteSettingsToWindowControls");
 }
 
-HRESULT WriteSettingsToWindowControlsResult(HWND hwnd, const QiQiConfig& config) noexcept {
+static HRESULT PopulateSettingsControls(HWND hwnd, const QiQiConfig& config, bool load_baseline) noexcept {
     if (!::IsWindow(hwnd)) {
         QIQI_LOG_WARN("WriteSettingsToWindowControls requires a valid window");
         return E_INVALIDARG;
     }
     if (auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
         try {
-            QiQiConfig baseline = config;
             std::wstring custom_path = config.primary_dict_path;
-            // Inactive legacy Extra preferences must not make a freshly loaded window dirty.
-            baseline.enable_jidian_extra =
-                config.primary_dict == PrimaryDict::Jidian && config.enable_jidian_extra;
-            if (config.easy_reading) {
-                baseline.ui_text_scale = std::max(config.ui_text_scale, UiTextScale::Percent150);
+            if (load_baseline) {
+                QiQiConfig baseline = config;
+                baseline.enable_jidian_extra =
+                    config.primary_dict == PrimaryDict::Jidian && config.enable_jidian_extra;
+                if (config.easy_reading) {
+                    baseline.ui_text_scale = std::max(config.ui_text_scale, UiTextScale::Percent150);
+                }
+                ctx->baseline_config = std::move(baseline);
             }
-            ctx->baseline_config = std::move(baseline);
             ctx->custom_primary_dict_path = std::move(custom_path);
         } catch (const std::bad_alloc&) {
             QIQI_LOG_WARN("WriteSettingsToWindowControls: failed to copy configuration strings");
@@ -851,6 +841,16 @@ HRESULT WriteSettingsToWindowControlsResult(HWND hwnd, const QiQiConfig& config)
         UpdateSettingsWindowTitle(hwnd, *ctx);
     }
     return S_OK;
+}
+
+HRESULT WriteSettingsToWindowControlsResult(HWND hwnd, const QiQiConfig& config) noexcept {
+    return PopulateSettingsControls(hwnd, config, true);
+}
+
+HRESULT settings_detail::RenderSettingsDraft(HWND hwnd, DialogContext& ctx, const QiQiConfig& config) noexcept {
+    const HRESULT hr = PopulateSettingsControls(hwnd, config, false);
+    if (SUCCEEDED(hr)) RenderSettingsLanguage(hwnd, ctx);
+    return hr;
 }
 
 void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {

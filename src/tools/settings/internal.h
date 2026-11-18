@@ -259,7 +259,8 @@ struct DialogContext {
 UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept;
 void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept;
 const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage language) noexcept;
-void ApplyLiveSettingsLanguage(HWND hwnd, DialogContext& ctx, bool update_bound_config = true) noexcept;
+void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept;
+HRESULT RenderSettingsDraft(HWND hwnd, DialogContext& ctx, const QiQiConfig& config) noexcept;
 void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcept;
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept;
 void UpdateExtraDictCheckboxState(HWND hwnd) noexcept;
