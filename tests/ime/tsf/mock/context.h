@@ -310,7 +310,7 @@ public:
         if (return_selection_range_) {
             *selection = {};
             selection->range = range_.Get();
-            selection->range->AddRef();
+            range_->AddRef();
             *fetched = 1;
         }
         return S_OK;

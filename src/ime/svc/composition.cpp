@@ -58,7 +58,7 @@ bool NeedsPostEditLayoutRefresh(const CandidateUI& ui) noexcept {
                            ::GetLastError());
         return false;
     }
-    const HWND focus_root = gui.hwndFocus ? ::GetAncestor(gui.hwndFocus, GA_ROOT) : nullptr;
+    const auto* const focus_root = gui.hwndFocus ? ::GetAncestor(gui.hwndFocus, GA_ROOT) : nullptr;
     const bool owner_matches_focus = focus_root && focus_root == ::GetWindow(popup, GW_OWNER);
     QIQI_LOG_CAT_DEBUG(log::Keyword::UI,
         "CandidatePosition(stage=initial-layout-eligibility, has_native_caret={}, owner_matches_focus={})",

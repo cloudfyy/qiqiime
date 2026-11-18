@@ -223,6 +223,11 @@ during explicit HWND destruction and reenter display/show methods during the
 object destructor. They verify that callbacks cannot free an active cleanup
 scope or resurrect a destructing object, and that COM-object counts return to
 their baseline after native window teardown.
+The WinEvent capture constructor uses nonthrowing failure diagnostics. The
+teardown subclass retains its native nonthrowing boundary and reports allocation
+failures before failing the test; allocation-capable display updates
+must not be mislabeled `noexcept`. Monitor overrides are restored from independent
+value snapshots, not references to the mutable override storage.
 Real SearchHost interaction and taskbar relocation still require host testing;
 these notifications do not change caret-coordinate or popup-placement policy.
 `QiQiCompositionLifecycleTest` omits standalone UI suites and supplements,

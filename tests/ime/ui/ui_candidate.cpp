@@ -19,6 +19,7 @@
 #include <array>
 #include <initializer_list>
 #include <memory>
+#include <new>
 #include <optional>
 #include <string>
 #include <thread>
@@ -34,7 +35,7 @@ namespace {
 struct WinEventHookTraits {
     using HandleType = HWINEVENTHOOK;
     static HandleType Invalid() noexcept { return nullptr; }
-    static bool IsValid(HandleType hook) noexcept { return hook != nullptr; }
+    static bool IsValid(const HandleType& hook) noexcept { return hook != nullptr; }
     static void Close(HandleType hook) noexcept {
         if (!::UnhookWinEvent(hook)) {
             std::fprintf(stderr, "UnhookWinEvent failed (error=%lu)\n", ::GetLastError());
@@ -45,12 +46,12 @@ struct WinEventHookTraits {
 
 class CandidateWinEventTrace final {
 public:
-    CandidateWinEventTrace() {
-        QIQI_TEST_CHECK(current_ == nullptr);
+    CandidateWinEventTrace() noexcept {
+        QIQI_TEST_CHECK_CLEANUP(current_ == nullptr);
         hook_.Reset(::SetWinEventHook(EVENT_OBJECT_IME_SHOW, EVENT_OBJECT_IME_CHANGE,
             nullptr, OnEvent, ::GetCurrentProcessId(), ::GetCurrentThreadId(), WINEVENT_OUTOFCONTEXT));
         if (!hook_) std::fprintf(stderr, "SetWinEventHook failed (error=%lu)\n", ::GetLastError());
-        QIQI_TEST_CHECK(hook_);
+        QIQI_TEST_CHECK_CLEANUP(hook_);
         current_ = this;
     }
     ~CandidateWinEventTrace() noexcept {
@@ -112,7 +113,8 @@ private:
 
 void TestCandidateLightDismissEvents() {
     const TsfTestCaseTrace trace(__func__);
-    const auto previous_monitor = detail::MonitorMetricsOverrideStorage();
+    // Keep an independent snapshot while the test changes the override.
+    const std::optional<MonitorMetrics> previous_monitor = detail::MonitorMetricsOverrideStorage();
     const auto restore_monitor = gsl::finally([&]() noexcept {
         SetMonitorMetricsOverrideForTest(previous_monitor);
     });
@@ -181,22 +183,27 @@ struct CandidateTeardownReentry {
 
 LRESULT CALLBACK ObserveCandidateTeardown(
     HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data) noexcept {
-    if (message == WM_NCDESTROY) {
-        auto& state = *reinterpret_cast<CandidateTeardownReentry*>(data);
-        QIQI_TEST_CHECK_CLEANUP(!state.called);
-        state.called = true;
-        const auto live_objects = g_com_object_count.load();
-        if (state.release_owner) {
-            state.owner->Reset();
-        } else {
-            state.ui->SetDisplayPreferences(DisplayPreferences{});
+    try {
+        if (message == WM_NCDESTROY) {
+            auto& state = *reinterpret_cast<CandidateTeardownReentry*>(data);
+            QIQI_TEST_CHECK_CLEANUP(!state.called);
+            state.called = true;
+            const auto live_objects = g_com_object_count.load();
+            if (state.release_owner) {
+                state.owner->Reset();
+            } else {
+                state.ui->SetDisplayPreferences(DisplayPreferences{});
+                QIQI_TEST_CHECK_CLEANUP(g_com_object_count.load() == live_objects);
+                QIQI_TEST_CHECK_CLEANUP(state.ui->Show(TRUE) == S_FALSE);
+            }
             QIQI_TEST_CHECK_CLEANUP(g_com_object_count.load() == live_objects);
-            QIQI_TEST_CHECK_CLEANUP(state.ui->Show(TRUE) == S_FALSE);
+            QIQI_TEST_CHECK_CLEANUP(::RemoveWindowSubclass(window, ObserveCandidateTeardown, id));
         }
-        QIQI_TEST_CHECK_CLEANUP(g_com_object_count.load() == live_objects);
-        QIQI_TEST_CHECK_CLEANUP(::RemoveWindowSubclass(window, ObserveCandidateTeardown, id));
+        return ::DefSubclassProc(window, message, wparam, lparam);
+    } catch (const std::bad_alloc&) {
+        std::fputs("Candidate teardown reentry allocation failed (std::bad_alloc).\n", stderr);
+        QIQI_TEST_CHECK_CLEANUP(false);
     }
-    return ::DefSubclassProc(window, message, wparam, lparam);
 }
 
 void TestCandidateTeardownReentry() {
@@ -224,7 +231,7 @@ void TestCandidateTeardownReentry() {
             }
         });
         if (release_owner) {
-            auto* const current = ui.Get();
+            const gsl::not_null<CandidateUI*> current(ui.Get());
             QIQI_TEST_CHECK(current->DestroyPopupWindow());
             QIQI_TEST_CHECK(!ui);
         } else {
