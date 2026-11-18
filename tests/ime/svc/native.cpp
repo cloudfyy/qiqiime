@@ -8,6 +8,8 @@
 #include "ime/svc/lifecycle.h"
 #include "common/guids.h"
 #include "ime/tsf/editsession.h"
+#include <cstdint>
+#include <format>
 #include <iostream>
 #include <tuple>
 
@@ -160,14 +162,20 @@ void RunTsfNativeLifecycleTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm,
     gsl::not_null<ITfKeyEventSink*> key_sink) {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
-    // Real TSF, private document, no system TIP activation: cleanup must remove host composition state.
+    // Real TSF with private documents, without taking native document focus.
     {
         QIQI_TEST_CHECK(service->Deactivate() == S_OK);
         ComPtr<ITfThreadMgr2> native_manager;
         QIQI_TEST_CHECK(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
                                           IID_PPV_ARGS(&native_manager)) == S_OK);
         TfClientId native_client = TF_CLIENTID_NULL;
-        QIQI_TEST_CHECK(native_manager->ActivateEx(&native_client, TF_TMAE_NOACTIVATETIP) == S_OK);
+        const HRESULT activation_hr = native_manager->ActivateEx(&native_client, TF_TMAE_NOACTIVATETIP);
+        if (FAILED(activation_hr)) {
+            const auto message = std::format("NativeCleanupTest::ActivateEx hr=0x{:08X}, client={}",
+                gsl::narrow_cast<uint32_t>(activation_hr), native_client);
+            ReportTestCleanupFailure(__FILE__, __LINE__, message.c_str());
+        }
+        QIQI_TEST_CHECK(SUCCEEDED(activation_hr) && native_client != TF_CLIENTID_NULL);
         const auto deactivate_native = gsl::finally([&]() noexcept {
             std::ignore = log::CheckHResult(native_manager->Deactivate(), "NativeCleanupTest::Deactivate");
         });

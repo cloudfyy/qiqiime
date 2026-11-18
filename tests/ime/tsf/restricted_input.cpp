@@ -195,10 +195,36 @@ void TestNativeContextContracts() {
     ComPtr<ITfThreadMgrEx> manager;
     QIQI_TEST_CHECK(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
                                       IID_PPV_ARGS(&manager)) == S_OK);
+    // Earlier native controls can already have activated this thread's TSF manager.
+    TfClientId existing_client = TF_CLIENTID_NULL;
+    const HRESULT existing_hr = manager->ActivateEx(&existing_client, TF_TMAE_NOACTIVATETIP);
+    if (FAILED(existing_hr)) {
+        const auto message = std::format("NativeContextContracts::Preactivate hr=0x{:08X}",
+            gsl::narrow_cast<uint32_t>(existing_hr));
+        ReportTestCleanupFailure(__FILE__, __LINE__, message.c_str());
+    }
+    QIQI_TEST_CHECK(SUCCEEDED(existing_hr) && existing_client != TF_CLIENTID_NULL);
+    const auto deactivate_existing = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(manager->Deactivate() == S_OK);
+    });
     TfClientId client = TF_CLIENTID_NULL;
-    QIQI_TEST_CHECK(manager->ActivateEx(&client, TF_TMAE_NOACTIVATETIP) == S_OK);
+    const HRESULT activation_hr = manager->ActivateEx(&client, TF_TMAE_NOACTIVATETIP);
+    if (FAILED(activation_hr)) {
+        DWORD active_flags = 0;
+        const HRESULT flags_hr = manager->GetActiveFlags(&active_flags);
+        const auto message = std::format(
+            "NativeContextContracts::ActivateEx hr=0x{:08X}, client={}, requested_flags=0x{:08X}, "
+            "active_flags_hr=0x{:08X}, active_flags=0x{:08X}",
+            gsl::narrow_cast<uint32_t>(activation_hr), client, TF_TMAE_NOACTIVATETIP,
+            gsl::narrow_cast<uint32_t>(flags_hr), active_flags);
+        ReportTestCleanupFailure(__FILE__, __LINE__, message.c_str());
+    }
+    QIQI_TEST_CHECK(SUCCEEDED(activation_hr) && client != TF_CLIENTID_NULL);
     const auto deactivate = gsl::finally([&]() noexcept {
         QIQI_TEST_CHECK(manager->Deactivate() == S_OK);
+        DWORD active_flags = 0;
+        QIQI_TEST_CHECK(manager->GetActiveFlags(&active_flags) == S_OK &&
+                        (active_flags & TF_TMF_ACTIVATED) != 0);
     });
 
     struct ScopeCase { InputScope scope; bool has_scope; };

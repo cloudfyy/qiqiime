@@ -196,6 +196,13 @@ Focus log IDs are process-wide, not private-capture-local. The focus diagnostics
 test derives its first captured ID, checks consecutive IDs and correlates reload
 records with them; it must not assume numbering starts at one. Both full and
 focused service suites repeat the capture in-process to cover this ordering.
+Native TSF fixtures accept a successful `ActivateEx` result with a valid client
+ID, including `S_FALSE` when earlier controls already activated the thread.
+The restricted-input regression holds a prior activation and checks that
+releasing its own nested activation leaves the prior one active. Both successful
+activations are balanced with `Deactivate`; real failures retain their HRESULT.
+The fixtures still request `TF_TMAE_NOACTIVATETIP` and use private documents
+without changing native document focus or the thread's existing activation mode.
 These modeled cases do not replace
 rechecking the loaded DLL in SearchHost; the captured repeated full-range
 failure disproves any assumption that an asynchronous callback alone is enough.
