@@ -11,10 +11,10 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The source version is **1.1.2**, with release tag `v1.1.2` and changes recorded
+The source version is **1.1.3**, with release tag `v1.1.3` and changes recorded
 in the [release notes](docs/release-notes.md). Release CI rebuilds, tests, and
 packages the tagged source. Historical tags and assets remain unchanged;
-the new changes are not part of the existing `v1.1.1` assets.
+the new changes are not part of the existing `v1.1.2` assets.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
 
@@ -54,6 +54,10 @@ and AppContainer guides are available in English.
   When following the system, candidates and their Settings preview use App mode,
   as do standalone tools and the floating status bar. IME custom menus retain
   Windows mode. Windows system-surface detection is deferred.
+- Candidate owner-window deferral and retry, host-aware DPI scaling, and native
+  UI Automation/Narrator support for the candidate list. TSF UILess presentation
+  follows host-controlled visibility, update flags, document association, and
+  negotiated Begin/Update/End lifecycle without an unnegotiated popup fallback.
 - Standalone settings, dictionary manager, and local ETW log-monitor tools.
   Settings and tool interfaces support Simplified Chinese and English.
 - Selectable system/light/dark/high-contrast themes and 100–200% text for Settings,

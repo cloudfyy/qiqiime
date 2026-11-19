@@ -1,3 +1,68 @@
+# QiQiIME 1.1.3 补丁版
+
+数字版本：`1.1.3`；发行标签：`v1.1.3`（2026-11-19）。发布工作流将从标签
+源码重新构建、测试并生成附件；本地创建标签不表示云端打包或安装验收已经完成。
+
+## 本次主要更新
+
+- **候选窗口宿主所有权加固**：缺少或失效 HWND 时隐藏并保留显示意图，
+  后续布局得到有效 root owner 后自动重试，不再创建 unowned popup；owner
+  切换、销毁及查询／创建竞态加入针对性回归。
+- **DPI 按宿主 awareness 生效**：IME 继承宿主进程的 DPI 模式；DPI-unaware
+  与 system-aware 宿主避免用 monitor DPI 再缩放一次，per-monitor 宿主继续使用
+  目标显示器 DPI，并扩展 100/125/150/175/200% 的候选及菜单测试。
+- **候选列表 Narrator/UIA 支持**：原生候选窗公开
+  `IME_Candidate_Window`、候选名称/帮助、SelectionItem 状态与选择操作，并在
+  实际显隐、选择变化及列表结构变化时发出对应 UI Automation 事件；UILess
+  模式不宣布不存在的 HWND。
+- **TSF UILess 合约完成**：关联活动 `ITfDocumentMgr`，首次更新发布全部候选
+  字段，后续只报告增量；失败更新保留待发标志，空列表返回无选择，
+  管理器／Begin 失败或无效 ID 不回退 popup。Begin、Update、End 按 manager
+  串行化；End 失败时按 manager/ID 保留待退休注册和旧快照，禁止替代 Begin
+  并持续重试，manager 切换、重入也保留准确所有权和错误码。
+- **真实原生 UILess 回归**：新增 `QiQiUilessTest`，使用 Windows 原生
+  `ITfThreadMgr2`、`ITfUIElementMgr` 和 `ITfUIElementSink` 验证 x64/x86 的
+  初始/增量标志、文档关联、隐藏状态与 Begin/Update/End ID。
+- **待办与发布审计**：补齐五笔功能矩阵、独立工具 UIA TODO 和图标合约缺口，
+  区分已完成自动化与仍需真实宿主／视觉检查的边界。
+
+## 验证边界
+
+- Release 构建仍以 GitHub Actions 对标签进行双架构构建、测试和打包结果为准；
+  本机不制作或安装 MSI。
+- 原生 TSF UILess 测试和候选 UI、组合生命周期回归覆盖 Windows
+  `ITfUIElementMgr` 合约；它们不替代每个全屏游戏、自绘宿主或 OEM UI 的人工验证。
+- Narrator UIA 单元检查不等于所有真实读屏语音、语言和焦点顺序都已逐项验收。
+
+## English
+
+Numeric version: `1.1.3`; release tag: `v1.1.3` (2026-11-19). Release CI must
+rebuild, test, and package the tagged source; creating the tag locally does not
+certify packaging or installation.
+
+### Changes
+
+- **Candidate ownership:** defer and retry presentation when a valid host/root
+  HWND is unavailable instead of creating an unowned popup.
+- **Host DPI parity:** honor each host process's DPI awareness mode and avoid
+  double scaling for unaware/system-aware hosts.
+- **Narrator candidate UI:** expose the standard candidate AutomationId, item
+  names/help, selection state, and UIA show/hide/selection/structure events.
+- **TSF UILess conformance:** associate the active document, report complete
+  initial and delta subsequent flags, retain failed updates, serialize Begin/
+  Update/End, handle manager replacement/reentrancy, and never fall back to an
+  unnegotiated popup. Failed retirement retains the manager/element pair and old
+  snapshot, blocks replacement Begin, and is retried without abandoning
+  ownership.
+- **Native TSF coverage:** add a real `ITfThreadMgr2`/`ITfUIElementMgr` host test
+  for x64 and x86.
+
+### Validation boundary
+
+The release workflow remains the source of truth for tagged build and package
+success. Native TSF/UIA tests do not replace external game, OEM, or real
+Narrator host validation. No MSI is produced or installed locally.
+
 # QiQiIME 1.1.2 补丁版
 
 数字版本：`1.1.2`；发行标签：`v1.1.2`（2026-11-18）。标签提交由 Release
