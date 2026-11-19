@@ -4,6 +4,9 @@
 #pragma once
 #include <windows.h>
 #include <msctf.h>
+#include <uiautomationcore.h>
+#include <uiautomationcoreapi.h>
+#include <uiautomationclient.h>
 #include <gsl/gsl>
 #include <wrl/client.h>
 #include <atomic>
@@ -23,10 +26,28 @@
 namespace qiqi {
 
 using Microsoft::WRL::ComPtr;
+class CandidateAutomationItem;
+
+namespace detail {
+inline bool& UiAutomationEventsEnabledForTest() noexcept {
+    static bool enabled = true;
+    return enabled;
+}
+} // namespace detail
+
+inline void SetUiAutomationEventsEnabledForTest(bool enabled) noexcept {
+    detail::UiAutomationEventsEnabledForTest() = enabled;
+}
 
 // Implements ITfCandidateListUIElement so both regular desktop apps (popup window)
 // and fullscreen games in UILess mode (ITfUIElementSink) can render candidates.
-class CandidateUI final : public ComObjectBase<CandidateUI, ITfCandidateListUIElement> {
+class CandidateUI final : public ComObjectBase<
+    CandidateUI,
+    ITfCandidateListUIElement,
+    IRawElementProviderSimple,
+    IRawElementProviderFragment,
+    IRawElementProviderFragmentRoot,
+    ISelectionProvider> {
 public:
     using SelectCallback = std::function<void(size_t index_in_page)>;
     using PageTurnCallback = std::function<void(bool next_page)>;
@@ -65,6 +86,24 @@ public:
     STDMETHODIMP SetPageIndex(UINT* pIndex, UINT uPageCnt) noexcept override;
     STDMETHODIMP GetCurrentPage(UINT* puPage) noexcept override;
 
+    // UI Automation provider
+    STDMETHODIMP get_ProviderOptions(ProviderOptions* options) noexcept override;
+    STDMETHODIMP GetPatternProvider(PATTERNID pattern_id, IUnknown** provider) noexcept override;
+    STDMETHODIMP GetPropertyValue(PROPERTYID property_id, VARIANT* value) noexcept override;
+    STDMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** provider) noexcept override;
+    STDMETHODIMP Navigate(NavigateDirection direction, IRawElementProviderFragment** fragment) noexcept override;
+    STDMETHODIMP GetRuntimeId(SAFEARRAY** runtime_id) noexcept override;
+    STDMETHODIMP get_BoundingRectangle(UiaRect* bounds) noexcept override;
+    STDMETHODIMP GetEmbeddedFragmentRoots(SAFEARRAY** roots) noexcept override;
+    STDMETHODIMP SetFocus() noexcept override;
+    STDMETHODIMP get_FragmentRoot(IRawElementProviderFragmentRoot** root) noexcept override;
+    STDMETHODIMP ElementProviderFromPoint(
+        double x, double y, IRawElementProviderFragment** fragment) noexcept override;
+    STDMETHODIMP GetFocus(IRawElementProviderFragment** fragment) noexcept override;
+    STDMETHODIMP GetSelection(SAFEARRAY** selection) noexcept override;
+    STDMETHODIMP get_CanSelectMultiple(BOOL* can_select_multiple) noexcept override;
+    STDMETHODIMP get_IsSelectionRequired(BOOL* selection_required) noexcept override;
+
     // State update from TIP
     void SetCandidates(std::wstring code,
                        std::vector<std::wstring> all_candidates,
@@ -101,8 +140,19 @@ public:
     void SetUiElementId(DWORD id) noexcept { ui_element_id_ = id; }
     bool IsDirectWriteActive() const noexcept { return dwrite_text_format_.IsValid() && d2d_dc_target_.IsValid(); }
     void DisableDirect2DForTest() noexcept { d2d_dc_target_.Reset(); }
+    void SetAccessibilityEventObserverForTest(std::function<void(EVENTID)> observer) noexcept {
+        accessibility_event_observer_for_test_ = std::move(observer);
+    }
+    void SetAccessibilityStructureObserverForTest(std::function<void()> observer) noexcept {
+        accessibility_structure_observer_for_test_ = std::move(observer);
+    }
+    void SetAccessibilityDispatchObserverForTest(
+        std::function<void(EVENTID, bool)> observer) noexcept {
+        accessibility_dispatch_observer_for_test_ = std::move(observer);
+    }
 
 private:
+    friend class CandidateAutomationItem;
     struct PaintItem {
         RECT rect{};
         std::wstring text;
@@ -128,6 +178,14 @@ private:
     void UpdateScrollBar() const noexcept;
     void OnLeftButtonDown(POINT pt) const;
     bool EnsurePopupWindow() noexcept;
+    HRESULT RaiseAccessibilityEvent(EVENTID event_id, size_t page_index = SIZE_MAX) noexcept;
+    HRESULT RaiseAccessibilityStructureChanged() noexcept;
+    HRESULT CreateAutomationItem(
+        size_t page_index, IRawElementProviderFragment** fragment) noexcept;
+    std::wstring_view AccessibleCandidateName(size_t page_index) const noexcept;
+    std::wstring AccessibleCandidateHelp(size_t page_index) const;
+    size_t AccessibleCandidateCount() const noexcept { return candidate_hit_rects_.size(); }
+    size_t SelectedPageIndex() const noexcept;
     void NotifyPopupWindowState(HWND window, bool destroyed = false) noexcept;
     void LogPopupVisibility() const noexcept;
     bool PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const;
@@ -183,10 +241,14 @@ private:
     POINT popup_pos_{100, 100};
     std::optional<RECT> text_rect_;
     std::optional<RECT> announced_popup_rect_;
+    bool accessibility_open_announced_ = false;
     CandidateLayout layout_ = CandidateLayout::Horizontal;
     UiLanguage ui_language_ = UiLanguage::Auto;
     SelectCallback select_callback_;
     PageTurnCallback page_turn_callback_;
+    std::function<void(EVENTID)> accessibility_event_observer_for_test_;
+    std::function<void()> accessibility_structure_observer_for_test_;
+    std::function<void(EVENTID, bool)> accessibility_dispatch_observer_for_test_;
     // Destroy the popup window first before releasing fonts, D2D/DWrite targets, and candidate state.
     ScopedWindow hwnd_;
 };

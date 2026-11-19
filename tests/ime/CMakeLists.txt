@@ -123,6 +123,7 @@ target_link_libraries(qiqi_tsf_ui_test PRIVATE
     shell32
     ole32
     oleaut32
+    uiautomationcore
     uuid
     tdh
 )

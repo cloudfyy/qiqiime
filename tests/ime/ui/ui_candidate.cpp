@@ -714,7 +714,8 @@ void TestCandidateUI() {
 
     QIQI_TEST_CHECK(ui->IsShown(nullptr) == E_INVALIDARG);
     QIQI_TEST_CHECK(ui->GetCount(nullptr) == E_INVALIDARG);
-    QIQI_TEST_CHECK(ui->GetSelection(nullptr) == E_INVALIDARG);
+    QIQI_TEST_CHECK(
+        ui->GetSelection(static_cast<UINT*>(nullptr)) == E_INVALIDARG);
     QIQI_TEST_CHECK(ui->GetString(0, nullptr) == E_INVALIDARG);
     QIQI_TEST_CHECK(ui->GetPageIndex(nullptr, 0, nullptr) == E_INVALIDARG);
     QIQI_TEST_CHECK(ui->GetCurrentPage(nullptr) == E_INVALIDARG);
@@ -879,6 +880,145 @@ void TestCandidateUI() {
     QIQI_TEST_CHECK(ui.Detach()->Release() == 0);
 }
 
+void TestCandidateAccessibility() {
+    const TsfTestCaseTrace trace(__func__);
+    auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+    ui->SetCandidates(L"ab", {L"一(~ab)", L"二(cd)"}, 5, 0, 0);
+    ui->MoveWindowTo(RECT{100, 100, 102, 124});
+    std::vector<EVENTID> events;
+    ui->SetAccessibilityEventObserverForTest([&](EVENTID event) {
+        events.push_back(event);
+    });
+    std::vector<std::pair<EVENTID, bool>> dispatches;
+    ui->SetAccessibilityDispatchObserverForTest(
+        [&](EVENTID event, bool is_root) { dispatches.emplace_back(event, is_root); });
+    unsigned int structure_changes = 0;
+    ui->SetAccessibilityStructureObserverForTest([&] { ++structure_changes; });
+    QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK && ui->WindowHandle());
+    const std::vector<EVENTID> expected_open{
+        UIA_MenuOpenedEventId, UIA_SelectionItem_ElementSelectedEventId};
+    QIQI_TEST_CHECK(events == expected_open);
+    QIQI_TEST_CHECK(dispatches == (std::vector<std::pair<EVENTID, bool>>{
+        {UIA_MenuOpenedEventId, true},
+        {UIA_SelectionItem_ElementSelectedEventId, false}}));
+
+    ComPtr<IRawElementProviderSimple> simple;
+    QIQI_TEST_CHECK(ui->QueryInterface(IID_PPV_ARGS(&simple)) == S_OK && simple);
+    VARIANT value{};
+    QIQI_TEST_CHECK(simple->GetPropertyValue(UIA_AutomationIdPropertyId, &value) == S_OK &&
+                    value.vt == VT_BSTR && std::wstring(value.bstrVal) == L"IME_Candidate_Window");
+    std::ignore = ::VariantClear(&value);
+
+    ComPtr<IRawElementProviderFragment> root;
+    QIQI_TEST_CHECK(ui->QueryInterface(IID_PPV_ARGS(&root)) == S_OK && root);
+    ComPtr<IRawElementProviderFragment> first;
+    QIQI_TEST_CHECK(root->Navigate(NavigateDirection_FirstChild, first.GetAddressOf()) == S_OK &&
+                    first);
+    ComPtr<IRawElementProviderSimple> first_simple;
+    QIQI_TEST_CHECK(first.As(&first_simple) == S_OK && first_simple);
+    QIQI_TEST_CHECK(first_simple->GetPropertyValue(UIA_NamePropertyId, &value) == S_OK &&
+                    value.vt == VT_BSTR && std::wstring(value.bstrVal) == L"一");
+    std::ignore = ::VariantClear(&value);
+    QIQI_TEST_CHECK(first_simple->GetPropertyValue(UIA_HelpTextPropertyId, &value) == S_OK &&
+                    value.vt == VT_BSTR && std::wstring(value.bstrVal) == L"(~ab)");
+    std::ignore = ::VariantClear(&value);
+    QIQI_TEST_CHECK(first_simple->GetPropertyValue(
+                        UIA_SelectionItemIsSelectedPropertyId, &value) == S_OK &&
+                    value.vt == VT_BOOL && value.boolVal == VARIANT_TRUE);
+    std::ignore = ::VariantClear(&value);
+    QIQI_TEST_CHECK(first_simple->GetPropertyValue(
+                        UIA_IsOffscreenPropertyId, &value) == S_OK &&
+                    value.vt == VT_BOOL && value.boolVal == VARIANT_FALSE);
+    std::ignore = ::VariantClear(&value);
+
+    ComPtr<ISelectionItemProvider> first_selection;
+    IUnknown* pattern = nullptr;
+    QIQI_TEST_CHECK(first_simple->GetPatternProvider(
+                        UIA_SelectionItemPatternId, &pattern) == S_OK && pattern);
+    QIQI_TEST_CHECK(pattern->QueryInterface(IID_PPV_ARGS(&first_selection)) == S_OK &&
+                    first_selection);
+    ComPtr<IRawElementProviderSimple> selection_container;
+    QIQI_TEST_CHECK(first_selection->get_SelectionContainer(
+                        selection_container.GetAddressOf()) == S_OK && selection_container);
+    IUnknown* container_pattern = nullptr;
+    QIQI_TEST_CHECK(selection_container->GetPatternProvider(
+                        UIA_SelectionPatternId, &container_pattern) == S_OK &&
+                    container_pattern);
+    container_pattern->Release();
+    pattern->Release();
+
+    ComPtr<IRawElementProviderFragment> second;
+    QIQI_TEST_CHECK(first->Navigate(NavigateDirection_NextSibling, second.GetAddressOf()) == S_OK &&
+                    second);
+    ComPtr<IRawElementProviderSimple> second_simple;
+    QIQI_TEST_CHECK(second.As(&second_simple) == S_OK);
+    QIQI_TEST_CHECK(second_simple->GetPropertyValue(UIA_NamePropertyId, &value) == S_OK &&
+                    value.vt == VT_BSTR && std::wstring(value.bstrVal) == L"二");
+    std::ignore = ::VariantClear(&value);
+
+    size_t selected = SIZE_MAX;
+    ui->SetSelectCallback([&](size_t index) { selected = index; });
+    ComPtr<ISelectionItemProvider> selection;
+    IUnknown* selection_pattern = nullptr;
+    QIQI_TEST_CHECK(second_simple->GetPatternProvider(
+                        UIA_SelectionItemPatternId, &selection_pattern) == S_OK &&
+                    selection_pattern);
+    QIQI_TEST_CHECK(selection_pattern->QueryInterface(IID_PPV_ARGS(&selection)) == S_OK &&
+                    selection);
+    selection_pattern->Release();
+    QIQI_TEST_CHECK(selection->Select() == S_OK && selected == 1);
+
+    events.clear();
+    structure_changes = 0;
+    ui->SetCandidates(L"ab", {L"甲(~ab)", L"二(cd)"}, 5, 0, 1);
+    QIQI_TEST_CHECK(events.size() == 1 &&
+                    events.front() == UIA_SelectionItem_ElementSelectedEventId);
+    QIQI_TEST_CHECK(structure_changes == 1);
+    QIQI_TEST_CHECK(first_simple->GetPropertyValue(
+                        UIA_SelectionItemIsSelectedPropertyId, &value) == S_OK &&
+                    value.boolVal == VARIANT_FALSE);
+    std::ignore = ::VariantClear(&value);
+
+    SAFEARRAY* runtime_id = nullptr;
+    QIQI_TEST_CHECK(first->GetRuntimeId(&runtime_id) == S_OK && runtime_id);
+    QIQI_TEST_CHECK(::SafeArrayDestroy(runtime_id) == S_OK);
+    RECT first_rect = ui->CandidateRect(0);
+    POINT first_center{
+        (first_rect.left + first_rect.right) / 2,
+        (first_rect.top + first_rect.bottom) / 2
+    };
+    QIQI_TEST_CHECK(::ClientToScreen(ui->WindowHandle(), &first_center));
+    ComPtr<IRawElementProviderFragmentRoot> fragment_root;
+    QIQI_TEST_CHECK(ui->QueryInterface(IID_PPV_ARGS(&fragment_root)) == S_OK);
+    ComPtr<IRawElementProviderFragment> hit;
+    QIQI_TEST_CHECK(fragment_root->ElementProviderFromPoint(
+                        first_center.x, first_center.y, hit.GetAddressOf()) == S_OK && hit);
+
+    const LRESULT raw_result = ::SendMessageW(
+        ui->WindowHandle(), WM_GETOBJECT, 0, UiaRootObjectId);
+    QIQI_TEST_CHECK(raw_result != 0);
+
+    events.clear();
+    dispatches.clear();
+    QIQI_TEST_CHECK(ui->Show(FALSE) == S_OK);
+    QIQI_TEST_CHECK(events.size() == 1 && events.front() == UIA_MenuClosedEventId);
+    QIQI_TEST_CHECK(dispatches == (std::vector<std::pair<EVENTID, bool>>{
+        {UIA_MenuClosedEventId, true}}));
+    QIQI_TEST_CHECK(first_simple->GetPropertyValue(
+                        UIA_IsOffscreenPropertyId, &value) == S_OK &&
+                    value.vt == VT_BOOL && value.boolVal == VARIANT_TRUE);
+    std::ignore = ::VariantClear(&value);
+
+    events.clear();
+    ui->SetPresentationEnabled(false);
+    QIQI_TEST_CHECK(ui->Show(TRUE) == S_FALSE && events.empty());
+    ui->SetPresentationEnabled(true);
+    QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+    events.clear();
+    QIQI_TEST_CHECK(ui->DestroyPopupWindow());
+    QIQI_TEST_CHECK(events.size() == 1 && events.front() == UIA_MenuClosedEventId);
+}
+
 } // namespace
 
 void RunCandidateUITests() {
@@ -891,6 +1031,7 @@ void RunCandidateUITests() {
     TestCandidateHostOwnership();
     TestCandidateDisplayPreferences();
     TestCandidateConstrainedViewport();
+    TestCandidateAccessibility();
 }
 
 } // namespace qiqi::test

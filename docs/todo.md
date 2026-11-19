@@ -665,19 +665,25 @@ status-bar/tooltip skin support require separate design approval.
   dynamic DPI changes, negative coordinates, and 100/125/150/175/200% scales
   with focused regressions and real-host validation on x64/x86.
 
-- [ ] Audit and complete
+- [x] Audit and complete
   [IME candidate-list accessibility for Narrator](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-accessibility).
-  Set `UIA_AutomationIdPropertyId` to exactly `IME_Candidate_Window` for
-  conversion lists or `IME_Prediction_Window` for prediction lists, according
-  to the actual list type. Raise `UIA_MenuOpenedEventId` and
-  `UIA_MenuClosedEventId` when the list actually appears and disappears.
-  On selection changes, raise `UIA_SelectionItem_ElementSelectedEventId`
-  for the selected item and expose its
-  `UIA_SelectionItemIsSelectedPropertyId` as TRUE; clear stale selections.
-  Each item's `UIA_NamePropertyId` must be its candidate text, with optional
-  disambiguation in `UIA_HelpTextPropertyId`, not a replacement name.
-  Cover keyboard selection, paging, candidate updates, hiding/destruction,
-  and UILess coordination without announcing nonexistent native UI.
+  The native candidate popup now exposes an exact
+  `UIA_AutomationIdPropertyId` value of `IME_Candidate_Window`, a fragment-root
+  list with current-page item providers, `UIA_NamePropertyId` candidate text and
+  `UIA_HelpTextPropertyId` code annotations. Selection items expose
+  `UIA_SelectionItemIsSelectedPropertyId` and support selection through the
+  existing candidate callback. The popup raises `UIA_MenuOpenedEventId`,
+  `UIA_MenuClosedEventId`, and `UIA_SelectionItem_ElementSelectedEventId` only
+  for actual native visibility; candidate/selection changes clear stale item
+  state, and UILess presentation does not announce a nonexistent HWND.
+  Events originate from the actual root/current item provider so clients can
+  correlate them with the exposed tree, and are skipped when no UIA client is
+  listening. Candidate-tree changes raise structure invalidation before the
+  new selection event. Focused x64/x86
+  regressions cover provider properties, sibling navigation, hit testing,
+  runtime IDs, selection, `WM_GETOBJECT`, open/close and UILess gating.
+  Real Narrator output remains a separate manual-host check because unit
+  providers and event observers do not certify speech behavior.
   These UIA events do not replace the IME light-dismiss WinEvents above.
   Add property/event regressions using synthetic candidates and manual
   Narrator validation; do not capture real input or candidate text in logs.

@@ -78,6 +78,7 @@ target_link_libraries(qiqiime PRIVATE
     shell32
     ole32
     oleaut32
+    uiautomationcore
     uuid
 )
 

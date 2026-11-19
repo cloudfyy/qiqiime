@@ -12,6 +12,7 @@
 #include <dwmapi.h>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace qiqi {
 namespace {
@@ -26,7 +27,220 @@ constexpr int kBottomPadding = 4;
 constexpr int kPageButtonWidth = 20;
 constexpr int kPageButtonGap = 4;
 constexpr int kCaretGapPx = 4;
+
+HRESULT MakeBstrVariant(std::wstring_view text, VARIANT* value) noexcept {
+    if (!value) return E_POINTER;
+    ::VariantInit(value);
+    value->vt = VT_BSTR;
+    value->bstrVal = ::SysAllocStringLen(text.data(), gsl::narrow_cast<UINT>(text.size()));
+    return value->bstrVal ? S_OK : E_OUTOFMEMORY;
 }
+
+HRESULT MakeRuntimeId(HWND hwnd, long child_id, SAFEARRAY** out) noexcept {
+    if (!out) return E_POINTER;
+    *out = nullptr;
+    const bool has_child = child_id >= 0;
+    SAFEARRAYBOUND bound{has_child ? 3ul : 2ul, 0};
+    *out = ::SafeArrayCreate(VT_I4, 1, &bound);
+    if (!*out) return E_OUTOFMEMORY;
+    long indices[3]{UiaAppendRuntimeId, gsl::narrow_cast<long>(
+        reinterpret_cast<uintptr_t>(hwnd) & 0x7fffffff), child_id};
+    for (LONG i = 0; i < static_cast<LONG>(bound.cElements); ++i) {
+        LONG index = i;
+        if (FAILED(::SafeArrayPutElement(*out, &index, &indices[i]))) {
+            ::SafeArrayDestroy(*out);
+            *out = nullptr;
+            return E_FAIL;
+        }
+    }
+    return S_OK;
+}
+
+std::wstring_view StripCodeAnnotation(std::wstring_view text) noexcept {
+    if (text.size() < 3 || text.back() != L')') return text;
+    const size_t open = text.rfind(L'(');
+    if (open == std::wstring_view::npos || open == 0) return text;
+    std::wstring_view code = text.substr(open + 1, text.size() - open - 2);
+    if (code.starts_with(L'~')) code.remove_prefix(1);
+    if (code.empty() || code.size() > 4) return text;
+    if (!std::ranges::all_of(code, [](wchar_t ch) noexcept {
+            return ch >= L'a' && ch <= L'y';
+        })) {
+        return text;
+    }
+    return text.substr(0, open);
+}
+}
+
+class CandidateAutomationItem final : public ComObjectBase<
+    CandidateAutomationItem,
+    IRawElementProviderSimple,
+    IRawElementProviderFragment,
+    ISelectionItemProvider> {
+public:
+    CandidateAutomationItem(ComPtr<CandidateUI> owner, size_t page_index) noexcept
+        : owner_(std::move(owner)), page_index_(page_index) {}
+
+    STDMETHODIMP get_ProviderOptions(ProviderOptions* options) noexcept override {
+        if (!options) return E_INVALIDARG;
+        *options = ProviderOptions_ServerSideProvider;
+        return S_OK;
+    }
+    STDMETHODIMP GetPatternProvider(PATTERNID pattern_id, IUnknown** provider) noexcept override {
+        if (!provider) return E_INVALIDARG;
+        *provider = nullptr;
+        if (pattern_id == UIA_SelectionItemPatternId) {
+            return QueryInterface(__uuidof(ISelectionItemProvider),
+                                  reinterpret_cast<void**>(provider));
+        }
+        return S_OK;
+    }
+    STDMETHODIMP GetPropertyValue(PROPERTYID property_id, VARIANT* value) noexcept override {
+        if (!value) return E_INVALIDARG;
+        ::VariantInit(value);
+        switch (property_id) {
+            case UIA_ControlTypePropertyId:
+                value->vt = VT_I4;
+                value->lVal = UIA_ListItemControlTypeId;
+                return S_OK;
+            case UIA_NamePropertyId:
+                return MakeBstrVariant(owner_->AccessibleCandidateName(page_index_), value);
+            case UIA_HelpTextPropertyId:
+                try {
+                    return MakeBstrVariant(
+                        owner_->AccessibleCandidateHelp(page_index_), value);
+                } catch (const std::bad_alloc&) {
+                    return E_OUTOFMEMORY;
+                } catch (...) {
+                    return E_FAIL;
+                }
+            case UIA_IsEnabledPropertyId:
+                value->vt = VT_BOOL;
+                value->boolVal = VARIANT_TRUE;
+                return S_OK;
+            case UIA_IsOffscreenPropertyId: {
+                value->vt = VT_BOOL;
+                const RECT candidate_rect = owner_->CandidateRect(page_index_);
+                value->boolVal =
+                    !owner_->is_shown_ || !owner_->WindowHandle() ||
+                    !::IsWindowVisible(owner_->WindowHandle()) ||
+                    candidate_rect.bottom <= 0 ||
+                    candidate_rect.top >= owner_->CurrentHeight()
+                    ? VARIANT_TRUE : VARIANT_FALSE;
+                return S_OK;
+            }
+            case UIA_SelectionItemIsSelectedPropertyId:
+                value->vt = VT_BOOL;
+                value->boolVal = owner_->SelectedPageIndex() == page_index_
+                    ? VARIANT_TRUE : VARIANT_FALSE;
+                return S_OK;
+            default:
+                return S_OK;
+        }
+    }
+    STDMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** provider) noexcept override {
+        if (!provider) return E_INVALIDARG;
+        *provider = nullptr;
+        return S_OK;
+    }
+    STDMETHODIMP Navigate(NavigateDirection direction, IRawElementProviderFragment** fragment) noexcept override {
+        if (!fragment) return E_INVALIDARG;
+        *fragment = nullptr;
+        if (!owner_) return S_OK;
+        switch (direction) {
+            case NavigateDirection_Parent:
+                return owner_->QueryInterface(__uuidof(IRawElementProviderFragment),
+                                              reinterpret_cast<void**>(fragment));
+            case NavigateDirection_PreviousSibling:
+                return page_index_ > 0
+                    ? owner_->CreateAutomationItem(page_index_ - 1, fragment)
+                    : S_OK;
+            case NavigateDirection_NextSibling:
+                return page_index_ + 1 < owner_->AccessibleCandidateCount()
+                    ? owner_->CreateAutomationItem(page_index_ + 1, fragment)
+                    : S_OK;
+            default:
+                return S_OK;
+        }
+    }
+    STDMETHODIMP GetRuntimeId(SAFEARRAY** runtime_id) noexcept override {
+        if (page_index_ > gsl::narrow_cast<size_t>(std::numeric_limits<long>::max())) {
+            return E_BOUNDS;
+        }
+        return MakeRuntimeId(
+            owner_->WindowHandle(), gsl::narrow_cast<long>(page_index_), runtime_id);
+    }
+    STDMETHODIMP get_BoundingRectangle(UiaRect* bounds) noexcept override {
+        if (!bounds) return E_INVALIDARG;
+        *bounds = {};
+        if (page_index_ >= owner_->AccessibleCandidateCount()) return S_OK;
+        RECT rect = owner_->CandidateRect(page_index_);
+        POINT top_left{rect.left, rect.top};
+        POINT bottom_right{rect.right, rect.bottom};
+        if (owner_->WindowHandle() &&
+            ::ClientToScreen(owner_->WindowHandle(), &top_left) &&
+            ::ClientToScreen(owner_->WindowHandle(), &bottom_right)) {
+            bounds->left = static_cast<double>(top_left.x);
+            bounds->top = static_cast<double>(top_left.y);
+            bounds->width = static_cast<double>(bottom_right.x - top_left.x);
+            bounds->height = static_cast<double>(bottom_right.y - top_left.y);
+        }
+        return S_OK;
+    }
+    STDMETHODIMP GetEmbeddedFragmentRoots(SAFEARRAY** roots) noexcept override {
+        if (!roots) return E_INVALIDARG;
+        *roots = nullptr;
+        return S_OK;
+    }
+    STDMETHODIMP SetFocus() noexcept override {
+        return Select();
+    }
+    STDMETHODIMP get_FragmentRoot(IRawElementProviderFragmentRoot** root) noexcept override {
+        if (!root) return E_INVALIDARG;
+        *root = nullptr;
+        return owner_->QueryInterface(
+            __uuidof(IRawElementProviderFragmentRoot), reinterpret_cast<void**>(root));
+    }
+    STDMETHODIMP Select() noexcept override {
+        if (!owner_ || page_index_ >= owner_->AccessibleCandidateCount()) return E_INVALIDARG;
+        try {
+            if (const auto& callback = owner_->select_callback_; callback) {
+                callback(page_index_);
+            }
+            return S_OK;
+        } catch (const std::bad_alloc&) {
+            QIQI_LOG_ERROR(
+                "CandidateAutomationItem::Select allocation failed (hr=0x{:08x})",
+                gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
+            return E_OUTOFMEMORY;
+        } catch (const std::exception& exception) {
+            QIQI_LOG_ERROR("CandidateAutomationItem::Select failed (error={})",
+                           exception.what());
+            return E_FAIL;
+        } catch (...) {
+            QIQI_LOG_ERROR("CandidateAutomationItem::Select failed with unknown exception");
+            return E_FAIL;
+        }
+    }
+    STDMETHODIMP AddToSelection() noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP RemoveFromSelection() noexcept override { return E_NOTIMPL; }
+    STDMETHODIMP get_IsSelected(BOOL* selected) noexcept override {
+        if (!selected) return E_INVALIDARG;
+        *selected = owner_->SelectedPageIndex() == page_index_;
+        return S_OK;
+    }
+    STDMETHODIMP get_SelectionContainer(
+        IRawElementProviderSimple** container) noexcept override {
+        if (!container) return E_INVALIDARG;
+        *container = nullptr;
+        return owner_->QueryInterface(
+            __uuidof(IRawElementProviderSimple), reinterpret_cast<void**>(container));
+    }
+
+private:
+    ComPtr<CandidateUI> owner_;
+    size_t page_index_;
+};
 
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
     appearance_ = ResolveDisplayAppearance(preferences_, SystemThemeSource::App);
@@ -310,6 +524,186 @@ STDMETHODIMP CandidateUI::GetGUID(GUID* pguid) noexcept {
     return S_OK;
 }
 
+STDMETHODIMP CandidateUI::get_ProviderOptions(ProviderOptions* options) noexcept {
+    if (!options) return E_INVALIDARG;
+    *options = ProviderOptions_ServerSideProvider;
+    return S_OK;
+}
+
+STDMETHODIMP CandidateUI::GetPatternProvider(
+    PATTERNID pattern_id, IUnknown** provider) noexcept {
+    if (!provider) return E_INVALIDARG;
+    *provider = nullptr;
+    if (pattern_id == UIA_SelectionPatternId) {
+        return QueryInterface(__uuidof(ISelectionProvider), reinterpret_cast<void**>(provider));
+    }
+    return S_OK;
+}
+
+STDMETHODIMP CandidateUI::GetPropertyValue(
+    PROPERTYID property_id, VARIANT* value) noexcept {
+    if (!value) return E_INVALIDARG;
+    ::VariantInit(value);
+    switch (property_id) {
+        case UIA_AutomationIdPropertyId:
+            return MakeBstrVariant(L"IME_Candidate_Window", value);
+        case UIA_ControlTypePropertyId:
+            value->vt = VT_I4;
+            value->lVal = UIA_ListControlTypeId;
+            return S_OK;
+        case UIA_NamePropertyId:
+            return MakeBstrVariant(L"IME Candidate Window", value);
+        case UIA_IsEnabledPropertyId:
+            value->vt = VT_BOOL;
+            value->boolVal = VARIANT_TRUE;
+            return S_OK;
+        case UIA_IsOffscreenPropertyId:
+            value->vt = VT_BOOL;
+            value->boolVal =
+                !is_shown_ || !hwnd_ || !::IsWindowVisible(hwnd_.Get())
+                ? VARIANT_TRUE : VARIANT_FALSE;
+            return S_OK;
+        default:
+            return S_OK;
+    }
+}
+
+STDMETHODIMP CandidateUI::get_HostRawElementProvider(
+    IRawElementProviderSimple** provider) noexcept {
+    if (!provider) return E_INVALIDARG;
+    *provider = nullptr;
+    if (!hwnd_) return S_OK;
+    const HRESULT hr = ::UiaHostProviderFromHwnd(hwnd_.Get(), provider);
+    if (FAILED(hr)) {
+        QIQI_LOG_WARN(
+            "CandidateUI::UiaHostProviderFromHwnd failed (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(hr));
+    }
+    return hr;
+}
+
+STDMETHODIMP CandidateUI::Navigate(
+    NavigateDirection direction, IRawElementProviderFragment** fragment) noexcept {
+    if (!fragment) return E_INVALIDARG;
+    *fragment = nullptr;
+    if (direction == NavigateDirection_FirstChild && AccessibleCandidateCount() > 0) {
+        return CreateAutomationItem(0, fragment);
+    }
+    if (direction == NavigateDirection_LastChild && AccessibleCandidateCount() > 0) {
+        return CreateAutomationItem(AccessibleCandidateCount() - 1, fragment);
+    }
+    return S_OK;
+}
+
+STDMETHODIMP CandidateUI::GetRuntimeId(SAFEARRAY** runtime_id) noexcept {
+    return MakeRuntimeId(hwnd_.Get(), -1, runtime_id);
+}
+
+STDMETHODIMP CandidateUI::get_BoundingRectangle(UiaRect* bounds) noexcept {
+    if (!bounds) return E_INVALIDARG;
+    *bounds = {};
+    RECT rect{};
+    if (hwnd_ && ::GetWindowRect(hwnd_.Get(), &rect)) {
+        bounds->left = static_cast<double>(rect.left);
+        bounds->top = static_cast<double>(rect.top);
+        bounds->width = static_cast<double>(rect.right - rect.left);
+        bounds->height = static_cast<double>(rect.bottom - rect.top);
+        return S_OK;
+    }
+    return S_OK;
+}
+
+STDMETHODIMP CandidateUI::GetEmbeddedFragmentRoots(SAFEARRAY** roots) noexcept {
+    if (!roots) return E_INVALIDARG;
+    *roots = nullptr;
+    return S_OK;
+}
+
+STDMETHODIMP CandidateUI::SetFocus() noexcept {
+    return S_OK;
+}
+
+STDMETHODIMP CandidateUI::get_FragmentRoot(
+    IRawElementProviderFragmentRoot** root) noexcept {
+    if (!root) return E_INVALIDARG;
+    *root = nullptr;
+    return QueryInterface(
+        __uuidof(IRawElementProviderFragmentRoot), reinterpret_cast<void**>(root));
+}
+
+STDMETHODIMP CandidateUI::ElementProviderFromPoint(
+    double x, double y, IRawElementProviderFragment** fragment) noexcept {
+    if (!fragment) return E_INVALIDARG;
+    *fragment = nullptr;
+    if (!hwnd_) return S_OK;
+    const POINT point{
+        gsl::narrow_cast<LONG>(x),
+        gsl::narrow_cast<LONG>(y)
+    };
+    POINT client = point;
+    if (!::ScreenToClient(hwnd_.Get(), &client)) return S_OK;
+    for (size_t i = 0; i < AccessibleCandidateCount(); ++i) {
+        const RECT rect = CandidateRect(i);
+        if (::PtInRect(&rect, client)) {
+            return CreateAutomationItem(i, fragment);
+        }
+    }
+    return QueryInterface(
+        __uuidof(IRawElementProviderFragment), reinterpret_cast<void**>(fragment));
+}
+
+STDMETHODIMP CandidateUI::GetFocus(
+    IRawElementProviderFragment** fragment) noexcept {
+    if (!fragment) return E_INVALIDARG;
+    *fragment = nullptr;
+    if (AccessibleCandidateCount() == 0) return S_OK;
+    return CreateAutomationItem(SelectedPageIndex(), fragment);
+}
+
+STDMETHODIMP CandidateUI::GetSelection(SAFEARRAY** selection) noexcept {
+    if (!selection) return E_INVALIDARG;
+    *selection = nullptr;
+    SAFEARRAYBOUND bound{
+        AccessibleCandidateCount() > 0 ? 1ul : 0ul,
+        0
+    };
+    *selection = ::SafeArrayCreate(VT_UNKNOWN, 1, &bound);
+    if (!*selection) return E_OUTOFMEMORY;
+    if (bound.cElements == 0) return S_OK;
+    ComPtr<IRawElementProviderFragment> fragment;
+    ComPtr<IRawElementProviderSimple> selected;
+    const HRESULT hr = CreateAutomationItem(SelectedPageIndex(), fragment.GetAddressOf());
+    if (FAILED(hr) || !fragment || FAILED(fragment.As(&selected)) || !selected) {
+        ::SafeArrayDestroy(*selection);
+        *selection = nullptr;
+        return FAILED(hr) ? hr : E_FAIL;
+    }
+    LONG index = 0;
+    IUnknown* selected_item = selected.Get();
+    const HRESULT put_hr = ::SafeArrayPutElement(
+        *selection, &index, &selected_item);
+    if (FAILED(put_hr)) {
+        ::SafeArrayDestroy(*selection);
+        *selection = nullptr;
+        return put_hr;
+    }
+    return S_OK;
+}
+
+STDMETHODIMP CandidateUI::get_CanSelectMultiple(
+    BOOL* can_select_multiple) noexcept {
+    if (!can_select_multiple) return E_INVALIDARG;
+    *can_select_multiple = FALSE;
+    return S_OK;
+}
+
+STDMETHODIMP CandidateUI::get_IsSelectionRequired(
+    BOOL* selection_required) noexcept {
+    if (!selection_required) return E_INVALIDARG;
+    *selection_required = AccessibleCandidateCount() > 0;
+    return S_OK;
+}
+
 STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
     const auto keep_alive = RetainForWindowOperation();
     const bool blocked = bShow && (!presentation_enabled_ || destroying_window_);
@@ -317,6 +711,10 @@ STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
         show_requested_ = false;
         is_shown_ = FALSE;
         if (hwnd_) {
+            if (accessibility_open_announced_) {
+                accessibility_open_announced_ = false;
+                std::ignore = RaiseAccessibilityEvent(UIA_MenuClosedEventId);
+            }
             ::ShowWindow(hwnd_.Get(), SW_HIDE);
         }
         return S_FALSE;
@@ -331,10 +729,22 @@ STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
                 ::InvalidateRect(hwnd_.Get(), nullptr, FALSE);
             }
             LogPopupVisibility();
+            if (!accessibility_open_announced_) {
+                accessibility_open_announced_ = true;
+                std::ignore = RaiseAccessibilityEvent(UIA_MenuOpenedEventId);
+                if (AccessibleCandidateCount() > 0) {
+                    std::ignore = RaiseAccessibilityEvent(
+                        UIA_SelectionItem_ElementSelectedEventId, SelectedPageIndex());
+                }
+            }
         } else {
             return S_FALSE;
         }
     } else if (hwnd_) {
+        if (accessibility_open_announced_) {
+            accessibility_open_announced_ = false;
+            std::ignore = RaiseAccessibilityEvent(UIA_MenuClosedEventId);
+        }
         ::ShowWindow(hwnd_.Get(), SW_HIDE);
     }
     return S_OK;
@@ -426,6 +836,12 @@ void CandidateUI::SetCandidates(std::wstring code,
                                 size_t page_size,
                                 size_t current_page,
                                 size_t selected_in_page) {
+    const size_t previous_global_selection =
+        current_page_ * page_size_ + selected_in_page_;
+    const bool candidate_tree_changed =
+        all_candidates_ != all_candidates ||
+        page_size_ != (page_size > 0 ? page_size : 5) ||
+        current_page_ != current_page;
     raw_code_ = std::move(code);
     all_candidates_ = std::move(all_candidates);
     page_size_ = page_size > 0 ? page_size : 5;
@@ -435,6 +851,134 @@ void CandidateUI::SetCandidates(std::wstring code,
                      TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
 
     RefreshPopupLayout();
+    if (is_shown_ && hwnd_ && candidate_tree_changed) {
+        std::ignore = RaiseAccessibilityStructureChanged();
+    }
+    if (is_shown_ && hwnd_ && AccessibleCandidateCount() > 0) {
+        const size_t global_selection =
+            current_page_ * page_size_ + selected_in_page_;
+        if (candidate_tree_changed || global_selection != previous_global_selection) {
+            std::ignore = RaiseAccessibilityEvent(
+                UIA_SelectionItem_ElementSelectedEventId, SelectedPageIndex());
+        }
+    }
+}
+
+HRESULT CandidateUI::CreateAutomationItem(
+    size_t page_index, IRawElementProviderFragment** fragment) noexcept {
+    if (!fragment) return E_INVALIDARG;
+    *fragment = nullptr;
+    if (page_index >= AccessibleCandidateCount()) return S_OK;
+    const auto item = new (std::nothrow) CandidateAutomationItem(
+        ComPtr<CandidateUI>(this), page_index);
+    if (!item) return E_OUTOFMEMORY;
+    const HRESULT hr = item->QueryInterface(
+        __uuidof(IRawElementProviderFragment), reinterpret_cast<void**>(fragment));
+    item->Release();
+    return hr;
+}
+
+size_t CandidateUI::SelectedPageIndex() const noexcept {
+    const size_t count = AccessibleCandidateCount();
+    return count > 0 ? std::min(selected_in_page_, count - 1) : 0;
+}
+
+std::wstring_view CandidateUI::AccessibleCandidateName(size_t page_index) const noexcept {
+    const size_t global_index = current_page_ * page_size_ + page_index;
+    if (global_index >= all_candidates_.size()) return {};
+    return StripCodeAnnotation(gsl::at(all_candidates_, global_index));
+}
+
+std::wstring CandidateUI::AccessibleCandidateHelp(size_t page_index) const {
+    const size_t global_index = current_page_ * page_size_ + page_index;
+    if (global_index >= all_candidates_.size()) return {};
+    const std::wstring_view display = gsl::at(all_candidates_, global_index);
+    const std::wstring_view name = StripCodeAnnotation(display);
+    if (name.size() == display.size()) return {};
+    return std::wstring(display.substr(name.size()));
+}
+
+HRESULT CandidateUI::RaiseAccessibilityEvent(
+    EVENTID event_id, size_t page_index) noexcept {
+    try {
+        if (accessibility_event_observer_for_test_) {
+            accessibility_event_observer_for_test_(event_id);
+        }
+    } catch (...) {
+        QIQI_LOG_ERROR(
+            "CandidateUI::RaiseAccessibilityEvent observer failed (event={})", event_id);
+    }
+    if (!hwnd_ || (!is_shown_ && event_id != UIA_MenuClosedEventId)) return S_OK;
+    const bool observe_dispatch = accessibility_dispatch_observer_for_test_ != nullptr;
+    if ((!detail::UiAutomationEventsEnabledForTest() || !::UiaClientsAreListening()) &&
+        !observe_dispatch) {
+        return S_OK;
+    }
+    ComPtr<IRawElementProviderSimple> provider;
+    HRESULT hr = E_FAIL;
+    if (event_id == UIA_SelectionItem_ElementSelectedEventId) {
+        if (page_index >= AccessibleCandidateCount()) return S_OK;
+        ComPtr<IRawElementProviderFragment> item;
+        hr = CreateAutomationItem(page_index, item.GetAddressOf());
+        if (SUCCEEDED(hr) && item) {
+            hr = item.As(&provider);
+        }
+    } else {
+        hr = QueryInterface(
+            __uuidof(IRawElementProviderSimple),
+            reinterpret_cast<void**>(provider.GetAddressOf()));
+    }
+    if (FAILED(hr) || !provider) {
+        QIQI_LOG_WARN(
+            "CandidateUI::RaiseAccessibilityEvent provider failed (event={}, hr=0x{:08x})",
+            event_id, gsl::narrow_cast<unsigned int>(hr));
+        return hr;
+    }
+    try {
+        if (accessibility_dispatch_observer_for_test_) {
+            accessibility_dispatch_observer_for_test_(
+                event_id,
+                provider.Get() == static_cast<IRawElementProviderSimple*>(this));
+        }
+    } catch (...) {
+        QIQI_LOG_ERROR(
+            "CandidateUI::RaiseAccessibilityEvent dispatch observer failed (event={})",
+            event_id);
+    }
+    if (!detail::UiAutomationEventsEnabledForTest() ||
+        !::UiaClientsAreListening()) {
+        return S_OK;
+    }
+    hr = ::UiaRaiseAutomationEvent(provider.Get(), event_id);
+    if (FAILED(hr)) {
+        QIQI_LOG_DEBUG(
+            "CandidateUI::UiaRaiseAutomationEvent failed (event={}, hr=0x{:08x})",
+            event_id, gsl::narrow_cast<unsigned int>(hr));
+    }
+    return hr;
+}
+
+HRESULT CandidateUI::RaiseAccessibilityStructureChanged() noexcept {
+    try {
+        if (accessibility_structure_observer_for_test_) {
+            accessibility_structure_observer_for_test_();
+        }
+    } catch (...) {
+        QIQI_LOG_ERROR(
+            "CandidateUI::RaiseAccessibilityStructureChanged observer failed");
+    }
+    if (!hwnd_ || !is_shown_ || !detail::UiAutomationEventsEnabledForTest() ||
+        !::UiaClientsAreListening()) {
+        return S_OK;
+    }
+    const HRESULT hr = ::UiaRaiseStructureChangedEvent(
+        this, StructureChangeType_ChildrenInvalidated, nullptr, 0);
+    if (FAILED(hr)) {
+        QIQI_LOG_DEBUG(
+            "CandidateUI::UiaRaiseStructureChangedEvent failed (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(hr));
+    }
+    return hr;
 }
 
 void CandidateUI::MoveWindowTo(
@@ -695,6 +1239,10 @@ bool CandidateUI::DestroyPopupWindow() noexcept {
     const auto keep_alive = RetainForWindowOperation();
     destroying_window_ = true;
     const auto finish = gsl::finally([this]() noexcept { destroying_window_ = false; });
+    if (accessibility_open_announced_) {
+        accessibility_open_announced_ = false;
+        std::ignore = RaiseAccessibilityEvent(UIA_MenuClosedEventId);
+    }
     is_shown_ = FALSE;
     show_requested_ = false;
     return DestroyWindowOnOwnerThread(hwnd_, "CandidateUI::DestroyPopupWindow");
@@ -865,8 +1413,17 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     const auto keep_alive = self->RetainForWindowOperation();
 
     switch (msg) {
+        case WM_GETOBJECT:
+            if (lparam == UiaRootObjectId) {
+                return ::UiaReturnRawElementProvider(hwnd, wparam, lparam, self);
+            }
+            return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         case WM_NCDESTROY:
             if (self->hwnd_.Get() == hwnd) {
+                if (self->accessibility_open_announced_) {
+                    self->accessibility_open_announced_ = false;
+                    std::ignore = self->RaiseAccessibilityEvent(UIA_MenuClosedEventId);
+                }
                 std::ignore = self->hwnd_.Detach();
                 self->is_shown_ = FALSE;
                 self->popup_owner_ = nullptr;

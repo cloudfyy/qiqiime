@@ -5,6 +5,7 @@
 #include "common/RAII.h"
 #include "ime/comp/tests.h"
 #include "ime/tsf/test_trace.h"
+#include "ime/ui/candobj.h"
 #include <windows.h>
 #include <objbase.h>
 #include <gsl/gsl>
@@ -230,6 +231,7 @@ int wmain(int argc, wchar_t* argv[]) {
     QIQI_TEST_CHECK(argv != nullptr);
     const std::span<wchar_t* const> args(argv, gsl::narrow_cast<size_t>(argc));
     const HRESULT co_hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    qiqi::SetUiAutomationEventsEnabledForTest(false);
     const auto co_cleanup = gsl::finally([co_hr]() noexcept {
         if (SUCCEEDED(co_hr)) {
             ::CoUninitialize();
