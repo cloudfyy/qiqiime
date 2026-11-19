@@ -210,7 +210,7 @@ void TestFailureDiagnostics() {
 
 void TestDirectoryCleanupRetry() {
     const TestStage stage(__func__);
-    Fixture fixture(L"cleanup-retry");
+    const Fixture fixture(L"cleanup-retry");
     const auto locked_path = fixture.directory / L"held-open";
     ScopedFileHandle locked(::CreateFileW(locked_path.c_str(), GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
