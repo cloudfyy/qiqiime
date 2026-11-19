@@ -609,16 +609,17 @@ status-bar/tooltip skin support require separate design approval.
   AppContainer/restricted hosts, DPI, and supported Windows versions.
   Record real-host results separately from unit tests and category declarations.
 
-- [ ] Harden candidate owned-window handling for missing or stale host HWNDs.
-  The normal `ITfContextView::GetWnd` -> Win32 `::GetFocus()` fallback,
-  root-window ownership, and owner-switch/lifetime tests already exist.
-  Production presentation can still fall back to an unowned popup when no
-  valid root owner is available or the owner is destroyed before creation.
-  Define a safe hide/defer/retry policy instead, preserving composition and
-  explicit diagnostics. Add focused tests for successful-but-null GetWnd,
-  failed GetWnd with null focus, invalid root HWNDs, and owner destruction
-  between lookup and window creation. Do not confuse Win32 `::GetFocus()`
-  (HWND) with `ITfThreadMgr::GetFocus` (document manager).
+- [x] Harden candidate owned-window handling for missing or stale host HWNDs.
+  Production presentation now requires a valid root owner, hides any stale
+  popup, retains the display request and composition, and automatically retries
+  after a later layout update supplies a valid host. A window that becomes
+  invalid between owner lookup and creation is deferred rather than recreated
+  unowned. Diagnostics distinguish missing, invalid, and destroyed owners
+  without recording input text. Focused x64/x86 tests cover successful-but-null
+  and failed `GetWnd` with null Win32 `::GetFocus()`, invalid/stale HWNDs,
+  owner-switch and owner destruction, plus automatic recovery after a valid
+  owner returns. Keep Win32 `::GetFocus()` (HWND) distinct from
+  `ITfThreadMgr::GetFocus` (document manager).
 
 - [x] Implement candidate-window notifications for
   [light-dismiss surfaces](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-candidate-window-interaction-with-light-dismiss-surfaces).

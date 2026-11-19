@@ -548,6 +548,32 @@ void TestCandidateHostOwnership() {
     QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
     QIQI_TEST_CHECK(::GetWindow(ui->WindowHandle(), GW_OWNER) == second.Get());
     QIQI_TEST_CHECK(ui->DestroyPopupWindow() && ::IsWindow(second.Get()) && ::GetFocus() == focus);
+
+    const auto owned = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+    owned->SetCandidates(L"ab", {L"one", L"two"}, 5, 0, 0);
+    owned->MoveWindowTo(caret, nullptr, true);
+    BOOL owned_shown = TRUE;
+    QIQI_TEST_CHECK(owned->Show(TRUE) == S_FALSE && !owned->WindowHandle());
+    QIQI_TEST_CHECK(owned->IsShown(&owned_shown) == S_OK && !owned_shown);
+
+    const ScopedWindow retry_owner(::CreateWindowExW(
+        0, L"STATIC", L"", WS_POPUP, 300, 300, 300, 200,
+        nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+    QIQI_TEST_CHECK(retry_owner);
+    owned->MoveWindowTo(caret, retry_owner.Get(), true);
+    QIQI_TEST_CHECK(owned->WindowHandle() &&
+                    ::GetWindow(owned->WindowHandle(), GW_OWNER) == retry_owner.Get() &&
+                    ::IsWindowVisible(owned->WindowHandle()));
+
+    const HWND stale_owner = retry_owner.Get();
+    ::DestroyWindow(stale_owner);
+    QIQI_TEST_CHECK(!::IsWindow(stale_owner) && !owned->WindowHandle());
+    owned->MoveWindowTo(caret, stale_owner, true);
+    QIQI_TEST_CHECK(!owned->WindowHandle() && owned->IsShown(&owned_shown) == S_OK && !owned_shown);
+    owned->MoveWindowTo(caret, second.Get(), true);
+    QIQI_TEST_CHECK(owned->WindowHandle() &&
+                    ::GetWindow(owned->WindowHandle(), GW_OWNER) == second.Get() &&
+                    ::IsWindowVisible(owned->WindowHandle()));
 }
 
 void TestCandidateLayouts() {

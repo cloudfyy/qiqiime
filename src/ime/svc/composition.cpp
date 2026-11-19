@@ -462,7 +462,7 @@ void QiQiTextService::UpdateCandidateWindowPositionInSession(
             }
             if (!host_window) host_window = ::GetFocus();
             if (!guard.Current()) return;
-            ui->MoveWindowTo(rect, host_window);
+            ui->MoveWindowTo(rect, host_window, true);
         });
 }
 

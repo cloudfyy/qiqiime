@@ -282,6 +282,13 @@ int wmain(int argc, wchar_t* argv[]) {
         std::cout << "[PASS] QiQi candidate layout tests succeeded.\n";
         return 0;
     }
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--candidate-ui-tests") {
+        const qiqi::test::TsfTestTrace trace("candidate-ui");
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        qiqi::test::RunCandidateUITests();
+        std::cout << "[PASS] QiQi candidate UI tests succeeded.\n";
+        return 0;
+    }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--composition-lifecycle-tests") {
         const qiqi::test::TsfTestTrace trace("composition-lifecycle");
         qiqi::test::RunTsfTestStage("trace.failure-reporting", TestTraceFailureReporting);

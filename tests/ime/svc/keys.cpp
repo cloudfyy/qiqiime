@@ -73,6 +73,10 @@ void TestModeSwitchCompositionPolicy(
     });
     std::array<BYTE, 256> clean_keyboard{};
     QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+    const ScopedWindow popup_owner(::CreateWindowExW(
+        0, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400,
+        nullptr, nullptr, g_dll_instance, nullptr));
+    QIQI_TEST_CHECK(popup_owner);
 
     enum class Switch { Shift, PreservedKey, LangBarClick, LangBarMenu, OpenClose, Conversion };
     unsigned int cases = 0;
@@ -87,6 +91,7 @@ void TestModeSwitchCompositionPolicy(
                 const std::wstring expected = commit ? code : L"";
                 const auto queue = deferred ? std::make_shared<MockEditSessionQueue>() : nullptr;
                 auto context = MakeComObject<MockTfContext>(queue);
+                context->view_->hwnd_ = popup_owner.Get();
                 BOOL eaten = FALSE;
                 for (const wchar_t ch : code) {
                     QIQI_TEST_CHECK(service->OnKeyDown(

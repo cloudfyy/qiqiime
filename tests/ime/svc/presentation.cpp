@@ -34,6 +34,11 @@ void RunTsfCandidatePresentationTests(
             const auto context = MakeComObject<MockTfContext>();
             const auto replacement_context = MakeComObject<MockTfContext>();
             const auto replacement = MakeComObject<MockTfThreadMgr>();
+            const ScopedWindow replacement_owner(::CreateWindowExW(
+                0, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400,
+                nullptr, nullptr, g_dll_instance, nullptr));
+            QIQI_TEST_CHECK(replacement_owner);
+            replacement_context->view_->hwnd_ = replacement_owner.Get();
             const DWORD allocated_id = mock_tm->next_ui_element_id_;
             const auto ends_before = mock_tm->end_ui_calls_;
             const auto updates_before = mock_tm->update_ui_calls_;

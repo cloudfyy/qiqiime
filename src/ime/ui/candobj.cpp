@@ -313,20 +313,31 @@ STDMETHODIMP CandidateUI::GetGUID(GUID* pguid) noexcept {
 STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
     const auto keep_alive = RetainForWindowOperation();
     const bool blocked = bShow && (!presentation_enabled_ || destroying_window_);
-    if (blocked) bShow = FALSE;
-    is_shown_ = bShow;
+    if (blocked) {
+        show_requested_ = false;
+        is_shown_ = FALSE;
+        if (hwnd_) {
+            ::ShowWindow(hwnd_.Get(), SW_HIDE);
+        }
+        return S_FALSE;
+    }
+    show_requested_ = bShow != FALSE;
+    is_shown_ = FALSE;
     if (bShow) {
         if (EnsurePopupWindow()) {
+            is_shown_ = TRUE;
             if (!::IsWindowVisible(hwnd_.Get())) {
                 ::ShowWindow(hwnd_.Get(), SW_SHOWNOACTIVATE);
                 ::InvalidateRect(hwnd_.Get(), nullptr, FALSE);
             }
             LogPopupVisibility();
+        } else {
+            return S_FALSE;
         }
     } else if (hwnd_) {
         ::ShowWindow(hwnd_.Get(), SW_HIDE);
     }
-    return blocked ? S_FALSE : S_OK;
+    return S_OK;
 }
 
 STDMETHODIMP CandidateUI::IsShown(BOOL* pbShow) noexcept {
@@ -426,22 +437,42 @@ void CandidateUI::SetCandidates(std::wstring code,
     RefreshPopupLayout();
 }
 
-void CandidateUI::MoveWindowTo(const RECT& text_rect, HWND host_window) {
+void CandidateUI::MoveWindowTo(
+    const RECT& text_rect, HWND host_window, bool require_owned_window) {
     const auto keep_alive = RetainForWindowOperation();
-    const HWND owner = host_window ? ::GetAncestor(host_window, GA_ROOT) : nullptr;
-    if (host_window && !owner) {
-        QIQI_LOG_WARN("CandidateUI::MoveWindowTo host window has no root; using unowned popup");
+    const HWND owner = (host_window && ::IsWindow(host_window))
+        ? ::GetAncestor(host_window, GA_ROOT)
+        : nullptr;
+    if (require_owned_window && (!host_window || !::IsWindow(host_window) || !owner || !::IsWindow(owner))) {
+        QIQI_LOG_WARN(
+            "CandidateUI::MoveWindowTo owner unavailable (require_owned={}, host_valid={}, root_valid={}); presentation deferred",
+            require_owned_window, host_window && ::IsWindow(host_window), owner && ::IsWindow(owner));
+    }
+    require_owned_window_ = require_owned_window;
+    if (require_owned_window && (!owner || !::IsWindow(owner))) {
+        const bool retry = show_requested_;
+        if (hwnd_) {
+            std::ignore = ::ShowWindow(hwnd_.Get(), SW_HIDE);
+        }
+        is_shown_ = FALSE;
+        if (DestroyPopupWindow()) {
+            show_requested_ = retry;
+        }
+        popup_owner_ = nullptr;
+        text_rect_ = text_rect;
+        RefreshPopupLayout();
+        return;
     }
     if (owner != popup_owner_ && hwnd_) {
         // Establish the host relationship at creation, including for immersive hosts.
-        const BOOL was_shown = is_shown_;
+        const bool retry = show_requested_;
         if (!DestroyPopupWindow()) return;
-        is_shown_ = was_shown;
+        show_requested_ = retry;
     }
     popup_owner_ = owner;
     text_rect_ = text_rect;
     RefreshPopupLayout();
-    if (is_shown_ && !hwnd_) {
+    if (show_requested_ && !is_shown_) {
         std::ignore = Show(TRUE);
     }
 }
@@ -567,6 +598,11 @@ void CandidateUI::RefreshPopupLayout(UINT dpi) {
 bool CandidateUI::EnsurePopupWindow() noexcept {
     if (!presentation_enabled_ || destroying_window_) return false;
     if (hwnd_ && ::IsWindow(hwnd_.Get())) {
+        if (require_owned_window_ && (!popup_owner_ || !::IsWindow(popup_owner_))) {
+            QIQI_LOG_WARN(
+                "CandidateUI::EnsurePopupWindow existing popup owner is invalid; presentation deferred");
+            return false;
+        }
         return true;
     }
 
@@ -579,9 +615,14 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
     wc.lpszClassName = kCandidateWndClass;
     ::RegisterClassExW(&wc);
 
+    if (!popup_owner_ && require_owned_window_) {
+        QIQI_LOG_WARN("CandidateUI::EnsurePopupWindow owner missing; presentation deferred");
+        return false;
+    }
     if (popup_owner_ && !::IsWindow(popup_owner_)) {
-        QIQI_LOG_WARN("CandidateUI::EnsurePopupWindow host window was destroyed; using unowned popup");
-        popup_owner_ = nullptr;
+        QIQI_LOG_WARN(
+            "CandidateUI::EnsurePopupWindow owner became invalid before creation; presentation deferred");
+        return false;
     }
     hwnd_.Reset(::CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -655,6 +696,7 @@ bool CandidateUI::DestroyPopupWindow() noexcept {
     destroying_window_ = true;
     const auto finish = gsl::finally([this]() noexcept { destroying_window_ = false; });
     is_shown_ = FALSE;
+    show_requested_ = false;
     return DestroyWindowOnOwnerThread(hwnd_, "CandidateUI::DestroyPopupWindow");
 }
 

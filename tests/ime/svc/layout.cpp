@@ -62,7 +62,7 @@ void TestLayoutFallbackDpiRouting(
             context->view_->text_ext_ = {-1200, -700, -1197, -683};
             BOOL eaten = FALSE;
             QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
-            const auto* const ui = dynamic_cast<const CandidateUI*>(mock_tm->last_ui_element_.Get());
+            auto* const ui = dynamic_cast<CandidateUI*>(mock_tm->last_ui_element_.Get());
             QIQI_TEST_CHECK(ui && ui->WindowHandle() && ::IsWindowVisible(ui->WindowHandle()));
             POINT expected{host_rect.left + test.focus_offset_x, host_rect.top + test.focus_caret_bottom + 4};
             if (source == PositionSource::GuiCaret) {
@@ -356,6 +356,68 @@ void RunTsfLayoutQueryTests(
     TestFirstKeyLayoutRefreshLifecycle(service, mock_tm);
     TestLayoutFallbackDpiRouting(service, mock_tm);
     {
+        const HWND previous_focus = ::GetFocus();
+        ::SetFocus(nullptr);
+        QIQI_TEST_CHECK(::GetFocus() == nullptr);
+        const auto restore_focus = gsl::finally([&]() noexcept {
+            if (previous_focus && ::IsWindow(previous_focus)) {
+                std::ignore = ::SetFocus(previous_focus);
+            }
+        });
+        for (const HRESULT get_wnd_result : {S_OK, E_FAIL}) {
+            const auto context = MakeComObject<MockTfContext>();
+            context->view_->get_wnd_result_ = get_wnd_result;
+            context->view_->hwnd_ = nullptr;
+            BOOL eaten = FALSE;
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+            auto* const ui = dynamic_cast<CandidateUI*>(mock_tm->last_ui_element_.Get());
+            BOOL shown = TRUE;
+            QIQI_TEST_CHECK(ui && !ui->WindowHandle() && ui->IsShown(&shown) == S_OK && !shown);
+            QIQI_TEST_CHECK(context->range_->text_ == L"a");
+
+            const ScopedWindow owner(::CreateWindowExW(
+                0, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400,
+                nullptr, nullptr, g_dll_instance, nullptr));
+            QIQI_TEST_CHECK(owner);
+            context->view_->get_wnd_result_ = S_OK;
+            context->view_->hwnd_ = owner.Get();
+            QIQI_TEST_CHECK(service->OnLayoutChange(
+                context.Get(), TF_LC_CHANGE, context->view_.Get()) == S_OK);
+            QIQI_TEST_CHECK(ui->WindowHandle() &&
+                            ::GetWindow(ui->WindowHandle(), GW_OWNER) == owner.Get() &&
+                            ::IsWindowVisible(ui->WindowHandle()));
+            QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_ESCAPE, 0, &eaten) == S_OK && eaten);
+        }
+    }
+    {
+        const auto context = MakeComObject<MockTfContext>();
+        ScopedWindow stale_owner(::CreateWindowExW(
+            0, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400,
+            nullptr, nullptr, g_dll_instance, nullptr));
+        QIQI_TEST_CHECK(stale_owner);
+        context->view_->hwnd_ = stale_owner.Get();
+        context->view_->get_wnd_callback_ = [&] { stale_owner.Reset(); };
+        BOOL eaten = FALSE;
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
+        auto* const ui = dynamic_cast<CandidateUI*>(mock_tm->last_ui_element_.Get());
+        BOOL shown = TRUE;
+        QIQI_TEST_CHECK(ui && !ui->WindowHandle() && ui->IsShown(&shown) == S_OK && !shown);
+        QIQI_TEST_CHECK(context->range_->text_ == L"a");
+
+        const ScopedWindow replacement(::CreateWindowExW(
+            0, L"STATIC", L"", WS_POPUP, 200, 200, 600, 400,
+            nullptr, nullptr, g_dll_instance, nullptr));
+        QIQI_TEST_CHECK(replacement);
+        context->view_->get_wnd_callback_ = {};
+        context->view_->hwnd_ = replacement.Get();
+        QIQI_TEST_CHECK(service->OnLayoutChange(
+            context.Get(), TF_LC_CHANGE, context->view_.Get()) == S_OK);
+        QIQI_TEST_CHECK(ui->WindowHandle() &&
+                        ::GetWindow(ui->WindowHandle(), GW_OWNER) == replacement.Get() &&
+                        ::IsWindowVisible(ui->WindowHandle()));
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_ESCAPE, 0, &eaten) == S_OK && eaten);
+    }
+    {
         const ScopedWindow first(::CreateWindowExW(
             0, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400, nullptr, nullptr, g_dll_instance, nullptr));
         const ScopedWindow second(::CreateWindowExW(
@@ -371,8 +433,9 @@ void RunTsfLayoutQueryTests(
             context->view_->hwnd_ = edit.Get();
             BOOL eaten = FALSE;
             QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
-            const auto* const ui = dynamic_cast<const CandidateUI*>(mock_tm->last_ui_element_.Get());
+            auto* const ui = dynamic_cast<CandidateUI*>(mock_tm->last_ui_element_.Get());
             QIQI_TEST_CHECK(ui);
+            BOOL shown = TRUE;
             if (show) {
                 QIQI_TEST_CHECK(ui->WindowHandle() && ::GetWindow(ui->WindowHandle(), GW_OWNER) == first.Get());
             } else {
@@ -391,9 +454,13 @@ void RunTsfLayoutQueryTests(
             QIQI_TEST_CHECK(service->OnLayoutChange(context.Get(), TF_LC_CHANGE, notification.Get()) == S_OK);
             if (show) {
                 const HWND focus_window = ::GetFocus();
-                QIQI_TEST_CHECK(ui->WindowHandle() && ::IsWindowVisible(ui->WindowHandle()) &&
-                                ::GetWindow(ui->WindowHandle(), GW_OWNER) ==
-                                    (focus_window ? ::GetAncestor(focus_window, GA_ROOT) : nullptr));
+                if (focus_window) {
+                    QIQI_TEST_CHECK(ui->WindowHandle() && ::IsWindowVisible(ui->WindowHandle()) &&
+                                    ::GetWindow(ui->WindowHandle(), GW_OWNER) ==
+                                        ::GetAncestor(focus_window, GA_ROOT));
+                } else {
+                    QIQI_TEST_CHECK(!ui->WindowHandle() && ui->IsShown(&shown) == S_OK && !shown);
+                }
             } else {
                 QIQI_TEST_CHECK(!ui->WindowHandle() || !::IsWindowVisible(ui->WindowHandle()));
             }
@@ -407,6 +474,11 @@ void RunTsfLayoutQueryTests(
             for (const bool reactivate : {false, true}) {
                 const auto context = MakeComObject<MockTfContext>();
                 const auto replacement = MakeComObject<MockTfContext>();
+                const ScopedWindow replacement_owner(::CreateWindowExW(
+                    0, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400,
+                    nullptr, nullptr, g_dll_instance, nullptr));
+                QIQI_TEST_CHECK(replacement_owner);
+                replacement->view_->hwnd_ = replacement_owner.Get();
                 replacement->view_->text_ext_ = {300, 200, 340, 224};
                 BOOL eaten = FALSE;
                 QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);

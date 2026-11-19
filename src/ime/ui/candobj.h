@@ -72,7 +72,8 @@ public:
                        size_t current_page,
                        size_t selected_in_page);
 
-    void MoveWindowTo(const RECT& text_rect, HWND host_window = nullptr);
+    void MoveWindowTo(
+        const RECT& text_rect, HWND host_window = nullptr, bool require_owned_window = false);
     void SetLayout(CandidateLayout layout);
     void SetDisplayPreferences(DisplayPreferences preferences);
     void SetDisplayPreferences(UiTheme theme, UiTextScale scale, bool easy_reading) {
@@ -144,6 +145,8 @@ private:
     int popup_width_ = kPopupWidth;
     int popup_height_ = kPopupHeight;
     BOOL is_shown_ = FALSE;
+    bool show_requested_ = false;
+    bool require_owned_window_ = false;
     bool presentation_enabled_ = true;
     bool destroying_object_ = false;
     bool destroying_window_ = false;

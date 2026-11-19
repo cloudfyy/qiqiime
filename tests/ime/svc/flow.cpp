@@ -277,7 +277,12 @@ void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only) {
     QIQI_TEST_CHECK(key_sink->OnKeyUp(nullptr, VK_SHIFT, 0, nullptr) == E_INVALIDARG);
     QIQI_TEST_CHECK(key_sink->OnPreservedKey(nullptr, kGuidPreservedKeyToggleMode, nullptr) == E_INVALIDARG);
 
+    const ScopedWindow popup_owner(::CreateWindowExW(
+        0, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400,
+        nullptr, nullptr, g_dll_instance, nullptr));
+    QIQI_TEST_CHECK(popup_owner);
     auto mock_ctx = MakeComObject<MockTfContext>();
+    mock_ctx->view_->hwnd_ = popup_owner.Get();
     BOOL eaten = FALSE;
 
     // Reproduce hosts that omit the test callbacks, including a not-yet-bound context.
@@ -576,6 +581,7 @@ void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only) {
     for (const auto* code : {L"zhello1", L"z"}) {
         QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
         auto click_context = MakeComObject<MockTfContext>();
+        click_context->view_->hwnd_ = popup_owner.Get();
         for (const wchar_t ch : std::wstring(code)) {
             const auto vk = gsl::narrow_cast<uint32_t>(ch >= L'a' && ch <= L'z' ? ch - L'a' + L'A' : ch);
             QIQI_TEST_CHECK(key_sink->OnKeyDown(click_context.Get(), vk, 0, &eaten) == S_OK && eaten);

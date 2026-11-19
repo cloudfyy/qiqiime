@@ -307,6 +307,10 @@ void TestDeactivationWindowLifecycle() {
     });
     std::array<BYTE, 256> clean_keyboard{};
     QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+    const ScopedWindow popup_owner(::CreateWindowExW(
+        0, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400,
+        nullptr, nullptr, g_dll_instance, nullptr));
+    QIQI_TEST_CHECK(popup_owner);
     const auto objects_before = g_com_object_count.load();
     {
         const QiQiConfig saved_config = LoadConfig(g_dll_instance);
@@ -322,6 +326,7 @@ void TestDeactivationWindowLifecycle() {
         QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
         QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
         auto context = MakeComObject<MockTfContext>();
+        context->view_->hwnd_ = popup_owner.Get();
         BOOL eaten = FALSE;
         QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'A', 0, &eaten) == S_OK && eaten);
         auto* ui = dynamic_cast<CandidateUI*>(manager->last_ui_element_.Get());
@@ -374,6 +379,8 @@ void TestDeactivationWindowLifecycle() {
             QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
             auto old_context = MakeComObject<MockTfContext>();
             auto new_context = MakeComObject<MockTfContext>();
+            old_context->view_->hwnd_ = popup_owner.Get();
+            new_context->view_->hwnd_ = popup_owner.Get();
             auto replacement_manager = MakeComObject<MockTfThreadMgr>();
             bool entered = false;
             DWORD stale_id = TF_INVALID_UIELEMENTID;
@@ -407,6 +414,8 @@ void TestDeactivationWindowLifecycle() {
             QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
             auto end_context = MakeComObject<MockTfContext>();
             auto replacement = MakeComObject<MockTfContext>();
+            end_context->view_->hwnd_ = popup_owner.Get();
+            replacement->view_->hwnd_ = popup_owner.Get();
             auto replacement_manager = MakeComObject<MockTfThreadMgr>();
             QIQI_TEST_CHECK(service->OnKeyDown(end_context.Get(), 'F', 0, &eaten) == S_OK && eaten);
             const DWORD ending_id = ui->UiElementId();
@@ -436,6 +445,8 @@ void TestDeactivationWindowLifecycle() {
             QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
             auto positioning = MakeComObject<MockTfContext>();
             auto replacement = MakeComObject<MockTfContext>();
+            positioning->view_->hwnd_ = popup_owner.Get();
+            replacement->view_->hwnd_ = popup_owner.Get();
             QIQI_TEST_CHECK(service->OnKeyDown(positioning.Get(), 'A', 0, &eaten) == S_OK && eaten);
             positioning->view_->text_ext_ = {400, 400, 440, 424};
             RECT replacement_rect{};
@@ -462,6 +473,7 @@ void TestDeactivationWindowLifecycle() {
 
         QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
         auto moving = MakeComObject<MockTfContext>();
+        moving->view_->hwnd_ = popup_owner.Get();
         QIQI_TEST_CHECK(service->OnKeyDown(moving.Get(), 'A', 0, &eaten) == S_OK && eaten);
         RECT before_move{};
         QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &before_move));
@@ -488,20 +500,24 @@ void TestDeactivationWindowLifecycle() {
         QIQI_TEST_CHECK(service->Deactivate() == S_OK);
 
         QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+        QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
         auto view_queue = std::make_shared<MockEditSessionQueue>();
         auto view_context = MakeComObject<MockTfContext>(view_queue);
+        view_context->view_->hwnd_ = popup_owner.Get();
         QIQI_TEST_CHECK(service->OnKeyDown(view_context.Get(), 'A', 0, &eaten) == S_OK && eaten);
         QIQI_TEST_CHECK(view_queue->RunNext() == S_OK);
         RECT default_rect{};
         QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &default_rect));
         const auto default_view_queries = view_context->get_active_view_calls_;
         auto notified_view = MakeComObject<MockTfContextView>();
+        notified_view->hwnd_ = popup_owner.Get();
         notified_view->text_ext_ = {350, 250, 390, 274};
         unsigned int notified_queries = 0;
         notified_view->get_text_ext_callback_ = [&]() { ++notified_queries; };
         QIQI_TEST_CHECK(service->OnLayoutChange(view_context.Get(), TF_LC_CHANGE, notified_view.Get()) == S_OK);
         notified_view.Reset();
-        QIQI_TEST_CHECK(view_queue->PendingCount() == 1 && notified_queries == 0);
+        QIQI_TEST_CHECK(view_queue->PendingCount() == 1);
+        QIQI_TEST_CHECK(notified_queries == 0);
         QIQI_TEST_CHECK(view_queue->RunNext() == S_OK && notified_queries == 1);
         RECT notified_rect{};
         QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &notified_rect));
@@ -521,6 +537,7 @@ void TestDeactivationWindowLifecycle() {
 
         auto queue = std::make_shared<MockEditSessionQueue>();
         auto deferred = MakeComObject<MockTfContext>(queue);
+        deferred->view_->hwnd_ = popup_owner.Get();
         QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
         QIQI_TEST_CHECK(service->OnSetFocus(TRUE) == S_OK);
         QIQI_TEST_CHECK(service->OnKeyDown(deferred.Get(), 'A', 0, &eaten) == S_OK && eaten);
@@ -546,6 +563,7 @@ void TestDeactivationWindowLifecycle() {
         manager->show_own_ui_ = TRUE;
         QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
         auto rejected_end = MakeComObject<MockTfContext>();
+        rejected_end->view_->hwnd_ = popup_owner.Get();
         QIQI_TEST_CHECK(service->OnKeyDown(rejected_end.Get(), 'D', 0, &eaten) == S_OK && eaten);
         const DWORD rejected_id = ui->UiElementId();
         manager->end_ui_result_ = E_FAIL;
@@ -559,6 +577,7 @@ void TestDeactivationWindowLifecycle() {
                 auto ephemeral = MakeComObject<QiQiTextService>(g_dll_instance);
                 auto host = MakeComObject<MockTfThreadMgr>();
                 auto target = MakeComObject<MockTfContext>();
+                target->view_->hwnd_ = popup_owner.Get();
                 QIQI_TEST_CHECK(ephemeral->Activate(host.Get(), 1) == S_OK);
                 QIQI_TEST_CHECK(ephemeral->OnKeyDown(target.Get(), 'A', 0, &eaten) == S_OK && eaten);
                 retained = host->last_ui_element_;
@@ -570,6 +589,7 @@ void TestDeactivationWindowLifecycle() {
             QIQI_TEST_CHECK(retained_ui->IsShown(&shown) == S_OK && !shown);
             // Exercise detached callbacks independently of the inactive-service presentation gate.
             retained_ui->SetPresentationEnabled(true);
+            retained_ui->MoveWindowTo(RECT{100, 100, 102, 124}, popup_owner.Get(), true);
             QIQI_TEST_CHECK(retained_ui->Show(TRUE) == S_OK && retained_ui->WindowHandle());
             ::SendMessageW(retained_ui->WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON,
                            MAKELPARAM(20, retained_ui->CurrentHeight() - 15));
