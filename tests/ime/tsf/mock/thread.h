@@ -192,6 +192,7 @@ public:
     STDMETHODIMP UpdateUIElement(DWORD id) override {
         ++update_ui_calls_;
         updated_ui_ids_.push_back(id);
+        if (update_ui_callback_) update_ui_callback_(id);
         return update_ui_result_;
     }
     STDMETHODIMP EndUIElement(DWORD id) override {
@@ -311,6 +312,7 @@ public:
     DWORD next_ui_element_id_ = 7;
     std::vector<DWORD> ended_ui_ids_;
     std::function<void(DWORD)> begin_ui_callback_;
+    std::function<void(DWORD)> update_ui_callback_;
     std::function<void(DWORD)> end_ui_callback_;
     HRESULT end_ui_result_ = S_OK;
     HRESULT begin_ui_result_ = S_OK;

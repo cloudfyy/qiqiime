@@ -688,14 +688,45 @@ status-bar/tooltip skin support require separate design approval.
   Add property/event regressions using synthetic candidates and manual
   Narrator validation; do not capture real input or candidate text in logs.
 
-- [ ] Complete and validate TSF UILess-mode conformance.
-  The current candidate UI implements basic `ITfCandidateListUIElement`
-  and `ITfUIElementMgr` negotiation, but the full contract still needs review.
-  Cover host-controlled visibility, Begin/Update/End lifecycle, initial and
-  subsequent update flags, and association with the active document.
-  Do not show an unnegotiated popup when UILess forbids it or when the
-  manager/BeginUIElement negotiation fails. Preserve actual HRESULT diagnostics
-  and add focused failure-path/reentrancy tests plus real UILess-host validation.
+- [ ] Audit and complete UI Automation and Narrator support for the standalone
+  tools: Settings, Dictionary Manager, and Log Monitor. Keep native
+  `BUTTON`, `EDIT`, `COMBOBOX`, `ListView`, `TreeView`, tab, toolbar, and dialog
+  providers intact; do not replace a usable Windows provider solely to add
+  presentation metadata. Inventory owner-drawn/custom controls and list rows,
+  including Fluent toggles, combo items, toolbars, inline dictionary editing,
+  splitters, menus, status text, and changing Metrics/log views. Provide stable
+  localized names, roles, values, enabled/checked/selected/offscreen states,
+  item selection and keyboard focus behavior, and required property or structure
+  events where the native provider cannot represent the displayed state.
+  Preserve `WM_GETOBJECT` and subclass forwarding so custom handling does not
+  break the host UIA provider. Add synthetic-data UIA regressions for x64/x86
+  across language, theme/high contrast, DPI/text scaling, dynamic recreation,
+  empty/error states, paging/filtering, and focus changes. Validate the resulting
+  trees and announcements with Inspect/Accessibility Insights and real
+  Narrator; do not log user dictionary entries, log messages, paths, clipboard
+  content, or other private tool data. The candidate-window provider is not a
+  substitute for this standalone-tool work.
+
+- [x] Complete and validate TSF UILess-mode conformance.
+  Candidate UI now publishes the active `ITfDocumentMgr`; the first update
+  reports all candidate fields and subsequent updates report only changed
+  document/count/string/selection/page flags. Empty lists return `S_FALSE` from
+  `GetSelection`. The host's `pbShow` result controls native visibility: a false
+  result remains hidden across updates and receives the required initial
+  `UpdateUIElement`, while own-UI approval follows the ordinary popup path.
+  Manager queries, `BeginUIElement` failures and invalid IDs cannot fall back
+  to an unnegotiated popup. Begin/Update/End preserve actual HRESULTs, stale
+  callback guards and reentrant document ownership; End clears the association
+  only if no replacement presentation has begun. Failed retirement keeps its
+  exact manager/ID and old snapshot as pending teardown, blocks replacement
+  Begin, and is retried until End succeeds rather than abandoning the
+  registration. Mock regressions cover manager/Begin/update/end failures,
+  invalid IDs, host hide/reshow, exact update flags, manager replacement and
+  stale/reentrant compensation. A native TSF test activates a real
+  `ITfThreadMgr2` UILess thread and verifies `ITfUIElementMgr`/Sink IDs, all-first
+  flags, subsequent flags, document identity, hidden visibility and lifecycle
+  end on x64/x86. External full-screen hosts may still need separate rendering
+  validation, but the Windows UILess contract is no longer backed only by mocks.
 
 - [ ] Implement and validate the Windows IME search-integration APIs.
   Neither `ITfFnSearchCandidateProvider` nor
@@ -712,7 +743,16 @@ status-bar/tooltip skin support require separate design approval.
 
 - [ ] Add automated conformance tests for
   [Microsoft's IME icon requirements](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-icons).
-  Cover both brand and mode icons, not only the current theme assets:
+  Partial automated coverage already exists:
+  [icons.ps1](../tests/ime/icons.ps1) is registered as
+  `QiQiImeIconAssetsTest`, and `TestImeBrandIcon` plus
+  `TestTaskbarThemeIcons` validate the resources/DLL-returned icons in
+  [ui_langbar_menu.cpp](../tests/ime/ui/ui_langbar_menu.cpp). Current coverage
+  includes 16/20/24/32/40/48px and larger frames, 32-bit color, alpha and
+  transparent margins, black/white theme assets, identical alpha geometry,
+  embedded DLL brand resources, and dynamically returned taskbar mode icons.
+  Still complete the following exact conformance checks rather than treating
+  those baseline tests as certification:
   - Require ICO frames for at least 16, 20, 24, 32, 40, and 48px; every
     supplied resolution must be 32-bit with an alpha channel.
   - Require black/white artwork, permitting neutral grayscale antialiasing
@@ -726,6 +766,14 @@ status-bar/tooltip skin support require separate design approval.
     the required output shape or silently accept theme-aware deviations.
   - Check source ICOs and the icons actually embedded/returned by the IME
     DLL on x64/x86. Keep standalone tool icons outside these IME-only rules.
+  The current mode icon generator returns a theme-colored glyph without the
+  required 1px black 50%-opacity outline, so it does not yet match the written
+  mode-icon shape contract. Confirm whether to keep the intentional taskbar
+  light/dark visibility behavior or implement the specified outline, then
+  update the generator and tests together. Also add exact white-box/black-glyph,
+  1px black 50%-opacity border, rounded upper-left “new” variant and clipping
+  geometry checks; source/DLL existence and visibility counts alone are not
+  sufficient.
 
 - [x] Add standalone configuration JSON export/import.
   Available on the existing Dictionary settings page, with an independent modal

@@ -54,6 +54,9 @@ public:
 
     static constexpr int kPopupWidth = 360;
     static constexpr int kPopupHeight = 64;
+    static constexpr DWORD kAllCandidateUpdateFlags =
+        TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION |
+        TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
 
     explicit CandidateUI(HINSTANCE instance) noexcept;
     ~CandidateUI() noexcept;
@@ -109,7 +112,8 @@ public:
                        std::vector<std::wstring> all_candidates,
                        size_t page_size,
                        size_t current_page,
-                       size_t selected_in_page);
+                       size_t selected_in_page,
+                       ITfDocumentMgr* document_manager = nullptr);
 
     void MoveWindowTo(
         const RECT& text_rect, HWND host_window = nullptr, bool require_owned_window = false);
@@ -137,7 +141,43 @@ public:
     HWND WindowHandle() const noexcept { return hwnd_.Get(); }
 
     DWORD UiElementId() const noexcept { return ui_element_id_; }
-    void SetUiElementId(DWORD id) noexcept { ui_element_id_ = id; }
+    void SetUiElementId(
+        DWORD id, ITfUIElementMgr* manager = nullptr) noexcept {
+        ui_element_id_ = id;
+        ui_element_manager_ = manager;
+        ++ui_element_id_revision_;
+    }
+    uint64_t UiElementIdRevision() const noexcept { return ui_element_id_revision_; }
+    const ComPtr<ITfUIElementMgr>& UiElementManager() const noexcept {
+        return ui_element_manager_;
+    }
+    void QueueUiElementRetirement(DWORD id, ITfUIElementMgr* manager);
+    bool HasPendingUiElementRetirements() const noexcept {
+        return !ui_element_retirements_.empty();
+    }
+    HRESULT RetryUiElementRetirements() noexcept;
+    void ClearUiElementDocument() noexcept { document_manager_.Reset(); }
+    bool TryBeginUiElementRegistration() noexcept {
+        if (ui_element_registration_in_progress_) return false;
+        ui_element_registration_in_progress_ = true;
+        return true;
+    }
+    void EndUiElementRegistration() noexcept {
+        ui_element_registration_in_progress_ = false;
+    }
+    bool IsUiElementRegistrationInProgress() const noexcept {
+        return ui_element_registration_in_progress_;
+    }
+    uint64_t UiElementUpdateRevision() const noexcept { return ui_element_update_revision_; }
+    void PrepareUiElementRegistrationUpdate() noexcept {
+        if (updated_flags_ != kAllCandidateUpdateFlags) {
+            updated_flags_ = kAllCandidateUpdateFlags;
+            ++ui_element_update_revision_;
+        }
+    }
+    void AcknowledgeUiElementUpdate(uint64_t revision) noexcept {
+        if (revision == ui_element_update_revision_) updated_flags_ = 0;
+    }
     bool IsDirectWriteActive() const noexcept { return dwrite_text_format_.IsValid() && d2d_dc_target_.IsValid(); }
     void DisableDirect2DForTest() noexcept { d2d_dc_target_.Reset(); }
     void SetAccessibilityEventObserverForTest(std::function<void(EVENTID)> observer) noexcept {
@@ -210,6 +250,16 @@ private:
     bool destroying_window_ = false;
     HWND popup_owner_ = nullptr; // Borrowed; only hwnd_ owns a window.
     DWORD ui_element_id_ = TF_INVALID_UIELEMENTID;
+    ComPtr<ITfDocumentMgr> document_manager_;
+    ComPtr<ITfUIElementMgr> ui_element_manager_;
+    struct UiElementRetirement {
+        DWORD id = TF_INVALID_UIELEMENTID;
+        ComPtr<ITfUIElementMgr> manager;
+    };
+    std::vector<UiElementRetirement> ui_element_retirements_;
+    uint64_t ui_element_id_revision_ = 0;
+    bool ui_element_registration_in_progress_ = false;
+    uint64_t ui_element_update_revision_ = 0;
     DWORD updated_flags_ = TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION |
                            TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
 

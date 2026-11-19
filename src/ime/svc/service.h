@@ -146,6 +146,12 @@ private:
         GUID guid{};
         TF_PRESERVEDKEY key{};
     };
+    struct CandidateUiRequest {
+        bool end = false;
+        bool end_retry_attempted = false;
+        KeyProcessResult snapshot;
+        EditSessionTicket ticket{};
+    };
 
     bool InitThreadMgrEventSink() noexcept;
     bool InitKeyEventSink();
@@ -244,6 +250,7 @@ private:
 
     void BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot);
     void EndCandidateUI();
+    void ProcessCandidateUiRequest(CandidateUiRequest request);
 
     const uint64_t service_log_id_;
     ComPtr<ITfThreadMgr> thread_mgr_;
@@ -286,6 +293,8 @@ private:
 
     CompositionLifecycleState composition_lifecycle_;
     ComPtr<CandidateUI> candidate_ui_;
+    bool candidate_ui_operation_in_progress_ = false;
+    std::optional<CandidateUiRequest> pending_candidate_ui_request_;
     ComPtr<LangBarButton> langbar_btn_;
     std::unique_ptr<StatusBarUI> status_bar_;
     QiQiConfig config_{};

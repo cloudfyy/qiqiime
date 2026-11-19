@@ -833,6 +833,35 @@ a positioning reference, not a replacement lifecycle policy.
 The service/UI code remains responsible for moving the actual window.
 See [position diagnostics](log.md#candidate-positioning) for real-host analysis.
 
+**TSF UILess candidate presentation:**
+
+The candidate element is associated with the composition's active
+`ITfDocumentMgr` before `BeginUIElement`. Its first update publishes
+`TF_CLUIE_DOCUMENTMGR`, count, selection, strings, page indices, and current
+page; later updates publish only properties that changed. Empty lists report
+`S_FALSE` from `GetSelection`, not a fabricated index.
+
+The host's `pbShow` decision is authoritative. A false result hides the native
+popup and causes the initial `UpdateUIElement`; later visible state remains
+under host control, including after candidate changes. A missing or failed
+`ITfUIElementMgr`, failed `BeginUIElement`, or invalid element ID hides the UI
+and does not attempt an unnegotiated popup. Existing IDs are retained across
+subsequent updates, while `EndUIElement` hides the native UI, publishes the
+end lifecycle, and releases the document association unless a reentrant
+presentation has already begun. If retirement fails, the exact manager/element
+pair and old candidate/document snapshot remain owned as pending teardown;
+future presentation or End operations retry that pair and do not begin a
+replacement registration until it succeeds.
+
+Native TSF regressions activate an actual `ITfThreadMgr2` with UILess-only
+activation, advise an `ITfUIElementSink`, and verify the initial update,
+subsequent flags, document identity, hidden state, and Begin/Update/End IDs.
+Mock tests additionally cover manager failure, invalid IDs, stale callbacks,
+host visibility control, failed retirement during manager replacement, stale
+Begin, revision mismatch, and reentrant end handoff. This is conformance
+evidence for the Windows TSF contract, not a claim that every external
+full-screen host implements the same rendering policy.
+
 **Native candidate popup light-dismiss notifications:**
 
 The popup reports actual visibility and geometry transitions through

@@ -771,6 +771,11 @@ STDMETHODIMP CandidateUI::GetDocumentMgr(ITfDocumentMgr** ppdim) noexcept {
         return E_INVALIDARG;
     }
     *ppdim = nullptr;
+    if (!document_manager_) {
+        return E_FAIL;
+    }
+    *ppdim = document_manager_.Get();
+    (*ppdim)->AddRef();
     return S_OK;
 }
 
@@ -786,8 +791,11 @@ STDMETHODIMP CandidateUI::GetSelection(UINT* puIndex) noexcept {
     if (!puIndex) {
         return E_INVALIDARG;
     }
+    if (all_candidates_.empty()) {
+        return S_FALSE;
+    }
     const size_t global_idx = current_page_ * page_size_ + selected_in_page_;
-    *puIndex = gsl::narrow_cast<UINT>(std::min(global_idx, all_candidates_.empty() ? 0 : all_candidates_.size() - 1));
+    *puIndex = gsl::narrow_cast<UINT>(std::min(global_idx, all_candidates_.size() - 1));
     return S_OK;
 }
 
@@ -831,33 +839,87 @@ STDMETHODIMP CandidateUI::GetCurrentPage(UINT* puPage) noexcept {
     return S_OK;
 }
 
+void CandidateUI::QueueUiElementRetirement(DWORD id, ITfUIElementMgr* manager) {
+    if (id == TF_INVALID_UIELEMENTID || !manager) return;
+    const auto found = std::ranges::find_if(
+        ui_element_retirements_, [id, manager](const UiElementRetirement& retirement) noexcept {
+            return retirement.id == id && retirement.manager.Get() == manager;
+        });
+    if (found != ui_element_retirements_.end()) return;
+    ui_element_retirements_.push_back(
+        UiElementRetirement{.id = id, .manager = ComPtr<ITfUIElementMgr>{manager}});
+}
+
+HRESULT CandidateUI::RetryUiElementRetirements() noexcept {
+    while (!ui_element_retirements_.empty()) {
+        const UiElementRetirement retirement = ui_element_retirements_.front();
+        const HRESULT hr = retirement.manager->EndUIElement(retirement.id);
+        if (!log::CheckHResult(
+                hr, "ITfUIElementMgr::EndUIElement(pending-retirement)")) {
+            return hr;
+        }
+        ui_element_retirements_.erase(ui_element_retirements_.begin());
+    }
+    return S_OK;
+}
+
 void CandidateUI::SetCandidates(std::wstring code,
                                 std::vector<std::wstring> all_candidates,
                                 size_t page_size,
                                 size_t current_page,
-                                size_t selected_in_page) {
+                                size_t selected_in_page,
+                                ITfDocumentMgr* document_manager) {
+    const size_t effective_page_size = page_size > 0 ? page_size : 5;
+    const size_t old_page_count = ComputeTotalPages(all_candidates_.size(), page_size_);
+    const size_t new_page_count = ComputeTotalPages(all_candidates.size(), effective_page_size);
     const size_t previous_global_selection =
         current_page_ * page_size_ + selected_in_page_;
+    const size_t new_global_selection =
+        current_page * effective_page_size + selected_in_page;
+    const bool previous_had_selection = !all_candidates_.empty();
+    const bool new_had_selection = !all_candidates.empty();
     const bool candidate_tree_changed =
         all_candidates_ != all_candidates ||
-        page_size_ != (page_size > 0 ? page_size : 5) ||
+        page_size_ != effective_page_size ||
         current_page_ != current_page;
+    const bool document_changed = document_manager_.Get() != document_manager;
+    const bool count_changed = all_candidates_.size() != all_candidates.size();
+    const bool strings_changed = all_candidates_ != all_candidates;
+    const bool page_index_changed =
+        page_size_ != effective_page_size || old_page_count != new_page_count;
+    const bool page_changed = current_page_ != current_page;
+    const bool selection_changed =
+        previous_had_selection != new_had_selection ||
+        (new_had_selection &&
+         std::min(previous_global_selection, all_candidates_.empty()
+             ? 0 : all_candidates_.size() - 1) !=
+         std::min(new_global_selection, all_candidates.empty()
+             ? 0 : all_candidates.size() - 1));
     raw_code_ = std::move(code);
     all_candidates_ = std::move(all_candidates);
-    page_size_ = page_size > 0 ? page_size : 5;
+    page_size_ = effective_page_size;
     current_page_ = current_page;
     selected_in_page_ = selected_in_page;
-    updated_flags_ = TF_CLUIE_COUNT | TF_CLUIE_SELECTION | TF_CLUIE_STRING |
-                     TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
+    document_manager_ = document_manager;
+
+    if (ui_element_id_ == TF_INVALID_UIELEMENTID) {
+        updated_flags_ = kAllCandidateUpdateFlags;
+    } else {
+        if (document_changed) updated_flags_ |= TF_CLUIE_DOCUMENTMGR;
+        if (count_changed) updated_flags_ |= TF_CLUIE_COUNT | TF_CLUIE_PAGEINDEX;
+        if (selection_changed) updated_flags_ |= TF_CLUIE_SELECTION;
+        if (strings_changed) updated_flags_ |= TF_CLUIE_STRING;
+        if (page_index_changed) updated_flags_ |= TF_CLUIE_PAGEINDEX;
+        if (page_changed) updated_flags_ |= TF_CLUIE_CURRENTPAGE;
+    }
+    if (updated_flags_ != 0) ++ui_element_update_revision_;
 
     RefreshPopupLayout();
     if (is_shown_ && hwnd_ && candidate_tree_changed) {
         std::ignore = RaiseAccessibilityStructureChanged();
     }
     if (is_shown_ && hwnd_ && AccessibleCandidateCount() > 0) {
-        const size_t global_selection =
-            current_page_ * page_size_ + selected_in_page_;
-        if (candidate_tree_changed || global_selection != previous_global_selection) {
+        if (candidate_tree_changed || selection_changed) {
             std::ignore = RaiseAccessibilityEvent(
                 UIA_SelectionItem_ElementSelectedEventId, SelectedPageIndex());
         }

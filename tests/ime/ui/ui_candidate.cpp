@@ -165,7 +165,7 @@ void TestCandidateLightDismissEvents() {
         KeyProcessResult snapshot;
         snapshot.composition_text = L"ab";
         snapshot.all_display_candidates = {L"One", L"Two"};
-        PresentCompositionCandidates(*uiless.Get(), flags, snapshot, EditSessionEpoch{1, 1},
+        PresentCompositionCandidates(*uiless.Get(), flags, snapshot, nullptr, EditSessionEpoch{1, 1},
             1, GUID_NULL, [&]() { return manager.Get(); }, []() { return true; });
         QIQI_TEST_CHECK(manager->begin_ui_calls_ == 1 && !uiless->WindowHandle());
         const ComPtr<ITfThreadMgr> thread_manager = manager;
@@ -710,7 +710,7 @@ void TestCandidateUI() {
 
     QIQI_TEST_CHECK(ui->GetDocumentMgr(nullptr) == E_INVALIDARG);
     ITfDocumentMgr* doc_mgr = nullptr;
-    QIQI_TEST_CHECK(SUCCEEDED(ui->GetDocumentMgr(&doc_mgr)) && doc_mgr == nullptr);
+    QIQI_TEST_CHECK(ui->GetDocumentMgr(&doc_mgr) == E_FAIL && doc_mgr == nullptr);
 
     QIQI_TEST_CHECK(ui->IsShown(nullptr) == E_INVALIDARG);
     QIQI_TEST_CHECK(ui->GetCount(nullptr) == E_INVALIDARG);
@@ -724,7 +724,7 @@ void TestCandidateUI() {
     UINT count = 99;
     QIQI_TEST_CHECK(SUCCEEDED(ui->GetCount(&count)) && count == 0);
     UINT sel = 99;
-    QIQI_TEST_CHECK(SUCCEEDED(ui->GetSelection(&sel)) && sel == 0);
+    QIQI_TEST_CHECK(ui->GetSelection(&sel) == S_FALSE && sel == 99);
     UINT page_cnt = 99;
     QIQI_TEST_CHECK(SUCCEEDED(ui->GetPageIndex(nullptr, 0, &page_cnt)) && page_cnt == 0);
     ScopedBstr str;
@@ -1019,6 +1019,65 @@ void TestCandidateAccessibility() {
     QIQI_TEST_CHECK(events.size() == 1 && events.front() == UIA_MenuClosedEventId);
 }
 
+void TestCandidateUilessContract() {
+    const TsfTestCaseTrace trace(__func__);
+    auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+    const auto document = MakeComObject<MockTfDocumentMgr>();
+    const auto replacement_document = MakeComObject<MockTfDocumentMgr>();
+    const std::vector<std::wstring> candidates{L"一", L"二", L"三"};
+
+    ui->SetCandidates(L"ab", candidates, 2, 0, 0, document.Get());
+    DWORD flags = 0;
+    QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
+                    flags == (TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT |
+                              TF_CLUIE_SELECTION | TF_CLUIE_STRING |
+                              TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE));
+    ComPtr<ITfDocumentMgr> returned;
+    QIQI_TEST_CHECK(ui->GetDocumentMgr(returned.GetAddressOf()) == S_OK &&
+                    returned.Get() == document.Get());
+    const auto acknowledge = [&]() noexcept {
+        ui->AcknowledgeUiElementUpdate(ui->UiElementUpdateRevision());
+    };
+
+    ui->SetUiElementId(41);
+    acknowledge();
+    ui->SetCandidates(L"ab", candidates, 2, 0, 0, document.Get());
+    QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK && flags == 0);
+    ui->SetCandidates(L"ab", candidates, 2, 0, 1, document.Get());
+    QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
+                    flags == TF_CLUIE_SELECTION);
+    acknowledge();
+    ui->SetCandidates(L"ab", candidates, 2, 1, 0, document.Get());
+    QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
+                    flags == (TF_CLUIE_SELECTION | TF_CLUIE_CURRENTPAGE));
+    acknowledge();
+    ui->SetCandidates(
+        L"ab", {L"一", L"二", L"三", L"四"}, 2, 1, 0, document.Get());
+    QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
+                    flags == (TF_CLUIE_COUNT | TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX));
+    acknowledge();
+    ui->SetCandidates(
+        L"ab", {L"一", L"二", L"三", L"四"}, 2, 1, 0, replacement_document.Get());
+    QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
+                    flags == TF_CLUIE_DOCUMENTMGR);
+    QIQI_TEST_CHECK(ui->GetDocumentMgr(returned.ReleaseAndGetAddressOf()) == S_OK &&
+                    returned.Get() == replacement_document.Get());
+    acknowledge();
+
+    ui->ClearUiElementDocument();
+    QIQI_TEST_CHECK(ui->GetDocumentMgr(returned.ReleaseAndGetAddressOf()) == E_FAIL &&
+                    !returned);
+    ui->SetCandidates(L"z", {}, 5, 0, 0, replacement_document.Get());
+    QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
+                    (flags & TF_CLUIE_SELECTION) != 0);
+    UINT selection = 99;
+    QIQI_TEST_CHECK(ui->GetSelection(&selection) == S_FALSE && selection == 99);
+    acknowledge();
+    ui->SetCandidates(L"z", {L"字"}, 5, 0, 0, replacement_document.Get());
+    QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
+                    (flags & TF_CLUIE_SELECTION) != 0);
+}
+
 } // namespace
 
 void RunCandidateUITests() {
@@ -1032,6 +1091,7 @@ void RunCandidateUITests() {
     TestCandidateDisplayPreferences();
     TestCandidateConstrainedViewport();
     TestCandidateAccessibility();
+    TestCandidateUilessContract();
 }
 
 } // namespace qiqi::test

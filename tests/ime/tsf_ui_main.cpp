@@ -19,6 +19,7 @@
 
 namespace qiqi::test {
 void RunTsfCandidateLayoutTests();
+void RunTsfNativeUilessHostTests();
 void RunRestrictedInputContractTests();
 void RunRestrictedInputDiagnostics();
 int RunFocusMetricsEtwTest();
@@ -289,6 +290,13 @@ int wmain(int argc, wchar_t* argv[]) {
         QIQI_TEST_CHECK(SUCCEEDED(co_hr));
         qiqi::test::RunCandidateUITests();
         std::cout << "[PASS] QiQi candidate UI tests succeeded.\n";
+        return 0;
+    }
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--uiless-tests") {
+        const qiqi::test::TsfTestTrace trace("uiless");
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        qiqi::test::RunTsfNativeUilessHostTests();
+        std::cout << "[PASS] QiQi native TSF UILess tests succeeded.\n";
         return 0;
     }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--composition-lifecycle-tests") {

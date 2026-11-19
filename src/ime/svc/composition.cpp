@@ -471,19 +471,58 @@ void QiQiTextService::BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot)
     EnterCompositionCandidatePresentation(
         candidate_ui_.Get(), thread_mgr_.Get(), composition_lifecycle_,
         [this, &snapshot](EditSessionTicket ticket) {
-            PresentCompositionCandidates(
-                *candidate_ui_.Get(), activate_flags_, snapshot, ticket.epoch, service_log_id_, current_lifecycle_activity_,
-                [this]() noexcept { return thread_mgr_.Get(); },
-                [this, ticket]() noexcept { return IsEditSessionCurrent(ticket); });
+            ProcessCandidateUiRequest(CandidateUiRequest{
+                .end = false,
+                .snapshot = snapshot,
+                .ticket = ticket,
+            });
         });
 }
 
 void QiQiTextService::EndCandidateUI() {
-    initial_layout_key_release_key_ = 0;
-    if (!candidate_ui_) {
+    ProcessCandidateUiRequest(CandidateUiRequest{.end = true});
+}
+
+void QiQiTextService::ProcessCandidateUiRequest(CandidateUiRequest request) {
+    if (candidate_ui_operation_in_progress_) {
+        pending_candidate_ui_request_ = std::move(request);
         return;
     }
-    EndCompositionCandidatePresentation(*candidate_ui_.Get(), thread_mgr_, service_log_id_, current_lifecycle_activity_);
+    for (;;) {
+        {
+            candidate_ui_operation_in_progress_ = true;
+            const auto finish_operation = gsl::finally([this]() noexcept {
+                candidate_ui_operation_in_progress_ = false;
+            });
+            if (request.end) {
+                initial_layout_key_release_key_ = 0;
+                if (candidate_ui_) {
+                    const HRESULT end_hr = EndCompositionCandidatePresentation(
+                        *candidate_ui_.Get(), thread_mgr_, service_log_id_,
+                        current_lifecycle_activity_);
+                    if (FAILED(end_hr) && !pending_candidate_ui_request_) {
+                        if (!request.end_retry_attempted) {
+                            request.end_retry_attempted = true;
+                            pending_candidate_ui_request_ = std::move(request);
+                        }
+                    }
+                }
+            } else if (candidate_ui_ && thread_mgr_ &&
+                       IsEditSessionCurrent(request.ticket)) {
+                PresentCompositionCandidates(
+                    *candidate_ui_.Get(), activate_flags_, request.snapshot,
+                    composition_lifecycle_.Document().Get(), request.ticket.epoch,
+                    service_log_id_, current_lifecycle_activity_,
+                    [this]() noexcept { return thread_mgr_.Get(); },
+                    [this, ticket = request.ticket]() noexcept {
+                        return IsEditSessionCurrent(ticket);
+                    });
+            }
+        }
+        if (!pending_candidate_ui_request_) return;
+        request = std::move(*pending_candidate_ui_request_);
+        pending_candidate_ui_request_.reset();
+    }
 }
 
 } // namespace qiqi

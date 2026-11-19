@@ -6,6 +6,7 @@
 #include "ime/tsf/mocks.h"
 #include "ime/svc/service.h"
 #include "ime/svc/lifecycle.h"
+#include "ime/comp/presentation.h"
 #include "common/guids.h"
 #include "ime/tsf/editsession.h"
 #include <cstdint>
@@ -58,6 +59,70 @@ public:
     unsigned int uninits = 0;
 private:
     const gsl::not_null<QiQiTextService*> service_;
+};
+
+class NativeUiElementSink final : public ComObjectBase<NativeUiElementSink, ITfUIElementSink> {
+public:
+    explicit NativeUiElementSink(ComPtr<ITfUIElementMgr> manager) noexcept
+        : manager_(std::move(manager)) {}
+
+    STDMETHODIMP BeginUIElement(DWORD element_id, BOOL* show) noexcept override {
+        ++begins;
+        begin_id = element_id;
+        if (show) *show = FALSE;
+        return S_OK;
+    }
+
+    STDMETHODIMP UpdateUIElement(DWORD element_id) override {
+        ++updates;
+        update_ids.push_back(element_id);
+        if (!manager_) return E_UNEXPECTED;
+        ComPtr<ITfUIElement> element;
+        inspection_hr = manager_->GetUIElement(element_id, &element);
+        if (FAILED(inspection_hr) || !element) return S_OK;
+        ComPtr<ITfCandidateListUIElement> candidates;
+        inspection_hr = element.As(&candidates);
+        if (FAILED(inspection_hr) || !candidates) return S_OK;
+        if (updates == 1) {
+            inspection_hr = candidates->GetUpdatedFlags(&initial_flags);
+        } else {
+            inspection_hr = candidates->GetUpdatedFlags(&subsequent_flags);
+        }
+        if (FAILED(inspection_hr)) return S_OK;
+        if (FAILED(candidates->GetDocumentMgr(document.ReleaseAndGetAddressOf()))) return S_OK;
+        UINT count = 0;
+        if (SUCCEEDED(candidates->GetCount(&count))) candidate_count = count;
+        UINT selection = 0;
+        selection_hr = candidates->GetSelection(&selection);
+        if (selection_hr == S_OK) selected_index = selection;
+        BOOL shown = TRUE;
+        if (SUCCEEDED(element->IsShown(&shown))) is_shown = shown != FALSE;
+        return S_OK;
+    }
+
+    STDMETHODIMP EndUIElement(DWORD element_id) noexcept override {
+        ++ends;
+        end_id = element_id;
+        return S_OK;
+    }
+
+    ComPtr<ITfDocumentMgr> document;
+    unsigned int begins = 0;
+    unsigned int updates = 0;
+    unsigned int ends = 0;
+    DWORD begin_id = TF_INVALID_UIELEMENTID;
+    DWORD end_id = TF_INVALID_UIELEMENTID;
+    DWORD initial_flags = 0;
+    DWORD subsequent_flags = 0;
+    UINT candidate_count = 0;
+    UINT selected_index = 0;
+    HRESULT inspection_hr = S_OK;
+    HRESULT selection_hr = E_FAIL;
+    bool is_shown = true;
+    std::vector<DWORD> update_ids;
+
+private:
+    ComPtr<ITfUIElementMgr> manager_;
 };
 
 NativeTsfState ReadNativeTsfStateInSession(gsl::not_null<ITfContext*> context, TfEditCookie ec) {
@@ -157,6 +222,79 @@ NativeTsfState WaitForNativeTsfState(gsl::not_null<ITfContext*> context, TfClien
 }
 
 } // namespace
+
+void RunTsfNativeUilessHostTests() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    ComPtr<ITfThreadMgr2> native_manager;
+    QIQI_TEST_CHECK(::CoCreateInstance(
+        CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&native_manager)) == S_OK);
+    TfClientId native_client = TF_CLIENTID_NULL;
+    constexpr DWORD uiless_flags =
+        TF_TMAE_NOACTIVATETIP | TF_TMAE_UIELEMENTENABLEDONLY;
+    QIQI_TEST_CHECK(native_manager->ActivateEx(&native_client, uiless_flags) == S_OK &&
+                    native_client != TF_CLIENTID_NULL);
+    const auto deactivate_native = gsl::finally([&]() noexcept {
+        std::ignore = log::CheckHResult(
+            native_manager->Deactivate(), "NativeUilessTest::Deactivate");
+    });
+    ComPtr<ITfUIElementMgr> ui_manager;
+    QIQI_TEST_CHECK(native_manager.As(&ui_manager) == S_OK && ui_manager);
+    ComPtr<ITfThreadMgr> native_thread_mgr;
+    QIQI_TEST_CHECK(native_manager.As(&native_thread_mgr) == S_OK &&
+                    native_thread_mgr);
+    const auto ui_sink = MakeComObject<NativeUiElementSink>(ui_manager);
+    ScopedTfSinkConnection ui_connection;
+    QIQI_TEST_CHECK(ui_connection.Advise(
+        native_manager.Get(), IID_ITfUIElementSink, ui_sink.Get()));
+    ComPtr<ITfDocumentMgr> document;
+    QIQI_TEST_CHECK(native_manager->CreateDocumentMgr(&document) == S_OK);
+    const auto ui = MakeComObject<CandidateUI>(g_dll_instance);
+    KeyProcessResult snapshot;
+    snapshot.composition_text = L"a";
+    snapshot.all_display_candidates = {L"one"};
+    snapshot.page_size = 2;
+    snapshot.current_page = 0;
+    snapshot.selected_index = 0;
+    PresentCompositionCandidates(
+        *ui.Get(), TF_TMAE_UIELEMENTENABLEDONLY, snapshot, document.Get(),
+        EditSessionEpoch{1, 1}, 211, GUID_NULL,
+        [&native_thread_mgr]() noexcept { return native_thread_mgr.Get(); },
+        []() noexcept { return true; });
+    const std::vector<DWORD> initial_ids{ui_sink->begin_id};
+    QIQI_TEST_CHECK(ui_sink->begins == 1 && ui_sink->updates == 1 &&
+                    ui_sink->ends == 0 && ui_sink->begin_id != TF_INVALID_UIELEMENTID &&
+                    ui_sink->update_ids == initial_ids);
+    constexpr DWORD all_flags =
+        TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION |
+        TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
+    QIQI_TEST_CHECK(ui_sink->inspection_hr == S_OK &&
+                    ui_sink->initial_flags == all_flags &&
+                    ui_sink->document.Get() == document.Get() &&
+                    ui_sink->candidate_count > 0 &&
+                    ui_sink->selection_hr == S_OK &&
+                    !ui_sink->is_shown);
+
+    snapshot.composition_text = L"ab";
+    snapshot.all_display_candidates = {L"one", L"two"};
+    snapshot.selected_index = 1;
+    PresentCompositionCandidates(
+        *ui.Get(), TF_TMAE_UIELEMENTENABLEDONLY, snapshot, document.Get(),
+        EditSessionEpoch{1, 1}, 211, GUID_NULL,
+        [&native_thread_mgr]() noexcept { return native_thread_mgr.Get(); },
+        []() noexcept { return true; });
+    const std::vector<DWORD> subsequent_ids{
+        ui_sink->begin_id, ui_sink->begin_id};
+    QIQI_TEST_CHECK(ui_sink->begins == 1 && ui_sink->updates == 2 &&
+                    ui_sink->subsequent_flags != 0 &&
+                    ui_sink->update_ids == subsequent_ids);
+    EndCompositionCandidatePresentation(
+        *ui.Get(), native_thread_mgr, 211, GUID_NULL);
+    QIQI_TEST_CHECK(ui_sink->ends == 1 && ui_sink->end_id == ui_sink->begin_id);
+    ComPtr<ITfDocumentMgr> retained_document;
+    QIQI_TEST_CHECK(ui->GetDocumentMgr(
+        retained_document.GetAddressOf()) == E_FAIL);
+}
 
 void RunTsfNativeLifecycleTests(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> mock_tm,

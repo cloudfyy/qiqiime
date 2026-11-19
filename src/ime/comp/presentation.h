@@ -39,38 +39,129 @@ void SyncCompositionPresentationInSession(
 }
 
 // Query the live manager at the original boundary; the service keeps the UI address stable.
+inline HRESULT RetireCompositionCandidateUiElement(
+    CandidateUI& candidate_ui, DWORD element_id, ITfUIElementMgr* manager,
+    std::string_view stage) {
+    if (element_id == TF_INVALID_UIELEMENTID || !manager) return S_OK;
+    const HRESULT hr = manager->EndUIElement(element_id);
+    if (!log::CheckHResult(hr, stage)) {
+        candidate_ui.QueueUiElementRetirement(element_id, manager);
+    }
+    return hr;
+}
+
 template <typename GetManager, typename IsCurrent>
 void PresentCompositionCandidates(
     CandidateUI& candidate_ui, const DWORD& activate_flags,
-    const KeyProcessResult& snapshot, const EditSessionEpoch& attempted_epoch,
+    const KeyProcessResult& snapshot, ITfDocumentMgr* document,
+    const EditSessionEpoch& attempted_epoch,
     uint64_t service_id, const GUID& activity, GetManager get_manager, IsCurrent is_current) {
+    const bool had_pending_retirements = candidate_ui.HasPendingUiElementRetirements();
+    if (had_pending_retirements &&
+        FAILED(candidate_ui.RetryUiElementRetirements())) {
+        std::ignore = candidate_ui.Show(FALSE);
+        return;
+    }
+    if (had_pending_retirements &&
+        candidate_ui.UiElementId() == TF_INVALID_UIELEMENTID) {
+        candidate_ui.ClearUiElementDocument();
+    }
+    if (!is_current()) return;
+    const bool force_uiless = (activate_flags & TF_TMAE_UIELEMENTENABLEDONLY) != 0;
+    Microsoft::WRL::ComPtr<ITfUIElementMgr> ui_mgr;
+    const HRESULT manager_hr = get_manager()->QueryInterface(IID_PPV_ARGS(&ui_mgr));
+    const bool manager_ok = log::CheckHResult(
+        manager_hr, "BeginOrUpdateCandidateUI::QueryInterface(ITfUIElementMgr)", log::Level::debug);
+    if (!is_current()) {
+        if (candidate_ui.UiElementId() == TF_INVALID_UIELEMENTID) {
+            candidate_ui.ClearUiElementDocument();
+        }
+        return;
+    }
+    if (!manager_ok || !ui_mgr) {
+        QIQI_LOG_ACT_INFO(
+            log::Level::warn,
+            log::Keyword::UI,
+            &activity,
+            "BeginOrUpdateCandidateUI: ITfUIElementMgr unavailable; presentation hidden without negotiation");
+        std::ignore = candidate_ui.Show(FALSE);
+        const DWORD existing_id = candidate_ui.UiElementId();
+        const auto existing_manager = candidate_ui.UiElementManager();
+        if (existing_id != TF_INVALID_UIELEMENTID) {
+            if (existing_manager) {
+                candidate_ui.SetUiElementId(TF_INVALID_UIELEMENTID);
+                RetireCompositionCandidateUiElement(
+                    candidate_ui, existing_id, existing_manager.Get(),
+                    "ITfUIElementMgr::EndUIElement(manager-query-failure)");
+            }
+        }
+        if (candidate_ui.UiElementId() == TF_INVALID_UIELEMENTID &&
+            !candidate_ui.HasPendingUiElementRetirements()) {
+            candidate_ui.ClearUiElementDocument();
+        }
+        return;
+    }
+    if (candidate_ui.UiElementId() != TF_INVALID_UIELEMENTID &&
+        !candidate_ui.UiElementManager()) {
+        candidate_ui.SetUiElementId(candidate_ui.UiElementId(), ui_mgr.Get());
+    }
+    const bool manager_changed =
+        candidate_ui.UiElementId() != TF_INVALID_UIELEMENTID &&
+        candidate_ui.UiElementManager() &&
+        candidate_ui.UiElementManager().Get() != ui_mgr.Get();
+    if (manager_changed) {
+        const DWORD old_element_id = candidate_ui.UiElementId();
+        const auto old_manager = candidate_ui.UiElementManager();
+        candidate_ui.SetUiElementId(TF_INVALID_UIELEMENTID);
+        std::ignore = candidate_ui.Show(FALSE);
+        if (old_element_id != TF_INVALID_UIELEMENTID && old_manager) {
+            if (FAILED(RetireCompositionCandidateUiElement(
+                    candidate_ui, old_element_id, old_manager.Get(),
+                    "ITfUIElementMgr::EndUIElement(manager-change)"))) {
+                return;
+            }
+        }
+    }
     candidate_ui.SetCandidates(
         snapshot.composition_text,
         snapshot.all_display_candidates,
         snapshot.page_size,
         snapshot.current_page,
-        snapshot.selected_index);
+        snapshot.selected_index,
+        document);
     if (!is_current()) return;
-
-    Microsoft::WRL::ComPtr<ITfUIElementMgr> ui_mgr;
-    const HRESULT manager_hr = get_manager()->QueryInterface(IID_PPV_ARGS(&ui_mgr));
-    const bool manager_ok = log::CheckHResult(
-        manager_hr, "BeginOrUpdateCandidateUI::QueryInterface(ITfUIElementMgr)", log::Level::debug);
-    if (!is_current()) return;
-    if (!manager_ok || !ui_mgr) {
-        // Fallback if UIElementMgr unavailable
-        QIQI_LOG_ACT_INFO(
-            log::Level::debug,
-            log::Keyword::UI,
-            &activity,
-            "BeginOrUpdateCandidateUI: ITfUIElementMgr unavailable; showing popup directly");
-        candidate_ui.Show(TRUE);
+    const bool begin_registration =
+        candidate_ui.UiElementId() == TF_INVALID_UIELEMENTID;
+    const bool owns_registration = begin_registration &&
+        !candidate_ui.IsUiElementRegistrationInProgress() &&
+        candidate_ui.TryBeginUiElementRegistration();
+    if (candidate_ui.IsUiElementRegistrationInProgress() && !owns_registration) {
         return;
     }
+    const auto finish_registration = gsl::finally([&candidate_ui, owns_registration]() noexcept {
+        if (owns_registration) candidate_ui.EndUiElementRegistration();
+    });
 
-    if (candidate_ui.UiElementId() == TF_INVALID_UIELEMENTID) {
+    const auto publish_update = [&](DWORD element_id, std::string_view stage) noexcept {
+        DWORD updated_flags = 0;
+        if (!log::CheckHResult(candidate_ui.GetUpdatedFlags(&updated_flags),
+                              "CandidateUI::GetUpdatedFlags") || updated_flags == 0) {
+            return;
+        }
+        const uint64_t revision = candidate_ui.UiElementUpdateRevision();
+        const HRESULT update_hr = ui_mgr->UpdateUIElement(element_id);
+        if (log::CheckHResult(
+                update_hr, stage) &&
+            candidate_ui.UiElementId() == element_id) {
+            candidate_ui.AcknowledgeUiElementUpdate(revision);
+        }
+    };
+
+    if (begin_registration) {
+        candidate_ui.PrepareUiElementRegistrationUpdate();
         BOOL show_own_ui = TRUE;
         DWORD element_id = TF_INVALID_UIELEMENTID;
+        const uint64_t element_revision = candidate_ui.UiElementIdRevision();
         const HRESULT begin_hr = ui_mgr->BeginUIElement(&candidate_ui, &show_own_ui, &element_id);
         const bool begin_ok = log::CheckHResult(begin_hr, "BeginOrUpdateCandidateUI::BeginUIElement");
         if (!is_current()) {
@@ -80,59 +171,109 @@ void PresentCompositionCandidates(
                 &activity,
                 "TsfLifecycle(service={}, stage=ui-begin-stale, activation={}, context={}, element_id={}, begin_ok={})",
                 service_id, attempted_epoch.activation, attempted_epoch.context, element_id, begin_ok);
-            if (begin_ok && element_id != TF_INVALID_UIELEMENTID) {
-                std::ignore = log::CheckHResult(ui_mgr->EndUIElement(element_id), "StaleCandidateUI::EndUIElement");
+            if (element_id != TF_INVALID_UIELEMENTID) {
+                std::ignore = RetireCompositionCandidateUiElement(
+                    candidate_ui, element_id, ui_mgr.Get(),
+                    "StaleCandidateUI::EndUIElement");
+            }
+            if (candidate_ui.UiElementId() == TF_INVALID_UIELEMENTID &&
+                !candidate_ui.HasPendingUiElementRetirements()) {
+                candidate_ui.ClearUiElementDocument();
             }
             return;
         }
-        if (begin_ok) {
-            candidate_ui.SetUiElementId(element_id);
-            // If host game/app returned FALSE in show_own_ui (UILess mode), do not show popup window
-            const bool force_uiless = (activate_flags & TF_TMAE_UIELEMENTENABLEDONLY) != 0 && !show_own_ui;
-            const bool show_popup = (show_own_ui && !force_uiless);
+        const bool valid_id = element_id != TF_INVALID_UIELEMENTID;
+        if (candidate_ui.UiElementIdRevision() != element_revision) {
+            if (valid_id) {
+                std::ignore = RetireCompositionCandidateUiElement(
+                    candidate_ui, element_id, ui_mgr.Get(),
+                    "ReentrantCandidateUI::EndUIElement");
+            }
+            return;
+        }
+        if (begin_ok && valid_id) {
+            candidate_ui.SetUiElementId(element_id, ui_mgr.Get());
+            const bool show_popup = show_own_ui != FALSE;
             QIQI_LOG_ACT_INFO(
                 log::Level::debug,
                 log::Keyword::UI,
                 &activity,
-                "BeginOrUpdateCandidateUI: BeginUIElement(id={}, show_own_ui={}, show_popup={})",
-                element_id, show_own_ui != FALSE, show_popup);
-            candidate_ui.Show(show_popup ? TRUE : FALSE);
+                "BeginOrUpdateCandidateUI: BeginUIElement(id={}, show_own_ui={}, show_popup={}, force_uiless={})",
+                element_id, show_own_ui != FALSE, show_popup, force_uiless);
+            std::ignore = candidate_ui.Show(show_popup ? TRUE : FALSE);
             if (!is_current()) return;
-            std::ignore = log::CheckHResult(ui_mgr->UpdateUIElement(element_id), "ITfUIElementMgr::UpdateUIElement");
+            if (!show_popup) {
+                publish_update(element_id, "ITfUIElementMgr::UpdateUIElement(initial-uiless)");
+            } else {
+                candidate_ui.AcknowledgeUiElementUpdate(
+                    candidate_ui.UiElementUpdateRevision());
+            }
         } else {
+            if (valid_id) {
+                std::ignore = RetireCompositionCandidateUiElement(
+                    candidate_ui, element_id, ui_mgr.Get(),
+                    "FailedBeginCandidateUI::EndUIElement");
+            }
+            const HRESULT diagnostic_hr = begin_ok ? E_INVALIDARG : begin_hr;
             QIQI_LOG_ACT_INFO(
                 log::Level::warn,
                 log::Keyword::UI,
                 &activity,
-                "BeginOrUpdateCandidateUI: BeginUIElement failed; falling back to popup window");
-            candidate_ui.Show(TRUE);
+                "BeginOrUpdateCandidateUI: negotiation failed (hr=0x{:08x}, element_id={}); presentation hidden",
+                gsl::narrow_cast<unsigned int>(diagnostic_hr), element_id);
+            std::ignore = candidate_ui.Show(FALSE);
+            if (candidate_ui.UiElementId() == TF_INVALID_UIELEMENTID &&
+                !candidate_ui.HasPendingUiElementRetirements()) {
+                candidate_ui.ClearUiElementDocument();
+            }
         }
     } else {
-        std::ignore = log::CheckHResult(ui_mgr->UpdateUIElement(candidate_ui.UiElementId()),
-                                       "ITfUIElementMgr::UpdateUIElement");
+        publish_update(
+            candidate_ui.UiElementId(), "ITfUIElementMgr::UpdateUIElement(subsequent)");
     }
 }
 
-inline void EndCompositionCandidatePresentation(
+inline HRESULT EndCompositionCandidatePresentation(
     CandidateUI& candidate_ui,
     const Microsoft::WRL::ComPtr<ITfThreadMgr>& thread_mgr, uint64_t service_id, const GUID& activity) {
+    std::ignore = candidate_ui.Show(FALSE);
+    if (candidate_ui.HasPendingUiElementRetirements()) {
+        const HRESULT retry_hr = candidate_ui.RetryUiElementRetirements();
+        if (FAILED(retry_hr)) return retry_hr;
+        if (candidate_ui.UiElementId() == TF_INVALID_UIELEMENTID) {
+            candidate_ui.ClearUiElementDocument();
+        }
+    }
     const DWORD element_id = candidate_ui.UiElementId();
-    const auto manager = thread_mgr;
-    candidate_ui.SetUiElementId(TF_INVALID_UIELEMENTID);
-    candidate_ui.Show(FALSE);
+    const auto element_manager = candidate_ui.UiElementManager();
+    ComPtr<ITfUIElementMgr> manager = element_manager;
+    if (!manager && thread_mgr) {
+        const HRESULT manager_hr = thread_mgr.As(&manager);
+        if (!log::CheckHResult(
+                manager_hr, "EndCandidateUI::QueryInterface(ITfUIElementMgr)",
+                log::Level::debug)) {
+            return manager_hr;
+        }
+    }
     QIQI_LOG_ACT_INFO(
         log::Level::debug,
         log::Keyword::UI,
         &activity,
         "TsfLifecycle(service={}, stage=ui-end, element_id={}, has_manager={})",
         service_id, element_id, manager != nullptr);
-    if (element_id != TF_INVALID_UIELEMENTID && manager) {
-        Microsoft::WRL::ComPtr<ITfUIElementMgr> ui_mgr;
-        if (log::CheckHResult(manager.As(&ui_mgr), "EndCandidateUI::QueryInterface(ITfUIElementMgr)") && ui_mgr) {
-            std::ignore = log::CheckHResult(ui_mgr->EndUIElement(element_id),
-                                           "ITfUIElementMgr::EndUIElement");
-        }
+    if (element_id != TF_INVALID_UIELEMENTID) {
+        if (!manager) return E_NOINTERFACE;
+        candidate_ui.SetUiElementId(TF_INVALID_UIELEMENTID);
+        const HRESULT end_hr = RetireCompositionCandidateUiElement(
+            candidate_ui, element_id, manager.Get(),
+            "ITfUIElementMgr::EndUIElement");
+        if (FAILED(end_hr)) return end_hr;
     }
+    if (candidate_ui.UiElementId() == TF_INVALID_UIELEMENTID &&
+        !candidate_ui.HasPendingUiElementRetirements()) {
+        candidate_ui.ClearUiElementDocument();
+    }
+    return S_OK;
 }
 
 } // namespace qiqi

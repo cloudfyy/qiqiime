@@ -568,7 +568,7 @@ void TestDeactivationWindowLifecycle() {
         const DWORD rejected_id = ui->UiElementId();
         manager->end_ui_result_ = E_FAIL;
         QIQI_TEST_CHECK(service->Deactivate() == S_OK);
-        QIQI_TEST_CHECK(std::count(manager->ended_ui_ids_.begin(), manager->ended_ui_ids_.end(), rejected_id) == 1);
+        QIQI_TEST_CHECK(std::count(manager->ended_ui_ids_.begin(), manager->ended_ui_ids_.end(), rejected_id) == 2);
         QIQI_TEST_CHECK(!ui->WindowHandle() && ui->Show(TRUE) == S_FALSE);
         manager->end_ui_result_ = S_OK;
         {

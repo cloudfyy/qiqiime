@@ -67,7 +67,7 @@ void RunTsfCandidatePresentationTests(
             mock_tm->begin_ui_callback_ = {};
             mock_tm->begin_ui_result_ = S_OK;
             mock_tm->return_invalid_ui_id_ = false;
-            const bool reclaimed = SUCCEEDED(outcome.result) && !outcome.invalid_id;
+            const bool reclaimed = !outcome.invalid_id;
             QIQI_TEST_CHECK(callbacks == 1 && ui && mock_tm->end_ui_calls_ == ends_before + (reclaimed ? 1u : 0u) &&
                             mock_tm->update_ui_calls_ == updates_before &&
                             context->range_->text_ == L"a" && context->last_composition_->ended_);
