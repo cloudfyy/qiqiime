@@ -103,6 +103,19 @@ void TestDisplayPreferences() {
     }
 }
 
+void TestEffectiveDpiSelection() {
+    QIQI_TEST_CHECK(ResolveEffectiveDpi(
+        DPI_AWARENESS_UNAWARE, 192, 144) == 96);
+    QIQI_TEST_CHECK(ResolveEffectiveDpi(
+        DPI_AWARENESS_SYSTEM_AWARE, 192, 144) == 144);
+    QIQI_TEST_CHECK(ResolveEffectiveDpi(
+        DPI_AWARENESS_PER_MONITOR_AWARE, 192, 144) == 192);
+    QIQI_TEST_CHECK(ResolveEffectiveDpi(
+        DPI_AWARENESS_UNAWARE, 192, 144, 120) == 120);
+    QIQI_TEST_CHECK(ResolveEffectiveDpi(
+        DPI_AWARENESS_SYSTEM_AWARE, 192, 0) == 96);
+}
+
 void TestControlText() {
     const ScopedWindow control(::CreateWindowExW(
         0, L"EDIT", L"", WS_POPUP, 0, 0, 200, 30, nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
@@ -955,6 +968,7 @@ void TestCommonDialogsAndUtils() {
 void RunD2DControlsTests() {
     TestFailedGdiSelection();
     TestDisplayPreferences();
+    TestEffectiveDpiSelection();
     TestControlText();
     TestReusableControls();
     TestInfoDialogLayout();

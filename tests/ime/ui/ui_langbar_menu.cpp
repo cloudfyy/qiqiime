@@ -879,7 +879,7 @@ void TestQuickSettingsMenuWorkArea() {
     const auto restore_monitor = gsl::finally([&]() noexcept {
         SetMonitorMetricsOverrideForTest(std::move(original_monitor));
     });
-    for (const UINT dpi : {96u, 144u, 288u}) {
+    for (const UINT dpi : {96u, 120u, 144u, 168u, 192u, 288u}) {
         SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-1280, -720, 0, 0}, dpi});
         const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
             ::KillTimer(nullptr, id);

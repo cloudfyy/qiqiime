@@ -30,10 +30,34 @@ inline int ScalePxByDpi(int px, UINT dpi) noexcept {
     return ::MulDiv(px, gsl::narrow_cast<int>(dpi > 0 ? dpi : 96u), 96);
 }
 
+constexpr UINT ResolveEffectiveDpi(
+    DPI_AWARENESS awareness,
+    UINT monitor_dpi,
+    UINT system_dpi,
+    UINT window_dpi = 0) noexcept {
+    const auto valid_or_default = [](UINT dpi) constexpr noexcept {
+        return dpi > 0 ? dpi : 96u;
+    };
+    switch (awareness) {
+        case DPI_AWARENESS_PER_MONITOR_AWARE:
+            return valid_or_default(monitor_dpi);
+        case DPI_AWARENESS_SYSTEM_AWARE:
+            if (system_dpi > 0) {
+                return system_dpi;
+            }
+            return valid_or_default(window_dpi);
+        case DPI_AWARENESS_UNAWARE:
+        case DPI_AWARENESS_INVALID:
+        default:
+            return window_dpi > 0 ? window_dpi : 96u;
+    }
+}
+
 inline UINT GetDpiForMonitorHandle(HMONITOR mon, HWND fallback_hwnd = nullptr) noexcept {
     if (const auto& ov = detail::MonitorMetricsOverrideStorage(); ov.has_value()) {
         return ov->dpi > 0 ? ov->dpi : 96u;
     }
+    UINT monitor_dpi = 96;
     if (mon) {
         if (const HMODULE shcore = ::GetModuleHandleW(L"shcore.dll")) {
             // HRESULT GetDpiForMonitor(HMONITOR hmonitor, MONITOR_DPI_TYPE dpiType, UINT* dpiX, UINT* dpiY);
@@ -45,18 +69,19 @@ inline UINT GetDpiForMonitorHandle(HMONITOR mon, HWND fallback_hwnd = nullptr) n
                 UINT dpi_x = 96;
                 UINT dpi_y = 96;
                 if (SUCCEEDED(get_dpi(mon, 0, &dpi_x, &dpi_y)) && dpi_x > 0) {
-                    return dpi_x;
+                    monitor_dpi = dpi_x;
                 }
             }
         }
     }
+    UINT window_dpi = 0;
     if (fallback_hwnd && ::IsWindow(fallback_hwnd)) {
-        const UINT wnd_dpi = ::GetDpiForWindow(fallback_hwnd);
-        if (wnd_dpi > 0) {
-            return wnd_dpi;
-        }
+        window_dpi = ::GetDpiForWindow(fallback_hwnd);
     }
-    return 96u;
+    const DPI_AWARENESS awareness = ::GetAwarenessFromDpiAwarenessContext(
+        ::GetThreadDpiAwarenessContext());
+    return ResolveEffectiveDpi(
+        awareness, monitor_dpi, ::GetDpiForSystem(), window_dpi);
 }
 
 inline MonitorMetrics QueryMonitorForPoint(POINT screen_pt, HWND fallback_hwnd = nullptr) noexcept {

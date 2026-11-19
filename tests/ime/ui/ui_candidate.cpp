@@ -584,7 +584,7 @@ void TestCandidateLayouts() {
     });
     const std::vector<std::wstring> candidates = {L"第一", L"第二", L"第三", L"第四", L"第五", L"第六", L"第七"};
     for (const bool gdi : {false, true}) {
-        for (const UINT dpi : {96u, 144u}) {
+        for (const UINT dpi : {96u, 120u, 144u, 168u, 192u}) {
             const RECT work{-2400, -1600, 0, 0};
             SetMonitorMetricsOverrideForTest(MonitorMetrics{work, dpi});
             auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
