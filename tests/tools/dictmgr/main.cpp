@@ -7,7 +7,8 @@ using namespace qiqi::dict_manager::tests;
 
 int main(int argc, char** argv) try {
     ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    if (argc == 2 && std::string_view(argv[1]) == "--backup-restore-test") {
+    const std::span args(argv, gsl::narrow_cast<size_t>(argc));
+    if (argc == 2 && std::string_view(gsl::at(args, 1)) == "--backup-restore-test") {
         TestBackupRestoreResults();
         std::cout << "[PASS] QiQi backup restore tests\n";
         return 0;

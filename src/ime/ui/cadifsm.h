@@ -48,36 +48,21 @@ constexpr CandidateUiLifecycleTransitions BuildCandidateUiLifecycleTransitions()
             CandidateUiLifecycleState::Count);
     using State = CandidateUiLifecycleState;
     using Event = CandidateUiLifecycleEvent;
-    transitions[static_cast<size_t>(State::Idle)][static_cast<size_t>(Event::BeginStarted)] =
-        State::Beginning;
-    transitions[static_cast<size_t>(State::Idle)][static_cast<size_t>(Event::RegistrationQueued)] =
-        State::Retiring;
-    transitions[static_cast<size_t>(State::Idle)][static_cast<size_t>(Event::TestRegistrationSet)] =
-        State::Active;
-    transitions[static_cast<size_t>(State::Beginning)][static_cast<size_t>(Event::BeginSucceeded)] =
-        State::Active;
-    transitions[static_cast<size_t>(State::Beginning)][static_cast<size_t>(Event::BeginAborted)] =
-        State::Idle;
-    transitions[static_cast<size_t>(State::Beginning)][static_cast<size_t>(Event::RegistrationQueued)] =
-        State::Retiring;
-    transitions[static_cast<size_t>(State::Beginning)][static_cast<size_t>(Event::TestRegistrationSet)] =
-        State::Active;
-    transitions[static_cast<size_t>(State::Active)][static_cast<size_t>(Event::UpdateStarted)] =
-        State::Updating;
-    transitions[static_cast<size_t>(State::Active)][static_cast<size_t>(Event::RegistrationQueued)] =
-        State::Retiring;
-    transitions[static_cast<size_t>(State::Active)][static_cast<size_t>(Event::TestRegistrationCleared)] =
-        State::Idle;
-    transitions[static_cast<size_t>(State::Updating)][static_cast<size_t>(Event::UpdateCompleted)] =
-        State::Active;
-    transitions[static_cast<size_t>(State::Retiring)][static_cast<size_t>(Event::RetirementStarted)] =
-        State::Ending;
-    transitions[static_cast<size_t>(State::Ending)][static_cast<size_t>(Event::RetirementFailed)] =
-        State::Retiring;
-    transitions[static_cast<size_t>(State::Ending)][static_cast<size_t>(Event::RetirementSucceededActive)] =
-        State::Active;
-    transitions[static_cast<size_t>(State::Ending)][static_cast<size_t>(Event::RetirementSucceededIdle)] =
-        State::Idle;
+    SetFsmTransition(transitions, State::Idle, Event::BeginStarted, State::Beginning);
+    SetFsmTransition(transitions, State::Idle, Event::RegistrationQueued, State::Retiring);
+    SetFsmTransition(transitions, State::Idle, Event::TestRegistrationSet, State::Active);
+    SetFsmTransition(transitions, State::Beginning, Event::BeginSucceeded, State::Active);
+    SetFsmTransition(transitions, State::Beginning, Event::BeginAborted, State::Idle);
+    SetFsmTransition(transitions, State::Beginning, Event::RegistrationQueued, State::Retiring);
+    SetFsmTransition(transitions, State::Beginning, Event::TestRegistrationSet, State::Active);
+    SetFsmTransition(transitions, State::Active, Event::UpdateStarted, State::Updating);
+    SetFsmTransition(transitions, State::Active, Event::RegistrationQueued, State::Retiring);
+    SetFsmTransition(transitions, State::Active, Event::TestRegistrationCleared, State::Idle);
+    SetFsmTransition(transitions, State::Updating, Event::UpdateCompleted, State::Active);
+    SetFsmTransition(transitions, State::Retiring, Event::RetirementStarted, State::Ending);
+    SetFsmTransition(transitions, State::Ending, Event::RetirementFailed, State::Retiring);
+    SetFsmTransition(transitions, State::Ending, Event::RetirementSucceededActive, State::Active);
+    SetFsmTransition(transitions, State::Ending, Event::RetirementSucceededIdle, State::Idle);
     return transitions;
 }
 
@@ -163,7 +148,7 @@ public:
     void SetDocumentManager(ITfDocumentMgr* document_manager) noexcept {
         document_manager_ = document_manager;
     }
-    void ClearDocumentManager() noexcept { document_manager_.Reset(); }
+    void ClearDocumentManager() noexcept { document_manager_ = nullptr; }
     void ClearDocumentManagerIfIdle() noexcept;
 
 private:

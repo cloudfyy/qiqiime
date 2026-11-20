@@ -511,6 +511,7 @@ inline ScopedIcon CreateTransparentGlyphIcon(
 #pragma warning(suppress : 26490)
     const std::span<uint32_t> pixels(static_cast<uint32_t*>(bits), pixel_count);
     std::unique_ptr<uint8_t[]> coverage;
+    std::span<uint8_t> coverage_pixels;
     if (stroke_width != 0) {
         coverage.reset(new (std::nothrow) uint8_t[pixel_count]);
         if (!coverage) {
@@ -518,8 +519,9 @@ inline ScopedIcon CreateTransparentGlyphIcon(
                            gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
             return {};
         }
+        coverage_pixels = std::span<uint8_t>(coverage.get(), pixel_count);
         for (size_t i = 0; i < pixels.size(); ++i) {
-            coverage[i] = gsl::narrow_cast<uint8_t>(
+            gsl::at(coverage_pixels, i) = gsl::narrow_cast<uint8_t>(
                 gsl::at(pixels, i) & 0xFFu);
         }
     }
@@ -545,7 +547,7 @@ inline ScopedIcon CreateTransparentGlyphIcon(
         const uint32_t b_stroke = GetBValue(stroke.color);
         for (size_t i = 0; i < pixels.size(); ++i) {
             const uint32_t glyph_alpha =
-                gsl::narrow_cast<uint32_t>(coverage[i]);
+                gsl::narrow_cast<uint32_t>(gsl::at(coverage_pixels, i));
             uint32_t widest_coverage = 0;
             const int x = gsl::narrow_cast<int>(i % gsl::narrow_cast<size_t>(sz));
             const int y = gsl::narrow_cast<int>(i / gsl::narrow_cast<size_t>(sz));
@@ -558,8 +560,10 @@ inline ScopedIcon CreateTransparentGlyphIcon(
                     widest_coverage = std::max(
                         widest_coverage,
                         gsl::narrow_cast<uint32_t>(
-                            coverage[gsl::narrow_cast<size_t>(
-                                neighbor_y * sz + neighbor_x)]));
+                            gsl::at(
+                                coverage_pixels,
+                                gsl::narrow_cast<size_t>(
+                                    neighbor_y * sz + neighbor_x))));
                 }
             }
             const uint32_t stroke_alpha =

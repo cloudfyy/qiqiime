@@ -11,7 +11,9 @@
 #include <oleauto.h>
 #include <dwmapi.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <exception>
 #include <limits>
 
 namespace qiqi {
@@ -28,6 +30,14 @@ constexpr int kPageButtonWidth = 20;
 constexpr int kPageButtonGap = 4;
 constexpr int kCaretGapPx = 4;
 
+const char* ExceptionMessageNoThrow(const std::exception& error) noexcept {
+    try {
+        return error.what();
+    } catch (...) {
+        return "exception message unavailable";
+    }
+}
+
 HRESULT MakeBstrVariant(std::wstring_view text, VARIANT* value) noexcept {
     if (!value) return E_POINTER;
     ::VariantInit(value);
@@ -43,11 +53,12 @@ HRESULT MakeRuntimeId(HWND hwnd, long child_id, SAFEARRAY** out) noexcept {
     SAFEARRAYBOUND bound{has_child ? 3ul : 2ul, 0};
     *out = ::SafeArrayCreate(VT_I4, 1, &bound);
     if (!*out) return E_OUTOFMEMORY;
-    long indices[3]{UiaAppendRuntimeId, gsl::narrow_cast<long>(
+    const std::array<long, 3> indices{UiaAppendRuntimeId, gsl::narrow_cast<long>(
         reinterpret_cast<uintptr_t>(hwnd) & 0x7fffffff), child_id};
-    for (LONG i = 0; i < static_cast<LONG>(bound.cElements); ++i) {
+    for (LONG i = 0; i < gsl::narrow_cast<LONG>(bound.cElements); ++i) {
         LONG index = i;
-        if (FAILED(::SafeArrayPutElement(*out, &index, &indices[i]))) {
+        long value = gsl::at(indices, gsl::narrow_cast<size_t>(i));
+        if (FAILED(::SafeArrayPutElement(*out, &index, &value))) {
             ::SafeArrayDestroy(*out);
             *out = nullptr;
             return E_FAIL;
@@ -174,7 +185,7 @@ public:
         if (!bounds) return E_INVALIDARG;
         *bounds = {};
         if (page_index_ >= owner_->AccessibleCandidateCount()) return S_OK;
-        RECT rect = owner_->CandidateRect(page_index_);
+        const RECT rect = owner_->CandidateRect(page_index_);
         POINT top_left{rect.left, rect.top};
         POINT bottom_right{rect.right, rect.bottom};
         if (owner_->WindowHandle() &&
@@ -182,8 +193,10 @@ public:
             ::ClientToScreen(owner_->WindowHandle(), &bottom_right)) {
             bounds->left = static_cast<double>(top_left.x);
             bounds->top = static_cast<double>(top_left.y);
-            bounds->width = static_cast<double>(bottom_right.x - top_left.x);
-            bounds->height = static_cast<double>(bottom_right.y - top_left.y);
+            bounds->width = static_cast<double>(bottom_right.x) -
+                static_cast<double>(top_left.x);
+            bounds->height = static_cast<double>(bottom_right.y) -
+                static_cast<double>(top_left.y);
         }
         return S_OK;
     }
@@ -215,7 +228,7 @@ public:
             return E_OUTOFMEMORY;
         } catch (const std::exception& exception) {
             QIQI_LOG_ERROR("CandidateAutomationItem::Select failed (error={})",
-                           exception.what());
+                           ExceptionMessageNoThrow(exception));
             return E_FAIL;
         } catch (...) {
             QIQI_LOG_ERROR("CandidateAutomationItem::Select failed with unknown exception");
@@ -606,8 +619,10 @@ STDMETHODIMP CandidateUI::get_BoundingRectangle(UiaRect* bounds) noexcept {
     if (hwnd_ && ::GetWindowRect(hwnd_.Get(), &rect)) {
         bounds->left = static_cast<double>(rect.left);
         bounds->top = static_cast<double>(rect.top);
-        bounds->width = static_cast<double>(rect.right - rect.left);
-        bounds->height = static_cast<double>(rect.bottom - rect.top);
+        bounds->width = static_cast<double>(rect.right) -
+            static_cast<double>(rect.left);
+        bounds->height = static_cast<double>(rect.bottom) -
+            static_cast<double>(rect.top);
         return S_OK;
     }
     return S_OK;
@@ -777,6 +792,7 @@ STDMETHODIMP CandidateUI::GetDocumentMgr(ITfDocumentMgr** ppdim) noexcept {
         return E_FAIL;
     }
     *ppdim = ui_element_lifecycle_.DocumentManager();
+#pragma warning(suppress : 26447)
     (*ppdim)->AddRef();
     return S_OK;
 }
@@ -1001,13 +1017,8 @@ HRESULT CandidateUI::CreateAutomationItem(
     if (!fragment) return E_INVALIDARG;
     *fragment = nullptr;
     if (page_index >= AccessibleCandidateCount()) return S_OK;
-    const auto item = new (std::nothrow) CandidateAutomationItem(
-        ComPtr<CandidateUI>(this), page_index);
-    if (!item) return E_OUTOFMEMORY;
-    const HRESULT hr = item->QueryInterface(
-        __uuidof(IRawElementProviderFragment), reinterpret_cast<void**>(fragment));
-    item->Release();
-    return hr;
+    return CreateComObjectToOut<CandidateAutomationItem>(
+        fragment, ComPtr<CandidateUI>(this), page_index);
 }
 
 size_t CandidateUI::SelectedPageIndex() const noexcept {
@@ -1070,7 +1081,7 @@ HRESULT CandidateUI::RaiseAccessibilityEvent(
         if (accessibility_dispatch_observer_for_test_) {
             accessibility_dispatch_observer_for_test_(
                 event_id,
-                provider.Get() == static_cast<IRawElementProviderSimple*>(this));
+                provider.Get() == this);
         }
     } catch (...) {
         QIQI_LOG_ERROR(

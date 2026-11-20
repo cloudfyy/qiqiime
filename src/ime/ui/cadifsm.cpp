@@ -3,9 +3,25 @@
 
 #include "ime/ui/cadifsm.h"
 #include "common/logger.h"
+#include <gsl/gsl>
+#include <new>
 #include <tuple>
 
 namespace qiqi {
+namespace {
+
+HRESULT EndUiElementNoThrow(
+    gsl::not_null<ITfUIElementMgr*> manager, DWORD element_id) noexcept {
+    try {
+        return manager->EndUIElement(element_id);
+    } catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    } catch (...) {
+        return E_UNEXPECTED;
+    }
+}
+
+} // namespace
 
 bool CandidateUiElementLifecycle::Transition(
     detail::CandidateUiLifecycleEvent event) noexcept {
@@ -175,9 +191,15 @@ HRESULT CandidateUiElementLifecycle::DriveRetirements(
         return E_UNEXPECTED;
     }
     const DWORD retirement_id = retiring_->id;
-    auto* const retirement_manager = retiring_->manager.Get();
-    const HRESULT result =
-        retirement_manager->EndUIElement(retirement_id);
+    auto* const raw_retirement_manager = retiring_->manager.Get();
+    if (!raw_retirement_manager) {
+        std::ignore = Transition(
+            detail::CandidateUiLifecycleEvent::RetirementFailed);
+        return E_NOINTERFACE;
+    }
+    const HRESULT result = EndUiElementNoThrow(
+        gsl::not_null<ITfUIElementMgr*>(raw_retirement_manager),
+        retirement_id);
     if (!log::CheckHResult(result, operation)) {
         std::ignore = Transition(
             detail::CandidateUiLifecycleEvent::RetirementFailed);
@@ -245,7 +267,7 @@ void CandidateUiElementLifecycle::AcknowledgeUpdate(
 void CandidateUiElementLifecycle::ClearDocumentManagerIfIdle() noexcept {
     if (state_ == CandidateUiLifecycleState::Idle &&
         !active_ && !retiring_) {
-        document_manager_.Reset();
+        document_manager_ = nullptr;
     }
 }
 

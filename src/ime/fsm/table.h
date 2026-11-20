@@ -36,6 +36,16 @@ MakeFsmTable(const Result& initial)
 }
 
 template <CountedFsmEnum State, CountedFsmEnum Event, typename Result>
+constexpr void SetFsmTransition(
+    FsmTable<State, Event, Result>& table,
+    State state, Event event, const Result& result)
+    noexcept(std::is_nothrow_copy_assignable_v<Result>) {
+    gsl::at(
+        gsl::at(table, std::to_underlying(state)),
+        std::to_underlying(event)) = result;
+}
+
+template <CountedFsmEnum State, CountedFsmEnum Event, typename Result>
 [[nodiscard]] constexpr std::optional<Result> LookupFsmTransition(
     const FsmTable<State, Event, Result>& table,
     State state, Event event)

@@ -904,7 +904,8 @@ void TestCandidateAccessibility() {
 
     ComPtr<IRawElementProviderSimple> simple;
     QIQI_TEST_CHECK(ui->QueryInterface(IID_PPV_ARGS(&simple)) == S_OK && simple);
-    VARIANT value{};
+    VARIANT value;
+    ::VariantInit(&value);
     QIQI_TEST_CHECK(simple->GetPropertyValue(UIA_AutomationIdPropertyId, &value) == S_OK &&
                     value.vt == VT_BSTR && std::wstring(value.bstrVal) == L"IME_Candidate_Window");
     std::ignore = ::VariantClear(&value);
@@ -982,7 +983,7 @@ void TestCandidateAccessibility() {
     SAFEARRAY* runtime_id = nullptr;
     QIQI_TEST_CHECK(first->GetRuntimeId(&runtime_id) == S_OK && runtime_id);
     QIQI_TEST_CHECK(::SafeArrayDestroy(runtime_id) == S_OK);
-    RECT first_rect = ui->CandidateRect(0);
+    const RECT first_rect = ui->CandidateRect(0);
     POINT first_center{
         (first_rect.left + first_rect.right) / 2,
         (first_rect.top + first_rect.bottom) / 2

@@ -76,7 +76,8 @@ public:
                 &gsl::at(results, i), candidates_, index);
             if (FAILED(hr)) {
                 for (size_t released = 0; released < i; ++released) {
-                    gsl::at(results, released)->Release();
+                    Microsoft::WRL::ComPtr<ITfCandidateString> cleanup;
+                    cleanup.Attach(gsl::at(results, released));
                     gsl::at(results, released) = nullptr;
                 }
                 return hr;

@@ -20,10 +20,22 @@
 namespace qiqi::test {
 namespace {
 
+std::error_code RemoveDirectoryNoThrow(
+    const std::filesystem::path& directory) noexcept {
+    std::error_code error;
+    try {
+        std::ignore = std::filesystem::remove_all(directory, error);
+    } catch (...) {
+        error = std::make_error_code(std::errc::io_error);
+    }
+    return error;
+}
+
 class SearchIntegrationTestEnvironment final {
 public:
-    SearchIntegrationTestEnvironment() {
+    explicit SearchIntegrationTestEnvironment(std::wstring_view name) {
         const auto suffix =
+            std::wstring(name) + L"_" +
             std::to_wstring(::GetCurrentProcessId()) + L"_" +
             std::to_wstring(::GetTickCount64());
         registry_subkey_ =
@@ -57,8 +69,8 @@ public:
         QIQI_TEST_CHECK_CLEANUP(_wputenv_s(
             L"LOCALAPPDATA",
             previous_appdata_ ? previous_appdata_.get() : L"") == 0);
-        std::error_code directory_error;
-        std::filesystem::remove_all(appdata_directory_, directory_error);
+        const std::error_code directory_error =
+            RemoveDirectoryNoThrow(appdata_directory_);
         QIQI_TEST_CHECK_CLEANUP(!directory_error);
     }
 
@@ -229,6 +241,7 @@ void TestIntegratedCandidateUiContract() {
     ui->SetIntegratedKeyDownCallback(
         [&](WPARAM wparam, LPARAM, BOOL* key_eaten) -> HRESULT {
             observed_key = wparam;
+            if (!key_eaten) return E_POINTER;
             *key_eaten = TRUE;
             return S_OK;
         });
@@ -409,7 +422,7 @@ void TestIntegratedServiceRouting() {
 
 void RunTsfSearchIntegrationTests() {
     const qiqi::test::TsfTestCaseTrace trace(__func__);
-    const SearchIntegrationTestEnvironment environment;
+    const SearchIntegrationTestEnvironment environment(L"SearchIntegration");
     const auto objects_before = g_com_object_count.load();
     TestSearchCandidateList();
     TestIntegratedCandidateUiContract();

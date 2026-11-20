@@ -365,12 +365,13 @@ std::vector<int> ReadEmbeddedIconFrameSizes(HMODULE module) {
         static_cast<const BYTE*>(::LockResource(handle));
     const DWORD length = ::SizeofResource(module, group);
     QIQI_TEST_CHECK(data && length >= 6);
+    const std::span<const BYTE> bytes(data, gsl::narrow_cast<size_t>(length));
     WORD reserved = 0;
     WORD type = 0;
     WORD count = 0;
-    std::memcpy(&reserved, data, sizeof(reserved));
-    std::memcpy(&type, data + 2, sizeof(type));
-    std::memcpy(&count, data + 4, sizeof(count));
+    std::memcpy(&reserved, bytes.data(), sizeof(reserved));
+    std::memcpy(&type, bytes.subspan(2).data(), sizeof(type));
+    std::memcpy(&count, bytes.subspan(4).data(), sizeof(count));
     static_assert(sizeof(GroupIconDirectoryEntry) == 14);
     QIQI_TEST_CHECK(reserved == 0 && type == 1 && count >= 6 &&
                     length >= 6u + static_cast<DWORD>(count) *
@@ -382,8 +383,9 @@ std::vector<int> ReadEmbeddedIconFrameSizes(HMODULE module) {
         GroupIconDirectoryEntry entry{};
         std::memcpy(
             &entry,
-            data + 6 + gsl::narrow_cast<size_t>(i) *
-                sizeof(GroupIconDirectoryEntry),
+            bytes.subspan(
+                6 + gsl::narrow_cast<size_t>(i) *
+                    sizeof(GroupIconDirectoryEntry)).data(),
             sizeof(entry));
         const int width =
             entry.width == 0 ? 256 : gsl::narrow_cast<int>(entry.width);
@@ -492,7 +494,7 @@ std::vector<uint32_t> ReadIconPixels(HICON icon, int size) {
     return pixels;
 }
 
-uint32_t ScaleAlpha(uint32_t value, uint32_t alpha) noexcept {
+constexpr uint32_t ScaleAlpha(uint32_t value, uint32_t alpha) noexcept {
     return (value * alpha + 127u) / 255u;
 }
 

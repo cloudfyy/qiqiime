@@ -171,7 +171,7 @@ void TestFailureDiagnostics() {
     QIQI_TEST_CHECK(assertion_output.view().find(
         "false && \"diagnostic assertion probe\"") != std::string_view::npos);
 
-    Fixture fixture(L"cleanup-diagnostics");
+    const Fixture fixture(L"cleanup-diagnostics");
     const auto locked_path = fixture.directory / L"held-open-\u6d4b\u8bd5";
     ScopedFileHandle locked(::CreateFileW(locked_path.c_str(), GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
