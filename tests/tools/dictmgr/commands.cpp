@@ -57,6 +57,8 @@ void ExerciseGuiCommands(const DictManagerWindow& window) {
     search(L"人民", 1);
     for (const auto language : {LanguageEn, LanguageZh}) {
         InvokeCommand(window, language);
+        const wchar_t* title_prefix = language == LanguageEn ? L"Dictionary Manager v" : L"词典管理器 v";
+        QIQI_TEST_CHECK(ControlText(window.Handle()).starts_with(title_prefix));
         QIQI_TEST_CHECK(ControlText(Child(window, SearchEdit)) == L"人民");
         QIQI_TEST_CHECK(ListView_GetItemCount(list) == 1);
         QIQI_TEST_CHECK(ControlText(Child(window, SearchLabel)) == (language == LanguageEn ? L"Search" : L"搜索"));

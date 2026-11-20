@@ -97,7 +97,7 @@ inline constexpr GUID kGuidSyncSourcePhraseFrequency = {
 };
 
 inline constexpr LANGID kChineseSimplifiedLangId = MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED);
-inline constexpr const wchar_t* kTextServiceDesc = L"奇奇五笔 (QiQi Wubi IME)";
+inline constexpr const wchar_t* kTextServiceDesc = L"奇奇五笔 (QiQi Wubi)";
 inline constexpr const wchar_t* kProfileDescZh = L"奇奇五笔";
 inline constexpr const wchar_t* kProfileDescEn = L"QiQi Wubi";
 inline constexpr const wchar_t* kProfileDesc = kProfileDescZh;

@@ -12,10 +12,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command_line, int show
     try {
         return qiqi::monitor::RunMonitor(instance, show, command_line);
     } catch (const std::exception&) {
-        ::MessageBoxW(nullptr, qiqi::ResolveUiLanguage(qiqi::UiLanguage::Auto) == qiqi::UiLanguage::EnUs ?
-            L"Cannot initialize QiQiIME Log Monitor (allocation or system error)." :
-            L"无法初始化奇奇日志监控（内存分配或系统错误）。",
-            L"QiQiIME Log Monitor", MB_OK | MB_ICONERROR);
+        const auto language = qiqi::ResolveUiLanguage(qiqi::UiLanguage::Auto);
+        ::MessageBoxW(nullptr, language == qiqi::UiLanguage::EnUs ?
+            L"Cannot initialize QiQi Log Monitor (allocation or system error)." :
+            L"无法初始化奇奇五笔日志监视器（内存分配或系统错误）。",
+            qiqi::GetUiStrings(language).log_monitor_name, MB_OK | MB_ICONERROR);
         return 1;
     }
 }

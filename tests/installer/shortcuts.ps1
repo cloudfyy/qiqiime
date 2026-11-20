@@ -17,8 +17,9 @@ $ns = [System.Xml.XmlNamespaceManager]::new($source.NameTable)
 $ns.AddNamespace("w", "http://wixtoolset.org/schemas/v4/wxs")
 $package = $source.SelectSingleNode("/w:Wix/w:Package", $ns)
 Assert-True ($package.Scope -eq "perMachine") "Start menu entries must be installed for all users."
+Assert-True ($package.Name -eq '!(loc.ProductName)') "The installed app name must come from the package localization."
 $folder = $package.SelectSingleNode("w:StandardDirectory[@Id='ProgramMenuFolder']/w:Directory[@Id='QiQiProgramMenuFolder']", $ns)
-Assert-True ($null -ne $folder -and $folder.Name -eq "QiQiIME") "Missing stable QiQiIME start menu folder."
+Assert-True ($null -ne $folder -and $folder.Name -eq "QiQi") "Missing QiQi Start menu folder."
 $component = $package.SelectSingleNode("w:ComponentGroup[@Id='ProductComponents']/w:Component[@Id='CmpStartMenuShortcuts']", $ns)
 Assert-True ($null -ne $component) "Missing start menu component."
 Assert-True ($null -ne $package.SelectSingleNode("w:Feature/w:ComponentGroupRef[@Id='ProductComponents']", $ns)) "Start menu component is not included in the product feature."
@@ -62,6 +63,10 @@ foreach ($culture in @("zh-CN", "en-US")) {
     }
     foreach ($match in [regex]::Matches($source.OuterXml, '!\(loc\.([^)]+)\)')) {
         Assert-True ($strings.ContainsKey($match.Groups[1].Value)) "Missing localization key $($match.Groups[1].Value) in $culture."
+    }
+    Assert-True ($strings.ProductName -eq $folder.Name) "The installed app name must match the Start menu group in $culture."
+    if ($culture -eq "en-US") {
+        Assert-True ($strings.DictManagerShortcutName -eq "Dictionary Manager") "Unexpected English Dictionary Manager shortcut name."
     }
     $ids = @($strings.Keys | Sort-Object)
     if ($null -ne $referenceIds) {

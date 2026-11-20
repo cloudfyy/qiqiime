@@ -140,7 +140,7 @@
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
-      <Directory Id="QiQiProgramMenuFolder" Name="QiQiIME" />
+      <Directory Id="QiQiProgramMenuFolder" Name="QiQi" />
     </StandardDirectory>
 
     <ComponentGroup Id="ProductComponents">

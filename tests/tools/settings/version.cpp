@@ -53,7 +53,7 @@ void RunSettingsVersionTests() {
         return std::wstring_view(chars_view.data(), chars_view.size() - 1);
     };
     const std::wstring description =
-        L"奇奇五笔设置 (QiQi Wubi Settings - " + std::wstring(version::kArchW) + L")";
+        L"奇奇五笔设置 (QiQi Settings - " + std::wstring(version::kArchW) + L")";
     for (const auto* prefix : {L"\\StringFileInfo\\080404b0\\",
                                L"\\StringFileInfo\\040904b0\\"}) {
         const std::wstring block(prefix);
@@ -64,7 +64,7 @@ void RunSettingsVersionTests() {
         QIQI_TEST_CHECK(query_string(block + L"ProductVersion") == version::kFullVersionW);
         QIQI_TEST_CHECK(query_string(block + L"CompanyName") ==
                         L"cloudfyy (https://github.com/cloudfyy/qiqiime)");
-        QIQI_TEST_CHECK(query_string(block + L"ProductName") == L"奇奇五笔 (QiQi Wubi IME)");
+        QIQI_TEST_CHECK(query_string(block + L"ProductName") == L"QiQi");
     }
 
     const ScopedModule resource(::LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE));

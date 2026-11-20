@@ -7,8 +7,8 @@ set(QIQI_RESOURCE_FILENAME "qiqiime.dll")
 if(QIQI_METRICS_BENCHMARK_BASELINE)
     set(QIQI_RESOURCE_FILENAME "qiqiime_metrics_baseline.dll")
 endif()
-set(QIQI_RESOURCE_DESCRIPTION "奇奇五笔输入法 (QiQi Wubi 86 TSF IME - ${QIQIIME_ARCH_NAME})")
-set(QIQI_RESOURCE_COMMENTS "奇奇五笔 (QiQi Wubi 86 TSF IME) - https://github.com/cloudfyy/qiqiime")
+set(QIQI_RESOURCE_DESCRIPTION "奇奇五笔输入法 (QiQi Wubi 86 Input Method - ${QIQIIME_ARCH_NAME})")
+set(QIQI_RESOURCE_COMMENTS "奇奇五笔 (QiQi Wubi 86 Input Method) - https://github.com/cloudfyy/qiqiime")
 
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/version.h.in"

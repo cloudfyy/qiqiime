@@ -2,7 +2,7 @@
 
 ## 桌面端使用
 
-打开开始菜单中的 **QiQiIME 设置**，在“显示与易读”中选择：
+打开开始菜单中的 **奇奇五笔设置**，在“显示与易读”中选择：
 
 | 选项 | 行为 |
 |---|---|
@@ -163,7 +163,7 @@ Deflate 压缩的 ZIP（`.zip`，由 miniz 读写），其中包含 `manifest.js
 
 ## English
 
-Open **QiQiIME Settings** and use **Display & easy reading**. Theme is an explicit
+Open **QiQi Settings** and use **Display & easy reading**. Theme is an explicit
 choice: **Follow Windows**, **Light**, **Dark**, or **High contrast**. The desktop
 default remains Follow Windows with 100% text and Comfort mode off.
 Windows high contrast always takes precedence using the user's system colors.

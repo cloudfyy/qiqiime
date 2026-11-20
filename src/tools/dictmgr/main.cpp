@@ -15,12 +15,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
     try {
         return qiqi::dict_manager::RunDictManager(instance, show);
     } catch (const std::exception&) {
+        const auto language = qiqi::ResolveUiLanguage(qiqi::UiLanguage::Auto);
         ::MessageBoxW(
             nullptr,
-            qiqi::ResolveUiLanguage(qiqi::UiLanguage::Auto) == qiqi::UiLanguage::EnUs
-                ? L"Cannot initialize QiQiIME Dictionary Manager (allocation or system error)."
-                : L"无法初始化奇奇词库管理（内存分配或系统错误）。",
-            L"QiQiIME Dictionary Manager",
+            language == qiqi::UiLanguage::EnUs
+                ? L"Cannot initialize Dictionary Manager (allocation or system error)."
+                : L"无法初始化词典管理器（内存分配或系统错误）。",
+            qiqi::GetUiStrings(language).dict_manager_name,
             MB_OK | MB_ICONERROR);
         return 1;
     }

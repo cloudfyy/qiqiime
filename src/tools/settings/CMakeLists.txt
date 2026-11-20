@@ -19,8 +19,8 @@ target_link_libraries(qiqi_settings_ui PUBLIC qiqi_common qiqi_engine shell32 co
 set(QIQI_RESOURCE_FILE_TYPE VFT_APP)
 set(QIQI_RESOURCE_FILE_SUBTYPE 0x0L)
 set(QIQI_RESOURCE_FILENAME "QiQiIMESettings.exe")
-set(QIQI_RESOURCE_DESCRIPTION "奇奇五笔设置 (QiQi Wubi Settings - ${QIQIIME_ARCH_NAME})")
-set(QIQI_RESOURCE_COMMENTS "奇奇五笔设置 (QiQi Wubi Settings) - https://github.com/cloudfyy/qiqiime")
+set(QIQI_RESOURCE_DESCRIPTION "奇奇五笔设置 (QiQi Settings - ${QIQIIME_ARCH_NAME})")
+set(QIQI_RESOURCE_COMMENTS "奇奇五笔设置 (QiQi Settings) - https://github.com/cloudfyy/qiqiime")
 set(QIQI_RESOURCE_ICON "${PROJECT_SOURCE_DIR}/data/qiqiime-settings.ico")
 set(QIQI_SETTINGS_VERSION_RESOURCE "${QIQIIME_GENERATED_DIR}/tools/settings/version.rc")
 configure_file(

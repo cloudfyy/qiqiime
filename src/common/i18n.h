@@ -101,6 +101,10 @@ struct UiStrings {
     const wchar_t* dlg_btn_yes;
     const wchar_t* dlg_btn_no;
 
+    // Desktop tool names
+    const wchar_t* dict_manager_name;
+    const wchar_t* log_monitor_name;
+
     // About & Help dialogs
     const wchar_t* about_title;
     const wchar_t* about_app_name;
@@ -131,7 +135,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"Switch to English UI (英文界面)",
     L"输入法属性设置...",
     L"快捷键与帮助...",
-    L"关于奇奇五笔...",
+    L"关于 QiQi...",
 
     L"五笔",
     L"中",
@@ -145,8 +149,8 @@ inline constexpr UiStrings kZhCnStrings = {
     L"切换中/英文标点 (Ctrl+.)",
     L"打开输入法属性设置",
 
-    L"QiQi 五笔属性设置",
-    L"QiQi 五笔输入法 - 属性设置",
+    L"奇奇五笔设置",
+    L"奇奇五笔设置",
     L"极点五笔 86 词库",
     L"极点五笔 86 核心词库",
     L"海峰五笔 86 超大字符集词库 (含生僻字)",
@@ -189,7 +193,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"无下划线",
     L"加粗编码下划线",
     L"关于...",
-    L"词库与词频管理...",
+    L"词典管理器...",
     L"快捷键说明...",
     L"恢复默认值",
     L"确定",
@@ -202,11 +206,14 @@ inline constexpr UiStrings kZhCnStrings = {
     L"是",
     L"否",
 
-    L"关于 奇奇五笔",
-    L"奇奇五笔 (QiQi Wubi IME)",
+    L"词典管理器",
+    L"奇奇五笔日志监视器",
+
+    L"关于 QiQi",
+    L"QiQi",
     L"版本: v",
     L"开源许可协议 (Licenses):\n"
-    L"• 奇奇五笔 (QiQiIME) 主程序 (cloudfyy): GPL-3.0-or-later\n"
+    L"• QiQi 主程序 (cloudfyy): GPL-3.0-or-later\n"
     L"• 极点五笔 86 词库 (KyleBing): Apache License 2.0\n"
     L"• 海峰五笔 86 词库 (孙海峰): BSD 3-Clause License",
     L"访问 GitHub",
@@ -247,9 +254,9 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Enable Jidian Extra Dictionary",
     L"Show Floating Status Bar",
     L"切换中文界面 (Chinese UI)",
-    L"IME Settings...",
+    L"Settings...",
     L"Shortcuts & Help...",
-    L"About QiQi Wubi...",
+    L"About QiQi...",
 
     L"Wubi",
     L"CN",
@@ -261,10 +268,10 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Toggle Chinese/English Mode (Shift / Ctrl+Space)",
     L"Toggle Full/Half Width (Shift+Space)",
     L"Toggle Chinese/English Punctuation (Ctrl+.)",
-    L"Open IME Settings",
+    L"Open QiQi Settings",
 
-    L"QiQi Wubi Settings",
-    L"QiQi Wubi IME - Settings",
+    L"QiQi Settings",
+    L"QiQi Settings",
     L"Jidian Wubi 86 Dictionary",
     L"Jidian Wubi 86 Core Dictionary",
     L"Haifeng Wubi 86 Extended CJK Dictionary",
@@ -320,11 +327,14 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Yes",
     L"No",
 
-    L"About QiQi Wubi IME",
-    L"QiQi Wubi IME",
+    L"Dictionary Manager",
+    L"QiQi Log Monitor",
+
+    L"About QiQi",
+    L"QiQi",
     L"Version: v",
     L"Open Source Licenses:\n"
-    L"• QiQi Wubi IME Core (cloudfyy): GPL-3.0-or-later\n"
+    L"• QiQi Core (cloudfyy): GPL-3.0-or-later\n"
     L"• Jidian Wubi 86 Dict (KyleBing): Apache License 2.0\n"
     L"• Haifeng Wubi 86 Dict (SUN Haifeng): BSD 3-Clause License",
     L"Visit GitHub",

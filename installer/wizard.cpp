@@ -84,7 +84,7 @@ public:
         Append(header);
         Word(0);
         Word(0);
-        Text(L"QiQiIME");
+        Text(L"QiQi");
         Word(9);
         Text(L"Segoe UI");
         Control(1201, 0x0082, SS_LEFT, 16, 14, 388, 40);

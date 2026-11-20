@@ -42,9 +42,9 @@ BEGIN
             VALUE "FileVersion", "@QIQIIME_FULL_VERSION@"
             VALUE "InternalName", "@QIQI_RESOURCE_FILENAME@"
             VALUE "LegalCopyright", "Copyright (C) 2026 cloudfyy. Released under GPL-3.0-or-later."
-            VALUE "LegalTrademarks", "奇奇五笔 (QiQiIME)"
+            VALUE "LegalTrademarks", "QiQi"
             VALUE "OriginalFilename", "@QIQI_RESOURCE_FILENAME@"
-            VALUE "ProductName", "奇奇五笔 (QiQi Wubi IME)"
+            VALUE "ProductName", "QiQi"
             VALUE "ProductVersion", "@QIQIIME_FULL_VERSION@"
         END
         BLOCK "040904b0"
@@ -55,9 +55,9 @@ BEGIN
             VALUE "FileVersion", "@QIQIIME_FULL_VERSION@"
             VALUE "InternalName", "@QIQI_RESOURCE_FILENAME@"
             VALUE "LegalCopyright", "Copyright (C) 2026 cloudfyy. Released under GPL-3.0-or-later."
-            VALUE "LegalTrademarks", "奇奇五笔 (QiQiIME)"
+            VALUE "LegalTrademarks", "QiQi"
             VALUE "OriginalFilename", "@QIQI_RESOURCE_FILENAME@"
-            VALUE "ProductName", "奇奇五笔 (QiQi Wubi IME)"
+            VALUE "ProductName", "QiQi"
             VALUE "ProductVersion", "@QIQIIME_FULL_VERSION@"
         END
     END

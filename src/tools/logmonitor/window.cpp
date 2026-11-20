@@ -20,7 +20,7 @@ using enum ControlId;
 void MonitorWindow::Impl::Failure(std::wstring_view operation, ULONG error) {
     diagnostics.Record(2, operation, error);
     const auto message = std::format(L"{}\r\n{}={} (0x{:08X})", operation, Text(L"错误码", L"Error"), error, error);
-    ::MessageBoxW(hwnd, message.c_str(), Text(L"奇奇日志监控", L"QiQiIME Log Monitor"), MB_OK | MB_ICONERROR);
+    ::MessageBoxW(hwnd, message.c_str(), GetUiStrings(ui_language).log_monitor_name, MB_OK | MB_ICONERROR);
 }
 
 LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
@@ -132,12 +132,12 @@ int RunMonitor(HINSTANCE instance, int show, std::wstring_view command_line) {
     MonitorStartupOptions startup;
     const ULONG error = ParseMonitorStartupArguments(command_line, startup);
     if (error != ERROR_SUCCESS) {
-        const bool english = ResolveUiLanguage(UiLanguage::Auto) == UiLanguage::EnUs;
+        const auto language = ResolveUiLanguage(UiLanguage::Auto);
+        const bool english = language == UiLanguage::EnUs;
         const auto message = std::format(L"{}\r\n{}={} (0x{:08X})",
             english ? L"Invalid log monitor startup arguments." : L"日志监控启动参数无效。",
             english ? L"Error" : L"错误码", error, error);
-        ::MessageBoxW(nullptr, message.c_str(),
-            english ? L"QiQiIME Log Monitor" : L"奇奇日志监控", MB_OK | MB_ICONERROR);
+        ::MessageBoxW(nullptr, message.c_str(), GetUiStrings(language).log_monitor_name, MB_OK | MB_ICONERROR);
         return 1;
     }
     MonitorWindow window;

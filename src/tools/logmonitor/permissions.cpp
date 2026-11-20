@@ -3,6 +3,7 @@
 
 #include "tools/logmonitor/permissions.h"
 #include "common/fileutil.h"
+#include "common/i18n.h"
 #include "common/RAII.h"
 #include "common/version.h"
 
@@ -48,10 +49,10 @@ bool IsMonitorProcessElevated() noexcept {
 }
 
 std::wstring FormatMonitorWindowTitle(UiLanguage language, bool elevated) {
-    const bool english = ResolveUiLanguage(language) == UiLanguage::EnUs;
-    const wchar_t* app_name = english ? L"QiQiIME Log Monitor" : L"奇奇日志监控";
+    const auto resolved = ResolveUiLanguage(language);
+    const wchar_t* app_name = GetUiStrings(resolved).log_monitor_name;
     if (elevated) {
-        const wchar_t* admin_tag = english ? L" [Administrator]" : L" [管理员]";
+        const wchar_t* admin_tag = resolved == UiLanguage::EnUs ? L" [Administrator]" : L" [管理员]";
         return std::format(L"{} v{} ({}){}", app_name, version::kVersionW, version::kArchW, admin_tag);
     }
     return std::format(L"{} v{} ({})", app_name, version::kVersionW, version::kArchW);
@@ -100,7 +101,7 @@ HRESULT ConfirmElevatedRestart(
     dialog.hwndParent = owner;
     dialog.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW | TDF_SIZE_TO_CONTENT;
     dialog.dwCommonButtons = TDCBF_CANCEL_BUTTON;
-    dialog.pszWindowTitle = english ? L"QiQiIME Log Monitor" : L"奇奇日志监控";
+    dialog.pszWindowTitle = GetUiStrings(language).log_monitor_name;
     dialog.pszMainIcon = TD_WARNING_ICON;
     dialog.pszMainInstruction = english ? L"Administrator permission needed" : L"需要管理员权限";
     dialog.pszContent = content.c_str();

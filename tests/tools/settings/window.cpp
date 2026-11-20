@@ -334,14 +334,14 @@ void TestSettingsDialogControls() {
         const ScopedWindow hwnd_en(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
         QIQI_TEST_CHECK(hwnd_en.IsValid());
         ::GetWindowTextW(hwnd_en.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
-        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"QiQi Wubi IME - Settings");
+        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"QiQi Settings");
 
         // Verify Chinese settings dialog title when created with UiLanguage::ZhCn
         cfg.ui_language = UiLanguage::ZhCn;
         const ScopedWindow hwnd_zh(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
         QIQI_TEST_CHECK(hwnd_zh.IsValid());
         ::GetWindowTextW(hwnd_zh.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
-        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"QiQi 五笔输入法 - 属性设置");
+        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"奇奇五笔设置");
 
         // Exercise Direct2D Fluent UI card and toggle-switch painting in both Light and Dark themes
         for (const bool dark : {false, true}) {
@@ -357,12 +357,12 @@ void TestSettingsDialogControls() {
         ::SendDlgItemMessageW(hwnd_zh.Get(), 111, CB_SETCURSEL, 2, 0); // EnUs
         ::SendMessageW(hwnd_zh.Get(), WM_COMMAND, MAKEWPARAM(111, CBN_SELCHANGE), 0);
         ::GetWindowTextW(hwnd_zh.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
-        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"QiQi Wubi IME - Settings *");
+        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"QiQi Settings *");
 
         ::SendDlgItemMessageW(hwnd_zh.Get(), 111, CB_SETCURSEL, 1, 0); // ZhCn
         ::SendMessageW(hwnd_zh.Get(), WM_COMMAND, MAKEWPARAM(111, CBN_SELCHANGE), 0);
         ::GetWindowTextW(hwnd_zh.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
-        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"QiQi 五笔输入法 - 属性设置");
+        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"奇奇五笔设置");
 
         // Test clicking the "About..." button (id=115) and "Shortcuts..." button (id=130) inside SettingsDialog
         ::SetTimer(nullptr, 2, 10, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
@@ -456,8 +456,11 @@ void TestSettingsDialogControls() {
     }
 
     // Verify About dialog creation, painting, title localization, child controls, icon, and modal ShowAboutDialog
-    QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_app_name).find(L"奇奇五笔") != std::wstring::npos);
-    QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_app_name) == L"QiQi Wubi IME");
+    for (const auto language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        const auto& strings = GetUiStrings(language);
+        QIQI_TEST_CHECK(std::wstring_view(strings.about_app_name) == L"QiQi");
+        QIQI_TEST_CHECK(!std::wstring_view(strings.about_license_info).contains(L"IME"));
+    }
     QIQI_TEST_CHECK(std::wstring(kGitHubRepoUrl) == L"https://github.com/cloudfyy/qiqiime");
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"cloudfyy") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_license_info).find(L"cloudfyy") != std::wstring::npos);
@@ -473,7 +476,7 @@ void TestSettingsDialogControls() {
         const LRESULT big_icon = ::SendMessageW(about_zh.Get(), WM_GETICON, ICON_BIG, 0);
         QIQI_TEST_CHECK(small_icon != 0 && big_icon != 0 && small_icon != big_icon);
         ::GetWindowTextW(about_zh.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
-        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"关于 奇奇五笔");
+        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"关于 QiQi");
         std::array<wchar_t, 64> btn_buf{};
         ::GetDlgItemTextW(about_zh.Get(), 201, btn_buf.data(), gsl::narrow_cast<int>(btn_buf.size()));
         QIQI_TEST_CHECK(std::wstring(btn_buf.data()) == L"访问 GitHub");
@@ -487,7 +490,7 @@ void TestSettingsDialogControls() {
         const ScopedWindow about_en(CreateAboutWindow(::GetModuleHandleW(nullptr), about_zh.Get(), UiLanguage::EnUs));
         QIQI_TEST_CHECK(about_en.IsValid());
         ::GetWindowTextW(about_en.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
-        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"About QiQi Wubi IME");
+        QIQI_TEST_CHECK(std::wstring(title_buf.data()) == L"About QiQi");
         ::GetDlgItemTextW(about_en.Get(), 201, btn_buf.data(), gsl::narrow_cast<int>(btn_buf.size()));
         QIQI_TEST_CHECK(std::wstring(btn_buf.data()) == L"Visit GitHub");
         ::GetDlgItemTextW(about_en.Get(), IDOK, btn_buf.data(), gsl::narrow_cast<int>(btn_buf.size()));

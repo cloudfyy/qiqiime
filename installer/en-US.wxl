@@ -4,34 +4,34 @@
   SPDX-License-Identifier: GPL-3.0-or-later
 -->
 <WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="en-US">
-  <String Id="ProductName" Value="QiQi Wubi IME" />
-  <String Id="SummaryDescription" Value="QiQi Wubi 86 TSF Input Method Editor ($(sys.BUILDARCH)) v$(var.ProductVersion)" />
+  <String Id="ProductName" Value="QiQi" />
+  <String Id="SummaryDescription" Value="QiQi Wubi 86 Input Method ($(sys.BUILDARCH)) v$(var.ProductVersion)" />
   <String Id="X86Requires32BitWindows" Value="This x86 installer requires 32-bit Windows. On 64-bit Windows, use the x64 installer, which includes support for 32-bit applications." />
   <String Id="SummaryComments" Value="Copyright (C) 2026 cloudfyy. Licenses: Core GPL-3.0-or-later; Jidian Wubi Dict Apache-2.0; Haifeng Wubi Dict BSD-3-Clause." />
-  <String Id="SummaryKeywords" Value="QiQiIME, QiQi Wubi, Wubi, TSF, Input Method, IME, GPL-3.0-or-later" />
-  <String Id="DowngradeErrorMessage" Value="A newer version of QiQi Wubi IME is already installed." />
+  <String Id="SummaryKeywords" Value="QiQi, QiQi Wubi, Wubi, TSF, Input Method, GPL-3.0-or-later" />
+  <String Id="DowngradeErrorMessage" Value="A newer version of QiQi is already installed." />
   <String Id="FeatureTitle" Value="QiQi Wubi 86 Input Method" />
-  <String Id="WizardTitle" Value="QiQiIME Uninstall Wizard" />
+  <String Id="WizardTitle" Value="QiQi Uninstall Wizard" />
   <String Id="UninstallDescription" Value="Step 1: Choose personal data to delete." />
   <String Id="RemoveConfiguration" Value="Delete this user's settings" />
   <String Id="RemoveDictionaries" Value="Delete this user's dictionary data: user dictionary, known compiled caches, frequencies and sync files" />
-  <String Id="RemoveUserDataWarning" Value="Selected data is permanently deleted. Back up and close IME first. In-use old caches may need a restart to finish cleanup; no immediate restart is forced." />
+  <String Id="RemoveUserDataWarning" Value="Selected data is permanently deleted. Back up and close apps using QiQi first. In-use old caches may need a restart to finish cleanup; no immediate restart is forced." />
   <String Id="UninstallProgress" Value="Step 2: Removing the program and processing selected data. Please wait." />
   <String Id="CancelUninstall" Value="Stop uninstalling? Installer rollback cannot restore personal data that has already been deleted. If uninstall is still progressing, allow it to finish if possible." />
   <String Id="ContinueButton" Value="Continue" />
   <String Id="UninstallComplete" Value="Uninstall complete. Unselected personal data was kept. Items cleaned: [1]. No cleanup restart is required." />
-  <String Id="UninstallRestart" Value="The program was removed. Items cleaned: [1]; queued for deletion at restart: [2]. Save your work and choose Windows Restart. QiQiIME cannot be installed again until the restart and cleanup are complete." />
+  <String Id="UninstallRestart" Value="The program was removed. Items cleaned: [1]; queued for deletion at restart: [2]. Save your work and choose Windows Restart. QiQi cannot be installed again until the restart and cleanup are complete." />
   <String Id="UninstallIncomplete" Value="Program removal was committed, but personal-data cleanup is incomplete. Items cleaned: [1]; queued for restart: [2]; operation: [4]; HRESULT: [3]. Keep the MSI log. Restart first if items are queued. Do not assume all data was deleted or manually remove registry records." />
   <String Id="UninstallFailed" Value="Uninstall did not finish normally. Keep the MSI log for diagnosis. Program files may have rolled back, but deleted personal data is not guaranteed to be restored. Do not manually delete the installation directory." />
-  <String Id="InstallRestart" Value="Cleanup from the previous QiQiIME uninstall is still pending in this Windows boot session. Save your work, choose Windows Restart, then install again. Signing out or closing setup is not a restart." />
-  <String Id="InstallIncomplete" Value="Setup cannot verify that the previous QiQiIME cleanup completed. Pending files may remain after restart, or cleanup state cannot be read. Keep the log and resolve the reported permissions or residual-file problem. Do not repeatedly restart or manually delete cleanup records." />
+  <String Id="InstallRestart" Value="Cleanup from the previous QiQi uninstall is still pending in this Windows boot session. Save your work, choose Windows Restart, then install again. Signing out or closing setup is not a restart." />
+  <String Id="InstallIncomplete" Value="Setup cannot verify that the previous QiQi cleanup completed. Pending files may remain after restart, or cleanup state cannot be read. Keep the log and resolve the reported permissions or residual-file problem. Do not repeatedly restart or manually delete cleanup records." />
   <String Id="UninstallButton" Value="Start uninstall" />
   <String Id="CloseButton" Value="Close" />
   <String Id="CancelButton" Value="Cancel" />
-  <String Id="SettingsShortcutName" Value="QiQiIME Settings" />
-  <String Id="SettingsShortcutDescription" Value="Configure QiQi Wubi IME." />
-  <String Id="DictManagerShortcutName" Value="QiQiIME Dict Manager" />
-  <String Id="DictManagerShortcutDescription" Value="Manage QiQiIME user dictionary entries and backups." />
-  <String Id="LogMonitorShortcutName" Value="QiQiIME Log Monitor" />
-  <String Id="LogMonitorShortcutDescription" Value="View and export QiQiIME diagnostic logs." />
+  <String Id="SettingsShortcutName" Value="QiQi Settings" />
+  <String Id="SettingsShortcutDescription" Value="Configure QiQi." />
+  <String Id="DictManagerShortcutName" Value="Dictionary Manager" />
+  <String Id="DictManagerShortcutDescription" Value="Manage QiQi user dictionary entries and backups." />
+  <String Id="LogMonitorShortcutName" Value="QiQi Log Monitor" />
+  <String Id="LogMonitorShortcutDescription" Value="View and export QiQi diagnostic logs." />
 </WixLocalization>

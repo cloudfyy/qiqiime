@@ -212,6 +212,7 @@ void TestDesktopIntegration() {
     QIQI_TEST_CHECK(::GetDlgItem(window.Handle(), 122) == nullptr);
     QIQI_TEST_CHECK(::GetDlgItem(window.Handle(), 123) == nullptr);
     SelectLanguage(window, UiLanguage::EnUs);
+    QIQI_TEST_CHECK(ControlText(window.Handle()).starts_with(L"QiQi Log Monitor v"));
     QIQI_TEST_CHECK(CommandName(window, Clear) == L"Clear");
     QIQI_TEST_CHECK(CommandName(window, Copy) == L"Copy");
     QIQI_TEST_CHECK(CommandName(window, LanguageEn) == GetUiStrings(UiLanguage::EnUs).dlg_lang_en);
@@ -321,7 +322,7 @@ void TestDesktopIntegration() {
     QIQI_TEST_CHECK(CommandName(window, LanguageZh) == GetUiStrings(UiLanguage::ZhCn).dlg_lang_zh);
     QIQI_TEST_CHECK(CommandName(window, Pause) == L"恢复自动滚动");
     QIQI_TEST_CHECK(CommandName(window, Source) == L"输入法日志");
-    QIQI_TEST_CHECK(ControlText(window.Handle()).contains(L"奇奇日志监控"));
+    QIQI_TEST_CHECK(ControlText(window.Handle()).starts_with(L"奇奇五笔日志监视器 v"));
     QIQI_TEST_CHECK(ControlText(Child(window, Search)) == L"initialized");
     QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(::GetCurrentProcessId()));
     QIQI_TEST_CHECK(::SendMessageW(Child(window, Level), CB_GETCURSEL, 0, 0) == 4);

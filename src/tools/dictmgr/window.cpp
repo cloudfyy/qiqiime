@@ -30,6 +30,11 @@ namespace {
 constexpr std::array toolbar_commands{
     Reload, NewWord, Copy, Import, Export, Pin, Delete, Promote};
 
+std::wstring FormatWindowTitle(UiLanguage language) {
+    return std::format(L"{} v{} ({})", GetUiStrings(language).dict_manager_name,
+                       version::kVersionW, version::kArchW);
+}
+
 [[noreturn]] void ThrowUiError(const char* operation, DWORD error) {
     QIQI_LOG_ERROR("DictManager {} failed (error={})", operation, error);
     throw std::system_error(error, std::system_category(), operation);
@@ -163,7 +168,7 @@ void DictManagerWindow::Impl::Failure(std::wstring_view operation, ULONG error) 
         WideToUtf8(operation),
         error);
     const auto message = std::format(L"{}\r\n{}={} (0x{:08X})", operation, Text(L"错误码", L"Error"), error, error);
-    ::MessageBoxW(hwnd, message.c_str(), Text(L"奇奇五笔词库管理", L"QiQiIME Dictionary Manager"), MB_OK | MB_ICONERROR);
+    ::MessageBoxW(hwnd, message.c_str(), GetUiStrings(ui_language).dict_manager_name, MB_OK | MB_ICONERROR);
 }
 
 void DictManagerWindow::Impl::UpdateIcons() noexcept {
@@ -471,11 +476,7 @@ void DictManagerWindow::Impl::UpdateDisplayTargets() noexcept {
 
 void DictManagerWindow::Impl::ApplyLanguage() {
     if (!ready) return;
-    const auto title = std::format(
-        L"{} v{} ({})",
-        Text(L"奇奇五笔词库与词频管理", L"QiQiIME Dictionary & Frequency Manager"),
-        version::kVersionW,
-        version::kArchW);
+    const auto title = FormatWindowTitle(ui_language);
     ::SetWindowTextW(hwnd, title.c_str());
 
     UpdateCommands();
@@ -1128,7 +1129,7 @@ void DictManagerWindow::Impl::SelectPrimaryDictDialog() {
         ::MessageBoxW(
             hwnd,
             GetUiStrings(ui_language).dlg_invalid_primary_dict,
-            Text(L"奇奇五笔词库管理", L"QiQiIME Dictionary Manager"),
+            GetUiStrings(ui_language).dict_manager_name,
             MB_OK | MB_ICONWARNING);
     }
 }
@@ -1192,7 +1193,7 @@ void DictManagerWindow::Impl::BackupBundleDialog() {
             Text(L"完整备份配置、词库与词组排序 (.zip)",
                  L"Complete Backup of Config and Dictionaries (.zip)"),
             Text(L"奇奇五笔完整备份 (*.zip)\0*.zip\0所有文件\0*.*\0",
-                L"QiQiIME Complete Backup (*.zip)\0*.zip\0All files\0*.*\0"),
+                L"QiQi Complete Backup (*.zip)\0*.zip\0All files\0*.*\0"),
             path, dialog_detail::FileDialogMode::Save, L"zip")) return;
     const HRESULT result = model.CreateBackupBundleResult(path.data());
     if (SUCCEEDED(result)) {
@@ -1210,9 +1211,9 @@ void DictManagerWindow::Impl::RestoreBundleDialog() {
     std::array<wchar_t, kWin32PathBufferChars> path{};
     if (!dialog_detail::PromptForFile(hwnd,
             Text(L"选择要恢复的奇奇五笔 ZIP 备份",
-                 L"Select QiQiIME ZIP Backup to Restore"),
+                 L"Select QiQi ZIP Backup to Restore"),
             Text(L"奇奇五笔完整备份 (*.zip)\0*.zip\0所有文件\0*.*\0",
-                L"QiQiIME Complete Backup (*.zip)\0*.zip\0All files\0*.*\0"),
+                L"QiQi Complete Backup (*.zip)\0*.zip\0All files\0*.*\0"),
             path, dialog_detail::FileDialogMode::Open)) return;
 
     const int choice = ::MessageBoxW(
@@ -1449,11 +1450,7 @@ bool DictManagerWindow::Create(
         impl_->Failure(L"RegisterClassEx", ::GetLastError());
         return false;
     }
-    const auto title = std::format(
-        L"{} v{} ({})",
-        impl_->Text(L"奇奇五笔词库与词频管理", L"QiQiIME Dictionary & Frequency Manager"),
-        version::kVersionW,
-        version::kArchW);
+    const auto title = FormatWindowTitle(impl_->ui_language);
     const auto monitor = QueryActiveMonitor(nullptr);
     const auto rect = ComputeCenteredToolWindowRect(
         monitor, layout::kInitialWindowSize.cx, layout::kInitialWindowSize.cy, monitor.dpi);
