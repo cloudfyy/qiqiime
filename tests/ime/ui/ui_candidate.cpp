@@ -941,11 +941,48 @@ void TestCandidateAccessibility() {
     ComPtr<IRawElementProviderSimple> selection_container;
     QIQI_TEST_CHECK(first_selection->get_SelectionContainer(
                         selection_container.GetAddressOf()) == S_OK && selection_container);
-    IUnknown* container_pattern = nullptr;
+    ComPtr<IUnknown> container_pattern;
     QIQI_TEST_CHECK(selection_container->GetPatternProvider(
-                        UIA_SelectionPatternId, &container_pattern) == S_OK &&
+                        UIA_SelectionPatternId, container_pattern.GetAddressOf()) == S_OK &&
                     container_pattern);
-    container_pattern->Release();
+    ComPtr<ISelectionProvider> selection_provider;
+    QIQI_TEST_CHECK(container_pattern.As(&selection_provider) == S_OK &&
+                    selection_provider);
+    const auto check_automation_selection = [&](std::wstring_view expected_name) {
+        SAFEARRAY* selected_elements = nullptr;
+        QIQI_TEST_CHECK(selection_provider->GetSelection(&selected_elements) == S_OK &&
+                        selected_elements);
+        const auto destroy_selected_elements = gsl::finally([&]() noexcept {
+            if (selected_elements) {
+                QIQI_TEST_CHECK_CLEANUP(::SafeArrayDestroy(selected_elements) == S_OK);
+                selected_elements = nullptr;
+            }
+        });
+        VARTYPE element_type = VT_EMPTY;
+        LONG lower_bound = 0;
+        LONG upper_bound = -1;
+        QIQI_TEST_CHECK(::SafeArrayGetVartype(selected_elements, &element_type) == S_OK &&
+                        element_type == VT_UNKNOWN);
+        QIQI_TEST_CHECK(::SafeArrayGetLBound(selected_elements, 1, &lower_bound) == S_OK &&
+                        lower_bound == 0);
+        QIQI_TEST_CHECK(::SafeArrayGetUBound(selected_elements, 1, &upper_bound) == S_OK &&
+                        upper_bound == 0);
+        LONG index = lower_bound;
+        ComPtr<IUnknown> selected_item;
+        QIQI_TEST_CHECK(::SafeArrayGetElement(
+                            selected_elements, &index, selected_item.GetAddressOf()) == S_OK &&
+                        selected_item);
+        ComPtr<IRawElementProviderSimple> selected_simple;
+        QIQI_TEST_CHECK(selected_item.As(&selected_simple) == S_OK && selected_simple);
+        VARIANT selected_name;
+        ::VariantInit(&selected_name);
+        QIQI_TEST_CHECK(selected_simple->GetPropertyValue(
+                            UIA_NamePropertyId, &selected_name) == S_OK &&
+                        selected_name.vt == VT_BSTR &&
+                        std::wstring(selected_name.bstrVal) == expected_name);
+        std::ignore = ::VariantClear(&selected_name);
+    };
+    check_automation_selection(L"一");
     pattern->Release();
 
     ComPtr<IRawElementProviderFragment> second;
@@ -979,6 +1016,7 @@ void TestCandidateAccessibility() {
                         UIA_SelectionItemIsSelectedPropertyId, &value) == S_OK &&
                     value.boolVal == VARIANT_FALSE);
     std::ignore = ::VariantClear(&value);
+    check_automation_selection(L"二");
 
     SAFEARRAY* runtime_id = nullptr;
     QIQI_TEST_CHECK(first->GetRuntimeId(&runtime_id) == S_OK && runtime_id);

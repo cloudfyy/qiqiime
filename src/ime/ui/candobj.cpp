@@ -696,7 +696,7 @@ STDMETHODIMP CandidateUI::GetSelection(SAFEARRAY** selection) noexcept {
     LONG index = 0;
     IUnknown* selected_item = selected.Get();
     const HRESULT put_hr = ::SafeArrayPutElement(
-        *selection, &index, &selected_item);
+        *selection, &index, selected_item);
     if (FAILED(put_hr)) {
         ::SafeArrayDestroy(*selection);
         *selection = nullptr;
