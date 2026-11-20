@@ -116,15 +116,6 @@ public:
                 return S_OK;
             case UIA_NamePropertyId:
                 return MakeBstrVariant(owner_->AccessibleCandidateName(page_index_), value);
-            case UIA_HelpTextPropertyId:
-                try {
-                    return MakeBstrVariant(
-                        owner_->AccessibleCandidateHelp(page_index_), value);
-                } catch (const std::bad_alloc&) {
-                    return E_OUTOFMEMORY;
-                } catch (...) {
-                    return E_FAIL;
-                }
             case UIA_IsEnabledPropertyId:
                 value->vt = VT_BOOL;
                 value->boolVal = VARIANT_TRUE;
@@ -1038,15 +1029,6 @@ std::wstring_view CandidateUI::AccessibleCandidateName(size_t page_index) const 
     const size_t global_index = current_page_ * page_size_ + page_index;
     if (global_index >= all_candidates_.size()) return {};
     return StripCodeAnnotation(gsl::at(all_candidates_, global_index));
-}
-
-std::wstring CandidateUI::AccessibleCandidateHelp(size_t page_index) const {
-    const size_t global_index = current_page_ * page_size_ + page_index;
-    if (global_index >= all_candidates_.size()) return {};
-    const std::wstring_view display = gsl::at(all_candidates_, global_index);
-    const std::wstring_view name = StripCodeAnnotation(display);
-    if (name.size() == display.size()) return {};
-    return std::wstring(display.substr(name.size()));
 }
 
 HRESULT CandidateUI::RaiseAccessibilityEvent(

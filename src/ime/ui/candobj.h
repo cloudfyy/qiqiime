@@ -247,7 +247,6 @@ private:
     HRESULT CreateAutomationItem(
         size_t page_index, IRawElementProviderFragment** fragment) noexcept;
     std::wstring_view AccessibleCandidateName(size_t page_index) const noexcept;
-    std::wstring AccessibleCandidateHelp(size_t page_index) const;
     size_t AccessibleCandidateCount() const noexcept { return candidate_hit_rects_.size(); }
     size_t SelectedPageIndex() const noexcept;
     void NotifyPopupWindowState(HWND window, bool destroyed = false) noexcept;

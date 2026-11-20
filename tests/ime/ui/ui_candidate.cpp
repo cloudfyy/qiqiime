@@ -921,7 +921,7 @@ void TestCandidateAccessibility() {
                     value.vt == VT_BSTR && std::wstring(value.bstrVal) == L"一");
     std::ignore = ::VariantClear(&value);
     QIQI_TEST_CHECK(first_simple->GetPropertyValue(UIA_HelpTextPropertyId, &value) == S_OK &&
-                    value.vt == VT_BSTR && std::wstring(value.bstrVal) == L"(~ab)");
+                    value.vt == VT_EMPTY);
     std::ignore = ::VariantClear(&value);
     QIQI_TEST_CHECK(first_simple->GetPropertyValue(
                         UIA_SelectionItemIsSelectedPropertyId, &value) == S_OK &&

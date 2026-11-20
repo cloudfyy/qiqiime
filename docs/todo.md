@@ -669,8 +669,10 @@ status-bar/tooltip skin support require separate design approval.
   [IME candidate-list accessibility for Narrator](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-accessibility).
   The native candidate popup now exposes an exact
   `UIA_AutomationIdPropertyId` value of `IME_Candidate_Window`, a fragment-root
-  list with current-page item providers, `UIA_NamePropertyId` candidate text and
-  `UIA_HelpTextPropertyId` code annotations. Selection items expose
+  list with current-page item providers and `UIA_NamePropertyId` candidate text.
+  Visual code annotations are intentionally omitted from `UIA_HelpTextPropertyId`
+  so Narrator announces the selected character or phrase rather than its code.
+  Selection items expose
   `UIA_SelectionItemIsSelectedPropertyId` and support selection through the
   existing candidate callback. The popup raises `UIA_MenuOpenedEventId`,
   `UIA_MenuClosedEventId`, and `UIA_SelectionItem_ElementSelectedEventId` only
@@ -687,6 +689,16 @@ status-bar/tooltip skin support require separate design approval.
   These UIA events do not replace the IME light-dismiss WinEvents above.
   Add property/event regressions using synthetic candidates and manual
   Narrator validation; do not capture real input or candidate text in logs.
+
+- [ ] Complete UI Automation support for candidate-window paging controls.
+  Expose the previous/next controls as stable UIA Button providers with localized
+  names, enabled state, hit testing, keyboard-compatible invocation, and sibling
+  navigation alongside candidate items. Expose the current/total page state on
+  the candidate list without using the encoded candidate text as part of the
+  announcement, and raise the appropriate property or structure-change events
+  when paging changes. Hidden or unavailable controls must not appear as usable.
+  Add focused x64/x86 regressions for first, middle, last, and single-page states,
+  then verify control discovery and announcements with Inspect and real Narrator.
 
 - [ ] Audit and complete UI Automation and Narrator support for the standalone
   tools: Settings, Dictionary Manager, and Log Monitor. Keep native
