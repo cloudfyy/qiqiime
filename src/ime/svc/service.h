@@ -148,7 +148,6 @@ private:
     };
     struct CandidateUiRequest {
         bool end = false;
-        bool end_retry_attempted = false;
         KeyProcessResult snapshot;
         EditSessionTicket ticket{};
     };

@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 
+#include "ime/fsm/table.h"
 #include "ime/fsm/types.h"
 
 namespace qiqi {
@@ -113,12 +114,10 @@ constexpr TransitionRule ComputeTransitionRule(EngineState state, KeyEventKind e
     }
 }
 
-using FsmTable = std::array<
-    std::array<TransitionRule, static_cast<size_t>(KeyEventKind::Count)>,
-    static_cast<size_t>(EngineState::Count)>;
+using WubiFsmTable = FsmTable<EngineState, KeyEventKind, TransitionRule>;
 
-constexpr FsmTable BuildWubiFsmTable() noexcept {
-    FsmTable table{};
+constexpr WubiFsmTable BuildWubiFsmTable() noexcept {
+    WubiFsmTable table{};
     for (size_t s = 0; s < static_cast<size_t>(EngineState::Count); ++s) {
         for (size_t e = 0; e < static_cast<size_t>(KeyEventKind::Count); ++e) {
             gsl::at(gsl::at(table, s), e) = ComputeTransitionRule(
@@ -129,16 +128,11 @@ constexpr FsmTable BuildWubiFsmTable() noexcept {
 }
 
 // Compile-time dispatch table; final states are resolved by runtime handlers.
-inline constexpr FsmTable kWubiFsmTable = BuildWubiFsmTable();
+inline constexpr WubiFsmTable kWubiFsmTable = BuildWubiFsmTable();
 
 constexpr TransitionRule LookupTransition(EngineState state, KeyEventKind event) noexcept {
-    const auto s = static_cast<size_t>(state);
-    const auto e = static_cast<size_t>(event);
-    if (s >= static_cast<size_t>(EngineState::Count) ||
-        e >= static_cast<size_t>(KeyEventKind::Count)) {
-        return {TransitionOp::PassThrough, false};
-    }
-    return gsl::at(gsl::at(kWubiFsmTable, s), e);
+    return LookupFsmTransition(kWubiFsmTable, state, event)
+        .value_or(TransitionRule{TransitionOp::PassThrough, false});
 }
 
 // Compile-time invariants verification on kWubiFsmTable

@@ -5,5 +5,6 @@
 
 #include "ime/fsm/keymap.h"
 #include "ime/fsm/pagination.h"
+#include "ime/fsm/table.h"
 #include "ime/fsm/transitions.h"
 #include "ime/fsm/types.h"

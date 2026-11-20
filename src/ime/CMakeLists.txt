@@ -13,6 +13,7 @@ set(QIQI_ENGINE_SOURCES
     engine/dictutil.cpp
     engine/engine.h
     engine/builtindict.h
+    fsm/table.h
 )
 add_library(qiqi_engine STATIC ${QIQI_ENGINE_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_ENGINE_SOURCES})
@@ -49,6 +50,8 @@ set(QIQIIME_SOURCES
     tsf/dispattr.cpp
     tsf/editsession.h
     tsf/qiqiime.def
+    ui/cadifsm.h
+    ui/cadifsm.cpp
     ui/candobj.h
     ui/candobj.cpp
     ui/fltbarbtn.h

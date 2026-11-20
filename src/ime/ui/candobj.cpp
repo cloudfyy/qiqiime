@@ -762,7 +762,7 @@ STDMETHODIMP CandidateUI::GetUpdatedFlags(DWORD* pdwFlags) noexcept {
     if (!pdwFlags) {
         return E_INVALIDARG;
     }
-    *pdwFlags = updated_flags_;
+    *pdwFlags = ui_element_lifecycle_.UpdatedFlags();
     return S_OK;
 }
 
@@ -771,10 +771,10 @@ STDMETHODIMP CandidateUI::GetDocumentMgr(ITfDocumentMgr** ppdim) noexcept {
         return E_INVALIDARG;
     }
     *ppdim = nullptr;
-    if (!document_manager_) {
+    if (!ui_element_lifecycle_.DocumentManager()) {
         return E_FAIL;
     }
-    *ppdim = document_manager_.Get();
+    *ppdim = ui_element_lifecycle_.DocumentManager();
     (*ppdim)->AddRef();
     return S_OK;
 }
@@ -839,30 +839,6 @@ STDMETHODIMP CandidateUI::GetCurrentPage(UINT* puPage) noexcept {
     return S_OK;
 }
 
-void CandidateUI::QueueUiElementRetirement(DWORD id, ITfUIElementMgr* manager) {
-    if (id == TF_INVALID_UIELEMENTID || !manager) return;
-    const auto found = std::ranges::find_if(
-        ui_element_retirements_, [id, manager](const UiElementRetirement& retirement) noexcept {
-            return retirement.id == id && retirement.manager.Get() == manager;
-        });
-    if (found != ui_element_retirements_.end()) return;
-    ui_element_retirements_.push_back(
-        UiElementRetirement{.id = id, .manager = ComPtr<ITfUIElementMgr>{manager}});
-}
-
-HRESULT CandidateUI::RetryUiElementRetirements() noexcept {
-    while (!ui_element_retirements_.empty()) {
-        const UiElementRetirement retirement = ui_element_retirements_.front();
-        const HRESULT hr = retirement.manager->EndUIElement(retirement.id);
-        if (!log::CheckHResult(
-                hr, "ITfUIElementMgr::EndUIElement(pending-retirement)")) {
-            return hr;
-        }
-        ui_element_retirements_.erase(ui_element_retirements_.begin());
-    }
-    return S_OK;
-}
-
 void CandidateUI::SetCandidates(std::wstring code,
                                 std::vector<std::wstring> all_candidates,
                                 size_t page_size,
@@ -882,7 +858,8 @@ void CandidateUI::SetCandidates(std::wstring code,
         all_candidates_ != all_candidates ||
         page_size_ != effective_page_size ||
         current_page_ != current_page;
-    const bool document_changed = document_manager_.Get() != document_manager;
+    const bool document_changed =
+        ui_element_lifecycle_.DocumentManager() != document_manager;
     const bool count_changed = all_candidates_.size() != all_candidates.size();
     const bool strings_changed = all_candidates_ != all_candidates;
     const bool page_index_changed =
@@ -900,19 +877,15 @@ void CandidateUI::SetCandidates(std::wstring code,
     page_size_ = effective_page_size;
     current_page_ = current_page;
     selected_in_page_ = selected_in_page;
-    document_manager_ = document_manager;
-
-    if (ui_element_id_ == TF_INVALID_UIELEMENTID) {
-        updated_flags_ = kAllCandidateUpdateFlags;
-    } else {
-        if (document_changed) updated_flags_ |= TF_CLUIE_DOCUMENTMGR;
-        if (count_changed) updated_flags_ |= TF_CLUIE_COUNT | TF_CLUIE_PAGEINDEX;
-        if (selection_changed) updated_flags_ |= TF_CLUIE_SELECTION;
-        if (strings_changed) updated_flags_ |= TF_CLUIE_STRING;
-        if (page_index_changed) updated_flags_ |= TF_CLUIE_PAGEINDEX;
-        if (page_changed) updated_flags_ |= TF_CLUIE_CURRENTPAGE;
-    }
-    if (updated_flags_ != 0) ++ui_element_update_revision_;
+    ui_element_lifecycle_.SetDocumentManager(document_manager);
+    DWORD changed_flags = 0;
+    if (document_changed) changed_flags |= TF_CLUIE_DOCUMENTMGR;
+    if (count_changed) changed_flags |= TF_CLUIE_COUNT | TF_CLUIE_PAGEINDEX;
+    if (selection_changed) changed_flags |= TF_CLUIE_SELECTION;
+    if (strings_changed) changed_flags |= TF_CLUIE_STRING;
+    if (page_index_changed) changed_flags |= TF_CLUIE_PAGEINDEX;
+    if (page_changed) changed_flags |= TF_CLUIE_CURRENTPAGE;
+    ui_element_lifecycle_.MarkCandidateUpdate(changed_flags);
 
     RefreshPopupLayout();
     if (is_shown_ && hwnd_ && candidate_tree_changed) {

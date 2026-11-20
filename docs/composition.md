@@ -853,6 +853,19 @@ pair and old candidate/document snapshot remain owned as pending teardown;
 future presentation or End operations retry that pair and do not begin a
 replacement registration until it succeeds.
 
+The candidate presentation controller is an explicit STA finite-state machine:
+`Idle`, `Beginning`, `Active`, `Updating`, `Retiring`, and `Ending`.
+`CandidateUiElementLifecycle` owns the transition table, active manager/ID,
+ one-at-a-time pending retirement, document association, generation tokens,
+ and update revision. Beginning, Updating, and Ending reject nested operations;
+ the service remains responsible only for latest-request-wins queueing around
+ synchronous TSF callbacks. A failed End returns to Retiring until the same
+ manager/ID succeeds, while the document and candidate snapshot remain intact.
+This controller is separate from the Wubi key FSM because its COM lifecycle
+ events and reentry rules are not input-engine key transitions. Both FSMs share
+ only the typed `ime/fsm/table.h` table shape and bounds-checked lookup; their
+ domain states, events, actions, and runtime ownership policies remain separate.
+
 Native TSF regressions activate an actual `ITfThreadMgr2` with UILess-only
 activation, advise an `ITfUIElementSink`, and verify the initial update,
 subsequent flags, document identity, hidden state, and Begin/Update/End IDs.

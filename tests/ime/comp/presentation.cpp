@@ -112,11 +112,76 @@ void TestPresentationBeginBoundaries() {
                             manager->Release() == expected_refs);
             manager->end_ui_callback_ = {};
             manager->end_ui_result_ = S_OK;
-            EndCompositionCandidatePresentation(*ui.Get(), thread_mgr, 157, GUID_NULL);
+            const HRESULT end_result = EndCompositionCandidatePresentation(
+                *ui.Get(), thread_mgr, 157, GUID_NULL);
+            QIQI_TEST_CHECK(SUCCEEDED(end_result));
+            QIQI_TEST_CHECK(
+                ui->UiElementLifecycle().State() == CandidateUiLifecycleState::Idle &&
+                ui->UiElementId() == TF_INVALID_UIELEMENTID &&
+                !ui->HasPendingUiElementRetirements());
             ++cases;
         }
     }
     QIQI_TEST_CHECK(cases == 27 && g_com_object_count.load() == objects_before);
+}
+
+void TestCandidateUiLifecycleFsm() {
+    const qiqi::test::TsfTestCaseTrace trace(__func__);
+    CandidateUiElementLifecycle lifecycle;
+    const auto manager = MakeComObject<MockTfThreadMgr>();
+    const auto document = MakeComObject<MockTfDocumentMgr>();
+    lifecycle.SetDocumentManager(document.Get());
+    QIQI_TEST_CHECK(lifecycle.State() == CandidateUiLifecycleState::Idle &&
+                    lifecycle.ActiveId() == TF_INVALID_UIELEMENTID);
+
+    const auto begin = lifecycle.TryBeginRegistration();
+    QIQI_TEST_CHECK(begin && !lifecycle.TryBeginRegistration() &&
+                    lifecycle.State() == CandidateUiLifecycleState::Beginning &&
+                    lifecycle.RetryRetirements(
+                        "TestCandidateUiLifecycleFsm::PendingBegin") == E_PENDING &&
+                    lifecycle.EndRegistrations(
+                        "TestCandidateUiLifecycleFsm::PendingBegin") == E_PENDING);
+    QIQI_TEST_CHECK(lifecycle.PublishRegistration(
+                        *begin, 41, manager.Get()) &&
+                    lifecycle.State() == CandidateUiLifecycleState::Active &&
+                    lifecycle.ActiveId() == 41 &&
+                    lifecycle.ActiveManager() == manager.Get());
+
+    const auto update = lifecycle.TryBeginUpdate();
+    QIQI_TEST_CHECK(update &&
+                    lifecycle.State() == CandidateUiLifecycleState::Updating &&
+                    lifecycle.ActiveId() == 41 &&
+                    lifecycle.RetireActiveRegistration(
+                        "TestCandidateUiLifecycleFsm::PendingUpdate") == E_PENDING);
+    QIQI_TEST_CHECK(lifecycle.CompleteUpdate(*update));
+    QIQI_TEST_CHECK(lifecycle.State() == CandidateUiLifecycleState::Active);
+
+    manager->end_ui_result_ = E_ACCESSDENIED;
+    QIQI_TEST_CHECK(lifecycle.RetireActiveRegistration(
+                        "TestCandidateUiLifecycleFsm::EndUIElement") ==
+                    E_ACCESSDENIED);
+    QIQI_TEST_CHECK(lifecycle.State() == CandidateUiLifecycleState::Retiring &&
+                    lifecycle.ActiveId() == TF_INVALID_UIELEMENTID &&
+                    lifecycle.HasPendingRetirements() &&
+                    lifecycle.TryBeginRegistration() == std::nullopt);
+    QIQI_TEST_CHECK(lifecycle.RetireRegistration(
+                        42, manager.Get(),
+                        "TestCandidateUiLifecycleFsm::ConflictingRetirement") ==
+                    E_UNEXPECTED);
+    lifecycle.ClearDocumentManagerIfIdle();
+    QIQI_TEST_CHECK(lifecycle.DocumentManager() == document.Get());
+
+    QIQI_TEST_CHECK(lifecycle.RetryRetirements(
+                        "TestCandidateUiLifecycleFsm::RetryEnd") ==
+                    E_ACCESSDENIED);
+    manager->end_ui_result_ = S_OK;
+    QIQI_TEST_CHECK(lifecycle.RetryRetirements(
+                        "TestCandidateUiLifecycleFsm::RetryEnd") == S_OK &&
+                    lifecycle.State() == CandidateUiLifecycleState::Idle &&
+                    !lifecycle.HasPendingRetirements());
+    lifecycle.ClearDocumentManagerIfIdle();
+    QIQI_TEST_CHECK(!lifecycle.DocumentManager() &&
+                    manager->end_ui_calls_ == 3);
 }
 
 void TestPresentationFallbackAndUpdates() {
@@ -242,11 +307,58 @@ void TestPresentationNestedBegin() {
                     ui->UiElementId() == 7 &&
                     ui->IsShown(&shown) == S_OK && !shown &&
                     ui->GetDocumentMgr(returned_document.GetAddressOf()) == S_OK &&
+                    returned_document.Get() == original_document.Get());
+    PresentCompositionCandidates(
+        *ui.Get(), TF_TMAE_UIELEMENTENABLEDONLY,
+        nested_snapshot, nested_document.Get(), {}, 171, GUID_NULL,
+        [&thread_mgr]() noexcept { return thread_mgr.Get(); },
+        []() noexcept { return true; });
+    QIQI_TEST_CHECK(manager->begin_ui_calls_ == 1 &&
+                    manager->update_ui_calls_ == 2 &&
+                    ui->GetDocumentMgr(
+                        returned_document.ReleaseAndGetAddressOf()) == S_OK &&
                     returned_document.Get() == nested_document.Get());
     DWORD flags = 0;
     QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK && flags == 0);
     EndCompositionCandidatePresentation(*ui.Get(), thread_mgr, 171, GUID_NULL);
     QIQI_TEST_CHECK(manager->end_ui_calls_ == 1);
+}
+
+void TestPresentationReentrantUpdateVisibility() {
+    const qiqi::test::TsfTestCaseTrace trace(__func__);
+    const auto ui = MakeComObject<CandidateUI>(g_dll_instance);
+    const auto manager = MakeComObject<MockTfThreadMgr>();
+    const auto document = MakeComObject<MockTfDocumentMgr>();
+    const ComPtr<ITfThreadMgr> thread_mgr = manager;
+    manager->show_own_ui_ = TRUE;
+    const auto present = [&](const KeyProcessResult& snapshot) {
+        PresentCompositionCandidates(
+            *ui.Get(), DWORD{0}, snapshot, document.Get(), {}, 172, GUID_NULL,
+            [&thread_mgr]() noexcept { return thread_mgr.Get(); },
+            []() noexcept { return true; });
+    };
+    present(PresentationSnapshot());
+    BOOL shown = FALSE;
+    QIQI_TEST_CHECK(ui->IsShown(&shown) == S_OK && shown &&
+                    ui->WindowHandle() && ::IsWindowVisible(ui->WindowHandle()));
+
+    bool nested_seen = false;
+    manager->update_ui_callback_ = [&](DWORD) {
+        nested_seen = true;
+        present(PresentationSnapshot());
+        BOOL nested_shown = FALSE;
+        QIQI_TEST_CHECK(ui->IsShown(&nested_shown) == S_OK && nested_shown);
+    };
+    auto changed = PresentationSnapshot();
+    changed.selected_index = 1;
+    present(changed);
+    QIQI_TEST_CHECK(nested_seen &&
+                    manager->begin_ui_calls_ == 1 &&
+                    manager->update_ui_calls_ == 1 &&
+                    ui->IsShown(&shown) == S_OK && shown);
+    manager->update_ui_callback_ = {};
+    EndCompositionCandidatePresentation(
+        *ui.Get(), thread_mgr, 172, GUID_NULL);
 }
 
 void TestPresentationUpdateRetry() {
@@ -538,8 +650,11 @@ void TestPresentationEndOwnership() {
         manager->end_ui_callback_ = [&](DWORD id) {
             QIQI_TEST_CHECK(id == 7);
             if (manager->end_ui_calls_ == 1) {
-                QIQI_TEST_CHECK(ui->UiElementId() == TF_INVALID_UIELEMENTID &&
-                                manager->AddRef() == 4 && manager->Release() == 3);
+                const ULONG refs = manager->AddRef();
+                manager->Release();
+                QIQI_TEST_CHECK(
+                    ui->UiElementId() == TF_INVALID_UIELEMENTID &&
+                    refs == 4);
             }
             thread_mgr = replacement;
             ui->SetUiElementId(7);
@@ -549,49 +664,52 @@ void TestPresentationEndOwnership() {
         const HRESULT first_end_hr =
             EndCompositionCandidatePresentation(*ui.Get(), thread_mgr, 179, GUID_NULL);
         const bool ended = test.manager == Manager::Available && test.valid_id;
-        const bool active_retained = test.valid_id;
+        const bool failed_end = ended && FAILED(test.end_hr);
         QIQI_TEST_CHECK(first_end_hr ==
                             (ended ? test.end_hr :
                              test.valid_id ? E_NOINTERFACE : S_OK) &&
-                        manager->end_ui_calls_ == (ended ? 1u : 0u) &&
-                        replacement->end_ui_calls_ == 0 &&
-                        ui->UiElementId() ==
-                            (active_retained ? 7 : TF_INVALID_UIELEMENTID));
-        ComPtr<ITfDocumentMgr> retained_document;
-        QIQI_TEST_CHECK(
-            active_retained
-                ? ui->GetDocumentMgr(retained_document.GetAddressOf()) == S_OK &&
-                      retained_document.Get() ==
-                          (ended ? replacement_document.Get() : original_document.Get())
-                : ui->GetDocumentMgr(retained_document.GetAddressOf()) == E_FAIL);
-        EndCompositionCandidatePresentation(*ui.Get(), thread_mgr, 179, GUID_NULL);
-        const bool failed_retry =
-            ended && FAILED(test.end_hr);
-        QIQI_TEST_CHECK(manager->end_ui_calls_ ==
-                            (ended ? (failed_retry ? 2u : 1u) : 0u) &&
+                        manager->end_ui_calls_ ==
+                            (ended ? failed_end ? 2u : 1u : 0u) &&
                         replacement->end_ui_calls_ ==
-                            (ended && !failed_retry ? 1u : 0u) &&
+                            (ended && !failed_end ? 1u : 0u) &&
                         ui->UiElementId() ==
-                            (failed_retry || !ended && test.valid_id
+                            (failed_end || !ended && test.valid_id
                                  ? 7 : TF_INVALID_UIELEMENTID));
-        if (failed_retry) {
-            manager->end_ui_result_ = S_OK;
-            QIQI_TEST_CHECK(EndCompositionCandidatePresentation(
-                *ui.Get(), thread_mgr, 179, GUID_NULL) == S_OK);
-            QIQI_TEST_CHECK(manager->end_ui_calls_ == 3 &&
-                            replacement->end_ui_calls_ == 1 &&
-                            ui->UiElementId() == TF_INVALID_UIELEMENTID);
-        }
-        if (!ended && test.valid_id) {
+        ComPtr<ITfDocumentMgr> retained_document;
+        if (failed_end || !ended && test.valid_id) {
             QIQI_TEST_CHECK(
-                ui->GetDocumentMgr(
-                    retained_document.ReleaseAndGetAddressOf()) == S_OK &&
-                retained_document.Get() == original_document.Get());
+                ui->GetDocumentMgr(retained_document.GetAddressOf()) == S_OK &&
+                retained_document.Get() ==
+                    (failed_end
+                         ? replacement_document.Get()
+                         : original_document.Get()));
         } else {
             QIQI_TEST_CHECK(
                 ui->GetDocumentMgr(
-                    retained_document.ReleaseAndGetAddressOf()) == E_FAIL);
+                    retained_document.GetAddressOf()) == E_FAIL);
         }
+        if (failed_end) {
+            QIQI_TEST_CHECK(EndCompositionCandidatePresentation(
+                *ui.Get(), thread_mgr, 179, GUID_NULL) == test.end_hr);
+            QIQI_TEST_CHECK(manager->end_ui_calls_ == 4 &&
+                            replacement->end_ui_calls_ == 0 &&
+                            ui->UiElementId() == 7);
+            manager->end_ui_result_ = S_OK;
+            QIQI_TEST_CHECK(EndCompositionCandidatePresentation(
+                *ui.Get(), thread_mgr, 179, GUID_NULL) == S_OK);
+            QIQI_TEST_CHECK(manager->end_ui_calls_ == 5 &&
+                            replacement->end_ui_calls_ == 1 &&
+                            ui->UiElementId() == TF_INVALID_UIELEMENTID);
+        } else if (!ended && test.valid_id) {
+            QIQI_TEST_CHECK(EndCompositionCandidatePresentation(
+                *ui.Get(), thread_mgr, 179, GUID_NULL) == E_NOINTERFACE);
+        }
+        QIQI_TEST_CHECK(
+            !ended && test.valid_id
+                ? ui->GetDocumentMgr(
+                      retained_document.ReleaseAndGetAddressOf()) == S_OK
+                : ui->GetDocumentMgr(
+                      retained_document.ReleaseAndGetAddressOf()) == E_FAIL);
     }
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
@@ -619,7 +737,7 @@ void TestPresentationEndFailureRetention() {
         [&thread_mgr]() noexcept { return thread_mgr.Get(); },
         []() noexcept { return true; });
     QIQI_TEST_CHECK(manager->begin_ui_calls_ == 0 &&
-                    manager->end_ui_calls_ == 2 &&
+                    manager->end_ui_calls_ == 3 &&
                     ui->UiElementId() == TF_INVALID_UIELEMENTID &&
                     ui->HasPendingUiElementRetirements());
     manager->end_ui_result_ = S_OK;
@@ -627,7 +745,7 @@ void TestPresentationEndFailureRetention() {
         *ui.Get(), thread_mgr, 180, GUID_NULL) == S_OK);
     QIQI_TEST_CHECK(ui->UiElementId() == TF_INVALID_UIELEMENTID &&
                     !ui->HasPendingUiElementRetirements() &&
-                    manager->end_ui_calls_ == 3 &&
+                    manager->end_ui_calls_ == 4 &&
                     ui->GetDocumentMgr(
                         retained_document.ReleaseAndGetAddressOf()) == E_FAIL);
 }
@@ -746,10 +864,12 @@ void TestPresentationSynchronization() {
 
 void RunTsfCompositionPresentationTests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    TestCandidateUiLifecycleFsm();
     TestPresentationBeginBoundaries();
     TestPresentationFallbackAndUpdates();
     TestPresentationNegotiationFailures();
     TestPresentationNestedBegin();
+    TestPresentationReentrantUpdateVisibility();
     TestPresentationUpdateRetry();
     TestPresentationPermissions();
     TestPresentationLiveManagerLookup();

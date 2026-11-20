@@ -500,12 +500,8 @@ void QiQiTextService::ProcessCandidateUiRequest(CandidateUiRequest request) {
                     const HRESULT end_hr = EndCompositionCandidatePresentation(
                         *candidate_ui_.Get(), thread_mgr_, service_log_id_,
                         current_lifecycle_activity_);
-                    if (FAILED(end_hr) && !pending_candidate_ui_request_) {
-                        if (!request.end_retry_attempted) {
-                            request.end_retry_attempted = true;
-                            pending_candidate_ui_request_ = std::move(request);
-                        }
-                    }
+                    std::ignore = log::CheckHResult(
+                        end_hr, "QiQiTextService::EndCandidateUI");
                 }
             } else if (candidate_ui_ && thread_mgr_ &&
                        IsEditSessionCurrent(request.ticket)) {

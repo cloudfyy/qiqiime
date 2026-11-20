@@ -93,6 +93,7 @@ set(QIQI_TSF_UI_IMPL_SOURCES
     "${PROJECT_SOURCE_DIR}/src/ime/svc/composition.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/svc/config.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/dispattr.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/ui/cadifsm.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/candobj.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/fltbarbtn.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/ctxmenu.cpp"

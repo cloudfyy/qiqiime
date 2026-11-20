@@ -727,6 +727,10 @@ status-bar/tooltip skin support require separate design approval.
   flags, subsequent flags, document identity, hidden visibility and lifecycle
   end on x64/x86. External full-screen hosts may still need separate rendering
   validation, but the Windows UILess contract is no longer backed only by mocks.
+  Candidate registration ownership is now driven by a dedicated
+  `Idle`/`Beginning`/`Active`/`Updating`/`Retiring`/`Ending` FSM rather than
+  scattered service, UI, and presentation booleans; direct transition-table
+  tests cover blocked nested Begin/Update/End and failed-retirement recovery.
 
 - [ ] Implement and validate the Windows IME search-integration APIs.
   Neither `ITfFnSearchCandidateProvider` nor

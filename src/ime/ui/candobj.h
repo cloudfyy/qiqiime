@@ -22,6 +22,7 @@
 #include "common/RAII.h"
 #include "common/theme.h"
 #include "common/uiutil.h"
+#include "ime/ui/cadifsm.h"
 
 namespace qiqi {
 
@@ -55,8 +56,7 @@ public:
     static constexpr int kPopupWidth = 360;
     static constexpr int kPopupHeight = 64;
     static constexpr DWORD kAllCandidateUpdateFlags =
-        TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION |
-        TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
+        CandidateUiElementLifecycle::kAllCandidateUpdateFlags;
 
     explicit CandidateUI(HINSTANCE instance) noexcept;
     ~CandidateUI() noexcept;
@@ -140,43 +140,25 @@ public:
     int ScrollOffset() const noexcept { return scroll_offset_; }
     HWND WindowHandle() const noexcept { return hwnd_.Get(); }
 
-    DWORD UiElementId() const noexcept { return ui_element_id_; }
+    CandidateUiElementLifecycle& UiElementLifecycle() noexcept {
+        return ui_element_lifecycle_;
+    }
+    DWORD UiElementId() const noexcept { return ui_element_lifecycle_.ActiveId(); }
     void SetUiElementId(
         DWORD id, ITfUIElementMgr* manager = nullptr) noexcept {
-        ui_element_id_ = id;
-        ui_element_manager_ = manager;
-        ++ui_element_id_revision_;
+        ui_element_lifecycle_.SetActiveRegistrationForTest(id, manager);
     }
-    uint64_t UiElementIdRevision() const noexcept { return ui_element_id_revision_; }
-    const ComPtr<ITfUIElementMgr>& UiElementManager() const noexcept {
-        return ui_element_manager_;
-    }
-    void QueueUiElementRetirement(DWORD id, ITfUIElementMgr* manager);
     bool HasPendingUiElementRetirements() const noexcept {
-        return !ui_element_retirements_.empty();
+        return ui_element_lifecycle_.HasPendingRetirements();
     }
-    HRESULT RetryUiElementRetirements() noexcept;
-    void ClearUiElementDocument() noexcept { document_manager_.Reset(); }
-    bool TryBeginUiElementRegistration() noexcept {
-        if (ui_element_registration_in_progress_) return false;
-        ui_element_registration_in_progress_ = true;
-        return true;
+    void ClearUiElementDocument() noexcept {
+        ui_element_lifecycle_.ClearDocumentManager();
     }
-    void EndUiElementRegistration() noexcept {
-        ui_element_registration_in_progress_ = false;
-    }
-    bool IsUiElementRegistrationInProgress() const noexcept {
-        return ui_element_registration_in_progress_;
-    }
-    uint64_t UiElementUpdateRevision() const noexcept { return ui_element_update_revision_; }
-    void PrepareUiElementRegistrationUpdate() noexcept {
-        if (updated_flags_ != kAllCandidateUpdateFlags) {
-            updated_flags_ = kAllCandidateUpdateFlags;
-            ++ui_element_update_revision_;
-        }
+    uint64_t UiElementUpdateRevision() const noexcept {
+        return ui_element_lifecycle_.UpdateRevision();
     }
     void AcknowledgeUiElementUpdate(uint64_t revision) noexcept {
-        if (revision == ui_element_update_revision_) updated_flags_ = 0;
+        ui_element_lifecycle_.AcknowledgeUpdate(revision);
     }
     bool IsDirectWriteActive() const noexcept { return dwrite_text_format_.IsValid() && d2d_dc_target_.IsValid(); }
     void DisableDirect2DForTest() noexcept { d2d_dc_target_.Reset(); }
@@ -249,19 +231,7 @@ private:
     bool destroying_object_ = false;
     bool destroying_window_ = false;
     HWND popup_owner_ = nullptr; // Borrowed; only hwnd_ owns a window.
-    DWORD ui_element_id_ = TF_INVALID_UIELEMENTID;
-    ComPtr<ITfDocumentMgr> document_manager_;
-    ComPtr<ITfUIElementMgr> ui_element_manager_;
-    struct UiElementRetirement {
-        DWORD id = TF_INVALID_UIELEMENTID;
-        ComPtr<ITfUIElementMgr> manager;
-    };
-    std::vector<UiElementRetirement> ui_element_retirements_;
-    uint64_t ui_element_id_revision_ = 0;
-    bool ui_element_registration_in_progress_ = false;
-    uint64_t ui_element_update_revision_ = 0;
-    DWORD updated_flags_ = TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION |
-                           TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
+    CandidateUiElementLifecycle ui_element_lifecycle_;
 
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;
