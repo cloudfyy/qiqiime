@@ -4,6 +4,7 @@
 #include "tools/logmonitor/collector.h"
 #include "tools/logmonitor/permissions.h"
 #include "common/etwreg.h"
+#include "common/fileutil.h"
 #include "common/logger.h"
 #include "common/version.h"
 
@@ -16,6 +17,7 @@
 #include <cstring>
 #include <format>
 #include <limits>
+#include <new>
 #include <system_error>
 #include <span>
 
@@ -86,13 +88,21 @@ ULONG ReadString(EVENT_RECORD& record, const wchar_t* name, USHORT type, std::ws
         if (length) std::memcpy(result.data(), bytes.data(), length);
     } else if (type == TDH_INTYPE_ANSISTRING || type == TDH_INTYPE_COUNTEDANSISTRING) {
         if (length == 0) { result.clear(); return ERROR_SUCCESS; }
-        const auto* text = reinterpret_cast<const char*>(bytes.data());
-        const int chars = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text,
-            gsl::narrow_cast<int>(length), nullptr, 0);
-        if (!chars) return ::GetLastError();
-        result.resize(gsl::narrow_cast<size_t>(chars));
-        if (!::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text,
-                gsl::narrow_cast<int>(length), result.data(), chars)) return ::GetLastError();
+        const std::string_view text(
+            reinterpret_cast<const char*>(bytes.data()), length);
+        try {
+            const HRESULT hr = Utf8ToWideResult(
+                text, result, Utf8ErrorPolicy::Reject);
+            if (FAILED(hr)) {
+                return HRESULT_FACILITY(hr) == FACILITY_WIN32
+                    ? HRESULT_CODE(hr)
+                    : ERROR_INVALID_DATA;
+            }
+        } catch (const std::bad_alloc&) {
+            return ERROR_NOT_ENOUGH_MEMORY;
+        } catch (...) {
+            return ERROR_UNHANDLED_EXCEPTION;
+        }
     } else {
         return ERROR_NOT_SUPPORTED;
     }

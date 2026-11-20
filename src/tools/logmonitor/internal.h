@@ -109,9 +109,9 @@ struct MonitorWindow::Impl {
 
     EventBuffer& Current() noexcept { return diagnostic_view ? tools : events; }
     const EventBuffer& Current() const noexcept { return diagnostic_view ? tools : events; }
-    HWND Child(ControlId id) const noexcept { return ::GetDlgItem(hwnd, std::to_underlying(id)); }
+    HWND Child(ControlId id) const noexcept { return GetChildControl(hwnd, id); }
     const wchar_t* Text(const wchar_t* zh, const wchar_t* en) const noexcept {
-        return ResolveUiLanguage(ui_language) == UiLanguage::EnUs ? en : zh;
+        return LocalizedUiText(ui_language, zh, en);
     }
 
     const wchar_t* LevelText(UCHAR level) const noexcept {

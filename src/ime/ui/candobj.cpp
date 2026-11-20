@@ -672,6 +672,9 @@ void CandidateUI::SetCandidates(std::wstring code,
     current_page_ = current_page;
     selected_in_page_ = selected_in_page;
     ui_element_lifecycle_.SetDocumentManager(document_manager);
+    if (candidate_tree_changed) {
+        ++accessibility_tree_revision_;
+    }
     DWORD changed_flags = 0;
     if (document_changed) changed_flags |= TF_CLUIE_DOCUMENTMGR;
     if (count_changed) changed_flags |= TF_CLUIE_COUNT | TF_CLUIE_PAGEINDEX;

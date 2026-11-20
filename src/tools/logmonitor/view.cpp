@@ -80,20 +80,10 @@ void MonitorWindow::Impl::Refilter() {
 }
 
 void MonitorWindow::Impl::SyncSelectionFromList() {
-    selected_ids.clear();
     const HWND list = Child(List);
-    int index = -1;
-    while ((index = ListView_GetNextItem(list, index, LVNI_SELECTED)) >= 0) {
-        if (gsl::narrow_cast<size_t>(index) < rows.size()) {
-            selected_ids.push_back(gsl::at(rows, gsl::narrow_cast<size_t>(index)));
-        }
-    }
-    const int focused = ListView_GetNextItem(list, -1, LVNI_FOCUSED | LVNI_SELECTED);
-    if (focused >= 0 && gsl::narrow_cast<size_t>(focused) < rows.size()) {
-        selected = gsl::at(rows, gsl::narrow_cast<size_t>(focused));
-    } else {
-        selected = selected_ids.empty() ? 0 : selected_ids.back();
-    }
+    auto selection = ReadOwnerDataListSelection(list, rows);
+    selected_ids = std::move(selection.selected_ids);
+    selected = selection.active_id;
     UpdateDetails();
     RefreshCommandState();
 }

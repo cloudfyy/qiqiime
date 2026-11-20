@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 #include "common/RAII.h"
@@ -29,6 +30,12 @@ namespace qiqi {
 
 inline constexpr int kSmallBrandIconSize = 16;
 inline constexpr int kLargeBrandIconSize = 48;
+
+template <typename ControlId>
+    requires std::is_enum_v<ControlId>
+[[nodiscard]] HWND GetChildControl(HWND parent, ControlId id) noexcept {
+    return ::GetDlgItem(parent, std::to_underlying(id));
+}
 
 struct WindowDcGuardTraits {
     using ContextType  = HWND;

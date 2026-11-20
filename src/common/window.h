@@ -4,6 +4,7 @@
 #pragma once
 
 #include "common/controls.h"
+#include "common/i18n.h"
 #include "common/theme.h"
 #include "common/uiutil.h"
 
@@ -13,11 +14,22 @@
 #include <gsl/gsl>
 #include <algorithm>
 #include <array>
+#include <format>
 #include <optional>
 #include <span>
 #include <string>
 
 namespace qiqi {
+
+inline std::wstring FormatToolWindowFailureMessage(
+    std::wstring_view operation, ULONG error, UiLanguage language) {
+    return std::format(
+        L"{}\r\n{}={} (0x{:08X})",
+        operation,
+        LocalizedUiText(language, L"错误码", L"Error"),
+        error,
+        error);
+}
 
 // Read the full UTF-16 text of a Win32 control into a std::wstring.
 inline std::wstring ReadWindowTextString(HWND control) {
@@ -66,6 +78,34 @@ inline RECT ComputeCenteredToolWindowRect(
     const LONG left = monitor.work_area.left + (monitor.work_area.right - monitor.work_area.left - width) / 2;
     const LONG top = monitor.work_area.top + (monitor.work_area.bottom - monitor.work_area.top - height) / 2;
     return RECT{left, top, left + width, top + height};
+}
+
+struct OwnerDataListSelection {
+    std::vector<uint64_t> selected_ids;
+    uint64_t active_id = 0;
+};
+
+inline OwnerDataListSelection ReadOwnerDataListSelection(
+    HWND list, std::span<const uint64_t> row_ids) {
+    OwnerDataListSelection result;
+    if (!::IsWindow(list) || row_ids.empty()) return result;
+    int index = -1;
+    while ((index = ListView_GetNextItem(list, index, LVNI_SELECTED)) >= 0) {
+        if (gsl::narrow_cast<size_t>(index) < row_ids.size()) {
+            result.selected_ids.push_back(
+                gsl::at(row_ids, gsl::narrow_cast<size_t>(index)));
+        }
+    }
+    const int focused =
+        ListView_GetNextItem(list, -1, LVNI_FOCUSED | LVNI_SELECTED);
+    if (focused >= 0 &&
+        gsl::narrow_cast<size_t>(focused) < row_ids.size()) {
+        result.active_id =
+            gsl::at(row_ids, gsl::narrow_cast<size_t>(focused));
+    } else if (!result.selected_ids.empty()) {
+        result.active_id = result.selected_ids.back();
+    }
+    return result;
 }
 
 class FluentToolWindowViewport final {

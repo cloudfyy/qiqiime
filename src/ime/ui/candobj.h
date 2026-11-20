@@ -278,6 +278,9 @@ private:
         size_t child_index, IRawElementProviderFragment** fragment) noexcept;
     size_t AutomationChildCount() const noexcept;
     bool HasPageAutomationButtons() const noexcept;
+    uint64_t AutomationTreeRevision() const noexcept {
+        return accessibility_tree_revision_;
+    }
     std::wstring_view AccessibleCandidateName(size_t page_index) const noexcept;
     std::wstring_view AccessiblePageButtonName(bool next_page) const noexcept;
     std::wstring AccessiblePageStatus() const;
@@ -339,6 +342,7 @@ private:
     std::optional<RECT> announced_popup_rect_;
     bool accessibility_open_announced_ = false;
     bool accessibility_provider_returned_ = false;
+    uint64_t accessibility_tree_revision_ = 0;
     CandidateLayout layout_ = CandidateLayout::Horizontal;
     UiLanguage ui_language_ = UiLanguage::Auto;
     SelectCallback select_callback_;

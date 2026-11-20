@@ -43,8 +43,9 @@ std::wstring FormatWindowTitle(UiLanguage language) {
 }
 
 std::wstring FormatBackupRestoreMessage(const BackupRestoreResult& result, UiLanguage language) {
-    const bool english = ResolveUiLanguage(language) == UiLanguage::EnUs;
-    const auto text = [english](const wchar_t* zh, const wchar_t* en) noexcept { return english ? en : zh; };
+    const auto text = [language](const wchar_t* zh, const wchar_t* en) noexcept {
+        return LocalizedUiText(language, zh, en);
+    };
     if (result.status == BackupRestoreStatus::Success && result.refresh_error == S_OK) {
         return std::format(L"{} ({}: {}, {}: {})",
             text(L"已恢复备份", L"Backup restored"),
@@ -167,7 +168,8 @@ void DictManagerWindow::Impl::Failure(std::wstring_view operation, ULONG error) 
         "DictManager failure: op='{}', error=0x{:08X}",
         WideToUtf8(operation),
         error);
-    const auto message = std::format(L"{}\r\n{}={} (0x{:08X})", operation, Text(L"错误码", L"Error"), error, error);
+    const auto message = FormatToolWindowFailureMessage(
+        operation, error, ui_language);
     ::MessageBoxW(hwnd, message.c_str(), GetUiStrings(ui_language).dict_manager_name, MB_OK | MB_ICONERROR);
 }
 
@@ -592,20 +594,10 @@ void DictManagerWindow::Impl::RebuildRows() {
 }
 
 void DictManagerWindow::Impl::SyncSelectionFromList() {
-    selected_ids.clear();
     const HWND list = Child(List);
-    int index = -1;
-    while ((index = ListView_GetNextItem(list, index, LVNI_SELECTED)) >= 0) {
-        if (gsl::narrow_cast<size_t>(index) < rows.size()) {
-            selected_ids.push_back(gsl::at(rows, gsl::narrow_cast<size_t>(index)));
-        }
-    }
-    const int focused = ListView_GetNextItem(list, -1, LVNI_FOCUSED | LVNI_SELECTED);
-    if (focused >= 0 && gsl::narrow_cast<size_t>(focused) < rows.size()) {
-        selected_id = gsl::at(rows, gsl::narrow_cast<size_t>(focused));
-    } else {
-        selected_id = selected_ids.empty() ? 0 : selected_ids.back();
-    }
+    auto selection = ReadOwnerDataListSelection(list, rows);
+    selected_ids = std::move(selection.selected_ids);
+    selected_id = selection.active_id;
 }
 
 void DictManagerWindow::Impl::SelectAllRows() {

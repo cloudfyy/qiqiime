@@ -412,6 +412,15 @@ void RunBackupRestoreResults() {
 
     // Malformed later input must not apply earlier configuration or dictionary entries.
     reset();
+    WriteRestoreBundle(
+        backup, full_config,
+        std::string("\xEF\xBB\xBF") + full_user,
+        full_phrase);
+    QIQI_TEST_CHECK(
+        model.RestoreBackupBundle(
+            backup, BackupConflictMode::Replace).status ==
+        BackupRestoreStatus::Success);
+    reset();
     const auto old_user = read_file(user);
     const auto old_frequency = read_file(frequency);
     const auto old_sequence = QueryRegistryConfigSequence();
@@ -424,7 +433,8 @@ void RunBackupRestoreResults() {
                    std::string(R"({"format":"qiqiime-backup","version":1,"files":{"config":"config.json","user_dictionary":"user-dictionary.txt","phrase_order":"phrase-order.txt","unexpected":"x"}})")},
         std::tuple{full_config, std::string("abcd ^\n"), full_phrase, std::string{}},
         std::tuple{full_config, full_user, std::string("abcd 单\n"), std::string{}},
-        std::tuple{full_config, std::string("abcd ") + "\xFF\n", full_phrase, std::string{}}};
+        std::tuple{full_config, std::string("abcd ") + "\xFF\n", full_phrase, std::string{}},
+        std::tuple{full_config, std::string("abcd \0\n", 7), full_phrase, std::string{}}};
     for (const auto& [config, user_data, phrase_data, manifest] : malformed) {
         WriteRestoreBundle(
             backup, config, user_data, phrase_data,

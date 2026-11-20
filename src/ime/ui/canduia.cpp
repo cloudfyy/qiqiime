@@ -103,6 +103,7 @@ class CandidateAutomationFragment : public ComObjectBase<
 public:
     STDMETHODIMP get_ProviderOptions(ProviderOptions* options) noexcept override {
         if (!options) return E_INVALIDARG;
+        if (!IsCurrent()) return UIA_E_ELEMENTNOTAVAILABLE;
         *options = ProviderOptions_ServerSideProvider;
         return S_OK;
     }
@@ -111,6 +112,7 @@ public:
         IRawElementProviderSimple** provider) noexcept override {
         if (!provider) return E_INVALIDARG;
         *provider = nullptr;
+        if (!IsCurrent()) return UIA_E_ELEMENTNOTAVAILABLE;
         return S_OK;
     }
 
@@ -119,7 +121,7 @@ public:
         IRawElementProviderFragment** fragment) noexcept override {
         if (!fragment) return E_INVALIDARG;
         *fragment = nullptr;
-        if (!owner_) return S_OK;
+        if (!IsCurrent()) return UIA_E_ELEMENTNOTAVAILABLE;
         switch (direction) {
             case NavigateDirection_Parent:
                 return owner_->QueryInterface(
@@ -139,13 +141,15 @@ public:
     }
 
     STDMETHODIMP GetRuntimeId(SAFEARRAY** runtime_id) noexcept override {
-        return MakeRuntimeId(owner_->WindowHandle(), runtime_id_, runtime_id);
+        CandidateUI* const owner = Owner();
+        if (!owner) return UIA_E_ELEMENTNOTAVAILABLE;
+        return MakeRuntimeId(owner->WindowHandle(), runtime_id_, runtime_id);
     }
 
     STDMETHODIMP get_BoundingRectangle(UiaRect* bounds) noexcept override {
         if (!bounds) return E_INVALIDARG;
         *bounds = {};
-        if (!owner_) return S_OK;
+        if (!IsCurrent()) return UIA_E_ELEMENTNOTAVAILABLE;
         const RECT rect =
             static_cast<Derived*>(this)->AutomationRect();
         POINT top_left{rect.left, rect.top};
@@ -168,6 +172,7 @@ public:
     STDMETHODIMP GetEmbeddedFragmentRoots(SAFEARRAY** roots) noexcept override {
         if (!roots) return E_INVALIDARG;
         *roots = nullptr;
+        if (!IsCurrent()) return UIA_E_ELEMENTNOTAVAILABLE;
         return S_OK;
     }
 
@@ -175,8 +180,9 @@ public:
         IRawElementProviderFragmentRoot** root) noexcept override {
         if (!root) return E_INVALIDARG;
         *root = nullptr;
-        if (!owner_) return S_OK;
-        return owner_->QueryInterface(
+        CandidateUI* const owner = Owner();
+        if (!owner) return UIA_E_ELEMENTNOTAVAILABLE;
+        return owner->QueryInterface(
             __uuidof(IRawElementProviderFragmentRoot),
             reinterpret_cast<void**>(root));
     }
@@ -186,20 +192,32 @@ protected:
         const ComPtr<CandidateUI>& owner,
         size_t child_index,
         long runtime_id) noexcept
-        : owner_(owner), child_index_(child_index), runtime_id_(runtime_id) {}
+        : owner_(owner),
+          child_index_(child_index),
+          runtime_id_(runtime_id),
+          tree_revision_(owner ? owner->AutomationTreeRevision() : 0) {}
 
-    [[nodiscard]] CandidateUI* Owner() const noexcept { return owner_.Get(); }
+    [[nodiscard]] bool IsCurrent() const noexcept {
+        return owner_ &&
+            owner_->AutomationTreeRevision() == tree_revision_;
+    }
+
+    [[nodiscard]] CandidateUI* Owner() const noexcept {
+        return IsCurrent() ? owner_.Get() : nullptr;
+    }
 
     [[nodiscard]] bool IsOffscreen(const RECT& rect) const noexcept {
-        return !owner_ || !owner_->is_shown_ || !owner_->WindowHandle() ||
-            !::IsWindowVisible(owner_->WindowHandle()) ||
-            rect.bottom <= 0 || rect.top >= owner_->CurrentHeight();
+        CandidateUI* const owner = Owner();
+        return !owner || !owner->is_shown_ || !owner->WindowHandle() ||
+            !::IsWindowVisible(owner->WindowHandle()) ||
+            rect.bottom <= 0 || rect.top >= owner->CurrentHeight();
     }
 
 private:
     ComPtr<CandidateUI> owner_;
     size_t child_index_ = 0;
     long runtime_id_ = 0;
+    uint64_t tree_revision_ = 0;
 };
 
 class CandidateAutomationItem final
@@ -220,6 +238,7 @@ public:
         PATTERNID pattern_id, IUnknown** provider) noexcept override {
         if (!provider) return E_INVALIDARG;
         *provider = nullptr;
+        if (!IsCurrent()) return UIA_E_ELEMENTNOTAVAILABLE;
         if (pattern_id == UIA_SelectionItemPatternId) {
             return QueryInterface(
                 __uuidof(ISelectionItemProvider),
@@ -233,7 +252,7 @@ public:
         if (!value) return E_INVALIDARG;
         ::VariantInit(value);
         CandidateUI* const owner = Owner();
-        if (!owner) return S_OK;
+        if (!owner) return UIA_E_ELEMENTNOTAVAILABLE;
         switch (property_id) {
             case UIA_ControlTypePropertyId:
                 value->vt = VT_I4;
@@ -290,7 +309,7 @@ public:
         if (!container) return E_INVALIDARG;
         *container = nullptr;
         CandidateUI* const owner = Owner();
-        if (!owner) return S_OK;
+        if (!owner) return UIA_E_ELEMENTNOTAVAILABLE;
         return owner->QueryInterface(
             __uuidof(IRawElementProviderSimple),
             reinterpret_cast<void**>(container));
@@ -321,6 +340,7 @@ public:
         PATTERNID pattern_id, IUnknown** provider) noexcept override {
         if (!provider) return E_INVALIDARG;
         *provider = nullptr;
+        if (!IsCurrent()) return UIA_E_ELEMENTNOTAVAILABLE;
         if (pattern_id == UIA_InvokePatternId) {
             return QueryInterface(
                 __uuidof(IInvokeProvider),
@@ -334,7 +354,7 @@ public:
         if (!value) return E_INVALIDARG;
         ::VariantInit(value);
         CandidateUI* const owner = Owner();
-        if (!owner) return S_OK;
+        if (!owner) return UIA_E_ELEMENTNOTAVAILABLE;
         switch (property_id) {
             case UIA_AutomationIdPropertyId:
                 return MakeBstrVariant(
@@ -368,7 +388,9 @@ public:
         }
     }
 
-    STDMETHODIMP SetFocus() noexcept override { return S_OK; }
+    STDMETHODIMP SetFocus() noexcept override {
+        return IsCurrent() ? S_OK : UIA_E_ELEMENTNOTAVAILABLE;
+    }
 
     STDMETHODIMP Invoke() noexcept override {
         CandidateUI* const owner = Owner();

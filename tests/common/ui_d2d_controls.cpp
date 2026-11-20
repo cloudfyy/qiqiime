@@ -130,6 +130,65 @@ void TestControlText() {
     QIQI_TEST_CHECK(ControlText(control.Get()).empty());
 }
 
+void TestReusableUiTextAndControls() {
+    QIQI_TEST_CHECK(
+        std::wstring_view(
+            LocalizedUiText(UiLanguage::ZhCn, L"中文", L"English")) ==
+        L"中文");
+    QIQI_TEST_CHECK(
+        std::wstring_view(
+            LocalizedUiText(UiLanguage::EnUs, L"中文", L"English")) ==
+        L"English");
+    QIQI_TEST_CHECK(
+        FormatToolWindowFailureMessage(
+            L"Create control", 32, UiLanguage::ZhCn) ==
+        L"Create control\r\n错误码=32 (0x00000020)");
+    QIQI_TEST_CHECK(
+        FormatToolWindowFailureMessage(
+            L"Create control", 32, UiLanguage::EnUs) ==
+        L"Create control\r\nError=32 (0x00000020)");
+
+    enum class TestControlId { Child = 77 };
+    const HINSTANCE instance = ::GetModuleHandleW(nullptr);
+    const ScopedWindow parent(::CreateWindowExW(
+        0, L"STATIC", L"", WS_POPUP,
+        0, 0, 200, 100, nullptr, nullptr, instance, nullptr));
+    QIQI_TEST_CHECK(parent);
+    const ScopedWindow child(::CreateWindowExW(
+        0, L"EDIT", L"", WS_CHILD,
+        0, 0, 50, 20, parent.Get(),
+        reinterpret_cast<HMENU>(
+            static_cast<UINT_PTR>(std::to_underlying(TestControlId::Child))),
+        instance, nullptr));
+    QIQI_TEST_CHECK(child);
+    QIQI_TEST_CHECK(
+        GetChildControl(parent.Get(), TestControlId::Child) == child.Get());
+
+    const INITCOMMONCONTROLSEX controls{
+        sizeof(controls), ICC_LISTVIEW_CLASSES};
+    QIQI_TEST_CHECK(::InitCommonControlsEx(&controls));
+    const ScopedWindow list(::CreateWindowExW(
+        0, WC_LISTVIEWW, L"", WS_CHILD | LVS_REPORT | LVS_OWNERDATA,
+        0, 30, 180, 50, parent.Get(), nullptr, instance, nullptr));
+    QIQI_TEST_CHECK(list);
+    QIQI_TEST_CHECK(ListView_SetItemCountEx(
+        list.Get(), 3, LVSICF_NOSCROLL));
+    ListView_SetItemState(
+        list.Get(), -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    ListView_SetItemState(
+        list.Get(), 0, LVIS_SELECTED, LVIS_SELECTED);
+    ListView_SetItemState(
+        list.Get(), 1,
+        LVIS_SELECTED | LVIS_FOCUSED,
+        LVIS_SELECTED | LVIS_FOCUSED);
+    constexpr std::array<uint64_t, 3> row_ids{101, 202, 303};
+    const OwnerDataListSelection selection =
+        ReadOwnerDataListSelection(list.Get(), row_ids);
+    QIQI_TEST_CHECK((selection.selected_ids ==
+                     std::vector<uint64_t>{101, 202}));
+    QIQI_TEST_CHECK(selection.active_id == 202);
+}
+
 static_assert(kFluentBodyFontSize == 14 && kFluentComboItemHeight == 22);
 static_assert(kFluentComboTextCapacity == 128);
 static_assert(kSmallBrandIconSize == 16 && kLargeBrandIconSize == 48);
@@ -970,6 +1029,7 @@ void RunD2DControlsTests() {
     TestDisplayPreferences();
     TestEffectiveDpiSelection();
     TestControlText();
+    TestReusableUiTextAndControls();
     TestReusableControls();
     TestInfoDialogLayout();
     TestCommonDialogsAndUtils();

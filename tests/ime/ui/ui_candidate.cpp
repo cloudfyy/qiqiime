@@ -1073,10 +1073,17 @@ void TestCandidateAccessibility() {
                     events.front() == UIA_SelectionItem_ElementSelectedEventId);
     QIQI_TEST_CHECK(structure_changes == 1);
     QIQI_TEST_CHECK(first_simple->GetPropertyValue(
-                        UIA_SelectionItemIsSelectedPropertyId, &value) == S_OK &&
-                    value.boolVal == VARIANT_FALSE);
+                        UIA_SelectionItemIsSelectedPropertyId, &value) ==
+                    UIA_E_ELEMENTNOTAVAILABLE);
     std::ignore = ::VariantClear(&value);
     check_automation_selection(L"二");
+    first.Reset();
+    first_simple.Reset();
+    QIQI_TEST_CHECK(root->Navigate(
+                        NavigateDirection_FirstChild,
+                        first.GetAddressOf()) == S_OK &&
+                    first);
+    QIQI_TEST_CHECK(first.As(&first_simple) == S_OK && first_simple);
 
     SAFEARRAY* runtime_id = nullptr;
     QIQI_TEST_CHECK(first->GetRuntimeId(&runtime_id) == S_OK && runtime_id);
@@ -1594,8 +1601,15 @@ void TestCandidatePagingAccessibilityContracts() {
         L"ab", {L"一", L"二"}, 5, 0, 0);
     QIQI_TEST_CHECK(next_invoke->Invoke() ==
                     UIA_E_ELEMENTNOTAVAILABLE);
-    QIQI_TEST_CHECK(ReadAutomationBool(
-                        next_simple.Get(), UIA_IsOffscreenPropertyId));
+    VARIANT stale_value;
+    ::VariantInit(&stale_value);
+    QIQI_TEST_CHECK(next_simple->GetPropertyValue(
+                        UIA_IsOffscreenPropertyId, &stale_value) ==
+                    UIA_E_ELEMENTNOTAVAILABLE);
+    QIQI_TEST_CHECK(first_candidate_simple->GetPropertyValue(
+                        UIA_NamePropertyId, &stale_value) ==
+                    UIA_E_ELEMENTNOTAVAILABLE);
+    std::ignore = ::VariantClear(&stale_value);
 
     std::vector<PROPERTYID> changed_properties;
     ui->SetAccessibilityPropertyObserverForTest(

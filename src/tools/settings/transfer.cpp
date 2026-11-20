@@ -12,10 +12,6 @@
 namespace qiqi::settings_detail {
 namespace {
 
-const wchar_t* Text(UiLanguage language, const wchar_t* zh, const wchar_t* en) noexcept {
-    return ResolveUiLanguage(language) == UiLanguage::EnUs ? en : zh;
-}
-
 DialogContext* Context(HWND hwnd) noexcept {
     if (!::IsWindow(hwnd)) return nullptr;
     return reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -51,7 +47,7 @@ private:
 void ShowTransferError(HWND hwnd, UiLanguage language, const ConfigJsonError& error, HRESULT result) {
     const auto message = FormatConfigJsonError(error, result, language);
     if (!::MessageBoxW(hwnd, message.c_str(),
-        Text(language, L"配置导入／导出失败", L"Configuration transfer failed"), MB_OK | MB_ICONERROR)) {
+        LocalizedUiText(language, L"配置导入／导出失败", L"Configuration transfer failed"), MB_OK | MB_ICONERROR)) {
         QIQI_LOG_ERROR("Configuration error dialog failed (error={})", ::GetLastError());
     }
 }
@@ -202,7 +198,7 @@ HRESULT ConfirmImport(HWND parent, const QiQiConfig& before, const QiQiConfig& a
             monitor.work_area.bottom - monitor.work_area.top) - margin),
         style, 0, monitor.work_area);
     const ScopedWindow window(::CreateWindowExW(0, kSettingsImportPreviewWndClass,
-        Text(language, L"导入配置：变更预览", L"Import configuration: changes"), style,
+        LocalizedUiText(language, L"导入配置：变更预览", L"Import configuration: changes"), style,
         bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
         parent, nullptr, instance, &context));
     if (!window) return HRESULT_FROM_WIN32(::GetLastError());
@@ -212,7 +208,7 @@ HRESULT ConfirmImport(HWND parent, const QiQiConfig& before, const QiQiConfig& a
     };
     if (!create(L"EDIT", body.c_str(), ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_TABSTOP,
             kIdConfigChanges) ||
-        !create(L"BUTTON", Text(language, L"加载配置", L"Load config"), BS_OWNERDRAW | WS_TABSTOP, IDOK) ||
+        !create(L"BUTTON", LocalizedUiText(language, L"加载配置", L"Load config"), BS_OWNERDRAW | WS_TABSTOP, IDOK) ||
         !create(L"BUTTON", GetUiStrings(language).dlg_btn_cancel, BS_OWNERDRAW | WS_TABSTOP, IDCANCEL))
         return HRESULT_FROM_WIN32(::GetLastError());
     ApplyDisplayThemeToWindow(window.Get(), context.theme.appearance);
@@ -224,39 +220,39 @@ HRESULT ConfirmImport(HWND parent, const QiQiConfig& before, const QiQiConfig& a
 } // namespace
 
 std::wstring FormatConfigJsonError(const ConfigJsonError& error, HRESULT result, UiLanguage language) {
-    const wchar_t* reason = Text(language, L"读取或写入失败。", L"Could not read or write the configuration.");
+    const wchar_t* reason = LocalizedUiText(language, L"读取或写入失败。", L"Could not read or write the configuration.");
     switch (error.issue) {
         case ConfigJsonIssue::Syntax:
-            reason = Text(language, L"JSON 或 UTF-8 无效；请检查语法。", L"Invalid JSON or UTF-8; check the syntax."); break;
+            reason = LocalizedUiText(language, L"JSON 或 UTF-8 无效；请检查语法。", L"Invalid JSON or UTF-8; check the syntax."); break;
         case ConfigJsonIssue::TooLarge:
-            reason = Text(language, L"配置文件不得超过 64 KiB。", L"The configuration must not exceed 64 KiB."); break;
+            reason = LocalizedUiText(language, L"配置文件不得超过 64 KiB。", L"The configuration must not exceed 64 KiB."); break;
         case ConfigJsonIssue::ObjectRequired:
-            reason = Text(language, L"必须使用 JSON 对象。", L"A JSON object is required."); break;
+            reason = LocalizedUiText(language, L"必须使用 JSON 对象。", L"A JSON object is required."); break;
         case ConfigJsonIssue::UnknownField:
-            reason = Text(language, L"不支持此字段；不可导入路径或任意注册表项。",
+            reason = LocalizedUiText(language, L"不支持此字段；不可导入路径或任意注册表项。",
                 L"Unknown field; paths and arbitrary registry values are not importable."); break;
         case ConfigJsonIssue::DuplicateField:
-            reason = Text(language, L"字段重复；每个字段只能出现一次。", L"Duplicate field; each field may appear only once."); break;
+            reason = LocalizedUiText(language, L"字段重复；每个字段只能出现一次。", L"Duplicate field; each field may appear only once."); break;
         case ConfigJsonIssue::MissingField:
-            reason = Text(language, L"缺少必需字段。", L"A required field is missing."); break;
+            reason = LocalizedUiText(language, L"缺少必需字段。", L"A required field is missing."); break;
         case ConfigJsonIssue::InvalidType:
-            reason = Text(language, L"字段类型不正确：开关使用布尔值，候选数使用整数，枚举使用字符串。",
+            reason = LocalizedUiText(language, L"字段类型不正确：开关使用布尔值，候选数使用整数，枚举使用字符串。",
                 L"Wrong type: use booleans for toggles, an integer for page size, and strings for enums."); break;
         case ConfigJsonIssue::OutOfRange:
-            reason = Text(language, L"数值超出范围；每页候选数必须为 1–9。",
+            reason = LocalizedUiText(language, L"数值超出范围；每页候选数必须为 1–9。",
                 L"Value out of range; page size must be 1-9."); break;
         case ConfigJsonIssue::InvalidEnum:
-            reason = Text(language, L"枚举名称无效；请使用导出文件中的稳定名称。",
+            reason = LocalizedUiText(language, L"枚举名称无效；请使用导出文件中的稳定名称。",
                 L"Invalid enum name; use the stable names shown in exported files."); break;
         case ConfigJsonIssue::UnsupportedFormat:
-            reason = Text(language, L"format 必须为 \"qiqiime-config\"。", L"format must be \"qiqiime-config\"."); break;
+            reason = LocalizedUiText(language, L"format 必须为 \"qiqiime-config\"。", L"format must be \"qiqiime-config\"."); break;
         case ConfigJsonIssue::UnsupportedVersion:
-            reason = Text(language, L"只支持整数 version: 1。", L"Only integer version: 1 is supported."); break;
+            reason = LocalizedUiText(language, L"只支持整数 version: 1。", L"Only integer version: 1 is supported."); break;
         case ConfigJsonIssue::CustomDictionaryRequired:
-            reason = Text(language, L"请先在本机选择自定义主词库；配置文件不携带词库路径。",
+            reason = LocalizedUiText(language, L"请先在本机选择自定义主词库；配置文件不携带词库路径。",
                 L"Select a custom primary dictionary locally first; configuration files contain no dictionary paths."); break;
         case ConfigJsonIssue::ComfortScaleRequired:
-            reason = Text(language, L"关怀模式需要至少 150% 字号；请同时设置 ui_text_scale。",
+            reason = LocalizedUiText(language, L"关怀模式需要至少 150% 字号；请同时设置 ui_text_scale。",
                 L"Comfort mode requires at least 150% text size; also set ui_text_scale."); break;
         case ConfigJsonIssue::None: break;
     }
@@ -266,20 +262,20 @@ std::wstring FormatConfigJsonError(const ConfigJsonError& error, HRESULT result,
     if (field.size() > 256) field.resize(256);
     for (auto& ch : field) if (ch < L' ') ch = L'?';
     return std::format(L"{}\r\n{}{}\r\n{}{}\r\nHRESULT: 0x{:08X}",
-        reason, Text(language, L"字段：", L"Field: "), field,
-        Text(language, L"字节位置：", L"Byte position: "), error.byte, static_cast<unsigned long>(result));
+        reason, LocalizedUiText(language, L"字段：", L"Field: "), field,
+        LocalizedUiText(language, L"字节位置：", L"Byte position: "), error.byte, static_cast<unsigned long>(result));
 }
 
 std::wstring FormatSettingsConfigChanges(
     const QiQiConfig& before, const QiQiConfig& after, UiLanguage language) {
-    auto message = std::wstring(Text(language,
+    auto message = std::wstring(LocalizedUiText(language,
         L"确认后加载到设置窗口；点击“确定”才保存，取消设置则放弃。\r\n"
         L"未列出的设置、词库路径和用户词库不会更改。\r\n\r\n",
         L"Load these changes into Settings. Click OK there to save, or Cancel to discard.\r\n"
         L"Unlisted settings, dictionary paths, and user dictionaries are unchanged.\r\n\r\n"));
     const auto changes = GetConfigJsonChanges(before, after);
     if (changes.empty()) {
-        message += Text(language, L"没有配置变化。", L"No configuration changes.");
+        message += LocalizedUiText(language, L"没有配置变化。", L"No configuration changes.");
     }
     for (const auto& change : changes) {
         const auto* label = SettingsConfigFieldLabel(change.key, language);
@@ -370,16 +366,16 @@ void PromptSettingsConfigTransfer(HWND hwnd, bool importing, const dialog_detail
         const TransferScope transfer(hwnd);
         if (!transfer.Get()) return;
         selected = dialog_detail::PromptForFile(hwnd,
-            Text(language, importing ? L"导入配置 JSON" : L"导出当前配置 JSON",
+            LocalizedUiText(language, importing ? L"导入配置 JSON" : L"导出当前配置 JSON",
                 importing ? L"Import configuration JSON" : L"Export current configuration JSON"),
-            Text(language, L"配置 JSON (*.json)\0*.json\0所有文件 (*.*)\0*.*\0",
+            LocalizedUiText(language, L"配置 JSON (*.json)\0*.json\0所有文件 (*.*)\0*.*\0",
                 L"Configuration JSON (*.json)\0*.json\0All files (*.*)\0*.*\0"),
             path, importing ? dialog_detail::FileDialogMode::Open : dialog_detail::FileDialogMode::Save,
             L"json", api);
     }
     if (selected.status == dialog_detail::FileDialogStatus::Failed) {
         const auto message = std::format(L"{}\r\nCommDlgExtendedError: 0x{:08X}",
-            Text(language, L"无法打开配置文件选择窗口。", L"Could not open the configuration file dialog."),
+            LocalizedUiText(language, L"无法打开配置文件选择窗口。", L"Could not open the configuration file dialog."),
             selected.error);
         if (!::MessageBoxW(hwnd, message.c_str(), GetUiStrings(language).dlg_title, MB_OK | MB_ICONERROR))
             QIQI_LOG_ERROR("Configuration file-dialog error message failed (error={})", ::GetLastError());

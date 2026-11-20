@@ -178,7 +178,7 @@ const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage languag
     });
     if (label) return label;
     if (key == "primary_dict")
-        return ResolveUiLanguage(language) == UiLanguage::EnUs ? L"Primary dictionary" : L"主词库";
+        return LocalizedUiText(language, L"主词库", L"Primary dictionary");
     if (key == "page_size" || key == "candidate_layout") return str.dlg_lbl_page_size;
     if (key == "ui_language") return str.dlg_lbl_ui_lang;
     if (key == "underline_style") return str.dlg_lbl_underline_style;

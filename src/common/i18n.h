@@ -390,6 +390,11 @@ inline UiLanguage ResolveUiLanguage(UiLanguage configured) noexcept {
     return DetectSystemPreferredUiLanguage();
 }
 
+inline const wchar_t* LocalizedUiText(
+    UiLanguage language, const wchar_t* zh, const wchar_t* en) noexcept {
+    return ResolveUiLanguage(language) == UiLanguage::EnUs ? en : zh;
+}
+
 inline const UiStrings& GetUiStrings(UiLanguage configured) noexcept {
     return (ResolveUiLanguage(configured) == UiLanguage::EnUs) ? kEnUsStrings : kZhCnStrings;
 }

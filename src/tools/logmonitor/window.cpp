@@ -19,7 +19,8 @@ using enum ControlId;
 
 void MonitorWindow::Impl::Failure(std::wstring_view operation, ULONG error) {
     diagnostics.Record(2, operation, error);
-    const auto message = std::format(L"{}\r\n{}={} (0x{:08X})", operation, Text(L"错误码", L"Error"), error, error);
+    const auto message = FormatToolWindowFailureMessage(
+        operation, error, ui_language);
     ::MessageBoxW(hwnd, message.c_str(), GetUiStrings(ui_language).log_monitor_name, MB_OK | MB_ICONERROR);
 }
 
@@ -133,10 +134,13 @@ int RunMonitor(HINSTANCE instance, int show, std::wstring_view command_line) {
     const ULONG error = ParseMonitorStartupArguments(command_line, startup);
     if (error != ERROR_SUCCESS) {
         const auto language = ResolveUiLanguage(UiLanguage::Auto);
-        const bool english = language == UiLanguage::EnUs;
-        const auto message = std::format(L"{}\r\n{}={} (0x{:08X})",
-            english ? L"Invalid log monitor startup arguments." : L"日志监控启动参数无效。",
-            english ? L"Error" : L"错误码", error, error);
+        const auto message = FormatToolWindowFailureMessage(
+            LocalizedUiText(
+                language,
+                L"日志监控启动参数无效。",
+                L"Invalid log monitor startup arguments."),
+            error,
+            language);
         ::MessageBoxW(nullptr, message.c_str(), GetUiStrings(language).log_monitor_name, MB_OK | MB_ICONERROR);
         return 1;
     }

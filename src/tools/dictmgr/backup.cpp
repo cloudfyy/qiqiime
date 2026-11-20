@@ -45,24 +45,9 @@ HRESULT DecodeUtf8(std::string_view input, std::wstring& output) noexcept {
         input.size() > gsl::narrow_cast<size_t>((std::numeric_limits<int>::max)())) {
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
-    if (input.empty()) {
-        output.clear();
-        return S_OK;
-    }
     try {
-        const int length = ::MultiByteToWideChar(
-            CP_UTF8, MB_ERR_INVALID_CHARS, input.data(),
-            gsl::narrow_cast<int>(input.size()), nullptr, 0);
-        if (length <= 0) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        output.resize(gsl::narrow_cast<size_t>(length));
-        const int decoded = ::MultiByteToWideChar(
-            CP_UTF8, MB_ERR_INVALID_CHARS, input.data(),
-            gsl::narrow_cast<int>(input.size()), output.data(), length);
-        if (decoded != length) {
-            output.clear();
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-        return S_OK;
+        return Utf8ToWideResult(
+            input, output, Utf8ErrorPolicy::Reject);
     } catch (const std::bad_alloc&) {
         QIQI_LOG_ERROR("Complete backup UTF-8 decode ran out of memory");
         return E_OUTOFMEMORY;
