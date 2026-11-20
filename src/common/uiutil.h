@@ -12,6 +12,8 @@
 #include <cwchar>
 #include <iterator>
 #include <limits>
+#include <memory>
+#include <new>
 #include <span>
 #include <string>
 #include <string_view>
@@ -415,10 +417,23 @@ inline bool SetFluentListRowHeight(
     return true;
 }
 
+struct GlyphIconStroke {
+    int width_px = 0;
+    BYTE alpha = 0;
+    COLORREF color = RGB(0, 0, 0);
+};
+
 // Create a 32-bit ARGB transparent HICON containing a single centered glyph (no solid background fill).
 inline ScopedIcon CreateTransparentGlyphIcon(
-    wchar_t ch, int size_px, COLORREF text_color, LONG weight = FW_SEMIBOLD) noexcept {
+    wchar_t ch, int size_px, COLORREF text_color, LONG weight = FW_SEMIBOLD,
+    GlyphIconStroke stroke = {}) noexcept {
     const int sz = std::max(16, size_px);
+    const int stroke_width = std::max(0, stroke.width_px);
+    if (stroke_width >= sz || (stroke_width != 0 && stroke.alpha == 0)) {
+        QIQI_LOG_WARN("CreateTransparentGlyphIcon: invalid stroke (width={}, alpha={})",
+                      stroke_width, stroke.alpha);
+        return {};
+    }
     const ScopedWindowDC screen_dc(nullptr);
     if (!screen_dc) {
         return {};
@@ -451,7 +466,10 @@ inline ScopedIcon CreateTransparentGlyphIcon(
 
     {
         const ScopedSelectObject sel_bmp(mem_dc.Get(), color_bmp.Get());
-        const ScopedGdiHandle<HFONT> font = CreateUiFont(sz - 2, weight, ANTIALIASED_QUALITY);
+        const int font_height =
+            std::max(1, sz - 2 - stroke_width * 2);
+        const ScopedGdiHandle<HFONT> font =
+            CreateUiFont(font_height, weight, ANTIALIASED_QUALITY);
         if (!sel_bmp || !font) {
             QIQI_LOG_WARN("CreateTransparentGlyphIcon: glyph drawing resources unavailable");
             return {};
@@ -492,15 +510,71 @@ inline ScopedIcon CreateTransparentGlyphIcon(
     const uint32_t b_fg = GetBValue(text_color);
 #pragma warning(suppress : 26490)
     const std::span<uint32_t> pixels(static_cast<uint32_t*>(bits), pixel_count);
-    for (uint32_t& px : pixels) {
-        const uint32_t lum = px & 0xFFu;
-        if (lum == 0) {
-            px = 0;
-        } else {
-            const uint32_t pr = (r_fg * lum) / 255u;
-            const uint32_t pg = (g_fg * lum) / 255u;
-            const uint32_t pb = (b_fg * lum) / 255u;
-            px = (lum << 24u) | (pr << 16u) | (pg << 8u) | pb;
+    std::unique_ptr<uint8_t[]> coverage;
+    if (stroke_width != 0) {
+        coverage.reset(new (std::nothrow) uint8_t[pixel_count]);
+        if (!coverage) {
+            QIQI_LOG_ERROR("CreateTransparentGlyphIcon: glyph stroke allocation failed (hr=0x{:08x})",
+                           gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
+            return {};
+        }
+        for (size_t i = 0; i < pixels.size(); ++i) {
+            coverage[i] = gsl::narrow_cast<uint8_t>(
+                gsl::at(pixels, i) & 0xFFu);
+        }
+    }
+    if (!coverage) {
+        for (uint32_t& pixel : pixels) {
+            const uint32_t glyph_alpha = pixel & 0xFFu;
+            if (glyph_alpha == 0) {
+                pixel = 0;
+                continue;
+            }
+            const uint32_t pr = (r_fg * glyph_alpha) / 255u;
+            const uint32_t pg = (g_fg * glyph_alpha) / 255u;
+            const uint32_t pb = (b_fg * glyph_alpha) / 255u;
+            pixel = (glyph_alpha << 24u) |
+                    (pr << 16u) | (pg << 8u) | pb;
+        }
+    } else {
+        const auto scale_channel = [](uint32_t channel, uint32_t alpha) noexcept {
+            return (channel * alpha + 127u) / 255u;
+        };
+        const uint32_t r_stroke = GetRValue(stroke.color);
+        const uint32_t g_stroke = GetGValue(stroke.color);
+        const uint32_t b_stroke = GetBValue(stroke.color);
+        for (size_t i = 0; i < pixels.size(); ++i) {
+            const uint32_t glyph_alpha =
+                gsl::narrow_cast<uint32_t>(coverage[i]);
+            uint32_t widest_coverage = 0;
+            const int x = gsl::narrow_cast<int>(i % gsl::narrow_cast<size_t>(sz));
+            const int y = gsl::narrow_cast<int>(i / gsl::narrow_cast<size_t>(sz));
+            for (int dy = -stroke_width; dy <= stroke_width; ++dy) {
+                const int neighbor_y = y + dy;
+                if (neighbor_y < 0 || neighbor_y >= sz) continue;
+                for (int dx = -stroke_width; dx <= stroke_width; ++dx) {
+                    const int neighbor_x = x + dx;
+                    if (neighbor_x < 0 || neighbor_x >= sz) continue;
+                    widest_coverage = std::max(
+                        widest_coverage,
+                        gsl::narrow_cast<uint32_t>(
+                            coverage[gsl::narrow_cast<size_t>(
+                                neighbor_y * sz + neighbor_x)]));
+                }
+            }
+            const uint32_t stroke_alpha =
+                scale_channel(widest_coverage, stroke.alpha);
+            const uint32_t inverse_glyph_alpha = 255u - glyph_alpha;
+            const uint32_t pr = scale_channel(r_fg, glyph_alpha) +
+                scale_channel(scale_channel(r_stroke, stroke_alpha), inverse_glyph_alpha);
+            const uint32_t pg = scale_channel(g_fg, glyph_alpha) +
+                scale_channel(scale_channel(g_stroke, stroke_alpha), inverse_glyph_alpha);
+            const uint32_t pb = scale_channel(b_fg, glyph_alpha) +
+                scale_channel(scale_channel(b_stroke, stroke_alpha), inverse_glyph_alpha);
+            const uint32_t alpha = glyph_alpha +
+                scale_channel(stroke_alpha, inverse_glyph_alpha);
+            gsl::at(pixels, i) =
+                (alpha << 24u) | (pr << 16u) | (pg << 8u) | pb;
         }
     }
 

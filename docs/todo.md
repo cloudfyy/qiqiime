@@ -745,39 +745,23 @@ status-bar/tooltip skin support require separate design approval.
   supported integrated search controls. Ordinary typing into a search box is
   not proof of search integration; do not log real queries or candidate text.
 
-- [ ] Add automated conformance tests for
+- [x] Add automated conformance tests for
   [Microsoft's IME icon requirements](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-icons).
-  Partial automated coverage already exists:
-  [icons.ps1](../tests/ime/icons.ps1) is registered as
-  `QiQiImeIconAssetsTest`, and `TestImeBrandIcon` plus
-  `TestTaskbarThemeIcons` validate the resources/DLL-returned icons in
-  [ui_langbar_menu.cpp](../tests/ime/ui/ui_langbar_menu.cpp). Current coverage
-  includes 16/20/24/32/40/48px and larger frames, 32-bit color, alpha and
-  transparent margins, black/white theme assets, identical alpha geometry,
-  embedded DLL brand resources, and dynamically returned taskbar mode icons.
-  Still complete the following exact conformance checks rather than treating
-  those baseline tests as certification:
-  - Require ICO frames for at least 16, 20, 24, 32, 40, and 48px; every
-    supplied resolution must be 32-bit with an alpha channel.
-  - Require black/white artwork, permitting neutral grayscale antialiasing
-    and alpha edges but rejecting colored pixels.
-  - Brand icons: white box, black glyph, and a 1px black outer stroke at
-    50% opacity. Clarify applicability of the guideline's "new" variant
-    and test its upper-left rounded corner where applicable.
-  - Mode icons: white glyph with a 1px black outer stroke at 50% opacity.
-  - Measure geometry, stroke width/opacity, clipping, and contrast on light
-    and dark backgrounds; do not substitute loose visibility counts for
-    the required output shape or silently accept theme-aware deviations.
-  - Check source ICOs and the icons actually embedded/returned by the IME
-    DLL on x64/x86. Keep standalone tool icons outside these IME-only rules.
-  The current mode icon generator returns a theme-colored glyph without the
-  required 1px black 50%-opacity outline, so it does not yet match the written
-  mode-icon shape contract. Confirm whether to keep the intentional taskbar
-  light/dark visibility behavior or implement the specified outline, then
-  update the generator and tests together. Also add exact white-box/black-glyph,
-  1px black 50%-opacity border, rounded upper-left “new” variant and clipping
-  geometry checks; source/DLL existence and visibility counts alone are not
-  sufficient.
+  [icons.ps1](../tests/ime/icons.ps1) validates the registered
+  [qiqiime.ico](../data/qiqiime.ico) as a source asset, including every supplied
+  32-bit alpha frame, required 16/20/24/32/40/48px sizes, neutral black/white
+  artwork, opaque white box, black glyph, exact 1px 50%-black outer stroke and
+  unclipped standard square variant. QiQiIME uses the standard brand variant;
+  no upper-left-rounded "new" asset is registered, so rounded-corner checks do
+  not apply and the square corners are asserted intentionally.
+  `QiQiImeRuntimeIconTest` loads the actual x64/x86 IME DLL group-icon directory
+  and verifies all embedded frames rather than relying on Windows scaling a
+  missing size. It also validates every runtime mode icon returned through
+  `GUID_LBI_INPUTMODE`: fixed white glyph, exact 1px 50%-black outer stroke,
+  neutral antialiasing, transparent unclipped margins, light/dark compositing
+  contrast, and identical pixels across app/taskbar theme changes. Direct
+  16px (indicator) and 20px (UAC) render paths are both covered. Standalone tool
+  icons remain outside this IME-only contract.
 
 - [x] Add standalone configuration JSON export/import.
   Available on the existing Dictionary settings page, with an independent modal

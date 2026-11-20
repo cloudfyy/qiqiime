@@ -19,6 +19,7 @@
 
 namespace qiqi::test {
 void RunTsfCandidateLayoutTests();
+void RunTsfImeIconTests();
 void RunTsfNativeUilessHostTests();
 void RunRestrictedInputContractTests();
 void RunRestrictedInputDiagnostics();
@@ -299,6 +300,13 @@ int wmain(int argc, wchar_t* argv[]) {
         std::cout << "[PASS] QiQi native TSF UILess tests succeeded.\n";
         return 0;
     }
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--ime-icon-tests") {
+        const qiqi::test::TsfTestTrace trace("ime-icons");
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        qiqi::test::RunTsfImeIconTests();
+        std::cout << "[PASS] QiQi IME icon conformance tests succeeded.\n";
+        return 0;
+    }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--composition-lifecycle-tests") {
         const qiqi::test::TsfTestTrace trace("composition-lifecycle");
         qiqi::test::RunTsfTestStage("trace.failure-reporting", TestTraceFailureReporting);
@@ -314,6 +322,7 @@ int wmain(int argc, wchar_t* argv[]) {
     qiqi::test::RunTsfTestStage("trace.failure-reporting", TestTraceFailureReporting);
     TestTraceCaseTiming();
     using qiqi::test::RunTsfTestStage;
+    RunTsfTestStage("ui.ime-icons", qiqi::test::RunTsfImeIconTests);
     RunTsfTestStage("ui.langbar", qiqi::test::RunLangBarMenuTests);
     RunTsfTestStage("ui.candidate", qiqi::test::RunCandidateUITests);
     RunTsfTestStage("ui.statusbar", qiqi::test::RunStatusBarUITests);

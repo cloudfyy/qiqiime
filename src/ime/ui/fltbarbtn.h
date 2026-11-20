@@ -21,6 +21,13 @@ namespace qiqi {
 
 using Microsoft::WRL::ComPtr;
 
+inline constexpr COLORREF kImeModeIconGlyphColor = RGB(255, 255, 255);
+inline constexpr GlyphIconStroke kImeModeIconStroke{
+    .width_px = 1,
+    .alpha = 128,
+    .color = RGB(0, 0, 0)
+};
+
 enum class LangBarMenuId : UINT {
     SyncMenuState = 0,
     ToggleChinese = 1,

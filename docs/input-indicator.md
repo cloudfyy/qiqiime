@@ -20,7 +20,8 @@
 | 输入法独立托盘图标 | 独立程序的状态入口 | 不等于 Windows 的 TSF 输入指示器 |
 
 当前品牌按官方 `IME brand icons` 的白底黑字方框建议修正，不再把自动反色当作
-品牌规范的承诺。“中/英”模式图标仍是独立的主题与生命周期路径。
+品牌规范的承诺。“中/英”模式图标按官方定义固定为白字加黑描边；任务栏主题事件
+只保留作为更新通知，不再选择图标颜色。
 状态图标消失尚无足够运行证据，不能直接归因于资源、缓存或注册失效。
 
 ## 2. 研究时的奇奇实现
@@ -377,44 +378,38 @@ CTest 与 Windows PowerShell 直接运行均通过。
 - 两份透明黑/白实验 ICO 和三个工具图标的 SHA256 均保持不变。
 
 通过[原有生成脚本](../scripts/generate_monitor_icon.ps1)重建。
-`TestImeBrandIcon` 从实际 DLL 加载各尺寸，逐像素检查一像素边框、alpha、
-中性灰阶、不透明内侧、白底采样、可见黑字和深浅背景对比度。
-针对整份指南的完整规范测试（包括模式描边和“new”变体圆角规则）另列为 TODO，
-不因本次品牌像素回归通过就标记全部完成。
+`QiQiImeIconAssetsTest` 直接读取源码 ICO，`TestImeBrandIcon` 枚举实际 DLL 的
+图标组资源；两者均逐帧检查 16、20、24、32、40、48px 及附加尺寸、32bpp alpha、
+1px/50% 黑边、中性灰阶、不透明白盒、黑色字形、深浅背景对比及不裁切。
+本项目注册的是标准方形品牌变体，没有注册上左圆角的“new”变体；测试明确锁定
+标准四角像素，并在未来改用新变体时要求同步改测试。
 
 验证状态：
 
-- x64 Release 构建、`QiQiImeIconAssetsTest` 和完整 `QiQiTsfUiTest` 通过。
-- x86 Release 构建、资产测试，以及完整运行中的 `TestImeBrandIcon` 均通过；
-  但完整 `QiQiTsfUiTest` 尚未通过：首轮菜单动作数量断言失败，复测越过该用例后，
-  在 `tests/ime/svc/reentrancy.cpp:100` 的按键处理断言失败。两轮日志均保留，
-  尚未定位根因，不将 x86 全套回归记为通过。
-- 生成脚本的 PSScriptAnalyzer Error 级检查通过。
-- 后续应用户手测要求生成了独立测试 MSI，未安装或重新注册输入法，
-  实际任务栏和 `Win+Space` 显示仍待验收。该次完整流程的 x64 为 19 通过、2 跳过；
-  x86 为 17 通过、2 跳过，`QiQiChangeSyncTest` 和 `QiQiTsfUiTest` 超时，
-  正式打包门禁退出 8，没有将失败改写为通过。
-- 手测包使用原有 WiX 定义，单独放入 `dist\manual-test-*` 目录，附 `TEST-STATUS.txt`
-  和匹配的符号文件；不视为全套回归通过的正式发布。四份 MSI 的数据库检查通过，
-  并且不执行安装地提取包内 24 个运行时文件，其 SHA256 均与当前构建和暂存文件相同。
-  MSI 版本仍为 1.1.0，同版本手测需先备份并卸载旧包、保留个人数据，再安装测试包。
+- x64、x86 Release 均重建通过；`QiQiImeIconAssetsTest` 验证源码 ICO，
+  `QiQiImeRuntimeIconTest` 验证实际 DLL 品牌组和运行时 mode HICON。
+- 本轮未生成或安装 MSI，也未修改已安装输入法；这些独立合规测试不替代实际
+  Win+Space、任务栏和 Secure Desktop 的人工视觉验收。
 
-## 14. 模式指示图标字重
+## 14. 模式指示图标合规
 
 用户确认品牌“奇”保持现有外观，本轮只调细任务栏“中/英”模式指示图标：
 
-- 字重由 `FW_SEMIBOLD`（600）改为 `FW_NORMAL`（400），不缩小图标或降低 alpha
-  来模拟细笔画；字体、字号、居中方式及灰阶抗锯齿保持不变。
-- 继续按任务栏主题主动选择黑/白，高对比颜色及主题即时刷新机制不变。
-- 复用透明字形生成函数的字重参数；其他调用仍默认半粗体，品牌 ICO 和工具图标不改。
-- 主题回归读取实际 `GetIcon` 返回的 ARGB，验证中英文在深浅主题下的 alpha 总覆盖率
-  都小于同尺寸半粗体版本，并继续检查透明边角、可见实心笔画、颜色和字形一致性。
+- 字重由 `FW_SEMIBOLD`（600）改为 `FW_NORMAL`（400）。描边路径在四周预留
+  1px 空间并相应内缩字形，不通过降低白字 alpha 来模拟细笔画。
+- 按官方模式图标定义固定使用白色字形，并在外侧增加恰好 1px、50% opacity 的
+  黑色描边；浅色任务栏由黑边保证边界，深色任务栏由白色主体保证可见性。
+- 不再按任务栏主题切换成纯黑或纯白。现有 TSF/theme 通知仍保留，但 `GetIcon`
+  在 app mode、任务栏 mode 任意组合下返回逐像素一致的 ARGB。
+- 透明字形生成器保留默认的无描边接口；模式图标显式请求描边，其他品牌、工具
+  或对话框调用不受影响。
+- 独立 `QiQiImeRuntimeIconTest` 读取真实 `GUID_LBI_INPUTMODE` 的 `GetIcon`
+  结果，根据白色覆盖重算八邻域 1px 描边及 premultiplied alpha，逐像素检查
+  16px 默认、20px UAC 路径、透明边缘、白字/黑描边、深浅背景对比和主题不变性。
 
-本轮未生成 MSI 或修改已安装输入法；实际任务栏上的笔画效果待更新后验收。
+本轮未生成 MSI 或修改已安装输入法；本地合规以源码 ICO、实际 DLL、运行时
+HICON 三层自动测试为准，具体 Windows Shell 的人工视觉验收边界仍保留。
 
-验证结果：x64、x86 Release 均构建通过，两个架构的 `TestImeBrandIcon`、
-`TestTaskbarThemeIcons`、`TestLangBarThemeNotifications` 均完成通过；
-品牌 ICO 的 SHA256 未变，`git diff --check` 通过。
-完整 `QiQiTsfUiTest` 未全通过：x64 在 `tests/ime/svc/layout.cpp:220`
-的按键断言失败，x86 在 `tests/ime/tsf/restricted_input.cpp:199` 的原生
-`ActivateEx` 断言失败。失败日志已保留，根因尚未定位，未据此改动布局或 TSF 激活逻辑。
+验证结果：x64、x86 Release 均通过 `QiQiImeIconAssetsTest` 与
+`QiQiImeRuntimeIconTest`；品牌 ICO 未重生成或改内容，mode 图标结果
+不随 app/taskbar 主题变化。

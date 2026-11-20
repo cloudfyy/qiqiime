@@ -303,7 +303,9 @@ void LangBarButton::Disconnect() noexcept {
 
 ScopedIcon LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
     const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
-    return CreateTransparentGlyphIcon(ch, size, GetTaskbarIconColor(), FW_NORMAL);
+    return CreateTransparentGlyphIcon(
+        ch, size, kImeModeIconGlyphColor, FW_NORMAL,
+        kImeModeIconStroke);
 }
 
 HRESULT LangBarButton::StartThemeNotifications() noexcept {

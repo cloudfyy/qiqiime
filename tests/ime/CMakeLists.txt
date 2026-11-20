@@ -132,6 +132,10 @@ find_program(QIQI_TEST_POWERSHELL NAMES pwsh powershell REQUIRED)
 add_test(NAME QiQiImeIconAssetsTest
     COMMAND "${QIQI_TEST_POWERSHELL}" -NoLogo -NoProfile -ExecutionPolicy Bypass
         -File "${CMAKE_CURRENT_SOURCE_DIR}/icons.ps1")
+add_test(NAME QiQiImeRuntimeIconTest
+    COMMAND qiqi_tsf_ui_test --ime-icon-tests)
+set_tests_properties(QiQiImeRuntimeIconTest
+    PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
 find_program(QIQI_TEST_CDB NAMES cdb
     PATHS "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/Debuggers/${QIQIIME_ARCH_NAME}"
     NO_DEFAULT_PATH REQUIRED)
