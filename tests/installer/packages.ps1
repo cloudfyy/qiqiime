@@ -41,6 +41,10 @@ $installer = New-Object -ComObject WindowsInstaller.Installer
 $upgradeCodes = @{}
 $componentIds = @{}
 $productCodes = @()
+$expectedLicenses = @(
+    "Apache-2.0.txt", "rime-wubi86-jidian-MIT.txt", "wubi-haifeng-BSD-3-Clause.txt",
+    "microsoft-gsl-MIT.txt", "nlohmann-json-MIT.txt", "miniz-MIT.txt"
+)
 try {
     foreach ($arch in @("x64", "x86")) {
         $nativeSuffix = $arch.ToUpperInvariant()
@@ -97,7 +101,8 @@ try {
                     Assert-True ($component.ComponentId -eq "{8E7B9D31-5A42-4C81-9F11-$guidPrefix$suffix}") "Component upgrade identity changed in $path"
                 }
                 $files = @(Read-MsiTable $database "File" @("File", "Component_", "FileName"))
-                $expectedFileCount = if ($arch -eq "x64") { 28 } else { 24 }
+                $expectedNonLicenseFileCount = if ($arch -eq "x64") { 23 } else { 19 }
+                $expectedFileCount = $expectedNonLicenseFileCount + $expectedLicenses.Count
                 Assert-True ($files.Count -eq $expectedFileCount) "Unexpected payload count in ${path}: expected $expectedFileCount, found $($files.Count)."
                 $documentation = @($files | Where-Object { $_.Component_ -eq "CmpDocs" } | ForEach-Object { $_.FileName.Split('|')[-1] })
                 foreach ($name in @("LICENSE", "README.md", "README.en.md", "PRIVACY.md", "CODE_SIGNING.md", "THIRD_PARTY_NOTICES.md", "install.md", "log.md", "release-notes.md")) {
@@ -108,7 +113,7 @@ try {
                 $licenseComponent = @($components | Where-Object { $_.Component -eq "CmpLicenses" })
                 Assert-True ($licenseComponent.Count -eq 1 -and $licenseComponent[0].Directory_ -eq "DirLicenses") "Incorrect license component in $path"
                 $licenses = @($files | Where-Object { $_.Component_ -eq "CmpLicenses" } | ForEach-Object { $_.FileName.Split('|')[-1] })
-                foreach ($name in @("Apache-2.0.txt", "rime-wubi86-jidian-MIT.txt", "wubi-haifeng-BSD-3-Clause.txt", "microsoft-gsl-MIT.txt", "nlohmann-json-MIT.txt")) {
+                foreach ($name in $expectedLicenses) {
                     Assert-True ($name -in $licenses) "Missing third-party license $name in $path"
                 }
                 foreach ($payloadArch in $(if ($arch -eq "x64") { @("X64", "X86") } else { @("X86") })) {
