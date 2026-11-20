@@ -209,6 +209,51 @@ symbols. ETL is not a plain-text export.
 
 ## Diagnosing specific behavior
 
+### Search integration
+
+Start Verbose capture with Lifecycle, Input, and UI categories before activating
+the IME in the affected search box. Switch to another IME and back if activation
+has already happened; do not restart shared Shell/Search processes. Keep the
+`ActivateEx` numeric DLL version (without a Git suffix), host, PID/TID, and flags.
+The monitor's own version does not identify the DLL loaded by the search host,
+and the numeric version does not distinguish builds of the same release.
+
+Filter for `SearchIntegration` and any `InitFunctionProvider` failures:
+
+- `stage=provider-register`: native function-provider registration, client ID,
+  activation flags, ownership result, and actual HRESULT.
+- `stage=get-function`: whether the host requested the search provider or
+  linguistic alternates, whether the function GUID is null/the service CLSID,
+  and the actual HRESULT. `function_data1` and `iid_data1` are only the first
+  DWORDs of those GUIDs, not complete GUIDs.
+- `stage=get-search-candidates`: query presence/length, application-ID presence,
+  returned candidate count, and actual HRESULT. No query, application ID, or
+  candidate contents are recorded.
+- `stage=set-integration-style`: searchbox-style recognition, UI element ID,
+  popup visibility, and actual HRESULT.
+- `stage=set-result`: feedback presence and actual HRESULT. `E_NOTIMPL` with
+  `feedback_applied=false` is the intentional no-search-history policy.
+
+`BeginUIElement(... show_own_ui=true, force_uiless=false)` means the host allowed
+the ordinary popup; it does not demonstrate integrated search. Missing entries
+from an older DLL without these diagnostics, a capture started after discovery,
+or a filtered/lossy capture do not prove that the host never called an API.
+If registration succeeds and an unfiltered capture from activation through
+typing shows no search-provider request, candidate query, or style negotiation,
+the host did not use this API path in that run. `E_NOINTERFACE` for an
+unrelated `GetFunction` request is not a search-provider error.
+Likewise, a successful candidate query does not prove that a search backend used
+the returned alternatives.
+
+`QiQiSearchIntegrationTest` verifies API contracts, mock-manager provider
+registration, and real private in-process ETW redaction. Native UILess tests
+verify the UI protocol, not TSF-owned TIP discovery or the Windows taskbar
+search backend.
+Record real-host acceptance separately: before committing, results must actually
+reflect conversion candidates rather than only the raw Wubi code. Do not force
+commit, hide an unclaimed popup, inject keys, or change ordinary composition
+behavior to imitate host adoption.
+
 ### Candidate positioning
 
 Correlate `CandidatePosition`, `CandidatePositionPopup`, and `CandidateVisibility`

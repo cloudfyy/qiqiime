@@ -878,6 +878,18 @@ ID/query. `SetResult` returns `E_NOTIMPL` deliberately: ordinary committed IME
 input still follows the configured learning policy, but search history is never
 persisted merely because a host reports a candidate selection.
 
+Function-provider registration and search API calls emit privacy-safe
+`SearchIntegration` diagnostics with HRESULTs and counts, not query, application
+ID, or candidate contents. The diagnostic regression uses isolated service
+activation with the mock thread manager, verifies the registered provider's
+identity, and captures real private in-process ETW events with synthetic
+query/application/result canaries to verify that their contents never appear.
+Neither it nor the native UILess UI regression proves TSF-owned TIP discovery
+or that an arbitrary search host requests or uses the alternatives. Real
+Windows taskbar-search acceptance remains open and separate from API
+conformance; see
+[search-integration diagnostics](log.md#search-integration).
+
 The same `CandidateUI` implements `ITfCandidateListUIElementBehavior` and
 `ITfIntegratableCandidateListUIElement` for `GUID_INTEGRATIONSTYLE_SEARCHBOX`.
 Setting the integration style hides the native TIP popup, while candidate

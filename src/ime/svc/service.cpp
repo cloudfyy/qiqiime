@@ -172,7 +172,7 @@ STDMETHODIMP QiQiTextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWO
         &act_id,
         nullptr,
         "QiQiTextService::ActivateEx(version={}, arch={}, host='{}', client_id={}, flags=0x{:x})",
-        version::kFullVersion,
+        version::kVersion,
         version::kArch,
         host_exe,
         tid,
@@ -422,9 +422,16 @@ void QiQiTextService::InitFunctionProvider() {
     if (log::CheckHResult(thread_mgr_.As(&source_single),
                          "InitFunctionProvider::QueryInterface(ITfSourceSingle)") && source_single && !activation_cancelled_) {
         ITfFunctionProvider* const provider = this;
+        const HRESULT hr =
+            source_single->AdviseSingleSink(client_id_, IID_ITfFunctionProvider, provider);
         function_provider_registered_ = log::CheckHResult(
-            source_single->AdviseSingleSink(client_id_, IID_ITfFunctionProvider, provider),
+            hr,
             "InitFunctionProvider::AdviseSingleSink(IID_ITfFunctionProvider)");
+        QIQI_LOG_CAT_DEBUG(
+            log::Keyword::Lifecycle,
+            "SearchIntegration(service={}, stage=provider-register, client_id={}, flags=0x{:x}, registered={}, hr=0x{:08x})",
+            service_log_id_, client_id_, activate_flags_,
+            function_provider_registered_, gsl::narrow_cast<unsigned int>(hr));
     }
 }
 
@@ -751,40 +758,68 @@ STDMETHODIMP QiQiTextService::GetDescription(BSTR* pbstrDesc) noexcept {
 }
 
 STDMETHODIMP QiQiTextService::GetFunction(REFGUID rguid, REFIID riid, IUnknown** ppunk) noexcept {
-    if (!ppunk) {
-        return E_INVALIDARG;
+    HRESULT hr = E_INVALIDARG;
+    if (ppunk) {
+        *ppunk = nullptr;
+        hr = IsEqualGUID(rguid, GUID_NULL) || IsEqualGUID(rguid, kClsidQiQiTextService)
+            ? QueryInterface(riid, reinterpret_cast<void**>(ppunk))
+            : E_NOINTERFACE;
     }
-    *ppunk = nullptr;
-    if (!IsEqualGUID(rguid, GUID_NULL) && !IsEqualGUID(rguid, kClsidQiQiTextService)) {
-        return E_NOINTERFACE;
-    }
-    return QueryInterface(riid, reinterpret_cast<void**>(ppunk));
+    QIQI_LOG_CAT_DEBUG(
+        log::Keyword::Input,
+        "SearchIntegration(service={}, stage=get-function, function_null={}, function_service={}, "
+        "function_data1=0x{:08x}, iid_data1=0x{:08x}, search_provider={}, linguistic_alternates={}, hr=0x{:08x})",
+        service_log_id_, IsEqualGUID(rguid, GUID_NULL) != FALSE,
+        IsEqualGUID(rguid, kClsidQiQiTextService) != FALSE, rguid.Data1, riid.Data1,
+        IsEqualGUID(riid, IID_ITfFnSearchCandidateProvider) != FALSE,
+        IsEqualGUID(riid, IID_ITfFnGetLinguisticAlternates) != FALSE,
+        gsl::narrow_cast<unsigned int>(hr));
+    return hr;
 }
 
 STDMETHODIMP QiQiTextService::GetSearchCandidates(
-    BSTR query, BSTR /*application_id*/, ITfCandidateList** candidates) noexcept {
-    if (!candidates) return E_INVALIDARG;
+    BSTR query, BSTR application_id, ITfCandidateList** candidates) noexcept {
+    size_t query_length = 0;
+    const auto finish = [this, query, application_id, &query_length](
+                            HRESULT hr, size_t count = 0) noexcept {
+        QIQI_LOG_CAT_DEBUG(
+            log::Keyword::Input,
+            "SearchIntegration(service={}, stage=get-search-candidates, query_present={}, "
+            "query_length={}, application_id_present={}, candidate_count={}, hr=0x{:08x})",
+            service_log_id_, query != nullptr, query_length,
+            application_id != nullptr, count, gsl::narrow_cast<unsigned int>(hr));
+        return hr;
+    };
+    if (!candidates) return finish(E_INVALIDARG);
     *candidates = nullptr;
-    if (!query) return S_FALSE;
-    const std::wstring_view code(
-        query, gsl::narrow_cast<size_t>(::SysStringLen(query)));
-    if (code.empty()) return S_FALSE;
+    if (!query) return finish(S_FALSE);
+    query_length = gsl::narrow_cast<size_t>(::SysStringLen(query));
+    const std::wstring_view code(query, query_length);
+    if (code.empty()) return finish(S_FALSE);
     try {
         auto results = engine_.LookupCandidates(code);
-        return CreateSearchCandidateList(
+        const size_t count = results.size();
+        const HRESULT hr = CreateSearchCandidateList(
             std::move(results), candidates);
+        return finish(hr, SUCCEEDED(hr) ? count : 0);
     } catch (const std::bad_alloc&) {
         QIQI_LOG_ERROR(
             "QiQiTextService::GetSearchCandidates allocation failed (hr=0x{:08x})",
             gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
-        return E_OUTOFMEMORY;
+        return finish(E_OUTOFMEMORY);
     }
 }
 
 STDMETHODIMP QiQiTextService::SetResult(
-    BSTR query, BSTR /*application_id*/, BSTR result) noexcept {
-    if (!query || !result) return E_INVALIDARG;
-    return E_NOTIMPL;
+    BSTR query, BSTR application_id, BSTR result) noexcept {
+    const HRESULT hr = query && result ? E_NOTIMPL : E_INVALIDARG;
+    QIQI_LOG_CAT_DEBUG(
+        log::Keyword::Input,
+        "SearchIntegration(service={}, stage=set-result, query_present={}, application_id_present={}, "
+        "result_present={}, feedback_applied=false, hr=0x{:08x})",
+        service_log_id_, query != nullptr, application_id != nullptr,
+        result != nullptr, gsl::narrow_cast<unsigned int>(hr));
+    return hr;
 }
 
 HRESULT QiQiTextService::HandleCandidateUiAction(

@@ -892,13 +892,21 @@ STDMETHODIMP CandidateUI::Abort() noexcept {
 
 STDMETHODIMP CandidateUI::SetIntegrationStyle(
     GUID integration_style) noexcept {
+    const auto keep_alive = RetainForWindowOperation();
     searchbox_integration_ =
         IsEqualGUID(integration_style, kGuidIntegrationStyleSearchbox);
+    HRESULT hr = E_NOTIMPL;
     if (searchbox_integration_) {
         const HRESULT hide_hr = Show(FALSE);
-        if (FAILED(hide_hr)) return hide_hr;
+        hr = FAILED(hide_hr) ? hide_hr : S_OK;
     }
-    return searchbox_integration_ ? S_OK : E_NOTIMPL;
+    QIQI_LOG_CAT_DEBUG(
+        log::Keyword::UI,
+        "SearchIntegration(stage=set-integration-style, element_id={}, style_data1=0x{:08x}, "
+        "searchbox={}, shown={}, hr=0x{:08x})",
+        UiElementId(), integration_style.Data1, searchbox_integration_,
+        is_shown_ != FALSE, gsl::narrow_cast<unsigned int>(hr));
+    return hr;
 }
 
 STDMETHODIMP CandidateUI::GetSelectionStyle(

@@ -2,19 +2,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/tsf/test_trace.h"
+#include "common/etw.h"
 #include "common/test_support.h"
+#include "common/version.h"
 #include "ime/tsf/mocks.h"
 #include "ime/svc/service.h"
 #include <ctffunc.h>
 #include <oleauto.h>
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace qiqi::test {
@@ -193,6 +197,85 @@ void TestSearchCandidateList() {
     QIQI_TEST_CHECK(provider->SetResult(
                         query.Get(), app_id.Get(), selected.Get()) ==
                     E_NOTIMPL);
+}
+
+void TestSearchIntegrationDiagnostics() {
+    const qiqi::test::TsfTestCaseTrace trace(__func__);
+    const auto captured = CaptureLogEvents([](TRACEHANDLE) {
+        const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+        const auto manager = MakeComObject<MockTfThreadMgr>();
+        QIQI_TEST_CHECK(service->ActivateEx(
+            manager.Get(), 1, TF_TMAE_UIELEMENTENABLEDONLY) == S_OK);
+        const auto deactivate = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK_CLEANUP(service->Deactivate() == S_OK);
+        });
+        ComPtr<ITfFunctionProvider> registered_provider;
+        ComPtr<ITfFunctionProvider> expected_provider;
+        QIQI_TEST_CHECK(manager->single_sink_.As(&registered_provider) == S_OK &&
+            service.As(&expected_provider) == S_OK &&
+            registered_provider.Get() == expected_provider.Get());
+        ComPtr<IUnknown> function;
+        QIQI_TEST_CHECK(registered_provider->GetFunction(
+            GUID_NULL, IID_ITfFnSearchCandidateProvider,
+            function.GetAddressOf()) == S_OK && function);
+        const ScopedBstr query(::SysAllocString(L"search-privacy-canary-query"));
+        const ScopedBstr application(::SysAllocString(L"search-privacy-canary-app"));
+        const ScopedBstr result(::SysAllocString(L"search-privacy-canary-result"));
+        QIQI_TEST_CHECK(query && application && result);
+        ComPtr<ITfCandidateList> candidates;
+        QIQI_TEST_CHECK(service->GetSearchCandidates(
+            query.Get(), application.Get(), &candidates) == S_FALSE &&
+            !candidates);
+        QIQI_TEST_CHECK(service->SetResult(
+            query.Get(), application.Get(), result.Get()) == E_NOTIMPL);
+        const auto ui = MakeComObject<CandidateUI>(g_dll_instance);
+        QIQI_TEST_CHECK(ui->SetIntegrationStyle(
+            kGuidIntegrationStyleSearchbox) == S_OK);
+    });
+    constexpr std::string_view kActivationPrefix = "QiQiTextService::ActivateEx(version=";
+    const auto expected_activation_prefix =
+        std::format("{}{}, arch={}, ", kActivationPrefix, version::kVersion, version::kArch);
+    bool saw_activation = false;
+    bool saw_registration = false;
+    bool saw_discovery = false;
+    bool saw_query = false;
+    bool saw_feedback = false;
+    bool saw_style = false;
+    for (const auto& event : captured) {
+        QIQI_TEST_CHECK(!event.message.contains("search-privacy-canary-"));
+        if (event.message.starts_with(kActivationPrefix)) {
+            QIQI_TEST_CHECK(event.message.starts_with(expected_activation_prefix));
+            saw_activation = true;
+        }
+        if (!event.message.starts_with("SearchIntegration(")) continue;
+        saw_registration |= event.message.contains("stage=provider-register,") &&
+            event.message.contains("registered=true, hr=0x00000000");
+        saw_discovery |= event.message.contains("stage=get-function,") &&
+            event.message.contains("search_provider=true") &&
+            event.message.contains("hr=0x00000000");
+        saw_query |= event.message.contains("stage=get-search-candidates,") &&
+            event.message.contains("query_present=true") &&
+            event.message.contains("application_id_present=true") &&
+            event.message.contains("candidate_count=0, hr=0x00000001");
+        saw_feedback |= event.message.contains("stage=set-result,") &&
+            event.message.contains("feedback_applied=false, hr=0x80004001");
+        saw_style |= event.message.contains("stage=set-integration-style,") &&
+            event.message.contains("searchbox=true, shown=false, hr=0x00000000");
+    }
+    QIQI_TEST_CHECK(saw_activation);
+    if (!(saw_registration && saw_discovery && saw_query &&
+          saw_feedback && saw_style)) {
+        std::fprintf(stderr,
+            "[FAIL] Search diagnostics: registration=%d discovery=%d query=%d feedback=%d style=%d\n",
+            saw_registration, saw_discovery, saw_query, saw_feedback, saw_style);
+        for (const auto& event : captured) {
+            if (event.message.starts_with("SearchIntegration(")) {
+                std::fprintf(stderr, "%s\n", event.message.c_str());
+            }
+        }
+    }
+    QIQI_TEST_CHECK(saw_registration && saw_discovery && saw_query &&
+                    saw_feedback && saw_style);
 }
 
 void TestIntegratedCandidateUiContract() {
@@ -427,6 +510,7 @@ void RunTsfSearchIntegrationTests() {
     TestSearchCandidateList();
     TestIntegratedCandidateUiContract();
     TestIntegratedServiceRouting();
+    TestSearchIntegrationDiagnostics();
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 

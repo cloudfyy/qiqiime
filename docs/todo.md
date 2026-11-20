@@ -732,7 +732,17 @@ status-bar/tooltip skin support require separate design approval.
   scattered service, UI, and presentation booleans; direct transition-table
   tests cover blocked nested Begin/Update/End and failed-retirement recovery.
 
-- [x] Implement and validate the Windows IME search-integration APIs.
+- [ ] Implement and validate the Windows IME search-integration APIs.
+  **Deferred.** API implementation and automated contract coverage are in place,
+  but real Windows taskbar-search acceptance is still open. In a Win+S retest on
+  Windows 11 build 26300.9911, the diagnostic DLL loaded in SearchHost and
+  registered its function provider (`S_OK`). The only `GetFunction` request
+  was for a different interface; no candidate query or integration-style call
+  was observed. TSF allowed the ordinary popup and search still used the
+  uncommitted raw code. The user reported the same Win+S behavior with a built-in
+  Microsoft IME on that system. This suggests a possible host or system
+  limitation, but the cause is unconfirmed. Keep this item open until real
+  pre-commit results use the conversion candidates.
   `ITfFnSearchCandidateProvider` is exposed through
   `ITfFunctionProvider::GetFunction`. `GetSearchCandidates` performs a read-only
   Wubi lookup and returns immutable `ITfCandidateList` objects without changing
@@ -749,8 +759,16 @@ status-bar/tooltip skin support require separate design approval.
   preserve the global provider/UI index mapping. The independent
   `QiQiSearchIntegrationTest` covers COM discovery, candidate enumeration/clone,
   provider no-side-effect behavior, privacy feedback, all integration methods,
-  cross-page selection, exact/raw finalization, and cancellation. Native UILess
+  cross-page selection, exact/raw finalization, and cancellation. The diagnostic
+  regression checks provider identity after mock-manager activation and uses
+  real private in-process ETW with synthetic canaries to verify log redaction.
+  Native provider registration does not establish discovery of the search
+  interface, and passing mocks does not replace host acceptance. Native UILess
   acceptance also verifies Behavior and Integratable QueryInterface support.
+  Privacy-safe `SearchIntegration` diagnostics distinguish provider registration,
+  function requests, candidate queries, style negotiation, and feedback;
+  [capture instructions](log.md#search-integration) require activation/discovery
+  coverage before drawing conclusions about missing calls.
   This remains Windows TSF contract conformance, not a claim that every external
   search host or Secure Desktop control has been manually exercised.
 
