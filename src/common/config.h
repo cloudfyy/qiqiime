@@ -148,7 +148,7 @@ struct ConfigField {
     }
 };
 
-// Shared scalar field metadata; order and keys also preserve the legacy backup format.
+// Shared scalar field metadata; order and stable keys define registry and JSON transfer.
 // Machine-specific paths remain registry-only.
 inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"primary_dict", L"PrimaryDict", &QiQiConfig::primary_dict, 0, 3, true},

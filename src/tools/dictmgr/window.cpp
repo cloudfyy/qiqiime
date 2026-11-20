@@ -53,6 +53,9 @@ std::wstring FormatBackupRestoreMessage(const BackupRestoreResult& result, UiLan
     case BackupRestoreStage::Prepare: stage = text(L"准备", L"preparation"); break;
     case BackupRestoreStage::UserDictionary: stage = text(L"词库规则", L"dictionary"); break;
     case BackupRestoreStage::PhraseFrequency: stage = text(L"词组排序", L"phrase ordering"); break;
+    case BackupRestoreStage::CustomDictionary:
+        stage = text(L"自定义主词库", L"custom primary dictionary");
+        break;
     case BackupRestoreStage::Config: stage = text(L"配置", L"configuration"); break;
     case BackupRestoreStage::Refresh: stage = text(L"刷新", L"refresh"); break;
     case BackupRestoreStage::Complete: break;
@@ -1184,16 +1187,21 @@ void DictManagerWindow::Impl::ExportSnapshotDialog() {
 
 void DictManagerWindow::Impl::BackupBundleDialog() {
     std::array<wchar_t, kWin32PathBufferChars> path{};
-    wcscpy_s(path.data(), path.size(), L"qiqiime_backup.qbak");
+    wcscpy_s(path.data(), path.size(), L"qiqiime_backup.zip");
     if (!dialog_detail::PromptForFile(hwnd,
-            Text(L"备份配置、用户词库与词组排序 (.qbak)", L"Backup Config, User Dict & Phrase Ordering (.qbak)"),
-            Text(L"奇奇五笔备份 (*.qbak)\0*.qbak\0所有文件\0*.*\0",
-                L"QiQiIME Backup (*.qbak)\0*.qbak\0All files\0*.*\0"),
-            path, dialog_detail::FileDialogMode::Save, L"qbak")) return;
-    if (model.CreateBackupBundle(path.data())) {
-        last_message = Text(L"已导出完整备份文件 (.qbak)", L"Exported full backup bundle (.qbak)");
+            Text(L"完整备份配置、词库与词组排序 (.zip)",
+                 L"Complete Backup of Config and Dictionaries (.zip)"),
+            Text(L"奇奇五笔完整备份 (*.zip)\0*.zip\0所有文件\0*.*\0",
+                L"QiQiIME Complete Backup (*.zip)\0*.zip\0All files\0*.*\0"),
+            path, dialog_detail::FileDialogMode::Save, L"zip")) return;
+    const HRESULT result = model.CreateBackupBundleResult(path.data());
+    if (SUCCEEDED(result)) {
+        last_message = Text(
+            L"已导出完整 ZIP 备份", L"Exported complete ZIP backup");
     } else {
-        last_message = Text(L"创建备份文件失败", L"Failed to create backup bundle");
+        last_message = std::format(L"{} (0x{:08X})",
+            Text(L"创建 ZIP 备份失败", L"Failed to create ZIP backup"),
+            gsl::narrow_cast<uint32_t>(result));
     }
     UpdateStatus();
 }
@@ -1201,9 +1209,10 @@ void DictManagerWindow::Impl::BackupBundleDialog() {
 void DictManagerWindow::Impl::RestoreBundleDialog() {
     std::array<wchar_t, kWin32PathBufferChars> path{};
     if (!dialog_detail::PromptForFile(hwnd,
-            Text(L"选择要恢复的奇奇五笔备份 (.qbak)", L"Select QiQiIME Backup to Restore (.qbak)"),
-            Text(L"奇奇五笔备份 (*.qbak)\0*.qbak\0所有文件\0*.*\0",
-                L"QiQiIME Backup (*.qbak)\0*.qbak\0All files\0*.*\0"),
+            Text(L"选择要恢复的奇奇五笔 ZIP 备份",
+                 L"Select QiQiIME ZIP Backup to Restore"),
+            Text(L"奇奇五笔完整备份 (*.zip)\0*.zip\0所有文件\0*.*\0",
+                L"QiQiIME Complete Backup (*.zip)\0*.zip\0All files\0*.*\0"),
             path, dialog_detail::FileDialogMode::Open)) return;
 
     const int choice = ::MessageBoxW(
@@ -1212,10 +1221,12 @@ void DictManagerWindow::Impl::RestoreBundleDialog() {
             L"请选择恢复方式：\r\n"
             L"• 点击「是 (Y)」：合并模式（保留现有用户词库与词组排序，合并备份项）\r\n"
             L"• 点击「否 (N)」：覆盖模式（用备份完全替换现有用户词库与词组排序）\r\n"
+            L"• 如备份含自定义主词库，将使用备份副本并保存到本机用户数据目录\r\n"
             L"• 点击「取消」：中止恢复",
             L"Choose restore conflict mode:\r\n"
             L"• Yes: Merge (keep existing user words & phrase ordering, merge backup items)\r\n"
             L"• No: Replace (overwrite existing user dictionary & phrase ordering with backup)\r\n"
+            L"• A bundled custom primary dictionary is restored into this user's data directory\r\n"
             L"• Cancel: Abort restore"),
         Text(L"恢复配置与词库备份", L"Restore Config & Dictionary Backup"),
         MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON1);

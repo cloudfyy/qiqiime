@@ -57,6 +57,8 @@ set(QIQI_COMMON_SOURCES
     version.h.in
     version.rc.in
     uiutil.h
+    zip.cpp
+    zip.h
 )
 add_library(qiqi_common STATIC
     ${QIQI_COMMON_SOURCES}

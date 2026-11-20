@@ -781,7 +781,7 @@ status-bar/tooltip skin support require separate design approval.
   Keep local paths and dictionary contents outside the JSON. See the
   [configuration transfer guide](accessibility.md#配置-json-导入与导出).
 
-- [ ] Replace the custom backup format with ZIP complete backups.
+- [x] Replace the custom backup format with ZIP complete backups.
   Use UTF-8 JSON (`.json`) for configuration, with explicit `format` and `version`,
   native boolean/numeric values, and stable string enum names. Use ZIP (`.zip`)
   for complete backups containing configuration JSON, user dictionary, phrase
@@ -803,6 +803,13 @@ status-bar/tooltip skin support require separate design approval.
   preserve the original configuration and report the actual error. Include focused
   tests for manual edits, partial imports, duplicate/unknown keys, cancellation,
   and preservation of existing settings on failure.
+  The dictionary manager now writes a STORE-only, CRC-checked portable ZIP with
+  `manifest.json`, `config.json`, user dictionary and phrase-order text files,
+  plus `custom-primary.txt` or `custom-primary.qdict` when a custom primary
+  dictionary is selected. `.qbak` input is intentionally rejected. Restore
+  fully validates archive structure, manifest references, configuration JSON
+  and every dictionary entry before applying changes; partial write/refresh
+  failures retain the actual HRESULT.
 
 - [x] High priority: add an independent prefix-completion setting.
   Use "编码补全" / "Code completion" as the Chinese / English UI labels.

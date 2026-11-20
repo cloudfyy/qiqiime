@@ -2,18 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/dictmgr/model.h"
+#include "tools/dictmgr/backup.h"
 #include "common/dictcodec.h"
 #include "common/config.h"
 #include "common/fileutil.h"
 #include "common/logger.h"
-#include "common/version.h"
+#include "common/zip.h"
 
 #include <gsl/gsl>
 #include <algorithm>
-#include <charconv>
 #include <cwctype>
 #include <format>
-#include <limits>
 #include <map>
 
 namespace qiqi::dict_manager {
@@ -552,214 +551,100 @@ bool DictManagerModel::ExportRecordsToFile(
 
 namespace {
 
-constexpr std::string_view kBackupMagicLine = "# QIQIIME_BACKUP_V1\n";
-constexpr std::string_view kBackupChecksumPrefix = "# checksum_fnv1a64=";
-
-std::string SerializeConfigSection(const QiQiConfig& cfg) {
-    std::string out = "[config]\n";
-    ForEachConfigField([&](const auto& field) {
-        out += std::format("{}={}\n", field.backup_key, field.Value(cfg));
-    });
-    return out;
-}
-
-bool ApplyConfigKeyValue(QiQiConfig& cfg, std::string_view key, int val) noexcept {
-    if (val < 0) return false;
-    bool valid = true; // Unknown numeric keys remain forward-compatible.
-    ForEachConfigField([&](const auto& field) {
-        if (key == field.backup_key) valid = field.Assign(cfg, gsl::narrow_cast<uint64_t>(val));
-    });
-    return valid;
-}
-
-bool ParseHexU64(std::string_view sv, uint64_t& out) noexcept {
-    if (sv.size() != 16) return false;
-    uint64_t val = 0;
-    for (const char ch : sv) {
-        val <<= 4;
-        if (ch >= '0' && ch <= '9') val |= gsl::narrow_cast<uint64_t>(ch - '0');
-        else if (ch >= 'A' && ch <= 'F') val |= gsl::narrow_cast<uint64_t>(ch - 'A' + 10);
-        else if (ch >= 'a' && ch <= 'f') val |= gsl::narrow_cast<uint64_t>(ch - 'a' + 10);
-        else return false;
-    }
-    out = val;
-    return true;
-}
-
-bool ParseDecInt(std::string_view sv, int& out) noexcept {
-    if (sv.empty() || sv.size() > 9) return false;
-    int val = 0;
-    for (const char ch : sv) {
-        if (ch < '0' || ch > '9') return false;
-        val = val * 10 + (ch - '0');
-    }
-    out = val;
-    return true;
-}
-
-struct RestorePlan {
-    QiQiConfig config;
-    bool has_config = false;
-    std::vector<std::pair<std::string, int>> config_values;
-    std::map<uint32_t, std::vector<std::wstring>> user_entries;
-    std::map<uint32_t, std::vector<std::wstring>> freq_entries;
-};
-
-bool ValidateDictionaryLine(std::string_view line, bool user_dictionary) {
-    if (line.find('\0') != std::string_view::npos ||
-        line.size() > gsl::narrow_cast<size_t>((std::numeric_limits<int>::max)()) ||
-        ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, line.data(),
-            gsl::narrow_cast<int>(line.size()), nullptr, 0) == 0) return false;
-    const std::wstring wide = Utf8ToWide(line);
-    std::wstring_view rest(wide);
-    const auto next = [&rest]() {
-        const size_t start = rest.find_first_not_of(L" \t\r\n");
-        if (start == std::wstring_view::npos) {
-            rest = {};
-            return std::wstring_view{};
-        }
-        rest.remove_prefix(start);
-        const size_t end = rest.find_first_of(L" \t\r\n");
-        const auto token = rest.substr(0, end);
-        rest.remove_prefix(end == std::wstring_view::npos ? rest.size() : end);
-        return token;
+std::string SerializeUserDictionaryBackup(const WubiEngine& engine) {
+    std::string output;
+    const auto append_entry = [&output](uint32_t packed, std::wstring_view word, wchar_t marker = 0) {
+        output += WideToUtf8(UnpackWubiCode(packed));
+        output.push_back(' ');
+        if (marker != 0) output += WideToUtf8(std::wstring_view(&marker, 1));
+        output += WideToUtf8(word);
+        output.push_back('\n');
     };
-    const auto is_code = [](std::wstring_view token) noexcept {
-        return !token.empty() && token.size() <= 4 && std::ranges::all_of(token, [](wchar_t ch) noexcept {
-            return ch >= L'a' && ch <= L'z';
-        });
-    };
-    const auto valid_word = [user_dictionary](std::wstring_view word) noexcept {
-        if (word.empty() || word == L"^" || word == L"!") return false;
-        if (user_dictionary) return true;
-        if (word.starts_with(L'!')) return false;
-        if (word.starts_with(L'^')) word.remove_prefix(1);
-        // A surrogate pair is one character, not a promotable phrase.
-        return word.size() >= 2 &&
-            !(word.size() == 2 && IS_HIGH_SURROGATE(word.front()) && IS_LOW_SURROGATE(word.back()));
-    };
-    const auto first = next();
-    const auto second = next();
-    if (is_code(first)) {
-        if (!valid_word(second)) return false;
-        for (auto word = next(); !word.empty(); word = next()) {
-            if (!valid_word(word)) return false;
+    for (const auto& [packed, words] : engine.PinnedEntries()) {
+        for (const auto& word : words) {
+            if (!word.empty()) append_entry(packed, word, L'^');
         }
-        return true;
     }
-    return !user_dictionary && valid_word(first) && is_code(second) && next().empty();
+    for (const auto& [packed, words] : engine.UserDictionaryEntries()) {
+        const auto pinned = engine.PinnedEntries().find(packed);
+        for (const auto& word : words) {
+            if (pinned != engine.PinnedEntries().end() &&
+                std::find(pinned->second.begin(), pinned->second.end(), word) != pinned->second.end()) {
+                continue;
+            }
+            if (!word.empty()) append_entry(packed, word);
+        }
+    }
+    for (const auto& [packed, words] : engine.BlockedEntries()) {
+        for (const auto& word : words) {
+            if (!word.empty()) append_entry(packed, word, L'!');
+        }
+    }
+    return output;
 }
 
-bool ParseRestorePlan(std::string_view body, RestorePlan& plan) {
-    std::string user_lines;
-    std::string freq_lines;
-    enum class Section { None, Config, UserDict, PhraseFreq } current = Section::None;
-    bool has_section = false;
-    while (!body.empty()) {
-        const size_t nl = body.find('\n');
-        auto line = body.substr(0, nl);
-        body.remove_prefix(nl == std::string_view::npos ? body.size() : nl + 1);
-        if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
-        const size_t first = line.find_first_not_of(" \t");
-        if (first == std::string_view::npos || line.substr(first).starts_with('#')) continue;
-        if (line == "[config]") {
-            current = Section::Config;
-            plan.has_config = true;
-        } else if (line == "[user_dict]") {
-            current = Section::UserDict;
-        } else if (line == "[phrase_freq]") {
-            current = Section::PhraseFreq;
-        } else {
-            switch (current) {
-            case Section::Config: {
-                const size_t eq = line.find('=');
-                int value = 0;
-                if (eq == std::string_view::npos || eq == 0 ||
-                    !ParseDecInt(line.substr(eq + 1), value) ||
-                    !ApplyConfigKeyValue(plan.config, line.substr(0, eq), value)) return false;
-                plan.config_values.emplace_back(line.substr(0, eq), value);
-                break;
+std::string SerializePhraseOrderBackup(const WubiEngine& engine) {
+    std::string output;
+    for (const auto& [packed, words] : engine.PromotedPhrases()) {
+        const std::string code = WideToUtf8(UnpackWubiCode(packed));
+        for (const auto& word : words) {
+            if (!word.empty()) {
+                output += code + " " + WideToUtf8(word) + "\n";
             }
-            case Section::UserDict:
-            case Section::PhraseFreq: {
-                const bool user = current == Section::UserDict;
-                if (!ValidateDictionaryLine(line, user)) return false;
-                auto& lines = user ? user_lines : freq_lines;
-                lines.append(line);
-                lines.push_back('\n');
-                break;
-            }
-            case Section::None:
-                return false;
-            }
-            continue;
         }
-        has_section = true;
     }
-    WubiMappedDict::ParseTextDictEntries(Utf8ToWide(user_lines), plan.user_entries, true);
-    WubiMappedDict::ParseTextDictEntries(Utf8ToWide(freq_lines), plan.freq_entries, false);
-    return has_section;
+    return output;
+}
+
+std::filesystem::path GetRestoredCustomPrimaryPath(
+    const std::filesystem::path& user_dict_path) {
+    std::filesystem::path parent = user_dict_path.parent_path();
+    if (parent.empty()) {
+        parent = GetDefaultUserDictPath().parent_path();
+    }
+    return parent / L"qiqiime-restored-primary.txt";
 }
 
 } // namespace
 
+HRESULT DictManagerModel::CreateBackupBundleResult(
+    const std::filesystem::path& backup_path) const {
+    try {
+        if (backup_path.empty()) return E_INVALIDARG;
+        detail::BackupArchivePayload payload;
+        payload.config = LoadConfig();
+        payload.user_dictionary = SerializeUserDictionaryBackup(engine_);
+        payload.phrase_order = SerializePhraseOrderBackup(engine_);
+        if (payload.config.primary_dict == PrimaryDict::Custom) {
+            if (active_primary_dict_ != PrimaryDict::Custom ||
+                active_primary_dict_path_.empty()) {
+                QIQI_LOG_WARN(
+                    "ZIP backup rejected because the selected custom primary dictionary is unavailable");
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+            std::string custom_dictionary;
+            const HRESULT read_result = ReadFileToUtf8StringResult(
+                active_primary_dict_path_, custom_dictionary, kMaxZipEntryBytes);
+            if (FAILED(read_result)) return read_result;
+            payload.custom_primary_dictionary =
+                detail::BackupCustomPrimaryDictionary{
+                    .binary = _wcsicmp(
+                        active_primary_dict_path_.extension().c_str(),
+                        L".qdict") == 0,
+                    .data = std::move(custom_dictionary)};
+        }
+        return detail::WriteBackupArchiveFileResult(backup_path, payload);
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR("CreateBackupBundleResult ran out of memory");
+        return E_OUTOFMEMORY;
+    } catch (...) {
+        QIQI_LOG_ERROR("CreateBackupBundleResult failed unexpectedly");
+        return E_UNEXPECTED;
+    }
+}
+
 bool DictManagerModel::CreateBackupBundle(const std::filesystem::path& backup_path) const {
-    if (backup_path.empty()) {
-        return false;
-    }
-    const QiQiConfig cfg = LoadConfig();
-    std::string body = SerializeConfigSection(cfg);
-
-    body += "\n[user_dict]\n";
-    for (const auto& [packed, words] : engine_.PinnedEntries()) {
-        const std::string code_utf8 = WideToUtf8(UnpackWubiCode(packed));
-        for (const auto& w : words) {
-            if (!w.empty()) {
-                body += code_utf8 + " ^" + WideToUtf8(w) + "\n";
-            }
-        }
-    }
-    for (const auto& [packed, words] : engine_.UserDictionaryEntries()) {
-        const std::string code_utf8 = WideToUtf8(UnpackWubiCode(packed));
-        const auto pin_it = engine_.PinnedEntries().find(packed);
-        for (const auto& w : words) {
-            if (pin_it != engine_.PinnedEntries().end() &&
-                std::find(pin_it->second.begin(), pin_it->second.end(), w) != pin_it->second.end()) {
-                continue;
-            }
-            if (!w.empty()) {
-                body += code_utf8 + " " + WideToUtf8(w) + "\n";
-            }
-        }
-    }
-    for (const auto& [packed, words] : engine_.BlockedEntries()) {
-        const std::string code_utf8 = WideToUtf8(UnpackWubiCode(packed));
-        for (const auto& w : words) {
-            if (!w.empty()) {
-                body += code_utf8 + " !" + WideToUtf8(w) + "\n";
-            }
-        }
-    }
-
-    body += "\n[phrase_freq]\n";
-    for (const auto& [packed, words] : engine_.PromotedPhrases()) {
-        const std::string code_utf8 = WideToUtf8(UnpackWubiCode(packed));
-        for (const auto& w : words) {
-            if (!w.empty()) {
-                body += code_utf8 + " " + WideToUtf8(w) + "\n";
-            }
-        }
-    }
-
-    const uint64_t checksum = codec::ComputeFnv1a64(codec::AsByteSpan(body));
-    const std::string header = std::format(
-        "{}# version={}\n{}{:016X}\n",
-        kBackupMagicLine,
-        version::kFullVersion,
-        kBackupChecksumPrefix,
-        checksum);
-    const std::string full = header + body;
-    return WriteFileAtomically(backup_path, codec::AsByteSpan(full));
+    return SUCCEEDED(CreateBackupBundleResult(backup_path));
 }
 
 BackupRestoreResult DictManagerModel::RestoreBackupBundle(
@@ -767,44 +652,25 @@ BackupRestoreResult DictManagerModel::RestoreBackupBundle(
     BackupConflictMode mode) {
     BackupRestoreResult result;
     result.operations_failed = 1;
-    std::string raw;
-    if (!ReadFileToUtf8String(backup_path, raw)) {
-        result.stage = BackupRestoreStage::Read;
-        result.error = E_FAIL; // The read helper exposes only a boolean.
+    if (mode != BackupConflictMode::Merge &&
+        mode != BackupConflictMode::Replace) {
+        result.error = E_INVALIDARG;
         return result;
     }
-    std::string_view sv = StripUtf8Bom(raw);
-    if (!sv.starts_with(kBackupMagicLine)) {
+    const auto custom_primary_path =
+        GetRestoredCustomPrimaryPath(user_dict_path_);
+    detail::BackupArchivePlan plan;
+    detail::BackupArchiveReadStage read_stage =
+        detail::BackupArchiveReadStage::Read;
+    const HRESULT read_result = detail::ReadBackupArchiveFileResult(
+        backup_path, LoadConfig(), custom_primary_path, plan, read_stage);
+    if (FAILED(read_result)) {
+        result.stage = read_stage == detail::BackupArchiveReadStage::Read
+            ? BackupRestoreStage::Read
+            : BackupRestoreStage::Validate;
+        result.error = read_result;
         return result;
     }
-    sv.remove_prefix(kBackupMagicLine.size());
-    // Skip optional # version=... line
-    if (sv.starts_with("# version=")) {
-        const size_t nl = sv.find('\n');
-        if (nl == std::string_view::npos) return result;
-        sv.remove_prefix(nl + 1);
-    }
-    if (!sv.starts_with(kBackupChecksumPrefix)) {
-        return result;
-    }
-    sv.remove_prefix(kBackupChecksumPrefix.size());
-    const size_t checksum_nl = sv.find('\n');
-    if (checksum_nl == std::string_view::npos || checksum_nl < 16) {
-        return result;
-    }
-    uint64_t expected_checksum = 0;
-    if (!ParseHexU64(sv.substr(0, 16), expected_checksum)) {
-        return result;
-    }
-    const std::string_view body = sv.substr(checksum_nl + 1);
-    if (codec::ComputeFnv1a64(codec::AsByteSpan(body)) != expected_checksum) {
-        QIQI_LOG_CAT_WARN(log::Keyword::Dictionary, "RestoreBackupBundle rejected: checksum mismatch");
-        return result;
-    }
-
-    RestorePlan plan;
-    if ((mode != BackupConflictMode::Merge && mode != BackupConflictMode::Replace) ||
-        !ParseRestorePlan(body, plan)) return result;
 
     result.operations_failed = 0;
     result.error = S_OK;
@@ -920,7 +786,7 @@ BackupRestoreResult DictManagerModel::RestoreBackupBundle(
         }
     }
 
-    for (const auto& [packed, words] : plan.freq_entries) {
+    for (const auto& [packed, words] : plan.phrase_entries) {
         const std::wstring code = UnpackWubiCode(packed);
         for (auto it = words.rbegin(); it != words.rend(); ++it) {
             result.effects_possible = true;
@@ -935,17 +801,34 @@ BackupRestoreResult DictManagerModel::RestoreBackupBundle(
         }
     }
 
-    // Do not install configuration describing a restore whose dictionary operations failed.
-    if (result.operations_failed == 0 && plan.has_config) {
-        QiQiConfig config = LoadConfig();
-        for (const auto& [key, value] : plan.config_values) {
-            std::ignore = ApplyConfigKeyValue(config, key, value);
+    // Do not install configuration or a custom primary dictionary after dictionary failures.
+    if (result.operations_failed == 0) {
+        if (plan.has_custom_primary_dictionary) {
+            const HRESULT write_custom_result = WriteFileAtomicallyResult(
+                plan.restored_custom_primary_path,
+                codec::AsByteSpan(
+                    plan.custom_primary_dictionary->data));
+            if (FAILED(write_custom_result)) {
+                fail(
+                    BackupRestoreStage::CustomDictionary,
+                    write_custom_result);
+            } else {
+                WubiMappedDict::InvalidateProcessCacheForPath(
+                    plan.restored_custom_primary_path);
+                result.summary.custom_primary_dict_restored = true;
+                result.effects_possible = true;
+                ++result.operations_succeeded;
+            }
         }
-        if (SaveConfig(config)) {
-            result.summary.config_restored = true;
-            ++result.operations_succeeded;
-        } else {
-            fail(BackupRestoreStage::Config, E_FAIL);
+        if (result.operations_failed == 0 && plan.config_changed) {
+            const HRESULT config_result =
+                SaveConfigToRegistryResult(plan.config);
+            if (SUCCEEDED(config_result)) {
+                result.summary.config_restored = true;
+                ++result.operations_succeeded;
+            } else {
+                fail(BackupRestoreStage::Config, config_result);
+            }
         }
     }
     return finish();

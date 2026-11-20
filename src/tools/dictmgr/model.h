@@ -19,6 +19,7 @@ enum class BackupConflictMode : uint8_t {
 
 struct BackupRestoreSummary {
     bool config_restored = false;
+    bool custom_primary_dict_restored = false;
     size_t user_entries_applied = 0;
     size_t phrase_freq_applied = 0;
     size_t user_entries_failed = 0;
@@ -27,7 +28,10 @@ struct BackupRestoreSummary {
 
 // Partial includes possible source writes by a failed participant, even with zero acknowledged successes.
 enum class BackupRestoreStatus : uint8_t { Failed, Partial, Success };
-enum class BackupRestoreStage : uint8_t { Read, Validate, Prepare, UserDictionary, PhraseFrequency, Config, Refresh, Complete };
+enum class BackupRestoreStage : uint8_t {
+    Read, Validate, Prepare, UserDictionary, PhraseFrequency,
+    CustomDictionary, Config, Refresh, Complete
+};
 
 struct BackupRestoreResult {
     BackupRestoreStatus status = BackupRestoreStatus::Failed;
@@ -140,7 +144,8 @@ public:
         const std::filesystem::path& export_path,
         std::span<const DictRecord> records) const;
 
-    // Full local backup & restore of configuration, user dictionary (words + ^pinned + !blocked), and phrase frequencies
+    // Complete portable ZIP backup of configuration, dictionary rules, phrase order, and a selected custom primary dictionary.
+    HRESULT CreateBackupBundleResult(const std::filesystem::path& backup_path) const;
     bool CreateBackupBundle(const std::filesystem::path& backup_path) const;
     BackupRestoreResult RestoreBackupBundle(
         const std::filesystem::path& backup_path,

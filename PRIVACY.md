@@ -33,9 +33,10 @@ of Windows, the application receiving input, your browser, or storage services.
 - Settings are stored under `HKCU\Software\QiQiIME`. Desktop defaults place user
   data under `%LOCALAPPDATA%\QiQiIME`, including `user_dict.txt` and, when enabled,
   `phrase_freq.qfreq`. Custom paths and permissions can change the actual location.
-- `.qdict` caches, `.sync` snapshots/journals, exported dictionaries, and `.qbak`
-  backups may contain user phrases or selection information. They are not an
-  encrypted vault and must be protected like the original data.
+- `.qdict` caches, `.sync` snapshots/journals, exported dictionaries, complete
+  `.zip` backups, and any externally retained legacy `.qbak` files may contain
+  user phrases or selection information. They are not encrypted vaults and must
+  be protected like the original data.
 - Recognized private input scopes suppress learning/persistence; recognized
   password/PIN fields use temporary English mode. Host recognition is not
   universal. Do not rely on this as a guarantee for every sensitive field.

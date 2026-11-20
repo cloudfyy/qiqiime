@@ -40,7 +40,10 @@ and AppContainer guides are available in English.
   extension, and custom UTF-8 text, supported Rime dictionary YAML, or compiled
   `.qdict` dictionaries.
 - Custom user phrases, phrase pinning and suppression, optional recent-selection
-  ordering, and a dictionary manager with import, export, and `.qbak` backup/restore.
+  ordering, and a dictionary manager with import, export, and portable `.zip`
+  backup/restore. Complete ZIP backups include configuration JSON, user
+  dictionary rules, phrase ordering, and an optional custom primary dictionary;
+  legacy `.qbak` files are no longer accepted.
 - Optional four-code unique-candidate commit, fifth-key commit, empty-code
   clearing, wildcard lookup, code hints, and a `z`-prefixed temporary English mode.
 - Chinese/English, full-width/half-width, and Chinese/English punctuation modes.

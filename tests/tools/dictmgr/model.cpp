@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "test.h"
+#include "common/zip.h"
+#include "tools/dictmgr/backup.h"
 
 namespace qiqi::dict_manager::tests {
 
@@ -237,7 +239,7 @@ void TestModelAndCrossProcessSync() {
     }
     QIQI_TEST_CHECK(!FormatRecordsForClipboard(model.Records()).empty());
 
-    // Backup & Restore (.qbak bundle with FNV-1a checksum validation, Merge vs Replace conflict modes)
+    // ZIP backup and restore (Merge vs Replace conflict modes)
     const std::wstring test_reg_subkey =
         L"Software\\QiQiIME_DictMgrBackupTest_" + std::to_wstring(::GetCurrentProcessId());
     SetConfigRegistrySubKeyOverrideForTest(test_reg_subkey.c_str());
@@ -254,16 +256,31 @@ void TestModelAndCrossProcessSync() {
 
     QIQI_TEST_CHECK(model.PinUserEntry(L"abcd", L"备份置顶词"));
     QIQI_TEST_CHECK(model.BlockSystemEntry(L"aaaa", L"工"));
-    const auto backup_file = temp_dir / L"test_backup.qbak";
+    const auto backup_file = temp_dir / L"test_backup.zip";
     QIQI_TEST_CHECK(model.CreateBackupBundle(backup_file));
 
-    // Corrupting the backup file payload must be rejected by checksum validation
+    // Corrupting archived config data must be rejected by ZIP CRC validation.
+    std::vector<ZipArchiveEntry> archive_entries;
+    QIQI_TEST_CHECK(SUCCEEDED(
+        ReadZipArchiveFileResult(backup_file, archive_entries)));
+    const auto config_entry = std::ranges::find_if(
+        archive_entries, [](const ZipArchiveEntry& entry) {
+            return entry.name == detail::kBackupConfigEntry;
+        });
+    QIQI_TEST_CHECK(config_entry != archive_entries.end());
+    const std::string config_text(
+        config_entry->data.begin(), config_entry->data.end());
+    QIQI_TEST_CHECK(
+        config_text.contains(R"("commit_on_english_switch":false)"));
     std::string raw_backup;
     QIQI_TEST_CHECK(ReadFileToUtf8String(backup_file, raw_backup));
-    QIQI_TEST_CHECK(raw_backup.contains("commit_on_english_switch=0\n"));
-    const auto corrupt_file = temp_dir / L"corrupt.qbak";
+    const auto corrupt_file = temp_dir / L"corrupt.zip";
     {
-        std::string corrupted = raw_backup + "\nabcd 被篡改词\n";
+        std::string corrupted = raw_backup;
+        const size_t data_offset =
+            corrupted.find("commit_on_english_switch");
+        QIQI_TEST_CHECK(data_offset != std::string::npos);
+        gsl::at(corrupted, data_offset) = 'C';
         QIQI_TEST_CHECK(WriteFileAtomically(corrupt_file, codec::AsByteSpan(corrupted)));
     }
     BackupRestoreSummary summary{};

@@ -319,8 +319,11 @@ lifetime rules; numerical constants with different meanings are not merged.
 Tools reuse window/dialog/control helpers while retaining their own models and
 commands. Dictionary editing has explicit browse/new/edit draft states; failed
 save preserves the draft and does not revive an externally deleted entry.
-Backup restore separates validation/planning from per-resource writes and reports
-partial success/failure; it does not promise global rollback.
+Complete backups are STORE-only portable ZIP archives with a strict JSON manifest,
+configuration JSON, dictionary-rule/phrase-order text, and an optional custom
+primary dictionary. ZIP structure and every entry are validated before restore;
+per-resource writes report partial success/failure and actual HRESULTs rather than
+promising global rollback.
 
 Modal loops preserve `WM_QUIT`, owner enable state, and cancellation/error
 distinctions. Clipboard backoff is bounded at suitable high-level copy/read

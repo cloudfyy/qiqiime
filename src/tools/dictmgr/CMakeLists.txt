@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 set(QIQI_DICT_MANAGER_SOURCES
+    backup.cpp backup.h
     model.h model.cpp
     editor.h editor.cpp
     window.h internal.h window.cpp
@@ -10,6 +11,7 @@ set(QIQI_DICT_MANAGER_SOURCES
 add_library(qiqi_dict_manager STATIC ${QIQI_DICT_MANAGER_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_DICT_MANAGER_SOURCES})
 target_link_libraries(qiqi_dict_manager PUBLIC qiqi_engine qiqi_common comdlg32 uxtheme)
+target_link_libraries(qiqi_dict_manager PRIVATE nlohmann_json::nlohmann_json)
 target_link_options(qiqi_dict_manager INTERFACE
     "/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'")
 
