@@ -13,7 +13,8 @@
   目标显示器 DPI，并扩展 100/125/150/175/200% 的候选及菜单测试。
 - **候选列表 Narrator/UIA 支持**：原生候选窗公开
   `IME_Candidate_Window`、候选名称、SelectionItem 状态与选择操作；编码仅作视觉
-  提示，不通过自动播报字段覆盖候选文字。候选窗在
+  提示，不通过自动播报字段覆盖候选文字。上下页控件公开为可调用的 UIA Button，
+  列表公开当前页/总页数，边界按钮按实际状态禁用。候选窗在
   实际显隐、选择变化及列表结构变化时发出对应 UI Automation 事件；UILess
   模式不宣布不存在的 HWND。
 - **TSF UILess 合约完成**：关联活动 `ITfDocumentMgr`，首次更新发布全部候选
@@ -48,8 +49,9 @@ certify packaging or installation.
 - **Host DPI parity:** honor each host process's DPI awareness mode and avoid
   double scaling for unaware/system-aware hosts.
 - **Narrator candidate UI:** expose the standard candidate AutomationId, item
-  names, selection state, and UIA show/hide/selection/structure events. Display-only
-  code annotations are not announced as help text.
+  names, selection state, invokable paging buttons, page status, and UIA
+  show/hide/selection/property/structure events. Display-only code annotations
+  are not announced as help text.
 - **TSF UILess conformance:** associate the active document, report complete
   initial and delta subsequent flags, retain failed updates, serialize Begin/
   Update/End, handle manager replacement/reentrancy, and never fall back to an

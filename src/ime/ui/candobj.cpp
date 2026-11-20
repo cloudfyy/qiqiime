@@ -8,13 +8,10 @@
 #include "common/theme.h"
 #include "ime/fsm/fsm.h"
 #include <gsl/gsl>
-#include <oleauto.h>
 #include <dwmapi.h>
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <exception>
-#include <limits>
 
 namespace qiqi {
 namespace {
@@ -37,34 +34,6 @@ const char* ExceptionMessageNoThrow(const std::exception& error) noexcept {
         return "exception message unavailable";
     }
 }
-
-HRESULT MakeBstrVariant(std::wstring_view text, VARIANT* value) noexcept {
-    if (!value) return E_POINTER;
-    ::VariantInit(value);
-    value->vt = VT_BSTR;
-    value->bstrVal = ::SysAllocStringLen(text.data(), gsl::narrow_cast<UINT>(text.size()));
-    return value->bstrVal ? S_OK : E_OUTOFMEMORY;
-}
-
-HRESULT MakeRuntimeId(HWND hwnd, long child_id, SAFEARRAY** out) noexcept {
-    if (!out) return E_POINTER;
-    *out = nullptr;
-    const bool has_child = child_id >= 0;
-    SAFEARRAYBOUND bound{has_child ? 3ul : 2ul, 0};
-    *out = ::SafeArrayCreate(VT_I4, 1, &bound);
-    if (!*out) return E_OUTOFMEMORY;
-    const std::array<long, 3> indices{UiaAppendRuntimeId, gsl::narrow_cast<long>(
-        reinterpret_cast<uintptr_t>(hwnd) & 0x7fffffff), child_id};
-    for (LONG i = 0; i < gsl::narrow_cast<LONG>(bound.cElements); ++i) {
-        LONG index = i;
-        long value = gsl::at(indices, gsl::narrow_cast<size_t>(i));
-        if (FAILED(::SafeArrayPutElement(*out, &index, &value))) {
-            ::SafeArrayDestroy(*out);
-            *out = nullptr;
-            return E_FAIL;
-        }
-    }
-    return S_OK;
 }
 
 std::wstring_view StripCodeAnnotation(std::wstring_view text) noexcept {
@@ -81,170 +50,6 @@ std::wstring_view StripCodeAnnotation(std::wstring_view text) noexcept {
     }
     return text.substr(0, open);
 }
-}
-
-class CandidateAutomationItem final : public ComObjectBase<
-    CandidateAutomationItem,
-    IRawElementProviderSimple,
-    IRawElementProviderFragment,
-    ISelectionItemProvider> {
-public:
-    CandidateAutomationItem(ComPtr<CandidateUI> owner, size_t page_index) noexcept
-        : owner_(std::move(owner)), page_index_(page_index) {}
-
-    STDMETHODIMP get_ProviderOptions(ProviderOptions* options) noexcept override {
-        if (!options) return E_INVALIDARG;
-        *options = ProviderOptions_ServerSideProvider;
-        return S_OK;
-    }
-    STDMETHODIMP GetPatternProvider(PATTERNID pattern_id, IUnknown** provider) noexcept override {
-        if (!provider) return E_INVALIDARG;
-        *provider = nullptr;
-        if (pattern_id == UIA_SelectionItemPatternId) {
-            return QueryInterface(__uuidof(ISelectionItemProvider),
-                                  reinterpret_cast<void**>(provider));
-        }
-        return S_OK;
-    }
-    STDMETHODIMP GetPropertyValue(PROPERTYID property_id, VARIANT* value) noexcept override {
-        if (!value) return E_INVALIDARG;
-        ::VariantInit(value);
-        switch (property_id) {
-            case UIA_ControlTypePropertyId:
-                value->vt = VT_I4;
-                value->lVal = UIA_ListItemControlTypeId;
-                return S_OK;
-            case UIA_NamePropertyId:
-                return MakeBstrVariant(owner_->AccessibleCandidateName(page_index_), value);
-            case UIA_IsEnabledPropertyId:
-                value->vt = VT_BOOL;
-                value->boolVal = VARIANT_TRUE;
-                return S_OK;
-            case UIA_IsOffscreenPropertyId: {
-                value->vt = VT_BOOL;
-                const RECT candidate_rect = owner_->CandidateRect(page_index_);
-                value->boolVal =
-                    !owner_->is_shown_ || !owner_->WindowHandle() ||
-                    !::IsWindowVisible(owner_->WindowHandle()) ||
-                    candidate_rect.bottom <= 0 ||
-                    candidate_rect.top >= owner_->CurrentHeight()
-                    ? VARIANT_TRUE : VARIANT_FALSE;
-                return S_OK;
-            }
-            case UIA_SelectionItemIsSelectedPropertyId:
-                value->vt = VT_BOOL;
-                value->boolVal = owner_->SelectedPageIndex() == page_index_
-                    ? VARIANT_TRUE : VARIANT_FALSE;
-                return S_OK;
-            default:
-                return S_OK;
-        }
-    }
-    STDMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** provider) noexcept override {
-        if (!provider) return E_INVALIDARG;
-        *provider = nullptr;
-        return S_OK;
-    }
-    STDMETHODIMP Navigate(NavigateDirection direction, IRawElementProviderFragment** fragment) noexcept override {
-        if (!fragment) return E_INVALIDARG;
-        *fragment = nullptr;
-        if (!owner_) return S_OK;
-        switch (direction) {
-            case NavigateDirection_Parent:
-                return owner_->QueryInterface(__uuidof(IRawElementProviderFragment),
-                                              reinterpret_cast<void**>(fragment));
-            case NavigateDirection_PreviousSibling:
-                return page_index_ > 0
-                    ? owner_->CreateAutomationItem(page_index_ - 1, fragment)
-                    : S_OK;
-            case NavigateDirection_NextSibling:
-                return page_index_ + 1 < owner_->AccessibleCandidateCount()
-                    ? owner_->CreateAutomationItem(page_index_ + 1, fragment)
-                    : S_OK;
-            default:
-                return S_OK;
-        }
-    }
-    STDMETHODIMP GetRuntimeId(SAFEARRAY** runtime_id) noexcept override {
-        if (page_index_ > gsl::narrow_cast<size_t>(std::numeric_limits<long>::max())) {
-            return E_BOUNDS;
-        }
-        return MakeRuntimeId(
-            owner_->WindowHandle(), gsl::narrow_cast<long>(page_index_), runtime_id);
-    }
-    STDMETHODIMP get_BoundingRectangle(UiaRect* bounds) noexcept override {
-        if (!bounds) return E_INVALIDARG;
-        *bounds = {};
-        if (page_index_ >= owner_->AccessibleCandidateCount()) return S_OK;
-        const RECT rect = owner_->CandidateRect(page_index_);
-        POINT top_left{rect.left, rect.top};
-        POINT bottom_right{rect.right, rect.bottom};
-        if (owner_->WindowHandle() &&
-            ::ClientToScreen(owner_->WindowHandle(), &top_left) &&
-            ::ClientToScreen(owner_->WindowHandle(), &bottom_right)) {
-            bounds->left = static_cast<double>(top_left.x);
-            bounds->top = static_cast<double>(top_left.y);
-            bounds->width = static_cast<double>(bottom_right.x) -
-                static_cast<double>(top_left.x);
-            bounds->height = static_cast<double>(bottom_right.y) -
-                static_cast<double>(top_left.y);
-        }
-        return S_OK;
-    }
-    STDMETHODIMP GetEmbeddedFragmentRoots(SAFEARRAY** roots) noexcept override {
-        if (!roots) return E_INVALIDARG;
-        *roots = nullptr;
-        return S_OK;
-    }
-    STDMETHODIMP SetFocus() noexcept override {
-        return Select();
-    }
-    STDMETHODIMP get_FragmentRoot(IRawElementProviderFragmentRoot** root) noexcept override {
-        if (!root) return E_INVALIDARG;
-        *root = nullptr;
-        return owner_->QueryInterface(
-            __uuidof(IRawElementProviderFragmentRoot), reinterpret_cast<void**>(root));
-    }
-    STDMETHODIMP Select() noexcept override {
-        if (!owner_ || page_index_ >= owner_->AccessibleCandidateCount()) return E_INVALIDARG;
-        try {
-            if (const auto& callback = owner_->select_callback_; callback) {
-                callback(page_index_);
-            }
-            return S_OK;
-        } catch (const std::bad_alloc&) {
-            QIQI_LOG_ERROR(
-                "CandidateAutomationItem::Select allocation failed (hr=0x{:08x})",
-                gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
-            return E_OUTOFMEMORY;
-        } catch (const std::exception& exception) {
-            QIQI_LOG_ERROR("CandidateAutomationItem::Select failed (error={})",
-                           ExceptionMessageNoThrow(exception));
-            return E_FAIL;
-        } catch (...) {
-            QIQI_LOG_ERROR("CandidateAutomationItem::Select failed with unknown exception");
-            return E_FAIL;
-        }
-    }
-    STDMETHODIMP AddToSelection() noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP RemoveFromSelection() noexcept override { return E_NOTIMPL; }
-    STDMETHODIMP get_IsSelected(BOOL* selected) noexcept override {
-        if (!selected) return E_INVALIDARG;
-        *selected = owner_->SelectedPageIndex() == page_index_;
-        return S_OK;
-    }
-    STDMETHODIMP get_SelectionContainer(
-        IRawElementProviderSimple** container) noexcept override {
-        if (!container) return E_INVALIDARG;
-        *container = nullptr;
-        return owner_->QueryInterface(
-            __uuidof(IRawElementProviderSimple), reinterpret_cast<void**>(container));
-    }
-
-private:
-    ComPtr<CandidateUI> owner_;
-    size_t page_index_;
-};
 
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
     appearance_ = ResolveDisplayAppearance(preferences_, SystemThemeSource::App);
@@ -397,11 +202,15 @@ void CandidateUI::RecalculatePopupLayout() {
     const int row_height = std::max(line_height_ + vertical_padding * 2, ScaleByDpi(preferences_.easy_reading ? 44 : 28));
     const bool vertical = layout_ == CandidateLayout::Vertical;
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    const bool english = ResolveUiLanguage(ui_language_) == UiLanguage::EnUs;
-    const std::wstring_view previous_text = preferences_.easy_reading ? (english ? L"Previous" : L"上一页") : L"‹";
-    const std::wstring_view next_text = preferences_.easy_reading ? (english ? L"Next" : L"下一页") : L"›";
+    const auto& str = GetUiStrings(ui_language_);
+    const std::wstring_view previous_text =
+        preferences_.easy_reading ? str.candidate_previous_page : L"‹";
+    const std::wstring_view next_text =
+        preferences_.easy_reading ? str.candidate_next_page : L"›";
     const int button_width = preferences_.easy_reading
-        ? std::max(ScaleByDpi(44), MeasureTextWidth(screen_dc.Get(), english ? L"Previous" : L"上一页") + padding * 2)
+        ? std::max(
+              ScaleByDpi(44),
+              MeasureTextWidth(screen_dc.Get(), str.candidate_previous_page) + padding * 2)
         : ScaleByDpi(kPageButtonWidth);
     const int button_gap = ScaleByDpi(kPageButtonGap);
     const int navigation_width = total_pages > 1 ? button_width * 2 + button_gap : 0;
@@ -492,27 +301,79 @@ void CandidateUI::RecalculatePopupLayout() {
     scroll_offset_ = std::clamp(scroll_offset_, 0, std::max(0, content_height_ - popup_height_));
 }
 
-void CandidateUI::OnLeftButtonDown(POINT pt) const {
+void CandidateUI::OnLeftButtonDown(POINT pt) {
     pt.y += scroll_offset_;
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
     if (total_pages > 1 && page_turn_callback_) {
         if (current_page_ > 0 && ::PtInRect(&prev_page_hit_rect_, pt)) {
-            page_turn_callback_(false);
+            std::ignore = InvokePageTurnCallback(false);
             return;
         }
         if (current_page_ + 1 < total_pages && ::PtInRect(&next_page_hit_rect_, pt)) {
-            page_turn_callback_(true);
+            std::ignore = InvokePageTurnCallback(true);
             return;
         }
-    }
-    if (!select_callback_) {
-        return;
     }
     for (size_t i = 0; i < candidate_hit_rects_.size(); ++i) {
         if (::PtInRect(&gsl::at(candidate_hit_rects_, i), pt)) {
-            select_callback_(i);
+            std::ignore = InvokeSelectionCallback(i);
             return;
         }
+    }
+}
+
+HRESULT CandidateUI::InvokeSelectionCallback(size_t index) noexcept {
+    if (index >= AccessibleCandidateCount()) return E_INVALIDARG;
+    const ComPtr<CandidateUI> self_holder(this);
+    try {
+        const auto callback = select_callback_;
+        if (!callback) return E_NOTIMPL;
+        callback(index);
+        return S_OK;
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR(
+            "CandidateUI::InvokeSelectionCallback allocation failed (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
+        return E_OUTOFMEMORY;
+    } catch (const std::exception& exception) {
+        QIQI_LOG_ERROR(
+            "CandidateUI::InvokeSelectionCallback failed (error={})",
+            ExceptionMessageNoThrow(exception));
+        return E_FAIL;
+    } catch (...) {
+        QIQI_LOG_ERROR("CandidateUI::InvokeSelectionCallback failed with unknown exception");
+        return E_FAIL;
+    }
+}
+
+bool CandidateUI::IsPageTurnAvailable(bool next_page) const noexcept {
+    if (!page_turn_callback_) return false;
+    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
+    return total_pages > 1 &&
+        (next_page ? current_page_ + 1 < total_pages : current_page_ > 0);
+}
+
+HRESULT CandidateUI::InvokePageTurnCallback(bool next_page) noexcept {
+    if (!IsPageTurnAvailable(next_page)) return UIA_E_ELEMENTNOTENABLED;
+    const ComPtr<CandidateUI> self_holder(this);
+    try {
+        const auto callback = page_turn_callback_;
+        if (!callback) return UIA_E_ELEMENTNOTENABLED;
+        callback(next_page);
+        return S_OK;
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR(
+            "CandidateUI::InvokePageTurnCallback allocation failed (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
+        return E_OUTOFMEMORY;
+    } catch (const std::exception& exception) {
+        QIQI_LOG_ERROR(
+            "CandidateUI::InvokePageTurnCallback failed (error={})",
+            ExceptionMessageNoThrow(exception));
+        return E_FAIL;
+    } catch (...) {
+        QIQI_LOG_ERROR("CandidateUI::InvokePageTurnCallback failed with unknown exception");
+        return E_FAIL;
     }
 }
 
@@ -525,188 +386,6 @@ STDMETHODIMP CandidateUI::GetGUID(GUID* pguid) noexcept {
         return E_INVALIDARG;
     }
     *pguid = kGuidCandidateUIElement;
-    return S_OK;
-}
-
-STDMETHODIMP CandidateUI::get_ProviderOptions(ProviderOptions* options) noexcept {
-    if (!options) return E_INVALIDARG;
-    *options = ProviderOptions_ServerSideProvider;
-    return S_OK;
-}
-
-STDMETHODIMP CandidateUI::GetPatternProvider(
-    PATTERNID pattern_id, IUnknown** provider) noexcept {
-    if (!provider) return E_INVALIDARG;
-    *provider = nullptr;
-    if (pattern_id == UIA_SelectionPatternId) {
-        return QueryInterface(__uuidof(ISelectionProvider), reinterpret_cast<void**>(provider));
-    }
-    return S_OK;
-}
-
-STDMETHODIMP CandidateUI::GetPropertyValue(
-    PROPERTYID property_id, VARIANT* value) noexcept {
-    if (!value) return E_INVALIDARG;
-    ::VariantInit(value);
-    switch (property_id) {
-        case UIA_AutomationIdPropertyId:
-            return MakeBstrVariant(L"IME_Candidate_Window", value);
-        case UIA_ControlTypePropertyId:
-            value->vt = VT_I4;
-            value->lVal = UIA_ListControlTypeId;
-            return S_OK;
-        case UIA_NamePropertyId:
-            return MakeBstrVariant(L"IME Candidate Window", value);
-        case UIA_IsEnabledPropertyId:
-            value->vt = VT_BOOL;
-            value->boolVal = VARIANT_TRUE;
-            return S_OK;
-        case UIA_IsOffscreenPropertyId:
-            value->vt = VT_BOOL;
-            value->boolVal =
-                !is_shown_ || !hwnd_ || !::IsWindowVisible(hwnd_.Get())
-                ? VARIANT_TRUE : VARIANT_FALSE;
-            return S_OK;
-        default:
-            return S_OK;
-    }
-}
-
-STDMETHODIMP CandidateUI::get_HostRawElementProvider(
-    IRawElementProviderSimple** provider) noexcept {
-    if (!provider) return E_INVALIDARG;
-    *provider = nullptr;
-    if (!hwnd_) return S_OK;
-    const HRESULT hr = ::UiaHostProviderFromHwnd(hwnd_.Get(), provider);
-    if (FAILED(hr)) {
-        QIQI_LOG_WARN(
-            "CandidateUI::UiaHostProviderFromHwnd failed (hr=0x{:08x})",
-            gsl::narrow_cast<unsigned int>(hr));
-    }
-    return hr;
-}
-
-STDMETHODIMP CandidateUI::Navigate(
-    NavigateDirection direction, IRawElementProviderFragment** fragment) noexcept {
-    if (!fragment) return E_INVALIDARG;
-    *fragment = nullptr;
-    if (direction == NavigateDirection_FirstChild && AccessibleCandidateCount() > 0) {
-        return CreateAutomationItem(0, fragment);
-    }
-    if (direction == NavigateDirection_LastChild && AccessibleCandidateCount() > 0) {
-        return CreateAutomationItem(AccessibleCandidateCount() - 1, fragment);
-    }
-    return S_OK;
-}
-
-STDMETHODIMP CandidateUI::GetRuntimeId(SAFEARRAY** runtime_id) noexcept {
-    return MakeRuntimeId(hwnd_.Get(), -1, runtime_id);
-}
-
-STDMETHODIMP CandidateUI::get_BoundingRectangle(UiaRect* bounds) noexcept {
-    if (!bounds) return E_INVALIDARG;
-    *bounds = {};
-    RECT rect{};
-    if (hwnd_ && ::GetWindowRect(hwnd_.Get(), &rect)) {
-        bounds->left = static_cast<double>(rect.left);
-        bounds->top = static_cast<double>(rect.top);
-        bounds->width = static_cast<double>(rect.right) -
-            static_cast<double>(rect.left);
-        bounds->height = static_cast<double>(rect.bottom) -
-            static_cast<double>(rect.top);
-        return S_OK;
-    }
-    return S_OK;
-}
-
-STDMETHODIMP CandidateUI::GetEmbeddedFragmentRoots(SAFEARRAY** roots) noexcept {
-    if (!roots) return E_INVALIDARG;
-    *roots = nullptr;
-    return S_OK;
-}
-
-STDMETHODIMP CandidateUI::SetFocus() noexcept {
-    return S_OK;
-}
-
-STDMETHODIMP CandidateUI::get_FragmentRoot(
-    IRawElementProviderFragmentRoot** root) noexcept {
-    if (!root) return E_INVALIDARG;
-    *root = nullptr;
-    return QueryInterface(
-        __uuidof(IRawElementProviderFragmentRoot), reinterpret_cast<void**>(root));
-}
-
-STDMETHODIMP CandidateUI::ElementProviderFromPoint(
-    double x, double y, IRawElementProviderFragment** fragment) noexcept {
-    if (!fragment) return E_INVALIDARG;
-    *fragment = nullptr;
-    if (!hwnd_) return S_OK;
-    const POINT point{
-        gsl::narrow_cast<LONG>(x),
-        gsl::narrow_cast<LONG>(y)
-    };
-    POINT client = point;
-    if (!::ScreenToClient(hwnd_.Get(), &client)) return S_OK;
-    for (size_t i = 0; i < AccessibleCandidateCount(); ++i) {
-        const RECT rect = CandidateRect(i);
-        if (::PtInRect(&rect, client)) {
-            return CreateAutomationItem(i, fragment);
-        }
-    }
-    return QueryInterface(
-        __uuidof(IRawElementProviderFragment), reinterpret_cast<void**>(fragment));
-}
-
-STDMETHODIMP CandidateUI::GetFocus(
-    IRawElementProviderFragment** fragment) noexcept {
-    if (!fragment) return E_INVALIDARG;
-    *fragment = nullptr;
-    if (AccessibleCandidateCount() == 0) return S_OK;
-    return CreateAutomationItem(SelectedPageIndex(), fragment);
-}
-
-STDMETHODIMP CandidateUI::GetSelection(SAFEARRAY** selection) noexcept {
-    if (!selection) return E_INVALIDARG;
-    *selection = nullptr;
-    SAFEARRAYBOUND bound{
-        AccessibleCandidateCount() > 0 ? 1ul : 0ul,
-        0
-    };
-    *selection = ::SafeArrayCreate(VT_UNKNOWN, 1, &bound);
-    if (!*selection) return E_OUTOFMEMORY;
-    if (bound.cElements == 0) return S_OK;
-    ComPtr<IRawElementProviderFragment> fragment;
-    ComPtr<IRawElementProviderSimple> selected;
-    const HRESULT hr = CreateAutomationItem(SelectedPageIndex(), fragment.GetAddressOf());
-    if (FAILED(hr) || !fragment || FAILED(fragment.As(&selected)) || !selected) {
-        ::SafeArrayDestroy(*selection);
-        *selection = nullptr;
-        return FAILED(hr) ? hr : E_FAIL;
-    }
-    LONG index = 0;
-    IUnknown* selected_item = selected.Get();
-    const HRESULT put_hr = ::SafeArrayPutElement(
-        *selection, &index, selected_item);
-    if (FAILED(put_hr)) {
-        ::SafeArrayDestroy(*selection);
-        *selection = nullptr;
-        return put_hr;
-    }
-    return S_OK;
-}
-
-STDMETHODIMP CandidateUI::get_CanSelectMultiple(
-    BOOL* can_select_multiple) noexcept {
-    if (!can_select_multiple) return E_INVALIDARG;
-    *can_select_multiple = FALSE;
-    return S_OK;
-}
-
-STDMETHODIMP CandidateUI::get_IsSelectionRequired(
-    BOOL* selection_required) noexcept {
-    if (!selection_required) return E_INVALIDARG;
-    *selection_required = AccessibleCandidateCount() > 0;
     return S_OK;
 }
 
@@ -944,6 +623,9 @@ void CandidateUI::SetCandidates(std::wstring code,
                                 const std::vector<std::wstring>* raw_candidates) {
     const size_t effective_page_size = page_size > 0 ? page_size : 5;
     const size_t old_page_count = ComputeTotalPages(all_candidates_.size(), page_size_);
+    const size_t old_current_page = current_page_;
+    const bool old_previous_page_enabled = IsPageTurnAvailable(false);
+    const bool old_next_page_enabled = IsPageTurnAvailable(true);
     const size_t new_page_count = ComputeTotalPages(all_candidates.size(), effective_page_size);
     const size_t previous_global_selection =
         current_page_ * page_size_ + selected_in_page_;
@@ -1003,115 +685,19 @@ void CandidateUI::SetCandidates(std::wstring code,
     if (is_shown_ && hwnd_ && candidate_tree_changed) {
         std::ignore = RaiseAccessibilityStructureChanged();
     }
+    if (is_shown_ && hwnd_) {
+        std::ignore = RaiseAccessibilityPageChanged(
+            old_current_page,
+            old_page_count,
+            old_previous_page_enabled,
+            old_next_page_enabled);
+    }
     if (is_shown_ && hwnd_ && AccessibleCandidateCount() > 0) {
         if (candidate_tree_changed || selection_changed) {
             std::ignore = RaiseAccessibilityEvent(
                 UIA_SelectionItem_ElementSelectedEventId, SelectedPageIndex());
         }
     }
-}
-
-HRESULT CandidateUI::CreateAutomationItem(
-    size_t page_index, IRawElementProviderFragment** fragment) noexcept {
-    if (!fragment) return E_INVALIDARG;
-    *fragment = nullptr;
-    if (page_index >= AccessibleCandidateCount()) return S_OK;
-    return CreateComObjectToOut<CandidateAutomationItem>(
-        fragment, ComPtr<CandidateUI>(this), page_index);
-}
-
-size_t CandidateUI::SelectedPageIndex() const noexcept {
-    const size_t count = AccessibleCandidateCount();
-    return count > 0 ? std::min(selected_in_page_, count - 1) : 0;
-}
-
-std::wstring_view CandidateUI::AccessibleCandidateName(size_t page_index) const noexcept {
-    const size_t global_index = current_page_ * page_size_ + page_index;
-    if (global_index >= all_candidates_.size()) return {};
-    return StripCodeAnnotation(gsl::at(all_candidates_, global_index));
-}
-
-HRESULT CandidateUI::RaiseAccessibilityEvent(
-    EVENTID event_id, size_t page_index) noexcept {
-    try {
-        if (accessibility_event_observer_for_test_) {
-            accessibility_event_observer_for_test_(event_id);
-        }
-    } catch (...) {
-        QIQI_LOG_ERROR(
-            "CandidateUI::RaiseAccessibilityEvent observer failed (event={})", event_id);
-    }
-    if (!hwnd_ || (!is_shown_ && event_id != UIA_MenuClosedEventId)) return S_OK;
-    const bool observe_dispatch = accessibility_dispatch_observer_for_test_ != nullptr;
-    if ((!detail::UiAutomationEventsEnabledForTest() || !::UiaClientsAreListening()) &&
-        !observe_dispatch) {
-        return S_OK;
-    }
-    ComPtr<IRawElementProviderSimple> provider;
-    HRESULT hr = E_FAIL;
-    if (event_id == UIA_SelectionItem_ElementSelectedEventId) {
-        if (page_index >= AccessibleCandidateCount()) return S_OK;
-        ComPtr<IRawElementProviderFragment> item;
-        hr = CreateAutomationItem(page_index, item.GetAddressOf());
-        if (SUCCEEDED(hr) && item) {
-            hr = item.As(&provider);
-        }
-    } else {
-        hr = QueryInterface(
-            __uuidof(IRawElementProviderSimple),
-            reinterpret_cast<void**>(provider.GetAddressOf()));
-    }
-    if (FAILED(hr) || !provider) {
-        QIQI_LOG_WARN(
-            "CandidateUI::RaiseAccessibilityEvent provider failed (event={}, hr=0x{:08x})",
-            event_id, gsl::narrow_cast<unsigned int>(hr));
-        return hr;
-    }
-    try {
-        if (accessibility_dispatch_observer_for_test_) {
-            accessibility_dispatch_observer_for_test_(
-                event_id,
-                provider.Get() == this);
-        }
-    } catch (...) {
-        QIQI_LOG_ERROR(
-            "CandidateUI::RaiseAccessibilityEvent dispatch observer failed (event={})",
-            event_id);
-    }
-    if (!detail::UiAutomationEventsEnabledForTest() ||
-        !::UiaClientsAreListening()) {
-        return S_OK;
-    }
-    hr = ::UiaRaiseAutomationEvent(provider.Get(), event_id);
-    if (FAILED(hr)) {
-        QIQI_LOG_DEBUG(
-            "CandidateUI::UiaRaiseAutomationEvent failed (event={}, hr=0x{:08x})",
-            event_id, gsl::narrow_cast<unsigned int>(hr));
-    }
-    return hr;
-}
-
-HRESULT CandidateUI::RaiseAccessibilityStructureChanged() noexcept {
-    try {
-        if (accessibility_structure_observer_for_test_) {
-            accessibility_structure_observer_for_test_();
-        }
-    } catch (...) {
-        QIQI_LOG_ERROR(
-            "CandidateUI::RaiseAccessibilityStructureChanged observer failed");
-    }
-    if (!hwnd_ || !is_shown_ || !detail::UiAutomationEventsEnabledForTest() ||
-        !::UiaClientsAreListening()) {
-        return S_OK;
-    }
-    const HRESULT hr = ::UiaRaiseStructureChangedEvent(
-        this, StructureChangeType_ChildrenInvalidated, nullptr, 0);
-    if (FAILED(hr)) {
-        QIQI_LOG_DEBUG(
-            "CandidateUI::UiaRaiseStructureChangedEvent failed (hr=0x{:08x})",
-            gsl::narrow_cast<unsigned int>(hr));
-    }
-    return hr;
 }
 
 void CandidateUI::MoveWindowTo(
@@ -1173,6 +759,9 @@ void CandidateUI::SetUiLanguage(UiLanguage lang) {
     if (ui_language_ == lang) return;
     ui_language_ = lang;
     RefreshPopupLayout();
+    if (is_shown_ && hwnd_) {
+        std::ignore = RaiseAccessibilityStructureChanged();
+    }
 }
 
 RECT CandidateUI::ViewportRect(RECT rect) const noexcept {

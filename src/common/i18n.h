@@ -14,6 +14,8 @@ struct UiStrings {
     // Candidate popup
     const wchar_t* candidate_header_prefix;
     const wchar_t* candidate_empty;
+    const wchar_t* candidate_previous_page;
+    const wchar_t* candidate_next_page;
 
     // Taskbar LangBar tray button & context menu
     const wchar_t* langbar_desc;
@@ -122,6 +124,8 @@ struct UiStrings {
 inline constexpr UiStrings kZhCnStrings = {
     L"五笔 [",
     L"(无候选)",
+    L"上一页",
+    L"下一页",
 
     L"QiQi 五笔状态与菜单",
     L"QiQi 五笔 (左键切换中英，右键打开菜单)",
@@ -243,6 +247,8 @@ inline constexpr UiStrings kZhCnStrings = {
 inline constexpr UiStrings kEnUsStrings = {
     L"Wubi [",
     L"(No candidates)",
+    L"Previous",
+    L"Next",
 
     L"QiQi Wubi Status & Menu",
     L"QiQi Wubi (Left-click: CN/EN, Right-click: Menu)",

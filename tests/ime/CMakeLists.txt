@@ -97,6 +97,7 @@ set(QIQI_TSF_UI_IMPL_SOURCES
     "${PROJECT_SOURCE_DIR}/src/ime/ui/cadifsm.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/candsearch.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/candobj.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/ui/canduia.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/fltbarbtn.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/ctxmenu.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/statusbar.cpp"

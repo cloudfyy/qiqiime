@@ -14,6 +14,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/comobj.h"
@@ -29,6 +30,9 @@ namespace qiqi {
 
 using Microsoft::WRL::ComPtr;
 class CandidateAutomationItem;
+class CandidatePageButtonAutomationItem;
+template <typename Derived, typename PatternInterface>
+class CandidateAutomationFragment;
 
 namespace detail {
 inline bool& UiAutomationEventsEnabledForTest() noexcept {
@@ -47,6 +51,8 @@ enum class CandidateUiAction : uint8_t {
     Abort,
     FinalizeExact
 };
+
+std::wstring_view StripCodeAnnotation(std::wstring_view text) noexcept;
 
 // Implements ITfCandidateListUIElement so both regular desktop apps (popup window)
 // and fullscreen games in UILess mode (ITfUIElementSink) can render candidates.
@@ -212,9 +218,16 @@ public:
         std::function<void(EVENTID, bool)> observer) noexcept {
         accessibility_dispatch_observer_for_test_ = std::move(observer);
     }
+    void SetAccessibilityPropertyObserverForTest(
+        std::function<void(PROPERTYID)> observer) noexcept {
+        accessibility_property_observer_for_test_ = std::move(observer);
+    }
 
 private:
     friend class CandidateAutomationItem;
+    friend class CandidatePageButtonAutomationItem;
+    template <typename Derived, typename PatternInterface>
+    friend class CandidateAutomationFragment;
     struct PaintItem {
         RECT rect{};
         std::wstring text;
@@ -238,15 +251,36 @@ private:
     RECT ViewportRect(RECT rect) const noexcept;
     void ScrollContent(int position);
     void UpdateScrollBar() const noexcept;
-    void OnLeftButtonDown(POINT pt) const;
+    void OnLeftButtonDown(POINT pt);
     bool EnsurePopupWindow() noexcept;
+    HRESULT InvokeSelectionCallback(size_t index) noexcept;
+    bool IsPageTurnAvailable(bool next_page) const noexcept;
+    HRESULT InvokePageTurnCallback(bool next_page) noexcept;
     HRESULT RaiseAccessibilityEvent(EVENTID event_id, size_t page_index = SIZE_MAX) noexcept;
     HRESULT RaiseAccessibilityStructureChanged() noexcept;
+    HRESULT RaiseAccessibilityPropertyChanged(
+        IRawElementProviderSimple* provider,
+        PROPERTYID property_id,
+        VARIANT old_value,
+        VARIANT new_value) noexcept;
+    HRESULT RaiseAccessibilityPageChanged(
+        size_t previous_page,
+        size_t previous_page_count,
+        bool previous_page_button_enabled,
+        bool next_page_button_enabled) noexcept;
     HRESULT InvokeActionCallback(
         CandidateUiAction action, size_t index) noexcept;
     HRESULT CreateAutomationItem(
         size_t page_index, IRawElementProviderFragment** fragment) noexcept;
+    HRESULT CreateAutomationPageButton(
+        bool next_page, IRawElementProviderFragment** fragment) noexcept;
+    HRESULT CreateAutomationChild(
+        size_t child_index, IRawElementProviderFragment** fragment) noexcept;
+    size_t AutomationChildCount() const noexcept;
+    bool HasPageAutomationButtons() const noexcept;
     std::wstring_view AccessibleCandidateName(size_t page_index) const noexcept;
+    std::wstring_view AccessiblePageButtonName(bool next_page) const noexcept;
+    std::wstring AccessiblePageStatus() const;
     size_t AccessibleCandidateCount() const noexcept { return candidate_hit_rects_.size(); }
     size_t SelectedPageIndex() const noexcept;
     void NotifyPopupWindowState(HWND window, bool destroyed = false) noexcept;
@@ -315,6 +349,7 @@ private:
     std::function<void(EVENTID)> accessibility_event_observer_for_test_;
     std::function<void()> accessibility_structure_observer_for_test_;
     std::function<void(EVENTID, bool)> accessibility_dispatch_observer_for_test_;
+    std::function<void(PROPERTYID)> accessibility_property_observer_for_test_;
     // Destroy the popup window first before releasing fonts, D2D/DWrite targets, and candidate state.
     ScopedWindow hwnd_;
 };

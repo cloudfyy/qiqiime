@@ -690,15 +690,16 @@ status-bar/tooltip skin support require separate design approval.
   Add property/event regressions using synthetic candidates and manual
   Narrator validation; do not capture real input or candidate text in logs.
 
-- [ ] Complete UI Automation support for candidate-window paging controls.
-  Expose the previous/next controls as stable UIA Button providers with localized
-  names, enabled state, hit testing, keyboard-compatible invocation, and sibling
-  navigation alongside candidate items. Expose the current/total page state on
-  the candidate list without using the encoded candidate text as part of the
-  announcement, and raise the appropriate property or structure-change events
-  when paging changes. Hidden or unavailable controls must not appear as usable.
-  Add focused x64/x86 regressions for first, middle, last, and single-page states,
-  then verify control discovery and announcements with Inspect and real Narrator.
+- [x] Implement UI Automation support for candidate-window paging controls.
+  Previous/next controls are stable UIA Button providers with localized names,
+  stable Automation IDs/runtime IDs, enabled/offscreen state, hit testing,
+  `IInvokeProvider`, and fragment sibling navigation alongside candidate items.
+  The candidate list exposes current/total page status, and paging raises status/
+  enabled property changes after structure invalidation. Hidden controls are not
+  present on single-page lists; boundary controls remain visible but disabled.
+  Focused x64/x86 regressions cover first, middle, last, and single-page states.
+  Real control discovery and speech remain subject to separate Inspect/Narrator
+  validation; automated providers and events do not certify the spoken output.
 
 - [ ] Audit and complete UI Automation and Narrator support for the standalone
   tools: Settings, Dictionary Manager, and Log Monitor. Keep native

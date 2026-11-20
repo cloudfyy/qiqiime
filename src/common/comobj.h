@@ -166,6 +166,17 @@ inline HRESULT CopyToBstr(std::wstring_view sv, BSTR* pbstr) noexcept {
     return S_OK;
 }
 
+inline HRESULT MakeBstrVariant(std::wstring_view text, VARIANT* value) noexcept {
+    if (!value) return E_POINTER;
+    ::VariantInit(value);
+    BSTR bstr = nullptr;
+    const HRESULT hr = CopyToBstr(text, &bstr);
+    if (FAILED(hr)) return hr;
+    value->vt = VT_BSTR;
+    value->bstrVal = bstr;
+    return S_OK;
+}
+
 // Construct a VT_I4 Win32 VARIANT for TSF compartment / property calls.
 constexpr VARIANT MakeInt4Variant(LONG val) noexcept {
 #pragma warning(suppress : 26476)

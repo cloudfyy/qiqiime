@@ -56,6 +56,7 @@ set(QIQIIME_SOURCES
     ui/candsearch.cpp
     ui/candobj.h
     ui/candobj.cpp
+    ui/canduia.cpp
     ui/fltbarbtn.h
     ui/fltbarbtn.cpp
     ui/ctxmenu.cpp
