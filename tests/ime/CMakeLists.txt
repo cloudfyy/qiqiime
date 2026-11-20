@@ -73,6 +73,7 @@ set(QIQI_TSF_UI_TEST_SOURCES
     svc/deferred.cpp
     svc/native.cpp
     svc/presentation.cpp
+    svc/search.cpp
     svc/reentrancy.cpp
     svc/target.cpp
     svc/windows.cpp
@@ -94,6 +95,7 @@ set(QIQI_TSF_UI_IMPL_SOURCES
     "${PROJECT_SOURCE_DIR}/src/ime/svc/config.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/tsf/dispattr.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/cadifsm.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/ui/candsearch.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/candobj.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/fltbarbtn.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/ctxmenu.cpp"
@@ -135,6 +137,10 @@ add_test(NAME QiQiImeIconAssetsTest
 add_test(NAME QiQiImeRuntimeIconTest
     COMMAND qiqi_tsf_ui_test --ime-icon-tests)
 set_tests_properties(QiQiImeRuntimeIconTest
+    PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+add_test(NAME QiQiSearchIntegrationTest
+    COMMAND qiqi_tsf_ui_test --search-integration-tests)
+set_tests_properties(QiQiSearchIntegrationTest
     PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
 find_program(QIQI_TEST_CDB NAMES cdb
     PATHS "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/Debuggers/${QIQIIME_ARCH_NAME}"

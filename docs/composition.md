@@ -866,6 +866,31 @@ This controller is separate from the Wubi key FSM because its COM lifecycle
  only the typed `ime/fsm/table.h` table shape and bounds-checked lookup; their
  domain states, events, actions, and runtime ownership policies remain separate.
 
+**Windows Search integration:**
+
+`QiQiTextService` exposes `ITfFnSearchCandidateProvider` through
+`ITfFunctionProvider::GetFunction(GUID_NULL, IID_ITfFnSearchCandidateProvider, ...)`.
+`GetSearchCandidates` converts the supplied one-to-four-letter Wubi query with
+the engine's read-only dictionary view and returns an immutable
+`ITfCandidateList`; it does not call `ProcessKey`, schedule edit sessions,
+advance composition, notify TSF, synchronize learning data, or retain the app
+ID/query. `SetResult` returns `E_NOTIMPL` deliberately: ordinary committed IME
+input still follows the configured learning policy, but search history is never
+persisted merely because a host reports a candidate selection.
+
+The same `CandidateUI` implements `ITfCandidateListUIElementBehavior` and
+`ITfIntegratableCandidateListUIElement` for `GUID_INTEGRATIONSTYLE_SEARCHBOX`.
+Setting the integration style hides the native TIP popup, while candidate
+strings use the raw values only in that integration mode. Ordinary UILess
+hosts retain display-only code annotations. Both modes preserve the same
+global indices as the provider. Selection changes, Finalize, Abort,
+exact-string Finalize, and integrated keydown calls are routed back through the
+service's normal access policy and TSF edit-session flow. Arrow and other
+supported keys continue to use the Wubi FSM instead of duplicating keyboard
+logic in the UI object. Integration state is scoped to one `BeginUIElement`
+lifecycle and is reset on End so a later normal popup does not inherit
+search-box behavior.
+
 Native TSF regressions activate an actual `ITfThreadMgr2` with UILess-only
 activation, advise an `ITfUIElementSink`, and verify the initial update,
 subsequent flags, document identity, hidden state, and Begin/Update/End IDs.

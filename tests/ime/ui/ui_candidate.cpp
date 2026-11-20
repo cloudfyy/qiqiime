@@ -1076,6 +1076,35 @@ void TestCandidateUilessContract() {
     ui->SetCandidates(L"z", {L"字"}, 5, 0, 0, replacement_document.Get());
     QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
                     (flags & TF_CLUIE_SELECTION) != 0);
+    const std::vector<std::wstring> raw_candidates{L"原始候选"};
+    ui->SetCandidates(
+        L"wq", {L"显示候选(~a)"}, 5, 0, 0,
+        replacement_document.Get(), &raw_candidates);
+    ScopedBstr integrated_string;
+    QIQI_TEST_CHECK(ui->GetString(
+                        0, integrated_string.Put()) == S_OK &&
+                    std::wstring(integrated_string.Get()) ==
+                    L"显示候选(~a)");
+    acknowledge();
+    const std::vector<std::wstring> replacement_raw_candidates{L"更新原始候选"};
+    ui->SetCandidates(
+        L"wq", {L"显示候选(~a)"}, 5, 0, 0,
+        replacement_document.Get(), &replacement_raw_candidates);
+    QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
+                    flags == TF_CLUIE_STRING);
+    ComPtr<ITfIntegratableCandidateListUIElement> integration;
+    QIQI_TEST_CHECK(ui.As(&integration) == S_OK &&
+                    integration->SetIntegrationStyle(
+                        kGuidIntegrationStyleSearchbox) == S_OK);
+    QIQI_TEST_CHECK(ui->GetString(
+                        0, integrated_string.Put()) == S_OK &&
+                    std::wstring(integrated_string.Get()) ==
+                    L"更新原始候选");
+    ui->ResetIntegrationState();
+    QIQI_TEST_CHECK(ui->GetString(
+                        0, integrated_string.Put()) == S_OK &&
+                    std::wstring(integrated_string.Get()) ==
+                    L"显示候选(~a)");
 }
 
 } // namespace

@@ -186,6 +186,7 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
     res.committed_text = std::move(committed);
     res.composition_text = raw_code_;
     res.page_candidates = CurrentPageCandidates();
+    res.all_candidates = all_candidates_;
     res.all_display_candidates = all_display_candidates_;
     res.page_size = page_size_;
     res.selected_index = selected_in_page_;
@@ -331,6 +332,19 @@ KeyProcessResult WubiEngine::CommitCandidate(
     size_t index_in_page, bool allow_learn, bool defer_phrase_promotion) {
     return ExecuteTransition([this, index_in_page, allow_learn, defer_phrase_promotion] {
         return ResolveCandidateCommit(index_in_page, allow_learn, defer_phrase_promotion);
+    });
+}
+
+KeyProcessResult WubiEngine::SelectCandidate(size_t global_index) {
+    if (!IsComposing() || global_index >= all_candidates_.size() ||
+        page_size_ == 0) {
+        return {};
+    }
+    return ExecuteTransition([this, global_index] {
+        current_page_ = global_index / page_size_;
+        selected_in_page_ = global_index % page_size_;
+        return TransitionOutcome{
+            state_, MakeCurrentStateResult(KeyActionType::UpdateState)};
     });
 }
 

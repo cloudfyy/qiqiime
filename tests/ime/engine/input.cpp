@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <array>
 #include <limits>
+#include <map>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -66,6 +67,8 @@ void TestCompileTimeFsmTransitions() {
     QIQI_TEST_CHECK(!ResolveCandidateSelectIndex(non_digit_vk, false, false).has_value());
     WubiEngine idle_engine;
     QIQI_TEST_CHECK(idle_engine.CommitCandidate(0).action == KeyActionType::PassThrough);
+    QIQI_TEST_CHECK(idle_engine.SelectCandidate(0).action ==
+                    KeyActionType::PassThrough);
     static_assert(ClassifyKeyEvent('A', false, false, false, true, false, true, true, EngineState::Idle, true) == KeyEventKind::PrintableAscii);
     static_assert(ClassifyKeyEvent('A', false, false, false, true, false, true, false, EngineState::Composing1, true) == KeyEventKind::UpperChar);
     static_assert(ClassifyKeyEvent('A', true, false, false, true, false, true, false, EngineState::Composing1, true) == KeyEventKind::CodeChar);
@@ -122,6 +125,25 @@ void TestCompileTimeFsmTransitions() {
     QIQI_TEST_CHECK(engine.State() == EngineState::English);
     engine.SetChineseMode(true);
     QIQI_TEST_CHECK(engine.State() == EngineState::Idle);
+    WubiEngine selection_engine;
+    const std::map<uint32_t, std::vector<std::wstring>> entries{
+        {PackWubiCode(L"wq"), {L"候选一", L"候选二", L"候选三"}}
+    };
+    std::vector<uint8_t> bytes;
+    WubiMappedDict::CompileEntriesToBinaryBuffer(entries, bytes);
+    QIQI_TEST_CHECK(
+        selection_engine.LoadDictionaryFromBinaryBuffer(std::move(bytes)));
+    selection_engine.SetPageSize(2);
+    selection_engine.ProcessKey('W');
+    selection_engine.ProcessKey('Q');
+    QIQI_TEST_CHECK(selection_engine.AllCandidates().size() > 2);
+    const auto selected = selection_engine.SelectCandidate(2);
+    QIQI_TEST_CHECK(selected.action == KeyActionType::UpdateState &&
+                    selected.current_page == 1 &&
+                    selected.selected_index == 0);
+    QIQI_TEST_CHECK(selection_engine.SelectCandidate(
+                        selection_engine.AllCandidates().size()).action ==
+                    KeyActionType::PassThrough);
 
     // Runtime CapsLock behavior in WubiEngine:
     // 1) In Idle state with CapsLock ON, letters and punctuation pass through (or commit FullWidth if enabled)

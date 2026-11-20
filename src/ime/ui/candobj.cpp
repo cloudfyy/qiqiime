@@ -706,7 +706,9 @@ STDMETHODIMP CandidateUI::get_IsSelectionRequired(
 
 STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
     const auto keep_alive = RetainForWindowOperation();
-    const bool blocked = bShow && (!presentation_enabled_ || destroying_window_);
+    const bool blocked =
+        bShow && (!presentation_enabled_ || destroying_window_ ||
+                  searchbox_integration_);
     if (blocked) {
         show_requested_ = false;
         is_shown_ = FALSE;
@@ -804,10 +806,15 @@ STDMETHODIMP CandidateUI::GetString(UINT uIndex, BSTR* pstr) noexcept {
         return E_INVALIDARG;
     }
     *pstr = nullptr;
-    if (uIndex >= all_candidates_.size()) {
+    const auto& candidates =
+        searchbox_integration_ &&
+                integrated_candidates_.size() == all_candidates_.size()
+        ? integrated_candidates_
+        : all_candidates_;
+    if (uIndex >= candidates.size()) {
         return E_INVALIDARG;
     }
-    return CopyToBstr(gsl::at(all_candidates_, uIndex), pstr);
+    return CopyToBstr(gsl::at(candidates, uIndex), pstr);
 }
 
 STDMETHODIMP CandidateUI::GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt) noexcept {
@@ -839,12 +846,87 @@ STDMETHODIMP CandidateUI::GetCurrentPage(UINT* puPage) noexcept {
     return S_OK;
 }
 
+HRESULT CandidateUI::InvokeActionCallback(
+    CandidateUiAction action, size_t index) noexcept {
+    const ComPtr<CandidateUI> self_holder(this);
+    try {
+        const auto callback = action_callback_;
+        if (!callback) return E_NOTIMPL;
+        return callback(action, index);
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR(
+            "CandidateUI action callback allocation failed (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
+        return E_OUTOFMEMORY;
+    }
+}
+
+STDMETHODIMP CandidateUI::SetSelection(UINT index) noexcept {
+    if (index >= all_candidates_.size()) return E_INVALIDARG;
+    return InvokeActionCallback(CandidateUiAction::SetSelection, index);
+}
+
+STDMETHODIMP CandidateUI::Finalize() noexcept {
+    return InvokeActionCallback(CandidateUiAction::Finalize, 0);
+}
+
+STDMETHODIMP CandidateUI::Abort() noexcept {
+    return InvokeActionCallback(CandidateUiAction::Abort, 0);
+}
+
+STDMETHODIMP CandidateUI::SetIntegrationStyle(
+    GUID integration_style) noexcept {
+    searchbox_integration_ =
+        IsEqualGUID(integration_style, kGuidIntegrationStyleSearchbox);
+    if (searchbox_integration_) {
+        const HRESULT hide_hr = Show(FALSE);
+        if (FAILED(hide_hr)) return hide_hr;
+    }
+    return searchbox_integration_ ? S_OK : E_NOTIMPL;
+}
+
+STDMETHODIMP CandidateUI::GetSelectionStyle(
+    TfIntegratableCandidateListSelectionStyle* selection_style) noexcept {
+    if (!selection_style) return E_INVALIDARG;
+    *selection_style = STYLE_ACTIVE_SELECTION;
+    return S_OK;
+}
+
+STDMETHODIMP CandidateUI::OnKeyDown(
+    WPARAM wparam, LPARAM lparam, BOOL* eaten) noexcept {
+    if (!eaten) return E_INVALIDARG;
+    *eaten = FALSE;
+    if (!searchbox_integration_) return E_NOTIMPL;
+    const ComPtr<CandidateUI> self_holder(this);
+    try {
+        const auto callback = integrated_key_down_callback_;
+        if (!callback) return E_NOTIMPL;
+        return callback(wparam, lparam, eaten);
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR(
+            "CandidateUI::OnKeyDown allocation failed (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
+        return E_OUTOFMEMORY;
+    }
+}
+
+STDMETHODIMP CandidateUI::ShowCandidateNumbers(BOOL* show) noexcept {
+    if (!show) return E_INVALIDARG;
+    *show = TRUE;
+    return S_OK;
+}
+
+STDMETHODIMP CandidateUI::FinalizeExactCompositionString() noexcept {
+    return InvokeActionCallback(CandidateUiAction::FinalizeExact, 0);
+}
+
 void CandidateUI::SetCandidates(std::wstring code,
                                 std::vector<std::wstring> all_candidates,
                                 size_t page_size,
                                 size_t current_page,
                                 size_t selected_in_page,
-                                ITfDocumentMgr* document_manager) {
+                                ITfDocumentMgr* document_manager,
+                                const std::vector<std::wstring>* raw_candidates) {
     const size_t effective_page_size = page_size > 0 ? page_size : 5;
     const size_t old_page_count = ComputeTotalPages(all_candidates_.size(), page_size_);
     const size_t new_page_count = ComputeTotalPages(all_candidates.size(), effective_page_size);
@@ -854,6 +936,19 @@ void CandidateUI::SetCandidates(std::wstring code,
         current_page * effective_page_size + selected_in_page;
     const bool previous_had_selection = !all_candidates_.empty();
     const bool new_had_selection = !all_candidates.empty();
+    std::vector<std::wstring> integrated_candidates;
+    integrated_candidates.reserve(all_candidates.size());
+    if (raw_candidates &&
+        raw_candidates->size() == all_candidates.size()) {
+        integrated_candidates = *raw_candidates;
+    } else {
+        for (const auto& candidate : all_candidates) {
+            integrated_candidates.emplace_back(
+                StripCodeAnnotation(candidate));
+        }
+    }
+    const bool integrated_strings_changed =
+        integrated_candidates_ != integrated_candidates;
     const bool candidate_tree_changed =
         all_candidates_ != all_candidates ||
         page_size_ != effective_page_size ||
@@ -861,7 +956,8 @@ void CandidateUI::SetCandidates(std::wstring code,
     const bool document_changed =
         ui_element_lifecycle_.DocumentManager() != document_manager;
     const bool count_changed = all_candidates_.size() != all_candidates.size();
-    const bool strings_changed = all_candidates_ != all_candidates;
+    const bool strings_changed =
+        all_candidates_ != all_candidates || integrated_strings_changed;
     const bool page_index_changed =
         page_size_ != effective_page_size || old_page_count != new_page_count;
     const bool page_changed = current_page_ != current_page;
@@ -874,6 +970,7 @@ void CandidateUI::SetCandidates(std::wstring code,
              ? 0 : all_candidates.size() - 1));
     raw_code_ = std::move(code);
     all_candidates_ = std::move(all_candidates);
+    integrated_candidates_ = std::move(integrated_candidates);
     page_size_ = effective_page_size;
     current_page_ = current_page;
     selected_in_page_ = selected_in_page;

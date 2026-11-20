@@ -5,6 +5,7 @@
 #include "ime/tsf/catmgr.h"
 #include "ime/tsf/dispattr.h"
 #include "ime/comp/target.h"
+#include "ime/ui/candsearch.h"
 #include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/logger.h"
@@ -76,6 +77,15 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
             }
         }
     });
+    candidate_ui_->SetActionCallback(
+        [this](CandidateUiAction action, size_t index) {
+            return HandleCandidateUiAction(action, index);
+        });
+    candidate_ui_->SetIntegratedKeyDownCallback(
+        [this](WPARAM wparam, LPARAM lparam, BOOL* eaten) {
+            return HandleIntegratedCandidateKeyDown(
+                wparam, lparam, eaten);
+        });
     status_bar_ = std::make_unique<StatusBarUI>(instance, [this](LangBarMenuId action_id) {
         HandleLangBarMenuAction(action_id);
     });
@@ -93,6 +103,9 @@ QiQiTextService::~QiQiTextService() noexcept {
     if (candidate_ui_) {
         candidate_ui_->SetSelectCallback({});
         candidate_ui_->SetPageTurnCallback({});
+        candidate_ui_->SetActionCallback({});
+        candidate_ui_->SetIntegratedKeyDownCallback({});
+        candidate_ui_->ResetIntegrationState();
     }
     std::ignore = DestroyUIWindows();
 }
@@ -746,6 +759,79 @@ STDMETHODIMP QiQiTextService::GetFunction(REFGUID rguid, REFIID riid, IUnknown**
         return E_NOINTERFACE;
     }
     return QueryInterface(riid, reinterpret_cast<void**>(ppunk));
+}
+
+STDMETHODIMP QiQiTextService::GetSearchCandidates(
+    BSTR query, BSTR /*application_id*/, ITfCandidateList** candidates) noexcept {
+    if (!candidates) return E_INVALIDARG;
+    *candidates = nullptr;
+    if (!query) return S_FALSE;
+    const std::wstring_view code(
+        query, gsl::narrow_cast<size_t>(::SysStringLen(query)));
+    if (code.empty()) return S_FALSE;
+    try {
+        auto results = engine_.LookupCandidates(code);
+        return CreateSearchCandidateList(
+            std::move(results), candidates);
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR(
+            "QiQiTextService::GetSearchCandidates allocation failed (hr=0x{:08x})",
+            gsl::narrow_cast<unsigned int>(E_OUTOFMEMORY));
+        return E_OUTOFMEMORY;
+    }
+}
+
+STDMETHODIMP QiQiTextService::SetResult(
+    BSTR query, BSTR /*application_id*/, BSTR result) noexcept {
+    if (!query || !result) return E_INVALIDARG;
+    return E_NOTIMPL;
+}
+
+HRESULT QiQiTextService::HandleCandidateUiAction(
+    CandidateUiAction action, size_t index) {
+    const ComPtr<ITfContext> context = composition_lifecycle_.Context();
+    if (!context || !composition_lifecycle_.IsActive() ||
+        !engine_.IsComposing()) {
+        return E_ILLEGAL_METHOD_CALL;
+    }
+    const AccessPolicy policy = EvaluateContextAccess(context.Get(), true);
+    if (!policy.can_input) return E_ACCESSDENIED;
+
+    KeyProcessResult result;
+    switch (action) {
+    case CandidateUiAction::SetSelection:
+        result = engine_.SelectCandidate(index);
+        break;
+    case CandidateUiAction::Finalize:
+        if (engine_.AllCandidates().empty()) return S_FALSE;
+        result = engine_.CommitCandidate(
+            engine_.SelectedInPage(), policy.can_learn, true);
+        break;
+    case CandidateUiAction::Abort:
+        result = engine_.ProcessKey(
+            VK_ESCAPE, false, false, false, false,
+            policy.can_learn, true);
+        break;
+    case CandidateUiAction::FinalizeExact:
+        result = engine_.ProcessKey(
+            VK_RETURN, false, false, false, false,
+            policy.can_learn, true);
+        break;
+    default:
+        return E_INVALIDARG;
+    }
+    if (result.action == KeyActionType::PassThrough) return S_FALSE;
+    ApplyEngineResult(context.Get(), result);
+    return S_OK;
+}
+
+HRESULT QiQiTextService::HandleIntegratedCandidateKeyDown(
+    WPARAM wparam, LPARAM lparam, BOOL* eaten) {
+    if (!eaten) return E_INVALIDARG;
+    *eaten = FALSE;
+    const ComPtr<ITfContext> context = composition_lifecycle_.Context();
+    if (!context) return S_FALSE;
+    return OnKeyDown(context.Get(), wparam, lparam, eaten);
 }
 
 // ITfDisplayAttributeProvider

@@ -120,13 +120,14 @@ void PresentCompositionCandidates(
         const auto finish_begin = gsl::finally([&lifecycle, token = *begin_token]() noexcept {
             lifecycle.AbortBeginRegistration(token);
         });
+        candidate_ui.ResetIntegrationState();
         candidate_ui.SetCandidates(
             snapshot.composition_text,
             snapshot.all_display_candidates,
             snapshot.page_size,
             snapshot.current_page,
             snapshot.selected_index,
-            document);
+            document, &snapshot.all_candidates);
         if (!is_current()) return;
         lifecycle.PrepareInitialUpdate();
         BOOL show_own_ui = TRUE;
@@ -224,7 +225,7 @@ void PresentCompositionCandidates(
         snapshot.page_size,
         snapshot.current_page,
         snapshot.selected_index,
-        document);
+        document, &snapshot.all_candidates);
     if (!is_current()) return;
     std::ignore = publish_update(
         *update, "ITfUIElementMgr::UpdateUIElement(subsequent)");
@@ -234,6 +235,7 @@ inline HRESULT EndCompositionCandidatePresentation(
     CandidateUI& candidate_ui,
     const Microsoft::WRL::ComPtr<ITfThreadMgr>& thread_mgr, uint64_t service_id, const GUID& activity) {
     std::ignore = candidate_ui.Show(FALSE);
+    candidate_ui.ResetIntegrationState();
     auto& lifecycle = candidate_ui.UiElementLifecycle();
     const auto bind_active_manager = [&]() -> HRESULT {
         if (!lifecycle.HasActiveRegistration() ||

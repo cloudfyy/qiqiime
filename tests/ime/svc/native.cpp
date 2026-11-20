@@ -83,6 +83,24 @@ public:
         ComPtr<ITfCandidateListUIElement> candidates;
         inspection_hr = element.As(&candidates);
         if (FAILED(inspection_hr) || !candidates) return S_OK;
+        ComPtr<ITfCandidateListUIElementBehavior> behavior;
+        ComPtr<ITfIntegratableCandidateListUIElement> integration;
+        behavior_hr = element.As(&behavior);
+        integration_hr = element.As(&integration);
+        if (SUCCEEDED(integration_hr) && integration) {
+            integration_style_hr = integration->SetIntegrationStyle(
+                kGuidIntegrationStyleSearchbox);
+            TfIntegratableCandidateListSelectionStyle selection_style =
+                STYLE_IMPLIED_SELECTION;
+            selection_style_hr =
+                integration->GetSelectionStyle(&selection_style);
+            if (SUCCEEDED(selection_style_hr)) {
+                active_selection =
+                    selection_style == STYLE_ACTIVE_SELECTION;
+            }
+            candidate_numbers_hr =
+                integration->ShowCandidateNumbers(&candidate_numbers);
+        }
         if (updates == 1) {
             inspection_hr = candidates->GetUpdatedFlags(&initial_flags);
         } else {
@@ -117,8 +135,15 @@ public:
     UINT candidate_count = 0;
     UINT selected_index = 0;
     HRESULT inspection_hr = S_OK;
+    HRESULT behavior_hr = E_FAIL;
+    HRESULT integration_hr = E_FAIL;
+    HRESULT integration_style_hr = E_FAIL;
+    HRESULT selection_style_hr = E_FAIL;
+    HRESULT candidate_numbers_hr = E_FAIL;
     HRESULT selection_hr = E_FAIL;
     bool is_shown = true;
+    bool active_selection = false;
+    BOOL candidate_numbers = FALSE;
     std::vector<DWORD> update_ids;
 
 private:
@@ -273,6 +298,13 @@ void RunTsfNativeUilessHostTests() {
                     ui_sink->document.Get() == document.Get() &&
                     ui_sink->candidate_count > 0 &&
                     ui_sink->selection_hr == S_OK &&
+                    ui_sink->behavior_hr == S_OK &&
+                    ui_sink->integration_hr == S_OK &&
+                    ui_sink->integration_style_hr == S_OK &&
+                    ui_sink->selection_style_hr == S_OK &&
+                    ui_sink->active_selection &&
+                    ui_sink->candidate_numbers_hr == S_OK &&
+                    ui_sink->candidate_numbers &&
                     !ui_sink->is_shown);
 
     snapshot.composition_text = L"ab";

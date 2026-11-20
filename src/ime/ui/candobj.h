@@ -3,6 +3,7 @@
 
 #pragma once
 #include <windows.h>
+#include <ctffunc.h>
 #include <msctf.h>
 #include <uiautomationcore.h>
 #include <uiautomationcoreapi.h>
@@ -40,11 +41,19 @@ inline void SetUiAutomationEventsEnabledForTest(bool enabled) noexcept {
     detail::UiAutomationEventsEnabledForTest() = enabled;
 }
 
+enum class CandidateUiAction : uint8_t {
+    SetSelection,
+    Finalize,
+    Abort,
+    FinalizeExact
+};
+
 // Implements ITfCandidateListUIElement so both regular desktop apps (popup window)
 // and fullscreen games in UILess mode (ITfUIElementSink) can render candidates.
 class CandidateUI final : public ComObjectBase<
     CandidateUI,
-    ITfCandidateListUIElement,
+    ITfCandidateListUIElementBehavior,
+    ITfIntegratableCandidateListUIElement,
     IRawElementProviderSimple,
     IRawElementProviderFragment,
     IRawElementProviderFragmentRoot,
@@ -52,6 +61,10 @@ class CandidateUI final : public ComObjectBase<
 public:
     using SelectCallback = std::function<void(size_t index_in_page)>;
     using PageTurnCallback = std::function<void(bool next_page)>;
+    using ActionCallback =
+        std::function<HRESULT(CandidateUiAction action, size_t index)>;
+    using IntegratedKeyDownCallback =
+        std::function<HRESULT(WPARAM wparam, LPARAM lparam, BOOL* eaten)>;
 
     static constexpr int kPopupWidth = 360;
     static constexpr int kPopupHeight = 64;
@@ -70,7 +83,10 @@ public:
 #pragma warning(pop)
 
     bool QueryAdditionalInterfaces(REFIID riid, void** ppvObj) noexcept {
-        return MatchBaseInterfaces<ITfCandidateListUIElement, ITfUIElement>(riid, ppvObj);
+        return MatchBaseInterfaces<
+            ITfCandidateListUIElementBehavior,
+            ITfCandidateListUIElement,
+            ITfUIElement>(riid, ppvObj);
     }
 
     // ITfUIElement
@@ -88,6 +104,20 @@ public:
     STDMETHODIMP GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt) noexcept override;
     STDMETHODIMP SetPageIndex(UINT* pIndex, UINT uPageCnt) noexcept override;
     STDMETHODIMP GetCurrentPage(UINT* puPage) noexcept override;
+
+    // ITfCandidateListUIElementBehavior
+    STDMETHODIMP SetSelection(UINT index) noexcept override;
+    STDMETHODIMP Finalize() noexcept override;
+    STDMETHODIMP Abort() noexcept override;
+
+    // ITfIntegratableCandidateListUIElement
+    STDMETHODIMP SetIntegrationStyle(GUID integration_style) noexcept override;
+    STDMETHODIMP GetSelectionStyle(
+        TfIntegratableCandidateListSelectionStyle* selection_style) noexcept override;
+    STDMETHODIMP OnKeyDown(
+        WPARAM wparam, LPARAM lparam, BOOL* eaten) noexcept override;
+    STDMETHODIMP ShowCandidateNumbers(BOOL* show) noexcept override;
+    STDMETHODIMP FinalizeExactCompositionString() noexcept override;
 
     // UI Automation provider
     STDMETHODIMP get_ProviderOptions(ProviderOptions* options) noexcept override;
@@ -113,7 +143,8 @@ public:
                        size_t page_size,
                        size_t current_page,
                        size_t selected_in_page,
-                       ITfDocumentMgr* document_manager = nullptr);
+                       ITfDocumentMgr* document_manager = nullptr,
+                       const std::vector<std::wstring>* raw_candidates = nullptr);
 
     void MoveWindowTo(
         const RECT& text_rect, HWND host_window = nullptr, bool require_owned_window = false);
@@ -128,6 +159,15 @@ public:
 
     void SetSelectCallback(SelectCallback cb) noexcept { select_callback_ = std::move(cb); }
     void SetPageTurnCallback(PageTurnCallback cb) noexcept { page_turn_callback_ = std::move(cb); }
+    void SetActionCallback(ActionCallback callback) noexcept {
+        action_callback_ = std::move(callback);
+    }
+    void SetIntegratedKeyDownCallback(IntegratedKeyDownCallback callback) noexcept {
+        integrated_key_down_callback_ = std::move(callback);
+    }
+    void ResetIntegrationState() noexcept {
+        searchbox_integration_ = false;
+    }
     void SetUiLanguage(UiLanguage lang);
     int CurrentWidth() const noexcept { return popup_width_; }
     int CurrentHeight() const noexcept { return popup_height_; }
@@ -202,6 +242,8 @@ private:
     bool EnsurePopupWindow() noexcept;
     HRESULT RaiseAccessibilityEvent(EVENTID event_id, size_t page_index = SIZE_MAX) noexcept;
     HRESULT RaiseAccessibilityStructureChanged() noexcept;
+    HRESULT InvokeActionCallback(
+        CandidateUiAction action, size_t index) noexcept;
     HRESULT CreateAutomationItem(
         size_t page_index, IRawElementProviderFragment** fragment) noexcept;
     std::wstring_view AccessibleCandidateName(size_t page_index) const noexcept;
@@ -235,6 +277,7 @@ private:
 
     std::wstring raw_code_;
     std::vector<std::wstring> all_candidates_;
+    std::vector<std::wstring> integrated_candidates_;
     std::vector<RECT> candidate_hit_rects_;
     std::vector<std::wstring> candidate_labels_;
     std::wstring header_label_;
@@ -266,6 +309,9 @@ private:
     UiLanguage ui_language_ = UiLanguage::Auto;
     SelectCallback select_callback_;
     PageTurnCallback page_turn_callback_;
+    ActionCallback action_callback_;
+    IntegratedKeyDownCallback integrated_key_down_callback_;
+    bool searchbox_integration_ = false;
     std::function<void(EVENTID)> accessibility_event_observer_for_test_;
     std::function<void()> accessibility_structure_observer_for_test_;
     std::function<void(EVENTID, bool)> accessibility_dispatch_observer_for_test_;

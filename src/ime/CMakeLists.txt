@@ -52,6 +52,8 @@ set(QIQIIME_SOURCES
     tsf/qiqiime.def
     ui/cadifsm.h
     ui/cadifsm.cpp
+    ui/candsearch.h
+    ui/candsearch.cpp
     ui/candobj.h
     ui/candobj.cpp
     ui/fltbarbtn.h

@@ -47,6 +47,7 @@ class QiQiTextService final
           ITfCompartmentEventSink,
           ITfFunctionProvider,
           ITfFnConfigure,
+          ITfFnSearchCandidateProvider,
           ITfDisplayAttributeProvider> {
 public:
     explicit QiQiTextService(HINSTANCE instance);
@@ -109,6 +110,12 @@ public:
     STDMETHODIMP GetType(GUID* pguid) noexcept override;
     STDMETHODIMP GetDescription(BSTR* pbstrDesc) noexcept override;
     STDMETHODIMP GetFunction(REFGUID rguid, REFIID riid, IUnknown** ppunk) noexcept override;
+
+    // ITfFnSearchCandidateProvider
+    STDMETHODIMP GetSearchCandidates(
+        BSTR query, BSTR application_id, ITfCandidateList** candidates) noexcept override;
+    STDMETHODIMP SetResult(
+        BSTR query, BSTR application_id, BSTR result) noexcept override;
 
     // ITfFnConfigure (also inherits ITfFunction::GetDisplayName)
     STDMETHODIMP GetDisplayName(BSTR* pbstrName) noexcept override;
@@ -250,6 +257,10 @@ private:
     void BeginOrUpdateCandidateUI(const KeyProcessResult& snapshot);
     void EndCandidateUI();
     void ProcessCandidateUiRequest(CandidateUiRequest request);
+    HRESULT HandleCandidateUiAction(
+        CandidateUiAction action, size_t index);
+    HRESULT HandleIntegratedCandidateKeyDown(
+        WPARAM wparam, LPARAM lparam, BOOL* eaten);
 
     const uint64_t service_log_id_;
     ComPtr<ITfThreadMgr> thread_mgr_;

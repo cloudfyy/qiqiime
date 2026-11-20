@@ -32,6 +32,7 @@ struct KeyProcessResult {
     std::wstring promoted_code;
     std::wstring promoted_word;
     std::vector<std::wstring> page_candidates;
+    std::vector<std::wstring> all_candidates;
     std::vector<std::wstring> all_display_candidates;
     size_t page_size = 5;
     size_t selected_index = 0; // Index within page_candidates
@@ -280,6 +281,9 @@ public:
     // Commit a candidate on the current page without interpreting a keyboard event.
     KeyProcessResult CommitCandidate(
         size_t index_in_page, bool allow_learn = true, bool defer_phrase_promotion = false);
+
+    // Select a global candidate index without committing the composition.
+    KeyProcessResult SelectCandidate(size_t global_index);
 
     // Apply a deferred phrase promotion after host edit session access is confirmed.
     void ApplyDeferredPhrasePromotion(const KeyProcessResult& result, bool allow_learn = true);

@@ -732,18 +732,27 @@ status-bar/tooltip skin support require separate design approval.
   scattered service, UI, and presentation booleans; direct transition-table
   tests cover blocked nested Begin/Update/End and failed-retirement recovery.
 
-- [ ] Implement and validate the Windows IME search-integration APIs.
-  Neither `ITfFnSearchCandidateProvider` nor
-  `ITfIntegratableCandidateListUIElement` is currently implemented.
-  Expose the search provider through `ITfFunctionProvider::GetFunction`;
-  provide candidates without modifying live composition or generating input
-  events, and explicitly define `SetResult` learning/privacy behavior.
-  Expose the integratable interface on the candidate UI and support its
-  integration style, selection, keyboard, numbering, and finalization contract;
-  review the companion `ITfCandidateListUIElementBehavior` requirements.
-  Add COM/interface, candidate-result, and lifecycle regressions, then validate
-  supported integrated search controls. Ordinary typing into a search box is
-  not proof of search integration; do not log real queries or candidate text.
+- [x] Implement and validate the Windows IME search-integration APIs.
+  `ITfFnSearchCandidateProvider` is exposed through
+  `ITfFunctionProvider::GetFunction`. `GetSearchCandidates` performs a read-only
+  Wubi lookup and returns immutable `ITfCandidateList` objects without changing
+  live composition or emitting TSF/input events. Search application IDs and
+  queries are not retained or logged; `SetResult` deliberately returns
+  `E_NOTIMPL` so search selection never silently learns sensitive query history.
+  Candidate UI implements both `ITfCandidateListUIElementBehavior` and
+  `ITfIntegratableCandidateListUIElement`: Searchbox integration hides the TIP
+  popup, advertises active selection and candidate numbers, accepts host
+  selection, routes supported keydown operations through the ordinary service
+  state machine, and supports selected/final-exact finalize plus abort.
+  Integrated `GetString` exposes raw values without display-only code hints;
+  ordinary UILess hosts retain their annotated display strings, and both modes
+  preserve the global provider/UI index mapping. The independent
+  `QiQiSearchIntegrationTest` covers COM discovery, candidate enumeration/clone,
+  provider no-side-effect behavior, privacy feedback, all integration methods,
+  cross-page selection, exact/raw finalization, and cancellation. Native UILess
+  acceptance also verifies Behavior and Integratable QueryInterface support.
+  This remains Windows TSF contract conformance, not a claim that every external
+  search host or Secure Desktop control has been manually exercised.
 
 - [x] Add automated conformance tests for
   [Microsoft's IME icon requirements](https://learn.microsoft.com/en-us/windows/apps/develop/input/input-method-editor-requirements#ime-icons).
