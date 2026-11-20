@@ -1,4 +1,4 @@
-# 显示主题与关怀模式 / Display and Comfort mode
+# 显示主题、关怀模式与讲述人 / Display, Comfort mode, and Narrator
 
 ## 桌面端使用
 
@@ -147,6 +147,82 @@ Deflate 压缩的 ZIP（`.zip`，由 miniz 读写），其中包含 `manifest.js
 空间不足时筛选项换行，窗口提供纵向滚动与焦点自动显露，
 不通过缩小字号适配小工作区。
 
+### 讲述人（Narrator）候选朗读配置
+
+以下是用于分开验证**中文候选朗读**与**输入编码回显**的参考配置，
+不是输入法要求用户关闭所有键盘反馈。英文 Windows 同样可以朗读中文，
+无需修改系统显示语言；安装中文输入法不等于已安装并选用中文语音。
+
+#### 安装并选择中文语音
+
+1. 按 **Win + Ctrl + N** 打开讲述人设置。
+2. 在 **Narrator's voice → Choose a voice** 中选择已安装的中文语音。
+   下图选用的是 **Microsoft Xiaoxiao (Natural HD) - Chinese (Simplified, China)**。
+3. 如果没有中文语音，在 **Add voices** 行点击 **Add**。
+   在打开的 **Add a voice** 对话框中，将 **Language** 设为 **Chinese**。
+4. 从 **Natural voices** 中选择本机列出的简体中文语音，例如截图中的
+   **Microsoft Xiaoxiao (Natural)** 或 **Microsoft Yunxi (Natural)**，
+   点击 **Download and Install**。
+   也可使用 **Other voices → Chinese (Simplified, Mainland China)**。
+5. 下载完成后回到 **Choose a voice**，选择已安装的中文语音，
+   再让讲述人朗读记事本中已输入完成的“你好”。如果中文正文也不读，
+   应先检查语音配置，不能仅归因于输入法候选窗。
+
+可用语音名称和界面会随 Windows 版本、已安装语音而不同，
+应以本机实际列表为准，不要求某个固定语音名称。
+较旧界面若显示 **Add legacy voices**，可通过它打开 Speech 设置，
+在 **Manage voices → Add voices** 中添加 **Chinese (Simplified)**，
+然后回到讲述人设置选择中文语音。
+
+![Add a voice 对话框：Language 为 Chinese，可选择中文语音并下载安装](images/narrator-add-voice.png)
+
+![讲述人已选用 Microsoft Xiaoxiao (Natural HD) 简体中文语音](images/narrator-voice-selection.png)
+
+以上两张截图已裁掉账户区域，未修改语音名称或控件状态。
+
+#### 展开选项并排除输入回显
+
+点击 **Verbosity level 整行最右侧的展开箭头**，不是打开
+`1–5` 级别下拉框；下面的 **Have Narrator announce when I type**
+也需要点击整行最右侧箭头展开。
+
+| 设置位置（英文界面名称） | 参考值 |
+| --- | --- |
+| Verbosity → Verbosity level | `3 - All control details` |
+| Verbosity level 展开项 → Read phonetically when reading by character | 关闭 |
+| Have Narrator announce when I type 展开项 → Letters, numbers, and punctuation | 关闭 |
+| Have Narrator announce when I type 展开项 → Words | 诊断时可暂时关闭，正常使用按偏好选择 |
+| Mouse and keyboard → Read and interact with the screen using the mouse | 开启 |
+
+`Whisky` 是字母 `W` 的拼读词。输入五笔编码时，讲述人的字母／词回显、
+拼读说明和候选播报可能混在一起；听到额外英文不等于候选文字混入了编码。
+关闭上述回显后再单独测试候选，有助于区分来源。
+
+![Windows 11 讲述人设置：详细选项已展开，拼读与字母回显关闭，Words 仍勾选](images/narrator-settings.png)
+
+**截图是配置过程中的展开位置示意**：拼读说明和字母回显已经关闭，
+但 **Words 仍勾选**；若要排除输入词回显的干扰，可暂时取消 Words，
+并非中文候选朗读的必要条件。
+截图仅裁掉账户区域，未修改控件状态。用户使用整组参考设置后，
+已确认鼠标朗读中文候选正常，没有额外英文；
+本次未单独对照 Words 开／关的差异，不能认定它就是额外英文的来源。
+
+这些选项是**讲述人的全局设置**，关闭后其他应用也不会回读输入的字母／词。
+诊断后可以按个人偏好恢复；三级详细程度只是参考值，不是中文语音安装条件。
+
+#### 验证候选与翻页按钮
+
+回到记事本重新打开候选，停止打字，把鼠标停在一个常用中文候选上，
+确认它能正常朗读。候选窗不抢输入焦点，不能把普通 Tab 当成进入候选窗的方式。
+检查翻页按钮时，在多页候选列表中把鼠标移到左右箭头上：
+名称随输入法界面语言显示为“上一页／下一页”或 `Previous / Next`；
+第一页的上一页、末页的下一页不可用。
+
+本次人工对照确认了记事本中文正文及**鼠标朗读候选**；
+未在这次对照中验证键盘切换候选的自动播报或翻页按钮语音，
+也不代表所有宿主或完整读屏行为已通过验收。
+设置参考见[微软讲述人自定义指南](https://support.microsoft.com/en-us/accessibility/windows/narrator/chapter-7-customizing-narrator)。
+
 ### 范围与限制
 
 - 本批桌面显示偏好适用于**设置窗口、输入法自绘候选窗、词库管理器、
@@ -232,3 +308,75 @@ App high-contrast text targets
 complete screen-reader certification or real-host acceptance.
 
 Website preferences remain browser-local and separate from desktop preferences.
+
+### Narrator candidate-reading setup
+
+This reference setup separates candidate speech from typing echo; it does not
+require users to disable all keyboard feedback. English Windows can read Chinese
+without changing its display language. Installing a Chinese keyboard alone does
+not install and select a Chinese Narrator voice.
+
+1. Press **Win + Ctrl + N**.
+2. Select an installed Chinese voice under **Narrator's voice → Choose a voice**.
+   The screenshot uses **Microsoft Xiaoxiao (Natural HD) - Chinese (Simplified, China)**.
+3. If no Chinese voice is installed, click **Add** in the **Add voices** row.
+   In the **Add a voice** dialog, set **Language** to **Chinese**.
+4. Select an available Simplified Chinese voice under **Natural voices**, such as
+   **Microsoft Xiaoxiao (Natural)** or **Microsoft Yunxi (Natural)** shown below,
+   then click **Download and Install**.
+   **Other voices → Chinese (Simplified, Mainland China)** is another option.
+5. Return to **Choose a voice**, select the installed Chinese voice, and check that
+   Narrator can read the committed text “你好” in Notepad.
+   If Chinese document text is also silent, check the voice setup first.
+
+Available voice names and UI vary by Windows version and installed voices;
+use the actual list on your PC rather than requiring a particular voice name.
+If an older UI exposes **Add legacy voices**, use it to open Speech settings,
+then **Manage voices → Add voices → Chinese (Simplified)**, and return to Narrator
+to select the installed Chinese voice.
+
+![Install a Chinese voice using the Add a voice dialog](images/narrator-add-voice.png)
+
+![Select an installed Simplified Chinese voice in Narrator settings](images/narrator-voice-selection.png)
+
+Account information has been cropped out of both screenshots; voice names and
+control states were not edited.
+
+Expand the **Verbosity level row using its far-right arrow**, not the `1–5`
+level dropdown. Also expand **Have Narrator announce when I type**.
+
+| Setting | Reference value |
+| --- | --- |
+| Verbosity level | `3 - All control details` |
+| Read phonetically when reading by character | Off |
+| Have Narrator announce when I type → Letters, numbers, and punctuation | Off |
+| Have Narrator announce when I type → Words | Optionally off during diagnosis; personal preference in normal use |
+| Mouse and keyboard → Read and interact with the screen using the mouse | On |
+
+`Whisky` is the phonetic spelling word for `W`. Typing echo, phonetic feedback,
+and candidate speech can overlap while entering Wubi codes; extra English speech
+does not by itself indicate code annotations in the accessible candidate name.
+
+![Expanded Narrator options: phonetic feedback and letter echo are off, but Words remains checked](images/narrator-settings.png)
+
+**The screenshot shows an intermediate setup:** **Words** remains checked.
+Temporarily uncheck it if you want to exclude word typing echo during diagnosis;
+this is not a prerequisite for Chinese candidate speech.
+Only the account area was cropped; control states were not edited.
+With the combined reference setup, the user confirmed correct mouse reading of
+Chinese candidates without extra English. The effect of toggling Words alone
+was not tested, so it cannot be identified as the source of that extra speech.
+These are global Narrator settings, so they
+also suppress typing echo in other apps; restore them according to your
+preferences after diagnosis. Verbosity level 3 is a reference, not a prerequisite
+for installing Chinese speech.
+
+Reopen candidates in Notepad, stop typing, and hover over a common Chinese
+candidate. The popup does not steal input focus; ordinary Tab is not a way to
+enter it. To check paging controls, hover over the arrows on a multipage list.
+Their names follow the IME UI language (`Previous / Next` in English); the
+previous control on the first page and next control on the last page are disabled.
+This manual comparison verified Chinese document text and mouse candidate
+reading, **not keyboard-driven candidate announcements, paging-control speech,
+all hosts, or complete screen-reader acceptance**.
+See [Microsoft's Narrator customization guide](https://support.microsoft.com/en-us/accessibility/windows/narrator/chapter-7-customizing-narrator).
