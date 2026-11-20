@@ -129,6 +129,17 @@ source revision, applicable license/notices, and conversion changes together.
   [licenses/nlohmann-json-MIT.txt](licenses/nlohmann-json-MIT.txt).
   The text is preserved from the installed vcpkg package's copyright file.
 
+## miniz
+
+- Upstream: [richgel999/miniz](https://github.com/richgel999/miniz).
+- Dependency: `miniz` in the vcpkg manifest, statically linked for ZIP backup
+  compression, extraction, and CRC validation.
+- Attribution: `Copyright 2013-2014 RAD Game Tools and Valve Software`;
+  `Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC`.
+- License: **MIT**, reproduced in [licenses/miniz-MIT.txt](licenses/miniz-MIT.txt).
+  The complete text is preserved from the installed vcpkg package's copyright
+  file, matching [upstream 3.1.2](https://github.com/richgel999/miniz/blob/3.1.2/LICENSE).
+
 ## Build tools and platform components
 
 Windows components, MSVC, CMake, vcpkg, WiX, GitHub Actions, and signing services
@@ -141,5 +152,5 @@ notices for any additional material actually redistributed in a future release.
 本项目 GPL 不替代第三方许可。两份极点词库已按固定上游 `18a6016c` 的 Apache-2.0
 快照精确重建，词条及顺序完全一致；上文给出源文件/正文哈希、过滤规则和离线复核方法。
 这确立可复现来源，不捏造当年未记录的原下载提交，也不改用上游后来的 MIT 许可。
-海峰词库文件头和随包文件均保留完整 BSD 三条款及免责声明，GSL 附 MIT 全文。
+海峰词库文件头和随包文件均保留完整 BSD 三条款及免责声明，GSL、JSON 和 miniz 附 MIT 全文。
 源码和后续 ZIP/MSI 均应保留这些声明与许可文件；更新时需同步核对。

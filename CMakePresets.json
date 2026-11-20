@@ -14,7 +14,11 @@
         "value": "x64",
         "strategy": "set"
       },
-      "binaryDir": "${sourceDir}/build/x64"
+      "binaryDir": "${sourceDir}/build/x64",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "VCPKG_MANIFEST_INSTALL": "ON"
+      }
     },
     {
       "name": "x86",
@@ -24,7 +28,11 @@
         "value": "Win32",
         "strategy": "set"
       },
-      "binaryDir": "${sourceDir}/build/x86"
+      "binaryDir": "${sourceDir}/build/x86",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x86-windows-static",
+        "VCPKG_MANIFEST_INSTALL": "ON"
+      }
     }
   ],
   "buildPresets": [

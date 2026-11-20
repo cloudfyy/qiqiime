@@ -15,7 +15,7 @@ Use a Windows x64 development machine to build both architectures.
 | Windows SDK | Headers and libraries for TSF, Direct2D, and DirectWrite; SDK 10.0.22621.0 or newer. |
 | SDK Debugging Tools | Both `Debuggers\x64\cdb.exe` and `Debuggers\x86\cdb.exe`. CMake requires the debugger matching each test architecture. SDK headers alone are not sufficient. |
 | CMake | 4.4.4 or newer. |
-| vcpkg | The bundled Visual Studio installation or a checkout selected by `VCPKG_ROOT`. Manifest mode provides Microsoft GSL. |
+| vcpkg | The bundled Visual Studio installation or a checkout selected by `VCPKG_ROOT`. Manifest mode provides Microsoft GSL, nlohmann-json, and miniz. |
 | PowerShell | Windows PowerShell 5.1 or PowerShell 7+. Cloud lint installs PSScriptAnalyzer on the runner; local lint is not part of this repository's workflow. |
 | JavaScript tests | Node.js 22+ for the CI report and website tests; npm, Chromium and the locked Playwright dependencies in `tests/site` for browser checks. The production website needs no dependency installation or compilation. |
 | Packaging only | .NET SDK 8.0+ and WiX CLI v4/v7+. WiX 7 requires accepting its EULA. |
@@ -49,8 +49,11 @@ MSVC module-dependency scan output.
 
 ## Build and test
 
-The vcpkg manifest includes Microsoft GSL and the header-only `nlohmann-json`
-parser. Configuration transfer reuses `kConfigFields`, atomic file writes,
+The vcpkg manifest includes Microsoft GSL, the header-only `nlohmann-json`
+parser, and miniz for Deflate ZIP backups. The x64/x86 presets select the
+corresponding `windows-static` triplets so miniz and the MSVC runtime are
+statically linked; no additional ZIP DLL is deployed.
+Configuration transfer reuses `kConfigFields`, atomic file writes,
 and registry transactions; JSON is an exchange format, not a replacement
 configuration store. Keep transferred scalar fields separate from local paths.
 Duplicate JSON keys (including escaped spellings) must be rejected before a
@@ -444,12 +447,13 @@ outside regular CTest. After building normal x64 Release outputs, create a
 same-source comparison build using the already installed dependencies:
 
 ```powershell
-cmake -S . -B build\metrics-baseline\x64 -G "Visual Studio 18 2026" -A x64 -DQIQI_METRICS_BENCHMARK_BASELINE=ON -DVCPKG_INSTALLED_DIR="$PWD\build\x64\vcpkg_installed" -DVCPKG_MANIFEST_INSTALL=OFF
+cmake -S . -B build\metrics-baseline\x64 -G "Visual Studio 18 2026" -A x64 -DQIQI_METRICS_BENCHMARK_BASELINE=ON -DVCPKG_TARGET_TRIPLET=x64-windows-static -DVCPKG_INSTALLED_DIR="$PWD\build\x64\vcpkg_installed" -DVCPKG_MANIFEST_INSTALL=OFF
 cmake --build build\metrics-baseline\x64 --config Release --target qiqiime
 .\tests\ime\focus_benchmark.ps1 -TestExecutable .\build\x64\Release\qiqi_tsf_ui_test.exe -BaselineDll .\build\metrics-baseline\x64\Release\qiqiime_metrics_baseline.dll -CurrentDll .\build\x64\Release\qiqiime.dll -Output .\focus-benchmark-x64.json
 ```
 
-For x86, use the corresponding paths and `-A Win32`. Use a new output file for
+For x86, use the corresponding paths, `-A Win32`, and
+`-DVCPKG_TARGET_TRIPLET=x86-windows-static`. Use a new output file for
 each run. Never install or distribute the `.metrics-baseline` DLL.
 Measurement limits and interpretation belong in the [metrics guide](metrics.md).
 

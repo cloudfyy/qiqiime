@@ -143,7 +143,8 @@ Never disable security protection just to install the application.
 ## Building from source
 
 Requirements include Windows, Visual Studio's C++ desktop workload and x64/x86
-build tools, a Windows SDK, CMake 4.4.4 or newer, and vcpkg with `ms-gsl`.
+build tools, a Windows SDK, CMake 4.4.4 or newer, and vcpkg with `ms-gsl`,
+`nlohmann-json`, and `miniz`.
 The default presets target Visual Studio 2026 and use `/std:c++latest`; other
 generators require separate validation.
 

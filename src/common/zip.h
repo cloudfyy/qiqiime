@@ -22,7 +22,7 @@ struct ZipArchiveEntry {
     std::vector<uint8_t> data;
 };
 
-// Flat portable ASCII names, STORE method, UTF-8 flag, and CRC-32 only.
+// Flat portable ASCII names, Deflate compression, and bounded in-memory extraction.
 HRESULT BuildZipArchive(
     std::span<const ZipArchiveEntry> entries, std::vector<uint8_t>& output);
 HRESULT ReadZipArchive(

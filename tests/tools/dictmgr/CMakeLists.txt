@@ -18,6 +18,7 @@ add_executable(qiqi_dict_manager_test
     "${CMAKE_BINARY_DIR}/generated/tools/dictmgr/version.rc"
 )
 target_include_directories(qiqi_dict_manager_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
-target_link_libraries(qiqi_dict_manager_test PRIVATE qiqi_dict_manager version tdh)
+target_link_libraries(qiqi_dict_manager_test PRIVATE
+    qiqi_dict_manager miniz::miniz version tdh)
 add_dependencies(qiqi_dict_manager_test QiQiIMEDictManager)
 add_test(NAME QiQiDictManagerTest COMMAND qiqi_dict_manager_test)

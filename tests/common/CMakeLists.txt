@@ -10,6 +10,7 @@ set(QIQI_COMMON_TEST_SOURCES
     core/files.cpp
     core/logger.cpp
     core/resources.cpp
+    core/zip.cpp
     etw.cpp
     ui_d2d_controls.cpp
 )
@@ -18,6 +19,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_COMMON_TEST_SOURCES
 target_include_directories(qiqi_common_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
 target_link_libraries(qiqi_common_test PRIVATE
     qiqi_common
+    miniz::miniz
     ole32
     oleaut32
     uuid

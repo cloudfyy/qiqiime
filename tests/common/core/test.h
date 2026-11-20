@@ -36,6 +36,7 @@ void TestEtwWriteDiagnostics();
 void TestEtwRegistrationLifetime();
 void TestEtwLogger();
 void TestFileUtilityBoundaries();
+void TestZipArchives();
 void TestVersionMechanism();
 void TestConfigFieldProjections();
 void TestConfigJson();

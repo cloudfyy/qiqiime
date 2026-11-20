@@ -803,7 +803,8 @@ status-bar/tooltip skin support require separate design approval.
   preserve the original configuration and report the actual error. Include focused
   tests for manual edits, partial imports, duplicate/unknown keys, cancellation,
   and preservation of existing settings on failure.
-  The dictionary manager now writes a STORE-only, CRC-checked portable ZIP with
+  The dictionary manager now uses miniz to write a Deflate-compressed,
+  CRC-checked portable ZIP with
   `manifest.json`, `config.json`, user dictionary and phrase-order text files,
   plus `custom-primary.txt` or `custom-primary.qdict` when a custom primary
   dictionary is selected. `.qbak` input is intentionally rejected. Restore

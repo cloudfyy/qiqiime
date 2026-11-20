@@ -86,4 +86,7 @@ target_link_libraries(qiqi_common PUBLIC
     dwmapi
     shell32
 )
-target_link_libraries(qiqi_common PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(qiqi_common PRIVATE
+    nlohmann_json::nlohmann_json
+    miniz::miniz
+)

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "test.h"
+#include "common/cfgjson.h"
 #include "common/zip.h"
 #include "tools/dictmgr/backup.h"
 
@@ -259,7 +260,7 @@ void TestModelAndCrossProcessSync() {
     const auto backup_file = temp_dir / L"test_backup.zip";
     QIQI_TEST_CHECK(model.CreateBackupBundle(backup_file));
 
-    // Corrupting archived config data must be rejected by ZIP CRC validation.
+    // A truncated ZIP must be rejected before applying any restored data.
     std::vector<ZipArchiveEntry> archive_entries;
     QIQI_TEST_CHECK(SUCCEEDED(
         ReadZipArchiveFileResult(backup_file, archive_entries)));
@@ -270,17 +271,18 @@ void TestModelAndCrossProcessSync() {
     QIQI_TEST_CHECK(config_entry != archive_entries.end());
     const std::string config_text(
         config_entry->data.begin(), config_entry->data.end());
-    QIQI_TEST_CHECK(
-        config_text.contains(R"("commit_on_english_switch":false)"));
+    QiQiConfig archived_config;
+    ConfigJsonError config_error;
+    QIQI_TEST_CHECK(ParseConfigJson(
+        config_text, QiQiConfig{}, archived_config, config_error) == S_OK);
+    QIQI_TEST_CHECK(!archived_config.commit_on_english_switch);
     std::string raw_backup;
     QIQI_TEST_CHECK(ReadFileToUtf8String(backup_file, raw_backup));
     const auto corrupt_file = temp_dir / L"corrupt.zip";
     {
         std::string corrupted = raw_backup;
-        const size_t data_offset =
-            corrupted.find("commit_on_english_switch");
-        QIQI_TEST_CHECK(data_offset != std::string::npos);
-        gsl::at(corrupted, data_offset) = 'C';
+        QIQI_TEST_CHECK(!corrupted.empty());
+        corrupted.pop_back();
         QIQI_TEST_CHECK(WriteFileAtomically(corrupt_file, codec::AsByteSpan(corrupted)));
     }
     BackupRestoreSummary summary{};

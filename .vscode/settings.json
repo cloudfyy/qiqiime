@@ -10,7 +10,7 @@
     "${workspaceFolder}/src",
     "${workspaceFolder}/tests",
     "${workspaceFolder}/build/x64/generated",
-    "${workspaceFolder}/build/x64/vcpkg_installed/x64-windows/include",
+    "${workspaceFolder}/build/x64/vcpkg_installed/x64-windows-static/include",
     "${workspaceFolder}/build/generated"
   ],
   "C_Cpp.default.defines": [

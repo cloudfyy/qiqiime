@@ -319,9 +319,17 @@ lifetime rules; numerical constants with different meanings are not merged.
 Tools reuse window/dialog/control helpers while retaining their own models and
 commands. Dictionary editing has explicit browse/new/edit draft states; failed
 save preserves the draft and does not revive an externally deleted entry.
-Complete backups are STORE-only portable ZIP archives with a strict JSON manifest,
+Complete backups are portable ZIP archives written with miniz's Deflate
+compression and a strict JSON manifest,
 configuration JSON, dictionary-rule/phrase-order text, and an optional custom
-primary dictionary. ZIP structure and every entry are validated before restore;
+primary dictionary. Miniz owns ZIP encoding, decoding, and CRC checks; the wrapper
+rejects unsafe/duplicate names and limits entry count and uncompressed sizes
+before extraction. Names must fit miniz's complete filename metadata buffer.
+Empty entries also get explicit CRC checks and local-header reads rather than
+relying on miniz's zero-length fast paths.
+Valid ZIP padding and data descriptors are supported rather
+than requiring the former STORE writer's exact layout. ZIP structure and every
+entry are validated before restore;
 per-resource writes report partial success/failure and actual HRESULTs rather than
 promising global rollback.
 

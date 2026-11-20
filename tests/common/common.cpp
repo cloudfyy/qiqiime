@@ -11,6 +11,7 @@ void RunCommonTests() {
     TestEtwRegistrationLifetime();
     TestEtwLogger();
     TestFileUtilityBoundaries();
+    TestZipArchives();
     TestVersionMechanism();
     TestConfigFieldProjections();
     TestConfigJson();

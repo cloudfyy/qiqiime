@@ -196,6 +196,7 @@
         <File Id="FileHaifengLicense" Source="$(var.StageDir)\licenses\wubi-haifeng-BSD-3-Clause.txt" />
         <File Id="FileGslLicense" Source="$(var.StageDir)\licenses\microsoft-gsl-MIT.txt" />
         <File Id="FileJsonLicense" Source="$(var.StageDir)\licenses\nlohmann-json-MIT.txt" />
+        <File Id="FileMinizLicense" Source="$(var.StageDir)\licenses\miniz-MIT.txt" />
       </Component>
 
       <Component Id="CmpStartMenuShortcuts" Directory="QiQiProgramMenuFolder"
