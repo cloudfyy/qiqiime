@@ -9,14 +9,75 @@
 #include <oleauto.h>
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
 namespace qiqi::test {
 namespace {
+
+class SearchIntegrationTestEnvironment final {
+public:
+    SearchIntegrationTestEnvironment() {
+        const auto suffix =
+            std::to_wstring(::GetCurrentProcessId()) + L"_" +
+            std::to_wstring(::GetTickCount64());
+        registry_subkey_ =
+            L"Software\\QiQiIME_SearchIntegrationTest_" + suffix;
+        previous_registry_subkey_ = GetActiveConfigRegistrySubKey();
+        appdata_directory_ =
+            std::filesystem::temp_directory_path() /
+            (L"QiQiIME_SearchIntegrationTest_" + suffix);
+        std::error_code directory_error;
+        QIQI_TEST_CHECK(std::filesystem::create_directory(
+            appdata_directory_, directory_error) && !directory_error);
+
+        wchar_t* previous_appdata = nullptr;
+        size_t previous_appdata_length = 0;
+        QIQI_TEST_CHECK(_wdupenv_s(
+            &previous_appdata, &previous_appdata_length,
+            L"LOCALAPPDATA") == 0);
+        previous_appdata_.reset(previous_appdata);
+        QIQI_TEST_CHECK(_wputenv_s(
+            L"LOCALAPPDATA", appdata_directory_.c_str()) == 0);
+        SetConfigRegistrySubKeyOverrideForTest(registry_subkey_.c_str());
+    }
+
+    ~SearchIntegrationTestEnvironment() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous_registry_subkey_);
+        const auto registry_status =
+            ::RegDeleteTreeW(HKEY_CURRENT_USER, registry_subkey_.c_str());
+        QIQI_TEST_CHECK_CLEANUP(
+            registry_status == ERROR_SUCCESS ||
+            registry_status == ERROR_FILE_NOT_FOUND);
+        QIQI_TEST_CHECK_CLEANUP(_wputenv_s(
+            L"LOCALAPPDATA",
+            previous_appdata_ ? previous_appdata_.get() : L"") == 0);
+        std::error_code directory_error;
+        std::filesystem::remove_all(appdata_directory_, directory_error);
+        QIQI_TEST_CHECK_CLEANUP(!directory_error);
+    }
+
+    SearchIntegrationTestEnvironment(
+        const SearchIntegrationTestEnvironment&) = delete;
+    SearchIntegrationTestEnvironment& operator=(
+        const SearchIntegrationTestEnvironment&) = delete;
+    SearchIntegrationTestEnvironment(
+        SearchIntegrationTestEnvironment&&) = delete;
+    SearchIntegrationTestEnvironment& operator=(
+        SearchIntegrationTestEnvironment&&) = delete;
+
+private:
+    std::wstring registry_subkey_;
+    const wchar_t* previous_registry_subkey_ = nullptr;
+    std::filesystem::path appdata_directory_;
+    std::unique_ptr<wchar_t, decltype(&std::free)>
+        previous_appdata_{nullptr, &std::free};
+};
 
 std::wstring ReadCandidateString(ITfCandidateString* candidate) {
     ScopedBstr text;
@@ -348,6 +409,7 @@ void TestIntegratedServiceRouting() {
 
 void RunTsfSearchIntegrationTests() {
     const qiqi::test::TsfTestCaseTrace trace(__func__);
+    const SearchIntegrationTestEnvironment environment;
     const auto objects_before = g_com_object_count.load();
     TestSearchCandidateList();
     TestIntegratedCandidateUiContract();
