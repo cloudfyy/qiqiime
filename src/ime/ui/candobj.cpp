@@ -1388,7 +1388,21 @@ bool CandidateUI::DestroyPopupWindow() noexcept {
     }
     is_shown_ = FALSE;
     show_requested_ = false;
-    return DestroyWindowOnOwnerThread(hwnd_, "CandidateUI::DestroyPopupWindow");
+    const HWND hwnd = hwnd_.Get();
+    const bool provider_returned =
+        std::exchange(accessibility_provider_returned_, false);
+    if (provider_returned) {
+        std::ignore = log::CheckHResult(
+            ::UiaDisconnectProvider(this),
+            "CandidateUI::UiaDisconnectProvider");
+    }
+    const bool destroyed = DestroyWindowOnOwnerThread(
+        hwnd_, "CandidateUI::DestroyPopupWindow");
+    if (provider_returned && destroyed && hwnd) {
+        std::ignore = ::UiaReturnRawElementProvider(
+            hwnd, 0, 0, nullptr);
+    }
+    return destroyed;
 }
 
 std::vector<CandidateUI::PaintItem> CandidateUI::BuildPaintItems() const {
@@ -1558,7 +1572,16 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     switch (msg) {
         case WM_GETOBJECT:
             if (lparam == UiaRootObjectId) {
-                return ::UiaReturnRawElementProvider(hwnd, wparam, lparam, self);
+                if (self->destroying_window_) {
+                    return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+                }
+                const LRESULT result =
+                    ::UiaReturnRawElementProvider(
+                        hwnd, wparam, lparam, self);
+                if (result != 0) {
+                    self->accessibility_provider_returned_ = true;
+                }
+                return result;
             }
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         case WM_NCDESTROY:

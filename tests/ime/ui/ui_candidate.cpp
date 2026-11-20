@@ -995,9 +995,17 @@ void TestCandidateAccessibility() {
     QIQI_TEST_CHECK(fragment_root->ElementProviderFromPoint(
                         first_center.x, first_center.y, hit.GetAddressOf()) == S_OK && hit);
 
-    const LRESULT raw_result = ::SendMessageW(
-        ui->WindowHandle(), WM_GETOBJECT, 0, UiaRootObjectId);
-    QIQI_TEST_CHECK(raw_result != 0);
+    ComPtr<IUIAutomation> automation;
+    QIQI_TEST_CHECK(
+        ::CoCreateInstance(
+            CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&automation)) == S_OK &&
+        automation);
+    ComPtr<IUIAutomationElement> automation_element;
+    QIQI_TEST_CHECK(
+        automation->ElementFromHandle(
+            ui->WindowHandle(), automation_element.GetAddressOf()) == S_OK &&
+        automation_element);
 
     events.clear();
     dispatches.clear();
@@ -1112,6 +1120,7 @@ void TestCandidateUilessContract() {
 
 void RunCandidateUITests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const auto objects_before = g_com_object_count.load();
     TestCandidateLightDismissEvents();
     TestCandidateTeardownReentry();
     TestCandidateStableRepainting();
@@ -1122,6 +1131,7 @@ void RunCandidateUITests() {
     TestCandidateConstrainedViewport();
     TestCandidateAccessibility();
     TestCandidateUilessContract();
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }
 
 } // namespace qiqi::test

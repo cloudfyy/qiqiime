@@ -161,15 +161,51 @@ struct ComFallbackApi : qiqi::detail::CategoryManagerApi {
 
 void TestNativeCreation() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
-    // A new thread has no COM apartment; keep an initial module reference to exercise the export path.
+    // Windows may expose an implicit MTA on a worker even without CoInitializeEx.
+    // Capture that state after loading TSF; the export path must not change it.
     std::thread worker([] {
+        ULONG_PTR context_token = 0;
+        const HRESULT initial_com_status =
+            ::CoGetContextToken(&context_token);
+        if (initial_com_status != CO_E_NOTINITIALIZED &&
+            initial_com_status != S_OK) {
+            std::fprintf(
+                stderr,
+                "[DIAG] New category-manager worker COM state is 0x%08x.\n",
+                gsl::narrow_cast<unsigned int>(initial_com_status));
+        }
+        QIQI_TEST_CHECK(
+            initial_com_status == CO_E_NOTINITIALIZED ||
+            initial_com_status == S_OK);
+
         const ScopedModule module(::LoadLibraryExW(L"msctf.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32));
         QIQI_TEST_CHECK(module);
-        ULONG_PTR context_token = 0;
-        QIQI_TEST_CHECK(::CoGetContextToken(&context_token) == CO_E_NOTINITIALIZED);
+        const HRESULT loaded_com_status =
+            ::CoGetContextToken(&context_token);
+        QIQI_TEST_CHECK(
+            loaded_com_status == CO_E_NOTINITIALIZED ||
+            loaded_com_status == S_OK);
+        const ULONG_PTR loaded_context_token = context_token;
+
         const auto atom = qiqi::detail::RegisterCompositionDisplayAttributeAtom();
         QIQI_TEST_CHECK(atom != TF_INVALID_GUIDATOM);
-        QIQI_TEST_CHECK(::CoGetContextToken(&context_token) == CO_E_NOTINITIALIZED);
+        const HRESULT registered_com_status =
+            ::CoGetContextToken(&context_token);
+        if (registered_com_status != loaded_com_status ||
+            (SUCCEEDED(loaded_com_status) &&
+             context_token != loaded_context_token)) {
+            std::fprintf(
+                stderr,
+                "[DIAG] Category-manager registration changed COM state "
+                "(before=0x%08x, after=0x%08x).\n",
+                gsl::narrow_cast<unsigned int>(loaded_com_status),
+                gsl::narrow_cast<unsigned int>(registered_com_status));
+        }
+        QIQI_TEST_CHECK(registered_com_status == loaded_com_status);
+        QIQI_TEST_CHECK(
+            FAILED(loaded_com_status) ||
+            context_token == loaded_context_token);
+
         ComPtr<ITfCategoryMgr> manager;
         QIQI_TEST_CHECK(qiqi::detail::CategoryManagerApi::CreateFromExport(module.Get(), &manager) == S_OK);
         GUID guid{};

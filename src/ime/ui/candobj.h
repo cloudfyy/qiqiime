@@ -305,6 +305,7 @@ private:
     std::optional<RECT> text_rect_;
     std::optional<RECT> announced_popup_rect_;
     bool accessibility_open_announced_ = false;
+    bool accessibility_provider_returned_ = false;
     CandidateLayout layout_ = CandidateLayout::Horizontal;
     UiLanguage ui_language_ = UiLanguage::Auto;
     SelectCallback select_callback_;

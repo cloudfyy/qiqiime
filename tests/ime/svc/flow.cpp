@@ -33,8 +33,13 @@ void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only) {
     SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
     QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", temp_appdata.c_str()) == 0);
 
+    std::array<BYTE, 256> original_kb_state{};
+    QIQI_TEST_CHECK(::GetKeyboardState(original_kb_state.data()));
+    const auto restore_kb_state = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(::SetKeyboardState(original_kb_state.data()));
+    });
     std::array<BYTE, 256> clean_kb_state{};
-    ::SetKeyboardState(clean_kb_state.data());
+    QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
     SetMuteAudioOutputForTest(true);
     ResetLastPlayedSoundForTest();
 
@@ -284,9 +289,11 @@ void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only) {
     auto mock_ctx = MakeComObject<MockTfContext>();
     mock_ctx->view_->hwnd_ = popup_owner.Get();
     BOOL eaten = FALSE;
+    QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
 
     // Reproduce hosts that omit the test callbacks, including a not-yet-bound context.
     for (const UINT key : {VK_SHIFT, VK_LSHIFT, VK_RSHIFT}) {
+        QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
         QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), key, 0, &eaten) == S_OK && !eaten);
         QIQI_TEST_CHECK(key_sink->OnKeyDown(mock_ctx.Get(), key, 1LL << 30, &eaten) == S_OK && !eaten);
         QIQI_TEST_CHECK(key_sink->OnKeyUp(mock_ctx.Get(), key, 0, &eaten) == S_OK && eaten);
