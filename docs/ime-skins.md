@@ -319,10 +319,12 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 
 “显示”页提供紧凑的皮肤下拉框：**默认、流萤、墨砚、碧潭、星渊、桃夭、
 更多…**。如果当前皮肤不在这五个常用项中，也显示当前项；不把全部目录塞进主下拉。
+下拉框按实际条目数展开，空间允许时同时显示“默认”和“更多…”；空间不足时可用原生滚动条。
 该页复用现有候选图例预览；“候选窗口”页只保留布局、分页、提示和下划线等输入相关选项。
 
 “更多…”打开设置窗口拥有的独立选择窗口，显示默认及全部二十一套皮肤。
 每项包含名称和图例卡片，按当前主题显示明亮或深色版本；系统及手选高对比度仍优先。
+选中皮肤的名称栏高亮并显示“已选中”，焦点移到确认或取消按钮后仍保留提示；图例配色不变。
 图例使用虚构编码和候选，包含选中行与翻页状态，复用实际候选窗的 GDI 绘制与颜色角色，
 不加载用户词库，也不启动输入组合。列表可滚动，支持方向键、Tab、Enter 和 Escape。
 
@@ -516,7 +518,10 @@ add a new skin.
 
 Settings' Display page offers Default, Firefly Glow, Inkstone, Jade Pool,
 Starry Abyss, Peach Blossom, and More. A non-common current selection is also shown.
+The dropdown fits all entries when space permits and provides native scrolling otherwise.
 More opens an owned window containing all skins with current-theme sample cards,
-using synthetic text and shared candidate rendering. Choosing a card only updates
+using synthetic text and shared candidate rendering. The selected card has a highlighted
+name row and a Selected label, retained when focus moves to the buttons; sample colors
+are unchanged. Choosing a card only updates
 the Settings draft; the main OK saves, while Cancel leaves the IME unchanged.
 The independent `ime_skin_id` field also participates in configuration JSON and backup.

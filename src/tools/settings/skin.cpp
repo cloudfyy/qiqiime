@@ -6,6 +6,7 @@
 #include "common/i18n.h"
 #include "common/uiutil.h"
 #include "common/window.h"
+#include <cwchar>
 #include <format>
 #include <memory>
 #include <utility>
@@ -101,9 +102,12 @@ void PaintPickerItem(const NMLVCUSTOMDRAW& draw, SkinPickerContext& context) noe
     if (!GetListViewItemBounds(list, gsl::narrow_cast<int>(index), bounds)) return;
     const ScopedSaveDC saved(draw.nmcd.hdc);
     const auto& theme = context.theme.appearance.palette;
-    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(theme.input_bg));
+    const bool selected =
+        (ListView_GetItemState(list, gsl::narrow_cast<int>(index), LVIS_SELECTED) & LVIS_SELECTED) != 0;
+    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(
+        selected ? theme.selection_bg : theme.input_bg));
     const ScopedGdiHandle<HBRUSH> frame(::CreateSolidBrush(
-        (draw.nmcd.uItemState & (CDIS_SELECTED | CDIS_FOCUS)) ? theme.focus_color : theme.border_color));
+        selected || (draw.nmcd.uItemState & CDIS_FOCUS) ? theme.focus_color : theme.border_color));
     if (!saved || !background || !frame) {
         QIQI_LOG_ERROR("Skin picker drawing resources failed (error={})", ::GetLastError());
         return;
@@ -114,7 +118,23 @@ void PaintPickerItem(const NMLVCUSTOMDRAW& draw, SkinPickerContext& context) noe
     RECT title{bounds.left + gap, bounds.top + gap, bounds.right - gap, bounds.top + context.title_height};
     const ScopedSelectObject font(draw.nmcd.hdc, context.font.Get());
     ::SetBkMode(draw.nmcd.hdc, TRANSPARENT);
-    ::SetTextColor(draw.nmcd.hdc, theme.text_primary);
+    ::SetTextColor(draw.nmcd.hdc, selected ? theme.selection_text : theme.text_primary);
+    if (selected) {
+        const wchar_t* marker = LocalizedUiText(context.language, L"已选中", L"Selected");
+        const int length = gsl::narrow_cast<int>(std::wcslen(marker));
+        SIZE size{};
+        if (!::GetTextExtentPoint32W(draw.nmcd.hdc, marker, length, &size)) {
+            QIQI_LOG_WARN("Skin picker selection label measurement failed (error={})", ::GetLastError());
+            return;
+        }
+        RECT marker_bounds{std::max(title.left, title.right - size.cx),
+            title.top, title.right, title.bottom};
+        if (!::DrawTextW(draw.nmcd.hdc, marker, length, &marker_bounds,
+                DT_SINGLELINE | DT_NOPREFIX | DT_RIGHT)) {
+            QIQI_LOG_WARN("Skin picker selection label drawing failed");
+        }
+        title.right = std::max(title.left, marker_bounds.left - gap);
+    }
     const auto name = ImeSkinDisplayName(context.catalog, PickerSkinId(context, index), context.language);
     ::DrawTextW(draw.nmcd.hdc, name.data(), gsl::narrow_cast<int>(name.size()), &title,
         DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);

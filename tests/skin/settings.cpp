@@ -5,6 +5,8 @@
 #include "tools/settings/internal.h"
 #include "common/i18n.h"
 #include "common/uiutil.h"
+#include <cwchar>
+#include <oleacc.h>
 
 namespace qiqi::test {
 namespace {
@@ -35,6 +37,130 @@ bool CandidatePreviewContainsColor(HWND settings, int control_id, COLORREF expec
         }
     }
     return false;
+}
+
+void CheckSkinComboDropdown(HWND settings) {
+    using namespace settings_detail;
+    const HWND combo = ::GetDlgItem(settings, kIdComboImeSkin);
+    const LRESULT count = ::SendMessageW(combo, CB_GETCOUNT, 0, 0);
+    const LRESULT selection = ::SendMessageW(combo, CB_GETCURSEL, 0, 0);
+    const LRESULT item_height = ::SendMessageW(combo, CB_GETITEMHEIGHT, 0, 0);
+    QIQI_TEST_CHECK(count > 1 && selection >= 0 && item_height > 0);
+    ::SetFocus(combo);
+    COMBOBOXINFO info{sizeof(COMBOBOXINFO)};
+    QIQI_TEST_CHECK(::GetComboBoxInfo(combo, &info));
+    const LPARAM button = MAKELPARAM(
+        (info.rcButton.left + info.rcButton.right) / 2,
+        (info.rcButton.top + info.rcButton.bottom) / 2);
+    for (int opening = 0; opening < 2; ++opening) {
+        ::SendMessageW(combo, WM_LBUTTONDOWN, MK_LBUTTON, button);
+        ::SendMessageW(combo, WM_LBUTTONUP, 0, button);
+        const auto close = gsl::finally([combo]() noexcept {
+            ::SendMessageW(combo, CB_SHOWDROPDOWN, FALSE, 0);
+        });
+        QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0));
+        QIQI_TEST_CHECK(::IsWindowVisible(info.hwndList));
+        RECT client{};
+        QIQI_TEST_CHECK(::GetClientRect(info.hwndList, &client));
+        QIQI_TEST_CHECK(client.bottom - client.top >= count * item_height);
+        QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETTOPINDEX, 0, 0) == 0);
+        QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCOUNT, 0, 0) == count);
+        QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCURSEL, 0, 0) == selection);
+    }
+    const RECT work = QueryActiveMonitor(settings).work_area;
+    // Require scrolling regardless of the test desktop's resolution.
+    const int tall_item = std::max(gsl::narrow_cast<int>(item_height),
+        gsl::narrow_cast<int>(work.bottom - work.top) / 3);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_SETITEMHEIGHT, 0, tall_item) != CB_ERR);
+    const auto restore_height = gsl::finally([combo, item_height]() noexcept {
+        ::SendMessageW(combo, CB_SHOWDROPDOWN, FALSE, 0);
+        QIQI_TEST_CHECK_CLEANUP(::SendMessageW(combo, CB_SETITEMHEIGHT, 0, item_height) != CB_ERR);
+    });
+    ::SendMessageW(combo, WM_LBUTTONDOWN, MK_LBUTTON, button);
+    ::SendMessageW(combo, WM_LBUTTONUP, 0, button);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0));
+    RECT client{};
+    SCROLLBARINFO scrollbar{sizeof(SCROLLBARINFO)};
+    QIQI_TEST_CHECK(::GetClientRect(info.hwndList, &client));
+    QIQI_TEST_CHECK(client.bottom - client.top < count * tall_item);
+    QIQI_TEST_CHECK(::GetScrollBarInfo(info.hwndList, OBJID_VSCROLL, &scrollbar));
+    QIQI_TEST_CHECK((scrollbar.rgstate[0] & STATE_SYSTEM_INVISIBLE) == 0);
+    ::SendMessageW(info.hwndList, WM_VSCROLL, SB_BOTTOM, 0);
+    const LRESULT top = ::SendMessageW(combo, CB_GETTOPINDEX, 0, 0);
+    QIQI_TEST_CHECK(top > 0 && top + (client.bottom - client.top) / tall_item >= count);
+    ::SendMessageW(info.hwndList, WM_VSCROLL, SB_TOP, 0);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETTOPINDEX, 0, 0) == 0);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCURSEL, 0, 0) == selection);
+}
+
+void CheckSkinPickerSelectionCues(HWND owner, const ImeSkinCatalog& catalog) {
+    using namespace settings_detail;
+    for (const auto theme : {UiTheme::Light, UiTheme::Dark, UiTheme::HighContrast}) {
+        for (const auto language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+            QiQiConfig config;
+            config.ui_theme = theme;
+            const auto display = GetDisplayPreferences(config);
+            SkinSelectionState state{ImeSkinId::Firefly};
+            HRESULT result = E_FAIL;
+            auto picker = CreateSkinSelectionWindow(::GetModuleHandleW(nullptr), owner,
+                catalog, display, language, &state, &result);
+            QIQI_TEST_CHECK(picker && result == S_OK);
+            ::ShowWindow(picker.Get(), SW_SHOWNOACTIVATE);
+            const HWND list = ::GetDlgItem(picker.Get(), kIdSkinPickerList);
+            QIQI_TEST_CHECK(list);
+            ::SetFocus(list);
+            const auto check_selection = [&](int selected, int other) {
+                QIQI_TEST_CHECK(ListView_GetNextItem(list, -1, LVNI_SELECTED) == selected);
+                QIQI_TEST_CHECK(ListView_EnsureVisible(list, selected, FALSE));
+                RECT client{};
+                RECT selected_row{};
+                RECT other_row{};
+                QIQI_TEST_CHECK(::GetClientRect(list, &client) &&
+                    GetListViewItemBounds(list, selected, selected_row) &&
+                    GetListViewItemBounds(list, other, other_row));
+                const int gap = ScalePxByDpi(8, QueryActiveMonitor(picker.Get()).dpi);
+                const ScopedWindowDC screen(list);
+                const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+                const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(
+                    screen.Get(), client.right, client.bottom));
+                QIQI_TEST_CHECK(screen && dc && bitmap);
+                const ScopedSelectObject selected_bitmap(dc.Get(), bitmap.Get());
+                ::SendMessageW(list, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc.Get()), PRF_CLIENT);
+                const auto palette = ResolveDisplayAppearance(display).palette;
+                QIQI_TEST_CHECK(::GetPixel(dc.Get(), selected_row.left + gap,
+                    selected_row.top + gap / 2) == palette.selection_bg);
+                QIQI_TEST_CHECK(::GetPixel(dc.Get(), other_row.left + gap,
+                    other_row.top + gap / 2) == palette.input_bg);
+                const auto font = reinterpret_cast<HFONT>(::SendMessageW(list, WM_GETFONT, 0, 0));
+                const ScopedSelectObject selected_font(dc.Get(), font);
+                const wchar_t* marker = LocalizedUiText(language, L"已选中", L"Selected");
+                SIZE size{};
+                QIQI_TEST_CHECK(::GetTextExtentPoint32W(dc.Get(), marker,
+                    gsl::narrow_cast<int>(std::wcslen(marker)), &size));
+                bool marker_visible = false;
+                for (int y = selected_row.top + gap; y < selected_row.top + gap + size.cy; ++y) {
+                    for (int x = selected_row.right - gap - size.cx; x < selected_row.right - gap; ++x) {
+                        if (::GetPixel(dc.Get(), x, y) == palette.selection_text) marker_visible = true;
+                    }
+                }
+                QIQI_TEST_CHECK(marker_visible);
+            };
+            check_selection(1, 0);
+            ::SendMessageW(list, WM_KEYDOWN, VK_DOWN, 0);
+            check_selection(2, 1);
+            ::SetFocus(::GetDlgItem(picker.Get(), IDOK));
+            check_selection(2, 1);
+            if (theme == UiTheme::Light && language == UiLanguage::EnUs) {
+                SetHighContrastOverrideForTest(true);
+                ::SendMessageW(picker.Get(), WM_SETTINGCHANGE, 0, 0);
+                check_selection(2, 1);
+                SetHighContrastOverrideForTest(false);
+                ::SendMessageW(picker.Get(), WM_SETTINGCHANGE, 0, 0);
+                check_selection(2, 1);
+            }
+            QIQI_TEST_CHECK(state.selected == ImeSkinId::Firefly && !state.accepted);
+        }
+    }
 }
 
 void ChooseFromMore(HWND settings, bool accept) {
@@ -124,6 +250,9 @@ void RunSettingsSkinTests() {
     QIQI_TEST_CHECK(context && context->quick_skin_count == 6);
     QIQI_TEST_CHECK(::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_GETCOUNT, 0, 0) == 7);
     SelectSettingsPage(window.Get(), *context, SettingsPage::Display);
+    ::ShowWindow(window.Get(), SW_SHOWNOACTIVATE);
+    CheckSkinComboDropdown(window.Get());
+    CheckSkinPickerSelectionCues(window.Get(), context->skin_catalog);
     ::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_SETCURSEL, 1, 0);
     ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(kIdComboImeSkin, CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(context->preview_skin_id == ImeSkinId::Firefly && config.ime_skin_id == ImeSkinId::Default);
@@ -182,6 +311,7 @@ void RunSettingsSkinTests() {
     ChooseFromMore(window.Get(), true);
     QIQI_TEST_CHECK(context->preview_skin_id == ImeSkinId::VioletPath && context->quick_skin_count == 7);
     QIQI_TEST_CHECK(::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_GETCOUNT, 0, 0) == 8);
+    CheckSkinComboDropdown(window.Get());
     QIQI_TEST_CHECK(config.ime_skin_id == ImeSkinId::Default && QueryRegistryConfigSequence() == sequence);
     ::SendMessageW(window.Get(), WM_COMMAND, IDCANCEL, 0);
     QIQI_TEST_CHECK(config.ime_skin_id == ImeSkinId::Default && QueryRegistryConfigSequence() == sequence);

@@ -266,7 +266,31 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             if (HIWORD(wparam) == CBN_SELCHANGE) ApplySettingsDisplayPreview(hwnd, ctx);
             return;
         case kIdComboImeSkin:
-            if (HIWORD(wparam) == CBN_SELCHANGE) HandleSettingsSkinSelection(hwnd, ctx);
+            if (HIWORD(wparam) == CBN_DROPDOWN) {
+                const HWND combo = ::GetDlgItem(hwnd, kIdComboImeSkin);
+                const LRESULT count = ::SendMessageW(combo, CB_GETCOUNT, 0, 0);
+                const LRESULT item_height = ::SendMessageW(combo, CB_GETITEMHEIGHT, 0, 0);
+                if (count <= 0 || item_height <= 0) {
+                    QIQI_LOG_WARN("Settings skin dropdown item metrics unavailable");
+                    return;
+                }
+                RECT bounds{};
+                if (!::GetWindowRect(combo, &bounds)) {
+                    QIQI_LOG_WARN("Settings skin dropdown bounds query failed (error={})", ::GetLastError());
+                    return;
+                }
+                const RECT work = QueryActiveMonitor(combo).work_area;
+                const LONG above = std::clamp(bounds.top, work.top, work.bottom) - work.top;
+                const LONG below = work.bottom - std::clamp(bounds.bottom, work.top, work.bottom);
+                const LRESULT available = std::max(above, below) -
+                    2 * ::GetSystemMetricsForDpi(SM_CYEDGE, ctx.d2d.dpi);
+                const LRESULT visible = std::clamp(available / item_height, LRESULT{1}, count);
+                if (!::SendMessageW(combo, CB_SETMINVISIBLE, gsl::narrow_cast<WPARAM>(visible), 0)) {
+                    QIQI_LOG_WARN("Settings skin dropdown visible row count update failed");
+                }
+            } else if (HIWORD(wparam) == CBN_SELCHANGE) {
+                HandleSettingsSkinSelection(hwnd, ctx);
+            }
             return;
         case kIdComboUiTextScale:
             if (HIWORD(wparam) == CBN_SELCHANGE) {

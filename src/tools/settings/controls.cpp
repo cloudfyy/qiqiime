@@ -672,7 +672,7 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     create_control(L"BUTTON", L"", BS_AUTOCHECKBOX, initial, kIdChkEasyReading);
     create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdCandidatePreview);
     create_control(L"STATIC", L"", 0, initial, kIdLblImeSkin);
-    create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboImeSkin);
+    create_control(L"COMBOBOX", L"", combo_style | WS_VSCROLL, initial, kIdComboImeSkin);
     create_control(L"STATIC", L"", 0, initial, kIdDisplayExplanation);
     std::ignore = log::CheckHResult(
         ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTextScale), kTextScaleLabels),
