@@ -39,6 +39,14 @@ bool CandidatePreviewContainsColor(HWND settings, int control_id, COLORREF expec
     return false;
 }
 
+void ClickComboDropdownButton(HWND combo, const COMBOBOXINFO& info) {
+    const LPARAM button = MAKELPARAM(
+        (info.rcButton.left + info.rcButton.right) / 2,
+        (info.rcButton.top + info.rcButton.bottom) / 2);
+    ::SendMessageW(combo, WM_LBUTTONDOWN, MK_LBUTTON, button);
+    ::SendMessageW(combo, WM_LBUTTONUP, 0, button);
+}
+
 void CheckSkinComboDropdown(HWND settings) {
     using namespace settings_detail;
     const HWND combo = ::GetDlgItem(settings, kIdComboImeSkin);
@@ -49,12 +57,8 @@ void CheckSkinComboDropdown(HWND settings) {
     ::SetFocus(combo);
     COMBOBOXINFO info{sizeof(COMBOBOXINFO)};
     QIQI_TEST_CHECK(::GetComboBoxInfo(combo, &info));
-    const LPARAM button = MAKELPARAM(
-        (info.rcButton.left + info.rcButton.right) / 2,
-        (info.rcButton.top + info.rcButton.bottom) / 2);
     for (int opening = 0; opening < 2; ++opening) {
-        ::SendMessageW(combo, WM_LBUTTONDOWN, MK_LBUTTON, button);
-        ::SendMessageW(combo, WM_LBUTTONUP, 0, button);
+        ClickComboDropdownButton(combo, info);
         const auto close = gsl::finally([combo]() noexcept {
             ::SendMessageW(combo, CB_SHOWDROPDOWN, FALSE, 0);
         });
@@ -76,8 +80,7 @@ void CheckSkinComboDropdown(HWND settings) {
         ::SendMessageW(combo, CB_SHOWDROPDOWN, FALSE, 0);
         QIQI_TEST_CHECK_CLEANUP(::SendMessageW(combo, CB_SETITEMHEIGHT, 0, item_height) != CB_ERR);
     });
-    ::SendMessageW(combo, WM_LBUTTONDOWN, MK_LBUTTON, button);
-    ::SendMessageW(combo, WM_LBUTTONUP, 0, button);
+    ClickComboDropdownButton(combo, info);
     QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0));
     RECT client{};
     SCROLLBARINFO scrollbar{sizeof(SCROLLBARINFO)};
@@ -174,8 +177,31 @@ void ChooseFromMore(HWND settings, bool accept) {
         picker_seen = true;
         QIQI_TEST_CHECK(::GetWindow(picker, GW_OWNER) != nullptr);
         QIQI_TEST_CHECK(!::IsWindowEnabled(::GetWindow(picker, GW_OWNER)));
+        QIQI_TEST_CHECK(!::SendDlgItemMessageW(::GetWindow(picker, GW_OWNER),
+            kIdComboImeSkin, CB_GETDROPPEDSTATE, 0, 0));
+        QIQI_TEST_CHECK(::GetCapture() == nullptr);
         const HWND list = ::GetDlgItem(picker, kIdSkinPickerList);
         QIQI_TEST_CHECK(ListView_GetItemCount(list) == 22);
+        SCROLLBARINFO initial_scrollbar{sizeof(SCROLLBARINFO)};
+        QIQI_TEST_CHECK(::GetScrollBarInfo(list, OBJID_VSCROLL, &initial_scrollbar));
+        QIQI_TEST_CHECK((initial_scrollbar.rgstate[0] & STATE_SYSTEM_INVISIBLE) == 0);
+        QIQI_TEST_CHECK(ListView_GetCountPerPage(list) > 0 &&
+            ListView_GetCountPerPage(list) < ListView_GetItemCount(list));
+        QIQI_TEST_CHECK(::GetFocus() == list);
+        const int original = ListView_GetNextItem(list, -1, LVNI_SELECTED);
+        RECT before{};
+        RECT client{};
+        QIQI_TEST_CHECK(original >= 0 && GetListViewItemBounds(list, 0, before) &&
+            ::GetClientRect(list, &client));
+        POINT cursor{client.right / 2, client.bottom / 2};
+        QIQI_TEST_CHECK(::ClientToScreen(list, &cursor));
+        const LPARAM point = MAKELPARAM(cursor.x, cursor.y);
+        ::SendMessageW(list, WM_MOUSEWHEEL, MAKEWPARAM(0, -WHEEL_DELTA), point);
+        RECT after{};
+        QIQI_TEST_CHECK(GetListViewItemBounds(list, 0, after) && after.top < before.top);
+        QIQI_TEST_CHECK(ListView_GetNextItem(list, -1, LVNI_SELECTED) == original);
+        ::SendMessageW(list, WM_MOUSEWHEEL, MAKEWPARAM(0, WHEEL_DELTA), point);
+        QIQI_TEST_CHECK(GetListViewItemBounds(list, 0, after) && after.top == before.top);
         constexpr int selected = gsl::narrow_cast<int>(ImeSkinId::VioletPath);
         ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
         ListView_SetItemState(list, selected, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
@@ -210,8 +236,22 @@ void ChooseFromMore(HWND settings, bool accept) {
     const auto* const context =
         reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(settings, GWLP_USERDATA));
     QIQI_TEST_CHECK(context);
-    ::SendDlgItemMessageW(settings, kIdComboImeSkin, CB_SETCURSEL, context->quick_skin_count, 0);
-    ::SendMessageW(settings, WM_COMMAND, MAKEWPARAM(kIdComboImeSkin, CBN_SELCHANGE), 0);
+    const HWND combo = ::GetDlgItem(settings, kIdComboImeSkin);
+    COMBOBOXINFO info{sizeof(COMBOBOXINFO)};
+    QIQI_TEST_CHECK(::GetComboBoxInfo(combo, &info));
+    ClickComboDropdownButton(combo, info);
+    QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0));
+    ::SendMessageW(info.hwndList, WM_VSCROLL, SB_BOTTOM, 0);
+    const LRESULT top = ::SendMessageW(combo, CB_GETTOPINDEX, 0, 0);
+    const LRESULT height = ::SendMessageW(combo, CB_GETITEMHEIGHT, 0, 0);
+    RECT area{};
+    QIQI_TEST_CHECK(top >= 0 && height > 0 && ::GetClientRect(info.hwndList, &area));
+    const int y = gsl::narrow_cast<int>(
+        (gsl::narrow_cast<LRESULT>(context->quick_skin_count) - top) * height + height / 2);
+    QIQI_TEST_CHECK(y >= area.top && y < area.bottom);
+    const LPARAM row = MAKELPARAM(area.right / 2, y);
+    ::SendMessageW(info.hwndList, WM_LBUTTONDOWN, MK_LBUTTON, row);
+    ::SendMessageW(info.hwndList, WM_LBUTTONUP, 0, row);
     QIQI_TEST_CHECK(picker_seen && !FindThreadWindowByClass(kSkinPickerWndClass));
     QIQI_TEST_CHECK(::IsWindowEnabled(settings));
 }
@@ -252,6 +292,9 @@ void RunSettingsSkinTests() {
     SelectSettingsPage(window.Get(), *context, SettingsPage::Display);
     ::ShowWindow(window.Get(), SW_SHOWNOACTIVATE);
     CheckSkinComboDropdown(window.Get());
+    ChooseFromMore(window.Get(), false);
+    QIQI_TEST_CHECK(context->preview_skin_id == ImeSkinId::Default &&
+        QueryRegistryConfigSequence() == sequence);
     CheckSkinPickerSelectionCues(window.Get(), context->skin_catalog);
     ::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_SETCURSEL, 1, 0);
     ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(kIdComboImeSkin, CBN_SELCHANGE), 0);

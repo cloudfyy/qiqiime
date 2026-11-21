@@ -326,7 +326,8 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 每项包含名称和图例卡片，按当前主题显示明亮或深色版本；系统及手选高对比度仍优先。
 选中皮肤的名称栏高亮并显示“已选中”，焦点移到确认或取消按钮后仍保留提示；图例配色不变。
 图例使用虚构编码和候选，包含选中行与翻页状态，复用实际候选窗的 GDI 绘制与颜色角色，
-不加载用户词库，也不启动输入组合。列表可滚动，支持方向键、Tab、Enter 和 Escape。
+不加载用户词库，也不启动输入组合。列表首次打开即建立完整滚动范围，无需先点击任何项；
+滚轮不会改变当前选中皮肤。列表还支持方向键、Tab、Enter 和 Escape。
 
 子窗口点击“使用此皮肤”只回填设置草稿，取消保留原草稿；
 仍须在主设置窗口点击“确定”才持久化，主窗口取消不影响实际 IME。
@@ -522,6 +523,8 @@ The dropdown fits all entries when space permits and provides native scrolling o
 More opens an owned window containing all skins with current-theme sample cards,
 using synthetic text and shared candidate rendering. The selected card has a highlighted
 name row and a Selected label, retained when focus moves to the buttons; sample colors
-are unchanged. Choosing a card only updates
+are unchanged. The first opening establishes the full scroll range immediately,
+so the wheel works without clicking an item first and does not change selection.
+Choosing a card only updates
 the Settings draft; the main OK saves, while Cancel leaves the IME unchanged.
 The independent `ime_skin_id` field also participates in configuration JSON and backup.

@@ -306,6 +306,9 @@ ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent, const Im
         if (ListView_InsertColumn(list, 0, &column) < 0) {
             return fail(E_FAIL, "Skin picker column creation");
         }
+        if (!RefreshPickerAppearance(window.Get(), picker))
+            return fail(last_error(), "Skin picker appearance initialization");
+        LayoutPicker(window.Get(), picker);
         int selected = 0;
         for (size_t index = 0; index < picker.appearances.size(); ++index) {
             const auto id = PickerSkinId(picker, index);
@@ -319,9 +322,6 @@ ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent, const Im
             }
             if (id == state->selected) selected = item.iItem;
         }
-        if (!RefreshPickerAppearance(window.Get(), picker))
-            return fail(last_error(), "Skin picker appearance initialization");
-        LayoutPicker(window.Get(), picker);
         ListView_SetItemState(list, selected, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         ListView_EnsureVisible(list, selected, FALSE);
         ::SetFocus(list);
