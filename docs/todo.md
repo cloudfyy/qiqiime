@@ -399,11 +399,18 @@ each behavior change rather than postponing all testing until the final gate.
     content. Simulated callbacks and native TSF test hosts do not satisfy this
     sub-gate.
     - [ ] **Feedback Hub: candidate skin not applied** (reported 2026-11-21;
-      target fix 2026-11-22). In QiQi Settings > Display, `Follow Windows` with
+      target fix 2026-11-22). In QiQi Settings > Candidates, `Follow Windows` with
       `Peach Blossom` shows a pink preview, but Wubi candidates in Feedback Hub's
       **Summarize your feedback** field still show the default blue highlight.
-      Retest after saving the skin with **OK**. Local log export:
-      `C:\temp\qiqi-ime-events.log` (last modified 2026-11-21 21:13 local time).
+      The retained log confirms `show_own_ui=true`, so Feedback Hub uses QiQi's
+      own popup rather than host-rendered UILess UI. SearchHost hot-reloaded the
+      skin while Feedback Hub had been constructed after the saved skin and only
+      saw an unchanged config sequence; its `ime_skin_snapshot_` was never
+      initialized. Constructor initialization now reuses dynamic settings setup.
+      Search/taskbar user retest reads the latest saved skin; recheck Feedback Hub
+      after loading the new DLL, saving with **OK**, and opening a fresh process.
+      Local log export: `C:\temp\qiqi-ime-events.log` (last modified 2026-11-21
+      21:13 local time).
 - [x] Update user/developer documentation to distinguish implemented surfaces
   from design-only features; automated color checks do not certify all hosts
   or accessibility. Do not generate MSI packages unless explicitly requested.

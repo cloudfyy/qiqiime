@@ -67,7 +67,7 @@ void TestSkinConfigReloadPreservesInput() {
     config.show_status_bar = false;
     config.up_down_page_turn = false;
     config.ui_theme = UiTheme::Light;
-    config.ime_skin_id = ImeSkinId::Default;
+    config.ime_skin_id = ImeSkinId::Firefly;
     QIQI_TEST_CHECK(SaveConfig(config));
     auto service = MakeComObject<QiQiTextService>(g_dll_instance);
     auto manager = MakeComObject<MockTfThreadMgr>();
@@ -83,6 +83,11 @@ void TestSkinConfigReloadPreservesInput() {
     QIQI_TEST_CHECK(candidate_ui);
     UINT count = 0;
     QIQI_TEST_CHECK(candidates->GetCount(&count) == S_OK && count >= 6);
+    std::optional<ImeSkinSnapshot> expected_skin;
+    QIQI_TEST_CHECK(UpdateImeSkinSnapshot(
+        ImeSkinId::Firefly, expected_skin) == S_OK && expected_skin);
+    QIQI_TEST_CHECK(candidate_ui->Appearance().palette.window_bg ==
+        expected_skin->palettes.light.Get(SkinColor::Background));
     for (const UINT key : {VK_NEXT, VK_DOWN})
         QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
     UINT page = 0;
@@ -90,12 +95,12 @@ void TestSkinConfigReloadPreservesInput() {
     QIQI_TEST_CHECK(candidates->GetCurrentPage(&page) == S_OK && page == 1);
     QIQI_TEST_CHECK(candidates->GetSelection(&selection) == S_OK);
     const auto text = context->range_->text_;
-    config.ime_skin_id = ImeSkinId::Firefly;
+    config.ime_skin_id = ImeSkinId::PeachBlossom;
     QIQI_TEST_CHECK(SaveConfig(config));
     QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
-    std::optional<ImeSkinSnapshot> expected_skin;
+    expected_skin.reset();
     QIQI_TEST_CHECK(UpdateImeSkinSnapshot(
-        ImeSkinId::Firefly, expected_skin) == S_OK && expected_skin);
+        ImeSkinId::PeachBlossom, expected_skin) == S_OK && expected_skin);
     QIQI_TEST_CHECK(manager->last_ui_element_.Get() == candidate_ui);
     QIQI_TEST_CHECK(candidate_ui->Appearance().palette.window_bg ==
         expected_skin->palettes.light.Get(SkinColor::Background));

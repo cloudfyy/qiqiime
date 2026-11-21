@@ -612,7 +612,9 @@ STDMETHODIMP QiQiTextService::GetDisplayName(BSTR* pbstrName) noexcept {
 }
 
 void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
-    std::ignore = UpdateImeSkinSnapshot(config_.ime_skin_id, ime_skin_snapshot_);
+    std::ignore = log::CheckHResult(
+        UpdateImeSkinSnapshot(config_.ime_skin_id, ime_skin_snapshot_),
+        "QiQiTextService::ApplyDynamicEngineSettings(UpdateImeSkinSnapshot)");
     if (engine_.PageSize() != std::clamp<size_t>(config_.page_size, 1, 9))
         engine_.SetPageSize(config_.page_size);
     engine_.SetAutoCommit4Code(config_.auto_commit_4code);
