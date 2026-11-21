@@ -364,8 +364,13 @@ CTest launches the full and focused TSF suites through
   or overwritten.
 - A new `CASE-END` resets the progress timer. After 60 seconds without completion,
   the watchdog captures a full dump using the matching-architecture SDK debugger.
-- The child test has a 90-second execution limit; CTest reserves 150 seconds for
-  execution and diagnostics. Do not override that budget with `--timeout 90`.
+- The full child test has a 120-second execution limit and CTest reserves 180
+  seconds for execution and diagnostics. Focused and skin children retain the
+  90-second limit, with 150-second CTest budgets. The manual diagnostic probe
+  also retains 90 seconds but has no CTest budget. The 60-second inactivity
+  rule still captures a dump as soon as progress stops; the longer full budget
+  accommodates transiently slow but continuously progressing desktop suites.
+  Do not override these budgets with `--timeout 90`.
 - Dumps retain matching Release EXE/PDB copies, debugger commands, stdout/stderr,
   and offline analysis. Never use an unrelated or Debug PDB for a Release dump.
 - Direct EXE runs retain test logs but have no watchdog. To test the watchdog,

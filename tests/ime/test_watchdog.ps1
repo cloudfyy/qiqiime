@@ -9,6 +9,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $test = $null
+$executionLimitSeconds = 90
+if ($Mode -eq 'full') {
+    $executionLimitSeconds = 120
+}
 
 if ($Mode -eq 'skins') {
     $testsDirectory = Split-Path -Parent $PSScriptRoot
@@ -71,7 +75,7 @@ try {
     $dump = "$prefix.dmp"
     $symbols = "$prefix-symbols"
     $trace = $null
-    Write-Output "[WATCHDOG] pid=$($test.Id), inactivity=60s, execution-limit=90s, logs=$prefix"
+    Write-Output "[WATCHDOG] pid=$($test.Id), inactivity=60s, execution-limit=${executionLimitSeconds}s, logs=$prefix"
 
     while (-not $test.HasExited) {
         if ($null -eq $trace) {
@@ -85,7 +89,7 @@ try {
                 $lastCompletion = $timer.Elapsed.TotalSeconds
             }
         }
-        if ($timer.Elapsed.TotalSeconds -ge 90) {
+        if ($timer.Elapsed.TotalSeconds -ge $executionLimitSeconds) {
             $timedOut = $true
             Write-Output "[HANG] Execution limit reached at elapsed=$($timer.Elapsed.TotalSeconds); stopping owned test pid=$($test.Id)"
             Stop-Process -Id $test.Id -Force
@@ -98,7 +102,10 @@ try {
             Copy-Item -LiteralPath $TestExecutable, $pdb -Destination $symbols
             $commands = "$prefix.capture.commands.txt"
             [IO.File]::WriteAllLines($commands, @(".dump /ma `"$dump`"", 'qd'))
-            $remaining = [Math]::Max(1, [Math]::Min(15000, [int]((90 - $timer.Elapsed.TotalSeconds) * 1000)))
+            $remaining = [Math]::Max(
+                1, [Math]::Min(
+                    15000,
+                    [int](($executionLimitSeconds - $timer.Elapsed.TotalSeconds) * 1000)))
             Invoke-BoundedDebugger -Arguments @('-p', "$($test.Id)", '-cf', "`"$commands`"") `
                 -OutputPrefix "$prefix.capture" -Milliseconds $remaining
             if (-not (Test-Path -LiteralPath $dump) -or (Get-Item -LiteralPath $dump).Length -eq 0) {

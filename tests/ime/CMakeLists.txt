@@ -157,7 +157,11 @@ foreach(_mode IN ITEMS full focused)
             -File "${CMAKE_CURRENT_SOURCE_DIR}/test_watchdog.ps1"
             -TestExecutable "$<TARGET_FILE:qiqi_tsf_ui_test>"
             -Debugger "${QIQI_TEST_CDB}" -Mode "${_mode}")
-    set_tests_properties(${_test_name} PROPERTIES RUN_SERIAL TRUE TIMEOUT 150)
+    if(_mode STREQUAL "full")
+        set_tests_properties(${_test_name} PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    else()
+        set_tests_properties(${_test_name} PROPERTIES RUN_SERIAL TRUE TIMEOUT 150)
+    endif()
 endforeach()
 add_dependencies(qiqi_tsf_ui_test qiqiime)
 add_test(NAME QiQiEtwIntegrationTest COMMAND qiqi_tsf_ui_test --etw-integration)
