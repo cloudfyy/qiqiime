@@ -202,7 +202,6 @@ void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdChkEasyReading, text.easy);
     ::SetDlgItemTextW(hwnd, kIdDisplayExplanation, text.explanation);
     ::SetDlgItemTextW(hwnd, kIdCandidatePreview, text.preview);
-    ::SetDlgItemTextW(hwnd, kIdSkinCandidatePreview, text.preview);
     std::ignore = log::CheckHResult(
         ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTheme), text.themes),
         "Settings::ReplaceComboBoxItems(theme)");
@@ -674,7 +673,6 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdCandidatePreview);
     create_control(L"STATIC", L"", 0, initial, kIdLblImeSkin);
     create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboImeSkin);
-    create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdSkinCandidatePreview);
     create_control(L"STATIC", L"", 0, initial, kIdDisplayExplanation);
     std::ignore = log::CheckHResult(
         ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTextScale), kTextScaleLabels),

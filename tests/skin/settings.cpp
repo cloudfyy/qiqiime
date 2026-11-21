@@ -123,7 +123,7 @@ void RunSettingsSkinTests() {
     auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(window.Get(), GWLP_USERDATA));
     QIQI_TEST_CHECK(context && context->quick_skin_count == 6);
     QIQI_TEST_CHECK(::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_GETCOUNT, 0, 0) == 7);
-    SelectSettingsPage(window.Get(), *context, SettingsPage::Candidates);
+    SelectSettingsPage(window.Get(), *context, SettingsPage::Display);
     ::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_SETCURSEL, 1, 0);
     ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(kIdComboImeSkin, CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(context->preview_skin_id == ImeSkinId::Firefly && config.ime_skin_id == ImeSkinId::Default);
@@ -134,7 +134,7 @@ void RunSettingsSkinTests() {
             SkinColor::SelectedBackground, SkinColor::SelectedText, SkinColor::SelectedBorder,
             SkinColor::PageEnabledText}) {
         QIQI_TEST_CHECK(CandidatePreviewContainsColor(
-            window.Get(), kIdSkinCandidatePreview, firefly.Get(role)));
+            window.Get(), kIdCandidatePreview, firefly.Get(role)));
     }
     const auto select_theme = [&](UiTheme theme) {
         ::SendDlgItemMessageW(window.Get(), kIdComboUiTheme, CB_SETCURSEL,
@@ -154,7 +154,7 @@ void RunSettingsSkinTests() {
                     : GetBuiltinImeSkins().front().palettes.light;
                 QIQI_TEST_CHECK(context->candidate_skin_colors == expected);
                 QIQI_TEST_CHECK(CandidatePreviewContainsColor(
-                    window.Get(), kIdSkinCandidatePreview,
+                    window.Get(), kIdCandidatePreview,
                     expected.Get(SkinColor::Background)));
             }
         }

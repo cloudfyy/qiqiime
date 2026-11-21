@@ -150,7 +150,7 @@ Deflate 压缩的 ZIP（`.zip`，由 miniz 读写），其中包含 `manifest.js
 
 ### 候选皮肤
 
-当前源码在设置的“候选窗口”页提供**默认、流萤、墨砚、碧潭、星渊、桃夭、
+当前源码在设置的“显示”页提供**默认、流萤、墨砚、碧潭、星渊、桃夭、
 更多…**；当前选择不在常用名单时，也会保留在下拉框中。
 “更多…”窗口显示全部二十一套皮肤及默认项，每项有按当前主题显示的图例预览。
 方向键选择、Tab 移动焦点、Enter 确认、Escape 取消；确认只回填设置草稿，
@@ -329,7 +329,7 @@ Website preferences remain browser-local and separate from desktop preferences.
 ### Candidate skins
 
 The native source provides Default plus five common skins and **More** in the
-Candidates settings page. A non-common current selection remains visible.
+Display settings page. A non-common current selection remains visible.
 More opens an owned, scrollable all-skin list with current-theme candidate
 sample cards. Arrows select, Tab changes focus, Enter accepts, and Escape cancels.
 The child only updates the Settings draft; the main OK persists it.

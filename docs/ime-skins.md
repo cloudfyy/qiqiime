@@ -317,9 +317,9 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 
 #### 设置中的皮肤选择
 
-“候选窗口”页提供紧凑的皮肤下拉框：**默认、流萤、墨砚、碧潭、星渊、桃夭、
+“显示”页提供紧凑的皮肤下拉框：**默认、流萤、墨砚、碧潭、星渊、桃夭、
 更多…**。如果当前皮肤不在这五个常用项中，也显示当前项；不把全部目录塞进主下拉。
-该页有即时图例预览，“显示”页原有预览也继续使用相同配色。
+该页复用现有候选图例预览；“候选窗口”页只保留布局、分页、提示和下划线等输入相关选项。
 
 “更多…”打开设置窗口拥有的独立选择窗口，显示默认及全部二十一套皮肤。
 每项包含名称和图例卡片，按当前主题显示明亮或深色版本；系统及手选高对比度仍优先。
@@ -514,8 +514,8 @@ validated registry snapshot. Initialization does not overwrite existing catalogs
 The first phase still has 21 known skin IDs; adding a registry key alone does not
 add a new skin.
 
-Settings offers Default, Firefly Glow, Inkstone, Jade Pool, Starry Abyss,
-Peach Blossom, and More. A non-common current selection is also shown.
+Settings' Display page offers Default, Firefly Glow, Inkstone, Jade Pool,
+Starry Abyss, Peach Blossom, and More. A non-common current selection is also shown.
 More opens an owned window containing all skins with current-theme sample cards,
 using synthetic text and shared candidate rendering. Choosing a card only updates
 the Settings draft; the main OK saves, while Cancel leaves the IME unchanged.

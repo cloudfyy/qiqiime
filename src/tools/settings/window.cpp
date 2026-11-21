@@ -608,7 +608,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                     }
                     if (clip == NULLREGION) return TRUE;
                 }
-                if (dis->CtlID == kIdCandidatePreview || dis->CtlID == kIdSkinCandidatePreview) {
+                if (dis->CtlID == kIdCandidatePreview) {
                     DrawSettingsCandidatePreview(*dis, *ctx);
                     return TRUE;
                 }

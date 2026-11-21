@@ -268,7 +268,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             y = std::max(y + label_height, combo_y + closed_height) + gap;
             continue;
         }
-        const bool preview = id == kIdCandidatePreview || id == kIdSkinCandidatePreview;
+        const bool preview = id == kIdCandidatePreview;
         const bool static_text = id == kIdLblCustomPrimaryPath || id == kIdDisplayExplanation;
         const int indent = id == kIdChkExtraDict ? std::min(S(24), content_width - 1) : 0;
         const int control_width = content_width - indent;

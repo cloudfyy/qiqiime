@@ -375,8 +375,7 @@ void UpdateSettingsSkinPreview(HWND hwnd, DialogContext& context) noexcept {
     const auto appearance = ApplyImeSkinAppearance(context.d2d.appearance, context.preview_skin_snapshot);
     context.candidate_preview_palette = appearance.display.palette;
     context.candidate_skin_colors = appearance.colors;
-    for (const int id : {kIdCandidatePreview, kIdSkinCandidatePreview})
-        ::InvalidateRect(::GetDlgItem(hwnd, id), nullptr, FALSE);
+    ::InvalidateRect(::GetDlgItem(hwnd, kIdCandidatePreview), nullptr, FALSE);
 }
 
 void HandleSettingsSkinSelection(HWND hwnd, DialogContext& context) noexcept {
