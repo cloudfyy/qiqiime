@@ -159,6 +159,11 @@ avoid keyboard/mouse interaction during the run. Colors and previews use synthet
 input, not user dictionary contents. Passing this collection does not certify all
 real hosts or Narrator speech.
 
+Candidate skin updates copy only an ID and fixed-size palettes, then repaint
+without rebuilding the candidate layout. The skin picker passes writable label
+copies to the native list view and transfers its context to the HWND only after
+window creation succeeds.
+
 Additional ETW test modes appear in the CTest listing. Global ETW integration
 tests can return skip code 77 when capture permissions are unavailable; a skip
 is not a pass. Private-session ETW tests do not replace global or real-host tests.

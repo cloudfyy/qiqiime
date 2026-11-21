@@ -25,7 +25,7 @@ void ChooseFromMore(HWND settings, bool accept) {
         QIQI_TEST_CHECK(!::IsWindowEnabled(::GetWindow(picker, GW_OWNER)));
         const HWND list = ::GetDlgItem(picker, kIdSkinPickerList);
         QIQI_TEST_CHECK(ListView_GetItemCount(list) == 22);
-        const int selected = static_cast<int>(ImeSkinId::VioletPath);
+        constexpr int selected = gsl::narrow_cast<int>(ImeSkinId::VioletPath);
         ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
         ListView_SetItemState(list, selected, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         ListView_EnsureVisible(list, selected, FALSE);
@@ -35,7 +35,7 @@ void ChooseFromMore(HWND settings, bool accept) {
         RECT area{};
         RECT row{};
         QIQI_TEST_CHECK(::GetClientRect(list, &area) &&
-            ListView_GetItemRect(list, selected, &row, LVIR_BOUNDS));
+            GetListViewItemBounds(list, selected, row));
         const ScopedWindowDC screen(list);
         const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
         const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), area.right, area.bottom));
@@ -56,7 +56,8 @@ void ChooseFromMore(HWND settings, bool accept) {
     });
     QIQI_TEST_CHECK(timer != 0);
     const auto stop = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
-    auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(settings, GWLP_USERDATA));
+    const auto* const context =
+        reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(settings, GWLP_USERDATA));
     QIQI_TEST_CHECK(context);
     ::SendDlgItemMessageW(settings, kIdComboImeSkin, CB_SETCURSEL, context->quick_skin_count, 0);
     ::SendMessageW(settings, WM_COMMAND, MAKEWPARAM(kIdComboImeSkin, CBN_SELCHANGE), 0);

@@ -483,12 +483,12 @@ void TestCandidateDisplayPreferences() {
 
 void TestCandidateSkinRepainting() {
     const TsfTestCaseTrace trace(__func__);
-    const auto previous_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto previous_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(),
+        MonitorMetrics{RECT{0, 0, 1600, 1200}, 144});
     const auto restore = gsl::finally([&]() noexcept {
         SetMonitorMetricsOverrideForTest(previous_monitor);
         SetHighContrastOverrideForTest(std::nullopt);
     });
-    SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1600, 1200}, 144});
     SetHighContrastOverrideForTest(false);
     for (const bool gdi : {false, true}) {
         auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
@@ -499,8 +499,8 @@ void TestCandidateSkinRepainting() {
         ui->MoveWindowTo(RECT{100, 100, 102, 120});
         QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
         const RECT before = ui->CandidateRect(1);
-        const HWND window = ui->WindowHandle();
-        const HWND focus = ::GetFocus();
+        const auto* const window = ui->WindowHandle();
+        const auto* const focus = ::GetFocus();
         for (const auto& skin : GetBuiltinImeSkins().first(2)) {
             unsigned int changes = 0;
             ui->SetAccessibilityStructureObserverForTest([&]() noexcept { ++changes; });

@@ -47,8 +47,9 @@ void TestImeSkins() {
 
     ImeSkinCatalog updated = builtin;
     updated.id = L"test-v2";
-    updated.skins.front().palettes.light.colors[static_cast<size_t>(SkinColor::EmptyText)] =
-        updated.skins.front().palettes.light.Get(SkinColor::CodeText);
+    auto& updated_light = updated.skins.front().palettes.light;
+    gsl::at(updated_light.colors, static_cast<size_t>(SkinColor::EmptyText)) =
+        updated_light.Get(SkinColor::CodeText);
     const auto sequence = QueryRegistryConfigSequence(subkey.c_str());
     QIQI_TEST_CHECK(PublishImeSkinCatalog(updated, subkey.c_str()) == S_OK);
     QIQI_TEST_CHECK(QueryRegistryConfigSequence(subkey.c_str()) == sequence + 1);
@@ -61,8 +62,9 @@ void TestImeSkins() {
 
     auto invalid = updated;
     invalid.id = L"bad-v3";
-    invalid.skins.front().palettes.light.colors[static_cast<size_t>(SkinColor::CandidateText)] =
-        invalid.skins.front().palettes.light.Get(SkinColor::Background);
+    auto& invalid_light = invalid.skins.front().palettes.light;
+    gsl::at(invalid_light.colors, static_cast<size_t>(SkinColor::CandidateText)) =
+        invalid_light.Get(SkinColor::Background);
     QIQI_TEST_CHECK(FAILED(PublishImeSkinCatalog(invalid, subkey.c_str())));
     QIQI_TEST_CHECK(LoadImeSkinCatalog(loaded, subkey.c_str()) == S_OK && loaded.id == L"test-v2");
     QIQI_TEST_CHECK(QueryRegistryConfigSequence(subkey.c_str()) == sequence + 1);
@@ -102,7 +104,7 @@ void TestImeSkins() {
     QIQI_TEST_CHECK(WriteRegistryStringResult(root.Get(), L"BadDword", L"x") == S_OK);
     QIQI_TEST_CHECK(ReadRegistryDwordResult(root.Get(), L"BadDword", unchanged) ==
         HRESULT_FROM_WIN32(ERROR_INVALID_DATA) && unchanged == 42);
-    const WORD short_value = 7;
+    constexpr WORD short_value = 7;
     QIQI_TEST_CHECK(::RegSetValueExW(root.Get(), L"BadDword", 0, REG_DWORD,
         reinterpret_cast<const BYTE*>(&short_value), sizeof(short_value)) == ERROR_SUCCESS);
     QIQI_TEST_CHECK(ReadRegistryDwordResult(root.Get(), L"BadDword", unchanged) ==

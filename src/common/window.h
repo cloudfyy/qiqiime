@@ -392,8 +392,7 @@ inline POINT ResolveListViewContextMenuPoint(
     if (screen_pt.x == -1 && screen_pt.y == -1) {
         RECT rc{};
         const int sel = ListView_GetNextItem(list_hwnd, -1, LVNI_FOCUSED | LVNI_SELECTED);
-        if (sel >= 0 &&
-            ::SendMessageW(list_hwnd, LVM_GETITEMRECT, gsl::narrow_cast<WPARAM>(sel), reinterpret_cast<LPARAM>(&rc))) {
+        if (sel >= 0 && GetListViewItemBounds(list_hwnd, sel, rc)) {
             screen_pt = {rc.left + theme.ScalePx(16), rc.bottom};
             ::ClientToScreen(list_hwnd, &screen_pt);
         } else if (::GetWindowRect(list_hwnd, &rc)) {

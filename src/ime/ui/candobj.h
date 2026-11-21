@@ -157,7 +157,7 @@ public:
         const RECT& text_rect, HWND host_window = nullptr, bool require_owned_window = false);
     void SetLayout(CandidateLayout layout);
     void SetDisplayPreferences(DisplayPreferences preferences);
-    void SetSkinSnapshot(const std::optional<ImeSkinSnapshot>& snapshot);
+    void SetSkinSnapshot(const std::optional<ImeSkinSnapshot>& snapshot) noexcept;
     void SetDisplayPreferences(UiTheme theme, UiTextScale scale, bool easy_reading) {
         SetDisplayPreferences(DisplayPreferences{theme, scale, easy_reading});
     }

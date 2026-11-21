@@ -76,6 +76,12 @@ using ScopedWindowDC     = ScopedContextGuard<WindowDcGuardTraits>;
 using ScopedSaveDC       = ScopedContextGuard<SaveDcGuardTraits>;
 using ScopedSelectObject = ScopedContextGuard<SelectObjectGuardTraits>;
 
+inline bool GetListViewItemBounds(HWND list, int index, RECT& bounds) noexcept {
+    bounds.left = LVIR_BOUNDS;
+    return ::SendMessageW(list, LVM_GETITEMRECT, gsl::narrow_cast<WPARAM>(index),
+        reinterpret_cast<LPARAM>(&bounds)) != FALSE;
+}
+
 inline HRESULT InsertListViewColumns(
     HWND list, std::span<const wchar_t* const> labels, std::span<const int> widths, UINT dpi,
     UiTextScale scale = UiTextScale::Percent100) {

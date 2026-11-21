@@ -770,7 +770,7 @@ void CandidateUI::RefreshAppearance() noexcept {
     skin_colors_ = appearance.colors;
 }
 
-void CandidateUI::SetSkinSnapshot(const std::optional<ImeSkinSnapshot>& snapshot) {
+void CandidateUI::SetSkinSnapshot(const std::optional<ImeSkinSnapshot>& snapshot) noexcept {
     const ComPtr<CandidateUI> keep_alive(this);
     if (skin_snapshot_ == snapshot) return;
     skin_snapshot_ = snapshot;

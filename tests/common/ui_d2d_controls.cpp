@@ -154,12 +154,9 @@ void TestReusableUiTextAndControls() {
         0, L"STATIC", L"", WS_POPUP,
         0, 0, 200, 100, nullptr, nullptr, instance, nullptr));
     QIQI_TEST_CHECK(parent);
-    const ScopedWindow child(::CreateWindowExW(
-        0, L"EDIT", L"", WS_CHILD,
-        0, 0, 50, 20, parent.Get(),
-        reinterpret_cast<HMENU>(
-            UINT_PTR{std::to_underlying(TestControlId::Child)}),
-        instance, nullptr));
+    const ScopedWindow child(CreateFluentChildControl(
+        parent.Get(), instance, nullptr, nullptr, L"EDIT", L"", 0,
+        0, 0, 50, 20, std::to_underlying(TestControlId::Child)));
     QIQI_TEST_CHECK(child);
     QIQI_TEST_CHECK(
         GetChildControl(parent.Get(), TestControlId::Child) == child.Get());

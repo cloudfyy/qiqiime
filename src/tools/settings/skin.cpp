@@ -8,6 +8,7 @@
 #include "common/window.h"
 #include <format>
 #include <memory>
+#include <utility>
 
 namespace qiqi {
 namespace {
@@ -97,7 +98,7 @@ void PaintPickerItem(const NMLVCUSTOMDRAW& draw, SkinPickerContext& context) noe
     if (index >= context.appearances.size()) return;
     const HWND list = draw.nmcd.hdr.hwndFrom;
     RECT bounds{};
-    if (!ListView_GetItemRect(list, gsl::narrow_cast<int>(index), &bounds, LVIR_BOUNDS)) return;
+    if (!GetListViewItemBounds(list, gsl::narrow_cast<int>(index), bounds)) return;
     const ScopedSaveDC saved(draw.nmcd.hdc);
     const auto& theme = context.theme.appearance.palette;
     const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(theme.input_bg));
@@ -178,7 +179,7 @@ LRESULT CALLBACK SkinPickerWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
         case WM_COMMAND:
             if (LOWORD(wparam) == IDOK) {
                 const int selected = ListView_GetNextItem(::GetDlgItem(hwnd, kIdSkinPickerList), -1, LVNI_SELECTED);
-                if (selected < 0 || static_cast<size_t>(selected) >= context->appearances.size()) {
+                if (selected < 0 || std::cmp_greater_equal(selected, context->appearances.size())) {
                     QIQI_LOG_WARN("Skin picker confirmation rejected without a valid selection");
                     return 0;
                 }
@@ -263,12 +264,13 @@ ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent, const Im
         if (!window) {
             return fail(last_error(), "Skin picker window creation");
         }
-        auto* owned = context.release();
-        owned->window_owned = true;
+        auto& picker = *context;
+        picker.window_owned = true;
+        std::ignore = context.release();
         state->accepted = false;
         state->done = false;
         const auto create = [&](const wchar_t* cls, const wchar_t* text, DWORD child_style, int id) noexcept {
-            return CreateFluentChildControl(window.Get(), instance, owned->font.Get(), &owned->theme,
+            return CreateFluentChildControl(window.Get(), instance, picker.font.Get(), &picker.theme,
                 cls, text, child_style, 0, 0, 1, 1, id);
         };
         const HWND list = create(WC_LISTVIEWW, L"", LVS_REPORT | LVS_SINGLESEL | LVS_NOCOLUMNHEADER |
@@ -285,21 +287,21 @@ ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent, const Im
             return fail(E_FAIL, "Skin picker column creation");
         }
         int selected = 0;
-        for (size_t index = 0; index < owned->appearances.size(); ++index) {
-            const auto id = PickerSkinId(*owned, index);
-            const auto name = ImeSkinDisplayName(catalog, id, language);
+        for (size_t index = 0; index < picker.appearances.size(); ++index) {
+            const auto id = PickerSkinId(picker, index);
+            std::wstring name(ImeSkinDisplayName(picker.catalog, id, language));
             LVITEMW item{};
             item.mask = LVIF_TEXT;
             item.iItem = gsl::narrow_cast<int>(index);
-            item.pszText = const_cast<wchar_t*>(name.data());
+            item.pszText = name.data();
             if (ListView_InsertItem(list, &item) < 0) {
                 return fail(E_FAIL, "Skin picker item creation");
             }
             if (id == state->selected) selected = item.iItem;
         }
-        if (!RefreshPickerAppearance(window.Get(), *owned))
+        if (!RefreshPickerAppearance(window.Get(), picker))
             return fail(last_error(), "Skin picker appearance initialization");
-        LayoutPicker(window.Get(), *owned);
+        LayoutPicker(window.Get(), picker);
         ListView_SetItemState(list, selected, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
         ListView_EnsureVisible(list, selected, FALSE);
         ::SetFocus(list);
@@ -379,12 +381,13 @@ void UpdateSettingsSkinPreview(HWND hwnd, DialogContext& context) noexcept {
 
 void HandleSettingsSkinSelection(HWND hwnd, DialogContext& context) noexcept {
     const LRESULT index = ::SendDlgItemMessageW(hwnd, kIdComboImeSkin, CB_GETCURSEL, 0, 0);
-    if (index < 0 || static_cast<size_t>(index) > context.quick_skin_count) {
+    if (index < 0 || std::cmp_greater(index, context.quick_skin_count)) {
         QIQI_LOG_WARN("Settings rejected an invalid skin combo selection");
         return;
     }
-    if (static_cast<size_t>(index) < context.quick_skin_count) {
-        context.preview_skin_id = gsl::at(context.quick_skin_choices, gsl::narrow_cast<size_t>(index));
+    const auto choice = gsl::narrow_cast<size_t>(index);
+    if (choice < context.quick_skin_count) {
+        context.preview_skin_id = gsl::at(context.quick_skin_choices, choice);
         UpdateSettingsSkinPreview(hwnd, context);
         return;
     }
