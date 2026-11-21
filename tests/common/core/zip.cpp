@@ -118,7 +118,7 @@ void TestEmptyAndMalformedZipEntries() {
     const auto later = FixtureOffsets(damaged_stream, 1);
     // Deflate block type 3 is reserved, so the second entry cannot be decoded.
     auto& block = gsl::at(damaged_stream, later.data);
-    block = static_cast<char>((gsl::narrow_cast<uint8_t>(block) & 0xf9u) | 0x06u);
+    block = gsl::narrow_cast<char>((gsl::narrow_cast<uint8_t>(block) & 0xf9u) | 0x06u);
     ExpectReadFailure(codec::AsByteSpan(damaged_stream));
 
     const auto single_entry = UncheckedZipFixture(std::span(valid).first(1));

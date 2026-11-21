@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <exception>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -17,8 +18,7 @@ namespace qiqi {
 namespace {
 constexpr long kPreviousPageRuntimeId = 0x40000000L;
 constexpr long kNextPageRuntimeId = kPreviousPageRuntimeId + 1;
-constexpr size_t kMaxCandidateRuntimeId =
-    static_cast<size_t>(kPreviousPageRuntimeId - 1);
+constexpr size_t kMaxCandidateRuntimeId{kPreviousPageRuntimeId - 1};
 
 std::wstring FormatPageStatus(
     UiLanguage language, size_t page_index, size_t page_count) {
@@ -80,18 +80,30 @@ HRESULT MakeRuntimeId(HWND hwnd, long child_id, SAFEARRAY** out) noexcept {
     return S_OK;
 }
 
-HRESULT PreserveFirstFailure(HRESULT current, HRESULT next) noexcept {
+constexpr HRESULT PreserveFirstFailure(HRESULT current, HRESULT next) noexcept {
     return SUCCEEDED(current) ? next : current;
 }
 
-void SetUiaBounds(const RECT& screen_rect, UiaRect* bounds) noexcept {
-    bounds->left = static_cast<double>(screen_rect.left);
-    bounds->top = static_cast<double>(screen_rect.top);
-    bounds->width =
-        static_cast<double>(screen_rect.right - screen_rect.left);
-    bounds->height =
-        static_cast<double>(screen_rect.bottom - screen_rect.top);
+constexpr VARIANT MakeEmptyAutomationVariant() noexcept {
+    // UIA takes a Win32 VARIANT by value; keep the reserved fields zero.
+#pragma warning(suppress : 26476)
+    return VARIANT{};
 }
+
+constexpr UiaRect ToUiaBounds(const RECT& screen_rect) noexcept {
+    const auto left = static_cast<double>(screen_rect.left);
+    const auto top = static_cast<double>(screen_rect.top);
+    return {left, top, static_cast<double>(screen_rect.right) - left,
+        static_cast<double>(screen_rect.bottom) - top};
+}
+
+static_assert([]() constexpr noexcept {
+    constexpr auto low = (std::numeric_limits<LONG>::min)();
+    constexpr auto high = (std::numeric_limits<LONG>::max)();
+    constexpr auto bounds = ToUiaBounds(RECT{low, low, high, high});
+    constexpr double extent = (std::numeric_limits<ULONG>::max)();
+    return bounds.width == extent && bounds.height == extent;
+}(), "UIA dimensions must support the full Win32 coordinate range.");
 } // namespace
 
 template <typename Derived, typename PatternInterface>
@@ -141,7 +153,7 @@ public:
     }
 
     STDMETHODIMP GetRuntimeId(SAFEARRAY** runtime_id) noexcept override {
-        CandidateUI* const owner = Owner();
+        const CandidateUI* const owner = Owner();
         if (!owner) return UIA_E_ELEMENTNOTAVAILABLE;
         return MakeRuntimeId(owner->WindowHandle(), runtime_id_, runtime_id);
     }
@@ -150,21 +162,16 @@ public:
         if (!bounds) return E_INVALIDARG;
         *bounds = {};
         if (!IsCurrent()) return UIA_E_ELEMENTNOTAVAILABLE;
-        const RECT rect =
-            static_cast<Derived*>(this)->AutomationRect();
+        // Like ComObjectBase, this CRTP base is used only by its concrete Derived.
+#pragma warning(suppress : 26466)
+        const RECT rect = static_cast<const Derived*>(this)->AutomationRect();
         POINT top_left{rect.left, rect.top};
         POINT bottom_right{rect.right, rect.bottom};
         if (owner_->WindowHandle() &&
             ::ClientToScreen(owner_->WindowHandle(), &top_left) &&
             ::ClientToScreen(owner_->WindowHandle(), &bottom_right)) {
-            SetUiaBounds(
-                RECT{
-                    top_left.x,
-                    top_left.y,
-                    bottom_right.x,
-                    bottom_right.y
-                },
-                bounds);
+            *bounds = ToUiaBounds(RECT{
+                top_left.x, top_left.y, bottom_right.x, bottom_right.y});
         }
         return S_OK;
     }
@@ -197,6 +204,12 @@ protected:
           runtime_id_(runtime_id),
           tree_revision_(owner ? owner->AutomationTreeRevision() : 0) {}
 
+    ~CandidateAutomationFragment() noexcept = default;
+    CandidateAutomationFragment(const CandidateAutomationFragment&) = delete;
+    CandidateAutomationFragment& operator=(const CandidateAutomationFragment&) = delete;
+    CandidateAutomationFragment(CandidateAutomationFragment&&) = delete;
+    CandidateAutomationFragment& operator=(CandidateAutomationFragment&&) = delete;
+
     [[nodiscard]] bool IsCurrent() const noexcept {
         return owner_ &&
             owner_->AutomationTreeRevision() == tree_revision_;
@@ -207,7 +220,7 @@ protected:
     }
 
     [[nodiscard]] bool IsOffscreen(const RECT& rect) const noexcept {
-        CandidateUI* const owner = Owner();
+        const CandidateUI* const owner = Owner();
         return !owner || !owner->is_shown_ || !owner->WindowHandle() ||
             !::IsWindowVisible(owner->WindowHandle()) ||
             rect.bottom <= 0 || rect.top >= owner->CurrentHeight();
@@ -251,7 +264,7 @@ public:
         PROPERTYID property_id, VARIANT* value) noexcept override {
         if (!value) return E_INVALIDARG;
         ::VariantInit(value);
-        CandidateUI* const owner = Owner();
+        const CandidateUI* const owner = Owner();
         if (!owner) return UIA_E_ELEMENTNOTAVAILABLE;
         switch (property_id) {
             case UIA_ControlTypePropertyId:
@@ -298,7 +311,7 @@ public:
 
     STDMETHODIMP get_IsSelected(BOOL* selected) noexcept override {
         if (!selected) return E_INVALIDARG;
-        CandidateUI* const owner = Owner();
+        const CandidateUI* const owner = Owner();
         if (!owner) return UIA_E_ELEMENTNOTAVAILABLE;
         *selected = owner->SelectedPageIndex() == page_index_;
         return S_OK;
@@ -316,7 +329,7 @@ public:
     }
 
     RECT AutomationRect() const noexcept {
-        CandidateUI* const owner = Owner();
+        const CandidateUI* const owner = Owner();
         return owner ? owner->CandidateRect(page_index_) : RECT{};
     }
 
@@ -353,7 +366,7 @@ public:
         PROPERTYID property_id, VARIANT* value) noexcept override {
         if (!value) return E_INVALIDARG;
         ::VariantInit(value);
-        CandidateUI* const owner = Owner();
+        const CandidateUI* const owner = Owner();
         if (!owner) return UIA_E_ELEMENTNOTAVAILABLE;
         switch (property_id) {
             case UIA_AutomationIdPropertyId:
@@ -404,7 +417,7 @@ public:
     }
 
     RECT AutomationRect() const noexcept {
-        CandidateUI* const owner = Owner();
+        const CandidateUI* const owner = Owner();
         if (!owner) return RECT{};
         return next_page_
             ? owner->NextPageButtonRect()
@@ -519,7 +532,7 @@ STDMETHODIMP CandidateUI::get_BoundingRectangle(UiaRect* bounds) noexcept {
     *bounds = {};
     RECT rect{};
     if (hwnd_ && ::GetWindowRect(hwnd_.Get(), &rect)) {
-        SetUiaBounds(rect, bounds);
+        *bounds = ToUiaBounds(rect);
     }
     return S_OK;
 }
@@ -850,10 +863,8 @@ HRESULT CandidateUI::RaiseAccessibilityPageChanged(
     }
 
     HRESULT result = S_OK;
-    VARIANT old_status{};
-    VARIANT new_status{};
-    ::VariantInit(&old_status);
-    ::VariantInit(&new_status);
+    auto old_status = MakeEmptyAutomationVariant();
+    auto new_status = MakeEmptyAutomationVariant();
     const auto clear_variants = gsl::finally([&]() noexcept {
         std::ignore = ::VariantClear(&old_status);
         std::ignore = ::VariantClear(&new_status);
@@ -889,10 +900,8 @@ HRESULT CandidateUI::RaiseAccessibilityPageChanged(
                 FAILED(operation_hr) ? operation_hr : E_FAIL);
             return;
         }
-        VARIANT old_value{};
-        VARIANT new_value{};
-        ::VariantInit(&old_value);
-        ::VariantInit(&new_value);
+        auto old_value = MakeEmptyAutomationVariant();
+        auto new_value = MakeEmptyAutomationVariant();
         old_value.vt = VT_BOOL;
         old_value.boolVal = old_enabled;
         new_value.vt = VT_BOOL;

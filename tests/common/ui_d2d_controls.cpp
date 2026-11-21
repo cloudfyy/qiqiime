@@ -158,7 +158,7 @@ void TestReusableUiTextAndControls() {
         0, L"EDIT", L"", WS_CHILD,
         0, 0, 50, 20, parent.Get(),
         reinterpret_cast<HMENU>(
-            static_cast<UINT_PTR>(std::to_underlying(TestControlId::Child))),
+            UINT_PTR{std::to_underlying(TestControlId::Child)}),
         instance, nullptr));
     QIQI_TEST_CHECK(child);
     QIQI_TEST_CHECK(

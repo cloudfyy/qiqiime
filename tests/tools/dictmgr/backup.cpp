@@ -11,6 +11,7 @@
 #include <exception>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 
 #undef QIQI_TEST_CHECK
 #define QIQI_TEST_CHECK(expr) do { \
@@ -93,8 +94,9 @@ void WriteRestoreBundle(
 
 namespace {
 std::string DeflatedZipFixture(bool corrupt_crc = false) {
+    using namespace std::string_view_literals;
     // Python zipfile ZIP_DEFLATED output containing 4096 copies of 'a'.
-    constexpr char bytes[] =
+    constexpr std::string_view bytes =
         "\x50\x4b\x03\x04\x14\x00\x00\x00\x08\x00\x00\x00\x21\x5c\x73\xdc"
         "\x99\x9c\x16\x00\x00\x00\x00\x10\x00\x00\x0b\x00\x00\x00\x70\x61"
         "\x79\x6c\x6f\x61\x64\x2e\x74\x78\x74\xed\xc1\x01\x0d\x00\x00\x00"
@@ -103,8 +105,8 @@ std::string DeflatedZipFixture(bool corrupt_crc = false) {
         "\xdc\x99\x9c\x16\x00\x00\x00\x00\x10\x00\x00\x0b\x00\x00\x00\x00"
         "\x00\x00\x00\x00\x00\x00\x00\x80\x01\x00\x00\x00\x00\x70\x61\x79"
         "\x6c\x6f\x61\x64\x2e\x74\x78\x74\x50\x4b\x05\x06\x00\x00\x00\x00"
-        "\x01\x00\x01\x00\x39\x00\x00\x00\x3f\x00\x00\x00\x00\x00";
-    std::string archive(bytes, sizeof(bytes) - 1);
+        "\x01\x00\x01\x00\x39\x00\x00\x00\x3f\x00\x00\x00\x00\x00"sv;
+    std::string archive(bytes);
     if (corrupt_crc) {
         const auto central = archive.find(std::string("\x50\x4b\x01\x02", 4));
         QIQI_TEST_CHECK(central != std::string::npos);
@@ -131,7 +133,7 @@ void TestZipCompression() {
     QIQI_TEST_CHECK(central != std::string::npos);
     const auto excessive_size = gsl::narrow_cast<uint32_t>(kMaxZipEntryBytes + 1);
     for (size_t index = 0; index < 4; ++index) {
-        const auto byte = static_cast<char>((excessive_size >> (index * 8)) & 0xffu);
+        const auto byte = gsl::narrow_cast<char>((excessive_size >> (index * 8)) & 0xffu);
         gsl::at(oversized, 22 + index) = byte;
         gsl::at(oversized, central + 24 + index) = byte;
     }
@@ -536,7 +538,7 @@ void RunBackupRestoreResults() {
     const size_t shifted_eocd = eocd + 1;
     for (size_t index = 0; index < 4; ++index) {
         gsl::at(gapped_archive, shifted_eocd + 16 + index) =
-            static_cast<char>(
+            gsl::narrow_cast<char>(
                 ((directory_offset + 1) >> (index * 8)) & 0xffu);
     }
     std::vector<ZipArchiveEntry> padded_entries;
@@ -544,17 +546,16 @@ void RunBackupRestoreResults() {
         codec::AsByteSpan(gapped_archive), padded_entries) == S_OK);
     QIQI_TEST_CHECK(padded_entries.size() == 4);
 
+    constexpr char unsupported_method{99};
     std::string unsupported_archive = good_archive;
     const auto local_header = unsupported_archive.find(
         std::string("\x50\x4b\x03\x04", 4));
     QIQI_TEST_CHECK(local_header != std::string::npos);
-    gsl::at(unsupported_archive, local_header + 8) =
-        static_cast<char>(99);
+    gsl::at(unsupported_archive, local_header + 8) = unsupported_method;
     const auto central_header = unsupported_archive.find(
         std::string("\x50\x4b\x01\x02", 4));
     QIQI_TEST_CHECK(central_header != std::string::npos);
-    gsl::at(unsupported_archive, central_header + 10) =
-        static_cast<char>(99);
+    gsl::at(unsupported_archive, central_header + 10) = unsupported_method;
     const auto unsupported_backup = WriteArchiveFixture(directory / L"unsupported-method.zip", unsupported_archive);
     QIQI_TEST_CHECK(
         model.RestoreBackupBundle(

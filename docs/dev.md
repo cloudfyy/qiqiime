@@ -240,6 +240,10 @@ fixture, without unrelated native/Shift tests preceding them. From the repositor
 root, run `.\build\x64\Release\qiqi_tsf_ui_test.exe --candidate-layout-tests`
 (or x86). It retains its own `candidate-layout` log under `test-logs`; it does not
 replace a failed full or focused CTest result.
+Candidate UI Automation reports root and fragment bounds from the same
+conversion: widen the Win32 coordinates before subtracting. A compile-time
+check covers the full Win32 coordinate span without creating a huge window.
+
 Candidate popup light-dismiss regressions use a scoped, current-process/thread
 WinEvent hook to check native IME show/hide/change ordering and HWND/object/child
 identifiers. They cover repeated calls, unchanged and hidden geometry, movement,

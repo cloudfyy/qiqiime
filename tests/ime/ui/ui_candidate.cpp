@@ -924,7 +924,7 @@ void TestCandidateUI() {
 }
 
 std::wstring ReadAutomationString(
-    IRawElementProviderSimple* provider, PROPERTYID property_id) {
+    gsl::not_null<IRawElementProviderSimple*> provider, PROPERTYID property_id) {
     VARIANT value;
     ::VariantInit(&value);
     const auto clear = gsl::finally([&]() noexcept {
@@ -936,7 +936,7 @@ std::wstring ReadAutomationString(
 }
 
 bool ReadAutomationBool(
-    IRawElementProviderSimple* provider, PROPERTYID property_id) {
+    gsl::not_null<IRawElementProviderSimple*> provider, PROPERTYID property_id) {
     VARIANT value;
     ::VariantInit(&value);
     const auto clear = gsl::finally([&]() noexcept {
@@ -948,24 +948,24 @@ bool ReadAutomationBool(
 }
 
 ComPtr<IRawElementProviderSimple> AsAutomationSimple(
-    IRawElementProviderFragment* fragment) {
+    gsl::not_null<IRawElementProviderFragment*> fragment) {
     ComPtr<IRawElementProviderSimple> simple;
     QIQI_TEST_CHECK(fragment->QueryInterface(IID_PPV_ARGS(&simple)) == S_OK &&
                     simple);
     return simple;
 }
 
-std::wstring ReadAutomationId(IRawElementProviderFragment* fragment) {
+std::wstring ReadAutomationId(gsl::not_null<IRawElementProviderFragment*> fragment) {
     return ReadAutomationString(
         AsAutomationSimple(fragment).Get(), UIA_AutomationIdPropertyId);
 }
 
-std::wstring ReadAutomationName(IRawElementProviderFragment* fragment) {
+std::wstring ReadAutomationName(gsl::not_null<IRawElementProviderFragment*> fragment) {
     return ReadAutomationString(
         AsAutomationSimple(fragment).Get(), UIA_NamePropertyId);
 }
 
-long ReadAutomationRuntimeChild(IRawElementProviderFragment* fragment) {
+long ReadAutomationRuntimeChild(gsl::not_null<IRawElementProviderFragment*> fragment) {
     SAFEARRAY* runtime_id = nullptr;
     QIQI_TEST_CHECK(fragment->GetRuntimeId(&runtime_id) == S_OK && runtime_id);
     const auto destroy_runtime_id = gsl::finally([&]() noexcept {
@@ -1489,8 +1489,8 @@ void TestCandidatePagingAccessibilityContracts() {
     QIQI_TEST_CHECK(::GetWindowRect(ui->WindowHandle(), &window_rect));
     ComPtr<IRawElementProviderFragment> hit_root;
     QIQI_TEST_CHECK(root->ElementProviderFromPoint(
-                        window_rect.left + 2,
-                        window_rect.top + 2,
+                        window_rect.left + 2.0,
+                        window_rect.top + 2.0,
                         hit_root.GetAddressOf()) == S_OK &&
                     hit_root);
     QIQI_TEST_CHECK(ReadAutomationId(hit_root.Get()) ==
@@ -1505,8 +1505,9 @@ void TestCandidatePagingAccessibilityContracts() {
         AsAutomationSimple(previous.Get());
     ProviderOptions provider_options{};
     QIQI_TEST_CHECK(previous_simple->get_ProviderOptions(
-                        &provider_options) == S_OK &&
-                    provider_options == ProviderOptions_ServerSideProvider);
+                        &provider_options) == S_OK);
+    QIQI_TEST_CHECK((provider_options & ProviderOptions_ServerSideProvider) != 0);
+    QIQI_TEST_CHECK((provider_options & ~ProviderOptions_ServerSideProvider) == 0);
     QIQI_TEST_CHECK(previous_simple->GetPropertyValue(
                         UIA_NamePropertyId, nullptr) == E_INVALIDARG);
     ComPtr<IRawElementProviderSimple> host_provider;
