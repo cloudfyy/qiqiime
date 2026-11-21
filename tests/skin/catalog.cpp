@@ -74,6 +74,17 @@ void TestImeSkins() {
         QIQI_TEST_CHECK(actual && actual->name_zh == expected.name_zh && actual->name_en == expected.name_en);
         QIQI_TEST_CHECK(actual->display_order == expected.display_order && actual->palettes == expected.palettes);
         for (const SkinPalette* palette : {&actual->palettes.light, &actual->palettes.dark}) {
+            for (const auto role : {SkinColor::CodeText, SkinColor::CandidateText, SkinColor::SecondaryText,
+                    SkinColor::EmptyText, SkinColor::PageEnabledText, SkinColor::PageDisabledText}) {
+                QIQI_TEST_CHECK(ColorContrastRatio(palette->Get(role),
+                    palette->Get(SkinColor::Background)) >= 4.5);
+            }
+            QIQI_TEST_CHECK(ColorContrastRatio(palette->Get(SkinColor::SelectedText),
+                palette->Get(SkinColor::SelectedBackground)) >= 4.5);
+            QIQI_TEST_CHECK(ColorContrastRatio(palette->Get(SkinColor::MenuHoverText),
+                palette->Get(SkinColor::MenuHoverBackground)) >= 4.5);
+            QIQI_TEST_CHECK(ColorContrastRatio(palette->Get(SkinColor::SelectedBorder),
+                palette->Get(SkinColor::Background)) >= 3.0);
             for (const COLORREF color : palette->colors) {
                 const DWORD rgb24 = ColorRefToRgb24(color);
                 QIQI_TEST_CHECK((rgb24 & 0xff000000u) == 0 && Rgb24ToColorRef(rgb24) == color);
@@ -253,10 +264,22 @@ void TestImeSkins() {
     QIQI_TEST_CHECK(ResolveImeSkinAppearance({}, last_good).colors == last_good->palettes.light);
     QIQI_TEST_CHECK(ResolveImeSkinAppearance({}, last_good, SystemThemeSource::Windows).colors == last_good->palettes.dark);
     QIQI_TEST_CHECK(ResolveImeSkinAppearance({UiTheme::Dark}, last_good).colors == last_good->palettes.dark);
-    QIQI_TEST_CHECK(ResolveImeSkinAppearance({UiTheme::HighContrast}, last_good).display.high_contrast);
+    const auto app_contrast = ResolveImeSkinAppearance({UiTheme::HighContrast}, last_good);
+    QIQI_TEST_CHECK(app_contrast.display.high_contrast);
+    for (const auto& [text, background] : {
+            std::pair{app_contrast.display.palette.text_primary, app_contrast.display.palette.window_bg},
+            std::pair{app_contrast.display.palette.text_secondary, app_contrast.display.palette.surface_bg},
+            std::pair{app_contrast.display.palette.text_accent, app_contrast.display.palette.window_bg},
+            std::pair{app_contrast.display.palette.selection_text, app_contrast.display.palette.selection_bg}}) {
+        QIQI_TEST_CHECK(ColorContrastRatio(text, background) >= 7.0);
+    }
     SetHighContrastOverrideForTest(true);
-    QIQI_TEST_CHECK(ResolveImeSkinAppearance({UiTheme::Light}, last_good).colors.Get(SkinColor::Background) ==
-        ::GetSysColor(COLOR_WINDOW));
+    const auto system_contrast = ResolveImeSkinAppearance({UiTheme::Light}, last_good);
+    QIQI_TEST_CHECK(system_contrast.display.system_high_contrast &&
+        system_contrast.colors.Get(SkinColor::Background) == ::GetSysColor(COLOR_WINDOW) &&
+        system_contrast.colors.Get(SkinColor::CandidateText) == ::GetSysColor(COLOR_WINDOWTEXT) &&
+        system_contrast.colors.Get(SkinColor::SelectedBackground) == ::GetSysColor(COLOR_HIGHLIGHT) &&
+        system_contrast.colors.Get(SkinColor::SelectedText) == ::GetSysColor(COLOR_HIGHLIGHTTEXT));
 }
 
 } // namespace qiqi::test::common_cases

@@ -1331,21 +1331,55 @@ void TestQuickSettingsMenuSkin() {
         const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
         const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), bounds.right, bounds.bottom));
         QIQI_TEST_CHECK(dc && bitmap);
-        const ScopedSelectObject selected_bitmap(dc.Get(), bitmap.Get());
-        DRAWITEMSTRUCT draw{};
-        draw.CtlType = ODT_BUTTON;
-        draw.CtlID = static_cast<UINT>(LangBarMenuId::ToggleChinese);
-        draw.hwndItem = button;
-        draw.hDC = dc.Get();
-        draw.rcItem = bounds;
-        draw.itemState = ODS_SELECTED;
-        ::SendMessageW(menu, WM_DRAWITEM, draw.CtlID, reinterpret_cast<LPARAM>(&draw));
-        QIQI_TEST_CHECK(::GetPixel(dc.Get(), 0, 0) == palette.Get(SkinColor::MenuHoverBackground));
+        const auto count_painted_pixels = [&](UINT state, COLORREF expected, const RECT& area,
+            bool exclude_expected = false) {
+            const ScopedSelectObject selected_bitmap(dc.Get(), bitmap.Get());
+            DRAWITEMSTRUCT draw{};
+            draw.CtlType = ODT_BUTTON;
+            draw.CtlID = static_cast<UINT>(LangBarMenuId::ToggleChinese);
+            draw.hwndItem = button;
+            draw.hDC = dc.Get();
+            draw.rcItem = bounds;
+            draw.itemState = state;
+            ::SendMessageW(menu, WM_DRAWITEM, draw.CtlID, reinterpret_cast<LPARAM>(&draw));
+            const int left = std::max(0L, area.left);
+            const int right = std::min(bounds.right, area.right);
+            const int top = std::max(0L, area.top);
+            const int bottom = std::min(bounds.bottom, area.bottom);
+            size_t matches = 0;
+            for (int y = top; y < bottom; ++y) {
+                for (int x = left; x < right; ++x) {
+                    const bool match = ::GetPixel(dc.Get(), x, y) == expected;
+                    if (match != exclude_expected) ++matches;
+                }
+            }
+            return matches;
+        };
+        QIQI_TEST_CHECK(count_painted_pixels(ODS_SELECTED,
+            palette.Get(SkinColor::MenuHoverBackground), bounds) > 0);
+        QIQI_TEST_CHECK(count_painted_pixels(ODS_SELECTED,
+            palette.Get(SkinColor::MenuHoverText), bounds) > 0);
+        QIQI_TEST_CHECK(count_painted_pixels(ODS_DISABLED,
+            palette.Get(SkinColor::PageDisabledText), bounds) > 0);
+        QIQI_TEST_CHECK(count_painted_pixels(ODS_FOCUS,
+            palette.Get(SkinColor::SelectedBorder), bounds) > 0);
+        const RECT gutter{0, 0, bounds.bottom, bounds.bottom};
+        QIQI_TEST_CHECK(count_painted_pixels(0,
+            palette.Get(SkinColor::Background), gutter, true) > 0);
+
+        SetHighContrastOverrideForTest(true);
+        ::SendMessageW(menu, WM_SETTINGCHANGE, 0, 0);
+        QIQI_TEST_CHECK(count_painted_pixels(
+            ODS_SELECTED, ::GetSysColor(COLOR_HIGHLIGHT), bounds) > 0);
+        QIQI_TEST_CHECK(count_painted_pixels(
+            ODS_SELECTED, ::GetSysColor(COLOR_HIGHLIGHTTEXT), bounds) > 0);
+        SetHighContrastOverrideForTest(false);
         ::SendMessageW(menu, WM_CLOSE, 0, 0);
     });
     QIQI_TEST_CHECK(timer != 0);
     const auto stop = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
     LangBarState state;
+    state.chinese_mode = true;
     state.skin_snapshot = ImeSkinSnapshot{skin.id, skin.palettes};
     LangBarButton::ShowSharedPopupMenu(state, POINT{200, 200}, [](LangBarMenuId) noexcept {});
     QIQI_TEST_CHECK(observed);

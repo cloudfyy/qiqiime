@@ -298,6 +298,26 @@ COLORREF PaintCandidatePixel(const CandidateUI& ui, POINT point) {
     return ::GetPixel(dc.Get(), point.x, point.y);
 }
 
+bool CandidateFrameContainsColor(const CandidateUI& ui, const RECT& requested, COLORREF expected) {
+    const ScopedWindowDC screen(nullptr);
+    const int width = std::max(1, ui.CurrentWidth());
+    const int height = std::max(1, ui.CurrentHeight());
+    const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+    const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), width, height));
+    QIQI_TEST_CHECK(screen && dc && bitmap);
+    const ScopedSelectObject select_bitmap(dc.Get(), bitmap.Get());
+    RECT bounds{};
+    const RECT client{0, 0, width, height};
+    if (!::IntersectRect(&bounds, &requested, &client)) return false;
+    ::SendMessageW(ui.WindowHandle(), WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc.Get()), PRF_CLIENT);
+    for (int y = bounds.top; y < bounds.bottom; ++y) {
+        for (int x = bounds.left; x < bounds.right; ++x) {
+            if (::GetPixel(dc.Get(), x, y) == expected) return true;
+        }
+    }
+    return false;
+}
+
 struct CandidateRefreshTrace {
     unsigned int frame_changes = 0;
     unsigned int visibility_changes = 0;
@@ -519,6 +539,82 @@ void TestCandidateSkinRepainting() {
             QIQI_TEST_CHECK(ui->GetSelection(&selection) == S_OK && selection == 3);
             QIQI_TEST_CHECK(::GetFocus() == focus);
         }
+    }
+}
+
+void TestCandidateSkinStates() {
+    const TsfTestCaseTrace trace(__func__);
+    const auto previous_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(),
+        MonitorMetrics{RECT{0, 0, 1600, 1200}, 144});
+    const auto restore = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(previous_monitor);
+        SetHighContrastOverrideForTest(std::nullopt);
+    });
+    SetHighContrastOverrideForTest(false);
+    const auto& skin = GetBuiltinImeSkins().front();
+    const auto& palette = skin.palettes.light;
+
+    for (const bool gdi : {false, true}) {
+        const auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+        if (gdi) ui->DisableDirect2DForTest();
+        ui->SetUiLanguage(UiLanguage::EnUs);
+        ui->SetDisplayPreferences(UiTheme::Light, UiTextScale::Percent150, true);
+        ui->SetLayout(CandidateLayout::Vertical);
+        ui->SetSkinSnapshot(ImeSkinSnapshot{skin.id, skin.palettes});
+
+        ui->SetCandidates(L"ab", {L"One", L"Two", L"Three", L"Four"}, 2, 0, 1);
+        ui->MoveWindowTo(RECT{100, 100, 102, 120});
+        QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+        auto items = ui->PaintItemsForTest();
+        QIQI_TEST_CHECK(items.size() == 5);
+        QIQI_TEST_CHECK(gsl::at(items, 0).color_role == SkinColor::CodeText);
+        QIQI_TEST_CHECK(CandidatePaintTextColor(
+            palette, gsl::at(items, 0)) == palette.Get(SkinColor::CodeText));
+        QIQI_TEST_CHECK(gsl::at(items, 1).color_role == SkinColor::CandidateText &&
+                        !gsl::at(items, 1).selected);
+        QIQI_TEST_CHECK(gsl::at(items, 2).selected &&
+            CandidatePaintTextColor(palette, gsl::at(items, 2)) ==
+                palette.Get(SkinColor::SelectedText));
+        QIQI_TEST_CHECK(!gsl::at(items, 3).enabled && gsl::at(items, 4).enabled);
+        QIQI_TEST_CHECK(CandidatePaintTextColor(
+            palette, gsl::at(items, 3)) == palette.Get(SkinColor::PageDisabledText));
+        QIQI_TEST_CHECK(CandidatePaintTextColor(
+            palette, gsl::at(items, 4)) == palette.Get(SkinColor::PageEnabledText));
+        QIQI_TEST_CHECK(PaintCandidatePixel(
+            *ui.Get(), POINT{2, 2}) == palette.Get(SkinColor::Background));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), gsl::at(items, 0).rect, palette.Get(SkinColor::CodeText)));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), gsl::at(items, 1).rect, palette.Get(SkinColor::CandidateText)));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), gsl::at(items, 2).rect, palette.Get(SkinColor::SelectedBackground)));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), gsl::at(items, 2).rect, palette.Get(SkinColor::SelectedText)));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), gsl::at(items, 2).rect, palette.Get(SkinColor::SelectedBorder)));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), gsl::at(items, 3).rect, palette.Get(SkinColor::PageDisabledText)));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), gsl::at(items, 4).rect, palette.Get(SkinColor::PageEnabledText)));
+
+        ui->SetCandidates(L"ab", {L"One", L"Two", L"Three", L"Four"}, 2, 1, 0);
+        items = ui->PaintItemsForTest();
+        QIQI_TEST_CHECK(items.size() == 5 &&
+            gsl::at(items, 3).enabled && !gsl::at(items, 4).enabled);
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), gsl::at(items, 3).rect, palette.Get(SkinColor::PageEnabledText)));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), gsl::at(items, 4).rect, palette.Get(SkinColor::PageDisabledText)));
+
+        ui->SetCandidates(L"ab", {}, 2, 0, 0);
+        items = ui->PaintItemsForTest();
+        QIQI_TEST_CHECK(items.size() == 2);
+        QIQI_TEST_CHECK(gsl::at(items, 1).color_role == SkinColor::EmptyText &&
+            !gsl::at(items, 1).selected);
+        QIQI_TEST_CHECK(CandidatePaintTextColor(
+            palette, gsl::at(items, 1)) == palette.Get(SkinColor::EmptyText));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), gsl::at(items, 1).rect, palette.Get(SkinColor::EmptyText)));
     }
 }
 
@@ -1827,7 +1923,10 @@ void TestCandidateUilessContract() {
 
 } // namespace
 
-void RunCandidateSkinTests() { TestCandidateSkinRepainting(); }
+void RunCandidateSkinTests() {
+    TestCandidateSkinRepainting();
+    TestCandidateSkinStates();
+}
 
 void RunCandidateUITests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);

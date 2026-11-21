@@ -210,6 +210,7 @@ public:
     }
     bool IsDirectWriteActive() const noexcept { return dwrite_text_format_.IsValid() && d2d_dc_target_.IsValid(); }
     void DisableDirect2DForTest() noexcept { d2d_dc_target_.Reset(); }
+    std::vector<CandidatePaintItem> PaintItemsForTest() const { return BuildPaintItems(); }
     void SetAccessibilityEventObserverForTest(std::function<void(EVENTID)> observer) noexcept {
         accessibility_event_observer_for_test_ = std::move(observer);
     }

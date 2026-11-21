@@ -12,6 +12,31 @@ namespace {
 thread_local bool picker_seen = false;
 thread_local bool accept_skin = false;
 
+bool CandidatePreviewContainsColor(HWND settings, int control_id, COLORREF expected) {
+    const HWND preview = ::GetDlgItem(settings, control_id);
+    RECT bounds{};
+    QIQI_TEST_CHECK(preview && ::GetClientRect(preview, &bounds));
+    const ScopedWindowDC screen(preview);
+    const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+    const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(
+        screen.Get(), bounds.right, bounds.bottom));
+    QIQI_TEST_CHECK(screen && dc && bitmap);
+    const ScopedSelectObject selected_bitmap(dc.Get(), bitmap.Get());
+    DRAWITEMSTRUCT item{};
+    item.CtlType = ODT_STATIC;
+    item.CtlID = gsl::narrow_cast<UINT>(control_id);
+    item.hwndItem = preview;
+    item.hDC = dc.Get();
+    item.rcItem = bounds;
+    ::SendMessageW(settings, WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item));
+    for (int y = bounds.top; y < bounds.bottom; ++y) {
+        for (int x = bounds.left; x < bounds.right; ++x) {
+            if (::GetPixel(dc.Get(), x, y) == expected) return true;
+        }
+    }
+    return false;
+}
+
 void ChooseFromMore(HWND settings, bool accept) {
     using namespace settings_detail;
     picker_seen = false;
@@ -93,6 +118,14 @@ void RunSettingsSkinTests() {
     ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(kIdComboImeSkin, CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(context->preview_skin_id == ImeSkinId::Firefly && config.ime_skin_id == ImeSkinId::Default);
     QIQI_TEST_CHECK(context->d2d.appearance.palette.window_bg == kLightThemePalette.window_bg);
+    const auto& firefly = GetBuiltinImeSkins().front().palettes.light;
+    QIQI_TEST_CHECK(context->candidate_skin_colors == firefly);
+    for (const auto role : {SkinColor::Background, SkinColor::CodeText, SkinColor::CandidateText,
+            SkinColor::SelectedBackground, SkinColor::SelectedText, SkinColor::SelectedBorder,
+            SkinColor::PageEnabledText}) {
+        QIQI_TEST_CHECK(CandidatePreviewContainsColor(
+            window.Get(), kIdSkinCandidatePreview, firefly.Get(role)));
+    }
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() == sequence);
     ChooseFromMore(window.Get(), false);
     QIQI_TEST_CHECK(context->preview_skin_id == ImeSkinId::Firefly && QueryRegistryConfigSequence() == sequence);

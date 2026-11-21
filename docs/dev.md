@@ -151,7 +151,10 @@ Before starting the native executable, the watchdog verifies all 21 stable
 skin IDs, 42 Light/Dark variants, and 546 explicit fields across the design
 table, C++ built-ins and UTF-16LE registry template. The native collection then
 checks conversion, isolated-registry round trips, malformed/missing data,
-denied access, publication rollback, and live snapshot refresh.
+denied access, publication rollback, live snapshot refresh, first/last/empty
+candidate states, Direct2D/GDI color roles, quick-menu hover/check/disabled/focus
+drawing, preview save/cancel boundaries, contrast thresholds, and both
+application and Windows high-contrast color paths.
 General configuration-field projections remain in Common and Settings.
 
 ```powershell

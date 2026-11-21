@@ -364,12 +364,22 @@ each behavior change rather than postponing all testing until the final gate.
   configuration notification updates the live candidate appearance without
   changing page, selection or composition. The expanded collection passed
   serial Release runs on x64 and x86.
-- [ ] Verify first/last/empty candidate states, code title and paging colors,
+- [x] Verify first/last/empty candidate states, code title and paging colors,
   selected border, menu hover/check/disabled/focus states, and preview/save/
   cancel behavior. Check text roles at least 4.5:1 and selected-border versus
   ordinary background at least 3:1; do not substitute the decorative outer
   border for that measurement. Preserve the existing app high-contrast 7:1
   target and Windows system-color behavior.
+  `QiQiSkinTest` now inspects the candidate paint model and real Direct2D/GDI
+  frames for first, last and empty states, including title, candidate, selected
+  background/text/border, enabled/disabled paging and empty-message roles.
+  The custom-menu test paints hover, checked gutter, disabled text and keyboard
+  focus, then verifies Windows system high-contrast colors. Settings coverage
+  checks preview pixels plus cancel/save persistence boundaries. Every Light
+  and Dark palette is checked explicitly at 4.5:1 for text and 3:1 for the
+  selected border; skin-resolved app high contrast is checked at 7:1 and the
+  Windows path is checked against system colors. Serial Release runs passed on
+  x64 and x86.
 - [ ] Cover all four Windows/App mode combinations, explicit Light/Dark,
   candidate/preview App-mode behavior independent of host identity, unchanged
   Windows-mode custom menus,
