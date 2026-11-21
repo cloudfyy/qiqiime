@@ -1422,14 +1422,14 @@ void TestQuickSettingsMenuQuitMessage() {
         ::PostQuitMessage(42);
     });
     QIQI_TEST_CHECK(timer != 0);
-    const auto cancel_timer = gsl::finally([&]() { ::KillTimer(nullptr, timer); });
+    const auto cancel_timer = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
     LangBarButton::ShowSharedPopupMenu(LangBarState{}, POINT{200, 200}, [](LangBarMenuId) {
         QIQI_TEST_CHECK(false);
     });
     QIQI_TEST_CHECK(FindQuickSettingsMenu() == nullptr);
+    QIQI_TEST_CHECK(::PostThreadMessageW(::GetCurrentThreadId(), WM_APP, 0, 0));
+    CheckQuitMessage(42);
     MSG message{};
-    QIQI_TEST_CHECK(::PeekMessageW(&message, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE));
-    QIQI_TEST_CHECK(message.message == WM_QUIT && message.wParam == 42);
     QIQI_TEST_CHECK(!::PeekMessageW(&message, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE));
 }
 

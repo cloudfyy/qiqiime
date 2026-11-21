@@ -284,18 +284,6 @@ void TestSettingsDirtyTitle() {
     }
 }
 
-void CheckQuitMessage(int exit_code) {
-    MSG msg{};
-    // WM_QUIT is synthesized only after higher-priority queued messages are removed.
-    while (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-        if (msg.message == WM_QUIT) break;
-        ::TranslateMessage(&msg);
-        ::DispatchMessageW(&msg);
-    }
-    QIQI_TEST_CHECK(msg.message == WM_QUIT);
-    QIQI_TEST_CHECK(msg.wParam == static_cast<WPARAM>(exit_code));
-}
-
 void TestModalLoopTermination() {
     QIQI_TEST_CHECK(::PostThreadMessageW(::GetCurrentThreadId(), WM_APP, 0, 0));
     ::PostQuitMessage(29);

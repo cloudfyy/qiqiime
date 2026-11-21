@@ -97,6 +97,18 @@ inline void ReportTestCleanupFailure(const char* file, int line, const char* exp
 
 namespace qiqi::test {
 
+inline void CheckQuitMessage(WPARAM exit_code) {
+    MSG message{};
+    // WM_QUIT is synthesized only after higher-priority queued messages are removed.
+    while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+        if (message.message == WM_QUIT) break;
+        ::TranslateMessage(&message);
+        ::DispatchMessageW(&message);
+    }
+    QIQI_TEST_CHECK(message.message == WM_QUIT);
+    QIQI_TEST_CHECK(message.wParam == exit_code);
+}
+
 inline std::wstring ControlText(HWND control) {
     QIQI_TEST_CHECK(::IsWindow(control));
     ::SetLastError(ERROR_SUCCESS);

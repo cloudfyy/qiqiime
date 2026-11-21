@@ -29,6 +29,20 @@ void PrintRestoreFixtureTrace(std::span<const qiqi::test::LogEvent> events) {
     }
     std::cerr << std::flush;
 }
+
+void CheckArchiveFixtureWrite(const std::filesystem::path& path, HRESULT hr) {
+    if (FAILED(hr)) {
+        std::cerr << std::format("[FIXTURE-FAIL] stage=write-archive, file=\"{}\", hr=0x{:08X}\n",
+            WideToUtf8(path.filename().native()), gsl::narrow_cast<uint32_t>(hr)) << std::flush;
+    }
+    QIQI_TEST_CHECK(SUCCEEDED(hr));
+}
+
+std::filesystem::path WriteArchiveFixture(
+    std::filesystem::path path, std::string_view bytes) {
+    CheckArchiveFixtureWrite(path, WriteFileAtomicallyResult(path, codec::AsByteSpan(bytes)));
+    return path;
+}
 } // namespace
 
 std::string BackupManifest(bool has_custom = false) {
@@ -74,7 +88,7 @@ void WriteRestoreBundle(
             std::string(detail::kBackupCustomPrimaryTextEntry),
             bytes(*custom_primary)});
     }
-    QIQI_TEST_CHECK(SUCCEEDED(WriteZipArchiveFileResult(path, entries)));
+    CheckArchiveFixtureWrite(path, WriteZipArchiveFileResult(path, entries));
 }
 
 namespace {
@@ -238,6 +252,7 @@ void RunBackupRestoreResults() {
 
     reset();
     for (const bool maximum : {false, true}) {
+        const auto config_backup = directory / (maximum ? L"max-config.zip" : L"min-config.zip");
         QiQiConfig expected = LoadConfig();
         ForEachConfigField([&](const auto& field) {
             QIQI_TEST_CHECK(field.Assign(expected, maximum ? field.maximum : field.minimum));
@@ -245,9 +260,9 @@ void RunBackupRestoreResults() {
         expected.primary_dict = PrimaryDict::Jidian;
         expected.user_dict_path = L"not-in-backup.txt";
         QIQI_TEST_CHECK(SaveConfig(expected));
-        QIQI_TEST_CHECK(model.CreateBackupBundle(backup));
+        CheckArchiveFixtureWrite(config_backup, model.CreateBackupBundleResult(config_backup));
         std::vector<ZipArchiveEntry> entries;
-        QIQI_TEST_CHECK(SUCCEEDED(ReadZipArchiveFileResult(backup, entries)));
+        QIQI_TEST_CHECK(SUCCEEDED(ReadZipArchiveFileResult(config_backup, entries)));
         QIQI_TEST_CHECK(entries.size() == 4);
         const auto config_entry = std::ranges::find_if(
             entries, [](const ZipArchiveEntry& entry) {
@@ -268,7 +283,8 @@ void RunBackupRestoreResults() {
                 field.Value(archived) == field.Value(expected));
         });
         QIQI_TEST_CHECK(SaveConfig(QiQiConfig{}));
-        QIQI_TEST_CHECK(model.RestoreBackupBundle(backup, BackupConflictMode::Merge).status == BackupRestoreStatus::Success);
+        QIQI_TEST_CHECK(model.RestoreBackupBundle(config_backup, BackupConflictMode::Merge).status ==
+            BackupRestoreStatus::Success);
         const auto restored = LoadConfig();
         ForEachConfigField([&](const auto& field) {
             QIQI_TEST_CHECK(field.Value(restored) == field.Value(expected));
@@ -277,14 +293,16 @@ void RunBackupRestoreResults() {
     }
     const QiQiConfig before_invalid = LoadConfig();
     const uint64_t sequence_before_invalid = QueryRegistryConfigSequence();
+    size_t invalid_config_index = 0;
     for (const auto* invalid_config : {
              R"({"format":"qiqiime-config","version":1,"settings":{"page_size":0}})",
              R"({"format":"qiqiime-config","version":1,"settings":{"future_numeric_key":123}})",
              R"({"format":"qiqiime-config","version":1,"settings":{"log_level":6}})",
              R"({"format":"qiqiime-config","version":1,"settings":{"page_size":7,"page_size":8}})"}) {
-        WriteRestoreBundle(backup, invalid_config);
+        const auto config_backup = directory / std::format(L"invalid-config-{}.zip", ++invalid_config_index);
+        WriteRestoreBundle(config_backup, invalid_config);
         const auto result =
-            model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
+            model.RestoreBackupBundle(config_backup, BackupConflictMode::Merge);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Failed &&
             result.stage == BackupRestoreStage::Validate &&
             QueryRegistryConfigSequence() == sequence_before_invalid);
@@ -405,9 +423,7 @@ void RunBackupRestoreResults() {
         QIQI_TEST_CHECK(locked_backup);
         const HRESULT create_result =
                 model.CreateBackupBundleResult(backup);
-        QIQI_TEST_CHECK(
-                create_result == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) ||
-                create_result == E_ACCESSDENIED);
+        QIQI_TEST_CHECK(sharing_failure(create_result));
     }
 
     // Malformed later input must not apply earlier configuration or dictionary entries.
@@ -435,11 +451,14 @@ void RunBackupRestoreResults() {
         std::tuple{full_config, full_user, std::string("abcd 单\n"), std::string{}},
         std::tuple{full_config, std::string("abcd ") + "\xFF\n", full_phrase, std::string{}},
         std::tuple{full_config, std::string("abcd \0\n", 7), full_phrase, std::string{}}};
+    // Independent validation cases do not require replacing a just-read archive.
+    size_t malformed_index = 0;
     for (const auto& [config, user_data, phrase_data, manifest] : malformed) {
+        const auto malformed_backup = directory / std::format(L"malformed-{}.zip", ++malformed_index);
         WriteRestoreBundle(
-            backup, config, user_data, phrase_data,
+            malformed_backup, config, user_data, phrase_data,
             std::nullopt, manifest);
-        const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Replace);
+        const auto result = model.RestoreBackupBundle(malformed_backup, BackupConflictMode::Replace);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Failed);
         QIQI_TEST_CHECK(result.stage == BackupRestoreStage::Validate && FAILED(result.error));
         QIQI_TEST_CHECK(result.refresh_error == S_FALSE && !result.effects_possible);
@@ -450,43 +469,39 @@ void RunBackupRestoreResults() {
         QIQI_TEST_CHECK(has_word(DictEntrySource::UserDict, L"原有词条"));
     }
 
-    QIQI_TEST_CHECK(WriteFileAtomically(
-        backup,
-        codec::AsByteSpan(std::string_view(
-            "# QIQIIME_BACKUP_V1\n# checksum_fnv1a64=0000000000000000\n"))));
+    const auto legacy_backup = WriteArchiveFixture(directory / L"legacy.zip",
+        "# QIQIIME_BACKUP_V1\n# checksum_fnv1a64=0000000000000000\n");
     QIQI_TEST_CHECK(
         model.RestoreBackupBundle(
-            backup, BackupConflictMode::Replace).stage ==
+            legacy_backup, BackupConflictMode::Replace).stage ==
         BackupRestoreStage::Validate);
 
-    WriteRestoreBundle(backup, full_config, full_user, full_phrase);
-    std::string valid_archive;
-    QIQI_TEST_CHECK(ReadFileToUtf8String(backup, valid_archive));
-    const std::string good_archive = valid_archive;
-    valid_archive = DeflatedZipFixture(true);
-    QIQI_TEST_CHECK(WriteFileAtomically(
-        backup, codec::AsByteSpan(valid_archive)));
+    const auto valid_backup = directory / L"valid.zip";
+    WriteRestoreBundle(valid_backup, full_config, full_user, full_phrase);
+    const auto good_archive = read_file(valid_backup);
+    const auto corrupt_backup = WriteArchiveFixture(directory / L"bad-crc.zip", DeflatedZipFixture(true));
     const auto bad_crc =
-        model.RestoreBackupBundle(backup, BackupConflictMode::Replace);
+        model.RestoreBackupBundle(corrupt_backup, BackupConflictMode::Replace);
     QIQI_TEST_CHECK(bad_crc.status == BackupRestoreStatus::Failed &&
         bad_crc.stage == BackupRestoreStage::Validate &&
         bad_crc.error == HRESULT_FROM_WIN32(ERROR_CRC));
     QIQI_TEST_CHECK(read_file(user) == old_user &&
                     read_file(frequency) == old_frequency);
 
-    WriteRestoreBundle(backup, full_config, full_user, full_phrase);
     std::vector<ZipArchiveEntry> unexpected_entries;
     QIQI_TEST_CHECK(SUCCEEDED(
-        ReadZipArchiveFileResult(backup, unexpected_entries)));
+        ReadZipArchive(codec::AsByteSpan(good_archive), unexpected_entries)));
     unexpected_entries.push_back({
         "unexpected.txt",
         std::vector<uint8_t>{'x'}});
-    QIQI_TEST_CHECK(SUCCEEDED(
-        WriteZipArchiveFileResult(backup, unexpected_entries)));
+    const auto unexpected_backup = directory / L"unexpected-entry.zip";
+    CheckArchiveFixtureWrite(unexpected_backup, WriteZipArchiveFileResult(unexpected_backup, unexpected_entries));
     const auto unexpected =
-        model.RestoreBackupBundle(backup, BackupConflictMode::Replace);
+        model.RestoreBackupBundle(unexpected_backup, BackupConflictMode::Replace);
     QIQI_TEST_CHECK(unexpected.status == BackupRestoreStatus::Failed &&
         unexpected.stage == BackupRestoreStage::Validate);
+    QIQI_TEST_CHECK(read_file(user) == old_user && read_file(frequency) == old_frequency);
+    QIQI_TEST_CHECK(LoadConfig().page_size == 3 && QueryRegistryConfigSequence() == old_sequence);
 
     std::string unsafe_archive = good_archive;
     size_t unsafe_name = unsafe_archive.find("config.json");
@@ -495,11 +510,10 @@ void RunBackupRestoreResults() {
         unsafe_archive.replace(unsafe_name, 11, "unsafe/xx!!");
         unsafe_name = unsafe_archive.find("config.json", unsafe_name + 11);
     }
-    QIQI_TEST_CHECK(WriteFileAtomically(
-        backup, codec::AsByteSpan(unsafe_archive)));
+    const auto unsafe_backup = WriteArchiveFixture(directory / L"unsafe-name.zip", unsafe_archive);
     QIQI_TEST_CHECK(
         model.RestoreBackupBundle(
-            backup, BackupConflictMode::Replace).stage ==
+            unsafe_backup, BackupConflictMode::Replace).stage ==
         BackupRestoreStage::Validate);
 
     std::string gapped_archive = good_archive;
@@ -541,11 +555,10 @@ void RunBackupRestoreResults() {
     QIQI_TEST_CHECK(central_header != std::string::npos);
     gsl::at(unsupported_archive, central_header + 10) =
         static_cast<char>(99);
-    QIQI_TEST_CHECK(WriteFileAtomically(
-        backup, codec::AsByteSpan(unsupported_archive)));
+    const auto unsupported_backup = WriteArchiveFixture(directory / L"unsupported-method.zip", unsupported_archive);
     QIQI_TEST_CHECK(
         model.RestoreBackupBundle(
-            backup, BackupConflictMode::Replace).stage ==
+            unsupported_backup, BackupConflictMode::Replace).stage ==
         BackupRestoreStage::Validate);
 
     std::vector<uint8_t> rejected_archive;
@@ -585,8 +598,9 @@ void RunBackupRestoreResults() {
             !result.summary.config_restored);
         QIQI_TEST_CHECK(result.operations_succeeded == 0 && result.operations_failed == 1);
         QIQI_TEST_CHECK(LoadConfig().page_size == 3);
-        WriteRestoreBundle(backup, full_config, full_user, full_phrase);
-        const auto partial = model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
+        const auto partial_backup = directory / L"partial-config.zip";
+        WriteRestoreBundle(partial_backup, full_config, full_user, full_phrase);
+        const auto partial = model.RestoreBackupBundle(partial_backup, BackupConflictMode::Merge);
         QIQI_TEST_CHECK(partial.status == BackupRestoreStatus::Partial && partial.stage == BackupRestoreStage::Config);
         QIQI_TEST_CHECK(partial.operations_succeeded == 2 && partial.operations_failed == 1);
         QIQI_TEST_CHECK(partial.summary.user_entries_applied == 1 && partial.summary.phrase_freq_applied == 1);
@@ -738,8 +752,9 @@ void RunBackupRestoreResults() {
         const auto missing_frequency = directory / L"optional_frequency.txt";
         optional.InitializePaths({}, missing_user, missing_frequency);
         QIQI_TEST_CHECK(optional.ReloadAllResult() == S_OK);
-        WriteRestoreBundle(backup, ConfigJson(""));
-        const auto result = optional.RestoreBackupBundle(backup, BackupConflictMode::Merge);
+        const auto optional_backup = directory / L"optional-sources.zip";
+        WriteRestoreBundle(optional_backup, ConfigJson(""));
+        const auto result = optional.RestoreBackupBundle(optional_backup, BackupConflictMode::Merge);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Success && result.refresh_error == S_OK);
         QIQI_TEST_CHECK(result.operations_succeeded == 0 && result.operations_failed == 0);
         QIQI_TEST_CHECK(optional.UserEntryCount() == 0 && optional.PhraseFreqCount() == 0);

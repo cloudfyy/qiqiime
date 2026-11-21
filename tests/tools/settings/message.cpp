@@ -203,8 +203,7 @@ void TestPromptModalBehavior() {
     QiQiConfig cfg;
     ::PostQuitMessage(81);
     QIQI_TEST_CHECK(ShowSettingsMessage(owner.Get(), UiLanguage::Auto, SettingsMessageKind::SaveFailure) == 0);
-    MSG quit{};
-    QIQI_TEST_CHECK(::PeekMessageW(&quit, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE) && quit.wParam == 81);
+    CheckQuitMessage(81);
     QIQI_TEST_CHECK(::IsWindowEnabled(owner.Get()));
 }
 

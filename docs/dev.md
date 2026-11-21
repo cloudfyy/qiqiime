@@ -306,6 +306,9 @@ message. Restore is not retried as a whole after partially applied changes.
 Production file sharing, handle lifetime and retry policies remain unchanged;
 access-denied or sharing failures retain their real HRESULT and partial result
 rather than being hidden or converted to success.
+Independent ZIP validation cases write separate fixtures instead of overwriting
+a recently read archive. An explicit locked-destination case still covers
+replacement failure. Fixture archive writes report the filename and HRESULT.
 The backup fixture uses the existing private, current-process ETW capture for
 the whole scenario. Unexpected assertions are flushed before unwinding; the
 last 80 low-level events are printed before a nonzero exit, and the failed data
@@ -347,6 +350,9 @@ CTest launches the full and focused TSF suites through
 Preserve failure evidence before deleting build directories. Dumps can contain
 sensitive process memory: keep them local and review them before sharing.
 See the [logging guide](log.md#test-hang-diagnostics) for interpretation.
+Modal UI tests use `CheckQuitMessage` to dispatch pending messages before
+asserting the forwarded `WM_QUIT` exit code. A filtered peek alone can miss the
+synthetic quit message while posted messages are still pending.
 
 ## Code quality and lint
 
