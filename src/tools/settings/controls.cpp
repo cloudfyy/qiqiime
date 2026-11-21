@@ -367,12 +367,13 @@ int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogC
         return 0;
     }
     return MeasureCandidateSample(dc.Get(), ctx.font.Get(), width, ctx.d2d.dpi,
-        GetSelectedUiLanguageFromCombo(::GetParent(preview), ctx));
+        GetSelectedUiLanguageFromCombo(::GetParent(preview), ctx), ctx.d2d.display_preferences);
 }
 
 void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept {
     std::ignore = PaintCandidateSample(item.hDC, item.rcItem, ctx.font.Get(), ctx.d2d.dpi,
-        GetSelectedUiLanguageFromCombo(::GetParent(item.hwndItem), ctx), ctx.candidate_skin_colors);
+        GetSelectedUiLanguageFromCombo(::GetParent(item.hwndItem), ctx),
+        ctx.d2d.display_preferences, ctx.candidate_skin_colors);
 }
 
 UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept {

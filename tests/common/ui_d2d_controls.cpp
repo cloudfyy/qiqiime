@@ -147,6 +147,15 @@ void TestReusableUiTextAndControls() {
         FormatToolWindowFailureMessage(
             L"Create control", 32, UiLanguage::EnUs) ==
         L"Create control\r\nError=32 (0x00000020)");
+    const auto compact_english = ResolveCandidatePageLabels(
+        UiLanguage::EnUs, {UiTheme::System, UiTextScale::Percent100, false});
+    QIQI_TEST_CHECK(compact_english.previous == L"‹" && compact_english.next == L"›");
+    const auto readable_english = ResolveCandidatePageLabels(
+        UiLanguage::EnUs, {UiTheme::System, UiTextScale::Percent150, true});
+    QIQI_TEST_CHECK(readable_english.previous == L"Previous" && readable_english.next == L"Next");
+    const auto readable_chinese = ResolveCandidatePageLabels(
+        UiLanguage::ZhCn, {UiTheme::System, UiTextScale::Percent150, true});
+    QIQI_TEST_CHECK(readable_chinese.previous == L"上一页" && readable_chinese.next == L"下一页");
 
     enum class TestControlId { Child = 77 };
     const HINSTANCE instance = ::GetModuleHandleW(nullptr);

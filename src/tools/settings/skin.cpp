@@ -88,7 +88,7 @@ void LayoutPicker(HWND hwnd, SkinPickerContext& context) noexcept {
     context.title_height = metrics.tmHeight + 2 * gap;
     const int height = context.title_height +
         MeasureCandidateSample(dc.Get(), context.font.Get(), std::max(1, width - 2 * gap),
-            context.theme.dpi, context.language) + 2 * gap;
+            context.theme.dpi, context.language, context.display) + 2 * gap;
     std::ignore = SetFluentListRowHeight(list, context.theme, context.rows, height);
     ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
 }
@@ -121,7 +121,7 @@ void PaintPickerItem(const NMLVCUSTOMDRAW& draw, SkinPickerContext& context) noe
     const RECT preview{bounds.left + gap, bounds.top + context.title_height,
         bounds.right - gap, bounds.bottom - gap};
     std::ignore = PaintCandidateSample(draw.nmcd.hdc, preview, context.font.Get(), context.theme.dpi,
-        context.language, gsl::at(context.appearances, index).colors);
+        context.language, context.display, gsl::at(context.appearances, index).colors);
 }
 
 LRESULT CALLBACK SkinPickerWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept {

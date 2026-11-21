@@ -233,10 +233,19 @@ bool PaintCandidateItemsGdi(HDC dc, const RECT& bounds, std::span<const Candidat
     return true;
 }
 
+CandidatePageLabels ResolveCandidatePageLabels(
+    UiLanguage language, const DisplayPreferences& display) noexcept {
+    const auto& strings = GetUiStrings(language);
+    return display.easy_reading
+        ? CandidatePageLabels{strings.candidate_previous_page, strings.candidate_next_page}
+        : CandidatePageLabels{L"‹", L"›"};
+}
+
 namespace {
 
 template <typename PaintItem>
-int LayoutCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage language, PaintItem paint_item) {
+int LayoutCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage language,
+    const DisplayPreferences& display, PaintItem paint_item) {
     const ScopedSelectObject selected_font(dc, font);
     const int inset = ScalePxByDpi(12, dpi);
     const int padding = ScalePxByDpi(4, dpi);
@@ -246,10 +255,9 @@ int LayoutCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage la
     int x = inset;
     int y = gap;
     int bottom = y;
-    const bool english = ResolveUiLanguage(language) == UiLanguage::EnUs;
+    const auto page = ResolveCandidatePageLabels(language, display);
     const std::array<std::wstring_view, 6> lines{
-        L"Wubi [ab] (1/2)", L"1.五笔", L"2.输入", L"3.你好",
-        english ? L"Previous" : L"上一页", english ? L"Next" : L"下一页"};
+        L"Wubi [ab] (1/2)", L"1.五笔", L"2.输入", L"3.你好", page.previous, page.next};
     for (size_t index = 0; index < lines.size(); ++index) {
         const auto line = gsl::at(lines, index);
         RECT measured{0, 0, std::max(1, available - 2 * padding), 0};
@@ -274,19 +282,21 @@ int LayoutCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage la
 
 } // namespace
 
-int MeasureCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage language) noexcept {
-    return LayoutCandidateSample(dc, font, width, dpi, language,
+int MeasureCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage language,
+    const DisplayPreferences& display) noexcept {
+    return LayoutCandidateSample(dc, font, width, dpi, language, display,
         [](std::wstring_view, const RECT&, size_t) noexcept {});
 }
 
 bool PaintCandidateSample(HDC dc, const RECT& bounds, HFONT font, UINT dpi,
-    UiLanguage language, const SkinPalette& palette) noexcept {
+    UiLanguage language, const DisplayPreferences& display, const SkinPalette& palette) noexcept {
     try {
         std::vector<CandidatePaintItem> items;
-        LayoutCandidateSample(dc, font, bounds.right - bounds.left, dpi, language,
+        LayoutCandidateSample(dc, font, bounds.right - bounds.left, dpi, language, display,
             [&](std::wstring_view text, RECT row, size_t index) {
                 ::OffsetRect(&row, bounds.left, bounds.top);
-                items.push_back({row, std::wstring(text), index == 1, false, index != 4, false,
+                const bool accent = index == 0 || index >= 4;
+                items.push_back({row, std::wstring(text), index == 1, accent, index != 4, accent,
                     index == 0 ? SkinColor::CodeText : index >= 4 ?
                         SkinColor::PageEnabledText : SkinColor::CandidateText});
             });

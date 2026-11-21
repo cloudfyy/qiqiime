@@ -214,15 +214,12 @@ void CandidateUI::RecalculatePopupLayout() {
     const int row_height = std::max(line_height_ + vertical_padding * 2, ScaleByDpi(preferences_.easy_reading ? 44 : 28));
     const bool vertical = layout_ == CandidateLayout::Vertical;
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
-    const auto& str = GetUiStrings(ui_language_);
-    const std::wstring_view previous_text =
-        preferences_.easy_reading ? str.candidate_previous_page : L"‹";
-    const std::wstring_view next_text =
-        preferences_.easy_reading ? str.candidate_next_page : L"›";
+    const auto page_labels = ResolveCandidatePageLabels(ui_language_, preferences_);
     const int button_width = preferences_.easy_reading
         ? std::max(
               ScaleByDpi(44),
-              MeasureTextWidth(screen_dc.Get(), str.candidate_previous_page) + padding * 2)
+              std::max(MeasureTextWidth(screen_dc.Get(), page_labels.previous),
+                       MeasureTextWidth(screen_dc.Get(), page_labels.next)) + padding * 2)
         : ScaleByDpi(kPageButtonWidth);
     const int button_gap = ScaleByDpi(kPageButtonGap);
     const int navigation_width = total_pages > 1 ? button_width * 2 + button_gap : 0;
@@ -257,8 +254,10 @@ void CandidateUI::RecalculatePopupLayout() {
             const bool stacked = navigation_width > inner_width;
             const int actual_button_width = stacked ? inner_width : button_width;
             const int right = content_width_ - margin_x;
-            prev_page_label_ = WrapText(screen_dc.Get(), previous_text, std::max(1, actual_button_width - padding * 2));
-            next_page_label_ = WrapText(screen_dc.Get(), next_text, std::max(1, actual_button_width - padding * 2));
+            prev_page_label_ = WrapText(screen_dc.Get(), page_labels.previous,
+                std::max(1, actual_button_width - padding * 2));
+            next_page_label_ = WrapText(screen_dc.Get(), page_labels.next,
+                std::max(1, actual_button_width - padding * 2));
             const int label_lines = 1 + std::max(
                 gsl::narrow_cast<int>(std::count(prev_page_label_.begin(), prev_page_label_.end(), L'\n')),
                 gsl::narrow_cast<int>(std::count(next_page_label_.begin(), next_page_label_.end(), L'\n')));
