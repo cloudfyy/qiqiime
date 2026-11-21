@@ -380,14 +380,24 @@ each behavior change rather than postponing all testing until the final gate.
   selected border; skin-resolved app high contrast is checked at 7:1 and the
   Windows path is checked against system colors. Serial Release runs passed on
   x64 and x86.
-- [ ] Cover all four Windows/App mode combinations, explicit Light/Dark,
-  candidate/preview App-mode behavior independent of host identity, unchanged
-  Windows-mode custom menus,
-  system/app high-contrast entry/exit, horizontal/vertical layout, long
-  candidates, paging, DPI/text scaling, Comfort mode, clipping and small-work-area
-  scrolling. Run affected x64/x86 builds, focused suites and existing C++ quality
-  checks; separately record real-host checks, including restricted hosts and
-  host-rendered UILess UI. Do not log real input or candidate text.
+- [ ] Complete the environment and host matrix:
+  - [x] Automated: cover all four Windows/App mode combinations, explicit
+    Light/Dark, candidate/preview App-mode behavior with and without a host
+    relationship, unchanged Windows-mode custom menus, system/app high-contrast
+    entry/exit, horizontal/vertical layout, long candidates, paging, DPI/text
+    scaling, Comfort mode, clipping and small-work-area scrolling. `QiQiSkinTest`
+    reuses the existing display, layout and constrained-viewport cases with a
+    real skin snapshot; the settings preview and Windows-mode menu are checked
+    across the same source matrix. Serial x64/x86 `QiQiSkinTest`,
+    `QiQiSettingsTest`, `QiQiUilessTest`, `QiQiCompositionLifecycleTest`, and
+    restricted-input diagnostics passed.
+  - [ ] Real hosts: separately record Notepad or another ordinary editor, VS
+    Code, Explorer address/search/rename, Start/taskbar search, a restricted
+    input host, and a host-rendered UILess surface. Record only environment,
+    architecture, DPI, theme, skin and pass/fail observations; do not log real
+    input, candidate text, window titles or screenshots containing private
+    content. Simulated callbacks and native TSF test hosts do not satisfy this
+    sub-gate.
 - [x] Update user/developer documentation to distinguish implemented surfaces
   from design-only features; automated color checks do not certify all hosts
   or accessibility. Do not generate MSI packages unless explicitly requested.

@@ -94,6 +94,16 @@ void ChooseFromMore(HWND settings, bool accept) {
 
 void RunSettingsSkinTests() {
     using namespace settings_detail;
+    const auto old_app_dark = detail::ThemeDarkOverrideStorage();
+    const auto old_windows_dark = detail::TaskbarDarkOverrideStorage();
+    const auto restore_theme = gsl::finally([&]() noexcept {
+        SetThemeDarkOverrideForTest(old_app_dark);
+        SetTaskbarDarkOverrideForTest(old_windows_dark);
+        SetHighContrastOverrideForTest(std::nullopt);
+    });
+    SetThemeDarkOverrideForTest(false);
+    SetTaskbarDarkOverrideForTest(true);
+    SetHighContrastOverrideForTest(false);
     const std::wstring subkey = L"Software\\QiQiIME_SkinUiTest_" +
         std::to_wstring(::GetCurrentProcessId()) + L"_" + std::to_wstring(::GetTickCount64());
     const wchar_t* previous = GetActiveConfigRegistrySubKey();
@@ -126,6 +136,46 @@ void RunSettingsSkinTests() {
         QIQI_TEST_CHECK(CandidatePreviewContainsColor(
             window.Get(), kIdSkinCandidatePreview, firefly.Get(role)));
     }
+    const auto select_theme = [&](UiTheme theme) {
+        ::SendDlgItemMessageW(window.Get(), kIdComboUiTheme, CB_SETCURSEL,
+            gsl::narrow_cast<WPARAM>(theme), 0);
+        ::SendMessageW(window.Get(), WM_COMMAND,
+            MAKEWPARAM(kIdComboUiTheme, CBN_SELCHANGE), 0);
+    };
+    select_theme(UiTheme::System);
+    for (const bool app_dark : {false, true}) {
+        for (const bool windows_dark : {false, true}) {
+            SetThemeDarkOverrideForTest(app_dark);
+            SetTaskbarDarkOverrideForTest(windows_dark);
+            for (const UINT message : {WM_THEMECHANGED, WM_SETTINGCHANGE}) {
+                ::SendMessageW(window.Get(), message, 0, 0);
+                const SkinPalette& expected = app_dark
+                    ? GetBuiltinImeSkins().front().palettes.dark
+                    : GetBuiltinImeSkins().front().palettes.light;
+                QIQI_TEST_CHECK(context->candidate_skin_colors == expected);
+                QIQI_TEST_CHECK(CandidatePreviewContainsColor(
+                    window.Get(), kIdSkinCandidatePreview,
+                    expected.Get(SkinColor::Background)));
+            }
+        }
+    }
+    for (const auto theme : {UiTheme::Light, UiTheme::Dark}) {
+        select_theme(theme);
+        const SkinPalette& expected = theme == UiTheme::Dark
+            ? GetBuiltinImeSkins().front().palettes.dark
+            : GetBuiltinImeSkins().front().palettes.light;
+        QIQI_TEST_CHECK(context->candidate_skin_colors == expected);
+    }
+    select_theme(UiTheme::Light);
+    SetThemeDarkOverrideForTest(false);
+    SetTaskbarDarkOverrideForTest(true);
+    SetHighContrastOverrideForTest(true);
+    ::SendMessageW(window.Get(), WM_SETTINGCHANGE, 0, 0);
+    QIQI_TEST_CHECK(context->candidate_skin_colors.Get(SkinColor::Background) ==
+        ::GetSysColor(COLOR_WINDOW));
+    SetHighContrastOverrideForTest(false);
+    ::SendMessageW(window.Get(), WM_THEMECHANGED, 0, 0);
+    QIQI_TEST_CHECK(context->candidate_skin_colors == firefly);
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() == sequence);
     ChooseFromMore(window.Get(), false);
     QIQI_TEST_CHECK(context->preview_skin_id == ImeSkinId::Firefly && QueryRegistryConfigSequence() == sequence);

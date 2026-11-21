@@ -406,7 +406,8 @@ void TestCandidateStableRepainting() {
     }
 }
 
-void TestCandidateDisplayPreferences() {
+void TestCandidateDisplayPreferences(
+    const std::optional<ImeSkinSnapshot>& skin_snapshot = std::nullopt) {
     const TsfTestCaseTrace trace(__func__);
     // Keep an independent snapshot: the test changes the override's backing storage.
     const std::optional<MonitorMetrics> previous_monitor = detail::MonitorMetricsOverrideStorage();
@@ -421,18 +422,25 @@ void TestCandidateDisplayPreferences() {
     SetHighContrastOverrideForTest(false);
     SetThemeDarkOverrideForTest(false);
     SetTaskbarDarkOverrideForTest(true);
+    const ScopedWindow synthetic_host(::CreateWindowExW(
+        0, L"STATIC", L"", WS_POPUP, 0, 0, 200, 100,
+        nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));
+    QIQI_TEST_CHECK(synthetic_host);
     for (const bool gdi : {false, true}) {
         for (const UINT dpi : {96u, 144u, 192u}) {
             SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1600, 1200}, dpi});
             const auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
             if (gdi) ui->DisableDirect2DForTest();
+            ui->SetSkinSnapshot(skin_snapshot);
             ui->SetLayout(CandidateLayout::Vertical);
             ui->SetUiLanguage(UiLanguage::EnUs);
             ui->SetCandidates(L"abc", {L"One", L"Two", L"Three"}, 2, 0, 1);
             ui->MoveWindowTo(RECT{10, 10, 12, 30});
             QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
-            QIQI_TEST_CHECK(!ui->Appearance().palette.is_dark);
-            QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == kLightThemePalette.window_bg);
+            const auto initial = ResolveImeSkinAppearance({}, skin_snapshot);
+            QIQI_TEST_CHECK(ui->Appearance().palette.is_dark == initial.display.palette.is_dark);
+            QIQI_TEST_CHECK(PaintCandidatePixel(
+                *ui.Get(), POINT{2, 2}) == initial.colors.Get(SkinColor::Background));
             const auto* const focus = ::GetFocus();
             const int normal_height = ui->CandidateRect(0).bottom - ui->CandidateRect(0).top;
             const int normal_width = ui->CurrentWidth();
@@ -453,10 +461,12 @@ void TestCandidateDisplayPreferences() {
             for (const auto theme : {UiTheme::System, UiTheme::Light, UiTheme::Dark, UiTheme::HighContrast}) {
                 ui->SetDisplayPreferences(theme, UiTextScale::Percent150, true);
                 const auto& appearance = ui->Appearance();
+                const auto expected = ResolveImeSkinAppearance(
+                    {theme, UiTextScale::Percent150, true}, skin_snapshot);
                 QIQI_TEST_CHECK(appearance.high_contrast == (theme == UiTheme::HighContrast));
-                QIQI_TEST_CHECK(appearance.palette.is_dark ==
-                                (theme == UiTheme::Dark || theme == UiTheme::HighContrast));
-                QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) == appearance.palette.window_bg);
+                QIQI_TEST_CHECK(appearance.palette.is_dark == expected.display.palette.is_dark);
+                QIQI_TEST_CHECK(PaintCandidatePixel(
+                    *ui.Get(), POINT{2, 2}) == expected.colors.Get(SkinColor::Background));
                 for (const RECT& rect : {ui->CandidateRect(0), ui->CandidateRect(1),
                                         ui->PrevPageButtonRect(), ui->NextPageButtonRect()}) {
                     QIQI_TEST_CHECK(rect.right - rect.left >= ScalePxByDpi(44, dpi));
@@ -481,11 +491,20 @@ void TestCandidateDisplayPreferences() {
                 for (const bool windows_dark : {false, true}) {
                     SetThemeDarkOverrideForTest(app_dark);
                     SetTaskbarDarkOverrideForTest(windows_dark);
+                    if (skin_snapshot) {
+                        ui->MoveWindowTo(RECT{10, 10, 12, 30},
+                            app_dark != windows_dark ? synthetic_host.Get() : nullptr);
+                        QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK && ui->WindowHandle());
+                    }
                     for (const UINT message : {WM_SETTINGCHANGE, WM_THEMECHANGED}) {
                         ::SendMessageW(ui->WindowHandle(), message, 0, 0);
-                        QIQI_TEST_CHECK(ui->Appearance().palette.is_dark == app_dark);
+                        const auto expected = ResolveImeSkinAppearance(
+                            {UiTheme::System, UiTextScale::Percent100, false},
+                            skin_snapshot, SystemThemeSource::App);
+                        QIQI_TEST_CHECK(ui->Appearance().palette.is_dark ==
+                                        expected.display.palette.is_dark);
                         QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) ==
-                                        GetThemePalette(app_dark).window_bg);
+                                        expected.colors.Get(SkinColor::Background));
                     }
                 }
             }
@@ -618,7 +637,8 @@ void TestCandidateSkinStates() {
     }
 }
 
-void TestCandidateConstrainedViewport() {
+void TestCandidateConstrainedViewport(
+    const std::optional<ImeSkinSnapshot>& skin_snapshot = std::nullopt) {
     const TsfTestCaseTrace trace(__func__);
     // Keep an independent snapshot: the test changes the override's backing storage.
     const std::optional<MonitorMetrics> previous_monitor = detail::MonitorMetricsOverrideStorage();
@@ -628,7 +648,9 @@ void TestCandidateConstrainedViewport() {
     for (const bool gdi : {false, true}) {
         const auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
         if (gdi) ui->DisableDirect2DForTest();
-        ui->SetDisplayPreferences(UiTheme::HighContrast, UiTextScale::Percent200, true);
+        ui->SetSkinSnapshot(skin_snapshot);
+        ui->SetDisplayPreferences(skin_snapshot ? UiTheme::Light : UiTheme::HighContrast,
+            UiTextScale::Percent200, true);
         const std::vector<std::wstring> candidates{
             std::wstring(80, L'长') + L"𠀀🚀", L"第二项", L"第三项", L"第四项", L"第五项",
             L"第六项", L"第七项", L"第八项", L"末项"};
@@ -759,7 +781,8 @@ void TestCandidateHostOwnership() {
                     ::IsWindowVisible(owned->WindowHandle()));
 }
 
-void TestCandidateLayouts() {
+void TestCandidateLayouts(
+    const std::optional<ImeSkinSnapshot>& skin_snapshot = std::nullopt) {
     const TsfTestCaseTrace trace(__func__);
     const std::optional<MonitorMetrics> previous_monitor = detail::MonitorMetricsOverrideStorage();
     const auto restore_monitor = gsl::finally([&]() noexcept {
@@ -772,6 +795,7 @@ void TestCandidateLayouts() {
             SetMonitorMetricsOverrideForTest(MonitorMetrics{work, dpi});
             auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
             if (gdi) ui->DisableDirect2DForTest();
+            ui->SetSkinSnapshot(skin_snapshot);
             const RECT caret{-80, -80, -78, -60};
             ui->MoveWindowTo(caret);
             ui->SetCandidates(L"abcd", candidates, 5, 0, 2);
@@ -1924,8 +1948,13 @@ void TestCandidateUilessContract() {
 } // namespace
 
 void RunCandidateSkinTests() {
+    const auto& skin = GetBuiltinImeSkins().front();
+    const std::optional<ImeSkinSnapshot> snapshot = ImeSkinSnapshot{skin.id, skin.palettes};
     TestCandidateSkinRepainting();
     TestCandidateSkinStates();
+    TestCandidateDisplayPreferences(snapshot);
+    TestCandidateLayouts(snapshot);
+    TestCandidateConstrainedViewport(snapshot);
 }
 
 void RunCandidateUITests() {

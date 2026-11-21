@@ -1314,75 +1314,99 @@ void TestQuickSettingsMenuSkin() {
     SetThemeDarkOverrideForTest(false);
     SetTaskbarDarkOverrideForTest(true);
     SetHighContrastOverrideForTest(false);
-    static bool observed = false;
-    observed = false;
     const auto& skin = GetBuiltinImeSkins().front();
-    const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
-        const HWND menu = FindQuickSettingsMenu();
-        if (!menu) return;
-        observed = true;
-        ::KillTimer(nullptr, id);
-        const auto& palette = GetBuiltinImeSkins().front().palettes.dark;
-        const ScopedWindowDC screen(menu);
-        QIQI_TEST_CHECK(::GetPixel(screen.Get(), 1, 1) == palette.Get(SkinColor::Background));
-        const HWND button = ::GetDlgItem(menu, static_cast<int>(LangBarMenuId::ToggleChinese));
-        RECT bounds{};
-        QIQI_TEST_CHECK(::GetClientRect(button, &bounds));
-        const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
-        const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), bounds.right, bounds.bottom));
-        QIQI_TEST_CHECK(dc && bitmap);
-        const auto count_painted_pixels = [&](UINT state, COLORREF expected, const RECT& area,
-            bool exclude_expected = false) {
-            const ScopedSelectObject selected_bitmap(dc.Get(), bitmap.Get());
-            DRAWITEMSTRUCT draw{};
-            draw.CtlType = ODT_BUTTON;
-            draw.CtlID = static_cast<UINT>(LangBarMenuId::ToggleChinese);
-            draw.hwndItem = button;
-            draw.hDC = dc.Get();
-            draw.rcItem = bounds;
-            draw.itemState = state;
-            ::SendMessageW(menu, WM_DRAWITEM, draw.CtlID, reinterpret_cast<LPARAM>(&draw));
-            const int left = std::max(0L, area.left);
-            const int right = std::min(bounds.right, area.right);
-            const int top = std::max(0L, area.top);
-            const int bottom = std::min(bounds.bottom, area.bottom);
-            size_t matches = 0;
-            for (int y = top; y < bottom; ++y) {
-                for (int x = left; x < right; ++x) {
-                    const bool match = ::GetPixel(dc.Get(), x, y) == expected;
-                    if (match != exclude_expected) ++matches;
-                }
-            }
-            return matches;
-        };
-        QIQI_TEST_CHECK(count_painted_pixels(ODS_SELECTED,
-            palette.Get(SkinColor::MenuHoverBackground), bounds) > 0);
-        QIQI_TEST_CHECK(count_painted_pixels(ODS_SELECTED,
-            palette.Get(SkinColor::MenuHoverText), bounds) > 0);
-        QIQI_TEST_CHECK(count_painted_pixels(ODS_DISABLED,
-            palette.Get(SkinColor::PageDisabledText), bounds) > 0);
-        QIQI_TEST_CHECK(count_painted_pixels(ODS_FOCUS,
-            palette.Get(SkinColor::SelectedBorder), bounds) > 0);
-        const RECT gutter{0, 0, bounds.bottom, bounds.bottom};
-        QIQI_TEST_CHECK(count_painted_pixels(0,
-            palette.Get(SkinColor::Background), gutter, true) > 0);
+    static SkinPalette expected_palette;
+    static bool observed = false;
+    for (const bool app_dark : {false, true}) {
+        for (const bool windows_dark : {false, true}) {
+            SetThemeDarkOverrideForTest(app_dark);
+            SetTaskbarDarkOverrideForTest(windows_dark);
+            expected_palette = windows_dark ? skin.palettes.dark : skin.palettes.light;
+            const auto snapshot = std::optional<ImeSkinSnapshot>{
+                ImeSkinSnapshot{skin.id, skin.palettes}};
+            const auto windows_appearance = ResolveImeSkinAppearance(
+                {UiTheme::System, UiTextScale::Percent100, false},
+                snapshot, SystemThemeSource::Windows);
+            QIQI_TEST_CHECK(windows_appearance.colors == expected_palette);
+            if (app_dark) continue;
+            observed = false;
+            const UINT_PTR timer = ::SetTimer(nullptr, 0, 15,
+                [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+                const HWND menu = FindQuickSettingsMenu();
+                if (!menu) return;
+                observed = true;
+                ::KillTimer(nullptr, id);
+                const auto& palette = expected_palette;
+                const ScopedWindowDC screen(menu);
+                QIQI_TEST_CHECK(::GetPixel(
+                    screen.Get(), 1, 1) == palette.Get(SkinColor::Background));
+                const HWND button = ::GetDlgItem(
+                    menu, static_cast<int>(LangBarMenuId::ToggleChinese));
+                RECT bounds{};
+                QIQI_TEST_CHECK(::GetClientRect(button, &bounds));
+                const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+                const ScopedGdiHandle<HBITMAP> bitmap(
+                    ::CreateCompatibleBitmap(screen.Get(), bounds.right, bounds.bottom));
+                QIQI_TEST_CHECK(dc && bitmap);
+                const auto count_painted_pixels =
+                    [&](UINT state, COLORREF expected, const RECT& area,
+                        bool exclude_expected = false) {
+                    const ScopedSelectObject selected_bitmap(dc.Get(), bitmap.Get());
+                    DRAWITEMSTRUCT draw{};
+                    draw.CtlType = ODT_BUTTON;
+                    draw.CtlID = static_cast<UINT>(LangBarMenuId::ToggleChinese);
+                    draw.hwndItem = button;
+                    draw.hDC = dc.Get();
+                    draw.rcItem = bounds;
+                    draw.itemState = state;
+                    ::SendMessageW(menu, WM_DRAWITEM, draw.CtlID,
+                        reinterpret_cast<LPARAM>(&draw));
+                    const int left = std::max(0L, area.left);
+                    const int right = std::min(bounds.right, area.right);
+                    const int top = std::max(0L, area.top);
+                    const int bottom = std::min(bounds.bottom, area.bottom);
+                    size_t matches = 0;
+                    for (int y = top; y < bottom; ++y) {
+                        for (int x = left; x < right; ++x) {
+                            const bool match = ::GetPixel(dc.Get(), x, y) == expected;
+                            if (match != exclude_expected) ++matches;
+                        }
+                    }
+                    return matches;
+                };
+                QIQI_TEST_CHECK(count_painted_pixels(ODS_SELECTED,
+                    palette.Get(SkinColor::MenuHoverBackground), bounds) > 0);
+                QIQI_TEST_CHECK(count_painted_pixels(ODS_SELECTED,
+                    palette.Get(SkinColor::MenuHoverText), bounds) > 0);
+                QIQI_TEST_CHECK(count_painted_pixels(ODS_DISABLED,
+                    palette.Get(SkinColor::PageDisabledText), bounds) > 0);
+                QIQI_TEST_CHECK(count_painted_pixels(ODS_FOCUS,
+                    palette.Get(SkinColor::SelectedBorder), bounds) > 0);
+                const RECT gutter{0, 0, bounds.bottom, bounds.bottom};
+                QIQI_TEST_CHECK(count_painted_pixels(0,
+                    palette.Get(SkinColor::Background), gutter, true) > 0);
 
-        SetHighContrastOverrideForTest(true);
-        ::SendMessageW(menu, WM_SETTINGCHANGE, 0, 0);
-        QIQI_TEST_CHECK(count_painted_pixels(
-            ODS_SELECTED, ::GetSysColor(COLOR_HIGHLIGHT), bounds) > 0);
-        QIQI_TEST_CHECK(count_painted_pixels(
-            ODS_SELECTED, ::GetSysColor(COLOR_HIGHLIGHTTEXT), bounds) > 0);
-        SetHighContrastOverrideForTest(false);
-        ::SendMessageW(menu, WM_CLOSE, 0, 0);
-    });
-    QIQI_TEST_CHECK(timer != 0);
-    const auto stop = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
-    LangBarState state;
-    state.chinese_mode = true;
-    state.skin_snapshot = ImeSkinSnapshot{skin.id, skin.palettes};
-    LangBarButton::ShowSharedPopupMenu(state, POINT{200, 200}, [](LangBarMenuId) noexcept {});
-    QIQI_TEST_CHECK(observed);
+                SetHighContrastOverrideForTest(true);
+                ::SendMessageW(menu, WM_SETTINGCHANGE, 0, 0);
+                QIQI_TEST_CHECK(count_painted_pixels(
+                    ODS_SELECTED, ::GetSysColor(COLOR_HIGHLIGHT), bounds) > 0);
+                QIQI_TEST_CHECK(count_painted_pixels(
+                    ODS_SELECTED, ::GetSysColor(COLOR_HIGHLIGHTTEXT), bounds) > 0);
+                SetHighContrastOverrideForTest(false);
+                ::SendMessageW(menu, WM_CLOSE, 0, 0);
+            });
+            QIQI_TEST_CHECK(timer != 0);
+            const auto stop = gsl::finally([timer]() noexcept {
+                ::KillTimer(nullptr, timer);
+            });
+            LangBarState state;
+            state.chinese_mode = true;
+            state.skin_snapshot = ImeSkinSnapshot{skin.id, skin.palettes};
+            LangBarButton::ShowSharedPopupMenu(
+                state, POINT{200, 200}, [](LangBarMenuId) noexcept {});
+            QIQI_TEST_CHECK(observed);
+        }
+    }
 }
 
 void TestQuickSettingsMenuLiteralAmpersand() {

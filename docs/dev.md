@@ -154,7 +154,12 @@ checks conversion, isolated-registry round trips, malformed/missing data,
 denied access, publication rollback, live snapshot refresh, first/last/empty
 candidate states, Direct2D/GDI color roles, quick-menu hover/check/disabled/focus
 drawing, preview save/cancel boundaries, contrast thresholds, and both
-application and Windows high-contrast color paths.
+application and Windows high-contrast color paths. It also runs the existing
+candidate display, horizontal/vertical layout, DPI/text-scale, long-candidate,
+clipping and constrained-scroll regressions with an active skin. Simulated
+source-policy and host-relationship cases do not replace separate real-host
+records for ordinary editors, system surfaces, restricted inputs or
+host-rendered UILess UI.
 General configuration-field projections remain in Common and Settings.
 
 ```powershell
