@@ -79,7 +79,7 @@ public:
         CandidateUiElementLifecycle::kAllCandidateUpdateFlags;
 
     explicit CandidateUI(HINSTANCE instance) noexcept;
-    ~CandidateUI() noexcept;
+    STDMETHODIMP_(ULONG) Release() noexcept override;
 
 #pragma warning(push)
 #pragma warning(disable : 26456)
@@ -226,13 +226,15 @@ public:
     }
 
 private:
+    friend ComObjectBase;
     friend class CandidateAutomationItem;
     friend class CandidatePageButtonAutomationItem;
     template <typename Derived, typename PatternInterface>
     friend class CandidateAutomationFragment;
+    ~CandidateUI() noexcept = default;
+
     using PaintItem = CandidatePaintItem;
     void RefreshAppearance() noexcept;
-    [[nodiscard]] ComPtr<CandidateUI> RetainForWindowOperation() noexcept;
     std::vector<PaintItem> BuildPaintItems() const;
     int ScaleByDpi(int px) const noexcept { return ScalePxByDpi(px, dpi_); }
     int ScaleText(int px) const noexcept { return ScaleDisplayPx(px, dpi_, preferences_.text_scale); }
@@ -252,6 +254,8 @@ private:
     HRESULT InvokeSelectionCallback(size_t index) noexcept;
     bool IsPageTurnAvailable(bool next_page) const noexcept;
     HRESULT InvokePageTurnCallback(bool next_page) noexcept;
+    void CloseAccessibilityMenu() noexcept;
+    void DisconnectAccessibilityProvider() noexcept;
     HRESULT RaiseAccessibilityEvent(EVENTID event_id, size_t page_index = SIZE_MAX) noexcept;
     HRESULT RaiseAccessibilityStructureChanged() noexcept;
     HRESULT RaiseAccessibilityPropertyChanged(
@@ -302,7 +306,6 @@ private:
     bool show_requested_ = false;
     bool require_owned_window_ = false;
     bool presentation_enabled_ = true;
-    bool destroying_object_ = false;
     bool destroying_window_ = false;
     HWND popup_owner_ = nullptr; // Borrowed; only hwnd_ owns a window.
     CandidateUiElementLifecycle ui_element_lifecycle_;
@@ -339,7 +342,7 @@ private:
     std::optional<RECT> text_rect_;
     std::optional<RECT> announced_popup_rect_;
     bool accessibility_open_announced_ = false;
-    bool accessibility_provider_returned_ = false;
+    bool accessibility_provider_needs_disconnect_ = false;
     uint64_t accessibility_tree_revision_ = 0;
     CandidateLayout layout_ = CandidateLayout::Horizontal;
     UiLanguage ui_language_ = UiLanguage::Auto;

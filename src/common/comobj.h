@@ -11,6 +11,7 @@
 #include <concepts>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 #include "common/guids.h"
@@ -104,6 +105,21 @@ public:
 protected:
     ~ComObjectBase() noexcept {
         --g_com_object_count;
+    }
+
+    template <typename Cleanup>
+        requires std::is_nothrow_invocable_v<Cleanup>
+    ULONG ReleaseWithFinalCleanup(Cleanup&& cleanup) noexcept {
+        ULONG count = ref_count_.load();
+        while (count > 1) {
+            if (ref_count_.compare_exchange_weak(count, count - 1)) {
+                return count - 1;
+            }
+        }
+        // Keep the caller's last reference through cleanup. Reentrant AddRef/Release
+        // pairs can then use the object normally without triggering deletion.
+        std::forward<Cleanup>(cleanup)();
+        return ComObjectBase::Release();
     }
 
     template <typename CastInterface, typename... BaseAliases>

@@ -244,6 +244,50 @@ void TestCandidateTeardownReentry() {
     }
 }
 
+void TestCandidateAutomationTeardown() {
+    const TsfTestCaseTrace trace(__func__);
+    const auto objects_before = g_com_object_count.load();
+    ComPtr<IRawElementProviderSimple> close_provider;
+    auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+    ui->SetCandidates(L"ab", {L"One"}, 3, 0, 0);
+
+    ComPtr<IUIAutomation> automation;
+    QIQI_TEST_CHECK(::CoCreateInstance(CLSID_CUIAutomation, nullptr,
+        CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&automation)) == S_OK && automation);
+    const auto request_provider = [&automation](HWND window) {
+        ComPtr<IUIAutomationElement> element;
+        QIQI_TEST_CHECK(automation->ElementFromHandle(window, element.GetAddressOf()) == S_OK &&
+                        element);
+        ScopedBstr automation_id;
+        QIQI_TEST_CHECK(element->get_CurrentAutomationId(automation_id.Put()) == S_OK &&
+                        automation_id && std::wstring_view(automation_id.Get()) == L"IME_Candidate_Window");
+    };
+
+    QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+    const HWND first_window = ui->WindowHandle();
+    request_provider(first_window);
+    QIQI_TEST_CHECK(::DestroyWindow(first_window));
+    QIQI_TEST_CHECK(!::IsWindow(first_window) && !ui->WindowHandle());
+
+    QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+    const HWND second_window = ui->WindowHandle();
+    request_provider(second_window);
+
+    // Simulate a UIA callback retaining the root during the last owner's close event.
+    ui->SetAccessibilityDispatchObserverForTest(
+        [&close_provider, candidate = ui.Get()](EVENTID event, bool is_root) {
+            if (event != UIA_MenuClosedEventId) return;
+            QIQI_TEST_CHECK(is_root && !close_provider);
+            QIQI_TEST_CHECK(candidate->QueryInterface(IID_PPV_ARGS(&close_provider)) == S_OK &&
+                            close_provider);
+        });
+    QIQI_TEST_CHECK(ui.Detach()->Release() == 1);
+    QIQI_TEST_CHECK(!::IsWindow(second_window) && close_provider);
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before + 1);
+    QIQI_TEST_CHECK(close_provider.Detach()->Release() == 0);
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 COLORREF PaintCandidatePixel(const CandidateUI& ui, POINT point) {
     const ScopedWindowDC screen(nullptr);
     const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
@@ -1790,6 +1834,7 @@ void RunCandidateUITests() {
     const auto objects_before = g_com_object_count.load();
     TestCandidateLightDismissEvents();
     TestCandidateTeardownReentry();
+    TestCandidateAutomationTeardown();
     TestCandidateStableRepainting();
     TestCandidateUI();
     TestCandidateLayouts();

@@ -34,6 +34,17 @@ const char* ExceptionMessageNoThrow(const std::exception& error) noexcept {
         return "exception message unavailable";
     }
 }
+
+void UnbindCandidateWindow(HWND hwnd) noexcept {
+    const ScopedLastErrorRestore preserve_error;
+    ::SetLastError(ERROR_SUCCESS);
+    if (::SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) == 0) {
+        const DWORD error = ::GetLastError();
+        if (error != ERROR_SUCCESS) {
+            QIQI_LOG_WARN("CandidateUI: clearing popup user data failed (error={})", error);
+        }
+    }
+}
 }
 
 std::wstring_view StripCodeAnnotation(std::wstring_view text) noexcept {
@@ -57,14 +68,15 @@ CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
     UpdateDpiAndFont(96);
 }
 
-CandidateUI::~CandidateUI() noexcept {
-    destroying_object_ = true;
-    std::ignore = DestroyPopupWindow();
-}
-
-ComPtr<CandidateUI> CandidateUI::RetainForWindowOperation() noexcept {
-    if (destroying_object_) return {};
-    return ComPtr<CandidateUI>(this);
+STDMETHODIMP_(ULONG) CandidateUI::Release() noexcept {
+    return ReleaseWithFinalCleanup([this]() noexcept {
+        if (!DestroyPopupWindow() && hwnd_) {
+            // Even if native destruction failed, don't leave a window bound to
+            // this object or run the ScopedWindow fallback at refcount zero.
+            UnbindCandidateWindow(hwnd_.Get());
+            hwnd_.Reset();
+        }
+    });
 }
 
 void CandidateUI::InitDirect2DAndDirectWrite() noexcept {
@@ -390,7 +402,7 @@ STDMETHODIMP CandidateUI::GetGUID(GUID* pguid) noexcept {
 }
 
 STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
-    const auto keep_alive = RetainForWindowOperation();
+    const ComPtr<CandidateUI> keep_alive(this);
     const bool blocked =
         bShow && (!presentation_enabled_ || destroying_window_ ||
                   searchbox_integration_);
@@ -398,10 +410,7 @@ STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
         show_requested_ = false;
         is_shown_ = FALSE;
         if (hwnd_) {
-            if (accessibility_open_announced_) {
-                accessibility_open_announced_ = false;
-                std::ignore = RaiseAccessibilityEvent(UIA_MenuClosedEventId);
-            }
+            CloseAccessibilityMenu();
             ::ShowWindow(hwnd_.Get(), SW_HIDE);
         }
         return S_FALSE;
@@ -428,10 +437,7 @@ STDMETHODIMP CandidateUI::Show(BOOL bShow) noexcept {
             return S_FALSE;
         }
     } else if (hwnd_) {
-        if (accessibility_open_announced_) {
-            accessibility_open_announced_ = false;
-            std::ignore = RaiseAccessibilityEvent(UIA_MenuClosedEventId);
-        }
+        CloseAccessibilityMenu();
         ::ShowWindow(hwnd_.Get(), SW_HIDE);
     }
     return S_OK;
@@ -562,7 +568,7 @@ STDMETHODIMP CandidateUI::Abort() noexcept {
 
 STDMETHODIMP CandidateUI::SetIntegrationStyle(
     GUID integration_style) noexcept {
-    const auto keep_alive = RetainForWindowOperation();
+    const ComPtr<CandidateUI> keep_alive(this);
     searchbox_integration_ =
         IsEqualGUID(integration_style, kGuidIntegrationStyleSearchbox);
     HRESULT hr = E_NOTIMPL;
@@ -705,7 +711,7 @@ void CandidateUI::SetCandidates(std::wstring code,
 
 void CandidateUI::MoveWindowTo(
     const RECT& text_rect, HWND host_window, bool require_owned_window) {
-    const auto keep_alive = RetainForWindowOperation();
+    const ComPtr<CandidateUI> keep_alive(this);
     const HWND owner = (host_window && ::IsWindow(host_window))
         ? ::GetAncestor(host_window, GA_ROOT)
         : nullptr;
@@ -750,7 +756,7 @@ void CandidateUI::SetLayout(CandidateLayout layout) {
 }
 
 void CandidateUI::SetDisplayPreferences(DisplayPreferences preferences) {
-    const auto keep_alive = RetainForWindowOperation();
+    const ComPtr<CandidateUI> keep_alive(this);
     if (preferences_ == preferences) return;
     preferences_ = preferences;
     RefreshAppearance();
@@ -765,7 +771,7 @@ void CandidateUI::RefreshAppearance() noexcept {
 }
 
 void CandidateUI::SetSkinSnapshot(const std::optional<ImeSkinSnapshot>& snapshot) {
-    const auto keep_alive = RetainForWindowOperation();
+    const ComPtr<CandidateUI> keep_alive(this);
     if (skin_snapshot_ == snapshot) return;
     skin_snapshot_ = snapshot;
     RefreshAppearance();
@@ -822,7 +828,7 @@ void CandidateUI::ScrollContent(int position) {
 }
 
 void CandidateUI::RefreshPopupLayout(UINT dpi) {
-    const auto keep_alive = RetainForWindowOperation();
+    const ComPtr<CandidateUI> keep_alive(this);
     const POINT anchor = text_rect_
         ? POINT{text_rect_->left, text_rect_->bottom + kCaretGapPx}
         : popup_pos_;
@@ -975,33 +981,31 @@ void CandidateUI::LogPopupVisibility() const noexcept {
                    info.rcWindow.left, info.rcWindow.top, info.rcWindow.right, info.rcWindow.bottom);
 }
 
+void CandidateUI::CloseAccessibilityMenu() noexcept {
+    if (std::exchange(accessibility_open_announced_, false)) {
+        std::ignore = RaiseAccessibilityEvent(UIA_MenuClosedEventId);
+    }
+}
+
+void CandidateUI::DisconnectAccessibilityProvider() noexcept {
+    if (accessibility_provider_needs_disconnect_ &&
+        log::CheckHResult(::UiaDisconnectProvider(this),
+                          "CandidateUI::UiaDisconnectProvider")) {
+        accessibility_provider_needs_disconnect_ = false;
+    }
+}
+
 bool CandidateUI::DestroyPopupWindow() noexcept {
     if (destroying_window_) return true;
     if (!CheckWindowOwnerThread(hwnd_.Get(), "CandidateUI::DestroyPopupWindow")) return false;
-    const auto keep_alive = RetainForWindowOperation();
+    const ComPtr<CandidateUI> keep_alive(this);
     destroying_window_ = true;
     const auto finish = gsl::finally([this]() noexcept { destroying_window_ = false; });
-    if (accessibility_open_announced_) {
-        accessibility_open_announced_ = false;
-        std::ignore = RaiseAccessibilityEvent(UIA_MenuClosedEventId);
-    }
+    CloseAccessibilityMenu();
     is_shown_ = FALSE;
     show_requested_ = false;
-    const HWND hwnd = hwnd_.Get();
-    const bool provider_returned =
-        std::exchange(accessibility_provider_returned_, false);
-    if (provider_returned) {
-        std::ignore = log::CheckHResult(
-            ::UiaDisconnectProvider(this),
-            "CandidateUI::UiaDisconnectProvider");
-    }
-    const bool destroyed = DestroyWindowOnOwnerThread(
-        hwnd_, "CandidateUI::DestroyPopupWindow");
-    if (provider_returned && destroyed && hwnd) {
-        std::ignore = ::UiaReturnRawElementProvider(
-            hwnd, 0, 0, nullptr);
-    }
-    return destroyed;
+    DisconnectAccessibilityProvider();
+    return DestroyWindowOnOwnerThread(hwnd_, "CandidateUI::DestroyPopupWindow");
 }
 
 std::vector<CandidateUI::PaintItem> CandidateUI::BuildPaintItems() const {
@@ -1129,35 +1133,34 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     if (!self || msg == WM_NCCREATE) {
         return ::DefWindowProcW(hwnd, msg, wparam, lparam);
     }
-    const auto keep_alive = self->RetainForWindowOperation();
+    const ComPtr<CandidateUI> keep_alive(self);
 
     switch (msg) {
         case WM_GETOBJECT:
-            if (lparam == UiaRootObjectId) {
-                if (self->destroying_window_) {
-                    return ::DefWindowProcW(hwnd, msg, wparam, lparam);
-                }
-                const LRESULT result =
-                    ::UiaReturnRawElementProvider(
-                        hwnd, wparam, lparam, self);
-                if (result != 0) {
-                    self->accessibility_provider_returned_ = true;
-                }
-                return result;
+            if (lparam == UiaRootObjectId && self->hwnd_.Get() == hwnd &&
+                !self->destroying_window_) {
+                self->accessibility_provider_needs_disconnect_ = true;
+                return ::UiaReturnRawElementProvider(hwnd, wparam, lparam, self);
             }
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
-        case WM_NCDESTROY:
+        case WM_NCDESTROY: {
+            const bool already_destroying = std::exchange(self->destroying_window_, true);
+            const auto finish = gsl::finally([self, already_destroying]() noexcept {
+                self->destroying_window_ = already_destroying;
+            });
+            UnbindCandidateWindow(hwnd);
             if (self->hwnd_.Get() == hwnd) {
-                if (self->accessibility_open_announced_) {
-                    self->accessibility_open_announced_ = false;
-                    std::ignore = self->RaiseAccessibilityEvent(UIA_MenuClosedEventId);
-                }
+                self->CloseAccessibilityMenu();
+                if (!already_destroying) self->DisconnectAccessibilityProvider();
                 std::ignore = self->hwnd_.Detach();
                 self->is_shown_ = FALSE;
                 self->popup_owner_ = nullptr;
+                // Clear the map for this HWND even if UIA only saw raised events.
+                std::ignore = ::UiaReturnRawElementProvider(hwnd, 0, 0, nullptr);
                 self->NotifyPopupWindowState(hwnd, true);
             }
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
+        }
         case WM_WINDOWPOSCHANGED: {
             const LRESULT result = ::DefWindowProcW(hwnd, msg, wparam, lparam);
             if (self->hwnd_.Get() == hwnd) self->NotifyPopupWindowState(hwnd);

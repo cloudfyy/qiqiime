@@ -252,9 +252,12 @@ presentation-disabled UI and production-presenter negotiation with a mocked
 UILess host. The hook is removed before its capture state dies.
 Synchronous teardown-subclass regressions release the last external UI owner
 during explicit HWND destruction and reenter display/show methods during the
-object destructor. They verify that callbacks cannot free an active cleanup
-scope or resurrect a destructing object, and that COM-object counts return to
-their baseline after native window teardown.
+last COM release. Candidate popup teardown, including the UI Automation close
+event and provider disconnect, runs before that release drops the final
+reference. A UI Automation regression requests providers from the original and
+recreated popups, verifies that both HWNDs are destroyed, and holds a reference
+acquired during close to verify that deletion waits for it.
+COM-object counts must return to their baseline after teardown.
 The WinEvent capture constructor uses nonthrowing failure diagnostics. The
 teardown subclass retains its native nonthrowing boundary and reports allocation
 failures before failing the test; allocation-capable display updates
