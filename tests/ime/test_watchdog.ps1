@@ -10,6 +10,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $test = $null
 
+if ($Mode -eq 'skins') {
+    $testsDirectory = Split-Path -Parent $PSScriptRoot
+    $repositoryRoot = Split-Path -Parent $testsDirectory
+    & (Join-Path $PSScriptRoot '..\skin\catalog_contract.ps1') -RepositoryRoot $repositoryRoot
+}
+
 function Invoke-BoundedDebugger {
     param([string[]]$Arguments, [string]$OutputPrefix, [int]$Milliseconds)
     $debugProcess = $null

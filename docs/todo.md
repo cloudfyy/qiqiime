@@ -352,10 +352,18 @@ each behavior change rather than postponing all testing until the final gate.
   runner, retained traces, watchdog and private registry/LOCALAPPDATA fixture.
   Run the collection on x64/x86; default UI/Common/Settings no longer execute
   skin-specific cases. General configuration projections remain in place.
-- [ ] Verify all 42 variants and 546 explicit fields against the design data,
+- [x] Verify all 42 variants and 546 explicit fields against the design data,
   including RGB24 conversion, isolated-registry round trips, missing/invalid
   IDs, wrong types/ranges/schema, missing Light/Dark roles, denied reads/writes,
   staged-update failure, and configuration notification/snapshot refresh.
+  `QiQiSkinTest` first compares the design table, C++ built-in source and UTF-16LE
+  registry template by stable ID, display name, order, variant and all 546
+  explicit fields. Native cases verify RGB24 round trips, strict registry shape
+  and malformed data, preserve the last-good snapshot on failures, exercise
+  denied read/write and transactional publication failure, and assert that a
+  configuration notification updates the live candidate appearance without
+  changing page, selection or composition. The expanded collection passed
+  serial Release runs on x64 and x86.
 - [ ] Verify first/last/empty candidate states, code title and paging colors,
   selected border, menu hover/check/disabled/focus states, and preview/save/
   cancel behavior. Check text roles at least 4.5:1 and selected-border versus

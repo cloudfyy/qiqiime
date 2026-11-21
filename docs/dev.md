@@ -147,6 +147,11 @@ Skin-specific catalog, chooser, candidate/menu rendering, and input-preservation
 cases run only in **QiQiSkinTest**, not the default Common/Settings/UI collections.
 The collection reuses `qiqi_tsf_ui_test --skin-tests`, its private lifecycle
 registry/LOCALAPPDATA fixture, retained trace logs, and the existing watchdog.
+Before starting the native executable, the watchdog verifies all 21 stable
+skin IDs, 42 Light/Dark variants, and 546 explicit fields across the design
+table, C++ built-ins and UTF-16LE registry template. The native collection then
+checks conversion, isolated-registry round trips, malformed/missing data,
+denied access, publication rollback, and live snapshot refresh.
 General configuration-field projections remain in Common and Settings.
 
 ```powershell

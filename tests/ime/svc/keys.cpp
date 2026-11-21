@@ -66,6 +66,7 @@ void TestSkinConfigReloadPreservesInput() {
     config.default_chinese_mode = true;
     config.show_status_bar = false;
     config.up_down_page_turn = false;
+    config.ui_theme = UiTheme::Light;
     config.ime_skin_id = ImeSkinId::Default;
     QIQI_TEST_CHECK(SaveConfig(config));
     auto service = MakeComObject<QiQiTextService>(g_dll_instance);
@@ -77,6 +78,9 @@ void TestSkinConfigReloadPreservesInput() {
     QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'D', 0, &eaten) == S_OK && eaten);
     ComPtr<ITfCandidateListUIElement> candidates;
     QIQI_TEST_CHECK(manager->last_ui_element_.As(&candidates) == S_OK && candidates);
+    const auto* candidate_ui =
+        dynamic_cast<const CandidateUI*>(manager->last_ui_element_.Get());
+    QIQI_TEST_CHECK(candidate_ui);
     UINT count = 0;
     QIQI_TEST_CHECK(candidates->GetCount(&count) == S_OK && count >= 6);
     for (const UINT key : {VK_NEXT, VK_DOWN})
@@ -89,6 +93,12 @@ void TestSkinConfigReloadPreservesInput() {
     config.ime_skin_id = ImeSkinId::Firefly;
     QIQI_TEST_CHECK(SaveConfig(config));
     QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+    std::optional<ImeSkinSnapshot> expected_skin;
+    QIQI_TEST_CHECK(UpdateImeSkinSnapshot(
+        ImeSkinId::Firefly, expected_skin) == S_OK && expected_skin);
+    QIQI_TEST_CHECK(manager->last_ui_element_.Get() == candidate_ui);
+    QIQI_TEST_CHECK(candidate_ui->Appearance().palette.window_bg ==
+        expected_skin->palettes.light.Get(SkinColor::Background));
     UINT after = 0;
     QIQI_TEST_CHECK(candidates->GetCurrentPage(&after) == S_OK && after == page);
     QIQI_TEST_CHECK(candidates->GetSelection(&after) == S_OK && after == selection);
