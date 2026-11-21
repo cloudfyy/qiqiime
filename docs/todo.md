@@ -398,6 +398,12 @@ each behavior change rather than postponing all testing until the final gate.
     input, candidate text, window titles or screenshots containing private
     content. Simulated callbacks and native TSF test hosts do not satisfy this
     sub-gate.
+    - [ ] **Feedback Hub: candidate skin not applied** (reported 2026-11-21;
+      target fix 2026-11-22). In QiQi Settings > Display, `Follow Windows` with
+      `Peach Blossom` shows a pink preview, but Wubi candidates in Feedback Hub's
+      **Summarize your feedback** field still show the default blue highlight.
+      Retest after saving the skin with **OK**. Local log export:
+      `C:\temp\qiqi-ime-events.log` (last modified 2026-11-21 21:13 local time).
 - [x] Update user/developer documentation to distinguish implemented surfaces
   from design-only features; automated color checks do not certify all hosts
   or accessibility. Do not generate MSI packages unless explicitly requested.
