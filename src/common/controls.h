@@ -57,6 +57,7 @@ bool PaintCandidateSample(HDC dc, const RECT& bounds, HFONT font, UINT dpi,
 
 inline constexpr int kFluentBodyFontSize = 14;
 inline constexpr int kFluentComboItemHeight = 22;
+inline constexpr int kCandidateFontDefaultHeightPx = 18;
 inline constexpr int kFluentToggleTextInset = 4;
 inline constexpr std::size_t kFluentComboTextCapacity = 128;
 inline constexpr int kComfortMinimumTargetDip = 44;

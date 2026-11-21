@@ -50,6 +50,7 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
     engine_.SetPhraseFreqPath(GetDefaultPhraseFreqPath());
     std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());
     candidate_ui_ = MakeComObject<CandidateUI>(instance);
+    candidate_ui_->SetFontPreferences(GetCandidateFontPreferences(config_));
     candidate_ui_->SetSelectCallback([this](size_t index_in_page) {
         if (index_in_page < 9 && composition_lifecycle_.Context() && engine_.IsComposing()) {
             const ComPtr<ITfContext> target = composition_lifecycle_.Context();

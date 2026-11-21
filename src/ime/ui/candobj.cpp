@@ -16,7 +16,6 @@
 namespace qiqi {
 namespace {
 constexpr float kTextMeasurementWidth = 4096.0f;
-constexpr int kGdiFontHeight = 18;
 constexpr int kFallbackCharacterWidth = 12;
 constexpr int kHorizontalMargin = 10;
 constexpr int kCandidateGap = 16;
@@ -96,7 +95,12 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
     font_scale_percent_ = text_scale_percent;
     popup_height_ = ScaleByDpi(kPopupHeight);
 
-    font_ = CreateUiFont(ScaleText(kGdiFontHeight), FW_NORMAL);
+    font_ = CreateCandidateFont(
+        font_preferences_, kCandidateFontDefaultHeightPx, dpi_, preferences_.text_scale);
+    if (!font_) {
+        QIQI_LOG_ERROR("CandidateUI custom font unavailable; using the system UI font");
+        font_ = CreateUiFont(ScaleText(kCandidateFontDefaultHeightPx), FW_NORMAL);
+    }
     const ScopedWindowDC dc(hwnd_.Get());
     const ScopedSelectObject select_font(dc.Get(), font_.Get());
     TEXTMETRICW metrics{};
@@ -110,10 +114,10 @@ void CandidateUI::UpdateDpiAndFont(UINT new_dpi) noexcept {
         if (log::CheckHResult(dwrite_factory_->CreateTextFormat(
                 gsl::at(font_details.lfFaceName, 0) ? std::data(font_details.lfFaceName) : L"Microsoft YaHei UI",
                 nullptr,
-                DWRITE_FONT_WEIGHT_NORMAL,
-                DWRITE_FONT_STYLE_NORMAL,
+                static_cast<DWRITE_FONT_WEIGHT>(font_details.lfWeight),
+                font_details.lfItalic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL,
-                static_cast<float>(ScaleText(kGdiFontHeight)),
+                static_cast<float>(std::abs(gsl::narrow_cast<int>(font_details.lfHeight))),
                 L"zh-CN",
                 dwrite_text_format_.Put()), "CandidateUI::CreateTextFormat") &&
             dwrite_text_format_) {
@@ -761,6 +765,15 @@ void CandidateUI::SetDisplayPreferences(DisplayPreferences preferences) {
     RefreshAppearance();
     RefreshPopupLayout();
     if (hwnd_) ApplyDisplayThemeToWindow(hwnd_.Get(), appearance_);
+}
+
+void CandidateUI::SetFontPreferences(const CandidateFontPreferences& preferences) {
+    const ComPtr<CandidateUI> keep_alive(this);
+    if (font_preferences_ == preferences) return;
+    font_preferences_ = preferences;
+    font_.Reset();
+    dwrite_text_format_.Reset();
+    RefreshPopupLayout();
 }
 
 void CandidateUI::RefreshAppearance() noexcept {

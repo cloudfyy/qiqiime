@@ -46,6 +46,9 @@ enum class CandidateLayout {
 
 enum class UiTheme { System, Light, Dark, HighContrast };
 enum class UiTextScale { Percent100, Percent125, Percent150, Percent200 };
+enum class CandidateFontWeight {
+    Auto, Thin, ExtraLight, Light, Normal, Medium, SemiBold, Bold, ExtraBold, Black
+};
 
 enum class ImeSkinId : uint32_t {
     Default, Firefly, Inkstone, JadePool, StarryAbyss, AutumnBrocade, BambooDew,
@@ -94,6 +97,48 @@ constexpr int TextScalePercent(UiTextScale scale) noexcept {
     }
 }
 
+constexpr LONG CandidateFontWeightToGdi(CandidateFontWeight weight) noexcept {
+    switch (weight) {
+        case CandidateFontWeight::Thin: return FW_THIN;
+        case CandidateFontWeight::ExtraLight: return FW_EXTRALIGHT;
+        case CandidateFontWeight::Light: return FW_LIGHT;
+        case CandidateFontWeight::Normal: return FW_NORMAL;
+        case CandidateFontWeight::Medium: return FW_MEDIUM;
+        case CandidateFontWeight::SemiBold: return FW_SEMIBOLD;
+        case CandidateFontWeight::Bold: return FW_BOLD;
+        case CandidateFontWeight::ExtraBold: return FW_EXTRABOLD;
+        case CandidateFontWeight::Black: return FW_HEAVY;
+        case CandidateFontWeight::Auto:
+        default: return FW_NORMAL;
+    }
+}
+
+constexpr CandidateFontWeight CandidateFontWeightFromGdi(LONG weight) noexcept {
+    if (weight <= 0) return CandidateFontWeight::Auto;
+    const LONG rounded = std::clamp<LONG>((weight + 50) / 100, 1, 9);
+    switch (rounded) {
+        case 1: return CandidateFontWeight::Thin;
+        case 2: return CandidateFontWeight::ExtraLight;
+        case 3: return CandidateFontWeight::Light;
+        case 4: return CandidateFontWeight::Normal;
+        case 5: return CandidateFontWeight::Medium;
+        case 6: return CandidateFontWeight::SemiBold;
+        case 7: return CandidateFontWeight::Bold;
+        case 8: return CandidateFontWeight::ExtraBold;
+        case 9: return CandidateFontWeight::Black;
+        default: return CandidateFontWeight::Auto;
+    }
+}
+
+struct CandidateFontPreferences {
+    std::wstring family;
+    size_t point_size = 0;
+    CandidateFontWeight weight = CandidateFontWeight::Auto;
+    bool italic = false;
+
+    bool operator==(const CandidateFontPreferences&) const noexcept = default;
+};
+
 struct QiQiConfig {
     // [dictionary]
     PrimaryDict primary_dict = PrimaryDict::Jidian;
@@ -130,10 +175,23 @@ struct QiQiConfig {
     UiTextScale ui_text_scale = UiTextScale::Percent100;
     bool easy_reading = false;
     ImeSkinId ime_skin_id = ImeSkinId::Default;
+    std::wstring candidate_font_family;
+    size_t candidate_font_size = 0;
+    CandidateFontWeight candidate_font_weight = CandidateFontWeight::Auto;
+    bool candidate_font_italic = false;
 };
 
 constexpr DisplayPreferences GetDisplayPreferences(const QiQiConfig& config) noexcept {
     return {config.ui_theme, config.ui_text_scale, config.easy_reading};
+}
+
+inline CandidateFontPreferences GetCandidateFontPreferences(const QiQiConfig& config) {
+    return {
+        config.candidate_font_family,
+        config.candidate_font_size,
+        config.candidate_font_weight,
+        config.candidate_font_italic,
+    };
 }
 
 template <typename T>
@@ -211,7 +269,10 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"ui_text_scale", L"UiTextScale", &QiQiConfig::ui_text_scale, 0, 3, true},
     ConfigField{"easy_reading", L"EasyReading", &QiQiConfig::easy_reading, 0, 1, true},
     ConfigField{"enable_code_completion", L"EnableCodeCompletion", &QiQiConfig::enable_code_completion, 0, 1, true},
-    ConfigField{"ime_skin_id", L"ImeSkinId", &QiQiConfig::ime_skin_id, 0, 21, true}
+    ConfigField{"ime_skin_id", L"ImeSkinId", &QiQiConfig::ime_skin_id, 0, 21, true},
+    ConfigField{"candidate_font_size", L"CandidateFontSize", &QiQiConfig::candidate_font_size, 0, 72, true},
+    ConfigField{"candidate_font_weight", L"CandidateFontWeight", &QiQiConfig::candidate_font_weight, 0, 9, true},
+    ConfigField{"candidate_font_italic", L"CandidateFontItalic", &QiQiConfig::candidate_font_italic, 0, 1, true}
 };
 
 template <typename Visitor>
@@ -223,6 +284,37 @@ constexpr void ForEachConfigField(Visitor&& visitor)
         noexcept((std::is_nothrow_invocable_v<Visitor&, decltype(fields)> && ...)) {
         (visitor(fields), ...);
     }, kConfigFields);
+}
+
+struct ConfigStringField {
+    std::string_view backup_key;
+    const wchar_t* registry_key;
+    std::wstring QiQiConfig::* member;
+    bool settings_editable;
+
+    constexpr bool HasSettingsChange(const QiQiConfig& baseline, const QiQiConfig& current) const noexcept {
+        return settings_editable && current.*member != baseline.*member;
+    }
+};
+
+inline constexpr auto kConfigStringFields = std::tuple{
+    ConfigStringField{"candidate_font_family", L"CandidateFontFamily",
+        &QiQiConfig::candidate_font_family, true},
+};
+
+template <typename Visitor>
+constexpr void ForEachConfigStringField(Visitor&& visitor)
+    noexcept(std::apply([](const auto&... fields) {
+        return (std::is_nothrow_invocable_v<Visitor&, decltype(fields)> && ...);
+    }, kConfigStringFields)) {
+    std::apply([&visitor](const auto&... fields)
+        noexcept((std::is_nothrow_invocable_v<Visitor&, decltype(fields)> && ...)) {
+        (visitor(fields), ...);
+    }, kConfigStringFields);
+}
+
+constexpr bool IsValidCandidateFontFamily(std::wstring_view family) noexcept {
+    return family.size() < LF_FACESIZE && family.find(L'\0') == std::wstring_view::npos;
 }
 
 void MergeSettingsConfig(

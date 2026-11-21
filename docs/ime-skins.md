@@ -315,12 +315,15 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 当前源码实现的是**一期二十一套纯色配色与三个自绘区域**。
 状态条、Tooltip、渐变及额外交互状态仍不因配色目录扩充而自动纳入一期。
 
-#### 设置中的皮肤选择
+#### 设置中的皮肤与候选字体
 
-“显示”页提供紧凑的皮肤下拉框：**默认、流萤、墨砚、碧潭、星渊、桃夭、
+“候选窗口”页提供紧凑的皮肤下拉框：**默认、流萤、墨砚、碧潭、星渊、桃夭、
 更多…**。如果当前皮肤不在这五个常用项中，也显示当前项；不把全部目录塞进主下拉。
 下拉框按实际条目数展开，空间允许时同时显示“默认”和“更多…”；空间不足时可用原生滚动条。
-该页复用现有候选图例预览；“候选窗口”页只保留布局、分页、提示和下划线等输入相关选项。
+同一行的“字体…”按钮打开 Windows 字体对话框。字族、字号、字重和斜体只应用于实际候选窗口
+及设置中的候选图例预览，不改变状态栏、菜单或工具窗口字体；默认值保留原系统 UI 字体。
+选择对话框只列出已安装字体；配置导入或换机后若字体不存在，保留原配置并在设置按钮标记“未安装”，
+实际候选窗及预览立即回退到系统 UI 字体，安装该字体后即可恢复。
 
 “更多…”打开设置窗口拥有的独立选择窗口，显示默认及全部二十一套皮肤。
 每项包含名称和图例卡片，按当前主题显示明亮或深色版本；系统及手选高对比度仍优先。
@@ -331,8 +334,9 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 
 子窗口点击“使用此皮肤”只回填设置草稿，取消保留原草稿；
 仍须在主设置窗口点击“确定”才持久化，主窗口取消不影响实际 IME。
-皮肤通过共享配置字段 `ime_skin_id` 参与 JSON 导入导出、备份与配置同步，
-注册表中的独立选择键仍为 `ImeSkinId`。
+皮肤和候选字体参与 JSON 导入导出、备份与配置同步：皮肤使用 `ime_skin_id`，
+字体使用 `candidate_font_family`、`candidate_font_size`、`candidate_font_weight`
+和 `candidate_font_italic`；对应注册表键分别为 `ImeSkinId` 及 `CandidateFont*`。
 
 ### 8.3 刷新不扰动输入
 
@@ -517,9 +521,15 @@ validated registry snapshot. Initialization does not overwrite existing catalogs
 The first phase still has 21 known skin IDs; adding a registry key alone does not
 add a new skin.
 
-Settings' Display page offers Default, Firefly Glow, Inkstone, Jade Pool,
+Settings' Candidates page offers Default, Firefly Glow, Inkstone, Jade Pool,
 Starry Abyss, Peach Blossom, and More. A non-common current selection is also shown.
 The dropdown fits all entries when space permits and provides native scrolling otherwise.
+The adjacent Font button opens the Windows font dialog. Its family, point size,
+weight and italic style apply only to the candidate popup and candidate preview,
+not status bars, menus or tool windows; an empty family preserves the original UI font.
+The chooser exposes installed fonts. If an imported or moved configuration names a missing
+font, the choice is retained and marked in Settings while candidate rendering falls back
+to the system UI font until that font is installed.
 More opens an owned window containing all skins with current-theme sample cards,
 using synthetic text and shared candidate rendering. The selected card has a highlighted
 name row and a Selected label, retained when focus moves to the buttons; sample colors
@@ -527,4 +537,4 @@ are unchanged. The first opening establishes the full scroll range immediately,
 so the wheel works without clicking an item first and does not change selection.
 Choosing a card only updates
 the Settings draft; the main OK saves, while Cancel leaves the IME unchanged.
-The independent `ime_skin_id` field also participates in configuration JSON and backup.
+The skin and candidate-font fields participate in configuration JSON and backup.

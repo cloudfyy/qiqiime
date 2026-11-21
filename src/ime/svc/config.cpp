@@ -747,6 +747,7 @@ void QiQiTextService::UpdateUiIndicators() {
     if (const auto candidate_ui = candidate_ui_) {
         candidate_ui->SetSkinSnapshot(ime_skin_snapshot_);
         candidate_ui->SetDisplayPreferences(GetDisplayPreferences(config_));
+        candidate_ui->SetFontPreferences(GetCandidateFontPreferences(config_));
         candidate_ui->SetLayout(config_.candidate_layout);
     }
 }

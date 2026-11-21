@@ -53,7 +53,7 @@ The vcpkg manifest includes Microsoft GSL, the header-only `nlohmann-json`
 parser, and miniz for Deflate ZIP backups. The x64/x86 presets select the
 corresponding `windows-static` triplets so miniz and the MSVC runtime are
 statically linked; no additional ZIP DLL is deployed.
-Configuration transfer reuses `kConfigFields`, atomic file writes,
+Configuration transfer reuses `kConfigFields` and `kConfigStringFields`, atomic file writes,
 and registry transactions; JSON is an exchange format, not a replacement
 configuration store. Keep transferred scalar fields separate from local paths.
 Duplicate JSON keys (including escaped spellings) must be rejected before a
@@ -542,13 +542,18 @@ Production diagnostics use local ETW. Capture and filtering instructions are in 
 Desktop usage and supported surfaces are documented in
 [display and easy reading](accessibility.md); implementation decisions are in the
 [desktop plan](desktop-accessibility-plan.md).
-`QiQiConfig`/`kConfigFields` are the only persistence/merge/backup field mechanism:
+`QiQiConfig` plus `kConfigFields`/`kConfigStringFields` are the persistence,
+merge and backup field mechanism:
 
-| Backup key | Registry DWORD | Values |
+| Backup key | Registry value | Values |
 |---|---|---|
 | `ui_theme` | `UiTheme` | 0 system (default), 1 light, 2 dark, 3 app high contrast |
 | `ui_text_scale` | `UiTextScale` | 0=100% (default), 1=125%, 2=150%, 3=200% |
 | `easy_reading` | `EasyReading` | 0 off (default), 1 on |
+| `candidate_font_family` | `CandidateFontFamily` (string) | empty/default or a Windows font face up to `LF_FACESIZE - 1` |
+| `candidate_font_size` | `CandidateFontSize` | 0 automatic/default or 6-72 points |
+| `candidate_font_weight` | `CandidateFontWeight` | 0 automatic/default through 9 black |
+| `candidate_font_italic` | `CandidateFontItalic` | 0 upright (default), 1 italic |
 
 `DisplayPreferences` is a value snapshot. `ResolveDisplayAppearance` resolves
 Windows high contrast before the selected theme; its palette supplies D2D/GDI

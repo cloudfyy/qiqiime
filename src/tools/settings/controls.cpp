@@ -188,6 +188,8 @@ const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage languag
     if (key == "ui_theme") return english ? kDisplayEn.theme : kDisplayZh.theme;
     if (key == "ui_text_scale") return english ? kDisplayEn.scale : kDisplayZh.scale;
     if (key == "easy_reading") return english ? kDisplayEn.easy : kDisplayZh.easy;
+    if (key.starts_with("candidate_font_"))
+        return english ? L"Candidate font" : L"候选字体";
     if (key == "enable_z_temp_english") return english ? L"Temporary English input" : L"临时英文输入";
     if (key == "default_chinese_mode") return english ? L"Default Chinese mode" : L"默认中文模式";
     if (key == "default_full_width") return english ? L"Default full width" : L"默认全角模式";
@@ -206,6 +208,38 @@ void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept {
         ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTheme), text.themes),
         "Settings::ReplaceComboBoxItems(theme)");
     UpdateSettingsTabLabels(hwnd, ctx);
+}
+
+void UpdateCandidateFontLabel(HWND hwnd, const DialogContext& ctx) noexcept {
+    const auto language = GetSelectedUiLanguageFromCombo(hwnd, ctx);
+    const auto& font = ctx.preview_candidate_font;
+    std::array<wchar_t, 128> label{};
+    if (font.family.empty() && font.point_size == 0 &&
+        font.weight == CandidateFontWeight::Auto && !font.italic) {
+        wcscpy_s(label.data(), label.size(), LocalizedUiText(language, L"字体…", L"Font..."));
+    } else {
+        const int result = font.point_size != 0
+            ? swprintf_s(label.data(), label.size(),
+                LocalizedUiText(language, L"%ls %u 磅", L"%ls %u pt"),
+                font.family.empty() ? LocalizedUiText(language, L"自动", L"Auto") : font.family.c_str(),
+                gsl::narrow_cast<unsigned int>(font.point_size))
+            : swprintf_s(label.data(), label.size(), L"%ls",
+                font.family.empty() ? LocalizedUiText(language, L"字体…", L"Font...") :
+                    font.family.c_str());
+        if (result < 0) {
+            QIQI_LOG_WARN("Candidate font button label exceeded its buffer");
+            wcscpy_s(label.data(), label.size(), LocalizedUiText(language, L"字体…", L"Font..."));
+        }
+    }
+    if (!font.family.empty() && !CandidateFontFamilyAvailable(font.family)) {
+        const wchar_t* suffix = LocalizedUiText(
+            language, L"（未安装，使用默认字体）", L" (missing; using default)");
+        const auto remaining = label.size() - std::wcslen(label.data()) - 1;
+        if (std::wcslen(suffix) <= remaining) {
+            wcscat_s(label.data(), label.size(), suffix);
+        }
+    }
+    ::SetDlgItemTextW(hwnd, kIdBtnCandidateFont, label.data());
 }
 
 void UpdateSettingsTabLabels(HWND hwnd, const DialogContext& ctx) noexcept {
@@ -353,10 +387,81 @@ void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept {
     } else {
         QIQI_LOG_ERROR("Settings preview font creation failed (error={})", ::GetLastError());
     }
+    auto candidate_font = CreateCandidateFont(
+        ctx.preview_candidate_font, kCandidateFontDefaultHeightPx,
+        ctx.d2d.dpi, edited.ui_text_scale);
+    if (candidate_font) {
+        ctx.candidate_preview_font = std::move(candidate_font);
+    } else {
+        QIQI_LOG_ERROR("Settings candidate preview font creation failed (error={})", ::GetLastError());
+    }
+    UpdateCandidateFontLabel(hwnd, ctx);
     UpdateSettingsDisplayLabels(hwnd, ctx);
     LayoutSettingsControls(hwnd, ctx);
     EnsureSettingsControlVisible(hwnd, ::GetFocus(), ctx);
     ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+}
+
+bool PromptSettingsCandidateFont(
+    HWND hwnd, DialogContext& ctx, CandidateFontChooser chooser) noexcept {
+    if (!chooser) {
+        QIQI_LOG_WARN("Candidate font chooser is unavailable");
+        return false;
+    }
+    LOGFONTW selection{};
+    if (!TryBuildCandidateFontWithFallback(
+            ctx.preview_candidate_font, kCandidateFontDefaultHeightPx,
+            ctx.d2d.dpi, UiTextScale::Percent100, selection)) {
+        QIQI_LOG_WARN("Candidate font chooser initial font is unavailable");
+        return false;
+    }
+    CHOOSEFONTW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = hwnd;
+    dialog.lpLogFont = &selection;
+    dialog.iPointSize = ctx.preview_candidate_font.point_size != 0
+        ? gsl::narrow_cast<int>(ctx.preview_candidate_font.point_size) * 10
+        : std::clamp(
+            ::MulDiv(std::abs(gsl::narrow_cast<int>(selection.lfHeight)), 720,
+                gsl::narrow_cast<int>(std::max(1u, ctx.d2d.dpi))),
+            60, 720);
+    dialog.Flags = CF_SCREENFONTS | CF_FORCEFONTEXIST | CF_INITTOLOGFONTSTRUCT | CF_LIMITSIZE;
+    dialog.nSizeMin = 6;
+    dialog.nSizeMax = 72;
+    if (!chooser(&dialog)) {
+        const DWORD error = ::CommDlgExtendedError();
+        if (error != 0) {
+            QIQI_LOG_WARN("Candidate font dialog failed (error={})", error);
+        }
+        return false;
+    }
+    const size_t length = ::wcsnlen(selection.lfFaceName, LF_FACESIZE);
+    if (length == 0 || length >= LF_FACESIZE) {
+        QIQI_LOG_WARN("Candidate font dialog returned an invalid family (length={})", length);
+        return false;
+    }
+    const std::wstring_view selected_family(selection.lfFaceName, length);
+    if (!CandidateFontFamilyAvailable(selected_family)) {
+        QIQI_LOG_WARN("Candidate font dialog returned a family that is no longer installed");
+        return false;
+    }
+    try {
+        CandidateFontPreferences selected{
+            std::wstring(selected_family),
+            gsl::narrow_cast<size_t>(std::clamp((dialog.iPointSize + 5) / 10, 6, 72)),
+            CandidateFontWeightFromGdi(selection.lfWeight),
+            selection.lfItalic != FALSE,
+        };
+        ctx.preview_candidate_font = std::move(selected);
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_WARN("Candidate font selection allocation failed");
+        return false;
+    }
+    UpdateCandidateFontLabel(hwnd, ctx);
+    ApplySettingsDisplayPreview(hwnd, ctx);
+    UpdateSettingsWindowTitle(hwnd, ctx);
+    ::InvalidateRect(::GetDlgItem(hwnd, kIdBtnCandidateFont), nullptr, FALSE);
+    return true;
 }
 
 int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogContext& ctx) noexcept {
@@ -365,12 +470,14 @@ int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogC
         QIQI_LOG_WARN("Settings preview measurement DC acquisition failed");
         return 0;
     }
-    return MeasureCandidateSample(dc.Get(), ctx.font.Get(), width, ctx.d2d.dpi,
+    const HFONT font = ctx.candidate_preview_font ? ctx.candidate_preview_font.Get() : ctx.font.Get();
+    return MeasureCandidateSample(dc.Get(), font, width, ctx.d2d.dpi,
         GetSelectedUiLanguageFromCombo(::GetParent(preview), ctx), ctx.d2d.display_preferences);
 }
 
 void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept {
-    std::ignore = PaintCandidateSample(item.hDC, item.rcItem, ctx.font.Get(), ctx.d2d.dpi,
+    const HFONT font = ctx.candidate_preview_font ? ctx.candidate_preview_font.Get() : ctx.font.Get();
+    std::ignore = PaintCandidateSample(item.hDC, item.rcItem, font, ctx.d2d.dpi,
         GetSelectedUiLanguageFromCombo(::GetParent(item.hwndItem), ctx),
         ctx.d2d.display_preferences, ctx.candidate_skin_colors);
 }
@@ -402,6 +509,13 @@ void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept {
     ForEachConfigField([&](const auto& field) noexcept {
         if (field.HasSettingsChange(ctx.baseline_config, current) ||
             (ctx.imported_config && field.Value(ctx.baseline_config) != field.Value(current))) {
+            dirty = true;
+        }
+    });
+    ForEachConfigStringField([&](const auto& field) noexcept {
+        if (field.HasSettingsChange(ctx.baseline_config, current) ||
+            (ctx.imported_config &&
+             ctx.baseline_config.*(field.member) != current.*(field.member))) {
             dirty = true;
         }
     });
@@ -443,6 +557,7 @@ void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdBtnRestoreDefaults, str.dlg_btn_restore_defaults);
     ::SetDlgItemTextW(hwnd, kIdBtnImportConfig, str.dlg_btn_import_config);
     ::SetDlgItemTextW(hwnd, kIdBtnExportConfig, str.dlg_btn_export_config);
+    UpdateCandidateFontLabel(hwnd, ctx);
     ::SetDlgItemTextW(hwnd, kIdBtnOk, str.dlg_btn_ok);
     ::SetDlgItemTextW(hwnd, kIdBtnCancel, str.dlg_btn_cancel);
 
@@ -673,6 +788,7 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdCandidatePreview);
     create_control(L"STATIC", L"", 0, initial, kIdLblImeSkin);
     create_control(L"COMBOBOX", L"", combo_style | WS_VSCROLL, initial, kIdComboImeSkin);
+    create_control(L"BUTTON", L"", button_style, initial, kIdBtnCandidateFont);
     create_control(L"STATIC", L"", 0, initial, kIdDisplayExplanation);
     std::ignore = log::CheckHResult(
         ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTextScale), kTextScaleLabels),
@@ -768,7 +884,14 @@ static HRESULT PopulateSettingsControls(HWND hwnd, const QiQiConfig& config, boo
     ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_SETCURSEL, static_cast<WPARAM>(config.ui_theme), 0);
     if (auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
         context->preview_skin_id = config.ime_skin_id;
+        try {
+            context->preview_candidate_font = GetCandidateFontPreferences(config);
+        } catch (const std::bad_alloc&) {
+            QIQI_LOG_WARN("WriteSettingsToWindowControls: failed to copy candidate font family");
+            return E_OUTOFMEMORY;
+        }
         PopulateSettingsSkinCombo(hwnd, *context);
+        UpdateCandidateFontLabel(hwnd, *context);
     }
     ::CheckDlgButton(hwnd, kIdChkEasyReading, config.easy_reading ? BST_CHECKED : BST_UNCHECKED);
     const UiTextScale scale = config.easy_reading
@@ -802,6 +925,14 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     }
     if (const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
         config.ime_skin_id = ctx->preview_skin_id;
+        try {
+            config.candidate_font_family = ctx->preview_candidate_font.family;
+        } catch (const std::bad_alloc&) {
+            QIQI_LOG_WARN("ReadSettingsFromWindowControls: candidate font family copy failed");
+        }
+        config.candidate_font_size = ctx->preview_candidate_font.point_size;
+        config.candidate_font_weight = ctx->preview_candidate_font.weight;
+        config.candidate_font_italic = ctx->preview_candidate_font.italic;
         if (ctx->imported_config) {
             ForEachConfigField([&](const auto& field) noexcept {
                 if (!field.settings_editable)

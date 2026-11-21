@@ -106,12 +106,15 @@ Extra 缩进显示在 Jidian Core 下，并注明依赖关系：只有选中 Cor
 | `underline_style` | `dot`, `solid`, `dash`, `squiggle`, `none` |
 | `ui_theme` | `system`, `light`, `dark`, `high_contrast` |
 | `ime_skin_id` | `default` 或[皮肤目录](ime-skin-palettes.md)中的稳定 ID |
+| `candidate_font_weight` | `auto`, `thin`, `extra-light`, `light`, `normal`, `medium`, `semi-bold`, `bold`, `extra-bold`, `black` |
 | `ui_text_scale` | `100%`, `125%`, `150%`, `200%` |
 
+候选字体的 `candidate_font_family` 是可携带的 UTF-8 字族字符串（空字符串表示自动），
+`candidate_font_size` 是 0（自动）或 6–72 的整数磅值，`candidate_font_italic` 是 JSON 布尔值。
 关怀模式 `easy_reading: true` 要求最终字号至少 `150%`；如当前字号较小，
 部分导入须同时提供 `ui_text_scale`。自定义主词库不携带文件或路径，
 导入 `custom` 前须在本机选择主词库，保存时沿用词库有效性检查。
-只支持[共用配置字段表](../src/common/config.h)列出的标量字段，
+只支持[共用配置字段表](../src/common/config.h)列出的标量和字符串字段，
 包括窗口未单独展示的默认输入模式与临时英文开关；词库路径、词库内容、
 任意注册表项均不可导入。配置文件不超过 64 KiB，允许 UTF-8 BOM；
 拒绝非法 UTF-8/JSON、重复或未知字段、类型错误、越界值及未知版本，
@@ -150,9 +153,11 @@ Deflate 压缩的 ZIP（`.zip`，由 miniz 读写），其中包含 `manifest.js
 
 ### 候选皮肤
 
-当前源码在设置的“显示”页提供**默认、流萤、墨砚、碧潭、星渊、桃夭、
+当前源码在设置的“候选窗口”页提供**默认、流萤、墨砚、碧潭、星渊、桃夭、
 更多…**；当前选择不在常用名单时，也会保留在下拉框中。
 “更多…”窗口显示全部二十一套皮肤及默认项，每项有按当前主题显示的图例预览。
+同一行提供字体选择，可设置候选字族、整数磅值、字重和斜体；字体只影响候选窗和候选预览，
+不会应用到设置窗口、状态栏或菜单。字体不存在时保留配置并回退到系统 UI 字体。
 方向键选择、Tab 移动焦点、Enter 确认、Escape 取消；确认只回填设置草稿，
 主窗口确定才保存，取消不影响实际 IME。
 

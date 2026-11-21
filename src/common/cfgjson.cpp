@@ -32,6 +32,10 @@ constexpr auto EnumNames() noexcept {
         return std::array<std::string_view, 4>{"system", "light", "dark", "high_contrast"};
     } else if constexpr (std::is_same_v<T, ImeSkinId>) {
         return kImeSkinIds;
+    } else if constexpr (std::is_same_v<T, CandidateFontWeight>) {
+        return std::array<std::string_view, 10>{
+            "auto", "thin", "extra-light", "light", "normal",
+            "medium", "semi-bold", "bold", "extra-bold", "black"};
     } else {
         static_assert(std::is_same_v<T, UiTextScale>);
         return std::array<std::string_view, 4>{"100%", "125%", "150%", "200%"};
@@ -97,6 +101,15 @@ std::vector<ConfigJsonChange> GetConfigJsonChanges(const QiQiConfig& before, con
                 FieldJson(field, before).dump(-1, ' ', true), FieldJson(field, after).dump(-1, ' ', true)});
         }
     });
+    ForEachConfigStringField([&](const auto& field) {
+        const auto& before_value = before.*(field.member);
+        const auto& after_value = after.*(field.member);
+        if (before_value != after_value) {
+            changes.push_back({std::string(field.backup_key),
+                Json(WideToUtf8(before_value)).dump(-1, ' ', true),
+                Json(WideToUtf8(after_value)).dump(-1, ' ', true)});
+        }
+    });
     return changes;
 }
 
@@ -109,6 +122,14 @@ HRESULT SerializeConfigJson(const QiQiConfig& config, std::string& output, Confi
             if (value < field.minimum || value > field.maximum)
                 Reject(error, ConfigJsonIssue::OutOfRange, "settings." + std::string(field.backup_key));
             settings[std::string(field.backup_key)] = FieldJson(field, config);
+        });
+        ForEachConfigStringField([&](const auto& field) {
+            const auto& value = config.*(field.member);
+            if (field.backup_key == "candidate_font_family" &&
+                !IsValidCandidateFontFamily(value))
+                Reject(error, ConfigJsonIssue::OutOfRange,
+                    "settings." + std::string(field.backup_key));
+            settings[std::string(field.backup_key)] = WideToUtf8(value);
         });
         const Json document{{"format", kConfigJsonFormat}, {"version", 1}, {"settings", std::move(settings)}};
         auto text = document.dump(2) + "\n";
@@ -178,6 +199,20 @@ HRESULT ParseConfigJson(
                     known = true;
                     ReadField(field, item.value(), candidate, error);
                 }
+            });
+            ForEachConfigStringField([&](const auto& field) {
+                if (item.key() != field.backup_key) return;
+                known = true;
+                if (!item.value().is_string())
+                    Reject(error, ConfigJsonIssue::InvalidType, "settings." + item.key());
+                std::wstring decoded;
+                const auto& encoded = item.value().get_ref<const Json::string_t&>();
+                const HRESULT result = Utf8ToWideResult(encoded, decoded, Utf8ErrorPolicy::Reject);
+                if (FAILED(result) ||
+                    (field.backup_key == "candidate_font_family" &&
+                     !IsValidCandidateFontFamily(decoded)))
+                    Reject(error, ConfigJsonIssue::InvalidType, "settings." + item.key());
+                candidate.*(field.member) = std::move(decoded);
             });
             if (!known) Reject(error, ConfigJsonIssue::UnknownField, "settings." + item.key());
         }

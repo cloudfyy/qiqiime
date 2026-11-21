@@ -637,6 +637,45 @@ void TestCandidateSkinStates() {
     }
 }
 
+void TestCandidateFontPreferences() {
+    const TsfTestCaseTrace trace(__func__);
+    const auto previous_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto restore_monitor = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(previous_monitor);
+    });
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1600, 1200}, 96});
+    auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+    ui->SetCandidates(L"ab", {L"One", L"Two"}, 2, 0, 0);
+    ui->MoveWindowTo(RECT{100, 100, 102, 120});
+    const RECT automatic_row = ui->CandidateRect(0);
+    ui->SetFontPreferences({
+        L"Segoe UI", 24, CandidateFontWeight::Bold, true,
+    });
+    ui->SetCandidates(L"ab", {L"One", L"Two"}, 2, 0, 0);
+    const LOGFONTW description = ui->FontDescriptionForTest();
+    QIQI_TEST_CHECK(std::wstring_view(description.lfFaceName) == L"Segoe UI");
+    QIQI_TEST_CHECK(description.lfWeight == FW_BOLD && description.lfItalic);
+    QIQI_TEST_CHECK(std::abs(gsl::narrow_cast<int>(description.lfHeight)) ==
+        CandidateFontHeightPx({L"Segoe UI", 24, CandidateFontWeight::Bold, true},
+            kCandidateFontDefaultHeightPx, 96, UiTextScale::Percent100));
+    const RECT custom_row = ui->CandidateRect(0);
+    QIQI_TEST_CHECK(custom_row.bottom - custom_row.top >
+        automatic_row.bottom - automatic_row.top);
+    ui->SetFontPreferences({
+        L"QiQi Missing Candidate Font", 30, CandidateFontWeight::Black, true,
+    });
+    const LOGFONTW missing_fallback = ui->FontDescriptionForTest();
+    QIQI_TEST_CHECK(std::wstring_view(missing_fallback.lfFaceName) !=
+        L"QiQi Missing Candidate Font");
+    QIQI_TEST_CHECK(missing_fallback.lfWeight == FW_NORMAL &&
+        !missing_fallback.lfItalic);
+    ui->SetFontPreferences({});
+    const LOGFONTW restored = ui->FontDescriptionForTest();
+    QIQI_TEST_CHECK(std::abs(gsl::narrow_cast<int>(restored.lfHeight)) ==
+        CandidateFontHeightPx({}, kCandidateFontDefaultHeightPx,
+            96, UiTextScale::Percent100));
+}
+
 void TestCandidateConstrainedViewport(
     const std::optional<ImeSkinSnapshot>& skin_snapshot = std::nullopt) {
     const TsfTestCaseTrace trace(__func__);
@@ -1950,6 +1989,7 @@ void TestCandidateUilessContract() {
 void RunCandidateSkinTests() {
     const auto& skin = GetBuiltinImeSkins().front();
     const std::optional<ImeSkinSnapshot> snapshot = ImeSkinSnapshot{skin.id, skin.palettes};
+    TestCandidateFontPreferences();
     TestCandidateSkinRepainting();
     TestCandidateSkinStates();
     TestCandidateDisplayPreferences(snapshot);
@@ -1964,6 +2004,7 @@ void RunCandidateUITests() {
     TestCandidateTeardownReentry();
     TestCandidateAutomationTeardown();
     TestCandidateStableRepainting();
+    TestCandidateFontPreferences();
     TestCandidateUI();
     TestCandidateLayouts();
     TestCandidateHostOwnership();

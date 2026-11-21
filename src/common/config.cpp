@@ -375,6 +375,19 @@ HRESULT SaveConfigToRegistryResult(const QiQiConfig& config, const wchar_t* subk
                 }
             }
         });
+        ForEachConfigStringField([&](const auto& field) {
+            if (SUCCEEDED(result)) {
+                const std::wstring& value = config.*(field.member);
+                if (field.backup_key == "candidate_font_family" &&
+                    !IsValidCandidateFontFamily(value)) {
+                    QIQI_LOG_ERROR("Saving an invalid candidate font family was rejected (hr=0x{:08X})",
+                        static_cast<unsigned long>(E_INVALIDARG));
+                    result = E_INVALIDARG;
+                } else {
+                    result = WriteRegStringResult(key.Get(), field.registry_key, value);
+                }
+            }
+        });
         if (FAILED(result)) return result;
         result = WriteRegStringResult(key.Get(), L"PrimaryDictPath", config.primary_dict_path);
         if (FAILED(result)) return result;
@@ -451,6 +464,23 @@ bool LoadConfigFromRegistry(
                 }
             }
         });
+        ForEachConfigStringField([&](const auto& field) {
+            std::wstring value;
+            const HRESULT read = ReadRegStringResult(key.Get(), field.registry_key, value);
+            if (SUCCEEDED(read)) {
+                if (field.backup_key != "candidate_font_family" ||
+                    IsValidCandidateFontFamily(value)) {
+                    cfg.*(field.member) = std::move(value);
+                } else {
+                    QIQI_LOG_WARN("Configured candidate font family is invalid (hr=0x{:08X})",
+                        static_cast<unsigned long>(HRESULT_FROM_WIN32(ERROR_INVALID_DATA)));
+                }
+            } else if (read != HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
+                QIQI_LOG_WARN("Reading configuration string failed (field={}, hr=0x{:08X})",
+                    field.backup_key,
+                    static_cast<unsigned long>(read));
+            }
+        });
         std::ignore = ReadRegString(key.Get(), L"PrimaryDictPath", cfg.primary_dict_path);
         std::ignore = ReadRegString(key.Get(), L"UserDictPath", cfg.user_dict_path);
         out_config = std::move(cfg);
@@ -495,6 +525,11 @@ HRESULT BumpConfigRegistrySequenceResult(HKEY key) noexcept {
 void MergeSettingsConfig(
     QiQiConfig& external, const QiQiConfig& baseline, const QiQiConfig& local) noexcept {
     ForEachConfigField([&](const auto& field) noexcept {
+        if (field.HasSettingsChange(baseline, local)) {
+            external.*(field.member) = local.*(field.member);
+        }
+    });
+    ForEachConfigStringField([&](const auto& field) noexcept {
         if (field.HasSettingsChange(baseline, local)) {
             external.*(field.member) = local.*(field.member);
         }

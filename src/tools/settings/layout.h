@@ -72,6 +72,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             case kIdBtnExportConfig: dips = 156; break;
             case kIdBtnBrowsePrimaryDict: dips = 104; break;
             case kIdBtnDictManager: dips = 180; break;
+            case kIdBtnCandidateFont: dips = 128; break;
             default: return 0;
         }
         return ctx.d2d.ScalePx(dips);
@@ -252,7 +253,19 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             const int combo_y = stacked ? y + label_height + S(4) : y;
             place(id, left, y, stacked ? content_width : label_width, label_height, false);
             int closed_height = 0;
-            if (id == kIdLblPageSize && index + 1 < controls.size() &&
+            if (id == kIdLblImeSkin && index + 1 < controls.size() &&
+                gsl::at(controls, index + 1) == kIdBtnCandidateFont) {
+                const int pair_width = stacked ? content_width : field_width;
+                const int font_width = std::min(action_width(kIdBtnCandidateFont),
+                    std::max(target, pair_width - gap - ctx.d2d.ScalePx(44)));
+                const int pair_left = right - pair_width;
+                const int combo_width = std::max(1, pair_width - gap - font_width);
+                closed_height = place(combo, pair_left, combo_y, combo_width, target, true);
+                closed_height = std::max(closed_height,
+                    place(kIdBtnCandidateFont, pair_left + combo_width + gap,
+                        combo_y, font_width, target, false));
+                ++index;
+            } else if (id == kIdLblPageSize && index + 1 < controls.size() &&
                 gsl::at(controls, index + 1) == kIdComboCandidateLayout) {
                 const int pair_width = std::min(content_width,
                     std::max(field_width, 2 * ctx.d2d.ScalePx(44) + gap));

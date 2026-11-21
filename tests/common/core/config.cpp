@@ -15,11 +15,13 @@ void TestConfigJson() {
         ForEachConfigField([&](const auto& field) { QIQI_TEST_CHECK(field.Value(left) == field.Value(right)); });
         QIQI_TEST_CHECK(left.primary_dict_path == right.primary_dict_path);
         QIQI_TEST_CHECK(left.user_dict_path == right.user_dict_path);
+        QIQI_TEST_CHECK(left.candidate_font_family == right.candidate_font_family);
     };
     QiQiConfig source;
     ForEachConfigField([&](const auto& field) { QIQI_TEST_CHECK(field.Assign(source, field.maximum)); });
     source.primary_dict_path = L"C:\\private\\source.txt";
     source.user_dict_path = L"C:\\private\\words.txt";
+    source.candidate_font_family = L"Consolas";
     ConfigJsonError error;
     std::string json;
     QIQI_TEST_CHECK(SerializeConfigJson(source, json, error) == S_OK);
@@ -29,6 +31,8 @@ void TestConfigJson() {
     QIQI_TEST_CHECK(json.find("\"page_size\": 9") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"ui_theme\": \"high_contrast\"") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"ui_text_scale\": \"200%\"") != std::string::npos);
+    QIQI_TEST_CHECK(json.find("\"candidate_font_family\": \"Consolas\"") != std::string::npos);
+    QIQI_TEST_CHECK(json.find("\"candidate_font_weight\": \"black\"") != std::string::npos);
     QIQI_TEST_CHECK(json.find("path") == std::string::npos && json.find("private") == std::string::npos);
     QiQiConfig result;
     QIQI_TEST_CHECK(ParseConfigJson(json, baseline, result, error) == S_OK);
@@ -76,6 +80,8 @@ void TestConfigJson() {
         InvalidCase{R"("ui_theme":null)", ConfigJsonIssue::InvalidType, "settings.ui_theme"},
         InvalidCase{R"("ime_skin_id":"unknown")", ConfigJsonIssue::InvalidEnum, "settings.ime_skin_id"},
         InvalidCase{R"("ime_skin_id":1)", ConfigJsonIssue::InvalidType, "settings.ime_skin_id"},
+        InvalidCase{R"("candidate_font_family":1)", ConfigJsonIssue::InvalidType, "settings.candidate_font_family"},
+        InvalidCase{R"("candidate_font_weight":"regular")", ConfigJsonIssue::InvalidEnum, "settings.candidate_font_weight"},
         InvalidCase{R"("page_size":7,"page_size":8)", ConfigJsonIssue::DuplicateField, "settings.page_size"},
         InvalidCase{R"("ui_theme":"dark","\u0075i_theme":"light")", ConfigJsonIssue::DuplicateField, "settings.ui_theme"},
         InvalidCase{R"("user_dict_path":"C:\\words.txt")", ConfigJsonIssue::UnknownField, "settings.user_dict_path"},
@@ -123,7 +129,7 @@ void TestConfigJson() {
 }
 
 void TestConfigFieldProjections() {
-    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 29> expected_keys{{
+    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 32> expected_keys{{
         {"primary_dict", L"PrimaryDict"}, {"enable_jidian_extra", L"EnableJidianExtra"},
         {"page_size", L"PageSize"}, {"candidate_layout", L"CandidateLayout"},
         {"auto_commit_4code", L"AutoCommit4Code"},
@@ -138,15 +144,19 @@ void TestConfigFieldProjections() {
         {"ui_language", L"UiLanguage"}, {"underline_style", L"UnderlineStyle"},
         {"bold_underline", L"BoldUnderline"}, {"ui_theme", L"UiTheme"},
         {"ui_text_scale", L"UiTextScale"}, {"easy_reading", L"EasyReading"},
-        {"enable_code_completion", L"EnableCodeCompletion"}, {"ime_skin_id", L"ImeSkinId"}
+        {"enable_code_completion", L"EnableCodeCompletion"}, {"ime_skin_id", L"ImeSkinId"},
+        {"candidate_font_size", L"CandidateFontSize"},
+        {"candidate_font_weight", L"CandidateFontWeight"},
+        {"candidate_font_italic", L"CandidateFontItalic"}
     }};
-    constexpr std::array<std::string_view, 25> editable_keys{
+    constexpr std::array<std::string_view, 28> editable_keys{
         "primary_dict", "enable_jidian_extra", "page_size", "candidate_layout", "auto_commit_4code",
         "push_commit_5th", "semicolon_quote_quick_select", "show_code_hint", "dynamic_phrase_freq",
         "shift_toggle_mode", "commit_on_english_switch", "show_status_bar", "beep_on_empty_4code",
         "beep_on_dup_4code", "clear_on_empty_4code", "enable_key_sound", "up_down_page_turn",
         "ui_language", "underline_style", "bold_underline", "ui_theme", "ui_text_scale", "easy_reading",
-        "enable_code_completion", "ime_skin_id"
+        "enable_code_completion", "ime_skin_id", "candidate_font_size",
+        "candidate_font_weight", "candidate_font_italic"
     };
     const std::wstring subkey = L"Software\\QiQiIME_ConfigFields_" + std::to_wstring(::GetCurrentProcessId());
     const auto cleanup = gsl::finally([&]() noexcept {
@@ -221,6 +231,21 @@ void TestConfigFieldProjections() {
         }
     });
     QIQI_TEST_CHECK(index == expected_keys.size());
+    ForEachConfigStringField([&](const auto& field) {
+        QIQI_TEST_CHECK(field.backup_key == "candidate_font_family" &&
+            field.registry_key == std::wstring_view(L"CandidateFontFamily") &&
+            field.settings_editable);
+        QiQiConfig configured;
+        configured.candidate_font_family = L"Microsoft YaHei";
+        QIQI_TEST_CHECK(SaveConfigToRegistry(configured, subkey.c_str()));
+        QiQiConfig loaded;
+        QIQI_TEST_CHECK(LoadConfigFromRegistry(loaded, nullptr, subkey.c_str()));
+        QIQI_TEST_CHECK(loaded.*(field.member) == configured.*(field.member));
+        auto merged = configured;
+        const QiQiConfig baseline;
+        MergeSettingsConfig(merged, baseline, configured);
+        QIQI_TEST_CHECK(merged.*(field.member) == configured.*(field.member));
+    });
     for (const size_t page_size : {size_t{0}, (std::numeric_limits<size_t>::max)()}) {
         QiQiConfig config;
         config.page_size = page_size;

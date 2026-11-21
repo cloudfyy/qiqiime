@@ -8,6 +8,7 @@
 #include "common/controls.h"
 #include "common/guids.h"
 #include <msctf.h>
+#include <commdlg.h>
 #include <shellapi.h>
 #include <filesystem>
 #include <wrl/client.h>
@@ -64,6 +65,7 @@ constexpr int kIdBtnImportConfig = 147;
 constexpr int kIdBtnExportConfig = 148;
 constexpr int kIdLblImeSkin = 149;
 constexpr int kIdComboImeSkin = 150;
+constexpr int kIdBtnCandidateFont = 151;
 constexpr int kIdSkinPickerList = 152;
 inline constexpr const wchar_t* kSkinPickerWndClass = L"QiQiImeSkinPicker";
 constexpr UINT kSettingsEnsureFocusVisible = WM_APP + 93;
@@ -97,13 +99,14 @@ constexpr bool IsSettingsFooterControl(int id) noexcept {
     return false;
 }
 inline constexpr std::array kSettingsCandidateControls{
+    kIdLblImeSkin, kIdComboImeSkin, kIdBtnCandidateFont, kIdCandidatePreview,
     kIdLblPageSize, kIdComboPageSize, kIdComboCandidateLayout, kIdChkCodeCompletion, kIdChkCodeHint,
     kIdChkUpDownPageTurn, kIdLblUnderlineStyle, kIdComboUnderlineStyle, kIdChkBoldUnderline};
 inline constexpr std::array kSettingsDisplayControls{
-    kIdLblUiTheme, kIdComboUiTheme, kIdLblImeSkin, kIdComboImeSkin,
+    kIdLblUiTheme, kIdComboUiTheme,
     kIdChkEasyReading, kIdLblUiTextScale, kIdComboUiTextScale,
     kIdLblUiLang, kIdComboUiLang, kIdDisplayExplanation,
-    kIdChkStatusBar, kIdCandidatePreview};
+    kIdChkStatusBar};
 inline constexpr std::array kSettingsFeedbackControls{
     kIdChkBeepEmpty4, kIdChkBeepDup4, kIdChkClearEmpty4, kIdChkKeySound};
 
@@ -245,6 +248,7 @@ struct DialogContext {
     bool preview_easy_reading = false;
     ThemePalette candidate_preview_palette{};
     SkinPalette candidate_skin_colors{};
+    CandidateFontPreferences preview_candidate_font;
     ImeSkinCatalog skin_catalog;
     HRESULT skin_catalog_result = S_OK;
     ImeSkinId preview_skin_id = ImeSkinId::Default;
@@ -260,6 +264,7 @@ struct DialogContext {
     RECT page_bounds{};
     ScopedGdiHandle<HFONT> font;
     ScopedGdiHandle<HFONT> bold_font;
+    ScopedGdiHandle<HFONT> candidate_preview_font;
     ScopedIcon icon_small;
     ScopedIcon icon_big;
     FluentD2DThemeContext d2d;
@@ -283,6 +288,9 @@ void PopulateSettingsSkinCombo(HWND hwnd, DialogContext& ctx) noexcept;
 void UpdateSettingsSkinPreview(HWND hwnd, DialogContext& ctx) noexcept;
 void HandleSettingsSkinSelection(HWND hwnd, DialogContext& ctx) noexcept;
 void ReportSkinConfigurationFailure(HWND hwnd, UiLanguage language, HRESULT result) noexcept;
+using CandidateFontChooser = BOOL(WINAPI*)(CHOOSEFONTW*);
+bool PromptSettingsCandidateFont(
+    HWND hwnd, DialogContext& ctx, CandidateFontChooser chooser = &::ChooseFontW) noexcept;
 void EnsureSettingsControlVisible(HWND hwnd, HWND child, DialogContext& ctx) noexcept;
 void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept;
 void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept;

@@ -157,6 +157,7 @@ public:
         const RECT& text_rect, HWND host_window = nullptr, bool require_owned_window = false);
     void SetLayout(CandidateLayout layout);
     void SetDisplayPreferences(DisplayPreferences preferences);
+    void SetFontPreferences(const CandidateFontPreferences& preferences);
     void SetSkinSnapshot(const std::optional<ImeSkinSnapshot>& snapshot) noexcept;
     void SetDisplayPreferences(UiTheme theme, UiTextScale scale, bool easy_reading) {
         SetDisplayPreferences(DisplayPreferences{theme, scale, easy_reading});
@@ -209,6 +210,11 @@ public:
         ui_element_lifecycle_.AcknowledgeUpdate(revision);
     }
     bool IsDirectWriteActive() const noexcept { return dwrite_text_format_.IsValid() && d2d_dc_target_.IsValid(); }
+    LOGFONTW FontDescriptionForTest() const noexcept {
+        LOGFONTW description{};
+        if (font_) ::GetObjectW(font_.Get(), sizeof(description), &description);
+        return description;
+    }
     void DisableDirect2DForTest() noexcept { d2d_dc_target_.Reset(); }
     std::vector<CandidatePaintItem> PaintItemsForTest() const { return BuildPaintItems(); }
     void SetAccessibilityEventObserverForTest(std::function<void(EVENTID)> observer) noexcept {
@@ -333,6 +339,7 @@ private:
     int content_width_ = kPopupWidth;
     int font_scale_percent_ = 0;
     DisplayPreferences preferences_{};
+    CandidateFontPreferences font_preferences_{};
     DisplayAppearance appearance_{};
     SkinPalette skin_colors_{};
     std::optional<ImeSkinSnapshot> skin_snapshot_;

@@ -312,6 +312,100 @@ inline bool TryGetSystemUiFont(LOGFONTW& font) noexcept {
     return true;
 }
 
+inline bool CandidateFontFamilyAvailable(std::wstring_view family) noexcept {
+    if (family.empty() || !IsValidCandidateFontFamily(family)) return false;
+    ScopedDWriteFactory factory;
+#pragma warning(suppress : 26490)
+    HRESULT result = ::DWriteCreateFactory(
+        DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown**>(factory.Put()));
+    if (FAILED(result) || !factory) {
+        QIQI_LOG_WARN("Candidate font system collection query failed (hr=0x{:08X})",
+            static_cast<unsigned long>(result));
+        return false;
+    }
+    ScopedD2DObject<IDWriteFontCollection> collection;
+    result = factory->GetSystemFontCollection(collection.Put(), FALSE);
+    if (FAILED(result) || !collection) {
+        QIQI_LOG_WARN("Candidate font system collection load failed (hr=0x{:08X})",
+            static_cast<unsigned long>(result));
+        return false;
+    }
+    std::array<wchar_t, LF_FACESIZE> name{};
+    family.copy(name.data(), family.size());
+    UINT32 index = 0;
+    BOOL exists = FALSE;
+    result = collection->FindFamilyName(name.data(), &index, &exists);
+    if (FAILED(result)) {
+        QIQI_LOG_WARN("Candidate font family lookup failed (hr=0x{:08X})",
+            static_cast<unsigned long>(result));
+        return false;
+    }
+    return exists != FALSE;
+}
+
+inline int CandidateFontHeightPx(
+    const CandidateFontPreferences& font, int automatic_height_px,
+    UINT dpi, UiTextScale scale) noexcept {
+    if (font.point_size == 0) return ScaleDisplayPx(automatic_height_px, dpi, scale);
+    const int scaled_dpi = gsl::narrow_cast<int>(dpi) *
+        TextScalePercent(scale);
+    return std::max(1, ::MulDiv(
+        gsl::narrow_cast<int>(font.point_size), scaled_dpi, 7200));
+}
+
+inline bool TryBuildCandidateFont(
+    const CandidateFontPreferences& font, int automatic_height_px, UINT dpi,
+    UiTextScale scale, LOGFONTW& output) noexcept {
+    LOGFONTW next{};
+    if (font.family.empty()) {
+        LOGFONTW system_font{};
+        if (!TryGetSystemUiFont(system_font)) return false;
+        wcscpy_s(next.lfFaceName, std::data(system_font.lfFaceName));
+    } else {
+        if (!IsValidCandidateFontFamily(font.family)) {
+            QIQI_LOG_ERROR("Candidate font family is invalid");
+            return false;
+        }
+        if (!CandidateFontFamilyAvailable(font.family)) {
+            QIQI_LOG_WARN("Candidate font family is not installed; using the system UI font");
+            return false;
+        }
+        wcscpy_s(next.lfFaceName, font.family.c_str());
+    }
+    next.lfHeight = -CandidateFontHeightPx(font, automatic_height_px, dpi, scale);
+    next.lfWeight = CandidateFontWeightToGdi(font.weight);
+    next.lfItalic = font.italic ? TRUE : FALSE;
+    next.lfCharSet = DEFAULT_CHARSET;
+    next.lfQuality = CLEARTYPE_QUALITY;
+    output = next;
+    return true;
+}
+
+inline bool TryBuildCandidateFontWithFallback(
+    const CandidateFontPreferences& font, int automatic_height_px, UINT dpi,
+    UiTextScale scale, LOGFONTW& output) noexcept {
+    return TryBuildCandidateFont(font, automatic_height_px, dpi, scale, output) ||
+        TryBuildCandidateFont(
+            CandidateFontPreferences{}, automatic_height_px, dpi, scale, output);
+}
+
+inline ScopedGdiHandle<HFONT> CreateCandidateFont(
+    const CandidateFontPreferences& font, int automatic_height_px, UINT dpi,
+    UiTextScale scale) noexcept {
+    LOGFONTW description{};
+    if (!TryBuildCandidateFontWithFallback(
+            font, automatic_height_px, dpi, scale, description)) {
+        return {};
+    }
+    ScopedGdiHandle<HFONT> handle(::CreateFontIndirectW(&description));
+    if (!handle) {
+        QIQI_LOG_WARN("CreateCandidateFont::CreateFontIndirectW failed (error={})",
+            ::GetLastError());
+    }
+    return handle;
+}
+
 // Create a system UI font scaled to the specified pixel height and weight.
 inline ScopedGdiHandle<HFONT> CreateUiFont(
     int height_px, LONG weight = FW_NORMAL, BYTE quality = CLEARTYPE_QUALITY) noexcept {

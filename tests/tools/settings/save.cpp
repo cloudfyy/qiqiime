@@ -407,7 +407,30 @@ void TestSettingsFieldMergeMatrix() {
             ++cases;
         }
     });
-    QIQI_TEST_CHECK(cases == 50);
+    QIQI_TEST_CHECK(cases == 56);
+    for (const bool dirty : {false, true}) {
+        QiQiConfig baseline;
+        baseline.candidate_font_family = L"Segoe UI";
+        baseline.candidate_font_size = 12;
+        QIQI_TEST_CHECK(SaveConfig(baseline));
+        QiQiConfig config = baseline;
+        const ScopedWindow window(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config, true));
+        QIQI_TEST_CHECK(window);
+        QiQiConfig local = baseline;
+        if (dirty) local.candidate_font_family = L"Arial";
+        WriteSettingsToWindowControls(window.Get(), local);
+        GetContext(window.Get()).baseline_config = baseline;
+        QiQiConfig external = baseline;
+        external.candidate_font_family = L"Consolas";
+        external.candidate_font_size = 18;
+        QIQI_TEST_CHECK(SaveConfig(external));
+        ::SendMessageW(window.Get(), kSettingsExternalConfigChangedMessage, 0, 0);
+        QiQiConfig actual;
+        ReadSettingsFromWindowControls(window.Get(), actual);
+        QIQI_TEST_CHECK(actual.candidate_font_family ==
+            (dirty ? local.candidate_font_family : external.candidate_font_family));
+        QIQI_TEST_CHECK(actual.candidate_font_size == external.candidate_font_size);
+    }
 }
 
 } // namespace

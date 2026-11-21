@@ -292,6 +292,11 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                 HandleSettingsSkinSelection(hwnd, ctx);
             }
             return;
+        case kIdBtnCandidateFont:
+            if (HIWORD(wparam) == BN_CLICKED) {
+                std::ignore = PromptSettingsCandidateFont(hwnd, ctx);
+            }
+            return;
         case kIdComboUiTextScale:
             if (HIWORD(wparam) == CBN_SELCHANGE) {
                 if (::IsDlgButtonChecked(hwnd, kIdChkEasyReading) == BST_CHECKED &&
@@ -662,6 +667,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                         dis->CtlID == kIdBtnHelp || dis->CtlID == kIdBtnRestoreDefaults ||
                         dis->CtlID == kIdBtnImportConfig || dis->CtlID == kIdBtnExportConfig ||
                         dis->CtlID == kIdBtnBrowsePrimaryDict ||
+                        dis->CtlID == kIdBtnCandidateFont ||
                         dis->CtlID == kIdBtnOk || dis->CtlID == kIdBtnCancel) {
                         const bool page_button = !IsSettingsFooterControl(gsl::narrow_cast<int>(dis->CtlID));
                         const D2D1_COLOR_F outer_bg = ColorRefToD2DColor(page_button

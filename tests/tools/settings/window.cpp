@@ -68,7 +68,7 @@ void TestSettingsDictionaryDependencies() {
     WithDismissedMessage(GetUiStrings(UiLanguage::EnUs).dlg_invalid_primary_dict, [&] {
         click(IDOK);
     });
-    const auto* context = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
+    auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
     QIQI_TEST_CHECK(context && !context->done && !context->accepted);
     QIQI_TEST_CHECK(config.primary_dict == PrimaryDict::BuiltinOnly);
     for (const int id : {kIdRadioHaifeng, kIdRadioBuiltin, kIdRadioCustom}) {
@@ -574,8 +574,7 @@ void TestSettingsTextAlignment() {
                 ::SendMessageW(dialog.Get(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&suggested));
                 for (const auto &[label_id, toggle_id] : aligned_rows) {
                     auto *context = reinterpret_cast<DialogContext *>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
-                    const SettingsPage page = label_id == kIdLblUiLang ||
-                                              label_id == kIdLblImeSkin ? SettingsPage::Display
+                    const SettingsPage page = label_id == kIdLblUiLang ? SettingsPage::Display
                                               : label_id == kIdLblEnglishSwitch ? SettingsPage::Input
                                                                                 : SettingsPage::Candidates;
                     SelectSettingsPage(dialog.Get(), *context, page);
@@ -630,13 +629,18 @@ void TestSettingsTextAlignment() {
                 QIQI_TEST_CHECK(size.top == layout.top && size.right < layout.left);
                 QIQI_TEST_CHECK(layout.right == control_right);
                 QIQI_TEST_CHECK(bounds(kIdComboUnderlineStyle).right == control_right);
-                SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
-                QIQI_TEST_CHECK(bounds(kIdComboUiTheme).right == control_right);
-                QIQI_TEST_CHECK(bounds(kIdComboImeSkin).right == control_right);
-                QIQI_TEST_CHECK(bounds(kIdComboUiTextScale).right == control_right);
-                QIQI_TEST_CHECK(bounds(kIdComboUiLang).right == control_right);
+                const RECT skin = bounds(kIdComboImeSkin);
+                const RECT font = bounds(kIdBtnCandidateFont);
+                QIQI_TEST_CHECK(skin.top == font.top && skin.right < font.left);
+                QIQI_TEST_CHECK(font.right == control_right);
                 QIQI_TEST_CHECK(bounds(kIdCandidatePreview).bottom - bounds(kIdCandidatePreview).top <
                                 ScalePxByDpi(150, dpi));
+                SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
+                QIQI_TEST_CHECK(bounds(kIdComboUiTheme).right == control_right);
+                QIQI_TEST_CHECK(bounds(kIdComboUiTextScale).right == control_right);
+                QIQI_TEST_CHECK(bounds(kIdComboUiLang).right == control_right);
+                QIQI_TEST_CHECK((::GetWindowLongPtrW(::GetDlgItem(dialog.Get(), kIdComboImeSkin),
+                    GWL_STYLE) & WS_VISIBLE) == 0);
             }
         }
     }
@@ -759,7 +763,7 @@ void TestSettingsDisplayPreview() {
     config.page_size = 8;
     const ScopedWindow dialog(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config));
     QIQI_TEST_CHECK(dialog);
-    const auto* context = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
+    auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
     QIQI_TEST_CHECK(context);
     const HWND tabs = ::GetDlgItem(dialog.Get(), kIdSettingsTabs);
     ::SendMessageW(tabs, TCM_SETCURSEL, static_cast<WPARAM>(SettingsPage::Display), 0);
@@ -805,18 +809,22 @@ void TestSettingsDisplayPreview() {
                     QIQI_TEST_CHECK(::SendMessageW(tabs, TCM_GETITEMRECT, 0, reinterpret_cast<LPARAM>(&unselected)));
                     QIQI_TEST_CHECK(::GetPixel(painted.Get(), unselected.left + 4, unselected.top + 4) ==
                                     GetThemePalette(app_dark).window_bg);
+                    SelectSettingsPage(dialog.Get(), *context, SettingsPage::Candidates);
                     ::SendMessageW(dialog.Get(), WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item));
                     QIQI_TEST_CHECK(::GetPixel(preview_dc.Get(), 2, 2) == GetThemePalette(app_dark).window_bg);
+                    SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
                 }
             }
         }
         SetHighContrastOverrideForTest(true);
         ::SendMessageW(dialog.Get(), WM_SETTINGCHANGE, 0, 0);
         QIQI_TEST_CHECK(context->d2d.appearance.system_high_contrast);
+        SelectSettingsPage(dialog.Get(), *context, SettingsPage::Candidates);
         ::SendMessageW(dialog.Get(), WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item));
         QIQI_TEST_CHECK(::GetPixel(preview_dc.Get(), 2, 2) == ::GetSysColor(COLOR_WINDOW));
         SetHighContrastOverrideForTest(false);
         ::SendMessageW(dialog.Get(), WM_THEMECHANGED, 0, 0);
+        SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
     }
     QiQiConfig edited;
     for (const UiTheme theme : {UiTheme::System, UiTheme::Light, UiTheme::Dark, UiTheme::HighContrast}) {
@@ -951,10 +959,9 @@ void TestSettingsAccessibleLayout() {
             QIQI_TEST_CHECK(context->active_page == SettingsPage::Display);
             QIQI_TEST_CHECK((::GetWindowLongPtrW(::GetDlgItem(dialog.Get(), kIdChkAutoCommit4), GWL_STYLE) & WS_VISIBLE) == 0);
             QIQI_TEST_CHECK((::GetWindowLongPtrW(::GetDlgItem(dialog.Get(), kIdChkEasyReading), GWL_STYLE) & WS_VISIBLE) != 0);
-            QIQI_TEST_CHECK((::GetWindowLongPtrW(::GetDlgItem(dialog.Get(), kIdComboImeSkin), GWL_STYLE) & WS_VISIBLE) != 0);
+            QIQI_TEST_CHECK((::GetWindowLongPtrW(::GetDlgItem(dialog.Get(), kIdComboImeSkin), GWL_STYLE) & WS_VISIBLE) == 0);
             QIQI_TEST_CHECK(bounds(kIdChkEasyReading).bottom - bounds(kIdChkEasyReading).top >= ScalePxByDpi(44, dpi));
-            QIQI_TEST_CHECK(bounds(kIdComboUiTheme).bottom <= bounds(kIdLblImeSkin).top);
-            QIQI_TEST_CHECK(bounds(kIdComboImeSkin).bottom <= bounds(kIdChkEasyReading).top);
+            QIQI_TEST_CHECK(bounds(kIdComboUiTheme).bottom <= bounds(kIdChkEasyReading).top);
             QIQI_TEST_CHECK(bounds(kIdChkEasyReading).bottom <= bounds(kIdLblUiTextScale).top);
             QIQI_TEST_CHECK(bounds(kIdComboUiTextScale).bottom <= bounds(kIdLblUiLang).top);
             QIQI_TEST_CHECK(bounds(kIdSettingsTabs).bottom <= context->page_bounds.top);
@@ -962,6 +969,13 @@ void TestSettingsAccessibleLayout() {
                            reinterpret_cast<WPARAM>(::GetDlgItem(dialog.Get(), kIdChkStatusBar)), 0);
             QIQI_TEST_CHECK(bounds(kIdChkStatusBar).bottom <= context->page_bounds.bottom);
             QIQI_TEST_CHECK(bounds(IDOK).top == ok.top);
+            SelectSettingsPage(dialog.Get(), *context, SettingsPage::Candidates);
+            QIQI_TEST_CHECK((::GetWindowLongPtrW(::GetDlgItem(dialog.Get(), kIdComboImeSkin),
+                GWL_STYLE) & WS_VISIBLE) != 0);
+            QIQI_TEST_CHECK((::GetWindowLongPtrW(::GetDlgItem(dialog.Get(), kIdBtnCandidateFont),
+                GWL_STYLE) & WS_VISIBLE) != 0);
+            QIQI_TEST_CHECK((::GetWindowLongPtrW(::GetDlgItem(dialog.Get(), kIdCandidatePreview),
+                GWL_STYLE) & WS_VISIBLE) != 0);
             ::SendDlgItemMessageW(dialog.Get(), kIdSettingsTabs, TCM_SETCURSEL,
                                  static_cast<WPARAM>(SettingsPage::Input), 0);
             QIQI_TEST_CHECK(context->scroll_offset == input_scroll);

@@ -13,6 +13,15 @@ namespace {
 
 thread_local bool picker_seen = false;
 thread_local bool accept_skin = false;
+thread_local LOGFONTW chosen_candidate_font{};
+thread_local int chosen_candidate_font_size = 0;
+
+BOOL WINAPI ChooseCandidateFontForTest(CHOOSEFONTW* dialog) noexcept {
+    if (!dialog || !dialog->lpLogFont) return FALSE;
+    *dialog->lpLogFont = chosen_candidate_font;
+    dialog->iPointSize = chosen_candidate_font_size;
+    return TRUE;
+}
 
 bool CandidatePreviewContainsColor(HWND settings, int control_id, COLORREF expected) {
     const HWND preview = ::GetDlgItem(settings, control_id);
@@ -289,13 +298,48 @@ void RunSettingsSkinTests() {
     auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(window.Get(), GWLP_USERDATA));
     QIQI_TEST_CHECK(context && context->quick_skin_count == 6);
     QIQI_TEST_CHECK(::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_GETCOUNT, 0, 0) == 7);
-    SelectSettingsPage(window.Get(), *context, SettingsPage::Display);
+    SelectSettingsPage(window.Get(), *context, SettingsPage::Candidates);
     ::ShowWindow(window.Get(), SW_SHOWNOACTIVATE);
     CheckSkinComboDropdown(window.Get());
     ChooseFromMore(window.Get(), false);
     QIQI_TEST_CHECK(context->preview_skin_id == ImeSkinId::Default &&
         QueryRegistryConfigSequence() == sequence);
     CheckSkinPickerSelectionCues(window.Get(), context->skin_catalog);
+    context->preview_candidate_font = {
+        L"QiQi Missing Candidate Font", 22, CandidateFontWeight::Black, true,
+    };
+    ApplySettingsDisplayPreview(window.Get(), *context);
+    std::array<wchar_t, 160> font_button{};
+    QIQI_TEST_CHECK(::GetDlgItemTextW(window.Get(), kIdBtnCandidateFont,
+        font_button.data(), gsl::narrow_cast<int>(font_button.size())) > 0);
+    QIQI_TEST_CHECK(std::wstring_view(font_button.data()).contains(
+        L"missing; using default"));
+    LOGFONTW missing_preview_font{};
+    QIQI_TEST_CHECK(context->candidate_preview_font &&
+        ::GetObjectW(context->candidate_preview_font.Get(),
+            sizeof(missing_preview_font), &missing_preview_font) == sizeof(missing_preview_font));
+    QIQI_TEST_CHECK(std::wstring_view(missing_preview_font.lfFaceName) !=
+        L"QiQi Missing Candidate Font");
+    wcscpy_s(chosen_candidate_font.lfFaceName, L"Segoe UI");
+    chosen_candidate_font.lfWeight = FW_BOLD;
+    chosen_candidate_font.lfItalic = TRUE;
+    chosen_candidate_font_size = 160;
+    QIQI_TEST_CHECK(PromptSettingsCandidateFont(
+        window.Get(), *context, ChooseCandidateFontForTest));
+    QiQiConfig font_draft;
+    ReadSettingsFromWindowControls(window.Get(), font_draft);
+    QIQI_TEST_CHECK(font_draft.candidate_font_family == L"Segoe UI" &&
+        font_draft.candidate_font_size == 16 &&
+        font_draft.candidate_font_weight == CandidateFontWeight::Bold &&
+        font_draft.candidate_font_italic);
+    LOGFONTW preview_font{};
+    QIQI_TEST_CHECK(context->candidate_preview_font &&
+        ::GetObjectW(context->candidate_preview_font.Get(), sizeof(preview_font), &preview_font) ==
+            sizeof(preview_font));
+    QIQI_TEST_CHECK(std::wstring_view(preview_font.lfFaceName) == L"Segoe UI" &&
+        preview_font.lfWeight == FW_BOLD && preview_font.lfItalic);
+    QIQI_TEST_CHECK(config.candidate_font_family.empty() &&
+        QueryRegistryConfigSequence() == sequence);
     ::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_SETCURSEL, 1, 0);
     ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(kIdComboImeSkin, CBN_SELCHANGE), 0);
     QIQI_TEST_CHECK(context->preview_skin_id == ImeSkinId::Firefly && config.ime_skin_id == ImeSkinId::Default);
@@ -357,17 +401,29 @@ void RunSettingsSkinTests() {
     CheckSkinComboDropdown(window.Get());
     QIQI_TEST_CHECK(config.ime_skin_id == ImeSkinId::Default && QueryRegistryConfigSequence() == sequence);
     ::SendMessageW(window.Get(), WM_COMMAND, IDCANCEL, 0);
-    QIQI_TEST_CHECK(config.ime_skin_id == ImeSkinId::Default && QueryRegistryConfigSequence() == sequence);
+    QIQI_TEST_CHECK(config.ime_skin_id == ImeSkinId::Default &&
+        config.candidate_font_family.empty() && QueryRegistryConfigSequence() == sequence);
     window.Reset();
     window = CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config, true);
     QIQI_TEST_CHECK(window);
+    context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(window.Get(), GWLP_USERDATA));
+    QIQI_TEST_CHECK(context && PromptSettingsCandidateFont(
+        window.Get(), *context, ChooseCandidateFontForTest));
     ::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_SETCURSEL, 5, 0);
     ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(kIdComboImeSkin, CBN_SELCHANGE), 0);
     ::SendMessageW(window.Get(), WM_COMMAND, IDOK, 0);
     QIQI_TEST_CHECK(config.ime_skin_id == ImeSkinId::PeachBlossom && config.ui_theme == UiTheme::Light);
+    QIQI_TEST_CHECK(config.candidate_font_family == L"Segoe UI" &&
+        config.candidate_font_size == 16 &&
+        config.candidate_font_weight == CandidateFontWeight::Bold &&
+        config.candidate_font_italic);
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() == sequence + 1);
     QiQiConfig stored;
-    QIQI_TEST_CHECK(LoadConfigFromRegistry(stored) && stored.ime_skin_id == config.ime_skin_id);
+    QIQI_TEST_CHECK(LoadConfigFromRegistry(stored) && stored.ime_skin_id == config.ime_skin_id &&
+        stored.candidate_font_family == config.candidate_font_family &&
+        stored.candidate_font_size == config.candidate_font_size &&
+        stored.candidate_font_weight == config.candidate_font_weight &&
+        stored.candidate_font_italic == config.candidate_font_italic);
 }
 
 } // namespace qiqi::test

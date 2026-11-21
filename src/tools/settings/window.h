@@ -19,9 +19,11 @@ struct SkinSelectionState {
 // The state must outlive the returned window.
 ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent,
     const ImeSkinCatalog& catalog, DisplayPreferences display, UiLanguage language,
-    SkinSelectionState* state, HRESULT* result = nullptr) noexcept;
+    SkinSelectionState* state, HRESULT* result = nullptr,
+    const CandidateFontPreferences& candidate_font = CandidateFontPreferences{}) noexcept;
 HRESULT ShowSkinSelectionDialog(HINSTANCE instance, HWND parent,
-    const ImeSkinCatalog& catalog, DisplayPreferences display, UiLanguage language, ImeSkinId& selection) noexcept;
+    const ImeSkinCatalog& catalog, DisplayPreferences display, UiLanguage language, ImeSkinId& selection,
+    const CandidateFontPreferences& candidate_font = CandidateFontPreferences{}) noexcept;
 
 // Apply control states from an open settings window to QiQiConfig.
 void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept;

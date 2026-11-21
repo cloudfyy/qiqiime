@@ -21,8 +21,10 @@ struct SkinPickerContext {
     SkinSelectionState* state = nullptr;
     UiLanguage language = UiLanguage::Auto;
     DisplayPreferences display;
+    CandidateFontPreferences candidate_font;
     FluentD2DThemeContext theme;
     ScopedGdiHandle<HFONT> font;
+    ScopedGdiHandle<HFONT> candidate_preview_font;
     ScopedImageList rows;
     std::array<ImeSkinAppearance, 22> appearances{};
     int title_height = 0;
@@ -43,6 +45,14 @@ bool RefreshPickerAppearance(HWND hwnd, SkinPickerContext& context) noexcept {
     for (const int id : {kIdSkinPickerList, IDOK, IDCANCEL})
         ::SendDlgItemMessageW(hwnd, id, WM_SETFONT, reinterpret_cast<WPARAM>(font.Get()), TRUE);
     context.font = std::move(font);
+    auto candidate_font = CreateCandidateFont(
+        context.candidate_font, kCandidateFontDefaultHeightPx,
+        context.theme.dpi, context.display.text_scale);
+    if (!candidate_font) {
+        QIQI_LOG_ERROR("Skin picker candidate preview font creation failed (error={})", ::GetLastError());
+        return false;
+    }
+    context.candidate_preview_font = std::move(candidate_font);
     for (size_t index = 0; index < context.appearances.size(); ++index) {
         std::optional<ImeSkinSnapshot> snapshot;
         if (index > 0) {
@@ -87,9 +97,13 @@ void LayoutPicker(HWND hwnd, SkinPickerContext& context) noexcept {
         return;
     }
     context.title_height = metrics.tmHeight + 2 * gap;
-    const int height = context.title_height +
-        MeasureCandidateSample(dc.Get(), context.font.Get(), std::max(1, width - 2 * gap),
-            context.theme.dpi, context.language, context.display) + 2 * gap;
+    int sample_height = 0;
+    {
+        const ScopedSelectObject selected_candidate_font(dc.Get(), context.candidate_preview_font.Get());
+        sample_height = MeasureCandidateSample(dc.Get(), context.candidate_preview_font.Get(),
+            std::max(1, width - 2 * gap), context.theme.dpi, context.language, context.display);
+    }
+    const int height = context.title_height + sample_height + 2 * gap;
     std::ignore = SetFluentListRowHeight(list, context.theme, context.rows, height);
     ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
 }
@@ -140,7 +154,8 @@ void PaintPickerItem(const NMLVCUSTOMDRAW& draw, SkinPickerContext& context) noe
         DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
     const RECT preview{bounds.left + gap, bounds.top + context.title_height,
         bounds.right - gap, bounds.bottom - gap};
-    std::ignore = PaintCandidateSample(draw.nmcd.hdc, preview, context.font.Get(), context.theme.dpi,
+    std::ignore = PaintCandidateSample(draw.nmcd.hdc, preview,
+        context.candidate_preview_font.Get(), context.theme.dpi,
         context.language, context.display, gsl::at(context.appearances, index).colors);
 }
 
@@ -251,7 +266,8 @@ LRESULT CALLBACK SkinPickerWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
 } // namespace
 
 ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent, const ImeSkinCatalog& catalog,
-    DisplayPreferences display, UiLanguage language, SkinSelectionState* state, HRESULT* result) noexcept {
+    DisplayPreferences display, UiLanguage language, SkinSelectionState* state, HRESULT* result,
+    const CandidateFontPreferences& candidate_font) noexcept {
     const auto fail = [result](HRESULT error, std::string_view operation) noexcept -> ScopedWindow {
         if (result) *result = error;
         QIQI_LOG_ERROR("{} failed (hr=0x{:08X})", operation, static_cast<unsigned long>(error));
@@ -271,6 +287,7 @@ ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent, const Im
         context->state = state;
         context->display = NormalizeDisplayPreferences(display);
         context->language = language;
+        context->candidate_font = candidate_font;
         const auto monitor = QueryActiveMonitor(parent);
         context->theme.Init(monitor.dpi);
         context->theme.SetDisplayPreferences(context->display);
@@ -333,10 +350,12 @@ ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent, const Im
 }
 
 HRESULT ShowSkinSelectionDialog(HINSTANCE instance, HWND parent, const ImeSkinCatalog& catalog,
-    DisplayPreferences display, UiLanguage language, ImeSkinId& selection) noexcept {
+    DisplayPreferences display, UiLanguage language, ImeSkinId& selection,
+    const CandidateFontPreferences& candidate_font) noexcept {
     SkinSelectionState state{selection};
     HRESULT result = S_OK;
-    auto window = CreateSkinSelectionWindow(instance, parent, catalog, display, language, &state, &result);
+    auto window = CreateSkinSelectionWindow(
+        instance, parent, catalog, display, language, &state, &result, candidate_font);
     if (!window) return result;
     if (!dialog_detail::RunModalDialogLoop(window.Get(), state.done, true)) return E_ABORT;
     if (!state.accepted) return S_FALSE;
@@ -427,7 +446,8 @@ void HandleSettingsSkinSelection(HWND hwnd, DialogContext& context) noexcept {
     });
     ImeSkinId selected = context.preview_skin_id;
     const HRESULT result = ShowSkinSelectionDialog(context.instance, hwnd, context.skin_catalog,
-        GetDisplayPreferences(draft), draft.ui_language, selected);
+        GetDisplayPreferences(draft), draft.ui_language, selected,
+        context.preview_candidate_font);
     if (!::IsWindow(hwnd) ||
         reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA)) != original) return;
     if (result == S_OK) {
