@@ -1,6 +1,8 @@
 # 输入法皮肤设计与双语命名 / IME Skin Designs
 
-日期：2026-11-16。状态：**设计草案，不是已实现的皮肤功能**。
+设计日期：2026-11-16。当前源码已接入**一期不透明纯色皮肤**：
+候选窗、自绘快捷菜单及设置候选预览。图例仍是设计示意，不是已安装版本的运行截图。
+工具窗口换肤、透明度及材质效果留待后续；实际可用功能以安装的版本为准。
 
 ## 1. 设计范围与命名原则
 
@@ -112,7 +114,8 @@ A01～A06、B01～B15 仅用于本稿图例对照，不是配置格式或最终�
 两版共用同一名称和稳定标识；主题决定明暗，皮肤决定色彩家族。一期全部采用纯色，渐变与材质留给二期。
 
 完整数据见[逐套明暗配色表](ime-skin-palettes.md)，可导入格式见[注册表设计模板](ime-skins.reg)。
-注册表文件尚未导入；现有软件尚未实现读取这些皮肤配置。字段和存储规则见[注册表配置契约](#84-注册表配置契约)。
+参考注册表文件未在本次开发中导入真实用户配置。桌面设置会初始化缺失目录，
+实际 IME 读取注册表配色；字段和存储规则见[注册表配置契约](#84-注册表配置契约)。
 
 ### 明亮总览
 
@@ -157,7 +160,7 @@ A01～A06、B01～B15 仅用于本稿图例对照，不是配置格式或最终�
 2. **区分现状与后续适配**：候选窗及候选预览自动来源统一使用 App mode；
    系统输入界面识别及 Windows mode 特例暂缓为 TODO，见第 8.2 节。
    自绘菜单仍按既有 Windows mode 规则；tools、浮动状态条本体与 Tooltip
-   仍用 App mode。皮肤不能给 tools 套上候选配色。
+   仍用 App mode。工具窗口也纳入后续换肤范围，但一期不直接给工具整窗套用候选配色角色。
 3. **保持独立偏好**：皮肤独立保存，不借用主题或关怀模式字段。
    Windows 系统高对比度必须覆盖皮肤，手选高对比度保持既有语义。
    二十一套全部采用浅/深双变体，不存在只有一版的皮肤。
@@ -172,7 +175,8 @@ A01～A06、B01～B15 仅用于本稿图例对照，不是配置格式或最终�
 ## 7. 哪些界面元素可以支持皮肤
 
 **建议首批范围：候选窗口全部自绘区域 + 输入法自绘快捷菜单 + 设置中的候选预览。**
-“可以支持”与“已经接入”不同，以下均为设计建议，不表示功能已经实现。
+一期上述三个自绘区域已经接入；表中的额外交互、滚动条及材质仍是后续建议，
+不能因基础颜色接入就宣称所有效果已经实现。
 皮肤首先改变视觉颜色，不改变控件的行为、文字内容和布局规则。
 
 ### 7.1 候选窗口内部
@@ -210,7 +214,8 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 ### 7.3 不应随候选皮肤一起改变的区域
 
 - **设置、词库管理器、日志监控器等 tools 的正文和工具菜单**：
-  保持独立的应用主题。候选预览是设置窗口内部的例外区域，不是工具整窗换肤。
+  一期保持原应用主题，工具窗口换肤放在后续阶段，并非永久排除。
+  候选预览是本期的例外区域；后续工具换肤需补齐工具配色角色，不能简单套用候选颜色。
 - **任务栏品牌图标与中/英模式图标**：遵循既有图标规范和 Windows mode
   颜色路径，不套用彩色候选皮肤，不因选了“流萤”就把任务栏图标改成黄绿色。
 - **Windows 或宿主绘制的 TSF 菜单、UILess 候选界面**：
@@ -263,7 +268,7 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 
 当前皮肤为“默认”时，明暗解析仍相同，颜色则使用现有默认调色板。
 模式切换不更改皮肤标识，皮肤切换不更改模式；进入高对比度仍保存两项选择，
-退出后按既有模式和同一皮肤恢复。tools、状态条与 Tooltip 不接入这些候选配色，
+退出后按既有模式和同一皮肤恢复。tools 本期暂不换肤，状态条与 Tooltip 不接入这些候选配色，
 自动主题仍各自使用 App mode。
 
 #### 候选窗自动来源：统一 App mode，系统界面适配暂缓
@@ -307,8 +312,24 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 回写主题模式或保存尚未确认的编辑。使用者仍只有“主题模式”和“皮肤”两个独立选择。
 高对比度开启时，实际设置预览也必须服从高对比度优先级，不能借双版预览绕过系统颜色。
 
-本次确认的是**完整设计与一期二十一套范围**，不是功能已经实现。
+当前源码实现的是**一期二十一套纯色配色与三个自绘区域**。
 状态条、Tooltip、渐变及额外交互状态仍不因配色目录扩充而自动纳入一期。
+
+#### 设置中的皮肤选择
+
+“候选窗口”页提供紧凑的皮肤下拉框：**默认、流萤、墨砚、碧潭、星渊、桃夭、
+更多…**。如果当前皮肤不在这五个常用项中，也显示当前项；不把全部目录塞进主下拉。
+该页有即时图例预览，“显示”页原有预览也继续使用相同配色。
+
+“更多…”打开设置窗口拥有的独立选择窗口，显示默认及全部二十一套皮肤。
+每项包含名称和图例卡片，按当前主题显示明亮或深色版本；系统及手选高对比度仍优先。
+图例使用虚构编码和候选，包含选中行与翻页状态，复用实际候选窗的 GDI 绘制与颜色角色，
+不加载用户词库，也不启动输入组合。列表可滚动，支持方向键、Tab、Enter 和 Escape。
+
+子窗口点击“使用此皮肤”只回填设置草稿，取消保留原草稿；
+仍须在主设置窗口点击“确定”才持久化，主窗口取消不影响实际 IME。
+皮肤通过共享配置字段 `ime_skin_id` 参与 JSON 导入导出、备份与配置同步，
+注册表中的独立选择键仍为 `ImeSkinId`。
 
 ### 8.3 刷新不扰动输入
 
@@ -323,7 +344,7 @@ Direct2D、GDI、测量、换行与命中测试必须使用一致的文本片段
 ### 8.4 注册表配置契约
 
 皮肤定义和“选中了哪套皮肤”分开存储，沿用当前用户的配置根
-`HKEY_CURRENT_USER\Software\QiQiIME`。以下是待实现的契约，不是当前版本已有功能。
+`HKEY_CURRENT_USER\Software\QiQiIME`。以下契约已由当前源码的初始化和读取流程实现。
 
 ```text
 HKCU\Software\QiQiIME
@@ -364,7 +385,33 @@ HKCU\Software\QiQiIME
 完整[注册表模板](ime-skins.reg)使用 Windows Registry Editor 5.00 格式和
 UTF-16LE BOM，含一个目录、二十一个皮肤和四十二份变体，合计 **546 个显式颜色值**。
 模板只定义 `Catalogs\builtin-v1`，**不写入 ImeSkinId、UiTheme、ActiveCatalog 或其他用户偏好**。
-本任务不执行导入；现有软件没有此加载器，不能把双击模板当作皮肤功能已经启用。
+参考文件本身不选择皮肤或切换目录，不能把双击模板等同于设置中选择了皮肤，
+也不应使用它覆盖正在使用的目录。正常使用通过设置流程初始化并选择。
+
+#### 注册表配色与内置默认模板
+
+程序中的二十一套配色是**缺失目录的初始化模板**，并非绘制时的优先颜色来源。
+生产设置流程把缺失目录写入注册表，IME 从 `ActiveCatalog` 指向的目录读取并缓存；
+已有目录不因启动设置而被模板覆盖。纯本地、不持久化的设置预览使用内置模板，
+不为测试或临时预览写入真实用户配置。
+
+初次安装目录不递增用户配置序号；发布新的完整目录则原子切换指针并更新配置序号。
+当前一期只接受默认及二十一个已知稳定 ID，目录也必须完整包含这二十一套：
+注册表可以保存不同版本的合法配色，但仅新增第二十二个皮肤键尚不能扩展程序目录。
+外部皮肤包、配色编辑器及动态增加新 ID 不属于这一期。
+
+#### 配色校验依据
+
+文字颜色与其背景至少 4.5:1，选中边框相对普通底板至少 3:1，
+参考 [WCAG 文字对比](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)
+和[非文字对比](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html)。
+比值基于 sRGB 转换后的相对亮度，不是直接比较 RGB 差值，也不四舍五入到阈值。
+WCAG 对大字号及不可用控件有例外；本项目仍对禁用翻页文字采用 4.5:1 的更严格规则。
+这些颜色检查不代表完整读屏或无障碍认证。
+
+RGB24 高字节为零是存储格式约定，不是 Windows 的能力限制。一期保持不透明绘制；
+透明背景需要明确独立透明度或新的颜色编码，并同时适配 D2D/GDI 合成、
+合成后的文字对比、字体抗锯齿及命中行为，不通过单纯放开高字节启用。
 
 #### 初始化、读取与更新
 
@@ -412,18 +459,20 @@ The original candidate diagram uses synthetic text and a uniform layout to compa
 the proposed palettes; it is not a running application screenshot.
 
 The palettes prioritize readable normal and selected text, without relying on
-low-contrast white text or decorative glow. This remains a design draft,
-not implemented UI or an accessibility certification. Keep system high contrast,
+low-contrast white text or decorative glow. The diagrams remain design illustrations, not runtime screenshots or an
+accessibility certification. The native source now implements the first-phase
+opaque palettes. Keep system high contrast,
 existing theme boundaries, independent settings, and candidate behavior.
 The first-phase design is confirmed: all 21 skins with 42 complete Light/Dark
 palettes. Theme chooses brightness; skin chooses the color family. These rules and
-illustrations are designs, not implemented functionality.
+illustrations remain illustrative rather than real-host acceptance evidence.
 
-Recommended initial surfaces are the candidate popup's custom-drawn regions,
+Implemented initial surfaces are the candidate popup's custom-drawn regions,
 the IME quick menu, and the local candidate preview. Native scrollbars, separate
 number/hint colors, and candidate-button hover/pressed states need additional work.
 The floating status bar and its tooltips could be extended separately but remain
-on App mode by default. Standalone tools, taskbar icons, host-rendered TSF UI,
+on App mode by default. Standalone tool skins are deferred to a later phase;
+they currently retain their application theme. Taskbar icons, host-rendered TSF UI,
 composition text, and system dialogs are outside the candidate-skin scope.
 
 Keep semantic color roles shared without conflating hover, selection, checked,
@@ -459,4 +508,15 @@ is separate from versioned catalogs; each catalog has metadata and Light/Dark
 REG_DWORD RGB24 fields. The UTF-16LE registry template contains definitions only,
 not user selection, theme mode, or active-catalog changes, and was not imported.
 Readers validate complete paired snapshots; writers stage a new catalog before
-switching the single active-catalog value. There is no implemented loader yet.
+switching the single active-catalog value. The native loader is implemented.
+Compiled palettes only seed missing catalogs; runtime IME colors come from the
+validated registry snapshot. Initialization does not overwrite existing catalogs.
+The first phase still has 21 known skin IDs; adding a registry key alone does not
+add a new skin.
+
+Settings offers Default, Firefly Glow, Inkstone, Jade Pool, Starry Abyss,
+Peach Blossom, and More. A non-common current selection is also shown.
+More opens an owned window containing all skins with current-theme sample cards,
+using synthetic text and shared candidate rendering. Choosing a card only updates
+the Settings draft; the main OK saves, while Cancel leaves the IME unchanged.
+The independent `ime_skin_id` field also participates in configuration JSON and backup.

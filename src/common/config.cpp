@@ -37,12 +37,25 @@ bool CheckRegistryRead(LSTATUS error, std::string_view operation) noexcept {
     return error == ERROR_SUCCESS;
 }
 
-bool ReadRegDword(HKEY key, const wchar_t* name, DWORD& out_val) noexcept {
+HRESULT ReadRegDwordResult(HKEY key, const wchar_t* name, DWORD& out_val) noexcept {
     DWORD type = 0;
-    DWORD cb = sizeof(out_val);
-    return CheckRegistryRead(::RegQueryValueExW(
-               key, name, nullptr, &type, reinterpret_cast<LPBYTE>(&out_val), &cb), "ReadRegDword::RegQueryValueExW") &&
-           type == REG_DWORD;
+    DWORD value = 0;
+    DWORD cb = sizeof(value);
+    const LSTATUS error = ::RegQueryValueExW(
+        key, name, nullptr, &type, reinterpret_cast<LPBYTE>(&value), &cb);
+    if (!CheckRegistryRead(error, "ReadRegDword::RegQueryValueExW"))
+        return HRESULT_FROM_WIN32(error);
+    if (type != REG_DWORD || cb != sizeof(value)) {
+        QIQI_LOG_WARN("ReadRegDword rejected an invalid type or size (hr=0x{:08X})",
+            static_cast<unsigned long>(HRESULT_FROM_WIN32(ERROR_INVALID_DATA)));
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    }
+    out_val = value;
+    return S_OK;
+}
+
+bool ReadRegDword(HKEY key, const wchar_t* name, DWORD& out_val) noexcept {
+    return SUCCEEDED(ReadRegDwordResult(key, name, out_val));
 }
 
 HRESULT WriteRegStringResult(HKEY key, const wchar_t* name, std::wstring_view val) noexcept {
@@ -346,8 +359,20 @@ HRESULT SaveConfigToRegistryResult(const QiQiConfig& config, const wchar_t* subk
         HRESULT result = S_OK;
         ForEachConfigField([&](const auto& field) {
             if (SUCCEEDED(result)) {
-                result = WriteRegDwordResult(
-                    key.Get(), field.registry_key, gsl::narrow_cast<DWORD>(field.RegistryValue(config)));
+                using T = std::remove_cvref_t<decltype(config.*(field.member))>;
+                if constexpr (std::is_same_v<T, ImeSkinId>) {
+                    const auto id = ImeSkinIdToString(config.*(field.member));
+                    if (id.empty()) {
+                        QIQI_LOG_ERROR("Saving an invalid skin selection was rejected (hr=0x{:08X})",
+                            static_cast<unsigned long>(E_INVALIDARG));
+                        result = E_INVALIDARG;
+                    } else {
+                        result = WriteRegStringResult(key.Get(), field.registry_key, Utf8ToWide(id));
+                    }
+                } else {
+                    result = WriteRegDwordResult(
+                        key.Get(), field.registry_key, gsl::narrow_cast<DWORD>(field.RegistryValue(config)));
+                }
             }
         });
         if (FAILED(result)) return result;
@@ -405,8 +430,25 @@ bool LoadConfigFromRegistry(
         QiQiConfig cfg{};
         DWORD dw = 0;
         ForEachConfigField([&](const auto& field) {
-            if (ReadRegDword(key.Get(), field.registry_key, dw)) {
-                std::ignore = field.Assign(cfg, dw);
+            using T = std::remove_cvref_t<decltype(cfg.*(field.member))>;
+            if constexpr (std::is_same_v<T, ImeSkinId>) {
+                std::wstring id;
+                const HRESULT read = ReadRegStringResult(key.Get(), field.registry_key, id);
+                if (SUCCEEDED(read)) {
+                    cfg.*(field.member) = ParseImeSkinId(std::wstring_view(id)).value_or(ImeSkinId::Invalid);
+                    if (cfg.*(field.member) == ImeSkinId::Invalid) {
+                        QIQI_LOG_WARN("Configured skin ID is invalid (hr=0x{:08X})",
+                            static_cast<unsigned long>(HRESULT_FROM_WIN32(ERROR_INVALID_DATA)));
+                    }
+                } else if (read != HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
+                    cfg.*(field.member) = ImeSkinId::Invalid;
+                    QIQI_LOG_WARN("Reading the skin selection failed (hr=0x{:08X})",
+                        static_cast<unsigned long>(read));
+                }
+            } else {
+                if (ReadRegDword(key.Get(), field.registry_key, dw)) {
+                    std::ignore = field.Assign(cfg, dw);
+                }
             }
         });
         std::ignore = ReadRegString(key.Get(), L"PrimaryDictPath", cfg.primary_dict_path);
@@ -417,6 +459,37 @@ bool LoadConfigFromRegistry(
         QIQI_LOG_ERROR("LoadConfigFromRegistry failed with a C++ exception");
         return false;
     }
+}
+
+HRESULT OpenConfigRegistryKeyResult(
+    HKEY* key, REGSAM access, const wchar_t* subkey, HANDLE transaction) noexcept {
+    if (!key) return E_POINTER;
+    *key = nullptr;
+    LSTATUS error = ERROR_SUCCESS;
+    auto opened = OpenOrCreateConfigRegKey(subkey, access, transaction, &error);
+    if (!opened) return HRESULT_FROM_WIN32(error);
+    *key = opened.Detach();
+    return S_OK;
+}
+
+HRESULT WriteRegistryDwordResult(HKEY key, const wchar_t* name, DWORD value) noexcept {
+    return WriteRegDwordResult(key, name, value);
+}
+
+HRESULT ReadRegistryDwordResult(HKEY key, const wchar_t* name, DWORD& value) noexcept {
+    return ReadRegDwordResult(key, name, value);
+}
+
+HRESULT WriteRegistryStringResult(HKEY key, const wchar_t* name, std::wstring_view value) noexcept {
+    return WriteRegStringResult(key, name, value);
+}
+
+HRESULT ReadRegistryStringResult(HKEY key, const wchar_t* name, std::wstring& value) {
+    return ReadRegStringResult(key, name, value);
+}
+
+HRESULT BumpConfigRegistrySequenceResult(HKEY key) noexcept {
+    return BumpRegistrySequenceResult(key);
 }
 
 void MergeSettingsConfig(

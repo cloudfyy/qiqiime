@@ -244,7 +244,8 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             continue;
         }
         const bool label = id == kIdLblUiTheme || id == kIdLblUiTextScale || id == kIdLblUiLang ||
-            id == kIdLblPageSize || id == kIdLblUnderlineStyle || id == kIdLblEnglishSwitch;
+            id == kIdLblPageSize || id == kIdLblUnderlineStyle || id == kIdLblEnglishSwitch ||
+            id == kIdLblImeSkin;
         if (label && index + 1 < controls.size()) {
             const int combo = gsl::at(controls, ++index);
             const int label_height = std::max(font_height + S(6), text_height(id, stacked ? content_width : label_width));
@@ -267,7 +268,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             y = std::max(y + label_height, combo_y + closed_height) + gap;
             continue;
         }
-        const bool preview = id == kIdCandidatePreview;
+        const bool preview = id == kIdCandidatePreview || id == kIdSkinCandidatePreview;
         const bool static_text = id == kIdLblCustomPrimaryPath || id == kIdDisplayExplanation;
         const int indent = id == kIdChkExtraDict ? std::min(S(24), content_width - 1) : 0;
         const int control_width = content_width - indent;

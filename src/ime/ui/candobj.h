@@ -19,6 +19,7 @@
 
 #include "common/comobj.h"
 #include "common/config.h"
+#include "common/controls.h"
 #include "common/ctrlutil.h"
 #include "common/dpi.h"
 #include "common/RAII.h"
@@ -156,6 +157,7 @@ public:
         const RECT& text_rect, HWND host_window = nullptr, bool require_owned_window = false);
     void SetLayout(CandidateLayout layout);
     void SetDisplayPreferences(DisplayPreferences preferences);
+    void SetSkinSnapshot(const std::optional<ImeSkinSnapshot>& snapshot);
     void SetDisplayPreferences(UiTheme theme, UiTextScale scale, bool easy_reading) {
         SetDisplayPreferences(DisplayPreferences{theme, scale, easy_reading});
     }
@@ -228,14 +230,8 @@ private:
     friend class CandidatePageButtonAutomationItem;
     template <typename Derived, typename PatternInterface>
     friend class CandidateAutomationFragment;
-    struct PaintItem {
-        RECT rect{};
-        std::wstring text;
-        bool selected = false;
-        bool accent = false;
-        bool enabled = true;
-        bool centered = false;
-    };
+    using PaintItem = CandidatePaintItem;
+    void RefreshAppearance() noexcept;
     [[nodiscard]] ComPtr<CandidateUI> RetainForWindowOperation() noexcept;
     std::vector<PaintItem> BuildPaintItems() const;
     int ScaleByDpi(int px) const noexcept { return ScalePxByDpi(px, dpi_); }
@@ -334,6 +330,8 @@ private:
     int font_scale_percent_ = 0;
     DisplayPreferences preferences_{};
     DisplayAppearance appearance_{};
+    SkinPalette skin_colors_{};
+    std::optional<ImeSkinSnapshot> skin_snapshot_;
     size_t page_size_ = 5;
     size_t current_page_ = 0;
     size_t selected_in_page_ = 0;

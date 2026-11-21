@@ -4,7 +4,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$TestExecutable,
     [Parameter(Mandatory = $true)][string]$Debugger,
-    [ValidateSet('full', 'focused', 'probe')][string]$Mode = 'full'
+    [ValidateSet('full', 'focused', 'skins', 'probe')][string]$Mode = 'full'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,6 +41,7 @@ try {
     $prefix = Join-Path $directory ("watchdog-{0}-{1}" -f $Mode, [guid]::NewGuid().ToString('N'))
     $arguments = switch ($Mode) {
         'focused' { '--composition-lifecycle-tests' }
+        'skins' { '--skin-tests' }
         'probe' { '--test-hang-diagnostics-probe' }
         default { $null }
     }

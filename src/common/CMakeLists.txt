@@ -50,6 +50,8 @@ set(QIQI_COMMON_SOURCES
     dpi.h
     RAII.h
     sound.h
+    skin.cpp
+    skin.h
     theme.h
     window.h
     toolbar.cpp

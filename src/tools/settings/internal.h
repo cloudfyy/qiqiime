@@ -62,6 +62,11 @@ constexpr int kIdPageScroll = 145;
 constexpr int kIdChkCodeCompletion = 146;
 constexpr int kIdBtnImportConfig = 147;
 constexpr int kIdBtnExportConfig = 148;
+constexpr int kIdLblImeSkin = 149;
+constexpr int kIdComboImeSkin = 150;
+constexpr int kIdSkinCandidatePreview = 151;
+constexpr int kIdSkinPickerList = 152;
+inline constexpr const wchar_t* kSkinPickerWndClass = L"QiQiImeSkinPicker";
 constexpr UINT kSettingsEnsureFocusVisible = WM_APP + 93;
 constexpr UINT kSettingsCyclePage = WM_APP + 94;
 enum class SettingsPage { Input, Dictionary, Candidates, Display, Feedback, Count };
@@ -94,7 +99,8 @@ constexpr bool IsSettingsFooterControl(int id) noexcept {
 }
 inline constexpr std::array kSettingsCandidateControls{
     kIdLblPageSize, kIdComboPageSize, kIdComboCandidateLayout, kIdChkCodeCompletion, kIdChkCodeHint,
-    kIdChkUpDownPageTurn, kIdLblUnderlineStyle, kIdComboUnderlineStyle, kIdChkBoldUnderline};
+    kIdChkUpDownPageTurn, kIdLblUnderlineStyle, kIdComboUnderlineStyle, kIdChkBoldUnderline,
+    kIdLblImeSkin, kIdComboImeSkin, kIdSkinCandidatePreview};
 inline constexpr std::array kSettingsDisplayControls{
     kIdLblUiTheme, kIdComboUiTheme, kIdChkEasyReading, kIdLblUiTextScale, kIdComboUiTextScale,
     kIdLblUiLang, kIdComboUiLang, kIdDisplayExplanation,
@@ -239,6 +245,13 @@ struct DialogContext {
     UiTextScale preview_scale = UiTextScale::Percent100;
     bool preview_easy_reading = false;
     ThemePalette candidate_preview_palette{};
+    SkinPalette candidate_skin_colors{};
+    ImeSkinCatalog skin_catalog;
+    HRESULT skin_catalog_result = S_OK;
+    ImeSkinId preview_skin_id = ImeSkinId::Default;
+    std::optional<ImeSkinSnapshot> preview_skin_snapshot;
+    std::array<ImeSkinId, 7> quick_skin_choices{};
+    size_t quick_skin_count = 0;
     int scroll_offset = 0;
     int content_height = 0;
     int viewport_height = 0;
@@ -267,6 +280,10 @@ void UpdateExtraDictCheckboxState(HWND hwnd) noexcept;
 void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& ctx) noexcept;
 void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept;
 void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept;
+void PopulateSettingsSkinCombo(HWND hwnd, DialogContext& ctx) noexcept;
+void UpdateSettingsSkinPreview(HWND hwnd, DialogContext& ctx) noexcept;
+void HandleSettingsSkinSelection(HWND hwnd, DialogContext& ctx) noexcept;
+void ReportSkinConfigurationFailure(HWND hwnd, UiLanguage language, HRESULT result) noexcept;
 void EnsureSettingsControlVisible(HWND hwnd, HWND child, DialogContext& ctx) noexcept;
 void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept;
 void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept;

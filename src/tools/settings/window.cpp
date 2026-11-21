@@ -265,6 +265,9 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
         case kIdComboUiTheme:
             if (HIWORD(wparam) == CBN_SELCHANGE) ApplySettingsDisplayPreview(hwnd, ctx);
             return;
+        case kIdComboImeSkin:
+            if (HIWORD(wparam) == CBN_SELCHANGE) HandleSettingsSkinSelection(hwnd, ctx);
+            return;
         case kIdComboUiTextScale:
             if (HIWORD(wparam) == CBN_SELCHANGE) {
                 if (::IsDlgButtonChecked(hwnd, kIdChkEasyReading) == BST_CHECKED &&
@@ -313,6 +316,16 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                 }
                 if (!ValidateSettingsPrimaryDictionary(hwnd, ctx, edited)) {
                     return;
+                }
+                if (edited.ime_skin_id != ImeSkinId::Default) {
+                    ImeSkinCatalog catalog;
+                    const HRESULT result = ctx.save_on_accept ? LoadImeSkinCatalog(catalog) :
+                        ValidateImeSkinCatalog(ctx.skin_catalog);
+                    if (FAILED(result) || !FindImeSkin(ctx.save_on_accept ? catalog : ctx.skin_catalog, edited.ime_skin_id)) {
+                        ReportSkinConfigurationFailure(hwnd, edited.ui_language,
+                            FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+                        return;
+                    }
                 }
                 if (ctx.save_on_accept) {
                     const HRESULT saved = SaveConfigToRegistryResult(edited);
@@ -595,7 +608,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                     }
                     if (clip == NULLREGION) return TRUE;
                 }
-                if (dis->CtlID == kIdCandidatePreview) {
+                if (dis->CtlID == kIdCandidatePreview || dis->CtlID == kIdSkinCandidatePreview) {
                     DrawSettingsCandidatePreview(*dis, *ctx);
                     return TRUE;
                 }
@@ -758,6 +771,10 @@ ScopedWindow CreateSettingsWindow(
     }
     ctx->config_registry_sequence = QueryRegistryConfigSequence();
     ctx->save_on_accept = save_on_accept;
+    ctx->skin_catalog_result = save_on_accept ? EnsureBuiltinImeSkinCatalog() : MakeBuiltinImeSkinCatalog(ctx->skin_catalog);
+    if (save_on_accept && SUCCEEDED(ctx->skin_catalog_result))
+        ctx->skin_catalog_result = LoadImeSkinCatalog(ctx->skin_catalog);
+    ctx->config_registry_sequence = QueryRegistryConfigSequence();
 
     const MonitorMetrics mon = QueryActiveMonitor(parent);
     const auto S = [dpi = mon.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };

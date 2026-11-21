@@ -6,7 +6,7 @@
 #include "common/config.h"
 #include "common/ctrlutil.h"
 #include "common/dpi.h"
-#include "common/theme.h"
+#include "common/skin.h"
 
 #include <span>
 #include <algorithm>
@@ -14,6 +14,36 @@
 #include <cstddef>
 
 namespace qiqi {
+
+struct CandidatePaintItem {
+    RECT rect{};
+    std::wstring text;
+    bool selected = false;
+    bool accent = false;
+    bool enabled = true;
+    bool centered = false;
+    SkinColor color_role = SkinColor::CandidateText;
+};
+
+struct CandidatePaintMetrics {
+    HFONT font = nullptr;
+    int line_height = 0;
+    int horizontal_padding = 0;
+    int vertical_padding = 0;
+    int selection_border_width = 1;
+    bool word_wrap = false;
+};
+
+inline COLORREF CandidatePaintTextColor(const SkinPalette& palette, const CandidatePaintItem& item) noexcept {
+    return palette.Get(item.selected ? SkinColor::SelectedText :
+        !item.enabled ? SkinColor::PageDisabledText : item.color_role);
+}
+
+bool PaintCandidateItemsGdi(HDC dc, const RECT& bounds, std::span<const CandidatePaintItem> items,
+    const CandidatePaintMetrics& metrics, const SkinPalette& palette) noexcept;
+int MeasureCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage language) noexcept;
+bool PaintCandidateSample(HDC dc, const RECT& bounds, HFONT font, UINT dpi,
+    UiLanguage language, const SkinPalette& palette) noexcept;
 
 inline constexpr int kFluentBodyFontSize = 14;
 inline constexpr int kFluentComboItemHeight = 22;

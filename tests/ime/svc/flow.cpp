@@ -7,7 +7,7 @@
 
 namespace qiqi::test::service_cases {
 
-void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only) {
+void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only, bool skins_only) {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     const auto suffix = std::to_wstring(::GetCurrentProcessId()) + L"_" + std::to_wstring(::GetTickCount64());
     const std::wstring subkey = L"Software\\QiQiIME_TsfUnitTest_" + suffix;
@@ -42,6 +42,11 @@ void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only) {
     QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
     SetMuteAudioOutputForTest(true);
     ResetLastPlayedSoundForTest();
+
+    if (skins_only) {
+        RunTsfTestStage("service.skin-reload", TestSkinConfigReloadPreservesInput);
+        return;
+    }
 
     if (layout_only) {
         QiQiConfig config;

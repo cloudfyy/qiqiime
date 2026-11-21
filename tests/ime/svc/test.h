@@ -36,10 +36,11 @@ void TestShiftTapTracking();
 void TestInputMethodSwitchCompositionPolicy();
 void TestFocusChangeCompositionPolicy();
 void TestCodeCompletionConfigReload();
+void TestSkinConfigReloadPreservesInput();
 void TestFocusPerformanceLogs();
 void TestProcessDictCacheLifetime();
 void TestDictionarySharingAndLegacyRegistryIgnored();
 void TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*> service);
-void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only = false);
+void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only = false, bool skins_only = false);
 
 } // namespace qiqi::test::service_cases

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <gsl/gsl>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -45,6 +46,36 @@ enum class CandidateLayout {
 
 enum class UiTheme { System, Light, Dark, HighContrast };
 enum class UiTextScale { Percent100, Percent125, Percent150, Percent200 };
+
+enum class ImeSkinId : uint32_t {
+    Default, Firefly, Inkstone, JadePool, StarryAbyss, AutumnBrocade, BambooDew,
+    IvoryPaper, ObsidianNight, IcySilk, InkSeal, TerracottaDusk, SmokyMist,
+    SilverFrost, SunsetClouds, VioletPath, TeaMist, AzureTides, ThawingSnow,
+    SpringShore, PeachBlossom, EmeraldHaze,
+    Invalid = UINT32_MAX
+};
+
+inline constexpr std::array<std::string_view, 22> kImeSkinIds{
+    "default", "firefly", "inkstone", "jade-pool", "starry-abyss", "autumn-brocade",
+    "bamboo-dew", "ivory-paper", "obsidian-night", "icy-silk", "ink-seal",
+    "terracotta-dusk", "smoky-mist", "silver-frost", "sunset-clouds", "violet-path",
+    "tea-mist", "azure-tides", "thawing-snow", "spring-shore", "peach-blossom", "emerald-haze"
+};
+
+constexpr std::string_view ImeSkinIdToString(ImeSkinId id) noexcept {
+    const auto index = static_cast<size_t>(id);
+    return index < kImeSkinIds.size() ? gsl::at(kImeSkinIds, index) : std::string_view{};
+}
+
+template <typename Character>
+constexpr std::optional<ImeSkinId> ParseImeSkinId(std::basic_string_view<Character> text) noexcept {
+    for (size_t index = 0; index < kImeSkinIds.size(); ++index) {
+        if (std::ranges::equal(text, gsl::at(kImeSkinIds, index))) {
+            return static_cast<ImeSkinId>(index);
+        }
+    }
+    return std::nullopt;
+}
 
 struct DisplayPreferences {
     UiTheme theme = UiTheme::System;
@@ -98,6 +129,7 @@ struct QiQiConfig {
     UiTheme ui_theme = UiTheme::System;
     UiTextScale ui_text_scale = UiTextScale::Percent100;
     bool easy_reading = false;
+    ImeSkinId ime_skin_id = ImeSkinId::Default;
 };
 
 constexpr DisplayPreferences GetDisplayPreferences(const QiQiConfig& config) noexcept {
@@ -178,7 +210,8 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"ui_theme", L"UiTheme", &QiQiConfig::ui_theme, 0, 3, true},
     ConfigField{"ui_text_scale", L"UiTextScale", &QiQiConfig::ui_text_scale, 0, 3, true},
     ConfigField{"easy_reading", L"EasyReading", &QiQiConfig::easy_reading, 0, 1, true},
-    ConfigField{"enable_code_completion", L"EnableCodeCompletion", &QiQiConfig::enable_code_completion, 0, 1, true}
+    ConfigField{"enable_code_completion", L"EnableCodeCompletion", &QiQiConfig::enable_code_completion, 0, 1, true},
+    ConfigField{"ime_skin_id", L"ImeSkinId", &QiQiConfig::ime_skin_id, 0, 21, true}
 };
 
 template <typename Visitor>
@@ -254,6 +287,14 @@ constexpr const wchar_t* ResolveDictionaryPathDisplayText(
 inline constexpr const wchar_t* kDefaultConfigRegSubKey = L"Software\\QiQiIME";
 void SetConfigRegistrySubKeyOverrideForTest(const wchar_t* subkey_or_null) noexcept;
 const wchar_t* GetActiveConfigRegistrySubKey() noexcept;
+
+HRESULT OpenConfigRegistryKeyResult(
+    HKEY* key, REGSAM access, const wchar_t* subkey = nullptr, HANDLE transaction = nullptr) noexcept;
+HRESULT WriteRegistryDwordResult(HKEY key, const wchar_t* name, DWORD value) noexcept;
+HRESULT ReadRegistryDwordResult(HKEY key, const wchar_t* name, DWORD& value) noexcept;
+HRESULT WriteRegistryStringResult(HKEY key, const wchar_t* name, std::wstring_view value) noexcept;
+HRESULT ReadRegistryStringResult(HKEY key, const wchar_t* name, std::wstring& value);
+HRESULT BumpConfigRegistrySequenceResult(HKEY key) noexcept;
 
 // Save or load QiQiConfig as native REG_DWORD / REG_SZ values in HKCU\<subkey>
 // (grants S-1-15-2-1 / S-1-15-2-2 KEY_READ for UWP AppContainer).

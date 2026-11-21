@@ -30,6 +30,8 @@ constexpr auto EnumNames() noexcept {
         return std::array<std::string_view, 5>{"dot", "solid", "dash", "squiggle", "none"};
     } else if constexpr (std::is_same_v<T, UiTheme>) {
         return std::array<std::string_view, 4>{"system", "light", "dark", "high_contrast"};
+    } else if constexpr (std::is_same_v<T, ImeSkinId>) {
+        return kImeSkinIds;
     } else {
         static_assert(std::is_same_v<T, UiTextScale>);
         return std::array<std::string_view, 4>{"100%", "125%", "150%", "200%"};

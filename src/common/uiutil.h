@@ -387,18 +387,18 @@ inline void SetFluentComboHeights(HWND combo, const FluentD2DThemeContext& theme
 }
 
 inline bool SetFluentListRowHeight(
-    HWND list, const FluentD2DThemeContext& theme, ScopedImageList& images) noexcept {
+    HWND list, const FluentD2DThemeContext& theme, ScopedImageList& images, int minimum_height = 0) noexcept {
     const auto* const current = ListView_GetImageList(list, LVSIL_SMALL);
     if (current && current != images.Get()) {
         QIQI_LOG_ERROR("Tool row height cannot replace an externally owned image list");
         return false;
     }
-    if (!theme.display_preferences.easy_reading) {
+    if (!theme.display_preferences.easy_reading && minimum_height <= 0) {
         if (current) ListView_SetImageList(list, nullptr, LVSIL_SMALL);
         images.Reset();
         return true;
     }
-    const int height = FluentControlHeight(theme, kFluentComboItemHeight);
+    const int height = std::max(minimum_height, FluentControlHeight(theme, kFluentComboItemHeight));
     int image_width = 0;
     int image_height = 0;
     if (images) {

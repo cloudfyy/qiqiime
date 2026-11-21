@@ -182,6 +182,7 @@ const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage languag
     if (key == "page_size" || key == "candidate_layout") return str.dlg_lbl_page_size;
     if (key == "ui_language") return str.dlg_lbl_ui_lang;
     if (key == "underline_style") return str.dlg_lbl_underline_style;
+    if (key == "ime_skin_id") return LocalizedUiText(language, L"皮肤", L"Skin");
     if (key == "commit_on_english_switch") return str.dlg_lbl_english_switch;
     const bool english = ResolveUiLanguage(language) == UiLanguage::EnUs;
     if (key == "ui_theme") return english ? kDisplayEn.theme : kDisplayZh.theme;
@@ -201,6 +202,7 @@ void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdChkEasyReading, text.easy);
     ::SetDlgItemTextW(hwnd, kIdDisplayExplanation, text.explanation);
     ::SetDlgItemTextW(hwnd, kIdCandidatePreview, text.preview);
+    ::SetDlgItemTextW(hwnd, kIdSkinCandidatePreview, text.preview);
     std::ignore = log::CheckHResult(
         ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTheme), text.themes),
         "Settings::ReplaceComboBoxItems(theme)");
@@ -339,7 +341,7 @@ void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept {
     ctx.preview_easy_reading = edited.easy_reading;
     const auto preferences = GetDisplayPreferences(edited);
     ctx.d2d.SetDisplayPreferences(preferences);
-    ctx.candidate_preview_palette = ResolveDisplayAppearance(preferences, SystemThemeSource::App).palette;
+    UpdateSettingsSkinPreview(hwnd, ctx);
     ApplyDisplayThemeToWindow(hwnd, ctx.d2d.appearance);
     auto font = CreateUiFont(ctx.d2d.ScalePx(settings_layout::kFontSize),
                              FW_NORMAL, CLEARTYPE_QUALITY);
@@ -358,90 +360,19 @@ void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept {
     ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
-namespace {
-
-template <typename PaintItem>
-int LayoutCandidatePreview(HDC dc, HWND preview, int width, const DialogContext& ctx, PaintItem paint_item) noexcept {
-    const ScopedSelectObject font(dc, ctx.font.Get());
-    const int inset = ctx.d2d.ScaleDipPx(12);
-    const int padding = ctx.d2d.ScaleDipPx(4);
-    const int gap = ctx.d2d.ScaleDipPx(8);
-    const int available = std::max(1, width - 2 * inset);
-    const int right = inset + available;
-    int x = inset;
-    int y = gap;
-    int row_bottom = y;
-    std::array<wchar_t, 256> label{};
-    const int length = ::GetWindowTextW(preview, label.data(), gsl::narrow_cast<int>(label.size()));
-    std::wstring_view remaining(label.data(), gsl::narrow_cast<size_t>(length));
-    int index = 0;
-    while (!remaining.empty()) {
-        const size_t newline = remaining.find(L'\n');
-        const std::wstring_view line(remaining.data(),
-            newline == std::wstring_view::npos ? remaining.size() : newline);
-        RECT measured{0, 0, std::max(1, available - 2 * padding), 0};
-        if (!::DrawTextW(dc, line.data(), gsl::narrow_cast<int>(line.size()), &measured,
-                         DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX)) {
-            QIQI_LOG_WARN("Settings preview text measurement failed");
-            return 0;
-        }
-        const int item_width = std::min(available, gsl::narrow_cast<int>(measured.right) + 2 * padding);
-        if (index == 1 || (x > inset && x + item_width > right)) {
-            y = row_bottom + padding;
-            x = inset;
-        }
-        if (index == 5) x = std::max(x, right - item_width);
-        const RECT bounds{x, y, x + item_width, y + measured.bottom + 2 * padding};
-        paint_item(line, bounds, index == 2);
-        row_bottom = std::max(row_bottom, gsl::narrow_cast<int>(bounds.bottom));
-        x = bounds.right + gap;
-        remaining.remove_prefix(newline == std::wstring_view::npos ? remaining.size() : newline + 1);
-        ++index;
-    }
-    return row_bottom + gap;
-}
-
-} // namespace
-
 int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogContext& ctx) noexcept {
     const ScopedWindowDC dc(preview);
     if (!dc) {
         QIQI_LOG_WARN("Settings preview measurement DC acquisition failed");
         return 0;
     }
-    return LayoutCandidatePreview(dc.Get(), preview, width, ctx,
-        [](std::wstring_view, const RECT&, bool) noexcept {});
+    return MeasureCandidateSample(dc.Get(), ctx.font.Get(), width, ctx.d2d.dpi,
+        GetSelectedUiLanguageFromCombo(::GetParent(preview), ctx));
 }
 
 void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept {
-    const auto& palette = ctx.candidate_preview_palette;
-    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(palette.window_bg));
-    const ScopedGdiHandle<HBRUSH> selection(::CreateSolidBrush(palette.selection_bg));
-    if (!background || !selection) {
-        QIQI_LOG_WARN("Settings preview brush creation failed (error={})", ::GetLastError());
-        return;
-    }
-    ::FillRect(item.hDC, &item.rcItem, background.Get());
-    ::FrameRect(item.hDC, &item.rcItem, selection.Get());
-    ::SetBkMode(item.hDC, TRANSPARENT);
-    const ScopedGdiHandle<HBRUSH> focus(::CreateSolidBrush(palette.focus_color));
-    if (!focus) {
-        QIQI_LOG_WARN("Settings preview focus brush creation failed (error={})", ::GetLastError());
-        return;
-    }
-    LayoutCandidatePreview(item.hDC, item.hwndItem, item.rcItem.right - item.rcItem.left, ctx,
-        [&](std::wstring_view line, const RECT& bounds, bool selected) noexcept {
-            RECT row = bounds;
-            ::OffsetRect(&row, item.rcItem.left, item.rcItem.top);
-            if (selected) {
-                ::FillRect(item.hDC, &row, selection.Get());
-                ::FrameRect(item.hDC, &row, focus.Get());
-            }
-            ::SetTextColor(item.hDC, selected ? palette.selection_text : palette.text_primary);
-            ::InflateRect(&row, -ctx.d2d.ScaleDipPx(4), -ctx.d2d.ScaleDipPx(4));
-            ::DrawTextW(item.hDC, line.data(), gsl::narrow_cast<int>(line.size()),
-                        &row, DT_WORDBREAK | DT_NOPREFIX);
-        });
+    std::ignore = PaintCandidateSample(item.hDC, item.rcItem, ctx.font.Get(), ctx.d2d.dpi,
+        GetSelectedUiLanguageFromCombo(::GetParent(item.hwndItem), ctx), ctx.candidate_skin_colors);
 }
 
 UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept {
@@ -489,6 +420,7 @@ void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept {
 void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
     const auto& str = GetUiStrings(lang);
+    PopulateSettingsSkinCombo(hwnd, ctx);
 
     for (const auto& radio : kSettingsDictRadios) {
         ::SetDlgItemTextW(hwnd, radio.control_id, str.*(radio.label_field));
@@ -576,6 +508,7 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
     if (!LoadConfigFromRegistry(external_cfg, &loaded_seq)) {
         return;
     }
+    if (ctx.save_on_accept) ctx.skin_catalog_result = LoadImeSkinCatalog(ctx.skin_catalog);
 
     QiQiConfig current_ui_cfg = ctx.baseline_config;
     ReadSettingsFromWindowControls(hwnd, current_ui_cfg);
@@ -738,6 +671,9 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboUiTextScale);
     create_control(L"BUTTON", L"", BS_AUTOCHECKBOX, initial, kIdChkEasyReading);
     create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdCandidatePreview);
+    create_control(L"STATIC", L"", 0, initial, kIdLblImeSkin);
+    create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboImeSkin);
+    create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdSkinCandidatePreview);
     create_control(L"STATIC", L"", 0, initial, kIdDisplayExplanation);
     std::ignore = log::CheckHResult(
         ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTextScale), kTextScaleLabels),
@@ -831,6 +767,10 @@ static HRESULT PopulateSettingsControls(HWND hwnd, const QiQiConfig& config, boo
     ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_SETCURSEL,
         config.commit_on_english_switch ? 0 : 1, 0);
     ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_SETCURSEL, static_cast<WPARAM>(config.ui_theme), 0);
+    if (auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+        context->preview_skin_id = config.ime_skin_id;
+        PopulateSettingsSkinCombo(hwnd, *context);
+    }
     ::CheckDlgButton(hwnd, kIdChkEasyReading, config.easy_reading ? BST_CHECKED : BST_UNCHECKED);
     const UiTextScale scale = config.easy_reading
         ? std::max(config.ui_text_scale, UiTextScale::Percent150) : config.ui_text_scale;
@@ -862,6 +802,7 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
         }
     }
     if (const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+        config.ime_skin_id = ctx->preview_skin_id;
         if (ctx->imported_config) {
             ForEachConfigField([&](const auto& field) noexcept {
                 if (!field.settings_editable)

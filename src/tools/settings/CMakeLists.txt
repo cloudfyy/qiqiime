@@ -8,6 +8,7 @@ set(QIQI_SETTINGS_UI_SOURCES
     window.cpp
     window.h
     controls.cpp
+    skin.cpp
     internal.h
     transfer.cpp
     transfer.h

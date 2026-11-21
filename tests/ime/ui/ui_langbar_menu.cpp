@@ -821,6 +821,11 @@ void TestQuickSettingsMenu() {
             }
         });
         ::KillTimer(nullptr, timer);
+        if (actions.size() != 6) {
+            std::cerr << "[MENU-DIAGNOSTIC] actions=" << actions.size() << ", timer_step=" << step << ", ids=";
+            for (const auto action : actions) std::cerr << static_cast<UINT>(action) << ',';
+            std::cerr << '\n';
+        }
         QIQI_TEST_CHECK(actions.size() == 6);
         QIQI_TEST_CHECK(!state.chinese_mode && state.full_width && !state.chinese_punct);
         QIQI_TEST_CHECK(state.primary_dict == PrimaryDict::Jidian && state.enable_jidian_extra);
@@ -1297,6 +1302,55 @@ void TestQuickSettingsMenuLivePainting() {
     }
 }
 
+void TestQuickSettingsMenuSkin() {
+    const TsfTestCaseTrace trace(__func__);
+    const auto old_app = detail::ThemeDarkOverrideStorage();
+    const auto old_windows = detail::TaskbarDarkOverrideStorage();
+    const auto restore = gsl::finally([&]() noexcept {
+        SetThemeDarkOverrideForTest(old_app);
+        SetTaskbarDarkOverrideForTest(old_windows);
+        SetHighContrastOverrideForTest(std::nullopt);
+    });
+    SetThemeDarkOverrideForTest(false);
+    SetTaskbarDarkOverrideForTest(true);
+    SetHighContrastOverrideForTest(false);
+    static bool observed = false;
+    observed = false;
+    const auto& skin = GetBuiltinImeSkins().front();
+    const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) noexcept {
+        const HWND menu = FindQuickSettingsMenu();
+        if (!menu) return;
+        observed = true;
+        ::KillTimer(nullptr, id);
+        const auto& palette = GetBuiltinImeSkins().front().palettes.dark;
+        const ScopedWindowDC screen(menu);
+        QIQI_TEST_CHECK(::GetPixel(screen.Get(), 1, 1) == palette.Get(SkinColor::Background));
+        const HWND button = ::GetDlgItem(menu, static_cast<int>(LangBarMenuId::ToggleChinese));
+        RECT bounds{};
+        QIQI_TEST_CHECK(::GetClientRect(button, &bounds));
+        const ScopedMemoryDC dc(::CreateCompatibleDC(screen.Get()));
+        const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen.Get(), bounds.right, bounds.bottom));
+        QIQI_TEST_CHECK(dc && bitmap);
+        const ScopedSelectObject selected_bitmap(dc.Get(), bitmap.Get());
+        DRAWITEMSTRUCT draw{};
+        draw.CtlType = ODT_BUTTON;
+        draw.CtlID = static_cast<UINT>(LangBarMenuId::ToggleChinese);
+        draw.hwndItem = button;
+        draw.hDC = dc.Get();
+        draw.rcItem = bounds;
+        draw.itemState = ODS_SELECTED;
+        ::SendMessageW(menu, WM_DRAWITEM, draw.CtlID, reinterpret_cast<LPARAM>(&draw));
+        QIQI_TEST_CHECK(::GetPixel(dc.Get(), 0, 0) == palette.Get(SkinColor::MenuHoverBackground));
+        ::SendMessageW(menu, WM_CLOSE, 0, 0);
+    });
+    QIQI_TEST_CHECK(timer != 0);
+    const auto stop = gsl::finally([timer]() noexcept { ::KillTimer(nullptr, timer); });
+    LangBarState state;
+    state.skin_snapshot = ImeSkinSnapshot{skin.id, skin.palettes};
+    LangBarButton::ShowSharedPopupMenu(state, POINT{200, 200}, [](LangBarMenuId) noexcept {});
+    QIQI_TEST_CHECK(observed);
+}
+
 void TestQuickSettingsMenuLiteralAmpersand() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     LangBarState state{};
@@ -1425,6 +1479,8 @@ void RunTsfImeIconTests() {
     TestTaskbarThemeIcons();
     TestLangBarThemeNotifications();
 }
+
+void RunMenuSkinTests() { TestQuickSettingsMenuSkin(); }
 
 void RunLangBarMenuTests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);

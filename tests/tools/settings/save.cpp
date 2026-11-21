@@ -407,7 +407,7 @@ void TestSettingsFieldMergeMatrix() {
             ++cases;
         }
     });
-    QIQI_TEST_CHECK(cases == 48);
+    QIQI_TEST_CHECK(cases == 50);
 }
 
 } // namespace

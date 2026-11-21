@@ -26,6 +26,7 @@ void RunRestrictedInputContractTests();
 void RunRestrictedInputDiagnostics();
 int RunFocusMetricsEtwTest();
 void RunFocusEnvironmentIsolationTest();
+void RunSkinTests();
 int RunFocusBenchmark(const std::filesystem::path& dll, std::wstring_view mode);
 }
 
@@ -285,6 +286,13 @@ int wmain(int argc, wchar_t* argv[]) {
         QIQI_TEST_CHECK(SUCCEEDED(co_hr));
         qiqi::test::RunTsfCandidateLayoutTests();
         std::cout << "[PASS] QiQi candidate layout tests succeeded.\n";
+        return 0;
+    }
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--skin-tests") {
+        const qiqi::test::TsfTestTrace trace("skin");
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        qiqi::test::RunSkinTests();
+        std::cout << "[PASS] QiQi skin catalog, UI and lifecycle tests succeeded.\n";
         return 0;
     }
     if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--candidate-ui-tests") {

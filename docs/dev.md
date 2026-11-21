@@ -138,9 +138,26 @@ Repeat with the x86 preset and build directory. Use
 | Common, synchronization, engine | `QiQiCommonTest`, `QiQiChangeSyncTest`, `QiQiEngineTest` |
 | TSF and composition | `QiQiTsfUiTest`, `QiQiCompositionLifecycleTest` |
 | Desktop tools | `QiQiSettingsTest`, `QiQiDictManagerTest`, `QiQiLogMonitorTest`, `QiQiLogMonitorStartupTest`, `QiQiStandaloneToolsTest` |
+| Skin catalog, selection, rendering and input preservation | `QiQiSkinTest` |
 | Metrics | `QiQiMetricsTest`, `QiQiMonitorMetricsTest` |
 | Installer sources and runtime layout | `QiQiInstallerShortcutsTest`, `QiQiRuntimeArchitectureTest` |
 | Installer basic/reduced uninstall consent | `QiQiInstallerActionsTest` |
+
+Skin-specific catalog, chooser, candidate/menu rendering, and input-preservation
+cases run only in **QiQiSkinTest**, not the default Common/Settings/UI collections.
+The collection reuses `qiqi_tsf_ui_test --skin-tests`, its private lifecycle
+registry/LOCALAPPDATA fixture, retained trace logs, and the existing watchdog.
+General configuration-field projections remain in Common and Settings.
+
+```powershell
+cmake --build --preset x64-release --target qiqi_tsf_ui_test
+ctest --test-dir build\x64 -C Release -R '^QiQiSkinTest$' --parallel 1 --output-on-failure
+```
+
+Repeat with the x86 preset/directory. Skin tests still use real owned test windows;
+avoid keyboard/mouse interaction during the run. Colors and previews use synthetic
+input, not user dictionary contents. Passing this collection does not certify all
+real hosts or Narrator speech.
 
 Additional ETW test modes appear in the CTest listing. Global ETW integration
 tests can return skip code 77 when capture permissions are unavailable; a skip

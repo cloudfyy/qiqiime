@@ -53,6 +53,51 @@ void TestCodeCompletionConfigReload() {
     }
 }
 
+void TestSkinConfigReloadPreservesInput() {
+    const TsfTestCaseTrace trace(__func__);
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) != kDefaultConfigRegSubKey);
+    const QiQiConfig original = LoadConfig();
+    const auto restore = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(SaveConfigToRegistry(original)); });
+    QIQI_TEST_CHECK(EnsureBuiltinImeSkinCatalog() == S_OK);
+    QiQiConfig config = original;
+    config.primary_dict = PrimaryDict::BuiltinOnly;
+    config.page_size = 3;
+    config.enable_code_completion = true;
+    config.default_chinese_mode = true;
+    config.show_status_bar = false;
+    config.up_down_page_turn = false;
+    config.ime_skin_id = ImeSkinId::Default;
+    QIQI_TEST_CHECK(SaveConfig(config));
+    auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+    auto manager = MakeComObject<MockTfThreadMgr>();
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
+    auto context = MakeComObject<MockTfContext>();
+    BOOL eaten = FALSE;
+    QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), 'D', 0, &eaten) == S_OK && eaten);
+    ComPtr<ITfCandidateListUIElement> candidates;
+    QIQI_TEST_CHECK(manager->last_ui_element_.As(&candidates) == S_OK && candidates);
+    UINT count = 0;
+    QIQI_TEST_CHECK(candidates->GetCount(&count) == S_OK && count >= 6);
+    for (const UINT key : {VK_NEXT, VK_DOWN})
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+    UINT page = 0;
+    UINT selection = 0;
+    QIQI_TEST_CHECK(candidates->GetCurrentPage(&page) == S_OK && page == 1);
+    QIQI_TEST_CHECK(candidates->GetSelection(&selection) == S_OK);
+    const auto text = context->range_->text_;
+    config.ime_skin_id = ImeSkinId::Firefly;
+    QIQI_TEST_CHECK(SaveConfig(config));
+    QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+    UINT after = 0;
+    QIQI_TEST_CHECK(candidates->GetCurrentPage(&after) == S_OK && after == page);
+    QIQI_TEST_CHECK(candidates->GetSelection(&after) == S_OK && after == selection);
+    QIQI_TEST_CHECK(context->range_->text_ == text);
+    QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_DOWN, 0, &eaten) == S_OK && eaten);
+    QIQI_TEST_CHECK(candidates->GetCurrentPage(&after) == S_OK && after == page);
+    QIQI_TEST_CHECK(candidates->GetSelection(&after) == S_OK && after == selection + 1);
+}
+
 void TestModeSwitchCompositionPolicy(
     gsl::not_null<QiQiTextService*> service, gsl::not_null<MockTfThreadMgr*> manager, bool commit) {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);

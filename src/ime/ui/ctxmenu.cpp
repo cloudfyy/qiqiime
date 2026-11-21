@@ -67,7 +67,7 @@ public:
                 }
             });
             ApplyDisplayThemeToWindow(hwnd_.Get(),
-                ResolveDisplayAppearance(state_.display, SystemThemeSource::Windows));
+                ResolveImeSkinAppearance(state_.display, state_.skin_snapshot, SystemThemeSource::Windows).display);
             ::ShowWindow(hwnd_.Get(), SW_SHOW);
             ::SetForegroundWindow(hwnd_.Get());
             ::SetFocus(hwnd_.Get());
@@ -313,8 +313,12 @@ private:
     }
 
     ThemePalette Palette() const noexcept {
-        ThemePalette palette = ResolveDisplayAppearance(state_.display, SystemThemeSource::Windows).palette;
-        palette.text_accent = palette.text_primary;
+        const auto appearance = ResolveImeSkinAppearance(state_.display, state_.skin_snapshot, SystemThemeSource::Windows);
+        ThemePalette palette = appearance.display.palette;
+        palette.text_accent = state_.skin_snapshot && !appearance.display.high_contrast ?
+            appearance.colors.Get(SkinColor::MenuHoverText) : palette.text_primary;
+        if (state_.skin_snapshot && !appearance.display.high_contrast)
+            palette.text_secondary = appearance.colors.Get(SkinColor::PageDisabledText);
         if (IsHighContrastEnabled()) {
             palette.window_bg = ::GetSysColor(COLOR_MENU);
             palette.text_primary = ::GetSysColor(COLOR_MENUTEXT);
@@ -398,7 +402,9 @@ private:
         const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(selected ? palette.hover_bg : palette.window_bg));
         ::FillRect(item.hDC, &item.rcItem, background.Get());
         ::SetBkMode(item.hDC, TRANSPARENT);
-        ::SetTextColor(item.hDC, disabled ? ::GetSysColor(COLOR_GRAYTEXT)
+        const bool skin_active = state_.skin_snapshot && !IsHighContrastEnabled() &&
+            state_.display.theme != UiTheme::HighContrast;
+        ::SetTextColor(item.hDC, disabled ? (skin_active ? palette.text_secondary : ::GetSysColor(COLOR_GRAYTEXT))
                                           : (selected ? palette.text_accent : palette.text_primary));
         const ScopedSelectObject select_font(item.hDC, font_.Get());
         RECT text_rect = item.rcItem;
@@ -416,7 +422,15 @@ private:
             ::DrawTextW(item.hDC, L"\x2713", 1, &check, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
         }
         if (item.itemState & ODS_FOCUS) {
-            ::DrawFocusRect(item.hDC, &item.rcItem);
+            if (skin_active) {
+                const ScopedGdiHandle<HBRUSH> focus(::CreateSolidBrush(palette.focus_color));
+                RECT bounds = item.rcItem;
+                ::InflateRect(&bounds, -1, -1);
+                if (focus) ::FrameRect(item.hDC, &bounds, focus.Get());
+                else QIQI_LOG_WARN("Quick settings focus brush failed (error={})", ::GetLastError());
+            } else {
+                ::DrawFocusRect(item.hDC, &item.rcItem);
+            }
         }
     }
 
@@ -497,7 +511,8 @@ private:
                     return 0;
                 }
                 ApplyDisplayThemeToWindow(hwnd,
-                    ResolveDisplayAppearance(self->state_.display, SystemThemeSource::Windows));
+                    ResolveImeSkinAppearance(self->state_.display, self->state_.skin_snapshot,
+                        SystemThemeSource::Windows).display);
                 ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
                 return 0;
             case WM_ERASEBKGND:

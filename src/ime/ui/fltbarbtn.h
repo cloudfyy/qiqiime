@@ -52,6 +52,7 @@ struct LangBarState {
     bool enable_jidian_extra = true;
     UiLanguage ui_language = UiLanguage::Auto;
     DisplayPreferences display{};
+    std::optional<ImeSkinSnapshot> skin_snapshot;
 };
 
 struct LangBarMenuItem {

@@ -1,4 +1,4 @@
-# 显示主题、关怀模式与讲述人 / Display, Comfort mode, and Narrator
+# 显示、皮肤、关怀模式与讲述人 / Display, skins, Comfort mode, and Narrator
 
 ## 桌面端使用
 
@@ -105,6 +105,7 @@ Extra 缩进显示在 Jidian Core 下，并注明依赖关系：只有选中 Cor
 | `ui_language` | `auto`, `zh-CN`, `en-US` |
 | `underline_style` | `dot`, `solid`, `dash`, `squiggle`, `none` |
 | `ui_theme` | `system`, `light`, `dark`, `high_contrast` |
+| `ime_skin_id` | `default` 或[皮肤目录](ime-skin-palettes.md)中的稳定 ID |
 | `ui_text_scale` | `100%`, `125%`, `150%`, `200%` |
 
 关怀模式 `easy_reading: true` 要求最终字号至少 `150%`；如当前字号较小，
@@ -146,6 +147,20 @@ Deflate 压缩的 ZIP（`.zip`，由 miniz 读写），其中包含 `manifest.js
 关怀模式下工具栏显示操作文字，列表行、下拉选项及主要操作区至少高 44 DIP。
 空间不足时筛选项换行，窗口提供纵向滚动与焦点自动显露，
 不通过缩小字号适配小工作区。
+
+### 候选皮肤
+
+当前源码在设置的“候选窗口”页提供**默认、流萤、墨砚、碧潭、星渊、桃夭、
+更多…**；当前选择不在常用名单时，也会保留在下拉框中。
+“更多…”窗口显示全部二十一套皮肤及默认项，每项有按当前主题显示的图例预览。
+方向键选择、Tab 移动焦点、Enter 确认、Escape 取消；确认只回填设置草稿，
+主窗口确定才保存，取消不影响实际 IME。
+
+主题决定明暗，皮肤决定色彩家族；系统及手选高对比度优先，选择皮肤不改变主题。
+候选窗、自绘快捷菜单及设置候选预览接入皮肤；工具窗口换肤留待后续。
+实际颜色读取注册表的已验证快照，程序内置配色只用于初始化缺失目录；
+一期不透明，固定二十一个稳定 ID，不支持仅靠新增注册表键添加新皮肤。
+详见[皮肤设计与配置契约](ime-skins.md)。
 
 ### 讲述人（Narrator）候选朗读配置
 
@@ -308,6 +323,21 @@ App high-contrast text targets
 complete screen-reader certification or real-host acceptance.
 
 Website preferences remain browser-local and separate from desktop preferences.
+
+### Candidate skins
+
+The native source provides Default plus five common skins and **More** in the
+Candidates settings page. A non-common current selection remains visible.
+More opens an owned, scrollable all-skin list with current-theme candidate
+sample cards. Arrows select, Tab changes focus, Enter accepts, and Escape cancels.
+The child only updates the Settings draft; the main OK persists it.
+
+Candidate popups, the IME quick menu, and candidate previews use the skin;
+tool-window skins are deferred. Theme and skin stay independent, with system/app
+high contrast taking precedence. Runtime colors come from validated registry
+snapshots; compiled palettes only initialize missing catalogs.
+The first phase is opaque and limited to 21 known skin IDs.
+See [skin usage and the registry contract](ime-skins.md).
 
 ### Narrator candidate-reading setup
 

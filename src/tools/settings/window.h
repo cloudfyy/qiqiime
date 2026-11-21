@@ -6,8 +6,22 @@
 #include "common/dialog.h"
 #include "common/config.h"
 #include "common/RAII.h"
+#include "common/skin.h"
 
 namespace qiqi {
+
+struct SkinSelectionState {
+    ImeSkinId selected = ImeSkinId::Default;
+    bool accepted = false;
+    bool done = false;
+};
+
+// The state must outlive the returned window.
+ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent,
+    const ImeSkinCatalog& catalog, DisplayPreferences display, UiLanguage language,
+    SkinSelectionState* state, HRESULT* result = nullptr) noexcept;
+HRESULT ShowSkinSelectionDialog(HINSTANCE instance, HWND parent,
+    const ImeSkinCatalog& catalog, DisplayPreferences display, UiLanguage language, ImeSkinId& selection) noexcept;
 
 // Apply control states from an open settings window to QiQiConfig.
 void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept;

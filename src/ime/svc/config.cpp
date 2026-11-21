@@ -612,7 +612,9 @@ STDMETHODIMP QiQiTextService::GetDisplayName(BSTR* pbstrName) noexcept {
 }
 
 void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
-    engine_.SetPageSize(config_.page_size);
+    std::ignore = UpdateImeSkinSnapshot(config_.ime_skin_id, ime_skin_snapshot_);
+    if (engine_.PageSize() != std::clamp<size_t>(config_.page_size, 1, 9))
+        engine_.SetPageSize(config_.page_size);
     engine_.SetAutoCommit4Code(config_.auto_commit_4code);
     engine_.SetPushCommit5th(config_.push_commit_5th);
     engine_.SetSemicolonQuoteQuickSelect(config_.semicolon_quote_quick_select);
@@ -731,6 +733,7 @@ void QiQiTextService::UpdateUiIndicators() {
     lb_state.enable_jidian_extra = config_.enable_jidian_extra;
     lb_state.ui_language = config_.ui_language;
     lb_state.display = GetDisplayPreferences(config_);
+    lb_state.skin_snapshot = ime_skin_snapshot_;
 
     if (candidate_ui_) {
         candidate_ui_->SetUiLanguage(config_.ui_language);
@@ -742,6 +745,7 @@ void QiQiTextService::UpdateUiIndicators() {
         status_bar_->UpdateState(lb_state);
     }
     if (const auto candidate_ui = candidate_ui_) {
+        candidate_ui->SetSkinSnapshot(ime_skin_snapshot_);
         candidate_ui->SetDisplayPreferences(GetDisplayPreferences(config_));
         candidate_ui->SetLayout(config_.candidate_layout);
     }

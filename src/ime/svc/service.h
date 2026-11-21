@@ -309,6 +309,7 @@ private:
     std::unique_ptr<StatusBarUI> status_bar_;
     QiQiConfig config_{};
     uint64_t config_registry_sequence_ = 0;
+    std::optional<ImeSkinSnapshot> ime_skin_snapshot_;
     WubiEngine engine_;
     ShiftTapTracker shift_tap_;
 };

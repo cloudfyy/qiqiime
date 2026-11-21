@@ -306,17 +306,16 @@ inline bool ApplyToolWindowListAndControlsTheme(
     ApplyDisplayThemeToWindow(hwnd, theme.appearance);
     bool all_ok = true;
     for (const HWND ctrl : themed_controls) {
-        if (ctrl && FAILED(::SetWindowTheme(ctrl, contrast ? nullptr : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr))) {
-            all_ok = false;
+        if (ctrl) {
+            const HRESULT result = ::SetWindowTheme(ctrl,
+                contrast ? nullptr : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
+            if (!log::CheckHResult(result, "ToolWindow::SetWindowTheme(control)")) all_ok = false;
         }
     }
     if (list_hwnd) {
-        if (FAILED(::SetWindowTheme(
-                ListView_GetHeader(list_hwnd),
-                contrast ? nullptr : (dark ? L"DarkMode_ItemsView" : L"ItemsView"),
-                nullptr))) {
-            all_ok = false;
-        }
+        const HRESULT result = ::SetWindowTheme(ListView_GetHeader(list_hwnd),
+            contrast ? nullptr : (dark ? L"DarkMode_ItemsView" : L"ItemsView"), nullptr);
+        if (!log::CheckHResult(result, "ToolWindow::SetWindowTheme(header)")) all_ok = false;
         const COLORREF background = theme.appearance.palette.input_bg;
         const COLORREF foreground = theme.appearance.palette.text_primary;
         ListView_SetBkColor(list_hwnd, background);

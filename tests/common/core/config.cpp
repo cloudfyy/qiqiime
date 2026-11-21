@@ -74,6 +74,8 @@ void TestConfigJson() {
         InvalidCase{R"("ui_theme":1)", ConfigJsonIssue::InvalidType, "settings.ui_theme"},
         InvalidCase{R"("ui_theme":"Dark")", ConfigJsonIssue::InvalidEnum, "settings.ui_theme"},
         InvalidCase{R"("ui_theme":null)", ConfigJsonIssue::InvalidType, "settings.ui_theme"},
+        InvalidCase{R"("ime_skin_id":"unknown")", ConfigJsonIssue::InvalidEnum, "settings.ime_skin_id"},
+        InvalidCase{R"("ime_skin_id":1)", ConfigJsonIssue::InvalidType, "settings.ime_skin_id"},
         InvalidCase{R"("page_size":7,"page_size":8)", ConfigJsonIssue::DuplicateField, "settings.page_size"},
         InvalidCase{R"("ui_theme":"dark","\u0075i_theme":"light")", ConfigJsonIssue::DuplicateField, "settings.ui_theme"},
         InvalidCase{R"("user_dict_path":"C:\\words.txt")", ConfigJsonIssue::UnknownField, "settings.user_dict_path"},
@@ -121,7 +123,7 @@ void TestConfigJson() {
 }
 
 void TestConfigFieldProjections() {
-    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 28> expected_keys{{
+    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 29> expected_keys{{
         {"primary_dict", L"PrimaryDict"}, {"enable_jidian_extra", L"EnableJidianExtra"},
         {"page_size", L"PageSize"}, {"candidate_layout", L"CandidateLayout"},
         {"auto_commit_4code", L"AutoCommit4Code"},
@@ -136,15 +138,15 @@ void TestConfigFieldProjections() {
         {"ui_language", L"UiLanguage"}, {"underline_style", L"UnderlineStyle"},
         {"bold_underline", L"BoldUnderline"}, {"ui_theme", L"UiTheme"},
         {"ui_text_scale", L"UiTextScale"}, {"easy_reading", L"EasyReading"},
-        {"enable_code_completion", L"EnableCodeCompletion"}
+        {"enable_code_completion", L"EnableCodeCompletion"}, {"ime_skin_id", L"ImeSkinId"}
     }};
-    constexpr std::array<std::string_view, 24> editable_keys{
+    constexpr std::array<std::string_view, 25> editable_keys{
         "primary_dict", "enable_jidian_extra", "page_size", "candidate_layout", "auto_commit_4code",
         "push_commit_5th", "semicolon_quote_quick_select", "show_code_hint", "dynamic_phrase_freq",
         "shift_toggle_mode", "commit_on_english_switch", "show_status_bar", "beep_on_empty_4code",
         "beep_on_dup_4code", "clear_on_empty_4code", "enable_key_sound", "up_down_page_turn",
         "ui_language", "underline_style", "bold_underline", "ui_theme", "ui_text_scale", "easy_reading",
-        "enable_code_completion"
+        "enable_code_completion", "ime_skin_id"
     };
     const std::wstring subkey = L"Software\\QiQiIME_ConfigFields_" + std::to_wstring(::GetCurrentProcessId());
     const auto cleanup = gsl::finally([&]() noexcept {
@@ -178,6 +180,11 @@ void TestConfigFieldProjections() {
         using Value = std::remove_cvref_t<decltype(defaults.*(field.member))>;
         if constexpr (std::is_same_v<Value, bool>) {
             QIQI_TEST_CHECK(field.Value(loaded) == 1);
+        } else if constexpr (std::is_same_v<Value, ImeSkinId>) {
+            QIQI_TEST_CHECK(loaded.*(field.member) == ImeSkinId::Invalid);
+            QiQiConfig unchanged;
+            QIQI_TEST_CHECK(!field.Assign(unchanged, invalid));
+            QIQI_TEST_CHECK(field.Value(unchanged) == field.Value(defaults));
         } else {
             QIQI_TEST_CHECK(field.Value(loaded) == field.Value(defaults));
             QiQiConfig unchanged;

@@ -52,7 +52,7 @@ std::wstring_view StripCodeAnnotation(std::wstring_view text) noexcept {
 }
 
 CandidateUI::CandidateUI(HINSTANCE instance) noexcept : instance_(instance) {
-    appearance_ = ResolveDisplayAppearance(preferences_, SystemThemeSource::App);
+    RefreshAppearance();
     InitDirect2DAndDirectWrite();
     UpdateDpiAndFont(96);
 }
@@ -753,9 +753,26 @@ void CandidateUI::SetDisplayPreferences(DisplayPreferences preferences) {
     const auto keep_alive = RetainForWindowOperation();
     if (preferences_ == preferences) return;
     preferences_ = preferences;
-    appearance_ = ResolveDisplayAppearance(preferences_, SystemThemeSource::App);
+    RefreshAppearance();
     RefreshPopupLayout();
     if (hwnd_) ApplyDisplayThemeToWindow(hwnd_.Get(), appearance_);
+}
+
+void CandidateUI::RefreshAppearance() noexcept {
+    const auto appearance = ResolveImeSkinAppearance(preferences_, skin_snapshot_);
+    appearance_ = appearance.display;
+    skin_colors_ = appearance.colors;
+}
+
+void CandidateUI::SetSkinSnapshot(const std::optional<ImeSkinSnapshot>& snapshot) {
+    const auto keep_alive = RetainForWindowOperation();
+    if (skin_snapshot_ == snapshot) return;
+    skin_snapshot_ = snapshot;
+    RefreshAppearance();
+    if (hwnd_) {
+        ApplyDisplayThemeToWindow(hwnd_.Get(), appearance_);
+        ::InvalidateRect(hwnd_.Get(), nullptr, FALSE);
+    }
 }
 
 void CandidateUI::SetUiLanguage(UiLanguage lang) {
@@ -989,19 +1006,20 @@ bool CandidateUI::DestroyPopupWindow() noexcept {
 
 std::vector<CandidateUI::PaintItem> CandidateUI::BuildPaintItems() const {
     std::vector<PaintItem> items;
-    items.push_back({ViewportRect(header_rect_), header_label_, false, true});
+    items.push_back({ViewportRect(header_rect_), header_label_, false, true, true, false, SkinColor::CodeText});
     for (size_t i = 0; i < candidate_labels_.size(); ++i) {
         items.push_back({ViewportRect(gsl::at(candidate_hit_rects_, i)), gsl::at(candidate_labels_, i),
                          i == selected_in_page_});
     }
     if (candidate_labels_.empty()) {
-        items.push_back({ViewportRect(empty_rect_), empty_label_});
+        items.push_back({ViewportRect(empty_rect_), empty_label_, false, false, true, false, SkinColor::EmptyText});
     }
     if (ComputeTotalPages(all_candidates_.size(), page_size_) > 1) {
         items.push_back({PrevPageButtonRect(), prev_page_label_,
-                         false, true, current_page_ > 0, true});
+                         false, true, current_page_ > 0, true, SkinColor::PageEnabledText});
         items.push_back({NextPageButtonRect(), next_page_label_,
-                         false, true, current_page_ + 1 < ComputeTotalPages(all_candidates_.size(), page_size_), true});
+                         false, true, current_page_ + 1 < ComputeTotalPages(all_candidates_.size(), page_size_), true,
+                         SkinColor::PageEnabledText});
     }
     return items;
 }
@@ -1029,8 +1047,7 @@ bool CandidateUI::PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const {
                 brush->SetColor(ColorRefToD2DColor(palette.focus_color));
                 d2d_dc_target_->DrawRectangle(as_d2d(item.rect), brush.Get(), static_cast<float>(ScaleByDpi(2)));
             }
-            const COLORREF color = item.selected ? palette.selection_text : !item.enabled ? palette.text_secondary
-                : item.accent ? palette.text_accent : palette.text_primary;
+            const COLORREF color = CandidatePaintTextColor(skin_colors_, item);
             brush->SetColor(ColorRefToD2DColor(color));
             const int padding = item.accent ? 0 : ScaleByDpi(preferences_.easy_reading ? 8 : 2);
             const int vertical_padding = item.accent ? 0 : ScaleByDpi(preferences_.easy_reading ? 8 : 1);
@@ -1101,47 +1118,10 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
 
 void CandidateUI::PaintPopupContent(HDC hdc, const RECT& client_rect) const {
     if (PaintPopupDirect2D(hdc, client_rect)) return;
-    const ScopedSaveDC save_dc(hdc);
-    const auto& palette = appearance_.palette;
-    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(palette.window_bg));
-    const ScopedGdiHandle<HBRUSH> selection(::CreateSolidBrush(palette.selection_bg));
-    const ScopedGdiHandle<HBRUSH> outline(::CreateSolidBrush(palette.focus_color));
-    const ScopedGdiHandle<HBRUSH> border(::CreateSolidBrush(palette.border_color));
-    ::FillRect(hdc, &client_rect, background.Get());
-    const ScopedSelectObject select_font(hdc, font_.Get());
-    ::SetBkMode(hdc, TRANSPARENT);
-    for (const PaintItem& item : BuildPaintItems()) {
-        if (item.rect.bottom <= 0 || item.rect.top >= client_rect.bottom) continue;
-        if (item.selected) {
-            ::FillRect(hdc, &item.rect, selection.Get());
-            RECT frame = item.rect;
-            for (int i = 0; i < ScaleByDpi(2); ++i) {
-                ::FrameRect(hdc, &frame, outline.Get());
-                ::InflateRect(&frame, -1, -1);
-            }
-        }
-        ::SetTextColor(hdc, item.selected ? palette.selection_text :
-            !item.enabled ? palette.text_secondary : item.accent ? palette.text_accent : palette.text_primary);
-        const int padding = item.accent ? 0 : ScaleByDpi(preferences_.easy_reading ? 8 : 2);
-        const int vertical_padding = item.accent ? 0 : ScaleByDpi(preferences_.easy_reading ? 8 : 1);
-        int top = item.rect.top + vertical_padding;
-        if (item.centered) {
-            const int lines = gsl::narrow_cast<int>(std::count(item.text.begin(), item.text.end(), L'\n')) + 1;
-            top += std::max(0, (gsl::narrow_cast<int>(item.rect.bottom - item.rect.top) - lines * line_height_) / 2);
-        }
-        std::wstring_view remaining = item.text;
-        do {
-            const size_t end = remaining.find(L'\n');
-            const std::wstring_view line = remaining.substr(0, end);
-            RECT line_rect{item.rect.left + padding, top, item.rect.right - padding, top + line_height_};
-            ::DrawTextW(hdc, line.data(), gsl::narrow_cast<int>(line.size()), &line_rect,
-                        DT_SINGLELINE | DT_NOPREFIX | (item.centered ? DT_CENTER : DT_LEFT));
-            if (end == std::wstring_view::npos) break;
-            remaining.remove_prefix(end + 1);
-            top += line_height_;
-        } while (!remaining.empty());
-    }
-    ::FrameRect(hdc, &client_rect, border.Get());
+    const auto items = BuildPaintItems();
+    std::ignore = PaintCandidateItemsGdi(hdc, client_rect, items,
+        {font_.Get(), line_height_, ScaleByDpi(preferences_.easy_reading ? 8 : 2),
+            ScaleByDpi(preferences_.easy_reading ? 8 : 1), ScaleByDpi(2)}, skin_colors_);
 }
 
 LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -1227,7 +1207,7 @@ LRESULT CALLBACK CandidateUI::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
             return 0;
         case WM_SETTINGCHANGE:
         case WM_THEMECHANGED:
-            self->appearance_ = ResolveDisplayAppearance(self->preferences_, SystemThemeSource::App);
+            self->RefreshAppearance();
             self->RefreshPopupLayout();
             ApplyDisplayThemeToWindow(hwnd, self->appearance_);
             return 0;

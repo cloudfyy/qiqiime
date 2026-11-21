@@ -4,6 +4,7 @@
 add_subdirectory(common)
 add_subdirectory(ime)
 add_subdirectory(tools)
+add_subdirectory(skin)
 add_subdirectory(installer)
 
 find_program(QIQI_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)

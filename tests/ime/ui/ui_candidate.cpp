@@ -437,6 +437,47 @@ void TestCandidateDisplayPreferences() {
     }
 }
 
+void TestCandidateSkinRepainting() {
+    const TsfTestCaseTrace trace(__func__);
+    const auto previous_monitor = detail::MonitorMetricsOverrideStorage();
+    const auto restore = gsl::finally([&]() noexcept {
+        SetMonitorMetricsOverrideForTest(previous_monitor);
+        SetHighContrastOverrideForTest(std::nullopt);
+    });
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1600, 1200}, 144});
+    SetHighContrastOverrideForTest(false);
+    for (const bool gdi : {false, true}) {
+        auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+        if (gdi) ui->DisableDirect2DForTest();
+        ui->SetDisplayPreferences(UiTheme::Light, UiTextScale::Percent150, true);
+        ui->SetLayout(CandidateLayout::Vertical);
+        ui->SetCandidates(L"ab", {L"One", L"Two", L"Three", L"Four"}, 2, 1, 1);
+        ui->MoveWindowTo(RECT{100, 100, 102, 120});
+        QIQI_TEST_CHECK(ui->Show(TRUE) == S_OK);
+        const RECT before = ui->CandidateRect(1);
+        const HWND window = ui->WindowHandle();
+        const HWND focus = ::GetFocus();
+        for (const auto& skin : GetBuiltinImeSkins().first(2)) {
+            unsigned int changes = 0;
+            ui->SetAccessibilityStructureObserverForTest([&]() noexcept { ++changes; });
+            ui->SetSkinSnapshot(ImeSkinSnapshot{skin.id, skin.palettes});
+            QIQI_TEST_CHECK(ui->WindowHandle() == window && changes == 0);
+            ui->SetAccessibilityStructureObserverForTest({});
+            const RECT after = ui->CandidateRect(1);
+            QIQI_TEST_CHECK(::EqualRect(&before, &after));
+            QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{2, 2}) ==
+                skin.palettes.light.Get(SkinColor::Background));
+            QIQI_TEST_CHECK(PaintCandidatePixel(*ui.Get(), POINT{before.left + ScalePxByDpi(3, 144),
+                before.bottom - ScalePxByDpi(3, 144)}) == skin.palettes.light.Get(SkinColor::SelectedBackground));
+            UINT page = 0;
+            UINT selection = 0;
+            QIQI_TEST_CHECK(ui->GetCurrentPage(&page) == S_OK && page == 1);
+            QIQI_TEST_CHECK(ui->GetSelection(&selection) == S_OK && selection == 3);
+            QIQI_TEST_CHECK(::GetFocus() == focus);
+        }
+    }
+}
+
 void TestCandidateConstrainedViewport() {
     const TsfTestCaseTrace trace(__func__);
     // Keep an independent snapshot: the test changes the override's backing storage.
@@ -1740,6 +1781,8 @@ void TestCandidateUilessContract() {
 }
 
 } // namespace
+
+void RunCandidateSkinTests() { TestCandidateSkinRepainting(); }
 
 void RunCandidateUITests() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
