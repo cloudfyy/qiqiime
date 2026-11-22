@@ -789,32 +789,6 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
 
 } // namespace
 
-bool ActivateExistingSettingsWindow() noexcept {
-    const HWND existing = ::FindWindowW(kSettingsWndClass, nullptr);
-    if (!existing || !::IsWindow(existing)) {
-        return false;
-    }
-    if (::IsIconic(existing)) {
-        ::ShowWindow(existing, SW_RESTORE);
-    }
-    const HWND popup = ::GetLastActivePopup(existing);
-    const HWND target = (popup && ::IsWindow(popup)) ? popup : existing;
-    if (::IsIconic(target)) {
-        ::ShowWindow(target, SW_RESTORE);
-    }
-    DWORD target_pid = 0;
-    ::GetWindowThreadProcessId(target, &target_pid);
-    if (target_pid != 0 && target_pid != ::GetCurrentProcessId()) {
-        ::AllowSetForegroundWindow(target_pid);
-    }
-    ::SetForegroundWindow(target);
-    ::BringWindowToTop(target);
-    if (target_pid == ::GetCurrentProcessId()) {
-        ::SetActiveWindow(target);
-    }
-    return true;
-}
-
 ScopedWindow CreateSettingsWindow(
     HINSTANCE instance, HWND parent, QiQiConfig* bound_config, bool save_on_accept) noexcept {
     if (save_on_accept && !bound_config) {

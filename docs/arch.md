@@ -24,6 +24,9 @@ flowchart TD
     UI --> Common
     Tools["Separate settings, dictionary-manager, and log-monitor processes"] --> Common
     BackupTools["Settings and dictionary-manager backup flows"] --> Engine
+    Service -.->|"activate / launch / notify"| Settings["Standalone settings process"]
+    Settings --> Common
+    Settings --> Engine
 ```
 
 The shared code in this diagram is statically linked into each consuming binary;
@@ -31,10 +34,10 @@ it does not imply shared mutable runtime objects.
 
 | Build target | Source | Responsibility |
 | --- | --- | --- |
-| `qiqi_common` | [common](../src/common) | Configuration, backup format/codecs, sync, ETW, RAII, theme/DPI and shared controls |
+| `qiqi_common` | [common](../src/common) | Configuration, backup format/codecs, sync, ETW, RAII, theme/DPI, shared controls, Settings launch/toast bridge |
 | `qiqi_engine` | [engine](../src/ime/engine), [FSM](../src/ime/fsm) | Wubi rules, lookup, candidates, user dictionaries, phrase ordering and backup execution |
 | `qiqiime` | [service](../src/ime/svc), [TSF](../src/ime/tsf), [composition](../src/ime/comp), [IME UI](../src/ime/ui) | COM service and actual host edits/presentation |
-| `qiqi_settings_ui` | [settings](../src/tools/settings) | Shared settings window used by the EXE and in-process fallback |
+| `qiqi_settings_ui` | [settings](../src/tools/settings) | Standalone Settings window and its tool-only backup/selection UI |
 | Standalone tools | [tools](../src/tools) | `QiQiIMESettings`, `QiQiIMEDictManager`, `QiQiIMELogMonitor` |
 
 Engine tests do not require TIP registration or a COM host. The engine still
@@ -46,6 +49,11 @@ The dependency remains one-way: `qiqi_common` must not include or link `ime` or
 tool targets. Archive contracts, pure dictionary text parsing and shared prompts
 belong to `common`; complete backup execution stays in `ime/engine`, where it
 can own `WubiEngine` and validate custom primary dictionaries.
+The IME also must not include or link a tool target. The common Settings bridge
+activates an existing standalone Settings process or launches the adjacent
+`QiQiIMESettings.exe`/registered URI. Quick-setting toasts and launch failure
+diagnostics remain in the neutral common layer; the Settings window implementation
+stays in `qiqi_settings_ui` and is linked only by the standalone EXE and tests.
 
 ## 2. TSF Registration and Service Lifetime
 
@@ -289,8 +297,10 @@ the engine and UI. These signals are not durable dictionary-change journals.
 Settings failures retain edits and report the real error. Notification failure
 reports "saved but not propagated" rather than rolling back a completed save.
 Open settings merge external field changes without discarding local unsaved edits.
-The shared settings window owns its single-instance mutex; EXE/IME callers do not
-pre-create it.
+The standalone Settings window owns its single-instance mutex; EXE callers do not
+pre-create it. The IME does not create a Settings window in the host process;
+it activates or launches the standalone process and then relies on the existing
+configuration sequence/compartment notification to reload saved settings.
 
 ## 6. UI and Standalone Tools
 

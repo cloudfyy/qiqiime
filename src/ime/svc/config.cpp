@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/svc/service.h"
-#include "tools/settings/window.h"
+#include "common/dialog.h"
 #include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
+#include "common/settingsbridge.h"
 
 #include <oleauto.h>
-#include <shellapi.h>
 #include <filesystem>
 #include <utility>
 #include <vector>
@@ -658,71 +658,13 @@ void QiQiTextService::SyncSavedConfigChange(bool reload_dicts) {
 STDMETHODIMP QiQiTextService::Show(HWND hwndParent, LANGID /*langid*/, REFGUID /*rguidProfile*/) {
     QIQI_LOG_INFO("Opening Settings dialog");
     ReloadConfigIfModified();
-    if (ActivateExistingSettingsWindow()) {
-        QIQI_LOG_INFO("Activated existing Settings dialog window");
-        return S_OK;
-    }
-    if (!hwndParent) {
-        if (IsProcessAppContainer()) {
-            ::AllowSetForegroundWindow(ASFW_ANY);
-            const HINSTANCE sh_res = ::ShellExecuteW(
-                nullptr, L"open", L"qiqiime-settings:", nullptr, nullptr, SW_SHOWNORMAL);
-            if (reinterpret_cast<INT_PTR>(sh_res) > 32) {
-                QIQI_LOG_INFO("Launched QiQiIMESettings.exe out-of-sandbox via qiqiime-settings: URI protocol");
-                return S_OK;
-            }
-        }
-        const std::filesystem::path module_path = GetModuleFilePath(g_dll_instance);
-        const std::wstring mod_filename = module_path.filename().wstring();
-        const bool is_ime_dll = (_wcsicmp(mod_filename.c_str(), L"qiqiime.dll") == 0);
-        if (is_ime_dll) {
-            const std::filesystem::path exe_path =
-                ResolveBundledDataFile(module_path.parent_path(), L"QiQiIMESettings.exe");
-            std::error_code ec;
-            if (std::filesystem::exists(exe_path, ec)) {
-                STARTUPINFOW si{};
-                si.cb = sizeof(si);
-                PROCESS_INFORMATION pi{};
-                std::wstring cmd = L"\"" + exe_path.wstring() + L"\"";
-                if (::CreateProcessW(
-                        exe_path.c_str(),
-                        cmd.data(),
-                        nullptr,
-                        nullptr,
-                        FALSE,
-                        0,
-                        nullptr,
-                        nullptr,
-                        &si,
-                        &pi) != FALSE) {
-                    const ScopedKernelHandle proc(pi.hProcess);
-                    const ScopedKernelHandle thread(pi.hThread);
-                    ::AllowSetForegroundWindow(pi.dwProcessId);
-                    QIQI_LOG_INFO("Launched standalone QiQiIMESettings.exe from '{}'",
-                                  WideToUtf8(exe_path.wstring()));
-                    return S_OK;
-                }
-            }
-            ::AllowSetForegroundWindow(ASFW_ANY);
-            const HINSTANCE sh_res = ::ShellExecuteW(
-                nullptr, L"open", L"qiqiime-settings:", nullptr, nullptr, SW_SHOWNORMAL);
-            if (reinterpret_cast<INT_PTR>(sh_res) > 32) {
-                QIQI_LOG_INFO("Launched QiQiIMESettings.exe via qiqiime-settings: URI fallback");
-                return S_OK;
-            }
-        }
-    }
-    if (ShowSettingsDialog(g_dll_instance, hwndParent, config_, true)) {
-        ApplyDynamicEngineSettings();
-        SyncSavedConfigChange(true);
-        if (!NotifyGlobalConfigChanged()) {
-            ReportSettingsNotificationFailure(hwndParent, config_.ui_language);
-        }
-        QIQI_LOG_INFO("Settings dialog saved and applied");
-    } else {
-        QIQI_LOG_DEBUG("Settings dialog cancelled");
-    }
-    return S_OK;
+    const HRESULT result = OpenStandaloneSettings(
+        g_dll_instance,
+        hwndParent,
+        config_.ui_language);
+    std::ignore = log::CheckHResult(
+        result, "QiQiTextService::OpenSettings");
+    return result;
 }
 
 void QiQiTextService::UpdateUiIndicators() {

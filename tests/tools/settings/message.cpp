@@ -218,7 +218,9 @@ void TestNonModalD2DToast() {
                  std::tuple{UiLanguage::ZhCn, SettingsToastKind::SaveFailure,
                             GetUiStrings(UiLanguage::ZhCn).quick_settings_save_failed},
                  std::tuple{UiLanguage::EnUs, SettingsToastKind::NotificationFailure,
-                            GetUiStrings(UiLanguage::EnUs).quick_settings_notify_failed}}) {
+                            GetUiStrings(UiLanguage::EnUs).quick_settings_notify_failed},
+                 std::tuple{UiLanguage::ZhCn, SettingsToastKind::LaunchFailure,
+                            GetUiStrings(UiLanguage::ZhCn).quick_settings_open_failed}}) {
             const auto* foreground_before = ::GetForegroundWindow();
             const long count_before = g_com_object_count.load();
             ShowSettingsToast(language, kind);
@@ -232,9 +234,20 @@ void TestNonModalD2DToast() {
             const UiLanguage changed_language =
                 language == UiLanguage::EnUs ? UiLanguage::ZhCn : UiLanguage::EnUs;
             UpdateSettingsToastLanguage(changed_language);
-            const wchar_t* const changed_text = kind == SettingsToastKind::SaveFailure
-                ? GetUiStrings(changed_language).quick_settings_save_failed
-                : GetUiStrings(changed_language).quick_settings_notify_failed;
+            const auto& changed_strings = GetUiStrings(changed_language);
+            const wchar_t* changed_text = nullptr;
+            switch (kind) {
+                case SettingsToastKind::SaveFailure:
+                    changed_text = changed_strings.quick_settings_save_failed;
+                    break;
+                case SettingsToastKind::NotificationFailure:
+                    changed_text = changed_strings.quick_settings_notify_failed;
+                    break;
+                case SettingsToastKind::LaunchFailure:
+                    changed_text = changed_strings.quick_settings_open_failed;
+                    break;
+            }
+            QIQI_TEST_CHECK(changed_text);
             QIQI_TEST_CHECK(WindowText(toast) == changed_text);
             SetThemeDarkOverrideForTest(!dark);
             ::SendMessageW(toast, WM_THEMECHANGED, 0, 0);

@@ -27,9 +27,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         ::UnregisterClassW(qiqi::kStatusBarWndClass, hModule);
         ::UnregisterClassW(qiqi::kStatusBarTooltipWndClass, hModule);
         ::UnregisterClassW(qiqi::kLangBarThemeWndClass, hModule);
-        ::UnregisterClassW(qiqi::kSettingsWndClass, hModule);
         ::UnregisterClassW(qiqi::kInfoWndClass, hModule);
-        ::UnregisterClassW(qiqi::kSettingsMessageWndClass, hModule);
         ::UnregisterClassW(qiqi::kSettingsToastWndClass, hModule);
         ::UnregisterClassW(qiqi::kMenuWndClass, hModule);
         qiqi::log::Shutdown();

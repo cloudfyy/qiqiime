@@ -81,7 +81,6 @@ if(QIQI_METRICS_BENCHMARK_BASELINE)
 endif()
 target_link_libraries(qiqiime PRIVATE
     qiqi_engine
-    qiqi_settings_ui
     dwmapi
     shell32
     ole32

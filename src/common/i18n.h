@@ -89,9 +89,7 @@ struct UiStrings {
     const wchar_t* dlg_underline_squiggle;
     const wchar_t* dlg_underline_none;
     const wchar_t* dlg_chk_bold_underline;
-    const wchar_t* dlg_btn_about;
     const wchar_t* dlg_btn_dict_mgr;
-    const wchar_t* dlg_btn_help;
     const wchar_t* dlg_btn_restore_defaults;
     const wchar_t* dlg_btn_ok;
     const wchar_t* dlg_btn_cancel;
@@ -100,6 +98,7 @@ struct UiStrings {
     const wchar_t* dlg_dict_manager_launch_failed;
     const wchar_t* quick_settings_save_failed;
     const wchar_t* quick_settings_notify_failed;
+    const wchar_t* quick_settings_open_failed;
     const wchar_t* dlg_btn_yes;
     const wchar_t* dlg_btn_no;
 
@@ -196,9 +195,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"波浪线",
     L"无下划线",
     L"加粗编码下划线",
-    L"关于...",
     L"词典管理器...",
-    L"快捷键说明...",
     L"恢复默认值",
     L"确定",
     L"取消",
@@ -207,6 +204,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"无法启动词库管理器。请确认 QiQiIMEDictManager.exe 已安装，且当前用户有权运行该程序。具体错误码已记录到日志。",
     L"保存设置失败，请重试。",
     L"设置已保存，切换窗口后全面生效。",
+    L"无法打开设置窗口。请确认 QiQiIMESettings.exe 已安装。",
     L"是",
     L"否",
 
@@ -319,9 +317,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Squiggle",
     L"None",
     L"Bold composition underline",
-    L"About...",
     L"Dictionary Manager...",
-    L"Shortcuts...",
     L"Restore defaults",
     L"OK",
     L"Cancel",
@@ -330,6 +326,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Cannot start Dictionary Manager. Check that QiQiIMEDictManager.exe is installed and the current user can run it. The error code was recorded in the log.",
     L"Could not save setting. The previous setting is unchanged.",
     L"Setting saved, but the running IME could not be notified.",
+    L"Could not open Settings. Check that QiQiIMESettings.exe is installed.",
     L"Yes",
     L"No",
 

@@ -46,6 +46,10 @@ Share helpers through headers; do not include test `.cpp` files.
 Use distinct test-entry basenames when a target also compiles the production entry
 point (for example `settings_main.cpp` versus `main.cpp`), avoiding collisions in
 MSVC module-dependency scan output.
+Dependency direction is common ← engine ← IME/tools: IME and tool targets may
+consume `qiqi_common`; tools may consume `qiqi_engine`; neither `qiqi_common` nor
+production `qiqiime` may include or link a `tools` target. The IME opens Settings
+through the neutral common launch bridge and the standalone EXE.
 
 ## Build and test
 
