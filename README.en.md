@@ -13,8 +13,12 @@ the native Text Services Framework (TSF).
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
 The source version is **1.1.3**, with release tag `v1.1.3` and changes recorded
 in the [release notes](docs/release-notes.md). Release CI rebuilds, tests, and
-packages the tagged source. Historical tags and assets remain unchanged;
-the new changes are not part of the existing `v1.1.2` assets.
+packages the tagged source. Historical tags and assets remain unchanged.
+The planned 1.2.0 work on `main` is not part of the existing `v1.1.3` assets.
+The main branch already contains the planned 1.2.0 work: complete ZIP backups,
+candidate skins/fonts, seven-page Settings, and standalone Settings process
+separation. These changes are not included in the existing `v1.1.3` assets
+until a new version and tag are published.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
 
@@ -36,6 +40,11 @@ and AppContainer guides are available in English.
 
 ## Features
 
+- **Planned for 1.2.0:** Settings and Dictionary Manager share complete ZIP
+  backup/restore; candidate skins and fonts are configurable without recoloring
+  the host process; Shortcuts/About are rightmost Settings pages; and the IME
+  activates the standalone Settings EXE through a neutral common bridge instead
+  of linking the Settings tool UI.
 - Jidian Wubi 86 and Haifeng dictionaries, an optional modern vocabulary
   extension, and custom UTF-8 text, supported Rime dictionary YAML, or compiled
   `.qdict` dictionaries.
@@ -63,6 +72,14 @@ and AppContainer guides are available in English.
   negotiated Begin/Update/End lifecycle without an unnegotiated popup fallback.
 - Standalone settings, dictionary manager, and local ETW log-monitor tools.
   Settings and tool interfaces support Simplified Chinese and English.
+- The standalone Settings window has seven pages: Input, Dictionary, Candidates,
+  Display, Feedback, Shortcuts, and About. Candidate skin, candidate-only font,
+  and the compact preview are grouped at the bottom of the Candidates page.
+  Font filtering accepts installed scalable horizontal Chinese fonts, including
+  current-user installations, and falls back when a saved font is unavailable.
+- The IME activates or launches the standalone `QiQiIMESettings.exe`; the Settings
+  UI is not linked into host processes. The separate tool saves to the shared
+  registry configuration and uses the existing TSF notification path to reload.
 - Selectable system/light/dark/high-contrast themes and 100–200% text for Settings,
   the IME-drawn candidate popup, Dictionary Manager and Log Monitor main windows,
   and custom menus, plus Comfort mode with larger targets.

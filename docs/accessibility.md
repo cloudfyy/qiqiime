@@ -280,7 +280,8 @@ Text sizes are 100%, 125%, 150%, and 200%. Enabling Comfort mode raises smaller
 text to 150%, enlarges targets and spacing, and uses a single column. While enabled,
 100%/125% are greyed out and unavailable. Disabling it restores those options
 without reverting the current size. Click the switch, not its label, to toggle;
-keyboard operation remains available.
+keyboard operation remains available. Shortcuts and About are the rightmost
+tabs; the footer only retains Restore defaults, OK, and Cancel.
 Display scaling and monitor DPI are applied separately.
 
 Changes preview only in Settings and its local candidate-style sample until
@@ -288,8 +289,8 @@ Changes preview only in Settings and its local candidate-style sample until
 display, dictionary, input, and other settings together and still requires OK.
 Save failures retain edits and show a message.
 
-Settings has five themed tabs: Input, Dictionary, Candidates, Display, and
-Feedback. The tab strip, selection, focus, and overflow arrows follow the selected
+Settings has seven themed tabs: Input, Dictionary, Candidates, Display,
+Feedback, Shortcuts, and About. The tab strip, selection, focus, and overflow arrows follow the selected
 theme, with Windows high contrast taking precedence. Use the arrows or
 Ctrl+Tab / Ctrl+Shift+Tab when enlarged labels do not fit. Only the active page
 scrolls; switching preserves unsaved edits and each page's scroll position.

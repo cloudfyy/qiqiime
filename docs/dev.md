@@ -582,7 +582,7 @@ Do not double-apply DPI or change test overrides to set production preferences.
 Theme changes refresh cached colors; font-scale changes also rebuild fonts and
 layouts. Do not query the registry in each paint call.
 
-Settings reuses the existing controls and bindings across five categorized tabs.
+Settings reuses the existing controls and bindings across seven categorized tabs.
 The native tab control retains its accessible names and arrow-key selection;
 its strip and overflow arrows paint with the shared appearance palette.
 Ctrl+Tab / Ctrl+Shift+Tab cycle pages. Only active-page controls are visible and
@@ -591,9 +591,10 @@ changes. Layout measures actual closed combo heights, clips scrolling content
 (including owner drawing), follows keyboard focus, and fixes OK/Cancel outside
 the page viewport. Labels/fields reflow vertically for narrow or enlarged text.
 Combo fields use a fixed, DPI/text-scaled base width and align to the page's
-right edge; page size and layout share one row. About, Shortcuts, Restore defaults,
-OK and Cancel share a fixed footer on every page; narrow/enlarged layouts use two
-footer rows. Treat all five as footer controls for painting and focus scrolling.
+right edge; page size and layout share one row. Shortcuts and About are ordinary
+pages at the right end of the tab strip. Restore defaults, OK and Cancel share a
+fixed footer on every page; narrow/enlarged layouts use two footer rows.
+Treat those three as footer controls for painting and focus scrolling.
 Browse and Dictionary Manager sit beside the custom-dictionary radio (below it
 when space is insufficient); Browse is enabled only while Custom is selected.
 Radio commands explicitly synchronize the checked scheme before updating dependent

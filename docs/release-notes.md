@@ -1,3 +1,64 @@
+# QiQiIME 1.2.0 功能版（开发中）
+
+数字版本：`1.2.0`；预期发行标签：`v1.2.0`。当前正式版与下载仍为
+`v1.1.3`；本节记录主分支已实现、但尚未通过标签 Release 工作流发布的内容。
+
+## 计划更新
+
+- **完整 ZIP 备份统一**：设置窗口和词库管理器共享配置、用户词库、置顶/屏蔽、
+  词组排序和可选自定义主词库的完整备份，支持合并/覆盖恢复、严格清单与 ZIP
+  校验；裸配置 JSON 与旧 `.qbak` 不再读取。
+- **候选外观可配置**：新增二十一套明暗配套皮肤、常用皮肤下拉与完整皮肤选择窗，
+  修复首次打开、选中提示和滚轮滚动；候选字体可选择已安装的简体中文横排
+  可缩放字体，支持字号、字重和斜体，字体仅影响候选窗与预览。
+- **设置窗口重组**：Candidates 页将皮肤、字体及紧凑候选预览集中在页底；
+  Settings 改为输入习惯、词库、候选窗口、显示、声音与反馈、快捷键、关于
+  七个 Tab；About/Shortcuts 从固定底栏移入最右侧页面。
+- **IME / Settings 解耦**：输入法不再链接或引用 Settings 工具 UI。IME 通过
+  common 启动桥激活现有独立 Settings 进程，或启动相邻的
+  `QiQiIMESettings.exe` / 注册协议；启动失败保留实际 HRESULT 并显示非阻塞提示。
+- **共享层收敛**：ZIP 格式、词库文本解析、Wubi 码打包和诊断 UI 位于 common；
+  `WubiEngine`、主词库校验及恢复执行位于 engine。工具之间不互相引用，
+  `common` 不反向依赖 IME 或工具。
+
+## 验证边界
+
+- 发布前需重新通过 x64/x86 完整 CI 与 Nightly Lint。标签 Release 工作流是
+  MSI、ZIP、符号包及最终附件是否可用的唯一发布判定。
+- 当前桌面回归覆盖 Settings、Skin、组合生命周期、备份恢复及启动失败；
+  真实安装、升级、卸载、各 Windows 宿主兼容性仍须由对应发布门禁或人工记录确认。
+- 版本号尚未切换至 `1.2.0` 时，工作区本地构建可能仍显示 `1.1.3+提交号`。
+
+## English
+
+Version `1.2.0`; planned tag `v1.2.0`. The latest published release is still
+`v1.1.3`; this section describes implemented main-branch work that has not yet
+been published by the tagged Release workflow.
+
+### Planned changes
+
+- **One complete ZIP backup flow:** Settings and Dictionary Manager now share
+  configuration, user dictionary, pin/block rules, phrase ordering, and optional
+  custom-primary backups with Merge/Replace restore and strict archive validation.
+- **Candidate personalization:** paired Light/Dark skins, an accessible full skin
+  picker, and candidate-only font selection with scalable Chinese per-user font
+  support and system fallback.
+- **Seven Settings pages:** Input, Dictionary, Candidates, Display, Feedback,
+  Shortcuts, and About. Shortcuts/About now live at the far right of the tab
+  strip instead of in the footer.
+- **IME/Settings separation:** the production IME no longer links or includes the
+  Settings tool. A neutral common bridge activates or launches the standalone
+  process and retains explicit HRESULT/notification failures.
+- **Layer cleanup:** common owns archive/text/UI contracts; engine owns Wubi state,
+  dictionary validation, and restore execution; tools no longer reference one
+  another.
+
+### Validation boundary
+
+Tagged CI remains authoritative for dual-architecture build, test, MSI/ZIP/PDB
+packaging, and publication. Local targeted regressions do not replace installer,
+host, or real accessibility validation.
+
 # QiQiIME 1.1.3 补丁版
 
 数字版本：`1.1.3`；发行标签：`v1.1.3`（2026-11-19）。发布工作流将从标签
