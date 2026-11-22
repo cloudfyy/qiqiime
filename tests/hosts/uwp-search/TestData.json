@@ -1,0 +1,50 @@
+{
+  "records": [
+    {
+      "id": "wubi-you",
+      "title": "Fixture: 你",
+      "terms": [ "wq", "你" ]
+    },
+    {
+      "id": "wubi-input",
+      "title": "Fixture: 五笔输入法",
+      "terms": [ "qklp", "五笔输入法", "五笔" ]
+    },
+    {
+      "id": "feedback-hub",
+      "title": "Fixture: 反馈中心",
+      "terms": [ "feedback", "feedbackhub", "反馈中心", "反馈" ]
+    },
+    {
+      "id": "qiqi-ime",
+      "title": "Fixture: QiQiIME",
+      "terms": [ "qiqi", "qiqiime", "七七输入法" ]
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "single-wubi-alternative",
+      "query": "wq",
+      "alternatives": [ "你" ],
+      "compositionStart": 0,
+      "compositionLength": 2,
+      "expectedMatches": 1
+    },
+    {
+      "id": "multiple-linguistic-alternatives",
+      "query": "fixture",
+      "alternatives": [ "五笔", "反馈" ],
+      "compositionStart": 0,
+      "compositionLength": 7,
+      "expectedMatches": 2
+    },
+    {
+      "id": "no-match",
+      "query": "zzzz",
+      "alternatives": [ ],
+      "compositionStart": 0,
+      "compositionLength": 0,
+      "expectedMatches": 0
+    }
+  ]
+}
