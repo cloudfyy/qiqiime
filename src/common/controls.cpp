@@ -245,11 +245,12 @@ namespace {
 
 template <typename PaintItem>
 int LayoutCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage language,
-    const DisplayPreferences& display, PaintItem paint_item) {
+    const DisplayPreferences& display, CandidateSampleLayout layout, PaintItem paint_item) {
     const ScopedSelectObject selected_font(dc, font);
     const int inset = ScalePxByDpi(12, dpi);
-    const int padding = ScalePxByDpi(4, dpi);
-    const int gap = ScalePxByDpi(8, dpi);
+    const bool compact = layout == CandidateSampleLayout::Compact;
+    const int padding = ScalePxByDpi(compact ? 3 : 4, dpi);
+    const int gap = ScalePxByDpi(compact ? 4 : 8, dpi);
     const int available = std::max(1, width - 2 * inset);
     const int right = inset + available;
     int x = inset;
@@ -267,7 +268,8 @@ int LayoutCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage la
             return 0;
         }
         const int item_width = std::min(available, gsl::narrow_cast<int>(measured.right) + 2 * padding);
-        if (index == 1 || index == 4 || (x > inset && x + item_width > right)) {
+        if (index == 1 || (!compact && index == 4) ||
+            (x > inset && x + item_width > right)) {
             y = bottom + padding;
             x = inset;
         }
@@ -283,16 +285,17 @@ int LayoutCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage la
 } // namespace
 
 int MeasureCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage language,
-    const DisplayPreferences& display) noexcept {
-    return LayoutCandidateSample(dc, font, width, dpi, language, display,
+    const DisplayPreferences& display, CandidateSampleLayout layout) noexcept {
+    return LayoutCandidateSample(dc, font, width, dpi, language, display, layout,
         [](std::wstring_view, const RECT&, size_t) noexcept {});
 }
 
 bool PaintCandidateSample(HDC dc, const RECT& bounds, HFONT font, UINT dpi,
-    UiLanguage language, const DisplayPreferences& display, const SkinPalette& palette) noexcept {
+    UiLanguage language, const DisplayPreferences& display, const SkinPalette& palette,
+    CandidateSampleLayout layout) noexcept {
     try {
         std::vector<CandidatePaintItem> items;
-        LayoutCandidateSample(dc, font, bounds.right - bounds.left, dpi, language, display,
+        LayoutCandidateSample(dc, font, bounds.right - bounds.left, dpi, language, display, layout,
             [&](std::wstring_view text, RECT row, size_t index) {
                 ::OffsetRect(&row, bounds.left, bounds.top);
                 const bool accent = index == 0 || index >= 4;

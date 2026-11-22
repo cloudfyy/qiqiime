@@ -415,6 +415,7 @@ bool PromptSettingsCandidateFont(
         QIQI_LOG_WARN("Candidate font chooser initial font is unavailable");
         return false;
     }
+    selection.lfCharSet = GB2312_CHARSET;
     CHOOSEFONTW dialog{};
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = hwnd;
@@ -425,7 +426,12 @@ bool PromptSettingsCandidateFont(
             ::MulDiv(std::abs(gsl::narrow_cast<int>(selection.lfHeight)), 720,
                 gsl::narrow_cast<int>(std::max(1u, ctx.d2d.dpi))),
             60, 720);
-    dialog.Flags = CF_SCREENFONTS | CF_FORCEFONTEXIST | CF_INITTOLOGFONTSTRUCT | CF_LIMITSIZE;
+    dialog.Flags =
+        CF_SCREENFONTS | CF_FORCEFONTEXIST |
+        CF_INITTOLOGFONTSTRUCT | CF_LIMITSIZE |
+        CF_SCALABLEONLY | CF_SCRIPTSONLY |
+        CF_NOVERTFONTS | CF_NOVECTORFONTS | CF_NOOEMFONTS |
+        CF_SELECTSCRIPT | CF_NOSCRIPTSEL;
     dialog.nSizeMin = 6;
     dialog.nSizeMax = 72;
     if (!chooser(&dialog)) {
@@ -440,7 +446,8 @@ bool PromptSettingsCandidateFont(
         QIQI_LOG_WARN("Candidate font dialog returned an invalid family (length={})", length);
         return false;
     }
-    const std::wstring_view selected_family(selection.lfFaceName, length);
+    const std::wstring_view selected_family(
+        selection.lfFaceName, length);
     if (!CandidateFontFamilyAvailable(selected_family)) {
         QIQI_LOG_WARN("Candidate font dialog returned a family that is no longer installed");
         return false;
@@ -472,14 +479,16 @@ int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogC
     }
     const HFONT font = ctx.candidate_preview_font ? ctx.candidate_preview_font.Get() : ctx.font.Get();
     return MeasureCandidateSample(dc.Get(), font, width, ctx.d2d.dpi,
-        GetSelectedUiLanguageFromCombo(::GetParent(preview), ctx), ctx.d2d.display_preferences);
+        GetSelectedUiLanguageFromCombo(::GetParent(preview), ctx),
+        ctx.d2d.display_preferences, CandidateSampleLayout::Compact);
 }
 
 void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept {
     const HFONT font = ctx.candidate_preview_font ? ctx.candidate_preview_font.Get() : ctx.font.Get();
     std::ignore = PaintCandidateSample(item.hDC, item.rcItem, font, ctx.d2d.dpi,
         GetSelectedUiLanguageFromCombo(::GetParent(item.hwndItem), ctx),
-        ctx.d2d.display_preferences, ctx.candidate_skin_colors);
+        ctx.d2d.display_preferences, ctx.candidate_skin_colors,
+        CandidateSampleLayout::Compact);
 }
 
 UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept {

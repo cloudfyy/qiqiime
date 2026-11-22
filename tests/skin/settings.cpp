@@ -18,7 +18,17 @@ thread_local int chosen_candidate_font_size = 0;
 
 BOOL WINAPI ChooseCandidateFontForTest(CHOOSEFONTW* dialog) noexcept {
     if (!dialog || !dialog->lpLogFont) return FALSE;
+    QIQI_TEST_CHECK(
+        (dialog->Flags & (
+            CF_SCRIPTSONLY | CF_SCALABLEONLY | CF_NOVERTFONTS |
+            CF_NOVECTORFONTS | CF_NOOEMFONTS |
+            CF_SELECTSCRIPT | CF_NOSCRIPTSEL)) ==
+        (CF_SCRIPTSONLY | CF_SCALABLEONLY | CF_NOVERTFONTS |
+            CF_NOVECTORFONTS | CF_NOOEMFONTS |
+            CF_SELECTSCRIPT | CF_NOSCRIPTSEL));
+    QIQI_TEST_CHECK(dialog->lpLogFont->lfCharSet == GB2312_CHARSET);
     *dialog->lpLogFont = chosen_candidate_font;
+    dialog->lpLogFont->lfCharSet = GB2312_CHARSET;
     dialog->iPointSize = chosen_candidate_font_size;
     return TRUE;
 }
@@ -59,6 +69,10 @@ void ClickComboDropdownButton(HWND combo, const COMBOBOXINFO& info) {
 void CheckSkinComboDropdown(HWND settings) {
     using namespace settings_detail;
     const HWND combo = ::GetDlgItem(settings, kIdComboImeSkin);
+    const auto* context =
+        reinterpret_cast<const DialogContext*>(
+            ::GetWindowLongPtrW(settings, GWLP_USERDATA));
+    QIQI_TEST_CHECK(context);
     const LRESULT count = ::SendMessageW(combo, CB_GETCOUNT, 0, 0);
     const LRESULT selection = ::SendMessageW(combo, CB_GETCURSEL, 0, 0);
     const LRESULT item_height = ::SendMessageW(combo, CB_GETITEMHEIGHT, 0, 0);
@@ -75,6 +89,8 @@ void CheckSkinComboDropdown(HWND settings) {
         QIQI_TEST_CHECK(::IsWindowVisible(info.hwndList));
         RECT client{};
         QIQI_TEST_CHECK(::GetClientRect(info.hwndList, &client));
+        QIQI_TEST_CHECK(client.right - client.left >=
+            context->d2d.ScalePx(180));
         QIQI_TEST_CHECK(client.bottom - client.top >= count * item_height);
         QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETTOPINDEX, 0, 0) == 0);
         QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCOUNT, 0, 0) == count);
@@ -103,6 +119,34 @@ void CheckSkinComboDropdown(HWND settings) {
     ::SendMessageW(info.hwndList, WM_VSCROLL, SB_TOP, 0);
     QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETTOPINDEX, 0, 0) == 0);
     QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCURSEL, 0, 0) == selection);
+}
+
+void CheckSettingsSkinLayout(HWND settings) {
+    using namespace settings_detail;
+    const auto* context =
+        reinterpret_cast<const DialogContext*>(
+            ::GetWindowLongPtrW(settings, GWLP_USERDATA));
+    QIQI_TEST_CHECK(context);
+    const auto bounds = [settings](int id) {
+        RECT result{};
+        QIQI_TEST_CHECK(::GetWindowRect(
+            ::GetDlgItem(settings, id), &result));
+        return result;
+    };
+    const RECT preview = bounds(kIdCandidatePreview);
+    const RECT bold = bounds(kIdChkBoldUnderline);
+    const RECT skin_label = bounds(kIdLblImeSkin);
+    const RECT skin = bounds(kIdComboImeSkin);
+    const RECT font = bounds(kIdBtnCandidateFont);
+    QIQI_TEST_CHECK(preview.bottom - preview.top <=
+        context->d2d.ScalePx(120));
+    QIQI_TEST_CHECK(skin.right - skin.left >=
+        context->d2d.ScalePx(180));
+    QIQI_TEST_CHECK(skin.top == font.top &&
+        skin.right < font.left);
+    QIQI_TEST_CHECK(bold.bottom <= skin_label.top);
+    QIQI_TEST_CHECK(bold.bottom <= preview.top);
+    QIQI_TEST_CHECK(skin_label.top < preview.top);
 }
 
 void CheckSkinPickerSelectionCues(HWND owner, const ImeSkinCatalog& catalog) {
@@ -300,6 +344,7 @@ void RunSettingsSkinTests() {
     QIQI_TEST_CHECK(::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_GETCOUNT, 0, 0) == 7);
     SelectSettingsPage(window.Get(), *context, SettingsPage::Candidates);
     ::ShowWindow(window.Get(), SW_SHOWNOACTIVATE);
+    CheckSettingsSkinLayout(window.Get());
     CheckSkinComboDropdown(window.Get());
     ChooseFromMore(window.Get(), false);
     QIQI_TEST_CHECK(context->preview_skin_id == ImeSkinId::Default &&
@@ -320,7 +365,8 @@ void RunSettingsSkinTests() {
             sizeof(missing_preview_font), &missing_preview_font) == sizeof(missing_preview_font));
     QIQI_TEST_CHECK(std::wstring_view(missing_preview_font.lfFaceName) !=
         L"QiQi Missing Candidate Font");
-    wcscpy_s(chosen_candidate_font.lfFaceName, L"Segoe UI");
+    QIQI_TEST_CHECK(!CandidateFontFamilyAvailable(L"@DengXian"));
+    wcscpy_s(chosen_candidate_font.lfFaceName, L"DengXian");
     chosen_candidate_font.lfWeight = FW_BOLD;
     chosen_candidate_font.lfItalic = TRUE;
     chosen_candidate_font_size = 160;
@@ -328,7 +374,7 @@ void RunSettingsSkinTests() {
         window.Get(), *context, ChooseCandidateFontForTest));
     QiQiConfig font_draft;
     ReadSettingsFromWindowControls(window.Get(), font_draft);
-    QIQI_TEST_CHECK(font_draft.candidate_font_family == L"Segoe UI" &&
+    QIQI_TEST_CHECK(font_draft.candidate_font_family == L"DengXian" &&
         font_draft.candidate_font_size == 16 &&
         font_draft.candidate_font_weight == CandidateFontWeight::Bold &&
         font_draft.candidate_font_italic);
@@ -336,8 +382,15 @@ void RunSettingsSkinTests() {
     QIQI_TEST_CHECK(context->candidate_preview_font &&
         ::GetObjectW(context->candidate_preview_font.Get(), sizeof(preview_font), &preview_font) ==
             sizeof(preview_font));
-    QIQI_TEST_CHECK(std::wstring_view(preview_font.lfFaceName) == L"Segoe UI" &&
+    QIQI_TEST_CHECK(std::wstring_view(preview_font.lfFaceName) == L"DengXian" &&
         preview_font.lfWeight == FW_BOLD && preview_font.lfItalic);
+    std::array<wchar_t, 160> selected_font_label{};
+    QIQI_TEST_CHECK(::GetDlgItemTextW(
+        window.Get(), kIdBtnCandidateFont,
+        selected_font_label.data(),
+        gsl::narrow_cast<int>(selected_font_label.size())) > 0);
+    QIQI_TEST_CHECK(std::wstring_view(
+        selected_font_label.data()).contains(L"DengXian"));
     QIQI_TEST_CHECK(config.candidate_font_family.empty() &&
         QueryRegistryConfigSequence() == sequence);
     ::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_SETCURSEL, 1, 0);
@@ -413,7 +466,7 @@ void RunSettingsSkinTests() {
     ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(kIdComboImeSkin, CBN_SELCHANGE), 0);
     ::SendMessageW(window.Get(), WM_COMMAND, IDOK, 0);
     QIQI_TEST_CHECK(config.ime_skin_id == ImeSkinId::PeachBlossom && config.ui_theme == UiTheme::Light);
-    QIQI_TEST_CHECK(config.candidate_font_family == L"Segoe UI" &&
+    QIQI_TEST_CHECK(config.candidate_font_family == L"DengXian" &&
         config.candidate_font_size == 16 &&
         config.candidate_font_weight == CandidateFontWeight::Bold &&
         config.candidate_font_italic);

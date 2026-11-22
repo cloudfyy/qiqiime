@@ -312,8 +312,51 @@ inline bool TryGetSystemUiFont(LOGFONTW& font) noexcept {
     return true;
 }
 
+struct CandidateFontGdiLookup final {
+    std::wstring_view family;
+    bool found = false;
+};
+
+inline int CALLBACK CandidateFontGdiEnumProc(
+    const LOGFONTW* font, const TEXTMETRICW*, DWORD, LPARAM data) noexcept {
+    if (!font || data == 0) return 0;
+#pragma warning(suppress : 26490)
+    auto& query = *reinterpret_cast<CandidateFontGdiLookup*>(data);
+    std::wstring_view candidate(font->lfFaceName);
+    if (!candidate.empty() && candidate.front() != L'@' &&
+        ::CompareStringOrdinal(
+            candidate.data(), gsl::narrow_cast<int>(candidate.size()),
+            query.family.data(), gsl::narrow_cast<int>(query.family.size()),
+            TRUE) == CSTR_EQUAL) {
+        query.found = true;
+        return 0;
+    }
+    return 1;
+}
+
+inline bool CandidateGdiFontFamilyAvailable(
+    std::wstring_view family) noexcept {
+    if (family.empty() || family.front() == L'@') return false;
+    const ScopedWindowDC dc(nullptr);
+    if (!dc) return false;
+    LOGFONTW filter{};
+    filter.lfCharSet = GB2312_CHARSET;
+    CandidateFontGdiLookup query{family};
+#pragma warning(suppress : 26490)
+    std::ignore = ::EnumFontFamiliesExW(
+        dc.Get(),
+        &filter,
+        &CandidateFontGdiEnumProc,
+        reinterpret_cast<LPARAM>(&query),
+        0);
+    return query.found;
+}
+
 inline bool CandidateFontFamilyAvailable(std::wstring_view family) noexcept {
-    if (family.empty() || !IsValidCandidateFontFamily(family)) return false;
+    if (family.empty() || family.front() == L'@' ||
+        !IsValidCandidateFontFamily(family)) {
+        return false;
+    }
     ScopedDWriteFactory factory;
 #pragma warning(suppress : 26490)
     HRESULT result = ::DWriteCreateFactory(
@@ -322,14 +365,14 @@ inline bool CandidateFontFamilyAvailable(std::wstring_view family) noexcept {
     if (FAILED(result) || !factory) {
         QIQI_LOG_WARN("Candidate font system collection query failed (hr=0x{:08X})",
             static_cast<unsigned long>(result));
-        return false;
+        return CandidateGdiFontFamilyAvailable(family);
     }
     ScopedD2DObject<IDWriteFontCollection> collection;
     result = factory->GetSystemFontCollection(collection.Put(), FALSE);
     if (FAILED(result) || !collection) {
         QIQI_LOG_WARN("Candidate font system collection load failed (hr=0x{:08X})",
             static_cast<unsigned long>(result));
-        return false;
+        return CandidateGdiFontFamilyAvailable(family);
     }
     std::array<wchar_t, LF_FACESIZE> name{};
     family.copy(name.data(), family.size());
@@ -339,9 +382,9 @@ inline bool CandidateFontFamilyAvailable(std::wstring_view family) noexcept {
     if (FAILED(result)) {
         QIQI_LOG_WARN("Candidate font family lookup failed (hr=0x{:08X})",
             static_cast<unsigned long>(result));
-        return false;
+        return CandidateGdiFontFamilyAvailable(family);
     }
-    return exists != FALSE;
+    return exists != FALSE || CandidateGdiFontFamilyAvailable(family);
 }
 
 inline int CandidateFontHeightPx(
@@ -363,7 +406,8 @@ inline bool TryBuildCandidateFont(
         if (!TryGetSystemUiFont(system_font)) return false;
         wcscpy_s(next.lfFaceName, std::data(system_font.lfFaceName));
     } else {
-        if (!IsValidCandidateFontFamily(font.family)) {
+        if (!IsValidCandidateFontFamily(font.family) ||
+            font.family.front() == L'@') {
             QIQI_LOG_ERROR("Candidate font family is invalid");
             return false;
         }
@@ -371,12 +415,12 @@ inline bool TryBuildCandidateFont(
             QIQI_LOG_WARN("Candidate font family is not installed; using the system UI font");
             return false;
         }
-        wcscpy_s(next.lfFaceName, font.family.c_str());
+        font.family.copy(next.lfFaceName, font.family.size());
     }
     next.lfHeight = -CandidateFontHeightPx(font, automatic_height_px, dpi, scale);
     next.lfWeight = CandidateFontWeightToGdi(font.weight);
     next.lfItalic = font.italic ? TRUE : FALSE;
-    next.lfCharSet = DEFAULT_CHARSET;
+    next.lfCharSet = GB2312_CHARSET;
     next.lfQuality = CLEARTYPE_QUALITY;
     output = next;
     return true;

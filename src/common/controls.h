@@ -10,6 +10,7 @@
 
 #include <span>
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <cstddef>
 #include <string_view>
@@ -40,6 +41,8 @@ struct CandidatePageLabels {
     std::wstring_view next;
 };
 
+enum class CandidateSampleLayout : uint8_t { Normal, Compact };
+
 CandidatePageLabels ResolveCandidatePageLabels(
     UiLanguage language, const DisplayPreferences& display) noexcept;
 
@@ -51,9 +54,11 @@ inline COLORREF CandidatePaintTextColor(const SkinPalette& palette, const Candid
 bool PaintCandidateItemsGdi(HDC dc, const RECT& bounds, std::span<const CandidatePaintItem> items,
     const CandidatePaintMetrics& metrics, const SkinPalette& palette) noexcept;
 int MeasureCandidateSample(HDC dc, HFONT font, int width, UINT dpi, UiLanguage language,
-    const DisplayPreferences& display) noexcept;
+    const DisplayPreferences& display,
+    CandidateSampleLayout layout = CandidateSampleLayout::Normal) noexcept;
 bool PaintCandidateSample(HDC dc, const RECT& bounds, HFONT font, UINT dpi,
-    UiLanguage language, const DisplayPreferences& display, const SkinPalette& palette) noexcept;
+    UiLanguage language, const DisplayPreferences& display, const SkinPalette& palette,
+    CandidateSampleLayout layout = CandidateSampleLayout::Normal) noexcept;
 
 inline constexpr int kFluentBodyFontSize = 14;
 inline constexpr int kFluentComboItemHeight = 22;

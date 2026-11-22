@@ -249,21 +249,55 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             id == kIdLblImeSkin;
         if (label && index + 1 < controls.size()) {
             const int combo = gsl::at(controls, ++index);
-            const int label_height = std::max(font_height + S(6), text_height(id, stacked ? content_width : label_width));
+            const bool skin_row = id == kIdLblImeSkin;
+            const int skin_font_width = skin_row
+                ? std::min(
+                    action_width(kIdBtnCandidateFont), content_width)
+                : 0;
+            const int skin_pair_width = skin_font_width +
+                field_width + gap;
+            const bool inline_skin_row =
+                skin_row && !stacked &&
+                skin_pair_width <= content_width;
+            const int row_label_width = stacked
+                ? content_width
+                : (inline_skin_row
+                    ? std::max(
+                        1, content_width - skin_pair_width - gap)
+                    : label_width);
+            const int label_height = std::max(
+                font_height + S(6),
+                text_height(id, row_label_width));
             const int combo_y = stacked ? y + label_height + S(4) : y;
-            place(id, left, y, stacked ? content_width : label_width, label_height, false);
+            place(id, left, y, row_label_width, label_height, false);
             int closed_height = 0;
-            if (id == kIdLblImeSkin && index + 1 < controls.size() &&
+            if (skin_row && index + 1 < controls.size() &&
                 gsl::at(controls, index + 1) == kIdBtnCandidateFont) {
-                const int pair_width = stacked ? content_width : field_width;
-                const int font_width = std::min(action_width(kIdBtnCandidateFont),
-                    std::max(target, pair_width - gap - ctx.d2d.ScalePx(44)));
+                const bool wrap_font =
+                    skin_pair_width > content_width;
+                const int pair_width = stacked
+                    ? content_width
+                    : std::min(content_width, skin_pair_width);
                 const int pair_left = right - pair_width;
-                const int combo_width = std::max(1, pair_width - gap - font_width);
+                const int combo_width = wrap_font
+                    ? content_width
+                    : std::max(
+                        1, pair_width - gap - skin_font_width);
                 closed_height = place(combo, pair_left, combo_y, combo_width, target, true);
-                closed_height = std::max(closed_height,
-                    place(kIdBtnCandidateFont, pair_left + combo_width + gap,
-                        combo_y, font_width, target, false));
+                if (wrap_font) {
+                    const int font_actual_height = place(
+                        kIdBtnCandidateFont, right - skin_font_width,
+                        combo_y + closed_height + gap, skin_font_width,
+                        target, false);
+                    closed_height += gap + font_actual_height;
+                } else {
+                    const int font_actual_height = place(
+                        kIdBtnCandidateFont,
+                        pair_left + combo_width + gap,
+                        combo_y, skin_font_width, target, false);
+                    closed_height = std::max(
+                        closed_height, font_actual_height);
+                }
                 ++index;
             } else if (id == kIdLblPageSize && index + 1 < controls.size() &&
                 gsl::at(controls, index + 1) == kIdComboCandidateLayout) {

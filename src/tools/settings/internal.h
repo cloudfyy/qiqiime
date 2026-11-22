@@ -101,9 +101,9 @@ constexpr bool IsSettingsFooterControl(int id) noexcept {
     return false;
 }
 inline constexpr std::array kSettingsCandidateControls{
-    kIdLblImeSkin, kIdComboImeSkin, kIdBtnCandidateFont, kIdCandidatePreview,
     kIdLblPageSize, kIdComboPageSize, kIdComboCandidateLayout, kIdChkCodeCompletion, kIdChkCodeHint,
-    kIdChkUpDownPageTurn, kIdLblUnderlineStyle, kIdComboUnderlineStyle, kIdChkBoldUnderline};
+    kIdChkUpDownPageTurn, kIdLblUnderlineStyle, kIdComboUnderlineStyle, kIdChkBoldUnderline,
+    kIdLblImeSkin, kIdComboImeSkin, kIdBtnCandidateFont, kIdCandidatePreview};
 inline constexpr std::array kSettingsDisplayControls{
     kIdLblUiTheme, kIdComboUiTheme,
     kIdChkEasyReading, kIdLblUiTextScale, kIdComboUiTextScale,
