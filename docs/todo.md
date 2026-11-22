@@ -16,7 +16,7 @@
 [保留热键注册](../src/ime/svc/service.cpp)及
 [服务按键处理](../src/ime/svc/keyhandler.cpp)。
 已有回归依据包括[简码、上屏、补全和选词测试](../tests/ime/engine/input.cpp)、
-[临时英文及标点测试](../tests/ime/engine/modes_punct.cpp)、
+[临时英文及标点测试](../tests/ime/engine/modes.cpp)、
 [词组取码与扩展字符测试](../tests/ime/engine/dict/external.cpp)。
 
 ### 核心功能矩阵
@@ -661,6 +661,34 @@ status-bar/tooltip skin support require separate design approval.
   AppContainer/restricted hosts, DPI, and supported Windows versions.
   Record real-host results separately from unit tests and category declarations.
 
+- [ ] Immediately after the current source-file split is complete, build two
+  dedicated installable IME host fixtures for restricted/package validation.
+  Keep these as opt-in integration hosts, not default CTest dependencies:
+  - **UWP / AppContainer host:** create the smallest C++/WinRT XAML package
+    that contains an editable `TextBox`. Do not declare `runFullTrust`, broad
+    filesystem/registry access, networking, process or device capabilities.
+    Display and log `TokenIsAppContainer`, package identity and package scope.
+  - **Packaged full-trust host:** create a Win32/WinUI packaged host with a
+    normal editable control, package identity and `runFullTrust`, similar to
+    Feedback Hub. Do not disable MSIX registry virtualization. Its own test
+    action may seed a known QiQiIME value in the package-private registry to
+    reproduce stale/shadowed configuration while leaving all real user settings
+    untouched; log that `TokenIsAppContainer=false` and package identity is
+    present.
+  Both hosts must expose TraceLogging/ETW and a persistent diagnostic export
+  suitable for Log Monitor, without recording entered text, candidate contents,
+  clipboard data, window titles or filesystem/user paths. Record startup,
+  package/token state, TSF activation/deactivation, focus changes, compartment
+  notification values, preserved-key registration/replacement, config/skin
+  sequence observations, selected skin ID, and actual HRESULT/API errors.
+  Exercise first-load skin, hot skin change, host restart, UWP-supported
+  compartments/preserved keys, and the desktop-only status/thread/language-bar
+  sinks separately so unsupported contracts are distinguishable from failures.
+  Produce separately installable, side-by-side and uninstallable development
+  MSIX packages for both hosts, with repeatable packaging scripts and a
+  documented test-certificate installation flow. Do not commit signing private
+  keys or include these test hosts in the QiQiIME product MSI.
+
 - [x] Harden candidate owned-window handling for missing or stale host HWNDs.
   Production presentation now requires a valid root owner, hides any stale
   popup, retains the display request and composition, and automatically retries
@@ -963,6 +991,14 @@ status-bar/tooltip skin support require separate design approval.
   Validate conflicts, persist configuration, and safely replace registered TSF
   preserved keys when settings change. Preserve current defaults and restricted
   input behavior; add focused configuration, registration, and key-handling tests.
+  Replace a binding with `ITfKeystrokeMgr::PreserveKey` for the new key first,
+  then `UnpreserveKey` for the old key only after registration succeeds. Keep
+  the previous binding and report a conflict when registration returns
+  `TF_E_ALREADY_EXISTS`. Implement `ITfPreservedKeyNotifySink::OnUpdated` as an
+  optional conflict-state observer for preserved keys becoming available or
+  unavailable; it reports only `TF_PRESERVEDKEY`, so requery with
+  `IsPreservedKey`. Do not use the notify sink to trigger commands or as the
+  hotkey update mechanism; command dispatch remains in `OnPreservedKey`.
   Include optional comma/period paging, a code-hint toggle, an open-settings
   command and a Shift+Delete alias, with explicit punctuation/application-conflict
   handling. Add bindings for single-character mode, character sets, conversion,

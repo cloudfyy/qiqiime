@@ -47,11 +47,11 @@ jobs:
 
       - name: Test nightly report logic
         shell: pwsh
-        run: node --test tests\ci\nightly_lint_report.test.mjs
+        run: node --test tests\ci\lintreport.test.mjs
 
       - name: Test lint output handling with fixtures
         shell: pwsh
-        run: .\tests\ci\lint_output.ps1
+        run: .\tests\ci\lint.ps1
 
       - name: Build and run unit tests (x64 & x86)
         shell: pwsh

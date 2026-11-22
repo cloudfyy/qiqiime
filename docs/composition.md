@@ -1142,14 +1142,14 @@ Return codes or formatted logs alone are insufficient.
 
 | Contract | Representative existing tests |
 | --- | --- |
-| Epoch/reset ownership and nesting | [state](../tests/ime/comp/state.cpp), [context reset](../tests/ime/comp/context_reset.cpp) |
-| Immutable snapshots, request flags, requeue and activity scopes | [edit execution](../tests/ime/comp/edit_execution.cpp), [requests](../tests/ime/comp/edit.cpp), [service deferred work](../tests/ime/svc/deferred.cpp) |
+| Epoch/reset ownership and nesting | [state](../tests/ime/comp/state.cpp), [context reset](../tests/ime/comp/reset.cpp) |
+| Immutable snapshots, request flags, requeue and activity scopes | [edit execution](../tests/ime/comp/execution.cpp), [requests](../tests/ime/comp/edit.cpp), [service deferred work](../tests/ime/svc/deferred.cpp) |
 | New-target preparation, parent identity, modal/removal reentrancy | [target](../tests/ime/comp/target.cpp), [service target](../tests/ime/svc/target.cpp), [native documents](../tests/ime/svc/native.cpp) |
-| Late starts, same-epoch replacement, commit/cancel and termination | [start/update](../tests/ime/comp/start_update.cpp), [finish state](../tests/ime/comp/finish_state.cpp), [termination routing](../tests/ime/comp/termination_route.cpp), [service reentrancy](../tests/ime/svc/reentrancy.cpp) |
-| Captured cleanup, failure/removal, abandonment and owner release | [handoff](../tests/ime/comp/cleanup_handoff.cpp), [service lifecycle](../tests/ime/svc/lifecycle.cpp) |
+| Late starts, same-epoch replacement, commit/cancel and termination | [start/update](../tests/ime/comp/startupdate.cpp), [finish state](../tests/ime/comp/finishstate.cpp), [termination routing](../tests/ime/comp/route.cpp), [service reentrancy](../tests/ime/svc/reentrancy.cpp) |
+| Captured cleanup, failure/removal, abandonment and owner release | [handoff](../tests/ime/comp/handoff.cpp), [service lifecycle](../tests/ime/svc/lifecycle.cpp) |
 | Retained windows and old/new manager isolation | [presentation](../tests/ime/comp/presentation.cpp), [service presentation](../tests/ime/svc/presentation.cpp), [service windows](../tests/ime/svc/windows.cpp) |
-| Layout lifetime, stale rectangles and DPI routing | [layout](../tests/ime/comp/layout.cpp), [position](../tests/ime/comp/layout_position.cpp), [service layout](../tests/ime/svc/layout.cpp) |
-| Access policy and restricted-target transitions | [restricted input](../tests/ime/tsf/restricted_input.cpp) |
+| Layout lifetime, stale rectangles and DPI routing | [layout](../tests/ime/comp/layout.cpp), [position](../tests/ime/comp/position.cpp), [service layout](../tests/ime/svc/layout.cpp) |
+| Access policy and restricted-target transitions | [restricted input](../tests/ime/tsf/restricted.cpp) |
 
 Mocks provide deterministic failures and reentrant boundaries, not evidence that
 every real host behaves that way. Private native TSF documents validate actual

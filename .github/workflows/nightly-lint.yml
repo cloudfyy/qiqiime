@@ -136,7 +136,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Test report logic
-        run: node --test tests/ci/nightly_lint_report.test.mjs
+        run: node --test tests/ci/lintreport.test.mjs
       - name: Remind report owner
         uses: actions/github-script@v7
         with:

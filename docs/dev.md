@@ -44,7 +44,7 @@ thematic files: common tests use `tests\common\core`, dictionary tests use
 TSF mocks live in `tests\ime\tsf\mock`, with `mocks.h` as the aggregate header.
 Share helpers through headers; do not include test `.cpp` files.
 Use distinct test-entry basenames when a target also compiles the production entry
-point (for example `settings_main.cpp` versus `main.cpp`), avoiding collisions in
+point (for example `main.cpp` versus `main.cpp`), avoiding collisions in
 MSVC module-dependency scan output.
 Dependency direction is common ← engine ← IME/tools: IME and tool targets may
 consume `qiqi_common`; tools may consume `qiqi_engine`; neither `qiqi_common` nor
@@ -367,7 +367,7 @@ intermittent failure cannot be reproduced; a later passing run is not a fix.
 ### TSF hang diagnostics
 
 CTest launches the full and focused TSF suites through
-[test_watchdog.ps1](../tests/ime/test_watchdog.ps1):
+[watchdog.ps1](../tests/ime/watchdog.ps1):
 
 - Each run retains independent phase and `CASE-BEGIN`/`CASE-END` logs. Under
   CTest they are in `build\<arch>\tests\ime\test-logs`; direct EXE runs use the
@@ -440,8 +440,8 @@ Report logic and synthetic log fixtures can be tested locally without running
 a compiler analysis or PSScriptAnalyzer:
 
 ```powershell
-node --test tests\ci\nightly_lint_report.test.mjs
-pwsh -NoProfile -File tests\ci\lint_output.ps1
+node --test tests\ci\lintreport.test.mjs
+pwsh -NoProfile -File tests\ci\lint.ps1
 ```
 
 ### Coverage across runtimes
@@ -506,14 +506,14 @@ data removal merely to increase coverage.
 
 ### Focus performance benchmarks
 
-The [focus benchmark script](../tests/ime/focus_benchmark.ps1) is intentionally
+The [focus benchmark script](../tests/ime/benchmark.ps1) is intentionally
 outside regular CTest. After building normal x64 Release outputs, create a
 same-source comparison build using the already installed dependencies:
 
 ```powershell
 cmake -S . -B build\metrics-baseline\x64 -G "Visual Studio 18 2026" -A x64 -DQIQI_METRICS_BENCHMARK_BASELINE=ON -DVCPKG_TARGET_TRIPLET=x64-windows-static -DVCPKG_INSTALLED_DIR="$PWD\build\x64\vcpkg_installed" -DVCPKG_MANIFEST_INSTALL=OFF
 cmake --build build\metrics-baseline\x64 --config Release --target qiqiime
-.\tests\ime\focus_benchmark.ps1 -TestExecutable .\build\x64\Release\qiqi_tsf_ui_test.exe -BaselineDll .\build\metrics-baseline\x64\Release\qiqiime_metrics_baseline.dll -CurrentDll .\build\x64\Release\qiqiime.dll -Output .\focus-benchmark-x64.json
+.\tests\ime\benchmark.ps1 -TestExecutable .\build\x64\Release\qiqi_tsf_ui_test.exe -BaselineDll .\build\metrics-baseline\x64\Release\qiqiime_metrics_baseline.dll -CurrentDll .\build\x64\Release\qiqiime.dll -Output .\focus-benchmark-x64.json
 ```
 
 For x86, use the corresponding paths, `-A Win32`, and

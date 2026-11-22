@@ -170,7 +170,7 @@ independent JSON-parser checks and refuses to overwrite existing fixtures.
 Run both architectures sequentially; permission-skipped integration tests are
 not passing cross-process acceptance.
 
-The [focus benchmark](../tests/ime/focus_benchmark.ps1) uses an external caller
+The [focus benchmark](../tests/ime/benchmark.ps1) uses an external caller
 clock and same-source inert-instrumentation baseline. It measures unchanged focus
 handling, not handled keys. Private ETL capture followed by decoding is not a
 normal or slow realtime consumer. Setup is in the

@@ -125,7 +125,7 @@ See the [composition contracts](composition.md) for reentrancy and cleanup.
 
 ## Validation
 
-[Restricted-input tests](../tests/ime/tsf/restricted_input.cpp) combine native
+[Restricted-input tests](../tests/ime/tsf/restricted.cpp) combine native
 TSF contract checks, controlled contexts, real native EDIT style changes, and
 deterministic queued/reentrant callbacks. The standalone
 `QiQiTsfTestHost.exe` supports manual control-level checks.

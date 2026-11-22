@@ -239,12 +239,12 @@ behavior, not a request to insert checks mechanically after every instruction.
   "one guard immediately after every COM call" rule.
 
 Existing evidence includes [reentrant edit/start cases](../tests/ime/svc/reentrancy.cpp),
-[start publication](../tests/ime/comp/start_update.cpp),
+[start publication](../tests/ime/comp/startupdate.cpp),
 [target preparation/reconciliation](../tests/ime/comp/target.cpp),
 [presentation](../tests/ime/comp/presentation.cpp),
 [layout](../tests/ime/comp/layout.cpp),
 [cleanup](../tests/ime/comp/cleanup.cpp), and
-[edit execution routes](../tests/ime/comp/edit_execution.cpp).
+[edit execution routes](../tests/ime/comp/execution.cpp).
 These tests are prior behavior evidence, not proof that an unimplemented static
 checker has verified every boundary.
 

@@ -89,7 +89,7 @@ does not validate password controls or secure-desktop support.
    General desktop success, mocks, or dedicated container processes are not
    substitutes for a real application loading the IME.
 
-The [synchronization tests](../tests/common/change_sync.cpp) include controlled
+The [synchronization tests](../tests/common/sync.cpp) include controlled
 AppContainer read/notify/locking and denied-write scenarios. Broader host evidence
 belongs in the [host test records](hosts.md); do not infer universal compatibility.
 Review paths and exported diagnostics for personal information before sharing.
