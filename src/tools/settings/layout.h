@@ -42,7 +42,12 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
     }
     const ScopedSelectObject selected_font(dc.Get(), ctx.font.Get());
     const auto text_height = [&](int id, int available) noexcept {
-        std::array<wchar_t, 1024> text{};
+        const bool title = id == kIdLblAboutTitle ||
+            id == kIdLblShortcutsTitle;
+        const ScopedSelectObject measured_font(
+            dc.Get(),
+            title ? ctx.bold_font.Get() : ctx.font.Get());
+        std::array<wchar_t, 4096> text{};
         const int length = ::GetDlgItemTextW(hwnd, id, text.data(), gsl::narrow_cast<int>(text.size()));
         RECT bounds{0, 0, std::max(1, available), 0};
         if (length > 0 && !::DrawTextW(dc.Get(), text.data(), length, &bounds,
@@ -63,8 +68,6 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
     const auto preferred_action_width = [&](int id) noexcept {
         int dips = 0;
         switch (id) {
-            case kIdBtnHelp: dips = 128; break;
-            case kIdBtnAbout:
             case IDOK:
             case IDCANCEL: dips = 104; break;
             case kIdBtnRestoreDefaults: dips = 156; break;
@@ -73,6 +76,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             case kIdBtnBrowsePrimaryDict: dips = 104; break;
             case kIdBtnDictManager: dips = 180; break;
             case kIdBtnCandidateFont: dips = 128; break;
+            case kIdBtnOpenGitHub: dips = 124; break;
             default: return 0;
         }
         return ctx.d2d.ScalePx(dips);
@@ -316,10 +320,21 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             continue;
         }
         const bool preview = id == kIdCandidatePreview;
-        const bool static_text = id == kIdLblCustomPrimaryPath || id == kIdDisplayExplanation;
+        const bool icon = id == kIdAboutIcon;
+        const bool static_text =
+            id == kIdLblCustomPrimaryPath ||
+            id == kIdDisplayExplanation ||
+            id == kIdLblAboutTitle ||
+            id == kIdLblAboutVersion ||
+            id == kIdLblAboutLicense ||
+            id == kIdLblShortcutsTitle ||
+            id == kIdLblShortcutsSubtitle ||
+            id == kIdLblShortcutsBody;
         const int indent = id == kIdChkExtraDict ? std::min(S(24), content_width - 1) : 0;
         const int control_width = content_width - indent;
-        const int height = preview ? MeasureSettingsCandidatePreviewHeight(::GetDlgItem(hwnd, id), control_width, ctx) :
+        const int height = icon
+            ? ctx.d2d.ScalePx(kLargeBrandIconSize + 16)
+            : preview ? MeasureSettingsCandidatePreviewHeight(::GetDlgItem(hwnd, id), control_width, ctx) :
             std::max(static_text ? font_height + S(4) : target,
                      text_height(id, control_width - S(static_text ? 0 : 60)) + S(12));
         const int actual_height = place(id, left + indent, y, control_width, height, false);

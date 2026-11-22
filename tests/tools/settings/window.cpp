@@ -595,14 +595,11 @@ void TestSettingsTextAlignment() {
                 auto *context = reinterpret_cast<DialogContext *>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
                 const int control_right = context->page_bounds.right - context->d2d.ScaleDipPx(16);
                 SelectSettingsPage(dialog.Get(), *context, SettingsPage::Input);
-                const RECT help = bounds(kIdBtnHelp);
-                const RECT about = bounds(kIdBtnAbout);
                 const RECT restore = bounds(kIdBtnRestoreDefaults);
-                QIQI_TEST_CHECK(help.top == about.top && about.top == restore.top);
-                QIQI_TEST_CHECK(about.right <= help.left && help.right <= restore.left);
                 const RECT ok = bounds(IDOK);
                 const RECT cancel = bounds(IDCANCEL);
                 QIQI_TEST_CHECK(ok.top == cancel.top && ok.right <= cancel.left);
+                QIQI_TEST_CHECK(restore.top == ok.top);
                 QIQI_TEST_CHECK(restore.top <= ok.top);
                 if (restore.top == ok.top)
                     QIQI_TEST_CHECK(restore.right < ok.left);
@@ -610,9 +607,10 @@ void TestSettingsTextAlignment() {
                     QIQI_TEST_CHECK(restore.bottom <= ok.top);
                 RECT client{};
                 QIQI_TEST_CHECK(::GetClientRect(dialog.Get(), &client));
-                QIQI_TEST_CHECK(about.left >= client.left && cancel.right <= client.right);
+                QIQI_TEST_CHECK(
+                    restore.left >= client.left &&
+                    cancel.right <= client.right);
                 QIQI_TEST_CHECK(ok.bottom <= client.bottom && cancel.bottom <= client.bottom);
-                QIQI_TEST_CHECK(help.top >= context->page_bounds.bottom);
                 QIQI_TEST_CHECK(bounds(kIdComboEnglishSwitch).right == control_right);
                 QIQI_TEST_CHECK(restore.right - restore.left < (control_right - context->page_bounds.left) / 2);
                 SelectSettingsPage(dialog.Get(), *context, SettingsPage::Dictionary);
@@ -645,6 +643,78 @@ void TestSettingsTextAlignment() {
                 QIQI_TEST_CHECK(bounds(kIdComboUiLang).right == control_right);
                 QIQI_TEST_CHECK((::GetWindowLongPtrW(::GetDlgItem(dialog.Get(), kIdComboImeSkin),
                     GWL_STYLE) & WS_VISIBLE) == 0);
+                SelectSettingsPage(
+                    dialog.Get(), *context,
+                    SettingsPage::Shortcuts);
+                QIQI_TEST_CHECK(
+                    ControlText(::GetDlgItem(
+                        dialog.Get(), kIdLblShortcutsTitle)) ==
+                    GetUiStrings(language).help_header_title);
+                QIQI_TEST_CHECK(
+                    ControlText(::GetDlgItem(
+                        dialog.Get(), kIdLblShortcutsBody)) ==
+                    GetUiStrings(language).help_shortcuts_info);
+                QIQI_TEST_CHECK(
+                    (::GetWindowLongPtrW(
+                        ::GetDlgItem(
+                            dialog.Get(), kIdBtnOpenGitHub),
+                        GWL_STYLE) & WS_VISIBLE) == 0);
+                SelectSettingsPage(
+                    dialog.Get(), *context, SettingsPage::About);
+                QIQI_TEST_CHECK(
+                    ControlText(::GetDlgItem(
+                        dialog.Get(), kIdLblAboutTitle)) ==
+                    GetUiStrings(language).about_app_name);
+                QIQI_TEST_CHECK(ControlText(::GetDlgItem(
+                    dialog.Get(), kIdLblAboutVersion))
+                    .starts_with(
+                        GetUiStrings(
+                            language).about_version_prefix));
+                QIQI_TEST_CHECK(
+                    ControlText(::GetDlgItem(
+                        dialog.Get(), kIdLblAboutLicense)) ==
+                    GetUiStrings(language).about_license_info);
+                QIQI_TEST_CHECK(
+                    ControlText(::GetDlgItem(
+                        dialog.Get(), kIdBtnOpenGitHub)) ==
+                    GetUiStrings(language).about_btn_github);
+                QIQI_TEST_CHECK(
+                    (::GetWindowLongPtrW(
+                        ::GetDlgItem(
+                            dialog.Get(), kIdLblShortcutsBody),
+                        GWL_STYLE) & WS_VISIBLE) == 0);
+                const HWND tabs =
+                    ::GetDlgItem(dialog.Get(), kIdSettingsTabs);
+                QIQI_TEST_CHECK(
+                    ::SendMessageW(
+                        tabs, TCM_GETITEMCOUNT, 0, 0) ==
+                    static_cast<LRESULT>(
+                        SettingsPage::Count));
+                std::array<wchar_t, 64> tab_text{};
+                TCITEMW item{};
+                item.mask = TCIF_TEXT;
+                item.pszText = tab_text.data();
+                item.cchTextMax =
+                    gsl::narrow_cast<int>(tab_text.size());
+                QIQI_TEST_CHECK(::SendMessageW(
+                    tabs, TCM_GETITEMW,
+                    static_cast<WPARAM>(SettingsPage::Shortcuts),
+                    reinterpret_cast<LPARAM>(&item)));
+                QIQI_TEST_CHECK(std::wstring_view(
+                    tab_text.data()) ==
+                    (language == UiLanguage::ZhCn
+                        ? std::wstring_view(L"快捷键")
+                        : std::wstring_view(L"Shortcuts")));
+                tab_text.fill(0);
+                QIQI_TEST_CHECK(::SendMessageW(
+                    tabs, TCM_GETITEMW,
+                    static_cast<WPARAM>(SettingsPage::About),
+                    reinterpret_cast<LPARAM>(&item)));
+                QIQI_TEST_CHECK(std::wstring_view(
+                    tab_text.data()) ==
+                    (language == UiLanguage::ZhCn
+                        ? std::wstring_view(L"关于")
+                        : std::wstring_view(L"About")));
             }
         }
     }

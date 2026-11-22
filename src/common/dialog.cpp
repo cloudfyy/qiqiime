@@ -18,6 +18,7 @@
 #include <array>
 #include <cstddef>
 #include <cwchar>
+#include <limits>
 
 namespace qiqi {
 namespace {
@@ -158,15 +159,17 @@ void PaintInfoDialog(HDC hdc, const RECT& client_rc, const InfoDialogContext& ct
         if (ctx.kind == InfoDialogKind::Help) {
             ::DrawTextW(hdc, str.help_header_subtitle, -1, &subtitle_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         } else {
-            std::array<wchar_t, kVersionTextCapacity> ver_text{};
-            const int version_length = ::swprintf_s(
-                ver_text.data(), ver_text.size(), L"%ls%ls (%ls)",
-                str.about_version_prefix, version::kFullVersionW.data(), version::kArchW.data());
-            if (version_length < 0) {
-                QIQI_LOG_ERROR("About version text formatting failed");
-                return;
-            }
-            ::DrawTextW(hdc, ver_text.data(), version_length, &subtitle_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            std::array<wchar_t, kVersionTextCapacity> version_buffer{};
+            const std::wstring_view version_text =
+                FormatAboutVersionText(
+                    ctx.ui_language, version_buffer);
+            if (version_text.empty()) return;
+            ::DrawTextW(
+                hdc,
+                version_text.data(),
+                gsl::narrow_cast<int>(version_text.size()),
+                &subtitle_rc,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         }
 
         const ScopedGdiHandle<HPEN> div_pen(
@@ -361,6 +364,32 @@ ScopedWindow CreateInfoWindow(
 }
 
 } // namespace
+
+std::wstring_view FormatAboutVersionText(
+    UiLanguage language, std::span<wchar_t> output) noexcept {
+    if (output.empty() ||
+        output.size() >
+            gsl::narrow_cast<size_t>(
+                (std::numeric_limits<int>::max)())) {
+        QIQI_LOG_ERROR("About version text buffer is invalid");
+        return {};
+    }
+    const auto& str = GetUiStrings(language);
+    const int length = ::swprintf_s(
+        output.data(),
+        output.size(),
+        L"%ls%ls (%ls)",
+        str.about_version_prefix,
+        version::kFullVersionW.data(),
+        version::kArchW.data());
+    if (length <= 0) {
+        QIQI_LOG_ERROR("About version text formatting failed");
+        return {};
+    }
+    return {
+        output.data(),
+        gsl::narrow_cast<size_t>(length)};
+}
 
 ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language, bool use_embedded_icon) noexcept {
     return CreateInfoWindow(InfoDialogKind::About, instance, parent, ui_language, use_embedded_icon);

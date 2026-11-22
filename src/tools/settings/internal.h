@@ -33,7 +33,6 @@ constexpr int kIdComboUiLang = 111;
 constexpr int kIdChkBeepEmpty4 = 112;
 constexpr int kIdChkKeySound = 113;
 constexpr int kIdChkClearEmpty4 = 114;
-constexpr int kIdBtnAbout = 115;
 constexpr int kIdChkQuickSelect = 116;
 constexpr int kIdChkBeepDup4 = 117;
 constexpr int kIdChkCodeHint = 118;
@@ -47,7 +46,6 @@ constexpr int kIdChkBoldUnderline = 126;
 constexpr int kIdBtnDictManager = 127;
 constexpr int kIdLblEnglishSwitch = 128;
 constexpr int kIdComboEnglishSwitch = 129;
-constexpr int kIdBtnHelp = 130;
 constexpr int kIdRadioCustom = 131;
 constexpr int kIdBtnBrowsePrimaryDict = 132;
 constexpr int kIdLblCustomPrimaryPath = 133;
@@ -69,20 +67,32 @@ constexpr int kIdLblImeSkin = 149;
 constexpr int kIdComboImeSkin = 150;
 constexpr int kIdBtnCandidateFont = 151;
 constexpr int kIdSkinPickerList = 152;
+constexpr int kIdAboutIcon = 153;
+constexpr int kIdLblAboutTitle = 154;
+constexpr int kIdLblAboutVersion = 155;
+constexpr int kIdLblAboutLicense = 156;
+constexpr int kIdBtnOpenGitHub = 157;
+constexpr int kIdLblShortcutsTitle = 158;
+constexpr int kIdLblShortcutsSubtitle = 159;
+constexpr int kIdLblShortcutsBody = 160;
 inline constexpr const wchar_t* kSkinPickerWndClass = L"QiQiImeSkinPicker";
 constexpr UINT kSettingsEnsureFocusVisible = WM_APP + 93;
 constexpr UINT kSettingsCyclePage = WM_APP + 94;
-enum class SettingsPage { Input, Dictionary, Candidates, Display, Feedback, Count };
+enum class SettingsPage {
+    Input, Dictionary, Candidates, Display, Feedback, Shortcuts, About, Count
+};
 struct SettingsPageLabel {
     const wchar_t* zh;
     const wchar_t* en;
 };
-inline constexpr std::array<SettingsPageLabel, 5> kSettingsPageLabels{{
+inline constexpr std::array<SettingsPageLabel, 7> kSettingsPageLabels{{
     {L"输入习惯", L"Input"},
     {L"词库", L"Dictionary"},
     {L"候选窗口", L"Candidates"},
     {L"显示", L"Display"},
     {L"声音与反馈", L"Feedback"},
+    {L"快捷键", L"Shortcuts"},
+    {L"关于", L"About"},
 }};
 inline constexpr std::array kSettingsInputControls{
     kIdChkAutoCommit4, kIdChkPushCommit5, kIdChkQuickSelect, kIdChkDynamicFreq,
@@ -92,7 +102,7 @@ inline constexpr std::array kSettingsDictionaryControls{
     kIdRadioCustom, kIdBtnBrowsePrimaryDict, kIdBtnDictManager, kIdLblCustomPrimaryPath,
     kIdBtnImportConfig, kIdBtnExportConfig};
 inline constexpr std::array kSettingsFooterControls{
-    kIdBtnAbout, kIdBtnHelp, kIdBtnRestoreDefaults, IDOK, IDCANCEL};
+    kIdBtnRestoreDefaults, IDOK, IDCANCEL};
 
 constexpr bool IsSettingsFooterControl(int id) noexcept {
     for (const int footer_id : kSettingsFooterControls) {
@@ -111,6 +121,11 @@ inline constexpr std::array kSettingsDisplayControls{
     kIdChkStatusBar};
 inline constexpr std::array kSettingsFeedbackControls{
     kIdChkBeepEmpty4, kIdChkBeepDup4, kIdChkClearEmpty4, kIdChkKeySound};
+inline constexpr std::array kSettingsShortcutsControls{
+    kIdLblShortcutsTitle, kIdLblShortcutsSubtitle, kIdLblShortcutsBody};
+inline constexpr std::array kSettingsAboutControls{
+    kIdAboutIcon, kIdLblAboutTitle, kIdLblAboutVersion,
+    kIdLblAboutLicense, kIdBtnOpenGitHub};
 
 constexpr std::span<const int> SettingsPageControls(SettingsPage page) noexcept {
     switch (page) {
@@ -119,6 +134,8 @@ constexpr std::span<const int> SettingsPageControls(SettingsPage page) noexcept 
         case SettingsPage::Candidates: return kSettingsCandidateControls;
         case SettingsPage::Display: return kSettingsDisplayControls;
         case SettingsPage::Feedback: return kSettingsFeedbackControls;
+        case SettingsPage::Shortcuts: return kSettingsShortcutsControls;
+        case SettingsPage::About: return kSettingsAboutControls;
         default: return {};
     }
 }
@@ -127,7 +144,7 @@ constexpr int kIdBtnCancel = IDCANCEL;
 
 namespace settings_layout {
 inline constexpr int kFontSize = 15;
-inline constexpr int kBoldFontSize = 12;
+inline constexpr int kBoldFontSize = 19;
 inline constexpr SIZE kClientSize{820, 494};
 inline constexpr RECT kDictionaryCard{18, 16, 404, 196};
 inline constexpr RECT kInputCard{18, 206, 404, 434};
@@ -193,14 +210,9 @@ inline constexpr RECT kEnglishSwitchLabel{
 inline constexpr RECT kEnglishSwitchCombo{
     kComboLeft, kEnglishSwitchLabel.top - kComboLabelInset, kComboLeft + kComboWidth,
     kEnglishSwitchLabel.top - kComboLabelInset + 160};
-inline constexpr RECT kAboutButton{
-    kDictionaryCard.left, kFooterTop, kDictionaryCard.left + 104, kFooterTop + kButtonHeight};
 inline constexpr RECT kDictionaryManagerButton{
-    kAboutButton.right + kButtonGap, kFooterTop,
-    kAboutButton.right + kButtonGap + 156, kFooterTop + kButtonHeight};
-inline constexpr RECT kHelpButton{
-    kDictionaryManagerButton.right + kButtonGap, kFooterTop,
-    kDictionaryManagerButton.right + kButtonGap + 128, kFooterTop + kButtonHeight};
+    kDictionaryCard.left, kFooterTop,
+    kDictionaryCard.left + 156, kFooterTop + kButtonHeight};
 inline constexpr RECT kCancelButton{
     kClientSize.cx - kDictionaryCard.left - kAcceptButtonWidth, kFooterTop,
     kClientSize.cx - kDictionaryCard.left, kFooterTop + kButtonHeight};
@@ -208,7 +220,7 @@ inline constexpr RECT kOkButton{
     kCancelButton.left - kButtonGap - kAcceptButtonWidth, kFooterTop,
     kCancelButton.left - kButtonGap, kFooterTop + kButtonHeight};
 inline constexpr RECT kRestoreDefaultsButton{
-    kHelpButton.right + kButtonGap, kFooterTop,
+    kDictionaryCard.left, kFooterTop,
     kOkButton.left - kButtonGap, kFooterTop + kButtonHeight};
 } // namespace settings_layout
 
@@ -294,7 +306,7 @@ using CandidateFontChooser = BOOL(WINAPI*)(CHOOSEFONTW*);
 bool PromptSettingsCandidateFont(
     HWND hwnd, DialogContext& ctx, CandidateFontChooser chooser = &::ChooseFontW) noexcept;
 void EnsureSettingsControlVisible(HWND hwnd, HWND child, DialogContext& ctx) noexcept;
-void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept;
+void UpdateSettingsPageLabels(HWND hwnd, const DialogContext& ctx) noexcept;
 void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept;
 int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogContext& ctx) noexcept;
 void UpdateSettingsTabLabels(HWND hwnd, const DialogContext& ctx) noexcept;

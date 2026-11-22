@@ -391,14 +391,15 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             ctx.done = true;
             ::PostMessageW(hwnd, WM_NULL, 0, 0);
             return;
-        case kIdBtnAbout: {
-            const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
-            ShowAboutDialog(g_dll_instance, hwnd, lang);
-            return;
-        }
-        case kIdBtnHelp: {
-            const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
-            ShowHelpDialog(g_dll_instance, hwnd, lang);
+        case kIdBtnOpenGitHub: {
+            const HINSTANCE result = ::ShellExecuteW(
+                hwnd, L"open", kGitHubRepoUrl, nullptr, nullptr,
+                SW_SHOWNORMAL);
+            if (reinterpret_cast<INT_PTR>(result) <= 32) {
+                QIQI_LOG_ERROR(
+                    "Settings GitHub launch failed (error={})",
+                    reinterpret_cast<INT_PTR>(result));
+            }
             return;
         }
         case kIdBtnDictManager: {
@@ -645,19 +646,58 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                     return TRUE;
                 }
                 if (dis->CtlType == ODT_STATIC) {
-                    const ScopedSelectObject selected_font(dis->hDC, ctx->font.Get());
                     const HBRUSH background = ApplyFluentControlColors(dis->hDC, ctx->d2d, false);
                     if (!background) {
                         QIQI_LOG_WARN("Settings label background brush unavailable");
                         return TRUE;
                     }
                     ::FillRect(dis->hDC, &dis->rcItem, background);
-                    std::array<wchar_t, 1024> text{};
+                    if (dis->CtlID == kIdAboutIcon) {
+                        if (ctx->icon_big) {
+                            const int icon_size = std::min(
+                                dis->rcItem.right - dis->rcItem.left,
+                                dis->rcItem.bottom - dis->rcItem.top);
+                            const int left =
+                                dis->rcItem.left +
+                                (dis->rcItem.right -
+                                    dis->rcItem.left - icon_size) / 2;
+                            const int top =
+                                dis->rcItem.top +
+                                (dis->rcItem.bottom -
+                                    dis->rcItem.top - icon_size) / 2;
+                            ::DrawIconEx(
+                                dis->hDC, left, top,
+                                ctx->icon_big.Get(),
+                                icon_size, icon_size,
+                                0, nullptr, DI_NORMAL);
+                        }
+                        return TRUE;
+                    }
+                    const bool title =
+                        dis->CtlID == kIdLblAboutTitle ||
+                        dis->CtlID == kIdLblShortcutsTitle;
+                    const bool centered =
+                        title ||
+                        dis->CtlID == kIdLblAboutVersion ||
+                        dis->CtlID == kIdLblShortcutsSubtitle;
+                    const bool secondary =
+                        dis->CtlID == kIdLblAboutVersion ||
+                        dis->CtlID == kIdLblShortcutsSubtitle;
+                    const ScopedSelectObject selected_font(
+                        dis->hDC,
+                        title ? ctx->bold_font.Get() : ctx->font.Get());
+                    ::SetTextColor(
+                        dis->hDC,
+                        secondary
+                            ? ctx->d2d.appearance.palette.text_secondary
+                            : ctx->d2d.appearance.palette.text_primary);
+                    std::array<wchar_t, 4096> text{};
                     const int length = ::GetWindowTextW(
                         dis->hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
                     RECT bounds = dis->rcItem;
                     if (length > 0 && !::DrawTextW(dis->hDC, text.data(), length, &bounds,
-                                                  DT_LEFT | DT_WORDBREAK | DT_NOPREFIX)) {
+                                                  (centered ? DT_CENTER : DT_LEFT) |
+                                                  DT_WORDBREAK | DT_NOPREFIX)) {
                         QIQI_LOG_WARN("Settings label {} drawing failed", dis->CtlID);
                     }
                     return TRUE;
@@ -667,10 +707,11 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                     const wchar_t* disabled_suffix = english ? L"\nUnavailable" : L"\n不可用";
                     if (IsSettingsFooterControl(gsl::narrow_cast<int>(dis->CtlID)) ||
                         dis->CtlID == kIdBtnDictManager ||
-                        dis->CtlID == kIdBtnHelp || dis->CtlID == kIdBtnRestoreDefaults ||
+                        dis->CtlID == kIdBtnRestoreDefaults ||
                         dis->CtlID == kIdBtnImportConfig || dis->CtlID == kIdBtnExportConfig ||
                         dis->CtlID == kIdBtnBrowsePrimaryDict ||
                         dis->CtlID == kIdBtnCandidateFont ||
+                        dis->CtlID == kIdBtnOpenGitHub ||
                         dis->CtlID == kIdBtnOk || dis->CtlID == kIdBtnCancel) {
                         const bool page_button = !IsSettingsFooterControl(gsl::narrow_cast<int>(dis->CtlID));
                         const D2D1_COLOR_F outer_bg = ColorRefToD2DColor(page_button

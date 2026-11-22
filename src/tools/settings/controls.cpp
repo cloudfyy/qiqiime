@@ -197,7 +197,7 @@ const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage languag
     return nullptr;
 }
 
-void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept {
+void UpdateSettingsPageLabels(HWND hwnd, const DialogContext& ctx) noexcept {
     const auto& text = DisplayText(hwnd, ctx);
     ::SetDlgItemTextW(hwnd, kIdLblUiTheme, text.theme);
     ::SetDlgItemTextW(hwnd, kIdLblUiTextScale, text.scale);
@@ -207,6 +207,28 @@ void UpdateSettingsDisplayLabels(HWND hwnd, const DialogContext& ctx) noexcept {
     std::ignore = log::CheckHResult(
         ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTheme), text.themes),
         "Settings::ReplaceComboBoxItems(theme)");
+    const UiLanguage language =
+        GetSelectedUiLanguageFromCombo(hwnd, ctx);
+    const auto& str = GetUiStrings(language);
+    ::SetDlgItemTextW(
+        hwnd, kIdLblAboutTitle, str.about_app_name);
+    std::array<wchar_t, 256> version_text{};
+    const std::wstring_view formatted_version =
+        FormatAboutVersionText(language, version_text);
+    if (!formatted_version.empty()) {
+        ::SetDlgItemTextW(
+            hwnd, kIdLblAboutVersion, version_text.data());
+    }
+    ::SetDlgItemTextW(
+        hwnd, kIdLblAboutLicense, str.about_license_info);
+    ::SetDlgItemTextW(
+        hwnd, kIdBtnOpenGitHub, str.about_btn_github);
+    ::SetDlgItemTextW(
+        hwnd, kIdLblShortcutsTitle, str.help_header_title);
+    ::SetDlgItemTextW(
+        hwnd, kIdLblShortcutsSubtitle, str.help_header_subtitle);
+    ::SetDlgItemTextW(
+        hwnd, kIdLblShortcutsBody, str.help_shortcuts_info);
     UpdateSettingsTabLabels(hwnd, ctx);
 }
 
@@ -396,7 +418,7 @@ void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept {
         QIQI_LOG_ERROR("Settings candidate preview font creation failed (error={})", ::GetLastError());
     }
     UpdateCandidateFontLabel(hwnd, ctx);
-    UpdateSettingsDisplayLabels(hwnd, ctx);
+    UpdateSettingsPageLabels(hwnd, ctx);
     LayoutSettingsControls(hwnd, ctx);
     EnsureSettingsControlVisible(hwnd, ::GetFocus(), ctx);
     ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
@@ -559,9 +581,7 @@ void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
         hwnd,
         kIdLblCustomPrimaryPath,
         ResolveDictionaryPathDisplayText(ctx.custom_primary_dict_path, str.dlg_lbl_custom_dict_none));
-    ::SetDlgItemTextW(hwnd, kIdBtnAbout, str.dlg_btn_about);
     ::SetDlgItemTextW(hwnd, kIdBtnDictManager, str.dlg_btn_dict_mgr);
-    ::SetDlgItemTextW(hwnd, kIdBtnHelp, str.dlg_btn_help);
     ::SetDlgItemTextW(hwnd, kIdBtnRestoreDefaults, str.dlg_btn_restore_defaults);
     ::SetDlgItemTextW(hwnd, kIdBtnImportConfig, str.dlg_btn_restore_backup);
     ::SetDlgItemTextW(hwnd, kIdBtnExportConfig, str.dlg_btn_create_backup);
@@ -592,7 +612,7 @@ void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
         str.dlg_candidate_horizontal, str.dlg_candidate_vertical
     };
     replace_combo_items(kIdComboCandidateLayout, candidate_layout_items);
-    UpdateSettingsDisplayLabels(hwnd, ctx);
+    UpdateSettingsPageLabels(hwnd, ctx);
 
     struct LanguageUpdate {
         HWND owner;
@@ -771,9 +791,7 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
         "Settings::ReplaceComboBoxItems(English switch)");
 
     constexpr DWORD button_style = BS_OWNERDRAW | WS_TABSTOP;
-    create_control(L"BUTTON", str.dlg_btn_about, button_style, layout::kAboutButton, kIdBtnAbout);
     create_control(L"BUTTON", str.dlg_btn_dict_mgr, button_style, layout::kDictionaryManagerButton, kIdBtnDictManager);
-    create_control(L"BUTTON", str.dlg_btn_help, button_style, layout::kHelpButton, kIdBtnHelp);
     create_control(L"BUTTON", str.dlg_btn_restore_defaults, button_style,
                    layout::kRestoreDefaultsButton, kIdBtnRestoreDefaults);
     create_control(L"BUTTON", str.dlg_btn_ok, button_style, layout::kOkButton, kIdBtnOk);
@@ -791,10 +809,24 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     create_control(L"COMBOBOX", L"", combo_style | WS_VSCROLL, initial, kIdComboImeSkin);
     create_control(L"BUTTON", L"", button_style, initial, kIdBtnCandidateFont);
     create_control(L"STATIC", L"", 0, initial, kIdDisplayExplanation);
+    create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdAboutIcon);
+    create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdLblAboutTitle);
+    create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdLblAboutVersion);
+    create_control(L"STATIC", L"", SS_OWNERDRAW, initial, kIdLblAboutLicense);
+    create_control(
+        L"BUTTON", str.about_btn_github, button_style, initial,
+        kIdBtnOpenGitHub);
+    create_control(
+        L"STATIC", L"", SS_OWNERDRAW, initial, kIdLblShortcutsTitle);
+    create_control(
+        L"STATIC", L"", SS_OWNERDRAW, initial,
+        kIdLblShortcutsSubtitle);
+    create_control(
+        L"STATIC", L"", SS_OWNERDRAW, initial, kIdLblShortcutsBody);
     std::ignore = log::CheckHResult(
         ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTextScale), kTextScaleLabels),
         "Settings::ReplaceComboBoxItems(text scale)");
-    UpdateSettingsDisplayLabels(hwnd, ctx);
+    UpdateSettingsPageLabels(hwnd, ctx);
     ::EnumChildWindows(hwnd, [](HWND child, LPARAM) noexcept -> BOOL {
         if (!::SetWindowSubclass(child, ScrollFocusSubclass, 1, 0)) {
             QIQI_LOG_WARN("Settings focus subclass failed (error={})", ::GetLastError());
