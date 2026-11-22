@@ -12,7 +12,14 @@ set(QIQI_ENGINE_SOURCES
     fsm/transitions.h
     fsm/types.h
     engine/engine.cpp
+    engine/dictdetail.h
     engine/dictutil.cpp
+    engine/dictentry.cpp
+    engine/dictfreq.cpp
+    engine/dictload.cpp
+    engine/dictlookup.cpp
+    engine/dictsync.cpp
+    engine/dictuser.cpp
     engine/engine.h
     engine/builtindict.h
     fsm/table.h
@@ -58,6 +65,10 @@ set(QIQIIME_SOURCES
     ui/candsearch.cpp
     ui/candobj.h
     ui/candobj.cpp
+    ui/candinput.cpp
+    ui/candlayout.cpp
+    ui/candpaint.cpp
+    ui/candpopup.cpp
     ui/canduia.cpp
     ui/fltbarbtn.h
     ui/fltbarbtn.cpp

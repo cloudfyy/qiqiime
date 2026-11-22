@@ -39,7 +39,13 @@ set(QIQI_COMMON_SOURCES
     cfgjson.cpp
     cfgjson.h
     controls.cpp
+    controltheme.cpp
+    candidate.cpp
+    button.cpp
+    toggle.cpp
+    combo.cpp
     controls.h
+    paintutil.h
     ctrlutil.h
     dlgutil.h
     etwreg.h

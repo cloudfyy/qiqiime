@@ -19,6 +19,9 @@ namespace qiqi::dict_manager {
 inline constexpr UINT_PTR kRefreshTimerId = 1;
 inline constexpr UINT kRefreshIntervalMs = 500;
 
+std::wstring FormatWindowTitle(UiLanguage language);
+[[noreturn]] void ThrowUiError(const char* operation, DWORD error);
+
 namespace dict_manager_layout {
 inline constexpr SIZE kInitialWindowSize{1020, 680};
 inline constexpr int kWindowMargin = 12;

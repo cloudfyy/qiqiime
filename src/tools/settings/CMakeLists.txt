@@ -5,8 +5,14 @@ set(QIQI_SETTINGS_UI_SOURCES
     cleanup.cpp
     cleanup.h
     message.cpp
-    window.cpp
     window.h
+    window.cpp
+    windowmsg.cpp
+    commands.cpp
+    binding.h
+    binding.cpp
+    language.cpp
+    preview.cpp
     controls.cpp
     skin.cpp
     internal.h

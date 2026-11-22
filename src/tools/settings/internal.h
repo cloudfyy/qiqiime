@@ -307,11 +307,17 @@ bool PromptSettingsCandidateFont(
     HWND hwnd, DialogContext& ctx, CandidateFontChooser chooser = &::ChooseFontW) noexcept;
 void EnsureSettingsControlVisible(HWND hwnd, HWND child, DialogContext& ctx) noexcept;
 void UpdateSettingsPageLabels(HWND hwnd, const DialogContext& ctx) noexcept;
+void UpdateCandidateFontLabel(HWND hwnd, const DialogContext& ctx) noexcept;
 void DrawSettingsCandidatePreview(const DRAWITEMSTRUCT& item, const DialogContext& ctx) noexcept;
 int MeasureSettingsCandidatePreviewHeight(HWND preview, int width, const DialogContext& ctx) noexcept;
 void UpdateSettingsTabLabels(HWND hwnd, const DialogContext& ctx) noexcept;
 void SelectSettingsPage(HWND hwnd, DialogContext& ctx, SettingsPage page) noexcept;
 LRESULT CALLBACK SettingsTabSubclass(
     HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data) noexcept;
+LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 
 } // namespace qiqi::settings_detail
+
+namespace qiqi {
+void HandleSettingsCommand(HWND hwnd, WPARAM wparam, settings_detail::DialogContext& ctx);
+}
