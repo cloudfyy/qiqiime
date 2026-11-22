@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "common/test_support.h"
+#include "common/support.h"
 #include "common/dictcodec.h"
 #include "common/comobj.h"
 #include "common/config.h"

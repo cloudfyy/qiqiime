@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/svc/test.h"
+#include "ime/svc/flowfixture.h"
 
 namespace qiqi::test::service_cases {
 
@@ -111,6 +112,12 @@ void TestSkinConfigReloadPreservesInput() {
     QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_DOWN, 0, &eaten) == S_OK && eaten);
     QIQI_TEST_CHECK(candidates->GetCurrentPage(&after) == S_OK && after == page);
     QIQI_TEST_CHECK(candidates->GetSelection(&after) == S_OK && after == selection + 1);
+}
+
+void TestQiQiTextServiceSkinReloadFlow() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const ServiceFlowTestFixture fixture;
+    RunTsfTestStage("service.skin-reload", TestSkinConfigReloadPreservesInput);
 }
 
 void TestModeSwitchCompositionPolicy(

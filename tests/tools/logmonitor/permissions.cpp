@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "common/test_support.h"
+#include "common/support.h"
 #include "common/config.h"
 #include "common/fileutil.h"
 #include "common/window.h"

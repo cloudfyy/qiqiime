@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
-#include "common/test_support.h"
+#include "common/support.h"
 #include "common/RAII.h"
 #include "tools/logmonitor/metric.h"
 #include <cstring>

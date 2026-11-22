@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 set(QIQI_COMMON_TEST_SOURCES
-    test_support.h
+    support.h
     common.cpp
-    common_main.cpp
+    main.cpp
     core/test.h
     core/config.cpp
     core/files.cpp
@@ -12,7 +12,13 @@ set(QIQI_COMMON_TEST_SOURCES
     core/resources.cpp
     core/zip.cpp
     etw.cpp
-    ui_d2d_controls.cpp
+    controltest.h
+    controls.cpp
+    themetext.cpp
+    painting.cpp
+    combolist.cpp
+    filepick.cpp
+    infodlg.cpp
 )
 add_executable(qiqi_common_test ${QIQI_COMMON_TEST_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_COMMON_TEST_SOURCES})
@@ -27,7 +33,7 @@ target_link_libraries(qiqi_common_test PRIVATE
 )
 add_test(NAME QiQiCommonTest COMMAND qiqi_common_test)
 
-add_executable(qiqi_change_sync_test change_sync.cpp)
+add_executable(qiqi_change_sync_test sync.cpp)
 target_include_directories(qiqi_change_sync_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
 target_link_libraries(qiqi_change_sync_test PRIVATE qiqi_engine qiqi_common ole32 userenv)
 add_test(NAME QiQiChangeSyncTest COMMAND qiqi_change_sync_test)

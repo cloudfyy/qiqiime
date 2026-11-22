@@ -11,7 +11,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" PREFIX "skin" FILES ${QIQI_SKIN_
 
 add_test(NAME QiQiSkinTest
     COMMAND "${QIQI_TEST_POWERSHELL}" -NoLogo -NoProfile -ExecutionPolicy Bypass
-        -File "${PROJECT_SOURCE_DIR}/tests/ime/test_watchdog.ps1"
+        -File "${PROJECT_SOURCE_DIR}/tests/ime/watchdog.ps1"
         -TestExecutable "$<TARGET_FILE:qiqi_tsf_ui_test>"
         -Debugger "${QIQI_TEST_CDB}" -Mode skins)
 set_tests_properties(QiQiSkinTest PROPERTIES RUN_SERIAL TRUE TIMEOUT 150 LABELS "skin")

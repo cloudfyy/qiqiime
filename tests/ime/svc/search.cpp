@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ime/tsf/test_trace.h"
+#include "ime/tsf/trace.h"
 #include "common/etw.h"
-#include "common/test_support.h"
+#include "common/support.h"
 #include "common/version.h"
 #include "ime/tsf/mocks.h"
 #include "ime/svc/service.h"

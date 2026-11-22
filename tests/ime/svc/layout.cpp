@@ -1,12 +1,13 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "ime/tsf/test_trace.h"
-#include "common/test_support.h"
+#include "ime/tsf/trace.h"
+#include "common/support.h"
 #include "common/dpi.h"
 #include "common/etw.h"
 #include "ime/tsf/mocks.h"
 #include "ime/svc/lifecycle.h"
+#include "ime/svc/flowfixture.h"
 #include "ime/svc/service.h"
 #include "ime/comp/layout.h"
 #include <algorithm>
@@ -677,4 +678,29 @@ void RunTsfLayoutSessionTests(
     }
     TestOngoingLayoutGeometryDiagnostics(service, mock_tm);
 }
+
+namespace service_cases {
+
+void TestQiQiTextServiceLayoutFlow() {
+    const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
+    const ServiceFlowTestFixture fixture;
+    QiQiConfig config;
+    config.primary_dict = PrimaryDict::BuiltinOnly;
+    config.show_status_bar = false;
+    QIQI_TEST_CHECK(SaveConfig(config));
+    const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+    const auto manager = MakeComObject<MockTfThreadMgr>();
+    QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
+    const auto deactivate = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    });
+    RunTsfTestStage(
+        "lifecycle.layout-query",
+        [&] { RunTsfLayoutQueryTests(service.Get(), manager.Get()); });
+    RunTsfTestStage(
+        "lifecycle.layout-session",
+        [&] { RunTsfLayoutSessionTests(service.Get(), manager.Get()); });
+}
+
+} // namespace service_cases
 } // namespace qiqi::test

@@ -9,13 +9,13 @@ void RunTsfServiceTests() {
     using namespace service_cases;
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     RunTsfTestStage("service.shift", TestShiftTapTracking);
-    RunTsfTestStage("service.key-flow", [] { TestQiQiTextServiceLifecycleAndKeyFlow(); });
+    RunTsfTestStage("service.key-flow", TestQiQiTextServiceLifecycleAndKeyFlow);
     RunTsfTestStage("service.focus-performance", TestFocusPerformanceLogs);
     RunTsfTestStage("service.focus-performance-repeat", TestFocusPerformanceLogs);
 }
 
 void RunTsfCandidateLayoutTests() {
-    service_cases::TestQiQiTextServiceLifecycleAndKeyFlow(true);
+    service_cases::TestQiQiTextServiceLayoutFlow();
 }
 
 } // namespace qiqi::test

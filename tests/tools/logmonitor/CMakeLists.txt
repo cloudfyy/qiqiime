@@ -12,7 +12,7 @@ add_executable(qiqi_log_monitor_test
     model.cpp
     version.cpp
     permissions.cpp
-    metrics_view.cpp
+    metrics.cpp
     "${CMAKE_BINARY_DIR}/generated/tools/logmonitor/version.rc"
 )
 target_include_directories(qiqi_log_monitor_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")

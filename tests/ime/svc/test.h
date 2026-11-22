@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "common/test_support.h"
+#include "common/support.h"
 #include "ime/tsf/mocks.h"
 #include "common/guids.h"
 #include "common/i18n.h"
@@ -13,7 +13,7 @@
 #include "ime/tsf/editsession.h"
 #include "ime/svc/lifecycle.h"
 #include "ime/svc/service.h"
-#include "ime/tsf/test_trace.h"
+#include "ime/tsf/trace.h"
 
 #include <cstdlib>
 #include <chrono>
@@ -41,6 +41,8 @@ void TestFocusPerformanceLogs();
 void TestProcessDictCacheLifetime();
 void TestDictionarySharingAndLegacyRegistryIgnored();
 void TestPreservedKeyRegistrationLifetime(gsl::not_null<QiQiTextService*> service);
-void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only = false, bool skins_only = false);
+void TestQiQiTextServiceLifecycleAndKeyFlow();
+void TestQiQiTextServiceLayoutFlow();
+void TestQiQiTextServiceSkinReloadFlow();
 
 } // namespace qiqi::test::service_cases

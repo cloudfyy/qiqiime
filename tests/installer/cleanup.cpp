@@ -4,7 +4,7 @@
 #include "cleanup.h"
 #include "internal.h"
 #include "common/RAII.h"
-#include "common/test_support.h"
+#include "common/support.h"
 
 #include <aclapi.h>
 #include <objbase.h>

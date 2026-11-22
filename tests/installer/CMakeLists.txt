@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 cloudfyy
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-add_executable(qiqi_installer_actions_test installer_main.cpp cleanup.cpp
+add_executable(qiqi_installer_actions_test main.cpp cleanup.cpp
     "${PROJECT_SOURCE_DIR}/installer/actions.cpp"
     "${PROJECT_SOURCE_DIR}/installer/wizard.cpp")
 target_include_directories(qiqi_installer_actions_test PRIVATE

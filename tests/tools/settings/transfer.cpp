@@ -4,7 +4,7 @@
 #include "common/backup.h"
 #include "common/dictcodec.h"
 #include "common/fileutil.h"
-#include "common/test_support.h"
+#include "common/support.h"
 #include "common/zip.h"
 #include "ime/engine/backup.h"
 #include "ime/engine/engine.h"

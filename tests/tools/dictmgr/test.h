@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "common/test_support.h"
+#include "common/support.h"
 #include "common/config.h"
 #include "common/toolbar.h"
 #include "common/controls.h"

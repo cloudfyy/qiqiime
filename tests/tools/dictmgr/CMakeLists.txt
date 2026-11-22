@@ -5,6 +5,11 @@ add_executable(qiqi_dict_manager_test
     main.cpp
     test.h
     backup.cpp
+    backupfailure.cpp
+    backupfixture.cpp
+    backupfixture.h
+    backuprestore.cpp
+    backupzip.cpp
     commands.cpp
     editor.cpp
     helpers.cpp

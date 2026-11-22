@@ -11,7 +11,7 @@ find_program(QIQI_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
 add_test(NAME QiQiReleaseNotesTest
     COMMAND "${QIQI_POWERSHELL_EXECUTABLE}"
         -NoLogo -NoProfile -ExecutionPolicy Bypass
-        -File "${CMAKE_CURRENT_SOURCE_DIR}/installer/release_notes.ps1"
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/installer/notes.ps1"
 )
 add_test(NAME QiQiInstallerShortcutsTest
     COMMAND "${QIQI_POWERSHELL_EXECUTABLE}"

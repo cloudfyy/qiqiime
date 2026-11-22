@@ -17,9 +17,9 @@ void RunSkinTests() {
     RunTsfTestStage("skin.catalog", common_cases::TestImeSkins);
     RunTsfTestStage("skin.settings", RunSettingsSkinTests);
     RunTsfTestStage("skin.candidate", RunCandidateSkinTests);
-    RunTsfTestStage("skin.input-lifecycle", [] {
-        service_cases::TestQiQiTextServiceLifecycleAndKeyFlow(false, true);
-    });
+    RunTsfTestStage(
+        "skin.input-lifecycle",
+        service_cases::TestQiQiTextServiceSkinReloadFlow);
     RunTsfTestStage("skin.menu", RunMenuSkinTests);
 }
 

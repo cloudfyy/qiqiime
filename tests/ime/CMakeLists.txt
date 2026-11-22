@@ -9,8 +9,8 @@ set(QIQI_ENGINE_TEST_SOURCES
     engine/dict/lookup.cpp
     engine/dict/sync.cpp
     engine/input.cpp
-    engine/modes_punct.cpp
-    engine_main.cpp
+    engine/modes.cpp
+    engine/main.cpp
 )
 add_executable(qiqi_engine_test ${QIQI_ENGINE_TEST_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_ENGINE_TEST_SOURCES})
@@ -21,29 +21,29 @@ add_test(NAME QiQiEngineTest COMMAND qiqi_engine_test)
 set(QIQI_TSF_UI_TEST_SOURCES
     comp/tests.h
     comp/cleanup.cpp
-    comp/cleanup_handoff.cpp
-    comp/context_reset.cpp
+    comp/handoff.cpp
+    comp/reset.cpp
     comp/edit.cpp
-    comp/edit_action.cpp
-    comp/edit_execution.cpp
-    comp/edit_entry.cpp
+    comp/action.cpp
+    comp/execution.cpp
+    comp/entry.cpp
     comp/finish.cpp
-    comp/finish_state.cpp
+    comp/finishstate.cpp
     comp/identity.cpp
     comp/layout.cpp
-    comp/layout_entry.cpp
-    comp/layout_update.cpp
-    comp/layout_position.cpp
+    comp/layoutentry.cpp
+    comp/layoutupdate.cpp
+    comp/position.cpp
     comp/presentation.cpp
-    comp/presentation_entry.cpp
+    comp/presentationentry.cpp
     comp/range.cpp
     comp/start.cpp
-    comp/start_update.cpp
+    comp/startupdate.cpp
     comp/state.cpp
     comp/target.cpp
-    comp/target_entry.cpp
+    comp/targetentry.cpp
     comp/termination.cpp
-    comp/termination_route.cpp
+    comp/route.cpp
     comp/update.cpp
     tsf/mocks.h
     tsf/mock/base.h
@@ -53,13 +53,19 @@ set(QIQI_TSF_UI_TEST_SOURCES
     tsf/mock/profile.h
     tsf/mock/range.h
     tsf/mock/thread.h
-    tsf/test_trace.h
+    tsf/trace.h
     tsf/com.cpp
-    tsf/category_manager.cpp
+    tsf/category.cpp
     tsf/logging.cpp
-    tsf/restricted_input.cpp
+    tsf/scope.h
+    tsf/native.cpp
+    tsf/policy.cpp
+    tsf/diagnose.cpp
+    tsf/restricted.cpp
     svc/main.cpp
     svc/test.h
+    svc/flowfixture.h
+    svc/flowfixture.cpp
     svc/dict.cpp
     svc/flow.cpp
     svc/focus.cpp
@@ -77,10 +83,10 @@ set(QIQI_TSF_UI_TEST_SOURCES
     svc/reentrancy.cpp
     svc/target.cpp
     svc/windows.cpp
-    ui/ui_candidate.cpp
-    ui/ui_langbar_menu.cpp
-    ui/ui_statusbar.cpp
-    tsf_ui_main.cpp
+    ui/candidate.cpp
+    ui/langbar.cpp
+    ui/statusbar.cpp
+    tsf/main.cpp
 )
 set(QIQI_TSF_UI_IMPL_SOURCES
     "${PROJECT_SOURCE_DIR}/src/ime/comp/cleanup.cpp"
@@ -97,6 +103,10 @@ set(QIQI_TSF_UI_IMPL_SOURCES
     "${PROJECT_SOURCE_DIR}/src/ime/ui/cadifsm.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/candsearch.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/candobj.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/ui/candinput.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/ui/candlayout.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/ui/candpaint.cpp"
+    "${PROJECT_SOURCE_DIR}/src/ime/ui/candpopup.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/canduia.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/fltbarbtn.cpp"
     "${PROJECT_SOURCE_DIR}/src/ime/ui/ctxmenu.cpp"
@@ -154,7 +164,7 @@ foreach(_mode IN ITEMS full focused)
     endif()
     add_test(NAME ${_test_name}
         COMMAND "${QIQI_TEST_POWERSHELL}" -NoLogo -NoProfile -ExecutionPolicy Bypass
-            -File "${CMAKE_CURRENT_SOURCE_DIR}/test_watchdog.ps1"
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/watchdog.ps1"
             -TestExecutable "$<TARGET_FILE:qiqi_tsf_ui_test>"
             -Debugger "${QIQI_TEST_CDB}" -Mode "${_mode}")
     if(_mode STREQUAL "full")
@@ -174,7 +184,7 @@ add_test(NAME QiQiFocusMetricsEtwTest COMMAND qiqi_tsf_ui_test --focus-metrics-e
 set_tests_properties(QiQiFocusMetricsEtwTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 90 RUN_SERIAL TRUE)
 
 add_executable(QiQiTsfTestHost WIN32
-    tsf_test_host.cpp
+    tsf/host.cpp
     "${PROJECT_SOURCE_DIR}/src/ime/comp/cleanup.cpp"
 )
 target_include_directories(QiQiTsfTestHost PRIVATE "${PROJECT_SOURCE_DIR}/tests")

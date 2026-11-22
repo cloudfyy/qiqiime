@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/svc/test.h"
+#include "ime/svc/flowfixture.h"
 #include "common/clipboard.h"
 #include "common/logger.h"
 #include "common/settings.h"
@@ -25,62 +26,11 @@ HRESULT FailSettingsLaunchForTest(
 
 } // namespace
 
-void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only, bool skins_only) {
+void TestQiQiTextServiceLifecycleAndKeyFlow() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
-    const auto suffix = std::to_wstring(::GetCurrentProcessId()) + L"_" + std::to_wstring(::GetTickCount64());
-    const std::wstring subkey = L"Software\\QiQiIME_TsfUnitTest_" + suffix;
-    const wchar_t* outer_config_subkey = GetActiveConfigRegistrySubKey();
-
-    wchar_t* orig_localappdata = nullptr;
-    size_t orig_len = 0;
-    QIQI_TEST_CHECK(_wdupenv_s(&orig_localappdata, &orig_len, L"LOCALAPPDATA") == 0);
-    const std::unique_ptr<wchar_t, decltype(&std::free)> orig_localappdata_owner(
-        orig_localappdata, &std::free);
-    const auto temp_appdata = std::filesystem::temp_directory_path() / (L"QiQiIME_TsfTestAppData_" + suffix);
-    QIQI_TEST_CHECK(std::filesystem::create_directory(temp_appdata));
-    const auto restore_appdata = gsl::finally([&]() noexcept {
-        SetConfigRegistrySubKeyOverrideForTest(outer_config_subkey);
-        const auto status = ::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str());
-        QIQI_TEST_CHECK_CLEANUP(status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND);
-        QIQI_TEST_CHECK_CLEANUP(_wputenv_s(L"LOCALAPPDATA",
-            orig_localappdata_owner ? orig_localappdata_owner.get() : L"") == 0);
-        std::error_code clean_ec;
-        std::filesystem::remove_all(temp_appdata, clean_ec);
-        QIQI_TEST_CHECK_CLEANUP(!clean_ec);
-    });
-    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
-    QIQI_TEST_CHECK(_wputenv_s(L"LOCALAPPDATA", temp_appdata.c_str()) == 0);
-
-    std::array<BYTE, 256> original_kb_state{};
-    QIQI_TEST_CHECK(::GetKeyboardState(original_kb_state.data()));
-    const auto restore_kb_state = gsl::finally([&]() noexcept {
-        QIQI_TEST_CHECK(::SetKeyboardState(original_kb_state.data()));
-    });
-    std::array<BYTE, 256> clean_kb_state{};
-    QIQI_TEST_CHECK(::SetKeyboardState(clean_kb_state.data()));
-    SetMuteAudioOutputForTest(true);
-    ResetLastPlayedSoundForTest();
-
-    if (skins_only) {
-        RunTsfTestStage("service.skin-reload", TestSkinConfigReloadPreservesInput);
-        return;
-    }
-
-    if (layout_only) {
-        QiQiConfig config;
-        config.primary_dict = PrimaryDict::BuiltinOnly;
-        config.show_status_bar = false;
-        QIQI_TEST_CHECK(SaveConfig(config));
-        const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
-        const auto manager = MakeComObject<MockTfThreadMgr>();
-        QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
-        const auto deactivate = gsl::finally([&]() noexcept {
-            QIQI_TEST_CHECK(service->Deactivate() == S_OK);
-        });
-        RunTsfTestStage("lifecycle.layout-query", [&] { RunTsfLayoutQueryTests(service.Get(), manager.Get()); });
-        RunTsfTestStage("lifecycle.layout-session", [&] { RunTsfLayoutSessionTests(service.Get(), manager.Get()); });
-        return;
-    }
+    const ServiceFlowTestFixture fixture;
+    const auto& temp_appdata = fixture.AppDataDirectory();
+    auto clean_kb_state = fixture.CleanKeyboardState();
 
     RunTsfTestStage("service.input-method-switch", TestInputMethodSwitchCompositionPolicy);
     RunTsfTestStage("service.focus-change-policy", TestFocusChangeCompositionPolicy);
@@ -1010,8 +960,6 @@ void TestQiQiTextServiceLifecycleAndKeyFlow(bool layout_only, bool skins_only) {
     QIQI_TEST_CHECK(SUCCEEDED(service_haifeng->Deactivate()));
     hf_tm_sink.Reset();
     QIQI_TEST_CHECK(service_haifeng.Detach()->Release() == 0);
-    SetMuteAudioOutputForTest(false);
-
     // Also test QiQiTextService construction when:
     // 1) g_dll_instance points to kernel32.dll (where dictionaries do not exist next to DLL)
     // 2) g_dll_instance is invalid (GetModuleFileNameW failure branch)

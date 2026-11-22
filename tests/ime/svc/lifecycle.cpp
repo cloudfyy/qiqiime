@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "common/test_support.h"
+#include "common/support.h"
 #include "ime/tsf/mocks.h"
 #include "ime/svc/service.h"
 #include "ime/svc/lifecycle.h"
-#include "ime/tsf/test_trace.h"
+#include "ime/tsf/trace.h"
 
 namespace qiqi::test {
 
