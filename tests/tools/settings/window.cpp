@@ -68,7 +68,8 @@ void TestSettingsDictionaryDependencies() {
     WithDismissedMessage(GetUiStrings(UiLanguage::EnUs).dlg_invalid_primary_dict, [&] {
         click(IDOK);
     });
-    auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
+    const auto* context = reinterpret_cast<const DialogContext*>(
+        ::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
     QIQI_TEST_CHECK(context && !context->done && !context->accepted);
     QIQI_TEST_CHECK(config.primary_dict == PrimaryDict::BuiltinOnly);
     for (const int id : {kIdRadioHaifeng, kIdRadioBuiltin, kIdRadioCustom}) {

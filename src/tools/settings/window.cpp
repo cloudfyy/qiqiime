@@ -70,7 +70,7 @@ void CheckPrimaryDictRadio(HWND hwnd, PrimaryDict dict) noexcept {
 } // namespace
 
 std::filesystem::path settings_detail::GetSettingsModuleDirectory(
-    const DialogContext& ctx) noexcept {
+    const DialogContext& ctx) {
     const std::filesystem::path mod_path =
         GetModuleFilePath(ctx.instance ? ctx.instance : g_dll_instance);
     return mod_path.empty() ? std::filesystem::path{} : mod_path.parent_path();
@@ -285,8 +285,15 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                 const RECT work = QueryActiveMonitor(combo).work_area;
                 const LONG above = std::clamp(bounds.top, work.top, work.bottom) - work.top;
                 const LONG below = work.bottom - std::clamp(bounds.bottom, work.top, work.bottom);
-                const LRESULT available = std::max(above, below) -
-                    2 * ::GetSystemMetricsForDpi(SM_CYEDGE, ctx.d2d.dpi);
+                const LRESULT edge =
+                    gsl::narrow_cast<LRESULT>(
+                        ::GetSystemMetricsForDpi(
+                            SM_CYEDGE, ctx.d2d.dpi));
+                const LRESULT available =
+                    std::max(
+                        gsl::narrow_cast<LRESULT>(above),
+                        gsl::narrow_cast<LRESULT>(below)) -
+                    2 * edge;
                 const LRESULT visible = std::clamp(available / item_height, LRESULT{1}, count);
                 if (!::SendMessageW(combo, CB_SETMINVISIBLE, gsl::narrow_cast<WPARAM>(visible), 0)) {
                     QIQI_LOG_WARN("Settings skin dropdown visible row count update failed");

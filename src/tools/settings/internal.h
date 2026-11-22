@@ -215,7 +215,7 @@ inline constexpr RECT kRestoreDefaultsButton{
 DWORD OpenDictionaryManager(
     HWND owner, const std::filesystem::path& executable, UiLanguage language,
     gsl::not_null<decltype(&::ShellExecuteExW)> execute = &::ShellExecuteExW);
-std::filesystem::path GetSettingsModuleDirectory(const DialogContext& context) noexcept;
+std::filesystem::path GetSettingsModuleDirectory(const DialogContext& context);
 
 class SettingsCompartmentListener final
     : public ComObjectBase<SettingsCompartmentListener, ITfCompartmentEventSink> {

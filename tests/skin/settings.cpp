@@ -58,7 +58,8 @@ bool CandidatePreviewContainsColor(HWND settings, int control_id, COLORREF expec
     return false;
 }
 
-void ClickComboDropdownButton(HWND combo, const COMBOBOXINFO& info) {
+void ClickComboDropdownButton(
+    HWND combo, const COMBOBOXINFO& info) noexcept {
     const LPARAM button = MAKELPARAM(
         (info.rcButton.left + info.rcButton.right) / 2,
         (info.rcButton.top + info.rcButton.bottom) / 2);
@@ -363,7 +364,7 @@ void RunSettingsSkinTests() {
     QIQI_TEST_CHECK(context->candidate_preview_font &&
         ::GetObjectW(context->candidate_preview_font.Get(),
             sizeof(missing_preview_font), &missing_preview_font) == sizeof(missing_preview_font));
-    QIQI_TEST_CHECK(std::wstring_view(missing_preview_font.lfFaceName) !=
+    QIQI_TEST_CHECK(LogFontFaceNameView(missing_preview_font) !=
         L"QiQi Missing Candidate Font");
     QIQI_TEST_CHECK(!CandidateFontFamilyAvailable(L"@DengXian"));
     wcscpy_s(chosen_candidate_font.lfFaceName, L"DengXian");
@@ -382,7 +383,7 @@ void RunSettingsSkinTests() {
     QIQI_TEST_CHECK(context->candidate_preview_font &&
         ::GetObjectW(context->candidate_preview_font.Get(), sizeof(preview_font), &preview_font) ==
             sizeof(preview_font));
-    QIQI_TEST_CHECK(std::wstring_view(preview_font.lfFaceName) == L"DengXian" &&
+    QIQI_TEST_CHECK(LogFontFaceNameView(preview_font) == L"DengXian" &&
         preview_font.lfWeight == FW_BOLD && preview_font.lfItalic);
     std::array<wchar_t, 160> selected_font_label{};
     QIQI_TEST_CHECK(::GetDlgItemTextW(

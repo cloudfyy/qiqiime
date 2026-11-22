@@ -441,13 +441,15 @@ bool PromptSettingsCandidateFont(
         }
         return false;
     }
-    const size_t length = ::wcsnlen(selection.lfFaceName, LF_FACESIZE);
-    if (length == 0 || length >= LF_FACESIZE) {
-        QIQI_LOG_WARN("Candidate font dialog returned an invalid family (length={})", length);
+    const std::wstring_view selected_family =
+        LogFontFaceNameView(selection);
+    if (selected_family.empty() ||
+        selected_family.size() >= LF_FACESIZE) {
+        QIQI_LOG_WARN(
+            "Candidate font dialog returned an invalid family (length={})",
+            selected_family.size());
         return false;
     }
-    const std::wstring_view selected_family(
-        selection.lfFaceName, length);
     if (!CandidateFontFamilyAvailable(selected_family)) {
         QIQI_LOG_WARN("Candidate font dialog returned a family that is no longer installed");
         return false;

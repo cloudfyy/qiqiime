@@ -639,7 +639,8 @@ void TestCandidateSkinStates() {
 
 void TestCandidateFontPreferences() {
     const TsfTestCaseTrace trace(__func__);
-    const auto previous_monitor = detail::MonitorMetricsOverrideStorage();
+    auto previous_monitor = std::exchange(
+        detail::MonitorMetricsOverrideStorage(), std::nullopt);
     const auto restore_monitor = gsl::finally([&]() noexcept {
         SetMonitorMetricsOverrideForTest(previous_monitor);
     });
@@ -653,7 +654,7 @@ void TestCandidateFontPreferences() {
     });
     ui->SetCandidates(L"ab", {L"One", L"Two"}, 2, 0, 0);
     const LOGFONTW description = ui->FontDescriptionForTest();
-    QIQI_TEST_CHECK(std::wstring_view(description.lfFaceName) == L"Segoe UI");
+    QIQI_TEST_CHECK(LogFontFaceNameView(description) == L"Segoe UI");
     QIQI_TEST_CHECK(description.lfWeight == FW_BOLD && description.lfItalic);
     QIQI_TEST_CHECK(std::abs(gsl::narrow_cast<int>(description.lfHeight)) ==
         CandidateFontHeightPx({L"Segoe UI", 24, CandidateFontWeight::Bold, true},
@@ -665,7 +666,7 @@ void TestCandidateFontPreferences() {
         L"QiQi Missing Candidate Font", 30, CandidateFontWeight::Black, true,
     });
     const LOGFONTW missing_fallback = ui->FontDescriptionForTest();
-    QIQI_TEST_CHECK(std::wstring_view(missing_fallback.lfFaceName) !=
+    QIQI_TEST_CHECK(LogFontFaceNameView(missing_fallback) !=
         L"QiQi Missing Candidate Font");
     QIQI_TEST_CHECK(missing_fallback.lfWeight == FW_NORMAL &&
         !missing_fallback.lfItalic);

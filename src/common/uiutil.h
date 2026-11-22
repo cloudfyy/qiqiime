@@ -312,6 +312,14 @@ inline bool TryGetSystemUiFont(LOGFONTW& font) noexcept {
     return true;
 }
 
+inline std::wstring_view LogFontFaceNameView(
+    const LOGFONTW& font) noexcept {
+    const wchar_t* const first = std::data(font.lfFaceName);
+    return {
+        first,
+        ::wcsnlen(first, std::size(font.lfFaceName))};
+}
+
 struct CandidateFontGdiLookup final {
     std::wstring_view family;
     bool found = false;
@@ -322,7 +330,7 @@ inline int CALLBACK CandidateFontGdiEnumProc(
     if (!font || data == 0) return 0;
 #pragma warning(suppress : 26490)
     auto& query = *reinterpret_cast<CandidateFontGdiLookup*>(data);
-    std::wstring_view candidate(font->lfFaceName);
+    const std::wstring_view candidate = LogFontFaceNameView(*font);
     if (!candidate.empty() && candidate.front() != L'@' &&
         ::CompareStringOrdinal(
             candidate.data(), gsl::narrow_cast<int>(candidate.size()),
@@ -415,7 +423,8 @@ inline bool TryBuildCandidateFont(
             QIQI_LOG_WARN("Candidate font family is not installed; using the system UI font");
             return false;
         }
-        font.family.copy(next.lfFaceName, font.family.size());
+        font.family.copy(
+            std::data(next.lfFaceName), font.family.size());
     }
     next.lfHeight = -CandidateFontHeightPx(font, automatic_height_px, dpi, scale);
     next.lfWeight = CandidateFontWeightToGdi(font.weight);
