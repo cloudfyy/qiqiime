@@ -57,8 +57,8 @@ set(QIQI_COMMON_SOURCES
     sound.h
     skin.cpp
     skin.h
-    settingsbridge.cpp
-    settingsbridge.h
+    settings.cpp
+    settings.h
     theme.h
     window.h
     toolbar.cpp

@@ -7,7 +7,7 @@
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
-#include "common/settingsbridge.h"
+#include "common/settings.h"
 
 #include <oleauto.h>
 #include <filesystem>

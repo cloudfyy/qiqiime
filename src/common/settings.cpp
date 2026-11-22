@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "common/settingsbridge.h"
+#include "common/settings.h"
 
 #include "common/comobj.h"
 #include "common/controls.h"

@@ -6,7 +6,7 @@
 #include "common/dialog.h"
 #include "common/config.h"
 #include "common/RAII.h"
-#include "common/settingsbridge.h"
+#include "common/settings.h"
 #include "common/skin.h"
 
 namespace qiqi {

@@ -4,7 +4,7 @@
 #include "ime/svc/test.h"
 #include "common/clipboard.h"
 #include "common/logger.h"
-#include "common/settingsbridge.h"
+#include "common/settings.h"
 
 namespace qiqi::test::service_cases {
 namespace {
