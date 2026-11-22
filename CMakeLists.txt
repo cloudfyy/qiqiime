@@ -3,6 +3,14 @@
 
 cmake_minimum_required(VERSION 4.4.4)
 
+if(NOT DEFINED VCPKG_TARGET_TRIPLET AND CMAKE_GENERATOR MATCHES "Visual Studio")
+    if(CMAKE_GENERATOR_PLATFORM STREQUAL "Win32")
+        set(VCPKG_TARGET_TRIPLET "x86-windows-static" CACHE STRING "Vcpkg target triplet")
+    elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
+        set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "Vcpkg target triplet")
+    endif()
+endif()
+
 # Automatically locate vcpkg toolchain if not explicitly provided
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     if(DEFINED ENV{VCPKG_ROOT} AND EXISTS "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
@@ -123,6 +131,12 @@ endif()
 find_package(Microsoft.GSL CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(miniz CONFIG REQUIRED)
+get_target_property(QIQI_MINIZ_TARGET_TYPE miniz::miniz TYPE)
+if(NOT QIQI_MINIZ_TARGET_TYPE STREQUAL "STATIC_LIBRARY")
+    message(FATAL_ERROR
+        "miniz must use a static vcpkg triplet so packaged executables do not depend on miniz.dll. "
+        "Configure with VCPKG_TARGET_TRIPLET=x64-windows-static or x86-windows-static.")
+endif()
 
 # Build source and test subdirectories
 enable_testing()

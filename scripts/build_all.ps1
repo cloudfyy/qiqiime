@@ -19,9 +19,15 @@ if ([string]::IsNullOrWhiteSpace($Generator)) {
 
 foreach ($t in (Get-QiQiBuildTargets)) {
     $cacheFile = Join-Path $t.BuildDir "CMakeCache.txt"
-    if (-not (Test-Path $cacheFile)) {
+    $configuredTriplet = if (Test-Path $cacheFile) {
+        $line = Select-String -LiteralPath $cacheFile -Pattern '^VCPKG_TARGET_TRIPLET:[^=]*=(.*)$' |
+            Select-Object -First 1
+        if ($line) { $line.Matches[0].Groups[1].Value }
+    }
+    if (-not (Test-Path $cacheFile) -or $configuredTriplet -ne $t.Triplet) {
         Write-QiQiStep "Configuring $($t.Name) ($($t.Arch))"
-        & cmake -S $QiQiRepoRoot -B $t.BuildDir -G $Generator -A $t.Arch
+        & cmake -S $QiQiRepoRoot -B $t.BuildDir -G $Generator -A $t.Arch `
+            -D "VCPKG_TARGET_TRIPLET=$($t.Triplet)"
         if ($LASTEXITCODE -ne 0) {
             $configureExitCode = $LASTEXITCODE
             Write-Error "CMake configuration ($($t.Name)) failed with exit code $configureExitCode." -ErrorAction Continue

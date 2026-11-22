@@ -58,8 +58,8 @@ function Get-QiQiDefaultVsGenerator {
 
 function Get-QiQiBuildTargets {
     return @(
-        @{ Name = "x64"; Arch = "x64";   BuildDir = Join-Path $script:QiQiRepoRoot "build\x64" },
-        @{ Name = "x86"; Arch = "Win32"; BuildDir = Join-Path $script:QiQiRepoRoot "build\x86" }
+        @{ Name = "x64"; Arch = "x64"; Triplet = "x64-windows-static"; BuildDir = Join-Path $script:QiQiRepoRoot "build\x64" },
+        @{ Name = "x86"; Arch = "Win32"; Triplet = "x86-windows-static"; BuildDir = Join-Path $script:QiQiRepoRoot "build\x86" }
     )
 }
 
