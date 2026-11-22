@@ -58,7 +58,10 @@ and registry transactions; JSON is an exchange format, not a replacement
 configuration store. Keep transferred scalar fields separate from local paths.
 Duplicate JSON keys (including escaped spellings) must be rejected before a
 parsed object can overwrite them. Tests use isolated registry keys and files;
-the Settings import preview stages edits and never saves on its own.
+Settings backup creation exports saved state, while Settings restore applies a
+fully validated complete ZIP immediately rather than staging a configuration draft.
+The registry sequence is runtime metadata: it is never exported or restored from a
+backup; `SaveConfigToRegistryResult` advances the current sequence after a write.
 
 From the repository root, build and test both native architectures sequentially:
 
@@ -344,6 +347,10 @@ Reset/final cleanup shares ChangeSync's 2-second, sharing-violation-only cleanup
 helper and diagnostics; it never retries a partially applied restore.
 `qiqi_dict_manager_test.exe --backup-restore-test` runs this private scenario
 without the unrelated GUI suites; it does not replace full-suite validation.
+Backup layering is one-way: `common/backup` owns the archive format, strict parsing,
+result types and shared UI prompts; `ime/engine/backup` owns `WubiEngine` execution
+and custom-primary validation. `qiqi_common` must not include or link `ime`/tool
+code, and Settings and Dictionary Manager must not include each other.
 Fixture setup also uses the model's HRESULT-preserving phrase-promotion API.
 An unexpected initialization failure flushes `FIXTURE-FAIL` with its reset
 number, PID, private directory and original HRESULT before exiting with failure; do not

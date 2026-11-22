@@ -4,13 +4,13 @@
 #include "tools/settings/internal.h"
 #include "tools/settings/transfer.h"
 #include "common/dlgutil.h"
+#include "common/dictui.h"
 #include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/theme.h"
 #include "ime/engine/dict.h"
-#include "tools/dictmgr/util.h"
 
 #include <commctrl.h>
 #include <windowsx.h>
@@ -67,11 +67,16 @@ void CheckPrimaryDictRadio(HWND hwnd, PrimaryDict dict) noexcept {
     }
 }
 
-std::filesystem::path GetSettingsModuleDirectory(const DialogContext& ctx) {
+} // namespace
+
+std::filesystem::path settings_detail::GetSettingsModuleDirectory(
+    const DialogContext& ctx) noexcept {
     const std::filesystem::path mod_path =
         GetModuleFilePath(ctx.instance ? ctx.instance : g_dll_instance);
     return mod_path.empty() ? std::filesystem::path{} : mod_path.parent_path();
 }
+
+namespace {
 
 bool ValidateSettingsPrimaryDictionary(HWND hwnd, const DialogContext& ctx, const QiQiConfig& edited) {
     if (edited.primary_dict != PrimaryDict::Custom) {
@@ -85,7 +90,8 @@ bool ValidateSettingsPrimaryDictionary(HWND hwnd, const DialogContext& ctx, cons
         ShowSettingsMessage(hwnd, language, SettingsMessageKind::InvalidPrimaryDict);
         return false;
     }
-    return dictionary_ui::ConfirmPartialDictionary(hwnd, language, validation);
+    return dictionary_ui::ConfirmPartialDictionary(
+        hwnd, language, static_cast<bool>(validation), validation.diagnostics);
 }
 
 } // namespace
@@ -118,7 +124,9 @@ bool SelectCustomPrimaryDictionaryInSettings(
             ShowSettingsMessage(hwnd, lang, SettingsMessageKind::InvalidPrimaryDict);
             return false;
         }
-        if (!dictionary_ui::ConfirmPartialDictionary(hwnd, lang, validation)) {
+        if (!dictionary_ui::ConfirmPartialDictionary(
+                hwnd, lang, static_cast<bool>(validation),
+                validation.diagnostics)) {
             CheckPrimaryDictRadio(hwnd, ctx->last_valid_primary_dict);
             UpdateExtraDictCheckboxState(hwnd);
             ::InvalidateRect(hwnd, nullptr, FALSE);
@@ -215,11 +223,6 @@ void InitSettingsCompartmentSubscription(HWND hwnd, DialogContext& ctx) noexcept
 
 void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
     if (ctx.transfer_in_progress) return;
-    if (ctx.imported_config &&
-        (LOWORD(wparam) == kIdRadioHaifeng || LOWORD(wparam) == kIdRadioBuiltin ||
-         LOWORD(wparam) == kIdRadioCustom)) {
-        ctx.imported_config->enable_jidian_extra = false;
-    }
     switch (LOWORD(wparam)) {
         case kIdRadioJidian:
             CheckPrimaryDictRadio(hwnd, PrimaryDict::Jidian);
@@ -328,7 +331,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
         }
         case kIdBtnImportConfig:
         case kIdBtnExportConfig:
-            PromptSettingsConfigTransfer(hwnd, LOWORD(wparam) == kIdBtnImportConfig);
+            PromptSettingsBackupTransfer(hwnd, LOWORD(wparam) == kIdBtnImportConfig);
             return;
         case kIdBtnOk: {
             if (ctx.config) {
@@ -361,14 +364,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                     if (FAILED(saved)) {
                         QIQI_LOG_ERROR("Settings save failed; retaining edits for retry (hr=0x{:08X})",
                             static_cast<unsigned long>(saved));
-                        if (ctx.imported_config) {
-                            const auto message = FormatConfigJsonError({}, saved, edited.ui_language);
-                            if (!::MessageBoxW(hwnd, message.c_str(), GetUiStrings(edited.ui_language).dlg_title,
-                                MB_OK | MB_ICONERROR))
-                                QIQI_LOG_ERROR("Imported settings save error dialog failed (error={})", ::GetLastError());
-                        } else {
-                            ShowSettingsSaveFailure(hwnd, edited.ui_language);
-                        }
+                        ShowSettingsSaveFailure(hwnd, edited.ui_language);
                         return;
                     }
                 }

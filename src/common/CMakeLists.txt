@@ -22,9 +22,14 @@ configure_file(
 )
 
 set(QIQI_COMMON_SOURCES
+    backup.cpp
+    backup.h
     dialog.cpp
     dialog.h
     dictcodec.h
+    dicttypes.h
+    dictui.h
+    wubicode.h
     dictfiles.h
     comobj.h
     changesync.cpp

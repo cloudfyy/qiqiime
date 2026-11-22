@@ -9,7 +9,7 @@
 #include "common/window.h"
 #include "common/version.h"
 #include "common/uiutil.h"
-#include "tools/dictmgr/util.h"
+#include "common/dictui.h"
 
 #include <gsl/gsl>
 #include <algorithm>
@@ -40,45 +40,6 @@ std::wstring FormatWindowTitle(UiLanguage language) {
     throw std::system_error(error, std::system_category(), operation);
 }
 
-}
-
-std::wstring FormatBackupRestoreMessage(const BackupRestoreResult& result, UiLanguage language) {
-    const auto text = [language](const wchar_t* zh, const wchar_t* en) noexcept {
-        return LocalizedUiText(language, zh, en);
-    };
-    if (result.status == BackupRestoreStatus::Success && result.refresh_error == S_OK) {
-        return std::format(L"{} ({}: {}, {}: {})",
-            text(L"已恢复备份", L"Backup restored"),
-            text(L"词库规则", L"Dict rules"), result.summary.user_entries_applied,
-            text(L"词组排序", L"Phrase ordering"), result.summary.phrase_freq_applied);
-    }
-    const wchar_t* stage = L"";
-    switch (result.stage) {
-    case BackupRestoreStage::Read: stage = text(L"读取", L"read"); break;
-    case BackupRestoreStage::Validate: stage = text(L"校验", L"validation"); break;
-    case BackupRestoreStage::Prepare: stage = text(L"准备", L"preparation"); break;
-    case BackupRestoreStage::UserDictionary: stage = text(L"词库规则", L"dictionary"); break;
-    case BackupRestoreStage::PhraseFrequency: stage = text(L"词组排序", L"phrase ordering"); break;
-    case BackupRestoreStage::CustomDictionary:
-        stage = text(L"自定义主词库", L"custom primary dictionary");
-        break;
-    case BackupRestoreStage::Config: stage = text(L"配置", L"configuration"); break;
-    case BackupRestoreStage::Refresh: stage = text(L"刷新", L"refresh"); break;
-    case BackupRestoreStage::Complete: break;
-    }
-    std::wstring message = std::format(L"{} ({}; {}: {}, {}: {}; 0x{:08X})",
-        result.status == BackupRestoreStatus::Partial ?
-            text(L"备份恢复未完成；可能已应用部分更改", L"Backup restore incomplete; changes may already have been applied") :
-            text(L"恢复备份失败", L"Backup restore failed"),
-        stage, text(L"成功操作", L"Succeeded operations"), result.operations_succeeded,
-        text(L"失败操作", L"Failed operations"), result.operations_failed,
-        gsl::narrow_cast<uint32_t>(result.error));
-    if (FAILED(result.refresh_error)) {
-        message += std::format(L" {} (0x{:08X})",
-            text(L"刷新失败；当前显示可能不完整", L"Refresh failed; the displayed view may be incomplete"),
-            gsl::narrow_cast<uint32_t>(result.refresh_error));
-    }
-    return message;
 }
 
 void DictManagerWindow::Impl::ReportCommandError(void*, const char* operation, ULONG error) noexcept {
@@ -1103,7 +1064,8 @@ void DictManagerWindow::Impl::SelectPrimaryDictDialog() {
         return;
     }
     const auto validation = WubiMappedDict::ValidateAndLoadPrimaryDictionary(selected);
-    if (validation && !dictionary_ui::ConfirmPartialDictionary(hwnd, ui_language, validation)) {
+    if (validation && !dictionary_ui::ConfirmPartialDictionary(
+            hwnd, ui_language, true, validation.diagnostics)) {
         return;
     }
     if (SUCCEEDED(model.SelectValidatedCustomPrimaryDictionary(selected, validation))) {
@@ -1208,25 +1170,9 @@ void DictManagerWindow::Impl::RestoreBundleDialog() {
                 L"QiQi Complete Backup (*.zip)\0*.zip\0All files\0*.*\0"),
             path, dialog_detail::FileDialogMode::Open)) return;
 
-    const int choice = ::MessageBoxW(
-        hwnd,
-        Text(
-            L"请选择恢复方式：\r\n"
-            L"• 点击「是 (Y)」：合并模式（保留现有用户词库与词组排序，合并备份项）\r\n"
-            L"• 点击「否 (N)」：覆盖模式（用备份完全替换现有用户词库与词组排序）\r\n"
-            L"• 如备份含自定义主词库，将使用备份副本并保存到本机用户数据目录\r\n"
-            L"• 点击「取消」：中止恢复",
-            L"Choose restore conflict mode:\r\n"
-            L"• Yes: Merge (keep existing user words & phrase ordering, merge backup items)\r\n"
-            L"• No: Replace (overwrite existing user dictionary & phrase ordering with backup)\r\n"
-            L"• A bundled custom primary dictionary is restored into this user's data directory\r\n"
-            L"• Cancel: Abort restore"),
-        Text(L"恢复配置与词库备份", L"Restore Config & Dictionary Backup"),
-        MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON1);
-    if (choice == IDCANCEL) return;
-
-    const BackupConflictMode mode = (choice == IDNO) ? BackupConflictMode::Replace : BackupConflictMode::Merge;
-    const auto result = model.RestoreBackupBundle(path.data(), mode);
+    const auto mode = PromptBackupRestoreConflictMode(hwnd, ui_language);
+    if (!mode) return;
+    const auto result = model.RestoreBackupBundle(path.data(), *mode);
     last_message = FormatBackupRestoreMessage(result, ui_language);
     if (result.stage != BackupRestoreStage::Read && result.stage != BackupRestoreStage::Validate) {
         RebuildRows();

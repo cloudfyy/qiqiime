@@ -855,37 +855,31 @@ status-bar/tooltip skin support require separate design approval.
   16px (indicator) and 20px (UAC) render paths are both covered. Standalone tool
   icons remain outside this IME-only contract.
 
-- [x] Add standalone configuration JSON export/import.
-  Available on the existing Dictionary settings page, with an independent modal
-  change preview and no new tab. Confirmed imports remain unsaved edits until
-  Settings OK; cancellation or failed persistence preserves the saved configuration.
-  Support partial imports, native scalar types and stable enum names; reject
-  duplicate/unknown fields, invalid UTF-8/JSON, types, ranges, and format/version.
-  Keep local paths and dictionary contents outside the JSON. See the
-  [configuration transfer guide](accessibility.md#配置-json-导入与导出).
-
-- [x] Replace the custom backup format with ZIP complete backups.
+- [x] Replace standalone Settings transfer and the custom Dictionary Manager
+  backup format with one complete ZIP backup format.
+  Settings exposes “Restore backup...” / “Create backup...” on the existing
+  Dictionary page. A restore requires Merge or Replace, applies immediately
+  after full validation, refreshes Settings, and does not roll back if the
+  Settings window is later cancelled. Creation exports the saved consistent
+  state, not unsaved draft edits. Bare `.json` and the former `.qbak` format are
+  intentionally unsupported.
   Use UTF-8 JSON (`.json`) for configuration, with explicit `format` and `version`,
   native boolean/numeric values, and stable string enum names. Use ZIP (`.zip`)
   for complete backups containing configuration JSON, user dictionary, phrase
   ordering data, and any selected custom primary dictionary. Do not export
   machine-specific absolute paths; restore bundled files using portable references.
-  No compatibility with the existing backup format is required. Validate the
+  Validate the
   entire input before applying changes, and explicitly report write failures
   or partial restoration rather than claiming success. Reuse shared configuration
   field definitions and file helpers, remove the superseded custom parser, and
   add focused round-trip, malformed-input, validation, and failure-path tests.
-  Allow users to edit configuration JSON manually; do not require a checksum.
   Treat imports as untrusted input: strictly validate types, ranges, enum names,
   format/version, and reject unknown fields and duplicate keys with actionable
-  field-specific errors. Missing settings retain their current values, allowing
-  partial configuration imports. Only explicitly supported settings may be
+  field-specific errors. Missing settings retain their current values. Only explicitly supported settings may be
   imported, never arbitrary registry keys or machine-specific paths. Show a
-  change summary and require confirmation before saving. Validation failure or
-  cancellation must leave the current configuration unchanged; failed saves must
-  preserve the original configuration and report the actual error. Include focused
-  tests for manual edits, partial imports, duplicate/unknown keys, cancellation,
-  and preservation of existing settings on failure.
+  conflict-mode choice before restoring. Validation failure or cancellation must
+  leave the current state unchanged; failed or partial writes retain the actual
+  HRESULT and explicitly disclose that effects may already exist.
   The dictionary manager now uses miniz to write a Deflate-compressed,
   CRC-checked portable ZIP with
   `manifest.json`, `config.json`, user dictionary and phrase-order text files,
@@ -893,7 +887,10 @@ status-bar/tooltip skin support require separate design approval.
   dictionary is selected. `.qbak` input is intentionally rejected. Restore
   fully validates archive structure, manifest references, configuration JSON
   and every dictionary entry before applying changes; partial write/refresh
-  failures retain the actual HRESULT.
+  failures retain the actual HRESULT. Common code owns the archive contract and
+  UI/result helpers; engine code owns `WubiEngine` state and custom dictionary
+  validation so `qiqi_common` never depends on `ime` or either tool. Settings and
+  Dictionary Manager share that layer without referencing each other.
 
 - [x] High priority: add an independent prefix-completion setting.
   Use "编码补全" / "Code completion" as the Chinese / English UI labels.

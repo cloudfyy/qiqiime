@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 set(QIQI_ENGINE_SOURCES
+    engine/backup.cpp
+    engine/backup.h
     engine/dict.cpp
     engine/dict.h
     fsm/fsm.h

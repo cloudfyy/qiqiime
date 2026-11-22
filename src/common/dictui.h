@@ -3,17 +3,17 @@
 
 #pragma once
 
+#include "common/dicttypes.h"
 #include "common/i18n.h"
 #include "common/logger.h"
-#include "ime/engine/dict.h"
 
 #include <format>
 
 namespace qiqi::dictionary_ui {
 
-inline std::wstring ValidationDetails(const PrimaryDictValidationResult& validation, UiLanguage language) {
+inline std::wstring ValidationDetails(
+    const DictionaryTextDiagnostics& diagnostics, UiLanguage language) {
     const bool english = ResolveUiLanguage(language) == UiLanguage::EnUs;
-    const auto& diagnostics = validation.diagnostics;
     std::wstring text = english
         ? std::format(L"Valid rows: {}. Invalid rows: {}.\n", diagnostics.valid_lines, diagnostics.invalid_lines)
         : std::format(L"有效行：{}。无效行：{}。\n", diagnostics.valid_lines, diagnostics.invalid_lines);
@@ -49,15 +49,18 @@ inline std::wstring ValidationDetails(const PrimaryDictValidationResult& validat
 }
 
 inline bool ConfirmPartialDictionary(
-    HWND owner, UiLanguage language, const PrimaryDictValidationResult& validation,
+    HWND owner,
+    UiLanguage language,
+    bool valid,
+    const DictionaryTextDiagnostics& diagnostics,
     gsl::not_null<decltype(&::MessageBoxW)> show = &::MessageBoxW) {
-    if (!validation) {
+    if (!valid) {
         return false;
     }
-    if (validation.diagnostics.invalid_lines == 0) {
+    if (diagnostics.invalid_lines == 0) {
         return true;
     }
-    const std::wstring details = ValidationDetails(validation, language);
+    const std::wstring details = ValidationDetails(diagnostics, language);
     const int button = show(owner, details.c_str(), GetUiStrings(language).dlg_title,
         MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2);
     if (button == 0) {
@@ -68,7 +71,7 @@ inline bool ConfirmPartialDictionary(
     }
     QIQI_LOG_CAT_INFO(log::Keyword::Dictionary,
         "Partial dictionary confirmation (accepted={}, invalid_lines={})",
-        button == IDOK, validation.diagnostics.invalid_lines);
+        button == IDOK, diagnostics.invalid_lines);
     return button == IDOK;
 }
 

@@ -23,6 +23,7 @@ flowchart TD
     Engine --> Common
     UI --> Common
     Tools["Separate settings, dictionary-manager, and log-monitor processes"] --> Common
+    BackupTools["Settings and dictionary-manager backup flows"] --> Engine
 ```
 
 The shared code in this diagram is statically linked into each consuming binary;
@@ -30,8 +31,8 @@ it does not imply shared mutable runtime objects.
 
 | Build target | Source | Responsibility |
 | --- | --- | --- |
-| `qiqi_common` | [common](../src/common) | Configuration, files/codecs, sync, ETW, RAII, theme/DPI and shared controls |
-| `qiqi_engine` | [engine](../src/ime/engine), [FSM](../src/ime/fsm) | Wubi rules, lookup, candidates, user dictionaries and phrase ordering |
+| `qiqi_common` | [common](../src/common) | Configuration, backup format/codecs, sync, ETW, RAII, theme/DPI and shared controls |
+| `qiqi_engine` | [engine](../src/ime/engine), [FSM](../src/ime/fsm) | Wubi rules, lookup, candidates, user dictionaries, phrase ordering and backup execution |
 | `qiqiime` | [service](../src/ime/svc), [TSF](../src/ime/tsf), [composition](../src/ime/comp), [IME UI](../src/ime/ui) | COM service and actual host edits/presentation |
 | `qiqi_settings_ui` | [settings](../src/tools/settings) | Shared settings window used by the EXE and in-process fallback |
 | Standalone tools | [tools](../src/tools) | `QiQiIMESettings`, `QiQiIMEDictManager`, `QiQiIMELogMonitor` |
@@ -41,6 +42,10 @@ depends on Windows/common code and can perform dictionary/configuration I/O;
 static-library separation is not a pure-computation or nonblocking guarantee.
 Tests mirror production module boundaries. Build commands are in the
 [development guide](dev.md#build-and-test).
+The dependency remains one-way: `qiqi_common` must not include or link `ime` or
+tool targets. Archive contracts, pure dictionary text parsing and shared prompts
+belong to `common`; complete backup execution stays in `ime/engine`, where it
+can own `WubiEngine` and validate custom primary dictionaries.
 
 ## 2. TSF Registration and Service Lifetime
 
@@ -312,7 +317,7 @@ lifetime rules; numerical constants with different meanings are not merged.
 
 | Tool | Current role |
 | --- | --- |
-| Settings | Configuration drafts, validated save, live merge, theme/language preview |
+| Settings | Configuration drafts, validated save, live preview, complete ZIP backup/restore |
 | Dictionary manager | Search/code lookup, entries/pins/suppression, phrase ordering, import/export, local backup/restore |
 | Log monitor | Ordinary ETW events, Metrics and own diagnostics views, filtered export |
 
@@ -332,6 +337,9 @@ than requiring the former STORE writer's exact layout. ZIP structure and every
 entry are validated before restore;
 per-resource writes report partial success/failure and actual HRESULTs rather than
 promising global rollback.
+Settings and Dictionary Manager use the same archive/engine APIs. Creating a
+backup exports saved state; restoring chooses Merge or Replace, validates the
+entire bundle before mutation, then applies configuration immediately.
 
 Modal loops preserve `WM_QUIT`, owner enable state, and cancellation/error
 distinctions. Clipboard backoff is bounded at suitable high-level copy/read

@@ -18,6 +18,8 @@
 
 namespace qiqi::settings_detail {
 
+struct DialogContext;
+
 constexpr int kIdRadioJidian = 101;
 constexpr int kIdRadioHaifeng = 102;
 constexpr int kIdRadioBuiltin = 103;
@@ -213,6 +215,7 @@ inline constexpr RECT kRestoreDefaultsButton{
 DWORD OpenDictionaryManager(
     HWND owner, const std::filesystem::path& executable, UiLanguage language,
     gsl::not_null<decltype(&::ShellExecuteExW)> execute = &::ShellExecuteExW);
+std::filesystem::path GetSettingsModuleDirectory(const DialogContext& context) noexcept;
 
 class SettingsCompartmentListener final
     : public ComObjectBase<SettingsCompartmentListener, ITfCompartmentEventSink> {
@@ -234,7 +237,6 @@ struct DialogContext {
     HINSTANCE instance = nullptr;
     QiQiConfig* config = nullptr;
     QiQiConfig baseline_config{};
-    std::optional<QiQiConfig> imported_config;
     bool transfer_in_progress = false;
     std::wstring custom_primary_dict_path;
     PrimaryDict last_valid_primary_dict = PrimaryDict::Jidian;

@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/dictmgr/model.h"
-#include "tools/dictmgr/backup.h"
+#include "common/backup.h"
 #include "common/dictcodec.h"
 #include "common/config.h"
 #include "common/fileutil.h"
 #include "common/logger.h"
-#include "common/zip.h"
+#include "ime/engine/backup.h"
 
 #include <gsl/gsl>
 #include <algorithm>
@@ -549,91 +549,12 @@ bool DictManagerModel::ExportRecordsToFile(
     return WriteFileAtomically(export_path, codec::AsByteSpan(out));
 }
 
-namespace {
-
-std::string SerializeUserDictionaryBackup(const WubiEngine& engine) {
-    std::string output;
-    const auto append_entry = [&output](uint32_t packed, std::wstring_view word, wchar_t marker = 0) {
-        output += WideToUtf8(UnpackWubiCode(packed));
-        output.push_back(' ');
-        if (marker != 0) output += WideToUtf8(std::wstring_view(&marker, 1));
-        output += WideToUtf8(word);
-        output.push_back('\n');
-    };
-    for (const auto& [packed, words] : engine.PinnedEntries()) {
-        for (const auto& word : words) {
-            if (!word.empty()) append_entry(packed, word, L'^');
-        }
-    }
-    for (const auto& [packed, words] : engine.UserDictionaryEntries()) {
-        const auto pinned = engine.PinnedEntries().find(packed);
-        for (const auto& word : words) {
-            if (pinned != engine.PinnedEntries().end() &&
-                std::find(pinned->second.begin(), pinned->second.end(), word) != pinned->second.end()) {
-                continue;
-            }
-            if (!word.empty()) append_entry(packed, word);
-        }
-    }
-    for (const auto& [packed, words] : engine.BlockedEntries()) {
-        for (const auto& word : words) {
-            if (!word.empty()) append_entry(packed, word, L'!');
-        }
-    }
-    return output;
-}
-
-std::string SerializePhraseOrderBackup(const WubiEngine& engine) {
-    std::string output;
-    for (const auto& [packed, words] : engine.PromotedPhrases()) {
-        const std::string code = WideToUtf8(UnpackWubiCode(packed));
-        for (const auto& word : words) {
-            if (!word.empty()) {
-                output += code + " " + WideToUtf8(word) + "\n";
-            }
-        }
-    }
-    return output;
-}
-
-std::filesystem::path GetRestoredCustomPrimaryPath(
-    const std::filesystem::path& user_dict_path) {
-    std::filesystem::path parent = user_dict_path.parent_path();
-    if (parent.empty()) {
-        parent = GetDefaultUserDictPath().parent_path();
-    }
-    return parent / L"qiqiime-restored-primary.txt";
-}
-
-} // namespace
-
 HRESULT DictManagerModel::CreateBackupBundleResult(
     const std::filesystem::path& backup_path) const {
     try {
-        if (backup_path.empty()) return E_INVALIDARG;
-        detail::BackupArchivePayload payload;
-        payload.config = LoadConfig();
-        payload.user_dictionary = SerializeUserDictionaryBackup(engine_);
-        payload.phrase_order = SerializePhraseOrderBackup(engine_);
-        if (payload.config.primary_dict == PrimaryDict::Custom) {
-            if (active_primary_dict_ != PrimaryDict::Custom ||
-                active_primary_dict_path_.empty()) {
-                QIQI_LOG_WARN(
-                    "ZIP backup rejected because the selected custom primary dictionary is unavailable");
-                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-            }
-            std::string custom_dictionary;
-            const HRESULT read_result = ReadFileToUtf8StringResult(
-                active_primary_dict_path_, custom_dictionary, kMaxZipEntryBytes);
-            if (FAILED(read_result)) return read_result;
-            payload.custom_primary_dictionary =
-                detail::BackupCustomPrimaryDictionary{
-                    .binary = _wcsicmp(
-                        active_primary_dict_path_.extension().c_str(),
-                        L".qdict") == 0,
-                    .data = std::move(custom_dictionary)};
-        }
-        return detail::WriteBackupArchiveFileResult(backup_path, payload);
+        CompleteBackup backup(
+            module_dir_, user_dict_path_, phrase_freq_path_);
+        return backup.CreateFileResult(backup_path);
     } catch (const std::bad_alloc&) {
         QIQI_LOG_ERROR("CreateBackupBundleResult ran out of memory");
         return E_OUTOFMEMORY;
@@ -650,188 +571,46 @@ bool DictManagerModel::CreateBackupBundle(const std::filesystem::path& backup_pa
 BackupRestoreResult DictManagerModel::RestoreBackupBundle(
     const std::filesystem::path& backup_path,
     BackupConflictMode mode) {
-    BackupRestoreResult result;
-    result.operations_failed = 1;
-    if (mode != BackupConflictMode::Merge &&
-        mode != BackupConflictMode::Replace) {
-        result.error = E_INVALIDARG;
+    try {
+        CompleteBackup backup(
+            module_dir_, user_dict_path_, phrase_freq_path_);
+        auto result = backup.RestoreFile(backup_path, mode);
+        if (result.stage != BackupRestoreStage::Read &&
+            result.stage != BackupRestoreStage::Validate) {
+            const bool refresh_already_failed =
+                FAILED(result.refresh_error);
+            const HRESULT refresh = ReloadAllResult();
+            if (FAILED(refresh)) {
+                if (result.operations_failed == 0) {
+                    result.stage = BackupRestoreStage::Refresh;
+                    result.error = refresh;
+                }
+                if (!refresh_already_failed) {
+                    result.refresh_error = refresh;
+                    ++result.operations_failed;
+                }
+                result.status = result.operations_succeeded == 0 &&
+                        !result.effects_possible
+                    ? BackupRestoreStatus::Failed
+                    : BackupRestoreStatus::Partial;
+            } else if (result.operations_failed == 0) {
+                result.refresh_error = S_OK;
+                result.stage = BackupRestoreStage::Complete;
+                result.status = BackupRestoreStatus::Success;
+            }
+        }
+        return result;
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR("RestoreBackupBundle ran out of memory");
+        BackupRestoreResult result;
+        result.error = E_OUTOFMEMORY;
+        return result;
+    } catch (...) {
+        QIQI_LOG_ERROR("RestoreBackupBundle failed unexpectedly");
+        BackupRestoreResult result;
+        result.error = E_UNEXPECTED;
         return result;
     }
-    const auto custom_primary_path =
-        GetRestoredCustomPrimaryPath(user_dict_path_);
-    detail::BackupArchivePlan plan;
-    detail::BackupArchiveReadStage read_stage =
-        detail::BackupArchiveReadStage::Read;
-    const HRESULT read_result = detail::ReadBackupArchiveFileResult(
-        backup_path, LoadConfig(), custom_primary_path, plan, read_stage);
-    if (FAILED(read_result)) {
-        result.stage = read_stage == detail::BackupArchiveReadStage::Read
-            ? BackupRestoreStage::Read
-            : BackupRestoreStage::Validate;
-        result.error = read_result;
-        return result;
-    }
-
-    result.operations_failed = 0;
-    result.error = S_OK;
-    const auto fail = [&result](BackupRestoreStage stage, HRESULT error) {
-        if (result.operations_failed == 0) {
-            result.stage = stage;
-            result.error = error;
-        }
-        ++result.operations_failed;
-    };
-    const auto refresh = [this, &result, &fail]() {
-        const HRESULT error = ReloadAllResult();
-        if (FAILED(error)) {
-            if (SUCCEEDED(result.refresh_error)) result.refresh_error = error;
-            fail(BackupRestoreStage::Refresh, error);
-        } else if (result.refresh_error == S_FALSE) {
-            result.refresh_error = S_OK;
-        }
-        return SUCCEEDED(error);
-    };
-    const auto finish = [&result, &refresh](bool reload = true) {
-        // A fresh engine discards speculative failed-write state even when its persisted view
-        // cannot be fully loaded. Surface that incomplete view independently of application errors.
-        if (reload) std::ignore = refresh();
-        result.status = result.operations_failed == 0 ? BackupRestoreStatus::Success :
-            (result.operations_succeeded == 0 && !result.effects_possible ?
-                BackupRestoreStatus::Failed : BackupRestoreStatus::Partial);
-        if (result.status == BackupRestoreStatus::Success) result.stage = BackupRestoreStage::Complete;
-        return result;
-    };
-
-    if (user_dict_path_.empty() || phrase_freq_path_.empty() || user_dict_path_ == phrase_freq_path_) {
-        fail(BackupRestoreStage::Prepare, E_INVALIDARG);
-        return result;
-    }
-
-    if (mode == BackupConflictMode::Replace) {
-        const auto remove_file = [&result, &fail](const std::filesystem::path& path) {
-            if (::DeleteFileW(path.c_str())) {
-                ++result.operations_succeeded;
-                return true;
-            }
-            const DWORD error = ::GetLastError();
-            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return true;
-            fail(BackupRestoreStage::Prepare, HRESULT_FROM_WIN32(error));
-            return false;
-        };
-        auto qdict_path = user_dict_path_;
-        qdict_path.replace_extension(L".qdict");
-        if (!remove_file(user_dict_path_)) return finish();
-        WubiMappedDict::InvalidateProcessCacheForPath(user_dict_path_);
-        if (!remove_file(qdict_path)) return finish();
-        std::error_code ec;
-        const auto channel_directory = GetSyncChannelDirectoryForFile(user_dict_path_);
-        std::vector<std::filesystem::path> channel_paths;
-        if (std::filesystem::exists(channel_directory, ec)) {
-            std::filesystem::recursive_directory_iterator it(channel_directory, ec);
-            const std::filesystem::recursive_directory_iterator end;
-            while (!ec && it != end) {
-                channel_paths.push_back(it->path());
-                it.increment(ec);
-            }
-            channel_paths.insert(channel_paths.begin(), channel_directory);
-        }
-        if (ec) {
-            fail(BackupRestoreStage::Prepare, HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value())));
-            return finish();
-        }
-        for (auto it = channel_paths.rbegin(); it != channel_paths.rend(); ++it) {
-            const bool removed = std::filesystem::remove(*it, ec);
-            if (ec) {
-                fail(BackupRestoreStage::Prepare, HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(ec.value())));
-                return finish();
-            }
-            if (removed) ++result.operations_succeeded;
-        }
-        if (!remove_file(GetSyncChannelDirectoryForFile(phrase_freq_path_) / L"journal.bin")) return finish();
-        result.effects_possible = true;
-        if (!engine_.ClearPhraseFrequencies(phrase_freq_path_)) {
-            fail(BackupRestoreStage::Prepare, E_FAIL);
-            return finish();
-        }
-        ++result.operations_succeeded;
-        if (!refresh()) return finish(false);
-    }
-
-    const auto user_operation = [&result, &fail](HRESULT error) {
-        if (SUCCEEDED(error)) {
-            ++result.summary.user_entries_applied;
-            ++result.operations_succeeded;
-        } else {
-            ++result.summary.user_entries_failed;
-            fail(BackupRestoreStage::UserDictionary, error);
-        }
-    };
-    for (const auto& [packed, words] : plan.user_entries) {
-        const std::wstring code = UnpackWubiCode(packed);
-        for (const auto& w : words) {
-            if (w.starts_with(L'^') || w.starts_with(L'!')) {
-                continue;
-            }
-            result.effects_possible = true;
-            user_operation(engine_.AddUserEntryResult(code, w, user_dict_path_));
-        }
-        for (auto it = words.rbegin(); it != words.rend(); ++it) {
-            if (it->starts_with(L'^')) {
-                result.effects_possible = true;
-                user_operation(engine_.PinUserEntryResult(code, std::wstring_view(*it).substr(1), user_dict_path_));
-            } else if (it->starts_with(L'!')) {
-                result.effects_possible = true;
-                user_operation(engine_.BlockSystemEntryResult(code, std::wstring_view(*it).substr(1), user_dict_path_));
-            }
-        }
-    }
-
-    for (const auto& [packed, words] : plan.phrase_entries) {
-        const std::wstring code = UnpackWubiCode(packed);
-        for (auto it = words.rbegin(); it != words.rend(); ++it) {
-            result.effects_possible = true;
-            const HRESULT error = engine_.PromoteUserPhraseFrequencyResult(code, *it, phrase_freq_path_);
-            if (SUCCEEDED(error)) {
-                ++result.summary.phrase_freq_applied;
-                ++result.operations_succeeded;
-            } else {
-                ++result.summary.phrase_freq_failed;
-                fail(BackupRestoreStage::PhraseFrequency, error);
-            }
-        }
-    }
-
-    // Do not install configuration or a custom primary dictionary after dictionary failures.
-    if (result.operations_failed == 0) {
-        if (plan.has_custom_primary_dictionary) {
-            const HRESULT write_custom_result = WriteFileAtomicallyResult(
-                plan.restored_custom_primary_path,
-                codec::AsByteSpan(
-                    plan.custom_primary_dictionary->data));
-            if (FAILED(write_custom_result)) {
-                fail(
-                    BackupRestoreStage::CustomDictionary,
-                    write_custom_result);
-            } else {
-                WubiMappedDict::InvalidateProcessCacheForPath(
-                    plan.restored_custom_primary_path);
-                result.summary.custom_primary_dict_restored = true;
-                result.effects_possible = true;
-                ++result.operations_succeeded;
-            }
-        }
-        if (result.operations_failed == 0 && plan.config_changed) {
-            const HRESULT config_result =
-                SaveConfigToRegistryResult(plan.config);
-            if (SUCCEEDED(config_result)) {
-                result.summary.config_restored = true;
-                ++result.operations_succeeded;
-            } else {
-                fail(BackupRestoreStage::Config, config_result);
-            }
-        }
-    }
-    return finish();
 }
 
 bool DictManagerModel::RestoreBackupBundle(

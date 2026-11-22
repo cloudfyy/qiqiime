@@ -17,6 +17,8 @@
 #include <vector>
 
 #include "common/dictcodec.h"
+#include "common/dicttypes.h"
+#include "common/wubicode.h"
 #include "common/RAII.h"
 
 namespace qiqi {
@@ -25,53 +27,6 @@ inline void AppendUniqueWord(std::vector<std::wstring>& list, std::wstring_view 
     if (std::find(list.begin(), list.end(), word) == list.end()) {
         list.emplace_back(word);
     }
-}
-
-// Pack 1..4 ASCII Wubi letters into a big-endian uint32_t, normalizing uppercase to lowercase.
-// Numeric comparison on the returned uint32_t is identical to lexicographical order.
-// Returns 0 if the code is empty, longer than 4 chars, or contains non-ASCII-letter characters.
-constexpr uint32_t PackWubiCode(std::wstring_view code) noexcept {
-    if (code.empty() || code.size() > 4) {
-        return 0;
-    }
-    uint32_t packed = 0;
-    for (size_t i = 0; i < code.size(); ++i) {
-        wchar_t ch = gsl::at(code, i);
-        if (ch >= L'A' && ch <= L'Z') {
-            ch = gsl::narrow_cast<wchar_t>(ch - L'A' + L'a');
-        }
-        if (ch < L'a' || ch > L'z') {
-            return 0;
-        }
-        const uint32_t byte_val = gsl::narrow_cast<uint32_t>(ch - L'a' + 1);
-        packed |= (byte_val << ((3 - i) * 8));
-    }
-    return packed;
-}
-
-// Unpack a 4-byte big-endian packed Wubi code back into its lowercase ASCII string (1..4 chars).
-inline std::wstring UnpackWubiCode(uint32_t packed_code) {
-    std::wstring out;
-    out.reserve(4);
-    for (int i = 0; i < 4; ++i) {
-        const uint32_t byte_val = (packed_code >> ((3 - i) * 8)) & 0xFFu;
-        if (byte_val >= 1 && byte_val <= 26) {
-            out.push_back(gsl::narrow_cast<wchar_t>(L'a' + byte_val - 1));
-        } else {
-            break;
-        }
-    }
-    return out;
-}
-
-// Compute the inclusive upper bound of packed codes that share the given prefix (1..4 chars).
-constexpr uint32_t PackWubiPrefixUpperBound(std::wstring_view prefix) noexcept {
-    const uint32_t lo = PackWubiCode(prefix);
-    if (lo == 0 || prefix.size() >= 4) {
-        return lo;
-    }
-    const uint32_t mask = (1u << ((4 - prefix.size()) * 8)) - 1u;
-    return lo | mask;
 }
 
 // Check if a packed code matches a wildcard pattern (where 'z' in pattern matches any letter).
@@ -127,25 +82,6 @@ static_assert(sizeof(DictCodeIndex) == 12);
 static_assert(sizeof(DictWordSlice) == 8);
 
 class WubiMappedDict;
-
-enum class DictionaryLineError : uint8_t {
-    InvalidCode,
-    MissingWord,
-    InvalidCharacter,
-    InvalidWeight,
-    UnterminatedHeader
-};
-
-struct DictionaryLineIssue {
-    size_t line = 0;
-    DictionaryLineError error = DictionaryLineError::InvalidCode;
-};
-
-struct DictionaryTextDiagnostics {
-    size_t valid_lines = 0;
-    size_t invalid_lines = 0;
-    std::vector<DictionaryLineIssue> issues;
-};
 
 enum class PrimaryDictValidationStatus : uint8_t {
     Valid = 0,

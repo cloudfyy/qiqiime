@@ -11,9 +11,6 @@
 
 namespace qiqi::dict_manager {
 
-struct BackupRestoreResult;
-std::wstring FormatBackupRestoreMessage(const BackupRestoreResult& result, UiLanguage language);
-
 inline constexpr std::wstring_view kWindowClass = L"QiQiIMEDictManagerWindow";
 
 enum class ColumnId {

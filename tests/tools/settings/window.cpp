@@ -12,7 +12,7 @@
 #include "ime/engine/dict.h"
 #include "tools/settings/internal.h"
 #include "tools/settings/window.h"
-#include "tools/dictmgr/util.h"
+#include "common/dictui.h"
 
 #include <windows.h>
 #include <array>
@@ -124,14 +124,17 @@ void TestDictionaryConfirmationText() {
         WubiMappedDict::LoadFromBinaryBuffer(std::move(binary)),
         {1, 10, {{2, DictionaryLineError::MissingWord}}}
     };
-    const auto zh = dictionary_ui::ValidationDetails(validation, UiLanguage::ZhCn);
-    const auto en = dictionary_ui::ValidationDetails(validation, UiLanguage::EnUs);
+    const auto zh = dictionary_ui::ValidationDetails(
+        validation.diagnostics, UiLanguage::ZhCn);
+    const auto en = dictionary_ui::ValidationDetails(
+        validation.diagnostics, UiLanguage::EnUs);
     QIQI_TEST_CHECK(zh.find(L"有效行：1。无效行：10。") != std::wstring::npos &&
         zh.find(L"第 2 行：缺少词语") != std::wstring::npos);
     QIQI_TEST_CHECK(en.find(L"Valid rows: 1. Invalid rows: 10.") != std::wstring::npos &&
         en.find(L"Line 2: Missing word") != std::wstring::npos);
     QIQI_TEST_CHECK(!dictionary_ui::ConfirmPartialDictionary(
-        nullptr, UiLanguage::ZhCn, validation, &FailDictionaryDialog));
+        nullptr, UiLanguage::ZhCn, static_cast<bool>(validation),
+        validation.diagnostics, &FailDictionaryDialog));
 }
 
 void TestSettingsDialogControls() {

@@ -507,15 +507,12 @@ void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept {
     ReadSettingsFromWindowControls(hwnd, current);
     bool dirty = ctx.custom_primary_dict_path != ctx.baseline_config.primary_dict_path;
     ForEachConfigField([&](const auto& field) noexcept {
-        if (field.HasSettingsChange(ctx.baseline_config, current) ||
-            (ctx.imported_config && field.Value(ctx.baseline_config) != field.Value(current))) {
+        if (field.HasSettingsChange(ctx.baseline_config, current)) {
             dirty = true;
         }
     });
     ForEachConfigStringField([&](const auto& field) noexcept {
-        if (field.HasSettingsChange(ctx.baseline_config, current) ||
-            (ctx.imported_config &&
-             ctx.baseline_config.*(field.member) != current.*(field.member))) {
+        if (field.HasSettingsChange(ctx.baseline_config, current)) {
             dirty = true;
         }
     });
@@ -555,8 +552,8 @@ void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdBtnDictManager, str.dlg_btn_dict_mgr);
     ::SetDlgItemTextW(hwnd, kIdBtnHelp, str.dlg_btn_help);
     ::SetDlgItemTextW(hwnd, kIdBtnRestoreDefaults, str.dlg_btn_restore_defaults);
-    ::SetDlgItemTextW(hwnd, kIdBtnImportConfig, str.dlg_btn_import_config);
-    ::SetDlgItemTextW(hwnd, kIdBtnExportConfig, str.dlg_btn_export_config);
+    ::SetDlgItemTextW(hwnd, kIdBtnImportConfig, str.dlg_btn_restore_backup);
+    ::SetDlgItemTextW(hwnd, kIdBtnExportConfig, str.dlg_btn_create_backup);
     UpdateCandidateFontLabel(hwnd, ctx);
     ::SetDlgItemTextW(hwnd, kIdBtnOk, str.dlg_btn_ok);
     ::SetDlgItemTextW(hwnd, kIdBtnCancel, str.dlg_btn_cancel);
@@ -630,13 +627,6 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
 
     QiQiConfig merged_ui_cfg = external_cfg;
     MergeSettingsConfig(merged_ui_cfg, ctx.baseline_config, current_ui_cfg);
-    if (ctx.imported_config) {
-        ForEachConfigField([&](const auto& field) noexcept {
-            if (!field.settings_editable && field.Value(ctx.baseline_config) != field.Value(current_ui_cfg))
-                merged_ui_cfg.*(field.member) = current_ui_cfg.*(field.member);
-            ctx.imported_config.value().*(field.member) = merged_ui_cfg.*(field.member);
-        });
-    }
     ctx.config_registry_sequence = loaded_seq;
     if (ctx.config) {
         *ctx.config = external_cfg;
@@ -778,8 +768,8 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     create_control(L"BUTTON", str.dlg_btn_ok, button_style, layout::kOkButton, kIdBtnOk);
     create_control(L"BUTTON", str.dlg_btn_cancel, button_style, layout::kCancelButton, kIdBtnCancel);
     const RECT initial{0, 0, 100, 40};
-    create_control(L"BUTTON", str.dlg_btn_import_config, button_style, initial, kIdBtnImportConfig);
-    create_control(L"BUTTON", str.dlg_btn_export_config, button_style, initial, kIdBtnExportConfig);
+    create_control(L"BUTTON", str.dlg_btn_restore_backup, button_style, initial, kIdBtnImportConfig);
+    create_control(L"BUTTON", str.dlg_btn_create_backup, button_style, initial, kIdBtnExportConfig);
     create_control(L"STATIC", L"", 0, initial, kIdLblUiTheme);
     create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboUiTheme);
     create_control(L"STATIC", L"", 0, initial, kIdLblUiTextScale);
@@ -933,12 +923,6 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
         config.candidate_font_size = ctx->preview_candidate_font.point_size;
         config.candidate_font_weight = ctx->preview_candidate_font.weight;
         config.candidate_font_italic = ctx->preview_candidate_font.italic;
-        if (ctx->imported_config) {
-            ForEachConfigField([&](const auto& field) noexcept {
-                if (!field.settings_editable)
-                    config.*(field.member) = ctx->imported_config.value().*(field.member);
-            });
-        }
         try {
             config.primary_dict_path = ctx->custom_primary_dict_path;
         } catch (const std::bad_alloc&) {
@@ -949,12 +933,6 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     for (const auto& binding : kSettingsCheckboxes) {
         config.*(binding.config_field) = (::IsDlgButtonChecked(hwnd, binding.control_id) == BST_CHECKED);
     }
-    if (const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-        ctx && ctx->imported_config && config.primary_dict == ctx->imported_config->primary_dict &&
-        config.primary_dict != PrimaryDict::Jidian) {
-        config.enable_jidian_extra = ctx->imported_config->enable_jidian_extra;
-    }
-
     const LRESULT sel = ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_GETCURSEL, 0, 0);
     if (sel >= 0 && sel < 9) {
         config.page_size = gsl::narrow_cast<size_t>(sel + 1);

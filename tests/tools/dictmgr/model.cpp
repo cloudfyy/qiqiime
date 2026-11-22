@@ -3,8 +3,9 @@
 
 #include "test.h"
 #include "common/cfgjson.h"
+#include "common/backup.h"
 #include "common/zip.h"
-#include "tools/dictmgr/backup.h"
+#include "ime/engine/backup.h"
 
 namespace qiqi::dict_manager::tests {
 
@@ -266,7 +267,7 @@ void TestModelAndCrossProcessSync() {
         ReadZipArchiveFileResult(backup_file, archive_entries)));
     const auto config_entry = std::ranges::find_if(
         archive_entries, [](const ZipArchiveEntry& entry) {
-            return entry.name == detail::kBackupConfigEntry;
+            return entry.name == kBackupConfigEntry;
         });
     QIQI_TEST_CHECK(config_entry != archive_entries.end());
     const std::string config_text(

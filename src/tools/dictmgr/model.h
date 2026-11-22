@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "common/backup.h"
 #include "ime/engine/engine.h"
 #include <cstdint>
 #include <filesystem>
@@ -11,38 +12,6 @@
 #include <vector>
 
 namespace qiqi::dict_manager {
-
-enum class BackupConflictMode : uint8_t {
-    Merge = 0,   // Keep existing user words/pins/blocks/frequencies and merge backup entries
-    Replace = 1, // Replace user_dict.txt and phrase_freq.qfreq completely with backup contents
-};
-
-struct BackupRestoreSummary {
-    bool config_restored = false;
-    bool custom_primary_dict_restored = false;
-    size_t user_entries_applied = 0;
-    size_t phrase_freq_applied = 0;
-    size_t user_entries_failed = 0;
-    size_t phrase_freq_failed = 0;
-};
-
-// Partial includes possible source writes by a failed participant, even with zero acknowledged successes.
-enum class BackupRestoreStatus : uint8_t { Failed, Partial, Success };
-enum class BackupRestoreStage : uint8_t {
-    Read, Validate, Prepare, UserDictionary, PhraseFrequency,
-    CustomDictionary, Config, Refresh, Complete
-};
-
-struct BackupRestoreResult {
-    BackupRestoreStatus status = BackupRestoreStatus::Failed;
-    BackupRestoreStage stage = BackupRestoreStage::Validate; // First failure, or Complete on success.
-    HRESULT error = HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    HRESULT refresh_error = S_FALSE; // Not attempted; S_OK on success, first refresh failure otherwise.
-    BackupRestoreSummary summary;
-    size_t operations_succeeded = 0; // Includes configuration and destructive Replace preparation.
-    size_t operations_failed = 0;
-    bool effects_possible = false; // A failed bool mutator may already have persisted part of its work.
-};
 
 enum class DictEntrySource : uint8_t {
     All = 0,

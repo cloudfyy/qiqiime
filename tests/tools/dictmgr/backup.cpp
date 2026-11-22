@@ -5,8 +5,9 @@
 #include "common/etw.h"
 #include "common/cleanup.h"
 #include "common/cfgjson.h"
+#include "common/backup.h"
 #include "common/zip.h"
-#include "tools/dictmgr/backup.h"
+#include "ime/engine/backup.h"
 #include <miniz/miniz.h>
 #include <exception>
 #include <optional>
@@ -79,14 +80,14 @@ void WriteRestoreBundle(
         ? BackupManifest(custom_primary.has_value())
         : std::string(manifest);
     std::vector<ZipArchiveEntry> entries{
-        {std::string(detail::kBackupManifestEntry),
+        {std::string(kBackupManifestEntry),
          bytes(manifest_text)},
-        {std::string(detail::kBackupConfigEntry), bytes(config)},
-        {std::string(detail::kBackupUserDictionaryEntry), bytes(user_dictionary)},
-        {std::string(detail::kBackupPhraseOrderEntry), bytes(phrase_order)}};
+        {std::string(kBackupConfigEntry), bytes(config)},
+        {std::string(kBackupUserDictionaryEntry), bytes(user_dictionary)},
+        {std::string(kBackupPhraseOrderEntry), bytes(phrase_order)}};
     if (custom_primary) {
         entries.push_back({
-            std::string(detail::kBackupCustomPrimaryTextEntry),
+            std::string(kBackupCustomPrimaryTextEntry),
             bytes(*custom_primary)});
     }
     CheckArchiveFixtureWrite(path, WriteZipArchiveFileResult(path, entries));
@@ -268,7 +269,7 @@ void RunBackupRestoreResults() {
         QIQI_TEST_CHECK(entries.size() == 4);
         const auto config_entry = std::ranges::find_if(
             entries, [](const ZipArchiveEntry& entry) {
-                return entry.name == detail::kBackupConfigEntry;
+                return entry.name == kBackupConfigEntry;
             });
         QIQI_TEST_CHECK(config_entry != entries.end());
         const std::string config_bytes(
@@ -330,7 +331,7 @@ void RunBackupRestoreResults() {
     QIQI_TEST_CHECK(custom_archive.size() == 5);
     const auto archived_custom = std::ranges::find_if(
         custom_archive, [](const ZipArchiveEntry& entry) {
-                return entry.name == detail::kBackupCustomPrimaryTextEntry;
+                return entry.name == kBackupCustomPrimaryTextEntry;
         });
     QIQI_TEST_CHECK(archived_custom != custom_archive.end());
     for (const auto& entry : custom_archive) {
@@ -344,7 +345,15 @@ void RunBackupRestoreResults() {
     builtin_config.primary_dict = PrimaryDict::BuiltinOnly;
     QIQI_TEST_CHECK(SaveConfig(builtin_config));
     QIQI_TEST_CHECK(model.ReloadAllResult() == S_OK);
-    QIQI_TEST_CHECK(std::filesystem::remove(custom_source));
+    std::error_code remove_custom_error;
+    const bool custom_removed = std::filesystem::remove(
+        custom_source, remove_custom_error);
+    if (!custom_removed || remove_custom_error) {
+        std::cerr << std::format(
+            "[CUSTOM-DICT-REMOVE-FAIL] removed={}, error={}\n",
+            custom_removed, remove_custom_error.value());
+    }
+    QIQI_TEST_CHECK(custom_removed && !remove_custom_error);
     const auto custom_result =
         model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
     QIQI_TEST_CHECK(custom_result.status == BackupRestoreStatus::Success &&
@@ -398,7 +407,7 @@ void RunBackupRestoreResults() {
     QIQI_TEST_CHECK(std::ranges::any_of(
         custom_archive, [](const ZipArchiveEntry& entry) {
                 return entry.name ==
-                    detail::kBackupCustomPrimaryBinaryEntry;
+                    kBackupCustomPrimaryBinaryEntry;
         }));
     QIQI_TEST_CHECK(SaveConfig(builtin_config));
     QIQI_TEST_CHECK(model.ReloadAllResult() == S_OK);
@@ -452,7 +461,8 @@ void RunBackupRestoreResults() {
         std::tuple{full_config, std::string("abcd ^\n"), full_phrase, std::string{}},
         std::tuple{full_config, full_user, std::string("abcd 单\n"), std::string{}},
         std::tuple{full_config, std::string("abcd ") + "\xFF\n", full_phrase, std::string{}},
-        std::tuple{full_config, std::string("abcd \0\n", 7), full_phrase, std::string{}}};
+        std::tuple{full_config, std::string("abcd \0\n", 7), full_phrase, std::string{}},
+        std::tuple{full_config, std::string("abcd \x01\n", 7), full_phrase, std::string{}}};
     // Independent validation cases do not require replacing a just-read archive.
     size_t malformed_index = 0;
     for (const auto& [config, user_data, phrase_data, manifest] : malformed) {
@@ -647,6 +657,15 @@ void RunBackupRestoreResults() {
         const auto locked = lock_file(journal);
         QIQI_TEST_CHECK(locked);
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Replace);
+        if (result.operations_failed != 2) {
+            std::cerr << std::format(
+                "[RESTORE-COUNT-FAIL] succeeded={}, failed={}, stage={}, "
+                "refresh_hr=0x{:08X}\n",
+                result.operations_succeeded,
+                result.operations_failed,
+                std::to_underlying(result.stage),
+                gsl::narrow_cast<uint32_t>(result.refresh_error));
+        }
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.stage == BackupRestoreStage::Prepare);
         QIQI_TEST_CHECK(result.error == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION));
         QIQI_TEST_CHECK(result.operations_succeeded > 0 && result.operations_failed == 2);
@@ -770,8 +789,21 @@ void RunBackupRestoreResults() {
             nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
         QIQI_TEST_CHECK(locked);
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
+        if (result.stage != BackupRestoreStage::Refresh) {
+            std::cerr << std::format(
+                "[FINAL-REFRESH-DIAG] status={}, stage={}, error=0x{:08X}, "
+                "refresh=0x{:08X}, succeeded={}, failed={}\n",
+                std::to_underlying(result.status),
+                std::to_underlying(result.stage),
+                gsl::narrow_cast<uint32_t>(result.error),
+                gsl::narrow_cast<uint32_t>(result.refresh_error),
+                result.operations_succeeded,
+                result.operations_failed);
+        }
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.stage == BackupRestoreStage::Refresh);
-        QIQI_TEST_CHECK(result.error == E_FAIL && result.refresh_error == E_FAIL);
+        QIQI_TEST_CHECK(
+            sharing_failure(result.error) &&
+            result.refresh_error == result.error);
         QIQI_TEST_CHECK(result.summary.config_restored && LoadConfig().page_size == 7);
         QIQI_TEST_CHECK(result.operations_succeeded == 1 && result.operations_failed == 1);
         QIQI_TEST_CHECK(FormatBackupRestoreMessage(result, UiLanguage::EnUs).contains(L"view may be incomplete"));
@@ -796,7 +828,9 @@ void RunBackupRestoreResults() {
         WriteRestoreBundle(backup, full_config, full_user, full_phrase);
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Replace);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.stage == BackupRestoreStage::Refresh);
-        QIQI_TEST_CHECK(result.error == E_FAIL && result.refresh_error == E_FAIL);
+        QIQI_TEST_CHECK(
+            result.error == E_FAIL &&
+            result.refresh_error == E_FAIL);
         QIQI_TEST_CHECK(result.operations_failed == 1 && !result.summary.config_restored);
         QIQI_TEST_CHECK(result.summary.user_entries_applied == 0 && result.summary.phrase_freq_applied == 0);
         QIQI_TEST_CHECK(!has_word(DictEntrySource::UserDict, L"新增词条"));
@@ -813,7 +847,9 @@ void RunBackupRestoreResults() {
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Merge);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.effects_possible);
         QIQI_TEST_CHECK(result.stage == BackupRestoreStage::PhraseFrequency && sharing_failure(result.error));
-        QIQI_TEST_CHECK(result.refresh_error == E_FAIL && result.operations_failed == 2);
+        QIQI_TEST_CHECK(
+            sharing_failure(result.refresh_error) &&
+            result.operations_failed == 2);
         QIQI_TEST_CHECK(result.operations_succeeded == 0 && result.summary.phrase_freq_failed == 1);
         QIQI_TEST_CHECK(!has_word(DictEntrySource::PhraseFreq, L"新增词组"));
         QIQI_TEST_CHECK(has_word(DictEntrySource::PhraseFreq, L"原有词组"));

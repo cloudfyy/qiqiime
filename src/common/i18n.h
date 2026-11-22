@@ -117,8 +117,8 @@ struct UiStrings {
     const wchar_t* help_header_title;
     const wchar_t* help_header_subtitle;
     const wchar_t* help_shortcuts_info;
-    const wchar_t* dlg_btn_import_config;
-    const wchar_t* dlg_btn_export_config;
+    const wchar_t* dlg_btn_restore_backup;
+    const wchar_t* dlg_btn_create_backup;
 };
 
 inline constexpr UiStrings kZhCnStrings = {
@@ -240,8 +240,8 @@ inline constexpr UiStrings kZhCnStrings = {
     L"• Ctrl + =（等号）：剪贴板快捷造词（复制 2–16 字词组后按键入库）\n"
     L"• Ctrl + 数字 1–9：组合态下将对应候选词置顶 / 取消置顶\n"
     L"• Ctrl + Shift + 数字 1–9（或 Ctrl + Delete）：删除用户词 / 屏蔽系统词",
-    L"导入配置...",
-    L"导出配置..."
+    L"恢复备份...",
+    L"创建备份..."
 };
 
 inline constexpr UiStrings kEnUsStrings = {
@@ -363,8 +363,8 @@ inline constexpr UiStrings kEnUsStrings = {
     L"• Ctrl + = (Equals): Add copied clipboard phrase (2–16 chars) to user dict\n"
     L"• Ctrl + Digit 1–9: Pin / Unpin candidate at that index\n"
     L"• Ctrl + Shift + Digit 1–9 (or Ctrl + Delete): Delete / Block candidate",
-    L"Import config...",
-    L"Export config..."
+    L"Restore backup...",
+    L"Create backup..."
 };
 
 inline UiLanguage DetectSystemPreferredUiLanguage() noexcept {

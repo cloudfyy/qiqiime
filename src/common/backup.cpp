@@ -1,25 +1,27 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "tools/dictmgr/backup.h"
+#include "common/backup.h"
 
 #include "common/cfgjson.h"
+#include "common/i18n.h"
 #include "common/fileutil.h"
 #include "common/logger.h"
+#include "common/wubicode.h"
 #include "common/zip.h"
-#include "ime/engine/dict.h"
 
 #include <gsl/gsl>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cwctype>
 #include <exception>
+#include <format>
 #include <limits>
 #include <set>
 #include <string_view>
 #include <utility>
 
-namespace qiqi::dict_manager::detail {
+namespace qiqi {
 namespace {
 
 using Json = nlohmann::ordered_json;
@@ -76,6 +78,12 @@ bool ValidateWord(std::wstring_view word, bool user_dictionary) noexcept {
 }
 
 bool ValidateDictionaryLine(std::wstring_view line, bool user_dictionary) noexcept {
+    if (std::ranges::any_of(line, [](wchar_t ch) noexcept {
+            return (ch < L' ' && ch != L'\t' && ch != L'\r') ||
+                ch == L'\x7f';
+        })) {
+        return false;
+    }
     std::wstring_view rest = line;
     const auto next = [&rest]() noexcept {
         const size_t start = rest.find_first_not_of(L" \t\r\n");
@@ -111,30 +119,66 @@ HRESULT ParseDictionary(
     std::wstring decoded;
     const HRESULT decode_result = DecodeUtf8(input, decoded);
     if (FAILED(decode_result)) return decode_result;
-    std::wstring normalized;
-    normalized.reserve(decoded.size());
-    std::wstring_view remaining(decoded);
-    while (!remaining.empty()) {
-        const size_t newline = remaining.find(L'\n');
-        std::wstring_view line = remaining.substr(0, newline);
-        remaining.remove_prefix(
-            newline == std::wstring_view::npos ? remaining.size() : newline + 1);
-        if (!line.empty() && line.back() == L'\r') line.remove_suffix(1);
-        const size_t first = line.find_first_not_of(L" \t");
-        if (first == std::wstring_view::npos ||
-            line.substr(first).starts_with(L'#')) {
-            continue;
-        }
-        if (!ValidateDictionaryLine(line, user_dictionary)) {
-            return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-        }
-        normalized.append(line);
-        normalized.push_back(L'\n');
-    }
     try {
         std::map<uint32_t, std::vector<std::wstring>> parsed;
-        WubiMappedDict::ParseTextDictEntries(
-            normalized, parsed, user_dictionary);
+        std::wstring_view remaining(decoded);
+        while (!remaining.empty()) {
+            const size_t newline = remaining.find(L'\n');
+            std::wstring_view line = remaining.substr(0, newline);
+            remaining.remove_prefix(
+                newline == std::wstring_view::npos
+                    ? remaining.size()
+                    : newline + 1);
+            if (!line.empty() && line.back() == L'\r') line.remove_suffix(1);
+            const size_t start = line.find_first_not_of(L" \t");
+            if (start == std::wstring_view::npos ||
+                line.substr(start).starts_with(L'#')) {
+                continue;
+            }
+            if (!ValidateDictionaryLine(line, user_dictionary)) {
+                return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+            }
+
+            std::wstring_view tokens = line;
+            const auto next = [&tokens]() {
+                const size_t token_start =
+                    tokens.find_first_not_of(L" \t\r\n");
+                if (token_start == std::wstring_view::npos) {
+                    tokens = {};
+                    return std::wstring_view{};
+                }
+                tokens.remove_prefix(token_start);
+                const size_t token_end =
+                    tokens.find_first_of(L" \t\r\n");
+                const auto token = tokens.substr(0, token_end);
+                tokens.remove_prefix(
+                    token_end == std::wstring_view::npos
+                        ? tokens.size()
+                        : token_end);
+                return token;
+            };
+            const auto first = next();
+            const bool code_first = IsCode(first);
+            const uint32_t packed = PackWubiCode(
+                code_first ? first : next());
+            auto& words = parsed[packed];
+            if (code_first) {
+                for (auto word = next(); !word.empty(); word = next()) {
+                    if (!user_dictionary) {
+                        if (word.starts_with(L'^')) {
+                            word.remove_prefix(1);
+                        } else if (word.starts_with(L'!')) {
+                            continue;
+                        }
+                    }
+                    if (std::ranges::find(words, word) == words.end()) {
+                        words.emplace_back(word);
+                    }
+                }
+            } else if (std::ranges::find(words, first) == words.end()) {
+                words.emplace_back(first);
+            }
+        }
         entries = std::move(parsed);
         return S_OK;
     } catch (const std::bad_alloc&) {
@@ -144,105 +188,6 @@ HRESULT ParseDictionary(
         QIQI_LOG_ERROR("Complete backup dictionary parse failed unexpectedly");
         return E_UNEXPECTED;
     }
-}
-
-HRESULT ValidateTextPrimaryDictionary(std::string_view input) {
-    std::wstring decoded;
-    const HRESULT decode_result = DecodeUtf8(input, decoded);
-    if (FAILED(decode_result)) return decode_result;
-    try {
-        std::map<uint32_t, std::vector<std::wstring>> parsed;
-        DictionaryTextDiagnostics diagnostics;
-        WubiMappedDict::ParseTextDictEntries(
-            decoded, parsed, false, &diagnostics);
-        return diagnostics.valid_lines != 0 &&
-                diagnostics.invalid_lines == 0 &&
-                !parsed.empty()
-            ? S_OK
-            : HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
-    } catch (const std::bad_alloc&) {
-        QIQI_LOG_ERROR("Complete backup text dictionary validation ran out of memory");
-        return E_OUTOFMEMORY;
-    } catch (...) {
-        QIQI_LOG_ERROR("Complete backup text dictionary validation failed unexpectedly");
-        return E_UNEXPECTED;
-    }
-}
-
-std::filesystem::path ValidationPath(
-    const std::filesystem::path& target) {
-    std::filesystem::path base = target;
-    if (!base.has_filename()) {
-        base = std::filesystem::path(L"qiqiime-primary.qdict");
-    }
-    base.replace_extension();
-    base += L".validate-" +
-        std::to_wstring(::GetCurrentProcessId()) + L"-" +
-        std::to_wstring(::GetTickCount64()) + L".qdict";
-    return base;
-}
-
-HRESULT ValidateBinaryPrimaryDictionary(
-    std::string_view input,
-    const std::filesystem::path& target) {
-    const auto validation_path = ValidationPath(target);
-    HRESULT validation_result = WriteFileAtomicallyResult(
-        validation_path, codec::AsByteSpan(input));
-    if (FAILED(validation_result)) return validation_result;
-    bool cleanup_needed = true;
-    const auto remove_validation_file =
-        [&validation_path](std::string_view context) noexcept {
-            std::error_code error;
-            std::filesystem::remove(validation_path, error);
-            if (error) {
-                QIQI_LOG_WARN(
-                    "Binary backup validation cleanup {} failed (error={})",
-                    context, error.value());
-            }
-            return error;
-        };
-    const auto cleanup = gsl::finally([&]() noexcept {
-        if (cleanup_needed) {
-            std::ignore = remove_validation_file("on failure");
-        }
-    });
-    try {
-        {
-            const PrimaryDictValidationResult validation =
-                WubiMappedDict::ValidateAndLoadPrimaryDictionary(
-                validation_path);
-            if (!validation) {
-                validation_result = HRESULT_FROM_WIN32(
-                    validation.win32_error != ERROR_SUCCESS
-                        ? validation.win32_error
-                        : ERROR_INVALID_DATA);
-            }
-        }
-        const std::error_code remove_error =
-            remove_validation_file("after validation");
-        cleanup_needed = false;
-        if (remove_error) {
-            return HRESULT_FROM_WIN32(
-                gsl::narrow_cast<DWORD>(remove_error.value()));
-        }
-        return validation_result;
-    } catch (const std::bad_alloc&) {
-        QIQI_LOG_ERROR(
-            "Complete backup binary dictionary validation ran out of memory");
-        return E_OUTOFMEMORY;
-    } catch (...) {
-        QIQI_LOG_ERROR(
-            "Complete backup binary dictionary validation failed unexpectedly");
-        return E_UNEXPECTED;
-    }
-}
-
-HRESULT ValidatePrimaryDictionary(
-    const BackupCustomPrimaryDictionary& custom,
-    const std::filesystem::path& target) {
-    return custom.binary
-        ? ValidateBinaryPrimaryDictionary(custom.data, target)
-        : ValidateTextPrimaryDictionary(custom.data);
 }
 
 std::string SerializeManifest(
@@ -391,17 +336,6 @@ HRESULT WriteBackupArchiveFileResult(
         result = ParseDictionary(
             payload.phrase_order, false, parsed_phrase);
         if (FAILED(result)) return result;
-        if (has_custom) {
-            auto custom_path = path;
-            custom_path.replace_extension(
-                payload.custom_primary_dictionary->binary
-                    ? L".qdict"
-                    : L".txt");
-            result = ValidatePrimaryDictionary(
-                *payload.custom_primary_dictionary, custom_path);
-            if (FAILED(result)) return result;
-        }
-
         std::string config;
         ConfigJsonError config_error;
         result = SerializeConfigJson(
@@ -493,6 +427,10 @@ HRESULT ReadBackupArchiveFileResult(
             has_custom) {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
+        if (has_custom) {
+            parsed.config.primary_dict_path =
+                baseline.primary_dict_path;
+        }
         parsed.config_changed = has_custom ||
             !GetConfigJsonChanges(current_config, parsed.config).empty() ||
             current_config.primary_dict_path !=
@@ -517,13 +455,9 @@ HRESULT ReadBackupArchiveFileResult(
         if (has_custom) {
             const auto& custom_entry =
                 RequireEntry(indexed, custom_entry_name);
-            BackupCustomPrimaryDictionary custom{
+            parsed.custom_primary_dictionary = BackupCustomPrimaryDictionary{
                 .binary = *custom_primary_binary,
                 .data = Text(custom_entry.data)};
-            result = ValidatePrimaryDictionary(
-                custom, parsed.restored_custom_primary_path);
-            if (FAILED(result)) return result;
-            parsed.custom_primary_dictionary = std::move(custom);
         }
 
         plan = std::move(parsed);
@@ -542,4 +476,74 @@ HRESULT ReadBackupArchiveFileResult(
     }
 }
 
-} // namespace qiqi::dict_manager::detail
+std::optional<BackupConflictMode> PromptBackupRestoreConflictMode(
+    HWND owner, UiLanguage language) noexcept {
+    const int choice = ::MessageBoxW(
+        owner,
+        LocalizedUiText(
+            language,
+            L"请选择恢复方式：\r\n"
+            L"• 点击“是”：合并模式（保留现有用户词库与词组排序，合并备份项）\r\n"
+            L"• 点击“否”：覆盖模式（用备份完全替换现有用户词库与词组排序）\r\n"
+            L"• 如备份含自定义主词库，将使用备份副本并保存到本机用户数据目录\r\n"
+            L"• 校验通过后配置与数据立即恢复；已应用部分不会全局回滚\r\n"
+            L"• 点击“取消”：中止恢复",
+            L"Choose restore conflict mode:\r\n"
+            L"• Yes: Merge (keep existing user words & phrase ordering, merge backup items)\r\n"
+            L"• No: Replace (overwrite existing user dictionary & phrase ordering with backup)\r\n"
+            L"• A bundled custom primary dictionary is restored into this user's data directory\r\n"
+            L"• Configuration and data are restored immediately after validation; applied changes are not globally rolled back\r\n"
+            L"• Cancel: Abort restore"),
+        LocalizedUiText(language, L"恢复配置与词库备份", L"Restore settings and dictionary backup"),
+        MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON1);
+    if (choice == IDYES) return BackupConflictMode::Merge;
+    if (choice == IDNO) return BackupConflictMode::Replace;
+    if (choice == IDCANCEL) return std::nullopt;
+    QIQI_LOG_ERROR(
+        "Backup restore conflict dialog failed (error={})",
+        ::GetLastError());
+    return std::nullopt;
+}
+
+std::wstring FormatBackupRestoreMessage(
+    const BackupRestoreResult& result, UiLanguage language) {
+    const auto text = [language](const wchar_t* zh, const wchar_t* en) noexcept {
+        return LocalizedUiText(language, zh, en);
+    };
+    if (result.status == BackupRestoreStatus::Success && result.refresh_error == S_OK) {
+        return std::format(L"{} ({}: {}, {}: {})",
+            text(L"已恢复备份", L"Backup restored"),
+            text(L"词库规则", L"Dictionary rules"), result.summary.user_entries_applied,
+            text(L"词组排序", L"Phrase ordering"), result.summary.phrase_freq_applied);
+    }
+    const wchar_t* stage = L"";
+    switch (result.stage) {
+        case BackupRestoreStage::Read: stage = text(L"读取", L"read"); break;
+        case BackupRestoreStage::Validate: stage = text(L"校验", L"validation"); break;
+        case BackupRestoreStage::Prepare: stage = text(L"准备", L"preparation"); break;
+        case BackupRestoreStage::UserDictionary: stage = text(L"词库规则", L"dictionary"); break;
+        case BackupRestoreStage::PhraseFrequency: stage = text(L"词组排序", L"phrase ordering"); break;
+        case BackupRestoreStage::CustomDictionary:
+            stage = text(L"自定义主词库", L"custom primary dictionary"); break;
+        case BackupRestoreStage::Config: stage = text(L"配置", L"configuration"); break;
+        case BackupRestoreStage::Refresh: stage = text(L"刷新", L"refresh"); break;
+        case BackupRestoreStage::Complete: break;
+    }
+    std::wstring message = std::format(L"{} ({}; {}: {}, {}: {}; 0x{:08X})",
+        result.status == BackupRestoreStatus::Partial
+            ? text(L"备份恢复未完成；可能已应用部分更改",
+                L"Backup restore incomplete; changes may already have been applied")
+            : text(L"恢复备份失败", L"Backup restore failed"),
+        stage, text(L"成功操作", L"Succeeded operations"), result.operations_succeeded,
+        text(L"失败操作", L"Failed operations"), result.operations_failed,
+        gsl::narrow_cast<uint32_t>(result.error));
+    if (FAILED(result.refresh_error)) {
+        message += std::format(L" {} (0x{:08X})",
+            text(L"刷新失败；当前显示可能不完整",
+                L"Refresh failed; the displayed view may be incomplete"),
+            gsl::narrow_cast<uint32_t>(result.refresh_error));
+    }
+    return message;
+}
+
+} // namespace qiqi
