@@ -9,6 +9,10 @@ set(QIQI_ENGINE_TEST_SOURCES
     engine/dict/lookup.cpp
     engine/dict/sync.cpp
     engine/input.cpp
+    engine/fsm.cpp
+    engine/commit.cpp
+    engine/lookup.cpp
+    engine/navigation.cpp
     engine/modes.cpp
     engine/main.cpp
 )
@@ -83,8 +87,23 @@ set(QIQI_TSF_UI_TEST_SOURCES
     svc/reentrancy.cpp
     svc/target.cpp
     svc/windows.cpp
+    ui/candidate.h
     ui/candidate.cpp
+    ui/lifecycle.cpp
+    ui/candidateui.cpp
+    ui/repaint.cpp
+    ui/skin.cpp
+    ui/uia.cpp
+    ui/pageaccess.cpp
+    ui/pagecontracts.cpp
+    ui/uiless.cpp
+    ui/langtest.h
+    ui/button.cpp
+    ui/icons.cpp
     ui/langbar.cpp
+    ui/menutest.cpp
+    ui/menulayout.cpp
+    ui/menufocus.cpp
     ui/statusbar.cpp
     tsf/main.cpp
 )

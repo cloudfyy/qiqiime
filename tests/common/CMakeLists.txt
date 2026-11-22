@@ -33,7 +33,13 @@ target_link_libraries(qiqi_common_test PRIVATE
 )
 add_test(NAME QiQiCommonTest COMMAND qiqi_common_test)
 
-add_executable(qiqi_change_sync_test sync.cpp)
+add_executable(qiqi_change_sync_test
+    sync.cpp
+    syncutil.h
+    journal.cpp
+    process.cpp
+    appcontainer.cpp
+)
 target_include_directories(qiqi_change_sync_test PRIVATE "${PROJECT_SOURCE_DIR}/tests")
 target_link_libraries(qiqi_change_sync_test PRIVATE qiqi_engine qiqi_common ole32 userenv)
 add_test(NAME QiQiChangeSyncTest COMMAND qiqi_change_sync_test)
