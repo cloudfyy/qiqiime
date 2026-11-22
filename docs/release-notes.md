@@ -1,9 +1,10 @@
-# QiQiIME 1.2.0 功能版（开发中）
+# QiQiIME 1.2.0 功能版（2026-11-22）
 
-数字版本：`1.2.0`；预期发行标签：`v1.2.0`。当前正式版与下载仍为
-`v1.1.3`；本节记录主分支已实现、但尚未通过标签 Release 工作流发布的内容。
+数字版本：`1.2.0`；发行标签：`v1.2.0`（2026-11-22）。标签源码由 Release
+工作流重新构建、测试并生成附件；在该工作流完成发布前，现有 `v1.1.3`
+附件与下载链接仍保持可用。
 
-## 计划更新
+## 本次主要更新
 
 - **完整 ZIP 备份统一**：设置窗口和词库管理器共享配置、用户词库、置顶/屏蔽、
   词组排序和可选自定义主词库的完整备份，支持合并/覆盖恢复、严格清单与 ZIP
@@ -27,15 +28,15 @@
   MSI、ZIP、符号包及最终附件是否可用的唯一发布判定。
 - 当前桌面回归覆盖 Settings、Skin、组合生命周期、备份恢复及启动失败；
   真实安装、升级、卸载、各 Windows 宿主兼容性仍须由对应发布门禁或人工记录确认。
-- 版本号尚未切换至 `1.2.0` 时，工作区本地构建可能仍显示 `1.1.3+提交号`。
+- `VERSION` 已切换至 `1.2.0`；从此提交构建的窗口、日志及安装包将使用该数字版本。
 
 ## English
 
-Version `1.2.0`; planned tag `v1.2.0`. The latest published release is still
-`v1.1.3`; this section describes implemented main-branch work that has not yet
-been published by the tagged Release workflow.
+Version `1.2.0`; release tag `v1.2.0` (2026-11-22). Release CI rebuilds and tests
+the tagged source before publishing its assets. Existing `v1.1.3` downloads remain
+available until that workflow finishes publication.
 
-### Planned changes
+### Main changes
 
 - **One complete ZIP backup flow:** Settings and Dictionary Manager now share
   configuration, user dictionary, pin/block rules, phrase ordering, and optional

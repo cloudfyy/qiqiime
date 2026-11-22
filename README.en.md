@@ -11,14 +11,11 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The source version is **1.1.3**, with release tag `v1.1.3` and changes recorded
-in the [release notes](docs/release-notes.md). Release CI rebuilds, tests, and
-packages the tagged source. Historical tags and assets remain unchanged.
-The planned 1.2.0 work on `main` is not part of the existing `v1.1.3` assets.
-The main branch already contains the planned 1.2.0 work: complete ZIP backups,
-candidate skins/fonts, seven-page Settings, and standalone Settings process
-separation. These changes are not included in the existing `v1.1.3` assets
-until a new version and tag are published.
+The source version is **1.2.0**, corresponding to release tag `v1.2.0`, with
+changes recorded in the [release notes](docs/release-notes.md). Release CI
+rebuilds, tests, and packages the tagged source. Until the `v1.2.0` workflow
+finishes publishing, the existing `v1.1.3` assets remain available.
+Historical tags and assets remain unchanged.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
 
@@ -40,7 +37,7 @@ and AppContainer guides are available in English.
 
 ## Features
 
-- **Planned for 1.2.0:** Settings and Dictionary Manager share complete ZIP
+- **New in 1.2.0:** Settings and Dictionary Manager share complete ZIP
   backup/restore; candidate skins and fonts are configurable without recoloring
   the host process; Shortcuts/About are rightmost Settings pages; and the IME
   activates the standalone Settings EXE through a neutral common bridge instead
