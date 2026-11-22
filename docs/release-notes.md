@@ -1,3 +1,43 @@
+# QiQiIME 1.2.1 紧急补丁版（2026-11-22）
+
+数字版本：`1.2.1`；发行标签：`v1.2.1`（2026-11-22）。该标签由 Release
+工作流重新构建、测试并生成附件；标签存在不等于发布附件已经完成。
+
+## 紧急修复
+
+- **工具启动缺失 Miniz**：1.2.0 的设置窗口和词库管理器 x64/x86 可执行文件
+  动态依赖 `miniz.dll`，但 ZIP/MSI 未包含该 DLL，受影响环境会提示“miniz.dll
+  was not found”并无法启动。输入法 DLL 和日志监视器不受此依赖问题影响。
+- **固定静态依赖**：x64/x86 构建固定使用 `x64-windows-static` /
+  `x86-windows-static`。CMake 拒绝动态 Miniz 目标；`build_all.ps1` 遇到旧的
+  动态 triplet 缓存会重新配置，而不是继续生成缺 DLL 的可执行文件。
+- **兼容范围不变**：不修改输入、配置、用户词库、备份格式或用户数据位置。
+  1.2.1 只替换受影响的运行组件并收紧发布构建约束。
+
+## 验证边界
+
+标签 Release 工作流仍是双架构构建、测试、MSI/ZIP/PDB 打包及附件发布的
+最终判定。本机不制作 MSI。版本升级后，x86 Release 全量构建成功；
+`QiQiReleaseNotesTest`、`QiQiRuntimeArchitectureTest`、`QiQiSettingsTest` 与
+`QiQiStandaloneToolsTest` 共 4 项通过，设置与词库管理器启动路径均覆盖。
+
+## English
+
+Version `1.2.1`; release tag `v1.2.1` (2026-11-22). Release CI rebuilds and tests
+the tagged source before publishing assets.
+
+### Emergency fix
+
+- The 1.2.0 Settings and Dictionary Manager executables linked `miniz.dll`
+  dynamically, while ZIP/MSI packages did not contain that DLL.
+- x64/x86 builds now enforce the static vcpkg triplets. CMake rejects a dynamic
+  Miniz target and `build_all.ps1` repairs stale dynamic-triplet caches.
+- Input behavior, configuration, user dictionaries, backup formats, and data
+  locations are unchanged.
+
+Tagged CI remains authoritative for dual-architecture build, test, MSI/ZIP/PDB
+packaging, and publication.
+
 # QiQiIME 1.2.0 功能版（2026-11-22）
 
 数字版本：`1.2.0`；发行标签：`v1.2.0`（2026-11-22）。标签源码由 Release

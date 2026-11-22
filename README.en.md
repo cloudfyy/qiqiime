@@ -11,10 +11,10 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The source version is **1.2.0**, corresponding to release tag `v1.2.0`, with
+The source version is **1.2.1**, corresponding to release tag `v1.2.1`, with
 changes recorded in the [release notes](docs/release-notes.md). Release CI
-rebuilds, tests, and packages the tagged source. Until the `v1.2.0` workflow
-finishes publishing, the existing `v1.1.3` assets remain available.
+rebuilds, tests, and packages the tagged source. Until the `v1.2.1` workflow
+finishes publishing, the `v1.2.0` release remains as a historical asset.
 Historical tags and assets remain unchanged.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
@@ -37,6 +37,10 @@ and AppContainer guides are available in English.
 
 ## Features
 
+- **1.2.1 emergency fix:** Settings and Dictionary Manager no longer require
+  `miniz.dll`; x64/x86 builds enforce static vcpkg Miniz and release packaging
+  rejects dynamic linkage. This does not change input behavior, configuration,
+  or user-dictionary formats.
 - **New in 1.2.0:** Settings and Dictionary Manager share complete ZIP
   backup/restore; candidate skins and fonts are configurable without recoloring
   the host process; Shortcuts/About are rightmost Settings pages; and the IME
