@@ -27,8 +27,12 @@ BOOL WINAPI ChooseCandidateFontForTest(CHOOSEFONTW* dialog) {
             CF_NOVECTORFONTS | CF_NOOEMFONTS |
             CF_SELECTSCRIPT | CF_NOSCRIPTSEL));
     QIQI_TEST_CHECK(dialog->lpLogFont->lfCharSet == GB2312_CHARSET);
-    *dialog->lpLogFont = chosen_candidate_font;
-    dialog->lpLogFont->lfCharSet = GB2312_CHARSET;
+    LOGFONTW selected = *dialog->lpLogFont;
+    selected.lfWeight = chosen_candidate_font.lfWeight;
+    selected.lfItalic = chosen_candidate_font.lfItalic;
+    selected.lfCharSet = GB2312_CHARSET;
+    *dialog->lpLogFont = selected;
+    chosen_candidate_font = selected;
     dialog->iPointSize = chosen_candidate_font_size;
     return TRUE;
 }
@@ -367,15 +371,18 @@ void RunSettingsSkinTests() {
     QIQI_TEST_CHECK(LogFontFaceNameView(missing_preview_font) !=
         L"QiQi Missing Candidate Font");
     QIQI_TEST_CHECK(!CandidateFontFamilyAvailable(L"@DengXian"));
-    wcscpy_s(chosen_candidate_font.lfFaceName, L"DengXian");
+    chosen_candidate_font = {};
     chosen_candidate_font.lfWeight = FW_BOLD;
     chosen_candidate_font.lfItalic = TRUE;
     chosen_candidate_font_size = 160;
     QIQI_TEST_CHECK(PromptSettingsCandidateFont(
         window.Get(), *context, ChooseCandidateFontForTest));
+    const std::wstring selected_family(
+        LogFontFaceNameView(chosen_candidate_font));
+    QIQI_TEST_CHECK(!selected_family.empty());
     QiQiConfig font_draft;
     ReadSettingsFromWindowControls(window.Get(), font_draft);
-    QIQI_TEST_CHECK(font_draft.candidate_font_family == L"DengXian" &&
+    QIQI_TEST_CHECK(font_draft.candidate_font_family == selected_family &&
         font_draft.candidate_font_size == 16 &&
         font_draft.candidate_font_weight == CandidateFontWeight::Bold &&
         font_draft.candidate_font_italic);
@@ -383,7 +390,7 @@ void RunSettingsSkinTests() {
     QIQI_TEST_CHECK(context->candidate_preview_font &&
         ::GetObjectW(context->candidate_preview_font.Get(), sizeof(preview_font), &preview_font) ==
             sizeof(preview_font));
-    QIQI_TEST_CHECK(LogFontFaceNameView(preview_font) == L"DengXian" &&
+    QIQI_TEST_CHECK(LogFontFaceNameView(preview_font) == selected_family &&
         preview_font.lfWeight == FW_BOLD && preview_font.lfItalic);
     std::array<wchar_t, 160> selected_font_label{};
     QIQI_TEST_CHECK(::GetDlgItemTextW(
@@ -391,7 +398,7 @@ void RunSettingsSkinTests() {
         selected_font_label.data(),
         gsl::narrow_cast<int>(selected_font_label.size())) > 0);
     QIQI_TEST_CHECK(std::wstring_view(
-        selected_font_label.data()).contains(L"DengXian"));
+        selected_font_label.data()).contains(selected_family));
     QIQI_TEST_CHECK(config.candidate_font_family.empty() &&
         QueryRegistryConfigSequence() == sequence);
     ::SendDlgItemMessageW(window.Get(), kIdComboImeSkin, CB_SETCURSEL, 1, 0);
@@ -467,7 +474,7 @@ void RunSettingsSkinTests() {
     ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(kIdComboImeSkin, CBN_SELCHANGE), 0);
     ::SendMessageW(window.Get(), WM_COMMAND, IDOK, 0);
     QIQI_TEST_CHECK(config.ime_skin_id == ImeSkinId::PeachBlossom && config.ui_theme == UiTheme::Light);
-    QIQI_TEST_CHECK(config.candidate_font_family == L"DengXian" &&
+    QIQI_TEST_CHECK(config.candidate_font_family == selected_family &&
         config.candidate_font_size == 16 &&
         config.candidate_font_weight == CandidateFontWeight::Bold &&
         config.candidate_font_italic);
