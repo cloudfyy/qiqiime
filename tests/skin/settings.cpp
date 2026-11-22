@@ -16,7 +16,7 @@ thread_local bool accept_skin = false;
 thread_local LOGFONTW chosen_candidate_font{};
 thread_local int chosen_candidate_font_size = 0;
 
-BOOL WINAPI ChooseCandidateFontForTest(CHOOSEFONTW* dialog) noexcept {
+BOOL WINAPI ChooseCandidateFontForTest(CHOOSEFONTW* dialog) {
     if (!dialog || !dialog->lpLogFont) return FALSE;
     QIQI_TEST_CHECK(
         (dialog->Flags & (
