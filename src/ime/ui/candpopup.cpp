@@ -153,16 +153,45 @@ bool CandidateUI::EnsurePopupWindow() noexcept {
             "CandidateUI::EnsurePopupWindow owner became invalid before creation; presentation deferred");
         return false;
     }
-    hwnd_.Reset(::CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-        kCandidateWndClass,
-        L"",
-        WS_POPUP | (content_height_ > popup_height_ ? WS_VSCROLL : 0),
-        popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
-        popup_owner_, nullptr, instance_, this));
+    const auto create_popup = [this](HWND owner) noexcept {
+        return ::CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            kCandidateWndClass,
+            L"",
+            WS_POPUP | (content_height_ > popup_height_ ? WS_VSCROLL : 0),
+            popup_pos_.x, popup_pos_.y, popup_width_, popup_height_,
+            owner, nullptr, instance_, this);
+    };
+
+    ::SetLastError(ERROR_SUCCESS);
+    hwnd_.Reset(create_popup(popup_owner_));
+    DWORD create_error = ::GetLastError();
+    const bool ownerless_retry =
+        !hwnd_ &&
+        detail::ShouldRetryCandidatePopupWithoutOwner(
+            IsProcessAppContainer(), require_owned_window_,
+            popup_owner_ != nullptr, create_error);
+    if (ownerless_retry) {
+        ::SetLastError(ERROR_SUCCESS);
+        hwnd_.Reset(create_popup(nullptr));
+        const DWORD ownerless_error = ::GetLastError();
+        if (hwnd_) {
+            QIQI_LOG_WARN(
+                "CandidateUI::EnsurePopupWindow owned CreateWindowExW failed (error={}); ownerless AppContainer fallback succeeded",
+                create_error);
+        } else {
+            QIQI_LOG_ERROR(
+                "CandidateUI::EnsurePopupWindow owned and ownerless CreateWindowExW failed (owned_error={}, ownerless_error={})",
+                create_error, ownerless_error);
+        }
+    }
 
     if (!hwnd_) {
-        QIQI_LOG_ERROR("CandidateUI::EnsurePopupWindow CreateWindowExW failed (error={})", ::GetLastError());
+        if (!ownerless_retry) {
+            QIQI_LOG_ERROR(
+                "CandidateUI::EnsurePopupWindow CreateWindowExW failed (error={})",
+                create_error);
+        }
     } else {
         ApplyDisplayThemeToWindow(hwnd_.Get(), appearance_);
         UpdateScrollBar();

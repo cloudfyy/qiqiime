@@ -40,6 +40,13 @@ inline bool& UiAutomationEventsEnabledForTest() noexcept {
     static bool enabled = true;
     return enabled;
 }
+
+inline constexpr bool ShouldRetryCandidatePopupWithoutOwner(
+    bool is_app_container, bool require_owned_window,
+    bool has_owner, DWORD error) noexcept {
+    return is_app_container && require_owned_window && has_owner &&
+           error == ERROR_ACCESS_DENIED;
+}
 } // namespace detail
 
 inline void SetUiAutomationEventsEnabledForTest(bool enabled) noexcept {

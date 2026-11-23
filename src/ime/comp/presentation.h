@@ -167,7 +167,7 @@ void PresentCompositionCandidates(
         if (begin_ok && valid_id &&
             lifecycle.PublishRegistration(
                 *begin_token, element_id, ui_mgr.Get())) {
-            const bool show_popup = show_own_ui != FALSE;
+            const bool show_popup = !force_uiless && show_own_ui != FALSE;
             QIQI_LOG_ACT_INFO(
                 log::Level::debug,
                 log::Keyword::UI,

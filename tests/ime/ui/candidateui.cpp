@@ -36,6 +36,16 @@ using Microsoft::WRL::ComPtr;
 
 void TestCandidateHostOwnership() {
     const TsfTestCaseTrace trace(__func__);
+    QIQI_TEST_CHECK(detail::ShouldRetryCandidatePopupWithoutOwner(
+        true, true, true, ERROR_ACCESS_DENIED));
+    QIQI_TEST_CHECK(!detail::ShouldRetryCandidatePopupWithoutOwner(
+        false, true, true, ERROR_ACCESS_DENIED));
+    QIQI_TEST_CHECK(!detail::ShouldRetryCandidatePopupWithoutOwner(
+        true, false, true, ERROR_ACCESS_DENIED));
+    QIQI_TEST_CHECK(!detail::ShouldRetryCandidatePopupWithoutOwner(
+        true, true, false, ERROR_ACCESS_DENIED));
+    QIQI_TEST_CHECK(!detail::ShouldRetryCandidatePopupWithoutOwner(
+        true, true, true, ERROR_INVALID_PARAMETER));
     ScopedWindow first(::CreateWindowExW(
         WS_EX_TOPMOST, L"STATIC", L"", WS_POPUP, 100, 100, 600, 400,
         nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr));

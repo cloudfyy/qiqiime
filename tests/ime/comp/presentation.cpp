@@ -92,12 +92,14 @@ void TestPresentationBeginBoundaries() {
             const bool retires_begin_result =
                 began && !outcome.invalid_id &&
                 (stale_check == 4 || FAILED(outcome.result));
+            const unsigned int expected_updates =
+                published && !outcome.invalid_id && stale_check != 5 ? 1u : 0u;
             QIQI_TEST_CHECK(checks_seen == expected_checks && ui->UiElementId() == expected_id &&
                             manager_reads == (stale_check == 1 ? 0u : 1u));
-            QIQI_TEST_CHECK(manager->begin_ui_calls_ == (began ? 1u : 0u) &&
-                            manager->update_ui_calls_ == 0 &&
-                            manager->end_ui_calls_ ==
-                                (retires_begin_result ? 1u : 0u));
+            QIQI_TEST_CHECK(manager->begin_ui_calls_ == (began ? 1u : 0u));
+            QIQI_TEST_CHECK(manager->update_ui_calls_ == expected_updates);
+            QIQI_TEST_CHECK(manager->end_ui_calls_ ==
+                            (retires_begin_result ? 1u : 0u));
             QIQI_TEST_CHECK(
                 ui->HasPendingUiElementRetirements() == retires_begin_result);
             if (manager->update_ui_calls_) {
@@ -410,7 +412,10 @@ void TestPresentationPermissions() {
                     *ui.Get(), flags, PresentationSnapshot(), document.Get(), {}, 173, GUID_NULL,
                     [&thread_mgr]() noexcept { return thread_mgr.Get(); }, []() noexcept { return true; });
                 BOOL shown = FALSE;
-                const bool expected = enabled && show_own != FALSE;
+                const bool force_uiless =
+                    (flags & TF_TMAE_UIELEMENTENABLEDONLY) != 0;
+                const bool requested_popup = !force_uiless && show_own != FALSE;
+                const bool expected = enabled && requested_popup;
                 QIQI_TEST_CHECK(ui->IsShown(&shown) == S_OK && (shown != FALSE) == expected &&
                                 (ui->WindowHandle() != nullptr) == expected);
                 if (expected) QIQI_TEST_CHECK(::IsWindowVisible(ui->WindowHandle()));
@@ -420,7 +425,7 @@ void TestPresentationPermissions() {
                 QIQI_TEST_CHECK(
                     ui->UiElementId() == 7 &&
                     manager->updated_ui_ids_ ==
-                        (show_own == FALSE ? std::vector<DWORD>{7} : std::vector<DWORD>{}));
+                        (!requested_popup ? std::vector<DWORD>{7} : std::vector<DWORD>{}));
                 manager->end_ui_callback_ = [&](DWORD id) {
                     BOOL ending_shown = TRUE;
                     QIQI_TEST_CHECK(id == 7 && ui->UiElementId() == TF_INVALID_UIELEMENTID &&
@@ -437,7 +442,7 @@ void TestPresentationPermissions() {
                                 (!ui->WindowHandle() ||
                                  !::IsWindowVisible(ui->WindowHandle())));
                 QIQI_TEST_CHECK(manager->updated_ui_ids_.size() ==
-                                (show_own == FALSE ? 2u : 1u));
+                                (!requested_popup ? 2u : 1u));
                 EndCompositionCandidatePresentation(*ui.Get(), thread_mgr, 173, GUID_NULL);
                 QIQI_TEST_CHECK(ui->UiElementId() == TF_INVALID_UIELEMENTID && manager->end_ui_calls_ == 1);
                 QIQI_TEST_CHECK(
