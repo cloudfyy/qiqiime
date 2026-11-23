@@ -57,6 +57,22 @@ void TestFileUtilityBoundaries() {
         QIQI_TEST_CHECK(!std::filesystem::exists(
             path.wstring() + L".tmp." + std::to_wstring(::GetCurrentProcessId())));
     }
+    {
+        ScopedFileHandle locked(::CreateFileW(
+            path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(locked.IsValid());
+        std::jthread release_lock([&locked]() {
+            ::Sleep(25);
+            locked.Reset();
+        });
+        const HRESULT retried_write =
+            WriteFileAtomicallyResult(path, replacement);
+        release_lock.join();
+        QIQI_TEST_CHECK(retried_write == S_OK);
+        QIQI_TEST_CHECK(ReadFileToUtf8String(path, content) &&
+                        content == "new");
+    }
     QIQI_TEST_CHECK(WriteFileAtomicallyResult(path, replacement) == S_OK);
     QIQI_TEST_CHECK(ReadFileToUtf8String(path, content) && content == "new");
     {

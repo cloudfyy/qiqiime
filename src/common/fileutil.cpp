@@ -13,6 +13,16 @@
 #include <string>
 
 namespace qiqi {
+namespace {
+constexpr unsigned int kAtomicReplaceMaxAttempts = 5;
+constexpr unsigned int kAtomicReplaceInitialRetryDelayMs = 10;
+
+bool IsTransientAtomicReplaceError(DWORD error) noexcept {
+    return error == ERROR_ACCESS_DENIED ||
+           error == ERROR_SHARING_VIOLATION ||
+           error == ERROR_LOCK_VIOLATION;
+}
+} // namespace
 
 std::string WideToUtf8(std::wstring_view wide) noexcept {
     try {
@@ -264,11 +274,36 @@ HRESULT WriteFileAtomicallyResult(const std::filesystem::path& target_path, std:
             }
         }
 
-        moved_ok = (::MoveFileExW(tmp_path.c_str(), target_path.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE);
+        DWORD move_error = ERROR_SUCCESS;
+        for (unsigned int attempt = 1; attempt <= kAtomicReplaceMaxAttempts; ++attempt) {
+            if (::MoveFileExW(
+                    tmp_path.c_str(), target_path.c_str(),
+                    MOVEFILE_REPLACE_EXISTING) != FALSE) {
+                moved_ok = true;
+                if (attempt > 1) {
+                    QIQI_LOG_DEBUG(
+                        "WriteFileAtomically::MoveFileExW succeeded after retry (attempt={}, previous_error={})",
+                        attempt, move_error);
+                }
+                break;
+            }
+            move_error = ::GetLastError();
+            if (!IsTransientAtomicReplaceError(move_error) ||
+                attempt == kAtomicReplaceMaxAttempts) {
+                break;
+            }
+            const DWORD delay =
+                kAtomicReplaceInitialRetryDelayMs << (attempt - 1);
+            QIQI_LOG_DEBUG(
+                "WriteFileAtomically::MoveFileExW retrying (attempt={}, error={}, delay_ms={})",
+                attempt + 1, move_error, delay);
+            ::Sleep(delay);
+        }
         if (!moved_ok) {
-            const DWORD error = ::GetLastError();
-            QIQI_LOG_WARN("WriteFileAtomically::MoveFileExW failed (error={})", error);
-            return HRESULT_FROM_WIN32(error);
+            QIQI_LOG_WARN(
+                "WriteFileAtomically::MoveFileExW failed (error={})",
+                move_error);
+            return HRESULT_FROM_WIN32(move_error);
         }
         return S_OK;
     } catch (const std::bad_alloc&) {
