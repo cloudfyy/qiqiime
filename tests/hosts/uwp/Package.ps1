@@ -63,6 +63,8 @@ $makeAppx = Join-Path $sdkBin 'makeappx.exe'
 $makePri = Join-Path $sdkBin 'makepri.exe'
 $signTool = Join-Path $sdkBin 'signtool.exe'
 
+. (Join-Path $PSScriptRoot '..\Generate-HostAssets.ps1')
+
 foreach ($tool in @($makeAppx, $makePri, $signTool)) {
     if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) {
         throw "Required Windows SDK tool was not found: $tool"
@@ -207,59 +209,16 @@ if (-not $SkipSigning) {
 
 $manifest.Save((Join-Path $stageRoot 'AppxManifest.xml'))
 
-Add-Type -AssemblyName System.Drawing
-$icon = [Drawing.Icon]::new(
-    (Join-Path $repositoryRoot 'data\qiqiime.ico'))
-try {
-    $assets = @(
-        [pscustomobject]@{
-            Name = 'StoreLogo.png'; Width = 50; Height = 50
-        },
-        [pscustomobject]@{
-            Name = 'Square44x44Logo.png'; Width = 44; Height = 44
-        },
-        [pscustomobject]@{
-            Name = 'Square150x150Logo.png'; Width = 150; Height = 150
-        },
-        [pscustomobject]@{
-            Name = 'Wide310x150Logo.png'; Width = 310; Height = 150
-        },
-        [pscustomobject]@{
-            Name = 'SplashScreen.png'; Width = 620; Height = 300
-        }
-    )
-    foreach ($asset in $assets) {
-        $bitmap = [Drawing.Bitmap]::new(
-            $asset.Width,
-            $asset.Height)
-        try {
-            $graphics = [Drawing.Graphics]::FromImage($bitmap)
-            try {
-                $graphics.Clear(
-                    [Drawing.Color]::FromArgb(255, 31, 31, 31))
-                $graphics.SmoothingMode =
-                    [Drawing.Drawing2D.SmoothingMode]::HighQuality
-                $side = [int]([Math]::Min(
-                    $asset.Width,
-                    $asset.Height) * 0.70)
-                $x = [int](($asset.Width - $side) / 2)
-                $y = [int](($asset.Height - $side) / 2)
-                $graphics.DrawIcon(
-                    $icon,
-                    [Drawing.Rectangle]::new($x, $y, $side, $side))
-            } finally {
-                $graphics.Dispose()
-            }
-            $bitmap.Save(
-                (Join-Path $stageRoot "Assets\$($asset.Name)"),
-                [Drawing.Imaging.ImageFormat]::Png)
-        } finally {
-            $bitmap.Dispose()
-        }
-    }
-} finally {
-    $icon.Dispose()
-}
+New-QiQiHostPackageAssets `
+    -OutputDirectory (Join-Path $stageRoot 'Assets') `
+    -GlyphIconPath (Join-Path $repositoryRoot 'data\qiqiime-dark.ico') `
+    -BackgroundColor '#0078D4' `
+    -ForegroundColor '#FFFFFF' `
+    -BadgeColor '#50E6FF' `
+    -BadgeTextColor '#003B5C' `
+    -BadgeText 'U' `
+    -BadgeShape Circle `
+    -HostLabel 'UWP TEST HOST'
 
 $priConfig = Join-Path $buildRoot 'priconfig.xml'
 & $makePri createconfig /cf $priConfig /dq en-US_zh-CN /o

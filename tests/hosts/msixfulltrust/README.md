@@ -13,7 +13,8 @@ Feedback Hub:
   beyond `runFullTrust`.
 
 It is an opt-in test fixture, independent of normal CTest and the QiQiIME
-installer.
+installer. Its package uses an orange icon with a square `F` badge, distinct
+from the blue UWP host icon.
 
 ## What it tests
 

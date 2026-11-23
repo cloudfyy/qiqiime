@@ -6,6 +6,8 @@ normal QiQiIME CTest run.
 The host:
 
 - is a minimum-permission, x64 AppContainer UWP package;
+- uses a blue package icon with a circular `U` badge to distinguish it from
+  the full-trust host;
 - exposes one editable `TextBox` for normal TSF/IME input;
 - registers the legacy `windows.search` contract and handles Search Pane
   query, suggestion, submit, and search activation events;
