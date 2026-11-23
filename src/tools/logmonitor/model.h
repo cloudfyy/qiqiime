@@ -4,6 +4,7 @@
 #pragma once
 
 #include "common/logger.h"
+#include "common/guids.h"
 #include <windows.h>
 #include <cguid.h>
 #include <cstdint>
@@ -23,6 +24,8 @@ inline constexpr size_t kEventQueueDefaultRecords = 2'000;
 inline constexpr size_t kEventQueueDefaultBytes = 4 * 1024 * 1024;
 
 inline constexpr GUID kImeProvider = log::kProviderId;
+inline constexpr GUID kBrokerProvider =
+    kGuidConfigBrokerEtwProvider;
 inline constexpr GUID kMonitorProvider =
     {0x6ab897b4, 0xd148, 0x4df9, {0x8e, 0xb7, 0x47, 0x90, 0xa2, 0x74, 0x95, 0x1e}};
 

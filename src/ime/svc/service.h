@@ -169,6 +169,12 @@ private:
     void UninitLangBarItem();
     void InitCompartmentSinks();
     void UninitCompartmentSinks() noexcept;
+    void InitConfigAsyncWindow() noexcept;
+    void UninitConfigAsyncWindow() noexcept;
+    void RequestAsyncConfigRefresh() noexcept;
+    void HandleAsyncConfigResult(HRESULT result);
+    static LRESULT CALLBACK ConfigAsyncWndProc(
+        HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
     bool NotifyGlobalConfigChanged() noexcept;
     void SaveGlobalStatusBarPosition(POINT pos) noexcept;
     HRESULT SyncStatusBarPositionFromGlobalCompartment(bool* changed = nullptr) noexcept;
@@ -309,6 +315,10 @@ private:
     std::unique_ptr<StatusBarUI> status_bar_;
     QiQiConfig config_{};
     uint64_t config_registry_sequence_ = 0;
+    std::atomic<HWND> config_async_window_{};
+    std::atomic<bool> config_refresh_requested_{false};
+    std::atomic<bool> config_refresh_inflight_{false};
+    unsigned int config_refresh_attempts_ = 0;
     std::optional<ImeSkinSnapshot> ime_skin_snapshot_;
     WubiEngine engine_;
     ShiftTapTracker shift_tap_;

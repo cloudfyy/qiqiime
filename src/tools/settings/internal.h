@@ -253,6 +253,8 @@ struct DialogContext {
     std::wstring custom_primary_dict_path;
     PrimaryDict last_valid_primary_dict = PrimaryDict::Jidian;
     uint64_t config_registry_sequence = 0;
+    bool config_refresh_inflight = false;
+    bool config_refresh_pending = false;
     bool controls_initialized = false;
     bool save_on_accept = false;
     bool accepted = false;
@@ -292,7 +294,8 @@ void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept;
 const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage language) noexcept;
 void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept;
 HRESULT RenderSettingsDraft(HWND hwnd, DialogContext& ctx, const QiQiConfig& config) noexcept;
-void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcept;
+void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx);
+void RequestSettingsConfigRefresh(HWND hwnd, DialogContext& ctx);
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept;
 void UpdateExtraDictCheckboxState(HWND hwnd) noexcept;
 void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& ctx) noexcept;

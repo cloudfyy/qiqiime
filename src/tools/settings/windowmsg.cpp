@@ -12,6 +12,8 @@
 #include "common/theme.h"
 #include "ime/engine/dict.h"
 
+#include "common/configclient.h"
+
 #include <commctrl.h>
 #include <windowsx.h>
 #include <shellapi.h>
@@ -365,12 +367,46 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         }
         case WM_ACTIVATE:
             if (LOWORD(wparam) != WA_INACTIVE) {
-                SyncSettingsWindowFromExternalConfig(hwnd, *ctx);
+                RequestSettingsConfigRefresh(
+                    hwnd,
+                    *ctx);
             }
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         case kSettingsExternalConfigChangedMessage:
-            SyncSettingsWindowFromExternalConfig(hwnd, *ctx);
+            RequestSettingsConfigRefresh(
+                hwnd,
+                *ctx);
             return 0;
+        case kSettingsConfigLoadedMessage:
+        {
+            const bool refresh_pending =
+                std::exchange(
+                    ctx->config_refresh_pending,
+                    false);
+            ctx->config_refresh_inflight =
+                false;
+            const HRESULT refresh_result =
+                config::DecodeAsyncResult(
+                    wparam);
+            if (SUCCEEDED(refresh_result)) {
+                SyncSettingsWindowFromExternalConfig(
+                    hwnd,
+                    *ctx);
+            } else {
+                QIQI_LOG_ERROR(
+                    "Settings broker refresh "
+                    "failed (hr=0x{:08X})",
+                    gsl::narrow_cast<
+                        unsigned long>(
+                            refresh_result));
+            }
+            if (refresh_pending) {
+                RequestSettingsConfigRefresh(
+                    hwnd,
+                    *ctx);
+            }
+            return 0;
+        }
         case WM_COMMAND: {
             HandleSettingsCommand(hwnd, wparam, *ctx);
             const auto* current = reinterpret_cast<const DialogContext*>(

@@ -30,6 +30,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         ::UnregisterClassW(qiqi::kInfoWndClass, hModule);
         ::UnregisterClassW(qiqi::kSettingsToastWndClass, hModule);
         ::UnregisterClassW(qiqi::kMenuWndClass, hModule);
+        ::UnregisterClassW(qiqi::kConfigAsyncWndClass, hModule);
         qiqi::log::Shutdown();
     }
     return TRUE;

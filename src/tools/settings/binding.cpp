@@ -3,6 +3,7 @@
 
 #include "tools/settings/internal.h"
 #include "common/i18n.h"
+#include "common/configclient.h"
 #include "common/guids.h"
 #include "common/theme.h"
 #include "common/uiutil.h"
@@ -63,19 +64,55 @@ void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept {
     }
 }
 
-void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcept {
+void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) {
     if (ctx.transfer_in_progress) return;
-    const uint64_t reg_seq = QueryRegistryConfigSequence();
-    if (reg_seq == 0 || reg_seq == ctx.config_registry_sequence) {
-        return;
-    }
-
-    QiQiConfig external_cfg{};
+    config::Snapshot external_snapshot;
+    QiQiConfig external_cfg;
     uint64_t loaded_seq = 0;
-    if (!LoadConfigFromRegistry(external_cfg, &loaded_seq)) {
-        return;
+    if (HasConfigRegistrySubKeyOverride()) {
+        const uint64_t registry_revision =
+            QueryRegistryConfigSequence();
+        if (registry_revision == 0 ||
+            registry_revision ==
+                ctx.config_registry_sequence) {
+            return;
+        }
+        if (!LoadConfigFromRegistry(
+                external_cfg,
+                &loaded_seq)) {
+            return;
+        }
+        if (ctx.save_on_accept) {
+            ctx.skin_catalog_result =
+                LoadImeSkinCatalog(
+                    ctx.skin_catalog);
+        }
+    } else {
+        const HRESULT refresh_result =
+            config::CopyCachedSnapshot(
+                external_snapshot);
+        if (refresh_result != S_OK) {
+            QIQI_LOG_ERROR(
+                "Settings broker refresh failed "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    refresh_result));
+            return;
+        }
+        if (external_snapshot.revision ==
+            ctx.config_registry_sequence) {
+            return;
+        }
+        external_cfg =
+            external_snapshot.value;
+        loaded_seq =
+            external_snapshot.revision;
+        if (ctx.save_on_accept) {
+            ctx.skin_catalog =
+                external_snapshot.skin_catalog;
+            ctx.skin_catalog_result = S_OK;
+        }
     }
-    if (ctx.save_on_accept) ctx.skin_catalog_result = LoadImeSkinCatalog(ctx.skin_catalog);
 
     QiQiConfig current_ui_cfg = ctx.baseline_config;
     ReadSettingsFromWindowControls(hwnd, current_ui_cfg);
@@ -95,6 +132,48 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) noexcep
         ctx.baseline_config.ui_text_scale = std::max(external_cfg.ui_text_scale, UiTextScale::Percent150);
     }
     UpdateSettingsWindowTitle(hwnd, ctx);
+}
+
+void RequestSettingsConfigRefresh(
+    HWND hwnd,
+    DialogContext& ctx) {
+    if (HasConfigRegistrySubKeyOverride()) {
+        SyncSettingsWindowFromExternalConfig(
+            hwnd,
+            ctx);
+        return;
+    }
+    if (ctx.transfer_in_progress) {
+        ctx.config_refresh_pending = true;
+        return;
+    }
+    if (ctx.config_refresh_inflight) {
+        ctx.config_refresh_pending = true;
+        return;
+    }
+    ctx.config_refresh_pending = false;
+    ctx.config_refresh_inflight = true;
+    const bool submitted =
+        config::ReadSnapshotAsync(
+        [hwnd](
+                HRESULT result,
+                const config::Snapshot&) {
+                if (::IsWindow(hwnd)) {
+                    ::PostMessageW(
+                        hwnd,
+                        kSettingsConfigLoadedMessage,
+                        config::EncodeAsyncResult(
+                            result),
+                        0);
+                }
+            });
+    if (!submitted) {
+        ctx.config_refresh_inflight =
+            false;
+        QIQI_LOG_ERROR(
+            "Settings broker refresh "
+            "could not be queued");
+    }
 }
 
 void UpdateExtraDictCheckboxState(HWND hwnd) noexcept {

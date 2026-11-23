@@ -4,6 +4,7 @@
 #include "tools/settings/internal.h"
 #include "tools/settings/transfer.h"
 #include "common/dlgutil.h"
+#include "common/configclient.h"
 #include "common/dictui.h"
 #include "common/fileutil.h"
 #include "common/guids.h"
@@ -105,12 +106,49 @@ ScopedWindow CreateSettingsWindow(
         QIQI_LOG_ERROR("Settings dialog context allocation failed");
         return {};
     }
-    ctx->config_registry_sequence = QueryRegistryConfigSequence();
+    config::Snapshot config_snapshot;
+    if (HasConfigRegistrySubKeyOverride()) {
+        ctx->config_registry_sequence =
+            QueryRegistryConfigSequence();
+    } else if (
+        config::CopyCachedSnapshot(
+            config_snapshot) == S_OK) {
+        ctx->config_registry_sequence =
+            config_snapshot.revision;
+    }
     ctx->save_on_accept = save_on_accept;
-    ctx->skin_catalog_result = save_on_accept ? EnsureBuiltinImeSkinCatalog() : MakeBuiltinImeSkinCatalog(ctx->skin_catalog);
-    if (save_on_accept && SUCCEEDED(ctx->skin_catalog_result))
-        ctx->skin_catalog_result = LoadImeSkinCatalog(ctx->skin_catalog);
-    ctx->config_registry_sequence = QueryRegistryConfigSequence();
+    if (save_on_accept) {
+        if (HasConfigRegistrySubKeyOverride()) {
+            ctx->skin_catalog_result =
+                EnsureBuiltinImeSkinCatalog();
+            if (SUCCEEDED(
+                    ctx->skin_catalog_result)) {
+                ctx->skin_catalog_result =
+                    LoadImeSkinCatalog(
+                        ctx->skin_catalog);
+            }
+        } else if (
+            config_snapshot.revision == 0) {
+            ctx->skin_catalog_result =
+                E_UNEXPECTED;
+        } else {
+            try {
+                ctx->skin_catalog =
+                    config_snapshot
+                        .skin_catalog;
+                ctx->skin_catalog_result =
+                    S_OK;
+            } catch (
+                const std::bad_alloc&) {
+                ctx->skin_catalog_result =
+                    E_OUTOFMEMORY;
+            }
+        }
+    } else {
+        ctx->skin_catalog_result =
+            MakeBuiltinImeSkinCatalog(
+                ctx->skin_catalog);
+    }
 
     const MonitorMetrics mon = QueryActiveMonitor(parent);
     const auto S = [dpi = mon.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };

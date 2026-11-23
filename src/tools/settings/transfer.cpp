@@ -5,6 +5,7 @@
 #include "tools/settings/internal.h"
 
 #include "common/dlgutil.h"
+#include "common/configclient.h"
 #include "common/i18n.h"
 #include "ime/engine/backup.h"
 
@@ -78,11 +79,24 @@ void ShowBackupRestoreResult(
 
 HRESULT RefreshSettingsAfterRestore(HWND hwnd, DialogContext& context) {
     QiQiConfig restored;
-    uint64_t sequence = 0;
-    if (!LoadConfigFromRegistry(restored, &sequence)) {
+    config::Snapshot snapshot;
+    const HRESULT read_result =
+        HasConfigRegistrySubKeyOverride()
+            ? (LoadConfigFromRegistry(
+                   snapshot.value,
+                   &snapshot.revision)
+                   ? S_OK
+                   : E_FAIL)
+            : config::CopyCachedSnapshot(
+                  snapshot);
+    if (FAILED(read_result) ||
+        snapshot.revision == 0) {
         QIQI_LOG_WARN("Restored backup configuration could not be reloaded");
         return E_FAIL;
     }
+    restored = std::move(snapshot.value);
+    const uint64_t sequence =
+        snapshot.revision;
     try {
         QiQiConfig bound = restored;
         QiQiConfig baseline = restored;
@@ -164,12 +178,6 @@ HRESULT RestoreSettingsBackup(
             restore.refresh_error = refreshed;
             ++restore.operations_failed;
         }
-    }
-    if (restore.stage != BackupRestoreStage::Read &&
-        restore.stage != BackupRestoreStage::Validate &&
-        ctx->save_on_accept &&
-        !BroadcastStandaloneGlobalCompartmentIncrement(kGuidCompartmentConfigVersion)) {
-        ReportSettingsNotificationFailure(hwnd, language);
     }
     ShowBackupRestoreResult(hwnd, language, restore);
     return restore.status == BackupRestoreStatus::Success

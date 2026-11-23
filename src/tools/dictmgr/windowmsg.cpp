@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/dictmgr/internal.h"
+#include "common/configclient.h"
 
 #include <gsl/gsl>
 #include <utility>
@@ -146,6 +147,89 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
             return *handled;
         }
         switch (message) {
+        case kConfigChangedMessage: {
+            bool expected = false;
+            if (!self
+                     ->config_refresh_inflight
+                     .compare_exchange_strong(
+                         expected,
+                         true)) {
+                self
+                    ->config_refresh_pending
+                    .store(
+                        true,
+                        std::memory_order_release);
+                return 0;
+            }
+            self
+                ->config_refresh_pending
+                .store(
+                    false,
+                    std::memory_order_relaxed);
+            const HWND target = window;
+            const bool submitted =
+                config::ReadSnapshotAsync(
+                    [target](
+                        HRESULT result,
+                        const config::
+                            Snapshot&) {
+                        if (::IsWindow(target)) {
+                            ::PostMessageW(
+                                target,
+                                kConfigLoadedMessage,
+                                config::EncodeAsyncResult(
+                                    result),
+                                0);
+                        }
+                    });
+            if (!submitted) {
+                self
+                    ->config_refresh_inflight =
+                    false;
+                QIQI_LOG_ERROR(
+                    "DictManager broker refresh "
+                    "could not be queued");
+            }
+            return 0;
+        }
+        case kConfigLoadedMessage:
+        {
+            self
+                ->config_refresh_inflight =
+                false;
+            const HRESULT refresh_result =
+                config::DecodeAsyncResult(
+                    wparam);
+            if (SUCCEEDED(refresh_result)) {
+                if (self->ready) {
+                    self->Tick();
+                }
+            } else {
+                QIQI_LOG_ERROR(
+                    "DictManager broker refresh "
+                    "failed (hr=0x{:08X})",
+                    gsl::narrow_cast<
+                        unsigned long>(
+                            refresh_result));
+            }
+            if (self
+                    ->config_refresh_pending
+                    .exchange(
+                        false,
+                        std::memory_order_acq_rel) &&
+                !::PostMessageW(
+                    window,
+                    kConfigChangedMessage,
+                    0,
+                    0)) {
+                QIQI_LOG_WARN(
+                    "DictManager config refresh "
+                    "coalescing post failed "
+                    "(error={})",
+                    ::GetLastError());
+            }
+            return 0;
+        }
         case WM_SIZE:
             self->Layout();
             return 0;

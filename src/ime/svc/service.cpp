@@ -7,6 +7,7 @@
 #include "ime/comp/target.h"
 #include "ime/ui/candsearch.h"
 #include "common/fileutil.h"
+#include "common/configclient.h"
 #include "common/guids.h"
 #include "common/logger.h"
 #include "common/metric.h"
@@ -44,7 +45,24 @@ constexpr std::array<PreservedKeyDef, 4> kPreservedKeys = {{
 QiQiTextService::QiQiTextService(HINSTANCE instance)
     : service_log_id_(++next_service_log_id), composition_lifecycle_(service_log_id_) {
     std::ignore = log::EnsureInitialized();
-    config_ = LoadConfig(instance);
+    if (HasConfigRegistrySubKeyOverride()) {
+        config_ = LoadConfig(instance);
+    } else {
+        config::Snapshot initial;
+        const HRESULT read =
+            config::CopyCachedSnapshot(
+                initial);
+        if (read == S_OK) {
+            config_ = std::move(initial.value);
+        } else {
+            config_ = {};
+            QIQI_LOG_CAT_INFO(
+                log::Keyword::Config,
+                "IME started with safe default "
+                "config; broker refresh is "
+                "pending");
+        }
+    }
     engine_.ApplyConfig(config_);
     engine_.SetUserDictPath(GetDefaultUserDictPath());
     engine_.SetPhraseFreqPath(GetDefaultPhraseFreqPath());
@@ -96,7 +114,10 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
     });
     SetUiPresentationEnabled(false);
     LoadExternalDictionaryNextToDll();
-    config_registry_sequence_ = QueryRegistryConfigSequence();
+    config_registry_sequence_ =
+        HasConfigRegistrySubKeyOverride()
+            ? QueryRegistryConfigSequence()
+            : config::CachedRevision();
 }
 
 QiQiTextService::~QiQiTextService() noexcept {

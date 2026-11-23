@@ -44,6 +44,16 @@ ULONG RegisterDiagnostics() noexcept { return ::TraceLoggingRegister(g_monitor_p
 void UnregisterDiagnostics() noexcept { ::TraceLoggingUnregister(g_monitor_provider); }
 constinit log::detail::EtwRegistration diagnostic_registration{RegisterDiagnostics, UnregisterDiagnostics};
 
+inline bool IsLogProvider(
+    REFGUID provider) noexcept {
+    return IsEqualGUID(
+               provider,
+               kImeProvider) ||
+        IsEqualGUID(
+            provider,
+            kBrokerProvider);
+}
+
 struct TraceProperties {
     EVENT_TRACE_PROPERTIES properties{};
     std::array<wchar_t, kTraceSessionNameCapacity> name{};
@@ -241,7 +251,10 @@ void Diagnostics::Record(UCHAR level, std::wstring_view operation, ULONG error) 
 }
 
 ULONG DecodeEvent(EVENT_RECORD& record, Event& event) {
-    if (!::IsEqualGUID(record.EventHeader.ProviderId, kImeProvider)) return ERROR_NOT_FOUND;
+    if (!IsLogProvider(
+            record.EventHeader.ProviderId)) {
+        return ERROR_NOT_FOUND;
+    }
     if (record.EventHeader.EventDescriptor.Keyword & std::to_underlying(log::Keyword::Metrics)) return ERROR_NOT_FOUND;
     std::vector<BYTE> storage;
     ULONG error = ReadEventMetadata(record, storage, kMaxLogMetadataBytes);
@@ -422,6 +435,21 @@ bool Collector::Start(bool collect_metrics) {
     if (error != ERROR_SUCCESS) {
         return FailStart(L"EnableTraceEx2(QiQiIME.TraceLogging)", error);
     }
+    error = api_.enable_trace(
+        session_,
+        &kBrokerProvider,
+        EVENT_CONTROL_CODE_ENABLE_PROVIDER,
+        TRACE_LEVEL_VERBOSE,
+        std::to_underlying(
+            log::Keyword::Logs),
+        0,
+        kProviderEnableTimeoutMs,
+        nullptr);
+    if (error != ERROR_SUCCESS) {
+        return FailStart(
+            L"EnableTraceEx2(QiQiIME.ConfigBroker.TraceLogging)",
+            error);
+    }
 #pragma warning(push)
 #pragma warning(disable : 26476) // ETW chooses EventRecordCallback through ProcessTraceMode.
     EVENT_TRACE_LOGFILEW logfile{};
@@ -456,7 +484,14 @@ bool Collector::Start(bool collect_metrics) {
             diagnostics_.Record(3, L"Request metric instance metadata after OpenTraceW", error);
         }
     }
-    diagnostics_.Record(4, std::format(L"Capture started: {}, QiQiIME.TraceLogging, all ETW levels", name_));
+    diagnostics_.Record(
+        4,
+        std::format(
+            L"Capture started: {}, "
+            L"QiQiIME.TraceLogging + "
+            L"QiQiIME.ConfigBroker.TraceLogging, "
+            L"all ETW levels",
+            name_));
     started = true;
     return true;
 }
@@ -519,7 +554,13 @@ bool Collector::Stop() noexcept {
 }
 
 void WINAPI Collector::OnEvent(EVENT_RECORD* record) noexcept {
-    if (!record || !record->UserContext || !::IsEqualGUID(record->EventHeader.ProviderId, kImeProvider)) return;
+    if (!record ||
+        !record->UserContext ||
+        !IsLogProvider(
+             record->EventHeader
+                 .ProviderId)) {
+        return;
+    }
     auto& collector = *static_cast<Collector*>(record->UserContext);
     const bool metric = (record->EventHeader.EventDescriptor.Keyword & std::to_underlying(log::Keyword::Metrics)) != 0;
     try {

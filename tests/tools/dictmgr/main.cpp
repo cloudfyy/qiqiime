@@ -3,6 +3,11 @@
 
 #include "test.h"
 
+namespace qiqi {
+HINSTANCE g_dll_instance = nullptr;
+std::atomic<long> g_com_object_count{0};
+} // namespace qiqi
+
 using namespace qiqi::dict_manager::tests;
 
 int main(int argc, char** argv) try {

@@ -529,7 +529,7 @@ BackupRestoreResult CompleteBackup::RestoreFile(
         if (result.operations_failed == 0 &&
             plan.config_changed) {
             const HRESULT config_result =
-                SaveConfigToRegistryResult(plan.config);
+                SaveConfigResult(plan.config);
             if (SUCCEEDED(config_result)) {
                 result.summary.config_restored = true;
                 ++result.operations_succeeded;

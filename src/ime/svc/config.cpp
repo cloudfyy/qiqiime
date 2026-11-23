@@ -3,6 +3,7 @@
 
 #include "ime/svc/service.h"
 #include "common/dialog.h"
+#include "common/configclient.h"
 #include "common/fileutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
@@ -10,6 +11,7 @@
 #include "common/settings.h"
 
 #include <oleauto.h>
+#include <exception>
 #include <filesystem>
 #include <utility>
 #include <vector>
@@ -35,6 +37,10 @@ constexpr const char* LangBarMenuIdToString(LangBarMenuId id) noexcept {
         default:                               return "Unknown";
     }
 }
+
+constexpr UINT_PTR kConfigRetryTimerId = 1;
+constexpr UINT kConfigRetryDelayMs = 1000;
+constexpr unsigned int kConfigMaxRefreshAttempts = 3;
 
 } // namespace
 
@@ -93,6 +99,10 @@ void QiQiTextService::InitCompartmentSinks() {
     if (!thread_mgr_) {
         return;
     }
+    InitConfigAsyncWindow();
+    if (!HasConfigRegistrySubKeyOverride()) {
+        RequestAsyncConfigRefresh();
+    }
     ITfCompartmentEventSink* const sink = this;
 
     // 1. Bind thread-scoped system compartments for bidirectional mode sync
@@ -130,6 +140,7 @@ void QiQiTextService::InitCompartmentSinks() {
 }
 
 void QiQiTextService::UninitCompartmentSinks() noexcept {
+    UninitConfigAsyncWindow();
     DisconnectPasswordContext();
     if (password_previous_chinese_) {
         engine_.SetChineseMode(*password_previous_chinese_);
@@ -142,6 +153,236 @@ void QiQiTextService::UninitCompartmentSinks() noexcept {
     global_config_comp_.Reset();
 }
 
+LRESULT CALLBACK QiQiTextService::ConfigAsyncWndProc(
+        HWND hwnd,
+        UINT message,
+        WPARAM wparam,
+        LPARAM lparam) noexcept {
+        QiQiTextService* self = nullptr;
+        if (message == WM_NCCREATE) {
+            const auto* create =
+                reinterpret_cast<
+                    const CREATESTRUCTW*>(
+                        lparam);
+            self = static_cast<QiQiTextService*>(
+                create->lpCreateParams);
+            ::SetWindowLongPtrW(
+                hwnd,
+                GWLP_USERDATA,
+                reinterpret_cast<LONG_PTR>(
+                    self));
+        } else {
+            self =
+                reinterpret_cast<QiQiTextService*>(
+                    ::GetWindowLongPtrW(
+                        hwnd,
+                        GWLP_USERDATA));
+        }
+        if (self) {
+            if (message ==
+                kConfigAsyncResultMessage) {
+                try {
+                    self->HandleAsyncConfigResult(
+                        config::DecodeAsyncResult(
+                            wparam));
+                } catch (
+                    const std::exception&) {
+                    QIQI_LOG_ERROR(
+                        "Config async completion "
+                        "handler failed");
+                }
+                return 0;
+            }
+            if (message == WM_TIMER &&
+                wparam ==
+                    kConfigRetryTimerId) {
+                ::KillTimer(
+                    hwnd,
+                    kConfigRetryTimerId);
+                self->RequestAsyncConfigRefresh();
+                return 0;
+            }
+            if (message == WM_DESTROY) {
+                ::SetWindowLongPtrW(
+                    hwnd,
+                    GWLP_USERDATA,
+                    0);
+                return 0;
+            }
+        }
+        return ::DefWindowProcW(
+            hwnd,
+            message,
+            wparam,
+            lparam);
+    }
+
+    void QiQiTextService::InitConfigAsyncWindow() noexcept {
+        if (config_async_window_.load(
+                std::memory_order_relaxed)) {
+            return;
+        }
+        WNDCLASSEXW window_class{
+            .cbSize = sizeof(window_class),
+            .lpfnWndProc =
+                &QiQiTextService::
+                    ConfigAsyncWndProc,
+            .hInstance = g_dll_instance,
+            .lpszClassName =
+                kConfigAsyncWndClass,
+        };
+        if (!::RegisterClassExW(
+                &window_class) &&
+            ::GetLastError() !=
+                ERROR_CLASS_ALREADY_EXISTS) {
+            QIQI_LOG_ERROR(
+                "Config async window class "
+                "registration failed "
+                "(error={})",
+                ::GetLastError());
+            return;
+        }
+        const HWND window =
+            ::CreateWindowExW(
+                0,
+                kConfigAsyncWndClass,
+                L"",
+                0,
+                0,
+                0,
+                0,
+                0,
+                HWND_MESSAGE,
+                nullptr,
+                g_dll_instance,
+                this);
+        if (!window) {
+            QIQI_LOG_ERROR(
+                "Config async window creation "
+                "failed (error={})",
+                ::GetLastError());
+            return;
+        }
+        config_async_window_.store(
+            window,
+            std::memory_order_release);
+    }
+
+    void QiQiTextService::UninitConfigAsyncWindow() noexcept {
+        const HWND window =
+            config_async_window_.exchange(
+                nullptr,
+                std::memory_order_acq_rel);
+        if (window && !::DestroyWindow(window)) {
+            QIQI_LOG_WARN(
+                "Config async window teardown "
+                "failed (error={})",
+                ::GetLastError());
+        }
+    }
+
+    void QiQiTextService::RequestAsyncConfigRefresh() noexcept {
+        config_refresh_requested_.store(
+            true,
+            std::memory_order_relaxed);
+        bool expected = false;
+        if (!config_refresh_inflight_
+                 .compare_exchange_strong(
+                     expected,
+                     true,
+                     std::memory_order_acq_rel)) {
+            return;
+        }
+        config_refresh_requested_.store(
+            false,
+            std::memory_order_release);
+        const ComPtr<QiQiTextService> self(this);
+        bool submitted = false;
+        try {
+            submitted =
+                config::ReadSnapshotAsync(
+                    [self](HRESULT result,
+                           const config::Snapshot&) {
+                        self
+                            ->config_refresh_inflight_
+                            .store(
+                                false,
+                                std::memory_order_release);
+                        const HWND window =
+                            self->config_async_window_
+                                .load(
+                                    std::memory_order_acquire);
+                        if (window &&
+                            !::PostMessageW(
+                                window,
+                                kConfigAsyncResultMessage,
+                                config::EncodeAsyncResult(
+                                    result),
+                                0)) {
+                            QIQI_LOG_WARN(
+                                "Config async completion "
+                                "post failed (error={})",
+                                ::GetLastError());
+                        }
+                    });
+        } catch (const std::bad_alloc&) {
+            QIQI_LOG_ERROR(
+                "Config async completion "
+                "allocation failed");
+        }
+        if (!submitted) {
+            config_refresh_inflight_.store(
+                false,
+                std::memory_order_release);
+            QIQI_LOG_ERROR(
+                "Config async refresh could "
+                "not be queued");
+        }
+    }
+
+void QiQiTextService::HandleAsyncConfigResult(
+        HRESULT result) {
+        if (SUCCEEDED(result)) {
+            config_refresh_attempts_ = 0;
+            const auto reload =
+                ReloadConfigIfModified();
+            if (!reload.succeeded) {
+                QIQI_LOG_ERROR(
+                    "Config cache application "
+                    "failed (hr=0x{:08X})",
+                    gsl::narrow_cast<unsigned long>(
+                        reload.error));
+            }
+        } else {
+            QIQI_LOG_ERROR(
+                "Async broker refresh failed "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    result));
+            if (config_refresh_attempts_ <
+                kConfigMaxRefreshAttempts) {
+                ++config_refresh_attempts_;
+                const HWND window =
+                    config_async_window_.load(
+                        std::memory_order_acquire);
+                if (window &&
+                    !::SetTimer(
+                        window,
+                        kConfigRetryTimerId,
+                        kConfigRetryDelayMs,
+                        nullptr)) {
+                    QIQI_LOG_ERROR(
+                        "Config retry timer failed "
+                        "(error={})",
+                        ::GetLastError());
+                }
+            }
+        }
+        if (config_refresh_requested_.load(
+                std::memory_order_acquire)) {
+            RequestAsyncConfigRefresh();
+        }
+    }
 void QiQiTextService::ConnectActiveContextAccessSinks(ITfContext* context) {
     DisconnectActiveContextAccessSinks();
     context_access_.Reset();
@@ -524,7 +765,12 @@ void QiQiTextService::SyncEngineFromSystemCompartments(REFGUID changed_guid) {
 STDMETHODIMP QiQiTextService::OnChange(REFGUID rguid) {
     if (IsEqualGUID(rguid, kGuidCompartmentConfigVersion)) {
         QIQI_LOG_DEBUG("ITfCompartmentEventSink::OnChange(kGuidCompartmentConfigVersion) received");
-        ReloadConfigIfModified();
+        if (HasConfigRegistrySubKeyOverride()) {
+            ReloadConfigIfModified();
+        } else {
+            config_refresh_attempts_ = 0;
+            RequestAsyncConfigRefresh();
+        }
     } else if (IsEqualGUID(rguid, kGuidCompartmentStatusBarPos)) {
         QIQI_LOG_DEBUG("ITfCompartmentEventSink::OnChange(kGuidCompartmentStatusBarPos) received");
         SyncStatusBarPositionFromGlobalCompartment();
@@ -540,6 +786,7 @@ STDMETHODIMP QiQiTextService::OnChange(REFGUID rguid) {
 
 void QiQiTextService::HandleLangBarMenuAction(LangBarMenuId action_id) {
     if (action_id == LangBarMenuId::SyncMenuState) {
+        RequestAsyncConfigRefresh();
         ReloadConfigIfModified();
         SyncTsfCompartments();
         return;
@@ -612,9 +859,36 @@ STDMETHODIMP QiQiTextService::GetDisplayName(BSTR* pbstrName) noexcept {
 }
 
 void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
-    std::ignore = log::CheckHResult(
-        UpdateImeSkinSnapshot(config_.ime_skin_id, ime_skin_snapshot_),
-        "QiQiTextService::ApplyDynamicEngineSettings(UpdateImeSkinSnapshot)");
+    if (HasConfigRegistrySubKeyOverride()) {
+        std::ignore = log::CheckHResult(
+            UpdateImeSkinSnapshot(
+                config_.ime_skin_id,
+                ime_skin_snapshot_),
+            "QiQiTextService::ApplyDynamicEngineSettings(UpdateImeSkinSnapshot)");
+    } else {
+    config::Snapshot config_snapshot;
+    const HRESULT config_result =
+        config::CopyCachedSnapshot(
+            config_snapshot);
+    if (config_result == S_OK) {
+        std::ignore = log::CheckHResult(
+            UpdateImeSkinSnapshot(
+                config_.ime_skin_id,
+                config_snapshot.skin_catalog,
+                ime_skin_snapshot_),
+            "QiQiTextService::ApplyDynamicEngineSettings(UpdateImeSkinSnapshot)");
+    } else if (
+        config_.ime_skin_id !=
+        ImeSkinId::Default) {
+        ime_skin_snapshot_.reset();
+        QIQI_LOG_WARN(
+            "Skin snapshot unavailable "
+            "without broker cache "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                config_result));
+    }
+    }
     if (engine_.PageSize() != std::clamp<size_t>(config_.page_size, 1, 9))
         engine_.SetPageSize(config_.page_size);
     engine_.SetAutoCommit4Code(config_.auto_commit_4code);
@@ -632,8 +906,16 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
 }
 
 bool QiQiTextService::PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts) {
-    if (!SaveConfig(updated_config)) {
-        QIQI_LOG_ERROR("Quick settings save failed; keeping the current configuration");
+    const HRESULT save_result =
+        SaveConfigResult(updated_config);
+    if (FAILED(save_result)) {
+        QIQI_LOG_ERROR(
+            "Quick settings broker save "
+            "failed; keeping the current "
+            "configuration "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                save_result));
         ShowSettingsToast(config_.ui_language, SettingsToastKind::SaveFailure);
         return false;
     }
@@ -641,7 +923,11 @@ bool QiQiTextService::PersistAndSyncQuickConfigChange(QiQiConfig updated_config,
     config_ = std::move(updated_config);
     UpdateSettingsToastLanguage(config_.ui_language);
     SyncSavedConfigChange(reload_dicts);
-    if (!NotifyGlobalConfigChanged()) {
+    config::Snapshot saved_snapshot;
+    if (config::CopyCachedSnapshot(
+            saved_snapshot) == S_OK &&
+        FAILED(saved_snapshot
+                   .notification_result)) {
         ShowSettingsToast(config_.ui_language, SettingsToastKind::NotificationFailure);
     }
     return true;
@@ -651,7 +937,10 @@ void QiQiTextService::SyncSavedConfigChange(bool reload_dicts) {
     if (reload_dicts) {
         LoadExternalDictionaryNextToDll();
     }
-    config_registry_sequence_ = QueryRegistryConfigSequence();
+    config_registry_sequence_ =
+        HasConfigRegistrySubKeyOverride()
+            ? QueryRegistryConfigSequence()
+            : config::CachedRevision();
     SyncTsfCompartments();
 }
 
@@ -785,20 +1074,48 @@ QiQiTextService::ReloadResult QiQiTextService::ReloadConfigIfModified(uint64_t f
         result.Observe(engine_.SynchronizePhraseFrequencies());
     }
 
-    const uint64_t reg_seq = QueryRegistryConfigSequence();
-    if (reg_seq == 0 || reg_seq == config_registry_sequence_) {
-        config_status = reg_seq == 0 ? "sequence-unavailable" : "unchanged";
-        if (reg_seq == 0) {
+    config::Snapshot snapshot;
+    HRESULT snapshot_result = S_OK;
+    if (HasConfigRegistrySubKeyOverride()) {
+        if (!LoadConfigFromRegistry(
+                snapshot.value,
+                &snapshot.revision)) {
+            snapshot_result =
+                E_FAIL;
+        }
+    } else {
+        snapshot_result =
+            config::CopyCachedSnapshot(
+                snapshot);
+    }
+    if (snapshot_result != S_OK ||
+        snapshot.revision ==
+            config_registry_sequence_) {
+        config_status =
+            snapshot_result != S_OK
+                ? (HasConfigRegistrySubKeyOverride()
+                       ? "sequence-unavailable"
+                       : "cache-unavailable")
+                : "unchanged";
+        if (snapshot_result != S_OK) {
             result.Fail();
-            QIQI_LOG_WARN("ReloadConfigIfModified: configuration sequence unavailable");
+            QIQI_LOG_WARN(
+                "ReloadConfigIfModified: "
+                "broker snapshot unavailable "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    snapshot_result));
         }
         completed = true;
         return result;
     }
 
-    QiQiConfig updated{};
+    QiQiConfig updated =
+        std::move(snapshot.value);
     config_status = "load-failed";
-    if (LoadConfigFromRegistry(updated, &config_registry_sequence_)) {
+    if (snapshot.revision != 0) {
+        config_registry_sequence_ =
+            snapshot.revision;
         config_status = "loaded";
         config_ = std::move(updated);
         UpdateSettingsToastLanguage(config_.ui_language);
@@ -816,7 +1133,7 @@ QiQiTextService::ReloadResult QiQiTextService::ReloadConfigIfModified(uint64_t f
             log::Level::info,
             log::Keyword::Config,
             &current_lifecycle_activity_,
-            "Hot-reloaded modified user configuration from HKCU\\Software\\QiQiIME (dict={}, mapped_dicts={})",
+            "Hot-reloaded modified user configuration from broker cache (dict={}, mapped_dicts={})",
             PrimaryDictToString(config_.primary_dict),
             engine_.MappedDictionaryCount());
     } else {

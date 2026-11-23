@@ -7,6 +7,7 @@
 #include "tools/dictmgr/model.h"
 #include "tools/dictmgr/editor.h"
 #include "common/controls.h"
+#include "common/comobj.h"
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/toolbar.h"
@@ -16,8 +17,44 @@
 
 namespace qiqi::dict_manager {
 
+using Microsoft::WRL::ComPtr;
+
 inline constexpr UINT_PTR kRefreshTimerId = 1;
 inline constexpr UINT kRefreshIntervalMs = 500;
+inline constexpr UINT kConfigChangedMessage =
+    WM_APP + 0x40;
+inline constexpr UINT kConfigLoadedMessage =
+    WM_APP + 0x41;
+
+class ConfigCompartmentListener final
+    : public ComObjectBase<
+          ConfigCompartmentListener,
+          ITfCompartmentEventSink> {
+public:
+    explicit ConfigCompartmentListener(
+        HWND hwnd) noexcept
+        : hwnd_(hwnd) {
+    }
+
+    STDMETHODIMP OnChange(
+        REFGUID guid) noexcept override {
+        if (IsEqualGUID(
+                guid,
+                kGuidCompartmentConfigVersion) &&
+            hwnd_ &&
+            ::IsWindow(hwnd_)) {
+            ::PostMessageW(
+                hwnd_,
+                kConfigChangedMessage,
+                0,
+                0);
+        }
+        return S_OK;
+    }
+
+private:
+    HWND hwnd_ = nullptr;
+};
 
 std::wstring FormatWindowTitle(UiLanguage language);
 [[noreturn]] void ThrowUiError(const char* operation, DWORD error);
@@ -82,6 +119,14 @@ struct DictManagerWindow::Impl {
     bool updating_filters = false;
     bool updating_editor = false;
     bool ime_composing = false;
+    std::atomic<bool>
+        config_refresh_inflight{false};
+    std::atomic<bool>
+        config_refresh_pending{false};
+    ComPtr<ITfThreadMgr> config_thread_mgr;
+    ComPtr<ConfigCompartmentListener>
+        config_listener;
+    ScopedTfCompartment config_compartment;
     int editing_row = -1;
     int pressed_edit_row = -1;
 
@@ -115,6 +160,7 @@ struct DictManagerWindow::Impl {
     }
 
     void UpdateIcons() noexcept;
+    void InitConfigSubscription() noexcept;
     void Failure(std::wstring_view operation, ULONG error);
     bool Add(const wchar_t* cls, const wchar_t* text, DWORD style, ControlId id);
     static LRESULT CALLBACK ListProcedure(

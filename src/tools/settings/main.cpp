@@ -57,11 +57,12 @@ int WINAPI wWinMain(
     qiqi::log::InitLogger();
     std::ignore = qiqi::log::CheckHResult(co_hr, "Settings::CoInitializeEx");
     qiqi::QiQiConfig cfg = qiqi::LoadConfig(instance);
-    if (qiqi::ShowSettingsDialog(instance, nullptr, cfg, true)) {
-        if (!qiqi::BroadcastStandaloneGlobalCompartmentIncrement(qiqi::kGuidCompartmentConfigVersion)) {
-            qiqi::ReportSettingsNotificationFailure(nullptr, cfg.ui_language);
-        }
-    }
+    std::ignore =
+        qiqi::ShowSettingsDialog(
+            instance,
+            nullptr,
+            cfg,
+            true);
     qiqi::log::Shutdown();
     return 0;
 }

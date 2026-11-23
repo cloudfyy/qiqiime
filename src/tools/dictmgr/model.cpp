@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/dictmgr/model.h"
+#include "common/configclient.h"
 #include "common/backup.h"
 #include "common/dictcodec.h"
 #include "common/config.h"
@@ -153,7 +154,10 @@ HRESULT DictManagerModel::ReloadAllResult() {
     }
 
     RebuildRecords();
-    config_registry_sequence_ = QueryRegistryConfigSequence();
+    config_registry_sequence_ =
+        HasConfigRegistrySubKeyOverride()
+            ? QueryRegistryConfigSequence()
+            : config::CachedRevision();
     QIQI_LOG_ACT_STOP(
         log::Level::info,
         log::Keyword::Dictionary,
@@ -166,7 +170,10 @@ HRESULT DictManagerModel::ReloadAllResult() {
 }
 
 bool DictManagerModel::PollExternalChanges() {
-    const uint64_t reg_seq = QueryRegistryConfigSequence();
+    const uint64_t reg_seq =
+        HasConfigRegistrySubKeyOverride()
+            ? QueryRegistryConfigSequence()
+            : config::CachedRevision();
     if (reg_seq != 0 && reg_seq != config_registry_sequence_) {
         ReloadAll();
         return true;

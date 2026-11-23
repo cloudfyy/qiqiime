@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/settings/internal.h"
+#include "common/configclient.h"
 #include "tools/settings/transfer.h"
 #include "common/dlgutil.h"
 #include "common/dictui.h"
@@ -310,26 +311,39 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                     return;
                 }
                 if (edited.ime_skin_id != ImeSkinId::Default) {
-                    ImeSkinCatalog catalog;
-                    const HRESULT result = ctx.save_on_accept ? LoadImeSkinCatalog(catalog) :
-                        ValidateImeSkinCatalog(ctx.skin_catalog);
-                    if (FAILED(result) || !FindImeSkin(ctx.save_on_accept ? catalog : ctx.skin_catalog, edited.ime_skin_id)) {
+                    const HRESULT result =
+                        ValidateImeSkinCatalog(
+                            ctx.skin_catalog);
+                    if (FAILED(result) || !FindImeSkin(
+                            ctx.skin_catalog,
+                            edited.ime_skin_id)) {
                         ReportSkinConfigurationFailure(hwnd, edited.ui_language,
                             FAILED(result) ? result : HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
                         return;
                     }
                 }
                 if (ctx.save_on_accept) {
-                    const HRESULT saved = SaveConfigToRegistryResult(edited);
+                    const HRESULT saved =
+                        SaveConfigResult(edited);
                     if (FAILED(saved)) {
                         QIQI_LOG_ERROR("Settings save failed; retaining edits for retry (hr=0x{:08X})",
-                            static_cast<unsigned long>(saved));
+                            gsl::narrow_cast<unsigned long>(saved));
                         ShowSettingsSaveFailure(hwnd, edited.ui_language);
                         return;
                     }
+                    config::Snapshot published;
+                    if (config::CopyCachedSnapshot(
+                            published) == S_OK &&
+                        FAILED(published
+                                   .notification_result)) {
+                        ReportSettingsNotificationFailure(
+                            hwnd,
+                            edited.ui_language);
+                    }
                 }
                 if (ctx.save_on_accept) {
-                    ctx.config_registry_sequence = QueryRegistryConfigSequence();
+                    ctx.config_registry_sequence =
+                        config::CachedRevision();
                 }
                 ctx.baseline_config = std::move(baseline);
                 *ctx.config = std::move(edited);

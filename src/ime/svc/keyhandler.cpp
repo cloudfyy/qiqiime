@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/svc/service.h"
+#include "common/configclient.h"
 #include "ime/tsf/editsession.h"
 #include "common/fileutil.h"
 #include "common/guids.h"
@@ -297,7 +298,10 @@ void QiQiTextService::HandlePreservedKey(
                     const std::wstring phrase(locked.Get());
                     if (phrase.size() >= 2 && phrase.size() <= 16 &&
                         engine_.AddUserPhrase(phrase, GetDefaultUserDictPath())) {
-                        config_registry_sequence_ = QueryRegistryConfigSequence();
+                        config_registry_sequence_ =
+                            HasConfigRegistrySubKeyOverride()
+                                ? QueryRegistryConfigSequence()
+                                : config::CachedRevision();
                         PlayImeSound(SoundEffectKind::KeyClick);
                         NotifyGlobalConfigChanged();
                     } else {
