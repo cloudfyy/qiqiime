@@ -5,6 +5,7 @@
 
 #include "diagnostics.h"
 #include "fixtures.h"
+#include "tokeninfo.h"
 
 #include <winrt/Windows.ApplicationModel.Activation.h>
 #include <winrt/Windows.ApplicationModel.Search.h>
@@ -18,9 +19,8 @@ namespace qiqi::host {
 
 struct PackageState {
     std::wstring full_name;
-    bool is_app_container = false;
     LONG package_error = ERROR_SUCCESS;
-    DWORD token_error = ERROR_SUCCESS;
+    token::State token;
 };
 
 class HostApp : public winrt::Windows::UI::Xaml::ApplicationT<HostApp> {

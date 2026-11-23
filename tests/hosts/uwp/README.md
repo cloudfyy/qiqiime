@@ -11,6 +11,8 @@ The host:
 - exposes one editable `TextBox` for normal TSF/IME input;
 - registers the legacy `windows.search` contract and handles Search Pane
   query, suggestion, submit, and search activation events;
+- reports AppContainer/LPAC token state, inferred LPAC status, package and
+  capability SIDs, and broad `ALL APPLICATION PACKAGES` group membership;
 - loads controlled records and synthetic linguistic details from
   [TestData.json](TestData.json);
 - writes privacy-safe events to the existing `QiQiIME.TraceLogging` provider;
@@ -99,7 +101,11 @@ tests\hosts\uwp\Uninstall-Host.ps1 `
 
 Launch **QiQiIME UWP Search Host** from Start, then:
 
-1. confirm `TokenIsAppContainer: true`;
+1. confirm:
+   - `TokenIsAppContainer: true`;
+   - normal `ALL APPLICATION PACKAGES` membership is present;
+   - LPAC/inferred-LPAC is false; and
+   - the package SID is available;
 2. type a Wubi code in the input box;
 3. inspect the automatically run synthetic fixture result;
 4. optionally click **Run synthetic fixtures** again;

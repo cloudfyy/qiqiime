@@ -411,6 +411,59 @@ each behavior change rather than postponing all testing until the final gate.
       after loading the new DLL, saving with **OK**, and opening a fresh process.
       Local log export: `C:\temp\qiqi-ime-events.log` (last modified 2026-11-21
       21:13 local time).
+      - [ ] **Runtime configuration transport plan (design recorded 2026-11-23,
+        not implemented):** use global TSF compartments as the fast path for
+        compact, versioned scalar configuration, backed by a durable shared
+        snapshot written only by the desktop publisher. Do not use a
+        `VT_BSTR` snapshot. Keep the existing
+        `kGuidCompartmentConfigVersion` as the commit notification. Add
+        separate `VT_I4` categories for visual, font, and behavior fields.
+        Each DWORD contains a schema identifier, a short generation, and
+        validated payload bits; write all categories first and increment/write
+        the commit value last. Readers subscribe only to the commit
+        compartment, read every category, require `S_OK` plus `VT_I4`, validate
+        reserved bits, and retain the last valid configuration unless every
+        category matches the committed generation. A missing, cleared, or
+        malformed compartment is absence, not a zero-valued configuration.
+        Skin transport carries only the built-in `ImeSkinId`; skin palettes
+        stay compiled in the IME rather than crossing process boundaries.
+        Font transport uses a fixed font-ID/size/weight/italic set and falls
+        back to `Auto`; arbitrary font names and paths are intentionally not
+        part of this channel. Before activating compact transport, detect package
+        identity, not merely whether `RegQueryValueExW` succeeds. Ordinary
+        unpackaged desktop processes continue to use real HKCU and need no
+        compact-config read; a successful registry read is sufficient for them.
+        A packaged process's successful read is ambiguous because the virtual
+        HKCU view may merge a package-private override with the real desktop
+        values, so it must not select the registry path based on readability.
+        A package-identity process must
+        not persist Quick Settings directly into its virtualized HKCU. The
+        durable snapshot is created under a versioned, dedicated path whose
+        desktop publisher grants packaged readers least-privilege read access;
+        packaged code never relies on the legacy package-private
+        `Software\QiQiIME` values. On startup or when compartments are missing,
+        the packaged process reads that snapshot directly—never by launching a
+        hidden Settings process. The desktop publisher updates the snapshot and
+        publishes the compartment set together from normal Settings saves.
+        For an explicit packaged Quick Settings action, a field-level patch may
+        be accepted by a signed `QiQiIMESettings.exe` writer launched from the
+        fixed installed path; this is allowed only in direct response to the
+        user action, with a no-argument/no-window launch policy, authenticated
+        field-level framing, bounded input, and an explicit result. The writer
+        must not be launched during activation, focus, polling, startup, or
+        compartment failure recovery. If it cannot handle the user action,
+        show the existing failure UI and retain the previous config rather
+        than writing to package-private HKCU. The reader/update path is the same
+        for UWP and packaged Full Trust. Distinguish them only at writer
+        activation for the explicit Quick Settings writer: Full Trust may use
+        the ordinary desktop process path;
+        AppContainer UWP must use the registered protocol or another
+        explicitly AppContainer-accessible bridge. Repeated real-host testing
+        showed `VT_I4` survives writer exit and is readable from both host
+        types, while `VT_BSTR` returned `S_FALSE`/`VT_EMPTY` to another process.
+        Cover commit races, schema changes, rollover, package-private shadow
+        seeding, writer absence, malformed values, and repeated hot updates
+        before enabling this transport.
 - [x] Update user/developer documentation to distinguish implemented surfaces
   from design-only features; automated color checks do not certify all hosts
   or accessibility. Do not generate MSI packages unless explicitly requested.
@@ -698,6 +751,38 @@ status-bar/tooltip skin support require separate design approval.
   virtualization, a real Rich Edit input target, TSF search-provider probing,
   package-private shadow injection, desktop-state comparison, and installable
   MSIX packaging. The parent TODO remains open until real-host acceptance.
+
+- [x] Extend the restricted-host matrix with a dedicated LPAC launcher and
+  matching UWP-side upgrades. Keep the existing `tests/hosts/uwp` fixture as
+  the ordinary, capability-free UWP/AppContainer baseline; do not change its
+  package into LPAC. Add an opt-in launcher that creates an explicit
+  AppContainer profile/package SID, configures
+  `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`, and sets
+  `PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY` to
+  `PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT`. Add a launcher mode
+  that verifies `TokenIsAppContainer=true`, attempts
+  `TokenIsLessPrivilegedAppContainer`, and verifies absence of `S-1-15-2-1`.
+  Some supported Windows builds return `ERROR_INVALID_PARAMETER` for
+  `TokenIsLessPrivilegedAppContainer`; in that case the launcher must retain
+  the explicit all-packages opt-out proof and the child must expose it as an
+  inferred LPAC fact. Do not require `S-1-15-2-2` to appear in `TokenGroups`;
+  it is an ACL/group concept and may be enforced without appearing in the
+  enumerated group array. Upgrade the UWP fixture
+  or a close LPAC-compatible Win32 fixture to report those token facts, plus
+  its capability SIDs, without logging user/package-sensitive paths. Cover
+  three profiles: zero capabilities, `registryRead`, and `lpacCom` (separate
+  runs, never combine capabilities by default). The standalone fixture is
+  implemented at [tests/hosts/lpac](../tests/hosts/lpac/README.md). Smoke
+  coverage verifies access denial for the zero-capability profile, the registry
+  read granted only to `registryRead`, and COM initialization (but not ordinary
+  TSF thread-manager activation) for `lpacCom`. A real interactive `lpacCom`
+  run accepted ordinary text while `CoCreateInstance(CLSID_TF_ThreadMgr)`
+  returned `ERROR_ACCESS_DENIED`, confirming that `lpacCom` must not be treated
+  as broad TSF/UI access. Signed QiQi DCOM-broker activation remains part of
+  the compact-config/IPC TODO. The launcher owns child lifetime and temporary
+  profile cleanup; unsupported profiles and extra arguments are rejected with
+  stable exit codes. The fixture is tested only by its standalone CTest tree
+  and is not included in the normal QiQiIME CTest run or product MSI.
 
 - [x] Harden candidate owned-window handling for missing or stale host HWNDs.
   Production presentation now requires a valid root owner, hides any stale

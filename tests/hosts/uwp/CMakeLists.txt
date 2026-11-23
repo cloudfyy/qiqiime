@@ -52,6 +52,7 @@ add_custom_target(qiqi_generate_uwp_search_projection
     DEPENDS "${QIQI_WINRT_PROJECTION}/winrt/Windows.UI.Xaml.h")
 
 add_executable(QiQiImeUwpSearchHost WIN32
+    ../common/tokeninfo.cpp
     diagnostics.cpp
     fixtures.cpp
     hostapp.cpp
@@ -61,6 +62,7 @@ add_dependencies(QiQiImeUwpSearchHost qiqi_generate_uwp_search_projection)
 
 target_include_directories(QiQiImeUwpSearchHost PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../common"
     "${QIQI_WINRT_PROJECTION}")
 target_compile_definitions(QiQiImeUwpSearchHost PRIVATE
     UNICODE

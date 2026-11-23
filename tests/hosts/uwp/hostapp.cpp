@@ -27,14 +27,6 @@ namespace controls = winrt::Windows::UI::Xaml::Controls;
 
 constexpr std::wstring_view kPersistentLogName = L"qiqi-uwp-host.log";
 
-struct TokenCloser {
-    void operator()(HANDLE token) const noexcept {
-        if (token) {
-            ::CloseHandle(token);
-        }
-    }
-};
-
 std::wstring_view HStringView(winrt::hstring const& value) noexcept {
     return {value.c_str(), value.size()};
 }
@@ -128,13 +120,12 @@ void HostApp::BuildWindow() {
     diagnostics_->Info(
         L"host.package",
         std::format(
-            L"package={}, app_container={}, package_error={}, token_error={}",
+            L"package={}, package_error={}, {}",
             package_state.full_name.empty()
                 ? L"<unavailable>"
                 : package_state.full_name,
-            package_state.is_app_container ? L"true" : L"false",
             package_state.package_error,
-            package_state.token_error));
+            token::FormatState(package_state.token)));
 
     controls::TextBlock description;
     description.Text(
@@ -649,38 +640,17 @@ PackageState HostApp::ReadPackageState() noexcept {
     }
     state.package_error = package_error;
 
-    HANDLE token_raw = nullptr;
-    if (!::OpenProcessToken(
-            ::GetCurrentProcess(),
-            TOKEN_QUERY,
-            &token_raw)) {
-        state.token_error = ::GetLastError();
-        return state;
-    }
-    const std::unique_ptr<void, TokenCloser> token(token_raw);
-
-    DWORD value = 0;
-    DWORD returned = 0;
-    if (!::GetTokenInformation(
-            token.get(),
-            TokenIsAppContainer,
-            &value,
-            sizeof(value),
-            &returned)) {
-        state.token_error = ::GetLastError();
-        return state;
-    }
-    state.is_app_container = value != 0;
+    state.token = token::ReadCurrentProcessState();
     return state;
 }
 
 std::wstring HostApp::FormatPackageState(const PackageState& state) {
     return std::format(
         L"PackageFullName: {}\r\n"
-        L"TokenIsAppContainer: {} (token error={}; package error={})",
+        L"{}\r\n"
+        L"Package error={}",
         state.full_name.empty() ? L"<unavailable>" : state.full_name,
-        state.is_app_container ? L"true" : L"false",
-        state.token_error,
+        token::FormatState(state.token),
         state.package_error);
 }
 
