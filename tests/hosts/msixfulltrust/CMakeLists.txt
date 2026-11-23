@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 cmake_minimum_required(VERSION 4.0)
-project(QiQiImePackagedFullTrustHost LANGUAGES CXX)
+project(QiQiImePackagedFullTrustHost LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -55,4 +55,14 @@ target_link_libraries(QiQiImePackagedFullTrustHost PRIVATE
     Gdi32)
 set_property(TARGET QiQiImePackagedFullTrustHost PROPERTY
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/../HostIcon.cmake")
+qiqi_add_host_window_icon(
+    TARGET QiQiImePackagedFullTrustHost
+    GLYPH "${CMAKE_CURRENT_SOURCE_DIR}/../../../data/qiqiime-light.ico"
+    BACKGROUND "#9A3412"
+    BADGE_COLOR "#FDBA74"
+    BADGE_TEXT_COLOR "#2D1600"
+    BADGE_TEXT "F"
+    BADGE_SHAPE "Square")
 

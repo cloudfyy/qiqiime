@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 cmake_minimum_required(VERSION 4.0)
-project(QiQiImeLpacHost LANGUAGES CXX)
+project(QiQiImeLpacHost LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -68,6 +68,16 @@ target_link_libraries(QiQiImeLpacHost PRIVATE
     Uuid)
 set_property(TARGET QiQiImeLpacHost PROPERTY
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/../HostIcon.cmake")
+qiqi_add_host_window_icon(
+    TARGET QiQiImeLpacHost
+    GLYPH "${CMAKE_CURRENT_SOURCE_DIR}/../../../data/qiqiime-dark.ico"
+    BACKGROUND "#6D28D9"
+    BADGE_COLOR "#DDD6FE"
+    BADGE_TEXT_COLOR "#2E1065"
+    BADGE_TEXT "L"
+    BADGE_SHAPE "Circle")
 
 add_executable(QiQiImeLpacLauncher launcher.cpp)
 target_compile_definitions(QiQiImeLpacLauncher PRIVATE

@@ -10,6 +10,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <array>
 #include <format>
 #include <new>
 #include <string>
@@ -98,16 +99,54 @@ HRESULT HostWindow::CreateAndRun() noexcept {
                 ::GetLastError()));
     }
 
+    const HICON window_icon =
+        reinterpret_cast<HICON>(
+            ::LoadImageW(
+                instance_,
+                MAKEINTRESOURCEW(1),
+                IMAGE_ICON,
+                ::GetSystemMetrics(SM_CXICON),
+                ::GetSystemMetrics(SM_CYICON),
+                LR_DEFAULTCOLOR | LR_SHARED));
+    const DWORD window_icon_error =
+        window_icon ? ERROR_SUCCESS : ::GetLastError();
+    const HICON small_window_icon =
+        reinterpret_cast<HICON>(
+            ::LoadImageW(
+                instance_,
+                MAKEINTRESOURCEW(1),
+                IMAGE_ICON,
+                ::GetSystemMetrics(SM_CXSMICON),
+                ::GetSystemMetrics(SM_CYSMICON),
+                LR_DEFAULTCOLOR | LR_SHARED));
+    const DWORD small_window_icon_error =
+        small_window_icon ? ERROR_SUCCESS : ::GetLastError();
+    if (!window_icon ||
+        !small_window_icon) {
+        std::array<wchar_t, 96> message{};
+        ::swprintf_s(
+            message.data(),
+            message.size(),
+            L"LoadImageW icon failed error=%lu",
+            window_icon_error != ERROR_SUCCESS
+                ? window_icon_error
+                : small_window_icon_error);
+        diagnostics_.Warning(
+            L"host.ui",
+            message.data());
+    }
     WNDCLASSEXW window_class{
         .cbSize = sizeof(window_class),
         .style = CS_HREDRAW | CS_VREDRAW,
         .lpfnWndProc = StaticWndProc,
         .cbWndExtra = sizeof(void*),
         .hInstance = instance_,
+        .hIcon = window_icon,
         .hCursor = ::LoadCursorW(nullptr, IDC_ARROW),
         .hbrBackground =
             reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1),
         .lpszClassName = kWindowClass,
+        .hIconSm = small_window_icon,
     };
     if (!::RegisterClassExW(&window_class)) {
         const DWORD error = ::GetLastError();

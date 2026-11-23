@@ -13,8 +13,8 @@ Feedback Hub:
   beyond `runFullTrust`.
 
 It is an opt-in test fixture, independent of normal CTest and the QiQiIME
-installer. Its package uses an orange icon with a square `F` badge, distinct
-from the blue UWP host icon.
+installer. Its package and executable use an orange icon with a square `F`
+badge, including the native title-bar icon and taskbar icon.
 
 ## What it tests
 
@@ -52,7 +52,7 @@ tests\hosts\msixfulltrust\Package.ps1 `
 The script:
 
 1. validates the default-virtualization manifest;
-2. builds the standalone x64 CMake project;
+2. builds the standalone x64 CMake project with the generated `F` window icon;
 3. verifies that the PE does not have the AppContainer flag;
 4. generates package visual assets and a PRI;
 5. signs with the shared public/private development certificate pair; and

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 cmake_minimum_required(VERSION 4.0)
-project(QiQiImeUwpSearchHost LANGUAGES CXX)
+project(QiQiImeUwpSearchHost LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -87,3 +87,13 @@ target_link_options(QiQiImeUwpSearchHost PRIVATE
 target_link_libraries(QiQiImeUwpSearchHost PRIVATE WindowsApp.lib)
 set_property(TARGET QiQiImeUwpSearchHost PROPERTY
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/../HostIcon.cmake")
+qiqi_add_host_window_icon(
+    TARGET QiQiImeUwpSearchHost
+    GLYPH "${CMAKE_CURRENT_SOURCE_DIR}/../../../data/qiqiime-dark.ico"
+    BACKGROUND "#0078D4"
+    BADGE_COLOR "#50E6FF"
+    BADGE_TEXT_COLOR "#003B5C"
+    BADGE_TEXT "U"
+    BADGE_SHAPE "Circle")

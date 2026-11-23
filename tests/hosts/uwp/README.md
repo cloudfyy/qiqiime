@@ -6,8 +6,8 @@ normal QiQiIME CTest run.
 The host:
 
 - is a minimum-permission, x64 AppContainer UWP package;
-- uses a blue package icon with a circular `U` badge to distinguish it from
-  the full-trust host;
+- uses a blue package and executable icon with a circular `U` badge to
+  distinguish it from the other hosts;
 - exposes one editable `TextBox` for normal TSF/IME input;
 - registers the legacy `windows.search` contract and handles Search Pane
   query, suggestion, submit, and search activation events;
@@ -43,7 +43,8 @@ The script:
 1. validates the manifest and packaged test data;
 2. configures a standalone CMake/MSVC build;
 3. generates the C++/WinRT projection from the installed Windows SDK;
-4. links an `/APPCONTAINER` executable;
+4. generates and embeds the executable window icon, then links an
+   `/APPCONTAINER` executable;
 5. generates package assets and a PRI;
 6. creates a self-signed development certificate;
 7. signs an installable MSIX; and

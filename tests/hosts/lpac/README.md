@@ -3,7 +3,7 @@
 This standalone fixture launches a Win32 Rich Edit host inside an explicit
 LPAC AppContainer profile. It is separate from the ordinary UWP and packaged
 full-trust hosts and is not part of the normal CTest run, product build, or
-QiQiIME MSI.
+QiQiIME MSI. Its Win32 window uses a purple icon with a circular `L` badge.
 
 ## Profiles
 
