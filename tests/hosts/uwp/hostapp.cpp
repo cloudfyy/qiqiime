@@ -25,7 +25,7 @@ namespace search = winrt::Windows::ApplicationModel::Search;
 namespace xaml = winrt::Windows::UI::Xaml;
 namespace controls = winrt::Windows::UI::Xaml::Controls;
 
-constexpr std::wstring_view kPersistentLogName = L"qiqi-uwp-search-host.log";
+constexpr std::wstring_view kPersistentLogName = L"qiqi-uwp-host.log";
 
 struct TokenCloser {
     void operator()(HANDLE token) const noexcept {
@@ -145,7 +145,7 @@ void HostApp::BuildWindow() {
 
     input_.Header(winrt::box_value(
         L"IME input (text and candidate contents are never logged)"));
-    input_.PlaceholderText(L"Type a Wubi code or Chinese text");
+    input_.PlaceholderText(L"Type a code or Chinese text");
     input_.AcceptsReturn(true);
     input_.MinWidth(520);
     input_.MinHeight(96);
@@ -184,7 +184,8 @@ void HostApp::BuildWindow() {
             self->RunFixtures();
         }
     });
-    AddControl(actions, run_fixtures_, 8);
+    run_fixtures_.Margin(xaml::Thickness{12, 0, 0, 0});
+    actions.Children().Append(run_fixtures_);
     AddControl(panel, actions, 8);
 
     fixture_status_.Text(L"Loading packaged test data...");

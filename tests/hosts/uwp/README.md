@@ -14,7 +14,7 @@ The host:
 - writes privacy-safe events to the existing `QiQiIME.TraceLogging` provider;
   and
 - exports the same non-input diagnostic messages to package
-  `LocalState\qiqi-uwp-search-host.log`.
+  `LocalState\qiqi-uwp-host.log`.
 
 The host never logs entered text, query contents, candidate contents,
 clipboard data, window titles, or filesystem paths.
@@ -31,7 +31,7 @@ the exact `HRESULT` and still supports ordinary IME input plus synthetic tests.
 From PowerShell at the repository root:
 
 ```powershell
-tests\hosts\uwp-search\Package.ps1 -Configuration Release
+tests\hosts\uwp\Package.ps1 -Configuration Release
 ```
 
 The script:
@@ -66,7 +66,7 @@ managed PFX and does not replace the checked-in development certificate.
 To use an existing code-signing PFX:
 
 ```powershell
-tests\hosts\uwp-search\Package.ps1 `
+tests\hosts\uwp\Package.ps1 `
   -CertificatePath C:\path\development.pfx `
   -CertificatePassword $securePassword
 ```
@@ -77,8 +77,8 @@ certificate must be installed in `Cert:\LocalMachine\TrustedPeople`.
 ## Install and remove
 
 ```powershell
-tests\hosts\uwp-search\Install-Host.ps1
-tests\hosts\uwp-search\Uninstall-Host.ps1
+tests\hosts\uwp\Install-Host.ps1
+tests\hosts\uwp\Uninstall-Host.ps1
 ```
 
 Run the install script from an elevated PowerShell. Microsoft MSIX sideloading
@@ -91,7 +91,7 @@ installs only the host package.
 After testing, the package and trust entry can be removed together with:
 
 ```powershell
-tests\hosts\uwp-search\Uninstall-Host.ps1 `
+tests\hosts\uwp\Uninstall-Host.ps1 `
   -RemoveDevelopmentCertificate
 ```
 

@@ -689,10 +689,15 @@ status-bar/tooltip skin support require separate design approval.
   documented test-certificate installation flow. Do not commit signing private
   keys or include these test hosts in the QiQiIME product MSI.
   The UWP/AppContainer host is now implemented at
-  [tests/hosts/uwp-search](../tests/hosts/uwp-search/README.md), including
+  [tests/hosts/uwp](../tests/hosts/uwp/README.md), including
   synthetic Search Contract fixtures, privacy-safe TraceLogging/LocalState
   diagnostics, and a repeatable signed-MSIX/installer flow. The packaged
-  full-trust host remains unimplemented and this parent TODO stays open.
+  full-trust host is implemented at
+  [tests/hosts/msixfulltrust](../tests/hosts/msixfulltrust/README.md), with
+  `Windows.FullTrustApplication`/medium-IL identity, default registry
+  virtualization, a real Rich Edit input target, TSF search-provider probing,
+  package-private shadow injection, desktop-state comparison, and installable
+  MSIX packaging. The parent TODO remains open until real-host acceptance.
 
 - [x] Harden candidate owned-window handling for missing or stale host HWNDs.
   Production presentation now requires a valid root owner, hides any stale

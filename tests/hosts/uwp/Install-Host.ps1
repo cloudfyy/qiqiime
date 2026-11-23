@@ -50,6 +50,7 @@ Import-Certificate `
 Add-AppxPackage `
     -Path $PackagePath `
     -ForceUpdateFromAnyVersion `
+    -ForceApplicationShutdown `
     -ErrorAction Stop |
     Out-Null
 

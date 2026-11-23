@@ -28,7 +28,7 @@ constexpr uint8_t kInfoLevel = WINEVENT_LEVEL_INFO;
 constexpr uint8_t kWarningLevel = WINEVENT_LEVEL_WARNING;
 constexpr uint8_t kErrorLevel = WINEVENT_LEVEL_ERROR;
 constexpr std::wstring_view kProcessName = L"QiQiImeUwpSearchHost.exe";
-constexpr std::wstring_view kPersistentLogName = L"qiqi-uwp-search-host.log";
+constexpr std::wstring_view kPersistentLogName = L"qiqi-uwp-host.log";
 
 template <uint8_t EventLevel, uint64_t Keyword>
 void EmitEtw(std::wstring_view message) noexcept {

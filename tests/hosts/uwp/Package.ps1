@@ -24,7 +24,6 @@ function Convert-SecureStringToPlainText {
     } finally {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
     }
-    $signerThumbprint = $certificate.Thumbprint
 }
 
 function Resolve-VisualStudioGenerator {
@@ -51,7 +50,7 @@ function Resolve-VisualStudioGenerator {
 
 $repositoryRoot = [IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '..\..\..'))
-$buildRoot = Join-Path $repositoryRoot 'build\hosts\uwp-search'
+$buildRoot = Join-Path $repositoryRoot 'build\hosts\uwp'
 $stageRoot = Join-Path $buildRoot 'staging'
 $certificateRoot = Join-Path $buildRoot 'certificate'
 $sourceCertificatePath = Join-Path $PSScriptRoot `
