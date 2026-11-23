@@ -101,7 +101,7 @@ try {
                     Assert-True ($component.ComponentId -eq "{8E7B9D31-5A42-4C81-9F11-$guidPrefix$suffix}") "Component upgrade identity changed in $path"
                 }
                 $files = @(Read-MsiTable $database "File" @("File", "Component_", "FileName"))
-                $expectedNonLicenseFileCount = if ($arch -eq "x64") { 23 } else { 19 }
+                $expectedNonLicenseFileCount = if ($arch -eq "x64") { 27 } else { 21 }
                 $expectedFileCount = $expectedNonLicenseFileCount + $expectedLicenses.Count
                 Assert-True ($files.Count -eq $expectedFileCount) "Unexpected payload count in ${path}: expected $expectedFileCount, found $($files.Count)."
                 $documentation = @($files | Where-Object { $_.Component_ -eq "CmpDocs" } | ForEach-Object { $_.FileName.Split('|')[-1] })
@@ -118,9 +118,9 @@ try {
                 }
                 foreach ($payloadArch in $(if ($arch -eq "x64") { @("X64", "X86") } else { @("X86") })) {
                     $payload = @($files | Where-Object { $_.Component_ -eq "CmpDll$payloadArch" })
-                    Assert-True ($payload.Count -eq 4) "Missing runtime files in $path"
+                    Assert-True ($payload.Count -eq 6) "Missing runtime files in $path"
                     $names = @($payload | ForEach-Object { $_.FileName.Split('|')[-1] })
-                    foreach ($name in @("qiqiime.dll", "QiQiIMESettings.exe", "QiQiIMEDictManager.exe", "QiQiIMELogMonitor.exe")) {
+                    foreach ($name in @("qiqiime.dll", "QiQiIMESettings.exe", "QiQiIMEDictManager.exe", "QiQiIMELogMonitor.exe", "QiQiIMEConfigBroker.exe", "QiQiIMEConfigProxy.dll")) {
                         Assert-True ($name -in $names) "Missing $name in $path"
                     }
                 }
@@ -164,7 +164,7 @@ try {
                 Assert-True (@($controls | Where-Object { $_.Dialog_ -eq "UninstallProgressDlg" -and $_.Type -eq "ProgressBar" }).Count -eq 1) "Missing full-UI uninstall progress."
                 $uiSequence = @(Read-MsiTable $database "InstallUISequence" @("Action", "Condition", "Sequence"))
                 Assert-True (@($uiSequence | Where-Object { $_.Action -eq "ChooseUninstallData" -and $_.Condition -eq 'Installed AND REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE' }).Count -eq 1) "Missing full-UI uninstall choices."
-                foreach ($id in @("RegX86", "UnregX86", "EnableUserProfile", "DeactivateUserProfile", "GrantAppContainerAcl")) {
+                foreach ($id in @("RegX86", "UnregX86", "EnableUserProfile", "DeactivateUserProfile", "GrantAppContainerAcl", "RegisterConfigBroker", "ShutdownConfigBroker", "UnregisterConfigBroker")) {
                     Assert-True (@($actions | Where-Object { $_.Action -eq $id }).Count -eq 1) "Missing action $id in $path"
                 }
                 foreach ($action in $actions) {
@@ -184,9 +184,12 @@ try {
                 Assert-True ($ordered.InstallFinalize -lt $ordered.CompleteUninstall) "Cleanup results must be reported after commit."
                 Assert-True ($ordered.CheckInstallPendingCleanup -lt $ordered.FindRelatedProducts) "Restart gate must precede upgrade detection/removal."
                 Assert-True ($ordered.GrantAppContainerAcl -lt $ordered.RegX86 -and $ordered.RegX86 -lt $ordered.EnableUserProfile) "Registration order changed in $path"
+                Assert-True ($ordered.RegX86 -lt $ordered.RegisterConfigBroker) "Broker must register after the native TSF COM registration in $path"
                 Assert-True ($ordered.DeactivateUserProfile -lt $ordered.InstallValidate) "Profile must deactivate before lock checks."
+                Assert-True ($ordered.ShutdownConfigBroker -lt $ordered.DeactivateUserProfile) "Broker must stop before uninstall lock checks in $path"
                 Assert-True ($ordered.ChooseUninstallData -lt $ordered.PrepareUninstall -and $ordered.PrepareUninstall -lt $ordered.DeactivateUserProfile) "Ask before changing the user's active input profile."
                 Assert-True ($ordered.InstallInitialize -lt $ordered.UnregX86) "Unregister must run inside the install transaction."
+                Assert-True ($ordered.InstallInitialize -lt $ordered.UnregisterConfigBroker) "Broker unregister must run inside the install transaction in $path."
                 if ($arch -eq "x64") {
                     Assert-True ($ordered.GrantAppContainerAcl -lt $ordered.RegX64 -and $ordered.RegX64 -lt $ordered.RegX86) "x64 must register before WOW64."
                     Assert-True ($ordered.UnregX86 -lt $ordered.UnregX64) "WOW64 must unregister before x64."

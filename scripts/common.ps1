@@ -18,6 +18,10 @@ $script:QiQiToolExeNames = @(
     "QiQiIMELogMonitor.exe",
     "QiQiIMEDictManager.exe"
 )
+$script:QiQiConfigBrokerBinaryNames = @(
+    "QiQiIMEConfigBroker.exe",
+    "QiQiIMEConfigProxy.dll"
+)
 
 function Write-QiQiStep([string]$Message) {
     Write-Host "`n=== $Message ===" -ForegroundColor Cyan
@@ -240,14 +244,16 @@ function Test-QiQiRuntimeFiles(
         $item = Get-Item $archInfo.Dll
         $ver = $item.VersionInfo
         Write-QiQiPass "$($archInfo.Name) DLL ($([math]::Round($item.Length / 1KB, 1)) KB): $($item.FullName) [v$($ver.FileVersion)]"
-        foreach ($exeName in $script:QiQiToolExeNames) {
-            $exePath = Join-Path $item.DirectoryName $exeName
-            if (-not (Test-Path $exePath)) {
-                throw "Missing required tool executable ($exeName) for $($archInfo.Name) in $($item.DirectoryName)"
+        foreach ($binaryName in (
+            $script:QiQiToolExeNames +
+            $script:QiQiConfigBrokerBinaryNames)) {
+            $binaryPath = Join-Path $item.DirectoryName $binaryName
+            if (-not (Test-Path $binaryPath)) {
+                throw "Missing required runtime binary ($binaryName) for $($archInfo.Name) in $($item.DirectoryName)"
             }
-            $exeItem = Get-Item $exePath
-            $exeVer = $exeItem.VersionInfo
-            Write-QiQiPass "$($archInfo.Name) $exeName ($([math]::Round($exeItem.Length / 1KB, 1)) KB): $($exeItem.FullName) [v$($exeVer.FileVersion)]"
+            $binaryItem = Get-Item $binaryPath
+            $binaryVersion = $binaryItem.VersionInfo
+            Write-QiQiPass "$($archInfo.Name) $binaryName ($([math]::Round($binaryItem.Length / 1KB, 1)) KB): $($binaryItem.FullName) [v$($binaryVersion.FileVersion)]"
         }
         $parentDir = if ($item.Directory.Parent) { $item.Directory.Parent.FullName } else { $item.DirectoryName }
         foreach ($reqFile in $script:QiQiDataFileNames) {

@@ -411,59 +411,24 @@ each behavior change rather than postponing all testing until the final gate.
       after loading the new DLL, saving with **OK**, and opening a fresh process.
       Local log export: `C:\temp\qiqi-ime-events.log` (last modified 2026-11-21
       21:13 local time).
-      - [ ] **Runtime configuration transport plan (design recorded 2026-11-23,
-        not implemented):** use global TSF compartments as the fast path for
-        compact, versioned scalar configuration, backed by a durable shared
-        snapshot written only by the desktop publisher. Do not use a
-        `VT_BSTR` snapshot. Keep the existing
-        `kGuidCompartmentConfigVersion` as the commit notification. Add
-        separate `VT_I4` categories for visual, font, and behavior fields.
-        Each DWORD contains a schema identifier, a short generation, and
-        validated payload bits; write all categories first and increment/write
-        the commit value last. Readers subscribe only to the commit
-        compartment, read every category, require `S_OK` plus `VT_I4`, validate
-        reserved bits, and retain the last valid configuration unless every
-        category matches the committed generation. A missing, cleared, or
-        malformed compartment is absence, not a zero-valued configuration.
-        Skin transport carries only the built-in `ImeSkinId`; skin palettes
-        stay compiled in the IME rather than crossing process boundaries.
-        Font transport uses a fixed font-ID/size/weight/italic set and falls
-        back to `Auto`; arbitrary font names and paths are intentionally not
-        part of this channel. Before activating compact transport, detect package
-        identity, not merely whether `RegQueryValueExW` succeeds. Ordinary
-        unpackaged desktop processes continue to use real HKCU and need no
-        compact-config read; a successful registry read is sufficient for them.
-        A packaged process's successful read is ambiguous because the virtual
-        HKCU view may merge a package-private override with the real desktop
-        values, so it must not select the registry path based on readability.
-        A package-identity process must
-        not persist Quick Settings directly into its virtualized HKCU. The
-        durable snapshot is created under a versioned, dedicated path whose
-        desktop publisher grants packaged readers least-privilege read access;
-        packaged code never relies on the legacy package-private
-        `Software\QiQiIME` values. On startup or when compartments are missing,
-        the packaged process reads that snapshot directly—never by launching a
-        hidden Settings process. The desktop publisher updates the snapshot and
-        publishes the compartment set together from normal Settings saves.
-        For an explicit packaged Quick Settings action, a field-level patch may
-        be accepted by a signed `QiQiIMESettings.exe` writer launched from the
-        fixed installed path; this is allowed only in direct response to the
-        user action, with a no-argument/no-window launch policy, authenticated
-        field-level framing, bounded input, and an explicit result. The writer
-        must not be launched during activation, focus, polling, startup, or
-        compartment failure recovery. If it cannot handle the user action,
-        show the existing failure UI and retain the previous config rather
-        than writing to package-private HKCU. The reader/update path is the same
-        for UWP and packaged Full Trust. Distinguish them only at writer
-        activation for the explicit Quick Settings writer: Full Trust may use
-        the ordinary desktop process path;
-        AppContainer UWP must use the registered protocol or another
-        explicitly AppContainer-accessible bridge. Repeated real-host testing
-        showed `VT_I4` survives writer exit and is readable from both host
-        types, while `VT_BSTR` returned `S_FALSE`/`VT_EMPTY` to another process.
-        Cover commit races, schema changes, rollover, package-private shadow
-        seeding, writer absence, malformed values, and repeated hot updates
-        before enabling this transport.
+      - [x] **Runtime configuration Broker (implemented 2026-11-23):**
+        the signed `QiQiIMEConfigBroker.exe` is the runtime authority for the
+        real desktop-user configuration, skin catalog, revision, and user
+        dictionary synchronization directory. Production clients no longer
+        choose a registry path by readability and never fall back to package-
+        private HKCU. They keep a process-local last-valid snapshot; key,
+        focus, layout, and painting paths perform no DCOM. Native asynchronous
+        COM calls refresh after the existing
+        `kGuidCompartmentConfigVersion` wake-up, and explicit Settings, Quick
+        Settings, backup, and dictionary writes use expected-revision saves.
+        A failed Broker refresh retains the prior snapshot and returns the real
+        HRESULT. Product registration is HKLM; x64 installs register both
+        native and WOW64 interfaces/proxies. The implementation and validation
+        matrix are documented in
+        [config-broker.md](config-broker.md). Repeated real-host Broker
+        activation remains the final Feedback Hub/UWP/Full Trust/LPAC acceptance
+        gate; it is not considered complete merely because unit, x86/x64,
+        synchronous, and native-async DCOM tests pass.
 - [x] Update user/developer documentation to distinguish implemented surfaces
   from design-only features; automated color checks do not certify all hosts
   or accessibility. Do not generate MSI packages unless explicitly requested.
@@ -778,11 +743,17 @@ status-bar/tooltip skin support require separate design approval.
   TSF thread-manager activation) for `lpacCom`. A real interactive `lpacCom`
   run accepted ordinary text while `CoCreateInstance(CLSID_TF_ThreadMgr)`
   returned `ERROR_ACCESS_DENIED`, confirming that `lpacCom` must not be treated
-  as broad TSF/UI access. Signed QiQi DCOM-broker activation remains part of
-  the compact-config/IPC TODO. The launcher owns child lifetime and temporary
+  as broad TSF/UI access. Signed QiQi DCOM-broker activation remains an
+  explicit real-host acceptance item. The launcher owns child lifetime and temporary
   profile cleanup; unsupported profiles and extra arguments are rejected with
   stable exit codes. The fixture is tested only by its standalone CTest tree
   and is not included in the normal QiQiIME CTest run or product MSI.
+
+- [ ] Wrap `SafeArrayCreate` ownership in
+  [src/ime/ui/canduia.cpp](../src/ime/ui/canduia.cpp) with a scoped SAFEARRAY
+  deleter. The current UIA argument construction is correct but manually
+  destroys the array; retain the same `UIA_VARIANT` ownership transfer and add
+  focused failure tests when changing it.
 
 - [x] Harden candidate owned-window handling for missing or stale host HWNDs.
   Production presentation now requires a valid root owner, hides any stale

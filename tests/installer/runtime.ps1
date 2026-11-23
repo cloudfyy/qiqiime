@@ -25,7 +25,7 @@ try {
     $x86Dir = Join-Path $fixture "x86"
     $dataDir = Join-Path $fixture "data"
     New-Item -ItemType Directory -Path $x86Dir, $dataDir -Force | Out-Null
-    foreach ($binary in (@("qiqiime.dll") + $QiQiToolExeNames)) {
+    foreach ($binary in (@("qiqiime.dll") + $QiQiToolExeNames + $QiQiConfigBrokerBinaryNames)) {
         [System.IO.File]::WriteAllText((Join-Path $x86Dir $binary), "")
     }
     foreach ($dataFile in $QiQiDataFileNames) {
@@ -39,7 +39,7 @@ try {
 
     $tool = Join-Path $x86Dir $QiQiToolExeNames[0]
     Remove-Item -LiteralPath $tool
-    Assert-MissingRuntime $dlls $false "Missing required tool executable*"
+    Assert-MissingRuntime $dlls $false "Missing required runtime binary*"
     [System.IO.File]::WriteAllText($tool, "")
     $dataFile = Join-Path $dataDir $QiQiDataFileNames[0]
     Remove-Item -LiteralPath $dataFile
@@ -48,7 +48,7 @@ try {
 
     $x64Dir = Join-Path $fixture "x64"
     New-Item -ItemType Directory -Path $x64Dir -Force | Out-Null
-    foreach ($binary in (@("qiqiime.dll") + $QiQiToolExeNames)) {
+    foreach ($binary in (@("qiqiime.dll") + $QiQiToolExeNames + $QiQiConfigBrokerBinaryNames)) {
         [System.IO.File]::WriteAllText((Join-Path $x64Dir $binary), "")
     }
     $dlls = Resolve-QiQiDllPaths -BaseDir $fixture -Is64BitOperatingSystem $true

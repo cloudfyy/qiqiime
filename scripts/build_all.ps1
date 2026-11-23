@@ -77,7 +77,10 @@ if ($Package) {
         @{ Dir = (Split-Path -Parent $dlls.X64); Dest = (Join-Path $pkgDir "x64") },
         @{ Dir = (Split-Path -Parent $dlls.X86); Dest = (Join-Path $pkgDir "x86") }
     )) {
-        foreach ($binaryName in ($QiQiToolExeNames + @("QiQiIMEInstallerActions.dll"))) {
+        foreach ($binaryName in (
+            $QiQiToolExeNames +
+            $QiQiConfigBrokerBinaryNames +
+            @("QiQiIMEInstallerActions.dll"))) {
             $binaryPath = Join-Path $archPair.Dir $binaryName
             if (-not (Test-Path $binaryPath)) {
                 throw "Missing tool or installer binary for packaging: $binaryPath"
