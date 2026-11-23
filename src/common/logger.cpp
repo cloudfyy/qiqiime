@@ -52,6 +52,8 @@ namespace {
 
 std::atomic<uint64_t> g_metrics_generation{0};
 std::atomic<bool> g_metric_metadata_pending{false};
+std::atomic<ExternalLogWriter>
+    g_external_log_writer{nullptr};
 ULONG RegisterProvider() noexcept;
 void UnregisterProvider() noexcept;
 constinit detail::EtwRegistration g_provider_registration{RegisterProvider, UnregisterProvider};
@@ -374,6 +376,10 @@ void InitLogger() noexcept {
 }
 
 bool EnsureInitialized() noexcept {
+    if (g_external_log_writer.load(
+            std::memory_order_acquire)) {
+        return true;
+    }
     const ULONG error = g_provider_registration.EnsureRegistered();
     if (error == ERROR_SUCCESS) FlushMetricMetadata();
     return error == ERROR_SUCCESS;
@@ -394,22 +400,40 @@ void ReportLoggingFailure() noexcept {
 }
 
 bool IsEtwProviderRegistered() noexcept {
+    if (g_external_log_writer.load(
+            std::memory_order_acquire)) {
+        return true;
+    }
     return g_provider_registration.IsRegistered();
 }
 
 bool IsLogSinkActive() noexcept {
+    if (g_external_log_writer.load(
+            std::memory_order_acquire)) {
+        return true;
+    }
     return g_provider_registration.IsRegistered() &&
            (::TraceLoggingProviderEnabled(g_qiqi_etw_provider, 0, 0) != FALSE);
 }
 
 bool ShouldLog(Level level, Keyword keyword) noexcept {
     if (keyword == Keyword::Metrics) return false;
+    if (g_external_log_writer.load(
+            std::memory_order_acquire)) {
+        return level != Level::off;
+    }
     return IsEtwEnabledForLevel(level, keyword);
 }
 
 void WriteLogMessage(Level level, std::string_view message, const LogContext& context) noexcept {
     if (context.keyword == Keyword::Metrics) {
         metrics::RecordFailure(metrics::FailureKind::Protocol, E_INVALIDARG);
+        return;
+    }
+    if (const auto writer =
+            g_external_log_writer.load(
+                std::memory_order_acquire)) {
+        writer(level, message, context);
         return;
     }
     if (!IsEtwEnabledForLevel(level, context.keyword)) {
@@ -422,6 +446,13 @@ void WriteLogMessage(Level level, std::string_view message, const LogContext& co
 
 void Shutdown() noexcept {
     g_provider_registration.Shutdown();
+}
+
+void SetExternalLogWriter(
+    ExternalLogWriter writer) noexcept {
+    g_external_log_writer.store(
+        writer,
+        std::memory_order_release);
 }
 
 } // namespace qiqi::log

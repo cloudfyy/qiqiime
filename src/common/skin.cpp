@@ -384,6 +384,33 @@ HRESULT UpdateImeSkinSnapshot(ImeSkinId id, std::optional<ImeSkinSnapshot>& snap
     });
 }
 
+HRESULT UpdateImeSkinSnapshot(
+    ImeSkinId id,
+    const ImeSkinCatalog& catalog,
+    std::optional<ImeSkinSnapshot>& snapshot) noexcept {
+    if (id == ImeSkinId::Default) {
+        snapshot.reset();
+        return S_OK;
+    }
+    return SkinOperation(
+        "UpdateImeSkinSnapshot(catalog)",
+        [&]() -> HRESULT {
+            if (ImeSkinIdToString(id).empty()) {
+                return kInvalidSkinData;
+            }
+            const auto* skin =
+                FindImeSkin(catalog, id);
+            if (!skin) {
+                return kInvalidSkinData;
+            }
+            snapshot =
+                ImeSkinSnapshot{
+                    id,
+                    skin->palettes};
+            return S_OK;
+        });
+}
+
 ImeSkinAppearance ResolveImeSkinAppearance(const DisplayPreferences& preferences,
     const std::optional<ImeSkinSnapshot>& snapshot, SystemThemeSource source) noexcept {
     return ApplyImeSkinAppearance(ResolveDisplayAppearance(preferences, source), snapshot);

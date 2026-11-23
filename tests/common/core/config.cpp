@@ -3,8 +3,247 @@
 
 #include "common/core/test.h"
 #include "common/cfgjson.h"
+#include "common/configclient.h"
+#include "common/configwire.h"
 
 namespace qiqi::test::common_cases {
+
+void TestConfigTransport() {
+    for (const HRESULT result :
+         {S_OK,
+          S_FALSE,
+          E_PENDING,
+          HRESULT_FROM_WIN32(
+              ERROR_ACCESS_DENIED)}) {
+        QIQI_TEST_CHECK(
+            config::DecodeAsyncResult(
+                config::EncodeAsyncResult(
+                    result)) ==
+            result);
+    }
+    QiQiConfig value;
+    ForEachConfigField([&](const auto& field) {
+        QIQI_TEST_CHECK(
+            field.Assign(value, field.maximum));
+    });
+    value.primary_dict_path =
+        L"C:\\private\\primary.qdict";
+    value.user_dict_path =
+        L"C:\\private\\user.txt";
+    value.candidate_font_family =
+        L"Microsoft YaHei UI";
+
+    config::Snapshot snapshot{
+        .revision = 0x1020304050607080ull,
+        .notification_result =
+            HRESULT_FROM_WIN32(
+                ERROR_RETRY),
+        .value = value,
+    };
+    QIQI_TEST_CHECK(
+        MakeBuiltinImeSkinCatalog(
+            snapshot.skin_catalog) == S_OK);
+
+    const auto equal = [](
+                           const QiQiConfig& left,
+                           const QiQiConfig& right) {
+        ForEachConfigField(
+            [&](const auto& field) {
+                QIQI_TEST_CHECK(
+                    field.Value(left) ==
+                    field.Value(right));
+            });
+        QIQI_TEST_CHECK(
+            left.candidate_font_family ==
+            right.candidate_font_family);
+        QIQI_TEST_CHECK(
+            left.primary_dict_path ==
+            right.primary_dict_path);
+        QIQI_TEST_CHECK(
+            left.user_dict_path ==
+            right.user_dict_path);
+    };
+    const auto check_snapshot =
+        [&](const config::Snapshot& decoded) {
+            QIQI_TEST_CHECK(
+                decoded.revision ==
+                snapshot.revision);
+            QIQI_TEST_CHECK(
+                decoded.notification_result ==
+                snapshot.notification_result);
+            equal(decoded.value, snapshot.value);
+            QIQI_TEST_CHECK(
+                decoded.skin_catalog.id ==
+                snapshot.skin_catalog.id);
+            QIQI_TEST_CHECK(
+                decoded.skin_catalog.skins.size() ==
+                snapshot.skin_catalog.skins.size());
+            for (size_t index = 0;
+                 index <
+                 snapshot.skin_catalog.skins.size();
+                 ++index) {
+                const auto& expected =
+                    gsl::at(
+                        snapshot.skin_catalog.skins,
+                        index);
+                const auto& actual =
+                    gsl::at(
+                        decoded.skin_catalog.skins,
+                        index);
+                QIQI_TEST_CHECK(
+                    actual.id == expected.id &&
+                    actual.display_order ==
+                        expected.display_order &&
+                    actual.name_zh ==
+                        expected.name_zh &&
+                    actual.name_en ==
+                        expected.name_en &&
+                    actual.palettes.light ==
+                        expected.palettes.light &&
+                    actual.palettes.dark ==
+                        expected.palettes.dark);
+            }
+        };
+
+    std::vector<uint8_t> bytes;
+    QIQI_TEST_CHECK(
+        config::EncodeSnapshot(
+            snapshot, bytes) == S_OK);
+    QIQI_TEST_CHECK(
+        !bytes.empty() &&
+        bytes.size() <=
+            config::kMaxConfigTransportBytes);
+    config::Snapshot decoded;
+    QIQI_TEST_CHECK(
+        config::DecodeSnapshot(
+            bytes, decoded) == S_OK);
+    check_snapshot(decoded);
+
+    auto corrupted = bytes;
+    QIQI_TEST_CHECK(corrupted.size() > 20);
+    gsl::at(corrupted, 20) ^= 1;
+    auto unchanged = decoded;
+    QIQI_TEST_CHECK(
+        FAILED(config::DecodeSnapshot(
+            corrupted, unchanged)));
+    check_snapshot(unchanged);
+
+    QIQI_TEST_CHECK(
+        FAILED(config::DecodeSnapshot(
+            std::span(
+                bytes).first(bytes.size() - 1),
+            unchanged)));
+    QIQI_TEST_CHECK(
+        FAILED(config::DecodeSnapshot(
+            {}, unchanged)));
+    check_snapshot(unchanged);
+
+    const auto oversized =
+        std::vector<uint8_t>(
+            config::kMaxConfigTransportBytes + 1);
+    QIQI_TEST_CHECK(
+        FAILED(config::DecodeSnapshot(
+            oversized, unchanged)));
+
+    config::SaveRequest save{
+        .expected_revision = 77,
+        .value = value,
+    };
+    std::vector<uint8_t> save_bytes;
+    QIQI_TEST_CHECK(
+        config::EncodeSaveRequest(
+            save, save_bytes) == S_OK);
+    config::SaveRequest decoded_save;
+    QIQI_TEST_CHECK(
+        config::DecodeSaveRequest(
+            save_bytes, decoded_save) == S_OK);
+    QIQI_TEST_CHECK(
+        decoded_save.expected_revision ==
+        save.expected_revision);
+    equal(decoded_save.value, save.value);
+    save.expected_revision = 0;
+    const auto before_save_bytes = save_bytes;
+    QIQI_TEST_CHECK(
+        FAILED(config::EncodeSaveRequest(
+            save, save_bytes)));
+    QIQI_TEST_CHECK(
+        save_bytes == before_save_bytes);
+
+    config::SyncDirectoryRequest sync{
+        .expected_revision = 11,
+        .directory =
+            L"C:\\Users\\user\\AppData\\Local"
+            L"\\QiQiIME\\user_dict.txt.sync",
+    };
+    std::vector<uint8_t> sync_bytes;
+    QIQI_TEST_CHECK(
+        config::EncodeSyncDirectoryRequest(
+            sync, sync_bytes) == S_OK);
+    config::SyncDirectoryRequest decoded_sync;
+    QIQI_TEST_CHECK(
+        config::DecodeSyncDirectoryRequest(
+            sync_bytes, decoded_sync) == S_OK);
+    QIQI_TEST_CHECK(
+        decoded_sync.expected_revision ==
+        sync.expected_revision);
+    QIQI_TEST_CHECK(
+        decoded_sync.directory ==
+        sync.directory);
+    sync.directory = L"relative";
+    QIQI_TEST_CHECK(
+        FAILED(config::EncodeSyncDirectoryRequest(
+            sync, sync_bytes)));
+
+    ULONG rpc_size = 0;
+    byte* rpc_bytes = nullptr;
+    QIQI_TEST_CHECK(
+        config::AllocateRpcBuffer(
+            bytes,
+            rpc_size,
+            rpc_bytes) == S_OK);
+    const ScopedCoTaskMem rpc_memory(
+        rpc_bytes);
+    std::vector<uint8_t> round_trip_bytes;
+    QIQI_TEST_CHECK(
+        config::ReadRpcBuffer(
+            rpc_size,
+            rpc_bytes,
+            round_trip_bytes) == S_OK);
+    QIQI_TEST_CHECK(
+        round_trip_bytes == bytes);
+
+    rpc_size = 1;
+    rpc_bytes = reinterpret_cast<byte*>(
+        1);
+    QIQI_TEST_CHECK(
+        FAILED(config::AllocateRpcBuffer(
+            oversized,
+            rpc_size,
+            rpc_bytes)));
+    QIQI_TEST_CHECK(rpc_size == 0);
+    QIQI_TEST_CHECK(rpc_bytes == nullptr);
+
+    QIQI_TEST_CHECK(
+        config::ReadRpcBuffer(
+            0,
+            nullptr,
+            round_trip_bytes) == S_OK);
+    QIQI_TEST_CHECK(
+        round_trip_bytes.empty());
+    QIQI_TEST_CHECK(
+        config::ReadRpcBuffer(
+            1,
+            nullptr,
+            round_trip_bytes) == E_POINTER);
+    QIQI_TEST_CHECK(
+        FAILED(config::ReadRpcBuffer(
+            gsl::narrow_cast<ULONG>(
+                config::
+                    kMaxConfigTransportBytes + 1),
+            reinterpret_cast<const byte*>(
+                1),
+            round_trip_bytes)));
+}
 
 void TestConfigJson() {
     QiQiConfig baseline;

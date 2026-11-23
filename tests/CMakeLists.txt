@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_subdirectory(common)
+add_subdirectory(broker)
 add_subdirectory(ime)
 add_subdirectory(tools)
 add_subdirectory(skin)

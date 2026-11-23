@@ -40,6 +40,7 @@ void TestZipArchives();
 void TestVersionMechanism();
 void TestConfigFieldProjections();
 void TestConfigJson();
+void TestConfigTransport();
 void TestDictionaryLoadPlans();
 void TestIniConfiguration();
 void TestScopedHandleTemplate();

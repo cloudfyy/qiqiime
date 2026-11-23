@@ -8,8 +8,10 @@
 #include <wrl/client.h>
 #include <gsl/gsl>
 #include <atomic>
+#include <bit>
 #include <concepts>
 #include <string_view>
+#include <system_error>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -19,6 +21,18 @@
 #include "common/RAII.h"
 
 namespace qiqi {
+
+inline HRESULT SystemErrorToHResult(
+    const std::system_error& error) noexcept {
+    const HRESULT value =
+        gsl::narrow_cast<HRESULT>(
+            error.code().value());
+    return FAILED(value)
+        ? value
+        : HRESULT_FROM_WIN32(
+              gsl::narrow_cast<DWORD>(
+                  value));
+}
 
 // Construct a reference-counted COM object (whose initial ref_count is 1) and attach it to a ComPtr<T>.
 template <typename T, typename... Args>
@@ -338,7 +352,20 @@ public:
     explicit operator bool() const noexcept { return IsValid(); }
 
     HRESULT IncrementInt4(TfClientId tid) const noexcept {
-        return WriteInt4(tid, ReadInt4(0) + 1);
+        LONG current = 0;
+        const HRESULT result =
+            TryReadInt4(current);
+        if (result == S_FALSE) {
+            current = 0;
+        } else if (FAILED(result)) {
+            return result;
+        }
+        const auto next =
+            std::bit_cast<uint32_t>(current) + 1u;
+        return WriteInt4(
+            tid,
+            gsl::narrow_cast<LONG>(
+                std::bit_cast<int32_t>(next)));
     }
 
 private:
@@ -348,37 +375,64 @@ private:
 
 // Broadcast a global TSF compartment increment (e.g. kGuidCompartmentConfigVersion) from a standalone process
 // by temporarily activating an ITfThreadMgr instance.
-inline bool BroadcastStandaloneGlobalCompartmentIncrement(REFGUID compartment_guid) noexcept {
+inline HRESULT BroadcastStandaloneGlobalCompartmentIncrementResult(
+    REFGUID compartment_guid) noexcept {
     Microsoft::WRL::ComPtr<ITfThreadMgr> thread_mgr;
-    if (!log::CheckHResult(::CoCreateInstance(
+    const HRESULT create_result =
+        ::CoCreateInstance(
             CLSID_TF_ThreadMgr,
             nullptr,
             CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&thread_mgr)), "Broadcast::CoCreateInstance(ITfThreadMgr)") ||
+            IID_PPV_ARGS(&thread_mgr));
+    if (!log::CheckHResult(
+            create_result,
+            "Broadcast::CoCreateInstance(ITfThreadMgr)") ||
         !thread_mgr) {
-        return false;
+        return FAILED(create_result)
+            ? create_result
+            : E_UNEXPECTED;
     }
 
     TfClientId client_id = TF_CLIENTID_NULL;
-    if (!log::CheckHResult(thread_mgr->Activate(&client_id), "Broadcast::ITfThreadMgr::Activate") ||
+    const HRESULT activate_result =
+        thread_mgr->Activate(&client_id);
+    if (!log::CheckHResult(
+            activate_result,
+            "Broadcast::ITfThreadMgr::Activate") ||
         client_id == TF_CLIENTID_NULL) {
-        return false;
+        return FAILED(activate_result)
+            ? activate_result
+            : E_UNEXPECTED;
     }
     const auto deactivate_guard = gsl::finally([&]() noexcept {
         std::ignore = log::CheckHResult(thread_mgr->Deactivate(), "Broadcast::ITfThreadMgr::Deactivate");
     });
 
     Microsoft::WRL::ComPtr<ITfCompartmentMgr> global_mgr;
-    if (!log::CheckHResult(thread_mgr->GetGlobalCompartment(&global_mgr),
-                          "Broadcast::ITfThreadMgr::GetGlobalCompartment") || !global_mgr) {
-        return false;
+    const HRESULT global_result =
+        thread_mgr->GetGlobalCompartment(
+            &global_mgr);
+    if (!log::CheckHResult(
+            global_result,
+            "Broadcast::ITfThreadMgr::GetGlobalCompartment") ||
+        !global_mgr) {
+        return FAILED(global_result)
+            ? global_result
+            : E_UNEXPECTED;
     }
 
     ScopedTfCompartment comp;
     if (!comp.Bind(global_mgr.Get(), compartment_guid)) {
-        return false;
+        return E_FAIL;
     }
-    return SUCCEEDED(comp.IncrementInt4(client_id));
+    return comp.IncrementInt4(client_id);
+}
+
+inline bool BroadcastStandaloneGlobalCompartmentIncrement(
+    REFGUID compartment_guid) noexcept {
+    return SUCCEEDED(
+        BroadcastStandaloneGlobalCompartmentIncrementResult(
+            compartment_guid));
 }
 #pragma warning(pop)
 

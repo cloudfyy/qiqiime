@@ -15,6 +15,7 @@ void RunCommonTests() {
     TestVersionMechanism();
     TestConfigFieldProjections();
     TestConfigJson();
+    TestConfigTransport();
     TestDictionaryLoadPlans();
     TestIniConfiguration();
     TestScopedHandleTemplate();

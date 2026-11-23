@@ -21,8 +21,11 @@ inline constexpr const wchar_t* kSettingsWndClass = L"QiQiIMESettingsDialogClass
 inline constexpr const wchar_t* kInfoWndClass = L"QiQiIMEInfoDialogClass";
 inline constexpr const wchar_t* kSettingsMessageWndClass = L"QiQiIMESettingsMessageClass";
 inline constexpr const wchar_t* kSettingsToastWndClass = L"QiQiIMESettingsToastClass";
+inline constexpr const wchar_t* kConfigAsyncWndClass = L"QiQiIMEConfigAsyncClass";
 inline constexpr UINT kSettingsLanguageChangedMessage = WM_APP + 0x100;
 inline constexpr UINT kSettingsExternalConfigChangedMessage = WM_APP + 0x101;
+inline constexpr UINT kConfigAsyncResultMessage = WM_APP + 0x102;
+inline constexpr UINT kSettingsConfigLoadedMessage = WM_APP + 0x103;
 inline constexpr const wchar_t* kSettingsSingleInstanceMutexName = L"Local\\QiQiIMESettingsSingleInstanceMutex";
 inline constexpr const wchar_t* kMenuWndClass = L"QiQiIMEQuickSettingsMenuClass";
 inline constexpr const wchar_t* kGitHubRepoUrl = L"https://github.com/cloudfyy/qiqiime";
@@ -94,6 +97,31 @@ inline constexpr GUID kGuidSyncSourceDictionary = {
 // Cross-process change_sync Source GUID for phrase frequency channels
 inline constexpr GUID kGuidSyncSourcePhraseFrequency = {
     0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x0c}
+};
+
+// {8E7B9D31-5A42-4C81-9F11-20261029000D}
+// COM CLSID for the out-of-process configuration broker.
+inline constexpr CLSID kClsidQiQiConfigBroker = {
+    0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x0d}
+};
+
+// {8E7B9D31-5A42-4C81-9F11-20261029000E}
+inline constexpr GUID kAppIdQiQiConfigBroker = {
+    0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x0e}
+};
+
+inline constexpr GUID kGuidConfigBrokerEtwProvider = {
+    0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x11}
+};
+
+// {8E7B9D31-5A42-4C81-9F11-20261029000F}
+inline constexpr GUID kIidQiQiConfigBroker = {
+    0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x0f}
+};
+
+// {8E7B9D31-5A42-4C81-9F11-202610290010}
+inline constexpr GUID kIidAsyncQiQiConfigBroker = {
+    0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x10}
 };
 
 inline constexpr LANGID kChineseSimplifiedLangId = MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED);

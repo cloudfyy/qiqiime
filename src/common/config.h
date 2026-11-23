@@ -379,6 +379,7 @@ constexpr const wchar_t* ResolveDictionaryPathDisplayText(
 inline constexpr const wchar_t* kDefaultConfigRegSubKey = L"Software\\QiQiIME";
 void SetConfigRegistrySubKeyOverrideForTest(const wchar_t* subkey_or_null) noexcept;
 const wchar_t* GetActiveConfigRegistrySubKey() noexcept;
+bool HasConfigRegistrySubKeyOverride() noexcept;
 
 HRESULT OpenConfigRegistryKeyResult(
     HKEY* key, REGSAM access, const wchar_t* subkey = nullptr, HANDLE transaction = nullptr) noexcept;
@@ -407,6 +408,12 @@ uint64_t QueryRegistryConfigSequence(
 // Publish only the desktop dictionary channel address, never dictionary contents.
 HRESULT SaveUserDictSyncDirectory(const std::filesystem::path& directory, const wchar_t* subkey = nullptr);
 HRESULT LoadUserDictSyncDirectory(std::filesystem::path& directory, const wchar_t* subkey = nullptr);
+HRESULT SaveUserDictSyncDirectoryToRegistry(
+    const std::filesystem::path& directory,
+    const wchar_t* subkey = nullptr);
+HRESULT LoadUserDictSyncDirectoryFromRegistry(
+    std::filesystem::path& directory,
+    const wchar_t* subkey = nullptr);
 
 // Return whether the current process is running inside a Windows AppContainer sandbox.
 bool IsProcessAppContainer() noexcept;
@@ -428,5 +435,7 @@ std::filesystem::path ResolveBundledDataFile(
 // Load configuration from HKCU\Software\QiQiIME (auto-creating default values on first run).
 QiQiConfig LoadConfig(void* module_handle = nullptr) noexcept;
 bool SaveConfig(const QiQiConfig& config) noexcept;
+HRESULT SaveConfigResult(
+    const QiQiConfig& config) noexcept;
 
 } // namespace qiqi

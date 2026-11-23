@@ -98,6 +98,10 @@ HRESULT LoadImeSkinCatalog(
 HRESULT UpdateImeSkinSnapshot(
     ImeSkinId id, std::optional<ImeSkinSnapshot>& snapshot,
     const wchar_t* config_subkey = nullptr) noexcept;
+HRESULT UpdateImeSkinSnapshot(
+    ImeSkinId id,
+    const ImeSkinCatalog& catalog,
+    std::optional<ImeSkinSnapshot>& snapshot) noexcept;
 ImeSkinAppearance ResolveImeSkinAppearance(
     const DisplayPreferences& preferences, const std::optional<ImeSkinSnapshot>& snapshot,
     SystemThemeSource source = SystemThemeSource::App) noexcept;

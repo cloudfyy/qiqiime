@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/config.h"
+#include "common/configclient.h"
+#include "common/comobj.h"
 #include "common/fileutil.h"
 #include "common/logger.h"
 #include "common/RAII.h"
@@ -12,12 +14,22 @@
 #include <gsl/gsl>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <new>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 namespace qiqi {
 
 namespace {
+
+static_assert(
+    std::is_nothrow_move_constructible_v<
+        QiQiConfig>);
+static_assert(
+    std::is_nothrow_move_assignable_v<
+        QiQiConfig>);
 
 constexpr DWORD kMaxRegistryStringBytes = 4096;
 
@@ -257,6 +269,8 @@ HRESULT BumpRegistrySequenceResult(HKEY key) noexcept {
 }
 
 const wchar_t* g_config_reg_subkey_override = nullptr;
+std::atomic<bool>
+    g_sync_directory_publish_inflight{false};
 
 } // namespace
 
@@ -266,6 +280,10 @@ void SetConfigRegistrySubKeyOverrideForTest(const wchar_t* subkey_or_null) noexc
 
 const wchar_t* GetActiveConfigRegistrySubKey() noexcept {
     return g_config_reg_subkey_override ? g_config_reg_subkey_override : kDefaultConfigRegSubKey;
+}
+
+bool HasConfigRegistrySubKeyOverride() noexcept {
+    return g_config_reg_subkey_override != nullptr;
 }
 
 bool IsProcessAppContainer() noexcept {
@@ -560,7 +578,9 @@ uint64_t QueryRegistryConfigSequence(const wchar_t* subkey) noexcept {
     return 0;
 }
 
-HRESULT SaveUserDictSyncDirectory(const std::filesystem::path& directory, const wchar_t* subkey) {
+HRESULT SaveUserDictSyncDirectoryToRegistry(
+    const std::filesystem::path& directory,
+    const wchar_t* subkey) {
     const auto save = [&]() -> HRESULT {
         if (IsProcessAppContainer()) return E_ACCESSDENIED;
         if (!directory.empty() && !directory.is_absolute()) return E_INVALIDARG;
@@ -587,7 +607,9 @@ HRESULT SaveUserDictSyncDirectory(const std::filesystem::path& directory, const 
     return hr;
 }
 
-HRESULT LoadUserDictSyncDirectory(std::filesystem::path& directory, const wchar_t* subkey) {
+HRESULT LoadUserDictSyncDirectoryFromRegistry(
+    std::filesystem::path& directory,
+    const wchar_t* subkey) {
     directory.clear();
     LSTATUS open_error = ERROR_SUCCESS;
     const ScopedRegKey key = OpenOrCreateConfigRegKey(subkey, KEY_READ, nullptr, &open_error);
@@ -605,20 +627,201 @@ HRESULT LoadUserDictSyncDirectory(std::filesystem::path& directory, const wchar_
     return hr;
 }
 
+HRESULT SaveUserDictSyncDirectory(
+    const std::filesystem::path& directory,
+    const wchar_t* subkey) {
+    if (subkey ||
+        g_config_reg_subkey_override) {
+        const HRESULT result =
+            SaveUserDictSyncDirectoryToRegistry(
+            directory,
+            subkey);
+        return result;
+    }
+    config::Snapshot snapshot;
+    const HRESULT result =
+        config::CopyCachedSnapshot(snapshot);
+    if (result != S_OK) {
+        return result;
+    }
+    if (snapshot.revision == 0) {
+        return E_UNEXPECTED;
+    }
+    if (snapshot.user_dict_sync_directory ==
+        directory) {
+        return S_OK;
+    }
+    bool expected = false;
+    if (!g_sync_directory_publish_inflight
+             .compare_exchange_strong(
+                 expected,
+                 true,
+                 std::memory_order_acq_rel)) {
+        return S_OK;
+    }
+    try {
+        const bool submitted =
+            config::PublishSyncDirectoryAsync(
+                {
+                    snapshot.revision,
+                    directory,
+                },
+                [](HRESULT publish_result,
+                   const config::Snapshot&) {
+                    g_sync_directory_publish_inflight
+                        .store(
+                            false,
+                            std::memory_order_release);
+                    if (FAILED(
+                            publish_result)) {
+                        QIQI_LOG_ERROR(
+                            "SaveUserDictSyncDirectory "
+                            "broker publish failed "
+                            "(hr=0x{:08X})",
+                            gsl::narrow_cast<
+                                unsigned long>(
+                                    publish_result));
+                    }
+                });
+        if (!submitted) {
+            g_sync_directory_publish_inflight
+                .store(
+                    false,
+                    std::memory_order_release);
+        }
+        return submitted
+            ? S_OK
+            : E_UNEXPECTED;
+    } catch (const std::bad_alloc&) {
+        g_sync_directory_publish_inflight
+            .store(
+                false,
+                std::memory_order_release);
+        return E_OUTOFMEMORY;
+    }
+}
+
+HRESULT LoadUserDictSyncDirectory(
+    std::filesystem::path& directory,
+    const wchar_t* subkey) {
+    if (subkey ||
+        g_config_reg_subkey_override) {
+        return LoadUserDictSyncDirectoryFromRegistry(
+            directory,
+            subkey);
+    }
+    config::Snapshot snapshot;
+    const HRESULT result =
+        config::CopyCachedSnapshot(snapshot);
+    if (result != S_OK ||
+        snapshot.revision == 0) {
+        directory.clear();
+        return result != S_OK
+            ? result
+            : E_UNEXPECTED;
+    }
+    directory =
+        snapshot.user_dict_sync_directory;
+    return S_OK;
+}
+
 bool SaveConfig(const QiQiConfig& config) noexcept {
-    return SaveConfigToRegistry(config);
+    const HRESULT result =
+        SaveConfigResult(config);
+    return SUCCEEDED(result);
+}
+
+HRESULT SaveConfigResult(
+    const QiQiConfig& config) noexcept {
+    if (g_config_reg_subkey_override) {
+        const HRESULT save_result =
+            SaveConfigToRegistryResult(
+            config,
+            g_config_reg_subkey_override);
+        if (SUCCEEDED(save_result)) {
+            std::ignore =
+                BroadcastStandaloneGlobalCompartmentIncrement(
+                    kGuidCompartmentConfigVersion);
+        }
+        return save_result;
+    }
+    config::Snapshot snapshot;
+    HRESULT result =
+        config::CopyCachedSnapshot(snapshot);
+    if (result == S_FALSE) {
+        result =
+            config::ReadSnapshot(snapshot);
+    }
+    if (FAILED(result) ||
+        snapshot.revision == 0) {
+        QIQI_LOG_ERROR(
+            "SaveConfig: broker snapshot "
+            "unavailable (hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                FAILED(result)
+                    ? result
+                    : E_UNEXPECTED));
+        return FAILED(result)
+            ? result
+            : E_UNEXPECTED;
+    }
+    result = config::SaveSnapshot(
+        {
+            snapshot.revision,
+            config,
+        },
+        snapshot);
+    if (FAILED(result)) {
+        QIQI_LOG_ERROR(
+            "SaveConfig: broker save failed "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                result));
+    }
+    return result;
 }
 
 QiQiConfig LoadConfig(void* /*module_handle*/) noexcept {
     QiQiConfig cfg{};
-    if (LoadConfigFromRegistry(cfg)) {
-        QIQI_LOG_INFO("Loaded user configuration from HKCU\\Software\\QiQiIME (dict={}, page_size={})",
-                      PrimaryDictToString(cfg.primary_dict), cfg.page_size);
+    if (g_config_reg_subkey_override) {
+        if (LoadConfigFromRegistry(
+                cfg,
+                nullptr,
+                g_config_reg_subkey_override)) {
+            return cfg;
+        }
+        std::ignore =
+            SaveConfigToRegistry(
+                cfg,
+                g_config_reg_subkey_override);
         return cfg;
     }
-    if (!SaveConfigToRegistry(cfg)) {
-        QIQI_LOG_WARN("LoadConfig: using in-memory defaults; initial configuration could not be saved");
+
+    config::Snapshot snapshot;
+    HRESULT result =
+        config::CopyCachedSnapshot(snapshot);
+    if (result != S_OK) {
+        result =
+            config::ReadSnapshot(snapshot);
     }
+    if (SUCCEEDED(result)) {
+        QIQI_LOG_INFO(
+            "Loaded user configuration "
+            "from broker "
+            "(dict={}, page_size={}, "
+            "revision={})",
+            PrimaryDictToString(
+                snapshot.value.primary_dict),
+            snapshot.value.page_size,
+            snapshot.revision);
+        return std::move(snapshot.value);
+    }
+    QIQI_LOG_WARN(
+        "LoadConfig: using last safe "
+        "in-memory defaults because broker "
+        "read failed (hr=0x{:08X})",
+        gsl::narrow_cast<unsigned long>(
+            result));
     return cfg;
 }
 

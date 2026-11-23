@@ -1,0 +1,29 @@
+import "oaidl.idl";
+import "ocidl.idl";
+
+[
+    object,
+    uuid(8E7B9D31-5A42-4C81-9F11-20261029000F),
+    async_uuid(8E7B9D31-5A42-4C81-9F11-202610290010),
+    pointer_default(unique)
+]
+interface IQiQiConfigBroker : IUnknown {
+    HRESULT Read(
+        [in] ULONGLONG known_revision,
+        [in, out] ULONG* snapshot_size,
+        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot);
+    HRESULT Save(
+        [in] ULONG request_size,
+        [in, size_is(request_size)] byte* request,
+        [in, out] ULONG* snapshot_size,
+        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot);
+    HRESULT Reset(
+        [in] ULONGLONG expected_revision,
+        [in, out] ULONG* snapshot_size,
+        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot);
+    HRESULT PublishSyncDirectory(
+        [in] ULONG request_size,
+        [in, size_is(request_size)] byte* request,
+        [in, out] ULONG* snapshot_size,
+        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot);
+};

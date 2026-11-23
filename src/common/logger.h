@@ -56,6 +56,14 @@ struct LogContext {
     const GUID* related_activity_id = nullptr;
 };
 
+using ExternalLogWriter = void (*)(
+    Level,
+    std::string_view,
+    const LogContext&) noexcept;
+
+void SetExternalLogWriter(
+    ExternalLogWriter writer) noexcept;
+
 constexpr Keyword NormalizeKeyword(Keyword keyword) noexcept {
     switch (keyword) {
         case Keyword::General:
