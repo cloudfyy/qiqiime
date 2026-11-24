@@ -5,6 +5,7 @@
 
 #include "common/config.h"
 #include "common/skin.h"
+#include "common/trace.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -19,6 +20,9 @@ inline constexpr size_t kMaxConfigPathChars = 32 * 1024;
 struct Snapshot {
     uint64_t revision = 0;
     HRESULT notification_result = S_OK;
+    GUID commit_trace_id = GUID_NULL;
+    GUID commit_activity_id = GUID_NULL;
+    uint64_t commit_revision = 0;
     QiQiConfig value;
     std::filesystem::path user_dict_sync_directory;
     ImeSkinCatalog skin_catalog;

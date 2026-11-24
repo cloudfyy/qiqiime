@@ -90,6 +90,15 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "DCOM probe failed with exit code $LASTEXITCODE."
     }
+    1..2 |
+        ForEach-Object {
+            & $probe '--read-only'
+            if ($LASTEXITCODE -ne 0) {
+                throw (
+                    'Subscriber probe failed ' +
+                    "with exit code $LASTEXITCODE.")
+            }
+        }
 } finally {
     if ($brokerProcess -and
         -not $brokerProcess.HasExited) {
@@ -182,6 +191,49 @@ foreach ($stage in $expectedStages) {
             $diagnosticLines -match
                 [regex]::Escape($stage))) {
         throw "Broker diagnostic log is missing stage: $stage"
+    }
+}
+$tracePattern =
+    'ConfigBroker operation=save ' +
+    'started revision=.*' +
+    '\[trace=(?<trace>\{[0-9A-F-]+\}) ' +
+    'activity=(?<activity>\{[0-9A-F-]+\}) ' +
+    'related=(?<related>\{[0-9A-F-]+\})\]$'
+$saveTraceStarts =
+    @($diagnosticLines |
+        Select-String -Pattern $tracePattern)
+if ($saveTraceStarts.Count -lt 2) {
+    throw (
+        'Broker diagnostic log did not ' +
+        'contain sync and async save trace starts.')
+}
+foreach ($start in $saveTraceStarts) {
+    $trace = $start.Matches[0].Groups['trace'].Value
+    $activity =
+        $start.Matches[0].Groups['activity'].Value
+    $stopPattern =
+        'ConfigBroker operation=save ' +
+        'completed .*' +
+        "\[trace=$([regex]::Escape($trace)) " +
+        "activity=$([regex]::Escape($activity)) "
+    if (-not (
+            $diagnosticLines -match
+                $stopPattern)) {
+        throw (
+            'Broker save trace did not have ' +
+            "a matching stop event: $trace")
+    }
+}
+$sensitiveFields = @(
+    'candidate_font_family=',
+    'primary_dict_path=',
+    'user_dict_path=')
+foreach ($field in $sensitiveFields) {
+    if ($diagnosticLines -match
+            [regex]::Escape($field)) {
+        throw (
+            'Broker trace leaked a ' +
+            "configuration field: $field")
     }
 }
 $timestampPattern =

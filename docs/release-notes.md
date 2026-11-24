@@ -1,3 +1,59 @@
+# QiQiIME 1.3.0 功能版（2026-11-24）
+
+数字版本：`1.3.0`；发行标签：`v1.3.0`（2026-11-24）。该标签由 Release
+工作流重新构建、测试并生成附件；标签存在不等于发布附件已经完成。
+
+## 主要更新
+
+- **统一配置 Broker**：独立 `QiQiIMEConfigBroker.exe` 成为桌面用户配置、
+  皮肤目录及同步目录的唯一运行期 HKCU 写入者。输入、布局、绘制和焦点
+  热路径仅读取进程内缓存；Settings、IME、词库管理器及备份恢复通过有限
+  DCOM 接口提交完整快照。
+- **MSIX/AppContainer 一致性**：Broker 解决 Feedback Hub 等 package host
+  各自读取虚拟化 `HKCU` 后皮肤或配置不刷新问题，并校验调用用户 SID、
+  Windows session、包容器权限和单用户会话实例。
+- **事务与并发**：Save/Reset/同步目录发布使用 KTM 事务和 expected revision
+  CAS；陈旧写入不修改 sequence 或 commit metadata；提交成功后才通知 TSF。
+  x86、x64 和原生异步 COM 调用共用同一服务端实现。
+- **跨进程 Trace**：v2 COM ABI 为 Read/Save/Reset/PublishSyncDirectory 携带
+  `trace_id`、调用方 activity 和 reserved flags；Broker 返回 own activity
+  及最后一次提交的 trace/activity/revision。ETW 使用 Activity/Related
+  Activity，日志监视器支持 Trace 筛选、关联缩进与导出。
+- **持久提交血缘**：`ConfigCommitTraceId`、`ConfigCommitActivityId` 与
+  `ConfigCommitRevision` 和配置写入同一 registry transaction；subscriber
+  即使在另一进程重启，也能从 Read 结果关联到原始 Broker commit。
+
+## 验证边界
+
+- 本机已通过 x86/x64 Common、Broker store 与 LogMonitor 定向测试，x86 侧
+  同步/原生异步 DCOM、CAS、重启持久化、多 subscriber 及诊断脱敏回归通过。
+- x86 probe 已通过访问 x64 Broker 的真实跨架构 DCOM 回归；MIDL v2
+  sync/async ABI、x86/x64 proxy 和提交 trace 结果均已覆盖。
+- Settings、Dictionary Manager、TSF UI 与完整 x86 构建通过；权限依赖的
+  ETW 集成在当前会话按既有策略跳过。
+- 本机未制作或安装 MSI。标签 Release 工作流仍是双架构构建、测试、
+  MSI/ZIP/PDB 打包及附件发布的最终判定。
+
+## English
+
+Version `1.3.0`; release tag `v1.3.0` (2026-11-24). Release CI rebuilds and
+tests the tagged source before publishing assets.
+
+### Main changes
+
+- A dedicated configuration Broker is now the only runtime HKCU owner.
+- CAS saves and sync-directory publication commit transactionally with durable
+  sequence and commit-trace metadata.
+- Package hosts no longer depend on their private virtualized HKCU view for the
+  latest skin/configuration.
+- The v2 sync/native-async DCOM ABI carries trace context across processes.
+  Broker and client ETW Activity events, persisted commit lineage, and Log
+  Monitor trace filtering/tree display make an IME save traceable through
+  every subscriber refresh.
+
+Local x86/x64 focused tests and the x86-client-to-x64-Broker DCOM test passed;
+tagged CI remains authoritative for installer and publication validation.
+
 # QiQiIME 1.2.1 紧急补丁版（2026-11-22）
 
 数字版本：`1.2.1`；发行标签：`v1.2.1`（2026-11-22）。该标签由 Release

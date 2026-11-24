@@ -12,7 +12,10 @@
 #include <cstdio>
 #include <condition_variable>
 #include <chrono>
+#include <cstring>
 #include <mutex>
+
+namespace trace = qiqi::trace;
 
 void WriteProbeLog(
     qiqi::log::Level,
@@ -26,7 +29,15 @@ void WriteProbeLog(
     std::fputc('\n', stderr);
 }
 
-int main() {
+int main(
+    int argc,
+    char* argv[]) {
+    const bool read_only =
+        argc == 2 &&
+        std::strcmp(
+            argv[1],
+            "--read-only") ==
+            0;
     qiqi::log::SetExternalLogWriter(
         &WriteProbeLog);
     const HRESULT com =
@@ -81,8 +92,11 @@ int main() {
         SUCCEEDED(blanket));
 
     qiqi::config::Snapshot initial;
+    const trace::Context read_trace =
+        trace::CreateContext();
     const HRESULT read_result =
         qiqi::config::ReadSnapshot(
+            read_trace,
             initial);
     if (read_result != S_OK) {
         std::cerr
@@ -96,6 +110,27 @@ int main() {
     }
     QIQI_TEST_CHECK(
         read_result == S_OK);
+    if (read_only) {
+        QIQI_TEST_CHECK(
+            initial.revision != 0);
+        QIQI_TEST_CHECK(
+            initial.commit_trace_id !=
+            GUID_NULL);
+        QIQI_TEST_CHECK(
+            initial.commit_activity_id !=
+            GUID_NULL);
+        QIQI_TEST_CHECK(
+            initial.commit_revision <=
+            initial.revision);
+        std::cout
+            << "[PASS] Subscriber read "
+               "retained broker commit "
+               "lineage.\n";
+        direct.Reset();
+        qiqi::log::SetExternalLogWriter(
+            nullptr);
+        return 0;
+    }
 
     qiqi::QiQiConfig changed =
         initial.value;
@@ -104,16 +139,28 @@ int main() {
             ? 7
             : 8;
     qiqi::config::Snapshot saved;
+    const trace::Context save_trace =
+        trace::CreateContext();
     QIQI_TEST_CHECK(
         qiqi::config::SaveSnapshot(
             {
                 initial.revision,
                 std::move(changed),
             },
+            save_trace,
             saved) == S_OK);
     QIQI_TEST_CHECK(
         saved.revision >
         initial.revision);
+    QIQI_TEST_CHECK(
+        saved.commit_trace_id ==
+        save_trace.trace_id);
+    QIQI_TEST_CHECK(
+        saved.commit_activity_id !=
+        GUID_NULL);
+    QIQI_TEST_CHECK(
+        saved.commit_revision ==
+        saved.revision);
 
     std::mutex mutex;
     std::condition_variable condition;
@@ -121,8 +168,11 @@ int main() {
     HRESULT async_result =
         E_PENDING;
     qiqi::config::Snapshot async_read;
+    const trace::Context async_read_trace =
+        trace::CreateContext();
     const bool submitted =
         qiqi::config::ReadSnapshotAsync(
+            async_read_trace,
             [&](HRESULT result,
                 const qiqi::config::
                     Snapshot& snapshot) {
@@ -161,6 +211,12 @@ int main() {
     QIQI_TEST_CHECK(
         async_read.revision ==
         saved.revision);
+    QIQI_TEST_CHECK(
+        async_read.commit_trace_id ==
+        saved.commit_trace_id);
+    QIQI_TEST_CHECK(
+        async_read.commit_activity_id ==
+        saved.commit_activity_id);
 
     changed = saved.value;
     changed.page_size =
@@ -169,12 +225,16 @@ int main() {
             : 6;
     completed = false;
     async_result = E_PENDING;
+    const trace::Context
+        async_save_trace =
+            trace::CreateContext();
     const bool async_save =
         qiqi::config::SaveSnapshotAsync(
             {
                 saved.revision,
                 std::move(changed),
             },
+            async_save_trace,
             [&](HRESULT result,
                 const qiqi::config::
                     Snapshot& snapshot) {
@@ -203,6 +263,15 @@ int main() {
     QIQI_TEST_CHECK(
         async_read.revision >
         saved.revision);
+    QIQI_TEST_CHECK(
+        async_read.commit_trace_id ==
+        async_save_trace.trace_id);
+    QIQI_TEST_CHECK(
+        async_read.commit_activity_id !=
+        GUID_NULL);
+    QIQI_TEST_CHECK(
+        async_read.commit_revision ==
+        async_read.revision);
 
     qiqi::config::Snapshot rejected;
     QIQI_TEST_CHECK(
@@ -211,6 +280,7 @@ int main() {
                 initial.revision,
                 initial.value,
             },
+            trace::CreateContext(),
             rejected) ==
         HRESULT_FROM_WIN32(
             ERROR_REVISION_MISMATCH));

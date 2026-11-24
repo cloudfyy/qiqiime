@@ -176,7 +176,8 @@ void EmitEtwWithMetadata(
     std::string_view proc_name,
     std::string_view message,
     const GUID* activity_id,
-    const GUID* related_activity_id) noexcept {
+    const GUID* related_activity_id,
+    const GUID* trace_id) noexcept {
     constexpr ULONGLONG kKeywordMask = std::to_underlying(Kw);
     constexpr UCHAR kOpcodeVal = std::to_underlying(Op);
     const int msg_len = gsl::narrow_cast<int>(message.size());
@@ -184,6 +185,8 @@ void EmitEtwWithMetadata(
     const GUID* const effective_activity = (activity_id != nullptr) ? activity_id : &GUID_NULL;
     const GUID* const effective_related =
         (related_activity_id != nullptr && *related_activity_id != GUID_NULL) ? related_activity_id : nullptr;
+    const GUID effective_trace =
+        trace_id ? *trace_id : GUID_NULL;
 
     switch (level) {
         case Level::trace:
@@ -197,7 +200,8 @@ void EmitEtwWithMetadata(
                 TraceLoggingKeyword(kKeywordMask),
                 TraceLoggingOpcode(kOpcodeVal),
                 TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
-                TraceLoggingCountedString(message.data(), msg_len, "message"));
+                TraceLoggingCountedString(message.data(), msg_len, "message"),
+                TraceLoggingGuid(effective_trace, "trace_id"));
             break;
         case Level::info:
             TraceLoggingWriteActivity(
@@ -209,7 +213,8 @@ void EmitEtwWithMetadata(
                 TraceLoggingKeyword(kKeywordMask),
                 TraceLoggingOpcode(kOpcodeVal),
                 TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
-                TraceLoggingCountedString(message.data(), msg_len, "message"));
+                TraceLoggingCountedString(message.data(), msg_len, "message"),
+                TraceLoggingGuid(effective_trace, "trace_id"));
             break;
         case Level::warn:
             TraceLoggingWriteActivity(
@@ -221,7 +226,8 @@ void EmitEtwWithMetadata(
                 TraceLoggingKeyword(kKeywordMask),
                 TraceLoggingOpcode(kOpcodeVal),
                 TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
-                TraceLoggingCountedString(message.data(), msg_len, "message"));
+                TraceLoggingCountedString(message.data(), msg_len, "message"),
+                TraceLoggingGuid(effective_trace, "trace_id"));
             break;
         case Level::err:
         case Level::critical:
@@ -234,7 +240,8 @@ void EmitEtwWithMetadata(
                 TraceLoggingKeyword(kKeywordMask),
                 TraceLoggingOpcode(kOpcodeVal),
                 TraceLoggingCountedString(proc_name.data(), proc_len, "process"),
-                TraceLoggingCountedString(message.data(), msg_len, "message"));
+                TraceLoggingCountedString(message.data(), msg_len, "message"),
+                TraceLoggingGuid(effective_trace, "trace_id"));
             break;
         case Level::off:
         default:
@@ -249,17 +256,21 @@ void EmitEtwForKeyword(
     std::string_view proc_name,
     std::string_view message,
     const GUID* activity_id,
-    const GUID* related_activity_id) noexcept {
+    const GUID* related_activity_id,
+    const GUID* trace_id) noexcept {
     switch (NormalizeOpcode(opcode)) {
         case Opcode::Start:
-            EmitEtwWithMetadata<Kw, Opcode::Start>(level, proc_name, message, activity_id, related_activity_id);
+            EmitEtwWithMetadata<Kw, Opcode::Start>(
+                level, proc_name, message, activity_id, related_activity_id, trace_id);
             break;
         case Opcode::Stop:
-            EmitEtwWithMetadata<Kw, Opcode::Stop>(level, proc_name, message, activity_id, related_activity_id);
+            EmitEtwWithMetadata<Kw, Opcode::Stop>(
+                level, proc_name, message, activity_id, related_activity_id, trace_id);
             break;
         case Opcode::Info:
         default:
-            EmitEtwWithMetadata<Kw, Opcode::Info>(level, proc_name, message, activity_id, related_activity_id);
+            EmitEtwWithMetadata<Kw, Opcode::Info>(
+                level, proc_name, message, activity_id, related_activity_id, trace_id);
             break;
     }
 }
@@ -272,38 +283,46 @@ void EmitEtwTraceEvent(
     switch (NormalizeKeyword(context.keyword)) {
         case Keyword::Lifecycle:
             EmitEtwForKeyword<Keyword::Lifecycle>(
-                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+                level, context.opcode, proc_name, message, context.activity_id,
+                context.related_activity_id, context.trace_id);
             break;
         case Keyword::Input:
             EmitEtwForKeyword<Keyword::Input>(
-                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+                level, context.opcode, proc_name, message, context.activity_id,
+                context.related_activity_id, context.trace_id);
             break;
         case Keyword::Composition:
             EmitEtwForKeyword<Keyword::Composition>(
-                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+                level, context.opcode, proc_name, message, context.activity_id,
+                context.related_activity_id, context.trace_id);
             break;
         case Keyword::Dictionary:
             EmitEtwForKeyword<Keyword::Dictionary>(
-                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+                level, context.opcode, proc_name, message, context.activity_id,
+                context.related_activity_id, context.trace_id);
             break;
         case Keyword::Sync:
             EmitEtwForKeyword<Keyword::Sync>(
-                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+                level, context.opcode, proc_name, message, context.activity_id,
+                context.related_activity_id, context.trace_id);
             break;
         case Keyword::UI:
             EmitEtwForKeyword<Keyword::UI>(
-                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+                level, context.opcode, proc_name, message, context.activity_id,
+                context.related_activity_id, context.trace_id);
             break;
         case Keyword::Config:
             EmitEtwForKeyword<Keyword::Config>(
-                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+                level, context.opcode, proc_name, message, context.activity_id,
+                context.related_activity_id, context.trace_id);
             break;
         case Keyword::Metrics:
             return;
         case Keyword::General:
         default:
             EmitEtwForKeyword<Keyword::General>(
-                level, context.opcode, proc_name, message, context.activity_id, context.related_activity_id);
+                level, context.opcode, proc_name, message, context.activity_id,
+                context.related_activity_id, context.trace_id);
             break;
     }
 }

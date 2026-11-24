@@ -161,11 +161,27 @@ void MonitorWindow::Impl::ShowListContextMenu(POINT screen_pt) {
     const auto* selected_event = FirstSelectedEvent();
     const bool has_sel = metrics_view ? metric_selected.has_value() : selected_event != nullptr;
     const bool has_rows = !metrics_view && !rows.empty();
-    const bool has_activity = metrics_view ? SelectedMetricActivity() != GUID_NULL : has_sel && selected_event->activity_id != GUID_NULL;
+    const bool has_activity =
+        metrics_view
+            ? SelectedMetricActivity() !=
+                GUID_NULL
+            : has_sel &&
+                (selected_event
+                     ->activity_id !=
+                     GUID_NULL ||
+                 selected_event
+                     ->trace_id !=
+                     GUID_NULL);
     std::vector<ToolCommand> commands;
     for (const auto& [id, enabled] : std::array{
              std::pair{Copy, has_sel}, std::pair{SelectAll, has_rows}, std::pair{FilterActivity, has_activity},
-             std::pair{ClearActivity, !metrics_view && filter.activity_id.has_value()}, std::pair{Clear, true}}) {
+             std::pair{ClearActivity,
+                 !metrics_view &&
+                     (filter.activity_id
+                          .has_value() ||
+                      filter.trace_id
+                          .has_value())},
+             std::pair{Clear, true}}) {
         commands.push_back({gsl::narrow_cast<UINT>(std::to_underlying(id)), CommandText(id), ToolIcon::None, enabled});
     }
     const UINT cmd = command_ui.TrackContextMenu(hwnd, screen_pt, commands);
@@ -270,7 +286,19 @@ void MonitorWindow::Impl::Command(int id, int notification) {
             break;
         }
         const auto* event = FirstSelectedEvent();
-        if (event && event->activity_id != GUID_NULL) {
+        if (event &&
+            event->trace_id !=
+                GUID_NULL) {
+            filter.activity_id.reset();
+            filter.trace_id =
+                event->trace_id;
+            Refilter();
+            UpdateStatus();
+        } else if (
+            event &&
+            event->activity_id !=
+                GUID_NULL) {
+            filter.trace_id.reset();
             filter.activity_id = event->activity_id;
             Refilter();
             UpdateStatus();
@@ -285,6 +313,7 @@ void MonitorWindow::Impl::Command(int id, int notification) {
             break;
         }
         filter.activity_id.reset();
+        filter.trace_id.reset();
         Refilter();
         UpdateStatus();
         break;
@@ -337,6 +366,7 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         ::SetWindowTextW(Child(Process), L"");
         filter.pid.reset();
         filter.activity_id.reset();
+        filter.trace_id.reset();
         automatic_pid = false;
         ::SetWindowTextW(Child(Search), L"");
         ::SendMessageW(Child(Level), CB_SETCURSEL, 0, 0);

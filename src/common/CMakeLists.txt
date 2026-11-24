@@ -70,6 +70,8 @@ set(QIQI_COMMON_SOURCES
     skin.h
     settings.cpp
     settings.h
+    trace.cpp
+    trace.h
     theme.h
     window.h
     toolbar.cpp

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include "common/trace.h"
+
 #include <windows.h>
 #include <array>
 #include <algorithm>
@@ -394,6 +396,13 @@ HRESULT BumpConfigRegistrySequenceResult(HKEY key) noexcept;
 // The result variant retains Win32 failure codes; the bool variant preserves existing callers.
 HRESULT SaveConfigToRegistryResult(
     const QiQiConfig& config,
+    const wchar_t* subkey = nullptr,
+    const GUID* commit_trace_id = nullptr,
+    const GUID* commit_activity_id = nullptr) noexcept;
+HRESULT LoadConfigCommitTraceFromRegistry(
+    GUID& trace_id,
+    GUID& activity_id,
+    uint64_t& revision,
     const wchar_t* subkey = nullptr) noexcept;
 bool SaveConfigToRegistry(
     const QiQiConfig& config,
@@ -410,7 +419,10 @@ HRESULT SaveUserDictSyncDirectory(const std::filesystem::path& directory, const 
 HRESULT LoadUserDictSyncDirectory(std::filesystem::path& directory, const wchar_t* subkey = nullptr);
 HRESULT SaveUserDictSyncDirectoryToRegistry(
     const std::filesystem::path& directory,
-    const wchar_t* subkey = nullptr);
+    const wchar_t* subkey = nullptr,
+    const GUID* commit_trace_id = nullptr,
+    const GUID* commit_activity_id = nullptr,
+    bool* changed = nullptr);
 HRESULT LoadUserDictSyncDirectoryFromRegistry(
     std::filesystem::path& directory,
     const wchar_t* subkey = nullptr);
@@ -437,5 +449,8 @@ QiQiConfig LoadConfig(void* module_handle = nullptr) noexcept;
 bool SaveConfig(const QiQiConfig& config) noexcept;
 HRESULT SaveConfigResult(
     const QiQiConfig& config) noexcept;
+HRESULT SaveConfigResult(
+    const QiQiConfig& config,
+    const trace::Context& trace) noexcept;
 
 } // namespace qiqi

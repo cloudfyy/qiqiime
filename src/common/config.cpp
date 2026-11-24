@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <new>
 #include <string>
 #include <type_traits>
@@ -32,6 +33,12 @@ static_assert(
         QiQiConfig>);
 
 constexpr DWORD kMaxRegistryStringBytes = 4096;
+constexpr const wchar_t* kCommitTraceValue =
+    L"ConfigCommitTraceId";
+constexpr const wchar_t* kCommitActivityValue =
+    L"ConfigCommitActivityId";
+constexpr const wchar_t* kCommitRevisionValue =
+    L"ConfigCommitRevision";
 
 HRESULT WriteRegDwordResult(HKEY key, const wchar_t* name, DWORD val) noexcept {
     const LSTATUS error = ::RegSetValueExW(
@@ -63,6 +70,118 @@ HRESULT ReadRegDwordResult(HKEY key, const wchar_t* name, DWORD& out_val) noexce
         return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
     }
     out_val = value;
+    return S_OK;
+}
+
+HRESULT WriteRegGuidResult(
+    HKEY key,
+    const wchar_t* name,
+    const GUID& value) noexcept {
+    const auto bytes =
+        std::bit_cast<
+            std::array<BYTE, sizeof(GUID)>>(
+                value);
+    const LSTATUS error =
+        ::RegSetValueExW(
+            key,
+            name,
+            0,
+            REG_BINARY,
+            bytes.data(),
+            gsl::narrow_cast<DWORD>(
+                bytes.size()));
+    if (error != ERROR_SUCCESS) {
+        QIQI_LOG_ERROR(
+            "WriteRegGuid::RegSetValueExW failed "
+            "(error={})",
+            error);
+    }
+    return HRESULT_FROM_WIN32(error);
+}
+
+HRESULT ReadRegGuidResult(
+    HKEY key,
+    const wchar_t* name,
+    GUID& value) noexcept {
+    std::array<BYTE, sizeof(GUID)> bytes{};
+    DWORD type = 0;
+    DWORD size =
+        gsl::narrow_cast<DWORD>(bytes.size());
+    const LSTATUS error =
+        ::RegQueryValueExW(
+            key,
+            name,
+            nullptr,
+            &type,
+            bytes.data(),
+            &size);
+    if (!CheckRegistryRead(
+            error,
+            "ReadRegGuid::RegQueryValueExW")) {
+        return HRESULT_FROM_WIN32(error);
+    }
+    if (type != REG_BINARY ||
+        size != bytes.size()) {
+        return HRESULT_FROM_WIN32(
+            ERROR_INVALID_DATA);
+    }
+    value = std::bit_cast<GUID>(bytes);
+    return S_OK;
+}
+
+HRESULT WriteRegQwordResult(
+    HKEY key,
+    const wchar_t* name,
+    uint64_t value) noexcept {
+    const auto bytes =
+        std::bit_cast<
+            std::array<BYTE, sizeof(value)>>(
+                value);
+    const LSTATUS error =
+        ::RegSetValueExW(
+            key,
+            name,
+            0,
+            REG_QWORD,
+            bytes.data(),
+            gsl::narrow_cast<DWORD>(
+                bytes.size()));
+    if (error != ERROR_SUCCESS) {
+        QIQI_LOG_ERROR(
+            "WriteRegQword::RegSetValueExW failed "
+            "(error={})",
+            error);
+    }
+    return HRESULT_FROM_WIN32(error);
+}
+
+HRESULT ReadRegQwordResult(
+    HKEY key,
+    const wchar_t* name,
+    uint64_t& value) noexcept {
+    std::array<BYTE, sizeof(value)> bytes{};
+    DWORD type = 0;
+    DWORD size =
+        gsl::narrow_cast<DWORD>(bytes.size());
+    const LSTATUS error =
+        ::RegQueryValueExW(
+            key,
+            name,
+            nullptr,
+            &type,
+            bytes.data(),
+            &size);
+    if (!CheckRegistryRead(
+            error,
+            "ReadRegQword::RegQueryValueExW")) {
+        return HRESULT_FROM_WIN32(error);
+    }
+    if (type != REG_QWORD ||
+        size != bytes.size()) {
+        return HRESULT_FROM_WIN32(
+            ERROR_INVALID_DATA);
+    }
+    value = std::bit_cast<uint64_t>(bytes);
     return S_OK;
 }
 
@@ -246,7 +365,9 @@ ScopedRegKey OpenOrCreateConfigRegKey(
     return key;
 }
 
-HRESULT BumpRegistrySequenceResult(HKEY key) noexcept {
+HRESULT BumpRegistrySequenceResult(
+    HKEY key,
+    uint64_t& sequence) noexcept {
     uint64_t seq = 0;
     DWORD cb = sizeof(seq);
     DWORD type = 0;
@@ -265,7 +386,52 @@ HRESULT BumpRegistrySequenceResult(HKEY key) noexcept {
         QIQI_LOG_ERROR("Failed to update registry configuration sequence (error={})", result);
         return HRESULT_FROM_WIN32(result);
     }
+    sequence = seq;
     return S_OK;
+}
+
+HRESULT BumpRegistrySequenceResult(
+    HKEY key) noexcept {
+    uint64_t ignored = 0;
+    return BumpRegistrySequenceResult(
+        key,
+        ignored);
+}
+
+HRESULT WriteCommitTraceResult(
+    HKEY key,
+    uint64_t revision,
+    const GUID* trace_id,
+    const GUID* activity_id) noexcept {
+    if (!trace_id && !activity_id) {
+        return S_OK;
+    }
+    if (!trace_id ||
+        !activity_id ||
+        *trace_id == GUID_NULL ||
+        *activity_id == GUID_NULL) {
+        return E_INVALIDARG;
+    }
+    HRESULT result =
+        WriteRegGuidResult(
+            key,
+            kCommitTraceValue,
+            *trace_id);
+    if (FAILED(result)) {
+        return result;
+    }
+    result =
+        WriteRegGuidResult(
+            key,
+            kCommitActivityValue,
+            *activity_id);
+    if (FAILED(result)) {
+        return result;
+    }
+    return WriteRegQwordResult(
+        key,
+        kCommitRevisionValue,
+        revision);
 }
 
 const wchar_t* g_config_reg_subkey_override = nullptr;
@@ -361,7 +527,11 @@ std::filesystem::path ResolveConfiguredDictionaryPath(
     return resolved;
 }
 
-HRESULT SaveConfigToRegistryResult(const QiQiConfig& config, const wchar_t* subkey) noexcept {
+HRESULT SaveConfigToRegistryResult(
+    const QiQiConfig& config,
+    const wchar_t* subkey,
+    const GUID* commit_trace_id,
+    const GUID* commit_activity_id) noexcept {
     try {
         ScopedKernelTransaction txn;
         if (!txn) {
@@ -411,7 +581,16 @@ HRESULT SaveConfigToRegistryResult(const QiQiConfig& config, const wchar_t* subk
         if (FAILED(result)) return result;
         result = WriteRegStringResult(key.Get(), L"UserDictPath", config.user_dict_path);
         if (FAILED(result)) return result;
-        result = BumpRegistrySequenceResult(key.Get());
+        uint64_t revision = 0;
+        result = BumpRegistrySequenceResult(
+            key.Get(),
+            revision);
+        if (FAILED(result)) return result;
+        result = WriteCommitTraceResult(
+            key.Get(),
+            revision,
+            commit_trace_id,
+            commit_activity_id);
         if (FAILED(result)) return result;
         key.Reset();
         if (!txn.Commit()) {
@@ -430,6 +609,63 @@ HRESULT SaveConfigToRegistryResult(const QiQiConfig& config, const wchar_t* subk
 
 bool SaveConfigToRegistry(const QiQiConfig& config, const wchar_t* subkey) noexcept {
     return SUCCEEDED(SaveConfigToRegistryResult(config, subkey));
+}
+
+HRESULT LoadConfigCommitTraceFromRegistry(
+    GUID& trace_id,
+    GUID& activity_id,
+    uint64_t& revision,
+    const wchar_t* subkey) noexcept {
+    trace_id = GUID_NULL;
+    activity_id = GUID_NULL;
+    revision = 0;
+    LSTATUS open_error = ERROR_SUCCESS;
+    const ScopedRegKey key =
+        OpenOrCreateConfigRegKey(
+            subkey,
+            KEY_READ,
+            nullptr,
+            &open_error);
+    if (!key) {
+        return HRESULT_FROM_WIN32(
+            open_error);
+    }
+    GUID loaded_trace = GUID_NULL;
+    GUID loaded_activity = GUID_NULL;
+    uint64_t loaded_revision = 0;
+    HRESULT result =
+        ReadRegGuidResult(
+            key.Get(),
+            kCommitTraceValue,
+            loaded_trace);
+    if (FAILED(result)) {
+        return result;
+    }
+    result =
+        ReadRegGuidResult(
+            key.Get(),
+            kCommitActivityValue,
+            loaded_activity);
+    if (FAILED(result)) {
+        return result;
+    }
+    result =
+        ReadRegQwordResult(
+            key.Get(),
+            kCommitRevisionValue,
+            loaded_revision);
+    if (FAILED(result)) {
+        return result;
+    }
+    if (loaded_trace == GUID_NULL ||
+        loaded_activity == GUID_NULL) {
+        return HRESULT_FROM_WIN32(
+            ERROR_INVALID_DATA);
+    }
+    trace_id = loaded_trace;
+    activity_id = loaded_activity;
+    revision = loaded_revision;
+    return S_OK;
 }
 
 bool LoadConfigFromRegistry(
@@ -580,7 +816,13 @@ uint64_t QueryRegistryConfigSequence(const wchar_t* subkey) noexcept {
 
 HRESULT SaveUserDictSyncDirectoryToRegistry(
     const std::filesystem::path& directory,
-    const wchar_t* subkey) {
+    const wchar_t* subkey,
+    const GUID* commit_trace_id,
+    const GUID* commit_activity_id,
+    bool* changed) {
+    if (changed) {
+        *changed = false;
+    }
     const auto save = [&]() -> HRESULT {
         if (IsProcessAppContainer()) return E_ACCESSDENIED;
         if (!directory.empty() && !directory.is_absolute()) return E_INVALIDARG;
@@ -597,10 +839,28 @@ HRESULT SaveUserDictSyncDirectoryToRegistry(
         if (FAILED(read_hr) && read_hr != HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) return read_hr;
         const HRESULT write_hr = WriteRegStringResult(key.Get(), L"UserDictSyncDirectory", path);
         if (FAILED(write_hr)) return write_hr;
-        const HRESULT sequence_hr = BumpRegistrySequenceResult(key.Get());
+        uint64_t revision = 0;
+        const HRESULT sequence_hr =
+            BumpRegistrySequenceResult(
+                key.Get(),
+                revision);
         if (FAILED(sequence_hr)) return sequence_hr;
+        const HRESULT trace_hr =
+            WriteCommitTraceResult(
+                key.Get(),
+                revision,
+                commit_trace_id,
+                commit_activity_id);
+        if (FAILED(trace_hr)) return trace_hr;
         key.Reset();
-        return txn.Commit() ? S_OK : HRESULT_FROM_WIN32(txn.Error());
+        if (!txn.Commit()) {
+            return HRESULT_FROM_WIN32(
+                txn.Error());
+        }
+        if (changed) {
+            *changed = true;
+        }
+        return S_OK;
     };
     const HRESULT hr = save();
     std::ignore = log::CheckHResult(hr, "SaveUserDictSyncDirectory");
@@ -733,6 +993,14 @@ bool SaveConfig(const QiQiConfig& config) noexcept {
 
 HRESULT SaveConfigResult(
     const QiQiConfig& config) noexcept {
+    return SaveConfigResult(
+        config,
+        trace::CreateContext());
+}
+
+HRESULT SaveConfigResult(
+    const QiQiConfig& config,
+    const trace::Context& trace) noexcept {
     if (g_config_reg_subkey_override) {
         const HRESULT save_result =
             SaveConfigToRegistryResult(
@@ -749,8 +1017,13 @@ HRESULT SaveConfigResult(
     HRESULT result =
         config::CopyCachedSnapshot(snapshot);
     if (result == S_FALSE) {
+        const trace::Context read_trace =
+            trace::CreateChildContext(
+                trace);
         result =
-            config::ReadSnapshot(snapshot);
+            config::ReadSnapshot(
+                read_trace,
+                snapshot);
     }
     if (FAILED(result) ||
         snapshot.revision == 0) {
@@ -770,6 +1043,7 @@ HRESULT SaveConfigResult(
             snapshot.revision,
             config,
         },
+        trace,
         snapshot);
     if (FAILED(result)) {
         QIQI_LOG_ERROR(

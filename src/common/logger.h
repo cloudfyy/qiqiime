@@ -54,6 +54,7 @@ struct LogContext {
     Opcode opcode = Opcode::Info;
     const GUID* activity_id = nullptr;
     const GUID* related_activity_id = nullptr;
+    const GUID* trace_id = nullptr;
 };
 
 using ExternalLogWriter = void (*)(

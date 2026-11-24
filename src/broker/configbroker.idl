@@ -1,29 +1,52 @@
 import "oaidl.idl";
 import "ocidl.idl";
 
+typedef struct tag_QIQI_CONFIG_TRACE_CONTEXT {
+    GUID trace_id;
+    GUID caller_activity_id;
+    GUID parent_activity_id;
+    ULONG flags;
+} QIQI_CONFIG_TRACE_CONTEXT;
+
+typedef struct tag_QIQI_CONFIG_TRACE_RESULT {
+    GUID broker_activity_id;
+    GUID commit_trace_id;
+    GUID commit_activity_id;
+    ULONGLONG commit_revision;
+    ULONGLONG revision;
+} QIQI_CONFIG_TRACE_RESULT;
+
 [
     object,
-    uuid(8E7B9D31-5A42-4C81-9F11-20261029000F),
-    async_uuid(8E7B9D31-5A42-4C81-9F11-202610290010),
+    uuid(8E7B9D31-5A42-4C81-9F11-202610290020),
+    async_uuid(8E7B9D31-5A42-4C81-9F11-202610290021),
     pointer_default(unique)
 ]
 interface IQiQiConfigBroker : IUnknown {
     HRESULT Read(
         [in] ULONGLONG known_revision,
+        [in] QIQI_CONFIG_TRACE_CONTEXT* trace_context,
         [in, out] ULONG* snapshot_size,
-        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot);
+        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot,
+        [out] QIQI_CONFIG_TRACE_RESULT* trace_result);
     HRESULT Save(
         [in] ULONG request_size,
         [in, size_is(request_size)] byte* request,
+        [in] QIQI_CONFIG_TRACE_CONTEXT* trace_context,
         [in, out] ULONG* snapshot_size,
-        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot);
+        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot,
+        [out] QIQI_CONFIG_TRACE_RESULT* trace_result);
     HRESULT Reset(
         [in] ULONGLONG expected_revision,
+        [in] QIQI_CONFIG_TRACE_CONTEXT* trace_context,
         [in, out] ULONG* snapshot_size,
-        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot);
+        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot,
+        [out] QIQI_CONFIG_TRACE_RESULT* trace_result);
     HRESULT PublishSyncDirectory(
         [in] ULONG request_size,
         [in, size_is(request_size)] byte* request,
+        [in] QIQI_CONFIG_TRACE_CONTEXT* trace_context,
         [in, out] ULONG* snapshot_size,
-        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot);
+        [out, size_is(, (unsigned long) (*snapshot_size))] byte** snapshot,
+        [out] QIQI_CONFIG_TRACE_RESULT* trace_result);
 };

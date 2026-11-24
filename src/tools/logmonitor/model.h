@@ -39,6 +39,7 @@ struct Event {
     uint64_t keyword = 1;
     GUID activity_id{};
     GUID related_activity_id{};
+    GUID trace_id{};
     std::wstring process;
     std::wstring name;
     std::wstring message;
@@ -51,6 +52,7 @@ struct Filter {
     UCHAR level = 0; // Zero means all; otherwise exact ETW level.
     uint64_t keyword = 0; // Zero means all; otherwise bitmask match.
     std::optional<GUID> activity_id; // Matches activity_id or related_activity_id.
+    std::optional<GUID> trace_id;
     std::wstring text;
     bool Matches(const Event& event) const noexcept;
 };

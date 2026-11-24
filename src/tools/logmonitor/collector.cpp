@@ -14,6 +14,7 @@
 #include <gsl/gsl>
 #include <array>
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -290,6 +291,7 @@ ULONG DecodeEvent(EVENT_RECORD& record, Event& event) {
     }
     bool process = false;
     bool message = false;
+    bool trace = false;
     const std::span<const EVENT_PROPERTY_INFO> properties(std::data(info->EventPropertyInfoArray), info->TopLevelPropertyCount);
     for (const auto& property : properties) {
         const auto property_name = MetadataString(storage, property.NameOffset);
@@ -301,6 +303,29 @@ ULONG DecodeEvent(EVENT_RECORD& record, Event& event) {
         } else if (*property_name == L"message") {
             error = ReadString(record, property_name->data(), property.nonStructType.InType, event.message);
             message = error == ERROR_SUCCESS;
+        } else if (*property_name ==
+                   L"trace_id") {
+            if (trace ||
+                property.nonStructType
+                        .InType !=
+                    TDH_INTYPE_GUID) {
+                return ERROR_INVALID_DATA;
+            }
+            std::array<BYTE, sizeof(GUID)>
+                bytes{};
+            error = ReadMetricField(
+                record,
+                L"trace_id",
+                bytes,
+                false,
+                {});
+            if (error ==
+                ERROR_SUCCESS) {
+                event.trace_id =
+                    std::bit_cast<GUID>(
+                        bytes);
+                trace = true;
+            }
         }
         if (error != ERROR_SUCCESS) return error;
     }

@@ -11,10 +11,10 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The source version is **1.2.1**, corresponding to release tag `v1.2.1`, with
+The source version is **1.3.0**, corresponding to release tag `v1.3.0`, with
 changes recorded in the [release notes](docs/release-notes.md). Release CI
-rebuilds, tests, and packages the tagged source. Until the `v1.2.1` workflow
-finishes publishing, the `v1.2.0` release remains as a historical asset.
+rebuilds, tests, and packages the tagged source. Until the `v1.3.0` workflow
+finishes publishing, the `v1.2.1` release remains as a historical asset.
 Historical tags and assets remain unchanged.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
@@ -37,6 +37,11 @@ and AppContainer guides are available in English.
 
 ## Features
 
+- **New in 1.3.0:** A dedicated signed-out-of-process configuration Broker is
+  the single HKCU owner for desktop, UWP, Full Trust, and LPAC clients. The
+  release adds CAS saves, transactional skin/config commits, x86/x64 DCOM
+  proxies, process/session identity checks, durable commit lineage, structured
+  cross-process ETW activities, and Log Monitor trace filtering/tree display.
 - **1.2.1 emergency fix:** Settings and Dictionary Manager no longer require
   `miniz.dll`; x64/x86 builds enforce static vcpkg Miniz and release packaging
   rejects dynamic linkage. This does not change input behavior, configuration,

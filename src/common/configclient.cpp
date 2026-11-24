@@ -134,20 +134,69 @@ HRESULT CommitSnapshot(
     }
 }
 
+void LogSnapshotCorrelation(
+    const trace::Context& context,
+    const Snapshot& snapshot) noexcept {
+    if (snapshot.commit_trace_id ==
+            GUID_NULL ||
+        snapshot.commit_activity_id ==
+            GUID_NULL) {
+        return;
+    }
+    QIQI_LOG_CTX(
+        log::Level::info,
+        (log::LogContext{
+            log::Keyword::Config,
+            log::Opcode::Info,
+            &context.caller_activity_id,
+            &snapshot.commit_activity_id,
+            &snapshot.commit_trace_id}),
+    "ConfigClient applied broker snapshot "
+        "revision={} commit_revision={}",
+        snapshot.revision,
+        snapshot.commit_revision);
+}
+
+void ApplyTraceResult(
+    const trace::Result& trace_result,
+    Snapshot& snapshot) noexcept {
+    snapshot.commit_trace_id =
+        trace_result.commit_trace_id;
+    snapshot.commit_activity_id =
+        trace_result.commit_activity_id;
+    snapshot.commit_revision =
+        trace_result.commit_revision;
+}
+
 HRESULT DecodeAndCommit(
     HRESULT call_result,
     ULONG size,
     byte* raw,
+    const trace::Context& context,
+    const trace::Result& trace_result,
     Snapshot& output) noexcept {
     const ScopedCoTaskMem memory(raw);
     if (call_result == S_FALSE) {
         const HRESULT cached =
             CopyCachedSnapshot(output);
-        return cached == S_OK
-            ? S_FALSE
-            : FAILED(cached)
+        if (cached != S_OK) {
+            return FAILED(cached)
                 ? cached
                 : E_UNEXPECTED;
+        }
+        if (trace_result.revision !=
+                0 &&
+            trace_result.revision !=
+                output.revision) {
+            return E_UNEXPECTED;
+        }
+        ApplyTraceResult(
+            trace_result,
+            output);
+        LogSnapshotCorrelation(
+            context,
+            output);
+        return S_FALSE;
     }
     if (FAILED(call_result)) {
         return call_result;
@@ -168,9 +217,22 @@ HRESULT DecodeAndCommit(
     if (FAILED(result)) {
         return result;
     }
-    return CommitSnapshot(
+    if (trace_result.revision !=
+        decoded.revision) {
+        return E_UNEXPECTED;
+    }
+    ApplyTraceResult(
+        trace_result,
+        decoded);
+    result = CommitSnapshot(
         std::move(decoded),
         output);
+    if (SUCCEEDED(result)) {
+        LogSnapshotCorrelation(
+            context,
+            output);
+    }
+    return result;
 }
 
 enum class Operation {
@@ -180,10 +242,26 @@ enum class Operation {
     SyncDirectory,
 };
 
+constexpr std::string_view OperationName(
+    Operation operation) noexcept {
+    switch (operation) {
+        case Operation::Read:
+            return "read";
+        case Operation::Save:
+            return "save";
+        case Operation::Reset:
+            return "reset";
+        case Operation::SyncDirectory:
+            return "publish-sync-directory";
+    }
+    return "unknown";
+}
+
 struct Request {
     Operation operation = Operation::Read;
     uint64_t known_revision = 0;
     uint64_t expected_revision = 0;
+    trace::Context trace;
     std::optional<SaveRequest> save;
     std::optional<SyncDirectoryRequest>
         sync_directory;
@@ -287,9 +365,44 @@ HRESULT EncodeInput(
     return result;
 }
 
+uint64_t RequestRevision(
+    const Request& request) noexcept {
+    switch (request.operation) {
+        case Operation::Read:
+            return request.known_revision;
+        case Operation::Reset:
+            return request
+                .expected_revision;
+        case Operation::Save:
+            return request.save
+                ? request.save
+                      ->expected_revision
+                : 0;
+        case Operation::SyncDirectory:
+            return request
+                    .sync_directory
+                ? request.sync_directory
+                      ->expected_revision
+                : 0;
+    }
+    return 0;
+}
+
 HRESULT ExecuteAsync(
     const Request& request,
     Snapshot& output) noexcept {
+    trace::Result trace_result;
+    trace::OperationSpan operation(
+        "ConfigClient",
+        OperationName(request.operation),
+        trace::Endpoint::Client,
+        RequestRevision(request),
+        request.trace,
+        trace_result);
+    if (!operation.Valid()) {
+        return operation.Finish(
+            E_INVALIDARG);
+    }
     ComPtr<AsyncIQiQiConfigBroker> broker;
     ComPtr<ISynchronize> completion;
     HRESULT result =
@@ -297,14 +410,16 @@ HRESULT ExecuteAsync(
             broker,
             completion);
     if (FAILED(result)) {
-        return result;
+        return operation.Finish(
+            result);
     }
     std::vector<uint8_t> input;
     result = EncodeInput(
         request,
         input);
     if (FAILED(result)) {
-        return result;
+        return operation.Finish(
+            result);
     }
 
     ULONG raw_size = 0;
@@ -312,6 +427,7 @@ HRESULT ExecuteAsync(
         case Operation::Read:
             result = broker->Begin_Read(
                 request.known_revision,
+                &operation.GetContext(),
                 &raw_size);
             break;
         case Operation::Save:
@@ -319,11 +435,13 @@ HRESULT ExecuteAsync(
                 gsl::narrow_cast<ULONG>(
                     input.size()),
                 input.data(),
+                &operation.GetContext(),
                 &raw_size);
             break;
         case Operation::Reset:
             result = broker->Begin_Reset(
                 request.expected_revision,
+                &operation.GetContext(),
                 &raw_size);
             break;
         case Operation::SyncDirectory:
@@ -332,11 +450,13 @@ HRESULT ExecuteAsync(
                     gsl::narrow_cast<ULONG>(
                         input.size()),
                     input.data(),
+                    &operation.GetContext(),
                     &raw_size);
             break;
     }
     if (FAILED(result)) {
-        return result;
+        return operation.Finish(
+            result);
     }
 
 #pragma warning(suppress : 26447) // ISynchronize reports wait failures through HRESULT.
@@ -344,7 +464,8 @@ HRESULT ExecuteAsync(
         0,
         INFINITE);
     if (FAILED(result)) {
-        return result;
+        return operation.Finish(
+            result);
     }
 
     byte* raw = nullptr;
@@ -353,33 +474,41 @@ HRESULT ExecuteAsync(
             result =
                 broker->Finish_Read(
                     &raw_size,
-                    &raw);
+                    &raw,
+                    &operation.GetResult());
             break;
         case Operation::Save:
             result =
                 broker->Finish_Save(
                     &raw_size,
-                    &raw);
+                    &raw,
+                    &operation.GetResult());
             break;
         case Operation::Reset:
             result =
                 broker->Finish_Reset(
                     &raw_size,
-                    &raw);
+                    &raw,
+                    &operation.GetResult());
             break;
         case Operation::SyncDirectory:
             result =
                 broker
                     ->Finish_PublishSyncDirectory(
                         &raw_size,
-                        &raw);
+                        &raw,
+                        &operation.GetResult());
             break;
     }
-    return DecodeAndCommit(
+    result = DecodeAndCommit(
         result,
         raw_size,
         raw,
+        operation.GetContext(),
+        operation.GetResult(),
         output);
+    return operation.Finish(
+        result);
 }
 
 void CALLBACK RunRequest(
@@ -445,11 +574,27 @@ bool SubmitAsync(
 
 template <typename Invoke>
 HRESULT ExecuteSync(
+    Operation operation_kind,
+    uint64_t revision,
+    const trace::Context& trace,
     Invoke&& invoke,
     Snapshot& output) noexcept {
+    trace::Result trace_result;
+    trace::OperationSpan operation(
+        "ConfigClient",
+        OperationName(operation_kind),
+        trace::Endpoint::Client,
+        revision,
+        trace,
+        trace_result);
+    if (!operation.Valid()) {
+        return operation.Finish(
+            E_INVALIDARG);
+    }
     const ScopedCom com;
     if (FAILED(com.Result())) {
-        return com.Result();
+        return operation.Finish(
+            com.Result());
     }
     ComPtr<IQiQiConfigBroker> broker;
     const HRESULT create_result =
@@ -460,26 +605,34 @@ HRESULT ExecuteSync(
             IID_PPV_ARGS(&broker));
     if (FAILED(create_result) ||
         !broker) {
-        return FAILED(create_result)
-            ? create_result
-            : E_UNEXPECTED;
+        return operation.Finish(
+            FAILED(create_result)
+                ? create_result
+                : E_UNEXPECTED);
     }
     HRESULT result =
         SetProxySecurity(broker.Get());
     if (FAILED(result)) {
-        return result;
+        return operation.Finish(
+            result);
     }
     ULONG raw_size = 0;
     byte* raw = nullptr;
     result = invoke(
         broker.Get(),
         raw_size,
-        raw);
-    return DecodeAndCommit(
+        raw,
+        operation.GetContext(),
+        operation.GetResult());
+    result = DecodeAndCommit(
         result,
         raw_size,
         raw,
+        operation.GetContext(),
+        operation.GetResult(),
         output);
+    return operation.Finish(
+        result);
 }
 
 } // namespace
@@ -533,26 +686,51 @@ HRESULT CopyCachedSnapshot(
 
 HRESULT ReadSnapshot(
     Snapshot& output) noexcept {
+    return ReadSnapshot(
+        trace::CreateContext(),
+        output);
+}
+
+HRESULT ReadSnapshot(
+    const trace::Context& trace,
+    Snapshot& output) noexcept {
     const uint64_t revision =
         CachedRevision();
     return ExecuteSync(
+        Operation::Read,
+        revision,
+        trace,
         [revision](
             IQiQiConfigBroker* broker,
             ULONG& raw_size,
-            byte*& raw) {
+            byte*& raw,
+            trace::Context& call_trace,
+            trace::Result& trace_result) {
             if (!broker) {
                 return E_POINTER;
             }
             return broker->Read(
                 revision,
+                &call_trace,
                 &raw_size,
-                &raw);
+                &raw,
+                &trace_result);
         },
         output);
 }
 
 HRESULT SaveSnapshot(
     const SaveRequest& request,
+    Snapshot& output) noexcept {
+    return SaveSnapshot(
+        request,
+        trace::CreateContext(),
+        output);
+}
+
+HRESULT SaveSnapshot(
+    const SaveRequest& request,
+    const trace::Context& trace,
     Snapshot& output) noexcept {
     std::vector<uint8_t> bytes;
     const HRESULT result =
@@ -563,10 +741,15 @@ HRESULT SaveSnapshot(
         return result;
     }
     return ExecuteSync(
+        Operation::Save,
+        request.expected_revision,
+        trace,
         [bytes = std::move(bytes)](
             IQiQiConfigBroker* broker,
             ULONG& raw_size,
-            byte*& raw) mutable {
+            byte*& raw,
+            trace::Context& call_trace,
+            trace::Result& trace_result) mutable {
             if (!broker) {
                 return E_POINTER;
             }
@@ -574,8 +757,10 @@ HRESULT SaveSnapshot(
                 gsl::narrow_cast<ULONG>(
                     bytes.size()),
                 bytes.data(),
+                &call_trace,
                 &raw_size,
-                &raw);
+                &raw,
+                &trace_result);
         },
         output);
 }
@@ -583,24 +768,51 @@ HRESULT SaveSnapshot(
 HRESULT ResetSnapshot(
     uint64_t expected_revision,
     Snapshot& output) noexcept {
+    return ResetSnapshot(
+        expected_revision,
+        trace::CreateContext(),
+        output);
+}
+
+HRESULT ResetSnapshot(
+    uint64_t expected_revision,
+    const trace::Context& trace,
+    Snapshot& output) noexcept {
     return ExecuteSync(
+        Operation::Reset,
+        expected_revision,
+        trace,
         [expected_revision](
             IQiQiConfigBroker* broker,
             ULONG& raw_size,
-            byte*& raw) {
+            byte*& raw,
+            trace::Context& call_trace,
+            trace::Result& trace_result) {
             if (!broker) {
                 return E_POINTER;
             }
             return broker->Reset(
                 expected_revision,
+                &call_trace,
                 &raw_size,
-                &raw);
+                &raw,
+                &trace_result);
         },
         output);
 }
 
 HRESULT PublishSyncDirectory(
     const SyncDirectoryRequest& request,
+    Snapshot& output) noexcept {
+    return PublishSyncDirectory(
+        request,
+        trace::CreateContext(),
+        output);
+}
+
+HRESULT PublishSyncDirectory(
+    const SyncDirectoryRequest& request,
+    const trace::Context& trace,
     Snapshot& output) noexcept {
     std::vector<uint8_t> bytes;
     const HRESULT result =
@@ -611,10 +823,15 @@ HRESULT PublishSyncDirectory(
         return result;
     }
     return ExecuteSync(
+        Operation::SyncDirectory,
+        request.expected_revision,
+        trace,
         [bytes = std::move(bytes)](
             IQiQiConfigBroker* broker,
             ULONG& raw_size,
-            byte*& raw) mutable {
+            byte*& raw,
+            trace::Context& call_trace,
+            trace::Result& trace_result) mutable {
             if (!broker) {
                 return E_POINTER;
             }
@@ -623,18 +840,29 @@ HRESULT PublishSyncDirectory(
                     gsl::narrow_cast<ULONG>(
                         bytes.size()),
                     bytes.data(),
+                    &call_trace,
                     &raw_size,
-                    &raw);
+                    &raw,
+                    &trace_result);
         },
         output);
 }
 
 bool ReadSnapshotAsync(
     AsyncCompletion completion) noexcept {
+    return ReadSnapshotAsync(
+        trace::CreateContext(),
+        std::move(completion));
+}
+
+bool ReadSnapshotAsync(
+    const trace::Context& trace,
+    AsyncCompletion completion) noexcept {
     return SubmitAsync(Request{
         .operation = Operation::Read,
         .known_revision =
             CachedRevision(),
+        .trace = trace,
         .completion =
             std::move(completion),
     });
@@ -643,8 +871,19 @@ bool ReadSnapshotAsync(
 bool SaveSnapshotAsync(
     SaveRequest request,
     AsyncCompletion completion) noexcept {
+    return SaveSnapshotAsync(
+        std::move(request),
+        trace::CreateContext(),
+        std::move(completion));
+}
+
+bool SaveSnapshotAsync(
+    SaveRequest request,
+    const trace::Context& trace,
+    AsyncCompletion completion) noexcept {
     return SubmitAsync(Request{
         .operation = Operation::Save,
+        .trace = trace,
         .save = std::move(request),
         .completion =
             std::move(completion),
@@ -654,10 +893,21 @@ bool SaveSnapshotAsync(
 bool ResetSnapshotAsync(
     uint64_t expected_revision,
     AsyncCompletion completion) noexcept {
+    return ResetSnapshotAsync(
+        expected_revision,
+        trace::CreateContext(),
+        std::move(completion));
+}
+
+bool ResetSnapshotAsync(
+    uint64_t expected_revision,
+    const trace::Context& trace,
+    AsyncCompletion completion) noexcept {
     return SubmitAsync(Request{
         .operation = Operation::Reset,
         .expected_revision =
             expected_revision,
+        .trace = trace,
         .completion =
             std::move(completion),
     });
@@ -666,9 +916,20 @@ bool ResetSnapshotAsync(
 bool PublishSyncDirectoryAsync(
     SyncDirectoryRequest request,
     AsyncCompletion completion) noexcept {
+    return PublishSyncDirectoryAsync(
+        std::move(request),
+        trace::CreateContext(),
+        std::move(completion));
+}
+
+bool PublishSyncDirectoryAsync(
+    SyncDirectoryRequest request,
+    const trace::Context& trace,
+    AsyncCompletion completion) noexcept {
     return SubmitAsync(Request{
         .operation =
             Operation::SyncDirectory,
+        .trace = trace,
         .sync_directory =
             std::move(request),
         .completion =

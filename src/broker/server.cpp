@@ -77,55 +77,94 @@ public:
 
     STDMETHODIMP Read(
         ULONGLONG known_revision,
+        QIQI_CONFIG_TRACE_CONTEXT*
+            trace_context,
         ULONG* snapshot_size,
-        byte** snapshot) noexcept override {
+        byte** snapshot,
+        QIQI_CONFIG_TRACE_RESULT*
+            trace_result) noexcept override {
         if (!snapshot_size ||
-            !snapshot) {
+            !snapshot ||
+            !trace_context ||
+            !trace_result) {
             return E_POINTER;
         }
         *snapshot_size = 0;
         *snapshot = nullptr;
-        HRESULT result =
-            ValidateCaller();
-        if (FAILED(result)) {
-            return result;
+        trace::OperationSpan operation(
+            "ConfigBroker",
+            "read",
+            trace::Endpoint::Broker,
+            known_revision,
+            *trace_context,
+            *trace_result);
+        if (!operation.Valid()) {
+            return operation.Finish(
+                E_INVALIDARG);
         }
+        HRESULT result =
+            ValidateCaller(operation);
+        if (FAILED(result)) {
+            return operation.Finish(
+                result);
+        }
+        operation.GetResult().revision =
+            known_revision;
         std::vector<uint8_t> payload;
         result = runtime_.Read(
             known_revision,
-            payload);
-        LogResult(
-            "read",
-            result,
-            known_revision);
+            payload,
+            operation.GetResult());
         if (result == S_FALSE) {
-            return result;
+            return operation.Finish(
+                result);
         }
-        return SUCCEEDED(result)
-            ? config::AllocateRpcBuffer(
-                  payload,
-                  *snapshot_size,
-                  *snapshot)
-            : result;
+        if (SUCCEEDED(result)) {
+            result =
+                config::AllocateRpcBuffer(
+                    payload,
+                    *snapshot_size,
+                    *snapshot);
+        }
+        return operation.Finish(
+            result);
     }
 
     STDMETHODIMP Save(
         ULONG request_size,
         byte* request,
+        QIQI_CONFIG_TRACE_CONTEXT*
+            trace_context,
         ULONG* snapshot_size,
-        byte** snapshot) noexcept override {
+        byte** snapshot,
+        QIQI_CONFIG_TRACE_RESULT*
+            trace_result) noexcept override {
         if (!snapshot_size ||
-            !snapshot) {
+            !snapshot ||
+            !trace_context ||
+            !trace_result) {
             return E_POINTER;
         }
         *snapshot_size = 0;
         *snapshot = nullptr;
-        HRESULT result =
-            ValidateCaller();
-        if (FAILED(result)) {
-            return result;
-        }
         config::SaveRequest decoded;
+        trace::OperationSpan operation(
+            "ConfigBroker",
+            "save",
+            trace::Endpoint::Broker,
+            decoded.expected_revision,
+            *trace_context,
+            *trace_result);
+        if (!operation.Valid()) {
+            return operation.Finish(
+                E_INVALIDARG);
+        }
+        HRESULT result =
+            ValidateCaller(operation);
+        if (FAILED(result)) {
+            return operation.Finish(
+                result);
+        }
         std::vector<uint8_t> bytes;
         result = config::ReadRpcBuffer(
             request_size,
@@ -136,72 +175,117 @@ public:
                 bytes,
                 decoded);
         }
+        if (SUCCEEDED(result)) {
+            operation.GetResult().revision =
+                decoded.expected_revision;
+        }
         std::vector<uint8_t> payload;
         if (SUCCEEDED(result)) {
             result = runtime_.Save(
                 decoded,
-                payload);
+                operation.GetContext(),
+                payload,
+                operation.GetResult());
         }
-        LogResult(
-            "save",
-            result,
-            decoded.expected_revision);
-        return SUCCEEDED(result)
-            ? config::AllocateRpcBuffer(
-                  payload,
-                  *snapshot_size,
-                  *snapshot)
-            : result;
+        if (SUCCEEDED(result)) {
+            result =
+                config::AllocateRpcBuffer(
+                    payload,
+                    *snapshot_size,
+                    *snapshot);
+        }
+        return operation.Finish(
+            result);
     }
 
     STDMETHODIMP Reset(
         ULONGLONG expected_revision,
+        QIQI_CONFIG_TRACE_CONTEXT*
+            trace_context,
         ULONG* snapshot_size,
-        byte** snapshot) noexcept override {
+        byte** snapshot,
+        QIQI_CONFIG_TRACE_RESULT*
+            trace_result) noexcept override {
         if (!snapshot_size ||
-            !snapshot) {
+            !snapshot ||
+            !trace_context ||
+            !trace_result) {
             return E_POINTER;
         }
         *snapshot_size = 0;
         *snapshot = nullptr;
-        HRESULT result =
-            ValidateCaller();
-        if (FAILED(result)) {
-            return result;
+        trace::OperationSpan operation(
+            "ConfigBroker",
+            "reset",
+            trace::Endpoint::Broker,
+            expected_revision,
+            *trace_context,
+            *trace_result);
+        if (!operation.Valid()) {
+            return operation.Finish(
+                E_INVALIDARG);
         }
+        HRESULT result =
+            ValidateCaller(operation);
+        if (FAILED(result)) {
+            return operation.Finish(
+                result);
+        }
+        operation.GetResult().revision =
+            expected_revision;
         std::vector<uint8_t> payload;
         result = runtime_.Reset(
             expected_revision,
-            payload);
-        LogResult(
-            "reset",
-            result,
-            expected_revision);
-        return SUCCEEDED(result)
-            ? config::AllocateRpcBuffer(
-                  payload,
-                  *snapshot_size,
-                  *snapshot)
-            : result;
+            operation.GetContext(),
+            payload,
+            operation.GetResult());
+        if (SUCCEEDED(result)) {
+            result =
+                config::AllocateRpcBuffer(
+                    payload,
+                    *snapshot_size,
+                    *snapshot);
+        }
+        return operation.Finish(
+            result);
     }
 
     STDMETHODIMP PublishSyncDirectory(
         ULONG request_size,
         byte* request,
+        QIQI_CONFIG_TRACE_CONTEXT*
+            trace_context,
         ULONG* snapshot_size,
-        byte** snapshot) noexcept override {
+        byte** snapshot,
+        QIQI_CONFIG_TRACE_RESULT*
+            trace_result) noexcept override {
         if (!snapshot_size ||
-            !snapshot) {
+            !snapshot ||
+            !trace_context ||
+            !trace_result) {
             return E_POINTER;
         }
         *snapshot_size = 0;
         *snapshot = nullptr;
-        HRESULT result =
-            ValidateCaller();
-        if (FAILED(result)) {
-            return result;
+        config::SyncDirectoryRequest
+            decoded;
+        trace::OperationSpan operation(
+            "ConfigBroker",
+            "publish-sync-directory",
+            trace::Endpoint::Broker,
+            decoded.expected_revision,
+            *trace_context,
+            *trace_result);
+        if (!operation.Valid()) {
+            return operation.Finish(
+                E_INVALIDARG);
         }
-        config::SyncDirectoryRequest decoded;
+        HRESULT result =
+            ValidateCaller(operation);
+        if (FAILED(result)) {
+            return operation.Finish(
+                result);
+        }
         std::vector<uint8_t> bytes;
         result = config::ReadRpcBuffer(
             request_size,
@@ -213,59 +297,57 @@ public:
                     bytes,
                     decoded);
         }
+        if (SUCCEEDED(result)) {
+            operation.GetResult().revision =
+                decoded.expected_revision;
+        }
         std::vector<uint8_t> payload;
         if (SUCCEEDED(result)) {
             result =
                 runtime_.PublishSyncDirectory(
                     decoded,
-                    payload);
+                    operation.GetContext(),
+                    payload,
+                    operation.GetResult());
         }
-        LogResult(
-            "publish-sync-directory",
-            result,
-            decoded.expected_revision);
-        return SUCCEEDED(result)
-            ? config::AllocateRpcBuffer(
-                  payload,
-                  *snapshot_size,
-                  *snapshot)
-            : result;
+        if (SUCCEEDED(result)) {
+            result =
+                config::AllocateRpcBuffer(
+                    payload,
+                    *snapshot_size,
+                    *snapshot);
+        }
+        return operation.Finish(
+            result);
     }
 
 private:
-    HRESULT ValidateCaller() const noexcept {
+    HRESULT ValidateCaller(
+        const trace::OperationSpan&
+            operation) const noexcept {
         const HRESULT result =
             runtime_.ValidateCaller();
         if (FAILED(result)) {
-            QIQI_LOG_CAT_WARN(
-                log::Keyword::Config,
+            QIQI_LOG_CTX(
+                log::Level::warn,
+                (log::LogContext{
+                    log::Keyword::Config,
+                    log::Opcode::Info,
+                    &operation
+                         .GetResult()
+                         .broker_activity_id,
+                    &operation
+                         .GetContext()
+                         .caller_activity_id,
+                    &operation
+                         .GetContext()
+                         .trace_id}),
                 "ConfigBroker rejected caller "
                 "(hr=0x{:08X})",
                 gsl::narrow_cast<unsigned long>(
                     result));
         }
         return result;
-    }
-
-    static void LogResult(
-        std::string_view operation,
-        HRESULT result,
-        uint64_t revision) noexcept {
-        const auto level =
-            FAILED(result) &&
-                    result != S_FALSE
-                ? log::Level::err
-                : log::Level::debug;
-        QIQI_LOG_CTX(
-            level,
-            (log::LogContext{
-                log::Keyword::Config}),
-            "ConfigBroker operation={} "
-            "hr=0x{:08X} revision={}",
-            operation,
-            gsl::narrow_cast<unsigned long>(
-                result),
-            revision);
     }
 
     Runtime& runtime_;

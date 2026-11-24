@@ -26,16 +26,45 @@ public:
         uint64_t expected_revision,
         const QiQiConfig& value,
         config::Snapshot& output) noexcept;
+    HRESULT Save(
+        uint64_t expected_revision,
+        const QiQiConfig& value,
+        const trace::Context& trace,
+        const GUID& broker_activity_id,
+        config::Snapshot& output) noexcept;
     HRESULT Reset(
         uint64_t expected_revision,
+        config::Snapshot& output) noexcept;
+    HRESULT Reset(
+        uint64_t expected_revision,
+        const trace::Context& trace,
+        const GUID& broker_activity_id,
         config::Snapshot& output) noexcept;
     HRESULT PublishSyncDirectory(
         uint64_t expected_revision,
         const std::filesystem::path& directory,
         config::Snapshot& output) noexcept;
+    HRESULT PublishSyncDirectory(
+        uint64_t expected_revision,
+        const std::filesystem::path& directory,
+        const trace::Context& trace,
+        const GUID& broker_activity_id,
+        config::Snapshot& output) noexcept;
 
 private:
     HRESULT ReadLocked(
+        config::Snapshot& output);
+    HRESULT SaveLocked(
+        uint64_t expected_revision,
+        const QiQiConfig& value,
+        const trace::Context* trace,
+        const GUID* broker_activity_id,
+        config::Snapshot& output);
+    HRESULT PublishSyncDirectoryLocked(
+        uint64_t expected_revision,
+        const std::filesystem::path& directory,
+        const trace::Context* trace,
+        const GUID* broker_activity_id,
         config::Snapshot& output);
 
     std::wstring subkey_;

@@ -81,8 +81,8 @@ const wchar_t* MonitorWindow::Impl::CommandText(ControlId id) const noexcept {
     case MetricsView: return Text(L"指标视图", L"Metrics view");
     case About: return Text(L"关于...", L"About...");
     case SelectAll: return Text(L"全选", L"Select All");
-    case FilterActivity: return Text(L"按当前活动关联筛选", L"Filter by selected activity");
-    case ClearActivity: return Text(L"清除活动关联筛选", L"Clear activity filter");
+    case FilterActivity: return Text(L"按当前 Trace/活动筛选", L"Filter by selected trace/activity");
+    case ClearActivity: return Text(L"清除 Trace/活动筛选", L"Clear trace/activity filter");
     case LanguageAuto: return GetUiStrings(ui_language).dlg_lang_auto;
     case LanguageZh: return GetUiStrings(ui_language).dlg_lang_zh;
     case LanguageEn: return GetUiStrings(ui_language).dlg_lang_en;
@@ -116,9 +116,26 @@ ToolCommand MonitorWindow::Impl::UiCommand(ControlId id) const noexcept {
     case SelectAll: enabled = !metrics_view; break;
     case Copy: enabled = !metrics_view || metric_selected.has_value(); break;
     case FilterActivity:
-        enabled = metrics_view ? SelectedMetricActivity() != GUID_NULL : selected_event && selected_event->activity_id != GUID_NULL;
+        enabled =
+            metrics_view
+                ? SelectedMetricActivity() !=
+                    GUID_NULL
+                : selected_event &&
+                    (selected_event
+                         ->activity_id !=
+                         GUID_NULL ||
+                     selected_event
+                         ->trace_id !=
+                         GUID_NULL);
         break;
-    case ClearActivity: enabled = !metrics_view && filter.activity_id.has_value(); break;
+    case ClearActivity:
+        enabled =
+            !metrics_view &&
+            (filter.activity_id
+                 .has_value() ||
+             filter.trace_id
+                 .has_value());
+        break;
     default: break;
     }
     const bool radio = id == Source || id == DiagnosticsView || id == MetricsView;
@@ -151,8 +168,19 @@ void MonitorWindow::Impl::UpdateCommands() {
 void MonitorWindow::Impl::RefreshCommandState() {
     const auto* event = FirstSelectedEvent();
     const std::array state{collector.Running(), paused, diagnostic_view,
-        metrics_view ? SelectedMetricActivity() != GUID_NULL : event && event->activity_id != GUID_NULL,
-        filter.activity_id.has_value(), collector.CollectingMetrics(), metrics_view, metric_selected.has_value()};
+        metrics_view
+            ? SelectedMetricActivity() !=
+                GUID_NULL
+            : event &&
+                (event->activity_id !=
+                     GUID_NULL ||
+                 event->trace_id !=
+                     GUID_NULL),
+        filter.activity_id.has_value() ||
+            filter.trace_id.has_value(),
+        collector.CollectingMetrics(),
+        metrics_view,
+        metric_selected.has_value()};
     if (command_state == state) return;
     for (const auto id : {Start, Pause, Source, DiagnosticsView, FilterActivity, ClearActivity, MetricsView, Export, Clear, SelectAll, Copy})
         command_ui.UpdateCommand(hwnd, UiCommand(id));

@@ -155,7 +155,9 @@ HRESULT ReadTokenIdentity(
 HRESULT PublishSnapshot(
     config::Snapshot& snapshot,
     bool notify,
-    std::vector<uint8_t>& payload) noexcept {
+    const trace::Context& trace,
+    std::vector<uint8_t>& payload,
+    trace::Result& trace_result) noexcept {
     snapshot.notification_result = S_OK;
     if (notify) {
         snapshot.notification_result =
@@ -163,18 +165,42 @@ HRESULT PublishSnapshot(
                 kGuidCompartmentConfigVersion);
         if (FAILED(
                 snapshot.notification_result)) {
-            QIQI_LOG_CAT_WARN(
-                log::Keyword::Config,
+            QIQI_LOG_CTX(
+                log::Level::warn,
+                (log::LogContext{
+                    log::Keyword::Config,
+                    log::Opcode::Info,
+                    &trace_result
+                         .broker_activity_id,
+                    &trace
+                         .caller_activity_id,
+                    &trace.trace_id}),
                 "TSF notification failed "
                 "(hr=0x{:08X})",
                 gsl::narrow_cast<unsigned long>(
                     snapshot.notification_result));
         } else {
-            QIQI_LOG_CAT_DEBUG(
-                log::Keyword::Config,
+            QIQI_LOG_CTX(
+                log::Level::debug,
+                (log::LogContext{
+                    log::Keyword::Config,
+                    log::Opcode::Info,
+                    &trace_result
+                         .broker_activity_id,
+                    &trace
+                         .caller_activity_id,
+                    &trace.trace_id}),
                 "TSF notification published");
         }
     }
+    trace_result.commit_trace_id =
+        snapshot.commit_trace_id;
+    trace_result.commit_activity_id =
+        snapshot.commit_activity_id;
+    trace_result.commit_revision =
+        snapshot.commit_revision;
+    trace_result.revision =
+        snapshot.revision;
     return config::EncodeSnapshot(
         snapshot,
         payload);
@@ -247,12 +273,21 @@ HRESULT Runtime::ValidateCaller() const noexcept {
 
 HRESULT Runtime::Read(
     uint64_t known_revision,
-    std::vector<uint8_t>& payload) noexcept {
+    std::vector<uint8_t>& payload,
+    trace::Result& trace_result) noexcept {
     config::Snapshot snapshot;
     const HRESULT result = store_.Read(snapshot);
     if (FAILED(result)) {
         return result;
     }
+    trace_result.commit_trace_id =
+        snapshot.commit_trace_id;
+    trace_result.commit_activity_id =
+        snapshot.commit_activity_id;
+    trace_result.commit_revision =
+        snapshot.commit_revision;
+    trace_result.revision =
+        snapshot.revision;
     Touch();
     if (known_revision ==
         snapshot.revision) {
@@ -262,16 +297,23 @@ HRESULT Runtime::Read(
     return PublishSnapshot(
         snapshot,
         false,
-        payload);
+        trace::Context{},
+        payload,
+        trace_result);
 }
 
 HRESULT Runtime::Save(
     const config::SaveRequest& request,
-    std::vector<uint8_t>& payload) noexcept {
+    const trace::Context& trace,
+    std::vector<uint8_t>& payload,
+    trace::Result& trace_result) noexcept {
     config::Snapshot snapshot;
     const HRESULT result = store_.Save(
         request.expected_revision,
         request.value,
+        trace,
+        trace_result
+            .broker_activity_id,
         snapshot);
     if (FAILED(result)) {
         return result;
@@ -280,15 +322,22 @@ HRESULT Runtime::Save(
     return PublishSnapshot(
         snapshot,
         true,
-        payload);
+        trace,
+        payload,
+        trace_result);
 }
 
 HRESULT Runtime::Reset(
     uint64_t expected_revision,
-    std::vector<uint8_t>& payload) noexcept {
+    const trace::Context& trace,
+    std::vector<uint8_t>& payload,
+    trace::Result& trace_result) noexcept {
     config::Snapshot snapshot;
     const HRESULT result = store_.Reset(
         expected_revision,
+        trace,
+        trace_result
+            .broker_activity_id,
         snapshot);
     if (FAILED(result)) {
         return result;
@@ -297,17 +346,24 @@ HRESULT Runtime::Reset(
     return PublishSnapshot(
         snapshot,
         true,
-        payload);
+        trace,
+        payload,
+        trace_result);
 }
 
 HRESULT Runtime::PublishSyncDirectory(
     const config::SyncDirectoryRequest& request,
-    std::vector<uint8_t>& payload) noexcept {
+    const trace::Context& trace,
+    std::vector<uint8_t>& payload,
+    trace::Result& trace_result) noexcept {
     config::Snapshot snapshot;
     const HRESULT result =
         store_.PublishSyncDirectory(
             request.expected_revision,
             request.directory,
+            trace,
+            trace_result
+                .broker_activity_id,
             snapshot);
     if (FAILED(result)) {
         return result;
@@ -317,7 +373,9 @@ HRESULT Runtime::PublishSyncDirectory(
         snapshot,
         snapshot.revision !=
             request.expected_revision,
-        payload);
+        trace,
+        payload,
+        trace_result);
 }
 
 void Runtime::AddObject() noexcept {

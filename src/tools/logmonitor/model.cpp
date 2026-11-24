@@ -56,10 +56,15 @@ bool Filter::Matches(const Event& event) const noexcept {
     const bool activity_ok = !activity_id.has_value() ||
                              ( *activity_id != GUID_NULL &&
                                (event.activity_id == *activity_id || event.related_activity_id == *activity_id) );
+    const bool trace_ok =
+        !trace_id.has_value() ||
+        (*trace_id != GUID_NULL &&
+         event.trace_id == *trace_id);
     return (!pid || event.pid == *pid) &&
            (!level || event.level == level) &&
            (!keyword || (effective_kw & keyword) != 0) &&
            activity_ok &&
+           trace_ok &&
            (process.empty() || Contains(event.process, process)) &&
            (text.empty() || Contains(event.message, text));
 }
@@ -193,6 +198,14 @@ std::wstring FormatEventEntry(const Event& event, std::wstring_view level_text) 
         if (event.related_activity_id != GUID_NULL) {
             activity_meta += std::format(L" Related={}", FormatGuid(event.related_activity_id));
         }
+        if (event.trace_id != GUID_NULL) {
+            activity_meta += std::format(L" Trace={}", FormatGuid(event.trace_id));
+        }
+    } else if (event.trace_id != GUID_NULL) {
+        activity_meta =
+            std::format(
+                L" | Trace={}",
+                FormatGuid(event.trace_id));
     }
     auto text = std::format(L"{} | {} | PID={} TID={} | {} | {}:{} | {}{}\r\n{}",
         FormatTime(event.time), event.process, event.pid, event.tid,
@@ -209,10 +222,10 @@ std::wstring FormatEventsForClipboard(std::span<const Event> events) {
         const auto& event = gsl::at(events, i);
         auto message = event.message;
         std::replace(message.begin(), message.end(), L'\0', L'\x2400');
-        result += std::format(L"{}\t{}\tPID={}\tTID={}\t{}\t{}\t{}\t{}\t{}\t{}",
+        result += std::format(L"{}\t{}\tPID={}\tTID={}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             FormatTime(event.time), event.process, event.pid, event.tid,
             LevelName(event.level), log::KeywordNameW(event.keyword), log::OpcodeNameW(event.opcode),
-            FormatGuid(event.activity_id), event.name, message);
+            FormatGuid(event.trace_id), FormatGuid(event.activity_id), event.name, message);
     }
     return result;
 }
@@ -220,13 +233,14 @@ std::wstring FormatEventsForClipboard(std::span<const Event> events) {
 std::string ExportEvents(const std::vector<Event>& events, std::wstring_view source) {
     std::string result = std::format("# QiQiIME Log Monitor {} ({})\r\n# Source: {}\r\n",
         version::kFullVersion, version::kArch, Escape(source));
-    result += "TimeUTC\tProcess\tPID\tTID\tLevel\tCategory\tOpcode\tActivityId\tRelatedActivityId\tEvent\tMessage\r\n";
+    result += "TimeUTC\tProcess\tPID\tTID\tLevel\tCategory\tOpcode\tTraceId\tActivityId\tRelatedActivityId\tEvent\tMessage\r\n";
     for (const auto& event : events) {
-        result += std::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\r\n",
+        result += std::format("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\r\n",
             Escape(FormatTime(event.time)),
             Escape(event.process), event.pid, event.tid, Escape(LevelName(event.level)),
             Escape(log::KeywordNameW(event.keyword)), Escape(log::OpcodeNameW(event.opcode)),
-            Escape(FormatGuid(event.activity_id)), Escape(FormatGuid(event.related_activity_id)),
+            Escape(FormatGuid(event.trace_id)), Escape(FormatGuid(event.activity_id)),
+            Escape(FormatGuid(event.related_activity_id)),
             Escape(event.name), Escape(event.message));
     }
     return result;

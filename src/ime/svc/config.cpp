@@ -906,8 +906,13 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
 }
 
 bool QiQiTextService::PersistAndSyncQuickConfigChange(QiQiConfig updated_config, bool reload_dicts) {
+    const trace::Context config_trace =
+        trace::CreateContext(
+            &current_lifecycle_activity_);
     const HRESULT save_result =
-        SaveConfigResult(updated_config);
+        SaveConfigResult(
+            updated_config,
+            config_trace);
     if (FAILED(save_result)) {
         QIQI_LOG_ERROR(
             "Quick settings broker save "

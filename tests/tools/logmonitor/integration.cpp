@@ -80,10 +80,17 @@ int Integration(const wchar_t* peer) try {
     const std::string marker = std::string("QiQi monitor exact UTF-8: \xe4\xbd\xa0\xe5\xa5\xbd\tline\nend") + std::string("\0tail\0", 6);
     const GUID parent_act = log::CreateActivityId();
     const GUID child_act = log::CreateActivityId();
+    const GUID trace_id =
+        log::CreateActivityId();
     log::WriteLogMessage(
         log::Level::info,
         marker,
-        log::LogContext{log::Keyword::Sync, log::Opcode::Start, &child_act, &parent_act});
+        log::LogContext{
+            log::Keyword::Sync,
+            log::Opcode::Start,
+            &child_act,
+            &parent_act,
+            &trace_id});
     QIQI_LOG_ACT_STOP(log::Level::debug, log::Keyword::Sync, &child_act, "monitor-session-verbose");
     diagnostics.Record(2, L"MONITOR_ONLY_SENTINEL", ERROR_INVALID_DATA);
     log::Shutdown();
@@ -140,6 +147,8 @@ int Integration(const wchar_t* peer) try {
     QIQI_TEST_CHECK(own->keyword == std::to_underlying(log::Keyword::Sync));
     QIQI_TEST_CHECK(own->opcode == std::to_underlying(log::Opcode::Start));
     QIQI_TEST_CHECK(own->activity_id == child_act && own->related_activity_id == parent_act);
+    QIQI_TEST_CHECK(
+        own->trace_id == trace_id);
     QIQI_TEST_CHECK(own->name == L"QiQiLogInfo");
     QIQI_TEST_CHECK(own->time <= MakeEvent().time && MakeEvent().time - own->time < 60ULL * 10'000'000);
     QIQI_TEST_CHECK(std::any_of(received.begin(), received.end(), [&](const Event& event) {

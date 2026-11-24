@@ -89,10 +89,12 @@ void TestBuffersAndFilters() {
     auto event = MakeEvent(L"Case sensitive? no.\tline\nnext");
     const GUID parent_act{0x12345678, 0x9abc, 0xdef0, {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}};
     const GUID child_act{0x87654321, 0x9abc, 0xdef0, {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}};
+    const GUID trace_id{0xaabbccdd, 0x9abc, 0xdef0, {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}};
     event.keyword = std::to_underlying(log::Keyword::Composition);
     event.opcode = std::to_underlying(log::Opcode::Start);
     event.activity_id = child_act;
     event.related_activity_id = parent_act;
+    event.trace_id = trace_id;
     QIQI_TEST_CHECK(FormatShortGuid(GUID_NULL).empty() && FormatGuid(GUID_NULL).empty());
     QIQI_TEST_CHECK(FormatShortGuid(parent_act) == L"12345678");
     QIQI_TEST_CHECK(FormatGuid(parent_act) == L"{12345678-9abc-def0-1122-334455667788}");
@@ -114,6 +116,12 @@ void TestBuffersAndFilters() {
     QIQI_TEST_CHECK(filter.Matches(event));
     filter.activity_id = child_act; // Matches via activity_id!
     QIQI_TEST_CHECK(filter.Matches(event));
+    filter.activity_id.reset();
+    filter.trace_id = trace_id;
+    QIQI_TEST_CHECK(filter.Matches(event));
+    filter.trace_id = child_act;
+    QIQI_TEST_CHECK(!filter.Matches(event));
+    filter.trace_id.reset();
     filter.activity_id = GUID_NULL;
     QIQI_TEST_CHECK(!filter.Matches(event));
     filter.activity_id.reset();
@@ -130,21 +138,24 @@ void TestBuffersAndFilters() {
     const auto exported = ExportEvents({event}, L"test");
     QIQI_TEST_CHECK(exported.contains(version::kFullVersion) && exported.contains(version::kArch));
     QIQI_TEST_CHECK(exported.contains("\\tline\\nnext") &&
-                    exported.contains("PID\tTID\tLevel\tCategory\tOpcode\tActivityId\tRelatedActivityId") &&
-                    exported.contains("Composition\tStart\t{87654321-9abc-def0-1122-334455667788}\t{12345678-9abc-def0-1122-334455667788}"));
+                    exported.contains("PID\tTID\tLevel\tCategory\tOpcode\tTraceId\tActivityId\tRelatedActivityId") &&
+                    exported.contains("Composition\tStart\t{aabbccdd-9abc-def0-1122-334455667788}\t{87654321-9abc-def0-1122-334455667788}\t{12345678-9abc-def0-1122-334455667788}"));
     const auto entry_details = FormatEventEntry(event, L"");
     QIQI_TEST_CHECK(entry_details.contains(L"Composition:Start") &&
                     entry_details.contains(L"Activity={87654321-9abc-def0-1122-334455667788}") &&
                     entry_details.contains(L"Related={12345678-9abc-def0-1122-334455667788}"));
+    QIQI_TEST_CHECK(
+        entry_details.contains(
+            L"Trace={aabbccdd-9abc-def0-1122-334455667788}"));
     QIQI_TEST_CHECK(FormatTime(event.time).ends_with(L"Z"));
     auto second_event = MakeEvent(std::wstring(L"multi\0nul", 9));
     second_event.level = 2;
     second_event.pid = 99;
     const auto formatted_clip = FormatEventsForClipboard(std::array{event, second_event});
     QIQI_TEST_CHECK(formatted_clip.contains(
-        L"PID=42\tTID=84\tInfo\tComposition\tStart\t{87654321-9abc-def0-1122-334455667788}\tQiQiLogInfo\tCase sensitive? no.\tline\nnext\r\n"));
+        L"PID=42\tTID=84\tInfo\tComposition\tStart\t{aabbccdd-9abc-def0-1122-334455667788}\t{87654321-9abc-def0-1122-334455667788}\tQiQiLogInfo\tCase sensitive? no.\tline\nnext\r\n"));
     QIQI_TEST_CHECK(formatted_clip.contains(
-        L"PID=99\tTID=84\tError\tGeneral\tInfo\t\tQiQiLogInfo\tmulti\x2400nul"));
+        L"PID=99\tTID=84\tError\tGeneral\tInfo\t\t\tQiQiLogInfo\tmulti\x2400nul"));
     QIQI_TEST_CHECK(CopyTextToClipboard(nullptr, std::wstring_view(L"clip\0test", 9)) == ERROR_SUCCESS);
     QIQI_TEST_CHECK(ReadClipboardText() == L"clip\x2400test");
     std::vector<Event> full_buffer;

@@ -13,6 +13,51 @@
 namespace qiqi::monitor {
 using enum ControlId;
 
+namespace {
+
+size_t TraceDepth(
+    const Event& event,
+    const EventBuffer& buffer) noexcept {
+    if (event.related_activity_id ==
+        GUID_NULL) {
+        return 0;
+    }
+    size_t depth = 0;
+    GUID parent =
+        event.related_activity_id;
+    uint64_t before = event.id;
+    const auto& events =
+        buffer.Events();
+    for (; depth < 8; ++depth) {
+        const auto found =
+            std::find_if(
+                events.rbegin(),
+                events.rend(),
+                [=](const Event& candidate) noexcept {
+                    return candidate.id !=
+                               before &&
+                        candidate
+                            .activity_id ==
+                            parent;
+                });
+        if (found == events.rend() ||
+            found
+                    ->related_activity_id ==
+                GUID_NULL) {
+            return found == events.rend()
+                ? depth
+                : depth + 1;
+        }
+        parent =
+            found
+                ->related_activity_id;
+        before = found->id;
+    }
+    return depth;
+}
+
+} // namespace
+
 void MonitorWindow::Impl::RefreshProcessChoices(bool force) {
     if (!force && (::SendMessageW(Child(Process), CB_GETDROPPEDSTATE, 0, 0) ||
                    ::SendMessageW(Child(Pid), CB_GETDROPPEDSTATE, 0, 0))) {
@@ -185,6 +230,17 @@ void MonitorWindow::Impl::UpdateStatus() {
     if (filter.activity_id.has_value()) {
         status = std::format(L"{}: {} | {}", Text(L"活动筛选", L"Activity filter"),
             FormatShortGuid(*filter.activity_id), status);
+    } else if (
+        filter.trace_id.has_value()) {
+        status =
+            std::format(
+                L"{}: {} | {}",
+                Text(
+                    L"Trace 筛选",
+                    L"Trace filter"),
+                FormatShortGuid(
+                    *filter.trace_id),
+                status);
     }
     if (!last_error.empty()) status = std::wstring(Text(L"错误: ", L"ERROR: ")) + last_error + L" | " + status;
     ::SetWindowTextW(Child(Status), status.c_str());
@@ -208,10 +264,25 @@ std::wstring MonitorWindow::Impl::Cell(const Event& event, int column) const {
         if (event.activity_id != GUID_NULL) {
             cell += std::format(L" [{}]", FormatShortGuid(event.activity_id));
         }
+        if (event.trace_id != GUID_NULL) {
+            cell += std::format(
+                L" T[{}]",
+                FormatShortGuid(
+                    event.trace_id));
+        }
         return cell;
     }
     default: {
-        std::wstring preview = event.message.substr(0, kMonitorPreviewChars);
+        std::wstring preview =
+            std::wstring(
+                TraceDepth(
+                    event,
+                    Current()) *
+                    2,
+                L' ') +
+            event.message.substr(
+                0,
+                kMonitorPreviewChars);
         std::replace(preview.begin(), preview.end(), L'\r', L' ');
         std::replace(preview.begin(), preview.end(), L'\n', L' ');
         std::replace(preview.begin(), preview.end(), L'\0', L'\x2400');

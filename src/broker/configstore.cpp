@@ -146,6 +146,23 @@ HRESULT ConfigStore::ReadLocked(
     if (FAILED(result)) {
         return result;
     }
+    result =
+        LoadConfigCommitTraceFromRegistry(
+            snapshot.commit_trace_id,
+            snapshot.commit_activity_id,
+            snapshot.commit_revision,
+            subkey);
+    if (FAILED(result) &&
+        result !=
+            HRESULT_FROM_WIN32(
+                ERROR_FILE_NOT_FOUND)) {
+        return result;
+    }
+    if (snapshot.commit_revision >
+        snapshot.revision) {
+        return HRESULT_FROM_WIN32(
+            ERROR_INVALID_DATA);
+    }
     output = std::move(snapshot);
     return S_OK;
 }
@@ -158,24 +175,65 @@ HRESULT ConfigStore::Save(
         mutex_,
         "save",
         [&]() -> HRESULT {
-            const wchar_t* const subkey =
-                OptionalSubkey(subkey_);
-            HRESULT result =
-                CheckExpectedRevision(
-                    expected_revision,
-                    subkey);
-            if (FAILED(result)) {
-                return result;
-            }
-            result =
-                SaveConfigToRegistryResult(
-                    value,
-                    subkey);
-            if (FAILED(result)) {
-                return result;
-            }
-            return ReadLocked(output);
+            return SaveLocked(
+                expected_revision,
+                value,
+                nullptr,
+                nullptr,
+                output);
         });
+}
+
+HRESULT ConfigStore::Save(
+    uint64_t expected_revision,
+    const QiQiConfig& value,
+    const trace::Context& trace,
+    const GUID& broker_activity_id,
+    config::Snapshot& output) noexcept {
+    if (!trace::IsValid(trace) ||
+        broker_activity_id == GUID_NULL) {
+        return E_INVALIDARG;
+    }
+    return Locked(
+        mutex_,
+        "save",
+        [&]() -> HRESULT {
+            return SaveLocked(
+                expected_revision,
+                value,
+                &trace,
+                &broker_activity_id,
+                output);
+        });
+}
+
+HRESULT ConfigStore::SaveLocked(
+    uint64_t expected_revision,
+    const QiQiConfig& value,
+    const trace::Context* trace,
+    const GUID* broker_activity_id,
+    config::Snapshot& output) {
+    const wchar_t* const subkey =
+        OptionalSubkey(subkey_);
+    HRESULT result =
+        CheckExpectedRevision(
+            expected_revision,
+            subkey);
+    if (FAILED(result)) {
+        return result;
+    }
+    result =
+        SaveConfigToRegistryResult(
+            value,
+            subkey,
+            trace
+                ? &trace->trace_id
+                : nullptr,
+            broker_activity_id);
+    if (FAILED(result)) {
+        return result;
+    }
+    return ReadLocked(output);
 }
 
 HRESULT ConfigStore::Reset(
@@ -187,6 +245,19 @@ HRESULT ConfigStore::Reset(
         output);
 }
 
+HRESULT ConfigStore::Reset(
+    uint64_t expected_revision,
+    const trace::Context& trace,
+    const GUID& broker_activity_id,
+    config::Snapshot& output) noexcept {
+    return Save(
+        expected_revision,
+        QiQiConfig{},
+        trace,
+        broker_activity_id,
+        output);
+}
+
 HRESULT ConfigStore::PublishSyncDirectory(
     uint64_t expected_revision,
     const std::filesystem::path& directory,
@@ -195,24 +266,67 @@ HRESULT ConfigStore::PublishSyncDirectory(
         mutex_,
         "publish-sync-directory",
         [&]() -> HRESULT {
-            const wchar_t* const subkey =
-                OptionalSubkey(subkey_);
-            HRESULT result =
-                CheckExpectedRevision(
-                    expected_revision,
-                    subkey);
-            if (FAILED(result)) {
-                return result;
-            }
-            result =
-                SaveUserDictSyncDirectoryToRegistry(
-                    directory,
-                    subkey);
-            if (FAILED(result)) {
-                return result;
-            }
-            return ReadLocked(output);
+            return PublishSyncDirectoryLocked(
+                expected_revision,
+                directory,
+                nullptr,
+                nullptr,
+                output);
         });
+}
+
+HRESULT ConfigStore::PublishSyncDirectory(
+    uint64_t expected_revision,
+    const std::filesystem::path& directory,
+    const trace::Context& trace,
+    const GUID& broker_activity_id,
+    config::Snapshot& output) noexcept {
+    if (!trace::IsValid(trace) ||
+        broker_activity_id == GUID_NULL) {
+        return E_INVALIDARG;
+    }
+    return Locked(
+        mutex_,
+        "publish-sync-directory",
+        [&]() -> HRESULT {
+            return PublishSyncDirectoryLocked(
+                expected_revision,
+                directory,
+                &trace,
+                &broker_activity_id,
+                output);
+        });
+}
+
+HRESULT ConfigStore::PublishSyncDirectoryLocked(
+    uint64_t expected_revision,
+    const std::filesystem::path& directory,
+    const trace::Context* trace,
+    const GUID* broker_activity_id,
+    config::Snapshot& output) {
+    const wchar_t* const subkey =
+        OptionalSubkey(subkey_);
+    HRESULT result =
+        CheckExpectedRevision(
+            expected_revision,
+            subkey);
+    if (FAILED(result)) {
+        return result;
+    }
+    bool changed = false;
+    result =
+        SaveUserDictSyncDirectoryToRegistry(
+            directory,
+            subkey,
+            trace
+                ? &trace->trace_id
+                : nullptr,
+            broker_activity_id,
+            &changed);
+    if (FAILED(result)) {
+        return result;
+    }
+    return ReadLocked(output);
 }
 
 } // namespace qiqi::broker

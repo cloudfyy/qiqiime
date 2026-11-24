@@ -20,6 +20,21 @@ MIDL-generated native asynchronous facade. Clients
 exchange a bounded binary request/response envelope through a conformant
 `byte*` array plus a separate `ULONG` length. MIDL generates an architecture-specific COM
 proxy/stub DLL for x86 and x64; the interface itself is not `IDispatch`.
+The unpublished v1 ABI is intentionally not retained. The traced v2 ABI uses
+new synchronous and asynchronous interface IIDs, so a stale v1 proxy cannot
+be mistaken for a compatible implementation.
+
+Every operation carries a fixed `QIQI_CONFIG_TRACE_CONTEXT`:
+
+- a process-spanning `trace_id`;
+- the client operation's `caller_activity_id`;
+- its optional in-process `parent_activity_id`;
+- reserved flags, which are currently required to be zero.
+
+The matching `QIQI_CONFIG_TRACE_RESULT` returns the Broker operation
+`broker_activity_id`, the last committed trace/activity IDs, the revision at
+that commit, and the current snapshot revision. Async calls receive the
+context in `Begin_*` and return the result from `Finish_*`.
 
 Operations:
 
@@ -55,6 +70,8 @@ Only the broker is allowed to access:
 - the skin catalog under `Software\QiQiIME\Skins`;
 - `UserDictSyncDirectory`;
 - the configuration sequence.
+- `ConfigCommitTraceId`, `ConfigCommitActivityId`, and
+  `ConfigCommitRevision`.
 
 Installer uninstall/cleanup remains an administrative exception because it
 removes user data only after explicit user confirmation.
@@ -87,10 +104,15 @@ Save:
 1. The client sends the expected revision and complete validated snapshot.
 2. The broker validates and saves it in a KTM registry transaction.
 3. The broker publishes dictionary/channel addresses if needed.
-4. The broker increments the durable configuration sequence.
-5. The broker increments the global TSF `VT_I4` compartment.
-6. Other processes receive the event and refresh once.
-7. A client updates its own cache only after the broker returns the committed
+4. The broker increments the durable configuration sequence and atomically
+   records `ConfigCommitTraceId`, `ConfigCommitActivityId`, and
+   `ConfigCommitRevision` in the same transaction.
+5. A stale CAS does not update the sequence or commit trace metadata.
+6. The broker increments the global TSF `VT_I4` compartment after commit.
+7. A TSF notification failure is reported in the snapshot but does not roll
+   back the durable configuration or its trace metadata.
+8. Other processes receive the event and refresh once.
+9. A client updates its own cache only after the broker returns the committed
    revision.
 
 An unchanged synchronization-directory publication keeps the same revision
@@ -174,6 +196,14 @@ The API's limited field-level behavior is part of the trust boundary.
 - If TraceLogging registration fails, the Broker keeps logging to
   `OutputDebugString` and, when explicitly enabled, its diagnostic file instead
   of silently dropping startup failures.
+- Configuration RPC Start/Stop events use ETW `ActivityId`,
+  `RelatedActivityId`, and a structured `trace_id` field. A Broker operation
+  activity is related to the client operation activity, and client cache
+  refresh events can relate to the durable commit activity even when the
+  subscriber runs in another process.
+- Log Monitor decodes `trace_id`, groups the display by trace activity
+  ancestry, supports trace/activity filtering, and includes all three IDs in
+  copied and exported logs.
 - MIDL generates one registered proxy/stub DLL per architecture from the
   `IQiQiConfigBroker` definition. Clients never query `IDispatch`.
 - `QiQiIMEConfigProxy.dll` is not a second server. It is an in-process
@@ -256,6 +286,10 @@ Implemented process tests cover:
 - STA synchronous client use;
 - concurrent writers and stale expected revisions;
 - x86 callers through the architecture-specific proxy;
+- sync and native-async operation trace propagation, CAS preservation, and
+  restart-persistent commit trace metadata;
+- Broker diagnostic Start/Stop pairing without configuration payload leakage;
+- Log Monitor trace-ID filtering, correlation display, and export;
 - proxy static-runtime loading;
 - Settings, Dictionary Manager, Log Monitor, and TSF regressions.
 

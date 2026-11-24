@@ -27,16 +27,23 @@ public:
 
     HRESULT Read(
         uint64_t known_revision,
-        std::vector<uint8_t>& payload) noexcept;
+        std::vector<uint8_t>& payload,
+        trace::Result& trace_result) noexcept;
     HRESULT Save(
         const config::SaveRequest& request,
-        std::vector<uint8_t>& payload) noexcept;
+        const trace::Context& trace,
+        std::vector<uint8_t>& payload,
+        trace::Result& trace_result) noexcept;
     HRESULT Reset(
         uint64_t expected_revision,
-        std::vector<uint8_t>& payload) noexcept;
+        const trace::Context& trace,
+        std::vector<uint8_t>& payload,
+        trace::Result& trace_result) noexcept;
     HRESULT PublishSyncDirectory(
         const config::SyncDirectoryRequest& request,
-        std::vector<uint8_t>& payload) noexcept;
+        const trace::Context& trace,
+        std::vector<uint8_t>& payload,
+        trace::Result& trace_result) noexcept;
 
     void AddObject() noexcept;
     void RemoveObject() noexcept;

@@ -37,26 +37,56 @@ HRESULT CopyCachedSnapshot(
 
 HRESULT ReadSnapshot(
     Snapshot& output) noexcept;
+HRESULT ReadSnapshot(
+    const trace::Context& trace,
+    Snapshot& output) noexcept;
 HRESULT SaveSnapshot(
     const SaveRequest& request,
+    Snapshot& output) noexcept;
+HRESULT SaveSnapshot(
+    const SaveRequest& request,
+    const trace::Context& trace,
     Snapshot& output) noexcept;
 HRESULT ResetSnapshot(
     uint64_t expected_revision,
     Snapshot& output) noexcept;
+HRESULT ResetSnapshot(
+    uint64_t expected_revision,
+    const trace::Context& trace,
+    Snapshot& output) noexcept;
 HRESULT PublishSyncDirectory(
     const SyncDirectoryRequest& request,
+    Snapshot& output) noexcept;
+HRESULT PublishSyncDirectory(
+    const SyncDirectoryRequest& request,
+    const trace::Context& trace,
     Snapshot& output) noexcept;
 
 bool ReadSnapshotAsync(
     AsyncCompletion completion) noexcept;
+bool ReadSnapshotAsync(
+    const trace::Context& trace,
+    AsyncCompletion completion) noexcept;
 bool SaveSnapshotAsync(
     SaveRequest request,
+    AsyncCompletion completion) noexcept;
+bool SaveSnapshotAsync(
+    SaveRequest request,
+    const trace::Context& trace,
     AsyncCompletion completion) noexcept;
 bool ResetSnapshotAsync(
     uint64_t expected_revision,
     AsyncCompletion completion) noexcept;
+bool ResetSnapshotAsync(
+    uint64_t expected_revision,
+    const trace::Context& trace,
+    AsyncCompletion completion) noexcept;
 bool PublishSyncDirectoryAsync(
     SyncDirectoryRequest request,
+    AsyncCompletion completion) noexcept;
+bool PublishSyncDirectoryAsync(
+    SyncDirectoryRequest request,
+    const trace::Context& trace,
     AsyncCompletion completion) noexcept;
 
 } // namespace qiqi::config
