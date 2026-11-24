@@ -42,12 +42,14 @@ public:
     BrokerObject(
         const BrokerObject&) =
         delete;
+#pragma warning(suppress : 26456)
     BrokerObject& operator=(
         const BrokerObject&) =
         delete;
     BrokerObject(
         BrokerObject&&) =
         delete;
+#pragma warning(suppress : 26456)
     BrokerObject& operator=(
         BrokerObject&&) =
         delete;

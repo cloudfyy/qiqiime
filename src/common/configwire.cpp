@@ -528,7 +528,7 @@ HRESULT AllocateRpcBuffer(
     if (!allocated) {
         return E_OUTOFMEMORY;
     }
-    std::span<byte> allocated_bytes(
+    const std::span<byte> allocated_bytes(
         allocated,
         bytes.size());
     std::ranges::copy(
