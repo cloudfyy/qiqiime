@@ -341,10 +341,8 @@ HRESULT WaitForBrokerExit(
         const ULONGLONG now =
             ::GetTickCount64();
         if (now >= deadline) {
-            const HRESULT result =
-                HRESULT_FROM_WIN32(
+            return HRESULT_FROM_WIN32(
                 WAIT_TIMEOUT);
-            return result;
         }
         ::Sleep(
             gsl::narrow_cast<DWORD>(

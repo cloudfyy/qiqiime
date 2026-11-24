@@ -35,8 +35,7 @@ constexpr uint64_t kConfigKeyword = 0x0080;
 bool g_registered = false;
 HANDLE g_diagnostic_log =
     INVALID_HANDLE_VALUE;
-SRWLOCK g_diagnostic_log_lock =
-    SRWLOCK_INIT;
+SRWLOCK g_diagnostic_log_lock{};
 bool g_diagnostic_write_failed = false;
 
 HRESULT OpenDiagnosticLog() noexcept {

@@ -12,8 +12,8 @@
 #include <cstdio>
 #include <condition_variable>
 #include <chrono>
-#include <cstring>
 #include <mutex>
+#include <span>
 
 namespace trace = qiqi::trace;
 
@@ -32,12 +32,17 @@ void WriteProbeLog(
 int main(
     int argc,
     char* argv[]) {
+    QIQI_TEST_CHECK(
+        argv != nullptr);
+    const std::span args(
+        argv,
+        gsl::narrow_cast<size_t>(
+            argc));
     const bool read_only =
-        argc == 2 &&
-        std::strcmp(
-            argv[1],
-            "--read-only") ==
-            0;
+        args.size() == 2 &&
+        std::string_view(
+            gsl::at(args, 1)) ==
+            "--read-only";
     qiqi::log::SetExternalLogWriter(
         &WriteProbeLog);
     const HRESULT com =
