@@ -115,12 +115,12 @@ inline constexpr GUID kGuidConfigBrokerEtwProvider = {
 };
 
 // {8E7B9D31-5A42-4C81-9F11-202610290020}
-inline constexpr GUID kIidQiQiConfigBroker = {
+inline constexpr GUID kIIDQiQiConfigBroker = {
     0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x20}
 };
 
 // {8E7B9D31-5A42-4C81-9F11-202610290021}
-inline constexpr GUID kIidAsyncQiQiConfigBroker = {
+inline constexpr GUID kIIDAsyncQiQiConfigBroker = {
     0x8e7b9d31, 0x5a42, 0x4c81, {0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x21}
 };
 

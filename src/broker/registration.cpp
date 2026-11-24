@@ -362,7 +362,7 @@ HRESULT RegisterProxy(
             ERROR_FILE_NOT_FOUND);
     }
     const std::wstring proxy_clsid =
-        GuidString(kIidQiQiConfigBroker);
+        GuidString(kIIDQiQiConfigBroker);
     const std::wstring proxy_key =
         L"CLSID\\" + proxy_clsid;
     const std::wstring inproc_key =
@@ -416,12 +416,12 @@ HRESULT RegisterProxy(
                 proxy_clsid);
         };
     result = register_interface(
-        kIidQiQiConfigBroker);
+        kIIDQiQiConfigBroker);
     if (FAILED(result)) {
         return result;
     }
     result = register_interface(
-        kIidAsyncQiQiConfigBroker);
+        kIIDAsyncQiQiConfigBroker);
     if (FAILED(result)) {
         return result;
     }
@@ -439,7 +439,7 @@ HRESULT RegisterProxy(
         sync_async.Get(),
         nullptr,
         GuidString(
-            kIidAsyncQiQiConfigBroker));
+            kIIDAsyncQiQiConfigBroker));
     if (FAILED(result)) return result;
 
     ScopedRegKey async_sync;
@@ -447,7 +447,7 @@ HRESULT RegisterProxy(
         root,
         L"Interface\\" +
             GuidString(
-                kIidAsyncQiQiConfigBroker) +
+                kIIDAsyncQiQiConfigBroker) +
             L"\\SynchronousInterface",
         KEY_WRITE,
         async_sync);
@@ -678,13 +678,13 @@ HRESULT UnregisterServer() noexcept {
             appid,
             L"CLSID\\" +
                 GuidString(
-                    kIidQiQiConfigBroker),
+                    kIIDQiQiConfigBroker),
             L"Interface\\" +
                 GuidString(
-                    kIidQiQiConfigBroker),
+                    kIIDQiQiConfigBroker),
             L"Interface\\" +
                 GuidString(
-                    kIidAsyncQiQiConfigBroker),
+                    kIIDAsyncQiQiConfigBroker),
         };
         std::vector<RegistryRoot> roots;
 #ifdef _WIN64
