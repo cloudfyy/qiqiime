@@ -215,32 +215,38 @@ HRESULT BuildDcomDacl(
     std::vector<uint8_t>& output) {
     std::vector<PSID> sids;
     std::vector<ScopedLocalAlloc> owners;
+    // NT AUTHORITY\SYSTEM.
     HRESULT result =
         AppendSid(
             L"S-1-5-18",
             sids,
             owners);
     if (FAILED(result)) return result;
+    // BUILTIN\Administrators.
     result = AppendSid(
         L"S-1-5-32-544",
         sids,
         owners);
     if (FAILED(result)) return result;
+    // NT AUTHORITY\INTERACTIVE (tokens logged on at this machine).
     result = AppendSid(
         L"S-1-5-4",
         sids,
         owners);
     if (FAILED(result)) return result;
+    // ALL APPLICATION PACKAGES (ordinary AppContainer callers).
     result = AppendSid(
         L"S-1-15-2-1",
         sids,
         owners);
     if (FAILED(result)) return result;
+    // ALL RESTRICTED APPLICATION PACKAGES (LPAC callers).
     result = AppendSid(
         L"S-1-15-2-2",
         sids,
         owners);
     if (FAILED(result)) return result;
+    // Group/capability SIDs derived from the named lpacCom capability.
     result = AppendCapabilitySids(
         sids,
         owners);
