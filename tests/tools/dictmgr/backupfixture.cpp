@@ -64,6 +64,7 @@ void WriteRestoreBundle(
     CheckArchiveFixtureWrite(path, WriteZipArchiveFileResult(path, entries));
 }
 
+#pragma warning(suppress : 26455) // Fixture construction allocates and reports setup failures.
 BackupFixture::BackupFixture()
     : directory(std::filesystem::current_path() /
         (L"qiqi_restore_results_" + std::to_wstring(::GetCurrentProcessId()))),
@@ -87,12 +88,18 @@ BackupFixture::~BackupFixture() noexcept {
         std::fflush(stderr);
         return;
     }
-    const auto ec = qiqi::test::RemoveDirectoryWithSharingRetry(directory, 2000, ::Sleep);
-    if (ec) {
-        std::fprintf(stderr, "[FIXTURE-CLEANUP-FAIL] error=%d, directory=\"%ls\"\n",
-            ec.value(), directory.c_str());
-        std::fflush(stderr);
-        QIQI_TEST_CHECK_CLEANUP(!ec);
+    try {
+        const auto ec = qiqi::test::RemoveDirectoryWithSharingRetry(directory, 2000, ::Sleep);
+        if (ec) {
+            std::fprintf(stderr, "[FIXTURE-CLEANUP-FAIL] error=%d, directory=\"%ls\"\n",
+                ec.value(), directory.c_str());
+            std::fflush(stderr);
+            QIQI_TEST_CHECK_CLEANUP(!ec);
+        }
+    } catch (...) {
+        QIQI_TEST_CHECK_CLEANUP(
+            false &&
+            "Backup fixture cleanup threw");
     }
 }
 
@@ -132,7 +139,8 @@ bool BackupFixture::HasWord(
     });
 }
 
-ScopedFileHandle BackupFixture::LockFile(const std::filesystem::path& path) {
+ScopedFileHandle BackupFixture::LockFile(
+    const std::filesystem::path& path) noexcept {
     return ScopedFileHandle(::CreateFileW(path.c_str(), GENERIC_READ,
         FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
         nullptr));
@@ -142,11 +150,6 @@ std::string BackupFixture::ReadFile(const std::filesystem::path& path) {
     std::string bytes;
     QIQI_TEST_CHECK(ReadFileToUtf8String(path, bytes));
     return bytes;
-}
-
-bool BackupFixture::SharingFailure(HRESULT error) noexcept {
-    return error == E_ACCESSDENIED ||
-        error == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION);
 }
 
 } // namespace qiqi::dict_manager::tests::backup

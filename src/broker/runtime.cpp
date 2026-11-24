@@ -11,6 +11,7 @@
 #include <sddl.h>
 #include <gsl/gsl>
 #include <new>
+#include <span>
 #include <system_error>
 #include <utility>
 
@@ -32,6 +33,19 @@ public:
                 ::CoRevertToSelf();
         }
     }
+
+    ImpersonationScope(
+        const ImpersonationScope&) =
+        delete;
+    ImpersonationScope& operator=(
+        const ImpersonationScope&) =
+        delete;
+    ImpersonationScope(
+        ImpersonationScope&&) =
+        delete;
+    ImpersonationScope& operator=(
+        ImpersonationScope&&) =
+        delete;
 
     HRESULT Result() const noexcept {
         return result_;
@@ -87,11 +101,15 @@ std::vector<uint8_t> TokenUserSid(
         }
         const DWORD sid_length =
             ::GetLengthSid(user->User.Sid);
+        const std::span<
+            const uint8_t> sid_bytes(
+                static_cast<
+                    const uint8_t*>(
+                        user->User.Sid),
+                sid_length);
         return {
-            static_cast<const uint8_t*>(
-                user->User.Sid),
-            static_cast<const uint8_t*>(
-                user->User.Sid) + sid_length,
+            sid_bytes.begin(),
+            sid_bytes.end(),
         };
     } catch (const std::bad_alloc&) {
         result = E_OUTOFMEMORY;
@@ -211,7 +229,7 @@ HRESULT Runtime::ValidateCaller() const noexcept {
     const ScopedKernelHandle token(raw);
     std::vector<uint8_t> caller_sid;
     DWORD caller_session = 0;
-    HRESULT result = ReadTokenIdentity(
+    const HRESULT result = ReadTokenIdentity(
         token.Get(),
         caller_sid,
         caller_session,

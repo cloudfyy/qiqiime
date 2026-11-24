@@ -79,7 +79,7 @@ HRESULT Locked(
 
 } // namespace
 
-ConfigStore::ConfigStore(std::wstring subkey)
+ConfigStore::ConfigStore(std::wstring subkey) noexcept
     : subkey_(std::move(subkey)) {
 }
 

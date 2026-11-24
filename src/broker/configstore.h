@@ -13,7 +13,8 @@ namespace qiqi::broker {
 
 class ConfigStore final {
 public:
-    explicit ConfigStore(std::wstring subkey = {});
+    ConfigStore() noexcept = default;
+    explicit ConfigStore(std::wstring subkey) noexcept;
 
     ConfigStore(const ConfigStore&) = delete;
     ConfigStore& operator=(const ConfigStore&) = delete;

@@ -134,6 +134,8 @@ void WriteDiagnosticLine(
         nullptr);
 }
 
+#pragma warning(push)
+#pragma warning(disable : 26447 26812) // TraceLogging generated wrappers are non-throwing COM-free code.
 void WriteExternal(
     log::Level level,
     std::string_view message,
@@ -223,6 +225,7 @@ void WriteExternal(
             break;
     }
 }
+#pragma warning(pop)
 
 } // namespace
 

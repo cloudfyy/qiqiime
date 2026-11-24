@@ -9,6 +9,7 @@
 
 #include <wrl/client.h>
 #include <gsl/gsl>
+#include <cstdio>
 #include <condition_variable>
 #include <chrono>
 #include <mutex>
@@ -17,9 +18,12 @@ void WriteProbeLog(
     qiqi::log::Level,
     std::string_view message,
     const qiqi::log::LogContext&) noexcept {
-    std::cerr
-        << message
-        << '\n';
+    std::fwrite(
+        message.data(),
+        1,
+        message.size(),
+        stderr);
+    std::fputc('\n', stderr);
 }
 
 int main() {

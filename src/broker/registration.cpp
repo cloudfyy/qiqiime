@@ -16,6 +16,7 @@
 #include <array>
 #include <memory>
 #include <new>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -150,43 +151,64 @@ HRESULT AppendCapabilitySids(
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
-    const auto free_groups =
+    const auto free_group_sids =
         gsl::finally([&]() noexcept {
-            for (DWORD index = 0;
-                 index < group_count;
-                 ++index) {
-                ::LocalFree(groups[index]);
+            if (!groups) {
+                return;
+            }
+            const std::span<PSID> group_sids(
+                groups,
+                group_count);
+            for (const PSID group :
+                 group_sids) {
+                ::LocalFree(group);
             }
             ::LocalFree(groups);
         });
-    try {
-        owners.reserve(
-            owners.size() +
-            capability_count);
-        sids.reserve(
-            sids.size() +
-            capability_count);
-        for (DWORD index = 0;
-             index < capability_count;
-             ++index) {
-            owners.emplace_back(
-                capabilities[index]);
-            sids.push_back(
-                capabilities[index]);
-        }
-        ::LocalFree(capabilities);
-        capabilities = nullptr;
-        capability_count = 0;
-        return S_OK;
-    } catch (...) {
-        for (DWORD index = 0;
-             index < capability_count;
-             ++index) {
-            ::LocalFree(capabilities[index]);
-        }
-        ::LocalFree(capabilities);
-        throw;
+    const auto free_capability_sids =
+        gsl::finally([&]() noexcept {
+            if (!capabilities) {
+                return;
+            }
+            const std::span<PSID>
+                capability_sids(
+                    capabilities,
+                    capability_count);
+            for (const PSID capability :
+                 capability_sids) {
+                ::LocalFree(capability);
+            }
+            ::LocalFree(capabilities);
+        });
+    if ((group_count != 0 && !groups) ||
+        (capability_count != 0 &&
+         !capabilities)) {
+        return E_UNEXPECTED;
     }
+    if (capability_count == 0) {
+        return S_OK;
+    }
+    const std::span<PSID>
+        capability_sids(
+            capabilities,
+            capability_count);
+    owners.reserve(
+        owners.size() +
+        capability_count);
+    sids.reserve(
+        sids.size() +
+        capability_count);
+    for (const PSID capability :
+         capability_sids) {
+        owners.emplace_back(
+            capability);
+        sids.push_back(
+            capability);
+    }
+    ::LocalFree(capabilities);
+    capabilities = nullptr;
+    capability_count = 0;
+    return S_OK;
 }
 
 HRESULT BuildDcomDacl(
@@ -363,33 +385,45 @@ HRESULT RegisterProxy(
         L"Both");
     if (FAILED(result)) return result;
 
-    for (const GUID* iid : {
-             &kIidQiQiConfigBroker,
-             &kIidAsyncQiQiConfigBroker,
-         }) {
-        const std::wstring interface_key =
-            L"Interface\\" +
-            GuidString(*iid);
-        ScopedRegKey interface_reg;
-        result = CreateKey(
-            root,
-            interface_key,
-            KEY_WRITE,
-            interface_reg);
-        if (FAILED(result)) return result;
-        ScopedRegKey proxy_stub;
-        result = CreateKey(
-            root,
-            interface_key +
+    const auto register_interface =
+        [&](const GUID& iid) -> HRESULT {
+            const std::wstring interface_key =
+                L"Interface\\" +
+                GuidString(iid);
+            ScopedRegKey interface_reg;
+            HRESULT interface_result =
+                CreateKey(
+                    root,
+                    interface_key,
+                    KEY_WRITE,
+                    interface_reg);
+            if (FAILED(interface_result)) {
+                return interface_result;
+            }
+            ScopedRegKey proxy_stub;
+            interface_result = CreateKey(
+                root,
+                interface_key +
                 L"\\ProxyStubClsid32",
-            KEY_WRITE,
-            proxy_stub);
-        if (FAILED(result)) return result;
-        result = SetString(
-            proxy_stub.Get(),
-            nullptr,
-            proxy_clsid);
-        if (FAILED(result)) return result;
+                KEY_WRITE,
+                proxy_stub);
+            if (FAILED(interface_result)) {
+                return interface_result;
+            }
+            return SetString(
+                proxy_stub.Get(),
+                nullptr,
+                proxy_clsid);
+        };
+    result = register_interface(
+        kIidQiQiConfigBroker);
+    if (FAILED(result)) {
+        return result;
+    }
+    result = register_interface(
+        kIidAsyncQiQiConfigBroker);
+    if (FAILED(result)) {
+        return result;
     }
 
     ScopedRegKey sync_async;
@@ -604,7 +638,7 @@ HRESULT RegisterServer(HINSTANCE instance) noexcept {
             wow64 ? KEY_WOW64_32KEY
                   : REGSAM{0},
         };
-        HRESULT result = RegisterView(
+        const HRESULT result = RegisterView(
             executable,
             proxy,
             root);

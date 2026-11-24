@@ -5,6 +5,7 @@
 
 namespace qiqi::test::service_cases {
 
+#pragma warning(suppress : 26455) // Fixture setup intentionally reports construction failures.
 ServiceFlowTestFixture::ServiceFlowTestFixture()
     : suffix_(std::to_wstring(::GetCurrentProcessId()) + L"_" +
               std::to_wstring(::GetTickCount64())),
@@ -43,9 +44,18 @@ ServiceFlowTestFixture::~ServiceFlowTestFixture() noexcept {
     QIQI_TEST_CHECK_CLEANUP(_wputenv_s(
         L"LOCALAPPDATA",
         previous_appdata_ ? previous_appdata_.get() : L"") == 0);
-    std::error_code cleanup_error;
-    std::filesystem::remove_all(appdata_directory_, cleanup_error);
-    QIQI_TEST_CHECK_CLEANUP(!cleanup_error);
+    try {
+        std::error_code cleanup_error;
+        std::filesystem::remove_all(
+            appdata_directory_,
+            cleanup_error);
+        QIQI_TEST_CHECK_CLEANUP(
+            !cleanup_error);
+    } catch (...) {
+        QIQI_TEST_CHECK_CLEANUP(
+            false &&
+            "Service flow fixture cleanup threw");
+    }
 }
 
 const std::filesystem::path&

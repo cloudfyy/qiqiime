@@ -129,6 +129,12 @@ public:
     ConfigRegistryOverrideScope& operator=(
         const ConfigRegistryOverrideScope&) =
         delete;
+    ConfigRegistryOverrideScope(
+        ConfigRegistryOverrideScope&&) =
+        delete;
+    ConfigRegistryOverrideScope& operator=(
+        ConfigRegistryOverrideScope&&) =
+        delete;
 
 private:
     const wchar_t* const previous_;

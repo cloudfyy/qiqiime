@@ -15,7 +15,7 @@ namespace qiqi::broker {
 class Runtime final {
 public:
     explicit Runtime(
-        std::wstring subkey = {});
+        std::wstring subkey);
     ~Runtime() = default;
 
     Runtime(const Runtime&) = delete;

@@ -39,6 +39,19 @@ public:
         runtime_.RemoveObject();
     }
 
+    BrokerObject(
+        const BrokerObject&) =
+        delete;
+    BrokerObject& operator=(
+        const BrokerObject&) =
+        delete;
+    BrokerObject(
+        BrokerObject&&) =
+        delete;
+    BrokerObject& operator=(
+        BrokerObject&&) =
+        delete;
+
     STDMETHODIMP QueryInterface(
         REFIID iid,
         void** object) noexcept override {
@@ -64,11 +77,12 @@ public:
         ULONGLONG known_revision,
         ULONG* snapshot_size,
         byte** snapshot) noexcept override {
-        if (!InitializeOutput(
-                snapshot_size,
-                snapshot)) {
+        if (!snapshot_size ||
+            !snapshot) {
             return E_POINTER;
         }
+        *snapshot_size = 0;
+        *snapshot = nullptr;
         HRESULT result =
             ValidateCaller();
         if (FAILED(result)) {
@@ -98,11 +112,12 @@ public:
         byte* request,
         ULONG* snapshot_size,
         byte** snapshot) noexcept override {
-        if (!InitializeOutput(
-                snapshot_size,
-                snapshot)) {
+        if (!snapshot_size ||
+            !snapshot) {
             return E_POINTER;
         }
+        *snapshot_size = 0;
+        *snapshot = nullptr;
         HRESULT result =
             ValidateCaller();
         if (FAILED(result)) {
@@ -141,11 +156,12 @@ public:
         ULONGLONG expected_revision,
         ULONG* snapshot_size,
         byte** snapshot) noexcept override {
-        if (!InitializeOutput(
-                snapshot_size,
-                snapshot)) {
+        if (!snapshot_size ||
+            !snapshot) {
             return E_POINTER;
         }
+        *snapshot_size = 0;
+        *snapshot = nullptr;
         HRESULT result =
             ValidateCaller();
         if (FAILED(result)) {
@@ -172,11 +188,12 @@ public:
         byte* request,
         ULONG* snapshot_size,
         byte** snapshot) noexcept override {
-        if (!InitializeOutput(
-                snapshot_size,
-                snapshot)) {
+        if (!snapshot_size ||
+            !snapshot) {
             return E_POINTER;
         }
+        *snapshot_size = 0;
+        *snapshot = nullptr;
         HRESULT result =
             ValidateCaller();
         if (FAILED(result)) {
@@ -214,17 +231,6 @@ public:
     }
 
 private:
-    static bool InitializeOutput(
-        ULONG* size,
-        byte** bytes) noexcept {
-        if (!size || !bytes) {
-            return false;
-        }
-        *size = 0;
-        *bytes = nullptr;
-        return true;
-    }
-
     HRESULT ValidateCaller() const noexcept {
         const HRESULT result =
             runtime_.ValidateCaller();

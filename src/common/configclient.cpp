@@ -57,6 +57,19 @@ public:
         }
     }
 
+    ScopedCom(
+        const ScopedCom&) =
+        delete;
+    ScopedCom& operator=(
+        const ScopedCom&) =
+        delete;
+    ScopedCom(
+        ScopedCom&&) =
+        delete;
+    ScopedCom& operator=(
+        ScopedCom&&) =
+        delete;
+
     HRESULT Result() const noexcept {
         return result_;
     }
@@ -218,6 +231,7 @@ HRESULT CreateAsyncBroker(
     }
     ComPtr<IUnknown> call_object;
     IUnknown* raw_call = nullptr;
+#pragma warning(suppress : 26447) // COM call objects report failures through HRESULT.
     security =
         call_factory->CreateCall(
             __uuidof(
@@ -325,6 +339,7 @@ HRESULT ExecuteAsync(
         return result;
     }
 
+#pragma warning(suppress : 26447) // ISynchronize reports wait failures through HRESULT.
     result = completion->Wait(
         0,
         INFINITE);
@@ -525,6 +540,9 @@ HRESULT ReadSnapshot(
             IQiQiConfigBroker* broker,
             ULONG& raw_size,
             byte*& raw) {
+            if (!broker) {
+                return E_POINTER;
+            }
             return broker->Read(
                 revision,
                 &raw_size,
@@ -549,6 +567,9 @@ HRESULT SaveSnapshot(
             IQiQiConfigBroker* broker,
             ULONG& raw_size,
             byte*& raw) mutable {
+            if (!broker) {
+                return E_POINTER;
+            }
             return broker->Save(
                 gsl::narrow_cast<ULONG>(
                     bytes.size()),
@@ -567,6 +588,9 @@ HRESULT ResetSnapshot(
             IQiQiConfigBroker* broker,
             ULONG& raw_size,
             byte*& raw) {
+            if (!broker) {
+                return E_POINTER;
+            }
             return broker->Reset(
                 expected_revision,
                 &raw_size,
@@ -591,6 +615,9 @@ HRESULT PublishSyncDirectory(
             IQiQiConfigBroker* broker,
             ULONG& raw_size,
             byte*& raw) mutable {
+            if (!broker) {
+                return E_POINTER;
+            }
             return broker
                 ->PublishSyncDirectory(
                     gsl::narrow_cast<ULONG>(

@@ -17,7 +17,8 @@ namespace {
 constexpr unsigned int kAtomicReplaceMaxAttempts = 5;
 constexpr unsigned int kAtomicReplaceInitialRetryDelayMs = 10;
 
-bool IsTransientAtomicReplaceError(DWORD error) noexcept {
+constexpr bool IsTransientAtomicReplaceError(
+    DWORD error) noexcept {
     return error == ERROR_ACCESS_DENIED ||
            error == ERROR_SHARING_VIOLATION ||
            error == ERROR_LOCK_VIOLATION;

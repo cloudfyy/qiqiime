@@ -50,9 +50,16 @@ public:
 
     void Reset();
     bool HasWord(DictEntrySource source, std::wstring_view word) const;
-    static ScopedFileHandle LockFile(const std::filesystem::path& path);
+    static ScopedFileHandle LockFile(
+        const std::filesystem::path& path) noexcept;
     static std::string ReadFile(const std::filesystem::path& path);
-    static bool SharingFailure(HRESULT error) noexcept;
+    static constexpr bool SharingFailure(
+        HRESULT error) noexcept {
+        return error == E_ACCESSDENIED ||
+            error ==
+                HRESULT_FROM_WIN32(
+                    ERROR_SHARING_VIOLATION);
+    }
 
     const std::filesystem::path directory;
     const std::wstring subkey;

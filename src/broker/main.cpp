@@ -19,6 +19,7 @@
 #include <array>
 #include <new>
 #include <format>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -107,13 +108,20 @@ HRESULT ParseArguments(
     const qiqi::ScopedLocalAlloc owner(
         arguments);
     try {
+        const std::span<wchar_t*> argument_span(
+            arguments,
+            gsl::narrow_cast<size_t>(
+                argument_count));
         constexpr std::wstring_view prefix =
             L"--store-subkey=";
         for (int index = 1;
              index < argument_count;
              ++index) {
             const std::wstring_view value(
-                arguments[index]);
+                 gsl::at(
+                     argument_span,
+                     gsl::narrow_cast<size_t>(
+                         index)));
             if (value.starts_with(prefix)) {
                 output.store_subkey.assign(
                     value.substr(

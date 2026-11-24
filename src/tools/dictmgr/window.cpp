@@ -59,6 +59,7 @@ void DictManagerWindow::Impl::InitConfigSubscription() noexcept {
         return;
     }
     ComPtr<ITfCompartmentMgr> manager;
+#pragma warning(suppress : 26447) // TSF COM methods report failure through HRESULT.
     const HRESULT manager_result =
         config_thread_mgr
             ->GetGlobalCompartment(

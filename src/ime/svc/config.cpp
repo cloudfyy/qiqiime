@@ -222,7 +222,7 @@ LRESULT CALLBACK QiQiTextService::ConfigAsyncWndProc(
                 std::memory_order_relaxed)) {
             return;
         }
-        WNDCLASSEXW window_class{
+        const WNDCLASSEXW window_class{
             .cbSize = sizeof(window_class),
             .lpfnWndProc =
                 &QiQiTextService::

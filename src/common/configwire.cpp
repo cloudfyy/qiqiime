@@ -528,10 +528,13 @@ HRESULT AllocateRpcBuffer(
     if (!allocated) {
         return E_OUTOFMEMORY;
     }
-    std::copy(
+    std::span<byte> allocated_bytes(
+        allocated,
+        bytes.size());
+    std::ranges::copy(
         bytes.begin(),
         bytes.end(),
-        allocated);
+        allocated_bytes.begin());
     output_size =
         gsl::narrow_cast<ULONG>(
             bytes.size());
@@ -559,9 +562,13 @@ HRESULT ReadRpcBuffer(
         return E_POINTER;
     }
     try {
+        const std::span<
+            const byte> input(
+                bytes,
+                size);
         output.assign(
-            bytes,
-            bytes + size);
+            input.begin(),
+            input.end());
         return S_OK;
     } catch (const std::bad_alloc&) {
         return E_OUTOFMEMORY;
