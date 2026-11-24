@@ -167,6 +167,13 @@ The API's limited field-level behavior is part of the trust boundary.
 - The broker uses its own `QiQiIME.ConfigBroker.TraceLogging` provider GUID
   `{8E7B9D31-5A42-4C81-9F11-202610290011}`; it does not initialize or reuse
   the in-process `QiQiIME.TraceLogging` provider.
+- Broker diagnostics cover command parsing, registration/unregistration,
+  singleton acquisition, COM security/class registration, idle or requested
+  shutdown, class-object revocation, and the final HRESULT. Diagnostics never
+  include raw command lines, registry keys, or user configuration values.
+- If TraceLogging registration fails, the Broker keeps logging to
+  `OutputDebugString` and, when explicitly enabled, its diagnostic file instead
+  of silently dropping startup failures.
 - MIDL generates one registered proxy/stub DLL per architecture from the
   `IQiQiConfigBroker` definition. Clients never query `IDispatch`.
 - `QiQiIMEConfigProxy.dll` is not a second server. It is an in-process

@@ -7,9 +7,13 @@
 #include <TraceLoggingProvider.h>
 #include <winmeta.h>
 #include <gsl/gsl>
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <filesystem>
+#include <new>
+#include <span>
+#include <stdexcept>
 #include <string>
 
 #pragma warning(push)
@@ -31,13 +35,21 @@ constexpr uint64_t kConfigKeyword = 0x0080;
 bool g_registered = false;
 HANDLE g_diagnostic_log =
     INVALID_HANDLE_VALUE;
+SRWLOCK g_diagnostic_log_lock =
+    SRWLOCK_INIT;
+bool g_diagnostic_write_failed = false;
 
-void OpenDiagnosticLog() noexcept {
+HRESULT OpenDiagnosticLog() noexcept {
     if (::GetEnvironmentVariableW(
             L"QIQI_CONFIG_BROKER_DIAGNOSTIC_LOG",
             nullptr,
             0) == 0) {
-        return;
+        const DWORD error =
+            ::GetLastError();
+        return error ==
+                ERROR_ENVVAR_NOT_FOUND
+            ? S_FALSE
+            : HRESULT_FROM_WIN32(error);
     }
     std::array<wchar_t, 32768> path{};
     const DWORD length =
@@ -48,7 +60,14 @@ void OpenDiagnosticLog() noexcept {
                 path.size()));
     if (length == 0 ||
         length >= path.size()) {
-        return;
+        const DWORD error =
+            length == 0
+                ? ::GetLastError()
+                : ERROR_INSUFFICIENT_BUFFER;
+        return error ==
+                ERROR_SUCCESS
+            ? E_UNEXPECTED
+            : HRESULT_FROM_WIN32(error);
     }
     try {
         const auto directory =
@@ -61,7 +80,9 @@ void OpenDiagnosticLog() noexcept {
             directory,
             error);
         if (error) {
-            return;
+            return HRESULT_FROM_WIN32(
+                gsl::narrow_cast<DWORD>(
+                    error.value()));
         }
         g_diagnostic_log =
             ::CreateFileW(
@@ -74,14 +95,60 @@ void OpenDiagnosticLog() noexcept {
                 OPEN_ALWAYS,
                 FILE_ATTRIBUTE_NORMAL,
                 nullptr);
-    } catch (...) {
+        return g_diagnostic_log !=
+                INVALID_HANDLE_VALUE
+            ? S_OK
+            : HRESULT_FROM_WIN32(
+                  ::GetLastError());
+    } catch (const std::bad_alloc&) {
         g_diagnostic_log =
             INVALID_HANDLE_VALUE;
+        return E_OUTOFMEMORY;
+    } catch (
+        const std::length_error&) {
+        g_diagnostic_log =
+            INVALID_HANDLE_VALUE;
+        return HRESULT_FROM_WIN32(
+            ERROR_ARITHMETIC_OVERFLOW);
+    } catch (
+        const std::filesystem::
+            filesystem_error& error) {
+        g_diagnostic_log =
+            INVALID_HANDLE_VALUE;
+        return HRESULT_FROM_WIN32(
+            gsl::narrow_cast<DWORD>(
+                error.code().value()));
     }
+}
+
+void WriteFallbackLine(
+    std::string_view message) noexcept {
+    std::array<char, 1024> line{};
+    const size_t available =
+        line.size() - 1;
+    const size_t copied =
+        std::min(
+            message.size(),
+            available);
+    std::copy_n(
+        message.begin(),
+        copied,
+        line.begin());
+    gsl::at(line, copied) = '\n';
+    ::OutputDebugStringA(
+        line.data());
 }
 
 void WriteDiagnosticLine(
     std::string_view message) noexcept {
+    ::AcquireSRWLockExclusive(
+        &g_diagnostic_log_lock);
+    const auto unlock =
+        gsl::finally(
+            []() noexcept {
+                ::ReleaseSRWLockExclusive(
+                    &g_diagnostic_log_lock);
+            });
     if (g_diagnostic_log ==
         INVALID_HANDLE_VALUE) {
         return;
@@ -109,29 +176,70 @@ void WriteDiagnosticLine(
                 time.wSecond),
             gsl::narrow_cast<unsigned>(
                 time.wMilliseconds));
-    DWORD written = 0;
+    std::array<char, 4096> line{};
+    std::span<char> remaining(
+        line);
+    size_t length = 0;
     if (prefix > 0) {
+        const size_t count =
+            std::min(
+                gsl::narrow_cast<size_t>(
+                    prefix),
+                remaining.size());
+        std::copy_n(
+            timestamp.begin(),
+            count,
+            remaining.begin());
+        remaining =
+            remaining.subspan(count);
+        length += count;
+    }
+    const size_t content_capacity =
+        remaining.empty()
+            ? 0
+            : remaining.size() - 1;
+    const size_t copy_count =
+        std::min(
+            message.size(),
+            content_capacity);
+    std::copy_n(
+        message.begin(),
+        copy_count,
+        remaining.begin());
+    length += copy_count;
+    gsl::at(line, length) = '\n';
+    ++length;
+    DWORD written = 0;
+    const bool written_ok =
         ::WriteFile(
             g_diagnostic_log,
-            timestamp.data(),
-            gsl::narrow_cast<DWORD>(prefix),
+            line.data(),
+            gsl::narrow_cast<DWORD>(
+                length),
             &written,
             nullptr);
+    const DWORD write_error =
+        written_ok
+            ? ERROR_SUCCESS
+            : ::GetLastError();
+    if (!written_ok &&
+        !g_diagnostic_write_failed) {
+        g_diagnostic_write_failed = true;
+        std::array<char, 128>
+            failure{};
+        std::snprintf(
+            failure.data(),
+            failure.size(),
+            "QiQiIMEConfigBroker: "
+            "diagnostic log write failed "
+            "(hr=0x%08lX)\n",
+            gsl::narrow_cast<
+                unsigned long>(
+                    HRESULT_FROM_WIN32(
+                        write_error)));
+        ::OutputDebugStringA(
+            failure.data());
     }
-    ::WriteFile(
-        g_diagnostic_log,
-        message.data(),
-        gsl::narrow_cast<DWORD>(
-            message.size()),
-        &written,
-        nullptr);
-    constexpr char newline = '\n';
-    ::WriteFile(
-        g_diagnostic_log,
-        &newline,
-        1,
-        &written,
-        nullptr);
 }
 
 #pragma warning(push)
@@ -141,7 +249,11 @@ void WriteExternal(
     std::string_view message,
     const log::LogContext&) noexcept {
     WriteDiagnosticLine(message);
-    if (!g_registered ||
+    if (!g_registered) {
+        WriteFallbackLine(message);
+        return;
+    }
+    if (
         message.size() >
         gsl::narrow_cast<size_t>(USHRT_MAX) ||
         kProcessName.size() >
@@ -149,9 +261,11 @@ void WriteExternal(
         return;
     }
     const int count =
-    gsl::narrow_cast<int>(message.size());
+        gsl::narrow_cast<int>(
+            message.size());
     const int process_count =
-    gsl::narrow_cast<int>(kProcessName.size());
+        gsl::narrow_cast<int>(
+            kProcessName.size());
     switch (level) {
         case log::Level::trace:
         case log::Level::debug:
@@ -230,37 +344,74 @@ void WriteExternal(
 } // namespace
 
 HRESULT Initialize() noexcept {
-    const ULONG result =
+    const HRESULT diagnostic_result =
+        OpenDiagnosticLog();
+    const ULONG register_result =
         ::TraceLoggingRegister(
             g_qiqi_config_broker_provider);
-    if (result != ERROR_SUCCESS) {
+    g_registered =
+        register_result == ERROR_SUCCESS;
+    log::SetExternalLogWriter(
+        &WriteExternal);
+    if (FAILED(
+            diagnostic_result)) {
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Config,
+            "Broker diagnostic file setup "
+            "failed (hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                diagnostic_result));
+    }
+    if (register_result != ERROR_SUCCESS) {
         std::array<char, 160> message{};
         std::snprintf(
             message.data(),
             message.size(),
             "QiQiIMEConfigBroker: "
             "TraceLoggingRegister failed "
-            "(hr=0x%08lX)\n",
+            "(error=%lu)\n",
             gsl::narrow_cast<unsigned long>(
-                result));
+                register_result));
         ::OutputDebugStringA(message.data());
-        return HRESULT_FROM_WIN32(result);
+        QIQI_LOG_CAT_ERROR(
+            log::Keyword::Config,
+            "Broker TraceLogging registration "
+            "failed (hr=0x{:08X}); using "
+            "fallback diagnostics",
+            gsl::narrow_cast<unsigned long>(
+                HRESULT_FROM_WIN32(
+                    register_result)));
+        return HRESULT_FROM_WIN32(
+            register_result);
     }
-    g_registered = true;
-    OpenDiagnosticLog();
-    log::SetExternalLogWriter(
-        &WriteExternal);
+    QIQI_LOG_CAT_INFO(
+        log::Keyword::Config,
+        "Broker logging initialized "
+        "(provider={}, diagnostic_file={})",
+        "QiQiIME.ConfigBroker."
+        "TraceLogging",
+        diagnostic_result == S_OK);
     return S_OK;
 }
 
 void Shutdown() noexcept {
     log::SetExternalLogWriter(nullptr);
-    if (g_diagnostic_log !=
-        INVALID_HANDLE_VALUE) {
-        ::CloseHandle(
-            g_diagnostic_log);
-        g_diagnostic_log =
-            INVALID_HANDLE_VALUE;
+    {
+        ::AcquireSRWLockExclusive(
+            &g_diagnostic_log_lock);
+        const auto unlock =
+            gsl::finally(
+                []() noexcept {
+                    ::ReleaseSRWLockExclusive(
+                        &g_diagnostic_log_lock);
+                });
+        if (g_diagnostic_log !=
+            INVALID_HANDLE_VALUE) {
+            ::CloseHandle(
+                g_diagnostic_log);
+            g_diagnostic_log =
+                INVALID_HANDLE_VALUE;
+        }
     }
     if (g_registered) {
         ::TraceLoggingUnregister(

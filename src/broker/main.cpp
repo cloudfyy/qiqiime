@@ -46,6 +46,24 @@ struct BrokerArguments {
     bool unregister_requested = false;
 };
 
+void LogOperationResult(
+    std::string_view operation,
+    HRESULT result) noexcept {
+    const auto level =
+        FAILED(result)
+            ? qiqi::log::Level::err
+            : qiqi::log::Level::info;
+    QIQI_LOG_CTX(
+        level,
+        (qiqi::log::LogContext{
+            qiqi::log::Keyword::Config}),
+        "Broker operation completed "
+        "(operation={}, hr=0x{:08X})",
+        operation,
+        gsl::narrow_cast<unsigned long>(
+            result));
+}
+
 bool IsSwitch(
     std::wstring_view argument,
     std::wstring_view expected) noexcept {
@@ -247,15 +265,36 @@ HRESULT SignalStopEvent(
     if (!event) {
         const DWORD error =
             ::GetLastError();
-        return error ==
+        const HRESULT result =
+            error ==
                 ERROR_FILE_NOT_FOUND
-            ? S_OK
-            : HRESULT_FROM_WIN32(error);
+                ? S_OK
+                : HRESULT_FROM_WIN32(error);
+        if (error ==
+            ERROR_FILE_NOT_FOUND) {
+            QIQI_LOG_CAT_INFO(
+                qiqi::log::Keyword::Config,
+                "Broker stop event is absent; "
+                "no active broker was found");
+        } else {
+            QIQI_LOG_CAT_ERROR(
+                qiqi::log::Keyword::Config,
+                "Broker stop event open failed "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    result));
+        }
+        return result;
     }
-    return ::SetEvent(event.Get())
-        ? S_OK
-        : HRESULT_FROM_WIN32(
-              ::GetLastError());
+    const HRESULT result =
+        ::SetEvent(event.Get())
+            ? S_OK
+            : HRESULT_FROM_WIN32(
+                  ::GetLastError());
+    LogOperationResult(
+        "stop-event-signal",
+        result);
+    return result;
 }
 
 HRESULT WaitForBrokerExit(
@@ -278,6 +317,11 @@ HRESULT WaitForBrokerExit(
     const ULONGLONG deadline =
         ::GetTickCount64() +
         kShutdownWaitMs;
+    QIQI_LOG_CAT_INFO(
+        qiqi::log::Keyword::Config,
+        "Waiting for Broker process exit "
+        "(timeout_ms={})",
+        kShutdownWaitMs);
     for (;;) {
         const qiqi::ScopedKernelHandle mutex(
             ::OpenMutexW(
@@ -287,16 +331,20 @@ HRESULT WaitForBrokerExit(
         if (!mutex) {
             const DWORD error =
                 ::GetLastError();
-            return error ==
+            const HRESULT result =
+                error ==
                     ERROR_FILE_NOT_FOUND
                 ? S_OK
                 : HRESULT_FROM_WIN32(error);
+            return result;
         }
         const ULONGLONG now =
             ::GetTickCount64();
         if (now >= deadline) {
-            return HRESULT_FROM_WIN32(
+            const HRESULT result =
+                HRESULT_FROM_WIN32(
                 WAIT_TIMEOUT);
+            return result;
         }
         ::Sleep(
             gsl::narrow_cast<DWORD>(
@@ -309,6 +357,13 @@ HRESULT WaitForBrokerExit(
 
 HRESULT RunServer(
     std::wstring subkey) noexcept {
+    QIQI_LOG_CAT_INFO(
+        qiqi::log::Keyword::Config,
+        "Broker server startup requested "
+        "(pid={}, apartment=MTA, "
+        "test_store={})",
+        ::GetCurrentProcessId(),
+        !subkey.empty());
     qiqi::ScopedKernelHandle
         instance_mutex;
     const HRESULT mutex_result =
@@ -318,7 +373,9 @@ HRESULT RunServer(
     if (mutex_result == S_FALSE) {
         QIQI_LOG_INFO(
             "Broker instance already "
-            "running in this session");
+            "running in this session "
+            "(pid={})",
+            ::GetCurrentProcessId());
         return S_OK;
     }
     if (FAILED(mutex_result)) {
@@ -329,6 +386,11 @@ HRESULT RunServer(
                 mutex_result));
         return mutex_result;
     }
+    QIQI_LOG_CAT_INFO(
+        qiqi::log::Keyword::Config,
+        "Broker singleton mutex acquired "
+        "(pid={})",
+        ::GetCurrentProcessId());
     qiqi::ScopedKernelHandle stop_event;
     const HRESULT event_result =
         CreateStopEvent(
@@ -342,6 +404,11 @@ HRESULT RunServer(
                 event_result));
         return event_result;
     }
+    QIQI_LOG_CAT_INFO(
+        qiqi::log::Keyword::Config,
+        "Broker stop event created "
+        "(pid={})",
+        ::GetCurrentProcessId());
 
     const HRESULT co_result =
         ::CoInitializeEx(
@@ -355,6 +422,10 @@ HRESULT RunServer(
                 co_result));
         return co_result;
     }
+    QIQI_LOG_CAT_INFO(
+        qiqi::log::Keyword::Config,
+        "Broker COM apartment initialized "
+        "(model=MTA)");
     const auto uninitialize =
         gsl::finally(
             [co_result]() noexcept {
@@ -384,6 +455,11 @@ HRESULT RunServer(
                 security_result));
         return security_result;
     }
+    QIQI_LOG_CAT_INFO(
+        qiqi::log::Keyword::Config,
+        "Broker COM security initialized "
+        "(authentication=PKT_PRIVACY, "
+        "impersonation=IMPERSONATE)");
 
     try {
         qiqi::broker::Runtime runtime(
@@ -393,8 +469,17 @@ HRESULT RunServer(
                 CreateConfigBrokerFactory(
                     runtime);
         if (!factory) {
+            QIQI_LOG_CAT_ERROR(
+                qiqi::log::Keyword::Config,
+                "Broker class factory creation "
+                "failed (hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    E_OUTOFMEMORY));
             return E_OUTOFMEMORY;
         }
+        QIQI_LOG_CAT_INFO(
+            qiqi::log::Keyword::Config,
+            "Broker class factory created");
         DWORD cookie = 0;
         HRESULT result =
             ::CoRegisterClassObject(
@@ -416,9 +501,12 @@ HRESULT RunServer(
         const auto revoke =
             gsl::finally(
                 [cookie]() noexcept {
-                    std::ignore =
+                    const HRESULT result =
                         ::CoRevokeClassObject(
                             cookie);
+                    LogOperationResult(
+                        "class-object-revoke",
+                        result);
                 });
         result =
             ::CoResumeClassObjects();
@@ -445,9 +533,28 @@ HRESULT RunServer(
                     stop_event.Get(),
                     kIdleWaitMs);
             if (wait == WAIT_OBJECT_0) {
+                QIQI_LOG_CAT_INFO(
+                    qiqi::log::Keyword::Config,
+                    "Broker stop event received");
                 break;
             }
+            if (wait == WAIT_FAILED) {
+                const HRESULT wait_result =
+                    HRESULT_FROM_WIN32(
+                        ::GetLastError());
+                QIQI_LOG_CAT_ERROR(
+                    qiqi::log::Keyword::Config,
+                    "Broker stop-event wait failed "
+                    "(hr=0x{:08X})",
+                    gsl::narrow_cast<unsigned long>(
+                        wait_result));
+                return wait_result;
+            }
             if (runtime.ShouldExit()) {
+                QIQI_LOG_CAT_INFO(
+                    qiqi::log::Keyword::Config,
+                    "Broker idle timeout reached "
+                    "(objects=0, locks=0)");
                 break;
             }
         }
@@ -468,6 +575,11 @@ HRESULT RunServer(
             error.code().value());
         return qiqi::SystemErrorToHResult(
             error);
+    } catch (const std::exception&) {
+        QIQI_LOG_ERROR(
+            "Broker startup failed with "
+            "an unexpected C++ exception");
+        return E_UNEXPECTED;
     }
 }
 
@@ -490,34 +602,79 @@ int WINAPI wWinMain(
 
     HRESULT result =
         S_OK;
+    QIQI_LOG_CAT_INFO(
+        qiqi::log::Keyword::Config,
+        "Broker process starting "
+        "(pid={}, logging_hr=0x{:08X})",
+        ::GetCurrentProcessId(),
+        gsl::narrow_cast<unsigned long>(
+            logging));
     BrokerArguments arguments;
     result = ParseArguments(arguments);
+    LogOperationResult(
+        "argument-parse",
+        result);
     if (FAILED(result)) {
-        QIQI_LOG_ERROR(
-            "Broker command line parsing failed "
+        QIQI_LOG_CAT_ERROR(
+            qiqi::log::Keyword::Config,
+            "Broker process completed "
             "(hr=0x{:08X})",
             gsl::narrow_cast<unsigned long>(
                 result));
         return SUCCEEDED(result) ? 0 : 1;
     }
+    QIQI_LOG_CAT_INFO(
+        qiqi::log::Keyword::Config,
+        "Broker command parsed "
+        "(embedding={}, register={}, "
+        "unregister={}, shutdown={}, "
+        "test_store={})",
+        arguments.embedding,
+        arguments.register_requested,
+        arguments.unregister_requested,
+        arguments.shutdown_requested,
+        !arguments.store_subkey.empty());
     if (arguments.shutdown_requested) {
+        QIQI_LOG_CAT_INFO(
+            qiqi::log::Keyword::Config,
+            "Broker shutdown command started");
         result = SignalStopEvent(
             arguments.store_subkey);
+        LogOperationResult(
+            "stop-event-command",
+            result);
         if (SUCCEEDED(result)) {
             result =
                 WaitForBrokerExit(
                     arguments.store_subkey);
+            LogOperationResult(
+                "shutdown-exit-wait",
+                result);
         }
     } else if (
         arguments.register_requested) {
+        QIQI_LOG_CAT_INFO(
+            qiqi::log::Keyword::Config,
+            "Broker registration command "
+            "started");
         result =
             qiqi::broker::
                 RegisterServer(instance);
+        LogOperationResult(
+            "server-register",
+            result);
     } else if (
         arguments.unregister_requested) {
+        QIQI_LOG_CAT_INFO(
+            qiqi::log::Keyword::Config,
+            "Broker unregistration command "
+            "started");
         result =
             qiqi::broker::
                 UnregisterServer();
+        LogOperationResult(
+            "server-unregister",
+            result);
     } else {
         if (!arguments.embedding) {
             QIQI_LOG_WARN(
@@ -525,7 +682,6 @@ int WINAPI wWinMain(
                 "only COM -Embedding is allowed");
             result = E_ABORT;
         } else {
-            std::ignore = logging;
             result = RunServer(
                 std::move(
                     arguments.store_subkey));
