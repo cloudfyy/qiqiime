@@ -30,7 +30,7 @@ constexpr uint8_t kErrorLevel = WINEVENT_LEVEL_ERROR;
 constexpr std::wstring_view kProcessName =
     L"QiQiImePackagedFullTrustHost.exe";
 constexpr std::wstring_view kLogFileName =
-    L"qiqi-msixfulltrust-host.log";
+    L"qiqi-fulltrust-host.log";
 
 template <uint8_t EventLevel, uint64_t Keyword>
 void EmitEtw(std::wstring_view message) noexcept {

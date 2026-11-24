@@ -44,7 +44,7 @@ in an unpackaged launch of the EXE.
 From the repository root:
 
 ```powershell
-tests\hosts\msixfulltrust\Package.ps1 `
+tests\hosts\fulltrust\Package.ps1 `
   -Configuration Release `
   -PackageVersion 0.1.0.0
 ```
@@ -69,7 +69,7 @@ host directory or committed.
 ## Install, launch, and remove
 
 ```powershell
-tests\hosts\msixfulltrust\Install-Host.ps1 -Launch
+tests\hosts\fulltrust\Install-Host.ps1 -Launch
 ```
 
 If the shared certificate is already in
@@ -78,7 +78,7 @@ On the first machine, rerun the install script from an elevated PowerShell so
 it can add that one trust entry.
 
 ```powershell
-tests\hosts\msixfulltrust\Uninstall-Host.ps1
+tests\hosts\fulltrust\Uninstall-Host.ps1
 ```
 
 Uninstalling removes the package and its virtualized HKCU/AppData state. The
@@ -86,7 +86,7 @@ shared certificate trust remains so the UWP host and subsequent builds continue
 to install. To remove that shared machine trust explicitly:
 
 ```powershell
-tests\hosts\msixfulltrust\Uninstall-Host.ps1 `
+tests\hosts\fulltrust\Uninstall-Host.ps1 `
   -RemoveDevelopmentCertificate
 ```
 
@@ -95,7 +95,7 @@ tests\hosts\msixfulltrust\Uninstall-Host.ps1 `
 1. Record desktop configuration:
 
    ```powershell
-   tests\hosts\msixfulltrust\Read-DesktopQiQiState.ps1
+   tests\hosts\fulltrust\Read-DesktopQiQiState.ps1
    ```
 
 2. Launch the packaged host and confirm:
@@ -117,6 +117,6 @@ tests\hosts\msixfulltrust\Uninstall-Host.ps1 `
 
 The host emits the normal `QiQiIME.TraceLogging` provider and appends UTF-8
 diagnostics to a package-private LocalAppData
-`qiqi-msixfulltrust-host.log`. It never writes entered text, candidate
+`qiqi-fulltrust-host.log`. It never writes entered text, candidate
 contents, registry paths, clipboard data, or window titles.
 

@@ -711,7 +711,7 @@ status-bar/tooltip skin support require separate design approval.
   synthetic Search Contract fixtures, privacy-safe TraceLogging/LocalState
   diagnostics, and a repeatable signed-MSIX/installer flow. The packaged
   full-trust host is implemented at
-  [tests/hosts/msixfulltrust](../tests/hosts/msixfulltrust/README.md), with
+  [tests/hosts/fulltrust](../tests/hosts/fulltrust/README.md), with
   `Windows.FullTrustApplication`/medium-IL identity, default registry
   virtualization, a real Rich Edit input target, TSF search-provider probing,
   package-private shadow injection, desktop-state comparison, and installable

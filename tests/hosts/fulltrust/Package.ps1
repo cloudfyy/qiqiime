@@ -38,7 +38,7 @@ function Resolve-VisualStudioGenerator {
 $repositoryRoot = [IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '..\..\..'))
 $buildRoot = Join-Path $repositoryRoot `
-    'build\hosts\msixfulltrust'
+    'build\hosts\fulltrust'
 $stageRoot = Join-Path $buildRoot 'staging'
 $packageRoot = Join-Path $repositoryRoot 'dist\test-hosts'
 $certificatePath = Join-Path $repositoryRoot `
