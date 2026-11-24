@@ -64,6 +64,7 @@
 cd qiqiime</code></pre></div>
       <p data-en="Build and test x64 and x86 sequentially. Release is the default; this command does not create installers.">依次构建并测试 x64 与 x86，默认为 Release。以下命令不会制作安装包。</p>
       <div class="code-block"><div class="code-top"><span>PowerShell</span><button class="copy" type="button" data-copy-target="build-command" data-en="Copy">复制</button></div><pre><code id="build-command">powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1</code></pre></div>
+      <p data-en="For an intentional repeat build, add -SkipTests to skip CTest after prior validation. The normal command and release CI keep tests enabled.">仅在明确重复已验证构建时追加 <code>-SkipTests</code> 跳过 CTest；常规命令和发布 CI 仍默认运行测试。</p>
       <p id="copy-status" class="status" role="status" aria-live="polite"></p>
       <div class="notice"><p data-en="GUI/TSF tests share desktop and single-instance state: run architectures sequentially and avoid keyboard/mouse interaction during those tests. A skipped ETW test due to permissions is not a pass.">GUI / TSF 测试共享桌面与单实例状态：请顺序运行双架构测试，测试期间避免键鼠操作。因权限跳过的 ETW 测试不等于通过。</p></div>
     </section>

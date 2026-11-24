@@ -4,12 +4,14 @@
 # Build, test, and optionally package both x64 and x86 (Win32) architectures for QiQi Wubi IME
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -SkipTests
 #   powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 param(
     [ValidateSet("Release", "Debug")]
     [string]$Config = "Release",
     [string]$Generator = "",
-    [switch]$Package
+    [switch]$Package,
+    [switch]$SkipTests
 )
 
 . (Join-Path $PSScriptRoot "common.ps1")
@@ -43,16 +45,24 @@ foreach ($t in (Get-QiQiBuildTargets)) {
         exit $buildExitCode
     }
 
-    Write-QiQiStep "Testing $($t.Name) ($Config)"
-    & ctest --test-dir $t.BuildDir -C $Config --output-on-failure
-    if ($LASTEXITCODE -ne 0) {
-        $testExitCode = $LASTEXITCODE
-        Write-Error "CTest ($($t.Name), $Config) failed with exit code $testExitCode." -ErrorAction Continue
-        exit $testExitCode
+    if ($SkipTests) {
+        Write-QiQiWarn "Skipping CTest for $($t.Name) ($Config) because -SkipTests was requested."
+    } else {
+        Write-QiQiStep "Testing $($t.Name) ($Config)"
+        & ctest --test-dir $t.BuildDir -C $Config --output-on-failure
+        if ($LASTEXITCODE -ne 0) {
+            $testExitCode = $LASTEXITCODE
+            Write-Error "CTest ($($t.Name), $Config) failed with exit code $testExitCode." -ErrorAction Continue
+            exit $testExitCode
+        }
     }
 }
 
-Write-Host "`nBoth x64 and x86 ($Config) builds and unit tests succeeded!" -ForegroundColor Green
+if ($SkipTests) {
+    Write-QiQiWarn "Both x64 and x86 ($Config) builds succeeded; CTest was intentionally skipped."
+} else {
+    Write-Host "`nBoth x64 and x86 ($Config) builds and unit tests succeeded!" -ForegroundColor Green
+}
 
 if ($Package) {
     Write-QiQiStep "Packaging Standalone Release Bundle (dist/)"

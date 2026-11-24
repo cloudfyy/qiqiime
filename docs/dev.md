@@ -656,6 +656,11 @@ Only generate release packages when explicitly needed:
 powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 -Package
 ```
 
+The default command always runs CTest. For an explicitly requested repeat build
+of binaries that were already validated, add `-SkipTests` (also valid with
+`-Package`). This only skips CTest execution; it is not a test result, does not
+waive a previous failure, and must not be used by CI or normal release builds.
+
 Confirmed filesystem access/sharing or cleanup failures in tests (Win32 5/32)
 need not block a requested manual packaging run. Retain the failed test result,
 logs and failed fixture, and identify the exception when reporting the package;

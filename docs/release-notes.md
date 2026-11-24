@@ -1,3 +1,52 @@
+# QiQiIME 1.3.1 紧急补丁版（2026-11-24）
+
+数字版本：`1.3.1`；发行标签：`v1.3.1`（2026-11-24）。该标签由 Release
+工作流重新构建、测试并生成附件；标签存在不等于发布附件已经完成。
+
+## 紧急修复
+
+- **DCOM 权限掩码**：1.3.0 把 Launch 权限位同时写入 AppID
+  `AccessPermission` 和 `LaunchPermission`。Windows 因 ACE permission
+  invalid 拒绝启动/激活 Broker，并返回 `0x80040153`。1.3.1 将
+  `AccessPermission` 固定为本地执行 `0x03`，`LaunchPermission` 固定为
+  本地执行与激活 `0x0B`。
+- **保留实际 HRESULT**：Settings、词库管理器、IME 异步刷新与同步目录发布
+  现在传播 Broker、线程池、缓存和保存 API 的真实失败码，不再以 `bool`
+  丢失错误或统一改写成 `E_UNEXPECTED`。
+- **设置皮肤错误一致**：Broker snapshot 不可用时，皮肤选择、确定保存及
+  后续刷新都显示同一实际 HRESULT；不会再把 `0x80040153` 显示成
+  `0x8000FFFF`。
+- **注册回归**：DCOM 脚本显式验证 Access/Launch 权限掩码，再执行真实
+  synchronous/native-async call、CAS、持久化与多 subscriber 回归。
+
+## 验证边界
+
+- 本地 x64 Common、Broker store、Settings、Dictionary Manager、TSF/UI 与
+  sync/native-async DCOM 定向回归通过。
+- `QiQiCompositionLifecycleTest` 的外部键盘干扰失败已单独复跑通过；
+  运行测试时不应按住 Shift/Ctrl/Alt。
+- 本机不制作或安装 MSI；标签 Release 工作流仍是双架构构建、测试、
+  MSI/ZIP/PDB 打包及附件发布的最终判定。
+
+## English
+
+Version `1.3.1`; release tag `v1.3.1` (2026-11-24). Release CI rebuilds and
+tests the tagged source before publishing assets.
+
+### Emergency fix
+
+- Split Broker AppID access and launch rights: AccessPermission is now `0x03`
+  and LaunchPermission is `0x0B`, avoiding Windows' invalid-ACE DCOM rejection.
+- Preserve real Broker, worker-pool, cache, and save HRESULTs through Settings,
+  Dictionary Manager, IME refresh, and sync-directory publication.
+- Skin selection/save errors now show the underlying `0x80040153` instead of
+  replacing it with `0x8000FFFF`.
+- DCOM regression verifies the registered masks before exercising synchronous
+  and native-async calls, CAS, persisted lineage, and multiple subscribers.
+
+Tag CI remains authoritative for dual-architecture tests, installer packaging,
+symbols, and publication.
+
 # QiQiIME 1.3.0 功能版（2026-11-24）
 
 数字版本：`1.3.0`；发行标签：`v1.3.0`（2026-11-24）。该标签由 Release
