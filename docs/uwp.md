@@ -27,10 +27,19 @@ The script does not grant write access. `-VerifyOnly` and
 package-group read/execute access on the installation directory.
 Check actual ACL results; location under Program Files does not prove access.
 
-Settings under `HKCU\Software\QiQiIME` attempt to grant these groups `KEY_READ`.
+Runtime configuration is no longer read from the host package's virtualized
+`HKCU` view. `QiQiIMEConfigBroker.exe` owns the real desktop-user configuration
+and skin catalog; ordinary AppContainer, Full Trust, and LPAC hosts receive a
+validated in-process snapshot through local DCOM. Broker registration grants
+the package groups local DCOM execute/activation rights, and the `lpacCom`
+capability profile receives only its derived capability SIDs. The Broker still
+rejects callers whose token does not match its user SID and Windows session.
+
+Registry access for desktop maintenance remains separate from runtime access.
 Synchronization data grants read/traverse access, not write access. Other
-qualifying applications may therefore read shared settings and phrases.
-Do not open the entire user profile to solve an access problem.
+qualifying applications may therefore read shared dictionary phrases but do
+not gain direct write access to the Broker's registry. Do not open the entire
+user profile to solve an access problem.
 See the [privacy policy](../PRIVACY.md) for the disclosure boundary.
 
 ## Dictionaries and synchronization
@@ -40,19 +49,22 @@ environment, redirection, and effective token can change its paths and access.
 Do not derive the desktop user's sharing directory from the container's own
 `LOCALAPPDATA`.
 
-The user dictionary file is authoritative. Desktop writers publish the absolute
-read-only channel address through
-`HKCU\Software\QiQiIME\UserDictSyncDirectory`, with `ConfigSequence` detecting
-address changes. AppContainer readers consume published snapshots/increments
-rather than opening the desktop source file or creating a separate local channel.
+The user dictionary file is authoritative. Desktop writers ask the Broker to
+publish the absolute read-only channel address. The Broker updates
+`HKCU\Software\QiQiIME\UserDictSyncDirectory` and the configuration sequence in
+its registry transaction, then returns the address in the configuration
+snapshot. AppContainer readers obtain that snapshot through DCOM and consume the
+published increments rather than opening the desktop source file or creating a
+separate local channel.
 An explicitly empty address means no shared user dictionary; inaccessible or
 invalid metadata/snapshots must be diagnosed, not silently treated as success.
 
 [change_sync](../src/common/changesync.h) separates directory wakeups from the
 persistent journal, version checks, and file-lock coordination. Notifications
-alone are not reliable state. Global TSF compartments and registry sequences
-trigger configuration reloads; delivery failure or focus-dependent checks can
-delay observation. Do not promise immediate cross-process consistency.
+alone are not reliable state. Global TSF compartments wake subscribers to make
+one traced Broker read; they do not carry configuration. Delivery failure or
+focus-dependent checks can delay observation. Do not promise immediate
+cross-process consistency.
 
 Registration attempts to precompile bundled dictionaries into adjacent `.qdict`
 files. Runtime loading validates caches against format and source size/time.
@@ -78,11 +90,12 @@ does not validate password controls or secure-desktop support.
 ## Validation checklist
 
 1. Record the actual host/version, Windows version, PID, architecture, and token.
-2. Confirm the loaded DLL version/path and effective DLL/data/registry/channel
-   permissions. Check registration-time precompilation separately.
-3. Exercise bundled dictionaries, shared address discovery, snapshots/increments,
-   dictionary path changes, configuration reads, and notifications. Separate
-   readable data from successful write-back.
+2. Confirm the loaded DLL version/path, Broker registration, effective
+   DLL/data/channel permissions, and whether the host can activate the Broker.
+   Check registry maintenance and registration-time precompilation separately.
+3. Exercise bundled dictionaries, Broker snapshot/address reads,
+   snapshots/increments, dictionary path changes, configuration reads, and
+   notifications. Separate readable data from successful write-back.
 4. Test composition, focus, deactivation/reactivation, context removal, and
    restricted/ordinary fields in that application.
 5. Retain actual HRESULT/Win32 failures and mark uncovered cases explicitly.
@@ -98,5 +111,6 @@ Review paths and exported diagnostics for personal information before sharing.
 
 - [AppContainer isolation](https://learn.microsoft.com/en-us/windows/win32/secauthz/appcontainer-isolation)
 - [Installation](install.md)
+- [Configuration Broker](config-broker.md)
 - [Configuration and sharing implementation](../src/common/config.cpp)
 - [Dictionary synchronization implementation](../src/ime/engine/dictutil.cpp)

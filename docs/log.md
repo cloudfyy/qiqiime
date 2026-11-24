@@ -24,9 +24,10 @@ event source's architecture.
 2. Reproduce the problem in the application hosting the IME. Capture needs no
    debugger, receives only events emitted while enabled, and does not replay
    earlier activity.
-3. Filter by process name, exact PID, ETW level, category, activity, or message.
+3. Filter by process name, exact PID, ETW level, category, trace/activity, or message.
    Name/PID lists describe buffered sources, not all running applications.
-   Use **Filter by selected activity** to follow related operations.
+   Use **Filter by selected trace/activity** to show a save and its related
+   cross-process operations, including the Broker and later subscriber refreshes.
 4. Select rows to inspect details or copy with `Ctrl+C` / `Ctrl+Insert`.
    **Pause auto-scroll** does not stop capture or aggregation.
 5. **Stop capture** retains existing records. **Clear** clears only the current
@@ -79,8 +80,10 @@ and stops only that session; a failed stop retains ownership for retry.
 | Item | Value |
 | --- | --- |
 | IME provider | `QiQiIME.TraceLogging` |
-| Provider GUID | `{8E7B9D31-5A42-4C81-9F11-202610290099}` |
-| Ordinary payload | `process`, `message` |
+| IME provider GUID | `{8E7B9D31-5A42-4C81-9F11-202610290099}` |
+| Broker provider | `QiQiIME.ConfigBroker.TraceLogging` |
+| Broker provider GUID | `{8E7B9D31-5A42-4C81-9F11-202610290011}` |
+| Ordinary payload | `process`, `message`, `trace_id` |
 | Event metadata | Time, PID/TID, level, keyword, opcode, activity/related activity |
 | Ordinary keywords | `Logs = 0x00FF` |
 | Typed metrics keyword | `Metrics = 0x0100` |
@@ -97,6 +100,12 @@ when failure reporting itself changes the thread's error state.
 The DLL runs inside the host, not a separate IME process. Identify the actual
 host PID: browsers and Electron applications can have multiple similar processes.
 The settings tool is a separate `QiQiIMESettings.exe` process.
+The configuration Broker is `QiQiIMEConfigBroker.exe`. Client Read/Save/Reset/
+Publish calls and Broker Start/Stop events use the same `trace_id`; the Broker
+activity is related to the client operation activity. A later subscriber's
+snapshot application is related to the last durably committed activity. Trace
+metadata contains GUIDs and result revisions, not configuration values, paths,
+SIDs, or command lines.
 
 ## Capture level and categories
 

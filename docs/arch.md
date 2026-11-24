@@ -247,15 +247,17 @@ flowchart TD
     Writer["Desktop IME or dictionary manager"] -->|locked source update| File["Authoritative user dictionary"]
     File -->|derived snapshot| Channel["Versioned read-only sharing channel"]
     Writer -->|publish increments| Channel
-    Writer -->|publish absolute channel address| Registry["HKCU UserDictSyncDirectory and ConfigSequence"]
-    Registry --> Reader["IME readers discover the configured channel"]
+    Writer -->|PublishSyncDirectory expected revision| Broker["Configuration Broker"]
+    Broker -->|transactional address and revision| Registry["HKCU UserDictSyncDirectory and ConfigSequence"]
+    Broker -->|traced snapshot read| Reader["IME and tool snapshot caches"]
     Channel -->|snapshot or journal| Reader
     Reader --> Boundary{"Safe input boundary?"}
     Boundary -->|Composing| Defer["Defer candidate changes"]
     Boundary -->|Non-composing focus or new input| Apply["Validate batch and publish candidate state"]
 ```
 
-Desktop writers publish `UserDictSyncDirectory` transactionally.
+Desktop writers publish `UserDictSyncDirectory` through the Broker
+transactionally.
 AppContainer readers use that absolute address rather than their own
 `LOCALAPPDATA` or the private source file. Explicitly empty publication means no
 shared user dictionary; invalid/inaccessible publication is a diagnosed failure.
@@ -280,7 +282,7 @@ middle of composition.
 
 | Scope | Examples and mechanism |
 | --- | --- |
-| Per-user persistent configuration | Dictionary choices, input defaults, UI language, visibility, sounds; `HKCU\Software\QiQiIME` |
+| Per-user persistent configuration | Dictionary choices, input defaults, UI language, visibility, sounds; Broker-owned `HKCU\Software\QiQiIME` and per-process snapshots |
 | TSF thread/session mode | Open/close, width and punctuation through system compartments |
 | Current input | Preedit, candidates, page/selection, target and epochs; not global configuration |
 | Shared transient UI state | Status-bar coordinates through a dedicated global compartment |
@@ -289,10 +291,14 @@ Typed member descriptors share registry/backup keys and value constraints;
 settings use their editable-field projection. Configuration defaults do not
 overwrite another live session's current mode.
 
-Save configuration before notifying instances. `ConfigSequence` and TSF global
-compartments prompt reload; focus checks compensate for missed notifications.
-System mode compartments are also observed in the reverse direction to update
-the engine and UI. These signals are not durable dictionary-change journals.
+Save configuration through the Broker with expected-revision CAS. The Broker
+commits the complete snapshot, configuration sequence, and last commit trace
+metadata in one registry transaction, then increments the TSF global
+compartment. Subscribers make one traced Broker read instead of opening the
+host's package-private registry view. Focus checks compensate for missed
+notifications. System mode compartments are also observed in the reverse
+direction to update the engine and UI. These signals are not durable
+dictionary-change journals.
 
 Settings failures retain edits and report the real error. Notification failure
 reports "saved but not propagated" rather than rolling back a completed save.
