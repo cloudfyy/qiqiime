@@ -8,6 +8,7 @@
 #include "common/fileutil.h"
 #include "common/logger.h"
 #include "common/etw.h"
+#include "ime/svc/service.h"
 #include "tools/logmonitor/collector.h"
 #include "tools/logmonitor/aggregate.h"
 #include "common/RAII.h"
@@ -105,10 +106,41 @@ struct FocusBenchmarkState {
 };
 thread_local FocusBenchmarkState* focus_benchmark = nullptr;
 
+class ConfigRegistryOverrideScope final {
+public:
+    explicit ConfigRegistryOverrideScope(
+        const wchar_t* subkey) noexcept
+        : previous_(
+              HasConfigRegistrySubKeyOverride()
+                  ? GetActiveConfigRegistrySubKey()
+                  : nullptr) {
+        SetConfigRegistrySubKeyOverrideForTest(
+            subkey);
+    }
+
+    ~ConfigRegistryOverrideScope() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(
+            previous_);
+    }
+
+    ConfigRegistryOverrideScope(
+        const ConfigRegistryOverrideScope&) =
+        delete;
+    ConfigRegistryOverrideScope& operator=(
+        const ConfigRegistryOverrideScope&) =
+        delete;
+
+private:
+    const wchar_t* const previous_;
+};
+
 class FocusTestRegistry final {
 public:
     explicit FocusTestRegistry(std::wstring name, HKEY parent = HKEY_CURRENT_USER)
-        : name_(L"Software\\" + std::move(name)), parent_(parent) {
+        : name_(L"Software\\" + std::move(name)),
+          parent_(parent),
+          config_override_(
+              kDefaultConfigRegSubKey) {
         DWORD disposition = 0;
         QIQI_TEST_CHECK(::RegCreateKeyExW(parent_, name_.c_str(), 0, nullptr, REG_OPTION_NON_VOLATILE,
             KEY_ALL_ACCESS, nullptr, key_.Put(), &disposition) == ERROR_SUCCESS);
@@ -130,6 +162,8 @@ private:
     const std::wstring name_;
     const HKEY parent_; // A nested regression fixture borrows its outer fixture's key.
     ScopedRegKey key_;
+    const ConfigRegistryOverrideScope
+        config_override_;
 };
 
 class FocusTestEnvironment final {
@@ -231,10 +265,11 @@ ULONG ObserveFocusMetric(EVENT_RECORD& record) {
 void ExerciseFocusMetrics() {
     FocusTestEnvironment environment(true);
     auto& config = environment.config;
-    const auto module = LoadImeModule();
-    const auto factory = GetImeFactory(module.Get());
-    ComPtr<ITfTextInputProcessorEx> service;
-    QIQI_TEST_CHECK(factory->CreateInstance(nullptr, IID_PPV_ARGS(&service)) == S_OK);
+    // Keep the test override in this module; loaded-DLL behavior is covered
+    // separately by RunFocusEnvironmentIsolationTest.
+    const auto service =
+        MakeComObject<QiQiTextService>(
+            g_dll_instance);
     const auto manager = MakeComObject<MockTfThreadMgr>();
     QIQI_TEST_CHECK(service->Activate(manager.Get(), 1) == S_OK);
     const auto deactivate = gsl::finally([&]() noexcept { QIQI_TEST_CHECK(service->Deactivate() == S_OK); });
@@ -461,7 +496,13 @@ void RunFocusEnvironmentIsolationTest() {
             ComPtr<ITfDisplayAttributeInfo> info;
             QIQI_TEST_CHECK(provider->GetDisplayAttributeInfo(kGuidDisplayAttributeInput, &info) == S_OK && info);
             TF_DISPLAYATTRIBUTE attribute{};
-            QIQI_TEST_CHECK(info->GetAttributeInfo(&attribute) == S_OK && attribute.lsStyle == TF_LS_NONE);
+            // The production DLL must retain the compiled safe
+            // default until its Broker cache is refreshed.
+            QIQI_TEST_CHECK(
+                info->GetAttributeInfo(&attribute) ==
+                    S_OK &&
+                attribute.lsStyle ==
+                    TF_LS_DOT);
             check_sentinel();
             if (fail) throw std::runtime_error("injected focus fixture failure");
         } catch (const std::runtime_error& error) {
@@ -543,7 +584,10 @@ int RunFocusMetricsEtwTest() {
             events.push_back(*event);
         }
     }
-    QIQI_TEST_CHECK(instance != metrics::ModuleInstance().id && service_id != 0);
+    QIQI_TEST_CHECK(
+        instance ==
+            metrics::ModuleInstance().id &&
+        service_id != 0);
     QIQI_TEST_CHECK(events.size() == 25);
     size_t successes = 0;
     size_t failures = 0;
@@ -588,7 +632,7 @@ int RunFocusMetricsEtwTest() {
     QIQI_TEST_CHECK(summary && summary->intents == 7 && summary->success.Samples() == 3 &&
         summary->failure.Samples() == 2 && summary->Count(metrics::Outcome::Stale) == 1 &&
         summary->Count(metrics::Outcome::Cancelled) == 1 && summary->FailureRate().has_value());
-    std::cout << "[PASS] Real IME DLL focus metrics -> TDH -> queue -> aggregation.\n";
+    std::cout << "[PASS] Real IME focus metrics -> TDH -> queue -> aggregation.\n";
     return 0;
 }
 
@@ -609,6 +653,8 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
                                      KEY_ALL_ACCESS, nullptr, isolated_user.Put(), &disposition) == ERROR_SUCCESS);
     QIQI_TEST_CHECK(disposition == REG_CREATED_NEW_KEY);
     QIQI_TEST_CHECK(::RegOverridePredefKey(HKEY_CURRENT_USER, isolated_user.Get()) == ERROR_SUCCESS);
+    const ConfigRegistryOverrideScope config_override(
+        kDefaultConfigRegSubKey);
     const auto restore_registry = gsl::finally([&]() noexcept {
         QIQI_TEST_CHECK(::RegOverridePredefKey(HKEY_CURRENT_USER, nullptr) == ERROR_SUCCESS);
         isolated_user.Reset();
