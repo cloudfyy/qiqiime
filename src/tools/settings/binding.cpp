@@ -92,6 +92,11 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) {
             config::CopyCachedSnapshot(
                 external_snapshot);
         if (refresh_result != S_OK) {
+            ctx.skin_catalog_result =
+                refresh_result ==
+                        S_FALSE
+                    ? E_PENDING
+                    : refresh_result;
             QIQI_LOG_ERROR(
                 "Settings broker refresh failed "
                 "(hr=0x{:08X})",
@@ -153,7 +158,7 @@ void RequestSettingsConfigRefresh(
     }
     ctx.config_refresh_pending = false;
     ctx.config_refresh_inflight = true;
-    const bool submitted =
+    const HRESULT submit_result =
         config::ReadSnapshotAsync(
         [hwnd](
                 HRESULT result,
@@ -167,12 +172,19 @@ void RequestSettingsConfigRefresh(
                         0);
                 }
             });
-    if (!submitted) {
+    if (FAILED(submit_result)) {
         ctx.config_refresh_inflight =
             false;
+        if (ctx.save_on_accept) {
+            ctx.skin_catalog_result =
+                submit_result;
+        }
         QIQI_LOG_ERROR(
             "Settings broker refresh "
-            "could not be queued");
+            "could not be queued "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                submit_result));
     }
 }
 

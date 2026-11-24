@@ -167,7 +167,7 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
                     false,
                     std::memory_order_relaxed);
             const HWND target = window;
-            const bool submitted =
+            const HRESULT submit_result =
                 config::ReadSnapshotAsync(
                     [target](
                         HRESULT result,
@@ -182,13 +182,17 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
                                 0);
                         }
                     });
-            if (!submitted) {
+            if (FAILED(submit_result)) {
                 self
                     ->config_refresh_inflight =
                     false;
                 QIQI_LOG_ERROR(
                     "DictManager broker refresh "
-                    "could not be queued");
+                    "could not be queued "
+                    "(hr=0x{:08X})",
+                    gsl::narrow_cast<
+                        unsigned long>(
+                            submit_result));
             }
             return 0;
         }

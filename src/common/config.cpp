@@ -920,7 +920,7 @@ HRESULT SaveUserDictSyncDirectory(
         return S_OK;
     }
     try {
-        const bool submitted =
+        const HRESULT submit_result =
             config::PublishSyncDirectoryAsync(
                 {
                     snapshot.revision,
@@ -943,15 +943,13 @@ HRESULT SaveUserDictSyncDirectory(
                                     publish_result));
                     }
                 });
-        if (!submitted) {
+        if (FAILED(submit_result)) {
             g_sync_directory_publish_inflight
                 .store(
                     false,
                     std::memory_order_release);
         }
-        return submitted
-            ? S_OK
-            : E_UNEXPECTED;
+        return submit_result;
     } catch (const std::bad_alloc&) {
         g_sync_directory_publish_inflight
             .store(

@@ -311,6 +311,14 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                     return;
                 }
                 if (edited.ime_skin_id != ImeSkinId::Default) {
+                    if (FAILED(
+                            ctx.skin_catalog_result)) {
+                        ReportSkinConfigurationFailure(
+                            hwnd,
+                            edited.ui_language,
+                            ctx.skin_catalog_result);
+                        return;
+                    }
                     const HRESULT result =
                         ValidateImeSkinCatalog(
                             ctx.skin_catalog);

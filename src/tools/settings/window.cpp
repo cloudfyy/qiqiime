@@ -107,14 +107,19 @@ ScopedWindow CreateSettingsWindow(
         return {};
     }
     config::Snapshot config_snapshot;
+    HRESULT config_snapshot_result = S_OK;
     if (HasConfigRegistrySubKeyOverride()) {
         ctx->config_registry_sequence =
             QueryRegistryConfigSequence();
-    } else if (
-        config::CopyCachedSnapshot(
-            config_snapshot) == S_OK) {
-        ctx->config_registry_sequence =
-            config_snapshot.revision;
+    } else {
+        config_snapshot_result =
+            config::CopyCachedSnapshot(
+                config_snapshot);
+        if (config_snapshot_result ==
+            S_OK) {
+            ctx->config_registry_sequence =
+                config_snapshot.revision;
+        }
     }
     ctx->save_on_accept = save_on_accept;
     if (save_on_accept) {
@@ -128,9 +133,13 @@ ScopedWindow CreateSettingsWindow(
                         ctx->skin_catalog);
             }
         } else if (
-            config_snapshot.revision == 0) {
+            config_snapshot_result !=
+            S_OK) {
             ctx->skin_catalog_result =
-                E_UNEXPECTED;
+                config_snapshot_result ==
+                        S_FALSE
+                    ? E_PENDING
+                    : config_snapshot_result;
         } else {
             try {
                 ctx->skin_catalog =

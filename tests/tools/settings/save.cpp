@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/support.h"
+#include "common/configclient.h"
 #include "common/i18n.h"
 #include "common/uiutil.h"
 #include "tools/settings/internal.h"
 
 #include <array>
+#include <format>
 #include <string>
 
 namespace qiqi::test {
@@ -131,6 +133,97 @@ void TestSaveRetryAndCancel() {
     ::SendMessageW(edit_only.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
     QIQI_TEST_CHECK(GetContext(edit_only.Get()).accepted && cfg.page_size == 7);
     QIQI_TEST_CHECK(!CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, nullptr, true));
+}
+
+void TestBrokerRefreshErrorPropagation() {
+    const std::wstring subkey =
+        L"Software\\QiQiIME_SettingsRefreshError_" +
+        std::to_wstring(
+            ::GetCurrentProcessId());
+    const wchar_t* previous_subkey =
+        GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(
+        subkey.c_str());
+    const auto cleanup =
+        gsl::finally([&]() noexcept {
+            SetConfigRegistrySubKeyOverrideForTest(
+                previous_subkey);
+            const LSTATUS result =
+                ::RegDeleteTreeW(
+                    HKEY_CURRENT_USER,
+                    subkey.c_str());
+            QIQI_TEST_CHECK(
+                result ==
+                        ERROR_SUCCESS ||
+                    result ==
+                        ERROR_FILE_NOT_FOUND);
+        });
+    QiQiConfig cfg;
+    cfg.ui_language = UiLanguage::EnUs;
+    cfg.ime_skin_id =
+        ImeSkinId::PeachBlossom;
+    QIQI_TEST_CHECK(
+        SaveConfigToRegistry(cfg));
+    const ScopedWindow window(
+        CreateSettingsWindow(
+            ::GetModuleHandleW(nullptr),
+            nullptr,
+            &cfg,
+            true));
+    QIQI_TEST_CHECK(window);
+    auto& context = GetContext(window.Get());
+    context.config_refresh_inflight = true;
+    constexpr HRESULT broker_result =
+        REGDB_E_INVALIDVALUE;
+    ::SendMessageW(
+        window.Get(),
+        kSettingsConfigLoadedMessage,
+        qiqi::config::EncodeAsyncResult(
+            broker_result),
+        0);
+    QIQI_TEST_CHECK(
+        context.skin_catalog_result ==
+        broker_result);
+    ::SendDlgItemMessageW(
+        window.Get(),
+        kIdComboImeSkin,
+        CB_SETCURSEL,
+        gsl::narrow_cast<WPARAM>(
+            context.quick_skin_count),
+        0);
+    const std::wstring expected =
+        std::format(
+            L"Skin configuration is "
+            L"unavailable; this change was "
+            L"not applied.\r\n"
+            L"HRESULT: 0x{:08X}",
+            gsl::narrow_cast<unsigned long>(
+                broker_result));
+    WithDismissedNativeMessage(
+        expected.c_str(),
+        [&] {
+            ::SendMessageW(
+                window.Get(),
+                WM_COMMAND,
+                MAKEWPARAM(
+                    IDOK,
+                    BN_CLICKED),
+                0);
+        });
+    QIQI_TEST_CHECK(
+        ::IsWindow(window.Get()) &&
+        !GetContext(window.Get()).done);
+    WithDismissedNativeMessage(
+        expected.c_str(),
+        [&] {
+            ::SendMessageW(
+                window.Get(),
+                WM_COMMAND,
+                MAKEWPARAM(
+                    kIdComboImeSkin,
+                    CBN_SELCHANGE),
+                0);
+        });
 }
 
 void TestExternalConfigSyncWhileSettingsOpen() {
@@ -437,6 +530,7 @@ void TestSettingsFieldMergeMatrix() {
 
 void RunSettingsSaveTests() {
     TestSaveRetryAndCancel();
+    TestBrokerRefreshErrorPropagation();
     TestExternalConfigSyncWhileSettingsOpen();
     TestRestoreDefaults();
     TestSettingsFieldMergeMatrix();

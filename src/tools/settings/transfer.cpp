@@ -89,10 +89,19 @@ HRESULT RefreshSettingsAfterRestore(HWND hwnd, DialogContext& context) {
                    : E_FAIL)
             : config::CopyCachedSnapshot(
                   snapshot);
-    if (FAILED(read_result) ||
+    if (FAILED(read_result)) {
+        QIQI_LOG_WARN(
+            "Restored backup configuration "
+            "could not be reloaded "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                read_result));
+        return read_result;
+    }
+    if (read_result != S_OK ||
         snapshot.revision == 0) {
         QIQI_LOG_WARN("Restored backup configuration could not be reloaded");
-        return E_FAIL;
+        return E_UNEXPECTED;
     }
     restored = std::move(snapshot.value);
     const uint64_t sequence =

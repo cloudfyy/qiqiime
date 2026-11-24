@@ -62,29 +62,29 @@ HRESULT PublishSyncDirectory(
     const trace::Context& trace,
     Snapshot& output) noexcept;
 
-bool ReadSnapshotAsync(
+HRESULT ReadSnapshotAsync(
     AsyncCompletion completion) noexcept;
-bool ReadSnapshotAsync(
+HRESULT ReadSnapshotAsync(
     const trace::Context& trace,
     AsyncCompletion completion) noexcept;
-bool SaveSnapshotAsync(
+HRESULT SaveSnapshotAsync(
     SaveRequest request,
     AsyncCompletion completion) noexcept;
-bool SaveSnapshotAsync(
+HRESULT SaveSnapshotAsync(
     SaveRequest request,
     const trace::Context& trace,
     AsyncCompletion completion) noexcept;
-bool ResetSnapshotAsync(
+HRESULT ResetSnapshotAsync(
     uint64_t expected_revision,
     AsyncCompletion completion) noexcept;
-bool ResetSnapshotAsync(
+HRESULT ResetSnapshotAsync(
     uint64_t expected_revision,
     const trace::Context& trace,
     AsyncCompletion completion) noexcept;
-bool PublishSyncDirectoryAsync(
+HRESULT PublishSyncDirectoryAsync(
     SyncDirectoryRequest request,
     AsyncCompletion completion) noexcept;
-bool PublishSyncDirectoryAsync(
+HRESULT PublishSyncDirectoryAsync(
     SyncDirectoryRequest request,
     const trace::Context& trace,
     AsyncCompletion completion) noexcept;

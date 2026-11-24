@@ -175,7 +175,7 @@ int main(
     qiqi::config::Snapshot async_read;
     const trace::Context async_read_trace =
         trace::CreateContext();
-    const bool submitted =
+    const HRESULT submitted =
         qiqi::config::ReadSnapshotAsync(
             async_read_trace,
             [&](HRESULT result,
@@ -190,7 +190,8 @@ int main(
                 }
                 condition.notify_one();
             });
-    QIQI_TEST_CHECK(submitted);
+    QIQI_TEST_CHECK(
+        SUCCEEDED(submitted));
     {
         std::unique_lock lock(mutex);
         QIQI_TEST_CHECK(
@@ -233,7 +234,7 @@ int main(
     const trace::Context
         async_save_trace =
             trace::CreateContext();
-    const bool async_save =
+    const HRESULT async_save =
         qiqi::config::SaveSnapshotAsync(
             {
                 saved.revision,
@@ -252,7 +253,8 @@ int main(
                 }
                 condition.notify_one();
             });
-    QIQI_TEST_CHECK(async_save);
+    QIQI_TEST_CHECK(
+        SUCCEEDED(async_save));
     {
         std::unique_lock lock(mutex);
         QIQI_TEST_CHECK(

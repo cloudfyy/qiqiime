@@ -297,9 +297,10 @@ LRESULT CALLBACK QiQiTextService::ConfigAsyncWndProc(
             false,
             std::memory_order_release);
         const ComPtr<QiQiTextService> self(this);
-        bool submitted = false;
+        HRESULT submit_result =
+            E_UNEXPECTED;
         try {
-            submitted =
+            submit_result =
                 config::ReadSnapshotAsync(
                     [self](HRESULT result,
                            const config::Snapshot&) {
@@ -326,17 +327,22 @@ LRESULT CALLBACK QiQiTextService::ConfigAsyncWndProc(
                         }
                     });
         } catch (const std::bad_alloc&) {
+            submit_result =
+                E_OUTOFMEMORY;
             QIQI_LOG_ERROR(
                 "Config async completion "
                 "allocation failed");
         }
-        if (!submitted) {
+        if (FAILED(submit_result)) {
             config_refresh_inflight_.store(
                 false,
                 std::memory_order_release);
             QIQI_LOG_ERROR(
                 "Config async refresh could "
-                "not be queued");
+                "not be queued "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    submit_result));
         }
     }
 

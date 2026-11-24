@@ -24,9 +24,13 @@
 namespace qiqi::broker {
 namespace {
 
-constexpr ULONG kLocalDcomRights =
+constexpr ULONG
+    kLocalDcomAccessRights =
     COM_RIGHTS_EXECUTE |
-    COM_RIGHTS_EXECUTE_LOCAL |
+    COM_RIGHTS_EXECUTE_LOCAL;
+constexpr ULONG
+    kLocalDcomLaunchRights =
+    kLocalDcomAccessRights |
     COM_RIGHTS_ACTIVATE_LOCAL;
 
 struct RegistryRoot {
@@ -212,6 +216,7 @@ HRESULT AppendCapabilitySids(
 }
 
 HRESULT BuildDcomDacl(
+    const ULONG rights,
     std::vector<uint8_t>& output) {
     std::vector<PSID> sids;
     std::vector<ScopedLocalAlloc> owners;
@@ -257,7 +262,7 @@ HRESULT BuildDcomDacl(
     for (const PSID sid : sids) {
         EXPLICIT_ACCESS_W entry{};
         entry.grfAccessPermissions =
-            kLocalDcomRights;
+            rights;
         entry.grfAccessMode = GRANT_ACCESS;
         entry.grfInheritance =
             NO_INHERITANCE;
@@ -569,18 +574,25 @@ HRESULT RegisterView(
         RPC_C_AUTHN_LEVEL_PKT_PRIVACY);
     if (FAILED(result)) return result;
 
-    std::vector<uint8_t> dacl;
-    result = BuildDcomDacl(dacl);
+    std::vector<uint8_t> access_dacl;
+    result = BuildDcomDacl(
+        kLocalDcomAccessRights,
+        access_dacl);
     if (FAILED(result)) return result;
     result = SetSecurityValue(
         appid_reg.Get(),
         L"AccessPermission",
-        dacl);
+        access_dacl);
+    if (FAILED(result)) return result;
+    std::vector<uint8_t> launch_dacl;
+    result = BuildDcomDacl(
+        kLocalDcomLaunchRights,
+        launch_dacl);
     if (FAILED(result)) return result;
     result = SetSecurityValue(
         appid_reg.Get(),
         L"LaunchPermission",
-        dacl);
+        launch_dacl);
     if (FAILED(result)) return result;
     return RegisterProxy(
         proxy,

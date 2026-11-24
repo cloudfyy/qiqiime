@@ -539,7 +539,7 @@ void CALLBACK RunRequest(
     }
 }
 
-bool SubmitAsync(
+HRESULT SubmitAsync(
     Request request) noexcept {
     try {
         auto context =
@@ -549,18 +549,23 @@ bool SubmitAsync(
                 &RunRequest,
                 context.get(),
                 nullptr)) {
+            const DWORD error =
+                ::GetLastError();
             QIQI_LOG_CAT_ERROR(
                 log::Keyword::Config,
                 "ConfigClient threadpool "
                 "submission failed "
                 "(error={})",
-                ::GetLastError());
-            return false;
+                error);
+            return HRESULT_FROM_WIN32(
+                error != ERROR_SUCCESS
+                    ? error
+                    : ERROR_FUNCTION_FAILED);
         }
         context.release();
-        return true;
+        return S_OK;
     } catch (const std::bad_alloc&) {
-        return false;
+        return E_OUTOFMEMORY;
     } catch (
         const std::system_error& error) {
         QIQI_LOG_CAT_ERROR(
@@ -568,7 +573,8 @@ bool SubmitAsync(
             "ConfigClient worker startup "
             "failed (error={})",
             error.code().value());
-        return false;
+        return SystemErrorToHResult(
+            error);
     }
 }
 
@@ -848,14 +854,14 @@ HRESULT PublishSyncDirectory(
         output);
 }
 
-bool ReadSnapshotAsync(
+HRESULT ReadSnapshotAsync(
     AsyncCompletion completion) noexcept {
     return ReadSnapshotAsync(
         trace::CreateContext(),
         std::move(completion));
 }
 
-bool ReadSnapshotAsync(
+HRESULT ReadSnapshotAsync(
     const trace::Context& trace,
     AsyncCompletion completion) noexcept {
     return SubmitAsync(Request{
@@ -868,7 +874,7 @@ bool ReadSnapshotAsync(
     });
 }
 
-bool SaveSnapshotAsync(
+HRESULT SaveSnapshotAsync(
     SaveRequest request,
     AsyncCompletion completion) noexcept {
     return SaveSnapshotAsync(
@@ -877,7 +883,7 @@ bool SaveSnapshotAsync(
         std::move(completion));
 }
 
-bool SaveSnapshotAsync(
+HRESULT SaveSnapshotAsync(
     SaveRequest request,
     const trace::Context& trace,
     AsyncCompletion completion) noexcept {
@@ -890,7 +896,7 @@ bool SaveSnapshotAsync(
     });
 }
 
-bool ResetSnapshotAsync(
+HRESULT ResetSnapshotAsync(
     uint64_t expected_revision,
     AsyncCompletion completion) noexcept {
     return ResetSnapshotAsync(
@@ -899,7 +905,7 @@ bool ResetSnapshotAsync(
         std::move(completion));
 }
 
-bool ResetSnapshotAsync(
+HRESULT ResetSnapshotAsync(
     uint64_t expected_revision,
     const trace::Context& trace,
     AsyncCompletion completion) noexcept {
@@ -913,7 +919,7 @@ bool ResetSnapshotAsync(
     });
 }
 
-bool PublishSyncDirectoryAsync(
+HRESULT PublishSyncDirectoryAsync(
     SyncDirectoryRequest request,
     AsyncCompletion completion) noexcept {
     return PublishSyncDirectoryAsync(
@@ -922,7 +928,7 @@ bool PublishSyncDirectoryAsync(
         std::move(completion));
 }
 
-bool PublishSyncDirectoryAsync(
+HRESULT PublishSyncDirectoryAsync(
     SyncDirectoryRequest request,
     const trace::Context& trace,
     AsyncCompletion completion) noexcept {

@@ -393,6 +393,10 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                     hwnd,
                     *ctx);
             } else {
+                if (ctx->save_on_accept) {
+                    ctx->skin_catalog_result =
+                        refresh_result;
+                }
                 QIQI_LOG_ERROR(
                     "Settings broker refresh "
                     "failed (hr=0x{:08X})",

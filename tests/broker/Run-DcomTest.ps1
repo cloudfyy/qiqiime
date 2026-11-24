@@ -54,6 +54,36 @@ try {
     if ($registration.ExitCode -ne 0) {
         throw "Broker registration failed with exit code $($registration.ExitCode)."
     }
+    $appid = '{8E7B9D31-5A42-4C81-9F11-20261029000E}'
+    $appidKey = "Registry::HKEY_CURRENT_USER\Software\Classes\AppID\$appid"
+    $expectedMasks = @{
+        AccessPermission = 0x3
+        LaunchPermission = 0xB
+    }
+    foreach ($permission in
+        $expectedMasks.Keys) {
+        $bytes =
+            [byte[]](Get-ItemPropertyValue `
+                -LiteralPath $appidKey `
+                -Name $permission)
+        $descriptor =
+            [System.Security.AccessControl.RawSecurityDescriptor]::new(
+                $bytes,
+                0)
+        $masks = @(
+            $descriptor.DiscretionaryAcl |
+                ForEach-Object {
+                    $_.AccessMask
+                } |
+                Sort-Object -Unique)
+        if ($masks.Count -ne 1 -or
+            $masks[0] -ne
+                $expectedMasks[$permission]) {
+            throw (
+                "$permission has invalid COM " +
+                "rights: $($masks -join ', ')")
+        }
+    }
     $directLaunch = Start-Process `
         -FilePath $broker `
         -WindowStyle Hidden `
