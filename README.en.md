@@ -11,10 +11,10 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The source version is **1.3.1**, corresponding to release tag `v1.3.1`, with
+The source version is **1.3.2**, corresponding to release tag `v1.3.2`, with
 changes recorded in the [release notes](docs/release-notes.md). Release CI
-rebuilds, tests, and packages the tagged source. Until the `v1.3.1` workflow
-finishes publishing, the `v1.3.0` release remains as a historical asset.
+rebuilds, tests, and packages the tagged source. Until the `v1.3.2` workflow
+finishes publishing, the `v1.3.1` release remains as a historical asset.
 Historical tags and assets remain unchanged.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
@@ -37,6 +37,13 @@ and AppContainer guides are available in English.
 
 ## Features
 
+- **1.3.2 AppContainer Broker patch (pending release):** Broker DCOM
+  registration now grants package-aware access, launch, and read/execute
+  permissions for the installed Search package, the Broker, and both native
+  proxies. During testing, same-user AppContainer callers can exercise Read,
+  Save, Reset, and Publish while other users remain denied. Real
+  AppContainer activation and Feedback Hub skin-refresh acceptance are still
+  required before release.
 - **1.3.1 emergency fix:** The Broker DCOM AccessPermission and
   LaunchPermission now use valid, separate rights masks, so Windows can activate
   the configuration server. Settings, Dictionary Manager, and IME paths retain

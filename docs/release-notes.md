@@ -1,3 +1,41 @@
+# QiQiIME 1.3.2 AppContainer Broker 访问补丁（2026-11-25，待发布）
+
+数字版本：`1.3.2`；计划发行标签：`v1.3.2`。Release 工作流是后续双架构
+测试、MSI/ZIP/PDB 打包及附件发布的权威结果。
+
+## 主要变更
+
+- **Package-aware DCOM 访问**：注册时动态发现当前 Windows Search package，
+  并为 package/capability SID 配置 DCOM Access/Launch 权限。
+- **Proxy 文件访问**：Broker 注册为可执行文件、x64/x86 Proxy DLL 及最终目录
+  授予只读执行权限；安装程序先设置安装树的包读取权限。
+- **同用户 AppContainer 调用**：测试版本允许同一用户的 AppContainer 调用
+  Read、Save、Reset 与 Publish，其他用户仍被拒绝；桌面跨 session 调用仍受
+  同一 session 约束。
+- **独立 ACL 修复工具**：支持 List、Diagnose、Grant、Revoke、WhatIf，以及仅在
+  开发目录需要时启用祖先目录 Traverse。
+- **独立验证宿主**：拆分为 `packaged-search` MSIX 宿主与 `broker-access`
+  权限矩阵，分别验证真实打包应用和 AppContainer token/COM 边界。
+
+## 验证边界
+
+- x64 Broker Store、CLI、DCOM 定向测试通过。
+- AppContainer 的同用户策略已覆盖纯单元测试；真实 AppContainer 激活及
+  Feedback Hub 皮肤刷新仍需在安装测试包后验收。
+- 本次版本提升不生成 MSI、不打标签、不推送或声明正式发布。
+
+## English
+
+Source version `1.3.2`; planned release tag `v1.3.2`.
+
+- Add package-aware DCOM ACLs and Broker/proxy read-execute file ACLs.
+- During testing, allow same-user AppContainer Read, Save, Reset, and Publish
+  calls while retaining the different-user denial boundary.
+- Add package ACL repair tooling and separate packaged-search and broker-access
+  host fixtures.
+- Focused x64 Broker tests pass; installed AppContainer activation and Feedback
+  Hub skin refresh remain acceptance items.
+
 # QiQiIME 1.3.1 紧急补丁版（2026-11-24）
 
 数字版本：`1.3.1`；发行标签：`v1.3.1`（2026-11-24）。该标签由 Release
