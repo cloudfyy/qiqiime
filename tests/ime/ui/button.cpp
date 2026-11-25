@@ -280,6 +280,63 @@ void TestLangBarButton() {
     const POINT explicit_pt{200, 200};
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_RIGHT, explicit_pt, nullptr)));
 
+    // Exercise the AppContainer deferred/native menu path without needing a packaged process.
+    DWORD native_cookie = 0;
+    QIQI_TEST_CHECK(
+        SUCCEEDED(
+            lb_src->AdviseSink(
+                IID_ITfLangBarItemSink,
+                &sink,
+                &native_cookie)));
+    btn->ForceNativePopupForTest(true);
+    const UINT_PTR native_timer =
+        ::SetTimer(
+            nullptr,
+            8,
+            50,
+            [](
+                HWND,
+                UINT,
+                UINT_PTR id,
+                DWORD) noexcept {
+                ::KillTimer(nullptr, id);
+                ::EndMenu();
+            });
+    QIQI_TEST_CHECK(native_timer != 0);
+    QIQI_TEST_CHECK(
+        SUCCEEDED(
+            btn->OnClick(
+                TF_LBI_CLK_RIGHT,
+                explicit_pt,
+                nullptr)));
+    MSG message{};
+    const ULONGLONG native_deadline =
+        ::GetTickCount64() + 5'000;
+    while (
+        btn->NativePopupResultForTest() ==
+            E_PENDING &&
+        ::GetTickCount64() <
+            native_deadline) {
+        const BOOL result =
+            ::GetMessageW(
+                &message,
+                nullptr,
+                0,
+                0);
+        QIQI_TEST_CHECK(result > 0);
+        ::TranslateMessage(&message);
+        ::DispatchMessageW(&message);
+    }
+    QIQI_TEST_CHECK(
+        btn->NativePopupResultForTest() ==
+        S_OK);
+    ::KillTimer(nullptr, native_timer);
+    btn->ForceNativePopupForTest(false);
+    QIQI_TEST_CHECK(
+        SUCCEEDED(
+            lb_src->UnadviseSink(
+                native_cookie)));
+
     // 3) LangBarButton with empty callback safely ignores OnClick
     {
         const ComPtr<LangBarButton> no_cb_btn = MakeComObject<LangBarButton>();

@@ -745,7 +745,11 @@ void QiQiTextService::SyncEngineFromSystemCompartments(REFGUID changed_guid) {
         const LONG conv = convmode_comp_.ReadInt4(0);
         const bool want_chinese = (conv & TF_CONVERSIONMODE_NATIVE) != 0;
         const bool want_full_width = (conv & TF_CONVERSIONMODE_FULLSHAPE) != 0;
-        const bool want_cn_punct = (conv & TF_CONVERSIONMODE_SYMBOL) != 0;
+        const bool compartment_cn_punct =
+            (conv & TF_CONVERSIONMODE_SYMBOL) != 0;
+        const bool punctuation_mismatch =
+            compartment_cn_punct !=
+            engine_.IsChinesePunctuation();
 
         if (want_chinese != engine_.IsChineseMode()) {
             SetChineseModeAndFinishComposition(composition_lifecycle_.Context().Get(), want_chinese);
@@ -755,10 +759,15 @@ void QiQiTextService::SyncEngineFromSystemCompartments(REFGUID changed_guid) {
             engine_.SetFullWidthMode(want_full_width);
             changed = true;
         }
-        if (want_cn_punct != engine_.IsChinesePunctuation()) {
-            engine_.SetChinesePunctuation(want_cn_punct);
-            changed = true;
+        if (punctuation_mismatch) {
+            QIQI_LOG_INFO(
+                "Preserving QiQi Chinese punctuation across external TSF compartment change "
+                "(raw_conversion={}, cn_punct={}, compartment_cn_punct={})",
+                conv,
+                engine_.IsChinesePunctuation(),
+                compartment_cn_punct);
         }
+        changed |= punctuation_mismatch;
     }
 
     if (changed) {

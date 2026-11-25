@@ -896,21 +896,74 @@ void TestQiQiTextServiceLifecycleAndKeyFlow() {
         QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(mock_tm->openclose_compartment_.Get(), 1, 1)));
         QIQI_TEST_CHECK(SUCCEEDED(check_key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == TRUE);
 
-        // 2) Start composing 'W', then externally set INPUTMODE_CONVERSION = 0 (English, HalfWidth, English punct)
+        // 2) Start composing 'W', then externally set INPUTMODE_CONVERSION = 0 (English, HalfWidth)
         QIQI_TEST_CHECK(SUCCEEDED(check_key_sink->OnKeyDown(mock_ctx.Get(), 'W', 0, &eaten)) && eaten == TRUE);
         QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(mock_tm->convmode_compartment_.Get(), 1, 0)));
         QIQI_TEST_CHECK(SUCCEEDED(check_key_sink->OnTestKeyDown(mock_ctx.Get(), 'A', 0, &eaten)) && eaten == FALSE);
-        // Restore Chinese + FullWidth + ChinesePunct via INPUTMODE_CONVERSION, then back to Chinese + HalfWidth + ChinesePunct
+        // Restore Chinese + FullWidth. A host may omit SYMBOL while changing only other mode bits;
+        // QiQi must preserve Chinese punctuation and restore the compartment bit.
         QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(
             mock_tm->convmode_compartment_.Get(),
             1,
-            TF_CONVERSIONMODE_NATIVE | TF_CONVERSIONMODE_FULLSHAPE | TF_CONVERSIONMODE_SYMBOL)));
+            TF_CONVERSIONMODE_NATIVE | TF_CONVERSIONMODE_FULLSHAPE)));
+        QIQI_TEST_CHECK(
+            mock_tm->convmode_compartment_->last_val_ ==
+            (TF_CONVERSIONMODE_NATIVE |
+             TF_CONVERSIONMODE_FULLSHAPE |
+             TF_CONVERSIONMODE_SYMBOL));
         QIQI_TEST_CHECK(SUCCEEDED(check_key_sink->OnKeyDown(mock_ctx.Get(), '1', 0, &eaten)) && eaten == TRUE);
         QIQI_TEST_CHECK(mock_ctx->range_->text_ == L"１");
+        QIQI_TEST_CHECK(
+            SUCCEEDED(
+                check_key_sink->OnKeyDown(
+                    mock_ctx.Get(),
+                    VK_OEM_PERIOD,
+                    0,
+                    &eaten)) &&
+            eaten == TRUE);
+        QIQI_TEST_CHECK(
+            mock_ctx->range_->text_ == L"。");
+        // Return to Chinese + HalfWidth without disturbing punctuation.
         QIQI_TEST_CHECK(SUCCEEDED(WriteCompartmentInt4(
             mock_tm->convmode_compartment_.Get(),
             1,
             TF_CONVERSIONMODE_NATIVE | TF_CONVERSIONMODE_SYMBOL)));
+        QIQI_TEST_CHECK(
+            SUCCEEDED(
+                check_key_sink->OnPreservedKey(
+                    mock_ctx.Get(),
+                    kGuidPreservedKeyTogglePunctuation,
+                    &eaten)) &&
+            eaten == TRUE);
+        QIQI_TEST_CHECK(
+            mock_tm->convmode_compartment_->last_val_ ==
+            TF_CONVERSIONMODE_NATIVE);
+        QIQI_TEST_CHECK(
+            SUCCEEDED(
+                WriteCompartmentInt4(
+                    mock_tm->
+                        convmode_compartment_.Get(),
+                    1,
+                    TF_CONVERSIONMODE_NATIVE |
+                        TF_CONVERSIONMODE_SYMBOL)));
+        QIQI_TEST_CHECK(
+            mock_tm->convmode_compartment_->last_val_ ==
+            TF_CONVERSIONMODE_NATIVE);
+        QIQI_TEST_CHECK(
+            SUCCEEDED(
+                check_key_sink->OnTestKeyDown(
+                    mock_ctx.Get(),
+                    VK_OEM_PERIOD,
+                    0,
+                    &eaten)) &&
+            eaten == FALSE);
+        QIQI_TEST_CHECK(
+            SUCCEEDED(
+                check_key_sink->OnPreservedKey(
+                    mock_ctx.Get(),
+                    kGuidPreservedKeyTogglePunctuation,
+                    &eaten)) &&
+            eaten == TRUE);
     }
 
     QIQI_TEST_CHECK(SUCCEEDED(hf_tm_sink->OnSetFocus(empty_document.Get(), nullptr)));

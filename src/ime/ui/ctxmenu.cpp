@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ime/ui/fltbarbtn.h"
+#include "common/config.h"
 #include "common/guids.h"
 #include "common/logger.h"
 #include "common/dpi.h"
@@ -37,7 +38,8 @@ class QuickSettingsMenu final {
 public:
     QuickSettingsMenu(const LangBarState& state, POINT point, const LangBarButton::ActionCallback& callback,
                       bool bottom)
-        : state_(state), point_(point), callback_(callback), bottom_(bottom) {}
+        : state_(state), point_(point), callback_(callback), bottom_(bottom),
+          app_container_(IsProcessAppContainer()) {}
 
     void Show() {
         const HINSTANCE instance = g_dll_instance ? g_dll_instance : ::GetModuleHandleW(nullptr);
@@ -50,7 +52,13 @@ public:
             QIQI_LOG_ERROR("Registering quick settings menu failed: {}", ::GetLastError());
             return;
         }
-        hwnd_.Reset(::CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, kMenuWndClass, L"QiQi Wubi",
+        const DWORD ex_style =
+            WS_EX_TOPMOST |
+            WS_EX_TOOLWINDOW |
+            (app_container_
+                ? WS_EX_NOACTIVATE
+                : 0);
+        hwnd_.Reset(::CreateWindowExW(ex_style, kMenuWndClass, L"QiQi Wubi",
                                       WS_POPUP | WS_BORDER | WS_CLIPCHILDREN, point_.x, point_.y, 1, 1, nullptr,
                                       nullptr, instance, this));
         if (!hwnd_ || !Refresh()) {
@@ -68,10 +76,17 @@ public:
             });
             ApplyDisplayThemeToWindow(hwnd_.Get(),
                 ResolveImeSkinAppearance(state_.display, state_.skin_snapshot, SystemThemeSource::Windows).display);
-            ::ShowWindow(hwnd_.Get(), SW_SHOW);
-            ::SetForegroundWindow(hwnd_.Get());
-            ::SetFocus(hwnd_.Get());
-            MoveFocus(1);
+            ::ShowWindow(
+                hwnd_.Get(),
+                app_container_
+                    ? SW_SHOWNOACTIVATE
+                    : SW_SHOW);
+            if (!app_container_) {
+                ::SetForegroundWindow(
+                    hwnd_.Get());
+                ::SetFocus(hwnd_.Get());
+                MoveFocus(1);
+            }
             MSG msg{};
             while (::IsWindowVisible(hwnd_.Get())) {
                 const BOOL result = ::GetMessageW(&msg, nullptr, 0, 0);
@@ -528,6 +543,7 @@ private:
     POINT point_;
     const LangBarButton::ActionCallback callback_;
     bool bottom_;
+    bool app_container_ = false;
     LangBarButton::MenuItems model_{};
     ScopedGdiHandle<HFONT> font_;
     LOGFONTW font_description_{};
