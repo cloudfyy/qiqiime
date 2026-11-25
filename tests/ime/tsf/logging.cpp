@@ -377,7 +377,17 @@ void ResumeHost(const HostProcess& host) {
     QIQI_TEST_CHECK(::WaitForSingleObject(host.ready.Get(), 30'000) == WAIT_OBJECT_0);
 }
 
-void FinishHost(const HostProcess& host) {
+void LogEtwHostStage(
+    const char* stage) {
+    std::cerr
+        << "[ETW-HOST-STAGE] "
+        << stage
+        << '\n';
+    std::cerr.flush();
+}
+
+void FinishHost(
+    HostProcess& host) {
     QIQI_TEST_CHECK(::SetEvent(host.proceed.Get()));
     QIQI_TEST_CHECK(::WaitForSingleObject(host.process.Get(), 30'000) == WAIT_OBJECT_0);
     DWORD exit_code = 1;
@@ -388,6 +398,7 @@ void FinishHost(const HostProcess& host) {
     if (exit_code != 0) {
         ::FlushFileBuffers(
             host.output.Get());
+        host.output.Reset();
         std::string diagnostics;
         const bool read =
             ReadFileToUtf8String(
@@ -405,6 +416,8 @@ void FinishHost(const HostProcess& host) {
                     ? diagnostics
                     : "<unavailable>")
             << '\n';
+    } else {
+        host.output.Reset();
     }
     QIQI_TEST_CHECK(exit_code == 0);
 }
@@ -696,6 +709,7 @@ int RunFocusMetricsEtwTest() {
 
 void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_directory) {
     QIQI_TEST_CHECK(!::IsDebuggerPresent());
+    LogEtwHostStage("entry");
     const std::wstring base(event_base);
     const ScopedKernelHandle ready(::OpenEventW(EVENT_MODIFY_STATE, FALSE, (L"Local\\" + base + L".ready").c_str()));
     const ScopedKernelHandle proceed(::OpenEventW(SYNCHRONIZE, FALSE, (L"Local\\" + base + L".proceed").c_str()));
@@ -725,6 +739,7 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
     constexpr DWORD legacy_off = std::to_underlying(log::Level::off);
     QIQI_TEST_CHECK(::RegSetKeyValueW(HKEY_CURRENT_USER, GetActiveConfigRegistrySubKey(), L"LogLevel",
         REG_DWORD, &legacy_off, sizeof(legacy_off)) == ERROR_SUCCESS);
+    LogEtwHostStage("registry-ready");
 
     // Load/construct before signalling readiness, so the parent can start ETW after initialization.
     {
@@ -733,12 +748,18 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
         ComPtr<ITfTextInputProcessorEx> instance;
         QIQI_TEST_CHECK(factory->CreateInstance(nullptr, IID_PPV_ARGS(&instance)) == S_OK);
         QIQI_TEST_CHECK(::SetEvent(ready.Get()));
+        LogEtwHostStage("ready");
         QIQI_TEST_CHECK(::WaitForSingleObject(proceed.Get(), 30'000) == WAIT_OBJECT_0);
+        LogEtwHostStage("exercise-before-initial");
         ExerciseLoadedIme(config, true);
+        LogEtwHostStage("exercise-after-initial");
     }
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    LogEtwHostStage("exercise-before-final");
     ExerciseLoadedIme(config, false);
+    LogEtwHostStage("exercise-after-final");
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
+    LogEtwHostStage("exit");
 }
 
 int RunTsfEtwIntegrationTests() {
