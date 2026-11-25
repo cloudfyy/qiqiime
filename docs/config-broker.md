@@ -182,10 +182,14 @@ broker retry.
 - A Broker first activated by a Low/less-privileged process remains usable for
   reads when the caller is authorized. Mutations return the internal
   `ERROR_RETRY` handoff result instead of attempting a write with insufficient
-  integrity. A Medium desktop client serializes handoff, releases the existing
-  proxy, stops the Low server, starts the Broker executable next to the
-  calling module, waits for its Ready/Writable events, and retries once.
-  AppContainer clients do not perform this process handoff.
+  integrity. A desktop client also treats `REGDB_E_CLASSNOTREG` as an
+  activation-time handoff trigger because a Low server's class object may be
+  unavailable across the integrity boundary. The client serializes handoff,
+  releases the existing proxy, stops the Low server, starts the Broker
+  executable next to the calling module, waits for its Ready/Writable events,
+  and retries once. Elevated callers use their linked non-elevated token, so
+  the replacement Broker runs at Medium integrity. AppContainer clients do not
+  perform this process handoff.
 - No method accepts arbitrary registry paths, arbitrary file paths, COM
   commands, or ACL changes.
 - A process not carrying one of the allowed principals receives

@@ -98,13 +98,13 @@ HRESULT SetProxySecurity(
     return result;
 }
 
-HRESULT HandoffMutationBroker() noexcept {
+HRESULT HandoffBroker() noexcept {
     QIQI_LOG_CAT_INFO(
         log::Keyword::Config,
         "ConfigClient requesting Broker "
-        "handoff for a desktop mutation");
+        "handoff for a desktop client");
     const HRESULT result =
-        RequestBrokerMutationHandoff();
+        RequestBrokerHandoff();
     if (FAILED(result)) {
         QIQI_LOG_CAT_ERROR(
             log::Keyword::Config,
@@ -279,6 +279,15 @@ bool ShouldHandoffMutationBroker(
     return IsMutation(operation) &&
         result ==
             kBrokerMutationHandoffRequired &&
+        !handoff_attempted &&
+        !IsProcessAppContainer();
+}
+
+bool ShouldHandoffInaccessibleBroker(
+    HRESULT result,
+    bool handoff_attempted) noexcept {
+    return result ==
+            REGDB_E_CLASSNOTREG &&
         !handoff_attempted &&
         !IsProcessAppContainer();
 }
@@ -463,6 +472,18 @@ HRESULT ExecuteAsync(
             broker,
             completion);
         if (FAILED(result)) {
+            if (ShouldHandoffInaccessibleBroker(
+                    result,
+                    handoff_attempted)) {
+                result = HandoffBroker();
+                if (FAILED(result)) {
+                    return operation.Finish(
+                        result);
+                }
+                handoff_attempted =
+                    true;
+                continue;
+            }
             return operation.Finish(
                 result);
         }
@@ -513,7 +534,7 @@ HRESULT ExecuteAsync(
             broker.Reset();
             completion.Reset();
             result =
-                HandoffMutationBroker();
+                HandoffBroker();
             if (FAILED(result)) {
                 return operation.Finish(
                     result);
@@ -580,7 +601,7 @@ HRESULT ExecuteAsync(
         broker.Reset();
         completion.Reset();
         result =
-            HandoffMutationBroker();
+            HandoffBroker();
         if (FAILED(result)) {
             return operation.Finish(
                 result);
@@ -693,10 +714,27 @@ HRESULT ExecuteSync(
                 IID_PPV_ARGS(&broker));
         if (FAILED(create_result) ||
             !broker) {
-            return operation.Finish(
+            const HRESULT activation_result =
                 FAILED(create_result)
                     ? create_result
-                    : E_UNEXPECTED);
+                    : E_UNEXPECTED;
+            if (ShouldHandoffInaccessibleBroker(
+                    activation_result,
+                    handoff_attempted)) {
+                const HRESULT
+                    handoff_result =
+                    HandoffBroker();
+                if (FAILED(
+                        handoff_result)) {
+                    return operation.Finish(
+                        handoff_result);
+                }
+                handoff_attempted =
+                    true;
+                continue;
+            }
+            return operation.Finish(
+                activation_result);
         }
         HRESULT result =
             SetProxySecurity(
@@ -729,7 +767,7 @@ HRESULT ExecuteSync(
         }
         broker.Reset();
         result =
-            HandoffMutationBroker();
+            HandoffBroker();
         if (FAILED(result)) {
             return operation.Finish(
                 result);

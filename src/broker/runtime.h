@@ -57,6 +57,7 @@ public:
     void Touch() noexcept;
     bool ShouldExit() const noexcept;
     bool CanWriteConfiguration() const noexcept;
+    DWORD IntegrityRid() const noexcept;
 
 private:
     ConfigStore store_;

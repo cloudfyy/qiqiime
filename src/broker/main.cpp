@@ -684,8 +684,10 @@ HRESULT RunServer(
             "Broker started "
             "(provider={}, "
             "async_interface=true, "
+            "integrity_rid={}, "
             "pid={})",
             "QiQiIME.ConfigBroker.TraceLogging",
+            runtime.IntegrityRid(),
             ::GetCurrentProcessId());
 
         for (;;) {

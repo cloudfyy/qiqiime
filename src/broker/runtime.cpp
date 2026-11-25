@@ -508,4 +508,9 @@ bool Runtime::CanWriteConfiguration()
         SECURITY_MANDATORY_MEDIUM_RID;
 }
 
+DWORD Runtime::IntegrityRid()
+    const noexcept {
+    return integrity_rid_;
+}
+
 } // namespace qiqi::broker

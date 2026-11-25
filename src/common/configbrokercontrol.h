@@ -22,6 +22,6 @@ HRESULT TokenIntegrityRid(
     HANDLE token,
     DWORD& output) noexcept;
 
-HRESULT RequestBrokerMutationHandoff() noexcept;
+HRESULT RequestBrokerHandoff() noexcept;
 
 } // namespace qiqi::config

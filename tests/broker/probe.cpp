@@ -14,6 +14,7 @@
 #include <chrono>
 #include <mutex>
 #include <span>
+#include <string_view>
 
 namespace trace = qiqi::trace;
 
@@ -82,28 +83,35 @@ int main(
                activation)
         << std::dec
         << '\n';
-    QIQI_TEST_CHECK(
-        SUCCEEDED(activation) &&
-        direct);
-    const HRESULT blanket =
-        ::CoSetProxyBlanket(
-            direct.Get(),
-            RPC_C_AUTHN_WINNT,
-            RPC_C_AUTHZ_DEFAULT,
-            nullptr,
-            RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
-            RPC_C_IMP_LEVEL_IMPERSONATE,
-            nullptr,
-            EOAC_NONE);
-    std::cerr
-        << "CoSetProxyBlanket hr=0x"
-        << std::hex
-        << gsl::narrow_cast<unsigned long>(
-               blanket)
-        << std::dec
-        << '\n';
-    QIQI_TEST_CHECK(
-        SUCCEEDED(blanket));
+    if (mutation_handoff &&
+        activation ==
+            REGDB_E_CLASSNOTREG) {
+        direct.Reset();
+    } else {
+        QIQI_TEST_CHECK(
+            SUCCEEDED(activation) &&
+            direct);
+        const HRESULT blanket =
+            ::CoSetProxyBlanket(
+                direct.Get(),
+                RPC_C_AUTHN_WINNT,
+                RPC_C_AUTHZ_DEFAULT,
+                nullptr,
+                RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+                RPC_C_IMP_LEVEL_IMPERSONATE,
+                nullptr,
+                EOAC_NONE);
+        std::cerr
+            << "CoSetProxyBlanket hr=0x"
+            << std::hex
+            << gsl::narrow_cast<
+                unsigned long>(
+                    blanket)
+            << std::dec
+            << '\n';
+        QIQI_TEST_CHECK(
+            SUCCEEDED(blanket));
+    }
 
     qiqi::config::Snapshot initial;
     const trace::Context read_trace =

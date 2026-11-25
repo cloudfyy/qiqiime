@@ -109,6 +109,66 @@ HRESULT WaitForBrokerExit(
     }
 }
 
+HRESULT OpenMediumBrokerLaunchToken(
+    ScopedKernelHandle& output) noexcept {
+    output.Reset();
+    ScopedKernelHandle current_token;
+    if (!::OpenProcessToken(
+            ::GetCurrentProcess(),
+            TOKEN_QUERY,
+            current_token.Put())) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    TOKEN_ELEVATION_TYPE elevation_type =
+        TokenElevationTypeDefault;
+    DWORD length = 0;
+    if (!::GetTokenInformation(
+            current_token.Get(),
+            TokenElevationType,
+            &elevation_type,
+            sizeof(elevation_type),
+            &length)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    if (elevation_type !=
+        TokenElevationTypeFull) {
+        return S_OK;
+    }
+
+    TOKEN_LINKED_TOKEN linked{};
+    if (!::GetTokenInformation(
+            current_token.Get(),
+            TokenLinkedToken,
+            &linked,
+            sizeof(linked),
+            &length)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    const ScopedKernelHandle
+        linked_token(linked.LinkedToken);
+    if (!::DuplicateTokenEx(
+            linked_token.Get(),
+            TOKEN_ASSIGN_PRIMARY |
+                TOKEN_DUPLICATE |
+                TOKEN_QUERY |
+                TOKEN_ADJUST_DEFAULT,
+            nullptr,
+            SecurityImpersonation,
+            TokenPrimary,
+            output.Put())) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    QIQI_LOG_CAT_INFO(
+        log::Keyword::Config,
+        "Replacement Broker will use "
+        "the linked non-elevated token");
+    return S_OK;
+}
+
 HRESULT StartReplacementBroker(
     std::wstring_view store_subkey) {
     std::array<wchar_t, 32768> module_path{};
@@ -168,19 +228,43 @@ HRESULT StartReplacementBroker(
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
-    if (!::CreateProcessW(
-            broker_path.c_str(),
-            command.data(),
-            nullptr,
-            nullptr,
-            FALSE,
-            CREATE_NO_WINDOW,
-            nullptr,
-            broker_path
-                .parent_path()
-                .c_str(),
-            &startup,
-            &process)) {
+    ScopedKernelHandle launch_token;
+    const HRESULT token_result =
+        OpenMediumBrokerLaunchToken(
+            launch_token);
+    if (FAILED(token_result)) {
+        return token_result;
+    }
+    const BOOL created =
+        launch_token
+            ? ::CreateProcessAsUserW(
+                  launch_token.Get(),
+                  broker_path.c_str(),
+                  command.data(),
+                  nullptr,
+                  nullptr,
+                  FALSE,
+                  CREATE_NO_WINDOW,
+                  nullptr,
+                  broker_path
+                      .parent_path()
+                      .c_str(),
+                  &startup,
+                  &process)
+            : ::CreateProcessW(
+                  broker_path.c_str(),
+                  command.data(),
+                  nullptr,
+                  nullptr,
+                  FALSE,
+                  CREATE_NO_WINDOW,
+                  nullptr,
+                  broker_path
+                      .parent_path()
+                      .c_str(),
+                  &startup,
+                  &process);
+    if (!created) {
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
@@ -369,7 +453,7 @@ HRESULT TokenIntegrityRid(
     }
 }
 
-HRESULT RequestBrokerMutationHandoff() noexcept {
+HRESULT RequestBrokerHandoff() noexcept {
     ScopedKernelHandle token;
     HRESULT result =
         OpenCurrentProcessToken(token);

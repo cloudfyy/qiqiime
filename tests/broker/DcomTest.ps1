@@ -451,6 +451,24 @@ try {
             $brokerProcess =
                 Get-Process `
                     -Id $brokerCim.ProcessId
+            Wait-QiQiBrokerReady `
+                -Process $brokerProcess `
+                -DiagnosticLog $diagnosticLog `
+                -DiagnosticLogStart $diagnosticLogStart
+            $handoffTail =
+                Read-QiQiBrokerLogTail `
+                    -Path $diagnosticLog `
+                    -Start $diagnosticLogStart
+            $mediumPattern =
+                'Broker started .*' +
+                'integrity_rid=8192, ' +
+                "pid=$($brokerProcess.Id)\)"
+            if ($handoffTail -notmatch
+                    $mediumPattern) {
+                throw (
+                    'Replacement Broker is not ' +
+                    'running at Medium integrity.')
+            }
         }
     }
     $duplicate = Start-Process `
