@@ -1109,7 +1109,21 @@ HRESULT SaveUserDictSyncDirectoryToRegistry(
         }
         return S_OK;
     };
-    const HRESULT hr = save();
+    HRESULT hr = save();
+    if (SUCCEEDED(hr)) {
+        const HRESULT access_result =
+            EnsureConfigAppContainerReadAccess(
+                subkey);
+        if (FAILED(access_result)) {
+            QIQI_LOG_ERROR(
+                "SaveUserDictSyncDirectory could "
+                "not refresh AppContainer registry "
+                "read access (hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    access_result));
+            hr = access_result;
+        }
+    }
     std::ignore = log::CheckHResult(hr, "SaveUserDictSyncDirectory");
     return hr;
 }

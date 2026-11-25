@@ -203,9 +203,11 @@ broker retry.
   unavailable across the integrity boundary. The client serializes handoff,
   releases the existing proxy, stops the Low server, starts the Broker
   executable next to the calling module, waits for its Ready/Writable events,
-  and retries once. Elevated callers use their linked non-elevated token, so
-  the replacement Broker runs at Medium integrity. AppContainer clients do not
-  perform this process handoff.
+  and retries once. Split-token elevated callers use their linked
+  non-elevated token. Unsplittable High/Medium-Plus tokens are duplicated and
+  explicitly lowered to Medium integrity; startup verifies the resulting RID
+  before launching the replacement Broker. AppContainer clients do not perform
+  this process handoff.
 - No method accepts arbitrary registry paths, arbitrary file paths, COM
   commands, or ACL changes.
 - A process not carrying one of the allowed principals receives

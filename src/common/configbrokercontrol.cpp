@@ -8,6 +8,7 @@
 #include "common/logger.h"
 
 #include <gsl/gsl>
+#include <sddl.h>
 #include <algorithm>
 #include <array>
 #include <filesystem>
@@ -133,13 +134,87 @@ HRESULT WaitForBrokerExit(
     }
 }
 
+HRESULT DuplicateMediumPrimaryToken(
+    HANDLE source,
+    ScopedKernelHandle& output) noexcept {
+    output.Reset();
+    if (!::DuplicateTokenEx(
+            source,
+            TOKEN_ASSIGN_PRIMARY |
+                TOKEN_DUPLICATE |
+                TOKEN_QUERY |
+                TOKEN_ADJUST_DEFAULT,
+            nullptr,
+            SecurityImpersonation,
+            TokenPrimary,
+            output.Put())) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+
+    DWORD integrity_rid = 0;
+    HRESULT result =
+        TokenIntegrityRid(
+            output.Get(),
+            integrity_rid);
+    if (FAILED(result)) {
+        return result;
+    }
+    if (integrity_rid <
+        SECURITY_MANDATORY_MEDIUM_RID) {
+        return E_ACCESSDENIED;
+    }
+    if (integrity_rid !=
+        SECURITY_MANDATORY_MEDIUM_RID) {
+        PSID medium_sid = nullptr;
+        if (!::ConvertStringSidToSidW(
+                L"S-1-16-8192",
+                &medium_sid)) {
+            return HRESULT_FROM_WIN32(
+                ::GetLastError());
+        }
+        const ScopedLocalAlloc
+            medium_owner(medium_sid);
+        TOKEN_MANDATORY_LABEL label{
+            .Label = {
+                .Sid = medium_sid,
+                .Attributes =
+                    SE_GROUP_INTEGRITY,
+            },
+        };
+        if (!::SetTokenInformation(
+                output.Get(),
+                TokenIntegrityLevel,
+                &label,
+                sizeof(label) +
+                    ::GetLengthSid(
+                        medium_sid))) {
+            return HRESULT_FROM_WIN32(
+                ::GetLastError());
+        }
+    }
+    result =
+        TokenIntegrityRid(
+            output.Get(),
+            integrity_rid);
+    if (FAILED(result)) {
+        return result;
+    }
+    return integrity_rid ==
+            SECURITY_MANDATORY_MEDIUM_RID
+        ? S_OK
+        : HRESULT_FROM_WIN32(
+              ERROR_BAD_TOKEN_TYPE);
+}
+
 HRESULT OpenMediumBrokerLaunchToken(
     ScopedKernelHandle& output) noexcept {
     output.Reset();
     ScopedKernelHandle current_token;
     if (!::OpenProcessToken(
             ::GetCurrentProcess(),
-            TOKEN_QUERY,
+            TOKEN_QUERY |
+                TOKEN_DUPLICATE,
             current_token.Put())) {
         return HRESULT_FROM_WIN32(
             ::GetLastError());
@@ -156,40 +231,60 @@ HRESULT OpenMediumBrokerLaunchToken(
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
-    if (elevation_type !=
-        TokenElevationTypeFull) {
-        return S_OK;
+    ScopedKernelHandle linked_token;
+    HANDLE duplicate_source =
+        current_token.Get();
+    const bool linked =
+        elevation_type ==
+        TokenElevationTypeFull;
+    if (linked) {
+        TOKEN_LINKED_TOKEN linked_info{};
+        if (!::GetTokenInformation(
+                current_token.Get(),
+                TokenLinkedToken,
+                &linked_info,
+                sizeof(linked_info),
+                &length)) {
+            return HRESULT_FROM_WIN32(
+                ::GetLastError());
+        }
+        linked_token.Reset(
+            linked_info.LinkedToken);
+        duplicate_source =
+            linked_token.Get();
+    } else {
+        DWORD integrity_rid = 0;
+        const HRESULT integrity_result =
+            TokenIntegrityRid(
+                current_token.Get(),
+                integrity_rid);
+        if (FAILED(integrity_result)) {
+            return integrity_result;
+        }
+        if (integrity_rid <
+            SECURITY_MANDATORY_MEDIUM_RID) {
+            return E_ACCESSDENIED;
+        }
+        if (integrity_rid ==
+            SECURITY_MANDATORY_MEDIUM_RID) {
+            return S_OK;
+        }
     }
 
-    TOKEN_LINKED_TOKEN linked{};
-    if (!::GetTokenInformation(
-            current_token.Get(),
-            TokenLinkedToken,
-            &linked,
-            sizeof(linked),
-            &length)) {
-        return HRESULT_FROM_WIN32(
-            ::GetLastError());
-    }
-    const ScopedKernelHandle
-        linked_token(linked.LinkedToken);
-    if (!::DuplicateTokenEx(
-            linked_token.Get(),
-            TOKEN_ASSIGN_PRIMARY |
-                TOKEN_DUPLICATE |
-                TOKEN_QUERY |
-                TOKEN_ADJUST_DEFAULT,
-            nullptr,
-            SecurityImpersonation,
-            TokenPrimary,
-            output.Put())) {
-        return HRESULT_FROM_WIN32(
-            ::GetLastError());
+    const HRESULT result =
+        DuplicateMediumPrimaryToken(
+            duplicate_source,
+            output);
+    if (FAILED(result)) {
+        return result;
     }
     QIQI_LOG_CAT_INFO(
         log::Keyword::Config,
-        "Replacement Broker will use "
-        "the linked non-elevated token");
+        "Replacement Broker will use a "
+        "Medium-integrity {} token",
+        linked
+            ? "linked"
+            : "lowered");
     return S_OK;
 }
 

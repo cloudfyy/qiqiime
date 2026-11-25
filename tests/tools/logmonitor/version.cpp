@@ -68,7 +68,23 @@ void TestWindowAndVersion() {
     QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(::GetCurrentProcessId()));
     QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, Pid)));
     Click(window, Clear);
-    QIQI_TEST_CHECK(::SendMessageW(Child(window, Process), CB_GETCOUNT, 0, 0) == 0);
+    QIQI_TEST_CHECK(
+        ::SendMessageW(
+            Child(window, Process),
+            CB_GETCOUNT,
+            0,
+            0) == 1);
+    QIQI_TEST_CHECK(
+        ControlText(
+            Child(window, Process)) ==
+        L"QiQiIMELogMonitor.exe");
+    QIQI_TEST_CHECK(
+        ::SendMessageW(
+            Child(window, Process),
+            CB_FINDSTRINGEXACT,
+            gsl::narrow_cast<WPARAM>(-1),
+            reinterpret_cast<LPARAM>(
+                L"All")) == 0);
     SetProcessFilter(window, L"");
     QIQI_TEST_CHECK(ListView_GetItemCount(list) == 0);
     ::SendMessageW(window.Handle(), WM_THEMECHANGED, 0, 0);

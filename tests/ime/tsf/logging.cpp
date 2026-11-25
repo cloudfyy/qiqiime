@@ -322,6 +322,8 @@ struct HostProcess {
     ScopedKernelHandle proceed;
     ScopedKernelHandle process;
     ScopedKernelHandle thread;
+    ScopedFileHandle output;
+    std::filesystem::path output_path;
     DWORD pid = 0;
 };
 
@@ -333,10 +335,35 @@ HostProcess StartHost(const std::wstring& base, const std::filesystem::path& dir
     const auto executable = GetModuleFilePath(nullptr);
     std::wstring command = std::format(L"\"{}\" --etw-host \"{}\" \"{}\"",
                                        executable.wstring(), base, directory.wstring());
+    host.output_path =
+        directory /
+        (base + L".diagnostics.log");
+    SECURITY_ATTRIBUTES output_attributes{
+        .nLength = sizeof(output_attributes),
+        .bInheritHandle = TRUE,
+    };
+    host.output.Reset(
+        ::CreateFileW(
+            host.output_path.c_str(),
+            GENERIC_WRITE,
+            FILE_SHARE_READ |
+                FILE_SHARE_WRITE,
+            &output_attributes,
+            CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr));
+    QIQI_TEST_CHECK(host.output);
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput =
+        ::GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput =
+        host.output.Get();
+    startup.hStdError =
+        host.output.Get();
     PROCESS_INFORMATION info{};
-    QIQI_TEST_CHECK(::CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
+    QIQI_TEST_CHECK(::CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, TRUE,
                                     CREATE_SUSPENDED, nullptr, nullptr, &startup, &info));
     host.process.Reset(info.hProcess);
     host.thread.Reset(info.hThread);
@@ -354,7 +381,32 @@ void FinishHost(const HostProcess& host) {
     QIQI_TEST_CHECK(::SetEvent(host.proceed.Get()));
     QIQI_TEST_CHECK(::WaitForSingleObject(host.process.Get(), 30'000) == WAIT_OBJECT_0);
     DWORD exit_code = 1;
-    QIQI_TEST_CHECK(::GetExitCodeProcess(host.process.Get(), &exit_code) && exit_code == 0);
+    QIQI_TEST_CHECK(
+        ::GetExitCodeProcess(
+            host.process.Get(),
+            &exit_code));
+    if (exit_code != 0) {
+        ::FlushFileBuffers(
+            host.output.Get());
+        std::string diagnostics;
+        const bool read =
+            ReadFileToUtf8String(
+                host.output_path,
+                diagnostics);
+        std::cerr
+            << "[FAIL] ETW child pid="
+            << host.pid
+            << " exited with 0x"
+            << std::hex
+            << exit_code
+            << std::dec
+            << "; diagnostics="
+            << (read
+                    ? diagnostics
+                    : "<unavailable>")
+            << '\n';
+    }
+    QIQI_TEST_CHECK(exit_code == 0);
 }
 
 struct LogRecord {
