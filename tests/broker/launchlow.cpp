@@ -247,7 +247,7 @@ int wmain(
             L"-Embedding") {
         std::wcerr
             << L"usage: "
-               L"qiqi_broker_lowlanucher.exe "
+               L"qiqi_broker_launchlow.exe "
                L"Broker.exe -Embedding "
                L"[--store-subkey=KEY]\n";
         return 2;

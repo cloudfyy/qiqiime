@@ -10,7 +10,7 @@ param(
             '..\..\..\build\x64'),
     [switch] $AutomaticActivation,
     [Parameter(Mandatory = $true)]
-    [string] $LowBrokerLanucherPath,
+    [string] $LaunchLowPath,
     [switch] $LowBrokerHandoff
 )
 
@@ -25,9 +25,9 @@ $build = (Resolve-Path -LiteralPath $BuildDirectory).Path
 $broker = Join-Path $build "$Configuration\QiQiIMEConfigBroker.exe"
 $proxy = Join-Path $build "$Configuration\QiQiIMEConfigProxy.dll"
 $probe = Join-Path $build "$Configuration\qiqi_broker_probe.exe"
-$lowBrokerLanucher =
+$launchLow =
     (Resolve-Path `
-        -LiteralPath $LowBrokerLanucherPath).Path
+        -LiteralPath $LaunchLowPath).Path
 $subkey = "Software\QiQiIME_BrokerDcom_$PID"
 $brokerProcess = $null
 $lowBrokerProcess = $null
@@ -89,7 +89,7 @@ foreach ($file in @(
         $broker,
         $proxy,
         $probe,
-        $lowBrokerLanucher)) {
+        $launchLow)) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
         throw "Required file was not found: $file"
     }
@@ -407,7 +407,7 @@ try {
             Grant-LowReadAccess `
                 -Subkey $subkey
             $lowOutput =
-                & $lowBrokerLanucher `
+                & $launchLow `
                     $broker `
                     '-Embedding' `
                     "--store-subkey=$subkey"

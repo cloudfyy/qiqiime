@@ -141,7 +141,7 @@ add_test(
         -NoLogo
         -NoProfile
         -NonInteractive
-        -File "${CMAKE_CURRENT_SOURCE_DIR}/Run-Host.ps1"
+        -File "${CMAKE_CURRENT_SOURCE_DIR}/Host.ps1"
         -LauncherPath "$<TARGET_FILE:QiQiImePermissionLauncher>"
         -SmokeAll)
 set_tests_properties(QiQiImeAppContainerPermissionSmoke PROPERTIES

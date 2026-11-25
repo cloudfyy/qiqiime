@@ -18,13 +18,13 @@ set_tests_properties(
     QiQiConfigBrokerStoreTest
     PROPERTIES TIMEOUT 30)
 
-add_executable(qiqi_broker_lowlanucher
-    lowlanucher.cpp
+add_executable(qiqi_broker_launchlow
+    launchlow.cpp
 )
-target_include_directories(qiqi_broker_lowlanucher PRIVATE
+target_include_directories(qiqi_broker_launchlow PRIVATE
     "${PROJECT_SOURCE_DIR}/tests"
 )
-target_link_libraries(qiqi_broker_lowlanucher PRIVATE
+target_link_libraries(qiqi_broker_launchlow PRIVATE
     qiqi_common
 )
 
@@ -56,7 +56,7 @@ add_test(
         -NoProfile
         -NonInteractive
         -File
-        "${CMAKE_CURRENT_SOURCE_DIR}/Run-CliTest.ps1"
+        "${CMAKE_CURRENT_SOURCE_DIR}/CliTest.ps1"
         -BrokerPath
         "$<TARGET_FILE:QiQiIMEConfigBroker>"
 )
@@ -78,13 +78,13 @@ add_test(
         -NoProfile
         -NonInteractive
         -File
-        "${CMAKE_CURRENT_SOURCE_DIR}/Run-DcomTest.ps1"
+        "${CMAKE_CURRENT_SOURCE_DIR}/DcomTest.ps1"
         -BuildDirectory
         "${CMAKE_BINARY_DIR}"
         -Configuration
         "$<CONFIG>"
-        -LowBrokerLanucherPath
-        "$<TARGET_FILE:qiqi_broker_lowlanucher>"
+        -LaunchLowPath
+        "$<TARGET_FILE:qiqi_broker_launchlow>"
         ${QIQI_BROKER_HANDOFF_TEST_ARGUMENTS}
 )
 set_tests_properties(
@@ -107,7 +107,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8
             -NoProfile
             -NonInteractive
             -File
-            "${CMAKE_CURRENT_SOURCE_DIR}/Run-CrossArchDcomTest.ps1"
+            "${CMAKE_CURRENT_SOURCE_DIR}/CrossArchDcomTest.ps1"
             -X64BuildDirectory
             "${CMAKE_BINARY_DIR}"
             -X86BuildDirectory

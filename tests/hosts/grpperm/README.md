@@ -60,17 +60,17 @@ it, for example `-G "Visual Studio 18 2026"` or
 Interactive launch defaults to `packageOnlyCom`:
 
 ```powershell
-tests\hosts\grpperm\Run-Host.ps1
+tests\hosts\grpperm\Host.ps1
 ```
 
 Select a profile, or run it without the UI:
 
 ```powershell
-tests\hosts\grpperm\Run-Host.ps1 -Profile broadGroupCom
-tests\hosts\grpperm\Run-Host.ps1 -Profile packageOnlyCom
-tests\hosts\grpperm\Run-Host.ps1 -Profile registryRead
-tests\hosts\grpperm\Run-Host.ps1 -Profile zero -Smoke
-tests\hosts\grpperm\Run-Host.ps1 -SmokeAll
+tests\hosts\grpperm\Host.ps1 -Profile broadGroupCom
+tests\hosts\grpperm\Host.ps1 -Profile packageOnlyCom
+tests\hosts\grpperm\Host.ps1 -Profile registryRead
+tests\hosts\grpperm\Host.ps1 -Profile zero -Smoke
+tests\hosts\grpperm\Host.ps1 -SmokeAll
 ```
 
 You can also run the standalone smoke test through its own CTest tree:
