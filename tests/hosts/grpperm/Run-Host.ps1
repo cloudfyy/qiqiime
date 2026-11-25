@@ -20,7 +20,7 @@ param(
 
     [string] $LauncherPath = (Join-Path `
             $PSScriptRoot `
-            '..\..\..\build\hosts\broker-access\Release\QiQiImePermissionLauncher.exe')
+            '..\..\..\build\hosts\grpperm\Release\QiQiImePermissionLauncher.exe')
 )
 
 Set-StrictMode -Version Latest

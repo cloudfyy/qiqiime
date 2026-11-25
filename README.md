@@ -35,8 +35,8 @@
 1.3.2 为 Broker DCOM 增加 package-aware 的 Access/Launch 和文件访问授权：
 注册时动态发现 Windows Search package SID，并为 Broker、x64/x86 Proxy
 及所在目录配置只读执行权限。测试中的同一用户 AppContainer 调用可执行
-Read、Save、Reset 与 Publish，不同用户仍被拒绝；独立 `broker-access`
-权限矩阵和 `packaged-search` MSIX 宿主用于真实宿主验证。正式发布仍须完成
+Read、Save、Reset 与 Publish，不同用户仍被拒绝；独立 `grpperm`
+权限矩阵和 `uwp` MSIX 宿主用于真实宿主验证。正式发布仍须完成
 实际 AppContainer 激活与 Feedback Hub 皮肤刷新验收。
 
 ### 1.3.1 紧急补丁版（2026-11-24）

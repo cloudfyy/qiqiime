@@ -42,7 +42,7 @@ $buildRoot = Join-Path $repositoryRoot `
 $stageRoot = Join-Path $buildRoot 'staging'
 $packageRoot = Join-Path $repositoryRoot 'dist\test-hosts'
 $certificatePath = Join-Path $repositoryRoot `
-    'tests\hosts\packaged-search\cert\QiQiImeDevelopment.cer'
+    'tests\hosts\uwp\cert\QiQiImeDevelopment.cer'
 $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'
 $sdkVersion = '10.0.26100.0'
 $sdkBin = Join-Path $sdkRoot "bin\$sdkVersion\x64"

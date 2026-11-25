@@ -47,8 +47,8 @@ Use Visual Studio 2022 or 2026 with the desktop C++ workload, Windows 10/11
 SDK 10.0.26100.0, and CMake 4.x. From the repository root:
 
 ```powershell
-cmake -S tests\hosts\broker-access -B build\hosts\broker-access -A x64
-cmake --build build\hosts\broker-access --config Release
+cmake -S tests\hosts\grpperm -B build\hosts\grpperm -A x64
+cmake --build build\hosts\grpperm --config Release
 ```
 
 Select the Visual Studio CMake generator explicitly when CMake cannot detect
@@ -60,23 +60,23 @@ it, for example `-G "Visual Studio 18 2026"` or
 Interactive launch defaults to `packageOnlyCom`:
 
 ```powershell
-tests\hosts\broker-access\Run-Host.ps1
+tests\hosts\grpperm\Run-Host.ps1
 ```
 
 Select a profile, or run it without the UI:
 
 ```powershell
-tests\hosts\broker-access\Run-Host.ps1 -Profile broadGroupCom
-tests\hosts\broker-access\Run-Host.ps1 -Profile packageOnlyCom
-tests\hosts\broker-access\Run-Host.ps1 -Profile registryRead
-tests\hosts\broker-access\Run-Host.ps1 -Profile zero -Smoke
-tests\hosts\broker-access\Run-Host.ps1 -SmokeAll
+tests\hosts\grpperm\Run-Host.ps1 -Profile broadGroupCom
+tests\hosts\grpperm\Run-Host.ps1 -Profile packageOnlyCom
+tests\hosts\grpperm\Run-Host.ps1 -Profile registryRead
+tests\hosts\grpperm\Run-Host.ps1 -Profile zero -Smoke
+tests\hosts\grpperm\Run-Host.ps1 -SmokeAll
 ```
 
 You can also run the standalone smoke test through its own CTest tree:
 
 ```powershell
-ctest --test-dir build\hosts\broker-access -C Release --output-on-failure
+ctest --test-dir build\hosts\grpperm -C Release --output-on-failure
 ```
 
 `-SmokeAll` validates all profiles, unsupported profile and excess

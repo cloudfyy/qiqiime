@@ -35,7 +35,7 @@ the exact `HRESULT` and still supports ordinary IME input plus synthetic tests.
 From PowerShell at the repository root:
 
 ```powershell
-tests\hosts\packaged-search\Package.ps1 -Configuration Release
+tests\hosts\uwp\Package.ps1 -Configuration Release
 ```
 
 The script:
@@ -71,7 +71,7 @@ managed PFX and does not replace the checked-in development certificate.
 To use an existing code-signing PFX:
 
 ```powershell
-tests\hosts\packaged-search\Package.ps1 `
+tests\hosts\uwp\Package.ps1 `
   -CertificatePath C:\path\development.pfx `
   -CertificatePassword $securePassword
 ```
@@ -82,8 +82,8 @@ certificate must be installed in `Cert:\LocalMachine\TrustedPeople`.
 ## Install and remove
 
 ```powershell
-tests\hosts\packaged-search\Install-Host.ps1
-tests\hosts\packaged-search\Uninstall-Host.ps1
+tests\hosts\uwp\Install-Host.ps1
+tests\hosts\uwp\Uninstall-Host.ps1
 ```
 
 Run the install script from an elevated PowerShell. Microsoft MSIX sideloading
@@ -96,7 +96,7 @@ installs only the host package.
 After testing, the package and trust entry can be removed together with:
 
 ```powershell
-tests\hosts\packaged-search\Uninstall-Host.ps1 `
+tests\hosts\uwp\Uninstall-Host.ps1 `
   -RemoveDevelopmentCertificate
 ```
 

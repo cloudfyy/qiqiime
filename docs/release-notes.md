@@ -14,7 +14,7 @@
   同一 session 约束。
 - **独立 ACL 修复工具**：支持 List、Diagnose、Grant、Revoke、WhatIf，以及仅在
   开发目录需要时启用祖先目录 Traverse。
-- **独立验证宿主**：拆分为 `packaged-search` MSIX 宿主与 `broker-access`
+- **独立验证宿主**：拆分为 `uwp` MSIX 宿主与 `grpperm`
   权限矩阵，分别验证真实打包应用和 AppContainer token/COM 边界。
 
 ## 验证边界
@@ -31,7 +31,7 @@ Source version `1.3.2`; planned release tag `v1.3.2`.
 - Add package-aware DCOM ACLs and Broker/proxy read-execute file ACLs.
 - During testing, allow same-user AppContainer Read, Save, Reset, and Publish
   calls while retaining the different-user denial boundary.
-- Add package ACL repair tooling and separate packaged-search and broker-access
+- Add package ACL repair tooling and separate uwp and grpperm
   host fixtures.
 - Focused x64 Broker tests pass; installed AppContainer activation and Feedback
   Hub skin refresh remain acceptance items.
