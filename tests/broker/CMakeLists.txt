@@ -35,6 +35,45 @@ add_dependencies(qiqi_broker_probe
     QiQiIMEConfigProxy
 )
 
+find_program(QIQI_BROKER_CLI_POWERSHELL_EXECUTABLE
+    NAMES pwsh powershell
+    REQUIRED)
+add_test(
+    NAME QiQiConfigBrokerCliTest
+    COMMAND
+        "${QIQI_BROKER_CLI_POWERSHELL_EXECUTABLE}"
+        -NoLogo
+        -NoProfile
+        -NonInteractive
+        -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/Run-CliTest.ps1"
+        -BrokerPath
+        "$<TARGET_FILE:QiQiIMEConfigBroker>"
+)
+set_tests_properties(
+    QiQiConfigBrokerCliTest
+    PROPERTIES TIMEOUT 30)
+
+add_test(
+    NAME QiQiConfigBrokerDcomTest
+    COMMAND
+        "${QIQI_BROKER_CLI_POWERSHELL_EXECUTABLE}"
+        -NoLogo
+        -NoProfile
+        -NonInteractive
+        -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/Run-DcomTest.ps1"
+        -BuildDirectory
+        "${CMAKE_BINARY_DIR}"
+        -Configuration
+        "$<CONFIG>"
+)
+set_tests_properties(
+    QiQiConfigBrokerDcomTest
+    PROPERTIES
+        TIMEOUT 90
+        RUN_SERIAL TRUE)
+
 if(CMAKE_SIZEOF_VOID_P EQUAL 8
    AND EXISTS "${PROJECT_SOURCE_DIR}/build/x86/Release/qiqi_broker_probe.exe")
     find_program(QIQI_BROKER_POWERSHELL_EXECUTABLE
@@ -58,5 +97,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8
     )
     set_tests_properties(
         QiQiConfigBrokerCrossArchTest
-        PROPERTIES TIMEOUT 60)
+        PROPERTIES
+            TIMEOUT 60
+            RUN_SERIAL TRUE)
 endif()

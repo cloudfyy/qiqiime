@@ -7,7 +7,8 @@ param(
     [string] $Configuration = 'Release',
     [string] $BuildDirectory = (Join-Path `
             $PSScriptRoot `
-            '..\..\..\build\x64')
+            '..\..\..\build\x64'),
+    [switch] $AutomaticActivation
 )
 
 Set-StrictMode -Version Latest
@@ -35,6 +36,29 @@ $previousDiagnosticLog = [Environment]::GetEnvironmentVariable(
 $previousPerUser = [Environment]::GetEnvironmentVariable(
     'QIQI_CONFIG_BROKER_PER_USER',
     'Process')
+$appid = '{8E7B9D31-5A42-4C81-9F11-20261029000E}'
+$clsid = '{8E7B9D31-5A42-4C81-9F11-20261029000D}'
+if ($AutomaticActivation) {
+    $principal = New-Object `
+        Security.Principal.WindowsPrincipal(
+            [Security.Principal.WindowsIdentity]::GetCurrent())
+    if (-not $principal.IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw (
+            '-AutomaticActivation requires an elevated ' +
+            'PowerShell because it validates the HKLM ' +
+            'registration used by the installer.')
+    }
+    foreach ($path in @(
+            "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\AppID\$appid",
+            "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\$clsid")) {
+        if (Test-Path -LiteralPath $path) {
+            throw (
+                'Automatic activation test will not overwrite ' +
+                "an existing machine registration: $path")
+        }
+    }
+}
 
 foreach ($file in @($broker, $proxy, $probe)) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
@@ -42,20 +66,91 @@ foreach ($file in @($broker, $proxy, $probe)) {
     }
 }
 
+function Assert-PackageFileAccess {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Path,
+        [Parameter(Mandatory = $true)]
+        [string[]] $ExpectedSids,
+        [int] $RequiredMask =
+            [int][System.Security.AccessControl.FileSystemRights]::ReadAndExecute,
+        [switch] $Directory,
+        [string] $Label = 'ReadAndExecute'
+    )
+
+    $acl = Get-Acl `
+        -LiteralPath $Path
+        $rawDescriptor =
+            [System.Security.AccessControl.RawSecurityDescriptor]::new(
+                $acl.GetSecurityDescriptorBinaryForm(),
+                0)
+    foreach ($expectedSid in
+        $ExpectedSids) {
+        $matches = @(
+                $rawDescriptor.DiscretionaryAcl |
+                Where-Object {
+                        $_.AceType -eq
+                            [System.Security.AccessControl.AceType]::AccessAllowed
+                } |
+                Where-Object {
+                        $_.SecurityIdentifier.Value -eq
+                            $expectedSid
+                } |
+                Where-Object {
+                        ($_.AccessMask -band
+                            $RequiredMask) -eq
+                            $RequiredMask
+                })
+        if ($matches.Count -eq 0) {
+            throw (
+                "Package principal $expectedSid lacks " +
+                "$Label on $Path.")
+        }
+        if ($Directory) {
+            $inheritable = @(
+                $matches |
+                    Where-Object {
+                        $_.AceFlags -band
+                            [System.Security.AccessControl.AceFlags]::ContainerInherit -and
+                        $_.AceFlags -band
+                            [System.Security.AccessControl.AceFlags]::ObjectInherit
+                    })
+            if ($inheritable.Count -eq 0) {
+                throw (
+                    "Package principal $expectedSid " +
+                    "is not inheritable on $Path.")
+            }
+        }
+    }
+}
+
 try {
     $env:QIQI_CONFIG_BROKER_DIAGNOSTIC_LOG = '1'
-    $env:QIQI_CONFIG_BROKER_PER_USER = '1'
+    if ($AutomaticActivation) {
+        Remove-Item `
+            Env:QIQI_CONFIG_BROKER_PER_USER `
+            -ErrorAction SilentlyContinue
+    } else {
+        $env:QIQI_CONFIG_BROKER_PER_USER = '1'
+    }
     $registration = Start-Process `
         -FilePath $broker `
-        -ArgumentList '--register' `
+        -ArgumentList @(
+            '--register'
+            "--store-subkey=$subkey"
+        ) `
         -WindowStyle Hidden `
         -Wait `
         -PassThru
     if ($registration.ExitCode -ne 0) {
         throw "Broker registration failed with exit code $($registration.ExitCode)."
     }
-    $appid = '{8E7B9D31-5A42-4C81-9F11-20261029000E}'
-    $appidKey = "Registry::HKEY_CURRENT_USER\Software\Classes\AppID\$appid"
+    $appidRoot = if ($AutomaticActivation) {
+        'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes'
+    } else {
+        'Registry::HKEY_CURRENT_USER\Software\Classes'
+    }
+    $appidKey = "$appidRoot\AppID\$appid"
     $expectedMasks = @{
         AccessPermission = 0x3
         LaunchPermission = 0xB
@@ -70,6 +165,14 @@ try {
             [System.Security.AccessControl.RawSecurityDescriptor]::new(
                 $bytes,
                 0)
+        if ($descriptor.Owner.Value -ne
+                'S-1-5-18' -or
+            $descriptor.Group.Value -ne
+                'S-1-5-18') {
+            throw (
+                "$permission has invalid " +
+                'owner/group security identity.')
+        }
         $masks = @(
             $descriptor.DiscretionaryAcl |
                 ForEach-Object {
@@ -83,29 +186,128 @@ try {
                 "$permission has invalid COM " +
                 "rights: $($masks -join ', ')")
         }
+        $presentSids = @(
+            $descriptor.DiscretionaryAcl |
+                ForEach-Object {
+                    $_.SecurityIdentifier.Value
+                })
+        $packageSids = @(
+            $presentSids |
+                Where-Object {
+                    $_ -like 'S-1-15-*'
+                })
+        Assert-PackageFileAccess `
+            -Path (Split-Path `
+                -Parent $broker) `
+            -ExpectedSids $packageSids `
+            -Directory
+        Assert-PackageFileAccess `
+            -Path $broker `
+            -ExpectedSids $packageSids
+        Assert-PackageFileAccess `
+            -Path $proxy `
+            -ExpectedSids $packageSids
+        $windowsDirectory =
+            [Environment]::GetFolderPath(
+                [Environment+SpecialFolder]::Windows)
+        $installedSearchPackage =
+            Get-ChildItem `
+                -LiteralPath (
+                    Join-Path `
+                        $windowsDirectory `
+                        'SystemApps') `
+                -Directory `
+                -ErrorAction Stop |
+            Where-Object {
+                (Test-Path `
+                    -LiteralPath (
+                        Join-Path `
+                            $_.FullName `
+                            'SearchHost.exe')) -or
+                (Test-Path `
+                    -LiteralPath (
+                        Join-Path `
+                            $_.FullName `
+                            'SearchApp.exe'))
+            } |
+            Select-Object -First 1
+        $searchPackageSids = @(
+            $presentSids |
+                Where-Object {
+                    $_ -like 'S-1-15-2-*' -and
+                    $_ -ne 'S-1-15-2-1' -and
+                    $_ -ne 'S-1-15-2-2'
+                })
+        if ($installedSearchPackage -and
+                $searchPackageSids.Count -eq 0) {
+            throw (
+                "$permission does not contain " +
+                'the discovered Windows Search package SID.')
+        }
     }
-    $directLaunch = Start-Process `
-        -FilePath $broker `
-        -WindowStyle Hidden `
-        -Wait `
-        -PassThru
-    if ($directLaunch.ExitCode -eq 0) {
-        throw 'Broker accepted a direct non-COM launch.'
+    $appidValueNames = (
+        Get-Item `
+            -LiteralPath $appidKey).GetValueNames()
+    if ($appidValueNames -notcontains
+            'LaunchPermission') {
+        throw (
+            'LaunchPermission is missing; AppContainer ' +
+            'callers require explicit local activation.')
     }
-
-    $argument = "--store-subkey=$subkey"
-    $brokerProcess = Start-Process `
-        -FilePath $broker `
-        -ArgumentList @('-Embedding', $argument) `
-        -WindowStyle Hidden `
-        -PassThru
-    Start-Sleep -Milliseconds 500
-    if ($brokerProcess.HasExited) {
-        throw "Broker exited during startup with code $($brokerProcess.ExitCode)."
+    if ($AutomaticActivation) {
+        & $probe
+        if ($LASTEXITCODE -ne 0) {
+            throw (
+                'Automatic DCOM probe failed ' +
+                "with exit code $LASTEXITCODE.")
+        }
+        $activationDeadline =
+            (Get-Date).AddSeconds(5)
+        do {
+            $brokerCim = Get-CimInstance `
+                Win32_Process `
+                -Filter "Name = 'QiQiIMEConfigBroker.exe'" `
+                -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.CommandLine -like
+                        "*--store-subkey=*$subkey*"
+                } |
+                Select-Object -First 1
+            if (-not $brokerCim) {
+                Start-Sleep -Milliseconds 100
+            }
+        } while (
+            -not $brokerCim -and
+            (Get-Date) -lt $activationDeadline)
+        if (-not $brokerCim) {
+            throw (
+                'SCM did not leave the ' +
+                'automatically activated Broker running.')
+        }
+        $brokerProcess = Get-Process `
+            -Id $brokerCim.ProcessId
+    } else {
+        $brokerProcess = Start-Process `
+            -FilePath $broker `
+            -ArgumentList @(
+                '-Embedding'
+                "--store-subkey=$subkey"
+            ) `
+            -WindowStyle Hidden `
+            -PassThru
+        Start-Sleep -Milliseconds 500
+        if ($brokerProcess.HasExited) {
+            throw (
+                'Broker exited during startup with code ' +
+                "$($brokerProcess.ExitCode).")
+        }
     }
     $duplicate = Start-Process `
         -FilePath $broker `
-        -ArgumentList @('-Embedding', $argument) `
+        -ArgumentList @(
+            '-Embedding'
+            "--store-subkey=$subkey"
+        ) `
         -WindowStyle Hidden `
         -Wait `
         -PassThru
@@ -118,7 +320,9 @@ try {
 
     & $probe
     if ($LASTEXITCODE -ne 0) {
-        throw "DCOM probe failed with exit code $LASTEXITCODE."
+        throw (
+            'DCOM access probe failed with ' +
+            "exit code $LASTEXITCODE.")
     }
     1..2 |
         ForEach-Object {
@@ -206,7 +410,6 @@ $expectedStages = @(
     'Broker process starting',
     'operation=argument-parse',
     'Broker registration command started',
-    'Broker rejected direct launch',
     'Broker server startup requested',
     'Broker singleton mutex acquired',
     'Broker COM security initialized',

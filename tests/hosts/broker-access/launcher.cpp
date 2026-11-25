@@ -21,16 +21,13 @@
 
 namespace {
 
-enum class Profile : uint8_t {
-    Zero,
-    RegistryRead,
-    LpacCom,
-};
-
 struct Mode {
     std::wstring argument;
     std::wstring moniker;
     const wchar_t* capability = nullptr;
+    bool opt_out_all_application_packages = true;
+    const wchar_t* host_executable =
+        L"QiQiImePackageOnlyHost.exe";
 };
 
 struct LocalFreeDeleter {
@@ -179,25 +176,45 @@ Mode ResolveMode(std::wstring_view argument) {
     if (argument == L"zero") {
         return {
             std::wstring(argument),
-            L"QiQiImeLpac.Zero",
-            nullptr};
+            L"QiQiImeAppContainer.Zero",
+            nullptr,
+            true};
+    }
+    if (argument == L"broadGroupCom") {
+        return {
+            L"broadGroupCom",
+            L"QiQiImeAppContainer.BroadGroupCom",
+            L"lpacCom",
+            false,
+            L"QiQiImeBroadGroupHost.exe"};
+    }
+    if (argument == L"packageOnlyCom") {
+        return {
+            L"packageOnlyCom",
+            L"QiQiImeAppContainer.PackageOnlyCom",
+            L"lpacCom",
+            true,
+            L"QiQiImePackageOnlyHost.exe"};
     }
     if (argument == L"registryRead" ||
         argument == L"registry") {
         return {
             L"registryRead",
-            L"QiQiImeLpac.RegistryRead",
-            L"registryRead"};
+            L"QiQiImeAppContainer.RegistryRead",
+            L"registryRead",
+            true};
     }
     if (argument == L"lpacCom" ||
         argument == L"com") {
         return {
             L"lpacCom",
-            L"QiQiImeLpac.LpacCom",
-            L"lpacCom"};
+            L"QiQiImeAppContainer.LpacCom",
+            L"lpacCom",
+            true};
     }
     throw std::invalid_argument(
-        "Unsupported profile. Use zero, registryRead, or lpacCom.");
+        "Unsupported profile. Use broadGroupCom, packageOnlyCom, "
+        "zero, registryRead, or lpacCom.");
 }
 
 std::filesystem::path CurrentExecutablePath() {
@@ -255,7 +272,7 @@ std::filesystem::path ProfileExecutablePath(
     std::filesystem::create_directories(target_directory);
     const std::filesystem::path target =
         target_directory /
-        L"QiQiImeLpacHost.exe";
+        host_executable.filename();
     if (!::CopyFileW(
             host_executable.c_str(),
             target.c_str(),
@@ -415,7 +432,7 @@ private:
 void RunHost(
     const std::filesystem::path& host_executable,
     const Mode& mode,
-    bool smoke) {
+    std::wstring_view host_option) {
     CapabilitySids capabilities;
     const HRESULT capability_result =
         capabilities.Build(mode.capability);
@@ -446,7 +463,10 @@ void RunHost(
         PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
 
     SIZE_T attribute_size = 0;
-    constexpr DWORD attribute_count = 2;
+    const DWORD attribute_count =
+        mode.opt_out_all_application_packages
+            ? 2
+            : 1;
     ::InitializeProcThreadAttributeList(
         nullptr,
         attribute_count,
@@ -489,18 +509,20 @@ void RunHost(
             std::system_category(),
             "UpdateProcThreadAttribute(SECURITY_CAPABILITIES)");
     }
-    if (!::UpdateProcThreadAttribute(
-            attribute_list,
-            0,
-            PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,
-            &all_application_packages_policy,
-            sizeof(all_application_packages_policy),
-            nullptr,
-            nullptr)) {
-        throw std::system_error(
-            static_cast<int>(::GetLastError()),
-            std::system_category(),
-            "UpdateProcThreadAttribute(ALL_APPLICATION_PACKAGES)");
+    if (mode.opt_out_all_application_packages) {
+        if (!::UpdateProcThreadAttribute(
+                attribute_list,
+                0,
+                PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,
+                &all_application_packages_policy,
+                sizeof(all_application_packages_policy),
+                nullptr,
+                nullptr)) {
+            throw std::system_error(
+                static_cast<int>(::GetLastError()),
+                std::system_category(),
+                "UpdateProcThreadAttribute(ALL_APPLICATION_PACKAGES)");
+        }
     }
 
     STARTUPINFOEXW startup{
@@ -513,8 +535,9 @@ void RunHost(
         launched_executable.wstring() +
         L"\" --profile=" +
         mode.argument;
-    if (smoke) {
-        command += L" --smoke";
+    if (!host_option.empty()) {
+        command += L" ";
+        command += host_option;
     }
     PROCESS_INFORMATION process{};
     if (!::CreateProcessW(
@@ -568,7 +591,7 @@ void RunHost(
     }
 
     std::wcout
-        << L"Started LPAC host: profile="
+        << L"Started AppContainer permission host: profile="
         << mode.argument
         << L", pid="
         << process.dwProcessId
@@ -594,7 +617,7 @@ void RunHost(
     }
     if (exit_code != 0) {
         throw std::runtime_error(std::format(
-            "LPAC host exited with code {}",
+            "AppContainer permission host exited with code {}",
             exit_code));
     }
     const HRESULT cleanup_result =
@@ -613,16 +636,22 @@ int wmain(int argc, wchar_t* argv[]) {
     try {
         if (argc > 3 ||
             (argc == 3 &&
-             std::wstring_view(argv[2]) != L"--smoke")) {
+             std::wstring_view(argv[2]) != L"--smoke" &&
+             std::wstring_view(argv[2]) != L"--broker-smoke")) {
             std::wcerr
-                << L"Usage: QiQiImeLpacLauncher.exe "
-                   L"[zero|registryRead|lpacCom] [--smoke]\n";
+                << L"Usage: QiQiImePermissionLauncher.exe "
+                   L"[broadGroupCom|packageOnlyCom|"
+                   L"zero|registryRead|lpacCom] "
+                   L"[--smoke|--broker-smoke]\n";
             return 2;
         }
         const Mode mode = ResolveMode(
-            argc >= 2 ? argv[1] : L"lpacCom");
+            argc >= 2
+                ? argv[1]
+                : L"packageOnlyCom");
         const LauncherMutex launcher_mutex(
-            L"Local\\QiQiImeLpac." + mode.argument);
+            L"Local\\QiQiImeAppContainerPermissions." +
+            mode.argument);
         if (!launcher_mutex.Acquire()) {
             std::wcerr
                 << L"A launcher for profile "
@@ -634,19 +663,24 @@ int wmain(int argc, wchar_t* argv[]) {
             CurrentExecutablePath();
         const std::filesystem::path host =
             launcher.parent_path() /
-            L"QiQiImeLpacHost.exe";
+            mode.host_executable;
         if (!std::filesystem::exists(host)) {
             std::wcerr
-                << L"Missing QiQiImeLpacHost.exe next to the launcher.\n";
+                << L"Missing "
+                << mode.host_executable
+                << L" next to the launcher.\n";
             return 4;
         }
         RunHost(
             host,
             mode,
-            argc == 3);
+            argc == 3
+                ? std::wstring_view(
+                      argv[2])
+                : std::wstring_view{});
         return 0;
     } catch (const std::exception& error) {
-        std::cerr << "LPAC launcher failed: "
+        std::cerr << "Permission launcher failed: "
                   << error.what()
                   << '\n';
         return 1;

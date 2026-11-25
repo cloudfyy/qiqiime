@@ -121,7 +121,8 @@ HRESULT ReadTokenIdentity(
     HANDLE token,
     std::vector<uint8_t>& sid,
     DWORD& session_id,
-    bool reject_app_container) noexcept {
+    bool reject_app_container,
+    bool* app_container = nullptr) noexcept {
     HRESULT result = S_OK;
     sid = TokenUserSid(token, result);
     if (FAILED(result)) {
@@ -137,17 +138,22 @@ HRESULT ReadTokenIdentity(
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
-    DWORD app_container = 0;
+    DWORD is_app_container = 0;
     if (!::GetTokenInformation(
             token,
             TokenIsAppContainer,
-            &app_container,
-            sizeof(app_container),
+            &is_app_container,
+            sizeof(is_app_container),
             &length)) {
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
-    return reject_app_container && app_container
+    if (app_container) {
+        *app_container =
+            is_app_container != 0;
+    }
+    return reject_app_container &&
+            is_app_container
         ? E_ACCESSDENIED
         : S_OK;
 }
@@ -238,9 +244,16 @@ Runtime::Runtime(std::wstring subkey)
     Touch();
 }
 
-HRESULT Runtime::ValidateCaller() const noexcept {
+HRESULT Runtime::ValidateCaller(
+    CallerAccess access) const noexcept {
     const ImpersonationScope impersonation;
     if (FAILED(impersonation.Result())) {
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Config,
+            "ConfigBroker caller impersonation failed "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                impersonation.Result()));
         return impersonation.Result();
     }
     HANDLE raw = nullptr;
@@ -249,23 +262,71 @@ HRESULT Runtime::ValidateCaller() const noexcept {
             TOKEN_QUERY,
             TRUE,
             &raw)) {
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Config,
+            "ConfigBroker caller token open failed "
+            "(error={})",
+            ::GetLastError());
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
     const ScopedKernelHandle token(raw);
     std::vector<uint8_t> caller_sid;
     DWORD caller_session = 0;
+    bool caller_app_container = false;
     const HRESULT result = ReadTokenIdentity(
         token.Get(),
         caller_sid,
         caller_session,
-        false);
+        false,
+        &caller_app_container);
     if (FAILED(result)) {
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Config,
+            "ConfigBroker caller identity read failed "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                result));
         return result;
     }
-    if (result != S_OK ||
-        caller_session != session_id_ ||
-        caller_sid != user_sid_) {
+    const bool user_match =
+        caller_sid == user_sid_;
+    const bool session_match =
+        caller_session == session_id_;
+    const bool accepted =
+        result == S_OK &&
+        IsCallerIdentityAllowed(
+            access,
+            {
+                user_match,
+                session_match,
+                caller_app_container,
+            });
+    const std::string_view access_name =
+        access == CallerAccess::Read
+            ? "read"
+            : "mutation";
+    if (accepted) {
+        QIQI_LOG_CAT_DEBUG(
+            log::Keyword::Config,
+            "ConfigBroker caller identity checked "
+            "(access={}, user_match=true, "
+            "session_match={}, app_container={})",
+            access_name,
+            session_match,
+            caller_app_container);
+    } else {
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Config,
+            "ConfigBroker caller identity rejected "
+            "(access={}, user_match={}, "
+            "session_match={}, app_container={})",
+            access_name,
+            user_match,
+            session_match,
+            caller_app_container);
+    }
+    if (!accepted) {
         return E_ACCESSDENIED;
     }
     return S_OK;

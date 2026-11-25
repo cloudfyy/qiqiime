@@ -60,7 +60,7 @@ The script:
 
 Public certificate:
 
-`tests\hosts\uwp\cert\QiQiImeDevelopment.cer`
+`tests\hosts\packaged-search\cert\QiQiImeDevelopment.cer`
 
 The matching private key must exist in the build user's
 `Cert:\CurrentUser\My`. Private keys and PFX files are never placed in this

@@ -44,6 +44,8 @@ struct BrokerArguments {
     bool shutdown_requested = false;
     bool register_requested = false;
     bool unregister_requested = false;
+    bool help_requested = false;
+    bool invalid = false;
 };
 
 void LogOperationResult(
@@ -76,6 +78,59 @@ bool IsSwitch(
                    expected.size()),
                TRUE) ==
         CSTR_EQUAL;
+}
+
+void ShowHelp() noexcept {
+    constexpr std::string_view help =
+        "QiQiIME Configuration Broker\r\n"
+        "\r\n"
+        "Usage:\r\n"
+        "  QiQiIMEConfigBroker.exe -Embedding|/Embedding "
+        "[--store-subkey=KEY]\r\n"
+        "  QiQiIMEConfigBroker.exe --register|/RegisterServer\r\n"
+        "  QiQiIMEConfigBroker.exe --unregister|/UnregisterServer\r\n"
+        "  QiQiIMEConfigBroker.exe --shutdown|/Shutdown "
+        "[--store-subkey=KEY]\r\n"
+        "  QiQiIMEConfigBroker.exe --help\r\n"
+        "\r\n"
+        "Options:\r\n"
+        "  -Embedding, /Embedding    Run as the COM local server (used by DCOM).\r\n"
+        "  --register, /RegisterServer\r\n"
+        "                            Register the Broker CLSID, AppID, and proxy.\r\n"
+        "  --unregister, /UnregisterServer\r\n"
+        "                            Remove Broker registration.\r\n"
+        "  --shutdown, /Shutdown     Stop the Broker for the current session.\r\n"
+        "  --store-subkey=KEY        Use an isolated test registry subkey.\r\n"
+        "                            /store-subkey=KEY is also accepted.\r\n"
+        "  -h, --help, /Help, /?     Show this help.\r\n";
+
+    HANDLE output =
+        ::GetStdHandle(STD_OUTPUT_HANDLE);
+    bool attached = false;
+    if (!output ||
+        output == INVALID_HANDLE_VALUE) {
+        attached =
+            ::AttachConsole(
+                ATTACH_PARENT_PROCESS);
+        output =
+            ::GetStdHandle(
+                STD_OUTPUT_HANDLE);
+    }
+    DWORD written = 0;
+    std::ignore =
+        output &&
+        output != INVALID_HANDLE_VALUE &&
+        ::WriteFile(
+            output,
+            help.data(),
+            gsl::narrow_cast<DWORD>(
+                help.size()),
+            &written,
+            nullptr);
+    if (attached) {
+        std::ignore =
+            ::FreeConsole();
+    }
 }
 
 std::wstring InstanceName(
@@ -126,12 +181,16 @@ HRESULT ParseArguments(
     const qiqi::ScopedLocalAlloc owner(
         arguments);
     try {
+        output.help_requested =
+            argument_count <= 1;
         const std::span<wchar_t*> argument_span(
             arguments,
             gsl::narrow_cast<size_t>(
                 argument_count));
         constexpr std::wstring_view prefix =
             L"--store-subkey=";
+        constexpr std::wstring_view slash_prefix =
+            L"/store-subkey=";
         for (int index = 1;
              index < argument_count;
              ++index) {
@@ -146,25 +205,97 @@ HRESULT ParseArguments(
                         prefix.size()));
                 continue;
             }
-            output.embedding |=
-                value == L"-Embedding" ||
-                value == L"/Embedding";
-            output.shutdown_requested |=
-                value == L"--shutdown";
-            output.register_requested |=
+            if (value.size() >=
+                    slash_prefix.size() &&
+                CompareStringOrdinal(
+                    value.data(),
+                    gsl::narrow_cast<int>(
+                        slash_prefix.size()),
+                    slash_prefix.data(),
+                    gsl::narrow_cast<int>(
+                        slash_prefix.size()),
+                    TRUE) ==
+                    CSTR_EQUAL) {
+                output.store_subkey.assign(
+                    value.substr(
+                        slash_prefix.size()));
+                continue;
+            }
+            if (IsSwitch(value, L"-h") ||
+                IsSwitch(
+                    value,
+                    L"--help") ||
+                IsSwitch(
+                    value,
+                    L"/Help") ||
+                IsSwitch(
+                    value,
+                    L"/?")) {
+                output.help_requested =
+                    true;
+            } else if (
+                IsSwitch(
+                    value,
+                    L"-Embedding") ||
+                IsSwitch(
+                    value,
+                    L"/Embedding")) {
+                output.embedding = true;
+            } else if (
+                IsSwitch(
+                    value,
+                    L"--shutdown") ||
+                IsSwitch(
+                    value,
+                    L"/Shutdown")) {
+                output.shutdown_requested =
+                    true;
+            } else if (
                 IsSwitch(
                     value,
                     L"/RegisterServer") ||
                 IsSwitch(
                     value,
-                    L"--register");
-            output.unregister_requested |=
+                    L"--register")) {
+                output.register_requested =
+                    true;
+            } else if (
                 IsSwitch(
                     value,
                     L"/UnregisterServer") ||
                 IsSwitch(
                     value,
-                    L"--unregister");
+                    L"--unregister")) {
+                output.unregister_requested =
+                    true;
+            } else {
+                output.invalid = true;
+            }
+        }
+        if (output.help_requested) {
+            return S_OK;
+        }
+        const int operation_count =
+            gsl::narrow_cast<int>(
+                output.embedding) +
+            gsl::narrow_cast<int>(
+                output.shutdown_requested) +
+            gsl::narrow_cast<int>(
+                output.register_requested) +
+            gsl::narrow_cast<int>(
+                output.unregister_requested);
+        if (operation_count != 1) {
+            output.invalid = true;
+        }
+        if (!output.invalid &&
+            !output.store_subkey.empty() &&
+            !output.embedding &&
+            !output.shutdown_requested &&
+            !output.register_requested) {
+            output.invalid = true;
+        }
+        if (output.invalid) {
+            return E_INVALIDARG;
         }
         return S_OK;
     } catch (const std::bad_alloc&) {
@@ -612,6 +743,10 @@ int WINAPI wWinMain(
     LogOperationResult(
         "argument-parse",
         result);
+    if (arguments.help_requested) {
+        ShowHelp();
+        return 0;
+    }
     if (FAILED(result)) {
         QIQI_LOG_CAT_ERROR(
             qiqi::log::Keyword::Config,
@@ -619,6 +754,9 @@ int WINAPI wWinMain(
             "(hr=0x{:08X})",
             gsl::narrow_cast<unsigned long>(
                 result));
+        if (result == E_INVALIDARG) {
+            ShowHelp();
+        }
         return SUCCEEDED(result) ? 0 : 1;
     }
     QIQI_LOG_CAT_INFO(
@@ -657,7 +795,9 @@ int WINAPI wWinMain(
             "started");
         result =
             qiqi::broker::
-                RegisterServer(instance);
+                RegisterServer(
+                    instance,
+                    arguments.store_subkey);
         LogOperationResult(
             "server-register",
             result);

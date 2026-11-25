@@ -707,7 +707,7 @@ status-bar/tooltip skin support require separate design approval.
   documented test-certificate installation flow. Do not commit signing private
   keys or include these test hosts in the QiQiIME product MSI.
   The UWP/AppContainer host is now implemented at
-  [tests/hosts/uwp](../tests/hosts/uwp/README.md), including
+  [tests/hosts/packaged-search](../tests/hosts/packaged-search/README.md), including
   synthetic Search Contract fixtures, privacy-safe TraceLogging/LocalState
   diagnostics, and a repeatable signed-MSIX/installer flow. The packaged
   full-trust host is implemented at
@@ -718,7 +718,8 @@ status-bar/tooltip skin support require separate design approval.
   MSIX packaging. The parent TODO remains open until real-host acceptance.
 
 - [x] Extend the restricted-host matrix with a dedicated LPAC launcher and
-  matching UWP-side upgrades. Keep the existing `tests/hosts/uwp` fixture as
+  matching packaged-AppContainer upgrades. Keep the existing
+  `tests/hosts/packaged-search` fixture as
   the ordinary, capability-free UWP/AppContainer baseline; do not change its
   package into LPAC. Add an opt-in launcher that creates an explicit
   AppContainer profile/package SID, configures
@@ -735,9 +736,9 @@ status-bar/tooltip skin support require separate design approval.
   enumerated group array. Upgrade the UWP fixture
   or a close LPAC-compatible Win32 fixture to report those token facts, plus
   its capability SIDs, without logging user/package-sensitive paths. Cover
-  three profiles: zero capabilities, `registryRead`, and `lpacCom` (separate
-  runs, never combine capabilities by default). The standalone fixture is
-  implemented at [tests/hosts/lpac](../tests/hosts/lpac/README.md). Smoke
+  distinct broad-group, package-only, zero-capability, `registryRead`, and
+  legacy `lpacCom` runs (never combine capabilities by default). The standalone fixture is
+  implemented at [tests/hosts/broker-access](../tests/hosts/broker-access/README.md). Smoke
   coverage verifies access denial for the zero-capability profile, the registry
   read granted only to `registryRead`, and COM initialization (but not ordinary
   TSF thread-manager activation) for `lpacCom`. A real interactive `lpacCom`

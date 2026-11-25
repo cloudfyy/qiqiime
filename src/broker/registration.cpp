@@ -12,13 +12,16 @@
 
 #include <aclapi.h>
 #include <sddl.h>
+#include <userenv.h>
 #include <gsl/gsl>
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <new>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace qiqi::broker {
@@ -91,6 +94,76 @@ std::wstring GuidString(REFGUID guid) {
     return value.data();
 }
 
+class SidOwner final {
+public:
+    enum class Allocation {
+        Local,
+        Sid,
+    };
+
+    SidOwner(
+        PSID value,
+        Allocation allocation) noexcept
+        : value_(value),
+          allocation_(allocation) {
+    }
+
+    ~SidOwner() noexcept {
+        Release();
+    }
+
+    SidOwner(
+        const SidOwner&) = delete;
+    SidOwner& operator=(
+        const SidOwner&) = delete;
+
+    SidOwner(
+        SidOwner&& other) noexcept
+        : value_(
+              std::exchange(
+                  other.value_,
+                  nullptr)),
+          allocation_(
+              other.allocation_) {
+    }
+
+    SidOwner& operator=(
+        SidOwner&& other) noexcept {
+        if (this != &other) {
+            Release();
+            value_ =
+                std::exchange(
+                    other.value_,
+                    nullptr);
+            allocation_ =
+                other.allocation_;
+        }
+        return *this;
+    }
+
+    PSID Get() const noexcept {
+        return value_;
+    }
+
+private:
+    void Release() noexcept {
+        if (!value_) {
+            return;
+        }
+        if (allocation_ ==
+            Allocation::Local) {
+            ::LocalFree(value_);
+        } else {
+            ::FreeSid(value_);
+        }
+        value_ = nullptr;
+    }
+
+    PSID value_ = nullptr;
+    Allocation allocation_ =
+        Allocation::Local;
+};
+
 HRESULT SetString(
     HKEY key,
     const wchar_t* name,
@@ -126,7 +199,7 @@ HRESULT SetDword(
 HRESULT AppendSid(
     std::wstring_view text,
     std::vector<PSID>& sids,
-    std::vector<ScopedLocalAlloc>& owners) {
+    std::vector<SidOwner>& owners) {
     PSID sid = nullptr;
     if (!::ConvertStringSidToSidW(
             std::wstring(text).c_str(),
@@ -134,14 +207,120 @@ HRESULT AppendSid(
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
-    owners.emplace_back(sid);
+    owners.emplace_back(
+        sid,
+        SidOwner::Allocation::Local);
     sids.push_back(sid);
+    return S_OK;
+}
+
+HRESULT AppendAppContainerSid(
+    std::wstring_view package_family,
+    std::vector<PSID>& sids,
+    std::vector<SidOwner>& owners) {
+    const std::wstring name(package_family);
+    PSID sid = nullptr;
+    const HRESULT result =
+        ::DeriveAppContainerSidFromAppContainerName(
+            name.c_str(),
+            &sid);
+    if (FAILED(result)) {
+        return result;
+    }
+    SidOwner owner(
+        sid,
+        SidOwner::Allocation::Sid);
+    owners.emplace_back(
+        std::move(owner));
+    sids.push_back(sid);
+    return S_OK;
+}
+
+HRESULT AppendWindowsSearchHostSids(
+    std::vector<PSID>& sids,
+    std::vector<SidOwner>& owners) {
+    std::array<wchar_t, 32768> windows{};
+    const UINT length =
+        ::GetWindowsDirectoryW(
+            windows.data(),
+            gsl::narrow_cast<UINT>(
+                windows.size()));
+    if (length == 0 ||
+        length >= windows.size()) {
+        return HRESULT_FROM_WIN32(
+            length == 0
+                ? ::GetLastError()
+                : ERROR_INSUFFICIENT_BUFFER);
+    }
+    const std::filesystem::path system_apps =
+        std::filesystem::path(
+            windows.data()) /
+        L"SystemApps";
+    std::error_code error;
+    std::filesystem::directory_iterator iterator(
+        system_apps,
+        error);
+    if (error) {
+        return HRESULT_FROM_WIN32(
+            gsl::narrow_cast<DWORD>(
+                error.value()));
+    }
+    const std::filesystem::directory_iterator end;
+    while (iterator != end) {
+        const bool directory =
+            iterator->is_directory(
+                error);
+        if (error) {
+            return HRESULT_FROM_WIN32(
+                gsl::narrow_cast<DWORD>(
+                    error.value()));
+        }
+        if (directory) {
+            const std::filesystem::path path =
+                iterator->path();
+            const bool search_host =
+                std::filesystem::exists(
+                    path / L"SearchHost.exe",
+                    error);
+            if (error) {
+                return HRESULT_FROM_WIN32(
+                    gsl::narrow_cast<DWORD>(
+                        error.value()));
+            }
+            const bool search_app =
+                std::filesystem::exists(
+                    path / L"SearchApp.exe",
+                    error);
+            if (error) {
+                return HRESULT_FROM_WIN32(
+                    gsl::narrow_cast<DWORD>(
+                        error.value()));
+            }
+            if (search_host ||
+                search_app) {
+                const HRESULT result =
+                    AppendAppContainerSid(
+                        path.filename().wstring(),
+                        sids,
+                        owners);
+                if (FAILED(result)) {
+                    return result;
+                }
+            }
+        }
+        iterator.increment(error);
+        if (error) {
+            return HRESULT_FROM_WIN32(
+                gsl::narrow_cast<DWORD>(
+                    error.value()));
+        }
+    }
     return S_OK;
 }
 
 HRESULT AppendCapabilitySids(
     std::vector<PSID>& sids,
-    std::vector<ScopedLocalAlloc>& owners) {
+    std::vector<SidOwner>& owners) {
     PSID* groups = nullptr;
     DWORD group_count = 0;
     PSID* capabilities = nullptr;
@@ -205,7 +384,8 @@ HRESULT AppendCapabilitySids(
     for (const PSID capability :
          capability_sids) {
         owners.emplace_back(
-            capability);
+            capability,
+            SidOwner::Allocation::Local);
         sids.push_back(
             capability);
     }
@@ -215,11 +395,36 @@ HRESULT AppendCapabilitySids(
     return S_OK;
 }
 
+HRESULT AppendAppContainerAccessSids(
+    std::vector<PSID>& sids,
+    std::vector<SidOwner>& owners) {
+    // ALL APPLICATION PACKAGES (ordinary AppContainer callers).
+    HRESULT result = AppendSid(
+        L"S-1-15-2-1",
+        sids,
+        owners);
+    if (FAILED(result)) return result;
+    // ALL RESTRICTED APPLICATION PACKAGES (LPAC callers).
+    result = AppendSid(
+        L"S-1-15-2-2",
+        sids,
+        owners);
+    if (FAILED(result)) return result;
+    // Group/capability SIDs derived from the named lpacCom capability.
+    result = AppendCapabilitySids(
+        sids,
+        owners);
+    if (FAILED(result)) return result;
+    return AppendWindowsSearchHostSids(
+        sids,
+        owners);
+}
+
 HRESULT BuildDcomDacl(
     const ULONG rights,
     std::vector<uint8_t>& output) {
     std::vector<PSID> sids;
-    std::vector<ScopedLocalAlloc> owners;
+    std::vector<SidOwner> owners;
     // NT AUTHORITY\SYSTEM.
     HRESULT result =
         AppendSid(
@@ -239,20 +444,7 @@ HRESULT BuildDcomDacl(
         sids,
         owners);
     if (FAILED(result)) return result;
-    // ALL APPLICATION PACKAGES (ordinary AppContainer callers).
-    result = AppendSid(
-        L"S-1-15-2-1",
-        sids,
-        owners);
-    if (FAILED(result)) return result;
-    // ALL RESTRICTED APPLICATION PACKAGES (LPAC callers).
-    result = AppendSid(
-        L"S-1-15-2-2",
-        sids,
-        owners);
-    if (FAILED(result)) return result;
-    // Group/capability SIDs derived from the named lpacCom capability.
-    result = AppendCapabilitySids(
+    result = AppendAppContainerAccessSids(
         sids,
         owners);
     if (FAILED(result)) return result;
@@ -297,11 +489,32 @@ HRESULT BuildDcomDacl(
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
+    if (!::SetSecurityDescriptorOwner(
+            &descriptor,
+            sids.front(),
+            FALSE)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    if (!::SetSecurityDescriptorGroup(
+            &descriptor,
+            sids.front(),
+            FALSE)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
     if (!::SetSecurityDescriptorDacl(
             &descriptor,
             TRUE,
             raw_acl,
             FALSE)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    if (!::SetSecurityDescriptorControl(
+            &descriptor,
+            SE_DACL_PROTECTED,
+            SE_DACL_PROTECTED)) {
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
@@ -326,6 +539,151 @@ HRESULT BuildDcomDacl(
             ::GetLastError());
     }
     output = std::move(bytes);
+    return S_OK;
+}
+
+HRESULT GrantReadExecuteAcl(
+    const std::filesystem::path& path,
+    DWORD rights,
+    DWORD inheritance,
+    std::span<PSID> sids) {
+    std::wstring native_path =
+        path.wstring();
+    PACL old_dacl = nullptr;
+    PSECURITY_DESCRIPTOR raw_descriptor =
+        nullptr;
+    const DWORD security_result =
+        ::GetNamedSecurityInfoW(
+            native_path.data(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            &old_dacl,
+            nullptr,
+            &raw_descriptor);
+    if (security_result !=
+        ERROR_SUCCESS) {
+        return HRESULT_FROM_WIN32(
+            security_result);
+    }
+    const ScopedLocalAlloc descriptor_owner(
+        raw_descriptor);
+
+    std::vector<EXPLICIT_ACCESS_W> entries;
+    entries.reserve(sids.size());
+    for (const PSID sid : sids) {
+        EXPLICIT_ACCESS_W entry{};
+        entry.grfAccessPermissions =
+            rights;
+        entry.grfAccessMode =
+            GRANT_ACCESS;
+        entry.grfInheritance =
+            inheritance;
+        entry.Trustee.TrusteeForm =
+            TRUSTEE_IS_SID;
+        entry.Trustee.TrusteeType =
+            TRUSTEE_IS_GROUP;
+        entry.Trustee.ptstrName =
+            static_cast<LPWSTR>(sid);
+        entries.push_back(entry);
+    }
+
+    PACL raw_acl = nullptr;
+    const DWORD acl_result =
+        ::SetEntriesInAclW(
+            gsl::narrow_cast<ULONG>(
+                entries.size()),
+            entries.data(),
+            old_dacl,
+            &raw_acl);
+    if (acl_result != ERROR_SUCCESS) {
+        return HRESULT_FROM_WIN32(
+            acl_result);
+    }
+    const ScopedLocalAlloc acl_owner(
+        raw_acl);
+    const DWORD set_result =
+        ::SetNamedSecurityInfoW(
+            native_path.data(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            raw_acl,
+            nullptr);
+    return HRESULT_FROM_WIN32(
+        set_result);
+}
+
+HRESULT GrantBrokerAppContainerAccess(
+    const std::filesystem::path& executable,
+    const std::filesystem::path& proxy,
+    const std::filesystem::path* proxy32) {
+    if (!executable.is_absolute() ||
+        !proxy.is_absolute() ||
+        !std::filesystem::exists(
+            executable) ||
+        !std::filesystem::exists(
+            proxy)) {
+        return HRESULT_FROM_WIN32(
+            ERROR_FILE_NOT_FOUND);
+    }
+
+    std::vector<PSID> sids;
+    std::vector<SidOwner> owners;
+    HRESULT result =
+        AppendAppContainerAccessSids(
+            sids,
+            owners);
+    if (FAILED(result)) return result;
+
+    std::vector<std::filesystem::path>
+        files{executable, proxy};
+    if (proxy32) {
+        if (!proxy32->is_absolute() ||
+            !std::filesystem::exists(
+                *proxy32)) {
+            return HRESULT_FROM_WIN32(
+                ERROR_FILE_NOT_FOUND);
+        }
+        files.push_back(*proxy32);
+    }
+
+    std::vector<std::filesystem::path>
+        directories;
+    for (const auto& file : files) {
+        const auto directory =
+            file.parent_path();
+        if (std::find(
+                directories.begin(),
+                directories.end(),
+                directory) ==
+            directories.end()) {
+            directories.push_back(
+                directory);
+        }
+    }
+
+    for (const auto& directory :
+         directories) {
+        result = GrantReadExecuteAcl(
+            directory,
+            FILE_GENERIC_READ |
+                FILE_GENERIC_EXECUTE,
+            SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+            sids);
+        if (FAILED(result)) return result;
+    }
+    for (const auto& file : files) {
+        result = GrantReadExecuteAcl(
+            file,
+            FILE_GENERIC_READ |
+                FILE_GENERIC_EXECUTE,
+            NO_INHERITANCE,
+            sids);
+        if (FAILED(result)) return result;
+    }
     return S_OK;
 }
 
@@ -505,7 +863,8 @@ HRESULT DeleteTree(
 HRESULT RegisterView(
     const std::filesystem::path& executable,
     const std::filesystem::path& proxy,
-    const RegistryRoot& root) {
+    const RegistryRoot& root,
+    std::wstring_view store_subkey) {
     const std::wstring clsid =
         GuidString(kClsidQiQiConfigBroker);
     const std::wstring appid =
@@ -543,8 +902,20 @@ HRESULT RegisterView(
         local_server);
     if (FAILED(result)) return result;
     const std::wstring command =
-        L"\"" + executable.wstring() +
-        L"\" -Embedding";
+        [&]() {
+            std::wstring result =
+                L"\"" +
+                executable.wstring() +
+                L"\" -Embedding";
+            if (!store_subkey.empty()) {
+                result +=
+                    L" --store-subkey=\"" +
+                    std::wstring(
+                        store_subkey) +
+                    L"\"";
+            }
+            return result;
+        }();
     result = SetString(
         local_server.Get(),
         nullptr,
@@ -599,8 +970,18 @@ HRESULT RegisterView(
         root);
 }
 
-HRESULT RegisterServer(HINSTANCE instance) noexcept {
+HRESULT RegisterServer(
+    HINSTANCE instance,
+    std::wstring_view store_subkey) noexcept {
     try {
+        if (store_subkey.find(L'"') !=
+                std::wstring_view::npos ||
+            store_subkey.find(L'\r') !=
+                std::wstring_view::npos ||
+            store_subkey.find(L'\n') !=
+                std::wstring_view::npos) {
+            return E_INVALIDARG;
+        }
         const std::filesystem::path executable =
             GetModuleFilePath(instance);
         if (executable.empty()) {
@@ -612,20 +993,31 @@ HRESULT RegisterServer(HINSTANCE instance) noexcept {
             executable.parent_path() /
             L"QiQiIMEConfigProxy.dll";
 #ifdef _WIN64
+        const std::filesystem::path proxy32 =
+            Proxy32Path(executable);
+        const bool proxy32_exists =
+            std::filesystem::exists(
+                proxy32);
+        HRESULT result =
+            GrantBrokerAppContainerAccess(
+                executable,
+                proxy,
+                proxy32_exists
+                    ? &proxy32
+                    : nullptr);
+        if (FAILED(result)) return result;
         RegistryRoot root{
             base_key,
             prefix,
             KEY_WOW64_64KEY,
         };
-        HRESULT result = RegisterView(
+        result = RegisterView(
             executable,
             proxy,
-            root);
+            root,
+            store_subkey);
         if (FAILED(result)) return result;
-        const std::filesystem::path proxy32 =
-            Proxy32Path(executable);
-        if (std::filesystem::exists(
-                proxy32)) {
+        if (proxy32_exists) {
             result = RegisterView(
                 executable,
                 proxy32,
@@ -633,7 +1025,8 @@ HRESULT RegisterServer(HINSTANCE instance) noexcept {
                     base_key,
                     prefix,
                     KEY_WOW64_32KEY,
-                });
+                },
+                store_subkey);
             if (FAILED(result)) {
                 return result;
             }
@@ -656,10 +1049,17 @@ HRESULT RegisterServer(HINSTANCE instance) noexcept {
             wow64 ? KEY_WOW64_32KEY
                   : REGSAM{0},
         };
-        const HRESULT result = RegisterView(
+        HRESULT result =
+            GrantBrokerAppContainerAccess(
+                executable,
+                proxy,
+                nullptr);
+        if (FAILED(result)) return result;
+        result = RegisterView(
             executable,
             proxy,
-            root);
+            root,
+            store_subkey);
         if (FAILED(result)) return result;
 #endif
 

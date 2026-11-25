@@ -107,6 +107,7 @@ if ($Package) {
     Copy-Item (Join-Path $PSScriptRoot "common.ps1") -Destination (Join-Path $pkgDir "scripts\common.ps1")
     Copy-Item (Join-Path $PSScriptRoot "register_ime.ps1") -Destination (Join-Path $pkgDir "scripts\register_ime.ps1")
     Copy-Item (Join-Path $PSScriptRoot "unregister_ime.ps1") -Destination (Join-Path $pkgDir "scripts\unregister_ime.ps1")
+    Copy-Item (Join-Path $PSScriptRoot "repair_appcontainer_access.ps1") -Destination (Join-Path $pkgDir "scripts\repair_appcontainer_access.ps1")
     Copy-QiQiReleaseDocumentation -Destination $pkgDir
 
     Compress-Archive -Path $pkgDir -DestinationPath $zipPath -Force

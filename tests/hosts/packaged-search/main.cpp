@@ -35,7 +35,7 @@ int __stdcall WinMain(
                 L"entrypoint allocation failed");
         }
         ::OutputDebugStringW(
-            L"QiQiIME UWP Search Host terminated after allocation failure.\r\n");
+            L"QiQiIME AppContainer Search Host terminated after allocation failure.\r\n");
         return 2;
     } catch (const winrt::hresult_error& error) {
         const HRESULT code = error.code();
@@ -53,7 +53,7 @@ int __stdcall WinMain(
             }
         }
         const std::wstring message = std::format(
-            L"QiQiIME UWP Search Host terminated with HRESULT 0x{:08X}.\r\n",
+            L"QiQiIME AppContainer Search Host terminated with HRESULT 0x{:08X}.\r\n",
             static_cast<uint32_t>(code));
         ::OutputDebugStringW(message.c_str());
         return static_cast<int>(code);

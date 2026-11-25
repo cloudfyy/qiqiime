@@ -6,6 +6,7 @@
 #include "common/trace.h"
 
 #include <windows.h>
+#include <unknwn.h>
 
 using QIQI_CONFIG_TRACE_CONTEXT =
     qiqi::trace::Context;

@@ -11,6 +11,7 @@
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
 
 #include <algorithm>
+#include <bit>
 #include <format>
 #include <memory>
 #include <ranges>
@@ -25,7 +26,7 @@ namespace search = winrt::Windows::ApplicationModel::Search;
 namespace xaml = winrt::Windows::UI::Xaml;
 namespace controls = winrt::Windows::UI::Xaml::Controls;
 
-constexpr std::wstring_view kPersistentLogName = L"qiqi-uwp-host.log";
+constexpr std::wstring_view kPersistentLogName = L"qiqi-appcontainer-host.log";
 
 std::wstring_view HStringView(winrt::hstring const& value) noexcept {
     return {value.c_str(), value.size()};
@@ -107,7 +108,7 @@ void HostApp::BuildWindow() {
     panel.HorizontalAlignment(xaml::HorizontalAlignment::Stretch);
 
     controls::TextBlock title;
-    title.Text(L"QiQiIME UWP Search Contract Host");
+    title.Text(L"QiQiIME AppContainer Search Contract Host");
     title.FontSize(28);
     title.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());
     AddControl(panel, title, 0);
@@ -177,7 +178,25 @@ void HostApp::BuildWindow() {
     });
     run_fixtures_.Margin(xaml::Thickness{12, 0, 0, 0});
     actions.Children().Append(run_fixtures_);
+
+    probe_broker_.Content(winrt::box_value(
+        L"Probe Config Broker"));
+    probe_broker_.Click(
+        [weak = get_weak()](auto&&, auto&&) {
+            if (const auto self = weak.get()) {
+                self->ProbeConfigBroker();
+            }
+        });
+    probe_broker_.Margin(
+        xaml::Thickness{12, 0, 0, 0});
+    actions.Children().Append(probe_broker_);
     AddControl(panel, actions, 8);
+
+    broker_status_.TextWrapping(
+        xaml::TextWrapping::Wrap);
+    broker_status_.Text(
+        L"Config Broker has not been probed.");
+    AddControl(panel, broker_status_, 8);
 
     fixture_status_.Text(L"Loading packaged test data...");
     fixture_status_.TextWrapping(xaml::TextWrapping::Wrap);
@@ -203,7 +222,47 @@ void HostApp::BuildWindow() {
     window_ready_ = true;
 
     ConnectSearchPane();
+    ProbeConfigBroker();
     LoadFixtureSetAsync();
+}
+
+void HostApp::ProbeConfigBroker() noexcept {
+    const broker::ProbeResult probe =
+        broker::ProbeConfiguration();
+    try {
+        const std::wstring text =
+            std::format(
+                L"Config Broker: coinitialize=0x{:08X}; "
+                L"create=0x{:08X}; blanket=0x{:08X}; "
+                L"read=0x{:08X}; revision={}; "
+                L"snapshot_bytes={}",
+                probe.ApartmentBits(),
+                std::bit_cast<uint32_t>(
+                    probe.create),
+                std::bit_cast<uint32_t>(
+                    probe.blanket),
+                std::bit_cast<uint32_t>(
+                    probe.read),
+                probe.revision,
+                probe.snapshot_size);
+        broker_status_.Text(text);
+        if (SUCCEEDED(probe.read)) {
+            diagnostics_->Info(
+                L"host.broker",
+                text);
+        } else {
+            diagnostics_->Error(
+                L"host.broker",
+                text);
+        }
+    } catch (const std::bad_alloc&) {
+        broker_status_.Text(
+            L"Config Broker status unavailable "
+            L"(allocation failure).");
+        diagnostics_->Error(
+            L"host.broker",
+            L"broker status allocation failed");
+    }
 }
 
 void HostApp::ConnectSearchPane() noexcept {

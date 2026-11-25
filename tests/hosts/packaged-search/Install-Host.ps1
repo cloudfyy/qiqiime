@@ -16,7 +16,7 @@ $repositoryRoot = [IO.Path]::GetFullPath(
 if (-not $PackagePath) {
     $PackagePath = Get-ChildItem `
         -LiteralPath (Join-Path $repositoryRoot 'dist\test-hosts') `
-        -Filter 'QiQiImeUwpSearchHost_*.msix' `
+        -Filter 'QiQiImeAppContainerSearchHost_*.msix' `
         -File `
         -ErrorAction Stop |
         Sort-Object LastWriteTime -Descending |
@@ -54,7 +54,7 @@ Add-AppxPackage `
     -ErrorAction Stop |
     Out-Null
 
-$package = Get-AppxPackage -Name 'Cloudfyy.QiQiImeUwpSearchHost' `
+$package = Get-AppxPackage -Name 'Cloudfyy.QiQiImeAppContainerSearchHost' `
     -ErrorAction Stop
 if (-not $package) {
     throw 'The package was not registered after Add-AppxPackage.'

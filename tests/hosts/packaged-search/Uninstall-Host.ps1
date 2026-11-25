@@ -11,10 +11,10 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $packages = @(Get-AppxPackage `
-    -Name 'Cloudfyy.QiQiImeUwpSearchHost' `
+    -Name 'Cloudfyy.QiQiImeAppContainerSearchHost' `
     -ErrorAction SilentlyContinue)
 if ($packages.Count -eq 0) {
-    Write-Host 'QiQiImeUwpSearchHost is not installed.'
+    Write-Host 'QiQiImeAppContainerSearchHost is not installed.'
 } else {
     foreach ($package in $packages) {
         Remove-AppxPackage -Package $package.PackageFullName

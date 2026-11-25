@@ -5,7 +5,7 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   IgnorableNamespaces="uap mp">
   <Identity
-    Name="Cloudfyy.QiQiImeUwpSearchHost"
+    Name="Cloudfyy.QiQiImeAppContainerSearchHost"
     Publisher="CN=QiQiIME Development"
     Version="0.1.0.0"
     ProcessorArchitecture="x64" />
@@ -13,7 +13,7 @@
     PhoneProductId="5B806BE3-3C20-4D2E-BF8F-D0DCDCBCE1DA"
     PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
-    <DisplayName>QiQiIME UWP Search Host</DisplayName>
+    <DisplayName>QiQiIME AppContainer Search Host</DisplayName>
     <PublisherDisplayName>cloudfyy</PublisherDisplayName>
     <Description>Minimal AppContainer host for QiQiIME input and Search Contract testing.</Description>
     <Logo>Assets\StoreLogo.png</Logo>
@@ -31,11 +31,11 @@
   <Applications>
     <Application
       Id="App"
-      Executable="QiQiImeUwpSearchHost.exe"
-      EntryPoint="QiQiImeUwpSearchHost.App">
+      Executable="QiQiImeAppContainerSearchHost.exe"
+      EntryPoint="QiQiImeAppContainerSearchHost.App">
       <uap:VisualElements
-        DisplayName="QiQiIME UWP Search Host"
-        Description="Minimal AppContainer host for QiQiIME testing."
+        DisplayName="QiQiIME AppContainer Search Host"
+        Description="Minimal packaged AppContainer host for QiQiIME testing."
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"
         BackgroundColor="#0078D4">

@@ -34,7 +34,7 @@ if (-not $principal.IsInRole(
 $repositoryRoot = [IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '..\..\..'))
 $certificatePath = Join-Path $repositoryRoot `
-    'tests\hosts\uwp\cert\QiQiImeDevelopment.cer'
+    'tests\hosts\packaged-search\cert\QiQiImeDevelopment.cer'
 $certificate = [
     Security.Cryptography.X509Certificates.X509Certificate2]::new(
         $certificatePath)

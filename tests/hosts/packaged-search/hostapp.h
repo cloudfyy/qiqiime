@@ -6,6 +6,7 @@
 #include "diagnostics.h"
 #include "fixtures.h"
 #include "tokeninfo.h"
+#include "brokerprobe.h"
 
 #include <winrt/Windows.ApplicationModel.Activation.h>
 #include <winrt/Windows.ApplicationModel.Search.h>
@@ -41,6 +42,7 @@ private:
     winrt::fire_and_forget LoadFixtureSetAsync();
     void RunFixtures() noexcept;
     void OpenSearchPane() noexcept;
+    void ProbeConfigBroker() noexcept;
     void OnInputChanged() noexcept;
     void OnQueryChanged(
         winrt::Windows::ApplicationModel::Search::SearchPaneQueryChangedEventArgs const& args) noexcept;
@@ -73,9 +75,11 @@ private:
     winrt::Windows::UI::Xaml::Controls::TextBox input_;
     winrt::Windows::UI::Xaml::Controls::Button open_search_;
     winrt::Windows::UI::Xaml::Controls::Button run_fixtures_;
+    winrt::Windows::UI::Xaml::Controls::Button probe_broker_;
     winrt::Windows::UI::Xaml::Controls::TextBlock fixture_status_;
     winrt::Windows::UI::Xaml::Controls::TextBlock observation_status_;
     winrt::Windows::UI::Xaml::Controls::TextBlock result_text_;
+    winrt::Windows::UI::Xaml::Controls::TextBlock broker_status_;
     winrt::Windows::UI::Xaml::Controls::TextBlock diagnostic_status_;
     bool window_ready_ = false;
     bool fixture_set_ready_ = false;

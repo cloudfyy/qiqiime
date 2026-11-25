@@ -50,7 +50,7 @@ function Resolve-VisualStudioGenerator {
 
 $repositoryRoot = [IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '..\..\..'))
-$buildRoot = Join-Path $repositoryRoot 'build\hosts\uwp'
+$buildRoot = Join-Path $repositoryRoot 'build\hosts\packaged-search'
 $stageRoot = Join-Path $buildRoot 'staging'
 $certificateRoot = Join-Path $buildRoot 'certificate'
 $sourceCertificatePath = Join-Path $PSScriptRoot `
@@ -93,23 +93,23 @@ if ($LASTEXITCODE -ne 0) {
 & $cmake `
     --build $buildRoot `
     --config $Configuration `
-    --target QiQiImeUwpSearchHost
+    --target QiQiImeAppContainerSearchHost
 if ($LASTEXITCODE -ne 0) {
-    throw "UWP host build failed with exit code $LASTEXITCODE."
+    throw "AppContainer host build failed with exit code $LASTEXITCODE."
 }
 
 $builtExecutable = Get-ChildItem -LiteralPath $buildRoot `
     -Recurse `
-    -Filter 'QiQiImeUwpSearchHost.exe' `
+    -Filter 'QiQiImeAppContainerSearchHost.exe' `
     -File |
     Where-Object FullName -notlike "*\staging\*" |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 if (-not $builtExecutable) {
-    throw 'The built QiQiImeUwpSearchHost.exe was not found.'
+    throw 'The built QiQiImeAppContainerSearchHost.exe was not found.'
 }
 Copy-Item -LiteralPath $builtExecutable.FullName `
-    -Destination (Join-Path $stageRoot 'QiQiImeUwpSearchHost.exe')
+    -Destination (Join-Path $stageRoot 'QiQiImeAppContainerSearchHost.exe')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Package.appxmanifest') `
     -Destination (Join-Path $stageRoot 'AppxManifest.xml')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'TestData.json') `
@@ -216,9 +216,9 @@ New-QiQiHostPackageAssets `
     -ForegroundColor '#FFFFFF' `
     -BadgeColor '#50E6FF' `
     -BadgeTextColor '#003B5C' `
-    -BadgeText 'U' `
+    -BadgeText 'A' `
     -BadgeShape Circle `
-    -HostLabel 'UWP TEST HOST'
+    -HostLabel 'APP CONTAINER TEST HOST'
 
 $priConfig = Join-Path $buildRoot 'priconfig.xml'
 & $makePri createconfig /cf $priConfig /dq en-US_zh-CN /o
@@ -236,7 +236,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $packagePath = Join-Path $packageRoot `
-    "QiQiImeUwpSearchHost_$PackageVersion.msix"
+    "QiQiImeAppContainerSearchHost_$PackageVersion.msix"
 if (Test-Path -LiteralPath $packagePath) {
     Remove-Item -LiteralPath $packagePath -Force
 }
@@ -280,7 +280,7 @@ if (-not $SkipSigning) {
         -ExpectedSignerThumbprint $signerThumbprint
 }
 
-Write-Host "Built UWP host package: $packagePath"
+Write-Host "Built AppContainer host package: $packagePath"
 if ($SkipSigning) {
     Write-Host 'Unsigned package requested; it cannot be installed directly.'
 } elseif ($generatedCertificate) {

@@ -31,9 +31,44 @@ Runtime configuration is no longer read from the host package's virtualized
 `HKCU` view. `QiQiIMEConfigBroker.exe` owns the real desktop-user configuration
 and skin catalog; ordinary AppContainer, Full Trust, and LPAC hosts receive a
 validated in-process snapshot through local DCOM. Broker registration grants
-the package groups local DCOM execute/activation rights, and the `lpacCom`
-capability profile receives only its derived capability SIDs. The Broker still
-rejects callers whose token does not match its user SID and Windows session.
+the package groups and `lpacCom` capability local DCOM access rights. Windows
+Search package identities are discovered from `%WINDIR%\SystemApps`, and their
+derived package SIDs are added explicitly because SearchHost does not carry the
+broad package-group SIDs. Access and Launch use valid local-only AppID DACLs:
+`0x03` for access and `0x0B` for launch/activation. The Broker still rejects
+callers whose token does not match its user SID and Windows session.
+
+For an uncommon package identity that is not automatically discovered, use
+[repair_appcontainer_access.ps1](../scripts/repair_appcontainer_access.ps1):
+
+```powershell
+# Inspect installed package identities.
+.\scripts\repair_appcontainer_access.ps1 -Action List
+
+# Read-only diagnosis for one package.
+.\scripts\repair_appcontainer_access.ps1 `
+  -Action Diagnose `
+  -PackageFamilyName Contoso.App_1234567890abc
+
+# Preview the exact package-only ACL changes.
+.\scripts\repair_appcontainer_access.ps1 `
+  -Action Grant `
+  -PackageFamilyName Contoso.App_1234567890abc `
+  -WhatIf
+
+# For a nonstandard development path whose parent folders also deny traverse,
+# explicitly include ancestor Traverse ACEs.
+.\scripts\repair_appcontainer_access.ps1 `
+  -Action Grant `
+  -PackageFamilyName Contoso.App_1234567890abc `
+  -IncludeAncestors
+```
+
+Run `Grant` or `Revoke` from an elevated PowerShell. The tool modifies only the
+selected package SID: DCOM local access/activation and ReadAndExecute on the
+registered Broker/proxy paths. It does not grant Everyone, FullControl, or a
+new package capability. The package must already carry the capability needed
+for COM/LPAC use.
 
 Registry access for desktop maintenance remains separate from runtime access.
 Synchronization data grants read/traverse access, not write access. Other

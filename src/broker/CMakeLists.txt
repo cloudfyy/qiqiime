@@ -104,7 +104,7 @@ set(QIQI_RESOURCE_FILE_SUBTYPE 0x0L)
 set(QIQI_RESOURCE_FILENAME "QiQiIMEConfigBroker.exe")
 set(QIQI_RESOURCE_DESCRIPTION "QiQiIME Configuration Broker")
 set(QIQI_RESOURCE_COMMENTS "QiQiIME Configuration Broker - https://github.com/cloudfyy/qiqiime")
-set(QIQI_RESOURCE_ICON "${PROJECT_SOURCE_DIR}/data/qiqiime-settings.ico")
+set(QIQI_RESOURCE_ICON "${PROJECT_SOURCE_DIR}/data/qiqiime-broker.ico")
 set(QIQI_BROKER_VERSION_RESOURCE
     "${QIQIIME_GENERATED_DIR}/broker/version.rc")
 configure_file(

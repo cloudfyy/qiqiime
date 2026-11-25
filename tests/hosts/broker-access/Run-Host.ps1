@@ -4,8 +4,13 @@
 [CmdletBinding(DefaultParameterSetName = 'Single')]
 param(
     [Parameter(ParameterSetName = 'Single')]
-    [ValidateSet('zero', 'registryRead', 'lpacCom')]
-    [string] $Profile = 'lpacCom',
+    [ValidateSet(
+        'broadGroupCom',
+        'packageOnlyCom',
+        'zero',
+        'registryRead',
+        'lpacCom')]
+    [string] $Profile = 'packageOnlyCom',
 
     [Parameter(ParameterSetName = 'Single')]
     [switch] $Smoke,
@@ -15,7 +20,7 @@ param(
 
     [string] $LauncherPath = (Join-Path `
             $PSScriptRoot `
-            '..\..\..\build\hosts\lpac\Release\QiQiImeLpacLauncher.exe')
+            '..\..\..\build\hosts\broker-access\Release\QiQiImePermissionLauncher.exe')
 )
 
 Set-StrictMode -Version Latest
@@ -23,9 +28,11 @@ $ErrorActionPreference = 'Stop'
 
 $launcher = (Resolve-Path -LiteralPath $LauncherPath).Path
 $profiles = @{
-    zero         = 'QiQiImeLpac.Zero'
-    registryRead = 'QiQiImeLpac.RegistryRead'
-    lpacCom      = 'QiQiImeLpac.LpacCom'
+    broadGroupCom = 'QiQiImeAppContainer.BroadGroupCom'
+    packageOnlyCom = 'QiQiImeAppContainer.PackageOnlyCom'
+    zero = 'QiQiImeAppContainer.Zero'
+    registryRead = 'QiQiImeAppContainer.RegistryRead'
+    lpacCom = 'QiQiImeAppContainer.LpacCom'
 }
 
 function Assert-ProfileRemoved {
@@ -40,7 +47,7 @@ function Assert-ProfileRemoved {
         }
         Start-Sleep -Milliseconds 100
     }
-    throw "LPAC profile was not removed: $Moniker"
+    throw "AppContainer profile was not removed: $Moniker"
 }
 
 function Invoke-Smoke {
@@ -49,13 +56,18 @@ function Invoke-Smoke {
     & $launcher $Name --smoke
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
-        throw "LPAC smoke failed for '$Name' with exit code $exitCode."
+        throw "AppContainer permission smoke failed for '$Name' with exit code $exitCode."
     }
     Assert-ProfileRemoved -Moniker $profiles[$Name]
 }
 
 if ($SmokeAll) {
-    foreach ($name in @('zero', 'registryRead', 'lpacCom')) {
+    foreach ($name in @(
+            'broadGroupCom',
+            'packageOnlyCom',
+            'zero',
+            'registryRead',
+            'lpacCom')) {
         Invoke-Smoke -Name $name
     }
 
@@ -70,7 +82,7 @@ if ($SmokeAll) {
     if ($argumentExit -ne 2) {
         throw "Excess arguments returned $argumentExit; expected 2."
     }
-    Write-Host 'LPAC smoke profiles and launcher rejection passed.'
+    Write-Host 'AppContainer permission profiles and launcher rejection passed.'
     exit 0
 }
 
@@ -82,6 +94,6 @@ if ($Smoke) {
 & $launcher $Profile
 $exitCode = $LASTEXITCODE
 if ($exitCode -ne 0) {
-    throw "LPAC host exited with code $exitCode."
+    throw "Permission host exited with code $exitCode."
 }
 Assert-ProfileRemoved -Moniker $profiles[$Profile]

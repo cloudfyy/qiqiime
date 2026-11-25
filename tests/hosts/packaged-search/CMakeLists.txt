@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 cmake_minimum_required(VERSION 4.0)
-project(QiQiImeUwpSearchHost LANGUAGES CXX RC)
+project(QiQiImeAppContainerSearchHost LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -48,30 +48,33 @@ add_custom_command(
         -overwrite
     COMMENT "Generating the focused C++/WinRT projection"
     VERBATIM)
-add_custom_target(qiqi_generate_uwp_search_projection
+add_custom_target(qiqi_generate_appcontainer_search_projection
     DEPENDS "${QIQI_WINRT_PROJECTION}/winrt/Windows.UI.Xaml.h")
 
-add_executable(QiQiImeUwpSearchHost WIN32
+add_executable(QiQiImeAppContainerSearchHost WIN32
     ../common/tokeninfo.cpp
+    ../common/brokerprobe.cpp
     diagnostics.cpp
     fixtures.cpp
     hostapp.cpp
     main.cpp
 )
-add_dependencies(QiQiImeUwpSearchHost qiqi_generate_uwp_search_projection)
+add_dependencies(QiQiImeAppContainerSearchHost
+    qiqi_generate_appcontainer_search_projection)
 
-target_include_directories(QiQiImeUwpSearchHost PRIVATE
+target_include_directories(QiQiImeAppContainerSearchHost PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/../common"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../src"
     "${QIQI_WINRT_PROJECTION}")
-target_compile_definitions(QiQiImeUwpSearchHost PRIVATE
+target_compile_definitions(QiQiImeAppContainerSearchHost PRIVATE
     UNICODE
     _UNICODE
     WIN32_LEAN_AND_MEAN
     WINRT_LEAN_AND_MEAN
     NOMINMAX
     WINAPI_FAMILY=WINAPI_FAMILY_APP)
-target_compile_options(QiQiImeUwpSearchHost PRIVATE
+target_compile_options(QiQiImeAppContainerSearchHost PRIVATE
     /W4
     /permissive-
     /EHsc
@@ -79,21 +82,21 @@ target_compile_options(QiQiImeUwpSearchHost PRIVATE
     /utf-8
     "$<$<CONFIG:Debug>:/Od>"
     "$<$<NOT:$<CONFIG:Debug>>:/O1;/Gy;/Gw;/GL>")
-target_link_options(QiQiImeUwpSearchHost PRIVATE
+target_link_options(QiQiImeAppContainerSearchHost PRIVATE
     /APPCONTAINER
     /SUBSYSTEM:WINDOWS
     /MANIFEST:NO
     "$<$<NOT:$<CONFIG:Debug>>:/LTCG;/OPT:REF;/OPT:ICF>")
-target_link_libraries(QiQiImeUwpSearchHost PRIVATE WindowsApp.lib)
-set_property(TARGET QiQiImeUwpSearchHost PROPERTY
+target_link_libraries(QiQiImeAppContainerSearchHost PRIVATE WindowsApp.lib)
+set_property(TARGET QiQiImeAppContainerSearchHost PROPERTY
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../HostIcon.cmake")
 qiqi_add_host_window_icon(
-    TARGET QiQiImeUwpSearchHost
+    TARGET QiQiImeAppContainerSearchHost
     GLYPH "${CMAKE_CURRENT_SOURCE_DIR}/../../../data/qiqiime-dark.ico"
     BACKGROUND "#0078D4"
     BADGE_COLOR "#50E6FF"
     BADGE_TEXT_COLOR "#003B5C"
-    BADGE_TEXT "U"
+    BADGE_TEXT "A"
     BADGE_SHAPE "Circle")

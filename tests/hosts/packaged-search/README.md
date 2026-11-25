@@ -1,11 +1,11 @@
-# UWP search and IME test host
+# Packaged AppContainer search and IME test host
 
 This directory is an opt-in integration host. It is not built or tested by the
 normal QiQiIME CTest run.
 
 The host:
 
-- is a minimum-permission, x64 AppContainer UWP package;
+- is a minimum-permission, x64 packaged AppContainer;
 - uses a blue package and executable icon with a circular `U` badge to
   distinguish it from the other hosts;
 - exposes one editable `TextBox` for normal TSF/IME input;
@@ -18,7 +18,7 @@ The host:
 - writes privacy-safe events to the existing `QiQiIME.TraceLogging` provider;
   and
 - exports the same non-input diagnostic messages to package
-  `LocalState\qiqi-uwp-host.log`.
+  `LocalState\qiqi-appcontainer-host.log`.
 
 The host never logs entered text, query contents, candidate contents,
 clipboard data, window titles, or filesystem paths.
@@ -35,7 +35,7 @@ the exact `HRESULT` and still supports ordinary IME input plus synthetic tests.
 From PowerShell at the repository root:
 
 ```powershell
-tests\hosts\uwp\Package.ps1 -Configuration Release
+tests\hosts\packaged-search\Package.ps1 -Configuration Release
 ```
 
 The script:
@@ -52,7 +52,7 @@ The script:
 
 Outputs:
 
-- `dist\test-hosts\QiQiImeUwpSearchHost_<version>.msix`
+- `dist\test-hosts\QiQiImeAppContainerSearchHost_<version>.msix`
 - `cert\QiQiImeDevelopment.cer` (public certificate kept in source control)
 - a generated development private key retained in the current user's
   `Cert:\CurrentUser\My` store for repeatable package updates
@@ -71,7 +71,7 @@ managed PFX and does not replace the checked-in development certificate.
 To use an existing code-signing PFX:
 
 ```powershell
-tests\hosts\uwp\Package.ps1 `
+tests\hosts\packaged-search\Package.ps1 `
   -CertificatePath C:\path\development.pfx `
   -CertificatePassword $securePassword
 ```
@@ -82,8 +82,8 @@ certificate must be installed in `Cert:\LocalMachine\TrustedPeople`.
 ## Install and remove
 
 ```powershell
-tests\hosts\uwp\Install-Host.ps1
-tests\hosts\uwp\Uninstall-Host.ps1
+tests\hosts\packaged-search\Install-Host.ps1
+tests\hosts\packaged-search\Uninstall-Host.ps1
 ```
 
 Run the install script from an elevated PowerShell. Microsoft MSIX sideloading
@@ -96,23 +96,25 @@ installs only the host package.
 After testing, the package and trust entry can be removed together with:
 
 ```powershell
-tests\hosts\uwp\Uninstall-Host.ps1 `
+tests\hosts\packaged-search\Uninstall-Host.ps1 `
   -RemoveDevelopmentCertificate
 ```
 
-Launch **QiQiIME UWP Search Host** from Start, then:
+Launch **QiQiIME AppContainer Search Host** from Start, then:
 
 1. confirm:
    - `TokenIsAppContainer: true`;
-   - normal `ALL APPLICATION PACKAGES` membership is present;
-   - LPAC/inferred-LPAC is false; and
+   - the broad package-group membership reported by this Windows build;
+   - whether LPAC is inferred from group absence; and
    - the package SID is available;
 2. type a Wubi code in the input box;
 3. inspect the automatically run synthetic fixture result;
 4. optionally click **Run synthetic fixtures** again;
 5. optionally click **Open legacy Search Pane** and note the recorded `HRESULT`
-   if the OS no longer supports it; and
-6. capture `QiQiIME.TraceLogging` with QiQi Log Monitor.
+   if the OS no longer supports it;
+6. click **Probe Config Broker** to inspect package identity, proxy/DLL access,
+   DCOM activation, and Broker method access; and
+7. capture `QiQiIME.TraceLogging` with QiQi Log Monitor.
 
 ## Build prerequisites
 

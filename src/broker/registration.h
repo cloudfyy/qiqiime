@@ -5,9 +5,13 @@
 
 #include <windows.h>
 
+#include <string_view>
+
 namespace qiqi::broker {
 
-HRESULT RegisterServer(HINSTANCE instance) noexcept;
+HRESULT RegisterServer(
+    HINSTANCE instance,
+    std::wstring_view store_subkey = {}) noexcept;
 HRESULT UnregisterServer() noexcept;
 
 } // namespace qiqi::broker

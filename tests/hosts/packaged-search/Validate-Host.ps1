@@ -59,19 +59,19 @@ Assert-HostCondition (
 ) 'The development host manifest must target x64.'
 Assert-HostCondition (
     $manifest.SelectNodes("//*[local-name()='Capability']").Count -eq 0
-) 'The UWP host must not request capabilities.'
+) 'The AppContainer host must not request capabilities.'
 Assert-HostCondition (
     $manifest.SelectNodes("//*[contains(local-name(), 'DeviceCapability')]").Count -eq 0
-) 'The UWP host must not request device capabilities.'
+) 'The AppContainer host must not request device capabilities.'
 Assert-HostCondition (
     $manifest.SelectNodes("//*[local-name()='Extension' and @Category='windows.search']").Count -eq 1
-) 'The UWP host must declare exactly one windows.search extension.'
+) 'The AppContainer host must declare exactly one windows.search extension.'
 Assert-HostCondition (
     $null -eq $manifest.SelectSingleNode("//*[@RuntimeBehavior='windowsApp' or @runFullTrust='true']")
-) 'The UWP host must remain an AppContainer app and cannot declare runFullTrust.'
+) 'The host must remain an AppContainer app and cannot declare runFullTrust.'
 Assert-HostCondition (
     $manifest.SelectSingleNode("//*[local-name()='Application']").GetAttribute('Executable') `
-        -eq 'QiQiImeUwpSearchHost.exe'
+        -eq 'QiQiImeAppContainerSearchHost.exe'
 ) 'The host executable name in the manifest is unexpected.'
 Assert-HostCondition (
     Test-Path -LiteralPath $sourceCertificatePath -PathType Leaf
@@ -164,7 +164,7 @@ if ($PackagePath) {
     Assert-HostCondition ($null -ne $makeAppx) 'makeappx.exe was not found.'
 
     $unpackedRoot = Join-Path $env:TEMP (
-        'qiqi-uwp-validation-' + [Guid]::NewGuid().ToString('N'))
+        'qiqi-appcontainer-validation-' + [Guid]::NewGuid().ToString('N'))
     try {
         New-Item -ItemType Directory -Path $unpackedRoot -Force | Out-Null
         & $makeAppx.FullName unpack /p $PackagePath /d $unpackedRoot /o
@@ -173,13 +173,13 @@ if ($PackagePath) {
         }
         $packagedExecutable = Join-Path `
             $unpackedRoot `
-            'QiQiImeUwpSearchHost.exe'
+            'QiQiImeAppContainerSearchHost.exe'
         $packagedFixture = Join-Path `
             $unpackedRoot `
             'Assets\TestData.json'
         Assert-HostCondition (
             Test-Path -LiteralPath $packagedExecutable -PathType Leaf
-        ) 'The package does not contain QiQiImeUwpSearchHost.exe.'
+        ) 'The package does not contain QiQiImeAppContainerSearchHost.exe.'
         Assert-HostCondition (
             Test-Path -LiteralPath $packagedFixture -PathType Leaf
         ) 'The package does not contain Assets\TestData.json.'
@@ -208,4 +208,4 @@ if ($PackagePath) {
     }
 }
 
-Write-Host 'UWP host validation passed.'
+Write-Host 'AppContainer host validation passed.'

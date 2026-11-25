@@ -103,7 +103,9 @@ public:
                 E_INVALIDARG);
         }
         HRESULT result =
-            ValidateCaller(operation);
+            ValidateCaller(
+                operation,
+                CallerAccess::Read);
         if (FAILED(result)) {
             return operation.Finish(
                 result);
@@ -160,7 +162,9 @@ public:
                 E_INVALIDARG);
         }
         HRESULT result =
-            ValidateCaller(operation);
+            ValidateCaller(
+                operation,
+                CallerAccess::Mutation);
         if (FAILED(result)) {
             return operation.Finish(
                 result);
@@ -226,7 +230,9 @@ public:
                 E_INVALIDARG);
         }
         HRESULT result =
-            ValidateCaller(operation);
+            ValidateCaller(
+                operation,
+                CallerAccess::Mutation);
         if (FAILED(result)) {
             return operation.Finish(
                 result);
@@ -281,7 +287,9 @@ public:
                 E_INVALIDARG);
         }
         HRESULT result =
-            ValidateCaller(operation);
+            ValidateCaller(
+                operation,
+                CallerAccess::Mutation);
         if (FAILED(result)) {
             return operation.Finish(
                 result);
@@ -324,9 +332,12 @@ public:
 private:
     HRESULT ValidateCaller(
         const trace::OperationSpan&
-            operation) const noexcept {
+            operation,
+        CallerAccess access)
+        const noexcept {
         const HRESULT result =
-            runtime_.ValidateCaller();
+            runtime_.ValidateCaller(
+                access);
         if (FAILED(result)) {
             QIQI_LOG_CTX(
                 log::Level::warn,

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "broker/configstore.h"
+#include "broker/security.h"
 #include "common/support.h"
 
 #include <gsl/gsl>
@@ -36,9 +37,73 @@ void CheckEqual(
         actual.user_dict_path);
 }
 
+void CheckCallerSecurityPolicy() {
+    using qiqi::broker::CallerAccess;
+    using qiqi::broker::CallerIdentity;
+    using qiqi::broker::IsCallerIdentityAllowed;
+
+    QIQI_TEST_CHECK(
+        IsCallerIdentityAllowed(
+            CallerAccess::Read,
+            CallerIdentity{
+                .user_match = true,
+                .session_match = true,
+                .app_container = false,
+            }));
+    QIQI_TEST_CHECK(
+        IsCallerIdentityAllowed(
+            CallerAccess::Mutation,
+            CallerIdentity{
+                .user_match = true,
+                .session_match = true,
+                .app_container = false,
+            }));
+    QIQI_TEST_CHECK(
+        IsCallerIdentityAllowed(
+            CallerAccess::Read,
+            CallerIdentity{
+                .user_match = true,
+                .session_match = false,
+                .app_container = true,
+            }));
+    QIQI_TEST_CHECK(
+        IsCallerIdentityAllowed(
+            CallerAccess::Mutation,
+            CallerIdentity{
+                .user_match = true,
+                .session_match = true,
+                .app_container = true,
+            }));
+    QIQI_TEST_CHECK(
+        IsCallerIdentityAllowed(
+            CallerAccess::Mutation,
+            CallerIdentity{
+                .user_match = true,
+                .session_match = false,
+                .app_container = true,
+            }));
+    QIQI_TEST_CHECK(
+        !IsCallerIdentityAllowed(
+            CallerAccess::Mutation,
+            CallerIdentity{
+                .user_match = true,
+                .session_match = false,
+                .app_container = false,
+            }));
+    QIQI_TEST_CHECK(
+        !IsCallerIdentityAllowed(
+            CallerAccess::Read,
+            CallerIdentity{
+                .user_match = false,
+                .session_match = true,
+                .app_container = true,
+            }));
+}
+
 } // namespace
 
 int main() {
+    CheckCallerSecurityPolicy();
     const std::wstring subkey =
         L"Software\\QiQiIME_BrokerStore_" +
         std::to_wstring(

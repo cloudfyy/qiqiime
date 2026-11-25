@@ -164,14 +164,21 @@ broker retry.
 - Local activation only; remote activation rights are not granted.
 - Broker process is the signed installed executable and runs as the
   interactive non-AppContainer user, never as SYSTEM.
-- Launch and access ACLs grant:
+- Broker registration writes valid self-relative Access and Launch security
+  descriptors with owner/group and protected DACLs.
+- The custom AccessPermission grants local execute rights (`0x03`) and the
+  LaunchPermission grants local execute/activation rights (`0x0B`) to:
   - the interactive user session;
+  - SYSTEM and Administrators;
   - `S-1-15-2-1`;
   - `S-1-15-2-2` where applicable;
-  - the `lpacCom` capability SID.
+  - the `lpacCom` capability SID; and
+  - package SIDs derived from Windows `SearchHost.exe` / `SearchApp.exe`
+    package folders discovered under `%WINDIR%\SystemApps`.
 - Clients use packet privacy and identity impersonation.
-- The broker verifies that the caller token belongs to its user SID and
-  desktop session before each mutation.
+- The broker verifies that the caller token belongs to its user SID. Desktop
+  callers must use the broker's session; same-user AppContainer callers may
+  cross the reported COM impersonation session for reads and mutations.
 - No method accepts arbitrary registry paths, arbitrary file paths, COM
   commands, or ACL changes.
 - A process not carrying one of the allowed principals receives
@@ -181,6 +188,10 @@ The broker cannot prove that a call originated in `qiqiime.dll` rather than a
 different component of the host process. The security boundary is therefore
 the calling user/package/security principal, not an individual in-process DLL.
 The API's limited field-level behavior is part of the trust boundary.
+
+The Windows search package family is intentionally discovered at registration
+time. A package SID must not be treated as a stable cross-Windows-build
+constant.
 
 ## Lifetime and registration
 

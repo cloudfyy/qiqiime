@@ -5,19 +5,22 @@
 
 ## 紧急修复
 
-- **DCOM 权限掩码**：1.3.0 把 Launch 权限位同时写入 AppID
-  `AccessPermission` 和 `LaunchPermission`。Windows 因 ACE permission
-  invalid 拒绝启动/激活 Broker，并返回 `0x80040153`。1.3.1 将
-  `AccessPermission` 固定为本地执行 `0x03`，`LaunchPermission` 固定为
-  本地执行与激活 `0x0B`。
+- **DCOM 权限修复**：1.3.0 生成的 AppID
+  security descriptor 缺少有效 owner/group，使 Windows 拒绝 Broker 激活并返回
+  `0x80040153`。1.3.1 生成有效 descriptor：`AccessPermission` 为本地执行
+  `0x03`，`LaunchPermission` 为本地执行/激活 `0x0B`。
+- **SearchHost Access 支持**：Broker 从当前 Windows `SystemApps` 发现
+  `SearchHost.exe` / `SearchApp.exe` 对应的 package family，动态派生 package
+  SID 并加入 AccessPermission，不跨版本写死 SID。
 - **保留实际 HRESULT**：Settings、词库管理器、IME 异步刷新与同步目录发布
   现在传播 Broker、线程池、缓存和保存 API 的真实失败码，不再以 `bool`
   丢失错误或统一改写成 `E_UNEXPECTED`。
 - **设置皮肤错误一致**：Broker snapshot 不可用时，皮肤选择、确定保存及
   后续刷新都显示同一实际 HRESULT；不会再把 `0x80040153` 显示成
   `0x8000FFFF`。
-- **注册回归**：DCOM 脚本显式验证 Access/Launch 权限掩码，再执行真实
-  synchronous/native-async call、CAS、持久化与多 subscriber 回归。
+- **注册回归**：DCOM 脚本验证 Access `0x03`、Launch `0x0B`、
+  security descriptor owner/group 及 Windows Search package SID，再执行
+  真实 synchronous/native-async call、CAS、持久化与多 subscriber 回归。
 
 ## 验证边界
 
@@ -35,14 +38,19 @@ tests the tagged source before publishing assets.
 
 ### Emergency fix
 
-- Split Broker AppID access and launch rights: AccessPermission is now `0x03`
-  and LaunchPermission is `0x0B`, avoiding Windows' invalid-ACE DCOM rejection.
+- Generate valid Broker AppID security descriptors with owner/group set;
+  AccessPermission remains local execute `0x03` and LaunchPermission grants
+  local execute/activation `0x0B`.
+- Discover the installed SearchHost/SearchApp package family under SystemApps
+  and add its derived package SID to AccessPermission without hard-coding an
+  OS-version-specific SID.
 - Preserve real Broker, worker-pool, cache, and save HRESULTs through Settings,
   Dictionary Manager, IME refresh, and sync-directory publication.
 - Skin selection/save errors now show the underlying `0x80040153` instead of
   replacing it with `0x8000FFFF`.
-- DCOM regression verifies the registered masks before exercising synchronous
-  and native-async calls, CAS, persisted lineage, and multiple subscribers.
+- DCOM regression verifies Access `0x03`, Launch `0x0B`, valid
+  descriptor ownership, and Search package authorization before exercising
+  synchronous/native-async calls, CAS, persisted lineage, and subscribers.
 
 Tag CI remains authoritative for dual-architecture tests, installer packaging,
 symbols, and publication.

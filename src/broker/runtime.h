@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "broker/security.h"
+
 #include "broker/configstore.h"
 
 #include <atomic>
@@ -23,7 +25,8 @@ public:
     Runtime(Runtime&&) = delete;
     Runtime& operator=(Runtime&&) = delete;
 
-    HRESULT ValidateCaller() const noexcept;
+    HRESULT ValidateCaller(
+        CallerAccess access) const noexcept;
 
     HRESULT Read(
         uint64_t known_revision,

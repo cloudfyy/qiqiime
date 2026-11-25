@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "brokerprobe.h"
 #include "tokeninfo.h"
 
 #include <commctrl.h>
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <filesystem>
 #include <format>
@@ -32,25 +34,37 @@ TRACELOGGING_DEFINE_PROVIDER(
     (0x8e7b9d31, 0x5a42, 0x4c81, 0x9f, 0x11, 0x20, 0x26, 0x10, 0x29, 0x00, 0x99));
 #pragma warning(pop)
 
-namespace qiqi::host::lpac {
+#ifndef QIQI_HOST_EXECUTABLE_NAME
+#define QIQI_HOST_EXECUTABLE_NAME \
+    L"QiQiImePermissionHost.exe"
+#endif
+
+#ifndef QIQI_HOST_DISPLAY_NAME
+#define QIQI_HOST_DISPLAY_NAME \
+    L"QiQiIME AppContainer Permission Host"
+#endif
+
+namespace qiqi::host::permissions {
 namespace {
 
 constexpr wchar_t kWindowClass[] =
-    L"QiQiImeLpacHostWindowClass";
+    L"QiQiImeAppContainerPermissionWindowClass";
 constexpr std::wstring_view kProcessName =
-    L"QiQiImeLpacHost.exe";
+    QIQI_HOST_EXECUTABLE_NAME;
 constexpr std::wstring_view kLogFileName =
-    L"qiqi-lpac-host.log";
+    L"qiqi-appcontainer-permission-host.log";
 constexpr uint64_t kGeneralKeyword = 0x0001;
 constexpr uint64_t kInputKeyword = 0x0004;
 constexpr UINT kInputId = 100;
 constexpr UINT kRefreshId = 101;
 constexpr UINT kRegistryId = 102;
 constexpr UINT kTsfId = 103;
+constexpr UINT kBrokerId = 104;
 constexpr UINT kTokenStatusId = 110;
 constexpr UINT kRegistryStatusId = 111;
 constexpr UINT kTsfStatusId = 112;
-constexpr UINT kDiagnosticStatusId = 113;
+constexpr UINT kBrokerStatusId = 113;
+constexpr UINT kDiagnosticStatusId = 114;
 constexpr int kMargin = 20;
 constexpr int kButtonWidth = 180;
 constexpr int kButtonHeight = 34;
@@ -220,7 +234,7 @@ private:
             }
             const std::filesystem::path directory =
                 std::filesystem::path(buffer) /
-                L"QiQiImeLpacHost";
+                L"QiQiImeAppContainerPermissions";
             std::error_code error;
             std::filesystem::create_directories(
                 directory,
@@ -515,7 +529,7 @@ public:
         window_ = ::CreateWindowExW(
             0,
             kWindowClass,
-            L"QiQiIME LPAC Input Host",
+            QIQI_HOST_DISPLAY_NAME,
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -695,21 +709,28 @@ private:
         tsf_button_ = CreateButton(
             L"Probe TSF COM",
             kTsfId);
+        broker_button_ = CreateButton(
+            L"Probe Config Broker",
+            kBrokerId);
         token_status_ = CreateStatic(
             kTokenStatusId);
         registry_status_ = CreateStatic(
             kRegistryStatusId);
         tsf_status_ = CreateStatic(
             kTsfStatusId);
+        broker_status_ = CreateStatic(
+            kBrokerStatusId);
         diagnostic_status_ = CreateStatic(
             kDiagnosticStatusId);
         if (!input_ ||
             !refresh_button_ ||
             !registry_button_ ||
             !tsf_button_ ||
+            !broker_button_ ||
             !token_status_ ||
             !registry_status_ ||
             !tsf_status_ ||
+            !broker_status_ ||
             !diagnostic_status_) {
             diagnostics_.Error(
                 L"host.ui",
@@ -723,9 +744,11 @@ private:
                  refresh_button_,
                  registry_button_,
                  tsf_button_,
+                 broker_button_,
                  token_status_,
                  registry_status_,
                  tsf_status_,
+                 broker_status_,
                  diagnostic_status_,
              }) {
             ::SendMessageW(
@@ -734,10 +757,13 @@ private:
                 reinterpret_cast<WPARAM>(font_),
                 TRUE);
         }
-        ::SetWindowTextW(
+        ::SendMessageW(
             input_,
-            L"Type IME input here. Entered text and "
-            L"candidate contents are not logged.");
+            EM_SETCUEBANNER,
+            TRUE,
+            reinterpret_cast<LPARAM>(
+                L"Type IME input here. Text and "
+                L"candidate contents are not logged."));
         ::SendMessageW(
             input_,
             EM_SETLIMITTEXT,
@@ -800,6 +826,9 @@ private:
                 break;
             case kTsfId:
                 RefreshTsf();
+                break;
+            case kBrokerId:
+                RefreshBroker();
                 break;
             default:
                 break;
@@ -865,6 +894,7 @@ private:
                  refresh_button_,
                  registry_button_,
                  tsf_button_,
+                 broker_button_,
              }) {
             Move(
                 button,
@@ -891,7 +921,7 @@ private:
         const int each =
             std::max<int>(
                 0,
-                (available_height - 20) / 3);
+                (available_height - 30) / 4);
         Move(
             token_status_,
             {
@@ -915,6 +945,14 @@ private:
                 status_top + 2 * (each + 10),
                 width - kMargin,
                 status_top + 3 * each + 20,
+            });
+        Move(
+            broker_status_,
+            {
+                kMargin,
+                status_top + 3 * (each + 10),
+                width - kMargin,
+                status_top + 4 * each + 30,
             });
         Move(
             diagnostic_status_,
@@ -979,15 +1017,17 @@ private:
         const TsfProbe probe =
             ProbeTsf();
         try {
+            const uint32_t coinitialize =
+                std::bit_cast<uint32_t>(
+                    probe.coinitialize);
             const std::wstring text =
                 std::format(
                     L"TSF COM: coinitialize=0x{:08X}; "
                     L"create=0x{:08X}; activate=0x{:08X}; "
                     L"global_compartment_mgr=0x{:08X}; "
                     L"deactivate=0x{:08X}",
-                    static_cast<uint32_t>(
-                        probe.coinitialize),
-                    static_cast<uint32_t>(
+                    coinitialize,
+                    std::bit_cast<uint32_t>(
                         probe.create),
                     static_cast<uint32_t>(
                         probe.activate),
@@ -1005,6 +1045,44 @@ private:
             diagnostics_.Error(
                 L"host.tsf",
                 L"TSF status allocation failed");
+        }
+    }
+
+    void RefreshBroker() noexcept {
+        const broker::ProbeResult probe =
+            broker::ProbeConfiguration();
+        try {
+            const std::wstring text =
+                std::format(
+                    L"Config Broker: coinitialize=0x{:08X}; "
+                    L"create=0x{:08X}; blanket=0x{:08X}; "
+                    L"read=0x{:08X}; revision={}; "
+                    L"snapshot_bytes={}",
+                    probe.ApartmentBits(),
+                    static_cast<uint32_t>(
+                        probe.create),
+                    std::bit_cast<uint32_t>(
+                        probe.blanket),
+                    std::bit_cast<uint32_t>(
+                        probe.read),
+                    probe.revision,
+                    probe.snapshot_size);
+            ::SetWindowTextW(
+                broker_status_,
+                text.c_str());
+            if (SUCCEEDED(probe.read)) {
+                diagnostics_.Info(
+                    L"host.broker",
+                    text);
+            } else {
+                diagnostics_.Error(
+                    L"host.broker",
+                    text);
+            }
+        } catch (const std::bad_alloc&) {
+            diagnostics_.Error(
+                L"host.broker",
+                L"broker status allocation failed");
         }
     }
 
@@ -1029,6 +1107,7 @@ private:
         RefreshToken();
         RefreshRegistry();
         RefreshTsf();
+        RefreshBroker();
         RefreshDiagnostics();
     }
 
@@ -1040,9 +1119,11 @@ private:
     HWND refresh_button_ = nullptr;
     HWND registry_button_ = nullptr;
     HWND tsf_button_ = nullptr;
+    HWND broker_button_ = nullptr;
     HWND token_status_ = nullptr;
     HWND registry_status_ = nullptr;
     HWND tsf_status_ = nullptr;
+    HWND broker_status_ = nullptr;
     HWND diagnostic_status_ = nullptr;
     HMODULE rich_edit_ = nullptr;
     HFONT font_ = nullptr;
@@ -1142,12 +1223,18 @@ int RunSmoke(std::wstring_view profile) noexcept {
     const bool lpac =
         token_state.is_less_privileged_app_container ||
         token_state.inferred_less_privileged_app_container;
+    const bool broad_group_profile =
+        profile == L"broadGroupCom";
     if (!token_state.is_app_container ||
-        !lpac ||
-        token_state.has_all_application_packages) {
+        (!broad_group_profile &&
+         (!lpac ||
+          token_state
+              .has_all_application_packages))) {
         diagnostics.Error(
             L"host.smoke",
-            L"LPAC boundary assertion failed");
+            broad_group_profile
+                ? L"all-application-packages boundary assertion failed"
+                : L"package-only AppContainer boundary assertion failed");
         return 1;
     }
     if (profile == L"zero") {
@@ -1171,26 +1258,84 @@ int RunSmoke(std::wstring_view profile) noexcept {
             ? 0
             : 1;
     }
-    if (profile == L"lpacCom") {
-        return token_state.capability_sids.size() == 1 &&
-                registry.open_error ==
-                    ERROR_ACCESS_DENIED &&
-                SUCCEEDED(tsf.coinitialize) &&
-                tsf.create ==
+    if (profile == L"broadGroupCom" ||
+        profile == L"packageOnlyCom" ||
+        profile == L"lpacCom") {
+        const bool registry_expected =
+            broad_group_profile
+                ? registry.open_error ==
+                    ERROR_SUCCESS &&
+                    registry.sequence_available
+                : registry.open_error ==
+                    ERROR_ACCESS_DENIED;
+        const bool tsf_expected =
+            broad_group_profile
+                ? SUCCEEDED(tsf.create) &&
+                    SUCCEEDED(tsf.activate)
+                : tsf.create ==
                     HRESULT_FROM_WIN32(
-                        ERROR_ACCESS_DENIED)
-            ? 0
-            : 1;
+                        ERROR_ACCESS_DENIED);
+        const bool boundary_ok =
+            token_state.capability_sids.size() ==
+                1 &&
+            registry_expected &&
+            SUCCEEDED(tsf.coinitialize) &&
+            tsf_expected;
+        if (!boundary_ok) {
+            return 1;
+        }
+        if (!HasArgument(
+                L"--broker-smoke")) {
+            return 0;
+        }
+        const broker::ProbeResult broker_probe =
+            broker::ProbeConfiguration();
+        try {
+            diagnostics.Info(
+                L"host.smoke-broker",
+                std::format(
+                    L"coinitialize=0x{:08X}; "
+                    L"create=0x{:08X}; "
+                    L"blanket=0x{:08X}; "
+                    L"read=0x{:08X}; "
+                    L"revision={}",
+                    broker_probe.ApartmentBits(),
+                    std::bit_cast<uint32_t>(
+                        broker_probe.create),
+                    std::bit_cast<uint32_t>(
+                        broker_probe.blanket),
+                    std::bit_cast<uint32_t>(
+                        broker_probe.read),
+                    broker_probe.revision));
+        } catch (const std::bad_alloc&) {
+            diagnostics.Error(
+                L"host.smoke-broker",
+                L"result formatting allocation failed");
+            return 1;
+        }
+        if (!broker_probe.ApartmentSucceeded()) {
+            return 9;
+        }
+        if (FAILED(broker_probe.create)) {
+            return 10;
+        }
+        if (FAILED(broker_probe.blanket)) {
+            return 11;
+        }
+        if (FAILED(broker_probe.read)) {
+            return 12;
+        }
+        return 0;
     }
     diagnostics.Error(
         L"host.smoke",
-        L"unknown LPAC profile");
+        L"unknown AppContainer permission profile");
     return 1;
 }
 
 } // namespace
 
-} // namespace qiqi::host::lpac
+} // namespace qiqi::host::permissions
 
 int WINAPI wWinMain(
     HINSTANCE instance,
@@ -1198,13 +1343,16 @@ int WINAPI wWinMain(
     PWSTR,
     int) {
     const std::wstring profile =
-        qiqi::host::lpac::ParseProfileArgument();
-    if (qiqi::host::lpac::HasArgument(L"--smoke")) {
-        return qiqi::host::lpac::RunSmoke(profile);
+        qiqi::host::permissions::ParseProfileArgument();
+    if (qiqi::host::permissions::HasArgument(
+            L"--smoke") ||
+        qiqi::host::permissions::HasArgument(
+            L"--broker-smoke")) {
+        return qiqi::host::permissions::RunSmoke(profile);
     }
     ::SetProcessDpiAwarenessContext(
         DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    return qiqi::host::lpac::HostWindow(
+    return qiqi::host::permissions::HostWindow(
                instance,
                profile)
         .Run();
