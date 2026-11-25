@@ -1,6 +1,55 @@
 # SPDX-FileCopyrightText: 2026 cloudfyy
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+function Test-QiQiAdministrator {
+    $principal =
+        [Security.Principal.WindowsPrincipal]::new(
+            [Security.Principal.WindowsIdentity]::GetCurrent())
+    return $principal.IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Assert-QiQiBrokerMachineRegistrationAbsent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $FailurePrefix
+    )
+
+    $paths = @(
+        'SOFTWARE\Classes\CLSID\{8E7B9D31-5A42-4C81-9F11-20261029000D}'
+        'SOFTWARE\Classes\AppID\{8E7B9D31-5A42-4C81-9F11-20261029000E}'
+        'SOFTWARE\Classes\CLSID\{8E7B9D31-5A42-4C81-9F11-202610290020}'
+        'SOFTWARE\Classes\Interface\{8E7B9D31-5A42-4C81-9F11-202610290020}'
+        'SOFTWARE\Classes\Interface\{8E7B9D31-5A42-4C81-9F11-202610290021}')
+    $views =
+        if ([Environment]::Is64BitOperatingSystem) {
+            @(
+                [Microsoft.Win32.RegistryView]::Registry64
+                [Microsoft.Win32.RegistryView]::Registry32)
+        } else {
+            @([Microsoft.Win32.RegistryView]::Default)
+        }
+    foreach ($view in $views) {
+        $base =
+            [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+                [Microsoft.Win32.RegistryHive]::LocalMachine,
+                $view)
+        try {
+            foreach ($path in $paths) {
+                $key = $base.OpenSubKey($path)
+                if ($key) {
+                    $key.Dispose()
+                    throw (
+                        "$FailurePrefix " +
+                        "$($view.ToString()) $path")
+                }
+            }
+        } finally {
+            $base.Dispose()
+        }
+    }
+}
+
 function Read-QiQiBrokerLogTail {
     param(
         [Parameter(Mandatory = $true)]

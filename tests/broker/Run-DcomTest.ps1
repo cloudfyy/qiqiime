@@ -41,27 +41,22 @@ $previousPerUser = [Environment]::GetEnvironmentVariable(
     'QIQI_CONFIG_BROKER_PER_USER',
     'Process')
 $appid = '{8E7B9D31-5A42-4C81-9F11-20261029000E}'
-$clsid = '{8E7B9D31-5A42-4C81-9F11-20261029000D}'
-if ($AutomaticActivation) {
-    $principal = New-Object `
-        Security.Principal.WindowsPrincipal(
-            [Security.Principal.WindowsIdentity]::GetCurrent())
-    if (-not $principal.IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        throw (
-            '-AutomaticActivation requires an elevated ' +
-            'PowerShell because it validates the HKLM ' +
-            'registration used by the installer.')
-    }
-    foreach ($path in @(
-            "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\AppID\$appid",
-            "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\CLSID\$clsid")) {
-        if (Test-Path -LiteralPath $path) {
-            throw (
-                'Automatic activation test will not overwrite ' +
-                "an existing machine registration: $path")
-        }
-    }
+$isAdministrator =
+    Test-QiQiAdministrator
+if ($AutomaticActivation -and
+        -not $isAdministrator) {
+    throw (
+        '-AutomaticActivation requires an elevated ' +
+        'PowerShell because it validates the HKLM ' +
+        'registration used by the installer.')
+}
+$useMachineRegistration =
+    $isAdministrator
+if ($useMachineRegistration) {
+    Assert-QiQiBrokerMachineRegistrationAbsent `
+        -FailurePrefix (
+            'Broker test refuses to overwrite an ' +
+            'existing machine registration:')
 }
 
 foreach ($file in @($broker, $proxy, $probe)) {
@@ -130,7 +125,7 @@ function Assert-PackageFileAccess {
 
 try {
     $env:QIQI_CONFIG_BROKER_DIAGNOSTIC_LOG = '1'
-    if ($AutomaticActivation) {
+    if ($useMachineRegistration) {
         Remove-Item `
             Env:QIQI_CONFIG_BROKER_PER_USER `
             -ErrorAction SilentlyContinue
@@ -149,7 +144,7 @@ try {
     if ($registration.ExitCode -ne 0) {
         throw "Broker registration failed with exit code $($registration.ExitCode)."
     }
-    $appidRoot = if ($AutomaticActivation) {
+    $appidRoot = if ($useMachineRegistration) {
         'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes'
     } else {
         'Registry::HKEY_CURRENT_USER\Software\Classes'
@@ -381,6 +376,11 @@ try {
         -Recurse `
         -Force `
         -ErrorAction SilentlyContinue
+    if ($useMachineRegistration) {
+        Assert-QiQiBrokerMachineRegistrationAbsent `
+            -FailurePrefix (
+                'Broker unregister left a machine registration:')
+    }
 }
 
 if (-not (

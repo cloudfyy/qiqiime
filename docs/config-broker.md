@@ -304,6 +304,13 @@ Implemented process tests cover:
 - proxy static-runtime loading;
 - Settings, Dictionary Manager, Log Monitor, and TSF regressions.
 
+When these DCOM process tests run without elevation, they register the Broker
+and architecture-specific proxies under `HKCU`. Elevated processes use a
+temporary `HKLM` registration because Windows does not reliably merge the
+per-user proxy entries into an elevated WOW64 `HKCR` view. The scripts refuse
+to overwrite any existing machine registration and verify all Broker,
+AppID, proxy, and interface keys are absent again during teardown.
+
 Remaining real-host acceptance tests:
 
 - broker outage before and after commit;
