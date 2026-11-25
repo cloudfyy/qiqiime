@@ -28,6 +28,13 @@ namespace {
 
 using Microsoft::WRL::ComPtr;
 
+template <typename T>
+void ResetComPtrForHandoff(
+    ComPtr<T>& value) noexcept {
+#pragma warning(suppress : 26447) // WRL Reset is no-throw COM teardown at the handoff boundary.
+    value.Reset();
+}
+
 static_assert(
     std::is_nothrow_move_assignable_v<
         Snapshot>);
@@ -526,8 +533,10 @@ HRESULT ExecuteAsync(
                 return operation.Finish(
                     result);
             }
-            broker.Reset();
-            completion.Reset();
+            ResetComPtrForHandoff(
+                broker);
+            ResetComPtrForHandoff(
+                completion);
             result =
                 HandoffBroker();
             if (FAILED(result)) {
@@ -593,8 +602,10 @@ HRESULT ExecuteAsync(
             return operation.Finish(
                 result);
         }
-        broker.Reset();
-        completion.Reset();
+        ResetComPtrForHandoff(
+            broker);
+        ResetComPtrForHandoff(
+            completion);
         result =
             HandoffBroker();
         if (FAILED(result)) {
@@ -761,7 +772,8 @@ HRESULT ExecuteSync(
             return operation.Finish(
                 result);
         }
-        broker.Reset();
+        ResetComPtrForHandoff(
+            broker);
         result =
             HandoffBroker();
         if (FAILED(result)) {

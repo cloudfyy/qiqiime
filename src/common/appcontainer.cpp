@@ -87,9 +87,8 @@ HRESULT AppendPackageSids(
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
-    auto* package_capability =
-        reinterpret_cast<PSID>(
-            copy.data());
+    PSID package_capability =
+        copy.data();
     auto* first =
         ::GetSidSubAuthority(
             package_capability,

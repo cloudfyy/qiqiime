@@ -9,7 +9,9 @@
 #include <gsl/gsl>
 
 #include <iostream>
+#include <limits>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -18,15 +20,18 @@
 namespace {
 
 std::wstring SubkeyArgument(
-    int argc,
-    wchar_t** argv) {
+    std::span<wchar_t* const> arguments) {
     constexpr std::wstring_view prefix =
         L"--store-subkey=";
-    for (int index = 3;
-         index < argc;
+    for (size_t index = 3;
+         index < arguments.size();
          ++index) {
         const std::wstring_view value(
-            argv[index]);
+            gsl::at(
+                arguments,
+                gsl::narrow_cast<
+                    std::ptrdiff_t>(
+                    index)));
         if (value.starts_with(prefix)) {
             return std::wstring(
                 value.substr(
@@ -37,32 +42,35 @@ std::wstring SubkeyArgument(
 }
 
 std::wstring CommandLine(
-    int argc,
-    wchar_t** argv) {
+    std::span<wchar_t* const> arguments) {
     std::wstring command;
-    for (int index = 1;
-         index < argc;
+    for (size_t index = 1;
+         index < arguments.size();
          ++index) {
         if (index > 1) {
             command += L" ";
         }
         command += L"\"";
-        command += argv[index];
+        command +=
+            gsl::at(
+                arguments,
+                gsl::narrow_cast<
+                    std::ptrdiff_t>(
+                    index));
         command += L"\"";
     }
     return command;
 }
 
 int LaunchLowBroker(
-    int argc,
-    wchar_t** argv) {
+    std::span<wchar_t* const> arguments) {
     std::wstring command =
-        CommandLine(argc, argv);
+        CommandLine(arguments);
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
     if (!::CreateProcessW(
-            argv[1],
+            gsl::at(arguments, 1),
             command.data(),
             nullptr,
             nullptr,
@@ -164,7 +172,7 @@ int LaunchLowBroker(
     }
     if (::ResumeThread(
             thread_handle.Get()) ==
-        static_cast<DWORD>(-1)) {
+        (std::numeric_limits<DWORD>::max)()) {
         std::cerr
             << "ResumeThread error="
             << ::GetLastError()
@@ -179,7 +187,7 @@ int LaunchLowBroker(
         qiqi::config::
             BrokerSessionObjectName(
                 L"ConfigBrokerReady",
-                SubkeyArgument(argc, argv));
+                SubkeyArgument(arguments));
     for (int attempt = 0;
          attempt < 300;
          ++attempt) {
@@ -268,7 +276,23 @@ int wmain(
     int argc,
     wchar_t** argv) {
     if (argc < 3 ||
-        std::wstring_view(argv[2]) !=
+        !argv) {
+        std::wcerr
+            << L"usage: "
+               L"qiqi_broker_launchlow.exe "
+               L"Broker.exe -Embedding "
+               L"[--store-subkey=KEY]\n";
+        return 2;
+    }
+    const std::span<wchar_t* const>
+        arguments(
+            argv,
+            gsl::narrow_cast<size_t>(
+                argc));
+    if (std::wstring_view(
+            gsl::at(
+                arguments,
+                2)) !=
             L"-Embedding") {
         std::wcerr
             << L"usage: "
@@ -279,8 +303,7 @@ int wmain(
     }
     try {
         return LaunchLowBroker(
-            argc,
-            argv);
+            arguments);
     } catch (
         const std::exception& error) {
         std::cerr

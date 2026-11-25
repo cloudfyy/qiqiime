@@ -17,6 +17,7 @@
 #include <array>
 #include <filesystem>
 #include <iostream>
+#include <span>
 #include <thread>
 
 namespace trace = qiqi::trace;
@@ -251,8 +252,17 @@ void CheckWindowsSearchPackageAccess(
                 &entry_count,
                 &entries) ==
             ERROR_SUCCESS);
+        QIQI_TEST_CHECK(
+            entries != nullptr);
         const ScopedLocalAlloc
             entries_owner(entries);
+        const std::span<
+            const EXPLICIT_ACCESS_W>
+            access_entries(
+                entries,
+                gsl::narrow_cast<
+                    size_t>(
+                    entry_count));
         for (const auto& sid_text :
              sid_texts) {
             PSID expected = nullptr;
@@ -263,11 +273,8 @@ void CheckWindowsSearchPackageAccess(
             const ScopedLocalAlloc
                 expected_owner(expected);
             bool found = false;
-            for (ULONG index = 0;
-                 index < entry_count;
-                 ++index) {
-                const auto& entry =
-                    entries[index];
+            for (const auto& entry :
+                 access_entries) {
                 if (entry.grfAccessMode ==
                         GRANT_ACCESS &&
                     entry.Trustee
