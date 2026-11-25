@@ -10,6 +10,7 @@
 #include "common/logger.h"
 #include "common/RAII.h"
 #include "common/comobj.h"
+#include "common/configbrokercontrol.h"
 
 #include <objbase.h>
 #include <shellapi.h>
@@ -131,40 +132,6 @@ void ShowHelp() noexcept {
         std::ignore =
             ::FreeConsole();
     }
-}
-
-std::wstring InstanceName(
-    std::wstring_view prefix,
-    std::wstring_view store_subkey) {
-    DWORD session_id = 0;
-    if (!::ProcessIdToSessionId(
-            ::GetCurrentProcessId(),
-            &session_id)) {
-        throw std::system_error(
-            gsl::narrow_cast<int>(
-                ::GetLastError()),
-            std::system_category(),
-            "ProcessIdToSessionId");
-    }
-    std::wstring name =
-        std::format(
-            L"Local\\QiQiIME.{}.{}",
-            prefix,
-            session_id);
-    if (!store_subkey.empty()) {
-        uint64_t hash =
-            14695981039346656037ull;
-        for (const wchar_t character :
-             store_subkey) {
-            hash ^= gsl::narrow_cast<uint16_t>(
-                character);
-            hash *= 1099511628211ull;
-        }
-        name += std::format(
-            L".{:016X}",
-            hash);
-    }
-    return name;
 }
 
 HRESULT ParseArguments(
@@ -312,9 +279,11 @@ HRESULT ServerInstanceMutex(
     qiqi::ScopedKernelHandle& mutex) noexcept {
     std::wstring name;
     try {
-        name = InstanceName(
-            L"ConfigBroker",
-            store_subkey);
+        name =
+            qiqi::config::
+                BrokerSessionObjectName(
+                    L"ConfigBroker",
+                    store_subkey);
     } catch (const std::system_error& error) {
         return qiqi::SystemErrorToHResult(
             error);
@@ -342,14 +311,17 @@ HRESULT ServerInstanceMutex(
         : S_OK;
 }
 
-HRESULT CreateStopEvent(
+HRESULT CreateBrokerEvent(
+    std::wstring_view prefix,
     std::wstring_view store_subkey,
     qiqi::ScopedKernelHandle& output) noexcept {
     std::wstring name;
     try {
-        name = InstanceName(
-            L"ConfigBrokerStop",
-            store_subkey);
+        name =
+            qiqi::config::
+                BrokerSessionObjectName(
+                    prefix,
+                    store_subkey);
     } catch (const std::system_error& error) {
         return qiqi::SystemErrorToHResult(
             error);
@@ -375,9 +347,11 @@ HRESULT SignalStopEvent(
     std::wstring_view store_subkey) noexcept {
     std::wstring name;
     try {
-        name = InstanceName(
-            L"ConfigBrokerStop",
-            store_subkey);
+        name =
+            qiqi::config::
+                BrokerSessionObjectName(
+                    L"ConfigBrokerStop",
+                    store_subkey);
     } catch (const std::system_error& error) {
         return qiqi::SystemErrorToHResult(
             error);
@@ -432,9 +406,11 @@ HRESULT WaitForBrokerExit(
     std::wstring_view store_subkey) noexcept {
     std::wstring name;
     try {
-        name = InstanceName(
-            L"ConfigBroker",
-            store_subkey);
+        name =
+            qiqi::config::
+                BrokerSessionObjectName(
+                    L"ConfigBroker",
+                    store_subkey);
     } catch (const std::system_error& error) {
         return qiqi::SystemErrorToHResult(
             error);
@@ -522,7 +498,8 @@ HRESULT RunServer(
         ::GetCurrentProcessId());
     qiqi::ScopedKernelHandle stop_event;
     const HRESULT event_result =
-        CreateStopEvent(
+        CreateBrokerEvent(
+            L"ConfigBrokerStop",
             subkey,
             stop_event);
     if (FAILED(event_result)) {
@@ -538,6 +515,34 @@ HRESULT RunServer(
         "Broker stop event created "
         "(pid={})",
         ::GetCurrentProcessId());
+    qiqi::ScopedKernelHandle ready_event;
+    const HRESULT ready_event_result =
+        CreateBrokerEvent(
+            L"ConfigBrokerReady",
+            subkey,
+            ready_event);
+    if (FAILED(ready_event_result)) {
+        QIQI_LOG_ERROR(
+            "Broker ready event failed "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                ready_event_result));
+        return ready_event_result;
+    }
+    qiqi::ScopedKernelHandle writable_event;
+    const HRESULT writable_event_result =
+        CreateBrokerEvent(
+            L"ConfigBrokerWritable",
+            subkey,
+            writable_event);
+    if (FAILED(writable_event_result)) {
+        QIQI_LOG_ERROR(
+            "Broker writable event failed "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                writable_event_result));
+        return writable_event_result;
+    }
 
     const HRESULT co_result =
         ::CoInitializeEx(
@@ -646,6 +651,33 @@ HRESULT RunServer(
                 gsl::narrow_cast<unsigned long>(
                     result));
             return result;
+        }
+        if (!::SetEvent(
+                ready_event.Get())) {
+            const HRESULT ready_result =
+                HRESULT_FROM_WIN32(
+                    ::GetLastError());
+            QIQI_LOG_ERROR(
+                "Broker ready event "
+                "signaling failed "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    ready_result));
+            return ready_result;
+        }
+        if (runtime.CanWriteConfiguration() &&
+            !::SetEvent(
+                writable_event.Get())) {
+            const HRESULT writable_result =
+                HRESULT_FROM_WIN32(
+                    ::GetLastError());
+            QIQI_LOG_ERROR(
+                "Broker writable event "
+                "signaling failed "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    writable_result));
+            return writable_result;
         }
         runtime.Touch();
         QIQI_LOG_INFO(

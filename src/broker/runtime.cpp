@@ -240,6 +240,16 @@ Runtime::Runtime(std::wstring subkey)
             std::generic_category(),
             "ReadTokenIdentity");
     }
+    const HRESULT integrity =
+        config::TokenIntegrityRid(
+            process_token.Get(),
+            integrity_rid_);
+    if (FAILED(integrity)) {
+        throw std::system_error(
+            integrity,
+            std::generic_category(),
+            "TokenIntegrityRid");
+    }
     session_id_ = current_session;
     Touch();
 }
@@ -368,6 +378,10 @@ HRESULT Runtime::Save(
     const trace::Context& trace,
     std::vector<uint8_t>& payload,
     trace::Result& trace_result) noexcept {
+    if (!CanWriteConfiguration()) {
+        return config::
+            kBrokerMutationHandoffRequired;
+    }
     config::Snapshot snapshot;
     const HRESULT result = store_.Save(
         request.expected_revision,
@@ -393,6 +407,10 @@ HRESULT Runtime::Reset(
     const trace::Context& trace,
     std::vector<uint8_t>& payload,
     trace::Result& trace_result) noexcept {
+    if (!CanWriteConfiguration()) {
+        return config::
+            kBrokerMutationHandoffRequired;
+    }
     config::Snapshot snapshot;
     const HRESULT result = store_.Reset(
         expected_revision,
@@ -417,6 +435,10 @@ HRESULT Runtime::PublishSyncDirectory(
     const trace::Context& trace,
     std::vector<uint8_t>& payload,
     trace::Result& trace_result) noexcept {
+    if (!CanWriteConfiguration()) {
+        return config::
+            kBrokerMutationHandoffRequired;
+    }
     config::Snapshot snapshot;
     const HRESULT result =
         store_.PublishSyncDirectory(
@@ -478,6 +500,12 @@ bool Runtime::ShouldExit() const noexcept {
                 last_activity_.load(
                     std::memory_order_relaxed) >=
             kIdleTimeoutMs;
+}
+
+bool Runtime::CanWriteConfiguration()
+    const noexcept {
+    return integrity_rid_ >=
+        SECURITY_MANDATORY_MEDIUM_RID;
 }
 
 } // namespace qiqi::broker

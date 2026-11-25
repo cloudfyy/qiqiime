@@ -8,7 +8,10 @@ param(
     [string] $BuildDirectory = (Join-Path `
             $PSScriptRoot `
             '..\..\..\build\x64'),
-    [switch] $AutomaticActivation
+    [switch] $AutomaticActivation,
+    [Parameter(Mandatory = $true)]
+    [string] $LowBrokerLanucherPath,
+    [switch] $LowBrokerHandoff
 )
 
 Set-StrictMode -Version Latest
@@ -22,8 +25,12 @@ $build = (Resolve-Path -LiteralPath $BuildDirectory).Path
 $broker = Join-Path $build "$Configuration\QiQiIMEConfigBroker.exe"
 $proxy = Join-Path $build "$Configuration\QiQiIMEConfigProxy.dll"
 $probe = Join-Path $build "$Configuration\qiqi_broker_probe.exe"
+$lowBrokerLanucher =
+    (Resolve-Path `
+        -LiteralPath $LowBrokerLanucherPath).Path
 $subkey = "Software\QiQiIME_BrokerDcom_$PID"
 $brokerProcess = $null
+$lowBrokerProcess = $null
 $diagnosticLog = Join-Path `
     $env:LOCALAPPDATA `
     'QiQiIME\ConfigBroker\broker-test.log'
@@ -40,7 +47,16 @@ $previousDiagnosticLog = [Environment]::GetEnvironmentVariable(
 $previousPerUser = [Environment]::GetEnvironmentVariable(
     'QIQI_CONFIG_BROKER_PER_USER',
     'Process')
+$previousTestStoreSubkey = [Environment]::GetEnvironmentVariable(
+    'QIQI_CONFIG_BROKER_TEST_STORE_SUBKEY',
+    'Process')
 $appid = '{8E7B9D31-5A42-4C81-9F11-20261029000E}'
+$clsid = '{8E7B9D31-5A42-4C81-9F11-20261029000D}'
+$installedMachineRegistration =
+    Test-Path `
+        -LiteralPath (
+            "Registry::HKEY_LOCAL_MACHINE\" +
+            "SOFTWARE\Classes\CLSID\$clsid\LocalServer32")
 $isAdministrator =
     Test-QiQiAdministrator
 if ($AutomaticActivation -and
@@ -50,6 +66,14 @@ if ($AutomaticActivation -and
         'PowerShell because it validates the HKLM ' +
         'registration used by the installer.')
 }
+if ($installedMachineRegistration -and
+        -not $AutomaticActivation) {
+    Write-Host (
+        'SKIP: installed machine Broker registration ' +
+        'owns the shared CLSID; clean CI runs the isolated ' +
+        'DCOM and Low handoff fixture.')
+    exit 77
+}
 $useMachineRegistration =
     $isAdministrator
 if ($useMachineRegistration) {
@@ -58,8 +82,14 @@ if ($useMachineRegistration) {
             'Broker test refuses to overwrite an ' +
             'existing machine registration:')
 }
+$runLowBrokerHandoff =
+    $LowBrokerHandoff
 
-foreach ($file in @($broker, $proxy, $probe)) {
+foreach ($file in @(
+        $broker,
+        $proxy,
+        $probe,
+        $lowBrokerLanucher)) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
         throw "Required file was not found: $file"
     }
@@ -123,6 +153,82 @@ function Assert-PackageFileAccess {
     }
 }
 
+function Grant-LowReadAccess {
+    param([string] $Subkey)
+
+    $lowSid =
+        [Security.Principal.SecurityIdentifier]::new(
+            'S-1-16-4096')
+    $root =
+        "Registry::HKEY_CURRENT_USER\$Subkey"
+    $keys = @(
+        Get-Item `
+            -LiteralPath $root
+        Get-ChildItem `
+            -LiteralPath $root `
+            -Recurse)
+    foreach ($key in $keys) {
+        $acl = Get-Acl `
+            -LiteralPath $key.PSPath
+        $rule =
+            [Security.AccessControl.RegistryAccessRule]::new(
+                $lowSid,
+                [Security.AccessControl.RegistryRights]::ReadKey,
+                [Security.AccessControl.InheritanceFlags](
+                    [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+                    [Security.AccessControl.InheritanceFlags]::ObjectInherit),
+                [Security.AccessControl.PropagationFlags]::None,
+                [Security.AccessControl.AccessControlType]::Allow)
+        $acl.SetAccessRule($rule)
+        Set-Acl `
+            -LiteralPath $key.PSPath `
+            -AclObject $acl
+    }
+}
+
+function Start-ManualBroker {
+    $process = Start-Process `
+        -FilePath $broker `
+        -ArgumentList @(
+            '-Embedding'
+            "--store-subkey=$subkey"
+        ) `
+        -WindowStyle Hidden `
+        -PassThru
+    Wait-QiQiBrokerReady `
+        -Process $process `
+        -DiagnosticLog $diagnosticLog `
+        -DiagnosticLogStart $diagnosticLogStart
+    return $process
+}
+
+function Stop-ManualBroker {
+    param([Diagnostics.Process] $Process)
+
+    if (-not $Process -or
+        $Process.HasExited) {
+        return
+    }
+    $shutdown = Start-Process `
+        -FilePath $broker `
+        -ArgumentList @(
+            '--shutdown',
+            "--store-subkey=$subkey") `
+        -WindowStyle Hidden `
+        -Wait `
+        -PassThru
+    if ($shutdown.ExitCode -ne 0) {
+        throw (
+            'Broker shutdown exited with code ' +
+            "$($shutdown.ExitCode).")
+    }
+    if (-not $Process.WaitForExit(5000)) {
+        throw 'Broker did not exit after shutdown.'
+    }
+}
+
+Stop-QiQiExistingBroker
+
 try {
     $env:QIQI_CONFIG_BROKER_DIAGNOSTIC_LOG = '1'
     if ($useMachineRegistration) {
@@ -132,6 +238,8 @@ try {
     } else {
         $env:QIQI_CONFIG_BROKER_PER_USER = '1'
     }
+    $env:QIQI_CONFIG_BROKER_TEST_STORE_SUBKEY =
+        $subkey
     $registration = Start-Process `
         -FilePath $broker `
         -ArgumentList @(
@@ -286,18 +394,64 @@ try {
         $brokerProcess = Get-Process `
             -Id $brokerCim.ProcessId
     } else {
-        $brokerProcess = Start-Process `
-            -FilePath $broker `
-            -ArgumentList @(
-                '-Embedding'
-                "--store-subkey=$subkey"
-            ) `
-            -WindowStyle Hidden `
-            -PassThru
-        Wait-QiQiBrokerReady `
-            -Process $brokerProcess `
-            -DiagnosticLog $diagnosticLog `
-            -DiagnosticLogStart $diagnosticLogStart
+        $brokerProcess = Start-ManualBroker
+        if ($runLowBrokerHandoff) {
+            & $probe
+            if ($LASTEXITCODE -ne 0) {
+                throw (
+                    'Medium Broker seed probe failed with ' +
+                    "exit code $LASTEXITCODE.")
+            }
+            Stop-ManualBroker `
+                -Process $brokerProcess
+            Grant-LowReadAccess `
+                -Subkey $subkey
+            $lowOutput =
+                & $lowBrokerLanucher `
+                    $broker `
+                    '-Embedding' `
+                    "--store-subkey=$subkey"
+            if ($LASTEXITCODE -ne 0) {
+                throw (
+                    'Low Broker launcher failed with ' +
+                    "exit code $LASTEXITCODE.")
+            }
+            $lowPid = [int](
+                $lowOutput |
+                    Select-Object -Last 1)
+            $lowBrokerProcess =
+                Get-Process `
+                    -Id $lowPid
+            Stop-QiQiExistingBroker `
+                -ExceptProcessId $lowPid
+            & $probe '--mutation-handoff'
+            if ($LASTEXITCODE -ne 0) {
+                throw (
+                    'Low Broker mutation handoff failed with ' +
+                    "exit code $LASTEXITCODE.")
+            }
+            if (-not (
+                    $lowBrokerProcess.WaitForExit(
+                        5000))) {
+                throw 'Low Broker did not exit during handoff.'
+            }
+            $brokerCim =
+                Get-CimInstance `
+                    Win32_Process `
+                    -Filter "Name = 'QiQiIMEConfigBroker.exe'" `
+                    -ErrorAction SilentlyContinue |
+                    Where-Object {
+                        $_.CommandLine -like
+                            "*--store-subkey=*$subkey*"
+                    } |
+                    Select-Object -First 1
+            if (-not $brokerCim) {
+                throw 'No Medium Broker remained after handoff.'
+            }
+            $brokerProcess =
+                Get-Process `
+                    -Id $brokerCim.ProcessId
+        }
     }
     $duplicate = Start-Process `
         -FilePath $broker `
@@ -331,23 +485,7 @@ try {
             }
         }
 } finally {
-    if ($brokerProcess -and
-        -not $brokerProcess.HasExited) {
-        $shutdownProcess = Start-Process `
-            -FilePath $broker `
-            -ArgumentList @(
-                '--shutdown',
-                "--store-subkey=$subkey") `
-            -WindowStyle Hidden `
-            -Wait `
-            -PassThru
-        if ($shutdownProcess.ExitCode -ne 0) {
-            Write-Warning "Broker shutdown exited with code $($shutdownProcess.ExitCode)."
-        }
-        if (-not $brokerProcess.WaitForExit(5000)) {
-            Stop-Process -Id $brokerProcess.Id -Force
-        }
-    }
+    Stop-QiQiExistingBroker
     $unregistration = Start-Process `
         -FilePath $broker `
         -ArgumentList '--unregister' `
@@ -369,6 +507,14 @@ try {
             $previousPerUser
     } else {
         Remove-Item Env:QIQI_CONFIG_BROKER_PER_USER `
+            -ErrorAction SilentlyContinue
+    }
+    if ($previousTestStoreSubkey) {
+        $env:QIQI_CONFIG_BROKER_TEST_STORE_SUBKEY =
+            $previousTestStoreSubkey
+    } else {
+        Remove-Item `
+            Env:QIQI_CONFIG_BROKER_TEST_STORE_SUBKEY `
             -ErrorAction SilentlyContinue
     }
     Remove-Item `

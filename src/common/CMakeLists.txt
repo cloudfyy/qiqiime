@@ -36,6 +36,8 @@ set(QIQI_COMMON_SOURCES
     changesync.h
     config.cpp
     config.h
+    configbrokercontrol.cpp
+    configbrokercontrol.h
     configclient.cpp
     configclient.h
     configrpc.h

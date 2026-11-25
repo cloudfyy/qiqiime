@@ -18,6 +18,16 @@ set_tests_properties(
     QiQiConfigBrokerStoreTest
     PROPERTIES TIMEOUT 30)
 
+add_executable(qiqi_broker_lowlanucher
+    lowlanucher.cpp
+)
+target_include_directories(qiqi_broker_lowlanucher PRIVATE
+    "${PROJECT_SOURCE_DIR}/tests"
+)
+target_link_libraries(qiqi_broker_lowlanucher PRIVATE
+    qiqi_common
+)
+
 add_executable(qiqi_broker_probe
     probe.cpp
 )
@@ -54,6 +64,12 @@ set_tests_properties(
     QiQiConfigBrokerCliTest
     PROPERTIES TIMEOUT 30)
 
+set(QIQI_BROKER_HANDOFF_TEST_ARGUMENTS)
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    list(APPEND QIQI_BROKER_HANDOFF_TEST_ARGUMENTS
+        -LowBrokerHandoff)
+endif()
+
 add_test(
     NAME QiQiConfigBrokerDcomTest
     COMMAND
@@ -67,12 +83,16 @@ add_test(
         "${CMAKE_BINARY_DIR}"
         -Configuration
         "$<CONFIG>"
+        -LowBrokerLanucherPath
+        "$<TARGET_FILE:qiqi_broker_lowlanucher>"
+        ${QIQI_BROKER_HANDOFF_TEST_ARGUMENTS}
 )
 set_tests_properties(
     QiQiConfigBrokerDcomTest
     PROPERTIES
         TIMEOUT 90
-        RUN_SERIAL TRUE)
+        RUN_SERIAL TRUE
+        SKIP_RETURN_CODE 77)
 
 if(CMAKE_SIZEOF_VOID_P EQUAL 8
    AND EXISTS "${PROJECT_SOURCE_DIR}/build/x86/Release/qiqi_broker_probe.exe")

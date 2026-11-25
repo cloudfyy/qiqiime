@@ -8,6 +8,7 @@
 #include "common/guids.h"
 #include "common/logger.h"
 #include "common/RAII.h"
+#include "common/configbrokercontrol.h"
 
 #include <wrl/client.h>
 #include <gsl/gsl>
@@ -94,6 +95,29 @@ HRESULT SetProxySecurity(
     std::ignore = log::CheckHResult(
         result,
         "ConfigClient::CoSetProxyBlanket");
+    return result;
+}
+
+HRESULT HandoffMutationBroker() noexcept {
+    QIQI_LOG_CAT_INFO(
+        log::Keyword::Config,
+        "ConfigClient requesting Broker "
+        "handoff for a desktop mutation");
+    const HRESULT result =
+        RequestBrokerMutationHandoff();
+    if (FAILED(result)) {
+        QIQI_LOG_CAT_ERROR(
+            log::Keyword::Config,
+            "ConfigClient Broker handoff "
+            "failed (hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                result));
+    } else {
+        QIQI_LOG_CAT_INFO(
+            log::Keyword::Config,
+            "ConfigClient Broker handoff "
+            "completed");
+    }
     return result;
 }
 
@@ -241,6 +265,23 @@ enum class Operation {
     Reset,
     SyncDirectory,
 };
+
+constexpr bool IsMutation(
+    Operation operation) noexcept {
+    return operation !=
+        Operation::Read;
+}
+
+bool ShouldHandoffMutationBroker(
+    Operation operation,
+    HRESULT result,
+    bool handoff_attempted) noexcept {
+    return IsMutation(operation) &&
+        result ==
+            kBrokerMutationHandoffRequired &&
+        !handoff_attempted &&
+        !IsProcessAppContainer();
+}
 
 constexpr std::string_view OperationName(
     Operation operation) noexcept {
@@ -403,18 +444,8 @@ HRESULT ExecuteAsync(
         return operation.Finish(
             E_INVALIDARG);
     }
-    ComPtr<AsyncIQiQiConfigBroker> broker;
-    ComPtr<ISynchronize> completion;
-    HRESULT result =
-        CreateAsyncBroker(
-            broker,
-            completion);
-    if (FAILED(result)) {
-        return operation.Finish(
-            result);
-    }
     std::vector<uint8_t> input;
-    result = EncodeInput(
+    HRESULT result = EncodeInput(
         request,
         input);
     if (FAILED(result)) {
@@ -422,93 +453,140 @@ HRESULT ExecuteAsync(
             result);
     }
 
-    ULONG raw_size = 0;
-    switch (request.operation) {
-        case Operation::Read:
-            result = broker->Begin_Read(
-                request.known_revision,
-                &operation.GetContext(),
-                &raw_size);
-            break;
-        case Operation::Save:
-            result = broker->Begin_Save(
-                gsl::narrow_cast<ULONG>(
-                    input.size()),
-                input.data(),
-                &operation.GetContext(),
-                &raw_size);
-            break;
-        case Operation::Reset:
-            result = broker->Begin_Reset(
-                request.expected_revision,
-                &operation.GetContext(),
-                &raw_size);
-            break;
-        case Operation::SyncDirectory:
+    bool handoff_attempted =
+        false;
+    for (;;) {
+        ComPtr<AsyncIQiQiConfigBroker>
+            broker;
+        ComPtr<ISynchronize> completion;
+        result = CreateAsyncBroker(
+            broker,
+            completion);
+        if (FAILED(result)) {
+            return operation.Finish(
+                result);
+        }
+        ULONG raw_size = 0;
+        switch (request.operation) {
+            case Operation::Read:
+                result =
+                    broker->Begin_Read(
+                        request.known_revision,
+                        &operation.GetContext(),
+                        &raw_size);
+                break;
+            case Operation::Save:
+                result =
+                    broker->Begin_Save(
+                        gsl::narrow_cast<ULONG>(
+                            input.size()),
+                        input.data(),
+                        &operation.GetContext(),
+                        &raw_size);
+                break;
+            case Operation::Reset:
+                result =
+                    broker->Begin_Reset(
+                        request.expected_revision,
+                        &operation.GetContext(),
+                        &raw_size);
+                break;
+            case Operation::SyncDirectory:
+                result =
+                    broker
+                        ->Begin_PublishSyncDirectory(
+                            gsl::narrow_cast<ULONG>(
+                                input.size()),
+                            input.data(),
+                            &operation.GetContext(),
+                            &raw_size);
+                break;
+        }
+        if (FAILED(result)) {
+            if (!ShouldHandoffMutationBroker(
+                    request.operation,
+                    result,
+                    handoff_attempted)) {
+                return operation.Finish(
+                    result);
+            }
+            broker.Reset();
+            completion.Reset();
             result =
-                broker->Begin_PublishSyncDirectory(
-                    gsl::narrow_cast<ULONG>(
-                        input.size()),
-                    input.data(),
-                    &operation.GetContext(),
-                    &raw_size);
-            break;
-    }
-    if (FAILED(result)) {
-        return operation.Finish(
-            result);
-    }
+                HandoffMutationBroker();
+            if (FAILED(result)) {
+                return operation.Finish(
+                    result);
+            }
+            handoff_attempted = true;
+            continue;
+        }
 
 #pragma warning(suppress : 26447) // ISynchronize reports wait failures through HRESULT.
-    result = completion->Wait(
-        0,
-        INFINITE);
-    if (FAILED(result)) {
-        return operation.Finish(
-            result);
-    }
+        result = completion->Wait(
+            0,
+            INFINITE);
+        if (FAILED(result)) {
+            return operation.Finish(
+                result);
+        }
 
-    byte* raw = nullptr;
-    switch (request.operation) {
-        case Operation::Read:
-            result =
-                broker->Finish_Read(
-                    &raw_size,
-                    &raw,
-                    &operation.GetResult());
-            break;
-        case Operation::Save:
-            result =
-                broker->Finish_Save(
-                    &raw_size,
-                    &raw,
-                    &operation.GetResult());
-            break;
-        case Operation::Reset:
-            result =
-                broker->Finish_Reset(
-                    &raw_size,
-                    &raw,
-                    &operation.GetResult());
-            break;
-        case Operation::SyncDirectory:
-            result =
-                broker
-                    ->Finish_PublishSyncDirectory(
+        byte* raw = nullptr;
+        switch (request.operation) {
+            case Operation::Read:
+                result =
+                    broker->Finish_Read(
                         &raw_size,
                         &raw,
                         &operation.GetResult());
-            break;
+                break;
+            case Operation::Save:
+                result =
+                    broker->Finish_Save(
+                        &raw_size,
+                        &raw,
+                        &operation.GetResult());
+                break;
+            case Operation::Reset:
+                result =
+                    broker->Finish_Reset(
+                        &raw_size,
+                        &raw,
+                        &operation.GetResult());
+                break;
+            case Operation::SyncDirectory:
+                result =
+                    broker
+                        ->Finish_PublishSyncDirectory(
+                            &raw_size,
+                            &raw,
+                            &operation.GetResult());
+                break;
+        }
+        result = DecodeAndCommit(
+            result,
+            raw_size,
+            raw,
+            operation.GetContext(),
+            operation.GetResult(),
+            output);
+        if (!ShouldHandoffMutationBroker(
+                request.operation,
+                result,
+                handoff_attempted)) {
+            return operation.Finish(
+                result);
+        }
+        broker.Reset();
+        completion.Reset();
+        result =
+            HandoffMutationBroker();
+        if (FAILED(result)) {
+            return operation.Finish(
+                result);
+        }
+        handoff_attempted = true;
     }
-    result = DecodeAndCommit(
-        result,
-        raw_size,
-        raw,
-        operation.GetContext(),
-        operation.GetResult(),
-        output);
-    return operation.Finish(
-        result);
 }
 
 void CALLBACK RunRequest(
@@ -602,43 +680,62 @@ HRESULT ExecuteSync(
         return operation.Finish(
             com.Result());
     }
-    ComPtr<IQiQiConfigBroker> broker;
-    const HRESULT create_result =
-        ::CoCreateInstance(
-            kClsidQiQiConfigBroker,
-            nullptr,
-            CLSCTX_LOCAL_SERVER,
-            IID_PPV_ARGS(&broker));
-    if (FAILED(create_result) ||
-        !broker) {
-        return operation.Finish(
-            FAILED(create_result)
-                ? create_result
-                : E_UNEXPECTED);
+    bool handoff_attempted =
+        false;
+    for (;;) {
+        ComPtr<IQiQiConfigBroker>
+            broker;
+        const HRESULT create_result =
+            ::CoCreateInstance(
+                kClsidQiQiConfigBroker,
+                nullptr,
+                CLSCTX_LOCAL_SERVER,
+                IID_PPV_ARGS(&broker));
+        if (FAILED(create_result) ||
+            !broker) {
+            return operation.Finish(
+                FAILED(create_result)
+                    ? create_result
+                    : E_UNEXPECTED);
+        }
+        HRESULT result =
+            SetProxySecurity(
+                broker.Get());
+        if (FAILED(result)) {
+            return operation.Finish(
+                result);
+        }
+        ULONG raw_size = 0;
+        byte* raw = nullptr;
+        result = invoke(
+            broker.Get(),
+            raw_size,
+            raw,
+            operation.GetContext(),
+            operation.GetResult());
+        result = DecodeAndCommit(
+            result,
+            raw_size,
+            raw,
+            operation.GetContext(),
+            operation.GetResult(),
+            output);
+        if (!ShouldHandoffMutationBroker(
+                operation_kind,
+                result,
+                handoff_attempted)) {
+            return operation.Finish(
+                result);
+        }
+        broker.Reset();
+        result =
+            HandoffMutationBroker();
+        if (FAILED(result)) {
+            return operation.Finish(
+                result);
+        }
+        handoff_attempted = true;
     }
-    HRESULT result =
-        SetProxySecurity(broker.Get());
-    if (FAILED(result)) {
-        return operation.Finish(
-            result);
-    }
-    ULONG raw_size = 0;
-    byte* raw = nullptr;
-    result = invoke(
-        broker.Get(),
-        raw_size,
-        raw,
-        operation.GetContext(),
-        operation.GetResult());
-    result = DecodeAndCommit(
-        result,
-        raw_size,
-        raw,
-        operation.GetContext(),
-        operation.GetResult(),
-        output);
-    return operation.Finish(
-        result);
 }
 
 } // namespace

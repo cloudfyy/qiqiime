@@ -9,6 +9,81 @@ function Test-QiQiAdministrator {
         [Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Stop-QiQiExistingBroker {
+    param(
+        [int[]] $ExceptProcessId = @()
+    )
+
+    $sessionId =
+        (Get-CimInstance `
+            Win32_Process `
+            -Filter "ProcessId = $PID").SessionId
+    $brokers = @(
+        Get-CimInstance `
+            Win32_Process `
+            -Filter "Name = 'QiQiIMEConfigBroker.exe'" `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.SessionId -eq $sessionId -and
+                $_.ProcessId -notin $ExceptProcessId
+            })
+    foreach ($broker in $brokers) {
+        if (-not $broker.ExecutablePath) {
+            throw (
+                'Running Broker path is unavailable ' +
+                "for PID $($broker.ProcessId).")
+        }
+        $arguments =
+            [Collections.Generic.List[string]]::new()
+        $arguments.Add(
+            '--shutdown')
+        if ($broker.CommandLine -match
+                '--store-subkey=(?:"([^"]+)"|([^\s]+))') {
+            $subkey =
+                if ($Matches[1]) {
+                    $Matches[1]
+                } else {
+                    $Matches[2]
+                }
+            $arguments.Add(
+                "--store-subkey=$subkey")
+        }
+        $shutdown = Start-Process `
+            -FilePath $broker.ExecutablePath `
+            -ArgumentList $arguments.ToArray() `
+            -WindowStyle Hidden `
+            -Wait `
+            -PassThru
+        if ($shutdown.ExitCode -ne 0) {
+            throw (
+                "Existing Broker $($broker.ProcessId) " +
+                "shutdown exited with code $($shutdown.ExitCode).")
+        }
+    }
+    $deadline =
+        [DateTime]::UtcNow.AddSeconds(15)
+    foreach ($broker in $brokers) {
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $process =
+                Get-Process `
+                    -Id $broker.ProcessId `
+                    -ErrorAction SilentlyContinue
+            if (-not $process) {
+                break
+            }
+            Start-Sleep `
+                -Milliseconds 50
+        }
+        if (Get-Process `
+                -Id $broker.ProcessId `
+                -ErrorAction SilentlyContinue) {
+            throw (
+                "Existing Broker $($broker.ProcessId) " +
+                'did not exit after shutdown.')
+        }
+    }
+}
+
 function Assert-QiQiBrokerMachineRegistrationAbsent {
     param(
         [Parameter(Mandatory = $true)]

@@ -43,6 +43,15 @@ int main(
         std::string_view(
             gsl::at(args, 1)) ==
             "--read-only";
+    const bool mutation_handoff =
+        args.size() == 2 &&
+        std::string_view(
+            gsl::at(args, 1)) ==
+            "--mutation-handoff";
+    QIQI_TEST_CHECK(
+        args.size() == 1 ||
+        read_only ||
+        mutation_handoff);
     qiqi::log::SetExternalLogWriter(
         &WriteProbeLog);
     const HRESULT com =
@@ -131,6 +140,41 @@ int main(
             << "[PASS] Subscriber read "
                "retained broker commit "
                "lineage.\n";
+        direct.Reset();
+        qiqi::log::SetExternalLogWriter(
+            nullptr);
+        return 0;
+    }
+    if (mutation_handoff) {
+        qiqi::config::Snapshot saved;
+        const trace::Context save_trace =
+            trace::CreateContext();
+        const HRESULT save_result =
+            qiqi::config::SaveSnapshot(
+                {
+                    initial.revision,
+                    initial.value,
+                },
+                save_trace,
+                saved);
+        QIQI_TEST_CHECK(
+            save_result == S_OK);
+        QIQI_TEST_CHECK(
+            saved.revision >
+            initial.revision);
+        QIQI_TEST_CHECK(
+            saved.commit_trace_id ==
+            save_trace.trace_id);
+        QIQI_TEST_CHECK(
+            saved.commit_activity_id !=
+            GUID_NULL);
+        QIQI_TEST_CHECK(
+            saved.commit_revision ==
+            saved.revision);
+        std::cout
+            << "[PASS] Desktop mutation "
+               "handoff started a writable "
+               "Broker.\n";
         direct.Reset();
         qiqi::log::SetExternalLogWriter(
             nullptr);

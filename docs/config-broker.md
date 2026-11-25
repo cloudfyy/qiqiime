@@ -179,6 +179,13 @@ broker retry.
 - The broker verifies that the caller token belongs to its user SID. Desktop
   callers must use the broker's session; same-user AppContainer callers may
   cross the reported COM impersonation session for reads and mutations.
+- A Broker first activated by a Low/less-privileged process remains usable for
+  reads when the caller is authorized. Mutations return the internal
+  `ERROR_RETRY` handoff result instead of attempting a write with insufficient
+  integrity. A Medium desktop client serializes handoff, releases the existing
+  proxy, stops the Low server, starts the Broker executable next to the
+  calling module, waits for its Ready/Writable events, and retries once.
+  AppContainer clients do not perform this process handoff.
 - No method accepts arbitrary registry paths, arbitrary file paths, COM
   commands, or ACL changes.
 - A process not carrying one of the allowed principals receives
@@ -225,6 +232,10 @@ constant.
 - A per-session named singleton prevents competing broker processes. MSI
   shutdown signals the broker and waits for that singleton object to disappear
   before continuing file replacement or unregistering COM.
+- Runtime readiness, writability, handoff, stop, and singleton state use
+  per-session named events/mutexes. Test-only registry subkeys hash into the
+  same names so isolated Low-to-Medium regressions cannot signal the production
+  instance.
 - Installation registers one native server path and replaces the AppID DACLs.
 - Uninstall removes the registration and broker file through the normal MSI
   flow.
@@ -310,6 +321,10 @@ temporary `HKLM` registration because Windows does not reliably merge the
 per-user proxy entries into an elevated WOW64 `HKCR` view. The scripts refuse
 to overwrite any existing machine registration and verify all Broker,
 AppID, proxy, and interface keys are absent again during teardown.
+`QiQiConfigBrokerDcomTest` returns CTest skip code 77 when a real machine
+installation already owns the fixed CLSID; it cannot safely run the isolated
+Low-handoff fixture beside that installation. Clean development/CI machines
+run the fixture in full. Cross-architecture probing remains a separate test.
 
 Remaining real-host acceptance tests:
 

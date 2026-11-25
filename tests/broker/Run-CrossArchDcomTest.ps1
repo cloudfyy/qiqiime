@@ -45,6 +45,8 @@ foreach ($file in @($broker, $proxy32, $probe32)) {
     }
 }
 
+Stop-QiQiExistingBroker
+
 $previousPerUser = [Environment]::GetEnvironmentVariable(
     'QIQI_CONFIG_BROKER_PER_USER',
     'Process')

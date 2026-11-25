@@ -12,6 +12,10 @@
 - **同用户 AppContainer 调用**：测试版本允许同一用户的 AppContainer 调用
   Read、Save、Reset 与 Publish，其他用户仍被拒绝；桌面跨 session 调用仍受
   同一 session 约束。
+- **Low Broker 写入接管**：若 Broker 先由低完整性进程激活，它保留只读能力；
+  Settings/IME 的桌面写入会返回一次性 handoff 状态，客户端停止旧 Broker、
+  从当前模块目录启动 Medium Broker，等待可写状态后重试。事务和 HKCU ACL
+  不降低、不移除。
 - **独立 ACL 修复工具**：支持 List、Diagnose、Grant、Revoke、WhatIf，以及仅在
   开发目录需要时启用祖先目录 Traverse。
 - **独立验证宿主**：拆分为 `uwp` MSIX 宿主与 `grpperm`

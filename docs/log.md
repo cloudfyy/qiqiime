@@ -36,6 +36,13 @@ event source's architecture.
    redact it before sharing. A write failure retains memory records but can leave
    an incomplete target file.
 
+The exported log is not a fixed runtime log file. `C:\temp\qiqi-ime-events.log`
+means the user previously selected that destination in the export dialog;
+new captures do not move or append to that file unless the user exports there
+again. Normal Broker diagnostics remain ETW events. The separate
+`%LOCALAPPDATA%\QiQiIME\ConfigBroker\broker-test.log` is created only when the
+test-only `QIQI_CONFIG_BROKER_DIAGNOSTIC_LOG` environment switch is enabled.
+
 The original monitor stays open if administrator restart fails. After a successful
 restart, the new window preserves the selected UI language (including Follow
 Windows) and opens on the original monitor's screen where possible; logs, filters, and capture state are

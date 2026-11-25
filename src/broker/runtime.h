@@ -7,6 +7,8 @@
 
 #include "broker/configstore.h"
 
+#include "common/configbrokercontrol.h"
+
 #include <atomic>
 #include <filesystem>
 #include <string>
@@ -54,6 +56,7 @@ public:
     void UnlockServer() noexcept;
     void Touch() noexcept;
     bool ShouldExit() const noexcept;
+    bool CanWriteConfiguration() const noexcept;
 
 private:
     ConfigStore store_;
@@ -63,6 +66,7 @@ private:
         0};
     std::vector<uint8_t> user_sid_;
     DWORD session_id_ = 0;
+    DWORD integrity_rid_ = 0;
 };
 
 } // namespace qiqi::broker
