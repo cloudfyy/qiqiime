@@ -16,6 +16,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path `
+        $PSScriptRoot `
+        'Test-Helpers.ps1')
+
 $x64Build = (Resolve-Path -LiteralPath $X64BuildDirectory).Path
 $x86Build = (Resolve-Path -LiteralPath $X86BuildDirectory).Path
 $broker = Join-Path $x64Build "$Configuration\QiQiIMEConfigBroker.exe"
@@ -24,6 +28,16 @@ $probe32 = Join-Path $x86Build "$Configuration\qiqi_broker_probe.exe"
 $subkey = "Software\QiQiIME_CrossArchDcom_$PID"
 $server = $null
 $client = $null
+$diagnosticLog = Join-Path `
+    $env:LOCALAPPDATA `
+    'QiQiIME\ConfigBroker\broker-test.log'
+$diagnosticLogStart = if (
+    Test-Path -LiteralPath $diagnosticLog -PathType Leaf
+) {
+    (Get-Item -LiteralPath $diagnosticLog).Length
+} else {
+    0
+}
 
 foreach ($file in @($broker, $proxy32, $probe32)) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
@@ -37,13 +51,19 @@ $previousPerUser = [Environment]::GetEnvironmentVariable(
 $previousProxy32 = [Environment]::GetEnvironmentVariable(
     'QIQI_CONFIG_BROKER_PROXY32_PATH',
     'Process')
+$previousDiagnosticLog = [Environment]::GetEnvironmentVariable(
+    'QIQI_CONFIG_BROKER_DIAGNOSTIC_LOG',
+    'Process')
 
 try {
     $env:QIQI_CONFIG_BROKER_PER_USER = '1'
     $env:QIQI_CONFIG_BROKER_PROXY32_PATH = $proxy32
+    $env:QIQI_CONFIG_BROKER_DIAGNOSTIC_LOG = '1'
     $registration = Start-Process `
         -FilePath $broker `
-        -ArgumentList '--register' `
+        -ArgumentList @(
+            '--register'
+            "--store-subkey=$subkey") `
         -WindowStyle Hidden `
         -Wait `
         -PassThru
@@ -58,10 +78,10 @@ try {
             "--store-subkey=$subkey") `
         -WindowStyle Hidden `
         -PassThru
-    Start-Sleep -Milliseconds 700
-    if ($server.HasExited) {
-        throw "x64 Broker exited during startup: $($server.ExitCode)."
-    }
+    Wait-QiQiBrokerReady `
+        -Process $server `
+        -DiagnosticLog $diagnosticLog `
+        -DiagnosticLogStart $diagnosticLogStart
 
     $stdout = Join-Path $env:TEMP "qiqi-cross-$PID.out.txt"
     $stderr = Join-Path $env:TEMP "qiqi-cross-$PID.err.txt"
@@ -130,6 +150,13 @@ try {
             $previousProxy32
     } else {
         Remove-Item Env:QIQI_CONFIG_BROKER_PROXY32_PATH `
+            -ErrorAction SilentlyContinue
+    }
+    if ($previousDiagnosticLog) {
+        $env:QIQI_CONFIG_BROKER_DIAGNOSTIC_LOG =
+            $previousDiagnosticLog
+    } else {
+        Remove-Item Env:QIQI_CONFIG_BROKER_DIAGNOSTIC_LOG `
             -ErrorAction SilentlyContinue
     }
 }

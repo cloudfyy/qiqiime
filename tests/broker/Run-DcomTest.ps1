@@ -14,6 +14,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path `
+        $PSScriptRoot `
+        'Test-Helpers.ps1')
+
 $build = (Resolve-Path -LiteralPath $BuildDirectory).Path
 $broker = Join-Path $build "$Configuration\QiQiIMEConfigBroker.exe"
 $proxy = Join-Path $build "$Configuration\QiQiIMEConfigProxy.dll"
@@ -295,12 +299,10 @@ try {
             ) `
             -WindowStyle Hidden `
             -PassThru
-        Start-Sleep -Milliseconds 500
-        if ($brokerProcess.HasExited) {
-            throw (
-                'Broker exited during startup with code ' +
-                "$($brokerProcess.ExitCode).")
-        }
+        Wait-QiQiBrokerReady `
+            -Process $brokerProcess `
+            -DiagnosticLog $diagnosticLog `
+            -DiagnosticLogStart $diagnosticLogStart
     }
     $duplicate = Start-Process `
         -FilePath $broker `
