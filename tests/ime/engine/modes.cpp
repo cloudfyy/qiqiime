@@ -90,6 +90,7 @@ void TestChinesePunctuation() {
         {VK_OEM_COMMA, true, L"《"},
         {VK_OEM_PERIOD, false, L"。"},
         {VK_OEM_PERIOD, true, L"》"},
+        {VK_DECIMAL, false, L"。"},
         {VK_OEM_1, false, L"；"},
         {VK_OEM_1, true, L"："},
         {VK_OEM_2, false, L"、"},
@@ -138,6 +139,12 @@ void TestChinesePunctuation() {
     auto comp_punct = engine.ProcessKey(VK_OEM_PERIOD, false);
     QIQI_TEST_CHECK(comp_punct.action == KeyActionType::Commit);
     QIQI_TEST_CHECK(comp_punct.committed_text == L"工。");
+    QIQI_TEST_CHECK(!engine.IsComposing());
+
+    engine.ProcessKey('A');
+    auto decimal_punct = engine.ProcessKey(VK_DECIMAL, false);
+    QIQI_TEST_CHECK(decimal_punct.action == KeyActionType::Commit);
+    QIQI_TEST_CHECK(decimal_punct.committed_text == L"工。");
     QIQI_TEST_CHECK(!engine.IsComposing());
 
     // Punctuation while composing with NO candidate commits raw_code + punctuation
@@ -196,7 +203,7 @@ void TestFullWidthMode() {
     auto fw_numpad = engine.ProcessKey(VK_NUMPAD5, false);
     QIQI_TEST_CHECK(fw_numpad.action == KeyActionType::Commit && fw_numpad.committed_text == L"５");
     auto fw_numpad_dec = engine.ProcessKey(VK_DECIMAL, false);
-    QIQI_TEST_CHECK(fw_numpad_dec.action == KeyActionType::Commit && fw_numpad_dec.committed_text == L"．");
+    QIQI_TEST_CHECK(fw_numpad_dec.action == KeyActionType::Commit && fw_numpad_dec.committed_text == L"。");
 
     auto fw_upper = engine.ProcessKey('A', true);
     QIQI_TEST_CHECK(fw_upper.action == KeyActionType::Commit && fw_upper.committed_text == L"Ａ");

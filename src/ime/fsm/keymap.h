@@ -16,6 +16,7 @@ constexpr std::optional<std::wstring_view> MapChinesePunctuation(uint32_t vk, bo
     switch (vk) {
         case VK_OEM_COMMA:  return shift_down ? std::optional<std::wstring_view>(L"《") : std::optional<std::wstring_view>(L"，");
         case VK_OEM_PERIOD: return shift_down ? std::optional<std::wstring_view>(L"》") : std::optional<std::wstring_view>(L"。");
+        case VK_DECIMAL:    return shift_down ? std::nullopt : std::optional<std::wstring_view>(L"。");
         case VK_OEM_1:      return shift_down ? std::optional<std::wstring_view>(L"：") : std::optional<std::wstring_view>(L"；");
         case VK_OEM_2:      return shift_down ? std::optional<std::wstring_view>(L"？") : std::optional<std::wstring_view>(L"、");
         case VK_OEM_3:      return shift_down ? std::optional<std::wstring_view>(L"～") : std::optional<std::wstring_view>(L"·");
