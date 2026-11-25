@@ -359,6 +359,34 @@ void TestSettingsDialogControls() {
     QIQI_TEST_CHECK(std::wstring(kEnUsStrings.about_license_info).find(L"GPL-3.0-or-later") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"Apache License 2.0") != std::wstring::npos);
     QIQI_TEST_CHECK(std::wstring(kZhCnStrings.about_license_info).find(L"BSD 3-Clause License") != std::wstring::npos);
+    for (const std::wstring_view component :
+         {
+             L"rime-wubi86-jidian",
+             L"Microsoft GSL",
+             L"nlohmann/json",
+             L"miniz",
+         }) {
+        QIQI_TEST_CHECK(
+            std::wstring_view(
+                kZhCnStrings
+                    .about_license_info)
+                .contains(component));
+        QIQI_TEST_CHECK(
+            std::wstring_view(
+                kEnUsStrings
+                    .about_license_info)
+                .contains(component));
+    }
+    QIQI_TEST_CHECK(
+        std::wstring_view(
+            kZhCnStrings
+                .about_license_info)
+            .contains(L"licenses/"));
+    QIQI_TEST_CHECK(
+        std::wstring_view(
+            kEnUsStrings
+                .about_license_info)
+            .contains(L"licenses/"));
 
     {
         const ScopedWindow about_zh(CreateAboutWindow(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));

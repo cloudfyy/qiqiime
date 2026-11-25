@@ -95,6 +95,9 @@ struct ProcessChoices {
 };
 
 ProcessChoices CollectProcessChoices(const EventBuffer& buffer, std::wstring_view process);
+void PrependAllProcessChoice(
+    ProcessChoices& choices,
+    std::wstring_view label);
 std::optional<DWORD> ParsePid(const std::wstring& text) noexcept;
 std::wstring LevelName(UCHAR level);
 std::wstring FormatGuid(const GUID& guid);

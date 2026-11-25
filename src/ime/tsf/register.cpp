@@ -292,6 +292,20 @@ HRESULT EnableCurrentUserProfile(ITfInputProcessorProfiles* custom_profiles) {
         QIQI_LOG_ERROR("EnableCurrentUserProfile failed with HRESULT 0x{:08x}",
                        gsl::narrow_cast<unsigned int>(hr));
     } else {
+        const HRESULT access_result =
+            EnsureConfigAppContainerReadAccess();
+        if (FAILED(access_result) &&
+            access_result !=
+                HRESULT_FROM_WIN32(
+                    ERROR_FILE_NOT_FOUND)) {
+            QIQI_LOG_WARN(
+                "EnableCurrentUserProfile could "
+                "not refresh AppContainer "
+                "configuration read access "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    access_result));
+        }
         QIQI_LOG_INFO("QiQi Wubi profile enabled for the current user");
     }
     return hr;

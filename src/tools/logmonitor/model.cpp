@@ -126,6 +126,14 @@ ProcessChoices CollectProcessChoices(const EventBuffer& buffer, std::wstring_vie
     return choices;
 }
 
+void PrependAllProcessChoice(
+    ProcessChoices& choices,
+    std::wstring_view label) {
+    choices.names.insert(
+        choices.names.begin(),
+        std::wstring(label));
+}
+
 void EventQueue::Push(Event event) {
     const std::lock_guard lock(mutex_);
     buffer_.Push(std::move(event));

@@ -131,6 +131,19 @@ HRESULT ConfigStore::ReadLocked(
     if (FAILED(result)) {
         return result;
     }
+    result =
+        EnsureConfigAppContainerReadAccess(
+            subkey);
+    if (FAILED(result)) {
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Config,
+            "Broker could not refresh "
+            "AppContainer registry read access "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<
+                unsigned long>(
+                result));
+    }
     result = LoadUserDictSyncDirectoryFromRegistry(
         snapshot.user_dict_sync_directory,
         subkey);

@@ -276,7 +276,9 @@ void MonitorWindow::Impl::Command(int id, int notification) {
             diagnostic_view = false;
             filter = {};
             filter.activity_id = activity;
-            ::SetWindowTextW(Child(Process), L"");
+            ::SetWindowTextW(
+                Child(Process),
+                AllProcessesText());
             ::SetWindowTextW(Child(Search), L"");
             ::SendMessageW(Child(Level), CB_SETCURSEL, 0, 0);
             ::SendMessageW(Child(Category), CB_SETCURSEL, 0, 0);
@@ -389,7 +391,15 @@ void MonitorWindow::Impl::Command(int id, int notification) {
                     diagnostics.Record(2, L"Invalid process selection", ERROR_INVALID_DATA);
                     break;
                 }
-                ::SetWindowTextW(Child(Process), gsl::at(process_choices.names, gsl::narrow_cast<size_t>(index)).c_str());
+                ::SetWindowTextW(
+                    Child(Process),
+                    index == 0
+                        ? AllProcessesText()
+                        : gsl::at(
+                              process_choices.names,
+                              gsl::narrow_cast<size_t>(
+                                  index))
+                            .c_str());
             }
             Refilter();
         } else if (!updating_filters && notification == CBN_CLOSEUP) {

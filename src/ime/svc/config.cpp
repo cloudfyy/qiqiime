@@ -365,7 +365,46 @@ void QiQiTextService::HandleAsyncConfigResult(
                 "(hr=0x{:08X})",
                 gsl::narrow_cast<unsigned long>(
                     result));
-            if (config_refresh_attempts_ <
+            bool registry_fallback_succeeded =
+                false;
+            if (IsProcessAppContainer()) {
+                config::Snapshot registry_snapshot;
+                const HRESULT registry_result =
+                    config::
+                        ReadSnapshotFromRegistry(
+                            registry_snapshot);
+                const auto reload =
+                    SUCCEEDED(registry_result)
+                        ? ReloadConfigIfModified()
+                        : ReloadResult{
+                            .succeeded =
+                                false,
+                            .error =
+                                registry_result,
+                        };
+                registry_fallback_succeeded =
+                    reload.succeeded;
+                QIQI_LOG_CAT_INFO(
+                    log::Keyword::Config,
+                    "AppContainer config refresh "
+                    "registry fallback "
+                    "(read_hr=0x{:08X}, "
+                    "succeeded={}, "
+                    "apply_hr=0x{:08X})",
+                    gsl::narrow_cast<
+                        unsigned long>(
+                        registry_result),
+                    registry_fallback_succeeded,
+                    gsl::narrow_cast<
+                        unsigned long>(
+                        reload.error));
+                if (registry_fallback_succeeded) {
+                    config_refresh_attempts_ =
+                        0;
+                }
+            }
+            if (!registry_fallback_succeeded &&
+                config_refresh_attempts_ <
                 kConfigMaxRefreshAttempts) {
                 ++config_refresh_attempts_;
                 const HWND window =
@@ -881,10 +920,17 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
                 ime_skin_snapshot_),
             "QiQiTextService::ApplyDynamicEngineSettings(UpdateImeSkinSnapshot)");
     } else {
-    config::Snapshot config_snapshot;
-    const HRESULT config_result =
-        config::CopyCachedSnapshot(
-            config_snapshot);
+        config::Snapshot config_snapshot;
+        HRESULT config_result =
+            config::CopyCachedSnapshot(
+                config_snapshot);
+        if (config_result != S_OK &&
+            IsProcessAppContainer()) {
+            config_result =
+                config::
+                    ReadSnapshotFromRegistry(
+                        config_snapshot);
+        }
     if (config_result == S_OK) {
         std::ignore = log::CheckHResult(
             UpdateImeSkinSnapshot(
@@ -1107,6 +1153,29 @@ QiQiTextService::ReloadResult QiQiTextService::ReloadConfigIfModified(uint64_t f
         snapshot_result =
             config::CopyCachedSnapshot(
                 snapshot);
+        if (snapshot_result != S_OK &&
+            IsProcessAppContainer()) {
+            snapshot_result =
+                config::
+                    ReadSnapshotFromRegistry(
+                        snapshot);
+            if (snapshot_result == S_OK) {
+                QIQI_LOG_INFO(
+                    "ReloadConfigIfModified: "
+                    "loaded read-only "
+                    "AppContainer registry "
+                    "snapshot");
+            } else {
+                QIQI_LOG_WARN(
+                    "ReloadConfigIfModified: "
+                    "AppContainer registry "
+                    "fallback failed "
+                    "(hr=0x{:08X})",
+                    gsl::narrow_cast<
+                        unsigned long>(
+                        snapshot_result));
+            }
+        }
     }
     if (snapshot_result != S_OK ||
         snapshot.revision ==

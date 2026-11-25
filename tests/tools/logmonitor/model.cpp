@@ -59,6 +59,13 @@ void TestBuffersAndFilters() {
     QIQI_TEST_CHECK(processes.Push(second_process));
     auto choices = CollectProcessChoices(processes, L"CODE");
     QIQI_TEST_CHECK(choices.names.size() == 1 && choices.pids == std::vector<DWORD>({10, 20}));
+    PrependAllProcessChoice(
+        choices,
+        L"All");
+    QIQI_TEST_CHECK(
+        choices.names ==
+        std::vector<std::wstring>(
+            {L"All", L"Code.exe"}));
     second_process.pid = 30;
     second_process.process = L"notepad.exe";
     QIQI_TEST_CHECK(processes.Push(second_process));

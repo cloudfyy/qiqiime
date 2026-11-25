@@ -203,6 +203,13 @@ int Integration(const wchar_t* peer) try {
         const LRESULT name_index = ::SendMessageW(Child(window, Process), CB_FINDSTRINGEXACT,
             gsl::narrow_cast<WPARAM>(-1), reinterpret_cast<LPARAM>(own->process.c_str()));
         QIQI_TEST_CHECK(name_index != CB_ERR);
+        QIQI_TEST_CHECK(
+            ::SendMessageW(
+                Child(window, Process),
+                CB_FINDSTRINGEXACT,
+                gsl::narrow_cast<WPARAM>(-1),
+                reinterpret_cast<LPARAM>(
+                    L"All")) == 0);
         ::SendMessageW(Child(window, Process), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(name_index), 0);
         ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Process), CBN_SELCHANGE), 0);
         QIQI_TEST_CHECK(ControlText(Child(window, Process)) == own->process);
@@ -280,6 +287,10 @@ int Integration(const wchar_t* peer) try {
         QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == std::to_wstring(second_child.dwProcessId));
         SelectLanguage(window, UiLanguage::EnUs);
         ::SetWindowTextW(Child(window, Search), L"");
+        ::SendMessageW(Child(window, Process), CB_SETCURSEL, 0, 0);
+        ::SendMessageW(window.Handle(), WM_COMMAND,
+            MAKEWPARAM(std::to_underlying(Process), CBN_SELCHANGE), 0);
+        QIQI_TEST_CHECK(ControlText(Child(window, Process)) == L"All");
         SetProcessFilter(window, L"");
         QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == L"All");
         SelectPid(window, second_child.dwProcessId);
@@ -287,11 +298,12 @@ int Integration(const wchar_t* peer) try {
         Click(window, Start);
         QIQI_TEST_CHECK(CommandName(window, Start) == L"Start capture (Logs)");
         Click(window, Clear);
-        QIQI_TEST_CHECK(::SendMessageW(Child(window, Process), CB_GETCOUNT, 0, 0) == 0);
+        QIQI_TEST_CHECK(::SendMessageW(Child(window, Process), CB_GETCOUNT, 0, 0) == 1);
+        QIQI_TEST_CHECK(ControlText(Child(window, Process)) == L"All");
         QIQI_TEST_CHECK(::SendMessageW(Child(window, Pid), CB_GETCOUNT, 0, 0) == 1);
         QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, Pid)));
         Click(window, DiagnosticsView);
-        QIQI_TEST_CHECK(ControlText(Child(window, Process)).empty());
+        QIQI_TEST_CHECK(ControlText(Child(window, Process)) == L"All");
         QIQI_TEST_CHECK(ControlText(Child(window, Pid)) == L"All");
         SetProcessFilter(window, L"QiQiIMELogMonitor.exe");
         QIQI_TEST_CHECK(!::IsWindowEnabled(Child(window, Pid)));

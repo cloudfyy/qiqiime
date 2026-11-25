@@ -67,6 +67,9 @@ void MonitorWindow::Impl::RefreshProcessChoices(bool force) {
     updating_filters = true;
     const auto restore = gsl::finally([this]() noexcept { updating_filters = false; });
     auto next = CollectProcessChoices(Current(), filter.process);
+    PrependAllProcessChoice(
+        next,
+        AllProcessesText());
     const auto replace = [&](ControlId id, const std::vector<std::wstring>& items) {
         std::vector<const wchar_t*> text;
         text.reserve(items.size());
@@ -79,8 +82,20 @@ void MonitorWindow::Impl::RefreshProcessChoices(bool force) {
         // Preserve typed text and caret when refreshing the suggestion list.
         const LRESULT edit_selection = ::SendMessageW(Child(Process), CB_GETEDITSEL, 0, 0);
         replace(Process, next.names);
-        ::SetWindowTextW(Child(Process), filter.process.c_str());
+        ::SetWindowTextW(
+            Child(Process),
+            filter.process.empty()
+                ? AllProcessesText()
+                : filter.process.c_str());
         ::SendMessageW(Child(Process), CB_SETEDITSEL, 0, edit_selection);
+    } else if (
+        filter.process.empty() &&
+        !IsAllProcessesText(
+            ReadWindowTextString(
+                Child(Process)))) {
+        ::SetWindowTextW(
+            Child(Process),
+            AllProcessesText());
     }
     const bool single = !filter.process.empty() && next.pids.size() == 1;
     const bool was_single = automatic_pid;
@@ -110,8 +125,12 @@ void MonitorWindow::Impl::RefreshProcessChoices(bool force) {
 
 void MonitorWindow::Impl::Refilter() {
     const auto process = ReadWindowTextString(Child(Process));
-    if (process != filter.process) {
-        filter.process = process;
+    const std::wstring normalized =
+        IsAllProcessesText(process)
+            ? std::wstring{}
+            : process;
+    if (normalized != filter.process) {
+        filter.process = normalized;
         filter.pid.reset();
         automatic_pid = false;
     }

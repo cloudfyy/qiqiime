@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/config.h"
+#include "common/appcontainer.h"
 #include "common/configclient.h"
 #include "common/comobj.h"
 #include "common/fileutil.h"
 #include "common/logger.h"
 #include "common/RAII.h"
+#include "common/skin.h"
 
 #include <windows.h>
 #include <aclapi.h>
@@ -20,6 +22,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace qiqi {
 
@@ -233,9 +236,12 @@ std::filesystem::path ResolveDefaultUserFilePath(std::wstring_view file_name) {
     return app_dir / file_name;
 }
 
-void GrantAppContainerReadAccessToKey(HKEY key) noexcept {
-    // Grant S-1-15-2-1 (ALL APPLICATION PACKAGES) and S-1-15-2-2 (ALL RESTRICTED APPLICATION PACKAGES)
-    // KEY_READ access while preserving the current user's existing DACL entries.
+HRESULT ApplyAppContainerReadAccess(
+    HKEY key,
+    const std::vector<std::wstring>&
+        package_sids) {
+    // Preserve broad package groups and add the exact SearchHost package
+    // identities, which LPAC tokens use even when broad package groups are absent.
     PACL old_dacl = nullptr;
     PSECURITY_DESCRIPTOR sd_raw = nullptr;
     const DWORD security_error = ::GetSecurityInfo(
@@ -248,54 +254,111 @@ void GrantAppContainerReadAccessToKey(HKEY key) noexcept {
             nullptr,
             &sd_raw);
     if (security_error != ERROR_SUCCESS) {
-        QIQI_LOG_WARN("GrantAppContainerReadAccessToKey::GetSecurityInfo failed (error={})", security_error);
-        return;
+        QIQI_LOG_WARN(
+            "ApplyAppContainerReadAccess::"
+            "GetSecurityInfo failed "
+            "(error={})",
+            security_error);
+        return HRESULT_FROM_WIN32(
+            security_error);
     }
     const ScopedLocalAlloc sd_guard(sd_raw);
 
-    PSID sid_all_apps = nullptr;
-    PSID sid_restricted_apps = nullptr;
-    if (!::ConvertStringSidToSidW(L"S-1-15-2-1", &sid_all_apps)) {
-        const DWORD error = ::GetLastError();
-        QIQI_LOG_WARN("ConvertStringSidToSidW(all applications) failed (error={})", error);
-    }
-    if (!::ConvertStringSidToSidW(L"S-1-15-2-2", &sid_restricted_apps)) {
-        const DWORD error = ::GetLastError();
-        QIQI_LOG_WARN("ConvertStringSidToSidW(restricted applications) failed (error={})", error);
-    }
-    const ScopedLocalAlloc sid1_guard(sid_all_apps);
-    const ScopedLocalAlloc sid2_guard(sid_restricted_apps);
-
-    std::array<EXPLICIT_ACCESS_W, 2> ea{};
-    ULONG ea_count = 0;
-    for (PSID sid : {sid_all_apps, sid_restricted_apps}) {
-        if (!sid) {
-            continue;
+    std::vector<std::wstring> sid_texts{
+        L"S-1-15-2-1",
+        L"S-1-15-2-2",
+    };
+    sid_texts.insert(
+        sid_texts.end(),
+        package_sids.begin(),
+        package_sids.end());
+    std::vector<PSID> sids;
+    std::vector<ScopedLocalAlloc> sid_owners;
+    sids.reserve(sid_texts.size());
+    sid_owners.reserve(sid_texts.size());
+    for (const auto& sid_text :
+         sid_texts) {
+        PSID sid = nullptr;
+        if (!::ConvertStringSidToSidW(
+                sid_text.c_str(),
+                &sid)) {
+            const HRESULT result =
+                HRESULT_FROM_WIN32(
+                    ::GetLastError());
+            QIQI_LOG_WARN(
+                "ApplyAppContainerReadAccess::"
+                "ConvertStringSidToSidW failed "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    result));
+            return result;
         }
-        auto& entry = gsl::at(ea, ea_count++);
+        sid_owners.emplace_back(sid);
+        sids.push_back(sid);
+    }
+
+    if (sids.empty()) {
+        return E_UNEXPECTED;
+    }
+    std::vector<EXPLICIT_ACCESS_W> ea(
+        sids.size());
+    for (size_t index = 0;
+         index < sids.size();
+         ++index) {
+        auto& entry = ea.at(index);
         entry.grfAccessPermissions = KEY_READ;
         entry.grfAccessMode = GRANT_ACCESS;
         entry.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
         entry.Trustee.TrusteeForm = TRUSTEE_IS_SID;
-        entry.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
-        entry.Trustee.ptstrName = static_cast<LPWSTR>(sid);
-    }
-    if (ea_count == 0) {
-        return;
+        entry.Trustee.TrusteeType =
+            TRUSTEE_IS_GROUP;
+        entry.Trustee.ptstrName =
+            static_cast<LPWSTR>(
+                gsl::at(
+                    sids,
+                    index));
     }
 
     PACL new_dacl = nullptr;
-    const DWORD acl_error = ::SetEntriesInAclW(ea_count, ea.data(), old_dacl, &new_dacl);
-    if (acl_error == ERROR_SUCCESS && new_dacl) {
-        const ScopedLocalAlloc dacl_guard(new_dacl);
-        const DWORD error = ::SetSecurityInfo(
-            key, SE_REGISTRY_KEY, DACL_SECURITY_INFORMATION, nullptr, nullptr, new_dacl, nullptr);
-        if (error != ERROR_SUCCESS) {
-            QIQI_LOG_WARN("GrantAppContainerReadAccessToKey::SetSecurityInfo failed (error={})", error);
-        }
-    } else {
-        QIQI_LOG_WARN("GrantAppContainerReadAccessToKey::SetEntriesInAclW failed (error={})", acl_error);
+    const DWORD acl_error =
+        ::SetEntriesInAclW(
+            gsl::narrow_cast<ULONG>(
+                ea.size()),
+            ea.data(),
+            old_dacl,
+            &new_dacl);
+    if (acl_error != ERROR_SUCCESS) {
+        QIQI_LOG_WARN("ApplyAppContainerReadAccess::SetEntriesInAclW failed (error={})", acl_error);
+        return HRESULT_FROM_WIN32(
+            acl_error);
     }
+    if (!new_dacl) {
+        QIQI_LOG_ERROR(
+            "ApplyAppContainerReadAccess::"
+            "SetEntriesInAclW returned an "
+            "empty DACL");
+        return E_UNEXPECTED;
+    }
+    const ScopedLocalAlloc dacl_guard(new_dacl);
+    const DWORD error =
+        ::SetSecurityInfo(
+            key,
+            SE_REGISTRY_KEY,
+            DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            new_dacl,
+            nullptr);
+    if (error != ERROR_SUCCESS) {
+        QIQI_LOG_WARN(
+            "ApplyAppContainerReadAccess::"
+            "SetSecurityInfo failed "
+            "(error={})",
+            error);
+        return HRESULT_FROM_WIN32(
+            error);
+    }
+    return S_OK;
 }
 
 ScopedRegKey OpenOrCreateConfigRegKey(
@@ -336,13 +399,6 @@ ScopedRegKey OpenOrCreateConfigRegKey(
                 key.Put(),
                 &disp);
         };
-        const LSTATUS acl_error = create_key(access | WRITE_DAC | READ_CONTROL);
-        if (acl_error == ERROR_SUCCESS) {
-            if (out_error) *out_error = ERROR_SUCCESS;
-            GrantAppContainerReadAccessToKey(key.Get());
-            return key;
-        }
-        QIQI_LOG_DEBUG("Config::RegCreateKey with ACL access failed; retrying basic access (error={})", acl_error);
         const LSTATUS error = create_key(access);
         if (out_error) *out_error = error;
         if (error != ERROR_SUCCESS) {
@@ -754,6 +810,197 @@ HRESULT OpenConfigRegistryKeyResult(
     if (!opened) return HRESULT_FROM_WIN32(error);
     *key = opened.Detach();
     return S_OK;
+}
+
+HRESULT EnsureConfigAppContainerReadAccessImpl(
+    const wchar_t* subkey) {
+    LSTATUS open_error =
+        ERROR_SUCCESS;
+    const ScopedRegKey key =
+        OpenOrCreateConfigRegKey(
+            subkey,
+            KEY_READ |
+                WRITE_DAC |
+                READ_CONTROL,
+            nullptr,
+            &open_error);
+    if (!key) {
+        return HRESULT_FROM_WIN32(
+            open_error);
+    }
+    std::vector<std::wstring>
+        package_sids;
+    const HRESULT discovery =
+        DiscoverWindowsSearchPackageSids(
+            package_sids);
+    if (FAILED(discovery)) {
+        return discovery;
+    }
+    HRESULT result =
+        ApplyAppContainerReadAccess(
+            key.Get(),
+            package_sids);
+    if (FAILED(result)) {
+        return result;
+    }
+    ScopedRegKey skins;
+    const LSTATUS open_skins =
+        ::RegOpenKeyExW(
+            key.Get(),
+            L"Skins",
+            0,
+            KEY_READ |
+                WRITE_DAC |
+                READ_CONTROL,
+            skins.Put());
+    if (open_skins ==
+        ERROR_FILE_NOT_FOUND) {
+        return S_OK;
+    }
+    if (open_skins != ERROR_SUCCESS) {
+        return HRESULT_FROM_WIN32(
+            open_skins);
+    }
+    result =
+        ApplyAppContainerReadAccess(
+            skins.Get(),
+            package_sids);
+    if (FAILED(result)) {
+        return result;
+    }
+
+    std::wstring active_catalog;
+    result =
+        ReadRegistryStringResult(
+            skins.Get(),
+            L"ActiveCatalog",
+            active_catalog);
+    if (result ==
+        HRESULT_FROM_WIN32(
+            ERROR_FILE_NOT_FOUND)) {
+        return S_OK;
+    }
+    if (FAILED(result)) {
+        return result;
+    }
+    ScopedRegKey catalogs;
+    const LSTATUS open_catalogs =
+        ::RegOpenKeyExW(
+            skins.Get(),
+            L"Catalogs",
+            0,
+            KEY_READ |
+                WRITE_DAC |
+                READ_CONTROL,
+            catalogs.Put());
+    if (open_catalogs !=
+        ERROR_SUCCESS) {
+        return HRESULT_FROM_WIN32(
+            open_catalogs);
+    }
+    result =
+        ApplyAppContainerReadAccess(
+            catalogs.Get(),
+            package_sids);
+    if (FAILED(result)) {
+        return result;
+    }
+
+    ScopedRegKey catalog;
+    const LSTATUS open_catalog =
+        ::RegOpenKeyExW(
+            catalogs.Get(),
+            active_catalog.c_str(),
+            0,
+            KEY_READ |
+                WRITE_DAC |
+                READ_CONTROL,
+            catalog.Put());
+    if (open_catalog !=
+        ERROR_SUCCESS) {
+        return HRESULT_FROM_WIN32(
+            open_catalog);
+    }
+    result =
+        ApplyAppContainerReadAccess(
+            catalog.Get(),
+            package_sids);
+    if (FAILED(result)) {
+        return result;
+    }
+
+    for (const auto& builtin :
+         GetBuiltinImeSkins()) {
+        const std::wstring skin_id =
+            Utf8ToWide(
+                ImeSkinIdToString(
+                    builtin.id));
+        ScopedRegKey skin;
+        const LSTATUS open_skin =
+            ::RegOpenKeyExW(
+                catalog.Get(),
+                skin_id.c_str(),
+                0,
+                KEY_READ |
+                    WRITE_DAC |
+                    READ_CONTROL,
+                skin.Put());
+        if (open_skin != ERROR_SUCCESS) {
+            return HRESULT_FROM_WIN32(
+                open_skin);
+        }
+        result =
+            ApplyAppContainerReadAccess(
+                skin.Get(),
+                package_sids);
+        if (FAILED(result)) {
+            return result;
+        }
+        for (const wchar_t* variant :
+             {L"Light", L"Dark"}) {
+            ScopedRegKey palette;
+            const LSTATUS open_palette =
+                ::RegOpenKeyExW(
+                    skin.Get(),
+                    variant,
+                    0,
+                    KEY_READ |
+                        WRITE_DAC |
+                        READ_CONTROL,
+                    palette.Put());
+            if (open_palette !=
+                ERROR_SUCCESS) {
+                return HRESULT_FROM_WIN32(
+                    open_palette);
+            }
+            result =
+                ApplyAppContainerReadAccess(
+                    palette.Get(),
+                    package_sids);
+            if (FAILED(result)) {
+                return result;
+            }
+        }
+    }
+    return S_OK;
+}
+
+HRESULT EnsureConfigAppContainerReadAccess(
+    const wchar_t* subkey) noexcept {
+    try {
+        return
+            EnsureConfigAppContainerReadAccessImpl(
+                subkey);
+    } catch (const std::bad_alloc&) {
+        QIQI_LOG_ERROR(
+            "EnsureConfigAppContainerReadAccess "
+            "allocation failed");
+        return E_OUTOFMEMORY;
+    } catch (
+        const std::length_error&) {
+        return HRESULT_FROM_WIN32(
+            ERROR_ARITHMETIC_OVERFLOW);
+    }
 }
 
 HRESULT WriteRegistryDwordResult(HKEY key, const wchar_t* name, DWORD value) noexcept {

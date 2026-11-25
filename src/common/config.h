@@ -404,6 +404,8 @@ HRESULT LoadConfigCommitTraceFromRegistry(
     GUID& activity_id,
     uint64_t& revision,
     const wchar_t* subkey = nullptr) noexcept;
+HRESULT EnsureConfigAppContainerReadAccess(
+    const wchar_t* subkey = nullptr) noexcept;
 bool SaveConfigToRegistry(
     const QiQiConfig& config,
     const wchar_t* subkey = nullptr) noexcept;

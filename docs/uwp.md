@@ -10,6 +10,12 @@ alone does not establish AppContainer identity; inspect the actual hosting token
 TSF immersive/COM-less category registration and successful synchronization tests
 do not certify every UWP, browser sandbox, packaged desktop app, or game.
 
+The taskbar indicator also uses a host-specific menu contract. SearchHost and
+other AppContainer hosts advertise QiQiIME as an exclusive TSF menu button, so
+Windows calls `InitMenu` and `OnMenuSelect` and owns popup activation. Desktop
+hosts retain the combined button/custom-menu path, including left-click
+Chinese/English switching.
+
 ## Deployment and permissions
 
 Normal [ZIP/source registration](../scripts/register_ime.ps1) grants the resolved
@@ -28,15 +34,32 @@ package-group read/execute access on the installation directory.
 Check actual ACL results; location under Program Files does not prove access.
 
 Runtime configuration is no longer read from the host package's virtualized
-`HKCU` view. `QiQiIMEConfigBroker.exe` owns the real desktop-user configuration
-and skin catalog; ordinary AppContainer, Full Trust, and LPAC hosts receive a
-validated in-process snapshot through local DCOM. Broker registration grants
-the package groups and `lpacCom` capability local DCOM access rights. Windows
-Search package identities are discovered from `%WINDIR%\SystemApps`, and their
-derived package SIDs are added explicitly because SearchHost does not carry the
-broad package-group SIDs. Access and Launch use valid local-only AppID DACLs:
-`0x03` for access and `0x0B` for launch/activation. The Broker still rejects
-callers whose token does not match its user SID and Windows session.
+`HKCU` view. `QiQiIMEConfigBroker.exe` owns all configuration writes and the
+real desktop-user skin catalog. Ordinary AppContainer, Full Trust, and LPAC
+hosts receive a validated in-process snapshot through local DCOM when their
+token carries the required COM capability. Broker registration grants the
+package groups and `lpacCom` capability local DCOM access rights.
+
+Taskbar Search requires one narrow exception. Its SearchHost LPAC token carries
+`registryRead` but does not carry `lpacCom`, so its `CoCreateInstance` is denied
+before Broker method dispatch even when package-specific DCOM ACEs exist.
+Windows Search package identities are therefore discovered from
+`%WINDIR%\SystemApps`, and their package and package-capability SIDs receive
+only `KEY_READ` on the config root plus the known skin schema:
+`Skins`, `Catalogs`, the active catalog, built-in skin IDs, and `Light`/`Dark`.
+SearchHost may use that direct read only when the in-process cache is absent or
+the Broker read fails. It decodes the same complete configuration, skin catalog,
+sync-directory address, and commit metadata, then commits the validated result
+to the normal cache. It never writes registry values or walks arbitrary
+subtrees. A successful startup or refresh requires no further registry read on
+subsequent focus/input operations.
+
+Search package and package-capability SIDs are also added to local-only AppID
+DCOM ACLs for package hosts that do carry `lpacCom`. Access and Launch use
+valid local-only DACLs: `0x03` for access and `0x0B` for launch/activation. The
+Broker still rejects callers whose token does not match its user SID and
+Windows session. Adding DCOM ACEs cannot grant a capability that is absent from
+the caller token.
 
 For an uncommon package identity that is not automatically discovered, use
 [repair_appcontainer_access.ps1](../scripts/repair_appcontainer_access.ps1):
@@ -73,8 +96,10 @@ for COM/LPAC use.
 Registry access for desktop maintenance remains separate from runtime access.
 Synchronization data grants read/traverse access, not write access. Other
 qualifying applications may therefore read shared dictionary phrases but do
-not gain direct write access to the Broker's registry. Do not open the entire
-user profile to solve an access problem.
+not gain direct write access to the Broker's registry. DACL repair runs only
+after registry/catalog transactions complete; child keys are not traversed or
+modified during KTM transactions. Do not open the entire user profile to solve
+an access problem.
 See the [privacy policy](../PRIVACY.md) for the disclosure boundary.
 
 ## Dictionaries and synchronization

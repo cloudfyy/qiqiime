@@ -4,11 +4,13 @@
 #include "common/configclient.h"
 
 #include "common/comobj.h"
+#include "common/config.h"
 #include "common/configrpc.h"
 #include "common/guids.h"
 #include "common/logger.h"
 #include "common/RAII.h"
 #include "common/configbrokercontrol.h"
+#include "common/skin.h"
 
 #include <wrl/client.h>
 #include <gsl/gsl>
@@ -814,6 +816,72 @@ HRESULT CopyCachedSnapshot(
             "Config cache copy lock failed "
             "(error={})",
             error.code().value());
+        return SystemErrorToHResult(
+            error);
+    }
+}
+
+HRESULT ReadSnapshotFromRegistry(
+    Snapshot& output) noexcept {
+    try {
+        ScopedRegKey key;
+        HRESULT result =
+            OpenConfigRegistryKeyResult(
+                key.Put(),
+                KEY_READ);
+        if (FAILED(result)) {
+            return result;
+        }
+        Snapshot snapshot;
+        if (!LoadConfigFromRegistry(
+                snapshot.value,
+                &snapshot.revision)) {
+            return HRESULT_FROM_WIN32(
+                ERROR_INVALID_DATA);
+        }
+        result =
+            LoadImeSkinCatalog(
+                snapshot.skin_catalog);
+        if (FAILED(result)) {
+            return result;
+        }
+        result =
+            LoadUserDictSyncDirectoryFromRegistry(
+                snapshot
+                    .user_dict_sync_directory);
+        if (FAILED(result) &&
+            result !=
+                HRESULT_FROM_WIN32(
+                    ERROR_FILE_NOT_FOUND)) {
+            return result;
+        }
+        result =
+            LoadConfigCommitTraceFromRegistry(
+                snapshot.commit_trace_id,
+                snapshot.commit_activity_id,
+                snapshot.commit_revision);
+        if (FAILED(result) &&
+            result !=
+                HRESULT_FROM_WIN32(
+                    ERROR_FILE_NOT_FOUND)) {
+            return result;
+        }
+        if (snapshot.commit_revision >
+            snapshot.revision) {
+            return HRESULT_FROM_WIN32(
+                ERROR_INVALID_DATA);
+        }
+        return CommitSnapshot(
+            std::move(snapshot),
+            output);
+    } catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    } catch (
+        const std::length_error&) {
+        return HRESULT_FROM_WIN32(
+            ERROR_ARITHMETIC_OVERFLOW);
+    } catch (
+        const std::system_error& error) {
         return SystemErrorToHResult(
             error);
     }

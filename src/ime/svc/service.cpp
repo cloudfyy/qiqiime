@@ -45,15 +45,32 @@ constexpr std::array<PreservedKeyDef, 4> kPreservedKeys = {{
 QiQiTextService::QiQiTextService(HINSTANCE instance)
     : service_log_id_(++next_service_log_id), composition_lifecycle_(service_log_id_) {
     std::ignore = log::EnsureInitialized();
+    uint64_t initial_revision = 0;
     if (HasConfigRegistrySubKeyOverride()) {
         config_ = LoadConfig(instance);
     } else {
         config::Snapshot initial;
-        const HRESULT read =
+        HRESULT read =
             config::CopyCachedSnapshot(
                 initial);
+        if (read != S_OK &&
+            IsProcessAppContainer()) {
+            const HRESULT registry_read =
+                config::ReadSnapshotFromRegistry(
+                    initial);
+            QIQI_LOG_CAT_INFO(
+                log::Keyword::Config,
+                "IME AppContainer startup "
+                "registry fallback "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<unsigned long>(
+                    registry_read));
+            read = registry_read;
+        }
         if (read == S_OK) {
             config_ = std::move(initial.value);
+            initial_revision =
+                initial.revision;
         } else {
             config_ = {};
             QIQI_LOG_CAT_INFO(
@@ -117,7 +134,9 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
     config_registry_sequence_ =
         HasConfigRegistrySubKeyOverride()
             ? QueryRegistryConfigSequence()
-            : config::CachedRevision();
+            : (initial_revision != 0
+                   ? initial_revision
+                   : config::CachedRevision());
 }
 
 QiQiTextService::~QiQiTextService() noexcept {

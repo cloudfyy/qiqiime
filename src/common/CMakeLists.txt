@@ -22,6 +22,8 @@ configure_file(
 )
 
 set(QIQI_COMMON_SOURCES
+    appcontainer.cpp
+    appcontainer.h
     backup.cpp
     backup.h
     dialog.cpp
@@ -109,6 +111,7 @@ target_link_libraries(qiqi_common PUBLIC
     dwrite
     dwmapi
     shell32
+    OneCoreUAP
 )
 target_link_libraries(qiqi_common PRIVATE
     nlohmann_json::nlohmann_json

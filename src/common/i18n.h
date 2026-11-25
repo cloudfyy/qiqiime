@@ -216,8 +216,13 @@ inline constexpr UiStrings kZhCnStrings = {
     L"版本: v",
     L"开源许可协议 (Licenses):\n"
     L"• QiQi 主程序 (cloudfyy): GPL-3.0-or-later\n"
-    L"• 极点五笔 86 词库 (KyleBing): Apache License 2.0\n"
-    L"• 海峰五笔 86 词库 (孙海峰): BSD 3-Clause License",
+    L"• 极点五笔 86 固定词库快照 (KyleBing): Apache License 2.0\n"
+    L"• rime-wubi86-jidian 上游许可副本 (KyleBing): MIT License\n"
+    L"• 海峰五笔 86 词库 (孙海峰): BSD 3-Clause License\n"
+    L"• Microsoft GSL (Microsoft): MIT License\n"
+    L"• nlohmann/json (Niels Lohmann): MIT License\n"
+    L"• miniz (Rich Geldreich / RAD Game Tools): MIT License\n"
+    L"完整许可文本: licenses/",
     L"访问 GitHub",
     L"快捷键与使用帮助",
     L"奇奇五笔 快捷键与操作指南",
@@ -338,8 +343,13 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Version: v",
     L"Open Source Licenses:\n"
     L"• QiQi Core (cloudfyy): GPL-3.0-or-later\n"
-    L"• Jidian Wubi 86 Dict (KyleBing): Apache License 2.0\n"
-    L"• Haifeng Wubi 86 Dict (SUN Haifeng): BSD 3-Clause License",
+    L"• Jidian Wubi 86 fixed dictionary snapshot (KyleBing): Apache License 2.0\n"
+    L"• rime-wubi86-jidian upstream license copy (KyleBing): MIT License\n"
+    L"• Haifeng Wubi 86 Dict (SUN Haifeng): BSD 3-Clause License\n"
+    L"• Microsoft GSL (Microsoft): MIT License\n"
+    L"• nlohmann/json (Niels Lohmann): MIT License\n"
+    L"• miniz (Rich Geldreich / RAD Game Tools): MIT License\n"
+    L"Complete license texts: licenses/",
     L"Visit GitHub",
     L"Keyboard Shortcuts & Help",
     L"QiQi Wubi Shortcuts & Guide",

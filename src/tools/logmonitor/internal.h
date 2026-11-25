@@ -113,6 +113,14 @@ struct MonitorWindow::Impl {
     const wchar_t* Text(const wchar_t* zh, const wchar_t* en) const noexcept {
         return LocalizedUiText(ui_language, zh, en);
     }
+    const wchar_t* AllProcessesText() const noexcept {
+        return Text(L"全部", L"All");
+    }
+    static bool IsAllProcessesText(
+        std::wstring_view value) noexcept {
+        return value == L"全部" ||
+            value == L"All";
+    }
 
     const wchar_t* LevelText(UCHAR level) const noexcept {
         switch (level) {

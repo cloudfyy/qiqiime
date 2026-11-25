@@ -34,6 +34,8 @@ constexpr HRESULT DecodeAsyncResult(
 uint64_t CachedRevision() noexcept;
 HRESULT CopyCachedSnapshot(
     Snapshot& output) noexcept;
+HRESULT ReadSnapshotFromRegistry(
+    Snapshot& output) noexcept;
 
 HRESULT ReadSnapshot(
     Snapshot& output) noexcept;

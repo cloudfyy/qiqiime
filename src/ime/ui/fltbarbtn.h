@@ -107,22 +107,19 @@ public:
     void Disconnect() noexcept;
     const LangBarState& State() const noexcept { return state_; }
     uint64_t LogId() const noexcept { return log_id_; }
-    void ForceNativePopupForTest(
+    void ForceAppContainerForTest(
         bool enabled) noexcept {
-        force_native_popup_for_test_ =
+        force_app_container_for_test_ =
             enabled;
-        native_popup_result_for_test_ =
-            E_PENDING;
-    }
-    HRESULT NativePopupResultForTest()
-        const noexcept {
-        return native_popup_result_for_test_;
     }
 
     static MenuItems BuildSharedMenuItems(const LangBarState& state) noexcept;
     // The returned menu must be destroyed before out_bg_brush.
     static ScopedMenu BuildSharedPopupMenu(
-        const LangBarState& state, HWND owner_hwnd, ScopedGdiHandle<HBRUSH>& out_bg_brush) noexcept;
+        const LangBarState& state,
+        HWND owner_hwnd,
+        ScopedGdiHandle<HBRUSH>&
+            out_bg_brush) noexcept;
     static void ShowSharedPopupMenu(
         const LangBarState& state, POINT screen_pt, const ActionCallback& callback, bool align_bottom = false);
 
@@ -148,8 +145,7 @@ private:
     void StopThemeNotifications() noexcept;
     static LRESULT CALLBACK ThemeWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
     HRESULT NotifyUpdate(DWORD flags) noexcept;
-    bool QueueNativePopupMenu(POINT screen_pt) noexcept;
-    HRESULT ShowNativePopupMenu(POINT screen_pt) noexcept;
+    bool UsesTsfOwnedMenu() const noexcept;
 
     const uint64_t log_id_;
     ComPtr<ITfLangBarItemSink> sink_;
@@ -157,12 +153,8 @@ private:
     bool visible_ = true;
     ScopedWindow theme_window_;
     bool theme_update_pending_ = false;
-    bool popup_menu_pending_ = false;
-    bool force_native_popup_for_test_ =
+    bool force_app_container_for_test_ =
         false;
-    POINT popup_menu_point_{};
-    HRESULT native_popup_result_for_test_ =
-        E_PENDING;
     LangBarState state_{};
     ActionCallback action_callback_;
 };

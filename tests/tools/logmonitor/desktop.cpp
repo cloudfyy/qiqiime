@@ -213,6 +213,16 @@ void TestDesktopIntegration() {
     QIQI_TEST_CHECK(::GetDlgItem(window.Handle(), 123) == nullptr);
     SelectLanguage(window, UiLanguage::EnUs);
     QIQI_TEST_CHECK(ControlText(window.Handle()).starts_with(L"QiQi Log Monitor v"));
+    QIQI_TEST_CHECK(
+        ::SendMessageW(
+            Child(window, Process),
+            CB_GETCOUNT,
+            0,
+            0) == 1);
+    QIQI_TEST_CHECK(
+        ControlText(
+            Child(window, Process)) ==
+        L"All");
     QIQI_TEST_CHECK(CommandName(window, Clear) == L"Clear");
     QIQI_TEST_CHECK(CommandName(window, Copy) == L"Copy");
     QIQI_TEST_CHECK(CommandName(window, LanguageEn) == GetUiStrings(UiLanguage::EnUs).dlg_lang_en);

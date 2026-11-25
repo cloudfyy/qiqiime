@@ -3,6 +3,7 @@
 
 #include "broker/registration.h"
 
+#include "common/appcontainer.h"
 #include "common/comobj.h"
 #include "common/fileutil.h"
 #include "common/guids.h"
@@ -214,105 +215,25 @@ HRESULT AppendSid(
     return S_OK;
 }
 
-HRESULT AppendAppContainerSid(
-    std::wstring_view package_family,
-    std::vector<PSID>& sids,
-    std::vector<SidOwner>& owners) {
-    const std::wstring name(package_family);
-    PSID sid = nullptr;
-    const HRESULT result =
-        ::DeriveAppContainerSidFromAppContainerName(
-            name.c_str(),
-            &sid);
-    if (FAILED(result)) {
-        return result;
-    }
-    SidOwner owner(
-        sid,
-        SidOwner::Allocation::Sid);
-    owners.emplace_back(
-        std::move(owner));
-    sids.push_back(sid);
-    return S_OK;
-}
-
 HRESULT AppendWindowsSearchHostSids(
     std::vector<PSID>& sids,
     std::vector<SidOwner>& owners) {
-    std::array<wchar_t, 32768> windows{};
-    const UINT length =
-        ::GetWindowsDirectoryW(
-            windows.data(),
-            gsl::narrow_cast<UINT>(
-                windows.size()));
-    if (length == 0 ||
-        length >= windows.size()) {
-        return HRESULT_FROM_WIN32(
-            length == 0
-                ? ::GetLastError()
-                : ERROR_INSUFFICIENT_BUFFER);
+    std::vector<std::wstring> sid_texts;
+    const HRESULT discovery =
+        DiscoverWindowsSearchPackageSids(
+            sid_texts);
+    if (FAILED(discovery)) {
+        return discovery;
     }
-    const std::filesystem::path system_apps =
-        std::filesystem::path(
-            windows.data()) /
-        L"SystemApps";
-    std::error_code error;
-    std::filesystem::directory_iterator iterator(
-        system_apps,
-        error);
-    if (error) {
-        return HRESULT_FROM_WIN32(
-            gsl::narrow_cast<DWORD>(
-                error.value()));
-    }
-    const std::filesystem::directory_iterator end;
-    while (iterator != end) {
-        const bool directory =
-            iterator->is_directory(
-                error);
-        if (error) {
-            return HRESULT_FROM_WIN32(
-                gsl::narrow_cast<DWORD>(
-                    error.value()));
-        }
-        if (directory) {
-            const std::filesystem::path path =
-                iterator->path();
-            const bool search_host =
-                std::filesystem::exists(
-                    path / L"SearchHost.exe",
-                    error);
-            if (error) {
-                return HRESULT_FROM_WIN32(
-                    gsl::narrow_cast<DWORD>(
-                        error.value()));
-            }
-            const bool search_app =
-                std::filesystem::exists(
-                    path / L"SearchApp.exe",
-                    error);
-            if (error) {
-                return HRESULT_FROM_WIN32(
-                    gsl::narrow_cast<DWORD>(
-                        error.value()));
-            }
-            if (search_host ||
-                search_app) {
-                const HRESULT result =
-                    AppendAppContainerSid(
-                        path.filename().wstring(),
-                        sids,
-                        owners);
-                if (FAILED(result)) {
-                    return result;
-                }
-            }
-        }
-        iterator.increment(error);
-        if (error) {
-            return HRESULT_FROM_WIN32(
-                gsl::narrow_cast<DWORD>(
-                    error.value()));
+    for (const auto& sid_text :
+         sid_texts) {
+        const HRESULT result =
+            AppendSid(
+                sid_text,
+                sids,
+                owners);
+        if (FAILED(result)) {
+            return result;
         }
     }
     return S_OK;

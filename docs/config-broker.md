@@ -2,11 +2,13 @@
 
 ## Goal
 
-Make a signed `QiQiIMEConfigBroker.exe` the only runtime authority for reading
-and writing QiQiIME user configuration. QiQiIME DLLs and tools must not open
-`HKCU\Software\QiQiIME`; they access a cached snapshot obtained from the broker.
-The broker alone reads and writes the real desktop-user registry and skin
-catalog.
+Make a signed `QiQiIMEConfigBroker.exe` the only runtime authority for writing
+QiQiIME user configuration. Normal QiQiIME DLLs and tools must access a cached
+snapshot obtained from the broker. The one read-only exception is a packaged
+AppContainer/LPAC host whose token cannot activate DCOM (currently Taskbar
+SearchHost); it may read the known config/skin registry schema with `KEY_READ`
+and commit that validated snapshot to the same in-process cache. It never
+writes the registry.
 
 This does not turn every configuration field read into a DCOM call. Input,
 candidate layout, painting, and status synchronization only access an
@@ -64,7 +66,7 @@ the broker returns `ERROR_REVISION_MISMATCH` without writing anything.
 
 ### Broker-only state
 
-Only the broker is allowed to access:
+Only the broker is allowed to write:
 
 - `HKCU\Software\QiQiIME`;
 - the skin catalog under `Software\QiQiIME\Skins`;
@@ -72,6 +74,11 @@ Only the broker is allowed to access:
 - the configuration sequence.
 - `ConfigCommitTraceId`, `ConfigCommitActivityId`, and
   `ConfigCommitRevision`.
+
+An authorized AppContainer package may read the root and the known skin keys
+through package-specific `KEY_READ` ACEs when the Broker transport is
+unavailable. Production code does not enumerate arbitrary descendants and
+does not expose arbitrary registry paths.
 
 Installer uninstall/cleanup remains an administrative exception because it
 removes user data only after explicit user confirmation.
@@ -97,7 +104,11 @@ Read:
 
 1. A process loads once from the broker and decodes one complete snapshot.
 2. The snapshot is copied into the local cache.
-3. Hot paths read only the cache.
+3. If Broker activation/reading fails for a qualifying AppContainer, the client
+   reads and validates the same complete snapshot directly from the known real
+   registry schema, then populates that cache.
+4. Hot paths read only the cache; registry and DCOM are not queried per focus or
+   keystroke.
 
 Save:
 
@@ -175,6 +186,11 @@ broker retry.
   - the `lpacCom` capability SID; and
   - package SIDs derived from Windows `SearchHost.exe` / `SearchApp.exe`
     package folders discovered under `%WINDIR%\SystemApps`.
+- Windows SearchHost carries `registryRead` but not `lpacCom`. Its DCOM
+  activation therefore fails before Broker method dispatch even with
+  package-specific ACEs. Package DACLs are not a substitute for a missing
+  capability. SearchHost instead uses the narrow read-only registry fallback
+  described above.
 - Clients use packet privacy and identity impersonation.
 - The broker verifies that the caller token belongs to its user SID. Desktop
   callers must use the broker's session; same-user AppContainer callers may
@@ -194,6 +210,8 @@ broker retry.
   commands, or ACL changes.
 - A process not carrying one of the allowed principals receives
   `E_ACCESSDENIED`.
+- Registry read ACL repair runs after config/skin transactions complete for the
+  schema-known root/catalog/skin/palette keys. It grants `KEY_READ` only.
 
 The broker cannot prove that a call originated in `qiqiime.dll` rather than a
 different component of the host process. The security boundary is therefore

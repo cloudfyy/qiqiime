@@ -3,12 +3,20 @@
 
 #include "broker/configstore.h"
 #include "broker/security.h"
+#include "common/appcontainer.h"
+#include "common/config.h"
 #include "common/configbrokercontrol.h"
+#include "common/configclient.h"
+#include "common/RAII.h"
 #include "common/support.h"
 
 #include <gsl/gsl>
+#include <aclapi.h>
+#include <sddl.h>
 #include <atomic>
+#include <array>
 #include <filesystem>
+#include <iostream>
 #include <thread>
 
 namespace trace = qiqi::trace;
@@ -17,6 +25,9 @@ namespace {
 
 using qiqi::QiQiConfig;
 using qiqi::ImeSkinId;
+using qiqi::DiscoverWindowsSearchPackageSids;
+using qiqi::ScopedLocalAlloc;
+using qiqi::ScopedRegKey;
 
 void CheckEqual(
     const QiQiConfig& expected,
@@ -176,6 +187,147 @@ void CheckBrokerHandoffPolicy() {
         BrokerHandoffReason::None);
 }
 
+void CheckWindowsSearchPackageAccess(
+    const std::wstring& subkey) {
+    std::vector<std::wstring> sid_texts;
+    QIQI_TEST_CHECK(
+        SUCCEEDED(
+            DiscoverWindowsSearchPackageSids(
+                sid_texts)));
+    if (sid_texts.empty()) {
+        return;
+    }
+
+    std::vector<std::wstring> key_paths{
+        subkey};
+    for (size_t key_index = 0;
+         key_index < key_paths.size();
+         ++key_index) {
+        const std::wstring key_path =
+            key_paths.at(key_index);
+        ScopedRegKey key;
+        const LSTATUS open_error =
+            ::RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                key_path.c_str(),
+                0,
+                KEY_READ |
+                    READ_CONTROL,
+                key.Put());
+        if (open_error !=
+            ERROR_SUCCESS) {
+            std::wcerr
+                << L"Opening Search package "
+                   "registry key failed: key="
+                << key_path
+                << L" error="
+                << open_error
+                << L"\n";
+        }
+        QIQI_TEST_CHECK(
+            open_error ==
+            ERROR_SUCCESS);
+        PACL dacl = nullptr;
+        PSECURITY_DESCRIPTOR raw = nullptr;
+        QIQI_TEST_CHECK(
+            ::GetSecurityInfo(
+                key.Get(),
+                SE_REGISTRY_KEY,
+                DACL_SECURITY_INFORMATION,
+                nullptr,
+                nullptr,
+                &dacl,
+                nullptr,
+                &raw) ==
+            ERROR_SUCCESS);
+        const ScopedLocalAlloc
+            descriptor_owner(raw);
+        PEXPLICIT_ACCESS_W entries =
+            nullptr;
+        ULONG entry_count = 0;
+        QIQI_TEST_CHECK(
+            ::GetExplicitEntriesFromAclW(
+                dacl,
+                &entry_count,
+                &entries) ==
+            ERROR_SUCCESS);
+        const ScopedLocalAlloc
+            entries_owner(entries);
+        for (const auto& sid_text :
+             sid_texts) {
+            PSID expected = nullptr;
+            QIQI_TEST_CHECK(
+                ::ConvertStringSidToSidW(
+                    sid_text.c_str(),
+                    &expected));
+            const ScopedLocalAlloc
+                expected_owner(expected);
+            bool found = false;
+            for (ULONG index = 0;
+                 index < entry_count;
+                 ++index) {
+                const auto& entry =
+                    entries[index];
+                if (entry.grfAccessMode ==
+                        GRANT_ACCESS &&
+                    entry.Trustee
+                            .TrusteeForm ==
+                        TRUSTEE_IS_SID &&
+                    ::EqualSid(
+                        expected,
+                        entry.Trustee
+                            .ptstrName) &&
+                    (entry
+                         .grfAccessPermissions &
+                     KEY_READ) ==
+                        KEY_READ) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                std::wcerr
+                    << L"Missing Search package "
+                       "registry read access: sid="
+                    << sid_text
+                    << L" key="
+                    << key_path
+                    << L"\n";
+            }
+            QIQI_TEST_CHECK(found);
+        }
+
+        for (DWORD child_index = 0;;) {
+            std::array<wchar_t, 256>
+                child_name{};
+            DWORD child_length =
+                gsl::narrow_cast<DWORD>(
+                    child_name.size());
+            const LSTATUS enumerate =
+                ::RegEnumKeyExW(
+                    key.Get(),
+                    child_index,
+                    child_name.data(),
+                    &child_length,
+                    nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr);
+            if (enumerate ==
+                ERROR_NO_MORE_ITEMS) {
+                break;
+            }
+            QIQI_TEST_CHECK(
+                enumerate ==
+                ERROR_SUCCESS);
+            key_paths.push_back(
+                key_path + L"\\" +
+                child_name.data());
+            ++child_index;
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -201,8 +353,23 @@ int main() {
     qiqi::broker::ConfigStore store(
         subkey);
     qiqi::config::Snapshot first;
+    const HRESULT first_read =
+        store.Read(first);
+    if (FAILED(first_read)) {
+        std::cerr
+            << "Initial Broker store read "
+               "failed hr=0x"
+            << std::hex
+            << gsl::narrow_cast<
+                unsigned long>(
+                first_read)
+            << std::dec
+            << '\n';
+    }
     QIQI_TEST_CHECK(
-        store.Read(first) == S_OK);
+        first_read == S_OK);
+    CheckWindowsSearchPackageAccess(
+        subkey);
     QIQI_TEST_CHECK(
         first.revision != 0);
     QIQI_TEST_CHECK(
@@ -414,6 +581,37 @@ int main() {
     QIQI_TEST_CHECK(
         after_restart.commit_revision ==
         saved.commit_revision);
+
+    const wchar_t* previous_override =
+        qiqi::HasConfigRegistrySubKeyOverride()
+            ? qiqi::
+                GetActiveConfigRegistrySubKey()
+            : nullptr;
+    qiqi::SetConfigRegistrySubKeyOverrideForTest(
+        subkey.c_str());
+    const auto restore_override =
+        gsl::finally([previous_override]() noexcept {
+            qiqi::SetConfigRegistrySubKeyOverrideForTest(
+                previous_override);
+        });
+    qiqi::config::Snapshot registry_snapshot;
+    QIQI_TEST_CHECK(
+        qiqi::config::
+            ReadSnapshotFromRegistry(
+                registry_snapshot) ==
+        S_OK);
+    QIQI_TEST_CHECK(
+        registry_snapshot.revision ==
+        after_restart.revision);
+    QIQI_TEST_CHECK(
+        qiqi::config::CachedRevision() ==
+        registry_snapshot.revision);
+    CheckEqual(
+        registry_snapshot.value,
+        after_restart.value);
+    QIQI_TEST_CHECK(
+        registry_snapshot.skin_catalog.id ==
+        after_restart.skin_catalog.id);
 
     QIQI_TEST_CHECK(
         store.PublishSyncDirectory(
