@@ -19,7 +19,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path `
         $PSScriptRoot `
-        'Test-Helpers.ps1')
+        'helpers.ps1')
 
 $build = (Resolve-Path -LiteralPath $BuildDirectory).Path
 $broker = Join-Path $build "$Configuration\QiQiIMEConfigBroker.exe"

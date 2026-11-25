@@ -6,6 +6,7 @@
 
 #include <windows.h>
 #include <sddl.h>
+#include <gsl/gsl>
 
 #include <iostream>
 #include <memory>
@@ -131,6 +132,30 @@ int LaunchLowBroker(
         std::cerr
             << "SetTokenInformation error="
             << ::GetLastError()
+            << '\n';
+        ::TerminateProcess(
+            process_handle.Get(),
+            1);
+        return 1;
+    }
+    DWORD integrity_rid = 0;
+    const HRESULT integrity_result =
+        qiqi::config::TokenIntegrityRid(
+            token.Get(),
+            integrity_rid);
+    if (FAILED(integrity_result) ||
+        integrity_rid !=
+            SECURITY_MANDATORY_LOW_RID) {
+        std::cerr
+            << "Broker token integrity "
+               "verification failed hr="
+            << std::hex
+            << gsl::narrow_cast<
+                unsigned long>(
+                    integrity_result)
+            << std::dec
+            << " rid="
+            << integrity_rid
             << '\n';
         ::TerminateProcess(
             process_handle.Get(),

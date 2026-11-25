@@ -18,6 +18,30 @@
 #include <vector>
 
 namespace qiqi::config {
+
+BrokerHandoffReason SelectBrokerHandoff(
+    bool mutation,
+    HRESULT result,
+    bool handoff_attempted,
+    bool app_container) noexcept {
+    if (handoff_attempted ||
+        app_container) {
+        return BrokerHandoffReason::None;
+    }
+    if (mutation &&
+        result ==
+            kBrokerMutationHandoffRequired) {
+        return BrokerHandoffReason::
+            MutationRequired;
+    }
+    if (result ==
+        REGDB_E_CLASSNOTREG) {
+        return BrokerHandoffReason::
+            ActivationUnavailable;
+    }
+    return BrokerHandoffReason::None;
+}
+
 namespace {
 
 constexpr ULONGLONG kHandoffWaitMs = 15'000;

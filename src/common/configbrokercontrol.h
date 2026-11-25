@@ -14,6 +14,18 @@ inline constexpr HRESULT
     kBrokerMutationHandoffRequired =
         HRESULT_FROM_WIN32(ERROR_RETRY);
 
+enum class BrokerHandoffReason {
+    None,
+    MutationRequired,
+    ActivationUnavailable,
+};
+
+BrokerHandoffReason SelectBrokerHandoff(
+    bool mutation,
+    HRESULT result,
+    bool handoff_attempted,
+    bool app_container) noexcept;
+
 std::wstring BrokerSessionObjectName(
     std::wstring_view prefix,
     std::wstring_view store_subkey);

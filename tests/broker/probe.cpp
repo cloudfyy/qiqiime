@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/configclient.h"
+#include "common/configbrokercontrol.h"
 #include "common/configrpc.h"
 #include "common/guids.h"
 #include "common/logger.h"
@@ -49,12 +50,36 @@ int main(
         std::string_view(
             gsl::at(args, 1)) ==
             "--mutation-handoff";
+    const bool handoff_control =
+        args.size() == 2 &&
+        std::string_view(
+            gsl::at(args, 1)) ==
+            "--handoff-control";
     QIQI_TEST_CHECK(
         args.size() == 1 ||
         read_only ||
-        mutation_handoff);
+        mutation_handoff ||
+        handoff_control);
     qiqi::log::SetExternalLogWriter(
         &WriteProbeLog);
+    if (handoff_control) {
+        const HRESULT result =
+            qiqi::config::
+                RequestBrokerHandoff();
+        std::cerr
+            << "Broker handoff hr=0x"
+            << std::hex
+            << gsl::narrow_cast<unsigned long>(
+                   result)
+            << std::dec
+            << '\n';
+        QIQI_TEST_CHECK(
+            SUCCEEDED(result));
+        qiqi::log::
+            SetExternalLogWriter(
+                nullptr);
+        return 0;
+    }
     const HRESULT com =
         ::CoInitializeEx(
             nullptr,

@@ -272,24 +272,16 @@ constexpr bool IsMutation(
         Operation::Read;
 }
 
-bool ShouldHandoffMutationBroker(
+bool ShouldHandoffBroker(
     Operation operation,
     HRESULT result,
     bool handoff_attempted) noexcept {
-    return IsMutation(operation) &&
-        result ==
-            kBrokerMutationHandoffRequired &&
-        !handoff_attempted &&
-        !IsProcessAppContainer();
-}
-
-bool ShouldHandoffInaccessibleBroker(
-    HRESULT result,
-    bool handoff_attempted) noexcept {
-    return result ==
-            REGDB_E_CLASSNOTREG &&
-        !handoff_attempted &&
-        !IsProcessAppContainer();
+    return SelectBrokerHandoff(
+        IsMutation(operation),
+        result,
+        handoff_attempted,
+        IsProcessAppContainer()) !=
+        BrokerHandoffReason::None;
 }
 
 constexpr std::string_view OperationName(
@@ -472,7 +464,8 @@ HRESULT ExecuteAsync(
             broker,
             completion);
         if (FAILED(result)) {
-            if (ShouldHandoffInaccessibleBroker(
+            if (ShouldHandoffBroker(
+                    request.operation,
                     result,
                     handoff_attempted)) {
                 result = HandoffBroker();
@@ -524,7 +517,7 @@ HRESULT ExecuteAsync(
                 break;
         }
         if (FAILED(result)) {
-            if (!ShouldHandoffMutationBroker(
+            if (!ShouldHandoffBroker(
                     request.operation,
                     result,
                     handoff_attempted)) {
@@ -591,7 +584,7 @@ HRESULT ExecuteAsync(
             operation.GetContext(),
             operation.GetResult(),
             output);
-        if (!ShouldHandoffMutationBroker(
+        if (!ShouldHandoffBroker(
                 request.operation,
                 result,
                 handoff_attempted)) {
@@ -718,7 +711,8 @@ HRESULT ExecuteSync(
                 FAILED(create_result)
                     ? create_result
                     : E_UNEXPECTED;
-            if (ShouldHandoffInaccessibleBroker(
+            if (ShouldHandoffBroker(
+                    operation_kind,
                     activation_result,
                     handoff_attempted)) {
                 const HRESULT
@@ -758,7 +752,7 @@ HRESULT ExecuteSync(
             operation.GetContext(),
             operation.GetResult(),
             output);
-        if (!ShouldHandoffMutationBroker(
+        if (!ShouldHandoffBroker(
                 operation_kind,
                 result,
                 handoff_attempted)) {

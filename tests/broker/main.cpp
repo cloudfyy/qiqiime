@@ -3,6 +3,7 @@
 
 #include "broker/configstore.h"
 #include "broker/security.h"
+#include "common/configbrokercontrol.h"
 #include "common/support.h"
 
 #include <gsl/gsl>
@@ -100,10 +101,86 @@ void CheckCallerSecurityPolicy() {
             }));
 }
 
+void CheckBrokerHandoffPolicy() {
+    using qiqi::config::BrokerHandoffReason;
+    using qiqi::config::
+        kBrokerMutationHandoffRequired;
+    using qiqi::config::
+        SelectBrokerHandoff;
+
+    QIQI_TEST_CHECK(
+        SelectBrokerHandoff(
+            true,
+            kBrokerMutationHandoffRequired,
+            false,
+            false) ==
+        BrokerHandoffReason::
+            MutationRequired);
+    QIQI_TEST_CHECK(
+        SelectBrokerHandoff(
+            false,
+            kBrokerMutationHandoffRequired,
+            false,
+            false) ==
+        BrokerHandoffReason::None);
+    QIQI_TEST_CHECK(
+        SelectBrokerHandoff(
+            false,
+            REGDB_E_CLASSNOTREG,
+            false,
+            false) ==
+        BrokerHandoffReason::
+            ActivationUnavailable);
+    QIQI_TEST_CHECK(
+        SelectBrokerHandoff(
+            true,
+            REGDB_E_CLASSNOTREG,
+            false,
+            false) ==
+        BrokerHandoffReason::
+            ActivationUnavailable);
+    QIQI_TEST_CHECK(
+        SelectBrokerHandoff(
+            true,
+            kBrokerMutationHandoffRequired,
+            true,
+            false) ==
+        BrokerHandoffReason::None);
+    QIQI_TEST_CHECK(
+        SelectBrokerHandoff(
+            true,
+            kBrokerMutationHandoffRequired,
+            false,
+            true) ==
+        BrokerHandoffReason::None);
+    QIQI_TEST_CHECK(
+        SelectBrokerHandoff(
+            false,
+            REGDB_E_CLASSNOTREG,
+            true,
+            false) ==
+        BrokerHandoffReason::None);
+    QIQI_TEST_CHECK(
+        SelectBrokerHandoff(
+            false,
+            REGDB_E_CLASSNOTREG,
+            false,
+            true) ==
+        BrokerHandoffReason::None);
+    QIQI_TEST_CHECK(
+        SelectBrokerHandoff(
+            false,
+            E_ACCESSDENIED,
+            false,
+            false) ==
+        BrokerHandoffReason::None);
+}
+
 } // namespace
 
 int main() {
     CheckCallerSecurityPolicy();
+    CheckBrokerHandoffPolicy();
     const std::wstring subkey =
         L"Software\\QiQiIME_BrokerStore_" +
         std::to_wstring(

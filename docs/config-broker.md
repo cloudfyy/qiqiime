@@ -309,6 +309,8 @@ Implemented process tests cover:
 - Broker registration, direct-launch rejection, duplicate-instance shutdown,
   and idle/restart behavior;
 - synchronous and native asynchronous DCOM;
+- process-control Low-to-Medium handoff without COM registration, including a
+  missing-server restart and the already-writable fast path;
 - STA synchronous client use;
 - concurrent writers and stale expected revisions;
 - x86 callers through the architecture-specific proxy;

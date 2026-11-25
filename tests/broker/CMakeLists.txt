@@ -94,6 +94,28 @@ set_tests_properties(
         RUN_SERIAL TRUE
         SKIP_RETURN_CODE 77)
 
+add_test(
+    NAME QiQiConfigBrokerHandoffControlTest
+    COMMAND
+        "${QIQI_BROKER_CLI_POWERSHELL_EXECUTABLE}"
+        -NoLogo
+        -NoProfile
+        -NonInteractive
+        -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/HandoffControlTest.ps1"
+        -BrokerPath
+        "$<TARGET_FILE:QiQiIMEConfigBroker>"
+        -LaunchLowPath
+        "$<TARGET_FILE:qiqi_broker_launchlow>"
+        -ProbePath
+        "$<TARGET_FILE:qiqi_broker_probe>"
+)
+set_tests_properties(
+    QiQiConfigBrokerHandoffControlTest
+    PROPERTIES
+        TIMEOUT 60
+        RUN_SERIAL TRUE)
+
 if(CMAKE_SIZEOF_VOID_P EQUAL 8
    AND EXISTS "${PROJECT_SOURCE_DIR}/build/x86/Release/qiqi_broker_probe.exe")
     find_program(QIQI_BROKER_POWERSHELL_EXECUTABLE

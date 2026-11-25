@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path `
         $PSScriptRoot `
-        'Test-Helpers.ps1')
+        'helpers.ps1')
 
 $x64Build = (Resolve-Path -LiteralPath $X64BuildDirectory).Path
 $x86Build = (Resolve-Path -LiteralPath $X86BuildDirectory).Path
