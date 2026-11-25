@@ -94,6 +94,37 @@ ComPtr<IClassFactory> GetImeFactory(HMODULE module) {
     return factory;
 }
 
+void WaitForImeCanUnload(HMODULE module) {
+    using DllCanUnloadNowFunction =
+        HRESULT(STDAPICALLTYPE*)();
+    const auto can_unload =
+        reinterpret_cast<
+            DllCanUnloadNowFunction>(
+                ::GetProcAddress(
+                    module,
+                    "DllCanUnloadNow"));
+    QIQI_TEST_CHECK(can_unload);
+    const auto deadline =
+        ::GetTickCount64() + 30'000;
+    for (;;) {
+        const HRESULT result =
+            can_unload();
+        if (result == S_OK) {
+            return;
+        }
+        QIQI_TEST_CHECK(result == S_FALSE);
+        if (::GetTickCount64() >=
+            deadline) {
+            std::cerr
+                << "[FAIL] IME DLL remained "
+                   "locked for asynchronous "
+                   "COM work.\n";
+            QIQI_TEST_CHECK(false);
+        }
+        ::Sleep(10);
+    }
+}
+
 thread_local monitor::MetricQueue* focus_metric_queue = nullptr;
 
 constexpr size_t kFocusBenchmarkSamples = 10'000;
@@ -485,8 +516,21 @@ void WINAPI CollectEvent(EVENT_RECORD* event) {
         std::string(bytes.begin(), bytes.end())});
 }
 
-void ExerciseLoadedIme(QiQiConfig& config, bool multiple_instances) {
-    const auto module = LoadImeModule();
+void ExerciseLoadedIme(
+    QiQiConfig& config,
+    bool multiple_instances,
+    bool wait_for_unload) {
+    auto module = LoadImeModule();
+    const auto wait_for_dll_unload =
+        gsl::finally(
+            [module_handle =
+                 module.Get(),
+             wait_for_unload]() {
+                if (wait_for_unload) {
+                    WaitForImeCanUnload(
+                        module_handle);
+                }
+            });
     auto factory = GetImeFactory(module.Get());
     ComPtr<ITfTextInputProcessorEx> first;
     QIQI_TEST_CHECK(factory->CreateInstance(nullptr, IID_PPV_ARGS(&first)) == S_OK);
@@ -743,7 +787,14 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
 
     // Load/construct before signalling readiness, so the parent can start ETW after initialization.
     {
-        const auto module = LoadImeModule();
+        auto module = LoadImeModule();
+        const auto wait_for_dll_unload =
+            gsl::finally(
+                [module_handle =
+                     module.Get()]() {
+                    WaitForImeCanUnload(
+                        module_handle);
+                });
         auto factory = GetImeFactory(module.Get());
         ComPtr<ITfTextInputProcessorEx> instance;
         QIQI_TEST_CHECK(factory->CreateInstance(nullptr, IID_PPV_ARGS(&instance)) == S_OK);
@@ -751,12 +802,18 @@ void RunTsfEtwHostScenario(const wchar_t* event_base, const wchar_t* parent_dire
         LogEtwHostStage("ready");
         QIQI_TEST_CHECK(::WaitForSingleObject(proceed.Get(), 30'000) == WAIT_OBJECT_0);
         LogEtwHostStage("exercise-before-initial");
-        ExerciseLoadedIme(config, true);
+        ExerciseLoadedIme(
+            config,
+            true,
+            false);
         LogEtwHostStage("exercise-after-initial");
     }
     QIQI_TEST_CHECK(SaveConfigToRegistry(config));
     LogEtwHostStage("exercise-before-final");
-    ExerciseLoadedIme(config, false);
+    ExerciseLoadedIme(
+        config,
+        false,
+        true);
     LogEtwHostStage("exercise-after-final");
     QIQI_TEST_CHECK(!log::IsEtwProviderRegistered());
     LogEtwHostStage("exit");
