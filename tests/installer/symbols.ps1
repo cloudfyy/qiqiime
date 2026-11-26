@@ -20,7 +20,7 @@ try {
     $destination = Join-Path $fixture "symbols"
     Copy-QiQiSymbols -Dlls $dlls -Destination $destination
     $files = @(Get-ChildItem -LiteralPath $destination -Recurse -File)
-    if ($files.Count -ne 10) { throw "Expected ten runtime/installer PDB files." }
+    if ($files.Count -ne 12) { throw "Expected twelve runtime/installer PDB files." }
     foreach ($arch in @("x64", "x86")) {
         foreach ($binary in (@("qiqiime.dll", "QiQiIMEInstallerActions.dll") + $QiQiToolExeNames)) {
             $name = [System.IO.Path]::ChangeExtension($binary, ".pdb")

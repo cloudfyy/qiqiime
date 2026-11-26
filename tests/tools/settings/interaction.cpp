@@ -365,6 +365,7 @@ void TestSettingsDialogControls() {
              L"Microsoft GSL",
              L"nlohmann/json",
              L"miniz",
+             L"FTXUI",
          }) {
         QIQI_TEST_CHECK(
             std::wstring_view(

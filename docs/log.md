@@ -5,6 +5,57 @@ Use `QiQiIMELogMonitor.exe` for interactive capture, or ETW tools for offline
 analysis. The monitor does not import ETL files or retained test logs.
 For instrumentation rules, see the [development guide](dev.md#diagnostics).
 
+## Command-line diagnostics
+
+`QiQiIMEDiag.exe` is installed with both x64 and x86 packages and is available
+from the **QiQi** Start menu. It runs without elevation by default and never
+modifies the registry, ACLs, or configuration. Launch it normally to show one
+privacy notice and the four independently selectable FTXUI stages:
+
+1. Windows, CPU, memory, architecture/locale, display adapters and monitors,
+   per-monitor DPI/scaling, DPI awareness, Chinese fonts, light/dark theme, and
+   accessibility states (including Narrator/screen-reader and high contrast).
+2. Relevant process names, PIDs, sessions, architecture, and integrity levels.
+3. Effective IME configuration, skin/revision state, dictionary-file presence,
+   COM registration, and config-key ACL.
+4. Broker and DCOM registration, file/registry ACL summaries, live Broker
+   integrity and session-object state.
+
+No stage runs until the user selects it. Command lines, dictionary contents,
+typed text, host/account names, secrets, process memory, and network data are
+excluded. User-profile and Local AppData path roots are redacted. Access-denied
+checks retain their real HRESULT instead of triggering automatic elevation or
+repair. The Broker stage is passive and does not activate COM or start Broker.
+
+Each run writes a separate directory containing a small `summary.json` and
+one file per approved stage: `machine.json`, `processes.json`, `ime.json`, and
+`broker.json`. The Broker/DCOM stage additionally writes `dcom.json` so DCOM
+registration and policy data is separate from live Broker integrity. Skipped
+stages have no data file. The default parent directory is
+`%LOCALAPPDATA%\QiQiIME\diagnostics`.
+
+In `machine.json`, `update_build_revision` is the Windows UBR patch/revision
+number, `processor_group_count` counts Windows scheduling groups (not CPU
+cores), `physical_core_count` counts cores, and `logical_processor_count` counts
+hardware threads. One processor group is normal for machines with at most 64
+logical processors. CPU cache totals are bytes aggregated by level and may be
+rounded differently by Task Manager.
+
+```powershell
+.\QiQiIMEDiag.exe
+.\QiQiIMEDiag.exe --log-directory C:\Temp\qiqi-diag
+.\QiQiIMEDiag.exe --yes --log-directory C:\Temp\qiqi-diag
+.\QiQiIMEDiag.exe --language zh-CN
+.\QiQiIMEDiag.exe --lang en-US
+```
+
+`--language` selects `auto`, `zh-CN`, or `en-US`; `--lang` is its short alias.
+The default follows Windows. `--yes` bypasses interactive selection and approves
+all four stages; it is for explicit automation, not a silent default.
+
+`--output <directory>` selects an
+exact, initially empty run directory. Review the files before sharing them.
+
 ## GUI monitor
 
 Build the monitor with:

@@ -221,7 +221,8 @@ inline constexpr UiStrings kZhCnStrings = {
     L"• 海峰五笔 86 词库 (孙海峰): BSD 3-Clause License\n"
     L"• Microsoft GSL (Microsoft): MIT License\n"
     L"• nlohmann/json (Niels Lohmann): MIT License\n"
-    L"• miniz (Rich Geldreich / RAD Game Tools): MIT License",
+    L"• miniz (Rich Geldreich / RAD Game Tools): MIT License\n"
+    L"• FTXUI (Arthur Sonzogni): MIT License",
     L"访问 GitHub",
     L"快捷键与使用帮助",
     L"奇奇五笔 快捷键与操作指南",
@@ -347,7 +348,8 @@ inline constexpr UiStrings kEnUsStrings = {
     L"• Haifeng Wubi 86 Dict (SUN Haifeng): BSD 3-Clause License\n"
     L"• Microsoft GSL (Microsoft): MIT License\n"
     L"• nlohmann/json (Niels Lohmann): MIT License\n"
-    L"• miniz (Rich Geldreich / RAD Game Tools): MIT License",
+    L"• miniz (Rich Geldreich / RAD Game Tools): MIT License\n"
+    L"• FTXUI (Arthur Sonzogni): MIT License",
     L"Visit GitHub",
     L"Keyboard Shortcuts & Help",
     L"QiQi Wubi Shortcuts & Guide",

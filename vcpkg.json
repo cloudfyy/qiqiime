@@ -2,6 +2,7 @@
   "name": "qiqiime",
   "version-string": "1.0.0",
   "dependencies": [
+    "ftxui",
     "ms-gsl",
     "nlohmann-json",
     "miniz"

@@ -40,6 +40,7 @@
     <Icon Id="ProductIcon" SourceFile="data\qiqiime-settings.ico" />
     <Icon Id="DictManagerIcon" SourceFile="data\qiqiime-dict.ico" />
     <Icon Id="LogMonitorIcon" SourceFile="data\qiqiime-monitor.ico" />
+    <Icon Id="DiagIcon" SourceFile="data\qiqiime-diag.ico" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
     <Property Id="ARPCOMMENTS" Value="!(loc.SummaryComments)" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/cloudfyy/qiqiime" />
@@ -151,6 +152,7 @@
         <File Id="FileSettingsExeX64" Source="$(var.StageDir)\x64\QiQiIMESettings.exe" />
         <File Id="FileLogMonitorExeX64" Source="$(var.StageDir)\x64\QiQiIMELogMonitor.exe" />
         <File Id="FileDictManagerExeX64" Source="$(var.StageDir)\x64\QiQiIMEDictManager.exe" />
+        <File Id="FileDiagExeX64" Source="$(var.StageDir)\x64\QiQiIMEDiag.exe" />
         <File Id="FileConfigBrokerExeX64" Source="$(var.StageDir)\x64\QiQiIMEConfigBroker.exe" />
         <File Id="FileConfigProxyDllX64" Source="$(var.StageDir)\x64\QiQiIMEConfigProxy.dll" />
       </Component>
@@ -162,6 +164,7 @@
         <File Id="FileSettingsExeX86" Source="$(var.StageDir)\x86\QiQiIMESettings.exe" />
         <File Id="FileLogMonitorExeX86" Source="$(var.StageDir)\x86\QiQiIMELogMonitor.exe" />
         <File Id="FileDictManagerExeX86" Source="$(var.StageDir)\x86\QiQiIMEDictManager.exe" />
+        <File Id="FileDiagExeX86" Source="$(var.StageDir)\x86\QiQiIMEDiag.exe" />
         <File Id="FileConfigBrokerExeX86" Source="$(var.StageDir)\x86\QiQiIMEConfigBroker.exe" />
         <File Id="FileConfigProxyDllX86" Source="$(var.StageDir)\x86\QiQiIMEConfigProxy.dll" />
       </Component>
@@ -201,6 +204,7 @@
         <File Id="FileGslLicense" Source="$(var.StageDir)\licenses\microsoft-gsl-MIT.txt" />
         <File Id="FileJsonLicense" Source="$(var.StageDir)\licenses\nlohmann-json-MIT.txt" />
         <File Id="FileMinizLicense" Source="$(var.StageDir)\licenses\miniz-MIT.txt" />
+        <File Id="FileFtxuiLicense" Source="$(var.StageDir)\licenses\ftxui-MIT.txt" />
       </Component>
 
       <Component Id="CmpStartMenuShortcuts" Directory="QiQiProgramMenuFolder"
@@ -220,6 +224,11 @@
                   Description="!(loc.LogMonitorShortcutDescription)"
                   Target="[#FileLogMonitorExe$(var.NativeFileSuffix)]" WorkingDirectory="$(var.NativeDirectory)"
                   Icon="LogMonitorIcon" IconIndex="0" Advertise="no" />
+        <Shortcut Id="DiagShortcut"
+                  Name="!(loc.DiagShortcutName)"
+                  Description="!(loc.DiagShortcutDescription)"
+                  Target="[#FileDiagExe$(var.NativeFileSuffix)]" WorkingDirectory="$(var.NativeDirectory)"
+                  Icon="DiagIcon" IconIndex="0" Advertise="no" />
         <RemoveFolder Id="RemoveQiQiProgramMenuFolder" On="uninstall" />
         <!-- HKMU resolves to HKLM for this per-machine package and satisfies ICE43. -->
         <RegistryValue Root="HKMU" Key="Software\QiQiIME\Installer"

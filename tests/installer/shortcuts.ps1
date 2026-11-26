@@ -32,9 +32,10 @@ Assert-True (@($component.SelectNodes("w:RemoveFile|w:RemoveRegistryKey", $ns)).
 $expected = @(
     @{ Id = "SettingsShortcut"; File = "FileSettingsExe"; Exe = "QiQiIMESettings.exe"; Icon = "ProductIcon" },
     @{ Id = "DictManagerShortcut"; File = "FileDictManagerExe"; Exe = "QiQiIMEDictManager.exe"; Icon = "DictManagerIcon" },
-    @{ Id = "LogMonitorShortcut"; File = "FileLogMonitorExe"; Exe = "QiQiIMELogMonitor.exe"; Icon = "LogMonitorIcon" }
+    @{ Id = "LogMonitorShortcut"; File = "FileLogMonitorExe"; Exe = "QiQiIMELogMonitor.exe"; Icon = "LogMonitorIcon" },
+    @{ Id = "DiagShortcut"; File = "FileDiagExe"; Exe = "QiQiIMEDiag.exe"; Icon = "DiagIcon" }
 )
-Assert-True (@($component.SelectNodes("w:Shortcut", $ns)).Count -eq $expected.Count) "Expected exactly three tool shortcuts."
+Assert-True (@($component.SelectNodes("w:Shortcut", $ns)).Count -eq $expected.Count) "Expected exactly four tool shortcuts."
 foreach ($entry in $expected) {
     $shortcut = $component.SelectSingleNode("w:Shortcut[@Id='$($entry.Id)']", $ns)
     Assert-True ($null -ne $shortcut) "Missing shortcut $($entry.Id)."

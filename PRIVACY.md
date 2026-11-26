@@ -73,6 +73,17 @@ instance aliases, but this does not sanitize a separately exported ordinary log.
 Developer tests and debugger/watchdog workflows can additionally create retained
 test logs and memory dumps containing sensitive process memory.
 
+`QiQiIMEDiag.exe` is a separate, read-only command-line tool. After the privacy
+notice, it requires explicit consent for each of four stages: machine/display/
+font/theme/accessibility data, related process metadata, IME configuration and
+file/registry state, and Broker/DCOM registration and runtime integrity. It
+records only local PID, SID, registry, ACL, integrity, and non-secret system
+metadata; it excludes command lines, typed text, dictionary contents, account and
+host names, secrets, process memory, and network information. Profile-path roots
+are redacted. Reports are split into local JSON files under the user's chosen
+directory or `%LOCALAPPDATA%\QiQiIME\diagnostics`; the tool neither uploads them
+nor automatically repairs or elevates the machine. Review them before sharing.
+
 Do not attach private text, dictionaries, backups, logs, or dumps to public
 issues. Share only information you have reviewed and explicitly chosen to disclose.
 For capture controls, see the
@@ -144,6 +155,11 @@ before release. This policy does not certify third-party services or operating-s
   密码/PIN 和私密输入识别受宿主限制，敏感场景请使用系统键盘布局等已验证方式。
 - 日志监控、导出和反馈由用户发起，不自动上传；日志、测试 dump、用户词库及备份
   分享前必须检查脱敏。用户选择网盘或网络路径产生的数据传输由相应服务处理。
+- `QiQiIMEDiag.exe` 是独立只读命令行工具，展示隐私说明后逐项确认机器/显示/
+  字体/主题/辅助功能、相关进程、输入法状态以及 Broker/DCOM 四个采集阶段。
+  它不收集命令行、输入文本、词典正文、账号/主机名、秘密、进程内存或网络数据，
+  用户路径会脱敏；报告分文件保存在用户选择的目录或本机 Local AppData 中，
+  不上传、不自动修复、也不自动提权，分享前仍需检查。
 - 卸载默认保留个人设置和用户数据；未发布的向导把配置、词典数据分成两个默认未选中
   的选项，词典数据包含默认用户词库、词频及已知编译缓存和同步文件。
   外部源词库、导出、备份、其他账户及未知文件保留；升级不清理，静默卸载也默认保留。

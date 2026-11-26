@@ -40,11 +40,13 @@ string(STRIP "${QIQIIME_VERSION_RAW}" QIQIIME_VERSION_STRING)
 # Skip redundant vcpkg manifest install on incremental CMake re-runs when packages are already installed
 if(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows-static/share/Microsoft.GSL"
    AND EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows-static/share/nlohmann_json"
-   AND EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows-static/share/miniz")
+   AND EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows-static/share/miniz"
+   AND EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows-static/share/ftxui")
     set(VCPKG_MANIFEST_INSTALL OFF)
 elseif(EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows-static/share/Microsoft.GSL"
        AND EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows-static/share/nlohmann_json"
-       AND EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows-static/share/miniz")
+       AND EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows-static/share/miniz"
+       AND EXISTS "${CMAKE_BINARY_DIR}/vcpkg_installed/x86-windows-static/share/ftxui")
     set(VCPKG_MANIFEST_INSTALL OFF)
 endif()
 
@@ -129,6 +131,7 @@ endif()
 
 # Dependencies managed via vcpkg (vcpkg.json)
 find_package(Microsoft.GSL CONFIG REQUIRED)
+find_package(ftxui CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(miniz CONFIG REQUIRED)
 get_target_property(QIQI_MINIZ_TARGET_TYPE miniz::miniz TYPE)

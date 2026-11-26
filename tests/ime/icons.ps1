@@ -171,6 +171,13 @@ function Test-ThemeGlyphAsset([string]$Path, [byte]$Channel) {
 $brandPath = Join-Path $repoRoot 'data\qiqiime.ico'
 Test-BrandIconAsset $brandPath
 
+$diagPath = Join-Path $repoRoot 'data\qiqiime-diag.ico'
+$diagFrames = @(Read-IcoFrames $diagPath)
+$diagSizes = @($diagFrames | ForEach-Object { $_.Size })
+Assert-True (($diagSizes -join ',') -ceq ($expectedSizes -join ',')) "Unexpected QiQi IME Diag icon frames: $diagPath"
+$diagPng = Join-Path $repoRoot 'data\qiqiime-diag.png'
+Assert-True (Test-Path -LiteralPath $diagPng -PathType Leaf) "Missing QiQi IME Diag icon source PNG."
+
 $light = @(Test-ThemeGlyphAsset (Join-Path $repoRoot 'data\qiqiime-light.ico') 0)
 $dark = @(Test-ThemeGlyphAsset (Join-Path $repoRoot 'data\qiqiime-dark.ico') 255)
 for ($i = 0; $i -lt $expectedSizes.Count; $i++) {

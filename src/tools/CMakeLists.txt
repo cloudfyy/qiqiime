@@ -4,3 +4,4 @@
 add_subdirectory(settings)
 add_subdirectory(logmonitor)
 add_subdirectory(dictmgr)
+add_subdirectory(diag)

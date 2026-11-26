@@ -4,6 +4,7 @@
 add_subdirectory(settings)
 add_subdirectory(logmonitor)
 add_subdirectory(dictmgr)
+add_subdirectory(diag)
 
 find_program(QIQI_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
 add_test(NAME QiQiStandaloneToolsTest

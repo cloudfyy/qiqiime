@@ -34,4 +34,6 @@
   <String Id="DictManagerShortcutDescription" Value="管理奇奇五笔用户词条与词库备份。" />
   <String Id="LogMonitorShortcutName" Value="奇奇五笔日志监视器" />
   <String Id="LogMonitorShortcutDescription" Value="查看和导出奇奇五笔诊断日志。" />
+  <String Id="DiagShortcutName" Value="奇奇五笔诊断工具" />
+  <String Id="DiagShortcutDescription" Value="只读收集机器、输入法、Broker 与 DCOM 诊断信息。" />
 </WixLocalization>

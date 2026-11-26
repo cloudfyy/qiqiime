@@ -16,7 +16,8 @@ $script:QiQiDataFileNames = @(
 $script:QiQiToolExeNames = @(
     "QiQiIMESettings.exe",
     "QiQiIMELogMonitor.exe",
-    "QiQiIMEDictManager.exe"
+    "QiQiIMEDictManager.exe",
+    "QiQiIMEDiag.exe"
 )
 $script:QiQiConfigBrokerBinaryNames = @(
     "QiQiIMEConfigBroker.exe",
@@ -133,7 +134,8 @@ function Copy-QiQiReleaseDocumentation(
         "licenses\wubi-haifeng-BSD-3-Clause.txt",
         "licenses\microsoft-gsl-MIT.txt",
         "licenses\nlohmann-json-MIT.txt",
-        "licenses\miniz-MIT.txt"
+        "licenses\miniz-MIT.txt",
+        "licenses\ftxui-MIT.txt"
     )) {
         $source = Join-Path $SourceDirectory $relativePath
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {

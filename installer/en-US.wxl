@@ -34,4 +34,6 @@
   <String Id="DictManagerShortcutDescription" Value="Manage QiQi user dictionary entries and backups." />
   <String Id="LogMonitorShortcutName" Value="QiQi Log Monitor" />
   <String Id="LogMonitorShortcutDescription" Value="View and export QiQi diagnostic logs." />
+  <String Id="DiagShortcutName" Value="QiQi IME Diag" />
+  <String Id="DiagShortcutDescription" Value="Collect read-only machine, IME, Broker, and DCOM diagnostics." />
 </WixLocalization>
