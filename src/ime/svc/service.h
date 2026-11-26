@@ -167,6 +167,7 @@ private:
     void UninitFunctionProvider();
     void InitLangBarItem();
     void UninitLangBarItem();
+    HWND GetLangBarMenuOwner() const noexcept;
     void InitCompartmentSinks();
     void UninitCompartmentSinks() noexcept;
     void InitConfigAsyncWindow() noexcept;

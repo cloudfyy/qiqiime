@@ -223,10 +223,9 @@ These IDs are module-local, so also match PID/TID, time and lifecycle activity.
 - `GetIcon`, `GetText`: whether the host requested the state icon/text and
   whether generation succeeded.
 - `OnClick` / `InitMenu`: the click source, screen point and AppContainer state.
-  AppContainer right-clicks are queued after the TSF COM callback and use a
-  native owner menu; `QueueNativePopupMenu` and `ShowNativePopupMenu` record
-  queue, command and Win32 error details. A missing popup should not be inferred
-  from icon/state updates alone.
+  AppContainer right-clicks use a native `TrackPopupMenuEx` menu on the original
+  TSF thread; `ShowNativePopupMenu` records owner, command and Win32 error details.
+  A missing popup should not be inferred from icon/state updates alone.
 
 HRESULTs are recorded without replacing the actual failure with a generic
 code. A successful AddItem, OnUpdate or GetIcon alone does not prove the Shell

@@ -11,8 +11,8 @@
 #include <gsl/gsl>
 #include <oleauto.h>
 #include <array>
+#include <bit>
 #include <cwchar>
-#include <exception>
 
 namespace qiqi {
 
@@ -25,8 +25,6 @@ constexpr GUID kGuidLbiInputMode = {
 
 constexpr DWORD kLangBarSinkCookie = 1;
 constexpr UINT kRefreshThemeMessage = WM_APP;
-constexpr UINT kShowQuickSettingsMenuMessage =
-    WM_APP + 1;
 std::atomic<uint64_t> next_langbar_log_id{0};
 
 void AddMenuEntry(ITfMenu* menu, LangBarMenuId id, const wchar_t* text, bool checked = false, bool enabled = true) {
@@ -152,8 +150,12 @@ ScopedMenu LangBarButton::
     return menu;
 }
 
-LangBarButton::LangBarButton(ActionCallback cb) noexcept
-    : log_id_(++next_langbar_log_id), action_callback_(std::move(cb)) {}
+LangBarButton::LangBarButton(
+    ActionCallback callback,
+    MenuOwnerCallback menu_owner_callback) noexcept
+    : log_id_(++next_langbar_log_id),
+      action_callback_(std::move(callback)),
+      menu_owner_callback_(std::move(menu_owner_callback)) {}
 
 LangBarButton::~LangBarButton() noexcept {
     StopThemeNotifications();
@@ -227,8 +229,9 @@ STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT* /*pr
         std::ignore = OnMenuSelect(static_cast<UINT>(LangBarMenuId::SyncMenuState));
         if (!action_callback_) return S_OK;
         if (UsesTsfOwnedMenu()) {
-            return QueueQuickSettingsMenu(
-                pt);
+            return ShowNativePopupMenu(
+                pt,
+                true);
         }
         ShowSharedPopupMenu(state_, pt, [self_holder](LangBarMenuId id) {
             std::ignore = self_holder->OnMenuSelect(static_cast<UINT>(id));
@@ -355,6 +358,7 @@ HRESULT LangBarButton::NotifyUpdate(DWORD flags) noexcept {
 void LangBarButton::Disconnect() noexcept {
     const ComPtr<LangBarButton> self_holder(this);
     action_callback_ = {};
+    menu_owner_callback_ = {};
     visible_ = false;
     ComPtr<ITfLangBarItemSink> sink = std::move(sink_);
     sink_cookie_ = 0;
@@ -367,16 +371,31 @@ bool LangBarButton::UsesTsfOwnedMenu() const noexcept {
         IsProcessAppContainer();
 }
 
-HRESULT LangBarButton::QueueQuickSettingsMenu(
-    POINT screen_pt) noexcept {
-    if (quick_settings_menu_active_) {
-        return S_OK;
+HWND LangBarButton::ResolveNativeMenuOwner() const {
+    if (menu_owner_callback_) {
+        const HWND owner =
+            menu_owner_callback_();
+        if (owner &&
+            ::IsWindow(owner)) {
+            DWORD owner_process = 0;
+            const DWORD owner_thread =
+                ::GetWindowThreadProcessId(
+                    owner,
+                    &owner_process);
+            if (owner_thread ==
+                    ::GetCurrentThreadId() &&
+                owner_process ==
+                    ::GetCurrentProcessId()) {
+                return owner;
+            }
+        }
     }
-    quick_settings_menu_point_ =
-        screen_pt;
-    if (quick_settings_menu_pending_) {
-        return S_OK;
-    }
+    return theme_window_.Get();
+}
+
+HRESULT LangBarButton::ShowNativePopupMenu(
+    POINT screen_pt,
+    bool align_bottom) {
     if (!theme_window_ ||
         !::IsWindow(
             theme_window_.Get())) {
@@ -392,38 +411,138 @@ HRESULT LangBarButton::QueueQuickSettingsMenu(
         return HRESULT_FROM_WIN32(
             ERROR_INVALID_WINDOW_HANDLE);
     }
-    quick_settings_menu_pending_ =
-        true;
-    if (::PostMessageW(
-            theme_window_.Get(),
-            kShowQuickSettingsMenuMessage,
-            0,
-            0)) {
-        QIQI_LOG_INFO(
-            "LangBarButton::"
-            "QueueQuickSettingsMenu"
-            "(item={}, point=({}, {}), "
-            "queued=true)",
-            log_id_,
-            screen_pt.x,
-            screen_pt.y);
-        return S_OK;
+    const HWND owner =
+        ResolveNativeMenuOwner();
+    if (!owner ||
+        !::IsWindow(owner)) {
+        return HRESULT_FROM_WIN32(
+            ERROR_INVALID_WINDOW_HANDLE);
     }
+    ScopedGdiHandle<HBRUSH> background;
+    ScopedMenu menu =
+        BuildSharedPopupMenu(
+            state_,
+            theme_window_.Get(),
+            background);
+    if (!menu) {
+        const DWORD error =
+            ::GetLastError();
+        QIQI_LOG_WARN(
+            "LangBarButton::"
+            "ShowNativePopupMenu"
+            "(item={}, open=false, "
+            "error={})",
+            log_id_,
+            error);
+        return HRESULT_FROM_WIN32(
+            error != ERROR_SUCCESS
+                ? error
+                : ERROR_NOT_ENOUGH_MEMORY);
+    }
+    if (::GetMenuItemCount(
+            menu.Get()) !=
+        gsl::narrow_cast<int>(
+            BuildSharedMenuItems(state_)
+                .size())) {
+        QIQI_LOG_WARN(
+            "LangBarButton::"
+            "ShowNativePopupMenu"
+            "(item={}, open=false, "
+            "error={})",
+            log_id_,
+            ERROR_INVALID_DATA);
+        return HRESULT_FROM_WIN32(
+            ERROR_INVALID_DATA);
+    }
+
+    const bool set_foreground =
+        ::SetForegroundWindow(owner) != FALSE;
+    const DWORD foreground_error =
+        set_foreground
+            ? ERROR_SUCCESS
+            : ::GetLastError();
+    if (!set_foreground) {
+        QIQI_LOG_WARN(
+            "LangBarButton::"
+            "ShowNativePopupMenu"
+            "(item={}, owner_foreground=false, "
+            "error={})",
+            log_id_,
+            foreground_error);
+    }
+    ::SetLastError(ERROR_SUCCESS);
+    const UINT flags =
+        TPM_NONOTIFY |
+        TPM_RETURNCMD |
+        TPM_RIGHTBUTTON |
+        TPM_LEFTALIGN |
+        TPM_HORPOSANIMATION |
+        (align_bottom
+             ? TPM_BOTTOMALIGN
+             : TPM_TOPALIGN);
+    const UINT command =
+        ::TrackPopupMenuEx(
+            menu.Get(),
+            flags,
+            screen_pt.x,
+            screen_pt.y,
+            owner,
+            nullptr);
     const DWORD error =
         ::GetLastError();
-    quick_settings_menu_pending_ =
-        false;
-    QIQI_LOG_WARN(
+    if (command == 0 &&
+        error != ERROR_SUCCESS) {
+        QIQI_LOG_WARN(
+            "LangBarButton::"
+            "ShowNativePopupMenu"
+            "(item={}, open=false, "
+            "error={})",
+            log_id_,
+            error);
+        return HRESULT_FROM_WIN32(
+            error);
+    }
+    const bool posted_null =
+        ::PostMessageW(
+            owner,
+            WM_NULL,
+            0,
+            0) != FALSE;
+    const DWORD post_error =
+        posted_null
+            ? ERROR_SUCCESS
+            : ::GetLastError();
+    if (!posted_null) {
+        QIQI_LOG_WARN(
+            "LangBarButton::"
+            "ShowNativePopupMenu"
+            "(item={}, post_null=false, "
+            "error={})",
+            log_id_,
+            post_error);
+    }
+    QIQI_LOG_INFO(
         "LangBarButton::"
-        "QueueQuickSettingsMenu"
-        "(item={}, queued=false, "
-        "error={})",
+        "ShowNativePopupMenu"
+        "(item={}, owner={}, "
+        "owner_source={}, command={}, "
+        "foreground_error={}, "
+        "track_error={}, post_error={})",
         log_id_,
-        error);
-    return HRESULT_FROM_WIN32(
-        error != ERROR_SUCCESS
-            ? error
-            : ERROR_FUNCTION_FAILED);
+        std::bit_cast<uintptr_t>(
+            owner),
+        owner == theme_window_.Get()
+            ? "fallback"
+            : "context",
+        command,
+        foreground_error,
+        error,
+        post_error);
+    if (command != 0) {
+        std::ignore =
+            OnMenuSelect(command);
+    }
+    return S_OK;
 }
 
 ScopedIcon LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
@@ -463,10 +582,6 @@ HRESULT LangBarButton::StartThemeNotifications() noexcept {
 void LangBarButton::StopThemeNotifications() noexcept {
     std::ignore = DestroyWindowOnOwnerThread(theme_window_, "LangBarButton::DestroyThemeWindow");
     theme_update_pending_ = false;
-    quick_settings_menu_pending_ =
-        false;
-    quick_settings_menu_active_ =
-        false;
 }
 
 LRESULT CALLBACK LangBarButton::ThemeWndProc(
@@ -506,67 +621,6 @@ LRESULT CALLBACK LangBarButton::ThemeWndProc(
             const ComPtr<LangBarButton> self_holder(button);
             button->theme_update_pending_ = false;
             std::ignore = button->NotifyUpdate(TF_LBI_ICON);
-            return 0;
-        }
-        case kShowQuickSettingsMenuMessage: {
-            const ComPtr<LangBarButton>
-                self_holder(button);
-            if (!button->
-                    quick_settings_menu_pending_) {
-                return 0;
-            }
-            const POINT point =
-                button->
-                    quick_settings_menu_point_;
-            button->
-                quick_settings_menu_pending_ =
-                    false;
-            if (!button->
-                    action_callback_ ||
-                button->
-                    quick_settings_menu_active_) {
-                return 0;
-            }
-            button->
-                quick_settings_menu_active_ =
-                    true;
-            const auto finish_menu =
-                gsl::finally(
-                    [button]()
-                        noexcept {
-                        button->
-                            quick_settings_menu_active_ =
-                                false;
-                    });
-            try {
-                ShowSharedPopupMenu(
-                    button->state_,
-                    point,
-                    [self_holder](
-                        LangBarMenuId id) {
-                        std::ignore =
-                            self_holder
-                                ->OnMenuSelect(
-                                    static_cast<
-                                        UINT>(
-                                        id));
-                    },
-                    true);
-            } catch (
-                const std::exception&
-                    error) {
-                QIQI_LOG_ERROR(
-                    "LangBarButton::"
-                    "QuickSettingsMenu "
-                    "failed ({})",
-                    error.what());
-            } catch (...) {
-                QIQI_LOG_ERROR(
-                    "LangBarButton::"
-                    "QuickSettingsMenu "
-                    "failed with an "
-                    "unknown exception");
-            }
             return 0;
         }
         default:

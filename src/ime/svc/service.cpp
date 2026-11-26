@@ -491,15 +491,74 @@ void QiQiTextService::UninitFunctionProvider() {
     function_provider_registered_ = false;
 }
 
+HWND QiQiTextService::GetLangBarMenuOwner() const noexcept {
+    const auto current_thread_window =
+        [](HWND window) noexcept {
+            if (!window ||
+                !::IsWindow(window)) {
+                return HWND{};
+            }
+            DWORD process_id = 0;
+            const DWORD thread_id =
+                ::GetWindowThreadProcessId(
+                    window,
+                    &process_id);
+            return thread_id ==
+                        ::GetCurrentThreadId() &&
+                    process_id ==
+                        ::GetCurrentProcessId()
+                ? window
+                : HWND{};
+        };
+    if (thread_mgr_) {
+        ComPtr<ITfDocumentMgr> document;
+        if (SUCCEEDED(
+                thread_mgr_->GetFocus(
+                    &document)) &&
+            document) {
+            ComPtr<ITfContext> context;
+            if (SUCCEEDED(
+                    document->GetTop(
+                        &context)) &&
+                context) {
+                ComPtr<ITfContextView> view;
+                if (SUCCEEDED(
+                        context->GetActiveView(
+                            &view)) &&
+                    view) {
+                    HWND owner = nullptr;
+                    if (SUCCEEDED(
+                            view->GetWnd(
+                                &owner))) {
+                        const HWND valid =
+                            current_thread_window(
+                                owner);
+                        if (valid) {
+                            return valid;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return current_thread_window(
+        ::GetForegroundWindow());
+}
+
 void QiQiTextService::InitLangBarItem() {
     if (!thread_mgr_) {
         return;
     }
     if (langbar_btn_) langbar_btn_->Disconnect();
-    langbar_btn_ = MakeComObject<LangBarButton>([this](LangBarMenuId action_id) {
-        const ComPtr<QiQiTextService> self_holder(this);
-        HandleLangBarMenuAction(action_id);
-    });
+    langbar_btn_ = MakeComObject<LangBarButton>(
+        [this](LangBarMenuId action_id) {
+            const ComPtr<QiQiTextService> self_holder(this);
+            HandleLangBarMenuAction(action_id);
+        },
+        [this]() -> HWND {
+            const ComPtr<QiQiTextService> self_holder(this);
+            return GetLangBarMenuOwner();
+        });
     ComPtr<ITfLangBarItemMgr> lb_mgr;
     HRESULT hr = thread_mgr_.As(&lb_mgr);
     if (SUCCEEDED(hr) && !lb_mgr) hr = E_UNEXPECTED;

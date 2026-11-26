@@ -13,11 +13,12 @@ do not certify every UWP, browser sandbox, packaged desktop app, or game.
 The taskbar indicator uses a host-specific menu contract. SearchHost and the
 dedicated UWP host advertise QiQiIME as an AppContainer TSF menu item but still
 deliver clicks through `ITfLangBarItemButton::OnClick`; they do not call
-`InitMenu`. QiQi therefore handles left-click mode toggling and queues
-right-click quick settings to a hidden same-thread message window, outside the
-TSF click callback. `InitMenu` remains available for hosts that implement the
-standard TSF menu contract. Desktop hosts retain the original combined
-button/custom-menu path.
+`InitMenu`. QiQi therefore handles left-click mode toggling and opens right-click
+quick settings with `TrackPopupMenuEx` on the original TSF thread. The focused
+TSF context window is preferred as the menu owner, with an internal owner
+window fallback. This does not depend on a host pumping posted messages after
+the click callback. `InitMenu` remains available for hosts that implement the
+standard TSF menu contract. Desktop hosts retain the original custom-menu path.
 
 ## Deployment and permissions
 

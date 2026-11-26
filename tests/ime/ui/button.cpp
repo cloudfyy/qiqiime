@@ -131,7 +131,13 @@ private:
 void TestLangBarButton() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     LangBarMenuId last_action = static_cast<LangBarMenuId>(0);
-    auto btn = MakeComObject<LangBarButton>([&last_action](LangBarMenuId id) { last_action = id; });
+    int menu_owner_queries = 0;
+    auto btn = MakeComObject<LangBarButton>(
+        [&last_action](LangBarMenuId id) { last_action = id; },
+        [&menu_owner_queries]() -> HWND {
+            ++menu_owner_queries;
+            return nullptr;
+        });
 
     QIQI_TEST_CHECK(btn->QueryInterface(IID_IUnknown, nullptr) == E_INVALIDARG);
     void* out = nullptr;
@@ -306,77 +312,57 @@ void TestLangBarButton() {
     QIQI_TEST_CHECK(
         last_action ==
         LangBarMenuId::ToggleChinese);
-    bool app_container_menu_seen =
-        false;
-    current_app_container_menu_seen =
-        &app_container_menu_seen;
-    const auto restore_menu_seen =
-        gsl::finally([]() noexcept {
-            current_app_container_menu_seen =
-                nullptr;
-        });
-    const UINT_PTR app_container_timer =
-        ::SetTimer(
-            nullptr,
-            8,
-            10,
-            [](
-                HWND,
-                UINT,
-                UINT_PTR id,
-                DWORD) noexcept {
-                const HWND menu =
-                    FindQuickSettingsMenu();
-                if (!menu) {
-                    return;
-                }
-                if (
-                    current_app_container_menu_seen) {
-                    *current_app_container_menu_seen =
-                        true;
-                }
-                ::KillTimer(
-                    nullptr,
-                    id);
-                ::SendMessageW(
-                    menu,
-                    WM_CLOSE,
-                    0,
-                    0);
+    for (UINT_PTR timer_id = 8;
+         timer_id <= 9;
+         ++timer_id) {
+        bool app_container_menu_seen =
+            false;
+        current_app_container_menu_seen =
+            &app_container_menu_seen;
+        const auto restore_menu_seen =
+            gsl::finally([]() noexcept {
+                current_app_container_menu_seen =
+                    nullptr;
             });
-    QIQI_TEST_CHECK(
-        app_container_timer != 0);
-    QIQI_TEST_CHECK(
-        SUCCEEDED(
-            btn->OnClick(
-                TF_LBI_CLK_RIGHT,
-                explicit_pt,
-                nullptr)));
-    MSG message{};
-    const ULONGLONG deadline =
-        ::GetTickCount64() + 5'000;
-    while (
-        !app_container_menu_seen &&
-        ::GetTickCount64() <
-            deadline) {
-        const BOOL result =
-            ::GetMessageW(
-                &message,
+        const UINT_PTR app_container_timer =
+            ::SetTimer(
                 nullptr,
-                0,
-                0);
-        QIQI_TEST_CHECK(result > 0);
-        ::TranslateMessage(&message);
-        ::DispatchMessageW(&message);
+                timer_id,
+                10,
+                [](
+                    HWND,
+                    UINT,
+                    UINT_PTR id,
+                    DWORD) noexcept {
+                    if (
+                        current_app_container_menu_seen) {
+                        *current_app_container_menu_seen =
+                            true;
+                    }
+                    ::KillTimer(
+                        nullptr,
+                        id);
+                    ::EndMenu();
+                });
+        QIQI_TEST_CHECK(
+            app_container_timer != 0);
+        QIQI_TEST_CHECK(
+            SUCCEEDED(
+                btn->OnClick(
+                    TF_LBI_CLK_RIGHT,
+                    explicit_pt,
+                    nullptr)));
+        ::KillTimer(
+            nullptr,
+            app_container_timer);
+        QIQI_TEST_CHECK(
+            app_container_menu_seen);
+        QIQI_TEST_CHECK(
+            FindQuickSettingsMenu() ==
+            nullptr);
     }
-    ::KillTimer(
-        nullptr,
-        app_container_timer);
     QIQI_TEST_CHECK(
-        app_container_menu_seen);
-    QIQI_TEST_CHECK(
-        FindQuickSettingsMenu() ==
-        nullptr);
+        menu_owner_queries == 2);
     QIQI_TEST_CHECK(
         last_action ==
         LangBarMenuId::SyncMenuState);

@@ -70,9 +70,12 @@ class LangBarButton final
     : public ComObjectBase<LangBarButton, ITfLangBarItemButton, ITfSource> {
 public:
     using ActionCallback = std::function<void(LangBarMenuId action_id)>;
+    using MenuOwnerCallback = std::function<HWND()>;
     using MenuItems = std::array<LangBarMenuItem, 9>;
 
-    explicit LangBarButton(ActionCallback cb = {}) noexcept;
+    explicit LangBarButton(
+        ActionCallback callback = {},
+        MenuOwnerCallback menu_owner_callback = {}) noexcept;
     ~LangBarButton() noexcept;
 
     LangBarButton(const LangBarButton&) = delete;
@@ -146,8 +149,10 @@ private:
     static LRESULT CALLBACK ThemeWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
     HRESULT NotifyUpdate(DWORD flags) noexcept;
     bool UsesTsfOwnedMenu() const noexcept;
-    HRESULT QueueQuickSettingsMenu(
-        POINT screen_pt) noexcept;
+    HWND ResolveNativeMenuOwner() const;
+    HRESULT ShowNativePopupMenu(
+        POINT screen_pt,
+        bool align_bottom = false);
 
     const uint64_t log_id_;
     ComPtr<ITfLangBarItemSink> sink_;
@@ -155,15 +160,11 @@ private:
     bool visible_ = true;
     ScopedWindow theme_window_;
     bool theme_update_pending_ = false;
-    bool quick_settings_menu_pending_ =
-        false;
-    bool quick_settings_menu_active_ =
-        false;
     bool force_app_container_for_test_ =
         false;
-    POINT quick_settings_menu_point_{};
     LangBarState state_{};
     ActionCallback action_callback_;
+    MenuOwnerCallback menu_owner_callback_;
 };
 
 } // namespace qiqi
