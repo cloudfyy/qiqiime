@@ -38,7 +38,7 @@ Json CollectDcomPolicy() {
             output["enable_value_dword"] = enabled_dword;
         }
     }
-    constexpr std::array<std::pair<const wchar_t*, std::string_view>, 2> legacy_values{{
+    constexpr std::array<std::pair<const wchar_t*, const char*>, 2> legacy_values{{
         {L"LegacyAuthenticationLevel", "legacy_authentication_level"},
         {L"LegacyImpersonationLevel", "legacy_impersonation_level"},
     }};

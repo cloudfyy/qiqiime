@@ -22,7 +22,7 @@ void CollectThemeInformation(Json& stage) {
     theme["inspection"] = theme_check;
     AddCheck(stage, theme_check);
     if (SUCCEEDED(result)) {
-        constexpr std::array<std::pair<const wchar_t*, std::string_view>, 4> values{{
+        constexpr std::array<std::pair<const wchar_t*, const char*>, 4> values{{
             {L"AppsUseLightTheme", "application_mode"},
             {L"SystemUsesLightTheme", "system_mode"},
             {L"EnableTransparency", "transparency"},
@@ -34,7 +34,8 @@ void CollectThemeInformation(Json& stage) {
             theme[property] =
                 CheckResult(std::string(property), read_result, FAILED(read_result) ? "not_set" : "");
             if (SUCCEEDED(read_result)) {
-                if (property == "application_mode" || property == "system_mode") {
+                if (std::string_view(property) == "application_mode" ||
+                    std::string_view(property) == "system_mode") {
                     theme[std::string(property) + "_value"] = value != 0 ? "light" : "dark";
                 } else {
                     theme[std::string(property) + "_value"] = value != 0;
