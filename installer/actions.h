@@ -5,6 +5,7 @@
 
 #include <windows.h>
 #include <msi.h>
+#include <restartmanager.h>
 #include <string>
 #include <string_view>
 
@@ -17,6 +18,15 @@ HRESULT SerializeCleanupRequest(const CleanupRequest& request, std::wstring& ser
 HRESULT ParseCleanupRequest(std::wstring_view serialized, CleanupRequest& request,
                             std::wstring* installation_directory = nullptr);
 bool IsPendingProgramFile(std::wstring_view path, std::wstring_view installation_directory);
+bool RequiresRestartForProgramLock(
+    RM_APP_TYPE application_type,
+    bool restartable,
+    std::wstring_view executable,
+    std::wstring_view windows_directory) noexcept;
+bool ShouldPromptUninstallResult(
+    HRESULT error,
+    bool restart_required,
+    unsigned int scheduled) noexcept;
 }
 
 extern "C" UINT __stdcall ChooseUninstallData(MSIHANDLE install) noexcept;

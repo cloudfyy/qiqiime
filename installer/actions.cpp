@@ -11,12 +11,14 @@
 #include <gsl/gsl>
 #include <array>
 #include <algorithm>
+#include <filesystem>
 #include <format>
 #include <new>
 #include <span>
 #include <system_error>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace qiqi::installer {
 namespace {
@@ -87,7 +89,37 @@ HRESULT NormalizeInstallationDirectory(std::wstring_view value, std::wstring& no
     return S_OK;
 }
 
-HRESULT DetectProgramRestart(std::wstring_view installation_directory, bool& required) {
+class RestartManagerSession final {
+public:
+    RestartManagerSession() = default;
+    ~RestartManagerSession() noexcept {
+        if (session_) {
+            std::ignore = ::RmEndSession(session_);
+        }
+    }
+    RestartManagerSession(const RestartManagerSession&) = delete;
+    RestartManagerSession& operator=(const RestartManagerSession&) = delete;
+    RestartManagerSession(RestartManagerSession&&) = delete;
+    RestartManagerSession& operator=(RestartManagerSession&&) = delete;
+
+    HRESULT Start() noexcept {
+        std::array<wchar_t, CCH_RM_SESSION_KEY + 1> key{};
+        const DWORD error = ::RmStartSession(
+            &session_, 0, key.data());
+        return HRESULT_FROM_WIN32(error);
+    }
+
+    DWORD Get() const noexcept {
+        return session_;
+    }
+
+private:
+    DWORD session_ = 0;
+};
+
+HRESULT DetectPendingProgramRestart(
+    std::wstring_view installation_directory,
+    bool& required) {
     required = false;
     ScopedRegKey key;
     LSTATUS status = ::RegOpenKeyExW(HKEY_LOCAL_MACHINE,
@@ -117,6 +149,214 @@ HRESULT DetectProgramRestart(std::wstring_view installation_directory, bool& req
     return !remaining.empty() &&
         std::all_of(remaining.begin(), remaining.end(), [](wchar_t character) noexcept { return character == L'\0'; })
         ? S_OK : E_INVALIDARG;
+}
+
+HRESULT QueryProcessExecutable(
+    DWORD process_id,
+    std::wstring& output) {
+    const ScopedKernelHandle process(
+        ::OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION,
+            FALSE,
+            process_id));
+    if (!process) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    std::array<wchar_t, 32768> buffer{};
+    DWORD length =
+        gsl::narrow_cast<DWORD>(
+            buffer.size());
+    if (!::QueryFullProcessImageNameW(
+            process.Get(),
+            0,
+            buffer.data(),
+            &length)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    output.assign(
+        buffer.data(),
+        length);
+    return S_OK;
+}
+
+HRESULT DetectLoadedProgramRestart(
+    std::wstring_view installation_directory,
+    bool& required) {
+    required = false;
+    RestartManagerSession session;
+    HRESULT hr = session.Start();
+    if (FAILED(hr)) {
+        return hr;
+    }
+    const auto directory =
+        std::filesystem::path(
+            installation_directory);
+    const std::array<std::wstring, 2>
+        files{{
+            (directory / L"x64" /
+                L"qiqiime.dll").wstring(),
+            (directory / L"x86" /
+                L"qiqiime.dll").wstring(),
+        }};
+    std::array<const wchar_t*, 2>
+        resources{{
+            gsl::at(files, 0).c_str(),
+            gsl::at(files, 1).c_str(),
+        }};
+    const DWORD register_error =
+        ::RmRegisterResources(
+            session.Get(),
+            gsl::narrow_cast<UINT>(
+                resources.size()),
+            resources.data(),
+            0,
+            nullptr,
+            0,
+            nullptr);
+    if (register_error !=
+        ERROR_SUCCESS) {
+        return HRESULT_FROM_WIN32(
+            register_error);
+    }
+
+    std::array<wchar_t, 32768>
+        windows{};
+    const UINT windows_length =
+        ::GetWindowsDirectoryW(
+            windows.data(),
+            gsl::narrow_cast<UINT>(
+                windows.size()));
+    if (windows_length == 0 ||
+        windows_length >=
+            windows.size()) {
+        return HRESULT_FROM_WIN32(
+            windows_length == 0
+                ? ::GetLastError()
+                : ERROR_INSUFFICIENT_BUFFER);
+    }
+    const std::wstring_view
+        windows_directory(
+            windows.data(),
+            windows_length);
+
+    std::vector<RM_PROCESS_INFO>
+        processes;
+    DWORD reboot_reasons =
+        RmRebootReasonNone;
+    bool listed = false;
+    for (unsigned int attempt = 0;
+         attempt < 3;
+         ++attempt) {
+        UINT needed = 0;
+        UINT count = 0;
+        DWORD list_error =
+            ::RmGetList(
+                session.Get(),
+                &needed,
+                &count,
+                nullptr,
+                &reboot_reasons);
+        if (list_error !=
+                ERROR_SUCCESS &&
+            list_error !=
+                ERROR_MORE_DATA) {
+            return HRESULT_FROM_WIN32(
+                list_error);
+        }
+        if (needed == 0) {
+            required =
+                reboot_reasons !=
+                RmRebootReasonNone;
+            return S_OK;
+        }
+        if (needed > 4096) {
+            return HRESULT_FROM_WIN32(
+                ERROR_OUTOFMEMORY);
+        }
+        processes.resize(needed);
+        count =
+            gsl::narrow_cast<UINT>(
+                processes.size());
+        list_error =
+            ::RmGetList(
+                session.Get(),
+                &needed,
+                &count,
+                processes.data(),
+                &reboot_reasons);
+        if (list_error ==
+            ERROR_MORE_DATA) {
+            continue;
+        }
+        if (list_error !=
+            ERROR_SUCCESS) {
+            return HRESULT_FROM_WIN32(
+                list_error);
+        }
+        processes.resize(count);
+        listed = true;
+        break;
+    }
+    if (!listed) {
+        return HRESULT_FROM_WIN32(
+            ERROR_MORE_DATA);
+    }
+    if (reboot_reasons !=
+        RmRebootReasonNone) {
+        required = true;
+        return S_OK;
+    }
+    for (const RM_PROCESS_INFO& process :
+         processes) {
+        std::wstring executable;
+        hr = QueryProcessExecutable(
+            process.Process.dwProcessId,
+            executable);
+        if (FAILED(hr)) {
+            const DWORD error =
+                HRESULT_CODE(hr);
+            if (error ==
+                    ERROR_INVALID_PARAMETER ||
+                error ==
+                    ERROR_NOT_FOUND) {
+                continue;
+            }
+            required = true;
+            return S_OK;
+        }
+        if (RequiresRestartForProgramLock(
+                process.ApplicationType,
+                process.bRestartable !=
+                    FALSE,
+                executable,
+                windows_directory)) {
+            required = true;
+            return S_OK;
+        }
+    }
+    return S_OK;
+}
+
+HRESULT DetectProgramRestart(
+    std::wstring_view installation_directory,
+    bool& required) {
+    bool pending = false;
+    HRESULT result =
+        DetectPendingProgramRestart(
+            installation_directory,
+            pending);
+    if (FAILED(result)) {
+        return result;
+    }
+    bool loaded = false;
+    result =
+        DetectLoadedProgramRestart(
+            installation_directory,
+            loaded);
+    required = pending || loaded;
+    return result;
 }
 
 UINT Message(MSIHANDLE install, const wchar_t* property, UINT style, const CleanupResult& result) {
@@ -155,6 +395,70 @@ UINT AtMsiBoundary(MSIHANDLE install, const wchar_t* operation, Action&& action)
 }
 
 } // namespace
+
+bool RequiresRestartForProgramLock(
+    RM_APP_TYPE application_type,
+    bool restartable,
+    std::wstring_view executable,
+    std::wstring_view windows_directory) noexcept {
+    if (!restartable ||
+        application_type ==
+            RmCritical ||
+        application_type ==
+            RmService ||
+        application_type ==
+            RmExplorer) {
+        return true;
+    }
+    if (executable.size() < 2 ||
+        windows_directory.empty()) {
+        return false;
+    }
+    if (executable.starts_with(
+            L"\\\\?\\")) {
+        executable.remove_prefix(4);
+    }
+    if (windows_directory.starts_with(
+            L"\\\\?\\")) {
+        windows_directory.remove_prefix(4);
+    }
+    while (!windows_directory.empty() &&
+           (windows_directory.back() ==
+                L'\\' ||
+            windows_directory.back() ==
+                L'/')) {
+        windows_directory.remove_suffix(
+            1);
+    }
+    if (executable.size() <=
+            windows_directory.size() ||
+        ::CompareStringOrdinal(
+            executable.data(),
+            gsl::narrow_cast<int>(
+                windows_directory.size()),
+            windows_directory.data(),
+            gsl::narrow_cast<int>(
+                windows_directory.size()),
+            TRUE) != CSTR_EQUAL) {
+        return false;
+    }
+    const std::wstring_view remainder =
+        executable.substr(
+            windows_directory.size());
+    return remainder.starts_with(
+               L"\\") ||
+           remainder.starts_with(
+               L"/");
+}
+
+bool ShouldPromptUninstallResult(
+    HRESULT error,
+    bool restart_required,
+    unsigned int scheduled) noexcept {
+    return FAILED(error) ||
+        (restart_required &&
+         scheduled != 0);
+}
 
 HRESULT ParseCleanupChoices(std::wstring_view legacy, std::wstring_view configuration,
                             std::wstring_view dictionaries, CleanupRequest& request) noexcept {
@@ -293,10 +597,54 @@ extern "C" UINT __stdcall PrepareUninstall(MSIHANDLE install) noexcept {
         if (SUCCEEDED(hr)) hr = ReadRequest(install, request);
         std::wstring serialized;
         std::wstring directory;
-        if (SUCCEEDED(hr)) hr = Property(install, L"INSTALLFOLDER", directory);
-        if (SUCCEEDED(hr) && directory.empty()) hr = E_INVALIDARG;
-        if (SUCCEEDED(hr)) hr = SerializeCleanupRequest(request, serialized, directory);
-        if (SUCCEEDED(hr)) hr = SetProperty(install, L"ExecuteCleanup", serialized.c_str());
+        if (SUCCEEDED(hr)) {
+            hr = Property(
+                install,
+                L"INSTALLFOLDER",
+                directory);
+        }
+        if (SUCCEEDED(hr) &&
+            directory.empty()) {
+            hr = E_INVALIDARG;
+        }
+        bool program_restart = false;
+        if (SUCCEEDED(hr)) {
+            hr =
+                DetectProgramRestart(
+                    directory,
+                    program_restart);
+        }
+        if (SUCCEEDED(hr)) {
+            hr = SetProperty(
+                install,
+                L"QIQI_SYSTEM_RESTART_REQUIRED",
+                program_restart
+                    ? L"1"
+                    : nullptr);
+        }
+        if (SUCCEEDED(hr) &&
+            program_restart) {
+            const UINT mode =
+                ::MsiSetMode(
+                    install,
+                    MSIRUNMODE_REBOOTATEND,
+                    TRUE);
+            hr = HRESULT_FROM_WIN32(
+                mode);
+        }
+        if (SUCCEEDED(hr)) {
+            hr =
+                SerializeCleanupRequest(
+                    request,
+                    serialized,
+                    directory);
+        }
+        if (SUCCEEDED(hr)) {
+            hr = SetProperty(
+                install,
+                L"ExecuteCleanup",
+                serialized.c_str());
+        }
         return SUCCEEDED(hr) ? ERROR_SUCCESS : ReportFailure(install, L"PrepareCleanupRequest", hr);
     });
 }
@@ -341,9 +689,16 @@ extern "C" UINT __stdcall CompleteUninstall(MSIHANDLE install) noexcept {
             const UINT mode = ::MsiSetMode(install, MSIRUNMODE_REBOOTATEND, TRUE);
             if (mode != ERROR_SUCCESS) result.error = HRESULT_FROM_WIN32(mode);
         }
-        const wchar_t* message = FAILED(result.error) ? L"QIQI_COMPLETE_INCOMPLETE" :
-            (result.restart_required || ::MsiGetMode(install, MSIRUNMODE_REBOOTATEND)
-                ? L"QIQI_COMPLETE_RESTART" : L"QIQI_COMPLETE_SUCCESS");
+        if (!ShouldPromptUninstallResult(
+                result.error,
+                result.restart_required,
+                result.scheduled)) {
+            return ERROR_SUCCESS;
+        }
+        const wchar_t* message =
+            FAILED(result.error)
+                ? L"QIQI_COMPLETE_INCOMPLETE"
+                : L"QIQI_COMPLETE_RESTART";
         bool interactive = false;
         hr = Condition(install, L"UILevel >= 3", interactive);
         if (FAILED(hr)) return ReportFailure(install, L"CompletionUiLevel", hr);

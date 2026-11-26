@@ -114,6 +114,7 @@ void ResetUninstall(MSIHANDLE install) {
     SetProperty(install, L"QIQI_REMOVE_CONFIGURATION", nullptr);
     SetProperty(install, L"QIQI_REMOVE_DICTIONARIES", nullptr);
     SetProperty(install, L"QIQI_WIZARD_SHOWN", nullptr);
+    SetProperty(install, L"QIQI_SYSTEM_RESTART_REQUIRED", nullptr);
     SetProperty(install, L"UserSID", L"S-1-5-21-111-222-333-1001");
     SetProperty(install, L"INSTALLFOLDER", L"C:\\QiQiIME synthetic program");
 }
@@ -160,6 +161,58 @@ void TestChoicesAndSerialization(MSIHANDLE install, const UiState& ui) {
         L"C:\\Program Files\\QiQiIME"));
     QIQI_TEST_CHECK(!IsPendingProgramFile(L"\\??\\C:\\Program Files\\QiQiIME\\x64\\other.dll",
         L"C:\\Program Files\\QiQiIME"));
+    QIQI_TEST_CHECK(
+        RequiresRestartForProgramLock(
+            RmMainWindow,
+            true,
+            L"C:\\Users\\Test\\App\\app.exe",
+            L"C:\\Windows") ==
+        false);
+    QIQI_TEST_CHECK(
+        RequiresRestartForProgramLock(
+            RmMainWindow,
+            true,
+            L"C:\\Windows\\SystemApps\\SearchHost.exe",
+            L"C:\\Windows"));
+    QIQI_TEST_CHECK(
+        RequiresRestartForProgramLock(
+            RmExplorer,
+            true,
+            L"C:\\Tools\\explorer.exe",
+            L"C:\\Windows"));
+    QIQI_TEST_CHECK(
+        RequiresRestartForProgramLock(
+            RmOtherWindow,
+            false,
+            L"C:\\Tools\\unknown.exe",
+            L"C:\\Windows"));
+    QIQI_TEST_CHECK(
+        RequiresRestartForProgramLock(
+            RmOtherWindow,
+            true,
+            L"C:\\WindowsBackup\\app.exe",
+            L"C:\\Windows") ==
+        false);
+    QIQI_TEST_CHECK(
+        !ShouldPromptUninstallResult(
+            S_OK,
+            false,
+            0));
+    QIQI_TEST_CHECK(
+        !ShouldPromptUninstallResult(
+            S_OK,
+            true,
+            0));
+    QIQI_TEST_CHECK(
+        ShouldPromptUninstallResult(
+            S_OK,
+            true,
+            1));
+    QIQI_TEST_CHECK(
+        ShouldPromptUninstallResult(
+            E_ACCESSDENIED,
+            false,
+            0));
     for (const auto* invalid : {L"", L"sid|guid|11", L"S-1-5-18|{00000000-0000-0000-0000-000000000001}|11",
                                L"S-1-5-21-111-222-333-1001|{00000000-0000-0000-0000-000000000001}|10|extra"}) {
         QIQI_TEST_CHECK(FAILED(ParseCleanupRequest(invalid, request)));
@@ -199,6 +252,7 @@ BOOL CALLBACK DriveDialog(HWND window, LPARAM parameter) {
     QIQI_TEST_CHECK(::GetWindow(window, GW_OWNER) == driver.owner);
     if (driver.owner) QIQI_TEST_CHECK(!::IsWindowEnabled(driver.owner));
     QIQI_TEST_CHECK((::GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) == 0);
+    QIQI_TEST_CHECK((::GetWindowLongPtrW(window, GWL_STYLE) & DS_SETFOREGROUND) != 0);
     QIQI_TEST_CHECK(::IsDlgButtonChecked(window, kConfigurationControl) == BST_UNCHECKED);
     QIQI_TEST_CHECK(::IsDlgButtonChecked(window, kDictionariesControl) == BST_UNCHECKED);
     if (driver.configuration) ::SendDlgItemMessageW(window, kConfigurationControl, BM_CLICK, 0, 0);
@@ -221,7 +275,14 @@ void WithDialogDriver(unsigned int choice, Show&& show, HWND owner = nullptr) {
         }
         QIQI_TEST_CHECK(driver.clicked);
     });
+    const DPI_AWARENESS_CONTEXT previous_dpi =
+        ::GetThreadDpiAwarenessContext();
     show();
+    QIQI_TEST_CHECK(
+        ::AreDpiAwarenessContextsEqual(
+            previous_dpi,
+            ::GetThreadDpiAwarenessContext()) !=
+        FALSE);
     stop.store(true);
     if (owner) QIQI_TEST_CHECK((::IsWindowEnabled(owner) != FALSE) == owner_enabled);
 }
@@ -235,7 +296,7 @@ void TestWizard() {
             chinese ? L"删除配置" : L"Delete settings",
             chinese ? L"删除词典" : L"Delete dictionary data",
             chinese ? L"保留外部源词库和备份" : L"External source dictionaries and backups are kept.",
-            chinese ? L"开始卸载" : L"Start uninstall", chinese ? L"取消" : L"Cancel"};
+            chinese ? L"卸载" : L"Uninstall", chinese ? L"取消" : L"Cancel"};
         for (const unsigned int choice : {0u, 1u, 2u, 3u, 4u}) {
             bool configuration = false;
             bool dictionaries = false;
@@ -263,8 +324,11 @@ void TestWizardOwnership() {
     });
     const qiqi::ScopedWindow unrelated(::CreateWindowExW(0, type.lpszClassName,
         L"Another product", WS_POPUP | WS_VISIBLE, 0, 0, 100, 100, nullptr, nullptr, type.hInstance, nullptr));
+    const std::wstring owner_title =
+        std::wstring(product) +
+        L" Uninstall Wizard";
     const qiqi::ScopedWindow owner(::CreateWindowExW(0, type.lpszClassName,
-        product, WS_POPUP | WS_VISIBLE, 0, 0, 200, 150, nullptr, nullptr, type.hInstance, nullptr));
+        owner_title.c_str(), WS_POPUP | WS_VISIBLE, 0, 0, 200, 150, nullptr, nullptr, type.hInstance, nullptr));
     QIQI_TEST_CHECK(unrelated && owner);
     QIQI_TEST_CHECK(FindInstallerOwner(product) == owner.Get());
     QIQI_TEST_CHECK(!FindInstallerOwner(L"Missing installer") && !FindInstallerOwner(L""));

@@ -40,6 +40,20 @@ $complete = $package.SelectSingleNode("w:InstallExecuteSequence/w:Custom[@Action
 if ($null -eq $complete -or $complete.After -ne 'InstallFinalize' -or $complete.Condition -ne $uninstall) {
     throw 'Incomplete cleanup must be reported after commit, never cause rollback of program removal.'
 }
+$reboot = $package.SelectSingleNode("w:Property[@Id='REBOOT']", $ns)
+if ($null -ne $reboot -and $reboot.Value -eq 'ReallySuppress') {
+    throw 'Windows Installer must be allowed to prompt when the IME is still loaded by a system process.'
+}
+$restartProperty = $package.SelectSingleNode(
+    "w:Property[@Id='QIQI_SYSTEM_RESTART_REQUIRED']", $ns)
+if ($null -eq $restartProperty -or $restartProperty.Hidden -ne 'yes') {
+    throw 'System-process restart detection must remain an internal installer state.'
+}
+$systemRestart = $package.SelectSingleNode(
+    "w:InstallExecuteSequence/w:ScheduleReboot[@Condition='$uninstall AND QIQI_SYSTEM_RESTART_REQUIRED']", $ns)
+if ($null -eq $systemRestart -or $systemRestart.Before -ne 'InstallFinalize') {
+    throw 'Detected system-process DLL locks must schedule a Windows restart prompt before finalization.'
+}
 foreach ($sequence in @('InstallUISequence', 'InstallExecuteSequence')) {
     $gate = $package.SelectSingleNode("w:$sequence/w:Custom[@Action='CheckInstallPendingCleanup']", $ns)
     if ($null -eq $gate -or $gate.Before -ne 'FindRelatedProducts' -or $gate.Condition -ne 'NOT (REMOVE="ALL")') {

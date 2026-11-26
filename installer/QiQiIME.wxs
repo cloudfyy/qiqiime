@@ -53,11 +53,11 @@
     <Property Id="MSIRMSHUTDOWN" Value="2" />
     <Property Id="MSIDISABLERMRESTART" Value="1" />
     <Property Id="MSIFASTINSTALL" Value="7" />
-    <Property Id="REBOOT" Value="ReallySuppress" />
     <Property Id="QIQI_REMOVE_USER_DATA" Secure="yes" />
     <Property Id="QIQI_REMOVE_CONFIGURATION" Secure="yes" />
     <Property Id="QIQI_REMOVE_DICTIONARIES" Secure="yes" />
     <Property Id="QIQI_WIZARD_SHOWN" Secure="yes" />
+    <Property Id="QIQI_SYSTEM_RESTART_REQUIRED" Hidden="yes" />
     <Property Id="ExecuteCleanup" Hidden="yes" />
     <Property Id="QiQiCleanupTransaction" Hidden="yes" />
     <Property Id="UserSID" Hidden="yes" />
@@ -347,6 +347,8 @@
               Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="ExecuteCleanup" Before="InstallFinalize"
               Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND ExecuteCleanup" />
+      <ScheduleReboot Before="InstallFinalize"
+              Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND QIQI_SYSTEM_RESTART_REQUIRED" />
       <Custom Action="CompleteUninstall" After="InstallFinalize"
               Condition="Installed AND REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="DeactivateUserProfile" Before="InstallValidate" Condition="REMOVE=&quot;ALL&quot;" />

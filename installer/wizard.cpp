@@ -6,8 +6,10 @@
 #include <gsl/gsl>
 #include <array>
 #include <cstddef>
+#include <ranges>
 #include <span>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -53,6 +55,11 @@ INT_PTR CALLBACK DialogProcedure(HWND window, UINT message, WPARAM wparam, LPARA
             state->error = E_FAIL;
         }
         if (FAILED(state->error)) ::EndDialog(window, IDCANCEL);
+        if (SUCCEEDED(state->error)) {
+            ::SetForegroundWindow(window);
+            ::SetActiveWindow(window);
+            ::BringWindowToTop(window);
+        }
         return TRUE;
     }
     if (message == WM_COMMAND) {
@@ -78,7 +85,8 @@ class DialogTemplate {
 public:
     DialogTemplate(short width, short height) {
         const DLGTEMPLATE header{
-            WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME | DS_SETFONT | DS_CENTER,
+            WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME | DS_SETFONT | DS_CENTER |
+                DS_SETFOREGROUND,
             0, 6, 0, 0, width, height
         };
         Append(header);
@@ -87,12 +95,14 @@ public:
         Text(L"QiQi");
         Word(9);
         Text(L"Segoe UI");
-        Control(1201, 0x0082, SS_LEFT, 16, 14, 388, 40);
-        Control(kConfigurationControl, 0x0080, BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 16, 62, 388, 25);
-        Control(kDictionariesControl, 0x0080, BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE, 16, 94, 388, 34);
-        Control(1202, 0x0082, SS_LEFT, 16, 138, 388, 54);
-        Control(IDOK, 0x0080, BS_DEFPUSHBUTTON | WS_TABSTOP, 232, 205, 82, 22);
-        Control(IDCANCEL, 0x0080, BS_PUSHBUTTON | WS_TABSTOP, 322, 205, 82, 22);
+        Control(1201, 0x0082, SS_LEFT, 16, 14, 328, 24);
+        Control(kConfigurationControl, 0x0080, BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE,
+            16, 44, 328, 24);
+        Control(kDictionariesControl, 0x0080, BS_AUTOCHECKBOX | WS_TABSTOP | BS_MULTILINE,
+            16, 74, 328, 34);
+        Control(1202, 0x0082, SS_LEFT, 16, 114, 328, 42);
+        Control(IDOK, 0x0080, BS_DEFPUSHBUTTON | WS_TABSTOP, 192, 176, 72, 22);
+        Control(IDCANCEL, 0x0080, BS_PUSHBUTTON | WS_TABSTOP, 272, 176, 72, 22);
     }
 
     const DLGTEMPLATE* Get() const noexcept {
@@ -126,9 +136,44 @@ private:
 
 HWND FindInstallerOwner(const wchar_t* product_name) noexcept {
     if (!product_name || !*product_name) return nullptr;
+    const std::wstring_view product(product_name);
     HWND previous = nullptr;
-    while (const HWND candidate = ::FindWindowExW(nullptr, previous, L"MsiDialogCloseClass", product_name)) {
-        if (::IsWindowVisible(candidate)) return candidate;
+    while (const HWND candidate =
+               ::FindWindowExW(nullptr, previous, L"MsiDialogCloseClass", nullptr)) {
+        DWORD process = 0;
+        ::GetWindowThreadProcessId(candidate, &process);
+        if (::IsWindowVisible(candidate) &&
+            process == ::GetCurrentProcessId()) {
+            std::array<wchar_t, 512> title{};
+            const int length = ::GetWindowTextW(
+                candidate, title.data(),
+                gsl::narrow_cast<int>(title.size()));
+            if (length > 0) {
+                const std::wstring_view caption(title.data(), gsl::narrow_cast<size_t>(length));
+                for (const auto indexed :
+                     std::views::enumerate(
+                         caption)) {
+                    const auto offset =
+                        gsl::narrow_cast<size_t>(
+                            std::get<0>(
+                                indexed));
+                    if (caption.size() -
+                            offset <
+                        product.size()) {
+                        break;
+                    }
+                    const auto slice = caption.substr(offset, product.size());
+                    if (::CompareStringOrdinal(
+                            slice.data(),
+                            gsl::narrow_cast<int>(slice.size()),
+                            product.data(),
+                            gsl::narrow_cast<int>(product.size()),
+                            TRUE) == CSTR_EQUAL) {
+                        return candidate;
+                    }
+                }
+            }
+        }
         previous = candidate;
     }
     return nullptr;
@@ -136,8 +181,21 @@ HWND FindInstallerOwner(const wchar_t* product_name) noexcept {
 
 HRESULT ShowDataChoices(const WizardText& text, bool& configuration, bool& dictionaries,
                         bool& accepted, HWND owner) {
+    const DPI_AWARENESS_CONTEXT previous_dpi =
+        ::SetThreadDpiAwarenessContext(
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    if (!previous_dpi) {
+        return LastFailure();
+    }
+    const auto restore_dpi =
+        gsl::finally([previous_dpi]() noexcept {
+            std::ignore =
+                ::SetThreadDpiAwarenessContext(
+                    previous_dpi);
+        });
     DialogState state{text, configuration, dictionaries};
-    const DialogTemplate dialog(420, 238);
+    // Dialog templates use DLU, converted by Windows with the active DPI and font.
+    const DialogTemplate dialog(360, 208);
     ::SetLastError(ERROR_SUCCESS);
     const INT_PTR result = ::DialogBoxIndirectParamW(nullptr, dialog.Get(), owner,
         DialogProcedure, reinterpret_cast<LPARAM>(&state));

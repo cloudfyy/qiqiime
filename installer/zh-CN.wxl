@@ -12,7 +12,7 @@
   <String Id="DowngradeErrorMessage" Value="已安装更新版本的 QiQi。" />
   <String Id="FeatureTitle" Value="奇奇五笔输入法 (QiQi Wubi 86)" />
   <String Id="WizardTitle" Value="奇奇五笔卸载向导" />
-  <String Id="UninstallDescription" Value="第一步：选择要删除的个人数据。" />
+  <String Id="UninstallDescription" Value="选择要删除的个人数据。" />
   <String Id="RemoveConfiguration" Value="删除当前用户配置" />
   <String Id="RemoveDictionaries" Value="删除当前用户词典数据：用户自定义词库、编译缓存、词频和同步文件" />
   <String Id="RemoveUserDataWarning" Value="勾选的数据将永久删除，请先备份并关闭使用输入法的应用。被占用的缓存可能需要重启后清理。" />
@@ -25,7 +25,7 @@
   <String Id="UninstallFailed" Value="卸载未能正常完成。请保留 MSI 日志排查；程序文件可能已回滚，但已经删除的个人数据不保证恢复。不要直接删除安装目录。" />
   <String Id="InstallRestart" Value="奇奇五笔上次卸载的清理仍等待本次系统启动结束。请保存工作并使用 Windows“重启”，完成后再安装；" />
   <String Id="InstallIncomplete" Value="无法确认奇奇五笔上次卸载的数据清理已完成，暂不能安装。可能有重启后仍残留的待删文件，或无法读取清理状态。请保留日志并排查权限或残留，不要反复重启或直接删除状态记录。" />
-  <String Id="UninstallButton" Value="开始卸载" />
+  <String Id="UninstallButton" Value="卸载" />
   <String Id="CloseButton" Value="关闭" />
   <String Id="CancelButton" Value="取消" />
   <String Id="SettingsShortcutName" Value="奇奇五笔设置" />

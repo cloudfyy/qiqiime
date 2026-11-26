@@ -12,7 +12,7 @@
   <String Id="DowngradeErrorMessage" Value="A newer version of QiQi is already installed." />
   <String Id="FeatureTitle" Value="QiQi Wubi 86 Input Method" />
   <String Id="WizardTitle" Value="QiQi Uninstall Wizard" />
-  <String Id="UninstallDescription" Value="Step 1: Choose personal data to delete." />
+  <String Id="UninstallDescription" Value="Choose personal data to delete." />
   <String Id="RemoveConfiguration" Value="Delete this user's settings" />
   <String Id="RemoveDictionaries" Value="Delete this user's dictionary data: user dictionary, known compiled caches, frequencies and sync files" />
   <String Id="RemoveUserDataWarning" Value="Selected data is permanently deleted. Back up and close apps using QiQi first. In-use old caches may need a restart to finish cleanup; no immediate restart is forced." />
@@ -25,7 +25,7 @@
   <String Id="UninstallFailed" Value="Uninstall did not finish normally. Keep the MSI log for diagnosis. Program files may have rolled back, but deleted personal data is not guaranteed to be restored. Do not manually delete the installation directory." />
   <String Id="InstallRestart" Value="Cleanup from the previous QiQi uninstall is still pending in this Windows boot session. Save your work, choose Windows Restart, then install again. Signing out or closing setup is not a restart." />
   <String Id="InstallIncomplete" Value="Setup cannot verify that the previous QiQi cleanup completed. Pending files may remain after restart, or cleanup state cannot be read. Keep the log and resolve the reported permissions or residual-file problem. Do not repeatedly restart or manually delete cleanup records." />
-  <String Id="UninstallButton" Value="Start uninstall" />
+  <String Id="UninstallButton" Value="Uninstall" />
   <String Id="CloseButton" Value="Close" />
   <String Id="CancelButton" Value="Cancel" />
   <String Id="SettingsShortcutName" Value="QiQi Settings" />
