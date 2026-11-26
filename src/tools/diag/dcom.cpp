@@ -42,7 +42,7 @@ Json CollectDcomPolicy() {
         {L"LegacyAuthenticationLevel", "legacy_authentication_level"},
         {L"LegacyImpersonationLevel", "legacy_impersonation_level"},
     }};
-    for (const auto& [value, property] : legacy_values) {
+    for (const auto [value, property] : legacy_values) {
         DWORD setting = 0;
         const HRESULT setting_result = ReadRegistryDword(ole.Get(), value, setting);
         output[property] =

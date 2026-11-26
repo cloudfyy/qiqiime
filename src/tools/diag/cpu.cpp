@@ -8,6 +8,7 @@
 #include <bit>
 #include <format>
 #include <limits>
+#include <span>
 #include <string>
 
 namespace qiqi::diag::detail {
@@ -33,14 +34,17 @@ HRESULT VisitProcessorTopology(LOGICAL_PROCESSOR_RELATIONSHIP relation, Visitor&
         return HRESULT_FROM_WIN32(::GetLastError());
     }
 
-    const auto* bytes = std::bit_cast<const uint8_t*>(raw);
-    DWORD offset = 0;
-    while (offset < length) {
-        if (length - offset < sizeof(DWORD) * 2) {
+    const std::span<const uint8_t> bytes(std::bit_cast<const uint8_t*>(raw),
+                                         gsl::narrow_cast<size_t>(length));
+    size_t offset = 0;
+    while (offset < bytes.size()) {
+        const auto remaining = bytes.subspan(offset);
+        if (remaining.size() < sizeof(DWORD) * 2) {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
-        const auto* entry = std::bit_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(bytes + offset);
-        if (entry->Size < sizeof(DWORD) * 2 || entry->Size > length - offset) {
+        const gsl::not_null<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*> entry(
+            std::bit_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(remaining.data()));
+        if (entry->Size < sizeof(DWORD) * 2 || entry->Size > remaining.size()) {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         const HRESULT result = visitor(*entry);
@@ -133,7 +137,7 @@ void CollectCpuTopology(Json& cpu, Json& stage) {
             return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
         }
         const size_t index = gsl::narrow_cast<size_t>(entry.Cache.Level - 1);
-        cache_bytes[index] += entry.Cache.CacheSize;
+        gsl::at(cache_bytes, index) += entry.Cache.CacheSize;
         caches.push_back(Json{
             {"level", entry.Cache.Level},
             {"size_bytes", entry.Cache.CacheSize},
@@ -145,7 +149,7 @@ void CollectCpuTopology(Json& cpu, Json& stage) {
     });
     Json cache_totals = Json::object();
     for (size_t index = 0; index < cache_bytes.size(); ++index) {
-        cache_totals[std::format("l{}_bytes", index + 1)] = cache_bytes[index];
+        cache_totals[std::format("l{}_bytes", index + 1)] = gsl::at(cache_bytes, index);
     }
     cpu["cache_total_bytes"] = std::move(cache_totals);
     cpu["caches"] = std::move(caches);

@@ -50,7 +50,7 @@ BOOL CALLBACK EnumMonitorCallback(HMONITOR monitor, HDC, LPRECT, LPARAM paramete
         record.bounds = info.rcMonitor;
         record.work = info.rcWork;
         record.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
-        record.device = info.szDevice;
+        record.device = std::wstring(Win32StringView(info.szDevice));
         record.dpi_result = ::GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &record.dpi_x, &record.dpi_y);
         record.scale_result = ::GetScaleFactorForMonitor(monitor, &record.scale);
         state->records.push_back(std::move(record));
@@ -148,8 +148,8 @@ void CollectDisplayInformation(Json& stage) {
             break;
         }
         Json adapter_json{
-            {"name", WideToUtf8(adapter.DeviceName)},
-            {"description", WideToUtf8(adapter.DeviceString)},
+            {"name", WideToUtf8(Win32StringView(adapter.DeviceName))},
+            {"description", WideToUtf8(Win32StringView(adapter.DeviceString))},
             {"primary", (adapter.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0},
             {"attached_to_desktop", (adapter.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) != 0},
             {"mirroring", (adapter.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER) != 0},
@@ -157,12 +157,13 @@ void CollectDisplayInformation(Json& stage) {
         };
         for (DWORD monitor_index = 0; monitor_index < 16; ++monitor_index) {
             DISPLAY_DEVICEW monitor{.cb = sizeof(DISPLAY_DEVICEW)};
-            if (::EnumDisplayDevicesW(adapter.DeviceName, monitor_index, &monitor, 0) == FALSE) {
+            if (::EnumDisplayDevicesW(Win32StringView(adapter.DeviceName).data(), monitor_index, &monitor,
+                                      0) == FALSE) {
                 break;
             }
             adapter_json["monitors"].push_back(Json{
-                {"name", WideToUtf8(monitor.DeviceName)},
-                {"description", WideToUtf8(monitor.DeviceString)},
+                {"name", WideToUtf8(Win32StringView(monitor.DeviceName))},
+                {"description", WideToUtf8(Win32StringView(monitor.DeviceString))},
             });
         }
         adapters.push_back(std::move(adapter_json));

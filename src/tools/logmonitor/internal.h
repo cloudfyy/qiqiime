@@ -198,7 +198,7 @@ struct MonitorWindow::Impl {
         ControlId id,
         std::wstring text,
         std::wstring& displayed_text,
-        std::wstring_view operation);
+        std::wstring_view operation) noexcept;
     std::wstring Cell(const Event& event, int column) const;
     void Notify(NMHDR& header);
     std::vector<Event> CollectSelectedEvents() const;

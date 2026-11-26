@@ -208,7 +208,7 @@ HRESULT PrepareBrokerProcessToken(
             ::GetLastError());
     }
     failure_stage = "integrity";
-    HRESULT result =
+    const HRESULT result =
         EnsureMediumIntegrity(
             token.Get());
     if (FAILED(result)) {

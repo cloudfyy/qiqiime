@@ -76,7 +76,9 @@ constexpr std::string_view ImeSkinIdToString(ImeSkinId id) noexcept {
 
 template <typename Character>
 constexpr std::optional<ImeSkinId> ParseImeSkinId(std::basic_string_view<Character> text) noexcept {
-    for (const auto [index, id] : std::views::enumerate(kImeSkinIds)) {
+    for (const auto indexed_id : std::views::enumerate(kImeSkinIds)) {
+        const auto index = std::get<0>(indexed_id);
+        const std::string_view id = std::get<1>(indexed_id);
         if (std::ranges::equal(text, id)) {
             return ImeSkinId{
                 gsl::narrow_cast<std::underlying_type_t<ImeSkinId>>(index)};

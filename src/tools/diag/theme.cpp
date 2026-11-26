@@ -13,11 +13,11 @@ namespace qiqi::diag::detail {
 void CollectThemeInformation(Json& stage) {
     Json theme = Json::object();
     ScopedRegKey personalize;
-    HRESULT result = OpenRegistryKeyRead(HKEY_CURRENT_USER,
-                                         L"Software\\Microsoft\\Windows"
-                                         L"\\CurrentVersion\\Themes"
-                                         L"\\Personalize",
-                                         KEY_READ, personalize);
+    const HRESULT result = OpenRegistryKeyRead(HKEY_CURRENT_USER,
+                                               L"Software\\Microsoft\\Windows"
+                                               L"\\CurrentVersion\\Themes"
+                                               L"\\Personalize",
+                                               KEY_READ, personalize);
     const Json theme_check = CheckResult("theme_registry", result, FAILED(result) ? "warning" : "");
     theme["inspection"] = theme_check;
     AddCheck(stage, theme_check);
@@ -28,7 +28,7 @@ void CollectThemeInformation(Json& stage) {
             {L"EnableTransparency", "transparency"},
             {L"ColorPrevalence", "accent_on_surfaces"},
         }};
-        for (const auto& [name, property] : values) {
+        for (const auto [name, property] : values) {
             DWORD value = 0;
             const HRESULT read_result = ReadRegistryDword(personalize.Get(), name, value);
             theme[property] =

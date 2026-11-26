@@ -128,7 +128,8 @@ bool StartsWithPathRoot(std::wstring_view value, std::wstring_view root) noexcep
     if (::_wcsnicmp(value.data(), root.data(), root.size()) != 0) {
         return false;
     }
-    return value.size() == root.size() || value[root.size()] == L'\\' || value[root.size()] == L'/';
+    return value.size() == root.size() || gsl::at(value, root.size()) == L'\\' ||
+           gsl::at(value, root.size()) == L'/';
 }
 
 std::wstring RedactOnePathRoot(std::wstring path, const wchar_t* variable, std::wstring_view token) {
@@ -205,7 +206,7 @@ HRESULT ReadRegistryDword(HKEY key, const wchar_t* name, DWORD& output) noexcept
     return S_OK;
 }
 
-std::string ArchitectureName(USHORT architecture) noexcept {
+std::string ArchitectureName(USHORT architecture) {
     switch (architecture) {
     case IMAGE_FILE_MACHINE_AMD64:
         return "x64";
@@ -222,7 +223,7 @@ std::string ArchitectureName(USHORT architecture) noexcept {
     }
 }
 
-std::string ProcessorArchitectureName(WORD architecture) noexcept {
+std::string ProcessorArchitectureName(WORD architecture) {
     switch (architecture) {
     case PROCESSOR_ARCHITECTURE_AMD64:
         return "x64";
@@ -239,11 +240,7 @@ std::string ProcessorArchitectureName(WORD architecture) noexcept {
     }
 }
 
-bool IsNative64BitProcessor(WORD architecture) noexcept {
-    return architecture == PROCESSOR_ARCHITECTURE_AMD64 || architecture == PROCESSOR_ARCHITECTURE_ARM64;
-}
-
-std::string IntegrityName(DWORD rid) noexcept {
+std::string IntegrityName(DWORD rid) {
     switch (rid) {
     case SECURITY_MANDATORY_UNTRUSTED_RID:
         return "untrusted";

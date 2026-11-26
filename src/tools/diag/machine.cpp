@@ -142,7 +142,7 @@ bool IsRelevantProcessName(std::wstring_view name) noexcept {
 
 Json ProcessDetails(const PROCESSENTRY32W& process) {
     Json output{
-        {"name", WideToUtf8(process.szExeFile)},
+        {"name", WideToUtf8(Win32StringView(process.szExeFile))},
         {"pid", process.th32ProcessID},
         {"parent_pid", process.th32ParentProcessID},
         {"thread_count", process.cntThreads},
@@ -168,7 +168,7 @@ Json ProcessDetails(const PROCESSENTRY32W& process) {
     FILETIME user_time{};
     if (::GetProcessTimes(scoped_process.Get(), &creation, &exit_time, &kernel_time, &user_time) != FALSE) {
         SYSTEMTIME start{};
-        FILETIME creation_utc = creation;
+        const FILETIME creation_utc = creation;
         if (::FileTimeToSystemTime(&creation_utc, &start) != FALSE) {
             output["start_time_utc"] =
                 std::format("{:04d}-{:02d}-{:02d}T"
@@ -237,7 +237,7 @@ Json CollectProcesses() {
         AddCheck(stage, CheckResult("process_snapshot", HRESULT_FROM_WIN32(::GetLastError())));
     } else {
         do {
-            const std::wstring_view name(process.szExeFile);
+            const std::wstring_view name = Win32StringView(process.szExeFile);
             if (IsRelevantProcessName(name)) {
                 observed.push_back(ProcessDetails(process));
             }

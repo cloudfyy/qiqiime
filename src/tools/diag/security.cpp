@@ -10,7 +10,7 @@
 
 namespace qiqi::diag::detail {
 
-std::string SidText(PSID sid) {
+std::string SidText(PSID sid) noexcept {
     if (!sid || !::IsValidSid(sid)) {
         return {};
     }
@@ -47,7 +47,7 @@ Json SidJson(PSID sid) {
     return output;
 }
 
-std::string AceTypeName(BYTE type) noexcept {
+std::string AceTypeName(BYTE type) {
     switch (type) {
     case ACCESS_ALLOWED_ACE_TYPE:
         return "allowed";
@@ -74,7 +74,7 @@ std::string AceTypeName(BYTE type) noexcept {
     }
 }
 
-bool IsStandardAce(BYTE type) noexcept {
+constexpr bool IsStandardAce(BYTE type) noexcept {
     return type == ACCESS_ALLOWED_ACE_TYPE || type == ACCESS_DENIED_ACE_TYPE || type == SYSTEM_AUDIT_ACE_TYPE;
 }
 

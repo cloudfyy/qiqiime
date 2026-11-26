@@ -25,10 +25,14 @@ int CALLBACK EnumChineseFontsCallback(const LOGFONTW* font, const TEXTMETRICW*, 
                                       LPARAM parameter) noexcept {
     auto* state = std::bit_cast<FontState*>(parameter);
     try {
-        if (!font || font->lfFaceName[0] == L'\0' || font->lfFaceName[0] == L'@') {
+        if (!font) {
             return 1;
         }
-        const std::wstring name(font->lfFaceName);
+        const std::wstring_view face = Win32StringView(font->lfFaceName);
+        if (face.empty() || face.front() == L'@') {
+            return 1;
+        }
+        const std::wstring name(face);
         if (std::ranges::none_of(
                 state->faces, [&](const auto& face) { return _wcsicmp(face.c_str(), name.c_str()) == 0; })) {
             state->faces.push_back(name);
@@ -47,7 +51,7 @@ Json LogFontJson(const LOGFONTW& font, UINT dpi) {
     const int64_t absolute_height = font.lfHeight < 0 ? -gsl::narrow_cast<int64_t>(font.lfHeight)
                                                       : gsl::narrow_cast<int64_t>(font.lfHeight);
     return Json{
-        {"face", WideToUtf8(font.lfFaceName)},
+        {"face", WideToUtf8(Win32StringView(font.lfFaceName))},
         {"height", font.lfHeight},
         {"point_size", font.lfHeight == 0 ? 0 : absolute_height * 72 / dpi},
         {"weight", font.lfWeight},

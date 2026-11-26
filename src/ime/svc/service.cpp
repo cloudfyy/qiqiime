@@ -515,6 +515,8 @@ void QiQiTextService::UninitFunctionProvider() {
     function_provider_registered_ = false;
 }
 
+#pragma warning(push)
+#pragma warning(disable : 26447) // COM vtable methods report failures through HRESULT.
 HWND QiQiTextService::GetLangBarMenuOwner() const noexcept {
     const auto current_thread_window =
         [](HWND window) noexcept {
@@ -568,6 +570,7 @@ HWND QiQiTextService::GetLangBarMenuOwner() const noexcept {
     return current_thread_window(
         ::GetForegroundWindow());
 }
+#pragma warning(pop)
 
 void QiQiTextService::InitLangBarItem() {
     if (!thread_mgr_) {

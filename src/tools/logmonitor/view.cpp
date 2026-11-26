@@ -261,7 +261,7 @@ void MonitorWindow::Impl::SetControlTextIfChanged(
     ControlId id,
     std::wstring text,
     std::wstring& displayed_text,
-    std::wstring_view operation) {
+    std::wstring_view operation) noexcept {
     if (text == displayed_text) return;
     const HWND control = Child(id);
     if (!::SetWindowTextW(control, text.c_str())) {

@@ -331,10 +331,15 @@ QueryCurrentProcessAppContainerCapabilities(
         return HRESULT_FROM_WIN32(
             ERROR_INVALID_DATA);
     }
+    const auto* const first_capability =
+        std::addressof(
+            gsl::at(
+                groups->Groups,
+                0));
     const std::span<
         const SID_AND_ATTRIBUTES>
         capabilities(
-            groups->Groups,
+            first_capability,
             groups->GroupCount);
     for (const auto& capability :
          capabilities) {

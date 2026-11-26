@@ -286,7 +286,7 @@ HRESULT DecodeAndCommit(
 HRESULT ReadBuiltinSnapshot(
     Snapshot& output) noexcept {
     Snapshot snapshot;
-    HRESULT result =
+    const HRESULT result =
         MakeBuiltinImeSkinCatalog(
             snapshot.skin_catalog);
     if (FAILED(result)) {

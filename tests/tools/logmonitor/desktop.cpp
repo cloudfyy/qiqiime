@@ -3,6 +3,8 @@
 
 #include "test.h"
 
+#include <memory>
+
 namespace qiqi::monitor::tests {
 
 namespace {
@@ -27,17 +29,21 @@ void CheckNoRedundantStatusUpdates(
     const MonitorWindow& window,
     ControlId id) {
     const HWND control = Child(window, id);
-    TextUpdateCounter updates;
+    const auto updates =
+        std::make_unique<
+            TextUpdateCounter>();
     QIQI_TEST_CHECK(::SetWindowSubclass(
         control, CountSetText, 93,
-        reinterpret_cast<DWORD_PTR>(&updates)));
+        reinterpret_cast<DWORD_PTR>(
+            updates.get())));
     const auto remove_subclass = gsl::finally([=]() noexcept {
         ::RemoveWindowSubclass(control, CountSetText, 93);
     });
     for (int tick = 0; tick < 3; ++tick) {
         ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
     }
-    QIQI_TEST_CHECK(updates.count == 0);
+    QIQI_TEST_CHECK(
+        updates->count == 0);
 }
 }
 

@@ -14,9 +14,10 @@ void CollectAccessibilityInformation(Json& stage) {
     Json accessibility = Json::object();
 
     BOOL screen_reader = FALSE;
-    HRESULT screen_reader_result = ::SystemParametersInfoW(SPI_GETSCREENREADER, 0, &screen_reader, 0) != FALSE
-                                       ? S_OK
-                                       : HRESULT_FROM_WIN32(::GetLastError());
+    const HRESULT screen_reader_result =
+        ::SystemParametersInfoW(SPI_GETSCREENREADER, 0, &screen_reader, 0) != FALSE
+            ? S_OK
+            : HRESULT_FROM_WIN32(::GetLastError());
     accessibility["screen_reader"] = screen_reader != FALSE;
     AddCheck(stage, CheckResult("screen_reader", screen_reader_result,
                                 FAILED(screen_reader_result) ? "warning" : ""));
@@ -114,7 +115,7 @@ void CollectAccessibilityInformation(Json& stage) {
         process.dwSize = sizeof(process);
         if (::Process32FirstW(snapshot.Get(), &process) != FALSE) {
             do {
-                if (_wcsicmp(process.szExeFile, L"Narrator.exe") == 0) {
+                if (_wcsicmp(Win32StringView(process.szExeFile).data(), L"Narrator.exe") == 0) {
                     narrator.push_back(ProcessDetails(process));
                 }
             } while (::Process32NextW(snapshot.Get(), &process) != FALSE);

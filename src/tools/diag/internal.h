@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 #include <filesystem>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,10 +36,22 @@ HRESULT OpenRegistryKeyRead(HKEY root, std::wstring_view path, REGSAM access, Sc
 HRESULT ReadRegistryValue(HKEY key, const wchar_t* name, DWORD& type, std::vector<uint8_t>& output);
 HRESULT ReadRegistryString(HKEY key, const wchar_t* name, std::wstring& output);
 HRESULT ReadRegistryDword(HKEY key, const wchar_t* name, DWORD& output) noexcept;
-std::string ArchitectureName(USHORT architecture) noexcept;
-std::string ProcessorArchitectureName(WORD architecture) noexcept;
-bool IsNative64BitProcessor(WORD architecture) noexcept;
-std::string IntegrityName(DWORD rid) noexcept;
+std::string ArchitectureName(USHORT architecture);
+std::string ProcessorArchitectureName(WORD architecture);
+constexpr bool IsNative64BitProcessor(WORD architecture) noexcept {
+    return architecture == PROCESSOR_ARCHITECTURE_AMD64 || architecture == PROCESSOR_ARCHITECTURE_ARM64;
+}
+std::string IntegrityName(DWORD rid);
+
+// Win32 fixed-width string fields are null-terminated; keep the view bounded in case
+// native code omits that terminator.
+template <size_t Size>
+constexpr std::wstring_view Win32StringView(const wchar_t (&value)[Size]) noexcept {
+    const std::wstring_view bounded(std::data(value), Size);
+    const size_t terminator = bounded.find(L'\0');
+    return std::wstring_view(bounded.data(),
+                             terminator == std::wstring_view::npos ? bounded.size() : terminator);
+}
 
 Json ProcessDetails(const PROCESSENTRY32W& process);
 HRESULT InspectSecurityDescriptor(PSECURITY_DESCRIPTOR descriptor, Json& output);

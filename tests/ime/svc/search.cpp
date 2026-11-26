@@ -328,8 +328,9 @@ void TestIntegratedCandidateUiContract() {
                         page_indices.data(),
                         gsl::narrow_cast<UINT>(page_indices.size()),
                         &page_count) == S_OK &&
-                    page_count == 1 && page_indices[0] == 0 &&
-                    page_indices[1] == UINT_MAX);
+                        page_count == 1 &&
+                        gsl::at(page_indices, 0) == 0 &&
+                        gsl::at(page_indices, 1) == UINT_MAX);
     UINT current_page = UINT_MAX;
     QIQI_TEST_CHECK(behavior->GetCurrentPage(&current_page) == S_OK &&
                     current_page == 0);
@@ -385,8 +386,9 @@ void TestIntegratedCandidateUiContract() {
                         page_indices.data(),
                         gsl::narrow_cast<UINT>(page_indices.size()),
                         &page_count) == S_OK &&
-                    page_count == 2 && page_indices[0] == 0 &&
-                    page_indices[1] == 2);
+                        page_count == 2 &&
+                        gsl::at(page_indices, 0) == 0 &&
+                        gsl::at(page_indices, 1) == 2);
     QIQI_TEST_CHECK(behavior->GetCurrentPage(&current_page) == S_OK &&
                     current_page == 1);
     QIQI_TEST_CHECK(integration->OnKeyDown(

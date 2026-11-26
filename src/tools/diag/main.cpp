@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,7 +35,7 @@ struct Options {
     std::filesystem::path log_directory;
 };
 
-std::string UiText(qiqi::UiLanguage language, const wchar_t* chinese, const wchar_t* english) {
+std::string UiText(qiqi::UiLanguage language, const wchar_t* chinese, const wchar_t* english) noexcept {
     return qiqi::WideToUtf8(qiqi::LocalizedUiText(language, chinese, english));
 }
 
@@ -85,13 +86,17 @@ std::wstring Trim(std::wstring text) {
     return std::wstring(first, last);
 }
 
-bool IsConfirmed(std::wstring_view answer) {
-    const std::wstring value = [answer] {
-        std::wstring copy(answer);
-        std::ranges::transform(copy, copy.begin(), [](wchar_t ch) { return std::towlower(ch); });
-        return copy;
-    }();
-    return value == L"y" || value == L"yes" || value == L"是";
+constexpr wchar_t FoldAscii(wchar_t value) noexcept {
+    return value >= L'A' && value <= L'Z' ? value + (L'a' - L'A') : value;
+}
+
+constexpr bool EqualsIgnoreAsciiCase(std::wstring_view left, std::wstring_view right) noexcept {
+    return std::ranges::equal(left, right,
+                              [](wchar_t lhs, wchar_t rhs) { return FoldAscii(lhs) == FoldAscii(rhs); });
+}
+
+constexpr bool IsConfirmed(std::wstring_view answer) noexcept {
+    return EqualsIgnoreAsciiCase(answer, L"y") || EqualsIgnoreAsciiCase(answer, L"yes") || answer == L"是";
 }
 
 bool Confirm(qiqi::UiLanguage language, std::wstring_view heading, std::wstring_view fields) {
@@ -184,10 +189,10 @@ qiqi::diag::Selection ConfirmWithFtxui(qiqi::UiLanguage language) {
     return proceed ? selection : qiqi::diag::Selection{};
 }
 
-HRESULT ParseArguments(int argc, wchar_t** argv, Options& output) noexcept {
+HRESULT ParseArguments(std::span<wchar_t*> arguments, Options& output) noexcept {
     try {
-        for (int index = 1; index < argc; ++index) {
-            const std::wstring_view argument(argv[index]);
+        for (size_t index = 1; index < arguments.size(); ++index) {
+            const std::wstring_view argument(gsl::at(arguments, index));
             if (argument == L"--yes" || argument == L"-y") {
                 output.accept_all = true;
                 continue;
@@ -197,21 +202,21 @@ HRESULT ParseArguments(int argc, wchar_t** argv, Options& output) noexcept {
                 continue;
             }
             if (argument == L"--output" || argument == L"-o") {
-                if (++index >= argc)
+                if (++index >= arguments.size())
                     return E_INVALIDARG;
-                output.output_directory = argv[index];
+                output.output_directory = gsl::at(arguments, index);
                 continue;
             }
             if (argument == L"--log-directory") {
-                if (++index >= argc)
+                if (++index >= arguments.size())
                     return E_INVALIDARG;
-                output.log_directory = argv[index];
+                output.log_directory = gsl::at(arguments, index);
                 continue;
             }
             if (argument == L"--language" || argument == L"--lang") {
-                if (++index >= argc)
+                if (++index >= arguments.size())
                     return E_INVALIDARG;
-                const std::wstring_view value(argv[index]);
+                const std::wstring_view value(gsl::at(arguments, index));
                 if (_wcsicmp(value.data(), L"auto") == 0) {
                     output.language = qiqi::UiLanguage::Auto;
                 } else if (_wcsicmp(value.data(), L"zh-CN") == 0 || _wcsicmp(value.data(), L"zh") == 0) {
@@ -248,7 +253,8 @@ void PrintFailure(HRESULT result, qiqi::UiLanguage language) {
 
 int Run(int argc, wchar_t** argv) {
     Options options;
-    const HRESULT parse_result = ParseArguments(argc, argv, options);
+    const std::span<wchar_t*> arguments(argv, gsl::narrow_cast<size_t>(argc));
+    const HRESULT parse_result = ParseArguments(arguments, options);
     const qiqi::UiLanguage language = qiqi::ResolveUiLanguage(options.language);
     if (FAILED(parse_result)) {
         PrintFailure(parse_result, language);

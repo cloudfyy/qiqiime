@@ -20,8 +20,9 @@
 namespace qiqi::diag {
 namespace detail {
 
-Json StageOrSkipped(bool selected, Json (*collector)(), std::string_view id, std::string_view label) {
-    return selected ? collector() : SkippedStage(id, label);
+Json StageOrSkipped(bool selected, gsl::not_null<Json (*)()> collector, std::string_view id,
+                    std::string_view label) {
+    return selected ? collector.get()() : SkippedStage(id, label);
 }
 
 std::string OverallStatus(const Json& stages) {
@@ -78,7 +79,7 @@ std::wstring ExtractLocalServerExecutable(std::wstring_view command) {
     return std::wstring(value.substr(0, end));
 }
 
-HRESULT BuildReport(const Selection& selection, bool compact, std::string& output) noexcept {
+HRESULT BuildReport(const Selection& selection, bool compact, std::string& output) {
     try {
         Json stages = Json::array();
         stages.push_back(StageOrSkipped(selection.machine, CollectMachine, "machine", "Machine information"));
@@ -132,7 +133,7 @@ HRESULT BuildReport(const Selection& selection, bool compact, std::string& outpu
     }
 }
 
-HRESULT WriteReportSet(const std::filesystem::path& directory, std::string_view report) noexcept {
+HRESULT WriteReportSet(const std::filesystem::path& directory, std::string_view report) {
     try {
         const Json document = Json::parse(report);
         if (!directory.filename().empty() && std::filesystem::exists(directory)) {

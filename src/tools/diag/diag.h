@@ -26,8 +26,8 @@ std::filesystem::path MakeDefaultReportDirectory();
 std::wstring RedactPathForReport(std::wstring_view path);
 std::wstring ExtractLocalServerExecutable(std::wstring_view command);
 
-HRESULT BuildReport(const Selection& selection, bool compact, std::string& output) noexcept;
+HRESULT BuildReport(const Selection& selection, bool compact, std::string& output);
 
-HRESULT WriteReportSet(const std::filesystem::path& directory, std::string_view report) noexcept;
+HRESULT WriteReportSet(const std::filesystem::path& directory, std::string_view report);
 
 } // namespace qiqi::diag

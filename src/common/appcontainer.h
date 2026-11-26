@@ -13,6 +13,7 @@ namespace qiqi {
 
 class DerivedCapabilitySids final {
 public:
+    DerivedCapabilitySids() = delete;
     explicit DerivedCapabilitySids(
         const wchar_t* name) noexcept;
     ~DerivedCapabilitySids() noexcept;
@@ -21,6 +22,12 @@ public:
         delete;
     DerivedCapabilitySids& operator=(
         const DerivedCapabilitySids&) =
+        delete;
+    DerivedCapabilitySids(
+        DerivedCapabilitySids&&) =
+        delete;
+    DerivedCapabilitySids& operator=(
+        DerivedCapabilitySids&&) =
         delete;
 
     HRESULT Build() noexcept;

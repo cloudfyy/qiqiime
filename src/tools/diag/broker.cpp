@@ -247,7 +247,7 @@ Json CollectBrokerRuntime() {
         return output;
     }
     do {
-        if (_wcsicmp(process.szExeFile, L"QiQiIMEConfigBroker.exe") == 0) {
+        if (_wcsicmp(Win32StringView(process.szExeFile).data(), L"QiQiIMEConfigBroker.exe") == 0) {
             output["processes"].push_back(ProcessDetails(process));
         }
     } while (::Process32NextW(snapshot.Get(), &process) != FALSE);
