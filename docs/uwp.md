@@ -20,6 +20,11 @@ window fallback. This does not depend on a host pumping posted messages after
 the click callback. `InitMenu` remains available for hosts that implement the
 standard TSF menu contract. Desktop hosts retain the original custom-menu path.
 
+Searchbox candidate integration exposes only the active page through
+`ITfCandidateListUIElement`—the same page-local shape used by Rime—while normal
+desktop and UILess presentation retains the complete paged candidate model.
+Host selection indices are translated back to QiQi's global candidate indices.
+
 ## Deployment and permissions
 
 Normal [ZIP/source registration](../scripts/register_ime.ps1) grants the resolved

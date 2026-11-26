@@ -109,8 +109,10 @@ HRESULT CandidateUI::InvokeActionCallback(
 }
 
 STDMETHODIMP CandidateUI::SetSelection(UINT index) noexcept {
-    if (index >= all_candidates_.size()) return E_INVALIDARG;
-    return InvokeActionCallback(CandidateUiAction::SetSelection, index);
+    if (index >= CandidateCountForTsf()) return E_INVALIDARG;
+    const size_t global_index = CandidateIndexForTsf(index);
+    if (global_index >= all_candidates_.size()) return E_INVALIDARG;
+    return InvokeActionCallback(CandidateUiAction::SetSelection, global_index);
 }
 
 STDMETHODIMP CandidateUI::Finalize() noexcept {
@@ -134,9 +136,10 @@ STDMETHODIMP CandidateUI::SetIntegrationStyle(
     QIQI_LOG_CAT_DEBUG(
         log::Keyword::UI,
         "SearchIntegration(stage=set-integration-style, element_id={}, style_data1=0x{:08x}, "
-        "searchbox={}, shown={}, hr=0x{:08x})",
+        "searchbox={}, shown={}, total_count={}, exposed_count={}, page_size={}, page={}, hr=0x{:08x})",
         UiElementId(), integration_style.Data1, searchbox_integration_,
-        is_shown_ != FALSE, gsl::narrow_cast<unsigned int>(hr));
+        is_shown_ != FALSE, all_candidates_.size(), CandidateCountForTsf(),
+        page_size_, current_page_, gsl::narrow_cast<unsigned int>(hr));
     return hr;
 }
 

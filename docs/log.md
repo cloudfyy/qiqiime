@@ -226,6 +226,9 @@ These IDs are module-local, so also match PID/TID, time and lifecycle activity.
   AppContainer right-clicks use a native `TrackPopupMenuEx` menu on the original
   TSF thread; `ShowNativePopupMenu` records owner, command and Win32 error details.
   A missing popup should not be inferred from icon/state updates alone.
+- Search integration `SetIntegrationStyle` records total, exposed/current-page
+  count, page size, and page index. Searchbox UI elements intentionally expose a
+  page-local candidate list; desktop UI keeps all pages.
 
 HRESULTs are recorded without replacing the actual failure with a generic
 code. A successful AddItem, OnUpdate or GetIcon alone does not prove the Shell

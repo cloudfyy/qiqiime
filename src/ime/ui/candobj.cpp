@@ -46,6 +46,9 @@ STDMETHODIMP CandidateUI::GetUpdatedFlags(DWORD* pdwFlags) noexcept {
         return E_INVALIDARG;
     }
     *pdwFlags = ui_element_lifecycle_.UpdatedFlags();
+    if (searchbox_integration_) {
+        *pdwFlags &= ~TF_CLUIE_PAGEINDEX;
+    }
     return S_OK;
 }
 
@@ -67,7 +70,7 @@ STDMETHODIMP CandidateUI::GetCount(UINT* puCount) noexcept {
     if (!puCount) {
         return E_INVALIDARG;
     }
-    *puCount = gsl::narrow_cast<UINT>(all_candidates_.size());
+    *puCount = gsl::narrow_cast<UINT>(CandidateCountForTsf());
     return S_OK;
 }
 
@@ -78,8 +81,14 @@ STDMETHODIMP CandidateUI::GetSelection(UINT* puIndex) noexcept {
     if (all_candidates_.empty()) {
         return S_FALSE;
     }
-    const size_t global_idx = current_page_ * page_size_ + selected_in_page_;
-    *puIndex = gsl::narrow_cast<UINT>(std::min(global_idx, all_candidates_.size() - 1));
+    const size_t exposed_count = CandidateCountForTsf();
+    if (exposed_count == 0) {
+        return S_FALSE;
+    }
+    const size_t selected_index = searchbox_integration_
+        ? std::min(selected_in_page_, exposed_count - 1)
+        : std::min(current_page_ * page_size_ + selected_in_page_, all_candidates_.size() - 1);
+    *puIndex = gsl::narrow_cast<UINT>(selected_index);
     return S_OK;
 }
 
@@ -93,17 +102,23 @@ STDMETHODIMP CandidateUI::GetString(UINT uIndex, BSTR* pstr) noexcept {
                 integrated_candidates_.size() == all_candidates_.size()
         ? integrated_candidates_
         : all_candidates_;
-    if (uIndex >= candidates.size()) {
+    if (uIndex >= CandidateCountForTsf()) {
         return E_INVALIDARG;
     }
-    return CopyToBstr(gsl::at(candidates, uIndex), pstr);
+    const size_t candidate_index = CandidateIndexForTsf(uIndex);
+    if (candidate_index >= candidates.size()) {
+        return E_INVALIDARG;
+    }
+    return CopyToBstr(gsl::at(candidates, candidate_index), pstr);
 }
 
 STDMETHODIMP CandidateUI::GetPageIndex(UINT* pIndex, UINT uSize, UINT* puPageCnt) noexcept {
     if (!puPageCnt) {
         return E_INVALIDARG;
     }
-    const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);
+    const size_t total_pages = searchbox_integration_
+        ? 1
+        : ComputeTotalPages(all_candidates_.size(), page_size_);
     *puPageCnt = gsl::narrow_cast<UINT>(total_pages);
     if (!pIndex) {
         return S_OK;
@@ -124,10 +139,24 @@ STDMETHODIMP CandidateUI::GetCurrentPage(UINT* puPage) noexcept {
     if (!puPage) {
         return E_INVALIDARG;
     }
-    *puPage = gsl::narrow_cast<UINT>(current_page_);
+    *puPage = searchbox_integration_ ? 0 : gsl::narrow_cast<UINT>(current_page_);
     return S_OK;
 }
 
+std::pair<size_t, size_t> CandidateUI::CandidateRangeForTsf() const noexcept {
+    return searchbox_integration_
+        ? ComputePageRange(all_candidates_.size(), page_size_, current_page_)
+        : std::pair<size_t, size_t>{0, all_candidates_.size()};
+}
+
+size_t CandidateUI::CandidateIndexForTsf(size_t index) const noexcept {
+    return CandidateRangeForTsf().first + index;
+}
+
+size_t CandidateUI::CandidateCountForTsf() const noexcept {
+    const auto [begin, end] = CandidateRangeForTsf();
+    return end - begin;
+}
 
 void CandidateUI::SetCandidates(std::wstring code,
                                 std::vector<std::wstring> all_candidates,

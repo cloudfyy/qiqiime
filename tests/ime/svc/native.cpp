@@ -292,7 +292,7 @@ void RunTsfNativeUilessHostTests() {
                     ui_sink->update_ids == initial_ids);
     constexpr DWORD all_flags =
         TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION |
-        TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
+        TF_CLUIE_STRING | TF_CLUIE_CURRENTPAGE;
     QIQI_TEST_CHECK(ui_sink->inspection_hr == S_OK &&
                     ui_sink->initial_flags == all_flags &&
                     ui_sink->document.Get() == document.Get() &&
@@ -319,6 +319,8 @@ void RunTsfNativeUilessHostTests() {
         ui_sink->begin_id, ui_sink->begin_id};
     QIQI_TEST_CHECK(ui_sink->begins == 1 && ui_sink->updates == 2 &&
                     ui_sink->subsequent_flags != 0 &&
+                    (ui_sink->subsequent_flags &
+                     TF_CLUIE_PAGEINDEX) == 0 &&
                     ui_sink->update_ids == subsequent_ids);
     EndCompositionCandidatePresentation(
         *ui.Get(), native_thread_mgr, 211, GUID_NULL);
