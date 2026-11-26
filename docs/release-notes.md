@@ -1,3 +1,43 @@
+# QiQiIME 1.3.3 Shell 兼容补丁（2026-11-26，待发布）
+
+数字版本：`1.3.3`；计划发行标签：`v1.3.3`。Release 工作流仍是双架构
+测试、MSI/ZIP/PDB 打包及附件发布的权威结果。
+
+## 主要变更
+
+- **Searchbox 候选页兼容**：`ITfCandidateListUIElement` 在 Searchbox 集成时
+  只公开当前候选页，宿主选择索引会映射回 QiQi 的全局候选索引；桌面和普通
+  UILess 展示仍保留完整分页模型。
+- **AppContainer 指示器菜单**：右键菜单直接在原 TSF 线程执行
+  `TrackPopupMenuEx`，不依赖宿主是否泵送 IME 创建的隐藏窗口消息。
+- **日志监视器状态栏**：100 ms 定时器继续排空停止后的队列，但普通日志、
+  工具诊断和 Metrics 状态控件只在文字变化时更新，避免空闲闪烁。
+- **状态计数说明**：状态栏明确区分本地有界缓冲淘汰、ETW 事件/缓冲丢失和
+  内存分配错误；`Memory` 改为 `Alloc errors / 内存分配错误`。
+- **诊断 CLI 与兼容回归**：保留只读、脱敏诊断 CLI，并覆盖 Searchbox
+  `UINT_MAX` 索引边界、模式恢复、菜单重复调用与状态栏冗余刷新。
+
+## 验证边界
+
+- x64 Search Integration、UILess、Composition Lifecycle 与 Log Monitor 定向测试通过。
+- x64/x86 Log Monitor 和受影响的 IME 目标构建通过；未制作或安装 MSI。
+- 本次仅升级源码版本并推送分支，不创建标签，也不声明正式发布。
+
+## English
+
+Source version `1.3.3`; planned release tag `v1.3.3`.
+
+- Expose only the active candidate page to Searchbox integration and map host
+  selections back to global QiQi indices, while retaining full paging elsewhere.
+- Show the AppContainer indicator menu synchronously on the TSF thread.
+- Keep Log Monitor's 100 ms queue drain while avoiding unchanged status text
+  writes and clarify local eviction, ETW loss, and allocation-failure counters.
+- Cover the updated Searchbox index bounds, integration reset, repeated native
+  menu requests, and status repaint regressions.
+
+Focused x64 tests and x64/x86 builds pass. No MSI is built or installed, and this
+branch update does not create a release tag.
+
 # QiQiIME 1.3.2 AppContainer Broker 访问补丁（2026-11-25，待发布）
 
 数字版本：`1.3.2`；计划发行标签：`v1.3.2`。Release 工作流是后续双架构

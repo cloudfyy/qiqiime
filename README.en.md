@@ -11,10 +11,10 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The source version is **1.3.2**, corresponding to release tag `v1.3.2`, with
+The source version is **1.3.3**, with planned release tag `v1.3.3`, and
 changes recorded in the [release notes](docs/release-notes.md). Release CI
-rebuilds, tests, and packages the tagged source. Until the `v1.3.2` workflow
-finishes publishing, the `v1.3.1` release remains as a historical asset.
+rebuilds, tests, and packages the tagged source. Until the `v1.3.3` workflow
+finishes publishing, existing releases remain available as historical assets.
 Historical tags and assets remain unchanged.
 The files actually attached to a release are authoritative; a tag alone does not
 mean that its build or publication succeeded.
@@ -37,6 +37,12 @@ and AppContainer guides are available in English.
 
 ## Features
 
+- **1.3.3 Shell compatibility patch (pending release):** Fix the
+  AppContainer indicator menu and expose only the active Searchbox candidate
+  page while preserving desktop and ordinary UILess paging. Host selections are
+  mapped back to global candidate indices. Log Monitor now redraws status text
+  only when it changes and documents local eviction versus ETW loss and
+  allocation failures.
 - **1.3.2 AppContainer Broker patch (pending release):** Broker DCOM
   registration now grants package-aware access, launch, and read/execute
   permissions for the installed Search package, the Broker, and both native
