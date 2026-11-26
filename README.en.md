@@ -11,9 +11,9 @@ the native Text Services Framework (TSF).
 ## Downloads and supported systems
 
 Download installers from [GitHub Releases](https://github.com/cloudfyy/qiqiime/releases).
-The source version is **1.3.3**, with planned release tag `v1.3.3`, and
+The source version is **1.3.4**, with planned release tag `v1.3.4`, and
 changes recorded in the [release notes](docs/release-notes.md). Release CI
-rebuilds, tests, and packages the tagged source. Until the `v1.3.3` workflow
+rebuilds, tests, and packages the tagged source. Until the `v1.3.4` workflow
 finishes publishing, existing releases remain available as historical assets.
 Historical tags and assets remain unchanged.
 The files actually attached to a release are authoritative; a tag alone does not
@@ -37,6 +37,12 @@ and AppContainer guides are available in English.
 
 ## Features
 
+- **1.3.4 AppContainer config-routing patch (pending release):** Select the
+  configuration source from token capabilities before any DCOM activation.
+  `lpacCom` uses the Broker, `registryRead` alone uses the read-only registry,
+  and no capability uses built-in settings, skins, and available bundled/core
+  dictionaries. The local routes remain read-only and do not change IME FSM
+  transitions.
 - **1.3.3 Shell compatibility patch (pending release):** Fix the
   AppContainer indicator menu and expose only the active Searchbox candidate
   page while preserving desktop and ordinary UILess paging. Host selections are

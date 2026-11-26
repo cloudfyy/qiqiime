@@ -1,3 +1,48 @@
+# QiQiIME 1.3.4 AppContainer 配置路由补丁（2026-11-26，待发布）
+
+数字版本：`1.3.4`；计划发行标签：`v1.3.4`。Release 工作流仍是双架构
+测试、MSI/ZIP/PDB 打包及附件发布的权威结果。
+
+## 主要变更
+
+- **配置传输预选**：在任何配置 DCOM 激活前检查当前 token capability。
+  桌面进程或带 `lpacCom` 的 AppContainer 使用 Broker；仅带 `registryRead`
+  的 AppContainer 使用受限只读注册表；两者都没有的 AppContainer 使用内置
+  `QiQiConfig`、内置皮肤目录与可读取的随包/编译词典。
+- **不再先失败再回退**：SearchHost 等只读容器不再先执行一个必然返回
+  `E_ACCESSDENIED` 的 Broker 激活；三个来源只填充同一个进程内配置缓存。
+- **本地路由仍为只读**：注册表和内置路由的同步/异步保存、重置与目录发布
+  返回真实 `E_ACCESSDENIED`，不会尝试 DCOM 或越权修改 HKCU。
+- **共享能力判定**：Broker DCOM SID 注册和客户端 token 判定复用同一份
+  capability-SID RAII；输入法 FSM 状态与转换代码未修改。
+- **云端 Lint 清理**：清理 C++ Core Guidelines/GSL、Win32 字段有界读取、
+  `noexcept` 契约与诊断 CLI 参数边界告警。
+
+## 验证边界
+
+- x64 Common、Broker Store、Search Integration、UILess、Diagnostics 与 Log
+  Monitor 定向测试通过；x64/x86 受影响目标及 x86 全量构建通过。
+- Nightly Lint 的 x64/x86 CppCoreCheck 与 PowerShell lint 均已通过。
+- 本次未制作或安装 MSI，也不创建发布标签；真实 SearchHost/Feedback Hub
+  的新版本安装验收仍需独立完成。
+
+## English
+
+Source version `1.3.4`; planned release tag `v1.3.4`.
+
+- Select configuration transport from token capabilities before DCOM:
+  desktop/`lpacCom` uses Broker, `registryRead` alone uses the read-only registry,
+  and neither capability uses built-in configuration, skins, and readable
+  bundled/core dictionaries.
+- Avoid the expected-denial Broker activation that registry-only SearchHost
+  previously attempted. All three sources populate the same local cache.
+- Keep registry and built-in routes read-only; synchronous and asynchronous
+  mutations return `E_ACCESSDENIED` without DCOM or HKCU writes.
+- Reuse capability-SID RAII for Broker registration and client routing; IME FSM
+  transitions remain unchanged.
+- Cloud x64/x86 CppCoreCheck and PowerShell lint pass. Focused x64 tests and
+  x64/x86 builds pass. No MSI or tag is created.
+
 # QiQiIME 1.3.3 Shell 兼容补丁（2026-11-26，待发布）
 
 数字版本：`1.3.3`；计划发行标签：`v1.3.3`。Release 工作流仍是双架构
@@ -10,9 +55,6 @@
   UILess 展示仍保留完整分页模型。
 - **AppContainer 指示器菜单**：右键菜单直接在原 TSF 线程执行
   `TrackPopupMenuEx`，不依赖宿主是否泵送 IME 创建的隐藏窗口消息。
-- **AppContainer 配置预选路由**：启动配置读取前检查 token capability：
-  `lpacCom` 使用 Broker，仅 `registryRead` 使用只读注册表，二者都没有时使用
-  内置配置/皮肤及随包或编译内置词典；不会先做一个必然失败的 DCOM 激活。
 - **日志监视器状态栏**：100 ms 定时器继续排空停止后的队列，但普通日志、
   工具诊断和 Metrics 状态控件只在文字变化时更新，避免空闲闪烁。
 - **状态计数说明**：状态栏明确区分本地有界缓冲淘汰、ETW 事件/缓冲丢失和
@@ -33,9 +75,6 @@ Source version `1.3.3`; planned release tag `v1.3.3`.
 - Expose only the active candidate page to Searchbox integration and map host
   selections back to global QiQi indices, while retaining full paging elsewhere.
 - Show the AppContainer indicator menu synchronously on the TSF thread.
-- Select AppContainer configuration transport from token capabilities before
-  calling COM: Broker for `lpacCom`, registry for `registryRead`, and bundled
-  defaults when neither capability is present.
 - Keep Log Monitor's 100 ms queue drain while avoiding unchanged status text
   writes and clarify local eviction, ETW loss, and allocation-failure counters.
 - Cover the updated Searchbox index bounds, integration reset, repeated native
