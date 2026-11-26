@@ -361,50 +361,11 @@ void QiQiTextService::HandleAsyncConfigResult(
             }
         } else {
             QIQI_LOG_ERROR(
-                "Async broker refresh failed "
+                "Async config refresh failed "
                 "(hr=0x{:08X})",
                 gsl::narrow_cast<unsigned long>(
                     result));
-            bool registry_fallback_succeeded =
-                false;
-            if (IsProcessAppContainer()) {
-                config::Snapshot registry_snapshot;
-                const HRESULT registry_result =
-                    config::
-                        ReadSnapshotFromRegistry(
-                            registry_snapshot);
-                const auto reload =
-                    SUCCEEDED(registry_result)
-                        ? ReloadConfigIfModified()
-                        : ReloadResult{
-                            .succeeded =
-                                false,
-                            .error =
-                                registry_result,
-                        };
-                registry_fallback_succeeded =
-                    reload.succeeded;
-                QIQI_LOG_CAT_INFO(
-                    log::Keyword::Config,
-                    "AppContainer config refresh "
-                    "registry fallback "
-                    "(read_hr=0x{:08X}, "
-                    "succeeded={}, "
-                    "apply_hr=0x{:08X})",
-                    gsl::narrow_cast<
-                        unsigned long>(
-                        registry_result),
-                    registry_fallback_succeeded,
-                    gsl::narrow_cast<
-                        unsigned long>(
-                        reload.error));
-                if (registry_fallback_succeeded) {
-                    config_refresh_attempts_ =
-                        0;
-                }
-            }
-            if (!registry_fallback_succeeded &&
-                config_refresh_attempts_ <
+            if (config_refresh_attempts_ <
                 kConfigMaxRefreshAttempts) {
                 ++config_refresh_attempts_;
                 const HWND window =
@@ -924,31 +885,56 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
         HRESULT config_result =
             config::CopyCachedSnapshot(
                 config_snapshot);
-        if (config_result != S_OK &&
-            IsProcessAppContainer()) {
-            config_result =
+        if (config_result != S_OK) {
+            config::ConfigReadRoute route =
+                config::ConfigReadRoute::
+                    Broker;
+            const HRESULT route_result =
                 config::
-                    ReadSnapshotFromRegistry(
+                    QueryProcessConfigReadRoute(
+                        route);
+            if (FAILED(route_result) &&
+                route ==
+                    config::ConfigReadRoute::
+                        Broker) {
+                QIQI_LOG_WARN(
+                    "Config read route query "
+                    "failed (hr=0x{:08X})",
+                    gsl::narrow_cast<
+                        unsigned long>(
+                            route_result));
+            } else if (
+                route !=
+                config::ConfigReadRoute::
+                    Broker) {
+                config_result =
+                    config::ReadSnapshot(
                         config_snapshot);
+            }
         }
-    if (config_result == S_OK) {
-        std::ignore = log::CheckHResult(
-            UpdateImeSkinSnapshot(
-                config_.ime_skin_id,
-                config_snapshot.skin_catalog,
-                ime_skin_snapshot_),
-            "QiQiTextService::ApplyDynamicEngineSettings(UpdateImeSkinSnapshot)");
-    } else if (
-        config_.ime_skin_id !=
-        ImeSkinId::Default) {
-        ime_skin_snapshot_.reset();
-        QIQI_LOG_WARN(
-            "Skin snapshot unavailable "
-            "without broker cache "
-            "(hr=0x{:08X})",
-            gsl::narrow_cast<unsigned long>(
-                config_result));
-    }
+        if (config_result == S_OK) {
+            std::ignore =
+                log::CheckHResult(
+                    UpdateImeSkinSnapshot(
+                        config_.ime_skin_id,
+                        config_snapshot
+                            .skin_catalog,
+                        ime_skin_snapshot_),
+                    "QiQiTextService::"
+                    "ApplyDynamicEngineSettings"
+                    "(UpdateImeSkinSnapshot)");
+        } else if (
+            config_.ime_skin_id !=
+            ImeSkinId::Default) {
+            ime_skin_snapshot_.reset();
+            QIQI_LOG_WARN(
+                "Skin snapshot unavailable "
+                "without configuration cache "
+                "(hr=0x{:08X})",
+                gsl::narrow_cast<
+                    unsigned long>(
+                        config_result));
+        }
     }
     if (engine_.PageSize() != std::clamp<size_t>(config_.page_size, 1, 9))
         engine_.SetPageSize(config_.page_size);
@@ -1153,23 +1139,54 @@ QiQiTextService::ReloadResult QiQiTextService::ReloadConfigIfModified(uint64_t f
         snapshot_result =
             config::CopyCachedSnapshot(
                 snapshot);
-        if (snapshot_result != S_OK &&
-            IsProcessAppContainer()) {
-            snapshot_result =
+        if (snapshot_result != S_OK) {
+            config::ConfigReadRoute route =
+                config::ConfigReadRoute::
+                    Broker;
+            const HRESULT route_result =
                 config::
-                    ReadSnapshotFromRegistry(
-                        snapshot);
-            if (snapshot_result == S_OK) {
-                QIQI_LOG_INFO(
+                    QueryProcessConfigReadRoute(
+                        route);
+            if (FAILED(route_result) &&
+                route ==
+                    config::ConfigReadRoute::
+                        Broker) {
+                QIQI_LOG_WARN(
                     "ReloadConfigIfModified: "
-                    "loaded read-only "
-                    "AppContainer registry "
-                    "snapshot");
+                    "config read route query "
+                    "failed (hr=0x{:08X})",
+                    gsl::narrow_cast<
+                        unsigned long>(
+                        route_result));
+            } else if (
+                route !=
+                config::ConfigReadRoute::
+                    Broker) {
+                snapshot_result =
+                    config::ReadSnapshot(
+                        snapshot);
+                if (snapshot_result == S_OK) {
+                    QIQI_LOG_INFO(
+                        "ReloadConfigIfModified: "
+                        "loaded local configuration "
+                        "snapshot (route={})",
+                        config::
+                        ConfigReadRouteName(
+                            route));
+                } else {
+                    QIQI_LOG_WARN(
+                        "ReloadConfigIfModified: "
+                        "local configuration "
+                        "fallback failed "
+                        "(hr=0x{:08X})",
+                        gsl::narrow_cast<
+                        unsigned long>(
+                            snapshot_result));
+                }
             } else {
                 QIQI_LOG_WARN(
                     "ReloadConfigIfModified: "
-                    "AppContainer registry "
-                    "fallback failed "
+                    "broker snapshot unavailable "
                     "(hr=0x{:08X})",
                     gsl::narrow_cast<
                         unsigned long>(

@@ -9,6 +9,51 @@
 namespace qiqi::test::common_cases {
 
 void TestConfigTransport() {
+    QIQI_TEST_CHECK(
+        config::SelectConfigReadRoute(
+            false,
+            false,
+            false) ==
+        config::ConfigReadRoute::Broker);
+    QIQI_TEST_CHECK(
+        config::SelectConfigReadRoute(
+            true,
+            true,
+            false) ==
+        config::ConfigReadRoute::Broker);
+    QIQI_TEST_CHECK(
+        config::SelectConfigReadRoute(
+            true,
+            true,
+            true) ==
+        config::ConfigReadRoute::Broker);
+    QIQI_TEST_CHECK(
+        config::SelectConfigReadRoute(
+            true,
+            false,
+            true) ==
+        config::ConfigReadRoute::
+            AppContainerRegistry);
+    QIQI_TEST_CHECK(
+        config::SelectConfigReadRoute(
+            true,
+            false,
+            false) ==
+        config::ConfigReadRoute::
+            BuiltinDefaults);
+    config::ConfigReadRoute process_route =
+        config::ConfigReadRoute::
+            BuiltinDefaults;
+    QIQI_TEST_CHECK(
+        config::
+            QueryProcessConfigReadRoute(
+                process_route) == S_OK);
+    if (!IsProcessAppContainer()) {
+        QIQI_TEST_CHECK(
+            process_route ==
+            config::ConfigReadRoute::
+                Broker);
+    }
     for (const HRESULT result :
          {S_OK,
           S_FALSE,

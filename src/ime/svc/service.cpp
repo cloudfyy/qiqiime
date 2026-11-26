@@ -53,19 +53,44 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
         HRESULT read =
             config::CopyCachedSnapshot(
                 initial);
-        if (read != S_OK &&
-            IsProcessAppContainer()) {
-            const HRESULT registry_read =
-                config::ReadSnapshotFromRegistry(
-                    initial);
-            QIQI_LOG_CAT_INFO(
-                log::Keyword::Config,
-                "IME AppContainer startup "
-                "registry fallback "
-                "(hr=0x{:08X})",
-                gsl::narrow_cast<unsigned long>(
-                    registry_read));
-            read = registry_read;
+        if (read != S_OK) {
+            config::ConfigReadRoute route =
+                config::ConfigReadRoute::
+                    Broker;
+            const HRESULT route_result =
+                config::
+                    QueryProcessConfigReadRoute(
+                        route);
+            if (FAILED(route_result)) {
+                QIQI_LOG_CAT_WARN(
+                    log::Keyword::Config,
+                    "IME config route query failed "
+                    "(route={}, hr=0x{:08X})",
+                    config::
+                        ConfigReadRouteName(
+                            route),
+                    gsl::narrow_cast<
+                        unsigned long>(
+                            route_result));
+            }
+            if (route !=
+                config::ConfigReadRoute::
+                    Broker) {
+                read =
+                    config::ReadSnapshot(
+                        initial);
+                QIQI_LOG_CAT_INFO(
+                    log::Keyword::Config,
+                    "IME local config startup "
+                    "read (route={}, "
+                    "hr=0x{:08X})",
+                    config::
+                        ConfigReadRouteName(
+                            route),
+                    gsl::narrow_cast<
+                        unsigned long>(
+                            read));
+            }
         }
         if (read == S_OK) {
             config_ = std::move(initial.value);
@@ -76,8 +101,7 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
             QIQI_LOG_CAT_INFO(
                 log::Keyword::Config,
                 "IME started with safe default "
-                "config; broker refresh is "
-                "pending");
+                "config; refresh is pending");
         }
     }
     engine_.ApplyConfig(config_);

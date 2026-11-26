@@ -242,77 +242,38 @@ HRESULT AppendWindowsSearchHostSids(
 HRESULT AppendCapabilitySids(
     std::vector<PSID>& sids,
     std::vector<SidOwner>& owners) {
-    PSID* groups = nullptr;
-    DWORD group_count = 0;
-    PSID* capabilities = nullptr;
-    DWORD capability_count = 0;
-    if (!::DeriveCapabilitySidsFromName(
-            L"lpacCom",
-            &groups,
-            &group_count,
-            &capabilities,
-            &capability_count)) {
-        return HRESULT_FROM_WIN32(
-            ::GetLastError());
+    DerivedCapabilitySids lpac_com(
+        L"lpacCom");
+    const HRESULT derived =
+        lpac_com.Build();
+    if (FAILED(derived)) {
+        return derived;
     }
-    const auto free_group_sids =
-        gsl::finally([&]() noexcept {
-            if (!groups) {
-                return;
-            }
-            const std::span<PSID> group_sids(
-                groups,
-                group_count);
-            for (const PSID group :
-                 group_sids) {
-                ::LocalFree(group);
-            }
-            ::LocalFree(groups);
-        });
-    const auto free_capability_sids =
-        gsl::finally([&]() noexcept {
-            if (!capabilities) {
-                return;
-            }
-            const std::span<PSID>
-                capability_sids(
-                    capabilities,
-                    capability_count);
-            for (const PSID capability :
-                 capability_sids) {
-                ::LocalFree(capability);
-            }
-            ::LocalFree(capabilities);
-        });
-    if ((group_count != 0 && !groups) ||
-        (capability_count != 0 &&
-         !capabilities)) {
-        return E_UNEXPECTED;
-    }
-    if (capability_count == 0) {
+    const auto capabilities =
+        lpac_com.Capabilities();
+    if (capabilities.empty()) {
         return S_OK;
     }
-    const std::span<PSID>
-        capability_sids(
-            capabilities,
-            capability_count);
     owners.reserve(
         owners.size() +
-        capability_count);
+        capabilities.size());
     sids.reserve(
         sids.size() +
-        capability_count);
-    for (const PSID capability :
-         capability_sids) {
+        capabilities.size());
+    for (PSID& capability :
+         capabilities) {
+        if (!capability ||
+            !::IsValidSid(capability)) {
+            return E_UNEXPECTED;
+        }
+        const PSID transferred =
+            capability;
         owners.emplace_back(
-            capability,
+            transferred,
             SidOwner::Allocation::Local);
-        sids.push_back(
-            capability);
+        capability = nullptr;
+        sids.push_back(transferred);
     }
-    ::LocalFree(capabilities);
-    capabilities = nullptr;
-    capability_count = 0;
     return S_OK;
 }
 

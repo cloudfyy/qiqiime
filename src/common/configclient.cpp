@@ -3,6 +3,7 @@
 
 #include "common/configclient.h"
 
+#include "common/appcontainer.h"
 #include "common/comobj.h"
 #include "common/config.h"
 #include "common/configrpc.h"
@@ -14,6 +15,7 @@
 
 #include <wrl/client.h>
 #include <gsl/gsl>
+#include <atomic>
 #include <memory>
 #include <new>
 #include <optional>
@@ -27,6 +29,8 @@ namespace qiqi::config {
 namespace {
 
 using Microsoft::WRL::ComPtr;
+
+std::atomic<int> g_config_read_route_override{-1};
 
 template <typename T>
 void ResetComPtrForHandoff(
@@ -130,15 +134,26 @@ HRESULT HandoffBroker() noexcept {
     return result;
 }
 
+enum class SnapshotCommitMode {
+    PreserveNewer,
+    Replace,
+};
+
 HRESULT CommitSnapshot(
     Snapshot decoded,
-    Snapshot& output) noexcept {
+    Snapshot& output,
+    SnapshotCommitMode commit_mode =
+        SnapshotCommitMode::PreserveNewer)
+    noexcept {
     try {
         output = decoded;
         {
             std::unique_lock lock(
                 g_cache.mutex);
-            if (g_cache.valid &&
+            if (commit_mode ==
+                    SnapshotCommitMode::
+                        PreserveNewer &&
+                g_cache.valid &&
                 g_cache.value.revision >
                     decoded.revision) {
                 Snapshot latest =
@@ -268,6 +283,21 @@ HRESULT DecodeAndCommit(
     return result;
 }
 
+HRESULT ReadBuiltinSnapshot(
+    Snapshot& output) noexcept {
+    Snapshot snapshot;
+    HRESULT result =
+        MakeBuiltinImeSkinCatalog(
+            snapshot.skin_catalog);
+    if (FAILED(result)) {
+        return result;
+    }
+    return CommitSnapshot(
+        std::move(snapshot),
+        output,
+        SnapshotCommitMode::Replace);
+}
+
 enum class Operation {
     Read,
     Save,
@@ -318,6 +348,47 @@ struct Request {
         sync_directory;
     AsyncCompletion completion;
 };
+
+HRESULT ExecuteLocalConfigRequest(
+    Operation operation,
+    Snapshot& output,
+    bool& handled) noexcept {
+    handled = false;
+    ConfigReadRoute route =
+        ConfigReadRoute::BuiltinDefaults;
+    const HRESULT route_result =
+        QueryProcessConfigReadRoute(
+            route);
+    if (FAILED(route_result)) {
+        handled = true;
+        QIQI_LOG_CAT_ERROR(
+            log::Keyword::Config,
+            "ConfigClient capability route query "
+            "failed (hr=0x{:08X})",
+            gsl::narrow_cast<unsigned long>(
+                route_result));
+        return route_result;
+    }
+    if (route ==
+        ConfigReadRoute::Broker) {
+        return S_OK;
+    }
+    handled = true;
+    if (operation !=
+        Operation::Read) {
+        return E_ACCESSDENIED;
+    }
+    QIQI_LOG_CAT_DEBUG(
+        log::Keyword::Config,
+        "ConfigClient selected local read "
+        "route (route={})",
+        ConfigReadRouteName(route));
+    return route ==
+                ConfigReadRoute::AppContainerRegistry
+        ? ReadSnapshotFromRegistry(
+              output)
+        : ReadBuiltinSnapshot(output);
+}
 
 HRESULT CreateAsyncBroker(
     ComPtr<AsyncIQiQiConfigBroker>& output,
@@ -454,8 +525,18 @@ HRESULT ExecuteAsync(
         return operation.Finish(
             E_INVALIDARG);
     }
+    bool local_route_handled = false;
+    HRESULT result =
+        ExecuteLocalConfigRequest(
+            request.operation,
+            output,
+            local_route_handled);
+    if (local_route_handled) {
+        return operation.Finish(
+            result);
+    }
     std::vector<uint8_t> input;
-    HRESULT result = EncodeInput(
+    result = EncodeInput(
         request,
         input);
     if (FAILED(result)) {
@@ -702,6 +783,16 @@ HRESULT ExecuteSync(
         return operation.Finish(
             E_INVALIDARG);
     }
+    bool local_route_handled = false;
+    HRESULT result =
+        ExecuteLocalConfigRequest(
+            operation_kind,
+            output,
+            local_route_handled);
+    if (local_route_handled) {
+        return operation.Finish(
+            result);
+    }
     const ScopedCom com;
     if (FAILED(com.Result())) {
         return operation.Finish(
@@ -743,7 +834,7 @@ HRESULT ExecuteSync(
             return operation.Finish(
                 activation_result);
         }
-        HRESULT result =
+        result =
             SetProxySecurity(
                 broker.Get());
         if (FAILED(result)) {
@@ -785,6 +876,71 @@ HRESULT ExecuteSync(
 }
 
 } // namespace
+
+HRESULT QueryProcessConfigReadRoute(
+    ConfigReadRoute& route) noexcept {
+    route =
+        ConfigReadRoute::Broker;
+    const int route_override =
+        g_config_read_route_override.load(
+            std::memory_order_acquire);
+    if (route_override >= 0) {
+        switch (route_override) {
+        case std::to_underlying(
+            ConfigReadRoute::Broker):
+            route =
+                ConfigReadRoute::Broker;
+            return S_OK;
+        case std::to_underlying(
+            ConfigReadRoute::
+                AppContainerRegistry):
+            route =
+                ConfigReadRoute::
+                    AppContainerRegistry;
+            return S_OK;
+        case std::to_underlying(
+            ConfigReadRoute::
+                BuiltinDefaults):
+            route =
+                ConfigReadRoute::
+                    BuiltinDefaults;
+            return S_OK;
+        default:
+            return E_INVALIDARG;
+        }
+    }
+    AppContainerCapabilityState
+        capabilities{};
+    const HRESULT query_result =
+        QueryCurrentProcessAppContainerCapabilities(
+            capabilities);
+    if (FAILED(query_result)) {
+        return query_result;
+    }
+    if (!capabilities.is_app_container) {
+        return S_OK;
+    }
+    route =
+        ConfigReadRoute::
+            BuiltinDefaults;
+    route =
+        SelectConfigReadRoute(
+            true,
+            capabilities.has_lpac_com,
+            capabilities.has_registry_read);
+    return S_OK;
+}
+
+void SetConfigReadRouteOverrideForTest(
+    std::optional<
+        ConfigReadRoute> route) noexcept {
+    g_config_read_route_override.store(
+        route
+            ? std::to_underlying(
+                *route)
+            : -1,
+        std::memory_order_release);
+}
 
 uint64_t CachedRevision() noexcept {
     try {

@@ -4,6 +4,7 @@
 #include "common/appcontainer.h"
 
 #include "common/logger.h"
+#include "common/RAII.h"
 
 #include <gsl/gsl>
 #include <aclapi.h>
@@ -11,10 +12,13 @@
 #include <userenv.h>
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <new>
+#include <ranges>
 #include <stdexcept>
+#include <span>
 #include <system_error>
 
 namespace qiqi {
@@ -113,6 +117,246 @@ HRESULT AppendPackageSids(
 }
 
 } // namespace
+
+DerivedCapabilitySids::DerivedCapabilitySids(
+    const wchar_t* name) noexcept
+    : name_(name) {}
+
+DerivedCapabilitySids::
+    ~DerivedCapabilitySids() noexcept {
+    if (groups_) {
+        for (const PSID group :
+             std::span(
+                 groups_,
+                 group_count_)) {
+            if (group) {
+                ::LocalFree(group);
+            }
+        }
+        ::LocalFree(groups_);
+    }
+    if (capabilities_) {
+        for (const PSID capability :
+             std::span(
+                 capabilities_,
+                 capability_count_)) {
+            if (capability) {
+                ::LocalFree(capability);
+            }
+        }
+        ::LocalFree(capabilities_);
+    }
+}
+
+HRESULT DerivedCapabilitySids::Build() noexcept {
+    if (!name_ || !*name_) {
+        return E_INVALIDARG;
+    }
+    if (!::DeriveCapabilitySidsFromName(
+            name_,
+            &groups_,
+            &group_count_,
+            &capabilities_,
+            &capability_count_)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    if ((group_count_ != 0 &&
+         !groups_) ||
+        (capability_count_ != 0 &&
+         !capabilities_)) {
+        return E_UNEXPECTED;
+    }
+    return S_OK;
+}
+
+std::span<PSID>
+DerivedCapabilitySids::Capabilities() noexcept {
+    return {
+        capabilities_,
+        capability_count_};
+}
+
+std::span<const PSID>
+DerivedCapabilitySids::Capabilities()
+    const noexcept {
+    return {
+        capabilities_,
+        capability_count_};
+}
+
+bool DerivedCapabilitySids::Contains(
+    PSID candidate) const noexcept {
+    return candidate &&
+        ::IsValidSid(candidate) &&
+        std::ranges::any_of(
+            Capabilities(),
+            [candidate](
+                const PSID capability) noexcept {
+                return capability &&
+                    ::IsValidSid(
+                        capability) &&
+                    ::EqualSid(
+                        candidate,
+                        capability);
+            });
+}
+
+namespace {
+
+HRESULT QueryTokenCapabilities(
+    HANDLE token,
+    std::vector<uint8_t>& output) noexcept {
+    DWORD length = 0;
+    if (::GetTokenInformation(
+            token,
+            TokenCapabilities,
+            nullptr,
+            0,
+            &length)) {
+        return HRESULT_FROM_WIN32(
+            ERROR_INVALID_DATA);
+    }
+    const DWORD query_error =
+        ::GetLastError();
+    if (query_error !=
+            ERROR_INSUFFICIENT_BUFFER ||
+        length == 0) {
+        return HRESULT_FROM_WIN32(
+            query_error != ERROR_SUCCESS
+                ? query_error
+                : ERROR_INVALID_DATA);
+    }
+    try {
+        output.resize(length);
+    } catch (
+        const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    } catch (
+        const std::length_error&) {
+        return HRESULT_FROM_WIN32(
+            ERROR_ARITHMETIC_OVERFLOW);
+    }
+    DWORD copied = length;
+    if (!::GetTokenInformation(
+            token,
+            TokenCapabilities,
+            output.data(),
+            length,
+            &copied)) {
+        const DWORD read_error =
+            ::GetLastError();
+        return HRESULT_FROM_WIN32(
+            read_error != ERROR_SUCCESS
+                ? read_error
+                : ERROR_INVALID_DATA);
+    }
+    if (copied > length) {
+        return HRESULT_FROM_WIN32(
+            ERROR_INVALID_DATA);
+    }
+    output.resize(copied);
+    return S_OK;
+}
+
+} // namespace
+
+HRESULT
+QueryCurrentProcessAppContainerCapabilities(
+    AppContainerCapabilityState& output)
+    noexcept {
+    output = {};
+    ScopedKernelHandle token;
+    if (!::OpenProcessToken(
+            ::GetCurrentProcess(),
+            TOKEN_QUERY,
+            token.Put())) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    DWORD app_container = 0;
+    DWORD length = 0;
+    if (!::GetTokenInformation(
+            token.Get(),
+            TokenIsAppContainer,
+            &app_container,
+            sizeof(app_container),
+            &length)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    output.is_app_container =
+        app_container != 0;
+    if (!output.is_app_container) {
+        return S_OK;
+    }
+
+    DerivedCapabilitySids lpac_com(
+        L"lpacCom");
+    DerivedCapabilitySids registry_read(
+        L"registryRead");
+    HRESULT result =
+        lpac_com.Build();
+    if (FAILED(result)) {
+        return result;
+    }
+    result =
+        registry_read.Build();
+    if (FAILED(result)) {
+        return result;
+    }
+    std::vector<uint8_t> buffer;
+    result =
+        QueryTokenCapabilities(
+            token.Get(),
+            buffer);
+    if (FAILED(result)) {
+        return result;
+    }
+    constexpr size_t entries_offset =
+        offsetof(TOKEN_GROUPS, Groups);
+    if (buffer.size() <
+        sizeof(TOKEN_GROUPS)) {
+        return HRESULT_FROM_WIN32(
+            ERROR_INVALID_DATA);
+    }
+    const auto* groups =
+        reinterpret_cast<
+            const TOKEN_GROUPS*>(
+                buffer.data());
+    if (groups->GroupCount >
+        (buffer.size() -
+         entries_offset) /
+            sizeof(SID_AND_ATTRIBUTES)) {
+        return HRESULT_FROM_WIN32(
+            ERROR_INVALID_DATA);
+    }
+    const std::span<
+        const SID_AND_ATTRIBUTES>
+        capabilities(
+            groups->Groups,
+            groups->GroupCount);
+    for (const auto& capability :
+         capabilities) {
+        if ((capability.Attributes &
+             SE_GROUP_ENABLED) == 0) {
+            continue;
+        }
+        if (!capability.Sid ||
+            !::IsValidSid(
+                capability.Sid)) {
+            return HRESULT_FROM_WIN32(
+                ERROR_INVALID_DATA);
+        }
+        output.has_lpac_com |=
+            lpac_com.Contains(
+                capability.Sid);
+        output.has_registry_read |=
+            registry_read.Contains(
+                capability.Sid);
+    }
+    return S_OK;
+}
 
 HRESULT DiscoverWindowsSearchPackageSids(
     std::vector<std::wstring>& output) noexcept {

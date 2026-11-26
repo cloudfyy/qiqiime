@@ -51,17 +51,27 @@ package groups and `lpacCom` capability local DCOM access rights.
 
 Taskbar Search requires one narrow exception. Its SearchHost LPAC token carries
 `registryRead` but does not carry `lpacCom`, so its `CoCreateInstance` is denied
-before Broker method dispatch even when package-specific DCOM ACEs exist.
-Windows Search package identities are therefore discovered from
+before Broker method dispatch even when package-specific DCOM ACEs exist. QiQi
+detects `TokenCapabilities` before transport and therefore does not call
+`CoCreateInstance` for this route.
+Windows Search package identities are discovered from
 `%WINDIR%\SystemApps`, and their package and package-capability SIDs receive
 only `KEY_READ` on the config root plus the known skin schema:
 `Skins`, `Catalogs`, the active catalog, built-in skin IDs, and `Light`/`Dark`.
-SearchHost may use that direct read only when the in-process cache is absent or
-the Broker read fails. It decodes the same complete configuration, skin catalog,
+SearchHost uses that direct read whenever its read-only route lacks a cache.
+It decodes the same complete configuration, skin catalog,
 sync-directory address, and commit metadata, then commits the validated result
 to the normal cache. It never writes registry values or walks arbitrary
 subtrees. A successful startup or refresh requires no further registry read on
 subsequent focus/input operations.
+
+An AppContainer with neither `lpacCom` nor `registryRead` uses a third route:
+default `QiQiConfig`, the versioned built-in skin catalog, no sync-directory
+address, and no user-registry snapshot. It does not attempt DCOM or open the
+configuration registry. The engine still uses readable bundled dictionaries
+and falls back to its compiled core dictionary if the package file ACLs do not
+expose the bundled data. This route is intentionally read-only and does not
+reflect desktop preference changes.
 
 Search package and package-capability SIDs are also added to local-only AppID
 DCOM ACLs for package hosts that do carry `lpacCom`. Access and Launch use
@@ -122,7 +132,9 @@ The user dictionary file is authoritative. Desktop writers ask the Broker to
 publish the absolute read-only channel address. The Broker updates
 `HKCU\Software\QiQiIME\UserDictSyncDirectory` and the configuration sequence in
 its registry transaction, then returns the address in the configuration
-snapshot. AppContainer readers obtain that snapshot through DCOM and consume the
+snapshot. AppContainer readers with `lpacCom` obtain that snapshot through DCOM;
+the `registryRead` route reads the published address from the granted schema;
+the no-capability route has no shared dictionary address. Readers still consume
 published increments rather than opening the desktop source file or creating a
 separate local channel.
 An explicitly empty address means no shared user dictionary; inaccessible or
@@ -130,10 +142,11 @@ invalid metadata/snapshots must be diagnosed, not silently treated as success.
 
 [change_sync](../src/common/changesync.h) separates directory wakeups from the
 persistent journal, version checks, and file-lock coordination. Notifications
-alone are not reliable state. Global TSF compartments wake subscribers to make
-one traced Broker read; they do not carry configuration. Delivery failure or
-focus-dependent checks can delay observation. Do not promise immediate
-cross-process consistency.
+alone are not reliable state. Global TSF compartments wake subscribers to read
+once from the selected Broker/registry route; they do not carry configuration.
+The no-capability route retains built-in defaults and has no remote refresh to
+perform. Delivery failure or focus-dependent checks can delay observation. Do
+not promise immediate cross-process consistency.
 
 Registration attempts to precompile bundled dictionaries into adjacent `.qdict`
 files. Runtime loading validates caches against format and source size/time.

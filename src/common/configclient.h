@@ -8,8 +8,44 @@
 #include <gsl/gsl>
 #include <bit>
 #include <functional>
+#include <optional>
 
 namespace qiqi::config {
+
+enum class ConfigReadRoute : uint8_t {
+    Broker,
+    AppContainerRegistry,
+    BuiltinDefaults,
+};
+
+constexpr ConfigReadRoute SelectConfigReadRoute(
+    bool app_container,
+    bool has_lpac_com,
+    bool has_registry_read) noexcept {
+    if (!app_container ||
+        has_lpac_com) {
+        return ConfigReadRoute::Broker;
+    }
+    return has_registry_read
+        ? ConfigReadRoute::AppContainerRegistry
+        : ConfigReadRoute::BuiltinDefaults;
+}
+
+constexpr std::string_view
+ConfigReadRouteName(
+    ConfigReadRoute route) noexcept {
+    switch (route) {
+    case ConfigReadRoute::Broker:
+        return "broker";
+    case ConfigReadRoute::
+        AppContainerRegistry:
+        return "registry";
+    case ConfigReadRoute::
+        BuiltinDefaults:
+        return "builtin";
+    }
+    return "unknown";
+}
 
 using AsyncCompletion =
     std::function<void(
@@ -30,6 +66,11 @@ constexpr HRESULT DecodeAsyncResult(
         gsl::narrow_cast<uint32_t>(
             value));
 }
+
+HRESULT QueryProcessConfigReadRoute(
+    ConfigReadRoute& route) noexcept;
+void SetConfigReadRouteOverrideForTest(
+    std::optional<ConfigReadRoute> route) noexcept;
 
 uint64_t CachedRevision() noexcept;
 HRESULT CopyCachedSnapshot(

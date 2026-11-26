@@ -15,7 +15,9 @@
 #include <sddl.h>
 #include <atomic>
 #include <array>
+#include <chrono>
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <span>
 #include <thread>
@@ -619,6 +621,158 @@ int main() {
     QIQI_TEST_CHECK(
         registry_snapshot.skin_catalog.id ==
         after_restart.skin_catalog.id);
+
+    const auto restore_route =
+        gsl::finally([]() noexcept {
+            qiqi::config::
+                SetConfigReadRouteOverrideForTest(
+                    std::nullopt);
+        });
+    const auto check_async_save_denied =
+        [](const qiqi::config::SaveRequest&
+               request) {
+            std::promise<HRESULT>
+                async_rejection;
+            auto rejection_result =
+                async_rejection
+                    .get_future();
+            QIQI_TEST_CHECK(
+                qiqi::config::
+                    SaveSnapshotAsync(
+                        request,
+                        [&async_rejection](
+                            HRESULT result,
+                            const qiqi::
+                                config::
+                                    Snapshot&) {
+                            async_rejection
+                                .set_value(
+                                    result);
+                        }) == S_OK);
+            QIQI_TEST_CHECK(
+                rejection_result.wait_for(
+                    std::chrono::seconds(
+                        5)) ==
+                std::future_status::ready);
+            QIQI_TEST_CHECK(
+                rejection_result.get() ==
+                E_ACCESSDENIED);
+        };
+    qiqi::config::
+        SetConfigReadRouteOverrideForTest(
+            qiqi::config::ConfigReadRoute::
+                AppContainerRegistry);
+    qiqi::config::Snapshot registry_sync;
+    QIQI_TEST_CHECK(
+        qiqi::config::ReadSnapshot(
+            registry_sync) == S_OK);
+    QIQI_TEST_CHECK(
+        registry_sync.revision ==
+        after_restart.revision);
+    std::promise<std::pair<
+        HRESULT,
+        qiqi::config::Snapshot>>
+        async_route;
+    auto async_result =
+        async_route.get_future();
+    QIQI_TEST_CHECK(
+        qiqi::config::ReadSnapshotAsync(
+            [&async_route](
+                HRESULT result,
+                const qiqi::config::
+                    Snapshot& snapshot) {
+                async_route.set_value(
+                    {result, snapshot});
+            }) == S_OK);
+    QIQI_TEST_CHECK(
+        async_result.wait_for(
+            std::chrono::seconds(5)) ==
+        std::future_status::ready);
+    const auto [async_hr,
+                async_snapshot] =
+        async_result.get();
+    QIQI_TEST_CHECK(
+        async_hr == S_OK &&
+        async_snapshot.revision ==
+            after_restart.revision);
+    qiqi::config::Snapshot rejected;
+    QIQI_TEST_CHECK(
+        qiqi::config::SaveSnapshot(
+            qiqi::config::SaveRequest{
+                .expected_revision =
+                    after_restart.revision,
+                .value =
+                    after_restart.value,
+            },
+            rejected) ==
+        E_ACCESSDENIED);
+    check_async_save_denied(
+        qiqi::config::SaveRequest{
+            .expected_revision =
+                after_restart.revision,
+            .value =
+                after_restart.value,
+        });
+
+    qiqi::config::
+        SetConfigReadRouteOverrideForTest(
+            qiqi::config::ConfigReadRoute::
+                BuiltinDefaults);
+    qiqi::config::Snapshot builtin_sync;
+    QIQI_TEST_CHECK(
+        qiqi::config::ReadSnapshot(
+            builtin_sync) == S_OK);
+    CheckEqual(
+        builtin_sync.value,
+        QiQiConfig{});
+    QIQI_TEST_CHECK(
+        builtin_sync.revision == 0 &&
+        builtin_sync.skin_catalog.id ==
+            L"builtin-v1");
+    std::promise<std::pair<
+        HRESULT,
+        qiqi::config::Snapshot>>
+        builtin_async_route;
+    auto builtin_async_result =
+        builtin_async_route.get_future();
+    QIQI_TEST_CHECK(
+        qiqi::config::ReadSnapshotAsync(
+            [&builtin_async_route](
+                HRESULT result,
+                const qiqi::config::
+                    Snapshot& snapshot) {
+                builtin_async_route.set_value(
+                    {result, snapshot});
+            }) == S_OK);
+    QIQI_TEST_CHECK(
+        builtin_async_result.wait_for(
+            std::chrono::seconds(5)) ==
+        std::future_status::ready);
+    const auto [builtin_async_hr,
+                builtin_async_snapshot] =
+        builtin_async_result.get();
+    QIQI_TEST_CHECK(
+        builtin_async_hr == S_OK &&
+        builtin_async_snapshot.revision ==
+            0);
+    CheckEqual(
+        builtin_async_snapshot.value,
+        QiQiConfig{});
+    QIQI_TEST_CHECK(
+        qiqi::config::SaveSnapshot(
+            qiqi::config::SaveRequest{
+                .expected_revision =
+                    after_restart.revision,
+                .value = QiQiConfig{},
+            },
+            rejected) ==
+        E_ACCESSDENIED);
+    check_async_save_denied(
+        qiqi::config::SaveRequest{
+            .expected_revision =
+                after_restart.revision,
+            .value = QiQiConfig{},
+        });
 
     QIQI_TEST_CHECK(
         store.PublishSyncDirectory(

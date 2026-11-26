@@ -10,6 +10,9 @@
   UILess 展示仍保留完整分页模型。
 - **AppContainer 指示器菜单**：右键菜单直接在原 TSF 线程执行
   `TrackPopupMenuEx`，不依赖宿主是否泵送 IME 创建的隐藏窗口消息。
+- **AppContainer 配置预选路由**：启动配置读取前检查 token capability：
+  `lpacCom` 使用 Broker，仅 `registryRead` 使用只读注册表，二者都没有时使用
+  内置配置/皮肤及随包或编译内置词典；不会先做一个必然失败的 DCOM 激活。
 - **日志监视器状态栏**：100 ms 定时器继续排空停止后的队列，但普通日志、
   工具诊断和 Metrics 状态控件只在文字变化时更新，避免空闲闪烁。
 - **状态计数说明**：状态栏明确区分本地有界缓冲淘汰、ETW 事件/缓冲丢失和
@@ -30,6 +33,9 @@ Source version `1.3.3`; planned release tag `v1.3.3`.
 - Expose only the active candidate page to Searchbox integration and map host
   selections back to global QiQi indices, while retaining full paging elsewhere.
 - Show the AppContainer indicator menu synchronously on the TSF thread.
+- Select AppContainer configuration transport from token capabilities before
+  calling COM: Broker for `lpacCom`, registry for `registryRead`, and bundled
+  defaults when neither capability is present.
 - Keep Log Monitor's 100 ms queue drain while avoiding unchanged status text
   writes and clarify local eviction, ETW loss, and allocation-failure counters.
 - Cover the updated Searchbox index bounds, integration reset, repeated native

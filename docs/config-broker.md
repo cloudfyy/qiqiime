@@ -3,12 +3,13 @@
 ## Goal
 
 Make a signed `QiQiIMEConfigBroker.exe` the only runtime authority for writing
-QiQiIME user configuration. Normal QiQiIME DLLs and tools must access a cached
-snapshot obtained from the broker. The one read-only exception is a packaged
-AppContainer/LPAC host whose token cannot activate DCOM (currently Taskbar
-SearchHost); it may read the known config/skin registry schema with `KEY_READ`
-and commit that validated snapshot to the same in-process cache. It never
-writes the registry.
+QiQiIME user configuration. Normal desktop clients and AppContainers with the
+`lpacCom` capability use a cached snapshot obtained from the broker.
+AppContainers select their read route from token capabilities before attempting
+COM: `registryRead` without `lpacCom` reads the known config/skin registry schema
+with `KEY_READ`; a token with neither capability uses validated built-in defaults
+and skin catalog with bundled dictionaries. Neither local route writes or probes
+the registry/Broker that it lacks permission to use.
 
 This does not turn every configuration field read into a DCOM call. Input,
 candidate layout, painting, and status synchronization only access an
@@ -75,10 +76,11 @@ Only the broker is allowed to write:
 - `ConfigCommitTraceId`, `ConfigCommitActivityId`, and
   `ConfigCommitRevision`.
 
-An authorized AppContainer package may read the root and the known skin keys
-through package-specific `KEY_READ` ACEs when the Broker transport is
-unavailable. Production code does not enumerate arbitrary descendants and
-does not expose arbitrary registry paths.
+An AppContainer with `registryRead` but not `lpacCom` reads the root and known
+skin keys through package-specific `KEY_READ` ACEs. Production code selects that
+route from token capabilities before DCOM; it does not enumerate arbitrary
+descendants or expose arbitrary registry paths. A token with neither capability
+uses the in-memory built-in snapshot and does not access this registry state.
 
 Installer uninstall/cleanup remains an administrative exception because it
 removes user data only after explicit user confirmation.
@@ -102,12 +104,16 @@ successful local save.
 
 Read:
 
-1. A process loads once from the broker and decodes one complete snapshot.
-2. The snapshot is copied into the local cache.
-3. If Broker activation/reading fails for a qualifying AppContainer, the client
-   reads and validates the same complete snapshot directly from the known real
-   registry schema, then populates that cache.
-4. Hot paths read only the cache; registry and DCOM are not queried per focus or
+1. Before the first transport call, the client checks the process token:
+   desktop or `lpacCom` selects Broker; otherwise `registryRead` selects the
+   read-only registry; no capability selects built-in defaults.
+2. A Broker read decodes one complete snapshot. A registry read validates the same
+   complete schema locally. The built-in route creates a default `QiQiConfig`,
+   built-in skin catalog, empty sync-directory address, and revision zero.
+3. The selected snapshot is copied into the same local cache.
+4. A registry-only AppContainer never activates the Broker, and the no-capability
+   route never opens the configuration registry.
+5. Hot paths read only the cache; registry and DCOM are not queried per focus or
    keystroke.
 
 Save:
@@ -187,10 +193,10 @@ broker retry.
   - package SIDs derived from Windows `SearchHost.exe` / `SearchApp.exe`
     package folders discovered under `%WINDIR%\SystemApps`.
 - Windows SearchHost carries `registryRead` but not `lpacCom`. Its DCOM
-  activation therefore fails before Broker method dispatch even with
-  package-specific ACEs. Package DACLs are not a substitute for a missing
-  capability. SearchHost instead uses the narrow read-only registry fallback
-  described above.
+  activation would fail before Broker method dispatch even with package-specific
+  ACEs. Package DACLs are not a substitute for a missing capability. The client
+  therefore selects the narrow read-only registry route before attempting DCOM;
+  this is not an activation failure followed by fallback.
 - Clients use packet privacy and identity impersonation.
 - The broker verifies that the caller token belongs to its user SID. Desktop
   callers must use the broker's session; same-user AppContainer callers may
