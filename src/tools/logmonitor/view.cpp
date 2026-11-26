@@ -79,23 +79,28 @@ void MonitorWindow::Impl::RefreshProcessChoices(bool force) {
             std::system_category(), "RefreshProcessChoices::ReplaceComboBoxItems");
     };
     if (next.names != process_choices.names) {
-        // Preserve typed text and caret when refreshing the suggestion list.
         const LRESULT edit_selection = ::SendMessageW(Child(Process), CB_GETEDITSEL, 0, 0);
         replace(Process, next.names);
-        ::SetWindowTextW(
-            Child(Process),
-            filter.process.empty()
-                ? AllProcessesText()
-                : filter.process.c_str());
-        ::SendMessageW(Child(Process), CB_SETEDITSEL, 0, edit_selection);
+        if (filter.process.empty()) {
+            SetProcessText(AllProcessesText());
+        } else {
+            if (!::SetWindowTextW(Child(Process), filter.process.c_str())) {
+                diagnostics.Record(
+                    2, L"Set process filter edit text", ::GetLastError());
+            }
+            if (::SendMessageW(
+                    Child(Process), CB_SETEDITSEL, 0, edit_selection) == CB_ERR) {
+                diagnostics.Record(
+                    2, L"Restore process filter edit selection",
+                    gsl::narrow_cast<ULONG>(CB_ERR));
+            }
+        }
     } else if (
         filter.process.empty() &&
         !IsAllProcessesText(
             ReadWindowTextString(
                 Child(Process)))) {
-        ::SetWindowTextW(
-            Child(Process),
-            AllProcessesText());
+        SetProcessText(AllProcessesText());
     }
     const bool single = !filter.process.empty() && next.pids.size() == 1;
     const bool was_single = automatic_pid;
@@ -121,6 +126,25 @@ void MonitorWindow::Impl::RefreshProcessChoices(bool force) {
     ::EnableWindow(Child(Pid), !single && !next.pids.empty());
     process_choices = std::move(next);
     process_choices_pending = false;
+}
+
+void MonitorWindow::Impl::SetProcessText(const wchar_t* text) noexcept {
+    const HWND combo = Child(Process);
+    if (!::SetWindowTextW(combo, text)) {
+        diagnostics.Record(2, L"Set process filter text", ::GetLastError());
+        return;
+    }
+    COMBOBOXINFO info{};
+    info.cbSize = sizeof(info);
+    if (!::GetComboBoxInfo(combo, &info) || !info.hwndItem) {
+        diagnostics.Record(2, L"Read process filter edit control", ::GetLastError());
+        return;
+    }
+    const int caret = ::GetWindowTextLengthW(info.hwndItem);
+    ::SendMessageW(
+        info.hwndItem, EM_SETSEL,
+        gsl::narrow_cast<WPARAM>(caret),
+        gsl::narrow_cast<LPARAM>(caret));
 }
 
 void MonitorWindow::Impl::Refilter() {

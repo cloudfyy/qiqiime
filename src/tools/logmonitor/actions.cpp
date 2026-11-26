@@ -276,9 +276,7 @@ void MonitorWindow::Impl::Command(int id, int notification) {
             diagnostic_view = false;
             filter = {};
             filter.activity_id = activity;
-            ::SetWindowTextW(
-                Child(Process),
-                AllProcessesText());
+            SetProcessText(AllProcessesText());
             ::SetWindowTextW(Child(Search), L"");
             ::SendMessageW(Child(Level), CB_SETCURSEL, 0, 0);
             ::SendMessageW(Child(Category), CB_SETCURSEL, 0, 0);
@@ -365,7 +363,7 @@ void MonitorWindow::Impl::Command(int id, int notification) {
         diagnostic_view = next_diagnostic;
         selected = 0;
         selected_ids.clear();
-        ::SetWindowTextW(Child(Process), L"");
+        SetProcessText(L"");
         filter.pid.reset();
         filter.activity_id.reset();
         filter.trace_id.reset();
@@ -391,8 +389,7 @@ void MonitorWindow::Impl::Command(int id, int notification) {
                     diagnostics.Record(2, L"Invalid process selection", ERROR_INVALID_DATA);
                     break;
                 }
-                ::SetWindowTextW(
-                    Child(Process),
+                SetProcessText(
                     index == 0
                         ? AllProcessesText()
                         : gsl::at(

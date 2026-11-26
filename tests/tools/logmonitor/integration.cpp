@@ -213,6 +213,7 @@ int Integration(const wchar_t* peer) try {
         ::SendMessageW(Child(window, Process), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(name_index), 0);
         ::SendMessageW(window.Handle(), WM_COMMAND, MAKEWPARAM(std::to_underlying(Process), CBN_SELCHANGE), 0);
         QIQI_TEST_CHECK(ControlText(Child(window, Process)) == own->process);
+        CheckComboEditCaretAtEnd(Child(window, Process));
         ::SetWindowTextW(Child(window, Search), L"filter-parent");
         QIQI_TEST_CHECK(ListView_GetItemCount(Child(window, List)) == 0);
         log::WriteLogMessage(log::Level::info, "filter-parent",

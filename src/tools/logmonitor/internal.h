@@ -185,6 +185,7 @@ struct MonitorWindow::Impl {
     void UpdateDpi(UINT dpi, const RECT& proposed) noexcept;
     void RecoverDisplay() noexcept;
     void RefreshProcessChoices(bool force = false);
+    void SetProcessText(const wchar_t* text) noexcept;
     void Refilter();
     void SyncSelectionFromList();
     void SelectAllRows();

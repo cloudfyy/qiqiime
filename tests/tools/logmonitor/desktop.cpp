@@ -223,6 +223,11 @@ void TestDesktopIntegration() {
         ControlText(
             Child(window, Process)) ==
         L"All");
+    ::SendMessageW(Child(window, Process), CB_SETCURSEL, 0, 0);
+    ::SendMessageW(
+        window.Handle(), WM_COMMAND,
+        MAKEWPARAM(std::to_underlying(Process), CBN_SELCHANGE), 0);
+    CheckComboEditCaretAtEnd(Child(window, Process));
     QIQI_TEST_CHECK(CommandName(window, Clear) == L"Clear");
     QIQI_TEST_CHECK(CommandName(window, Copy) == L"Copy");
     QIQI_TEST_CHECK(CommandName(window, LanguageEn) == GetUiStrings(UiLanguage::EnUs).dlg_lang_en);

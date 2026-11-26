@@ -82,6 +82,16 @@ void CheckComboEditFont(HWND combo, UINT dpi) {
     QIQI_TEST_CHECK(metrics.tmHeight <= rect.bottom - rect.top);
 }
 
+void CheckComboEditCaretAtEnd(HWND combo) {
+    const int length = ::GetWindowTextLengthW(combo);
+    const LRESULT selection = ::SendMessageW(
+        combo, CB_GETEDITSEL, 0, 0);
+    QIQI_TEST_CHECK(selection != CB_ERR);
+    QIQI_TEST_CHECK(
+        LOWORD(selection) == length &&
+        HIWORD(selection) == length);
+}
+
 std::wstring ReadClipboardText(HWND owner) {
     const qiqi::test::ScopedTestClipboard clip(owner);
     if (!clip) qiqi::test::ReportClipboardSetupFailure(clip.Error());

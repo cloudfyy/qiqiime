@@ -53,6 +53,7 @@ using qiqi::test::ControlText;
 void SelectLanguage(const MonitorWindow& window, UiLanguage language) noexcept;
 void CheckSaveConfig(const QiQiConfig& config);
 void CheckComboEditFont(HWND combo, UINT dpi);
+void CheckComboEditCaretAtEnd(HWND combo);
 std::wstring ReadClipboardText(HWND owner = nullptr);
 void TestDarkHeader(HWND list);
 int IconWidth(HICON icon);
