@@ -203,13 +203,14 @@ broker retry.
   unavailable across the integrity boundary. The client serializes handoff,
   releases the existing proxy, stops the Low server, starts the Broker
   executable next to the calling module, waits for its Ready/Writable events,
-  and retries once. Split-token elevated callers use their linked
-  non-elevated token. Unsplittable High/Medium-Plus tokens are duplicated and
-  converted with `CreateRestrictedToken(LUA_TOKEN)` and explicitly lowered to
-  Medium integrity. The restricted primary token avoids requiring
-  `SeAssignPrimaryToken`, and startup verifies the resulting RID before
-  launching the replacement Broker. AppContainer clients do not perform this
-  process handoff.
+  and retries once. The replacement Broker is created suspended using the
+  caller's desktop identity. Before its first user-mode instruction, the
+  child token is lowered to Medium integrity, Administrators is changed to
+  deny-only when present, and unnecessary privileges are disabled. The launch
+  token is queried to verify RID 8192, then the primary thread is resumed.
+  This path does not depend on linked-token APIs or
+  `SeAssignPrimaryToken`. AppContainer clients do not perform this process
+  handoff.
 - No method accepts arbitrary registry paths, arbitrary file paths, COM
   commands, or ACL changes.
 - A process not carrying one of the allowed principals receives

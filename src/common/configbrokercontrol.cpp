@@ -13,7 +13,9 @@
 #include <array>
 #include <filesystem>
 #include <format>
+#include <limits>
 #include <new>
+#include <span>
 #include <stdexcept>
 #include <system_error>
 #include <vector>
@@ -191,134 +193,157 @@ HRESULT EnsureMediumIntegrity(
               ERROR_BAD_TOKEN_TYPE);
 }
 
-HRESULT DuplicateMediumPrimaryToken(
-    HANDLE source,
-    ScopedKernelHandle& output) noexcept {
-    output.Reset();
-    if (!::DuplicateTokenEx(
-            source,
-            TOKEN_ASSIGN_PRIMARY |
-                TOKEN_DUPLICATE |
-                TOKEN_QUERY |
-                TOKEN_ADJUST_DEFAULT,
-            nullptr,
-            SecurityImpersonation,
-            TokenPrimary,
-            output.Put())) {
+HRESULT PrepareBrokerProcessToken(
+    HANDLE process) noexcept {
+    ScopedKernelHandle token;
+    if (!::OpenProcessToken(
+            process,
+            TOKEN_QUERY |
+                TOKEN_ADJUST_DEFAULT |
+                TOKEN_ADJUST_GROUPS |
+                TOKEN_ADJUST_PRIVILEGES,
+            token.Put())) {
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
-    return EnsureMediumIntegrity(
-        output.Get());
-}
-
-HRESULT CreateRestrictedMediumPrimaryToken(
-    HANDLE source,
-    ScopedKernelHandle& output) noexcept {
-    output.Reset();
-    ScopedKernelHandle restricted;
-    if (!::CreateRestrictedToken(
-            source,
-            LUA_TOKEN,
-            0,
-            nullptr,
-            0,
-            nullptr,
-            0,
-            nullptr,
-            restricted.Put())) {
-        return HRESULT_FROM_WIN32(
-            ::GetLastError());
-    }
-    const HRESULT result =
+    HRESULT result =
         EnsureMediumIntegrity(
-            restricted.Get());
+            token.Get());
     if (FAILED(result)) {
         return result;
     }
-    output.Reset(
-        restricted.Detach());
-    return S_OK;
-}
 
-HRESULT OpenMediumBrokerLaunchToken(
-    ScopedKernelHandle& output) noexcept {
-    output.Reset();
-    ScopedKernelHandle current_token;
-    if (!::OpenProcessToken(
-            ::GetCurrentProcess(),
-            TOKEN_QUERY |
-                TOKEN_DUPLICATE |
-                TOKEN_ASSIGN_PRIMARY |
-                TOKEN_ADJUST_DEFAULT,
-            current_token.Put())) {
+    PSID administrators = nullptr;
+    if (!::ConvertStringSidToSidW(
+            L"S-1-5-32-544",
+            &administrators)) {
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
-    TOKEN_ELEVATION_TYPE elevation_type =
-        TokenElevationTypeDefault;
-    DWORD length = 0;
-    if (!::GetTokenInformation(
-            current_token.Get(),
-            TokenElevationType,
-            &elevation_type,
-            sizeof(elevation_type),
-            &length)) {
+    const ScopedLocalAlloc
+        administrators_owner(
+            administrators);
+    DWORD groups_size = 0;
+    if (::GetTokenInformation(
+            token.Get(),
+            TokenGroups,
+            nullptr,
+            0,
+            &groups_size)) {
+        return E_UNEXPECTED;
+    }
+    if (::GetLastError() !=
+        ERROR_INSUFFICIENT_BUFFER) {
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
-    const bool linked =
-        elevation_type ==
-        TokenElevationTypeFull;
-    if (linked) {
-        ScopedKernelHandle linked_token;
-        TOKEN_LINKED_TOKEN linked_info{};
+    bool member = false;
+    try {
+        std::vector<uint8_t>
+            groups_buffer(
+                groups_size);
         if (!::GetTokenInformation(
-                current_token.Get(),
-                TokenLinkedToken,
-                &linked_info,
-                sizeof(linked_info),
-                &length)) {
+                token.Get(),
+                TokenGroups,
+                groups_buffer.data(),
+                groups_size,
+                &groups_size)) {
             return HRESULT_FROM_WIN32(
                 ::GetLastError());
         }
-        linked_token.Reset(
-            linked_info.LinkedToken);
-        const HRESULT result =
-            DuplicateMediumPrimaryToken(
-                linked_token.Get(),
-                output);
-        if (FAILED(result)) {
-            return result;
+        const auto* groups =
+            reinterpret_cast<
+                const TOKEN_GROUPS*>(
+                    groups_buffer.data());
+        const std::span<
+            const SID_AND_ATTRIBUTES>
+            entries(
+                groups->Groups,
+                groups->GroupCount);
+        member =
+            std::ranges::any_of(
+                entries,
+                [administrators](
+                    const SID_AND_ATTRIBUTES&
+                        entry) noexcept {
+                    return ::EqualSid(
+                        entry.Sid,
+                        administrators) != FALSE;
+                });
+    } catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    } catch (
+        const std::length_error&) {
+        return HRESULT_FROM_WIN32(
+            ERROR_ARITHMETIC_OVERFLOW);
+    }
+    if (member) {
+        TOKEN_GROUPS group{};
+        group.GroupCount = 1;
+        group.Groups[0].Sid =
+            administrators;
+        group.Groups[0].Attributes =
+            SE_GROUP_USE_FOR_DENY_ONLY;
+        if (!::AdjustTokenGroups(
+                token.Get(),
+                FALSE,
+                &group,
+                0,
+                nullptr,
+                nullptr)) {
+            return HRESULT_FROM_WIN32(
+                ::GetLastError());
         }
-    } else {
-        DWORD integrity_rid = 0;
-        const HRESULT integrity_result =
-            TokenIntegrityRid(
-                current_token.Get(),
-                integrity_rid);
-        if (FAILED(integrity_result)) {
-            return integrity_result;
-        }
-        if (integrity_rid <
-            SECURITY_MANDATORY_MEDIUM_RID) {
-            return E_ACCESSDENIED;
-        }
-        const HRESULT result =
-            CreateRestrictedMediumPrimaryToken(
-                current_token.Get(),
-                output);
-        if (FAILED(result)) {
-            return result;
-        }
+    }
+
+    if (!::AdjustTokenPrivileges(
+            token.Get(),
+            TRUE,
+            nullptr,
+            0,
+            nullptr,
+            nullptr)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    LUID change_notify{};
+    if (!::LookupPrivilegeValueW(
+            nullptr,
+            SE_CHANGE_NOTIFY_NAME,
+            &change_notify)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    TOKEN_PRIVILEGES traverse{};
+    traverse.PrivilegeCount = 1;
+    traverse.Privileges[0].Luid =
+        change_notify;
+    traverse.Privileges[0].Attributes =
+        SE_PRIVILEGE_ENABLED;
+    if (!::AdjustTokenPrivileges(
+            token.Get(),
+            FALSE,
+            &traverse,
+            0,
+            nullptr,
+            nullptr)) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    const DWORD privilege_error =
+        ::GetLastError();
+    if (privilege_error !=
+        ERROR_SUCCESS) {
+        return HRESULT_FROM_WIN32(
+            privilege_error);
     }
     QIQI_LOG_CAT_INFO(
         log::Keyword::Config,
-        "Replacement Broker will use a "
-        "Medium-integrity {} token",
-        linked
-            ? "linked"
-            : "lowered");
+        "Replacement Broker token "
+        "prepared (integrity_rid={}, "
+        "admin_deny_only={})",
+        SECURITY_MANDATORY_MEDIUM_RID,
+        member);
     return S_OK;
 }
 
@@ -381,50 +406,74 @@ HRESULT StartReplacementBroker(
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
-    ScopedKernelHandle launch_token;
-    const HRESULT token_result =
-        OpenMediumBrokerLaunchToken(
-            launch_token);
-    if (FAILED(token_result)) {
-        return token_result;
-    }
     const BOOL created =
-        launch_token
-            ? ::CreateProcessAsUserW(
-                  launch_token.Get(),
-                  broker_path.c_str(),
-                  command.data(),
-                  nullptr,
-                  nullptr,
-                  FALSE,
-                  CREATE_NO_WINDOW,
-                  nullptr,
-                  broker_path
-                      .parent_path()
-                      .c_str(),
-                  &startup,
-                  &process)
-            : ::CreateProcessW(
-                  broker_path.c_str(),
-                  command.data(),
-                  nullptr,
-                  nullptr,
-                  FALSE,
-                  CREATE_NO_WINDOW,
-                  nullptr,
-                  broker_path
-                      .parent_path()
-                      .c_str(),
-                  &startup,
-                  &process);
+        ::CreateProcessW(
+            broker_path.c_str(),
+            command.data(),
+            nullptr,
+            nullptr,
+            FALSE,
+            CREATE_NO_WINDOW |
+                CREATE_SUSPENDED,
+            nullptr,
+            broker_path
+                .parent_path()
+                .c_str(),
+            &startup,
+            &process);
     if (!created) {
-        return HRESULT_FROM_WIN32(
-            ::GetLastError());
+        const HRESULT create_result =
+            HRESULT_FROM_WIN32(
+                ::GetLastError());
+        QIQI_LOG_CAT_ERROR(
+            log::Keyword::Config,
+            "Replacement Broker process "
+            "creation failed "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<
+                unsigned long>(
+                create_result));
+        return create_result;
     }
     const ScopedKernelHandle thread(
         process.hThread);
     const ScopedKernelHandle child(
         process.hProcess);
+    HRESULT prepare_result =
+        PrepareBrokerProcessToken(
+            child.Get());
+    if (FAILED(prepare_result)) {
+        QIQI_LOG_CAT_ERROR(
+            log::Keyword::Config,
+            "Replacement Broker token "
+            "preparation failed "
+            "(hr=0x{:08X})",
+            gsl::narrow_cast<
+                unsigned long>(
+                prepare_result));
+        ::TerminateProcess(
+            child.Get(),
+            ERROR_ACCESS_DENIED);
+        return prepare_result;
+    }
+    if (::ResumeThread(
+            thread.Get()) ==
+        (std::numeric_limits<DWORD>::max)()) {
+        prepare_result =
+            HRESULT_FROM_WIN32(
+                ::GetLastError());
+        QIQI_LOG_CAT_ERROR(
+            log::Keyword::Config,
+            "Replacement Broker resume "
+            "failed (hr=0x{:08X})",
+            gsl::narrow_cast<
+                unsigned long>(
+                prepare_result));
+        ::TerminateProcess(
+            child.Get(),
+            ERROR_ACCESS_DENIED);
+        return prepare_result;
+    }
     const std::wstring writable_name =
         BrokerSessionObjectName(
             L"ConfigBrokerWritable",
