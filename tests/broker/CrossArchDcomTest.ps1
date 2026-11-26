@@ -57,13 +57,20 @@ $previousDiagnosticLog = [Environment]::GetEnvironmentVariable(
     'QIQI_CONFIG_BROKER_DIAGNOSTIC_LOG',
     'Process')
 
+$installedMachineRegistration =
+    Test-QiQiBrokerMachineRegistrationPresent
 $useMachineRegistration =
-    Test-QiQiAdministrator
+    (Test-QiQiAdministrator) -and
+    -not $installedMachineRegistration
 if ($useMachineRegistration) {
     Assert-QiQiBrokerMachineRegistrationAbsent `
         -FailurePrefix (
             'Elevated cross-architecture test refuses to ' +
             'overwrite an existing machine registration:')
+} elseif ($installedMachineRegistration) {
+    Write-Host (
+        'Installed machine Broker registration detected; ' +
+        'cross-architecture test will use an isolated per-user registration.')
 }
 
 try {
@@ -180,5 +187,11 @@ try {
         Assert-QiQiBrokerMachineRegistrationAbsent `
             -FailurePrefix (
                 'Broker unregister left a machine registration:')
+    } elseif ($installedMachineRegistration -and
+            -not (
+                Test-QiQiBrokerMachineRegistrationPresent)) {
+        throw (
+            'Cross-architecture cleanup removed the installed ' +
+            'machine Broker registration.')
     }
 }

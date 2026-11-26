@@ -51,12 +51,8 @@ $previousTestStoreSubkey = [Environment]::GetEnvironmentVariable(
     'QIQI_CONFIG_BROKER_TEST_STORE_SUBKEY',
     'Process')
 $appid = '{8E7B9D31-5A42-4C81-9F11-20261029000E}'
-$clsid = '{8E7B9D31-5A42-4C81-9F11-20261029000D}'
 $installedMachineRegistration =
-    Test-Path `
-        -LiteralPath (
-            "Registry::HKEY_LOCAL_MACHINE\" +
-            "SOFTWARE\Classes\CLSID\$clsid\LocalServer32")
+    Test-QiQiBrokerMachineRegistrationPresent
 $isAdministrator =
     Test-QiQiAdministrator
 if ($AutomaticActivation -and
