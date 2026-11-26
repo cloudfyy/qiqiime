@@ -102,14 +102,16 @@ void TestSelectionAndTiming() {
     QIQI_TEST_CHECK(SelectMetricTiming(summary, gsl::narrow_cast<metrics::Outcome>(255), timing) == ERROR_INVALID_PARAMETER);
     QIQI_TEST_CHECK(timing.Samples() == 1 && timing.Maximum() == 11);
     QIQI_TEST_CHECK(SelectMetricTiming(summary, metrics::Outcome::Cancelled, timing) == ERROR_SUCCESS && timing.Samples() == 0 && !timing.Maximum());
-    uint64_t denominator = 42;
-    QIQI_TEST_CHECK(summary.FailureDenominator(denominator) == ERROR_SUCCESS && denominator == 3);
+    auto denominator = summary.FailureDenominator();
+    QIQI_TEST_CHECK(denominator && *denominator == 3);
     QIQI_TEST_CHECK(summary.FailureRate() == 1.0 / 3.0);
     gsl::at(summary.outcomes, std::to_underlying(metrics::Outcome::Success)) = kExportService;
-    QIQI_TEST_CHECK(summary.FailureDenominator(denominator) == ERROR_ARITHMETIC_OVERFLOW && denominator == 3);
+    denominator = summary.FailureDenominator();
+    QIQI_TEST_CHECK(!denominator && denominator.error() == ERROR_ARITHMETIC_OVERFLOW);
     QIQI_TEST_CHECK(!summary.FailureRate());
     summary = {};
-    QIQI_TEST_CHECK(summary.FailureDenominator(denominator) == ERROR_SUCCESS && denominator == 0 && !summary.FailureRate());
+    denominator = summary.FailureDenominator();
+    QIQI_TEST_CHECK(denominator && *denominator == 0 && !summary.FailureRate());
     QIQI_TEST_CHECK(summary.success.Observe(7) == ERROR_SUCCESS);
     for (unsigned int i = 0; i < 63; ++i) {
         const auto previous = summary.success;

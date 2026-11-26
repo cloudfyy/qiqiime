@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <format>
 #include <new>
+#include <ranges>
 
 namespace qiqi::monitor {
 namespace {
@@ -153,10 +154,12 @@ void WriteSummary(JsonWriter& json, const MetricSummary& summary) {
     json.Append(",\"observed_terminals\":"); json.Number(summary.observed_terminals);
     json.Append(",\"pending_current\":"); json.Number(summary.pending);
     json.Append(",\"outcomes\":{");
-    for (size_t i = 0; i < kOutcomeNames.size(); ++i) {
-        if (i != 0) json.Append(",");
-        json.String(gsl::at(kOutcomeNames, i));
-        json.Append(":"); json.Number(gsl::at(summary.outcomes, i));
+    bool first_outcome = true;
+    for (const auto [name, count] : std::views::zip(kOutcomeNames, summary.outcomes)) {
+        if (!first_outcome) json.Append(",");
+        first_outcome = false;
+        json.String(name);
+        json.Append(":"); json.Number(count);
     }
     json.Append("},\"coverage\":{\"value\":"); json.OptionalNumber(summary.Coverage());
     json.Append(",\"numerator\":"); json.OptionalNumber(summary.cumulative ? std::optional(summary.observed_terminals) : std::nullopt);
@@ -165,10 +168,10 @@ void WriteSummary(JsonWriter& json, const MetricSummary& summary) {
     json.Append("},\"failure_rate\":{\"value\":"); json.OptionalNumber(summary.FailureRate());
     json.Append(",\"numerator\":"); json.Number(summary.Count(metrics::Outcome::Failure));
     json.Append(",\"denominator\":");
-    uint64_t denominator = 0;
-    Check(summary.FailureDenominator(denominator));
-    json.Number(denominator);
-    json.Append(",\"state\":"); json.String(denominator == 0 ? "no_denominator" : "value");
+    const auto denominator = summary.FailureDenominator();
+    Check(denominator ? ERROR_SUCCESS : denominator.error());
+    json.Number(*denominator);
+    json.Append(",\"state\":"); json.String(*denominator == 0 ? "no_denominator" : "value");
     json.Append("},\"errors\":[");
     Check(summary.error_count > summary.errors.size() ? ERROR_INVALID_DATA : ERROR_SUCCESS);
     bool first = true;

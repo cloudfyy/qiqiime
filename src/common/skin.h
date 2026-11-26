@@ -5,6 +5,7 @@
 
 #include "common/theme.h"
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace qiqi {
@@ -15,7 +16,7 @@ enum class SkinColor {
     PageEnabledText, PageDisabledText, MenuHoverBackground, MenuHoverText, Count
 };
 
-inline constexpr size_t kSkinColorCount = static_cast<size_t>(SkinColor::Count);
+inline constexpr size_t kSkinColorCount = gsl::narrow_cast<size_t>(std::to_underlying(SkinColor::Count));
 inline constexpr std::array<const wchar_t*, kSkinColorCount> kSkinColorNames{
     L"Background", L"Border", L"CodeText", L"CandidateText", L"SecondaryText",
     L"SelectedBackground", L"SelectedText", L"SelectedBorder", L"EmptyText",
@@ -39,7 +40,7 @@ struct SkinPalette {
     std::array<COLORREF, kSkinColorCount> colors{};
 
     constexpr COLORREF Get(SkinColor color) const noexcept {
-        return gsl::at(colors, static_cast<size_t>(color));
+        return gsl::at(colors, gsl::narrow_cast<size_t>(std::to_underlying(color)));
     }
     bool operator==(const SkinPalette&) const noexcept = default;
 };

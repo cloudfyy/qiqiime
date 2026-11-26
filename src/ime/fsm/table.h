@@ -17,14 +17,14 @@ concept CountedFsmEnum =
     std::is_scoped_enum_v<T> &&
     requires {
         {
-            static_cast<size_t>(T::Count)
+            std::to_underlying(T::Count)
         } -> std::convertible_to<size_t>;
     };
 
 template <CountedFsmEnum State, CountedFsmEnum Event, typename Result>
 using FsmTable = std::array<
-    std::array<Result, static_cast<size_t>(Event::Count)>,
-    static_cast<size_t>(State::Count)>;
+    std::array<Result, std::to_underlying(Event::Count)>,
+    std::to_underlying(State::Count)>;
 
 template <CountedFsmEnum State, CountedFsmEnum Event, typename Result>
 [[nodiscard]] constexpr FsmTable<State, Event, Result>
@@ -52,8 +52,8 @@ template <CountedFsmEnum State, CountedFsmEnum Event, typename Result>
     noexcept(std::is_nothrow_copy_constructible_v<Result>) {
     const size_t state_index = std::to_underlying(state);
     const size_t event_index = std::to_underlying(event);
-    if (state_index >= static_cast<size_t>(State::Count) ||
-        event_index >= static_cast<size_t>(Event::Count)) {
+    if (state_index >= gsl::narrow_cast<size_t>(std::to_underlying(State::Count)) ||
+        event_index >= gsl::narrow_cast<size_t>(std::to_underlying(Event::Count))) {
         return std::nullopt;
     }
     return gsl::at(gsl::at(table, state_index), event_index);

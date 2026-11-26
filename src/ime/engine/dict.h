@@ -24,7 +24,7 @@
 namespace qiqi {
 
 inline void AppendUniqueWord(std::vector<std::wstring>& list, std::wstring_view word) {
-    if (std::find(list.begin(), list.end(), word) == list.end()) {
+    if (!std::ranges::contains(list, word)) {
         list.emplace_back(word);
     }
 }

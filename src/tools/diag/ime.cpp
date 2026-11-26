@@ -10,18 +10,15 @@
 #include <gsl/gsl>
 #include <filesystem>
 #include <format>
-#include <bit>
-#include <type_traits>
+#include <ranges>
 #include <utility>
 
 namespace qiqi::diag::detail {
 
 Json SkinPaletteJson(const SkinPalette& palette) {
     Json output = Json::object();
-    for (size_t index = 0; index < kSkinColorCount; ++index) {
-        const COLORREF color =
-            palette.Get(std::bit_cast<SkinColor>(gsl::narrow_cast<std::underlying_type_t<SkinColor>>(index)));
-        output[WideToUtf8(gsl::at(kSkinColorNames, index))] =
+    for (const auto [name, color] : std::views::zip(kSkinColorNames, palette.colors)) {
+        output[WideToUtf8(name)] =
             std::format("#{:02X}{:02X}{:02X}", GetRValue(color), GetGValue(color), GetBValue(color));
     }
     return output;

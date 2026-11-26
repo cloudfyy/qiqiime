@@ -11,11 +11,13 @@
 #include <filesystem>
 #include <gsl/gsl>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace qiqi {
@@ -68,15 +70,16 @@ inline constexpr std::array<std::string_view, 22> kImeSkinIds{
 };
 
 constexpr std::string_view ImeSkinIdToString(ImeSkinId id) noexcept {
-    const auto index = static_cast<size_t>(id);
+    const auto index = std::to_underlying(id);
     return index < kImeSkinIds.size() ? gsl::at(kImeSkinIds, index) : std::string_view{};
 }
 
 template <typename Character>
 constexpr std::optional<ImeSkinId> ParseImeSkinId(std::basic_string_view<Character> text) noexcept {
-    for (size_t index = 0; index < kImeSkinIds.size(); ++index) {
-        if (std::ranges::equal(text, gsl::at(kImeSkinIds, index))) {
-            return static_cast<ImeSkinId>(index);
+    for (const auto [index, id] : std::views::enumerate(kImeSkinIds)) {
+        if (std::ranges::equal(text, id)) {
+            return ImeSkinId{
+                gsl::narrow_cast<std::underlying_type_t<ImeSkinId>>(index)};
         }
     }
     return std::nullopt;

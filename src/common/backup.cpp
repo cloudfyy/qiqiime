@@ -171,11 +171,11 @@ HRESULT ParseDictionary(
                             continue;
                         }
                     }
-                    if (std::ranges::find(words, word) == words.end()) {
+                    if (!std::ranges::contains(words, word)) {
                         words.emplace_back(word);
                     }
                 }
-            } else if (std::ranges::find(words, first) == words.end()) {
+            } else if (!std::ranges::contains(words, first)) {
                 words.emplace_back(first);
             }
         }

@@ -524,7 +524,8 @@ KeyProcessResult WubiEngine::ProcessKey(
     uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down,
     bool caps_lock_on, bool allow_learn, bool defer_phrase_promotion) {
     // Compile-time Command dispatch table indexed directly by TransitionOp
-    static constexpr std::array<ActionHandler, static_cast<size_t>(TransitionOp::Count)> kActionHandlers = {
+    static constexpr std::array<ActionHandler,
+        gsl::narrow_cast<size_t>(std::to_underlying(TransitionOp::Count))> kActionHandlers = {
         &WubiEngine::HandlePassThrough,           // 0: PassThrough
         &WubiEngine::HandleAppendCode,            // 1: AppendCode
         &WubiEngine::HandleAppend4thCode,         // 2: Append4thCode
@@ -555,15 +556,16 @@ KeyProcessResult WubiEngine::ProcessKey(
     const TransitionRule rule = EvaluateKeyTransition(state_before, vk, shift_down, ctrl_down, alt_down, caps_lock_on);
     const KeyInputContext ctx{vk, shift_down, caps_lock_on, allow_learn, defer_phrase_promotion};
     KeyProcessResult result = ExecuteTransition([this, &ctx, &rule] {
-        return (this->*gsl::at(kActionHandlers, static_cast<size_t>(rule.op)))(ctx);
+        return (this->*gsl::at(kActionHandlers,
+            gsl::narrow_cast<size_t>(std::to_underlying(rule.op))))(ctx);
     });
     if (rule.op != TransitionOp::PassThrough) {
         QIQI_LOG_CAT_TRACE(
             log::Keyword::Input,
             "FSM transition: state_before={} -> op={} state_after={}",
-            static_cast<unsigned int>(state_before),
-            static_cast<unsigned int>(rule.op),
-            static_cast<unsigned int>(state_));
+            std::to_underlying(state_before),
+            std::to_underlying(rule.op),
+            std::to_underlying(state_));
     }
     return result;
 }

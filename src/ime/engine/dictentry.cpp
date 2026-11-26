@@ -17,7 +17,7 @@ using dictdetail::SplitUtf16Codepoints;
 
 bool WubiEngine::IsEntryRemoved(uint32_t packed_code, std::wstring_view word) const {
     if (const auto it = removed_entries_.find(packed_code); it != removed_entries_.end()) {
-        return std::find(it->second.begin(), it->second.end(), word) != it->second.end();
+        return std::ranges::contains(it->second, word);
     }
     return false;
 }

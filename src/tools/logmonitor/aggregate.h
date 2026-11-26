@@ -4,6 +4,7 @@
 #pragma once
 
 #include "tools/logmonitor/metric.h"
+#include <expected>
 #include <memory>
 #include <span>
 
@@ -75,8 +76,8 @@ struct MetricSummary {
     uint64_t other_errors = 0;
     bool cumulative = true;
     uint64_t Count(metrics::Outcome outcome) const noexcept;
-    // Overflow leaves result unchanged; zero is a valid denominator.
-    ULONG FailureDenominator(uint64_t& result) const noexcept;
+    // Zero is a valid denominator; overflow is returned as the Win32 error value.
+    [[nodiscard]] std::expected<uint64_t, ULONG> FailureDenominator() const noexcept;
     std::optional<double> FailureRate() const noexcept;
     std::optional<double> Coverage() const noexcept;
     ULONG Merge(const MetricSummary& other) noexcept;

@@ -118,8 +118,8 @@ using WubiFsmTable = FsmTable<EngineState, KeyEventKind, TransitionRule>;
 
 constexpr WubiFsmTable BuildWubiFsmTable() noexcept {
     WubiFsmTable table{};
-    for (size_t s = 0; s < static_cast<size_t>(EngineState::Count); ++s) {
-        for (size_t e = 0; e < static_cast<size_t>(KeyEventKind::Count); ++e) {
+    for (size_t s = 0; s < gsl::narrow_cast<size_t>(std::to_underlying(EngineState::Count)); ++s) {
+        for (size_t e = 0; e < gsl::narrow_cast<size_t>(std::to_underlying(KeyEventKind::Count)); ++e) {
             gsl::at(gsl::at(table, s), e) = ComputeTransitionRule(
                 static_cast<EngineState>(s), static_cast<KeyEventKind>(e));
         }

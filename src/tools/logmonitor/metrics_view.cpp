@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <format>
 #include <limits>
+#include <ranges>
 #include <system_error>
 
 namespace qiqi::monitor {
@@ -121,8 +122,9 @@ void MonitorWindow::Impl::ApplyMetricLanguage() {
         std::pair{MetricOutcomeLabel, Text(L"结果", L"Outcome")}, std::pair{MetricModeLabel, Text(L"模式", L"Mode")},
         std::pair{MetricWindowLabel, Text(L"时间窗口", L"Window")}}) ::SetWindowTextW(Child(id), text);
     const auto replace = [&](ControlId id, const auto& choices, auto name) {
-        std::vector<const wchar_t*> items{Text(L"全部", L"All")};
-        for (const auto choice : choices) items.push_back((this->*name)(choice));
+        auto items = std::ranges::to<std::vector<const wchar_t*>>(
+            choices | std::views::transform([&](const auto choice) { return (this->*name)(choice); }));
+        items.insert(items.begin(), Text(L"全部", L"All"));
         ReplaceMetricItems(Child(id), items);
     };
     replace(MetricKindFilter, kMetricKinds, &Impl::MetricName);
@@ -155,9 +157,8 @@ void MonitorWindow::Impl::RefreshMetricInstances(bool force) {
         if (metric_instance_filter && same_identity(instance_info, *metric_instance_filter))
             selected_index = gsl::narrow_cast<int>(strings.size() - 1);
     }
-    std::vector<const wchar_t*> items;
-    items.reserve(strings.size());
-    for (const auto& text : strings) items.push_back(text.c_str());
+    const auto items = std::ranges::to<std::vector<const wchar_t*>>(
+        strings | std::views::transform([](const std::wstring& text) { return text.c_str(); }));
     ReplaceMetricItems(Child(MetricInstanceFilter), items);
     ::SendMessageW(Child(MetricInstanceFilter), CB_SETCURSEL, gsl::narrow_cast<WPARAM>(selected_index), 0);
     if (selected_index == 0) metric_instance_filter.reset();

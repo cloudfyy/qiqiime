@@ -390,7 +390,7 @@ void PopulateSettingsSkinCombo(HWND hwnd, DialogContext& context) noexcept {
     add(ImeSkinId::Default);
     if (!context.skin_catalog.skins.empty()) for (const auto id : kCommonImeSkins) add(id);
     const auto choices = std::span(context.quick_skin_choices).first(context.quick_skin_count);
-    if (std::ranges::find(choices, context.preview_skin_id) == choices.end()) add(context.preview_skin_id);
+    if (!std::ranges::contains(choices, context.preview_skin_id)) add(context.preview_skin_id);
     std::array<const wchar_t*, 8> names{};
     for (size_t i = 0; i < context.quick_skin_count; ++i)
         gsl::at(names, i) = ImeSkinDisplayName(context.skin_catalog,

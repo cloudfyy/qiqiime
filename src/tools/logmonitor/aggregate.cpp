@@ -10,6 +10,7 @@
 #include <map>
 #include <memory_resource>
 #include <new>
+#include <ranges>
 #include <tuple>
 
 namespace qiqi::monitor {
@@ -122,7 +123,9 @@ ULONG MetricHistogram::Observe(uint64_t duration_ns, uint64_t threshold_ns) noex
 
 ULONG MetricHistogram::Merge(const MetricHistogram& other) noexcept {
     if (other.samples_ > (std::numeric_limits<uint64_t>::max)() - samples_) return ERROR_ARITHMETIC_OVERFLOW;
-    for (size_t index = 0; index < buckets_.size(); ++index) gsl::at(buckets_, index) += gsl::at(other.buckets_, index);
+    for (auto&& [bucket, other_bucket] : std::views::zip(buckets_, other.buckets_)) {
+        bucket += other_bucket;
+    }
     samples_ += other.samples_;
     maximum_ = (std::max)(maximum_, other.maximum_);
     over_threshold_ += other.over_threshold_;
@@ -159,17 +162,18 @@ MetricQuantile MetricHistogram::Quantile(unsigned int percentile) const noexcept
 uint64_t MetricSummary::Count(metrics::Outcome outcome) const noexcept {
     return gsl::at(outcomes, std::to_underlying(outcome));
 }
-ULONG MetricSummary::FailureDenominator(uint64_t& result) const noexcept {
+std::expected<uint64_t, ULONG> MetricSummary::FailureDenominator() const noexcept {
     const uint64_t success_count = Count(metrics::Outcome::Success);
     const uint64_t failure_count = Count(metrics::Outcome::Failure);
-    if (failure_count > (std::numeric_limits<uint64_t>::max)() - success_count) return ERROR_ARITHMETIC_OVERFLOW;
-    result = success_count + failure_count;
-    return ERROR_SUCCESS;
+    if (failure_count > (std::numeric_limits<uint64_t>::max)() - success_count)
+        return std::unexpected(ERROR_ARITHMETIC_OVERFLOW);
+    return success_count + failure_count;
 }
 std::optional<double> MetricSummary::FailureRate() const noexcept {
-    uint64_t denominator = 0;
-    if (FailureDenominator(denominator) != ERROR_SUCCESS || denominator == 0) return std::nullopt;
-    return gsl::narrow_cast<double>(Count(metrics::Outcome::Failure)) / gsl::narrow_cast<double>(denominator);
+    const auto denominator = FailureDenominator();
+    if (!denominator || *denominator == 0) return std::nullopt;
+    return gsl::narrow_cast<double>(Count(metrics::Outcome::Failure)) /
+        gsl::narrow_cast<double>(*denominator);
 }
 std::optional<double> MetricSummary::Coverage() const noexcept {
     if (!cumulative || intents == 0 || observed_terminals > intents) return std::nullopt;
@@ -180,15 +184,17 @@ ULONG MetricSummary::Merge(const MetricSummary& other) noexcept {
     if (other.intents > maximum - intents || other.observed_terminals > maximum - observed_terminals ||
         other.pending > maximum - pending || other.success.Samples() > maximum - success.Samples() ||
         other.failure.Samples() > maximum - failure.Samples() || other.other_errors > maximum - other_errors) return ERROR_ARITHMETIC_OVERFLOW;
-    for (size_t index = 0; index < outcomes.size(); ++index) {
-        if (gsl::at(other.outcomes, index) > maximum - gsl::at(outcomes, index)) return ERROR_ARITHMETIC_OVERFLOW;
+    for (const auto [outcome_count, other_outcome_count] : std::views::zip(outcomes, other.outcomes)) {
+        if (other_outcome_count > maximum - outcome_count) return ERROR_ARITHMETIC_OVERFLOW;
     }
     std::ignore = success.Merge(other.success);
     std::ignore = failure.Merge(other.failure);
     intents += other.intents;
     observed_terminals += other.observed_terminals;
     pending += other.pending;
-    for (size_t index = 0; index < outcomes.size(); ++index) gsl::at(outcomes, index) += gsl::at(other.outcomes, index);
+    for (auto&& [outcome_count, other_outcome_count] : std::views::zip(outcomes, other.outcomes)) {
+        outcome_count += other_outcome_count;
+    }
     for (const auto& error : std::span(other.errors).first(other.error_count)) std::ignore = AddError(*this, error.domain, error.code, error.count);
     other_errors += other.other_errors;
     cumulative = cumulative && other.cumulative;

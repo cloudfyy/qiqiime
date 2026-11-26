@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <functional>
 #include <string>
+#include <utility>
 
 #include "common/RAII.h"
 #include "common/uiutil.h"
@@ -37,7 +38,8 @@ public:
     static constexpr int kCellCount = 4;
     static constexpr int kBarWidth = kButtonsOffset + kCellWidth * kCellCount; // 166
     static constexpr int kBarHeight = 36;
-    static constexpr size_t kIconCount = static_cast<size_t>(StatusBarIconKind::Count);
+    static constexpr size_t kIconCount =
+        gsl::narrow_cast<size_t>(std::to_underlying(StatusBarIconKind::Count));
 
     // Evaluate whether normalized point (nx, ny) in [-1, 1]^2 lies inside the target icon shape.
     static bool HitTestStatusBarIcon(StatusBarIconKind kind, double nx, double ny) noexcept;

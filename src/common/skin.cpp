@@ -6,14 +6,16 @@
 #include "common/i18n.h"
 #include <cmath>
 #include <new>
+#include <ranges>
+#include <utility>
 
 namespace qiqi {
 namespace {
 
 constexpr SkinPalette MakePalette(const std::array<DWORD, kSkinColorCount>& values) noexcept {
     SkinPalette palette;
-    for (size_t i = 0; i < values.size(); ++i) {
-        gsl::at(palette.colors, i) = Rgb24ToColorRef(gsl::at(values, i));
+    for (auto&& [color, value] : std::views::zip(palette.colors, values)) {
+        color = Rgb24ToColorRef(value);
     }
     return palette;
 }
@@ -114,12 +116,12 @@ HRESULT ReadPalette(HKEY parent, const wchar_t* variant, SkinPalette& palette, H
     ScopedRegKey key;
     HRESULT result = OpenSkinKey(parent, variant, key, transaction);
     if (FAILED(result)) return result;
-    for (size_t index = 0; index < kSkinColorCount; ++index) {
+    for (auto&& [name, color] : std::views::zip(kSkinColorNames, palette.colors)) {
         DWORD value = 0;
-        result = ReadRegistryDwordResult(key.Get(), gsl::at(kSkinColorNames, index), value);
+        result = ReadRegistryDwordResult(key.Get(), name, value);
         if (FAILED(result)) return result;
         if ((value & 0xff000000u) != 0) return kInvalidSkinData;
-        gsl::at(palette.colors, index) = Rgb24ToColorRef(value);
+        color = Rgb24ToColorRef(value);
     }
     return CheckKeyShape(key.Get(), 0, gsl::narrow_cast<DWORD>(kSkinColorCount));
 }
@@ -175,9 +177,8 @@ HRESULT WritePalette(HKEY parent, const wchar_t* variant, const SkinPalette& pal
     ScopedRegKey key;
     HRESULT result = CreateSkinKey(parent, variant, key, transaction);
     if (FAILED(result)) return result;
-    for (size_t index = 0; index < kSkinColorCount; ++index) {
-        result = WriteRegistryDwordResult(key.Get(), gsl::at(kSkinColorNames, index),
-            ColorRefToRgb24(gsl::at(palette.colors, index)));
+    for (const auto [name, color] : std::views::zip(kSkinColorNames, palette.colors)) {
+        result = WriteRegistryDwordResult(key.Get(), name, ColorRefToRgb24(color));
         if (FAILED(result)) return result;
     }
     return S_OK;
@@ -262,7 +263,7 @@ HRESULT MakeBuiltinImeSkinCatalog(ImeSkinCatalog& output) noexcept {
         ImeSkinCatalog catalog{L"builtin-v1", {}};
         for (const auto& skin : kBuiltinSkins) {
             catalog.skins.push_back({skin.id, std::wstring(skin.name_zh), std::wstring(skin.name_en),
-                static_cast<DWORD>(skin.id), skin.palettes});
+                std::to_underlying(skin.id), skin.palettes});
         }
         const HRESULT result = ValidateImeSkinCatalog(catalog);
         if (SUCCEEDED(result)) output = std::move(catalog);
@@ -300,7 +301,7 @@ HRESULT ValidateImeSkinCatalog(const ImeSkinCatalog& catalog) noexcept {
     std::array<bool, 22> ids{};
     std::array<bool, 22> orders{};
     for (const auto& skin : catalog.skins) {
-        const auto id = static_cast<size_t>(skin.id);
+        const auto id = gsl::narrow_cast<size_t>(std::to_underlying(skin.id));
         if (id == 0 || id >= ids.size() || gsl::at(ids, id) ||
             skin.display_order == 0 || skin.display_order >= orders.size() ||
             gsl::at(orders, skin.display_order)) return kInvalidSkinData;

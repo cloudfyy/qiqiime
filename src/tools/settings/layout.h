@@ -375,7 +375,7 @@ void SelectSettingsPage(HWND hwnd, DialogContext& ctx, SettingsPage page) noexce
 void EnsureSettingsControlVisible(HWND hwnd, HWND child, DialogContext& ctx) noexcept {
     if (!child || ::GetParent(child) != hwnd || ctx.laying_out) return;
     const int id = ::GetDlgCtrlID(child);
-    if (std::ranges::find(SettingsPageControls(ctx.active_page), id) == SettingsPageControls(ctx.active_page).end()) return;
+    if (!std::ranges::contains(SettingsPageControls(ctx.active_page), id)) return;
     RECT bounds{};
     if (!::GetWindowRect(child, &bounds)) {
         QIQI_LOG_WARN("Settings focus bounds query failed (error={})", ::GetLastError());
