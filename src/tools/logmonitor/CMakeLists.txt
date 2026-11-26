@@ -8,7 +8,7 @@ set(QIQI_MONITOR_SOURCES
     export.h export.cpp
     permissions.h permissions.cpp
     window.h internal.h window.cpp
-    ui.cpp view.cpp actions.cpp metrics_view.cpp
+    ui.cpp view.cpp actions.cpp metrwnd.cpp
 )
 add_library(qiqi_log_monitor STATIC ${QIQI_MONITOR_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_MONITOR_SOURCES})

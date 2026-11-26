@@ -396,7 +396,7 @@ void MonitorWindow::Impl::UpdateMetricStatus() {
             ERROR_ARITHMETIC_OVERFLOW : ERROR_SUCCESS, "Metric display sample count");
         samples += row.samples;
     }
-    const auto text = std::format(L"{} | {}: {} | {} | {}: {} | {}: {}/{} | {}: {}\r\n"
+    auto text = std::format(L"{} | {}: {} | {} | {}: {} | {}: {}/{} | {}: {}\r\n"
         L"{} | {}: {} | {}: {}/{} | {}: {} | {}: {}/{}\r\n{}",
         status.active ? Text(L"指标采集中", L"Metrics capturing") :
             status.capture_generation == 0 ? Text(L"尚未采集指标", L"No metrics capture yet") : Text(L"指标已冻结", L"Metrics frozen"),
@@ -417,12 +417,16 @@ void MonitorWindow::Impl::UpdateMetricStatus() {
                 L"Capturing Logs only; stop and restart in Metrics view to capture Metrics.") :
             Text(L"在指标视图点击“开始采集”将采集 Logs + Metrics；其它视图启动只采集 Logs。",
                 L"Start in Metrics view to capture Logs + Metrics; starting in other views captures Logs only."));
-    ::SetWindowTextW(Child(MetricSummaryStatus), text.c_str());
+    SetControlTextIfChanged(
+        MetricSummaryStatus, std::move(text), metric_summary_text,
+        L"Update metric summary text");
     if (metrics_view) {
         auto footer = std::wstring(Text(L"导出保存当前指标筛选的 JSON 快照；不包含原始日志或进程身份。",
             L"Export saves a JSON snapshot of current metric filters; no raw logs or process identities."));
         if (!last_error.empty()) footer = std::wstring(Text(L"错误: ", L"ERROR: ")) + last_error;
-        ::SetWindowTextW(Child(Status), footer.c_str());
+        SetControlTextIfChanged(
+            Status, std::move(footer), status_text,
+            L"Update metric footer text");
     }
 }
 MetricExportSelection MonitorWindow::Impl::MetricSelectionForView() const noexcept {

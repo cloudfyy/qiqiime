@@ -257,6 +257,25 @@ void MonitorWindow::Impl::Tick() {
     UpdateStatus();
 }
 
+void MonitorWindow::Impl::SetControlTextIfChanged(
+    ControlId id,
+    std::wstring text,
+    std::wstring& displayed_text,
+    std::wstring_view operation) {
+    if (text == displayed_text) return;
+    const HWND control = Child(id);
+    if (!::SetWindowTextW(control, text.c_str())) {
+        const ULONG error = ::IsWindow(control) ?
+            ::GetLastError() :
+            ERROR_INVALID_WINDOW_HANDLE;
+        diagnostics.Record(
+            2, operation,
+            error ? error : ERROR_GEN_FAILURE);
+        return;
+    }
+    displayed_text = std::move(text);
+}
+
 void MonitorWindow::Impl::UpdateStatus() {
     RefreshCommandState();
     if (metrics_view) { UpdateMetricStatus(); return; }
@@ -268,7 +287,8 @@ void MonitorWindow::Impl::UpdateStatus() {
         Text(L"本地淘汰", L"Local eviction"), diagnostic_view ?
             tools.Evicted() + diagnostics.queue.Evicted() : events.Evicted() + pending.Evicted(),
         Text(L"ETW 丢失(事件/缓冲)", L"ETW lost(events/buffers)"), collector.events_lost.load(), collector.buffers_lost.load(),
-        Text(L"解码失败", L"Decode"), collector.decode_errors.load(), Text(L"内存异常", L"Memory"),
+        Text(L"解码失败", L"Decode"), collector.decode_errors.load(),
+        Text(L"内存分配错误", L"Alloc errors"),
         collector.allocation_errors.load() + diagnostics.allocation_errors.load());
     if (filter.activity_id.has_value()) {
         status = std::format(L"{}: {} | {}", Text(L"活动筛选", L"Activity filter"),
@@ -286,7 +306,9 @@ void MonitorWindow::Impl::UpdateStatus() {
                 status);
     }
     if (!last_error.empty()) status = std::wstring(Text(L"错误: ", L"ERROR: ")) + last_error + L" | " + status;
-    ::SetWindowTextW(Child(Status), status.c_str());
+    SetControlTextIfChanged(
+        Status, std::move(status), status_text,
+        L"Update monitor status text");
 }
 
 std::wstring MonitorWindow::Impl::Cell(const Event& event, int column) const {

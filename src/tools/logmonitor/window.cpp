@@ -81,12 +81,15 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
         }
     } catch (const std::bad_alloc&) {
         self->diagnostics.Record(2, L"GUI allocation failed", ERROR_NOT_ENOUGH_MEMORY);
+        self->status_text.clear();
         ::SetWindowTextW(self->Child(Status), self->Text(L"内存不足，请查看工具诊断。", L"Out of memory; see diagnostics."));
     } catch (const std::system_error& error) {
         self->diagnostics.Record(2, L"GUI/export system error", gsl::narrow_cast<ULONG>(error.code().value()));
+        self->status_text.clear();
         ::SetWindowTextW(self->Child(Status), self->Text(L"操作失败，请查看工具诊断；内存日志仍保留。", L"Operation failed; see diagnostics. Buffered records retained."));
     } catch (const std::exception&) {
         self->diagnostics.Record(2, L"GUI operation exception", ERROR_UNHANDLED_EXCEPTION);
+        self->status_text.clear();
         ::SetWindowTextW(self->Child(Status), self->Text(L"操作失败，请查看工具诊断；内存日志仍保留。", L"Operation failed; see diagnostics. Buffered records retained."));
     }
     return ::DefWindowProcW(window, message, wparam, lparam);

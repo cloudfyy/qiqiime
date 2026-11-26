@@ -85,6 +85,8 @@ struct MonitorWindow::Impl {
     std::optional<metrics::Outcome> metric_outcome_filter;
     std::optional<metrics::Mode> metric_mode_filter;
     MetricView metric_window = MetricView::Cumulative;
+    std::wstring metric_summary_text;
+    std::wstring status_text;
     uint64_t metric_display_tick_ms = 0;
     uint64_t metric_display_generation = 0;
     bool metrics_view = false;
@@ -192,6 +194,11 @@ struct MonitorWindow::Impl {
     void RebuildRows();
     void Tick();
     void UpdateStatus();
+    void SetControlTextIfChanged(
+        ControlId id,
+        std::wstring text,
+        std::wstring& displayed_text,
+        std::wstring_view operation);
     std::wstring Cell(const Event& event, int column) const;
     void Notify(NMHDR& header);
     std::vector<Event> CollectSelectedEvents() const;

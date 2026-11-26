@@ -356,7 +356,7 @@ Narrator host validation. No MSI is produced or installed locally.
 
 - 本轮改动不自动重置个人配置。如果曾运行旧开发测试并出现常用字缺失，请在设置中检查主词库选项：“仅内置”是小型回退词库，不是完整的极点／海峰主词库。
 - 版本升级前，相关安装器、设置与组合生命周期目标在 x64/x86 均构建成功；双架构安装器／设置测试及 x86 生命周期测试共 **5/6 通过**。x64 生命周期复测失败时记录到 Shift／Alt 按下状态，不计通过，失败日志保留。早期配置隔离排查中，偏好及用户词库内容未变，但配置序号增加的来源尚未确定。
-- VS Code 聊天输入框与编辑器之间切换时，清除未完成输入后仍可能留下正文；日志监视器状态文字闪烁也仍待排查。SYSTEM 静默卸载、占用缓存隔离、真实重启／重装及配置文件迁移／删除仍需专用真机验收，详见[待办](todo.md)。皮肤方案与注册表模板仅完成设计，不包含皮肤运行时功能。
+- VS Code 聊天输入框与编辑器之间切换时，清除未完成输入后仍可能留下正文。SYSTEM 静默卸载、占用缓存隔离、真实重启／重装及配置文件迁移／删除仍需专用真机验收，详见[待办](todo.md)。皮肤方案与注册表模板仅完成设计，不包含皮肤运行时功能。
 - Release 工作流必须针对 `v1.1.2` 重新构建、测试，成功后才发布中英文 x64/x86 MSI、双架构 ZIP 和匹配符号。标签存在不等于发布或安装验收完成，早先本地构建也不代表标签构建身份。
 - 本机不制作或安装 MSI，不修改已安装输入法注册。自动化的窗口消息和像素检查不替代同屏拖动、快速输入、真实宿主、安装或升级验收。
 
@@ -461,9 +461,8 @@ does not certify its build, publication, or installation.
   Earlier isolation investigations left preferences and user dictionaries
   unchanged, but the cause of an increased configuration sequence remains unconfirmed.
 - Switching between VS Code chat and editor fields may still leave unfinished
-  input as ordinary text despite Discard being selected; Log Monitor status-text
-  flicker also remains under investigation. SYSTEM silent uninstall, mapped-cache
-  quarantine, actual reboot/reinstall, and profile relocation/removal still need
+  input as ordinary text despite Discard being selected. SYSTEM silent uninstall,
+  mapped-cache quarantine, actual reboot/reinstall, and profile relocation/removal still need
   dedicated-machine checks; see the [TODO list](todo.md). Skin palettes and registry
   templates are design-only, not a skin runtime.
 - CI must rebuild and test `v1.1.2` before publishing bilingual x64/x86 MSI

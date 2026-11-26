@@ -128,6 +128,18 @@ Record and byte limits apply independently. They are storage budgets, not proces
 working-set limits. Inspect ETW event/buffer loss, local eviction, decode errors,
 and allocation failures separately.
 
+The 100 ms monitor timer still drains queued records while capture is stopped, so
+it is not a capture activity indicator. The footer redraws only when its text
+actually changes. `Buffer` reports the bytes retained by the current displayed
+buffer; it is not the monitor's process working set. `Local eviction` is the
+cumulative number of records that this monitor discarded from its own bounded
+buffers to satisfy record/byte limits (an oversized rejected record counts as
+one). It is separate from ETW `events/buffers` loss reported by Windows. `Alloc
+errors` / `内存分配错误` counts allocation failures while decoding or buffering
+ordinary logs and monitor diagnostics; it is not a byte-usage counter. Metrics
+allocation failures are reported separately in the Metrics integrity details.
+Clearing the visible list does not reset eviction or capture-loss counters.
+
 The monitor's own provider is `QiQiIME.LogMonitor`,
 `{6AB897B4-D148-4DF9-8EB7-4790A274951E}`. It reports capture/API failures without
 re-emitting collected IME messages. Each window owns a uniquely named session

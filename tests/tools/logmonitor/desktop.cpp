@@ -5,6 +5,42 @@
 
 namespace qiqi::monitor::tests {
 
+namespace {
+struct TextUpdateCounter {
+    unsigned int count = 0;
+};
+
+LRESULT CALLBACK CountSetText(
+    HWND control,
+    UINT message,
+    WPARAM wparam,
+    LPARAM lparam,
+    UINT_PTR,
+    DWORD_PTR context) noexcept {
+    if (message == WM_SETTEXT) {
+        ++reinterpret_cast<TextUpdateCounter*>(context)->count;
+    }
+    return ::DefSubclassProc(control, message, wparam, lparam);
+}
+
+void CheckNoRedundantStatusUpdates(
+    const MonitorWindow& window,
+    ControlId id) {
+    const HWND control = Child(window, id);
+    TextUpdateCounter updates;
+    QIQI_TEST_CHECK(::SetWindowSubclass(
+        control, CountSetText, 93,
+        reinterpret_cast<DWORD_PTR>(&updates)));
+    const auto remove_subclass = gsl::finally([=]() noexcept {
+        ::RemoveWindowSubclass(control, CountSetText, 93);
+    });
+    for (int tick = 0; tick < 3; ++tick) {
+        ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+    }
+    QIQI_TEST_CHECK(updates.count == 0);
+}
+}
+
 void TestDisplayPreferences(const MonitorWindow& window) {
     QiQiConfig config = LoadConfig();
     const auto* previous = GetActiveConfigRegistrySubKey();
@@ -228,11 +264,25 @@ void TestDesktopIntegration() {
         window.Handle(), WM_COMMAND,
         MAKEWPARAM(std::to_underlying(Process), CBN_SELCHANGE), 0);
     CheckComboEditCaretAtEnd(Child(window, Process));
+    QIQI_TEST_CHECK(
+        ControlText(Child(window, Status)).contains(
+            L"Alloc errors: 0"));
+    ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+    CheckNoRedundantStatusUpdates(window, Status);
+    Click(window, MetricsView);
+    QIQI_TEST_CHECK(
+        ControlText(Child(window, MetricSummaryStatus)).contains(
+            L"No metrics capture yet"));
+    CheckNoRedundantStatusUpdates(
+        window, MetricSummaryStatus);
+    CheckNoRedundantStatusUpdates(window, Status);
+    Click(window, Source);
     QIQI_TEST_CHECK(CommandName(window, Clear) == L"Clear");
     QIQI_TEST_CHECK(CommandName(window, Copy) == L"Copy");
     QIQI_TEST_CHECK(CommandName(window, LanguageEn) == GetUiStrings(UiLanguage::EnUs).dlg_lang_en);
     Click(window, DiagnosticsView);
     ::SendMessageW(window.Handle(), WM_TIMER, 1, 0);
+    CheckNoRedundantStatusUpdates(window, Status);
     ::SetWindowTextW(Child(window, Search), L"initialized");
     SelectPid(window, ::GetCurrentProcessId());
     ::SendMessageW(Child(window, Level), CB_SETCURSEL, 4, 0);
