@@ -378,15 +378,15 @@ void TestSettingsDialogControls() {
                 .contains(component));
     }
     QIQI_TEST_CHECK(
-        std::wstring_view(
-            kZhCnStrings
-                .about_license_info)
-            .contains(L"licenses/"));
+        !std::wstring_view(
+             kZhCnStrings
+                 .about_license_info)
+             .contains(L"licenses/"));
     QIQI_TEST_CHECK(
-        std::wstring_view(
-            kEnUsStrings
-                .about_license_info)
-            .contains(L"licenses/"));
+        !std::wstring_view(
+             kEnUsStrings
+                 .about_license_info)
+             .contains(L"licenses/"));
 
     {
         const ScopedWindow about_zh(CreateAboutWindow(::GetModuleHandleW(nullptr), nullptr, UiLanguage::ZhCn));
