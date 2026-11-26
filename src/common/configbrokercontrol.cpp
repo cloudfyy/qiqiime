@@ -283,7 +283,7 @@ HRESULT PrepareBrokerProcessToken(
         group.Groups[0].Sid =
             administrators;
         group.Groups[0].Attributes =
-            SE_GROUP_USE_FOR_DENY_ONLY;
+            0;
         if (!::AdjustTokenGroups(
                 token.Get(),
                 FALSE,
@@ -354,7 +354,7 @@ HRESULT PrepareBrokerProcessToken(
         log::Keyword::Config,
         "Replacement Broker token "
         "prepared (integrity_rid={}, "
-        "admin_deny_only={})",
+        "admin_disabled={})",
         SECURITY_MANDATORY_MEDIUM_RID,
         member);
     return S_OK;

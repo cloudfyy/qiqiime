@@ -205,8 +205,8 @@ broker retry.
   executable next to the calling module, waits for its Ready/Writable events,
   and retries once. The replacement Broker is created suspended using the
   caller's desktop identity. Before its first user-mode instruction, the
-  child token is lowered to Medium integrity, Administrators is changed to
-  deny-only when present, unnecessary privileges are disabled, and
+  child token is lowered to Medium integrity, Administrators is disabled when
+  present, unnecessary privileges are disabled, and
   `SeChangeNotifyPrivilege` is retained when available. Its absence is reported
   as `ERROR_NOT_ALL_ASSIGNED` and is nonfatal. The launch token is queried to
   verify RID 8192, then the primary thread is resumed.
