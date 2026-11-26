@@ -15,7 +15,6 @@
 #include <format>
 #include <limits>
 #include <new>
-#include <span>
 #include <stdexcept>
 #include <system_error>
 #include <vector>
@@ -194,7 +193,9 @@ HRESULT EnsureMediumIntegrity(
 }
 
 HRESULT PrepareBrokerProcessToken(
-    HANDLE process) noexcept {
+    HANDLE process,
+    std::string_view& failure_stage) noexcept {
+    failure_stage = "open-token";
     ScopedKernelHandle token;
     if (!::OpenProcessToken(
             process,
@@ -206,6 +207,7 @@ HRESULT PrepareBrokerProcessToken(
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
+    failure_stage = "integrity";
     HRESULT result =
         EnsureMediumIntegrity(
             token.Get());
@@ -213,89 +215,8 @@ HRESULT PrepareBrokerProcessToken(
         return result;
     }
 
-    PSID administrators = nullptr;
-    if (!::ConvertStringSidToSidW(
-            L"S-1-5-32-544",
-            &administrators)) {
-        return HRESULT_FROM_WIN32(
-            ::GetLastError());
-    }
-    const ScopedLocalAlloc
-        administrators_owner(
-            administrators);
-    DWORD groups_size = 0;
-    if (::GetTokenInformation(
-            token.Get(),
-            TokenGroups,
-            nullptr,
-            0,
-            &groups_size)) {
-        return E_UNEXPECTED;
-    }
-    if (::GetLastError() !=
-        ERROR_INSUFFICIENT_BUFFER) {
-        return HRESULT_FROM_WIN32(
-            ::GetLastError());
-    }
-    bool member = false;
-    try {
-        std::vector<uint8_t>
-            groups_buffer(
-                groups_size);
-        if (!::GetTokenInformation(
-                token.Get(),
-                TokenGroups,
-                groups_buffer.data(),
-                groups_size,
-                &groups_size)) {
-            return HRESULT_FROM_WIN32(
-                ::GetLastError());
-        }
-        const auto* groups =
-            reinterpret_cast<
-                const TOKEN_GROUPS*>(
-                    groups_buffer.data());
-        const std::span<
-            const SID_AND_ATTRIBUTES>
-            entries(
-                groups->Groups,
-                groups->GroupCount);
-        member =
-            std::ranges::any_of(
-                entries,
-                [administrators](
-                    const SID_AND_ATTRIBUTES&
-                        entry) noexcept {
-                    return ::EqualSid(
-                        entry.Sid,
-                        administrators) != FALSE;
-                });
-    } catch (const std::bad_alloc&) {
-        return E_OUTOFMEMORY;
-    } catch (
-        const std::length_error&) {
-        return HRESULT_FROM_WIN32(
-            ERROR_ARITHMETIC_OVERFLOW);
-    }
-    if (member) {
-        TOKEN_GROUPS group{};
-        group.GroupCount = 1;
-        group.Groups[0].Sid =
-            administrators;
-        group.Groups[0].Attributes =
-            0;
-        if (!::AdjustTokenGroups(
-                token.Get(),
-                FALSE,
-                &group,
-                0,
-                nullptr,
-                nullptr)) {
-            return HRESULT_FROM_WIN32(
-                ::GetLastError());
-        }
-    }
-
+    failure_stage = "disable-privileges";
+    ::SetLastError(ERROR_SUCCESS);
     if (!::AdjustTokenPrivileges(
             token.Get(),
             TRUE,
@@ -306,6 +227,7 @@ HRESULT PrepareBrokerProcessToken(
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
+    failure_stage = "lookup-traverse";
     LUID change_notify{};
     if (!::LookupPrivilegeValueW(
             nullptr,
@@ -314,6 +236,8 @@ HRESULT PrepareBrokerProcessToken(
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
+    failure_stage = "enable-traverse";
+    ::SetLastError(ERROR_SUCCESS);
     TOKEN_PRIVILEGES traverse{};
     traverse.PrivilegeCount = 1;
     traverse.Privileges[0].Luid =
@@ -350,13 +274,12 @@ HRESULT PrepareBrokerProcessToken(
             "access checks (error={})",
             privilege_error);
     }
+    failure_stage = "complete";
     QIQI_LOG_CAT_INFO(
         log::Keyword::Config,
         "Replacement Broker token "
-        "prepared (integrity_rid={}, "
-        "admin_disabled={})",
-        SECURITY_MANDATORY_MEDIUM_RID,
-        member);
+        "prepared (integrity_rid={})",
+        SECURITY_MANDATORY_MEDIUM_RID);
     return S_OK;
 }
 
@@ -452,15 +375,19 @@ HRESULT StartReplacementBroker(
         process.hThread);
     const ScopedKernelHandle child(
         process.hProcess);
+    std::string_view token_stage =
+        "prepare";
     HRESULT prepare_result =
         PrepareBrokerProcessToken(
-            child.Get());
+            child.Get(),
+            token_stage);
     if (FAILED(prepare_result)) {
         QIQI_LOG_CAT_ERROR(
             log::Keyword::Config,
             "Replacement Broker token "
             "preparation failed "
-            "(hr=0x{:08X})",
+            "(stage={}, hr=0x{:08X})",
+            token_stage,
             gsl::narrow_cast<
                 unsigned long>(
                 prepare_result));
