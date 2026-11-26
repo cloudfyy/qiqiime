@@ -249,9 +249,6 @@ private:
     ~CandidateUI() noexcept = default;
 
     using PaintItem = CandidatePaintItem;
-    std::pair<size_t, size_t> CandidateRangeForTsf() const noexcept;
-    size_t CandidateIndexForTsf(size_t index) const noexcept;
-    size_t CandidateCountForTsf() const noexcept;
     void RefreshAppearance() noexcept;
     std::vector<PaintItem> BuildPaintItems() const;
     int ScaleByDpi(int px) const noexcept { return ScalePxByDpi(px, dpi_); }

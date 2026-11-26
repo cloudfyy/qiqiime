@@ -894,8 +894,9 @@ The same `CandidateUI` implements `ITfCandidateListUIElementBehavior` and
 `ITfIntegratableCandidateListUIElement` for `GUID_INTEGRATIONSTYLE_SEARCHBOX`.
 Setting the integration style hides the native TIP popup, while candidate
 strings use the raw values only in that integration mode. Ordinary UILess
-hosts retain display-only code annotations. Both modes preserve the same
-global indices as the provider. Selection changes, Finalize, Abort,
+hosts retain display-only code annotations. Both modes expose the complete
+candidate list and the same real page indices/current page, and preserve global
+indices matching the provider. Selection changes, Finalize, Abort,
 exact-string Finalize, and integrated keydown calls are routed back through the
 service's normal access policy and TSF edit-session flow. Arrow and other
 supported keys continue to use the Wubi FSM instead of duplicating keyboard

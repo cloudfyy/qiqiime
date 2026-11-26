@@ -310,14 +310,17 @@ void TestIntegratedCandidateUiContract() {
                     numbers);
     UINT count = 0;
     UINT selection = UINT_MAX;
-    QIQI_TEST_CHECK(behavior->GetCount(&count) == S_OK && count == 2);
+    QIQI_TEST_CHECK(behavior->GetCount(&count) == S_OK && count == 4);
     QIQI_TEST_CHECK(behavior->GetSelection(&selection) == S_OK &&
-                    selection == 1);
+                    selection == 3);
     ScopedBstr first_exposed;
     QIQI_TEST_CHECK(behavior->GetString(
                         0, first_exposed.Put()) == S_OK &&
-                    std::wstring(first_exposed.Get()) == L"three");
-    QIQI_TEST_CHECK(behavior->GetString(2, first_exposed.Put()) ==
+                    std::wstring(first_exposed.Get()) == L"one");
+    QIQI_TEST_CHECK(behavior->GetString(
+                        3, first_exposed.Put()) == S_OK &&
+                    std::wstring(first_exposed.Get()) == L"four");
+    QIQI_TEST_CHECK(behavior->GetString(4, first_exposed.Put()) ==
                     E_INVALIDARG);
     QIQI_TEST_CHECK(behavior->GetString(
                         UINT_MAX, first_exposed.Put()) == E_INVALIDARG);
@@ -328,17 +331,17 @@ void TestIntegratedCandidateUiContract() {
                         page_indices.data(),
                         gsl::narrow_cast<UINT>(page_indices.size()),
                         &page_count) == S_OK &&
-                        page_count == 1 &&
+                        page_count == 2 &&
                         gsl::at(page_indices, 0) == 0 &&
-                        gsl::at(page_indices, 1) == UINT_MAX);
+                        gsl::at(page_indices, 1) == 2);
     UINT current_page = UINT_MAX;
     QIQI_TEST_CHECK(behavior->GetCurrentPage(&current_page) == S_OK &&
-                    current_page == 0);
+                    current_page == 1);
     DWORD flags = 0;
     QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
-                    (flags & TF_CLUIE_PAGEINDEX) == 0 &&
+                    (flags & TF_CLUIE_PAGEINDEX) != 0 &&
                     (flags & TF_CLUIE_CURRENTPAGE) != 0);
-    QIQI_TEST_CHECK(behavior->SetSelection(2) == E_INVALIDARG);
+    QIQI_TEST_CHECK(behavior->SetSelection(4) == E_INVALIDARG);
     QIQI_TEST_CHECK(behavior->SetSelection(UINT_MAX) == E_INVALIDARG);
     QIQI_TEST_CHECK(behavior->SetSelection(1) == E_NOTIMPL);
     QIQI_TEST_CHECK(behavior->Finalize() == E_NOTIMPL);
@@ -364,7 +367,7 @@ void TestIntegratedCandidateUiContract() {
         });
     QIQI_TEST_CHECK(behavior->SetSelection(1) == S_OK &&
                     observed_action == CandidateUiAction::SetSelection &&
-                    observed_index == 3);
+                    observed_index == 1);
     QIQI_TEST_CHECK(behavior->Finalize() == S_OK &&
                     observed_action == CandidateUiAction::Finalize);
     QIQI_TEST_CHECK(behavior->Abort() == S_OK &&
@@ -488,10 +491,7 @@ void TestIntegratedServiceRouting() {
             break;
         }
         case Action::SelectFinalize: {
-            UINT count = 0;
-            QIQI_TEST_CHECK(behavior->GetCount(&count) == S_OK &&
-                            count == 2);
-            constexpr UINT selected = 1;
+            constexpr UINT selected = 2;
             ComPtr<ITfFnSearchCandidateProvider> provider;
             ComPtr<IUnknown> provider_unknown;
             QIQI_TEST_CHECK(service->GetFunction(
@@ -508,6 +508,10 @@ void TestIntegratedServiceRouting() {
             QIQI_TEST_CHECK(provider_list->GetCandidateNum(
                                 &provider_count) == S_OK &&
                             provider_count > selected);
+            UINT count = 0;
+            QIQI_TEST_CHECK(
+                behavior->GetCount(&count) == S_OK &&
+                count == provider_count);
             ComPtr<ITfCandidateString> provider_candidate;
             QIQI_TEST_CHECK(provider_list->GetCandidate(
                                 selected, &provider_candidate) == S_OK &&

@@ -109,10 +109,10 @@ HRESULT CandidateUI::InvokeActionCallback(
 }
 
 STDMETHODIMP CandidateUI::SetSelection(UINT index) noexcept {
-    if (index >= CandidateCountForTsf()) return E_INVALIDARG;
-    const size_t global_index = CandidateIndexForTsf(index);
-    if (global_index >= all_candidates_.size()) return E_INVALIDARG;
-    return InvokeActionCallback(CandidateUiAction::SetSelection, global_index);
+    if (index >= all_candidates_.size()) return E_INVALIDARG;
+    return InvokeActionCallback(
+        CandidateUiAction::SetSelection,
+        gsl::narrow_cast<size_t>(index));
 }
 
 STDMETHODIMP CandidateUI::Finalize() noexcept {
@@ -138,7 +138,7 @@ STDMETHODIMP CandidateUI::SetIntegrationStyle(
         "SearchIntegration(stage=set-integration-style, element_id={}, style_data1=0x{:08x}, "
         "searchbox={}, shown={}, total_count={}, exposed_count={}, page_size={}, page={}, hr=0x{:08x})",
         UiElementId(), integration_style.Data1, searchbox_integration_,
-        is_shown_ != FALSE, all_candidates_.size(), CandidateCountForTsf(),
+        is_shown_ != FALSE, all_candidates_.size(), all_candidates_.size(),
         page_size_, current_page_, gsl::narrow_cast<unsigned int>(hr));
     return hr;
 }

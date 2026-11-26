@@ -290,9 +290,7 @@ void RunTsfNativeUilessHostTests() {
     QIQI_TEST_CHECK(ui_sink->begins == 1 && ui_sink->updates == 1 &&
                     ui_sink->ends == 0 && ui_sink->begin_id != TF_INVALID_UIELEMENTID &&
                     ui_sink->update_ids == initial_ids);
-    constexpr DWORD all_flags =
-        TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION |
-        TF_CLUIE_STRING | TF_CLUIE_CURRENTPAGE;
+    constexpr DWORD all_flags = CandidateUI::kAllCandidateUpdateFlags;
     QIQI_TEST_CHECK(ui_sink->inspection_hr == S_OK &&
                     ui_sink->initial_flags == all_flags &&
                     ui_sink->document.Get() == document.Get() &&
