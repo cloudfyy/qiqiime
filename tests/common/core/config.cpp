@@ -9,38 +9,66 @@
 namespace qiqi::test::common_cases {
 
 void TestConfigTransport() {
-    QIQI_TEST_CHECK(
-        config::SelectConfigReadRoute(
+    struct RouteCase {
+        bool app_container;
+        bool has_lpac_com;
+        bool has_registry_read;
+        config::ConfigReadRoute expected;
+    };
+    constexpr std::array route_cases{
+        RouteCase{
             false,
             false,
-            false) ==
-        config::ConfigReadRoute::Broker);
-    QIQI_TEST_CHECK(
-        config::SelectConfigReadRoute(
+            false,
+            config::ConfigReadRoute::Broker},
+        RouteCase{
+            false,
+            false,
             true,
-            true,
-            false) ==
-        config::ConfigReadRoute::Broker);
-    QIQI_TEST_CHECK(
-        config::SelectConfigReadRoute(
-            true,
-            true,
-            true) ==
-        config::ConfigReadRoute::Broker);
-    QIQI_TEST_CHECK(
-        config::SelectConfigReadRoute(
+            config::ConfigReadRoute::Broker},
+        RouteCase{
+            false,
             true,
             false,
-            true) ==
-        config::ConfigReadRoute::
-            AppContainerRegistry);
-    QIQI_TEST_CHECK(
-        config::SelectConfigReadRoute(
+            config::ConfigReadRoute::Broker},
+        RouteCase{
+            false,
+            true,
+            true,
+            config::ConfigReadRoute::Broker},
+        RouteCase{
             true,
             false,
-            false) ==
-        config::ConfigReadRoute::
-            BuiltinDefaults);
+            false,
+            config::ConfigReadRoute::
+                BuiltinDefaults},
+        RouteCase{
+            true,
+            false,
+            true,
+            config::ConfigReadRoute::
+                AppContainerRegistry},
+        RouteCase{
+            true,
+            true,
+            false,
+            config::ConfigReadRoute::Broker},
+        RouteCase{
+            true,
+            true,
+            true,
+            config::ConfigReadRoute::Broker},
+    };
+    for (const auto& route_case :
+         route_cases) {
+        QIQI_TEST_CHECK(
+            config::SelectConfigReadRoute(
+                route_case.app_container,
+                route_case.has_lpac_com,
+                route_case
+                    .has_registry_read) ==
+            route_case.expected);
+    }
     config::ConfigReadRoute process_route =
         config::ConfigReadRoute::
             BuiltinDefaults;

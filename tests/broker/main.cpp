@@ -628,27 +628,24 @@ int main() {
                 SetConfigReadRouteOverrideForTest(
                     std::nullopt);
         });
-    const auto check_async_save_denied =
-        [](const qiqi::config::SaveRequest&
-               request) {
+    const auto check_async_mutation_denied =
+        [](const auto& submit) {
             std::promise<HRESULT>
                 async_rejection;
             auto rejection_result =
                 async_rejection
                     .get_future();
             QIQI_TEST_CHECK(
-                qiqi::config::
-                    SaveSnapshotAsync(
-                        request,
-                        [&async_rejection](
-                            HRESULT result,
-                            const qiqi::
-                                config::
-                                    Snapshot&) {
-                            async_rejection
-                                .set_value(
-                                    result);
-                        }) == S_OK);
+                submit(
+                    [&async_rejection](
+                        HRESULT result,
+                        const qiqi::
+                            config::
+                                Snapshot&) {
+                        async_rejection
+                            .set_value(
+                                result);
+                    }) == S_OK);
             QIQI_TEST_CHECK(
                 rejection_result.wait_for(
                     std::chrono::seconds(
@@ -657,6 +654,67 @@ int main() {
             QIQI_TEST_CHECK(
                 rejection_result.get() ==
                 E_ACCESSDENIED);
+        };
+    const auto check_local_mutations_denied =
+        [&](const qiqi::config::
+                    SaveRequest& save_request) {
+            qiqi::config::Snapshot rejected;
+            const qiqi::config::
+                SyncDirectoryRequest
+                    sync_request{
+                        .expected_revision =
+                            save_request
+                                .expected_revision,
+                        .directory =
+                            std::filesystem::
+                                temp_directory_path() /
+                            L"qiqi-config-"
+                            L"route-denied",
+                    };
+            QIQI_TEST_CHECK(
+                qiqi::config::
+                    SaveSnapshot(
+                        save_request,
+                        rejected) ==
+                E_ACCESSDENIED);
+            QIQI_TEST_CHECK(
+                qiqi::config::
+                    ResetSnapshot(
+                        save_request
+                            .expected_revision,
+                        rejected) ==
+                E_ACCESSDENIED);
+            QIQI_TEST_CHECK(
+                qiqi::config::
+                    PublishSyncDirectory(
+                        sync_request,
+                        rejected) ==
+                E_ACCESSDENIED);
+            check_async_mutation_denied(
+                [&](auto completion) {
+                    return qiqi::config::
+                        SaveSnapshotAsync(
+                            save_request,
+                            std::move(
+                                completion));
+                });
+            check_async_mutation_denied(
+                [&](auto completion) {
+                    return qiqi::config::
+                        ResetSnapshotAsync(
+                            save_request
+                                .expected_revision,
+                            std::move(
+                                completion));
+                });
+            check_async_mutation_denied(
+                [&](auto completion) {
+                    return qiqi::config::
+                        PublishSyncDirectoryAsync(
+                            sync_request,
+                            std::move(
+                                completion));
+                });
         };
     qiqi::config::
         SetConfigReadRouteOverrideForTest(
@@ -695,24 +753,13 @@ int main() {
         async_hr == S_OK &&
         async_snapshot.revision ==
             after_restart.revision);
-    qiqi::config::Snapshot rejected;
-    QIQI_TEST_CHECK(
-        qiqi::config::SaveSnapshot(
-            qiqi::config::SaveRequest{
+    check_local_mutations_denied(
+        qiqi::config::SaveRequest{
                 .expected_revision =
                     after_restart.revision,
                 .value =
                     after_restart.value,
-            },
-            rejected) ==
-        E_ACCESSDENIED);
-    check_async_save_denied(
-        qiqi::config::SaveRequest{
-            .expected_revision =
-                after_restart.revision,
-            .value =
-                after_restart.value,
-        });
+            });
 
     qiqi::config::
         SetConfigReadRouteOverrideForTest(
@@ -759,20 +806,24 @@ int main() {
         builtin_async_snapshot.value,
         QiQiConfig{});
     QIQI_TEST_CHECK(
-        qiqi::config::SaveSnapshot(
-            qiqi::config::SaveRequest{
+        builtin_async_snapshot
+            .user_dict_sync_directory
+            .empty() &&
+        builtin_async_snapshot
+            .commit_trace_id ==
+            GUID_NULL &&
+        builtin_async_snapshot
+            .commit_activity_id ==
+            GUID_NULL &&
+        builtin_async_snapshot
+                .commit_revision ==
+            0);
+    check_local_mutations_denied(
+        qiqi::config::SaveRequest{
                 .expected_revision =
                     after_restart.revision,
                 .value = QiQiConfig{},
-            },
-            rejected) ==
-        E_ACCESSDENIED);
-    check_async_save_denied(
-        qiqi::config::SaveRequest{
-            .expected_revision =
-                after_restart.revision,
-            .value = QiQiConfig{},
-        });
+            });
 
     QIQI_TEST_CHECK(
         store.PublishSyncDirectory(
