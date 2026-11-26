@@ -206,8 +206,10 @@ broker retry.
   and retries once. The replacement Broker is created suspended using the
   caller's desktop identity. Before its first user-mode instruction, the
   child token is lowered to Medium integrity, Administrators is changed to
-  deny-only when present, and unnecessary privileges are disabled. The launch
-  token is queried to verify RID 8192, then the primary thread is resumed.
+  deny-only when present, unnecessary privileges are disabled, and
+  `SeChangeNotifyPrivilege` is retained when available. Its absence is reported
+  as `ERROR_NOT_ALL_ASSIGNED` and is nonfatal. The launch token is queried to
+  verify RID 8192, then the primary thread is resumed.
   This path does not depend on linked-token APIs or
   `SeAssignPrimaryToken`. AppContainer clients do not perform this process
   handoff.

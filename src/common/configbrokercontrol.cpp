@@ -333,8 +333,21 @@ HRESULT PrepareBrokerProcessToken(
     const DWORD privilege_error =
         ::GetLastError();
     if (privilege_error !=
-        ERROR_SUCCESS) {
+            ERROR_SUCCESS &&
+        privilege_error !=
+            ERROR_NOT_ALL_ASSIGNED) {
         return HRESULT_FROM_WIN32(
+            privilege_error);
+    }
+    if (privilege_error ==
+        ERROR_NOT_ALL_ASSIGNED) {
+        QIQI_LOG_CAT_WARN(
+            log::Keyword::Config,
+            "Replacement Broker token does "
+            "not contain "
+            "SeChangeNotifyPrivilege; "
+            "continuing with its existing "
+            "access checks (error={})",
             privilege_error);
     }
     QIQI_LOG_CAT_INFO(
