@@ -205,9 +205,11 @@ broker retry.
   executable next to the calling module, waits for its Ready/Writable events,
   and retries once. Split-token elevated callers use their linked
   non-elevated token. Unsplittable High/Medium-Plus tokens are duplicated and
-  explicitly lowered to Medium integrity; startup verifies the resulting RID
-  before launching the replacement Broker. AppContainer clients do not perform
-  this process handoff.
+  converted with `CreateRestrictedToken(LUA_TOKEN)` and explicitly lowered to
+  Medium integrity. The restricted primary token avoids requiring
+  `SeAssignPrimaryToken`, and startup verifies the resulting RID before
+  launching the replacement Broker. AppContainer clients do not perform this
+  process handoff.
 - No method accepts arbitrary registry paths, arbitrary file paths, COM
   commands, or ACL changes.
 - A process not carrying one of the allowed principals receives

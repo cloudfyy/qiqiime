@@ -134,28 +134,12 @@ HRESULT WaitForBrokerExit(
     }
 }
 
-HRESULT DuplicateMediumPrimaryToken(
-    HANDLE source,
-    ScopedKernelHandle& output) noexcept {
-    output.Reset();
-    if (!::DuplicateTokenEx(
-            source,
-            TOKEN_ASSIGN_PRIMARY |
-                TOKEN_DUPLICATE |
-                TOKEN_QUERY |
-                TOKEN_ADJUST_DEFAULT,
-            nullptr,
-            SecurityImpersonation,
-            TokenPrimary,
-            output.Put())) {
-        return HRESULT_FROM_WIN32(
-            ::GetLastError());
-    }
-
+HRESULT EnsureMediumIntegrity(
+    HANDLE token) noexcept {
     DWORD integrity_rid = 0;
     HRESULT result =
         TokenIntegrityRid(
-            output.Get(),
+            token,
             integrity_rid);
     if (FAILED(result)) {
         return result;
@@ -183,7 +167,7 @@ HRESULT DuplicateMediumPrimaryToken(
             },
         };
         if (!::SetTokenInformation(
-                output.Get(),
+                token,
                 TokenIntegrityLevel,
                 &label,
                 sizeof(label) +
@@ -195,7 +179,7 @@ HRESULT DuplicateMediumPrimaryToken(
     }
     result =
         TokenIntegrityRid(
-            output.Get(),
+            token,
             integrity_rid);
     if (FAILED(result)) {
         return result;
@@ -207,6 +191,56 @@ HRESULT DuplicateMediumPrimaryToken(
               ERROR_BAD_TOKEN_TYPE);
 }
 
+HRESULT DuplicateMediumPrimaryToken(
+    HANDLE source,
+    ScopedKernelHandle& output) noexcept {
+    output.Reset();
+    if (!::DuplicateTokenEx(
+            source,
+            TOKEN_ASSIGN_PRIMARY |
+                TOKEN_DUPLICATE |
+                TOKEN_QUERY |
+                TOKEN_ADJUST_DEFAULT,
+            nullptr,
+            SecurityImpersonation,
+            TokenPrimary,
+            output.Put())) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    return EnsureMediumIntegrity(
+        output.Get());
+}
+
+HRESULT CreateRestrictedMediumPrimaryToken(
+    HANDLE source,
+    ScopedKernelHandle& output) noexcept {
+    output.Reset();
+    ScopedKernelHandle restricted;
+    if (!::CreateRestrictedToken(
+            source,
+            LUA_TOKEN,
+            0,
+            nullptr,
+            0,
+            nullptr,
+            0,
+            nullptr,
+            restricted.Put())) {
+        return HRESULT_FROM_WIN32(
+            ::GetLastError());
+    }
+    const HRESULT result =
+        EnsureMediumIntegrity(
+            restricted.Get());
+    if (FAILED(result)) {
+        return result;
+    }
+    output.Reset(
+        restricted.Detach());
+    return S_OK;
+}
+
 HRESULT OpenMediumBrokerLaunchToken(
     ScopedKernelHandle& output) noexcept {
     output.Reset();
@@ -214,7 +248,9 @@ HRESULT OpenMediumBrokerLaunchToken(
     if (!::OpenProcessToken(
             ::GetCurrentProcess(),
             TOKEN_QUERY |
-                TOKEN_DUPLICATE,
+                TOKEN_DUPLICATE |
+                TOKEN_ASSIGN_PRIMARY |
+                TOKEN_ADJUST_DEFAULT,
             current_token.Put())) {
         return HRESULT_FROM_WIN32(
             ::GetLastError());
@@ -231,13 +267,11 @@ HRESULT OpenMediumBrokerLaunchToken(
         return HRESULT_FROM_WIN32(
             ::GetLastError());
     }
-    ScopedKernelHandle linked_token;
-    HANDLE duplicate_source =
-        current_token.Get();
     const bool linked =
         elevation_type ==
         TokenElevationTypeFull;
     if (linked) {
+        ScopedKernelHandle linked_token;
         TOKEN_LINKED_TOKEN linked_info{};
         if (!::GetTokenInformation(
                 current_token.Get(),
@@ -250,8 +284,13 @@ HRESULT OpenMediumBrokerLaunchToken(
         }
         linked_token.Reset(
             linked_info.LinkedToken);
-        duplicate_source =
-            linked_token.Get();
+        const HRESULT result =
+            DuplicateMediumPrimaryToken(
+                linked_token.Get(),
+                output);
+        if (FAILED(result)) {
+            return result;
+        }
     } else {
         DWORD integrity_rid = 0;
         const HRESULT integrity_result =
@@ -265,18 +304,13 @@ HRESULT OpenMediumBrokerLaunchToken(
             SECURITY_MANDATORY_MEDIUM_RID) {
             return E_ACCESSDENIED;
         }
-        if (integrity_rid ==
-            SECURITY_MANDATORY_MEDIUM_RID) {
-            return S_OK;
+        const HRESULT result =
+            CreateRestrictedMediumPrimaryToken(
+                current_token.Get(),
+                output);
+        if (FAILED(result)) {
+            return result;
         }
-    }
-
-    const HRESULT result =
-        DuplicateMediumPrimaryToken(
-            duplicate_source,
-            output);
-    if (FAILED(result)) {
-        return result;
     }
     QIQI_LOG_CAT_INFO(
         log::Keyword::Config,
