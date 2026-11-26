@@ -10,11 +10,14 @@ alone does not establish AppContainer identity; inspect the actual hosting token
 TSF immersive/COM-less category registration and successful synchronization tests
 do not certify every UWP, browser sandbox, packaged desktop app, or game.
 
-The taskbar indicator also uses a host-specific menu contract. SearchHost and
-other AppContainer hosts advertise QiQiIME as an exclusive TSF menu button, so
-Windows calls `InitMenu` and `OnMenuSelect` and owns popup activation. Desktop
-hosts retain the combined button/custom-menu path, including left-click
-Chinese/English switching.
+The taskbar indicator uses a host-specific menu contract. SearchHost and the
+dedicated UWP host advertise QiQiIME as an AppContainer TSF menu item but still
+deliver clicks through `ITfLangBarItemButton::OnClick`; they do not call
+`InitMenu`. QiQi therefore handles left-click mode toggling and queues
+right-click quick settings to a hidden same-thread message window, outside the
+TSF click callback. `InitMenu` remains available for hosts that implement the
+standard TSF menu contract. Desktop hosts retain the original combined
+button/custom-menu path.
 
 ## Deployment and permissions
 

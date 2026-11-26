@@ -31,6 +31,10 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
+thread_local bool*
+    current_app_container_menu_seen =
+        nullptr;
+
 class MockTfMenu final : public ITfMenu {
 public:
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) noexcept override {
@@ -280,8 +284,8 @@ void TestLangBarButton() {
     const POINT explicit_pt{200, 200};
     QIQI_TEST_CHECK(SUCCEEDED(btn->OnClick(TF_LBI_CLK_RIGHT, explicit_pt, nullptr)));
 
-    // AppContainer must advertise an exclusive TSF menu style. Windows
-    // owns the popup and calls InitMenu instead of OnClick.
+    // SearchHost still delivers a right-click through OnClick even when
+    // the item advertises a menu-only style.
     btn->ForceAppContainerForTest(true);
     QIQI_TEST_CHECK(
         SUCCEEDED(btn->GetInfo(&info)));
@@ -296,9 +300,86 @@ void TestLangBarButton() {
     QIQI_TEST_CHECK(
         SUCCEEDED(
             btn->OnClick(
+                TF_LBI_CLK_LEFT,
+                explicit_pt,
+                nullptr)));
+    QIQI_TEST_CHECK(
+        last_action ==
+        LangBarMenuId::ToggleChinese);
+    bool app_container_menu_seen =
+        false;
+    current_app_container_menu_seen =
+        &app_container_menu_seen;
+    const auto restore_menu_seen =
+        gsl::finally([]() noexcept {
+            current_app_container_menu_seen =
+                nullptr;
+        });
+    const UINT_PTR app_container_timer =
+        ::SetTimer(
+            nullptr,
+            8,
+            10,
+            [](
+                HWND,
+                UINT,
+                UINT_PTR id,
+                DWORD) noexcept {
+                const HWND menu =
+                    FindQuickSettingsMenu();
+                if (!menu) {
+                    return;
+                }
+                if (
+                    current_app_container_menu_seen) {
+                    *current_app_container_menu_seen =
+                        true;
+                }
+                ::KillTimer(
+                    nullptr,
+                    id);
+                ::SendMessageW(
+                    menu,
+                    WM_CLOSE,
+                    0,
+                    0);
+            });
+    QIQI_TEST_CHECK(
+        app_container_timer != 0);
+    QIQI_TEST_CHECK(
+        SUCCEEDED(
+            btn->OnClick(
                 TF_LBI_CLK_RIGHT,
                 explicit_pt,
                 nullptr)));
+    MSG message{};
+    const ULONGLONG deadline =
+        ::GetTickCount64() + 5'000;
+    while (
+        !app_container_menu_seen &&
+        ::GetTickCount64() <
+            deadline) {
+        const BOOL result =
+            ::GetMessageW(
+                &message,
+                nullptr,
+                0,
+                0);
+        QIQI_TEST_CHECK(result > 0);
+        ::TranslateMessage(&message);
+        ::DispatchMessageW(&message);
+    }
+    ::KillTimer(
+        nullptr,
+        app_container_timer);
+    QIQI_TEST_CHECK(
+        app_container_menu_seen);
+    QIQI_TEST_CHECK(
+        FindQuickSettingsMenu() ==
+        nullptr);
+    QIQI_TEST_CHECK(
+        last_action ==
+        LangBarMenuId::SyncMenuState);
     MockTfMenu container_menu;
     QIQI_TEST_CHECK(
         SUCCEEDED(

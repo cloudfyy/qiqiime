@@ -146,6 +146,8 @@ private:
     static LRESULT CALLBACK ThemeWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
     HRESULT NotifyUpdate(DWORD flags) noexcept;
     bool UsesTsfOwnedMenu() const noexcept;
+    HRESULT QueueQuickSettingsMenu(
+        POINT screen_pt) noexcept;
 
     const uint64_t log_id_;
     ComPtr<ITfLangBarItemSink> sink_;
@@ -153,8 +155,13 @@ private:
     bool visible_ = true;
     ScopedWindow theme_window_;
     bool theme_update_pending_ = false;
+    bool quick_settings_menu_pending_ =
+        false;
+    bool quick_settings_menu_active_ =
+        false;
     bool force_app_container_for_test_ =
         false;
+    POINT quick_settings_menu_point_{};
     LangBarState state_{};
     ActionCallback action_callback_;
 };
