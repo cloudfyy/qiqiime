@@ -190,6 +190,17 @@ std::vector<uint32_t> ReadIconPixels(HICON icon, int size) {
     return pixels;
 }
 
+ScopedIcon CreateExpectedModeIcon(
+    wchar_t glyph,
+    int size) noexcept {
+    return CreateTransparentGlyphIcon(
+        glyph,
+        size,
+        kImeModeIconGlyphColor,
+        FW_SEMIBOLD,
+        kImeModeIconStroke);
+}
+
 constexpr uint32_t ScaleAlpha(uint32_t value, uint32_t alpha) noexcept {
     return (value * alpha + 127u) / 255u;
 }
@@ -216,6 +227,15 @@ void CheckImeModeIconPixels(std::span<const uint32_t> pixels, int size) {
         const size_t x = index % width;
         const size_t y = index / width;
         if (x == 0 || y == 0 || x == width - 1 || y == width - 1) {
+            if (alpha != 0) {
+                std::fprintf(
+                    stderr,
+                    "[ICON] edge pixel size=%d x=%zu y=%zu alpha=%u\n",
+                    size,
+                    x,
+                    y,
+                    alpha);
+            }
             QIQI_TEST_CHECK(alpha == 0);
         }
 
@@ -272,9 +292,10 @@ void TestTaskbarThemeIcons() {
     std::array<std::vector<uint32_t>, 2> reference_pixels;
     for (const int size : {16, 20}) {
         for (const wchar_t glyph : {L'中', L'英'}) {
-            const ScopedIcon icon = CreateTransparentGlyphIcon(
-                glyph, size, kImeModeIconGlyphColor, FW_NORMAL,
-                kImeModeIconStroke);
+            const ScopedIcon icon =
+                CreateExpectedModeIcon(
+                    glyph,
+                    size);
             QIQI_TEST_CHECK(icon.IsValid());
             CheckImeModeIconPixels(ReadIconPixels(icon.Get(), size), size);
         }
@@ -298,6 +319,16 @@ void TestTaskbarThemeIcons() {
                 const auto pixels = ReadTaskbarIconPixels(*button.Get());
                 const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
                 CheckImeModeIconPixels(pixels, size);
+                const ScopedIcon expected_icon =
+                    CreateExpectedModeIcon(
+                        chinese ? L'中' : L'英',
+                        size);
+                QIQI_TEST_CHECK(expected_icon.IsValid());
+                QIQI_TEST_CHECK(
+                    pixels ==
+                    ReadIconPixels(
+                        expected_icon.Get(),
+                        size));
                 auto& reference = gsl::at(reference_pixels, chinese ? 1u : 0u);
                 if (reference.empty()) reference = pixels;
                 else QIQI_TEST_CHECK(reference == pixels);

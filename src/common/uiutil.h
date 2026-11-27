@@ -626,8 +626,14 @@ inline ScopedIcon CreateTransparentGlyphIcon(
 
     {
         const ScopedSelectObject sel_bmp(mem_dc.Get(), color_bmp.Get());
+        const int transparent_border =
+            stroke_width > 0 ? 1 : 0;
         const int font_height =
-            std::max(1, sz - 2 - stroke_width * 2);
+            std::max(
+                1,
+                sz - 2 -
+                    (stroke_width +
+                        transparent_border) * 2);
         const ScopedGdiHandle<HFONT> font =
             CreateUiFont(font_height, weight, ANTIALIASED_QUALITY);
         if (!sel_bmp || !font) {

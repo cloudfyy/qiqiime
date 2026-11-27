@@ -548,7 +548,7 @@ HRESULT LangBarButton::ShowNativePopupMenu(
 ScopedIcon LangBarButton::CreateTextIcon(wchar_t ch) noexcept {
     const int size = ::GetSystemMetrics(SM_CXSMICON) > 0 ? ::GetSystemMetrics(SM_CXSMICON) : 16;
     return CreateTransparentGlyphIcon(
-        ch, size, kImeModeIconGlyphColor, FW_NORMAL,
+        ch, size, kImeModeIconGlyphColor, kImeModeIconFontWeight,
         kImeModeIconStroke);
 }
 

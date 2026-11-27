@@ -22,6 +22,7 @@ namespace qiqi {
 using Microsoft::WRL::ComPtr;
 
 inline constexpr COLORREF kImeModeIconGlyphColor = RGB(255, 255, 255);
+inline constexpr LONG kImeModeIconFontWeight = FW_SEMIBOLD;
 inline constexpr GlyphIconStroke kImeModeIconStroke{
     .width_px = 1,
     .alpha = 128,
