@@ -17,24 +17,31 @@ constexpr size_t kToggleLabelCapacity = 128;
 constexpr int kRadioOuterRadius = 8;
 constexpr int kRadioCenterX = 10;
 constexpr int kRadioInnerRadius = 4;
-constexpr int kRadioTextInset = 26;
 constexpr int kToggleRightInset = 6;
 constexpr int kToggleTrackWidth = 36;
 constexpr int kToggleTrackRadius = 9;
 constexpr int kToggleKnobRadius = 6;
 constexpr int kToggleLabelGap = 8;
 constexpr int kToggleFocusPadding = 2;
+
+bool UsesGdiToggleLayout(const FluentD2DThemeContext& d2d) noexcept {
+    return !d2d.d2d_target || !d2d.fmt_body || d2d.appearance.system_high_contrast;
+}
 } // namespace
 
 RECT FluentToggleBounds(const RECT& row, const FluentD2DThemeContext& d2d) noexcept {
     const int center = row.top + (row.bottom - row.top) / 2;
-    if (!d2d.d2d_target || !d2d.fmt_body || d2d.appearance.system_high_contrast) {
+    if (UsesGdiToggleLayout(d2d)) {
         const int size = d2d.ScalePx(18);
         return RECT{row.left, center - size / 2, row.left + size, center - size / 2 + size};
     }
     const int right = row.right - d2d.ScalePx(kToggleRightInset);
     const int radius = d2d.ScalePx(kToggleTrackRadius);
     return RECT{right - d2d.ScalePx(kToggleTrackWidth), center - radius, right, center + radius};
+}
+
+int FluentToggleLabelInset(const FluentD2DThemeContext& d2d) noexcept {
+    return d2d.ScalePx(UsesGdiToggleLayout(d2d) ? kFluentRadioTextInset : kFluentToggleTextInset);
 }
 
 void DrawFluentToggleOrRadioRow(
@@ -56,7 +63,7 @@ void DrawFluentToggleOrRadioRow(
         ::IntersectRect(&focus_bounds, &focus_bounds, &dis.rcItem);
     }
     const bool show_focus = (dis.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS;
-    if (!d2d.d2d_target || !d2d.fmt_body || d2d.appearance.system_high_contrast) {
+    if (UsesGdiToggleLayout(d2d)) {
         const ScopedSaveDC saved(dis.hDC);
         const ScopedSelectObject font(dis.hDC, reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0)));
         const auto background = paint::CreateThemeBrush(palette.surface_bg);
@@ -75,7 +82,7 @@ void DrawFluentToggleOrRadioRow(
         ::GetWindowTextW(dis.hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
         if (!is_enabled && d2d.appearance.high_contrast) paint::AppendDisabledSuffix(text, disabled_suffix);
         RECT label = dis.rcItem;
-        label.left += d2d.ScalePx(26);
+        label.left += FluentToggleLabelInset(d2d);
         ::DrawTextW(dis.hDC, text.data(), -1, &label, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
         if (show_focus) ::DrawFocusRect(dis.hDC, &focus_bounds);
         return;
@@ -103,7 +110,8 @@ void DrawFluentToggleOrRadioRow(
         d2d.d2d_target.Get(),
         ColorRefToD2DColor(is_enabled ? palette.text_primary : disabled_text));
 
-    float text_left = d2d.ScaleF(kFluentToggleTextInset);
+    const float text_left = is_radio ? d2d.ScaleF(kFluentRadioTextInset)
+        : static_cast<float>(FluentToggleLabelInset(d2d));
     float text_right = w - d2d.ScaleF(kFluentToggleTextInset);
 
     if (is_radio) {
@@ -119,7 +127,6 @@ void DrawFluentToggleOrRadioRow(
         } else if (border_brush && (is_enabled || !d2d.appearance.high_contrast)) {
             d2d.d2d_target->DrawEllipse(outer, border_brush.Get(), 1.5f);
         }
-        text_left = d2d.ScaleF(kRadioTextInset);
     } else {
         const RECT bounds = FluentToggleBounds(
             RECT{0, 0, dis.rcItem.right - dis.rcItem.left, dis.rcItem.bottom - dis.rcItem.top}, d2d);

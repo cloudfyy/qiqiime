@@ -89,11 +89,15 @@ void TestSettingsTextAlignment() {
                     restore.left >= client.left &&
                     cancel.right <= client.right);
                 QIQI_TEST_CHECK(ok.bottom <= client.bottom && cancel.bottom <= client.bottom);
+                const LONG toggle_text_left = bounds(kIdChkShiftToggle).left + FluentToggleLabelInset(context->d2d);
+                QIQI_TEST_CHECK(bounds(kIdLblEnglishSwitch).left == toggle_text_left);
                 QIQI_TEST_CHECK(bounds(kIdComboEnglishSwitch).right == control_right);
                 const RECT space_enter_label = bounds(kIdLblSpaceEnter);
                 const RECT space_enter = bounds(kIdComboSpaceEnter);
-                QIQI_TEST_CHECK(space_enter_label.bottom <= space_enter.top);
-                QIQI_TEST_CHECK(space_enter.left == space_enter_label.left && space_enter.right == control_right);
+                QIQI_TEST_CHECK(space_enter_label.left == toggle_text_left);
+                QIQI_TEST_CHECK(space_enter_label.top == space_enter.top && space_enter_label.right < space_enter.left);
+                QIQI_TEST_CHECK(space_enter.right == control_right &&
+                                space_enter.right - space_enter.left <= context->d2d.ScalePx(260));
                 QIQI_TEST_CHECK(restore.right - restore.left < (control_right - context->page_bounds.left) / 2);
                 SelectSettingsPage(dialog.Get(), *context, SettingsPage::Dictionary);
                 const RECT browse = bounds(kIdBtnBrowsePrimaryDict);
@@ -102,6 +106,9 @@ void TestSettingsTextAlignment() {
                 QIQI_TEST_CHECK(bounds(kIdChkExtraDict).top >= bounds(kIdRadioJidian).bottom);
                 QIQI_TEST_CHECK(browse.top == manager.top && browse.right <= manager.left);
                 const RECT custom = bounds(kIdRadioCustom);
+                const RECT custom_path = bounds(kIdLblCustomPrimaryPath);
+                QIQI_TEST_CHECK(custom_path.left == custom.left + context->d2d.ScalePx(kFluentRadioTextInset) &&
+                                custom_path.right <= control_right);
                 if (custom.top == browse.top)
                     QIQI_TEST_CHECK(custom.right <= browse.left);
                 else
@@ -113,12 +120,17 @@ void TestSettingsTextAlignment() {
                 QIQI_TEST_CHECK(size.top == layout.top && size.right < layout.left);
                 QIQI_TEST_CHECK(layout.right == control_right);
                 QIQI_TEST_CHECK(bounds(kIdComboUnderlineStyle).right == control_right);
+                const LONG candidate_text_left = bounds(kIdChkBoldUnderline).left +
+                    FluentToggleLabelInset(context->d2d);
+                QIQI_TEST_CHECK(bounds(kIdLblUnderlineStyle).left == candidate_text_left);
+                QIQI_TEST_CHECK(bounds(kIdLblImeSkin).left == candidate_text_left);
                 const RECT skin = bounds(kIdComboImeSkin);
                 const RECT font = bounds(kIdBtnCandidateFont);
                 QIQI_TEST_CHECK(skin.top == font.top && skin.right < font.left);
                 QIQI_TEST_CHECK(font.right == control_right);
-                QIQI_TEST_CHECK(bounds(kIdCandidatePreview).bottom - bounds(kIdCandidatePreview).top <
-                                ScalePxByDpi(150, dpi));
+                const RECT preview = bounds(kIdCandidatePreview);
+                QIQI_TEST_CHECK(preview.left == candidate_text_left && preview.right == control_right);
+                QIQI_TEST_CHECK(preview.bottom - preview.top < ScalePxByDpi(150, dpi));
                 SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
                 QIQI_TEST_CHECK(bounds(kIdComboUiTheme).right == control_right);
                 QIQI_TEST_CHECK(bounds(kIdComboUiTextScale).right == control_right);

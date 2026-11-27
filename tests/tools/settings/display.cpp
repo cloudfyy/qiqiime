@@ -215,6 +215,12 @@ void TestSettingsAccessibleLayout() {
             };
             const RECT ok = bounds(IDOK);
             const RECT cancel = bounds(IDCANCEL);
+            const RECT space_enter_label = bounds(kIdLblSpaceEnter);
+            const RECT space_enter = bounds(kIdComboSpaceEnter);
+            QIQI_TEST_CHECK(space_enter_label.left ==
+                bounds(kIdChkShiftToggle).left + FluentToggleLabelInset(context->d2d));
+            QIQI_TEST_CHECK(space_enter_label.bottom <= space_enter.top &&
+                space_enter.left >= context->page_bounds.left && space_enter.right <= context->page_bounds.right);
             QIQI_TEST_CHECK(ok.left >= 0 && cancel.right <= client.right);
             QIQI_TEST_CHECK(ok.top >= context->page_bounds.bottom && ok.bottom <= client.bottom);
             QIQI_TEST_CHECK(cancel.top >= context->page_bounds.bottom && cancel.bottom <= client.bottom);

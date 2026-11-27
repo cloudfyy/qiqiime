@@ -407,6 +407,12 @@ void RunSettingsSkinTests() {
     QIQI_TEST_CHECK(context->d2d.appearance.palette.window_bg == kLightThemePalette.window_bg);
     const auto& firefly = GetBuiltinImeSkins().front().palettes.light;
     QIQI_TEST_CHECK(context->candidate_skin_colors == firefly);
+    ::SendMessageW(window.Get(), WM_VSCROLL, SB_BOTTOM, 0);
+    RECT preview_bounds{};
+    QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(window.Get(), kIdCandidatePreview), &preview_bounds));
+    ::MapWindowPoints(nullptr, window.Get(), reinterpret_cast<POINT*>(&preview_bounds), 2);
+    QIQI_TEST_CHECK(preview_bounds.top >= context->page_bounds.top &&
+                    preview_bounds.bottom <= context->page_bounds.bottom);
     for (const auto role : {SkinColor::Background, SkinColor::CodeText, SkinColor::CandidateText,
             SkinColor::SelectedBackground, SkinColor::SelectedText, SkinColor::SelectedBorder,
             SkinColor::PageEnabledText}) {

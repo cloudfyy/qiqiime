@@ -37,7 +37,8 @@
                         Keywords="!(loc.SummaryKeywords)"
                         Codepage="$(var.SummaryCodepage)" />
 
-    <Icon Id="ProductIcon" SourceFile="data\qiqiime-settings.ico" />
+    <Icon Id="ProductIcon" SourceFile="data\qiqiime-product.ico" />
+    <Icon Id="SettingsIcon" SourceFile="data\qiqiime-settings.ico" />
     <Icon Id="DictManagerIcon" SourceFile="data\qiqiime-dict.ico" />
     <Icon Id="LogMonitorIcon" SourceFile="data\qiqiime-monitor.ico" />
     <Icon Id="DiagIcon" SourceFile="data\qiqiime-diag.ico" />
@@ -213,7 +214,7 @@
                   Name="!(loc.SettingsShortcutName)"
                   Description="!(loc.SettingsShortcutDescription)"
                   Target="[#FileSettingsExe$(var.NativeFileSuffix)]" WorkingDirectory="$(var.NativeDirectory)"
-                  Icon="ProductIcon" IconIndex="0" Advertise="no" />
+                  Icon="SettingsIcon" IconIndex="0" Advertise="no" />
         <Shortcut Id="DictManagerShortcut"
                   Name="!(loc.DictManagerShortcutName)"
                   Description="!(loc.DictManagerShortcutDescription)"

@@ -107,6 +107,7 @@ inline constexpr int kFluentBodyFontSize = 14;
 inline constexpr int kFluentComboItemHeight = 22;
 inline constexpr int kCandidateFontDefaultHeightPx = 18;
 inline constexpr int kFluentToggleTextInset = 4;
+inline constexpr int kFluentRadioTextInset = 26;
 inline constexpr std::size_t kFluentComboTextCapacity = 128;
 inline constexpr int kComfortMinimumTargetDip = 44;
 inline constexpr int kComfortMinimumTextPercent = 150;
@@ -180,6 +181,7 @@ void PaintFluentComboBoxFrame(HWND hwnd, HDC hdc, const FluentD2DThemeContext& d
 void DrawFluentComboBoxItem(const DRAWITEMSTRUCT& dis, const FluentD2DThemeContext& d2d,
                            bool disabled = false, const wchar_t* disabled_suffix = nullptr) noexcept;
 RECT FluentToggleBounds(const RECT& row, const FluentD2DThemeContext& d2d) noexcept;
+int FluentToggleLabelInset(const FluentD2DThemeContext& d2d) noexcept;
 void DrawFluentUnderlineStylePreview(
     const FluentD2DThemeContext& d2d,
     CompositionUnderlineStyle style,

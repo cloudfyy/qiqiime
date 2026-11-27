@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 [CmdletBinding()]
-param([switch]$ImeOnly)
+param([switch]$ImeOnly, [switch]$SettingsOnly)
 
 $ErrorActionPreference = 'Stop'
+if ($ImeOnly -and $SettingsOnly) { throw 'Choose either -ImeOnly or -SettingsOnly.' }
 Add-Type -AssemblyName System.Drawing
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sizes = @(16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
@@ -38,13 +39,85 @@ function Write-QiQiIcoFile([string]$OutputPath, [Collections.Generic.List[byte[]
     }
 }
 
+function Add-QiQiToolCard([Drawing.Drawing2D.GraphicsPath]$Path, [single]$Pad, [single]$Extent, [single]$Diameter) {
+    $far = $Pad + $Extent - $Diameter
+    $Path.AddArc($Pad, $Pad, $Diameter, $Diameter, 180, 90)
+    $Path.AddArc($far, $Pad, $Diameter, $Diameter, 270, 90)
+    $Path.AddArc($far, $far, $Diameter, $Diameter, 0, 90)
+    $Path.AddArc($Pad, $far, $Diameter, $Diameter, 90, 90)
+    $Path.CloseFigure()
+}
+
+function Write-QiQiSettingsIcon {
+    $frames = [Collections.Generic.List[byte[]]]::new()
+    $radii = @(0.245, 0.325, 0.325, 0.245)
+    $offsets = @(-0.42, -0.23, 0.23, 0.42)
+    foreach ($size in $sizes) {
+        $bitmap = [Drawing.Bitmap]::new($size, $size, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $graphics = [Drawing.Graphics]::FromImage($bitmap)
+        $card = [Drawing.Drawing2D.GraphicsPath]::new()
+        $gear = [Drawing.Drawing2D.GraphicsPath]::new([Drawing.Drawing2D.FillMode]::Alternate)
+        $start = [Drawing.PointF]::new(0, 0)
+        $end = [Drawing.PointF]::new($size, $size)
+        $background = [Drawing.Drawing2D.LinearGradientBrush]::new($start, $end,
+            [Drawing.Color]::FromArgb(25, 54, 104), [Drawing.Color]::FromArgb(18, 29, 48))
+        $accent = [Drawing.Drawing2D.LinearGradientBrush]::new($start, $end,
+            [Drawing.Color]::FromArgb(67, 226, 247), [Drawing.Color]::FromArgb(46, 213, 182))
+        $border = [Drawing.Pen]::new([Drawing.Color]::FromArgb(58, 134, 232),
+            [single][math]::Max(1.0, $size * 0.055))
+        $stream = [IO.MemoryStream]::new()
+        try {
+            $graphics.Clear([Drawing.Color]::Transparent)
+            $graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            $graphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            $pad = [single]($size * 0.06)
+            Add-QiQiToolCard $card $pad ($size - 2 * $pad) ($size * 0.36)
+            $graphics.FillPath($background, $card)
+            $graphics.DrawPath($border, $card)
+
+            $center = $size * 0.5
+            $points = [Drawing.PointF[]]@(for ($tooth = 0; $tooth -lt 8; $tooth++) {
+                for ($i = 0; $i -lt $radii.Length; $i++) {
+                    $angle = ($tooth + $offsets[$i]) * [math]::PI / 4 - [math]::PI / 2
+                    $radius = $size * $radii[$i]
+                    [Drawing.PointF]::new(($center + $radius * [math]::Cos($angle)),
+                        ($center + $radius * [math]::Sin($angle)))
+                }
+            })
+            $gear.AddPolygon($points)
+            $gear.AddEllipse([single]($size * 0.375), [single]($size * 0.375),
+                [single]($size * 0.25), [single]($size * 0.25))
+            $graphics.FillPath($accent, $gear)
+            $bitmap.Save($stream, [Drawing.Imaging.ImageFormat]::Png)
+            $frames.Add($stream.ToArray())
+        } finally {
+            $stream.Dispose()
+            $border.Dispose()
+            $accent.Dispose()
+            $background.Dispose()
+            $gear.Dispose()
+            $card.Dispose()
+            $graphics.Dispose()
+            $bitmap.Dispose()
+        }
+    }
+    $output = Join-Path $repoRoot 'data\qiqiime-settings.ico'
+    Write-QiQiIcoFile -OutputPath $output -Frames $frames
+    Write-Output "Generated $output (cyan gear on navy, 16..256 pixels)."
+}
+
+if ($SettingsOnly) {
+    Write-QiQiSettingsIcon
+    return
+}
+
 $family = [Drawing.FontFamily]::new('Microsoft YaHei UI')
 $brandBrush = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(35, 105, 200))
 $monitorBgBrush = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(24, 34, 48))
 $monitorHeaderBrush = [Drawing.SolidBrush]::new([Drawing.Color]::FromArgb(35, 105, 200))
 try {
     # Keep the registered brand icon separate from the theme-specific assets.
-    $settingsFrames = [Collections.Generic.List[byte[]]]::new()
+    $productFrames = [Collections.Generic.List[byte[]]]::new()
     $imeFrames = [Collections.Generic.List[byte[]]]::new()
     $themeIcons = @(
         @{ File = 'qiqiime-light.ico'; Channel = 0; Frames = [Collections.Generic.List[byte[]]]::new() },
@@ -73,7 +146,7 @@ try {
             $path.Transform($transform)
             $graphics.FillPath($brandBrush, $path)
             $bitmap.Save($stream, [Drawing.Imaging.ImageFormat]::Png)
-            $settingsFrames.Add($stream.ToArray())
+            $productFrames.Add($stream.ToArray())
 
             $transform.Reset()
             $transform.Translate([single](-$size / 2), [single](-$size / 2))
@@ -130,9 +203,10 @@ try {
     }
     if ($ImeOnly) { return }
 
-    $settingsOutput = Join-Path $repoRoot 'data\qiqiime-settings.ico'
-    Write-QiQiIcoFile -OutputPath $settingsOutput -Frames $settingsFrames
-    Write-Output "Generated $settingsOutput (native '奇' brand glyph outlines, 16..256 pixels)."
+    $productOutput = Join-Path $repoRoot 'data\qiqiime-product.ico'
+    Write-QiQiIcoFile -OutputPath $productOutput -Frames $productFrames
+    Write-Output "Generated $productOutput (native '奇' brand glyph outlines, 16..256 pixels)."
+    Write-QiQiSettingsIcon
 
     # 2. Log Monitor Icon (data\qiqiime-monitor.ico): Dark diagnostic screen with teal pulse waveform & blue header (16..256 px)
     $monitorFrames = [Collections.Generic.List[byte[]]]::new()
@@ -159,11 +233,7 @@ try {
             $r = [single]($size * 0.18)
             $d = [single](2 * $r)
 
-            $cardPath.AddArc($pad, $pad, $d, $d, 180, 90)
-            $cardPath.AddArc($pad + $w - $d, $pad, $d, $d, 270, 90)
-            $cardPath.AddArc($pad + $w - $d, $pad + $h - $d, $d, $d, 0, 90)
-            $cardPath.AddArc($pad, $pad + $h - $d, $d, $d, 90, 90)
-            $cardPath.CloseFigure()
+            Add-QiQiToolCard $cardPath $pad $w $d
             $graphics.FillPath($monitorBgBrush, $cardPath)
 
             $headerH = [single]($size * 0.24)

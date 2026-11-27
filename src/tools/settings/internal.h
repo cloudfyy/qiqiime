@@ -174,6 +174,7 @@ inline constexpr int kAppearanceRowStep = 34;
 inline constexpr int kLabelWidth = 156;
 inline constexpr int kComboLeft = kRightColumn + kLabelWidth + 2;
 inline constexpr int kComboWidth = 200;
+inline constexpr int kSpaceEnterComboWidth = 260;
 inline constexpr int kComboLabelInset = 4;
 inline constexpr int kButtonGap = 10;
 inline constexpr int kFooterTop = kInputCard.bottom + 14;

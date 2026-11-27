@@ -29,8 +29,16 @@ Assert-True ($null -ne $keyPath -and $keyPath.Root -eq "HKMU") "Non-advertised s
 Assert-True ($null -ne $component.SelectSingleNode("w:RemoveFolder[@On='uninstall']", $ns)) "The empty start menu folder must be removed on uninstall."
 Assert-True (@($component.SelectNodes("w:RemoveFile|w:RemoveRegistryKey", $ns)).Count -eq 0) "Shortcut cleanup must not delete user files or registry keys."
 
+$arpIconId = $package.SelectSingleNode("w:Property[@Id='ARPPRODUCTICON']", $ns).Value
+$productIcon = $package.SelectSingleNode("w:Icon[@Id='$arpIconId']", $ns)
+$settingsIcon = $package.SelectSingleNode("w:Icon[@Id='SettingsIcon']", $ns)
+Assert-True ($null -ne $productIcon -and $null -ne $settingsIcon -and
+    $productIcon.SourceFile -ne $settingsIcon.SourceFile -and
+    (Test-Path -LiteralPath (Join-Path $repoRoot $productIcon.SourceFile) -PathType Leaf)) `
+    "The product icon must remain independent of the Settings shortcut icon."
+
 $expected = @(
-    @{ Id = "SettingsShortcut"; File = "FileSettingsExe"; Exe = "QiQiIMESettings.exe"; Icon = "ProductIcon" },
+    @{ Id = "SettingsShortcut"; File = "FileSettingsExe"; Exe = "QiQiIMESettings.exe"; Icon = "SettingsIcon" },
     @{ Id = "DictManagerShortcut"; File = "FileDictManagerExe"; Exe = "QiQiIMEDictManager.exe"; Icon = "DictManagerIcon" },
     @{ Id = "LogMonitorShortcut"; File = "FileLogMonitorExe"; Exe = "QiQiIMELogMonitor.exe"; Icon = "LogMonitorIcon" },
     @{ Id = "DiagShortcut"; File = "FileDiagExe"; Exe = "QiQiIMEDiag.exe"; Icon = "DiagIcon" }

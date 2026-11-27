@@ -67,7 +67,7 @@ inline FileDialogResult PromptForFile(
 
 inline ScopedIcon LoadOrCreateBrandIcon(int size_px, HINSTANCE instance = nullptr) noexcept {
     // Only load embedded icon resource 1 when running inside standalone QiQiIMESettings.exe
-    // (which embeds blue qiqiime-settings.ico); qiqiime.dll embeds a boxed black/white IME icon.
+    // (which embeds the Settings tool icon); qiqiime.dll embeds the boxed IME brand icon.
     bool use_resource = false;
     if (instance) {
         std::array<wchar_t, MAX_PATH> module_path{};

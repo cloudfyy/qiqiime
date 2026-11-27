@@ -156,9 +156,9 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
         gsl::narrow_cast<int>(ctx.page_bounds.right - ctx.page_bounds.left) - 2 * inset);
     const int left = ctx.page_bounds.left + inset;
     const int right = left + content_width;
+    const int toggle_label_inset = std::min(content_width - 1, FluentToggleLabelInset(ctx.d2d));
     const int field_width = std::min(content_width, ctx.d2d.ScalePx(settings_layout::kComboWidth));
-    const int label_width = std::max(1, content_width - field_width - gap);
-    const bool stacked = ctx.preview_easy_reading || label_width < std::max(S(140), font_height * 10);
+    const int minimum_label_width = std::max(S(140), font_height * 10);
     int y = gap;
 
     for (int page = 0; page < gsl::narrow_cast<int>(SettingsPage::Count); ++page) {
@@ -253,35 +253,34 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             id == kIdLblImeSkin || id == kIdLblSpaceEnter;
         if (label && index + 1 < controls.size()) {
             const int combo = gsl::at(controls, ++index);
-            const bool wide_combo = id == kIdLblSpaceEnter;
-            const bool stacked_row = stacked || wide_combo;
+            const bool space_enter = id == kIdLblSpaceEnter;
             const bool skin_row = id == kIdLblImeSkin;
-            const int skin_font_width = skin_row
-                ? std::min(
-                    action_width(kIdBtnCandidateFont), content_width)
-                : 0;
-            const int skin_pair_width = skin_font_width +
-                field_width + gap;
-            const bool inline_skin_row =
-                skin_row && !stacked &&
-                skin_pair_width <= content_width;
+            const int label_inset = id == kIdLblEnglishSwitch || space_enter ||
+                id == kIdLblUnderlineStyle || skin_row
+                ? toggle_label_inset : 0;
+            const int row_combo_width = space_enter
+                ? std::min(content_width, ctx.d2d.ScalePx(settings_layout::kSpaceEnterComboWidth))
+                : field_width;
+            const int label_width = std::max(1, content_width - label_inset - row_combo_width - gap);
+            const int skin_font_width = skin_row ? action_width(kIdBtnCandidateFont) : 0;
+            const int skin_pair_width = skin_font_width + field_width + gap;
+            const int skin_label_width = content_width - label_inset - skin_pair_width - gap;
+            const bool stacked_row = ctx.preview_easy_reading || label_width < minimum_label_width ||
+                (skin_row && skin_label_width <= 0);
             const int row_label_width = stacked_row
-                ? content_width
-                : (inline_skin_row
-                    ? std::max(
-                        1, content_width - skin_pair_width - gap)
-                    : label_width);
+                ? content_width - label_inset
+                : (skin_row ? skin_label_width : label_width);
             const int label_height = std::max(
                 font_height + S(6),
                 text_height(id, row_label_width));
             const int combo_y = stacked_row ? y + label_height + S(4) : y;
-            place(id, left, y, row_label_width, label_height, false);
+            place(id, left + label_inset, y, row_label_width, label_height, false);
             int closed_height = 0;
             if (skin_row && index + 1 < controls.size() &&
                 gsl::at(controls, index + 1) == kIdBtnCandidateFont) {
                 const bool wrap_font =
                     skin_pair_width > content_width;
-                const int pair_width = stacked
+                const int pair_width = stacked_row
                     ? content_width
                     : std::min(content_width, skin_pair_width);
                 const int pair_left = right - pair_width;
@@ -316,8 +315,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
                     place(kIdComboCandidateLayout, right - layout_width, combo_y, layout_width, target, true));
                 ++index;
             } else {
-                const int combo_width = wide_combo ? content_width : field_width;
-                closed_height = place(combo, right - combo_width, combo_y, combo_width, target, true);
+                closed_height = place(combo, right - row_combo_width, combo_y, row_combo_width, target, true);
             }
             y = std::max(y + label_height, combo_y + closed_height) + gap;
             continue;
@@ -333,7 +331,9 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             id == kIdLblShortcutsTitle ||
             id == kIdLblShortcutsSubtitle ||
             id == kIdLblShortcutsBody;
-        const int indent = id == kIdChkExtraDict ? std::min(S(24), content_width - 1) : 0;
+        const int indent = preview ? toggle_label_inset : std::min(content_width - 1,
+            id == kIdLblCustomPrimaryPath ? ctx.d2d.ScalePx(kFluentRadioTextInset) :
+            id == kIdChkExtraDict ? S(24) : 0);
         const int control_width = content_width - indent;
         const int height = icon
             ? ctx.d2d.ScalePx(kLargeBrandIconSize + 16)
