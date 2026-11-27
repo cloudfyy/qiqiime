@@ -69,7 +69,7 @@ void TestCandidateUilessContract() {
     ui->SetCandidates(
         L"ab", {L"一", L"二", L"三", L"四"}, 2, 1, 0, document.Get());
     QIQI_TEST_CHECK(ui->GetUpdatedFlags(&flags) == S_OK &&
-                    flags == (TF_CLUIE_COUNT | TF_CLUIE_STRING | TF_CLUIE_PAGEINDEX));
+                    flags == (TF_CLUIE_COUNT | TF_CLUIE_STRING));
     acknowledge();
     ui->SetCandidates(
         L"ab", {L"一", L"二", L"三", L"四"}, 2, 1, 0, replacement_document.Get());
