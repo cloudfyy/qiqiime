@@ -51,6 +51,8 @@ MessageStrings GetMessageStrings(UiLanguage language, SettingsMessageKind kind) 
     switch (kind) {
         case SettingsMessageKind::SaveFailure:
             return {str.dlg_title, str.dlg_save_failed};
+        case SettingsMessageKind::SaveConflict:
+            return {str.dlg_title, str.dlg_save_conflict};
         case SettingsMessageKind::NotificationFailure:
             return {str.dlg_title, str.dlg_notify_failed};
         case SettingsMessageKind::DictManagerLaunchFailure:

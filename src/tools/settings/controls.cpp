@@ -177,7 +177,7 @@ LRESULT CALLBACK SettingsTabSubclass(
 void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& ctx) noexcept {
     const auto S = [&ctx](int px) noexcept { return ctx.d2d.ScalePx(px); };
     const HFONT f = ctx.font.Get();
-    const auto& str = GetUiStrings(ctx.config ? ctx.config->ui_language : UiLanguage::Auto);
+    const auto& str = GetUiStrings(ctx.baseline_config.ui_language);
     const auto create_control = [&](const wchar_t* cls, const wchar_t* text, DWORD style,
                                     const RECT& rect, int id, DWORD_PTR group = 0) noexcept {
         // Route page labels through the same viewport clipping as other owner-drawn controls.

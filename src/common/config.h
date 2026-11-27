@@ -338,7 +338,7 @@ constexpr bool IsValidCandidateFontFamily(std::wstring_view family) noexcept {
 }
 
 void MergeSettingsConfig(
-    QiQiConfig& external, const QiQiConfig& baseline, const QiQiConfig& local) noexcept;
+    QiQiConfig& external, const QiQiConfig& baseline, const QiQiConfig& local);
 
 // Return canonical string name of PrimaryDict ("jidian" | "haifeng" | "builtin" | "custom").
 constexpr std::string_view PrimaryDictToString(PrimaryDict dict) noexcept {

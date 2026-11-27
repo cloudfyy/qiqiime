@@ -50,6 +50,20 @@ DWORD settings_detail::OpenDictionaryManager(
 
 namespace {
 
+constexpr HRESULT kSettingsRevisionMismatch = HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH);
+
+HRESULT PersistSettingsDraft(const config::SaveRequest& request, config::Snapshot& published) noexcept {
+    if (HasConfigRegistrySubKeyOverride()) {
+        // The isolated registry fixture runs without Broker, but follows the same revision check.
+        const uint64_t revision = QueryRegistryConfigSequence();
+        if (revision == 0) return E_UNEXPECTED;
+        if (revision != request.expected_revision) return kSettingsRevisionMismatch;
+        return SaveConfigResult(request.value);
+    }
+    if (request.expected_revision == 0) return kSettingsRevisionMismatch;
+    return config::SaveSnapshot(request, published);
+}
+
 void ShowSettingsSaveFailure(HWND hwnd, UiLanguage ui_language) noexcept {
     ShowSettingsMessage(hwnd, ui_language, SettingsMessageKind::SaveFailure);
 }
@@ -176,7 +190,7 @@ bool BrowseCustomPrimaryDictionary(HWND hwnd, const DialogContext& ctx) noexcept
 } // namespace
 
 void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
-    if (ctx.transfer_in_progress) return;
+    if (ctx.done || ctx.transfer_in_progress) return;
     switch (LOWORD(wparam)) {
         case kIdRadioJidian:
             CheckPrimaryDictRadio(hwnd, PrimaryDict::Jidian);
@@ -295,12 +309,19 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             PromptSettingsBackupTransfer(hwnd, LOWORD(wparam) == kIdBtnImportConfig);
             return;
         case kIdBtnOk: {
+            bool notification_failed = false;
+            UiLanguage saved_language = UiLanguage::Auto;
             if (ctx.config) {
-                QiQiConfig edited;
+                const auto* const original = &ctx;
+                config::SaveRequest request{.expected_revision = ctx.baseline_revision};
+                auto& edited = request.value;
                 QiQiConfig baseline;
                 try {
                     edited = *ctx.config;
-                    ReadSettingsFromWindowControls(hwnd, edited);
+                    if (!log::CheckHResult(ReadSettingsDraft(hwnd, edited), "Settings::ReadDraftForSave")) {
+                        ShowSettingsSaveFailure(hwnd, GetSelectedUiLanguageFromCombo(hwnd, ctx));
+                        return;
+                    }
                     baseline = edited;
                 } catch (const std::bad_alloc&) {
                     QIQI_LOG_ERROR("Settings save could not copy configuration");
@@ -310,6 +331,8 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                 if (!ValidateSettingsPrimaryDictionary(hwnd, ctx, edited)) {
                     return;
                 }
+                if (reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA)) != original ||
+                    ctx.done) return;
                 if (edited.ime_skin_id != ImeSkinId::Default) {
                     if (FAILED(
                             ctx.skin_catalog_result)) {
@@ -331,27 +354,25 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                     }
                 }
                 if (ctx.save_on_accept) {
-                    const HRESULT saved =
-                        SaveConfigResult(edited);
+                    config::Snapshot published;
+                    const HRESULT saved = PersistSettingsDraft(request, published);
                     if (FAILED(saved)) {
                         QIQI_LOG_ERROR("Settings save failed; retaining edits for retry (hr=0x{:08X})",
                             gsl::narrow_cast<unsigned long>(saved));
-                        ShowSettingsSaveFailure(hwnd, edited.ui_language);
+                        if (saved == kSettingsRevisionMismatch) {
+                            RequestSettingsConfigRefresh(hwnd, ctx);
+                            if (reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA)) ==
+                                    original && !ctx.done) {
+                                ShowSettingsMessage(hwnd, GetSelectedUiLanguageFromCombo(hwnd, ctx),
+                                    SettingsMessageKind::SaveConflict);
+                            }
+                        } else {
+                            ShowSettingsSaveFailure(hwnd, edited.ui_language);
+                        }
                         return;
                     }
-                    config::Snapshot published;
-                    if (config::CopyCachedSnapshot(
-                            published) == S_OK &&
-                        FAILED(published
-                                   .notification_result)) {
-                        ReportSettingsNotificationFailure(
-                            hwnd,
-                            edited.ui_language);
-                    }
-                }
-                if (ctx.save_on_accept) {
-                    ctx.config_registry_sequence =
-                        config::CachedRevision();
+                    notification_failed = FAILED(published.notification_result);
+                    saved_language = edited.ui_language;
                 }
                 ctx.baseline_config = std::move(baseline);
                 *ctx.config = std::move(edited);
@@ -359,6 +380,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             ctx.accepted = true;
             ctx.done = true;
             ::PostMessageW(hwnd, WM_NULL, 0, 0);
+            if (notification_failed) ReportSettingsNotificationFailure(hwnd, saved_language);
             return;
         }
         case kIdBtnCancel:

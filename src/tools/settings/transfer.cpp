@@ -109,19 +109,12 @@ HRESULT RefreshSettingsAfterRestore(HWND hwnd, DialogContext& context) {
     try {
         QiQiConfig bound = restored;
         QiQiConfig baseline = restored;
-        baseline.enable_jidian_extra =
-            restored.primary_dict == PrimaryDict::Jidian && restored.enable_jidian_extra;
-        if (restored.easy_reading) {
-            baseline.ui_text_scale =
-                std::max(restored.ui_text_scale, UiTextScale::Percent150);
-        }
+        NormalizeSettingsBaseline(baseline);
         const HRESULT render = RenderSettingsDraft(hwnd, context, restored);
         if (FAILED(render)) return render;
         *context.config = std::move(bound);
         context.baseline_config = std::move(baseline);
-        context.last_valid_primary_dict = restored.primary_dict;
-        context.custom_primary_dict_path = restored.primary_dict_path;
-        context.config_registry_sequence = sequence;
+        context.baseline_revision = sequence;
         UpdateSettingsWindowTitle(hwnd, context);
         return S_OK;
     } catch (const std::bad_alloc&) {

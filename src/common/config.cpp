@@ -1023,13 +1023,13 @@ HRESULT BumpConfigRegistrySequenceResult(HKEY key) noexcept {
 }
 
 void MergeSettingsConfig(
-    QiQiConfig& external, const QiQiConfig& baseline, const QiQiConfig& local) noexcept {
+    QiQiConfig& external, const QiQiConfig& baseline, const QiQiConfig& local) {
     ForEachConfigField([&](const auto& field) noexcept {
         if (field.HasSettingsChange(baseline, local)) {
             external.*(field.member) = local.*(field.member);
         }
     });
-    ForEachConfigStringField([&](const auto& field) noexcept {
+    ForEachConfigStringField([&](const auto& field) {
         if (field.HasSettingsChange(baseline, local)) {
             external.*(field.member) = local.*(field.member);
         }

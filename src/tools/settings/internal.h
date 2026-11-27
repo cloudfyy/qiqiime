@@ -265,7 +265,7 @@ struct DialogContext {
     ToolCommandUi* active_font_menu = nullptr;
     std::wstring custom_primary_dict_path;
     PrimaryDict last_valid_primary_dict = PrimaryDict::Jidian;
-    uint64_t config_registry_sequence = 0;
+    uint64_t baseline_revision = 0; // Revision applied to the window, not the process cache.
     bool config_refresh_inflight = false;
     bool config_refresh_pending = false;
     bool controls_initialized = false;
@@ -306,6 +306,8 @@ UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) n
 void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept;
 const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage language) noexcept;
 void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept;
+void NormalizeSettingsBaseline(QiQiConfig& config) noexcept;
+HRESULT ReadSettingsDraft(HWND hwnd, QiQiConfig& config) noexcept;
 HRESULT RenderSettingsDraft(HWND hwnd, DialogContext& ctx, const QiQiConfig& config) noexcept;
 void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx);
 void RequestSettingsConfigRefresh(HWND hwnd, DialogContext& ctx);

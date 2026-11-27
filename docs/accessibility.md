@@ -47,6 +47,7 @@ Windows 系统高对比度仍优先。任务栏“中/英”模式图标继续�
 - **取消**或关闭：丢弃尚未保存的显示修改。
 - **恢复默认设置**：统一恢复显示、词库、输入习惯等设置，仍须确定保存。
 - 保存失败会明确提示并保留当前编辑，可重试。
+- 若配置在别处更新，设置会刷新并保留本地已编辑的字段；有保存冲突时不会覆盖新版本，需再次确认。
 
 设置按“输入习惯、词库、候选窗口、显示与易读、声音与反馈、快捷键、关于”
 七个 Tab 分类；快捷键与关于位于 Tab 栏最右侧。
@@ -307,7 +308,9 @@ Display scaling and monitor DPI are applied separately.
 Changes preview only in Settings and its local candidate-style sample until
 **OK** succeeds. **Cancel** discards display edits. **Restore defaults** resets
 display, dictionary, input, and other settings together and still requires OK.
-Save failures retain edits and show a message.
+Save failures retain edits and show a message. If settings changed elsewhere, the window
+refreshes and keeps locally edited fields. A conflicting save does not overwrite the
+newer settings; click OK again after the refresh.
 
 Settings has seven themed tabs: Input, Dictionary, Candidates, Display,
 Feedback, Shortcuts, and About. The tab strip, selection, focus, and overflow arrows follow the selected

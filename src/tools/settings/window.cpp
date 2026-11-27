@@ -92,38 +92,27 @@ ScopedWindow CreateSettingsWindow(
         return {};
     }
 
+    const bool registry_override = HasConfigRegistrySubKeyOverride();
+    config::Snapshot config_snapshot;
+    const HRESULT snapshot_result = registry_override ? S_FALSE : config::CopyCachedSnapshot(config_snapshot);
+    const bool use_broker_snapshot = save_on_accept && snapshot_result == S_OK;
+    const QiQiConfig defaults;
+    const QiQiConfig& initial = use_broker_snapshot ? config_snapshot.value : (bound_config ? *bound_config : defaults);
+    const uint64_t initial_revision = registry_override ? QueryRegistryConfigSequence() : config_snapshot.revision;
+
     std::unique_ptr<DialogContext> ctx;
     try {
         ctx = std::make_unique<DialogContext>();
         ctx->instance = instance;
         ctx->config = bound_config;
-        if (bound_config) {
-            ctx->baseline_config = *bound_config;
-            ctx->custom_primary_dict_path = bound_config->primary_dict_path;
-            ctx->last_valid_primary_dict = bound_config->primary_dict;
-        }
+        ctx->baseline_config = initial;
     } catch (const std::bad_alloc&) {
         QIQI_LOG_ERROR("Settings dialog context allocation failed");
         return {};
     }
-    config::Snapshot config_snapshot;
-    HRESULT config_snapshot_result = S_OK;
-    if (HasConfigRegistrySubKeyOverride()) {
-        ctx->config_registry_sequence =
-            QueryRegistryConfigSequence();
-    } else {
-        config_snapshot_result =
-            config::CopyCachedSnapshot(
-                config_snapshot);
-        if (config_snapshot_result ==
-            S_OK) {
-            ctx->config_registry_sequence =
-                config_snapshot.revision;
-        }
-    }
     ctx->save_on_accept = save_on_accept;
     if (save_on_accept) {
-        if (HasConfigRegistrySubKeyOverride()) {
+        if (registry_override) {
             ctx->skin_catalog_result =
                 EnsureBuiltinImeSkinCatalog();
             if (SUCCEEDED(
@@ -132,26 +121,10 @@ ScopedWindow CreateSettingsWindow(
                     LoadImeSkinCatalog(
                         ctx->skin_catalog);
             }
-        } else if (
-            config_snapshot_result !=
-            S_OK) {
-            ctx->skin_catalog_result =
-                config_snapshot_result ==
-                        S_FALSE
-                    ? E_PENDING
-                    : config_snapshot_result;
+        } else if (!use_broker_snapshot) {
+            ctx->skin_catalog_result = snapshot_result == S_FALSE ? E_PENDING : snapshot_result;
         } else {
-            try {
-                ctx->skin_catalog =
-                    config_snapshot
-                        .skin_catalog;
-                ctx->skin_catalog_result =
-                    S_OK;
-            } catch (
-                const std::bad_alloc&) {
-                ctx->skin_catalog_result =
-                    E_OUTOFMEMORY;
-            }
+            ctx->skin_catalog = std::move(config_snapshot.skin_catalog);
         }
     } else {
         ctx->skin_catalog_result =
@@ -162,8 +135,8 @@ ScopedWindow CreateSettingsWindow(
     const MonitorMetrics mon = QueryActiveMonitor(parent);
     const auto S = [dpi = mon.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
 
-    const UiLanguage initial_language = bound_config ? bound_config->ui_language : UiLanguage::Auto;
-    const auto preferences = bound_config ? GetDisplayPreferences(*bound_config) : DisplayPreferences{};
+    const UiLanguage initial_language = initial.ui_language;
+    const auto preferences = GetDisplayPreferences(initial);
     ctx->d2d.clip_controls_to_dc = true;
     if (!RefreshSettingsUiAppearance(nullptr, *ctx, initial_language, preferences, mon.dpi)) return {};
     ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(S(kSmallBrandIconSize), instance);
@@ -198,11 +171,11 @@ ScopedWindow CreateSettingsWindow(
 
     CreateSettingsControls(hwnd.Get(), instance, *owned_ctx);
     owned_ctx->controls_initialized = true;
-    if (bound_config) {
-        WriteSettingsToWindowControls(hwnd.Get(), *bound_config);
-    }
+    if (!log::CheckHResult(WriteSettingsToWindowControlsResult(hwnd.Get(), initial), "Settings::ApplyInitialConfig"))
+        return {};
+    if (use_broker_snapshot) *bound_config = std::move(config_snapshot.value);
+    owned_ctx->baseline_revision = initial_revision;
     InitSettingsCompartmentSubscription(hwnd.Get(), *owned_ctx);
-    if (!bound_config) WriteSettingsToWindowControls(hwnd.Get(), QiQiConfig{});
     LayoutSettingsControls(hwnd.Get(), *owned_ctx);
     return hwnd;
 }

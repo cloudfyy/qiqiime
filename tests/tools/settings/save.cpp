@@ -299,10 +299,39 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QiQiConfig ext2 = ext1;
     ext2.primary_dict = PrimaryDict::Jidian;
     ext2.ui_language = UiLanguage::ZhCn;
+    ext2.space_enter_mode = WubiSpaceEnterMode::EnterSelectSpaceClear;
+    const uint64_t applied_revision = GetContext(hwnd.Get()).baseline_revision;
     QIQI_TEST_CHECK(SaveConfig(ext2));
+    const auto external_revision = QueryRegistryConfigSequence();
+    QIQI_TEST_CHECK(external_revision > applied_revision);
+    {
+        const HWND combo = ::GetDlgItem(hwnd.Get(), kIdComboSpaceEnter);
+        const LRESULT previous_selection = ::SendMessageW(combo, CB_GETCURSEL, 0, 0);
+        const auto reject_selection = [](HWND child, UINT msg, WPARAM wparam, LPARAM lparam,
+                                         UINT_PTR, DWORD_PTR) noexcept -> LRESULT {
+            if (msg == CB_SETCURSEL &&
+                wparam == std::to_underlying(WubiSpaceEnterMode::EnterSelectSpaceClear)) {
+                ::DefSubclassProc(child, msg, gsl::narrow_cast<WPARAM>(-1), lparam);
+                return CB_ERR;
+            }
+            return ::DefSubclassProc(child, msg, wparam, lparam);
+        };
+        QIQI_TEST_CHECK(::SetWindowSubclass(combo, reject_selection, 1, 0));
+        const auto remove_subclass = gsl::finally([&]() noexcept {
+            QIQI_TEST_CHECK_CLEANUP(::RemoveWindowSubclass(combo, reject_selection, 1));
+        });
+        ::SendMessageW(hwnd.Get(), kSettingsExternalConfigChangedMessage, 0, 0);
+        QIQI_TEST_CHECK(GetContext(hwnd.Get()).baseline_revision == applied_revision);
+        QIQI_TEST_CHECK(cfg.primary_dict == PrimaryDict::Haifeng && cfg.ui_language == UiLanguage::EnUs);
+        QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCURSEL, 0, 0) == previous_selection);
+        ReadSettingsFromWindowControls(hwnd.Get(), read_back);
+        QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Haifeng && read_back.ui_language == UiLanguage::EnUs &&
+                        read_back.page_size == 8 && read_back.underline_style == CompositionUnderlineStyle::Solid);
+    }
     ::SendMessageW(hwnd.Get(), WM_ACTIVATE, MAKEWPARAM(WA_ACTIVE, 0), 0);
 
     ReadSettingsFromWindowControls(hwnd.Get(), read_back);
+    QIQI_TEST_CHECK(GetContext(hwnd.Get()).baseline_revision == external_revision);
     QIQI_TEST_CHECK(read_back.primary_dict == PrimaryDict::Jidian);
     QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::ZhCn);
     QIQI_TEST_CHECK(read_back.page_size == 8);
@@ -310,6 +339,7 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(read_back.enable_key_sound);
     QIQI_TEST_CHECK(read_back.commit_on_english_switch);
     QIQI_TEST_CHECK(read_back.candidate_layout == CandidateLayout::Horizontal);
+    QIQI_TEST_CHECK(read_back.space_enter_mode == WubiSpaceEnterMode::EnterSelectSpaceClear);
     QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
     ::GetWindowTextW(hwnd.Get(), title_buf.data(), gsl::narrow_cast<int>(title_buf.size()));
     QIQI_TEST_CHECK(std::wstring(title_buf.data()) ==
@@ -533,6 +563,52 @@ void TestSettingsFieldMergeMatrix() {
     }
 }
 
+void TestSaveWithCacheAheadOfDraft() {
+    const std::wstring subkey = L"Software\\QiQiIME_SettingsCacheAhead_" + std::to_wstring(::GetCurrentProcessId());
+    const auto* previous = HasConfigRegistrySubKeyOverride() ? GetActiveConfigRegistrySubKey() : nullptr;
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto cleanup = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        QIQI_TEST_CHECK_CLEANUP(::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str()) == ERROR_SUCCESS);
+    });
+    QiQiConfig bound;
+    bound.ui_language = UiLanguage::EnUs;
+    bound.ui_theme = UiTheme::Light;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(bound));
+    const ScopedWindow window(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &bound, true));
+    QIQI_TEST_CHECK(window);
+    const auto& context = GetContext(window.Get());
+    const uint64_t baseline_revision = context.baseline_revision;
+    QIQI_TEST_CHECK(::SendDlgItemMessageW(window.Get(), kIdComboPageSize, CB_SETCURSEL, 7, 0) == 7);
+
+    QiQiConfig external = bound;
+    external.ui_theme = UiTheme::Dark;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(external));
+    config::Snapshot cached;
+    QIQI_TEST_CHECK(config::ReadSnapshotFromRegistry(cached) == S_OK);
+    QIQI_TEST_CHECK(cached.value.ui_theme == UiTheme::Dark && config::CachedRevision() == cached.revision &&
+        cached.revision > baseline_revision);
+    QIQI_TEST_CHECK(context.baseline_revision == baseline_revision && bound.ui_theme == UiTheme::Light);
+
+    WithDismissedMessage(GetUiStrings(UiLanguage::EnUs).dlg_save_conflict, [&]() {
+        ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+    });
+    QIQI_TEST_CHECK(!context.accepted && !context.done);
+    QiQiConfig stored;
+    QIQI_TEST_CHECK(LoadConfigFromRegistry(stored) && stored.ui_theme == UiTheme::Dark &&
+                    stored.page_size == external.page_size);
+    QIQI_TEST_CHECK(QueryRegistryConfigSequence() == cached.revision &&
+                    context.baseline_revision == cached.revision);
+    QiQiConfig draft = bound;
+    ReadSettingsFromWindowControls(window.Get(), draft);
+    QIQI_TEST_CHECK(draft.page_size == 8 && draft.ui_theme == UiTheme::Dark);
+
+    ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+    QIQI_TEST_CHECK(context.accepted && context.done && bound.page_size == 8 && bound.ui_theme == UiTheme::Dark);
+    QIQI_TEST_CHECK(LoadConfigFromRegistry(stored) && stored.page_size == 8 && stored.ui_theme == UiTheme::Dark);
+    QIQI_TEST_CHECK(QueryRegistryConfigSequence() > cached.revision);
+}
+
 } // namespace
 
 void RunSettingsSaveTests() {
@@ -541,6 +617,7 @@ void RunSettingsSaveTests() {
     TestExternalConfigSyncWhileSettingsOpen();
     TestRestoreDefaults();
     TestSettingsFieldMergeMatrix();
+    TestSaveWithCacheAheadOfDraft();
 }
 
 } // namespace qiqi::test

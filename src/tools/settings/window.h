@@ -43,7 +43,7 @@ ScopedWindow CreateSettingsWindow(
     HINSTANCE instance, HWND parent, QiQiConfig* bound_config, bool save_on_accept = false) noexcept;
 
 // Returns true on acceptance. With save_on_accept, persistence must succeed before acceptance.
-// Failed persistence keeps the window open and leaves in_out_config unchanged.
+// Failed persistence keeps the window open and does not publish local edits to in_out_config.
 // Owns the single-instance mutex; callers must not create it before calling.
 bool ShowSettingsDialog(
     HINSTANCE instance, HWND parent, QiQiConfig& in_out_config, bool save_on_accept = false) noexcept;
@@ -54,7 +54,8 @@ enum class SettingsMessageKind {
     SaveFailure,
     NotificationFailure,
     DictManagerLaunchFailure,
-    InvalidPrimaryDict
+    InvalidPrimaryDict,
+    SaveConflict
 };
 
 ScopedWindow CreateSettingsMessageWindow(
