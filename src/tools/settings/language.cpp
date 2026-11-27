@@ -175,7 +175,7 @@ HRESULT PopulateSettingsComboItems(HWND hwnd, UiLanguage lang) noexcept {
     const std::array candidate_layout{str.dlg_candidate_horizontal, str.dlg_candidate_vertical};
     const auto& display = ResolveUiLanguage(lang) == UiLanguage::EnUs ? kDisplayEn : kDisplayZh;
     using ComboItems = std::pair<int, std::span<const wchar_t* const>>;
-    for (const auto& [id, items] : std::array{
+    for (const auto [id, items] : std::array{
              ComboItems{kIdComboUiLang, languages}, ComboItems{kIdComboPageSize, page_sizes},
              ComboItems{kIdComboCandidateLayout, candidate_layout}, ComboItems{kIdComboUnderlineStyle, underline},
              ComboItems{kIdComboEnglishSwitch, english_switch}, ComboItems{kIdComboSpaceEnter, str.dlg_space_enter_modes},

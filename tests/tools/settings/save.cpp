@@ -387,7 +387,9 @@ void TestPartialExternalRefreshBlocksSaving() {
             struct FailureProbe {
                 UINT message;
                 bool saw_external_selection = false;
-            } probe{message};
+            };
+#pragma warning(suppress : 26496) // The window subclass writes through DWORD_PTR.
+            FailureProbe probe{message};
             const HWND child = ::GetDlgItem(window.Get(), id);
             const auto reject = [](HWND control, UINT msg, WPARAM wparam, LPARAM lparam,
                                    UINT_PTR, DWORD_PTR data) noexcept -> LRESULT {

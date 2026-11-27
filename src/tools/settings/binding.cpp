@@ -256,7 +256,7 @@ namespace {
 HRESULT SetSettingsCheck(HWND hwnd, int control_id, bool checked) noexcept {
     const HWND button = ::GetDlgItem(hwnd, control_id);
     if (!button) {
-        const HRESULT result = HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
+        constexpr HRESULT result = HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
         QIQI_LOG_WARN("Settings button {} missing (hr=0x{:08X})", control_id, gsl::narrow_cast<unsigned long>(result));
         return result;
     }
