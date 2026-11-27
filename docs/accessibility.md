@@ -101,6 +101,10 @@ Deflate 压缩的 `.zip`；未保存的窗口草稿不会被隐含写入备份�
 配置立即重新加载到当前设置窗口并通知运行中的输入法；之后取消设置窗口
 不会回滚已经恢复的数据或配置。
 
+覆盖只清理同步目录内由程序管理的文件，不递归删除目录，也不删除其他文件。
+检测到同步目录被重定向时会停止清理并报告错误。建议把备份保存在同步目录之外：
+同步目录是为 AppContainer 只读访问准备的，不适合存放私人文件。
+
 ZIP 使用 miniz 读写，包含 `manifest.json`、`config.json`、
 `user-dictionary.txt`、`phrase-order.txt`；当前选择自定义主词库时还包含
 `custom-primary.txt` 或 `custom-primary.qdict`。清单使用固定的可移植文件名；

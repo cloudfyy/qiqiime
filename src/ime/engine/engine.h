@@ -184,7 +184,7 @@ public:
         std::wstring_view code,
         std::wstring_view word,
         const std::filesystem::path& file_path = {});
-    bool ClearPhraseFrequencies(const std::filesystem::path& file_path = {});
+    HRESULT ClearPhraseFrequenciesResult(const std::filesystem::path& file_path = {});
     const std::map<uint32_t, std::vector<std::wstring>>& UserDictionaryEntries() const noexcept { return dict_; }
     const std::map<uint32_t, std::vector<std::wstring>>& PinnedEntries() const noexcept { return pinned_entries_; }
     const std::map<uint32_t, std::vector<std::wstring>>& BlockedEntries() const noexcept { return removed_entries_; }

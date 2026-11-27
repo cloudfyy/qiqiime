@@ -31,7 +31,11 @@ target_link_libraries(qiqi_common_test PRIVATE
     uuid
     tdh
 )
+add_library(qiqi_module_callback_fixture SHARED core/module_callback_fixture.cpp)
+target_link_libraries(qiqi_module_callback_fixture PRIVATE qiqi_common)
+add_dependencies(qiqi_common_test qiqi_module_callback_fixture)
 add_test(NAME QiQiCommonTest COMMAND qiqi_common_test)
+add_test(NAME QiQiModuleCallbackTest COMMAND qiqi_common_test --module-callback-test)
 
 add_executable(qiqi_change_sync_test
     sync.cpp

@@ -168,11 +168,28 @@ void TestCrossProcessDictAndPhraseFreqSync() {
     QIQI_TEST_CHECK(in_mem.RemoveUserEntry(L"abcd", L"内存二"));
     QIQI_TEST_CHECK(in_mem.LookupExact(L"abcd").empty());
 
-    std::filesystem::remove(user_dict, ec);
-    std::filesystem::remove(freq_file, ec);
+    const auto user_channel = GetSyncChannelDirectoryForFile(user_dict);
+    const auto freq_channel = GetSyncChannelDirectoryForFile(freq_file);
+    const auto kept_file = user_channel / L"notes.txt";
+    QIQI_TEST_CHECK(WriteFileAtomically(kept_file, codec::AsByteSpan(std::string_view("user notes"))));
+    {
+        const ScopedFileHandle blocked(::CreateFileW(freq_file.c_str(), GENERIC_READ, 0, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(blocked);
+        QIQI_TEST_CHECK(!writer.LoadPhraseFrequencies(freq_file));
+        QIQI_TEST_CHECK(std::filesystem::exists(freq_channel / L"journal.bin"));
+        QIQI_TEST_CHECK(std::filesystem::exists(freq_channel / L"snapshot.qfreq"));
+    }
+
+    QIQI_TEST_CHECK(std::filesystem::remove(user_dict));
+    QIQI_TEST_CHECK(std::filesystem::remove(freq_file));
     QIQI_TEST_CHECK(writer.SynchronizeUserDictionary(sync::InputBoundary::NewInput) == S_OK);
     QIQI_TEST_CHECK(writer.SynchronizePhraseFrequencies(sync::InputBoundary::NewInput) == S_OK);
     QIQI_TEST_CHECK(!writer.LoadPhraseFrequencies(freq_file));
+    QIQI_TEST_CHECK(!std::filesystem::exists(user_channel / L"journal.bin"));
+    QIQI_TEST_CHECK(!std::filesystem::exists(freq_channel / L"journal.bin"));
+    std::string notes;
+    QIQI_TEST_CHECK(ReadFileToUtf8String(kept_file, notes) && notes == "user notes");
 
     // 6. Manual candidate pinning (^word), system word blocklist (!word), and composing hotkeys (Ctrl+1..9 / Ctrl+Delete / Ctrl+Shift+1..9)
     WubiEngine pin_writer;

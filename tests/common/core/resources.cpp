@@ -78,6 +78,31 @@ void TestStaticSoundWavs() {
     CheckStaticSoundWav(empty_wav, 0, 1400.0, 320.0, 0.35);
 }
 
+void TestModuleCallbackLifetime() {
+    const auto dll = GetModuleFilePath(nullptr).parent_path() / L"qiqi_module_callback_fixture.dll";
+    ScopedModule module(::LoadLibraryExW(dll.c_str(), nullptr,
+        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32));
+    QIQI_TEST_CHECK(module);
+    using QueueTestSignalFn = HRESULT(*)(HANDLE, HANDLE) noexcept;
+    const auto queue = reinterpret_cast<QueueTestSignalFn>(::GetProcAddress(module.Get(), "QueueTestSignal"));
+    QIQI_TEST_CHECK(queue);
+    const ScopedKernelHandle gate(::CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    const ScopedKernelHandle done(::CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    QIQI_TEST_CHECK(gate && done);
+    QIQI_TEST_CHECK(queue(gate.Get(), done.Get()) == S_OK);
+    const HMODULE image = module.Detach();
+    QIQI_TEST_CHECK(::FreeLibrary(image));
+    QIQI_TEST_CHECK(::GetModuleHandleW(dll.c_str()) == image);
+    QIQI_TEST_CHECK(::SetEvent(gate.Get()));
+    QIQI_TEST_CHECK(::WaitForSingleObject(done.Get(), 5'000) == WAIT_OBJECT_0);
+
+    const auto deadline = ::GetTickCount64() + 5'000;
+    while (::GetModuleHandleW(dll.c_str()) && ::GetTickCount64() < deadline) {
+        ::Sleep(1);
+    }
+    QIQI_TEST_CHECK(!::GetModuleHandleW(dll.c_str()));
+}
+
 void TestI18nLocalization() {
     // 1. Direct language resolution
     QIQI_TEST_CHECK(ResolveUiLanguage(UiLanguage::ZhCn) == UiLanguage::ZhCn);
@@ -99,7 +124,8 @@ void TestI18nLocalization() {
     QIQI_TEST_CHECK(std::wstring_view(zh.dlg_btn_ok) == L"确定");
     QIQI_TEST_CHECK(std::wstring_view(en.dlg_btn_ok) == L"OK");
 
-    // 3. Test sound synthesizer and PlayImeSound (both live WAV synthesis and muted test mode)
+    SetMuteAudioOutputForTest(true);
+    const auto restore_audio = gsl::finally([]() noexcept { SetMuteAudioOutputForTest(false); });
     ResetLastPlayedSoundForTest();
     PlayImeSound(SoundEffectKind::None);
     QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::None);
@@ -109,11 +135,6 @@ void TestI18nLocalization() {
     QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::EmptyCodeBeep);
     PlayImeSound(SoundEffectKind::DupCodeBeep);
     QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::DupCodeBeep);
-
-    SetMuteAudioOutputForTest(true);
-    PlayImeSound(SoundEffectKind::KeyClick);
-    QIQI_TEST_CHECK(GetLastPlayedSoundForTest() == SoundEffectKind::KeyClick);
-    SetMuteAudioOutputForTest(false);
 }
 
 } // namespace qiqi::test::common_cases

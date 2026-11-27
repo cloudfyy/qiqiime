@@ -45,6 +45,7 @@ void TestDictionaryLoadPlans();
 void TestIniConfiguration();
 void TestScopedHandleTemplate();
 void TestStaticSoundWavs();
+void TestModuleCallbackLifetime();
 void TestI18nLocalization();
 
 } // namespace qiqi::test::common_cases

@@ -48,6 +48,11 @@ HRESULT ReadFileToUtf8StringResult(
     const std::filesystem::path& file_path, std::string& out_content,
     size_t max_bytes = 64 * 1024 * 1024);
 
+// S_FALSE means missing. The verified leaf is held without delete sharing; ancestors are not verified.
+HRESULT OpenDataItemNoReparse(const std::filesystem::path& path, bool directory, DWORD access,
+    ScopedFileHandle& file) noexcept;
+HRESULT RemoveFileNoReparse(const std::filesystem::path& path) noexcept;
+
 // Holds a stable read-only view and keeps the disk file open against in-place writes.
 class ReadOnlyFileMapping final {
 public:

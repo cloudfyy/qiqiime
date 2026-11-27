@@ -375,6 +375,14 @@ HRESULT StartReplacementBroker(
         process.hThread);
     const ScopedKernelHandle child(
         process.hProcess);
+    bool resumed = false;
+    const auto stop_suspended_child = gsl::finally([&]() noexcept {
+        if (!resumed && !::TerminateProcess(child.Get(), ERROR_ACCESS_DENIED)) {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_CAT_ERROR(log::Keyword::Config,
+                "Could not terminate suspended replacement Broker (error={})", error);
+        }
+    });
     std::string_view token_stage =
         "prepare";
     HRESULT prepare_result =
@@ -391,9 +399,6 @@ HRESULT StartReplacementBroker(
             gsl::narrow_cast<
                 unsigned long>(
                 prepare_result));
-        ::TerminateProcess(
-            child.Get(),
-            ERROR_ACCESS_DENIED);
         return prepare_result;
     }
     if (::ResumeThread(
@@ -409,11 +414,9 @@ HRESULT StartReplacementBroker(
             gsl::narrow_cast<
                 unsigned long>(
                 prepare_result));
-        ::TerminateProcess(
-            child.Get(),
-            ERROR_ACCESS_DENIED);
         return prepare_result;
     }
+    resumed = true;
     const std::wstring writable_name =
         BrokerSessionObjectName(
             L"ConfigBrokerWritable",

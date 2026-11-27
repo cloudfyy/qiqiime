@@ -3,6 +3,7 @@
 
 add_executable(qiqi_broker_test
     main.cpp
+    "${PROJECT_SOURCE_DIR}/src/broker/runtime.cpp"
 )
 target_include_directories(qiqi_broker_test PRIVATE
     "${PROJECT_SOURCE_DIR}/tests"

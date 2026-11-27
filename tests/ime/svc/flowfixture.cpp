@@ -13,7 +13,7 @@ ServiceFlowTestFixture::ServiceFlowTestFixture()
       previous_registry_subkey_(GetActiveConfigRegistrySubKey()),
       appdata_directory_(std::filesystem::temp_directory_path() /
                          (L"QiQiIME_TsfTestAppData_" + suffix_)),
-      previous_audio_mute_(::qiqi::detail::MuteAudioOutputForTestStorage()),
+      previous_audio_mute_(::qiqi::detail::mute_audio_output_for_test.load(std::memory_order_relaxed)),
       previous_sound_(GetLastPlayedSoundForTest()) {
     wchar_t* previous_appdata = nullptr;
     size_t previous_appdata_length = 0;
@@ -34,7 +34,7 @@ ServiceFlowTestFixture::ServiceFlowTestFixture()
 ServiceFlowTestFixture::~ServiceFlowTestFixture() noexcept {
     QIQI_TEST_CHECK_CLEANUP(::SetKeyboardState(original_keyboard_state_.data()));
     SetMuteAudioOutputForTest(previous_audio_mute_);
-    ::qiqi::detail::LastPlayedSoundStorage() = previous_sound_;
+    ::qiqi::detail::last_played_sound.store(previous_sound_, std::memory_order_relaxed);
 
     SetConfigRegistrySubKeyOverrideForTest(previous_registry_subkey_);
     const auto status = ::RegDeleteTreeW(

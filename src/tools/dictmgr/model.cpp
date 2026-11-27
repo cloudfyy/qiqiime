@@ -501,7 +501,7 @@ bool DictManagerModel::RemovePhraseFrequency(std::wstring_view code, std::wstrin
 }
 
 bool DictManagerModel::ClearAllPhraseFrequencies() {
-    if (!engine_.ClearPhraseFrequencies(phrase_freq_path_)) {
+    if (FAILED(engine_.ClearPhraseFrequenciesResult(phrase_freq_path_))) {
         return false;
     }
     RebuildRecords();

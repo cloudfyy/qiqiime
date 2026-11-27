@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "broker/configstore.h"
+#include "broker/runtime.h"
 #include "broker/security.h"
 #include "common/appcontainer.h"
+#include "common/comobj.h"
 #include "common/config.h"
 #include "common/brokerctrl.h"
 #include "common/configclient.h"
@@ -23,6 +25,10 @@
 #include <thread>
 
 namespace trace = qiqi::trace;
+
+namespace qiqi {
+std::atomic<long> g_com_object_count{0};
+} // namespace qiqi
 
 namespace {
 
@@ -50,6 +56,51 @@ void CheckEqual(
     QIQI_TEST_CHECK(
         expected.user_dict_path ==
         actual.user_dict_path);
+}
+
+class TestServerSecurity final : public qiqi::ComObjectBase<TestServerSecurity, IServerSecurity> {
+public:
+    explicit TestServerSecurity(HRESULT revert_result) noexcept : revert_result_(revert_result) {}
+
+    STDMETHODIMP QueryBlanket(DWORD*, DWORD*, OLECHAR**, DWORD*, DWORD*, RPC_AUTHZ_HANDLE*, DWORD*) noexcept override {
+        return E_NOTIMPL;
+    }
+
+    STDMETHODIMP ImpersonateClient() noexcept override {
+        if (!::ImpersonateSelf(SecurityImpersonation)) return HRESULT_FROM_WIN32(::GetLastError());
+        impersonating_ = true;
+        return S_OK;
+    }
+
+    STDMETHODIMP RevertToSelf() noexcept override {
+        if (!::RevertToSelf()) return HRESULT_FROM_WIN32(::GetLastError());
+        impersonating_ = false;
+        return revert_result_;
+    }
+
+    STDMETHODIMP_(BOOL) IsImpersonating() noexcept override { return impersonating_ ? TRUE : FALSE; }
+
+private:
+    HRESULT revert_result_;
+    bool impersonating_ = false;
+};
+
+void CheckCallerReversion(const std::wstring& subkey) {
+    QIQI_TEST_CHECK(SUCCEEDED(::CoInitializeEx(nullptr, COINIT_MULTITHREADED)));
+    const auto uninitialize = gsl::finally([]() noexcept { ::CoUninitialize(); });
+    const qiqi::broker::Runtime runtime(subkey);
+    for (const HRESULT status : {S_OK, E_UNEXPECTED}) {
+        const auto security = qiqi::MakeComObject<TestServerSecurity>(status);
+        IUnknown* previous = nullptr;
+        QIQI_TEST_CHECK(::CoSwitchCallContext(security.Get(), &previous) == S_OK);
+        const auto restore = gsl::finally([&]() noexcept {
+            IUnknown* current = nullptr;
+            QIQI_TEST_CHECK(::CoSwitchCallContext(previous, &current) == S_OK);
+            QIQI_TEST_CHECK(current == static_cast<IServerSecurity*>(security.Get()));
+        });
+        QIQI_TEST_CHECK(runtime.ValidateCaller(qiqi::broker::CallerAccess::Mutation) == status);
+        QIQI_TEST_CHECK(!security->IsImpersonating());
+    }
 }
 
 void CheckCallerSecurityPolicy() {
@@ -359,6 +410,7 @@ int main() {
                         ERROR_FILE_NOT_FOUND);
             });
 
+    CheckCallerReversion(subkey);
     qiqi::broker::ConfigStore store(
         subkey);
     qiqi::config::Snapshot first;

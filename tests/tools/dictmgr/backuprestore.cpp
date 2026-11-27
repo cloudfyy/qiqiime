@@ -198,17 +198,20 @@ void TestRestoreWithBom(BackupFixture& fixture) {
 
 void TestMergeReplace(BackupFixture& fixture) {
     auto& model = fixture.model;
-    const auto& backup = fixture.backup;
     const auto& full_config = fixture.full_config;
     const auto& full_user = fixture.full_user;
     const auto& full_phrase = fixture.full_phrase;
 
     for (const auto mode : {BackupConflictMode::Merge, BackupConflictMode::Replace}) {
         fixture.Reset();
+        const auto backup = mode == BackupConflictMode::Replace
+            ? GetSyncChannelDirectoryForFile(fixture.user) / L"saved" / L"restore.zip"
+            : fixture.backup;
         WriteRestoreBundle(
             backup, full_config,
             full_user + "abcd ^置顶词条\nabcd !屏蔽词条\n",
             full_phrase);
+        const auto archive = fixture.ReadFile(backup);
         const auto result = model.RestoreBackupBundle(backup, mode);
         if (result.status != BackupRestoreStatus::Success || result.stage != BackupRestoreStage::Complete) {
             std::wcerr << L"Backup restore fixture mode="
@@ -220,6 +223,7 @@ void TestMergeReplace(BackupFixture& fixture) {
         QIQI_TEST_CHECK(result.error == S_OK && result.operations_failed == 0);
         QIQI_TEST_CHECK(result.summary.config_restored && LoadConfig().page_size == 7);
         QIQI_TEST_CHECK(result.summary.user_entries_applied == 3 && result.summary.phrase_freq_applied == 1);
+        QIQI_TEST_CHECK(fixture.ReadFile(backup) == archive);
         QIQI_TEST_CHECK(fixture.HasWord(DictEntrySource::UserDict, L"原有词条") == (mode == BackupConflictMode::Merge));
         QIQI_TEST_CHECK(fixture.HasWord(DictEntrySource::PhraseFreq, L"原有词组") == (mode == BackupConflictMode::Merge));
         QIQI_TEST_CHECK(fixture.HasWord(DictEntrySource::Pinned, L"置顶词条"));

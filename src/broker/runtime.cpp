@@ -27,12 +27,7 @@ public:
         : result_(::CoImpersonateClient()) {
     }
 
-    ~ImpersonationScope() noexcept {
-        if (SUCCEEDED(result_)) {
-            std::ignore =
-                ::CoRevertToSelf();
-        }
-    }
+    ~ImpersonationScope() noexcept { std::ignore = Revert(); }
 
     ImpersonationScope(
         const ImpersonationScope&) =
@@ -51,8 +46,16 @@ public:
         return result_;
     }
 
+    HRESULT Revert() noexcept {
+        if (!std::exchange(impersonating_, false)) return S_OK;
+        const HRESULT result = ::CoRevertToSelf();
+        std::ignore = log::CheckHResult(result, "ConfigBroker::CoRevertToSelf");
+        return result;
+    }
+
 private:
-    HRESULT result_ = E_UNEXPECTED;
+    HRESULT result_;
+    bool impersonating_ = SUCCEEDED(result_);
 };
 
 std::vector<uint8_t> TokenUserSid(
@@ -256,7 +259,7 @@ Runtime::Runtime(std::wstring subkey)
 
 HRESULT Runtime::ValidateCaller(
     CallerAccess access) const noexcept {
-    const ImpersonationScope impersonation;
+    ImpersonationScope impersonation;
     if (FAILED(impersonation.Result())) {
         QIQI_LOG_CAT_WARN(
             log::Keyword::Config,
@@ -272,13 +275,13 @@ HRESULT Runtime::ValidateCaller(
             TOKEN_QUERY,
             TRUE,
             &raw)) {
+        const DWORD error = ::GetLastError();
         QIQI_LOG_CAT_WARN(
             log::Keyword::Config,
             "ConfigBroker caller token open failed "
             "(error={})",
-            ::GetLastError());
-        return HRESULT_FROM_WIN32(
-            ::GetLastError());
+            error);
+        return HRESULT_FROM_WIN32(error);
     }
     const ScopedKernelHandle token(raw);
     std::vector<uint8_t> caller_sid;
@@ -290,6 +293,8 @@ HRESULT Runtime::ValidateCaller(
         caller_session,
         false,
         &caller_app_container);
+    const HRESULT reverted = impersonation.Revert();
+    if (FAILED(reverted)) return reverted;
     if (FAILED(result)) {
         QIQI_LOG_CAT_WARN(
             log::Keyword::Config,

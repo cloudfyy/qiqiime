@@ -12,6 +12,7 @@
 #include "common/RAII.h"
 #include "common/brokerctrl.h"
 #include "common/skin.h"
+#include "common/threadpool.h"
 
 #include <wrl/client.h>
 #include <gsl/gsl>
@@ -697,24 +698,22 @@ HRESULT ExecuteAsync(
     }
 }
 
-void CALLBACK RunRequest(
-    PTP_CALLBACK_INSTANCE,
-    void* context) noexcept {
-    const std::unique_ptr<Request> request(
-        static_cast<Request*>(context));
+void RunRequest(Request& queued) noexcept {
     const ScopedCom com;
+    // Drop callback captures before COM is uninitialized on this worker.
+    const Request request(std::move(queued));
     HRESULT result = com.Result();
     Snapshot snapshot;
     if (SUCCEEDED(result)) {
         result = ExecuteAsync(
-            *request,
+            request,
             snapshot);
     }
     if (result == S_FALSE) {
         result = S_OK;
     }
     try {
-        request->completion(
+        request.completion(
             result,
             snapshot);
     } catch (...) {
@@ -727,43 +726,10 @@ void CALLBACK RunRequest(
 
 HRESULT SubmitAsync(
     Request request) noexcept {
-    try {
-        auto context =
-            std::make_unique<Request>(
-                std::move(request));
-        // The callback may run and free the request before the API returns.
-        auto* const pending = context.release();
-        if (!::TrySubmitThreadpoolCallback(
-                &RunRequest,
-                pending,
-                nullptr)) {
-            const DWORD error =
-                ::GetLastError();
-            context.reset(pending);
-            QIQI_LOG_CAT_ERROR(
-                log::Keyword::Config,
-                "ConfigClient threadpool "
-                "submission failed "
-                "(error={})",
-                error);
-            return HRESULT_FROM_WIN32(
-                error != ERROR_SUCCESS
-                    ? error
-                    : ERROR_FUNCTION_FAILED);
-        }
-        return S_OK;
-    } catch (const std::bad_alloc&) {
-        return E_OUTOFMEMORY;
-    } catch (
-        const std::system_error& error) {
-        QIQI_LOG_CAT_ERROR(
-            log::Keyword::Config,
-            "ConfigClient worker startup "
-            "failed (error={})",
-            error.code().value());
-        return SystemErrorToHResult(
-            error);
-    }
+    const HRESULT result = SubmitModuleCallback(
+        [request = std::move(request)]() mutable noexcept { RunRequest(request); });
+    std::ignore = log::CheckHResult(result, "ConfigClient::SubmitModuleCallback");
+    return result;
 }
 
 template <typename Invoke>

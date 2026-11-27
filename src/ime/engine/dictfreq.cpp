@@ -22,6 +22,27 @@ using dictdetail::kMaxSyncPublishAttempts;
 using dictdetail::PromotePhraseInMap;
 using dictdetail::SplitUtf16Codepoints;
 
+namespace {
+
+HRESULT WritePhraseFreqSnapshot(const std::filesystem::path& path,
+    const std::map<uint32_t, std::vector<std::wstring>>& entries) {
+    try {
+        const auto bytes = EncodePhraseFreqSnapshot(entries);
+        const HRESULT written = WriteFileAtomicallyResult(path, bytes);
+        if (FAILED(written)) return written;
+        const auto directory = GetSyncChannelDirectoryForFile(path);
+        const HRESULT created = sync::Channel::Create(directory,
+            {sync::DataType::PhraseFrequency, kGuidSyncSourcePhraseFrequency});
+        if (FAILED(created)) return created;
+        return WriteFileAtomicallyResult(directory / L"snapshot.qfreq", bytes);
+    } catch (const std::bad_alloc&) {
+        std::ignore = log::CheckHResult(E_OUTOFMEMORY, "WritePhraseFreqSnapshot");
+        return E_OUTOFMEMORY;
+    }
+}
+
+} // namespace
+
 void WubiEngine::PromotePhraseForCode(std::wstring_view code, std::wstring_view word) {
     if (!dynamic_phrase_freq_) {
         return;
@@ -174,31 +195,37 @@ bool WubiEngine::RemovePhraseFrequency(
     return false;
 }
 
-bool WubiEngine::ClearPhraseFrequencies(const std::filesystem::path& file_path) {
+HRESULT WubiEngine::ClearPhraseFrequenciesResult(const std::filesystem::path& file_path) {
     const std::filesystem::path target_path = !file_path.empty() ? file_path : phrase_freq_path_;
-    promoted_phrases_.clear();
     if (target_path.empty()) {
-        return true;
+        promoted_phrases_.clear();
+        return S_OK;
     }
     if (IsProcessAppContainer()) {
-        return false;
+        std::ignore = log::CheckHResult(E_ACCESSDENIED, "ClearPhraseFrequencies");
+        return E_ACCESSDENIED;
     }
-    SetPhraseFreqPath(target_path);
 
     const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(target_path);
-    std::error_code ec;
-    if (std::filesystem::exists(channel_dir / L"journal.bin", ec)) {
-        std::filesystem::remove(channel_dir / L"journal.bin", ec);
+    ScopedFileHandle folder;
+    const HRESULT opened = OpenDataItemNoReparse(channel_dir, true, 0, folder);
+    if (!log::CheckHResult(opened, "ClearPhraseFrequencies::OpenChannel")) return opened;
+    if (opened == S_OK) {
+        const HRESULT removed = RemoveFileNoReparse(channel_dir / L"journal.bin");
+        if (!log::CheckHResult(removed, "ClearPhraseFrequencies::RemoveJournal")) return removed;
     }
-    if (!SavePhraseFrequencies(target_path)) {
-        return false;
-    }
+
+    const HRESULT saved = WritePhraseFreqSnapshot(target_path, {});
+    if (FAILED(saved)) return saved;
+    SetPhraseFreqPath(target_path);
+    promoted_phrases_.clear();
+    phrase_freq_sync_version_ = {};
     const sync::Channel channel(channel_dir, {sync::DataType::PhraseFrequency, kGuidSyncSourcePhraseFrequency});
     sync::Batch batch;
     if (SUCCEEDED(channel.Read({}, batch))) {
         phrase_freq_sync_version_ = batch.version;
     }
-    return true;
+    return S_OK;
 }
 
 bool WubiEngine::LoadPhraseFrequencies(const std::filesystem::path& file_path) {
@@ -212,10 +239,6 @@ bool WubiEngine::LoadPhraseFrequencies(const std::filesystem::path& file_path) {
     std::string raw_bytes;
     if (!ReadFileToUtf8String(file_path, raw_bytes)) {
         if (!IsProcessAppContainer() || !ReadFileToUtf8String(snapshot_path, raw_bytes)) {
-            std::error_code rm_ec;
-            if (!IsProcessAppContainer() && std::filesystem::exists(channel_dir, rm_ec)) {
-                std::filesystem::remove_all(channel_dir, rm_ec);
-            }
             return false;
         }
     }
@@ -241,39 +264,11 @@ bool WubiEngine::LoadPhraseFrequencies(const std::filesystem::path& file_path) {
 }
 
 bool WubiEngine::SavePhraseFrequencies(const std::filesystem::path& file_path) const {
-    try {
-        if (file_path.empty() || IsProcessAppContainer()) {
-            return false;
-        }
-        const std::vector<uint8_t> bytes = EncodePhraseFreqSnapshot(promoted_phrases_);
-        const HRESULT write_hr = WriteFileAtomicallyResult(file_path, bytes);
-        if (FAILED(write_hr)) {
-            QIQI_LOG_CAT_ERROR(log::Keyword::Dictionary,
-                "SavePhraseFrequencies: source write failed (hr=0x{:08x})",
-                gsl::narrow_cast<unsigned int>(write_hr));
-            return false;
-        }
-        const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(file_path);
-        const sync::Source source{sync::DataType::PhraseFrequency, kGuidSyncSourcePhraseFrequency};
-        const HRESULT channel_hr = sync::Channel::Create(channel_dir, source);
-        if (FAILED(channel_hr)) {
-            QIQI_LOG_CAT_ERROR(log::Keyword::Sync,
-                "SavePhraseFrequencies: channel creation failed (hr=0x{:08x})",
-                gsl::narrow_cast<unsigned int>(channel_hr));
-            return false;
-        }
-        const HRESULT snapshot_hr = WriteFileAtomicallyResult(channel_dir / L"snapshot.qfreq", bytes);
-        if (FAILED(snapshot_hr)) {
-            QIQI_LOG_CAT_ERROR(log::Keyword::Sync,
-                "SavePhraseFrequencies: snapshot write failed (hr=0x{:08x})",
-                gsl::narrow_cast<unsigned int>(snapshot_hr));
-            return false;
-        }
-        return true;
-    } catch (...) {
-        QIQI_LOG_CAT_ERROR(log::Keyword::Dictionary, "SavePhraseFrequencies failed with a C++ exception");
+    if (file_path.empty() || IsProcessAppContainer()) {
+        std::ignore = log::CheckHResult(file_path.empty() ? E_INVALIDARG : E_ACCESSDENIED, "SavePhraseFrequencies");
         return false;
     }
+    return SUCCEEDED(WritePhraseFreqSnapshot(file_path, promoted_phrases_));
 }
 
 HRESULT WubiEngine::SynchronizePhraseFrequencies(sync::InputBoundary boundary) {
@@ -286,14 +281,34 @@ HRESULT WubiEngine::SynchronizePhraseFrequencies(sync::InputBoundary boundary) {
     }
     const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(freq_path);
     std::error_code ec;
-    if (!IsProcessAppContainer() && !std::filesystem::exists(freq_path, ec)) {
-        if (std::filesystem::exists(channel_dir / L"snapshot.qfreq", ec)) {
-            std::filesystem::remove_all(channel_dir, ec);
-            phrase_freq_sync_version_ = {};
+    if (!IsProcessAppContainer()) {
+        const bool present = std::filesystem::exists(freq_path, ec);
+        if (ec) {
+            const HRESULT error = HRESULT_FROM_WIN32(ec.value());
+            std::ignore = log::CheckHResult(error, "Phrase sync::CheckSource");
+            return error;
         }
-        return S_OK;
+        if (!present) {
+            const bool has_snapshot = std::filesystem::exists(channel_dir / L"snapshot.qfreq", ec);
+            if (ec) {
+                const HRESULT error = HRESULT_FROM_WIN32(ec.value());
+                std::ignore = log::CheckHResult(error, "Phrase sync::CheckSnapshot");
+                return error;
+            }
+            if (!has_snapshot) return S_OK;
+            const HRESULT cleared = sync::Channel::ClearOrphanedFiles(freq_path);
+            if (cleared == S_OK) {
+                phrase_freq_sync_version_ = {};
+            }
+            if (cleared != S_FALSE) return cleared;
+        }
     }
     if (!std::filesystem::exists(channel_dir / L"journal.bin", ec)) {
+        if (ec) {
+            const HRESULT error = HRESULT_FROM_WIN32(ec.value());
+            std::ignore = log::CheckHResult(error, "Phrase sync::CheckJournal");
+            return error;
+        }
         return S_OK;
     }
     const sync::Source source{sync::DataType::PhraseFrequency, kGuidSyncSourcePhraseFrequency};

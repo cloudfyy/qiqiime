@@ -11,8 +11,9 @@ namespace qiqi::dictionary_files {
 
 inline constexpr std::array kUserFiles{L"user_dict.txt", L"user_dict.qdict", L"phrase_freq.qfreq"};
 inline constexpr std::array kSyncDirectories{L"user_dict.txt.sync", L"phrase_freq.qfreq.sync"};
+inline constexpr const wchar_t* kSyncWriterLock = L"writer.lock";
 inline constexpr std::array kSyncFiles{L"snapshot.txt", L"snapshot.qdict", L"snapshot.qfreq",
-    L"source.meta", L"journal.bin", L"writer.lock"};
+    L"source.meta", L"journal.bin", kSyncWriterLock};
 
 // Only generated cache names in the managed cache directory, never source dictionaries.
 constexpr bool IsCompiledCache(std::wstring_view name) noexcept {

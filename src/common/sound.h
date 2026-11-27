@@ -7,6 +7,7 @@
 #include <gsl/gsl>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -14,7 +15,7 @@
 #include <span>
 
 #include "common/logger.h"
-#include "common/RAII.h"
+#include "common/threadpool.h"
 
 namespace qiqi {
 
@@ -49,15 +50,8 @@ inline constexpr uint16_t kBlockAlign = kChannels * sizeof(int16_t);
 inline constexpr uint32_t kSampleRate = 44100;
 } // namespace wav_format
 
-inline SoundEffectKind& LastPlayedSoundStorage() noexcept {
-    static SoundEffectKind last = SoundEffectKind::None;
-    return last;
-}
-
-inline bool& MuteAudioOutputForTestStorage() noexcept {
-    static bool mute = false;
-    return mute;
-}
+inline constinit std::atomic<SoundEffectKind> last_played_sound{SoundEffectKind::None};
+inline constinit std::atomic<bool> mute_audio_output_for_test{false};
 
 // Synthesize a 16-bit mono 44.1 kHz RIFF WAVE image in a fixed-size stack/static std::array
 // (zero heap allocation, noexcept, no try/catch needed).
@@ -139,67 +133,69 @@ inline std::span<const uint8_t> GetDupCodeBeepWav() noexcept {
     return wav;
 }
 
-// Keep winmm.dll loaded in a static ScopedModule RAII instance so that:
-// 1. It is managed by RAII rather than a raw HMODULE;
-// 2. It stays alive across asynchronous SND_ASYNC playback without premature FreeLibrary.
-inline HMODULE GetWinmmModule() noexcept {
-    static const ScopedModule winmm([]() noexcept {
-        const HMODULE module = ::LoadLibraryW(L"winmm.dll");
-        if (!module) {
-            const DWORD error = ::GetLastError();
-            QIQI_LOG_WARN("IME sound: LoadLibraryW(winmm.dll) failed (error={})", error);
+inline void PlayBufferedSound(SoundEffectKind kind) noexcept {
+    const std::span<const uint8_t> wav =
+        (kind == SoundEffectKind::EmptyCodeBeep)
+            ? GetEmptyCodeBeepWav()
+            : ((kind == SoundEffectKind::DupCodeBeep) ? GetDupCodeBeepWav() : GetKeyClickWav());
+    const ScopedModule winmm(::LoadLibraryExW(L"winmm.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32));
+    if (!winmm) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("IME sound: loading winmm.dll failed (error={})", error);
+        return;
+    }
+    const auto play = reinterpret_cast<decltype(&::PlaySoundW)>(::GetProcAddress(winmm.Get(), "PlaySoundW"));
+    if (!play) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("IME sound: GetProcAddress(PlaySoundW) failed (error={})", error);
+        return;
+    }
+    if (!play(reinterpret_cast<LPCWSTR>(wav.data()), nullptr, SND_MEMORY | SND_SYNC | SND_NODEFAULT)) {
+        QIQI_LOG_WARN("IME sound: PlaySoundW returned FALSE (kind={})", static_cast<int>(kind));
+    }
+}
+
+// Idle means no worker; None means the worker has taken the latest request.
+inline constexpr int kAudioIdle = -1;
+inline constexpr int kAudioPlaying = static_cast<int>(SoundEffectKind::None);
+inline constinit std::atomic<int> pending_audio{kAudioIdle};
+
+inline void PlayPendingSounds() noexcept {
+    for (;;) {
+        int next = pending_audio.exchange(kAudioPlaying, std::memory_order_relaxed);
+        if (next != kAudioPlaying) {
+            PlayBufferedSound(static_cast<SoundEffectKind>(next));
+        } else if (pending_audio.compare_exchange_strong(next, kAudioIdle, std::memory_order_relaxed)) {
+            return;
         }
-        return module;
-    }());
-    return winmm.Get();
+    }
 }
 
 } // namespace detail
 
 inline void SetMuteAudioOutputForTest(bool mute) noexcept {
-    detail::MuteAudioOutputForTestStorage() = mute;
+    detail::mute_audio_output_for_test.store(mute, std::memory_order_relaxed);
 }
 
 inline SoundEffectKind GetLastPlayedSoundForTest() noexcept {
-    return detail::LastPlayedSoundStorage();
+    return detail::last_played_sound.load(std::memory_order_relaxed);
 }
 
 inline void ResetLastPlayedSoundForTest() noexcept {
-    detail::LastPlayedSoundStorage() = SoundEffectKind::None;
+    detail::last_played_sound.store(SoundEffectKind::None, std::memory_order_relaxed);
 }
 
-// Play synthesized IME sound effect asynchronously without blocking the TSF keystroke thread.
-// Fully noexcept with zero heap allocations and no try/catch needed.
+// Keep playback off the TSF thread and coalesce bursts to one pending effect.
 inline void PlayImeSound(SoundEffectKind kind) noexcept {
-    if (kind == SoundEffectKind::None) {
-        return;
-    }
-    detail::LastPlayedSoundStorage() = kind;
-    if (detail::MuteAudioOutputForTestStorage()) {
-        return;
-    }
+    if (kind == SoundEffectKind::None) return;
+    detail::last_played_sound.store(kind, std::memory_order_relaxed);
+    if (detail::mute_audio_output_for_test.load(std::memory_order_relaxed)) return;
+    if (detail::pending_audio.exchange(static_cast<int>(kind), std::memory_order_relaxed) != detail::kAudioIdle) return;
 
-    const std::span<const uint8_t> wav =
-        (kind == SoundEffectKind::EmptyCodeBeep)
-            ? detail::GetEmptyCodeBeepWav()
-            : ((kind == SoundEffectKind::DupCodeBeep) ? detail::GetDupCodeBeepWav() : detail::GetKeyClickWav());
-
-    if (const HMODULE winmm = detail::GetWinmmModule()) {
-        using PlaySoundWFn = BOOL(WINAPI*)(LPCWSTR, HMODULE, DWORD);
-        const auto play_fn = reinterpret_cast<PlaySoundWFn>(::GetProcAddress(winmm, "PlaySoundW"));
-        if (play_fn) {
-            const BOOL played = play_fn(
-                reinterpret_cast<LPCWSTR>(wav.data()),
-                nullptr,
-                SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
-            if (!played) {
-                // PlaySoundW reports failure via BOOL, not GetLastError.
-                QIQI_LOG_WARN("IME sound: PlaySoundW returned FALSE (kind={})", static_cast<int>(kind));
-            }
-        } else {
-            const DWORD error = ::GetLastError();
-            QIQI_LOG_WARN("IME sound: GetProcAddress(PlaySoundW) failed (error={})", error);
-        }
+    const HRESULT result = SubmitModuleCallback([]() noexcept { detail::PlayPendingSounds(); });
+    if (FAILED(result)) {
+        detail::pending_audio.store(detail::kAudioIdle, std::memory_order_relaxed);
+        std::ignore = log::CheckHResult(result, "IME sound::SubmitModuleCallback");
     }
 }
 

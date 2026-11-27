@@ -396,6 +396,17 @@ BackupRestoreResult CompleteBackup::RestoreFile(
     };
 
     if (mode == BackupConflictMode::Replace) {
+        ScopedFileHandle user_channel, phrase_channel;
+        const auto open_channel = [](const std::filesystem::path& source, ScopedFileHandle& folder) {
+            return OpenDataItemNoReparse(GetSyncChannelDirectoryForFile(source), true, 0, folder);
+        };
+        HRESULT channel_status = open_channel(user_dict_path_, user_channel);
+        if (SUCCEEDED(channel_status)) channel_status = open_channel(phrase_freq_path_, phrase_channel);
+        if (!log::CheckHResult(channel_status, "Backup restore::OpenSyncChannel")) {
+            fail(BackupRestoreStage::Prepare, channel_status);
+            return finish(false);
+        }
+
         const auto remove_file =
             [&result, &fail](const std::filesystem::path& file) {
                 if (::DeleteFileW(file.c_str())) {
@@ -418,49 +429,19 @@ BackupRestoreResult CompleteBackup::RestoreFile(
         WubiMappedDict::InvalidateProcessCacheForPath(
             user_dict_path_);
         if (!remove_file(qdict_path)) return finish();
-        std::error_code error;
-        const auto channel_directory =
-            GetSyncChannelDirectoryForFile(user_dict_path_);
-        std::vector<std::filesystem::path> channel_paths;
-        if (std::filesystem::exists(channel_directory, error)) {
-            std::filesystem::recursive_directory_iterator iterator(
-                channel_directory, error);
-            const std::filesystem::recursive_directory_iterator end;
-            while (!error && iterator != end) {
-                channel_paths.push_back(iterator->path());
-                iterator.increment(error);
-            }
-            channel_paths.insert(
-                channel_paths.begin(), channel_directory);
-        }
-        if (error) {
-            fail(
-                BackupRestoreStage::Prepare,
-                HRESULT_FROM_WIN32(
-                    gsl::narrow_cast<DWORD>(error.value())));
-            return finish();
-        }
-        for (auto iterator = channel_paths.rbegin();
-             iterator != channel_paths.rend(); ++iterator) {
-            const bool removed =
-                std::filesystem::remove(*iterator, error);
-            if (error) {
-                fail(
-                    BackupRestoreStage::Prepare,
-                    HRESULT_FROM_WIN32(
-                        gsl::narrow_cast<DWORD>(error.value())));
-                return finish();
-            }
-            if (removed) ++result.operations_succeeded;
-        }
-        if (!remove_file(
-                GetSyncChannelDirectoryForFile(phrase_freq_path_) /
-                L"journal.bin")) {
+        size_t removed = 0;
+        const HRESULT cleared = sync::Channel::ClearOrphanedFiles(user_dict_path_, &removed);
+        result.operations_succeeded += removed;
+        if (cleared != S_OK) {
+            const HRESULT error = cleared == S_FALSE ? HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS) : cleared;
+            std::ignore = log::CheckHResult(error, "Backup restore::ClearOrphanedFiles");
+            fail(BackupRestoreStage::Prepare, error);
             return finish();
         }
         result.effects_possible = true;
-        if (!engine_.ClearPhraseFrequencies(phrase_freq_path_)) {
-            fail(BackupRestoreStage::Prepare, E_FAIL);
+        const HRESULT phrases = engine_.ClearPhraseFrequenciesResult(phrase_freq_path_);
+        if (FAILED(phrases)) {
+            fail(BackupRestoreStage::Prepare, phrases);
             return finish();
         }
         ++result.operations_succeeded;

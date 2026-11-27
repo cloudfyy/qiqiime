@@ -258,28 +258,31 @@ void TestRestoreFailures(BackupFixture& fixture) {
     {
         const auto channel = GetSyncChannelDirectoryForFile(user);
         const auto journal = channel / L"journal.bin";
-        // Make the refresh failure independent of channel-directory enumeration order:
-        // the locked journal cannot be removed, and neither source nor snapshot can reload it.
-        QIQI_TEST_CHECK(std::filesystem::remove(channel / L"snapshot.txt"));
         const auto locked = fixture.LockFile(journal);
         QIQI_TEST_CHECK(locked);
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Replace);
-        if (result.operations_failed != 2) {
-            std::cerr << std::format(
-                "[RESTORE-COUNT-FAIL] succeeded={}, failed={}, stage={}, "
-                "refresh_hr=0x{:08X}\n",
-                result.operations_succeeded,
-                result.operations_failed,
-                std::to_underlying(result.stage),
-                gsl::narrow_cast<uint32_t>(result.refresh_error));
-        }
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.stage == BackupRestoreStage::Prepare);
         QIQI_TEST_CHECK(result.error == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION));
-        QIQI_TEST_CHECK(result.operations_succeeded > 0 && result.operations_failed == 2);
-        QIQI_TEST_CHECK(FAILED(result.refresh_error));
+        QIQI_TEST_CHECK(result.operations_succeeded > 0 && result.operations_failed == 1);
+        QIQI_TEST_CHECK(result.refresh_error == S_OK);
+        QIQI_TEST_CHECK(std::filesystem::exists(channel / L"writer.lock"));
+        QIQI_TEST_CHECK(!fixture.HasWord(DictEntrySource::UserDict, L"原有词条"));
         QIQI_TEST_CHECK(result.summary.user_entries_applied == 0 && result.summary.phrase_freq_applied == 0);
-        QIQI_TEST_CHECK(FormatBackupRestoreMessage(result, UiLanguage::EnUs).contains(L"view may be incomplete"));
         QIQI_TEST_CHECK(!result.summary.config_restored && LoadConfig().page_size == 3);
+    }
+    fixture.Reset();
+    WriteRestoreBundle(backup, full_config, full_user, full_phrase);
+    {
+        const auto isolated_user = directory / L"isolated-user.txt";
+        const auto channel = GetSyncChannelDirectoryForFile(isolated_user);
+        QIQI_TEST_CHECK(WriteFileAtomically(isolated_user, codec::AsByteSpan(old_user)));
+        QIQI_TEST_CHECK(WriteFileAtomically(channel, codec::AsByteSpan(std::string_view("not a directory"))));
+        CompleteBackup isolated({}, isolated_user, frequency);
+        const auto result = isolated.RestoreFile(backup, BackupConflictMode::Replace);
+        QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Failed && result.stage == BackupRestoreStage::Prepare);
+        QIQI_TEST_CHECK(result.error == E_ACCESSDENIED && result.operations_succeeded == 0);
+        QIQI_TEST_CHECK(fixture.ReadFile(isolated_user) == old_user && fixture.ReadFile(frequency) == old_frequency);
+        QIQI_TEST_CHECK(fixture.ReadFile(channel) == "not a directory" && LoadConfig().page_size == 3);
     }
     fixture.Reset();
     WriteRestoreBundle(backup, full_config, full_user, full_phrase);
@@ -288,7 +291,7 @@ void TestRestoreFailures(BackupFixture& fixture) {
         QIQI_TEST_CHECK(locked);
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Replace);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.stage == BackupRestoreStage::Prepare);
-        QIQI_TEST_CHECK(result.error == E_FAIL && result.operations_failed == 1);
+        QIQI_TEST_CHECK(fixture.SharingFailure(result.error) && result.operations_failed == 1);
         QIQI_TEST_CHECK(result.summary.user_entries_applied == 0 && !result.summary.config_restored);
         QIQI_TEST_CHECK(fixture.HasWord(DictEntrySource::PhraseFreq, L"原有词组"));
     }
@@ -475,7 +478,7 @@ void TestRestoreFailures(BackupFixture& fixture) {
         QIQI_TEST_CHECK(locked);
         const auto result = model.RestoreBackupBundle(backup, BackupConflictMode::Replace);
         QIQI_TEST_CHECK(result.status == BackupRestoreStatus::Partial && result.effects_possible);
-        QIQI_TEST_CHECK(result.stage == BackupRestoreStage::Prepare && result.error == E_FAIL);
+        QIQI_TEST_CHECK(result.stage == BackupRestoreStage::Prepare && fixture.SharingFailure(result.error));
         QIQI_TEST_CHECK(result.refresh_error == S_OK && result.operations_failed == 1);
         QIQI_TEST_CHECK(!result.summary.config_restored && result.summary.user_entries_applied == 0);
         QIQI_TEST_CHECK(fixture.ReadFile(frequency) != old_frequency && model.PhraseFreqCount() == 0);

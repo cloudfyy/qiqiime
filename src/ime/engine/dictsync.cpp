@@ -31,9 +31,16 @@ bool WubiEngine::CheckAndPublishExternalUserDictChanges(const std::filesystem::p
     }
     const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(dict_path);
     std::error_code ec;
-    if (!std::filesystem::exists(dict_path, ec)) {
-        if (std::filesystem::exists(channel_dir / L"source.meta", ec)) {
-            std::filesystem::remove_all(channel_dir, ec);
+    const bool present = std::filesystem::exists(dict_path, ec);
+    if (ec) {
+        std::ignore = log::CheckHResult(HRESULT_FROM_WIN32(ec.value()), "Dictionary sync::CheckSource");
+        return false;
+    }
+    if (!present) {
+        const bool has_snapshot_metadata = std::filesystem::exists(channel_dir / L"source.meta", ec);
+        if (ec) {
+            std::ignore = log::CheckHResult(HRESULT_FROM_WIN32(ec.value()), "Dictionary sync::CheckMetadata");
+        } else if (has_snapshot_metadata && sync::Channel::ClearOrphanedFiles(dict_path) == S_OK) {
             user_dict_sync_version_ = {};
         }
         return false;

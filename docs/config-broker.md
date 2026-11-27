@@ -178,7 +178,8 @@ Broker calls are limited to:
 Event bursts are coalesced, with a pending refresh retained if a newer event
 arrives while the current read is in flight. A failed refresh retains the last valid snapshot
 and is retried with a bounded delay. Input is never blocked waiting for a
-broker retry.
+broker retry. A queued request holds a DLL reference until the worker returns,
+including destruction of any callback captures.
 
 ## DCOM security
 
@@ -205,6 +206,8 @@ broker retry.
 - The broker verifies that the caller token belongs to its user SID. Desktop
   callers must use the broker's session; same-user AppContainer callers may
   cross the reported COM impersonation session for reads and mutations.
+  The broker must successfully leave the caller's impersonation context
+  before reading or mutating the store. A failed revert fails the request.
 - A Broker first activated by a Low/less-privileged process remains usable for
   reads when the caller is authorized. Mutations return the internal
   `ERROR_RETRY` handoff result instead of attempting a write with insufficient

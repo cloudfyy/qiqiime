@@ -239,48 +239,49 @@ inline const ThemePalette& GetTaskbarThemePalette() noexcept {
 
 // Sync Win32 popup menus (uxtheme ordinal 135/136) and window border with Windows 10/11 dark/light theme.
 inline void ApplySystemThemeToMenuAndWindow(HWND hwnd, bool is_dark) noexcept {
-    static const HMODULE uxtheme = ::LoadLibraryW(L"uxtheme.dll");
+    const ScopedModule uxtheme(::LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32));
     if (uxtheme) {
         // Undocumented uxtheme exports use the PreferredAppMode ABI.
         using SetPreferredAppModeFn = int(WINAPI*)(int);
         using FlushMenuThemesFn = void(WINAPI*)();
 
         const auto set_mode = reinterpret_cast<SetPreferredAppModeFn>(
-            ::GetProcAddress(uxtheme, MAKEINTRESOURCEA(detail::kSetPreferredAppModeOrdinal)));
-        const auto flush_menus = reinterpret_cast<FlushMenuThemesFn>(
-            ::GetProcAddress(uxtheme, MAKEINTRESOURCEA(detail::kFlushMenuThemesOrdinal)));
+            ::GetProcAddress(uxtheme.Get(), MAKEINTRESOURCEA(detail::kSetPreferredAppModeOrdinal)));
         if (set_mode) {
             set_mode(static_cast<int>(is_dark ? detail::PreferredAppMode::ForceDark :
                                                detail::PreferredAppMode::ForceLight));
+        } else {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_DEBUG("Optional uxtheme SetPreferredAppMode unavailable (error={})", error);
         }
+        const auto flush_menus = reinterpret_cast<FlushMenuThemesFn>(
+            ::GetProcAddress(uxtheme.Get(), MAKEINTRESOURCEA(detail::kFlushMenuThemesOrdinal)));
         if (flush_menus) {
             flush_menus();
+        } else {
+            const DWORD error = ::GetLastError();
+            QIQI_LOG_DEBUG("Optional uxtheme FlushMenuThemes unavailable (error={})", error);
         }
+    } else {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("Loading system uxtheme.dll failed (error={})", error);
     }
     if (hwnd && ::IsWindow(hwnd)) {
-        static const HMODULE dwmapi = ::LoadLibraryW(L"dwmapi.dll");
-        if (dwmapi) {
-            using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
-            const auto set_attr = reinterpret_cast<DwmSetWindowAttributeFn>(
-                ::GetProcAddress(dwmapi, "DwmSetWindowAttribute"));
-            if (set_attr) {
-                const BOOL dark_flag = is_dark ? TRUE : FALSE;
-                if (FAILED(set_attr(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_flag, sizeof(dark_flag)))) {
-                    set_attr(hwnd, detail::kLegacyImmersiveDarkModeAttribute, &dark_flag, sizeof(dark_flag));
-                }
-
-                // Explicitly set caption and border color so dark title bar is guaranteed even on older Win10/11 builds
-                const COLORREF cap_color = is_dark ? kDarkWindowBg : kLightCaptionBg;
-                const COLORREF txt_color = is_dark ? kDarkTextColor : kLightTextColor;
-                const COLORREF bdr_color = is_dark ? kDarkWindowBorderColor : kLightWindowBorderColor;
-                set_attr(hwnd, DWMWA_CAPTION_COLOR, &cap_color, sizeof(cap_color));
-                set_attr(hwnd, DWMWA_TEXT_COLOR, &txt_color, sizeof(txt_color));
-                set_attr(hwnd, DWMWA_BORDER_COLOR, &bdr_color, sizeof(bdr_color));
-
-                constexpr DWORD round_pref = DWMWCP_ROUND;
-                set_attr(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &round_pref, sizeof(round_pref));
-            }
+        const BOOL dark_flag = is_dark ? TRUE : FALSE;
+        if (FAILED(::DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_flag, sizeof(dark_flag)))) {
+            std::ignore = log::CheckHResult(
+                ::DwmSetWindowAttribute(hwnd, detail::kLegacyImmersiveDarkModeAttribute, &dark_flag, sizeof(dark_flag)),
+                "SystemTheme::SetImmersiveDarkMode", log::Level::debug);
         }
+        const auto set_attribute = [hwnd](DWORD attribute, DWORD value, const char* operation) noexcept {
+            std::ignore = log::CheckHResult(
+                ::DwmSetWindowAttribute(hwnd, attribute, &value, sizeof(value)), operation, log::Level::debug);
+        };
+        set_attribute(DWMWA_CAPTION_COLOR, is_dark ? kDarkWindowBg : kLightCaptionBg, "SystemTheme::SetCaptionColor");
+        set_attribute(DWMWA_TEXT_COLOR, is_dark ? kDarkTextColor : kLightTextColor, "SystemTheme::SetCaptionTextColor");
+        set_attribute(DWMWA_BORDER_COLOR, is_dark ? kDarkWindowBorderColor : kLightWindowBorderColor,
+            "SystemTheme::SetBorderColor");
+        set_attribute(DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, "SystemTheme::SetCornerPreference");
     }
 }
 

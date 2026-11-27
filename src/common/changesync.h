@@ -53,6 +53,10 @@ public:
     // Do not pass an installation directory or a directory containing unrelated private files.
     static HRESULT Create(const std::filesystem::path& directory, Source source) noexcept;
 
+    // Remove only managed files under the writer lock. S_FALSE means the source is present.
+    // When supplied, removed counts successful deletions even if a later one fails.
+    static HRESULT ClearOrphanedFiles(const std::filesystem::path& source, size_t* removed = nullptr) noexcept;
+
     Channel(std::filesystem::path directory, Source source) noexcept
         : directory_(std::move(directory)), source_(source) {}
     Channel(const Channel&) = delete;

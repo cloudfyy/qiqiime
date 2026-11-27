@@ -76,6 +76,7 @@ set(QIQI_COMMON_SOURCES
     skin.h
     settings.cpp
     settings.h
+    threadpool.h
     trace.cpp
     trace.h
     theme.h

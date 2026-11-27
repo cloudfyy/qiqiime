@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/settings/cleanup.h"
+#include "common/fileutil.h"
 #include "common/logger.h"
 #include "common/RAII.h"
 #include "common/dictfiles.h"
@@ -16,33 +17,6 @@ constexpr bool Missing(DWORD error) noexcept {
     return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
 }
 
-HRESULT OpenDataItem(const std::filesystem::path& path, bool directory, bool remove, ScopedFileHandle& file) noexcept {
-    // Deny renames while checking/deleting children, and never follow a junction or symlink.
-    file.Reset(::CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES | (remove ? DELETE : 0),
-        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr));
-    if (!file) {
-        const DWORD error = ::GetLastError();
-        return Missing(error) ? S_FALSE : HRESULT_FROM_WIN32(error);
-    }
-    BY_HANDLE_FILE_INFORMATION info{};
-    if (!::GetFileInformationByHandle(file.Get(), &info)) return HRESULT_FROM_WIN32(::GetLastError());
-    if ((info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
-        ((info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) != directory) {
-        return HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED);
-    }
-    return S_OK;
-}
-
-HRESULT RemoveDataFile(const std::filesystem::path& path) noexcept {
-    ScopedFileHandle file;
-    const HRESULT opened = OpenDataItem(path, false, true, file);
-    if (opened != S_OK) return opened;
-    FILE_DISPOSITION_INFO disposition{TRUE};
-    return ::SetFileInformationByHandle(file.Get(), FileDispositionInfo, &disposition, sizeof(disposition))
-        ? S_OK : HRESULT_FROM_WIN32(::GetLastError());
-}
-
 void RecordFailure(HRESULT hr, const char* operation, HRESULT& result) noexcept {
     if (FAILED(hr)) {
         std::ignore = log::CheckHResult(hr, operation);
@@ -52,11 +26,11 @@ void RecordFailure(HRESULT hr, const char* operation, HRESULT& result) noexcept 
 
 HRESULT RemoveSyncData(const std::filesystem::path& directory) {
     ScopedFileHandle folder;
-    const HRESULT opened = OpenDataItem(directory, true, false, folder);
+    const HRESULT opened = OpenDataItemNoReparse(directory, true, 0, folder);
     if (opened != S_OK) return opened;
     HRESULT result = S_OK;
     for (const auto* name : dictionary_files::kSyncFiles) {
-        RecordFailure(RemoveDataFile(directory / name), "Uninstall::RemoveSyncFile", result);
+        RecordFailure(RemoveFileNoReparse(directory / name), "Uninstall::RemoveSyncFile", result);
     }
     // Keep the directory itself and unrecognized files (including backups); do not recurse.
     return result;
@@ -71,11 +45,11 @@ HRESULT detail::RemoveUserDataAt(const std::filesystem::path& directory, const w
     }
     HRESULT result = S_OK;
     ScopedFileHandle folder;
-    const HRESULT opened = OpenDataItem(directory, true, false, folder);
+    const HRESULT opened = OpenDataItemNoReparse(directory, true, 0, folder);
     RecordFailure(opened, "Uninstall::OpenDataDirectory", result);
     if (opened == S_OK) {
         for (const auto* name : dictionary_files::kUserFiles) {
-            RecordFailure(RemoveDataFile(directory / name), "Uninstall::RemoveDataFile", result);
+            RecordFailure(RemoveFileNoReparse(directory / name), "Uninstall::RemoveDataFile", result);
         }
         for (const auto* name : dictionary_files::kSyncDirectories) {
             RecordFailure(RemoveSyncData(directory / name), "Uninstall::RemoveSyncData", result);

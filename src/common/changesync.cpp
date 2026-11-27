@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/changesync.h"
+#include "common/config.h"
 #include "common/dictcodec.h"
+#include "common/dictfiles.h"
 #include "common/fileutil.h"
 #include "common/logger.h"
 
@@ -133,12 +135,17 @@ HRESULT Decode(std::span<const uint8_t> bytes, Source source, Journal& journal) 
 
 class FileLock final {
 public:
-    HRESULT Acquire(const std::filesystem::path& directory, bool exclusive) {
-        handle_.Reset(::CreateFileW((directory / L"writer.lock").c_str(),
+    HRESULT Acquire(const std::filesystem::path& directory, bool exclusive, DWORD disposition = OPEN_EXISTING) {
+        handle_.Reset(::CreateFileW((directory / dictionary_files::kSyncWriterLock).c_str(),
             exclusive ? GENERIC_READ | GENERIC_WRITE : GENERIC_READ,
-            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, nullptr));
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, disposition,
+            FILE_FLAG_OPEN_REPARSE_POINT | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, nullptr));
         if (!handle_) return HRESULT_FROM_WIN32(::GetLastError());
+        FILE_ATTRIBUTE_TAG_INFO info{};
+        if (!::GetFileInformationByHandleEx(handle_.Get(), FileAttributeTagInfo, &info, sizeof(info)))
+            return HRESULT_FROM_WIN32(::GetLastError());
+        if (info.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
+            return E_ACCESSDENIED;
         OVERLAPPED position{};
         if (!::LockFileEx(handle_.Get(), LOCKFILE_FAIL_IMMEDIATELY |
             (exclusive ? LOCKFILE_EXCLUSIVE_LOCK : 0), 0, 1, 0, &position))
@@ -241,7 +248,7 @@ HRESULT Channel::Create(const std::filesystem::path& directory, Source source) n
             DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
             nullptr, nullptr, dacl, nullptr);
         if (acl_error != ERROR_SUCCESS) return HRESULT_FROM_WIN32(acl_error);
-        const ScopedFileHandle file(::CreateFileW((directory / L"writer.lock").c_str(),
+        const ScopedFileHandle file(::CreateFileW((directory / dictionary_files::kSyncWriterLock).c_str(),
             GENERIC_READ | GENERIC_WRITE | WRITE_DAC, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
             FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, nullptr));
         if (!file) return HRESULT_FROM_WIN32(::GetLastError());
@@ -264,6 +271,34 @@ HRESULT Channel::Create(const std::filesystem::path& directory, Source source) n
         journal.source = source;
         hr = ::CoCreateGuid(&journal.version.baseline);
         return FAILED(hr) ? hr : Save(directory, journal);
+    });
+}
+
+HRESULT Channel::ClearOrphanedFiles(const std::filesystem::path& source, size_t* removed) noexcept {
+    if (removed) *removed = 0;
+    return Checked("ClearOrphanedFiles", [&]() -> HRESULT {
+        if (source.empty()) return E_INVALIDARG;
+        const HRESULT desktop = DesktopPublisher();
+        if (FAILED(desktop)) return desktop;
+        const auto directory = GetSyncChannelDirectoryForFile(source);
+        ScopedFileHandle folder;
+        const HRESULT opened = OpenDataItemNoReparse(directory, true, 0, folder);
+        if (opened != S_OK) return opened == S_FALSE ? S_OK : opened;
+
+        FileLock lock;
+        const HRESULT locked = lock.Acquire(directory, true, OPEN_ALWAYS);
+        if (FAILED(locked)) return locked;
+        if (::GetFileAttributesW(source.c_str()) != INVALID_FILE_ATTRIBUTES) return S_FALSE;
+        const DWORD error = ::GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND) return HRESULT_FROM_WIN32(error);
+
+        for (const auto* name : dictionary_files::kSyncFiles) {
+            if (std::wstring_view(name) == dictionary_files::kSyncWriterLock) continue;
+            const HRESULT result = RemoveFileNoReparse(directory / name);
+            if (FAILED(result)) return result;
+            if (removed && result == S_OK) ++*removed;
+        }
+        return S_OK;
     });
 }
 

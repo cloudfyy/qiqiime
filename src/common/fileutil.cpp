@@ -238,6 +238,36 @@ HRESULT ReadFileToUtf8StringResult(
     return S_OK;
 }
 
+HRESULT OpenDataItemNoReparse(const std::filesystem::path& path, bool directory, DWORD access,
+    ScopedFileHandle& file) noexcept {
+    ScopedFileHandle opened(::CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES | access,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
+        nullptr));
+    if (!opened) {
+        const DWORD error = ::GetLastError();
+        return (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+            ? S_FALSE : HRESULT_FROM_WIN32(error);
+    }
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!::GetFileInformationByHandle(opened.Get(), &info)) return HRESULT_FROM_WIN32(::GetLastError());
+    if ((info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+        ((info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) != directory) {
+        return E_ACCESSDENIED;
+    }
+    file = std::move(opened);
+    return S_OK;
+}
+
+HRESULT RemoveFileNoReparse(const std::filesystem::path& path) noexcept {
+    ScopedFileHandle file;
+    const HRESULT opened = OpenDataItemNoReparse(path, false, DELETE, file);
+    if (opened != S_OK) return opened;
+    FILE_DISPOSITION_INFO disposition{TRUE};
+    return ::SetFileInformationByHandle(file.Get(), FileDispositionInfo, &disposition, sizeof(disposition))
+        ? S_OK : HRESULT_FROM_WIN32(::GetLastError());
+}
+
 bool WriteFileAtomically(const std::filesystem::path& target_path, std::span<const uint8_t> bytes) {
     return SUCCEEDED(WriteFileAtomicallyResult(target_path, bytes));
 }

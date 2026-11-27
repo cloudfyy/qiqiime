@@ -150,6 +150,11 @@ Repeat with the x86 preset and build directory. Use
 | Installer sources and runtime layout | `QiQiInstallerShortcutsTest`, `QiQiRuntimeArchitectureTest` |
 | Installer basic/reduced uninstall consent | `QiQiInstallerActionsTest` |
 
+`QiQiModuleCallbackTest` loads a small test DLL and verifies that queued work can run
+after the caller releases its own reference, and that the module unloads once
+the work returns. IME sound effects use the same lifetime guard: playback runs
+on a worker that retains the WAV data, with at most one newer effect pending.
+
 To check the floating status bar and tooltips without the full TSF menu suite,
 run `.\build\x64\Release\qiqi_tsf_ui_test.exe --status-bar-tests` (or use `x86`).
 
