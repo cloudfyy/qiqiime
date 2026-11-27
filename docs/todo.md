@@ -481,6 +481,13 @@ status-bar/tooltip skin support require separate design approval.
 
 ## Tracked follow-up
 
+- [ ] **2026-11-28 RAII／安全修复：补齐验证。** 在可独占剪贴板的交互式
+  Windows 会话串行复跑 x64/x86 的 `QiQiCommonTest`、`QiQiTsfUiTest`、
+  `QiQiCompositionLifecycleTest` 和 `QiQiDictManagerTest` 完整套件；
+  专项回归通过不代表这些套件已通过。用真实 UWP 宿主复验 Broker 配置刷新和
+  `full.idx` 只读加载，不扩大 AppContainer 权限。真实安装、卸载与重启检查
+  沿用[现有 MSI 验收项](#high-priority-boundary-regressions)；推送后复跑云端 lint。
+
 - [ ] <a id="wubi-w05"></a> **W05 / P1:** Plan offline Pinyin-to-Wubi code
   lookup (2026-11-19). Proposed first phase:
   full-pinyin single-character queries, showing matching characters and their

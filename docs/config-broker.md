@@ -246,6 +246,10 @@ constant.
 ## Lifetime and registration
 
 - The executable is a local COM server with a dedicated CLSID/AppID.
+- Its icon uses a cyan hub with three connected nodes on the same navy card as
+  Settings, without lettering. Run the
+  [icon generator](../scripts/generate_monitor_icon.ps1) with `-BrokerOnly` to
+  regenerate only the Broker icon.
 - `-Embedding` runs the class factory; normal invocation performs no UI work.
 - The broker uses its own `QiQiIME.ConfigBroker.TraceLogging` provider GUID
   `{8E7B9D31-5A42-4C81-9F11-202610290011}`; it does not initialize or reuse

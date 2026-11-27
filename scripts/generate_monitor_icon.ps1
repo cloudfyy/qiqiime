@@ -1,11 +1,14 @@
 # SPDX-FileCopyrightText: 2026 cloudfyy
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-[CmdletBinding()]
-param([switch]$ImeOnly, [switch]$SettingsOnly)
+[CmdletBinding(DefaultParameterSetName = 'All')]
+param(
+    [Parameter(ParameterSetName = 'Ime')][switch]$ImeOnly,
+    [Parameter(ParameterSetName = 'Settings')][switch]$SettingsOnly,
+    [Parameter(ParameterSetName = 'Broker')][switch]$BrokerOnly
+)
 
 $ErrorActionPreference = 'Stop'
-if ($ImeOnly -and $SettingsOnly) { throw 'Choose either -ImeOnly or -SettingsOnly.' }
 Add-Type -AssemblyName System.Drawing
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sizes = @(16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
@@ -48,25 +51,81 @@ function Add-QiQiToolCard([Drawing.Drawing2D.GraphicsPath]$Path, [single]$Pad, [
     $Path.CloseFigure()
 }
 
-function Write-QiQiSettingsIcon {
-    $frames = [Collections.Generic.List[byte[]]]::new()
+function Draw-QiQiSettingsGlyph([Drawing.Graphics]$Graphics, [Drawing.Brush]$Accent, [int]$Size) {
     $radii = @(0.245, 0.325, 0.325, 0.245)
     $offsets = @(-0.42, -0.23, 0.23, 0.42)
+    $center = $Size * 0.5
+    $points = [Drawing.PointF[]]@(for ($tooth = 0; $tooth -lt 8; $tooth++) {
+        for ($i = 0; $i -lt $radii.Length; $i++) {
+            $angle = ($tooth + $offsets[$i]) * [math]::PI / 4 - [math]::PI / 2
+            $radius = $Size * $radii[$i]
+            [Drawing.PointF]::new(($center + $radius * [math]::Cos($angle)),
+                ($center + $radius * [math]::Sin($angle)))
+        }
+    })
+    $gear = [Drawing.Drawing2D.GraphicsPath]::new([Drawing.Drawing2D.FillMode]::Alternate)
+    try {
+        $gear.AddPolygon($points)
+        $gear.AddEllipse([single]($Size * 0.375), [single]($Size * 0.375),
+            [single]($Size * 0.25), [single]($Size * 0.25))
+        $Graphics.FillPath($Accent, $gear)
+    } finally {
+        $gear.Dispose()
+    }
+}
+
+function Draw-QiQiBrokerGlyph([Drawing.Graphics]$Graphics, [Drawing.Brush]$Accent, [int]$Size) {
+    $centerX = $Size * 0.5
+    $centerY = $Size * 0.55
+    $nodeRadius = $Size * 0.08
+    $link = [Drawing.Pen]::new($Accent, [single]($Size * 0.075))
+    try {
+        for ($i = 0; $i -lt 3; $i++) {
+            $angle = (2 * $i / 3 - 0.5) * [math]::PI
+            $dx = [math]::Cos($angle)
+            $dy = [math]::Sin($angle)
+            $nodeX = $centerX + $Size * 0.28 * $dx
+            $nodeY = $centerY + $Size * 0.28 * $dy
+            # Start inside the hub's solid rim, leaving its center open.
+            $Graphics.DrawLine($link, [single]($centerX + $Size * 0.1 * $dx),
+                [single]($centerY + $Size * 0.1 * $dy), [single]$nodeX, [single]$nodeY)
+            $Graphics.FillEllipse($Accent, [single]($nodeX - $nodeRadius), [single]($nodeY - $nodeRadius),
+                [single](2 * $nodeRadius), [single](2 * $nodeRadius))
+        }
+    } finally {
+        $link.Dispose()
+    }
+
+    $hub = [Drawing.Drawing2D.GraphicsPath]::new([Drawing.Drawing2D.FillMode]::Alternate)
+    try {
+        foreach ($fraction in @(0.135, 0.063)) {
+            $radius = $Size * $fraction
+            $hub.AddEllipse([single]($centerX - $radius), [single]($centerY - $radius),
+                [single](2 * $radius), [single](2 * $radius))
+        }
+        $Graphics.FillPath($Accent, $hub)
+    } finally {
+        $hub.Dispose()
+    }
+}
+
+function Write-QiQiCardIcon([ValidateSet('settings', 'broker')][string]$Tool) {
+    $frames = [Collections.Generic.List[byte[]]]::new()
     foreach ($size in $sizes) {
         $bitmap = [Drawing.Bitmap]::new($size, $size, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
-        $graphics = [Drawing.Graphics]::FromImage($bitmap)
-        $card = [Drawing.Drawing2D.GraphicsPath]::new()
-        $gear = [Drawing.Drawing2D.GraphicsPath]::new([Drawing.Drawing2D.FillMode]::Alternate)
-        $start = [Drawing.PointF]::new(0, 0)
-        $end = [Drawing.PointF]::new($size, $size)
-        $background = [Drawing.Drawing2D.LinearGradientBrush]::new($start, $end,
-            [Drawing.Color]::FromArgb(25, 54, 104), [Drawing.Color]::FromArgb(18, 29, 48))
-        $accent = [Drawing.Drawing2D.LinearGradientBrush]::new($start, $end,
-            [Drawing.Color]::FromArgb(67, 226, 247), [Drawing.Color]::FromArgb(46, 213, 182))
-        $border = [Drawing.Pen]::new([Drawing.Color]::FromArgb(58, 134, 232),
-            [single][math]::Max(1.0, $size * 0.055))
-        $stream = [IO.MemoryStream]::new()
+        $graphics = $card = $background = $accent = $border = $stream = $null
         try {
+            $graphics = [Drawing.Graphics]::FromImage($bitmap)
+            $card = [Drawing.Drawing2D.GraphicsPath]::new()
+            $start = [Drawing.PointF]::new(0, 0)
+            $end = [Drawing.PointF]::new($size, $size)
+            $background = [Drawing.Drawing2D.LinearGradientBrush]::new($start, $end,
+                [Drawing.Color]::FromArgb(25, 54, 104), [Drawing.Color]::FromArgb(18, 29, 48))
+            $accent = [Drawing.Drawing2D.LinearGradientBrush]::new($start, $end,
+                [Drawing.Color]::FromArgb(67, 226, 247), [Drawing.Color]::FromArgb(46, 213, 182))
+            $border = [Drawing.Pen]::new([Drawing.Color]::FromArgb(58, 134, 232),
+                [single][math]::Max(1.0, $size * 0.055))
+            $stream = [IO.MemoryStream]::new()
             $graphics.Clear([Drawing.Color]::Transparent)
             $graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
             $graphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
@@ -75,39 +134,30 @@ function Write-QiQiSettingsIcon {
             $graphics.FillPath($background, $card)
             $graphics.DrawPath($border, $card)
 
-            $center = $size * 0.5
-            $points = [Drawing.PointF[]]@(for ($tooth = 0; $tooth -lt 8; $tooth++) {
-                for ($i = 0; $i -lt $radii.Length; $i++) {
-                    $angle = ($tooth + $offsets[$i]) * [math]::PI / 4 - [math]::PI / 2
-                    $radius = $size * $radii[$i]
-                    [Drawing.PointF]::new(($center + $radius * [math]::Cos($angle)),
-                        ($center + $radius * [math]::Sin($angle)))
-                }
-            })
-            $gear.AddPolygon($points)
-            $gear.AddEllipse([single]($size * 0.375), [single]($size * 0.375),
-                [single]($size * 0.25), [single]($size * 0.25))
-            $graphics.FillPath($accent, $gear)
+            if ($Tool -eq 'settings') {
+                Draw-QiQiSettingsGlyph $graphics $accent $size
+            } else {
+                Draw-QiQiBrokerGlyph $graphics $accent $size
+            }
             $bitmap.Save($stream, [Drawing.Imaging.ImageFormat]::Png)
             $frames.Add($stream.ToArray())
         } finally {
-            $stream.Dispose()
-            $border.Dispose()
-            $accent.Dispose()
-            $background.Dispose()
-            $gear.Dispose()
-            $card.Dispose()
-            $graphics.Dispose()
-            $bitmap.Dispose()
+            foreach ($resource in @($stream, $border, $accent, $background, $card, $graphics, $bitmap)) {
+                if ($null -ne $resource) { $resource.Dispose() }
+            }
         }
     }
-    $output = Join-Path $repoRoot 'data\qiqiime-settings.ico'
+    $output = Join-Path $repoRoot "data\qiqiime-$Tool.ico"
     Write-QiQiIcoFile -OutputPath $output -Frames $frames
-    Write-Output "Generated $output (cyan gear on navy, 16..256 pixels)."
+    Write-Output "Generated $output (16..256 pixels)."
 }
 
 if ($SettingsOnly) {
-    Write-QiQiSettingsIcon
+    Write-QiQiCardIcon 'settings'
+    return
+}
+if ($BrokerOnly) {
+    Write-QiQiCardIcon 'broker'
     return
 }
 
@@ -206,7 +256,8 @@ try {
     $productOutput = Join-Path $repoRoot 'data\qiqiime-product.ico'
     Write-QiQiIcoFile -OutputPath $productOutput -Frames $productFrames
     Write-Output "Generated $productOutput (native '奇' brand glyph outlines, 16..256 pixels)."
-    Write-QiQiSettingsIcon
+    Write-QiQiCardIcon 'settings'
+    Write-QiQiCardIcon 'broker'
 
     # 2. Log Monitor Icon (data\qiqiime-monitor.ico): Dark diagnostic screen with teal pulse waveform & blue header (16..256 px)
     $monitorFrames = [Collections.Generic.List[byte[]]]::new()
