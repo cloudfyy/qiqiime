@@ -141,6 +141,10 @@ void ApplyInfoLanguage(HWND hwnd, const InfoDialogContext& ctx) noexcept {
 
 void PaintInfoDialog(HDC hdc, const RECT& client_rc, const InfoDialogContext& ctx) noexcept {
     const ScopedSaveDC save_dc(hdc);
+    if (!save_dc) {
+        QIQI_LOG_WARN("About/Help drawing DC save failed");
+        return;
+    }
     const bool is_dark = IsSystemDarkTheme();
     const auto& layout = ctx.layout;
     const auto& str = GetUiStrings(ctx.ui_language);

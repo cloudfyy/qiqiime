@@ -198,29 +198,29 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
     const auto action_width = [&](int id) noexcept {
         return std::min(content_width, preferred_action_width(id));
     };
+    if (ctx.active_page == SettingsPage::About) {
+        const int icon_size = std::min(
+            ctx.d2d.ScalePx(kLargeBrandIconSize + 16), std::max(1, content_width / 3));
+        const int text_inset = std::min(content_width - 1, icon_size + gap);
+        const int text_width = content_width - text_inset;
+        const int title_height = std::max(1, text_height(kIdLblAboutTitle, text_width));
+        const int version_height = std::max(1, text_height(kIdLblAboutVersion, text_width));
+        const int line_gap = S(4);
+        const int text_block_height = title_height + line_gap + version_height;
+        const int header_height = std::max(icon_size, text_block_height);
+        const int text_top = y + (header_height - text_block_height) / 2;
+        place(kIdAboutIcon, left, y + (header_height - icon_size) / 2, icon_size, icon_size, false);
+        place(kIdLblAboutTitle, left + text_inset, text_top, text_width, title_height, false);
+        place(kIdLblAboutVersion, left + text_inset, text_top + title_height + line_gap,
+              text_width, version_height, false);
+        y += header_height + gap;
+    }
+
     const auto controls = SettingsPageControls(ctx.active_page);
     for (size_t index = 0; index < controls.size(); ++index) {
         const int id = gsl::at(controls, index);
         if (id == kIdDisplayExplanation && !ctx.d2d.appearance.system_high_contrast) continue;
-        if (id == kIdAboutIcon) {
-            const int icon_size = std::min(
-                ctx.d2d.ScalePx(kLargeBrandIconSize + 16), std::max(1, content_width / 3));
-            const int text_inset = std::min(content_width - 1, icon_size + gap);
-            const int text_width = content_width - text_inset;
-            const int title_height = std::max(1, text_height(kIdLblAboutTitle, text_width));
-            const int version_height = std::max(1, text_height(kIdLblAboutVersion, text_width));
-            const int line_gap = S(4);
-            const int text_block_height = title_height + line_gap + version_height;
-            const int header_height = std::max(icon_size, text_block_height);
-            const int text_top = y + (header_height - text_block_height) / 2;
-            place(id, left, y + (header_height - icon_size) / 2, icon_size, icon_size, false);
-            place(kIdLblAboutTitle, left + text_inset, text_top, text_width, title_height, false);
-            place(kIdLblAboutVersion, left + text_inset, text_top + title_height + line_gap,
-                  text_width, version_height, false);
-            y += header_height + gap;
-            index += 2;
-            continue;
-        }
+        if (id == kIdAboutIcon || id == kIdLblAboutTitle || id == kIdLblAboutVersion) continue;
         if (id == kIdRadioCustom && index + 2 < controls.size() &&
             gsl::at(controls, index + 1) == kIdBtnBrowsePrimaryDict &&
             gsl::at(controls, index + 2) == kIdBtnDictManager) {

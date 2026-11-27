@@ -112,7 +112,7 @@ inline void DrawDialogText(HDC dc, HFONT font, COLORREF color, RECT bounds,
     if (text.empty()) return;
     const ScopedSelectObject selected_font(dc, font);
     if (!selected_font) {
-        QIQI_LOG_WARN("Selecting dialog text font failed (error={})", selected_font.Error());
+        QIQI_LOG_WARN("Selecting dialog text font failed");
         return;
     }
     ::SetBkMode(dc, TRANSPARENT);

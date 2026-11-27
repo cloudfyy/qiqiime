@@ -219,6 +219,46 @@ void TestSettingsTextAlignment() {
     }
 }
 
+void CheckAboutLabelStartsAtLeft(HWND dialog, HDC screen, int id, HFONT font) {
+    const HWND label = ::GetDlgItem(dialog, id);
+    RECT client{};
+    QIQI_TEST_CHECK(::GetClientRect(label, &client));
+    const ScopedMemoryDC painted(::CreateCompatibleDC(screen));
+    const ScopedGdiHandle<HBITMAP> bitmap(::CreateCompatibleBitmap(screen, client.right, client.bottom));
+    const ScopedSelectObject selected_bitmap(painted.Get(), bitmap.Get());
+    QIQI_TEST_CHECK(painted && bitmap && selected_bitmap);
+
+    constexpr LONG kLeftProbeWidth = 12;
+    {
+        const ScopedSelectObject selected_font(painted.Get(), font);
+        const auto text = ControlText(label);
+        SIZE extent{};
+        QIQI_TEST_CHECK(selected_font && !text.empty() && ::GetTextExtentPoint32W(
+            painted.Get(), text.c_str(), gsl::narrow_cast<int>(text.size()), &extent));
+        // With this much spare width, centered text would start outside the probe.
+        QIQI_TEST_CHECK(client.right - extent.cx > 2 * kLeftProbeWidth);
+    }
+    QIQI_TEST_CHECK(::PatBlt(painted.Get(), 0, 0, client.right, client.bottom, BLACKNESS));
+    DRAWITEMSTRUCT item{};
+    item.CtlType = ODT_STATIC;
+    item.CtlID = gsl::narrow_cast<UINT>(id);
+    item.hwndItem = label;
+    item.hDC = painted.Get();
+    item.rcItem = client;
+    QIQI_TEST_CHECK(::SendMessageW(dialog, WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item)) == TRUE);
+    const COLORREF background = ::GetPixel(painted.Get(), client.right - 1, 0);
+    QIQI_TEST_CHECK(background != CLR_INVALID);
+    bool has_left_text = false;
+    for (LONG y = 0; y < client.bottom && !has_left_text; ++y) {
+        for (LONG x = 0; x < kLeftProbeWidth && !has_left_text; ++x) {
+            const COLORREF pixel = ::GetPixel(painted.Get(), x, y);
+            QIQI_TEST_CHECK(pixel != CLR_INVALID);
+            has_left_text = pixel != background;
+        }
+    }
+    QIQI_TEST_CHECK(has_left_text);
+}
+
 void TestSettingsAboutHeader() {
     using namespace settings_detail;
     auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
@@ -270,6 +310,11 @@ void TestSettingsAboutHeader() {
         QIQI_TEST_CHECK(::DrawTextW(dc.Get(), text.c_str(), -1, &measured,
             DT_CALCRECT | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX) > 0);
         QIQI_TEST_CHECK(measured.right <= available && measured.bottom <= version.bottom - version.top);
+
+        if (test.scale == UiTextScale::Percent100) {
+            CheckAboutLabelStartsAtLeft(dialog.Get(), dc.Get(), kIdLblAboutTitle, context->bold_font.Get());
+            CheckAboutLabelStartsAtLeft(dialog.Get(), dc.Get(), kIdLblAboutVersion, context->font.Get());
+        }
     }
 }
 
