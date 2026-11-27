@@ -65,7 +65,7 @@ void TestQuickSettingsMenu() {
                 metrics.cbSize = sizeof(metrics);
                 QIQI_TEST_CHECK(::SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0));
                 const auto expected = language == UiLanguage::ZhCn && CandidateFontFamilyAvailable(kYaHeiUiFamily)
-                    ? std::wstring_view(kYaHeiUiFamily) : LogFontFaceNameView(metrics.lfMenuFont);
+                    ? kYaHeiUiFamily : LogFontFaceNameView(metrics.lfMenuFont);
                 const auto font = reinterpret_cast<HFONT>(::SendDlgItemMessageW(
                     menu, static_cast<int>(LangBarMenuId::ToggleChinese), WM_GETFONT, 0, 0));
                 LOGFONTW actual{};

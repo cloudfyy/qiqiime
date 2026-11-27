@@ -732,7 +732,7 @@ HRESULT SubmitAsync(
             std::make_unique<Request>(
                 std::move(request));
         // The callback may run and free the request before the API returns.
-        gsl::owner<Request*> pending = context.release();
+        auto* const pending = context.release();
         if (!::TrySubmitThreadpoolCallback(
                 &RunRequest,
                 pending,

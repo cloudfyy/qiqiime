@@ -451,15 +451,6 @@ bool RequiresRestartForProgramLock(
                L"/");
 }
 
-bool ShouldPromptUninstallResult(
-    HRESULT error,
-    bool restart_required,
-    unsigned int scheduled) noexcept {
-    return FAILED(error) ||
-        (restart_required &&
-         scheduled != 0);
-}
-
 HRESULT ParseCleanupChoices(std::wstring_view legacy, std::wstring_view configuration,
                             std::wstring_view dictionaries, CleanupRequest& request) noexcept {
     const auto valid = [](std::wstring_view value) noexcept {

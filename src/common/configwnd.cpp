@@ -42,7 +42,7 @@ private:
 
 HRESULT ToolConfigSubscription::Subscribe(HWND window) noexcept {
     compartment_.Reset();
-    thread_mgr_.Reset();
+    thread_mgr_ = nullptr;
     request_ = 0;
     refresh_pending_ = false;
     if (HasConfigRegistrySubKeyOverride()) return S_FALSE;
@@ -53,9 +53,11 @@ HRESULT ToolConfigSubscription::Subscribe(HWND window) noexcept {
     if (FAILED(result)) return result;
     if (!thread_mgr) return E_UNEXPECTED;
     ComPtr<ITfCompartmentMgr> manager;
+#pragma warning(suppress : 26447) // TSF COM methods report failure through HRESULT.
     result = thread_mgr->GetGlobalCompartment(&manager);
     if (FAILED(result)) return result;
     if (!manager) return E_UNEXPECTED;
+#pragma warning(suppress : 26447) // WRL allocation is non-throwing and the sink constructor is noexcept.
     const auto sink = Microsoft::WRL::Make<ConfigWindowSink>(window);
     if (!sink) return E_OUTOFMEMORY;
     if (!compartment_.Bind(manager.Get(), kGuidCompartmentConfigVersion, sink.Get())) return E_FAIL;

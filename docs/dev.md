@@ -598,8 +598,10 @@ changes. Layout measures actual closed combo heights, clips scrolling content
 (including owner drawing), follows keyboard focus, and fixes OK/Cancel outside
 the page viewport. Labels/fields reflow vertically for narrow or enlarged text.
 Combo fields use a fixed, DPI/text-scaled base width and align to the page's
-right edge; page size and layout share one row. Shortcuts and About are ordinary
-pages at the right end of the tab strip. Restore defaults, OK and Cancel share a
+right edge; page size and layout share one row. The layout test checks that the
+Space/Enter combo stays right-aligned both beside and below its label.
+Shortcuts and About are ordinary pages at the right end of the tab strip.
+Restore defaults, OK and Cancel share a
 fixed footer on every page; narrow/enlarged layouts use two footer rows.
 Treat those three as footer controls for painting and focus scrolling.
 Browse and Dictionary Manager sit beside the custom-dictionary radio (below it

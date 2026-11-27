@@ -36,7 +36,7 @@ struct CommonCandidateFont {
 };
 
 constexpr std::array kCommonCandidateFonts{
-    CommonCandidateFont{kYaHeiUiFamily, L"微软雅黑 UI"},
+    CommonCandidateFont{kYaHeiUiFamily.data(), L"微软雅黑 UI"},
     CommonCandidateFont{L"SimSun", L"宋体"},
     CommonCandidateFont{L"DengXian", L"等线"},
     CommonCandidateFont{L"FangSong", L"仿宋"},

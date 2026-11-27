@@ -411,14 +411,14 @@ inline bool CandidateFontFamilyAvailable(std::wstring_view family) noexcept {
     return exists != FALSE || CandidateGdiFontFamilyAvailable(family);
 }
 
-inline constexpr wchar_t kYaHeiUiFamily[] = L"Microsoft YaHei UI";
+inline constexpr std::wstring_view kYaHeiUiFamily = L"Microsoft YaHei UI";
 using UiFontFamilyLookup = bool (*)(std::wstring_view) noexcept;
 
 inline void PreferLocalizedUiFontFace(
     LOGFONTW& font, UiLanguage language, UiFontFamilyLookup lookup = nullptr) noexcept {
-    const auto has_family = lookup ? lookup : &CandidateFontFamilyAvailable;
-    if (ResolveUiLanguage(language) == UiLanguage::ZhCn && has_family(kYaHeiUiFamily)) {
-        wcscpy_s(font.lfFaceName, kYaHeiUiFamily);
+    if (ResolveUiLanguage(language) == UiLanguage::ZhCn &&
+        (lookup ? lookup(kYaHeiUiFamily) : CandidateFontFamilyAvailable(kYaHeiUiFamily))) {
+        wcscpy_s(font.lfFaceName, kYaHeiUiFamily.data());
         font.lfCharSet = DEFAULT_CHARSET;
     }
 }

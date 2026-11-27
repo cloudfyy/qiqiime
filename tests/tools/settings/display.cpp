@@ -39,6 +39,7 @@ struct FontMenuProbe {
 
 thread_local FontMenuProbe* font_menu_probe = nullptr;
 
+#pragma warning(suppress : 26461) // The test callback must match the TrackPopupMenuEx signature.
 BOOL WINAPI TrackCandidateFontMenuForTest(
     HMENU menu, UINT flags, int x, int y, HWND hwnd, LPTPMPARAMS placement) {
     using namespace settings_detail;

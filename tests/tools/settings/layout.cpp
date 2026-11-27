@@ -44,19 +44,40 @@ void TestSettingsTextAlignment() {
         config.ui_language = language;
         const ScopedWindow dialog(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config));
         QIQI_TEST_CHECK(dialog);
+        auto* const context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
+        QIQI_TEST_CHECK(context);
         const auto bounds = [&](int id) {
             RECT rect{};
             QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(dialog.Get(), id), &rect));
             ::MapWindowPoints(nullptr, dialog.Get(), reinterpret_cast<POINT*>(&rect), 2);
             return rect;
         };
-        for (const UINT dpi : {96u, 120u, 144u, 192u}) {
+        const auto resize = [&](int width, UINT dpi) {
             SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 3840, 2160}, dpi});
+            const RECT suggested{0, 0, ScalePxByDpi(width, dpi), ScalePxByDpi(494, dpi)};
+            ::SendMessageW(dialog.Get(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&suggested));
+            QIQI_TEST_CHECK(context->d2d.dpi == dpi);
+        };
+        const auto check_space_enter_layout = [&] {
+            const LONG control_right = context->page_bounds.right - context->d2d.ScaleDipPx(16);
+            const LONG toggle_text_left = bounds(kIdChkShiftToggle).left + FluentToggleLabelInset(context->d2d);
+            const RECT label = bounds(kIdLblSpaceEnter);
+            const RECT combo = bounds(kIdComboSpaceEnter);
+            QIQI_TEST_CHECK(label.left == toggle_text_left);
+            QIQI_TEST_CHECK(combo.right == control_right && combo.left < combo.right &&
+                            combo.right - combo.left <= context->d2d.ScalePx(260));
+            const bool inline_pair = label.top == combo.top;
+            if (inline_pair) {
+                QIQI_TEST_CHECK(label.right < combo.left);
+            } else {
+                QIQI_TEST_CHECK(label.right == control_right && label.bottom < combo.top);
+            }
+            return inline_pair;
+        };
+        for (const UINT dpi : {96u, 120u, 144u, 192u}) {
             for (const int width : {820, 620}) {
-                const RECT suggested{0, 0, ScalePxByDpi(width, dpi), ScalePxByDpi(494, dpi)};
-                ::SendMessageW(dialog.Get(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&suggested));
+                resize(width, dpi);
                 for (const auto &[label_id, toggle_id] : aligned_rows) {
-                    auto *context = reinterpret_cast<DialogContext *>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
                     const SettingsPage page = label_id == kIdLblUiLang ? SettingsPage::Display
                                               : label_id == kIdLblEnglishSwitch ? SettingsPage::Input
                                                                                 : SettingsPage::Candidates;
@@ -71,7 +92,6 @@ void TestSettingsTextAlignment() {
                         QIQI_TEST_CHECK(label.bottom <= toggle.top);
                     }
                 }
-                auto *context = reinterpret_cast<DialogContext *>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
                 const int control_right = context->page_bounds.right - context->d2d.ScaleDipPx(16);
                 SelectSettingsPage(dialog.Get(), *context, SettingsPage::Input);
                 const RECT restore = bounds(kIdBtnRestoreDefaults);
@@ -93,12 +113,8 @@ void TestSettingsTextAlignment() {
                 const LONG toggle_text_left = bounds(kIdChkShiftToggle).left + FluentToggleLabelInset(context->d2d);
                 QIQI_TEST_CHECK(bounds(kIdLblEnglishSwitch).left == toggle_text_left);
                 QIQI_TEST_CHECK(bounds(kIdComboEnglishSwitch).right == control_right);
-                const RECT space_enter_label = bounds(kIdLblSpaceEnter);
-                const RECT space_enter = bounds(kIdComboSpaceEnter);
-                QIQI_TEST_CHECK(space_enter_label.left == toggle_text_left);
-                QIQI_TEST_CHECK(space_enter_label.top == space_enter.top && space_enter_label.right < space_enter.left);
-                QIQI_TEST_CHECK(space_enter.right == control_right &&
-                                space_enter.right - space_enter.left <= context->d2d.ScalePx(260));
+                const bool inline_space_enter = check_space_enter_layout();
+                QIQI_TEST_CHECK(width != 820 || inline_space_enter);
                 QIQI_TEST_CHECK(restore.right - restore.left < (control_right - context->page_bounds.left) / 2);
                 SelectSettingsPage(dialog.Get(), *context, SettingsPage::Dictionary);
                 const RECT browse = bounds(kIdBtnBrowsePrimaryDict);
@@ -216,6 +232,9 @@ void TestSettingsTextAlignment() {
                         : std::wstring_view(L"About")));
             }
         }
+        resize(420, 192);
+        SelectSettingsPage(dialog.Get(), *context, SettingsPage::Input);
+        QIQI_TEST_CHECK(!check_space_enter_layout());
     }
 }
 

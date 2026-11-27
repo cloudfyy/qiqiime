@@ -23,10 +23,12 @@ bool RequiresRestartForProgramLock(
     bool restartable,
     std::wstring_view executable,
     std::wstring_view windows_directory) noexcept;
-bool ShouldPromptUninstallResult(
+constexpr bool ShouldPromptUninstallResult(
     HRESULT error,
     bool restart_required,
-    unsigned int scheduled) noexcept;
+    unsigned int scheduled) noexcept {
+    return FAILED(error) || (restart_required && scheduled != 0);
+}
 }
 
 extern "C" UINT __stdcall ChooseUninstallData(MSIHANDLE install) noexcept;
