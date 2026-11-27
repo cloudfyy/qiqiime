@@ -83,21 +83,21 @@ HRESULT WubiEngine::PromoteUserPhraseFrequencyResult(
 
     const std::filesystem::path channel_dir = GetSyncChannelDirectoryForFile(target_path);
     const sync::Source source{sync::DataType::PhraseFrequency, kGuidSyncSourcePhraseFrequency};
-    const HRESULT create_hr = sync::Channel::Create(channel_dir, source);
-    if (FAILED(create_hr)) {
-        PromotePhraseInMap(promoted_phrases_, packed, word);
-        if (!SavePhraseFrequencies(target_path)) {
-            QIQI_LOG_CAT_WARN(log::Keyword::Dictionary, "PromoteUserPhraseFrequency: in-memory order updated but persistence failed");
-            return create_hr;
-        }
-        return S_OK;
-    }
     const sync::Channel channel(channel_dir, source);
     const std::vector<uint8_t> payload = EncodeDictEntryDelta(packed, word);
     HRESULT last_error = HRESULT_FROM_WIN32(ERROR_RETRY);
     for (int attempt = 0; attempt < kMaxSyncPublishAttempts; ++attempt) {
+        // Synchronization can remove an orphaned journal when the source is missing.
         std::ignore = SynchronizePhraseFrequencies(sync::InputBoundary::NewInput);
+        const HRESULT create_hr = sync::Channel::Create(channel_dir, source);
         PromotePhraseInMap(promoted_phrases_, packed, word);
+        if (FAILED(create_hr)) {
+            if (!SavePhraseFrequencies(target_path)) {
+                QIQI_LOG_CAT_WARN(log::Keyword::Dictionary, "PromoteUserPhraseFrequency: in-memory order updated but persistence failed");
+                return create_hr;
+            }
+            return S_OK;
+        }
         sync::Batch current_batch;
         const HRESULT read_hr = channel.Read(phrase_freq_sync_version_, current_batch);
         if (FAILED(read_hr)) {

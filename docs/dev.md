@@ -213,6 +213,10 @@ ChangeSync concurrent-writer diagnostics retain completed writes, elapsed time,
 lock/revision conflict counts and the last HRESULT. The 30-writes-per-child
 assertions and original timeout budgets remain unchanged; a passing rerun does
 not explain an earlier deadline failure.
+The engine's phrase-frequency persistence test uses a per-run directory and
+deletes only the source file to leave an orphaned snapshot and journal. The
+next promotion must finish orphan cleanup before creating its journal, then
+publish an order that a fresh engine can reload.
 ChangeSync assertions are flushed before exception unwinding so cleanup aborts
 cannot hide the original check. Stage, fixture and child-process markers include
 PIDs; cleanup failures report the directory, original error category/code and

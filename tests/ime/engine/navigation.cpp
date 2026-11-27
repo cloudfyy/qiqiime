@@ -195,9 +195,19 @@ void TestNavigationSelectionAndReturnCommit() {
                     gsl::at(cands_single_fixed, 3) == L"字");
 
     // Selecting "词组甲" via VK_DOWN + VK_SPACE (CommitSelected) promotes "词组甲" back ahead of "词组乙" without duplication
-    const auto temp_freq_path = std::filesystem::temp_directory_path() / L"qiqiime_test_phrase_freq.qfreq";
-    std::error_code freq_ec;
-    std::filesystem::remove(temp_freq_path, freq_ec);
+    const auto temp_freq_dir = std::filesystem::temp_directory_path() /
+        (L"qiqiime_test_phrase_freq_" + std::to_wstring(::GetCurrentProcessId()) + L"_" +
+         std::to_wstring(::GetTickCount64()));
+    QIQI_TEST_CHECK(std::filesystem::create_directory(temp_freq_dir));
+    const auto cleanup_frequency = gsl::finally([&]() noexcept {
+        std::error_code error;
+        std::filesystem::remove_all(temp_freq_dir, error);
+        QIQI_TEST_CHECK_CLEANUP(!error);
+    });
+    const auto temp_freq_path = temp_freq_dir / L"frequency.qfreq";
+    // Simulate deleting the source while its sync snapshot and journal remain.
+    QIQI_TEST_CHECK(engine.SavePhraseFrequencies(temp_freq_path));
+    QIQI_TEST_CHECK(std::filesystem::remove(temp_freq_path));
     engine.SetPhraseFreqPath(temp_freq_path);
     QIQI_TEST_CHECK(engine.PhraseFreqPath() == temp_freq_path);
     QIQI_TEST_CHECK(!engine.LoadPhraseFrequencies(temp_freq_path));
@@ -226,6 +236,8 @@ void TestNavigationSelectionAndReturnCommit() {
     restored_freq_engine.AddEntry(L"qrst", L"字");
     restored_freq_engine.SetDynamicPhraseFreq(true);
     QIQI_TEST_CHECK(restored_freq_engine.LoadPhraseFrequencies(temp_freq_path));
+    QIQI_TEST_CHECK(engine.PhraseFreqSyncVersion().sequence > 0 &&
+                    restored_freq_engine.PhraseFreqSyncVersion() == engine.PhraseFreqSyncVersion());
     auto restored_cands = restored_freq_engine.LookupExact(L"qrst");
     QIQI_TEST_CHECK(restored_cands.size() == 4 &&
                     gsl::at(restored_cands, 0) == L"单" &&
@@ -233,7 +245,6 @@ void TestNavigationSelectionAndReturnCommit() {
                     gsl::at(restored_cands, 2) == L"词组乙" &&
                     gsl::at(restored_cands, 3) == L"字");
     engine.SetPhraseFreqPath({});
-    std::filesystem::remove(temp_freq_path, freq_ec);
     engine.SetDynamicPhraseFreq(false);
 
     // Test VK_RETURN committing raw ASCII code
