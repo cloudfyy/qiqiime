@@ -286,52 +286,28 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                     }
                     ::FillRect(dis->hDC, &dis->rcItem, background);
                     if (dis->CtlID == kIdAboutIcon) {
-                        if (ctx->icon_big) {
-                            const int icon_size = std::min(
-                                dis->rcItem.right - dis->rcItem.left,
-                                dis->rcItem.bottom - dis->rcItem.top);
-                            const int left =
-                                dis->rcItem.left +
-                                (dis->rcItem.right -
-                                    dis->rcItem.left - icon_size) / 2;
-                            const int top =
-                                dis->rcItem.top +
-                                (dis->rcItem.bottom -
-                                    dis->rcItem.top - icon_size) / 2;
-                            ::DrawIconEx(
-                                dis->hDC, left, top,
-                                ctx->icon_big.Get(),
-                                icon_size, icon_size,
-                                0, nullptr, DI_NORMAL);
-                        }
+                        dialog_detail::DrawCenteredDialogIcon(dis->hDC, ctx->icon_big.Get(), dis->rcItem);
                         return TRUE;
                     }
                     const bool title =
                         dis->CtlID == kIdLblAboutTitle ||
                         dis->CtlID == kIdLblShortcutsTitle;
                     const bool centered =
-                        title ||
-                        dis->CtlID == kIdLblAboutVersion ||
+                        dis->CtlID == kIdLblShortcutsTitle ||
                         dis->CtlID == kIdLblShortcutsSubtitle;
                     const bool secondary =
                         dis->CtlID == kIdLblAboutVersion ||
                         dis->CtlID == kIdLblShortcutsSubtitle;
-                    const ScopedSelectObject selected_font(
-                        dis->hDC,
-                        title ? ctx->bold_font.Get() : ctx->font.Get());
-                    ::SetTextColor(
-                        dis->hDC,
-                        secondary
-                            ? ctx->d2d.appearance.palette.text_secondary
-                            : ctx->d2d.appearance.palette.text_primary);
                     std::array<wchar_t, 4096> text{};
                     const int length = ::GetWindowTextW(
                         dis->hwndItem, text.data(), gsl::narrow_cast<int>(text.size()));
-                    RECT bounds = dis->rcItem;
-                    if (length > 0 && !::DrawTextW(dis->hDC, text.data(), length, &bounds,
-                                                  (centered ? DT_CENTER : DT_LEFT) |
-                                                  DT_WORDBREAK | DT_NOPREFIX)) {
-                        QIQI_LOG_WARN("Settings label {} drawing failed", dis->CtlID);
+                    if (length > 0) {
+                        const auto& palette = ctx->d2d.appearance.palette;
+                        dialog_detail::DrawDialogText(dis->hDC, title ? ctx->bold_font.Get() : ctx->font.Get(),
+                            secondary ? palette.text_secondary : palette.text_primary, dis->rcItem,
+                            std::wstring_view(text.data(), gsl::narrow_cast<size_t>(length)),
+                            (centered ? DT_CENTER : DT_LEFT) |
+                                SettingsLabelWrapFlags(gsl::narrow_cast<int>(dis->CtlID)));
                     }
                     return TRUE;
                 }

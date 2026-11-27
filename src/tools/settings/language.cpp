@@ -93,19 +93,13 @@ void UpdateSettingsPageLabels(HWND hwnd, const DialogContext& ctx) noexcept {
     const UiLanguage language =
         GetSelectedUiLanguageFromCombo(hwnd, ctx);
     const auto& str = GetUiStrings(language);
-    ::SetDlgItemTextW(
-        hwnd, kIdLblAboutTitle, str.about_app_name);
-    std::array<wchar_t, 256> version_text{};
-    const std::wstring_view formatted_version =
-        FormatAboutVersionText(language, version_text);
-    if (!formatted_version.empty()) {
-        ::SetDlgItemTextW(
-            hwnd, kIdLblAboutVersion, version_text.data());
+    const auto about = GetAboutContent(str);
+    ::SetDlgItemTextW(hwnd, kIdLblAboutTitle, about.app_name);
+    if (about.version.front() != L'\0') {
+        ::SetDlgItemTextW(hwnd, kIdLblAboutVersion, about.version.data());
     }
-    ::SetDlgItemTextW(
-        hwnd, kIdLblAboutLicense, str.about_license_info);
-    ::SetDlgItemTextW(
-        hwnd, kIdBtnOpenGitHub, str.about_btn_github);
+    ::SetDlgItemTextW(hwnd, kIdLblAboutLicense, about.licenses);
+    ::SetDlgItemTextW(hwnd, kIdBtnOpenGitHub, str.about_btn_github);
     ::SetDlgItemTextW(
         hwnd, kIdLblShortcutsTitle, str.help_header_title);
     ::SetDlgItemTextW(

@@ -4,15 +4,21 @@
 #pragma once
 
 #include <windows.h>
-#include <span>
-#include <string_view>
+#include <array>
 #include "common/config.h"
 #include "common/RAII.h"
 
 namespace qiqi {
 
-std::wstring_view FormatAboutVersionText(
-    UiLanguage language, std::span<wchar_t> output) noexcept;
+struct UiStrings;
+
+struct AboutContent {
+    const wchar_t* app_name = L"";
+    const wchar_t* licenses = L"";
+    std::array<wchar_t, 256> version{};
+};
+
+AboutContent GetAboutContent(const UiStrings& strings) noexcept;
 
 // Shared About and Help UI; embedded-icon mode uses resource 1 from instance.
 ScopedWindow CreateAboutWindow(

@@ -10,6 +10,7 @@
 #include "common/dpi.h"
 #include "common/theme.h"
 #include "common/uiutil.h"
+#include "common/version.h"
 #include "ime/engine/dict.h"
 #include "tools/settings/internal.h"
 #include "tools/settings/window.h"
@@ -218,6 +219,60 @@ void TestSettingsTextAlignment() {
     }
 }
 
+void TestSettingsAboutHeader() {
+    using namespace settings_detail;
+    auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
+    const auto restore_monitor = gsl::finally([&original_monitor]() noexcept {
+        SetMonitorMetricsOverrideForTest(std::move(original_monitor));
+    });
+    struct LayoutCase {
+        MonitorMetrics monitor;
+        UiLanguage language;
+        UiTextScale scale;
+    };
+    for (const auto& test : std::array{
+             LayoutCase{{{0, 0, 1920, 1080}, 96}, UiLanguage::EnUs, UiTextScale::Percent100},
+             LayoutCase{{{0, 0, 640, 600}, 192}, UiLanguage::ZhCn, UiTextScale::Percent200}}) {
+        SetMonitorMetricsOverrideForTest(test.monitor);
+        QiQiConfig config;
+        config.ui_language = test.language;
+        config.ui_text_scale = test.scale;
+        const ScopedWindow dialog(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config));
+        QIQI_TEST_CHECK(dialog);
+        auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(dialog.Get(), GWLP_USERDATA));
+        QIQI_TEST_CHECK(context);
+        SelectSettingsPage(dialog.Get(), *context, SettingsPage::About);
+        const auto bounds = [&](int id) {
+            RECT rect{};
+            QIQI_TEST_CHECK(::GetWindowRect(::GetDlgItem(dialog.Get(), id), &rect));
+            ::MapWindowPoints(nullptr, dialog.Get(), reinterpret_cast<POINT*>(&rect), 2);
+            return rect;
+        };
+        const RECT icon = bounds(kIdAboutIcon);
+        const RECT title = bounds(kIdLblAboutTitle);
+        const RECT version = bounds(kIdLblAboutVersion);
+        const RECT license = bounds(kIdLblAboutLicense);
+        QIQI_TEST_CHECK(icon.left == license.left && icon.right < title.left);
+        QIQI_TEST_CHECK(title.left == version.left && title.right == version.right);
+        QIQI_TEST_CHECK(title.bottom <= version.top);
+        QIQI_TEST_CHECK(title.top < icon.bottom && version.bottom > icon.top);
+        QIQI_TEST_CHECK(version.right <= context->page_bounds.right &&
+                        license.top > std::max(icon.bottom, version.bottom));
+
+        const ScopedWindowDC dc(dialog.Get());
+        const ScopedSelectObject selected_font(dc.Get(), context->font.Get());
+        QIQI_TEST_CHECK(dc && selected_font);
+        const auto text = ControlText(::GetDlgItem(dialog.Get(), kIdLblAboutVersion));
+        QIQI_TEST_CHECK(text == std::wstring(GetUiStrings(test.language).about_version_prefix) +
+            std::wstring(version::kFullVersionW) + L" (" + std::wstring(version::kArchW) + L")");
+        const LONG available = version.right - version.left;
+        RECT measured{0, 0, available, 0};
+        QIQI_TEST_CHECK(::DrawTextW(dc.Get(), text.c_str(), -1, &measured,
+            DT_CALCRECT | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX) > 0);
+        QIQI_TEST_CHECK(measured.right <= available && measured.bottom <= version.bottom - version.top);
+    }
+}
+
 void TestSettingsWindowMonitorChanges() {
     auto original_monitor = std::exchange(detail::MonitorMetricsOverrideStorage(), std::nullopt);
     const auto restore_monitor = gsl::finally([&original_monitor]() noexcept {
@@ -328,6 +383,7 @@ void TestSettingsLabelViewportClipping() {
 
 void RunSettingsLayoutTests() {
     TestSettingsTextAlignment();
+    TestSettingsAboutHeader();
     TestSettingsWindowMonitorChanges();
     TestSettingsLabelViewportClipping();
 }

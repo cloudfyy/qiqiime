@@ -149,6 +149,10 @@ constexpr std::span<const int> SettingsPageControls(SettingsPage page) noexcept 
 constexpr int kIdBtnOk = IDOK;
 constexpr int kIdBtnCancel = IDCANCEL;
 
+constexpr UINT SettingsLabelWrapFlags(int id) noexcept {
+    return DT_WORDBREAK | DT_NOPREFIX | (id == kIdLblAboutVersion ? DT_EDITCONTROL : 0);
+}
+
 namespace settings_layout {
 inline constexpr int kFontSize = 15;
 inline constexpr int kBoldFontSize = 19;

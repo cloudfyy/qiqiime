@@ -95,6 +95,33 @@ inline void ApplyDialogIcons(HWND hwnd, HICON small_icon, HICON big_icon) noexce
     }
 }
 
+inline void DrawCenteredDialogIcon(HDC dc, HICON icon, const RECT& bounds) noexcept {
+    if (!icon) return;
+    const LONG width = bounds.right - bounds.left;
+    const LONG height = bounds.bottom - bounds.top;
+    const LONG size = std::min(width, height);
+    if (size <= 0) return;
+    if (!::DrawIconEx(dc, bounds.left + (width - size) / 2, bounds.top + (height - size) / 2,
+                      icon, size, size, 0, nullptr, DI_NORMAL)) {
+        QIQI_LOG_WARN("Drawing dialog icon failed (error={})", ::GetLastError());
+    }
+}
+
+inline void DrawDialogText(HDC dc, HFONT font, COLORREF color, RECT bounds,
+    std::wstring_view text, UINT flags) noexcept {
+    if (text.empty()) return;
+    const ScopedSelectObject selected_font(dc, font);
+    if (!selected_font) {
+        QIQI_LOG_WARN("Selecting dialog text font failed (error={})", selected_font.Error());
+        return;
+    }
+    ::SetBkMode(dc, TRANSPARENT);
+    ::SetTextColor(dc, color);
+    if (!::DrawTextW(dc, text.data(), gsl::narrow_cast<int>(text.size()), &bounds, flags)) {
+        QIQI_LOG_WARN("Drawing dialog text failed (flags=0x{:X})", flags);
+    }
+}
+
 inline bool RegisterDialogWindowClass(
     HINSTANCE instance,
     const wchar_t* class_name,

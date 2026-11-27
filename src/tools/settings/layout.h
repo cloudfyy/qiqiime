@@ -51,7 +51,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
         const int length = ::GetDlgItemTextW(hwnd, id, text.data(), gsl::narrow_cast<int>(text.size()));
         RECT bounds{0, 0, std::max(1, available), 0};
         if (length > 0 && !::DrawTextW(dc.Get(), text.data(), length, &bounds,
-                                      DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX)) {
+                                      DT_CALCRECT | SettingsLabelWrapFlags(id))) {
             QIQI_LOG_WARN("Settings control {} text measurement failed", id);
         }
         const bool unavailable = ctx.d2d.appearance.high_contrast &&
@@ -202,6 +202,25 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
     for (size_t index = 0; index < controls.size(); ++index) {
         const int id = gsl::at(controls, index);
         if (id == kIdDisplayExplanation && !ctx.d2d.appearance.system_high_contrast) continue;
+        if (id == kIdAboutIcon) {
+            const int icon_size = std::min(
+                ctx.d2d.ScalePx(kLargeBrandIconSize + 16), std::max(1, content_width / 3));
+            const int text_inset = std::min(content_width - 1, icon_size + gap);
+            const int text_width = content_width - text_inset;
+            const int title_height = std::max(1, text_height(kIdLblAboutTitle, text_width));
+            const int version_height = std::max(1, text_height(kIdLblAboutVersion, text_width));
+            const int line_gap = S(4);
+            const int text_block_height = title_height + line_gap + version_height;
+            const int header_height = std::max(icon_size, text_block_height);
+            const int text_top = y + (header_height - text_block_height) / 2;
+            place(id, left, y + (header_height - icon_size) / 2, icon_size, icon_size, false);
+            place(kIdLblAboutTitle, left + text_inset, text_top, text_width, title_height, false);
+            place(kIdLblAboutVersion, left + text_inset, text_top + title_height + line_gap,
+                  text_width, version_height, false);
+            y += header_height + gap;
+            index += 2;
+            continue;
+        }
         if (id == kIdRadioCustom && index + 2 < controls.size() &&
             gsl::at(controls, index + 1) == kIdBtnBrowsePrimaryDict &&
             gsl::at(controls, index + 2) == kIdBtnDictManager) {
@@ -322,12 +341,9 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             continue;
         }
         const bool preview = id == kIdCandidatePreview;
-        const bool icon = id == kIdAboutIcon;
         const bool static_text =
             id == kIdLblCustomPrimaryPath ||
             id == kIdDisplayExplanation ||
-            id == kIdLblAboutTitle ||
-            id == kIdLblAboutVersion ||
             id == kIdLblAboutLicense ||
             id == kIdLblShortcutsTitle ||
             id == kIdLblShortcutsSubtitle ||
@@ -336,9 +352,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
             id == kIdLblCustomPrimaryPath ? ctx.d2d.ScalePx(kFluentRadioTextInset) :
             id == kIdChkExtraDict ? S(24) : 0);
         const int control_width = content_width - indent;
-        const int height = icon
-            ? ctx.d2d.ScalePx(kLargeBrandIconSize + 16)
-            : preview ? MeasureSettingsCandidatePreviewHeight(::GetDlgItem(hwnd, id), control_width, ctx) :
+        const int height = preview ? MeasureSettingsCandidatePreviewHeight(::GetDlgItem(hwnd, id), control_width, ctx) :
             std::max(static_text ? font_height + S(4) : target,
                      text_height(id, control_width - S(static_text ? 0 : 60)) + S(12));
         const int actual_height = place(id, left + indent, y, control_width, height, false);

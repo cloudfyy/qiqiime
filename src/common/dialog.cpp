@@ -15,10 +15,7 @@
 #include <algorithm>
 #include <memory>
 #include <new>
-#include <array>
-#include <cstddef>
 #include <cwchar>
-#include <limits>
 
 namespace qiqi {
 namespace {
@@ -50,7 +47,6 @@ constexpr int kMinimumBodyHeight = 94;
 constexpr int kBodyFontSize = 14;
 constexpr int kTitleFontSize = 19;
 constexpr int kDividerStrokeWidthPx = 1;
-constexpr std::size_t kVersionTextCapacity = 256;
 
 enum class InfoDialogKind : uint8_t {
     About = 0,
@@ -148,59 +144,30 @@ void PaintInfoDialog(HDC hdc, const RECT& client_rc, const InfoDialogContext& ct
     const bool is_dark = IsSystemDarkTheme();
     const auto& layout = ctx.layout;
     const auto& str = GetUiStrings(ctx.ui_language);
+    const bool help = ctx.kind == InfoDialogKind::Help;
+    const auto about = help ? AboutContent{} : GetAboutContent(str);
 
     const ScopedGdiHandle<HBRUSH> bg_brush(
         ::CreateSolidBrush(is_dark ? kDarkWindowBg : kLightSurfaceBg));
     ::FillRect(hdc, &client_rc, bg_brush.Get());
-    ::SetBkMode(hdc, TRANSPARENT);
-
-    if (ctx.icon) {
-        ::DrawIconEx(
-            hdc, layout.icon.left, layout.icon.top, ctx.icon.Get(),
-            layout.icon.right - layout.icon.left, layout.icon.bottom - layout.icon.top, 0, nullptr, DI_NORMAL);
-    }
+    dialog_detail::DrawCenteredDialogIcon(hdc, ctx.icon.Get(), layout.icon);
+    constexpr UINT header_flags = DT_LEFT | DT_VCENTER | DT_SINGLELINE;
+    dialog_detail::DrawDialogText(hdc, ctx.title_font.Get(),
+        is_dark ? kDarkTextColor : kLightTitleColor, layout.title,
+        help ? str.help_header_title : about.app_name, header_flags);
+    dialog_detail::DrawDialogText(hdc, ctx.body_font.Get(),
+        is_dark ? kDarkSecondaryTextColor : kLightSecondaryTextColor, layout.subtitle,
+        help ? str.help_header_subtitle : about.version.data(), header_flags);
     {
-        const ScopedSelectObject sel_title_font(hdc, ctx.title_font.Get());
-        ::SetTextColor(hdc, is_dark ? kDarkTextColor : kLightTitleColor);
-        RECT title_rc = layout.title;
-        ::DrawTextW(
-            hdc,
-            ctx.kind == InfoDialogKind::Help ? str.help_header_title : str.about_app_name,
-            -1, &title_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-    }
-    {
-        const ScopedSelectObject sel_body_font(hdc, ctx.body_font.Get());
-        ::SetTextColor(hdc, is_dark ? kDarkSecondaryTextColor : kLightSecondaryTextColor);
-        RECT subtitle_rc = layout.subtitle;
-        if (ctx.kind == InfoDialogKind::Help) {
-            ::DrawTextW(hdc, str.help_header_subtitle, -1, &subtitle_rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        } else {
-            std::array<wchar_t, kVersionTextCapacity> version_buffer{};
-            const std::wstring_view version_text =
-                FormatAboutVersionText(
-                    ctx.ui_language, version_buffer);
-            if (version_text.empty()) return;
-            ::DrawTextW(
-                hdc,
-                version_text.data(),
-                gsl::narrow_cast<int>(version_text.size()),
-                &subtitle_rc,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        }
-
         const ScopedGdiHandle<HPEN> div_pen(
             ::CreatePen(PS_SOLID, kDividerStrokeWidthPx, is_dark ? kDarkDividerColor : kLightDividerColor));
         const ScopedSelectObject sel_div(hdc, div_pen.Get());
         ::MoveToEx(hdc, layout.separator.left, layout.separator.top, nullptr);
         ::LineTo(hdc, layout.separator.right, layout.separator.top);
-
-        ::SetTextColor(hdc, is_dark ? kDarkBodyTextColor : kLightBodyTextColor);
-        RECT body_rc = layout.body;
-        ::DrawTextW(
-            hdc,
-            ctx.kind == InfoDialogKind::Help ? str.help_shortcuts_info : str.about_license_info,
-            -1, &body_rc, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX);
     }
+    dialog_detail::DrawDialogText(hdc, ctx.body_font.Get(),
+        is_dark ? kDarkBodyTextColor : kLightBodyTextColor, layout.body,
+        help ? str.help_shortcuts_info : about.licenses, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX);
 }
 
 LRESULT CALLBACK InfoWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -376,30 +343,17 @@ ScopedWindow CreateInfoWindow(
 
 } // namespace
 
-std::wstring_view FormatAboutVersionText(
-    UiLanguage language, std::span<wchar_t> output) noexcept {
-    if (output.empty() ||
-        output.size() >
-            gsl::narrow_cast<size_t>(
-                (std::numeric_limits<int>::max)())) {
-        QIQI_LOG_ERROR("About version text buffer is invalid");
-        return {};
-    }
-    const auto& str = GetUiStrings(language);
-    const int length = ::swprintf_s(
-        output.data(),
-        output.size(),
-        L"%ls%ls (%ls)",
-        str.about_version_prefix,
-        version::kFullVersionW.data(),
-        version::kArchW.data());
-    if (length <= 0) {
+AboutContent GetAboutContent(const UiStrings& strings) noexcept {
+    AboutContent content{
+        .app_name = strings.about_app_name,
+        .licenses = strings.about_license_info};
+    if (::swprintf_s(
+            content.version.data(), content.version.size(), L"%ls%ls (%ls)",
+            strings.about_version_prefix, version::kFullVersionW.data(), version::kArchW.data()) <= 0) {
         QIQI_LOG_ERROR("About version text formatting failed");
-        return {};
+        content.version.fill(L'\0');
     }
-    return {
-        output.data(),
-        gsl::narrow_cast<size_t>(length)};
+    return content;
 }
 
 ScopedWindow CreateAboutWindow(HINSTANCE instance, HWND parent, UiLanguage ui_language, bool use_embedded_icon) noexcept {

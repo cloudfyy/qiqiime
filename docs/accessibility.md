@@ -62,7 +62,9 @@ Tab 栏的背景、文字、选中态、焦点及横向翻页箭头使用所选�
 输入习惯页的“未完成输入”和“空格/回车”标签与开关文字左对齐；空间足够时，下拉框与标签同排。
 候选窗口页的“皮肤”“编码下划线样式”标签和候选预览的左边框也与开关文字左对齐。
 显示页的“文字大小”和“界面语言”标签也与开关文字左对齐。
-快捷键页复用现有操作指南；关于页显示应用图标、版本、开源许可和 GitHub 链接。
+快捷键页复用现有操作指南；关于页在左侧显示应用图标，右侧上下排列名称和版本，
+开源许可和 GitHub 链接位于下方。设置页与独立关于窗口共用内容和绘制逻辑，
+各自保留对应的应用图标和布局。
 底栏仅保留恢复默认设置、确定/取消，所有 Tab 可用；
 常规宽度并列，字号放大或窗口较窄时底栏分两行。
 恢复备份和创建备份位于现有“词库”页，不额外挤占固定底栏。
@@ -312,6 +314,8 @@ Feedback, Shortcuts, and About. The tab strip, selection, focus, and overflow ar
 theme, with Windows high contrast taking precedence. Use the arrows or
 Ctrl+Tab / Ctrl+Shift+Tab when enlarged labels do not fit. Only the active page
 scrolls; switching preserves unsaved edits and each page's scroll position.
+About places the app icon to the left of the name and version, with licenses and
+the GitHub link below.
 Keyboard focus scrolls into view while OK/Cancel remain visible.
 Toggle focus indicators surround the switch itself, not the entire label row.
 Easy-reading primary targets are at least 44×44 DIP. Candidate text wraps and
