@@ -73,7 +73,8 @@ void TestReusableControls() {
         NONCLIENTMETRICSW metrics{};
         metrics.cbSize = sizeof(metrics);
         QIQI_TEST_CHECK(::SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0));
-        const std::array formats{d2d.fmt_body.Get(), d2d.fmt_caption.Get(), d2d.fmt_btn.Get()};
+        const std::array formats{d2d.fmt_body.Get(), d2d.fmt_caption.Get(),
+            d2d.ButtonTextFormat(false), d2d.ButtonTextFormat(true)};
         for (const auto format : formats) {
             QIQI_TEST_CHECK(format != nullptr);
             std::array<wchar_t, LF_FACESIZE> family{};
@@ -83,17 +84,39 @@ void TestReusableControls() {
         }
         QIQI_TEST_CHECK(d2d.fmt_body->GetFontSize() == d2d.ScaleF(14));
         QIQI_TEST_CHECK(d2d.fmt_caption->GetFontSize() == d2d.ScaleF(12));
-        QIQI_TEST_CHECK(d2d.fmt_btn->GetFontSize() == d2d.ScaleF(14));
         QIQI_TEST_CHECK(d2d.fmt_body->GetFontWeight() == DWRITE_FONT_WEIGHT_NORMAL);
         QIQI_TEST_CHECK(d2d.fmt_caption->GetFontWeight() == DWRITE_FONT_WEIGHT_SEMI_BOLD);
-        QIQI_TEST_CHECK(d2d.fmt_btn->GetFontWeight() == DWRITE_FONT_WEIGHT_SEMI_BOLD);
     };
     check_fonts();
-    QIQI_TEST_CHECK(d2d.fmt_btn->GetTextAlignment() == DWRITE_TEXT_ALIGNMENT_CENTER);
     d2d.Init(144);
     check_fonts();
     QIQI_TEST_CHECK(d2d.ScalePx(24) == 36 && d2d.ScaleF(24) == 36.0f);
     QIQI_TEST_CHECK(d2d.fmt_body->GetFontSize() == d2d.ScaleF(14));
+
+    FluentD2DThemeContext tool_theme;
+    ScopedGdiHandle<HFONT> tool_font;
+    const DisplayPreferences enlarged{UiTheme::Light, UiTextScale::Percent125};
+    for (const int body_size : {kFluentBodyFontSize, 15}) {
+        QIQI_TEST_CHECK(UpdateToolWindowDisplay(nullptr, tool_theme, tool_font, enlarged, 144,
+            UiLanguage::ZhCn, {}, body_size));
+        LOGFONTW regular{}, primary{};
+        QIQI_TEST_CHECK(::GetObjectW(tool_font.Get(), sizeof(regular), &regular) == sizeof(regular));
+        QIQI_TEST_CHECK(::GetObjectW(tool_theme.primary_button_font.Get(), sizeof(primary), &primary) == sizeof(primary));
+        const int expected_height = ScaleDisplayPx(body_size, 144, enlarged.text_scale);
+        QIQI_TEST_CHECK(-regular.lfHeight == expected_height && primary.lfHeight == regular.lfHeight);
+        QIQI_TEST_CHECK(regular.lfWeight == FW_NORMAL && primary.lfWeight == FW_SEMIBOLD);
+        QIQI_TEST_CHECK(LogFontFaceNameView(primary) == LogFontFaceNameView(regular));
+        auto* const regular_button = tool_theme.ButtonTextFormat(false);
+        auto* const primary_button = tool_theme.ButtonTextFormat(true);
+        QIQI_TEST_CHECK(regular_button && primary_button && tool_theme.fmt_body);
+        QIQI_TEST_CHECK(tool_theme.fmt_body->GetFontSize() == static_cast<float>(expected_height));
+        QIQI_TEST_CHECK(regular_button->GetFontSize() == tool_theme.fmt_body->GetFontSize() &&
+                        primary_button->GetFontSize() == regular_button->GetFontSize());
+        QIQI_TEST_CHECK(regular_button->GetFontWeight() == DWRITE_FONT_WEIGHT_NORMAL &&
+                        primary_button->GetFontWeight() == DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        QIQI_TEST_CHECK(regular_button->GetTextAlignment() == DWRITE_TEXT_ALIGNMENT_CENTER &&
+                        primary_button->GetTextAlignment() == DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
 
     const HINSTANCE instance = ::GetModuleHandleW(nullptr);
     WNDCLASSEXW wc{};
@@ -236,6 +259,27 @@ void TestReusableControls() {
     dis.hwndItem = action;
     dis.hDC = dc.Get();
     dis.rcItem = {0, 0, 240, 32};
+
+    {
+        QIQI_TEST_CHECK(::SetWindowTextW(action, L"Action"));
+        auto* const primary_format = d2d.ButtonTextFormat(true);
+        QIQI_TEST_CHECK(SUCCEEDED(primary_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING)));
+        const auto restore_alignment = gsl::finally([primary_format]() noexcept {
+            QIQI_TEST_CHECK_CLEANUP(SUCCEEDED(primary_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)));
+        });
+        const auto paints_at_left = [&](bool primary) {
+            DrawFluentPushButton(dis, d2d, primary, MakeD2DColor(1, 2, 3));
+            const COLORREF background = ::GetPixel(dc.Get(), 220, 16);
+            QIQI_TEST_CHECK(background != CLR_INVALID);
+            for (int y = 6; y < 26; ++y) {
+                for (int x = 10; x < 64; ++x) {
+                    if (::GetPixel(dc.Get(), x, y) != background) return true;
+                }
+            }
+            return false;
+        };
+        QIQI_TEST_CHECK(paints_at_left(true) && !paints_at_left(false));
+    }
 
     for (const bool dark : {false, true}) {
         SetThemeDarkOverrideForTest(dark);

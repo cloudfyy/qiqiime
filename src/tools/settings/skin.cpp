@@ -35,11 +35,9 @@ ImeSkinId PickerSkinId(const SkinPickerContext& context, size_t index) noexcept 
     return index == 0 ? ImeSkinId::Default : gsl::at(context.catalog.skins, index - 1).id;
 }
 
-constexpr int kPickerFontSize = 15;
-
 bool RefreshPickerAppearance(HWND hwnd, SkinPickerContext& context, UINT dpi) noexcept {
     if (!UpdateToolWindowDisplay(hwnd, context.theme, context.font, context.display, dpi,
-            context.language, {}, kPickerFontSize)) {
+            context.language, {}, settings_layout::kFontSize)) {
         QIQI_LOG_ERROR("Skin picker font creation failed");
         return false;
     }
@@ -287,7 +285,7 @@ ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent, const Im
         context->candidate_font = candidate_font;
         const auto monitor = QueryActiveMonitor(parent);
         if (!UpdateToolWindowDisplay(nullptr, context->theme, context->font, context->display, monitor.dpi,
-                language, {}, kPickerFontSize))
+                language, {}, settings_layout::kFontSize))
             return fail(E_FAIL, "Skin picker font initialization");
         constexpr DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_CLIPCHILDREN;
         const RECT bounds = ComputeCenteredWindowBounds(context->theme.ScalePx(720), context->theme.ScalePx(540),

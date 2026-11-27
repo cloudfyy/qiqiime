@@ -544,7 +544,7 @@ inline bool UpdateToolWindowDisplay(
     constexpr int kColumnScaleReferenceDip = 100;
     const int previous_scale = theme.ScalePx(kColumnScaleReferenceDip);
     const int next_scale = ScaleDisplayPx(kColumnScaleReferenceDip, dpi, preferences.text_scale);
-    const bool change_font = !font || theme.dpi != dpi ||
+    const bool change_font = !font || theme.dpi != dpi || theme.BodyFontSize() != font_size ||
         theme.display_preferences.text_scale != preferences.text_scale ||
         LogFontFaceNameView(theme.ui_font_face) != LogFontFaceNameView(face);
     ScopedGdiHandle<HFONT> next_font;
@@ -552,7 +552,7 @@ inline bool UpdateToolWindowDisplay(
         next_font = CreateUiFont(face, ScaleDisplayPx(font_size, dpi, preferences.text_scale));
         if (!next_font) return false;
     }
-    theme.UpdateAppearance(dpi, preferences, face);
+    theme.UpdateAppearance(dpi, preferences, face, font_size);
     if (next_font) {
         if (window) ::SendMessageW(window, WM_SETFONT, reinterpret_cast<WPARAM>(next_font.Get()), FALSE);
         SetChildUiFonts(window, next_font.Get());

@@ -33,7 +33,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
         QIQI_LOG_WARN("Settings font metrics query failed");
         return;
     }
-    const int font_height = std::max(S(15), std::abs(gsl::narrow_cast<int>(font.lfHeight)));
+    const int font_height = std::max(S(ctx.d2d.BodyFontSize()), std::abs(gsl::narrow_cast<int>(font.lfHeight)));
     const int target = std::max(S(ctx.preview_easy_reading ? 44 : 30), font_height + S(10));
     const ScopedWindowDC dc(hwnd);
     if (!dc) {
@@ -44,9 +44,9 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
     const auto text_height = [&](int id, int available) noexcept {
         const bool title = id == kIdLblAboutTitle ||
             id == kIdLblShortcutsTitle;
-        const ScopedSelectObject measured_font(
-            dc.Get(),
-            title ? ctx.bold_font.Get() : ctx.font.Get());
+        const HFONT measurement_font = title ? ctx.bold_font.Get() : id == kIdBtnOk && ctx.d2d.primary_button_font
+            ? ctx.d2d.primary_button_font.Get() : ctx.font.Get();
+        const ScopedSelectObject measured_font(dc.Get(), measurement_font);
         std::array<wchar_t, 4096> text{};
         const int length = ::GetDlgItemTextW(hwnd, id, text.data(), gsl::narrow_cast<int>(text.size()));
         RECT bounds{0, 0, std::max(1, available), 0};

@@ -15,7 +15,6 @@ namespace qiqi {
 namespace {
 std::optional<bool> high_contrast_override;
 constexpr int kCaptionFontSize = 12;
-constexpr int kButtonFontSize = 14;
 } // namespace
 
 COLORREF DisabledControlText(const FluentD2DThemeContext& theme) noexcept {
@@ -80,17 +79,19 @@ void FluentD2DThemeContext::Init(UINT monitor_dpi, const LOGFONTW* ui_font) noex
 }
 
 void FluentD2DThemeContext::UpdateAppearance(
-    UINT monitor_dpi, DisplayPreferences preferences, const LOGFONTW& ui_font) noexcept {
+    UINT monitor_dpi, DisplayPreferences preferences, const LOGFONTW& ui_font, int body_font_size) noexcept {
     monitor_dpi = monitor_dpi ? monitor_dpi : 96u;
     preferences = NormalizeDisplayPreferences(preferences);
-    const bool font_changed = display_preferences.text_scale != preferences.text_scale ||
+    const bool font_changed = body_font_size_ != body_font_size ||
+        display_preferences.text_scale != preferences.text_scale ||
         LogFontFaceNameView(ui_font_face) != LogFontFaceNameView(ui_font);
     display_preferences = preferences;
+    body_font_size_ = body_font_size;
     if (dpi != monitor_dpi || !d2d_target || !dwrite_factory) {
         Init(monitor_dpi, &ui_font);
         return;
     }
-    if (font_changed || !fmt_body || !fmt_caption || !fmt_btn) RefreshTextFormats(&ui_font);
+    if (font_changed || !fmt_body || !fmt_caption || !fmt_btn || !fmt_primary_btn) RefreshTextFormats(&ui_font);
     RefreshThemeBrushes();
 }
 
@@ -98,24 +99,37 @@ void FluentD2DThemeContext::RefreshTextFormats(const LOGFONTW* ui_font) noexcept
     fmt_body.Reset();
     fmt_caption.Reset();
     fmt_btn.Reset();
+    fmt_primary_btn.Reset();
     if (ui_font) {
         ui_font_face = *ui_font;
     } else if (!TryGetSystemUiFont(ui_font_face)) {
         ui_font_face = {};
+        primary_button_font.Reset();
         return;
     }
+    primary_button_font = CreateUiFont(ui_font_face, ScalePx(BodyFontSize()), FW_SEMIBOLD);
     if (dwrite_factory) {
         const auto* family = std::data(ui_font_face.lfFaceName);
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
             family, nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, ScaleF(kFluentBodyFontSize), L"zh-CN", fmt_body.Put()), "Fluent::CreateTextFormat(body)");
+            DWRITE_FONT_STRETCH_NORMAL, ScaleF(BodyFontSize()), L"zh-CN", fmt_body.Put()), "Fluent::CreateTextFormat(body)");
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
             family, nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, ScaleF(kCaptionFontSize), L"zh-CN", fmt_caption.Put()), "Fluent::CreateTextFormat(caption)");
-        std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
-            family, nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, ScaleF(kButtonFontSize), L"zh-CN", fmt_btn.Put()), "Fluent::CreateTextFormat(button)");
-        if (!fmt_body || !fmt_caption || !fmt_btn) {
+        const auto make_button_format = [&](ScopedDWriteTextFormat& format, DWRITE_FONT_WEIGHT weight) noexcept {
+            if (!log::CheckHResult(dwrite_factory->CreateTextFormat(
+                    family, nullptr, weight, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                    ScaleF(BodyFontSize()), L"zh-CN", format.Put()), "Fluent::CreateTextFormat(button)") || !format) return;
+            std::ignore = log::CheckHResult(format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER),
+                                           "Fluent::SetTextAlignment(button)");
+            std::ignore = log::CheckHResult(format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
+                                           "Fluent::SetParagraphAlignment(button)");
+            std::ignore = log::CheckHResult(format->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP),
+                                           "Fluent::SetWordWrapping(button)");
+        };
+        make_button_format(fmt_btn, DWRITE_FONT_WEIGHT_NORMAL);
+        make_button_format(fmt_primary_btn, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        if (!fmt_body || !fmt_caption || !fmt_btn || !fmt_primary_btn) {
             QIQI_LOG_ERROR("Fluent DirectWrite text format creation failed");
         }
         if (fmt_body) {
@@ -123,14 +137,6 @@ void FluentD2DThemeContext::RefreshTextFormats(const LOGFONTW* ui_font) noexcept
                                            "Fluent::SetParagraphAlignment(body)");
             std::ignore = log::CheckHResult(fmt_body->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP),
                                            "Fluent::SetWordWrapping(body)");
-        }
-        if (fmt_btn) {
-            std::ignore = log::CheckHResult(fmt_btn->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER),
-                                           "Fluent::SetTextAlignment(button)");
-            std::ignore = log::CheckHResult(fmt_btn->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER),
-                                           "Fluent::SetParagraphAlignment(button)");
-            std::ignore = log::CheckHResult(fmt_btn->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP),
-                                           "Fluent::SetWordWrapping(button)");
         }
     }
 }

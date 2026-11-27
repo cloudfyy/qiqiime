@@ -37,6 +37,9 @@ void TestSavedDisplayPreferences() {
         const int expected = ScaleDisplayPx(kFluentBodyFontSize, dpi, scale);
         LOGFONTW face{};
         QIQI_TEST_CHECK(TryGetLocalizedUiFont(saved.ui_language, face));
+        const auto tooltip = reinterpret_cast<HWND>(::SendMessageW(Child(window, Toolbar), TB_GETTOOLTIPS, 0, 0));
+        QIQI_TEST_CHECK(tooltip && ::SendMessageW(tooltip, WM_GETFONT, 0, 0) ==
+            ::SendMessageW(Child(window, Toolbar), WM_GETFONT, 0, 0));
         for (const HWND control : {Child(window, Toolbar), Child(window, SourceCombo),
                  Child(window, SearchEdit), list, ListView_GetHeader(list),
                  Child(window, EditWordInput), Child(window, EditCodeInput), Child(window, Status)}) {

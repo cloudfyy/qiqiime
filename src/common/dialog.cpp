@@ -44,7 +44,6 @@ constexpr int kOkButtonWidth = 98;
 constexpr int kAboutClientWidth = 440;
 constexpr int kHelpClientWidth = 530;
 constexpr int kMinimumBodyHeight = 94;
-constexpr int kBodyFontSize = 14;
 constexpr int kTitleFontSize = 19;
 constexpr int kDividerStrokeWidthPx = 1;
 
@@ -118,7 +117,7 @@ bool UpdateInfoAppearance(HWND hwnd, InfoDialogContext& ctx, UINT dpi) noexcept 
     if (!TryGetLocalizedUiFont(ctx.ui_language, face)) return false;
     if (!ctx.body_font || !ctx.title_font || dpi != ctx.d2d.dpi ||
         LogFontFaceNameView(face) != LogFontFaceNameView(ctx.d2d.ui_font_face)) {
-        auto body = CreateUiFont(face, ScalePxByDpi(kBodyFontSize, dpi));
+        auto body = CreateUiFont(face, ScalePxByDpi(kFluentBodyFontSize, dpi));
         auto title = CreateUiFont(face, ScalePxByDpi(kTitleFontSize, dpi), FW_BOLD);
         if (!body || !title) return false;
         SetChildUiFonts(hwnd, body.Get());
@@ -280,7 +279,7 @@ ScopedWindow CreateInfoWindow(
     ctx->layout = BuildInfoDialogLayout(mon.dpi, S(client_width_logical), S(kMinimumBodyHeight));
     const int text_width_px = ctx->layout.body.right - ctx->layout.body.left;
     const int body_height = dialog_detail::MeasureLocalizedDialogTextHeight(
-        text_width_px, S(kBodyFontSize), S(kMinimumBodyHeight), [kind](UiLanguage language) noexcept {
+        text_width_px, S(kFluentBodyFontSize), S(kMinimumBodyHeight), [kind](UiLanguage language) noexcept {
         const auto& lang_str = GetUiStrings(language);
         return kind == InfoDialogKind::Help ? lang_str.help_shortcuts_info : lang_str.about_license_info;
     });

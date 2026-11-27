@@ -107,7 +107,7 @@ bool RefreshSettingsUiAppearance(
     if (ctx.font && ctx.bold_font && ctx.d2d.dpi == dpi &&
         ctx.d2d.display_preferences.text_scale == preferences.text_scale &&
         LogFontFaceNameView(face) == LogFontFaceNameView(ctx.d2d.ui_font_face)) {
-        ctx.d2d.UpdateAppearance(dpi, preferences, face);
+        ctx.d2d.UpdateAppearance(dpi, preferences, face, settings_layout::kFontSize);
         return true;
     }
     const auto make_fonts = [&face, dpi, scale = preferences.text_scale]() noexcept {
@@ -126,7 +126,7 @@ bool RefreshSettingsUiAppearance(
                        TextScalePercent(preferences.text_scale));
         return false;
     }
-    ctx.d2d.UpdateAppearance(dpi, preferences, face);
+    ctx.d2d.UpdateAppearance(dpi, preferences, face, settings_layout::kFontSize);
     SetChildUiFonts(hwnd, font.Get());
     ctx.font = std::move(font);
     ctx.bold_font = std::move(bold_font);
@@ -263,7 +263,7 @@ bool ShowSettingsCandidateFontMenu(
             const auto& choice = gsl::at(kCommonCandidateFonts, i);
             if (!CandidateFontFamilyAvailable(choice.family)) continue;
             auto& font = gsl::at(fonts, i);
-            font = CreateCandidateFont({.family = std::wstring(choice.family)}, kFluentBodyFontSize, ctx.d2d.dpi,
+            font = CreateCandidateFont({.family = std::wstring(choice.family)}, ctx.d2d.BodyFontSize(), ctx.d2d.dpi,
                 ctx.d2d.display_preferences.text_scale);
             gsl::at(commands, count++) = {
                 .id = gsl::narrow_cast<UINT>(i + 1),

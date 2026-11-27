@@ -119,6 +119,7 @@ class ToolCommandUi final {
     DisplayAppearance menu_appearance_;
     LOGFONTW menu_font_face_{};
     ScopedGdiHandle<HFONT> menu_font_;
+    int menu_body_font_size_ = kFluentBodyFontSize;
     UINT menu_dpi_ = 96;
     UINT menu_max_height_ = 0;
     std::vector<Toolbar> toolbars_;

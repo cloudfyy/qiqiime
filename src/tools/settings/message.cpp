@@ -27,7 +27,6 @@ constexpr int kMessageButtonBottomOffset = 42;
 constexpr int kMessageButtonWidth = 100;
 constexpr int kMessageButtonHeight = 32;
 constexpr RECT kMessageCardInsets{18, 16, 18, 58};
-constexpr int kMessageFontSize = 14;
 constexpr int kMessageMinimumBodyHeight = 48;
 
 struct MessageContext {
@@ -134,7 +133,7 @@ LRESULT CALLBACK MessageWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
         }
         case WM_SETTINGCHANGE:
             std::ignore = UpdateToolWindowDisplay(hwnd, ctx->d2d, ctx->font,
-                ctx->d2d.display_preferences, ctx->d2d.dpi, ctx->language, {}, kMessageFontSize);
+                ctx->d2d.display_preferences, ctx->d2d.dpi, ctx->language);
             [[fallthrough]];
         case WM_THEMECHANGED:
             ctx->d2d.RefreshThemeBrushes();
@@ -145,7 +144,7 @@ LRESULT CALLBACK MessageWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
             if (const auto language = dialog_detail::DecodeDialogLanguage(wparam)) {
                 ctx->language = *language;
                 std::ignore = UpdateToolWindowDisplay(hwnd, ctx->d2d, ctx->font,
-                    ctx->d2d.display_preferences, ctx->d2d.dpi, ctx->language, {}, kMessageFontSize);
+                    ctx->d2d.display_preferences, ctx->d2d.dpi, ctx->language);
                 ApplyMessageLanguage(hwnd, *ctx);
             }
             return 0;
@@ -207,17 +206,17 @@ ScopedWindow CreateSettingsMessageWindow(
     ctx->kind = kind;
     const auto monitor = QueryActiveMonitor(parent);
     const auto scale = [dpi = monitor.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
-    if (!UpdateToolWindowDisplay(nullptr, ctx->d2d, ctx->font, {}, monitor.dpi, ui_language, {}, kMessageFontSize))
+    if (!UpdateToolWindowDisplay(nullptr, ctx->d2d, ctx->font, {}, monitor.dpi, ui_language))
         return {};
     ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(scale(kSmallBrandIconSize), instance);
     ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(scale(kLargeBrandIconSize), instance);
     if (!ctx->font || !ctx->d2d.d2d_target || !ctx->d2d.surface_brush ||
-        !ctx->d2d.fmt_caption || !ctx->d2d.fmt_btn) {
+        !ctx->d2d.fmt_caption || !ctx->d2d.ButtonTextFormat(true)) {
         QIQI_LOG_ERROR("Settings message drawing resources unavailable");
         return {};
     }
     const int body_height = dialog_detail::MeasureLocalizedDialogTextHeight(
-        scale(kWindowWidth - 2 * kMessageBodyInset), scale(kMessageFontSize), scale(kMessageMinimumBodyHeight),
+        scale(kWindowWidth - 2 * kMessageBodyInset), scale(kFluentBodyFontSize), scale(kMessageMinimumBodyHeight),
         [kind](UiLanguage language) noexcept { return GetMessageStrings(language, kind).text; });
     if (body_height <= 0) return {};
     const int height = body_height + scale(kMessageExtraHeight);

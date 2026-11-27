@@ -140,19 +140,27 @@ struct FluentD2DThemeContext {
     ScopedDWriteTextFormat fmt_body;
     ScopedDWriteTextFormat fmt_caption;
     ScopedDWriteTextFormat fmt_btn;
+    ScopedDWriteTextFormat fmt_primary_btn;
+    ScopedGdiHandle<HFONT> primary_button_font;
     ScopedGdiHandle<HBRUSH> surface_brush;
     ScopedGdiHandle<HBRUSH> input_brush;
 
     int ScalePx(int px) const noexcept;
     float ScaleF(int px) const noexcept;
     int ScaleDipPx(int px) const noexcept { return ScalePxByDpi(px, dpi); }
+    int BodyFontSize() const noexcept { return body_font_size_; }
+    IDWriteTextFormat* ButtonTextFormat(bool primary) const noexcept {
+        return primary ? fmt_primary_btn.Get() : fmt_btn.Get();
+    }
     void SetDisplayPreferences(DisplayPreferences preferences) noexcept;
     void Init(UINT monitor_dpi, const LOGFONTW* ui_font = nullptr) noexcept;
-    void UpdateAppearance(UINT monitor_dpi, DisplayPreferences preferences, const LOGFONTW& ui_font) noexcept;
+    void UpdateAppearance(UINT monitor_dpi, DisplayPreferences preferences, const LOGFONTW& ui_font,
+                          int body_font_size = kFluentBodyFontSize) noexcept;
     void RefreshThemeBrushes() noexcept;
 
 private:
     void RefreshTextFormats(const LOGFONTW* ui_font) noexcept;
+    int body_font_size_ = kFluentBodyFontSize;
 };
 
 inline int FluentControlHeight(const FluentD2DThemeContext& theme, int normal_height) noexcept {

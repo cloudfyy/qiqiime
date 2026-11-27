@@ -58,6 +58,8 @@ Tab 栏的背景、文字、选中态、焦点及横向翻页箭头使用所选�
 页面中的标签和控件在空间不足时上下排列。
 设置、词典管理器、Log Monitor 和输入法自绘界面使用同一界面字体策略：
 简体中文优先使用已安装的微软雅黑 UI，英文或缺少该字体时沿用 Windows 系统界面字体。
+设置的七个页面中，说明标签、开关、单选项、下拉选项和按钮共用正文字号；
+普通按钮用常规字重，「确定」保留半粗体。工具栏提示气泡自窗口启动起跟随所属工具栏的字体。
 此策略包括快捷菜单、浮动状态栏及提示、帮助和关于窗口；
 候选窗口和候选预览保留候选字体，Windows 原生对话框、标题栏和终端字体由系统或宿主决定。
 词典管理器、Log Monitor 默认跟随已保存的输入法界面语言，也可在各自的“语言”菜单中临时覆盖。
@@ -351,9 +353,12 @@ scroll vertically, revealing focused controls without reducing text size.
 App-owned desktop UI, including the IME quick menu, floating status bar, tooltips,
 and Help/About, prefers Microsoft YaHei UI when displaying Simplified Chinese
 and the font is installed. English and missing-font cases retain the Windows UI
-font. The candidate popup and preview keep their candidate font. Dictionary
-Manager and Log Monitor follow the saved IME language by default, with per-window
-overrides in their Language menus.
+font. All Settings tabs use the same body size for labels, toggles, radio
+buttons, combo text, and button text. Secondary buttons use regular weight;
+the primary OK button stays semibold. Toolbar tooltips inherit the toolbar
+font at startup as well as after display changes. The candidate popup and preview
+keep their candidate font. Dictionary Manager and Log Monitor follow the saved
+IME language by default, with per-window overrides in their Language menus.
 
 This phase covers Settings, the IME's own candidate popup, both tool main windows,
 and these app-owned menus, **not all desktop windows**. The floating status bar

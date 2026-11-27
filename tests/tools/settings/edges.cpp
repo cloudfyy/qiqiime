@@ -206,14 +206,19 @@ void TestSettingsLiveLanguagePreservesControls() {
         }
 
         for (const auto format : {context->d2d.fmt_body.Get(), context->d2d.fmt_caption.Get(),
-                                  context->d2d.fmt_btn.Get()}) {
+                context->d2d.ButtonTextFormat(false), context->d2d.ButtonTextFormat(true)}) {
             std::array<wchar_t, LF_FACESIZE> family{};
             QIQI_TEST_CHECK(format && SUCCEEDED(format->GetFontFamilyName(
                 family.data(), gsl::narrow_cast<UINT32>(family.size()))));
             QIQI_TEST_CHECK(std::wstring_view(family.data()) == expected);
         }
-        QIQI_TEST_CHECK(context->d2d.fmt_body->GetFontSize() ==
-                        static_cast<float>(ScaleDisplayPx(kFluentBodyFontSize, dpi, scale)));
+        QIQI_TEST_CHECK(context->d2d.fmt_body->GetFontSize() == static_cast<float>(-regular.lfHeight));
+        for (const bool primary : {false, true}) {
+            auto* const format = context->d2d.ButtonTextFormat(primary);
+            QIQI_TEST_CHECK(format && format->GetFontSize() == context->d2d.fmt_body->GetFontSize());
+            QIQI_TEST_CHECK(format->GetFontWeight() ==
+                            (primary ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL));
+        }
         LOGFONTW candidate{};
         QIQI_TEST_CHECK(::GetObjectW(context->candidate_preview_font.Get(), sizeof(candidate), &candidate) ==
                         sizeof(candidate) && LogFontFaceNameView(candidate) == system_family);

@@ -98,7 +98,7 @@ BOOL WINAPI TrackCandidateFontMenuForTest(
                         (context->preview_candidate_font.family == names.en ||
                          context->preview_candidate_font.family == names.zh));
         const auto sample = CreateCandidateFont(
-            {.family = std::wstring(names.en)}, kFluentBodyFontSize, context->d2d.dpi,
+            {.family = std::wstring(names.en)}, settings_layout::kFontSize, context->d2d.dpi,
             context->d2d.display_preferences.text_scale);
         QIQI_TEST_CHECK(sample);
         const LONG padding = measure_padding(item, sample.Get());
@@ -119,10 +119,7 @@ BOOL WINAPI TrackCandidateFontMenuForTest(
                     LocalizedUiText(language, L"更多…", L"More..."));
     QIQI_TEST_CHECK((more.fType & MFT_OWNERDRAW) && more.dwItemData != 0);
     if (font_item_padding) {
-        LOGFONTW ui_face{};
-        QIQI_TEST_CHECK(::GetObjectW(context->font.Get(), sizeof(ui_face), &ui_face) == sizeof(ui_face));
-        const auto ui_font = CreateUiFont(ui_face, context->d2d.ScalePx(kFluentBodyFontSize));
-        QIQI_TEST_CHECK(ui_font && measure_padding(more, ui_font.Get()) == *font_item_padding);
+        QIQI_TEST_CHECK(measure_padding(more, context->font.Get()) == *font_item_padding);
     }
 
     const ScopedWindowDC screen;

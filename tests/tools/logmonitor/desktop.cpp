@@ -248,6 +248,10 @@ void TestDesktopIntegration() {
     const HWND list = Child(window, List);
     const auto check_language = [&](UiLanguage language) {
         QIQI_TEST_CHECK(ControlText(window.Handle()) == FormatMonitorWindowTitle(language));
+        const HWND toolbar = Child(window, Toolbar);
+        const auto tooltip = reinterpret_cast<HWND>(::SendMessageW(toolbar, TB_GETTOOLTIPS, 0, 0));
+        QIQI_TEST_CHECK(tooltip && ::SendMessageW(tooltip, WM_GETFONT, 0, 0) ==
+            ::SendMessageW(toolbar, WM_GETFONT, 0, 0));
         LOGFONTW expected{}, actual{};
         QIQI_TEST_CHECK(TryGetLocalizedUiFont(language, expected));
         const auto font = reinterpret_cast<HFONT>(::SendMessageW(ListView_GetHeader(list), WM_GETFONT, 0, 0));

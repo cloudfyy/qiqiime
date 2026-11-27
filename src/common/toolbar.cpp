@@ -269,6 +269,9 @@ void ToolCommandUi::ApplyTheme(HWND window, const FluentD2DThemeContext& theme) 
                 tooltip, contrast ? nullptr : (palette.is_dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
             if (FAILED(result))
                 Report("SetWindowTheme(toolbar tooltip)", gsl::narrow_cast<ULONG>(result));
+            // A themed tooltip does not keep the toolbar's localized font automatically.
+            const LRESULT font = ::SendMessageW(toolbar.window, WM_GETFONT, 0, 0);
+            if (font) ::SendMessageW(tooltip, WM_SETFONT, gsl::narrow_cast<WPARAM>(font), FALSE);
         }
     }
 }
@@ -498,12 +501,14 @@ void ToolCommandUi::RefreshMenuAppearance(HWND window, UINT dpi, const FluentD2D
     bool font_changed = false;
     const auto& face = theme.ui_font_face;
     if (!menu_font_ || preferences.text_scale != menu_preferences_.text_scale || dpi != menu_dpi_ ||
+        theme.BodyFontSize() != menu_body_font_size_ ||
         LogFontFaceNameView(face) != LogFontFaceNameView(menu_font_face_)) {
-        const int height = ScaleDisplayPx(kFluentBodyFontSize, dpi, preferences.text_scale);
+        const int height = ScaleDisplayPx(theme.BodyFontSize(), dpi, preferences.text_scale);
         auto font = LogFontFaceNameView(face).empty() ? CreateUiFont(height) : CreateUiFont(face, height);
         if (font) {
             menu_font_ = std::move(font);
             menu_font_face_ = face;
+            menu_body_font_size_ = theme.BodyFontSize();
             font_changed = true;
         }
         else Report("CreateUiFont(menu)");

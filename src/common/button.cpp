@@ -116,9 +116,14 @@ void DrawFluentPushButton(
         ? std::min(d2d.ScaleDipPx(kDropdownButtonGutter),
             std::max(0, gsl::narrow_cast<int>(dis.rcItem.right - dis.rcItem.left) / 3))
         : 0;
-    if (d2d.appearance.system_high_contrast || !d2d.d2d_target || !d2d.fmt_btn) {
+    if (d2d.appearance.system_high_contrast || !d2d.d2d_target || !d2d.ButtonTextFormat(is_primary)) {
         const ScopedSaveDC saved(dis.hDC);
-        const auto font = reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0));
+        if (!saved) {
+            QIQI_LOG_WARN("Fluent button DC save failed");
+            return;
+        }
+        const HFONT font = is_primary && d2d.primary_button_font ? d2d.primary_button_font.Get()
+            : reinterpret_cast<HFONT>(::SendMessageW(dis.hwndItem, WM_GETFONT, 0, 0));
         const ScopedSelectObject selected_font(dis.hDC, font);
         RECT rect = dis.rcItem;
         const auto background = paint::CreateThemeBrush(is_primary && is_enabled ? palette.selection_bg : palette.surface_bg);
@@ -200,13 +205,14 @@ void DrawFluentPushButton(
     std::array<wchar_t, kButtonTextCapacity> btn_text{};
     ::GetWindowTextW(dis.hwndItem, btn_text.data(), gsl::narrow_cast<int>(btn_text.size()));
     if (!is_enabled && d2d.appearance.high_contrast) paint::AppendDisabledSuffix(btn_text, disabled_suffix);
-    if (d2d.fmt_btn && txt_brush && gsl::at(btn_text, 0) != L'\0') {
+    if (auto* const text_format = d2d.ButtonTextFormat(is_primary);
+            text_format && txt_brush && gsl::at(btn_text, 0) != L'\0') {
         auto text_rect = rc;
         text_rect.right -= static_cast<float>(dropdown_gutter);
         d2d.d2d_target->DrawTextW(
             btn_text.data(),
             gsl::narrow_cast<UINT32>(wcslen(btn_text.data())),
-            d2d.fmt_btn.Get(),
+            text_format,
             text_rect,
             txt_brush.Get(),
             show_dropdown ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE);
