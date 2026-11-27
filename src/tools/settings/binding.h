@@ -9,6 +9,17 @@
 namespace qiqi::settings_detail {
 namespace layout = settings_layout;
 
+struct SettingsLanguageOption {
+    UiLanguage value;
+    const wchar_t* UiStrings::* label_field;
+};
+
+constexpr std::array kSettingsLanguageOptions{
+    SettingsLanguageOption{UiLanguage::Auto, &UiStrings::dlg_lang_auto},
+    SettingsLanguageOption{UiLanguage::ZhCn, &UiStrings::dlg_lang_zh},
+    SettingsLanguageOption{UiLanguage::EnUs, &UiStrings::dlg_lang_en},
+};
+
 struct SettingsRadioBinding {
     int control_id;
     PrimaryDict dict_value;

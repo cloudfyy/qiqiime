@@ -87,9 +87,6 @@ void UpdateSettingsPageLabels(HWND hwnd, const DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdChkEasyReading, text.easy);
     ::SetDlgItemTextW(hwnd, kIdDisplayExplanation, text.explanation);
     ::SetDlgItemTextW(hwnd, kIdCandidatePreview, text.preview);
-    std::ignore = log::CheckHResult(
-        ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTheme), text.themes),
-        "Settings::ReplaceComboBoxItems(theme)");
     const UiLanguage language =
         GetSelectedUiLanguageFromCombo(hwnd, ctx);
     const auto& str = GetUiStrings(language);
@@ -164,11 +161,38 @@ void UpdateSettingsTabLabels(HWND hwnd, const DialogContext& ctx) noexcept {
     ::SendMessageW(tabs, TCM_SETCURSEL, gsl::narrow_cast<WPARAM>(std::to_underlying(ctx.active_page)), 0);
 }
 
-void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
-    const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
-    std::ignore = RefreshSettingsUiAppearance(hwnd, ctx, lang, ctx.d2d.display_preferences, ctx.d2d.dpi);
+HRESULT PopulateSettingsComboItems(HWND hwnd, UiLanguage lang) noexcept {
     const auto& str = GetUiStrings(lang);
-    PopulateSettingsSkinCombo(hwnd, ctx);
+    std::array<const wchar_t*, kSettingsLanguageOptions.size()> languages{};
+    std::ranges::transform(kSettingsLanguageOptions, languages.begin(),
+        [&str](const auto& option) noexcept { return str.*(option.label_field); });
+    constexpr std::array page_sizes{L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9"};
+    constexpr std::array text_scales{L"100%", L"125%", L"150%", L"200%"};
+    const std::array underline{
+        str.dlg_underline_dot, str.dlg_underline_solid, str.dlg_underline_dash,
+        str.dlg_underline_squiggle, str.dlg_underline_none};
+    const std::array english_switch{str.dlg_english_switch_commit, str.dlg_english_switch_clear};
+    const std::array candidate_layout{str.dlg_candidate_horizontal, str.dlg_candidate_vertical};
+    const auto& display = ResolveUiLanguage(lang) == UiLanguage::EnUs ? kDisplayEn : kDisplayZh;
+    using ComboItems = std::pair<int, std::span<const wchar_t* const>>;
+    for (const auto& [id, items] : std::array{
+             ComboItems{kIdComboUiLang, languages}, ComboItems{kIdComboPageSize, page_sizes},
+             ComboItems{kIdComboCandidateLayout, candidate_layout}, ComboItems{kIdComboUnderlineStyle, underline},
+             ComboItems{kIdComboEnglishSwitch, english_switch}, ComboItems{kIdComboSpaceEnter, str.dlg_space_enter_modes},
+             ComboItems{kIdComboUiTheme, display.themes}, ComboItems{kIdComboUiTextScale, text_scales}}) {
+        const HRESULT result = ReplaceComboBoxItems(::GetDlgItem(hwnd, id), items);
+        if (FAILED(result)) {
+            QIQI_LOG_WARN("Settings combo {} item replacement failed (hr=0x{:08X})", id,
+                gsl::narrow_cast<unsigned long>(result));
+            return result;
+        }
+    }
+    ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETMINVISIBLE, page_sizes.size(), 0);
+    return S_OK;
+}
+
+void RenderSettingsLanguageLabels(HWND hwnd, UiLanguage lang) noexcept {
+    const auto& str = GetUiStrings(lang);
 
     for (const auto& radio : kSettingsDictRadios) {
         ::SetDlgItemTextW(hwnd, radio.control_id, str.*(radio.label_field));
@@ -182,43 +206,12 @@ void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     ::SetDlgItemTextW(hwnd, kIdLblEnglishSwitch, str.dlg_lbl_english_switch);
     ::SetDlgItemTextW(hwnd, kIdLblSpaceEnter, str.dlg_lbl_space_enter);
     ::SetDlgItemTextW(hwnd, kIdBtnBrowsePrimaryDict, str.dlg_btn_browse_dict);
-    ::SetDlgItemTextW(
-        hwnd,
-        kIdLblCustomPrimaryPath,
-        ResolveDictionaryPathDisplayText(ctx.custom_primary_dict_path, str.dlg_lbl_custom_dict_none));
     ::SetDlgItemTextW(hwnd, kIdBtnDictManager, str.dlg_btn_dict_mgr);
     ::SetDlgItemTextW(hwnd, kIdBtnRestoreDefaults, str.dlg_btn_restore_defaults);
     ::SetDlgItemTextW(hwnd, kIdBtnImportConfig, str.dlg_btn_restore_backup);
     ::SetDlgItemTextW(hwnd, kIdBtnExportConfig, str.dlg_btn_create_backup);
-    UpdateCandidateFontLabel(hwnd, ctx);
     ::SetDlgItemTextW(hwnd, kIdBtnOk, str.dlg_btn_ok);
     ::SetDlgItemTextW(hwnd, kIdBtnCancel, str.dlg_btn_cancel);
-
-    const auto replace_combo_items = [hwnd](int combo_id, std::span<const wchar_t* const> items) noexcept {
-        std::ignore = log::CheckHResult(ReplaceComboBoxItems(::GetDlgItem(hwnd, combo_id), items),
-            "Settings::ReplaceComboBoxItems");
-    };
-    const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
-    replace_combo_items(kIdComboUiLang, lang_items);
-
-    const std::array<const wchar_t*, 5> underline_items = {
-        str.dlg_underline_dot,
-        str.dlg_underline_solid,
-        str.dlg_underline_dash,
-        str.dlg_underline_squiggle,
-        str.dlg_underline_none,
-    };
-    replace_combo_items(kIdComboUnderlineStyle, underline_items);
-    const std::array<const wchar_t*, 2> english_switch_items = {
-        str.dlg_english_switch_commit, str.dlg_english_switch_clear
-    };
-    replace_combo_items(kIdComboEnglishSwitch, english_switch_items);
-    replace_combo_items(kIdComboSpaceEnter, str.dlg_space_enter_modes);
-    const std::array<const wchar_t*, 2> candidate_layout_items = {
-        str.dlg_candidate_horizontal, str.dlg_candidate_vertical
-    };
-    replace_combo_items(kIdComboCandidateLayout, candidate_layout_items);
-    UpdateSettingsPageLabels(hwnd, ctx);
 
     struct LanguageUpdate {
         HWND owner;
@@ -240,9 +233,6 @@ void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
             return TRUE;
         },
         reinterpret_cast<LPARAM>(&update));
-    UpdateSettingsWindowTitle(hwnd, ctx);
-    LayoutSettingsControls(hwnd, ctx);
-    ::RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
 } // namespace qiqi::settings_detail

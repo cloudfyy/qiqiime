@@ -38,6 +38,7 @@ void DestroySettingsControls(HWND hwnd) noexcept {
 }
 
 void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, const RECT* suggested_rect) noexcept {
+    if (ctx.applying_draft) return;
     const UINT effective_dpi = dpi > 0 ? dpi : 96u;
     RECT current_rect{};
     if (!::GetWindowRect(hwnd, &current_rect)) {
@@ -77,7 +78,7 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
     target_rect.bottom = position.y + height;
 
     const bool dpi_changed = ctx.d2d.dpi != effective_dpi;
-    QiQiConfig current_config = ctx.config ? *ctx.config : ctx.baseline_config;
+    QiQiConfig current_config;
     int focused_control_id = 0;
     if (dpi_changed) {
         if (ctx.controls_initialized) {
@@ -85,10 +86,12 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
             if (focused && ::IsChild(hwnd, focused)) {
                 focused_control_id = ::GetDlgCtrlID(focused);
             }
-            ReadSettingsFromWindowControls(hwnd, current_config);
+            if (!log::CheckHResult(CaptureSettingsDraft(hwnd, ctx, current_config), "Settings::ReadDraftForDpiChange"))
+                return;
         }
+        const auto& appearance_config = ctx.controls_initialized ? current_config : ctx.baseline_config;
         if (!RefreshSettingsUiAppearance(
-                hwnd, ctx, current_config.ui_language, GetDisplayPreferences(current_config), effective_dpi)) {
+                hwnd, ctx, appearance_config.ui_language, GetDisplayPreferences(appearance_config), effective_dpi)) {
             return;
         }
         if (ctx.controls_initialized) {
@@ -116,7 +119,7 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
 
     if (dpi_changed && ctx.controls_initialized) {
         CreateSettingsControls(hwnd, ctx.instance, ctx);
-        std::ignore = log::CheckHResult(RenderSettingsDraft(hwnd, ctx, current_config), "Settings::DpiChange");
+        std::ignore = ReapplySettingsDraft(hwnd, ctx, std::move(current_config));
         if (focused_control_id != 0) {
             if (const HWND focused_control = ::GetDlgItem(hwnd, focused_control_id)) {
                 ::SetFocus(focused_control);
@@ -360,8 +363,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         }
         case WM_SETTINGCHANGE:
         case WM_THEMECHANGED: {
-            ApplySettingsDisplayPreview(hwnd, *ctx);
-            RenderSettingsLanguage(hwnd, *ctx);
+            RefreshSettingsLanguage(hwnd, *ctx);
             return 0;
         }
         case WM_ACTIVATE:

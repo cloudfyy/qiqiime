@@ -71,6 +71,16 @@ void TestSettingsBindingBoundaries() {
         ReadSettingsFromWindowControls(hwnd.Get(), read_layout);
         QIQI_TEST_CHECK(read_layout.candidate_layout == layout);
     }
+    WPARAM language_index = 0;
+    for (const UiLanguage language : {UiLanguage::Auto, UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        cfg.ui_language = language;
+        WriteSettingsToWindowControls(hwnd.Get(), cfg);
+        QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_GETCURSEL, 0, 0) ==
+                        gsl::narrow_cast<LRESULT>(language_index++));
+        QiQiConfig actual;
+        ReadSettingsFromWindowControls(hwnd.Get(), actual);
+        QIQI_TEST_CHECK(actual.ui_language == language);
+    }
     for (const auto& selected : kCheckboxCases) {
         cfg.*(selected.field) = true;
         WriteSettingsToWindowControls(hwnd.Get(), cfg);
@@ -212,6 +222,21 @@ void TestSettingsLiveLanguagePreservesControls() {
         QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), id, CB_SETCURSEL, selection, 0) != CB_ERR);
         ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE), 0);
     };
+    const auto check_language_choices = [&](UiLanguage language, LRESULT selection) {
+        const HWND combo = ::GetDlgItem(hwnd.Get(), kIdComboUiLang);
+        const auto& strings = GetUiStrings(language);
+        const std::array expected{strings.dlg_lang_auto, strings.dlg_lang_zh, strings.dlg_lang_en};
+        QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCOUNT, 0, 0) == gsl::narrow_cast<LRESULT>(expected.size()));
+        QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETCURSEL, 0, 0) == selection);
+        for (size_t item = 0; item < expected.size(); ++item) {
+            std::array<wchar_t, 64> text{};
+            const LRESULT size = ::SendMessageW(combo, CB_GETLBTEXTLEN, item, 0);
+            QIQI_TEST_CHECK(size > 0 && size < gsl::narrow_cast<LRESULT>(text.size()));
+            QIQI_TEST_CHECK(::SendMessageW(combo, CB_GETLBTEXT, item, reinterpret_cast<LPARAM>(text.data())) == size);
+            QIQI_TEST_CHECK(std::wstring_view(text.data()) == gsl::at(expected, item));
+        }
+    };
+    check_language_choices(UiLanguage::ZhCn, 1);
     check_font(chinese_family);
     ::SendDlgItemMessageW(hwnd.Get(), kIdRadioHaifeng, BM_CLICK, 0, 0);
     QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
@@ -228,7 +253,7 @@ void TestSettingsLiveLanguagePreservesControls() {
             selection == 1 ? UiLanguage::ZhCn : UiLanguage::Auto;
         QIQI_TEST_CHECK(actual.ui_language == expected_language && cfg.ui_language == UiLanguage::ZhCn);
         check_font(ResolveUiLanguage(expected_language) == UiLanguage::ZhCn ? chinese_family : system_family);
-        QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_GETCOUNT, 0, 0) == 3);
+        check_language_choices(expected_language, gsl::narrow_cast<LRESULT>(selection));
         QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_GETCOUNT, 0, 0) == 9);
         QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCOUNT, 0, 0) == 2);
         QIQI_TEST_CHECK(!actual.commit_on_english_switch);

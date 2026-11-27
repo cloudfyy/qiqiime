@@ -261,6 +261,8 @@ struct DialogContext {
     HINSTANCE instance = nullptr;
     QiQiConfig* config = nullptr;
     QiQiConfig baseline_config{};
+    std::optional<QiQiConfig> draft_to_recover; // Last intact draft when the controls could not be restored.
+    bool applying_draft = false;
     bool transfer_in_progress = false;
     ToolCommandUi* active_font_menu = nullptr;
     std::wstring custom_primary_dict_path;
@@ -305,10 +307,15 @@ struct DialogContext {
 UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept;
 void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept;
 const wchar_t* SettingsConfigFieldLabel(std::string_view key, UiLanguage language) noexcept;
-void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept;
+HRESULT PopulateSettingsComboItems(HWND hwnd, UiLanguage language) noexcept;
+HRESULT SelectSettingsComboItem(HWND hwnd, int control_id, WPARAM index) noexcept;
+void RenderSettingsLanguageLabels(HWND hwnd, UiLanguage language) noexcept;
+void RefreshSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept;
 void NormalizeSettingsBaseline(QiQiConfig& config) noexcept;
 HRESULT ReadSettingsDraft(HWND hwnd, QiQiConfig& config) noexcept;
+HRESULT CaptureSettingsDraft(HWND hwnd, const DialogContext& ctx, QiQiConfig& draft) noexcept;
 HRESULT RenderSettingsDraft(HWND hwnd, DialogContext& ctx, const QiQiConfig& config) noexcept;
+HRESULT ReapplySettingsDraft(HWND hwnd, DialogContext& ctx, QiQiConfig draft) noexcept;
 void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx);
 void RequestSettingsConfigRefresh(HWND hwnd, DialogContext& ctx);
 void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const DialogContext& ctx) noexcept;
@@ -320,7 +327,10 @@ bool RefreshSettingsUiAppearance(
     HWND hwnd, DialogContext& ctx, UiLanguage language, DisplayPreferences preferences, UINT dpi,
     SettingsFontFamilyLookup is_font_installed = nullptr) noexcept;
 void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept;
-void PopulateSettingsSkinCombo(HWND hwnd, DialogContext& ctx) noexcept;
+void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx, UiLanguage language,
+                                 DisplayPreferences preferences) noexcept;
+HRESULT PopulateSettingsSkinCombo(HWND hwnd, DialogContext& ctx, UiLanguage language,
+                                  ImeSkinId selected) noexcept;
 void UpdateSettingsSkinPreview(HWND hwnd, DialogContext& ctx) noexcept;
 void HandleSettingsSkinSelection(HWND hwnd, DialogContext& ctx) noexcept;
 void ReportSkinConfigurationFailure(HWND hwnd, UiLanguage language, HRESULT result) noexcept;

@@ -352,6 +352,102 @@ void TestExternalConfigSyncWhileSettingsOpen() {
     QIQI_TEST_CHECK(std::wstring(title_buf.data()) == GetUiStrings(UiLanguage::ZhCn).dlg_title);
 }
 
+void TestPartialExternalRefreshBlocksSaving() {
+    const std::wstring subkey = L"Software\\QiQiIME_SettingsPartialRefresh_" +
+        std::to_wstring(::GetCurrentProcessId());
+    const auto* previous = HasConfigRegistrySubKeyOverride() ? GetActiveConfigRegistrySubKey() : nullptr;
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto cleanup = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        QIQI_TEST_CHECK_CLEANUP(::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str()) == ERROR_SUCCESS);
+    });
+
+    for (const auto& [id, message] : {std::pair{kIdChkKeySound, UINT{BM_SETCHECK}},
+                                     std::pair{kIdComboImeSkin, UINT{CB_ADDSTRING}}}) {
+        QiQiConfig bound;
+        bound.ui_language = UiLanguage::EnUs;
+        bound.ui_theme = UiTheme::Light;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(bound));
+        const ScopedWindow window(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &bound, true));
+        QIQI_TEST_CHECK(window);
+        const auto& ctx = GetContext(window.Get());
+        const uint64_t prior_revision = ctx.baseline_revision;
+        const HWND page_size = ::GetDlgItem(window.Get(), kIdComboPageSize);
+        QIQI_TEST_CHECK(::SendMessageW(page_size, CB_SETCURSEL, 7, 0) == 7);
+        QIQI_TEST_CHECK(::SendDlgItemMessageW(window.Get(), kIdComboSpaceEnter, CB_SETCURSEL, 1, 0) == 1);
+
+        QiQiConfig external = bound;
+        external.ui_language = UiLanguage::ZhCn;
+        external.ui_theme = UiTheme::Dark;
+        external.enable_key_sound = true;
+        QIQI_TEST_CHECK(SaveConfigToRegistry(external));
+        const uint64_t revision = QueryRegistryConfigSequence();
+        QIQI_TEST_CHECK(revision > prior_revision);
+        {
+            struct FailureProbe {
+                UINT message;
+                bool saw_external_selection = false;
+            } probe{message};
+            const HWND child = ::GetDlgItem(window.Get(), id);
+            const auto reject = [](HWND control, UINT msg, WPARAM wparam, LPARAM lparam,
+                                   UINT_PTR, DWORD_PTR data) noexcept -> LRESULT {
+                auto& failure = *reinterpret_cast<FailureProbe*>(data);
+                if (msg == failure.message &&
+                    (msg == BM_SETCHECK || ::SendMessageW(control, CB_GETCOUNT, 0, 0) == 1)) {
+                    failure.saw_external_selection = failure.saw_external_selection ||
+                        ::SendDlgItemMessageW(::GetParent(control),
+                        kIdComboUiTheme, CB_GETCURSEL, 0, 0) == std::to_underlying(UiTheme::Dark);
+                    if (msg == CB_ADDSTRING) return CB_ERRSPACE;
+                    return ::DefSubclassProc(control, msg, wparam == BST_CHECKED ? BST_UNCHECKED : BST_CHECKED, lparam);
+                }
+                return ::DefSubclassProc(control, msg, wparam, lparam);
+            };
+            QIQI_TEST_CHECK(::SetWindowSubclass(child, reject, 1, reinterpret_cast<DWORD_PTR>(&probe)));
+            const auto unhook = gsl::finally([&]() noexcept {
+                QIQI_TEST_CHECK_CLEANUP(::RemoveWindowSubclass(child, reject, 1));
+            });
+
+            ::SendMessageW(window.Get(), kSettingsExternalConfigChangedMessage, 0, 0);
+            QIQI_TEST_CHECK(probe.saw_external_selection && ctx.baseline_revision == prior_revision);
+            QIQI_TEST_CHECK(ctx.baseline_config.ui_theme == UiTheme::Light && bound.ui_theme == UiTheme::Light);
+            QIQI_TEST_CHECK(!::IsWindowEnabled(page_size));
+            QiQiConfig unread;
+            QIQI_TEST_CHECK(ReadSettingsDraft(window.Get(), unread) == E_PENDING);
+            WithDismissedMessage(GetUiStrings(UiLanguage::EnUs).dlg_draft_unavailable, [&] {
+                ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+            });
+            QIQI_TEST_CHECK(!ctx.done && !ctx.accepted && !::IsWindowEnabled(page_size));
+            QIQI_TEST_CHECK(ctx.baseline_revision == prior_revision && QueryRegistryConfigSequence() == revision);
+            QiQiConfig stored;
+            QIQI_TEST_CHECK(LoadConfigFromRegistry(stored) && stored.page_size == external.page_size &&
+                            stored.ui_theme == UiTheme::Dark);
+        }
+
+        if (message == CB_ADDSTRING) {
+            WithDismissedMessage(GetUiStrings(UiLanguage::EnUs).dlg_draft_unavailable, [&] {
+                ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+            });
+        } else {
+            ::SendMessageW(window.Get(), kSettingsExternalConfigChangedMessage, 0, 0);
+        }
+        QIQI_TEST_CHECK(!ctx.accepted && !ctx.done);
+        QIQI_TEST_CHECK(ctx.baseline_revision == revision && QueryRegistryConfigSequence() == revision);
+        QIQI_TEST_CHECK(::IsWindowEnabled(page_size) && bound.page_size == external.page_size);
+        QiQiConfig draft;
+        QIQI_TEST_CHECK(ReadSettingsDraft(window.Get(), draft) == S_OK);
+        QIQI_TEST_CHECK(draft.page_size == 8 && draft.space_enter_mode == WubiSpaceEnterMode::SpaceSelectEnterClear);
+        QIQI_TEST_CHECK(draft.ui_language == UiLanguage::ZhCn && draft.ui_theme == UiTheme::Dark &&
+                        draft.enable_key_sound);
+        ::SendMessageW(window.Get(), WM_COMMAND, MAKEWPARAM(IDOK, BN_CLICKED), 0);
+        QiQiConfig stored;
+        QIQI_TEST_CHECK(ctx.accepted && ctx.done && QueryRegistryConfigSequence() > revision);
+        QIQI_TEST_CHECK(LoadConfigFromRegistry(stored) && stored.page_size == 8 &&
+                        stored.space_enter_mode == WubiSpaceEnterMode::SpaceSelectEnterClear &&
+                        stored.ui_language == UiLanguage::ZhCn && stored.ui_theme == UiTheme::Dark &&
+                        stored.enable_key_sound);
+    }
+}
+
 void TestRestoreDefaults() {
     const std::wstring subkey =
         L"Software\\QiQiIME_SettingsDefaultsTest_" + std::to_wstring(::GetCurrentProcessId());
@@ -419,7 +515,7 @@ void TestRestoreDefaults() {
                 QIQI_TEST_CHECK(GetContext(window.Get()).baseline_config.primary_dict_path == original.primary_dict_path);
                 QIQI_TEST_CHECK(QueryRegistryConfigSequence() == before);
                 QiQiConfig edited = cfg;
-                ReadSettingsFromWindowControls(window.Get(), edited);
+                QIQI_TEST_CHECK(ReadSettingsDraft(window.Get(), edited) == S_OK);
                 check_restored(edited, original);
                 QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(window.Get(), kIdChkExtraDict)));
                 QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(window.Get(), kIdChkBoldUnderline)));
@@ -615,6 +711,7 @@ void RunSettingsSaveTests() {
     TestSaveRetryAndCancel();
     TestBrokerRefreshErrorPropagation();
     TestExternalConfigSyncWhileSettingsOpen();
+    TestPartialExternalRefreshBlocksSaving();
     TestRestoreDefaults();
     TestSettingsFieldMergeMatrix();
     TestSaveWithCacheAheadOfDraft();

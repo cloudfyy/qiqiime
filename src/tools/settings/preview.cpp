@@ -135,18 +135,27 @@ bool RefreshSettingsUiAppearance(
 
 void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept {
     QiQiConfig edited;
-    ReadSettingsFromWindowControls(hwnd, edited);
-    ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_SETCURSEL,
-                         static_cast<WPARAM>(edited.ui_text_scale), 0);
-    ctx.preview_theme = edited.ui_theme;
-    ctx.preview_scale = edited.ui_text_scale;
-    ctx.preview_easy_reading = edited.easy_reading;
-    std::ignore = RefreshSettingsUiAppearance(hwnd, ctx, edited.ui_language, GetDisplayPreferences(edited), ctx.d2d.dpi);
+    if (!log::CheckHResult(ReadSettingsDraft(hwnd, edited), "Settings::ReadDraftForPreview")) return;
+    const int scale = std::to_underlying(edited.ui_text_scale);
+    if (::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_GETCURSEL, 0, 0) != scale &&
+        FAILED(SelectSettingsComboItem(hwnd, kIdComboUiTextScale, gsl::narrow_cast<WPARAM>(scale)))) {
+        std::ignore = ReapplySettingsDraft(hwnd, ctx, std::move(edited));
+        return;
+    }
+    ApplySettingsDisplayPreview(hwnd, ctx, edited.ui_language, GetDisplayPreferences(edited));
+}
+
+void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx, UiLanguage language,
+                                 DisplayPreferences preferences) noexcept {
+    ctx.preview_theme = preferences.theme;
+    ctx.preview_scale = preferences.text_scale;
+    ctx.preview_easy_reading = preferences.easy_reading;
+    std::ignore = RefreshSettingsUiAppearance(hwnd, ctx, language, preferences, ctx.d2d.dpi);
     UpdateSettingsSkinPreview(hwnd, ctx);
     ApplyDisplayThemeToWindow(hwnd, ctx.d2d.appearance);
     auto candidate_font = CreateCandidateFont(
         ctx.preview_candidate_font, kCandidateFontDefaultHeightPx,
-        ctx.d2d.dpi, edited.ui_text_scale);
+        ctx.d2d.dpi, preferences.text_scale);
     if (candidate_font) {
         ctx.candidate_preview_font = std::move(candidate_font);
     } else {

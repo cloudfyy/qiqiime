@@ -170,12 +170,13 @@ ScopedWindow CreateSettingsWindow(
     dialog_detail::ApplyDialogIcons(hwnd.Get(), owned_ctx->icon_small.Get(), owned_ctx->icon_big.Get());
 
     CreateSettingsControls(hwnd.Get(), instance, *owned_ctx);
-    owned_ctx->controls_initialized = true;
     if (!log::CheckHResult(WriteSettingsToWindowControlsResult(hwnd.Get(), initial), "Settings::ApplyInitialConfig"))
         return {};
     if (bound_config && use_broker_snapshot) *bound_config = std::move(config_snapshot.value);
+    owned_ctx->controls_initialized = true;
     owned_ctx->baseline_revision = initial_revision;
     InitSettingsCompartmentSubscription(hwnd.Get(), *owned_ctx);
+    UpdateSettingsWindowTitle(hwnd.Get(), *owned_ctx);
     LayoutSettingsControls(hwnd.Get(), *owned_ctx);
     return hwnd;
 }

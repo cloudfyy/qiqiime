@@ -18,23 +18,53 @@
 #include "tools/settings/binding.h"
 
 namespace qiqi::settings_detail {
+namespace {
+
+std::optional<UiLanguage> ReadSettingsLanguageSelection(HWND hwnd) noexcept {
+    const LRESULT index = ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_GETCURSEL, 0, 0);
+    if (index >= 0 && std::cmp_less(index, kSettingsLanguageOptions.size())) {
+        return gsl::at(kSettingsLanguageOptions, gsl::narrow_cast<size_t>(index)).value;
+    }
+    return std::nullopt;
+}
+
+size_t SettingsLanguageIndex(UiLanguage language) noexcept {
+    const auto match = std::ranges::find(kSettingsLanguageOptions, language, &SettingsLanguageOption::value);
+    return match != kSettingsLanguageOptions.end()
+        ? gsl::narrow_cast<size_t>(match - kSettingsLanguageOptions.begin()) : 0;
+}
+
+void EnableDraftEditing(HWND hwnd, bool enabled) noexcept {
+    const auto enable = [hwnd, enabled](int id) noexcept {
+        if (const HWND child = ::GetDlgItem(hwnd, id)) ::EnableWindow(child, enabled);
+    };
+    for (const auto& radio : kSettingsDictRadios) enable(radio.control_id);
+    for (const auto& checkbox : kSettingsCheckboxes) enable(checkbox.control_id);
+    for (const int id : {kIdComboPageSize, kIdComboCandidateLayout, kIdComboUiLang, kIdComboUnderlineStyle,
+                         kIdComboEnglishSwitch, kIdComboSpaceEnter, kIdComboUiTheme, kIdComboUiTextScale,
+                         kIdComboImeSkin, kIdChkEasyReading, kIdBtnBrowsePrimaryDict, kIdBtnCandidateFont,
+                         kIdBtnRestoreDefaults, kIdBtnImportConfig}) {
+        enable(id);
+    }
+}
+
+HRESULT ApplySettingsControls(HWND hwnd, DialogContext& ctx, const QiQiConfig& config) noexcept;
+
+void RetryRetainedSettingsDraft(HWND hwnd, DialogContext& ctx) noexcept {
+    if (ctx.draft_to_recover && log::CheckHResult(
+            ApplySettingsControls(hwnd, ctx, *ctx.draft_to_recover), "Settings::RetryRetainedDraft")) {
+        UpdateSettingsWindowTitle(hwnd, ctx);
+    }
+}
+
+} // namespace
 
 UiLanguage GetSelectedUiLanguageFromCombo(HWND hwnd, const DialogContext& ctx) noexcept {
-    const LRESULT lang_sel = ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_GETCURSEL, 0, 0);
-    if (lang_sel == 1) {
-        return UiLanguage::ZhCn;
-    }
-    if (lang_sel == 2) {
-        return UiLanguage::EnUs;
-    }
-    if (lang_sel == 0) {
-        return UiLanguage::Auto;
-    }
-    return ctx.config ? ctx.config->ui_language : UiLanguage::Auto;
+    return ReadSettingsLanguageSelection(hwnd).value_or(ctx.config ? ctx.config->ui_language : UiLanguage::Auto);
 }
 
 void UpdateSettingsWindowTitle(HWND hwnd, const DialogContext& ctx) noexcept {
-    if (!ctx.controls_initialized) {
+    if (!ctx.controls_initialized || ctx.applying_draft || ctx.draft_to_recover) {
         return;
     }
     QiQiConfig current;
@@ -71,13 +101,16 @@ void NormalizeSettingsBaseline(QiQiConfig& config) noexcept {
 }
 
 void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) {
-    if (ctx.done || ctx.transfer_in_progress || !ctx.controls_initialized) return;
+    if (ctx.done || ctx.transfer_in_progress || ctx.applying_draft || !ctx.controls_initialized) return;
     config::Snapshot external;
     HRESULT catalog_result = S_OK;
     const bool registry_override = HasConfigRegistrySubKeyOverride();
     if (registry_override) {
         const uint64_t revision = QueryRegistryConfigSequence();
-        if (revision == 0 || revision == ctx.baseline_revision) return;
+        if (revision == 0 || revision == ctx.baseline_revision) {
+            RetryRetainedSettingsDraft(hwnd, ctx);
+            return;
+        }
         if (!LoadConfigFromRegistry(external.value, &external.revision)) {
             QIQI_LOG_WARN("Settings could not read the isolated configuration snapshot");
             return;
@@ -95,14 +128,18 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) {
                 "(hr=0x{:08X})",
                 gsl::narrow_cast<unsigned long>(
                     refresh_result));
+            if (refresh_result == S_FALSE) RetryRetainedSettingsDraft(hwnd, ctx);
             return;
         }
     }
-    if (external.revision == ctx.baseline_revision) return;
+    if (external.revision == ctx.baseline_revision) {
+        RetryRetainedSettingsDraft(hwnd, ctx);
+        return;
+    }
 
     try {
-        QiQiConfig current_ui = ctx.baseline_config;
-        if (!log::CheckHResult(ReadSettingsDraft(hwnd, current_ui), "Settings::ReadDraftForRefresh")) return;
+        QiQiConfig current_ui;
+        if (!log::CheckHResult(CaptureSettingsDraft(hwnd, ctx, current_ui), "Settings::ReadDraftForRefresh")) return;
         QiQiConfig merged_ui = external.value;
         MergeSettingsConfig(merged_ui, ctx.baseline_config, current_ui);
         QiQiConfig baseline = external.value;
@@ -116,9 +153,10 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) {
         if (apply_catalog) std::swap(ctx.skin_catalog, external.skin_catalog);
         if (ctx.save_on_accept) ctx.skin_catalog_result = catalog_result;
 
-        if (!log::CheckHResult(RenderSettingsDraft(hwnd, ctx, merged_ui), "Settings::ApplyExternalDraft")) {
+        if (!log::CheckHResult(ApplySettingsControls(hwnd, ctx, merged_ui), "Settings::ApplyExternalDraft")) {
             if (apply_catalog) std::swap(ctx.skin_catalog, external.skin_catalog);
             ctx.skin_catalog_result = previous_catalog_result;
+            std::ignore = ReapplySettingsDraft(hwnd, ctx, std::move(current_ui));
             return;
         }
 
@@ -135,7 +173,7 @@ void SyncSettingsWindowFromExternalConfig(HWND hwnd, DialogContext& ctx) {
 void RequestSettingsConfigRefresh(
     HWND hwnd,
     DialogContext& ctx) {
-    if (ctx.done || !ctx.controls_initialized) return;
+    if (ctx.done || ctx.applying_draft || !ctx.controls_initialized) return;
     if (HasConfigRegistrySubKeyOverride()) {
         SyncSettingsWindowFromExternalConfig(
             hwnd,
@@ -185,7 +223,7 @@ void RequestSettingsConfigRefresh(
 void UpdateExtraDictCheckboxState(HWND hwnd) noexcept {
     const bool is_jidian = (::IsDlgButtonChecked(hwnd, kIdRadioJidian) == BST_CHECKED);
     if (const HWND chk = ::GetDlgItem(hwnd, kIdChkExtraDict)) {
-        if (!is_jidian) {
+        if (!is_jidian && ::IsDlgButtonChecked(hwnd, kIdChkExtraDict) == BST_CHECKED) {
             ::CheckDlgButton(hwnd, kIdChkExtraDict, BST_UNCHECKED);
         }
         ::EnableWindow(chk, is_jidian ? TRUE : FALSE);
@@ -201,6 +239,156 @@ void UpdateExtraDictCheckboxState(HWND hwnd) noexcept {
     }
 }
 
+HRESULT SelectSettingsComboItem(HWND hwnd, int control_id, WPARAM index) noexcept {
+    const HWND combo = ::GetDlgItem(hwnd, control_id);
+    const LRESULT selected = combo ? ::SendMessageW(combo, CB_SETCURSEL, index, 0) : CB_ERR;
+    const HRESULT result = !combo ? HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE)
+        : (selected >= 0 && std::cmp_equal(selected, index) ? S_OK : E_FAIL);
+    if (FAILED(result)) {
+        QIQI_LOG_WARN("Settings combo {} selection failed (hr=0x{:08X})",
+            control_id, gsl::narrow_cast<unsigned long>(result));
+    }
+    return result;
+}
+
+namespace {
+
+HRESULT SetSettingsCheck(HWND hwnd, int control_id, bool checked) noexcept {
+    const HWND button = ::GetDlgItem(hwnd, control_id);
+    if (!button) {
+        const HRESULT result = HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
+        QIQI_LOG_WARN("Settings button {} missing (hr=0x{:08X})", control_id, gsl::narrow_cast<unsigned long>(result));
+        return result;
+    }
+    const int expected = checked ? BST_CHECKED : BST_UNCHECKED;
+    ::SendMessageW(button, BM_SETCHECK, gsl::narrow_cast<WPARAM>(expected), 0);
+    // BM_SETCHECK has no result; Fluent buttons can fail to store the check state.
+    if (::SendMessageW(button, BM_GETCHECK, 0, 0) != expected) {
+        QIQI_LOG_WARN("Settings button {} did not apply its check state", control_id);
+        return E_FAIL;
+    }
+    return S_OK;
+}
+
+HRESULT ApplySettingsControls(HWND hwnd, DialogContext& ctx, const QiQiConfig& config) noexcept {
+    if (!::IsWindow(hwnd)) return HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
+    if (ctx.applying_draft) return E_PENDING;
+    ctx.applying_draft = true;
+    const auto finish = gsl::finally([&ctx]() noexcept { ctx.applying_draft = false; });
+    std::wstring custom_path;
+    CandidateFontPreferences candidate_font;
+    try {
+        custom_path = config.primary_dict_path;
+        candidate_font = GetCandidateFontPreferences(config);
+    } catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    }
+
+    const size_t language_index = SettingsLanguageIndex(config.ui_language);
+    const auto language = gsl::at(kSettingsLanguageOptions, language_index).value;
+    const auto display = NormalizeDisplayPreferences(GetDisplayPreferences(config));
+    // An earlier failed replacement may have left a list incomplete.
+    if (const HRESULT result = PopulateSettingsComboItems(hwnd, language); FAILED(result)) return result;
+
+    using ComboSelection = std::pair<int, WPARAM>;
+    const int underline = std::clamp(std::to_underlying(config.underline_style),
+        0, std::to_underlying(CompositionUnderlineStyle::None));
+    for (const auto& [id, index] : std::array{
+             ComboSelection{kIdComboPageSize, std::clamp<size_t>(config.page_size, 1, 9) - 1},
+             ComboSelection{kIdComboCandidateLayout, config.candidate_layout == CandidateLayout::Vertical ? 1u : 0u},
+             ComboSelection{kIdComboUiLang, language_index},
+             ComboSelection{kIdComboUnderlineStyle, gsl::narrow_cast<WPARAM>(underline)},
+             ComboSelection{kIdComboEnglishSwitch, config.commit_on_english_switch ? 0u : 1u},
+             ComboSelection{kIdComboSpaceEnter, std::to_underlying(config.space_enter_mode)},
+             ComboSelection{kIdComboUiTheme, gsl::narrow_cast<WPARAM>(std::to_underlying(display.theme))},
+             ComboSelection{kIdComboUiTextScale, gsl::narrow_cast<WPARAM>(std::to_underlying(display.text_scale))}}) {
+        if (const HRESULT result = SelectSettingsComboItem(hwnd, id, index); FAILED(result)) return result;
+    }
+
+    int checked_radio_id = kIdRadioJidian;
+    for (const auto& radio : kSettingsDictRadios) {
+        if (config.primary_dict == radio.dict_value) {
+            checked_radio_id = radio.control_id;
+            break;
+        }
+    }
+    for (const auto& radio : kSettingsDictRadios) {
+        if (const HRESULT result = SetSettingsCheck(hwnd, radio.control_id, radio.control_id == checked_radio_id);
+                FAILED(result)) return result;
+    }
+
+    for (const auto& binding : kSettingsCheckboxes) {
+        const bool checked = (config.*(binding.config_field)) &&
+            (binding.control_id != kIdChkExtraDict || checked_radio_id == kIdRadioJidian);
+        if (const HRESULT result = SetSettingsCheck(hwnd, binding.control_id, checked); FAILED(result)) return result;
+    }
+    if (const HRESULT result = SetSettingsCheck(hwnd, kIdChkEasyReading, display.easy_reading); FAILED(result))
+        return result;
+    if (const HRESULT result = PopulateSettingsSkinCombo(hwnd, ctx, language, config.ime_skin_id); FAILED(result))
+        return result;
+    ::SetLastError(ERROR_SUCCESS);
+    if (!::SetDlgItemTextW(hwnd, kIdLblCustomPrimaryPath,
+            ResolveDictionaryPathDisplayText(custom_path, GetUiStrings(language).dlg_lbl_custom_dict_none))) {
+        const DWORD error = ::GetLastError();
+        QIQI_LOG_WARN("Settings custom dictionary path label update failed (error={})", error);
+        return error != ERROR_SUCCESS ? HRESULT_FROM_WIN32(error) : E_FAIL;
+    }
+
+    ctx.custom_primary_dict_path = std::move(custom_path);
+    ctx.preview_candidate_font = std::move(candidate_font);
+    ctx.last_valid_primary_dict = config.primary_dict;
+    if (ctx.draft_to_recover) EnableDraftEditing(hwnd, true);
+    UpdateExtraDictCheckboxState(hwnd);
+    RenderSettingsLanguageLabels(hwnd, language);
+    ApplySettingsDisplayPreview(hwnd, ctx, language, display);
+    ctx.draft_to_recover.reset();
+    return S_OK;
+}
+
+} // namespace
+
+HRESULT CaptureSettingsDraft(HWND hwnd, const DialogContext& ctx, QiQiConfig& draft) noexcept {
+    try {
+        if (ctx.draft_to_recover) {
+            draft = *ctx.draft_to_recover;
+            return S_OK;
+        }
+        draft = ctx.baseline_config;
+    } catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    }
+    return ReadSettingsDraft(hwnd, draft);
+}
+
+HRESULT ReapplySettingsDraft(HWND hwnd, DialogContext& ctx, QiQiConfig draft) noexcept {
+    const HRESULT result = ApplySettingsControls(hwnd, ctx, draft);
+    if (!log::CheckHResult(result, "Settings::ReapplyDraft")) {
+        ctx.draft_to_recover = std::move(draft);
+        EnableDraftEditing(hwnd, false);
+    } else {
+        UpdateSettingsWindowTitle(hwnd, ctx);
+    }
+    return result;
+}
+
+HRESULT RenderSettingsDraft(HWND hwnd, DialogContext& ctx, const QiQiConfig& config) noexcept {
+    if (ctx.applying_draft) return E_PENDING;
+    QiQiConfig previous;
+    if (const HRESULT result = CaptureSettingsDraft(hwnd, ctx, previous); FAILED(result)) return result;
+    const HRESULT result = ApplySettingsControls(hwnd, ctx, config);
+    if (FAILED(result)) std::ignore = ReapplySettingsDraft(hwnd, ctx, std::move(previous));
+    else UpdateSettingsWindowTitle(hwnd, ctx);
+    return result;
+}
+
+void RefreshSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
+    if (ctx.done || !ctx.controls_initialized || ctx.applying_draft || ctx.draft_to_recover) return;
+    QiQiConfig draft;
+    if (log::CheckHResult(CaptureSettingsDraft(hwnd, ctx, draft), "Settings::ReadDraftForLanguageRefresh")) {
+        std::ignore = ReapplySettingsDraft(hwnd, ctx, std::move(draft));
+    }
+}
+
 } // namespace qiqi::settings_detail
 
 namespace qiqi {
@@ -212,127 +400,28 @@ void WriteSettingsToWindowControls(HWND hwnd, const QiQiConfig& config) noexcept
         WriteSettingsToWindowControlsResult(hwnd, config), "WriteSettingsToWindowControls");
 }
 
-static HRESULT PopulateSettingsControls(HWND hwnd, const QiQiConfig& config, bool load_baseline) noexcept {
-    if (!::IsWindow(hwnd)) {
-        QIQI_LOG_WARN("WriteSettingsToWindowControls requires a valid window");
-        return E_INVALIDARG;
-    }
+HRESULT WriteSettingsToWindowControlsResult(HWND hwnd, const QiQiConfig& config) noexcept {
     auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (!ctx) return HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
     QiQiConfig baseline;
-    std::wstring custom_path;
-    CandidateFontPreferences candidate_font;
-    if (ctx) {
-        try {
-            custom_path = config.primary_dict_path;
-            candidate_font = GetCandidateFontPreferences(config);
-            if (load_baseline) {
-                baseline = config;
-                NormalizeSettingsBaseline(baseline);
-            }
-        } catch (const std::bad_alloc&) {
-            QIQI_LOG_WARN("WriteSettingsToWindowControls: failed to copy configuration strings");
-            return E_OUTOFMEMORY;
-        }
+    try {
+        baseline = config;
+    } catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
     }
-
-    // Check the required selection before changing any other controls or publishing the draft.
-    const HWND space_enter = ::GetDlgItem(hwnd, kIdComboSpaceEnter);
-    const auto mode = std::to_underlying(config.space_enter_mode);
-    const LRESULT count = space_enter ? ::SendMessageW(space_enter, CB_GETCOUNT, 0, 0) : CB_ERR;
-    const LRESULT previous = count > mode ? ::SendMessageW(space_enter, CB_GETCURSEL, 0, 0) : CB_ERR;
-    if (count <= mode || ::SendMessageW(space_enter, CB_SETCURSEL, mode, 0) == CB_ERR) {
-        if (count > mode && ::SendMessageW(space_enter, CB_GETCURSEL, 0, 0) != previous) {
-            ::SendMessageW(space_enter, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(previous), 0);
-            if (::SendMessageW(space_enter, CB_GETCURSEL, 0, 0) != previous) {
-                QIQI_LOG_WARN("Settings could not restore the prior Space/Enter selection");
-            }
-        }
-        const HRESULT hr = space_enter ? E_FAIL : HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
-        std::ignore = log::CheckHResult(hr, "Settings::PopulateSettingsControls(Space/Enter)");
-        return hr;
-    }
-
-    if (ctx) {
-        if (load_baseline) ctx->baseline_config = std::move(baseline);
-        ctx->custom_primary_dict_path = std::move(custom_path);
-        ctx->preview_candidate_font = std::move(candidate_font);
-        ctx->preview_skin_id = config.ime_skin_id;
-        ctx->last_valid_primary_dict = config.primary_dict;
-    }
-    int checked_radio_id = kIdRadioJidian;
-    for (const auto& radio : kSettingsDictRadios) {
-        if (config.primary_dict == radio.dict_value) {
-            checked_radio_id = radio.control_id;
-            break;
-        }
-    }
-    for (const auto& radio : kSettingsDictRadios) {
-        ::CheckDlgButton(
-            hwnd,
-            radio.control_id,
-            (radio.control_id == checked_radio_id) ? BST_CHECKED : BST_UNCHECKED);
-    }
-    const auto& str = GetUiStrings(config.ui_language);
-    ::SetDlgItemTextW(
-        hwnd,
-        kIdLblCustomPrimaryPath,
-        ResolveDictionaryPathDisplayText(config.primary_dict_path, str.dlg_lbl_custom_dict_none));
-
-    for (const auto& binding : kSettingsCheckboxes) {
-        ::CheckDlgButton(
-            hwnd,
-            binding.control_id,
-            (config.*(binding.config_field)) ? BST_CHECKED : BST_UNCHECKED);
-    }
-
-    const int idx = gsl::narrow_cast<int>(std::clamp<size_t>(config.page_size, 1, 9) - 1);
-    ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(idx), 0);
-    ::SendDlgItemMessageW(hwnd, kIdComboCandidateLayout, CB_SETCURSEL,
-        config.candidate_layout == CandidateLayout::Vertical ? 1 : 0, 0);
-
-    const int lang_idx = (config.ui_language == UiLanguage::ZhCn)
-        ? 1
-        : (config.ui_language == UiLanguage::EnUs ? 2 : 0);
-    ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(lang_idx), 0);
-
-    const int underline_idx = std::clamp(
-        std::to_underlying(config.underline_style),
-        0,
-        std::to_underlying(CompositionUnderlineStyle::None));
-    ::SendDlgItemMessageW(
-        hwnd, kIdComboUnderlineStyle, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(underline_idx), 0);
-    ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_SETCURSEL,
-        config.commit_on_english_switch ? 0 : 1, 0);
-    ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_SETCURSEL,
-        gsl::narrow_cast<WPARAM>(std::to_underlying(config.ui_theme)), 0);
-    if (ctx) {
-        PopulateSettingsSkinCombo(hwnd, *ctx);
-        UpdateCandidateFontLabel(hwnd, *ctx);
-    }
-    ::CheckDlgButton(hwnd, kIdChkEasyReading, config.easy_reading ? BST_CHECKED : BST_UNCHECKED);
-    const UiTextScale scale = config.easy_reading
-        ? std::max(config.ui_text_scale, UiTextScale::Percent150) : config.ui_text_scale;
-    ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_SETCURSEL,
-        gsl::narrow_cast<WPARAM>(std::to_underlying(scale)), 0);
-    UpdateExtraDictCheckboxState(hwnd);
-    if (ctx) {
-        ApplySettingsDisplayPreview(hwnd, *ctx);
+    NormalizeSettingsBaseline(baseline);
+    const HRESULT result = ctx->controls_initialized ? RenderSettingsDraft(hwnd, *ctx, config)
+                                                     : ApplySettingsControls(hwnd, *ctx, config);
+    if (SUCCEEDED(result)) {
+        ctx->baseline_config = std::move(baseline);
         UpdateSettingsWindowTitle(hwnd, *ctx);
     }
-    return S_OK;
-}
-
-HRESULT WriteSettingsToWindowControlsResult(HWND hwnd, const QiQiConfig& config) noexcept {
-    return PopulateSettingsControls(hwnd, config, true);
-}
-
-HRESULT settings_detail::RenderSettingsDraft(HWND hwnd, DialogContext& ctx, const QiQiConfig& config) noexcept {
-    const HRESULT hr = PopulateSettingsControls(hwnd, config, false);
-    if (SUCCEEDED(hr)) RenderSettingsLanguage(hwnd, ctx);
-    return hr;
+    return result;
 }
 
 HRESULT settings_detail::ReadSettingsDraft(HWND hwnd, QiQiConfig& config) noexcept {
+    const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (ctx && ctx->draft_to_recover) return E_PENDING;
     config.primary_dict = PrimaryDict::Jidian;
     for (const auto& radio : kSettingsDictRadios) {
         if (::IsDlgButtonChecked(hwnd, radio.control_id) == BST_CHECKED) {
@@ -340,7 +429,7 @@ HRESULT settings_detail::ReadSettingsDraft(HWND hwnd, QiQiConfig& config) noexce
             break;
         }
     }
-    if (const auto* ctx = reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+    if (ctx) {
         try {
             auto font_family = ctx->preview_candidate_font.family;
             auto primary_dict_path = ctx->custom_primary_dict_path;
@@ -367,14 +456,7 @@ HRESULT settings_detail::ReadSettingsDraft(HWND hwnd, QiQiConfig& config) noexce
         config.candidate_layout = CandidateLayout{gsl::narrow_cast<int>(layout_sel)};
     }
 
-    const LRESULT lang_sel = ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_GETCURSEL, 0, 0);
-    if (lang_sel == 1) {
-        config.ui_language = UiLanguage::ZhCn;
-    } else if (lang_sel == 2) {
-        config.ui_language = UiLanguage::EnUs;
-    } else if (lang_sel == 0) {
-        config.ui_language = UiLanguage::Auto;
-    }
+    if (const auto language = ReadSettingsLanguageSelection(hwnd)) config.ui_language = *language;
 
     const LRESULT underline_sel = ::SendDlgItemMessageW(hwnd, kIdComboUnderlineStyle, CB_GETCURSEL, 0, 0);
     if (underline_sel >= 0 &&

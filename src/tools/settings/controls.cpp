@@ -21,11 +21,6 @@ namespace {
 
 namespace layout = settings_layout;
 
-constexpr std::array<const wchar_t*, 9> kPageSizeLabels = {
-    L"1", L"2", L"3", L"4", L"5", L"6", L"7", L"8", L"9"
-};
-constexpr std::array<const wchar_t*, 4> kTextScaleLabels{L"100%", L"125%", L"150%", L"200%"};
-
 LRESULT CALLBACK ScrollFocusSubclass(
     HWND child, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR) noexcept {
     if (::GetDlgCtrlID(child) == kIdChkEasyReading &&
@@ -47,7 +42,10 @@ LRESULT CALLBACK ScrollFocusSubclass(
     if (::GetDlgCtrlID(child) == kIdComboUiTextScale && message == CB_SETCURSEL &&
         wparam < static_cast<WPARAM>(UiTextScale::Percent150) &&
         ::IsDlgButtonChecked(::GetParent(child), kIdChkEasyReading) == BST_CHECKED) {
-        return CB_ERR;
+        const auto* ctx = reinterpret_cast<const DialogContext*>(
+            ::GetWindowLongPtrW(::GetParent(child), GWLP_USERDATA));
+        // Rebuilding the list can temporarily select its first item; a full draft sets a normalized scale.
+        if (!ctx || !ctx->applying_draft) return CB_ERR;
     }
     if (message == WM_KEYDOWN && wparam == VK_TAB) {
         if ((::GetKeyState(VK_CONTROL) & 0x8000) != 0) {
@@ -221,45 +219,20 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     constexpr DWORD combo_style = CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP;
     create_control(L"STATIC", str.dlg_lbl_page_size, 0, layout::kPageSizeLabel, kIdLblPageSize);
     create_control(L"COMBOBOX", L"", combo_style, layout::kPageSizeCombo, kIdComboPageSize);
-    ::SendDlgItemMessageW(hwnd, kIdComboPageSize, CB_SETMINVISIBLE, kPageSizeLabels.size(), 0);
-    std::ignore = log::CheckHResult(ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboPageSize), kPageSizeLabels),
-        "Settings::ReplaceComboBoxItems(page size)");
-    const HWND candidate_layout_combo = create_control(
+    create_control(
         L"COMBOBOX", L"", combo_style, layout::kCandidateLayoutCombo, kIdComboCandidateLayout);
-    const std::array<const wchar_t*, 2> candidate_layout_items = {
-        str.dlg_candidate_horizontal, str.dlg_candidate_vertical
-    };
-    std::ignore = log::CheckHResult(ReplaceComboBoxItems(candidate_layout_combo, candidate_layout_items),
-        "Settings::ReplaceComboBoxItems(candidate layout)");
 
     create_control(L"STATIC", str.dlg_lbl_ui_lang, 0, layout::kLanguageLabel, kIdLblUiLang);
     create_control(L"COMBOBOX", L"", combo_style, layout::kLanguageCombo, kIdComboUiLang);
-    const std::array<const wchar_t*, 3> lang_items = {str.dlg_lang_auto, str.dlg_lang_zh, str.dlg_lang_en};
-    std::ignore = log::CheckHResult(ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiLang), lang_items),
-        "Settings::ReplaceComboBoxItems(language)");
 
     create_control(L"STATIC", str.dlg_lbl_underline_style, 0, layout::kUnderlineLabel, kIdLblUnderlineStyle);
     const HWND underline_combo = create_control(
         L"COMBOBOX", L"", combo_style, layout::kUnderlineCombo, kIdComboUnderlineStyle);
     EnableFluentUnderlineComboPreview(underline_combo, kIdChkBoldUnderline);
-    const std::array<const wchar_t*, 5> underline_items = {
-        str.dlg_underline_dot,
-        str.dlg_underline_solid,
-        str.dlg_underline_dash,
-        str.dlg_underline_squiggle,
-        str.dlg_underline_none,
-    };
-    std::ignore = log::CheckHResult(ReplaceComboBoxItems(underline_combo, underline_items),
-        "Settings::ReplaceComboBoxItems(underline)");
 
     create_control(L"STATIC", str.dlg_lbl_english_switch, 0, layout::kEnglishSwitchLabel, kIdLblEnglishSwitch);
-    const HWND english_switch_combo = create_control(
+    create_control(
         L"COMBOBOX", L"", combo_style, layout::kEnglishSwitchCombo, kIdComboEnglishSwitch);
-    const std::array<const wchar_t*, 2> english_switch_items = {
-        str.dlg_english_switch_commit, str.dlg_english_switch_clear
-    };
-    std::ignore = log::CheckHResult(ReplaceComboBoxItems(english_switch_combo, english_switch_items),
-        "Settings::ReplaceComboBoxItems(English switch)");
 
     constexpr DWORD button_style = BS_OWNERDRAW | WS_TABSTOP;
     create_control(L"BUTTON", str.dlg_btn_dict_mgr, button_style, layout::kDictionaryManagerButton, kIdBtnDictManager);
@@ -269,9 +242,7 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
     create_control(L"BUTTON", str.dlg_btn_cancel, button_style, layout::kCancelButton, kIdBtnCancel);
     const RECT initial{0, 0, 100, 40};
     create_control(L"STATIC", str.dlg_lbl_space_enter, 0, initial, kIdLblSpaceEnter);
-    const HWND space_enter_combo = create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboSpaceEnter);
-    std::ignore = log::CheckHResult(ReplaceComboBoxItems(space_enter_combo, str.dlg_space_enter_modes),
-        "Settings::ReplaceComboBoxItems(Space/Enter)");
+    create_control(L"COMBOBOX", L"", combo_style, initial, kIdComboSpaceEnter);
     create_control(L"BUTTON", str.dlg_btn_restore_backup, button_style, initial, kIdBtnImportConfig);
     create_control(L"BUTTON", str.dlg_btn_create_backup, button_style, initial, kIdBtnExportConfig);
     create_control(L"STATIC", L"", 0, initial, kIdLblUiTheme);
@@ -298,10 +269,6 @@ void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& 
         kIdLblShortcutsSubtitle);
     create_control(
         L"STATIC", L"", SS_OWNERDRAW, initial, kIdLblShortcutsBody);
-    std::ignore = log::CheckHResult(
-        ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboUiTextScale), kTextScaleLabels),
-        "Settings::ReplaceComboBoxItems(text scale)");
-    UpdateSettingsPageLabels(hwnd, ctx);
     ::EnumChildWindows(hwnd, [](HWND child, LPARAM) noexcept -> BOOL {
         if (!::SetWindowSubclass(child, ScrollFocusSubclass, 1, 0)) {
             QIQI_LOG_WARN("Settings focus subclass failed (error={})", ::GetLastError());

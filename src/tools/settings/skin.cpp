@@ -376,31 +376,36 @@ void ReportSkinConfigurationFailure(HWND hwnd, UiLanguage language, HRESULT resu
     }
 }
 
-void PopulateSettingsSkinCombo(HWND hwnd, DialogContext& context) noexcept {
-    const auto language = GetSelectedUiLanguageFromCombo(hwnd, context);
-    ::SetDlgItemTextW(hwnd, kIdLblImeSkin, FAILED(context.skin_catalog_result) ?
-        LocalizedUiText(language, L"皮肤（配置不可用）", L"Skin (unavailable)") :
-        LocalizedUiText(language, L"皮肤", L"Skin"));
-    context.quick_skin_count = 0;
+HRESULT PopulateSettingsSkinCombo(HWND hwnd, DialogContext& context, UiLanguage language, ImeSkinId selected) noexcept {
+    decltype(context.quick_skin_choices) choices{};
+    size_t count = 0;
     const auto add = [&](ImeSkinId id) noexcept {
-        gsl::at(context.quick_skin_choices, context.quick_skin_count++) = id;
+        gsl::at(choices, count++) = id;
     };
     add(ImeSkinId::Default);
     if (!context.skin_catalog.skins.empty()) for (const auto id : kCommonImeSkins) add(id);
-    const auto choices = std::span(context.quick_skin_choices).first(context.quick_skin_count);
-    if (!std::ranges::contains(choices, context.preview_skin_id)) add(context.preview_skin_id);
+    if (!std::ranges::contains(std::span(choices).first(count), selected)) add(selected);
     std::array<const wchar_t*, 8> names{};
-    for (size_t i = 0; i < context.quick_skin_count; ++i)
-        gsl::at(names, i) = ImeSkinDisplayName(context.skin_catalog,
-            gsl::at(context.quick_skin_choices, i), language).data();
-    gsl::at(names, context.quick_skin_count) = LocalizedUiText(language, L"更多…", L"More...");
-    const HWND combo = ::GetDlgItem(hwnd, kIdComboImeSkin);
-    std::ignore = log::CheckHResult(ReplaceComboBoxItems(combo,
-        std::span(names).first(context.quick_skin_count + 1)), "Settings::SkinCombo");
-    for (size_t i = 0; i < context.quick_skin_count; ++i) {
-        if (gsl::at(context.quick_skin_choices, i) == context.preview_skin_id)
-            ::SendMessageW(combo, CB_SETCURSEL, i, 0);
+    size_t selection = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const auto id = gsl::at(choices, i);
+        gsl::at(names, i) = ImeSkinDisplayName(context.skin_catalog, id, language).data();
+        if (id == selected) selection = i;
     }
+    gsl::at(names, count) = LocalizedUiText(language, L"更多…", L"More...");
+    const HRESULT replaced = ReplaceComboBoxItems(::GetDlgItem(hwnd, kIdComboImeSkin),
+        std::span(names).first(count + 1));
+    if (!log::CheckHResult(replaced, "Settings::SkinCombo")) return replaced;
+    const HRESULT result = SelectSettingsComboItem(hwnd, kIdComboImeSkin, selection);
+    if (FAILED(result)) return result;
+
+    context.quick_skin_choices = choices;
+    context.quick_skin_count = count;
+    context.preview_skin_id = selected;
+    ::SetDlgItemTextW(hwnd, kIdLblImeSkin, FAILED(context.skin_catalog_result) ?
+        LocalizedUiText(language, L"皮肤（配置不可用）", L"Skin (unavailable)") :
+        LocalizedUiText(language, L"皮肤", L"Skin"));
+    return S_OK;
 }
 
 void UpdateSettingsSkinPreview(HWND hwnd, DialogContext& context) noexcept {
@@ -427,9 +432,14 @@ void HandleSettingsSkinSelection(HWND hwnd, DialogContext& context) noexcept {
         UpdateSettingsSkinPreview(hwnd, context);
         return;
     }
-    PopulateSettingsSkinCombo(hwnd, context);
+    const auto language = GetSelectedUiLanguageFromCombo(hwnd, context);
+    const HRESULT populated = PopulateSettingsSkinCombo(hwnd, context, language, context.preview_skin_id);
+    if (FAILED(populated)) {
+        ReportSkinConfigurationFailure(hwnd, language, populated);
+        return;
+    }
     if (FAILED(context.skin_catalog_result)) {
-        ReportSkinConfigurationFailure(hwnd, GetSelectedUiLanguageFromCombo(hwnd, context), context.skin_catalog_result);
+        ReportSkinConfigurationFailure(hwnd, language, context.skin_catalog_result);
         return;
     }
     QiQiConfig draft;
@@ -449,9 +459,9 @@ void HandleSettingsSkinSelection(HWND hwnd, DialogContext& context) noexcept {
     if (!::IsWindow(hwnd) ||
         reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA)) != original) return;
     if (result == S_OK) {
-        context.preview_skin_id = selected;
-        PopulateSettingsSkinCombo(hwnd, context);
-        UpdateSettingsSkinPreview(hwnd, context);
+        const HRESULT applied = PopulateSettingsSkinCombo(hwnd, context, draft.ui_language, selected);
+        if (SUCCEEDED(applied)) UpdateSettingsSkinPreview(hwnd, context);
+        else ReportSkinConfigurationFailure(hwnd, draft.ui_language, applied);
     } else if (FAILED(result)) ReportSkinConfigurationFailure(hwnd, draft.ui_language, result);
 }
 

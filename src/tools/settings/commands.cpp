@@ -68,6 +68,14 @@ void ShowSettingsSaveFailure(HWND hwnd, UiLanguage ui_language) noexcept {
     ShowSettingsMessage(hwnd, ui_language, SettingsMessageKind::SaveFailure);
 }
 
+void RetrySettingsBeforeSave(HWND hwnd, DialogContext& ctx, UiLanguage language) {
+    const auto* const original = &ctx;
+    RequestSettingsConfigRefresh(hwnd, ctx);
+    if (reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA)) == original && !ctx.done) {
+        ShowSettingsMessage(hwnd, language, SettingsMessageKind::DraftUnavailable);
+    }
+}
+
 void CheckPrimaryDictRadio(HWND hwnd, PrimaryDict dict) noexcept {
     int target_id = kIdRadioJidian;
     if (dict == PrimaryDict::Haifeng) {
@@ -190,8 +198,16 @@ bool BrowseCustomPrimaryDictionary(HWND hwnd, const DialogContext& ctx) noexcept
 } // namespace
 
 void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
-    if (ctx.done || ctx.transfer_in_progress) return;
-    switch (LOWORD(wparam)) {
+    if (ctx.done || ctx.transfer_in_progress || ctx.applying_draft) return;
+    const UINT id = LOWORD(wparam);
+    if (ctx.draft_to_recover && id != kIdBtnCancel && id != kIdBtnDictManager &&
+        id != kIdBtnExportConfig && id != kIdBtnOpenGitHub) {
+        if (id == kIdBtnOk) {
+            RetrySettingsBeforeSave(hwnd, ctx, ctx.draft_to_recover->ui_language);
+        }
+        return;
+    }
+    switch (id) {
         case kIdRadioJidian:
             CheckPrimaryDictRadio(hwnd, PrimaryDict::Jidian);
             ctx.last_valid_primary_dict = PrimaryDict::Jidian;
@@ -225,7 +241,7 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
             return;
         case kIdComboUiLang:
             if (HIWORD(wparam) == CBN_SELCHANGE) {
-                RenderSettingsLanguage(hwnd, ctx);
+                RefreshSettingsLanguage(hwnd, ctx);
             }
             return;
         case kIdChkEasyReading:
@@ -333,6 +349,10 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                 }
                 if (reinterpret_cast<const DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA)) != original ||
                     ctx.done) return;
+                if (ctx.draft_to_recover) {
+                    RetrySettingsBeforeSave(hwnd, ctx, ctx.draft_to_recover->ui_language);
+                    return;
+                }
                 if (edited.ime_skin_id != ImeSkinId::Default) {
                     if (FAILED(
                             ctx.skin_catalog_result)) {

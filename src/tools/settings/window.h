@@ -55,7 +55,8 @@ enum class SettingsMessageKind {
     NotificationFailure,
     DictManagerLaunchFailure,
     InvalidPrimaryDict,
-    SaveConflict
+    SaveConflict,
+    DraftUnavailable
 };
 
 ScopedWindow CreateSettingsMessageWindow(

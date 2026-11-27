@@ -223,6 +223,16 @@ layout/painting refactors. Keep changes small and independently verifiable.
   [transfer](../src/tools/settings/transfer.cpp) and
   [window handling](../src/tools/settings/window.cpp). Preserve validation,
   confirmation, cancellation, save-failure, preview, and notification behavior.
+- [x] Complete [Settings draft refresh](../src/tools/settings/binding.cpp)
+  failure handling beyond the Space/Enter combo. Detect failures in other
+  draft-bearing controls and keep the last applied baseline and revision. If
+  an update stops partway, restore the previous draft or block saving until
+  a retry applies the complete draft. Extend the [save regressions](../tests/tools/settings/save.cpp)
+  to verify that a mixed draft cannot be saved and the same revision can be retried.
+- [x] Consolidate the Settings language combo mapping into one small table of
+  `UiLanguage` values and localized label fields. Reuse it for initial
+  population, language refresh, and reading/writing the selection. Preserve
+  option order and selection when relabeling; do not introduce MVVM.
 - [ ] High priority: keep installer cleanup policy/plan, execution outcome,
   diagnostic history, and remaining work separate, using plain records and
   functions. Validate a deletable user identity only for selected per-user
