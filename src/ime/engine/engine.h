@@ -213,7 +213,7 @@ public:
     sync::Version PhraseFreqSyncVersion() const noexcept { return phrase_freq_sync_version_; }
 
     // Mode & configuration management
-    void ApplyConfig(const QiQiConfig& cfg);
+    HRESULT ApplyConfig(const QiQiConfig& cfg);
     bool IsChineseMode() const noexcept { return state_ != EngineState::English; }
     void SetChineseMode(bool enabled) noexcept;
     void ToggleChineseMode() noexcept;
@@ -234,8 +234,12 @@ public:
     void SetShowCodeHint(bool enabled) noexcept { show_code_hint_ = enabled; }
     bool EnableCodeCompletion() const noexcept { return enable_code_completion_; }
     void SetEnableCodeCompletion(bool enabled) noexcept { enable_code_completion_ = enabled; }
-    // Returns a new candidate snapshot when the setting changes during Wubi composition.
-    KeyProcessResult SetSingleCharacterMode(bool enabled);
+    // Returns a new candidate snapshot when the filters change during Wubi composition.
+    HRESULT SetCandidateFilters(bool single_character, bool full_code_practice,
+                                KeyProcessResult& update, const std::filesystem::path& index_path = {});
+    KeyProcessResult SetSingleCharacterMode(bool enabled) {
+        return RefreshCandidateFilters(enabled, full_code_practice_);
+    }
     bool EnableZTempEnglish() const noexcept { return enable_z_temp_english_; }
     void SetEnableZTempEnglish(bool enabled) noexcept { enable_z_temp_english_ = enabled; }
     bool DynamicPhraseFreq() const noexcept { return dynamic_phrase_freq_; }
@@ -293,7 +297,7 @@ public:
     // Apply a deferred phrase promotion after host edit session access is confirmed.
     void ApplyDeferredPhrasePromotion(const KeyProcessResult& result, bool allow_learn = true);
 
-    // Exact lookup with optional code completion; wildcard queries remain independent.
+    // Input lookup with optional completion and wildcards (exact full codes only in practice).
     std::vector<std::wstring> LookupCandidates(
         std::wstring_view code, std::vector<std::wstring>* out_display_labels = nullptr) const;
     std::vector<std::wstring> LookupExact(std::wstring_view code) const;
@@ -330,6 +334,9 @@ private:
     TransitionOutcome ResolveCandidateCommit(
         size_t index_in_page, bool allow_learn = true, bool defer_phrase_promotion = false);
     void RefreshCandidates();
+    KeyProcessResult RefreshCandidateFilters(bool single_character, bool full_code_practice);
+    std::vector<std::wstring> LookupInputExact(uint32_t packed_code) const;
+    std::vector<std::wstring> LookupExact(uint32_t packed_code, const FullCodeIndex* full_codes) const;
     KeyProcessResult MakeCurrentStateResult(KeyActionType action, std::wstring committed = L"") const;
 
     // Table-driven Command handlers corresponding 1:1 to TransitionOp
@@ -403,6 +410,8 @@ private:
     bool show_code_hint_ = true;
     bool enable_code_completion_ = true;
     bool single_character_mode_ = false;
+    bool full_code_practice_ = false;
+    std::shared_ptr<const FullCodeIndex> full_code_index_;
     bool enable_z_temp_english_ = true;
     bool dynamic_phrase_freq_ = false;
     bool beep_on_empty_4code_ = true;

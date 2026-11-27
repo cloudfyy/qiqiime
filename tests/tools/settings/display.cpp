@@ -320,8 +320,15 @@ void TestSettingsDisplayPreview() {
         ::SendDlgItemMessageW(dialog.Get(), id, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(value), 0);
         ::SendMessageW(dialog.Get(), WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE), 0);
     };
-    {
+    const auto check_candidate_preview = [&](COLORREF expected) {
+        SelectSettingsPage(dialog.Get(), *context, SettingsPage::Candidates);
         const HWND preview = ::GetDlgItem(dialog.Get(), kIdCandidatePreview);
+        EnsureSettingsControlVisible(dialog.Get(), preview, *context);
+        RECT visible{};
+        QIQI_TEST_CHECK(::GetWindowRect(preview, &visible));
+        ::MapWindowPoints(nullptr, dialog.Get(), reinterpret_cast<POINT*>(&visible), 2);
+        QIQI_TEST_CHECK(visible.top >= context->page_bounds.top &&
+                        visible.bottom <= context->page_bounds.bottom);
         RECT preview_bounds{};
         QIQI_TEST_CHECK(::GetClientRect(preview, &preview_bounds));
         const ScopedMemoryDC preview_dc(::CreateCompatibleDC(tab_dc.Get()));
@@ -335,6 +342,12 @@ void TestSettingsDisplayPreview() {
         item.hwndItem = preview;
         item.hDC = preview_dc.Get();
         item.rcItem = preview_bounds;
+        QIQI_TEST_CHECK(::SetPixelV(preview_dc.Get(), 2, 2, expected ^ RGB(255, 255, 255)));
+        QIQI_TEST_CHECK(::SendMessageW(dialog.Get(), WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item)) == TRUE);
+        QIQI_TEST_CHECK(::GetPixel(preview_dc.Get(), 2, 2) == expected);
+        SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
+    };
+    {
         for (const bool app_dark : {false, true}) {
             for (const bool windows_dark : {false, true}) {
                 SetThemeDarkOverrideForTest(app_dark);
@@ -349,19 +362,14 @@ void TestSettingsDisplayPreview() {
                     QIQI_TEST_CHECK(::SendMessageW(tabs, TCM_GETITEMRECT, 0, reinterpret_cast<LPARAM>(&unselected)));
                     QIQI_TEST_CHECK(::GetPixel(painted.Get(), unselected.left + 4, unselected.top + 4) ==
                                     GetThemePalette(app_dark).window_bg);
-                    SelectSettingsPage(dialog.Get(), *context, SettingsPage::Candidates);
-                    ::SendMessageW(dialog.Get(), WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item));
-                    QIQI_TEST_CHECK(::GetPixel(preview_dc.Get(), 2, 2) == GetThemePalette(app_dark).window_bg);
-                    SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);
+                    check_candidate_preview(GetThemePalette(app_dark).window_bg);
                 }
             }
         }
         SetHighContrastOverrideForTest(true);
         ::SendMessageW(dialog.Get(), WM_SETTINGCHANGE, 0, 0);
         QIQI_TEST_CHECK(context->d2d.appearance.system_high_contrast);
-        SelectSettingsPage(dialog.Get(), *context, SettingsPage::Candidates);
-        ::SendMessageW(dialog.Get(), WM_DRAWITEM, item.CtlID, reinterpret_cast<LPARAM>(&item));
-        QIQI_TEST_CHECK(::GetPixel(preview_dc.Get(), 2, 2) == ::GetSysColor(COLOR_WINDOW));
+        check_candidate_preview(::GetSysColor(COLOR_WINDOW));
         SetHighContrastOverrideForTest(false);
         ::SendMessageW(dialog.Get(), WM_THEMECHANGED, 0, 0);
         SelectSettingsPage(dialog.Get(), *context, SettingsPage::Display);

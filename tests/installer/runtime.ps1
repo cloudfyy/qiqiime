@@ -45,6 +45,11 @@ try {
     Remove-Item -LiteralPath $dataFile
     Assert-MissingRuntime $dlls $false "Missing required data file*"
     [System.IO.File]::WriteAllText($dataFile, "")
+    $fullIndex = Join-Path $dataDir "full.idx"
+    $misplacedIndex = Join-Path $x86Dir "full.idx"
+    Move-Item -LiteralPath $fullIndex -Destination $misplacedIndex
+    Assert-MissingRuntime $dlls $false "Missing shared data file (full.idx)*"
+    Move-Item -LiteralPath $misplacedIndex -Destination $fullIndex
 
     $x64Dir = Join-Path $fixture "x64"
     New-Item -ItemType Directory -Path $x64Dir -Force | Out-Null

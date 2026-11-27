@@ -11,7 +11,8 @@ $script:QiQiProfileGuid = "{8E7B9D31-5A42-4C81-9F11-202610290002}"
 $script:QiQiDataFileNames = @(
     "wubi86_jidian.txt",
     "wubi86_jidian_extra.txt",
-    "wubi86_haifeng.txt"
+    "wubi86_haifeng.txt",
+    "full.idx"
 )
 $script:QiQiToolExeNames = @(
     "QiQiIMESettings.exe",
@@ -259,6 +260,12 @@ function Test-QiQiRuntimeFiles(
         }
         $parentDir = if ($item.Directory.Parent) { $item.Directory.Parent.FullName } else { $item.DirectoryName }
         foreach ($reqFile in $script:QiQiDataFileNames) {
+            if ($reqFile -eq "full.idx") {
+                if (-not (Test-Path -LiteralPath (Join-Path $parentDir "data\$reqFile") -PathType Leaf)) {
+                    throw "Missing shared data file ($reqFile) for $($archInfo.Name) DLL in ..\data"
+                }
+                continue
+            }
             $candidates = @(
                 (Join-Path $item.DirectoryName $reqFile),
                 (Join-Path $parentDir "data\$reqFile"),

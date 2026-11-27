@@ -177,6 +177,9 @@
         <File Id="FileDictHaifeng" Source="$(var.StageDir)\data\wubi86_haifeng.txt" />
         <RemoveFile Id="RemovePrebuiltQdict" Name="*.qdict" On="uninstall" />
       </Component>
+      <Component Id="CmpFullCodeIndex" Directory="DirData" Guid="$(var.ComponentGuidPrefix)0108">
+        <File Id="FileFullCodeIndex" Source="$(var.StageDir)\data\full.idx" KeyPath="yes" />
+      </Component>
 
       <!-- Management scripts -->
       <Component Id="CmpScripts" Directory="DirScripts" Guid="$(var.ComponentGuidPrefix)0104">

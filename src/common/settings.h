@@ -11,6 +11,7 @@ enum class SettingsToastKind {
     SaveFailure,
     NotificationFailure,
     LaunchFailure,
+    FullCodeUnavailable,
 };
 
 using SettingsLauncherForTest =

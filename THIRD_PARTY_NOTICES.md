@@ -111,6 +111,31 @@ source revision, applicable license/notices, and conversion changes together.
   The complete copyright, conditions, and disclaimer are also retained as
   comments in the converted dictionary's header.
 
+### Wubi 86 full-code practice reference
+
+The same [Haifeng source revision](https://github.com/definite/ibus-table-chinese/tree/bac13d268344311d48ad9bbc09c7df48b304066f/tables/wubi-haifeng)
+also supplies the shared [full-code reference](data/full.idx), distributed
+under **BSD-3-Clause** with the copyright of SUN Haifeng (2010).
+It contains 70,297 character/code pairs from the primary 86-code column of
+`GBK.tab`, `CJKa.tab`, and `CJKb.tab`, not the abbreviation or tolerance columns.
+The map uses one code per Unicode scalar, with ASCII case normalized and rows
+with no code omitted. The original dictionary and its aliases are unchanged.
+The 2010 BSD license and attribution above accompany the generated data.
+
+To regenerate, place those three pinned tables, `COPYING`, and `GBSimplified.tab`
+in a local directory and run:
+
+```powershell
+.\scripts\generate_haifeng_fullcodes.ps1 -UpstreamDirectory <source-directory>
+```
+
+The [generator](scripts/generate_haifeng_fullcodes.ps1) verifies all five
+source hashes, validates character identities and codes, and cross-checks
+the complete-code columns in `GBSimplified.tab`. The output SHA-256 is
+`c99b1e4cfa20b5132279508d7c697d9806dbe9b939f61c7fb5efb0adeaa7df07`.
+The binary ships once beside the dictionaries; normal builds neither need the
+raw source files nor access the network.
+
 ## Microsoft Guidelines Support Library (GSL)
 
 - Upstream: [microsoft/GSL](https://github.com/microsoft/GSL).

@@ -97,14 +97,19 @@ try {
                         "CmpDocs" { "0105" }
                         "CmpStartMenuShortcuts" { "0106" }
                         "CmpLicenses" { "0107" }
+                        "CmpFullCodeIndex" { "0108" }
                         default { throw "Unexpected component: $($component.Component)" }
                     }
                     Assert-True ($component.ComponentId -eq "{8E7B9D31-5A42-4C81-9F11-$guidPrefix$suffix}") "Component upgrade identity changed in $path"
                 }
                 $files = @(Read-MsiTable $database "File" @("File", "Component_", "FileName"))
-                $expectedNonLicenseFileCount = if ($arch -eq "x64") { 29 } else { 22 }
+                $expectedNonLicenseFileCount = if ($arch -eq "x64") { 30 } else { 23 }
                 $expectedFileCount = $expectedNonLicenseFileCount + $expectedLicenses.Count
                 Assert-True ($files.Count -eq $expectedFileCount) "Unexpected payload count in ${path}: expected $expectedFileCount, found $($files.Count)."
+                $fullCodeFile = @($files | Where-Object { $_.FileName.Split('|')[-1] -eq "full.idx" })
+                $fullCodeComponent = @($components | Where-Object { $_.Component -eq "CmpFullCodeIndex" })
+                Assert-True ($fullCodeFile.Count -eq 1 -and $fullCodeFile[0].Component_ -eq "CmpFullCodeIndex" -and
+                    $fullCodeComponent.Count -eq 1 -and $fullCodeComponent[0].Directory_ -eq "DirData") "Expected one shared data\full.idx in $path"
                 $documentation = @($files | Where-Object { $_.Component_ -eq "CmpDocs" } | ForEach-Object { $_.FileName.Split('|')[-1] })
                 foreach ($name in @("LICENSE", "README.md", "README.en.md", "PRIVACY.md", "CODE_SIGNING.md", "THIRD_PARTY_NOTICES.md", "install.md", "log.md", "release-notes.md")) {
                     Assert-True ($name -in $documentation) "Missing documentation $name in $path"

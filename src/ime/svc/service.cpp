@@ -11,6 +11,7 @@
 #include "common/guids.h"
 #include "common/logger.h"
 #include "common/metric.h"
+#include "common/settings.h"
 #include "common/version.h"
 
 #include <oleauto.h>
@@ -104,7 +105,10 @@ QiQiTextService::QiQiTextService(HINSTANCE instance)
                 "config; refresh is pending");
         }
     }
-    engine_.ApplyConfig(config_);
+    const HRESULT configured = engine_.ApplyConfig(config_);
+    if (!log::CheckHResult(configured, "IME::ApplyCandidateFilters") && config_.full_code_practice) {
+        ShowSettingsToast(config_.ui_language, SettingsToastKind::FullCodeUnavailable);
+    }
     engine_.SetUserDictPath(GetDefaultUserDictPath());
     engine_.SetPhraseFreqPath(GetDefaultPhraseFreqPath());
     std::ignore = engine_.LoadPhraseFrequencies(engine_.PhraseFreqPath());

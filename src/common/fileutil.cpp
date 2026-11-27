@@ -11,6 +11,7 @@
 #include <limits>
 #include <new>
 #include <string>
+#include <utility>
 
 namespace qiqi {
 namespace {
@@ -148,6 +149,34 @@ std::filesystem::path GetAppDataDirectory() {
         buffer.resize(length);
         return std::filesystem::path(buffer) / L"QiQiIME";
     }
+}
+
+HRESULT ReadOnlyFileMapping::Open(
+    const std::filesystem::path& path, size_t minimum_size, size_t maximum_size) noexcept {
+    // Disallow in-place writes and pipe impersonation, but allow atomic file replacement.
+    ScopedFileHandle file(::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS, nullptr));
+    if (!file) return HRESULT_FROM_WIN32(::GetLastError());
+    if (::GetFileType(file.Get()) != FILE_TYPE_DISK) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    LARGE_INTEGER size{};
+    if (!::GetFileSizeEx(file.Get(), &size)) return HRESULT_FROM_WIN32(::GetLastError());
+    if (!std::cmp_greater_equal(size.QuadPart, minimum_size) || std::cmp_greater(size.QuadPart, maximum_size))
+        return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    const ScopedKernelHandle mapping(::CreateFileMappingW(file.Get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
+    if (!mapping) return HRESULT_FROM_WIN32(::GetLastError());
+    ScopedMappedView view(::MapViewOfFile(mapping.Get(), FILE_MAP_READ, 0, 0, 0));
+    if (!view) return HRESULT_FROM_WIN32(::GetLastError());
+    Reset();
+    file_ = std::move(file);
+    view_ = std::move(view);
+    size_ = gsl::narrow_cast<size_t>(size.QuadPart);
+    return S_OK;
+}
+
+void ReadOnlyFileMapping::Reset() noexcept {
+    view_.Reset();
+    file_.Reset();
+    size_ = 0;
 }
 
 bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& out_content) {

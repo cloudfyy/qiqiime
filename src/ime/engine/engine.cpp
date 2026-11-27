@@ -3,6 +3,7 @@
 
 #include "ime/engine/engine.h"
 #include "ime/engine/builtindict.h"
+#include "ime/engine/fullcode.h"
 #include "common/logger.h"
 
 #include <windows.h>
@@ -28,7 +29,7 @@ constexpr EngineState WubiStateForCodeLength(size_t length) noexcept {
 
 } // namespace
 
-void WubiEngine::ApplyConfig(const QiQiConfig& cfg) {
+HRESULT WubiEngine::ApplyConfig(const QiQiConfig& cfg) {
     SetPageSize(cfg.page_size);
     auto_commit_4code_ = cfg.auto_commit_4code;
     push_commit_5th_ = cfg.push_commit_5th;
@@ -46,7 +47,6 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) {
     full_width_mode_ = cfg.default_full_width;
     chinese_punctuation_ = cfg.default_chinese_punct;
     SetChineseMode(cfg.default_chinese_mode);
-    std::ignore = SetSingleCharacterMode(cfg.single_character_mode);
     QIQI_LOG_DEBUG(
         "WubiEngine::ApplyConfig: page_size={}, auto4={}, push5={}, beep_empty4={}, "
         "clear_empty4={}, key_sound={}, full_width={}, cn_punct={}, cn_mode={}",
@@ -59,6 +59,8 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) {
         full_width_mode_,
         chinese_punctuation_,
         IsChineseMode());
+    KeyProcessResult update;
+    return SetCandidateFilters(cfg.single_character_mode, cfg.full_code_practice, update);
 }
 
 void WubiEngine::SetPageSize(size_t page_size) noexcept {
@@ -183,10 +185,27 @@ void WubiEngine::RefreshCandidates() {
     }
 }
 
-KeyProcessResult WubiEngine::SetSingleCharacterMode(bool enabled) {
-    if (enabled == single_character_mode_) return {};
+HRESULT WubiEngine::SetCandidateFilters(bool single_character, bool full_code_practice,
+                                       KeyProcessResult& update, const std::filesystem::path& index_path) {
+    try {
+        if (full_code_practice && !full_code_index_) {
+            auto index = std::make_shared<FullCodeIndex>();
+            const HRESULT opened = index_path.empty() ? index->OpenBundled() : index->Open(index_path);
+            if (FAILED(opened)) return opened;
+            full_code_index_ = std::move(index);
+        }
+        update = RefreshCandidateFilters(single_character, full_code_practice);
+        return S_OK;
+    } catch (const std::bad_alloc&) {
+        return E_OUTOFMEMORY;
+    }
+}
+
+KeyProcessResult WubiEngine::RefreshCandidateFilters(bool single_character, bool full_code_practice) {
+    if (single_character == single_character_mode_ && full_code_practice == full_code_practice_) return {};
     if (!IsWubiComposingState(state_)) {
-        single_character_mode_ = enabled;
+        single_character_mode_ = single_character;
+        full_code_practice_ = full_code_practice;
         return {};
     }
 
@@ -194,7 +213,8 @@ KeyProcessResult WubiEngine::SetSingleCharacterMode(bool enabled) {
     auto old_display = std::move(all_display_candidates_);
     const size_t old_page = current_page_;
     const size_t old_selection = selected_in_page_;
-    const bool old_mode = std::exchange(single_character_mode_, enabled);
+    const bool old_single_character = std::exchange(single_character_mode_, single_character);
+    const bool old_full_code = std::exchange(full_code_practice_, full_code_practice);
     bool refreshed = false;
     const auto rollback = gsl::finally([&]() noexcept {
         if (refreshed) return;
@@ -202,7 +222,8 @@ KeyProcessResult WubiEngine::SetSingleCharacterMode(bool enabled) {
         all_display_candidates_ = std::move(old_display);
         current_page_ = old_page;
         selected_in_page_ = old_selection;
-        single_character_mode_ = old_mode;
+        single_character_mode_ = old_single_character;
+        full_code_practice_ = old_full_code;
     });
     RefreshCandidates();
     auto result = MakeCurrentStateResult(KeyActionType::UpdateState);
@@ -286,7 +307,7 @@ WubiEngine::TransitionOutcome WubiEngine::HandleAppend4thCode(const KeyInputCont
     // Standard Wubi 86 4-code auto-commit:
     // When reaching 4 codes without wildcard 'z' and there is a unique exact match, commit immediately!
     if (raw_code_.find(L'z') == std::wstring::npos) {
-        const auto exact = LookupExact(raw_code_);
+        const auto exact = LookupInputExact(PackWubiCode(raw_code_));
         if (auto_commit_4code_ && exact.size() == 1) {
             return CommitAndClear(exact.front());
         }

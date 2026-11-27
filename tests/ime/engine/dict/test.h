@@ -37,6 +37,8 @@ void TestBinaryDictBufferValidation();
 void TestAddEntryAndLookupEdgeCases();
 void TestCodeCompletionLookup();
 void TestSingleCharacterLookupBeforeCandidateLimit();
+void TestFullCodePracticeLookupBeforeCandidateLimit();
+void TestFullCodeIndexReadFailure();
 void TestExternalDictFile();
 void TestFallbackCacheSourceIsolation();
 void TestCrossProcessDictAndPhraseFreqSync();

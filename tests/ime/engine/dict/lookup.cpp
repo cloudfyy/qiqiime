@@ -87,6 +87,77 @@ void TestSingleCharacterLookupBeforeCandidateLimit() {
     QIQI_TEST_CHECK(std::ranges::contains(engine.LookupExact(L"wqvb"), L"你好"));
 }
 
+void TestFullCodePracticeLookupBeforeCandidateLimit() {
+    std::vector<std::wstring> words;
+    for (int i = 0; i < 60; ++i) words.push_back(L"alias" + std::to_wstring(i));
+    words.emplace_back(L"\U00020000");
+    const std::map<uint32_t, std::vector<std::wstring>> entries{
+        {PackWubiCode(L"ghab"), std::move(words)}};
+    std::vector<uint8_t> bytes;
+    WubiMappedDict::CompileEntriesToBinaryBuffer(entries, bytes);
+    WubiEngine engine;
+    QIQI_TEST_CHECK(engine.LoadDictionaryFromBinaryBuffer(std::move(bytes)));
+    engine.PinEntry(L"ghab", L"好");
+    engine.AddEntry(L"wvwq", L"你好你");
+    engine.AddEntry(L"wvvl", L"你好好中国");
+    engine.AddEntry(L"wvvl", L"你好好X国");
+    const auto ordinary = engine.LookupCandidates(L"ghab");
+    QIQI_TEST_CHECK(ordinary.size() == 50 && !std::ranges::contains(ordinary, L"\U00020000"));
+
+    KeyProcessResult updated;
+    QIQI_TEST_CHECK(engine.SetCandidateFilters(false, true, updated) == S_OK);
+    std::vector<std::wstring> labels;
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"ghab", &labels) == std::vector<std::wstring>{L"\U00020000"});
+    QIQI_TEST_CHECK(labels == std::vector<std::wstring>{L"\U00020000"});
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"wqvb") == std::vector<std::wstring>{L"你好"});
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"wvwq") == std::vector<std::wstring>{L"你好你"});
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"wvvl") == std::vector<std::wstring>{L"你好好中国"});
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"gha", &labels).empty() && labels.empty());
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"ghaz", &labels).empty() && labels.empty());
+
+    QIQI_TEST_CHECK(engine.SetCandidateFilters(true, true, updated) == S_OK);
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"wqvb").empty());
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"ghab") == std::vector<std::wstring>{L"\U00020000"});
+}
+
+void TestFullCodeIndexReadFailure() {
+    const auto directory = std::filesystem::temp_directory_path() /
+        (L"QiQiFullCodeTest_" + std::to_wstring(::GetCurrentProcessId()));
+    QIQI_TEST_CHECK(std::filesystem::create_directory(directory));
+    const auto index = directory / L"full.idx";
+    const auto cleanup = gsl::finally([&]() noexcept {
+        std::error_code error;
+        std::filesystem::remove(index, error);
+        QIQI_TEST_CHECK_CLEANUP(!error);
+        QIQI_TEST_CHECK_CLEANUP(std::filesystem::remove(directory, error) && !error);
+    });
+    WubiEngine engine;
+    KeyProcessResult changed;
+    QIQI_TEST_CHECK(engine.SetCandidateFilters(false, false, changed, index) == S_OK);
+    QIQI_TEST_CHECK(engine.SetCandidateFilters(false, true, changed, index) == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND));
+    QIQI_TEST_CHECK(std::ranges::contains(engine.LookupCandidates(L"vb"), L"好"));
+
+    const auto installed = GetModuleFilePath(nullptr).parent_path().parent_path() / L"data" / L"full.idx";
+    std::string bytes;
+    QIQI_TEST_CHECK(ReadFileToUtf8StringResult(installed, bytes) == S_OK && bytes.size() > 16);
+    const char original_version = bytes.at(4);
+    bytes.at(4) = '\x7f';
+    QIQI_TEST_CHECK(WriteFileAtomically(index, codec::AsByteSpan(bytes)));
+    QIQI_TEST_CHECK(engine.SetCandidateFilters(false, true, changed, index) == HRESULT_FROM_WIN32(ERROR_UNKNOWN_REVISION));
+
+    bytes.at(4) = original_version;
+    const char original_byte = bytes.back();
+    bytes.back() = gsl::narrow_cast<char>(original_byte ^ 1);
+    QIQI_TEST_CHECK(WriteFileAtomically(index, codec::AsByteSpan(bytes)));
+    QIQI_TEST_CHECK(engine.SetCandidateFilters(false, true, changed, index) == HRESULT_FROM_WIN32(ERROR_CRC));
+    QIQI_TEST_CHECK(std::ranges::contains(engine.LookupCandidates(L"vb"), L"好"));
+
+    bytes.back() = original_byte;
+    QIQI_TEST_CHECK(WriteFileAtomically(index, codec::AsByteSpan(bytes)));
+    QIQI_TEST_CHECK(engine.SetCandidateFilters(false, true, changed, index) == S_OK);
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"vb").empty());
+}
+
 void TestAddEntryAndLookupEdgeCases() {
     WubiEngine engine;
     QIQI_TEST_CHECK(!engine.IsComposing());

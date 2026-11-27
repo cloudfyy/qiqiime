@@ -45,6 +45,8 @@ constexpr bool IsSingleUtf16Codepoint(std::wstring_view text) noexcept {
 
 std::vector<std::wstring_view> SplitUtf16Codepoints(std::wstring_view text);
 
+bool MatchesFullWubiCode(const FullCodeIndex& index, uint32_t packed_code, std::wstring_view word);
+
 std::vector<uint8_t> EncodeDictEntryDelta(
     uint32_t packed_code, std::wstring_view word, std::wstring_view new_word = {});
 

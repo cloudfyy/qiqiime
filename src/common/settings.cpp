@@ -56,6 +56,8 @@ const wchar_t* GetToastText(
             return str.quick_settings_notify_failed;
         case SettingsToastKind::LaunchFailure:
             return str.quick_settings_open_failed;
+        case SettingsToastKind::FullCodeUnavailable:
+            return str.dlg_full_code_unavailable;
         default:
             QIQI_LOG_ERROR("Unknown Settings toast kind");
             return nullptr;

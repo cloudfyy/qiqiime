@@ -43,6 +43,21 @@ struct ChangeHandleTraits : FileHandleTraits {
 void ProbeReader(const std::filesystem::path& directory, const wchar_t* registry_subkey, HANDLE ready) {
     const TestStage stage(__func__);
     RequireAppContainerToken();
+    {
+        WubiEngine practice;
+        KeyProcessResult update;
+        const auto denied = directory / L"denied.idx";
+        const auto allowed = directory / L"full.idx";
+        QIQI_TEST_CHECK(practice.SetCandidateFilters(false, false, update, denied) == S_OK);
+        QIQI_TEST_CHECK(practice.SetCandidateFilters(false, true, update, denied) == E_ACCESSDENIED);
+        QIQI_TEST_CHECK(std::ranges::contains(practice.LookupCandidates(L"vb"), L"好"));
+        const ScopedFileHandle writer(::CreateFileW(allowed.c_str(), GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        QIQI_TEST_CHECK(!writer && ::GetLastError() == ERROR_ACCESS_DENIED);
+        QIQI_TEST_CHECK(practice.SetCandidateFilters(false, true, update, allowed) == S_OK);
+        QIQI_TEST_CHECK(practice.LookupCandidates(L"vb").empty());
+        QIQI_TEST_CHECK(practice.LookupCandidates(L"vbg") == std::vector<std::wstring>{L"好"});
+    }
     SetConfigRegistrySubKeyOverrideForTest(registry_subkey);
     QIQI_TEST_CHECK(::SetEnvironmentVariableW(L"LOCALAPPDATA", L"C:\\QiQiContainerPrivate"));
     std::filesystem::path discovered;
@@ -227,6 +242,14 @@ void TestAppContainerTransport(const std::filesystem::path& peer) {
     QIQI_TEST_CHECK(host_engine.AddUserEntry(L"qrst", L"短语二", user_dict));
     QIQI_TEST_CHECK(host_engine.InitializeUserDictionarySharing() == S_OK);
     QIQI_TEST_CHECK(::SetFileSecurityW(user_dict.c_str(),
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
+    const auto full_index = GetModuleFilePath(nullptr).parent_path().parent_path() / L"data" / L"full.idx";
+    const auto denied_index = fixture.directory / L"denied.idx";
+    std::string index_bytes;
+    QIQI_TEST_CHECK(ReadFileToUtf8StringResult(full_index, index_bytes) == S_OK);
+    QIQI_TEST_CHECK(WriteFileAtomically(fixture.directory / L"full.idx", codec::AsByteSpan(index_bytes)));
+    QIQI_TEST_CHECK(WriteFileAtomically(denied_index, codec::AsByteSpan(index_bytes)));
+    QIQI_TEST_CHECK(::SetFileSecurityW(denied_index.c_str(),
         DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw));
     for (const auto* name : {L"MissingSnapshot", L"DeniedSnapshot", L"MissingJournal"}) {
         const auto source_path = fixture.directory / (std::wstring(name) + L".txt");

@@ -18,6 +18,7 @@
 
 #include "common/dictcodec.h"
 #include "common/dicttypes.h"
+#include "common/fileutil.h"
 #include "common/wubicode.h"
 #include "common/RAII.h"
 
@@ -82,6 +83,7 @@ static_assert(sizeof(DictCodeIndex) == 12);
 static_assert(sizeof(DictWordSlice) == 8);
 
 class WubiMappedDict;
+class FullCodeIndex;
 
 enum class PrimaryDictValidationStatus : uint8_t {
     Valid = 0,
@@ -163,7 +165,7 @@ public:
         uint32_t expected_version = codec::kDictBinaryVersion);
 
     bool IsValid() const noexcept { return !code_index_.empty(); }
-    bool IsMemoryMapped() const noexcept { return mapped_view_.IsValid(); }
+    bool IsMemoryMapped() const noexcept { return !mapping_.Bytes().empty(); }
     bool IsSourceModified() const noexcept;
     const std::filesystem::path& SourcePath() const noexcept { return source_path_; }
     size_t CodeCount() const noexcept { return code_index_.size(); }
@@ -171,7 +173,7 @@ public:
 
     // Append exact matches for packed_code into out_words (deduplicated).
     void LookupExact(uint32_t packed_code, std::vector<std::wstring>& out_words,
-                     bool single_character_only = false) const;
+                     bool single_character_only = false, const FullCodeIndex* full_codes = nullptr) const;
 
     // Append prefix matches in [prefix_lo, prefix_hi] (excluding exact_code) up to max_results,
     // optionally recording "word(~suffix)" progressive code hints in out_display_labels.
@@ -221,11 +223,9 @@ private:
     bool AppendWordsForCodeEntry(const DictCodeIndex& entry,
                                  std::vector<std::wstring>& out_words,
                                  size_t max_results,
-                                 bool single_character_only) const;
+                                 bool single_character_only, const FullCodeIndex* full_codes = nullptr) const;
 
-    ScopedFileHandle file_handle_;
-    ScopedKernelHandle mapping_handle_;
-    ScopedMappedView mapped_view_;
+    ReadOnlyFileMapping mapping_;
     std::vector<uint8_t> fallback_buffer_;
     std::filesystem::path source_path_;
     uint64_t loaded_src_size_ = 0;

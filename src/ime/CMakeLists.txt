@@ -18,6 +18,8 @@ set(QIQI_ENGINE_SOURCES
     engine/dictfreq.cpp
     engine/dictload.cpp
     engine/dictlookup.cpp
+    engine/fullcode.cpp
+    engine/fullcode.h
     engine/dictsync.cpp
     engine/dictuser.cpp
     engine/engine.h
@@ -27,6 +29,8 @@ set(QIQI_ENGINE_SOURCES
 add_library(qiqi_engine STATIC ${QIQI_ENGINE_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${QIQI_ENGINE_SOURCES})
 target_link_libraries(qiqi_engine PUBLIC qiqi_common)
+
+configure_file("${PROJECT_SOURCE_DIR}/data/full.idx" "${CMAKE_BINARY_DIR}/data/full.idx" COPYONLY)
 
 set(QIQIIME_SOURCES
     tsf/dllmain.cpp

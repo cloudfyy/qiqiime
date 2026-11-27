@@ -65,6 +65,7 @@ struct UiStrings {
     const wchar_t* dlg_chk_code_hint;
     const wchar_t* dlg_chk_code_completion;
     const wchar_t* dlg_chk_single_character;
+    const wchar_t* dlg_chk_full_code_practice;
     const wchar_t* dlg_chk_dynamic_freq;
     const wchar_t* dlg_chk_shift_toggle;
     const wchar_t* dlg_lbl_english_switch;
@@ -100,6 +101,7 @@ struct UiStrings {
     const wchar_t* dlg_save_failed;
     const wchar_t* dlg_save_conflict;
     const wchar_t* dlg_draft_unavailable;
+    const wchar_t* dlg_full_code_unavailable;
     const wchar_t* dlg_notify_failed;
     const wchar_t* dlg_dict_manager_launch_failed;
     const wchar_t* quick_settings_save_failed;
@@ -177,6 +179,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"显示后续编码提示 (~code)",
     L"编码补全",
     L"单字模式（仅显示单字候选）",
+    L"全码练习（不使用简码、补全或通配）",
     L"启用词组动态调频 (单字不调频)",
     L"允许单按 Shift 键切换中英文",
     L"未完成输入的处理:",
@@ -212,6 +215,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"保存设置失败，请重试。",
     L"设置版本已变化或尚未同步。你的修改仍保留，请在设置刷新后再次点“确定”。",
     L"设置未能完整刷新，本次未保存。已保留之前的编辑。请等待刷新，确认各项设置后再点“确定”。",
+    L"无法读取或验证全码索引。全码练习未启用，请修复安装或检查读取权限。",
     L"设置已保存，切换窗口后全面生效。",
     L"无法启动词库管理器。请确认 QiQiIMEDictManager.exe 已安装，且当前用户有权运行该程序。具体错误码已记录到日志。",
     L"保存设置失败，请重试。",
@@ -230,7 +234,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"• QiQi 主程序 (cloudfyy): GPL-3.0-or-later\n"
     L"• 极点五笔 86 固定词库快照 (KyleBing): Apache License 2.0\n"
     L"• rime-wubi86-jidian 上游许可副本 (KyleBing): MIT License\n"
-    L"• 海峰五笔 86 词库 (孙海峰): BSD 3-Clause License\n"
+    L"• 海峰五笔 86 词库及全码数据 (孙海峰): BSD 3-Clause License\n"
     L"• Microsoft GSL (Microsoft): MIT License\n"
     L"• nlohmann/json (Niels Lohmann): MIT License\n"
     L"• miniz (Rich Geldreich / RAD Game Tools): MIT License\n"
@@ -311,6 +315,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Show progressive code hints (~code)",
     L"Code completion",
     L"Single-character mode (hide multi-character candidates)",
+    L"Full-code practice (no shortcuts, completion or wildcards)",
     L"Dynamic phrase frequency (single chars fixed)",
     L"Toggle CN/EN mode with Shift key",
     L"Unfinished input:",
@@ -346,6 +351,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Settings could not be saved. Your edits remain in this window. Please retry.",
     L"The settings version changed or has not loaded yet. Your edits are kept. Wait for Settings to refresh, then click OK again.",
     L"Settings could not finish refreshing. Nothing was saved. Your previous edits are kept. Wait for the refresh, review the values, then click OK again.",
+    L"The full-code index could not be read or verified. Full-code practice was not enabled. Repair the installation or check read permissions.",
     L"Settings were saved, but the running IME could not be notified. Reactivate the IME to load the new settings.",
     L"Cannot start Dictionary Manager. Check that QiQiIMEDictManager.exe is installed and the current user can run it. The error code was recorded in the log.",
     L"Could not save setting. The previous setting is unchanged.",
@@ -364,7 +370,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"• QiQi Core (cloudfyy): GPL-3.0-or-later\n"
     L"• Jidian Wubi 86 fixed dictionary snapshot (KyleBing): Apache License 2.0\n"
     L"• rime-wubi86-jidian upstream license copy (KyleBing): MIT License\n"
-    L"• Haifeng Wubi 86 Dict (SUN Haifeng): BSD 3-Clause License\n"
+    L"• Haifeng Wubi 86 dictionary and full-code data (SUN Haifeng): BSD 3-Clause License\n"
     L"• Microsoft GSL (Microsoft): MIT License\n"
     L"• nlohmann/json (Niels Lohmann): MIT License\n"
     L"• miniz (Rich Geldreich / RAD Game Tools): MIT License\n"

@@ -13,6 +13,7 @@ void TestFourCodeUniqueAutoCommit();
 void TestFifthKeyPushAutoCommit();
 void TestCodeCompletionInput();
 void TestSingleCharacterInput();
+void TestFullCodePracticeInput();
 void TestWildcardAndBackspaceAndCancel();
 void TestNavigationSelectionAndReturnCommit();
 
@@ -27,6 +28,7 @@ void RunEngineInputTests() {
     TestFifthKeyPushAutoCommit();
     TestCodeCompletionInput();
     TestSingleCharacterInput();
+    TestFullCodePracticeInput();
     TestWildcardAndBackspaceAndCancel();
     TestNavigationSelectionAndReturnCommit();
 }

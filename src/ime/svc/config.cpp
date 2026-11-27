@@ -1236,16 +1236,17 @@ QiQiTextService::ReloadResult QiQiTextService::ReloadConfigIfModified(uint64_t f
         ++dictionary_reload_calls;
         const auto dictionaries = LoadExternalDictionaryNextToDll();
         if (!dictionaries.succeeded) result.Fail(dictionaries.error);
-        try {
-            const auto update = engine_.SetSingleCharacterMode(config_.single_character_mode);
-            if (update.action == KeyActionType::UpdateState) {
-                candidate_refresh_owner = this;
-                const auto context = composition_lifecycle_.Context();
-                if (context) ApplyEngineResult(context.Get(), update);
+        KeyProcessResult update;
+        const HRESULT filters = engine_.SetCandidateFilters(config_.single_character_mode, config_.full_code_practice, update);
+        if (!log::CheckHResult(filters, "ReloadConfigIfModified::CandidateFilters")) {
+            result.Fail(filters);
+            if (config_.full_code_practice) {
+                ShowSettingsToast(config_.ui_language, SettingsToastKind::FullCodeUnavailable);
             }
-        } catch (const std::bad_alloc&) {
-            result.Fail(E_OUTOFMEMORY);
-            std::ignore = log::CheckHResult(E_OUTOFMEMORY, "ReloadConfigIfModified::SingleCharacterMode");
+        } else if (update.action == KeyActionType::UpdateState) {
+            candidate_refresh_owner = this;
+            const auto context = composition_lifecycle_.Context();
+            if (context) ApplyEngineResult(context.Get(), update);
         }
         SyncTsfCompartments();
         QIQI_LOG_ACT_INFO(

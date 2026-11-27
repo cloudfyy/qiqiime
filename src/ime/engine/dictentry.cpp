@@ -3,6 +3,7 @@
 
 #include "ime/engine/dictdetail.h"
 #include "ime/engine/builtindict.h"
+#include "ime/engine/fullcode.h"
 #include "common/logger.h"
 
 #include <algorithm>
@@ -175,14 +176,15 @@ std::wstring WubiEngine::LookupCharacterCode(std::wstring_view ch) const {
     return best;
 }
 
-std::wstring WubiEngine::EncodePhraseWubi86(std::wstring_view phrase) const {
-    const auto chars = SplitUtf16Codepoints(phrase);
+namespace {
+
+std::wstring EncodePhraseFromCodes(std::span<const std::wstring_view> chars, const auto& lookup_code) {
     if (chars.size() < 2) {
         return {};
     }
 
-    auto resolve_char_code = [this](std::wstring_view ch) -> std::wstring {
-        std::wstring c = LookupCharacterCode(ch);
+    const auto resolve_char_code = [&lookup_code](std::wstring_view ch) {
+        auto c = lookup_code(ch);
         if (c.size() == 1) {
             c.push_back(c.front());
         }
@@ -220,6 +222,28 @@ std::wstring WubiEngine::EncodePhraseWubi86(std::wstring_view phrase) const {
         return {};
     }
     return {c1.front(), c2.front(), c3.front(), c_last.front()};
+}
+
+} // namespace
+
+std::wstring WubiEngine::EncodePhraseWubi86(std::wstring_view phrase) const {
+    const auto characters = SplitUtf16Codepoints(phrase);
+    return EncodePhraseFromCodes(characters, [this](std::wstring_view character) {
+        return LookupCharacterCode(character);
+    });
+}
+
+bool dictdetail::MatchesFullWubiCode(const FullCodeIndex& index, uint32_t packed_code, std::wstring_view word) {
+    if (packed_code == 0) return false;
+    if (IsSingleUtf16Codepoint(word)) return packed_code == index.CharacterCode(word);
+    if ((packed_code & 0xFFu) == 0) return false; // The Wubi 86 phrase rule produces four keys.
+    const auto characters = SplitUtf16Codepoints(word);
+    if (std::ranges::any_of(characters, [&index](std::wstring_view character) noexcept {
+            return index.CharacterCode(character) == 0;
+        })) return false;
+    return packed_code == PackWubiCode(EncodePhraseFromCodes(characters, [&index](std::wstring_view character) {
+        return UnpackWubiCode(index.CharacterCode(character));
+    }));
 }
 
 bool WubiEngine::AddUserPhrase(std::wstring_view phrase, const std::filesystem::path& user_dict_path) {

@@ -103,12 +103,13 @@ HRESULT DictManagerModel::ReloadAllResult() {
         return present && !ec;
     };
 
-    const QiQiConfig cfg = LoadConfig();
+    QiQiConfig cfg = LoadConfig();
+    cfg.full_code_practice = false;
     if (publish_user_dict_directory_) {
         user_dict_path_ = cfg.user_dict_path.empty() ? GetDefaultUserDictPath() :
             ResolveConfiguredDictionaryPath(module_dir_, cfg.user_dict_path);
     }
-    engine_.ApplyConfig(cfg);
+    check(engine_.ApplyConfig(cfg));
     engine_.SetDynamicPhraseFreq(true);
 
     const PrimaryDictLoadSummary primary_summary =

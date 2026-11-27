@@ -88,6 +88,10 @@ void TestStandaloneRestoreDefaults() {
         initial.primary_dict = PrimaryDict::Haifeng;
         initial.page_size = 9;
         initial.enable_key_sound = true;
+        initial.enable_code_completion = false;
+        initial.single_character_mode = true;
+        initial.full_code_practice = true;
+        initial.space_enter_mode = WubiSpaceEnterMode::EnterSelectSpaceClear;
         initial.ui_language = UiLanguage::EnUs;
         initial.user_dict_path = L"preserved_startup_words.txt";
         QIQI_TEST_CHECK(SaveConfig(initial));

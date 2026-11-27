@@ -159,6 +159,15 @@ retains its own objects and heap allocations. In-memory fallback is available
 only when usable binary data was produced; it cannot recover an unreadable source
 or guarantee dictionary availability.
 
+Full-code practice uses the shared `data\full.idx` alongside the bundled
+dictionaries. Normal input does not open this file. When practice is enabled,
+the engine opens the installed file with read access, validates its version
+and pinned payload, and retains a read-only mapping. MSI's existing inherited
+read/execute access covers this file; no extra capabilities or write grants are
+used. A missing or denied file leaves the host in its previous input mode and
+reports the failure. The AppContainer sync fixture checks both readable and
+denied cases with a real container token; it is not a real-app acceptance test.
+
 ## Diagnostics and input restrictions
 
 Use the [log monitor or ETW tools](log.md), not the settings executable, to capture

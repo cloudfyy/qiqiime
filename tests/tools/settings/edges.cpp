@@ -22,7 +22,7 @@ struct CheckboxCase {
     const wchar_t* UiStrings::* label;
 };
 
-constexpr std::array<CheckboxCase, 16> kCheckboxCases = {{
+constexpr std::array<CheckboxCase, 17> kCheckboxCases = {{
     {kIdChkExtraDict, &QiQiConfig::enable_jidian_extra, &UiStrings::dlg_chk_extra},
     {kIdChkAutoCommit4, &QiQiConfig::auto_commit_4code, &UiStrings::dlg_chk_auto_commit4},
     {kIdChkPushCommit5, &QiQiConfig::push_commit_5th, &UiStrings::dlg_chk_push_commit5},
@@ -30,6 +30,7 @@ constexpr std::array<CheckboxCase, 16> kCheckboxCases = {{
     {kIdChkCodeHint, &QiQiConfig::show_code_hint, &UiStrings::dlg_chk_code_hint},
     {kIdChkCodeCompletion, &QiQiConfig::enable_code_completion, &UiStrings::dlg_chk_code_completion},
     {kIdChkSingleCharacter, &QiQiConfig::single_character_mode, &UiStrings::dlg_chk_single_character},
+    {kIdChkFullCodePractice, &QiQiConfig::full_code_practice, &UiStrings::dlg_chk_full_code_practice},
     {kIdChkDynamicFreq, &QiQiConfig::dynamic_phrase_freq, &UiStrings::dlg_chk_dynamic_freq},
     {kIdChkShiftToggle, &QiQiConfig::shift_toggle_mode, &UiStrings::dlg_chk_shift_toggle},
     {kIdChkStatusBar, &QiQiConfig::show_status_bar, &UiStrings::dlg_chk_status_bar},

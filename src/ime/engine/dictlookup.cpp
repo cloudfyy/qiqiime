@@ -18,6 +18,12 @@ constexpr bool AllowsCandidateWord(std::wstring_view word, bool single_character
     return !single_character_only || dictdetail::IsSingleUtf16Codepoint(word);
 }
 
+bool AllowsExactCandidate(uint32_t packed_code, std::wstring_view word,
+                          bool single_character_only, const FullCodeIndex* full_codes) {
+    return AllowsCandidateWord(word, single_character_only) &&
+        (!full_codes || dictdetail::MatchesFullWubiCode(*full_codes, packed_code, word));
+}
+
 } // namespace
 
 std::wstring_view WubiMappedDict::GetWordView(const DictWordSlice& slice) const noexcept {
@@ -32,12 +38,12 @@ bool WubiMappedDict::AppendWordsForCodeEntry(
     const DictCodeIndex& entry,
     std::vector<std::wstring>& out_words,
     size_t max_results,
-    bool single_character_only) const {
+    bool single_character_only, const FullCodeIndex* full_codes) const {
     const size_t end_idx = std::min<size_t>(
         gsl::narrow_cast<size_t>(entry.first_word_idx) + entry.word_count, word_slices_.size());
     for (size_t i = entry.first_word_idx; i < end_idx; ++i) {
         const std::wstring_view word = GetWordView(gsl::at(word_slices_, i));
-        if (!word.empty() && AllowsCandidateWord(word, single_character_only)) {
+        if (!word.empty() && AllowsExactCandidate(entry.packed_code, word, single_character_only, full_codes)) {
             AppendUniqueWord(out_words, word);
             if (out_words.size() >= max_results) {
                 return true;
@@ -48,7 +54,8 @@ bool WubiMappedDict::AppendWordsForCodeEntry(
 }
 
 void WubiMappedDict::LookupExact(
-    uint32_t packed_code, std::vector<std::wstring>& out_words, bool single_character_only) const {
+    uint32_t packed_code, std::vector<std::wstring>& out_words,
+    bool single_character_only, const FullCodeIndex* full_codes) const {
     if (packed_code == 0 || code_index_.empty()) {
         return;
     }
@@ -62,7 +69,7 @@ void WubiMappedDict::LookupExact(
     if (it == code_index_.end() || it->packed_code != packed_code) {
         return;
     }
-    AppendWordsForCodeEntry(*it, out_words, SIZE_MAX, single_character_only);
+    AppendWordsForCodeEntry(*it, out_words, SIZE_MAX, single_character_only, full_codes);
 }
 
 void WubiMappedDict::LookupPrefix(
@@ -176,14 +183,22 @@ std::wstring WubiMappedDict::FindLongestCodeForWord(std::wstring_view word) cons
 }
 
 std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const {
-    const uint32_t packed = PackWubiCode(code);
+    return LookupExact(PackWubiCode(code), nullptr);
+}
+
+std::vector<std::wstring> WubiEngine::LookupInputExact(uint32_t packed) const {
+    return LookupExact(packed, full_code_practice_ ? full_code_index_.get() : nullptr);
+}
+
+std::vector<std::wstring> WubiEngine::LookupExact(uint32_t packed, const FullCodeIndex* full_codes) const {
     if (packed == 0) {
         return {};
     }
 
     std::vector<std::wstring> results;
     const auto append_exact_word = [&](std::wstring_view word) {
-        if (AllowsCandidateWord(word, single_character_mode_) && !IsEntryRemoved(packed, word)) {
+        if (AllowsExactCandidate(packed, word, single_character_mode_, full_codes) &&
+            !IsEntryRemoved(packed, word)) {
             AppendUniqueWord(results, word);
         }
     };
@@ -195,7 +210,7 @@ std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const 
     const size_t pinned_count = results.size();
 
     for (const auto& mapped : mapped_dicts_) {
-        mapped->LookupExact(packed, results, single_character_mode_);
+        mapped->LookupExact(packed, results, single_character_mode_, full_codes);
     }
     if (!removed_entries_.empty()) {
         std::erase_if(results, [&](const std::wstring& w) { return IsEntryRemoved(packed, w); });
@@ -264,6 +279,7 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(
     const bool has_wildcard = (code.find(L'z') != std::wstring_view::npos) ||
                               (code.find(L'Z') != std::wstring_view::npos);
     if (has_wildcard) {
+        if (full_code_practice_) return results;
         const auto append_wildcard_word = [&](uint32_t packed_code, std::wstring_view word) {
             if (!AllowsCandidateWord(word, single_character_mode_)) return false;
             const size_t prev_sz = results.size();
@@ -298,14 +314,14 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(
     }
 
     // 1. Exact matches first
-    results = LookupExact(code);
+    results = LookupInputExact(exact_code);
     if (results.size() > kMaxCandidateResults) {
         results.resize(kMaxCandidateResults);
     }
     if (out_display_labels) {
         *out_display_labels = results;
     }
-    if (!enable_code_completion_ || results.size() >= kMaxCandidateResults) {
+    if (full_code_practice_ || !enable_code_completion_ || results.size() >= kMaxCandidateResults) {
         return results;
     }
 

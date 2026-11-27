@@ -90,6 +90,14 @@ and AppContainer guides are available in English.
   legacy `.qbak` files are no longer accepted.
 - Optional four-code unique-candidate commit, fifth-key commit, empty-code
   clearing, wildcard lookup, code hints, and a `z`-prefixed temporary English mode.
+- **Full-code practice** (off by default, under Settings → Candidates) accepts
+  only verified exact encodings already in the active dictionaries, including
+  three-key full codes such as `vbg` for 好. Practice hides abbreviations,
+  completion results, wildcards, and unverified aliases without changing
+  dictionaries or saved completion preferences. Temporary English, punctuation,
+  and raw-code commits are unchanged. The shared `data\full.idx` is mapped only
+  when enabling practice. A missing, invalid, or unreadable index prevents
+  enabling practice; ordinary input does not depend on it.
 - Chinese/English, full-width/half-width, and Chinese/English punctuation modes.
 - **Unfinished input:** Commit raw code (default) or Discard unfinished input
   applies when leaving an input field or window, switching to English mode,

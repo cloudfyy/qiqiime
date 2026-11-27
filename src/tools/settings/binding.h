@@ -49,7 +49,7 @@ struct SettingsCheckboxBinding {
     int width_px;
 };
 
-constexpr std::array<SettingsCheckboxBinding, 16> kSettingsCheckboxes = {{
+constexpr std::array<SettingsCheckboxBinding, 17> kSettingsCheckboxes = {{
     {kIdChkExtraDict, &QiQiConfig::enable_jidian_extra, &UiStrings::dlg_chk_extra,
      layout::kLeftColumn, layout::kDictionaryFirstRow + layout::kDictionaryRowStep, layout::kOptionWidth},
     {kIdChkAutoCommit4, &QiQiConfig::auto_commit_4code, &UiStrings::dlg_chk_auto_commit4,
@@ -64,6 +64,8 @@ constexpr std::array<SettingsCheckboxBinding, 16> kSettingsCheckboxes = {{
      layout::kLeftColumn, layout::kInputFirstRow + 7 * layout::kInputRowStep, layout::kOptionWidth},
     {kIdChkSingleCharacter, &QiQiConfig::single_character_mode, &UiStrings::dlg_chk_single_character,
      layout::kLeftColumn, layout::kInputFirstRow + 8 * layout::kInputRowStep, layout::kOptionWidth},
+    {kIdChkFullCodePractice, &QiQiConfig::full_code_practice, &UiStrings::dlg_chk_full_code_practice,
+     layout::kLeftColumn, layout::kInputFirstRow + 9 * layout::kInputRowStep, layout::kOptionWidth},
     {kIdChkDynamicFreq, &QiQiConfig::dynamic_phrase_freq, &UiStrings::dlg_chk_dynamic_freq,
      layout::kLeftColumn, layout::kInputFirstRow + 4 * layout::kInputRowStep, layout::kOptionWidth},
     {kIdChkShiftToggle, &QiQiConfig::shift_toggle_mode, &UiStrings::dlg_chk_shift_toggle,

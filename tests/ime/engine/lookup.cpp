@@ -120,6 +120,60 @@ void TestSingleCharacterInput() {
     QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_PERIOD).committed_text == L"。");
 }
 
+void TestFullCodePracticeInput() {
+    WubiEngine engine;
+    engine.PinEntry(L"vb", L"好");
+    engine.AddEntry(L"xyqa", L"好");
+    engine.AddEntry(L"wqiy", L"好");
+    const auto type = [&](std::string_view keys) {
+        engine.Reset();
+        for (const unsigned char key : keys) {
+            QIQI_TEST_CHECK(engine.ProcessKey(key).action == KeyActionType::UpdateState);
+        }
+    };
+
+    type("VB");
+    QIQI_TEST_CHECK(std::ranges::contains(engine.AllCandidates(), L"好"));
+    KeyProcessResult refreshed;
+    QIQI_TEST_CHECK(engine.SetCandidateFilters(false, true, refreshed) == S_OK);
+    QIQI_TEST_CHECK(refreshed.action == KeyActionType::UpdateState && refreshed.composition_text == L"vb" &&
+                    refreshed.all_candidates.empty() && engine.State() == EngineState::Composing2);
+    QIQI_TEST_CHECK(engine.EnableCodeCompletion() && std::ranges::contains(engine.LookupExact(L"vb"), L"好"));
+    for (const UINT key : {UINT{'1'}, UINT{VK_OEM_1}, UINT{VK_OEM_7}}) {
+        QIQI_TEST_CHECK(engine.ProcessKey(key).action == KeyActionType::UpdateState);
+    }
+    QIQI_TEST_CHECK(engine.CommitCandidate(0).action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_SPACE).committed_text == L"vb");
+
+    type("VB");
+    const auto full = engine.ProcessKey('G');
+    QIQI_TEST_CHECK(full.action == KeyActionType::UpdateState &&
+                    full.all_candidates == std::vector<std::wstring>{L"好"});
+    engine.SetSpaceEnterMode(WubiSpaceEnterMode::EnterSelectSpaceClear);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_RETURN).committed_text == L"好");
+    engine.SetSpaceEnterMode(WubiSpaceEnterMode::SpaceSelectEnterCode);
+
+    type("WQI");
+    QIQI_TEST_CHECK(engine.AllCandidates().empty());
+    QIQI_TEST_CHECK(engine.ProcessKey('Y').committed_text == L"你");
+    type("XYQA");
+    QIQI_TEST_CHECK(engine.AllCandidates().empty());
+    QIQI_TEST_CHECK(engine.ProcessKey('B').committed_text == L"xyqa");
+    type("WQZ");
+    QIQI_TEST_CHECK(engine.AllCandidates().empty() && engine.AllDisplayCandidates().empty());
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_RETURN).committed_text == L"wqz");
+    type("ZHELLO");
+    QIQI_TEST_CHECK(engine.IsTempEnglishMode() && engine.ProcessKey(VK_SPACE).committed_text == L"hello");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_PERIOD).committed_text == L"。");
+
+    type("WQ");
+    KeyProcessResult ordinary;
+    QIQI_TEST_CHECK(engine.SetCandidateFilters(false, false, ordinary) == S_OK);
+    QIQI_TEST_CHECK(ordinary.action == KeyActionType::UpdateState &&
+                    std::ranges::contains(ordinary.all_candidates, L"你") &&
+                    std::ranges::contains(ordinary.all_candidates, L"你好"));
+}
+
 void TestWildcardAndBackspaceAndCancel() {
     WubiEngine engine;
     // "wqz" wildcard query should match "你" (wqi / wqiy) and show code hints in AllDisplayCandidates()

@@ -23,7 +23,7 @@
 
 | 功能 | 状态 | 当前能力与缺口 |
 | --- | --- | --- |
-| 一级、二级、三级简码；关闭后仅全码 | 部分 | 已有各级简码；缺独立的简码禁用/全码练习模式，见 W03。关闭“编码补全”只取消更长编码的前缀候选，仍能提交简码。 |
+| 一级、二级、三级简码；关闭后仅全码 | 已做 | W03 全码练习默认关闭；开启后只显示可核验的精确全码。仅关闭“编码补全”仍可提交简码。 |
 | 四码唯一自动上屏 | 已做 | `auto_commit_4code` 默认开启；不含 `z` 通配符且只有一个精确候选时提交，可为单字或词组。 |
 | 词语联想 | 未做 | 提交后没有关联词候选。现有 `dynamic_phrase_freq` 仅调整同编码词组的最近选择顺序，不是联想，见 W12。 |
 | 二字、三字、四字及多字词组输入 | 已做 | 支持码表词组；造词取码规则已有 2+2、1+1+2、前三字及末字首码。 |
@@ -83,7 +83,7 @@ P2 补充可配置性及数据能力，P3 为较大扩展或暂缓项。
 | --- | --- | --- | --- |
 | 1 | P1 | [W01 空格/回车三种模式](#wubi-w01)（已完成） | 三选一设置，保留旧默认。 |
 | 2 | P1 | [W02 单字模式](#wubi-w02)（已完成） | 候选限额和四码唯一判断前筛选。 |
-| 3 | P1 | [W03 简码开关 / 全码练习](#wubi-w03) | 与编码补全独立；先确认真实全码、自定义简码及提示策略。 |
+| 3 | P1 | [W03 全码练习](#wubi-w03)（已完成） | 仅允许可核验的精确全码，不改词库或 FSM。 |
 | 4 | P1 | [W04 以词定字](#wubi-w04) | 复用现有候选选择/上屏；先定义入口及首末字语义。 |
 | 5 | P1 | [W05 离线拼音反查五笔码](#wubi-w05) | 高频补盲能力；先解决数据许可和入口，不被字根素材阻塞。 |
 | 6 | P2 | [W06 可选 CapsLock 中英切换](#wubi-w06) | 复用统一模式切换与未完成输入策略，保留默认英文直通。 |
@@ -993,13 +993,16 @@ status-bar/tooltip skin support require separate design approval.
   expose it in the settings UI, and add focused lookup/configuration tests.
   Prioritize this task over the short-code and single-character controls below.
 
-- [ ] <a id="wubi-w03"></a> **W03 / P1:** Add short-code control / full-code practice mode.
-  Confirm the intended behavior before implementation, including whether
-  incomplete-code hints remain visible and how custom short codes are handled.
-  If full-code-only mode is chosen, prevent short-code commits through every
-  selection path and identify actual complete codes rather than requiring four
-  letters universally. Keep this separate from prefix completion, preserve
-  dictionary files, and add focused lookup and commit-path tests.
+- [x] <a id="wubi-w03"></a> **W03 / P1:** Add full-code practice, off by default.
+  `FullCodePractice` (`full_code_practice` in backups) restricts input and
+  four-code auto-commit to exact candidate pairs verified against the
+  [Haifeng reference](../THIRD_PARTY_NOTICES.md#wubi-86-full-code-practice-reference)
+  and existing phrase rules. Includes genuine three-key full codes and
+  supplementary characters. Temporarily suppress completion and wildcards
+  without changing saved preferences or dictionary data. Unknown aliases
+  remain available in ordinary mode. The shared `data\full.idx` is opened
+  read-only on enable under the existing AppContainer permissions. No FSM
+  states, events or transitions are changed.
 
 - [x] <a id="wubi-w02"></a> **W02 / P1:** Add single-character mode (off by default)
   to the Settings Candidates page. Exact, prefix and wildcard lookups filter

@@ -9,6 +9,7 @@
 #include "common/wubicode.h"
 #include "common/zip.h"
 #include "ime/engine/dict.h"
+#include "ime/engine/fullcode.h"
 
 #include <gsl/gsl>
 #include <algorithm>
@@ -188,14 +189,15 @@ HRESULT CompleteBackup::ReloadStateResult() {
         }
         return present && !error;
     };
-    const QiQiConfig config = LoadConfig();
+    QiQiConfig config = LoadConfig();
+    config.full_code_practice = false;
     if (publish_user_dict_directory_) {
         user_dict_path_ = config.user_dict_path.empty()
             ? GetDefaultUserDictPath()
             : ResolveConfiguredDictionaryPath(
                 module_dir_, config.user_dict_path);
     }
-    engine_.ApplyConfig(config);
+    check(engine_.ApplyConfig(config));
     engine_.SetDynamicPhraseFreq(true);
     const PrimaryDictLoadSummary primary =
         engine_.LoadConfiguredPrimaryDictionaries(
@@ -326,6 +328,14 @@ BackupRestoreResult CompleteBackup::RestoreFile(
         result.error = read_result;
         return result;
     }
+    if (plan.config_changed && plan.config.full_code_practice) {
+        FullCodeIndex index;
+        if (const HRESULT opened = index.OpenBundled(); FAILED(opened)) {
+            result.stage = BackupRestoreStage::Validate;
+            result.error = opened;
+            return result;
+        }
+    }
     if (plan.custom_primary_dictionary) {
         const HRESULT validation =
             ValidatePrimaryDictionaryBackup(
@@ -339,7 +349,13 @@ BackupRestoreResult CompleteBackup::RestoreFile(
     }
 
     engine_ = WubiEngine{};
-    engine_.ApplyConfig(LoadConfig());
+    auto engine_config = LoadConfig();
+    engine_config.full_code_practice = false;
+    if (const HRESULT configured = engine_.ApplyConfig(engine_config); FAILED(configured)) {
+        result.stage = BackupRestoreStage::Prepare;
+        result.error = configured;
+        return result;
+    }
     engine_.SetDynamicPhraseFreq(true);
     engine_.SetUserDictPath(user_dict_path_);
     engine_.SetPhraseFreqPath(phrase_freq_path_);

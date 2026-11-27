@@ -123,6 +123,7 @@ void TestSettingsZipBackupFlow() {
     archived.ui_theme = UiTheme::Dark;
     archived.enable_code_completion = false;
     archived.single_character_mode = true;
+    archived.full_code_practice = true;
     archived.commit_on_english_switch = false;
     QIQI_TEST_CHECK(WriteFileAtomically(
         custom, codec::AsByteSpan(std::string_view("abcd 自定义主词条\n"))));
@@ -170,6 +171,7 @@ void TestSettingsZipBackupFlow() {
     current.ui_theme = UiTheme::Light;
     current.enable_code_completion = true;
     current.single_character_mode = false;
+    current.full_code_practice = false;
     QIQI_TEST_CHECK(SaveConfig(current));
     QIQI_TEST_CHECK(source.AddUserEntryResult(L"mnop", L"本机保留词", user) == S_OK);
 
@@ -227,12 +229,12 @@ void TestSettingsZipBackupFlow() {
     QIQI_TEST_CHECK(LoadConfigFromRegistry(restored));
     QIQI_TEST_CHECK(restored.primary_dict == PrimaryDict::Custom &&
         restored.page_size == 7 && restored.ui_theme == UiTheme::Dark &&
-        !restored.enable_code_completion && restored.single_character_mode &&
+        !restored.enable_code_completion && restored.single_character_mode && restored.full_code_practice &&
         !restored.commit_on_english_switch);
     QiQiConfig visible;
     ReadSettingsFromWindowControls(window.Get(), visible);
     QIQI_TEST_CHECK(visible.page_size == restored.page_size &&
-        visible.ui_theme == restored.ui_theme && visible.single_character_mode);
+        visible.ui_theme == restored.ui_theme && visible.single_character_mode && visible.full_code_practice);
     QIQI_TEST_CHECK(QueryRegistryConfigSequence() > before_restore);
 
     WubiEngine loaded;

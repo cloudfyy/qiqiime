@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #pragma once
+#include "common/RAII.h"
 #include <windows.h>
 #include <cstddef>
 #include <cstdint>
@@ -46,6 +47,22 @@ bool ReadFileToUtf8String(const std::filesystem::path& file_path, std::string& o
 HRESULT ReadFileToUtf8StringResult(
     const std::filesystem::path& file_path, std::string& out_content,
     size_t max_bytes = 64 * 1024 * 1024);
+
+// Holds a stable read-only view and keeps the disk file open against in-place writes.
+class ReadOnlyFileMapping final {
+public:
+    HRESULT Open(const std::filesystem::path& path, size_t minimum_size, size_t maximum_size) noexcept;
+    void Reset() noexcept;
+    std::span<const uint8_t> Bytes() const noexcept {
+        if (!view_) return {};
+        return {static_cast<const uint8_t*>(view_.Get()), size_};
+    }
+
+private:
+    ScopedFileHandle file_;
+    ScopedMappedView view_;
+    size_t size_ = 0;
+};
 
 // Write a byte buffer atomically to target_path via an exclusive-write temporary file + MoveFileExW,
 // using ScopedFileHandle RAII and gsl::finally to guarantee temporary file cleanup on any error or exception.

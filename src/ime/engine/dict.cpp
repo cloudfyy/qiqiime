@@ -450,9 +450,7 @@ void WubiMappedDict::ResetViews() noexcept {
     code_index_ = {};
     word_slices_ = {};
     char_pool_ = {};
-    mapped_view_.Reset();
-    mapping_handle_.Reset();
-    file_handle_.Reset();
+    mapping_.Reset();
 }
 
 bool WubiMappedDict::BindBufferView(
@@ -476,74 +474,17 @@ bool WubiMappedDict::OpenMappedFile(
     uint64_t expected_src_mtime) noexcept {
     ResetViews();
 
-    // Open with least privilege:
-    // - GENERIC_READ only (no write/execute)
-    // - FILE_SHARE_READ | FILE_SHARE_DELETE: disallows concurrent in-place write/truncation while mapped
-    //   (preventing STATUS_IN_PAGE_ERROR), while allowing another process to atomically replace the cache
-    //   directory entry via WriteFileAtomically (MoveFileExW MOVEFILE_REPLACE_EXISTING) when .txt is updated.
-    // - SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS to prevent named-pipe token impersonation
-    ScopedFileHandle file(::CreateFileW(
-        bin_path.c_str(),
-        GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_DELETE,
-        nullptr,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL | SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS,
-        nullptr));
-    if (!file.IsValid()) {
-        const DWORD error = ::GetLastError();
-        QIQI_LOG_DEBUG("OpenMappedFile::CreateFileW failed (error={})", error);
+    constexpr size_t kMaxDictBytes = 128u * 1024u * 1024u;
+    if (!log::CheckHResult(mapping_.Open(bin_path, sizeof(DictBinaryHeader), kMaxDictBytes),
+            "OpenMappedFile::ReadOnlyMapping", log::Level::debug)) {
         return false;
     }
-    if (::GetFileType(file.Get()) != FILE_TYPE_DISK) {
-        QIQI_LOG_WARN("OpenMappedFile: cache is not a disk file");
-        return false;
-    }
-
-    LARGE_INTEGER file_size{};
-    constexpr LONGLONG kMaxDictBytes = 128LL * 1024LL * 1024LL; // 128 MB upper bound
-    if (!::GetFileSizeEx(file.Get(), &file_size)) {
-        const DWORD error = ::GetLastError();
-        QIQI_LOG_WARN("OpenMappedFile::GetFileSizeEx failed (error={})", error);
-        return false;
-    }
-    if (file_size.QuadPart < gsl::narrow_cast<LONGLONG>(sizeof(DictBinaryHeader)) ||
-        file_size.QuadPart > kMaxDictBytes) {
-        QIQI_LOG_WARN("OpenMappedFile: invalid cache file size ({} bytes)", file_size.QuadPart);
-        return false;
-    }
-
-    // Unnamed (anonymous) read-only file mapping (lpName == nullptr, PAGE_READONLY)
-    ScopedKernelHandle mapping(::CreateFileMappingW(
-        file.Get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
-    if (!mapping.IsValid()) {
-        const DWORD error = ::GetLastError();
-        QIQI_LOG_WARN("OpenMappedFile::CreateFileMappingW failed (error={})", error);
-        return false;
-    }
-
-    // Map with FILE_MAP_READ only
-    ScopedMappedView view(::MapViewOfFile(mapping.Get(), FILE_MAP_READ, 0, 0, 0));
-    if (!view.IsValid()) {
-        const DWORD error = ::GetLastError();
-        QIQI_LOG_WARN("OpenMappedFile::MapViewOfFile failed (error={})", error);
-        return false;
-    }
-
-    const std::span<const uint8_t> mapped_span(
-        static_cast<const uint8_t*>(view.Get()),
-        gsl::narrow_cast<size_t>(file_size.QuadPart));
-    if (!BindBufferView(mapped_span, expected_src_size, expected_src_mtime)) {
+    if (!BindBufferView(mapping_.Bytes(), expected_src_size, expected_src_mtime)) {
         QIQI_LOG_DEBUG("OpenMappedFile: cache header/timestamp mismatch for '{}', will rebuild",
                        WideToUtf8(bin_path.native()));
+        ResetViews();
         return false;
     }
-
-    // Keep `file_handle_` open with FILE_SHARE_READ to lock the backing file against concurrent
-    // write/truncation while mapped; `mapping_handle_` can be released immediately or retained.
-    file_handle_ = std::move(file);
-    mapping_handle_ = std::move(mapping);
-    mapped_view_ = std::move(view);
     return true;
 }
 

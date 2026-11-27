@@ -12,6 +12,7 @@
 #include "common/logger.h"
 #include "common/theme.h"
 #include "ime/engine/dict.h"
+#include "ime/engine/fullcode.h"
 
 #include <commctrl.h>
 #include <windowsx.h>
@@ -352,6 +353,13 @@ void HandleSettingsCommand(HWND hwnd, WPARAM wparam, DialogContext& ctx) {
                 if (ctx.draft_to_recover) {
                     RetrySettingsBeforeSave(hwnd, ctx, ctx.draft_to_recover->ui_language);
                     return;
+                }
+                if (edited.full_code_practice) {
+                    FullCodeIndex index;
+                    if (!log::CheckHResult(index.OpenBundled(), "Settings::FullCodeIndex")) {
+                        ShowSettingsMessage(hwnd, edited.ui_language, SettingsMessageKind::FullCodeUnavailable);
+                        return;
+                    }
                 }
                 if (edited.ime_skin_id != ImeSkinId::Default) {
                     if (FAILED(
