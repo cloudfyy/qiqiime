@@ -35,21 +35,19 @@ ImeSkinId PickerSkinId(const SkinPickerContext& context, size_t index) noexcept 
     return index == 0 ? ImeSkinId::Default : gsl::at(context.catalog.skins, index - 1).id;
 }
 
-bool RefreshPickerAppearance(HWND hwnd, SkinPickerContext& context) noexcept {
-    context.theme.SetDisplayPreferences(context.display);
-    auto font = CreateUiFont(context.theme.ScalePx(15), FW_NORMAL, CLEARTYPE_QUALITY);
-    if (!font) {
-        QIQI_LOG_ERROR("Skin picker font creation failed (error={})", ::GetLastError());
+constexpr int kPickerFontSize = 15;
+
+bool RefreshPickerAppearance(HWND hwnd, SkinPickerContext& context, UINT dpi) noexcept {
+    if (!UpdateToolWindowDisplay(hwnd, context.theme, context.font, context.display, dpi,
+            context.language, {}, kPickerFontSize)) {
+        QIQI_LOG_ERROR("Skin picker font creation failed");
         return false;
     }
-    for (const int id : {kIdSkinPickerList, IDOK, IDCANCEL})
-        ::SendDlgItemMessageW(hwnd, id, WM_SETFONT, reinterpret_cast<WPARAM>(font.Get()), TRUE);
-    context.font = std::move(font);
     auto candidate_font = CreateCandidateFont(
         context.candidate_font, kCandidateFontDefaultHeightPx,
         context.theme.dpi, context.display.text_scale);
     if (!candidate_font) {
-        QIQI_LOG_ERROR("Skin picker candidate preview font creation failed (error={})", ::GetLastError());
+        QIQI_LOG_ERROR("Skin picker candidate preview font creation failed");
         return false;
     }
     context.candidate_preview_font = std::move(candidate_font);
@@ -174,12 +172,11 @@ LRESULT CALLBACK SkinPickerWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
             return 0;
         case WM_THEMECHANGED:
         case WM_SETTINGCHANGE:
-            std::ignore = RefreshPickerAppearance(hwnd, *context);
+            std::ignore = RefreshPickerAppearance(hwnd, *context, context->theme.dpi);
             LayoutPicker(hwnd, *context);
             return 0;
         case WM_DPICHANGED:
-            context->theme.Init(HIWORD(wparam));
-            std::ignore = RefreshPickerAppearance(hwnd, *context);
+            std::ignore = RefreshPickerAppearance(hwnd, *context, HIWORD(wparam));
             if (lparam) {
                 const auto& bounds = *reinterpret_cast<const RECT*>(lparam);
                 ::SetWindowPos(hwnd, nullptr, bounds.left, bounds.top, bounds.right - bounds.left,
@@ -289,8 +286,9 @@ ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent, const Im
         context->language = language;
         context->candidate_font = candidate_font;
         const auto monitor = QueryActiveMonitor(parent);
-        context->theme.Init(monitor.dpi);
-        context->theme.SetDisplayPreferences(context->display);
+        if (!UpdateToolWindowDisplay(nullptr, context->theme, context->font, context->display, monitor.dpi,
+                language, {}, kPickerFontSize))
+            return fail(E_FAIL, "Skin picker font initialization");
         constexpr DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_CLIPCHILDREN;
         const RECT bounds = ComputeCenteredWindowBounds(context->theme.ScalePx(720), context->theme.ScalePx(540),
             style, 0, monitor.work_area);
@@ -323,8 +321,8 @@ ScopedWindow CreateSkinSelectionWindow(HINSTANCE instance, HWND parent, const Im
         if (ListView_InsertColumn(list, 0, &column) < 0) {
             return fail(E_FAIL, "Skin picker column creation");
         }
-        if (!RefreshPickerAppearance(window.Get(), picker))
-            return fail(last_error(), "Skin picker appearance initialization");
+        if (!RefreshPickerAppearance(window.Get(), picker, monitor.dpi))
+            return fail(E_FAIL, "Skin picker appearance initialization");
         LayoutPicker(window.Get(), picker);
         int selected = 0;
         for (size_t index = 0; index < picker.appearances.size(); ++index) {

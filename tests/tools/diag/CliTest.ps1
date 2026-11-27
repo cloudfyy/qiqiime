@@ -56,7 +56,11 @@ Assert-True ($chineseHelp.ExitCode -eq 0) "Chinese help failed."
 Assert-True ($chineseHelp.Stdout.Contains("语言")) "Chinese help ignored --language."
 $englishHelp = Invoke-QiQiDiag "--lang en-US --help"
 Assert-True ($englishHelp.ExitCode -eq 0) "English help failed."
-Assert-True ($englishHelp.Stdout.Contains("Select auto")) "English help ignored --lang."
+Assert-True ($englishHelp.Stdout.Contains("Override IME language")) "English help ignored --lang."
+$autoHelp = Invoke-QiQiDiag "--lang auto --help"
+Assert-True ($autoHelp.ExitCode -eq 0 -and
+    ($autoHelp.Stdout -eq $chineseHelp.Stdout -or $autoHelp.Stdout -eq $englishHelp.Stdout)
+) "Explicit auto did not resolve to a Windows UI language."
 
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ("qiqi-diag-cli-" + [guid]::NewGuid().ToString("N"))
 try {

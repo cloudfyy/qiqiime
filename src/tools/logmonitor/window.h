@@ -19,7 +19,7 @@ enum class ControlId { Start = 100, Pause, Clear, Export, Source, About, Process
                  MetricsView = 161, MetricInstanceFilter, MetricKindFilter,
                  MetricOutcomeFilter, MetricModeFilter, MetricWindowFilter, MetricList, MetricSummaryStatus,
                  MetricInstanceLabel, MetricKindLabel, MetricOutcomeLabel, MetricModeLabel, MetricWindowLabel,
-                 DiagnosticsView = 180 };
+                 DiagnosticsView = 180, LanguageFollowIme };
 
 class MonitorWindow final {
 public:
@@ -30,7 +30,7 @@ public:
     MonitorWindow(MonitorWindow&&) = delete;
     MonitorWindow& operator=(MonitorWindow&&) = delete;
     bool Create(HINSTANCE instance, std::optional<POINT> startup_point = std::nullopt,
-        UiLanguage language = UiLanguage::Auto);
+        std::optional<UiLanguage> language_override = std::nullopt);
     HWND Handle() const noexcept { return window_.Get(); }
 private:
     friend struct MonitorWindowTestAccess;

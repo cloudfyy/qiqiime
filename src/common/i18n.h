@@ -85,6 +85,7 @@ struct UiStrings {
     const wchar_t* dlg_lang_auto;
     const wchar_t* dlg_lang_zh;
     const wchar_t* dlg_lang_en;
+    const wchar_t* tool_lang_follow_ime;
     const wchar_t* dlg_lbl_underline_style;
     const wchar_t* dlg_underline_dot;
     const wchar_t* dlg_underline_solid;
@@ -194,6 +195,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"跟随系统 (Auto)",
     L"简体中文 (zh-CN)",
     L"English (en-US)",
+    L"跟随输入法设置",
     L"编码下划线样式:",
     L"点状虚线",
     L"实线",
@@ -325,6 +327,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"System Default (Auto)",
     L"Simplified Chinese (zh-CN)",
     L"English (en-US)",
+    L"Follow IME setting",
     L"Underline style:",
     L"Dotted",
     L"Solid",

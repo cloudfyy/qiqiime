@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "common/config.h"
+
 #include <windows.h>
 
 #include <filesystem>
@@ -25,6 +27,7 @@ struct Selection {
 std::filesystem::path MakeDefaultReportDirectory();
 std::wstring RedactPathForReport(std::wstring_view path);
 std::wstring ExtractLocalServerExecutable(std::wstring_view command);
+HRESULT ReadConfiguredUiLanguage(UiLanguage& language) noexcept;
 
 HRESULT BuildReport(const Selection& selection, bool compact, std::string& output);
 

@@ -162,14 +162,14 @@ ScopedWindow CreateSettingsWindow(
     const MonitorMetrics mon = QueryActiveMonitor(parent);
     const auto S = [dpi = mon.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
 
-    ctx->d2d.Init(mon.dpi);
+    const UiLanguage initial_language = bound_config ? bound_config->ui_language : UiLanguage::Auto;
+    const auto preferences = bound_config ? GetDisplayPreferences(*bound_config) : DisplayPreferences{};
     ctx->d2d.clip_controls_to_dc = true;
-    ctx->font = CreateUiFont(S(settings_layout::kFontSize), FW_NORMAL, CLEARTYPE_QUALITY);
-    ctx->bold_font = CreateUiFont(S(settings_layout::kBoldFontSize), FW_SEMIBOLD, CLEARTYPE_QUALITY);
+    if (!RefreshSettingsUiAppearance(nullptr, *ctx, initial_language, preferences, mon.dpi)) return {};
     ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(S(kSmallBrandIconSize), instance);
     ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(S(kLargeBrandIconSize), instance);
 
-    const auto& str = GetUiStrings(bound_config ? bound_config->ui_language : UiLanguage::Auto);
+    const auto& str = GetUiStrings(initial_language);
 
     constexpr DWORD wnd_style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |
         WS_THICKFRAME | WS_CLIPCHILDREN;

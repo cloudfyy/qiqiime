@@ -184,7 +184,7 @@ void MonitorWindow::Impl::ShowListContextMenu(POINT screen_pt) {
              std::pair{Clear, true}}) {
         commands.push_back({gsl::narrow_cast<UINT>(std::to_underlying(id)), CommandText(id), ToolIcon::None, enabled});
     }
-    const UINT cmd = command_ui.TrackContextMenu(hwnd, screen_pt, commands);
+    const UINT cmd = command_ui.TrackContextMenu(hwnd, screen_pt, commands, theme);
     if (cmd) Command(cmd, 0);
 }
 
@@ -247,7 +247,7 @@ bool MonitorWindow::Impl::RecoverCapturePermission(const CaptureStartFailure& fa
         return false;
     }
     if (!collector.Stop()) return false;
-    const ULONG error = LaunchElevatedMonitor(hwnd, ui_language);
+    const ULONG error = LaunchElevatedMonitor(hwnd, language_override);
     if (error == ERROR_CANCELLED) {
         diagnostics.Record(3, L"Elevated restart cancelled by Windows; original monitor and buffered logs retained", error);
         return false;
@@ -430,8 +430,10 @@ void MonitorWindow::Impl::Command(int id, int notification) {
     case LanguageAuto:
     case LanguageZh:
     case LanguageEn:
-        ui_language = gsl::narrow_cast<UiLanguage>(id - std::to_underlying(LanguageAuto));
-        ApplyLanguage();
+    case LanguageFollowIme:
+        if (id == std::to_underlying(LanguageFollowIme)) language_override.reset();
+        else language_override = gsl::narrow_cast<UiLanguage>(id - std::to_underlying(LanguageAuto));
+        RefreshDisplay(true);
         break;
     default: break;
     }

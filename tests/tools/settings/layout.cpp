@@ -228,12 +228,14 @@ void TestSettingsWindowMonitorChanges() {
     QiQiConfig config{};
     config.page_size = 7;
     config.auto_commit_4code = true;
+    config.ui_language = UiLanguage::EnUs;
     const ScopedWindow dialog(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config));
     QIQI_TEST_CHECK(dialog.IsValid());
 
     ::SendDlgItemMessageW(dialog.Get(), settings_detail::kIdComboPageSize, CB_SETCURSEL, 8, 0);
     ::CheckDlgButton(dialog.Get(), settings_detail::kIdChkAutoCommit4, BST_UNCHECKED);
     ::SendDlgItemMessageW(dialog.Get(), settings_detail::kIdComboEnglishSwitch, CB_SETCURSEL, 1, 0);
+    ::SendDlgItemMessageW(dialog.Get(), settings_detail::kIdComboUiLang, CB_SETCURSEL, 1, 0);
 
     SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-2560, -1440, 0, 0}, 192});
     const RECT suggested_rect{-2100, -1250, -400, -200};
@@ -263,12 +265,16 @@ void TestSettingsWindowMonitorChanges() {
     QIQI_TEST_CHECK(combo_font != nullptr);
     QIQI_TEST_CHECK(::GetObjectW(combo_font, sizeof(font_info), &font_info) == sizeof(font_info));
     QIQI_TEST_CHECK(font_info.lfHeight == -ScalePxByDpi(15, 192));
+    if (CandidateFontFamilyAvailable(L"Microsoft YaHei UI")) {
+        QIQI_TEST_CHECK(LogFontFaceNameView(font_info) == L"Microsoft YaHei UI");
+    }
 
     QiQiConfig read_back{};
     ReadSettingsFromWindowControls(dialog.Get(), read_back);
     QIQI_TEST_CHECK(read_back.page_size == 9);
     QIQI_TEST_CHECK(!read_back.auto_commit_4code);
     QIQI_TEST_CHECK(!read_back.commit_on_english_switch);
+    QIQI_TEST_CHECK(read_back.ui_language == UiLanguage::ZhCn && config.ui_language == UiLanguage::EnUs);
 
     SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{-1900, -1200, 0, 0}, 192});
     ::SendMessageW(dialog.Get(), WM_DISPLAYCHANGE, 32, MAKELPARAM(1920, 1080));

@@ -57,6 +57,7 @@ enum class ControlId {
     LanguageEn,
     Exit,
     Separator,
+    LanguageFollowIme,
 };
 
 class DictManagerWindow final {

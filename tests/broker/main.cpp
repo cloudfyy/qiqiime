@@ -5,7 +5,7 @@
 #include "broker/security.h"
 #include "common/appcontainer.h"
 #include "common/config.h"
-#include "common/configbrokercontrol.h"
+#include "common/brokerctrl.h"
 #include "common/configclient.h"
 #include "common/RAII.h"
 #include "common/support.h"

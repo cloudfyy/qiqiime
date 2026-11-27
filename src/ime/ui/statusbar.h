@@ -106,6 +106,7 @@ private:
     HINSTANCE instance_ = nullptr;
     ScopedGdiHandle<HFONT> font_;
     ScopedGdiHandle<HFONT> tooltip_font_;
+    UiLanguage font_language_ = UiLanguage::Auto;
     std::array<ScopedGdiHandle<HBITMAP>, kIconCount> icon_bitmaps_;
     int icon_px_ = 0;
     COLORREF icon_fg_color_ = CLR_INVALID;

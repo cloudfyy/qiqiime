@@ -406,7 +406,10 @@ void TestStatusBarContextMenuState() {
 void TestStatusBarTooltipLifecycle() {
     const qiqi::test::TsfTestCaseTrace test_case_trace(__func__);
     StatusBarUI bar(::GetModuleHandleW(nullptr));
-    bar.Show(true);
+    LangBarState state{};
+    state.show_status_bar = true;
+    state.ui_language = UiLanguage::EnUs;
+    bar.UpdateState(state);
     QIQI_TEST_CHECK(bar.WindowHandle() != nullptr);
     QIQI_TEST_CHECK(::IsWindowVisible(bar.WindowHandle()));
     QIQI_TEST_CHECK(::SendMessageW(bar.WindowHandle(), WM_MOUSEACTIVATE, 0, 0) == MA_NOACTIVATE);
@@ -426,6 +429,12 @@ void TestStatusBarTooltipLifecycle() {
     };
 
     show_tooltip();
+    QIQI_TEST_CHECK(bar.ActiveTooltipText() == GetUiStrings(UiLanguage::EnUs).tip_mode);
+    state.ui_language = UiLanguage::ZhCn;
+    bar.UpdateState(state);
+    check_tooltip_hidden();
+    show_tooltip();
+    QIQI_TEST_CHECK(bar.ActiveTooltipText() == GetUiStrings(UiLanguage::ZhCn).tip_mode);
     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, 1));
     ::SendMessageW(bar.WindowHandle(), WM_LBUTTONUP, 0, MAKELPARAM(x, 1));
     check_tooltip_hidden();

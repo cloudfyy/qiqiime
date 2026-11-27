@@ -22,11 +22,11 @@ std::wstring FormatMonitorWindowTitle(UiLanguage language, bool elevated = IsMon
 std::wstring CapturePermissionMessage(UiLanguage language, bool has_captured_logs);
 HRESULT ConfirmElevatedRestart(HWND owner, UiLanguage language, const CaptureStartFailure& failure,
     bool& accepted, bool has_captured_logs = false);
-ULONG LaunchElevatedMonitor(HWND owner, UiLanguage language,
+ULONG LaunchElevatedMonitor(HWND owner, std::optional<UiLanguage> language_override,
     gsl::not_null<decltype(&::ShellExecuteExW)> execute = &::ShellExecuteExW);
 struct MonitorStartupOptions {
     std::optional<POINT> point;
-    UiLanguage language = UiLanguage::Auto;
+    std::optional<UiLanguage> language;
 };
 ULONG ParseMonitorStartupArguments(std::wstring_view command_line, MonitorStartupOptions& options);
 

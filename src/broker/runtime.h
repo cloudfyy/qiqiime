@@ -7,7 +7,7 @@
 
 #include "broker/configstore.h"
 
-#include "common/configbrokercontrol.h"
+#include "common/brokerctrl.h"
 
 #include <atomic>
 #include <filesystem>

@@ -67,27 +67,53 @@ void FluentD2DThemeContext::SetDisplayPreferences(DisplayPreferences preferences
         return;
     }
     display_preferences = preferences;
-    Init(dpi);
+    Init(dpi, LogFontFaceNameView(ui_font_face).empty() ? nullptr : &ui_font_face);
 }
 
-void FluentD2DThemeContext::Init(UINT monitor_dpi) noexcept {
+void FluentD2DThemeContext::Init(UINT monitor_dpi, const LOGFONTW* ui_font) noexcept {
     dpi = monitor_dpi > 0 ? monitor_dpi : 96u;
-    fmt_body.Reset();
-    fmt_caption.Reset();
-    fmt_btn.Reset();
     if (!CreateD2DDcTargetAndDWrite(d2d_factory, dwrite_factory, d2d_target)) {
         QIQI_LOG_ERROR("Fluent Direct2D/DirectWrite context creation failed");
     }
-    LOGFONTW system_font{};
-    if (dwrite_factory && TryGetSystemUiFont(system_font)) {
+    RefreshTextFormats(ui_font);
+    RefreshThemeBrushes();
+}
+
+void FluentD2DThemeContext::UpdateAppearance(
+    UINT monitor_dpi, DisplayPreferences preferences, const LOGFONTW& ui_font) noexcept {
+    monitor_dpi = monitor_dpi ? monitor_dpi : 96u;
+    preferences = NormalizeDisplayPreferences(preferences);
+    const bool font_changed = display_preferences.text_scale != preferences.text_scale ||
+        LogFontFaceNameView(ui_font_face) != LogFontFaceNameView(ui_font);
+    display_preferences = preferences;
+    if (dpi != monitor_dpi || !d2d_target || !dwrite_factory) {
+        Init(monitor_dpi, &ui_font);
+        return;
+    }
+    if (font_changed || !fmt_body || !fmt_caption || !fmt_btn) RefreshTextFormats(&ui_font);
+    RefreshThemeBrushes();
+}
+
+void FluentD2DThemeContext::RefreshTextFormats(const LOGFONTW* ui_font) noexcept {
+    fmt_body.Reset();
+    fmt_caption.Reset();
+    fmt_btn.Reset();
+    if (ui_font) {
+        ui_font_face = *ui_font;
+    } else if (!TryGetSystemUiFont(ui_font_face)) {
+        ui_font_face = {};
+        return;
+    }
+    if (dwrite_factory) {
+        const auto* family = std::data(ui_font_face.lfFaceName);
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
-            std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            family, nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, ScaleF(kFluentBodyFontSize), L"zh-CN", fmt_body.Put()), "Fluent::CreateTextFormat(body)");
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
-            std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+            family, nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, ScaleF(kCaptionFontSize), L"zh-CN", fmt_caption.Put()), "Fluent::CreateTextFormat(caption)");
         std::ignore = log::CheckHResult(dwrite_factory->CreateTextFormat(
-            std::data(system_font.lfFaceName), nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+            family, nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, ScaleF(kButtonFontSize), L"zh-CN", fmt_btn.Put()), "Fluent::CreateTextFormat(button)");
         if (!fmt_body || !fmt_caption || !fmt_btn) {
             QIQI_LOG_ERROR("Fluent DirectWrite text format creation failed");
@@ -107,7 +133,6 @@ void FluentD2DThemeContext::Init(UINT monitor_dpi) noexcept {
                                            "Fluent::SetWordWrapping(button)");
         }
     }
-    RefreshThemeBrushes();
 }
 
 void FluentD2DThemeContext::RefreshThemeBrushes() noexcept {

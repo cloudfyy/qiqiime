@@ -128,14 +128,19 @@ LRESULT CALLBACK MessageWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
             ::SetBkMode(dc, TRANSPARENT);
             return reinterpret_cast<LRESULT>(ctx->d2d.surface_brush.Get());
         }
-        case WM_THEMECHANGED:
         case WM_SETTINGCHANGE:
+            std::ignore = UpdateToolWindowDisplay(hwnd, ctx->d2d, ctx->font,
+                ctx->d2d.display_preferences, ctx->d2d.dpi, ctx->language, {}, kMessageFontSize);
+            [[fallthrough]];
+        case WM_THEMECHANGED:
             ctx->d2d.RefreshThemeBrushes();
             ApplySystemThemeToMenuAndWindow(hwnd, IsSystemDarkTheme());
             ApplyMessageLanguage(hwnd, *ctx);
             return 0;
         case kSettingsLanguageChangedMessage:
             ctx->language = static_cast<UiLanguage>(wparam);
+            std::ignore = UpdateToolWindowDisplay(hwnd, ctx->d2d, ctx->font,
+                ctx->d2d.display_preferences, ctx->d2d.dpi, ctx->language, {}, kMessageFontSize);
             ApplyMessageLanguage(hwnd, *ctx);
             return 0;
         case WM_KEYDOWN: {
@@ -195,9 +200,9 @@ ScopedWindow CreateSettingsMessageWindow(
     ctx->language = ui_language;
     ctx->kind = kind;
     const auto monitor = QueryActiveMonitor(parent);
-    ctx->d2d.Init(monitor.dpi);
     const auto scale = [dpi = monitor.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
-    ctx->font = CreateUiFont(scale(kMessageFontSize), FW_NORMAL, CLEARTYPE_QUALITY);
+    if (!UpdateToolWindowDisplay(nullptr, ctx->d2d, ctx->font, {}, monitor.dpi, ui_language, {}, kMessageFontSize))
+        return {};
     ctx->icon_small = dialog_detail::LoadOrCreateBrandIcon(scale(kSmallBrandIconSize), instance);
     ctx->icon_big = dialog_detail::LoadOrCreateBrandIcon(scale(kLargeBrandIconSize), instance);
     if (!ctx->font || !ctx->d2d.d2d_target || !ctx->d2d.surface_brush ||
@@ -205,15 +210,10 @@ ScopedWindow CreateSettingsMessageWindow(
         QIQI_LOG_ERROR("Settings message drawing resources unavailable");
         return {};
     }
-    int body_height = scale(kMessageMinimumBodyHeight);
-    for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
-        const int measured = dialog_detail::MeasureDialogTextHeight(
-            ctx->font.Get(), GetMessageStrings(language, kind).text, scale(kWindowWidth - 2 * kMessageBodyInset));
-        if (measured <= 0) {
-            return {};
-        }
-        body_height = std::max(body_height, measured);
-    }
+    const int body_height = dialog_detail::MeasureLocalizedDialogTextHeight(
+        scale(kWindowWidth - 2 * kMessageBodyInset), scale(kMessageFontSize), scale(kMessageMinimumBodyHeight),
+        [kind](UiLanguage language) noexcept { return GetMessageStrings(language, kind).text; });
+    if (body_height <= 0) return {};
     const int height = body_height + scale(kMessageExtraHeight);
     constexpr DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
     constexpr DWORD ex_style = 0;

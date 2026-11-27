@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common/configclient.h"
-#include "common/configbrokercontrol.h"
+#include "common/brokerctrl.h"
 #include "common/configrpc.h"
 #include "common/guids.h"
 #include "common/logger.h"

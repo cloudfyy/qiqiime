@@ -137,6 +137,21 @@ inline int MeasureDialogTextHeight(HFONT font, const wchar_t* text, int width) n
     return gsl::narrow_cast<int>(bounds.bottom);
 }
 
+template <typename LocalizedText>
+int MeasureLocalizedDialogTextHeight(int width, int font_size, int minimum_height,
+    const LocalizedText& text_for_language) noexcept {
+    int height = minimum_height;
+    for (const auto language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+        LOGFONTW face{};
+        if (!TryGetLocalizedUiFont(language, face)) return 0;
+        const auto font = CreateUiFont(face, font_size);
+        const int measured = MeasureDialogTextHeight(font.Get(), text_for_language(language), width);
+        if (measured <= 0) return 0;
+        height = std::max(height, measured);
+    }
+    return height;
+}
+
 inline bool RunModalDialogLoop(HWND hwnd, const bool& done_flag, bool route_dialog_keys = false) noexcept {
     if (!hwnd || !::IsWindow(hwnd)) {
         return false;

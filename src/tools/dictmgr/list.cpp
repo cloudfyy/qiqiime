@@ -148,10 +148,7 @@ void DictManagerWindow::Impl::CancelEditing(bool focus_list) {
 }
 
 void DictManagerWindow::Impl::Tick() {
-    const auto preferences = NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig()));
-    if (preferences != theme.display_preferences) {
-        std::ignore = UpdateDisplay(preferences, theme.dpi);
-    }
+    RefreshDisplay(LoadConfig());
     if (editor.Active()) return;
     if (model.PollExternalChanges()) {
         RebuildRows();

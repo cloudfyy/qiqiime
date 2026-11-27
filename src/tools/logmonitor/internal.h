@@ -10,6 +10,7 @@
 #include "common/dlgutil.h"
 #include "common/controls.h"
 #include "common/i18n.h"
+#include "common/configwnd.h"
 #include "common/logger.h"
 #include "common/toolbar.h"
 #include "common/window.h"
@@ -69,6 +70,8 @@ struct MonitorWindow::Impl {
     ScopedIcon big_icon;
     ToolCommandUi command_ui{ReportCommandError, this};
     std::optional<std::array<bool, 8>> command_state;
+    ToolConfigSubscription config_subscription;
+    std::optional<UiLanguage> language_override;
     UiLanguage ui_language = UiLanguage::Auto;
     HINSTANCE instance = nullptr;
     HWND hwnd = nullptr;
@@ -173,7 +176,7 @@ struct MonitorWindow::Impl {
         UINT_PTR subclass, DWORD_PTR context) noexcept;
     static LRESULT CALLBACK ListProcedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
         UINT_PTR subclass, DWORD_PTR context) noexcept;
-    bool CreateControls();
+    bool CreateControls(DisplayPreferences preferences);
     static void ReportCommandError(void* context, const char* operation, ULONG error) noexcept;
     const wchar_t* CommandText(ControlId id) const noexcept;
     ToolCommand UiCommand(ControlId id) const noexcept;
@@ -182,7 +185,8 @@ struct MonitorWindow::Impl {
     void RefreshCommandState();
     void Layout() noexcept;
     void UpdateTheme() noexcept;
-    void RefreshDisplay() noexcept;
+    void RefreshDisplay(bool update_language_menu = false);
+    bool UpdateDisplayTargets() noexcept;
     void ApplyLanguage();
     void UpdateDpi(UINT dpi, const RECT& proposed) noexcept;
     void RecoverDisplay() noexcept;

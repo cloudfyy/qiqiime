@@ -10,7 +10,7 @@
 #include "common/guids.h"
 #include "common/logger.h"
 #include "common/RAII.h"
-#include "common/configbrokercontrol.h"
+#include "common/brokerctrl.h"
 #include "common/skin.h"
 
 #include <wrl/client.h>

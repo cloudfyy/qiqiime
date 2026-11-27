@@ -7,7 +7,7 @@
 #include "tools/dictmgr/model.h"
 #include "tools/dictmgr/editor.h"
 #include "common/controls.h"
-#include "common/comobj.h"
+#include "common/configwnd.h"
 #include "common/i18n.h"
 #include "common/logger.h"
 #include "common/toolbar.h"
@@ -17,44 +17,8 @@
 
 namespace qiqi::dict_manager {
 
-using Microsoft::WRL::ComPtr;
-
 inline constexpr UINT_PTR kRefreshTimerId = 1;
 inline constexpr UINT kRefreshIntervalMs = 500;
-inline constexpr UINT kConfigChangedMessage =
-    WM_APP + 0x40;
-inline constexpr UINT kConfigLoadedMessage =
-    WM_APP + 0x41;
-
-class ConfigCompartmentListener final
-    : public ComObjectBase<
-          ConfigCompartmentListener,
-          ITfCompartmentEventSink> {
-public:
-    explicit ConfigCompartmentListener(
-        HWND hwnd) noexcept
-        : hwnd_(hwnd) {
-    }
-
-    STDMETHODIMP OnChange(
-        REFGUID guid) noexcept override {
-        if (IsEqualGUID(
-                guid,
-                kGuidCompartmentConfigVersion) &&
-            hwnd_ &&
-            ::IsWindow(hwnd_)) {
-            ::PostMessageW(
-                hwnd_,
-                kConfigChangedMessage,
-                0,
-                0);
-        }
-        return S_OK;
-    }
-
-private:
-    HWND hwnd_ = nullptr;
-};
 
 std::wstring FormatWindowTitle(UiLanguage language);
 [[noreturn]] void ThrowUiError(const char* operation, DWORD error);
@@ -104,6 +68,7 @@ struct DictManagerWindow::Impl {
     ScopedIcon small_icon;
     ScopedIcon big_icon;
     ToolCommandUi command_ui{ReportCommandError, this};
+    std::optional<UiLanguage> language_override;
     UiLanguage ui_language = UiLanguage::Auto;
     HINSTANCE instance = nullptr;
     HWND hwnd = nullptr;
@@ -119,14 +84,7 @@ struct DictManagerWindow::Impl {
     bool updating_filters = false;
     bool updating_editor = false;
     bool ime_composing = false;
-    std::atomic<bool>
-        config_refresh_inflight{false};
-    std::atomic<bool>
-        config_refresh_pending{false};
-    ComPtr<ITfThreadMgr> config_thread_mgr;
-    ComPtr<ConfigCompartmentListener>
-        config_listener;
-    ScopedTfCompartment config_compartment;
+    ToolConfigSubscription config_subscription;
     int editing_row = -1;
     int pressed_edit_row = -1;
 
@@ -160,7 +118,6 @@ struct DictManagerWindow::Impl {
     }
 
     void UpdateIcons() noexcept;
-    void InitConfigSubscription() noexcept;
     void Failure(std::wstring_view operation, ULONG error);
     bool Add(const wchar_t* cls, const wchar_t* text, DWORD style, ControlId id);
     static LRESULT CALLBACK ListProcedure(
@@ -169,7 +126,7 @@ struct DictManagerWindow::Impl {
     static LRESULT CALLBACK EditorProcedure(
         HWND window, UINT message, WPARAM wparam, LPARAM lparam,
         UINT_PTR subclass, DWORD_PTR context) noexcept;
-    bool CreateControls();
+    bool CreateControls(DisplayPreferences preferences);
     void UpdateCommands();
     static void ReportCommandError(void*, const char* operation, ULONG error) noexcept;
     ToolCommand UiCommand(ControlId id) const noexcept;
@@ -177,7 +134,8 @@ struct DictManagerWindow::Impl {
     const wchar_t* MenuHeading(size_t index) const noexcept;
     void Layout() noexcept;
     void UpdateTheme() noexcept;
-    bool UpdateDisplay(DisplayPreferences preferences, UINT dpi) noexcept;
+    bool UpdateDisplay(DisplayPreferences preferences, UINT dpi, UiLanguage language) noexcept;
+    void RefreshDisplay(const QiQiConfig& config, bool update_language_menu = false);
     void UpdateDisplayTargets() noexcept;
     void ApplyLanguage();
     void UpdateDpi(UINT dpi, const RECT& proposed) noexcept;

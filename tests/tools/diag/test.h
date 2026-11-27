@@ -6,3 +6,4 @@
 void TestPathPrivacy();
 void TestSkippedSchema();
 void TestSplitOutput();
+void TestConfiguredUiLanguage();

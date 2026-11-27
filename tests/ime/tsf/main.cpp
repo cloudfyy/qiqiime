@@ -316,6 +316,12 @@ int wmain(int argc, wchar_t* argv[]) {
         std::cout << "[PASS] QiQi IME icon conformance tests succeeded.\n";
         return 0;
     }
+    if (args.size() == 2 && std::wstring_view(gsl::at(args, 1)) == L"--status-bar-tests") {
+        const qiqi::test::TsfTestTrace trace("status-bar");
+        QIQI_TEST_CHECK(SUCCEEDED(co_hr));
+        qiqi::test::RunTsfTestStage("ui.statusbar", qiqi::test::RunStatusBarUITests);
+        return 0;
+    }
     if (args.size() == 2 &&
         std::wstring_view(gsl::at(args, 1)) == L"--search-integration-tests") {
         const qiqi::test::TsfTestTrace trace("search-integration");

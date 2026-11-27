@@ -5,6 +5,7 @@
 
 int main() {
     TestPathPrivacy();
+    TestConfiguredUiLanguage();
     TestSkippedSchema();
     TestSplitOutput();
     return 0;

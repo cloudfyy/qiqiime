@@ -13,6 +13,29 @@
 #include <ranges>
 #include <utility>
 
+namespace qiqi::diag {
+
+HRESULT ReadConfiguredUiLanguage(UiLanguage& language) noexcept {
+    language = UiLanguage::Auto;
+    // Read only the UI preference before consent; do not activate Broker or collect a snapshot.
+    const auto missing = [](HRESULT result) noexcept {
+        return result == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) ||
+            result == HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND);
+    };
+    ScopedRegKey key;
+    HRESULT result = OpenConfigRegistryKeyResult(key.Put(), KEY_QUERY_VALUE);
+    if (FAILED(result)) return missing(result) ? S_FALSE : result;
+    DWORD value = 0;
+    result = ReadRegistryDwordResult(key.Get(), kUiLanguageConfigField.registry_key, value);
+    if (FAILED(result)) return missing(result) ? S_FALSE : result;
+    QiQiConfig config{};
+    if (!kUiLanguageConfigField.Assign(config, value)) return HRESULT_FROM_WIN32(ERROR_INVALID_DATA);
+    language = config.ui_language;
+    return S_OK;
+}
+
+} // namespace qiqi::diag
+
 namespace qiqi::diag::detail {
 
 Json SkinPaletteJson(const SkinPalette& palette) {

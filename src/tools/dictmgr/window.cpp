@@ -40,60 +40,6 @@ void DictManagerWindow::Impl::Failure(std::wstring_view operation, ULONG error) 
     ::MessageBoxW(hwnd, message.c_str(), GetUiStrings(ui_language).dict_manager_name, MB_OK | MB_ICONERROR);
 }
 
-void DictManagerWindow::Impl::InitConfigSubscription() noexcept {
-    const HRESULT result =
-        ::CoCreateInstance(
-            CLSID_TF_ThreadMgr,
-            nullptr,
-            CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(
-                &config_thread_mgr));
-    if (FAILED(result) ||
-        !config_thread_mgr) {
-        QIQI_LOG_WARN(
-            "DictManager config subscription "
-            "thread manager failed "
-            "(hr=0x{:08X})",
-            gsl::narrow_cast<unsigned long>(
-                result));
-        return;
-    }
-    ComPtr<ITfCompartmentMgr> manager;
-#pragma warning(suppress : 26447) // TSF COM methods report failure through HRESULT.
-    const HRESULT manager_result =
-        config_thread_mgr
-            ->GetGlobalCompartment(
-                &manager);
-    if (FAILED(manager_result) ||
-        !manager) {
-        QIQI_LOG_WARN(
-            "DictManager config subscription "
-            "manager failed (hr=0x{:08X})",
-            gsl::narrow_cast<unsigned long>(
-                manager_result));
-        return;
-    }
-    try {
-        config_listener =
-            MakeComObject<
-                ConfigCompartmentListener>(
-                    hwnd);
-    } catch (const std::bad_alloc&) {
-        QIQI_LOG_ERROR(
-            "DictManager config listener "
-            "allocation failed");
-        return;
-    }
-    if (!config_compartment.Bind(
-            manager.Get(),
-            kGuidCompartmentConfigVersion,
-            config_listener.Get())) {
-        QIQI_LOG_WARN(
-            "DictManager config compartment "
-            "binding failed");
-    }
-}
-
 #pragma warning(suppress : 26455)
 DictManagerWindow::DictManagerWindow() : impl_(std::make_unique<Impl>()) {
     impl_->owner = this;
@@ -107,6 +53,9 @@ bool DictManagerWindow::Create(
     if (window_) return true;
     std::ignore = log::EnsureInitialized();
     impl_->instance = instance;
+    const auto config = LoadConfig();
+    impl_->language_override.reset();
+    impl_->ui_language = ResolveUiLanguage(config.ui_language);
     const std::filesystem::path module_path = GetModuleFilePath(instance);
     impl_->model.InitializePaths(
         module_path.empty() ? std::filesystem::path{} : module_path.parent_path(),
@@ -145,8 +94,9 @@ bool DictManagerWindow::Create(
         return false;
     }
     impl_->hwnd = window_.Get();
-    impl_->InitConfigSubscription();
-    if (!impl_->CreateControls()) return false;
+    std::ignore = log::CheckHResult(impl_->config_subscription.Subscribe(impl_->hwnd),
+        "DictManager::SubscribeToConfigChanges", log::Level::warn);
+    if (!impl_->CreateControls(GetDisplayPreferences(config))) return false;
     impl_->UpdateDpi(impl_->theme.dpi, ComputeCenteredToolWindowRect(
         monitor, layout::kInitialWindowSize.cx, layout::kInitialWindowSize.cy, impl_->theme.dpi));
     impl_->Layout();

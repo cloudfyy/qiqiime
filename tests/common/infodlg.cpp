@@ -54,15 +54,25 @@ void TestInfoDialogLayout() {
                     QIQI_TEST_CHECK(github.top == ok.top && github.bottom == ok.bottom);
                     QIQI_TEST_CHECK(github.right < ok.left);
                 }
-                const auto font = reinterpret_cast<HFONT>(
-                    ::SendDlgItemMessageW(dialog.Get(), IDOK, WM_GETFONT, 0, 0));
-                QIQI_TEST_CHECK(font != nullptr);
+                const auto check_button_face = [&](UiLanguage expected_language) {
+                    LOGFONTW expected{}, actual{};
+                    QIQI_TEST_CHECK(TryGetLocalizedUiFont(expected_language, expected));
+                    const auto font = reinterpret_cast<HFONT>(
+                        ::SendDlgItemMessageW(dialog.Get(), IDOK, WM_GETFONT, 0, 0));
+                    QIQI_TEST_CHECK(::GetObjectW(font, sizeof(actual), &actual) == sizeof(actual));
+                    QIQI_TEST_CHECK(LogFontFaceNameView(actual) == LogFontFaceNameView(expected));
+                    return -actual.lfHeight;
+                };
+                const auto font_size = check_button_face(language);
                 const int text_width = client.right - 2 * scale(24);
                 int body_height = scale(94);
                 for (const UiLanguage measured_language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
                     const auto& strings = GetUiStrings(measured_language);
+                    LOGFONTW face{};
+                    QIQI_TEST_CHECK(TryGetLocalizedUiFont(measured_language, face));
+                    const auto font = CreateUiFont(face, gsl::narrow_cast<int>(font_size));
                     const int measured = dialog_detail::MeasureDialogTextHeight(
-                        font, help ? strings.help_shortcuts_info : strings.about_license_info, text_width);
+                        font.Get(), help ? strings.help_shortcuts_info : strings.about_license_info, text_width);
                     QIQI_TEST_CHECK(measured > 0);
                     body_height = std::max(body_height, measured);
                 }
@@ -73,6 +83,7 @@ void TestInfoDialogLayout() {
                 const RECT before_switch = ok;
                 ::SendMessageW(dialog.Get(), kSettingsLanguageChangedMessage,
                                static_cast<WPARAM>(UiLanguage::EnUs), 0);
+                QIQI_TEST_CHECK(check_button_face(UiLanguage::EnUs) == font_size);
                 const RECT after_switch = control_rect(IDOK);
                 QIQI_TEST_CHECK(::EqualRect(&before_switch, &after_switch));
             }

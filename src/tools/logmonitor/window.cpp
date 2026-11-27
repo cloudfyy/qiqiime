@@ -11,6 +11,7 @@
 
 #include <gsl/gsl>
 #include <algorithm>
+#include <bit>
 #include <format>
 #include <system_error>
 
@@ -32,7 +33,7 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
             self->Layout();
             if (message == WM_VSCROLL || message == WM_MOUSEWHEEL) return 0;
         }
-        if (const auto handled = self->command_ui.HandleMessage(window, message, wparam, lparam, self->font.Get(), self->theme)) {
+        if (const auto handled = self->command_ui.HandleMessage(window, message, wparam, lparam, self->theme)) {
             return *handled;
         }
         if (const auto handled = HandleFluentToolWindowMessage(
@@ -41,6 +42,12 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
             return *handled;
         }
         switch (message) {
+        case kToolConfigChangedMessage:
+            self->config_subscription.RequestRefresh(window);
+            return 0;
+        case kToolConfigLoadedMessage:
+            if (self->config_subscription.CompleteRefresh(window, wparam, lparam) && self->ready) self->RefreshDisplay();
+            return 0;
         case WM_SIZE: self->Layout(); return 0;
         case WM_TIMER: if (self->ready) self->Tick(); return 0;
         case WM_COMMAND: if (self->ready) self->Command(LOWORD(wparam), HIWORD(wparam)); return 0;
@@ -61,7 +68,6 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
         case WM_SETTINGCHANGE:
             self->RefreshDisplay();
             if (wparam == SPI_SETWORKAREA) self->RecoverDisplay();
-            if (self->ready && self->ui_language == UiLanguage::Auto) self->ApplyLanguage();
             [[fallthrough]];
         case WM_THEMECHANGED: case WM_SYSCOLORCHANGE: case WM_DWMCOLORIZATIONCOLORCHANGED:
             self->UpdateTheme();
@@ -99,10 +105,13 @@ LRESULT CALLBACK MonitorWindow::Impl::Procedure(HWND window, UINT message, WPARA
 MonitorWindow::MonitorWindow(CaptureStartApi api) : impl_(std::make_unique<Impl>(api)) { impl_->owner = this; }
 MonitorWindow::~MonitorWindow() noexcept = default;
 
-bool MonitorWindow::Create(HINSTANCE instance, std::optional<POINT> startup_point, UiLanguage language) {
+bool MonitorWindow::Create(HINSTANCE instance, std::optional<POINT> startup_point,
+    std::optional<UiLanguage> language_override) {
     if (window_) return true;
     impl_->instance = instance;
-    impl_->ui_language = language;
+    const auto config = LoadConfig();
+    impl_->language_override = language_override;
+    impl_->ui_language = ResolveUiLanguage(language_override.value_or(config.ui_language));
     const INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES};
     if (!::InitCommonControlsEx(&controls)) {
         impl_->Failure(L"InitCommonControlsEx", ERROR_DLL_INIT_FAILED);
@@ -124,7 +133,11 @@ bool MonitorWindow::Create(HINSTANCE instance, std::optional<POINT> startup_poin
         return false;
     }
     impl_->hwnd = window_.Get();
-    if (!impl_->CreateControls()) return false;
+    const auto subscription_result = impl_->config_subscription.Subscribe(impl_->hwnd);
+    if (FAILED(subscription_result)) {
+        impl_->diagnostics.Record(3, L"Subscribe to configuration changes", std::bit_cast<ULONG>(subscription_result));
+    }
+    if (!impl_->CreateControls(GetDisplayPreferences(config))) return false;
     impl_->UpdateDpi(impl_->theme.dpi, ComputeCenteredToolWindowRect(monitor,
         kMonitorInitialWindowSize.cx, kMonitorInitialWindowSize.cy, impl_->theme.dpi));
     impl_->Layout();
@@ -136,7 +149,7 @@ int RunMonitor(HINSTANCE instance, int show, std::wstring_view command_line) {
     MonitorStartupOptions startup;
     const ULONG error = ParseMonitorStartupArguments(command_line, startup);
     if (error != ERROR_SUCCESS) {
-        const auto language = ResolveUiLanguage(UiLanguage::Auto);
+        const auto language = ResolveUiLanguage(LoadConfig().ui_language);
         const auto message = FormatToolWindowFailureMessage(
             LocalizedUiText(
                 language,
@@ -147,6 +160,10 @@ int RunMonitor(HINSTANCE instance, int show, std::wstring_view command_line) {
         ::MessageBoxW(nullptr, message.c_str(), GetUiStrings(language).log_monitor_name, MB_OK | MB_ICONERROR);
         return 1;
     }
+    const HRESULT apartment = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    const auto uninitialize = gsl::finally([apartment]() noexcept {
+        if (SUCCEEDED(apartment)) ::CoUninitialize();
+    });
     MonitorWindow window;
     if (!window.Create(instance, startup.point, startup.language)) return 1;
     return RunToolWindowMessageLoop(window.Handle(), show);

@@ -118,7 +118,9 @@ BOOL WINAPI TrackCandidateFontMenuForTest(
                     LocalizedUiText(language, L"更多…", L"More..."));
     QIQI_TEST_CHECK((more.fType & MFT_OWNERDRAW) && more.dwItemData != 0);
     if (font_item_padding) {
-        const auto ui_font = CreateUiFont(context->d2d.ScalePx(kFluentBodyFontSize));
+        LOGFONTW ui_face{};
+        QIQI_TEST_CHECK(::GetObjectW(context->font.Get(), sizeof(ui_face), &ui_face) == sizeof(ui_face));
+        const auto ui_font = CreateUiFont(ui_face, context->d2d.ScalePx(kFluentBodyFontSize));
         QIQI_TEST_CHECK(ui_font && measure_padding(more, ui_font.Get()) == *font_item_padding);
     }
 

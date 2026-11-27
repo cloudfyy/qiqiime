@@ -127,7 +127,7 @@ void TestStartupPointArguments() {
     MonitorStartupOptions options{POINT{1, 2}, UiLanguage::EnUs};
     for (const auto arguments : {L"", L" \t\r\n"}) {
         QIQI_TEST_CHECK(ParseMonitorStartupArguments(arguments, options) == ERROR_SUCCESS && !options.point);
-        QIQI_TEST_CHECK(options.language == UiLanguage::Auto);
+        QIQI_TEST_CHECK(!options.language);
     }
     for (const POINT expected : {POINT{0, 0}, POINT{-1920, -1080}, POINT{2560, 1440},
             POINT{LONG_MIN, LONG_MAX}, POINT{LONG_MAX, LONG_MIN}}) {
@@ -158,12 +158,12 @@ void TestStartupPointArguments() {
             L"--ui-language en-US --monitor-point 1", L"--monitor-point 1 2 --ui-language unknown"}) {
         options = {POINT{1, 2}, UiLanguage::EnUs};
         QIQI_TEST_CHECK(ParseMonitorStartupArguments(arguments, options) == ERROR_INVALID_PARAMETER && !options.point);
-        QIQI_TEST_CHECK(options.language == UiLanguage::Auto);
+        QIQI_TEST_CHECK(!options.language);
     }
 }
 
 void TestStartupProcess(std::wstring_view parameters, gsl::not_null<HMONITOR> monitor,
-    UiLanguage language = UiLanguage::Auto) {
+    std::optional<UiLanguage> language = std::nullopt) {
     const ScopedKernelHandle job(::CreateJobObjectW(nullptr, nullptr));
     QIQI_TEST_CHECK(job);
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
@@ -182,9 +182,8 @@ void TestStartupProcess(std::wstring_view parameters, gsl::not_null<HMONITOR> mo
     if (!assigned) QIQI_TEST_CHECK(::TerminateProcess(child.Get(), ERROR_PROCESS_ABORTED));
     QIQI_TEST_CHECK(assigned);
     QIQI_TEST_CHECK(::ResumeThread(thread.Get()) != MAXDWORD);
-    QIQI_TEST_CHECK(::WaitForInputIdle(child.Get(), 10'000) == 0);
-    HWND window = nullptr;
-    ::EnumThreadWindows(process.dwThreadId, [](HWND candidate, LPARAM context) noexcept -> BOOL {
+    const auto find_visible_monitor = [](HWND candidate, LPARAM context) noexcept -> BOOL {
+        if (!::IsWindowVisible(candidate)) return TRUE;
         std::array<wchar_t, 128> name{};
         if (::GetClassNameW(candidate, name.data(), gsl::narrow_cast<int>(name.size())) &&
             std::wstring_view(name.data()) == kWindowClass) {
@@ -192,17 +191,27 @@ void TestStartupProcess(std::wstring_view parameters, gsl::not_null<HMONITOR> mo
             return FALSE;
         }
         return TRUE;
-    }, reinterpret_cast<LPARAM>(&window));
-    QIQI_TEST_CHECK(window && ::IsWindowVisible(window));
+    };
+    HWND window = nullptr;
+    const ULONGLONG deadline = ::GetTickCount64() + 10'000;
+    do {
+        ::EnumThreadWindows(process.dwThreadId, find_visible_monitor, reinterpret_cast<LPARAM>(&window));
+    } while (!window && ::GetTickCount64() < deadline && ::WaitForSingleObject(child.Get(), 20) == WAIT_TIMEOUT);
+    QIQI_TEST_CHECK(window);
     QIQI_TEST_CHECK(::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) == monitor.get());
-    QIQI_TEST_CHECK(qiqi::test::ControlText(window) == FormatMonitorWindowTitle(language));
+    const auto title = qiqi::test::ControlText(window);
+    if (language) QIQI_TEST_CHECK(title == FormatMonitorWindowTitle(*language));
+    else QIQI_TEST_CHECK(title == FormatMonitorWindowTitle(UiLanguage::ZhCn) ||
+                        title == FormatMonitorWindowTitle(UiLanguage::EnUs));
     const HMENU menu = ::GetMenu(window);
     QIQI_TEST_CHECK(menu);
-    for (const auto id : {ControlId::LanguageAuto, ControlId::LanguageZh, ControlId::LanguageEn}) {
+    for (const auto id : {ControlId::LanguageAuto, ControlId::LanguageZh, ControlId::LanguageEn,
+                          ControlId::LanguageFollowIme}) {
         const auto state = ::GetMenuState(menu, std::to_underlying(id), MF_BYCOMMAND);
         QIQI_TEST_CHECK(state != UINT_MAX);
-        QIQI_TEST_CHECK(((state & MF_CHECKED) != 0) ==
-            (std::to_underlying(id) - std::to_underlying(ControlId::LanguageAuto) == std::to_underlying(language)));
+        const bool selected = language ? std::to_underlying(id) - std::to_underlying(ControlId::LanguageAuto) ==
+            std::to_underlying(*language) : id == ControlId::LanguageFollowIme;
+        QIQI_TEST_CHECK(((state & MF_CHECKED) != 0) == selected);
     }
     QIQI_TEST_CHECK(::PostMessageW(window, WM_CLOSE, 0, 0));
     QIQI_TEST_CHECK(::WaitForSingleObject(child.Get(), 10'000) == WAIT_OBJECT_0);
@@ -262,7 +271,7 @@ void TestRestartMonitorPlacement() {
 }
 
 void TestInvalidStartupArguments() {
-    const bool english = ResolveUiLanguage(UiLanguage::Auto) == UiLanguage::EnUs;
+    const bool english = ResolveUiLanguage(LoadConfig().ui_language) == UiLanguage::EnUs;
     const auto expected = std::format(L"{}\r\n{}=87 (0x00000057)",
         english ? L"Invalid log monitor startup arguments." : L"日志监控启动参数无效。",
         english ? L"Error" : L"错误码");

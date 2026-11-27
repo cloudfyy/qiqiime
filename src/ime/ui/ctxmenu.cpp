@@ -7,6 +7,7 @@
 #include "common/logger.h"
 #include "common/dpi.h"
 #include "common/theme.h"
+#include "common/uiutil.h"
 #include <windowsx.h>
 
 #include <array>
@@ -61,8 +62,12 @@ public:
         hwnd_.Reset(::CreateWindowExW(ex_style, kMenuWndClass, L"QiQi Wubi",
                                       WS_POPUP | WS_BORDER | WS_CLIPCHILDREN, point_.x, point_.y, 1, 1, nullptr,
                                       nullptr, instance, this));
-        if (!hwnd_ || !Refresh()) {
+        if (!hwnd_) {
             QIQI_LOG_ERROR("Creating quick settings menu failed: {}", ::GetLastError());
+            return;
+        }
+        if (!Refresh()) {
+            QIQI_LOG_ERROR("Preparing quick settings menu failed");
             return;
         }
         {
@@ -175,12 +180,14 @@ private:
         NONCLIENTMETRICSW metrics{};
         metrics.cbSize = sizeof(metrics);
         if (!::SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) {
+            QIQI_LOG_ERROR("Quick settings menu font query failed (error={})", ::GetLastError());
             return false;
         }
+        PreferLocalizedUiFontFace(metrics.lfMenuFont, state_.ui_language);
         metrics.lfMenuFont.lfHeight = -scale(kMenuFontSize);
         ScopedGdiHandle<HFONT> font;
         if (!font_ || std::memcmp(&font_description_, &metrics.lfMenuFont, sizeof(LOGFONTW)) != 0) {
-            font.Reset(::CreateFontIndirectW(&metrics.lfMenuFont));
+            font = CreateGdiFont(metrics.lfMenuFont);
             if (!font) {
                 return false;
             }
@@ -292,7 +299,7 @@ private:
         if (LangBarButton::KeepsMenuOpen(action)) {
             callback_(action);
             if (!Refresh()) {
-                QIQI_LOG_ERROR("Refreshing quick settings menu failed: {}", ::GetLastError());
+                QIQI_LOG_ERROR("Refreshing quick settings menu failed");
                 ::ShowWindow(hwnd_.Get(), SW_HIDE);
             }
         } else {
@@ -521,7 +528,7 @@ private:
             case WM_THEMECHANGED:
             case WM_DPICHANGED:
                 if (!self->Refresh()) {
-                    QIQI_LOG_ERROR("Refreshing quick settings menu failed: {}", ::GetLastError());
+                    QIQI_LOG_ERROR("Refreshing quick settings menu failed");
                     ::ShowWindow(hwnd, SW_HIDE);
                     return 0;
                 }

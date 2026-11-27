@@ -121,14 +121,22 @@ int StatusBarUI::ScaleByDpi(int px) const noexcept {
 
 void StatusBarUI::UpdateDpiAndFonts(UINT new_dpi) noexcept {
     const UINT effective_dpi = new_dpi > 0 ? new_dpi : 96u;
-    if (font_.IsValid() && tooltip_font_.IsValid() && dpi_ == effective_dpi) {
+    const auto language = ResolveUiLanguage(state_.ui_language);
+    if (font_ && tooltip_font_ && dpi_ == effective_dpi && font_language_ == language) {
         return;
     }
     dpi_ = effective_dpi;
-
-    font_ = CreateUiFont(ScaleByDpi(kStatusFontHeight), FW_MEDIUM);
-    tooltip_font_ = CreateUiFont(ScaleByDpi(kTooltipFontHeight), FW_NORMAL);
-
+    LOGFONTW face{};
+    if (TryGetLocalizedUiFont(language, face)) {
+        auto font = CreateUiFont(face, ScaleByDpi(kStatusFontHeight), FW_MEDIUM);
+        auto tooltip = CreateUiFont(face, ScaleByDpi(kTooltipFontHeight));
+        if (font && tooltip) {
+            font_ = std::move(font);
+            tooltip_font_ = std::move(tooltip);
+            font_language_ = language;
+            if (!active_tooltip_text_.empty()) OnMouseLeave();
+        }
+    }
     RebuildIconBitmaps(GetCurrentThemePalette().text_primary);
 }
 
@@ -174,7 +182,9 @@ void StatusBarUI::Show(bool visible) noexcept {
 }
 
 void StatusBarUI::UpdateState(const LangBarState& state) noexcept {
+    const bool language_changed = state_.ui_language != state.ui_language;
     state_ = state;
+    if (language_changed) UpdateDpiAndFonts(dpi_);
     Show(state.show_status_bar);
     if (visible_ && hwnd_) {
         ::InvalidateRect(hwnd_.Get(), nullptr, TRUE);
@@ -561,6 +571,8 @@ LRESULT StatusBarUI::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             }
             return 0;
         case WM_SETTINGCHANGE:
+            UpdateDpiAndFonts(dpi_);
+            [[fallthrough]];
         case WM_THEMECHANGED:
             ApplySystemThemeToMenuAndWindow(hwnd, IsSystemDarkTheme());
             if (action_callback_) {

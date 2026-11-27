@@ -65,6 +65,10 @@ const wchar_t* GetToastText(
 void ApplyToastLanguage(
     HWND hwnd, ToastContext& context, UiLanguage language) noexcept {
     context.language = language;
+    LOGFONTW face{};
+    if (TryGetLocalizedUiFont(language, face)) {
+        context.d2d.UpdateAppearance(context.d2d.dpi, context.d2d.display_preferences, face);
+    }
     ::SetWindowTextW(
         hwnd, GetToastText(context.language, context.kind));
     ::InvalidateRect(hwnd, nullptr, TRUE);
@@ -149,13 +153,15 @@ LRESULT CALLBACK ToastWndProc(
             return 0;
         }
         case WM_THEMECHANGED:
-        case WM_SETTINGCHANGE:
             context->d2d.RefreshThemeBrushes();
             ::SetWindowTextW(
                 hwnd,
                 GetToastText(
                     context->language, context->kind));
             ::InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        case WM_SETTINGCHANGE:
+            ApplyToastLanguage(hwnd, *context, context->language);
             return 0;
         case kUpdateToastLanguageMessage:
             ApplyToastLanguage(
@@ -387,7 +393,9 @@ void ShowSettingsToast(
         QueryActiveMonitor();
     context->language = language;
     context->kind = kind;
-    context->d2d.Init(monitor.dpi);
+    LOGFONTW face{};
+    if (!TryGetLocalizedUiFont(language, face)) return;
+    context->d2d.Init(monitor.dpi, &face);
     if (!context->d2d.d2d_target ||
         !context->d2d.fmt_body) {
         QIQI_LOG_ERROR(

@@ -117,6 +117,22 @@ struct InfoDialogContext {
     FluentD2DThemeContext d2d;
 };
 
+bool UpdateInfoAppearance(HWND hwnd, InfoDialogContext& ctx, UINT dpi) noexcept {
+    LOGFONTW face{};
+    if (!TryGetLocalizedUiFont(ctx.ui_language, face)) return false;
+    if (!ctx.body_font || !ctx.title_font || dpi != ctx.d2d.dpi ||
+        LogFontFaceNameView(face) != LogFontFaceNameView(ctx.d2d.ui_font_face)) {
+        auto body = CreateUiFont(face, ScalePxByDpi(kBodyFontSize, dpi));
+        auto title = CreateUiFont(face, ScalePxByDpi(kTitleFontSize, dpi), FW_BOLD);
+        if (!body || !title) return false;
+        SetChildUiFonts(hwnd, body.Get());
+        ctx.body_font = std::move(body);
+        ctx.title_font = std::move(title);
+    }
+    ctx.d2d.UpdateAppearance(dpi, ctx.d2d.display_preferences, face);
+    return true;
+}
+
 void ApplyInfoLanguage(HWND hwnd, const InfoDialogContext& ctx) noexcept {
     const auto& str = GetUiStrings(ctx.ui_language);
     ::SetWindowTextW(hwnd, ctx.kind == InfoDialogKind::Help ? str.help_title : str.about_title);
@@ -217,6 +233,8 @@ LRESULT CALLBACK InfoWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         }
         case WM_SETTINGCHANGE:
+            std::ignore = UpdateInfoAppearance(hwnd, *ctx, ctx->d2d.dpi);
+            [[fallthrough]];
         case WM_THEMECHANGED:
             ctx->d2d.RefreshThemeBrushes();
             ApplySystemThemeToMenuAndWindow(hwnd, IsSystemDarkTheme());
@@ -224,6 +242,7 @@ LRESULT CALLBACK InfoWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             return 0;
         case kSettingsLanguageChangedMessage:
             ctx->ui_language = static_cast<UiLanguage>(wparam);
+            std::ignore = UpdateInfoAppearance(hwnd, *ctx, ctx->d2d.dpi);
             ApplyInfoLanguage(hwnd, *ctx);
             return 0;
         case WM_COMMAND:
@@ -274,11 +293,9 @@ ScopedWindow CreateInfoWindow(
     ctx->ui_language = ui_language;
 
     const MonitorMetrics mon = QueryActiveMonitor(parent);
-    ctx->d2d.Init(mon.dpi);
+    if (!UpdateInfoAppearance(nullptr, *ctx, mon.dpi)) return {};
     const auto S = [dpi = mon.dpi](int px) noexcept { return ScalePxByDpi(px, dpi); };
 
-    ctx->body_font = CreateUiFont(S(kBodyFontSize), FW_NORMAL);
-    ctx->title_font = CreateUiFont(S(kTitleFontSize), FW_BOLD);
     const auto load_icon = [&](int size) noexcept {
         return use_embedded_icon ? LoadAppIconOrBrandFallback(instance, S(size), kAppIconResourceId, true) :
             dialog_detail::LoadOrCreateBrandIcon(S(size), instance);
@@ -287,20 +304,14 @@ ScopedWindow CreateInfoWindow(
     ctx->icon = load_icon(kIconSize);
 
     const int client_width_logical = (kind == InfoDialogKind::Help) ? kHelpClientWidth : kAboutClientWidth;
-    int body_height = S(kMinimumBodyHeight);
-    ctx->layout = BuildInfoDialogLayout(mon.dpi, S(client_width_logical), body_height);
+    ctx->layout = BuildInfoDialogLayout(mon.dpi, S(client_width_logical), S(kMinimumBodyHeight));
     const int text_width_px = ctx->layout.body.right - ctx->layout.body.left;
-    for (const UiLanguage language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
+    const int body_height = dialog_detail::MeasureLocalizedDialogTextHeight(
+        text_width_px, S(kBodyFontSize), S(kMinimumBodyHeight), [kind](UiLanguage language) noexcept {
         const auto& lang_str = GetUiStrings(language);
-        const wchar_t* const body_text =
-            (kind == InfoDialogKind::Help) ? lang_str.help_shortcuts_info : lang_str.about_license_info;
-        const int measured = dialog_detail::MeasureDialogTextHeight(
-            ctx->body_font.Get(), body_text, text_width_px);
-        if (measured <= 0) {
-            return {};
-        }
-        body_height = std::max(body_height, measured);
-    }
+        return kind == InfoDialogKind::Help ? lang_str.help_shortcuts_info : lang_str.about_license_info;
+    });
+    if (body_height <= 0) return {};
     ctx->layout = BuildInfoDialogLayout(mon.dpi, S(client_width_logical), body_height);
 
     const auto& str = GetUiStrings(ui_language);

@@ -12,7 +12,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR command_line, int show
     try {
         return qiqi::monitor::RunMonitor(instance, show, command_line);
     } catch (const std::exception&) {
-        const auto language = qiqi::ResolveUiLanguage(qiqi::UiLanguage::Auto);
+        const auto language = qiqi::ResolveUiLanguage(qiqi::LoadConfig().ui_language);
         ::MessageBoxW(nullptr, language == qiqi::UiLanguage::EnUs ?
             L"Cannot initialize QiQi Log Monitor (allocation or system error)." :
             L"无法初始化奇奇五笔日志监视器（内存分配或系统错误）。",

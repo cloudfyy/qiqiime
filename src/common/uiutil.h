@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "common/RAII.h"
+#include "common/i18n.h"
 #include "common/logger.h"
 #include "common/dpi.h"
 #include "common/controls.h"
@@ -395,6 +396,25 @@ inline bool CandidateFontFamilyAvailable(std::wstring_view family) noexcept {
     return exists != FALSE || CandidateGdiFontFamilyAvailable(family);
 }
 
+inline constexpr wchar_t kYaHeiUiFamily[] = L"Microsoft YaHei UI";
+using UiFontFamilyLookup = bool (*)(std::wstring_view) noexcept;
+
+inline void PreferLocalizedUiFontFace(
+    LOGFONTW& font, UiLanguage language, UiFontFamilyLookup lookup = nullptr) noexcept {
+    const auto has_family = lookup ? lookup : &CandidateFontFamilyAvailable;
+    if (ResolveUiLanguage(language) == UiLanguage::ZhCn && has_family(kYaHeiUiFamily)) {
+        wcscpy_s(font.lfFaceName, kYaHeiUiFamily);
+        font.lfCharSet = DEFAULT_CHARSET;
+    }
+}
+
+inline bool TryGetLocalizedUiFont(
+    UiLanguage language, LOGFONTW& font, UiFontFamilyLookup lookup = nullptr) noexcept {
+    if (!TryGetSystemUiFont(font)) return false;
+    PreferLocalizedUiFontFace(font, language, lookup);
+    return true;
+}
+
 inline int CandidateFontHeightPx(
     const CandidateFontPreferences& font, int automatic_height_px,
     UINT dpi, UiTextScale scale) noexcept {
@@ -443,6 +463,16 @@ inline bool TryBuildCandidateFontWithFallback(
             CandidateFontPreferences{}, automatic_height_px, dpi, scale, output);
 }
 
+inline ScopedGdiHandle<HFONT> CreateGdiFont(const LOGFONTW& description) noexcept {
+    ScopedGdiHandle<HFONT> font(::CreateFontIndirectW(&description));
+    if (!font) {
+        // CreateFontIndirectW reports failure through NULL, not a documented last error.
+        QIQI_LOG_WARN("CreateFontIndirectW returned NULL (height={}, weight={}, italic={})",
+            description.lfHeight, description.lfWeight, description.lfItalic != FALSE);
+    }
+    return font;
+}
+
 inline ScopedGdiHandle<HFONT> CreateCandidateFont(
     const CandidateFontPreferences& font, int automatic_height_px, UINT dpi,
     UiTextScale scale) noexcept {
@@ -451,56 +481,30 @@ inline ScopedGdiHandle<HFONT> CreateCandidateFont(
             font, automatic_height_px, dpi, scale, description)) {
         return {};
     }
-    ScopedGdiHandle<HFONT> handle(::CreateFontIndirectW(&description));
-    if (!handle) {
-        QIQI_LOG_WARN("CreateCandidateFont::CreateFontIndirectW failed (error={})",
-            ::GetLastError());
-    }
-    return handle;
+    return CreateGdiFont(description);
 }
 
-// Create a system UI font scaled to the specified pixel height and weight.
 inline ScopedGdiHandle<HFONT> CreateUiFont(
-    int height_px, LONG weight = FW_NORMAL, BYTE quality = CLEARTYPE_QUALITY) noexcept {
-    LOGFONTW system_font{};
-    if (!TryGetSystemUiFont(system_font)) return {};
+    const LOGFONTW& face, int height_px, LONG weight = FW_NORMAL, BYTE quality = CLEARTYPE_QUALITY) noexcept {
     LOGFONTW lf{};
     lf.lfHeight = -std::max(1, height_px);
     lf.lfWeight = weight;
     lf.lfCharSet = DEFAULT_CHARSET;
     lf.lfQuality = quality;
-    wcscpy_s(lf.lfFaceName, std::data(system_font.lfFaceName));
-    ScopedGdiHandle<HFONT> font(::CreateFontIndirectW(&lf));
-    if (!font) {
-        QIQI_LOG_WARN("CreateUiFont::CreateFontIndirectW failed");
-    }
-    return font;
+    wcscpy_s(lf.lfFaceName, std::data(face.lfFaceName));
+    return CreateGdiFont(lf);
 }
 
-inline bool UpdateToolWindowDisplay(
-    HWND window, FluentD2DThemeContext& theme, ScopedGdiHandle<HFONT>& font,
-    DisplayPreferences preferences, UINT dpi, std::span<const HWND> lists) noexcept {
-    preferences = NormalizeDisplayPreferences(preferences);
-    constexpr int kColumnScaleReferenceDip = 100;
-    const int previous_scale = theme.ScalePx(kColumnScaleReferenceDip);
-    const int next_scale = ScaleDisplayPx(kColumnScaleReferenceDip, dpi, preferences.text_scale);
-    const int next = ScaleDisplayPx(kFluentBodyFontSize, dpi, preferences.text_scale);
-    const bool change = !font || theme.display_preferences != preferences || theme.dpi != dpi;
-    if (!change) {
-        for (const HWND list : lists) {
-            ::SendMessageW(ListView_GetHeader(list), WM_SETFONT, reinterpret_cast<WPARAM>(font.Get()), FALSE);
-        }
-        theme.RefreshThemeBrushes();
-        return true;
-    }
-    auto next_font = CreateUiFont(next);
-    if (!next_font) {
-        QIQI_LOG_ERROR("Tool display font update failed (error={})", ::GetLastError());
-        return false;
-    }
-    theme.SetDisplayPreferences(preferences);
-    if (theme.dpi != dpi) theme.Init(dpi);
-    ::SendMessageW(window, WM_SETFONT, reinterpret_cast<WPARAM>(next_font.Get()), FALSE);
+// Use the system UI face unless a caller explicitly supplies another face.
+inline ScopedGdiHandle<HFONT> CreateUiFont(
+    int height_px, LONG weight = FW_NORMAL, BYTE quality = CLEARTYPE_QUALITY) noexcept {
+    LOGFONTW system_font{};
+    if (!TryGetSystemUiFont(system_font)) return {};
+    return CreateUiFont(system_font, height_px, weight, quality);
+}
+
+inline void SetChildUiFonts(HWND window, HFONT font) noexcept {
+    if (!window) return;
     ::EnumChildWindows(window, [](HWND child, LPARAM handle) noexcept -> BOOL {
         ::SendMessageW(child, WM_SETFONT, handle, FALSE);
         std::array<wchar_t, 64> name{};
@@ -511,11 +515,38 @@ inline bool UpdateToolWindowDisplay(
             if (tooltip) ::SendMessageW(tooltip, WM_SETFONT, handle, FALSE);
         }
         return TRUE;
-    }, reinterpret_cast<LPARAM>(next_font.Get()));
-    for (const HWND list : lists) {
-        ::SendMessageW(ListView_GetHeader(list), WM_SETFONT, reinterpret_cast<WPARAM>(next_font.Get()), FALSE);
+    }, reinterpret_cast<LPARAM>(font));
+}
+
+inline bool UpdateToolWindowDisplay(
+    HWND window, FluentD2DThemeContext& theme, ScopedGdiHandle<HFONT>& font,
+    DisplayPreferences preferences, UINT dpi, UiLanguage language,
+    std::span<const HWND> lists = {}, int font_size = kFluentBodyFontSize) noexcept {
+    dpi = dpi ? dpi : 96u;
+    preferences = NormalizeDisplayPreferences(preferences);
+    LOGFONTW face{};
+    if (!TryGetLocalizedUiFont(language, face)) return false;
+    constexpr int kColumnScaleReferenceDip = 100;
+    const int previous_scale = theme.ScalePx(kColumnScaleReferenceDip);
+    const int next_scale = ScaleDisplayPx(kColumnScaleReferenceDip, dpi, preferences.text_scale);
+    const bool change_font = !font || theme.dpi != dpi ||
+        theme.display_preferences.text_scale != preferences.text_scale ||
+        LogFontFaceNameView(theme.ui_font_face) != LogFontFaceNameView(face);
+    ScopedGdiHandle<HFONT> next_font;
+    if (change_font) {
+        next_font = CreateUiFont(face, ScaleDisplayPx(font_size, dpi, preferences.text_scale));
+        if (!next_font) return false;
     }
-    font = std::move(next_font);
+    theme.UpdateAppearance(dpi, preferences, face);
+    if (next_font) {
+        if (window) ::SendMessageW(window, WM_SETFONT, reinterpret_cast<WPARAM>(next_font.Get()), FALSE);
+        SetChildUiFonts(window, next_font.Get());
+    }
+    const HFONT applied_font = next_font ? next_font.Get() : font.Get();
+    for (const HWND list : lists) {
+        ::SendMessageW(ListView_GetHeader(list), WM_SETFONT, reinterpret_cast<WPARAM>(applied_font), FALSE);
+    }
+    if (next_font) font = std::move(next_font);
     if (previous_scale != next_scale) {
         for (const HWND list : lists) {
             const int count = Header_GetItemCount(ListView_GetHeader(list));

@@ -49,8 +49,11 @@ rounded differently by Task Manager.
 .\QiQiIMEDiag.exe --lang en-US
 ```
 
-`--language` selects `auto`, `zh-CN`, or `en-US`; `--lang` is its short alias.
-The default follows Windows. `--yes` bypasses interactive selection and approves
+The interface follows the saved IME language by default. Diag reads only that
+preference before consent, without starting Broker. `--language` (alias `--lang`)
+overrides it with `zh-CN`, `en-US`, or `auto` to follow Windows. The terminal
+controls the console font; JSON keys are unchanged.
+`--yes` bypasses interactive selection and approves
 all four stages; it is for explicit automation, not a silent default.
 
 `--output <directory>` selects an
@@ -100,8 +103,11 @@ Windows) and opens on the original monitor's screen where possible; logs, filter
 not transferred. Export first, then restart capture. Do not elevate the tested
 application or change user groups/ETW ACLs merely to obtain diagnostics.
 
-The window supports runtime English/Simplified Chinese selection, system themes,
-high contrast, and per-monitor DPI. The log-list/detail splitter is keyboard
+The window follows the saved IME language while open unless overridden in its
+**Language** menu. **Follow IME setting** clears the override; **System Default
+(Auto)** explicitly follows Windows. This affects the monitor UI, not captured
+log messages or exports. It also supports system themes, high contrast, and
+per-monitor DPI. The log-list/detail splitter is keyboard
 accessible with `Tab`, arrow keys, `Home`, and `End`.
 
 ### Metrics capture

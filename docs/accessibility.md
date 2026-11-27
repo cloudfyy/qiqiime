@@ -54,6 +54,11 @@ Tab 栏的背景、文字、选中态、焦点及横向翻页箭头使用所选�
 字号放大后空间不足时，使用箭头或 Ctrl+Tab / Ctrl+Shift+Tab 切换。
 只有当前页显示并滚动；切换页保留未保存的修改和各页滚动位置。
 页面中的标签和控件在空间不足时上下排列。
+设置、词典管理器、Log Monitor 和输入法自绘界面使用同一界面字体策略：
+简体中文优先使用已安装的微软雅黑 UI，英文或缺少该字体时沿用 Windows 系统界面字体。
+此策略包括快捷菜单、浮动状态栏及提示、帮助和关于窗口；
+候选窗口和候选预览保留候选字体，Windows 原生对话框、标题栏和终端字体由系统或宿主决定。
+词典管理器、Log Monitor 默认跟随已保存的输入法界面语言，也可在各自的“语言”菜单中临时覆盖。
 输入习惯页的“未完成输入”和“空格/回车”标签与开关文字左对齐；空间足够时，下拉框与标签同排。
 候选窗口页的“皮肤”“编码下划线样式”标签和候选预览的左边框也与开关文字左对齐。
 显示页的“文字大小”和“界面语言”标签也与开关文字左对齐。
@@ -330,6 +335,13 @@ recreating business controls, preserving drafts, filters, selection, and custom
 column-width proportions. Comfort mode adds toolbar labels and a minimum 44 DIP
 height for rows, combo items, and primary targets. Filters wrap and short windows
 scroll vertically, revealing focused controls without reducing text size.
+
+App-owned desktop UI, including the IME quick menu, floating status bar, tooltips,
+and Help/About, prefers Microsoft YaHei UI when displaying Simplified Chinese
+and the font is installed. English and missing-font cases retain the Windows UI
+font. The candidate popup and preview keep their candidate font. Dictionary
+Manager and Log Monitor follow the saved IME language by default, with per-window
+overrides in their Language menus.
 
 This phase covers Settings, the IME's own candidate popup, both tool main windows,
 and these app-owned menus, **not all desktop windows**. The floating status bar

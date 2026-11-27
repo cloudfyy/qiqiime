@@ -3,7 +3,7 @@
 
 #include "tools/diag/internal.h"
 #include "common/config.h"
-#include "common/configbrokercontrol.h"
+#include "common/brokerctrl.h"
 #include "common/fileutil.h"
 #include "common/guids.h"
 #include <gsl/gsl>

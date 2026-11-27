@@ -56,22 +56,26 @@ struct ToolMenu {
 class ToolCommandUi final {
   public:
     using ErrorSink = void (*)(void*, const char*, ULONG) noexcept;
-    ToolCommandUi(ErrorSink error_sink, void* context) noexcept : error_sink_(error_sink), context_(context) {
+    enum class PreferenceSource { SavedConfig, Window };
+    ToolCommandUi(ErrorSink error_sink, void* context,
+        PreferenceSource preferences = PreferenceSource::SavedConfig) noexcept
+        : error_sink_(error_sink), context_(context), preferences_source_(preferences) {
     }
     ToolCommandUi(const ToolCommandUi&) = delete;
     ToolCommandUi& operator=(const ToolCommandUi&) = delete;
 
     void InitializeToolbar(HWND toolbar, bool compact = false);
-    void SetMenu(HWND window, std::span<const ToolMenu> menus);
+    void SetMenu(HWND window, std::span<const ToolMenu> menus, const FluentD2DThemeContext& theme);
     UINT TrackContextMenu(HWND window, POINT point, std::span<const ToolCommand> commands,
-        const FluentD2DThemeContext* preview_theme = nullptr, TPMPARAMS* placement = nullptr,
+        const FluentD2DThemeContext& theme, TPMPARAMS* placement = nullptr,
         gsl::not_null<decltype(&::TrackPopupMenuEx)> track_menu = &::TrackPopupMenuEx);
     void SetToolbar(HWND toolbar, std::span<const ToolCommand> commands);
     void UpdateCommand(HWND window, const ToolCommand& command);
     int LayoutToolbar(HWND toolbar, int width, const FluentD2DThemeContext& theme) const noexcept;
     void ApplyTheme(HWND window, const FluentD2DThemeContext& theme) noexcept;
+    bool MenuActive() const noexcept;
     void DrawIcon(HDC dc, const RECT& rect, ToolIcon icon, int size, int stroke, COLORREF color) const noexcept;
-    std::optional<LRESULT> HandleMessage(HWND window, UINT message, WPARAM wparam, LPARAM lparam, HFONT font,
+    std::optional<LRESULT> HandleMessage(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
                                          const FluentD2DThemeContext& theme);
 
   private:
@@ -96,7 +100,7 @@ class ToolCommandUi final {
     void AppendMenuCommand(HMENU menu, const ToolCommand& command, bool radio, MenuItems& items,
         HFONT font = nullptr);
     const MenuItem* FindMenuItem(ULONG_PTR data) const noexcept;
-    void RefreshMenuAppearance(HWND window, UINT dpi) noexcept;
+    void RefreshMenuAppearance(HWND window, UINT dpi, const FluentD2DThemeContext& theme) noexcept;
     void ApplyMenuBackground(HMENU menu) noexcept;
     void InvalidateMenuMeasurements(const MenuItems& items) noexcept;
     int MenuScale(int px) const noexcept;
@@ -106,13 +110,14 @@ class ToolCommandUi final {
 
     ErrorSink error_sink_;
     void* context_;
+    PreferenceSource preferences_source_;
     ScopedGdiHandle<HBRUSH> menu_brush_;
     std::wstring tooltip_buffer_;
     MenuItems menu_items_;
     const MenuItems* context_items_ = nullptr;
-    const FluentD2DThemeContext* context_theme_ = nullptr;
     DisplayPreferences menu_preferences_;
     DisplayAppearance menu_appearance_;
+    LOGFONTW menu_font_face_{};
     ScopedGdiHandle<HFONT> menu_font_;
     UINT menu_dpi_ = 96;
     UINT menu_max_height_ = 0;

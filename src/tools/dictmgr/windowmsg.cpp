@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "tools/dictmgr/internal.h"
-#include "common/configclient.h"
 
 #include <gsl/gsl>
 #include <utility>
@@ -138,7 +137,7 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
             self->Layout();
             if (message == WM_VSCROLL || message == WM_MOUSEWHEEL) return 0;
         }
-        if (const auto handled = self->command_ui.HandleMessage(window, message, wparam, lparam, self->font.Get(), self->theme)) {
+        if (const auto handled = self->command_ui.HandleMessage(window, message, wparam, lparam, self->theme)) {
             return *handled;
         }
         if (const auto handled = HandleFluentToolWindowMessage(
@@ -147,93 +146,12 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
             return *handled;
         }
         switch (message) {
-        case kConfigChangedMessage: {
-            bool expected = false;
-            if (!self
-                     ->config_refresh_inflight
-                     .compare_exchange_strong(
-                         expected,
-                         true)) {
-                self
-                    ->config_refresh_pending
-                    .store(
-                        true,
-                        std::memory_order_release);
-                return 0;
-            }
-            self
-                ->config_refresh_pending
-                .store(
-                    false,
-                    std::memory_order_relaxed);
-            const HWND target = window;
-            const HRESULT submit_result =
-                config::ReadSnapshotAsync(
-                    [target](
-                        HRESULT result,
-                        const config::
-                            Snapshot&) {
-                        if (::IsWindow(target)) {
-                            ::PostMessageW(
-                                target,
-                                kConfigLoadedMessage,
-                                config::EncodeAsyncResult(
-                                    result),
-                                0);
-                        }
-                    });
-            if (FAILED(submit_result)) {
-                self
-                    ->config_refresh_inflight =
-                    false;
-                QIQI_LOG_ERROR(
-                    "DictManager broker refresh "
-                    "could not be queued "
-                    "(hr=0x{:08X})",
-                    gsl::narrow_cast<
-                        unsigned long>(
-                            submit_result));
-            }
+        case kToolConfigChangedMessage:
+            self->config_subscription.RequestRefresh(window);
             return 0;
-        }
-        case kConfigLoadedMessage:
-        {
-            self
-                ->config_refresh_inflight =
-                false;
-            const HRESULT refresh_result =
-                config::DecodeAsyncResult(
-                    wparam);
-            if (SUCCEEDED(refresh_result)) {
-                if (self->ready) {
-                    self->Tick();
-                }
-            } else {
-                QIQI_LOG_ERROR(
-                    "DictManager broker refresh "
-                    "failed (hr=0x{:08X})",
-                    gsl::narrow_cast<
-                        unsigned long>(
-                            refresh_result));
-            }
-            if (self
-                    ->config_refresh_pending
-                    .exchange(
-                        false,
-                        std::memory_order_acq_rel) &&
-                !::PostMessageW(
-                    window,
-                    kConfigChangedMessage,
-                    0,
-                    0)) {
-                QIQI_LOG_WARN(
-                    "DictManager config refresh "
-                    "coalescing post failed "
-                    "(error={})",
-                    ::GetLastError());
-            }
+        case kToolConfigLoadedMessage:
+            if (self->config_subscription.CompleteRefresh(window, wparam, lparam) && self->ready) self->Tick();
             return 0;
-        }
         case WM_SIZE:
             self->Layout();
             return 0;
@@ -260,7 +178,7 @@ LRESULT CALLBACK DictManagerWindow::Impl::Procedure(
             return 0;
         case WM_SETTINGCHANGE:
             if (wparam == SPI_SETWORKAREA) self->RecoverDisplay();
-            if (self->ready && self->ui_language == UiLanguage::Auto) self->ApplyLanguage();
+            if (self->ready) self->RefreshDisplay(LoadConfig());
             [[fallthrough]];
         case WM_THEMECHANGED:
         case WM_SYSCOLORCHANGE:

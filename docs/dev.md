@@ -150,6 +150,9 @@ Repeat with the x86 preset and build directory. Use
 | Installer sources and runtime layout | `QiQiInstallerShortcutsTest`, `QiQiRuntimeArchitectureTest` |
 | Installer basic/reduced uninstall consent | `QiQiInstallerActionsTest` |
 
+To check the floating status bar and tooltips without the full TSF menu suite,
+run `.\build\x64\Release\qiqi_tsf_ui_test.exe --status-bar-tests` (or use `x86`).
+
 Skin-specific catalog, chooser, candidate/menu rendering, and input-preservation
 cases run only in **QiQiSkinTest**, not the default Common/Settings/UI collections.
 The collection reuses `qiqi_tsf_ui_test --skin-tests`, its private lifecycle

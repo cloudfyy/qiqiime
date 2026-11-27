@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -27,7 +28,7 @@ namespace {
 
 struct Options {
     qiqi::diag::Selection selection;
-    qiqi::UiLanguage language = qiqi::UiLanguage::Auto;
+    std::optional<qiqi::UiLanguage> language;
     bool accept_all = false;
     bool compact = false;
     bool show_help = false;
@@ -48,13 +49,13 @@ void PrintUsage(qiqi::UiLanguage language) {
                   L"  --compact        写入压缩后的 JSON。\n"
                   L"  --output, -o     使用指定目录作为本次运行目录。\n"
                   L"  --log-directory  在指定目录内新建带时间戳的运行目录。\n"
-                  L"  --language       语言：auto、zh-CN、en-US（可缩写 --lang）。\n"
+                  L"  --language       覆盖输入法界面语言：auto、zh-CN、en-US（可缩写 --lang）。\n"
                   L"  --help, -h       显示帮助。\n",
                   L"  --yes, -y        Approve all four stages without interactive consent.\n"
                   L"  --compact        Write minified JSON.\n"
                   L"  --output, -o     Use the specified directory for this run.\n"
                   L"  --log-directory  Create a timestamped run directory inside the specified directory.\n"
-                  L"  --language       Select auto, zh-CN, or en-US (alias: --lang).\n"
+                  L"  --language       Override IME language: auto, zh-CN, or en-US (alias: --lang).\n"
                   L"  --help, -h       Show this help.\n");
 }
 
@@ -251,11 +252,22 @@ void PrintFailure(HRESULT result, qiqi::UiLanguage language) {
               << UiText(language, L")。\n", L").\n");
 }
 
-int Run(int argc, wchar_t** argv) {
+int Run(int argc, wchar_t** argv, qiqi::UiLanguage& language) {
     Options options;
     const std::span<wchar_t*> arguments(argv, gsl::narrow_cast<size_t>(argc));
     const HRESULT parse_result = ParseArguments(arguments, options);
-    const qiqi::UiLanguage language = qiqi::ResolveUiLanguage(options.language);
+    if (options.language) {
+        language = qiqi::ResolveUiLanguage(*options.language);
+    } else {
+        qiqi::UiLanguage configured = qiqi::UiLanguage::Auto;
+        const HRESULT result = qiqi::diag::ReadConfiguredUiLanguage(configured);
+        language = qiqi::ResolveUiLanguage(configured);
+        if (FAILED(result)) {
+            std::cerr << UiText(language, L"无法读取界面语言设置，使用 Windows 界面语言 (HRESULT ",
+                L"Cannot read the IME language setting; using the Windows UI language (HRESULT ")
+                << std::format("0x{:08X}", std::bit_cast<uint32_t>(result)) << ").\n";
+        }
+    }
     if (FAILED(parse_result)) {
         PrintFailure(parse_result, language);
         PrintUsage(language);
@@ -351,14 +363,14 @@ int Run(int argc, wchar_t** argv) {
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
+    auto language = qiqi::ResolveUiLanguage(qiqi::UiLanguage::Auto);
     try {
-        return Run(argc, argv);
+        return Run(argc, argv, language);
     } catch (const std::bad_alloc&) {
-        PrintFailure(E_OUTOFMEMORY, qiqi::ResolveUiLanguage(qiqi::UiLanguage::Auto));
+        PrintFailure(E_OUTOFMEMORY, language);
         return 4;
     } catch (const std::filesystem::filesystem_error& error) {
-        PrintFailure(HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(error.code().value())),
-                     qiqi::ResolveUiLanguage(qiqi::UiLanguage::Auto));
+        PrintFailure(HRESULT_FROM_WIN32(gsl::narrow_cast<DWORD>(error.code().value())), language);
         return 5;
     }
 }

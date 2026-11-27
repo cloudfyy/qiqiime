@@ -309,6 +309,10 @@ void PaintFluentSettingsWindow(HWND hwnd, HDC hdc, const RECT& client_rc, const 
 void UpdateExtraDictCheckboxState(HWND hwnd) noexcept;
 void CreateSettingsControls(HWND hwnd, HINSTANCE instance, const DialogContext& ctx) noexcept;
 void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept;
+using SettingsFontFamilyLookup = bool (*)(std::wstring_view) noexcept;
+bool RefreshSettingsUiAppearance(
+    HWND hwnd, DialogContext& ctx, UiLanguage language, DisplayPreferences preferences, UINT dpi,
+    SettingsFontFamilyLookup is_font_installed = nullptr) noexcept;
 void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept;
 void PopulateSettingsSkinCombo(HWND hwnd, DialogContext& ctx) noexcept;
 void UpdateSettingsSkinPreview(HWND hwnd, DialogContext& ctx) noexcept;

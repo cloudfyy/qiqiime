@@ -28,12 +28,9 @@ bool DictManagerWindow::Impl::Add(const wchar_t* cls, const wchar_t* text, DWORD
     return true;
 }
 
-bool DictManagerWindow::Impl::CreateControls() {
-    theme.SetDisplayPreferences(NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig())));
-    theme.Init(::GetDpiForWindow(hwnd));
-    font = CreateUiFont(theme.ScalePx(kFluentBodyFontSize));
-    if (!font) {
-        Failure(L"CreateUiFont", ::GetLastError());
+bool DictManagerWindow::Impl::CreateControls(DisplayPreferences preferences) {
+    if (!UpdateToolWindowDisplay(nullptr, theme, font, preferences, ::GetDpiForWindow(hwnd), ui_language)) {
+        Failure(L"CreateUiFont", ERROR_FUNCTION_FAILED);
         return false;
     }
     if (!Add(TOOLBARCLASSNAMEW, L"", TBSTYLE_FLAT | TBSTYLE_LIST | TBSTYLE_WRAPABLE |
@@ -174,14 +171,28 @@ void DictManagerWindow::Impl::UpdateTheme() noexcept {
     command_ui.ApplyTheme(hwnd, theme);
 }
 
-bool DictManagerWindow::Impl::UpdateDisplay(DisplayPreferences preferences, UINT dpi) noexcept {
+bool DictManagerWindow::Impl::UpdateDisplay(DisplayPreferences preferences, UINT dpi, UiLanguage language) noexcept {
     const std::array lists{Child(List)};
-    if (!UpdateToolWindowDisplay(hwnd, theme, font, preferences, dpi, lists)) return false;
+    if (!UpdateToolWindowDisplay(hwnd, theme, font, preferences, dpi, language, lists)) return false;
     UpdateDisplayTargets();
     UpdateIcons();
     Layout();
     UpdateTheme();
     return true;
+}
+
+void DictManagerWindow::Impl::RefreshDisplay(const QiQiConfig& config, bool update_language_menu) {
+    if (!ready) return;
+    const auto preferences = NormalizeDisplayPreferences(GetDisplayPreferences(config));
+    const auto language = ResolveUiLanguage(language_override.value_or(config.ui_language));
+    const bool language_changed = language != ui_language;
+    if (language_changed && !update_language_menu && command_ui.MenuActive()) return;
+    if ((language_changed || preferences != theme.display_preferences) &&
+        !UpdateDisplay(preferences, theme.dpi, language)) return;
+    if (language_changed || update_language_menu) {
+        ui_language = language;
+        ApplyLanguage();
+    }
 }
 
 void DictManagerWindow::Impl::UpdateDisplayTargets() noexcept {
@@ -254,7 +265,7 @@ void DictManagerWindow::Impl::ApplyLanguage() {
 
 void DictManagerWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) noexcept {
     if (!ready) return;
-    std::ignore = UpdateDisplay(GetDisplayPreferences(LoadConfig()), dpi);
+    std::ignore = UpdateDisplay(theme.display_preferences, dpi, ui_language);
     const POINT center{
         proposed.left + (proposed.right - proposed.left) / 2,
         proposed.top + (proposed.bottom - proposed.top) / 2};

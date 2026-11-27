@@ -132,6 +132,7 @@ struct FluentD2DThemeContext {
     UINT dpi = 96;
     DisplayPreferences display_preferences{};
     DisplayAppearance appearance{};
+    LOGFONTW ui_font_face{};
     bool clip_controls_to_dc = false;
     ScopedD2DFactory d2d_factory;
     ScopedDWriteFactory dwrite_factory;
@@ -146,8 +147,12 @@ struct FluentD2DThemeContext {
     float ScaleF(int px) const noexcept;
     int ScaleDipPx(int px) const noexcept { return ScalePxByDpi(px, dpi); }
     void SetDisplayPreferences(DisplayPreferences preferences) noexcept;
-    void Init(UINT monitor_dpi) noexcept;
+    void Init(UINT monitor_dpi, const LOGFONTW* ui_font = nullptr) noexcept;
+    void UpdateAppearance(UINT monitor_dpi, DisplayPreferences preferences, const LOGFONTW& ui_font) noexcept;
     void RefreshThemeBrushes() noexcept;
+
+private:
+    void RefreshTextFormats(const LOGFONTW* ui_font) noexcept;
 };
 
 inline int FluentControlHeight(const FluentD2DThemeContext& theme, int normal_height) noexcept {

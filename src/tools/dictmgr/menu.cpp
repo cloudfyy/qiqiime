@@ -30,9 +30,11 @@ ToolCommand DictManagerWindow::Impl::UiCommand(ControlId id) const noexcept {
     case Promote: icon = ToolIcon::Promote; break;
     default: break;
     }
-    return {id == Separator ? 0u : gsl::narrow_cast<UINT>(std::to_underlying(id)), CommandText(id), icon, true,
+    const bool checked = id == LanguageFollowIme ? !language_override :
         id >= LanguageAuto && id <= LanguageEn &&
-            std::to_underlying(id) - std::to_underlying(LanguageAuto) == std::to_underlying(ui_language)};
+        language_override == gsl::narrow_cast<UiLanguage>(
+            std::to_underlying(id) - std::to_underlying(LanguageAuto));
+    return {id == Separator ? 0u : gsl::narrow_cast<UINT>(std::to_underlying(id)), CommandText(id), icon, true, checked};
 }
 
 const wchar_t* DictManagerWindow::Impl::CommandText(ControlId id) const noexcept {
@@ -58,6 +60,7 @@ const wchar_t* DictManagerWindow::Impl::CommandText(ControlId id) const noexcept
     case LanguageAuto: return GetUiStrings(ui_language).dlg_lang_auto;
     case LanguageZh: return GetUiStrings(ui_language).dlg_lang_zh;
     case LanguageEn: return GetUiStrings(ui_language).dlg_lang_en;
+    case LanguageFollowIme: return GetUiStrings(ui_language).tool_lang_follow_ime;
     case Exit: return Text(L"退出", L"Exit");
     default: return L"";
     }
@@ -79,12 +82,13 @@ void DictManagerWindow::Impl::UpdateCommands() {
     const std::array edit{UiCommand(NewWord), UiCommand(SaveWord), UiCommand(CancelEdit), UiCommand(AutoCode),
         UiCommand(Separator), UiCommand(Copy), UiCommand(SelectAll), UiCommand(Pin), UiCommand(Delete),
         UiCommand(Promote), UiCommand(Separator), UiCommand(ClearFreq)};
-    const std::array language{UiCommand(LanguageAuto), UiCommand(LanguageZh), UiCommand(LanguageEn)};
+    const std::array language{UiCommand(LanguageAuto), UiCommand(LanguageZh), UiCommand(LanguageEn),
+        UiCommand(LanguageFollowIme)};
     const std::array help{UiCommand(About)};
     const std::array menus{
         ToolMenu{MenuHeading(0), L'f', file}, ToolMenu{MenuHeading(1), L'e', edit},
         ToolMenu{MenuHeading(2), L'l', language, true}, ToolMenu{MenuHeading(3), L'h', help}};
-    command_ui.SetMenu(hwnd, menus);
+    command_ui.SetMenu(hwnd, menus, theme);
     std::array<ToolCommand, toolbar_commands.size()> buttons{};
     std::ranges::transform(toolbar_commands, buttons.begin(), [this](ControlId id) { return UiCommand(id); });
     command_ui.SetToolbar(Child(Toolbar), buttons);

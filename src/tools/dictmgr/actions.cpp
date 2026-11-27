@@ -175,7 +175,7 @@ void DictManagerWindow::Impl::ShowListContextMenu(POINT screen_pt) {
         const bool enabled = (id == SelectAll ? !rows.empty() : has_sel) && CanExecute(id);
         commands.push_back({gsl::narrow_cast<UINT>(std::to_underlying(id)), CommandText(id), ToolIcon::None, enabled});
     }
-    const UINT cmd = command_ui.TrackContextMenu(hwnd, screen_pt, commands);
+    const UINT cmd = command_ui.TrackContextMenu(hwnd, screen_pt, commands, theme);
     if (cmd) Command(cmd, 0);
 }
 

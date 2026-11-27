@@ -36,7 +36,7 @@ struct CommonCandidateFont {
 };
 
 constexpr std::array kCommonCandidateFonts{
-    CommonCandidateFont{L"Microsoft YaHei UI", L"微软雅黑 UI"},
+    CommonCandidateFont{kYaHeiUiFamily, L"微软雅黑 UI"},
     CommonCandidateFont{L"SimSun", L"宋体"},
     CommonCandidateFont{L"DengXian", L"等线"},
     CommonCandidateFont{L"FangSong", L"仿宋"},
@@ -97,6 +97,42 @@ const wchar_t* SettingsCandidateFontDisplayName(const std::wstring& family, UiLa
     return family.c_str();
 }
 
+bool RefreshSettingsUiAppearance(
+    HWND hwnd, DialogContext& ctx, UiLanguage language, DisplayPreferences preferences, UINT dpi,
+    SettingsFontFamilyLookup is_font_installed) noexcept {
+    LOGFONTW face{};
+    if (!TryGetLocalizedUiFont(language, face, is_font_installed)) return false;
+    dpi = dpi > 0 ? dpi : 96u;
+    preferences = NormalizeDisplayPreferences(preferences);
+    if (ctx.font && ctx.bold_font && ctx.d2d.dpi == dpi &&
+        ctx.d2d.display_preferences.text_scale == preferences.text_scale &&
+        LogFontFaceNameView(face) == LogFontFaceNameView(ctx.d2d.ui_font_face)) {
+        ctx.d2d.UpdateAppearance(dpi, preferences, face);
+        return true;
+    }
+    const auto make_fonts = [&face, dpi, scale = preferences.text_scale]() noexcept {
+        return std::pair{
+            CreateUiFont(face, ScaleDisplayPx(settings_layout::kFontSize, dpi, scale)),
+            CreateUiFont(face, ScaleDisplayPx(settings_layout::kBoldFontSize, dpi, scale), FW_SEMIBOLD)};
+    };
+    auto [font, bold_font] = make_fonts();
+    if ((!font || !bold_font) && LogFontFaceNameView(face) == kYaHeiUiFamily && TryGetSystemUiFont(face)) {
+        auto [system_font, system_bold] = make_fonts();
+        font = std::move(system_font);
+        bold_font = std::move(system_bold);
+    }
+    if (!font || !bold_font) {
+        QIQI_LOG_ERROR("Settings UI font creation failed (dpi={}, text scale={}%)", dpi,
+                       TextScalePercent(preferences.text_scale));
+        return false;
+    }
+    ctx.d2d.UpdateAppearance(dpi, preferences, face);
+    SetChildUiFonts(hwnd, font.Get());
+    ctx.font = std::move(font);
+    ctx.bold_font = std::move(bold_font);
+    return true;
+}
+
 void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept {
     QiQiConfig edited;
     ReadSettingsFromWindowControls(hwnd, edited);
@@ -105,28 +141,16 @@ void ApplySettingsDisplayPreview(HWND hwnd, DialogContext& ctx) noexcept {
     ctx.preview_theme = edited.ui_theme;
     ctx.preview_scale = edited.ui_text_scale;
     ctx.preview_easy_reading = edited.easy_reading;
-    const auto preferences = GetDisplayPreferences(edited);
-    ctx.d2d.SetDisplayPreferences(preferences);
+    std::ignore = RefreshSettingsUiAppearance(hwnd, ctx, edited.ui_language, GetDisplayPreferences(edited), ctx.d2d.dpi);
     UpdateSettingsSkinPreview(hwnd, ctx);
     ApplyDisplayThemeToWindow(hwnd, ctx.d2d.appearance);
-    auto font = CreateUiFont(ctx.d2d.ScalePx(settings_layout::kFontSize),
-                             FW_NORMAL, CLEARTYPE_QUALITY);
-    if (font) {
-        ::EnumChildWindows(hwnd, [](HWND child, LPARAM handle) noexcept -> BOOL {
-            ::SendMessageW(child, WM_SETFONT, gsl::narrow_cast<WPARAM>(handle), FALSE);
-            return TRUE;
-        }, reinterpret_cast<LPARAM>(font.Get()));
-        ctx.font = std::move(font);
-    } else {
-        QIQI_LOG_ERROR("Settings preview font creation failed (error={})", ::GetLastError());
-    }
     auto candidate_font = CreateCandidateFont(
         ctx.preview_candidate_font, kCandidateFontDefaultHeightPx,
         ctx.d2d.dpi, edited.ui_text_scale);
     if (candidate_font) {
         ctx.candidate_preview_font = std::move(candidate_font);
     } else {
-        QIQI_LOG_ERROR("Settings candidate preview font creation failed (error={})", ::GetLastError());
+        QIQI_LOG_ERROR("Settings candidate preview font creation failed");
     }
     UpdateCandidateFontLabel(hwnd, ctx);
     UpdateSettingsPageLabels(hwnd, ctx);
@@ -255,14 +279,14 @@ bool ShowSettingsCandidateFontMenu(
     });
     UINT picked = 0;
     try {
-        ToolCommandUi menu(ReportCandidateFontMenuError, nullptr);
+        ToolCommandUi menu(ReportCandidateFontMenuError, nullptr, ToolCommandUi::PreferenceSource::Window);
         ctx.active_font_menu = &menu;
         const auto clear_menu = gsl::finally([hwnd, original]() noexcept {
             if (BoundSettingsContext(hwnd) == original) original->active_font_menu = nullptr;
         });
         TPMPARAMS placement{sizeof(placement), bounds};
         picked = menu.TrackContextMenu(hwnd, POINT{bounds.right, bounds.bottom},
-            std::span(commands).first(count), &ctx.d2d, &placement, track_menu);
+            std::span(commands).first(count), ctx.d2d, &placement, track_menu);
     } catch (const std::bad_alloc&) {
         QIQI_LOG_WARN("Candidate font menu allocation failed");
         return false;

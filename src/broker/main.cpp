@@ -10,7 +10,7 @@
 #include "common/logger.h"
 #include "common/RAII.h"
 #include "common/comobj.h"
-#include "common/configbrokercontrol.h"
+#include "common/brokerctrl.h"
 
 #include <objbase.h>
 #include <shellapi.h>

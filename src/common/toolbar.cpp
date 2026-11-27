@@ -58,12 +58,12 @@ void ToolCommandUi::InitializeToolbar(HWND toolbar, bool compact) {
     toolbars_.push_back({toolbar, compact});
 }
 
-void ToolCommandUi::SetMenu(HWND window, std::span<const ToolMenu> menus) {
+void ToolCommandUi::SetMenu(HWND window, std::span<const ToolMenu> menus, const FluentD2DThemeContext& theme) {
     ScopedMenu menu(::CreateMenu());
     if (!menu)
         Fail("CreateMenu", ::GetLastError());
     MenuItems items;
-    RefreshMenuAppearance(window, ::GetDpiForWindow(window));
+    RefreshMenuAppearance(window, theme.dpi, theme);
     for (const auto& group : menus) {
         ScopedMenu popup(::CreatePopupMenu());
         if (!popup)
@@ -120,16 +120,14 @@ void ToolCommandUi::AppendMenuCommand(
 
 UINT ToolCommandUi::TrackContextMenu(
     HWND window, POINT point, std::span<const ToolCommand> commands,
-    const FluentD2DThemeContext* preview_theme, TPMPARAMS* placement,
+    const FluentD2DThemeContext& theme, TPMPARAMS* placement,
     gsl::not_null<decltype(&::TrackPopupMenuEx)> track_menu) {
     // Item storage and background outlive the synchronous native menu loop, including its draw callbacks.
     MenuItems items;
     const ScopedMenu menu(::CreatePopupMenu());
     if (!menu)
         Fail("CreatePopupMenu", ::GetLastError());
-    const auto* previous_theme = std::exchange(context_theme_, preview_theme);
-    const auto restore_theme = gsl::finally([this, previous_theme]() noexcept { context_theme_ = previous_theme; });
-    RefreshMenuAppearance(window, preview_theme ? preview_theme->dpi : ::GetDpiForWindow(window));
+    RefreshMenuAppearance(window, theme.dpi, theme);
     for (const auto& command : commands)
         AppendMenuCommand(menu.Get(), command, false, items, command.popup_font);
     const auto* previous = context_items_;
@@ -258,7 +256,7 @@ int ToolCommandUi::LayoutToolbar(HWND toolbar, int width, const FluentD2DThemeCo
 }
 
 void ToolCommandUi::ApplyTheme(HWND window, const FluentD2DThemeContext& theme) noexcept {
-    RefreshMenuAppearance(window, ::GetDpiForWindow(window));
+    RefreshMenuAppearance(window, theme.dpi, theme);
     ApplyMenuBackground(::GetMenu(window));
     const bool contrast = theme.appearance.system_high_contrast;
     const auto& palette = theme.appearance.palette;
@@ -481,22 +479,38 @@ int ToolCommandUi::MenuScale(int px) const noexcept {
     return ScaleDisplayPx(px, menu_dpi_, menu_preferences_.text_scale);
 }
 
-void ToolCommandUi::RefreshMenuAppearance(HWND window, UINT dpi) noexcept {
-    const auto preferences = context_theme_ ? context_theme_->display_preferences :
+bool ToolCommandUi::MenuActive() const noexcept {
+    if (context_items_) return true;
+    GUITHREADINFO info{};
+    info.cbSize = sizeof(info);
+    if (!::GetGUIThreadInfo(::GetCurrentThreadId(), &info)) {
+        Report("GetGUIThreadInfo(menu)", ::GetLastError());
+        return false;
+    }
+    return (info.flags & (GUI_INMENUMODE | GUI_POPUPMENUMODE | GUI_SYSTEMMENUMODE)) != 0;
+}
+
+void ToolCommandUi::RefreshMenuAppearance(HWND window, UINT dpi, const FluentD2DThemeContext& theme) noexcept {
+    const bool window_preferences = preferences_source_ == PreferenceSource::Window;
+    const auto preferences = window_preferences ? theme.display_preferences :
         NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig()));
     dpi = dpi ? dpi : 96u;
     bool font_changed = false;
-    if (!menu_font_ || preferences != menu_preferences_ || dpi != menu_dpi_) {
-        auto font = CreateUiFont(ScaleDisplayPx(kFluentBodyFontSize, dpi, preferences.text_scale));
+    const auto& face = theme.ui_font_face;
+    if (!menu_font_ || preferences.text_scale != menu_preferences_.text_scale || dpi != menu_dpi_ ||
+        LogFontFaceNameView(face) != LogFontFaceNameView(menu_font_face_)) {
+        const int height = ScaleDisplayPx(kFluentBodyFontSize, dpi, preferences.text_scale);
+        auto font = LogFontFaceNameView(face).empty() ? CreateUiFont(height) : CreateUiFont(face, height);
         if (font) {
             menu_font_ = std::move(font);
+            menu_font_face_ = face;
             font_changed = true;
         }
         else Report("CreateUiFont(menu)");
     }
     menu_preferences_ = preferences;
     menu_dpi_ = dpi;
-    menu_appearance_ = context_theme_ ? context_theme_->appearance : ResolveDisplayAppearance(preferences);
+    menu_appearance_ = window_preferences ? theme.appearance : ResolveDisplayAppearance(preferences);
     if (font_changed) {
         InvalidateMenuMeasurements(menu_items_);
         if (context_items_) InvalidateMenuMeasurements(*context_items_);
@@ -671,11 +685,10 @@ LRESULT ToolCommandUi::DrawMenuItem(const DRAWITEMSTRUCT& draw, const MenuItem& 
     return TRUE;
 }
 
-std::optional<LRESULT> ToolCommandUi::HandleMessage(HWND window, UINT message, WPARAM wparam, LPARAM lparam, HFONT font,
+std::optional<LRESULT> ToolCommandUi::HandleMessage(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
                                                     const FluentD2DThemeContext& theme) {
-    std::ignore = font; // The caller's font belongs to the tool window, not its preference-aware menus.
     if (message == WM_ENTERMENULOOP || message == WM_DPICHANGED) {
-        RefreshMenuAppearance(window, message == WM_DPICHANGED ? HIWORD(wparam) : theme.dpi);
+        RefreshMenuAppearance(window, message == WM_DPICHANGED ? HIWORD(wparam) : theme.dpi, theme);
         if (message == WM_ENTERMENULOOP) ::DrawMenuBar(window);
     }
     if (message == WM_MENUCHAR) {
@@ -717,7 +730,7 @@ std::optional<LRESULT> ToolCommandUi::HandleMessage(HWND window, UINT message, W
         auto& measure = *reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
         if (measure.CtlType == ODT_MENU) {
             if (const auto* item = FindMenuItem(measure.itemData)) {
-                if (menu_dpi_ != theme.dpi) RefreshMenuAppearance(window, theme.dpi);
+                if (menu_dpi_ != theme.dpi) RefreshMenuAppearance(window, theme.dpi, theme);
                 return MeasureMenuItem(window, measure, *item);
             }
         }

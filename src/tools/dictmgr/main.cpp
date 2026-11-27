@@ -44,7 +44,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
     try {
         return qiqi::dict_manager::RunDictManager(instance, show);
     } catch (const std::exception&) {
-        const auto language = qiqi::ResolveUiLanguage(qiqi::UiLanguage::Auto);
+        const auto language = qiqi::ResolveUiLanguage(qiqi::LoadConfig().ui_language);
         ::MessageBoxW(
             nullptr,
             language == qiqi::UiLanguage::EnUs

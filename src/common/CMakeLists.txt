@@ -38,13 +38,15 @@ set(QIQI_COMMON_SOURCES
     changesync.h
     config.cpp
     config.h
-    configbrokercontrol.cpp
-    configbrokercontrol.h
+    brokerctrl.cpp
+    brokerctrl.h
     configclient.cpp
     configclient.h
     configrpc.h
     configwire.cpp
     configwire.h
+    configwnd.cpp
+    configwnd.h
     cfgjson.cpp
     cfgjson.h
     controls.cpp

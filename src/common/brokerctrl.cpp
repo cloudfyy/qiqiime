@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 cloudfyy
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "common/configbrokercontrol.h"
+#include "common/brokerctrl.h"
 
 #include "common/RAII.h"
 #include "common/comobj.h"

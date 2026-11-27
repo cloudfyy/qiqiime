@@ -172,6 +172,7 @@ void UpdateSettingsTabLabels(HWND hwnd, const DialogContext& ctx) noexcept {
 
 void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
     const UiLanguage lang = GetSelectedUiLanguageFromCombo(hwnd, ctx);
+    std::ignore = RefreshSettingsUiAppearance(hwnd, ctx, lang, ctx.d2d.display_preferences, ctx.d2d.dpi);
     const auto& str = GetUiStrings(lang);
     PopulateSettingsSkinCombo(hwnd, ctx);
 

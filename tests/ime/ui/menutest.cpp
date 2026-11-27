@@ -8,6 +8,7 @@
 #include "common/i18n.h"
 #include "common/dpi.h"
 #include "common/theme.h"
+#include "common/uiutil.h"
 #include "ime/ui/fltbarbtn.h"
 
 #include <windows.h>
@@ -59,6 +60,19 @@ void TestQuickSettingsMenu() {
         const UINT_PTR timer = ::SetTimer(nullptr, 0, 15, [](HWND, UINT, UINT_PTR id, DWORD) {
             const HWND menu = FindQuickSettingsMenu();
             QIQI_TEST_CHECK(menu != nullptr && ::IsWindowVisible(menu));
+            const auto check_menu_font = [menu](UiLanguage language) {
+                NONCLIENTMETRICSW metrics{};
+                metrics.cbSize = sizeof(metrics);
+                QIQI_TEST_CHECK(::SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0));
+                const auto expected = language == UiLanguage::ZhCn && CandidateFontFamilyAvailable(kYaHeiUiFamily)
+                    ? std::wstring_view(kYaHeiUiFamily) : LogFontFaceNameView(metrics.lfMenuFont);
+                const auto font = reinterpret_cast<HFONT>(::SendDlgItemMessageW(
+                    menu, static_cast<int>(LangBarMenuId::ToggleChinese), WM_GETFONT, 0, 0));
+                LOGFONTW actual{};
+                QIQI_TEST_CHECK(::GetObjectW(font, sizeof(actual), &actual) == sizeof(actual));
+                QIQI_TEST_CHECK(LogFontFaceNameView(actual) == expected);
+            };
+            if (step == 0) check_menu_font(UiLanguage::ZhCn);
             static constexpr std::array commands{LangBarMenuId::ToggleChinese,     LangBarMenuId::ToggleFullWidth,
                                                  LangBarMenuId::TogglePunctuation, LangBarMenuId::ToggleStatusBar,
                                                  LangBarMenuId::ToggleUiLanguage,  LangBarMenuId::OpenSettings};
@@ -73,6 +87,7 @@ void TestQuickSettingsMenu() {
                 QIQI_TEST_CHECK(!::IsWindowVisible(original));
             }
             if (step == 4) {
+                check_menu_font(UiLanguage::EnUs);
                 std::array<wchar_t, 256> label{};
                 ::GetDlgItemTextW(menu, static_cast<int>(LangBarMenuId::ToggleChinese), label.data(),
                                   gsl::narrow_cast<int>(label.size()));

@@ -255,6 +255,8 @@ struct ConfigField {
 
 // Shared scalar field metadata; order and stable keys define registry and JSON transfer.
 // Machine-specific paths remain registry-only.
+inline constexpr ConfigField kUiLanguageConfigField{
+    "ui_language", L"UiLanguage", &QiQiConfig::ui_language, 0, 2, true};
 inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"primary_dict", L"PrimaryDict", &QiQiConfig::primary_dict, 0, 3, true},
     ConfigField{"enable_jidian_extra", L"EnableJidianExtra", &QiQiConfig::enable_jidian_extra, 0, 1, true},
@@ -277,7 +279,7 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"clear_on_empty_4code", L"ClearOnEmpty4Code", &QiQiConfig::clear_on_empty_4code, 0, 1, true},
     ConfigField{"enable_key_sound", L"EnableKeySound", &QiQiConfig::enable_key_sound, 0, 1, true},
     ConfigField{"up_down_page_turn", L"UpDownPageTurn", &QiQiConfig::up_down_page_turn, 0, 1, true},
-    ConfigField{"ui_language", L"UiLanguage", &QiQiConfig::ui_language, 0, 2, true},
+    kUiLanguageConfigField,
     ConfigField{"underline_style", L"UnderlineStyle", &QiQiConfig::underline_style, 0, 4, true},
     ConfigField{"bold_underline", L"BoldUnderline", &QiQiConfig::bold_underline, 0, 1, true},
     ConfigField{"ui_theme", L"UiTheme", &QiQiConfig::ui_theme, 0, 3, true},

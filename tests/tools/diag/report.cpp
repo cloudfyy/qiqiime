@@ -5,6 +5,7 @@
 
 #include "tools/diag/diag.h"
 
+#include "common/RAII.h"
 #include "common/fileutil.h"
 #include "common/support.h"
 
@@ -15,6 +16,34 @@
 #include <string>
 
 using Json = nlohmann::ordered_json;
+
+void TestConfiguredUiLanguage() {
+    using namespace qiqi;
+    const auto subkey = L"Software\\QiQiIME_Test_DiagLanguage_" +
+        std::to_wstring(::GetCurrentProcessId()) + L"_" + std::to_wstring(::GetTickCount64());
+    const auto* previous = GetActiveConfigRegistrySubKey();
+    SetConfigRegistrySubKeyOverrideForTest(subkey.c_str());
+    const auto restore = gsl::finally([&]() noexcept {
+        SetConfigRegistrySubKeyOverrideForTest(previous);
+        QIQI_TEST_CHECK_CLEANUP(::RegDeleteTreeW(HKEY_CURRENT_USER, subkey.c_str()) == ERROR_SUCCESS);
+    });
+
+    UiLanguage language = UiLanguage::EnUs;
+    QIQI_TEST_CHECK(diag::ReadConfiguredUiLanguage(language) == S_FALSE && language == UiLanguage::Auto);
+    ScopedRegKey key;
+    DWORD disposition = 0;
+    QIQI_TEST_CHECK(::RegCreateKeyExW(HKEY_CURRENT_USER, subkey.c_str(), 0, nullptr, 0,
+        KEY_SET_VALUE, nullptr, key.Put(), &disposition) == ERROR_SUCCESS);
+    QIQI_TEST_CHECK(disposition == REG_CREATED_NEW_KEY);
+    for (const auto configured : {UiLanguage::ZhCn, UiLanguage::EnUs, UiLanguage::Auto}) {
+        QIQI_TEST_CHECK(WriteRegistryDwordResult(key.Get(), kUiLanguageConfigField.registry_key,
+            static_cast<DWORD>(configured)) == S_OK);
+        QIQI_TEST_CHECK(diag::ReadConfiguredUiLanguage(language) == S_OK && language == configured);
+    }
+    QIQI_TEST_CHECK(WriteRegistryDwordResult(key.Get(), kUiLanguageConfigField.registry_key, 99) == S_OK);
+    QIQI_TEST_CHECK(diag::ReadConfiguredUiLanguage(language) == HRESULT_FROM_WIN32(ERROR_INVALID_DATA) &&
+                    language == UiLanguage::Auto);
+}
 
 void TestSkippedSchema() {
     std::string text;

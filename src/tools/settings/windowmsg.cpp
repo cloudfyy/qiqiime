@@ -86,15 +86,18 @@ void UpdateSettingsWindowForMonitor(HWND hwnd, DialogContext& ctx, UINT dpi, con
                 focused_control_id = ::GetDlgCtrlID(focused);
             }
             ReadSettingsFromWindowControls(hwnd, current_config);
+        }
+        if (!RefreshSettingsUiAppearance(
+                hwnd, ctx, current_config.ui_language, GetDisplayPreferences(current_config), effective_dpi)) {
+            return;
+        }
+        if (ctx.controls_initialized) {
             DestroySettingsControls(hwnd);
         }
 
-        ctx.d2d.Init(effective_dpi);
-        ctx.font = CreateUiFont(ctx.d2d.ScalePx(settings_layout::kFontSize), FW_NORMAL, CLEARTYPE_QUALITY);
-        ctx.bold_font = CreateUiFont(ctx.d2d.ScalePx(settings_layout::kBoldFontSize), FW_SEMIBOLD, CLEARTYPE_QUALITY);
         ctx.icon_small = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(kSmallBrandIconSize), ctx.instance);
         ctx.icon_big = dialog_detail::LoadOrCreateBrandIcon(ctx.d2d.ScalePx(kLargeBrandIconSize), ctx.instance);
-        if (!ctx.font || !ctx.bold_font || !ctx.icon_small || !ctx.icon_big) {
+        if (!ctx.icon_small || !ctx.icon_big) {
             QIQI_LOG_ERROR("Settings DPI update could not recreate scaled window resources");
         }
         dialog_detail::ApplyDialogIcons(hwnd, ctx.icon_small.Get(), ctx.icon_big.Get());
@@ -142,7 +145,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         } else if (msg == WM_DRAWITEM || msg == WM_MEASUREITEM || msg == WM_MENUCHAR) {
             try {
                 if (const auto handled = ctx->active_font_menu->HandleMessage(
-                        hwnd, msg, wparam, lparam, ctx->font.Get(), ctx->d2d)) {
+                        hwnd, msg, wparam, lparam, ctx->d2d)) {
                     return *handled;
                 }
             } catch (const std::bad_alloc&) {

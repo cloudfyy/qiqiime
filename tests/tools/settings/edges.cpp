@@ -5,6 +5,7 @@
 #include "common/dlgutil.h"
 #include "common/guids.h"
 #include "common/i18n.h"
+#include "common/uiutil.h"
 #include "tools/settings/internal.h"
 
 #include <limits>
@@ -165,19 +166,68 @@ void TestSettingsLiveLanguagePreservesControls() {
     cfg.candidate_layout = CandidateLayout::Vertical;
     const ScopedWindow hwnd(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg));
     QIQI_TEST_CHECK(hwnd);
+    auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd.Get(), GWLP_USERDATA));
+    QIQI_TEST_CHECK(context);
+    LOGFONTW system_face{};
+    QIQI_TEST_CHECK(TryGetSystemUiFont(system_face));
+    const auto system_family = LogFontFaceNameView(system_face);
+    constexpr std::wstring_view yahei = L"Microsoft YaHei UI";
+    const auto chinese_family = CandidateFontFamilyAvailable(yahei) ? yahei : system_family;
+    const auto check_font = [&](std::wstring_view expected, UiTextScale scale = UiTextScale::Percent100) {
+        const UINT dpi = context->d2d.dpi;
+        const auto combo_font = reinterpret_cast<HFONT>(
+            ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, WM_GETFONT, 0, 0));
+        QIQI_TEST_CHECK(combo_font && combo_font == context->font.Get());
+        LOGFONTW regular{}, bold{};
+        QIQI_TEST_CHECK(::GetObjectW(combo_font, sizeof(regular), &regular) == sizeof(regular) &&
+                        LogFontFaceNameView(regular) == expected &&
+                        regular.lfHeight == -ScaleDisplayPx(settings_layout::kFontSize, dpi, scale));
+        QIQI_TEST_CHECK(::GetObjectW(context->bold_font.Get(), sizeof(bold), &bold) == sizeof(bold) &&
+                        LogFontFaceNameView(bold) == expected &&
+                        bold.lfHeight == -ScaleDisplayPx(settings_layout::kBoldFontSize, dpi, scale));
+        if (expected == yahei) {
+            const ScopedWindowDC dc(hwnd.Get());
+            const ScopedSelectObject selected(dc.Get(), combo_font);
+            std::array<wchar_t, LF_FACESIZE> realized{};
+            QIQI_TEST_CHECK(dc && selected &&
+                ::GetTextFaceW(dc.Get(), gsl::narrow_cast<int>(realized.size()), realized.data()) > 0);
+            QIQI_TEST_CHECK(_wcsicmp(realized.data(), yahei.data()) == 0 ||
+                std::wstring_view(realized.data()) == L"微软雅黑 UI");
+        }
+
+        for (const auto format : {context->d2d.fmt_body.Get(), context->d2d.fmt_caption.Get(),
+                                  context->d2d.fmt_btn.Get()}) {
+            std::array<wchar_t, LF_FACESIZE> family{};
+            QIQI_TEST_CHECK(format && SUCCEEDED(format->GetFontFamilyName(
+                family.data(), gsl::narrow_cast<UINT32>(family.size()))));
+            QIQI_TEST_CHECK(std::wstring_view(family.data()) == expected);
+        }
+        QIQI_TEST_CHECK(context->d2d.fmt_body->GetFontSize() ==
+                        static_cast<float>(ScaleDisplayPx(kFluentBodyFontSize, dpi, scale)));
+        LOGFONTW candidate{};
+        QIQI_TEST_CHECK(::GetObjectW(context->candidate_preview_font.Get(), sizeof(candidate), &candidate) ==
+                        sizeof(candidate) && LogFontFaceNameView(candidate) == system_family);
+    };
+    const auto select = [&](int id, WPARAM selection) {
+        QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), id, CB_SETCURSEL, selection, 0) != CB_ERR);
+        ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE), 0);
+    };
+    check_font(chinese_family);
     ::SendDlgItemMessageW(hwnd.Get(), kIdRadioHaifeng, BM_CLICK, 0, 0);
     QIQI_TEST_CHECK(!::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
     const UINT extra_checked = ::IsDlgButtonChecked(hwnd.Get(), kIdChkExtraDict);
     ::SendDlgItemMessageW(hwnd.Get(), kIdChkExtraDict, BM_CLICK, 0, 0);
     QIQI_TEST_CHECK(::IsDlgButtonChecked(hwnd.Get(), kIdChkExtraDict) == extra_checked);
 
-    for (const WPARAM selection : {2u, 1u}) {
-        ::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_SETCURSEL, selection, 0);
-        ::SendMessageW(hwnd.Get(), WM_COMMAND, MAKEWPARAM(kIdComboUiLang, CBN_SELCHANGE), 0);
+    for (const WPARAM selection : {2u, 1u, 0u}) {
+        select(kIdComboUiLang, selection);
         QiQiConfig actual;
         ReadSettingsFromWindowControls(hwnd.Get(), actual);
         QIQI_TEST_CHECK(actual.primary_dict == PrimaryDict::Haifeng && actual.page_size == 9);
-        QIQI_TEST_CHECK(actual.ui_language == (selection == 2 ? UiLanguage::EnUs : UiLanguage::ZhCn));
+        const auto expected_language = selection == 2 ? UiLanguage::EnUs :
+            selection == 1 ? UiLanguage::ZhCn : UiLanguage::Auto;
+        QIQI_TEST_CHECK(actual.ui_language == expected_language && cfg.ui_language == UiLanguage::ZhCn);
+        check_font(ResolveUiLanguage(expected_language) == UiLanguage::ZhCn ? chinese_family : system_family);
         QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboUiLang, CB_GETCOUNT, 0, 0) == 3);
         QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboPageSize, CB_GETCOUNT, 0, 0) == 9);
         QIQI_TEST_CHECK(::SendDlgItemMessageW(hwnd.Get(), kIdComboEnglishSwitch, CB_GETCOUNT, 0, 0) == 2);
@@ -227,6 +277,13 @@ void TestSettingsLiveLanguagePreservesControls() {
             QIQI_TEST_CHECK(std::wstring(label.data()) == str.*(test.label));
         }
     }
+    select(kIdComboUiLang, 1);
+    select(kIdComboUiTextScale, static_cast<WPARAM>(UiTextScale::Percent150));
+    check_font(chinese_family, UiTextScale::Percent150);
+    QIQI_TEST_CHECK(RefreshSettingsUiAppearance(
+        hwnd.Get(), *context, UiLanguage::ZhCn, context->d2d.display_preferences, context->d2d.dpi,
+        [](std::wstring_view) noexcept { return false; }));
+    check_font(system_family, UiTextScale::Percent150);
     ::SendDlgItemMessageW(hwnd.Get(), kIdRadioJidian, BM_CLICK, 0, 0);
     QIQI_TEST_CHECK(::IsWindowEnabled(::GetDlgItem(hwnd.Get(), kIdChkExtraDict)));
     QIQI_TEST_CHECK(::IsDlgButtonChecked(hwnd.Get(), kIdRadioHaifeng) == BST_UNCHECKED);

@@ -105,8 +105,10 @@ void DictManagerWindow::Impl::Command(int id, int notification) {
     case LanguageAuto:
     case LanguageZh:
     case LanguageEn:
-        ui_language = gsl::narrow_cast<UiLanguage>(id - std::to_underlying(LanguageAuto));
-        ApplyLanguage();
+    case LanguageFollowIme:
+        if (id == std::to_underlying(LanguageFollowIme)) language_override.reset();
+        else language_override = gsl::narrow_cast<UiLanguage>(id - std::to_underlying(LanguageAuto));
+        RefreshDisplay(LoadConfig(), true);
         break;
     default:
         break;

@@ -24,6 +24,7 @@ void TestSavedDisplayPreferences() {
     std::filesystem::create_directories(directory);
     QiQiConfig saved;
     saved.ui_theme = UiTheme::Light;
+    saved.ui_language = UiLanguage::ZhCn;
     saved.ui_text_scale = UiTextScale::Percent125;
     saved.easy_reading = true;
     QIQI_TEST_CHECK(SaveFixtureConfig(saved, subkey));
@@ -34,16 +35,19 @@ void TestSavedDisplayPreferences() {
     const UINT dpi = ::GetDpiForWindow(window.Handle());
     const auto check_font = [&](UiTextScale scale) {
         const int expected = ScaleDisplayPx(kFluentBodyFontSize, dpi, scale);
+        LOGFONTW face{};
+        QIQI_TEST_CHECK(TryGetLocalizedUiFont(saved.ui_language, face));
         for (const HWND control : {Child(window, Toolbar), Child(window, SourceCombo),
                  Child(window, SearchEdit), list, ListView_GetHeader(list),
                  Child(window, EditWordInput), Child(window, EditCodeInput), Child(window, Status)}) {
             LOGFONTW font{};
             const auto handle = reinterpret_cast<HFONT>(::SendMessageW(control, WM_GETFONT, 0, 0));
             QIQI_TEST_CHECK(::GetObjectW(handle, sizeof(font), &font) == sizeof(font));
-            QIQI_TEST_CHECK(-font.lfHeight == expected);
+            QIQI_TEST_CHECK(-font.lfHeight == expected && LogFontFaceNameView(font) == LogFontFaceNameView(face));
         }
     };
     check_font(NormalizeDisplayPreferences(GetDisplayPreferences(saved)).text_scale);
+    QIQI_TEST_CHECK(ControlText(Child(window, SearchLabel)) == L"搜索");
     QIQI_TEST_CHECK(GetDisplayPreferences(LoadConfig()) == GetDisplayPreferences(saved));
     QIQI_TEST_CHECK(ListView_GetBkColor(list) == GetThemePalette(false).input_bg);
     const int target = ScalePxByDpi(kComfortMinimumTargetDip, dpi);
@@ -66,6 +70,13 @@ void TestSavedDisplayPreferences() {
     const auto poll = [&]() {
         ::SendMessageW(window.Handle(), WM_TIMER, kRefreshTimerId, 0);
     };
+    saved.ui_language = UiLanguage::EnUs;
+    QIQI_TEST_CHECK(SaveFixtureConfig(saved, subkey));
+    poll();
+    check_font(NormalizeDisplayPreferences(GetDisplayPreferences(saved)).text_scale);
+    QIQI_TEST_CHECK(ControlText(Child(window, SearchLabel)) == L"Search");
+    QIQI_TEST_CHECK(ControlText(Child(window, EditWordInput)) == L"未保存词条");
+    QIQI_TEST_CHECK(ListView_GetColumnWidth(list, std::to_underlying(ColumnId::Word)) == custom_width);
     auto unsaved_settings = saved;
     unsaved_settings.ui_theme = UiTheme::Dark;
     unsaved_settings.ui_text_scale = UiTextScale::Percent200;

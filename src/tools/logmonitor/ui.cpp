@@ -86,6 +86,7 @@ const wchar_t* MonitorWindow::Impl::CommandText(ControlId id) const noexcept {
     case LanguageAuto: return GetUiStrings(ui_language).dlg_lang_auto;
     case LanguageZh: return GetUiStrings(ui_language).dlg_lang_zh;
     case LanguageEn: return GetUiStrings(ui_language).dlg_lang_en;
+    case LanguageFollowIme: return GetUiStrings(ui_language).tool_lang_follow_ime;
     case Exit: return Text(L"退出", L"Exit");
     default: return L"";
     }
@@ -108,8 +109,10 @@ ToolCommand MonitorWindow::Impl::UiCommand(ControlId id) const noexcept {
         (id == Source && !diagnostic_view && !metrics_view) ||
         (id == DiagnosticsView && diagnostic_view && !metrics_view) ||
         (id == MetricsView && metrics_view) ||
+        (id == LanguageFollowIme && !language_override) ||
         (id >= LanguageAuto && id <= LanguageEn &&
-            std::to_underlying(id) - std::to_underlying(LanguageAuto) == std::to_underlying(ui_language));
+            language_override == gsl::narrow_cast<UiLanguage>(
+                std::to_underlying(id) - std::to_underlying(LanguageAuto)));
     const auto* selected_event = id == FilterActivity ? FirstSelectedEvent() : nullptr;
     bool enabled = true;
     switch (id) {
@@ -148,7 +151,8 @@ void MonitorWindow::Impl::UpdateCommands() {
     const std::array edit{UiCommand(Copy), UiCommand(SelectAll), separator, UiCommand(Clear)};
     const std::array view{UiCommand(Source), UiCommand(MetricsView), UiCommand(DiagnosticsView),
         separator, UiCommand(FilterActivity), UiCommand(ClearActivity)};
-    const std::array language{UiCommand(LanguageAuto), UiCommand(LanguageZh), UiCommand(LanguageEn)};
+    const std::array language{UiCommand(LanguageAuto), UiCommand(LanguageZh), UiCommand(LanguageEn),
+        UiCommand(LanguageFollowIme)};
     const std::array help{UiCommand(About)};
     const std::array menus{
         ToolMenu{Text(L"文件(&F)", L"&File"), L'f', file},
@@ -156,7 +160,7 @@ void MonitorWindow::Impl::UpdateCommands() {
         ToolMenu{Text(L"查看(&V)", L"&View"), L'v', view},
         ToolMenu{Text(L"语言(&L)", L"&Language"), L'l', language, true},
         ToolMenu{Text(L"帮助(&H)", L"&Help"), L'h', help}};
-    command_ui.SetMenu(hwnd, menus);
+    command_ui.SetMenu(hwnd, menus, theme);
     const std::array buttons{UiCommand(Start), UiCommand(Export), UiCommand(Clear),
         UiCommand(Copy), UiCommand(Pause), separator, UiCommand(Source), UiCommand(MetricsView),
         UiCommand(DiagnosticsView)};
@@ -204,12 +208,9 @@ bool MonitorWindow::Impl::Add(const wchar_t* cls, const wchar_t* text, DWORD sty
     return true;
 }
 
-bool MonitorWindow::Impl::CreateControls() {
-    theme.Init(::GetDpiForWindow(hwnd));
-    theme.SetDisplayPreferences(NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig())));
-    font = CreateUiFont(theme.ScalePx(kFluentBodyFontSize));
-    if (!font) {
-        Failure(L"Create monitor font", ::GetLastError());
+bool MonitorWindow::Impl::CreateControls(DisplayPreferences preferences) {
+    if (!UpdateToolWindowDisplay(nullptr, theme, font, preferences, ::GetDpiForWindow(hwnd), ui_language)) {
+        Failure(L"Create monitor font", ERROR_FUNCTION_FAILED);
         return false;
     }
     if (!Add(TOOLBARCLASSNAMEW, L"", TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | TBSTYLE_WRAPABLE |
@@ -369,22 +370,38 @@ void MonitorWindow::Impl::UpdateTheme() noexcept {
     command_ui.ApplyTheme(hwnd, theme);
 }
 
-void MonitorWindow::Impl::RefreshDisplay() noexcept {
+void MonitorWindow::Impl::RefreshDisplay(bool update_language_menu) {
     if (!ready || updating_display) return;
-    const auto preferences = NormalizeDisplayPreferences(GetDisplayPreferences(LoadConfig()));
-    if (preferences == theme.display_preferences) return;
+    const auto config = LoadConfig();
+    const auto preferences = NormalizeDisplayPreferences(GetDisplayPreferences(config));
+    const auto language = ResolveUiLanguage(language_override.value_or(config.ui_language));
+    const bool language_changed = language != ui_language;
+    if (!language_changed && !update_language_menu && preferences == theme.display_preferences) return;
+    if (language_changed && !update_language_menu && command_ui.MenuActive()) return;
     updating_display = true;
     const auto restore = gsl::finally([this]() noexcept { updating_display = false; });
-    const auto lists = std::array{Child(List), Child(MetricList)};
-    if (!UpdateToolWindowDisplay(hwnd, theme, font, preferences, theme.dpi, lists)) return;
+    if (language_changed || preferences != theme.display_preferences) {
+        const auto lists = std::array{Child(List), Child(MetricList)};
+        if (!UpdateToolWindowDisplay(hwnd, theme, font, preferences, theme.dpi, language, lists) ||
+            !UpdateDisplayTargets()) return;
+    }
+    if (language_changed || update_language_menu) {
+        ui_language = language;
+        ApplyLanguage();
+    } else {
+        Layout();
+        UpdateTheme();
+    }
+}
+
+bool MonitorWindow::Impl::UpdateDisplayTargets() noexcept {
     if (!SetFluentListRowHeight(Child(List), theme, list_row_images) ||
-        !SetFluentListRowHeight(Child(MetricList), theme, metric_row_images)) return;
+        !SetFluentListRowHeight(Child(MetricList), theme, metric_row_images)) return false;
     for (const auto id : {Process, Pid, Level, Category, MetricInstanceFilter, MetricKindFilter,
             MetricOutcomeFilter, MetricModeFilter, MetricWindowFilter}) {
         SetFluentComboHeights(Child(id), theme);
     }
-    Layout();
-    UpdateTheme();
+    return true;
 }
 
 void MonitorWindow::Impl::ApplyLanguage() {
@@ -443,14 +460,9 @@ void MonitorWindow::Impl::UpdateDpi(UINT dpi, const RECT& proposed) noexcept {
     updating_display = true;
     const auto restore = gsl::finally([this]() noexcept { updating_display = false; });
     const auto lists = std::array{Child(List), Child(MetricList)};
-    if (!UpdateToolWindowDisplay(hwnd, theme, font, GetDisplayPreferences(LoadConfig()), dpi, lists)) return;
-    if (!SetFluentListRowHeight(Child(List), theme, list_row_images) ||
-        !SetFluentListRowHeight(Child(MetricList), theme, metric_row_images)) return;
-        for (const auto id : {Process, Pid, Level, Category, MetricInstanceFilter, MetricKindFilter,
-                 MetricOutcomeFilter, MetricModeFilter, MetricWindowFilter}) {
-            SetFluentComboHeights(Child(id), theme);
-        }
-        UpdateIcons();
+    if (!UpdateToolWindowDisplay(hwnd, theme, font, theme.display_preferences, dpi, ui_language, lists) ||
+        !UpdateDisplayTargets()) return;
+    UpdateIcons();
     const POINT center{proposed.left + (proposed.right - proposed.left) / 2, proposed.top + (proposed.bottom - proposed.top) / 2};
     const auto monitor = QueryMonitorForPoint(center, hwnd);
     const RECT rect = ClampWindowRectToWorkArea(proposed, monitor.work_area);
