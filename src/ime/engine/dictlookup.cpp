@@ -12,6 +12,14 @@ namespace qiqi {
 
 using dictdetail::SplitUtf16Codepoints;
 
+namespace {
+
+constexpr bool AllowsCandidateWord(std::wstring_view word, bool single_character_only) noexcept {
+    return !single_character_only || dictdetail::IsSingleUtf16Codepoint(word);
+}
+
+} // namespace
+
 std::wstring_view WubiMappedDict::GetWordView(const DictWordSlice& slice) const noexcept {
     if (gsl::narrow_cast<size_t>(slice.char_offset) + slice.char_length > char_pool_.size()) {
         return {};
@@ -23,12 +31,13 @@ std::wstring_view WubiMappedDict::GetWordView(const DictWordSlice& slice) const 
 bool WubiMappedDict::AppendWordsForCodeEntry(
     const DictCodeIndex& entry,
     std::vector<std::wstring>& out_words,
-    size_t max_results) const {
+    size_t max_results,
+    bool single_character_only) const {
     const size_t end_idx = std::min<size_t>(
         gsl::narrow_cast<size_t>(entry.first_word_idx) + entry.word_count, word_slices_.size());
     for (size_t i = entry.first_word_idx; i < end_idx; ++i) {
         const std::wstring_view word = GetWordView(gsl::at(word_slices_, i));
-        if (!word.empty()) {
+        if (!word.empty() && AllowsCandidateWord(word, single_character_only)) {
             AppendUniqueWord(out_words, word);
             if (out_words.size() >= max_results) {
                 return true;
@@ -39,7 +48,7 @@ bool WubiMappedDict::AppendWordsForCodeEntry(
 }
 
 void WubiMappedDict::LookupExact(
-    uint32_t packed_code, std::vector<std::wstring>& out_words) const {
+    uint32_t packed_code, std::vector<std::wstring>& out_words, bool single_character_only) const {
     if (packed_code == 0 || code_index_.empty()) {
         return;
     }
@@ -53,7 +62,7 @@ void WubiMappedDict::LookupExact(
     if (it == code_index_.end() || it->packed_code != packed_code) {
         return;
     }
-    AppendWordsForCodeEntry(*it, out_words, SIZE_MAX);
+    AppendWordsForCodeEntry(*it, out_words, SIZE_MAX, single_character_only);
 }
 
 void WubiMappedDict::LookupPrefix(
@@ -63,7 +72,8 @@ void WubiMappedDict::LookupPrefix(
     std::vector<std::wstring>& out_words,
     size_t max_results,
     std::wstring_view typed_prefix,
-    std::vector<std::wstring>* out_display_labels) const {
+    std::vector<std::wstring>* out_display_labels,
+    bool single_character_only) const {
     if (prefix_lo == 0 || code_index_.empty() || out_words.size() >= max_results) {
         return;
     }
@@ -80,7 +90,7 @@ void WubiMappedDict::LookupPrefix(
             continue;
         }
         const size_t prev_count = out_words.size();
-        const bool reached_cap = AppendWordsForCodeEntry(*it, out_words, max_results);
+        const bool reached_cap = AppendWordsForCodeEntry(*it, out_words, max_results, single_character_only);
         if (out_display_labels && out_words.size() > prev_count) {
             const std::wstring code_str = UnpackWubiCode(it->packed_code);
             const std::wstring_view suffix = (code_str.size() > typed_prefix.size())
@@ -101,7 +111,8 @@ void WubiMappedDict::LookupWildcard(
     std::wstring_view pattern,
     std::vector<std::wstring>& out_words,
     size_t max_results,
-    std::vector<std::wstring>* out_display_labels) const {
+    std::vector<std::wstring>* out_display_labels,
+    bool single_character_only) const {
     if (pattern.empty() || code_index_.empty() || out_words.size() >= max_results) {
         return;
     }
@@ -127,7 +138,7 @@ void WubiMappedDict::LookupWildcard(
             continue;
         }
         const size_t prev_count = out_words.size();
-        const bool reached_cap = AppendWordsForCodeEntry(*it, out_words, max_results);
+        const bool reached_cap = AppendWordsForCodeEntry(*it, out_words, max_results, single_character_only);
         if (out_display_labels && out_words.size() > prev_count) {
             const std::wstring code_str = UnpackWubiCode(it->packed_code);
             for (size_t idx = prev_count; idx < out_words.size(); ++idx) {
@@ -171,39 +182,38 @@ std::vector<std::wstring> WubiEngine::LookupExact(std::wstring_view code) const 
     }
 
     std::vector<std::wstring> results;
+    const auto append_exact_word = [&](std::wstring_view word) {
+        if (AllowsCandidateWord(word, single_character_mode_) && !IsEntryRemoved(packed, word)) {
+            AppendUniqueWord(results, word);
+        }
+    };
     if (const auto pin_it = pinned_entries_.find(packed); pin_it != pinned_entries_.end()) {
         for (const auto& w : pin_it->second) {
-            if (!IsEntryRemoved(packed, w)) {
-                AppendUniqueWord(results, w);
-            }
+            append_exact_word(w);
         }
     }
     const size_t pinned_count = results.size();
 
     for (const auto& mapped : mapped_dicts_) {
-        mapped->LookupExact(packed, results);
+        mapped->LookupExact(packed, results, single_character_mode_);
     }
     if (!removed_entries_.empty()) {
         std::erase_if(results, [&](const std::wstring& w) { return IsEntryRemoved(packed, w); });
     }
     if (const auto it = dict_.find(packed); it != dict_.end()) {
         for (const auto& w : it->second) {
-            if (!IsEntryRemoved(packed, w)) {
-                AppendUniqueWord(results, w);
-            }
+            append_exact_word(w);
         }
     }
     for (const auto& entry : kSortedBuiltinWubi86Dict) {
         if (entry.packed_code == packed) {
-            if (!IsEntryRemoved(packed, entry.word)) {
-                AppendUniqueWord(results, entry.word);
-            }
+            append_exact_word(entry.word);
         } else if (entry.packed_code > packed) {
             break;
         }
     }
 
-    if (dynamic_phrase_freq_ && results.size() > pinned_count + 1) {
+    if (!single_character_mode_ && dynamic_phrase_freq_ && results.size() > pinned_count + 1) {
         if (const auto pit = promoted_phrases_.find(packed); pit != promoted_phrases_.end()) {
             // Keep manually pinned entries at the very front and single-character entries in their fixed positions;
             // reorder only non-pinned multi-character phrase slots so promoted phrases appear first.
@@ -255,6 +265,7 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(
                               (code.find(L'Z') != std::wstring_view::npos);
     if (has_wildcard) {
         const auto append_wildcard_word = [&](uint32_t packed_code, std::wstring_view word) {
+            if (!AllowsCandidateWord(word, single_character_mode_)) return false;
             const size_t prev_sz = results.size();
             AppendUniqueWord(results, word);
             if (out_display_labels && results.size() > prev_sz) {
@@ -263,7 +274,7 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(
             return results.size() >= kMaxCandidateResults;
         };
         for (const auto& mapped : mapped_dicts_) {
-            mapped->LookupWildcard(code, results, kMaxCandidateResults, out_display_labels);
+            mapped->LookupWildcard(code, results, kMaxCandidateResults, out_display_labels, single_character_mode_);
             if (results.size() >= kMaxCandidateResults) {
                 return results;
             }
@@ -301,6 +312,7 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(
     // 2. Prefix matches in (exact_code, prefix_hi]
     const uint32_t prefix_hi = PackWubiPrefixUpperBound(code);
     const auto append_prefix_word = [&](uint32_t packed_code, std::wstring_view word) {
+        if (!AllowsCandidateWord(word, single_character_mode_)) return false;
         const size_t prev_sz = results.size();
         AppendUniqueWord(results, word);
         if (out_display_labels && results.size() > prev_sz) {
@@ -314,7 +326,8 @@ std::vector<std::wstring> WubiEngine::LookupCandidates(
     };
     for (const auto& mapped : mapped_dicts_) {
         mapped->LookupPrefix(
-            exact_code, exact_code, prefix_hi, results, kMaxCandidateResults, code, out_display_labels);
+            exact_code, exact_code, prefix_hi, results, kMaxCandidateResults, code, out_display_labels,
+            single_character_mode_);
         if (results.size() >= kMaxCandidateResults) {
             return results;
         }

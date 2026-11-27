@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <span>
+#include <utility>
 
 namespace qiqi {
 
@@ -27,7 +28,7 @@ constexpr EngineState WubiStateForCodeLength(size_t length) noexcept {
 
 } // namespace
 
-void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
+void WubiEngine::ApplyConfig(const QiQiConfig& cfg) {
     SetPageSize(cfg.page_size);
     auto_commit_4code_ = cfg.auto_commit_4code;
     push_commit_5th_ = cfg.push_commit_5th;
@@ -45,6 +46,7 @@ void WubiEngine::ApplyConfig(const QiQiConfig& cfg) noexcept {
     full_width_mode_ = cfg.default_full_width;
     chinese_punctuation_ = cfg.default_chinese_punct;
     SetChineseMode(cfg.default_chinese_mode);
+    std::ignore = SetSingleCharacterMode(cfg.single_character_mode);
     QIQI_LOG_DEBUG(
         "WubiEngine::ApplyConfig: page_size={}, auto4={}, push5={}, beep_empty4={}, "
         "clear_empty4={}, key_sound={}, full_width={}, cn_punct={}, cn_mode={}",
@@ -179,6 +181,33 @@ void WubiEngine::RefreshCandidates() {
     if (!want_display_hints) {
         all_display_candidates_ = all_candidates_;
     }
+}
+
+KeyProcessResult WubiEngine::SetSingleCharacterMode(bool enabled) {
+    if (enabled == single_character_mode_) return {};
+    if (!IsWubiComposingState(state_)) {
+        single_character_mode_ = enabled;
+        return {};
+    }
+
+    auto old_candidates = std::move(all_candidates_);
+    auto old_display = std::move(all_display_candidates_);
+    const size_t old_page = current_page_;
+    const size_t old_selection = selected_in_page_;
+    const bool old_mode = std::exchange(single_character_mode_, enabled);
+    bool refreshed = false;
+    const auto rollback = gsl::finally([&]() noexcept {
+        if (refreshed) return;
+        all_candidates_ = std::move(old_candidates);
+        all_display_candidates_ = std::move(old_display);
+        current_page_ = old_page;
+        selected_in_page_ = old_selection;
+        single_character_mode_ = old_mode;
+    });
+    RefreshCandidates();
+    auto result = MakeCurrentStateResult(KeyActionType::UpdateState);
+    refreshed = true;
+    return result;
 }
 
 KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::wstring committed) const {

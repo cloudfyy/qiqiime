@@ -12,6 +12,7 @@ void TestFirstLevelShortCodes();
 void TestFourCodeUniqueAutoCommit();
 void TestFifthKeyPushAutoCommit();
 void TestCodeCompletionInput();
+void TestSingleCharacterInput();
 void TestWildcardAndBackspaceAndCancel();
 void TestNavigationSelectionAndReturnCommit();
 
@@ -25,6 +26,7 @@ void RunEngineInputTests() {
     TestFourCodeUniqueAutoCommit();
     TestFifthKeyPushAutoCommit();
     TestCodeCompletionInput();
+    TestSingleCharacterInput();
     TestWildcardAndBackspaceAndCancel();
     TestNavigationSelectionAndReturnCommit();
 }

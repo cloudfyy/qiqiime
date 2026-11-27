@@ -45,6 +45,48 @@ void TestCodeCompletionLookup() {
     QIQI_TEST_CHECK(engine.LookupCandidates(L"xxyb") == std::vector<std::wstring>{L"用户全码"});
 }
 
+void TestSingleCharacterLookupBeforeCandidateLimit() {
+    std::vector<std::wstring> words;
+    for (int i = 0; i < 60; ++i) words.push_back(L"系统词" + std::to_wstring(i));
+    words.emplace_back(L"\U00020000乙");
+    words.emplace_back(L"\U00020000");
+    const std::map<uint32_t, std::vector<std::wstring>> entries{
+        {PackWubiCode(L"xxya"), std::move(words)}};
+    std::vector<uint8_t> bytes;
+    WubiMappedDict::CompileEntriesToBinaryBuffer(entries, bytes);
+    WubiEngine engine;
+    QIQI_TEST_CHECK(engine.LoadDictionaryFromBinaryBuffer(std::move(bytes)));
+    engine.LoadBuiltinDictionary();
+    engine.PinEntry(L"xxya", L"置顶词");
+    engine.AddEntry(L"xxya", L"自造词");
+    engine.AddEntry(L"xxyb", L"乙");
+    engine.AddEntry(L"xxyb", L"用户词");
+    for (const std::wstring_view code : {L"xxya", L"xxy", L"xxz"}) {
+        const auto candidates = engine.LookupCandidates(code);
+        QIQI_TEST_CHECK(candidates.size() == 50 && !std::ranges::contains(candidates, L"\U00020000"));
+    }
+
+    std::ignore = engine.SetSingleCharacterMode(true);
+    std::vector<std::wstring> labels;
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"xxya", &labels) == std::vector<std::wstring>{L"\U00020000"});
+    QIQI_TEST_CHECK(labels == std::vector<std::wstring>{L"\U00020000"});
+    const std::vector<std::wstring> expected{L"\U00020000", L"乙"};
+    const std::vector<std::wstring> prefix_labels{L"\U00020000(~a)", L"乙(~b)"};
+    const std::vector<std::wstring> wildcard_labels{L"\U00020000(xxya)", L"乙(xxyb)"};
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"xxy", &labels) == expected && labels == prefix_labels);
+    engine.SetEnableCodeCompletion(false);
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"xxy", &labels).empty() && labels.empty());
+    QIQI_TEST_CHECK(engine.LookupCandidates(L"xxz", &labels) == expected && labels == wildcard_labels);
+    QIQI_TEST_CHECK(engine.LookupExact(L"wqvb").empty());
+    QIQI_TEST_CHECK(engine.LookupExact(L"a") == std::vector<std::wstring>{L"工"});
+
+    std::ignore = engine.SetSingleCharacterMode(false);
+    const auto restored = engine.LookupExact(L"xxya");
+    QIQI_TEST_CHECK(restored.front() == L"置顶词" && std::ranges::contains(restored, L"自造词"));
+    QIQI_TEST_CHECK(std::ranges::contains(restored, L"\U00020000乙"));
+    QIQI_TEST_CHECK(std::ranges::contains(engine.LookupExact(L"wqvb"), L"你好"));
+}
+
 void TestAddEntryAndLookupEdgeCases() {
     WubiEngine engine;
     QIQI_TEST_CHECK(!engine.IsComposing());

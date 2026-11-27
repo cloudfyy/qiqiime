@@ -77,6 +77,49 @@ void TestCodeCompletionInput() {
     }
 }
 
+void TestSingleCharacterInput() {
+    WubiEngine engine;
+    engine.AddEntry(L"xxy", L"甲");
+    engine.AddEntry(L"xxy", L"词组");
+    engine.AddEntry(L"xxya", L"\U00020000");
+    engine.PinEntry(L"xxya", L"置顶词");
+    const auto type = [&](std::string_view keys) {
+        engine.Reset();
+        for (const unsigned char key : keys) {
+            QIQI_TEST_CHECK(engine.ProcessKey(key).action == KeyActionType::UpdateState);
+        }
+    };
+    type("XXYA");
+    QIQI_TEST_CHECK(engine.AllCandidates().size() == 2 && engine.AllCandidates().front() == L"置顶词");
+    const auto filtered = engine.SetSingleCharacterMode(true);
+    QIQI_TEST_CHECK(filtered.action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(filtered.composition_text == L"xxya" && engine.State() == EngineState::Composing4);
+    QIQI_TEST_CHECK(filtered.all_candidates == std::vector<std::wstring>{L"\U00020000"});
+    QIQI_TEST_CHECK(engine.CommitCandidate(1).action == KeyActionType::UpdateState);
+    QIQI_TEST_CHECK(engine.CommitCandidate(0).committed_text == L"\U00020000");
+
+    type("XXY");
+    QIQI_TEST_CHECK(engine.ProcessKey('A').committed_text == L"\U00020000");
+    const auto restored = engine.SetSingleCharacterMode(false);
+    QIQI_TEST_CHECK(restored.action == KeyActionType::PassThrough);
+    type("XXYA");
+    QIQI_TEST_CHECK(engine.AllCandidates().size() == 2 && engine.AllCandidates().front() == L"置顶词");
+
+    QiQiConfig config;
+    config.single_character_mode = true;
+    config.page_size = 1;
+    config.space_enter_mode = WubiSpaceEnterMode::EnterSelectSpaceClear;
+    engine.Reset();
+    engine.ApplyConfig(config);
+    type("XXY");
+    QIQI_TEST_CHECK(engine.TotalPages() == 2);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_NEXT).current_page == 1);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_RETURN).committed_text == L"\U00020000");
+    type("ZX");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_RETURN).committed_text == L"x");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_PERIOD).committed_text == L"。");
+}
+
 void TestWildcardAndBackspaceAndCancel() {
     WubiEngine engine;
     // "wqz" wildcard query should match "你" (wqi / wqiy) and show code hints in AllDisplayCandidates()

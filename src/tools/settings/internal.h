@@ -77,6 +77,7 @@ constexpr int kIdLblShortcutsSubtitle = 159;
 constexpr int kIdLblShortcutsBody = 160;
 constexpr int kIdLblSpaceEnter = 161;
 constexpr int kIdComboSpaceEnter = 162;
+constexpr int kIdChkSingleCharacter = 163;
 inline constexpr const wchar_t* kSkinPickerWndClass = L"QiQiImeSkinPicker";
 constexpr UINT kSettingsEnsureFocusVisible = WM_APP + 93;
 constexpr UINT kSettingsCyclePage = WM_APP + 94;
@@ -113,7 +114,7 @@ constexpr bool IsSettingsFooterControl(int id) noexcept {
     return false;
 }
 inline constexpr std::array kSettingsCandidateControls{
-    kIdLblPageSize, kIdComboPageSize, kIdComboCandidateLayout, kIdChkCodeCompletion, kIdChkCodeHint,
+    kIdLblPageSize, kIdComboPageSize, kIdComboCandidateLayout, kIdChkCodeCompletion, kIdChkSingleCharacter, kIdChkCodeHint,
     kIdChkUpDownPageTurn, kIdLblUnderlineStyle, kIdComboUnderlineStyle, kIdChkBoldUnderline,
     kIdLblImeSkin, kIdComboImeSkin, kIdBtnCandidateFont, kIdCandidatePreview};
 inline constexpr std::array kSettingsDisplayControls{

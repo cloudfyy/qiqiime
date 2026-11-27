@@ -167,6 +167,7 @@ struct QiQiConfig {
     bool semicolon_quote_quick_select = true;
     bool show_code_hint = true;
     bool enable_code_completion = true;
+    bool single_character_mode = false;
     bool enable_z_temp_english = true;
     bool dynamic_phrase_freq = false;
     bool default_chinese_mode = true;
@@ -288,7 +289,8 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"candidate_font_weight", L"CandidateFontWeight", &QiQiConfig::candidate_font_weight, 0, 9, true},
     ConfigField{"candidate_font_italic", L"CandidateFontItalic", &QiQiConfig::candidate_font_italic, 0, 1, true},
     ConfigField{"space_enter_mode", L"SpaceEnterMode", &QiQiConfig::space_enter_mode, 0,
-        std::to_underlying(WubiSpaceEnterMode::EnterSelectSpaceClear), true}
+        std::to_underlying(WubiSpaceEnterMode::EnterSelectSpaceClear), true},
+    ConfigField{"single_character_mode", L"SingleCharacterMode", &QiQiConfig::single_character_mode, 0, 1, true}
 };
 
 template <typename Visitor>

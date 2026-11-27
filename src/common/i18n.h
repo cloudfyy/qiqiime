@@ -64,6 +64,7 @@ struct UiStrings {
     const wchar_t* dlg_chk_quick_select;
     const wchar_t* dlg_chk_code_hint;
     const wchar_t* dlg_chk_code_completion;
+    const wchar_t* dlg_chk_single_character;
     const wchar_t* dlg_chk_dynamic_freq;
     const wchar_t* dlg_chk_shift_toggle;
     const wchar_t* dlg_lbl_english_switch;
@@ -172,6 +173,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"分号(;)与单引号(')选二、三重码",
     L"显示后续编码提示 (~code)",
     L"编码补全",
+    L"单字模式（仅显示单字候选）",
     L"启用词组动态调频 (单字不调频)",
     L"允许单按 Shift 键切换中英文",
     L"未完成输入的处理:",
@@ -302,6 +304,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Select 2nd/3rd candidate with ; and '",
     L"Show progressive code hints (~code)",
     L"Code completion",
+    L"Single-character mode (hide multi-character candidates)",
     L"Dynamic phrase frequency (single chars fixed)",
     L"Toggle CN/EN mode with Shift key",
     L"Unfinished input:",

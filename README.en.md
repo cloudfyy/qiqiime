@@ -165,6 +165,12 @@ on the settings window's **Candidates** page to show only exact code matches,
 including valid one-, two-, and three-letter short codes. This option is independent
 of progressive code hints and does not change `z` wildcard queries or temporary English.
 
+**Single-character mode** is off by default. Enable it on the **Candidates** page
+to hide multi-character entries from exact, completion and wildcard results,
+including user and pinned phrases, without changing the dictionary. Unique
+four-code auto-commit uses the filtered exact matches. Temporary English,
+punctuation keys, and dictionary editing are unchanged.
+
 In **Settings → Input → Space/Enter in Wubi**, choose **Space selects, Enter
 outputs code** (default), **Space selects, Enter clears code**, or **Enter selects,
 Space clears code**. Clearing is equivalent to `Esc`. If there is no candidate,

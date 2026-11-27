@@ -27,7 +27,7 @@
 | 四码唯一自动上屏 | 已做 | `auto_commit_4code` 默认开启；不含 `z` 通配符且只有一个精确候选时提交，可为单字或词组。 |
 | 词语联想 | 未做 | 提交后没有关联词候选。现有 `dynamic_phrase_freq` 仅调整同编码词组的最近选择顺序，不是联想，见 W12。 |
 | 二字、三字、四字及多字词组输入 | 已做 | 支持码表词组；造词取码规则已有 2+2、1+1+2、前三字及末字首码。 |
-| 单字模式 | 未做 | 没有屏蔽词组的候选过滤开关，见 W02。 |
+| 单字模式 | 已做 | 候选窗口页可选严格单字筛选，默认关闭，多字自造词和置顶词仅隐藏，见 W02。 |
 | 临时拼音、拼音反查五笔码 | 未做 | 已有“字/词查五笔码”的内部接口和词库管理器入口，但没有拼音检索数据及输入路径；首码 `z` 默认是临时英文，编码中的 `z` 是通配，见 W05。 |
 | 编码提示、字根拆分提示 | 部分 | 已有可关闭的后续编码提示及通配结果编码提示；没有字根拆分数据、字形展示和开关，见 W13。编码提示也未绑定 `Ctrl+Shift+J`。 |
 | 以形查音 | 未做 | 五笔候选没有拼音/多音字读音标注，`~` 不是查音入口，见 W09。 |
@@ -82,7 +82,7 @@ P2 补充可配置性及数据能力，P3 为较大扩展或暂缓项。
 | 顺序 | 优先级 | 任务 | 主要依赖 / 排序理由 |
 | --- | --- | --- | --- |
 | 1 | P1 | [W01 空格/回车三种模式](#wubi-w01)（已完成） | 三选一设置，保留旧默认。 |
-| 2 | P1 | [W02 单字模式](#wubi-w02) | 高频、边界较清楚；同时核对过滤后的四码唯一判断。 |
+| 2 | P1 | [W02 单字模式](#wubi-w02)（已完成） | 候选限额和四码唯一判断前筛选。 |
 | 3 | P1 | [W03 简码开关 / 全码练习](#wubi-w03) | 与编码补全独立；先确认真实全码、自定义简码及提示策略。 |
 | 4 | P1 | [W04 以词定字](#wubi-w04) | 复用现有候选选择/上屏；先定义入口及首末字语义。 |
 | 5 | P1 | [W05 离线拼音反查五笔码](#wubi-w05) | 高频补盲能力；先解决数据许可和入口，不被字根素材阻塞。 |
@@ -991,17 +991,15 @@ status-bar/tooltip skin support require separate design approval.
   letters universally. Keep this separate from prefix completion, preserve
   dictionary files, and add focused lookup and commit-path tests.
 
-- [ ] <a id="wubi-w02"></a> **W02 / P1:** Add an optional single-character-only candidate mode.
-  Keep the mode disabled by default. Filter multi-character Wubi dictionary
-  candidates without modifying dictionary files or affecting punctuation and
-  temporary English. Confirm how user-defined phrases are handled before
-  implementation. Keep this independent of short-code control, prefix completion,
-  dynamic phrase ordering, and automatic phrase creation. Persist the setting,
-  expose it in the settings UI, and add focused filtering and commit tests,
-  including the effect on unique full-code auto-commit.
-  Count Unicode characters, not UTF-16 code units; reuse the existing splitter.
-  Apply filtering consistently to exact, prefix and wildcard candidates before
-  candidate limits/paging, including user and pinned entries and every commit path.
+- [x] <a id="wubi-w02"></a> **W02 / P1:** Add single-character mode (off by default)
+  to the Settings Candidates page. Exact, prefix and wildcard lookups filter
+  multi-code-point words, including user and pinned phrases, before candidate
+  limits, paging and unique four-code auto-commit. Unicode surrogate pairs
+  representing one code point remain eligible. The filter does not modify
+  dictionaries, phrase creation/learning data, punctuation keys or temporary English.
+  Configuration refresh rebuilds active Wubi candidates without ending the
+  composition. Persist as `SingleCharacterMode` (DWORD 0/1) and
+  `single_character_mode` (backup Boolean).
 
 - [ ] <a id="wubi-w06"></a> **W06 / P2:** Add an optional CapsLock Chinese/English mode-switch setting.
   Preserve CapsLock English pass-through as the default. Reuse the shared mode

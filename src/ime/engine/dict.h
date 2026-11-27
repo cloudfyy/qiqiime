@@ -170,7 +170,8 @@ public:
     size_t WordCount() const noexcept { return word_slices_.size(); }
 
     // Append exact matches for packed_code into out_words (deduplicated).
-    void LookupExact(uint32_t packed_code, std::vector<std::wstring>& out_words) const;
+    void LookupExact(uint32_t packed_code, std::vector<std::wstring>& out_words,
+                     bool single_character_only = false) const;
 
     // Append prefix matches in [prefix_lo, prefix_hi] (excluding exact_code) up to max_results,
     // optionally recording "word(~suffix)" progressive code hints in out_display_labels.
@@ -180,13 +181,15 @@ public:
                       std::vector<std::wstring>& out_words,
                       size_t max_results,
                       std::wstring_view typed_prefix = {},
-                      std::vector<std::wstring>* out_display_labels = nullptr) const;
+                      std::vector<std::wstring>* out_display_labels = nullptr,
+                      bool single_character_only = false) const;
 
     // Append wildcard ('z') matches up to max_results, optionally recording "word(code)" display labels.
     void LookupWildcard(std::wstring_view pattern,
                         std::vector<std::wstring>& out_words,
                         size_t max_results,
-                        std::vector<std::wstring>* out_display_labels = nullptr) const;
+                        std::vector<std::wstring>* out_display_labels = nullptr,
+                        bool single_character_only = false) const;
 
     // Find the longest Wubi code (up to 4 letters) associated with a single character or word.
     std::wstring FindLongestCodeForWord(std::wstring_view word) const;
@@ -217,7 +220,8 @@ private:
     std::wstring_view GetWordView(const DictWordSlice& slice) const noexcept;
     bool AppendWordsForCodeEntry(const DictCodeIndex& entry,
                                  std::vector<std::wstring>& out_words,
-                                 size_t max_results) const;
+                                 size_t max_results,
+                                 bool single_character_only) const;
 
     ScopedFileHandle file_handle_;
     ScopedKernelHandle mapping_handle_;

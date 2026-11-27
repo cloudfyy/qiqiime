@@ -12,6 +12,7 @@ void RunEngineDictTests() {
     TestBinaryDictBufferValidation();
     TestAddEntryAndLookupEdgeCases();
     TestCodeCompletionLookup();
+    TestSingleCharacterLookupBeforeCandidateLimit();
     TestExternalDictFile();
     TestFallbackCacheSourceIsolation();
     TestCrossProcessDictAndPhraseFreqSync();

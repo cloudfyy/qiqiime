@@ -32,6 +32,17 @@ struct DictDiffOp {
     std::wstring word;
 };
 
+constexpr size_t LeadingUtf16CodepointUnits(std::wstring_view text) noexcept {
+    if (text.empty()) return 0;
+    return text.size() >= 2 && IS_HIGH_SURROGATE(text.front()) && IS_LOW_SURROGATE(gsl::at(text, 1)) ? 2u : 1u;
+}
+
+constexpr bool IsSingleUtf16Codepoint(std::wstring_view text) noexcept {
+    const size_t units = LeadingUtf16CodepointUnits(text);
+    return text.size() == units &&
+        (units == 2 || (units == 1 && !IS_HIGH_SURROGATE(text.front()) && !IS_LOW_SURROGATE(text.front())));
+}
+
 std::vector<std::wstring_view> SplitUtf16Codepoints(std::wstring_view text);
 
 std::vector<uint8_t> EncodeDictEntryDelta(

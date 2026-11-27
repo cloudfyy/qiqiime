@@ -62,8 +62,8 @@ The wire envelope carries:
 Malformed, unsupported, oversized, or truncated data is rejected with a real
 HRESULT. Save uses optimistic concurrency: if the expected revision is stale,
 the broker returns `ERROR_REVISION_MISMATCH` without writing anything.
-The fixed-order scalar projection includes the Space/Enter mode. Compared to
-clients without that field, the scalar field count differs and is rejected with
+The fixed-order scalar projection includes Space/Enter and single-character
+modes. Clients with a different scalar field count are rejected with
 `ERROR_UNKNOWN_REVISION`. Update the Broker, tools, and both IME architectures
 together; reopen hosts still running an older IME DLL after the upgrade.
 

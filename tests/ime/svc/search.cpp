@@ -561,6 +561,70 @@ void TestIntegratedServiceRouting() {
     }
 }
 
+void TestSingleCharacterConfigReload() {
+    const qiqi::test::TsfTestCaseTrace trace(__func__);
+    QIQI_TEST_CHECK(std::wstring_view(GetActiveConfigRegistrySubKey()) != kDefaultConfigRegSubKey);
+    const QiQiConfig saved = LoadConfig(g_dll_instance);
+    const auto restore = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(SaveConfigToRegistry(saved));
+    });
+    QiQiConfig config = saved;
+    config.primary_dict = PrimaryDict::BuiltinOnly;
+    config.user_dict_path.clear();
+    config.default_chinese_mode = true;
+    config.show_status_bar = false;
+    config.enable_code_completion = true;
+    config.show_code_hint = false;
+    config.single_character_mode = false;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    std::array<BYTE, 256> keyboard{};
+    QIQI_TEST_CHECK(::GetKeyboardState(keyboard.data()));
+    const auto restore_keyboard = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(::SetKeyboardState(keyboard.data()));
+    });
+    std::array<BYTE, 256> clean_keyboard{};
+    QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
+
+    const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
+    const auto manager = MakeComObject<MockTfThreadMgr>();
+    manager->show_own_ui_ = FALSE;
+    QIQI_TEST_CHECK(service->ActivateEx(manager.Get(), 1, TF_TMAE_UIELEMENTENABLEDONLY) == S_OK);
+    const auto deactivate = gsl::finally([&]() noexcept {
+        QIQI_TEST_CHECK(service->Deactivate() == S_OK);
+    });
+    const auto context = MakeComObject<MockTfContext>();
+    BOOL eaten = FALSE;
+    for (const UINT key : {'W', 'Q'}) {
+        QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), key, 0, &eaten) == S_OK && eaten);
+    }
+    ComPtr<ITfCandidateListUIElement> candidates;
+    QIQI_TEST_CHECK(manager->last_ui_element_.As(&candidates) == S_OK && candidates);
+    UINT original_count = 0;
+    QIQI_TEST_CHECK(candidates->GetCount(&original_count) == S_OK && original_count > 1);
+    const auto composition = context->last_composition_;
+    QIQI_TEST_CHECK(composition && !composition->ended_);
+
+    config.single_character_mode = true;
+    QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+    QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+    UINT filtered_count = 0;
+    QIQI_TEST_CHECK(candidates->GetCount(&filtered_count) == S_OK &&
+                    filtered_count > 0 && filtered_count < original_count);
+    QIQI_TEST_CHECK(context->last_composition_.Get() == composition.Get() &&
+                    context->range_->text_ == L"wq" && !composition->ended_);
+
+    ScopedBstr first;
+    QIQI_TEST_CHECK(candidates->GetString(0, first.Put()) == S_OK && first);
+    const ScopedBstr query(::SysAllocString(L"wq"));
+    ComPtr<ITfCandidateList> search_results;
+    QIQI_TEST_CHECK(service->GetSearchCandidates(query.Get(), nullptr, search_results.GetAddressOf()) == S_OK &&
+                    search_results);
+    ULONG search_count = 0;
+    QIQI_TEST_CHECK(search_results->GetCandidateNum(&search_count) == S_OK && filtered_count == search_count);
+    QIQI_TEST_CHECK(service->OnKeyDown(context.Get(), VK_SPACE, 0, &eaten) == S_OK && eaten);
+    QIQI_TEST_CHECK(composition->ended_ && context->range_->text_ == first.Get());
+}
+
 } // namespace
 
 void RunTsfSearchIntegrationTests() {
@@ -570,6 +634,7 @@ void RunTsfSearchIntegrationTests() {
     TestSearchCandidateList();
     TestIntegratedCandidateUiContract();
     TestIntegratedServiceRouting();
+    TestSingleCharacterConfigReload();
     TestSearchIntegrationDiagnostics();
     QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
 }

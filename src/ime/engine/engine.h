@@ -213,7 +213,7 @@ public:
     sync::Version PhraseFreqSyncVersion() const noexcept { return phrase_freq_sync_version_; }
 
     // Mode & configuration management
-    void ApplyConfig(const QiQiConfig& cfg) noexcept;
+    void ApplyConfig(const QiQiConfig& cfg);
     bool IsChineseMode() const noexcept { return state_ != EngineState::English; }
     void SetChineseMode(bool enabled) noexcept;
     void ToggleChineseMode() noexcept;
@@ -234,6 +234,8 @@ public:
     void SetShowCodeHint(bool enabled) noexcept { show_code_hint_ = enabled; }
     bool EnableCodeCompletion() const noexcept { return enable_code_completion_; }
     void SetEnableCodeCompletion(bool enabled) noexcept { enable_code_completion_ = enabled; }
+    // Returns a new candidate snapshot when the setting changes during Wubi composition.
+    KeyProcessResult SetSingleCharacterMode(bool enabled);
     bool EnableZTempEnglish() const noexcept { return enable_z_temp_english_; }
     void SetEnableZTempEnglish(bool enabled) noexcept { enable_z_temp_english_ = enabled; }
     bool DynamicPhraseFreq() const noexcept { return dynamic_phrase_freq_; }
@@ -400,6 +402,7 @@ private:
     bool semicolon_quote_quick_select_ = true;
     bool show_code_hint_ = true;
     bool enable_code_completion_ = true;
+    bool single_character_mode_ = false;
     bool enable_z_temp_english_ = true;
     bool dynamic_phrase_freq_ = false;
     bool beep_on_empty_4code_ = true;

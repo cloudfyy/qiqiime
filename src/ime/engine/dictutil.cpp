@@ -13,19 +13,10 @@ namespace qiqi::dictdetail {
 
 std::vector<std::wstring_view> SplitUtf16Codepoints(std::wstring_view text) {
     std::vector<std::wstring_view> chars;
-    size_t i = 0;
-    while (i < text.size()) {
-        const wchar_t ch = gsl::at(text, i);
-        if (ch >= 0xD800 && ch <= 0xDBFF && i + 1 < text.size()) {
-            const wchar_t low = gsl::at(text, i + 1);
-            if (low >= 0xDC00 && low <= 0xDFFF) {
-                chars.push_back(text.substr(i, 2));
-                i += 2;
-                continue;
-            }
-        }
-        chars.push_back(text.substr(i, 1));
-        ++i;
+    while (!text.empty()) {
+        const size_t units = LeadingUtf16CodepointUnits(text);
+        chars.push_back(text.substr(0, units));
+        text.remove_prefix(units);
     }
     return chars;
 }
