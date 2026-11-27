@@ -1,3 +1,48 @@
+# QiQiIME 1.3.5 五笔输入与设置改进（2026-11-27）
+
+数字版本：`1.3.5`；发行标签：`v1.3.5`。安装包、运行组件和调试符号
+以 Release 工作流实际发布的附件为准。
+
+## 主要变更
+
+- **五笔输入**：空格／回车可选三种处理方式，可启用严格单字模式；
+  现有默认行为不变。
+- **设置和独立工具**：常用候选字体菜单只列已安装的字体，支持预览和
+  原生字体选择。独立工具遵循已保存的界面语言；简中文自绘界面在可用时
+  优先使用微软雅黑 UI。
+- **设置保存**：按窗口草稿的基线版本保存；发现外部修改时保留本地编辑，
+  按字段合并后由用户再次确认。外部草稿应用成功后才更新基线和版本。
+- **稳定性**：修正 Win32 句柄、剪贴板边界、线程池请求和快捷菜单字体的
+  生命周期问题，并改进 Windows Search 候选兼容及 MSI 卸载提示。
+
+## 验证边界
+
+- 发版前的代码提交 `be47693a` 已通过 x64/x86 [CI 测试][v135-ci]和
+  [云端 Lint][v135-lint]。标签工作流会重新构建、测试和打包；
+  自动检查不替代实际安装、升级和卸载验收。
+
+[v135-ci]: https://github.com/cloudfyy/qiqiime/actions/runs/45962987056
+[v135-lint]: https://github.com/cloudfyy/qiqiime/actions/runs/45962990920
+
+## English
+
+Source version `1.3.5`; release tag `v1.3.5`.
+
+- Choose from three Space/Enter behaviors and optionally enable strict
+  single-character candidates. Existing defaults are unchanged.
+- Preview installed common candidate fonts or use the native font chooser.
+  Standalone tools honor the saved UI language. Custom Simplified Chinese UI
+  uses Microsoft YaHei UI when installed.
+- Save against the Settings draft's own base revision. If another process
+  modified the configuration, merge by field, retain local edits, and ask the
+  user to confirm again. Advance the revision only after applying the refresh.
+- Fix Win32 handle validation, clipboard bounds, thread-pool request ownership,
+  and quick-menu font lifetime. Improve Windows Search candidate compatibility
+  and MSI uninstall prompts.
+- The pre-release code commit `be47693a` passed cloud CI and lint on x64 and
+  x86. The tag workflow builds, tests, and packages the release again; automated
+  checks do not replace install, upgrade, or uninstall acceptance.
+
 # QiQiIME 1.3.4 AppContainer 配置路由补丁（2026-11-26，待发布）
 
 数字版本：`1.3.4`；计划发行标签：`v1.3.4`。Release 工作流仍是双架构
