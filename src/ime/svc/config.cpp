@@ -941,6 +941,7 @@ void QiQiTextService::ApplyDynamicEngineSettings() noexcept {
     engine_.SetAutoCommit4Code(config_.auto_commit_4code);
     engine_.SetPushCommit5th(config_.push_commit_5th);
     engine_.SetSemicolonQuoteQuickSelect(config_.semicolon_quote_quick_select);
+    engine_.SetPhraseCharSelection(config_.phrase_char_selection);
     engine_.SetShowCodeHint(config_.show_code_hint);
     engine_.SetEnableCodeCompletion(config_.enable_code_completion);
     engine_.SetEnableZTempEnglish(config_.enable_z_temp_english);

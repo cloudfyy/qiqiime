@@ -169,6 +169,7 @@ struct QiQiConfig {
     bool enable_code_completion = true;
     bool single_character_mode = false;
     bool full_code_practice = false;
+    bool phrase_char_selection = false;
     bool enable_z_temp_english = true;
     bool dynamic_phrase_freq = false;
     bool default_chinese_mode = true;
@@ -294,7 +295,8 @@ inline constexpr auto kConfigFields = std::tuple{
     ConfigField{"space_enter_mode", L"SpaceEnterMode", &QiQiConfig::space_enter_mode, 0,
         std::to_underlying(WubiSpaceEnterMode::EnterSelectSpaceClear), true},
     ConfigField{"single_character_mode", L"SingleCharacterMode", &QiQiConfig::single_character_mode, 0, 1, true},
-    ConfigField{"full_code_practice", L"FullCodePractice", &QiQiConfig::full_code_practice, 0, 1, true}
+    ConfigField{"full_code_practice", L"FullCodePractice", &QiQiConfig::full_code_practice, 0, 1, true},
+    ConfigField{"phrase_char_selection", L"PhraseCharSelection", &QiQiConfig::phrase_char_selection, 0, 1, true}
 };
 
 template <typename Visitor>

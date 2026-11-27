@@ -109,6 +109,9 @@ constexpr TransitionRule ComputeTransitionRule(EngineState state, KeyEventKind e
             return {TransitionOp::PinDigitCandidate, true};
         case KeyEventKind::DeleteCandidate:
             return {TransitionOp::DeleteOrBlockCandidate, true};
+        case KeyEventKind::PhraseFirstChar:
+        case KeyEventKind::PhraseLastChar:
+            return {TransitionOp::CommitPhraseCharacter, true};
         default:
             return {TransitionOp::PassThrough, false};
     }

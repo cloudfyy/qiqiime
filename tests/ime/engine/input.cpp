@@ -14,6 +14,7 @@ void TestFifthKeyPushAutoCommit();
 void TestCodeCompletionInput();
 void TestSingleCharacterInput();
 void TestFullCodePracticeInput();
+void TestPhraseCharacterSelection();
 void TestWildcardAndBackspaceAndCancel();
 void TestNavigationSelectionAndReturnCommit();
 
@@ -29,6 +30,7 @@ void RunEngineInputTests() {
     TestCodeCompletionInput();
     TestSingleCharacterInput();
     TestFullCodePracticeInput();
+    TestPhraseCharacterSelection();
     TestWildcardAndBackspaceAndCancel();
     TestNavigationSelectionAndReturnCommit();
 }

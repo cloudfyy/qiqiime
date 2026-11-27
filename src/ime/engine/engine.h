@@ -230,6 +230,7 @@ public:
     void SetPushCommit5th(bool enabled) noexcept { push_commit_5th_ = enabled; }
     bool SemicolonQuoteQuickSelect() const noexcept { return semicolon_quote_quick_select_; }
     void SetSemicolonQuoteQuickSelect(bool enabled) noexcept { semicolon_quote_quick_select_ = enabled; }
+    void SetPhraseCharSelection(bool enabled) noexcept { phrase_char_selection_ = enabled; }
     bool ShowCodeHint() const noexcept { return show_code_hint_; }
     void SetShowCodeHint(bool enabled) noexcept { show_code_hint_ = enabled; }
     bool EnableCodeCompletion() const noexcept { return enable_code_completion_; }
@@ -312,6 +313,11 @@ private:
         bool caps_lock_on = false;
         bool allow_learn = true;
         bool defer_phrase_promotion = false;
+        std::wstring_view phrase_character;
+    };
+    struct KeyDispatch {
+        TransitionRule rule;
+        std::wstring_view phrase_character;
     };
     struct TransitionOutcome {
         EngineState next_state;
@@ -321,10 +327,12 @@ private:
 
     template <typename Operation>
     KeyProcessResult ExecuteTransition(Operation operation);
-    TransitionRule EvaluateKeyTransition(
+    KeyDispatch EvaluateKeyTransition(
         EngineState state, uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept;
     void PromotePhraseForCode(std::wstring_view code, std::wstring_view word);
+    const std::wstring* CurrentSelectedCandidate() const noexcept;
     std::wstring CurrentSelectedCandidateOrRaw() const;
+    std::wstring_view SelectedPhraseCharacter(bool last) const noexcept;
     std::wstring_view ResolveChinesePunctuation(uint32_t vk, bool shift_down) noexcept;
     void ClearCompositionData() noexcept;
     void AppendCodeAndRefresh(uint32_t vk);
@@ -363,6 +371,7 @@ private:
     TransitionOutcome HandleCommitFullWidth(const KeyInputContext& ctx);
     TransitionOutcome HandlePinDigitCandidate(const KeyInputContext& ctx);
     TransitionOutcome HandleDeleteOrBlockCandidate(const KeyInputContext& ctx);
+    TransitionOutcome HandleCommitPhraseCharacter(const KeyInputContext& ctx);
 
     bool IsEntryRemoved(uint32_t packed_code, std::wstring_view word) const;
     void ClearUserDictionaryEntries() noexcept;
@@ -407,6 +416,7 @@ private:
     bool auto_commit_4code_ = true;
     bool push_commit_5th_ = true;
     bool semicolon_quote_quick_select_ = true;
+    bool phrase_char_selection_ = false;
     bool show_code_hint_ = true;
     bool enable_code_completion_ = true;
     bool single_character_mode_ = false;

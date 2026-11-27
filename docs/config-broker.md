@@ -27,6 +27,10 @@ The unpublished v1 ABI is intentionally not retained. The traced v2 ABI uses
 new synchronous and asynchronous interface IIDs, so a stale v1 proxy cannot
 be mistaken for a compatible implementation.
 
+The binary envelope also checks the exact scalar field count. Adding a field
+such as `PhraseCharSelection` requires deploying the Broker and its clients
+together; a mismatched field count is rejected with `ERROR_UNKNOWN_REVISION`.
+
 Every operation carries a fixed `QIQI_CONFIG_TRACE_CONTEXT`:
 
 - a process-spanning `trace_id`;

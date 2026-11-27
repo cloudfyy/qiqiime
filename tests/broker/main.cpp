@@ -440,6 +440,7 @@ int main() {
     QiQiConfig changed =
         first.value;
     changed.page_size = 9;
+    changed.phrase_char_selection = true;
     changed.ime_skin_id =
         ImeSkinId::PeachBlossom;
     changed.candidate_font_family =

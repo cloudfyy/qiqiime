@@ -325,6 +325,7 @@ void TestConfigJson() {
     baseline.ui_text_scale = UiTextScale::Percent200;
     baseline.space_enter_mode = WubiSpaceEnterMode::SpaceSelectEnterClear;
     baseline.full_code_practice = true;
+    baseline.phrase_char_selection = true;
     const auto check_equal = [](const QiQiConfig& left, const QiQiConfig& right) {
         ForEachConfigField([&](const auto& field) { QIQI_TEST_CHECK(field.Value(left) == field.Value(right)); });
         QIQI_TEST_CHECK(left.primary_dict_path == right.primary_dict_path);
@@ -344,6 +345,7 @@ void TestConfigJson() {
     QIQI_TEST_CHECK(json.find("\"enable_code_completion\": true") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"single_character_mode\": true") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"full_code_practice\": true") != std::string::npos);
+    QIQI_TEST_CHECK(json.find("\"phrase_char_selection\": true") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"space_enter_mode\": \"enter-select-space-clear\"") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"page_size\": 9") != std::string::npos);
     QIQI_TEST_CHECK(json.find("\"ui_theme\": \"high_contrast\"") != std::string::npos);
@@ -394,6 +396,7 @@ void TestConfigJson() {
         InvalidCase{R"("enable_code_completion":1)", ConfigJsonIssue::InvalidType, "settings.enable_code_completion"},
         InvalidCase{R"("single_character_mode":1)", ConfigJsonIssue::InvalidType, "settings.single_character_mode"},
         InvalidCase{R"("full_code_practice":1)", ConfigJsonIssue::InvalidType, "settings.full_code_practice"},
+        InvalidCase{R"("phrase_char_selection":1)", ConfigJsonIssue::InvalidType, "settings.phrase_char_selection"},
         InvalidCase{R"("space_enter_mode":2)", ConfigJsonIssue::InvalidType, "settings.space_enter_mode"},
         InvalidCase{R"("space_enter_mode":"unknown")", ConfigJsonIssue::InvalidEnum, "settings.space_enter_mode"},
         InvalidCase{R"("ui_theme":1)", ConfigJsonIssue::InvalidType, "settings.ui_theme"},
@@ -450,7 +453,7 @@ void TestConfigJson() {
 }
 
 void TestConfigFieldProjections() {
-    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 35> expected_keys{{
+    constexpr std::array<std::pair<std::string_view, std::wstring_view>, 36> expected_keys{{
         {"primary_dict", L"PrimaryDict"}, {"enable_jidian_extra", L"EnableJidianExtra"},
         {"page_size", L"PageSize"}, {"candidate_layout", L"CandidateLayout"},
         {"auto_commit_4code", L"AutoCommit4Code"},
@@ -469,9 +472,10 @@ void TestConfigFieldProjections() {
         {"candidate_font_size", L"CandidateFontSize"},
         {"candidate_font_weight", L"CandidateFontWeight"},
         {"candidate_font_italic", L"CandidateFontItalic"}, {"space_enter_mode", L"SpaceEnterMode"},
-        {"single_character_mode", L"SingleCharacterMode"}, {"full_code_practice", L"FullCodePractice"}
+        {"single_character_mode", L"SingleCharacterMode"}, {"full_code_practice", L"FullCodePractice"},
+        {"phrase_char_selection", L"PhraseCharSelection"}
     }};
-    constexpr std::array<std::string_view, 31> editable_keys{
+    constexpr std::array<std::string_view, 32> editable_keys{
         "primary_dict", "enable_jidian_extra", "page_size", "candidate_layout", "auto_commit_4code",
         "push_commit_5th", "semicolon_quote_quick_select", "show_code_hint", "dynamic_phrase_freq",
         "shift_toggle_mode", "commit_on_english_switch", "show_status_bar", "beep_on_empty_4code",
@@ -479,7 +483,7 @@ void TestConfigFieldProjections() {
         "ui_language", "underline_style", "bold_underline", "ui_theme", "ui_text_scale", "easy_reading",
         "enable_code_completion", "ime_skin_id", "candidate_font_size",
         "candidate_font_weight", "candidate_font_italic", "space_enter_mode", "single_character_mode",
-        "full_code_practice"
+        "full_code_practice", "phrase_char_selection"
     };
     const std::wstring subkey = L"Software\\QiQiIME_ConfigFields_" + std::to_wstring(::GetCurrentProcessId());
     const auto cleanup = gsl::finally([&]() noexcept {

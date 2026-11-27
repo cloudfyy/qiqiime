@@ -3,6 +3,7 @@
 
 #include "ime/engine/engine.h"
 #include "ime/engine/builtindict.h"
+#include "ime/engine/dictdetail.h"
 #include "ime/engine/fullcode.h"
 #include "common/logger.h"
 
@@ -34,6 +35,7 @@ HRESULT WubiEngine::ApplyConfig(const QiQiConfig& cfg) {
     auto_commit_4code_ = cfg.auto_commit_4code;
     push_commit_5th_ = cfg.push_commit_5th;
     semicolon_quote_quick_select_ = cfg.semicolon_quote_quick_select;
+    SetPhraseCharSelection(cfg.phrase_char_selection);
     show_code_hint_ = cfg.show_code_hint;
     enable_code_completion_ = cfg.enable_code_completion;
     enable_z_temp_english_ = cfg.enable_z_temp_english;
@@ -112,12 +114,32 @@ std::vector<std::wstring> WubiEngine::CurrentPageCandidates() const {
     return std::vector<std::wstring>(sub.begin(), sub.end());
 }
 
+const std::wstring* WubiEngine::CurrentSelectedCandidate() const noexcept {
+    const auto [start, end] = ComputePageRange(all_candidates_.size(), page_size_, current_page_);
+    if (start >= end) return nullptr;
+    return &gsl::at(all_candidates_, start + std::min(selected_in_page_, end - start - 1));
+}
+
 std::wstring WubiEngine::CurrentSelectedCandidateOrRaw() const {
-    const auto page = CurrentPageCandidates();
-    if (!page.empty()) {
-        return gsl::at(page, std::min(selected_in_page_, page.size() - 1));
+    const auto* candidate = CurrentSelectedCandidate();
+    return candidate ? *candidate : raw_code_;
+}
+
+std::wstring_view WubiEngine::SelectedPhraseCharacter(bool last) const noexcept {
+    const auto* candidate = CurrentSelectedCandidate();
+    if (!candidate) return {};
+    std::wstring_view character(*candidate);
+    const size_t first_units = dictdetail::LeadingUtf16CodepointUnits(character);
+    if (character.size() <= first_units) return {};
+
+    if (last) {
+        const size_t end = character.size() - 1;
+        const bool pair = IS_LOW_SURROGATE(character.back()) && IS_HIGH_SURROGATE(gsl::at(character, end - 1));
+        character.remove_prefix(end - (pair ? 1u : 0u));
+    } else {
+        character.remove_suffix(character.size() - first_units);
     }
-    return raw_code_;
+    return dictdetail::IsSingleUtf16Codepoint(character) ? character : std::wstring_view{};
 }
 
 std::wstring_view WubiEngine::ResolveChinesePunctuation(uint32_t vk, bool shift_down) noexcept {
@@ -247,21 +269,20 @@ KeyProcessResult WubiEngine::MakeCurrentStateResult(KeyActionType action, std::w
     return res;
 }
 
-TransitionRule WubiEngine::EvaluateKeyTransition(
+WubiEngine::KeyDispatch WubiEngine::EvaluateKeyTransition(
     EngineState state, uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept {
-    KeyEventKind event = ClassifyKeyEvent(
-        vk,
-        shift_down,
-        ctrl_down,
-        alt_down,
-        chinese_punctuation_,
-        semicolon_quote_quick_select_ && IsComposingState(state),
-        enable_z_temp_english_,
-        full_width_mode_,
-        state,
-        caps_lock_on,
-        up_down_page_turn_);
-    // Remap unmodified Wubi keys before dispatch; the FSM's actions stay the same.
+    const auto classify = [&](bool phrase_char_selection) noexcept {
+        return ClassifyKeyEvent(vk, shift_down, ctrl_down, alt_down,
+            chinese_punctuation_, semicolon_quote_quick_select_, enable_z_temp_english_,
+            full_width_mode_, state, caps_lock_on, up_down_page_turn_, phrase_char_selection);
+    };
+    KeyEventKind event = classify(phrase_char_selection_);
+    std::wstring_view character;
+    if (event == KeyEventKind::PhraseFirstChar || event == KeyEventKind::PhraseLastChar) {
+        character = SelectedPhraseCharacter(event == KeyEventKind::PhraseLastChar);
+        if (character.empty()) event = classify(false);
+    }
+    // Remap Space and Enter to the existing commit and cancel actions.
     if (!shift_down && (event == KeyEventKind::Space || event == KeyEventKind::Enter) &&
         IsWubiComposingState(state)) {
         if (space_enter_mode_ == WubiSpaceEnterMode::EnterSelectSpaceClear) {
@@ -271,17 +292,18 @@ TransitionRule WubiEngine::EvaluateKeyTransition(
             event = KeyEventKind::Escape;
         }
     }
-    return LookupTransition(state, event);
+    return {LookupTransition(state, event), character};
 }
 
 bool WubiEngine::ShouldEatKey(
     uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept {
-    return EvaluateKeyTransition(state_, vk, shift_down, ctrl_down, alt_down, caps_lock_on).eat_key;
+    return EvaluateKeyTransition(state_, vk, shift_down, ctrl_down, alt_down, caps_lock_on).rule.eat_key;
 }
 
 bool WubiEngine::ShouldEatKeyAfterReset(
     uint32_t vk, bool shift_down, bool ctrl_down, bool alt_down, bool caps_lock_on) const noexcept {
-    return EvaluateKeyTransition(StateAfterCompositionReset(state_), vk, shift_down, ctrl_down, alt_down, caps_lock_on).eat_key;
+    return EvaluateKeyTransition(
+        StateAfterCompositionReset(state_), vk, shift_down, ctrl_down, alt_down, caps_lock_on).rule.eat_key;
 }
 
 void WubiEngine::UpdateTempEnglishCandidates() {
@@ -380,6 +402,10 @@ WubiEngine::TransitionOutcome WubiEngine::HandleCommitSelected(const KeyInputCon
 
 WubiEngine::TransitionOutcome WubiEngine::HandleCommitRawCode(const KeyInputContext& /*ctx*/) {
     return CommitAndClear(raw_code_);
+}
+
+WubiEngine::TransitionOutcome WubiEngine::HandleCommitPhraseCharacter(const KeyInputContext& ctx) {
+    return CommitAndClear(std::wstring(ctx.phrase_character));
 }
 
 WubiEngine::TransitionOutcome WubiEngine::HandleCommitDigitIndex(const KeyInputContext& ctx) {
@@ -616,13 +642,14 @@ KeyProcessResult WubiEngine::ProcessKey(
         &WubiEngine::HandleCommitTempEnglish,     // 19: CommitTempEnglish
         &WubiEngine::HandleCommitFullWidth,       // 20: CommitFullWidth
         &WubiEngine::HandlePinDigitCandidate,     // 21: PinDigitCandidate
-        &WubiEngine::HandleDeleteOrBlockCandidate // 22: DeleteOrBlockCandidate
+        &WubiEngine::HandleDeleteOrBlockCandidate,// 22: DeleteOrBlockCandidate
+        &WubiEngine::HandleCommitPhraseCharacter // 23: CommitPhraseCharacter
     };
     static_assert(AllActionHandlersBound(std::span<const ActionHandler>(kActionHandlers)));
 
     const EngineState state_before = state_;
-    const TransitionRule rule = EvaluateKeyTransition(state_before, vk, shift_down, ctrl_down, alt_down, caps_lock_on);
-    const KeyInputContext ctx{vk, shift_down, caps_lock_on, allow_learn, defer_phrase_promotion};
+    const auto [rule, character] = EvaluateKeyTransition(state_before, vk, shift_down, ctrl_down, alt_down, caps_lock_on);
+    const KeyInputContext ctx{vk, shift_down, caps_lock_on, allow_learn, defer_phrase_promotion, character};
     KeyProcessResult result = ExecuteTransition([this, &ctx, &rule] {
         return (this->*gsl::at(kActionHandlers,
             gsl::narrow_cast<size_t>(std::to_underlying(rule.op))))(ctx);

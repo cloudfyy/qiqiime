@@ -62,6 +62,7 @@ struct UiStrings {
     const wchar_t* dlg_chk_auto_commit4;
     const wchar_t* dlg_chk_push_commit5;
     const wchar_t* dlg_chk_quick_select;
+    const wchar_t* dlg_chk_phrase_char_selection;
     const wchar_t* dlg_chk_code_hint;
     const wchar_t* dlg_chk_code_completion;
     const wchar_t* dlg_chk_single_character;
@@ -176,6 +177,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"四码唯一自动上屏",
     L"第五码自动顶字上屏",
     L"分号(;)与单引号(')选二、三重码",
+    L"以词定字（[ 取首字，] 取末字）",
     L"显示后续编码提示 (~code)",
     L"编码补全",
     L"单字模式（仅显示单字候选）",
@@ -251,6 +253,7 @@ inline constexpr UiStrings kZhCnStrings = {
     L"• 空格 / 回车：默认上屏高亮候选 / 原始编码（可在「输入习惯」更改）\n"
     L"• 数字 1–9（含小键盘）：按序号选词\n"
     L"• ;（分号）/ '（单引号）：选第 2 / 第 3 候选词（可在设置中开关）\n"
+    L"• [ / ]：取高亮词组的首字 / 末字（在「输入习惯」开启，默认关闭）\n"
     L"• - = / PageUp PageDown / ↑ ↓：候选词上翻页 / 下翻页\n\n"
     L"【特色输入】\n"
     L"• 首码 z + 英文或符号：临时英文输入模式（回车或空格上屏）\n"
@@ -312,6 +315,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"Auto-commit unique 4-code word",
     L"Push-commit on 5th code key",
     L"Select 2nd/3rd candidate with ; and '",
+    L"Select first / last character with [ / ]",
     L"Show progressive code hints (~code)",
     L"Code completion",
     L"Single-character mode (hide multi-character candidates)",
@@ -387,6 +391,7 @@ inline constexpr UiStrings kEnUsStrings = {
     L"• Space / Enter: Commit highlighted candidate / raw code by default (configurable in Input)\n"
     L"• Digits 1–9 (incl. Numpad): Select a candidate by number\n"
     L"• ; (Semicolon) / ' (Apostrophe): Select 2nd / 3rd candidate (optional)\n"
+    L"• [ / ]: Commit first / last character of the highlighted phrase (opt-in in Input)\n"
     L"• - = / PageUp PageDown / Up Down: Previous / Next candidate page\n\n"
     L"[Special Input]\n"
     L"• Leading 'z' + ASCII text: Temporary English mode (Enter/Space commits)\n"

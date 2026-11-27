@@ -144,7 +144,8 @@ constexpr KeyEventKind ClassifyKeyEvent(
     bool full_width = false,
     EngineState state = EngineState::Idle,
     bool caps_lock_on = false,
-    bool up_down_page_turn = false) noexcept {
+    bool up_down_page_turn = false,
+    bool phrase_char_selection = false) noexcept {
     if (alt_down) {
         return KeyEventKind::None;
     }
@@ -230,6 +231,10 @@ constexpr KeyEventKind ClassifyKeyEvent(
 
     const bool is_wubi_composing = IsWubiComposingState(state);
     if (is_wubi_composing && !shift_down) {
+        if (phrase_char_selection) {
+            if (vk == VK_OEM_4) return KeyEventKind::PhraseFirstChar;
+            if (vk == VK_OEM_6) return KeyEventKind::PhraseLastChar;
+        }
         if (vk == VK_OEM_MINUS) {
             return KeyEventKind::PageUp;
         }

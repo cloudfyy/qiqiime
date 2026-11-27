@@ -401,7 +401,7 @@ void TestIntegratedCandidateUiContract() {
 
 void TestIntegratedServiceRouting() {
     const qiqi::test::TsfTestCaseTrace trace(__func__);
-    enum class Action { Key, SelectFinalize, Exact, Abort };
+    enum class Action { Key, SelectFinalize, Exact, Abort, PhraseChar };
     const auto dictionary_path =
         std::filesystem::temp_directory_path() /
         std::format(L"qiqi_search_test_{}.txt", ::GetCurrentProcessId());
@@ -447,9 +447,11 @@ void TestIntegratedServiceRouting() {
 
     for (const auto action : {
              Action::Key, Action::SelectFinalize,
-             Action::Exact, Action::Abort}) {
+             Action::Exact, Action::Abort, Action::PhraseChar}) {
         config.space_enter_mode = action == Action::Key
             ? WubiSpaceEnterMode::SpaceSelectEnterCode : WubiSpaceEnterMode::EnterSelectSpaceClear;
+        config.default_chinese_punct = action != Action::PhraseChar && saved.default_chinese_punct;
+        config.phrase_char_selection = false;
         QIQI_TEST_CHECK(SaveConfigToRegistry(config));
         QIQI_TEST_CHECK(::SetKeyboardState(clean_keyboard.data()));
         const auto service = MakeComObject<QiQiTextService>(g_dll_instance);
@@ -470,6 +472,8 @@ void TestIntegratedServiceRouting() {
         if (action == Action::SelectFinalize) {
             send('W');
             send('Q');
+        } else if (action == Action::PhraseChar) {
+            for (const UINT key : {'W', 'Q', 'V', 'B'}) send(key);
         } else {
             send('A');
         }
@@ -557,6 +561,19 @@ void TestIntegratedServiceRouting() {
             QIQI_TEST_CHECK(context->last_composition_->ended_ &&
                             context->range_->text_.empty());
             break;
+        case Action::PhraseChar: {
+            BOOL eaten = TRUE;
+            QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), VK_OEM_6, 0, &eaten) == S_OK && !eaten);
+            config.phrase_char_selection = true;
+            QIQI_TEST_CHECK(SaveConfigToRegistry(config));
+            QIQI_TEST_CHECK(service->OnChange(kGuidCompartmentConfigVersion) == S_OK);
+            QIQI_TEST_CHECK(context->range_->text_ == L"wqvb" && !context->last_composition_->ended_);
+            QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), VK_OEM_6, 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(integration->OnKeyDown(VK_OEM_6, 0, &eaten) == S_OK && eaten);
+            QIQI_TEST_CHECK(context->last_composition_->ended_ && context->range_->text_ == L"好");
+            QIQI_TEST_CHECK(service->OnTestKeyDown(context.Get(), VK_OEM_6, 0, &eaten) == S_OK && !eaten);
+            break;
+        }
         }
     }
 }

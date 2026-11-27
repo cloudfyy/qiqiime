@@ -174,6 +174,76 @@ void TestFullCodePracticeInput() {
                     std::ranges::contains(ordinary.all_candidates, L"你好"));
 }
 
+void TestPhraseCharacterSelection() {
+    WubiEngine engine;
+    engine.AddEntry(L"xxy", L"输入法");
+    engine.AddEntry(L"xxya", L"\U00020000中\U00020001");
+    engine.AddEntry(L"xxw", L"\U00020000");
+    const auto type = [&](std::string_view keys) {
+        QIQI_TEST_CHECK(engine.State() == EngineState::Idle);
+        for (const unsigned char key : keys) {
+            QIQI_TEST_CHECK(engine.ProcessKey(key).action == KeyActionType::UpdateState);
+        }
+    };
+
+    type("XXY");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_4).committed_text == L"输入法【");
+
+    QiQiConfig config;
+    config.phrase_char_selection = true;
+    config.page_size = 1;
+    config.dynamic_phrase_freq = true;
+    QIQI_TEST_CHECK(engine.ApplyConfig(config) == S_OK);
+    type("XXY");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_4).committed_text == L"输");
+
+    constexpr std::array<std::pair<UINT, std::wstring_view>, 2> picks{{
+        {VK_OEM_4, L"\U00020000"}, {VK_OEM_6, L"\U00020001"},
+    }};
+    for (const auto [key, expected] : picks) {
+        type("XXY");
+        const auto page = engine.ProcessKey(VK_NEXT);
+        QIQI_TEST_CHECK(page.current_page == 1 && page.all_display_candidates.back().ends_with(L"(~a)"));
+        QIQI_TEST_CHECK(engine.ShouldEatKey(key, false, false, false));
+        const auto result = engine.ProcessKey(key, false, false, false, false, true, true);
+        QIQI_TEST_CHECK(result.action == KeyActionType::Commit && result.committed_text == expected);
+        QIQI_TEST_CHECK(result.composition_text.empty() && result.page_candidates.empty());
+        QIQI_TEST_CHECK(result.promoted_code.empty() && result.promoted_word.empty());
+        QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6).committed_text == L"】");
+    }
+
+    type("XXW");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6).committed_text == L"\U00020000】");
+    type("XXY");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_4, true).committed_text == L"输入法｛");
+    type("XXY");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_ESCAPE).action == KeyActionType::Cancel);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_4).committed_text == L"【");
+    type("XXY");
+    QIQI_TEST_CHECK(engine.ProcessKey('A').committed_text == L"\U00020000中\U00020001");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_4).committed_text == L"【");
+
+    engine.SetEnableCodeCompletion(false);
+    type("XX");
+    QIQI_TEST_CHECK(engine.AllCandidates().empty());
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6).committed_text == L"xx】");
+    type("Z");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_4).composition_text == L"z[");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6).composition_text == L"z[]");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_RETURN).committed_text == L"[]");
+
+    engine.SetChinesePunctuation(false);
+    engine.SetAutoCommit4Code(false);
+    type("XXYA");
+    QIQI_TEST_CHECK(!engine.ShouldEatKeyAfterReset(VK_OEM_6, false, false, false));
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6, false, true).action == KeyActionType::PassThrough);
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6, false, false, true).action == KeyActionType::PassThrough);
+    QIQI_TEST_CHECK(engine.ShouldEatKey(VK_OEM_6, false, false, false));
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6).committed_text == L"\U00020001");
+    QIQI_TEST_CHECK(engine.ProcessKey(VK_OEM_6).action == KeyActionType::PassThrough);
+    QIQI_TEST_CHECK(engine.PromotedPhrases().empty());
+}
+
 void TestWildcardAndBackspaceAndCancel() {
     WubiEngine engine;
     // "wqz" wildcard query should match "你" (wqi / wqiy) and show code hints in AllDisplayCandidates()
