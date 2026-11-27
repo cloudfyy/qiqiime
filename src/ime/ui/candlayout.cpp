@@ -151,8 +151,9 @@ void CandidateUI::RecalculatePopupLayout() {
 
     const int margin_x = std::min(ScaleByDpi(kHorizontalMargin), std::max(0, available_width_ / 8));
     const int item_gap = ScaleByDpi(kCandidateGap);
-    const int padding = ScaleByDpi(preferences_.easy_reading ? 8 : 2);
-    const int vertical_padding = ScaleByDpi(preferences_.easy_reading ? 8 : 1);
+    const auto metrics = PaintMetrics();
+    const int padding = metrics.horizontal_padding;
+    const int vertical_padding = metrics.vertical_padding;
     const int row_height = std::max(line_height_ + vertical_padding * 2, ScaleByDpi(preferences_.easy_reading ? 44 : 28));
     const bool vertical = layout_ == CandidateLayout::Vertical;
     const size_t total_pages = ComputeTotalPages(all_candidates_.size(), page_size_);

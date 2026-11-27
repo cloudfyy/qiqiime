@@ -61,11 +61,30 @@ HRESULT CreateComObjectToOut(OutInterface** ppOut, Args&&... args) noexcept {
 }
 
 namespace detail {
+inline void DestroySafeArray(SAFEARRAY* array) noexcept {
+    std::ignore = log::CheckHResult(::SafeArrayDestroy(array), "SafeArrayDestroy");
+}
+
 template <typename T>
 concept HasQueryAdditionalInterfaces = requires(T& obj, REFIID riid, void** ppvObj) {
     { obj.QueryAdditionalInterfaces(riid, ppvObj) } -> std::same_as<bool>;
 };
 } // namespace detail
+
+template <typename Fill>
+    requires std::is_nothrow_invocable_r_v<HRESULT, Fill&, SAFEARRAY&>
+HRESULT CreateSafeArrayToOut(VARTYPE type, ULONG count, SAFEARRAY** out, Fill fill) noexcept {
+    if (!out) return E_POINTER;
+    *out = nullptr;
+    SAFEARRAYBOUND bound{count, 0};
+    ScopedHandle<NullHandleTraits<SAFEARRAY*, &detail::DestroySafeArray>> array(
+        ::SafeArrayCreate(type, 1, &bound));
+    if (!array) return E_OUTOFMEMORY;
+    const HRESULT hr = fill(*array.Get());
+    if (FAILED(hr)) return hr;
+    *out = array.Detach();
+    return hr;
+}
 
 // CRTP base template for in-proc COM objects:
 // Provides thread-safe reference counting (AddRef/Release), automatic g_com_object_count tracking

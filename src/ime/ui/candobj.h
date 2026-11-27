@@ -13,6 +13,7 @@
 #include <atomic>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -250,6 +251,7 @@ private:
 
     using PaintItem = CandidatePaintItem;
     void RefreshAppearance() noexcept;
+    CandidatePaintMetrics PaintMetrics() const noexcept;
     std::vector<PaintItem> BuildPaintItems() const;
     int ScaleByDpi(int px) const noexcept { return ScalePxByDpi(px, dpi_); }
     int ScaleText(int px) const noexcept { return ScaleDisplayPx(px, dpi_, preferences_.text_scale); }
@@ -303,7 +305,8 @@ private:
     size_t SelectedPageIndex() const noexcept;
     void NotifyPopupWindowState(HWND window, bool destroyed = false) noexcept;
     void LogPopupVisibility() const noexcept;
-    bool PaintPopupDirect2D(HDC hdc, const RECT& client_rect) const;
+    bool PaintPopupDirect2D(HDC hdc, const RECT& client_rect, std::span<const PaintItem> items,
+        const CandidatePaintMetrics& metrics) const noexcept;
     void PaintPopupContent(HDC hdc, const RECT& client_rect) const;
     void PaintPopup(HDC hdc, const RECT& client_rect) const;
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);

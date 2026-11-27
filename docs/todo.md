@@ -246,12 +246,11 @@ layout/painting refactors. Keep changes small and independently verifiable.
   Retain one-shot scheduling, target/composition/epoch checks, and diagnostics
   inside valid TSF read sessions. Do not retain edit cookies, move host COM
   queries to background threads, or add input delays/debounce timers.
-- [ ] Lower priority: extend the existing
-  [BuildPaintItems model](../src/ime/ui/candobj.cpp) to share text-line geometry,
-  padding, and color-role selection between Direct2D and GDI. Preserve complete
-  offscreen frames, renderer fallback diagnostics, clipping, focus, selection,
-  and paging. Prefer small shared traversal/model helpers over renderer class
-  hierarchies. Measure before adding persistent buffers, caches, or object pools.
+- [x] Share the [candidate paint model](../src/ime/ui/candpaint.cpp), line
+  geometry, DPI padding, and color roles between Direct2D and GDI. Both backends
+  use the same frame data, including on fallback, while retaining their native
+  text alignment, buffering, and diagnostics. Skin regressions cover multiline
+  text and padding alongside selection, paging, and viewport behavior.
 
 Refactoring constraints: do not expand the engine's key-processing FSM for TSF
 lifecycle concerns, collapse legitimately overlapping lifecycle flags into one
@@ -741,11 +740,10 @@ status-bar/tooltip skin support require separate design approval.
   stable exit codes. The fixture is tested only by its standalone CTest tree
   and is not included in the normal QiQiIME CTest run or product MSI.
 
-- [ ] Wrap `SafeArrayCreate` ownership in
-  [src/ime/ui/canduia.cpp](../src/ime/ui/canduia.cpp) with a scoped SAFEARRAY
-  deleter. The current UIA argument construction is correct but manually
-  destroys the array; retain the same `UIA_VARIANT` ownership transfer and add
-  focused failure tests when changing it.
+- [x] Scope the SAFEARRAYs for UIA runtime IDs and selection in
+  [canduia.cpp](../src/ime/ui/canduia.cpp). The shared COM helper transfers
+  ownership to the caller only on successful population. The failure regression
+  checks the original HRESULT, null output, and release of an inserted provider.
 
 - [x] Harden candidate owned-window handling for missing or stale host HWNDs.
   Production presentation now requires a valid root owner, hides any stale

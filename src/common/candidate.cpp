@@ -16,11 +16,12 @@
 namespace qiqi {
 bool PaintCandidateItemsGdi(HDC dc, const RECT& bounds, std::span<const CandidatePaintItem> items,
     const CandidatePaintMetrics& metrics, const SkinPalette& palette) noexcept {
+    const auto colors = ResolveCandidatePaintFrameColors(palette);
     const ScopedSaveDC saved(dc);
-    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(palette.Get(SkinColor::Background)));
-    const ScopedGdiHandle<HBRUSH> selection(::CreateSolidBrush(palette.Get(SkinColor::SelectedBackground)));
-    const ScopedGdiHandle<HBRUSH> outline(::CreateSolidBrush(palette.Get(SkinColor::SelectedBorder)));
-    const ScopedGdiHandle<HBRUSH> border(::CreateSolidBrush(palette.Get(SkinColor::Border)));
+    const ScopedGdiHandle<HBRUSH> background(::CreateSolidBrush(colors.background));
+    const ScopedGdiHandle<HBRUSH> selection(::CreateSolidBrush(colors.selection_background));
+    const ScopedGdiHandle<HBRUSH> outline(::CreateSolidBrush(colors.selection_border));
+    const ScopedGdiHandle<HBRUSH> border(::CreateSolidBrush(colors.border));
     if (!saved || !background || !selection || !outline || !border) {
         QIQI_LOG_WARN("Candidate GDI drawing resource creation failed (error={})", ::GetLastError());
         return false;
@@ -29,7 +30,7 @@ bool PaintCandidateItemsGdi(HDC dc, const RECT& bounds, std::span<const Candidat
     const ScopedSelectObject selected_font(dc, metrics.font);
     ::SetBkMode(dc, TRANSPARENT);
     for (const auto& item : items) {
-        if (item.rect.bottom <= bounds.top || item.rect.top >= bounds.bottom) continue;
+        if (!IsCandidatePaintRowVisible(item, bounds)) continue;
         if (item.selected) {
             ::FillRect(dc, &item.rect, selection.Get());
             RECT frame = item.rect;
@@ -39,31 +40,17 @@ bool PaintCandidateItemsGdi(HDC dc, const RECT& bounds, std::span<const Candidat
             }
         }
         ::SetTextColor(dc, CandidatePaintTextColor(palette, item));
-        const int padding = item.accent ? 0 : metrics.horizontal_padding;
-        const int vertical_padding = item.accent ? 0 : metrics.vertical_padding;
+        const UINT alignment = item.centered ? DT_CENTER : DT_LEFT;
         if (metrics.word_wrap) {
-            RECT text = item.rect;
-            ::InflateRect(&text, -padding, -vertical_padding);
+            RECT text = CandidatePaintTextBounds(item, metrics);
             ::DrawTextW(dc, item.text.data(), gsl::narrow_cast<int>(item.text.size()), &text,
-                DT_WORDBREAK | DT_NOPREFIX | (item.centered ? DT_CENTER : DT_LEFT));
+                DT_WORDBREAK | DT_NOPREFIX | alignment);
             continue;
         }
-        int top = item.rect.top + vertical_padding;
-        if (item.centered) {
-            const int lines = gsl::narrow_cast<int>(std::count(item.text.begin(), item.text.end(), L'\n')) + 1;
-            top += std::max(0, (gsl::narrow_cast<int>(item.rect.bottom - item.rect.top) - lines * metrics.line_height) / 2);
-        }
-        std::wstring_view remaining = item.text;
-        do {
-            const size_t end = remaining.find(L'\n');
-            const auto line = remaining.substr(0, end);
-            RECT text{item.rect.left + padding, top, item.rect.right - padding, top + metrics.line_height};
+        ForEachCandidatePaintLine(item, metrics, [&](std::wstring_view line, RECT text) noexcept {
             ::DrawTextW(dc, line.data(), gsl::narrow_cast<int>(line.size()), &text,
-                DT_SINGLELINE | DT_NOPREFIX | (item.centered ? DT_CENTER : DT_LEFT));
-            if (end == std::wstring_view::npos) break;
-            remaining.remove_prefix(end + 1);
-            top += metrics.line_height;
-        } while (!remaining.empty());
+                DT_SINGLELINE | DT_NOPREFIX | alignment);
+        });
     }
     ::FrameRect(dc, &bounds, border.Get());
     return true;

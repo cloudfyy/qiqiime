@@ -8,6 +8,7 @@
 #include "common/dpi.h"
 #include "common/skin.h"
 
+#include <gsl/util>
 #include <span>
 #include <algorithm>
 #include <cstdint>
@@ -35,6 +36,48 @@ struct CandidatePaintMetrics {
     int selection_border_width = 1;
     bool word_wrap = false;
 };
+
+struct CandidatePaintFrameColors {
+    COLORREF background;
+    COLORREF border;
+    COLORREF selection_background;
+    COLORREF selection_border;
+};
+
+inline CandidatePaintFrameColors ResolveCandidatePaintFrameColors(const SkinPalette& palette) noexcept {
+    return {palette.Get(SkinColor::Background), palette.Get(SkinColor::Border),
+        palette.Get(SkinColor::SelectedBackground), palette.Get(SkinColor::SelectedBorder)};
+}
+
+inline bool IsCandidatePaintRowVisible(const CandidatePaintItem& item, const RECT& viewport) noexcept {
+    return item.rect.bottom > viewport.top && item.rect.top < viewport.bottom;
+}
+
+inline RECT CandidatePaintTextBounds(const CandidatePaintItem& item, const CandidatePaintMetrics& metrics) noexcept {
+    if (item.accent) return item.rect;
+    return {item.rect.left + metrics.horizontal_padding, item.rect.top + metrics.vertical_padding,
+        item.rect.right - metrics.horizontal_padding, item.rect.bottom - metrics.vertical_padding};
+}
+
+template <typename DrawLine>
+void ForEachCandidatePaintLine(const CandidatePaintItem& item, const CandidatePaintMetrics& metrics,
+    DrawLine draw_line) noexcept {
+    RECT rect = CandidatePaintTextBounds(item, metrics);
+    if (item.centered) {
+        const int lines = gsl::narrow_cast<int>(std::count(item.text.begin(), item.text.end(), L'\n')) + 1;
+        rect.top += std::max(0, (gsl::narrow_cast<int>(item.rect.bottom - item.rect.top) - lines * metrics.line_height) / 2);
+    }
+    rect.bottom = rect.top + metrics.line_height;
+    std::wstring_view remaining = item.text;
+    do {
+        const size_t end = remaining.find(L'\n');
+        draw_line(remaining.substr(0, end), rect);
+        if (end == std::wstring_view::npos) break;
+        remaining.remove_prefix(end + 1);
+        rect.top += metrics.line_height;
+        rect.bottom += metrics.line_height;
+    } while (!remaining.empty());
+}
 
 struct CandidatePageLabels {
     std::wstring_view previous;

@@ -182,6 +182,21 @@ void TestCandidateSkinStates() {
             palette, gsl::at(items, 1)) == palette.Get(SkinColor::EmptyText));
         QIQI_TEST_CHECK(CandidateFrameContainsColor(
             *ui.Get(), gsl::at(items, 1).rect, palette.Get(SkinColor::EmptyText)));
+
+        ui->SetCandidates(L"ab", {L"FIRST\nSECOND"}, 2, 0, 0);
+        const RECT row = ui->CandidateRect(0);
+        const LONG middle = row.top + (row.bottom - row.top) / 2;
+        const LONG padding = ScalePxByDpi(8, 144);
+        const COLORREF text_color = palette.Get(SkinColor::SelectedText);
+        QIQI_TEST_CHECK(!CandidateFrameContainsColor(
+            *ui.Get(), RECT{row.left, row.top, row.right, row.top + padding}, text_color));
+        QIQI_TEST_CHECK(!CandidateFrameContainsColor(
+            *ui.Get(), RECT{row.left, row.top, row.left + padding, row.bottom}, text_color));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), RECT{row.left + padding, row.top + padding, row.right - padding, middle}, text_color));
+        QIQI_TEST_CHECK(CandidateFrameContainsColor(
+            *ui.Get(), RECT{row.left + padding, middle, row.right - padding, row.bottom - padding}, text_color));
+        QIQI_TEST_CHECK(ui->IsDirectWriteActive() == !gdi);
     }
 }
 

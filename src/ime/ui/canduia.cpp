@@ -54,30 +54,22 @@ HRESULT MakePageStatusVariant(
 }
 
 HRESULT MakeRuntimeId(HWND hwnd, long child_id, SAFEARRAY** out) noexcept {
-    if (!out) return E_POINTER;
-    *out = nullptr;
-    const bool has_child = child_id >= 0;
-    SAFEARRAYBOUND bound{has_child ? 3ul : 2ul, 0};
-    *out = ::SafeArrayCreate(VT_I4, 1, &bound);
-    if (!*out) return E_OUTOFMEMORY;
+    const LONG count = child_id >= 0 ? 3 : 2;
     const std::array<long, 3> indices{
         UiaAppendRuntimeId,
         gsl::narrow_cast<long>(
             reinterpret_cast<uintptr_t>(hwnd) & 0x7fffffff),
         child_id
     };
-    for (LONG i = 0; i < gsl::narrow_cast<LONG>(bound.cElements); ++i) {
-        LONG index = i;
-        long element = gsl::at(indices, gsl::narrow_cast<size_t>(i));
-        const HRESULT hr =
-            ::SafeArrayPutElement(*out, &index, &element);
-        if (FAILED(hr)) {
-            ::SafeArrayDestroy(*out);
-            *out = nullptr;
-            return hr;
-        }
-    }
-    return S_OK;
+    return CreateSafeArrayToOut(VT_I4, gsl::narrow_cast<ULONG>(count), out,
+        [&](SAFEARRAY& array) noexcept {
+            for (LONG index = 0; index < count; ++index) {
+                long element = gsl::at(indices, gsl::narrow_cast<size_t>(index));
+                const HRESULT hr = ::SafeArrayPutElement(&array, &index, &element);
+                if (FAILED(hr)) return hr;
+            }
+            return S_OK;
+        });
 }
 
 constexpr HRESULT PreserveFirstFailure(HRESULT current, HRESULT next) noexcept {
@@ -601,35 +593,23 @@ STDMETHODIMP CandidateUI::GetFocus(
 
 STDMETHODIMP CandidateUI::GetSelection(SAFEARRAY** selection) noexcept {
     if (!selection) return E_INVALIDARG;
-    *selection = nullptr;
-    SAFEARRAYBOUND bound{
-        AccessibleCandidateCount() > 0 ? 1ul : 0ul,
-        0
-    };
-    *selection = ::SafeArrayCreate(VT_UNKNOWN, 1, &bound);
-    if (!*selection) return E_OUTOFMEMORY;
-    if (bound.cElements == 0) return S_OK;
-    ComPtr<IRawElementProviderFragment> fragment;
-    ComPtr<IRawElementProviderSimple> selected;
-    const HRESULT hr = CreateAutomationItem(
-        SelectedPageIndex(), fragment.GetAddressOf());
-    const HRESULT conversion_hr =
-        SUCCEEDED(hr) && fragment ? fragment.As(&selected) : hr;
-    if (FAILED(conversion_hr) || !selected) {
-        ::SafeArrayDestroy(*selection);
-        *selection = nullptr;
-        return FAILED(conversion_hr) ? conversion_hr : E_FAIL;
-    }
-    LONG index = 0;
-    IUnknown* selected_item = selected.Get();
-    const HRESULT put_hr =
-        ::SafeArrayPutElement(*selection, &index, selected_item);
-    if (FAILED(put_hr)) {
-        ::SafeArrayDestroy(*selection);
-        *selection = nullptr;
-        return put_hr;
-    }
-    return S_OK;
+    const bool has_selection = AccessibleCandidateCount() > 0;
+    return CreateSafeArrayToOut(VT_UNKNOWN, has_selection ? 1ul : 0ul, selection,
+        [this, has_selection](SAFEARRAY& array) noexcept {
+            if (!has_selection) return S_OK;
+            ComPtr<IRawElementProviderFragment> fragment;
+            const HRESULT hr = CreateAutomationItem(
+                SelectedPageIndex(), fragment.GetAddressOf());
+            if (FAILED(hr)) return hr;
+            if (!fragment) return E_FAIL;
+            ComPtr<IRawElementProviderSimple> selected;
+            const HRESULT conversion_hr = fragment.As(&selected);
+            if (FAILED(conversion_hr)) return conversion_hr;
+            if (!selected) return E_FAIL;
+            LONG index = 0;
+            IUnknown* selected_item = selected.Get();
+            return ::SafeArrayPutElement(&array, &index, selected_item);
+        });
 }
 
 STDMETHODIMP CandidateUI::get_CanSelectMultiple(

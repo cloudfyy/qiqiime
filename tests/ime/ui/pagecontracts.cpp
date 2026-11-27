@@ -94,10 +94,28 @@ long ReadAutomationRuntimeChild(gsl::not_null<IRawElementProviderFragment*> frag
     return child_id;
 }
 
+void TestSafeArrayPopulationFailure() {
+    const auto objects_before = g_com_object_count.load();
+    auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
+    IUnknown* provider = static_cast<IRawElementProviderSimple*>(ui.Get());
+    SAFEARRAY sentinel{};
+    SAFEARRAY* result = &sentinel;
+    const HRESULT hr = CreateSafeArrayToOut(VT_UNKNOWN, 1, &result, [provider](SAFEARRAY& array) noexcept {
+        LONG index = 0;
+        QIQI_TEST_CHECK(::SafeArrayPutElement(&array, &index, provider) == S_OK);
+        ++index;
+        return ::SafeArrayPutElement(&array, &index, provider);
+    });
+    QIQI_TEST_CHECK(hr == DISP_E_BADINDEX && result == nullptr);
+    ui.Reset();
+    QIQI_TEST_CHECK(g_com_object_count.load() == objects_before);
+}
+
 } // namespace
 
 void TestCandidatePagingAccessibilityContracts() {
     const TsfTestCaseTrace trace(__func__);
+    TestSafeArrayPopulationFailure();
     auto ui = MakeComObject<CandidateUI>(::GetModuleHandleW(nullptr));
     ui->SetUiLanguage(UiLanguage::EnUs);
     ui->SetCandidates(
