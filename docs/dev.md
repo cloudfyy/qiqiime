@@ -598,8 +598,9 @@ changes. Layout measures actual closed combo heights, clips scrolling content
 (including owner drawing), follows keyboard focus, and fixes OK/Cancel outside
 the page viewport. Labels/fields reflow vertically for narrow or enlarged text.
 Combo fields use a fixed, DPI/text-scaled base width and align to the page's
-right edge; page size and layout share one row. The layout test checks that the
-Space/Enter combo stays right-aligned both beside and below its label.
+right edge; page size and layout share one row. The layout test fixes window
+dimensions for simulated DPI cases, then checks that the Space/Enter combo
+still aligns to the right when a smaller work area forces its label above it.
 Shortcuts and About are ordinary pages at the right end of the tab strip.
 Restore defaults, OK and Cancel share a
 fixed footer on every page; narrow/enlarged layouts use two footer rows.

@@ -173,7 +173,7 @@ ScopedWindow CreateSettingsWindow(
     owned_ctx->controls_initialized = true;
     if (!log::CheckHResult(WriteSettingsToWindowControlsResult(hwnd.Get(), initial), "Settings::ApplyInitialConfig"))
         return {};
-    if (use_broker_snapshot) *bound_config = std::move(config_snapshot.value);
+    if (bound_config && use_broker_snapshot) *bound_config = std::move(config_snapshot.value);
     owned_ctx->baseline_revision = initial_revision;
     InitSettingsCompartmentSubscription(hwnd.Get(), *owned_ctx);
     LayoutSettingsControls(hwnd.Get(), *owned_ctx);

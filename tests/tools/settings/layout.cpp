@@ -38,8 +38,9 @@ void TestSettingsTextAlignment() {
         std::pair{kIdLblUiLang, kIdComboUiLang},
         std::pair{kIdLblUnderlineStyle, kIdComboUnderlineStyle},
         std::pair{kIdLblEnglishSwitch, kIdComboEnglishSwitch}};
+    constexpr RECT roomy_work_area{0, 0, 3840, 2160};
     for (const auto language : {UiLanguage::ZhCn, UiLanguage::EnUs}) {
-        SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 3840, 2160}, 96});
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{roomy_work_area, 96});
         QiQiConfig config;
         config.ui_language = language;
         const ScopedWindow dialog(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &config));
@@ -52,11 +53,17 @@ void TestSettingsTextAlignment() {
             ::MapWindowPoints(nullptr, dialog.Get(), reinterpret_cast<POINT*>(&rect), 2);
             return rect;
         };
-        const auto resize = [&](int width, UINT dpi) {
-            SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 3840, 2160}, dpi});
+        const auto window_size = [&] {
+            RECT rect{};
+            QIQI_TEST_CHECK(::GetWindowRect(dialog.Get(), &rect));
+            return SIZE{rect.right - rect.left, rect.bottom - rect.top};
+        };
+        const auto resize = [&](int width, UINT dpi, RECT work_area) {
+            SetMonitorMetricsOverrideForTest(MonitorMetrics{work_area, dpi});
             const RECT suggested{0, 0, ScalePxByDpi(width, dpi), ScalePxByDpi(494, dpi)};
             ::SendMessageW(dialog.Get(), WM_DPICHANGED, MAKEWPARAM(dpi, dpi), reinterpret_cast<LPARAM>(&suggested));
             QIQI_TEST_CHECK(context->d2d.dpi == dpi);
+            return SIZE{suggested.right, suggested.bottom};
         };
         const auto check_space_enter_layout = [&] {
             const LONG control_right = context->page_bounds.right - context->d2d.ScaleDipPx(16);
@@ -76,7 +83,12 @@ void TestSettingsTextAlignment() {
         };
         for (const UINT dpi : {96u, 120u, 144u, 192u}) {
             for (const int width : {820, 620}) {
-                resize(width, dpi);
+                const SIZE requested = resize(width, dpi, roomy_work_area);
+                // Keep the synthetic sizes independent of the runner's native window tracking limits.
+                QIQI_TEST_CHECK(::SetWindowPos(dialog.Get(), nullptr, 0, 0, requested.cx, requested.cy,
+                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING));
+                const SIZE actual = window_size();
+                QIQI_TEST_CHECK(actual.cx == requested.cx && actual.cy == requested.cy);
                 for (const auto &[label_id, toggle_id] : aligned_rows) {
                     const SettingsPage page = label_id == kIdLblUiLang ? SettingsPage::Display
                                               : label_id == kIdLblEnglishSwitch ? SettingsPage::Input
@@ -232,7 +244,10 @@ void TestSettingsTextAlignment() {
                         : std::wstring_view(L"About")));
             }
         }
-        resize(420, 192);
+        constexpr RECT small_work_area{0, 0, 1024, 768};
+        const SIZE requested = resize(820, 192, small_work_area);
+        const SIZE clamped = window_size();
+        QIQI_TEST_CHECK(clamped.cx < requested.cx && clamped.cx <= small_work_area.right);
         SelectSettingsPage(dialog.Get(), *context, SettingsPage::Input);
         QIQI_TEST_CHECK(!check_space_enter_layout());
     }
