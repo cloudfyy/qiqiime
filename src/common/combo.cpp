@@ -41,10 +41,10 @@ bool QueryUnderlineComboBoldState(HWND combo_hwnd, CompositionUnderlineStyle& ou
     if (!prop) {
         return false;
     }
-    if (item_index > static_cast<UINT>(CompositionUnderlineStyle::None)) {
+    if (item_index > gsl::narrow_cast<UINT>(std::to_underlying(CompositionUnderlineStyle::None))) {
         return false;
     }
-    out_style = static_cast<CompositionUnderlineStyle>(item_index);
+    out_style = CompositionUnderlineStyle{gsl::narrow_cast<int>(item_index)};
     const int bold_id = gsl::narrow_cast<int>(reinterpret_cast<INT_PTR>(prop));
     const HWND parent = ::GetParent(combo_hwnd);
     out_bold = parent && (::IsDlgButtonChecked(parent, bold_id) == BST_CHECKED);

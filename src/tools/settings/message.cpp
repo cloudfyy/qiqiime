@@ -138,10 +138,12 @@ LRESULT CALLBACK MessageWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
             ApplyMessageLanguage(hwnd, *ctx);
             return 0;
         case kSettingsLanguageChangedMessage:
-            ctx->language = static_cast<UiLanguage>(wparam);
-            std::ignore = UpdateToolWindowDisplay(hwnd, ctx->d2d, ctx->font,
-                ctx->d2d.display_preferences, ctx->d2d.dpi, ctx->language, {}, kMessageFontSize);
-            ApplyMessageLanguage(hwnd, *ctx);
+            if (const auto language = dialog_detail::DecodeDialogLanguage(wparam)) {
+                ctx->language = *language;
+                std::ignore = UpdateToolWindowDisplay(hwnd, ctx->d2d, ctx->font,
+                    ctx->d2d.display_preferences, ctx->d2d.dpi, ctx->language, {}, kMessageFontSize);
+                ApplyMessageLanguage(hwnd, *ctx);
+            }
             return 0;
         case WM_KEYDOWN: {
             if (wparam == VK_ESCAPE || wparam == VK_RETURN) {

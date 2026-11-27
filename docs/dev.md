@@ -402,6 +402,10 @@ synthetic quit message while posted messages are still pending.
 
 - Follow the C++ Core Guidelines and existing GSL/RAII helpers: `ComPtr`,
   `ScopedHandle`, `gsl::finally`, `gsl::not_null`, and `std::span`.
+- Check Win32 or serialized values before narrowing them. Use `gsl::narrow_cast`
+  after a range check or when a documented bound guarantees the value fits.
+  Use `std::to_underlying` for enum output. Do not use `narrow_cast` as a check,
+  or replace intentional pointer, floating-point, or bit-pattern conversions with it.
 - Reuse common configuration, file, window, and command-UI helpers rather than
   copying implementations. Preserve ownership and destruction order across
   reentrant host callbacks; see the [composition contracts](composition.md).

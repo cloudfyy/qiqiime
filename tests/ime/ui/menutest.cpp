@@ -166,10 +166,9 @@ void TestQuickSettingsMenuResourceLifetime() {
     const auto restore_monitor = gsl::finally([&]() noexcept {
         SetMonitorMetricsOverrideForTest(std::move(original_monitor));
     });
-    auto monitor = QueryMonitorForPoint(POINT{200, 200});
-    monitor.dpi = 96;
-    SetMonitorMetricsOverrideForTest(monitor);
+    SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1280, 1024}, 96});
     LangBarState state{};
+    state.display.easy_reading = true;
     int actions = 0;
     static int destroyed_buttons = 0;
     destroyed_buttons = 0;
@@ -228,7 +227,27 @@ void TestQuickSettingsMenuResourceLifetime() {
         QIQI_TEST_CHECK(::GetTextColor(dc.Get()) == text_color);
         QIQI_TEST_CHECK(::GetBkMode(dc.Get()) == OPAQUE);
         QIQI_TEST_CHECK(::GetCurrentObject(dc.Get(), OBJ_FONT) == original_font);
-        ::SendMessageW(menu, WM_CLOSE, 0, 0);
+
+        const HHOOK reject_scrollbar = ::SetWindowsHookExW(WH_CBT,
+            [](int code, WPARAM wparam, LPARAM lparam) noexcept -> LRESULT {
+                if (code == HCBT_CREATEWND) {
+                    const auto* create = reinterpret_cast<const CBT_CREATEWNDW*>(lparam);
+                    const auto* window_class = create->lpcs->lpszClass;
+                    if (!IS_INTRESOURCE(window_class) && std::wstring_view(window_class) == L"SCROLLBAR") {
+                        return 1;
+                    }
+                }
+                return ::CallNextHookEx(nullptr, code, wparam, lparam);
+            }, nullptr, ::GetCurrentThreadId());
+        QIQI_TEST_CHECK(reject_scrollbar);
+        const auto unhook = gsl::finally([reject_scrollbar]() noexcept {
+            QIQI_TEST_CHECK_CLEANUP(::UnhookWindowsHookEx(reject_scrollbar));
+        });
+        SetMonitorMetricsOverrideForTest(MonitorMetrics{RECT{0, 0, 1280, 96}, 192});
+        ::SendMessageW(menu, WM_SETTINGCHANGE, 0, 0);
+        QIQI_TEST_CHECK(!::IsWindowVisible(menu));
+        QIQI_TEST_CHECK(::SendMessageW(button, WM_GETFONT, 0, 0) == reinterpret_cast<LRESULT>(new_font));
+        QIQI_TEST_CHECK(::GetObjectType(new_font) == OBJ_FONT);
     });
     QIQI_TEST_CHECK(timer != 0);
     const auto cancel_timer = gsl::finally([&]() { ::KillTimer(nullptr, timer); });

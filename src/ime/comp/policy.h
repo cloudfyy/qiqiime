@@ -470,12 +470,8 @@ template <typename CheckCurrent>
 
     InputScope* raw_scopes = nullptr;
     UINT count = 0;
-    const auto free_scopes = gsl::finally([&raw_scopes]() noexcept {
-        if (raw_scopes) {
-            ::CoTaskMemFree(raw_scopes);
-        }
-    });
     const HRESULT get_scopes_hr = input_scope->GetInputScopes(&raw_scopes, &count);
+    const ScopedCoTaskMem free_scopes(raw_scopes);
     if (!is_current()) {
         return out;
     }

@@ -90,11 +90,15 @@ struct NullHandleTraits {
     static void Close(HandleType h) noexcept { CloseFn(h); }
 };
 
-struct FileHandleTraits {
+struct KernelHandleTraits {
     using HandleType = HANDLE;
-    static HandleType Invalid() noexcept { return INVALID_HANDLE_VALUE; }
+    static constexpr HandleType Invalid() noexcept { return nullptr; }
     static bool IsValid(const HandleType& h) noexcept { return h != INVALID_HANDLE_VALUE && h != nullptr; }
     static void Close(HandleType h) noexcept { ::CloseHandle(h); }
+};
+
+struct FileHandleTraits : KernelHandleTraits {
+    static HandleType Invalid() noexcept { return INVALID_HANDLE_VALUE; }
 };
 
 struct WindowTraits {
@@ -109,7 +113,7 @@ struct WindowTraits {
 };
 
 using ScopedFileHandle   = ScopedHandle<FileHandleTraits>;
-using ScopedKernelHandle = ScopedHandle<NullHandleTraits<HANDLE, &::CloseHandle>>;
+using ScopedKernelHandle = ScopedHandle<KernelHandleTraits>;
 using ScopedMappedView   = ScopedHandle<NullHandleTraits<const void*, &::UnmapViewOfFile>>;
 using ScopedRegKey       = ScopedHandle<NullHandleTraits<HKEY, &::RegCloseKey>>;
 using ScopedLocalAlloc   = ScopedHandle<NullHandleTraits<HLOCAL, &::LocalFree>>;
@@ -188,15 +192,15 @@ struct ClipboardGuardTraits {
 template <typename T>
 struct GlobalLockGuardTraits {
     using ContextType  = HGLOBAL;
-    using ResourceType = const T*;
-    static constexpr const T* Invalid() noexcept { return nullptr; }
-    static constexpr bool IsValid(const T* ptr) noexcept { return ptr != nullptr; }
-    static const T* Acquire(HGLOBAL hmem, DWORD& out_error) noexcept {
+    using ResourceType = T*;
+    static constexpr ResourceType Invalid() noexcept { return nullptr; }
+    static constexpr bool IsValid(ResourceType ptr) noexcept { return ptr != nullptr; }
+    static ResourceType Acquire(HGLOBAL hmem, DWORD& out_error) noexcept {
         if (!hmem) {
             out_error = ERROR_INVALID_HANDLE;
             return nullptr;
         }
-        const auto* ptr = static_cast<const T*>(::GlobalLock(hmem));
+        const auto ptr = static_cast<ResourceType>(::GlobalLock(hmem));
         if (ptr) {
             out_error = ERROR_SUCCESS;
             return ptr;
@@ -205,7 +209,7 @@ struct GlobalLockGuardTraits {
         out_error = (err != ERROR_SUCCESS) ? err : ERROR_LOCK_FAILED;
         return nullptr;
     }
-    static void Release(HGLOBAL hmem, const T* /*ptr*/) noexcept { ::GlobalUnlock(hmem); }
+    static void Release(HGLOBAL hmem, ResourceType /*ptr*/) noexcept { ::GlobalUnlock(hmem); }
 };
 
 using ScopedClipboard = ScopedContextGuard<ClipboardGuardTraits>;

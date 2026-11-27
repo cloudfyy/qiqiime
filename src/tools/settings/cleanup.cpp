@@ -91,7 +91,7 @@ HRESULT detail::RemoveUserDataAt(const std::filesystem::path& directory, const w
 HRESULT RemoveCurrentUserData() {
     PWSTR local_app_data = nullptr;
     const HRESULT hr = ::SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DONT_VERIFY, nullptr, &local_app_data);
-    const auto release = gsl::finally([&]() noexcept { ::CoTaskMemFree(local_app_data); });
+    const ScopedCoTaskMem release(local_app_data);
     if (FAILED(hr)) {
         std::ignore = log::CheckHResult(hr, "Uninstall::LocalAppData");
         return hr;

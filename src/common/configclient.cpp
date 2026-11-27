@@ -731,12 +731,15 @@ HRESULT SubmitAsync(
         auto context =
             std::make_unique<Request>(
                 std::move(request));
+        // The callback may run and free the request before the API returns.
+        gsl::owner<Request*> pending = context.release();
         if (!::TrySubmitThreadpoolCallback(
                 &RunRequest,
-                context.get(),
+                pending,
                 nullptr)) {
             const DWORD error =
                 ::GetLastError();
+            context.reset(pending);
             QIQI_LOG_CAT_ERROR(
                 log::Keyword::Config,
                 "ConfigClient threadpool "
@@ -748,7 +751,6 @@ HRESULT SubmitAsync(
                     ? error
                     : ERROR_FUNCTION_FAILED);
         }
-        context.release();
         return S_OK;
     } catch (const std::bad_alloc&) {
         return E_OUTOFMEMORY;

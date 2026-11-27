@@ -150,8 +150,8 @@ public:
             }
         }
         // Close before invoking an action that can open another modal window.
-        if (selected_ != 0) {
-            callback_(static_cast<LangBarMenuId>(selected_));
+        if (selected_ != LangBarMenuId::SyncMenuState) {
+            callback_(selected_);
         }
     }
 
@@ -222,7 +222,7 @@ private:
             if (item.IsSeparator()) {
                 continue;
             }
-            const UINT id = static_cast<UINT>(item.id);
+            const UINT id = std::to_underlying(item.id);
             HWND button = ::GetDlgItem(hwnd_.Get(), gsl::narrow_cast<int>(id));
             if (!button) {
                 button = ::CreateWindowExW(
@@ -233,11 +233,6 @@ private:
                     return false;
                 }
             }
-        }
-        // Retain the old font until every child has switched to the new one.
-        if (font) {
-            std::swap(font_, font);
-            font_description_ = metrics.lfMenuFont;
         }
         rows_ = rows;
         content_height_ = y + scale(kMenuVerticalPadding);
@@ -274,11 +269,21 @@ private:
             const RECT row = rows.at(gsl::narrow_cast<size_t>(i));
             const auto& item = model_.at(gsl::narrow_cast<size_t>(i));
             if (!item.IsSeparator()) {
-                const HWND button = ::GetDlgItem(hwnd_.Get(), static_cast<int>(item.id));
+                const HWND button = ::GetDlgItem(hwnd_.Get(), gsl::narrow_cast<int>(std::to_underlying(item.id)));
                 ::SetWindowTextW(button, item.text);
-                ::SendMessageW(button, WM_SETFONT, reinterpret_cast<WPARAM>(font_.Get()), FALSE);
                 ::EnableWindow(button, item.enabled);
                 if (!PositionRow(button, row, width - scrollbar_width)) return false;
+            }
+        }
+        // Publish the replacement only after fallible layout; keep the old font through the handoff.
+        if (font) {
+            std::swap(font_, font);
+            font_description_ = metrics.lfMenuFont;
+        }
+        for (const auto& item : model_) {
+            if (!item.IsSeparator()) {
+                ::SendDlgItemMessageW(hwnd_.Get(), gsl::narrow_cast<int>(std::to_underlying(item.id)),
+                    WM_SETFONT, reinterpret_cast<WPARAM>(font_.Get()), FALSE);
             }
         }
         ::RedrawWindow(hwnd_.Get(), nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
@@ -286,7 +291,9 @@ private:
     }
 
     const LangBarMenuItem* FindItem(UINT id) const noexcept {
-        const auto found = std::ranges::find(model_, static_cast<LangBarMenuId>(id), &LangBarMenuItem::id);
+        const auto found = std::ranges::find(model_, id, [](const LangBarMenuItem& item) noexcept {
+            return std::to_underlying(item.id);
+        });
         return found == model_.end() ? nullptr : &*found;
     }
 
@@ -295,7 +302,7 @@ private:
         if (!item || item->IsSeparator() || !item->enabled) {
             return;
         }
-        const auto action = static_cast<LangBarMenuId>(id);
+        const auto action = item->id;
         if (LangBarButton::KeepsMenuOpen(action)) {
             callback_(action);
             if (!Refresh()) {
@@ -303,7 +310,7 @@ private:
                 ::ShowWindow(hwnd_.Get(), SW_HIDE);
             }
         } else {
-            selected_ = id;
+            selected_ = action;
             ::ShowWindow(hwnd_.Get(), SW_HIDE);
         }
     }
@@ -314,7 +321,7 @@ private:
         int index = step > 0 ? -1 : 0;
         if (::IsChild(hwnd_.Get(), ::GetFocus())) {
             for (int i = 0; i < count; ++i) {
-                if (static_cast<UINT>(model_.at(gsl::narrow_cast<size_t>(i)).id) == current) {
+                if (std::to_underlying(model_.at(gsl::narrow_cast<size_t>(i)).id) == current) {
                     index = i;
                 }
             }
@@ -328,7 +335,7 @@ private:
                 else if (row.bottom > scroll_offset_ + viewport_height_) {
                     ScrollTo(row.bottom - viewport_height_);
                 }
-                ::SetFocus(::GetDlgItem(hwnd_.Get(), static_cast<int>(item.id)));
+                ::SetFocus(::GetDlgItem(hwnd_.Get(), gsl::narrow_cast<int>(std::to_underlying(item.id))));
                 return;
             }
         }
@@ -400,7 +407,8 @@ private:
         for (size_t index = 0; index < model_.size(); ++index) {
             const auto& item = model_.at(index);
             if (!item.IsSeparator() && !PositionRow(
-                ::GetDlgItem(hwnd_.Get(), static_cast<int>(item.id)), rows_.at(index), client.right)) return;
+                ::GetDlgItem(hwnd_.Get(), gsl::narrow_cast<int>(std::to_underlying(item.id))),
+                rows_.at(index), client.right)) return;
         }
         UpdateScrollBar();
         ::RedrawWindow(hwnd_.Get(), nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
@@ -556,7 +564,7 @@ private:
     LOGFONTW font_description_{};
     std::array<RECT, std::tuple_size_v<LangBarButton::MenuItems>> rows_{};
     HWND hovered_ = nullptr;
-    UINT selected_ = 0;
+    LangBarMenuId selected_ = LangBarMenuId::SyncMenuState;
     int content_height_ = 0;
     int viewport_height_ = 0;
     int scroll_offset_ = 0;

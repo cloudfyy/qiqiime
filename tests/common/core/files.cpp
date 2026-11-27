@@ -123,6 +123,8 @@ void TestFileUtilityBoundaries() {
 }
 
 void TestScopedHandleTemplate() {
+    const ScopedKernelHandle invalid_kernel(INVALID_HANDLE_VALUE);
+    QIQI_TEST_CHECK(!invalid_kernel);
     ScopedKernelHandle h1(::CreateEventW(nullptr, TRUE, FALSE, nullptr));
     QIQI_TEST_CHECK(h1.IsValid());
     QIQI_TEST_CHECK(static_cast<bool>(h1));
@@ -234,22 +236,37 @@ void TestScopedHandleTemplate() {
 
     // Test ScopedGlobalLock<wchar_t>, ScopedClipboard, ScopedLastErrorRestore, MakeInt4Variant, and CopyToBstr
     ::SetLastError(ERROR_SUCCESS);
-    const ScopedGlobalLock<wchar_t> null_lock(nullptr);
+    const ScopedGlobalLock<const wchar_t> null_lock(nullptr);
     QIQI_TEST_CHECK(!null_lock && null_lock.Get() == nullptr && null_lock.Error() == ERROR_INVALID_HANDLE);
 
-    const HGLOBAL hmem = ::GlobalAlloc(GMEM_MOVEABLE, 16 * sizeof(wchar_t));
-    QIQI_TEST_CHECK(hmem != nullptr);
-    if (auto* raw_ptr = static_cast<wchar_t*>(::GlobalLock(hmem))) {
-        wcscpy_s(raw_ptr, 16, L"奇奇五笔");
-        ::GlobalUnlock(hmem);
+    const ScopedGlobalAlloc memory(::GlobalAlloc(GMEM_MOVEABLE, 16 * sizeof(wchar_t)));
+    QIQI_TEST_CHECK(memory);
+    {
+        const ScopedGlobalLock<wchar_t> lock(memory.Get());
+        QIQI_TEST_CHECK(lock && wcscpy_s(lock.Get(), 16, L"奇奇五笔") == 0);
     }
     {
-        const ScopedGlobalLock<wchar_t> lock(hmem);
+        const ScopedGlobalLock<const wchar_t> lock(memory.Get());
         QIQI_TEST_CHECK(lock && lock.Error() == ERROR_SUCCESS && std::wstring(lock.Get()) == L"奇奇五笔");
         ::SetLastError(ERROR_ALREADY_EXISTS);
     }
     QIQI_TEST_CHECK(::GetLastError() == ERROR_ALREADY_EXISTS);
-    ::GlobalFree(hmem);
+    std::array<wchar_t, 4> phrase{};
+    size_t length = 0;
+    QIQI_TEST_CHECK(ReadClipboardUnicodeBuffer(memory.Get(), phrase, length) == S_OK);
+    QIQI_TEST_CHECK(std::wstring_view(phrase.data(), length) == L"奇奇五笔");
+    QIQI_TEST_CHECK(ReadClipboardUnicodeBuffer(memory.Get(), std::span(phrase).first(3), length) ==
+        HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));
+    {
+        const ScopedGlobalLock<wchar_t> lock(memory.Get());
+        QIQI_TEST_CHECK(lock);
+        const auto count = ::GlobalSize(memory.Get()) / sizeof(wchar_t);
+        QIQI_TEST_CHECK(count > 0);
+        std::ranges::fill(std::span(lock.Get(), count), L'x');
+        std::wstring output(count, L'\0');
+        QIQI_TEST_CHECK(ReadClipboardUnicodeBuffer(memory.Get(), output, length) ==
+            HRESULT_FROM_WIN32(ERROR_INVALID_DATA) && length == 0);
+    }
 
     {
         const ScopedClipboard clip{};

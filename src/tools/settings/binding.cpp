@@ -201,7 +201,7 @@ void UpdateExtraDictCheckboxState(HWND hwnd) noexcept {
     }
     const LRESULT underline_sel = ::SendDlgItemMessageW(hwnd, kIdComboUnderlineStyle, CB_GETCURSEL, 0, 0);
     const bool has_underline =
-        underline_sel != static_cast<LRESULT>(CompositionUnderlineStyle::None);
+        underline_sel != std::to_underlying(CompositionUnderlineStyle::None);
     if (const HWND bold_chk = ::GetDlgItem(hwnd, kIdChkBoldUnderline)) {
         ::EnableWindow(bold_chk, has_underline ? TRUE : FALSE);
     }
@@ -279,21 +279,22 @@ static HRESULT PopulateSettingsControls(HWND hwnd, const QiQiConfig& config, boo
     ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(lang_idx), 0);
 
     const int underline_idx = std::clamp(
-        static_cast<int>(config.underline_style),
+        std::to_underlying(config.underline_style),
         0,
-        static_cast<int>(CompositionUnderlineStyle::None));
+        std::to_underlying(CompositionUnderlineStyle::None));
     ::SendDlgItemMessageW(
         hwnd, kIdComboUnderlineStyle, CB_SETCURSEL, gsl::narrow_cast<WPARAM>(underline_idx), 0);
     ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_SETCURSEL,
         config.commit_on_english_switch ? 0 : 1, 0);
     const HWND space_enter = ::GetDlgItem(hwnd, kIdComboSpaceEnter);
     if (!space_enter || ::SendMessageW(space_enter, CB_SETCURSEL,
-                            static_cast<WPARAM>(config.space_enter_mode), 0) == CB_ERR) {
+                            std::to_underlying(config.space_enter_mode), 0) == CB_ERR) {
         const HRESULT hr = space_enter ? E_FAIL : HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
         std::ignore = log::CheckHResult(hr, "Settings::PopulateSettingsControls(Space/Enter)");
         return hr;
     }
-    ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_SETCURSEL, static_cast<WPARAM>(config.ui_theme), 0);
+    ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_SETCURSEL,
+        gsl::narrow_cast<WPARAM>(std::to_underlying(config.ui_theme)), 0);
     if (auto* context = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
         context->preview_skin_id = config.ime_skin_id;
         try {
@@ -308,7 +309,8 @@ static HRESULT PopulateSettingsControls(HWND hwnd, const QiQiConfig& config, boo
     ::CheckDlgButton(hwnd, kIdChkEasyReading, config.easy_reading ? BST_CHECKED : BST_UNCHECKED);
     const UiTextScale scale = config.easy_reading
         ? std::max(config.ui_text_scale, UiTextScale::Percent150) : config.ui_text_scale;
-    ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_SETCURSEL, static_cast<WPARAM>(scale), 0);
+    ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_SETCURSEL,
+        gsl::narrow_cast<WPARAM>(std::to_underlying(scale)), 0);
     UpdateExtraDictCheckboxState(hwnd);
     if (auto* ctx = reinterpret_cast<DialogContext*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
         ApplySettingsDisplayPreview(hwnd, *ctx);
@@ -361,7 +363,7 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     }
     const LRESULT layout_sel = ::SendDlgItemMessageW(hwnd, kIdComboCandidateLayout, CB_GETCURSEL, 0, 0);
     if (layout_sel == 0 || layout_sel == 1) {
-        config.candidate_layout = static_cast<CandidateLayout>(layout_sel);
+        config.candidate_layout = CandidateLayout{gsl::narrow_cast<int>(layout_sel)};
     }
 
     const LRESULT lang_sel = ::SendDlgItemMessageW(hwnd, kIdComboUiLang, CB_GETCURSEL, 0, 0);
@@ -375,8 +377,8 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
 
     const LRESULT underline_sel = ::SendDlgItemMessageW(hwnd, kIdComboUnderlineStyle, CB_GETCURSEL, 0, 0);
     if (underline_sel >= 0 &&
-        underline_sel <= static_cast<LRESULT>(CompositionUnderlineStyle::None)) {
-        config.underline_style = static_cast<CompositionUnderlineStyle>(underline_sel);
+        underline_sel <= std::to_underlying(CompositionUnderlineStyle::None)) {
+        config.underline_style = CompositionUnderlineStyle{gsl::narrow_cast<int>(underline_sel)};
     }
     const LRESULT english_switch_sel = ::SendDlgItemMessageW(hwnd, kIdComboEnglishSwitch, CB_GETCURSEL, 0, 0);
     if (english_switch_sel == 0 || english_switch_sel == 1) {
@@ -385,15 +387,19 @@ void ReadSettingsFromWindowControls(HWND hwnd, QiQiConfig& config) noexcept {
     const HWND space_enter = ::GetDlgItem(hwnd, kIdComboSpaceEnter);
     const LRESULT space_enter_sel = space_enter ? ::SendMessageW(space_enter, CB_GETCURSEL, 0, 0) : CB_ERR;
     if (space_enter_sel >= 0 && space_enter_sel <= std::to_underlying(WubiSpaceEnterMode::EnterSelectSpaceClear)) {
-        config.space_enter_mode = static_cast<WubiSpaceEnterMode>(space_enter_sel);
+        config.space_enter_mode = WubiSpaceEnterMode{gsl::narrow_cast<uint8_t>(space_enter_sel)};
     } else {
         QIQI_LOG_WARN("ReadSettingsFromWindowControls: Space/Enter selection unavailable (result={})",
             space_enter_sel);
     }
     const LRESULT theme = ::SendDlgItemMessageW(hwnd, kIdComboUiTheme, CB_GETCURSEL, 0, 0);
     const LRESULT scale = ::SendDlgItemMessageW(hwnd, kIdComboUiTextScale, CB_GETCURSEL, 0, 0);
-    if (theme >= 0 && theme < 4) config.ui_theme = static_cast<UiTheme>(theme);
-    if (scale >= 0 && scale < 4) config.ui_text_scale = static_cast<UiTextScale>(scale);
+    if (theme >= 0 && theme <= std::to_underlying(UiTheme::HighContrast)) {
+        config.ui_theme = UiTheme{gsl::narrow_cast<int>(theme)};
+    }
+    if (scale >= 0 && scale <= std::to_underlying(UiTextScale::Percent200)) {
+        config.ui_text_scale = UiTextScale{gsl::narrow_cast<int>(scale)};
+    }
     config.easy_reading = ::IsDlgButtonChecked(hwnd, kIdChkEasyReading) == BST_CHECKED;
     if (config.easy_reading && config.ui_text_scale < UiTextScale::Percent150) {
         config.ui_text_scale = UiTextScale::Percent150;

@@ -223,8 +223,7 @@ Json ProcessDetails(const PROCESSENTRY32W& process) {
 
 Json CollectProcesses() {
     Json stage = NewStage("processes", "Related process information");
-    HANDLE raw_snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    ScopedKernelHandle snapshot(raw_snapshot);
+    const ScopedKernelHandle snapshot(::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
     if (!snapshot) {
         AddCheck(stage, CheckResult("process_snapshot", HRESULT_FROM_WIN32(::GetLastError())));
         FinalizeStage(stage);

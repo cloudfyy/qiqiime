@@ -161,9 +161,9 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
     const int minimum_label_width = std::max(S(140), font_height * 10);
     int y = gap;
 
-    for (int page = 0; page < gsl::narrow_cast<int>(SettingsPage::Count); ++page) {
-        const bool active = page == static_cast<int>(ctx.active_page);
-        for (const int id : SettingsPageControls(static_cast<SettingsPage>(page))) {
+    for (int page = 0; page < std::to_underlying(SettingsPage::Count); ++page) {
+        const bool active = page == std::to_underlying(ctx.active_page);
+        for (const int id : SettingsPageControls(SettingsPage{page})) {
             const bool explanation = id == kIdDisplayExplanation && !ctx.d2d.appearance.system_high_contrast;
             ::ShowWindow(::GetDlgItem(hwnd, id), active && !explanation ? SW_SHOWNA : SW_HIDE);
         }
@@ -360,7 +360,7 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
     }
     ctx.content_height = y;
     const int clamped = std::clamp(ctx.scroll_offset, 0, std::max(0, y - ctx.viewport_height));
-    gsl::at(ctx.page_scroll_offsets, static_cast<size_t>(ctx.active_page)) = clamped;
+    gsl::at(ctx.page_scroll_offsets, gsl::narrow_cast<size_t>(std::to_underlying(ctx.active_page))) = clamped;
     const HWND scrollbar = ::GetDlgItem(hwnd, kIdPageScroll);
     move(scrollbar, client.right - inset - scroll_width, ctx.page_bounds.top, scroll_width, ctx.viewport_height);
     SCROLLINFO info{};
@@ -382,10 +382,11 @@ void LayoutSettingsControls(HWND hwnd, DialogContext& ctx) noexcept {
 
 void SelectSettingsPage(HWND hwnd, DialogContext& ctx, SettingsPage page) noexcept {
     if (page < SettingsPage::Input || page >= SettingsPage::Count) return;
-    gsl::at(ctx.page_scroll_offsets, static_cast<size_t>(ctx.active_page)) = ctx.scroll_offset;
+    gsl::at(ctx.page_scroll_offsets, gsl::narrow_cast<size_t>(std::to_underlying(ctx.active_page))) = ctx.scroll_offset;
     ctx.active_page = page;
-    ctx.scroll_offset = gsl::at(ctx.page_scroll_offsets, static_cast<size_t>(page));
-    ::SendDlgItemMessageW(hwnd, kIdSettingsTabs, TCM_SETCURSEL, static_cast<WPARAM>(page), 0);
+    ctx.scroll_offset = gsl::at(ctx.page_scroll_offsets, gsl::narrow_cast<size_t>(std::to_underlying(page)));
+    ::SendDlgItemMessageW(hwnd, kIdSettingsTabs, TCM_SETCURSEL,
+        gsl::narrow_cast<WPARAM>(std::to_underlying(page)), 0);
     LayoutSettingsControls(hwnd, ctx);
     ::SetFocus(::GetDlgItem(hwnd, kIdSettingsTabs));
 }

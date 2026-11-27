@@ -164,10 +164,9 @@ LRESULT CALLBACK ToastWndProc(
             ApplyToastLanguage(hwnd, *context, context->language);
             return 0;
         case kUpdateToastLanguageMessage:
-            ApplyToastLanguage(
-                hwnd,
-                *context,
-                static_cast<UiLanguage>(wparam));
+            if (const auto language = dialog_detail::DecodeDialogLanguage(wparam)) {
+                ApplyToastLanguage(hwnd, *context, *language);
+            }
             return 0;
         case WM_TIMER:
             if (wparam == kToastTimerId) {
@@ -496,7 +495,7 @@ void UpdateSettingsToastLanguage(
     if (!::EnumThreadWindows(
             ::GetCurrentThreadId(),
             callback,
-            static_cast<LPARAM>(language))) {
+            std::to_underlying(language))) {
         QIQI_LOG_WARN(
             "Enumerating Settings toast windows for "
             "language update failed (error={})",

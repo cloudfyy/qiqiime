@@ -42,7 +42,7 @@ void PaintGdiDropdownChevron(
     }
     const ScopedSelectObject selected(dc, pen.Get());
     if (!selected) {
-        QIQI_LOG_WARN("Fluent dropdown arrow pen selection failed (error={})", selected.Error());
+        QIQI_LOG_WARN("Fluent dropdown arrow pen selection failed");
         return;
     }
     const auto points = DropdownChevron(bounds, gutter, d2d);

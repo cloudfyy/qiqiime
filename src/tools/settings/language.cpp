@@ -161,7 +161,7 @@ void UpdateSettingsTabLabels(HWND hwnd, const DialogContext& ctx) noexcept {
             QIQI_LOG_WARN("Settings tab {} label update failed", index);
         }
     }
-    ::SendMessageW(tabs, TCM_SETCURSEL, static_cast<WPARAM>(ctx.active_page), 0);
+    ::SendMessageW(tabs, TCM_SETCURSEL, gsl::narrow_cast<WPARAM>(std::to_underlying(ctx.active_page)), 0);
 }
 
 void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
@@ -234,7 +234,7 @@ void RenderSettingsLanguage(HWND hwnd, DialogContext& ctx) noexcept {
                 if (std::wcscmp(name.data(), kInfoWndClass) == 0 ||
                     std::wcscmp(name.data(), kSettingsMessageWndClass) == 0) {
                     ::SendMessageW(owned, kSettingsLanguageChangedMessage,
-                                   static_cast<WPARAM>(change->language), 0);
+                                   gsl::narrow_cast<WPARAM>(std::to_underlying(change->language)), 0);
                 }
             }
             return TRUE;

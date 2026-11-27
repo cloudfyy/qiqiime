@@ -212,9 +212,11 @@ LRESULT CALLBACK InfoWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             ApplyInfoLanguage(hwnd, *ctx);
             return 0;
         case kSettingsLanguageChangedMessage:
-            ctx->ui_language = static_cast<UiLanguage>(wparam);
-            std::ignore = UpdateInfoAppearance(hwnd, *ctx, ctx->d2d.dpi);
-            ApplyInfoLanguage(hwnd, *ctx);
+            if (const auto language = dialog_detail::DecodeDialogLanguage(wparam)) {
+                ctx->ui_language = *language;
+                std::ignore = UpdateInfoAppearance(hwnd, *ctx, ctx->d2d.dpi);
+                ApplyInfoLanguage(hwnd, *ctx);
+            }
             return 0;
         case WM_COMMAND:
             switch (LOWORD(wparam)) {
@@ -319,7 +321,7 @@ ScopedWindow CreateInfoWindow(
     }
     ApplySystemThemeToMenuAndWindow(hwnd.Get(), IsSystemDarkTheme());
     QIQI_LOG_DEBUG("InfoWindow created (kind={}, pos=({}, {}), size={}x{}, dpi={})",
-                   static_cast<unsigned int>(kind), bounds.left, bounds.top, dlg_w, dlg_h, mon.dpi);
+                   std::to_underlying(kind), bounds.left, bounds.top, dlg_w, dlg_h, mon.dpi);
     const auto* owned_ctx = ctx.release(); // Ownership transferred to hwnd (reclaimed on WM_NCDESTROY)
     dialog_detail::ApplyDialogIcons(hwnd.Get(), owned_ctx->icon_small.Get(), owned_ctx->icon.Get());
 

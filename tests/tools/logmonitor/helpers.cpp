@@ -98,7 +98,7 @@ std::wstring ReadClipboardText(HWND owner) {
     QIQI_TEST_CHECK(clip.IsOpen());
     const HANDLE data = ::GetClipboardData(CF_UNICODETEXT);
     QIQI_TEST_CHECK(data != nullptr);
-    const ScopedGlobalLock<wchar_t> lock(data);
+    const ScopedGlobalLock<const wchar_t> lock(data);
     QIQI_TEST_CHECK(lock.IsValid());
     return std::wstring(lock.Get());
 }

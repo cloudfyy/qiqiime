@@ -63,6 +63,8 @@ void TestLiveThemeAndLanguage() {
     });
     QiQiConfig cfg;
     cfg.ui_language = UiLanguage::ZhCn;
+    const auto explicit_language = ResolveUiLanguage(UiLanguage::Auto) == UiLanguage::ZhCn
+        ? UiLanguage::EnUs : UiLanguage::ZhCn;
     const ScopedWindow settings(CreateSettingsWindow(::GetModuleHandleW(nullptr), nullptr, &cfg, true));
     const ScopedWindow about(CreateAboutWindow(::GetModuleHandleW(nullptr), settings.Get(), UiLanguage::ZhCn));
     QIQI_TEST_CHECK(settings && about);
@@ -114,6 +116,13 @@ void TestLiveThemeAndLanguage() {
                 QIQI_TEST_CHECK(cfg.ui_language == UiLanguage::ZhCn);
             }
         }
+        for (const HWND window : {about.Get(), message.Get()}) {
+            ::SendMessageW(window, kSettingsLanguageChangedMessage,
+                gsl::narrow_cast<WPARAM>(std::to_underlying(explicit_language)), 0);
+            ::SendMessageW(window, kSettingsLanguageChangedMessage, (std::numeric_limits<WPARAM>::max)(), 0);
+        }
+        CheckMessageText(message.Get(), kind, explicit_language);
+        QIQI_TEST_CHECK(WindowText(about.Get()) == GetUiStrings(explicit_language).about_title);
     }
     QIQI_TEST_CHECK(!CreateSettingsMessageWindow(
         ::GetModuleHandleW(nullptr), nullptr, UiLanguage::Auto, static_cast<SettingsMessageKind>(99)));

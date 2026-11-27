@@ -11,8 +11,17 @@
 #include <commdlg.h>
 #include <cderr.h>
 #include <filesystem>
+#include <optional>
 
 namespace qiqi::dialog_detail {
+
+inline std::optional<UiLanguage> DecodeDialogLanguage(WPARAM value) noexcept {
+    if (value > gsl::narrow_cast<WPARAM>(std::to_underlying(UiLanguage::EnUs))) {
+        QIQI_LOG_WARN("Dialog language message contains an invalid selection");
+        return std::nullopt;
+    }
+    return UiLanguage{gsl::narrow_cast<std::underlying_type_t<UiLanguage>>(value)};
+}
 
 enum class FileDialogMode { Open, Save };
 enum class FileDialogStatus { Selected, Cancelled, Failed };

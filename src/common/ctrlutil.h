@@ -97,10 +97,11 @@ struct D2DDcDrawGuardTraits {
     struct ResourceType {
         HRESULT* end_hr = nullptr;
         D2D1_MATRIX_3X2_F transform{};
+        bool started = false;
         bool translated = false;
     };
     static constexpr ResourceType Invalid() noexcept { return {}; }
-    static constexpr bool IsValid(const ResourceType& state) noexcept { return state.end_hr != nullptr; }
+    static constexpr bool IsValid(const ResourceType& state) noexcept { return state.started; }
     static ResourceType Acquire(
         ID2D1DCRenderTarget* target, HDC hdc, const RECT& rc, HRESULT* out_end_hr = nullptr,
         bool clip_to_dc = false) noexcept {
@@ -120,9 +121,7 @@ struct D2DDcDrawGuardTraits {
             return {};
         }
         target->BeginDraw();
-        static HRESULT s_dummy_hr = S_OK;
-        ResourceType state{};
-        state.end_hr = out_end_hr ? out_end_hr : &s_dummy_hr;
+        ResourceType state{.end_hr = out_end_hr, .started = true};
         if (bound.left != rc.left || bound.top != rc.top) {
             target->GetTransform(&state.transform);
             D2D1_MATRIX_3X2_F translated = state.transform;

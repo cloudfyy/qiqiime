@@ -166,17 +166,17 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 const auto* notification = reinterpret_cast<const NMHDR*>(lparam);
                 if (notification->idFrom == kIdSettingsTabs && notification->code == TCN_SELCHANGE) {
                     const LRESULT selection = ::SendDlgItemMessageW(hwnd, kIdSettingsTabs, TCM_GETCURSEL, 0, 0);
-                    if (selection >= 0 && selection < static_cast<LRESULT>(SettingsPage::Count)) {
-                        SelectSettingsPage(hwnd, *ctx, static_cast<SettingsPage>(selection));
+                    if (selection >= 0 && selection < std::to_underlying(SettingsPage::Count)) {
+                        SelectSettingsPage(hwnd, *ctx, SettingsPage{gsl::narrow_cast<int>(selection)});
                     }
                     return 0;
                 }
             }
             return ::DefWindowProcW(hwnd, msg, wparam, lparam);
         case kSettingsCyclePage: {
-            constexpr int count = static_cast<int>(SettingsPage::Count);
-            const int next = (static_cast<int>(ctx->active_page) + (wparam ? count - 1 : 1)) % count;
-            SelectSettingsPage(hwnd, *ctx, static_cast<SettingsPage>(next));
+            constexpr int count = std::to_underlying(SettingsPage::Count);
+            const int next = (std::to_underlying(ctx->active_page) + (wparam ? count - 1 : 1)) % count;
+            SelectSettingsPage(hwnd, *ctx, SettingsPage{next});
             return 0;
         }
         case WM_SIZE:
@@ -338,7 +338,7 @@ LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
                 }
                 if (dis->CtlType == ODT_COMBOBOX) {
                     const bool disabled = dis->CtlID == kIdComboUiTextScale &&
-                        dis->itemID < static_cast<UINT>(UiTextScale::Percent150) &&
+                        dis->itemID < gsl::narrow_cast<UINT>(std::to_underlying(UiTextScale::Percent150)) &&
                         ::IsDlgButtonChecked(hwnd, kIdChkEasyReading) == BST_CHECKED;
                     const bool english = ResolveUiLanguage(GetSelectedUiLanguageFromCombo(hwnd, *ctx)) == UiLanguage::EnUs;
                     DrawFluentComboBoxItem(*dis, ctx->d2d, disabled,

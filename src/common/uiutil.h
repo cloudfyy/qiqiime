@@ -152,13 +152,9 @@ inline ULONG CopyTextToClipboard(HWND owner, std::wstring_view text) noexcept {
         return error ? error : ERROR_NOT_ENOUGH_MEMORY;
     }
     {
-        auto* buffer = static_cast<wchar_t*>(::GlobalLock(memory.Get()));
-        if (!buffer) {
-            const DWORD error = ::GetLastError();
-            return error ? error : ERROR_LOCK_FAILED;
-        }
-        const auto unlock = gsl::finally([raw = memory.Get()]() noexcept { ::GlobalUnlock(raw); });
-        const std::span<wchar_t> dst(buffer, text.size() + 1);
+        const ScopedGlobalLock<wchar_t> buffer(memory.Get());
+        if (!buffer) return buffer.Error();
+        const std::span<wchar_t> dst(buffer.Get(), text.size() + 1);
         for (size_t i = 0; i < text.size(); ++i) {
             const wchar_t ch = gsl::at(text, i);
             gsl::at(dst, i) = ch == L'\0' ? L'\x2400' : ch;
@@ -191,6 +187,25 @@ inline ULONG CopyTextToClipboard(HWND owner, std::wstring_view text) noexcept {
         return ERROR_SUCCESS;
     }
     return last_open_error;
+}
+
+inline HRESULT ReadClipboardUnicodeBuffer(HGLOBAL memory, std::span<wchar_t> output, size_t& length) noexcept {
+    length = 0;
+    const SIZE_T bytes = ::GlobalSize(memory);
+    if (bytes == 0) {
+        const DWORD error = ::GetLastError();
+        return HRESULT_FROM_WIN32(error ? error : ERROR_INVALID_DATA);
+    }
+    const ScopedGlobalLock<const wchar_t> text(memory);
+    if (!text) return HRESULT_FROM_WIN32(text.Error());
+    const size_t count = bytes / sizeof(wchar_t);
+    const std::span prefix(text.Get(), count > output.size() ? output.size() + 1 : count);
+    const auto end = std::ranges::find(prefix, L'\0');
+    if (end == prefix.end())
+        return HRESULT_FROM_WIN32(count > output.size() ? ERROR_INSUFFICIENT_BUFFER : ERROR_INVALID_DATA);
+    length = gsl::narrow_cast<size_t>(end - prefix.begin());
+    std::ranges::copy(prefix.first(length), output.begin());
+    return S_OK;
 }
 
 // RAII wrapper for ::BeginPaint(hwnd, &ps) / ::EndPaint(hwnd, &ps).

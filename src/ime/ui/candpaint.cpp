@@ -108,7 +108,7 @@ void CandidateUI::PaintPopup(HDC hdc, const RECT& client_rect) const {
     }
     const ScopedSelectObject select_bitmap(buffer.Get(), bitmap.Get());
     if (!select_bitmap) {
-        QIQI_LOG_WARN("CandidateUI::SelectObject(buffer) failed (error={}); painting without buffer", select_bitmap.Error());
+        QIQI_LOG_WARN("CandidateUI::SelectObject(buffer) failed; painting without buffer");
         PaintPopupContent(hdc, client_rect);
         return;
     }

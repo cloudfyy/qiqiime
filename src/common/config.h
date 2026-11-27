@@ -224,7 +224,7 @@ struct ConfigField {
 
     constexpr uint64_t Value(const QiQiConfig& config) const noexcept {
         if constexpr (std::is_enum_v<T>) {
-            return static_cast<uint64_t>(config.*member);
+            return gsl::narrow_cast<uint64_t>(std::to_underlying(config.*member));
         } else {
             return gsl::narrow_cast<uint64_t>(config.*member);
         }
@@ -244,7 +244,7 @@ struct ConfigField {
         } else {
             if (value < minimum || value > maximum) return false;
             if constexpr (std::is_enum_v<T>) {
-                config.*member = static_cast<T>(value);
+                config.*member = T{gsl::narrow_cast<std::underlying_type_t<T>>(value)};
             } else {
                 config.*member = gsl::narrow_cast<T>(value);
             }

@@ -36,7 +36,7 @@ void AddMenuEntry(ITfMenu* menu, LangBarMenuId id, const wchar_t* text, bool che
         flags |= TF_LBMENUF_GRAYED;
     }
     std::ignore = log::CheckHResult(menu->AddMenuItem(
-        static_cast<UINT>(id),
+        std::to_underlying(id),
         flags,
         nullptr,
         nullptr,
@@ -74,7 +74,7 @@ void AppendWin32PopupItem(
     if (!::AppendMenuW(
             menu,
             flags,
-            static_cast<UINT_PTR>(id),
+            std::to_underlying(id),
             text)) {
         QIQI_LOG_WARN(
             "LangBarButton::AppendMenuW "
@@ -212,7 +212,7 @@ STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT* /*pr
     QIQI_LOG_INFO(
         "LangBarButton::OnClick(item={}, click={}, point=({}, {}), app_container={})",
         log_id_,
-        static_cast<unsigned int>(click),
+        std::to_underlying(click),
         pt.x,
         pt.y,
         IsProcessAppContainer());
@@ -220,13 +220,13 @@ STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT* /*pr
         return S_OK;
     }
     if (click == TF_LBI_CLK_LEFT) {
-        return OnMenuSelect(static_cast<UINT>(LangBarMenuId::ToggleChinese));
+        return OnMenuSelect(std::to_underlying(LangBarMenuId::ToggleChinese));
     }
     if (click == TF_LBI_CLK_RIGHT) {
         if (pt.x == 0 && pt.y == 0) {
             ::GetCursorPos(&pt);
         }
-        std::ignore = OnMenuSelect(static_cast<UINT>(LangBarMenuId::SyncMenuState));
+        std::ignore = OnMenuSelect(std::to_underlying(LangBarMenuId::SyncMenuState));
         if (!action_callback_) return S_OK;
         if (UsesTsfOwnedMenu()) {
             return ShowNativePopupMenu(
@@ -234,7 +234,7 @@ STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT* /*pr
                 true);
         }
         ShowSharedPopupMenu(state_, pt, [self_holder](LangBarMenuId id) {
-            std::ignore = self_holder->OnMenuSelect(static_cast<UINT>(id));
+            std::ignore = self_holder->OnMenuSelect(std::to_underlying(id));
         }, true);
     }
     return S_OK;
@@ -249,7 +249,7 @@ STDMETHODIMP LangBarButton::InitMenu(ITfMenu* pMenu) {
         log_id_,
         IsProcessAppContainer());
     const ComPtr<LangBarButton> self_holder(this);
-    std::ignore = OnMenuSelect(static_cast<UINT>(LangBarMenuId::SyncMenuState));
+    std::ignore = OnMenuSelect(std::to_underlying(LangBarMenuId::SyncMenuState));
     for (const auto& item : BuildSharedMenuItems(state_)) {
         if (item.IsSeparator()) {
             AddMenuSeparator(pMenu);

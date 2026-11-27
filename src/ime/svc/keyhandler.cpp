@@ -8,6 +8,7 @@
 #include "common/guids.h"
 #include "common/logger.h"
 #include "common/sound.h"
+#include "common/uiutil.h"
 
 #include <array>
 #include <format>
@@ -292,30 +293,31 @@ void QiQiTextService::HandlePreservedKey(
             return;
         }
         *pfEaten = TRUE;
-        if (const ScopedClipboard clip{}; clip.IsOpen()) {
-            if (const HANDLE hdata = ::GetClipboardData(CF_UNICODETEXT)) {
-                if (const ScopedGlobalLock<wchar_t> locked(hdata); locked) {
-                    const std::wstring phrase(locked.Get());
-                    if (phrase.size() >= 2 && phrase.size() <= 16 &&
-                        engine_.AddUserPhrase(phrase, GetDefaultUserDictPath())) {
-                        config_registry_sequence_ =
-                            HasConfigRegistrySubKeyOverride()
-                                ? QueryRegistryConfigSequence()
-                                : config::CachedRevision();
-                        PlayImeSound(SoundEffectKind::KeyClick);
-                        NotifyGlobalConfigChanged();
-                    } else {
-                        QIQI_LOG_DEBUG("Clipboard phrase skipped (length={} outside [2..16] or encoding failed)",
-                                       phrase.size());
-                    }
-                } else {
-                    QIQI_LOG_WARN("OnPreservedKey(AddUserWord): GlobalLock failed (error={})", locked.Error());
-                }
-            } else {
-                QIQI_LOG_DEBUG("OnPreservedKey(AddUserWord): clipboard does not contain CF_UNICODETEXT");
+        std::array<wchar_t, 16> phrase{};
+        size_t length = 0;
+        {
+            const ScopedClipboard clip;
+            if (!clip) {
+                QIQI_LOG_WARN("OnPreservedKey(AddUserWord): OpenClipboard failed (error={})", clip.Error());
+                return;
             }
+            const HANDLE data = ::GetClipboardData(CF_UNICODETEXT);
+            if (!data) {
+                QIQI_LOG_DEBUG("OnPreservedKey(AddUserWord): clipboard does not contain CF_UNICODETEXT");
+                return;
+            }
+            const HRESULT read = ReadClipboardUnicodeBuffer(data, phrase, length);
+            if (!log::CheckHResult(read, "OnPreservedKey(AddUserWord)::ReadClipboardUnicodeBuffer",
+                    read == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) ? log::Level::debug : log::Level::warn))
+                return;
+        }
+        if (length >= 2 && engine_.AddUserPhrase({phrase.data(), length}, GetDefaultUserDictPath())) {
+            config_registry_sequence_ = HasConfigRegistrySubKeyOverride()
+                ? QueryRegistryConfigSequence() : config::CachedRevision();
+            PlayImeSound(SoundEffectKind::KeyClick);
+            NotifyGlobalConfigChanged();
         } else {
-            QIQI_LOG_WARN("OnPreservedKey(AddUserWord): OpenClipboard failed (error={})", clip.Error());
+            QIQI_LOG_DEBUG("Clipboard phrase skipped (length={} below 2 or encoding failed)", length);
         }
         return;
     }
